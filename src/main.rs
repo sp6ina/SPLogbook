@@ -1,4 +1,4 @@
-#![windows_subsystem = "windows"]
+#![cfg_attr(windows, windows_subsystem = "windows")]
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
@@ -27,19 +27,40 @@ fn main() -> Result<(), eframe::Error> {
         .expect("Nie udało się zainicjalizować środowiska asynchronicznego Tokio");
     let _tokio_guard = rt.enter();
 
-    // Ścieżki bazy danych i konfiguracji
+    // Ścieżki bazy danych i konfiguracji (XDG na Linux, APPDATA na Windows)
     let exe_dir = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-        .unwrap_or_else(|| {
-            std::env::var("APPDATA")
-                .map(|p| std::path::PathBuf::from(p).join("SPLogbook"))
-                .unwrap_or_else(|_| std::path::PathBuf::from("."))
-        });
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+
+    #[cfg(windows)]
+    let (app_data_dir, app_config_dir) = {
+        let base = std::env::var("APPDATA")
+            .map(|p| std::path::PathBuf::from(p).join("SPLogbook"))
+            .unwrap_or_else(|_| exe_dir.clone());
+        (base.clone(), base)
+    };
+
+    #[cfg(not(windows))]
+    let (app_data_dir, app_config_dir) = {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let data = std::env::var("XDG_DATA_HOME")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|_| std::path::PathBuf::from(&home).join(".local").join("share"))
+            .join("splogbook");
+        let config = std::env::var("XDG_CONFIG_HOME")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|_| std::path::PathBuf::from(&home).join(".config"))
+            .join("splogbook");
+        (data, config)
+    };
 
     let service_db_candidates = [
         std::path::PathBuf::from("databases/serviceLOG.db"),
         exe_dir.join("databases/serviceLOG.db"),
+        app_data_dir.join("databases/serviceLOG.db"),
+        std::path::PathBuf::from("/usr/share/splogbook/databases/serviceLOG.db"),
+        std::path::PathBuf::from("/usr/local/share/splogbook/databases/serviceLOG.db"),
         exe_dir.join("../databases/serviceLOG.db"),
         exe_dir.join("../../databases/serviceLOG.db"),
     ];
@@ -79,13 +100,20 @@ fn main() -> Result<(), eframe::Error> {
     let log_db_candidates = [
         std::path::PathBuf::from("databases/default_log.db"),
         exe_dir.join("databases/default_log.db"),
+        app_data_dir.join("databases/default_log.db"),
         exe_dir.join("../databases/default_log.db"),
         exe_dir.join("../../databases/default_log.db"),
     ];
     let log_db_path = log_db_candidates
         .into_iter()
         .find(|p| p.exists())
-        .unwrap_or_else(|| exe_dir.join("databases/default_log.db"));
+        .unwrap_or_else(|| {
+            if app_data_dir.exists() || !exe_dir.join("databases").exists() {
+                app_data_dir.join("databases/default_log.db")
+            } else {
+                exe_dir.join("databases/default_log.db")
+            }
+        });
 
     if let Some(parent) = log_db_path.parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -98,12 +126,20 @@ fn main() -> Result<(), eframe::Error> {
     let config_candidates = [
         std::path::PathBuf::from("databases/station_config.json"),
         exe_dir.join("databases/station_config.json"),
+        app_config_dir.join("databases/station_config.json"),
+        app_config_dir.join("station_config.json"),
         exe_dir.join("../databases/station_config.json"),
     ];
     let config_file_path = config_candidates
         .into_iter()
         .find(|p| p.exists())
-        .unwrap_or_else(|| exe_dir.join("databases/station_config.json"));
+        .unwrap_or_else(|| {
+            if app_config_dir.exists() || !exe_dir.join("databases").exists() {
+                app_config_dir.join("databases/station_config.json")
+            } else {
+                exe_dir.join("databases/station_config.json")
+            }
+        });
 
     if let Some(parent) = config_file_path.parent() {
         let _ = std::fs::create_dir_all(parent);

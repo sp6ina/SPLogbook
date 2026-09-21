@@ -1,0 +1,121 @@
+﻿name: Build and Release SPLogbook
+
+on:
+  push:
+    branches: [ main ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    name: Build Linux x86_64
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config \
+            libasound2-dev \
+            libx11-dev \
+            libxcursor-dev \
+            libxrandr-dev \
+            libxi-dev \
+            libxkbcommon-dev \
+            libxkbcommon-x11-dev \
+            libgl1-mesa-dev \
+            libfontconfig1-dev \
+            libwayland-dev
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run unit tests
+        run: cargo test --verbose
+
+      - name: Compile release binary
+        run: cargo build --release
+
+      - name: Package Linux release archive
+        run: |
+          PKG_DIR="SPLogbook-Linux-x86_64"
+          mkdir -p "$PKG_DIR/databases"
+          cp target/release/SPLogbook "$PKG_DIR/splogbook"
+          chmod +x "$PKG_DIR/splogbook"
+          cp assets/splogbook.desktop "$PKG_DIR/"
+          cp assets/run.sh "$PKG_DIR/"
+          chmod +x "$PKG_DIR/run.sh"
+          cp assets/icon.png "$PKG_DIR/"
+          cp databases/serviceLOG.db "$PKG_DIR/databases/"
+          [ -f databases/callbook.db ] && cp databases/callbook.db "$PKG_DIR/databases/" || true
+          cp README.md LICENSE "$PKG_DIR/"
+          tar -czvf SPLogbook-Linux-x86_64.tar.gz "$PKG_DIR"
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SPLogbook-Linux-x86_64
+          path: SPLogbook-Linux-x86_64.tar.gz
+
+  build-windows:
+    name: Build Windows x64
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run unit tests
+        run: cargo test --verbose
+
+      - name: Compile release binary
+        run: cargo build --release
+
+      - name: Package Windows release archive
+        shell: pwsh
+        run: |
+          $pkgDir = "SPLogbook-Windows-x64"
+          New-Item -ItemType Directory -Force -Path "$pkgDir\databases" | Out-Null
+          Copy-Item target\release\SPLogbook.exe "$pkgDir\"
+          Copy-Item assets\icon.ico "$pkgDir\"
+          Copy-Item databases\serviceLOG.db "$pkgDir\databases\"
+          if (Test-Path databases\callbook.db) { Copy-Item databases\callbook.db "$pkgDir\databases\" }
+          Copy-Item README.md "$pkgDir\"
+          Copy-Item LICENSE "$pkgDir\"
+          Compress-Archive -Path "$pkgDir\*" -DestinationPath "SPLogbook-Windows-x64.zip" -Force
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SPLogbook-Windows-x64
+          path: SPLogbook-Windows-x64.zip
+
+  publish-release:
+    name: Publish Release Assets
+    needs: [build-linux, build-windows]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            SPLogbook-Linux-x86_64/SPLogbook-Linux-x86_64.tar.gz
+            SPLogbook-Windows-x64/SPLogbook-Windows-x64.zip
+          generate_release_notes: true
+          draft: false
+          prerelease: false

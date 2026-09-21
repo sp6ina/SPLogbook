@@ -26,12 +26,14 @@ impl RigctldSupervisor {
         }
     }
 
-    /// Wyszukuje plik wykonywalny rigctld.exe w znanych lokalizacjach programu
+    /// Wyszukuje plik wykonywalny rigctld w znanych lokalizacjach programu i w systemie
     pub fn find_rigctld_binary() -> Option<PathBuf> {
+        let bin_name = if cfg!(target_os = "windows") { "rigctld.exe" } else { "rigctld" };
+
         // 1. Sprawdź folder z bieżącym plikiem wykonywalnym aplikacji
         if let Ok(exe_path) = std::env::current_exe() {
             if let Some(parent) = exe_path.parent() {
-                let candidate = parent.join("rigctld.exe");
+                let candidate = parent.join(bin_name);
                 if candidate.exists() {
                     return Some(candidate);
                 }
@@ -42,30 +44,44 @@ impl RigctldSupervisor {
             }
         }
 
-        // 2. Sprawdź relatywnie w folderze roboczym projektu
+        // 2. Sprawdź relatywnie w folderze roboczym projektu oraz znanych ścieżkach systemowych
         let candidates = [
-            PathBuf::from("Bin/Windows/rigctld.exe"),
+            PathBuf::from(format!("Bin/Windows/{}", bin_name)),
             PathBuf::from("Bin/Windows/hamlib/hamlib-w64-4.7.2/bin/rigctld.exe"),
-            PathBuf::from("rigctld.exe"),
+            PathBuf::from(bin_name),
             PathBuf::from("C:/Program Files/hamlib/bin/rigctld.exe"),
+            PathBuf::from("/usr/bin/rigctld"),
+            PathBuf::from("/usr/local/bin/rigctld"),
+            PathBuf::from("/opt/hamlib/bin/rigctld"),
         ];
 
         for cand in &candidates {
-            if cand.exists() {
+            if cand.exists() && cand.is_file() {
                 return Some(cand.clone());
             }
         }
 
         // 3. Sprawdź w PATH
+        if let Ok(path_var) = std::env::var("PATH") {
+            let separator = if cfg!(target_os = "windows") { ';' } else { ':' };
+            for p in path_var.split(separator) {
+                let p_buf = PathBuf::from(p).join(bin_name);
+                if p_buf.exists() && p_buf.is_file() {
+                    return Some(p_buf);
+                }
+            }
+        }
+
         None
     }
 
-    /// Uruchamia proces rigctld.exe w tle bez pokazywania okna konsoli
+    /// Uruchamia proces rigctld w tle
     pub fn start(&mut self) -> Result<(), String> {
         self.stop();
 
+        let default_bin = if cfg!(target_os = "windows") { "rigctld.exe" } else { "rigctld" };
         let binary = Self::find_rigctld_binary()
-            .unwrap_or_else(|| PathBuf::from("rigctld.exe"));
+            .unwrap_or_else(|| PathBuf::from(default_bin));
 
         info!("Uruchamianie natywnego rigctld: {:?} dla Rig ID: {}, Port: {}, Baud: {}", 
             binary, self.rig_id, self.serial_port, self.baud_rate);

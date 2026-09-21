@@ -16,15 +16,18 @@ pub struct LotwConfirmation {
     pub qsl_rdate: String,
 }
 
-/// Domyślne potencjalne ścieżki do instalacji programu Trusted QSL (tqsl.exe) w systemie Windows
+/// Domyślne potencjalne ścieżki do instalacji programu Trusted QSL (tqsl / tqsl.exe)
 pub const DEFAULT_TQSL_PATHS: &[&str] = &[
     "C:\\Program Files (x86)\\Trusted QSL\\tqsl.exe",
     "C:\\Program Files\\Trusted QSL\\tqsl.exe",
+    "/usr/bin/tqsl",
+    "/usr/local/bin/tqsl",
+    "/opt/trustedqsl/bin/tqsl",
     "tqsl.exe",
     "tqsl",
 ];
 
-/// Wykrywa czy program tqsl.exe jest zainstalowany w jednej ze standardowych ścieżek
+/// Wykrywa czy program Trusted QSL jest zainstalowany w standardowej lokalizacji lub w PATH
 pub fn detect_tqsl_path() -> Option<PathBuf> {
     for p in DEFAULT_TQSL_PATHS {
         let path = Path::new(p);
@@ -32,6 +35,20 @@ pub fn detect_tqsl_path() -> Option<PathBuf> {
             return Some(path.to_path_buf());
         }
     }
+
+    if let Ok(path_var) = std::env::var("PATH") {
+        let bin_names = ["tqsl", "tqsl.exe"];
+        let separator = if cfg!(target_os = "windows") { ';' } else { ':' };
+        for p in path_var.split(separator) {
+            for b in &bin_names {
+                let p_buf = PathBuf::from(p).join(b);
+                if p_buf.exists() && p_buf.is_file() {
+                    return Some(p_buf);
+                }
+            }
+        }
+    }
+
     None
 }
 
