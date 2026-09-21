@@ -1,0 +1,58 @@
+[package]
+name = "splogbook"
+version = "1.0.0"
+edition = "2021"
+authors = ["Mariusz Woźniak (SP6INA)"]
+description = "SPLogbook: Nowoczesny, zaawansowany program logujący dla krótkofalowców"
+license = "GPL-3.0-or-later"
+readme = "README.md"
+repository = "https://github.com/sp6ina/SPLogbook"
+
+[lib]
+name = "splogbook"
+path = "src/lib.rs"
+
+[[bin]]
+name = "SPLogbook"
+path = "src/main.rs"
+
+[dependencies]
+rusqlite = { version = "0.33", features = ["bundled", "chrono"] }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+regex = "1.11"
+chrono = { version = "0.4", features = ["serde"] }
+quick-xml = { version = "0.37", features = ["serialize"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart"] }
+byteorder = "1.5"
+log = "0.4"
+env_logger = "0.11"
+thiserror = "2.0"
+futures-util = "0.3"
+eframe = { version = "0.30", default-features = false, features = ["default_fonts", "glow"] }
+egui_extras = { version = "0.30", features = ["default"] }
+rfd = "0.15"
+
+# Audio, export, and API
+rodio = { version = "0.19", default-features = false, features = ["wav"] }
+printpdf = "0.7"
+gpx = "0.10"
+axum = { version = "0.7", features = ["tokio"] }
+open = "5"
+tower = "0.4"
+geo-types = "0.7"
+
+[build-dependencies]
+winres = "0.1"
+
+[dev-dependencies]
+tempfile = "3.17"
+
+[profile.release]
+strip = true
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+

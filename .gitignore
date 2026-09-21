@@ -1,0 +1,30 @@
+﻿# Rust build artifacts
+/target/
+**/*.rs.bk
+*.pdb
+
+# User logs & personal databases (do NOT push personal QSOs or configs)
+databases/default_log.db
+databases/*.db-journal
+databases/*.db-wal
+databases/*.db-shm
+databases/station_config.json
+crash.log
+*.log
+
+# Scratch / temporary development files
+pga_lista_raw.html
+scratch_riglist.h
+readme.me
+
+# Compiled distribution binaries (publish via GitHub Releases instead of git tree)
+/Bin/
+
+# Editor & OS files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
