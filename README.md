@@ -9,13 +9,12 @@
   <img src="https://img.shields.io/badge/Language-Rust_2021-orange.svg" alt="Rust">
   <img src="https://img.shields.io/badge/GUI-egui_%2F_eframe-blueviolet.svg" alt="egui">
   <img src="https://img.shields.io/badge/License-GPLv3-blue.svg" alt="License">
-  <img src="https://img.shields.io/badge/Platform-Windows_10%2F11_(x64)-blue.svg" alt="Platform">
-  <img src="https://img.shields.io/badge/Version-1.0.0-emerald.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Platform-Windows_%7C_GNU%2FLinux-blue.svg" alt="Platform">
+  <img src="https://img.shields.io/badge/Version-1.0.1-emerald.svg" alt="Version">
+  <a href="https://github.com/sp6ina/SPLogbook/actions"><img src="https://github.com/sp6ina/SPLogbook/actions/workflows/build-and-release.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/Tests-51%2F51_Passed-brightgreen.svg" alt="Tests">
   <img src="https://img.shields.io/badge/i18n-6_Languages-cyan.svg" alt="i18n">
-  <img src="https://img.shields.io/badge/Binary-Zero_Runtime_Dependency-success.svg" alt="Binary">
 </p>
-
 
 <img width="1917" height="991" alt="image" src="https://github.com/user-attachments/assets/465c5eda-739d-4191-ad17-c6cc89a39347" />
 
@@ -23,7 +22,7 @@
 
 ## 🌟 Executive Summary
 
-**SPLogbook** is an advanced, high-performance amateur radio logging software and station automation console engineered from the ground up in **Rust**. Built with an immediate-mode user interface powered by `egui`/`eframe`, SPLogbook delivers instant sub-millisecond responsiveness, zero-garbage-collection pauses, complete memory safety, and zero external runtime dependencies on Windows 64-bit systems.
+**SPLogbook** is an advanced, high-performance amateur radio logging software and station automation console engineered from the ground up in **Rust**. Built with an immediate-mode user interface powered by `egui`/`eframe`, SPLogbook delivers instant sub-millisecond responsiveness, zero-garbage-collection pauses, complete memory safety, and cross-platform native performance across both **Windows 10/11 (64-bit)** and **GNU/Linux (x86_64, X11 & Wayland)** environments.
 
 From deep ionospheric modeling (VOACAP-lite HF propagation), automated antenna rotator steering (`rotctld`), and real-time DX Cluster intelligence with acoustic All-Time New One (ATNO) alarms, to bi-directional digital modes bridging (WSJT-X, JS8Call, FLDigi), orbital satellite Doppler tracking, multi-award tracking, contest logging with live scoring, and professional A4 Avery QSL label vector PDF generation, SPLogbook provides the modern radio amateur with a unified, state-of-the-art operating environment.
 
@@ -341,51 +340,83 @@ curl -X POST http://127.0.0.1:8080/api/v1/qsos \
 
 ---
 
-## 💻 System Requirements
+### 💻 System Requirements
 
-- **Operating System:** Windows 10 (64-bit) or Windows 11 (64-bit).
+- **Operating Systems:**
+  - **Windows:** Windows 10 (64-bit) or Windows 11 (64-bit).
+  - **GNU/Linux:** Any modern 64-bit distribution (Ubuntu 20.04+, Debian 11+, Fedora 36+, Arch Linux, openSUSE). Full native support for both **X11** and **Wayland** display servers.
 - **Architecture:** x86_64.
-- **Runtime Dependencies:** **None.** SPLogbook is compiled as a fully standalone, statically linked executable containing all GUI, database, audio, and network libraries.
-- **Processor:** Any modern dual-core CPU ($\ge 1.6	ext{ GHz}$).
+- **Processor:** Any modern dual-core CPU ($\ge 1.6\text{ GHz}$).
 - **Memory (RAM):** 2 GB minimum (4 GB recommended).
-- **Disk Space:** ~50 MB for the executable and databases.
+- **Disk Space:** ~50 MB for the binary, configuration, and reference databases.
 
 ---
 
 ## 🚀 Installation & Quick Start
 
-1. **Download:** Head to the [Releases](https://github.com/sp6in/SPLogbook/releases) page and download the latest `SPLogbook.exe` (or locate it in the `Bin/Windows/` directory).
-2. **Run:** SPLogbook is portable. Place `SPLogbook.exe` in any folder (e.g. `C:\Radio\SPLogbook\`) and double-click to run.
-3. **Setup:** On your first launch, the **Welcome Wizard** will open automatically:
-   - Enter your callsign and Maidenhead QTH locator.
-   - Configure your transceiver CAT port (or Hamlib model number).
-   - Enter your optional cloud credentials (QRZ, LoTW, eQSL).
-   - Select your preferred language and color theme.
+Pre-compiled release packages are available directly from the [Releases](https://github.com/sp6ina/SPLogbook/releases) page:
+
+### 🪟 Windows (x64)
+1. Download **`SPLogbook-Windows-x64.zip`** from the latest release.
+2. Extract the archive to any desired directory (e.g. `C:\Radio\SPLogbook\`).
+3. Double-click **`SPLogbook.exe`** to launch.
+
+### 🐧 GNU/Linux (x86_64)
+1. Download **`SPLogbook-Linux-x86_64.tar.gz`** from the latest release.
+2. Extract the archive and enter the directory:
+   ```bash
+   tar -xvf SPLogbook-Linux-x86_64.tar.gz
+   cd SPLogbook-Linux-x86_64
+   ```
+3. Grant access to your serial ports (for CAT & Winkeyer interfaces):
+   ```bash
+   sudo usermod -aG dialout $USER   # Ubuntu / Debian / Mint
+   # or
+   sudo usermod -aG uucp $USER      # Arch Linux / Manjaro
+   ```
+4. Run the portable launcher:
+   ```bash
+   ./run.sh
+   ```
+   *(Optional)* Copy `assets/splogbook.desktop` to `~/.local/share/applications/` to integrate with your desktop application launcher.
 
 ---
 
 ## 🛠️ Building from Source
 
-To compile SPLogbook from source code, ensure you have the Rust toolchain (version $\ge 1.80$) and MinGW-w64 installed:
+Ensure you have the Rust toolchain (version $\ge 1.80$) installed.
 
+### On Windows
 ```powershell
 # 1. Clone the repository
-git clone https://github.com/sp6in/SPLogbook.git
+git clone https://github.com/sp6ina/SPLogbook.git
 cd SPLogbook
 
-# 2. Verify all automated unit tests (51 tests)
-$winlibs = 'C:\Users\sp6in\AppData\Local\Microsoft\WinGet\Packages\BrechtSanders.WinLibs.POSIX.UCRT_Microsoft.Winget.Source_8wekyb3d8bbwe\mingw64\bin'
-$env:Path = "$winlibs;C:\Users\sp6in\.cargo\bin;$env:Path"
+# 2. Run automated unit tests (51 tests)
 cargo test
 
 # 3. Build optimized release binary with Link-Time Optimization (LTO)
 cargo build --release
 ```
 
+### On GNU/Linux (Ubuntu / Debian / Mint)
+```bash
+# 1. Install development dependencies
+sudo apt update && sudo apt install -y \
+  pkg-config libasound2-dev libx11-dev libxcursor-dev libxrandr-dev \
+  libxi-dev libxkbcommon-dev libxkbcommon-x11-dev libgl1-mesa-dev \
+  libfontconfig1-dev libwayland-dev libgtk-3-dev
+
+# 2. Clone and build
+git clone https://github.com/sp6ina/SPLogbook.git
+cd SPLogbook
+cargo test
+cargo build --release
+```
+
 The compiled standalone binary will be located at:
-```
-target/release/SPLogbook.exe
-```
+- Windows: `target/release/SPLogbook.exe`
+- Linux: `target/release/SPLogbook`
 
 ---
 
@@ -393,15 +424,21 @@ target/release/SPLogbook.exe
 
 ```
 SPLogbook/
+├── .github/
+│   └── workflows/
+│       └── build-and-release.yml # Multi-platform CI/CD (Ubuntu + Windows)
 ├── Cargo.toml               # Project manifest, dependencies, release profile (LTO, strip)
 ├── build.rs                 # Windows resource compilation (application icon, metadata)
 ├── Bin/
 │   └── Windows/
 │       └── SPLogbook.exe    # Deployed 64-bit standalone release binary
 ├── databases/               # Reference databases (CTY.DAT, callbooks, PGA, clubs)
-├── assets/                  # Graphical icons and audio samples
+├── assets/                  # Graphical icons, desktop shortcut, and portable launcher
+│   ├── icon.ico / icon.png  # Application branding icons
+│   ├── splogbook.desktop    # Freedesktop Linux application launcher
+│   └── run.sh               # Linux portable environment launcher
 └── src/
-    ├── main.rs              # Application entry point, AppData path resolution, crash guard
+    ├── main.rs              # Application entry point, XDG/AppData path resolution, crash guard
     ├── lib.rs               # Library root exposing core modules
     ├── api/                 # Local REST API server (Axum, port 8080)
     │   ├── mod.rs
