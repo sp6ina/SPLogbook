@@ -42,7 +42,12 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Run unit tests
-        run: xvfb-run --auto-servernum cargo test -- --nocapture
+        run: |
+          xvfb-run --auto-servernum cargo test -- --nocapture 2>&1 | tee test_output.log || {
+            ERR_MSG=$(tail -n 30 test_output.log | tr '\n' ' ')
+            echo "::error file=src/lib.rs,line=1::Tests failed: $ERR_MSG"
+            exit 1
+          }
 
       - name: Compile release binary
         run: cargo build --release
