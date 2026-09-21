@@ -16,6 +16,9 @@
   <img src="https://img.shields.io/badge/Binary-Zero_Runtime_Dependency-success.svg" alt="Binary">
 </p>
 
+
+<img width="1917" height="991" alt="image" src="https://github.com/user-attachments/assets/465c5eda-739d-4191-ad17-c6cc89a39347" />
+
 ---
 
 ## 🌟 Executive Summary
