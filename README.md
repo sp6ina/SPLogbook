@@ -16,7 +16,8 @@ A modern, advanced logging software for amateur radio operators.
 
 ## 📸 Screenshot
 
-![SPLogbook Main Window Placeholder](https://via.placeholder.com/800x450.png?text=SPLogbook+Screenshot)
+<img width="1911" height="988" alt="image" src="https://github.com/user-attachments/assets/a21c3e9d-b4c0-4ac7-8fcb-8e699dff1ec8" />
+
 
 ## ✨ Features
 
