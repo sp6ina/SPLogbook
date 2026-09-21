@@ -117,12 +117,12 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         ui.label(egui::RichText::new("Tryb uruchomienia Hamlib:").strong());
                         ui.checkbox(&mut app.cat_auto_start_rigctld, "⚡ Uruchamiaj rigctld natywnie w tle (zalecane - bez otwierania terminala)");
                         if app.cat_auto_start_rigctld {
-                            ui.label(egui::RichText::new("Program SPLogbook automatycznie uruchomi i zamknie oficjalnego demona rigctld.exe.").small().italics());
+                            ui.label(egui::RichText::new("Program SPLogbook automatycznie uruchomi i zamknie oficjalnego demona rigctld w tle.").small().italics());
                         }
 
                         ui.horizontal(|ui| {
-                            ui.label("Port COM radia:");
-                            ui.add(egui::TextEdit::singleline(&mut app.cat_serial_port).desired_width(70.0));
+                            ui.label("Port szeregowy (COM / ttyUSB):");
+                            ui.add(egui::TextEdit::singleline(&mut app.cat_serial_port).desired_width(120.0));
                             ui.add_space(10.0);
                             ui.label("Prędkość (Baud):");
                             egui::ComboBox::from_id_salt("cat_baud_combo")

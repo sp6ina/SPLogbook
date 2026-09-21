@@ -1,0 +1,14 @@
+﻿[Desktop Entry]
+Name=SPLogbook
+GenericName=Amateur Radio Logbook
+GenericName[pl]=Dziennik Krótkofalarski
+Comment=Modern amateur radio logging software with CAT, DX cluster, and awards tracking
+Comment[pl]=Nowoczesny dziennik krótkofalarski ze sterowaniem CAT, klastrem DX i dyplomami
+Exec=splogbook %f
+Icon=splogbook
+Terminal=false
+Type=Application
+Categories=HamRadio;AudioVideo;Utility;
+Keywords=HamRadio;AmateurRadio;Logbook;CAT;DX;QSO;LoTW;eQSL;PGA;
+StartupNotify=true
+StartupWMClass=splogbook

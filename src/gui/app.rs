@@ -404,20 +404,31 @@ impl SpLogApp {
         config_file_path: std::path::PathBuf,
         active_db_path: std::path::PathBuf,
     ) -> Self {
-        // Rejestracja czcionki symboli systemowych Windows (seguisym.ttf)
+        // Rejestracja czcionki symboli systemowych (seguisym na Windows, DejaVu/Noto na Linux)
         // dla pełnej obsługi znaków Unicode, symboli radiowych, strzałek ▲/▼, planet, satelitów i statusów
         let mut font_defs = egui::FontDefinitions::default();
         let win_dir = std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".to_string());
-        let seguisym_path = std::path::Path::new(&win_dir).join("Fonts").join("seguisym.ttf");
-        if let Ok(bytes) = std::fs::read(&seguisym_path) {
-            font_defs.font_data.insert("seguisym".to_owned(), egui::FontData::from_owned(bytes).into());
-            if let Some(prop) = font_defs.families.get_mut(&egui::FontFamily::Proportional) {
-                prop.push("seguisym".to_owned());
+        let font_candidates = [
+            std::path::Path::new(&win_dir).join("Fonts").join("seguisym.ttf"),
+            std::path::PathBuf::from("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+            std::path::PathBuf::from("/usr/share/fonts/TTF/DejaVuSans.ttf"),
+            std::path::PathBuf::from("/usr/share/fonts/dejavu/DejaVuSans.ttf"),
+            std::path::PathBuf::from("/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf"),
+            std::path::PathBuf::from("/usr/share/fonts/truetype/freefont/FreeSans.ttf"),
+        ];
+
+        for path in &font_candidates {
+            if let Ok(bytes) = std::fs::read(path) {
+                font_defs.font_data.insert("symbol_font".to_owned(), egui::FontData::from_owned(bytes).into());
+                if let Some(prop) = font_defs.families.get_mut(&egui::FontFamily::Proportional) {
+                    prop.push("symbol_font".to_owned());
+                }
+                if let Some(mono) = font_defs.families.get_mut(&egui::FontFamily::Monospace) {
+                    mono.push("symbol_font".to_owned());
+                }
+                _cc.egui_ctx.set_fonts(font_defs);
+                break;
             }
-            if let Some(mono) = font_defs.families.get_mut(&egui::FontFamily::Monospace) {
-                mono.push("seguisym".to_owned());
-            }
-            _cc.egui_ctx.set_fonts(font_defs);
         }
 
         let (active_journal, recent_qsos) = {
