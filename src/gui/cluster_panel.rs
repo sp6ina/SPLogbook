@@ -6,6 +6,39 @@ use crate::core::i18n::tr;
 use crate::gui::app::SpLogApp;
 use eframe::egui;
 
+/// Wyodrębnia referencję POTA (np. SP-0123) oraz SOTA (np. SP/BZ-001) z komentarza spotu
+pub fn extract_pota_sota(comment: &str) -> (Option<String>, Option<String>) {
+    let mut pota = None;
+    let mut sota = None;
+    let upper = comment.to_uppercase();
+
+    for word in upper.split_whitespace() {
+        let clean = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '-' && c != '/');
+        // POTA: [1-4 litery/cyfry]-[3-5 cyfr]
+        if let Some(dash_pos) = clean.find('-') {
+            let prefix = &clean[..dash_pos];
+            let suffix = &clean[dash_pos + 1..];
+            if !prefix.is_empty() && prefix.len() <= 4 && suffix.len() >= 3 && suffix.len() <= 5 && suffix.chars().all(|c| c.is_ascii_digit()) && !prefix.contains('/') {
+                pota = Some(clean.to_string());
+            }
+        }
+        // SOTA: [1-3 znaki]/[2 znaki]-[3-4 cyfry]
+        if clean.contains('/') && clean.contains('-') {
+            let parts: Vec<&str> = clean.split('/').collect();
+            if parts.len() == 2 {
+                if let Some(dash) = parts[1].find('-') {
+                    let reg = &parts[1][..dash];
+                    let num = &parts[1][dash + 1..];
+                    if reg.len() == 2 && num.len() >= 3 && num.chars().all(|c| c.is_ascii_digit()) {
+                        sota = Some(clean.to_string());
+                    }
+                }
+            }
+        }
+    }
+    (pota, sota)
+}
+
 pub fn render_cluster_panel(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.current_language;
 
@@ -298,28 +331,12 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
     ui.separator();
 
-    // Filtry spotów: Pasmo, FT8, Skimmery, RBN, Wyczyść
+    // Pasek narzędziowy: Przełącznik bocznego panelu filtrów, Alerty, Czyszczenie
     ui.horizontal(|ui| {
-        if ui.checkbox(&mut app.cluster_filter_current_band, tr("cluster.only_vfo_band", lang)).changed() {
+        let filter_btn_text = if app.cluster_show_filter_sidebar { "◀ Ukryj Filtry" } else { "🔍 Panel Filtrów" };
+        if ui.selectable_label(app.cluster_show_filter_sidebar, filter_btn_text).clicked() {
+            app.cluster_show_filter_sidebar = !app.cluster_show_filter_sidebar;
             app.save_station_config();
-        }
-        if ui.checkbox(&mut app.cluster_hide_ft8, tr("cluster.hide_ft8", lang)).changed() {
-            app.save_station_config();
-        }
-        if ui.checkbox(&mut app.cluster_hide_skimmers, tr("cluster.hide_skimmers", lang)).changed() {
-            app.save_station_config();
-        }
-
-        // Filtr RBN (Reverse Beacon Network) — pokaż tylko spoty ze skimmerów RBN
-        ui.separator();
-        let rbn_label = if app.cluster_hide_skimmers { tr("cluster.rbn_unavailable", lang) } else { tr("cluster.only_rbn", lang) };
-        if ui.selectable_label(false, rbn_label)
-            .on_hover_text(tr("cluster.rbn_tooltip", lang))
-            .clicked()
-            && !app.cluster_hide_skimmers
-        {
-            // Odwróć tryb: pokaż TYLKO skimmery (ukryj operatorów)
-            app.cluster_hide_ft8 = false;
         }
 
         // Alert dźwiękowy dla nowych DXCC
@@ -341,83 +358,199 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     ui.separator();
 
     let current_band = app.entry_band.clone();
-    let filter_band = app.cluster_filter_current_band;
-    let hide_ft8 = app.cluster_hide_ft8;
-    let hide_skimmers = app.cluster_hide_skimmers;
+    let search_q = app.cluster_search_query.trim().to_uppercase();
+    let filter_band_sel = app.cluster_filter_band_selection.clone();
+    let filter_mode_sel = app.cluster_filter_mode_selection.clone();
+    let filter_source_sel = app.cluster_filter_source.clone();
+    let filter_pota_only = app.cluster_filter_pota_sota_only;
 
     let filtered_spots: Vec<_> = app.cluster_spots.iter().filter(|s| {
-        if filter_band && s.band != current_band {
+        let (pota, sota) = extract_pota_sota(&s.comment);
+
+        if filter_pota_only && pota.is_none() && sota.is_none() {
             return false;
         }
-        if hide_ft8 && s.is_ft8 {
+
+        if !search_q.is_empty() {
+            let match_call = s.dx_call.to_uppercase().contains(&search_q);
+            let match_comment = s.comment.to_uppercase().contains(&search_q);
+            let match_spotter = s.spotter.to_uppercase().contains(&search_q);
+            if !match_call && !match_comment && !match_spotter {
+                return false;
+            }
+        }
+
+        if filter_band_sel == "VFO" && s.band != current_band {
+            return false;
+        } else if filter_band_sel != "ALL" && filter_band_sel != "VFO" && s.band != filter_band_sel {
             return false;
         }
-        if hide_skimmers && s.is_skimmer {
+
+        if filter_mode_sel == "CW" && (s.is_ft8 || s.comment.to_uppercase().contains("FT8") || s.comment.to_uppercase().contains("SSB")) {
+            return false;
+        } else if filter_mode_sel == "SSB" && (s.is_ft8 || s.comment.to_uppercase().contains("CW")) {
+            return false;
+        } else if filter_mode_sel == "DIGI" && !s.is_ft8 {
             return false;
         }
+
+        if filter_source_sel == "HUMAN" && s.is_skimmer {
+            return false;
+        } else if filter_source_sel == "RBN" && !s.is_skimmer {
+            return false;
+        }
+
         true
     }).cloned().collect();
 
-    let mut tune_target = None;
+    let total_spots = app.cluster_spots.len();
+    let shown_spots = filtered_spots.len();
+    let mut tune_target: Option<(String, f64, String, Option<String>, Option<String>)> = None;
 
-    egui::ScrollArea::vertical()
-        .auto_shrink([false, false])
-        .show(ui, |ui| {
-            egui::Grid::new("cluster_spots_grid")
-                .striped(true)
-                .spacing([8.0, 4.0])
-                .show(ui, |ui| {
-                    ui.label(egui::RichText::new(tr("cluster.dx", lang)).strong());
-                    ui.label(egui::RichText::new(tr("cluster.freq", lang)).strong());
-                    ui.label(egui::RichText::new(tr("qso.band", lang)).strong());
-                    ui.label(egui::RichText::new(tr("cluster.spotter", lang)).strong());
-                    ui.label(egui::RichText::new(tr("cluster.comment", lang)).strong());
-                    ui.label(egui::RichText::new(tr("cluster.time", lang)).strong());
-                    ui.end_row();
+    ui.horizontal(|ui| {
+        // Boczny panel filtrów
+        if app.cluster_show_filter_sidebar {
+            ui.group(|ui| {
+                ui.set_width(170.0);
+                ui.vertical(|ui| {
+                    ui.label(egui::RichText::new(tr("cluster_filter.title", lang)).strong().color(egui::Color32::from_rgb(56, 189, 248)));
+                    ui.add_space(2.0);
 
-                    for spot in filtered_spots {
-                        let (call_color, badge) = if let Some(info) = app.prefix_matcher.lookup(&spot.dx_call) {
-                            let awards = app.awards_engine.lock().unwrap_or_else(|p| p.into_inner());
-                            let st = awards.check_status_full(
-                                &spot.dx_call,
-                                &spot.band,
-                                if spot.is_ft8 { "FT8" } else { "CW" },
-                                Some(info.dxcc),
-                                None,
-                                Some(info.cqz),
-                                None,
-                                Some(&info.continent),
-                                None,
-                            );
-                            if st.is_new_dxcc {
-                                (egui::Color32::from_rgb(217, 70, 239), " ⭐")
-                            } else if st.is_new_band {
-                                (egui::Color32::from_rgb(34, 197, 94), " ✨")
-                            } else {
-                                (egui::Color32::from_rgb(56, 189, 248), "")
+                    ui.label(egui::RichText::new(tr("cluster_filter.search", lang)).size(10.0).color(egui::Color32::from_rgb(148, 163, 184)));
+                    ui.add(egui::TextEdit::singleline(&mut app.cluster_search_query).hint_text("SP, W1, POTA").desired_width(155.0));
+
+                    ui.add_space(4.0);
+                    ui.label(egui::RichText::new(format!("{}:", tr("qso.band", lang))).size(10.0).color(egui::Color32::from_rgb(148, 163, 184)));
+                    egui::ComboBox::from_id_salt("sidebar_band_combo")
+                        .selected_text(&app.cluster_filter_band_selection)
+                        .width(155.0)
+                        .show_ui(ui, |ui| {
+                            for b in &["ALL", "VFO", "160m", "80m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m", "2m", "70cm"] {
+                                ui.selectable_value(&mut app.cluster_filter_band_selection, b.to_string(), *b);
                             }
-                        } else {
-                            (egui::Color32::from_rgb(56, 189, 248), "")
-                        };
+                        });
 
-                        if ui.button(egui::RichText::new(format!("{}{}", spot.dx_call, badge)).strong().color(call_color))
-                            .on_hover_text(tr("cluster.tune_tooltip", lang))
-                            .clicked() 
-                        {
-                            tune_target = Some((spot.dx_call.clone(), spot.frequency_khz, spot.band.clone()));
-                        }
-                        ui.label(format!("{:.1} kHz", spot.frequency_khz));
-                        ui.label(egui::RichText::new(&spot.band).color(egui::Color32::from_rgb(251, 191, 36)));
-                        ui.label(egui::RichText::new(&spot.spotter).color(egui::Color32::from_rgb(148, 163, 184)));
-                        ui.label(egui::RichText::new(&spot.comment).size(11.0));
-                        ui.label(&spot.time_utc);
-                        ui.end_row();
+                    ui.add_space(4.0);
+                    ui.label(egui::RichText::new(format!("{}:", tr("qso.mode", lang))).size(10.0).color(egui::Color32::from_rgb(148, 163, 184)));
+                    egui::ComboBox::from_id_salt("sidebar_mode_combo")
+                        .selected_text(&app.cluster_filter_mode_selection)
+                        .width(155.0)
+                        .show_ui(ui, |ui| {
+                            for m in &["ALL", "CW", "SSB", "DIGI"] {
+                                ui.selectable_value(&mut app.cluster_filter_mode_selection, m.to_string(), *m);
+                            }
+                        });
+
+                    ui.add_space(4.0);
+                    ui.label(egui::RichText::new(tr("cluster_filter.source", lang)).size(10.0).color(egui::Color32::from_rgb(148, 163, 184)));
+                    egui::ComboBox::from_id_salt("sidebar_source_combo")
+                        .selected_text(&app.cluster_filter_source)
+                        .width(155.0)
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut app.cluster_filter_source, "ALL".to_string(), tr("cluster_filter.source_all", lang));
+                            ui.selectable_value(&mut app.cluster_filter_source, "HUMAN".to_string(), tr("cluster_filter.source_human", lang));
+                            ui.selectable_value(&mut app.cluster_filter_source, "RBN".to_string(), tr("cluster_filter.source_skimmer", lang));
+                        });
+
+                    ui.add_space(6.0);
+                    ui.separator();
+                    ui.checkbox(&mut app.cluster_filter_pota_sota_only, tr("cluster_filter.pota_sota_only", lang));
+
+                    ui.add_space(8.0);
+                    ui.label(egui::RichText::new(format!("{}\n{}/{}", tr("cluster_filter.shown_label", lang), shown_spots, total_spots)).size(10.0).color(egui::Color32::GRAY));
+
+                    if ui.button(tr("cluster_filter.clear_btn", lang)).clicked() {
+                        app.cluster_search_query.clear();
+                        app.cluster_filter_band_selection = "ALL".to_string();
+                        app.cluster_filter_mode_selection = "ALL".to_string();
+                        app.cluster_filter_source = "ALL".to_string();
+                        app.cluster_filter_pota_sota_only = false;
                     }
                 });
-        });
+            });
+            ui.separator();
+        }
 
-    if let Some((dx_call, freq_khz, band)) = tune_target {
+        // Tabela spotów klastra
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                egui::Grid::new("cluster_spots_grid")
+                    .striped(true)
+                    .spacing([8.0, 4.0])
+                    .show(ui, |ui| {
+                        ui.label(egui::RichText::new(tr("cluster.dx", lang)).strong());
+                        ui.label(egui::RichText::new(tr("cluster.freq", lang)).strong());
+                        ui.label(egui::RichText::new(tr("qso.band", lang)).strong());
+                        ui.label(egui::RichText::new("Program / Ref").strong());
+                        ui.label(egui::RichText::new(tr("cluster.spotter", lang)).strong());
+                        ui.label(egui::RichText::new(tr("cluster.comment", lang)).strong());
+                        ui.label(egui::RichText::new(tr("cluster.time", lang)).strong());
+                        ui.end_row();
+
+                        for spot in filtered_spots {
+                            let (pota_ref, sota_ref) = extract_pota_sota(&spot.comment);
+
+                            let (call_color, badge) = if let Some(info) = app.prefix_matcher.lookup(&spot.dx_call) {
+                                let awards = app.awards_engine.lock().unwrap_or_else(|p| p.into_inner());
+                                let st = awards.check_status_full(
+                                    &spot.dx_call,
+                                    &spot.band,
+                                    if spot.is_ft8 { "FT8" } else { "CW" },
+                                    Some(info.dxcc),
+                                    None,
+                                    Some(info.cqz),
+                                    None,
+                                    Some(&info.continent),
+                                    None,
+                                );
+                                if st.is_new_dxcc {
+                                    (egui::Color32::from_rgb(217, 70, 239), " ⭐")
+                                } else if st.is_new_band {
+                                    (egui::Color32::from_rgb(34, 197, 94), " ✨")
+                                } else {
+                                    (egui::Color32::from_rgb(56, 189, 248), "")
+                                }
+                            } else {
+                                (egui::Color32::from_rgb(56, 189, 248), "")
+                            };
+
+                            if ui.button(egui::RichText::new(format!("{}{}", spot.dx_call, badge)).strong().color(call_color))
+                                .on_hover_text(tr("cluster.tune_tooltip", lang))
+                                .clicked() 
+                            {
+                                tune_target = Some((spot.dx_call.clone(), spot.frequency_khz, spot.band.clone(), pota_ref.clone(), sota_ref.clone()));
+                            }
+
+                            ui.label(format!("{:.1} kHz", spot.frequency_khz));
+                            ui.label(egui::RichText::new(&spot.band).color(egui::Color32::from_rgb(251, 191, 36)));
+
+                            // Kolumna referencji POTA / SOTA
+                            if let Some(ref p) = pota_ref {
+                                ui.label(egui::RichText::new(format!("🌲 {}", p)).color(egui::Color32::from_rgb(34, 197, 94)).strong().size(11.0));
+                            } else if let Some(ref s) = sota_ref {
+                                ui.label(egui::RichText::new(format!("⛰️ {}", s)).color(egui::Color32::from_rgb(250, 204, 21)).strong().size(11.0));
+                            } else {
+                                ui.label("-");
+                            }
+
+                            ui.label(egui::RichText::new(&spot.spotter).color(egui::Color32::from_rgb(148, 163, 184)));
+                            ui.label(egui::RichText::new(&spot.comment).size(11.0));
+                            ui.label(&spot.time_utc);
+                            ui.end_row();
+                        }
+                    });
+            });
+    });
+
+    if let Some((dx_call, freq_khz, band, pota, sota)) = tune_target {
         app.tune_to_spot(&dx_call, freq_khz, &band);
+        if let Some(p) = pota {
+            app.entry_pota = p;
+        }
+        if let Some(s) = sota {
+            app.entry_sota = s;
+        }
     }
 }
 
@@ -503,4 +636,28 @@ pub fn render_add_cluster_dialog(app: &mut SpLogApp, ctx: &egui::Context) {
         });
 
     app.show_add_cluster_dialog = is_open;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_pota_sota() {
+        let (pota, sota) = extract_pota_sota("CQ POTA SP-0123 from park");
+        assert_eq!(pota, Some("SP-0123".to_string()));
+        assert_eq!(sota, None);
+
+        let (pota, sota) = extract_pota_sota("QRV SOTA SP/BZ-001 atop peak");
+        assert_eq!(pota, None);
+        assert_eq!(sota, Some("SP/BZ-001".to_string()));
+
+        let (pota, sota) = extract_pota_sota("Dual act: POTA K-1234 & SOTA W6/NC-421 good sig");
+        assert_eq!(pota, Some("K-1234".to_string()));
+        assert_eq!(sota, Some("W6/NC-421".to_string()));
+
+        let (pota, sota) = extract_pota_sota("Just regular 599 tu 73");
+        assert_eq!(pota, None);
+        assert_eq!(sota, None);
+    }
 }

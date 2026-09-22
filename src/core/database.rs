@@ -559,6 +559,98 @@ impl LogDatabase {
         Ok(())
     }
 
+    /// Bezpieczne masowe usuwanie wielu rekordów QSO po ID
+    pub fn delete_multiple_qsos(&self, ids: &[i64]) -> Result<usize> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+        let mut count = 0;
+        let tx = self.conn.unchecked_transaction()?;
+        {
+            let mut stmt = tx.prepare("DELETE FROM qso_records WHERE id = ?1")?;
+            for id in ids {
+                stmt.execute(params![id])?;
+                count += 1;
+            }
+        }
+        tx.commit()?;
+        Ok(count)
+    }
+
+    /// Wyszukuje duplikaty łączności w całym logu
+    /// Grupuje po znaku, paśmie i emisji (opcjonalnie również po dacie)
+    pub fn find_duplicate_qsos(&self, match_same_day: bool) -> Result<Vec<Vec<QsoRecord>>> {
+        let group_by = if match_same_day {
+            "callsign, band, mode, qso_date"
+        } else {
+            "callsign, band, mode"
+        };
+
+        let dup_keys_sql = format!(
+            "SELECT callsign, band, mode{} FROM qso_records GROUP BY {} HAVING COUNT(*) > 1 ORDER BY callsign ASC, band ASC",
+            if match_same_day { ", qso_date" } else { "" },
+            group_by
+        );
+
+        let mut key_stmt = self.conn.prepare(&dup_keys_sql)?;
+        let mut groups = Vec::new();
+
+        if match_same_day {
+            let keys = key_stmt.query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                ))
+            })?;
+
+            let query_sql = format!(
+                "SELECT {} FROM qso_records WHERE callsign = ?1 AND band = ?2 AND mode = ?3 AND qso_date = ?4 ORDER BY time_on ASC, id ASC",
+                QSO_COLUMNS
+            );
+            let mut q_stmt = self.conn.prepare(&query_sql)?;
+            for k in keys {
+                let (c, b, m, d) = k?;
+                let rows = q_stmt.query_map(params![c, b, m, d], row_to_qso)?;
+                let mut cluster = Vec::new();
+                for row in rows {
+                    cluster.push(row?);
+                }
+                if cluster.len() > 1 {
+                    groups.push(cluster);
+                }
+            }
+        } else {
+            let keys = key_stmt.query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                ))
+            })?;
+
+            let query_sql = format!(
+                "SELECT {} FROM qso_records WHERE callsign = ?1 AND band = ?2 AND mode = ?3 ORDER BY qso_date ASC, time_on ASC, id ASC",
+                QSO_COLUMNS
+            );
+            let mut q_stmt = self.conn.prepare(&query_sql)?;
+            for k in keys {
+                let (c, b, m) = k?;
+                let rows = q_stmt.query_map(params![c, b, m], row_to_qso)?;
+                let mut cluster = Vec::new();
+                for row in rows {
+                    cluster.push(row?);
+                }
+                if cluster.len() > 1 {
+                    groups.push(cluster);
+                }
+            }
+        }
+
+        Ok(groups)
+    }
+
     /// Aktualizuje istniejący rekord QSO w bazie po ID
     pub fn update_qso(&self, id: i64, qso: &QsoRecord) -> Result<()> {
         let journal = qso.journal_id.as_deref().unwrap_or("DEFAULT");
@@ -1044,5 +1136,39 @@ mod tests {
         let res = db.search_qsos_advanced(&filter);
         assert!(res.is_ok(), "Wyszukiwanie z apostrofem nie powinno powodować błędu SQL");
         assert_eq!(res.unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_find_and_delete_duplicates() {
+        let db = LogDatabase::open_in_memory().unwrap();
+
+        let mut q1 = QsoRecord::new("SP6INA", "20m", "CW");
+        q1.qso_date = "20260920".to_string();
+        q1.time_on = "120000".to_string();
+        let id1 = db.insert_qso(&q1).unwrap();
+
+        let mut q2 = QsoRecord::new("SP6INA", "20m", "CW");
+        q2.qso_date = "20260920".to_string();
+        q2.time_on = "120500".to_string();
+        let id2 = db.insert_qso(&q2).unwrap();
+
+        let mut q3 = QsoRecord::new("SP6INA", "40m", "CW");
+        q3.qso_date = "20260920".to_string();
+        q3.time_on = "121000".to_string();
+        db.insert_qso(&q3).unwrap();
+
+        let dups = db.find_duplicate_qsos(false).unwrap();
+        assert_eq!(dups.len(), 1, "Powinna być dokładnie jedna grupa duplikatów (SP6INA / 20m / CW)");
+        assert_eq!(dups[0].len(), 2);
+
+        let deleted = db.delete_multiple_qsos(&[id2]).unwrap();
+        assert_eq!(deleted, 1);
+
+        let dups_after = db.find_duplicate_qsos(false).unwrap();
+        assert_eq!(dups_after.len(), 0, "Brak duplikatów po usunięciu");
+
+        let remaining = db.find_previous_qsos("SP6INA").unwrap();
+        assert_eq!(remaining.len(), 2);
+        assert!(remaining.iter().any(|q| q.id == Some(id1)));
     }
 }

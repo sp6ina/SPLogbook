@@ -36,7 +36,7 @@ pub fn render_welcome_wizard(app: &mut SpLogApp, ctx: &egui::Context) {
             ui.horizontal(|ui| {
                 ui.heading(egui::RichText::new("SPLogbook")
                     .size(24.0).color(egui::Color32::from_rgb(56, 189, 248)));
-                ui.label(egui::RichText::new("v1.0.0")
+                ui.label(egui::RichText::new("v1.0.2")
                     .size(13.0).color(egui::Color32::from_rgb(100, 116, 139)));
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

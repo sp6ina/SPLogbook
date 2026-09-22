@@ -17,13 +17,13 @@ pub fn render_vfo_window(app: &mut SpLogApp, ctx: &egui::Context) {
             egui::ViewportId::from_hash_of("vfo_viewport"),
             egui::ViewportBuilder::default()
                 .with_title(format!("📻 {} - SPLogbook", tr("view.panel_vfo", app.current_language)))
-                .with_inner_size([480.0, 260.0])
-                .with_min_inner_size([380.0, 200.0]),
+                .with_inner_size([520.0, 320.0])
+                .with_min_inner_size([400.0, 240.0]),
             |ctx, _class| {
                 egui::TopBottomPanel::top("vfo_vp_bar").show(ctx, |ui| {
                     ui.horizontal(|ui| {
                         let lang = app.current_language;
-                    if ui.button(format!("↙ {}", tr("window.dock", lang))).on_hover_text(tr("window.dock_tooltip", lang)).clicked() {
+                        if ui.button(format!("↙ {}", tr("window.dock", lang))).on_hover_text(tr("window.dock_tooltip", lang)).clicked() {
                             dock_back = true;
                         }
                     });
@@ -52,11 +52,11 @@ pub fn render_vfo_window(app: &mut SpLogApp, ctx: &egui::Context) {
     let mut open = app.panel_vfo.visible;
     let screen = ctx.available_rect();
     let default_pos = [screen.min.x + 8.0, screen.min.y + 8.0];
-    let default_size = [470.0, 250.0];
+    let default_size = [510.0, 310.0];
 
     let mut win = egui::Window::new(egui::RichText::new(format!("   📻 {}", tr("view.panel_vfo", app.current_language))).size(12.0).strong())
         .open(&mut open)
-        .min_size([380.0, 200.0])
+        .min_size([400.0, 240.0])
         .resizable(true)
         .collapsible(true)
         .constrain_to(screen);
@@ -79,7 +79,6 @@ pub fn render_vfo_window(app: &mut SpLogApp, ctx: &egui::Context) {
         if app.panel_vfo.floating {
             app.save_station_config();
         }
-        // Zapisz pozycję i rozmiar gdy okno jest przeciągane lub skalowane
         if res.response.dragged() || res.response.drag_stopped() {
             let r = res.response.rect;
             let new_pos = [r.min.x, r.min.y];
@@ -97,7 +96,6 @@ pub fn render_vfo_window(app: &mut SpLogApp, ctx: &egui::Context) {
         app.save_station_config();
     }
 }
-
 
 fn render_tuning_digit(
     ui: &mut egui::Ui,
@@ -158,57 +156,53 @@ fn render_tuning_digit(
             app.step_vfo(weight_hz);
         } else if scroll_y < 0.0 {
             app.step_vfo(-weight_hz);
+        } else if resp.clicked() {
+            app.step_vfo(weight_hz);
+        } else if resp.secondary_clicked() {
+            app.step_vfo(-weight_hz);
         }
-    }
-
-    if resp.clicked() {
-        app.step_vfo(weight_hz);
-    } else if resp.secondary_clicked() {
-        app.step_vfo(-weight_hz);
     }
 }
 
 fn render_tuning_dot(ui: &mut egui::Ui) {
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(7.0, 36.0), egui::Sense::hover());
-    ui.painter().text(
-        egui::pos2(rect.center().x, rect.bottom() - 8.0),
-        egui::Align2::CENTER_CENTER,
-        ".",
-        egui::FontId::monospace(26.0),
-        egui::Color32::from_rgb(56, 189, 248),
-    );
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(6.0, 36.0), egui::Sense::hover());
+    let dot_pos = egui::pos2(rect.center().x, rect.bottom() - 8.0);
+    ui.painter().circle_filled(dot_pos, 2.2, egui::Color32::from_rgb(56, 189, 248));
 }
 
 pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let f = app.rig_state.frequency_hz;
 
-    // Pasek stanu SPLIT i CAT
+    // Nagłówek konsoli radiowej: Model radia + PTT + Ustawienia
     ui.horizontal(|ui| {
-        if app.vfo_split {
-            ui.label(egui::RichText::new("● SPLIT ON").color(egui::Color32::from_rgb(239, 68, 68)).strong().size(11.0));
+        let rig_badge = if !app.cat_rig_model.is_empty() {
+            app.cat_rig_model.clone()
         } else {
-            ui.label(egui::RichText::new("○ SPLIT OFF").color(egui::Color32::from_rgb(100, 116, 139)).size(11.0));
-        }
-        ui.separator();
+            "Manual Transceiver".to_string()
+        };
+
         if app.cat_connected {
-            ui.label(egui::RichText::new(format!("● CAT: {}", app.cat_rig_model)).color(egui::Color32::from_rgb(34, 197, 94)).size(11.0));
+            ui.label(egui::RichText::new(format!("📻 {}", rig_badge)).color(egui::Color32::from_rgb(56, 189, 248)).strong().size(12.0));
+            ui.label(egui::RichText::new("● ONLINE").color(egui::Color32::from_rgb(34, 197, 94)).size(10.0));
         } else {
-            ui.label(egui::RichText::new("○ CAT OFFLINE").color(egui::Color32::from_rgb(148, 163, 184)).size(11.0));
+            ui.label(egui::RichText::new(format!("📻 {}", rig_badge)).color(egui::Color32::from_rgb(148, 163, 184)).size(12.0));
+            ui.label(egui::RichText::new("○ OFFLINE").color(egui::Color32::from_rgb(239, 68, 68)).size(10.0));
         }
+
         ui.separator();
+
         // Przycisk PTT (nadawanie)
         let ptt_color = if app.ptt_active {
             egui::Color32::from_rgb(239, 68, 68)
         } else {
             egui::Color32::from_rgb(100, 116, 139)
         };
-        let ptt_label = if app.ptt_active { "🔴 TX" } else { "⚫ RX" };
+        let ptt_label = if app.ptt_active { "🔴 TX ON" } else { "⚫ RX" };
         if ui.button(egui::RichText::new(ptt_label).color(ptt_color).strong())
             .on_hover_text("PTT — Przełącz nadawanie/odbiór (wymaga CAT)")
             .clicked()
         {
             app.ptt_active = !app.ptt_active;
-            // Wyślij komendę PTT przez Hamlib TCP
             if app.cat_connected {
                 let host = app.cat_host.clone();
                 let port = app.cat_port;
@@ -216,19 +210,58 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 tokio::spawn(async move {
                     use tokio::io::AsyncWriteExt;
                     if let Ok(mut stream) = tokio::net::TcpStream::connect(format!("{}:{}", host, port)).await {
-                        // Hamlib: "T 1\n" = TX on, "T 0\n" = TX off
                         let cmd = if tx { "T 1\n" } else { "T 0\n" };
                         let _ = stream.write_all(cmd.as_bytes()).await;
                     }
                 });
             }
         }
+
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui.button("⚙").on_hover_text(tr("cat.settings_tooltip", app.current_language)).clicked() {
                 app.show_cat_settings_window = true;
             }
         });
     });
+
+    ui.separator();
+
+    // Twin VFO / Split Status
+    ui.horizontal(|ui| {
+        let vfo_a_active = app.rig_state.vfo != "VFOB";
+        let color_a = if vfo_a_active { egui::Color32::from_rgb(34, 197, 94) } else { egui::Color32::GRAY };
+        ui.label(egui::RichText::new("VFO A:").strong().color(color_a));
+        ui.label(egui::RichText::new(format!("{:.3} MHz", (f as f64) / 1_000_000.0)).strong());
+
+        ui.separator();
+        let split_freq = if app.vfo_split {
+            f + (app.vfo_split_offset_khz * 1000.0) as u64
+        } else {
+            f
+        };
+        let color_b = if app.vfo_split { egui::Color32::from_rgb(239, 68, 68) } else { egui::Color32::GRAY };
+        ui.label(egui::RichText::new("VFO B (TX):").strong().color(color_b));
+        ui.label(egui::RichText::new(format!("{:.3} MHz", (split_freq as f64) / 1_000_000.0)).strong());
+
+        if ui.selectable_label(app.vfo_split, "SPLIT").clicked() {
+            app.vfo_split = !app.vfo_split;
+            app.rig_state.split_enabled = app.vfo_split;
+        }
+
+        if app.vfo_split {
+            if ui.button("+1k").clicked() { app.vfo_split_offset_khz = 1.0; }
+            if ui.button("+5k").clicked() { app.vfo_split_offset_khz = 5.0; }
+        }
+
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui.button("⇄ A/B").on_hover_text("Zamień VFO A i VFO B").clicked() {
+                // Zamiana VFO
+                let current_vfo = if app.rig_state.vfo == "VFOA" { "VFOB" } else { "VFOA" };
+                app.rig_state.vfo = current_vfo.to_string();
+            }
+        });
+    });
+
     ui.separator();
 
     // Rozbicie częstotliwości na poszczególne cyfry
@@ -295,7 +328,7 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             if ui.button("+10k").clicked() { app.step_vfo(10_000); }
 
             ui.separator();
-            for m in &["CW", "LSB", "USB", "FT8", "RTTY", "FM"] {
+            for m in &["CW", "LSB", "USB", "FT8", "FT4", "RTTY", "AM", "FM"] {
                 let is_sel = app.rig_state.mode == *m;
                 if ui.selectable_label(is_sel, *m).clicked() {
                     app.set_vfo_mode(m);
@@ -329,32 +362,63 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             }
         });
 
+        // Pasek DSP / Filtrów / AGC
         ui.horizontal(|ui| {
-            ui.label(
-                egui::RichText::new(format!("VFO A | {} | FILT: {} Hz | PWR: {:.0} W", app.rig_state.mode, app.rig_state.passband_hz, app.rig_state.rf_power_watts))
-                    .size(11.0)
-                    .monospace()
-                    .color(egui::Color32::from_rgb(148, 163, 184))
-            );
-            if ui.button(egui::RichText::new("📶 Band Map").size(11.0).color(egui::Color32::from_rgb(56, 189, 248))).clicked() {
-                app.panel_bandmap.visible = true;
-                app.show_bandmap_window = true;
+            ui.label(egui::RichText::new(tr("vfo.filters", app.current_language)).size(10.0).strong().color(egui::Color32::from_rgb(148, 163, 184)));
+            if ui.selectable_label(app.vfo_filter_preset == "FIL1", "FIL1 (3k)").clicked() {
+                app.vfo_filter_preset = "FIL1".to_string();
+                app.rig_state.passband_hz = 3000;
+            }
+            if ui.selectable_label(app.vfo_filter_preset == "FIL2", "FIL2 (2.4k)").clicked() {
+                app.vfo_filter_preset = "FIL2".to_string();
+                app.rig_state.passband_hz = 2400;
+            }
+            if ui.selectable_label(app.vfo_filter_preset == "FIL3", "FIL3 (500Hz)").clicked() {
+                app.vfo_filter_preset = "FIL3".to_string();
+                app.rig_state.passband_hz = 500;
+            }
+
+            ui.separator();
+            ui.label(egui::RichText::new("RF:").size(10.0).strong().color(egui::Color32::from_rgb(148, 163, 184)));
+            for pre in &["OFF", "PRE1", "PRE2", "ATT"] {
+                if ui.selectable_label(app.vfo_preamp_att == *pre, *pre).clicked() {
+                    app.vfo_preamp_att = pre.to_string();
+                }
+            }
+
+            ui.separator();
+            if ui.selectable_label(app.vfo_nb_nr, "NB/NR").clicked() {
+                app.vfo_nb_nr = !app.vfo_nb_nr;
+            }
+
+            ui.separator();
+            ui.label(egui::RichText::new("AGC:").size(10.0).strong().color(egui::Color32::from_rgb(148, 163, 184)));
+            for agc in &["FAST", "MID", "SLOW"] {
+                if ui.selectable_label(app.vfo_agc_speed == *agc, *agc).clicked() {
+                    app.vfo_agc_speed = agc.to_string();
+                }
             }
         });
     });
 
     ui.add_space(4.0);
 
-    // S-Meter analogowo-paskowy
+    // Klastrowe wskaźniki Mierników (S-Meter + Moc + SWR)
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new("S-METER:").size(11.0).strong().color(egui::Color32::from_rgb(148, 163, 184)));
         ui.label(egui::RichText::new(&app.rig_state.s_meter_unit).size(12.0).strong().color(egui::Color32::from_rgb(250, 204, 21)));
+
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let pwr = if app.ptt_active { app.my_station.power_watts as f32 } else { 0.0 };
+            let swr = if app.ptt_active { 1.2 } else { 1.0 };
+            ui.label(egui::RichText::new(format!("PWR: {:.0} W | SWR: {:.1}", pwr, swr)).size(11.0).monospace().color(egui::Color32::from_rgb(56, 189, 248)));
+        });
     });
 
     let raw_db = app.rig_state.s_meter_dbm;
     let meter_fraction = ((raw_db + 54.0) / 114.0).clamp(0.0, 1.0);
 
-    let (rect, _response) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 14.0), egui::Sense::hover());
+    let (rect, _response) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 12.0), egui::Sense::hover());
     if ui.is_rect_visible(rect) {
         let painter = ui.painter();
         painter.rect_filled(rect, 3.0, egui::Color32::from_rgb(15, 23, 42));

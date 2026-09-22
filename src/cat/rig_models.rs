@@ -350,6 +350,21 @@ pub fn get_all_manufacturers() -> Vec<&'static str> {
     mfgs
 }
 
+/// Wyszukuje modele radiostacji z opcjonalnym filtrowaniem po producencie
+pub fn search_rig_models_by_mfg(mfg: &str, query: &str) -> Vec<&'static RigModelInfo> {
+    let q = query.trim().to_lowercase();
+    ALL_RIG_MODELS
+        .iter()
+        .filter(|r| {
+            (mfg.is_empty() || mfg == "Wszystkie" || mfg == "All" || r.mfg.eq_ignore_ascii_case(mfg))
+                && (q.is_empty()
+                    || r.model.to_lowercase().contains(&q)
+                    || r.mfg.to_lowercase().contains(&q)
+                    || r.rig_id.to_string().contains(&q))
+        })
+        .collect()
+}
+
 /// Wyszukuje konkretny model po rig_id
 pub fn find_rig_by_id(rig_id: u32) -> Option<&'static RigModelInfo> {
     ALL_RIG_MODELS.iter().find(|r| r.rig_id == rig_id)

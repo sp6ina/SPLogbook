@@ -34,6 +34,8 @@ pub mod astronomy_dialog;
 pub mod wol_dialog;
 pub mod sota_dialog;
 pub mod wspr_panel;
+pub mod find_duplicates;
+pub mod station_profiles;
 
 /// Pomocnik rysujący mały przycisk "↗" (Odepnij do osobnego okna OS) bezpośrednio na pasku tytułowym okna egui.
 pub fn render_titlebar_popout_button(

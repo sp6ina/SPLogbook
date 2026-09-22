@@ -109,6 +109,8 @@ fn default_fldigi_host() -> String { "127.0.0.1".to_string() }
 fn default_fldigi_port() -> u16 { 7362 }
 fn default_lan_sync_port() -> u16 { 7373 }
 fn default_lan_sync_server_ip() -> String { "127.0.0.1".to_string() }
+fn default_profile_id() -> String { "default".to_string() }
+fn default_cat_sharing_port() -> u16 { 4534 }
 
 /// Konfiguracja pojedynczej kolumny w tabeli dziennika łączności
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
@@ -163,6 +165,18 @@ pub struct AppConfig {
     pub cat_baud_rate: u32,
     pub cat_rig_id: u32,
     pub cat_auto_start_rigctld: bool,
+
+    // Profile stacji roboczej (Wieloprofilowość)
+    #[serde(default)]
+    pub station_profiles: Vec<StationProfile>,
+    #[serde(default = "default_profile_id")]
+    pub active_profile_id: String,
+
+    // Udostępnianie CAT (Hamlib proxy server dla WSJT-X / JTDX)
+    #[serde(default)]
+    pub cat_sharing_enabled: bool,
+    #[serde(default = "default_cat_sharing_port")]
+    pub cat_sharing_port: u16,
 
     // Konfiguracja Rotora
     #[serde(default = "default_rotor_host")]
@@ -418,6 +432,11 @@ impl Default for AppConfig {
             cat_rig_id: 1,
             cat_auto_start_rigctld: false,
 
+            station_profiles: Vec::new(),
+            active_profile_id: "default".to_string(),
+            cat_sharing_enabled: false,
+            cat_sharing_port: 4534,
+
             rotor_host: "127.0.0.1".to_string(),
             rotor_port: 4533,
 
@@ -545,6 +564,40 @@ mod tests {
         assert_eq!(loaded.station.operator, "Mariusz Woźniak");
         assert_eq!(loaded.equipment.len(), 0);
         assert!(loaded.dark_theme);
+    }
+
+    #[test]
+    fn test_station_profiles_and_cat_sharing() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_file = temp_dir.path().join("station_config_profiles.json");
+
+        let mut cfg = AppConfig::default();
+        cfg.cat_sharing_enabled = true;
+        cfg.cat_sharing_port = 4534;
+
+        let mut p1 = StationProfile::default();
+        p1.id = "p1".to_string();
+        p1.name = "Home QTH".to_string();
+        p1.callsign = "SP6INA".to_string();
+
+        let mut p2 = StationProfile::default();
+        p2.id = "p2".to_string();
+        p2.name = "Portable SOTA".to_string();
+        p2.callsign = "SP6INA/P".to_string();
+        p2.sota_ref = Some("SP/BZ-001".to_string());
+
+        cfg.station_profiles = vec![p1, p2];
+        cfg.active_profile_id = "p2".to_string();
+
+        cfg.save_to_file(&config_file).unwrap();
+
+        let loaded = AppConfig::load_from_file(&config_file);
+        assert!(loaded.cat_sharing_enabled);
+        assert_eq!(loaded.cat_sharing_port, 4534);
+        assert_eq!(loaded.station_profiles.len(), 2);
+        assert_eq!(loaded.active_profile_id, "p2");
+        assert_eq!(loaded.station_profiles[1].callsign, "SP6INA/P");
+        assert_eq!(loaded.station_profiles[1].sota_ref.as_deref(), Some("SP/BZ-001"));
     }
 }
 

@@ -10,10 +10,11 @@
   <img src="https://img.shields.io/badge/GUI-egui_%2F_eframe-blueviolet.svg" alt="egui">
   <img src="https://img.shields.io/badge/License-GPLv3-blue.svg" alt="License">
   <img src="https://img.shields.io/badge/Platform-Windows_%7C_GNU%2FLinux-blue.svg" alt="Platform">
-  <img src="https://img.shields.io/badge/Version-1.0.1-emerald.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Version-1.0.2-emerald.svg" alt="Version">
   <a href="https://github.com/sp6ina/SPLogbook/actions"><img src="https://github.com/sp6ina/SPLogbook/actions/workflows/build-and-release.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/Tests-51%2F51_Passed-brightgreen.svg" alt="Tests">
+  <img src="https://img.shields.io/badge/Tests-54%2F54_Passed-brightgreen.svg" alt="Tests">
   <img src="https://img.shields.io/badge/i18n-6_Languages-cyan.svg" alt="i18n">
+  <a href="https://buycoffee.to/sp6ina"><img src="https://img.shields.io/badge/☕_Buy_Me_a_Coffee-buycoffee.to%2Fsp6ina-FFDD00?style=flat&logoColor=black" alt="Buy Me a Coffee"></a>
 </p>
 
 <img width="1917" height="991" alt="image" src="https://github.com/user-attachments/assets/465c5eda-739d-4191-ad17-c6cc89a39347" />
@@ -56,7 +57,8 @@ From deep ionospheric modeling (VOACAP-lite HF propagation), automated antenna r
 8. [Codebase Architecture & Directory Structure](#-codebase-architecture--directory-structure)
 9. [Configuration & Data Safety](#-configuration--data-safety)
 10. [Contributing & Bug Reports](#-contributing--bug-reports)
-11. [License & Credits](#-license--credits)
+11. [Support & Donations](#-support--donations)
+12. [License & Credits](#-license--credits)
 
 ---
 
@@ -70,15 +72,16 @@ From deep ionospheric modeling (VOACAP-lite HF propagation), automated antenna r
 | **DX Cluster** | Built-in Telnet client, 2 kHz / 30-spot sliding deduplication, visual highlights (⭐ Magenta for ATNO, ✨ Emerald for new band/mode), acoustic fanfare alerts, click-to-tune CAT integration. |
 | **Ham Clubs Directory** | Real-time recognition and color-coded badge display for SP-OTC, SPCWC, SKCC, CWOPS, FOC, and HSC with member number recognition. |
 | **QSL Vector PDF** | Full A4 vector PDF label sheet exporter for Avery 3x8, 3x7, 2x8, 2x7 formats, plus standalone QSL card visual designer. |
-| **Transceiver CAT** | Non-blocking Hamlib `rigctld` subprocess supervisor, VFO A/B, split, mode, PTT control, CW keyer with 12 macros (`F1`–`F12`), WinKeyer emulation, TCI protocol. |
+| **Station Profiles** | Multi-profile workstation management (Home QTH, Field /P, SOTA/POTA, Contest) with instant 1-click preset switching. |
+| **Transceiver CAT & Sharing** | Non-blocking Hamlib `rigctld` supervisor, VFO A/B, split, mode, PTT, WinKeyer, TCI protocol, plus integrated **Hamlib CAT TCP Proxy Server** (port 4534) for simultaneous multi-app rig sharing (WSJT-X, JTDX, FLDigi). |
 | **Digital Modes** | WSJT-X / JTDX bi-directional UDP bridge (port 2237), JS8Call TCP JSON API integration, FLDigi XML-RPC bridge. |
 | **Satellites** | SGP4/SDP4 Keplerian orbital propagation from TLE, real-time Doppler shift frequency correction via CAT, antenna elevation/azimuth steering. |
-| **Contests** | Built-in rules for SP DX, CQ WW DX, ARRL DX, CQ WPX, and VHF/UHF contests with live dupe checking, score calculation, rate meter, and Cabrillo 3.0 export. |
+| **Contests & Dupe Engine** | Rules for SP DX, CQ WW, ARRL DX, CQ WPX; real-time inline `[DUPE!]` warning, N1MM-style keyboard-first auto-refocus, dedicated Duplicate Manager with smart batch cleaning, and Cabrillo 3.0 export. |
 | **Awards Tracking** | DXCC (Mixed, Band, Mode, Challenge, ATNO), WAZ, WAS, SP DX Award, WAE, WWFF, RDA, PGA (2477 Polish municipalities), IOTA, SOTA, POTA. |
 | **Cloud Sync** | LoTW (TQSL), eQSL.cc, Club Log, QRZ.com, HamQTH, HRDLog, Cloudlog, PSK Reporter, WSPR monitor, NOAA space weather. |
 | **Mapping** | Equirectangular world map with real-time day/night terminator (Grey Line), zoom/pan, confirmed/unconfirmed QSO markers, live spot pins. |
 | **REST API** | Embedded asynchronous Axum HTTP server on port 8080 providing JSON endpoints for external integration, remote monitoring, and station automation. |
-| **Languages** | 6 complete native translations: English, Polish, German, French, Spanish, Russian. |
+| **Languages** | 6 complete native translations: English, Polish, German, French, Spanish, Russian (100% verified test coverage). |
 
 ---
 
@@ -447,6 +450,7 @@ SPLogbook/
     │   ├── hamlib.rs        # Asynchronous TCP client for rigctld
     │   ├── rig_models.rs    # Database of transceiver models
     │   ├── rotor.rs         # Hamlib rotctld client (TCP port 4533)
+    │   ├── server.rs        # Hamlib TCP proxy server (CAT sharing for WSJT-X/FLDigi)
     │   ├── supervisor.rs    # Non-blocking rigctld subprocess supervisor
     │   ├── tci.rs           # Expert Electronics TCI protocol client
     │   └── winkeyer.rs      # K1EL WinKeyer serial keyer protocol
@@ -501,6 +505,7 @@ SPLogbook/
     │   ├── contest.rs       # Contest operating window with live score
     │   ├── cw_macros.rs     # CW macro configuration modal
     │   ├── cw_terminal.rs   # CW keyer terminal window
+    │   ├── find_duplicates.rs# Smart duplicate QSO detection and batch cleanup
     │   ├── iota_browser.rs  # IOTA directory browser
     │   ├── journal_manager.rs # Multi-journal profile manager
     │   ├── logbook_table.rs # Paginated QSO log table with sorting
@@ -511,13 +516,14 @@ SPLogbook/
     │   ├── prefix_manager.rs# Country & prefix lookup browser
     │   ├── qsl_designer.rs  # QSL designer & Avery A4 PDF label exporter
     │   ├── qsl_manager.rs   # Paper & electronic QSL manager
-    │   ├── qso_entry.rs     # Primary QSO logging panel with propagation badge
+    │   ├── qso_entry.rs     # Primary QSO logging panel with propagation badge & dupe check
     │   ├── satellites.rs    # Satellite tracker & Doppler CAT compensator
     │   ├── send_spot.rs     # Cluster spotting dialog
     │   ├── solar_panel.rs   # Space weather & HF band opening conditions table
     │   ├── sota_dialog.rs   # SOTA reference lookup dialog
     │   ├── states_browser.rs# US states & WAS browser
     │   ├── station_ledger.rs# Station maintenance logbook
+    │   ├── station_profiles.rs# Workstation multi-profiles (Home, /P, SOTA, Contest)
     │   ├── statistics.rs    # Visual analytics & charts dashboard
     │   ├── vfo_panel.rs     # Primary transceiver VFO & PTT panel
     │   ├── welcome_wizard.rs# First-time station setup wizard
@@ -555,13 +561,34 @@ Contributions, issue reports, and suggestions are warmly welcome!
 
 ---
 
+## ☕ Support & Donations
+
+**SPLogbook** is a 100% free, libre, and open-source amateur radio workstation console built with deep passion for the global amateur radio community. The software contains no advertisements, locked tiers, telemetry tracking, or subscriptions. It is actively maintained and evolved solely through dedication, on-air field testing, and hundreds of engineering hours invested into high-performance Rust systems programming, real-time ionospheric modeling, and seamless hardware CAT automation.
+
+If **SPLogbook** enhances your daily logging experience, DX chasing, contest operations, SOTA/POTA field activations, or QSL printing, and you would like to appreciate the work or help support ongoing development, hardware testing, and project infrastructure — **feel free to buy me a coffee!** ☕
+
+Every contribution is a huge motivation to continue adding new features, optimizing performance, and delivering the highest quality software to radio amateurs around the world.
+
+<p align="center">
+  <a href="https://buycoffee.to/sp6ina" target="_blank">
+    <img src="https://img.shields.io/badge/☕_Buy_a_Coffee_for_SP6INA-buycoffee.to%2Fsp6ina-FFDD00?style=for-the-badge&logoColor=black" alt="Buy a Coffee for SP6INA on buycoffee.to">
+  </a>
+  <br><br>
+  👉 <strong><a href="https://buycoffee.to/sp6ina">https://buycoffee.to/sp6ina</a></strong> 👈
+</p>
+
+*Thank you for your generous support, and see you on the air! Vy 73 de SP6INA* 🎙️📻
+
+---
+
 ## 📄 License & Credits
 
 SPLogbook is licensed under the **GNU General Public License v3.0 (GPLv3)**. See the [LICENSE](LICENSE) file for details.
 
-### Author
+### Author & Maintainer
 **Mariusz Woźniak (SP6INA)**  
 - QRZ Profile: [SP6INA on QRZ.com](https://www.qrz.com/db/SP6INA)  
 - GitHub: [@sp6ina](https://github.com/sp6ina)  
+- ☕ Support & Donate: [buycoffee.to/sp6ina](https://buycoffee.to/sp6ina)  
 
 *Vy 73 & Good DX!* 📻
