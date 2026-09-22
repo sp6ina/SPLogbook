@@ -131,7 +131,7 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     app.tci_port = p;
                                 }
                             }
-                            if ui.button("⚡ Test TCI").clicked() {
+                            if ui.button(tr("cat_settings.test_tci", lang)).clicked() {
                                 let host = app.tci_host.clone();
                                 let port = app.tci_port;
                                 match std::net::TcpStream::connect_timeout(
@@ -159,12 +159,11 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 }
                             }
                         });
-                    } else {
                         ui.horizontal(|ui| {
-                            ui.label("Port COM / TTY:");
+                            ui.label(tr("cat_settings.serial_port_label", lang));
                             ui.add(egui::TextEdit::singleline(&mut app.cat_serial_port).desired_width(110.0).hint_text("COM3, /dev/ttyUSB0"));
                             ui.add_space(10.0);
-                            ui.label("Baud rate:");
+                            ui.label(tr("cat_settings.baud_rate_label", lang));
                             egui::ComboBox::from_id_salt("cat_baud_combo")
                                 .selected_text(format!("{} bps", app.cat_baud_rate))
                                 .show_ui(ui, |ui| {
@@ -175,8 +174,66 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         });
 
                         ui.horizontal(|ui| {
-                            ui.checkbox(&mut app.cat_auto_start_rigctld, "Auto-start rigctld").on_hover_text("Uruchamia proces rigctld w tle dla tego portu szeregowego");
+                            ui.checkbox(&mut app.cat_auto_start_rigctld, tr("cat_settings.auto_start_rigctld", lang))
+                                .on_hover_text(tr("cat_settings.auto_start_rigctld_tooltip", lang));
                         });
+
+                        if app.cat_auto_start_rigctld {
+                            ui.add_space(2.0);
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new(format!("{}:", tr("cat_settings.hamlib_source", lang))).strong());
+                                ui.selectable_value(&mut app.cat_hamlib_source, "bundled".to_string(), tr("cat_settings.hamlib_source_bundled", lang));
+                                ui.selectable_value(&mut app.cat_hamlib_source, "system".to_string(), tr("cat_settings.hamlib_source_system", lang));
+                            });
+
+                            let detected = crate::cat::supervisor::RigctldSupervisor::find_rigctld_binary(
+                                &app.cat_hamlib_source,
+                                if app.cat_custom_rigctld_path.is_empty() { None } else { Some(&app.cat_custom_rigctld_path) },
+                            );
+
+                            ui.horizontal(|ui| {
+                                match detected {
+                                    Some(ref p) => {
+                                        ui.colored_label(egui::Color32::from_rgb(34, 197, 94), "✔");
+                                        ui.label(
+                                            egui::RichText::new(format!("{}: {}", tr("cat_settings.detected_binary", lang), p.display()))
+                                                .size(11.0)
+                                                .color(egui::Color32::from_rgb(148, 163, 184)),
+                                        );
+                                    }
+                                    None => {
+                                        ui.colored_label(egui::Color32::from_rgb(239, 68, 68), "⚠");
+                                        ui.label(
+                                            egui::RichText::new(tr("cat_settings.binary_not_found", lang))
+                                                .size(11.0)
+                                                .color(egui::Color32::from_rgb(239, 68, 68)),
+                                        );
+                                    }
+                                }
+                            });
+
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new(tr("cat_settings.custom_path_label", lang)).size(11.0));
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut app.cat_custom_rigctld_path)
+                                        .desired_width(220.0)
+                                        .hint_text(tr("cat_settings.custom_path_hint", lang)),
+                                );
+                            });
+
+                            if let Some(ref sup) = app.rigctld_supervisor {
+                                if let Some(pid) = sup.pid() {
+                                    ui.horizontal(|ui| {
+                                        ui.colored_label(egui::Color32::from_rgb(34, 197, 94), "●");
+                                        ui.label(
+                                            egui::RichText::new(format!("{} (PID: {})", tr("cat_settings.running_pid", lang), pid))
+                                                .size(11.0)
+                                                .color(egui::Color32::from_rgb(34, 197, 94)),
+                                        );
+                                    });
+                                }
+                            }
+                        }
                     }
 
                     ui.horizontal(|ui| {
@@ -184,7 +241,7 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         ui.add(egui::DragValue::new(&mut app.cat_poll_rate_ms).range(50..=2000).suffix(" ms"));
 
                         if app.cat_conn_type != "tci" {
-                            if ui.button("⚡ Test TCP").clicked() {
+                            if ui.button(tr("cat_settings.test_tcp", lang)).clicked() {
                                 let host = app.cat_host.clone();
                                 let port = app.cat_port;
                                 match std::net::TcpStream::connect_timeout(
@@ -244,7 +301,7 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             }
                         }
                         ui.add_space(10.0);
-                        if ui.button("⚡ Test Rotora").clicked() {
+                        if ui.button(tr("cat_settings.test_rotor", lang)).clicked() {
                             let host = app.rotor_host.clone();
                             let port = app.rotor_port;
                             match std::net::TcpStream::connect_timeout(

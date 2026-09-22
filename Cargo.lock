@@ -3901,7 +3901,7 @@ dependencies = [
 
 [[package]]
 name = "splogbook"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "axum",
  "byteorder",

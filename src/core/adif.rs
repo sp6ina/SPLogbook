@@ -219,7 +219,7 @@ impl AdifEngine {
         writeln!(writer, "Author: Mariusz Wozniak (SP6INA)")?;
         writeln!(writer, "<ADIF_VER:5>3.1.5")?;
         writeln!(writer, "<PROGRAMID:9>SPLogbook")?;
-        writeln!(writer, "<PROGRAMVERSION:5>1.0.2")?;
+        writeln!(writer, "<PROGRAMVERSION:5>1.0.3")?;
         writeln!(writer, "<EOH>")?;
 
         for q in qsos {

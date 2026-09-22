@@ -36,6 +36,9 @@ jobs:
             libfontconfig1-dev \
             libwayland-dev \
             libgtk-3-dev \
+            libusb-1.0-0-dev \
+            libudev-dev \
+            patchelf \
             xvfb
 
       - name: Set up Rust toolchain
@@ -52,10 +55,36 @@ jobs:
       - name: Compile release binary
         run: cargo build --release
 
+      - name: Build Hamlib 4.7.2 for Linux
+        run: |
+          echo "Downloading and compiling Hamlib 4.7.2 for Linux release..."
+          HAMLIB_VERSION="4.7.2"
+          wget -q "https://github.com/Hamlib/Hamlib/releases/download/${HAMLIB_VERSION}/hamlib-${HAMLIB_VERSION}.tar.gz"
+          tar -xzf "hamlib-${HAMLIB_VERSION}.tar.gz"
+          cd "hamlib-${HAMLIB_VERSION}"
+          ./configure \
+            --prefix=/tmp/hamlib-dist \
+            --disable-static \
+            --enable-shared \
+            --without-cxx-binding \
+            --without-perl-binding \
+            --without-python-binding \
+            --without-tcl-binding \
+            --without-lua-binding
+          make -j$(nproc)
+          make install
+          strip /tmp/hamlib-dist/bin/* || true
+          strip /tmp/hamlib-dist/lib/*.so* || true
+          cd ..
+          rm -rf "hamlib-${HAMLIB_VERSION}" "hamlib-${HAMLIB_VERSION}.tar.gz"
+
       - name: Package Linux release archive
         run: |
           PKG_DIR="SPLogbook-Linux-x86_64"
           mkdir -p "$PKG_DIR/databases"
+          mkdir -p "$PKG_DIR/hamlib/bin"
+          mkdir -p "$PKG_DIR/hamlib/lib"
+
           cp target/release/SPLogbook "$PKG_DIR/splogbook"
           chmod +x "$PKG_DIR/splogbook"
           cp assets/splogbook.desktop "$PKG_DIR/"
@@ -65,6 +94,22 @@ jobs:
           cp databases/serviceLOG.db "$PKG_DIR/databases/"
           [ -f databases/callbook.db ] && cp databases/callbook.db "$PKG_DIR/databases/" || true
           cp README.md LICENSE "$PKG_DIR/"
+
+          # Bundle Hamlib 4.7.2 binaries and shared libraries
+          if [ -d /tmp/hamlib-dist ]; then
+            cp -a /tmp/hamlib-dist/bin/* "$PKG_DIR/hamlib/bin/"
+            cp -a /tmp/hamlib-dist/lib/*.so* "$PKG_DIR/hamlib/lib/"
+            # Also copy rigctld & rotctld and shared libraries into PKG_DIR root
+            cp -a /tmp/hamlib-dist/bin/rigctld "$PKG_DIR/"
+            cp -a /tmp/hamlib-dist/bin/rotctld "$PKG_DIR/"
+            cp -a /tmp/hamlib-dist/lib/*.so* "$PKG_DIR/"
+            chmod +x "$PKG_DIR/rigctld" "$PKG_DIR/rotctld" "$PKG_DIR/hamlib/bin/"*
+            # Set RPATH for portable dynamic library resolution
+            patchelf --set-rpath '$ORIGIN:$ORIGIN/hamlib/lib' "$PKG_DIR/splogbook" || true
+            patchelf --set-rpath '$ORIGIN:$ORIGIN/../lib' "$PKG_DIR/hamlib/bin/rigctld" || true
+            patchelf --set-rpath '$ORIGIN:$ORIGIN/hamlib/lib' "$PKG_DIR/rigctld" || true
+          fi
+
           tar -czvf SPLogbook-Linux-x86_64.tar.gz "$PKG_DIR"
 
       - name: Upload Linux artifact
