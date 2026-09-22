@@ -287,6 +287,9 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
             }
 
             ui.separator();
+            ui.checkbox(&mut app.map_show_beam_lobe, format!("📡 {}", tr("map.beam_lobe", lang)));
+            ui.checkbox(&mut app.map_show_compass, format!("🧭 {}", tr("map.compass", lang)));
+            ui.separator();
             ui.label(egui::RichText::new(format!("{}: {}", tr("map.spots_on_map", lang), app.cluster_spots.len())).size(10.0).color(egui::Color32::from_rgb(148, 163, 184)));
         });
 
@@ -552,8 +555,44 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
             }
         }
 
-        // Znacznik stacji własnej (My QTH)
+        // Znacznik stacji własnej (My QTH) i punkt początkowy wiązki
         let my_pos = project(my_coords.latitude, my_coords.longitude);
+
+        // Rysowanie wiązki promieniowania anteny (Beam Lobe) oraz mechanicznego boomu
+        if app.map_show_beam_lobe {
+            let az = app.rotor_state.azimuth_deg;
+            let half_beam = (app.map_beamwidth_deg * 0.5).clamp(10.0, 60.0);
+            let lobe_len = 65.0_f32;
+
+            // Rysowanie wachlarza wiązki (Polygon)
+            let mut lobe_pts = vec![my_pos];
+            let steps = 12;
+            for i in 0..=steps {
+                let frac = i as f32 / steps as f32;
+                let angle_deg = (az - half_beam) + (half_beam * 2.0) * frac;
+                let rad = (angle_deg - 90.0).to_radians();
+                let pt = my_pos + egui::vec2(rad.cos() * lobe_len, rad.sin() * lobe_len);
+                lobe_pts.push(pt);
+            }
+            let lobe_fill = egui::Color32::from_rgba_unmultiplied(56, 189, 248, 55);
+            painter.add(egui::Shape::convex_polygon(
+                lobe_pts,
+                lobe_fill,
+                egui::Stroke::new(1.0_f32, egui::Color32::from_rgba_unmultiplied(56, 189, 248, 140)),
+            ));
+
+            // Oś główna wiązki (Promieniowanie główne - szmaragdowy kolor)
+            let main_rad = (az - 90.0).to_radians();
+            let main_tip = my_pos + egui::vec2(main_rad.cos() * (lobe_len + 15.0), main_rad.sin() * (lobe_len + 15.0));
+            painter.line_segment([my_pos, main_tip], egui::Stroke::new(2.0_f32, egui::Color32::from_rgb(52, 211, 153)));
+
+            // Oś mechaniczna (Boom anteny / tył 180° - subtelny szary)
+            let boom_rad = (az + 90.0).to_radians();
+            let boom_tip = my_pos + egui::vec2(boom_rad.cos() * 32.0, boom_rad.sin() * 32.0);
+            painter.line_segment([my_pos, boom_tip], egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(148, 163, 184)));
+        }
+
+        // Znacznik stacji własnej (My QTH)
         painter.circle_filled(my_pos, 6.0, egui::Color32::from_rgb(56, 189, 248));
         painter.circle_stroke(my_pos, 9.0, egui::Stroke::new(1.5_f32, egui::Color32::WHITE));
         painter.text(
@@ -594,6 +633,58 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     painter.line_segment([prev_pt, pt], egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(52, 211, 153)));
                 }
                 prev_pt = pt;
+            }
+        }
+
+        // Widżet Róży Kompasu Azymutalnego (Azimuthal Compass Rose Overlay)
+        if app.map_show_compass {
+            let compass_center = rect.right_top() + egui::vec2(-65.0, 65.0);
+            let compass_radius = 48.0_f32;
+
+            // Tarcza kompasu
+            painter.circle_filled(compass_center, compass_radius, egui::Color32::from_rgba_unmultiplied(15, 23, 42, 220));
+            painter.circle_stroke(compass_center, compass_radius, egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(56, 189, 248)));
+            painter.circle_stroke(compass_center, compass_radius * 0.65, egui::Stroke::new(0.8_f32, egui::Color32::from_rgba_unmultiplied(255, 255, 255, 25)));
+
+            // Główne punkty kardynalne: N, E, S, W
+            let font_card = egui::FontId::proportional(10.0);
+            painter.text(compass_center + egui::vec2(0.0, -compass_radius + 10.0), egui::Align2::CENTER_CENTER, "N", font_card.clone(), egui::Color32::from_rgb(239, 68, 68));
+            painter.text(compass_center + egui::vec2(compass_radius - 10.0, 0.0), egui::Align2::CENTER_CENTER, "E", font_card.clone(), egui::Color32::from_rgb(148, 163, 184));
+            painter.text(compass_center + egui::vec2(0.0, compass_radius - 10.0), egui::Align2::CENTER_CENTER, "S", font_card.clone(), egui::Color32::from_rgb(148, 163, 184));
+            painter.text(compass_center + egui::vec2(-compass_radius + 10.0, 0.0), egui::Align2::CENTER_CENTER, "W", font_card, egui::Color32::from_rgb(148, 163, 184));
+
+            // Wskazówka rotatora (Needle)
+            let az = app.rotor_state.azimuth_deg;
+            let needle_rad = (az - 90.0).to_radians();
+            let needle_tip = compass_center + egui::vec2(needle_rad.cos() * (compass_radius - 6.0), needle_rad.sin() * (compass_radius - 6.0));
+            painter.line_segment([compass_center, needle_tip], egui::Stroke::new(2.5_f32, egui::Color32::from_rgb(251, 191, 36)));
+            painter.circle_filled(compass_center, 4.0, egui::Color32::from_rgb(251, 191, 36));
+
+            // Odczyt cyfrowy w środku tarczy
+            painter.text(
+                compass_center + egui::vec2(0.0, 16.0),
+                egui::Align2::CENTER_CENTER,
+                format!("{:.0}°", az),
+                egui::FontId::monospace(10.0),
+                egui::Color32::from_rgb(251, 191, 36),
+            );
+
+            // Interaktywny klik na tarczy kompasu -> bezpośredni obrót rotatora na kliknięty kąt
+            if clicked {
+                if let Some(pos) = hover_pos {
+                    let diff = pos - compass_center;
+                    if diff.length() <= compass_radius {
+                        // Kąt w radianach względem osi X (prawo)
+                        let click_rad = diff.y.atan2(diff.x);
+                        // Konwersja na azymut geograficzny (0° = Północ/góra, 90° = Wschód/prawo)
+                        let mut click_az = click_rad.to_degrees() + 90.0;
+                        if click_az < 0.0 {
+                            click_az += 360.0;
+                        }
+                        click_az = click_az % 360.0;
+                        app.rotate_antenna_to(click_az as f32);
+                    }
+                }
             }
         }
     });

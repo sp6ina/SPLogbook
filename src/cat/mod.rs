@@ -7,3 +7,4 @@ pub mod rig_models;
 pub mod supervisor;
 pub mod winkeyer;
 pub mod tci;
+pub mod server;

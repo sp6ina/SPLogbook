@@ -392,6 +392,51 @@ pub struct SpLogApp {
 
     // PTT control
     pub ptt_active: bool,
+
+    // Dwuetapowy CAT i udostępnianie (CAT Sharing dla WSJT-X / JTDX / FLDigi)
+    pub cat_mfg_selected: String,
+    pub cat_conn_type: String,
+    pub cat_sharing_enabled: bool,
+    pub cat_sharing_port: u16,
+    pub cat_sharing_active: bool,
+    pub cat_shared_state: std::sync::Arc<std::sync::RwLock<crate::cat::hamlib::RigState>>,
+    pub cat_proxy_server: Option<std::sync::Arc<crate::cat::server::HamlibProxyServer>>,
+    pub cat_proxy_rx: Option<tokio::sync::broadcast::Receiver<crate::cat::server::RigServerCommand>>,
+
+    // VFO Konsola radiowa & DSP
+    pub vfo_split_offset_khz: f64,
+    pub vfo_filter_preset: String,
+    pub vfo_preamp_att: String,
+    pub vfo_nb_nr: bool,
+    pub vfo_agc_speed: String,
+
+    // Kompas antenowy i wiązka na mapie (Beam Lobe)
+    pub map_show_beam_lobe: bool,
+    pub map_show_compass: bool,
+    pub map_beamwidth_deg: f32,
+
+    // Boczny panel filtrów klastra i POTA/SOTA
+    pub cluster_show_filter_sidebar: bool,
+    pub cluster_search_query: String,
+    pub cluster_filter_band_selection: String,
+    pub cluster_filter_mode_selection: String,
+    pub cluster_filter_status: String,
+    pub cluster_filter_source: String,
+    pub cluster_filter_pota_sota_only: bool,
+
+    // Wyszukiwanie i usuwanie duplikatów w logu
+    pub show_find_duplicates_window: bool,
+    pub duplicates_match_date: bool,
+    pub duplicates_groups: Vec<Vec<crate::core::qso::QsoRecord>>,
+    pub duplicates_selected_ids: std::collections::HashSet<i64>,
+    pub duplicates_status: Option<String>,
+
+    // Profile stacji roboczej (Wieloprofilowość)
+    pub show_station_profiles_window: bool,
+    pub station_profiles: Vec<crate::core::station::StationProfile>,
+    pub active_profile_id: String,
+
+    pub focus_callsign_requested: bool,
 }
 
 impl SpLogApp {
@@ -522,7 +567,7 @@ impl SpLogApp {
             prefix_matcher,
             scp_engine,
             awards_engine: Arc::new(Mutex::new(AwardsEngine::new())),
-            my_station: app_config.station,
+            my_station: app_config.station.clone(),
             // Wczytanie zapisanego języka z konfiguracji stacji
             current_language: Language::from_code(&app_config.current_language),
             status_message: None,
@@ -642,7 +687,7 @@ impl SpLogApp {
             rotor_port: app_config.rotor_port,
             rotor_test_result: None,
 
-            cat_backend: app_config.cat_backend,
+            cat_backend: app_config.cat_backend.clone(),
             tci_host: app_config.tci_host,
             tci_port: app_config.tci_port,
             tci_test_result: None,
@@ -826,9 +871,64 @@ impl SpLogApp {
 
             // PTT
             ptt_active: false,
+
+            // Dwuetapowy CAT i udostępnianie (CAT Sharing)
+            cat_mfg_selected: "Wszystkie".to_string(),
+            cat_conn_type: if app_config.cat_backend == "tci" { "tci".to_string() } else { "serial".to_string() },
+            cat_sharing_enabled: app_config.cat_sharing_enabled,
+            cat_sharing_port: app_config.cat_sharing_port,
+            cat_sharing_active: false,
+            cat_shared_state: std::sync::Arc::new(std::sync::RwLock::new(crate::cat::hamlib::RigState::default())),
+            cat_proxy_server: None,
+            cat_proxy_rx: None,
+
+            // VFO Konsola radiowa & DSP
+            vfo_split_offset_khz: 1.0,
+            vfo_filter_preset: "FIL2".to_string(),
+            vfo_preamp_att: "OFF".to_string(),
+            vfo_nb_nr: false,
+            vfo_agc_speed: "MID".to_string(),
+
+            // Kompas antenowy i wiązka na mapie
+            map_show_beam_lobe: true,
+            map_show_compass: true,
+            map_beamwidth_deg: 50.0,
+
+            // Boczny panel filtrów klastra
+            cluster_show_filter_sidebar: false,
+            cluster_search_query: String::new(),
+            cluster_filter_band_selection: "ALL".to_string(),
+            cluster_filter_mode_selection: "ALL".to_string(),
+            cluster_filter_status: "ALL".to_string(),
+            cluster_filter_source: "ALL".to_string(),
+            cluster_filter_pota_sota_only: false,
+
+            // Wyszukiwanie duplikatów
+            show_find_duplicates_window: false,
+            duplicates_match_date: false,
+            duplicates_groups: Vec::new(),
+            duplicates_selected_ids: std::collections::HashSet::new(),
+            duplicates_status: None,
+
+            // Profile stacji roboczej
+            show_station_profiles_window: false,
+            station_profiles: if app_config.station_profiles.is_empty() {
+                let mut def = app_config.station.clone();
+                if def.id.is_empty() { def.id = "default".to_string(); }
+                if def.name.is_empty() { def.name = "Główny (Dom QTH)".to_string(); }
+                vec![def]
+            } else {
+                app_config.station_profiles.clone()
+            },
+            active_profile_id: app_config.active_profile_id.clone(),
+            focus_callsign_requested: false,
         };
 
         app.rebuild_awards_full();
+
+        if app.cat_sharing_enabled {
+            app.toggle_cat_proxy_server();
+        }
 
         if app.rest_api_enabled {
             let db = app.log_db.clone();
@@ -1211,6 +1311,7 @@ impl SpLogApp {
         self.active_propagation = None;
         self.active_clubs.clear();
         self.past_qsos_for_active_call.clear();
+        self.focus_callsign_requested = true;
     }
 
     pub fn reload_qsos(&mut self) {
@@ -1662,6 +1763,11 @@ impl SpLogApp {
             cat_baud_rate: self.cat_baud_rate,
             cat_rig_id: self.cat_rig_id,
             cat_auto_start_rigctld: self.cat_auto_start_rigctld,
+
+            station_profiles: self.station_profiles.clone(),
+            active_profile_id: self.active_profile_id.clone(),
+            cat_sharing_enabled: self.cat_sharing_enabled,
+            cat_sharing_port: self.cat_sharing_port,
 
             rotor_host: self.rotor_host.clone(),
             rotor_port: self.rotor_port,
@@ -2491,6 +2597,49 @@ impl SpLogApp {
         let tiles = self.get_tiles_in_column(2);
         self.render_tiles_in_column(ui, 2, &tiles);
     }
+
+    pub fn toggle_cat_proxy_server(&mut self) {
+        if self.cat_sharing_enabled {
+            if let Some(srv) = self.cat_proxy_server.take() {
+                srv.stop();
+            }
+            let (srv, rx) = crate::cat::server::HamlibProxyServer::new(self.cat_sharing_port, self.cat_shared_state.clone());
+            let srv_arc = std::sync::Arc::new(srv);
+            self.cat_proxy_server = Some(srv_arc.clone());
+            self.cat_proxy_rx = Some(rx);
+            self.cat_sharing_active = true;
+
+            tokio::spawn(async move {
+                if let Err(e) = srv_arc.run().await {
+                    eprintln!("Hamlib proxy server error: {}", e);
+                }
+            });
+        } else {
+            if let Some(srv) = self.cat_proxy_server.take() {
+                srv.stop();
+            }
+            self.cat_proxy_rx = None;
+            self.cat_sharing_active = false;
+        }
+    }
+
+    pub fn activate_station_profile(&mut self, profile_id: &str) {
+        if let Some(prof) = self.station_profiles.iter().find(|p| p.id == profile_id).cloned() {
+            self.active_profile_id = prof.id.clone();
+            self.my_station = prof.clone();
+            self.entry_pota = prof.pota_ref.clone().unwrap_or_default();
+            self.entry_sota = prof.sota_ref.clone().unwrap_or_default();
+            self.save_station_config();
+            self.status_toast = Some((
+                format!("Przełączono aktywny profil stacji na: {}", if prof.name.is_empty() { &prof.callsign } else { &prof.name }),
+                std::time::Instant::now(),
+            ));
+        }
+    }
+
+    pub fn refresh_qso_list(&mut self) {
+        self.reload_qsos();
+    }
 }
 
 impl eframe::App for SpLogApp {
@@ -2559,6 +2708,41 @@ impl eframe::App for SpLogApp {
                     }
                     if !self.rig_state.mode.is_empty() {
                         self.entry_mode = self.rig_state.mode.clone();
+                    }
+                }
+            }
+        }
+
+        // Synchronizuj stan radia do współdzielonego stanu serwera proxy (CAT Sharing)
+        if self.cat_sharing_enabled {
+            if let Ok(mut shared) = self.cat_shared_state.write() {
+                *shared = self.rig_state.clone();
+            }
+        }
+
+        // Odbiór poleceń z serwera Hamlib proxy (np. zmiana częstotliwości/emisji/PTT przez WSJT-X / FLDigi)
+        let mut proxy_cmds = Vec::new();
+        if let Some(ref mut rx) = self.cat_proxy_rx {
+            while let Ok(cmd) = rx.try_recv() {
+                proxy_cmds.push(cmd);
+            }
+        }
+        for cmd in proxy_cmds {
+            match cmd {
+                crate::cat::server::RigServerCommand::SetFrequency(freq) => {
+                    self.set_vfo_frequency(freq);
+                }
+                crate::cat::server::RigServerCommand::SetMode(mode) => {
+                    self.set_vfo_mode(&mode);
+                }
+                crate::cat::server::RigServerCommand::SetPtt(ptt) => {
+                    self.ptt_active = ptt;
+                    if self.cat_connected {
+                        let host = self.cat_host.clone();
+                        let port = self.cat_port;
+                        tokio::spawn(async move {
+                            let _ = crate::cat::hamlib::HamlibClient::set_ptt(&host, port, ptt).await;
+                        });
                     }
                 }
             }
@@ -2859,15 +3043,47 @@ impl eframe::App for SpLogApp {
             render_main_toolbar(self, ui);
         });
 
-        // Dolny pasek statusu
+        // Dolny pasek statusu stacji
         egui::TopBottomPanel::bottom("bottom_status_bar").show(ctx, |ui| {
+            let lang = self.current_language;
             ui.horizontal(|ui| {
-                let fallback_status = tr("status.ready_all_active", self.current_language);
+                let fallback_status = tr("status.ready_all_active", lang);
                 let status_txt = self.status_message.as_deref().unwrap_or(fallback_status);
                 ui.label(egui::RichText::new(status_txt).size(11.0).color(egui::Color32::from_rgb(148, 163, 184)));
 
+                ui.separator();
+
+                let journal_str = format!("📁 {}: {} ({} QSO)", tr("statusbar.log", lang), self.active_journal.name, self.recent_qsos.len());
+                ui.label(egui::RichText::new(journal_str).size(11.0).color(egui::Color32::from_rgb(52, 211, 153)));
+
+                ui.separator();
+
+                let prof_name = if self.my_station.name.is_empty() { &self.my_station.callsign } else { &self.my_station.name };
+                let profile_str = format!("🏷 {}: {}", tr("statusbar.profile", lang), prof_name);
+                ui.label(egui::RichText::new(profile_str).size(11.0).color(egui::Color32::from_rgb(250, 204, 21)));
+
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(egui::RichText::new("SPLogbook v1.0.0-alpha.1 | Mariusz Woźniak (SP6INA) | GPLv3").size(10.0).color(egui::Color32::from_rgb(100, 116, 139)));
+                    ui.label(egui::RichText::new("SPLogbook v1.0.2 | SP6INA | GPLv3").size(10.0).color(egui::Color32::from_rgb(100, 116, 139)));
+                    ui.separator();
+
+                    let utc_str = format!("⏱ {}: {}", tr("statusbar.utc", lang), chrono::Utc::now().format("%H:%M:%S"));
+                    ui.label(egui::RichText::new(utc_str).size(11.0).monospace().color(egui::Color32::from_rgb(56, 189, 248)));
+                    ui.separator();
+
+                    if self.cat_connected {
+                        ui.label(egui::RichText::new("● CAT").size(11.0).strong().color(egui::Color32::from_rgb(34, 197, 94)));
+                    } else {
+                        ui.label(egui::RichText::new("○ CAT").size(11.0).color(egui::Color32::from_rgb(148, 163, 184)));
+                    }
+                    ui.separator();
+
+                    if self.cluster_connected {
+                        ui.label(egui::RichText::new("● CLUSTER").size(11.0).strong().color(egui::Color32::from_rgb(34, 197, 94)));
+                    } else if self.cluster_connecting {
+                        ui.label(egui::RichText::new("● CLUSTER").size(11.0).color(egui::Color32::from_rgb(250, 204, 21)));
+                    } else {
+                        ui.label(egui::RichText::new("○ CLUSTER").size(11.0).color(egui::Color32::from_rgb(148, 163, 184)));
+                    }
                 });
             });
         });
@@ -2955,6 +3171,8 @@ impl eframe::App for SpLogApp {
         render_statistics_window(self, ctx);
         crate::gui::cluster_panel::render_add_cluster_dialog(self, ctx);
         crate::gui::contest::render_multi_op_window(self, ctx);
+        crate::gui::find_duplicates::render_find_duplicates_window(self, ctx);
+        crate::gui::station_profiles::render_station_profiles_window(self, ctx);
 
         // Okna dialogowe i narzędzia pomocnicze
         if self.journal_dialog.is_open {

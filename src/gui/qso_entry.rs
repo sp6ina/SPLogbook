@@ -136,18 +136,29 @@ pub fn render_qso_entry_window(app: &mut SpLogApp, ctx: &egui::Context) {
 pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.current_language;
 
-            // 1. Znak korespondenta z przyciskiem [🔍 QRZ] i autouzupełnianiem
+            let is_dupe = !app.entry_callsign.is_empty()
+                && app.past_qsos_for_active_call.iter().any(|q| q.band == app.entry_band && q.mode == app.entry_mode);
+
+            // Znak korespondenta & natychmiastowe wykrywanie duplikatów
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new(tr("qso.callsign", lang)).strong().size(13.0));
+                if is_dupe {
+                    ui.colored_label(egui::Color32::from_rgb(239, 68, 68), egui::RichText::new("⚠ DUPE!").strong());
+                }
             });
 
             ui.horizontal(|ui| {
                 let call_response = ui.add(
                     egui::TextEdit::singleline(&mut app.entry_callsign)
                         .font(egui::TextStyle::Heading)
-                        .hint_text("np. W1AW, SP6INA, DL1ABC")
+                        .hint_text("W1AW, SP6INA, DL1ABC")
                         .desired_width(ui.available_width() - 85.0)
                 );
+
+                if app.focus_callsign_requested {
+                    call_response.request_focus();
+                    app.focus_callsign_requested = false;
+                }
 
                 if call_response.changed() {
                     app.entry_callsign = app.entry_callsign.to_uppercase();
@@ -337,9 +348,9 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 }
             }
 
-            // 5b. IOTA, Stan / Okręg & SOTA
+            // Referencje dyplomowe i lokalizacyjne
             ui.horizontal(|ui| {
-                ui.label("🏝 IOTA:");
+                ui.label(format!("🏝 {}:", tr("qso.iota", lang)));
                 let iota_resp = ui.add(egui::TextEdit::singleline(&mut app.entry_iota).desired_width(65.0).hint_text("EU-001"));
                 if iota_resp.changed() {
                     app.entry_iota = app.entry_iota.to_uppercase();
@@ -350,7 +361,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
                 ui.add_space(4.0);
 
-                ui.label("🗺 Stan:");
+                ui.label(format!("🗺 {}:", tr("qso.state", lang)));
                 let st_resp = ui.add(egui::TextEdit::singleline(&mut app.entry_state).desired_width(45.0).hint_text("CA"));
                 if st_resp.changed() {
                     app.entry_state = app.entry_state.to_uppercase();
@@ -361,16 +372,16 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
                 ui.add_space(4.0);
 
-                ui.label("🏔 SOTA:");
+                ui.label(format!("🏔 {}:", tr("qso.sota", lang)));
                 let sota_resp = ui.add(egui::TextEdit::singleline(&mut app.entry_sota).desired_width(75.0).hint_text("SP/BZ-001"));
                 if sota_resp.changed() {
                     app.entry_sota = app.entry_sota.to_uppercase();
                 }
             });
 
-            // 5c. QSL Manager & Callbook Photo
+            // QSL Manager i dane stacji
             ui.horizontal(|ui| {
-                ui.label("📋 QSL via:");
+                ui.label(format!("📋 {}:", tr("qso.qsl_via", lang)));
                 let mgr_resp = ui.add(egui::TextEdit::singleline(&mut app.entry_qsl_manager).desired_width(80.0).hint_text("Manager"));
                 if mgr_resp.changed() {
                     app.entry_qsl_manager = app.entry_qsl_manager.to_uppercase();
@@ -391,10 +402,10 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 }
             });
 
-            // Szybkie przyciski obrotu rotatorem antenowym (SP / LP)
+            // Szybkie sterowanie rotatorem antenowym (SP / LP)
             if app.active_bearing_deg > 0.0 {
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("Azymut:").small().color(egui::Color32::GRAY));
+                    ui.label(egui::RichText::new(format!("{}:", tr("geo.azimuth", lang))).small().color(egui::Color32::GRAY));
                     if ui.button(egui::RichText::new(format!("🧭 SP ({:.0}°)", app.active_bearing_deg)).small().strong()).clicked() {
                         app.turn_rotor_short_path();
                     }

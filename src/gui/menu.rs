@@ -28,6 +28,10 @@ pub fn render_menu_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 app.qsl_designer_dialog.is_open = true;
                 ui.close_menu();
             }
+            if ui.button(format!("🏷 {}", tr("menu.station_profiles", lang))).clicked() {
+                app.show_station_profiles_window = true;
+                ui.close_menu();
+            }
             ui.separator();
             if ui.button(format!("⭐ {}", tr("wizard.setup_station", lang))).clicked() {
                 app.show_welcome_wizard = true;
@@ -224,6 +228,10 @@ pub fn render_menu_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 app.show_cat_settings_window = true;
                 ui.close_menu();
             }
+            if ui.button(format!("🔍 {}", tr("menu.find_duplicates", lang))).clicked() {
+                app.show_find_duplicates_window = true;
+                ui.close_menu();
+            }
             if ui.button(format!("📟 {}", tr("tools.cw_terminal", lang))).clicked() {
                 app.cw_terminal_dialog.is_open = true;
                 ui.close_menu();
@@ -261,7 +269,7 @@ pub fn render_menu_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 app.show_contest_window = true;
                 ui.close_menu();
             }
-            if ui.button("🌐 Praca Zespołowa Multi-Op (LAN)").clicked() {
+            if ui.button(format!("🌐 {}", tr("tools.multi_op", lang))).clicked() {
                 app.show_multi_op_window = true;
                 ui.close_menu();
             }
@@ -344,12 +352,24 @@ pub fn render_menu_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
             }
         });
 
-        // Prawa strona paska menu: wyłącznie znak OP i zegar UTC (nie koliduje z lewym menu!)
+        // Prawa strona paska menu: wyłącznie znak OP, aktywny profil stacji i zegar UTC (nie koliduje z lewym menu!)
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let utc_now = chrono::Utc::now().format("%H:%M:%S UTC").to_string();
             ui.label(egui::RichText::new(format!("⏱ {}", utc_now)).color(egui::Color32::from_rgb(148, 163, 184)).monospace().strong());
             ui.separator();
             ui.label(egui::RichText::new(format!("OP: {} ({})", app.my_station.callsign, app.my_station.gridsquare)).color(egui::Color32::from_rgb(56, 189, 248)).strong());
+            ui.separator();
+            let profile_label = if app.my_station.name.is_empty() {
+                format!("🏷 {}", app.my_station.callsign)
+            } else {
+                format!("🏷 {}", app.my_station.name)
+            };
+            if ui.button(egui::RichText::new(profile_label).color(egui::Color32::from_rgb(250, 204, 21)).size(11.0))
+                .on_hover_text(tr("profiles.title", lang))
+                .clicked() 
+            {
+                app.show_station_profiles_window = true;
+            }
         });
     });
 }
