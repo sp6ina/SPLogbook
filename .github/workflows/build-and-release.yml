@@ -100,6 +100,18 @@ jobs:
           if (Test-Path databases\callbook.db) { Copy-Item databases\callbook.db "$pkgDir\databases\" }
           Copy-Item README.md "$pkgDir\"
           Copy-Item LICENSE "$pkgDir\"
+
+          # Download and bundle pre-built Hamlib 4.7.2 binaries (rigctld, rotctld, and DLLs)
+          Write-Host "Downloading Hamlib 4.7.2 for Windows..."
+          $hamlibZip = "hamlib-w64-4.7.2.zip"
+          $hamlibUrl = "https://github.com/Hamlib/Hamlib/releases/download/4.7.2/$hamlibZip"
+          Invoke-WebRequest -Uri $hamlibUrl -OutFile $hamlibZip
+          Expand-Archive -Path $hamlibZip -DestinationPath "hamlib-tmp" -Force
+          Copy-Item "hamlib-tmp\hamlib-w64-4.7.2\bin\*" "$pkgDir\" -Force
+          New-Item -ItemType Directory -Force -Path "$pkgDir\hamlib" | Out-Null
+          Copy-Item "hamlib-tmp\hamlib-w64-4.7.2" "$pkgDir\hamlib\" -Recurse -Force
+          Remove-Item -Recurse -Force "hamlib-tmp", $hamlibZip
+
           Compress-Archive -Path "$pkgDir\*" -DestinationPath "SPLogbook-Windows-x64.zip" -Force
 
       - name: Upload Windows artifact
