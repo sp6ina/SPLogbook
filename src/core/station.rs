@@ -111,6 +111,7 @@ fn default_lan_sync_port() -> u16 { 7373 }
 fn default_lan_sync_server_ip() -> String { "127.0.0.1".to_string() }
 fn default_profile_id() -> String { "default".to_string() }
 fn default_cat_sharing_port() -> u16 { 4534 }
+fn default_hamlib_source() -> String { "bundled".to_string() }
 
 /// Konfiguracja pojedynczej kolumny w tabeli dziennika łączności
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
@@ -165,6 +166,10 @@ pub struct AppConfig {
     pub cat_baud_rate: u32,
     pub cat_rig_id: u32,
     pub cat_auto_start_rigctld: bool,
+    #[serde(default = "default_hamlib_source")]
+    pub cat_hamlib_source: String,
+    #[serde(default)]
+    pub cat_custom_rigctld_path: String,
 
     // Profile stacji roboczej (Wieloprofilowość)
     #[serde(default)]
@@ -431,6 +436,8 @@ impl Default for AppConfig {
             cat_baud_rate: 19200,
             cat_rig_id: 1,
             cat_auto_start_rigctld: false,
+            cat_hamlib_source: "bundled".to_string(),
+            cat_custom_rigctld_path: String::new(),
 
             station_profiles: Vec::new(),
             active_profile_id: "default".to_string(),

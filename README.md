@@ -10,7 +10,7 @@
   <img src="https://img.shields.io/badge/GUI-egui_%2F_eframe-blueviolet.svg" alt="egui">
   <img src="https://img.shields.io/badge/License-GPLv3-blue.svg" alt="License">
   <img src="https://img.shields.io/badge/Platform-Windows_%7C_GNU%2FLinux-blue.svg" alt="Platform">
-  <img src="https://img.shields.io/badge/Version-1.0.2-emerald.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Version-1.0.3-emerald.svg" alt="Version">
   <a href="https://github.com/sp6ina/SPLogbook/actions"><img src="https://github.com/sp6ina/SPLogbook/actions/workflows/build-and-release.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/Tests-54%2F54_Passed-brightgreen.svg" alt="Tests">
   <img src="https://img.shields.io/badge/i18n-6_Languages-cyan.svg" alt="i18n">
@@ -73,7 +73,7 @@ From deep ionospheric modeling (VOACAP-lite HF propagation), automated antenna r
 | **Ham Clubs Directory** | Real-time recognition and color-coded badge display for SP-OTC, SPCWC, SKCC, CWOPS, FOC, and HSC with member number recognition. |
 | **QSL Vector PDF** | Full A4 vector PDF label sheet exporter for Avery 3x8, 3x7, 2x8, 2x7 formats, plus standalone QSL card visual designer. |
 | **Station Profiles** | Multi-profile workstation management (Home QTH, Field /P, SOTA/POTA, Contest) with instant 1-click preset switching. |
-| **Transceiver CAT & Sharing** | Non-blocking Hamlib `rigctld` supervisor, VFO A/B, split, mode, PTT, WinKeyer, TCI protocol, plus integrated **Hamlib CAT TCP Proxy Server** (port 4534) for simultaneous multi-app rig sharing (WSJT-X, JTDX, FLDigi). |
+| **Transceiver CAT & Sharing** | Non-blocking Hamlib `rigctld` supervisor, VFO A/B, split, mode, PTT, WinKeyer, TCI protocol, selectable **Bundled (Hamlib 4.7.2 pre-packaged for Windows & GNU/Linux)** or **System-installed** library source, plus integrated **Hamlib CAT TCP Proxy Server** (port 4534) for simultaneous multi-app rig sharing (WSJT-X, JTDX, FLDigi). |
 | **Digital Modes** | WSJT-X / JTDX bi-directional UDP bridge (port 2237), JS8Call TCP JSON API integration, FLDigi XML-RPC bridge. |
 | **Satellites** | SGP4/SDP4 Keplerian orbital propagation from TLE, real-time Doppler shift frequency correction via CAT, antenna elevation/azimuth steering. |
 | **Contests & Dupe Engine** | Rules for SP DX, CQ WW, ARRL DX, CQ WPX; real-time inline `[DUPE!]` warning, N1MM-style keyboard-first auto-refocus, dedicated Duplicate Manager with smart batch cleaning, and Cabrillo 3.0 export. |
@@ -172,9 +172,11 @@ SPLogbook features a self-contained ionospheric HF propagation engine (`src/core
 ---
 
 ### 7. Transceiver CAT & Hardware Supervision
-- **Hamlib `rigctld` Client & Supervisor:**
-  - Manages the `rigctld.exe` background process, automatically launching it on startup and terminating it smoothly.
-  - Employs non-blocking polling (`try_wait` with 50ms intervals) to eliminate application freezes during shutdown.
+- **Hamlib `rigctld` Client & Lifecycle Supervisor:**
+  - **Bundled vs System Hamlib Source Selection:** Operators can choose between the pre-packaged **Bundled Hamlib 4.7.2** (included out-of-the-box with both Windows `.zip` and Linux `.tar.gz` releases) or a **System-Installed** Hamlib binary (`/usr/bin/rigctld` or system `PATH`).
+  - **Live Auto-Detection & Path Verification:** The settings window dynamically verifies the presence and exact path of the selected binary with visual status badges (`✔ Detected` or `⚠ Not Found`), and offers an optional custom binary path field.
+  - **Self-Contained Linux Portability:** Linux runtime automatically manages dynamic library paths (`LD_LIBRARY_PATH` and RPATH `$ORIGIN/hamlib/lib`), guaranteeing that bundled shared libraries (`libhamlib.so`) load seamlessly without requiring external packages or system root privileges.
+  - **Smooth Lifecycle Management:** Background supervisor launches `rigctld` with concealed console flags (`CREATE_NO_WINDOW` on Windows), checks PID liveness non-blockingly, and performs graceful termination on application exit.
   - Supports bidirectional polling of VFO frequency, mode, passband, and split status.
 - **PTT & On-Air Control:** On-screen PTT toggle transmitting Hamlib `T 1` / `T 0` commands with visual TX/RX indication.
 - **CW Keyer & Macro Terminal:**

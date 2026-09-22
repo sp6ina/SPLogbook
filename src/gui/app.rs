@@ -261,6 +261,8 @@ pub struct SpLogApp {
     pub cat_rig_id: u32,
     pub cat_model_search: String,
     pub cat_auto_start_rigctld: bool,
+    pub cat_hamlib_source: String,
+    pub cat_custom_rigctld_path: String,
     pub rigctld_supervisor: Option<crate::cat::supervisor::RigctldSupervisor>,
 
     // Wielodziennikowość i dialogi pomocnicze
@@ -749,6 +751,8 @@ impl SpLogApp {
             cat_rig_id: app_config.cat_rig_id,
             cat_model_search: String::new(),
             cat_auto_start_rigctld: app_config.cat_auto_start_rigctld,
+            cat_hamlib_source: app_config.cat_hamlib_source,
+            cat_custom_rigctld_path: app_config.cat_custom_rigctld_path,
             rigctld_supervisor: None,
 
             journal_dialog: crate::gui::journal_manager::JournalManagerDialog::default(),
@@ -1763,6 +1767,8 @@ impl SpLogApp {
             cat_baud_rate: self.cat_baud_rate,
             cat_rig_id: self.cat_rig_id,
             cat_auto_start_rigctld: self.cat_auto_start_rigctld,
+            cat_hamlib_source: self.cat_hamlib_source.clone(),
+            cat_custom_rigctld_path: self.cat_custom_rigctld_path.clone(),
 
             station_profiles: self.station_profiles.clone(),
             active_profile_id: self.active_profile_id.clone(),
@@ -2375,6 +2381,8 @@ impl SpLogApp {
                 self.cat_rig_id,
                 &self.cat_serial_port,
                 self.cat_baud_rate,
+                &self.cat_hamlib_source,
+                &self.cat_custom_rigctld_path,
             );
             match sup.start() {
                 Ok(_) => {
@@ -3063,7 +3071,7 @@ impl eframe::App for SpLogApp {
                 ui.label(egui::RichText::new(profile_str).size(11.0).color(egui::Color32::from_rgb(250, 204, 21)));
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(egui::RichText::new("SPLogbook v1.0.2 | SP6INA | GPLv3").size(10.0).color(egui::Color32::from_rgb(100, 116, 139)));
+                    ui.label(egui::RichText::new("SPLogbook v1.0.3 | SP6INA | GPLv3").size(10.0).color(egui::Color32::from_rgb(100, 116, 139)));
                     ui.separator();
 
                     let utc_str = format!("⏱ {}: {}", tr("statusbar.utc", lang), chrono::Utc::now().format("%H:%M:%S"));
