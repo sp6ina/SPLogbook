@@ -1875,7 +1875,13 @@ impl SpLogApp {
             logbook_columns: self.logbook_columns.clone(),
             custom_contests: self.custom_contests.clone(),
         };
-        let _ = cfg.save_to_file(&self.config_file_path);
+        if let Err(e) = cfg.save_to_file(&self.config_file_path) {
+            log::error!("Nie udało się zapisać konfiguracji stacji ({}): {}", self.config_file_path.display(), e);
+            self.status_toast = Some((
+                format!("⚠ Błąd zapisu konfiguracji: {}", e),
+                std::time::Instant::now(),
+            ));
+        }
     }
 
     pub fn connect_dx_cluster(&mut self) {

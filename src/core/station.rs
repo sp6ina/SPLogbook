@@ -548,13 +548,21 @@ impl AppConfig {
         AppConfig::default()
     }
 
+    /// Zapisuje konfigurację w sposób atomowy: najpierw do pliku tymczasowego w tym
+    /// samym katalogu, a następnie przez `rename()` (atomowe na większości systemów
+    /// plików) nad docelową ścieżką. Zapobiega uszkodzeniu/obcięciu
+    /// `station_config.json` w razie awarii zasilania lub awaryjnego zamknięcia
+    /// aplikacji w trakcie zapisu.
     pub fn save_to_file(&self, path: &std::path::Path) -> Result<(), std::io::Error> {
         if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
+            std::fs::create_dir_all(parent)?;
         }
         let data = serde_json::to_string_pretty(self)
             .map_err(std::io::Error::other)?;
-        std::fs::write(path, data)
+
+        let tmp_path = path.with_extension("json.tmp");
+        std::fs::write(&tmp_path, data)?;
+        std::fs::rename(&tmp_path, path)
     }
 }
 

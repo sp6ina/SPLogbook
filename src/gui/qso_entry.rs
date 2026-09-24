@@ -135,6 +135,10 @@ pub fn render_qso_entry_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
 pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.current_language;
+    // Identyfikatory pól tego panelu, używane do ograniczenia skrótu
+    // Enter=Zapisz/Escape=Wyczyść wyłącznie do sytuacji, gdy fokus klawiatury
+    // znajduje się faktycznie w tym panelu (a nie np. w Logbooku czy innym oknie).
+    let mut entry_field_ids: Vec<egui::Id> = Vec::new();
 
             let is_dupe = !app.entry_callsign.is_empty()
                 && app.past_qsos_for_active_call.iter().any(|q| q.band == app.entry_band && q.mode == app.entry_mode);
@@ -168,6 +172,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 if ui.button(egui::RichText::new("🔍 QRZ").strong()).on_hover_text("Pobierz dane z bazy QRZ.com / Callbook").clicked() {
                     app.lookup_active_callsign_online();
                 }
+                entry_field_ids.push(call_response.id);
             });
 
             // Podpowiedzi Super Check Partial (SCP)
@@ -299,18 +304,21 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             // 3. Raporty RST
             ui.horizontal(|ui| {
                 ui.label(tr("qso.rst_sent", lang));
-                ui.add(egui::TextEdit::singleline(&mut app.entry_rst_sent).desired_width(60.0));
+                let rst_sent_resp = ui.add(egui::TextEdit::singleline(&mut app.entry_rst_sent).desired_width(60.0));
 
                 ui.add_space(10.0);
 
                 ui.label(tr("qso.rst_rcvd", lang));
-                ui.add(egui::TextEdit::singleline(&mut app.entry_rst_rcvd).desired_width(60.0));
+                let rst_rcvd_resp = ui.add(egui::TextEdit::singleline(&mut app.entry_rst_rcvd).desired_width(60.0));
+                entry_field_ids.push(rst_sent_resp.id);
+                entry_field_ids.push(rst_rcvd_resp.id);
             });
 
             // 4. Imię operatora & Lokator QTH
             ui.horizontal(|ui| {
                 ui.label(tr("qso.name", lang));
-                ui.add(egui::TextEdit::singleline(&mut app.entry_name).desired_width(120.0));
+                let name_resp = ui.add(egui::TextEdit::singleline(&mut app.entry_name).desired_width(120.0));
+                entry_field_ids.push(name_resp.id);
 
                 ui.add_space(10.0);
 
@@ -320,6 +328,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     app.entry_grid = app.entry_grid.to_uppercase();
                     app.recalculate_distance_from_grid();
                 }
+                entry_field_ids.push(loc_resp.id);
             });
 
             // 5. Miejscowość (QTH) & Gmina PGA
@@ -339,6 +348,8 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 if pga_resp.changed() {
                     app.entry_pga = app.entry_pga.to_uppercase();
                 }
+                entry_field_ids.push(qth_resp.id);
+                entry_field_ids.push(pga_resp.id);
             });
 
             // Podgląd nazwy gminy PGA jeśli kod jest wpisany
@@ -377,6 +388,9 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 if sota_resp.changed() {
                     app.entry_sota = app.entry_sota.to_uppercase();
                 }
+                entry_field_ids.push(iota_resp.id);
+                entry_field_ids.push(st_resp.id);
+                entry_field_ids.push(sota_resp.id);
             });
 
             // QSL Manager i dane stacji
@@ -400,6 +414,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     let call = app.entry_callsign.clone();
                     app.photo_viewer_dialog.open(&call, None);
                 }
+                entry_field_ids.push(mgr_resp.id);
             });
 
             // Szybkie sterowanie rotatorem antenowym (SP / LP)
@@ -418,7 +433,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             // 6. Komentarz i nagrywanie audio łączności
             ui.horizontal(|ui| {
                 ui.label(tr("qso.comment", lang));
-                ui.add(egui::TextEdit::singleline(&mut app.entry_comment).desired_width(ui.available_width() - 85.0));
+                let comment_resp = ui.add(egui::TextEdit::singleline(&mut app.entry_comment).desired_width(ui.available_width() - 85.0));
 
                 let is_rec = crate::media::audio_recorder::AudioRecorder::is_recording();
                 if is_rec {
@@ -430,6 +445,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                         let _ = crate::media::audio_recorder::AudioRecorder::start_recording();
                     }
                 }
+                entry_field_ids.push(comment_resp.id);
             });
 
             ui.add_space(6.0);
@@ -441,7 +457,12 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     egui::Button::new(egui::RichText::new(format!("💾 {}", tr("qso.save", lang))).strong().color(egui::Color32::from_rgb(15, 23, 42)))
                         .fill(egui::Color32::from_rgb(56, 189, 248))
                 );
-                if save_btn.clicked() || (ui.input(|i| i.key_pressed(egui::Key::Enter)) && !app.entry_callsign.is_empty()) {
+                // Skrót Enter=Zapisz działa tylko, gdy fokus klawiatury jest na jednym z pól
+                // tego panelu QSO Entry (a nie np. w Logbooku, DX Clusterze czy innym oknie),
+                // aby przypadkowe Enter gdzie indziej nie logowało nieaktualnych danych.
+                let any_field_focused = ui.memory(|m| entry_field_ids.iter().any(|id| m.has_focus(*id)));
+                let enter_pressed = ui.input(|i| i.key_pressed(egui::Key::Enter));
+                if save_btn.clicked() || (any_field_focused && enter_pressed && !app.entry_callsign.is_empty()) {
                     app.save_qso();
                 }
 
@@ -449,7 +470,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     [ui.available_width(), 30.0],
                     egui::Button::new(tr("qso.clear", lang))
                 );
-                if clear_btn.clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                if clear_btn.clicked() || (any_field_focused && ui.input(|i| i.key_pressed(egui::Key::Escape))) {
                     app.clear_qso_form();
                 }
             });
