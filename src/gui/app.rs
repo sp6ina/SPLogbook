@@ -157,6 +157,7 @@ pub struct SpLogApp {
 
     // Motyw i konfiguracja stacji
     pub dark_theme: bool,
+    pub theme_preset: crate::gui::theme::ThemePreset,
     pub show_welcome_wizard: bool,
     pub wizard_tab: u8,
     pub config_file_path: std::path::PathBuf,
@@ -664,6 +665,7 @@ impl SpLogApp {
             new_eq_notes: String::new(),
 
             dark_theme: app_config.dark_theme,
+            theme_preset: crate::gui::theme::ThemePreset::from_id(&app_config.theme_preset),
             show_welcome_wizard: show_wizard,
             wizard_tab: 0,
             config_file_path,
@@ -1779,6 +1781,7 @@ impl SpLogApp {
             station: self.my_station.clone(),
             equipment: self.equipment_items.clone(),
             dark_theme: self.dark_theme,
+            theme_preset: self.theme_preset.id().to_string(),
 
             cat_host: self.cat_host.clone(),
             cat_port: self.cat_port,
@@ -3062,12 +3065,11 @@ impl eframe::App for SpLogApp {
             }
         }
 
-        // Zastosowanie wybranego motywu: Jasny / Ciemny
-        if self.dark_theme {
-            ctx.set_visuals(egui::Visuals::dark());
-        } else {
-            ctx.set_visuals(egui::Visuals::light());
-        }
+        // Zastosowanie wybranego motywu kolorystycznego (patrz gui::theme::ThemePreset).
+        // Zachowujemy `dark_theme` zsynchronizowany z jasnością aktywnego presetu,
+        // aby ewentualny inny kod odczytujący ten flag nadal działał poprawnie.
+        self.dark_theme = self.theme_preset.is_dark();
+        self.theme_preset.apply(ctx);
 
         ctx.style_mut(|s| {
             s.spacing.window_margin = egui::Margin::symmetric(6.0, 4.0);

@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 pub mod app;
+pub mod theme;
 pub mod awards_matrix;
 pub mod bandmap;
 pub mod cat_settings;

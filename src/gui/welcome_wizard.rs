@@ -386,7 +386,8 @@ fn render_tab_appearance(
             egui::Button::new(egui::RichText::new(tr("wizard.theme_dark", lang)).size(12.0))
                 .fill(egui::Color32::from_rgb(30, 30, 50))
         ).clicked() {
-            ctx.set_visuals(egui::Visuals::dark());
+            app.theme_preset = crate::gui::theme::ThemePreset::OperatorDark;
+            app.theme_preset.apply(ctx);
             app.dark_theme = true;
             app.save_station_config();
         }
@@ -394,7 +395,8 @@ fn render_tab_appearance(
             egui::Button::new(egui::RichText::new(tr("wizard.theme_light", lang)).size(12.0))
                 .fill(egui::Color32::from_rgb(220, 220, 230))
         ).clicked() {
-            ctx.set_visuals(egui::Visuals::light());
+            app.theme_preset = crate::gui::theme::ThemePreset::Daylight;
+            app.theme_preset.apply(ctx);
             app.dark_theme = false;
             app.save_station_config();
         }

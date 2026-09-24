@@ -109,6 +109,7 @@ fn default_fldigi_host() -> String { "127.0.0.1".to_string() }
 fn default_fldigi_port() -> u16 { 7362 }
 fn default_lan_sync_port() -> u16 { 7373 }
 fn default_lan_sync_server_ip() -> String { "127.0.0.1".to_string() }
+fn default_theme_preset() -> String { "operator_dark".to_string() }
 fn default_profile_id() -> String { "default".to_string() }
 fn default_cat_sharing_port() -> u16 { 4534 }
 fn default_hamlib_source() -> String { "bundled".to_string() }
@@ -155,6 +156,10 @@ pub struct AppConfig {
     pub station: StationProfile,
     pub equipment: Vec<EquipmentItem>,
     pub dark_theme: bool,
+    /// Identyfikator wybranego predefiniowanego motywu kolorystycznego
+    /// (patrz `gui::theme::ThemePreset::id()`). Nadrzędny wobec `dark_theme`.
+    #[serde(default = "default_theme_preset")]
+    pub theme_preset: String,
 
     // Konfiguracja Hamlib CAT
     pub cat_host: String,
@@ -434,7 +439,7 @@ impl Default for AppConfig {
             station: StationProfile::default(),
             equipment: Vec::new(),
             dark_theme: true,
-
+            theme_preset: default_theme_preset(),
             cat_host: "127.0.0.1".to_string(),
             cat_port: 4532,
             cat_enabled: true,

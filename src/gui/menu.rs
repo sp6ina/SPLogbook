@@ -125,10 +125,17 @@ pub fn render_menu_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
             if ui.checkbox(&mut app.compact_hud_mode, format!("🗗 {}", tr("view.compact_hud", lang))).changed() {
                 app.save_station_config();
             }
-            let theme_label = if app.dark_theme { tr("theme.dark", lang) } else { tr("theme.light", lang) };
-            if ui.checkbox(&mut app.dark_theme, theme_label).changed() {
-                app.save_station_config();
-            }
+            ui.separator();
+            ui.menu_button(format!("🎨 {}", tr("theme.menu", lang)), |ui| {
+                for preset in crate::gui::theme::ThemePreset::ALL {
+                    let selected = app.theme_preset == preset;
+                    if ui.selectable_label(selected, preset.label_pl()).on_hover_text(preset.description_pl()).clicked() {
+                        app.theme_preset = preset;
+                        app.save_station_config();
+                        ui.close_menu();
+                    }
+                }
+            });
         });
 
         // Menu: DX Cluster (Zarządzanie połączeniem, serwerami i filtrami)
@@ -524,9 +531,11 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
             }
 
         if app.quick_access.show_theme {
-            let theme_btn_text = if app.dark_theme { format!("🌙 {}", tr("toolbar.theme_dark", lang)) } else { format!("☀ {}", tr("toolbar.theme_light", lang)) };
-            if ui.button(theme_btn_text).clicked() {
-                app.dark_theme = !app.dark_theme;
+            let theme_btn_text = format!("🎨 {}", app.theme_preset.label_pl());
+            if ui.button(theme_btn_text).on_hover_text(tr("toolbar.theme_cycle_hint", lang)).clicked() {
+                let all = crate::gui::theme::ThemePreset::ALL;
+                let idx = all.iter().position(|p| *p == app.theme_preset).unwrap_or(0);
+                app.theme_preset = all[(idx + 1) % all.len()];
                 app.save_station_config();
             }
         }
