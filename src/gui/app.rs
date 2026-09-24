@@ -1695,31 +1695,11 @@ impl SpLogApp {
             };
 
             fn gridsquare_to_latlon(grid: &str) -> Option<(f64, f64)> {
-                let grid = grid.trim().to_uppercase();
-                if grid.len() < 4 {
-                    return None;
-                }
-                let chars: Vec<char> = grid.chars().collect();
-                
-                let lon_field = (chars[0] as i32 - 'A' as i32) as f64 * 20.0 - 180.0;
-                let lat_field = (chars[1] as i32 - 'A' as i32) as f64 * 10.0 - 90.0;
-                
-                let lon_square = (chars[2] as i32 - '0' as i32) as f64 * 2.0;
-                let lat_square = (chars[3] as i32 - '0' as i32) as f64 * 1.0;
-                
-                let mut lon = lon_field + lon_square;
-                let mut lat = lat_field + lat_square;
-                
-                if grid.len() >= 6 {
-                    let lon_sub = (chars[4] as i32 - 'A' as i32) as f64 * (2.0 / 24.0) + (1.0 / 24.0);
-                    let lat_sub = (chars[5] as i32 - 'A' as i32) as f64 * (1.0 / 24.0) + (0.5 / 24.0);
-                    lon += lon_sub;
-                    lat += lat_sub;
-                } else {
-                    lon += 1.0;
-                    lat += 0.5;
-                }
-                Some((lat, lon))
+                // Współdzielona, zwalidowana logika lokatora Maidenhead (core::geo)
+                // zamiast lokalnej duplikacji bez walidacji formatu wejścia.
+                crate::core::geo::locator_to_coordinates(grid)
+                    .ok()
+                    .map(|c| (c.latitude, c.longitude))
             }
 
             let mut row_count = 0;
