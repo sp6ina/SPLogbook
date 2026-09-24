@@ -20,6 +20,22 @@ pub struct ApiState {
     callsign: String,
     start_time: Instant,
     pub cluster_spots: Arc<Mutex<Vec<DxSpot>>>,
+    api_key: String,
+}
+
+/// Generuje losowy klucz uwierzytelniający dla lokalnego serwera REST API.
+/// Nie zależy od zewnętrznych bibliotek RNG: miesza entropię z kilku niezależnie
+/// zainicjalizowanych `RandomState` (SipHash), które na większości platform
+/// same czerpią losowość z systemowego generatora (getrandom/CryptGenRandom).
+pub fn generate_api_key() -> String {
+    use std::collections::hash_map::RandomState;
+    use std::hash::{BuildHasher, Hasher};
+    let mut key = String::with_capacity(32);
+    for _ in 0..4 {
+        let h = RandomState::new().build_hasher().finish();
+        key.push_str(&format!("{:016x}", h));
+    }
+    key
 }
 
 #[derive(Serialize)]
@@ -54,7 +70,7 @@ async fn cors_middleware(req: axum::extract::Request, next: axum::middleware::Ne
     use axum::http::HeaderValue;
     const ORIGIN: HeaderValue  = HeaderValue::from_static("*");
     const METHODS: HeaderValue = HeaderValue::from_static("GET, POST, OPTIONS");
-    const HEADERS: HeaderValue = HeaderValue::from_static("Content-Type, Authorization");
+    const HEADERS: HeaderValue = HeaderValue::from_static("Content-Type, Authorization, X-Api-Key");
 
     if req.method() == Method::OPTIONS {
         let mut res = Response::new(axum::body::Body::empty());
@@ -69,17 +85,40 @@ async fn cors_middleware(req: axum::extract::Request, next: axum::middleware::Ne
     res
 }
 
+/// Wymaga poprawnego nagłówka `X-Api-Key` dla wszystkich żądań poza publicznym
+/// `/api/v1/status` (który nie ujawnia danych QSO) i preflightem CORS (OPTIONS).
+/// Zapobiega to odczytowi/zapisowi dziennika przez dowolną stronę WWW lub proces
+/// lokalny, który mógłby wykorzystać otwarte CORS (`*`) do wysyłania żądań do
+/// localhost (atak typu "localhost drive-by" / DNS rebinding).
+async fn auth_middleware(
+    State(state): State<ApiState>,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Result<Response, StatusCode> {
+    if req.method() == Method::OPTIONS || req.uri().path() == "/api/v1/status" {
+        return Ok(next.run(req).await);
+    }
+
+    let provided = req.headers().get("x-api-key").and_then(|v| v.to_str().ok());
+    match provided {
+        Some(key) if !state.api_key.is_empty() && key == state.api_key => Ok(next.run(req).await),
+        _ => Err(StatusCode::UNAUTHORIZED),
+    }
+}
+
 pub async fn start_api_server(
     db: Arc<Mutex<crate::core::database::LogDatabase>>,
     callsign: String,
     port: u16,
     cluster_spots: Arc<Mutex<Vec<DxSpot>>>,
+    api_key: String,
 ) {
     let state = ApiState {
         db,
         callsign,
         start_time: Instant::now(),
         cluster_spots,
+        api_key,
     };
 
     let app = Router::new()
@@ -88,6 +127,7 @@ pub async fn start_api_server(
         .route("/api/v1/qsos/:id", get(get_qso_by_id))
         .route("/api/v1/stats", get(get_stats))
         .route("/api/v1/cluster/spots", get(get_cluster_spots))
+        .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
         .layer(middleware::from_fn(cors_middleware))
         .with_state(state);
 
@@ -101,6 +141,7 @@ pub async fn start_api_server(
         }
     };
     eprintln!("[REST API] Serwer uruchomiony na http://{}", bind_addr);
+    eprintln!("[REST API] Wymagany naglowek uwierzytelniajacy X-Api-Key (patrz Narzedzia -> REST API).");
     if let Err(e) = axum::serve(listener, app).await {
         eprintln!("[REST API] Blad serwera: {}", e);
     }

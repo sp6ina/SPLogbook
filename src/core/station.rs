@@ -216,6 +216,10 @@ pub struct AppConfig {
     pub lan_sync_auto_start: bool,
     #[serde(default = "default_lan_sync_server_ip")]
     pub lan_sync_server_ip: String,
+    /// Hasło współdzielone wymagane od stacji klienckich łączących się z hostem
+    /// Multi-Op LAN. Puste = brak uwierzytelniania (niezalecane poza zaufaną siecią).
+    #[serde(default)]
+    pub lan_sync_secret: String,
 
     // Konfiguracja ARRL LoTW
     pub lotw_tqsl_path: String,
@@ -242,6 +246,10 @@ pub struct AppConfig {
     // Konfiguracja Cloudlog REST API
     pub cloudlog_url: String,
     pub cloudlog_api_key: String,
+
+    // Klucz uwierzytelniający dla wbudowanego serwera REST API (menu Narzędzia -> REST API).
+    // Generowany losowo przy pierwszym włączeniu serwera; wymagany w nagłówku X-Api-Key.
+    pub rest_api_key: String,
 
     // Konfiguracja HRDLog.net
     pub hrdlog_username: String,
@@ -460,6 +468,7 @@ impl Default for AppConfig {
             lan_sync_port: 7373,
             lan_sync_auto_start: false,
             lan_sync_server_ip: "127.0.0.1".to_string(),
+            lan_sync_secret: String::new(),
 
             lotw_tqsl_path: "C:\\Program Files (x86)\\Trusted QSL\\tqsl.exe".to_string(),
             lotw_station_name: String::new(),
@@ -481,6 +490,7 @@ impl Default for AppConfig {
 
             cloudlog_url: String::new(),
             cloudlog_api_key: String::new(),
+            rest_api_key: String::new(),
             hrdlog_username: String::new(),
             hrdlog_upload_code: String::new(),
             hamqth_username: String::new(),

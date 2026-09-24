@@ -6,6 +6,26 @@ use crate::core::i18n::tr;
 use crate::gui::app::SpLogApp;
 use eframe::egui;
 
+/// Testuje połączenie TCP z podanym hostem/portem, wspierając zarówno adresy IP
+/// jak i nazwy hosta (DNS/`localhost`). W przypadku niepoprawnego adresu zwraca
+/// jawny błąd zamiast po cichu łączyć się z zupełnie innym, domyślnym adresem.
+fn test_tcp_connection(host: &str, port: u16, timeout_ms: u64) -> Result<(), String> {
+    use std::net::ToSocketAddrs;
+    let host = host.trim();
+    if host.is_empty() {
+        return Err("Host nie może być pusty".to_string());
+    }
+    let mut addrs = (host, port)
+        .to_socket_addrs()
+        .map_err(|e| format!("Nieprawidłowy adres {}:{} — {}", host, port, e))?;
+    let addr = addrs
+        .next()
+        .ok_or_else(|| format!("Nie udało się rozwiązać adresu {}:{}", host, port))?;
+    std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(timeout_ms))
+        .map(|_| ())
+        .map_err(|e| format!("Błąd połączenia z {}:{} — {}", host, port, e))
+}
+
 pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
     if !app.show_cat_settings_window {
         return;
@@ -134,11 +154,8 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             if ui.button(tr("cat_settings.test_tci", lang)).clicked() {
                                 let host = app.tci_host.clone();
                                 let port = app.tci_port;
-                                match std::net::TcpStream::connect_timeout(
-                                    &format!("{}:{}", host, port).parse().unwrap_or_else(|_| "127.0.0.1:40001".parse().unwrap()),
-                                    std::time::Duration::from_millis(800),
-                                ) {
-                                    Ok(_) => app.tci_test_result = Some(format!("TCI {}:{} OK", host, port)),
+                                match test_tcp_connection(&host, port, 800) {
+                                    Ok(()) => app.tci_test_result = Some(format!("TCI {}:{} OK", host, port)),
                                     Err(e) => app.tci_test_result = Some(e.to_string()),
                                 }
                             }
@@ -244,11 +261,8 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             if ui.button(tr("cat_settings.test_tcp", lang)).clicked() {
                                 let host = app.cat_host.clone();
                                 let port = app.cat_port;
-                                match std::net::TcpStream::connect_timeout(
-                                    &format!("{}:{}", host, port).parse().unwrap_or_else(|_| "127.0.0.1:4532".parse().unwrap()),
-                                    std::time::Duration::from_millis(800),
-                                ) {
-                                    Ok(_) => app.cat_test_result = Some(format!("TCP {}:{} OK", host, port)),
+                                match test_tcp_connection(&host, port, 800) {
+                                    Ok(()) => app.cat_test_result = Some(format!("TCP {}:{} OK", host, port)),
                                     Err(e) => app.cat_test_result = Some(e.to_string()),
                                 }
                             }
@@ -304,11 +318,8 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         if ui.button(tr("cat_settings.test_rotor", lang)).clicked() {
                             let host = app.rotor_host.clone();
                             let port = app.rotor_port;
-                            match std::net::TcpStream::connect_timeout(
-                                &format!("{}:{}", host, port).parse().unwrap_or_else(|_| "127.0.0.1:4533".parse().unwrap()),
-                                std::time::Duration::from_millis(800),
-                            ) {
-                                Ok(_) => app.rotor_test_result = Some(format!("rotctld {}:{} OK", host, port)),
+                            match test_tcp_connection(&host, port, 800) {
+                                Ok(()) => app.rotor_test_result = Some(format!("rotctld {}:{} OK", host, port)),
                                 Err(e) => app.rotor_test_result = Some(e.to_string()),
                             }
                         }

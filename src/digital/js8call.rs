@@ -78,7 +78,7 @@ impl Js8CallClient {
                 match TcpStream::connect_timeout(&parsed_addr, Duration::from_secs(3)) {
                     Ok(stream) => {
                         let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
-                        let reader = BufReader::new(stream);
+                        let mut reader = BufReader::new(stream);
                         let mut state = Js8CallState {
                             connected: true,
                             ..Default::default()
@@ -87,14 +87,25 @@ impl Js8CallClient {
                         let _ = state_sender.send(state.clone());
 
                         // Przetwarzanie linii JSON ze strumienia TCP
-                        for line in reader.lines() {
-                            match line {
-                                Ok(text) if !text.trim().is_empty() => {
-                                    if let Ok(msg) = serde_json::from_str::<Js8Message>(&text) {
-                                        process_message(msg, &mut state, &state_sender, &qso_sender);
+                        // Limit dlugosci linii chroni przed wyczerpaniem pamieci, gdyby druga
+                        // strona (JS8Call lub proces podszywajacy sie pod niego) wyslala dane
+                        // bez znaku nowej linii.
+                        const MAX_LINE_LEN: usize = 64 * 1024;
+                        let mut buf = String::new();
+                        loop {
+                            buf.clear();
+                            match reader.read_line(&mut buf) {
+                                Ok(0) => break, // koniec strumienia
+                                Ok(_) if buf.len() > MAX_LINE_LEN => break, // zbyt dluga linia - rozlaczenie
+                                Ok(_) => {
+                                    let text = buf.trim();
+                                    if !text.is_empty() {
+                                        if let Ok(msg) = serde_json::from_str::<Js8Message>(text) {
+                                            process_message(msg, &mut state, &state_sender, &qso_sender);
+                                        }
                                     }
                                 }
-                                _ => break, // Blad odczytu lub koniec strumienia - rozlaczenie
+                                Err(_) => break,
                             }
                         }
                         // Utrata polaczenia - powiadom aplikacje

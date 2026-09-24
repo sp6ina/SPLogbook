@@ -207,6 +207,7 @@ pub struct SpLogApp {
     pub lan_sync_port: u16,
     pub lan_sync_auto_start: bool,
     pub lan_sync_server_ip: String,
+    pub lan_sync_secret: String,
     pub show_multi_op_window: bool,
     pub multi_op_server: Option<std::sync::Arc<crate::cluster::lan_sync::MultiOpServer>>,
     pub multi_op_incoming_rx: Option<tokio::sync::mpsc::UnboundedReceiver<crate::core::qso::QsoRecord>>,
@@ -387,6 +388,7 @@ pub struct SpLogApp {
     // REST API server flag
     pub rest_api_enabled: bool,
     pub rest_api_port: u16,
+    pub rest_api_key: String,
 
     // Band opening alerts (K-index threshold)
     pub band_alert_k_index_threshold: u8,
@@ -704,6 +706,7 @@ impl SpLogApp {
             lan_sync_port: app_config.lan_sync_port,
             lan_sync_auto_start: app_config.lan_sync_auto_start,
             lan_sync_server_ip: app_config.lan_sync_server_ip,
+            lan_sync_secret: app_config.lan_sync_secret,
             show_multi_op_window: false,
             multi_op_server: None,
             multi_op_incoming_rx: None,
@@ -868,6 +871,7 @@ impl SpLogApp {
             // REST API
             rest_api_enabled: false,
             rest_api_port: 8080,
+            rest_api_key: app_config.rest_api_key.clone(),
 
             // Band opening alerts
             band_alert_k_index_threshold: 4,
@@ -935,15 +939,7 @@ impl SpLogApp {
         }
 
         if app.rest_api_enabled {
-            let db = app.log_db.clone();
-            let cs = app.my_station.callsign.clone();
-            let port = app.rest_api_port;
-            // Owijamy cluster_spots w Arc<Mutex<>> do wspoldzielenia z watkiem API
-            let spots_for_api = Arc::new(Mutex::new(app.cluster_spots.clone()));
-            app.cluster_spots_api = Some(spots_for_api.clone());
-            tokio::spawn(async move {
-                crate::api::server::start_api_server(db, cs, port, spots_for_api).await;
-            });
+            app.start_rest_api_server();
         }
 
         if app.cluster_auto_connect {
@@ -1746,6 +1742,32 @@ impl SpLogApp {
         }
     }
 
+    /// Zwraca istniejący klucz uwierzytelniający REST API lub generuje nowy (i zapisuje
+    /// konfigurację), jeśli jeszcze nie istnieje. Klucz jest wymagany przez klientów
+    /// w nagłówku `X-Api-Key`, aby zapobiec dostępowi z dowolnej strony/skryptu
+    /// działającego lokalnie (serwer nasłuchuje na 127.0.0.1, ale CORS jest otwarty).
+    pub fn ensure_rest_api_key(&mut self) -> String {
+        if self.rest_api_key.is_empty() {
+            self.rest_api_key = crate::api::server::generate_api_key();
+            self.save_station_config();
+        }
+        self.rest_api_key.clone()
+    }
+
+    /// Uruchamia wbudowany serwer REST API w osobnym zadaniu tokio, wykorzystując
+    /// bieżący stan aplikacji (baza, znak wywoławczy, port, klucz API, spoty klastra).
+    pub fn start_rest_api_server(&mut self) {
+        let db = self.log_db.clone();
+        let cs = self.my_station.callsign.clone();
+        let port = self.rest_api_port;
+        let key = self.ensure_rest_api_key();
+        let spots_for_api = Arc::new(Mutex::new(self.cluster_spots.clone()));
+        self.cluster_spots_api = Some(spots_for_api.clone());
+        tokio::spawn(async move {
+            crate::api::server::start_api_server(db, cs, port, spots_for_api, key).await;
+        });
+    }
+
     pub fn save_station_config(&mut self) {
         let is_configured = if self.show_welcome_wizard {
             false
@@ -1791,6 +1813,7 @@ impl SpLogApp {
             lan_sync_port: self.lan_sync_port,
             lan_sync_auto_start: self.lan_sync_auto_start,
             lan_sync_server_ip: self.lan_sync_server_ip.clone(),
+            lan_sync_secret: self.lan_sync_secret.clone(),
 
             lotw_tqsl_path: self.lotw_tqsl_path.clone(),
             lotw_station_name: self.lotw_station_name.clone(),
@@ -1812,6 +1835,7 @@ impl SpLogApp {
 
             cloudlog_url: self.cloudlog_url.clone(),
             cloudlog_api_key: self.cloudlog_api_key.clone(),
+            rest_api_key: self.rest_api_key.clone(),
             hrdlog_username: self.hrdlog_username.clone(),
             hrdlog_upload_code: self.hrdlog_upload_code.clone(),
             hamqth_username: self.hamqth_username.clone(),

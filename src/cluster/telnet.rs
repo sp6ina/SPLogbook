@@ -7,6 +7,11 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::sync::broadcast;
 
+/// Maksymalna długość pojedynczej linii tekstowej odbieranej z serwera DX Cluster
+/// (Telnet). Chroni przed wyczerpaniem pamięci, gdyby serwer (lub ktoś
+/// podszywający się pod niego / MITM) wysłał dane bez znaku nowej linii.
+const MAX_LINE_LEN: usize = 16 * 1024;
+
 /// Pojedynczy spot radiowy z DX Cluster z flagami FT8/Skimmer
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DxSpot {
@@ -125,6 +130,12 @@ impl DxClusterClient {
                         let _ = event_tx.send(ClusterEvent::Disconnected(format!("Rozłączono przez serwer {}", addr)));
                         break;
                     }
+                    Ok(_) if line.len() > MAX_LINE_LEN => {
+                        let _ = event_tx.send(ClusterEvent::Disconnected(format!(
+                            "Serwer {} wysłał zbyt długą linię (>{} B), rozłączono.", addr, MAX_LINE_LEN
+                        )));
+                        break;
+                    }
                     Ok(_) => {
                         let trimmed = line.trim();
                         if !trimmed.is_empty() {
@@ -202,6 +213,10 @@ impl DxClusterClient {
                 while let Ok(n) = buf_reader.read_line(&mut line).await {
                     if n == 0 {
                         break;
+                    }
+                    if line.len() > MAX_LINE_LEN {
+                        line.clear();
+                        continue;
                     }
                     let trimmed = line.trim();
                     if let Some(caps) = spot_regex.captures(trimmed) {

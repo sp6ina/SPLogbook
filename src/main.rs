@@ -119,9 +119,28 @@ fn main() -> Result<(), eframe::Error> {
         let _ = std::fs::create_dir_all(parent);
     }
 
-    let log_db = LogDatabase::open(&log_db_path).unwrap_or_else(|_| {
-        LogDatabase::open_in_memory().unwrap()
-    });
+    let log_db = match LogDatabase::open(&log_db_path) {
+        Ok(db) => db,
+        Err(e) => {
+            let err_msg = format!(
+                "Nie udało się otworzyć bazy danych dziennika:\n{}\n\nBłąd: {}\n\nJeśli będziesz kontynuować, wszystkie zalogowane łączności zostaną utracone po zamknięciu programu (baza tymczasowa w pamięci)!",
+                log_db_path.display(),
+                e
+            );
+            eprintln!("{}", err_msg);
+            let should_continue = rfd::MessageDialog::new()
+                .set_title("SPLogbook — krytyczny błąd bazy danych")
+                .set_description(&err_msg)
+                .set_level(rfd::MessageLevel::Error)
+                .set_buttons(rfd::MessageButtons::YesNo)
+                .show();
+            if !matches!(should_continue, rfd::MessageDialogResult::Yes) {
+                std::process::exit(1);
+            }
+            LogDatabase::open_in_memory()
+                .expect("Nie udało się utworzyć nawet tymczasowej bazy danych w pamięci")
+        }
+    };
 
     let config_candidates = [
         std::path::PathBuf::from("databases/station_config.json"),

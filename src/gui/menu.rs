@@ -283,17 +283,27 @@ pub fn render_menu_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 if ui.checkbox(&mut app.rest_api_enabled, tr("tools.rest_api_enable", lang)).changed() {
                     app.save_station_config();
                     if app.rest_api_enabled {
-                        let db = app.log_db.clone();
-                        let cs = app.my_station.callsign.clone();
-                        let port = app.rest_api_port;
-                        let spots = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-                        app.cluster_spots_api = Some(spots.clone());
-                        tokio::spawn(async move {
-                            crate::api::server::start_api_server(db, cs, port, spots).await;
-                        });
+                        app.start_rest_api_server();
                     }
                 }
                 ui.label(format!("API dostępne pod: http://127.0.0.1:{}/api/v1/", app.rest_api_port));
+                if app.rest_api_enabled {
+                    let key = app.ensure_rest_api_key();
+                    ui.separator();
+                    ui.label("⚠ Wymagany nagłówek uwierzytelniający: X-Api-Key");
+                    ui.horizontal(|ui| {
+                        ui.label("Klucz API:");
+                        let mut key_display = key.clone();
+                        ui.add(egui::TextEdit::singleline(&mut key_display).desired_width(220.0));
+                        if ui.button("📋").on_hover_text("Kopiuj klucz").clicked() {
+                            ui.output_mut(|o| o.copied_text = key.clone());
+                        }
+                        if ui.button("🔄").on_hover_text("Wygeneruj nowy klucz (wymaga wyłączenia i włączenia serwera, aby zaczął obowiązywać)").clicked() {
+                            app.rest_api_key = crate::api::server::generate_api_key();
+                            app.save_station_config();
+                        }
+                    });
+                }
                 if ui.button(format!("🔗 {}", tr("tools.rest_api_open", lang))).clicked() {
                     let _ = open::that(format!("http://127.0.0.1:{}/api/v1/status", app.rest_api_port));
                     ui.close_menu();

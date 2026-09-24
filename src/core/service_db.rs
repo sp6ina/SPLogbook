@@ -6,6 +6,13 @@ use rusqlite::{params, Connection, OpenFlags};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+/// Escapuje znaki specjalne LIKE (`%`, `_`, oraz sam znak ucieczki), aby wpisywany
+/// przez użytkownika tekst wyszukiwania nie działał jak wzorzec wildcard SQL.
+/// Używać zawsze razem z klauzulą `ESCAPE '\'` w zapytaniu LIKE.
+fn escape_like(input: &str) -> String {
+    input.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IotaRecord {
     pub iota: String,
@@ -92,8 +99,8 @@ impl ServiceDatabase {
         let clean = query.trim().to_uppercase();
         if let Some(ref conn_mutex) = self.conn {
             if let Ok(conn) = conn_mutex.lock() {
-                let pattern = format!("%{}%", clean);
-                if let Ok(mut stmt) = conn.prepare("SELECT IOTA, Name, Prefix1 FROM IOTA WHERE IOTA LIKE ?1 OR Name LIKE ?1 ORDER BY IOTA ASC LIMIT 100") {
+                let pattern = format!("%{}%", escape_like(&clean));
+                if let Ok(mut stmt) = conn.prepare("SELECT IOTA, Name, Prefix1 FROM IOTA WHERE IOTA LIKE ?1 ESCAPE '\' OR Name LIKE ?1 ESCAPE '\' ORDER BY IOTA ASC LIMIT 100") {
                     if let Ok(rows) = stmt.query_map(params![pattern], |row| {
                         Ok(IotaRecord {
                             iota: row.get::<_, String>(0)?,
@@ -160,8 +167,8 @@ impl ServiceDatabase {
         // 2. Jeśli podłączono serviceLOG.db, dołącz wpisy z bazy STATE
         if let Some(ref conn_mutex) = self.conn {
             if let Ok(conn) = conn_mutex.lock() {
-                let pattern = format!("%{}%", clean);
-                if let Ok(mut stmt) = conn.prepare("SELECT State, Name, Country FROM STATE WHERE State LIKE ?1 OR Name LIKE ?1 LIMIT 100") {
+                let pattern = format!("%{}%", escape_like(&clean));
+                if let Ok(mut stmt) = conn.prepare("SELECT State, Name, Country FROM STATE WHERE State LIKE ?1 ESCAPE '\' OR Name LIKE ?1 ESCAPE '\' LIMIT 100") {
                     if let Ok(rows) = stmt.query_map(params![pattern], |row| {
                         Ok(StateRecord {
                             code: row.get(0)?,
@@ -221,8 +228,8 @@ impl ServiceDatabase {
 
         if let Some(ref conn_mutex) = self.conn {
             if let Ok(conn) = conn_mutex.lock() {
-                let pattern = format!("%{}%", clean);
-                if let Ok(mut stmt) = conn.prepare("SELECT Call, Manager, Years, Notes FROM managers WHERE Call LIKE ?1 OR Manager LIKE ?1 ORDER BY Call ASC LIMIT 100") {
+                let pattern = format!("%{}%", escape_like(&clean));
+                if let Ok(mut stmt) = conn.prepare("SELECT Call, Manager, Years, Notes FROM managers WHERE Call LIKE ?1 ESCAPE '\' OR Manager LIKE ?1 ESCAPE '\' ORDER BY Call ASC LIMIT 100") {
                     if let Ok(rows) = stmt.query_map(params![pattern], |row| {
                         Ok(QslManagerRecord {
                             call: row.get(0)?,
@@ -283,8 +290,8 @@ impl ServiceDatabase {
 
         if let Some(ref conn_mutex) = self.conn {
             if let Ok(conn) = conn_mutex.lock() {
-                let pattern = format!("%{}%", clean);
-                if let Ok(mut stmt) = conn.prepare("SELECT Callsign, Country, DXCC, ARRLPrefix, Continent, CQZone, ITUZone FROM UniqueCalls WHERE Callsign LIKE ?1 OR Country LIKE ?1 ORDER BY Callsign ASC LIMIT 100") {
+                let pattern = format!("%{}%", escape_like(&clean));
+                if let Ok(mut stmt) = conn.prepare("SELECT Callsign, Country, DXCC, ARRLPrefix, Continent, CQZone, ITUZone FROM UniqueCalls WHERE Callsign LIKE ?1 ESCAPE '\' OR Country LIKE ?1 ESCAPE '\' ORDER BY Callsign ASC LIMIT 100") {
                     if let Ok(rows) = stmt.query_map(rusqlite::params![pattern], |row| {
                         let dxcc_str: String = row.get::<_, String>(2).unwrap_or_default();
                         let dxcc: u32 = dxcc_str.parse().unwrap_or(0);

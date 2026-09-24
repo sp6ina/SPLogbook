@@ -110,7 +110,7 @@ fn fetch_wspr_spots_async(app: &mut SpLogApp, ctx: &egui::Context) {
 
     tokio::spawn(async move {
         let result = crate::cloud::wspr::fetch_wspr_spots(&callsign).await;
-        *slot_clone.lock().unwrap() = Some(result);
+        *slot_clone.lock().unwrap_or_else(|p| p.into_inner()) = Some(result);
         ctx_clone.request_repaint();
     });
 

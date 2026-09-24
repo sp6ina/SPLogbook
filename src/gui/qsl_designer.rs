@@ -132,8 +132,18 @@ impl QslDesignerDialog {
                             use printpdf::*;
                             let (doc, page1, layer1) = PdfDocument::new("QSL Labels Sheet", Mm(210.0), Mm(297.0), "Labels Layer");
                             let current_layer = doc.get_page(page1).get_layer(layer1);
-                            let font = doc.add_builtin_font(BuiltinFont::HelveticaBold).unwrap();
-                            let font_reg = doc.add_builtin_font(BuiltinFont::Helvetica).unwrap();
+                            let (font, font_reg) = match (
+                                doc.add_builtin_font(BuiltinFont::HelveticaBold),
+                                doc.add_builtin_font(BuiltinFont::Helvetica),
+                            ) {
+                                (Ok(bold), Ok(regular)) => (bold, regular),
+                                _ => {
+                                    self.status_message = Some(
+                                        "Błąd: nie udało się załadować czcionek PDF. Eksport przerwany.".to_string(),
+                                    );
+                                    return;
+                                }
+                            };
 
                             let (cols, rows_per_page) = match self.sheet_format {
                                 LabelSheetFormat::Avery3x8 => (3, 8),

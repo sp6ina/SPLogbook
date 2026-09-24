@@ -46,7 +46,7 @@ pub fn render_awards_matrix_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
                 ui.separator();
 
-                let awards = app.awards_engine.lock().unwrap();
+                let awards = app.awards_engine.lock().unwrap_or_else(|p| p.into_inner());
 
                 match app.awards_matrix_tab {
                     0 => render_tab_dxcc(app, ui, &awards),
@@ -411,7 +411,7 @@ fn render_tab_other(
 
                         for key in filtered_keys {
                             if let Some(qsos) = details_map.get(key) {
-                                let last_qso = qsos.last().unwrap();
+                                let Some(last_qso) = qsos.last() else { continue };
                                 let is_conf = qsos.iter().any(|q| q.is_confirmed);
 
                                 ui.label(egui::RichText::new(key.as_str()).monospace().strong().color(color));

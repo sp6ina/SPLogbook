@@ -123,6 +123,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
     let my_dxcc: u32 = 269;
     let my_cqzone = app.my_station.cq_zone as u8;
 
+    let mut unknown_contest_rule = false;
     let (pts, mults, total) = if let Some(idx) = custom_idx {
         let c = &app.custom_contests[idx];
         let mut p = 0;
@@ -139,10 +140,14 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
         }
         let mult_count = m.len() as u32;
         (p, mult_count, p * mult_count)
-    } else {
-        let rule_idx = RULES.iter().position(|r| r.name == app.contest_name).unwrap_or(0);
+    } else if let Some(rule_idx) = RULES.iter().position(|r| r.name == app.contest_name) {
         let active_rule = &RULES[rule_idx];
         calculate_score(active_rule, &app.recent_qsos, my_dxcc, my_cqzone)
+    } else {
+        // Nieznana/nieistniejąca nazwa kontestu (np. reguła usunięta w nowszej wersji) -
+        // NIE zgadujemy wyniku wg pierwszej reguły z listy, tylko jawnie sygnalizujemy błąd.
+        unknown_contest_rule = true;
+        (0, 0, 0)
     };
     
     app.contest_points = pts;
@@ -175,6 +180,13 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         app.show_custom_contest_editor = true;
                     }
                 });
+
+                if unknown_contest_rule {
+                    ui.colored_label(
+                        egui::Color32::from_rgb(239, 68, 68),
+                        "⚠ Nieznane reguły kontestu dla wybranej nazwy — wynik NIE jest liczony wg domyślnych reguł. Wybierz kontest z listy lub utwórz regułę niestandardową.",
+                    );
+                }
 
                 ui.separator();
 
@@ -249,9 +261,12 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         
                         let is_dupe = if is_custom {
                             app.recent_qsos.iter().any(|q| q.callsign == dummy_qso.callsign && q.band == dummy_qso.band)
-                        } else {
-                            let rule_idx = RULES.iter().position(|r| r.name == app.contest_name).unwrap_or(0);
+                        } else if let Some(rule_idx) = RULES.iter().position(|r| r.name == app.contest_name) {
                             detect_duplicate(&RULES[rule_idx], &dummy_qso, &app.recent_qsos)
+                        } else {
+                            // Nieznane reguły kontestu: prosta kontrola duplikatu wg znaku+pasma
+                            // zamiast cichego zastosowania reguł innego (pierwszego) kontestu.
+                            app.recent_qsos.iter().any(|q| q.callsign == dummy_qso.callsign && q.band == dummy_qso.band)
                         };
                         
                         if is_dupe && !app.entry_callsign.is_empty() {
@@ -360,6 +375,19 @@ pub fn render_multi_op_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         });
 
                         ui.horizontal(|ui| {
+                            ui.label("Hasło współdzielone:");
+                            let mut secret_display = app.lan_sync_secret.clone();
+                            if ui.add(egui::TextEdit::singleline(&mut secret_display).desired_width(160.0).password(false)).changed() {
+                                app.lan_sync_secret = secret_display;
+                            }
+                            if ui.button("🎲").on_hover_text("Wygeneruj losowe hasło").clicked() {
+                                app.lan_sync_secret = crate::api::server::generate_api_key()[..12].to_string();
+                                app.save_station_config();
+                            }
+                        });
+                        ui.label(egui::RichText::new("⚠ Podaj to samo hasło na stacji klienckiej. Puste pole = brak uwierzytelniania (niezalecane).").size(11.0).italics());
+
+                        ui.horizontal(|ui| {
                             if app.multi_op_server.is_some() {
                                 if ui.button(egui::RichText::new("🛑 ZATRZYMAJ SERWER LAN").color(egui::Color32::from_rgb(239, 68, 68)).strong()).clicked() {
                                     app.multi_op_server = None;
@@ -368,7 +396,8 @@ pub fn render_multi_op_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 }
                             } else {
                                 if ui.button(egui::RichText::new("🚀 URUCHOM SERWER LAN").color(egui::Color32::from_rgb(34, 197, 94)).strong()).clicked() {
-                                    let server = std::sync::Arc::new(crate::cluster::lan_sync::MultiOpServer::new(app.lan_sync_port));
+                                    let secret = if app.lan_sync_secret.is_empty() { None } else { Some(app.lan_sync_secret.clone()) };
+                                    let server = std::sync::Arc::new(crate::cluster::lan_sync::MultiOpServer::new_with_secret(app.lan_sync_port, secret));
                                     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
                                     app.multi_op_incoming_rx = Some(rx);
                                     let srv_clone = server.clone();
@@ -394,6 +423,13 @@ pub fn render_multi_op_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 if let Ok(p) = port_str.trim().parse::<u16>() {
                                     app.lan_sync_port = p;
                                 }
+                            }
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Hasło współdzielone (od hosta):");
+                            let mut secret_display = app.lan_sync_secret.clone();
+                            if ui.add(egui::TextEdit::singleline(&mut secret_display).desired_width(160.0)).changed() {
+                                app.lan_sync_secret = secret_display;
                             }
                         });
                         if ui.button("⚡ Test Połączenia z Hostem").clicked() {

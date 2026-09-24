@@ -236,8 +236,8 @@ impl LogDatabase {
             );
             CREATE INDEX IF NOT EXISTS idx_upload_queue_service ON upload_queue(service, retry_count);
 
-            CREATE INDEX IF NOT EXISTS idx_qso_call ON qso_records(callsign);
             CREATE INDEX IF NOT EXISTS idx_qso_callsign ON qso_records(callsign);
+            DROP INDEX IF EXISTS idx_qso_call;
             CREATE INDEX IF NOT EXISTS idx_qso_date ON qso_records(qso_date);
             CREATE INDEX IF NOT EXISTS idx_qso_date_time ON qso_records(qso_date, time_on);
             CREATE INDEX IF NOT EXISTS idx_qso_band ON qso_records(band);
@@ -782,51 +782,83 @@ impl LogDatabase {
         Ok(res)
     }
 
-    /// Wyszukiwanie łączności z wieloma kryteriami (zaawansowane filtrowanie)
+    /// Wyszukiwanie łączności z wieloma kryteriami (zaawansowane filtrowanie).
+    /// Wszystkie wartości pochodzące od użytkownika są przekazywane jako parametry
+    /// wiązane (nie string-concat), a wzorce LIKE mają escapowane znaki wieloznaczne
+    /// `%`/`_`, żeby wyszukiwane teksty użytkownika nie działały jak wildcardy.
     pub fn search_qsos_advanced(&self, filter: &AdvancedQsoFilter) -> Result<Vec<QsoRecord>> {
         let mut sql = format!("SELECT {} FROM qso_records WHERE 1=1", QSO_COLUMNS);
-        let mut conditions = Vec::new();
+        let mut conditions: Vec<String> = Vec::new();
+        let mut values: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
         if let Some(ref jid) = filter.journal_id {
-            conditions.push(format!("journal_id = '{}'", jid.replace('\'', "''")));
+            conditions.push(format!("journal_id = ?{}", values.len() + 1));
+            values.push(Box::new(jid.clone()));
         }
         if let Some(ref from) = filter.date_from {
             if !from.is_empty() {
-                conditions.push(format!("qso_date >= '{}'", from.replace('\'', "''")));
+                conditions.push(format!("qso_date >= ?{}", values.len() + 1));
+                values.push(Box::new(from.clone()));
             }
         }
         if let Some(ref to) = filter.date_to {
             if !to.is_empty() {
-                conditions.push(format!("qso_date <= '{}'", to.replace('\'', "''")));
+                conditions.push(format!("qso_date <= ?{}", values.len() + 1));
+                values.push(Box::new(to.clone()));
             }
         }
         if !filter.bands.is_empty() {
-            let b_list = filter.bands.iter().map(|b| format!("'{}'", b.replace('\'', "''"))).collect::<Vec<_>>().join(",");
-            conditions.push(format!("band IN ({})", b_list));
+            let placeholders: Vec<String> = filter.bands.iter().map(|b| {
+                values.push(Box::new(b.clone()));
+                format!("?{}", values.len())
+            }).collect();
+            conditions.push(format!("band IN ({})", placeholders.join(",")));
         }
         if !filter.modes.is_empty() {
-            let m_list = filter.modes.iter().map(|m| format!("'{}'", m.replace('\'', "''"))).collect::<Vec<_>>().join(",");
-            conditions.push(format!("mode IN ({})", m_list));
+            let placeholders: Vec<String> = filter.modes.iter().map(|m| {
+                values.push(Box::new(m.clone()));
+                format!("?{}", values.len())
+            }).collect();
+            conditions.push(format!("mode IN ({})", placeholders.join(",")));
         }
         if let Some(lotw) = filter.lotw_confirmed {
-            if lotw {
-                conditions.push("lotw_qsl_rcvd = 'Y'".to_string());
-            }
+            conditions.push(if lotw {
+                "lotw_qsl_rcvd = 'Y'".to_string()
+            } else {
+                "(lotw_qsl_rcvd IS NULL OR lotw_qsl_rcvd <> 'Y')".to_string()
+            });
         }
         if let Some(eqsl) = filter.eqsl_confirmed {
-            if eqsl {
-                conditions.push("eqsl_qsl_rcvd = 'Y'".to_string());
-            }
+            conditions.push(if eqsl {
+                "eqsl_qsl_rcvd = 'Y'".to_string()
+            } else {
+                "(eqsl_qsl_rcvd IS NULL OR eqsl_qsl_rcvd <> 'Y')".to_string()
+            });
         }
         if let Some(qsl) = filter.qsl_rcvd {
-            if qsl {
-                conditions.push("qsl_rcvd = 'Y'".to_string());
-            }
+            conditions.push(if qsl {
+                "qsl_rcvd = 'Y'".to_string()
+            } else {
+                "(qsl_rcvd IS NULL OR qsl_rcvd <> 'Y')".to_string()
+            });
         }
         if let Some(ref query) = filter.callsign_query {
-            let q = query.trim().to_uppercase().replace('\'', "''");
+            let q = query.trim().to_uppercase();
             if !q.is_empty() {
-                conditions.push(format!("(callsign LIKE '%{}%' OR name LIKE '%{}%' OR comment LIKE '%{}%')", q, q, q));
+                // Escapuje % i _ (znaki specjalne LIKE) znakiem ucieczki '\', żeby wpisany
+                // przez użytkownika tekst nie działał jak wzorzec wildcard.
+                let escaped = q.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+                let like_pattern = format!("%{}%", escaped);
+                values.push(Box::new(like_pattern.clone()));
+                let p1 = values.len();
+                values.push(Box::new(like_pattern.clone()));
+                let p2 = values.len();
+                values.push(Box::new(like_pattern));
+                let p3 = values.len();
+                conditions.push(format!(
+                    "(callsign LIKE ?{} ESCAPE '\\' OR name LIKE ?{} ESCAPE '\\' OR comment LIKE ?{} ESCAPE '\\')",
+                    p1, p2, p3
+                ));
             }
         }
 
@@ -838,7 +870,8 @@ impl LogDatabase {
         sql.push_str(" ORDER BY qso_date DESC, time_on DESC");
 
         let mut stmt = self.conn.prepare(&sql)?;
-        let rows = stmt.query_map([], row_to_qso)?;
+        let param_refs: Vec<&dyn rusqlite::ToSql> = values.iter().map(|v| v.as_ref()).collect();
+        let rows = stmt.query_map(param_refs.as_slice(), row_to_qso)?;
         let mut res = Vec::new();
         for r in rows {
             res.push(r?);

@@ -91,7 +91,13 @@ pub fn export_and_sign_tqsl(
     }
 }
 
-/// Pobiera raport potwierdzeń (QSL report) z serwerów ARRL LoTW w formacie ADIF
+/// Pobiera raport potwierdzeń (QSL report) z serwerów ARRL LoTW w formacie ADIF.
+///
+/// Uwaga: publiczne API ARRL LoTW (`lotwreport.adi`) obsługuje wyłącznie żądania
+/// GET z danymi logowania jako parametrami zapytania — to ograniczenie usługi
+/// zewnętrznej, nie wybór implementacyjny. Parametry budujemy przez
+/// `RequestBuilder::query`, które stosuje poprawne, pełne kodowanie procentowe
+/// (poprzednia ręczna implementacja escapowała tylko `&`, `=` i spację).
 pub async fn download_lotw_report(
     username: &str,
     password: &str,
@@ -102,17 +108,16 @@ pub async fn download_lotw_report(
         .user_agent("SPLogbook/1.0.0 (SP6INA)")
         .build()?;
 
-    let mut url = format!(
-        "https://lotw.arrl.org/lotwuser/lotwreport.adi?login={}&password={}&qso_query=1&qso_qsl=yes",
-        urlencoding_simple(username),
-        urlencoding_simple(password)
-    );
-
+    let mut query: Vec<(&str, &str)> = vec![("login", username), ("password", password)];
     if let Some(since) = since_date {
-        url.push_str(&format!("&qso_qslsince={}", urlencoding_simple(since)));
+        query.push(("qso_qslsince", since));
     }
 
-    let resp = client.get(&url).send().await?;
+    let resp = client
+        .get("https://lotw.arrl.org/lotwuser/lotwreport.adi")
+        .query(&query)
+        .send()
+        .await?;
     let text = resp.text().await?;
 
     if text.contains("ARRL Logbook of the World") || text.contains("<EOH>") || text.contains("<eoh>") {
@@ -122,11 +127,6 @@ pub async fn download_lotw_report(
     } else {
         Err(format!("Nieznana odpowiedź z serwera LoTW: {}", text.chars().take(200).collect::<String>()).into())
     }
-}
-
-/// Proste kodowanie znaków URL dla loginu i hasła
-fn urlencoding_simple(s: &str) -> String {
-    s.replace('&', "%26").replace('=', "%3D").replace(' ', "%20")
 }
 
 /// Parsuje raport ADIF z LoTW i wyciąga potwierdzone łączności

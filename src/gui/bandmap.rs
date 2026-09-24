@@ -262,7 +262,7 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
         let mut spot_idx = 0;
 
         for spot in spots.iter() {
-            let spot_hz = (spot.frequency_khz * 1000.0) as u64;
+            let spot_hz = (spot.frequency_khz * 1000.0).round() as u64;
             if spot_hz >= min_freq && spot_hz <= max_freq {
                 let frac = ((spot_hz - min_freq) as f32 / freq_span).clamp(0.0, 1.0);
                 let x = rect.min.x + frac * rect.width();
@@ -339,7 +339,7 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 ui.end_row();
 
                 for spot in app.cluster_spots.iter() {
-                    let spot_hz = (spot.frequency_khz * 1000.0) as u64;
+                    let spot_hz = (spot.frequency_khz * 1000.0).round() as u64;
                     if spot_hz >= min_freq && spot_hz <= max_freq {
                         ui.label(egui::RichText::new(&spot.dx_call).strong().color(egui::Color32::from_rgb(56, 189, 248)));
                         ui.label(egui::RichText::new(format!("{:.3} MHz", spot.frequency_khz / 1000.0)).monospace());
