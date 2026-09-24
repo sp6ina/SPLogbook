@@ -170,6 +170,7 @@ pub struct SpLogApp {
 
     // Okna dialogowe
     pub show_about_window: bool,
+    pub show_shortcuts_window: bool,
     pub show_vfo_panel: bool,
     pub show_cluster_panel: bool,
     pub show_solar_panel: bool,
@@ -676,6 +677,7 @@ impl SpLogApp {
             bandmap_auto_track: true,
 
             show_about_window: false,
+            show_shortcuts_window: false,
             show_vfo_panel: true,
             show_cluster_panel: true,
             show_solar_panel: true,
@@ -3358,7 +3360,7 @@ impl eframe::App for SpLogApp {
             let mut close_req = false;
             egui::Window::new(tr("tab.about", self.current_language))
                 .open(&mut is_open)
-                .default_size([480.0, 300.0])
+                .default_size([480.0, 340.0])
                 .show(ctx, |ui| {
                     ui.vertical_centered(|ui| {
                         ui.heading(egui::RichText::new("📻 SPLogbook").size(24.0).color(egui::Color32::from_rgb(56, 189, 248)));
@@ -3369,6 +3371,26 @@ impl eframe::App for SpLogApp {
                         ui.add_space(12.0);
                         ui.label("Natywna, nowoczesna aplikacja okienkowa dla stacji krótkofalarskich.");
                         ui.label("Pełna integracja z Hamlib 4.7+, TCI, rotctld, WSJT-X, NOAA, QRZ, HamQTH, eQSL, LoTW i Club Log.");
+                        ui.add_space(10.0);
+                        egui::CollapsingHeader::new("🩺 Diagnostyka").show(ui, |ui| {
+                            ui.horizontal(|ui| { ui.label("Wersja:"); ui.monospace(env!("CARGO_PKG_VERSION")); });
+                            ui.horizontal(|ui| { ui.label("Platforma:"); ui.monospace(std::env::consts::OS); });
+                            ui.horizontal(|ui| { ui.label("Architektura:"); ui.monospace(std::env::consts::ARCH); });
+                            ui.horizontal(|ui| { ui.label("Motyw:"); ui.monospace(self.theme_preset.label_pl()); });
+                            ui.horizontal(|ui| {
+                                ui.label("Repozytorium bazy danych:");
+                                ui.monospace(self.config_file_path.parent().map(|p| p.display().to_string()).unwrap_or_default());
+                            });
+                            if ui.button("📋 Kopiuj dane diagnostyczne").clicked() {
+                                let info = format!(
+                                    "SPLogbook {} | OS: {} {} | Motyw: {} | Konfiguracja: {}",
+                                    env!("CARGO_PKG_VERSION"), std::env::consts::OS, std::env::consts::ARCH,
+                                    self.theme_preset.id(),
+                                    self.config_file_path.display()
+                                );
+                                ui.output_mut(|o| o.copied_text = info);
+                            }
+                        });
                         ui.add_space(8.0);
                         if ui.button(tr("btn.close", self.current_language)).clicked() {
                             close_req = true;
@@ -3377,6 +3399,36 @@ impl eframe::App for SpLogApp {
                 });
             if close_req || !is_open {
                 self.show_about_window = false;
+            }
+        }
+
+        if self.show_shortcuts_window {
+            let mut is_open = self.show_shortcuts_window;
+            egui::Window::new(format!("⌨ {}", tr("help.shortcuts_title", self.current_language)))
+                .open(&mut is_open)
+                .default_size([420.0, 420.0])
+                .show(ctx, |ui| {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        let rows: &[(&str, &str)] = &[
+                            ("Enter", "Zapisz QSO w panelu QSO Entry"),
+                            ("Esc", "Wyczyść formularz QSO Entry"),
+                            ("Ctrl+S", "Zapisz konfigurację / dziennik"),
+                            ("Ctrl+F", "Szukaj w logbooku"),
+                            ("F1", "Skróty klawiszowe (to okno)"),
+                            ("F5", "Odśwież panel klastra DX"),
+                            ("Ctrl+N", "Nowe QSO"),
+                        ];
+                        egui::Grid::new("shortcuts_grid").num_columns(2).spacing([16.0, 6.0]).striped(true).show(ui, |ui| {
+                            for (key, desc) in rows {
+                                ui.monospace(*key);
+                                ui.label(*desc);
+                                ui.end_row();
+                            }
+                        });
+                    });
+                });
+            if !is_open {
+                self.show_shortcuts_window = false;
             }
         }
 

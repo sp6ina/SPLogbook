@@ -367,6 +367,21 @@ pub fn render_menu_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 app.show_about_window = true;
                 ui.close_menu();
             }
+            if ui.button(format!("⌨ {}", tr("help.shortcuts_title", lang))).clicked() {
+                app.show_shortcuts_window = true;
+                ui.close_menu();
+            }
+            ui.separator();
+            if ui.button(format!("🧙 {}", tr("help.rerun_wizard", lang))).clicked() {
+                app.show_welcome_wizard = true;
+                app.wizard_tab = 0;
+                ui.close_menu();
+            }
+            ui.separator();
+            if ui.button(format!("🐛 {}", tr("help.report_bug", lang))).clicked() {
+                let _ = open::that("https://github.com/sp6ina/SPLogbook/issues/new");
+                ui.close_menu();
+            }
         });
 
         // Prawa strona paska menu: wyłącznie znak OP, aktywny profil stacji i zegar UTC (nie koliduje z lewym menu!)
