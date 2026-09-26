@@ -310,13 +310,24 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
         new_qso.rst_rcvd = app.entry_rst_rcvd.clone();
         new_qso.stx = Some(app.contest_stx);
         new_qso.journal_id = Some("CONTEST".to_string());
-        app.recent_qsos.push(new_qso.clone());
-        if let Ok(db) = app.log_db.lock() {
-            let _ = db.insert_qso(&new_qso);
+        let insert_result = match app.log_db.lock() {
+            Ok(db) => db.insert_qso(&new_qso).map_err(|error| error.to_string()),
+            Err(error) => Err(format!("Nie można otworzyć dziennika: {error}")),
+        };
+        match insert_result {
+            Ok(_) => {
+                app.contest_stx += 1;
+                app.entry_callsign.clear();
+                app.entry_rst_rcvd.clear();
+                app.reload_qsos();
+            }
+            Err(error) => {
+                app.status_toast = Some((
+                    format!("Błąd zapisu QSO kontestowego: {error}"),
+                    std::time::Instant::now(),
+                ));
+            }
         }
-        app.contest_stx += 1;
-        app.entry_callsign.clear();
-        app.entry_rst_rcvd.clear();
     }
 
     if close_req {

@@ -134,6 +134,10 @@ mod tests {
         config.qrz_api_key = "first-private".into();
         config.save_with_store(&path, &store).unwrap();
         let old_id = config.secret_store_id.clone();
+        config.station.callsign = "SP6INA".into();
+        config.save_with_store(&path, &store).unwrap();
+        assert_eq!(config.secret_store_id, old_id);
+        assert_eq!(store.items.lock().unwrap().len(), 1);
         config.qrz_api_key = "second-private".into();
         config.save_with_store(&path, &store).unwrap();
         assert!(store.get(&path, &old_id).is_err());
@@ -177,6 +181,29 @@ mod tests {
             serde_json::to_value(Secrets::from_config(&loaded)).unwrap()
         );
     }
+
+    #[test]
+    fn protected_config_never_silently_uses_plaintext_or_missing_store() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("station_config.json");
+        let store = FakeStore::default();
+        let mut config = AppConfig::default();
+        config.qrz_api_key = "stored-private".into();
+        config.save_with_store(&path, &store).unwrap();
+
+        let original = std::fs::read(&path).unwrap();
+        store.items.lock().unwrap().clear();
+        assert!(AppConfig::load_with_store(&path, &store).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+
+        let mut data: serde_json::Value = serde_json::from_slice(&original).unwrap();
+        data["qrz_api_key"] = "legacy-private".into();
+        std::fs::write(&path, serde_json::to_vec(&data).unwrap()).unwrap();
+        assert!(AppConfig::load_with_store(&path, &store).is_err());
+        assert!(std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("legacy-private"));
+    }
 }
 
 fn store_error(error: keyring::Error) -> io::Error {
@@ -201,7 +228,7 @@ impl CredentialStore for SystemCredentialStore {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq, Eq)]
 struct Secrets {
     lan_sync_secret: String,
     lotw_password: String,
@@ -275,6 +302,12 @@ impl AppConfig {
         };
         let mut config: Self = serde_json::from_str(&data).map_err(io::Error::other)?;
         if !config.secret_store_id.is_empty() {
+            if !Secrets::from_config(&config).is_empty() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "Konfiguracja zawiera jednocześnie jawne poświadczenia i identyfikator magazynu",
+                ));
+            }
             let saved = store.get(path, &config.secret_store_id)?;
             let secrets: Secrets = serde_json::from_str(&saved).map_err(io::Error::other)?;
             secrets.apply(&mut config);
@@ -294,12 +327,21 @@ impl AppConfig {
         }
         let secrets = Secrets::from_config(self);
         let old_id = self.secret_store_id.clone();
-        let new_id = if secrets.is_empty() {
+        let unchanged = if old_id.is_empty() {
+            false
+        } else {
+            let saved = store.get(path, &old_id)?;
+            let previous: Secrets = serde_json::from_str(&saved).map_err(io::Error::other)?;
+            previous == secrets
+        };
+        let new_id = if unchanged {
+            old_id.clone()
+        } else if secrets.is_empty() {
             String::new()
         } else {
             uuid::Uuid::new_v4().to_string()
         };
-        if !new_id.is_empty() {
+        if !new_id.is_empty() && !unchanged {
             store.put(
                 path,
                 &new_id,
@@ -316,7 +358,7 @@ impl AppConfig {
         })();
         if let Err(e) = result {
             self.secret_store_id = old_id;
-            if !new_id.is_empty() {
+            if !new_id.is_empty() && !unchanged {
                 if let Err(cleanup) = store.remove(path, &new_id) {
                     log::error!("Nie udało się usunąć nieużywanych poświadczeń: {cleanup}");
                 }
