@@ -755,7 +755,7 @@ impl LogDatabase {
     /// Pobiera ostatnio zarejestrowane łączności dla wybranego profilu/dziennika
     pub fn get_recent_qsos_for_journal(&self, journal_id: &str, limit: usize) -> Result<Vec<QsoRecord>> {
         let sql = format!(
-            "SELECT {} FROM qso_records WHERE journal_id = ?1 ORDER BY qso_date DESC, time_on DESC LIMIT ?2",
+            "SELECT {} FROM qso_records WHERE journal_id = ?1 ORDER BY REPLACE(qso_date, '-', '') DESC, SUBSTR(REPLACE(time_on, ':', '') || '000000', 1, 6) DESC, id DESC LIMIT ?2",
             QSO_COLUMNS
         );
         let mut stmt = self.conn.prepare(&sql)?;
@@ -765,6 +765,19 @@ impl LogDatabase {
             res.push(r?);
         }
         Ok(res)
+    }
+
+    /// Chronological position of every QSO within its journal, independent of
+    /// the logbook's pagination, search and display sort.
+    pub fn qso_numbers_for_journal(&self, journal_id: &str) -> Result<std::collections::HashMap<i64, usize>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, ROW_NUMBER() OVER (ORDER BY REPLACE(qso_date, '-', ''), SUBSTR(REPLACE(time_on, ':', '') || '000000', 1, 6), id)
+             FROM qso_records WHERE journal_id = ?1"
+        )?;
+        let rows = stmt.query_map(params![journal_id], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)? as usize))
+        })?;
+        rows.collect()
     }
 
     /// Pobiera ostatnio zarejestrowane łączności (domyślnie)
@@ -1034,6 +1047,45 @@ mod tests {
         assert_eq!(prev[0].callsign, "SP6INA");
         assert_eq!(prev[0].band, "20m");
         assert_eq!(prev[0].mode, "CW");
+    }
+
+    #[test]
+    fn chronological_numbers_cover_entire_journal_not_just_visible_rows() {
+        let db = LogDatabase::open_in_memory().unwrap();
+        let mut qso = QsoRecord::new("SP6INA", "20m", "CW");
+        qso.qso_date = "2026-01-01".into();
+        qso.time_on = "12:00:00".into();
+        let first = db.insert_qso(&qso).unwrap();
+        qso.journal_id = Some("PORTABLE".into());
+        let portable = db.insert_qso(&qso).unwrap();
+        qso.journal_id = Some("DEFAULT".into());
+        for _ in 0..501 {
+            db.insert_qso(&qso).unwrap();
+        }
+        let newest = db.get_recent_qsos_for_journal("DEFAULT", 1).unwrap();
+        let numbers = db.qso_numbers_for_journal("DEFAULT").unwrap();
+        assert_eq!(numbers.len(), 502);
+        assert_eq!(numbers[&first], 1);
+        assert_eq!(numbers[&newest[0].id.unwrap()], 502);
+        assert_eq!(db.qso_numbers_for_journal("PORTABLE").unwrap()[&portable], 1);
+
+        db.delete_qso(first).unwrap();
+        assert_eq!(db.qso_numbers_for_journal("DEFAULT").unwrap()[&newest[0].id.unwrap()], 501);
+        db.conn.execute("UPDATE qso_records SET qso_date = '2025-12-31' WHERE id = ?1",
+            [newest[0].id.unwrap()]).unwrap();
+        assert_eq!(db.qso_numbers_for_journal("DEFAULT").unwrap()[&newest[0].id.unwrap()], 1);
+        db.conn.execute(
+            "UPDATE qso_records SET journal_id = 'PORTABLE' WHERE id = ?1",
+            [newest[0].id.unwrap()],
+        ).unwrap();
+        assert_eq!(db.qso_numbers_for_journal("PORTABLE").unwrap()[&newest[0].id.unwrap()], 1);
+        assert_eq!(db.qso_numbers_for_journal("DEFAULT").unwrap().len(), 500);
+
+        let mut mixed = qso.clone();
+        mixed.qso_date = "20260102".into();
+        mixed.time_on = "090000".into();
+        let later = db.insert_qso(&mixed).unwrap();
+        assert_eq!(db.qso_numbers_for_journal("DEFAULT").unwrap()[&later], 501);
     }
 
     #[test]

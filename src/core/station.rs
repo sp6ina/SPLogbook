@@ -152,6 +152,9 @@ pub fn default_logbook_columns() -> Vec<LogColumn> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
+    /// Opaque identifier of the current keychain entry, never the secret itself.
+    #[serde(default)]
+    pub secret_store_id: String,
     pub is_configured: bool,
     pub station: StationProfile,
     pub equipment: Vec<EquipmentItem>,
@@ -224,44 +227,55 @@ pub struct AppConfig {
     /// Hasło współdzielone wymagane od stacji klienckich łączących się z hostem
     /// Multi-Op LAN. Puste = brak uwierzytelniania (niezalecane poza zaufaną siecią).
     #[serde(default)]
+    #[serde(skip_serializing)]
     pub lan_sync_secret: String,
 
     // Konfiguracja ARRL LoTW
     pub lotw_tqsl_path: String,
     pub lotw_station_name: String,
     pub lotw_username: String,
+    #[serde(skip_serializing)]
     pub lotw_password: String,
 
     // Konfiguracja QRZ.com XML Callbook
     pub qrz_username: String,
+    #[serde(skip_serializing)]
     pub qrz_password: String,
+    #[serde(skip_serializing)]
     pub qrz_api_key: String,
     pub qrz_auto_lookup: bool,
 
     // Konfiguracja eQSL.cc
     pub eqsl_username: String,
+    #[serde(skip_serializing)]
     pub eqsl_password: String,
 
     // Konfiguracja Club Log
     pub clublog_callsign: String,
     pub clublog_email: String,
+    #[serde(skip_serializing)]
     pub clublog_password: String,
+    #[serde(skip_serializing)]
     pub clublog_api_key: String,
 
     // Konfiguracja Cloudlog REST API
     pub cloudlog_url: String,
+    #[serde(skip_serializing)]
     pub cloudlog_api_key: String,
 
     // Klucz uwierzytelniający dla wbudowanego serwera REST API (menu Narzędzia -> REST API).
     // Generowany losowo przy pierwszym włączeniu serwera; wymagany w nagłówku X-Api-Key.
+    #[serde(skip_serializing)]
     pub rest_api_key: String,
 
     // Konfiguracja HRDLog.net
     pub hrdlog_username: String,
+    #[serde(skip_serializing)]
     pub hrdlog_upload_code: String,
 
     // Konfiguracja HamQTH
     pub hamqth_username: String,
+    #[serde(skip_serializing)]
     pub hamqth_password: String,
 
     // Wake-on-LAN
@@ -435,6 +449,7 @@ impl Default for ViewPanelConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
+            secret_store_id: String::new(),
             is_configured: false,
             station: StationProfile::default(),
             equipment: Vec::new(),
@@ -544,13 +559,8 @@ impl Default for AppConfig {
 }
 
 impl AppConfig {
-    pub fn load_from_file(path: &std::path::Path) -> Self {
-        if let Ok(data) = std::fs::read_to_string(path) {
-            if let Ok(cfg) = serde_json::from_str::<AppConfig>(&data) {
-                return cfg;
-            }
-        }
-        AppConfig::default()
+    pub fn load_from_file(path: &std::path::Path) -> Result<Self, std::io::Error> {
+        Self::load_with_store(path, &super::credentials::SystemCredentialStore)
     }
 
     /// Zapisuje konfigurację w sposób atomowy: najpierw do pliku tymczasowego w tym
@@ -558,16 +568,8 @@ impl AppConfig {
     /// plików) nad docelową ścieżką. Zapobiega uszkodzeniu/obcięciu
     /// `station_config.json` w razie awarii zasilania lub awaryjnego zamknięcia
     /// aplikacji w trakcie zapisu.
-    pub fn save_to_file(&self, path: &std::path::Path) -> Result<(), std::io::Error> {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        let data = serde_json::to_string_pretty(self)
-            .map_err(std::io::Error::other)?;
-
-        let tmp_path = path.with_extension("json.tmp");
-        std::fs::write(&tmp_path, data)?;
-        std::fs::rename(&tmp_path, path)
+    pub fn save_to_file(&mut self, path: &std::path::Path) -> Result<(), std::io::Error> {
+        self.save_with_store(path, &super::credentials::SystemCredentialStore)
     }
 }
 
@@ -588,7 +590,7 @@ mod tests {
 
         cfg.save_to_file(&config_file).unwrap();
 
-        let loaded = AppConfig::load_from_file(&config_file);
+        let loaded = AppConfig::load_from_file(&config_file).unwrap();
         assert!(loaded.is_configured);
         assert_eq!(loaded.station.callsign, "SP6INA");
         assert_eq!(loaded.station.operator, "Mariusz Woźniak");
@@ -621,7 +623,7 @@ mod tests {
 
         cfg.save_to_file(&config_file).unwrap();
 
-        let loaded = AppConfig::load_from_file(&config_file);
+        let loaded = AppConfig::load_from_file(&config_file).unwrap();
         assert!(loaded.cat_sharing_enabled);
         assert_eq!(loaded.cat_sharing_port, 4534);
         assert_eq!(loaded.station_profiles.len(), 2);
@@ -630,5 +632,3 @@ mod tests {
         assert_eq!(loaded.station_profiles[1].sota_ref.as_deref(), Some("SP/BZ-001"));
     }
 }
-
-

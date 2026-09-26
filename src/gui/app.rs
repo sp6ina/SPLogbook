@@ -88,6 +88,7 @@ pub struct SpLogApp {
 
     // Tabela ostatnich łączności i wyszukiwarka
     pub recent_qsos: Vec<QsoRecord>,
+    pub qso_numbers: std::collections::HashMap<i64, usize>,
     pub log_search_query: String,
 
     // DX Cluster i pogoda kosmiczna
@@ -161,6 +162,7 @@ pub struct SpLogApp {
     pub show_welcome_wizard: bool,
     pub wizard_tab: u8,
     pub config_file_path: std::path::PathBuf,
+    pub secret_store_id: String,
     pub active_db_path: std::path::PathBuf,
 
     // Wizualna Panorama Pasma (Band Map)
@@ -482,11 +484,15 @@ impl SpLogApp {
             }
         }
 
-        let (active_journal, recent_qsos) = {
+        let (active_journal, recent_qsos, qso_numbers) = {
             let db = log_db.lock().unwrap_or_else(|p| p.into_inner());
             let j = db.get_active_journal().unwrap_or_default();
             let qsos = db.get_recent_qsos_for_journal(&j.id, 100).unwrap_or_default();
-            (j, qsos)
+            let numbers = db.qso_numbers_for_journal(&j.id).unwrap_or_else(|error| {
+                log::error!("Nie udało się wyliczyć numerów QSO: {error}");
+                std::collections::HashMap::new()
+            });
+            (j, qsos, numbers)
         };
 
         let (cat_state_tx, cat_state_rx) = std::sync::mpsc::channel();
@@ -604,6 +610,7 @@ impl SpLogApp {
             vfo_split: false,
 
             recent_qsos,
+            qso_numbers,
             log_search_query: String::new(),
 
             cluster_spots: sample_spots,
@@ -670,6 +677,7 @@ impl SpLogApp {
             show_welcome_wizard: show_wizard,
             wizard_tab: 0,
             config_file_path,
+            secret_store_id: app_config.secret_store_id.clone(),
             active_db_path,
 
             show_bandmap_window: false,
@@ -1323,6 +1331,17 @@ impl SpLogApp {
         let limit = if self.log_page_size == 0 { 10000 } else { (self.log_page_size * 20).max(500) };
         if let Ok(db) = self.log_db.lock() {
             self.recent_qsos = db.get_recent_qsos_for_journal(&self.active_journal.id, limit).unwrap_or_default();
+            match db.qso_numbers_for_journal(&self.active_journal.id) {
+                Ok(numbers) => self.qso_numbers = numbers,
+                Err(error) => {
+                    log::error!("Nie udało się wyliczyć numerów QSO: {error}");
+                    self.qso_numbers.clear();
+                    self.status_toast = Some((
+                        format!("Błąd numeracji QSO: {error}"),
+                        std::time::Instant::now(),
+                    ));
+                }
+            }
         }
         // Zresetuj stronę jeśli wyszła poza zakres
         if self.log_page_size > 0 {
@@ -1356,6 +1375,7 @@ impl SpLogApp {
             }
         }
         self.rebuild_awards_full();
+        self.reload_qsos();
     }
 
     pub fn delete_qso_by_id(&mut self, id: i64) {
@@ -1758,7 +1778,8 @@ impl SpLogApp {
         } else {
             !self.my_station.callsign.is_empty() && self.my_station.callsign != "N0CALL"
         };
-        let cfg = AppConfig {
+        let mut cfg = AppConfig {
+            secret_store_id: self.secret_store_id.clone(),
             is_configured,
             station: self.my_station.clone(),
             equipment: self.equipment_items.clone(),
@@ -1866,6 +1887,8 @@ impl SpLogApp {
                 format!("⚠ Błąd zapisu konfiguracji: {}", e),
                 std::time::Instant::now(),
             ));
+        } else {
+            self.secret_store_id = cfg.secret_store_id;
         }
     }
 

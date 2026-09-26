@@ -11,6 +11,7 @@ pub mod qsl_print;
 pub mod qso;
 pub mod scp;
 pub mod station;
+pub(crate) mod credentials;
 pub mod bandplan;
 pub mod pga;
 pub mod service_db;

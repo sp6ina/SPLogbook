@@ -173,9 +173,10 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             3 => qa.mode.cmp(&qb.mode),
             4 => qa.country.as_deref().unwrap_or("").cmp(qb.country.as_deref().unwrap_or("")),
             _ => {
-                let da = format!("{}{}", qa.qso_date, qa.time_on);
-                let db = format!("{}{}", qb.qso_date, qb.time_on);
-                da.cmp(&db)
+                qa.qso_date.replace('-', "").cmp(&qb.qso_date.replace('-', ""))
+                    .then_with(|| format!("{:0<6}", qa.time_on.replace(':', ""))
+                        .cmp(&format!("{:0<6}", qb.time_on.replace(':', ""))))
+                    .then_with(|| qa.id.cmp(&qb.id))
             }
         };
         if sa { ord } else { ord.reverse() }
@@ -261,7 +262,7 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             }
             ui.end_row();
 
-            for (i, &idx) in page_indices.iter().enumerate() {
+            for &idx in page_indices {
                 let qso = &app.recent_qsos[idx];
 
                 // Akcje
@@ -281,12 +282,13 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     }
                 });
 
-                let row_number = total.saturating_sub(page_start + i);
-
                 for col in &app.logbook_columns {
                     if !col.visible { continue; }
                     match col.id.as_str() {
-                        "nr" => { ui.label(row_number.to_string()); },
+                        "nr" => {
+                            ui.label(qso.id.and_then(|id| app.qso_numbers.get(&id).copied())
+                                .map(|number| number.to_string()).unwrap_or_else(|| "—".to_string()));
+                        },
                         "date" => { ui.label(&qso.qso_date); },
                         "time" => { ui.label(&qso.time_on); },
                         "callsign" => {

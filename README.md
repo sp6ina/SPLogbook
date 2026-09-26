@@ -546,6 +546,17 @@ SPLogbook/
   %APPDATA%\SPLogbook\
   ```
 - **Portable Mode:** If a `station_config.json` file is present in the application's local directory, SPLogbook automatically switches to **Portable Mode**, storing all databases in the program folder (ideal for USB sticks and contest field operations).
+- **Credentials:** Service passwords, API keys, LAN sync secret and the local REST API token
+  are stored in the operating system's credential store (Windows Credential Manager,
+  macOS Keychain or a Linux Secret Service provider), not in `station_config.json`.
+  Existing plaintext credentials are moved into the store on first launch; startup
+  stops with an error if migration or access fails, without overwriting the original
+  configuration. On Linux, a running, unlocked Secret Service is required. Copying
+  a configuration or portable folder to another computer does **not** copy its
+  credentials: clear the `secret_store_id` value in the copied JSON file, then enter
+  the credentials again on the destination computer. The same step is needed to
+  restore an older protected config whose keychain entry no longer exists. Older
+  plaintext copies or backups of `station_config.json` remain sensitive until removed.
 - **Crash Prevention:** Mutexes protect shared data structures against thread poisoning; background tasks communicate over thread-safe mpsc channels, ensuring that long-running Telnet or CAT operations never block the 60 FPS graphical interface.
 
 ---

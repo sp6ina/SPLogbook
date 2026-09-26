@@ -164,7 +164,22 @@ fn main() -> Result<(), eframe::Error> {
         let _ = std::fs::create_dir_all(parent);
     }
 
-    let app_config = AppConfig::load_from_file(&config_file_path);
+    let app_config = match AppConfig::load_from_file(&config_file_path) {
+        Ok(config) => config,
+        Err(error) => {
+            let message = format!(
+                "Nie można bezpiecznie otworzyć konfiguracji {}:\n{}\n\nSprawdź dostęp do systemowego magazynu poświadczeń. Oryginalny plik nie został nadpisany.",
+                config_file_path.display(), error
+            );
+            log::error!("{message}");
+            rfd::MessageDialog::new()
+                .set_title("SPLogbook — błąd konfiguracji")
+                .set_description(&message)
+                .set_level(rfd::MessageLevel::Error)
+                .show();
+            std::process::exit(1);
+        }
+    };
 
     let log_db_arc = Arc::new(Mutex::new(log_db));
     let prefix_matcher_arc = Arc::new(prefix_matcher);
