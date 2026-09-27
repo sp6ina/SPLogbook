@@ -190,6 +190,9 @@ pub struct SpLogApp {
     pub command_palette_selected: usize,
     pub show_changelog_window: bool,
     pub show_update_window: bool,
+    pub show_user_manual: bool,
+    pub manual_section: Option<String>,
+    pub manual_selected: usize,
     pub update_check_status: Option<String>,
     pub update_check_rx: Option<std::sync::mpsc::Receiver<String>>,
     pub show_vfo_panel: bool,
@@ -885,6 +888,9 @@ impl SpLogApp {
             show_column_settings: false,
             show_changelog_window: false,
             show_update_window: false,
+            show_user_manual: false,
+            manual_section: None,
+            manual_selected: 0,
             update_check_status: None,
             update_check_rx: None,
             logbook_columns: app_config.logbook_columns.clone(),
@@ -3756,6 +3762,7 @@ impl eframe::App for SpLogApp {
         // Dziennik zmian i sprawdzanie aktualizacji
         crate::gui::changelog::render_changelog_window(self, ctx);
         crate::gui::changelog::render_update_check_window(self, ctx);
+        crate::gui::user_manual::render_user_manual_window(self, ctx);
 
         if self.show_shortcuts_window {
             let mut is_open = self.show_shortcuts_window;

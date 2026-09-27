@@ -179,6 +179,9 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     if ui.button(tr("contest.add_custom", lang)).clicked() {
                         app.show_custom_contest_editor = true;
                     }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        crate::gui::user_manual::help_button(app, ui, "contest");
+                    });
                 });
 
                 if unknown_contest_rule {

@@ -7,6 +7,7 @@ pub mod awards_matrix;
 pub mod bandmap;
 pub mod cat_settings;
 pub mod changelog;
+pub mod user_manual;
 pub mod cluster_panel;
 pub mod command_palette;
 pub mod contest;

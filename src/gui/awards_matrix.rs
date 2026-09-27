@@ -29,6 +29,9 @@ pub fn render_awards_matrix_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             .size(15.0)
                             .color(egui::Color32::from_rgb(56, 189, 248)),
                     );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        crate::gui::user_manual::help_button(app, ui, "awards");
+                    });
                 });
 
                 ui.add_space(2.0);

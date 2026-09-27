@@ -184,7 +184,12 @@ pub fn render_solar_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
             ui.add_space(6.0);
             ui.separator();
-            ui.label(egui::RichText::new("📊 Przewidywane otwarcie pasm DX (VOACAP-lite):").small().color(egui::Color32::from_rgb(148, 163, 184)));
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("📊 Przewidywane otwarcie pasm DX (VOACAP-lite):").small().color(egui::Color32::from_rgb(148, 163, 184)));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    crate::gui::user_manual::help_button(app, ui, "propagation");
+                });
+            });
             let forecasts = app.solar_band_forecasts();
             ui.horizontal_wrapped(|ui| {
                 for (b_name, forecast) in &forecasts {

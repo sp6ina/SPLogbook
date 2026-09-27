@@ -81,6 +81,10 @@ From deep ionospheric modeling (VOACAP-lite HF propagation), automated antenna r
 | **Cloud Sync** | LoTW (TQSL), eQSL.cc, Club Log, QRZ.com, HamQTH, HRDLog, Cloudlog, PSK Reporter, WSPR monitor, NOAA space weather. |
 | **Mapping** | Equirectangular world map with real-time day/night terminator (Grey Line), zoom/pan, confirmed/unconfirmed QSO markers, live spot pins. |
 | **REST API** | Embedded asynchronous Axum HTTP server on port 8080 providing JSON endpoints for external integration, remote monitoring, and station automation. |
+| **Logbook Table** | Virtualized, resizable-column data grid with multi-row selection, bulk delete, per-column sorting, live filtering, and saveable column presets. |
+| **Theming & Accessibility** | Multiple color theme presets including a colorblind-friendly Okabe-Ito palette, user font scaling and family selection, and a status legend window. |
+| **Command Palette** | Searchable command launcher (`Ctrl+Shift+P`) for instant keyboard-first navigation to any function. |
+| **Built-in Help** | In-app user manual (Help → Instrukcja obsługi), contextual "?" hints in complex panels, full changelog window, and GitHub update checker. |
 | **Languages** | 6 complete native translations: English, Polish, German, French, Spanish, Russian (100% verified test coverage). |
 
 ---
@@ -167,6 +171,9 @@ SPLogbook features a self-contained ionospheric HF propagation engine (`src/core
   - **2 × 8** (16 labels per A4 sheet, $105.0 	imes 37.0	ext{ mm}$)
   - **2 × 7** (14 labels per A4 sheet, $105.0 	imes 42.4	ext{ mm}$)
 - **Automated QSO Population:** Automatically formats and paginates selected QSOs with Callsign, Date, Time UTC, Band, Mode, RST Sent/Received, and QSL confirmation text onto sticker grids with exact printer margins.
+- **Print Preview & Printer Calibration:** Live A4 sheet preview with adjustable left/top margins (in mm) so labels align precisely with physical sticker fields before export.
+- **Batch Card-Selection Rules:** Queue cards by QSL-sent status (unconfirmed only), band, mode, date range, and a configurable count limit.
+- **Pre-Export Validation:** The designer validates a non-empty print queue and station callsign before generating the PDF.
 - **Interactive QSL Card Designer:** Visual editor for previewing custom QSL layouts, positioning elements, and preparing cards for print.
 
 ---
@@ -503,6 +510,8 @@ SPLogbook/
     │   ├── awards_matrix.rs # Interactive award matrix viewer
     │   ├── bandmap.rs       # Visual graphical band map with fading spots
     │   ├── cat_settings.rs  # CAT & rotator configuration dialog
+    │   ├── changelog.rs     # Built-in changelog & update-check windows
+    │   ├── command_palette.rs # Searchable command launcher (Ctrl+Shift+P)
     │   ├── cluster_panel.rs # DX Cluster spot table with ATNO highlighting
     │   ├── contest.rs       # Contest operating window with live score
     │   ├── cw_macros.rs     # CW macro configuration modal
@@ -525,6 +534,7 @@ SPLogbook/
     │   ├── sota_dialog.rs   # SOTA reference lookup dialog
     │   ├── states_browser.rs# US states & WAS browser
     │   ├── station_ledger.rs# Station maintenance logbook
+    │   ├── user_manual.rs   # In-app user manual with contextual help links
     │   ├── station_profiles.rs# Workstation multi-profiles (Home, /P, SOTA, Contest)
     │   ├── statistics.rs    # Visual analytics & charts dashboard
     │   ├── vfo_panel.rs     # Primary transceiver VFO & PTT panel

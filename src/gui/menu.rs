@@ -419,6 +419,11 @@ pub fn render_menu_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 app.show_about_window = true;
                 ui.close_menu();
             }
+            if ui.button("📖 Instrukcja obsługi").clicked() {
+                app.show_user_manual = true;
+                app.manual_section = None;
+                ui.close_menu();
+            }
             if ui.button("📜 Dziennik zmian").clicked() {
                 app.show_changelog_window = true;
                 ui.close_menu();
