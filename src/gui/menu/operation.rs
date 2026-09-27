@@ -101,6 +101,10 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             app.show_plugin_manager = true;
             ui.close_menu();
         }
+        if ui.button(icons::STORE.label("Marketplace pluginów")).clicked() {
+            app.show_marketplace = true;
+            ui.close_menu();
+        }
         if ui.button(icons::SATELLITE.label(tr("tools.satellites", lang))).clicked() {
             app.panel_satellites.visible = true;
             app.panel_satellites.floating = true;

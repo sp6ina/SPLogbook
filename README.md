@@ -50,7 +50,7 @@ From deep ionospheric modeling (VOACAP-lite HF propagation), automated antenna r
    - [Embedded Local REST API Server](#15-embedded-local-rest-api-server)
    - [Internationalization (i18n)](#16-internationalization-i18n)
    - [Dockable Workspace & Operator Layout Profiles](#17-dockable-workspace--operator-layout-profiles)
-   - [User Plugin System (Rhai)](#18-user-plugin-system-rhai)
+   - [User Plugin System (Rhai) + Plugin Marketplace](#18-user-plugin-system-rhai--plugin-marketplace)
    - [CAT Abstraction Layer (Multi-Backend)](#19-cat-abstraction-layer-multi-backend)
    - [Central Event Bus & Live WebSocket](#20-central-event-bus--live-websocket)
    - [Callbook Aggregation & Offline Cache](#21-callbook-aggregation--offline-cache)
@@ -91,7 +91,8 @@ From deep ionospheric modeling (VOACAP-lite HF propagation), automated antenna r
 | **REST API & WebSocket** | Embedded asynchronous Axum HTTP server on port 8080 with JSON endpoints plus a live **WebSocket** stream (`/api/v1/ws`) broadcasting application events in real time for external integration and station automation. |
 | **Logbook Table** | Virtualized, resizable-column data grid with multi-row selection, bulk delete, per-column sorting, live filtering, and saveable column presets. |
 | **Dockable Workspace** | Full `egui_dock` docking system: panels can be detached into **floating native windows** (move to a second monitor), re-arranged into tabs/columns, and saved/restored via **operator layout profiles** with built-in presets. |
-| **User Plugins (Rhai)** | Sandboxed embedded **Rhai** scripting engine: users write `.rhai` plugins with safe lifecycle hooks (`on_startup`, `on_qso_logged`, `on_band_opened`) — no filesystem/network access by default. |
+| **User Plugins (Rhai)** | Sandboxed embedded **Rhai** scripting engine: users write `.rhai` plugins with safe getters/actions and lifecycle hooks (`on_startup`, `on_qso_logged`, `on_dx_spot`, `on_rig_state`, …) — no filesystem/network access by default. |
+| **Plugin Marketplace** | One-click-install add-on catalog (POTA/SOTA helpers, CW macros, contest assistant, rotor assistant, award tracker, DX spot alerts, and more) with SHA256 verification, offline fallback, and update/uninstall support. |
 | **Event Bus** | Central `tokio::sync::broadcast` event bus decoupling modules; the same JSON events drive UI toasts, the WebSocket stream, and Rhai plugins. |
 | **Operator Assistant & Voice Keyer** | Always-on decision bar recommending "what to do now" from propagation/CAT/DX/award goals, plus an SSB **voice keyer** (WAV playback, F1–F8 slots, CQ loop). |
 | **Encrypted P2P Sync** | Direct peer-to-peer log synchronization over LAN/VPN encrypted with **XChaCha20-Poly1305** (Argon2id key derivation) — no cloud required. |
@@ -332,12 +333,15 @@ SPLogbook replaces the fixed panel grid with a fully **dockable workspace** powe
 
 ---
 
-### 18. User Plugin System (Rhai)
+### 18. User Plugin System (Rhai) + Plugin Marketplace
 SPLogbook embeds the **Rhai** scripting language as a safe extension mechanism, letting operators automate and personalize the station without touching Rust:
-- **Sandboxed by default:** scripts have no filesystem, network, or process access unless explicitly exposed; engine limits (max string size, max expression depth) guard against runaway scripts.
-- **Safe API:** plugins can call `log(msg)`, `notify(msg)`, and `qso_count()`.
-- **Lifecycle hooks:** `on_startup()`, `on_qso_logged(call_sign, band, mode, freq_mhz, is_atno)`, `on_band_opened(band)`, and `on_workspace_changed(name)` fire automatically on matching events.
+- **Sandboxed by default:** scripts have no filesystem, network, or process access; engine limits (max string size, max expression depth) guard against runaway scripts.
+- **Safe API (getters):** `qso_count()`, `my_call()`, `rig_freq_mhz()`, `rig_mode()`, `rig_connected()`, `rotor_azimuth()`, `rotor_elevation()`, `dxcc_worked()`, `dxcc_confirmed()`, `waz_worked()`, `was_worked()`, `wac_worked()`, `iota_worked()`, `pota_worked()`, `sota_worked()`, `pga_worked()`, and `qso_field(name)` (reads `callsign`, `band`, `mode`, `freq_mhz`, `name`, `qth`, `gridsquare`, `country`, `dxcc`, `sota_ref`, `pota_ref`, `pga_ref`, `iota`, `state`, `rst_sent`, `rst_rcvd`, `comment`).
+- **Safe API (actions):** `log(msg)`, `notify(msg)`, `send_cw(text)`, `send_voice(text)`, `rotate(azimuth_deg[, elevation_deg])`, `spot(dx_call, freq_khz, comment)`, `set_qso_field(name, value)`, `play_sound(name)` (`new_dxcc`, `duplicate`, `new_iota`, `qso_saved`, `band_opened`), `pota_lookup(reference)`, and `sota_lookup(reference)`.
+- **Lifecycle hooks:** `on_startup()`, `on_qso_logged(call_sign, band, mode, freq_mhz, is_atno)`, `on_band_opened(band)`, `on_workspace_changed(name)`, `on_dx_spot(spotter, dx_call, freq_khz, band, comment, is_ft8)`, `on_rig_state(freq_mhz, mode, connected)`, `on_pota_info(reference, name, active)`, and `on_sota_info(reference, name, points)` fire automatically on matching events.
+- **Command bridge:** plugin actions are queued (`PluginCommand`) and executed by the app each frame, so sandboxed scripts can safely drive the CW keyer, voice keyer, rotor, local spots, form fields, sounds, and POTA/SOTA lookups without touching hardware directly (`plugins/bridge.rs`).
 - **Hot reload:** `.rhai` files are loaded from the plugins directory; malformed scripts are reported (never crash) and can be enabled/disabled at runtime (`plugin_manager.rs`).
+- **Plugin Marketplace:** a one-click-install catalog (`plugins/marketplace.rs`) with a built-in offline fallback of add-ons — **POTA Helper**, **SOTA Helper**, **CW Macros**, **Contest Assistant**, **Rotor Assistant**, **Award Tracker**, **DX Spot Alerts (ATNO)**, **Propagation Watchdog**, **Band Activity Logger**, **QSL Reminder**, **Voice Keyer Trigger**, and **FT8/WSJT-X Bridge**. Remote catalogs are fetched from GitHub Releases, installs are SHA256-verified, and sidecar manifests enable status detection (installed / update available) with one-click install, update, and uninstall (`gui/marketplace.rs`).
 
 ---
 
@@ -630,6 +634,7 @@ SPLogbook/
     │   ├── operator_assistant.rs # Live "what to do now" recommendation bar
     │   ├── photo_viewer.rs  # QSL and station photo viewer
     │   ├── plugin_manager.rs# Rhai user plugin manager window
+    │   ├── marketplace.rs   # Plugin marketplace (one-click install catalog)
     │   ├── prefix_manager.rs# Country & prefix lookup browser
     │   ├── qsl_designer.rs  # QSL designer & Avery A4 PDF label exporter
     │   ├── qsl_manager.rs   # Paper & electronic QSL manager
@@ -651,8 +656,11 @@ SPLogbook/
     │   ├── workspace_profiles.rs # Operator layout (workspace) profile manager
     │   ├── world_map.rs     # Interactive world map with Grey Line & rotator
     │   └── wspr_panel.rs    # Real-time WSPR monitor
-    ├── plugins/             # User plugin system (embedded Rhai)
-    │   └── mod.rs           # PluginEngine: sandboxed .rhai scripts & hooks
+    ├── plugins/             # User plugin system (embedded Rhai) + marketplace
+    │   ├── mod.rs           # PluginEngine: sandboxed .rhai scripts, getters/actions & hooks
+    │   ├── bridge.rs        # PluginCommand queue + PluginSnapshot state bridge
+    │   ├── lookups.rs       # POTA/SOTA REST lookups for plugin actions
+    │   └── marketplace.rs   # Plugin catalog, fetch, SHA256-verified install/uninstall
     ├── sync/                # Encrypted peer-to-peer synchronization
     │   └── p2p.rs           # XChaCha20-Poly1305 P2P log sync over TCP
     ├── network/             # Network utilities

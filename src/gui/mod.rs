@@ -44,6 +44,7 @@ pub mod station_profiles;
 pub mod voice_keyer;
 pub mod workspace_profiles;
 pub mod plugin_manager;
+pub mod marketplace;
 pub mod operator_assistant;
 
 /// Pomocnik rysujący mały przycisk "↗" (Odepnij do osobnego okna OS) bezpośrednio na pasku tytułowym okna egui.

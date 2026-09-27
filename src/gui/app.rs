@@ -570,6 +570,23 @@ pub struct SpLogApp {
     pub plugin_log: Vec<String>,
     pub plugin_notifications: Vec<String>,
 
+    // Marketplace pluginów (katalog + instalacja jednym kliknięciem)
+    pub show_marketplace: bool,
+    pub marketplace_catalog: Vec<crate::plugins::marketplace::PluginCatalogEntry>,
+    pub marketplace_loading: bool,
+    pub marketplace_error: Option<String>,
+    pub marketplace_search: String,
+    pub marketplace_category: Option<String>,
+    pub marketplace_busy_id: Option<String>,
+    pub marketplace_status: Option<String>,
+    pub marketplace_fetch_rx: Option<
+        std::sync::mpsc::Receiver<
+            Result<Vec<crate::plugins::marketplace::PluginCatalogEntry>, String>,
+        >,
+    >,
+    pub marketplace_install_rx: Option<std::sync::mpsc::Receiver<(String, Result<(), String>)>>,
+    plugin_lookup_rx: Option<std::sync::mpsc::Receiver<crate::plugins::bridge::PluginLookupResult>>,
+
     // Zintegrowany pasek asystenta operatora
     pub operator_assistant_enabled: bool,
     pub show_operator_assistant: bool,
@@ -1206,6 +1223,18 @@ impl SpLogApp {
             plugin_log: Vec::new(),
             plugin_notifications: Vec::new(),
 
+            show_marketplace: false,
+            marketplace_catalog: Vec::new(),
+            marketplace_loading: false,
+            marketplace_error: None,
+            marketplace_search: String::new(),
+            marketplace_category: None,
+            marketplace_busy_id: None,
+            marketplace_status: None,
+            marketplace_fetch_rx: None,
+            marketplace_install_rx: None,
+            plugin_lookup_rx: None,
+
             // Zintegrowany pasek asystenta operatora
             operator_assistant_enabled: app_config.operator_assistant_enabled,
             show_operator_assistant: app_config.operator_assistant_enabled,
@@ -1531,6 +1560,253 @@ impl SpLogApp {
         ));
     }
 
+    /// Obraca antenę na zadany azymut i elewację (akcja pluginu `rotate`).
+    pub fn rotate_antenna_to_el(&mut self, azimuth_deg: f32, elevation_deg: f32) {
+        self.rotor_state.azimuth_deg = azimuth_deg;
+        self.rotor_state.elevation_deg = elevation_deg;
+        let host = self.rotor_host.clone();
+        let port = self.rotor_port;
+        tokio::spawn(async move {
+            let _ = crate::cat::rotor::RotorClient::set_position(&host, port, azimuth_deg, elevation_deg).await;
+        });
+        self.status_toast = Some((
+            format!("Wysłano polecenie obrotu anteny: az {:.0}°, el {:.0}°", azimuth_deg, elevation_deg),
+            std::time::Instant::now(),
+        ));
+    }
+
+    /// Buduje migawkę stanu (radio, rotor, nagrody, ostatnia łączność) widoczną
+    /// dla getterów pluginów Rhai. Wywoływana co klatkę oraz po zapisie łączności.
+    pub fn refresh_plugin_snapshot(&mut self) {
+        let awards = {
+            let a = self.awards_engine.lock().unwrap_or_else(|p| p.into_inner());
+            crate::plugins::bridge::AwardSnapshot {
+                dxcc_worked: a.worked_dxcc_all.len() as i64,
+                dxcc_confirmed: a.confirmed_dxcc.len() as i64,
+                waz_worked: a.worked_waz.len() as i64,
+                was_worked: a.worked_was.len() as i64,
+                wac_worked: a.worked_wac.len() as i64,
+                iota_worked: a.worked_iota.len() as i64,
+                pota_parks_worked: a.worked_pota.len() as i64,
+                sota_summits_worked: a.worked_sota.len() as i64,
+                pga_gminas_worked: a.worked_pga.len() as i64,
+            }
+        };
+
+        let award = self.active_award_status.as_ref();
+        let last_qso = crate::plugins::bridge::QsoSnapshot {
+            callsign: self.entry_callsign.clone(),
+            band: self.entry_band.clone(),
+            mode: self.entry_mode.clone(),
+            freq_mhz: self.rig_state.frequency_hz as f64 / 1_000_000.0,
+            name: self.entry_name.clone(),
+            qth: self.entry_qth.clone(),
+            gridsquare: self.entry_grid.clone(),
+            country: self.active_prefix_info.as_ref().map(|i| i.country.clone()).unwrap_or_default(),
+            dxcc: self.active_prefix_info.as_ref().map(|i| i.dxcc.to_string()).unwrap_or_default(),
+            sota_ref: self.entry_sota.clone(),
+            pota_ref: self.entry_pota.clone(),
+            pga_ref: self.entry_pga.clone(),
+            iota: self.entry_iota.clone(),
+            state: self.entry_state.clone(),
+            rst_sent: self.entry_rst_sent.clone(),
+            rst_rcvd: self.entry_rst_rcvd.clone(),
+            comment: self.entry_comment.clone(),
+            is_atno: award.map(|s| s.is_new_dxcc).unwrap_or(false),
+            is_new_band: award.map(|s| s.is_new_band).unwrap_or(false),
+            is_new_mode: award.map(|s| s.is_new_mode).unwrap_or(false),
+            is_new_iota: award.map(|s| s.is_new_iota).unwrap_or(false),
+            is_new_waz: award.map(|s| s.is_new_waz).unwrap_or(false),
+            is_new_was: award.map(|s| s.is_new_was).unwrap_or(false),
+            is_new_wac: award.map(|s| s.is_new_wac).unwrap_or(false),
+            is_new_pga: award.map(|s| s.is_new_pga).unwrap_or(false),
+        };
+
+        self.plugin_engine.set_snapshot(crate::plugins::bridge::PluginSnapshot {
+            rig_freq_mhz: self.rig_state.frequency_hz as f64 / 1_000_000.0,
+            rig_mode: self.rig_state.mode.clone(),
+            rig_band: self.entry_band.clone(),
+            rig_connected: self.rig_state.connected,
+            rotor_azimuth_deg: self.rotor_state.azimuth_deg,
+            rotor_elevation_deg: self.rotor_state.elevation_deg,
+            my_call: self.my_station.callsign.clone(),
+            qso_count: self.qso_numbers.len() as i64,
+            awards,
+            last_qso,
+        });
+    }
+
+    /// Odpytuje kanał wyników zapytań POTA/SOTA z akcji pluginów i uruchamia
+    /// odpowiadające haki (`on_pota_info` / `on_sota_info`).
+    pub fn poll_plugin_lookup(&mut self) {
+        let mut result = None;
+        if let Some(rx) = &self.plugin_lookup_rx {
+            if let Ok(r) = rx.try_recv() {
+                result = Some(r);
+            }
+        }
+        if let Some(r) = result {
+            match r {
+                crate::plugins::bridge::PluginLookupResult::Pota { reference, name, active } => {
+                    self.plugin_engine.run_on_pota_info(&reference, &name, active);
+                }
+                crate::plugins::bridge::PluginLookupResult::Sota { reference, name, points } => {
+                    self.plugin_engine.run_on_sota_info(&reference, &name, points);
+                }
+                crate::plugins::bridge::PluginLookupResult::Error(msg) => {
+                    self.status_toast = Some((format!("Plugin: {msg}"), std::time::Instant::now()));
+                }
+            }
+        }
+    }
+
+    /// Wykonuje polecenia zakolejkowane przez pluginy Rhai.
+    pub fn process_plugin_commands(&mut self) {
+        let commands = self.plugin_engine.drain_commands();
+        for cmd in commands {
+            match cmd {
+                crate::plugins::bridge::PluginCommand::SendCw { text } => {
+                    self.transmit_cw_macro(&text);
+                }
+                crate::plugins::bridge::PluginCommand::SendVoice { text } => {
+                    if text.trim().to_lowercase().ends_with(".wav") {
+                        let path = text.trim().to_string();
+                        let _ = crate::media::voice_keyer::play_wav_file(&path);
+                    } else {
+                        self.status_toast = Some((
+                            format!("🎙️ Zapowiedź głosowa: {}", text),
+                            std::time::Instant::now(),
+                        ));
+                    }
+                }
+                crate::plugins::bridge::PluginCommand::Rotate { azimuth_deg, elevation_deg } => {
+                    self.rotate_antenna_to_el(azimuth_deg, elevation_deg);
+                }
+                crate::plugins::bridge::PluginCommand::Spot { dx_call, freq_khz, comment } => {
+                    self.publish_local_spot(&dx_call, freq_khz, &comment);
+                }
+                crate::plugins::bridge::PluginCommand::SetQsoField { field, value } => {
+                    self.apply_qso_field(&field, &value);
+                }
+                crate::plugins::bridge::PluginCommand::PlaySound { name } => {
+                    self.play_plugin_sound(&name);
+                }
+                crate::plugins::bridge::PluginCommand::PotaLookup { reference } => {
+                    self.trigger_pota_lookup(&reference);
+                }
+                crate::plugins::bridge::PluginCommand::SotaLookup { reference } => {
+                    self.trigger_sota_lookup(&reference);
+                }
+                crate::plugins::bridge::PluginCommand::Notify { message } => {
+                    self.status_toast = Some((message, std::time::Instant::now()));
+                }
+            }
+        }
+    }
+
+    /// Wstawia lokalny spot DX (akcja `spot`). Kanał wysyłki telnetowej klastra
+    /// nie jest dostępny dla pluginów, więc spot pojawia się w panelu klastra.
+    fn publish_local_spot(&mut self, dx_call: &str, freq_khz: f64, comment: &str) {
+        let band_str = crate::core::bandplan::get_band_by_freq((freq_khz * 1000.0) as u64)
+            .map(|b| b.name.to_string())
+            .unwrap_or_else(|| "HF".to_string());
+        let is_ft8 = comment.to_uppercase().contains("FT8");
+        let spot = crate::cluster::telnet::DxSpot {
+            frequency_khz: freq_khz,
+            dx_call: dx_call.to_string(),
+            spotter: self.my_station.callsign.clone(),
+            comment: comment.to_string(),
+            time_utc: chrono::Utc::now().format("%H%M").to_string(),
+            band: band_str,
+            is_ft8,
+            is_skimmer: false,
+            received_at: chrono::Utc::now().timestamp(),
+        };
+        self.cluster_spots.insert(0, spot);
+        self.status_toast = Some((
+            format!("Spot (plugin): {} na {:.1} kHz", dx_call, freq_khz),
+            std::time::Instant::now(),
+        ));
+    }
+
+    /// Ustawia pole formularza QSO na podstawie nazwy (akcja `set_qso_field`).
+    fn apply_qso_field(&mut self, field: &str, value: &str) {
+        match field.to_lowercase().as_str() {
+            "callsign" => self.entry_callsign = value.to_string(),
+            "name" => self.entry_name = value.to_string(),
+            "qth" => self.entry_qth = value.to_string(),
+            "gridsquare" | "grid" => self.entry_grid = value.to_string(),
+            "rst_sent" => self.entry_rst_sent = value.to_string(),
+            "rst_rcvd" => self.entry_rst_rcvd = value.to_string(),
+            "comment" => self.entry_comment = value.to_string(),
+            "sota_ref" | "sota" => self.entry_sota = value.to_string(),
+            "pota_ref" | "pota" => self.entry_pota = value.to_string(),
+            "pga_ref" | "pga" => self.entry_pga = value.to_string(),
+            "iota" => self.entry_iota = value.to_string(),
+            "state" => self.entry_state = value.to_string(),
+            _ => {}
+        }
+    }
+
+    /// Odtwarza dźwięk powiadomienia o zadanej nazwie (akcja `play_sound`).
+    fn play_plugin_sound(&mut self, name: &str) {
+        match name.trim().to_lowercase().as_str() {
+            "new_dxcc" | "atno" => crate::media::sounds::play_new_dxcc_alert(),
+            "duplicate" | "dupe" => crate::media::sounds::play_duplicate_alert(),
+            "new_iota" | "iota" => crate::media::sounds::play_new_iota_alert(),
+            "qso_saved" | "saved" => crate::media::sounds::play_qso_saved_alert(),
+            "band_opened" | "band" => crate::media::sounds::play_band_opened_alert(),
+            _ => self.status_toast = Some((
+                format!("Nieznany dźwięk pluginu: {}", name),
+                std::time::Instant::now(),
+            )),
+        }
+    }
+
+    /// Rozpoczyna asynchroniczne zapytanie POTA (akcja `pota_lookup`).
+    fn trigger_pota_lookup(&mut self, reference: &str) {
+        let reference = reference.trim().to_string();
+        if reference.is_empty() {
+            return;
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.plugin_lookup_rx = Some(rx);
+        let reference = reference.clone();
+        tokio::spawn(async move {
+            let result = match crate::plugins::lookups::lookup_pota(&reference).await {
+                Ok(info) => crate::plugins::bridge::PluginLookupResult::Pota {
+                    reference: info.reference,
+                    name: info.name,
+                    active: info.active,
+                },
+                Err(e) => crate::plugins::bridge::PluginLookupResult::Error(e),
+            };
+            let _ = tx.send(result);
+        });
+    }
+
+    /// Rozpoczyna asynchroniczne zapytanie SOTA (akcja `sota_lookup`).
+    fn trigger_sota_lookup(&mut self, reference: &str) {
+        let reference = reference.trim().to_string();
+        if reference.is_empty() {
+            return;
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.plugin_lookup_rx = Some(rx);
+        let reference = reference.clone();
+        tokio::spawn(async move {
+            let result = match crate::plugins::lookups::lookup_sota(&reference).await {
+                Ok(info) => crate::plugins::bridge::PluginLookupResult::Sota {
+                    reference: info.reference,
+                    name: info.name,
+                    points: info.points,
+                },
+                Err(e) => crate::plugins::bridge::PluginLookupResult::Error(e),
+            };
+            let _ = tx.send(result);
+        });
+    }
+
     pub fn save_qso(&mut self) {
         if self.entry_callsign.trim().is_empty() {
             return;
@@ -1642,6 +1918,7 @@ impl SpLogApp {
             .record_observation(&qso.band, crate::core::propagation_history::ObservedOutcome::ConfirmedOpen);
 
         // Hook pluginów użytkownika (Rhai) po zapisaniu łączności.
+        self.refresh_plugin_snapshot();
         self.plugin_engine.run_on_qso_logged(&crate::plugins::QsoHookContext {
             callsign: qso.callsign.clone(),
             band: qso.band.clone(),
@@ -3016,6 +3293,11 @@ impl eframe::App for SpLogApp {
         }
         self.main_window_maximized = win_max;
 
+        // ——— Plugin Rhai: odśwież migawkę stanu, wykonaj polecenia i odbierz wyniki zapytań ———
+        self.refresh_plugin_snapshot();
+        self.process_plugin_commands();
+        self.poll_plugin_lookup();
+
         // ——— Odbieranie wynikow asynchronicznych operacji ———
 
         // WSPR: sprawdz czy pobieranie zakonczylo sie
@@ -3171,6 +3453,12 @@ impl eframe::App for SpLogApp {
                         self.entry_mode = self.rig_state.mode.clone();
                     }
                 }
+                // Hook pluginów Rhai na zmianę stanu radia.
+                self.plugin_engine.run_on_rig_state(
+                    self.rig_state.frequency_hz as f64 / 1_000_000.0,
+                    &self.rig_state.mode,
+                    true,
+                );
             }
         }
 
@@ -3318,7 +3606,16 @@ impl eframe::App for SpLogApp {
                                 is_ft8: spot.is_ft8,
                                 is_skimmer: spot.is_skimmer,
                             });
-                            self.cluster_spots.insert(0, spot);
+                            self.cluster_spots.insert(0, spot.clone());
+                            // Hook pluginów Rhai na nowy spot DX.
+                            self.plugin_engine.run_on_dx_spot(
+                                &spot.spotter,
+                                &spot.dx_call,
+                                spot.frequency_khz,
+                                &spot.band,
+                                &spot.comment,
+                                spot.is_ft8,
+                            );
                         }
                     }
                     ClusterEvent::RawLine(_) => {}
@@ -3759,6 +4056,7 @@ impl eframe::App for SpLogApp {
         crate::gui::workspace_profiles::render_workspace_profiles_window(self, ctx);
         crate::gui::operator_assistant::render_operator_assistant(self, ctx);
         crate::gui::plugin_manager::render_plugin_manager(self, ctx);
+        crate::gui::marketplace::render_marketplace(self, ctx);
 
         // Okna dialogowe i narzędzia pomocnicze
         if self.journal_dialog.is_open {

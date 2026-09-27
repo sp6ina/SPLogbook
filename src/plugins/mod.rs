@@ -10,10 +10,15 @@
 //! `on_startup()`, `on_qso_logged(call, band, mode, freq_mhz, is_atno)`
 //! oraz `on_band_opened(band)`.
 
+pub mod bridge;
+pub mod lookups;
+pub mod marketplace;
+
+use bridge::{PluginCommand, PluginSnapshot};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 /// Informacja o pojedynczym skrypcie pluginu (ładowanie i błędy).
 #[derive(Debug, Clone)]
@@ -24,12 +29,23 @@ pub struct PluginInfo {
     pub error: Option<String>,
 }
 
-/// Współdzielony stan roboczy silnika (logi, powiadomienia, licznik QSO).
+/// Współdzielony stan roboczy silnika (logi, powiadomienia, licznik QSO,
+/// migawka stanu oraz kolejka poleceń do wykonania przez aplikację).
 #[derive(Debug, Default)]
 struct PluginState {
     log: Mutex<Vec<String>>,
     notifications: Mutex<Vec<String>>,
     qso_count: AtomicI64,
+    snapshot: Arc<RwLock<PluginSnapshot>>,
+    commands: Mutex<Vec<PluginCommand>>,
+}
+
+/// Dodaje polecenie do kolejki współdzielonego stanu pluginów.
+fn push_command(state: &Arc<PluginState>, cmd: PluginCommand) {
+    let mut v = state.commands.lock().unwrap_or_else(|p| p.into_inner());
+    if v.len() < 256 {
+        v.push(cmd);
+    }
 }
 
 /// Silnik pluginów Rhai. Wczytuje i uruchamia skrypty `.rhai` z katalogu pluginów.
@@ -88,6 +104,168 @@ impl PluginEngine {
         let count_state = Arc::clone(&state);
         engine.register_fn("qso_count", move || count_state.qso_count.load(Ordering::Relaxed));
 
+        // --- Gettery stanu (radio, rotor, nagrody, stacja, ostatnia łączność) ---
+        let snap = Arc::clone(&state.snapshot);
+        engine.register_fn("rig_freq_mhz", move || {
+            snap.read().unwrap_or_else(|p| p.into_inner()).rig_freq_mhz
+        });
+        let snap = Arc::clone(&state.snapshot);
+        engine.register_fn("rig_mode", move || {
+            snap.read().unwrap_or_else(|p| p.into_inner())
+                .rig_mode
+                .clone()
+        });
+        let snap = Arc::clone(&state.snapshot);
+        engine.register_fn("rig_band", move || {
+            snap.read().unwrap_or_else(|p| p.into_inner())
+                .rig_band
+                .clone()
+        });
+        let snap = Arc::clone(&state.snapshot);
+        engine.register_fn("rig_connected", move || {
+            snap.read().unwrap_or_else(|p| p.into_inner()).rig_connected
+        });
+        let snap = Arc::clone(&state.snapshot);
+        engine.register_fn("rotor_azimuth", move || {
+            snap.read().unwrap_or_else(|p| p.into_inner())
+                .rotor_azimuth_deg
+        });
+        let snap = Arc::clone(&state.snapshot);
+        engine.register_fn("rotor_elevation", move || {
+            snap.read().unwrap_or_else(|p| p.into_inner())
+                .rotor_elevation_deg
+        });
+        let snap = Arc::clone(&state.snapshot);
+        engine.register_fn("my_call", move || {
+            snap.read().unwrap_or_else(|p| p.into_inner())
+                .my_call
+                .clone()
+        });
+        let snap = Arc::clone(&state.snapshot);
+        engine.register_fn("dxcc_worked", move || {
+            snap.read().unwrap_or_else(|p| p.into_inner())
+                .awards
+                .dxcc_worked
+        });
+        let snap = Arc::clone(&state.snapshot);
+        engine.register_fn("dxcc_confirmed", move || {
+            snap.read().unwrap_or_else(|p| p.into_inner())
+                .awards
+                .dxcc_confirmed
+        });
+        let snap = Arc::clone(&state.snapshot);
+        engine.register_fn("waz_worked", move || {
+            snap.read().unwrap_or_else(|p| p.into_inner())
+                .awards
+                .waz_worked
+        });
+        let snap = Arc::clone(&state.snapshot);
+        engine.register_fn("was_worked", move || {
+            snap.read().unwrap_or_else(|p| p.into_inner())
+                .awards
+                .was_worked
+        });
+        let snap = Arc::clone(&state.snapshot);
+        engine.register_fn("wac_worked", move || {
+            snap.read().unwrap_or_else(|p| p.into_inner())
+                .awards
+                .wac_worked
+        });
+        let snap = Arc::clone(&state.snapshot);
+        engine.register_fn("iota_worked", move || {
+            snap.read().unwrap_or_else(|p| p.into_inner())
+                .awards
+                .iota_worked
+        });
+        let snap = Arc::clone(&state.snapshot);
+        engine.register_fn("pota_parks_worked", move || {
+            snap.read().unwrap_or_else(|p| p.into_inner())
+                .awards
+                .pota_parks_worked
+        });
+        let snap = Arc::clone(&state.snapshot);
+        engine.register_fn("sota_summits_worked", move || {
+            snap.read().unwrap_or_else(|p| p.into_inner())
+                .awards
+                .sota_summits_worked
+        });
+        let snap = Arc::clone(&state.snapshot);
+        engine.register_fn("pga_gminas_worked", move || {
+            snap.read().unwrap_or_else(|p| p.into_inner())
+                .awards
+                .pga_gminas_worked
+        });
+        let snap = Arc::clone(&state.snapshot);
+        engine.register_fn("qso_field", move |name: &str| {
+            snap.read()
+                .unwrap_or_else(|p| p.into_inner())
+                .last_qso
+                .field(name)
+        });
+
+        // --- Akcje (kolejkowane jako PluginCommand i wykonywane przez aplikację) ---
+        let cmd = Arc::clone(&state);
+        engine.register_fn("send_cw", move |text: &str| {
+            push_command(&cmd, PluginCommand::SendCw { text: text.to_string() });
+        });
+        let cmd = Arc::clone(&state);
+        engine.register_fn("send_voice", move |text: &str| {
+            push_command(&cmd, PluginCommand::SendVoice { text: text.to_string() });
+        });
+        let cmd = Arc::clone(&state);
+        engine.register_fn("rotate", move |azimuth_deg: f32| {
+            push_command(
+                &cmd,
+                PluginCommand::Rotate {
+                    azimuth_deg,
+                    elevation_deg: 0.0,
+                },
+            );
+        });
+        let cmd = Arc::clone(&state);
+        engine.register_fn("rotate", move |azimuth_deg: f32, elevation_deg: f32| {
+            push_command(
+                &cmd,
+                PluginCommand::Rotate {
+                    azimuth_deg,
+                    elevation_deg,
+                },
+            );
+        });
+        let cmd = Arc::clone(&state);
+        engine.register_fn("spot", move |dx_call: &str, freq_khz: f64, comment: &str| {
+            push_command(
+                &cmd,
+                PluginCommand::Spot {
+                    dx_call: dx_call.to_string(),
+                    freq_khz,
+                    comment: comment.to_string(),
+                },
+            );
+        });
+        let cmd = Arc::clone(&state);
+        engine.register_fn("set_qso_field", move |field: &str, value: &str| {
+            push_command(
+                &cmd,
+                PluginCommand::SetQsoField {
+                    field: field.to_string(),
+                    value: value.to_string(),
+                },
+            );
+        });
+        let cmd = Arc::clone(&state);
+        engine.register_fn("play_sound", move |name: &str| {
+            push_command(&cmd, PluginCommand::PlaySound { name: name.to_string() });
+        });
+        let cmd = Arc::clone(&state);
+        engine.register_fn("pota_lookup", move |reference: &str| {
+            push_command(&cmd, PluginCommand::PotaLookup { reference: reference.to_string() });
+        });
+        let cmd = Arc::clone(&state);
+        engine.register_fn("sota_lookup", move |reference: &str| {
+            push_command(&cmd, PluginCommand::SotaLookup { reference: reference.to_string() });
+        });
+
         Self {
             engine,
             state,
@@ -96,6 +274,23 @@ impl PluginEngine {
             enabled: true,
         }
     }
+
+    /// Ustawia migawkę stanu widoczną dla getterów pluginów.
+    pub fn set_snapshot(&self, snapshot: PluginSnapshot) {
+        let mut w = self
+            .state
+            .snapshot
+            .write()
+            .unwrap_or_else(|p| p.into_inner());
+        *w = snapshot;
+    }
+
+    /// Pobiera zakolejkowane przez pluginy polecenia i czyści bufor.
+    pub fn drain_commands(&self) -> Vec<PluginCommand> {
+        let mut v = self.state.commands.lock().unwrap_or_else(|p| p.into_inner());
+        std::mem::take(&mut *v)
+    }
+
 
     /// Włącza/wyłącza wykonywanie pluginów (bez wyładowywania skryptów).
     pub fn set_enabled(&mut self, enabled: bool) {
@@ -250,6 +445,61 @@ impl PluginEngine {
     /// układu operatorskiego (workspace).
     pub fn run_on_workspace_changed(&self, name: &str) {
         self.run_hook("on_workspace_changed", vec![name.to_string().into()]);
+    }
+
+    /// Wywołuje hak `on_dx_spot(spotter, dx_call, freq_khz, band, comment, is_ft8)`.
+    pub fn run_on_dx_spot(
+        &self,
+        spotter: &str,
+        dx_call: &str,
+        freq_khz: f64,
+        band: &str,
+        comment: &str,
+        is_ft8: bool,
+    ) {
+        self.run_hook(
+            "on_dx_spot",
+            vec![
+                spotter.to_string().into(),
+                dx_call.to_string().into(),
+                freq_khz.into(),
+                band.to_string().into(),
+                comment.to_string().into(),
+                is_ft8.into(),
+            ],
+        );
+    }
+
+    /// Wywołuje hak `on_rig_state(freq_mhz, mode, connected)`.
+    pub fn run_on_rig_state(&self, freq_mhz: f64, mode: &str, connected: bool) {
+        self.run_hook(
+            "on_rig_state",
+            vec![freq_mhz.into(), mode.to_string().into(), connected.into()],
+        );
+    }
+
+    /// Wywołuje hak `on_pota_info(reference, name, active)` po zapytaniu POTA.
+    pub fn run_on_pota_info(&self, reference: &str, name: &str, active: bool) {
+        self.run_hook(
+            "on_pota_info",
+            vec![
+                reference.to_string().into(),
+                name.to_string().into(),
+                active.into(),
+            ],
+        );
+    }
+
+    /// Wywołuje hak `on_sota_info(reference, name, points)` po zapytaniu SOTA.
+    pub fn run_on_sota_info(&self, reference: &str, name: &str, points: i64) {
+        self.run_hook(
+            "on_sota_info",
+            vec![
+                reference.to_string().into(),
+                name.to_string().into(),
+                points.into(),
+            ],
+        );
     }
 }
 

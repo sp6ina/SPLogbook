@@ -145,6 +145,7 @@ pub const BADGE: Icon = Icon::new("🏷", GOLD);
 pub const SETTINGS: Icon = Icon::new("⚙", NEUTRAL);
 pub const THEME: Icon = Icon::new("🎨", VIOLET);
 pub const PLUGIN: Icon = Icon::new("🧩", VIOLET);
+pub const STORE: Icon = Icon::new("🛒", SUCCESS);
 pub const TERMINAL: Icon = Icon::new("💻", NEUTRAL);
 pub const DESKTOP: Icon = Icon::new("🖥", NEUTRAL);
 pub const WORKSPACE: Icon = Icon::new("🪟", ACCENT);
