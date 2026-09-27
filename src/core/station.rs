@@ -427,7 +427,12 @@ pub struct AppConfig {
     pub panel_solar: ViewPanelConfig,
     pub panel_satellites: ViewPanelConfig,
     pub panel_world_map: ViewPanelConfig,
-    
+
+    /// Tryb zakładek w kolumnach dokowanego układu: true = kafelki w kolumnie
+    /// prezentowane jako zakładki (jedna aktywna na raz), false = układ pionowy.
+    #[serde(default)]
+    pub tabbed_columns: bool,
+
     #[serde(default = "default_logbook_columns")]
     pub logbook_columns: Vec<LogColumn>,
 
@@ -771,6 +776,7 @@ impl Default for AppConfig {
             panel_world_map:  ViewPanelConfig { visible: true, floating: false, column: 2, order: 0, saved_pos: None, saved_size: None },
             panel_solar:      ViewPanelConfig { visible: true, floating: false, column: 2, order: 1, saved_pos: None, saved_size: None },
             panel_satellites: ViewPanelConfig { visible: true, floating: false, column: 2, order: 2, saved_pos: None, saved_size: None },
+            tabbed_columns: false,
             plugins_enabled: true,
             plugins_dir: default_plugins_dir(),
             operator_assistant_enabled: default_operator_assistant_enabled(),

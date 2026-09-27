@@ -404,6 +404,11 @@ pub struct SpLogApp {
     pub panel_satellites: ViewPanelConfig,
     pub panel_world_map: ViewPanelConfig,
 
+    /// Tryb zakładek w kolumnach dokowanego układu (zapis w konfiguracji).
+    pub tabbed_columns: bool,
+    /// Indeks aktywnej zakładki w każdej z trzech kolumn (stan sesji).
+    pub active_tab: [usize; 3],
+
     // Tryb kompaktowy (Mini HUD)
     pub compact_hud_mode: bool,
     pub hud_always_on_top: bool,
@@ -985,6 +990,8 @@ impl SpLogApp {
             sota_dialog: SotaDialog::new(),
 
             compact_hud_mode: app_config.compact_hud_mode,
+            tabbed_columns: app_config.tabbed_columns,
+            active_tab: [0; 3],
             hud_always_on_top: app_config.hud_always_on_top,
             hud_saved_pos: app_config.hud_saved_pos,
             hud_saved_size: app_config.hud_saved_size,
@@ -2276,6 +2283,7 @@ impl SpLogApp {
 
             current_language: self.current_language.code().to_string(),
             compact_hud_mode: self.compact_hud_mode,
+            tabbed_columns: self.tabbed_columns,
             font_scale: self.font_scale,
             font_family: self.font_family.clone(),
             distance_unit: self.distance_unit.clone(),
@@ -2403,14 +2411,14 @@ impl SpLogApp {
         self.left_column_width = 350.0;
         self.right_column_width = 360.0;
 
-        self.panel_vfo      = ViewPanelConfig { visible: true,  floating: true, column: 0, order: 0, saved_pos: None, saved_size: None };
-        self.panel_qso      = ViewPanelConfig { visible: true,  floating: true, column: 0, order: 1, saved_pos: None, saved_size: None };
-        self.panel_log      = ViewPanelConfig { visible: true,  floating: true, column: 1, order: 0, saved_pos: None, saved_size: None };
-        self.panel_cluster  = ViewPanelConfig { visible: true,  floating: true, column: 1, order: 1, saved_pos: None, saved_size: None };
-        self.panel_bandmap  = ViewPanelConfig { visible: true,  floating: true, column: 2, order: 0, saved_pos: None, saved_size: None };
-        self.panel_solar    = ViewPanelConfig { visible: true,  floating: true, column: 2, order: 1, saved_pos: None, saved_size: None };
-        self.panel_satellites = ViewPanelConfig { visible: false, floating: true, column: 2, order: 2, saved_pos: None, saved_size: None };
-        self.panel_world_map  = ViewPanelConfig { visible: false, floating: true, column: 2, order: 3, saved_pos: None, saved_size: None };
+        self.panel_vfo      = ViewPanelConfig { visible: true,  floating: false, column: 0, order: 0, saved_pos: None, saved_size: None };
+        self.panel_qso      = ViewPanelConfig { visible: true,  floating: false, column: 0, order: 1, saved_pos: None, saved_size: None };
+        self.panel_log      = ViewPanelConfig { visible: true,  floating: false, column: 1, order: 0, saved_pos: None, saved_size: None };
+        self.panel_cluster  = ViewPanelConfig { visible: true,  floating: false, column: 1, order: 1, saved_pos: None, saved_size: None };
+        self.panel_bandmap  = ViewPanelConfig { visible: true,  floating: false, column: 0, order: 2, saved_pos: None, saved_size: None };
+        self.panel_solar    = ViewPanelConfig { visible: true,  floating: false, column: 2, order: 1, saved_pos: None, saved_size: None };
+        self.panel_satellites = ViewPanelConfig { visible: false, floating: false, column: 2, order: 2, saved_pos: None, saved_size: None };
+        self.panel_world_map  = ViewPanelConfig { visible: false, floating: false, column: 2, order: 0, saved_pos: None, saved_size: None };
 
         self.show_bandmap_window = false;
         self.show_satellites_window = false;
@@ -2840,6 +2848,94 @@ impl SpLogApp {
         if let Some(id) = start_drag {
             self.dragging_tile = Some(id);
         }
+        if let Some((id, delta)) = action_move_col {
+            self.move_tile_column(&id, delta);
+        }
+        if let Some((id, delta)) = action_move_order {
+            self.move_tile_order(&id, delta);
+        }
+        if let Some(id) = action_popout {
+            self.popout_tile(&id);
+        }
+        if let Some(id) = action_close {
+            self.close_tile(&id);
+        }
+    }
+
+    /// Tryb zakładek: każda kolumna pokazuje pasek zakładek, a pod nim tylko
+    /// jedną aktywną kartę (nagłówek + ciało). Zachowuje akcje odpinania,
+    /// zamykania i przenoszenia między kolumnami.
+    pub fn render_tiles_in_column_tabbed(&mut self, ui: &mut egui::Ui, col_idx: usize, tiles: &[String]) {
+        if tiles.is_empty() {
+            return;
+        }
+
+        let active = self.active_tab[col_idx].min(tiles.len() - 1);
+        self.active_tab[col_idx] = active;
+
+        // Pasek zakładek
+        ui.horizontal_wrapped(|ui| {
+            for (idx, tile_id) in tiles.iter().enumerate() {
+                let selected = idx == active;
+                let title = egui::RichText::new(self.tile_title(tile_id)).size(12.0).strong();
+                if ui.selectable_label(selected, title).clicked() {
+                    self.active_tab[col_idx] = idx;
+                }
+            }
+        });
+        ui.add_space(4.0);
+
+        let tile_id = tiles[active].clone();
+        let mut action_popout: Option<String> = None;
+        let mut action_close: Option<String> = None;
+        let mut action_move_col: Option<(String, i32)> = None;
+        let mut action_move_order: Option<(String, i32)> = None;
+
+        egui::Frame::group(ui.style())
+            .rounding(6.0)
+            .inner_margin(egui::Margin::same(8.0))
+            .stroke(egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(51, 65, 85)))
+            .show(ui, |ui| {
+                ui.vertical(|ui| {
+                    ui.horizontal(|ui| {
+                        let title_text = egui::RichText::new(self.tile_title(&tile_id))
+                            .color(egui::Color32::from_rgb(56, 189, 248))
+                            .strong()
+                            .size(13.0);
+                        ui.label(title_text);
+                        self.render_tile_header_custom(&tile_id, ui);
+
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("✕").on_hover_text("Ukryj ten kafelek").clicked() {
+                                action_close = Some(tile_id.clone());
+                            }
+                            if ui.button("↗").on_hover_text("Odepnij do osobnego okna pływającego").clicked() {
+                                action_popout = Some(tile_id.clone());
+                            }
+                            if active + 1 < tiles.len()
+                                && ui.button("▼").on_hover_text("Przesuń niżej").clicked() {
+                                action_move_order = Some((tile_id.clone(), 1));
+                            }
+                            if active > 0
+                                && ui.button("▲").on_hover_text("Przesuń wyżej").clicked() {
+                                action_move_order = Some((tile_id.clone(), -1));
+                            }
+                            if col_idx < 2
+                                && ui.button("▶").on_hover_text("Przenieś do kolumny po prawej").clicked() {
+                                action_move_col = Some((tile_id.clone(), 1));
+                            }
+                            if col_idx > 0
+                                && ui.button("◀").on_hover_text("Przenieś do kolumny po lewej").clicked() {
+                                action_move_col = Some((tile_id.clone(), -1));
+                            }
+                        });
+                    });
+
+                    ui.separator();
+                    self.render_tile_body(&tile_id, ui);
+                });
+            });
+
         if let Some((id, delta)) = action_move_col {
             self.move_tile_column(&id, delta);
         }
@@ -3981,12 +4077,49 @@ impl eframe::App for SpLogApp {
                         }
                     });
                 } else {
+                    let docked_visible = (self.panel_vfo.visible && !self.panel_vfo.floating) as usize
+                        + (self.panel_qso.visible && !self.panel_qso.floating) as usize
+                        + (self.panel_log.visible && !self.panel_log.floating) as usize
+                        + (self.panel_cluster.visible && !self.panel_cluster.floating) as usize
+                        + (self.panel_bandmap.visible && !self.panel_bandmap.floating) as usize
+                        + (self.panel_solar.visible && !self.panel_solar.floating) as usize
+                        + (self.panel_satellites.visible && !self.panel_satellites.floating) as usize
+                        + (self.panel_world_map.visible && !self.panel_world_map.floating) as usize;
+
+                    if docked_visible > 0 {
+                        // Dokowany układ 3-kolumnowy (realny system dokowania kafelków).
+                        // Kafelki można przeciągać za uchwyt ⠿, przestawiać i odpinać,
+                        // a także przełączyć na tryb zakładek (jedna karta na kolumnę).
+                        let col0 = self.get_tiles_in_column(0);
+                        let col1 = self.get_tiles_in_column(1);
+                        let col2 = self.get_tiles_in_column(2);
+                        egui::ScrollArea::vertical().show(ui, |ui| {
+                            ui.columns(3, |cols| {
+                                if self.tabbed_columns {
+                                    self.render_tiles_in_column_tabbed(&mut cols[0], 0, &col0);
+                                    self.render_tiles_in_column_tabbed(&mut cols[1], 1, &col1);
+                                    self.render_tiles_in_column_tabbed(&mut cols[2], 2, &col2);
+                                } else {
+                                    self.render_tiles_in_column(&mut cols[0], 0, &col0);
+                                    self.render_tiles_in_column(&mut cols[1], 1, &col1);
+                                    self.render_tiles_in_column(&mut cols[2], 2, &col2);
+                                }
+                            });
+                        });
+                    }
+
                     // Dyskretny pasek pomocy i szybkiego resetowania układu na dole pulpitu
                     ui.with_layout(egui::Layout::bottom_up(egui::Align::RIGHT), |ui| {
                         ui.add_space(6.0);
                         ui.horizontal(|ui| {
                             if ui.button(egui::RichText::new("🔄 Przywróć optymalny układ").size(11.0)).on_hover_text("Ustawia domyślne, ergonomiczne rozmieszczenie wszystkich otwartych kafelków").clicked() {
                                 self.reset_panel_layout();
+                                self.save_station_config();
+                            }
+                            let tab_label = if self.tabbed_columns { "🗔 Widok pionowy" } else { "🗔 Tryb zakładek" };
+                            if ui.button(egui::RichText::new(tab_label).size(11.0)).on_hover_text("Przełącza kolumny między układem pionowym a zakładkami").clicked() {
+                                self.tabbed_columns = !self.tabbed_columns;
+                                self.active_tab = [0; 3];
                                 self.save_station_config();
                             }
                             ui.label(egui::RichText::new("SPLogbook • Przeciągaj okna za nagłówek • Zmieniaj rozmiar za krawędzie").size(11.0).color(egui::Color32::from_rgb(100, 116, 139)));
@@ -4000,15 +4133,17 @@ impl eframe::App for SpLogApp {
         if self.compact_hud_mode {
             crate::gui::mini_hud::MiniHudBar::render(self, ctx);
         } else {
-            // Pływające okna modułów (pop-out windows)
-            render_qso_entry_window(self, ctx);
-            render_vfo_window(self, ctx);
-            render_logbook_window(self, ctx);
-            render_cluster_window(self, ctx);
-            render_solar_window(self, ctx);
-            render_bandmap_window(self, ctx);
-            render_satellites_window(self, ctx);
-            render_world_map_window(self, ctx);
+            // Pływające okna modułów (pop-out windows) — renderowane tylko wtedy,
+            // gdy panel jest „odpięty” (floating). Kafelki zadokowane rysuje
+            // układ kolumnowy w CentralPanel poniżej.
+            if self.panel_qso.floating { render_qso_entry_window(self, ctx); }
+            if self.panel_vfo.floating { render_vfo_window(self, ctx); }
+            if self.panel_log.floating { render_logbook_window(self, ctx); }
+            if self.panel_cluster.floating { render_cluster_window(self, ctx); }
+            if self.panel_solar.floating { render_solar_window(self, ctx); }
+            if self.panel_bandmap.floating { render_bandmap_window(self, ctx); }
+            if self.panel_satellites.floating { render_satellites_window(self, ctx); }
+            if self.panel_world_map.floating { render_world_map_window(self, ctx); }
         }
 
         // Pozostałe okna modułów zaawansowanych
