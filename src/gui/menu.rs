@@ -383,6 +383,27 @@ pub fn render_menu_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                         }
                     }
                 });
+
+            // Jednostka odległości używana w całym interfejsie (DX, azymut, mapa)
+            ui.label(egui::RichText::new(tr("settings.distance_unit", lang)).strong());
+            let mut selected_unit = app.distance_unit.clone();
+            let unit_label = |u: &str| -> &'static str {
+                match u {
+                    "mi" => "Mile (mi)",
+                    "nmi" => "Mile morskie (NM)",
+                    _ => "Kilometry (km)",
+                }
+            };
+            egui::ComboBox::from_id_salt("settings_distance_unit")
+                .selected_text(unit_label(&selected_unit))
+                .show_ui(ui, |ui| {
+                    for u in ["km", "mi", "nmi"] {
+                        if ui.selectable_value(&mut selected_unit, u.to_string(), unit_label(u)).changed() {
+                            app.distance_unit = selected_unit.clone();
+                            app.save_station_config();
+                        }
+                    }
+                });
         });
 
         // Menu: Pomoc

@@ -274,7 +274,7 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
             if let Some(dx_c) = dx_coords {
                 let dx_solar = calculate_solar_position(dx_c, day_of_year, utc_hour_f64);
                 ui.separator();
-                ui.label(egui::RichText::new(format!("DX: {:.0} km | Azymut: {:.0}°", app.active_distance_km, app.active_bearing_deg)).strong().size(11.0));
+                ui.label(egui::RichText::new(format!("DX: {} | Azymut: {:.0}°", app.active_distance_display(), app.active_bearing_deg)).strong().size(11.0));
                 if ui.small_button(format!("🔄 Obróć ({:.0}°)", app.active_bearing_deg))
                     .on_hover_text("Ustawia rotor antenowy na azymut korespondenta przez rotctld")
                     .clicked()

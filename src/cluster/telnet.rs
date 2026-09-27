@@ -24,6 +24,10 @@ pub struct DxSpot {
     pub band: String,
     pub is_ft8: bool,
     pub is_skimmer: bool,
+    /// Czas odebrania spotu jako uniksowy znacznik (sekundy), używany do pokazywania wieku
+    /// oraz do usuwania przestarzałych spotów.
+    #[serde(default)]
+    pub received_at: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -241,6 +245,7 @@ pub fn parse_dx_spot(line: &str) -> Option<DxSpot> {
         band,
         is_ft8,
         is_skimmer,
+        received_at: chrono::Utc::now().timestamp(),
     })
 }
 

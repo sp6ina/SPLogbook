@@ -5282,6 +5282,15 @@ pub fn tr(key: &str, lang: Language) -> &str {
             Language::Ru => "По умолчанию (системная)",
             _ => "Default (system)",
         },
+        "settings.distance_unit" => match lang {
+            Language::Pl => "Jednostka odległości",
+            Language::En => "Distance unit",
+            Language::De => "Entfernungseinheit",
+            Language::Fr => "Unité de distance",
+            Language::Es => "Unidad de distancia",
+            Language::Ru => "Единица расстояния",
+            _ => "Distance unit",
+        },
         "help.legend" => match lang {
             Language::Pl => "Legenda kolorów i statusów",
             Language::En => "Color & status legend",
@@ -5886,6 +5895,7 @@ pub const ALL_I18N_KEYS: &[&str] = &[
     "settings.font_scale",
     "settings.font_family",
     "settings.font_default",
+    "settings.distance_unit",
     "help.legend",
     "legend.title",
 ];

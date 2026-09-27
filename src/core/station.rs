@@ -112,6 +112,7 @@ fn default_lan_sync_server_ip() -> String { "127.0.0.1".to_string() }
 fn default_theme_preset() -> String { "operator_dark".to_string() }
 fn default_font_scale() -> f32 { 1.0 }
 fn default_font_family() -> String { String::new() }
+fn default_distance_unit() -> String { "km".to_string() }
 fn default_profile_id() -> String { "default".to_string() }
 fn default_cat_sharing_port() -> u16 { 4534 }
 fn default_hamlib_source() -> String { "bundled".to_string() }
@@ -292,6 +293,20 @@ pub struct AppConfig {
     pub font_scale: f32,
     #[serde(default = "default_font_family")]
     pub font_family: String,
+
+    // Jednostka odległości używana w całym interfejsie: "km", "mi" lub "nmi"
+    #[serde(default = "default_distance_unit")]
+    pub distance_unit: String,
+
+    // Mini HUD — preferencje okna operacyjnego
+    #[serde(default)]
+    pub hud_always_on_top: bool,
+    #[serde(default)]
+    pub hud_saved_pos: Option<[f32; 2]>,
+    #[serde(default)]
+    pub hud_saved_size: Option<[f32; 2]>,
+    #[serde(default)]
+    pub hud_operating_bar: bool,
 
     // Live Auto-Upload
     pub live_auto_upload_clublog: bool,
@@ -530,6 +545,11 @@ impl Default for AppConfig {
             compact_hud_mode: false,
             font_scale: 1.0,
             font_family: String::new(),
+            distance_unit: "km".to_string(),
+            hud_always_on_top: false,
+            hud_saved_pos: None,
+            hud_saved_size: None,
+            hud_operating_bar: false,
 
             live_auto_upload_clublog: false,
             live_auto_upload_qrz: false,

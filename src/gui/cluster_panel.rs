@@ -514,7 +514,19 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
                             ui.label(egui::RichText::new(&spot.spotter).color(egui::Color32::from_rgb(148, 163, 184)));
                             ui.label(egui::RichText::new(&spot.comment).size(11.0));
-                            ui.label(&spot.time_utc);
+
+                            // Czas spotu + wiek (minuty/godziny od odebrania)
+                            let age_secs = (chrono::Utc::now().timestamp() - spot.received_at).max(0);
+                            let age_text = if age_secs < 60 {
+                                format!("{}s", age_secs)
+                            } else if age_secs < 3600 {
+                                format!("{}m", age_secs / 60)
+                            } else {
+                                format!("{}h", age_secs / 3600)
+                            };
+                            ui.label(egui::RichText::new(format!("{} ({})", spot.time_utc, age_text))
+                                .size(10.0)
+                                .color(egui::Color32::from_rgb(148, 163, 184)));
                             ui.end_row();
                         }
                     });

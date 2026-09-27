@@ -259,34 +259,62 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         // 3. Stacje z DX Cluster na skali
         let spots = app.cluster_spots.clone();
-        let mut spot_idx = 0;
 
-        for spot in spots.iter() {
-            let spot_hz = (spot.frequency_khz * 1000.0).round() as u64;
-            if spot_hz >= min_freq && spot_hz <= max_freq {
-                let frac = ((spot_hz - min_freq) as f32 / freq_span).clamp(0.0, 1.0);
-                let x = rect.min.x + frac * rect.width();
+        // Zebranie spotów w paśmie i posortowanie wg częstotliwości,
+        // a następnie rozłożenie etykiet w "liniach", aby się nie nakładały.
+        let mut in_band: Vec<(f32, String)> = spots
+            .iter()
+            .filter_map(|spot| {
+                let spot_hz = (spot.frequency_khz * 1000.0).round() as u64;
+                if spot_hz >= min_freq && spot_hz <= max_freq {
+                    let frac = ((spot_hz - min_freq) as f32 / freq_span).clamp(0.0, 1.0);
+                    let x = rect.min.x + frac * rect.width();
+                    Some((x, spot.dx_call.clone()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        in_band.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
 
-                // Rozrzut wysokości stacji, aby napisy nie nakładały się
-                let y_offset = 32.0 + ((spot_idx % 3) as f32) * 16.0;
-                spot_idx += 1;
+        // Greedy: każda etykieta trafia do pierwszej linii, w której nie koliduje z poprzednią.
+        let lane_height = 15.0_f32;
+        let gap = 6.0_f32;
+        let mut lane_ends: Vec<f32> = Vec::new();
 
-                // Pionowa kreska spotu
-                painter.line_segment(
-                    [egui::pos2(x, rect.min.y + 24.0), egui::pos2(x, rect.max.y - 20.0)],
-                    egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(250, 204, 21)),
-                );
+        for (x, call) in in_band.iter() {
+            let half_width = (call.len() as f32) * 5.0_f32 + 4.0;
+            let label_start = x - half_width;
+            let label_end = x + half_width;
 
-                // Etykieta znaku
-                let badge_pos = egui::pos2(x, rect.min.y + y_offset);
-                painter.text(
-                    badge_pos,
-                    egui::Align2::CENTER_CENTER,
-                    &spot.dx_call,
-                    egui::FontId::proportional(10.0),
-                    egui::Color32::from_rgb(254, 240, 138),
-                );
+            let mut lane = 0;
+            while lane < lane_ends.len() && lane_ends[lane] + gap > label_start {
+                lane += 1;
             }
+            if lane == lane_ends.len() {
+                lane_ends.push(label_end);
+            } else {
+                lane_ends[lane] = lane_ends[lane].max(label_end);
+            }
+
+            let y_offset = 32.0 + (lane as f32) * lane_height;
+            let x = *x;
+
+            // Pionowa kreska spotu
+            painter.line_segment(
+                [egui::pos2(x, rect.min.y + 24.0), egui::pos2(x, rect.max.y - 20.0)],
+                egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(250, 204, 21)),
+            );
+
+            // Etykieta znaku
+            let badge_pos = egui::pos2(x, rect.min.y + y_offset);
+            painter.text(
+                badge_pos,
+                egui::Align2::CENTER_CENTER,
+                call,
+                egui::FontId::proportional(10.0),
+                egui::Color32::from_rgb(254, 240, 138),
+            );
         }
 
         // 4. Kursor aktualnej częstotliwości VFO

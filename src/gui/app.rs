@@ -169,6 +169,7 @@ pub struct SpLogApp {
     pub theme_preset: crate::gui::theme::ThemePreset,
     pub font_scale: f32,
     pub font_family: String,
+    pub distance_unit: String,
     pub show_welcome_wizard: bool,
     pub wizard_tab: u8,
     pub config_file_path: std::path::PathBuf,
@@ -362,6 +363,10 @@ pub struct SpLogApp {
 
     // Tryb kompaktowy (Mini HUD)
     pub compact_hud_mode: bool,
+    pub hud_always_on_top: bool,
+    pub hud_saved_pos: Option<[f32; 2]>,
+    pub hud_saved_size: Option<[f32; 2]>,
+    pub hud_operating_bar: bool,
 
     // Pola dodatkowe formularza QSO
     pub entry_iota: String,
@@ -456,6 +461,9 @@ pub struct SpLogApp {
     pub active_profile_id: String,
 
     pub focus_callsign_requested: bool,
+
+    // Debounce automatycznego pobierania danych z Callbook/QRZ po wpisaniu znaku
+    pub lookup_debounce_until: Option<std::time::Instant>,
 }
 
 /// Zwraca ścieżkę do pliku czcionki dla wybranej rodziny (o ile istnieje w systemie).
@@ -735,6 +743,7 @@ impl SpLogApp {
             theme_preset: crate::gui::theme::ThemePreset::from_id(&app_config.theme_preset),
             font_scale: app_config.font_scale,
             font_family: app_config.font_family.clone(),
+            distance_unit: app_config.distance_unit.clone(),
             show_welcome_wizard: show_wizard,
             wizard_tab: 0,
             config_file_path,
@@ -871,6 +880,10 @@ impl SpLogApp {
             sota_dialog: SotaDialog::new(),
 
             compact_hud_mode: app_config.compact_hud_mode,
+            hud_always_on_top: app_config.hud_always_on_top,
+            hud_saved_pos: app_config.hud_saved_pos,
+            hud_saved_size: app_config.hud_saved_size,
+            hud_operating_bar: app_config.hud_operating_bar,
 
             entry_iota: String::new(),
             entry_state: String::new(),
@@ -1004,6 +1017,7 @@ impl SpLogApp {
             },
             active_profile_id: app_config.active_profile_id.clone(),
             focus_callsign_requested: false,
+            lookup_debounce_until: None,
         };
 
         app.rebuild_awards_full();
@@ -1179,9 +1193,23 @@ impl SpLogApp {
             }
         }
 
-        // 7. Jeśli włączono automatyczne pobieranie z serwisów online (HamQTH / Callook / QRZ) i znak ma min. 3 znaki
+        // 7. Jeśli włączono automatyczne pobieranie z serwisów online (HamQTH / Callook / QRZ)
+        //    i znak ma min. 3 znaki — opóźnij o 600 ms (debounce), aby nie spamować zapytań przy szybkim pisaniu.
         if self.qrz_auto_lookup && clean.len() >= 3 {
-            self.lookup_active_callsign_online();
+            self.lookup_debounce_until = Some(std::time::Instant::now() + std::time::Duration::from_millis(600));
+        }
+    }
+
+    /// Wywołuje automatyczny lookup online po upływie debounce'a (wołane co klatkę w update()).
+    pub fn process_debounced_lookup(&mut self) {
+        if let Some(deadline) = self.lookup_debounce_until {
+            if std::time::Instant::now() >= deadline {
+                self.lookup_debounce_until = None;
+                let clean = self.entry_callsign.trim().to_uppercase();
+                if self.qrz_auto_lookup && clean.len() >= 3 {
+                    self.lookup_active_callsign_online();
+                }
+            }
         }
     }
 
@@ -1387,6 +1415,16 @@ impl SpLogApp {
         self.active_clubs.clear();
         self.past_qsos_for_active_call.clear();
         self.focus_callsign_requested = true;
+    }
+
+    /// Zwraca odległość do korespondenta sformatowaną wg wybranej jednostki (km/mi/nmi).
+    pub fn active_distance_display(&self) -> String {
+        let km = self.active_distance_km;
+        match self.distance_unit.as_str() {
+            "mi" => format!("{:.0} mi", km * 0.621371),
+            "nmi" => format!("{:.0} NM", km * 0.539957),
+            _ => format!("{:.0} km", km),
+        }
     }
 
     pub fn reload_qsos(&mut self) {
@@ -2007,6 +2045,11 @@ impl SpLogApp {
             compact_hud_mode: self.compact_hud_mode,
             font_scale: self.font_scale,
             font_family: self.font_family.clone(),
+            distance_unit: self.distance_unit.clone(),
+            hud_always_on_top: self.hud_always_on_top,
+            hud_saved_pos: self.hud_saved_pos,
+            hud_saved_size: self.hud_saved_size,
+            hud_operating_bar: self.hud_operating_bar,
 
             live_auto_upload_clublog: self.live_auto_upload_clublog,
             live_auto_upload_qrz: self.live_auto_upload_qrz,
@@ -2915,9 +2958,34 @@ impl eframe::App for SpLogApp {
         });
         let open_stats = ctx.input(|i| i.key_pressed(egui::Key::S) && i.modifiers.ctrl && i.modifiers.shift);
 
+        // Rozszerzone skróty klawiszowe (F1/F5, Ctrl+S, Ctrl+F, Ctrl+N)
+        let open_shortcuts = ctx.input(|i| i.key_pressed(egui::Key::F1));
+        let refresh_log = ctx.input(|i| i.key_pressed(egui::Key::F5));
+        let save_now = ctx.input(|i| i.key_pressed(egui::Key::S) && i.modifiers.ctrl && !i.modifiers.shift);
+        let focus_filter = ctx.input(|i| i.key_pressed(egui::Key::F) && i.modifiers.ctrl);
+        let new_qso = ctx.input(|i| i.key_pressed(egui::Key::N) && i.modifiers.ctrl);
+        let wants_text = ctx.wants_keyboard_input();
+
         if do_undo { self.perform_undo(); }
         if do_redo { self.perform_redo(); }
         if open_stats { self.show_statistics_window = true; }
+
+        if open_shortcuts { self.show_shortcuts_window = !self.show_shortcuts_window; }
+        if refresh_log { self.reload_qsos(); }
+        if save_now { self.save_station_config(); }
+
+        // Skróty kolidujące z pisaniem tekstu działają tylko, gdy żadne pole nie ma fokusu.
+        if !wants_text {
+            if focus_filter { self.advanced_filter_dialog.is_open = true; }
+            if new_qso {
+                self.clear_qso_form();
+                self.panel_qso.visible = true;
+                self.focus_callsign_requested = true;
+            }
+        }
+
+        // Debounced lookup Callbook/QRZ po wpisaniu znaku
+        self.process_debounced_lookup();
 
         // Odbiór asynchronicznego stanu radia z pętli Hamlib CAT (bi-directional sync)
         while let Ok(st) = self.cat_state_rx.try_recv() {
@@ -3024,7 +3092,13 @@ impl eframe::App for SpLogApp {
             }
         }
 
-        // Limit bufora spotów klastra do 200 najnowszych pozycji (nowe spoty są wstawiane na indeksie 0, więc ucinamy najstarsze od końca)
+        // Usuń przestarzałe spoty (starsze niż 60 minut), a następnie ogranicz bufor
+        // do 200 najnowszych pozycji (nowe spoty są wstawiane na indeksie 0, więc ucinamy najstarsze od końca).
+        let now_ts = chrono::Utc::now().timestamp();
+        const SPOT_MAX_AGE_SECS: i64 = 60 * 60;
+        if self.cluster_spots.iter().any(|s| now_ts - s.received_at > SPOT_MAX_AGE_SECS) {
+            self.cluster_spots.retain(|s| now_ts - s.received_at <= SPOT_MAX_AGE_SECS);
+        }
         if self.cluster_spots.len() > 200 {
             self.cluster_spots.truncate(200);
         }
@@ -3280,6 +3354,26 @@ impl eframe::App for SpLogApp {
 
                 ui.separator();
 
+                // Pasek operacyjny: częstotliwość, pasmo, tryb, split i RST
+                let freq_mhz = self.rig_state.frequency_hz as f64 / 1_000_000.0;
+                let mut op_txt = format!("📻 {:.3} MHz | {} | {}", freq_mhz, self.entry_band, self.entry_mode);
+                if self.vfo_split {
+                    op_txt.push_str(" | SPLIT");
+                }
+                ui.label(egui::RichText::new(op_txt).size(11.0).monospace().color(egui::Color32::from_rgb(56, 189, 248)));
+
+                ui.separator();
+
+                let rst_txt = format!("RST {} / {}", self.entry_rst_sent, self.entry_rst_rcvd);
+                ui.label(egui::RichText::new(rst_txt).size(11.0).monospace().color(egui::Color32::from_rgb(250, 204, 21)));
+
+                ui.separator();
+
+                let prop_txt = format!("🌞 SFI {} | K {}", self.space_weather.sfi, self.space_weather.k_index);
+                ui.label(egui::RichText::new(prop_txt).size(11.0).color(egui::Color32::from_rgb(52, 211, 153)));
+
+                ui.separator();
+
                 let journal_str = format!("📁 {}: {} ({} QSO)", tr("statusbar.log", lang), self.active_journal.name, self.recent_qsos.len());
                 ui.label(egui::RichText::new(journal_str).size(11.0).color(egui::Color32::from_rgb(52, 211, 153)));
 
@@ -3515,6 +3609,7 @@ impl eframe::App for SpLogApp {
                 band: band_str,
                 is_ft8,
                 is_skimmer: false,
+                received_at: chrono::Utc::now().timestamp(),
             };
             self.cluster_spots.insert(0, spot);
             self.status_toast = Some((format!("Wysłano spot dla {} ({:.1} kHz)", sub.dx_call, sub.freq_khz), std::time::Instant::now()));
@@ -3595,13 +3690,16 @@ impl eframe::App for SpLogApp {
                 .show(ctx, |ui| {
                     egui::ScrollArea::vertical().show(ui, |ui| {
                         let rows: &[(&str, &str)] = &[
-                            ("Enter", "Zapisz QSO w panelu QSO Entry"),
-                            ("Esc", "Wyczyść formularz QSO Entry"),
+                            ("Enter", "Zapisz QSO w panelu QSO Entry (gdy pole ma fokus)"),
+                            ("Esc", "Wyczyść formularz QSO Entry (gdy pole ma fokus)"),
+                            ("Ctrl+N", "Nowe QSO — wyczyść formularz i ustaw kursor na znaku"),
                             ("Ctrl+S", "Zapisz konfigurację / dziennik"),
-                            ("Ctrl+F", "Szukaj w logbooku"),
+                            ("Ctrl+Shift+S", "Otwórz okno statystyk"),
+                            ("Ctrl+F", "Zaawansowane wyszukiwanie w logbooku"),
+                            ("Ctrl+Z", "Cofnij (przywróć ostatnio usunięte QSO)"),
+                            ("Ctrl+Y / Ctrl+Shift+Z", "Ponów (redo)"),
                             ("F1", "Skróty klawiszowe (to okno)"),
-                            ("F5", "Odśwież panel klastra DX"),
-                            ("Ctrl+N", "Nowe QSO"),
+                            ("F5", "Odśwież dziennik (listę QSO)"),
                         ];
                         egui::Grid::new("shortcuts_grid").num_columns(2).spacing([16.0, 6.0]).striped(true).show(ui, |ui| {
                             for (key, desc) in rows {

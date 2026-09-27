@@ -198,7 +198,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                         ui.colored_label(egui::Color32::from_rgb(134, 239, 172), format!("🇵🇱 Okręg PZK SP{}", dist.district));
                     }
                     if app.active_distance_km > 0.0 {
-                        ui.colored_label(egui::Color32::from_rgb(253, 224, 71), format!("🧭 {:.0} km | {:.0}°", app.active_distance_km, app.active_bearing_deg));
+                        ui.colored_label(egui::Color32::from_rgb(253, 224, 71), format!("🧭 {} | {:.0}°", app.active_distance_display(), app.active_bearing_deg));
                         if ui.small_button(format!("🔄 Obróć ({:.0}°)", app.active_bearing_deg))
                             .on_hover_text("Ustawia rotor antenowy na azymut korespondenta (Hamlib rotctld)")
                             .clicked()
