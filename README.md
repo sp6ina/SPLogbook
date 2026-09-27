@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/Platform-Windows_%7C_GNU%2FLinux-blue.svg" alt="Platform">
   <img src="https://img.shields.io/badge/Version-1.0.3-emerald.svg" alt="Version">
   <a href="https://github.com/sp6ina/SPLogbook/actions"><img src="https://github.com/sp6ina/SPLogbook/actions/workflows/build-and-release.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/Tests-205%2F205_Passed-brightgreen.svg" alt="Tests">
+  <img src="https://img.shields.io/badge/Tests-226%2F226_Passed-brightgreen.svg" alt="Tests">
   <img src="https://img.shields.io/badge/i18n-6_Languages-cyan.svg" alt="i18n">
   <a href="https://buycoffee.to/sp6ina"><img src="https://img.shields.io/badge/☕_Buy_Me_a_Coffee-buycoffee.to%2Fsp6ina-FFDD00?style=flat&logoColor=black" alt="Buy Me a Coffee"></a>
 </p>
@@ -84,12 +84,14 @@ From deep ionospheric modeling (VOACAP-lite HF propagation), automated antenna r
 | **Transceiver CAT & Sharing** | Unified **CAT abstraction layer** (`CatBackend` trait + `CatBackendKind`) over multiple rig backends: Hamlib `rigctld`, **FLRig (XML-RPC)**, **TCI (SDR)**, **Icom CI-V (serial)**, and **SO2R**; VFO A/B, split, RIT/XIT, mode, PTT, power, WinKeyer. Selectable **Bundled (Hamlib 4.7.2)** or **System-installed** source, plus integrated **Hamlib CAT TCP Proxy Server** (port 4534) for multi-app rig sharing. |
 | **Digital Modes** | WSJT-X / JTDX bi-directional UDP bridge (port 2237), JS8Call TCP JSON API integration, FLDigi XML-RPC bridge. |
 | **Satellites** | SGP4/SDP4 Keplerian orbital propagation from TLE, real-time Doppler shift frequency correction via CAT, antenna elevation/azimuth steering. |
+| **SDR Waterfall & Spectrum** | Real-time FFT spectrum/waterfall panel capturing the radio's audio output (or any audio input) via `cpal`; selectable FFT sizes (512–4096), gain/floor/color-scale controls, input-device selection, and full docking support (dockable tile or floating multi-monitor window). |
 | **Contests & Dupe Engine** | Rules for SP DX, CQ WW, ARRL DX, CQ WPX, IARU HF; structured **exchange parser** (`599 001 EU-115` → validated fields), live **rate meter (QSO/h)** + rate history, **multiplier matrix** per band, real-time inline `[DUPE!]` warning, N1MM-style keyboard-first auto-refocus, Duplicate Manager with batch cleaning, and **Cabrillo 3.0 / ADX (XML ADIF)** export. |
 | **Awards Tracking** | DXCC (Mixed, Band, Mode, Challenge, ATNO), WAZ, WAS, SP DX Award, WAE, WWFF, RDA, PGA (2477 Polish municipalities), IOTA, SOTA, POTA. |
 | **Cloud Sync** | LoTW (TQSL), eQSL.cc, Club Log, QRZ.com, HamQTH, HRDLog, Cloudlog, PSK Reporter, WSPR monitor, NOAA space weather, with a shared **upload scheduler** (offline queue, exponential-backoff retry, per-service rate limiting). |
 | **Mapping** | Equirectangular world map with real-time day/night terminator (Grey Line), zoom/pan, confirmed/unconfirmed QSO markers, live spot pins. |
 | **REST API & WebSocket** | Embedded asynchronous Axum HTTP server on port 8080 with JSON endpoints plus a live **WebSocket** stream (`/api/v1/ws`) broadcasting application events in real time for external integration and station automation. |
 | **Logbook Table** | Virtualized, resizable-column data grid with multi-row selection, bulk delete, per-column sorting, live filtering, and saveable column presets. |
+| **CSV Export** | Configurable logbook CSV exporter with the full `QsoRecord` field catalog, delimiter selection (comma/semicolon/tab), optional header row, and correct quoting/escaping of special characters. |
 | **Dockable Workspace** | Full `egui_dock` docking system: panels can be detached into **floating native windows** (move to a second monitor), re-arranged into tabs/columns, and saved/restored via **operator layout profiles** with built-in presets. |
 | **User Plugins (Rhai)** | Sandboxed embedded **Rhai** scripting engine: users write `.rhai` plugins with safe getters/actions and lifecycle hooks (`on_startup`, `on_qso_logged`, `on_dx_spot`, `on_rig_state`, …) — no filesystem/network access by default. |
 | **Plugin Marketplace** | One-click-install add-on catalog (POTA/SOTA helpers, CW macros, contest assistant, rotor assistant, award tracker, DX spot alerts, and more) with SHA256 verification, offline fallback, and update/uninstall support. |
@@ -583,6 +585,7 @@ SPLogbook/
     │   ├── contest_rules.rs # Contest scoring engine & Cabrillo exporter
     │   ├── contest_stats.rs # Contest rate meter & multiplier matrix
     │   ├── credentials.rs   # OS credential store (keyring) integration
+    │   ├── csv_export.rs    # Configurable logbook CSV export formatter
     │   ├── database.rs      # SQLite WAL backend, 10 indexes, upload queue
     │   ├── database_stats.rs# Aggregated statistics queries
     │   ├── events.rs        # Central event bus (tokio::sync::broadcast)
@@ -621,6 +624,7 @@ SPLogbook/
     │   ├── command_palette.rs # Searchable command launcher (Ctrl+Shift+P)
     │   ├── cluster_panel.rs # DX Cluster spot table with ATNO highlighting
     │   ├── contest.rs       # Contest operating window with live score
+    │   ├── csv_export_dialog.rs # Configurable CSV export dialog
     │   ├── cw_macros.rs     # CW macro configuration modal
     │   ├── cw_terminal.rs   # CW keyer terminal window
     │   ├── find_duplicates.rs# Smart duplicate QSO detection and batch cleanup
@@ -651,6 +655,7 @@ SPLogbook/
     │   ├── theme.rs         # Central theme & palette system
     │   ├── vfo_panel.rs     # Primary transceiver VFO & PTT panel
     │   ├── voice_keyer.rs   # SSB voice keyer window (WAV, F1–F8)
+    │   ├── waterfall_panel.rs # SDR waterfall & FFT spectrum panel (dockable tile)
     │   ├── welcome_wizard.rs# First-time station setup wizard
     │   ├── wol_dialog.rs    # Wake-on-LAN remote rig trigger
     │   ├── workspace_profiles.rs # Operator layout (workspace) profile manager
