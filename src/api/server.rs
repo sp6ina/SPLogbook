@@ -18,6 +18,13 @@ use crate::cluster::telnet::DxSpot;
 
 /// Maksymalna liczba rekordów QSO zwracanych przez pojedyncze zapytanie listujące.
 /// Chroni przed nadmiernym transferem/przetwarzaniem przy dużym `limit`.
+/// Ogranicza opcjonalną wartość `limit`/`offset` do przedziału `[0, max]`,
+/// aby zapytanie typu `limit=1_000_000` nie wymuszało pełnego pobrania
+/// i przycinania w pamięci.
+fn clamp_usize(value: Option<usize>, default: usize, max: usize) -> usize {
+    value.unwrap_or(default).min(max)
+}
+
 const MAX_QSO_LIMIT: usize = 1000;
 /// Maksymalna liczba spotów DX zwracanych przez pojedyncze zapytanie.
 const MAX_SPOT_LIMIT: usize = 200;
@@ -178,8 +185,8 @@ async fn get_qsos(
     State(state): State<ApiState>,
     Query(query): Query<QsoQuery>,
 ) -> Result<Json<Vec<QsoRecord>>, (StatusCode, String)> {
-    let limit = query.limit.unwrap_or(50).min(MAX_QSO_LIMIT);
-    let offset = query.offset.unwrap_or(0).min(MAX_QSO_LIMIT);
+    let limit = clamp_usize(query.limit, 50, MAX_QSO_LIMIT);
+    let offset = clamp_usize(query.offset, 0, MAX_QSO_LIMIT);
 
     let db = state.db.lock().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     
@@ -255,7 +262,7 @@ async fn get_cluster_spots(
     State(state): State<ApiState>,
     Query(query): Query<ClusterQuery>,
 ) -> Json<Vec<serde_json::Value>> {
-    let limit = query.limit.unwrap_or(50).min(MAX_SPOT_LIMIT);
+    let limit = clamp_usize(query.limit, 50, MAX_SPOT_LIMIT);
     let spots = state.cluster_spots.lock().unwrap_or_else(|e| e.into_inner());
     let result: Vec<serde_json::Value> = spots.iter().take(limit).map(|s| {
         serde_json::json!({
@@ -336,6 +343,17 @@ async fn handle_socket(socket: WebSocket, state: ApiState) {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[test]
+    fn clamp_usize_applies_default_and_max_cap() {
+        assert_eq!(clamp_usize(None, 50, MAX_QSO_LIMIT), 50);
+        assert_eq!(clamp_usize(Some(10), 50, MAX_QSO_LIMIT), 10);
+        assert_eq!(clamp_usize(Some(1_000_000), 50, MAX_QSO_LIMIT), MAX_QSO_LIMIT);
+        assert_eq!(clamp_usize(Some(999_999), 50, MAX_SPOT_LIMIT), MAX_SPOT_LIMIT);
+        assert_eq!(clamp_usize(Some(0), 50, MAX_QSO_LIMIT), 0);
+    }
+
     #[test]
     fn app_event_serializes_for_websocket() {
         let ev = crate::core::events::AppEvent::DxSpot {

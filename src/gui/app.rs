@@ -3014,9 +3014,14 @@ impl SpLogApp {
             self.cat_proxy_rx = Some(rx);
             self.cat_sharing_active = true;
 
+            let events = self.event_bus.clone();
             tokio::spawn(async move {
                 if let Err(e) = srv_arc.run().await {
-                    eprintln!("Hamlib proxy server error: {}", e);
+                    log::error!("Hamlib proxy server error: {}", e);
+                    events.publish(crate::core::events::AppEvent::Toast {
+                        level: "error".into(),
+                        message: format!("Serwer proxy CAT (Hamlib) zatrzymany: {e}"),
+                    });
                 }
             });
         } else {
