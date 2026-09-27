@@ -326,7 +326,9 @@ SPLogbook provides full multi-language support across all menus, toolbars, setti
 SPLogbook replaces the fixed panel grid with a fully **dockable workspace** powered by `egui_dock`:
 - **Floating Native Windows:** Any panel (`VFO`, `QSO Entry`, `Logbook Table`, `DX Cluster`, `BandMap`, `World Map`, etc.) can be **undocked** from the main window into its own floating window — drag it to a second monitor for a multi-screen contest or field setup.
 - **Flexible Arrangement:** Panels snap into tabs, side-by-side columns, and resizable split panes; the layout is serialized and restored across sessions.
-- **Operator Layout Profiles:** Save, name, and instantly recall complete workspace layouts (panel visibility, position, size, docking, and floating-window geometry) with built-in presets for logging, contesting, digital operation, and more (`workspace_profiles.rs`).
+- **Operator Layout Profiles:** Save, name, rename, and instantly recall complete workspace layouts (panel visibility, position, size, docking, and floating-window geometry) from a dedicated **Workspace** menu or the profile manager. Each profile can also bind a **color theme**, optional CAT/CW profile names, and an enabled-plugin list (`workspace_profiles.rs`).
+- **Built-in Presets:** Seven one-click layouts — **Normalny DX**, **Kontest**, **Cyfrowe (FT8/WSJT-X)**, **POTA**, **SOTA**, **Satelity**, and **EME (Księżyc)** — each preconfigured for its operating scenario (e.g. daylight theme for field ops, high-contrast for contesting).
+- **Shareable `.spws` Files:** Export any workspace to a versioned `.spws` JSON file and import it on another installation — ideal for sharing field, contest, or club setups.
 
 ---
 
@@ -334,7 +336,7 @@ SPLogbook replaces the fixed panel grid with a fully **dockable workspace** powe
 SPLogbook embeds the **Rhai** scripting language as a safe extension mechanism, letting operators automate and personalize the station without touching Rust:
 - **Sandboxed by default:** scripts have no filesystem, network, or process access unless explicitly exposed; engine limits (max string size, max expression depth) guard against runaway scripts.
 - **Safe API:** plugins can call `log(msg)`, `notify(msg)`, and `qso_count()`.
-- **Lifecycle hooks:** `on_startup()`, `on_qso_logged(call_sign, band, mode, freq_mhz, is_atno)`, and `on_band_opened(band)` fire automatically on matching events.
+- **Lifecycle hooks:** `on_startup()`, `on_qso_logged(call_sign, band, mode, freq_mhz, is_atno)`, `on_band_opened(band)`, and `on_workspace_changed(name)` fire automatically on matching events.
 - **Hot reload:** `.rhai` files are loaded from the plugins directory; malformed scripts are reported (never crash) and can be enabled/disabled at runtime (`plugin_manager.rs`).
 
 ---

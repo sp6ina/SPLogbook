@@ -5,8 +5,9 @@
 //! Umożliwia zapisywanie i przywracanie widoczności / pozycji / rozmiarów
 //! paneli głównego okna oraz wybór wbudowanych presetów.
 
-use crate::core::station::{workspace_profile_presets, WorkspaceProfile};
+use crate::core::station::{workspace_profile_presets, ClusterFilter, WorkspaceFile, WorkspaceProfile};
 use crate::gui::app::SpLogApp;
+use crate::gui::theme::ThemePreset;
 use eframe::egui;
 use egui_dock::DockState;
 
@@ -76,17 +77,41 @@ pub fn render_workspace_profiles_window(app: &mut SpLogApp, ctx: &egui::Context)
             if app.workspace_profiles.is_empty() {
                 ui.label(egui::RichText::new("Brak zapisanych profili. Ustaw układ paneli i kliknij „Zapisz bieżący układ”.").italics().color(egui::Color32::from_rgb(148, 163, 184)));
             } else {
-                egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
+                let rename_idx_id = egui::Id::new("workspace_rename_idx");
+                let rename_text_id = egui::Id::new("workspace_rename_text");
+                let mut renaming: Option<usize> = ctx.data_mut(|d| d.get_temp(rename_idx_id)).flatten();
+                let mut rename_text = ctx.data_mut(|d| d.get_temp::<String>(rename_text_id)).unwrap_or_default();
+
+                egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
                     let mut apply_idx: Option<usize> = None;
                     let mut delete_idx: Option<usize> = None;
+                    let mut export_idx: Option<usize> = None;
+                    let mut commit_rename: Option<usize> = None;
                     for (idx, profile) in app.workspace_profiles.iter().enumerate() {
                         ui.horizontal(|ui| {
-                            ui.label(format!("• {}", profile.name));
-                            if ui.button("Zastosuj").clicked() {
-                                apply_idx = Some(idx);
-                            }
-                            if ui.button("🗑").on_hover_text("Usuń profil").clicked() {
-                                delete_idx = Some(idx);
+                            if renaming == Some(idx) {
+                                ui.add(egui::TextEdit::singleline(&mut rename_text).desired_width(200.0));
+                                if ui.button("OK").clicked() && !rename_text.trim().is_empty() {
+                                    commit_rename = Some(idx);
+                                }
+                                if ui.button("✖").clicked() {
+                                    renaming = None;
+                                }
+                            } else {
+                                ui.label(format!("• {}", profile.name));
+                                if ui.button("Zastosuj").clicked() {
+                                    apply_idx = Some(idx);
+                                }
+                                if ui.button("✏").on_hover_text("Zmień nazwę").clicked() {
+                                    renaming = Some(idx);
+                                    rename_text = profile.name.clone();
+                                }
+                                if ui.button("⤓").on_hover_text("Eksportuj do pliku .spws").clicked() {
+                                    export_idx = Some(idx);
+                                }
+                                if ui.button("🗑").on_hover_text("Usuń profil").clicked() {
+                                    delete_idx = Some(idx);
+                                }
                             }
                         });
                     }
@@ -95,20 +120,96 @@ pub fn render_workspace_profiles_window(app: &mut SpLogApp, ctx: &egui::Context)
                         apply_profile(app, &p);
                         app.status_toast = Some((format!("Zastosowano profil: {}", p.name), std::time::Instant::now()));
                     }
+                    if let Some(idx) = commit_rename {
+                        app.workspace_profiles[idx].name = rename_text.trim().to_string();
+                        app.workspace_profiles[idx].ensure_id();
+                        app.save_station_config();
+                        app.status_toast = Some(("Zmieniono nazwę profilu".to_string(), std::time::Instant::now()));
+                        renaming = None;
+                    }
                     if let Some(idx) = delete_idx {
                         app.workspace_profiles.remove(idx);
                         app.save_station_config();
                     }
+                    if let Some(idx) = export_idx {
+                        export_profile(app, &app.workspace_profiles[idx].clone());
+                    }
                 });
+
+                ctx.data_mut(|d| d.insert_temp(rename_idx_id, renaming));
+                ctx.data_mut(|d| d.insert_temp(rename_text_id, rename_text));
             }
+
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                if ui.button("📥 Importuj z .spws").clicked() {
+                    import_profile(app);
+                }
+                ui.label(egui::RichText::new("Profile można udostępniać jako pliki .spws").small().color(egui::Color32::GRAY));
+            });
         });
     app.show_workspace_profiles_window = open;
 }
 
+/// Eksportuje pojedynczy profil do pliku `*.spws` (JSON z polem wersji).
+fn export_profile(app: &mut SpLogApp, profile: &WorkspaceProfile) {
+    let file_name = format!("{}.spws", profile.id);
+    if let Some(path) = rfd::FileDialog::new()
+        .add_filter("SPLogbook Workspace", &["spws"])
+        .set_file_name(&file_name)
+        .save_file()
+    {
+        let file = WorkspaceFile {
+            version: WorkspaceFile::CURRENT_VERSION,
+            workspace: profile.clone(),
+        };
+        match serde_json::to_string_pretty(&file) {
+            Ok(json) => match std::fs::write(&path, json) {
+                Ok(_) => app.status_toast = Some((format!("Wyeksportowano: {}", path.display()), std::time::Instant::now())),
+                Err(e) => app.status_toast = Some((format!("Błąd zapisu: {e}"), std::time::Instant::now())),
+            },
+            Err(e) => app.status_toast = Some((format!("Błąd serializacji: {e}"), std::time::Instant::now())),
+        }
+    }
+}
+
+/// Importuje profil z pliku `*.spws`.
+fn import_profile(app: &mut SpLogApp) {
+    if let Some(path) = rfd::FileDialog::new()
+        .add_filter("SPLogbook Workspace", &["spws"])
+        .pick_file()
+    {
+        match std::fs::read_to_string(&path) {
+            Ok(text) => match serde_json::from_str::<WorkspaceFile>(&text) {
+                Ok(file) => {
+                    if file.version > WorkspaceFile::CURRENT_VERSION {
+                        app.status_toast = Some((format!("Nieobsługiwana wersja pliku (v{}): {}", file.version, path.display()), std::time::Instant::now()));
+                        return;
+                    }
+                    let mut ws = file.workspace;
+                    ws.ensure_id();
+                    // Nadpisz profil o tym samym id lub dodaj nowy.
+                    if let Some(existing) = app.workspace_profiles.iter_mut().find(|p| p.id == ws.id) {
+                        *existing = ws.clone();
+                    } else {
+                        app.workspace_profiles.push(ws.clone());
+                    }
+                    app.save_station_config();
+                    app.status_toast = Some((format!("Zaimportowano profil: {}", ws.name), std::time::Instant::now()));
+                }
+                Err(e) => app.status_toast = Some((format!("Nieprawidłowy plik .spws: {e}"), std::time::Instant::now())),
+            },
+            Err(e) => app.status_toast = Some((format!("Błąd odczytu pliku: {e}"), std::time::Instant::now())),
+        }
+    }
+}
+
 /// Zbiera bieżący stan paneli do profilu.
 fn capture_profile(app: &SpLogApp, name: &str) -> WorkspaceProfile {
-    WorkspaceProfile {
+    let mut profile = WorkspaceProfile {
+        id: String::new(),
         name: name.to_string(),
+        description: String::new(),
         panel_vfo: app.panel_vfo.clone(),
         panel_qso: app.panel_qso.clone(),
         panel_log: app.panel_log.clone(),
@@ -117,13 +218,37 @@ fn capture_profile(app: &SpLogApp, name: &str) -> WorkspaceProfile {
         panel_bandmap: app.panel_bandmap.clone(),
         panel_satellites: app.panel_satellites.clone(),
         panel_world_map: app.panel_world_map.clone(),
-        theme_preset: None,
+        theme_preset: Some(app.theme_preset.id().to_string()),
+        enabled_plugins: Vec::new(),
+        cat_profile: None,
+        cw_profile: None,
+        cluster_filter: Some(ClusterFilter {
+            band: app.cluster_filter_band_selection.clone(),
+            mode: app.cluster_filter_mode_selection.clone(),
+            source: app.cluster_filter_source.clone(),
+            pota_sota_only: app.cluster_filter_pota_sota_only,
+        }),
         dock_layout: app.serialize_dock_layout(),
-    }
+    };
+    profile.ensure_id();
+    profile
 }
 
 /// Stosuje profil do bieżącego układu.
-fn apply_profile(app: &mut SpLogApp, p: &WorkspaceProfile) {
+pub(crate) fn apply_profile(app: &mut SpLogApp, p: &WorkspaceProfile) {
+    // Motyw kolorystyczny przypisany do profilu (jeśli określony).
+    if let Some(theme_id) = &p.theme_preset {
+        app.theme_preset = ThemePreset::from_id(theme_id);
+    }
+
+    // Filtr spotów DX Cluster przypisany do profilu (jeśli zapisany).
+    if let Some(f) = &p.cluster_filter {
+        app.cluster_filter_band_selection = f.band.clone();
+        app.cluster_filter_mode_selection = f.mode.clone();
+        app.cluster_filter_source = f.source.clone();
+        app.cluster_filter_pota_sota_only = f.pota_sota_only;
+    }
+
     app.panel_vfo = p.panel_vfo.clone();
     app.panel_qso = p.panel_qso.clone();
     app.panel_log = p.panel_log.clone();
@@ -157,4 +282,7 @@ fn apply_profile(app: &mut SpLogApp, p: &WorkspaceProfile) {
     // Wymuś ponowny rozkład okien pływających.
     app.reset_layout_requested = true;
     app.save_station_config();
+
+    // Powiadom wtyczki Rhai o zmianie profilu układu.
+    app.plugin_engine.run_on_workspace_changed(&p.name);
 }

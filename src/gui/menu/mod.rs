@@ -12,6 +12,7 @@ mod references;
 mod settings;
 mod tools;
 mod view;
+mod workspace;
 
 use crate::core::i18n::tr;
 use crate::gui::app::SpLogApp;
@@ -25,6 +26,7 @@ pub fn render_menu_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
         edit::render(app, ui);
         view::render(app, ui);
         operation::render(app, ui);
+        workspace::render(app, ui);
         references::render(app, ui);
         tools::render(app, ui);
         settings::render(app, ui);

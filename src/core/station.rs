@@ -581,11 +581,18 @@ impl Default for ViewPanelConfig {
 }
 
 /// Zapisany profil układu operatorskiego (workspace) — zestaw widoczności,
-/// pozycji i rozmiarów paneli głównego okna. Pozwala błyskawicznie przełączać
+/// pozycji i rozmiarów paneli głównego okna, motywu kolorystycznego oraz
+/// powiązanych profili (CAT / CW) i wtyczek. Pozwala błyskawicznie przełączać
 /// się między układami (Logowanie / Kontest / Cyfrowe / Cluster / Ekspedycja).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WorkspaceProfile {
+    /// Stabilny identyfikator (slug) — używany np. przy eksporcie/importie.
+    #[serde(default)]
+    pub id: String,
     pub name: String,
+    /// Opcjonalny opis przeznaczenia profilu (np. "DX na 20 m po pracy").
+    #[serde(default)]
+    pub description: String,
     pub panel_vfo: ViewPanelConfig,
     pub panel_qso: ViewPanelConfig,
     pub panel_log: ViewPanelConfig,
@@ -596,11 +603,95 @@ pub struct WorkspaceProfile {
     pub panel_world_map: ViewPanelConfig,
     #[serde(default)]
     pub theme_preset: Option<String>,
+    /// Wtyczki Rhai, które mają być włączone w tym profilu (przyszłe
+    /// rozszerzenie per-wtyczka; obecnie silnik ma przełącznik globalny).
+    #[serde(default)]
+    pub enabled_plugins: Vec<String>,
+    /// Opcjonalna nazwa profilu CAT (Hamlib/TCI) do zastosowania.
+    #[serde(default)]
+    pub cat_profile: Option<String>,
+    /// Opcjonalna nazwa profilu CW (kluczowanie) do zastosowania.
+    #[serde(default)]
+    pub cw_profile: Option<String>,
+    /// Filtr spotów DX Cluster do zastosowania razem z profilem.
+    #[serde(default)]
+    pub cluster_filter: Option<ClusterFilter>,
     /// Zserializowany układ dokowania (egui_dock::DockState<String>) — drzewo
     /// podziałów, kolejność kart, powierzchnie okien i ich geometria.
     /// `None` = odtwórz układ z pól `column`/`order` paneli.
     #[serde(default)]
     pub dock_layout: Option<serde_json::Value>,
+}
+
+impl WorkspaceProfile {
+    /// Generuje brakujący identyfikator (slug) na podstawie nazwy.
+    pub fn ensure_id(&mut self) {
+        if self.id.trim().is_empty() {
+            self.id = slugify(&self.name);
+        }
+    }
+}
+
+/// Opakowanie pliku eksportu/importu workspace (`*.spws`) z polem wersji
+/// umożliwiającym przyszłe migracje schematu.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceFile {
+    pub version: u32,
+    pub workspace: WorkspaceProfile,
+}
+
+impl WorkspaceFile {
+    pub const CURRENT_VERSION: u32 = 1;
+}
+
+/// Filtr spotów DX Cluster powiązany z profilem workspace.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct ClusterFilter {
+    /// Pasmo ("ALL" lub np. "20m").
+    #[serde(default)]
+    pub band: String,
+    /// Tryb emisji ("ALL", "CW", "SSB", "FT8", ...).
+    #[serde(default)]
+    pub mode: String,
+    /// Źródło spotów ("ALL", "HUMAN", "RBN").
+    #[serde(default)]
+    pub source: String,
+    /// Tylko spoty POTA/SOTA.
+    #[serde(default)]
+    pub pota_sota_only: bool,
+}
+
+/// Prosty slug z nazwy (małe litery, `a-z0-9-`, bez polskich znaków).
+fn slugify(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    let mut last_dash = false;
+    for ch in name.chars() {
+        let c = ch.to_ascii_lowercase();
+        let ok = if c.is_ascii_alphanumeric() {
+            c
+        } else if c == ' ' || c == '_' || c == '-' {
+            '-'
+        } else {
+            continue;
+        };
+        if ok == '-' {
+            if !last_dash && !out.is_empty() {
+                out.push('-');
+                last_dash = true;
+            }
+        } else {
+            out.push(ok);
+            last_dash = false;
+        }
+    }
+    while out.ends_with('-') {
+        out.pop();
+    }
+    if out.is_empty() {
+        "workspace".to_string()
+    } else {
+        out
+    }
 }
 
 /// Pomocniczy konstruktor panelu o podanych cechach.
@@ -609,74 +700,153 @@ fn panel(visible: bool, floating: bool, column: usize, order: usize) -> ViewPane
 }
 
 /// Wbudowane presety układu operatorskiego (nie są zapisywane do konfiguracji).
+/// Pokrywają typowe scenariusze pracy: codzienny DX, zawody, tryby cyfrowe,
+/// aktywacje terenowe (POTA/SOTA) oraz pracę przez satelity i EME.
 pub fn workspace_profile_presets() -> Vec<WorkspaceProfile> {
     vec![
-        WorkspaceProfile {
-            name: "Logowanie (dzienny DX)".to_string(),
-            panel_vfo: panel(true, false, 0, 0),
-            panel_qso: panel(true, false, 0, 1),
-            panel_log: panel(true, false, 1, 0),
-            panel_cluster: panel(true, false, 1, 1),
-            panel_bandmap: panel(true, false, 2, 0),
-            panel_solar: panel(true, false, 2, 1),
-            panel_satellites: panel(false, false, 2, 2),
-            panel_world_map: panel(false, false, 2, 3),
-            theme_preset: None,
-            dock_layout: None,
-        },
-        WorkspaceProfile {
-            name: "Kontest".to_string(),
-            panel_vfo: panel(true, false, 0, 0),
-            panel_qso: panel(true, false, 0, 1),
-            panel_log: panel(true, false, 1, 0),
-            panel_cluster: panel(true, false, 2, 0),
-            panel_bandmap: panel(true, false, 2, 1),
-            panel_solar: panel(false, false, 2, 2),
-            panel_satellites: panel(false, false, 2, 3),
-            panel_world_map: panel(false, false, 2, 4),
-            theme_preset: None,
-            dock_layout: None,
-        },
-        WorkspaceProfile {
-            name: "Cyfrowe (FT8/WSJT-X)".to_string(),
-            panel_vfo: panel(true, false, 0, 0),
-            panel_qso: panel(true, false, 0, 1),
-            panel_log: panel(true, false, 1, 0),
-            panel_cluster: panel(true, false, 2, 0),
-            panel_bandmap: panel(true, false, 2, 1),
-            panel_solar: panel(true, false, 2, 2),
-            panel_satellites: panel(false, false, 2, 3),
-            panel_world_map: panel(false, false, 2, 4),
-            theme_preset: None,
-            dock_layout: None,
-        },
-        WorkspaceProfile {
-            name: "Cluster & DX".to_string(),
-            panel_vfo: panel(false, false, 0, 0),
-            panel_qso: panel(true, false, 0, 1),
-            panel_log: panel(true, false, 1, 0),
-            panel_cluster: panel(true, false, 0, 2),
-            panel_bandmap: panel(true, false, 2, 0),
-            panel_solar: panel(true, false, 2, 1),
-            panel_satellites: panel(false, false, 2, 2),
-            panel_world_map: panel(true, false, 1, 2),
-            theme_preset: None,
-            dock_layout: None,
-        },
-        WorkspaceProfile {
-            name: "Ekspedycja (P/SOTA/POTA)".to_string(),
-            panel_vfo: panel(true, false, 0, 0),
-            panel_qso: panel(true, false, 0, 1),
-            panel_log: panel(true, false, 1, 0),
-            panel_cluster: panel(false, false, 1, 1),
-            panel_bandmap: panel(false, false, 2, 0),
-            panel_solar: panel(true, false, 2, 0),
-            panel_satellites: panel(false, false, 2, 1),
-            panel_world_map: panel(false, false, 2, 2),
-            theme_preset: None,
-            dock_layout: None,
-        },
+        // ── Codzienny DX / logowanie ─────────────────────────────────────────
+        wp(
+            "normal-dx",
+            "Normalny DX",
+            "Codzienne logowanie: VFO, formularz QSO, dziennik, cluster, bandmapa i warunki solarne.",
+            Some("operator_dark"),
+            panel(true, false, 0, 0),
+            panel(true, false, 0, 1),
+            panel(true, false, 1, 0),
+            panel(true, false, 1, 1),
+            panel(true, false, 2, 0),
+            panel(true, false, 2, 1),
+            panel(false, false, 2, 2),
+            panel(false, false, 2, 3),
+        ),
+        // ── Zawody (kontest) ─────────────────────────────────────────────────
+        wp(
+            "contest",
+            "Kontest",
+            "Układ zawodniczy: VFO, QSO, log i bandmapa + motyw wysokiego kontrastu do pracy nocnej.",
+            Some("high_contrast"),
+            panel(true, false, 0, 0),
+            panel(true, false, 0, 1),
+            panel(true, false, 1, 0),
+            panel(true, false, 2, 0),
+            panel(true, false, 2, 1),
+            panel(false, false, 2, 2),
+            panel(false, false, 2, 3),
+            panel(false, false, 2, 4),
+        ),
+        // ── Tryby cyfrowe (FT8 / WSJT-X) ─────────────────────────────────────
+        wp(
+            "ft8",
+            "Cyfrowe (FT8/WSJT-X)",
+            "Praca słabymi sygnałami: VFO, QSO, log, cluster, bandmapa i warunki solarne.",
+            Some("operator_dark"),
+            panel(true, false, 0, 0),
+            panel(true, false, 0, 1),
+            panel(true, false, 1, 0),
+            panel(true, false, 2, 0),
+            panel(true, false, 2, 1),
+            panel(true, false, 2, 2),
+            panel(false, false, 2, 3),
+            panel(false, false, 2, 4),
+        ),
+        // ── POTA (Parks on the Air) ──────────────────────────────────────────
+        wp(
+            "pota",
+            "POTA",
+            "Aktywacja parku: QSO, log, mapa i warunki solarne; jasny motyw do pracy w terenie.",
+            Some("daylight"),
+            panel(true, false, 0, 0),
+            panel(true, false, 0, 1),
+            panel(true, false, 1, 0),
+            panel(false, false, 1, 1),
+            panel(false, false, 2, 0),
+            panel(true, false, 2, 0),
+            panel(false, false, 2, 1),
+            panel(true, false, 1, 2),
+        ),
+        // ── SOTA (Summits on the Air) ────────────────────────────────────────
+        wp(
+            "sota",
+            "SOTA",
+            "Aktywacja szczytu: QSO, log, mapa i warunki solarne; jasny motyw do pracy w terenie.",
+            Some("daylight"),
+            panel(true, false, 0, 0),
+            panel(true, false, 0, 1),
+            panel(true, false, 1, 0),
+            panel(false, false, 1, 1),
+            panel(false, false, 2, 0),
+            panel(true, false, 2, 0),
+            panel(false, false, 2, 1),
+            panel(true, false, 1, 2),
+        ),
+        // ── Satelity ─────────────────────────────────────────────────────────
+        wp(
+            "satellite",
+            "Satelity",
+            "Łączności przez satelity: VFO (doppler), QSO, log i tracker satelitarny.",
+            Some("operator_dark"),
+            panel(true, false, 0, 0),
+            panel(true, false, 0, 1),
+            panel(true, false, 1, 0),
+            panel(false, false, 1, 1),
+            panel(false, false, 2, 0),
+            panel(false, false, 2, 1),
+            panel(true, false, 2, 0),
+            panel(false, false, 2, 2),
+        ),
+        // ── EME (Moonbounce) ─────────────────────────────────────────────────
+        wp(
+            "eme",
+            "EME (Księżyc)",
+            "Łączności księżycowe: VFO, QSO, log i warunki solarne (położenie Księżyca w oknie astronomii).",
+            Some("operator_dark"),
+            panel(true, false, 0, 0),
+            panel(true, false, 0, 1),
+            panel(true, false, 1, 0),
+            panel(false, false, 1, 1),
+            panel(false, false, 2, 0),
+            panel(true, false, 2, 0),
+            panel(false, false, 2, 1),
+            panel(false, false, 2, 2),
+        ),
     ]
+}
+
+/// Buduje pojedynczy preset układu z podanymi parametrami paneli.
+#[allow(clippy::too_many_arguments)]
+fn wp(
+    id: &str,
+    name: &str,
+    description: &str,
+    theme: Option<&str>,
+    vfo: ViewPanelConfig,
+    qso: ViewPanelConfig,
+    log: ViewPanelConfig,
+    cluster: ViewPanelConfig,
+    bandmap: ViewPanelConfig,
+    solar: ViewPanelConfig,
+    satellites: ViewPanelConfig,
+    world_map: ViewPanelConfig,
+) -> WorkspaceProfile {
+    WorkspaceProfile {
+        id: id.to_string(),
+        name: name.to_string(),
+        description: description.to_string(),
+        panel_vfo: vfo,
+        panel_qso: qso,
+        panel_log: log,
+        panel_cluster: cluster,
+        panel_solar: solar,
+        panel_bandmap: bandmap,
+        panel_satellites: satellites,
+        panel_world_map: world_map,
+        theme_preset: theme.map(|s| s.to_string()),
+        enabled_plugins: Vec::new(),
+        cat_profile: None,
+        cw_profile: None,
+        cluster_filter: None,
+        dock_layout: None,
+    }
 }
 
 impl Default for AppConfig {

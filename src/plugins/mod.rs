@@ -245,6 +245,12 @@ impl PluginEngine {
     pub fn run_on_band_opened(&self, band: &str) {
         self.run_hook("on_band_opened", vec![band.to_string().into()]);
     }
+
+    /// Wywołuje hak `on_workspace_changed(name)` po przełączeniu profilu
+    /// układu operatorskiego (workspace).
+    pub fn run_on_workspace_changed(&self, name: &str) {
+        self.run_hook("on_workspace_changed", vec![name.to_string().into()]);
+    }
 }
 
 impl Default for PluginEngine {
@@ -346,6 +352,22 @@ mod tests {
             engine.eval("if qso_count() != 7 { throw \"bad\"; }"),
             Ok(())
         );
+    }
+
+    #[test]
+    fn workspace_changed_hook_receives_name() {
+        let path = temp_plugin(
+            "workspace.rhai",
+            r#"
+                fn on_workspace_changed(name) {
+                    log("ws=" + name);
+                }
+            "#,
+        );
+        let mut engine = PluginEngine::new();
+        engine.load_script("workspace", &path);
+        engine.run_on_workspace_changed("Kontest");
+        assert_eq!(engine.drain_log(), vec!["ws=Kontest".to_string()]);
     }
 
     #[test]
