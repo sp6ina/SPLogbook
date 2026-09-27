@@ -41,6 +41,8 @@ use crate::gui::prefix_manager::PrefixManagerDialog;
 use crate::gui::qsl_manager::QslManagerDialog;
 use crate::gui::send_spot::SendSpotDialog;
 use crate::gui::sota_dialog::SotaDialog;
+use crate::gui::csv_export_dialog::{CsvExportDialog, CsvExportRequest, CsvExportScope};
+use crate::gui::waterfall_panel::WaterfallPanel;
 use crate::gui::states_browser::StatesBrowserDialog;
 use crate::gui::wol_dialog::WolDialog;
 use crate::core::backup::BackupManager;
@@ -447,6 +449,8 @@ pub struct SpLogApp {
     pub astronomy_dialog: AstronomyDialog,
     pub wol_dialog: WolDialog,
     pub sota_dialog: SotaDialog,
+    pub csv_export_dialog: CsvExportDialog,
+    pub waterfall_panel: WaterfallPanel,
 
     // CAT Channels
     pub cat_state_tx: std::sync::mpsc::Sender<crate::cat::hamlib::RigState>,
@@ -1118,6 +1122,8 @@ impl SpLogApp {
             astronomy_dialog: AstronomyDialog::new(),
             wol_dialog: WolDialog::new(),
             sota_dialog: SotaDialog::new(),
+            csv_export_dialog: CsvExportDialog::new(),
+            waterfall_panel: WaterfallPanel::new(),
 
             compact_hud_mode: app_config.compact_hud_mode,
             tabbed_columns: app_config.tabbed_columns,
@@ -2898,6 +2904,49 @@ impl SpLogApp {
         }
     }
 
+    pub fn perform_csv_export(&mut self, req: CsvExportRequest) {
+        let qsos: Vec<QsoRecord> = match req.scope {
+            CsvExportScope::All => {
+                let db = self.log_db.lock().unwrap_or_else(|p| p.into_inner());
+                db.get_recent_qsos(100000).unwrap_or_default()
+            }
+            CsvExportScope::Filtered => self.recent_qsos.clone(),
+            CsvExportScope::Selected => self
+                .recent_qsos
+                .iter()
+                .filter(|q| q.id.map(|id| self.selected_qso_ids.contains(&id)).unwrap_or(false))
+                .cloned()
+                .collect(),
+        };
+
+        if qsos.is_empty() {
+            self.status_message = Some("Brak łączności do eksportu w wybranym zakresie.".to_string());
+            return;
+        }
+
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("Pliki CSV (*.csv, *.tsv)", &["csv", "tsv"])
+            .add_filter("Wszystkie pliki (*.*)", &["*"])
+            .set_file_name("SPLogbook_export.csv")
+            .set_title("Zapisz eksport dziennika do pliku CSV")
+            .save_file()
+        {
+            let csv_text = crate::core::csv_export::export_csv(&qsos, &req.columns, req.delimiter, req.include_header);
+            match std::fs::write(&path, csv_text) {
+                Ok(_) => {
+                    self.status_message = Some(format!(
+                        "Wyeksportowano pomyślnie {} łączności do pliku: {}",
+                        qsos.len(),
+                        path.display()
+                    ));
+                }
+                Err(e) => {
+                    self.status_message = Some(format!("Błąd zapisu pliku {}: {}", path.display(), e));
+                }
+            }
+        }
+    }
+
     pub fn run_manual_backup(&mut self) {
         let backup_dir = std::path::Path::new("backups");
         let _ = std::fs::create_dir_all(backup_dir);
@@ -4132,6 +4181,16 @@ impl eframe::App for SpLogApp {
 
         // 3. Moduł SOTA / POTA
         self.sota_dialog.show(ctx, &self.recent_qsos);
+
+        // 3b. Konfigurowalny eksport CSV
+        if self.csv_export_dialog.is_open {
+            if let Some(req) = self.csv_export_dialog.render(ctx) {
+                self.perform_csv_export(req);
+            }
+        }
+
+        // 3c. Widmo / Waterfall (SDR)
+        self.waterfall_panel.render(ctx);
 
         // 4. Przeglądarka wysp IOTA
         {

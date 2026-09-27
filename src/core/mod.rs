@@ -22,6 +22,7 @@ pub mod backup;
 pub mod callbook;
 pub mod callsign_correction;
 pub mod contest_rules;
+pub mod csv_export;
 pub mod contest_stats;
 pub mod exchange;
 pub mod propagation;

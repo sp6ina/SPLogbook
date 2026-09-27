@@ -37,6 +37,8 @@ rfd = "0.15"
 
 # Audio, export, and API
 rodio = { version = "0.19", default-features = false, features = ["wav"] }
+cpal = "0.15"
+rustfft = "6.2"
 printpdf = "0.7"
 gpx = "0.10"
 axum = { version = "0.7", features = ["tokio", "ws"] }

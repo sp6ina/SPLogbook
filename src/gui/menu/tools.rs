@@ -37,6 +37,10 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             app.show_wspr_window = true;
             ui.close_menu();
         }
+        if ui.button(icons::SIGNAL_UP.label("Widmo / Waterfall (SDR)")).clicked() {
+            app.waterfall_panel.open();
+            ui.close_menu();
+        }
         ui.separator();
         ui.menu_button(icons::GLOBE.label(tr("tools.rest_api_server", lang)), |ui| {
             ui.label("Włącz serwer na porcie 8080 (wymaga restartu aplikacji dla zmiany portu)");

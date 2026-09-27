@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
-use crate::cluster::telnet::CLUSTER_PRESETS;
+use crate::cluster::telnet::{CLUSTER_PRESETS, DxSpot};
 use crate::core::i18n::tr;
 use crate::gui::app::SpLogApp;
 use eframe::egui;
@@ -373,11 +373,36 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let filter_source_sel = app.cluster_filter_source.clone();
     let filter_pota_only = app.cluster_filter_pota_sota_only;
 
-    let filtered_spots: Vec<_> = app.cluster_spots.iter().filter(|s| {
+    // Pojedynczy przebieg: tanie filtry najpierw, parsowanie POTA/SOTA tylko raz na spot.
+    let mut filtered_spots: Vec<(DxSpot, Option<String>, Option<String>)> =
+        Vec::with_capacity(app.cluster_spots.len());
+    for s in &app.cluster_spots {
+        if filter_band_sel == "VFO" {
+            if s.band != current_band {
+                continue;
+            }
+        } else if filter_band_sel != "ALL" && s.band != filter_band_sel {
+            continue;
+        }
+
+        if filter_mode_sel == "CW" && (s.is_ft8 || s.comment.to_uppercase().contains("FT8") || s.comment.to_uppercase().contains("SSB")) {
+            continue;
+        } else if filter_mode_sel == "SSB" && (s.is_ft8 || s.comment.to_uppercase().contains("CW")) {
+            continue;
+        } else if filter_mode_sel == "DIGI" && !s.is_ft8 {
+            continue;
+        }
+
+        if filter_source_sel == "HUMAN" && s.is_skimmer {
+            continue;
+        } else if filter_source_sel == "RBN" && !s.is_skimmer {
+            continue;
+        }
+
         let (pota, sota) = extract_pota_sota(&s.comment);
 
         if filter_pota_only && pota.is_none() && sota.is_none() {
-            return false;
+            continue;
         }
 
         if !search_q.is_empty() {
@@ -385,32 +410,12 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             let match_comment = s.comment.to_uppercase().contains(&search_q);
             let match_spotter = s.spotter.to_uppercase().contains(&search_q);
             if !match_call && !match_comment && !match_spotter {
-                return false;
+                continue;
             }
         }
 
-        if filter_band_sel == "VFO" && s.band != current_band {
-            return false;
-        } else if filter_band_sel != "ALL" && filter_band_sel != "VFO" && s.band != filter_band_sel {
-            return false;
-        }
-
-        if filter_mode_sel == "CW" && (s.is_ft8 || s.comment.to_uppercase().contains("FT8") || s.comment.to_uppercase().contains("SSB")) {
-            return false;
-        } else if filter_mode_sel == "SSB" && (s.is_ft8 || s.comment.to_uppercase().contains("CW")) {
-            return false;
-        } else if filter_mode_sel == "DIGI" && !s.is_ft8 {
-            return false;
-        }
-
-        if filter_source_sel == "HUMAN" && s.is_skimmer {
-            return false;
-        } else if filter_source_sel == "RBN" && !s.is_skimmer {
-            return false;
-        }
-
-        true
-    }).cloned().collect();
+        filtered_spots.push((s.clone(), pota, sota));
+    }
 
     let total_spots = app.cluster_spots.len();
     let shown_spots = filtered_spots.len();
@@ -497,9 +502,7 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                         ui.label(egui::RichText::new(tr("cluster.time", lang)).strong());
                         ui.end_row();
 
-                        for spot in filtered_spots {
-                            let (pota_ref, sota_ref) = extract_pota_sota(&spot.comment);
-
+                        for (spot, pota_ref, sota_ref) in &filtered_spots {
                             let (call_color, badge) = app.cluster_spot_badge(&spot.dx_call, &spot.band, spot.is_ft8);
 
                             if ui.button(egui::RichText::new(format!("{}{}", spot.dx_call, badge)).strong().color(call_color))

@@ -6,6 +6,7 @@ pub mod cloud;
 pub mod cluster;
 pub mod core;
 pub mod digital;
+pub mod dsp;
 pub mod gui;
 pub mod media;
 pub mod network;

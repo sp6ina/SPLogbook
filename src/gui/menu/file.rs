@@ -51,6 +51,10 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             app.trigger_export_adx();
             ui.close_menu();
         }
+        if ui.button("Eksport CSV (konfigurowalny)…").clicked() {
+            app.csv_export_dialog.open();
+            ui.close_menu();
+        }
         if ui.button(icons::SOTA_MOUNTAIN.label(tr("menu.export_sota", lang))).clicked() {
             let call = app.my_station.callsign.clone();
             app.sota_dialog.open(&call);
