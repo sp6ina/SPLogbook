@@ -50,6 +50,8 @@ impl AdifEngine {
         let mut errors = Vec::new();
         let mut rejected = 0usize;
         let mut record_index = 0usize;
+        // Czy bieżący rekord zawiera błąd składni (np. nieprawidłowa długość pola).
+        let mut record_has_error = false;
 
         // Bezpieczny stan maszyny parsowania
         let mut current_fields: HashMap<String, String> = HashMap::new();
@@ -70,17 +72,23 @@ impl AdifEngine {
                 let tag_upper = tag_content.trim().to_uppercase();
                 if tag_upper == "EOR" {
                     record_index += 1;
-                    match Self::fields_to_qso(&current_fields) {
-                        Some(qso) => qsos.push(qso),
-                        None => {
-                            rejected += 1;
-                            errors.push(format!(
-                                "Rekord {} odrzucony: brak wymaganego pola CALL.",
-                                record_index
-                            ));
+                    if record_has_error {
+                        // Rekord z błędem składni jest odrzucany; komunikat już zapisano.
+                        rejected += 1;
+                    } else {
+                        match Self::fields_to_qso(&current_fields) {
+                            Some(qso) => qsos.push(qso),
+                            None => {
+                                rejected += 1;
+                                errors.push(format!(
+                                    "Rekord {} odrzucony: brak wymaganego pola CALL.",
+                                    record_index
+                                ));
+                            }
                         }
                     }
                     current_fields.clear();
+                    record_has_error = false;
                     continue;
                 }
 
@@ -104,6 +112,7 @@ impl AdifEngine {
                                 "Nieprawidłowa długość pola „{}”.",
                                 field_name
                             ));
+                            record_has_error = true;
                         }
                     }
                 }
@@ -115,14 +124,18 @@ impl AdifEngine {
         // Jeśli na końcu pliku pozostały niezatwierdzone pola bez <EOR>
         if !current_fields.is_empty() {
             record_index += 1;
-            match Self::fields_to_qso(&current_fields) {
-                Some(qso) => qsos.push(qso),
-                None => {
-                    rejected += 1;
-                    errors.push(format!(
-                        "Rekord {} odrzucony: brak wymaganego pola CALL.",
-                        record_index
-                    ));
+            if record_has_error {
+                rejected += 1;
+            } else {
+                match Self::fields_to_qso(&current_fields) {
+                    Some(qso) => qsos.push(qso),
+                    None => {
+                        rejected += 1;
+                        errors.push(format!(
+                            "Rekord {} odrzucony: brak wymaganego pola CALL.",
+                            record_index
+                        ));
+                    }
                 }
             }
         }
@@ -483,7 +496,7 @@ mod tests {
 
         let report = parse_adif_with_report(content);
         assert_eq!(report.imported, 1);
-        assert_eq!(report.rejected, 1);
+        assert_eq!(report.rejected, 2);
         assert_eq!(report.qsos.len(), 1);
         assert_eq!(report.qsos[0].callsign, "SP6INA");
         assert!(report.errors.iter().any(|e| e.contains("brak wymaganego pola CALL")));

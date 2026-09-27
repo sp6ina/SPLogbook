@@ -234,7 +234,7 @@ pub fn parse_dx_spot(line: &str) -> Option<DxSpot> {
 
     let comment_upper = comment.to_uppercase();
     let is_ft8 = comment_upper.contains("FT8") || comment_upper.contains("FT4") || comment_upper.contains("JS8");
-    let is_skimmer = spotter.contains("-#") || comment_upper.contains("BPS") || comment_upper.contains("WPM") || comment_upper.contains("DB");
+    let is_skimmer = spotter.contains("-#") || comment_upper.contains("BPS") || comment_upper.contains("WPM");
 
     Some(DxSpot {
         spotter,
