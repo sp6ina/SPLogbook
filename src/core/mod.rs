@@ -25,3 +25,4 @@ pub mod propagation;
 pub mod propagation_history;
 pub mod clubs;
 pub mod http;
+pub mod satellite;

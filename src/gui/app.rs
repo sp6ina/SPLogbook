@@ -126,6 +126,17 @@ pub struct SpLogApp {
     pub sat_tx_doppler_khz: f32,
     pub sat_auto_track_rotator: bool,
     pub sat_auto_tune_radio: bool,
+    pub sat_passes: Vec<crate::core::satellite::SatellitePass>,
+    pub sat_passes_key: String,
+
+    // Historia warunków solarnych (dla wykresu + alertu)
+    pub solar_history: Vec<SpaceWeather>,
+    pub solar_loading: bool,
+    pub solar_fetch_slot: Option<std::sync::Arc<std::sync::Mutex<Option<Result<SpaceWeather, String>>>>>,
+    pub solar_last_alert: Option<String>,
+
+    // Jednostki odległości w monitorze WSPR
+    pub wspr_distance_miles: bool,
 
     // Moduł Zawodów
     pub show_contest_window: bool,
@@ -760,6 +771,15 @@ impl SpLogApp {
             sat_tx_doppler_khz: 8.52,
             sat_auto_track_rotator: true,
             sat_auto_tune_radio: true,
+            sat_passes: Vec::new(),
+            sat_passes_key: String::new(),
+
+            solar_history: vec![SpaceWeather::default()],
+            solar_loading: false,
+            solar_fetch_slot: None,
+            solar_last_alert: None,
+
+            wspr_distance_miles: false,
 
             show_contest_window: false,
             contest_name: "SP DX Contest".to_string(),
@@ -3202,6 +3222,133 @@ impl SpLogApp {
             }
         });
     }
+
+    /// Odświeża pozycję satelity i listę najbliższych przelotów (przybliżenie keplerowskie).
+    /// Wywoływane co klatkę, ale przeliczane co najwyżej raz na minutę.
+    pub fn refresh_satellite_tracking(&mut self) {
+        let now = crate::cloud::scheduler::now_unix() as f64;
+        let minute = (now / 60.0) as u64;
+        let key = format!(
+            "{}|{}|{}",
+            self.selected_satellite, self.my_station.gridsquare, minute
+        );
+        if self.sat_passes_key == key {
+            return;
+        }
+        self.sat_passes_key = key;
+
+        let def = crate::core::satellite::default_satellites()
+            .into_iter()
+            .find(|d| d.name == self.selected_satellite);
+
+        let coords = locator_to_coordinates(&self.my_station.gridsquare)
+            .unwrap_or(crate::core::geo::Coordinates::new(52.2297, 21.0122));
+        let obs = crate::core::satellite::Observer {
+            lat_deg: coords.latitude,
+            lon_deg: coords.longitude,
+        };
+
+        if let Some(def) = def {
+            self.sat_passes = crate::core::satellite::predict_passes(&def, &obs, now, 10.0, 24.0);
+            self.sat_azimuth = crate::core::satellite::azimuth_deg(&def, &obs, now) as f32;
+            self.sat_elevation = crate::core::satellite::elevation_deg(&def, &obs, now) as f32;
+            self.sat_range_km = crate::core::satellite::range_km(&def, &obs, now) as f32;
+            self.sat_altitude_km = def.altitude_km as f32;
+            self.sat_downlink_mhz = def.downlink_mhz;
+            self.sat_uplink_mhz = def.uplink_mhz;
+            self.sat_rx_doppler_khz =
+                crate::core::satellite::doppler_khz(&def, &obs, now, def.downlink_mhz) as f32;
+            self.sat_tx_doppler_khz =
+                crate::core::satellite::doppler_khz(&def, &obs, now, def.uplink_mhz) as f32;
+        } else {
+            self.sat_passes.clear();
+        }
+    }
+
+    /// Uruchamia asynchroniczne pobranie warunków solarnych (HamQTH).
+    pub fn refresh_solar_weather(&mut self, ctx: &egui::Context) {
+        if self.solar_loading {
+            return;
+        }
+        self.solar_loading = true;
+
+        let slot: std::sync::Arc<std::sync::Mutex<Option<Result<SpaceWeather, String>>>> =
+            std::sync::Arc::new(std::sync::Mutex::new(None));
+        let slot_clone = slot.clone();
+        let ctx_clone = ctx.clone();
+
+        tokio::spawn(async move {
+            let result = crate::cloud::solar::SpaceWeatherClient::new()
+                .fetch_hamqth_solar()
+                .await
+                .map_err(|e| e.to_string());
+            *slot_clone.lock().unwrap_or_else(|p| p.into_inner()) = Some(result);
+            ctx_clone.request_repaint();
+        });
+
+        self.solar_fetch_slot = Some(slot);
+    }
+
+    /// Odbiera wynik asynchronicznego pobrania warunków solarnych.
+    pub fn poll_solar_fetch(&mut self) {
+        if !self.solar_loading {
+            return;
+        }
+        if let Some(ref slot) = self.solar_fetch_slot.clone() {
+            if let Ok(mut guard) = slot.try_lock() {
+                if let Some(result) = guard.take() {
+                    self.solar_loading = false;
+                    self.solar_fetch_slot = None;
+                    match result {
+                        Ok(weather) => self.record_solar_sample(weather),
+                        Err(e) => {
+                            self.solar_last_alert = Some(format!(
+                                "Błąd pobierania danych solarnych: {}",
+                                e
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Zapisuje próbkę warunków solarnych do historii i wykrywa istotne zmiany.
+    pub fn record_solar_sample(&mut self, weather: SpaceWeather) {
+        if let Some(prev) = self.solar_history.last() {
+            let k_delta = weather.k_index as i64 - prev.k_index as i64;
+            let sfi_delta = weather.sfi as i64 - prev.sfi as i64;
+            if k_delta.abs() >= 2 {
+                self.solar_last_alert = Some(format!(
+                    "⚠ Zmiana indeksu K: {} → {} — możliwa burza geomagnetyczna",
+                    prev.k_index, weather.k_index
+                ));
+            } else if sfi_delta.abs() >= 20 {
+                self.solar_last_alert =
+                    Some(format!("ℹ Zmiana SFI: {} → {}", prev.sfi, weather.sfi));
+            } else {
+                self.solar_last_alert = None;
+            }
+        }
+
+        self.space_weather = weather.clone();
+
+        let differs = match self.solar_history.last() {
+            Some(p) => {
+                p.sfi != weather.sfi
+                    || p.ssn != weather.ssn
+                    || p.k_index != weather.k_index
+                    || p.a_index != weather.a_index
+            }
+            None => true,
+        };
+        if differs {
+            self.solar_history.push(weather);
+            if self.solar_history.len() > 96 {
+                self.solar_history.remove(0);
+            }
+        }
+    }
 }
 
 impl eframe::App for SpLogApp {
@@ -3255,6 +3402,10 @@ impl eframe::App for SpLogApp {
 
         // Wspólna kolejka wysyłki do serwisów online (Club Log / QRZ / eQSL)
         self.poll_upload_scheduler();
+
+        // Śledzenie satelitów (przeloty + Doppler) i warunki solarne
+        self.refresh_satellite_tracking();
+        self.poll_solar_fetch();
 
         // ——— Globalne skróty klawiszowe ———
         ctx.input(|i| {

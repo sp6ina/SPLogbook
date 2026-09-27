@@ -131,7 +131,46 @@ pub fn render_solar_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
 pub fn render_solar_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.current_language;
-    let weather = &app.space_weather;
+
+    // ——— Pasek odświeżania danych solarnych ———
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("NOAA / HamQTH").small().color(egui::Color32::from_rgb(100, 116, 139)));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if app.solar_loading {
+                ui.spinner();
+                ui.label("Pobieranie...");
+            } else {
+                let ctx = ui.ctx().clone();
+                if ui.button("🔄 Odśwież").clicked() {
+                    app.refresh_solar_weather(&ctx);
+                }
+            }
+        });
+    });
+
+    // ——— Alert o istotnej zmianie propagacji ———
+    if let Some(alert) = app.solar_last_alert.as_ref() {
+        let color = if alert.starts_with('⚠') {
+            egui::Color32::from_rgb(250, 204, 21)
+        } else {
+            egui::Color32::from_rgb(56, 189, 248)
+        };
+        ui.colored_label(color, alert);
+    }
+
+    // ——— Historia SFI (sparkline) ———
+    let sfi_values: Vec<f64> = app.solar_history.iter().map(|w| w.sfi as f64).collect();
+    if sfi_values.len() >= 2 {
+        let min = sfi_values.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = sfi_values.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("SFI:").small().color(egui::Color32::from_rgb(148, 163, 184)));
+            ui.monospace(egui::RichText::new(sparkline(&sfi_values, min, max)).color(egui::Color32::from_rgb(251, 191, 36)));
+            ui.label(egui::RichText::new(format!("min {:.0} / max {:.0}", min, max)).small().color(egui::Color32::from_rgb(148, 163, 184)));
+        });
+    }
+
+    let weather = app.space_weather.clone();
 
             ui.columns(4, |cols| {
                 cols[0].vertical_centered(|ui| {
@@ -202,4 +241,17 @@ pub fn render_solar_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                         .on_hover_text(format!("{}: {}% REL, {}\nMUF: {:.1} MHz", b_name, forecast.reliability_pct, forecast.status.as_str(), forecast.muf_mhz));
                 }
             });
+}
+
+/// Buduje tekstowy sparkline (▁▂▃▄▅▆▇█) z listy wartości liczbowych.
+fn sparkline(values: &[f64], min: f64, max: f64) -> String {
+    const BLOCKS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+    let range = (max - min).max(1e-9);
+    values
+        .iter()
+        .map(|v| {
+            let idx = (((v - min) / range) * 7.0).round().clamp(0.0, 7.0) as usize;
+            BLOCKS[idx]
+        })
+        .collect()
 }

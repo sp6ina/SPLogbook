@@ -41,6 +41,20 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
             ui.separator();
 
+            // ——— Kontrolki: jednostki odległości + trend SNR ———
+            if !app.wspr_spots.is_empty() {
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut app.wspr_distance_miles, "Odległość w milach");
+                    ui.label(egui::RichText::new("Trend SNR:").small().color(egui::Color32::from_rgb(148, 163, 184)));
+                    let snrs: Vec<f64> = app.wspr_spots.iter().map(|s| s.snr as f64).collect();
+                    if snrs.len() >= 2 {
+                        let min = snrs.iter().cloned().fold(f64::INFINITY, f64::min);
+                        let max = snrs.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                        ui.monospace(egui::RichText::new(snr_sparkline(&snrs, min, max)).color(egui::Color32::from_rgb(56, 189, 248)));
+                    }
+                });
+            }
+
             // --- Tabela spotow ---
             if app.wspr_spots.is_empty() {
                 ui.vertical_centered(|ui| {
@@ -54,7 +68,7 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
             } else {
                 egui::ScrollArea::vertical().id_salt("wspr_scroll").show(ui, |ui| {
                     egui::Grid::new("wspr_table")
-                        .num_columns(4)
+                        .num_columns(6)
                         .spacing([12.0, 4.0])
                         .striped(true)
                         .show(ui, |ui| {
@@ -63,7 +77,11 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             ui.label(egui::RichText::new("Czestotliwosc (MHz)").strong());
                             ui.label(egui::RichText::new("SNR (dB)").strong());
                             ui.label(egui::RichText::new("Lokator").strong());
+                            ui.label(egui::RichText::new("Odleglosc").strong());
+                            ui.label(egui::RichText::new("Azymut").strong());
                             ui.end_row();
+
+                            let my_coords = crate::core::geo::locator_to_coordinates(&app.my_station.gridsquare).ok();
 
                             for spot in &app.wspr_spots {
                                 ui.label(egui::RichText::new(&spot.callsign)
@@ -78,6 +96,25 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 };
                                 ui.label(egui::RichText::new(format!("{:+}", spot.snr)).color(snr_color));
                                 ui.label(&spot.gridsquare);
+
+                                // Odległość i azymut z mojego lokatora
+                                let spot_coords = crate::core::geo::locator_to_coordinates(&spot.gridsquare).ok();
+                                match (my_coords, spot_coords) {
+                                    (Some(m), Some(s)) => {
+                                        let km = crate::core::geo::calculate_distance_km(m, s);
+                                        let az = crate::core::geo::calculate_bearing_deg(m, s);
+                                        if app.wspr_distance_miles {
+                                            ui.label(format!("{:.0} mi", km * 0.621371));
+                                        } else {
+                                            ui.label(format!("{:.0} km", km));
+                                        }
+                                        ui.label(format!("{:.0}°", az));
+                                    }
+                                    _ => {
+                                        ui.label("—");
+                                        ui.label("—");
+                                    }
+                                }
                                 ui.end_row();
                             }
                         });
@@ -116,4 +153,17 @@ fn fetch_wspr_spots_async(app: &mut SpLogApp, ctx: &egui::Context) {
 
     // Zapisujemy Arc w app zeby moc odczytac w nastepnej klatce
     app.wspr_fetch_slot = Some(result_slot);
+}
+
+/// Buduje tekstowy sparkline (▁▂▃▄▅▆▇█) z listy wartości SNR.
+fn snr_sparkline(values: &[f64], min: f64, max: f64) -> String {
+    const BLOCKS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+    let range = (max - min).max(1e-9);
+    values
+        .iter()
+        .map(|v| {
+            let idx = (((v - min) / range) * 7.0).round().clamp(0.0, 7.0) as usize;
+            BLOCKS[idx]
+        })
+        .collect()
 }

@@ -182,6 +182,52 @@ pub fn render_satellites_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                         point_rotor_clicked = true;
                     }
                 });
+
+                ui.separator();
+
+                // ——— Najbliższe przeloty + Doppler ———
+                ui.label(egui::RichText::new("🕒 Najbliższe przeloty (24 h)").strong().size(11.0));
+                let now = crate::cloud::scheduler::now_unix() as f64;
+                if let Some(np) = crate::core::satellite::next_pass(&app.sat_passes, now) {
+                    let secs = np.aos_unix - now;
+                    if secs > 0.0 {
+                        ui.label(format!("⏱ Następny przelot za {}", format_countdown(secs)));
+                    } else {
+                        ui.label(egui::RichText::new("● Satelita nad horyzontem").color(egui::Color32::from_rgb(34, 197, 94)));
+                    }
+                } else {
+                    ui.label(egui::RichText::new("Brak przelotów w ciągu 24 h").color(egui::Color32::from_rgb(148, 163, 184)));
+                }
+
+                egui::ScrollArea::vertical()
+                    .max_height(140.0)
+                    .id_salt("sat_passes")
+                    .show(ui, |ui| {
+                        egui::Grid::new("sat_passes_grid")
+                            .num_columns(4)
+                            .spacing([10.0, 2.0])
+                            .striped(true)
+                            .show(ui, |ui| {
+                                ui.label(egui::RichText::new("AOS").strong().small());
+                                ui.label(egui::RichText::new("Max el.").strong().small());
+                                ui.label(egui::RichText::new("Azymut").strong().small());
+                                ui.label(egui::RichText::new("Doppler AOS").strong().small());
+                                ui.end_row();
+
+                                for pass in app.sat_passes.iter().take(8) {
+                                    ui.label(egui::RichText::new(format_local_time(pass.aos_unix)).small().monospace());
+                                    ui.label(egui::RichText::new(format!("{:.0}°", pass.max_elevation_deg)).small());
+                                    ui.label(egui::RichText::new(format!("{:.0}°", pass.aos_azimuth_deg)).small());
+                                    ui.label(egui::RichText::new(format!("{:+.2} kHz", pass.aos_doppler_khz)).small()
+                                        .color(if pass.aos_doppler_khz >= 0.0 {
+                                            egui::Color32::from_rgb(34, 197, 94)
+                                        } else {
+                                            egui::Color32::from_rgb(239, 68, 68)
+                                        }));
+                                    ui.end_row();
+                                }
+                            });
+                    });
             });
 
     if tune_clicked {
@@ -190,4 +236,25 @@ pub fn render_satellites_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
     if point_rotor_clicked {
         app.point_rotor_to_satellite();
     }
+}
+
+fn format_countdown(secs: f64) -> String {
+    let total = secs.max(0.0) as u64;
+    let h = total / 3600;
+    let m = (total % 3600) / 60;
+    let s = total % 60;
+    if h > 0 {
+        format!("{:02}:{:02}:{:02}", h, m, s)
+    } else {
+        format!("{:02}:{:02}", m, s)
+    }
+}
+
+fn format_local_time(unix: f64) -> String {
+    use chrono::TimeZone;
+    chrono::Local
+        .timestamp_opt(unix as i64, 0)
+        .single()
+        .map(|dt| dt.format("%H:%M").to_string())
+        .unwrap_or_else(|| "--:--".to_string())
 }
