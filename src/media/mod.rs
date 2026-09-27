@@ -3,3 +3,4 @@
 
 pub mod audio_recorder;
 pub mod sounds;
+pub mod voice_keyer;

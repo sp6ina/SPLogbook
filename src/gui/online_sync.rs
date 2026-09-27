@@ -15,6 +15,7 @@ pub enum SyncTab {
     CloudlogHrdlog,
     Fldigi,
     PskReporter,
+    N1mm,
     Databases,
     Logs,
 }
@@ -57,6 +58,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     ui.selectable_value(&mut active_tab, SyncTab::CloudlogHrdlog, "☁ Cloudlog / HRDLog");
                     ui.selectable_value(&mut active_tab, SyncTab::Fldigi, "💻 FLDigi");
                     ui.selectable_value(&mut active_tab, SyncTab::PskReporter, "📡 PSK Reporter");
+                    ui.selectable_value(&mut active_tab, SyncTab::N1mm, "📻 N1MM Broadcast");
                     ui.selectable_value(&mut active_tab, SyncTab::Databases, "🔄 Bazy");
                     ui.selectable_value(&mut active_tab, SyncTab::Logs, format!("📋 Logi ({})", app.online_sync_logs.len()));
                 });
@@ -366,6 +368,29 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     if ui.button("📤 Wyślij łączności do HRDLog.net").clicked() {
                                         app.online_sync_logs.push("Wysyłanie danych do HRDLog.net...".to_string());
                                         app.status_message = Some("Wysyłka do HRDLog.net w toku...".to_string());
+                                    }
+                                });
+                            }
+                            SyncTab::N1mm => {
+                                ui.group(|ui| {
+                                    ui.label(egui::RichText::new("📻 Emisja zdarzeń N1MM Logger+ (UDP Broadcast)").strong().size(13.0).color(egui::Color32::from_rgb(56, 189, 248)));
+                                    ui.separator();
+                                    if ui.checkbox(&mut app.n1mm_broadcast_enabled, "Włącz emisję zapisanych QSO do narzędzi zgodnych z N1MM (GridTracker, overlay itp.)").changed() {
+                                        app.save_station_config();
+                                    }
+                                    ui.label(egui::RichText::new("Każde zapisane QSO jest wysyłane jako ramka XML <contactinfo> w formacie N1MM Logger+ UDP broadcast. Pozwala to na podgląd łączności na żywo w GridTracker i innych nakładkach.").small().color(egui::Color32::GRAY));
+                                    ui.add_space(6.0);
+                                    ui.horizontal(|ui| {
+                                        ui.label("Adres nasłuchu:");
+                                        ui.add(egui::TextEdit::singleline(&mut app.n1mm_broadcast_host).desired_width(140.0));
+                                        ui.label("Port:");
+                                        ui.add(egui::DragValue::new(&mut app.n1mm_broadcast_port).range(1..=65535));
+                                    });
+                                    ui.label(egui::RichText::new(format!("Domyślnie N1MM Logger+ nasłuchuje na 127.0.0.1:{}", crate::digital::n1mm::N1MM_DEFAULT_PORT)).small().color(egui::Color32::GRAY));
+                                    ui.add_space(6.0);
+                                    if ui.button("💾 Zapisz ustawienia").clicked() {
+                                        app.save_station_config();
+                                        app.online_sync_logs.push("Zapisano ustawienia emisji N1MM UDP broadcast.".to_string());
                                     }
                                 });
                             }

@@ -113,6 +113,8 @@ fn default_theme_preset() -> String { "operator_dark".to_string() }
 fn default_font_scale() -> f32 { 1.0 }
 fn default_font_family() -> String { String::new() }
 fn default_distance_unit() -> String { "km".to_string() }
+fn default_n1mm_broadcast_host() -> String { "127.0.0.1".to_string() }
+fn default_n1mm_broadcast_port() -> u16 { 12060 }
 fn default_profile_id() -> String { "default".to_string() }
 fn default_cat_sharing_port() -> u16 { 4534 }
 fn default_hamlib_source() -> String { "bundled".to_string() }
@@ -156,6 +158,44 @@ pub fn default_logbook_columns() -> Vec<LogColumn> {
         LogColumn::new("cqz",      "CQZ",      false, 45.0),
         LogColumn::new("iota",     "IOTA",     false, 70.0),
         LogColumn::new("comment",  "Uwagi",    false, 160.0),
+    ]
+}
+
+/// Pojedynczy komunikat voice keyer'a (SSB). Komunikat może być odtwarzany
+/// z pliku WAV (przez kartę dźwiękową do radia) lub — gdy plik nie jest
+/// ustawiony — zastępowany krótkim sygnałem testowym.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct VoiceKeyerMessage {
+    pub label: String,
+    pub text: String,
+    pub wav_path: Option<String>,
+    pub enabled: bool,
+    /// Powtarzanie w pętli do momentu ręcznego zatrzymania (CQ loop).
+    pub repeat: bool,
+    /// Czy podczas odtwarzania kluczować PTT przez CAT (TX).
+    pub ptt: bool,
+}
+
+impl Default for VoiceKeyerMessage {
+    fn default() -> Self {
+        Self {
+            label: "F1 CQ".to_string(),
+            text: "CQ CQ CQ de SP6INA SP6INA SP6INA k".to_string(),
+            wav_path: None,
+            enabled: true,
+            repeat: false,
+            ptt: true,
+        }
+    }
+}
+
+/// Domyślny zestaw slotów voice keyer'a (F1..F4).
+pub fn default_voice_keyer_messages() -> Vec<VoiceKeyerMessage> {
+    vec![
+        VoiceKeyerMessage { label: "F1 CQ".to_string(), text: "CQ CQ CQ de SP6INA SP6INA SP6INA k".to_string(), enabled: true, repeat: true, ..Default::default() },
+        VoiceKeyerMessage { label: "F2 Raport".to_string(), text: "59 59 dziękuję".to_string(), enabled: true, ..Default::default() },
+        VoiceKeyerMessage { label: "F3 Podziękowanie".to_string(), text: "Dziękuję za łączność 73!".to_string(), enabled: true, ..Default::default() },
+        VoiceKeyerMessage { label: "F4 Znak".to_string(), text: "SP6INA SP6INA".to_string(), enabled: true, ..Default::default() },
     ]
 }
 
@@ -226,6 +266,22 @@ pub struct AppConfig {
     // Konfiguracja PSK Reporter
     #[serde(default)]
     pub psk_reporter_enabled: bool,
+
+    // Konfiguracja emisji N1MM Logger+ UDP broadcast (GridTracker, overlay itp.)
+    #[serde(default)]
+    pub n1mm_broadcast_enabled: bool,
+    #[serde(default = "default_n1mm_broadcast_host")]
+    pub n1mm_broadcast_host: String,
+    #[serde(default = "default_n1mm_broadcast_port")]
+    pub n1mm_broadcast_port: u16,
+
+    // Voice keyer (SSB)
+    #[serde(default = "default_voice_keyer_messages")]
+    pub voice_keyer_messages: Vec<VoiceKeyerMessage>,
+
+    // Profile układu operatorskiego (workspace)
+    #[serde(default)]
+    pub workspace_profiles: Vec<WorkspaceProfile>,
 
     // Konfiguracja Multi-Op LAN
     #[serde(default = "default_lan_sync_port")]
@@ -486,6 +542,95 @@ impl Default for ViewPanelConfig {
     }
 }
 
+/// Zapisany profil układu operatorskiego (workspace) — zestaw widoczności,
+/// pozycji i rozmiarów paneli głównego okna. Pozwala błyskawicznie przełączać
+/// się między układami (Logowanie / Kontest / Cyfrowe / Cluster / Ekspedycja).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct WorkspaceProfile {
+    pub name: String,
+    pub panel_vfo: ViewPanelConfig,
+    pub panel_qso: ViewPanelConfig,
+    pub panel_log: ViewPanelConfig,
+    pub panel_cluster: ViewPanelConfig,
+    pub panel_solar: ViewPanelConfig,
+    pub panel_bandmap: ViewPanelConfig,
+    pub panel_satellites: ViewPanelConfig,
+    pub panel_world_map: ViewPanelConfig,
+    #[serde(default)]
+    pub theme_preset: Option<String>,
+}
+
+/// Pomocniczy konstruktor panelu o podanych cechach.
+fn panel(visible: bool, floating: bool, column: usize, order: usize) -> ViewPanelConfig {
+    ViewPanelConfig { visible, floating, column, order, saved_pos: None, saved_size: None }
+}
+
+/// Wbudowane presety układu operatorskiego (nie są zapisywane do konfiguracji).
+pub fn workspace_profile_presets() -> Vec<WorkspaceProfile> {
+    vec![
+        WorkspaceProfile {
+            name: "Logowanie (dzienny DX)".to_string(),
+            panel_vfo: panel(true, false, 0, 0),
+            panel_qso: panel(true, false, 0, 1),
+            panel_log: panel(true, false, 1, 0),
+            panel_cluster: panel(true, false, 1, 1),
+            panel_bandmap: panel(true, false, 2, 0),
+            panel_solar: panel(true, false, 2, 1),
+            panel_satellites: panel(false, false, 2, 2),
+            panel_world_map: panel(false, false, 2, 3),
+            theme_preset: None,
+        },
+        WorkspaceProfile {
+            name: "Kontest".to_string(),
+            panel_vfo: panel(true, false, 0, 0),
+            panel_qso: panel(true, false, 0, 1),
+            panel_log: panel(true, false, 1, 0),
+            panel_cluster: panel(true, false, 2, 0),
+            panel_bandmap: panel(true, false, 2, 1),
+            panel_solar: panel(false, false, 2, 2),
+            panel_satellites: panel(false, false, 2, 3),
+            panel_world_map: panel(false, false, 2, 4),
+            theme_preset: None,
+        },
+        WorkspaceProfile {
+            name: "Cyfrowe (FT8/WSJT-X)".to_string(),
+            panel_vfo: panel(true, false, 0, 0),
+            panel_qso: panel(true, false, 0, 1),
+            panel_log: panel(true, false, 1, 0),
+            panel_cluster: panel(true, false, 2, 0),
+            panel_bandmap: panel(true, false, 2, 1),
+            panel_solar: panel(true, false, 2, 2),
+            panel_satellites: panel(false, false, 2, 3),
+            panel_world_map: panel(false, false, 2, 4),
+            theme_preset: None,
+        },
+        WorkspaceProfile {
+            name: "Cluster & DX".to_string(),
+            panel_vfo: panel(false, false, 0, 0),
+            panel_qso: panel(true, false, 0, 1),
+            panel_log: panel(true, false, 1, 0),
+            panel_cluster: panel(true, false, 0, 2),
+            panel_bandmap: panel(true, false, 2, 0),
+            panel_solar: panel(true, false, 2, 1),
+            panel_satellites: panel(false, false, 2, 2),
+            panel_world_map: panel(true, false, 1, 2),
+            theme_preset: None,
+        },
+        WorkspaceProfile {
+            name: "Ekspedycja (P/SOTA/POTA)".to_string(),
+            panel_vfo: panel(true, false, 0, 0),
+            panel_qso: panel(true, false, 0, 1),
+            panel_log: panel(true, false, 1, 0),
+            panel_cluster: panel(false, false, 1, 1),
+            panel_bandmap: panel(false, false, 2, 0),
+            panel_solar: panel(true, false, 2, 0),
+            panel_satellites: panel(false, false, 2, 1),
+            panel_world_map: panel(false, false, 2, 2),
+            theme_preset: None,
+        },
+    ]
+}
+
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
@@ -524,6 +669,14 @@ impl Default for AppConfig {
             fldigi_port: 7362,
 
             psk_reporter_enabled: false,
+
+            n1mm_broadcast_enabled: false,
+            n1mm_broadcast_host: "127.0.0.1".to_string(),
+            n1mm_broadcast_port: 12060,
+
+            voice_keyer_messages: default_voice_keyer_messages(),
+
+            workspace_profiles: Vec::new(),
 
             lan_sync_port: 7373,
             lan_sync_auto_start: false,

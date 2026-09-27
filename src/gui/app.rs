@@ -12,7 +12,7 @@ use crate::core::i18n::{tr, Language};
 use crate::core::prefix::{PrefixInfo, PrefixMatcher};
 use crate::core::qso::QsoRecord;
 use crate::core::scp::ScpEngine;
-use crate::core::station::{AppConfig, EquipmentCategory, EquipmentItem, StationProfile, ViewPanelConfig};
+use crate::core::station::{AppConfig, EquipmentCategory, EquipmentItem, StationProfile, ViewPanelConfig, VoiceKeyerMessage, WorkspaceProfile};
 use crate::cluster::telnet::ClusterEvent;
 use crate::gui::awards_matrix::render_awards_matrix_window;
 use crate::gui::bandmap::render_bandmap_window;
@@ -29,6 +29,7 @@ use crate::gui::solar_panel::render_solar_window;
 use crate::gui::station_ledger::render_station_ledger_window;
 use crate::gui::statistics::render_statistics_window;
 use crate::gui::vfo_panel::render_vfo_window;
+use crate::gui::voice_keyer::render_voice_keyer_window;
 use crate::gui::welcome_wizard::render_welcome_wizard;
 use crate::gui::world_map::render_world_map_window;
 use crate::core::service_db::{QslManagerRecord, ServiceDatabase};
@@ -230,6 +231,21 @@ pub struct SpLogApp {
 
     // PSK Reporter
     pub psk_reporter_enabled: bool,
+
+    // N1MM Logger+ UDP broadcast
+    pub n1mm_broadcast_enabled: bool,
+    pub n1mm_broadcast_host: String,
+    pub n1mm_broadcast_port: u16,
+
+    // Voice keyer (SSB)
+    pub voice_keyer_messages: Vec<VoiceKeyerMessage>,
+    pub voice_keyer_active: Option<usize>,
+    pub voice_keyer_recording: Option<usize>,
+    pub show_voice_keyer_window: bool,
+
+    // Profile układu operatorskiego (workspace)
+    pub workspace_profiles: Vec<WorkspaceProfile>,
+    pub show_workspace_profiles_window: bool,
 
     // Multi-Op LAN
     pub lan_sync_port: u16,
@@ -811,6 +827,18 @@ impl SpLogApp {
             fldigi_test_result: None,
 
             psk_reporter_enabled: app_config.psk_reporter_enabled,
+
+            n1mm_broadcast_enabled: app_config.n1mm_broadcast_enabled,
+            n1mm_broadcast_host: app_config.n1mm_broadcast_host,
+            n1mm_broadcast_port: app_config.n1mm_broadcast_port,
+
+            voice_keyer_messages: app_config.voice_keyer_messages,
+            voice_keyer_active: None,
+            voice_keyer_recording: None,
+            show_voice_keyer_window: false,
+
+            workspace_profiles: app_config.workspace_profiles,
+            show_workspace_profiles_window: false,
 
             lan_sync_port: app_config.lan_sync_port,
             lan_sync_auto_start: app_config.lan_sync_auto_start,
@@ -1441,6 +1469,19 @@ impl SpLogApp {
             srv.broadcast_qso(&qso);
         }
 
+        // Emisja zdarzenia w formacie N1MM Logger+ UDP broadcast (GridTracker itp.)
+        if self.n1mm_broadcast_enabled {
+            let host = self.n1mm_broadcast_host.clone();
+            let port = self.n1mm_broadcast_port;
+            let my_call = self.my_station.callsign.clone();
+            let xml = crate::digital::n1mm::contactinfo_xml(&qso, &my_call, 1);
+            tokio::spawn(async move {
+                if let Err(e) = crate::digital::n1mm::send_broadcast(&host, port, &xml).await {
+                    log::warn!("N1MM broadcast nieudany ({}:{}): {}", host, port, e);
+                }
+            });
+        }
+
         self.clear_qso_form();
         self.reload_qsos();
     }
@@ -2067,6 +2108,14 @@ impl SpLogApp {
             fldigi_port: self.fldigi_port,
 
             psk_reporter_enabled: self.psk_reporter_enabled,
+
+            n1mm_broadcast_enabled: self.n1mm_broadcast_enabled,
+            n1mm_broadcast_host: self.n1mm_broadcast_host.clone(),
+            n1mm_broadcast_port: self.n1mm_broadcast_port,
+
+            voice_keyer_messages: self.voice_keyer_messages.clone(),
+
+            workspace_profiles: self.workspace_profiles.clone(),
 
             lan_sync_port: self.lan_sync_port,
             lan_sync_auto_start: self.lan_sync_auto_start,
@@ -3616,6 +3665,8 @@ impl eframe::App for SpLogApp {
         crate::gui::contest::render_multi_op_window(self, ctx);
         crate::gui::find_duplicates::render_find_duplicates_window(self, ctx);
         crate::gui::station_profiles::render_station_profiles_window(self, ctx);
+        render_voice_keyer_window(self, ctx);
+        crate::gui::workspace_profiles::render_workspace_profiles_window(self, ctx);
 
         // Okna dialogowe i narzędzia pomocnicze
         if self.journal_dialog.is_open {

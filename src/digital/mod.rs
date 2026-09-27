@@ -4,3 +4,4 @@
 pub mod wsjtx;
 pub mod fldigi;
 pub mod js8call;
+pub mod n1mm;

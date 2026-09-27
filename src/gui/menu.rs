@@ -202,6 +202,14 @@ pub fn render_menu_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 app.show_cw_window = true;
                 ui.close_menu();
             }
+            if ui.button("🎙 Voice Keyer (SSB)").clicked() {
+                app.show_voice_keyer_window = true;
+                ui.close_menu();
+            }
+            if ui.button("🖥 Profile układu (workspace)").clicked() {
+                app.show_workspace_profiles_window = true;
+                ui.close_menu();
+            }
             if ui.button(format!("🛰 {}", tr("tools.satellites", lang))).clicked() {
                 app.panel_satellites.visible = true;
                 app.panel_satellites.floating = true;
