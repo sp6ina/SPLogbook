@@ -369,18 +369,47 @@ impl LogDatabase {
         Ok(())
     }
 
-    /// Usuwa profil dziennika (o ile nie jest jedynym domyślnym)
-    pub fn delete_journal(&self, id: &str) -> Result<()> {
+    /// Usuwa profil dziennika.
+    ///
+    /// Blokuje usunięcie dziennika `DEFAULT` oraz aktywnego (domyślnego) profilu;
+    /// osierocone QSO są przepinane do `DEFAULT` w tej samej transakcji, więc baza
+    /// nigdy nie zostaje z rekordami wskazującymi na nieistniejący dziennik.
+    pub fn delete_journal(&self, id: &str) -> Result<(), String> {
         if id == "DEFAULT" {
-            return Ok(()); // Nie pozwalamy usunąć domyślnego
+            return Err("Nie można usunąć dziennika domyślnego.".to_string());
         }
-        self.conn.execute("DELETE FROM journals WHERE id = ?1", params![id])?;
+
+        let is_active: bool = self
+            .conn
+            .query_row(
+                "SELECT is_default FROM journals WHERE id = ?1",
+                params![id],
+                |row| row.get::<_, i32>(0),
+            )
+            .map_err(|e| e.to_string())?
+            != 0;
+        if is_active {
+            return Err(
+                "Nie można usunąć aktywnego dziennika. Najpierw przełącz aktywny dziennik."
+                    .to_string(),
+            );
+        }
+
+        let tx = self.conn.unchecked_transaction().map_err(|e| e.to_string())?;
+        tx.execute(
+            "UPDATE qso_records SET journal_id = 'DEFAULT' WHERE journal_id = ?1",
+            params![id],
+        )
+        .map_err(|e| e.to_string())?;
+        tx.execute("DELETE FROM journals WHERE id = ?1", params![id])
+            .map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
         Ok(())
     }
 
-    /// Pobiera aktywny / domyślny dziennik
+    /// Pobiera aktywny / domyślny dziennik. Propaguje błędy SQL zamiast je maskować.
     pub fn get_active_journal(&self) -> Result<Journal> {
-        let j = self.conn.query_row(
+        self.conn.query_row(
             "SELECT id, name, station_callsign, operator, my_gridsquare, my_pga, description, is_default
              FROM journals WHERE is_default = 1 LIMIT 1",
             [],
@@ -393,17 +422,32 @@ impl LogDatabase {
                     my_gridsquare: row.get(4)?,
                     my_pga: row.get(5)?,
                     description: row.get(6)?,
-                    is_default: true,
+                    is_default: row.get::<_, i32>(7)? == 1,
                 })
             },
-        ).unwrap_or_default();
-        Ok(j)
+        )
     }
 
-    /// Ustawia wybrany dziennik jako domyślny (aktywny)
-    pub fn set_active_journal(&self, id: &str) -> Result<()> {
-        self.conn.execute("UPDATE journals SET is_default = 0", [])?;
-        self.conn.execute("UPDATE journals SET is_default = 1 WHERE id = ?1", params![id])?;
+    /// Ustawia wybrany dziennik jako domyślny (aktywny). Waliduje istnienie
+    /// dziennika i przełącza atomowo, aby nigdy nie zostawić bazy bez aktywnego
+    /// dziennika.
+    pub fn set_active_journal(&self, id: &str) -> Result<(), String> {
+        let exists: bool = self
+            .conn
+            .prepare("SELECT 1 FROM journals WHERE id = ?1")
+            .map_err(|e| e.to_string())?
+            .exists(params![id])
+            .map_err(|e| e.to_string())?;
+        if !exists {
+            return Err(format!("Dziennik „{}” nie istnieje.", id));
+        }
+
+        let tx = self.conn.unchecked_transaction().map_err(|e| e.to_string())?;
+        tx.execute("UPDATE journals SET is_default = 0", [])
+            .map_err(|e| e.to_string())?;
+        tx.execute("UPDATE journals SET is_default = 1 WHERE id = ?1", params![id])
+            .map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -1204,6 +1248,55 @@ mod tests {
 
         let def_qsos = db.get_recent_qsos_for_journal("DEFAULT", 50).unwrap();
         assert_eq!(def_qsos.len(), 0);
+    }
+
+    #[test]
+    fn test_journal_integrity_guards() {
+        let db = LogDatabase::open_in_memory().unwrap();
+
+        // Przełączenie na nieistniejący dziennik zwraca błąd.
+        assert!(db.set_active_journal("GHOST").is_err());
+        // Po nieudanym przełączeniu aktywny pozostaje DEFAULT.
+        let active = db.get_active_journal().unwrap();
+        assert_eq!(active.id, "DEFAULT");
+
+        // Utworzenie drugiego dziennika i przełączenie na niego.
+        let portable = Journal {
+            id: "PORTABLE".to_string(),
+            name: "Aktywacje".to_string(),
+            station_callsign: "SP6INA/P".to_string(),
+            operator: "Mariusz".to_string(),
+            my_gridsquare: "JO80".to_string(),
+            my_pga: "KL01".to_string(),
+            description: String::new(),
+            is_default: false,
+        };
+        db.create_journal(&portable).unwrap();
+        db.set_active_journal("PORTABLE").unwrap();
+        assert_eq!(db.get_active_journal().unwrap().id, "PORTABLE");
+
+        // Usunięcie aktywnego dziennika jest blokowane.
+        assert!(db.delete_journal("PORTABLE").is_err());
+
+        // Powrót na DEFAULT i próba usunięcia DEFAULT — zablokowana.
+        db.set_active_journal("DEFAULT").unwrap();
+        assert!(db.delete_journal("DEFAULT").is_err());
+
+        // Osierocone QSO są przepinane do DEFAULT przy usunięciu.
+        let mut qso = QsoRecord::new("DL1ABC", "40m", "SSB");
+        qso.journal_id = Some("PORTABLE".to_string());
+        db.insert_qso(&qso).unwrap();
+        assert_eq!(
+            db.get_recent_qsos_for_journal("PORTABLE", 50).unwrap().len(),
+            1
+        );
+
+        db.delete_journal("PORTABLE").unwrap();
+        assert!(db.get_all_journals().unwrap().iter().all(|j| j.id != "PORTABLE"));
+        assert_eq!(
+            db.get_recent_qsos_for_journal("DEFAULT", 50).unwrap().len(),
+            1
+        );
     }
 
     #[test]

@@ -18,6 +18,7 @@ pub struct JournalManagerDialog {
     pub new_journal_pga: String,
     pub new_journal_desc: String,
     pub show_create_form: bool,
+    pub status_message: Option<String>,
 }
 
 impl Default for JournalManagerDialog {
@@ -34,6 +35,7 @@ impl Default for JournalManagerDialog {
             new_journal_pga: String::new(),
             new_journal_desc: String::new(),
             show_create_form: false,
+            status_message: None,
         }
     }
 }
@@ -145,11 +147,19 @@ impl JournalManagerDialog {
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                     if !is_active {
                                         if ui.button(tr("journal.activate", lang)).clicked() {
-                                            let _ = db.set_active_journal(&journal.id);
-                                            on_journal_switched(journal);
+                                            match db.set_active_journal(&journal.id) {
+                                                Ok(()) => {
+                                                    self.status_message = None;
+                                                    on_journal_switched(journal);
+                                                }
+                                                Err(e) => self.status_message = Some(e),
+                                            }
                                         }
                                         if journal.id != "DEFAULT" && ui.button("🗑").on_hover_text(tr("journal.delete_tooltip", lang)).clicked() {
-                                            let _ = db.delete_journal(&journal.id);
+                                            match db.delete_journal(&journal.id) {
+                                                Ok(()) => self.status_message = None,
+                                                Err(e) => self.status_message = Some(e),
+                                            }
                                         }
                                     }
                                 });
@@ -161,6 +171,14 @@ impl JournalManagerDialog {
                         });
                     }
                 });
+
+                if let Some(msg) = &self.status_message {
+                    ui.label(
+                        egui::RichText::new(msg)
+                            .color(egui::Color32::from_rgb(255, 130, 130))
+                            .small(),
+                    );
+                }
 
                 ui.separator();
                 ui.horizontal(|ui| {

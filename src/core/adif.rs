@@ -8,13 +8,36 @@ use std::io::{BufRead, Write};
 /// Parser i generator formatu ADIF (Amateur Data Interchange Format) 3.1.4
 pub struct AdifEngine;
 
+/// Wynik importu ADIF wraz z pełnym raportem odrzuconych rekordów i błędów.
+pub struct AdifImportResult {
+    /// Poprawnie sparsowane rekordy QSO.
+    pub qsos: Vec<QsoRecord>,
+    /// Liczba pomyślnie zaimportowanych rekordów (równa `qsos.len()`).
+    pub imported: usize,
+    /// Liczba rekordów odrzuconych (np. brak pola CALL).
+    pub rejected: usize,
+    /// Czytelne komunikaty o problemach napotkanych podczas parsowania.
+    pub errors: Vec<String>,
+}
+
 impl AdifEngine {
-    /// Parsuje strumień tekstowy ADIF do wektora rekordów QSO
-    pub fn parse_reader<R: BufRead>(mut reader: R) -> Vec<QsoRecord> {
+    /// Parsuje strumień tekstowy ADIF do wektora rekordów QSO.
+    /// Błędy odczytu są maskowane — użyj [`AdifEngine::parse_reader_with_report`],
+    /// aby otrzymać pełny raport.
+    pub fn parse_reader<R: BufRead>(reader: R) -> Vec<QsoRecord> {
+        Self::parse_reader_with_report(reader)
+            .map(|r| r.qsos)
+            .unwrap_or_default()
+    }
+
+    /// Parsuje strumień ADIF i zwraca rekordy wraz z raportem błędów.
+    pub fn parse_reader_with_report<R: BufRead>(
+        mut reader: R,
+    ) -> Result<AdifImportResult, String> {
         let mut content = String::new();
-        if reader.read_to_string(&mut content).is_err() {
-            return Vec::new();
-        }
+        reader
+            .read_to_string(&mut content)
+            .map_err(|e| format!("Błąd odczytu danych ADIF: {e}"))?;
 
         // Pomiń nagłówek (do znacznika <EOH>)
         let body = if let Some(pos) = content.to_ascii_uppercase().find("<EOH>") {
@@ -24,6 +47,9 @@ impl AdifEngine {
         };
 
         let mut qsos = Vec::new();
+        let mut errors = Vec::new();
+        let mut rejected = 0usize;
+        let mut record_index = 0usize;
 
         // Bezpieczny stan maszyny parsowania
         let mut current_fields: HashMap<String, String> = HashMap::new();
@@ -43,8 +69,16 @@ impl AdifEngine {
 
                 let tag_upper = tag_content.trim().to_uppercase();
                 if tag_upper == "EOR" {
-                    if let Some(qso) = Self::fields_to_qso(&current_fields) {
-                        qsos.push(qso);
+                    record_index += 1;
+                    match Self::fields_to_qso(&current_fields) {
+                        Some(qso) => qsos.push(qso),
+                        None => {
+                            rejected += 1;
+                            errors.push(format!(
+                                "Rekord {} odrzucony: brak wymaganego pola CALL.",
+                                record_index
+                            ));
+                        }
                     }
                     current_fields.clear();
                     continue;
@@ -54,15 +88,23 @@ impl AdifEngine {
                 let parts: Vec<&str> = tag_content.split(':').collect();
                 if parts.len() >= 2 {
                     let field_name = parts[0].trim().to_uppercase();
-                    if let Ok(length) = parts[1].trim().parse::<usize>() {
-                        let mut val = String::with_capacity(length);
-                        for _ in 0..length {
-                            if let Some(&(_, c)) = chars.peek() {
-                                chars.next();
-                                val.push(c);
+                    match parts[1].trim().parse::<usize>() {
+                        Ok(length) => {
+                            let mut val = String::with_capacity(length);
+                            for _ in 0..length {
+                                if let Some(&(_, c)) = chars.peek() {
+                                    chars.next();
+                                    val.push(c);
+                                }
                             }
+                            current_fields.insert(field_name, val.trim().to_string());
                         }
-                        current_fields.insert(field_name, val.trim().to_string());
+                        Err(_) => {
+                            errors.push(format!(
+                                "Nieprawidłowa długość pola „{}”.",
+                                field_name
+                            ));
+                        }
                     }
                 }
             } else {
@@ -72,12 +114,25 @@ impl AdifEngine {
 
         // Jeśli na końcu pliku pozostały niezatwierdzone pola bez <EOR>
         if !current_fields.is_empty() {
-            if let Some(qso) = Self::fields_to_qso(&current_fields) {
-                qsos.push(qso);
+            record_index += 1;
+            match Self::fields_to_qso(&current_fields) {
+                Some(qso) => qsos.push(qso),
+                None => {
+                    rejected += 1;
+                    errors.push(format!(
+                        "Rekord {} odrzucony: brak wymaganego pola CALL.",
+                        record_index
+                    ));
+                }
             }
         }
 
-        qsos
+        Ok(AdifImportResult {
+            imported: qsos.len(),
+            qsos,
+            rejected,
+            errors,
+        })
     }
 
     /// Konwertuje mapę pól ADIF na rekord QsoRecord
@@ -205,9 +260,6 @@ impl AdifEngine {
         }
         if let Some(qm) = fields.get("QSL_VIA_MANAGER").or_else(|| fields.get("QSL_MANAGER")) {
             qso.qsl_manager = Some(qm.clone());
-        }
-        if let Some(frx) = fields.get("FREQ_RX") {
-            qso.freq_rx = frx.parse().ok();
         }
 
         Some(qso)
@@ -339,6 +391,17 @@ pub fn parse_adif(content: &str) -> Vec<QsoRecord> {
     AdifEngine::parse_reader(std::io::Cursor::new(content.as_bytes()))
 }
 
+pub fn parse_adif_with_report(content: &str) -> AdifImportResult {
+    AdifEngine::parse_reader_with_report(std::io::Cursor::new(content.as_bytes())).unwrap_or_else(
+        |e| AdifImportResult {
+            qsos: Vec::new(),
+            imported: 0,
+            rejected: 0,
+            errors: vec![e],
+        },
+    )
+}
+
 pub fn export_adif(qsos: &[QsoRecord], _prog: &str, _call: &str) -> String {
     let mut buffer = Vec::new();
     let _ = AdifEngine::export_to_writer(qsos, &mut buffer);
@@ -405,5 +468,33 @@ mod tests {
         assert_eq!(p.prop_mode.as_deref(), Some("SAT"));
         assert_eq!(p.qsl_via.as_deref(), Some("DIRECT"));
         assert_eq!(p.qsl_manager.as_deref(), Some("SP6IXU"));
+    }
+
+    #[test]
+    fn test_adif_import_report_tracks_rejected_and_errors() {
+        // Nagłówek + jeden poprawny rekord + jeden bez CALL + zła długość pola.
+        let content = concat!(
+            "SPLogbook test export\n",
+            "<EOH>\n",
+            "<CALL:6>SP6INA<BAND:3>20m<MODE:2>CW<EOR>\n",
+            "<BAND:3>40m<MODE:3>SSB<EOR>\n",
+            "<CALL:6>DL1ABC<BAD:xyz>??<EOR>\n",
+        );
+
+        let report = parse_adif_with_report(content);
+        assert_eq!(report.imported, 1);
+        assert_eq!(report.rejected, 1);
+        assert_eq!(report.qsos.len(), 1);
+        assert_eq!(report.qsos[0].callsign, "SP6INA");
+        assert!(report.errors.iter().any(|e| e.contains("brak wymaganego pola CALL")));
+        assert!(report.errors.iter().any(|e| e.contains("Nieprawidłowa długość pola")));
+    }
+
+    #[test]
+    fn test_adif_import_trailing_record_without_eor() {
+        let content = "<CALL:6>SP6INA<BAND:3>20m<MODE:2>CW";
+        let report = parse_adif_with_report(content);
+        assert_eq!(report.imported, 1);
+        assert_eq!(report.qsos[0].callsign, "SP6INA");
     }
 }

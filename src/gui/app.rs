@@ -6,7 +6,7 @@ use crate::cat::rotor::RotorState;
 use crate::cloud::solar::SpaceWeather;
 use crate::cluster::telnet::DxSpot;
 use crate::core::awards::{AwardsEngine, PolishDistrictInfo, QsoAwardStatus};
-use crate::core::database::LogDatabase;
+use crate::core::database::{Journal, LogDatabase};
 use crate::core::geo::{calculate_bearing_deg, calculate_distance_km, locator_to_coordinates};
 use crate::core::i18n::{tr, Language};
 use crate::core::prefix::{PrefixInfo, PrefixMatcher};
@@ -486,7 +486,13 @@ impl SpLogApp {
 
         let (active_journal, recent_qsos, qso_numbers) = {
             let db = log_db.lock().unwrap_or_else(|p| p.into_inner());
-            let j = db.get_active_journal().unwrap_or_default();
+            let j = match db.get_active_journal() {
+                Ok(j) => j,
+                Err(e) => {
+                    log::error!("Nie udało się pobrać aktywnego dziennika: {e}");
+                    Journal::default()
+                }
+            };
             let qsos = db.get_recent_qsos_for_journal(&j.id, 100).unwrap_or_default();
             let numbers = db.qso_numbers_for_journal(&j.id).unwrap_or_else(|error| {
                 log::error!("Nie udało się wyliczyć numerów QSO: {error}");
@@ -2544,8 +2550,11 @@ impl SpLogApp {
             match std::fs::read(&path) {
                 Ok(bytes) => {
                     let content = String::from_utf8_lossy(&bytes);
-                    let qsos = crate::core::adif::parse_adif(&content);
+                    let report = crate::core::adif::parse_adif_with_report(&content);
+                    let qsos = report.qsos;
                     let count = qsos.len();
+                    let rejected = report.rejected;
+                    let errors = report.errors;
                     let insert_res = {
                         let mut db = self.log_db.lock().unwrap_or_else(|p| p.into_inner());
                         db.batch_insert_qsos(&qsos)
@@ -2554,8 +2563,19 @@ impl SpLogApp {
                         Ok(_) => {
                             self.rebuild_awards_full();
                             self.reload_qsos();
-                            self.status_message = Some(format!("Zaimportowano pomyślnie {} łączności z pliku: {}", count, path.display()));
-                            self.status_toast = Some((format!("Zaimportowano {} QSO z {}", count, path.file_name().unwrap_or_default().to_string_lossy()), std::time::Instant::now()));
+                            let mut msg = format!(
+                                "Zaimportowano {} łączności, odrzucono {} z pliku: {}",
+                                count,
+                                rejected,
+                                path.display()
+                            );
+                            if let Some(first_error) = errors.first() {
+                                if rejected > 0 || !errors.is_empty() {
+                                    msg.push_str(&format!(" | {}", first_error));
+                                }
+                            }
+                            self.status_message = Some(msg);
+                            self.status_toast = Some((format!("Zaimportowano {} QSO (odrzucono {})", count, rejected), std::time::Instant::now()));
                         }
                         Err(e) => {
                             self.status_message = Some(format!("Błąd zapisu łączności do bazy: {}", e));
