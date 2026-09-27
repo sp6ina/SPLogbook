@@ -1935,7 +1935,7 @@ impl SpLogApp {
         if self.live_auto_upload_clublog && !self.clublog_callsign.is_empty() && !self.clublog_password.is_empty() {
             let adif_record = crate::core::adif::export_adif(std::slice::from_ref(&qso), "SPLogbook", &self.my_station.callsign);
             let now = crate::cloud::scheduler::now_unix();
-            let mut sched = self.upload_scheduler.lock().unwrap();
+            let mut sched = self.upload_scheduler.lock().unwrap_or_else(|p| p.into_inner());
             sched.enqueue(crate::cloud::scheduler::UploadService::ClubLog, adif_record, now);
             sched.save_to_disk();
         }
@@ -1944,7 +1944,7 @@ impl SpLogApp {
         if self.live_auto_upload_qrz && !self.qrz_api_key.is_empty() {
             let adif_record = crate::core::adif::export_adif(std::slice::from_ref(&qso), "SPLogbook", &self.my_station.callsign);
             let now = crate::cloud::scheduler::now_unix();
-            let mut sched = self.upload_scheduler.lock().unwrap();
+            let mut sched = self.upload_scheduler.lock().unwrap_or_else(|p| p.into_inner());
             sched.enqueue(crate::cloud::scheduler::UploadService::Qrz, adif_record, now);
             sched.save_to_disk();
         }
@@ -3064,7 +3064,7 @@ impl SpLogApp {
 
         // Pobierz gotowe zadania (maks. jedno na serwis, z uwzględnieniem rate-limit).
         let ready: Vec<(u64, UploadService, String)> = {
-            let mut sched = self.upload_scheduler.lock().unwrap();
+            let mut sched = self.upload_scheduler.lock().unwrap_or_else(|p| p.into_inner());
             let ids = sched.ready_jobs(now);
             ids.into_iter()
                 .filter_map(|id| {
@@ -3084,7 +3084,7 @@ impl SpLogApp {
             for (id, service, adif) in ready {
                 let result = crate::cloud::scheduler::execute_upload(service, &creds, &adif).await;
                 let now = crate::cloud::scheduler::now_unix();
-                let mut sched = sched.lock().unwrap();
+                let mut sched = sched.lock().unwrap_or_else(|p| p.into_inner());
                 match result {
                     Ok(_) => sched.mark_success(id, now),
                     Err(e) => {
@@ -3094,7 +3094,7 @@ impl SpLogApp {
                 sched.save_to_disk();
             }
             // Po zakończeniu serii utrzymaj kolejkę w rozsądnym rozmiarze.
-            let mut sched = sched.lock().unwrap();
+            let mut sched = sched.lock().unwrap_or_else(|p| p.into_inner());
             if sched.purge_done() > 0 {
                 sched.save_to_disk();
             }

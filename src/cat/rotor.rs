@@ -2,10 +2,13 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::sync::broadcast;
 use tokio::time::sleep;
+
+/// Maksymalna długość pojedynczej linii odpowiedzi rotctld (azymut/elevacja).
+const MAX_LINE_LEN: usize = 256;
 
 /// Stan położenia rotora antenowego
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -69,10 +72,18 @@ impl RotorClient {
                         let mut az_line = String::new();
                         let mut el_line = String::new();
 
-                        if buf_reader.read_line(&mut az_line).await.is_err() || az_line.is_empty() {
+                        let mut limited = (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64);
+                        if limited.read_line(&mut az_line).await.is_err()
+                            || az_line.is_empty()
+                            || az_line.len() > MAX_LINE_LEN
+                        {
                             break;
                         }
-                        if buf_reader.read_line(&mut el_line).await.is_err() || el_line.is_empty() {
+                        let mut limited = (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64);
+                        if limited.read_line(&mut el_line).await.is_err()
+                            || el_line.is_empty()
+                            || el_line.len() > MAX_LINE_LEN
+                        {
                             break;
                         }
 

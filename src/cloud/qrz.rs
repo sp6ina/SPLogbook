@@ -70,7 +70,10 @@ impl QrzClient {
             self.login().await?;
         }
 
-        let key = self.session_key.as_ref().unwrap();
+        let key = self
+            .session_key
+            .as_ref()
+            .ok_or_else(|| "Nie udało się utworzyć sesji QRZ.COM".to_string())?;
         let resp = self
             .client
             .get("https://xmldata.qrz.com/xml/current/")
@@ -83,7 +86,10 @@ impl QrzClient {
         // Jeśli sesja wygasła, zaloguj się ponownie i ponów
         if resp.contains("Session Timeout") || resp.contains("Invalid session key") {
             self.login().await?;
-            let new_key = self.session_key.as_ref().unwrap();
+            let new_key = self
+                .session_key
+                .as_ref()
+                .ok_or_else(|| "Nie udało się utworzyć sesji QRZ.COM".to_string())?;
             let retry_resp = self
                 .client
                 .get("https://xmldata.qrz.com/xml/current/")

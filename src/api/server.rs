@@ -16,6 +16,12 @@ use crate::core::qso::QsoRecord;
 
 use crate::cluster::telnet::DxSpot;
 
+/// Maksymalna liczba rekordów QSO zwracanych przez pojedyncze zapytanie listujące.
+/// Chroni przed nadmiernym transferem/przetwarzaniem przy dużym `limit`.
+const MAX_QSO_LIMIT: usize = 1000;
+/// Maksymalna liczba spotów DX zwracanych przez pojedyncze zapytanie.
+const MAX_SPOT_LIMIT: usize = 200;
+
 #[derive(Clone)]
 pub struct ApiState {
     db: Arc<Mutex<crate::core::database::LogDatabase>>,
@@ -172,8 +178,8 @@ async fn get_qsos(
     State(state): State<ApiState>,
     Query(query): Query<QsoQuery>,
 ) -> Result<Json<Vec<QsoRecord>>, (StatusCode, String)> {
-    let limit = query.limit.unwrap_or(50);
-    let offset = query.offset.unwrap_or(0);
+    let limit = query.limit.unwrap_or(50).min(MAX_QSO_LIMIT);
+    let offset = query.offset.unwrap_or(0).min(MAX_QSO_LIMIT);
 
     let db = state.db.lock().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     
@@ -249,7 +255,7 @@ async fn get_cluster_spots(
     State(state): State<ApiState>,
     Query(query): Query<ClusterQuery>,
 ) -> Json<Vec<serde_json::Value>> {
-    let limit = query.limit.unwrap_or(50).min(200);
+    let limit = query.limit.unwrap_or(50).min(MAX_SPOT_LIMIT);
     let spots = state.cluster_spots.lock().unwrap_or_else(|e| e.into_inner());
     let result: Vec<serde_json::Value> = spots.iter().take(limit).map(|s| {
         serde_json::json!({

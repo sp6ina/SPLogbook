@@ -80,7 +80,9 @@ pub fn extract_wpx_prefix(call: &str) -> String {
             let prefix0 = extract_wpx_base(p0);
             let mut prefix_chars: Vec<char> = prefix0.chars().collect();
             if let Some(pos) = prefix_chars.iter().rposition(|c| c.is_ascii_digit()) {
-                prefix_chars[pos] = p1.chars().next().unwrap();
+                if let Some(digit) = p1.chars().next() {
+                    prefix_chars[pos] = digit;
+                }
                 return prefix_chars.into_iter().collect();
             } else {
                 return format!("{}{}", prefix0, p1);

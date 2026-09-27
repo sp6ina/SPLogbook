@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 use std::sync::RwLock;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 use tokio::sync::watch;
@@ -391,13 +391,16 @@ async fn handle_client(
 
     loop {
         line.clear();
+        // Adapter ograniczający długość linii; wiążemy go w zmiennej, by uniknąć
+        // E0716 (temporary dropped while borrowed) wewnątrz `tokio::select!`.
+        let mut limited = (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64);
         tokio::select! {
             _ = stop_rx.changed() => {
                 if *stop_rx.borrow() {
                     break;
                 }
             }
-            read_res = buf_reader.read_line(&mut line) => {
+            read_res = limited.read_line(&mut line) => {
                 match read_res {
                     Ok(0) => break, // EOF / Rozłączono
                     Ok(_) => {

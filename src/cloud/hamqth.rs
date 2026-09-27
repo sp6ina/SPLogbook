@@ -120,7 +120,10 @@ impl HamQthXmlClient {
             self.login().await?;
         }
 
-        let sid = self.session_id.as_ref().unwrap();
+        let sid = self
+            .session_id
+            .as_ref()
+            .ok_or_else(|| "Nie udało się utworzyć sesji HamQTH".to_string())?;
         let url = format!(
             "https://www.hamqth.com/xml.php?id={}&callsign={}&prg=SPLogbook",
             sid, clean
@@ -133,7 +136,10 @@ impl HamQthXmlClient {
         if xml.contains("Session does not exist") || xml.contains("session expired") {
             self.session_id = None;
             self.login().await?;
-            let sid2 = self.session_id.as_ref().unwrap();
+            let sid2 = self
+                .session_id
+                .as_ref()
+                .ok_or_else(|| "Nie udało się utworzyć sesji HamQTH".to_string())?;
             let url2 = format!(
                 "https://www.hamqth.com/xml.php?id={}&callsign={}&prg=SPLogbook",
                 sid2, clean

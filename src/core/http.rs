@@ -58,24 +58,25 @@ where
         return action().await;
     }
 
-    let mut last_err = None;
     for attempt in 0..attempts {
         match action().await {
             Ok(v) => return Ok(v),
             Err(e) => {
-                last_err = Some(e);
-                if attempt + 1 < attempts {
-                    let base_ms = 500u64 * (1u64 << attempt.min(6));
-                    let jitter = jitter_ms(base_ms, attempt);
-                    tokio::time::sleep(Duration::from_millis(base_ms + jitter)).await;
+                if attempt + 1 >= attempts {
+                    // Ostatnia próba zakończona błędem — zwracamy go bezpośrednio,
+                    // bez przechowywania w `Option` i późniejszego `.expect(...)`.
+                    return Err(e);
                 }
+                let base_ms = 500u64 * (1u64 << attempt.min(6));
+                let jitter = jitter_ms(base_ms, attempt);
+                tokio::time::sleep(Duration::from_millis(base_ms + jitter)).await;
             }
         }
     }
 
-    // SAFETY: `last_err` jest ustawione, gdy `attempts >= 1` i wszystkie próby
-    // zakończyły się błędem.
-    Err(last_err.expect("retry_async: brak błędu po wyczerpaniu prób"))
+    // Nieosiągalne: przy `attempts >= 1` pętla zawsze kończy się jawnym powrotem
+    // (sukces w dowolnej próbie albo błąd w ostatniej próbie).
+    unreachable!("retry_async: pętla zakończyła się bez jawnego powrotu")
 }
 
 /// Deterministyczny jitter (±20%) oparty na nanosach zegara systemowego.

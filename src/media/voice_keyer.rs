@@ -37,14 +37,13 @@ pub fn play_message(msg: &VoiceKeyerMessage) -> Result<(), String> {
     let (_stream, handle) = OutputStream::try_default().map_err(|e| format!("Brak urządzenia audio: {e}"))?;
     let sink = Sink::try_new(&handle).map_err(|e| e.to_string())?;
 
-    let has_wav = msg
+    let wav_path = msg
         .wav_path
         .as_deref()
-        .map(|p| !p.trim().is_empty())
-        .unwrap_or(false);
+        .filter(|p| !p.trim().is_empty())
+        .map(|p| p.to_string());
 
-    if has_wav {
-        let path = msg.wav_path.as_deref().unwrap().to_string();
+    if let Some(path) = wav_path {
         let file = File::open(&path).map_err(|e| format!("Nie można otworzyć pliku: {e}"))?;
         let source = Decoder::new(BufReader::new(file)).map_err(|e| format!("Nieobsługiwany format audio: {e}"))?;
         if msg.repeat {

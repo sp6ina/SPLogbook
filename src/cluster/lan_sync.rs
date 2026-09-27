@@ -6,7 +6,7 @@ use crate::core::qso::QsoRecord;
 use log::{error, info};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, Mutex};
 
@@ -78,7 +78,7 @@ impl MultiOpServer {
                             let mut authenticated = secret_for_conn.is_none();
                             loop {
                                 line.clear();
-                                match reader.read_line(&mut line).await {
+                                match (&mut reader).take((MAX_LINE_BYTES + 1) as u64).read_line(&mut line).await {
                                     Ok(0) => break,
                                     Ok(_) if line.len() > MAX_LINE_BYTES => {
                                         error!("Multi-Op: linia od {} przekracza limit {} B, zrywam połączenie.", peer_addr, MAX_LINE_BYTES);

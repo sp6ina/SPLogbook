@@ -70,8 +70,12 @@ pub async fn lookup_pota(reference: &str) -> Result<PotaInfo, String> {
 
 /// Pobiera dane szczytu SOTA z `api2.sota.org.uk/api/summits/{reference}`.
 pub async fn lookup_sota(reference: &str) -> Result<SotaInfo, String> {
-    // Referencje SOTA zawierają ukośnik (np. SP/BZ-001) — zostaw go w URL.
-    let clean = reference.trim();
+    // Referencje SOTA zawierają ukośnik (np. SP/BZ-001). Filtrujemy do dozwolonych
+    // znaków (alfanumeryczne, '/' i '-'), by uniknąć wstrzyknięcia znaków do URL.
+    let clean: String = reference
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '/' || *c == '-')
+        .collect();
     let url = format!("https://api2.sota.org.uk/api/summits/{clean}");
     let client = crate::core::http::http_client_with_timeout(15);
     let resp = client
@@ -87,7 +91,7 @@ pub async fn lookup_sota(reference: &str) -> Result<SotaInfo, String> {
 
     let data: SotaResponse = resp.json().await.map_err(|e| format!("SOTA JSON: {e}"))?;
     Ok(SotaInfo {
-        reference: clean.to_string(),
+        reference: clean,
         name: data.name,
         points: data.points,
     })

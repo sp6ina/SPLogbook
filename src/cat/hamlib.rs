@@ -2,10 +2,13 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::sync::broadcast;
 use tokio::time::sleep;
+
+/// Maksymalna długość pojedynczej linii odpowiedzi rigctld (wartości numeryczne/statusy).
+const MAX_LINE_LEN: usize = 256;
 
 /// Pełny stan transceivera zgodny z protokołem Hamlib 4.6+ (rigctld)
 #[derive(Debug, Clone, PartialEq)]
@@ -96,7 +99,10 @@ impl HamlibClient {
                             break;
                         }
                         let mut line = String::new();
-                        if buf_reader.read_line(&mut line).await.is_err() || line.is_empty() {
+                        if (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64).read_line(&mut line).await.is_err()
+                            || line.is_empty()
+                            || line.len() > MAX_LINE_LEN
+                        {
                             break;
                         }
                         if let Ok(freq) = line.trim().parse::<u64>() {
@@ -108,13 +114,16 @@ impl HamlibClient {
                             break;
                         }
                         line.clear();
-                        if buf_reader.read_line(&mut line).await.is_err() || line.is_empty() {
+                        if (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64).read_line(&mut line).await.is_err()
+                            || line.is_empty()
+                            || line.len() > MAX_LINE_LEN
+                        {
                             break;
                         }
                         current_state.mode = line.trim().to_uppercase();
 
                         line.clear();
-                        if buf_reader.read_line(&mut line).await.is_ok() {
+                        if (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64).read_line(&mut line).await.is_ok() {
                             if let Ok(pb) = line.trim().parse::<u32>() {
                                 current_state.passband_hz = pb;
                             }
@@ -123,7 +132,7 @@ impl HamlibClient {
                         // 3. Odpytaj o S-Meter ('l RAWSTR')
                         if writer.write_all(b"l RAWSTR\n").await.is_ok() {
                             line.clear();
-                            if buf_reader.read_line(&mut line).await.is_ok() {
+                            if (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64).read_line(&mut line).await.is_ok() {
                                 if let Ok(val) = line.trim().parse::<f32>() {
                                     current_state.s_meter_dbm = val;
                                     current_state.s_meter_unit = Self::raw_str_to_s_unit(val);
@@ -134,7 +143,7 @@ impl HamlibClient {
                         // 4. Odpytaj o Split ('s')
                         if writer.write_all(b"s\n").await.is_ok() {
                             line.clear();
-                            if buf_reader.read_line(&mut line).await.is_ok() {
+                            if (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64).read_line(&mut line).await.is_ok() {
                                 let parts: Vec<&str> = line.split_whitespace().collect();
                                 if let Some(&s_flag) = parts.first() {
                                     current_state.split_enabled = s_flag == "1";
@@ -145,7 +154,7 @@ impl HamlibClient {
                         // 5. Odpytaj o moc RF ('l RFPOWER')
                         if writer.write_all(b"l RFPOWER\n").await.is_ok() {
                             line.clear();
-                            if buf_reader.read_line(&mut line).await.is_ok() {
+                            if (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64).read_line(&mut line).await.is_ok() {
                                 if let Ok(pwr) = line.trim().parse::<f32>() {
                                     current_state.rf_power_watts = pwr * 100.0; // Proporcja mocy
                                 }
@@ -155,7 +164,7 @@ impl HamlibClient {
                         // 6. Odpytaj o stan PTT ('t')
                         if writer.write_all(b"t\n").await.is_ok() {
                             line.clear();
-                            if buf_reader.read_line(&mut line).await.is_ok() {
+                            if (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64).read_line(&mut line).await.is_ok() {
                                 current_state.ptt = line.trim() == "1";
                             }
                         }
@@ -274,7 +283,10 @@ impl crate::cat::backend::CatBackend for HamlibClient {
             return Err("rigctld: brak odpowiedzi (częstotliwość)".to_string());
         }
         let mut line = String::new();
-        if buf_reader.read_line(&mut line).await.is_err() || line.is_empty() {
+        if (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64).read_line(&mut line).await.is_err()
+            || line.is_empty()
+            || line.len() > MAX_LINE_LEN
+        {
             return Err("rigctld: brak odpowiedzi (częstotliwość)".to_string());
         }
         if let Ok(freq) = line.trim().parse::<u64>() {
@@ -286,11 +298,11 @@ impl crate::cat::backend::CatBackend for HamlibClient {
             return Err("rigctld: brak odpowiedzi (emisja)".to_string());
         }
         line.clear();
-        if buf_reader.read_line(&mut line).await.is_ok() {
+        if (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64).read_line(&mut line).await.is_ok() {
             state.mode = line.trim().to_uppercase();
         }
         line.clear();
-        if buf_reader.read_line(&mut line).await.is_ok() {
+        if (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64).read_line(&mut line).await.is_ok() {
             if let Ok(pb) = line.trim().parse::<u32>() {
                 state.passband_hz = pb;
             }

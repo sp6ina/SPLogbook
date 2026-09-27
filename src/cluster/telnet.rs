@@ -4,7 +4,7 @@
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::sync::broadcast;
 
@@ -122,8 +122,9 @@ impl DxClusterClient {
                 }
 
                 line.clear();
+                let mut limited = (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64);
                 let read_res = tokio::select! {
-                    res = buf_reader.read_line(&mut line) => res,
+                    res = limited.read_line(&mut line) => res,
                     _ = stop_rx.changed() => break,
                 };
 
@@ -185,13 +186,13 @@ impl DxClusterClient {
                 let _ = writer.write_all(format!("{}\n", self.my_call).as_bytes()).await;
 
                 let mut line = String::new();
-                while let Ok(n) = buf_reader.read_line(&mut line).await {
+                while let Ok(n) = (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64).read_line(&mut line).await {
                     if n == 0 {
                         break;
                     }
                     if line.len() > MAX_LINE_LEN {
                         line.clear();
-                        continue;
+                        break;
                     }
                     let trimmed = line.trim();
                     if let Some(spot) = parse_dx_spot(trimmed) {

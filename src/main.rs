@@ -55,14 +55,18 @@ fn main() -> Result<(), eframe::Error> {
         (data, config)
     };
 
+    // Kolejność ma znaczenie: najpierw ścieżki absolutne (obok pliku wykonywalnego
+    // i w katalogu danych aplikacji), a względna ścieżka w bieżącym katalogu
+    // roboczym dopiero na końcu — zapobiega to wczytaniu obcej/nieaktualnej bazy,
+    // gdyby program uruchomiono z katalogu zawierającego własny podkatalog `databases`.
     let service_db_candidates = [
-        std::path::PathBuf::from("databases/serviceLOG.db"),
         exe_dir.join("databases/serviceLOG.db"),
         app_data_dir.join("databases/serviceLOG.db"),
         std::path::PathBuf::from("/usr/share/splogbook/databases/serviceLOG.db"),
         std::path::PathBuf::from("/usr/local/share/splogbook/databases/serviceLOG.db"),
         exe_dir.join("../databases/serviceLOG.db"),
         exe_dir.join("../../databases/serviceLOG.db"),
+        std::path::PathBuf::from("databases/serviceLOG.db"),
     ];
     let service_db_path = service_db_candidates
         .into_iter()
@@ -98,11 +102,11 @@ fn main() -> Result<(), eframe::Error> {
 
     // Dziennik główny (SQLite WAL)
     let log_db_candidates = [
-        std::path::PathBuf::from("databases/default_log.db"),
         exe_dir.join("databases/default_log.db"),
         app_data_dir.join("databases/default_log.db"),
         exe_dir.join("../databases/default_log.db"),
         exe_dir.join("../../databases/default_log.db"),
+        std::path::PathBuf::from("databases/default_log.db"),
     ];
     let log_db_path = log_db_candidates
         .into_iter()
@@ -151,11 +155,11 @@ fn main() -> Result<(), eframe::Error> {
     }
 
     let config_candidates = [
-        std::path::PathBuf::from("databases/station_config.json"),
         exe_dir.join("databases/station_config.json"),
         app_config_dir.join("databases/station_config.json"),
         app_config_dir.join("station_config.json"),
         exe_dir.join("../databases/station_config.json"),
+        std::path::PathBuf::from("databases/station_config.json"),
     ];
     let config_file_path = config_candidates
         .into_iter()

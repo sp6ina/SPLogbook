@@ -8,7 +8,7 @@
 use crate::core::qso::QsoRecord;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 use std::net::TcpStream;
 use std::time::Duration;
 
@@ -94,7 +94,7 @@ impl Js8CallClient {
                         let mut buf = String::new();
                         loop {
                             buf.clear();
-                            match reader.read_line(&mut buf) {
+                            match (&mut reader).take((MAX_LINE_LEN + 1) as u64).read_line(&mut buf) {
                                 Ok(0) => break, // koniec strumienia
                                 Ok(_) if buf.len() > MAX_LINE_LEN => break, // zbyt dluga linia - rozlaczenie
                                 Ok(_) => {
