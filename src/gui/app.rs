@@ -185,6 +185,13 @@ pub struct SpLogApp {
     pub show_about_window: bool,
     pub show_shortcuts_window: bool,
     pub show_legend_window: bool,
+    pub show_command_palette: bool,
+    pub command_palette_query: String,
+    pub command_palette_selected: usize,
+    pub show_changelog_window: bool,
+    pub show_update_window: bool,
+    pub update_check_status: Option<String>,
+    pub update_check_rx: Option<std::sync::mpsc::Receiver<String>>,
     pub show_vfo_panel: bool,
     pub show_cluster_panel: bool,
     pub show_solar_panel: bool,
@@ -315,6 +322,8 @@ pub struct SpLogApp {
     pub send_spot_dialog: SendSpotDialog,
     pub show_column_settings: bool,
     pub logbook_columns: Vec<crate::core::station::LogColumn>,
+    pub logbook_column_presets: Vec<crate::core::station::ColumnPreset>,
+    pub column_preset_name: String,
     pub iota_dialog: IotaBrowserDialog,
     pub states_dialog: StatesBrowserDialog,
     pub qsl_manager_dialog: QslManagerDialog,
@@ -385,10 +394,12 @@ pub struct SpLogApp {
     pub hamqth_password: String,
 
     // Sortowanie i paginacja tabeli logu
-    pub log_sort_column: u8,      // 0=data, 1=znak, 2=pasmo, 3=emisja, 4=kraj
+    pub log_sort_column: u8,      // 0=data, 1=znak, 2=pasmo, 3=emisja, 4=kraj, 5..=13 pozostałe kolumny
     pub log_sort_asc: bool,
     pub log_page: usize,
     pub log_page_size: usize,     // 25, 50, 100, 0=wszystkie
+    pub selected_qso_ids: Vec<i64>, // Zaznaczenie wielokrotne w logbooku (bulk delete)
+    pub confirm_bulk_delete: bool,
 
     // Moduł statystyk
     pub show_statistics_window: bool,
@@ -757,6 +768,9 @@ impl SpLogApp {
             show_about_window: false,
             show_shortcuts_window: false,
             show_legend_window: false,
+            show_command_palette: false,
+            command_palette_query: String::new(),
+            command_palette_selected: 0,
             show_vfo_panel: true,
             show_cluster_panel: true,
             show_solar_panel: true,
@@ -869,7 +883,13 @@ impl SpLogApp {
             service_db: Arc::new(ServiceDatabase::open()),
             send_spot_dialog: SendSpotDialog::new(),
             show_column_settings: false,
+            show_changelog_window: false,
+            show_update_window: false,
+            update_check_status: None,
+            update_check_rx: None,
             logbook_columns: app_config.logbook_columns.clone(),
+            logbook_column_presets: app_config.logbook_column_presets.clone(),
+            column_preset_name: String::new(),
             iota_dialog: IotaBrowserDialog::new(),
             states_dialog: StatesBrowserDialog::new(),
             qsl_manager_dialog: QslManagerDialog::new(),
@@ -939,6 +959,8 @@ impl SpLogApp {
             log_sort_asc: false,
             log_page: 0,
             log_page_size: 50,
+            selected_qso_ids: Vec::new(),
+            confirm_bulk_delete: false,
 
             // Statystyki
             show_statistics_window: false,
@@ -1545,17 +1567,26 @@ impl SpLogApp {
     }
 
     pub fn delete_selected_qso(&mut self) {
-        if let Some(qso) = self.recent_qsos.first() {
-            if let Some(id) = qso.id {
-                let result = {
-                    let db = self.log_db.lock().unwrap_or_else(|p| p.into_inner());
-                    db.delete_qso(id)
-                };
-                if let Err(e) = result {
-                    self.report_error(format!("Błąd usuwania łączności #{}: {}", id, e));
-                    return;
+        let ids: Vec<i64> = self.selected_qso_ids.drain(..).collect();
+        if ids.is_empty() {
+            return;
+        }
+        let mut first_err: Option<String> = None;
+        for id in &ids {
+            let result = {
+                let db = self.log_db.lock().unwrap_or_else(|p| p.into_inner());
+                db.delete_qso(*id)
+            };
+            if let Err(e) = result {
+                if first_err.is_none() {
+                    first_err = Some(format!("Błąd usuwania łączności #{}: {}", id, e));
                 }
             }
+        }
+        if let Some(msg) = first_err {
+            self.report_error(msg);
+        } else {
+            self.status_message = Some(format!("Usunięto {} łączności z dziennika.", ids.len()));
         }
         self.rebuild_awards_full();
         self.reload_qsos();
@@ -2076,6 +2107,7 @@ impl SpLogApp {
             panel_satellites: self.panel_satellites.clone(),
             panel_world_map: self.panel_world_map.clone(),
             logbook_columns: self.logbook_columns.clone(),
+            logbook_column_presets: self.logbook_column_presets.clone(),
             custom_contests: self.custom_contests.clone(),
         };
         if let Err(e) = cfg.save_to_file(&self.config_file_path) {
@@ -2844,6 +2876,32 @@ impl SpLogApp {
         self.status_toast = Some(("Rozpoczęto pobieranie aktualizacji baz danych (cty.dat, SCP, LoTW) w tle...".to_string(), std::time::Instant::now()));
     }
 
+    /// Sprawdza najnowsze wydanie na GitHub w tle i zapisuje wynik do odbiornika.
+    pub fn trigger_update_check(&mut self) {
+        self.update_check_status = Some("Sprawdzanie najnowszej wersji na GitHub…".to_string());
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        self.update_check_rx = Some(rx);
+        tokio::spawn(async move {
+            let msg = match crate::cloud::updater::latest_release().await {
+                Ok(release) => {
+                    let local = env!("CARGO_PKG_VERSION");
+                    if release.tag == local {
+                        format!("✅ Masz najnowszą wersję (v{}).", local)
+                    } else {
+                        format!(
+                            "🆕 Dostępna jest nowa wersja: v{} (masz v{}).\n\n{}",
+                            release.tag,
+                            local,
+                            release.body.lines().take(12).collect::<Vec<_>>().join("\n")
+                        )
+                    }
+                }
+                Err(e) => format!("❌ Nie udało się sprawdzić aktualizacji: {}", e),
+            };
+            let _ = tx.send(msg);
+        });
+    }
+
     pub fn generate_qsl_sheet(&mut self) {
         self.status_message = Some("Arkusz etykiet QSL (A4) wygenerowany gotowy do wydruku.".to_string());
     }
@@ -2964,6 +3022,7 @@ impl eframe::App for SpLogApp {
         let save_now = ctx.input(|i| i.key_pressed(egui::Key::S) && i.modifiers.ctrl && !i.modifiers.shift);
         let focus_filter = ctx.input(|i| i.key_pressed(egui::Key::F) && i.modifiers.ctrl);
         let new_qso = ctx.input(|i| i.key_pressed(egui::Key::N) && i.modifiers.ctrl);
+        let open_palette = ctx.input(|i| i.key_pressed(egui::Key::P) && i.modifiers.ctrl && i.modifiers.shift);
         let wants_text = ctx.wants_keyboard_input();
 
         if do_undo { self.perform_undo(); }
@@ -2984,8 +3043,22 @@ impl eframe::App for SpLogApp {
             }
         }
 
+        if open_palette && !wants_text {
+            self.show_command_palette = !self.show_command_palette;
+            self.command_palette_query.clear();
+            self.command_palette_selected = 0;
+        }
+
         // Debounced lookup Callbook/QRZ po wpisaniu znaku
         self.process_debounced_lookup();
+
+        // Wynik sprawdzania aktualizacji
+        if let Some(rx) = &self.update_check_rx {
+            if let Ok(msg) = rx.try_recv() {
+                self.update_check_status = Some(msg);
+                self.update_check_rx = None;
+            }
+        }
 
         // Odbiór asynchronicznego stanu radia z pętli Hamlib CAT (bi-directional sync)
         while let Ok(st) = self.cat_state_rx.try_recv() {
@@ -3566,21 +3639,16 @@ impl eframe::App for SpLogApp {
         self.sota_dialog.show(ctx, &self.recent_qsos);
 
         // 4. Przeglądarka wysp IOTA
-        if let Some(iota) = self.iota_dialog.show(ctx, &self.service_db) {
-            self.entry_comment = if self.entry_comment.is_empty() {
-                format!("IOTA: {}", iota)
-            } else {
-                format!("{} IOTA: {}", self.entry_comment, iota)
-            };
-        }
+        {
+            let awards = self.awards_engine.lock().unwrap_or_else(|p| p.into_inner());
+            if let Some(iota) = self.iota_dialog.show(ctx, &self.service_db, &awards) {
+                self.entry_iota = iota;
+            }
 
-        // 5. Przeglądarka stanów USA (WAS)
-        if let Some(state) = self.states_dialog.show(ctx, &self.service_db) {
-            self.entry_comment = if self.entry_comment.is_empty() {
-                format!("State: {}", state)
-            } else {
-                format!("{} State: {}", self.entry_comment, state)
-            };
+            // 5. Przeglądarka stanów USA (WAS)
+            if let Some(state) = self.states_dialog.show(ctx, &self.service_db, &awards) {
+                self.entry_state = state;
+            }
         }
 
         // 6. Baza menedżerów QSL
@@ -3681,6 +3749,13 @@ impl eframe::App for SpLogApp {
                 self.show_about_window = false;
             }
         }
+
+        // Paleta poleceń (Ctrl+Shift+P)
+        crate::gui::command_palette::render_command_palette(self, ctx);
+
+        // Dziennik zmian i sprawdzanie aktualizacji
+        crate::gui::changelog::render_changelog_window(self, ctx);
+        crate::gui::changelog::render_update_check_window(self, ctx);
 
         if self.show_shortcuts_window {
             let mut is_open = self.show_shortcuts_window;

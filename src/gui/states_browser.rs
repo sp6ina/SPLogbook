@@ -2,8 +2,36 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 // Przeglądarka stanów USA (WAS - Worked All States) i prowincji z bazy serviceLOG.db
 
+use crate::core::awards::AwardsEngine;
 use crate::core::service_db::{ServiceDatabase, StateRecord};
 use eframe::egui;
+
+/// Status dyplomowy stanu/provincji (WAS) względem dziennika.
+enum RefStatus {
+    Needed,
+    Worked,
+    Confirmed,
+}
+
+impl RefStatus {
+    fn of_state(engine: &AwardsEngine, code: &str) -> Self {
+        if engine.confirmed_was.contains(code) {
+            RefStatus::Confirmed
+        } else if engine.worked_was.contains(code) {
+            RefStatus::Worked
+        } else {
+            RefStatus::Needed
+        }
+    }
+
+    fn label(&self) -> egui::RichText {
+        match self {
+            RefStatus::Confirmed => egui::RichText::new("✔ Potwierdzone").color(egui::Color32::from_rgb(56, 189, 248)),
+            RefStatus::Worked => egui::RichText::new("✔ Zaliczony").color(egui::Color32::from_rgb(34, 197, 94)),
+            RefStatus::Needed => egui::RichText::new("— Potrzebny").color(egui::Color32::from_rgb(248, 113, 113)),
+        }
+    }
+}
 
 #[derive(Default)]
 pub struct StatesBrowserDialog {
@@ -26,7 +54,7 @@ impl StatesBrowserDialog {
         self.results = sdb.search_states(&self.search_query);
     }
 
-    pub fn show(&mut self, ctx: &egui::Context, sdb: &ServiceDatabase) -> Option<String> {
+    pub fn show(&mut self, ctx: &egui::Context, sdb: &ServiceDatabase, awards: &AwardsEngine) -> Option<String> {
         if !self.is_open {
             return None;
         }
@@ -65,6 +93,7 @@ impl StatesBrowserDialog {
                             ui.label(egui::RichText::new("Kod").strong());
                             ui.label(egui::RichText::new("Nazwa Stanu / Prowincji").strong());
                             ui.label(egui::RichText::new("Kraj").strong());
+                            ui.label(egui::RichText::new("Status").strong());
                             ui.label(egui::RichText::new("Akcja").strong());
                             ui.end_row();
 
@@ -72,6 +101,7 @@ impl StatesBrowserDialog {
                                 ui.label(egui::RichText::new(&item.code).strong().color(egui::Color32::from_rgb(56, 189, 248)));
                                 ui.label(&item.name);
                                 ui.label(egui::RichText::new(&item.country).color(egui::Color32::from_rgb(251, 191, 36)));
+                                ui.label(RefStatus::of_state(awards, &item.code).label());
 
                                 if ui.button("Wybierz").on_hover_text("Użyj tego kodu stanu").clicked() {
                                     chosen = Some(item.code.clone());

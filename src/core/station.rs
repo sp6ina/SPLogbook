@@ -132,6 +132,13 @@ impl LogColumn {
     }
 }
 
+/// Zapisany zestaw kolumn dziennika (preset użytkownika).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct ColumnPreset {
+    pub name: String,
+    pub columns: Vec<LogColumn>,
+}
+
 pub fn default_logbook_columns() -> Vec<LogColumn> {
     vec![
         LogColumn::new("nr",       "#",        true,  40.0),
@@ -342,6 +349,9 @@ pub struct AppConfig {
     
     #[serde(default = "default_logbook_columns")]
     pub logbook_columns: Vec<LogColumn>,
+
+    #[serde(default)]
+    pub logbook_column_presets: Vec<ColumnPreset>,
     
     #[serde(default)]
     pub custom_contests: Vec<CustomContest>,
@@ -581,6 +591,7 @@ impl Default for AppConfig {
             panel_solar:      ViewPanelConfig { visible: true, floating: false, column: 2, order: 1, saved_pos: None, saved_size: None },
             panel_satellites: ViewPanelConfig { visible: true, floating: false, column: 2, order: 2, saved_pos: None, saved_size: None },
             logbook_columns: default_logbook_columns(),
+            logbook_column_presets: vec![],
             custom_contests: vec![],
         }
     }

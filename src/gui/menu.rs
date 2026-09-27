@@ -408,8 +408,23 @@ pub fn render_menu_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         // Menu: Pomoc
         ui.menu_button(tr("menu.help", lang), |ui| {
+            if ui.button(format!("🔎 {}", tr("palette.title", lang))).clicked() {
+                app.show_command_palette = true;
+                app.command_palette_query.clear();
+                app.command_palette_selected = 0;
+                ui.close_menu();
+            }
+            ui.separator();
             if ui.button(tr("tab.about", lang)).clicked() {
                 app.show_about_window = true;
+                ui.close_menu();
+            }
+            if ui.button("📜 Dziennik zmian").clicked() {
+                app.show_changelog_window = true;
+                ui.close_menu();
+            }
+            if ui.button("🔄 Sprawdź aktualizacje").clicked() {
+                app.show_update_window = true;
                 ui.close_menu();
             }
             if ui.button(format!("⌨ {}", tr("help.shortcuts_title", lang))).clicked() {

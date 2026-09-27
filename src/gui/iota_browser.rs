@@ -2,8 +2,41 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 // Przeglądarka i wyszukiwarka grup wysp IOTA (Islands on the Air) z bazy serviceLOG.db
 
+use crate::core::awards::AwardsEngine;
 use crate::core::service_db::{IotaRecord, ServiceDatabase};
 use eframe::egui;
+
+/// Status dyplomowy pojedynczej referencji IOTA względem dziennika.
+enum RefStatus {
+    Needed,
+    Worked,
+    Confirmed,
+}
+
+impl RefStatus {
+    fn of_iota(engine: &AwardsEngine, iota: &str) -> Self {
+        if engine
+            .details_iota
+            .get(iota)
+            .map(|v| v.iter().any(|r| r.is_confirmed))
+            .unwrap_or(false)
+        {
+            RefStatus::Confirmed
+        } else if engine.worked_iota.contains(iota) {
+            RefStatus::Worked
+        } else {
+            RefStatus::Needed
+        }
+    }
+
+    fn label(&self) -> egui::RichText {
+        match self {
+            RefStatus::Confirmed => egui::RichText::new("✔ Potwierdzone").color(egui::Color32::from_rgb(56, 189, 248)),
+            RefStatus::Worked => egui::RichText::new("✔ Zaliczona").color(egui::Color32::from_rgb(34, 197, 94)),
+            RefStatus::Needed => egui::RichText::new("— Potrzebna").color(egui::Color32::from_rgb(248, 113, 113)),
+        }
+    }
+}
 
 #[derive(Default)]
 pub struct IotaBrowserDialog {
@@ -26,7 +59,7 @@ impl IotaBrowserDialog {
         self.results = sdb.search_iota(&self.search_query);
     }
 
-    pub fn show(&mut self, ctx: &egui::Context, sdb: &ServiceDatabase) -> Option<String> {
+    pub fn show(&mut self, ctx: &egui::Context, sdb: &ServiceDatabase, awards: &AwardsEngine) -> Option<String> {
         if !self.is_open {
             return None;
         }
@@ -65,6 +98,7 @@ impl IotaBrowserDialog {
                             ui.label(egui::RichText::new("IOTA Kod").strong());
                             ui.label(egui::RichText::new("Prefiks").strong());
                             ui.label(egui::RichText::new("Nazwa grupy wysp").strong());
+                            ui.label(egui::RichText::new("Status").strong());
                             ui.label(egui::RichText::new("Akcja").strong());
                             ui.end_row();
 
@@ -72,6 +106,7 @@ impl IotaBrowserDialog {
                                 ui.label(egui::RichText::new(&item.iota).strong().color(egui::Color32::from_rgb(56, 189, 248)));
                                 ui.label(egui::RichText::new(&item.prefix).color(egui::Color32::from_rgb(251, 191, 36)));
                                 ui.label(&item.name);
+                                ui.label(RefStatus::of_iota(awards, &item.iota).label());
 
                                 if ui.button("Wybierz").on_hover_text("Użyj tej referencji IOTA").clicked() {
                                     chosen = Some(item.iota.clone());

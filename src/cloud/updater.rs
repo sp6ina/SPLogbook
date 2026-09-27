@@ -61,3 +61,59 @@ impl DatabaseUpdater {
         Ok(bytes.len())
     }
 }
+
+/// Najnowsze wydanie programu w repozytorium GitHub.
+#[derive(Debug, Clone)]
+pub struct LatestRelease {
+    pub tag: String,
+    pub html_url: String,
+    pub body: String,
+}
+
+/// Pobiera metadane najnowszego wydania z GitHub API (bez autoryzacji).
+pub async fn latest_release() -> Result<LatestRelease, String> {
+    let client = crate::core::http::http_client_with_timeout(15);
+    let url = "https://api.github.com/repos/sp6ina/SPLogbook/releases/latest";
+
+    let resp = client
+        .get(url)
+        .header("User-Agent", "SPLogbook-update-check")
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await
+        .map_err(|e| format!("Błąd połączenia z GitHub: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Err(format!(
+            "GitHub zwrócił status {} (sprawdź połączenie z internetem).",
+            resp.status()
+        ));
+    }
+
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| format!("Błąd odczytu odpowiedzi: {}", e))?;
+
+    let json: serde_json::Value = serde_json::from_str(&body)
+        .map_err(|e| format!("Błąd parsowania odpowiedzi GitHub: {}", e))?;
+
+    let tag = json
+        .get("tag_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("nieznana")
+        .trim_start_matches('v')
+        .to_string();
+    let html_url = json
+        .get("html_url")
+        .and_then(|v| v.as_str())
+        .unwrap_or("https://github.com/sp6ina/SPLogbook/releases")
+        .to_string();
+    let release_body = json
+        .get("body")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    Ok(LatestRelease { tag, html_url, body: release_body })
+}

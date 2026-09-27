@@ -4,6 +4,7 @@
 use crate::core::i18n::tr;
 use crate::gui::app::SpLogApp;
 use eframe::egui;
+use egui_extras::{Column, TableBuilder};
 
 pub fn render_logbook_table(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.current_language;
@@ -144,6 +145,17 @@ fn sort_header_btn(ui: &mut egui::Ui, label: &str, col_id: u8, sort_col: u8, sor
     } else { (false, sort_asc) }
 }
 
+fn sort_col_id_for(col_id: &str) -> Option<u8> {
+    match col_id {
+        "date" => Some(0),
+        "callsign" => Some(1),
+        "band" => Some(2),
+        "mode" => Some(3),
+        "country" => Some(4),
+        _ => None,
+    }
+}
+
 pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.current_language;
     let query = app.log_search_query.trim().to_uppercase();
@@ -220,6 +232,21 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     });
     ui.separator();
 
+    // Pasek operacji masowych (widoczny, gdy cokolwiek zaznaczono)
+    if !app.selected_qso_ids.is_empty() {
+        ui.horizontal(|ui| {
+            let n = app.selected_qso_ids.len();
+            ui.label(egui::RichText::new(format!("✔ Zaznaczono {} QSO", n)).color(egui::Color32::from_rgb(34, 197, 94)));
+            if ui.button(format!("🗑 {}", tr("qso.delete", lang))).clicked() {
+                app.delete_selected_qso();
+            }
+            if ui.button("✕").on_hover_text("Wyczyść zaznaczenie").clicked() {
+                app.selected_qso_ids.clear();
+            }
+        });
+        ui.separator();
+    }
+
     // Wyznacz zakres strony
     let (page_start, page_end) = page_range(app.log_page, app.log_page_size, total);
     let page_indices = &sorted_indices[page_start..page_end];
@@ -229,111 +256,154 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let mut new_sc = app.log_sort_column;
     let mut new_sa = app.log_sort_asc;
 
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-        egui::Grid::new("logbook_grid").striped(true).spacing([8.0, 4.0]).show(ui, |ui| {
-            // Nagłówki z sortowaniem
-            ui.label(egui::RichText::new(tr("ledger.col_actions", lang)).strong());
-            for col in &app.logbook_columns {
-                if !col.visible { continue; }
-                let display_lbl = col_display_name(&col.id, &col.label, lang);
-                match col.id.as_str() {
-                    "date" => {
-                        let (c, s) = sort_header_btn(ui, &display_lbl, 0, new_sc, new_sa);
-                        if c { new_sc = 0; new_sa = s; }
-                    },
-                    "callsign" => {
-                        let (c, s) = sort_header_btn(ui, &display_lbl, 1, new_sc, new_sa);
-                        if c { new_sc = 1; new_sa = s; }
-                    },
-                    "band" => {
-                        let (c, s) = sort_header_btn(ui, &display_lbl, 2, new_sc, new_sa);
-                        if c { new_sc = 2; new_sa = s; }
-                    },
-                    "mode" => {
-                        let (c, s) = sort_header_btn(ui, &display_lbl, 3, new_sc, new_sa);
-                        if c { new_sc = 3; new_sa = s; }
-                    },
-                    "country" => {
-                        let (c, s) = sort_header_btn(ui, &display_lbl, 4, new_sc, new_sa);
-                        if c { new_sc = 4; new_sa = s; }
-                    },
-                    _ => { ui.label(egui::RichText::new(&display_lbl).strong()); }
-                }
+    // Snapshot widocznych kolumn (id, wyświetlana etykieta, szerokość)
+    let visible_cols: Vec<(String, String, f32)> = app.logbook_columns.iter()
+        .filter(|c| c.visible)
+        .map(|c| (c.id.clone(), col_display_name(&c.id, &c.label, lang), c.width))
+        .collect();
+
+    // Identyfikatory QSO na bieżącej stronie (do zaznaczania zbiorowego)
+    let page_ids: Vec<i64> = page_indices.iter().filter_map(|&i| app.recent_qsos[i].id).collect();
+    let all_selected = !page_ids.is_empty() && page_ids.iter().all(|id| app.selected_qso_ids.contains(id));
+    let mut select_all = all_selected;
+
+    let row_height = 22.0;
+
+    let mut table = TableBuilder::new(ui)
+        .striped(true)
+        .resizable(true)
+        .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+        .column(Column::auto().at_least(72.0))
+        .column(Column::auto().at_least(24.0));
+    for (_id, _label, width) in &visible_cols {
+        table = table.column(Column::initial(*width).at_least(28.0).clip(true).resizable(true));
+    }
+
+    table
+        .header(22.0, |mut header| {
+            header.col(|ui| {
+                ui.label(egui::RichText::new(tr("ledger.col_actions", lang)).strong());
+            });
+            header.col(|ui| {
+                ui.checkbox(&mut select_all, "");
+            });
+            for (id, label, _w) in &visible_cols {
+                let label = label.clone();
+                let id = id.clone();
+                header.col(|ui| {
+                    if let Some(sc_id) = sort_col_id_for(&id) {
+                        let (c, s) = sort_header_btn(ui, &label, sc_id, new_sc, new_sa);
+                        if c { new_sc = sc_id; new_sa = s; }
+                    } else {
+                        ui.label(egui::RichText::new(&label).strong());
+                    }
+                });
             }
-            ui.end_row();
+        })
+        .body(|body| {
+            body.rows(row_height, page_indices.len(), |mut row| {
+                let idx = page_indices[row.index()];
+                let qso = app.recent_qsos[idx].clone();
+                let qso_id = qso.id;
 
-            for &idx in page_indices {
-                let qso = &app.recent_qsos[idx];
-
-                // Akcje
-                ui.horizontal(|ui| {
-                    if ui.small_button("✏").on_hover_text(tr("log.edit_tooltip", lang)).clicked() {
-                        qso_to_edit = Some(qso.clone());
-                    }
-                    if ui.small_button("🗑").on_hover_text(tr("log.delete_tooltip", lang)).clicked() {
-                        if let Some(id) = qso.id {
-                            qso_id_to_delete = Some((id, qso.clone()));
+                row.col(|ui| {
+                    ui.horizontal(|ui| {
+                        if ui.small_button("✏").on_hover_text(tr("log.edit_tooltip", lang)).clicked() {
+                            qso_to_edit = Some(qso.clone());
                         }
-                    }
-                    if let Some(ref audio_path) = qso.audio_file {
-                        if ui.small_button("🔊").clicked() {
-                            let _ = crate::media::audio_recorder::AudioRecorder::play_audio(std::path::Path::new(audio_path));
+                        if ui.small_button("🗑").on_hover_text(tr("log.delete_tooltip", lang)).clicked() {
+                            if let Some(id) = qso_id {
+                                qso_id_to_delete = Some((id, qso.clone()));
+                            }
+                        }
+                        if let Some(ref audio_path) = qso.audio_file {
+                            if ui.small_button("🔊").clicked() {
+                                let _ = crate::media::audio_recorder::AudioRecorder::play_audio(std::path::Path::new(audio_path));
+                            }
+                        }
+                    });
+                });
+
+                row.col(|ui| {
+                    if let Some(id) = qso_id {
+                        let mut checked = app.selected_qso_ids.contains(&id);
+                        if ui.checkbox(&mut checked, "").changed() {
+                            if checked {
+                                if !app.selected_qso_ids.contains(&id) {
+                                    app.selected_qso_ids.push(id);
+                                }
+                            } else {
+                                app.selected_qso_ids.retain(|x| *x != id);
+                            }
                         }
                     }
                 });
 
-                for col in &app.logbook_columns {
-                    if !col.visible { continue; }
-                    match col.id.as_str() {
-                        "nr" => {
-                            ui.label(qso.id.and_then(|id| app.qso_numbers.get(&id).copied())
-                                .map(|number| number.to_string()).unwrap_or_else(|| "—".to_string()));
-                        },
-                        "date" => { ui.label(&qso.qso_date); },
-                        "time" => { ui.label(&qso.time_on); },
-                        "callsign" => {
-                            let call_color = if qso.lotw_qsl_rcvd == "Y" {
-                                egui::Color32::from_rgb(34, 197, 94)
-                            } else {
-                                egui::Color32::from_rgb(56, 189, 248)
-                            };
-                            ui.label(egui::RichText::new(&qso.callsign).strong().color(call_color));
-                        },
-                        "band" => { ui.label(&qso.band); },
-                        "mode" => { ui.label(egui::RichText::new(&qso.mode).color(egui::Color32::from_rgb(251, 191, 36))); },
-                        "rst_s" => { ui.label(&qso.rst_sent); },
-                        "rst_r" => { ui.label(&qso.rst_rcvd); },
-                        "country" => { ui.label(qso.country.as_deref().unwrap_or("-")); },
-                        "name" => { ui.label(qso.name.as_deref().unwrap_or("")); },
-                        "qsl" => {
-                            ui.horizontal(|ui| {
-                                if qso.lotw_qsl_rcvd == "Y" { ui.colored_label(egui::Color32::from_rgb(34, 197, 94), "L"); }
-                                if qso.eqsl_qsl_rcvd == "Y" { ui.colored_label(egui::Color32::from_rgb(56, 189, 248), "E"); }
-                                if qso.qsl_rcvd == "Y" { ui.colored_label(egui::Color32::from_rgb(250, 204, 21), "Q"); }
-                                if qso.lotw_qsl_rcvd != "Y" && qso.eqsl_qsl_rcvd != "Y" && qso.qsl_rcvd != "Y" { ui.label("-"); }
-                            });
-                        },
-                        "freq" => {
-                            let freq_str = qso.freq.as_ref().map(|f| f.to_string()).unwrap_or_default();
-                            ui.label(freq_str);
-                        },
-                        "cqz" => {
-                            let cqz_str = qso.cqz.as_ref().map(|f| f.to_string()).unwrap_or_default();
-                            ui.label(cqz_str);
-                        },
-                        "iota" => { ui.label(qso.iota.as_deref().unwrap_or("")); },
-                        "comment" => { ui.label(qso.comment.as_deref().unwrap_or("")); },
-                        _ => { ui.label(""); }
-                    }
+                for (col_id, _label, _w) in &visible_cols {
+                    let col_id = col_id.clone();
+                    row.col(|ui| {
+                        match col_id.as_str() {
+                            "nr" => {
+                                ui.label(qso.id.and_then(|id| app.qso_numbers.get(&id).copied())
+                                    .map(|number| number.to_string()).unwrap_or_else(|| "—".to_string()));
+                            },
+                            "date" => { ui.label(&qso.qso_date); },
+                            "time" => { ui.label(&qso.time_on); },
+                            "callsign" => {
+                                let call_color = if qso.lotw_qsl_rcvd == "Y" {
+                                    egui::Color32::from_rgb(34, 197, 94)
+                                } else {
+                                    egui::Color32::from_rgb(56, 189, 248)
+                                };
+                                ui.label(egui::RichText::new(&qso.callsign).strong().color(call_color));
+                            },
+                            "band" => { ui.label(&qso.band); },
+                            "mode" => { ui.label(egui::RichText::new(&qso.mode).color(egui::Color32::from_rgb(251, 191, 36))); },
+                            "rst_s" => { ui.label(&qso.rst_sent); },
+                            "rst_r" => { ui.label(&qso.rst_rcvd); },
+                            "country" => { ui.label(qso.country.as_deref().unwrap_or("-")); },
+                            "name" => { ui.label(qso.name.as_deref().unwrap_or("")); },
+                            "qsl" => {
+                                ui.horizontal(|ui| {
+                                    if qso.lotw_qsl_rcvd == "Y" { ui.colored_label(egui::Color32::from_rgb(34, 197, 94), "L"); }
+                                    if qso.eqsl_qsl_rcvd == "Y" { ui.colored_label(egui::Color32::from_rgb(56, 189, 248), "E"); }
+                                    if qso.qsl_rcvd == "Y" { ui.colored_label(egui::Color32::from_rgb(250, 204, 21), "Q"); }
+                                    if qso.lotw_qsl_rcvd != "Y" && qso.eqsl_qsl_rcvd != "Y" && qso.qsl_rcvd != "Y" { ui.label("-"); }
+                                });
+                            },
+                            "freq" => {
+                                let freq_str = qso.freq.as_ref().map(|f| f.to_string()).unwrap_or_default();
+                                ui.label(freq_str);
+                            },
+                            "cqz" => {
+                                let cqz_str = qso.cqz.as_ref().map(|f| f.to_string()).unwrap_or_default();
+                                ui.label(cqz_str);
+                            },
+                            "iota" => { ui.label(qso.iota.as_deref().unwrap_or("")); },
+                            "comment" => { ui.label(qso.comment.as_deref().unwrap_or("")); },
+                            _ => { ui.label(""); }
+                        }
+                    });
                 }
-                ui.end_row();
-            }
+            });
         });
-    });
 
     // Zastosuj nowe sortowanie
     app.log_sort_column = new_sc;
     app.log_sort_asc = new_sa;
+
+    // Zastosuj przełączenie zaznaczenia całej strony
+    if select_all != all_selected {
+        if select_all {
+            for id in &page_ids {
+                if !app.selected_qso_ids.contains(id) {
+                    app.selected_qso_ids.push(*id);
+                }
+            }
+        } else {
+            app.selected_qso_ids.retain(|id| !page_ids.contains(id));
+        }
+    }
 
     if let Some(qso) = qso_to_edit { app.editing_qso = Some(qso); }
     if let Some((id, backup)) = qso_id_to_delete {
@@ -465,6 +535,9 @@ pub fn render_column_settings(app: &mut SpLogApp, ctx: &egui::Context) {
     
     let mut save = false;
     let mut reset = false;
+    let mut save_preset = false;
+    let mut load_preset: Option<usize> = None;
+    let mut delete_preset: Option<usize> = None;
 
     egui::Window::new(format!("⚙ {}", tr("columns.title", lang)))
         .open(&mut is_open)
@@ -496,6 +569,20 @@ pub fn render_column_settings(app: &mut SpLogApp, ctx: &egui::Context) {
             });
             
             ui.separator();
+            ui.label(egui::RichText::new("Presety kolumn").strong());
+            ui.horizontal(|ui| {
+                ui.text_edit_singleline(&mut app.column_preset_name);
+                if ui.button("💾 Zapisz").clicked() { save_preset = true; }
+            });
+            for (i, preset) in app.logbook_column_presets.iter().enumerate() {
+                ui.horizontal(|ui| {
+                    if ui.button("↩").on_hover_text("Wczytaj preset").clicked() { load_preset = Some(i); }
+                    ui.label(&preset.name);
+                    if ui.small_button("🗑").on_hover_text("Usuń preset").clicked() { delete_preset = Some(i); }
+                });
+            }
+
+            ui.separator();
             ui.horizontal(|ui| {
                 if ui.button(tr("btn.save", lang)).clicked() { save = true; }
                 if ui.button(tr("btn.close", lang)).clicked() { app.show_column_settings = false; }
@@ -512,5 +599,33 @@ pub fn render_column_settings(app: &mut SpLogApp, ctx: &egui::Context) {
     } else if !is_open {
         app.show_column_settings = false;
         app.save_station_config();
+    }
+
+    if save_preset {
+        let name = app.column_preset_name.trim().to_string();
+        if !name.is_empty() {
+            let preset = crate::core::station::ColumnPreset {
+                name: name.clone(),
+                columns: app.logbook_columns.clone(),
+            };
+            app.logbook_column_presets.retain(|p| p.name != name);
+            app.logbook_column_presets.push(preset);
+            app.column_preset_name.clear();
+            app.save_station_config();
+        }
+    }
+
+    if let Some(i) = load_preset {
+        if let Some(preset) = app.logbook_column_presets.get(i) {
+            app.logbook_columns = preset.columns.clone();
+            app.save_station_config();
+        }
+    }
+
+    if let Some(i) = delete_preset {
+        if i < app.logbook_column_presets.len() {
+            app.logbook_column_presets.remove(i);
+            app.save_station_config();
+        }
     }
 }
