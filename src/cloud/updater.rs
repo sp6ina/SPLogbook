@@ -62,12 +62,31 @@ impl DatabaseUpdater {
     }
 }
 
+/// Pojedynczy plik (asset) dołączony do wydania GitHub.
+#[derive(Debug, Clone)]
+pub struct ReleaseAsset {
+    pub name: String,
+    pub browser_download_url: String,
+    /// Suma kontrolna SHA256 (hex) udostępniona przez GitHub, jeśli istnieje.
+    pub digest: Option<String>,
+    pub size: u64,
+}
+
 /// Najnowsze wydanie programu w repozytorium GitHub.
 #[derive(Debug, Clone)]
 pub struct LatestRelease {
     pub tag: String,
     pub html_url: String,
     pub body: String,
+    pub assets: Vec<ReleaseAsset>,
+}
+
+/// Wynik sprawdzenia aktualizacji — odróżnia stan „aktualny” od „nowa wersja”.
+#[derive(Debug, Clone)]
+pub enum UpdateCheckOutcome {
+    UpToDate { local: String },
+    NewVersion(LatestRelease),
+    Error(String),
 }
 
 /// Pobiera metadane najnowszego wydania z GitHub API (bez autoryzacji).
@@ -115,5 +134,233 @@ pub async fn latest_release() -> Result<LatestRelease, String> {
         .unwrap_or("")
         .to_string();
 
-    Ok(LatestRelease { tag, html_url, body: release_body })
+    let mut assets = Vec::new();
+    if let Some(arr) = json.get("assets").and_then(|v| v.as_array()) {
+        for asset in arr {
+            let name = asset.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let browser_download_url = asset
+                .get("browser_download_url")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let digest = asset
+                .get("digest")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string());
+            let size = asset.get("size").and_then(|v| v.as_u64()).unwrap_or(0);
+            if !name.is_empty() && !browser_download_url.is_empty() {
+                assets.push(ReleaseAsset { name, browser_download_url, digest, size });
+            }
+        }
+    }
+
+    Ok(LatestRelease { tag, html_url, body: release_body, assets })
+}
+
+/// Oblicza sumę kontrolną SHA256 (hex, małe litery) z bajtów.
+pub fn sha256_hex(data: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(data);
+    digest.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Weryfikuje sumę kontrolną SHA256 (ignoruje wielkość liter i ewentualny prefiks `sha256:`).
+pub fn verify_sha256(data: &[u8], expected: &str) -> bool {
+    let expected = expected.trim().trim_start_matches("sha256:").trim_start_matches("SHA256:");
+    let actual = sha256_hex(data);
+    actual.eq_ignore_ascii_case(expected)
+}
+
+/// Wybiera najlepszy plik instalacyjny dla bieżącego systemu operacyjnego.
+pub fn select_asset_for_platform(assets: &[ReleaseAsset]) -> Option<&ReleaseAsset> {
+    if assets.is_empty() {
+        return None;
+    }
+
+    #[cfg(target_os = "windows")]
+    let preferred: &[&str] = &[".exe", ".zip", ".msi"];
+    #[cfg(target_os = "macos")]
+    let preferred: &[&str] = &[".dmg", ".zip", ".tar.gz"];
+    #[cfg(target_os = "linux")]
+    let preferred: &[&str] = &[".appimage", ".deb", ".tar.gz"];
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    let preferred: &[&str] = &[];
+
+    for ext in preferred {
+        if let Some(asset) = assets.iter().find(|a| {
+            a.name.to_lowercase().ends_with(&ext.to_lowercase())
+        }) {
+            return Some(asset);
+        }
+    }
+
+    assets.first()
+}
+
+/// Pobiera plik instalacyjny wydania do wskazanej lokalizacji.
+pub async fn download_release_asset(asset: &ReleaseAsset, dest_path: &Path) -> Result<usize, String> {
+    let client = crate::core::http::http_client_with_timeout(300);
+
+    let resp = client
+        .get(&asset.browser_download_url)
+        .header("User-Agent", "SPLogbook-update-check")
+        .send()
+        .await
+        .map_err(|e| format!("Błąd pobierania aktualizacji: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("Serwer zwrócił status {} podczas pobierania.", resp.status()));
+    }
+
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| format!("Błąd odczytu pobranych danych: {}", e))?;
+
+    if let Some(parent) = dest_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    std::fs::write(dest_path, &bytes)
+        .map_err(|e| format!("Błąd zapisu pobranego pliku {:?}: {}", dest_path, e))?;
+
+    Ok(bytes.len())
+}
+
+/// Pobiera, weryfikuje i podmienia bieżący plik wykonywalny nową wersją.
+///
+/// Po wywołaniu (w systemie Windows) aplikacja powinna się zamknąć — proces
+/// PowerShell czeka na zakończenie bieżącego procesu i dopiero wtedy podmienia
+/// plik oraz uruchamia nową wersję.
+pub async fn install_update(asset: &ReleaseAsset) -> Result<(), String> {
+    let current = std::env::current_exe()
+        .map_err(|e| format!("Nie można ustalić ścieżki programu: {}", e))?;
+
+    let parent = current
+        .parent()
+        .ok_or_else(|| "Nie można ustalić katalogu programu.".to_string())?;
+
+    let tmp_path = parent.join(format!(".SPLogbook_update_{}.tmp", std::process::id()));
+
+    // 1. Pobierz nowy plik do katalogu programu (ten sam wolumen → atomowe Move-Item).
+    download_release_asset(asset, &tmp_path).await?;
+
+    // 2. Zweryfikuj sumę kontrolną, jeśli GitHub ją udostępnił.
+    if let Some(expected) = asset.digest.as_deref() {
+        let data = std::fs::read(&tmp_path)
+            .map_err(|e| format!("Błąd odczytu pobranego pliku: {}", e))?;
+        if !verify_sha256(&data, expected) {
+            let _ = std::fs::remove_file(&tmp_path);
+            return Err(
+                "Suma kontrolna SHA256 pobranej aktualizacji nie zgadza się z wartością z GitHub."
+                    .to_string(),
+            );
+        }
+    }
+
+    // 3. Podmień plik wykonywalny i uruchom ponownie.
+    self_replace(&current, &tmp_path)
+}
+
+/// Podmienia działający plik wykonywalny nową wersją.
+#[cfg(target_os = "windows")]
+fn self_replace(current: &Path, new: &Path) -> Result<(), String> {
+    install_via_powershell(current, new)
+}
+
+/// Podmienia działający plik wykonywalny nową wersją (systemy Unix).
+#[cfg(not(target_os = "windows"))]
+fn self_replace(current: &Path, new: &Path) -> Result<(), String> {
+    std::fs::rename(new, current)
+        .map_err(|e| format!("Nie można podmienić pliku programu: {}", e))?;
+    // Uruchom ponownie nową wersję w tle.
+    let _ = std::process::Command::new(current).spawn();
+    Ok(())
+}
+
+/// Windows: uruchamia skrypt PowerShell, który czeka na zamknięcie bieżącego
+/// procesu, podmienia plik wykonywalny i uruchamia go ponownie.
+#[cfg(target_os = "windows")]
+fn install_via_powershell(current: &Path, new: &Path) -> Result<(), String> {
+    let script_path = std::env::temp_dir().join(format!("SPLogbook_update_{}.ps1", std::process::id()));
+
+    let exe = current.to_string_lossy().replace('\'', "''");
+    let new_s = new.to_string_lossy().replace('\'', "''");
+    let pid = std::process::id();
+
+    let script = format!(
+        "$ErrorActionPreference = 'Stop'\n\
+         $exe = '{exe}'\n\
+         $new = '{new_s}'\n\
+         $pidToWait = {pid}\n\
+         $deadline = (Get-Date).AddSeconds(90)\n\
+         while (Get-Process -Id $pidToWait -ErrorAction SilentlyContinue) {{\n\
+             if ((Get-Date) -gt $deadline) {{ exit 1 }}\n\
+             Start-Sleep -Milliseconds 250\n\
+         }}\n\
+         Start-Sleep -Milliseconds 500\n\
+         Move-Item -Force -LiteralPath $new -Destination $exe\n\
+         Start-Process -FilePath $exe\n"
+    );
+
+    std::fs::write(&script_path, script)
+        .map_err(|e| format!("Nie można zapisać skryptu aktualizacji: {}", e))?;
+
+    std::process::Command::new("powershell.exe")
+        .args(["-NoProfile", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File"])
+        .arg(&script_path)
+        .spawn()
+        .map_err(|e| format!("Nie można uruchomić aktualizacji: {}", e))?;
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sha256_hex_matches_known_vector() {
+        // SHA256("abc") = ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+        assert_eq!(
+            sha256_hex(b"abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
+
+    #[test]
+    fn verify_sha256_accepts_case_and_prefix() {
+        let expected = "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD";
+        assert!(verify_sha256(b"abc", expected));
+        assert!(verify_sha256(b"abc", "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"));
+        assert!(!verify_sha256(b"abd", expected));
+    }
+
+    #[test]
+    fn select_asset_prefers_exe_on_windows_and_falls_back() {
+        let assets = vec![
+            ReleaseAsset {
+                name: "SPLogbook-1.0.4-win64.zip".into(),
+                browser_download_url: "https://example.com/z.zip".into(),
+                digest: None,
+                size: 0,
+            },
+            ReleaseAsset {
+                name: "SPLogbook-1.0.4-win64.exe".into(),
+                browser_download_url: "https://example.com/x.exe".into(),
+                digest: None,
+                size: 0,
+            },
+        ];
+
+        let chosen = select_asset_for_platform(&assets).unwrap();
+        // Na Windowsie wybiera .exe, na innych systemach pierwszy dostępny.
+        #[cfg(target_os = "windows")]
+        assert_eq!(chosen.name, "SPLogbook-1.0.4-win64.exe");
+        #[cfg(not(target_os = "windows"))]
+        assert_eq!(chosen.name, "SPLogbook-1.0.4-win64.zip");
+
+        assert!(select_asset_for_platform(&[]).is_none());
+    }
 }

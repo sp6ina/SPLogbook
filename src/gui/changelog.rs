@@ -103,10 +103,11 @@ pub fn render_update_check_window(app: &mut SpLogApp, ctx: &egui::Context) {
     }
     let mut is_open = app.show_update_window;
     let mut close_requested = false;
+    let mut do_install = false;
     egui::Window::new("🔄 Sprawdź aktualizacje")
         .open(&mut is_open)
-        .default_size([460.0, 220.0])
-        .resizable(false)
+        .default_size([520.0, 340.0])
+        .resizable(true)
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Zainstalowana wersja:");
@@ -124,10 +125,30 @@ pub fn render_update_check_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 }
             }
 
+            if let Some(release) = &app.update_available {
+                ui.add_space(6.0);
+                egui::ScrollArea::vertical()
+                    .id_salt("update_release_body")
+                    .max_height(120.0)
+                    .show(ui, |ui| {
+                        ui.label(egui::RichText::new(&release.body).size(12.0));
+                    });
+            }
+
+            if let Some(inst) = &app.update_install_status {
+                ui.add_space(6.0);
+                ui.label(egui::RichText::new(inst).size(13.0));
+            }
+
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 if ui.button("🔍 Sprawdź teraz").clicked() {
                     app.trigger_update_check();
+                }
+                if app.update_available.is_some() {
+                    if ui.button("⬇️ Zainstaluj i uruchom ponownie").clicked() {
+                        do_install = true;
+                    }
                 }
                 if ui.button("🌐 Otwórz stronę wydań").clicked() {
                     let _ = open::that("https://github.com/sp6ina/SPLogbook/releases");
@@ -139,5 +160,8 @@ pub fn render_update_check_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 });
             });
         });
+    if do_install {
+        app.trigger_update_install();
+    }
     app.show_update_window = is_open && !close_requested;
 }

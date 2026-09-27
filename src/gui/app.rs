@@ -210,7 +210,11 @@ pub struct SpLogApp {
     pub manual_section: Option<String>,
     pub manual_selected: usize,
     pub update_check_status: Option<String>,
-    pub update_check_rx: Option<std::sync::mpsc::Receiver<String>>,
+    pub update_check_rx: Option<std::sync::mpsc::Receiver<crate::cloud::updater::UpdateCheckOutcome>>,
+    pub update_available: Option<crate::cloud::updater::LatestRelease>,
+    pub update_install_status: Option<String>,
+    pub update_install_rx: Option<std::sync::mpsc::Receiver<String>>,
+    pub pending_restart: bool,
     pub show_vfo_panel: bool,
     pub show_cluster_panel: bool,
     pub show_solar_panel: bool,
@@ -989,6 +993,10 @@ impl SpLogApp {
             manual_selected: 0,
             update_check_status: None,
             update_check_rx: None,
+            update_available: None,
+            update_install_status: None,
+            update_install_rx: None,
+            pending_restart: false,
             logbook_columns: app_config.logbook_columns.clone(),
             logbook_column_presets: app_config.logbook_column_presets.clone(),
             column_preset_name: String::new(),
@@ -3357,24 +3365,53 @@ impl SpLogApp {
     /// Sprawdza najnowsze wydanie na GitHub w tle i zapisuje wynik do odbiornika.
     pub fn trigger_update_check(&mut self) {
         self.update_check_status = Some("Sprawdzanie najnowszej wersji na GitHub…".to_string());
-        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        self.update_available = None;
+        let (tx, rx) = std::sync::mpsc::channel::<crate::cloud::updater::UpdateCheckOutcome>();
         self.update_check_rx = Some(rx);
         tokio::spawn(async move {
-            let msg = match crate::cloud::updater::latest_release().await {
+            let outcome = match crate::cloud::updater::latest_release().await {
                 Ok(release) => {
                     let local = env!("CARGO_PKG_VERSION");
                     if release.tag == local {
-                        format!("✅ Masz najnowszą wersję (v{}).", local)
+                        crate::cloud::updater::UpdateCheckOutcome::UpToDate { local: local.to_string() }
                     } else {
-                        format!(
-                            "🆕 Dostępna jest nowa wersja: v{} (masz v{}).\n\n{}",
-                            release.tag,
-                            local,
-                            release.body.lines().take(12).collect::<Vec<_>>().join("\n")
-                        )
+                        crate::cloud::updater::UpdateCheckOutcome::NewVersion(release)
                     }
                 }
-                Err(e) => format!("❌ Nie udało się sprawdzić aktualizacji: {}", e),
+                Err(e) => crate::cloud::updater::UpdateCheckOutcome::Error(e),
+            };
+            let _ = tx.send(outcome);
+        });
+    }
+
+    /// Pobiera i instaluje dostępną aktualizację w tle (self-replace + restart).
+    pub fn trigger_update_install(&mut self) {
+        let Some(release) = self.update_available.clone() else {
+            return;
+        };
+        let Some(asset) = crate::cloud::updater::select_asset_for_platform(&release.assets).cloned() else {
+            self.update_install_status =
+                Some("❌ Wydanie nie zawiera pliku instalacyjnego dla tego systemu.".to_string());
+            return;
+        };
+
+        self.update_install_status = Some(format!(
+            "Pobieranie aktualizacji do v{} ({}: {})…",
+            release.tag,
+            asset.name,
+            if asset.size > 0 {
+                format!("{:.1} MB", asset.size as f64 / 1_048_576.0)
+            } else {
+                "?".to_string()
+            }
+        ));
+
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        self.update_install_rx = Some(rx);
+        tokio::spawn(async move {
+            let msg = match crate::cloud::updater::install_update(&asset).await {
+                Ok(()) => "✅ Aktualizacja pobrana i zweryfikowana. Aplikacja zostanie zamknięta i uruchomiona ponownie…".to_string(),
+                Err(e) => format!("❌ Instalacja nie powiodła się: {}", e),
             };
             let _ = tx.send(msg);
         });
@@ -3783,10 +3820,47 @@ impl eframe::App for SpLogApp {
 
         // Wynik sprawdzania aktualizacji
         if let Some(rx) = &self.update_check_rx {
-            if let Ok(msg) = rx.try_recv() {
-                self.update_check_status = Some(msg);
+            if let Ok(outcome) = rx.try_recv() {
+                match outcome {
+                    crate::cloud::updater::UpdateCheckOutcome::UpToDate { local } => {
+                        self.update_check_status = Some(format!("✅ Masz najnowszą wersję (v{}).", local));
+                    }
+                    crate::cloud::updater::UpdateCheckOutcome::NewVersion(release) => {
+                        self.update_check_status = Some(format!(
+                            "🆕 Dostępna jest nowa wersja: v{} (masz v{}).",
+                            release.tag,
+                            env!("CARGO_PKG_VERSION")
+                        ));
+                        self.update_available = Some(release);
+                    }
+                    crate::cloud::updater::UpdateCheckOutcome::Error(e) => {
+                        self.update_check_status =
+                            Some(format!("❌ Nie udało się sprawdzić aktualizacji: {}", e));
+                    }
+                }
                 self.update_check_rx = None;
             }
+        }
+
+        // Wynik instalowania aktualizacji (self-replace)
+        if let Some(rx) = &self.update_install_rx {
+            if let Ok(msg) = rx.try_recv() {
+                let installed_ok = msg.starts_with("✅");
+                self.update_install_status = Some(msg);
+                self.update_install_rx = None;
+                if installed_ok {
+                    // Skrypt podmiany czeka na zakończenie tego procesu — zamknij aplikację.
+                    self.pending_restart = true;
+                }
+            }
+        }
+
+        if self.pending_restart {
+            self.update_install_status = Some(
+                "Trwa instalowanie aktualizacji — aplikacja zostanie zamknięta i uruchomiona ponownie."
+                    .to_string(),
+            );
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
 
         // Odbiór asynchronicznego stanu radia z pętli Hamlib CAT (bi-directional sync)
