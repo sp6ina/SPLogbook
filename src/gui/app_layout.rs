@@ -4,9 +4,9 @@ use super::*;
 impl SpLogApp {
     /// Kolejność paneli (identyfikatorów kafelków) używana przy budowaniu
     /// układu dokowania oraz przy synchronizacji widoczności.
-    pub fn all_tile_ids() -> [&'static str; 8] {
+    pub fn all_tile_ids() -> [&'static str; 9] {
         [
-            "vfo", "qso", "log", "cluster", "bandmap", "solar", "satellites", "world_map",
+            "vfo", "qso", "log", "cluster", "bandmap", "solar", "satellites", "world_map", "waterfall",
         ]
     }
 
@@ -20,6 +20,7 @@ impl SpLogApp {
             "solar" => &self.panel_solar,
             "satellites" => &self.panel_satellites,
             "world_map" => &self.panel_world_map,
+            "waterfall" => &self.panel_waterfall,
             _ => &self.panel_vfo,
         }
     }
@@ -159,6 +160,7 @@ impl SpLogApp {
         self.panel_solar    = ViewPanelConfig { visible: true,  floating: false, column: 2, order: 1, saved_pos: None, saved_size: None };
         self.panel_satellites = ViewPanelConfig { visible: false, floating: false, column: 2, order: 2, saved_pos: None, saved_size: None };
         self.panel_world_map  = ViewPanelConfig { visible: false, floating: false, column: 2, order: 0, saved_pos: None, saved_size: None };
+        self.panel_waterfall  = ViewPanelConfig { visible: false, floating: false, column: 2, order: 3, saved_pos: None, saved_size: None };
 
         self.show_bandmap_window = false;
         self.show_satellites_window = false;
@@ -179,6 +181,7 @@ impl SpLogApp {
         if self.panel_solar.column == col && self.panel_solar.visible && !self.panel_solar.floating { items.push(("solar".to_string(), self.panel_solar.order)); }
         if self.panel_satellites.column == col && self.panel_satellites.visible && !self.panel_satellites.floating { items.push(("satellites".to_string(), self.panel_satellites.order)); }
         if self.panel_world_map.column == col && self.panel_world_map.visible && !self.panel_world_map.floating { items.push(("world_map".to_string(), self.panel_world_map.order)); }
+        if self.panel_waterfall.column == col && self.panel_waterfall.visible && !self.panel_waterfall.floating { items.push(("waterfall".to_string(), self.panel_waterfall.order)); }
         items.sort_by_key(|(_, ord)| *ord);
         items.into_iter().map(|(id, _)| id).collect()
     }
@@ -193,6 +196,7 @@ impl SpLogApp {
             "solar" => self.panel_solar.order = order,
             "satellites" => self.panel_satellites.order = order,
             "world_map" => self.panel_world_map.order = order,
+            "waterfall" => self.panel_waterfall.order = order,
             _ => {}
         }
     }
@@ -207,6 +211,7 @@ impl SpLogApp {
             "solar" => self.panel_solar.column,
             "satellites" => self.panel_satellites.column,
             "world_map" => self.panel_world_map.column,
+            "waterfall" => self.panel_waterfall.column,
             _ => return,
         };
         let new_col = (cur_col as i32 + delta).clamp(0, 2) as usize;
@@ -225,6 +230,7 @@ impl SpLogApp {
             "solar" => self.panel_solar.column,
             "satellites" => self.panel_satellites.column,
             "world_map" => self.panel_world_map.column,
+            "waterfall" => self.panel_waterfall.column,
             _ => return,
         };
         let mut tiles = self.get_tiles_in_column(col);
@@ -256,6 +262,7 @@ impl SpLogApp {
             "solar" => self.panel_solar.column = col,
             "satellites" => self.panel_satellites.column = col,
             "world_map" => self.panel_world_map.column = col,
+            "waterfall" => self.panel_waterfall.column = col,
             _ => {}
         }
 
@@ -277,6 +284,7 @@ impl SpLogApp {
             if self.panel_solar.column == col && self.panel_solar.visible && !self.panel_solar.floating { items.push(("solar", self.panel_solar.order)); }
             if self.panel_satellites.column == col && self.panel_satellites.visible && !self.panel_satellites.floating { items.push(("satellites", self.panel_satellites.order)); }
             if self.panel_world_map.column == col && self.panel_world_map.visible && !self.panel_world_map.floating { items.push(("world_map", self.panel_world_map.order)); }
+            if self.panel_waterfall.column == col && self.panel_waterfall.visible && !self.panel_waterfall.floating { items.push(("waterfall", self.panel_waterfall.order)); }
 
             items.sort_by_key(|(_, order)| *order);
             for (new_order, (id, _)) in items.into_iter().enumerate() {
@@ -295,6 +303,7 @@ impl SpLogApp {
             "solar" => self.panel_solar.floating = true,
             "satellites" => { self.panel_satellites.floating = true; self.show_satellites_window = true; }
             "world_map" => { self.panel_world_map.floating = true; self.show_world_map_window = true; }
+            "waterfall" => { self.panel_waterfall.floating = true; }
             _ => {}
         }
     }
@@ -309,6 +318,7 @@ impl SpLogApp {
             "solar" => self.panel_solar.visible = false,
             "satellites" => { self.panel_satellites.visible = false; self.show_satellites_window = false; }
             "world_map" => { self.panel_world_map.visible = false; self.show_world_map_window = false; }
+            "waterfall" => { self.panel_waterfall.visible = false; }
             _ => {}
         }
     }
@@ -324,6 +334,7 @@ impl SpLogApp {
             "solar" => icons::SOLAR.label(tr("solar.title", lang)),
             "satellites" => icons::SATELLITE.label("ŚLEDZENIE SATELITÓW"),
             "world_map" => icons::WORLD_MAP.label(tr("map.world_title", lang)),
+            "waterfall" => icons::SIGNAL_UP.label("WIDMO / WATERFALL (SDR)"),
             _ => tile_id.to_string(),
         }
     }
@@ -386,6 +397,7 @@ impl SpLogApp {
             "solar" => crate::gui::solar_panel::render_solar_body(self, ui),
             "satellites" => crate::gui::satellites::render_satellites_content(self, ui),
             "world_map" => crate::gui::world_map::render_world_map_content(self, ui),
+            "waterfall" => crate::gui::waterfall_panel::render_waterfall_body(self, ui),
             _ => {}
         }
     }

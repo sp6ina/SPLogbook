@@ -437,6 +437,7 @@ pub struct AppConfig {
     pub panel_solar: ViewPanelConfig,
     pub panel_satellites: ViewPanelConfig,
     pub panel_world_map: ViewPanelConfig,
+    pub panel_waterfall: ViewPanelConfig,
 
     /// Tryb zakładek w kolumnach dokowanego układu: true = kafelki w kolumnie
     /// prezentowane jako zakładki (jedna aktywna na raz), false = układ pionowy.
@@ -601,6 +602,7 @@ pub struct WorkspaceProfile {
     pub panel_bandmap: ViewPanelConfig,
     pub panel_satellites: ViewPanelConfig,
     pub panel_world_map: ViewPanelConfig,
+    pub panel_waterfall: ViewPanelConfig,
     #[serde(default)]
     pub theme_preset: Option<String>,
     /// Wtyczki Rhai, które mają być włączone w tym profilu (przyszłe
@@ -718,6 +720,7 @@ pub fn workspace_profile_presets() -> Vec<WorkspaceProfile> {
             panel(true, false, 2, 1),
             panel(false, false, 2, 2),
             panel(false, false, 2, 3),
+            panel(false, false, 2, 4),
         ),
         // ── Zawody (kontest) ─────────────────────────────────────────────────
         wp(
@@ -733,6 +736,7 @@ pub fn workspace_profile_presets() -> Vec<WorkspaceProfile> {
             panel(false, false, 2, 2),
             panel(false, false, 2, 3),
             panel(false, false, 2, 4),
+            panel(false, false, 2, 5),
         ),
         // ── Tryby cyfrowe (FT8 / WSJT-X) ─────────────────────────────────────
         wp(
@@ -748,6 +752,7 @@ pub fn workspace_profile_presets() -> Vec<WorkspaceProfile> {
             panel(true, false, 2, 2),
             panel(false, false, 2, 3),
             panel(false, false, 2, 4),
+            panel(false, false, 2, 5),
         ),
         // ── POTA (Parks on the Air) ──────────────────────────────────────────
         wp(
@@ -763,6 +768,7 @@ pub fn workspace_profile_presets() -> Vec<WorkspaceProfile> {
             panel(true, false, 2, 0),
             panel(false, false, 2, 1),
             panel(true, false, 1, 2),
+            panel(false, false, 2, 3),
         ),
         // ── SOTA (Summits on the Air) ────────────────────────────────────────
         wp(
@@ -778,6 +784,7 @@ pub fn workspace_profile_presets() -> Vec<WorkspaceProfile> {
             panel(true, false, 2, 0),
             panel(false, false, 2, 1),
             panel(true, false, 1, 2),
+            panel(false, false, 2, 3),
         ),
         // ── Satelity ─────────────────────────────────────────────────────────
         wp(
@@ -793,6 +800,7 @@ pub fn workspace_profile_presets() -> Vec<WorkspaceProfile> {
             panel(false, false, 2, 1),
             panel(true, false, 2, 0),
             panel(false, false, 2, 2),
+            panel(false, false, 2, 3),
         ),
         // ── EME (Moonbounce) ─────────────────────────────────────────────────
         wp(
@@ -808,6 +816,7 @@ pub fn workspace_profile_presets() -> Vec<WorkspaceProfile> {
             panel(true, false, 2, 0),
             panel(false, false, 2, 1),
             panel(false, false, 2, 2),
+            panel(false, false, 2, 3),
         ),
     ]
 }
@@ -827,6 +836,7 @@ fn wp(
     solar: ViewPanelConfig,
     satellites: ViewPanelConfig,
     world_map: ViewPanelConfig,
+    waterfall: ViewPanelConfig,
 ) -> WorkspaceProfile {
     WorkspaceProfile {
         id: id.to_string(),
@@ -840,6 +850,7 @@ fn wp(
         panel_bandmap: bandmap,
         panel_satellites: satellites,
         panel_world_map: world_map,
+        panel_waterfall: waterfall,
         theme_preset: theme.map(|s| s.to_string()),
         enabled_plugins: Vec::new(),
         cat_profile: None,
@@ -977,6 +988,7 @@ impl Default for AppConfig {
             panel_world_map:  ViewPanelConfig { visible: true, floating: false, column: 2, order: 0, saved_pos: None, saved_size: None },
             panel_solar:      ViewPanelConfig { visible: true, floating: false, column: 2, order: 1, saved_pos: None, saved_size: None },
             panel_satellites: ViewPanelConfig { visible: true, floating: false, column: 2, order: 2, saved_pos: None, saved_size: None },
+            panel_waterfall:  ViewPanelConfig { visible: false, floating: false, column: 2, order: 3, saved_pos: None, saved_size: None },
             tabbed_columns: false,
             dock_layout: None,
             plugins_enabled: true,

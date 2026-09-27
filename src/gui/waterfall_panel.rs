@@ -5,6 +5,7 @@
 //! (np. wyjście audio radia) i rysowanie spektrogramu FFT w czasie rzeczywistym.
 
 use crate::dsp::waterfall::{SampleRing, WaterfallEngine};
+use crate::gui::app::SpLogApp;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use eframe::egui;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -15,8 +16,8 @@ const HISTORY_DEPTH: usize = 256;
 const RING_CAPACITY: usize = 1 << 16; // ~1.3 s przy 48 kHz
 
 pub struct WaterfallPanel {
-    pub is_open: bool,
     running: bool,
+    devices_loaded: bool,
     engine: Option<WaterfallEngine>,
     ring: Arc<SampleRing>,
     running_flag: Arc<AtomicBool>,
@@ -34,8 +35,8 @@ pub struct WaterfallPanel {
 impl WaterfallPanel {
     pub fn new() -> Self {
         Self {
-            is_open: false,
             running: false,
+            devices_loaded: false,
             engine: None,
             ring: SampleRing::new(RING_CAPACITY),
             running_flag: Arc::new(AtomicBool::new(false)),
@@ -51,12 +52,9 @@ impl WaterfallPanel {
         }
     }
 
-    pub fn open(&mut self) {
-        self.refresh_devices();
-        self.is_open = true;
-    }
-
-    fn refresh_devices(&mut self) {
+    /// Odświeża listę urządzeń wejściowych audio (wywoływane raz przy pierwszym
+    /// otwarciu panelu oraz ręcznie przyciskiem ⟳).
+    pub fn refresh_devices(&mut self) {
         self.device_names.clear();
         if let Ok(devices) = cpal::default_host().input_devices() {
             for d in devices {
@@ -64,6 +62,7 @@ impl WaterfallPanel {
                 self.device_names.push(name);
             }
         }
+        self.devices_loaded = true;
     }
 
     fn start(&mut self) {
@@ -139,110 +138,98 @@ impl WaterfallPanel {
         }
     }
 
-    pub fn render(&mut self, ctx: &egui::Context) {
-        if !self.is_open {
-            return;
+    pub fn render_body(&mut self, ui: &mut egui::Ui) {
+        if !self.devices_loaded {
+            self.refresh_devices();
         }
 
-        let mut open = self.is_open;
-
-        egui::Window::new("Widmo / Waterfall (SDR)")
-            .open(&mut open)
-            .collapsible(true)
-            .resizable(true)
-            .default_width(720.0)
-            .default_height(480.0)
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    egui::ComboBox::from_id_salt("waterfall_device")
-                        .width(220.0)
-                        .selected_text(
-                            self.device_names
-                                .get(self.selected_device)
-                                .cloned()
-                                .unwrap_or_else(|| "Domyślne urządzenie".to_string()),
-                        )
-                        .show_ui(ui, |ui| {
-                            for (i, name) in self.device_names.iter().enumerate() {
-                                ui.selectable_value(&mut self.selected_device, i, name);
-                            }
-                            if self.device_names.is_empty() {
-                                ui.label("Brak urządzeń wejściowych.");
-                            }
-                        });
-
-                    if self.running {
-                        if ui.button(icons_stop()).on_hover_text("Zatrzymaj").clicked() {
-                            self.stop();
-                        }
-                    } else if ui.button(icons_play()).on_hover_text("Start").clicked() {
-                        self.start();
+        ui.horizontal(|ui| {
+            egui::ComboBox::from_id_salt("waterfall_device")
+                .width(220.0)
+                .selected_text(
+                    self.device_names
+                        .get(self.selected_device)
+                        .cloned()
+                        .unwrap_or_else(|| "Domyślne urządzenie".to_string()),
+                )
+                .show_ui(ui, |ui| {
+                    for (i, name) in self.device_names.iter().enumerate() {
+                        ui.selectable_value(&mut self.selected_device, i, name);
                     }
-
-                    if ui.button("⟳").on_hover_text("Odśwież listę urządzeń").clicked() {
-                        self.refresh_devices();
-                    }
-
-                    ui.separator();
-                    ui.label("FFT:");
-                    egui::ComboBox::from_id_salt("waterfall_fft")
-                        .selected_text(format!("{}", FFT_SIZES[self.fft_idx]))
-                        .show_ui(ui, |ui| {
-                            for (i, n) in FFT_SIZES.iter().enumerate() {
-                                ui.selectable_value(&mut self.fft_idx, i, n.to_string());
-                            }
-                        });
-                });
-
-                ui.add_space(4.0);
-                ui.horizontal(|ui| {
-                    ui.label("Wzmocnienie:");
-                    ui.add(egui::Slider::new(&mut self.gain_db, -40.0..=40.0).suffix(" dB"));
-                    ui.label("Podłoga szumów:");
-                    ui.add(egui::Slider::new(&mut self.floor_db, -160.0..=-40.0).suffix(" dB"));
-                    ui.label("Nasycenie:");
-                    ui.add(egui::Slider::new(&mut self.color_scale, 0.1..=3.0));
-                    if ui.button("Wyczyść").clicked() {
-                        if let Some(e) = self.engine.as_mut() {
-                            e.clear();
-                        }
+                    if self.device_names.is_empty() {
+                        ui.label("Brak urządzeń wejściowych.");
                     }
                 });
 
-                if let Some(err) = self.error_slot.lock().unwrap_or_else(|p| p.into_inner()).clone() {
-                    ui.colored_label(egui::Color32::from_rgb(239, 68, 68), format!("⚠ {}", err));
+            if self.running {
+                if ui.button(icons_stop()).on_hover_text("Zatrzymaj").clicked() {
+                    self.stop();
                 }
+            } else if ui.button(icons_play()).on_hover_text("Start").clicked() {
+                self.start();
+            }
 
-                ui.add_space(4.0);
-                self.sync_engine();
+            if ui.button("⟳").on_hover_text("Odśwież listę urządzeń").clicked() {
+                self.refresh_devices();
+            }
 
-                // Przetworzenie nowych próbek z bufora pierścieniowego.
-                if self.running {
-                    let mut samples = Vec::new();
-                    self.ring.drain(&mut samples);
-                    if let Some(engine) = self.engine.as_mut() {
-                        engine.set_gain_db(self.gain_db);
-                        engine.set_floor_db(self.floor_db);
-                        engine.feed(&samples);
+            ui.separator();
+            ui.label("FFT:");
+            egui::ComboBox::from_id_salt("waterfall_fft")
+                .selected_text(format!("{}", FFT_SIZES[self.fft_idx]))
+                .show_ui(ui, |ui| {
+                    for (i, n) in FFT_SIZES.iter().enumerate() {
+                        ui.selectable_value(&mut self.fft_idx, i, n.to_string());
                     }
-                }
+                });
+        });
 
-                // Rysowanie spektrogramu.
-                if self.engine.as_ref().map(|e| !e.history().is_empty()).unwrap_or(false) {
-                    self.draw_spectrogram(ui);
-                    ui.add_space(4.0);
-                    self.draw_spectrum(ui);
-                } else {
-                    ui.centered_and_justified(|ui| {
-                        ui.label(
-                            egui::RichText::new("Naciśnij ▶ Start, aby rozpocząć przechwytywanie widma.")
-                                .color(egui::Color32::from_gray(140)),
-                        );
-                    });
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            ui.label("Wzmocnienie:");
+            ui.add(egui::Slider::new(&mut self.gain_db, -40.0..=40.0).suffix(" dB"));
+            ui.label("Podłoga szumów:");
+            ui.add(egui::Slider::new(&mut self.floor_db, -160.0..=-40.0).suffix(" dB"));
+            ui.label("Nasycenie:");
+            ui.add(egui::Slider::new(&mut self.color_scale, 0.1..=3.0));
+            if ui.button("Wyczyść").clicked() {
+                if let Some(e) = self.engine.as_mut() {
+                    e.clear();
                 }
+            }
+        });
+
+        if let Some(err) = self.error_slot.lock().unwrap_or_else(|p| p.into_inner()).clone() {
+            ui.colored_label(egui::Color32::from_rgb(239, 68, 68), format!("⚠ {}", err));
+        }
+
+        ui.add_space(4.0);
+        self.sync_engine();
+
+        // Przetworzenie nowych próbek z bufora pierścieniowego.
+        if self.running {
+            let mut samples = Vec::new();
+            self.ring.drain(&mut samples);
+            if let Some(engine) = self.engine.as_mut() {
+                engine.set_gain_db(self.gain_db);
+                engine.set_floor_db(self.floor_db);
+                engine.feed(&samples);
+            }
+        }
+
+        // Rysowanie spektrogramu.
+        if self.engine.as_ref().map(|e| !e.history().is_empty()).unwrap_or(false) {
+            self.draw_spectrogram(ui);
+            ui.add_space(4.0);
+            self.draw_spectrum(ui);
+        } else {
+            ui.centered_and_justified(|ui| {
+                ui.label(
+                    egui::RichText::new("Naciśnij ▶ Start, aby rozpocząć przechwytywanie widma.")
+                        .color(egui::Color32::from_gray(140)),
+                );
             });
-
-        self.is_open = open;
+        }
     }
 
     fn draw_spectrogram(&mut self, ui: &mut egui::Ui) {
@@ -320,6 +307,65 @@ impl Drop for WaterfallPanel {
     fn drop(&mut self) {
         // Zatrzymuje wątek przechwytujący i strumień audio przy zamykaniu aplikacji.
         self.stop();
+    }
+}
+
+/// Renderuje zawartość dokowanego kafelka waterfall (wywoływane z `app_layout`).
+pub fn render_waterfall_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
+    app.waterfall_panel.render_body(ui);
+}
+
+/// Renderuje kafelek waterfall jako odpięte, pływające okno widoku
+/// (wzorzec zgodny z `world_map`). Wywoływane z `app.rs`, gdy
+/// `panel_waterfall.floating` jest włączone.
+pub fn render_waterfall_window(app: &mut SpLogApp, ctx: &egui::Context) {
+    if !app.panel_waterfall.visible || !app.panel_waterfall.floating {
+        return;
+    }
+
+    let mut dock_back = false;
+    let mut still_open = true;
+
+    let (_, captured_geo) = app.show_floating_viewport(
+        ctx,
+        egui::ViewportId::from_hash_of("waterfall_viewport"),
+        "Widmo / Waterfall (SDR) - SPLogbook".to_string(),
+        [720.0, 480.0],
+        [480.0, 320.0],
+        app.panel_waterfall.saved_pos,
+        app.panel_waterfall.saved_size,
+        |app, ctx| {
+            egui::TopBottomPanel::top("waterfall_vp_bar").show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    if ui.button("↙ Zadokuj").on_hover_text("Zadokuj kafelek").clicked() {
+                        dock_back = true;
+                    }
+                });
+            });
+            egui::CentralPanel::default().show(ctx, |ui| {
+                app.waterfall_panel.render_body(ui);
+            });
+            if ctx.input(|i| i.viewport().close_requested()) {
+                still_open = false;
+            }
+        },
+    );
+
+    if let Some((pos, size)) = captured_geo {
+        app.panel_waterfall.saved_pos = Some(pos);
+        app.panel_waterfall.saved_size = Some(size);
+        app.save_station_config();
+    }
+
+    if dock_back {
+        app.panel_waterfall.floating = false;
+        app.save_station_config();
+    }
+
+    if !still_open {
+        app.panel_waterfall.visible = false;
+        app.panel_waterfall.floating = false;
+        app.save_station_config();
     }
 }
 

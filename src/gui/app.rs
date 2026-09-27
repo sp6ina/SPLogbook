@@ -491,6 +491,7 @@ pub struct SpLogApp {
     pub panel_bandmap: ViewPanelConfig,
     pub panel_satellites: ViewPanelConfig,
     pub panel_world_map: ViewPanelConfig,
+    pub panel_waterfall: ViewPanelConfig,
 
     /// Tryb zakładek w kolumnach dokowanego układu (zapis w konfiguracji).
     pub tabbed_columns: bool,
@@ -1188,6 +1189,7 @@ impl SpLogApp {
             panel_bandmap: app_config.panel_bandmap.clone(),
             panel_satellites: app_config.panel_satellites.clone(),
             panel_world_map: app_config.panel_world_map.clone(),
+            panel_waterfall: app_config.panel_waterfall.clone(),
 
             // Sortowanie i paginacja logu
             log_sort_column: 0,
@@ -2561,6 +2563,7 @@ impl SpLogApp {
             panel_bandmap: self.panel_bandmap.clone(),
             panel_satellites: self.panel_satellites.clone(),
             panel_world_map: self.panel_world_map.clone(),
+            panel_waterfall: self.panel_waterfall.clone(),
             logbook_columns: self.logbook_columns.clone(),
             logbook_column_presets: self.logbook_column_presets.clone(),
             custom_contests: self.custom_contests.clone(),
@@ -4017,7 +4020,8 @@ impl eframe::App for SpLogApp {
                     + (self.panel_bandmap.visible as usize)
                     + (self.panel_solar.visible as usize)
                     + (self.panel_satellites.visible as usize)
-                    + (self.panel_world_map.visible as usize);
+                    + (self.panel_world_map.visible as usize)
+                    + (self.panel_waterfall.visible as usize);
 
                 if total_visible == 0 {
                     ui.vertical_centered(|ui| {
@@ -4088,6 +4092,7 @@ impl eframe::App for SpLogApp {
             if self.panel_bandmap.floating { render_bandmap_window(self, ctx); }
             if self.panel_satellites.floating { render_satellites_window(self, ctx); }
             if self.panel_world_map.floating { render_world_map_window(self, ctx); }
+            if self.panel_waterfall.floating { crate::gui::waterfall_panel::render_waterfall_window(self, ctx); }
         }
 
         // Pozostałe okna modułów zaawansowanych
@@ -4189,8 +4194,8 @@ impl eframe::App for SpLogApp {
             }
         }
 
-        // 3c. Widmo / Waterfall (SDR)
-        self.waterfall_panel.render(ctx);
+        // 3c. Widmo / Waterfall (SDR) — panel dokowany renderowany w systemie
+        // kafelków; okno pływające jest obsługiwane w sekcji okien pop-out powyżej.
 
         // 4. Przeglądarka wysp IOTA
         {

@@ -218,6 +218,7 @@ fn capture_profile(app: &SpLogApp, name: &str) -> WorkspaceProfile {
         panel_bandmap: app.panel_bandmap.clone(),
         panel_satellites: app.panel_satellites.clone(),
         panel_world_map: app.panel_world_map.clone(),
+        panel_waterfall: app.panel_waterfall.clone(),
         theme_preset: Some(app.theme_preset.id().to_string()),
         enabled_plugins: Vec::new(),
         cat_profile: None,
@@ -257,6 +258,7 @@ pub(crate) fn apply_profile(app: &mut SpLogApp, p: &WorkspaceProfile) {
     app.panel_bandmap = p.panel_bandmap.clone();
     app.panel_satellites = p.panel_satellites.clone();
     app.panel_world_map = p.panel_world_map.clone();
+    app.panel_waterfall = p.panel_waterfall.clone();
 
     // Synchronizacja okien pływających (popout) dla paneli z obsługą ↗.
     app.show_bandmap_window = p.panel_bandmap.visible && p.panel_bandmap.floating;

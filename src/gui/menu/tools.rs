@@ -38,7 +38,9 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ui.close_menu();
         }
         if ui.button(icons::SIGNAL_UP.label("Widmo / Waterfall (SDR)")).clicked() {
-            app.waterfall_panel.open();
+            app.panel_waterfall.visible = true;
+            app.panel_waterfall.floating = false;
+            app.save_station_config();
             ui.close_menu();
         }
         ui.separator();

@@ -17,6 +17,7 @@ struct Command {
 fn toggle_awards(app: &mut SpLogApp) { app.show_awards_matrix_window = true; }
 fn toggle_stats(app: &mut SpLogApp) { app.show_statistics_window = true; }
 fn toggle_world_map(app: &mut SpLogApp) { app.panel_world_map.visible = true; app.show_world_map_window = true; }
+fn toggle_waterfall(app: &mut SpLogApp) { app.panel_waterfall.visible = true; }
 fn toggle_satellites(app: &mut SpLogApp) { app.panel_satellites.visible = true; app.show_satellites_window = true; }
 fn toggle_solar(app: &mut SpLogApp) { app.panel_solar.visible = true; app.show_solar_panel = true; }
 fn toggle_bandmap(app: &mut SpLogApp) { app.panel_bandmap.visible = true; app.show_bandmap_window = true; }
@@ -67,6 +68,7 @@ const COMMANDS: &[Command] = &[
     Command { label: "Macierz nagród (Awards)", keywords: "awards dxcc waz was matrix", run: toggle_awards },
     Command { label: "Statystyki", keywords: "statistics stats charts", run: toggle_stats },
     Command { label: "Mapa świata", keywords: "world map", run: toggle_world_map },
+    Command { label: "Widmo / Waterfall (SDR)", keywords: "waterfall spectrum sdr fft", run: toggle_waterfall },
     Command { label: "Satelity", keywords: "satellite pass", run: toggle_satellites },
     Command { label: "Panel słoneczny / propagacja", keywords: "solar propagation sfi", run: toggle_solar },
     Command { label: "Bandmapa (panorama pasma)", keywords: "bandmap spots", run: toggle_bandmap },
