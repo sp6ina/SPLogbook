@@ -110,6 +110,8 @@ fn default_fldigi_port() -> u16 { 7362 }
 fn default_lan_sync_port() -> u16 { 7373 }
 fn default_lan_sync_server_ip() -> String { "127.0.0.1".to_string() }
 fn default_theme_preset() -> String { "operator_dark".to_string() }
+fn default_font_scale() -> f32 { 1.0 }
+fn default_font_family() -> String { String::new() }
 fn default_profile_id() -> String { "default".to_string() }
 fn default_cat_sharing_port() -> u16 { 4534 }
 fn default_hamlib_source() -> String { "bundled".to_string() }
@@ -286,6 +288,10 @@ pub struct AppConfig {
     // Interfejs & Język
     pub current_language: String,
     pub compact_hud_mode: bool,
+    #[serde(default = "default_font_scale")]
+    pub font_scale: f32,
+    #[serde(default = "default_font_family")]
+    pub font_family: String,
 
     // Live Auto-Upload
     pub live_auto_upload_clublog: bool,
@@ -522,6 +528,8 @@ impl Default for AppConfig {
 
             current_language: "pl".to_string(),
             compact_hud_mode: false,
+            font_scale: 1.0,
+            font_family: String::new(),
 
             live_auto_upload_clublog: false,
             live_auto_upload_qrz: false,

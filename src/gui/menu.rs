@@ -125,21 +125,13 @@ pub fn render_menu_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
             if ui.checkbox(&mut app.compact_hud_mode, format!("🗗 {}", tr("view.compact_hud", lang))).changed() {
                 app.save_station_config();
             }
-            ui.separator();
-            ui.menu_button(format!("🎨 {}", tr("theme.menu", lang)), |ui| {
-                for preset in crate::gui::theme::ThemePreset::ALL {
-                    let selected = app.theme_preset == preset;
-                    if ui.selectable_label(selected, preset.label_pl()).on_hover_text(preset.description_pl()).clicked() {
-                        app.theme_preset = preset;
-                        app.save_station_config();
-                        ui.close_menu();
-                    }
-                }
-            });
         });
 
-        // Menu: DX Cluster (Zarządzanie połączeniem, serwerami i filtrami)
-        ui.menu_button(format!("📡 {}", tr("menu.dx_cluster", lang)), |ui| {
+        // Menu: Operacja (radio, DX Cluster, CAT, satelity, contesty, multi-op)
+        ui.menu_button(tr("menu.operation", lang), |ui| {
+            // Sekcja DX Cluster
+            ui.label(egui::RichText::new(format!("📡 {}", tr("menu.dx_cluster", lang))).strong().color(egui::Color32::from_rgb(56, 189, 248)));
+            ui.separator();
             if app.cluster_connected {
                 if ui.button(format!("🔴 {}", tr("cluster.disconnect_btn", lang))).clicked() {
                     app.disconnect_dx_cluster();
@@ -194,10 +186,40 @@ pub fn render_menu_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 app.cluster_spots.clear();
                 ui.close_menu();
             }
+
+            // Sekcja radio / CAT / praca
+            ui.separator();
+            ui.label(egui::RichText::new(tr("tools.cat_connection", lang)).strong().color(egui::Color32::from_rgb(56, 189, 248)));
+            if ui.button(format!("📻 {}", tr("tools.cat_connection", lang))).clicked() {
+                app.show_cat_settings_window = true;
+                ui.close_menu();
+            }
+            if ui.button(format!("📟 {}", tr("tools.cw_terminal", lang))).clicked() {
+                app.cw_terminal_dialog.is_open = true;
+                ui.close_menu();
+            }
+            if ui.button(format!("⚡ {}", tr("tools.cw_macros", lang))).clicked() {
+                app.show_cw_window = true;
+                ui.close_menu();
+            }
+            if ui.button(format!("🛰 {}", tr("tools.satellites", lang))).clicked() {
+                app.panel_satellites.visible = true;
+                app.panel_satellites.floating = true;
+                app.show_satellites_window = true;
+                ui.close_menu();
+            }
+            if ui.button(format!("🏆 {}", tr("tools.contest_module", lang))).clicked() {
+                app.show_contest_window = true;
+                ui.close_menu();
+            }
+            if ui.button(format!("🌐 {}", tr("tools.multi_op", lang))).clicked() {
+                app.show_multi_op_window = true;
+                ui.close_menu();
+            }
         });
 
-        // Menu: Bazy Referencyjne
-        ui.menu_button(format!("📚 {}", tr("menu.ref_databases", lang)), |ui| {
+        // Menu: Referencje (bazy danych, dyplomy, narzędzia pomocnicze)
+        ui.menu_button(format!("📚 {}", tr("menu.references", lang)), |ui| {
             if ui.button(format!("🏝 {}", tr("ref.iota_db", lang))).clicked() {
                 app.iota_dialog.open();
                 ui.close_menu();
@@ -229,18 +251,10 @@ pub fn render_menu_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
             }
         });
 
-        // Menu: Moduły i Narzędzia
+        // Menu: Narzędzia (analiza, synchronizacja, eksport, integracje)
         ui.menu_button(tr("menu.tools", lang), |ui| {
-            if ui.button(format!("📻 {}", tr("tools.cat_connection", lang))).clicked() {
-                app.show_cat_settings_window = true;
-                ui.close_menu();
-            }
             if ui.button(format!("🔍 {}", tr("menu.find_duplicates", lang))).clicked() {
                 app.show_find_duplicates_window = true;
-                ui.close_menu();
-            }
-            if ui.button(format!("📟 {}", tr("tools.cw_terminal", lang))).clicked() {
-                app.cw_terminal_dialog.is_open = true;
                 ui.close_menu();
             }
             if ui.button(format!("🌐 {}", tr("tools.online_sync", lang))).clicked() {
@@ -263,25 +277,6 @@ pub fn render_menu_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
             }
             if ui.button(format!("📡 {}", tr("tools.wspr_monitor", lang))).clicked() {
                 app.show_wspr_window = true;
-                ui.close_menu();
-            }
-            ui.separator();
-            if ui.button(format!("🛰 {}", tr("tools.satellites", lang))).clicked() {
-                app.panel_satellites.visible = true;
-                app.panel_satellites.floating = true;
-                app.show_satellites_window = true;
-                ui.close_menu();
-            }
-            if ui.button(format!("🏆 {}", tr("tools.contest_module", lang))).clicked() {
-                app.show_contest_window = true;
-                ui.close_menu();
-            }
-            if ui.button(format!("🌐 {}", tr("tools.multi_op", lang))).clicked() {
-                app.show_multi_op_window = true;
-                ui.close_menu();
-            }
-            if ui.button(format!("⚡ {}", tr("tools.cw_macros", lang))).clicked() {
-                app.show_cw_window = true;
                 ui.close_menu();
             }
             ui.separator();
@@ -327,38 +322,67 @@ pub fn render_menu_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
             }
         });
 
-        // Menu: Język / Language (wybór języka interfejsu)
-        ui.menu_button(format!("🌐 {}", lang.display_name()), |ui| {
-            if ui.selectable_label(lang == Language::Pl, "🇵🇱 Polski").clicked() {
-                app.current_language = Language::Pl;
+        // Menu: Ustawienia (język, motyw, skalowanie czcionki)
+        ui.menu_button(tr("menu.settings", lang), |ui| {
+            // Język interfejsu
+            ui.menu_button(format!("🌐 {}", tr("settings.language", lang)), |ui| {
+                let langs = [Language::Pl, Language::En, Language::De, Language::Fr, Language::Es, Language::Ru];
+                for l in langs {
+                    let flag = match l {
+                        Language::Pl => "🇵🇱",
+                        Language::En => "🇬🇧",
+                        Language::De => "🇩🇪",
+                        Language::Fr => "🇫🇷",
+                        Language::Es => "🇪🇸",
+                        Language::Ru => "🇷🇺",
+                    };
+                    if ui.selectable_label(lang == l, format!("{} {}", flag, l.display_name())).clicked() {
+                        app.current_language = l;
+                        app.save_station_config();
+                        ui.close_menu();
+                    }
+                }
+            });
+
+            // Motyw kolorystyczny
+            ui.menu_button(format!("🎨 {}", tr("theme.menu", lang)), |ui| {
+                for preset in crate::gui::theme::ThemePreset::ALL {
+                    let selected = app.theme_preset == preset;
+                    if ui.selectable_label(selected, preset.label_pl()).on_hover_text(preset.description_pl()).clicked() {
+                        app.theme_preset = preset;
+                        app.save_station_config();
+                        ui.close_menu();
+                    }
+                }
+            });
+
+            ui.separator();
+
+            // Skala czcionki / UI
+            ui.label(egui::RichText::new(tr("settings.font_scale", lang)).strong());
+            let mut scale = app.font_scale;
+            if ui.add(egui::Slider::new(&mut scale, 0.8..=1.5).step_by(0.05)).changed() {
+                app.font_scale = scale;
                 app.save_station_config();
-                ui.close_menu();
             }
-            if ui.selectable_label(lang == Language::En, "🇬🇧 English").clicked() {
-                app.current_language = Language::En;
-                app.save_station_config();
-                ui.close_menu();
-            }
-            if ui.selectable_label(lang == Language::De, "🇩🇪 Deutsch").clicked() {
-                app.current_language = Language::De;
-                app.save_station_config();
-                ui.close_menu();
-            }
-            if ui.selectable_label(lang == Language::Fr, "🇫🇷 Français").clicked() {
-                app.current_language = Language::Fr;
-                app.save_station_config();
-                ui.close_menu();
-            }
-            if ui.selectable_label(lang == Language::Es, "🇪🇸 Español").clicked() {
-                app.current_language = Language::Es;
-                app.save_station_config();
-                ui.close_menu();
-            }
-            if ui.selectable_label(lang == Language::Ru, "🇷🇺 Русский").clicked() {
-                app.current_language = Language::Ru;
-                app.save_station_config();
-                ui.close_menu();
-            }
+            ui.label(format!("{:.0}%", app.font_scale * 100.0));
+
+            // Rodzina czcionek (zmiana wymaga ponownego uruchomienia)
+            ui.label(egui::RichText::new(tr("settings.font_family", lang)).strong());
+            let mut selected_family = app.font_family.clone();
+            let families = ["", "Segoe UI", "Arial", "Consolas", "DejaVu Sans", "Noto Sans"];
+            let current_label = if selected_family.is_empty() { tr("settings.font_default", lang) } else { selected_family.as_str() };
+            egui::ComboBox::from_id_salt("settings_font_family")
+                .selected_text(current_label)
+                .show_ui(ui, |ui| {
+                    for f in families {
+                        let label = if f.is_empty() { tr("settings.font_default", lang) } else { f };
+                        if ui.selectable_value(&mut selected_family, f.to_string(), label).changed() {
+                            app.font_family = selected_family.clone();
+                            app.save_station_config();
+                        }
+                    }
+                });
         });
 
         // Menu: Pomoc
@@ -369,6 +393,10 @@ pub fn render_menu_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
             }
             if ui.button(format!("⌨ {}", tr("help.shortcuts_title", lang))).clicked() {
                 app.show_shortcuts_window = true;
+                ui.close_menu();
+            }
+            if ui.button(format!("🎨 {}", tr("help.legend", lang))).clicked() {
+                app.show_legend_window = true;
                 ui.close_menu();
             }
             ui.separator();

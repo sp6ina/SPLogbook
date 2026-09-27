@@ -167,6 +167,8 @@ pub struct SpLogApp {
     // Motyw i konfiguracja stacji
     pub dark_theme: bool,
     pub theme_preset: crate::gui::theme::ThemePreset,
+    pub font_scale: f32,
+    pub font_family: String,
     pub show_welcome_wizard: bool,
     pub wizard_tab: u8,
     pub config_file_path: std::path::PathBuf,
@@ -181,6 +183,7 @@ pub struct SpLogApp {
     // Okna dialogowe
     pub show_about_window: bool,
     pub show_shortcuts_window: bool,
+    pub show_legend_window: bool,
     pub show_vfo_panel: bool,
     pub show_cluster_panel: bool,
     pub show_solar_panel: bool,
@@ -455,6 +458,27 @@ pub struct SpLogApp {
     pub focus_callsign_requested: bool,
 }
 
+/// Zwraca ścieżkę do pliku czcionki dla wybranej rodziny (o ile istnieje w systemie).
+fn resolve_font_path(family: &str) -> Option<std::path::PathBuf> {
+    let win_dir = std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".to_string());
+    let win_fonts = std::path::Path::new(&win_dir).join("Fonts");
+    let candidates: Vec<std::path::PathBuf> = match family {
+        "Segoe UI" => vec![win_fonts.join("segoeui.ttf")],
+        "Arial" => vec![win_fonts.join("arial.ttf")],
+        "Consolas" => vec![win_fonts.join("consola.ttf")],
+        "DejaVu Sans" => vec![
+            std::path::PathBuf::from("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+            std::path::PathBuf::from("/usr/share/fonts/TTF/DejaVuSans.ttf"),
+        ],
+        "Noto Sans" => vec![
+            std::path::PathBuf::from("/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf"),
+            std::path::PathBuf::from("/usr/share/fonts/noto/NotoSans-Regular.ttf"),
+        ],
+        _ => return None,
+    };
+    candidates.into_iter().find(|p| p.exists())
+}
+
 impl SpLogApp {
     pub fn new(
         _cc: &eframe::CreationContext<'_>,
@@ -487,10 +511,29 @@ impl SpLogApp {
                 if let Some(mono) = font_defs.families.get_mut(&egui::FontFamily::Monospace) {
                     mono.push("symbol_font".to_owned());
                 }
-                _cc.egui_ctx.set_fonts(font_defs);
                 break;
             }
         }
+
+        // Wybrana przez użytkownika rodzina czcionek (zmiana wymaga ponownego uruchomienia).
+        if !app_config.font_family.is_empty() {
+            if let Some(path) = resolve_font_path(&app_config.font_family) {
+                if let Ok(bytes) = std::fs::read(&path) {
+                    font_defs.font_data.insert("custom_ui_font".to_owned(), egui::FontData::from_owned(bytes).into());
+                    if let Some(prop) = font_defs.families.get_mut(&egui::FontFamily::Proportional) {
+                        prop.insert(0, "custom_ui_font".to_owned());
+                    }
+                    let mono_family = app_config.font_family == "Consolas";
+                    if mono_family {
+                        if let Some(mono) = font_defs.families.get_mut(&egui::FontFamily::Monospace) {
+                            mono.insert(0, "custom_ui_font".to_owned());
+                        }
+                    }
+                }
+            }
+        }
+
+        _cc.egui_ctx.set_fonts(font_defs);
 
         let (active_journal, recent_qsos, qso_numbers) = {
             let db = log_db.lock().unwrap_or_else(|p| p.into_inner());
@@ -690,6 +733,8 @@ impl SpLogApp {
 
             dark_theme: app_config.dark_theme,
             theme_preset: crate::gui::theme::ThemePreset::from_id(&app_config.theme_preset),
+            font_scale: app_config.font_scale,
+            font_family: app_config.font_family.clone(),
             show_welcome_wizard: show_wizard,
             wizard_tab: 0,
             config_file_path,
@@ -702,6 +747,7 @@ impl SpLogApp {
 
             show_about_window: false,
             show_shortcuts_window: false,
+            show_legend_window: false,
             show_vfo_panel: true,
             show_cluster_panel: true,
             show_solar_panel: true,
@@ -1463,9 +1509,12 @@ impl SpLogApp {
     pub fn delete_selected_qso(&mut self) {
         if let Some(qso) = self.recent_qsos.first() {
             if let Some(id) = qso.id {
-                let db = self.log_db.lock().unwrap_or_else(|p| p.into_inner());
-                if let Err(e) = db.delete_qso(id) {
-                    self.status_toast = Some((format!("Błąd usuwania łączności #{}: {}", id, e), std::time::Instant::now()));
+                let result = {
+                    let db = self.log_db.lock().unwrap_or_else(|p| p.into_inner());
+                    db.delete_qso(id)
+                };
+                if let Err(e) = result {
+                    self.report_error(format!("Błąd usuwania łączności #{}: {}", id, e));
                     return;
                 }
             }
@@ -1475,12 +1524,14 @@ impl SpLogApp {
     }
 
     pub fn delete_qso_by_id(&mut self, id: i64) {
-        let db = self.log_db.lock().unwrap_or_else(|p| p.into_inner());
-        if let Err(e) = db.delete_qso(id) {
-            self.status_toast = Some((format!("Błąd usuwania łączności #{}: {}", id, e), std::time::Instant::now()));
+        let result = {
+            let db = self.log_db.lock().unwrap_or_else(|p| p.into_inner());
+            db.delete_qso(id)
+        };
+        if let Err(e) = result {
+            self.report_error(format!("Błąd usuwania łączności #{}: {}", id, e));
             return;
         }
-        drop(db);
         self.rebuild_awards_full();
         self.reload_qsos();
         self.status_message = Some(format!("Usunięto łączność #{} z dziennika.", id));
@@ -1490,14 +1541,16 @@ impl SpLogApp {
     pub fn perform_undo(&mut self) {
         if let Some(qso) = self.undo_stack.pop_front() {
             let callsign = qso.callsign.clone();
-            let db = self.log_db.lock().unwrap_or_else(|p| p.into_inner());
             let mut restored = qso.clone();
             restored.id = None; // nowe ID przy przywracaniu
-            if let Err(e) = db.insert_qso(&restored) {
-                self.status_toast = Some((format!("Błąd przywracania łączności: {}", e), std::time::Instant::now()));
+            let result = {
+                let db = self.log_db.lock().unwrap_or_else(|p| p.into_inner());
+                db.insert_qso(&restored)
+            };
+            if let Err(e) = result {
+                self.report_error(format!("Błąd przywracania łączności: {}", e));
                 return;
             }
-            drop(db);
             self.redo_stack.push_front(qso);
             self.rebuild_awards_full();
             self.reload_qsos();
@@ -1532,9 +1585,12 @@ impl SpLogApp {
     pub fn save_edited_qso(&mut self) {
         if let Some(ref qso) = self.editing_qso {
             if let Some(id) = qso.id {
-                let db = self.log_db.lock().unwrap_or_else(|p| p.into_inner());
-                if let Err(e) = db.update_qso(id, qso) {
-                    self.status_toast = Some((format!("Błąd aktualizacji łączności #{}: {}", id, e), std::time::Instant::now()));
+                let result = {
+                    let db = self.log_db.lock().unwrap_or_else(|p| p.into_inner());
+                    db.update_qso(id, qso)
+                };
+                if let Err(e) = result {
+                    self.report_error(format!("Błąd aktualizacji łączności #{}: {}", id, e));
                     return;
                 }
                 self.status_message = Some(format!("Zaktualizowano rekord łączności z: {}", qso.callsign));
@@ -1949,6 +2005,8 @@ impl SpLogApp {
 
             current_language: self.current_language.code().to_string(),
             compact_hud_mode: self.compact_hud_mode,
+            font_scale: self.font_scale,
+            font_family: self.font_family.clone(),
 
             live_auto_upload_clublog: self.live_auto_upload_clublog,
             live_auto_upload_qrz: self.live_auto_upload_qrz,
@@ -1978,14 +2036,22 @@ impl SpLogApp {
             custom_contests: self.custom_contests.clone(),
         };
         if let Err(e) = cfg.save_to_file(&self.config_file_path) {
-            log::error!("Nie udało się zapisać konfiguracji stacji ({}): {}", self.config_file_path.display(), e);
-            self.status_toast = Some((
-                format!("⚠ Błąd zapisu konfiguracji: {}", e),
-                std::time::Instant::now(),
-            ));
+            self.report_error(format!("⚠ Błąd zapisu konfiguracji: {}", e));
         } else {
             self.secret_store_id = cfg.secret_store_id;
         }
+    }
+
+    /// Scentralizowane zgłaszanie błędów: log + pływające powiadomienie w UI.
+    pub fn report_error(&mut self, msg: impl Into<String>) {
+        let msg = msg.into();
+        log::error!("{}", msg);
+        self.status_toast = Some((msg, std::time::Instant::now()));
+    }
+
+    /// Scentralizowane zgłaszanie informacji/statusu (bez wpisu do logu błędów).
+    pub fn report_info(&mut self, msg: impl Into<String>) {
+        self.status_toast = Some((msg.into(), std::time::Instant::now()));
     }
 
     pub fn connect_dx_cluster(&mut self) {
@@ -2669,7 +2735,7 @@ impl SpLogApp {
                         }
                         Err(e) => {
                             self.status_message = Some(format!("Błąd zapisu łączności do bazy: {}", e));
-                            self.status_toast = Some((format!("Błąd importu do bazy: {}", e), std::time::Instant::now()));
+                            self.report_error(format!("Błąd importu do bazy: {}", e));
                         }
                     }
                 }
@@ -2722,7 +2788,7 @@ impl SpLogApp {
                 self.status_toast = Some((format!("Wykonano kopię zapasową: {} w folderze backups/!", name), std::time::Instant::now()));
             }
             Err(e) => {
-                self.status_toast = Some((format!("Błąd tworzenia kopii zapasowej: {}", e), std::time::Instant::now()));
+                self.report_error(format!("Błąd tworzenia kopii zapasowej: {}", e));
             }
         }
     }
@@ -3065,7 +3131,7 @@ impl eframe::App for SpLogApp {
                             self.reload_qsos();
                         }
                         Err(e) => {
-                            self.status_toast = Some((format!("Błąd auto-zapisu WSJT-X: {}", e), std::time::Instant::now()));
+                            self.report_error(format!("Błąd auto-zapisu WSJT-X: {}", e));
                         }
                     }
                 }
@@ -3188,6 +3254,9 @@ impl eframe::App for SpLogApp {
         // aby ewentualny inny kod odczytujący ten flag nadal działał poprawnie.
         self.dark_theme = self.theme_preset.is_dark();
         self.theme_preset.apply(ctx);
+
+        // Skala czcionki / UI (80–150%). Stosowana globalnie jako mnożnik zoom.
+        ctx.set_zoom_factor(self.font_scale.clamp(0.8, 1.5));
 
         ctx.style_mut(|s| {
             s.spacing.window_margin = egui::Margin::symmetric(6.0, 4.0);
@@ -3545,6 +3614,47 @@ impl eframe::App for SpLogApp {
                 });
             if !is_open {
                 self.show_shortcuts_window = false;
+            }
+        }
+
+        // Legenda kolorów i statusów (niezależna od samego koloru — symbole + tekst)
+        if self.show_legend_window {
+            let mut is_open = self.show_legend_window;
+            egui::Window::new(tr("legend.title", self.current_language))
+                .open(&mut is_open)
+                .default_size([460.0, 420.0])
+                .show(ctx, |ui| {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        ui.label(egui::RichText::new(
+                            "Każdy status jest oznaczony kolorem ORAZ symbolem/kształtem, aby był czytelny także dla osób z zaburzeniami widzenia barw."
+                        ).italics().color(egui::Color32::from_rgb(148, 163, 184)));
+
+                        ui.add_space(8.0);
+                        let rows: &[(egui::Color32, &str, &str, &str)] = &[
+                            (egui::Color32::from_rgb(34, 197, 94), "●", "Zielony", "Połączono / aktywny — DX Cluster połączony, WSJT-X aktywny, QSO zapisane poprawnie."),
+                            (egui::Color32::from_rgb(250, 204, 21), "◐", "Żółty / bursztyn", "Łączenie / ostrzeżenie — trwa łączenie z klastrem, aktywny filtr, status oczekujący."),
+                            (egui::Color32::from_rgb(148, 163, 184), "○", "Szary", "Rozłączono / nieaktywny — klaster rozłączony, moduł wyłączony."),
+                            (egui::Color32::from_rgb(239, 68, 68), "⚠", "Czerwony", "Błąd / akcja niszcząca — błąd operacji, przycisk rozłączenia, usuwanie wpisu."),
+                            (egui::Color32::from_rgb(56, 189, 248), "ℹ", "Niebieski", "Informacja / wartości aktywne — znak OP, nagłówki sekcji, wartości pomiarowe."),
+                            (egui::Color32::from_rgb(52, 211, 153), "✦", "Cyjan / zielony", "Sukces / potwierdzenie — QSO potwierdzone (LoTW/eQSL), potwierdzony zapis."),
+                        ];
+                        egui::Grid::new("legend_grid")
+                            .num_columns(4)
+                            .spacing([12.0, 8.0])
+                            .striped(true)
+                            .show(ui, |ui| {
+                                for (color, shape, name, desc) in rows {
+                                    ui.label(egui::RichText::new(*shape).color(*color).size(18.0));
+                                    ui.label(egui::RichText::new(*name).strong().color(*color));
+                                    ui.label(egui::RichText::new("■").color(*color).size(14.0));
+                                    ui.label(egui::RichText::new(*desc).color(egui::Color32::from_rgb(203, 213, 225)));
+                                    ui.end_row();
+                                }
+                            });
+                    });
+                });
+            if !is_open {
+                self.show_legend_window = false;
             }
         }
 
