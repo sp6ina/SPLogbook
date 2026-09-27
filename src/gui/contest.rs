@@ -4,6 +4,7 @@
 use crate::gui::app::SpLogApp;
 use crate::core::i18n::tr;
 use crate::core::contest_rules::{RULES, calculate_score, detect_duplicate};
+use crate::core::exchange::{ExchangeField, apply_to_qso, exchange_summary, fields_from_format_string, parse_exchange};
 use crate::core::qso::QsoRecord;
 use crate::core::station::CustomContest;
 
@@ -119,6 +120,24 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
         is_custom = true;
         custom_idx = Some(idx);
     }
+
+    // Uporządkowane pola wymiany dla aktualnie wybranego kontestu.
+    let exchange_fields: Option<Vec<ExchangeField>> = if let Some(idx) = custom_idx {
+        Some(fields_from_format_string(&app.custom_contests[idx].exchange_format))
+    } else if let Some(rule_idx) = RULES.iter().position(|r| r.name == app.contest_name) {
+        Some(RULES[rule_idx].exchange_fields.to_vec())
+    } else {
+        None
+    };
+    let exchange_hint = exchange_fields
+        .as_ref()
+        .map(|f| {
+            f.iter()
+                .map(|e| e.label().to_string())
+                .collect::<Vec<_>>()
+                .join(" + ")
+        })
+        .unwrap_or_default();
     
     let my_dxcc: u32 = 269;
     let my_cqzone = app.my_station.cq_zone as u8;
@@ -283,12 +302,39 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         }
                         
                         ui.label(tr("contest.rcvd_report_exchange", lang));
-                        ui.add(egui::TextEdit::singleline(&mut app.entry_rst_rcvd).desired_width(100.0));
+                        ui.add(egui::TextEdit::singleline(&mut app.entry_exchange).desired_width(200.0));
                         
                         if ui.button(tr("contest.save_qso", lang)).clicked() {
                             save_clicked = true;
                         }
                     });
+
+                    if !exchange_hint.is_empty() {
+                        ui.label(
+                            egui::RichText::new(format!("Format wymiany: {}", exchange_hint))
+                                .italics()
+                                .weak(),
+                        );
+                    }
+                    // Podgląd / walidacja parsowania na żywo.
+                    if !app.entry_exchange.trim().is_empty() {
+                        if let Some(fields) = &exchange_fields {
+                            match parse_exchange(fields, &app.entry_exchange) {
+                                Ok(parsed) => {
+                                    ui.label(
+                                        egui::RichText::new(format!("✓ {}", exchange_summary(&parsed)))
+                                            .color(egui::Color32::from_rgb(34, 197, 94)),
+                                    );
+                                }
+                                Err(e) => {
+                                    ui.label(
+                                        egui::RichText::new(format!("⚠ {}", e.message))
+                                            .color(egui::Color32::from_rgb(239, 68, 68)),
+                                    );
+                                }
+                            }
+                        }
+                    }
                 });
 
                 ui.add_space(8.0);
@@ -310,25 +356,51 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
     if save_clicked && !app.entry_callsign.is_empty() {
         let mut new_qso = QsoRecord::new(&app.entry_callsign, &app.entry_band, &app.entry_mode);
-        new_qso.rst_rcvd = app.entry_rst_rcvd.clone();
         new_qso.stx = Some(app.contest_stx);
         new_qso.journal_id = Some("CONTEST".to_string());
-        let insert_result = match app.log_db.lock() {
-            Ok(db) => db.insert_qso(&new_qso).map_err(|error| error.to_string()),
-            Err(error) => Err(format!("Nie można otworzyć dziennika: {error}")),
-        };
-        match insert_result {
-            Ok(_) => {
-                app.contest_stx += 1;
-                app.entry_callsign.clear();
-                app.entry_rst_rcvd.clear();
-                app.reload_qsos();
+
+        // Parsuj wymianę, jeśli kontest ma zdefiniowane pola; w przeciwnym razie
+        // zachowaj dawny tryb "sam RST" w polu `entry_rst_rcvd`.
+        let mut exchange_ok = true;
+        if let Some(fields) = &exchange_fields {
+            let exchange_text = if app.entry_exchange.trim().is_empty() {
+                app.entry_rst_rcvd.clone()
+            } else {
+                app.entry_exchange.clone()
+            };
+            match parse_exchange(fields, &exchange_text) {
+                Ok(parsed) => apply_to_qso(&parsed, &mut new_qso),
+                Err(e) => {
+                    exchange_ok = false;
+                    app.status_toast = Some((
+                        format!("Błąd wymiany: {}", e.message),
+                        std::time::Instant::now(),
+                    ));
+                }
             }
-            Err(error) => {
-                app.status_toast = Some((
-                    format!("Błąd zapisu QSO kontestowego: {error}"),
-                    std::time::Instant::now(),
-                ));
+        } else {
+            new_qso.rst_rcvd = app.entry_rst_rcvd.clone();
+        }
+
+        if exchange_ok {
+            let insert_result = match app.log_db.lock() {
+                Ok(db) => db.insert_qso(&new_qso).map_err(|error| error.to_string()),
+                Err(error) => Err(format!("Nie można otworzyć dziennika: {error}")),
+            };
+            match insert_result {
+                Ok(_) => {
+                    app.contest_stx += 1;
+                    app.entry_callsign.clear();
+                    app.entry_rst_rcvd.clear();
+                    app.entry_exchange.clear();
+                    app.reload_qsos();
+                }
+                Err(error) => {
+                    app.status_toast = Some((
+                        format!("Błąd zapisu QSO kontestowego: {error}"),
+                        std::time::Instant::now(),
+                    ));
+                }
             }
         }
     }

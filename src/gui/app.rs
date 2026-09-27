@@ -67,6 +67,8 @@ pub struct SpLogApp {
     pub entry_mode: String,
     pub entry_rst_sent: String,
     pub entry_rst_rcvd: String,
+    /// Pełna wymiana kontestowa (np. "599 001" lub "599 15 1234").
+    pub entry_exchange: String,
     pub entry_name: String,
     pub entry_qth: String,
     pub entry_grid: String,
@@ -746,6 +748,7 @@ impl SpLogApp {
             entry_mode: "CW".to_string(),
             entry_rst_sent: "599".to_string(),
             entry_rst_rcvd: "599".to_string(),
+            entry_exchange: String::new(),
             entry_name: String::new(),
             entry_qth: String::new(),
             entry_grid: String::new(),

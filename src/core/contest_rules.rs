@@ -1,3 +1,5 @@
+use crate::core::exchange::ExchangeField;
+use crate::core::exchange::ExchangeField::*;
 use crate::core::qso::QsoRecord;
 use std::collections::HashSet;
 
@@ -5,7 +7,10 @@ pub type ScoringFn = fn(&[QsoRecord], u32, u8) -> (u32, u32, u32);
 
 pub struct ContestRule {
     pub name: &'static str,
+    /// Opis wymiany wyświetlany użytkownikowi.
     pub exchange_format: &'static str,
+    /// Uporządkowana struktura wymiany używana przez parser (zob. `core::exchange`).
+    pub exchange_fields: &'static [ExchangeField],
     pub bands: &'static [&'static str],
     pub scoring_fn: ScoringFn,
 }
@@ -300,25 +305,25 @@ fn score_ukrainian(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u
 }
 
 pub const RULES: &[ContestRule] = &[
-    ContestRule { name: "SP DX Contest", exchange_format: "RST + Serial", bands: &["80m", "40m", "20m", "15m", "10m"], scoring_fn: score_sp_dx },
-    ContestRule { name: "CQ World Wide DX Contest (CW)", exchange_format: "RST + CQ Zone", bands: &["160m", "80m", "40m", "20m", "15m", "10m"], scoring_fn: score_cqww },
-    ContestRule { name: "CQ World Wide DX Contest (SSB)", exchange_format: "RST + CQ Zone", bands: &["160m", "80m", "40m", "20m", "15m", "10m"], scoring_fn: score_cqww },
-    ContestRule { name: "CQ WPX Contest", exchange_format: "RST + Serial", bands: &["160m", "80m", "40m", "20m", "15m", "10m"], scoring_fn: score_wpx },
-    ContestRule { name: "ARRL International DX", exchange_format: "RST + Power", bands: &["160m", "80m", "40m", "20m", "15m", "10m"], scoring_fn: score_arrl_dx },
-    ContestRule { name: "VHFUHF (SP)", exchange_format: "RST + Grid", bands: &["2m", "70cm"], scoring_fn: score_vhf },
-    ContestRule { name: "IARU HF Championship", exchange_format: "RST + Zone/HQ", bands: &["160m", "80m", "40m", "20m", "15m", "10m"], scoring_fn: score_iaru },
-    ContestRule { name: "WAE DX Contest", exchange_format: "RST + Serial", bands: &["80m", "40m", "20m", "15m", "10m"], scoring_fn: score_wae },
-    ContestRule { name: "RSGB IOTA Contest", exchange_format: "RST + Serial + IOTA", bands: &["80m", "40m", "20m", "15m", "10m"], scoring_fn: score_iota },
-    ContestRule { name: "ARRL Field Day", exchange_format: "Category + ARRL Section", bands: &["160m", "80m", "40m", "20m", "15m", "10m"], scoring_fn: score_field_day },
-    ContestRule { name: "Scandinavian Activity Contest", exchange_format: "RST + Serial", bands: &["80m", "40m", "20m", "15m", "10m"], scoring_fn: score_sac },
-    ContestRule { name: "EU HF Championship", exchange_format: "RST + Year of 1st License", bands: &["160m", "80m", "40m", "20m", "15m", "10m"], scoring_fn: score_eu_hf },
-    ContestRule { name: "OK/OM DX Contest", exchange_format: "RST + District", bands: &["160m", "80m", "40m", "20m", "15m", "10m"], scoring_fn: score_ok_om },
-    ContestRule { name: "King of Spain DX Contest", exchange_format: "RST + Province", bands: &["160m", "80m", "40m", "20m", "15m", "10m"], scoring_fn: score_king_spain },
-    ContestRule { name: "All Asian DX Contest", exchange_format: "RST + Age", bands: &["160m", "80m", "40m", "20m", "15m", "10m"], scoring_fn: score_all_asian },
-    ContestRule { name: "JIDX Contest", exchange_format: "RST + Prefecture", bands: &["160m", "80m", "40m", "20m", "15m", "10m"], scoring_fn: score_jidx },
-    ContestRule { name: "RDA Contest", exchange_format: "RST + District", bands: &["160m", "80m", "40m", "20m", "15m", "10m"], scoring_fn: score_rda },
-    ContestRule { name: "Marconi Memorial HF", exchange_format: "RST + Serial", bands: &["160m", "80m", "40m", "20m", "15m", "10m"], scoring_fn: score_marconi },
-    ContestRule { name: "BARTG HF RTTY", exchange_format: "RST + Serial + Time", bands: &["80m", "40m", "20m", "15m", "10m"], scoring_fn: score_bartg },
-    ContestRule { name: "NA RTTY Sprint", exchange_format: "RST + Serial + Name + QTH", bands: &["80m", "40m", "20m"], scoring_fn: score_na_rtty },
-    ContestRule { name: "Ukrainian DX Contest", exchange_format: "RST + Oblast", bands: &["160m", "80m", "40m", "20m", "15m", "10m"], scoring_fn: score_ukrainian },
+    ContestRule { name: "SP DX Contest", exchange_format: "RST + Serial", exchange_fields: &[Rst, Serial], bands: &["80m", "40m", "20m", "15m", "10m"], scoring_fn: score_sp_dx },
+    ContestRule { name: "CQ World Wide DX Contest (CW)", exchange_format: "RST + CQ Zone", exchange_fields: &[Rst, Zone], bands: &["160m", "80m", "40m", "20m", "15m", "10m"], scoring_fn: score_cqww },
+    ContestRule { name: "CQ World Wide DX Contest (SSB)", exchange_format: "RST + CQ Zone", exchange_fields: &[Rst, Zone], bands: &["160m", "80m", "40m", "20m", "15m", "10m"], scoring_fn: score_cqww },
+    ContestRule { name: "CQ WPX Contest", exchange_format: "RST + Serial", exchange_fields: &[Rst, Serial], bands: &["160m", "80m", "40m", "20m", "15m", "10m"], scoring_fn: score_wpx },
+    ContestRule { name: "ARRL International DX", exchange_format: "RST + Power", exchange_fields: &[Rst, Power], bands: &["160m", "80m", "40m", "20m", "15m", "10m"], scoring_fn: score_arrl_dx },
+    ContestRule { name: "VHFUHF (SP)", exchange_format: "RST + Grid", exchange_fields: &[Rst, Grid], bands: &["2m", "70cm"], scoring_fn: score_vhf },
+    ContestRule { name: "IARU HF Championship", exchange_format: "RST + Zone/HQ", exchange_fields: &[Rst, ZoneOrHq], bands: &["160m", "80m", "40m", "20m", "15m", "10m"], scoring_fn: score_iaru },
+    ContestRule { name: "WAE DX Contest", exchange_format: "RST + Serial", exchange_fields: &[Rst, Serial], bands: &["80m", "40m", "20m", "15m", "10m"], scoring_fn: score_wae },
+    ContestRule { name: "RSGB IOTA Contest", exchange_format: "RST + Serial + IOTA", exchange_fields: &[Rst, Serial, Iota], bands: &["80m", "40m", "20m", "15m", "10m"], scoring_fn: score_iota },
+    ContestRule { name: "ARRL Field Day", exchange_format: "Category + ARRL Section", exchange_fields: &[Category, State], bands: &["160m", "80m", "40m", "20m", "15m", "10m"], scoring_fn: score_field_day },
+    ContestRule { name: "Scandinavian Activity Contest", exchange_format: "RST + Serial", exchange_fields: &[Rst, Serial], bands: &["80m", "40m", "20m", "15m", "10m"], scoring_fn: score_sac },
+    ContestRule { name: "EU HF Championship", exchange_format: "RST + Year of 1st License", exchange_fields: &[Rst, Year], bands: &["160m", "80m", "40m", "20m", "15m", "10m"], scoring_fn: score_eu_hf },
+    ContestRule { name: "OK/OM DX Contest", exchange_format: "RST + District", exchange_fields: &[Rst, District], bands: &["160m", "80m", "40m", "20m", "15m", "10m"], scoring_fn: score_ok_om },
+    ContestRule { name: "King of Spain DX Contest", exchange_format: "RST + Province", exchange_fields: &[Rst, State], bands: &["160m", "80m", "40m", "20m", "15m", "10m"], scoring_fn: score_king_spain },
+    ContestRule { name: "All Asian DX Contest", exchange_format: "RST + Age", exchange_fields: &[Rst, Age], bands: &["160m", "80m", "40m", "20m", "15m", "10m"], scoring_fn: score_all_asian },
+    ContestRule { name: "JIDX Contest", exchange_format: "RST + Prefecture", exchange_fields: &[Rst, District], bands: &["160m", "80m", "40m", "20m", "15m", "10m"], scoring_fn: score_jidx },
+    ContestRule { name: "RDA Contest", exchange_format: "RST + District", exchange_fields: &[Rst, District], bands: &["160m", "80m", "40m", "20m", "15m", "10m"], scoring_fn: score_rda },
+    ContestRule { name: "Marconi Memorial HF", exchange_format: "RST + Serial", exchange_fields: &[Rst, Serial], bands: &["160m", "80m", "40m", "20m", "15m", "10m"], scoring_fn: score_marconi },
+    ContestRule { name: "BARTG HF RTTY", exchange_format: "RST + Serial + Time", exchange_fields: &[Rst, Serial, Time], bands: &["80m", "40m", "20m", "15m", "10m"], scoring_fn: score_bartg },
+    ContestRule { name: "NA RTTY Sprint", exchange_format: "RST + Serial + Name + QTH", exchange_fields: &[Rst, Serial, Name, Qth], bands: &["80m", "40m", "20m"], scoring_fn: score_na_rtty },
+    ContestRule { name: "Ukrainian DX Contest", exchange_format: "RST + Oblast", exchange_fields: &[Rst, District], bands: &["160m", "80m", "40m", "20m", "15m", "10m"], scoring_fn: score_ukrainian },
 ];
