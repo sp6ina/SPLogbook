@@ -433,6 +433,13 @@ pub struct AppConfig {
     #[serde(default)]
     pub tabbed_columns: bool,
 
+    /// Zserializowany układ dokowania paneli (egui_dock::DockState<String>).
+    /// Zapisany jako surowy JSON, aby nie sprzęgać schematu konfiguracji
+    /// z wewnętrzną reprezentacją egui_dock. `None` = brak zapisanego układu
+    /// (zostanie zbudowany z kolumn `panel_*`).
+    #[serde(default)]
+    pub dock_layout: Option<serde_json::Value>,
+
     #[serde(default = "default_logbook_columns")]
     pub logbook_columns: Vec<LogColumn>,
 
@@ -777,6 +784,7 @@ impl Default for AppConfig {
             panel_solar:      ViewPanelConfig { visible: true, floating: false, column: 2, order: 1, saved_pos: None, saved_size: None },
             panel_satellites: ViewPanelConfig { visible: true, floating: false, column: 2, order: 2, saved_pos: None, saved_size: None },
             tabbed_columns: false,
+            dock_layout: None,
             plugins_enabled: true,
             plugins_dir: default_plugins_dir(),
             operator_assistant_enabled: default_operator_assistant_enabled(),

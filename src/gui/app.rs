@@ -45,6 +45,7 @@ use crate::gui::states_browser::StatesBrowserDialog;
 use crate::gui::wol_dialog::WolDialog;
 use crate::core::backup::BackupManager;
 use eframe::egui;
+use egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
 use std::sync::{Arc, Mutex};
 
 /// Główny stan aplikacji natywnego pulpitu SPLogbook
@@ -408,6 +409,14 @@ pub struct SpLogApp {
     pub tabbed_columns: bool,
     /// Indeks aktywnej zakładki w każdej z trzech kolumn (stan sesji).
     pub active_tab: [usize; 3],
+
+    /// Rzeczywisty układ dokowania paneli (egui_dock): podziały, grupy
+    /// zakładek i aktywne karty. Uzupełniany/synchronizowany z konfiguracją
+    /// paneli przy każdej klatce.
+    pub dock_state: DockState<String>,
+    /// Ostatnio zapisany (lub zbudowany) układ dokowania — używany do
+    /// wykrywania zmian i unikania zbędnych zapisów konfiguracji.
+    pub last_saved_dock_layout: Option<serde_json::Value>,
 
     // Tryb kompaktowy (Mini HUD)
     pub compact_hud_mode: bool,
@@ -992,6 +1001,8 @@ impl SpLogApp {
             compact_hud_mode: app_config.compact_hud_mode,
             tabbed_columns: app_config.tabbed_columns,
             active_tab: [0; 3],
+            dock_state: DockState::new(vec![]),
+            last_saved_dock_layout: None,
             hud_always_on_top: app_config.hud_always_on_top,
             hud_saved_pos: app_config.hud_saved_pos,
             hud_saved_size: app_config.hud_saved_size,
@@ -1155,6 +1166,9 @@ impl SpLogApp {
         };
 
         app.rebuild_awards_full();
+
+        // Zbuduj (lub wczytaj z konfiguracji) układ dokowania paneli.
+        app.build_dock_state(app_config.dock_layout.as_ref());
 
         // Wczytanie pluginów użytkownika (Rhai) z katalogu i uruchomienie on_startup().
         {
@@ -2284,6 +2298,7 @@ impl SpLogApp {
             current_language: self.current_language.code().to_string(),
             compact_hud_mode: self.compact_hud_mode,
             tabbed_columns: self.tabbed_columns,
+            dock_layout: self.serialize_dock_layout(),
             font_scale: self.font_scale,
             font_family: self.font_family.clone(),
             distance_unit: self.distance_unit.clone(),
@@ -2406,6 +2421,121 @@ impl SpLogApp {
         self.status_toast = Some(("JS8Call: Integracja wyłączona.".to_string(), std::time::Instant::now()));
     }
 
+    // ------------------------------------------------------------------
+    // egui_dock: rzeczywisty układ dokowania paneli
+    // ------------------------------------------------------------------
+
+    /// Kolejność paneli (identyfikatorów kafelków) używana przy budowaniu
+    /// układu dokowania oraz przy synchronizacji widoczności.
+    pub fn all_tile_ids() -> [&'static str; 8] {
+        [
+            "vfo", "qso", "log", "cluster", "bandmap", "solar", "satellites", "world_map",
+        ]
+    }
+
+    pub fn panel_config(&self, id: &str) -> &ViewPanelConfig {
+        match id {
+            "vfo" => &self.panel_vfo,
+            "qso" => &self.panel_qso,
+            "log" => &self.panel_log,
+            "cluster" => &self.panel_cluster,
+            "bandmap" => &self.panel_bandmap,
+            "solar" => &self.panel_solar,
+            "satellites" => &self.panel_satellites,
+            "world_map" => &self.panel_world_map,
+            _ => &self.panel_vfo,
+        }
+    }
+
+    /// Buduje początkowy `DockState` z konfiguracji. Preferuje zapisany układ
+    /// (`dock_layout`); w przeciwnym razie odtwarza układ kolumnowy
+    /// na podstawie pól `column`/`order` poszczególnych paneli.
+    pub fn build_dock_state(&mut self, dock_layout: Option<&serde_json::Value>) {
+        // 1. Spróbuj wczytać zapisany układ egui_dock.
+        if let Some(json) = dock_layout {
+            if let Ok(state) = serde_json::from_value::<DockState<String>>(json.clone()) {
+                self.dock_state = state;
+                self.sync_dock_state();
+                self.last_saved_dock_layout = self.serialize_dock_layout();
+                return;
+            }
+        }
+
+        // 2. Brak zapisanego układu — zbuduj z kolumn paneli.
+        self.rebuild_dock_state_from_panels();
+        self.last_saved_dock_layout = self.serialize_dock_layout();
+    }
+
+    /// Odtwarza dokowany układ z pól `column`/`order` paneli (3 kolumny
+    /// ułożone poziomo). Używane przy pierwszym uruchomieniu i po resecie.
+    pub fn rebuild_dock_state_from_panels(&mut self) {
+        let mut columns: [Vec<String>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+        for id in Self::all_tile_ids() {
+            let (visible, floating, column) = {
+                let cfg = self.panel_config(id);
+                (cfg.visible, cfg.floating, cfg.column.clamp(0, 2))
+            };
+            if visible && !floating {
+                columns[column].push(id.to_string());
+            }
+        }
+        for col in columns.iter_mut() {
+            col.sort_by_key(|id| self.panel_config(id).order);
+        }
+
+        // Pierwsza niepusta kolumna staje się korzeniem drzewa.
+        let first = if !columns[0].is_empty() {
+            0
+        } else if !columns[1].is_empty() {
+            1
+        } else {
+            2
+        };
+
+        self.dock_state = DockState::new(columns[first].clone());
+
+        // Dołóż pozostałe kolumny jako podziały po prawej stronie ostatniego liścia.
+        let mut rightmost = NodeIndex::root();
+        for col in (first + 1)..3 {
+            if columns[col].is_empty() {
+                continue;
+            }
+            let [_, new_node] = self
+                .dock_state
+                .main_surface_mut()
+                .split_right(rightmost, 0.5, columns[col].clone());
+            rightmost = new_node;
+        }
+    }
+
+    /// Uzgadnia zawartość `dock_state` ze stanem konfiguracji paneli:
+    /// usuwa karty paneli ukrytych/odpiętych i dodaje brakujące karty paneli
+    /// widocznych i zadokowanych.
+    pub fn sync_dock_state(&mut self) {
+        for id in Self::all_tile_ids() {
+            let (visible, floating) = {
+                let cfg = self.panel_config(id);
+                (cfg.visible, cfg.floating)
+            };
+            let should_be_docked = visible && !floating;
+            let slot = self.dock_state.find_tab(&id.to_string());
+            match (should_be_docked, slot) {
+                (false, Some(s)) => {
+                    self.dock_state.remove_tab(s);
+                }
+                (true, None) => {
+                    self.dock_state.push_to_first_leaf(id.to_string());
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Serializuje bieżący układ dokowania do surowego JSON (do zapisu w konfiguracji).
+    pub fn serialize_dock_layout(&self) -> Option<serde_json::Value> {
+        serde_json::to_value(&self.dock_state).ok()
+    }
+
     pub fn reset_panel_layout(&mut self) {
         use crate::core::station::ViewPanelConfig;
         self.left_column_width = 350.0;
@@ -2424,6 +2554,9 @@ impl SpLogApp {
         self.show_satellites_window = false;
         self.show_world_map_window = false;
         self.reset_layout_requested = true;
+        // Natychmiast odtwórz dokowany układ z domyślnej konfiguracji paneli.
+        self.rebuild_dock_state_from_panels();
+        self.last_saved_dock_layout = self.serialize_dock_layout();
     }
 
     pub fn get_tiles_in_column(&self, col: usize) -> Vec<String> {
@@ -2554,7 +2687,6 @@ impl SpLogApp {
             "world_map" => { self.panel_world_map.floating = true; self.show_world_map_window = true; }
             _ => {}
         }
-        self.save_station_config();
     }
 
     pub fn close_tile(&mut self, tile_id: &str) {
@@ -2569,7 +2701,6 @@ impl SpLogApp {
             "world_map" => { self.panel_world_map.visible = false; self.show_world_map_window = false; }
             _ => {}
         }
-        self.save_station_config();
     }
 
     pub fn tile_title(&self, tile_id: &str) -> String {
@@ -3448,6 +3579,53 @@ impl SpLogApp {
     }
 }
 
+impl TabViewer for SpLogApp {
+    type Tab = String;
+
+    fn title(&mut self, tab: &mut Self::Tab) -> egui::WidgetText {
+        self.tile_title(tab).into()
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {
+        let tile_id = tab.clone();
+        let mut action_popout = false;
+        let mut action_close = false;
+
+        egui::Frame::group(ui.style())
+            .rounding(4.0)
+            .inner_margin(egui::Margin::same(6.0))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    // Własne widżety nagłówka (CAT, SPLIT, Szukaj, Spot)
+                    self.render_tile_header_custom(&tile_id, ui);
+
+                    // Przyciski odpinania i ukrywania (wyrównane do prawej)
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button("✕").on_hover_text("Ukryj ten panel").clicked() {
+                            action_close = true;
+                        }
+                        if ui.button("🗗").on_hover_text("Odepnij do osobnego okna pływającego").clicked() {
+                            action_popout = true;
+                        }
+                    });
+                });
+                ui.separator();
+                self.render_tile_body(&tile_id, ui);
+            });
+
+        if action_popout {
+            self.popout_tile(&tile_id);
+        }
+        if action_close {
+            self.close_tile(&tile_id);
+        }
+    }
+
+    fn clear_background(&self, _tab: &Self::Tab) -> bool {
+        true
+    }
+}
+
 impl eframe::App for SpLogApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Śledzenie geometrii okna głównego (zapisywane przy wyjściu — obsługa multi-monitor)
@@ -4077,35 +4255,29 @@ impl eframe::App for SpLogApp {
                         }
                     });
                 } else {
-                    let docked_visible = (self.panel_vfo.visible && !self.panel_vfo.floating) as usize
-                        + (self.panel_qso.visible && !self.panel_qso.floating) as usize
-                        + (self.panel_log.visible && !self.panel_log.floating) as usize
-                        + (self.panel_cluster.visible && !self.panel_cluster.floating) as usize
-                        + (self.panel_bandmap.visible && !self.panel_bandmap.floating) as usize
-                        + (self.panel_solar.visible && !self.panel_solar.floating) as usize
-                        + (self.panel_satellites.visible && !self.panel_satellites.floating) as usize
-                        + (self.panel_world_map.visible && !self.panel_world_map.floating) as usize;
+                    // Uzgodnij `dock_state` z konfiguracją paneli (widoczność/odpięcie).
+                    self.sync_dock_state();
 
-                    if docked_visible > 0 {
-                        // Dokowany układ 3-kolumnowy (realny system dokowania kafelków).
-                        // Kafelki można przeciągać za uchwyt ⠿, przestawiać i odpinać,
-                        // a także przełączyć na tryb zakładek (jedna karta na kolumnę).
-                        let col0 = self.get_tiles_in_column(0);
-                        let col1 = self.get_tiles_in_column(1);
-                        let col2 = self.get_tiles_in_column(2);
-                        egui::ScrollArea::vertical().show(ui, |ui| {
-                            ui.columns(3, |cols| {
-                                if self.tabbed_columns {
-                                    self.render_tiles_in_column_tabbed(&mut cols[0], 0, &col0);
-                                    self.render_tiles_in_column_tabbed(&mut cols[1], 1, &col1);
-                                    self.render_tiles_in_column_tabbed(&mut cols[2], 2, &col2);
-                                } else {
-                                    self.render_tiles_in_column(&mut cols[0], 0, &col0);
-                                    self.render_tiles_in_column(&mut cols[1], 1, &col1);
-                                    self.render_tiles_in_column(&mut cols[2], 2, &col2);
-                                }
-                            });
-                        });
+                    // Tymczasowo wyjmij `dock_state`, aby uniknąć konfliktu pożyczek:
+                    // `DockArea` potrzebuje `&mut dock_state`, a `TabViewer` (self)
+                    // potrzebuje `&mut self`. Po renderze przywracamy stan.
+                    let mut dock_state = std::mem::replace(&mut self.dock_state, DockState::new(vec![]));
+                    DockArea::new(&mut dock_state)
+                        .style(Style::from_egui(ui.style().as_ref()))
+                        .show_add_buttons(false)
+                        .show_add_popup(false)
+                        .show_close_buttons(false)
+                        .show_inside(ui, self);
+                    self.dock_state = dock_state;
+
+                    // Zastosuj zmiany widoczności/odpięcia wykonane przyciskami nagłówka.
+                    self.sync_dock_state();
+
+                    // Persystuj układ dokowania tylko wtedy, gdy faktycznie się zmienił.
+                    let current = self.serialize_dock_layout();
+                    if current != self.last_saved_dock_layout {
+                        self.last_saved_dock_layout = current;
+                        self.save_station_config();
                     }
 
                     // Dyskretny pasek pomocy i szybkiego resetowania układu na dole pulpitu
@@ -4116,13 +4288,7 @@ impl eframe::App for SpLogApp {
                                 self.reset_panel_layout();
                                 self.save_station_config();
                             }
-                            let tab_label = if self.tabbed_columns { "🗔 Widok pionowy" } else { "🗔 Tryb zakładek" };
-                            if ui.button(egui::RichText::new(tab_label).size(11.0)).on_hover_text("Przełącza kolumny między układem pionowym a zakładkami").clicked() {
-                                self.tabbed_columns = !self.tabbed_columns;
-                                self.active_tab = [0; 3];
-                                self.save_station_config();
-                            }
-                            ui.label(egui::RichText::new("SPLogbook • Przeciągaj okna za nagłówek • Zmieniaj rozmiar za krawędzie").size(11.0).color(egui::Color32::from_rgb(100, 116, 139)));
+                            ui.label(egui::RichText::new("SPLogbook • Przeciągaj karty za nagłówek • Zmieniaj rozmiar za krawędzie • Podział prawym przyciskiem").size(11.0).color(egui::Color32::from_rgb(100, 116, 139)));
                         });
                     });
                 }
