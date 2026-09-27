@@ -45,6 +45,14 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ui.close_menu();
         }
         ui.separator();
+        let mut wf_open = app.waterfall_panel.is_open;
+        if ui.checkbox(&mut wf_open, icons::SIGNAL_UP.label("Widmo / Waterfall (SDR)")).changed() {
+            if wf_open {
+                app.waterfall_panel.open();
+            } else {
+                app.waterfall_panel.is_open = false;
+            }
+        }
         ui.checkbox(&mut app.show_awards_matrix_window, icons::AWARDS.label(tr("view.awards_matrix", lang)));
         if ui.checkbox(&mut app.compact_hud_mode, icons::COMPACT.label(tr("view.compact_hud", lang))).changed() {
             app.save_station_config();

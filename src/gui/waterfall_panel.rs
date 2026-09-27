@@ -316,6 +316,13 @@ impl WaterfallPanel {
     }
 }
 
+impl Drop for WaterfallPanel {
+    fn drop(&mut self) {
+        // Zatrzymuje wątek przechwytujący i strumień audio przy zamykaniu aplikacji.
+        self.stop();
+    }
+}
+
 fn icons_play() -> &'static str {
     "▶ Start"
 }
