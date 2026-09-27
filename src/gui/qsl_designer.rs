@@ -19,6 +19,16 @@ pub struct QslDesignerDialog {
     pub sheet_format: LabelSheetFormat,
     pub queued_qsos: Vec<QsoRecord>,
     pub status_message: Option<String>,
+    // Kalibracja drukarki (marginesy w mm)
+    pub margin_left_mm: f32,
+    pub margin_top_mm: f32,
+    // Reguły masowego wyboru kart do wydruku
+    pub only_unprinted: bool,
+    pub batch_band: String,
+    pub batch_mode: String,
+    pub batch_date_from: String,
+    pub batch_date_to: String,
+    pub batch_limit: usize,
 }
 
 impl Default for QslDesignerDialog {
@@ -28,16 +38,63 @@ impl Default for QslDesignerDialog {
             sheet_format: LabelSheetFormat::Avery3x8,
             queued_qsos: Vec::new(),
             status_message: None,
+            margin_left_mm: 10.0,
+            margin_top_mm: 10.0,
+            only_unprinted: true,
+            batch_band: String::new(),
+            batch_mode: String::new(),
+            batch_date_from: String::new(),
+            batch_date_to: String::new(),
+            batch_limit: 48,
         }
     }
 }
 
 impl QslDesignerDialog {
-    pub fn queue_unprinted(&mut self, db: &LogDatabase) {
+    pub fn queue_by_rules(&mut self, db: &LogDatabase) {
         if let Ok(all) = db.get_all_qsos() {
-            self.queued_qsos = all.into_iter().filter(|q| q.qsl_sent == "N" || q.qsl_sent == "R").take(48).collect();
-            self.status_message = Some(format!("Dodano {} łączności do kolejki druku.", self.queued_qsos.len()));
+            let from = self.batch_date_from.trim();
+            let to = self.batch_date_to.trim();
+            let band = self.batch_band.trim().to_uppercase();
+            let mode = self.batch_mode.trim().to_uppercase();
+            let limit = if self.batch_limit == 0 { 48 } else { self.batch_limit };
+
+            self.queued_qsos = all
+                .into_iter()
+                .filter(|q| {
+                    if self.only_unprinted && q.qsl_sent != "N" && q.qsl_sent != "R" {
+                        return false;
+                    }
+                    if !band.is_empty() && q.band.to_uppercase() != band {
+                        return false;
+                    }
+                    if !mode.is_empty() && q.mode.to_uppercase() != mode {
+                        return false;
+                    }
+                    if !from.is_empty() && q.qso_date.as_str() < from {
+                        return false;
+                    }
+                    if !to.is_empty() && q.qso_date.as_str() > to {
+                        return false;
+                    }
+                    true
+                })
+                .take(limit)
+                .collect();
+            self.status_message =
+                Some(format!("Dodano {} łączności do kolejki druku.", self.queued_qsos.len()));
         }
+    }
+
+    /// Walidacja przed generacją PDF. Zwraca komunikat błędu, jeśli nie można drukować.
+    fn validate(&self, my_callsign: &str) -> Result<(), String> {
+        if self.queued_qsos.is_empty() {
+            return Err("Kolejka druku jest pusta. Najpierw dodaj łączności.".to_string());
+        }
+        if my_callsign.trim().is_empty() {
+            return Err("Brak znaku stacji (callsign) do wydruku na etykietach.".to_string());
+        }
+        Ok(())
     }
 
     pub fn render(&mut self, ctx: &egui::Context, db: &LogDatabase, my_callsign: &str) {
@@ -74,13 +131,56 @@ impl QslDesignerDialog {
                 });
 
                 ui.horizontal(|ui| {
-                    if ui.button("📥 Dodaj niepotwierdzone z bazy").clicked() {
-                        self.queue_unprinted(db);
+                    if ui.button("📥 Dodaj z bazy wg reguł").clicked() {
+                        self.queue_by_rules(db);
                     }
                     if ui.button("🗑 Wyczyść kolejkę").clicked() {
                         self.queued_qsos.clear();
                         self.status_message = Some("Wyczyszczono kolejkę druku.".to_string());
                     }
+                });
+
+                // Reguły masowego wyboru kart do wydruku
+                ui.separator();
+                ui.collapsing("🎯 Reguły wyboru kart do wydruku", |ui| {
+                    ui.checkbox(&mut self.only_unprinted, "Tylko niepotwierdzone (QSL wysłane: N/R)");
+                    ui.horizontal(|ui| {
+                        ui.label("Pasmo:");
+                        ui.text_edit_singleline(&mut self.batch_band);
+                        ui.label("Tryb:");
+                        ui.text_edit_singleline(&mut self.batch_mode);
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Data od:");
+                        ui.text_edit_singleline(&mut self.batch_date_from);
+                        ui.label("do:");
+                        ui.text_edit_singleline(&mut self.batch_date_to);
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Limit:");
+                        ui.add(egui::DragValue::new(&mut self.batch_limit).range(1..=1000));
+                        ui.label("(0 = domyślnie 48)");
+                    });
+                });
+
+                // Kalibracja drukarki
+                ui.separator();
+                ui.collapsing("🖨 Kalibracja wydruku (marginesy A4)", |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("Margines lewy (mm):");
+                        ui.add(egui::Slider::new(&mut self.margin_left_mm, 0.0..=30.0));
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Margines górny (mm):");
+                        ui.add(egui::Slider::new(&mut self.margin_top_mm, 0.0..=30.0));
+                    });
+                    ui.label(
+                        egui::RichText::new(
+                            "Dopasuj marginesy, aby naklejki idealnie pokrywały pola arkusza.",
+                        )
+                        .small()
+                        .color(egui::Color32::DARK_GRAY),
+                    );
                 });
 
                 if let Some(ref msg) = self.status_message {
@@ -124,6 +224,10 @@ impl QslDesignerDialog {
                 ui.separator();
                 ui.horizontal(|ui| {
                     if ui.button("📄 Eksport Naklejek do PDF (A4)").clicked() {
+                        if let Err(err) = self.validate(my_callsign) {
+                            self.status_message = Some(err);
+                            return;
+                        }
                         if let Some(path) = rfd::FileDialog::new()
                             .add_filter("PDF Document", &["pdf"])
                             .set_file_name("qsl_labels_sheet.pdf")
@@ -152,14 +256,16 @@ impl QslDesignerDialog {
                                 LabelSheetFormat::Avery2x7 => (2, 7),
                             };
 
-                            let col_w_mm = 190.0 / (cols as f32);
-                            let row_h_mm = 277.0 / (rows_per_page as f32);
+                            let content_w = 210.0 - 2.0 * self.margin_left_mm;
+                            let content_h = 297.0 - 2.0 * self.margin_top_mm;
+                            let col_w_mm = content_w / (cols as f32);
+                            let row_h_mm = content_h / (rows_per_page as f32);
 
                             for (i, q) in self.queued_qsos.iter().enumerate().take(cols * rows_per_page) {
                                 let c = i % cols;
                                 let r = i / cols;
-                                let x = 10.0 + (c as f32) * col_w_mm;
-                                let y = 285.0 - (r as f32) * row_h_mm;
+                                let x = self.margin_left_mm + (c as f32) * col_w_mm;
+                                let y = 297.0 - self.margin_top_mm - (r as f32) * row_h_mm;
 
                                 current_layer.use_text(format!("TO: {}", q.callsign), 11.0, Mm(x + 2.0), Mm(y - 5.0), &font);
                                 current_layer.use_text(format!("QSO: {} {}", q.qso_date, q.time_on), 9.0, Mm(x + 2.0), Mm(y - 11.0), &font_reg);
