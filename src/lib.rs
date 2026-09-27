@@ -9,5 +9,6 @@ pub mod digital;
 pub mod gui;
 pub mod media;
 pub mod network;
+pub mod plugins;
 pub mod api;
 

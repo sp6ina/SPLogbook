@@ -44,6 +44,7 @@ tower = "0.4"
 geo-types = "0.7"
 keyring = { version = "3.6", default-features = false }
 uuid = { version = "1", features = ["v4"] }
+rhai = { version = "1", features = ["sync"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3.6", default-features = false, features = ["windows-native"] }

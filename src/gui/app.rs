@@ -452,6 +452,25 @@ pub struct SpLogApp {
     pub band_alert_k_index_threshold: u8,
     pub band_alert_enabled: bool,
 
+    // System pluginów użytkownika (Rhai)
+    pub plugins_enabled: bool,
+    pub plugins_dir: String,
+    pub show_plugin_manager: bool,
+    pub plugin_engine: crate::plugins::PluginEngine,
+    pub plugin_log: Vec<String>,
+    pub plugin_notifications: Vec<String>,
+
+    // Zintegrowany pasek asystenta operatora
+    pub operator_assistant_enabled: bool,
+    pub show_operator_assistant: bool,
+    pub show_propagation_explain: bool,
+
+    // Historia i weryfikacja dokładności prognoz propagacyjnych
+    pub propagation_history: crate::core::propagation_history::PropagationHistory,
+    /// Poprzednie statusy otwarcia pasm (do wykrywania przejść otwarcia/zamknięcia).
+    pub previous_band_status:
+        std::collections::HashMap<String, crate::core::propagation::BandOpeningStatus>,
+
     // PTT control
     pub ptt_active: bool,
 
@@ -1032,6 +1051,23 @@ impl SpLogApp {
             band_alert_k_index_threshold: 4,
             band_alert_enabled: true,
 
+            // System pluginów użytkownika (Rhai)
+            plugins_enabled: app_config.plugins_enabled,
+            plugins_dir: app_config.plugins_dir.clone(),
+            show_plugin_manager: false,
+            plugin_engine: crate::plugins::PluginEngine::new(),
+            plugin_log: Vec::new(),
+            plugin_notifications: Vec::new(),
+
+            // Zintegrowany pasek asystenta operatora
+            operator_assistant_enabled: app_config.operator_assistant_enabled,
+            show_operator_assistant: app_config.operator_assistant_enabled,
+            show_propagation_explain: false,
+
+            // Historia i weryfikacja prognoz propagacyjnych
+            propagation_history: app_config.propagation_history.clone(),
+            previous_band_status: std::collections::HashMap::new(),
+
             // PTT
             ptt_active: false,
 
@@ -1089,6 +1125,16 @@ impl SpLogApp {
         };
 
         app.rebuild_awards_full();
+
+        // Wczytanie pluginów użytkownika (Rhai) z katalogu i uruchomienie on_startup().
+        {
+            let dir = std::path::PathBuf::from(&app.plugins_dir);
+            app.plugin_engine.set_enabled(app.plugins_enabled);
+            app.plugin_engine.load_dir(&dir);
+            let total = app.qso_numbers.len() as i64;
+            app.plugin_engine.set_qso_count(total);
+            app.plugin_engine.run_startup();
+        }
 
         if app.cat_sharing_enabled {
             app.toggle_cat_proxy_server();
@@ -1433,6 +1479,23 @@ impl SpLogApp {
             std::time::Instant::now(),
         ));
 
+        // Weryfikacja prognozy propagacyjnej: udana łączność = potwierdzone otwarcie pasma.
+        self.propagation_history
+            .record_observation(&qso.band, crate::core::propagation_history::ObservedOutcome::ConfirmedOpen);
+
+        // Hook pluginów użytkownika (Rhai) po zapisaniu łączności.
+        self.plugin_engine.run_on_qso_logged(&crate::plugins::QsoHookContext {
+            callsign: qso.callsign.clone(),
+            band: qso.band.clone(),
+            mode: qso.mode.clone(),
+            freq_mhz: qso.freq.unwrap_or(0.0),
+            is_atno: self
+                .active_award_status
+                .as_ref()
+                .map(|s| s.is_new_dxcc)
+                .unwrap_or(false),
+        });
+
         // Automatyczny przesył na żywo do Club Log w czasie rzeczywistym
         if self.live_auto_upload_clublog && !self.clublog_callsign.is_empty() && !self.clublog_password.is_empty() {
             let client = crate::cloud::clublog::ClubLogClient::new();
@@ -1619,6 +1682,41 @@ impl SpLogApp {
                 )
             })
             .collect();
+
+        // Zapis prognoz do historii dokładności oraz wykrywanie przejść
+        // otwarcia/zamknięcia pasm (dla alertów dźwiękowych i pluginów).
+        let mut newly_opened: Vec<&'static str> = Vec::new();
+        for (name, fc) in forecasts.iter() {
+            let band = *name;
+            self.propagation_history.record_forecast(
+                band,
+                utc_h,
+                sfi,
+                k as u8,
+                fc.reliability_pct,
+                fc.status,
+            );
+            if let Some(prev) = self.previous_band_status.get(band).copied() {
+                let was_open = prev == crate::core::propagation::BandOpeningStatus::Open;
+                let is_open = fc.status == crate::core::propagation::BandOpeningStatus::Open;
+                if !was_open && is_open {
+                    newly_opened.push(band);
+                }
+            }
+            self.previous_band_status.insert(band.to_string(), fc.status);
+        }
+
+        if !newly_opened.is_empty() && self.band_alert_enabled {
+            let names = newly_opened.join(", ");
+            crate::media::sounds::play_band_opened_alert();
+            self.status_toast = Some((
+                format!("📡 Otwarcie pasma: {names}"),
+                std::time::Instant::now(),
+            ));
+            for band in newly_opened {
+                self.plugin_engine.run_on_band_opened(band);
+            }
+        }
 
         self.solar_propagation_cache = Some((key, forecasts.clone()));
         forecasts
@@ -2116,6 +2214,11 @@ impl SpLogApp {
             voice_keyer_messages: self.voice_keyer_messages.clone(),
 
             workspace_profiles: self.workspace_profiles.clone(),
+
+            plugins_enabled: self.plugins_enabled,
+            plugins_dir: self.plugins_dir.clone(),
+            operator_assistant_enabled: self.operator_assistant_enabled,
+            propagation_history: self.propagation_history.clone(),
 
             lan_sync_port: self.lan_sync_port,
             lan_sync_auto_start: self.lan_sync_auto_start,
@@ -3667,6 +3770,8 @@ impl eframe::App for SpLogApp {
         crate::gui::station_profiles::render_station_profiles_window(self, ctx);
         render_voice_keyer_window(self, ctx);
         crate::gui::workspace_profiles::render_workspace_profiles_window(self, ctx);
+        crate::gui::operator_assistant::render_operator_assistant(self, ctx);
+        crate::gui::plugin_manager::render_plugin_manager(self, ctx);
 
         // Okna dialogowe i narzędzia pomocnicze
         if self.journal_dialog.is_open {

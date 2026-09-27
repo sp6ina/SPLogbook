@@ -51,6 +51,65 @@ pub struct PropagationForecast {
     pub status: BandOpeningStatus,
 }
 
+/// Rozbicie prognozy propagacyjnej na czynniki składowe (wytłumaczalność).
+///
+/// Pozwala operatorowi zrozumieć *dlaczego* pasmo jest otwarte lub zamknięte:
+/// jaki wpływ miała aktywność słoneczna (SFI), burza geomagnetyczna (indeks K)
+/// oraz pora dnia (oświetlenie jonosfery w punkcie środkowym trasy).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PropagationExplanation {
+    /// Czy punkt środkowy trasy jest oświetlony przez Słońce (dzień).
+    pub daylight: bool,
+    /// Sinus wysokości Słońca nad horyzontem w punkcie środkowym (0..1).
+    pub solar_elevation_sin: f64,
+    /// Krytyczna częstotliwość warstwy F2 (foF2) po uwzględnieniu burzy.
+    pub fof2_mhz: f64,
+    /// Współczynnik skośnego padania M(d) zależny od długości trasy.
+    pub m_factor: f64,
+    /// Kara za burzę geomagnetyczną (mnożnik 0..1 zastosowany do foF2).
+    pub storm_penalty: f64,
+    /// Tłumienie trasy w dB (bez pochłaniania warstwy D).
+    pub path_loss_db: f64,
+    /// Dodatkowe pochłanianie w warstwie D w dB (tylko w dzień, niskie pasma).
+    pub absorption_db: f64,
+    /// Czynnik dzienny (0..1) użyty w modelu.
+    pub day_factor: f64,
+    /// Czytelne podsumowanie przyczyn wyniku (np. "Powyżej MUF — sygnał ucieka w kosmos").
+    pub reason: String,
+}
+
+impl PropagationExplanation {
+    /// Podsumowanie przyczyn wyniku jako wieloliniowy tekst (do GUI).
+    pub fn bullet_points(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        out.push(format!(
+            "Aktywność słoneczna SFI: foF2 ≈ {:.1} MHz",
+            self.fof2_mhz
+        ));
+        if self.storm_penalty < 1.0 {
+            out.push(format!(
+                "Burza geomagnetyczna (K): redukcja foF2 o {:.0}%",
+                (1.0 - self.storm_penalty) * 100.0
+            ));
+        } else {
+            out.push("Burza geomagnetyczna (K): spokojnie, brak kary".to_string());
+        }
+        out.push(if self.daylight {
+            "Oświetlenie trasy: dzień (pochłanianie warstwy D)".to_string()
+        } else {
+            "Oświetlenie trasy: noc (brak pochłaniania D)".to_string()
+        });
+        if self.absorption_db > 0.0 {
+            out.push(format!(
+                "Pochłanianie warstwy D: +{:.0} dB tłumienia",
+                self.absorption_db
+            ));
+        }
+        out.push(self.reason.clone());
+        out
+    }
+}
+
 /// Zwraca przybliżoną częstotliwość środkową pasma w MHz
 pub fn band_to_center_mhz(band: &str) -> Option<f64> {
     match band.trim().to_uppercase().as_str() {
@@ -106,6 +165,24 @@ impl PropagationEngine {
         Ok(Self::calculate(origin, dest, freq_mhz, sfi, k_index, utc_hour, day_of_year))
     }
 
+    /// Oblicza prognozę oraz wytłumaczalne rozbicie dla trasy między lokatorami.
+    pub fn forecast_explain(
+        origin_grid: &str,
+        dest_grid: &str,
+        band: &str,
+        sfi: u32,
+        k_index: u8,
+        utc_hour: f64,
+        day_of_year: u32,
+    ) -> Result<(PropagationForecast, PropagationExplanation), &'static str> {
+        let origin = locator_to_coordinates(origin_grid)?;
+        let dest = locator_to_coordinates(dest_grid)?;
+        let freq_mhz = band_to_center_mhz(band)
+            .ok_or("Nieznane pasmo. Obsługiwane: 160m, 80m, 60m, 40m, 30m, 20m, 17m, 15m, 12m, 10m, 6m.")?;
+
+        Ok(Self::explain(origin, dest, freq_mhz, sfi, k_index, utc_hour, day_of_year))
+    }
+
     /// Oblicza prognozę na podstawie bezpośrednich współrzędnych i częstotliwości.
     ///
     /// Nieprawidłowe wejścia (NaN, ujemna/zerowa częstotliwość, godzina spoza
@@ -120,6 +197,20 @@ impl PropagationEngine {
         utc_hour: f64,
         day_of_year: u32,
     ) -> PropagationForecast {
+        Self::explain(origin, dest, freq_mhz, sfi, k_index, utc_hour, day_of_year).0
+    }
+
+    /// Oblicza prognozę wraz z wytłumaczalnym rozbiciem na czynniki składowe
+    /// (wpływ SFI, indeksu K oraz oświetlenia trasy).
+    pub fn explain(
+        origin: Coordinates,
+        dest: Coordinates,
+        freq_mhz: f64,
+        sfi: u32,
+        k_index: u8,
+        utc_hour: f64,
+        day_of_year: u32,
+    ) -> (PropagationForecast, PropagationExplanation) {
         if !freq_mhz.is_finite()
             || freq_mhz <= 0.0
             || !origin.latitude.is_finite()
@@ -130,7 +221,7 @@ impl PropagationEngine {
             || utc_hour < 0.0
             || utc_hour > 24.0
         {
-            return PropagationForecast {
+            let forecast = PropagationForecast {
                 reliability_pct: 0,
                 signal_s_units: "< S1".to_string(),
                 layer: "Brak danych (nieprawidłowe wejście)".to_string(),
@@ -141,6 +232,18 @@ impl PropagationEngine {
                 bearing_deg: 0.0,
                 status: BandOpeningStatus::Closed,
             };
+            let explanation = PropagationExplanation {
+                daylight: false,
+                solar_elevation_sin: 0.0,
+                fof2_mhz: 0.0,
+                m_factor: 0.0,
+                storm_penalty: 1.0,
+                path_loss_db: 0.0,
+                absorption_db: 0.0,
+                day_factor: 0.0,
+                reason: "Nieprawidłowe dane wejściowe".to_string(),
+            };
+            return (forecast, explanation);
         }
 
         let distance_km = calculate_distance_km(origin, dest);
@@ -273,7 +376,19 @@ impl PropagationEngine {
             BandOpeningStatus::Closed
         };
 
-        PropagationForecast {
+        let reason = if freq_mhz > muf_mhz {
+            "Częstotliwość powyżej MUF — sygnał ucieka w kosmos".to_string()
+        } else if freq_mhz < luf_mhz {
+            "Częstotliwość poniżej LUF — silne tłumienie w warstwie D".to_string()
+        } else if reliability_pct >= 60 {
+            "W oknie FOT/OWF — pasmo stabilnie otwarte".to_string()
+        } else if reliability_pct >= 25 {
+            "Na krawędzi okna — łączność możliwa, ale niestabilna".to_string()
+        } else {
+            "Słaba niezawodność — warunki marginalne".to_string()
+        };
+
+        let forecast = PropagationForecast {
             reliability_pct,
             signal_s_units,
             layer,
@@ -283,7 +398,21 @@ impl PropagationEngine {
             distance_km: distance_km.round(),
             bearing_deg: bearing_deg.round(),
             status,
-        }
+        };
+
+        let explanation = PropagationExplanation {
+            daylight: is_daylight,
+            solar_elevation_sin: sin_elevation,
+            fof2_mhz: (fof2 * 10.0).round() / 10.0,
+            m_factor: (m_factor * 100.0).round() / 100.0,
+            storm_penalty,
+            path_loss_db: (path_loss_db * 10.0).round() / 10.0,
+            absorption_db: (absorption_db * 10.0).round() / 10.0,
+            day_factor: (day_factor * 1000.0).round() / 1000.0,
+            reason,
+        };
+
+        (forecast, explanation)
     }
 
     /// Generuje prognozę dla wszystkich popularnych pasm HF
@@ -362,6 +491,36 @@ mod tests {
         assert!(PropagationEngine::forecast("JO81WA", "FN30", "2m", 150, 2, 14.0, 100).is_err());
         assert!(PropagationEngine::forecast("JO81WA", "FN30", "", 150, 2, 14.0, 100).is_err());
         assert!(PropagationEngine::forecast("JO81WA", "FN30", "20m", 150, 2, 14.0, 100).is_ok());
+    }
+
+    #[test]
+    fn test_explain_returns_consistent_factors() {
+        let a = Coordinates::new(51.1079, 17.0385);
+        let b = Coordinates::new(40.7128, -74.0060);
+
+        let (forecast, explanation) =
+            PropagationEngine::explain(a, b, 14.175, 150, 2, 14.0, 100);
+        // Wynik z `calculate` musi być identyczny z `explain().0`.
+        assert_eq!(
+            forecast,
+            PropagationEngine::calculate(a, b, 14.175, 150, 2, 14.0, 100)
+        );
+        assert!(explanation.fof2_mhz > 0.0);
+        assert!(explanation.m_factor > 1.0);
+        assert!(!explanation.reason.is_empty());
+        assert!(!explanation.bullet_points().is_empty());
+        // W południe trasa transatlantycka jest oświetlona.
+        assert!(explanation.daylight);
+    }
+
+    #[test]
+    fn test_explain_invalid_input() {
+        let a = Coordinates::new(51.1079, 17.0385);
+        let b = Coordinates::new(40.7128, -74.0060);
+        let (forecast, explanation) =
+            PropagationEngine::explain(a, b, f64::NAN, 150, 2, 14.0, 100);
+        assert_eq!(forecast.status, BandOpeningStatus::Closed);
+        assert_eq!(explanation.reason, "Nieprawidłowe dane wejściowe");
     }
 
     #[test]

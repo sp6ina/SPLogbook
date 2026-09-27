@@ -42,6 +42,8 @@ pub mod find_duplicates;
 pub mod station_profiles;
 pub mod voice_keyer;
 pub mod workspace_profiles;
+pub mod plugin_manager;
+pub mod operator_assistant;
 
 /// Pomocnik rysujący mały przycisk "↗" (Odepnij do osobnego okna OS) bezpośrednio na pasku tytułowym okna egui.
 pub fn render_titlebar_popout_button(

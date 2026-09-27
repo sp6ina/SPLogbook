@@ -118,6 +118,8 @@ fn default_n1mm_broadcast_port() -> u16 { 12060 }
 fn default_profile_id() -> String { "default".to_string() }
 fn default_cat_sharing_port() -> u16 { 4534 }
 fn default_hamlib_source() -> String { "bundled".to_string() }
+fn default_plugins_dir() -> String { "plugins".to_string() }
+fn default_operator_assistant_enabled() -> bool { true }
 
 /// Konfiguracja pojedynczej kolumny w tabeli dziennika łączności
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
@@ -282,6 +284,20 @@ pub struct AppConfig {
     // Profile układu operatorskiego (workspace)
     #[serde(default)]
     pub workspace_profiles: Vec<WorkspaceProfile>,
+
+    // System pluginów użytkownika (Rhai)
+    #[serde(default)]
+    pub plugins_enabled: bool,
+    #[serde(default = "default_plugins_dir")]
+    pub plugins_dir: String,
+
+    // Zintegrowany pasek asystenta operatora
+    #[serde(default = "default_operator_assistant_enabled")]
+    pub operator_assistant_enabled: bool,
+
+    // Historia i weryfikacja dokładności prognoz propagacyjnych
+    #[serde(default)]
+    pub propagation_history: crate::core::propagation_history::PropagationHistory,
 
     // Konfiguracja Multi-Op LAN
     #[serde(default = "default_lan_sync_port")]
@@ -755,6 +771,11 @@ impl Default for AppConfig {
             panel_world_map:  ViewPanelConfig { visible: true, floating: false, column: 2, order: 0, saved_pos: None, saved_size: None },
             panel_solar:      ViewPanelConfig { visible: true, floating: false, column: 2, order: 1, saved_pos: None, saved_size: None },
             panel_satellites: ViewPanelConfig { visible: true, floating: false, column: 2, order: 2, saved_pos: None, saved_size: None },
+            plugins_enabled: true,
+            plugins_dir: default_plugins_dir(),
+            operator_assistant_enabled: default_operator_assistant_enabled(),
+            propagation_history: crate::core::propagation_history::PropagationHistory::default(),
+
             logbook_columns: default_logbook_columns(),
             logbook_column_presets: vec![],
             custom_contests: vec![],

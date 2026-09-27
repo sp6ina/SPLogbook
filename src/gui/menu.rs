@@ -210,6 +210,14 @@ pub fn render_menu_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 app.show_workspace_profiles_window = true;
                 ui.close_menu();
             }
+            if ui.button("🤖 Asystent operatora").clicked() {
+                app.show_operator_assistant = true;
+                ui.close_menu();
+            }
+            if ui.button("🧩 Menedżer pluginów (Rhai)").clicked() {
+                app.show_plugin_manager = true;
+                ui.close_menu();
+            }
             if ui.button(format!("🛰 {}", tr("tools.satellites", lang))).clicked() {
                 app.panel_satellites.visible = true;
                 app.panel_satellites.floating = true;

@@ -59,3 +59,20 @@ pub fn play_qso_saved_alert() {
         }
     });
 }
+
+/// Krótka, wznosząca sekwencja sygnalizująca otwarcie pasma propagacyjnego.
+pub fn play_band_opened_alert() {
+    std::thread::spawn(|| {
+        if let Ok((_stream, stream_handle)) = OutputStream::try_default() {
+            if let Ok(sink) = Sink::try_new(&stream_handle) {
+                let tone1 = SineWave::new(392.0).take_duration(Duration::from_millis(120)).amplify(0.18);
+                let tone2 = SineWave::new(523.25).take_duration(Duration::from_millis(120)).amplify(0.18);
+                let tone3 = SineWave::new(659.25).take_duration(Duration::from_millis(240)).amplify(0.18);
+                sink.append(tone1);
+                sink.append(tone2);
+                sink.append(tone3);
+                sink.sleep_until_end();
+            }
+        }
+    });
+}
