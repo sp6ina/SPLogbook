@@ -17,7 +17,7 @@ name = "SPLogbook"
 path = "src/main.rs"
 
 [dependencies]
-rusqlite = { version = "0.33", features = ["bundled", "chrono"] }
+rusqlite = { version = "0.33", features = ["bundled", "chrono", "backup"] }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

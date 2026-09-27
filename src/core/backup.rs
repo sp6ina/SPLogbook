@@ -4,11 +4,19 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+use rusqlite::{backup::Backup, Connection};
 
 pub struct BackupManager;
 
 impl BackupManager {
-    /// Wykonuje kopię zapasową bazy danych SQLite
+    /// Wykonuje spójną kopię zapasową bazy danych SQLite.
+    ///
+    /// Zamiast `fs::copy` na żywej bazie WAL (co grozi niespójną kopią) używamy
+    /// API `Backup` SQLite, które wykonuje online-backup i daje spójny snapshot
+    /// nawet przy współbieżnych zapisach. Nazwa pliku ma precyzję do milisekund,
+    /// aby kolejne kopie w tej samej sekundzie nie nadpisywały się nawzajem.
     pub fn backup_database(source_db_path: &Path, backup_dir: &Path) -> Result<PathBuf, String> {
         if !source_db_path.exists() {
             return Err("Plik bazy źródłowej nie istnieje".to_string());
@@ -16,7 +24,7 @@ impl BackupManager {
 
         fs::create_dir_all(backup_dir).map_err(|e| format!("Błąd tworzenia katalogu kopii: {}", e))?;
 
-        let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S").to_string();
+        let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S%.3f").to_string();
         let file_stem = source_db_path
             .file_stem()
             .and_then(|s| s.to_str())
@@ -24,7 +32,16 @@ impl BackupManager {
         let dest_filename = format!("{}_backup_{}.db", file_stem, timestamp);
         let dest_path = backup_dir.join(dest_filename);
 
-        fs::copy(source_db_path, &dest_path).map_err(|e| format!("Błąd kopiowania bazy: {}", e))?;
+        let source = Connection::open(source_db_path)
+            .map_err(|e| format!("Błąd otwarcia bazy źródłowej: {}", e))?;
+        let mut dest = Connection::open(&dest_path)
+            .map_err(|e| format!("Błąd otwarcia pliku kopii: {}", e))?;
+        let backup = Backup::new(&source, &mut dest)
+            .map_err(|e| format!("Błąd inicjalizacji kopii zapasowej: {}", e))?;
+        backup
+            .run_to_completion(64, Duration::from_millis(50), None)
+            .map_err(|e| format!("Błąd wykonywania kopii zapasowej: {}", e))?;
+
         Self::prune_old_backups(backup_dir, ".db", 10).ok();
 
         Ok(dest_path)
@@ -34,7 +51,7 @@ impl BackupManager {
     pub fn backup_adif(adif_content: &str, backup_dir: &Path) -> Result<PathBuf, String> {
         fs::create_dir_all(backup_dir).map_err(|e| format!("Błąd tworzenia katalogu kopii: {}", e))?;
 
-        let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S").to_string();
+        let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S%.3f").to_string();
         let dest_filename = format!("SPLogbook_backup_{}.adi", timestamp);
         let dest_path = backup_dir.join(dest_filename);
 
@@ -86,5 +103,35 @@ mod tests {
         assert!(path.exists());
         let _ = fs::remove_file(path);
         let _ = fs::remove_dir(temp_dir);
+    }
+
+    #[test]
+    fn test_backup_database_consistent() {
+        let temp_dir = std::env::temp_dir().join("splog_backup_db_test");
+        let _ = fs::create_dir_all(&temp_dir);
+        let source = temp_dir.join("source.db");
+
+        // Przygotuj źródłową bazę z danymi.
+        {
+            let conn = Connection::open(&source).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE qso_records (id INTEGER PRIMARY KEY, callsign TEXT NOT NULL);
+                 INSERT INTO qso_records (callsign) VALUES ('SP6INA'), ('SQ6ABC');",
+            )
+            .unwrap();
+        }
+
+        let dest = BackupManager::backup_database(&source, &temp_dir).unwrap();
+        assert!(dest.exists());
+        assert!(dest.file_name().unwrap().to_string_lossy().contains("source_backup_"));
+
+        // Kopia musi być spójną, otwieralną bazą z tymi samymi danymi.
+        let conn = Connection::open(&dest).unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM qso_records", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 2);
+
+        let _ = fs::remove_dir_all(&temp_dir);
     }
 }

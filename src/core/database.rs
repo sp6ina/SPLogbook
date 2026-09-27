@@ -132,7 +132,7 @@ impl LogDatabase {
         conn.pragma_update(None, "synchronous", "NORMAL")?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
 
-        let db = Self { conn };
+        let mut db = Self { conn };
         db.init_schema()?;
         Ok(db)
     }
@@ -141,20 +141,62 @@ impl LogDatabase {
     pub fn open_in_memory() -> Result<Self> {
         let conn = Connection::open_in_memory()?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
-        let db = Self { conn };
+        let mut db = Self { conn };
         db.init_schema()?;
         Ok(db)
     }
 
-    /// Inicjalizuje schemat tabeli łączności oraz niezbędne indeksy
-    fn init_schema(&self) -> Result<()> {
+    /// Inicjalizuje schemat tabeli łączności oraz niezbędne indeksy.
+    /// Stosuje wersjonowane migracje rejestrowane w tabeli `schema_version`,
+    /// dzięki czemu starsze bazy są uaktualniane krok po kroku, a błędy
+    /// `ALTER TABLE` nie są już maskowane.
+    fn init_schema(&mut self) -> Result<()> {
         self.conn.execute_batch(
             "PRAGMA journal_mode=WAL;
             PRAGMA synchronous=NORMAL;
             PRAGMA cache_size=10000;
             PRAGMA temp_store=MEMORY;
 
-            CREATE TABLE IF NOT EXISTS journals (
+            CREATE TABLE IF NOT EXISTS schema_version (
+                version INTEGER NOT NULL,
+                applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );"
+        )?;
+
+        // Lista migracji w kolejności rosnącej; każda jest wykonywana w transakcji
+        // i rejestrowana w `schema_version` dopiero po pełnym powodzeniu.
+        let migrations: &[(i64, fn(&Connection) -> rusqlite::Result<()>)] = &[
+            (1, Self::migration_1_base_schema),
+            (2, Self::migration_2_add_columns),
+        ];
+
+        for (version, migrate) in migrations {
+            if self.current_schema_version()? < *version {
+                let tx = self.conn.transaction()?;
+                migrate(&tx)?;
+                tx.execute(
+                    "INSERT INTO schema_version (version) VALUES (?1)",
+                    params![version],
+                )?;
+                tx.commit()?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Najwyższa zarejestrowana wersja schematu (0, gdy brak wpisów).
+    fn current_schema_version(&self) -> Result<i64> {
+        let v: Option<i64> = self
+            .conn
+            .query_row("SELECT MAX(version) FROM schema_version", [], |r| r.get(0))?;
+        Ok(v.unwrap_or(0))
+    }
+
+    /// Wersja 1: bazowe tabele (dzienniki, QSO, kolejka uploadów) i indeksy.
+    fn migration_1_base_schema(conn: &Connection) -> rusqlite::Result<()> {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS journals (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 station_callsign TEXT NOT NULL,
@@ -249,15 +291,35 @@ impl LogDatabase {
             CREATE INDEX IF NOT EXISTS idx_qso_eqsl ON qso_records(eqsl_qsl_rcvd);
             CREATE INDEX IF NOT EXISTS idx_qso_cqz ON qso_records(cqz);
             CREATE INDEX IF NOT EXISTS idx_qso_composite ON qso_records(callsign, band, mode);"
-        )?;
+        )
+    }
 
-        // Bezpieczna migracja dla istniejących baz bez kolumny journal_id
-        let _ = self.conn.execute("ALTER TABLE qso_records ADD COLUMN journal_id TEXT DEFAULT 'DEFAULT'", []);
-        let _ = self.conn.execute("ALTER TABLE qso_records ADD COLUMN my_pota_ref TEXT", []);
-        let _ = self.conn.execute("ALTER TABLE qso_records ADD COLUMN my_sota_ref TEXT", []);
-        let _ = self.conn.execute("ALTER TABLE qso_records ADD COLUMN vucc_grids TEXT", []);
-        let _ = self.conn.execute("ALTER TABLE qso_records ADD COLUMN audio_file TEXT", []);
+    /// Wersja 2: kolumny dodane w kolejnych wydaniach (z kontrolą istnienia).
+    fn migration_2_add_columns(conn: &Connection) -> rusqlite::Result<()> {
+        Self::add_column_if_missing(conn, "qso_records", "journal_id", "TEXT DEFAULT 'DEFAULT'")?;
+        Self::add_column_if_missing(conn, "qso_records", "my_pota_ref", "TEXT")?;
+        Self::add_column_if_missing(conn, "qso_records", "my_sota_ref", "TEXT")?;
+        Self::add_column_if_missing(conn, "qso_records", "vucc_grids", "TEXT")?;
+        Self::add_column_if_missing(conn, "qso_records", "audio_file", "TEXT")?;
+        Ok(())
+    }
 
+    /// Dodaje kolumnę tylko wtedy, gdy jeszcze nie istnieje (bez maskowania błędów).
+    fn add_column_if_missing(
+        conn: &Connection,
+        table: &str,
+        column: &str,
+        decl: &str,
+    ) -> rusqlite::Result<()> {
+        let exists: bool = conn
+            .prepare("SELECT 1 FROM pragma_table_info(?1) WHERE name = ?2")?
+            .exists(params![table, column])?;
+        if !exists {
+            conn.execute(
+                &format!("ALTER TABLE {} ADD COLUMN {} {}", table, column, decl),
+                [],
+            )?;
+        }
         Ok(())
     }
 
@@ -1047,6 +1109,27 @@ mod tests {
         assert_eq!(prev[0].callsign, "SP6INA");
         assert_eq!(prev[0].band, "20m");
         assert_eq!(prev[0].mode, "CW");
+    }
+
+    #[test]
+    fn schema_migrations_record_versions_and_are_idempotent() {
+        let mut db = LogDatabase::open_in_memory().unwrap();
+        // Oba kroki migracji zostały zarejestrowane.
+        assert_eq!(db.current_schema_version().unwrap(), 2);
+
+        // Kolumny z migracji 2 istnieją i ponowna inicjalizacja nie psuje schematu.
+        let col_count: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('qso_records') WHERE name IN ('journal_id','my_pota_ref','my_sota_ref','vucc_grids','audio_file')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(col_count, 5);
+
+        db.init_schema().unwrap();
+        assert_eq!(db.current_schema_version().unwrap(), 2);
     }
 
     #[test]
