@@ -4,14 +4,57 @@
 use crate::cloud::hamqth::HamQthXmlClient;
 use crate::cloud::qrz::{CallbookData, QrzClient};
 use rusqlite::{Connection, OpenFlags};
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Lokalna baza danych Callbook (offline)
+/// Źródło danych callbook używane w agregacji z priorytetami.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CallbookSource {
+    /// Lokalna baza offline (callbook.db + serviceLOG.db).
+    Local,
+    /// Cache offline wyników wcześniejszych zapytań online.
+    Cache,
+    /// Darmowe API callook.info (stacje USA z bazy FCC).
+    Callook,
+    /// HamQTH XML (wymaga loginu/hasła).
+    HamQth,
+    /// QRZ.com XML (wymaga loginu/hasła).
+    Qrz,
+}
+
+impl CallbookSource {
+    /// Czytelna etykieta źródła (interfejs PL).
+    pub fn label(&self) -> &'static str {
+        match self {
+            CallbookSource::Local => "Lokalna baza (offline)",
+            CallbookSource::Cache => "Cache offline",
+            CallbookSource::Callook => "Callook.info (USA)",
+            CallbookSource::HamQth => "HamQTH",
+            CallbookSource::Qrz => "QRZ.com",
+        }
+    }
+}
+
+/// Domyślna kolejność źródeł: najpierw tanie/offline, potem online.
+pub fn default_callbook_priority() -> Vec<CallbookSource> {
+    vec![
+        CallbookSource::Local,
+        CallbookSource::Cache,
+        CallbookSource::Callook,
+        CallbookSource::HamQth,
+        CallbookSource::Qrz,
+    ]
+}
+
+/// Lokalna baza danych Callbook (offline) + cache wyników online
 #[derive(Debug, Clone)]
 pub struct LocalCallbook {
     callbook_path: Option<PathBuf>,
     servicelog_path: Option<PathBuf>,
+    cache_path: Option<PathBuf>,
+    cache_ttl_days: u32,
 }
 
 impl LocalCallbook {
@@ -19,7 +62,104 @@ impl LocalCallbook {
         Self {
             callbook_path,
             servicelog_path,
+            cache_path: None,
+            cache_ttl_days: 30,
         }
+    }
+
+    /// Włącza trwały cache offline dla wyników zapytań online.
+    pub fn with_cache(mut self, cache_path: Option<PathBuf>, ttl_days: u32) -> Self {
+        self.cache_path = cache_path;
+        self.cache_ttl_days = ttl_days.max(1);
+        self
+    }
+
+    /// Pobiera dane z cache offline (jeśli nie starsze niż TTL).
+    pub fn cache_lookup(&self, callsign: &str) -> Option<CallbookData> {
+        let clean = callsign.trim().to_uppercase();
+        if clean.is_empty() {
+            return None;
+        }
+        let path = self.cache_path.as_ref()?;
+        if !path.exists() {
+            return None;
+        }
+        let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY).ok()?;
+        let ttl_secs = u64::from(self.cache_ttl_days) * 86_400;
+        let now = unix_now();
+        let mut stmt = conn
+            .prepare(
+                "SELECT Name, QTH, Grid, State, DXCC, Country, Manager, Email, ImageUrl, LastFetched \
+                 FROM CallbookCache WHERE Call = ?1 LIMIT 1",
+            )
+            .ok()?;
+
+        stmt.query_row([&clean], |row| {
+            let last_fetched: i64 = row.get(9).unwrap_or(0);
+            if last_fetched < 0 || now.saturating_sub(last_fetched as u64) > ttl_secs {
+                return Err(rusqlite::Error::QueryReturnedNoRows);
+            }
+            Ok(CallbookData {
+                callsign: clean.clone(),
+                name: row.get(0).ok().and_then(clean_opt_str),
+                qth: row.get(1).ok().and_then(clean_opt_str),
+                gridsquare: row.get(2).ok().and_then(clean_opt_str),
+                state: row.get(3).ok().and_then(clean_opt_str),
+                dxcc: row.get(4).ok(),
+                country: row.get(5).ok().and_then(clean_opt_str),
+                qsl_manager: row.get(6).ok().and_then(clean_opt_str),
+                email: row.get(7).ok().and_then(clean_opt_str),
+                image_url: row.get(8).ok().and_then(clean_opt_str),
+            })
+        })
+        .ok()
+    }
+
+    /// Zapisuje dane callbook do cache offline (upsert).
+    pub fn cache_store(&self, data: &CallbookData) {
+        let path = match &self.cache_path {
+            Some(p) => p,
+            None => return,
+        };
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let conn = match Connection::open(path) {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+        let _ = conn.execute(
+            "CREATE TABLE IF NOT EXISTS CallbookCache (
+                Call TEXT PRIMARY KEY,
+                Name TEXT, QTH TEXT, Grid TEXT, State TEXT,
+                DXCC INTEGER, Country TEXT, Manager TEXT, Email TEXT, ImageUrl TEXT,
+                LastFetched INTEGER
+            )",
+            [],
+        );
+        let _ = conn.execute(
+            "INSERT INTO CallbookCache
+                (Call, Name, QTH, Grid, State, DXCC, Country, Manager, Email, ImageUrl, LastFetched)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+             ON CONFLICT(Call) DO UPDATE SET
+                Name = excluded.Name, QTH = excluded.QTH, Grid = excluded.Grid,
+                State = excluded.State, DXCC = excluded.DXCC, Country = excluded.Country,
+                Manager = excluded.Manager, Email = excluded.Email,
+                ImageUrl = excluded.ImageUrl, LastFetched = excluded.LastFetched",
+            rusqlite::params![
+                data.callsign,
+                data.name.as_deref(),
+                data.qth.as_deref(),
+                data.gridsquare.as_deref(),
+                data.state.as_deref(),
+                data.dxcc,
+                data.country.as_deref(),
+                data.qsl_manager.as_deref(),
+                data.email.as_deref(),
+                data.image_url.as_deref(),
+                unix_now() as i64,
+            ],
+        );
     }
 
     /// Wyszukuje stację w lokalnej bazie SQLite (callbook.db i serviceLOG.db)
@@ -247,7 +387,43 @@ fn to_title_case(s: &str) -> String {
     result
 }
 
-/// Zintegrowana asynchroniczna procedura pobierania danych korespondenta ze wszystkich źródeł
+/// Aktualny czas uniksowy w sekundach.
+fn unix_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Scala dane callbook: pola brakujące w bazie uzupełnia z nowego wyniku
+/// (źródła o wyższym priorytecie są nadrzędne — nowe dane nie nadpisują już znalezionych).
+fn merge_callbook(base: Option<CallbookData>, incoming: CallbookData) -> CallbookData {
+    match base {
+        None => incoming,
+        Some(mut b) => {
+            if b.name.is_none() { b.name = incoming.name; }
+            if b.qth.is_none() { b.qth = incoming.qth; }
+            if b.gridsquare.is_none() { b.gridsquare = incoming.gridsquare; }
+            if b.state.is_none() { b.state = incoming.state; }
+            if b.dxcc.is_none() { b.dxcc = incoming.dxcc; }
+            if b.country.is_none() { b.country = incoming.country; }
+            if b.qsl_manager.is_none() { b.qsl_manager = incoming.qsl_manager; }
+            if b.email.is_none() { b.email = incoming.email; }
+            if b.image_url.is_none() { b.image_url = incoming.image_url; }
+            b
+        }
+    }
+}
+
+/// Czy dane callbook są wystarczająco kompletne, by przerwać dalsze zapytania.
+fn is_complete(data: &CallbookData) -> bool {
+    data.name.is_some() && data.qth.is_some() && data.gridsquare.is_some()
+}
+
+/// Zintegrowana asynchroniczna procedura pobierania danych korespondenta.
+///
+/// Źródła są odpytywane w kolejności `priority`; wyniki są scalane (źródło
+/// o wyższym priorytecie wygrywa), a odpowiedzi online zapisywane do cache offline.
 pub async fn fetch_callsign_data(
     callsign: String,
     local_callbook: Arc<LocalCallbook>,
@@ -255,22 +431,14 @@ pub async fn fetch_callsign_data(
     hamqth_pass: String,
     qrz_user: String,
     qrz_pass: String,
+    priority: &[CallbookSource],
 ) -> Option<CallbookData> {
     let clean = callsign.trim().to_uppercase();
     if clean.is_empty() {
         return None;
     }
 
-    // 1. Sprawdzamy lokalną bazę danych (callbook.db + serviceLOG.db)
-    let local_res = local_callbook.lookup(&clean);
-    if let Some(ref loc) = local_res {
-        // Jeśli lokalna baza ma komplet danych (name i grid), zwracamy natychmiast
-        if loc.name.is_some() && loc.gridsquare.is_some() {
-            return Some(loc.clone());
-        }
-    }
-
-    // 2. Jeśli stacja jest z USA (W, K, N, AA..AL), najszybszym darmowym źródłem jest callook.info
+    // Stacja z USA (W, K, N, AA..AL) — najszybsze darmowe źródło to callook.info
     let is_usa = clean.starts_with('W')
         || clean.starts_with('K')
         || clean.starts_with('N')
@@ -278,34 +446,59 @@ pub async fn fetch_callsign_data(
             && clean.len() >= 2
             && clean.chars().nth(1).is_some_and(|c| ('A'..='L').contains(&c)));
 
-    if is_usa {
-        if let Ok(data) = lookup_callook_info(&clean).await {
-            return Some(data);
+    let mut result: Option<CallbookData> = None;
+
+    for src in priority {
+        let found: Option<CallbookData> = match src {
+            CallbookSource::Local => local_callbook.lookup(&clean),
+            CallbookSource::Cache => local_callbook.cache_lookup(&clean),
+            CallbookSource::Callook => {
+                if is_usa {
+                    lookup_callook_info(&clean).await.ok()
+                } else {
+                    None
+                }
+            }
+            CallbookSource::HamQth => {
+                if !hamqth_user.is_empty() && !hamqth_pass.is_empty() {
+                    let mut client = HamQthXmlClient::new(hamqth_user.clone(), hamqth_pass.clone());
+                    client.lookup_callsign(&clean).await.ok()
+                } else {
+                    None
+                }
+            }
+            CallbookSource::Qrz => {
+                if !qrz_user.is_empty() && !qrz_pass.is_empty() {
+                    let mut client = QrzClient::new(qrz_user.clone(), qrz_pass.clone());
+                    client.lookup(&clean).await.ok()
+                } else {
+                    None
+                }
+            }
+        };
+
+        if let Some(data) = found {
+            let from_online = matches!(
+                src,
+                CallbookSource::Callook | CallbookSource::HamQth | CallbookSource::Qrz
+            );
+            if from_online {
+                local_callbook.cache_store(&data);
+            }
+            let merged = merge_callbook(result.take(), data);
+            let complete = is_complete(&merged);
+            result = Some(merged);
+            if complete {
+                break;
+            }
         }
     }
 
-    // 3. Sprawdzamy darmowe API HamQTH XML (jeśli skonfigurowano)
-    if !hamqth_user.is_empty() && !hamqth_pass.is_empty() {
-        let mut hamqth_client = HamQthXmlClient::new(hamqth_user, hamqth_pass);
-        if let Ok(data) = hamqth_client.lookup_callsign(&clean).await {
-            return Some(data);
-        }
+    if let Some(data) = result {
+        return Some(data);
     }
 
-    // 4. Sprawdzamy QRZ XML (jeśli skonfigurowano)
-    if !qrz_user.is_empty() && !qrz_pass.is_empty() {
-        let mut qrz_client = QrzClient::new(qrz_user, qrz_pass);
-        if let Ok(data) = qrz_client.lookup(&clean).await {
-            return Some(data);
-        }
-    }
-
-    // 5. Jeśli cokolwiek było w lokalnej bazie, zwracamy chociaż te częściowe dane
-    if local_res.is_some() {
-        return local_res;
-    }
-
-    // 6. Ostateczny fallback dla stacji demonstracyjnych
+    // Ostateczny fallback dla stacji demonstracyjnych
     match clean.as_str() {
         "SP6INA" => Some(CallbookData {
             callsign: clean,
@@ -384,5 +577,40 @@ mod tests {
         if let Some(data) = cb.lookup("DL/SP1ADT") {
             assert_eq!(data.name.as_deref(), Some("Andrzej"));
         }
+    }
+
+    #[test]
+    fn test_callbook_cache_roundtrip() {
+        let cache_path = std::env::temp_dir().join(format!(
+            "splogbook_cache_test_{}.db",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&cache_path);
+
+        let cb = LocalCallbook::new(None, None).with_cache(Some(cache_path.clone()), 30);
+        let data = CallbookData {
+            callsign: "SP6INA".to_string(),
+            name: Some("Mariusz".to_string()),
+            qth: Some("Wrocław".to_string()),
+            gridsquare: Some("JO81WA".to_string()),
+            state: None,
+            dxcc: Some(269),
+            country: Some("Poland".to_string()),
+            qsl_manager: None,
+            email: None,
+            image_url: None,
+        };
+
+        cb.cache_store(&data);
+
+        let got = cb.cache_lookup("sp6ina").expect("cache should return stored entry");
+        assert_eq!(got.callsign, "SP6INA");
+        assert_eq!(got.name.as_deref(), Some("Mariusz"));
+        assert_eq!(got.qth.as_deref(), Some("Wrocław"));
+        assert_eq!(got.gridsquare.as_deref(), Some("JO81WA"));
+        assert_eq!(got.dxcc, Some(269));
+        assert_eq!(got.country.as_deref(), Some("Poland"));
+
+        let _ = std::fs::remove_file(&cache_path);
     }
 }

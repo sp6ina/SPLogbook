@@ -48,6 +48,75 @@ use eframe::egui;
 use egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
 use std::sync::{Arc, Mutex};
 
+/// Filtr „drill-down”: kliknięcie słupka/wiersza w statystykach przenosi do
+/// listy QSO spełniających kryterium. Przechowywany na `SpLogApp` i stosowany
+/// w tabeli logu (obok wyszukiwarki tekstowej).
+#[derive(Clone, Debug, PartialEq)]
+pub enum DrillFilter {
+    Band(String),
+    Mode(String),
+    Country(String),
+    Month(String), // "YYYY-MM"
+    Hour(u32),     // 0..=23
+    Qsl(QslDrillStatus),
+}
+
+/// Kategoria statusu QSL używana w drill-down z zakładki QSL statystyk.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum QslDrillStatus {
+    Lotw,
+    Eqsl,
+    Paper,
+    None,
+}
+
+impl DrillFilter {
+    /// Czy dany rekord QSO spełnia filtr drill-down.
+    pub fn matches(&self, q: &QsoRecord) -> bool {
+        match self {
+            DrillFilter::Band(b) => q.band.eq_ignore_ascii_case(b),
+            DrillFilter::Mode(m) => q.mode.eq_ignore_ascii_case(m),
+            DrillFilter::Country(c) => q
+                .country
+                .as_deref()
+                .unwrap_or("")
+                .eq_ignore_ascii_case(c),
+            DrillFilter::Month(m) => {
+                // Akceptuje zarówno "YYYY-MM-DD", jak i "YYYYMMDD".
+                q.qso_date.replace('-', "").starts_with(&m.replace('-', ""))
+            }
+            DrillFilter::Hour(h) => {
+                // Pierwsze dwie cyfry czasu to godzina (dla "HH:MM:SS" i "HHMMSS").
+                let hh = format!("{:02}", h);
+                q.time_on.chars().take(2).collect::<String>() == hh
+            }
+            DrillFilter::Qsl(st) => match st {
+                QslDrillStatus::Lotw => q.lotw_qsl_rcvd == "Y",
+                QslDrillStatus::Eqsl => q.eqsl_qsl_rcvd == "Y",
+                QslDrillStatus::Paper => q.qsl_rcvd == "Y",
+                QslDrillStatus::None => {
+                    q.lotw_qsl_rcvd != "Y" && q.eqsl_qsl_rcvd != "Y" && q.qsl_rcvd != "Y"
+                }
+            },
+        }
+    }
+
+    /// Krótka, czytelna etykieta aktywnego filtra (dla paska w tabeli logu).
+    pub fn label(&self) -> String {
+        match self {
+            DrillFilter::Band(b) => format!("📻 {}", b),
+            DrillFilter::Mode(m) => format!("📡 {}", m),
+            DrillFilter::Country(c) => format!("🌍 {}", c),
+            DrillFilter::Month(m) => format!("📅 {}", m),
+            DrillFilter::Hour(h) => format!("⏰ {:02}:00", h),
+            DrillFilter::Qsl(QslDrillStatus::Lotw) => "📬 LoTW".to_string(),
+            DrillFilter::Qsl(QslDrillStatus::Eqsl) => "📬 eQSL".to_string(),
+            DrillFilter::Qsl(QslDrillStatus::Paper) => "📬 QSL".to_string(),
+            DrillFilter::Qsl(QslDrillStatus::None) => "📬 Brak".to_string(),
+        }
+    }
+}
+
 /// Główny stan aplikacji natywnego pulpitu SPLogbook
 pub struct SpLogApp {
     // Podsystemy bazodanowe i analityczne
@@ -97,6 +166,8 @@ pub struct SpLogApp {
     pub recent_qsos: Vec<QsoRecord>,
     pub qso_numbers: std::collections::HashMap<i64, usize>,
     pub log_search_query: String,
+    /// Aktywny filtr drill-down ze statystyk (kliknięty słupek/wiersz).
+    pub log_drill_filter: Option<DrillFilter>,
 
     // DX Cluster i pogoda kosmiczna
     pub cluster_spots: Vec<DxSpot>,
@@ -318,6 +389,9 @@ pub struct SpLogApp {
     pub awards_other_subtab: usize,
     pub awards_other_search: String,
     pub local_callbook: std::sync::Arc<crate::core::callbook::LocalCallbook>,
+    pub callbook_priority: Vec<crate::core::callbook::CallbookSource>,
+    pub callbook_cache_enabled: bool,
+    pub callbook_cache_ttl_days: u32,
     pub quick_access: crate::core::station::QuickAccessConfig,
     pub show_quick_access_customizer: bool,
 
@@ -730,7 +804,19 @@ impl SpLogApp {
         ];
         let srv_path = srv_candidates.into_iter().find(|p| p.exists());
 
-        let local_callbook = std::sync::Arc::new(crate::core::callbook::LocalCallbook::new(cb_path, srv_path));
+        // Cache offline wyników callbook — obok bazy dziennika (katalog zapisywalny).
+        let callbook_cache_path = if app_config.callbook_cache_enabled {
+            active_db_path.parent().map(|p| p.join("callbook_cache.db"))
+        } else {
+            None
+        };
+        let callbook_cache_ttl_days = app_config.callbook_cache_ttl_days;
+        let callbook_priority = app_config.callbook_priority.clone();
+
+        let local_callbook = std::sync::Arc::new(
+            crate::core::callbook::LocalCallbook::new(cb_path, srv_path)
+                .with_cache(callbook_cache_path, callbook_cache_ttl_days),
+        );
 
         let mut app = Self {
             log_db,
@@ -772,6 +858,7 @@ impl SpLogApp {
             recent_qsos,
             qso_numbers,
             log_search_query: String::new(),
+            log_drill_filter: None,
 
             cluster_spots: sample_spots,
             cluster_spots_api: None,
@@ -950,6 +1037,9 @@ impl SpLogApp {
             awards_other_subtab: 0,
             awards_other_search: String::new(),
             local_callbook,
+            callbook_priority,
+            callbook_cache_enabled: app_config.callbook_cache_enabled,
+            callbook_cache_ttl_days: callbook_cache_ttl_days,
             quick_access: app_config.quick_access,
             show_quick_access_customizer: false,
 
@@ -1674,6 +1764,35 @@ impl SpLogApp {
         }
     }
 
+    /// Ustawia filtr drill-down i przenosi widok do tabeli logu, aby pokazać
+    /// listę QSO pasujących do klikniętej pozycji w statystykach.
+    pub fn drill_down(&mut self, filter: DrillFilter) {
+        self.log_drill_filter = Some(filter);
+        self.log_search_query.clear();
+        self.log_page = 0;
+        self.focus_logbook();
+    }
+
+    /// Czyści aktywny filtr drill-down (wraca do pełnego widoku logu).
+    pub fn clear_drill_down(&mut self) {
+        self.log_drill_filter = None;
+        self.log_page = 0;
+    }
+
+    /// Pokazuje panel logu i ustawia go jako aktywną zakładkę w swojej kolumnie.
+    pub fn focus_logbook(&mut self) {
+        if self.panel_log.floating {
+            self.panel_log.visible = true;
+            return;
+        }
+        self.panel_log.visible = true;
+        let col = self.panel_log.column;
+        let tiles = self.get_tiles_in_column(col);
+        if let Some(idx) = tiles.iter().position(|t| t == "log") {
+            self.active_tab[col] = idx;
+        }
+    }
+
     /// Zwraca kolor i odznakę (⭐ nowe DXCC, ✨ nowe pasmo) dla spotu klastra,
     /// korzystając z cache, aby nie przeliczać prefiksu i statusu nagród co klatkę.
     pub fn cluster_spot_badge(&mut self, dx_call: &str, band: &str, is_ft8: bool) -> (egui::Color32, &'static str) {
@@ -1927,11 +2046,12 @@ impl SpLogApp {
         let hamqth_p = self.hamqth_password.clone();
         let qrz_u = self.qrz_username.clone();
         let qrz_p = self.qrz_password.clone();
+        let priority = self.callbook_priority.clone();
         let tx = self.qrz_lookup_tx.clone();
 
         tokio::spawn(async move {
             if let Some(data) = crate::core::callbook::fetch_callsign_data(
-                call, lc, hamqth_u, hamqth_p, qrz_u, qrz_p
+                call, lc, hamqth_u, hamqth_p, qrz_u, qrz_p, &priority,
             ).await {
                 let _ = tx.send(data);
             }
@@ -2110,6 +2230,10 @@ impl SpLogApp {
             hrdlog_upload_code: self.hrdlog_upload_code.clone(),
             hamqth_username: self.hamqth_username.clone(),
             hamqth_password: self.hamqth_password.clone(),
+
+            callbook_priority: self.callbook_priority.clone(),
+            callbook_cache_enabled: self.callbook_cache_enabled,
+            callbook_cache_ttl_days: self.callbook_cache_ttl_days,
 
             wol_mac: self.wol_dialog.mac_address.clone(),
             wol_ip: self.wol_dialog.broadcast_ip.clone(),

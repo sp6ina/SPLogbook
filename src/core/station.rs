@@ -115,6 +115,8 @@ fn default_font_family() -> String { String::new() }
 fn default_distance_unit() -> String { "km".to_string() }
 fn default_n1mm_broadcast_host() -> String { "127.0.0.1".to_string() }
 fn default_n1mm_broadcast_port() -> u16 { 12060 }
+fn default_callbook_cache_enabled() -> bool { true }
+fn default_callbook_cache_ttl_days() -> u32 { 30 }
 fn default_profile_id() -> String { "default".to_string() }
 fn default_cat_sharing_port() -> u16 { 4534 }
 fn default_hamlib_source() -> String { "bundled".to_string() }
@@ -359,6 +361,14 @@ pub struct AppConfig {
     pub hamqth_username: String,
     #[serde(skip_serializing)]
     pub hamqth_password: String,
+
+    // Agregacja callbook: kolejność źródeł i cache offline
+    #[serde(default = "crate::core::callbook::default_callbook_priority")]
+    pub callbook_priority: Vec<crate::core::callbook::CallbookSource>,
+    #[serde(default = "default_callbook_cache_enabled")]
+    pub callbook_cache_enabled: bool,
+    #[serde(default = "default_callbook_cache_ttl_days")]
+    pub callbook_cache_ttl_days: u32,
 
     // Wake-on-LAN
     pub wol_mac: String,
@@ -746,6 +756,10 @@ impl Default for AppConfig {
             hrdlog_upload_code: String::new(),
             hamqth_username: String::new(),
             hamqth_password: String::new(),
+
+            callbook_priority: crate::core::callbook::default_callbook_priority(),
+            callbook_cache_enabled: true,
+            callbook_cache_ttl_days: 30,
 
             wol_mac: String::new(),
             wol_ip: "255.255.255.255".to_string(),

@@ -336,6 +336,45 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                         app.status_message = Some("Wysyłka do HamQTH w toku...".to_string());
                                     }
                                 });
+
+                                ui.add_space(6.0);
+
+                                ui.group(|ui| {
+                                    ui.label(egui::RichText::new("🔀 Agregacja Callbook").strong().size(13.0).color(egui::Color32::from_rgb(167, 139, 250)));
+                                    ui.separator();
+                                    ui.checkbox(&mut app.callbook_cache_enabled, "Cache offline wyników zapytań online");
+                                    if app.callbook_cache_enabled {
+                                        ui.horizontal(|ui| {
+                                            ui.label("Ważność cache (dni):");
+                                            ui.add(egui::DragValue::new(&mut app.callbook_cache_ttl_days).range(1..=365).speed(0.1));
+                                        });
+                                    }
+                                    ui.add_space(4.0);
+                                    ui.label("Kolejność źródeł (góra = najwyższy priorytet):");
+                                    let mut move_up: Option<usize> = None;
+                                    let mut move_down: Option<usize> = None;
+                                    let len = app.callbook_priority.len();
+                                    for (i, src) in app.callbook_priority.iter().enumerate() {
+                                        ui.horizontal(|ui| {
+                                            ui.label(format!("{}. {}", i + 1, src.label()));
+                                            if i > 0 && ui.small_button("▲").clicked() {
+                                                move_up = Some(i);
+                                            }
+                                            if i + 1 < len && ui.small_button("▼").clicked() {
+                                                move_down = Some(i);
+                                            }
+                                        });
+                                    }
+                                    if let Some(i) = move_up {
+                                        app.callbook_priority.swap(i, i - 1);
+                                    }
+                                    if let Some(i) = move_down {
+                                        app.callbook_priority.swap(i, i + 1);
+                                    }
+                                    if ui.button("↺ Przywróć domyślną kolejność").clicked() {
+                                        app.callbook_priority = crate::core::callbook::default_callbook_priority();
+                                    }
+                                });
                             }
                             SyncTab::CloudlogHrdlog => {
                                 ui.group(|ui| {

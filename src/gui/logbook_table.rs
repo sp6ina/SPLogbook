@@ -169,10 +169,14 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.current_language;
     let query = app.log_search_query.trim().to_uppercase();
 
-    // Filtrowanie
+    // Filtrowanie (wyszukiwarka tekstowa + filtr drill-down ze statystyk)
+    let drill = app.log_drill_filter.clone();
     let mut sorted_indices: Vec<usize> = (0..app.recent_qsos.len())
         .filter(|&i| {
             let q = &app.recent_qsos[i];
+            if let Some(ref d) = drill {
+                if !d.matches(q) { return false; }
+            }
             if query.is_empty() { return true; }
             q.callsign.to_uppercase().contains(&query)
                 || q.band.to_uppercase().contains(&query)
@@ -204,6 +208,26 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     });
 
     let total = sorted_indices.len();
+
+    // Aktywny filtr drill-down ze statystyk — widoczny pasek z przyciskiem czyszczenia
+    if let Some(ref d) = app.log_drill_filter {
+        let label = d.label();
+        let mut clear = false;
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(format!("🔎 {}: {}", tr("stats.drilldown_filter", lang), label))
+                    .size(12.0)
+                    .color(egui::Color32::from_rgb(56, 189, 248)),
+            );
+            if ui.small_button("✕").on_hover_text(tr("stats.drilldown_clear", lang)).clicked() {
+                clear = true;
+            }
+        });
+        ui.add_space(2.0);
+        if clear {
+            app.clear_drill_down();
+        }
+    }
 
     // Pasek paginacji
     ui.horizontal(|ui| {
