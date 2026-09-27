@@ -2558,6 +2558,39 @@ impl SpLogApp {
         serde_json::to_value(&self.dock_state).ok()
     }
 
+    /// Renders a floating panel body inside a native multi-viewport OS window.
+    /// Restores the window's saved position/size and captures any user
+    /// move/resize so the geometry survives detach/dock cycles and can be
+    /// moved to another monitor.
+    pub fn show_floating_viewport<T>(
+        &mut self,
+        ctx: &egui::Context,
+        viewport_id: egui::ViewportId,
+        title: String,
+        default_size: [f32; 2],
+        min_size: [f32; 2],
+        saved_pos: Option<[f32; 2]>,
+        saved_size: Option<[f32; 2]>,
+        mut body: impl FnMut(&mut Self, &egui::Context) -> T,
+    ) -> (T, Option<([f32; 2], [f32; 2])>) {
+        let mut captured_geo: Option<([f32; 2], [f32; 2])> = None;
+        let mut builder = egui::ViewportBuilder::default()
+            .with_title(title)
+            .with_inner_size(saved_size.unwrap_or(default_size))
+            .with_min_inner_size(min_size);
+        if let Some([x, y]) = saved_pos {
+            builder = builder.with_position(egui::pos2(x, y));
+        }
+        let result = ctx.show_viewport_immediate(viewport_id, builder, |vp_ctx, _class| {
+            let out = body(self, vp_ctx);
+            captured_geo = vp_ctx.input(|i| {
+                i.viewport().outer_rect.map(|r| ([r.min.x, r.min.y], [r.width(), r.height()]))
+            });
+            out
+        });
+        (result, captured_geo)
+    }
+
     pub fn reset_panel_layout(&mut self) {
         use crate::core::station::ViewPanelConfig;
         self.left_column_width = 350.0;

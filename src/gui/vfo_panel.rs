@@ -13,13 +13,15 @@ pub fn render_vfo_window(app: &mut SpLogApp, ctx: &egui::Context) {
     if app.panel_vfo.floating {
         let mut still_open = true;
         let mut dock_back = false;
-        ctx.show_viewport_immediate(
+        let (_, captured_geo) = app.show_floating_viewport(
+            ctx,
             egui::ViewportId::from_hash_of("vfo_viewport"),
-            egui::ViewportBuilder::default()
-                .with_title(format!("📻 {} - SPLogbook", tr("view.panel_vfo", app.current_language)))
-                .with_inner_size([520.0, 320.0])
-                .with_min_inner_size([400.0, 240.0]),
-            |ctx, _class| {
+            format!("📻 {} - SPLogbook", tr("view.panel_vfo", app.current_language)),
+            [520.0, 320.0],
+            [400.0, 240.0],
+            app.panel_vfo.saved_pos,
+            app.panel_vfo.saved_size,
+            |app, ctx| {
                 egui::TopBottomPanel::top("vfo_vp_bar").show(ctx, |ui| {
                     ui.horizontal(|ui| {
                         let lang = app.current_language;
@@ -37,6 +39,13 @@ pub fn render_vfo_window(app: &mut SpLogApp, ctx: &egui::Context) {
             },
         );
 
+        if let Some((pos, size)) = captured_geo {
+            if app.panel_vfo.saved_pos != Some(pos) || app.panel_vfo.saved_size != Some(size) {
+                app.panel_vfo.saved_pos = Some(pos);
+                app.panel_vfo.saved_size = Some(size);
+                app.save_station_config();
+            }
+        }
         if dock_back {
             app.panel_vfo.floating = false;
             app.save_station_config();

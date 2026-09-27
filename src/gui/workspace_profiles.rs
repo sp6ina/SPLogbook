@@ -8,6 +8,7 @@
 use crate::core::station::{workspace_profile_presets, WorkspaceProfile};
 use crate::gui::app::SpLogApp;
 use eframe::egui;
+use egui_dock::DockState;
 
 /// Rysuje okno profili układu, jeśli jest otwarte.
 pub fn render_workspace_profiles_window(app: &mut SpLogApp, ctx: &egui::Context) {
@@ -117,6 +118,7 @@ fn capture_profile(app: &SpLogApp, name: &str) -> WorkspaceProfile {
         panel_satellites: app.panel_satellites.clone(),
         panel_world_map: app.panel_world_map.clone(),
         theme_preset: None,
+        dock_layout: app.serialize_dock_layout(),
     }
 }
 
@@ -136,7 +138,23 @@ fn apply_profile(app: &mut SpLogApp, p: &WorkspaceProfile) {
     app.show_satellites_window = p.panel_satellites.visible && p.panel_satellites.floating;
     app.show_world_map_window = p.panel_world_map.visible && p.panel_world_map.floating;
 
-    // Wymuś ponowny rozkład kolumn dokujących.
+    // Odtwórz układ dokowania. Preferuj zapisany układ egui_dock (drzewo
+    // podziałów, karty, powierzchnie okien); w przeciwnym razie odbuduj
+    // z pól column/order, aby zmiany kolumn/kolejności miały skutek.
+    if let Some(json) = &p.dock_layout {
+        if let Ok(state) = serde_json::from_value::<DockState<String>>(json.clone()) {
+            app.dock_state = state;
+        } else {
+            app.rebuild_dock_state_from_panels();
+        }
+    } else {
+        app.rebuild_dock_state_from_panels();
+    }
+    // Uzgodnij widoczność/odpięcie paneli z odtworzonym układem.
+    app.sync_dock_state();
+    app.last_saved_dock_layout = app.serialize_dock_layout();
+
+    // Wymuś ponowny rozkład okien pływających.
     app.reset_layout_requested = true;
     app.save_station_config();
 }

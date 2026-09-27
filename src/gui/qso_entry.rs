@@ -49,13 +49,15 @@ pub fn render_qso_entry_window(app: &mut SpLogApp, ctx: &egui::Context) {
     if app.panel_qso.floating {
         let mut still_open = true;
         let mut dock_back = false;
-        ctx.show_viewport_immediate(
+        let (_, captured_geo) = app.show_floating_viewport(
+            ctx,
             egui::ViewportId::from_hash_of("qso_entry_viewport"),
-            egui::ViewportBuilder::default()
-                .with_title(format!("📝 {} - SPLogbook", tr("tab.new_qso", lang)))
-                .with_inner_size([480.0, 460.0])
-                .with_min_inner_size([360.0, 360.0]),
-            |ctx, _class| {
+            format!("📝 {} - SPLogbook", tr("tab.new_qso", lang)),
+            [480.0, 460.0],
+            [360.0, 360.0],
+            app.panel_qso.saved_pos,
+            app.panel_qso.saved_size,
+            |app, ctx| {
                 egui::TopBottomPanel::top("qso_vp_bar").show(ctx, |ui| {
                     ui.horizontal(|ui| {
                         if ui.button("↙ Przypnij do pulpitu").on_hover_text("Przenieś okno z powrotem na główny pulpit SPLogbook").clicked() {
@@ -72,6 +74,13 @@ pub fn render_qso_entry_window(app: &mut SpLogApp, ctx: &egui::Context) {
             },
         );
 
+        if let Some((pos, size)) = captured_geo {
+            if app.panel_qso.saved_pos != Some(pos) || app.panel_qso.saved_size != Some(size) {
+                app.panel_qso.saved_pos = Some(pos);
+                app.panel_qso.saved_size = Some(size);
+                app.save_station_config();
+            }
+        }
         if dock_back {
             app.panel_qso.floating = false;
             app.save_station_config();

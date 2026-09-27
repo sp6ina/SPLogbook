@@ -23,13 +23,18 @@ impl MiniHudBar {
         if app.hud_always_on_top {
             let mut still_open = true;
             let mut exit_compact = false;
+            let mut captured_geo: Option<([f32; 2], [f32; 2])> = None;
+            let mut builder = egui::ViewportBuilder::default()
+                .with_title("📻 SPLogbook Mini HUD")
+                .with_decorations(false)
+                .with_always_on_top()
+                .with_inner_size(app.hud_saved_size.unwrap_or([460.0, 260.0]));
+            if let Some([x, y]) = app.hud_saved_pos {
+                builder = builder.with_position(egui::pos2(x, y));
+            }
             ctx.show_viewport_immediate(
                 egui::ViewportId::from_hash_of("mini_hud_aot_viewport"),
-                egui::ViewportBuilder::default()
-                    .with_title("📻 SPLogbook Mini HUD")
-                    .with_decorations(false)
-                    .with_always_on_top()
-                    .with_inner_size(app.hud_saved_size.unwrap_or([460.0, 260.0])),
+                builder,
                 |ctx, _class| {
                     egui::CentralPanel::default().show(ctx, |ui| {
                         render_hud_body(app, ui, &mut exit_compact);
@@ -37,8 +42,18 @@ impl MiniHudBar {
                     if ctx.input(|i| i.viewport().close_requested()) {
                         still_open = false;
                     }
+                    captured_geo = ctx.input(|i| {
+                        i.viewport().outer_rect.map(|r| ([r.min.x, r.min.y], [r.width(), r.height()]))
+                    });
                 },
             );
+            if let Some((pos, size)) = captured_geo {
+                if app.hud_saved_pos != Some(pos) || app.hud_saved_size != Some(size) {
+                    app.hud_saved_pos = Some(pos);
+                    app.hud_saved_size = Some(size);
+                    app.save_station_config();
+                }
+            }
             if exit_compact {
                 app.compact_hud_mode = false;
                 app.hud_always_on_top = false;

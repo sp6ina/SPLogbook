@@ -39,13 +39,15 @@ pub fn render_satellites_window(app: &mut SpLogApp, ctx: &egui::Context) {
     if app.panel_satellites.floating {
         let mut still_open = true;
         let mut dock_back = false;
-        ctx.show_viewport_immediate(
+        let (_, captured_geo) = app.show_floating_viewport(
+            ctx,
             egui::ViewportId::from_hash_of("satellites_viewport"),
-            egui::ViewportBuilder::default()
-                .with_title(format!("🛰 {} - SPLogbook", tr("sat.window_title", lang)))
-                .with_inner_size([400.0, 340.0])
-                .with_min_inner_size([280.0, 200.0]),
-            |ctx, _class| {
+            format!("🛰 {} - SPLogbook", tr("sat.window_title", lang)),
+            [400.0, 340.0],
+            [280.0, 200.0],
+            app.panel_satellites.saved_pos,
+            app.panel_satellites.saved_size,
+            |app, ctx| {
                 egui::TopBottomPanel::top("satellites_vp_bar").show(ctx, |ui| {
                     ui.horizontal(|ui| {
                         if ui.button(format!("↙ {}", tr("window.dock", lang))).on_hover_text(tr("window.dock_tooltip", lang)).clicked() {
@@ -62,6 +64,13 @@ pub fn render_satellites_window(app: &mut SpLogApp, ctx: &egui::Context) {
             },
         );
 
+        if let Some((pos, size)) = captured_geo {
+            if app.panel_satellites.saved_pos != Some(pos) || app.panel_satellites.saved_size != Some(size) {
+                app.panel_satellites.saved_pos = Some(pos);
+                app.panel_satellites.saved_size = Some(size);
+                app.save_station_config();
+            }
+        }
         if dock_back {
             app.panel_satellites.floating = false;
             app.save_station_config();

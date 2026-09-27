@@ -145,13 +145,15 @@ pub fn render_world_map_window(app: &mut SpLogApp, ctx: &egui::Context) {
     if app.panel_world_map.floating {
         let mut still_open = true;
         let mut dock_back = false;
-        ctx.show_viewport_immediate(
+        let (_, captured_geo) = app.show_floating_viewport(
+            ctx,
             egui::ViewportId::from_hash_of("world_map_viewport"),
-            egui::ViewportBuilder::default()
-                .with_title(format!("🗺 {} - SPLogbook", tr("map.world_title", lang)))
-                .with_inner_size([900.0, 560.0])
-                .with_min_inner_size([460.0, 300.0]),
-            |ctx, _class| {
+            format!("🗺 {} - SPLogbook", tr("map.world_title", lang)),
+            [900.0, 560.0],
+            [460.0, 300.0],
+            app.panel_world_map.saved_pos,
+            app.panel_world_map.saved_size,
+            |app, ctx| {
                 egui::TopBottomPanel::top("world_map_vp_bar").show(ctx, |ui| {
                     ui.horizontal(|ui| {
                         if ui.button(format!("↙ {}", tr("window.dock", lang))).on_hover_text(tr("window.dock_tooltip", lang)).clicked() {
@@ -168,6 +170,13 @@ pub fn render_world_map_window(app: &mut SpLogApp, ctx: &egui::Context) {
             },
         );
 
+        if let Some((pos, size)) = captured_geo {
+            if app.panel_world_map.saved_pos != Some(pos) || app.panel_world_map.saved_size != Some(size) {
+                app.panel_world_map.saved_pos = Some(pos);
+                app.panel_world_map.saved_size = Some(size);
+                app.save_station_config();
+            }
+        }
         if dock_back {
             app.panel_world_map.floating = false;
             app.save_station_config();

@@ -586,6 +586,11 @@ pub struct WorkspaceProfile {
     pub panel_world_map: ViewPanelConfig,
     #[serde(default)]
     pub theme_preset: Option<String>,
+    /// Zserializowany układ dokowania (egui_dock::DockState<String>) — drzewo
+    /// podziałów, kolejność kart, powierzchnie okien i ich geometria.
+    /// `None` = odtwórz układ z pól `column`/`order` paneli.
+    #[serde(default)]
+    pub dock_layout: Option<serde_json::Value>,
 }
 
 /// Pomocniczy konstruktor panelu o podanych cechach.
@@ -607,6 +612,7 @@ pub fn workspace_profile_presets() -> Vec<WorkspaceProfile> {
             panel_satellites: panel(false, false, 2, 2),
             panel_world_map: panel(false, false, 2, 3),
             theme_preset: None,
+            dock_layout: None,
         },
         WorkspaceProfile {
             name: "Kontest".to_string(),
@@ -619,6 +625,7 @@ pub fn workspace_profile_presets() -> Vec<WorkspaceProfile> {
             panel_satellites: panel(false, false, 2, 3),
             panel_world_map: panel(false, false, 2, 4),
             theme_preset: None,
+            dock_layout: None,
         },
         WorkspaceProfile {
             name: "Cyfrowe (FT8/WSJT-X)".to_string(),
@@ -631,6 +638,7 @@ pub fn workspace_profile_presets() -> Vec<WorkspaceProfile> {
             panel_satellites: panel(false, false, 2, 3),
             panel_world_map: panel(false, false, 2, 4),
             theme_preset: None,
+            dock_layout: None,
         },
         WorkspaceProfile {
             name: "Cluster & DX".to_string(),
@@ -643,6 +651,7 @@ pub fn workspace_profile_presets() -> Vec<WorkspaceProfile> {
             panel_satellites: panel(false, false, 2, 2),
             panel_world_map: panel(true, false, 1, 2),
             theme_preset: None,
+            dock_layout: None,
         },
         WorkspaceProfile {
             name: "Ekspedycja (P/SOTA/POTA)".to_string(),
@@ -655,6 +664,7 @@ pub fn workspace_profile_presets() -> Vec<WorkspaceProfile> {
             panel_satellites: panel(false, false, 2, 1),
             panel_world_map: panel(false, false, 2, 2),
             theme_preset: None,
+            dock_layout: None,
         },
     ]
 }

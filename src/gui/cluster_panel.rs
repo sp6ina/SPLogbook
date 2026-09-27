@@ -95,13 +95,15 @@ pub fn render_cluster_window(app: &mut SpLogApp, ctx: &egui::Context) {
     if app.panel_cluster.floating {
         let mut still_open = true;
         let mut dock_back = false;
-        ctx.show_viewport_immediate(
+        let (_, captured_geo) = app.show_floating_viewport(
+            ctx,
             egui::ViewportId::from_hash_of("cluster_viewport"),
-            egui::ViewportBuilder::default()
-                .with_title(format!("📡 {} - SPLogbook", tr("cluster.title", lang)))
-                .with_inner_size([720.0, 520.0])
-                .with_min_inner_size([420.0, 280.0]),
-            |ctx, _class| {
+            format!("📡 {} - SPLogbook", tr("cluster.title", lang)),
+            [720.0, 520.0],
+            [420.0, 280.0],
+            app.panel_cluster.saved_pos,
+            app.panel_cluster.saved_size,
+            |app, ctx| {
                 egui::TopBottomPanel::top("cluster_vp_bar").show(ctx, |ui| {
                     ui.horizontal(|ui| {
                         if ui.button(format!("↙ {}", tr("window.dock", lang))).on_hover_text(tr("window.dock_tooltip", lang)).clicked() {
@@ -130,6 +132,13 @@ pub fn render_cluster_window(app: &mut SpLogApp, ctx: &egui::Context) {
             },
         );
 
+        if let Some((pos, size)) = captured_geo {
+            if app.panel_cluster.saved_pos != Some(pos) || app.panel_cluster.saved_size != Some(size) {
+                app.panel_cluster.saved_pos = Some(pos);
+                app.panel_cluster.saved_size = Some(size);
+                app.save_station_config();
+            }
+        }
         if dock_back {
             app.panel_cluster.floating = false;
             app.save_station_config();
