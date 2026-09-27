@@ -1,5 +1,6 @@
 use axum::{
     extract::{Path, Query, State},
+    extract::ws::{Message, WebSocket, WebSocketUpgrade},
     http::{StatusCode, Method, header},
     response::Response,
     routing::get,
@@ -10,6 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use std::collections::HashMap;
 
+use crate::core::events::EventBus;
 use crate::core::qso::QsoRecord;
 
 use crate::cluster::telnet::DxSpot;
@@ -20,6 +22,8 @@ pub struct ApiState {
     callsign: String,
     start_time: Instant,
     pub cluster_spots: Arc<Mutex<Vec<DxSpot>>>,
+    /// Centralna magistrala zdarzeń do przesyłania na żywo przez WebSocket.
+    pub events: EventBus,
     api_key: String,
 }
 
@@ -112,12 +116,14 @@ pub async fn start_api_server(
     port: u16,
     cluster_spots: Arc<Mutex<Vec<DxSpot>>>,
     api_key: String,
+    events: EventBus,
 ) {
     let state = ApiState {
         db,
         callsign,
         start_time: Instant::now(),
         cluster_spots,
+        events,
         api_key,
     };
 
@@ -127,6 +133,7 @@ pub async fn start_api_server(
         .route("/api/v1/qsos/:id", get(get_qso_by_id))
         .route("/api/v1/stats", get(get_stats))
         .route("/api/v1/cluster/spots", get(get_cluster_spots))
+        .route("/api/v1/ws", get(ws_handler))
         .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
         .layer(middleware::from_fn(cors_middleware))
         .with_state(state);
@@ -257,4 +264,86 @@ async fn get_cluster_spots(
         })
     }).collect();
     Json(result)
+}
+
+/// GET /api/v1/ws
+/// Uaktualnienie WebSocket strumieniujące zdarzenia aplikacji na żywo
+/// (nowe QSO, spoty DX, zmiany stanu radia, status klastra/chmury).
+/// Wymaga nagłówka `X-Api-Key` (jak pozostałe chronione endpointy).
+async fn ws_handler(ws: WebSocketUpgrade, State(state): State<ApiState>) -> Response {
+    ws.on_upgrade(move |socket| handle_socket(socket, state))
+}
+
+async fn handle_socket(socket: WebSocket, state: ApiState) {
+    use futures_util::{SinkExt, StreamExt};
+
+    let (mut sender, mut receiver) = socket.split();
+
+    // Powitanie z wersją aplikacji — pozwala klientowi zweryfikować kompatybilność.
+    let hello = serde_json::json!({
+        "type": "hello",
+        "version": env!("CARGO_PKG_VERSION"),
+    })
+    .to_string();
+    if sender.send(Message::Text(hello.into())).await.is_err() {
+        return;
+    }
+
+    let mut rx = state.events.subscribe();
+    loop {
+        tokio::select! {
+            event = rx.recv() => {
+                match event {
+                    Ok(ev) => {
+                        let text = match serde_json::to_string(&ev) {
+                            Ok(t) => t,
+                            Err(_) => continue,
+                        };
+                        if sender.send(Message::Text(text.into())).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                        let skip = serde_json::json!({ "type": "lagged", "skipped": skipped }).to_string();
+                        if sender.send(Message::Text(skip.into())).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
+            msg = receiver.next() => {
+                match msg {
+                    Some(Ok(Message::Close(_))) | None => break,
+                    Some(Ok(Message::Ping(payload))) => {
+                        if sender.send(Message::Pong(payload)).await.is_err() {
+                            break;
+                        }
+                    }
+                    Some(Ok(Message::Pong(_))) | Some(Ok(Message::Text(_))) | Some(Ok(Message::Binary(_))) => {}
+                    Some(Err(_)) => break,
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn app_event_serializes_for_websocket() {
+        let ev = crate::core::events::AppEvent::DxSpot {
+            spotter: "SP6INA".into(),
+            dx_call: "DL1ABC".into(),
+            frequency_khz: 14_250.0,
+            band: "20m".into(),
+            comment: "TNX".into(),
+            time_utc: "1200".into(),
+            is_ft8: false,
+            is_skimmer: false,
+        };
+        let json = serde_json::to_string(&ev).expect("serializacja");
+        assert!(json.contains("\"type\":\"dx_spot\""));
+        assert!(json.contains("\"dx_call\":\"DL1ABC\""));
+    }
 }

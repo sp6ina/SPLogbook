@@ -372,6 +372,9 @@ pub struct SpLogApp {
     pub cat_state_tx: std::sync::mpsc::Sender<crate::cat::hamlib::RigState>,
     pub cat_state_rx: std::sync::mpsc::Receiver<crate::cat::hamlib::RigState>,
 
+    /// Centralna magistrala zdarzeń aplikacji (QSO, spoty, CAT, chmura).
+    pub event_bus: crate::core::events::EventBus,
+
     // DX Cluster Telnet & Filtry
     pub cluster_host: String,
     pub cluster_port: u16,
@@ -1028,6 +1031,8 @@ impl SpLogApp {
             cat_state_tx,
             cat_state_rx,
 
+            event_bus: crate::core::events::EventBus::default(),
+
             cluster_host: app_config.cluster_host,
             cluster_port: app_config.cluster_port,
             cluster_callsign: app_config.cluster_callsign,
@@ -1479,6 +1484,14 @@ impl SpLogApp {
         match insert_res {
             Ok(id) => {
                 qso.id = Some(id);
+                // Opublikuj zdarzenie na centralnej magistrali (WebSocket, plugin, toast).
+                self.event_bus.publish(crate::core::events::AppEvent::QsoLogged {
+                    callsign: qso.callsign.clone(),
+                    band: qso.band.clone(),
+                    mode: qso.mode.clone(),
+                    frequency_hz: (qso.freq.unwrap_or(0.0) * 1_000_000.0) as u64,
+                    time_utc: qso.time_on.clone(),
+                });
                 {
                     let mut awards = self.awards_engine.lock().unwrap_or_else(|p| p.into_inner());
                     awards.register_qso_record(&qso);
@@ -2198,8 +2211,9 @@ impl SpLogApp {
         let key = self.ensure_rest_api_key();
         let spots_for_api = Arc::new(Mutex::new(self.cluster_spots.clone()));
         self.cluster_spots_api = Some(spots_for_api.clone());
+        let events = self.event_bus.clone();
         tokio::spawn(async move {
-            crate::api::server::start_api_server(db, cs, port, spots_for_api, key).await;
+            crate::api::server::start_api_server(db, cs, port, spots_for_api, key, events).await;
         });
     }
 
@@ -3746,6 +3760,11 @@ impl eframe::App for SpLogApp {
         // Odbiór asynchronicznego stanu radia z pętli Hamlib CAT (bi-directional sync)
         while let Ok(st) = self.cat_state_rx.try_recv() {
             self.cat_connected = st.connected;
+            self.event_bus.publish(crate::core::events::AppEvent::RigState {
+                frequency_hz: st.frequency_hz,
+                mode: st.mode.clone(),
+                connected: st.connected,
+            });
             if st.connected {
                 self.rig_state = st;
                 if self.rig_state.frequency_hz > 0 {
@@ -3854,11 +3873,13 @@ impl eframe::App for SpLogApp {
                         self.cluster_connecting = false;
                         self.cluster_status_text = msg.clone();
                         self.status_toast = Some((msg, std::time::Instant::now()));
+                        self.event_bus.publish(crate::core::events::AppEvent::ClusterStatus { connected: true });
                     }
                     ClusterEvent::Disconnected(msg) => {
                         self.cluster_connected = false;
                         self.cluster_connecting = false;
                         self.cluster_status_text = msg;
+                        self.event_bus.publish(crate::core::events::AppEvent::ClusterStatus { connected: false });
                     }
                     ClusterEvent::Spot(spot) => {
                         let is_duplicate = self.cluster_spots.iter().take(30).any(|s| {
@@ -3891,6 +3912,16 @@ impl eframe::App for SpLogApp {
                                 ));
                             }
 
+                            self.event_bus.publish(crate::core::events::AppEvent::DxSpot {
+                                spotter: spot.spotter.clone(),
+                                dx_call: spot.dx_call.clone(),
+                                frequency_khz: spot.frequency_khz,
+                                band: spot.band.clone(),
+                                comment: spot.comment.clone(),
+                                time_utc: spot.time_utc.clone(),
+                                is_ft8: spot.is_ft8,
+                                is_skimmer: spot.is_skimmer,
+                            });
                             self.cluster_spots.insert(0, spot);
                         }
                     }

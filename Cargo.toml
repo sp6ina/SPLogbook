@@ -39,7 +39,7 @@ rfd = "0.15"
 rodio = { version = "0.19", default-features = false, features = ["wav"] }
 printpdf = "0.7"
 gpx = "0.10"
-axum = { version = "0.7", features = ["tokio"] }
+axum = { version = "0.7", features = ["tokio", "ws"] }
 open = "5"
 tower = "0.4"
 geo-types = "0.7"

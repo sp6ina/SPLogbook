@@ -4,6 +4,7 @@
 pub mod adif;
 pub mod awards;
 pub mod database;
+pub mod events;
 pub mod geo;
 pub mod i18n;
 pub mod prefix;
