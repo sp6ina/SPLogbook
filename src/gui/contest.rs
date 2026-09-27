@@ -4,6 +4,7 @@
 use crate::gui::app::SpLogApp;
 use crate::core::i18n::tr;
 use crate::core::contest_rules::{RULES, calculate_score, detect_duplicate};
+use crate::core::contest_stats::{compute_mult_matrix, compute_rate, MultKind, MultMatrix, RateStats};
 use crate::core::exchange::{ExchangeField, apply_to_qso, exchange_summary, fields_from_format_string, parse_exchange};
 use crate::core::qso::QsoRecord;
 use crate::core::station::CustomContest;
@@ -173,6 +174,39 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
     app.contest_mults = mults;
     app.contest_qsos = app.recent_qsos.len() as u32;
 
+    // Rodzaj mnożnika i pasma dla macierzy mnożników.
+    let (mult_kind, rule_bands): (MultKind, Vec<String>) = if let Some(idx) = custom_idx {
+        (MultKind::Dxcc, app.custom_contests[idx].bands.clone())
+    } else if let Some(rule_idx) = RULES.iter().position(|r| r.name == app.contest_name) {
+        (
+            RULES[rule_idx].mult_kind,
+            RULES[rule_idx].bands.iter().map(|b| b.to_string()).collect(),
+        )
+    } else {
+        (MultKind::None, vec![])
+    };
+
+    let now_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    let rate = compute_rate(&app.recent_qsos, now_secs);
+
+    let mult_matrix = if mult_kind != MultKind::None && !rule_bands.is_empty() {
+        let band_refs: Vec<&str> = rule_bands.iter().map(|s| s.as_str()).collect();
+        compute_mult_matrix(mult_kind, &band_refs, &app.recent_qsos)
+    } else {
+        Default::default()
+    };
+
+    // Prognoza wyniku: obecny wynik + tempo z ostatniej godziny × średnia punktów × mnożniki.
+    let avg_points_per_qso = if app.contest_qsos > 0 {
+        pts as f64 / app.contest_qsos as f64
+    } else {
+        0.0
+    };
+    let projected_1h = total as f64 + rate.rate_60m() as f64 * avg_points_per_qso * mults.max(1) as f64;
+
     egui::Window::new(tr("contest.window_title", lang))
         .id(egui::Id::new("splogbook_contest_window"))
         .open(&mut open)
@@ -239,34 +273,35 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
                     cols[2].group(|ui| {
                         ui.label(egui::RichText::new(tr("contest.rate", lang)).strong().color(egui::Color32::from_rgb(56, 189, 248)));
-                        let now_mins = {
-                            let now = std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap_or_default()
-                                .as_secs() / 60;
-                            now
-                        };
-                        let recent_count = app.recent_qsos.iter().filter(|q| {
-                            if q.time_on.len() >= 5 {
-                                if let (Ok(h), Ok(m)) = (
-                                    q.time_on[..2].parse::<u64>(),
-                                    q.time_on[3..5].parse::<u64>()
-                                ) {
-                                    let qso_mins_today = h * 60 + m;
-                                    let now_mins_today = now_mins % (24 * 60);
-                                    let diff = now_mins_today.saturating_sub(qso_mins_today);
-                                    return diff <= 60;
-                                }
-                            }
-                            false
-                        }).count() as u32;
-                        ui.label(format!("{} {} QSO/h", tr("contest.current_rate", lang), recent_count));
+                        ui.label(format!("1m:  {} QSO/h", rate.rate_1m()));
+                        ui.label(format!("5m:  {} QSO/h", rate.rate_5m()));
+                        ui.label(format!("10m: {} QSO/h", rate.rate_10m()));
+                        ui.label(format!("60m: {} QSO/h", rate.rate_60m()));
+                        ui.label(
+                            egui::RichText::new(format!("{}: {:.0}", tr("contest.projected_1h", lang), projected_1h))
+                                .color(egui::Color32::from_rgb(34, 197, 94)),
+                        );
                         ui.label(format!("{} {:03}", tr("contest.stx_nr", lang), app.contest_stx));
                     });
                 });
 
                 ui.add_space(8.0);
                 ui.separator();
+
+                // Wykres tempa (ostatnie 60 minut) + macierz mnożników.
+                egui::CollapsingHeader::new(tr("contest.rate_chart", lang))
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        render_rate_chart(ui, &rate);
+                    });
+
+                if mult_kind != MultKind::None && !rule_bands.is_empty() {
+                    egui::CollapsingHeader::new(format!("{} ({})", tr("contest.mult_matrix", lang), mult_kind.as_str()))
+                        .default_open(false)
+                        .show(ui, |ui| {
+                            render_mult_matrix(ui, &mult_matrix, lang);
+                        });
+                }
 
                 // QSO ENTRY FORM
                 ui.group(|ui| {
@@ -569,4 +604,99 @@ pub fn render_multi_op_window(app: &mut SpLogApp, ctx: &egui::Context) {
         is_open = false;
     }
     app.show_multi_op_window = is_open;
+}
+
+/// Rysuje mini-wykres słupkowy tempa QSO na minutę (ostatnie 60 minut).
+fn render_rate_chart(ui: &mut egui::Ui, rate: &RateStats) {
+    let chart_h = 60.0f32;
+    let chart_w = ui.available_width();
+    let (resp, painter) = ui.allocate_painter(egui::vec2(chart_w, chart_h + 14.0), egui::Sense::hover());
+    let origin = resp.rect.min;
+    let max_val = rate.per_minute.iter().copied().max().unwrap_or(1).max(1) as f32;
+    let n = rate.per_minute.len();
+    if n == 0 {
+        return;
+    }
+    let bar_w = chart_w / n as f32;
+    for (i, v) in rate.per_minute.iter().enumerate() {
+        let bar_h = (*v as f32 / max_val) * chart_h;
+        let x = origin.x + i as f32 * bar_w;
+        let rect = egui::Rect::from_min_size(
+            egui::pos2(x + 0.5, origin.y + chart_h - bar_h),
+            egui::vec2((bar_w - 1.0).max(0.5), bar_h),
+        );
+        painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(56, 189, 248));
+    }
+    // Linia bazowa i etykiety osi.
+    painter.line_segment(
+        [egui::pos2(origin.x, origin.y + chart_h), egui::pos2(origin.x + chart_w, origin.y + chart_h)],
+        egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(100, 116, 139)),
+    );
+    painter.text(
+        egui::pos2(origin.x, origin.y + chart_h + 4.0),
+        egui::Align2::LEFT_TOP,
+        "-60 min",
+        egui::FontId::proportional(9.0),
+        egui::Color32::from_rgb(148, 163, 184),
+    );
+    painter.text(
+        egui::pos2(origin.x + chart_w, origin.y + chart_h + 4.0),
+        egui::Align2::RIGHT_TOP,
+        "now",
+        egui::FontId::proportional(9.0),
+        egui::Color32::from_rgb(148, 163, 184),
+    );
+}
+
+/// Rysuje macierz mnożników: wiersze = pasma, kolumny = mnożniki.
+/// Zielony = zaliczony na paśmie, żółty = zaliczony gdzie indziej, szary = potrzebny.
+fn render_mult_matrix(ui: &mut egui::Ui, matrix: &MultMatrix, lang: crate::core::i18n::Language) {
+    if matrix.bands.is_empty() {
+        ui.label(tr("log.no_results", lang));
+        return;
+    }
+
+    // Legenda.
+    ui.horizontal(|ui| {
+        ui.colored_label(egui::Color32::from_rgb(34, 197, 94), "●");
+        ui.label(tr("contest.mult_worked_here", lang));
+        ui.colored_label(egui::Color32::from_rgb(251, 191, 36), "◐");
+        ui.label(tr("contest.mult_worked_other", lang));
+        ui.colored_label(egui::Color32::from_rgb(71, 85, 105), "·");
+        ui.label(tr("contest.mult_needed", lang));
+        ui.label(
+            egui::RichText::new(format!("({}: {})", tr("contest.mult_needed_count", lang), matrix.needed_count()))
+                .weak(),
+        );
+    });
+
+    egui::ScrollArea::horizontal().show(ui, |ui| {
+        egui::Grid::new("contest_mult_matrix").spacing([2.0, 2.0]).show(ui, |ui| {
+            // Nagłówek z etykietami mnożników.
+            ui.label("");
+            for col in &matrix.columns {
+                ui.label(
+                    egui::RichText::new(col)
+                        .size(8.0)
+                        .color(egui::Color32::from_rgb(148, 163, 184)),
+                );
+            }
+            ui.end_row();
+
+            for (r, band) in matrix.bands.iter().enumerate() {
+                ui.label(egui::RichText::new(band).strong().size(10.0));
+                for (c, col) in matrix.columns.iter().enumerate() {
+                    let v = matrix.worked[r][c];
+                    let (color, glyph) = match v {
+                        2 => (egui::Color32::from_rgb(34, 197, 94), "●"),
+                        1 => (egui::Color32::from_rgb(251, 191, 36), "◐"),
+                        _ => (egui::Color32::from_rgb(71, 85, 105), "·"),
+                    };
+                    ui.colored_label(color, glyph)
+                        .on_hover_text(format!("{} × {}", band, col));
+                }
+                ui.end_row();
+            }
+        });
+    });
 }
