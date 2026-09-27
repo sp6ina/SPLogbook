@@ -333,6 +333,50 @@ impl FlrigClient {
     }
 }
 
+/// Implementacja wspólnego interfejsu [`crate::cat::backend::CatBackend`]
+/// dla klienta FLRig (XML-RPC).
+impl crate::cat::backend::CatBackend for FlrigClient {
+    fn kind(&self) -> crate::cat::backend::CatBackendKind {
+        crate::cat::backend::CatBackendKind::Flrig
+    }
+
+    async fn connect(&mut self) -> Result<(), String> {
+        // Weryfikacja łączności przez odczyt aktywnego VFO.
+        self.get_vfo()
+            .await
+            .map(|_| ())
+            .map_err(|e| format!("Brak połączenia z FLRig: {}", e))
+    }
+
+    async fn poll_state(&mut self) -> Result<crate::cat::hamlib::RigState, String> {
+        let freq = self.get_vfo().await?;
+        let mode = self.get_mode().await?;
+        let smeter = self.get_smeter().await.unwrap_or(-100.0) as f32;
+        let ptt = self.get_ptt().await.unwrap_or(false);
+        Ok(crate::cat::hamlib::RigState {
+            frequency_hz: freq,
+            mode,
+            s_meter_dbm: smeter,
+            s_meter_unit: crate::cat::hamlib::HamlibClient::raw_str_to_s_unit(smeter),
+            ptt,
+            connected: true,
+            ..Default::default()
+        })
+    }
+
+    async fn set_frequency(&self, freq_hz: u64) -> Result<(), String> {
+        FlrigClient::set_vfo(self, freq_hz).await
+    }
+
+    async fn set_mode(&self, mode: &str, _passband_hz: u32) -> Result<(), String> {
+        FlrigClient::set_mode(self, mode).await
+    }
+
+    async fn set_ptt(&self, ptt: bool) -> Result<(), String> {
+        FlrigClient::set_ptt(self, ptt).await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

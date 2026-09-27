@@ -241,3 +241,109 @@ impl HamlibClient {
         Ok(())
     }
 }
+
+/// Implementacja wspólnego interfejsu [`crate::cat::backend::CatBackend`]
+/// dla demona Hamlib (`rigctld`).
+impl crate::cat::backend::CatBackend for HamlibClient {
+    fn kind(&self) -> crate::cat::backend::CatBackendKind {
+        crate::cat::backend::CatBackendKind::Hamlib
+    }
+
+    async fn connect(&mut self) -> Result<(), String> {
+        let addr = format!("{}:{}", self.host, self.port);
+        TcpStream::connect(&addr)
+            .await
+            .map(|_| ())
+            .map_err(|e| format!("Brak połączenia z rigctld {}: {}", addr, e))
+    }
+
+    async fn poll_state(&mut self) -> Result<RigState, String> {
+        let addr = format!("{}:{}", self.host, self.port);
+        let stream = TcpStream::connect(&addr)
+            .await
+            .map_err(|e| format!("Brak połączenia z rigctld {}: {}", addr, e))?;
+        let (reader, mut writer) = stream.into_split();
+        let mut buf_reader = BufReader::new(reader);
+        let mut state = RigState {
+            connected: true,
+            ..Default::default()
+        };
+
+        // Częstotliwość ('f')
+        if writer.write_all(b"f\n").await.is_err() {
+            return Err("rigctld: brak odpowiedzi (częstotliwość)".to_string());
+        }
+        let mut line = String::new();
+        if buf_reader.read_line(&mut line).await.is_err() || line.is_empty() {
+            return Err("rigctld: brak odpowiedzi (częstotliwość)".to_string());
+        }
+        if let Ok(freq) = line.trim().parse::<u64>() {
+            state.frequency_hz = freq;
+        }
+
+        // Emisja i szerokość filtru ('m')
+        if writer.write_all(b"m\n").await.is_err() {
+            return Err("rigctld: brak odpowiedzi (emisja)".to_string());
+        }
+        line.clear();
+        if buf_reader.read_line(&mut line).await.is_ok() {
+            state.mode = line.trim().to_uppercase();
+        }
+        line.clear();
+        if buf_reader.read_line(&mut line).await.is_ok() {
+            if let Ok(pb) = line.trim().parse::<u32>() {
+                state.passband_hz = pb;
+            }
+        }
+
+        Ok(state)
+    }
+
+    async fn set_frequency(&self, freq_hz: u64) -> Result<(), String> {
+        HamlibClient::set_frequency(&self.host, self.port, freq_hz)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    async fn set_mode(&self, mode: &str, passband_hz: u32) -> Result<(), String> {
+        HamlibClient::set_mode(&self.host, self.port, mode, passband_hz)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    async fn set_split(&self, enabled: bool, tx_vfo: &str) -> Result<(), String> {
+        HamlibClient::set_split(&self.host, self.port, enabled, tx_vfo)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    async fn set_ptt(&self, ptt: bool) -> Result<(), String> {
+        HamlibClient::set_ptt(&self.host, self.port, ptt)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    async fn set_vfo(&self, vfo: &str) -> Result<(), String> {
+        HamlibClient::set_vfo(&self.host, self.port, vfo)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    async fn set_rit(&self, rit_hz: i32) -> Result<(), String> {
+        HamlibClient::set_rit(&self.host, self.port, rit_hz)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    async fn set_xit(&self, xit_hz: i32) -> Result<(), String> {
+        HamlibClient::set_xit(&self.host, self.port, xit_hz)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    async fn set_power(&self, watts: f32) -> Result<(), String> {
+        HamlibClient::set_power(&self.host, self.port, watts)
+            .await
+            .map_err(|e| e.to_string())
+    }
+}

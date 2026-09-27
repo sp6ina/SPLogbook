@@ -3095,6 +3095,11 @@ impl SpLogApp {
         }
     }
 
+    /// Typ backendu CAT wybrany w konfiguracji (mapowanie `cat_backend`).
+    pub fn cat_backend_kind(&self) -> crate::cat::backend::CatBackendKind {
+        crate::cat::backend::CatBackendKind::from_str(&self.cat_backend)
+    }
+
     pub fn start_cat_service(&mut self) {
         if self.cat_auto_start_rigctld {
             let mut sup = crate::cat::supervisor::RigctldSupervisor::new(
@@ -3120,17 +3125,44 @@ impl SpLogApp {
         let port = self.cat_port;
         let poll_rate = self.cat_poll_rate_ms;
         let cat_sender = self.cat_state_tx.clone();
+        let backend = self.cat_backend_kind();
 
-        tokio::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_millis(600)).await;
-            let (client, mut rx) = crate::cat::hamlib::HamlibClient::new(&host, port);
-            tokio::spawn(async move {
-                client.run_poll_loop(poll_rate).await;
-            });
-            while let Ok(st) = rx.recv().await {
-                let _ = cat_sender.send(st);
+        match backend {
+            crate::cat::backend::CatBackendKind::Hamlib => {
+                tokio::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+                    let (client, mut rx) = crate::cat::hamlib::HamlibClient::new(&host, port);
+                    tokio::spawn(async move {
+                        client.run_poll_loop(poll_rate).await;
+                    });
+                    while let Ok(st) = rx.recv().await {
+                        let _ = cat_sender.send(st);
+                    }
+                });
             }
-        });
+            crate::cat::backend::CatBackendKind::Flrig => {
+                tokio::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+                    let mut client = crate::cat::flrig::FlrigClient::new(&host, port);
+                    loop {
+                        let state = match crate::cat::backend::CatBackend::poll_state(&mut client).await {
+                            Ok(st) => st,
+                            Err(_) => crate::cat::hamlib::RigState { connected: false, ..Default::default() },
+                        };
+                        if cat_sender.send(state).is_err() {
+                            break;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(poll_rate)).await;
+                    }
+                });
+            }
+            other => {
+                self.cat_test_result = Some(format!(
+                    "Backend {} nie jest jeszcze podłączony do pętli odpytywania.",
+                    other.label()
+                ));
+            }
+        }
     }
 
     pub fn stop_cat_service(&mut self) {
