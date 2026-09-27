@@ -3,6 +3,7 @@
 
 pub mod app;
 pub mod theme;
+pub mod icons;
 pub mod awards_matrix;
 pub mod bandmap;
 pub mod cat_settings;

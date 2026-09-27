@@ -8,3 +8,6 @@ pub mod supervisor;
 pub mod winkeyer;
 pub mod tci;
 pub mod server;
+pub mod flrig;
+pub mod icom_ci_v;
+pub mod so2r;

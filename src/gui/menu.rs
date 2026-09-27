@@ -4,6 +4,7 @@
 use crate::cluster::telnet::CLUSTER_PRESETS;
 use crate::core::i18n::{tr, Language};
 use crate::gui::app::SpLogApp;
+use crate::gui::icons;
 use eframe::egui;
 
 /// Główny pasek menu (Menu Bar) z rozwijanymi kategoriami
@@ -13,31 +14,31 @@ pub fn render_menu_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
     egui::menu::bar(ui, |ui| {
         // Menu: Plik
         ui.menu_button(tr("menu.file", lang), |ui| {
-            if ui.button(format!("📁 {}", tr("menu.journal_mgmt", lang))).clicked() {
+            if ui.button(icons::FOLDER.label(tr("menu.journal_mgmt", lang))).clicked() {
                 if let Ok(db) = app.log_db.lock() {
                     app.journal_dialog.reload(&db);
                 }
                 app.journal_dialog.is_open = true;
                 ui.close_menu();
             }
-            if ui.button(format!("🔍 {}", tr("menu.advanced_filter", lang))).clicked() {
+            if ui.button(icons::SEARCH.label(tr("menu.advanced_filter", lang))).clicked() {
                 app.advanced_filter_dialog.is_open = true;
                 ui.close_menu();
             }
-            if ui.button(format!("🏷 {}", tr("menu.qsl_print", lang))).clicked() {
+            if ui.button(icons::BADGE.label(tr("menu.qsl_print", lang))).clicked() {
                 app.qsl_designer_dialog.is_open = true;
                 ui.close_menu();
             }
-            if ui.button(format!("🏷 {}", tr("menu.station_profiles", lang))).clicked() {
+            if ui.button(icons::BADGE.label(tr("menu.station_profiles", lang))).clicked() {
                 app.show_station_profiles_window = true;
                 ui.close_menu();
             }
             ui.separator();
-            if ui.button(format!("⭐ {}", tr("wizard.setup_station", lang))).clicked() {
+            if ui.button(icons::STAR.label(tr("wizard.setup_station", lang))).clicked() {
                 app.show_welcome_wizard = true;
                 ui.close_menu();
             }
-            if ui.button(format!("🌐 {}", tr("menu.online_sync", lang))).clicked() {
+            if ui.button(icons::GLOBE.label(tr("menu.online_sync", lang))).clicked() {
                 app.show_online_sync_window = true;
                 ui.close_menu();
             }
@@ -49,16 +50,16 @@ pub fn render_menu_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 app.trigger_export_adif();
                 ui.close_menu();
             }
-            if ui.button(format!("🏔 {}", tr("menu.export_sota", lang))).clicked() {
+            if ui.button(icons::SOTA_MOUNTAIN.label(tr("menu.export_sota", lang))).clicked() {
                 let call = app.my_station.callsign.clone();
                 app.sota_dialog.open(&call);
                 ui.close_menu();
             }
-            if ui.button(format!("📄 {}", tr("menu.export_pdf", lang))).clicked() {
+            if ui.button(icons::DOCUMENT.label(tr("menu.export_pdf", lang))).clicked() {
                 app.export_pdf_log();
                 ui.close_menu();
             }
-            if ui.button(format!("🗺 {}", tr("menu.export_gpx", lang))).clicked() {
+            if ui.button(icons::WORLD_MAP.label(tr("menu.export_gpx", lang))).clicked() {
                 app.export_gpx_log();
                 ui.close_menu();
             }
@@ -92,20 +93,20 @@ pub fn render_menu_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
             let mut changed = false;
 
-            if ui.checkbox(&mut app.panel_vfo.visible, format!("📻 {}", tr("view.panel_vfo", lang))).changed() { changed = true; }
-            if ui.checkbox(&mut app.panel_qso.visible, format!("📝 {}", tr("view.panel_qso", lang))).changed() { changed = true; }
-            if ui.checkbox(&mut app.panel_log.visible, format!("📖 {}", tr("view.panel_log", lang))).changed() { changed = true; }
-            if ui.checkbox(&mut app.panel_cluster.visible, format!("📡 {}", tr("view.panel_cluster", lang))).changed() { changed = true; }
-            if ui.checkbox(&mut app.panel_bandmap.visible, format!("📶 {}", tr("view.panel_bandmap", lang))).changed() {
+            if ui.checkbox(&mut app.panel_vfo.visible, icons::RADIO.label(tr("view.panel_vfo", lang))).changed() { changed = true; }
+            if ui.checkbox(&mut app.panel_qso.visible, icons::NEW_QSO.label(tr("view.panel_qso", lang))).changed() { changed = true; }
+            if ui.checkbox(&mut app.panel_log.visible, icons::LOGBOOK.label(tr("view.panel_log", lang))).changed() { changed = true; }
+            if ui.checkbox(&mut app.panel_cluster.visible, icons::CLUSTER.label(tr("view.panel_cluster", lang))).changed() { changed = true; }
+            if ui.checkbox(&mut app.panel_bandmap.visible, icons::BANDMAP.label(tr("view.panel_bandmap", lang))).changed() {
                 app.show_bandmap_window = app.panel_bandmap.visible;
                 changed = true;
             }
-            if ui.checkbox(&mut app.panel_solar.visible, format!("☀ {}", tr("view.panel_solar", lang))).changed() { changed = true; }
-            if ui.checkbox(&mut app.panel_satellites.visible, format!("🛰 {}", tr("view.panel_satellites", lang))).changed() {
+            if ui.checkbox(&mut app.panel_solar.visible, icons::SOLAR.label(tr("view.panel_solar", lang))).changed() { changed = true; }
+            if ui.checkbox(&mut app.panel_satellites.visible, icons::SATELLITE.label(tr("view.panel_satellites", lang))).changed() {
                 app.show_satellites_window = app.panel_satellites.visible;
                 changed = true;
             }
-            if ui.checkbox(&mut app.panel_world_map.visible, format!("🗺 {}", tr("view.panel_world_map", lang))).changed() {
+            if ui.checkbox(&mut app.panel_world_map.visible, icons::WORLD_MAP.label(tr("view.panel_world_map", lang))).changed() {
                 app.show_world_map_window = app.panel_world_map.visible;
                 changed = true;
             }
@@ -115,14 +116,14 @@ pub fn render_menu_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
             }
 
             ui.separator();
-            if ui.button(egui::RichText::new(format!("🔄 {}", tr("view.reset_layout", lang))).strong()).clicked() {
+            if ui.button(egui::RichText::new(icons::REFRESH.label(tr("view.reset_layout", lang))).strong()).clicked() {
                 app.reset_panel_layout();
                 app.save_station_config();
                 ui.close_menu();
             }
             ui.separator();
-            ui.checkbox(&mut app.show_awards_matrix_window, format!("🏆 {}", tr("view.awards_matrix", lang)));
-            if ui.checkbox(&mut app.compact_hud_mode, format!("🗗 {}", tr("view.compact_hud", lang))).changed() {
+            ui.checkbox(&mut app.show_awards_matrix_window, icons::AWARDS.label(tr("view.awards_matrix", lang)));
+            if ui.checkbox(&mut app.compact_hud_mode, icons::COMPACT.label(tr("view.compact_hud", lang))).changed() {
                 app.save_station_config();
             }
         });
@@ -130,10 +131,10 @@ pub fn render_menu_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
         // Menu: Operacja (radio, DX Cluster, CAT, satelity, contesty, multi-op)
         ui.menu_button(tr("menu.operation", lang), |ui| {
             // Sekcja DX Cluster
-            ui.label(egui::RichText::new(format!("📡 {}", tr("menu.dx_cluster", lang))).strong().color(egui::Color32::from_rgb(56, 189, 248)));
+            ui.label(egui::RichText::new(icons::CLUSTER.label(tr("menu.dx_cluster", lang))).strong().color(egui::Color32::from_rgb(56, 189, 248)));
             ui.separator();
             if app.cluster_connected {
-                if ui.button(format!("🔴 {}", tr("cluster.disconnect_btn", lang))).clicked() {
+                if ui.button(icons::DOT_RED.label(tr("cluster.disconnect_btn", lang))).clicked() {
                     app.disconnect_dx_cluster();
                     ui.close_menu();
                 }
@@ -145,7 +146,7 @@ pub fn render_menu_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 }
             }
 
-            if ui.button(format!("📢 {}", tr("cluster.announce_spot", lang))).clicked() {
+            if ui.button(icons::SPOT.label(tr("cluster.announce_spot", lang))).clicked() {
                 let freq_khz = app.rig_state.frequency_hz as f64 / 1000.0;
                 app.send_spot_dialog.open_with(&app.entry_callsign, freq_khz);
                 ui.close_menu();
@@ -182,7 +183,7 @@ pub fn render_menu_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
             }
 
             ui.separator();
-            if ui.button(format!("🗑 {}", tr("cluster.clear_spots", lang))).clicked() {
+            if ui.button(icons::DELETE.label(tr("cluster.clear_spots", lang))).clicked() {
                 app.cluster_spots.clear();
                 ui.close_menu();
             }
@@ -190,78 +191,78 @@ pub fn render_menu_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
             // Sekcja radio / CAT / praca
             ui.separator();
             ui.label(egui::RichText::new(tr("tools.cat_connection", lang)).strong().color(egui::Color32::from_rgb(56, 189, 248)));
-            if ui.button(format!("📻 {}", tr("tools.cat_connection", lang))).clicked() {
+            if ui.button(icons::RADIO.label(tr("tools.cat_connection", lang))).clicked() {
                 app.show_cat_settings_window = true;
                 ui.close_menu();
             }
-            if ui.button(format!("📟 {}", tr("tools.cw_terminal", lang))).clicked() {
+            if ui.button(icons::CW_TERMINAL.label(tr("tools.cw_terminal", lang))).clicked() {
                 app.cw_terminal_dialog.is_open = true;
                 ui.close_menu();
             }
-            if ui.button(format!("⚡ {}", tr("tools.cw_macros", lang))).clicked() {
+            if ui.button(icons::CW_KEYER.label(tr("tools.cw_macros", lang))).clicked() {
                 app.show_cw_window = true;
                 ui.close_menu();
             }
-            if ui.button("🎙 Voice Keyer (SSB)").clicked() {
+            if ui.button(icons::VOICE_KEYER.label("Voice Keyer (SSB)")).clicked() {
                 app.show_voice_keyer_window = true;
                 ui.close_menu();
             }
-            if ui.button("🖥 Profile układu (workspace)").clicked() {
+            if ui.button(icons::DESKTOP.label("Profile układu (workspace)")).clicked() {
                 app.show_workspace_profiles_window = true;
                 ui.close_menu();
             }
-            if ui.button("🤖 Asystent operatora").clicked() {
+            if ui.button(icons::AI_ASSISTANT.label("Asystent operatora")).clicked() {
                 app.show_operator_assistant = true;
                 ui.close_menu();
             }
-            if ui.button("🧩 Menedżer pluginów (Rhai)").clicked() {
+            if ui.button(icons::PLUGIN.label("Menedżer pluginów (Rhai)")).clicked() {
                 app.show_plugin_manager = true;
                 ui.close_menu();
             }
-            if ui.button(format!("🛰 {}", tr("tools.satellites", lang))).clicked() {
+            if ui.button(icons::SATELLITE.label(tr("tools.satellites", lang))).clicked() {
                 app.panel_satellites.visible = true;
                 app.panel_satellites.floating = true;
                 app.show_satellites_window = true;
                 ui.close_menu();
             }
-            if ui.button(format!("🏆 {}", tr("tools.contest_module", lang))).clicked() {
+            if ui.button(icons::FLAG.label(tr("tools.contest_module", lang))).clicked() {
                 app.show_contest_window = true;
                 ui.close_menu();
             }
-            if ui.button(format!("🌐 {}", tr("tools.multi_op", lang))).clicked() {
+            if ui.button(icons::GLOBE.label(tr("tools.multi_op", lang))).clicked() {
                 app.show_multi_op_window = true;
                 ui.close_menu();
             }
         });
 
         // Menu: Referencje (bazy danych, dyplomy, narzędzia pomocnicze)
-        ui.menu_button(format!("📚 {}", tr("menu.references", lang)), |ui| {
-            if ui.button(format!("🏝 {}", tr("ref.iota_db", lang))).clicked() {
+        ui.menu_button(icons::BOOKS.label(tr("menu.references", lang)), |ui| {
+            if ui.button(icons::IOTA.label(tr("ref.iota_db", lang))).clicked() {
                 app.iota_dialog.open();
                 ui.close_menu();
             }
-            if ui.button(format!("🗺 {}", tr("ref.states_db", lang))).clicked() {
+            if ui.button(icons::WORLD_MAP.label(tr("ref.states_db", lang))).clicked() {
                 app.states_dialog.open();
                 ui.close_menu();
             }
-            if ui.button(format!("📋 {}", tr("ref.qsl_managers", lang))).clicked() {
+            if ui.button(icons::LOGBOOK.label(tr("ref.qsl_managers", lang))).clicked() {
                 app.qsl_manager_dialog.open();
                 ui.close_menu();
             }
-            if ui.button(format!("🌐 {}", tr("ref.prefix_manager", lang))).clicked() {
+            if ui.button(icons::GLOBE.label(tr("ref.prefix_manager", lang))).clicked() {
                 app.prefix_manager_dialog.open();
                 ui.close_menu();
             }
             ui.separator();
-            if ui.button(format!("🌙 {}", tr("ref.moon_sun", lang))).clicked() {
+            if ui.button(icons::MOON.label(tr("ref.moon_sun", lang))).clicked() {
                 app.astronomy_dialog.open();
                 ui.close_menu();
             }
-            if ui.button(format!("⚡ {}", tr("ref.wol", lang))).clicked() {
+            if ui.button(icons::LIGHTNING.label(tr("ref.wol", lang))).clicked() {
                 app.wol_dialog.open();
                 ui.close_menu();
             }
-            if ui.button(format!("🔄 {}", tr("ref.update_online_dbs", lang))).clicked() {
+            if ui.button(icons::REFRESH.label(tr("ref.update_online_dbs", lang))).clicked() {
                 app.trigger_database_update();
                 ui.close_menu();
             }
@@ -269,34 +270,34 @@ pub fn render_menu_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         // Menu: Narzędzia (analiza, synchronizacja, eksport, integracje)
         ui.menu_button(tr("menu.tools", lang), |ui| {
-            if ui.button(format!("🔍 {}", tr("menu.find_duplicates", lang))).clicked() {
+            if ui.button(icons::SEARCH.label(tr("menu.find_duplicates", lang))).clicked() {
                 app.show_find_duplicates_window = true;
                 ui.close_menu();
             }
-            if ui.button(format!("🌐 {}", tr("tools.online_sync", lang))).clicked() {
+            if ui.button(icons::GLOBE.label(tr("tools.online_sync", lang))).clicked() {
                 app.show_online_sync_window = true;
                 ui.close_menu();
             }
-            if ui.button(format!("🗺 {}", tr("tools.world_map", lang))).clicked() {
+            if ui.button(icons::WORLD_MAP.label(tr("tools.world_map", lang))).clicked() {
                 app.panel_world_map.visible = true;
                 app.panel_world_map.floating = true;
                 app.show_world_map_window = true;
                 ui.close_menu();
             }
-            if ui.button(format!("🏆 {}", tr("tools.awards_matrix", lang))).clicked() {
+            if ui.button(icons::AWARDS.label(tr("tools.awards_matrix", lang))).clicked() {
                 app.show_awards_matrix_window = true;
                 ui.close_menu();
             }
-            if ui.button(format!("📊 {}", tr("tools.statistics", lang))).clicked() {
+            if ui.button(icons::STATS.label(tr("tools.statistics", lang))).clicked() {
                 app.show_statistics_window = true;
                 ui.close_menu();
             }
-            if ui.button(format!("📡 {}", tr("tools.wspr_monitor", lang))).clicked() {
+            if ui.button(icons::CLUSTER.label(tr("tools.wspr_monitor", lang))).clicked() {
                 app.show_wspr_window = true;
                 ui.close_menu();
             }
             ui.separator();
-            ui.menu_button(format!("🌐 {}", tr("tools.rest_api_server", lang)), |ui| {
+            ui.menu_button(icons::GLOBE.label(tr("tools.rest_api_server", lang)), |ui| {
                 ui.label("Włącz serwer na porcie 8080 (wymaga restartu aplikacji dla zmiany portu)");
                 if ui.checkbox(&mut app.rest_api_enabled, tr("tools.rest_api_enable", lang)).changed() {
                     app.save_station_config();
@@ -308,21 +309,21 @@ pub fn render_menu_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 if app.rest_api_enabled {
                     let key = app.ensure_rest_api_key();
                     ui.separator();
-                    ui.label("⚠ Wymagany nagłówek uwierzytelniający: X-Api-Key");
+                    ui.label(icons::WARNING.label("Wymagany nagłówek uwierzytelniający: X-Api-Key"));
                     ui.horizontal(|ui| {
                         ui.label("Klucz API:");
                         let mut key_display = key.clone();
                         ui.add(egui::TextEdit::singleline(&mut key_display).desired_width(220.0));
-                        if ui.button("📋").on_hover_text("Kopiuj klucz").clicked() {
+                        if ui.button(icons::LOGBOOK.as_str()).on_hover_text("Kopiuj klucz").clicked() {
                             ui.output_mut(|o| o.copied_text = key.clone());
                         }
-                        if ui.button("🔄").on_hover_text("Wygeneruj nowy klucz (wymaga wyłączenia i włączenia serwera, aby zaczął obowiązywać)").clicked() {
+                        if ui.button(icons::REFRESH.as_str()).on_hover_text("Wygeneruj nowy klucz (wymaga wyłączenia i włączenia serwera, aby zaczął obowiązywać)").clicked() {
                             app.rest_api_key = crate::api::server::generate_api_key();
                             app.save_station_config();
                         }
                     });
                 }
-                if ui.button(format!("🔗 {}", tr("tools.rest_api_open", lang))).clicked() {
+                if ui.button(icons::LINK.label(tr("tools.rest_api_open", lang))).clicked() {
                     let _ = open::that(format!("http://127.0.0.1:{}/api/v1/status", app.rest_api_port));
                     ui.close_menu();
                 }
@@ -332,7 +333,7 @@ pub fn render_menu_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 app.show_ledger_window = true;
                 ui.close_menu();
             }
-            if ui.button(format!("🏷 {}", tr("tools.qsl_designer", lang))).clicked() {
+            if ui.button(icons::BADGE.label(tr("tools.qsl_designer", lang))).clicked() {
                 app.qsl_designer_dialog.is_open = true;
                 ui.close_menu();
             }
@@ -341,7 +342,7 @@ pub fn render_menu_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
         // Menu: Ustawienia (język, motyw, skalowanie czcionki)
         ui.menu_button(tr("menu.settings", lang), |ui| {
             // Język interfejsu
-            ui.menu_button(format!("🌐 {}", tr("settings.language", lang)), |ui| {
+            ui.menu_button(icons::GLOBE.label(tr("settings.language", lang)), |ui| {
                 let langs = [Language::Pl, Language::En, Language::De, Language::Fr, Language::Es, Language::Ru];
                 for l in langs {
                     let flag = match l {
@@ -361,7 +362,7 @@ pub fn render_menu_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
             });
 
             // Motyw kolorystyczny
-            ui.menu_button(format!("🎨 {}", tr("theme.menu", lang)), |ui| {
+            ui.menu_button(icons::THEME.label(tr("theme.menu", lang)), |ui| {
                 for preset in crate::gui::theme::ThemePreset::ALL {
                     let selected = app.theme_preset == preset;
                     if ui.selectable_label(selected, preset.label_pl()).on_hover_text(preset.description_pl()).clicked() {
@@ -424,7 +425,7 @@ pub fn render_menu_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         // Menu: Pomoc
         ui.menu_button(tr("menu.help", lang), |ui| {
-            if ui.button(format!("🔎 {}", tr("palette.title", lang))).clicked() {
+            if ui.button(icons::SEARCH_SM.label(tr("palette.title", lang))).clicked() {
                 app.show_command_palette = true;
                 app.command_palette_query.clear();
                 app.command_palette_selected = 0;
@@ -435,35 +436,35 @@ pub fn render_menu_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 app.show_about_window = true;
                 ui.close_menu();
             }
-            if ui.button("📖 Instrukcja obsługi").clicked() {
+            if ui.button(icons::MANUAL.label("Instrukcja obsługi")).clicked() {
                 app.show_user_manual = true;
                 app.manual_section = None;
                 ui.close_menu();
             }
-            if ui.button("📜 Dziennik zmian").clicked() {
+            if ui.button(icons::CHANGELOG.label("Dziennik zmian")).clicked() {
                 app.show_changelog_window = true;
                 ui.close_menu();
             }
-            if ui.button("🔄 Sprawdź aktualizacje").clicked() {
+            if ui.button(icons::UPDATE.label("Sprawdź aktualizacje")).clicked() {
                 app.show_update_window = true;
                 ui.close_menu();
             }
-            if ui.button(format!("⌨ {}", tr("help.shortcuts_title", lang))).clicked() {
+            if ui.button(icons::KEYBOARD.label(tr("help.shortcuts_title", lang))).clicked() {
                 app.show_shortcuts_window = true;
                 ui.close_menu();
             }
-            if ui.button(format!("🎨 {}", tr("help.legend", lang))).clicked() {
+            if ui.button(icons::THEME.label(tr("help.legend", lang))).clicked() {
                 app.show_legend_window = true;
                 ui.close_menu();
             }
             ui.separator();
-            if ui.button(format!("🧙 {}", tr("help.rerun_wizard", lang))).clicked() {
+            if ui.button(icons::WIZARD.label(tr("help.rerun_wizard", lang))).clicked() {
                 app.show_welcome_wizard = true;
                 app.wizard_tab = 0;
                 ui.close_menu();
             }
             ui.separator();
-            if ui.button(format!("🐛 {}", tr("help.report_bug", lang))).clicked() {
+            if ui.button(icons::BUG.label(tr("help.report_bug", lang))).clicked() {
                 let _ = open::that("https://github.com/sp6ina/SPLogbook/issues/new");
                 ui.close_menu();
             }
@@ -472,14 +473,14 @@ pub fn render_menu_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
         // Prawa strona paska menu: wyłącznie znak OP, aktywny profil stacji i zegar UTC (nie koliduje z lewym menu!)
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let utc_now = chrono::Utc::now().format("%H:%M:%S UTC").to_string();
-            ui.label(egui::RichText::new(format!("⏱ {}", utc_now)).color(egui::Color32::from_rgb(148, 163, 184)).monospace().strong());
+            ui.label(egui::RichText::new(icons::TIMER.label(utc_now)).color(egui::Color32::from_rgb(148, 163, 184)).monospace().strong());
             ui.separator();
             ui.label(egui::RichText::new(format!("OP: {} ({})", app.my_station.callsign, app.my_station.gridsquare)).color(egui::Color32::from_rgb(56, 189, 248)).strong());
             ui.separator();
             let profile_label = if app.my_station.name.is_empty() {
-                format!("🏷 {}", app.my_station.callsign)
+                icons::BADGE.label(&app.my_station.callsign)
             } else {
-                format!("🏷 {}", app.my_station.name)
+                icons::BADGE.label(&app.my_station.name)
             };
             if ui.button(egui::RichText::new(profile_label).color(egui::Color32::from_rgb(250, 204, 21)).size(11.0))
                 .on_hover_text(tr("profiles.title", lang))
@@ -499,7 +500,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let toolbar_resp = ui.horizontal_wrapped(|ui| {
         // 1. Aktywny dziennik
         if app.quick_access.show_journal
-            && ui.button(egui::RichText::new(format!("📁 {}: {} ({})", tr("toolbar.journal", lang), app.active_journal.name, app.active_journal.station_callsign)).strong().color(egui::Color32::from_rgb(100, 220, 100))).on_hover_text("Kliknij aby zarządzać profilami dzienników (PPM: personalizacja paska)").clicked() {
+            && ui.button(egui::RichText::new(icons::FOLDER.label(format!("{}: {} ({})", tr("toolbar.journal", lang), app.active_journal.name, app.active_journal.station_callsign))).strong().color(egui::Color32::from_rgb(100, 220, 100))).on_hover_text("Kliknij aby zarządzać profilami dzienników (PPM: personalizacja paska)").clicked() {
                 if let Ok(db) = app.log_db.lock() {
                     app.journal_dialog.reload(&db);
                 }
@@ -513,7 +514,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         // 3. Sygnalizator aktywnego filtra
         if app.advanced_filter_dialog.is_filtered_active
-            && ui.button(egui::RichText::new("🔍 FILTR").strong().color(egui::Color32::YELLOW)).clicked() {
+            && ui.button(egui::RichText::new(icons::SEARCH.label("FILTR")).strong().color(egui::Color32::YELLOW)).clicked() {
                 app.advanced_filter_dialog.is_open = true;
             }
 
@@ -540,98 +541,98 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         // 5. Szybkie przyciski modułów
         if app.quick_access.show_vfo
-            && ui.button(format!("📻 {}", tr("toolbar.vfo", lang))).on_hover_text("Włącz/wyłącz VFO Transceivera").clicked() {
+            && ui.button(icons::RADIO.label(tr("toolbar.vfo", lang))).on_hover_text("Włącz/wyłącz VFO Transceivera").clicked() {
                 app.panel_vfo.visible = !app.panel_vfo.visible;
                 app.save_station_config();
             }
 
         if app.quick_access.show_qso
-            && ui.button(format!("📝 {}", tr("toolbar.qso", lang))).on_hover_text("Włącz/wyłącz formularz wprowadzania QSO").clicked() {
+            && ui.button(icons::NEW_QSO.label(tr("toolbar.qso", lang))).on_hover_text("Włącz/wyłącz formularz wprowadzania QSO").clicked() {
                 app.panel_qso.visible = !app.panel_qso.visible;
                 app.save_station_config();
             }
 
         if app.quick_access.show_log
-            && ui.button(format!("📖 {}", tr("toolbar.log", lang))).on_hover_text("Włącz/wyłącz tabelę dziennika łączności").clicked() {
+            && ui.button(icons::LOGBOOK.label(tr("toolbar.log", lang))).on_hover_text("Włącz/wyłącz tabelę dziennika łączności").clicked() {
                 app.panel_log.visible = !app.panel_log.visible;
                 app.save_station_config();
             }
 
         if app.quick_access.show_cat
-            && ui.button(format!("📻 {}", tr("toolbar.cat", lang))).on_hover_text("Ustawienia radia Hamlib CAT").clicked() {
+            && ui.button(icons::RADIO.label(tr("toolbar.cat", lang))).on_hover_text("Ustawienia radia Hamlib CAT").clicked() {
                 app.show_cat_settings_window = !app.show_cat_settings_window;
             }
 
         if app.quick_access.show_cluster
-            && ui.button(format!("📡 {}", tr("toolbar.cluster", lang))).on_hover_text("Włącz/wyłącz panel DX Cluster").clicked() {
+            && ui.button(icons::CLUSTER.label(tr("toolbar.cluster", lang))).on_hover_text("Włącz/wyłącz panel DX Cluster").clicked() {
                 app.panel_cluster.visible = !app.panel_cluster.visible;
                 app.save_station_config();
             }
 
         if app.quick_access.show_bandmap
-            && ui.button(format!("📶 {}", tr("toolbar.bandmap", lang))).on_hover_text("Włącz/wyłącz Panoramę Pasma").clicked() {
+            && ui.button(icons::BANDMAP.label(tr("toolbar.bandmap", lang))).on_hover_text("Włącz/wyłącz Panoramę Pasma").clicked() {
                 app.panel_bandmap.visible = !app.panel_bandmap.visible;
                 app.show_bandmap_window = app.panel_bandmap.visible;
                 app.save_station_config();
             }
 
         if app.quick_access.show_solar
-            && ui.button(format!("☀ {}", tr("toolbar.solar", lang))).on_hover_text("Włącz/wyłącz panel warunków kosmicznych Solar").clicked() {
+            && ui.button(icons::SOLAR.label(tr("toolbar.solar", lang))).on_hover_text("Włącz/wyłącz panel warunków kosmicznych Solar").clicked() {
                 app.panel_solar.visible = !app.panel_solar.visible;
                 app.save_station_config();
             }
 
         if app.quick_access.show_lotw
-            && ui.button(format!("🌐 {}", tr("toolbar.lotw", lang))).on_hover_text("Synchronizacja LoTW / eQSL / Club Log").clicked() {
+            && ui.button(icons::GLOBE.label(tr("toolbar.lotw", lang))).on_hover_text("Synchronizacja LoTW / eQSL / Club Log").clicked() {
                 app.show_online_sync_window = !app.show_online_sync_window;
             }
 
         if app.quick_access.show_map
-            && ui.button(format!("🗺 {}", tr("toolbar.map", lang))).on_hover_text("Mapa świata & Grayline").clicked() {
+            && ui.button(icons::WORLD_MAP.label(tr("toolbar.map", lang))).on_hover_text("Mapa świata & Grayline").clicked() {
                 app.panel_world_map.visible = !app.panel_world_map.visible;
                 app.show_world_map_window = app.panel_world_map.visible;
                 app.save_station_config();
             }
 
         if app.quick_access.show_awards
-            && ui.button(format!("🏆 {}", tr("toolbar.awards", lang))).on_hover_text("Matryca osiągnięć dyplomowych").clicked() {
+            && ui.button(icons::AWARDS.label(tr("toolbar.awards", lang))).on_hover_text("Matryca osiągnięć dyplomowych").clicked() {
                 app.show_awards_matrix_window = !app.show_awards_matrix_window;
             }
 
         if app.quick_access.show_cw
-            && ui.button(format!("📟 {}", tr("toolbar.cw", lang))).on_hover_text("Otwórz Terminal CW").clicked() {
+            && ui.button(icons::CW_TERMINAL.label(tr("toolbar.cw", lang))).on_hover_text("Otwórz Terminal CW").clicked() {
                 app.cw_terminal_dialog.is_open = !app.cw_terminal_dialog.is_open;
             }
 
         if app.quick_access.show_satellites
-            && ui.button(format!("🛰 {}", tr("toolbar.satellites", lang))).on_hover_text("Śledzenie satelitów").clicked() {
+            && ui.button(icons::SATELLITE.label(tr("toolbar.satellites", lang))).on_hover_text("Śledzenie satelitów").clicked() {
                 app.panel_satellites.visible = !app.panel_satellites.visible;
                 app.show_satellites_window = app.panel_satellites.visible;
                 app.save_station_config();
             }
 
         if app.quick_access.show_contest
-            && ui.button(format!("🏁 {}", tr("toolbar.contest", lang))).on_hover_text("Moduł zawodów Contest & Cabrillo").clicked() {
+            && ui.button(icons::FLAG.label(tr("toolbar.contest", lang))).on_hover_text("Moduł zawodów Contest & Cabrillo").clicked() {
                 app.show_contest_window = !app.show_contest_window;
             }
 
         if app.quick_access.show_equipment
-            && ui.button(format!("📋 {}", tr("toolbar.equipment", lang))).on_hover_text("Ewidencja sprzętu radiowego").clicked() {
+            && ui.button(icons::PACKAGE.label(tr("toolbar.equipment", lang))).on_hover_text("Ewidencja sprzętu radiowego").clicked() {
                 app.show_ledger_window = !app.show_ledger_window;
             }
 
         if app.quick_access.show_eme
-            && ui.button("🌙 EME").on_hover_text("Położenie Księżyca i Słońca").clicked() {
+            && ui.button(icons::MOON.label("EME")).on_hover_text("Położenie Księżyca i Słońca").clicked() {
                 app.astronomy_dialog.open();
             }
 
         if app.quick_access.show_wol
-            && ui.button("⚡ WOL").on_hover_text("Zdalne wybudzenie Wake-on-LAN").clicked() {
+            && ui.button(icons::LIGHTNING.label("WOL")).on_hover_text("Zdalne wybudzenie Wake-on-LAN").clicked() {
                 app.wol_dialog.open();
             }
 
         if app.quick_access.show_theme {
-            let theme_btn_text = format!("🎨 {}", app.theme_preset.label_pl());
+            let theme_btn_text = icons::THEME.label(app.theme_preset.label_pl());
             if ui.button(theme_btn_text).on_hover_text(tr("toolbar.theme_cycle_hint", lang)).clicked() {
                 let all = crate::gui::theme::ThemePreset::ALL;
                 let idx = all.iter().position(|p| *p == app.theme_preset).unwrap_or(0);
@@ -641,7 +642,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
 
         // Przycisk personalizacji paska (oprócz PPM)
-        if ui.button(egui::RichText::new("⚙").size(12.0)).on_hover_text("Dostosuj pasek szybkiego dostępu (lub kliknij PPM w dowolnym miejscu paska)").clicked() {
+        if ui.button(icons::SETTINGS.rich(12.0)).on_hover_text("Dostosuj pasek szybkiego dostępu (lub kliknij PPM w dowolnym miejscu paska)").clicked() {
             show_customize_popup = true;
         }
     });
@@ -657,7 +658,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
     if app.show_quick_access_customizer {
         let mut open = true;
-        egui::Window::new(format!("⚙ {}", tr("toolbar.customize_title", lang)))
+        egui::Window::new(icons::SETTINGS.label(tr("toolbar.customize_title", lang)))
             .open(&mut open)
             .resizable(false)
             .collapsible(false)
@@ -679,44 +680,44 @@ fn render_quick_access_menu(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
     let mut changed = false;
     egui::Grid::new("qa_customizer_grid").num_columns(2).spacing([16.0, 6.0]).show(ui, |ui| {
-        changed |= ui.checkbox(&mut app.quick_access.show_journal, "📁 Dziennik").changed();
+        changed |= ui.checkbox(&mut app.quick_access.show_journal, icons::FOLDER.label("Dziennik")).changed();
         changed |= ui.checkbox(&mut app.quick_access.show_wsjtx, "● Status WSJT-X").changed();
         ui.end_row();
 
-        changed |= ui.checkbox(&mut app.quick_access.show_cluster_status, "📡 Status Klastra").changed();
-        changed |= ui.checkbox(&mut app.quick_access.show_vfo, "📻 VFO").changed();
+        changed |= ui.checkbox(&mut app.quick_access.show_cluster_status, icons::CLUSTER.label("Status Klastra")).changed();
+        changed |= ui.checkbox(&mut app.quick_access.show_vfo, icons::RADIO.label("VFO")).changed();
         ui.end_row();
 
-        changed |= ui.checkbox(&mut app.quick_access.show_qso, "📝 QSO").changed();
-        changed |= ui.checkbox(&mut app.quick_access.show_log, "📖 Log").changed();
+        changed |= ui.checkbox(&mut app.quick_access.show_qso, icons::NEW_QSO.label("QSO")).changed();
+        changed |= ui.checkbox(&mut app.quick_access.show_log, icons::LOGBOOK.label("Log")).changed();
         ui.end_row();
 
-        changed |= ui.checkbox(&mut app.quick_access.show_cat, "📻 CAT").changed();
-        changed |= ui.checkbox(&mut app.quick_access.show_cluster, "📡 Cluster").changed();
+        changed |= ui.checkbox(&mut app.quick_access.show_cat, icons::RADIO.label("CAT")).changed();
+        changed |= ui.checkbox(&mut app.quick_access.show_cluster, icons::CLUSTER.label("Cluster")).changed();
         ui.end_row();
 
-        changed |= ui.checkbox(&mut app.quick_access.show_bandmap, "📶 Band Map").changed();
-        changed |= ui.checkbox(&mut app.quick_access.show_solar, "☀ Solar").changed();
+        changed |= ui.checkbox(&mut app.quick_access.show_bandmap, icons::BANDMAP.label("Band Map")).changed();
+        changed |= ui.checkbox(&mut app.quick_access.show_solar, icons::SOLAR.label("Solar")).changed();
         ui.end_row();
 
-        changed |= ui.checkbox(&mut app.quick_access.show_lotw, "🌐 LoTW").changed();
-        changed |= ui.checkbox(&mut app.quick_access.show_map, "🗺 Mapa").changed();
+        changed |= ui.checkbox(&mut app.quick_access.show_lotw, icons::GLOBE.label("LoTW")).changed();
+        changed |= ui.checkbox(&mut app.quick_access.show_map, icons::WORLD_MAP.label("Mapa")).changed();
         ui.end_row();
 
-        changed |= ui.checkbox(&mut app.quick_access.show_awards, "🏆 Dyplomy").changed();
-        changed |= ui.checkbox(&mut app.quick_access.show_cw, "📟 CW").changed();
+        changed |= ui.checkbox(&mut app.quick_access.show_awards, icons::AWARDS.label("Dyplomy")).changed();
+        changed |= ui.checkbox(&mut app.quick_access.show_cw, icons::CW_TERMINAL.label("CW")).changed();
         ui.end_row();
 
-        changed |= ui.checkbox(&mut app.quick_access.show_satellites, "🛰 Satelity").changed();
-        changed |= ui.checkbox(&mut app.quick_access.show_contest, "🏁 Zawody").changed();
+        changed |= ui.checkbox(&mut app.quick_access.show_satellites, icons::SATELLITE.label("Satelity")).changed();
+        changed |= ui.checkbox(&mut app.quick_access.show_contest, icons::FLAG.label("Zawody")).changed();
         ui.end_row();
 
-        changed |= ui.checkbox(&mut app.quick_access.show_equipment, "📋 Sprzęt").changed();
-        changed |= ui.checkbox(&mut app.quick_access.show_eme, "🌙 EME").changed();
+        changed |= ui.checkbox(&mut app.quick_access.show_equipment, icons::PACKAGE.label("Sprzęt")).changed();
+        changed |= ui.checkbox(&mut app.quick_access.show_eme, icons::MOON.label("EME")).changed();
         ui.end_row();
 
-        changed |= ui.checkbox(&mut app.quick_access.show_wol, "⚡ WOL").changed();
-        changed |= ui.checkbox(&mut app.quick_access.show_theme, "🌙/☀ Motyw").changed();
+        changed |= ui.checkbox(&mut app.quick_access.show_wol, icons::LIGHTNING.label("WOL")).changed();
+        changed |= ui.checkbox(&mut app.quick_access.show_theme, format!("{}/{} Motyw", icons::MOON.as_str(), icons::SOLAR.as_str())).changed();
         ui.end_row();
     });
 

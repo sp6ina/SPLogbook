@@ -11,4 +11,5 @@ pub mod media;
 pub mod network;
 pub mod plugins;
 pub mod api;
+pub mod sync;
 

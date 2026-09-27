@@ -33,6 +33,7 @@ use crate::gui::voice_keyer::render_voice_keyer_window;
 use crate::gui::welcome_wizard::render_welcome_wizard;
 use crate::gui::world_map::render_world_map_window;
 use crate::core::service_db::{QslManagerRecord, ServiceDatabase};
+use crate::gui::icons;
 use crate::gui::astronomy_dialog::AstronomyDialog;
 use crate::gui::iota_browser::IotaBrowserDialog;
 use crate::gui::photo_viewer::PhotoViewerDialog;
@@ -2566,14 +2567,14 @@ impl SpLogApp {
     pub fn tile_title(&self, tile_id: &str) -> String {
         let lang = self.current_language;
         match tile_id {
-            "vfo" => "📻 TRANSCEIVER VFO".to_string(),
-            "qso" => format!("📝 {}", tr("tab.new_qso", lang)),
-            "log" => format!("📋 {}", tr("tab.logbook", lang)),
-            "cluster" => format!("📡 {}", tr("cluster.title", lang)),
-            "bandmap" => format!("📶 {}", tr("bandmap.title", lang)),
-            "solar" => format!("☀ {}", tr("solar.title", lang)),
-            "satellites" => "🛰 ŚLEDZENIE SATELITÓW".to_string(),
-            "world_map" => format!("🗺 {}", tr("map.world_title", lang)),
+            "vfo" => icons::RADIO.label("TRANSCEIVER VFO"),
+            "qso" => icons::NEW_QSO.label(tr("tab.new_qso", lang)),
+            "log" => icons::LOGBOOK.label(tr("tab.logbook", lang)),
+            "cluster" => icons::CLUSTER.label(tr("cluster.title", lang)),
+            "bandmap" => icons::BANDMAP.label(tr("bandmap.title", lang)),
+            "solar" => icons::SOLAR.label(tr("solar.title", lang)),
+            "satellites" => icons::SATELLITE.label("ŚLEDZENIE SATELITÓW"),
+            "world_map" => icons::WORLD_MAP.label(tr("map.world_title", lang)),
             _ => tile_id.to_string(),
         }
     }
