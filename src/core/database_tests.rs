@@ -1,8 +1,6 @@
 use super::*;
 
-    use super::*;
-
-    #[test]
+#[test]
     fn test_insert_and_find_qso() {
         let db = LogDatabase::open_in_memory().unwrap();
         let qso = QsoRecord::new("SP6INA", "20m", "CW");
