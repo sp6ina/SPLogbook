@@ -315,6 +315,15 @@ pub struct AppConfig {
     #[serde(default)]
     pub hud_operating_bar: bool,
 
+    // Geometria okna głównego (pozycja/rozmiar/maksymalizacja) — zapisywana
+    // przy zamknięciu i przywracana przy starcie (obsługa multi-monitor).
+    #[serde(default)]
+    pub main_window_pos: Option<[f32; 2]>,
+    #[serde(default)]
+    pub main_window_size: Option<[f32; 2]>,
+    #[serde(default)]
+    pub main_window_maximized: bool,
+
     // Live Auto-Upload
     pub live_auto_upload_clublog: bool,
     pub live_auto_upload_qrz: bool,
@@ -560,6 +569,9 @@ impl Default for AppConfig {
             hud_saved_pos: None,
             hud_saved_size: None,
             hud_operating_bar: false,
+            main_window_pos: None,
+            main_window_size: None,
+            main_window_maximized: false,
 
             live_auto_upload_clublog: false,
             live_auto_upload_qrz: false,

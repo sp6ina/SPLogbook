@@ -72,6 +72,8 @@ pub struct SpLogApp {
 
     // Dynamicznie wyliczane dane dla wpisanego znaku
     pub scp_suggestions: Vec<String>,
+    /// Lokalne, rozmyte poprawki znaku (fuzzy matching) — `(znak, odległość)`.
+    pub callsign_corrections: Vec<(String, usize)>,
     pub active_prefix_info: Option<PrefixInfo>,
     pub active_polish_district: Option<PolishDistrictInfo>,
     pub active_award_status: Option<QsoAwardStatus>,
@@ -380,6 +382,12 @@ pub struct SpLogApp {
     pub hud_saved_size: Option<[f32; 2]>,
     pub hud_operating_bar: bool,
 
+    // Geometria okna głównego — odczytana z ekranu w trakcie działania
+    // (zapisywana przy wyjściu w AppConfig::main_window_*).
+    pub main_window_pos: Option<[f32; 2]>,
+    pub main_window_size: Option<[f32; 2]>,
+    pub main_window_maximized: bool,
+
     // Pola dodatkowe formularza QSO
     pub entry_iota: String,
     pub entry_state: String,
@@ -664,6 +672,7 @@ impl SpLogApp {
             status_message: None,
 
             entry_callsign: String::new(),
+            callsign_corrections: Vec::new(),
             entry_band: "20m".to_string(),
             entry_mode: "CW".to_string(),
             entry_rst_sent: "599".to_string(),
@@ -910,6 +919,9 @@ impl SpLogApp {
             hud_saved_pos: app_config.hud_saved_pos,
             hud_saved_size: app_config.hud_saved_size,
             hud_operating_bar: app_config.hud_operating_bar,
+            main_window_pos: app_config.main_window_pos,
+            main_window_size: app_config.main_window_size,
+            main_window_maximized: app_config.main_window_maximized,
 
             entry_iota: String::new(),
             entry_state: String::new(),
@@ -1070,6 +1082,7 @@ impl SpLogApp {
         let clean = self.entry_callsign.trim().to_uppercase();
         if clean.is_empty() {
             self.scp_suggestions.clear();
+            self.callsign_corrections.clear();
             self.active_prefix_info = None;
             self.active_polish_district = None;
             self.active_award_status = None;
@@ -1085,6 +1098,18 @@ impl SpLogApp {
         {
             let scp = self.scp_engine.lock().unwrap_or_else(|p| p.into_inner());
             self.scp_suggestions = scp.search(&clean, 6);
+        }
+
+        // 1b. Lokalna korekta rozmyta (fuzzy) błędnie wpisanego/odebranego znaku
+        {
+            let scp = self.scp_engine.lock().unwrap_or_else(|p| p.into_inner());
+            let candidates = scp.candidates();
+            self.callsign_corrections = crate::core::callsign_correction::suggest_corrections(
+                &clean,
+                &candidates,
+                2,
+                4,
+            );
         }
 
         // 2. Kluby krótkofalarskie (SP-OTC, PGA, SKCC, CWOPS, FOC)
@@ -2087,6 +2112,9 @@ impl SpLogApp {
             hud_saved_pos: self.hud_saved_pos,
             hud_saved_size: self.hud_saved_size,
             hud_operating_bar: self.hud_operating_bar,
+            main_window_pos: self.main_window_pos,
+            main_window_size: self.main_window_size,
+            main_window_maximized: self.main_window_maximized,
 
             live_auto_upload_clublog: self.live_auto_upload_clublog,
             live_auto_upload_qrz: self.live_auto_upload_qrz,
@@ -2973,6 +3001,21 @@ impl SpLogApp {
 
 impl eframe::App for SpLogApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Śledzenie geometrii okna głównego (zapisywane przy wyjściu — obsługa multi-monitor)
+        let (win_pos, win_size, win_max) = ctx.input(|i| {
+            let vp = i.viewport();
+            let pos = vp.outer_rect.map(|r| [r.min.x, r.min.y]);
+            let size = vp.outer_rect.map(|r| [r.width(), r.height()]);
+            (pos, size, vp.maximized.unwrap_or(false))
+        });
+        if let Some(pos) = win_pos {
+            self.main_window_pos = Some(pos);
+        }
+        if let Some(size) = win_size {
+            self.main_window_size = Some(size);
+        }
+        self.main_window_maximized = win_max;
+
         // ——— Odbieranie wynikow asynchronicznych operacji ———
 
         // WSPR: sprawdz czy pobieranie zakonczylo sie
@@ -3843,6 +3886,11 @@ impl eframe::App for SpLogApp {
 
         // Płynne odświeżanie zegara UTC, stanu radia CAT oraz spotów sieciowych bez obciążania procesora (4 Hz)
         ctx.request_repaint_after(std::time::Duration::from_millis(250));
+    }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        // Zapisanie geometrii okna głównego (i pozostałej konfiguracji) przy zamknięciu aplikacji.
+        self.save_station_config();
     }
 }
 

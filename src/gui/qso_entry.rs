@@ -188,6 +188,19 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 });
             }
 
+            // Lokalna korekta rozmyta (fuzzy) — propozycje poprawy błędnie wpisanego znaku
+            if !app.callsign_corrections.is_empty() {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(egui::RichText::new("Może chodziło o:").size(11.0).color(egui::Color32::from_rgb(251, 191, 36)));
+                    for (call, _dist) in app.callsign_corrections.clone() {
+                        if ui.button(egui::RichText::new(&call).color(egui::Color32::from_rgb(251, 191, 36)).size(11.0).monospace()).clicked() {
+                            app.entry_callsign = call;
+                            app.on_callsign_changed();
+                        }
+                    }
+                });
+            }
+
             // Badges informacji o kraju DXCC, prefiksie WPX i dyplomach
             ui.horizontal_wrapped(|ui| {
                 if let Some(ref info) = app.active_prefix_info {

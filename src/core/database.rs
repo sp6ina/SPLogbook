@@ -901,6 +901,22 @@ impl LogDatabase {
         Ok(res)
     }
 
+    /// Pobiera unikalne, niepuste znaki wywoławcze z całego dziennika (do
+    /// lokalnego podpowiadania SCP i korekty rozmytej). Ograniczone limitem.
+    pub fn get_distinct_callsigns(&self, limit: usize) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT DISTINCT UPPER(callsign) FROM qso_records \
+             WHERE callsign IS NOT NULL AND TRIM(callsign) <> '' \
+             ORDER BY callsign LIMIT ?1",
+        )?;
+        let rows = stmt.query_map(params![limit as i64], |row| row.get::<_, String>(0))?;
+        let mut res = Vec::new();
+        for r in rows {
+            res.push(r?);
+        }
+        Ok(res)
+    }
+
     /// Wyszukiwanie łączności z wieloma kryteriami (zaawansowane filtrowanie).
     /// Wszystkie wartości pochodzące od użytkownika są przekazywane jako parametry
     /// wiązane (nie string-concat), a wzorce LIKE mają escapowane znaki wieloznaczne

@@ -74,6 +74,11 @@ impl ScpEngine {
         prefix_matches
     }
 
+    /// Wszystkie znaki w bazie (do lokalnego dopasowania rozmytego).
+    pub fn candidates(&self) -> Vec<&str> {
+        self.callsigns.iter().map(|s| s.as_str()).collect()
+    }
+
     pub fn len(&self) -> usize {
         self.callsigns.len()
     }

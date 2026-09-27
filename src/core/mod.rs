@@ -19,6 +19,7 @@ pub mod sota_export;
 pub mod astronomy;
 pub mod backup;
 pub mod callbook;
+pub mod callsign_correction;
 pub mod contest_rules;
 pub mod propagation;
 pub mod clubs;
