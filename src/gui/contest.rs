@@ -113,6 +113,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
     let mut export_clicked = false;
     let mut reset_clicked = false;
     let mut save_clicked = false;
+    let mut spot_fill_target: Option<(String, f64, String, bool)> = None;
 
     // Is it a custom contest?
     let mut is_custom = false;
@@ -372,6 +373,60 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     }
                 });
 
+                // DX Cluster / Bandmap wbudowany w okno kontestu: spot -> wpis jednym klikiem.
+                egui::CollapsingHeader::new(tr("contest.spot_list", lang))
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        let mut tune: Option<(String, f64, String, bool)> = None;
+                        egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
+                            egui::Grid::new("contest_spot_grid")
+                                .striped(true)
+                                .num_columns(5)
+                                .spacing([10.0, 3.0])
+                                .show(ui, |ui| {
+                                    ui.label(egui::RichText::new(tr("cluster.dx", lang)).strong());
+                                    ui.label(egui::RichText::new(tr("cluster.freq", lang)).strong());
+                                    ui.label(egui::RichText::new(tr("qso.band", lang)).strong());
+                                    ui.label(egui::RichText::new(tr("cluster.comment", lang)).strong());
+                                    ui.label("");
+                                    ui.end_row();
+
+                                    for spot in app.cluster_spots.iter() {
+                                        let worked = app
+                                            .recent_qsos
+                                            .iter()
+                                            .any(|q| q.callsign.eq_ignore_ascii_case(&spot.dx_call));
+                                        let call_color = if worked {
+                                            egui::Color32::from_rgb(34, 197, 94)
+                                        } else {
+                                            egui::Color32::from_rgb(56, 189, 248)
+                                        };
+                                        ui.label(
+                                            egui::RichText::new(format!("{}{}", spot.dx_call, if worked { " ✓" } else { "" }))
+                                                .strong()
+                                                .color(call_color),
+                                        );
+                                        ui.label(
+                                            egui::RichText::new(format!("{:.1} kHz", spot.frequency_khz)).monospace(),
+                                        );
+                                        ui.label(egui::RichText::new(&spot.band).color(egui::Color32::from_rgb(251, 191, 36)));
+                                        ui.label(egui::RichText::new(&spot.comment).size(11.0).weak());
+                                        if ui
+                                            .button(egui::RichText::new(tr("contest.spot_fill_entry", lang)).color(egui::Color32::from_rgb(34, 197, 94)))
+                                            .clicked()
+                                        {
+                                            tune = Some((spot.dx_call.clone(), spot.frequency_khz, spot.band.clone(), spot.is_ft8));
+                                        }
+                                        ui.end_row();
+                                    }
+                                });
+                        });
+
+                        if let Some((call, freq_khz, band, is_ft8)) = tune {
+                            spot_fill_target = Some((call, freq_khz, band, is_ft8));
+                        }
+                    });
+
                 ui.add_space(8.0);
                 ui.separator();
 
@@ -388,6 +443,30 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 });
             });
         });
+
+    if let Some((call, freq_khz, band, is_ft8)) = spot_fill_target {
+        app.tune_to_spot(&call, freq_khz, &band);
+        if is_ft8 {
+            app.entry_mode = "FT8".to_string();
+        }
+        // Uzupełnij wymianę z wcześniejszego QSO z tą stacją (jeśli istnieje).
+        if let Some(prev) = app
+            .recent_qsos
+            .iter()
+            .rev()
+            .find(|q| q.callsign.eq_ignore_ascii_case(&call))
+        {
+            if let Some(srx) = &prev.srx_string {
+                app.entry_exchange = srx.clone();
+            } else if !prev.rst_rcvd.is_empty() {
+                app.entry_exchange = prev.rst_rcvd.clone();
+            }
+            app.status_toast = Some((
+                format!("{}: {}", tr("contest.worked_before", app.current_language), call),
+                std::time::Instant::now(),
+            ));
+        }
+    }
 
     if save_clicked && !app.entry_callsign.is_empty() {
         let mut new_qso = QsoRecord::new(&app.entry_callsign, &app.entry_band, &app.entry_mode);

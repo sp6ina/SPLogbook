@@ -2473,6 +2473,30 @@ impl SpLogApp {
         }
     }
 
+    pub fn trigger_export_adx(&mut self) {
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("Pliki ADX (*.adx, *.xml)", &["adx", "xml"])
+            .set_file_name("SPLogbook_export.adx")
+            .set_title("Zapisz eksport bazy do pliku ADX (XML)")
+            .save_file()
+        {
+            let qsos = {
+                let db = self.log_db.lock().unwrap_or_else(|p| p.into_inner());
+                db.get_recent_qsos(100000).unwrap_or_default()
+            };
+            let count = qsos.len();
+            let adx_text = crate::core::adif::export_adx(&qsos);
+            match std::fs::write(&path, adx_text) {
+                Ok(_) => {
+                    self.status_message = Some(format!("Wyeksportowano pomyślnie {} łączności do pliku: {}", count, path.display()));
+                }
+                Err(e) => {
+                    self.status_message = Some(format!("Błąd zapisu pliku {}: {}", path.display(), e));
+                }
+            }
+        }
+    }
+
     pub fn run_manual_backup(&mut self) {
         let backup_dir = std::path::Path::new("backups");
         let _ = std::fs::create_dir_all(backup_dir);

@@ -47,6 +47,10 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             app.trigger_export_adif();
             ui.close_menu();
         }
+        if ui.button(tr("menu.export_adx", lang)).clicked() {
+            app.trigger_export_adx();
+            ui.close_menu();
+        }
         if ui.button(icons::SOTA_MOUNTAIN.label(tr("menu.export_sota", lang))).clicked() {
             let call = app.my_station.callsign.clone();
             app.sota_dialog.open(&call);

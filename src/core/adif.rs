@@ -288,108 +288,116 @@ impl AdifEngine {
         writeln!(writer, "<EOH>")?;
 
         for q in qsos {
-            Self::write_field(&mut writer, "CALL", &q.callsign)?;
-            Self::write_field(&mut writer, "BAND", &q.band)?;
-            Self::write_field(&mut writer, "MODE", &q.mode)?;
-            if let Some(ref sub) = q.submode {
-                Self::write_field(&mut writer, "SUBMODE", sub)?;
+            for (tag, val) in Self::qso_fields(q) {
+                Self::write_field(&mut writer, tag, &val)?;
             }
-            Self::write_field(&mut writer, "QSO_DATE", &q.adif_date())?;
-            Self::write_field(&mut writer, "TIME_ON", &q.adif_time())?;
-            if let Some(ref toff) = q.time_off {
-                Self::write_field(&mut writer, "TIME_OFF", toff)?;
-            }
-            if let Some(freq) = q.freq {
-                Self::write_field(&mut writer, "FREQ", &format!("{:.6}", freq))?;
-            }
-            if let Some(frx) = q.freq_rx {
-                Self::write_field(&mut writer, "FREQ_RX", &format!("{:.6}", frx))?;
-            }
-            Self::write_field(&mut writer, "RST_SENT", &q.rst_sent)?;
-            Self::write_field(&mut writer, "RST_RCVD", &q.rst_rcvd)?;
-            if let Some(ref name) = q.name {
-                Self::write_field(&mut writer, "NAME", name)?;
-            }
-            if let Some(ref qth) = q.qth {
-                Self::write_field(&mut writer, "QTH", qth)?;
-            }
-            if let Some(ref grid) = q.gridsquare {
-                Self::write_field(&mut writer, "GRIDSQUARE", grid)?;
-            }
-            if let Some(ref st) = q.state {
-                Self::write_field(&mut writer, "STATE", st)?;
-            }
-            if let Some(ref iota) = q.iota {
-                Self::write_field(&mut writer, "IOTA", iota)?;
-            }
-            if let Some(ref sota) = q.sota_ref {
-                Self::write_field(&mut writer, "SOTA_REF", sota)?;
-            }
-            if let Some(ref pota) = q.pota_ref {
-                Self::write_field(&mut writer, "POTA_REF", pota)?;
-            }
-            if let Some(ref my_pota) = q.my_pota_ref {
-                Self::write_field(&mut writer, "MY_POTA_REF", my_pota)?;
-            }
-            if let Some(ref my_sota) = q.my_sota_ref {
-                Self::write_field(&mut writer, "MY_SOTA_REF", my_sota)?;
-            }
-            if let Some(ref vucc) = q.vucc_grids {
-                Self::write_field(&mut writer, "VUCC_GRIDS", vucc)?;
-            }
-            if let Some(ref pga) = q.pga_ref {
-                Self::write_field(&mut writer, "PGA_REF", pga)?;
-            }
-            if let Some(dxcc) = q.dxcc {
-                Self::write_field(&mut writer, "DXCC", &dxcc.to_string())?;
-            }
-            if let Some(ref country) = q.country {
-                Self::write_field(&mut writer, "COUNTRY", country)?;
-            }
-            if let Some(ref cont) = q.continent {
-                Self::write_field(&mut writer, "CONT", cont)?;
-            }
-            if let Some(cq) = q.cqz {
-                Self::write_field(&mut writer, "CQZ", &cq.to_string())?;
-            }
-            if let Some(itu) = q.ituz {
-                Self::write_field(&mut writer, "ITUZ", &itu.to_string())?;
-            }
-            if let Some(ref c) = q.comment {
-                Self::write_field(&mut writer, "COMMENT", c)?;
-            }
-            if let Some(ref qv) = q.qsl_via {
-                Self::write_field(&mut writer, "QSL_VIA", qv)?;
-            }
-            if let Some(ref qm) = q.qsl_manager {
-                Self::write_field(&mut writer, "QSL_VIA_MANAGER", qm)?;
-            }
-            if let Some(ref sn) = q.sat_name {
-                Self::write_field(&mut writer, "SAT_NAME", sn)?;
-            }
-            if let Some(ref sm) = q.sat_mode {
-                Self::write_field(&mut writer, "SAT_MODE", sm)?;
-            }
-            if let Some(ref pm) = q.prop_mode {
-                Self::write_field(&mut writer, "PROP_MODE", pm)?;
-            }
-            if let Some(ref mg) = q.my_gridsquare {
-                Self::write_field(&mut writer, "MY_GRIDSQUARE", mg)?;
-            }
-            if let Some(ref ms) = q.my_state {
-                Self::write_field(&mut writer, "MY_STATE", ms)?;
-            }
-            Self::write_field(&mut writer, "QSL_SENT", &q.qsl_sent)?;
-            Self::write_field(&mut writer, "QSL_RCVD", &q.qsl_rcvd)?;
-            Self::write_field(&mut writer, "LOTW_QSL_SENT", &q.lotw_qsl_sent)?;
-            Self::write_field(&mut writer, "LOTW_QSL_RCVD", &q.lotw_qsl_rcvd)?;
-            Self::write_field(&mut writer, "EQSL_QSL_SENT", &q.eqsl_qsl_sent)?;
-            Self::write_field(&mut writer, "EQSL_QSL_RCVD", &q.eqsl_qsl_rcvd)?;
-
             writeln!(writer, "<EOR>")?;
         }
 
         Ok(())
+    }
+
+    /// Zwraca uporządkowaną listę pól ADIF rekordu QSO jako pary `(nazwa, wartość)`.
+    fn qso_fields(q: &QsoRecord) -> Vec<(&'static str, String)> {
+        let mut f: Vec<(&'static str, String)> = Vec::new();
+        f.push(("CALL", q.callsign.clone()));
+        f.push(("BAND", q.band.clone()));
+        f.push(("MODE", q.mode.clone()));
+        if let Some(ref v) = q.submode {
+            f.push(("SUBMODE", v.clone()));
+        }
+        f.push(("QSO_DATE", q.adif_date()));
+        f.push(("TIME_ON", q.adif_time()));
+        if let Some(ref v) = q.time_off {
+            f.push(("TIME_OFF", v.clone()));
+        }
+        if let Some(v) = q.freq {
+            f.push(("FREQ", format!("{:.6}", v)));
+        }
+        if let Some(v) = q.freq_rx {
+            f.push(("FREQ_RX", format!("{:.6}", v)));
+        }
+        f.push(("RST_SENT", q.rst_sent.clone()));
+        f.push(("RST_RCVD", q.rst_rcvd.clone()));
+        if let Some(ref v) = q.name {
+            f.push(("NAME", v.clone()));
+        }
+        if let Some(ref v) = q.qth {
+            f.push(("QTH", v.clone()));
+        }
+        if let Some(ref v) = q.gridsquare {
+            f.push(("GRIDSQUARE", v.clone()));
+        }
+        if let Some(ref v) = q.state {
+            f.push(("STATE", v.clone()));
+        }
+        if let Some(ref v) = q.iota {
+            f.push(("IOTA", v.clone()));
+        }
+        if let Some(ref v) = q.sota_ref {
+            f.push(("SOTA_REF", v.clone()));
+        }
+        if let Some(ref v) = q.pota_ref {
+            f.push(("POTA_REF", v.clone()));
+        }
+        if let Some(ref v) = q.my_pota_ref {
+            f.push(("MY_POTA_REF", v.clone()));
+        }
+        if let Some(ref v) = q.my_sota_ref {
+            f.push(("MY_SOTA_REF", v.clone()));
+        }
+        if let Some(ref v) = q.vucc_grids {
+            f.push(("VUCC_GRIDS", v.clone()));
+        }
+        if let Some(ref v) = q.pga_ref {
+            f.push(("PGA_REF", v.clone()));
+        }
+        if let Some(v) = q.dxcc {
+            f.push(("DXCC", v.to_string()));
+        }
+        if let Some(ref v) = q.country {
+            f.push(("COUNTRY", v.clone()));
+        }
+        if let Some(ref v) = q.continent {
+            f.push(("CONT", v.clone()));
+        }
+        if let Some(v) = q.cqz {
+            f.push(("CQZ", v.to_string()));
+        }
+        if let Some(v) = q.ituz {
+            f.push(("ITUZ", v.to_string()));
+        }
+        if let Some(ref v) = q.comment {
+            f.push(("COMMENT", v.clone()));
+        }
+        if let Some(ref v) = q.qsl_via {
+            f.push(("QSL_VIA", v.clone()));
+        }
+        if let Some(ref v) = q.qsl_manager {
+            f.push(("QSL_VIA_MANAGER", v.clone()));
+        }
+        if let Some(ref v) = q.sat_name {
+            f.push(("SAT_NAME", v.clone()));
+        }
+        if let Some(ref v) = q.sat_mode {
+            f.push(("SAT_MODE", v.clone()));
+        }
+        if let Some(ref v) = q.prop_mode {
+            f.push(("PROP_MODE", v.clone()));
+        }
+        if let Some(ref v) = q.my_gridsquare {
+            f.push(("MY_GRIDSQUARE", v.clone()));
+        }
+        if let Some(ref v) = q.my_state {
+            f.push(("MY_STATE", v.clone()));
+        }
+        f.push(("QSL_SENT", q.qsl_sent.clone()));
+        f.push(("QSL_RCVD", q.qsl_rcvd.clone()));
+        f.push(("LOTW_QSL_SENT", q.lotw_qsl_sent.clone()));
+        f.push(("LOTW_QSL_RCVD", q.lotw_qsl_rcvd.clone()));
+        f.push(("EQSL_QSL_SENT", q.eqsl_qsl_sent.clone()));
+        f.push(("EQSL_QSL_RCVD", q.eqsl_qsl_rcvd.clone()));
+        f
     }
 
     fn write_field<W: Write>(writer: &mut W, tag: &str, val: &str) -> std::io::Result<()> {
@@ -398,6 +406,53 @@ impl AdifEngine {
         }
         Ok(())
     }
+
+    fn write_xml_field<W: Write>(writer: &mut W, tag: &str, val: &str) -> std::io::Result<()> {
+        if !val.is_empty() {
+            writeln!(writer, "      <{}>{}</{}>", tag, xml_escape(val), tag)?;
+        }
+        Ok(())
+    }
+
+    /// Eksportuje rekordy do formatu ADX (XML ADIF).
+    pub fn export_adx_to_writer<W: Write>(qsos: &[QsoRecord], mut writer: W) -> std::io::Result<()> {
+        writeln!(writer, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>")?;
+        writeln!(writer, "<ADX>")?;
+        writeln!(writer, "  <HEADER>")?;
+        writeln!(writer, "    <ADIF_VER>3.1.5</ADIF_VER>")?;
+        writeln!(writer, "    <PROGRAMID>SPLogbook</PROGRAMID>")?;
+        writeln!(writer, "    <PROGRAMVERSION>1.0.3</PROGRAMVERSION>")?;
+        writeln!(writer, "  </HEADER>")?;
+        writeln!(writer, "  <RECORDS>")?;
+
+        for q in qsos {
+            writeln!(writer, "    <RECORD>")?;
+            for (tag, val) in Self::qso_fields(q) {
+                Self::write_xml_field(&mut writer, tag, &val)?;
+            }
+            writeln!(writer, "    </RECORD>")?;
+        }
+
+        writeln!(writer, "  </RECORDS>")?;
+        writeln!(writer, "</ADX>")?;
+
+        Ok(())
+    }
+}
+
+fn xml_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&apos;"),
+            _ => out.push(c),
+        }
+    }
+    out
 }
 
 pub fn parse_adif(content: &str) -> Vec<QsoRecord> {
@@ -418,6 +473,12 @@ pub fn parse_adif_with_report(content: &str) -> AdifImportResult {
 pub fn export_adif(qsos: &[QsoRecord], _prog: &str, _call: &str) -> String {
     let mut buffer = Vec::new();
     let _ = AdifEngine::export_to_writer(qsos, &mut buffer);
+    String::from_utf8_lossy(&buffer).to_string()
+}
+
+pub fn export_adx(qsos: &[QsoRecord]) -> String {
+    let mut buffer = Vec::new();
+    let _ = AdifEngine::export_adx_to_writer(qsos, &mut buffer);
     String::from_utf8_lossy(&buffer).to_string()
 }
 
@@ -509,5 +570,22 @@ mod tests {
         let report = parse_adif_with_report(content);
         assert_eq!(report.imported, 1);
         assert_eq!(report.qsos[0].callsign, "SP6INA");
+    }
+
+    #[test]
+    fn test_adx_export_well_formed_and_escaped() {
+        let mut qso = QsoRecord::new("SP6INA", "20m", "CW");
+        qso.name = Some("A&B <test>".to_string());
+        qso.comment = Some("cudzysłów \" i apostrof '".to_string());
+
+        let adx = export_adx(&[qso]);
+        assert!(adx.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
+        assert!(adx.contains("<ADX>"));
+        assert!(adx.contains("<ADIF_VER>3.1.5</ADIF_VER>"));
+        assert!(adx.contains("<RECORD>"));
+        assert!(adx.contains("<CALL>SP6INA</CALL>"));
+        assert!(adx.contains("<NAME>A&amp;B &lt;test&gt;</NAME>"));
+        assert!(adx.contains("cudzysłów &quot; i apostrof &apos;"));
+        assert!(adx.trim_end().ends_with("</ADX>"));
     }
 }
