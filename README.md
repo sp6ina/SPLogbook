@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/Platform-Windows_%7C_GNU%2FLinux-blue.svg" alt="Platform">
   <img src="https://img.shields.io/badge/Version-1.0.3-emerald.svg" alt="Version">
   <a href="https://github.com/sp6ina/SPLogbook/actions"><img src="https://github.com/sp6ina/SPLogbook/actions/workflows/build-and-release.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/Tests-54%2F54_Passed-brightgreen.svg" alt="Tests">
+  <img src="https://img.shields.io/badge/Tests-205%2F205_Passed-brightgreen.svg" alt="Tests">
   <img src="https://img.shields.io/badge/i18n-6_Languages-cyan.svg" alt="i18n">
   <a href="https://buycoffee.to/sp6ina"><img src="https://img.shields.io/badge/☕_Buy_Me_a_Coffee-buycoffee.to%2Fsp6ina-FFDD00?style=flat&logoColor=black" alt="Buy Me a Coffee"></a>
 </p>
@@ -25,7 +25,7 @@
 
 **SPLogbook** is an advanced, high-performance amateur radio logging software and station automation console engineered from the ground up in **Rust**. Built with an immediate-mode user interface powered by `egui`/`eframe`, SPLogbook delivers instant sub-millisecond responsiveness, zero-garbage-collection pauses, complete memory safety, and cross-platform native performance across both **Windows 10/11 (64-bit)** and **GNU/Linux (x86_64, X11 & Wayland)** environments.
 
-From deep ionospheric modeling (VOACAP-lite HF propagation), automated antenna rotator steering (`rotctld`), and real-time DX Cluster intelligence with acoustic All-Time New One (ATNO) alarms, to bi-directional digital modes bridging (WSJT-X, JS8Call, FLDigi), orbital satellite Doppler tracking, multi-award tracking, contest logging with live scoring, and professional A4 Avery QSL label vector PDF generation, SPLogbook provides the modern radio amateur with a unified, state-of-the-art operating environment.
+From deep ionospheric modeling (VOACAP-lite HF propagation), automated antenna rotator steering (`rotctld`), and real-time DX Cluster intelligence with acoustic All-Time New One (ATNO) alarms, to bi-directional digital modes bridging (WSJT-X, JS8Call, FLDigi), orbital satellite Doppler tracking, multi-award tracking, contest logging with live scoring, and professional A4 Avery QSL label vector PDF generation, SPLogbook provides the modern radio amateur with a unified, state-of-the-art operating environment. A dockable `egui_dock` workspace with floating multi-monitor windows, a sandboxed **Rhai** plugin system, a central event bus with live WebSocket streaming, a multi-backend CAT abstraction layer, and encrypted peer-to-peer log synchronization make it equally suited to the casual DXer, the serious contester, and the multi-station operator.
 
 ---
 
@@ -49,6 +49,14 @@ From deep ionospheric modeling (VOACAP-lite HF propagation), automated antenna r
    - [Visual Analytics & Station Statistics](#14-visual-analytics--station-statistics)
    - [Embedded Local REST API Server](#15-embedded-local-rest-api-server)
    - [Internationalization (i18n)](#16-internationalization-i18n)
+   - [Dockable Workspace & Operator Layout Profiles](#17-dockable-workspace--operator-layout-profiles)
+   - [User Plugin System (Rhai)](#18-user-plugin-system-rhai)
+   - [CAT Abstraction Layer (Multi-Backend)](#19-cat-abstraction-layer-multi-backend)
+   - [Central Event Bus & Live WebSocket](#20-central-event-bus--live-websocket)
+   - [Callbook Aggregation & Offline Cache](#21-callbook-aggregation--offline-cache)
+   - [Operator Assistant & Voice Keyer](#22-operator-assistant--voice-keyer)
+   - [Encrypted P2P Log Synchronization](#23-encrypted-p2p-log-synchronization)
+   - [N1MM Logger+ Compatibility](#24-n1mm-logger-compatibility)
 3. [Keyboard Shortcuts Reference](#-keyboard-shortcuts-reference)
 4. [REST API Documentation](#-rest-api-documentation)
 5. [System Requirements](#-system-requirements)
@@ -73,16 +81,23 @@ From deep ionospheric modeling (VOACAP-lite HF propagation), automated antenna r
 | **Ham Clubs Directory** | Real-time recognition and color-coded badge display for SP-OTC, SPCWC, SKCC, CWOPS, FOC, and HSC with member number recognition. |
 | **QSL Vector PDF** | Full A4 vector PDF label sheet exporter for Avery 3x8, 3x7, 2x8, 2x7 formats, plus standalone QSL card visual designer. |
 | **Station Profiles** | Multi-profile workstation management (Home QTH, Field /P, SOTA/POTA, Contest) with instant 1-click preset switching. |
-| **Transceiver CAT & Sharing** | Non-blocking Hamlib `rigctld` supervisor, VFO A/B, split, mode, PTT, WinKeyer, TCI protocol, selectable **Bundled (Hamlib 4.7.2 pre-packaged for Windows & GNU/Linux)** or **System-installed** library source, plus integrated **Hamlib CAT TCP Proxy Server** (port 4534) for simultaneous multi-app rig sharing (WSJT-X, JTDX, FLDigi). |
+| **Transceiver CAT & Sharing** | Unified **CAT abstraction layer** (`CatBackend` trait + `CatBackendKind`) over multiple rig backends: Hamlib `rigctld`, **FLRig (XML-RPC)**, **TCI (SDR)**, **Icom CI-V (serial)**, and **SO2R**; VFO A/B, split, RIT/XIT, mode, PTT, power, WinKeyer. Selectable **Bundled (Hamlib 4.7.2)** or **System-installed** source, plus integrated **Hamlib CAT TCP Proxy Server** (port 4534) for multi-app rig sharing. |
 | **Digital Modes** | WSJT-X / JTDX bi-directional UDP bridge (port 2237), JS8Call TCP JSON API integration, FLDigi XML-RPC bridge. |
 | **Satellites** | SGP4/SDP4 Keplerian orbital propagation from TLE, real-time Doppler shift frequency correction via CAT, antenna elevation/azimuth steering. |
-| **Contests & Dupe Engine** | Rules for SP DX, CQ WW, ARRL DX, CQ WPX; real-time inline `[DUPE!]` warning, N1MM-style keyboard-first auto-refocus, dedicated Duplicate Manager with smart batch cleaning, and Cabrillo 3.0 export. |
+| **Contests & Dupe Engine** | Rules for SP DX, CQ WW, ARRL DX, CQ WPX, IARU HF; structured **exchange parser** (`599 001 EU-115` → validated fields), live **rate meter (QSO/h)** + rate history, **multiplier matrix** per band, real-time inline `[DUPE!]` warning, N1MM-style keyboard-first auto-refocus, Duplicate Manager with batch cleaning, and **Cabrillo 3.0 / ADX (XML ADIF)** export. |
 | **Awards Tracking** | DXCC (Mixed, Band, Mode, Challenge, ATNO), WAZ, WAS, SP DX Award, WAE, WWFF, RDA, PGA (2477 Polish municipalities), IOTA, SOTA, POTA. |
-| **Cloud Sync** | LoTW (TQSL), eQSL.cc, Club Log, QRZ.com, HamQTH, HRDLog, Cloudlog, PSK Reporter, WSPR monitor, NOAA space weather. |
+| **Cloud Sync** | LoTW (TQSL), eQSL.cc, Club Log, QRZ.com, HamQTH, HRDLog, Cloudlog, PSK Reporter, WSPR monitor, NOAA space weather, with a shared **upload scheduler** (offline queue, exponential-backoff retry, per-service rate limiting). |
 | **Mapping** | Equirectangular world map with real-time day/night terminator (Grey Line), zoom/pan, confirmed/unconfirmed QSO markers, live spot pins. |
-| **REST API** | Embedded asynchronous Axum HTTP server on port 8080 providing JSON endpoints for external integration, remote monitoring, and station automation. |
+| **REST API & WebSocket** | Embedded asynchronous Axum HTTP server on port 8080 with JSON endpoints plus a live **WebSocket** stream (`/api/v1/ws`) broadcasting application events in real time for external integration and station automation. |
 | **Logbook Table** | Virtualized, resizable-column data grid with multi-row selection, bulk delete, per-column sorting, live filtering, and saveable column presets. |
-| **Theming & Accessibility** | Multiple color theme presets including a colorblind-friendly Okabe-Ito palette, user font scaling and family selection, and a status legend window. |
+| **Dockable Workspace** | Full `egui_dock` docking system: panels can be detached into **floating native windows** (move to a second monitor), re-arranged into tabs/columns, and saved/restored via **operator layout profiles** with built-in presets. |
+| **User Plugins (Rhai)** | Sandboxed embedded **Rhai** scripting engine: users write `.rhai` plugins with safe lifecycle hooks (`on_startup`, `on_qso_logged`, `on_band_opened`) — no filesystem/network access by default. |
+| **Event Bus** | Central `tokio::sync::broadcast` event bus decoupling modules; the same JSON events drive UI toasts, the WebSocket stream, and Rhai plugins. |
+| **Operator Assistant & Voice Keyer** | Always-on decision bar recommending "what to do now" from propagation/CAT/DX/award goals, plus an SSB **voice keyer** (WAV playback, F1–F8 slots, CQ loop). |
+| **Encrypted P2P Sync** | Direct peer-to-peer log synchronization over LAN/VPN encrypted with **XChaCha20-Poly1305** (Argon2id key derivation) — no cloud required. |
+| **N1MM Compatibility** | Emits **N1MM Logger+ UDP broadcast** XML frames so GridTracker, overlay tools, and the N1MM ecosystem integrate out of the box. |
+| **Callbook Aggregation** | Configurable callbook **source priority** (QRZ.com, HamQTH, offline cache) with automatic result merging and a persistent offline **cache** (TTL-based). |
+| **Theming & Accessibility** | Central `theme.rs` palette with presets — **Operator Dark**, **Daylight**, **High-Contrast / colorblind-safe (Okabe-Ito)** — user font scaling and family selection, and a status legend window. |
 | **Command Palette** | Searchable command launcher (`Ctrl+Shift+P`) for instant keyboard-first navigation to any function. |
 | **Built-in Help** | In-app user manual (Help → Instrukcja obsługi), contextual "?" hints in complex panels, full changelog window, and GitHub update checker. |
 | **Languages** | 6 complete native translations: English, Polish, German, French, Spanish, Russian (100% verified test coverage). |
@@ -223,9 +238,10 @@ SPLogbook features a self-contained ionospheric HF propagation engine (`src/core
   - **ARRL International DX:** 3 points per QSO; multipliers per US State and Canadian Province.
   - **CQ WPX Contest:** Points based on band and continent; prefix multipliers.
   - **VHF/UHF Polish National Contests:** 1 point per kilometer of great-circle distance; gridsquare multipliers.
-- **Live Scoring & Rate Meter:** Displays current score, multiplier breakdown, band-by-band QSO counts, and rolling operating rate (QSO/h).
+- **Structured Exchange Parser:** Each contest rule declares an ordered list of exchange fields (RST, serial, CQ/ITU zone, US/VE state, grid, power, IOTA, name, QTH, etc.); the parser (`src/core/exchange.rs`) converts a typed string such as `599 001 EU-115` into validated, structured fields ready to store in the QSO record.
+- **Live Scoring, Rate Meter & Multiplier Matrix:** Displays current score, multiplier breakdown, band-by-band QSO counts, a rolling operating rate (QSO/h) with rate history, and a **per-band multiplier matrix** highlighting needed multipliers.
 - **Dupe Checking:** Immediate visual warning (red highlight and bold "DUPE!" tag) when entering an already-worked station on the current band/mode.
-- **Cabrillo 3.0 Export:** Generates fully compliant Cabrillo log files formatted according to official contest sponsor specifications.
+- **Cabrillo 3.0 & ADX Export:** Generates fully compliant Cabrillo log files formatted according to official contest sponsor specifications, plus **ADX (XML ADIF 3.1.5)** export.
 
 ---
 
@@ -248,8 +264,9 @@ SPLogbook features an integrated awards matrix (`src/core/awards.rs`) tracking c
 - **ARRL LoTW (Logbook of the World):** Direct TQSL command-line invocation for digital certificate signing, automated ADIF export, and inbound `.adi` download and reconciliation.
 - **eQSL.cc:** Real-time upload of logged QSOs and inbound verification synchronization.
 - **Club Log:** Instantaneous real-time QSO upload via API and Online QSL Request System (OQRS) tracking.
-- **Callbook XML Lookups:** Automated XML lookup via **QRZ.com** (XML subscription) and **HamQTH** (free XML API) retrieving operator name, QTH address, Maidenhead grid, country, and biography photo.
+- **Callbook XML Lookups:** Automated XML lookup via **QRZ.com** (XML subscription) and **HamQTH** (free XML API) retrieving operator name, QTH address, Maidenhead grid, country, and biography photo, aggregated by a configurable **source priority** and backed by a persistent **offline cache**.
 - **HRDLog & Cloudlog:** Automated cloud log synchronization with an embedded SQLite retry queue ensuring reliable delivery during internet drops.
+- **Shared Upload Scheduler:** A deterministic scheduler (`src/cloud/scheduler.rs`) centralizes the offline queue, exponential-backoff retry, and per-service rate limiting for Club Log, QRZ.com, and eQSL.cc.
 - **PSK Reporter & WSPR Monitor:** Submits live reception reports to `pskreporter.info` and queries `wspr.live` for real-time propagation probes.
 - **Space Weather (NOAA SWPC):** Fetches real-time Solar Flux Index (SFI), Sunspot Number (SSN), geomagnetic $A$-index, $K$-index, X-ray flux, and solar wind velocity.
 
@@ -275,6 +292,7 @@ SPLogbook includes a visual analytics dashboard providing comprehensive insights
 - **Hourly UTC Activity:** 24-hour histogram identifying peak operating hours.
 - **Top 10 Countries:** Ranking of most frequently contacted DXCC entities.
 - **QSL Confirmation Ratios:** Comparative analysis between paper QSL, LoTW, and eQSL confirmations.
+- **Interactive Drill-Down:** Every chart is clickable — click a month, band, mode, hour, country, or QSL-status segment to instantly open the logbook filtered to that subset, then return with one click.
 
 ---
 
@@ -289,6 +307,7 @@ SPLogbook features a built-in, lightweight asynchronous HTTP server powered by *
 | `POST` | `/api/v1/qsos` | Logs a new QSO record via JSON payload with full schema validation. |
 | `GET` | `/api/v1/stats` | Returns aggregated station statistics (by band, by mode, QSL counts). |
 | `GET` | `/api/v1/cluster/spots` | Returns active DX cluster spots in real-time. |
+| `WS` | `/api/v1/ws` | WebSocket streaming live application events (`QsoLogged`, `DxSpot`, `RigState`, `ClusterStatus`, `CloudSync`, `Toast`) as JSON. |
 
 ---
 
@@ -300,6 +319,69 @@ SPLogbook provides full multi-language support across all menus, toolbars, setti
 - 🇫🇷 **Français** (FR)
 - 🇪🇸 **Español** (ES)
 - 🇷🇺 **Русский** (RU)
+
+---
+
+### 17. Dockable Workspace & Operator Layout Profiles
+SPLogbook replaces the fixed panel grid with a fully **dockable workspace** powered by `egui_dock`:
+- **Floating Native Windows:** Any panel (`VFO`, `QSO Entry`, `Logbook Table`, `DX Cluster`, `BandMap`, `World Map`, etc.) can be **undocked** from the main window into its own floating window — drag it to a second monitor for a multi-screen contest or field setup.
+- **Flexible Arrangement:** Panels snap into tabs, side-by-side columns, and resizable split panes; the layout is serialized and restored across sessions.
+- **Operator Layout Profiles:** Save, name, and instantly recall complete workspace layouts (panel visibility, position, size, docking, and floating-window geometry) with built-in presets for logging, contesting, digital operation, and more (`workspace_profiles.rs`).
+
+---
+
+### 18. User Plugin System (Rhai)
+SPLogbook embeds the **Rhai** scripting language as a safe extension mechanism, letting operators automate and personalize the station without touching Rust:
+- **Sandboxed by default:** scripts have no filesystem, network, or process access unless explicitly exposed; engine limits (max string size, max expression depth) guard against runaway scripts.
+- **Safe API:** plugins can call `log(msg)`, `notify(msg)`, and `qso_count()`.
+- **Lifecycle hooks:** `on_startup()`, `on_qso_logged(call_sign, band, mode, freq_mhz, is_atno)`, and `on_band_opened(band)` fire automatically on matching events.
+- **Hot reload:** `.rhai` files are loaded from the plugins directory; malformed scripts are reported (never crash) and can be enabled/disabled at runtime (`plugin_manager.rs`).
+
+---
+
+### 19. CAT Abstraction Layer (Multi-Backend)
+A unified `CatBackend` trait and `CatBackendKind` enum (Hamlib, FLRig, TCI, Icom CI-V, SO2R) abstract away the hardware protocol so the rest of the application talks to **one `RigState`**, regardless of radio:
+- **Hamlib `rigctld`** — the default TCP backend.
+- **FLRig (XML-RPC)** — cross-platform rig control via FLDigi's companion server.
+- **TCI** — Transceiver Control Interface for SDR platforms (SunSDR, ExpertSDR, Thetis).
+- **Icom CI-V** — direct serial control of Icom transceivers.
+- **SO2R** — single-operator two-radio logic with TX lockout.
+- A `CatController` dispatcher selects the active implementation at runtime; unimplemented operations return descriptive errors so new backends can be added incrementally.
+
+---
+
+### 20. Central Event Bus & Live WebSocket
+A central **event bus** (`src/core/events.rs`, built on `tokio::sync::broadcast`) publishes typed domain events — `QsoLogged`, `DxSpot`, `RigState`, `ClusterStatus`, `CloudSync`, `Toast` — consumed by multiple subscribers without coupling:
+- **UI:** toasts, status bar, and notifications.
+- **WebSocket:** `GET /api/v1/ws` streams the same JSON-serialized events live to external dashboards and automation.
+- **Plugins:** Rhai hooks are driven by the same lifecycle events.
+
+---
+
+### 21. Callbook Aggregation & Offline Cache
+Callbook lookups merge results from multiple sources according to a user-configurable **priority order** (`QRZ.com` → `HamQTH` → offline cache), so the richest available data wins:
+- **Source priority** is reorderable in the Online Synchronization settings.
+- **Offline cache:** successful online lookups are persisted to a local SQLite `CallbookCache` table with a configurable TTL, enabling instant lookups without internet and reduced API quota usage.
+- **Local callbook** (bundled `databases/`) remains the zero-latency first line of resolution.
+
+---
+
+### 22. Operator Assistant & Voice Keyer
+- **Operator Assistant:** a pure, unit-tested `recommend()` function produces an always-available decision bar that answers "what should I do now?" using live propagation forecasts, current band status, CAT state, DX cluster activity, and award goals.
+- **SSB Voice Keyer:** plays pre-recorded WAV announcements (CQ calls, replies) through `rodio`, mapped to F1–F8 slots with loop and stop controls for hands-free contest operation.
+
+---
+
+### 23. Encrypted P2P Log Synchronization
+For operators who want multi-station or field/backup synchronization without a cloud service, SPLogbook provides a **direct peer-to-peer sync** (`src/sync/p2p.rs`) over TCP:
+- **Encrypted transport:** each frame is sealed with **XChaCha20-Poly1305**, with the symmetric key derived from a shared passphrase via **Argon2id**.
+- **Frame integrity:** length-prefixed frames with a per-message nonce and 64 MB size cap protect against truncation and memory-exhaustion.
+- Works over LAN or VPN, no third-party server involved.
+
+---
+
+### 24. N1MM Logger+ Compatibility
+SPLogbook emits **N1MM Logger+ UDP broadcast** XML frames (loopback port `12060`), making it a drop-in data source for the wide ecosystem of N1MM companion tools — GridTracker, overlay utilities, and contest peripheral software — with no additional plugins.
 
 ---
 
@@ -404,7 +486,7 @@ Ensure you have the Rust toolchain (version $\ge 1.80$) installed.
 git clone https://github.com/sp6ina/SPLogbook.git
 cd SPLogbook
 
-# 2. Run automated unit tests (51 tests)
+# 2. Run automated unit tests (205 tests)
 cargo test
 
 # 3. Build optimized release binary with Link-Time Optimization (LTO)
@@ -456,10 +538,14 @@ SPLogbook/
     │   ├── mod.rs
     │   └── server.rs
     ├── cat/                 # Hardware control & rig supervision
+    │   ├── backend.rs       # CAT abstraction layer (CatBackend trait + CatBackendKind)
+    │   ├── flrig.rs         # FLRig XML-RPC client
     │   ├── hamlib.rs        # Asynchronous TCP client for rigctld
+    │   ├── icom_ci_v.rs     # Icom CI-V serial protocol client
     │   ├── rig_models.rs    # Database of transceiver models
     │   ├── rotor.rs         # Hamlib rotctld client (TCP port 4533)
     │   ├── server.rs        # Hamlib TCP proxy server (CAT sharing for WSJT-X/FLDigi)
+    │   ├── so2r.rs          # Single-operator two-radio (SO2R) logic
     │   ├── supervisor.rs    # Non-blocking rigctld subprocess supervisor
     │   ├── tci.rs           # Expert Electronics TCI protocol client
     │   └── winkeyer.rs      # K1EL WinKeyer serial keyer protocol
@@ -472,6 +558,7 @@ SPLogbook/
     │   ├── lotw.rs          # ARRL LoTW TQSL integration
     │   ├── psk_reporter.rs  # PSK Reporter HTTP XML spotting
     │   ├── qrz.rs           # QRZ.com XML Logbook subscription client
+    │   ├── scheduler.rs     # Shared upload scheduler (offline queue, retry, rate-limit)
     │   ├── solar.rs         # NOAA SWPC space weather data parser
     │   ├── updater.rs       # Automatic GitHub releases updater
     │   └── wspr.rs          # wspr.live REST API monitor
@@ -479,33 +566,47 @@ SPLogbook/
     │   ├── lan_sync.rs      # Multi-operator LAN synchronization
     │   └── telnet.rs        # Multi-threaded Telnet client for DX Cluster
     ├── core/                # Core business logic & database
-    │   ├── adif.rs          # ADIF 3.1.4 parser & exporter
+    │   ├── adif.rs          # ADIF 3.1.4 parser & exporter (+ ADX XML export)
     │   ├── astronomy.rs     # Solar & lunar ephemeris, solar zenith calculation
     │   ├── awards.rs        # Awards tracking engine (DXCC, WAZ, WAS, PGA, etc.)
     │   ├── backup.rs        # Database rolling backup manager (10 revisions)
     │   ├── bandplan.rs      # IARU Region 1/2/3 band plans
-    │   ├── callbook.rs      # Callsign & prefix resolution
+    │   ├── callbook.rs      # Callbook aggregation (source priority + offline cache)
+    │   ├── callsign_correction.rs # Callsign typo correction & suggestions
     │   ├── clubs.rs         # Specialty ham radio clubs directory (SP-OTC, SKCC, etc.)
     │   ├── contest_rules.rs # Contest scoring engine & Cabrillo exporter
+    │   ├── contest_stats.rs # Contest rate meter & multiplier matrix
+    │   ├── credentials.rs   # OS credential store (keyring) integration
     │   ├── database.rs      # SQLite WAL backend, 10 indexes, upload queue
+    │   ├── database_stats.rs# Aggregated statistics queries
+    │   ├── events.rs        # Central event bus (tokio::sync::broadcast)
+    │   ├── exchange.rs      # Contest exchange parser & validation
     │   ├── geo.rs           # Maidenhead grid converter, spherical trigonometry
-    │   ├── i18n.rs          # Translation dictionary (6 languages, 300+ keys)
-    │   ├── pga.rs           # Polska Gmina Award database (2477 gminas)
+    │   ├── http.rs          # Shared reqwest HTTP client (timeouts/retry)
+    │   ├── i18n.rs          # Translation dictionary & lookup (6 languages)
+    │   ├── i18n_tr.rs       # Translation strings data (include_str!)
+    │   ├── pga.rs           # Polska Gmina Award logic
+    │   ├── pga_data.rs      # PGA gmina database (2477 gminas, data)
     │   ├── prefix.rs        # ITU prefix allocations & DXCC country mapping
     │   ├── propagation.rs   # VOACAP-lite HF ionospheric propagation modeling
+    │   ├── propagation_history.rs # Propagation forecast history
     │   ├── qsl_print.rs     # QSL card geometry & Avery label calculations
     │   ├── qso.rs           # QSO record data structures & validation
+    │   ├── satellite.rs     # SGP4/SDP4 satellite orbital propagation
     │   ├── scp.rs           # Super Check Partial database lookup
     │   ├── service_db.rs    # Equipment ledger & station inventory
     │   ├── sota_export.rs   # SOTA CSV export formatter
-    │   └── station.rs       # Station profile & persistent panel coordinates
+    │   └── station.rs       # Station profile & workspace/dock profiles
     ├── digital/             # Digital mode bridges
     │   ├── fldigi.rs        # FLDigi XML-RPC client
     │   ├── js8call.rs       # JS8Call TCP JSON API integration
+    │   ├── n1mm.rs          # N1MM Logger+ UDP broadcast emitter
     │   └── wsjtx.rs         # WSJT-X / JTDX binary UDP frame decoder
     ├── gui/                 # Immediate-mode egui user interface
     │   ├── advanced_filter.rs# Multi-criteria logbook search & filter
     │   ├── app.rs           # Main application state, event loops, hotkeys
+    │   ├── app_export.rs    # Log export (Cabrillo, ADX, PDF, GPX)
+    │   ├── app_layout.rs    # egui_dock layout, docking & panel management
     │   ├── astronomy_dialog.rs # Celestial ephemeris modal
     │   ├── awards_matrix.rs # Interactive award matrix viewer
     │   ├── bandmap.rs       # Visual graphical band map with fading spots
@@ -517,13 +618,16 @@ SPLogbook/
     │   ├── cw_macros.rs     # CW macro configuration modal
     │   ├── cw_terminal.rs   # CW keyer terminal window
     │   ├── find_duplicates.rs# Smart duplicate QSO detection and batch cleanup
+    │   ├── icons.rs         # Centralized icon set
     │   ├── iota_browser.rs  # IOTA directory browser
     │   ├── journal_manager.rs # Multi-journal profile manager
     │   ├── logbook_table.rs # Paginated QSO log table with sorting
-    │   ├── menu.rs          # Top menu bar and customizable toolbar
+    │   ├── menu/            # Reorganized top menu (File/Edit/View/Operation/References/Tools/Settings/Help)
     │   ├── mini_hud.rs      # Compact desktop VFO HUD
     │   ├── online_sync.rs   # Cloud synchronization manager dialog
+    │   ├── operator_assistant.rs # Live "what to do now" recommendation bar
     │   ├── photo_viewer.rs  # QSL and station photo viewer
+    │   ├── plugin_manager.rs# Rhai user plugin manager window
     │   ├── prefix_manager.rs# Country & prefix lookup browser
     │   ├── qsl_designer.rs  # QSL designer & Avery A4 PDF label exporter
     │   ├── qsl_manager.rs   # Paper & electronic QSL manager
@@ -536,15 +640,25 @@ SPLogbook/
     │   ├── station_ledger.rs# Station maintenance logbook
     │   ├── user_manual.rs   # In-app user manual with contextual help links
     │   ├── station_profiles.rs# Workstation multi-profiles (Home, /P, SOTA, Contest)
-    │   ├── statistics.rs    # Visual analytics & charts dashboard
+    │   ├── statistics.rs    # Visual analytics & charts dashboard (click-to-drill-down)
+    │   ├── theme.rs         # Central theme & palette system
     │   ├── vfo_panel.rs     # Primary transceiver VFO & PTT panel
+    │   ├── voice_keyer.rs   # SSB voice keyer window (WAV, F1–F8)
     │   ├── welcome_wizard.rs# First-time station setup wizard
     │   ├── wol_dialog.rs    # Wake-on-LAN remote rig trigger
+    │   ├── workspace_profiles.rs # Operator layout (workspace) profile manager
     │   ├── world_map.rs     # Interactive world map with Grey Line & rotator
     │   └── wspr_panel.rs    # Real-time WSPR monitor
+    ├── plugins/             # User plugin system (embedded Rhai)
+    │   └── mod.rs           # PluginEngine: sandboxed .rhai scripts & hooks
+    ├── sync/                # Encrypted peer-to-peer synchronization
+    │   └── p2p.rs           # XChaCha20-Poly1305 P2P log sync over TCP
+    ├── network/             # Network utilities
+    │   └── wol.rs           # Wake-on-LAN magic packet sender
     └── media/               # Audio alerts & assets
         ├── audio_recorder.rs# On-air QSO audio recording engine
-        └── sounds.rs        # Synthesized audio alerts (rodio)
+        ├── sounds.rs        # Synthesized audio alerts (rodio)
+        └── voice_keyer.rs   # SSB voice keyer audio playback engine
 ```
 
 ---
