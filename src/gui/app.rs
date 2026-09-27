@@ -94,7 +94,15 @@ pub struct SpLogApp {
     // DX Cluster i pogoda kosmiczna
     pub cluster_spots: Vec<DxSpot>,
     pub cluster_spots_api: Option<Arc<Mutex<Vec<DxSpot>>>>,  // wspoldzielone z REST API
+    /// Cache kolorów/odznak spotów klastra (unika przeliczania prefiksu i statusu
+    /// nagród w każdej klatce). Czyszczony przy zmianie danych nagród.
+    pub cluster_badge_cache: std::collections::HashMap<String, (egui::Color32, &'static str)>,
     pub space_weather: SpaceWeather,
+    /// Cache prognoz propagacyjnych panelu słonecznego (VOACAP-lite).
+    pub solar_propagation_cache: Option<(
+        (u32, u32, u32, u32, u32),
+        Vec<(&'static str, crate::core::propagation::PropagationForecast)>,
+    )>,
 
     // WSPR Monitor
     pub wspr_spots: Vec<crate::cloud::wspr::WsprSpot>,
@@ -621,7 +629,9 @@ impl SpLogApp {
 
             cluster_spots: sample_spots,
             cluster_spots_api: None,
+            cluster_badge_cache: std::collections::HashMap::new(),
             space_weather: SpaceWeather::default(),
+            solar_propagation_cache: None,
 
             wspr_spots: Vec::new(),
             wspr_loading: false,
@@ -1228,6 +1238,7 @@ impl SpLogApp {
                     let mut awards = self.awards_engine.lock().unwrap_or_else(|p| p.into_inner());
                     awards.register_qso_record(&qso);
                 }
+                self.invalidate_cluster_badges();
                 {
                     let mut scp = self.scp_engine.lock().unwrap_or_else(|p| p.into_inner());
                     scp.insert(&qso.callsign);
@@ -1358,6 +1369,83 @@ impl SpLogApp {
         }
     }
 
+    /// Zwraca kolor i odznakę (⭐ nowe DXCC, ✨ nowe pasmo) dla spotu klastra,
+    /// korzystając z cache, aby nie przeliczać prefiksu i statusu nagród co klatkę.
+    pub fn cluster_spot_badge(&mut self, dx_call: &str, band: &str, is_ft8: bool) -> (egui::Color32, &'static str) {
+        let key = format!("{}|{}|{}", dx_call, band, is_ft8);
+        if let Some(&badge) = self.cluster_badge_cache.get(&key) {
+            return badge;
+        }
+
+        let badge = if let Some(info) = self.prefix_matcher.lookup(dx_call) {
+            let awards = self.awards_engine.lock().unwrap_or_else(|p| p.into_inner());
+            let st = awards.check_status_full(
+                dx_call,
+                band,
+                if is_ft8 { "FT8" } else { "CW" },
+                Some(info.dxcc),
+                None,
+                Some(info.cqz),
+                None,
+                Some(info.continent.as_str()),
+                None,
+            );
+            if st.is_new_dxcc {
+                (egui::Color32::from_rgb(217, 70, 239), " ⭐")
+            } else if st.is_new_band {
+                (egui::Color32::from_rgb(34, 197, 94), " ✨")
+            } else {
+                (egui::Color32::from_rgb(56, 189, 248), "")
+            }
+        } else {
+            (egui::Color32::from_rgb(56, 189, 248), "")
+        };
+
+        self.cluster_badge_cache.insert(key, badge);
+        badge
+    }
+
+    /// Czyści cache odznak spotów klastra po zmianie stanu nagród (nowe/usunięte QSO).
+    pub fn invalidate_cluster_badges(&mut self) {
+        self.cluster_badge_cache.clear();
+    }
+
+    /// Zwraca prognozy otwarcia pasm dla panelu słonecznego z cache'em kluczowanym
+    /// po (SFI, K, godzina, minuta, dzień roku), aby nie przeliczać 11 pasm co klatkę.
+    pub fn solar_band_forecasts(&mut self) -> Vec<(&'static str, crate::core::propagation::PropagationForecast)> {
+        use chrono::{Datelike, Timelike};
+
+        let sfi = if self.space_weather.sfi > 0 { self.space_weather.sfi } else { 140 };
+        let k = self.space_weather.k_index;
+        let now = chrono::Utc::now();
+        let hour = now.hour();
+        let minute = now.minute();
+        let doy = now.ordinal();
+        let key = (sfi, k, hour, minute, doy);
+
+        if let Some((cached_key, cached)) = &self.solar_propagation_cache {
+            if *cached_key == key {
+                return cached.clone();
+            }
+        }
+
+        let sp = crate::core::geo::Coordinates::new(51.1, 17.0);
+        let dx = crate::core::geo::Coordinates::new(40.7, -74.0);
+        let utc_h = hour as f64 + (minute as f64) / 60.0;
+        let forecasts: Vec<(&'static str, crate::core::propagation::PropagationForecast)> = crate::core::propagation::HF_BANDS
+            .iter()
+            .map(|&(name, freq)| {
+                (
+                    name,
+                    crate::core::propagation::PropagationEngine::calculate(sp, dx, freq, sfi, k as u8, utc_h, doy),
+                )
+            })
+            .collect();
+
+        self.solar_propagation_cache = Some((key, forecasts.clone()));
+        forecasts
+    }
+
     pub fn rebuild_awards_full(&mut self) {
         if let Ok(db) = self.log_db.lock() {
             self.recent_qsos = db.get_recent_qsos_for_journal(&self.active_journal.id, 100).unwrap_or_default();
@@ -1368,6 +1456,8 @@ impl SpLogApp {
                 }
             }
         }
+        // Stan nagród się zmienił — odznaki spotów klastra są nieaktualne.
+        self.invalidate_cluster_badges();
     }
 
     pub fn delete_selected_qso(&mut self) {
@@ -2966,6 +3056,7 @@ impl eframe::App for SpLogApp {
                                 let mut awards = self.awards_engine.lock().unwrap_or_else(|p| p.into_inner());
                                 awards.register_qso_record(&qso);
                             }
+                            self.invalidate_cluster_badges();
                             {
                                 let mut scp = self.scp_engine.lock().unwrap_or_else(|p| p.into_inner());
                                 scp.insert(&qso.callsign);
@@ -3032,6 +3123,7 @@ impl eframe::App for SpLogApp {
                         let mut awards = self.awards_engine.lock().unwrap_or_else(|p| p.into_inner());
                         awards.register_qso_record(&qso);
                     }
+                    self.invalidate_cluster_badges();
                     {
                         let mut scp = self.scp_engine.lock().unwrap_or_else(|p| p.into_inner());
                         scp.insert(&qso.callsign);
@@ -3077,6 +3169,7 @@ impl eframe::App for SpLogApp {
                     let mut awards = self.awards_engine.lock().unwrap_or_else(|p| p.into_inner());
                     awards.register_qso_record(&qso);
                 }
+                self.invalidate_cluster_badges();
                 {
                     let mut scp = self.scp_engine.lock().unwrap_or_else(|p| p.into_inner());
                     scp.insert(&qso.callsign);

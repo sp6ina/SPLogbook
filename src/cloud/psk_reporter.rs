@@ -18,15 +18,26 @@ impl PskReporterClient {
             r#"<receptionReport reporter="{}" reporterLocator="{}" callsign="{}" frequency="{}" mode="{}" snr="{}" />"#,
             self.callsign, self.gridsquare, dx_call, freq_hz, mode, snr
         );
-        let client = reqwest::Client::new();
-        match client.post("https://www.pskreporter.info/cgi-bin/pskr/upload.pl")
-            .body(xml)
-            .send()
-            .await {
-                Ok(resp) if resp.status().is_success() => Ok(()),
-                Ok(resp) => Err(format!("Server returned: {}", resp.status())),
-                Err(e) => Err(e.to_string()),
-            }
+        let resp = crate::core::http::retry_async(
+            || {
+                let xml = xml.clone();
+                async move {
+                    crate::core::http::http_client()
+                        .post("https://www.pskreporter.info/cgi-bin/pskr/upload.pl")
+                        .body(xml)
+                        .send()
+                        .await
+                        .map_err(|e| e.to_string())
+                }
+            },
+            3,
+        )
+        .await?;
+        if resp.status().is_success() {
+            Ok(())
+        } else {
+            Err(format!("Server returned: {}", resp.status()))
+        }
     }
 
     pub async fn submit_reception_report(&self, qso: &QsoRecord) -> Result<(), String> {

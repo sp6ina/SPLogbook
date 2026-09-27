@@ -91,10 +91,7 @@ impl FldigiClient {
             method_name, params_xml
         );
 
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_millis(500))
-            .build()
-            .map_err(|e| e.to_string())?;
+        let client = crate::core::http::http_client_with_timeout_millis(500);
 
         let resp = client
             .post(&self.endpoint)

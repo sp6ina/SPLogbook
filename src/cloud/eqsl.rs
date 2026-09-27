@@ -3,7 +3,6 @@
 
 use reqwest::Client;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 use tokio::fs::{create_dir_all, File};
 use tokio::io::AsyncWriteExt;
 
@@ -19,11 +18,7 @@ pub type EqslClient = EqslCardDownloader;
 
 impl EqslCardDownloader {
     pub fn new(username: impl Into<String>, password: impl Into<String>) -> Self {
-        let client = Client::builder()
-            .timeout(Duration::from_secs(15))
-            .user_agent("SPLogbook/1.0.0 (SP6INA)")
-            .build()
-            .unwrap_or_default();
+        let client = crate::core::http::http_client_with_timeout(15);
 
         Self {
             client,
@@ -103,16 +98,31 @@ impl EqslCardDownloader {
 
     /// Przesyła łączności ADIF do serwisu eQSL.cc
     pub async fn upload_adif(&self, adif_content: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-        let resp = self
-            .client
-            .post("https://www.eqsl.cc/qslcard/ImportADIF.txt")
-            .form(&[
-                ("EQSL_USER", self.username.as_str()),
-                ("EQSL_PSWD", self.password.as_str()),
-                ("ADIFData", adif_content),
-            ])
-            .send()
-            .await?;
+        let client = self.client.clone();
+        let username = self.username.clone();
+        let password = self.password.clone();
+        let adif = adif_content.to_string();
+        let resp = crate::core::http::retry_async(
+            || {
+                let client = client.clone();
+                let username = username.clone();
+                let password = password.clone();
+                let adif = adif.clone();
+                async move {
+                    client
+                        .post("https://www.eqsl.cc/qslcard/ImportADIF.txt")
+                        .form(&[
+                            ("EQSL_USER", username.as_str()),
+                            ("EQSL_PSWD", password.as_str()),
+                            ("ADIFData", adif.as_str()),
+                        ])
+                        .send()
+                        .await
+                }
+            },
+            3,
+        )
+        .await?;
 
         let body = resp.text().await?;
         if body.contains("Result: 200") || body.contains("records were added") || body.contains("Success") || body.contains("imported") {

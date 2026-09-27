@@ -30,13 +30,24 @@ impl HamQthClient {
             ("adif", adif_text.as_str()),
         ];
 
-        let client = reqwest::Client::new();
-        let resp = client
-            .post(endpoint)
-            .form(&params)
-            .send()
-            .await
-            .map_err(|e| format!("Błąd wysyłania do HamQTH.com: {}", e))?;
+        let resp = crate::core::http::retry_async(
+            || {
+                let params = params
+                    .iter()
+                    .map(|(k, v)| (*k, *v))
+                    .collect::<Vec<(&str, &str)>>();
+                async move {
+                    crate::core::http::http_client()
+                        .post(endpoint)
+                        .form(&params)
+                        .send()
+                        .await
+                        .map_err(|e| format!("Błąd wysyłania do HamQTH.com: {}", e))
+                }
+            },
+            3,
+        )
+        .await?;
 
         let body = resp
             .text()
@@ -63,11 +74,7 @@ pub struct HamQthXmlClient {
 
 impl HamQthXmlClient {
     pub fn new(username: String, password: String) -> Self {
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(10))
-            .user_agent("SPLogbook/1.0.0 (SP6INA)")
-            .build()
-            .unwrap_or_default();
+        let client = crate::core::http::http_client_with_timeout(10);
 
         Self {
             client,

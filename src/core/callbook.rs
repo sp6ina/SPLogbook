@@ -158,11 +158,7 @@ pub async fn lookup_callook_info(callsign: &str) -> Result<CallbookData, String>
     let clean = callsign.trim().to_uppercase();
     let url = format!("https://callook.info/{}/json", clean);
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(6))
-        .user_agent("SPLogbook/1.0.0 (SP6INA)")
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = crate::core::http::http_client_with_timeout(6);
 
     let resp = client.get(&url).send().await.map_err(|e| e.to_string())?;
     let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;

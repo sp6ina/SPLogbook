@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
-use reqwest::Client;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::Duration;
 
 /// Potwierdzenie łączności odebrane z LoTW
 #[derive(Debug, Clone, PartialEq)]
@@ -103,21 +101,31 @@ pub async fn download_lotw_report(
     password: &str,
     since_date: Option<&str>,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let client = Client::builder()
-        .timeout(Duration::from_secs(30))
-        .user_agent("SPLogbook/1.0.0 (SP6INA)")
-        .build()?;
+    let client = crate::core::http::http_client_with_timeout(30);
 
     let mut query: Vec<(&str, &str)> = vec![("login", username), ("password", password)];
     if let Some(since) = since_date {
         query.push(("qso_qslsince", since));
     }
 
-    let resp = client
-        .get("https://lotw.arrl.org/lotwuser/lotwreport.adi")
-        .query(&query)
-        .send()
-        .await?;
+    let resp = crate::core::http::retry_async(
+        || {
+            let client = client.clone();
+            let query = query
+                .iter()
+                .map(|(k, v)| (*k, *v))
+                .collect::<Vec<(&str, &str)>>();
+            async move {
+                client
+                    .get("https://lotw.arrl.org/lotwuser/lotwreport.adi")
+                    .query(&query)
+                    .send()
+                    .await
+            }
+        },
+        3,
+    )
+    .await?;
     let text = resp.text().await?;
 
     if text.contains("ARRL Logbook of the World") || text.contains("<EOH>") || text.contains("<eoh>") {

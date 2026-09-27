@@ -602,4 +602,52 @@ mod tests {
         assert_eq!(d1.district, 1);
         assert!(d1.voivodeships.iter().any(|v| v == "Zachodniopomorskie"));
     }
+
+    #[test]
+    fn test_atno_and_dupe_detection() {
+        let mut engine = AwardsEngine::new();
+
+        // Nowy kraj DXCC -> ATNO (All Time New One)
+        let atno = engine.check_status("K1ABC", "20m", "SSB", Some(291), None);
+        assert!(atno.is_new_dxcc);
+        assert!(!atno.is_worked_b4);
+
+        engine.register_qso("K1ABC", "20m", "SSB", Some(291), None);
+
+        // Ten sam znak + pasmo + emisja -> dupe
+        let dupe = engine.check_status("K1ABC", "20m", "SSB", Some(291), None);
+        assert!(dupe.is_worked_b4);
+        assert!(!dupe.is_new_dxcc);
+        assert!(!dupe.is_new_band);
+        assert!(!dupe.is_new_mode);
+
+        // Ten sam kraj i pasmo, ale inna emisja -> nie dupe, nowa emisja
+        let new_mode = engine.check_status("K1ABC", "20m", "FT8", Some(291), None);
+        assert!(!new_mode.is_worked_b4);
+        assert!(!new_mode.is_new_dxcc);
+        assert!(new_mode.is_new_mode);
+    }
+
+    #[test]
+    fn test_invalid_waz_zone_ignored() {
+        let engine = AwardsEngine::new();
+        assert!(!engine.check_status_full("X", "20m", "SSB", None, None, Some(0), None, None, None).is_new_waz);
+        assert!(!engine.check_status_full("X", "20m", "SSB", None, None, Some(41), None, None, None).is_new_waz);
+        assert!(engine.check_status_full("X", "20m", "SSB", None, None, Some(15), None, None, None).is_new_waz);
+    }
+
+    #[test]
+    fn test_invalid_state_and_continent_ignored() {
+        let engine = AwardsEngine::new();
+        assert!(!engine.check_status_full("X", "20m", "SSB", None, None, None, Some("ZZ"), None, None).is_new_was);
+        assert!(engine.check_status_full("X", "20m", "SSB", None, None, None, Some("CA"), None, None).is_new_was);
+        assert!(!engine.check_status_full("X", "20m", "SSB", None, None, None, None, Some("XX"), None).is_new_wac);
+        assert!(engine.check_status_full("X", "20m", "SSB", None, None, None, None, Some("EU"), None).is_new_wac);
+    }
+
+    #[test]
+    fn test_empty_callsign_wpx_prefix() {
+        assert_eq!(extract_wpx_prefix(""), "");
+        assert_eq!(extract_wpx_prefix("   "), "");
+    }
 }

@@ -22,3 +22,4 @@ pub mod callbook;
 pub mod contest_rules;
 pub mod propagation;
 pub mod clubs;
+pub mod http;

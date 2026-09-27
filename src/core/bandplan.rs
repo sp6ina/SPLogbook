@@ -216,5 +216,40 @@ mod tests {
 
         assert!(get_band_by_freq(100_000).is_none());
     }
+
+    #[test]
+    fn test_band_boundaries_are_inclusive() {
+        // Dolna i górna granica pasma 20m muszą być włączone
+        assert_eq!(get_band_by_freq(14_000_000).unwrap().name, "20m");
+        assert_eq!(get_band_by_freq(14_350_000).unwrap().name, "20m");
+
+        // Tuż poniżej / powyżej granic pasm — luka między pasmami (brak pasma)
+        assert!(get_band_by_freq(14_350_001).is_none());
+        assert!(get_band_by_freq(1_809_999).is_none());
+    }
+
+    #[test]
+    fn test_band_gaps_return_other_band() {
+        // 2.0..3.5 MHz to luka (brak pasma) -> None
+        assert!(get_band_by_freq(2_500_000).is_none());
+        // 14.35..18.068 MHz luka
+        assert!(get_band_by_freq(16_000_000).is_none());
+        // Pasmo 60m jest wąskie (5.3515..5.3665)
+        assert_eq!(get_band_by_freq(5_357_000).unwrap().name, "60m");
+        assert!(get_band_by_freq(5_400_000).is_none());
+    }
+
+    #[test]
+    fn test_band_name_lookup_is_case_insensitive() {
+        assert!(get_band_by_name("20M").is_some());
+        assert!(get_band_by_name("2m").is_some());
+        assert!(get_band_by_name("").is_none());
+        assert!(get_band_by_name("unknown").is_none());
+    }
+
+    #[test]
+    fn test_zero_freq_is_out_of_band() {
+        assert!(get_band_by_freq(0).is_none());
+    }
 }
 

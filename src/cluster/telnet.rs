@@ -3,6 +3,7 @@
 
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use std::sync::OnceLock;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::sync::broadcast;
@@ -75,9 +76,6 @@ impl DxClusterClient {
         mut stop_rx: tokio::sync::watch::Receiver<bool>,
     ) {
         let addr = format!("{}:{}", host, port);
-        let spot_regex = Regex::new(
-            r"^DX de\s+([A-Z0-9/\-#]+):\s+([0-9.]+)\s+([A-Z0-9/]+)\s+(.*?)\s+([0-9]{4})Z?"
-        ).unwrap();
 
         while !*stop_rx.borrow() {
             let connect_result = tokio::select! {
@@ -143,31 +141,7 @@ impl DxClusterClient {
                                 break;
                             }
                         }
-                        if let Some(caps) = spot_regex.captures(trimmed) {
-                            let spotter = caps.get(1).map_or("", |m| m.as_str()).to_string();
-                            let freq_str = caps.get(2).map_or("", |m| m.as_str());
-                            let dx_call = caps.get(3).map_or("", |m| m.as_str()).to_string();
-                            let comment = caps.get(4).map_or("", |m| m.as_str()).trim().to_string();
-                            let time_utc = caps.get(5).map_or("", |m| m.as_str()).to_string();
-
-                            let freq_khz: f64 = freq_str.parse().unwrap_or(0.0);
-                            let band = Self::freq_khz_to_band(freq_khz);
-
-                            let comment_upper = comment.to_uppercase();
-                            let is_ft8 = comment_upper.contains("FT8") || comment_upper.contains("FT4") || comment_upper.contains("JS8");
-                            let is_skimmer = spotter.contains("-#") || comment_upper.contains("BPS") || comment_upper.contains("WPM") || comment_upper.contains("DB");
-
-                            let spot = DxSpot {
-                                spotter,
-                                frequency_khz: freq_khz,
-                                dx_call,
-                                comment,
-                                time_utc,
-                                band,
-                                is_ft8,
-                                is_skimmer,
-                            };
-
+                        if let Some(spot) = parse_dx_spot(trimmed) {
                             if event_tx.send(ClusterEvent::Spot(spot)).is_err() {
                                 break;
                             }
@@ -197,9 +171,6 @@ impl DxClusterClient {
     /// Łączy się z klastrem DX i transmituje odebrane spoty przez kanał broadcast
     pub async fn run(&self) {
         let addr = format!("{}:{}", self.host, self.port);
-        let spot_regex = Regex::new(
-            r"^DX de\s+([A-Z0-9/\-#]+):\s+([0-9.]+)\s+([A-Z0-9/]+)\s+(.*?)\s+([0-9]{4})Z?"
-        ).unwrap();
 
         loop {
             if let Ok(stream) = TcpStream::connect(&addr).await {
@@ -219,31 +190,7 @@ impl DxClusterClient {
                         continue;
                     }
                     let trimmed = line.trim();
-                    if let Some(caps) = spot_regex.captures(trimmed) {
-                        let spotter = caps.get(1).map_or("", |m| m.as_str()).to_string();
-                        let freq_str = caps.get(2).map_or("", |m| m.as_str());
-                        let dx_call = caps.get(3).map_or("", |m| m.as_str()).to_string();
-                        let comment = caps.get(4).map_or("", |m| m.as_str()).trim().to_string();
-                        let time_utc = caps.get(5).map_or("", |m| m.as_str()).to_string();
-
-                        let freq_khz: f64 = freq_str.parse().unwrap_or(0.0);
-                        let band = Self::freq_khz_to_band(freq_khz);
-
-                        let comment_upper = comment.to_uppercase();
-                        let is_ft8 = comment_upper.contains("FT8") || comment_upper.contains("FT4") || comment_upper.contains("JS8");
-                        let is_skimmer = spotter.contains("-#") || comment_upper.contains("BPS") || comment_upper.contains("WPM") || comment_upper.contains("DB");
-
-                        let spot = DxSpot {
-                            spotter,
-                            frequency_khz: freq_khz,
-                            dx_call,
-                            comment,
-                            time_utc,
-                            band,
-                            is_ft8,
-                            is_skimmer,
-                        };
-
+                    if let Some(spot) = parse_dx_spot(trimmed) {
                         let _ = self.spot_sender.send(spot);
                     }
                     line.clear();
@@ -252,41 +199,124 @@ impl DxClusterClient {
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;
         }
     }
+}
 
-    fn freq_khz_to_band(khz: f64) -> String {
-        let mhz = khz / 1000.0;
-        if (1.8..=2.0).contains(&mhz) {
-            "160m".to_string()
-        } else if (3.5..=3.8).contains(&mhz) {
-            "80m".to_string()
-        } else if (5.25..=5.45).contains(&mhz) {
-            "60m".to_string()
-        } else if (7.0..=7.3).contains(&mhz) {
-            "40m".to_string()
-        } else if (10.1..=10.15).contains(&mhz) {
-            "30m".to_string()
-        } else if (14.0..=14.35).contains(&mhz) {
-            "20m".to_string()
-        } else if (18.068..=18.168).contains(&mhz) {
-            "17m".to_string()
-        } else if (21.0..=21.45).contains(&mhz) {
-            "15m".to_string()
-        } else if (24.89..=24.99).contains(&mhz) {
-            "12m".to_string()
-        } else if (28.0..=29.7).contains(&mhz) {
-            "10m".to_string()
-        } else if (50.0..=54.0).contains(&mhz) {
-            "6m".to_string()
-        } else if (69.9..=70.5).contains(&mhz) {
-            "4m".to_string()
-        } else if (144.0..=148.0).contains(&mhz) {
-            "2m".to_string()
-        } else if (430.0..=440.0).contains(&mhz) {
-            "70cm".to_string()
-        } else if (1240.0..=1300.0).contains(&mhz) {
-            "23cm".to_string()
-        } else {
-            "OTHER".to_string()
-        }
+/// Zwraca skompilowane wyrażenie regularne dla linii spotów DX (raz, współdzielone).
+fn spot_regex() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"^DX de\s+([A-Z0-9/\-#]+):\s+([0-9.]+)\s+([A-Z0-9/]+)\s+(.*?)\s+([0-9]{4})Z?")
+            .expect("spot regex musi być poprawny")
+    })
+}
+
+/// Parsuje pojedynczą linię spotu DX Cluster na `DxSpot`. Zwraca `None` dla linii,
+/// które nie są spotami (powitania, informacje serwera, pusta linia itd.).
+pub fn parse_dx_spot(line: &str) -> Option<DxSpot> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let caps = spot_regex().captures(trimmed)?;
+
+    let spotter = caps.get(1)?.as_str().to_string();
+    let freq_str = caps.get(2)?.as_str();
+    let dx_call = caps.get(3)?.as_str().to_string();
+    let comment = caps.get(4)?.as_str().trim().to_string();
+    let time_utc = caps.get(5)?.as_str().to_string();
+
+    let frequency_khz: f64 = freq_str.parse().unwrap_or(0.0);
+    let band = band_for_freq_khz(frequency_khz);
+
+    let comment_upper = comment.to_uppercase();
+    let is_ft8 = comment_upper.contains("FT8") || comment_upper.contains("FT4") || comment_upper.contains("JS8");
+    let is_skimmer = spotter.contains("-#") || comment_upper.contains("BPS") || comment_upper.contains("WPM") || comment_upper.contains("DB");
+
+    Some(DxSpot {
+        spotter,
+        frequency_khz,
+        dx_call,
+        comment,
+        time_utc,
+        band,
+        is_ft8,
+        is_skimmer,
+    })
+}
+
+/// Mapuje częstotliwość (w kHz) na nazwę pasma amatorskiego.
+pub fn band_for_freq_khz(khz: f64) -> String {
+    let mhz = khz / 1000.0;
+    if (1.8..=2.0).contains(&mhz) {
+        "160m".to_string()
+    } else if (3.5..=3.8).contains(&mhz) {
+        "80m".to_string()
+    } else if (5.25..=5.45).contains(&mhz) {
+        "60m".to_string()
+    } else if (7.0..=7.3).contains(&mhz) {
+        "40m".to_string()
+    } else if (10.1..=10.15).contains(&mhz) {
+        "30m".to_string()
+    } else if (14.0..=14.35).contains(&mhz) {
+        "20m".to_string()
+    } else if (18.068..=18.168).contains(&mhz) {
+        "17m".to_string()
+    } else if (21.0..=21.45).contains(&mhz) {
+        "15m".to_string()
+    } else if (24.89..=24.99).contains(&mhz) {
+        "12m".to_string()
+    } else if (28.0..=29.7).contains(&mhz) {
+        "10m".to_string()
+    } else if (50.0..=54.0).contains(&mhz) {
+        "6m".to_string()
+    } else if (69.9..=70.5).contains(&mhz) {
+        "4m".to_string()
+    } else if (144.0..=148.0).contains(&mhz) {
+        "2m".to_string()
+    } else if (430.0..=440.0).contains(&mhz) {
+        "70cm".to_string()
+    } else if (1240.0..=1300.0).contains(&mhz) {
+        "23cm".to_string()
+    } else {
+        "OTHER".to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_dx_spot_standard() {
+        let spot = parse_dx_spot("DX de SP7PKA: 14074.0  K1ABC     FT8 -12 dB  1415Z").unwrap();
+        assert_eq!(spot.dx_call, "K1ABC");
+        assert_eq!(spot.frequency_khz, 14074.0);
+        assert_eq!(spot.band, "20m");
+        assert!(spot.is_ft8);
+        assert!(!spot.is_skimmer);
+    }
+
+    #[test]
+    fn test_parse_dx_spot_skimmer() {
+        let spot = parse_dx_spot("DX de SK1MMR-#: 21074.0  DL1ABC     CW 25 dB  0800Z").unwrap();
+        assert!(spot.is_skimmer);
+        assert_eq!(spot.band, "15m");
+    }
+
+    #[test]
+    fn test_parse_dx_spot_ignores_non_spot() {
+        assert!(parse_dx_spot("Please enter your callsign: ").is_none());
+        assert!(parse_dx_spot("").is_none());
+        assert!(parse_dx_spot("Hello from DX cluster").is_none());
+    }
+
+    #[test]
+    fn test_band_for_freq_khz_boundaries() {
+        assert_eq!(band_for_freq_khz(1800.0), "160m");
+        assert_eq!(band_for_freq_khz(2000.0), "160m");
+        assert_eq!(band_for_freq_khz(2001.0), "OTHER");
+        assert_eq!(band_for_freq_khz(14000.0), "20m");
+        assert_eq!(band_for_freq_khz(14350.0), "20m");
+        assert_eq!(band_for_freq_khz(0.0), "OTHER");
     }
 }

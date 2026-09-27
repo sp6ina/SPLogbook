@@ -37,14 +37,23 @@ impl CloudlogClient {
             "string": adif_record
         });
 
-        let client = reqwest::Client::new();
-        let resp = client
-            .post(&endpoint)
-            .header("Content-Type", "application/json")
-            .json(&payload)
-            .send()
-            .await
-            .map_err(|e| format!("Błąd połączenia z Cloudlog {}: {}", endpoint, e))?;
+        let resp = crate::core::http::retry_async(
+            || {
+                let endpoint = endpoint.clone();
+                let payload = payload.clone();
+                async move {
+                    crate::core::http::http_client()
+                        .post(&endpoint)
+                        .header("Content-Type", "application/json")
+                        .json(&payload)
+                        .send()
+                        .await
+                        .map_err(|e| format!("Błąd połączenia z Cloudlog {}: {}", endpoint, e))
+                }
+            },
+            3,
+        )
+        .await?;
 
         let status = resp.status();
         let body = resp

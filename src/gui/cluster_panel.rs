@@ -491,29 +491,7 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                         for spot in filtered_spots {
                             let (pota_ref, sota_ref) = extract_pota_sota(&spot.comment);
 
-                            let (call_color, badge) = if let Some(info) = app.prefix_matcher.lookup(&spot.dx_call) {
-                                let awards = app.awards_engine.lock().unwrap_or_else(|p| p.into_inner());
-                                let st = awards.check_status_full(
-                                    &spot.dx_call,
-                                    &spot.band,
-                                    if spot.is_ft8 { "FT8" } else { "CW" },
-                                    Some(info.dxcc),
-                                    None,
-                                    Some(info.cqz),
-                                    None,
-                                    Some(&info.continent),
-                                    None,
-                                );
-                                if st.is_new_dxcc {
-                                    (egui::Color32::from_rgb(217, 70, 239), " ⭐")
-                                } else if st.is_new_band {
-                                    (egui::Color32::from_rgb(34, 197, 94), " ✨")
-                                } else {
-                                    (egui::Color32::from_rgb(56, 189, 248), "")
-                                }
-                            } else {
-                                (egui::Color32::from_rgb(56, 189, 248), "")
-                            };
+                            let (call_color, badge) = app.cluster_spot_badge(&spot.dx_call, &spot.band, spot.is_ft8);
 
                             if ui.button(egui::RichText::new(format!("{}{}", spot.dx_call, badge)).strong().color(call_color))
                                 .on_hover_text(tr("cluster.tune_tooltip", lang))

@@ -3,7 +3,6 @@
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
 
 /// Dane korespondenta pobrane z internetowej bazy danych (QRZ.COM / HamQTH)
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
@@ -30,11 +29,7 @@ pub struct QrzClient {
 
 impl QrzClient {
     pub fn new(username: impl Into<String>, password: impl Into<String>) -> Self {
-        let client = Client::builder()
-            .timeout(Duration::from_secs(10))
-            .user_agent("SPLogbook/1.0.0 (SP6INA)")
-            .build()
-            .unwrap_or_default();
+        let client = crate::core::http::http_client_with_timeout(10);
 
         Self {
             client,
@@ -156,20 +151,28 @@ impl QrzClient {
 
     /// Przesyła rekordy ADIF do QRZ.com Logbook API za pomocą klucza API
     pub async fn upload_to_logbook(api_key: &str, adif_content: &str) -> Result<String, Box<dyn std::error::Error>> {
-        let client = Client::builder()
-            .timeout(Duration::from_secs(30))
-            .user_agent("SPLogbook/1.0.0 (SP6INA)")
-            .build()?;
+        let client = crate::core::http::http_client_with_timeout(30);
 
-        let resp = client
-            .post("https://logbook.qrz.com/api")
-            .form(&[
-                ("KEY", api_key),
-                ("ACTION", "INSERT"),
-                ("ADIF", adif_content),
-            ])
-            .send()
-            .await?;
+        let resp = crate::core::http::retry_async(
+            || {
+                let client = client.clone();
+                let api_key = api_key.to_string();
+                let adif_content = adif_content.to_string();
+                async move {
+                    client
+                        .post("https://logbook.qrz.com/api")
+                        .form(&[
+                            ("KEY", api_key.as_str()),
+                            ("ACTION", "INSERT"),
+                            ("ADIF", adif_content.as_str()),
+                        ])
+                        .send()
+                        .await
+                }
+            },
+            3,
+        )
+        .await?;
 
         let body = resp.text().await?;
         if body.contains("RESULT=OK") || body.contains("STATUS=OK") || body.contains("COUNT=") {

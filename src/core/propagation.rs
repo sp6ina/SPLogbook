@@ -100,12 +100,17 @@ impl PropagationEngine {
     ) -> Result<PropagationForecast, &'static str> {
         let origin = locator_to_coordinates(origin_grid)?;
         let dest = locator_to_coordinates(dest_grid)?;
-        let freq_mhz = band_to_center_mhz(band).unwrap_or(14.175);
+        let freq_mhz = band_to_center_mhz(band)
+            .ok_or("Nieznane pasmo. Obsługiwane: 160m, 80m, 60m, 40m, 30m, 20m, 17m, 15m, 12m, 10m, 6m.")?;
 
         Ok(Self::calculate(origin, dest, freq_mhz, sfi, k_index, utc_hour, day_of_year))
     }
 
-    /// Oblicza prognozę na podstawie bezpośrednich współrzędnych i częstotliwości
+    /// Oblicza prognozę na podstawie bezpośrednich współrzędnych i częstotliwości.
+    ///
+    /// Nieprawidłowe wejścia (NaN, ujemna/zerowa częstotliwość, godzina spoza
+    /// zakresu) dają prognozę o statusie [`BandOpeningStatus::Closed`] z zerową
+    /// niezawodnością, zamiast propagować NaN dalej.
     pub fn calculate(
         origin: Coordinates,
         dest: Coordinates,
@@ -115,6 +120,29 @@ impl PropagationEngine {
         utc_hour: f64,
         day_of_year: u32,
     ) -> PropagationForecast {
+        if !freq_mhz.is_finite()
+            || freq_mhz <= 0.0
+            || !origin.latitude.is_finite()
+            || !origin.longitude.is_finite()
+            || !dest.latitude.is_finite()
+            || !dest.longitude.is_finite()
+            || !utc_hour.is_finite()
+            || utc_hour < 0.0
+            || utc_hour > 24.0
+        {
+            return PropagationForecast {
+                reliability_pct: 0,
+                signal_s_units: "< S1".to_string(),
+                layer: "Brak danych (nieprawidłowe wejście)".to_string(),
+                muf_mhz: 0.0,
+                luf_mhz: 0.0,
+                fot_mhz: 0.0,
+                distance_km: 0.0,
+                bearing_deg: 0.0,
+                status: BandOpeningStatus::Closed,
+            };
+        }
+
         let distance_km = calculate_distance_km(origin, dest);
         let bearing_deg = calculate_bearing_deg(origin, dest);
 
@@ -318,5 +346,36 @@ mod tests {
         assert_eq!(BandOpeningStatus::Open.as_str(), "Otwarte");
         assert_eq!(BandOpeningStatus::Marginal.as_str(), "Trudne");
         assert_eq!(BandOpeningStatus::Closed.as_str(), "Zamknięte");
+    }
+
+    #[test]
+    fn test_band_to_center_mhz_case_insensitive() {
+        assert_eq!(band_to_center_mhz("20m"), Some(14.175));
+        assert_eq!(band_to_center_mhz("20M"), Some(14.175));
+        assert_eq!(band_to_center_mhz(" 40m "), Some(7.10));
+        assert_eq!(band_to_center_mhz("2m"), None);
+        assert_eq!(band_to_center_mhz(""), None);
+    }
+
+    #[test]
+    fn test_forecast_rejects_unknown_band() {
+        assert!(PropagationEngine::forecast("JO81WA", "FN30", "2m", 150, 2, 14.0, 100).is_err());
+        assert!(PropagationEngine::forecast("JO81WA", "FN30", "", 150, 2, 14.0, 100).is_err());
+        assert!(PropagationEngine::forecast("JO81WA", "FN30", "20m", 150, 2, 14.0, 100).is_ok());
+    }
+
+    #[test]
+    fn test_calculate_guards_invalid_inputs() {
+        let a = Coordinates::new(51.1079, 17.0385);
+        let b = Coordinates::new(40.7128, -74.0060);
+
+        for bad_freq in [f64::NAN, 0.0, -14.175, f64::INFINITY] {
+            let f = PropagationEngine::calculate(a, b, bad_freq, 150, 2, 14.0, 100);
+            assert_eq!(f.status, BandOpeningStatus::Closed);
+            assert_eq!(f.reliability_pct, 0);
+        }
+
+        let bad_hour = PropagationEngine::calculate(a, b, 14.175, 150, 2, 30.0, 100);
+        assert_eq!(bad_hour.status, BandOpeningStatus::Closed);
     }
 }

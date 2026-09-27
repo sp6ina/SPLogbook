@@ -6,6 +6,7 @@ use rusqlite::{Connection, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::Mutex;
 
 /// Informacje o kraju, strefach i prefiksie dla danego znaku wywoławczego
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -33,6 +34,9 @@ pub struct PrefixMatcher {
     unique_calls: HashMap<String, PrefixInfo>,
     province_rules: Vec<CompiledRule>,
     country_rules: Vec<CompiledRule>,
+    /// Cache wyników `lookup()` — eliminuje wielokrotne skanowanie setek regexów
+    /// przy renderowaniu spotów klastra i mapy świata w każdej klatce.
+    cache: Mutex<HashMap<String, Option<PrefixInfo>>>,
 }
 
 fn parse_coord(s: &str) -> f64 {
@@ -249,6 +253,7 @@ impl PrefixMatcher {
             unique_calls,
             province_rules,
             country_rules,
+            cache: Mutex::new(HashMap::new()),
         })
     }
 
@@ -258,6 +263,7 @@ impl PrefixMatcher {
             unique_calls: HashMap::new(),
             province_rules: Vec::new(),
             country_rules: Vec::new(),
+            cache: Mutex::new(HashMap::new()),
         }
     }
 
@@ -302,28 +308,60 @@ impl PrefixMatcher {
         }
     }
 
-    /// Wyszukuje kraj DXCC, strefy CQ/ITU i dane dla podanego znaku
+    /// Wyszukuje kraj DXCC, strefy CQ/ITU i dane dla podanego znaku.
+    ///
+    /// Wyniki są zapamiętywane w cache (klucz = znak po normalizacji wielkości
+    /// liter), dzięki czemu powtarzane wywołania dla tych samych znaków (np. przy
+    /// renderowaniu spotów klastra co klatkę) nie skanują ponownie setek regexów.
     pub fn lookup(&self, callsign: &str) -> Option<PrefixInfo> {
         let clean = callsign.trim().to_uppercase();
         if clean.is_empty() {
             return None;
         }
 
+        if let Some(cached) = self
+            .cache
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(&clean)
+        {
+            return cached.clone();
+        }
+
+        let result = self.lookup_uncached(&clean);
+
+        self.cache
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(clean, result.clone());
+
+        result
+    }
+
+    /// Czyści cache wyników wyszukiwania (wywołaj po przeładowaniu reguł prefiksów).
+    pub fn clear_cache(&self) {
+        self.cache
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clear();
+    }
+
+    fn lookup_uncached(&self, clean: &str) -> Option<PrefixInfo> {
         // 1. Sprawdź UniqueCalls (dokładne dopasowanie)
-        if let Some(info) = self.unique_calls.get(&clean) {
+        if let Some(info) = self.unique_calls.get(clean) {
             let mut res = info.clone();
-            res.callsign = clean;
+            res.callsign = clean.to_string();
             return Some(res);
         }
 
         // Znormalizuj znak do rozpoznania prefiksu (np. SP6INA/P -> SP6INA, OE3/SP6INA -> OE3, DL/SP6INA/M -> DL)
-        let lookup_call = Self::normalize_call_for_prefix(&clean);
+        let lookup_call = Self::normalize_call_for_prefix(clean);
 
         // 2. Sprawdź Province (specyficzne regiony)
         for rule in &self.province_rules {
             if rule.regex.is_match(lookup_call) {
                 let mut res = rule.info.clone();
-                res.callsign = clean.clone();
+                res.callsign = clean.to_string();
                 res.wpx_prefix = extract_wpx_prefix(lookup_call);
                 return Some(res);
             }
@@ -333,7 +371,7 @@ impl PrefixMatcher {
         for rule in &self.country_rules {
             if rule.regex.is_match(lookup_call) {
                 let mut res = rule.info.clone();
-                res.callsign = clean.clone();
+                res.callsign = clean.to_string();
                 res.wpx_prefix = extract_wpx_prefix(lookup_call);
                 return Some(res);
             }
@@ -366,5 +404,19 @@ mod tests {
         assert_eq!(PrefixMatcher::normalize_call_for_prefix("DL/SP6INA"), "DL");
         assert_eq!(PrefixMatcher::normalize_call_for_prefix("OE3/SP6INA"), "OE3");
         assert_eq!(PrefixMatcher::normalize_call_for_prefix("3D2/SP6INA/P"), "3D2");
+    }
+
+    #[test]
+    fn test_lookup_caches_and_clear_cache() {
+        let matcher = PrefixMatcher::empty();
+
+        // Brak reguł -> None, ale wynik trafia do cache.
+        assert_eq!(matcher.lookup("SP6INA"), None);
+        assert_eq!(matcher.lookup("sp6ina"), None); // ścieżka cache (normalizacja wielkości liter)
+        assert_eq!(matcher.lookup(""), None);
+
+        // clear_cache() musi być bezpieczne i nie zmieniać poprawności wyników.
+        matcher.clear_cache();
+        assert_eq!(matcher.lookup("SP6INA"), None);
     }
 }

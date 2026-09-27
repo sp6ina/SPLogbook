@@ -3,7 +3,6 @@
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
 
 /// Wskaźniki aktywności słonecznej i geomagnetycznej (NOAA SWPC / HamQTH)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -80,11 +79,7 @@ impl Default for SpaceWeatherClient {
 
 impl SpaceWeatherClient {
     pub fn new() -> Self {
-        let client = Client::builder()
-            .timeout(Duration::from_secs(8))
-            .user_agent("SPLogbook/1.0.0 (SP6INA)")
-            .build()
-            .unwrap_or_default();
+        let client = crate::core::http::http_client_with_timeout(8);
         Self { client }
     }
 

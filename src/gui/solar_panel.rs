@@ -185,18 +185,9 @@ pub fn render_solar_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ui.add_space(6.0);
             ui.separator();
             ui.label(egui::RichText::new("📊 Przewidywane otwarcie pasm DX (VOACAP-lite):").small().color(egui::Color32::from_rgb(148, 163, 184)));
+            let forecasts = app.solar_band_forecasts();
             ui.horizontal_wrapped(|ui| {
-                let sfi = if weather.sfi > 0 { weather.sfi } else { 140 };
-                let k = weather.k_index;
-                let now = chrono::Utc::now();
-                use chrono::{Datelike, Timelike};
-                let utc_h = now.hour() as f64 + (now.minute() as f64) / 60.0;
-                let doy = now.ordinal();
-                let sp = crate::core::geo::Coordinates::new(51.1, 17.0);
-                let dx = crate::core::geo::Coordinates::new(40.7, -74.0);
-
-                for &(b_name, freq) in crate::core::propagation::HF_BANDS {
-                    let forecast = crate::core::propagation::PropagationEngine::calculate(sp, dx, freq, sfi, k as u8, utc_h, doy);
+                for (b_name, forecast) in &forecasts {
                     let (st_color, sym) = match forecast.status {
                         crate::core::propagation::BandOpeningStatus::Open => (egui::Color32::from_rgb(34, 197, 94), "●"),
                         crate::core::propagation::BandOpeningStatus::Marginal => (egui::Color32::from_rgb(250, 204, 21), "◐"),

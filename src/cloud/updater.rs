@@ -34,10 +34,7 @@ impl DatabaseUpdater {
     }
 
     async fn download_file(url: &str, dest_path: &Path) -> Result<usize, String> {
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
-            .build()
-            .map_err(|e| e.to_string())?;
+        let client = crate::core::http::http_client_with_timeout(30);
 
         let resp = client
             .get(url)

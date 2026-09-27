@@ -30,13 +30,24 @@ impl HrdlogClient {
             ("ADIFData", adif_text.as_str()),
         ];
 
-        let client = reqwest::Client::new();
-        let resp = client
-            .post(endpoint)
-            .form(&params)
-            .send()
-            .await
-            .map_err(|e| format!("Błąd wysyłania do HRDLog.net: {}", e))?;
+        let resp = crate::core::http::retry_async(
+            || {
+                let params = params
+                    .iter()
+                    .map(|(k, v)| (*k, *v))
+                    .collect::<Vec<(&str, &str)>>();
+                async move {
+                    crate::core::http::http_client()
+                        .post(endpoint)
+                        .form(&params)
+                        .send()
+                        .await
+                        .map_err(|e| format!("Błąd wysyłania do HRDLog.net: {}", e))
+                }
+            },
+            3,
+        )
+        .await?;
 
         let text = resp
             .text()
