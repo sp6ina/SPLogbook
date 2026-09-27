@@ -207,4 +207,37 @@ impl HamlibClient {
         stream.write_all(cmd.as_bytes()).await?;
         Ok(())
     }
+
+    /// Wybiera aktywny VFO (np. "VFOA", "VFOB", "Main", "Sub")
+    pub async fn set_vfo(host: &str, port: u16, vfo: &str) -> Result<(), std::io::Error> {
+        let mut stream = TcpStream::connect(format!("{}:{}", host, port)).await?;
+        let cmd = format!("V {}\n", vfo);
+        stream.write_all(cmd.as_bytes()).await?;
+        Ok(())
+    }
+
+    /// Ustawia przesunięcie RIT w Hz (może być ujemne)
+    pub async fn set_rit(host: &str, port: u16, rit_hz: i32) -> Result<(), std::io::Error> {
+        let mut stream = TcpStream::connect(format!("{}:{}", host, port)).await?;
+        let cmd = format!("J {}\n", rit_hz);
+        stream.write_all(cmd.as_bytes()).await?;
+        Ok(())
+    }
+
+    /// Ustawia przesunięcie XIT w Hz (może być ujemne)
+    pub async fn set_xit(host: &str, port: u16, xit_hz: i32) -> Result<(), std::io::Error> {
+        let mut stream = TcpStream::connect(format!("{}:{}", host, port)).await?;
+        let cmd = format!("Z {}\n", xit_hz);
+        stream.write_all(cmd.as_bytes()).await?;
+        Ok(())
+    }
+
+    /// Ustawia moc wyjściową (0–100 W), wysyłając znormalizowaną wartość 0.0–1.0
+    pub async fn set_power(host: &str, port: u16, watts: f32) -> Result<(), std::io::Error> {
+        let mut stream = TcpStream::connect(format!("{}:{}", host, port)).await?;
+        let norm = (watts / 100.0).clamp(0.0, 1.0);
+        let cmd = format!("L RFPOWER {:.4}\n", norm);
+        stream.write_all(cmd.as_bytes()).await?;
+        Ok(())
+    }
 }

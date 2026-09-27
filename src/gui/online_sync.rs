@@ -17,6 +17,7 @@ pub enum SyncTab {
     PskReporter,
     N1mm,
     Databases,
+    Queue,
     Logs,
 }
 
@@ -60,6 +61,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     ui.selectable_value(&mut active_tab, SyncTab::PskReporter, "📡 PSK Reporter");
                     ui.selectable_value(&mut active_tab, SyncTab::N1mm, "📻 N1MM Broadcast");
                     ui.selectable_value(&mut active_tab, SyncTab::Databases, "🔄 Bazy");
+                    ui.selectable_value(&mut active_tab, SyncTab::Queue, "⏳ Kolejka wysyłki");
                     ui.selectable_value(&mut active_tab, SyncTab::Logs, format!("📋 Logi ({})", app.online_sync_logs.len()));
                 });
                 ui.separator();
@@ -459,6 +461,70 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                         let url = format!("https://pskreporter.info/pskmap.html?callsign={}", app.my_station.callsign);
                                         let _ = open::that(url);
                                     }
+                                });
+                            }
+                            SyncTab::Queue => {
+                                ui.group(|ui| {
+                                    ui.label(egui::RichText::new("⏳ Kolejka wysyłki do serwisów online").strong().size(13.0).color(egui::Color32::from_rgb(56, 189, 248)));
+                                    ui.separator();
+                                    ui.label(egui::RichText::new(
+                                        "Zadania (Club Log, QRZ.com, eQSL.cc) są kolejkowane lokalnie i wysyłane w tle z ponawianiem oraz limitem tempa. Kolejka przetrwa zamknięcie programu."
+                                    ).small().color(egui::Color32::GRAY));
+                                    ui.add_space(6.0);
+
+                                    let status = app.upload_scheduler.lock().map(|s| s.status_all()).unwrap_or_default();
+                                    egui::Grid::new("upload_queue_grid")
+                                        .num_columns(6)
+                                        .striped(true)
+                                        .spacing([12.0, 4.0])
+                                        .show(ui, |ui| {
+                                            ui.label(egui::RichText::new("Serwis").strong());
+                                            ui.label(egui::RichText::new("Oczekuje").strong());
+                                            ui.label(egui::RichText::new("Wysyłane").strong());
+                                            ui.label(egui::RichText::new("Wysłane").strong());
+                                            ui.label(egui::RichText::new("Błędy").strong());
+                                            ui.label(egui::RichText::new("Ostatni błąd").strong());
+                                            ui.end_row();
+
+                                            for svc in crate::cloud::scheduler::UploadService::all() {
+                                                let st = status.get(&svc).cloned().unwrap_or_default();
+                                                ui.label(svc.label());
+                                                ui.label(st.pending.to_string());
+                                                ui.label(st.in_flight.to_string());
+                                                ui.label(st.done.to_string());
+                                                ui.colored_label(
+                                                    if st.failed > 0 { egui::Color32::from_rgb(248, 113, 113) } else { egui::Color32::GRAY },
+                                                    st.failed.to_string(),
+                                                );
+                                                ui.label(st.last_error.clone().unwrap_or_else(|| "—".to_string()));
+                                                ui.end_row();
+                                            }
+                                        });
+
+                                    ui.add_space(6.0);
+                                    ui.horizontal(|ui| {
+                                        if ui.button("🔁 Ponów nieudane").clicked() {
+                                            let now = crate::cloud::scheduler::now_unix();
+                                            let n = app.upload_scheduler.lock().map(|mut s| {
+                                                let n = s.retry_failed(now);
+                                                s.save_to_disk();
+                                                n
+                                            }).unwrap_or(0);
+                                            if n > 0 {
+                                                app.online_sync_logs.push(format!("Ponowiono {} nieudanych zadań wysyłki.", n));
+                                            }
+                                        }
+                                        if ui.button("🧹 Wyczyść wysłane").clicked() {
+                                            let n = app.upload_scheduler.lock().map(|mut s| {
+                                                let n = s.purge_done();
+                                                s.save_to_disk();
+                                                n
+                                            }).unwrap_or(0);
+                                            if n > 0 {
+                                                app.online_sync_logs.push(format!("Usunięto {} zakończonych zadań z kolejki.", n));
+                                            }
+                                        }
+                                    });
                                 });
                             }
                             SyncTab::Logs => {

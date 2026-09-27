@@ -11,4 +11,5 @@ pub mod hrdlog;
 pub mod hamqth;
 pub mod updater;
 pub mod psk_reporter;
+pub mod scheduler;
 pub mod wspr;

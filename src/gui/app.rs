@@ -334,6 +334,7 @@ pub struct SpLogApp {
     // Alerty, Live Auto-Upload i Toast
     pub live_auto_upload_clublog: bool,
     pub live_auto_upload_qrz: bool,
+    pub upload_scheduler: Arc<Mutex<crate::cloud::scheduler::UploadScheduler>>,
     pub status_toast: Option<(String, std::time::Instant)>,
     pub sync_log_tx: std::sync::mpsc::Sender<(String, bool)>,
     pub sync_log_rx: std::sync::mpsc::Receiver<(String, bool)>,
@@ -935,6 +936,7 @@ impl SpLogApp {
 
             live_auto_upload_clublog: app_config.live_auto_upload_clublog,
             live_auto_upload_qrz: app_config.live_auto_upload_qrz,
+            upload_scheduler: Arc::new(Mutex::new(crate::cloud::scheduler::UploadScheduler::load_from_disk())),
             status_toast: None,
             sync_log_tx,
             sync_log_rx,
@@ -1496,26 +1498,22 @@ impl SpLogApp {
                 .unwrap_or(false),
         });
 
-        // Automatyczny przesył na żywo do Club Log w czasie rzeczywistym
+        // Automatyczny przesył na żywo do Club Log — przez wspólną kolejkę wysyłki
         if self.live_auto_upload_clublog && !self.clublog_callsign.is_empty() && !self.clublog_password.is_empty() {
-            let client = crate::cloud::clublog::ClubLogClient::new();
-            let call = self.clublog_callsign.clone();
-            let email = self.clublog_email.clone();
-            let pass = self.clublog_password.clone();
-            let api = self.clublog_api_key.clone();
             let adif_record = crate::core::adif::export_adif(std::slice::from_ref(&qso), "SPLogbook", &self.my_station.callsign);
-            tokio::spawn(async move {
-                let _ = client.upload_adif(&call, &email, &pass, &api, &adif_record).await;
-            });
+            let now = crate::cloud::scheduler::now_unix();
+            let mut sched = self.upload_scheduler.lock().unwrap();
+            sched.enqueue(crate::cloud::scheduler::UploadService::ClubLog, adif_record, now);
+            sched.save_to_disk();
         }
 
-        // Automatyczny przesył na żywo do logbooka QRZ.com
+        // Automatyczny przesył na żywo do logbooka QRZ.com — przez wspólną kolejkę wysyłki
         if self.live_auto_upload_qrz && !self.qrz_api_key.is_empty() {
-            let api_key = self.qrz_api_key.clone();
             let adif_record = crate::core::adif::export_adif(std::slice::from_ref(&qso), "SPLogbook", &self.my_station.callsign);
-            tokio::spawn(async move {
-                let _ = crate::cloud::qrz::QrzClient::upload_to_logbook(&api_key, &adif_record).await;
-            });
+            let now = crate::cloud::scheduler::now_unix();
+            let mut sched = self.upload_scheduler.lock().unwrap();
+            sched.enqueue(crate::cloud::scheduler::UploadService::Qrz, adif_record, now);
+            sched.save_to_disk();
         }
 
         // Automatyczne raportowanie do PSK Reporter
@@ -3149,6 +3147,61 @@ impl SpLogApp {
     pub fn refresh_qso_list(&mut self) {
         self.reload_qsos();
     }
+
+    /// Obsługuje wspólną kolejkę wysyłki: pobiera gotowe zadania i uruchamia
+    /// ich wysyłkę w tle, a po zakończeniu zapisuje wynik z powrotem do kolejki.
+    pub fn poll_upload_scheduler(&mut self) {
+        use crate::cloud::scheduler::UploadService;
+
+        let now = crate::cloud::scheduler::now_unix();
+        let creds = crate::cloud::scheduler::UploadCredentials {
+            clublog_callsign: self.clublog_callsign.clone(),
+            clublog_email: self.clublog_email.clone(),
+            clublog_password: self.clublog_password.clone(),
+            clublog_api_key: self.clublog_api_key.clone(),
+            qrz_api_key: self.qrz_api_key.clone(),
+            eqsl_username: self.eqsl_username.clone(),
+            eqsl_password: self.eqsl_password.clone(),
+        };
+
+        // Pobierz gotowe zadania (maks. jedno na serwis, z uwzględnieniem rate-limit).
+        let ready: Vec<(u64, UploadService, String)> = {
+            let mut sched = self.upload_scheduler.lock().unwrap();
+            let ids = sched.ready_jobs(now);
+            ids.into_iter()
+                .filter_map(|id| {
+                    sched.mark_in_flight(id, now);
+                    let job = sched.job(id)?;
+                    Some((id, job.service, job.adif.clone()))
+                })
+                .collect()
+        };
+
+        if ready.is_empty() {
+            return;
+        }
+
+        let sched = self.upload_scheduler.clone();
+        tokio::spawn(async move {
+            for (id, service, adif) in ready {
+                let result = crate::cloud::scheduler::execute_upload(service, &creds, &adif).await;
+                let now = crate::cloud::scheduler::now_unix();
+                let mut sched = sched.lock().unwrap();
+                match result {
+                    Ok(_) => sched.mark_success(id, now),
+                    Err(e) => {
+                        sched.mark_failure(id, e, now);
+                    }
+                }
+                sched.save_to_disk();
+            }
+            // Po zakończeniu serii utrzymaj kolejkę w rozsądnym rozmiarze.
+            let mut sched = sched.lock().unwrap();
+            if sched.purge_done() > 0 {
+                sched.save_to_disk();
+            }
+        });
+    }
 }
 
 impl eframe::App for SpLogApp {
@@ -3199,6 +3252,9 @@ impl eframe::App for SpLogApp {
                 }
             }
         }
+
+        // Wspólna kolejka wysyłki do serwisów online (Club Log / QRZ / eQSL)
+        self.poll_upload_scheduler();
 
         // ——— Globalne skróty klawiszowe ———
         ctx.input(|i| {
@@ -3306,6 +3362,57 @@ impl eframe::App for SpLogApp {
                         let port = self.cat_port;
                         tokio::spawn(async move {
                             let _ = crate::cat::hamlib::HamlibClient::set_ptt(&host, port, ptt).await;
+                        });
+                    }
+                }
+                crate::cat::server::RigServerCommand::SetVfo(vfo) => {
+                    self.rig_state.vfo = vfo.clone();
+                    if self.cat_connected {
+                        let host = self.cat_host.clone();
+                        let port = self.cat_port;
+                        tokio::spawn(async move {
+                            let _ = crate::cat::hamlib::HamlibClient::set_vfo(&host, port, &vfo).await;
+                        });
+                    }
+                }
+                crate::cat::server::RigServerCommand::SetSplit { enabled, tx_vfo } => {
+                    self.vfo_split = enabled;
+                    self.rig_state.split_enabled = enabled;
+                    if self.cat_connected {
+                        let host = self.cat_host.clone();
+                        let port = self.cat_port;
+                        tokio::spawn(async move {
+                            let _ = crate::cat::hamlib::HamlibClient::set_split(&host, port, enabled, &tx_vfo).await;
+                        });
+                    }
+                }
+                crate::cat::server::RigServerCommand::SetRit(rit) => {
+                    self.rig_state.rit_hz = rit;
+                    if self.cat_connected {
+                        let host = self.cat_host.clone();
+                        let port = self.cat_port;
+                        tokio::spawn(async move {
+                            let _ = crate::cat::hamlib::HamlibClient::set_rit(&host, port, rit).await;
+                        });
+                    }
+                }
+                crate::cat::server::RigServerCommand::SetXit(xit) => {
+                    self.rig_state.xit_hz = xit;
+                    if self.cat_connected {
+                        let host = self.cat_host.clone();
+                        let port = self.cat_port;
+                        tokio::spawn(async move {
+                            let _ = crate::cat::hamlib::HamlibClient::set_xit(&host, port, xit).await;
+                        });
+                    }
+                }
+                crate::cat::server::RigServerCommand::SetPower(watts) => {
+                    self.rig_state.rf_power_watts = watts;
+                    if self.cat_connected {
+                        let host = self.cat_host.clone();
+                        let port = self.cat_port;
+                        tokio::spawn(async move {
+                            let _ = crate::cat::hamlib::HamlibClient::set_power(&host, port, watts).await;
                         });
                     }
                 }
