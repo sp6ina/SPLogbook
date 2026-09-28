@@ -18,21 +18,19 @@ name = "SPLogbook"
 path = "src/main.rs"
 
 [dependencies]
-rusqlite = { version = "0.40", features = ["bundled", "chrono", "backup"] }
-tokio = { version = "1", features = ["full"] }
+rusqlite = { version = "0.40", features = ["bundled", "backup"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time", "fs", "process"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 regex = "1.13"
 chrono = { version = "0.4", features = ["serde"] }
-quick-xml = { version = "0.42", features = ["serialize"] }
+quick-xml = "0.42"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "multipart", "query", "form"] }
-byteorder = "1.5"
 log = "0.4"
 env_logger = "0.11"
-thiserror = "2.0"
-futures-util = "0.3"
+futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
 eframe = { version = "0.36", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
-egui_extras = { version = "0.36", features = ["default"] }
+egui_extras = "0.36"
 egui_dock = { version = "0.21", features = ["serde"] }
 rfd = "0.17"
 
@@ -44,7 +42,6 @@ printpdf = "0.12"
 gpx = "0.10"
 axum = { version = "0.8", features = ["tokio", "ws"] }
 open = "5"
-tower = "0.5"
 geo-types = "0.7"
 keyring = "4.2"
 uuid = { version = "1", features = ["v4"] }
@@ -54,11 +51,12 @@ argon2 = "0.6"
 rand = "0.10"
 sha2 = "0.11"
 
-[build-dependencies]
+[target.'cfg(windows)'.build-dependencies]
 winres = "0.1"
 
 [dev-dependencies]
 tempfile = "3.27"
+tower = "0.5"
 
 [profile.release]
 strip = true

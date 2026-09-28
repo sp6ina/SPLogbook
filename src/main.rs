@@ -190,17 +190,22 @@ fn main() -> Result<(), eframe::Error> {
         Ok(config) => config,
         Err(error) => {
             let message = format!(
-                "Nie można bezpiecznie otworzyć konfiguracji {}:\n{}\n\nSprawdź dostęp do systemowego magazynu poświadczeń. Oryginalny plik nie został nadpisany.",
+                "Nie można odczytać poświadczeń dla konfiguracji {}:\n{}\n\nCzy chcesz uruchomić program bez zapisanych haseł (np. tryb Portable na nowym komputerze)?\nOryginalny plik nie zostanie nadpisany do czasu ręcznego zapisu ustawień.",
                 config_file_path.display(),
                 error
             );
             log::error!("{message}");
-            rfd::MessageDialog::new()
-                .set_title("SPLogbook — błąd konfiguracji")
+            let should_continue = rfd::MessageDialog::new()
+                .set_title("SPLogbook — problem z magazynem poświadczeń")
                 .set_description(&message)
-                .set_level(rfd::MessageLevel::Error)
+                .set_level(rfd::MessageLevel::Warning)
+                .set_buttons(rfd::MessageButtons::YesNo)
                 .show();
-            std::process::exit(1);
+            if matches!(should_continue, rfd::MessageDialogResult::Yes) {
+                AppConfig::load_without_secrets(&config_file_path).unwrap_or_default()
+            } else {
+                std::process::exit(1);
+            }
         }
     };
 
