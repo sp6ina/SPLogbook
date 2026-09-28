@@ -401,13 +401,35 @@ SPLogbook emits **N1MM Logger+ UDP broadcast** XML frames (loopback port `12060`
 
 | Shortcut | Context | Action |
 |---|---|---|
-| `Ctrl + Z` | Global | Undo last QSO operation |
-| `Ctrl + Y` | Global | Redo last undone operation |
-| `Ctrl + Shift + S` | Global | Open Statistics & Analytics Dashboard |
-| `F1` – `F12` | CW Keyer | Transmit pre-programmed CW macros |
-| `Esc` | QSO Entry | Clear all input fields in QSO Entry panel |
 | `Return` / `Enter` | QSO Entry | Save entered QSO to active journal |
-| `Space` | QSO Entry | Advance cursor to next field (Callsign $	o$ RST $	o$ Comments) |
+| `F2` | Global / QSO | Save entered QSO to log (contest standard) |
+| `Esc` / `F3` | QSO Entry | Clear all input fields in QSO Entry panel (Wipe) |
+| `Ctrl + N` | Global | New QSO: clear form and focus callsign field |
+| `Ctrl + W` | Global / QSO | Wipe QSO input fields |
+| `F4` | QSO Entry | Trigger manual Callbook / QRZ.com lookup for active callsign |
+| `Ctrl + S` | Global | Save station configuration and active log |
+| `F5` | Logbook | Refresh logbook table from SQLite database |
+| `F6` | Global | Open Send DX Cluster Spot dialog |
+| `F7` | Global | Toggle transceiver PTT (TX / RX) via CAT |
+| `F8` | Global | Open SSB Voice Keyer panel (CQ loop, F1–F8 WAV slots) |
+| `F11` | Global | Toggle Fullscreen mode |
+| `F12` / `Ctrl + H` | Global | Open built-in User Manual |
+| `F1` | Global | Open Keyboard Shortcuts Reference dialog |
+| `Ctrl + F` | Logbook | Open Advanced Multi-Criteria Filter dialog |
+| `Ctrl + L` | Global | Toggle and focus Logbook data table |
+| `Ctrl + D` | Global | Open / toggle DX Cluster panel |
+| `Ctrl + B` | Global | Open / toggle Band Map window |
+| `Ctrl + M` | Global | Open / toggle Interactive World Map & Greyline |
+| `Ctrl + K` | Global | Open CW Keyer & Macro Terminal |
+| `Ctrl + P` | Global | Open Station Workstation Profiles manager |
+| `Ctrl + E` | Global | Open Configurable CSV Logbook Exporter |
+| `Ctrl + I` | Global | Open ADIF Log Import dialog |
+| `Ctrl + T` | Global | Cycle Color Theme (Operator Dark $\to$ Daylight $\to$ High-Contrast) |
+| `Ctrl + Z` | Global | Undo last deleted QSO operation |
+| `Ctrl + Y` / `Ctrl + Shift + Z` | Global | Redo last undone operation |
+| `Ctrl + Shift + P` | Global | Command Palette (instant searchable action launcher) |
+| `Ctrl + Shift + S` | Global | Open Station Statistics & Visual Analytics Dashboard |
+| `Ctrl + Q` | Global | Safe application exit |
 
 ---
 
@@ -421,7 +443,7 @@ curl -X GET http://127.0.0.1:8080/api/v1/status
 ```json
 {
   "status": "online",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "callsign": "SP6INA",
   "total_qsos": 14250,
   "uptime_seconds": 3600

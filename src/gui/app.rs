@@ -266,6 +266,7 @@ pub struct SpLogApp {
     pub config_file_path: std::path::PathBuf,
     pub secret_store_id: String,
     pub active_db_path: std::path::PathBuf,
+    pub is_fullscreen: bool,
 
     // Wizualna Panorama Pasma (Band Map)
     pub show_bandmap_window: bool,
@@ -963,6 +964,7 @@ impl SpLogApp {
             config_file_path,
             secret_store_id: app_config.secret_store_id.clone(),
             active_db_path,
+            is_fullscreen: false,
 
             show_bandmap_window: false,
             bandmap_selected_band: "20m".to_string(),
@@ -2023,6 +2025,43 @@ impl SpLogApp {
             "nmi" => format!("{:.0} NM", km * 0.539957),
             _ => format!("{:.0} km", km),
         }
+    }
+
+    /// Czyści formularz QSO i natychmiast przenosi kursor/fokus na pole znaku (Wipe).
+    pub fn wipe_qso_form(&mut self) {
+        self.clear_qso_form();
+        self.panel_qso.visible = true;
+        self.focus_callsign_requested = true;
+    }
+
+    /// Przełącza stan nadawania PTT (TX/RX) przez połączenie CAT.
+    pub fn toggle_ptt(&mut self) {
+        self.ptt_active = !self.ptt_active;
+        if self.cat_connected {
+            let host = self.cat_host.clone();
+            let port = self.cat_port;
+            let tx = self.ptt_active;
+            tokio::spawn(async move {
+                use tokio::io::AsyncWriteExt;
+                if let Ok(mut stream) = tokio::net::TcpStream::connect(format!("{}:{}", host, port)).await {
+                    let cmd = if tx { "T 1\n" } else { "T 0\n" };
+                    let _ = stream.write_all(cmd.as_bytes()).await;
+                }
+            });
+        }
+    }
+
+    /// Cyklicznie przełącza motyw kolorystyczny (Dark -> Daylight -> High-Contrast).
+    pub fn cycle_theme(&mut self) {
+        let all = crate::gui::theme::ThemePreset::ALL;
+        let idx = all.iter().position(|t| t.id() == self.theme_preset.id()).unwrap_or(0);
+        self.theme_preset = all[(idx + 1) % all.len()];
+        self.dark_theme = self.theme_preset.is_dark();
+        self.save_station_config();
+        self.status_toast = Some((
+            format!("Zmieniono motyw: {}", self.theme_preset.label_pl()),
+            std::time::Instant::now(),
+        ));
     }
 
     pub fn reload_qsos(&mut self) {
@@ -3403,53 +3442,107 @@ impl eframe::App for SpLogApp {
         self.poll_solar_fetch();
 
         // ——— Globalne skróty klawiszowe ———
-        ctx.input(|i| {
-            // Ctrl+Z — Undo (cofnij ostatnie usunięcie QSO)
-            if i.key_pressed(egui::Key::Z) && i.modifiers.ctrl && !i.modifiers.shift {
-                // Undo będzie wykonane poniżej (borrow checker — nie można wywołać &mut self wewnątrz closure)
-                // Używamy flagi żeby wywołać po wyjściu z closure
-            }
-        });
+        // Sprawdzanie modyfikatora: Ctrl (Windows/Linux) oraz Command (macOS)
+        let is_ctrl = |m: &egui::Modifiers| m.ctrl || m.command;
 
-        // Undo/Redo przez skróty klawiszowe
-        let do_undo = ctx.input(|i| i.key_pressed(egui::Key::Z) && i.modifiers.ctrl && !i.modifiers.shift);
+        // Klawisze funkcyjne (F1–F12) — działają globalnie, niezależnie od fokusu pól tekstowych
+        let open_shortcuts_f1 = ctx.input(|i| i.key_pressed(egui::Key::F1));
+        let save_qso_f2 = ctx.input(|i| i.key_pressed(egui::Key::F2));
+        let wipe_qso_f3 = ctx.input(|i| i.key_pressed(egui::Key::F3));
+        let lookup_qrz_f4 = ctx.input(|i| i.key_pressed(egui::Key::F4));
+        let refresh_log_f5 = ctx.input(|i| i.key_pressed(egui::Key::F5));
+        let send_spot_f6 = ctx.input(|i| i.key_pressed(egui::Key::F6));
+        let toggle_ptt_f7 = ctx.input(|i| i.key_pressed(egui::Key::F7));
+        let voice_keyer_f8 = ctx.input(|i| i.key_pressed(egui::Key::F8));
+        let toggle_fullscreen_f11 = ctx.input(|i| i.key_pressed(egui::Key::F11));
+        let open_manual_f12 = ctx.input(|i| i.key_pressed(egui::Key::F12));
+
+        // Skróty z klawiszem Ctrl / Cmd
+        let do_undo = ctx.input(|i| i.key_pressed(egui::Key::Z) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
         let do_redo = ctx.input(|i| {
-            (i.key_pressed(egui::Key::Z) && i.modifiers.ctrl && i.modifiers.shift)
-            || (i.key_pressed(egui::Key::Y) && i.modifiers.ctrl)
+            (i.key_pressed(egui::Key::Z) && is_ctrl(&i.modifiers) && i.modifiers.shift)
+            || (i.key_pressed(egui::Key::Y) && is_ctrl(&i.modifiers))
         });
-        let open_stats = ctx.input(|i| i.key_pressed(egui::Key::S) && i.modifiers.ctrl && i.modifiers.shift);
+        let open_stats = ctx.input(|i| i.key_pressed(egui::Key::S) && is_ctrl(&i.modifiers) && i.modifiers.shift);
+        let save_now = ctx.input(|i| i.key_pressed(egui::Key::S) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
+        let open_palette = ctx.input(|i| i.key_pressed(egui::Key::P) && is_ctrl(&i.modifiers) && i.modifiers.shift);
+        let open_manual_ctrl_h = ctx.input(|i| i.key_pressed(egui::Key::H) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
+        let quit_app_ctrl_q = ctx.input(|i| i.key_pressed(egui::Key::Q) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
 
-        // Rozszerzone skróty klawiszowe (F1/F5, Ctrl+S, Ctrl+F, Ctrl+N)
-        let open_shortcuts = ctx.input(|i| i.key_pressed(egui::Key::F1));
-        let refresh_log = ctx.input(|i| i.key_pressed(egui::Key::F5));
-        let save_now = ctx.input(|i| i.key_pressed(egui::Key::S) && i.modifiers.ctrl && !i.modifiers.shift);
-        let focus_filter = ctx.input(|i| i.key_pressed(egui::Key::F) && i.modifiers.ctrl);
-        let new_qso = ctx.input(|i| i.key_pressed(egui::Key::N) && i.modifiers.ctrl);
-        let open_palette = ctx.input(|i| i.key_pressed(egui::Key::P) && i.modifiers.ctrl && i.modifiers.shift);
+        // Skróty edycyjne i nawigacyjne (tylko gdy użytkownik nie pisze w polu tekstowym)
         let wants_text = ctx.wants_keyboard_input();
+        let focus_filter = ctx.input(|i| i.key_pressed(egui::Key::F) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
+        let new_qso = ctx.input(|i| i.key_pressed(egui::Key::N) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
+        let wipe_qso_ctrl_w = ctx.input(|i| i.key_pressed(egui::Key::W) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
+        let toggle_cluster = ctx.input(|i| i.key_pressed(egui::Key::D) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
+        let toggle_bandmap = ctx.input(|i| i.key_pressed(egui::Key::B) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
+        let toggle_map = ctx.input(|i| i.key_pressed(egui::Key::M) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
+        let toggle_cw = ctx.input(|i| i.key_pressed(egui::Key::K) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
+        let open_profiles = ctx.input(|i| i.key_pressed(egui::Key::P) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
+        let export_csv = ctx.input(|i| i.key_pressed(egui::Key::E) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
+        let import_adif = ctx.input(|i| i.key_pressed(egui::Key::I) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
+        let cycle_theme_ctrl_t = ctx.input(|i| i.key_pressed(egui::Key::T) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
+        let focus_log_ctrl_l = ctx.input(|i| i.key_pressed(egui::Key::L) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
 
+        // Wykonanie akcji
         if do_undo { self.perform_undo(); }
         if do_redo { self.perform_redo(); }
         if open_stats { self.show_statistics_window = true; }
-
-        if open_shortcuts { self.show_shortcuts_window = !self.show_shortcuts_window; }
-        if refresh_log { self.reload_qsos(); }
-        if save_now { self.save_station_config(); }
-
-        // Skróty kolidujące z pisaniem tekstu działają tylko, gdy żadne pole nie ma fokusu.
-        if !wants_text {
-            if focus_filter { self.advanced_filter_dialog.is_open = true; }
-            if new_qso {
-                self.clear_qso_form();
-                self.panel_qso.visible = true;
-                self.focus_callsign_requested = true;
+        if open_shortcuts_f1 { self.show_shortcuts_window = !self.show_shortcuts_window; }
+        if open_manual_f12 || open_manual_ctrl_h {
+            self.show_user_manual = !self.show_user_manual;
+            self.manual_section = None;
+        }
+        if save_qso_f2 { self.save_qso(); }
+        if wipe_qso_f3 { self.wipe_qso_form(); }
+        if lookup_qrz_f4 {
+            let clean = self.entry_callsign.trim().to_uppercase();
+            if clean.len() >= 3 {
+                self.lookup_active_callsign_online();
             }
         }
-
-        if open_palette && !wants_text {
+        if refresh_log_f5 { self.reload_qsos(); }
+        if send_spot_f6 {
+            let freq_khz = (self.rig_state.frequency_hz as f64) / 1000.0;
+            self.send_spot_dialog.open_with(&self.entry_callsign, freq_khz);
+        }
+        if toggle_ptt_f7 { self.toggle_ptt(); }
+        if voice_keyer_f8 { self.show_voice_keyer_window = !self.show_voice_keyer_window; }
+        if toggle_fullscreen_f11 {
+            self.is_fullscreen = !self.is_fullscreen;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(self.is_fullscreen));
+        }
+        if save_now { self.save_station_config(); }
+        if open_palette {
             self.show_command_palette = !self.show_command_palette;
             self.command_palette_query.clear();
             self.command_palette_selected = 0;
+        }
+        if quit_app_ctrl_q {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+
+        if !wants_text {
+            if focus_filter { self.advanced_filter_dialog.is_open = true; }
+            if new_qso || wipe_qso_ctrl_w { self.wipe_qso_form(); }
+            if toggle_cluster {
+                self.panel_cluster.visible = true;
+                self.show_cluster_panel = true;
+            }
+            if toggle_bandmap {
+                self.panel_bandmap.visible = true;
+                self.show_bandmap_window = true;
+            }
+            if toggle_map {
+                self.panel_world_map.visible = true;
+                self.show_world_map_window = true;
+            }
+            if toggle_cw { self.show_cw_window = !self.show_cw_window; }
+            if open_profiles { self.show_station_profiles_window = !self.show_station_profiles_window; }
+            if export_csv { self.csv_export_dialog.open(); }
+            if import_adif { self.trigger_import_adif(); }
+            if cycle_theme_ctrl_t { self.cycle_theme(); }
+            if focus_log_ctrl_l { self.panel_log.visible = true; }
         }
 
         // Debounced lookup Callbook/QRZ po wpisaniu znaku
@@ -4330,28 +4423,63 @@ impl eframe::App for SpLogApp {
             let mut is_open = self.show_shortcuts_window;
             egui::Window::new(format!("⌨ {}", tr("help.shortcuts_title", self.current_language)))
                 .open(&mut is_open)
-                .default_size([420.0, 420.0])
+                .default_size([600.0, 520.0])
+                .resizable(true)
                 .show(ctx, |ui| {
                     egui::ScrollArea::vertical().show(ui, |ui| {
-                        let rows: &[(&str, &str)] = &[
-                            ("Enter", "Zapisz QSO w panelu QSO Entry (gdy pole ma fokus)"),
-                            ("Esc", "Wyczyść formularz QSO Entry (gdy pole ma fokus)"),
-                            ("Ctrl+N", "Nowe QSO — wyczyść formularz i ustaw kursor na znaku"),
-                            ("Ctrl+S", "Zapisz konfigurację / dziennik"),
-                            ("Ctrl+Shift+S", "Otwórz okno statystyk"),
-                            ("Ctrl+F", "Zaawansowane wyszukiwanie w logbooku"),
-                            ("Ctrl+Z", "Cofnij (przywróć ostatnio usunięte QSO)"),
-                            ("Ctrl+Y / Ctrl+Shift+Z", "Ponów (redo)"),
-                            ("F1", "Skróty klawiszowe (to okno)"),
-                            ("F5", "Odśwież dziennik (listę QSO)"),
+                        let sections: &[(&str, &[(&str, &str)])] = &[
+                            ("📝 Logowanie i obsługa QSO", &[
+                                ("Enter / F2", "Zapisz bieżące QSO w logbooku"),
+                                ("Esc / F3", "Wyczyść formularz QSO (Wipe) i przejdź do znaku"),
+                                ("Ctrl+N", "Nowe QSO — wyczyść formularz i ustaw kursor na znaku"),
+                                ("Ctrl+W", "Wyczyść formularz QSO (Wipe callsign / exchange)"),
+                                ("F4", "Wymuś wyszukanie znaku w Callbooku / QRZ.com"),
+                                ("Ctrl+S", "Zapisz konfigurację stacji i dziennik"),
+                                ("F5", "Odśwież dziennik (przeładuj listę QSO z bazy)"),
+                                ("Ctrl+F", "Zaawansowane wyszukiwanie i filtry logbooka"),
+                                ("Ctrl+L", "Przełącz / aktywuj tabelę logbooka"),
+                                ("Ctrl+Z", "Cofnij usunięcie łączności (Undo)"),
+                                ("Ctrl+Y / Ctrl+Shift+Z", "Ponów operację (Redo)"),
+                            ]),
+                            ("📻 Transceiver, CAT i Eter", &[
+                                ("F6", "Otwórz okno wysyłania spotu do klastra DX"),
+                                ("F7", "Przełącz nadawanie PTT (TX/RX) przez CAT"),
+                                ("F8", "Otwórz odtwarzacz komunikatów (Voice Keyer)"),
+                                ("Ctrl+K", "Otwórz terminal i makra telegraficzne CW"),
+                                ("Ctrl+D", "Przełącz / otwórz panel klastra DX"),
+                                ("Ctrl+B", "Przełącz / otwórz okno Bandmapy"),
+                                ("Ctrl+M", "Przełącz / otwórz mapę świata z linią Greyline"),
+                                ("Ctrl+P", "Menedżer profili stacji roboczej"),
+                            ]),
+                            ("⚙️ Narzędzia, Okna i Aplikacja", &[
+                                ("Ctrl+Shift+P", "Paleta poleceń (Command Palette) — szybki launcher akcji"),
+                                ("Ctrl+Shift+S", "Otwórz okno statystyk i analizy wykresów"),
+                                ("Ctrl+E", "Eksport dziennika do pliku CSV (konfigurowalny)"),
+                                ("Ctrl+I", "Import dziennika z pliku ADIF"),
+                                ("Ctrl+T", "Przełącz motyw kolorystyczny (Dark / Daylight / Contrast)"),
+                                ("F11", "Przełącz tryb pełnoekranowy (Toggle Fullscreen)"),
+                                ("F12 / Ctrl+H", "Otwórz wbudowaną instrukcję obsługi (Podręcznik)"),
+                                ("F1", "Skróty klawiszowe (to okno)"),
+                                ("Ctrl+Q", "Bezpieczne wyjście z programu"),
+                            ]),
                         ];
-                        egui::Grid::new("shortcuts_grid").num_columns(2).spacing([16.0, 6.0]).striped(true).show(ui, |ui| {
-                            for (key, desc) in rows {
-                                ui.monospace(*key);
-                                ui.label(*desc);
-                                ui.end_row();
-                            }
-                        });
+
+                        for (cat_title, rows) in sections {
+                            ui.add_space(6.0);
+                            ui.heading(egui::RichText::new(*cat_title).size(14.0).strong().color(egui::Color32::from_rgb(56, 189, 248)));
+                            ui.separator();
+                            egui::Grid::new(format!("shortcuts_grid_{}", cat_title))
+                                .num_columns(2)
+                                .spacing([20.0, 6.0])
+                                .striped(true)
+                                .show(ui, |ui| {
+                                    for (key, desc) in *rows {
+                                        ui.monospace(egui::RichText::new(*key).strong().color(egui::Color32::from_rgb(250, 204, 21)));
+                                        ui.label(*desc);
+                                        ui.end_row();
+                                    }
+                                });
+                        }
                     });
                 });
             if !is_open {

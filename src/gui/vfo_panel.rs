@@ -208,22 +208,10 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         };
         let ptt_label = if app.ptt_active { "🔴 TX ON" } else { "⚫ RX" };
         if ui.button(egui::RichText::new(ptt_label).color(ptt_color).strong())
-            .on_hover_text("PTT — Przełącz nadawanie/odbiór (wymaga CAT)")
+            .on_hover_text("PTT — Przełącz nadawanie/odbiór [F7] (wymaga CAT)")
             .clicked()
         {
-            app.ptt_active = !app.ptt_active;
-            if app.cat_connected {
-                let host = app.cat_host.clone();
-                let port = app.cat_port;
-                let tx = app.ptt_active;
-                tokio::spawn(async move {
-                    use tokio::io::AsyncWriteExt;
-                    if let Ok(mut stream) = tokio::net::TcpStream::connect(format!("{}:{}", host, port)).await {
-                        let cmd = if tx { "T 1\n" } else { "T 0\n" };
-                        let _ = stream.write_all(cmd.as_bytes()).await;
-                    }
-                });
-            }
+            app.toggle_ptt();
         }
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

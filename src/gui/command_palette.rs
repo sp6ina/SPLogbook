@@ -40,29 +40,30 @@ fn toggle_wizard(app: &mut SpLogApp) { app.show_welcome_wizard = true; app.wizar
 fn toggle_multi_op(app: &mut SpLogApp) { app.show_multi_op_window = true; }
 fn toggle_pskreporter(app: &mut SpLogApp) { app.show_pskreporter_window = true; }
 fn toggle_wspr(app: &mut SpLogApp) { app.show_wspr_window = true; }
+fn toggle_voice_keyer(app: &mut SpLogApp) { app.show_voice_keyer_window = true; }
+fn toggle_manual(app: &mut SpLogApp) { app.show_user_manual = true; app.manual_section = None; }
+fn send_spot(app: &mut SpLogApp) {
+    let freq_khz = (app.rig_state.frequency_hz as f64) / 1000.0;
+    app.send_spot_dialog.open_with(&app.entry_callsign, freq_khz);
+}
 
 fn save_qso(app: &mut SpLogApp) { app.save_qso(); }
-fn clear_qso(app: &mut SpLogApp) {
-    app.clear_qso_form();
-    app.panel_qso.visible = true;
-    app.focus_callsign_requested = true;
-}
+fn clear_qso(app: &mut SpLogApp) { app.wipe_qso_form(); }
+fn toggle_ptt(app: &mut SpLogApp) { app.toggle_ptt(); }
 fn connect_cluster(app: &mut SpLogApp) { app.connect_dx_cluster(); }
 fn disconnect_cluster(app: &mut SpLogApp) { app.disconnect_dx_cluster(); }
 fn refresh_log(app: &mut SpLogApp) { app.reload_qsos(); }
-
-fn cycle_theme(app: &mut SpLogApp) {
-    let all = crate::gui::theme::ThemePreset::ALL;
-    let idx = all.iter().position(|t| t.id() == app.theme_preset.id()).unwrap_or(0);
-    app.theme_preset = all[(idx + 1) % all.len()];
-    app.dark_theme = app.theme_preset.is_dark();
-    app.save_station_config();
-}
+fn cycle_theme(app: &mut SpLogApp) { app.cycle_theme(); }
 
 const COMMANDS: &[Command] = &[
     Command { label: "Nowe QSO (wyczyść formularz)", keywords: "new qso clear form", run: clear_qso },
+    Command { label: "Wyczyść formularz QSO (Wipe)", keywords: "wipe clear form qso", run: clear_qso },
     Command { label: "Zapisz QSO", keywords: "save qso log", run: save_qso },
+    Command { label: "Przełącz nadawanie PTT (TX/RX)", keywords: "ptt tx rx transmit", run: toggle_ptt },
     Command { label: "Odśwież dziennik (log)", keywords: "refresh reload log", run: refresh_log },
+    Command { label: "Wyślij spot DX do klastra", keywords: "spot send dx cluster", run: send_spot },
+    Command { label: "Odtwarzacz głosu (Voice Keyer)", keywords: "voice keyer ssb cq audio", run: toggle_voice_keyer },
+    Command { label: "Instrukcja obsługi (Podręcznik)", keywords: "help manual docs instrukcja", run: toggle_manual },
     Command { label: "Połącz z DX Cluster", keywords: "connect dx cluster telnet", run: connect_cluster },
     Command { label: "Rozłącz DX Cluster", keywords: "disconnect dx cluster", run: disconnect_cluster },
     Command { label: "Macierz nagród (Awards)", keywords: "awards dxcc waz was matrix", run: toggle_awards },
