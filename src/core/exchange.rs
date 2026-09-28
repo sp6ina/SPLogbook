@@ -113,7 +113,7 @@ pub fn parse_exchange(fields: &[ExchangeField], text: &str) -> Result<ParsedExch
     let mut parsed = ParsedExchange { raw, ..Default::default() };
 
     let mut ti = 0usize;
-    for (_fi, field) in fields.iter().copied().enumerate() {
+    for field in fields.iter().copied() {
         if ti >= tokens.len() {
             if field_is_optional(field) {
                 continue;
@@ -600,14 +600,14 @@ fn is_zone(token: &str) -> bool {
     if token.is_empty() || token.len() > 2 || !is_digits(token) {
         return false;
     }
-    token.parse::<u32>().map_or(false, |z| (1..=40).contains(&z))
+    token.parse::<u32>().is_ok_and(|z| (1..=40).contains(&z))
 }
 
 fn is_itu_zone(token: &str) -> bool {
     if token.is_empty() || token.len() > 2 || !is_digits(token) {
         return false;
     }
-    token.parse::<u32>().map_or(false, |z| (1..=90).contains(&z))
+    token.parse::<u32>().is_ok_and(|z| (1..=90).contains(&z))
 }
 
 fn is_grid(token: &str) -> bool {
@@ -655,7 +655,7 @@ fn is_age(token: &str) -> bool {
     if token.is_empty() || token.len() > 3 || !is_digits(token) {
         return false;
     }
-    token.parse::<u32>().map_or(false, |a| (1..=130).contains(&a))
+    token.parse::<u32>().is_ok_and(|a| (1..=130).contains(&a))
 }
 
 fn is_year(token: &str) -> bool {

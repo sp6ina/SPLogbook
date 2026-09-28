@@ -74,14 +74,14 @@ impl SpLogApp {
 
         // Dołóż pozostałe kolumny jako podziały po prawej stronie ostatniego liścia.
         let mut rightmost = NodeIndex::root();
-        for col in (first + 1)..3 {
-            if columns[col].is_empty() {
+        for col_items in columns.iter().skip(first + 1) {
+            if col_items.is_empty() {
                 continue;
             }
             let [_, new_node] = self
                 .dock_state
                 .main_surface_mut()
-                .split_right(rightmost, 0.5, columns[col].clone());
+                .split_right(rightmost, 0.5, col_items.clone());
             rightmost = new_node;
         }
     }

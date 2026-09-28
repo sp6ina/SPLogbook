@@ -220,9 +220,9 @@ pub fn compute_mult_matrix(kind: MultKind, bands: &[&str], qsos: &[QsoRecord]) -
     for col in 0..columns_set.len() {
         let worked_somewhere = worked.iter().any(|row| row[col] == 2);
         if worked_somewhere {
-            for row in 0..band_rows.len() {
-                if worked[row][col] == 0 {
-                    worked[row][col] = 1;
+            for row in worked.iter_mut().take(band_rows.len()) {
+                if row[col] == 0 {
+                    row[col] = 1;
                 }
             }
         }
@@ -265,14 +265,15 @@ mod tests {
     #[test]
     fn test_compute_rate_windows() {
         let now = qso_epoch_secs(&qso("X", "20m", "2026-01-01", "12:00:00", None, None)).unwrap();
-        let mut qsos = Vec::new();
         // 2 QSO w ostatniej minucie, 1 w 5 min, 1 w 10 min, 1 w 60 min
-        qsos.push(qso("A", "20m", "2026-01-01", "11:59:30", None, None));
-        qsos.push(qso("B", "20m", "2026-01-01", "11:59:10", None, None));
-        qsos.push(qso("C", "20m", "2026-01-01", "11:57:00", None, None));
-        qsos.push(qso("D", "20m", "2026-01-01", "11:54:00", None, None));
-        qsos.push(qso("E", "20m", "2026-01-01", "11:20:00", None, None));
-        qsos.push(qso("F", "20m", "2026-01-01", "10:00:00", None, None)); // poza oknem
+        let qsos = vec![
+            qso("A", "20m", "2026-01-01", "11:59:30", None, None),
+            qso("B", "20m", "2026-01-01", "11:59:10", None, None),
+            qso("C", "20m", "2026-01-01", "11:57:00", None, None),
+            qso("D", "20m", "2026-01-01", "11:54:00", None, None),
+            qso("E", "20m", "2026-01-01", "11:20:00", None, None),
+            qso("F", "20m", "2026-01-01", "10:00:00", None, None), // poza oknem
+        ];
 
         let stats = compute_rate(&qsos, now);
         assert_eq!(stats.last_1m, 2);
@@ -286,10 +287,11 @@ mod tests {
 
     #[test]
     fn test_mult_matrix_dxcc() {
-        let mut qsos = Vec::new();
-        qsos.push(qso("A", "20m", "2026-01-01", "12:00:00", Some(269), None));
-        qsos.push(qso("B", "20m", "2026-01-01", "12:01:00", Some(291), None));
-        qsos.push(qso("C", "40m", "2026-01-01", "12:02:00", Some(269), None));
+        let qsos = vec![
+            qso("A", "20m", "2026-01-01", "12:00:00", Some(269), None),
+            qso("B", "20m", "2026-01-01", "12:01:00", Some(291), None),
+            qso("C", "40m", "2026-01-01", "12:02:00", Some(269), None),
+        ];
 
         let m = compute_mult_matrix(MultKind::Dxcc, &["20m", "40m"], &qsos);
         assert_eq!(m.bands, vec!["20m", "40m"]);
@@ -302,8 +304,9 @@ mod tests {
 
     #[test]
     fn test_mult_matrix_cqzone_full_set() {
-        let mut qsos = Vec::new();
-        qsos.push(qso("A", "20m", "2026-01-01", "12:00:00", None, Some(15)));
+        let qsos = vec![
+            qso("A", "20m", "2026-01-01", "12:00:00", None, Some(15)),
+        ];
 
         let m = compute_mult_matrix(MultKind::CqZone, &["20m"], &qsos);
         assert_eq!(m.columns.len(), 40);

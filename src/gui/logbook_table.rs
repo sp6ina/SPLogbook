@@ -626,10 +626,7 @@ pub fn render_column_settings(app: &mut SpLogApp, ctx: &egui::Context) {
     if reset {
         app.logbook_columns = crate::core::station::default_logbook_columns();
         app.save_station_config();
-    } else if save {
-        app.show_column_settings = false;
-        app.save_station_config();
-    } else if !is_open {
+    } else if save || !is_open {
         app.show_column_settings = false;
         app.save_station_config();
     }

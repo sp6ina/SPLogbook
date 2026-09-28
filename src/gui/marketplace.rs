@@ -10,7 +10,7 @@
 
 use crate::gui::app::SpLogApp;
 use eframe::egui;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Akcja wybrana w oknie marketplace (wykonywana po zamknięciu pętli UI).
 enum Action {
@@ -205,7 +205,7 @@ pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
         Some(Action::Uninstall(id)) => {
             if let Some(entry) = catalog.iter().find(|e| e.id == id) {
                 let dir = PathBuf::from(app.plugins_dir.clone());
-                match crate::plugins::marketplace::uninstall_entry(&dir, &entry) {
+                match crate::plugins::marketplace::uninstall_entry(&dir, entry) {
                     Ok(()) => {
                         app.marketplace_status =
                             Some(format!("Odinstalowano wtyczkę „{}”.", entry.name));
@@ -223,7 +223,7 @@ pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
 fn render_card(
     ui: &mut egui::Ui,
     app: &mut SpLogApp,
-    plugins_dir: &PathBuf,
+    plugins_dir: &Path,
     entry: &crate::plugins::marketplace::PluginCatalogEntry,
     action: &mut Option<Action>,
 ) {

@@ -346,7 +346,7 @@ mod tests {
         remote_q.name = Some("Mariusz".to_string());
         remote_q.qth = Some("Warszawa".to_string());
 
-        let merged = merge_logs(&[local_q.clone()], &[remote_q.clone()]);
+        let merged = merge_logs(std::slice::from_ref(&local_q), std::slice::from_ref(&remote_q));
         assert_eq!(merged.len(), 1);
         assert_eq!(merged[0].name.as_deref(), Some("Mariusz"));
     }

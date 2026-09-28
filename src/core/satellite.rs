@@ -274,7 +274,7 @@ pub fn predict_passes(
 }
 
 /// Zwraca najbliższy przelot: trwający teraz lub nadchodzący (los > t_now).
-pub fn next_pass<'a>(passes: &'a [SatellitePass], t_now: f64) -> Option<&'a SatellitePass> {
+pub fn next_pass(passes: &[SatellitePass], t_now: f64) -> Option<&SatellitePass> {
     passes.iter().find(|p| p.los_unix > t_now)
 }
 

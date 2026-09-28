@@ -90,6 +90,14 @@ fn format_sota_band(band: &str) -> String {
     }
 }
 
+pub struct SotaExporter;
+
+impl SotaExporter {
+    pub fn export_csv_v2(qsos: &[QsoRecord], my_call: &str, my_sota: &str) -> String {
+        export_sota_csv(qsos, my_call, my_sota)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -104,14 +112,5 @@ mod tests {
 
         let csv = export_sota_csv(&[q], "SP6INA", "SP/SS-001");
         assert!(csv.starts_with("V2,SP6INA,SP/SS-001,20/09/26,14:30,14MHz,CW,OE/SP6INA/P,OE/TI-123,Peak summit activation"));
-    }
-}
-
-
-pub struct SotaExporter;
-
-impl SotaExporter {
-    pub fn export_csv_v2(qsos: &[QsoRecord], my_call: &str, my_sota: &str) -> String {
-        export_sota_csv(qsos, my_call, my_sota)
     }
 }

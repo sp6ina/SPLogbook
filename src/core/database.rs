@@ -165,7 +165,8 @@ impl LogDatabase {
 
         // Lista migracji w kolejności rosnącej; każda jest wykonywana w transakcji
         // i rejestrowana w `schema_version` dopiero po pełnym powodzeniu.
-        let migrations: &[(i64, fn(&Connection) -> rusqlite::Result<()>)] = &[
+        type MigrationFn = fn(&Connection) -> rusqlite::Result<()>;
+        let migrations: &[(i64, MigrationFn)] = &[
             (1, Self::migration_1_base_schema),
             (2, Self::migration_2_add_columns),
         ];

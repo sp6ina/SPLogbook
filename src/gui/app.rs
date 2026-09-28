@@ -430,6 +430,7 @@ pub struct SpLogApp {
     pub live_auto_upload_clublog: bool,
     pub live_auto_upload_qrz: bool,
     pub upload_scheduler: Arc<Mutex<crate::cloud::scheduler::UploadScheduler>>,
+    pub last_upload_poll_secs: u64,
     pub status_toast: Option<(String, std::time::Instant)>,
     pub sync_log_tx: std::sync::mpsc::Sender<(String, bool)>,
     pub sync_log_rx: std::sync::mpsc::Receiver<(String, bool)>,
@@ -1061,7 +1062,7 @@ impl SpLogApp {
             local_callbook,
             callbook_priority,
             callbook_cache_enabled: app_config.callbook_cache_enabled,
-            callbook_cache_ttl_days: callbook_cache_ttl_days,
+            callbook_cache_ttl_days,
             quick_access: app_config.quick_access,
             show_quick_access_customizer: false,
 
@@ -1094,6 +1095,7 @@ impl SpLogApp {
             live_auto_upload_clublog: app_config.live_auto_upload_clublog,
             live_auto_upload_qrz: app_config.live_auto_upload_qrz,
             upload_scheduler: Arc::new(Mutex::new(crate::cloud::scheduler::UploadScheduler::load_from_disk())),
+            last_upload_poll_secs: 0,
             status_toast: None,
             sync_log_tx,
             sync_log_rx,
@@ -2205,7 +2207,7 @@ impl SpLogApp {
     }
 
     pub fn delete_selected_qso(&mut self) {
-        let ids: Vec<i64> = self.selected_qso_ids.drain(..).collect();
+        let ids: Vec<i64> = std::mem::take(&mut self.selected_qso_ids);
         if ids.is_empty() {
             return;
         }
@@ -3109,6 +3111,12 @@ impl SpLogApp {
         use crate::cloud::scheduler::UploadService;
 
         let now = crate::cloud::scheduler::now_unix();
+        // Ogranicz sprawdzanie kolejki do maksymalnie raz na 5 sekund (redukcja rywalizacji o Mutex w pętli 60Hz UI)
+        if now < self.last_upload_poll_secs + 5 {
+            return;
+        }
+        self.last_upload_poll_secs = now;
+
         let creds = crate::cloud::scheduler::UploadCredentials {
             clublog_callsign: self.clublog_callsign.clone(),
             clublog_email: self.clublog_email.clone(),
@@ -3972,7 +3980,7 @@ impl eframe::App for SpLogApp {
                 ui.label(egui::RichText::new(profile_str).size(11.0).color(egui::Color32::from_rgb(250, 204, 21)));
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(egui::RichText::new("SPLogbook v1.0.3 | SP6INA | GPLv3").size(10.0).color(egui::Color32::from_rgb(100, 116, 139)));
+                    ui.label(egui::RichText::new(format!("SPLogbook v{} | SP6INA | GPLv3", env!("CARGO_PKG_VERSION"))).size(10.0).color(egui::Color32::from_rgb(100, 116, 139)));
                     ui.separator();
 
                     let utc_str = format!("⏱ {}: {}", tr("statusbar.utc", lang), chrono::Utc::now().format("%H:%M:%S"));
@@ -4274,6 +4282,7 @@ impl eframe::App for SpLogApp {
                         ui.label(egui::RichText::new("Zaawansowany Dziennik Krótkofalarski").size(14.0).strong());
                         ui.add_space(8.0);
                         ui.label(egui::RichText::new("Autor: Mariusz Woźniak (SP6INA)").size(13.0).strong().color(egui::Color32::from_rgb(250, 204, 21)));
+                        ui.label(egui::RichText::new("E-mail: contact@splogbook.org").size(12.0).color(egui::Color32::from_rgb(56, 189, 248)));
                         ui.label("Licencja: GNU General Public License v3.0 (GPL-3.0-or-later)");
                         ui.add_space(12.0);
                         ui.label("Natywna, nowoczesna aplikacja okienkowa dla stacji krótkofalarskich.");

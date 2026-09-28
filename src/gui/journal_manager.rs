@@ -6,6 +6,7 @@ use crate::core::database::{Journal, LogDatabase};
 use crate::core::i18n::{tr, Language};
 use eframe::egui;
 
+#[derive(Default)]
 pub struct JournalManagerDialog {
     pub is_open: bool,
     pub journals: Vec<Journal>,
@@ -19,25 +20,6 @@ pub struct JournalManagerDialog {
     pub new_journal_desc: String,
     pub show_create_form: bool,
     pub status_message: Option<String>,
-}
-
-impl Default for JournalManagerDialog {
-    fn default() -> Self {
-        Self {
-            is_open: false,
-            journals: Vec::new(),
-            selected_index: 0,
-            new_journal_id: String::new(),
-            new_journal_name: String::new(),
-            new_journal_callsign: String::new(),
-            new_journal_operator: String::new(),
-            new_journal_grid: String::new(),
-            new_journal_pga: String::new(),
-            new_journal_desc: String::new(),
-            show_create_form: false,
-            status_message: None,
-        }
-    }
 }
 
 impl JournalManagerDialog {

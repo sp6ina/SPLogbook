@@ -40,6 +40,7 @@ pub mod rprt {
 
 /// Pojedyncza mutacja stanu transceivera, wyznaczona przez polecenie.
 #[derive(Debug, Clone, PartialEq)]
+#[allow(clippy::enum_variant_names)]
 enum StateMutation {
     SetFrequency(u64),
     SetMode(String),

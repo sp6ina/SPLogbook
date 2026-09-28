@@ -257,14 +257,14 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         ui.label(format!("{}:", tr("cat.poll_rate", lang)));
                         ui.add(egui::DragValue::new(&mut app.cat_poll_rate_ms).range(50..=2000).suffix(" ms"));
 
-                        if app.cat_conn_type != "tci" {
-                            if ui.button(tr("cat_settings.test_tcp", lang)).clicked() {
-                                let host = app.cat_host.clone();
-                                let port = app.cat_port;
-                                match test_tcp_connection(&host, port, 800) {
-                                    Ok(()) => app.cat_test_result = Some(format!("TCP {}:{} OK", host, port)),
-                                    Err(e) => app.cat_test_result = Some(e.to_string()),
-                                }
+                        if app.cat_conn_type != "tci"
+                            && ui.button(tr("cat_settings.test_tcp", lang)).clicked()
+                        {
+                            let host = app.cat_host.clone();
+                            let port = app.cat_port;
+                            match test_tcp_connection(&host, port, 800) {
+                                Ok(()) => app.cat_test_result = Some(format!("TCP {}:{} OK", host, port)),
+                                Err(e) => app.cat_test_result = Some(e.to_string()),
                             }
                         }
                     });

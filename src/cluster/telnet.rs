@@ -141,10 +141,10 @@ impl DxClusterClient {
                     }
                     Ok(_) => {
                         let trimmed = line.trim();
-                        if !trimmed.is_empty() {
-                            if event_tx.send(ClusterEvent::RawLine(trimmed.to_string())).is_err() {
-                                break;
-                            }
+                        if !trimmed.is_empty()
+                            && event_tx.send(ClusterEvent::RawLine(trimmed.to_string())).is_err()
+                        {
+                            break;
                         }
                         if let Some(spot) = parse_dx_spot(trimmed) {
                             if event_tx.send(ClusterEvent::Spot(spot)).is_err() {

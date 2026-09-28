@@ -690,7 +690,7 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                         if click_az < 0.0 {
                             click_az += 360.0;
                         }
-                        click_az = click_az % 360.0;
+                        click_az %= 360.0;
                         app.rotate_antenna_to(click_az as f32);
                     }
                 }

@@ -65,10 +65,10 @@ pub fn render_station_profiles_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     ui.horizontal(|ui| {
                                         ui.label(egui::RichText::new(format!("{}: {} | QTH: {}", tr("qso.callsign", lang), prof.callsign, prof.gridsquare)).size(10.0).color(egui::Color32::GRAY));
                                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                            if app.station_profiles.len() > 1 {
-                                                if ui.small_button("🗑").on_hover_text(tr("profiles.delete_tip", lang)).clicked() {
-                                                    delete_idx = Some(idx);
-                                                }
+                                            if app.station_profiles.len() > 1
+                                                && ui.small_button("🗑").on_hover_text(tr("profiles.delete_tip", lang)).clicked()
+                                            {
+                                                delete_idx = Some(idx);
                                             }
                                             if ui.small_button("📋").on_hover_text(tr("profiles.clone_tip", lang)).clicked() {
                                                 clone_profile = Some(prof.clone());

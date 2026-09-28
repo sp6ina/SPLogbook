@@ -55,8 +55,8 @@ pub fn recommend(
 
     let open: Vec<(&'static str, PropagationForecast)> = ordered
         .iter()
+        .filter(|&(_, f)| f.status == BandOpeningStatus::Open && f.reliability_pct >= 30)
         .cloned()
-        .filter(|(_, f)| f.status == BandOpeningStatus::Open && f.reliability_pct >= 30)
         .collect();
 
     let best_bands: Vec<String> = open

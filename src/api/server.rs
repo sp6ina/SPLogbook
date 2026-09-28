@@ -298,7 +298,7 @@ async fn handle_socket(socket: WebSocket, state: ApiState) {
         "version": env!("CARGO_PKG_VERSION"),
     })
     .to_string();
-    if sender.send(Message::Text(hello.into())).await.is_err() {
+    if sender.send(Message::Text(hello)).await.is_err() {
         return;
     }
 
@@ -312,13 +312,13 @@ async fn handle_socket(socket: WebSocket, state: ApiState) {
                             Ok(t) => t,
                             Err(_) => continue,
                         };
-                        if sender.send(Message::Text(text.into())).await.is_err() {
+                        if sender.send(Message::Text(text)).await.is_err() {
                             break;
                         }
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
                         let skip = serde_json::json!({ "type": "lagged", "skipped": skipped }).to_string();
-                        if sender.send(Message::Text(skip.into())).await.is_err() {
+                        if sender.send(Message::Text(skip)).await.is_err() {
                             break;
                         }
                     }

@@ -37,11 +37,12 @@ pub struct Palette {
 /// Gotowe, predefiniowane motywy kolorystyczne aplikacji.
 /// Wybór motywu jest zapisywany w konfiguracji stacji (`station_config.json`)
 /// i ma pierwszeństwo przed prostym przełącznikiem jasny/ciemny.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ThemePreset {
     /// Domyślny ciemny motyw operatorski — wysoki kontrast, niebiesko-cyjanowy
     /// akcent, zaprojektowany do wielogodzinnej pracy nocnej/kontestowej bez
     /// zmęczenia oczu (podobny do dotychczasowego wyglądu SPLogbook).
+    #[default]
     OperatorDark,
     /// Jasny motyw dzienny — czytelny w jasnych pomieszczeniach i przy słońcu,
     /// z niebieskim akcentem o dobrej czytelności na jasnym tle.
@@ -50,12 +51,6 @@ pub enum ThemePreset {
     /// (unika czerwono-zielonych par jako jedynego nośnika informacji;
     /// status/ostrzeżenia korzystają dodatkowo z ikon/tekstu, nie tylko koloru).
     HighContrast,
-}
-
-impl Default for ThemePreset {
-    fn default() -> Self {
-        ThemePreset::OperatorDark
-    }
 }
 
 impl ThemePreset {

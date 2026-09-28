@@ -84,16 +84,14 @@ pub fn render_custom_contest_editor(app: &mut SpLogApp, ctx: &egui::Context) {
                     ui.label(tr("contest.description_label", lang));
                     ui.text_edit_multiline(&mut app.custom_contest_draft.description);
 
-                    if ui.button(tr("btn.save", lang)).clicked() {
-                        if !app.custom_contest_draft.name.is_empty() {
-                            if let Some(i) = app.custom_contest_edit_idx {
-                                app.custom_contests[i] = app.custom_contest_draft.clone();
-                            } else {
-                                app.custom_contests.push(app.custom_contest_draft.clone());
-                            }
-                            app.custom_contest_edit_idx = None;
-                            app.custom_contest_draft = CustomContest::default();
+                    if ui.button(tr("btn.save", lang)).clicked() && !app.custom_contest_draft.name.is_empty() {
+                        if let Some(i) = app.custom_contest_edit_idx {
+                            app.custom_contests[i] = app.custom_contest_draft.clone();
+                        } else {
+                            app.custom_contests.push(app.custom_contest_draft.clone());
                         }
+                        app.custom_contest_edit_idx = None;
+                        app.custom_contest_draft = CustomContest::default();
                     }
                 });
             });
@@ -126,10 +124,10 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
     // Uporządkowane pola wymiany dla aktualnie wybranego kontestu.
     let exchange_fields: Option<Vec<ExchangeField>> = if let Some(idx) = custom_idx {
         Some(fields_from_format_string(&app.custom_contests[idx].exchange_format))
-    } else if let Some(rule_idx) = RULES.iter().position(|r| r.name == app.contest_name) {
-        Some(RULES[rule_idx].exchange_fields.to_vec())
     } else {
-        None
+        RULES.iter()
+            .position(|r| r.name == app.contest_name)
+            .map(|rule_idx| RULES[rule_idx].exchange_fields.to_vec())
     };
     let exchange_hint = exchange_fields
         .as_ref()
@@ -265,7 +263,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 *bands.entry(q.band.clone()).or_insert(0) += 1;
                             }
                             let mut band_vec: Vec<_> = bands.into_iter().collect();
-                            band_vec.sort_by(|a, b| b.1.cmp(&a.1));
+                            band_vec.sort_by_key(|a| std::cmp::Reverse(a.1));
                             for (b, count) in band_vec {
                                 ui.label(format!("{} {}: {} QSOs", tr("contest.band_header", lang), b, count));
                             }
