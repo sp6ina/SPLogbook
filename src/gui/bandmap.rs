@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
-use crate::core::bandplan::{get_band_by_freq, get_band_by_name, SegmentMode, AMATEUR_BANDS};
+use crate::core::bandplan::{AMATEUR_BANDS, SegmentMode, get_band_by_freq, get_band_by_name};
 use crate::core::i18n::tr;
 use crate::gui::app::SpLogApp;
 use eframe::egui;
@@ -11,14 +11,23 @@ pub fn render_bandmap_tile(app: &mut SpLogApp, ui: &mut egui::Ui) {
     ui.group(|ui| {
         ui.vertical(|ui| {
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(format!("📶 {}", tr("bandmap.title", lang))).strong().size(13.0).color(egui::Color32::from_rgb(56, 189, 248)));
+                ui.label(
+                    egui::RichText::new(format!("📶 {}", tr("bandmap.title", lang)))
+                        .strong()
+                        .size(13.0)
+                        .color(egui::Color32::from_rgb(56, 189, 248)),
+                );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button("✕").on_hover_text("Ukryj ten kafelek").clicked() {
                         app.panel_bandmap.visible = false;
                         app.show_bandmap_window = false;
                         app.save_station_config();
                     }
-                    if ui.button("↗").on_hover_text("Odepnij do osobnego okna pływającego").clicked() {
+                    if ui
+                        .button("↗")
+                        .on_hover_text("Odepnij do osobnego okna pływającego")
+                        .clicked()
+                    {
                         app.panel_bandmap.floating = true;
                         app.show_bandmap_window = true;
                         app.save_station_config();
@@ -52,7 +61,11 @@ pub fn render_bandmap_window(app: &mut SpLogApp, ctx: &egui::Context) {
             |app, ui| {
                 egui::Panel::top("bandmap_vp_bar").show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        if ui.button("↙ Przypnij do pulpitu").on_hover_text("Przenieś okno z powrotem na główny pulpit SPLogbook").clicked() {
+                        if ui
+                            .button("↙ Przypnij do pulpitu")
+                            .on_hover_text("Przenieś okno z powrotem na główny pulpit SPLogbook")
+                            .clicked()
+                        {
                             dock_back = true;
                         }
                     });
@@ -67,7 +80,9 @@ pub fn render_bandmap_window(app: &mut SpLogApp, ctx: &egui::Context) {
         );
 
         if let Some((pos, size)) = captured_geo {
-            if app.panel_bandmap.saved_pos != Some(pos) || app.panel_bandmap.saved_size != Some(size) {
+            if app.panel_bandmap.saved_pos != Some(pos)
+                || app.panel_bandmap.saved_size != Some(size)
+            {
                 app.panel_bandmap.saved_pos = Some(pos);
                 app.panel_bandmap.saved_size = Some(size);
                 app.save_station_config();
@@ -94,12 +109,16 @@ pub fn render_bandmap_window(app: &mut SpLogApp, ctx: &egui::Context) {
     let default_pos = [right_x, screen.min.y + 8.0];
     let default_size = [right_w.max(340.0), 320.0];
 
-    let mut win = egui::Window::new(egui::RichText::new(format!("   📶 {}", tr("bandmap.title", lang))).size(12.0).strong())
-        .open(&mut open)
-        .min_size([280.0, 220.0])
-        .resizable(true)
-        .collapsible(true)
-        .constrain_to(screen);
+    let mut win = egui::Window::new(
+        egui::RichText::new(format!("   📶 {}", tr("bandmap.title", lang)))
+            .size(12.0)
+            .strong(),
+    )
+    .open(&mut open)
+    .min_size([280.0, 220.0])
+    .resizable(true)
+    .collapsible(true)
+    .constrain_to(screen);
 
     if app.reset_layout_requested {
         win = win.current_pos(default_pos).default_size(default_size);
@@ -115,7 +134,14 @@ pub fn render_bandmap_window(app: &mut SpLogApp, ctx: &egui::Context) {
     });
 
     if let Some(ref res) = win_res {
-        crate::gui::render_titlebar_popout_button_if(ctx, "bandmap_popout_btn", res.response.layer_id, res.response.rect, &mut app.panel_bandmap.floating, true);
+        crate::gui::render_titlebar_popout_button_if(
+            ctx,
+            "bandmap_popout_btn",
+            res.response.layer_id,
+            res.response.rect,
+            &mut app.panel_bandmap.floating,
+            true,
+        );
         if app.panel_bandmap.floating {
             app.save_station_config();
         }
@@ -123,7 +149,9 @@ pub fn render_bandmap_window(app: &mut SpLogApp, ctx: &egui::Context) {
             let r = res.response.rect;
             let new_pos = [r.min.x, r.min.y];
             let new_size = [r.width(), r.height()];
-            if app.panel_bandmap.saved_pos != Some(new_pos) || app.panel_bandmap.saved_size != Some(new_size) {
+            if app.panel_bandmap.saved_pos != Some(new_pos)
+                || app.panel_bandmap.saved_size != Some(new_size)
+            {
                 app.panel_bandmap.saved_pos = Some(new_pos);
                 app.panel_bandmap.saved_size = Some(new_size);
                 app.save_station_config();
@@ -136,7 +164,6 @@ pub fn render_bandmap_window(app: &mut SpLogApp, ctx: &egui::Context) {
         app.save_station_config();
     }
 }
-
 
 pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.current_language;
@@ -162,8 +189,8 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
     });
 
-    let current_band_def = get_band_by_name(&app.bandmap_selected_band)
-        .unwrap_or(&AMATEUR_BANDS[5]); // Domyślnie 20m
+    let current_band_def =
+        get_band_by_name(&app.bandmap_selected_band).unwrap_or(&AMATEUR_BANDS[5]); // Domyślnie 20m
 
     let min_freq = current_band_def.min_freq_hz;
     let max_freq = current_band_def.max_freq_hz;
@@ -179,13 +206,13 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 (max_freq as f64) / 1_000_000.0
             ))
             .strong()
-            .color(egui::Color32::from_rgb(56, 189, 248))
+            .color(egui::Color32::from_rgb(56, 189, 248)),
         );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.label(
                 egui::RichText::new("🔴 ATNO  🟠 Nowe Pasmo  🟢 Zaliczony")
                     .size(11.0)
-                    .color(egui::Color32::from_rgb(148, 163, 184))
+                    .color(egui::Color32::from_rgb(148, 163, 184)),
             );
         });
     });
@@ -208,12 +235,19 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         // Tło skali
         painter.rect_filled(rect, 4.0, egui::Color32::from_rgb(15, 23, 42));
-        painter.rect_stroke(rect, 4.0, egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(51, 65, 85)), egui::StrokeKind::Inside);
+        painter.rect_stroke(
+            rect,
+            4.0,
+            egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(51, 65, 85)),
+            egui::StrokeKind::Inside,
+        );
 
         // Wycinki pasma wg IARU
         for seg in current_band_def.segments {
-            let seg_start_frac = ((seg.start_hz.saturating_sub(min_freq)) as f32 / freq_span).clamp(0.0, 1.0);
-            let seg_end_frac = ((seg.end_hz.saturating_sub(min_freq)) as f32 / freq_span).clamp(0.0, 1.0);
+            let seg_start_frac =
+                ((seg.start_hz.saturating_sub(min_freq)) as f32 / freq_span).clamp(0.0, 1.0);
+            let seg_end_frac =
+                ((seg.end_hz.saturating_sub(min_freq)) as f32 / freq_span).clamp(0.0, 1.0);
 
             let seg_x1 = rect.min.x + seg_start_frac * rect.width();
             let seg_x2 = rect.min.x + seg_end_frac * rect.width();
@@ -242,7 +276,13 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
 
         // Linie siatki częstotliwości (co 25 kHz lub 50 kHz)
-        let step_hz = if freq_span > 1_000_000.0 { 100_000 } else if freq_span > 300_000.0 { 50_000 } else { 10_000 };
+        let step_hz = if freq_span > 1_000_000.0 {
+            100_000
+        } else if freq_span > 300_000.0 {
+            50_000
+        } else {
+            10_000
+        };
         let first_tick = min_freq.div_ceil(step_hz) * step_hz;
 
         let mut tick_hz = first_tick;
@@ -251,7 +291,10 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
             let x = rect.min.x + frac * rect.width();
 
             painter.line_segment(
-                [egui::pos2(x, rect.min.y + 26.0), egui::pos2(x, rect.max.y - 18.0)],
+                [
+                    egui::pos2(x, rect.min.y + 26.0),
+                    egui::pos2(x, rect.max.y - 18.0),
+                ],
                 egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(51, 65, 85)),
             );
 
@@ -311,7 +354,10 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
             // Pionowa kreska spotu
             painter.line_segment(
-                [egui::pos2(x, rect.min.y + 24.0), egui::pos2(x, rect.max.y - 20.0)],
+                [
+                    egui::pos2(x, rect.min.y + 24.0),
+                    egui::pos2(x, rect.max.y - 20.0),
+                ],
                 egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(250, 204, 21)),
             );
 
@@ -358,39 +404,59 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
     // 5. Lista aktywnych stacji na wybranym paśmie z funkcją natychmiastowego QSY
     ui.add_space(8.0);
-    ui.label(egui::RichText::new("🎯 Aktywne stacje na paśmie (Kliknij, aby nastroić VFO):").strong());
+    ui.label(
+        egui::RichText::new("🎯 Aktywne stacje na paśmie (Kliknij, aby nastroić VFO):").strong(),
+    );
 
     let mut tune_target: Option<(u64, String)> = None;
 
-    egui::ScrollArea::vertical().max_height(140.0).show(ui, |ui| {
-        egui::Grid::new("band_spots_grid")
-            .striped(true)
-            .num_columns(5)
-            .spacing([12.0, 4.0])
-            .show(ui, |ui| {
-                ui.label(egui::RichText::new("Znak").strong());
-                ui.label(egui::RichText::new("Częstotliwość").strong());
-                ui.label(egui::RichText::new("Komentarz / Info").strong());
-                ui.label(egui::RichText::new("Czas").strong());
-                ui.label(egui::RichText::new("Dostrój").strong());
-                ui.end_row();
+    egui::ScrollArea::vertical()
+        .max_height(140.0)
+        .show(ui, |ui| {
+            egui::Grid::new("band_spots_grid")
+                .striped(true)
+                .num_columns(5)
+                .spacing([12.0, 4.0])
+                .show(ui, |ui| {
+                    ui.label(egui::RichText::new("Znak").strong());
+                    ui.label(egui::RichText::new("Częstotliwość").strong());
+                    ui.label(egui::RichText::new("Komentarz / Info").strong());
+                    ui.label(egui::RichText::new("Czas").strong());
+                    ui.label(egui::RichText::new("Dostrój").strong());
+                    ui.end_row();
 
-                for spot in &app.cluster_spots {
-                    let spot_hz = (spot.frequency_khz * 1000.0).round() as u64;
-                    if spot_hz >= min_freq && spot_hz <= max_freq {
-                        ui.label(egui::RichText::new(&spot.dx_call).strong().color(egui::Color32::from_rgb(56, 189, 248)));
-                        ui.label(egui::RichText::new(format!("{:.3} MHz", spot.frequency_khz / 1000.0)).monospace());
-                        ui.label(&spot.comment);
-                        ui.label(egui::RichText::new(&spot.time_utc).weak());
+                    for spot in &app.cluster_spots {
+                        let spot_hz = (spot.frequency_khz * 1000.0).round() as u64;
+                        if spot_hz >= min_freq && spot_hz <= max_freq {
+                            ui.label(
+                                egui::RichText::new(&spot.dx_call)
+                                    .strong()
+                                    .color(egui::Color32::from_rgb(56, 189, 248)),
+                            );
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "{:.3} MHz",
+                                    spot.frequency_khz / 1000.0
+                                ))
+                                .monospace(),
+                            );
+                            ui.label(&spot.comment);
+                            ui.label(egui::RichText::new(&spot.time_utc).weak());
 
-                        if ui.button(egui::RichText::new("QSY 📻").color(egui::Color32::from_rgb(34, 197, 94))).clicked() {
-                            tune_target = Some((spot_hz, spot.dx_call.clone()));
+                            if ui
+                                .button(
+                                    egui::RichText::new("QSY 📻")
+                                        .color(egui::Color32::from_rgb(34, 197, 94)),
+                                )
+                                .clicked()
+                            {
+                                tune_target = Some((spot_hz, spot.dx_call.clone()));
+                            }
+                            ui.end_row();
                         }
-                        ui.end_row();
                     }
-                }
-            });
-    });
+                });
+        });
 
     if let Some((freq_hz, call)) = tune_target {
         app.set_vfo_frequency(freq_hz);

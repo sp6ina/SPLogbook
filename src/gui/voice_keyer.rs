@@ -138,7 +138,8 @@ fn transmit_message(msg: &VoiceKeyerMessage, app: &SpLogApp) {
             let _ = crate::cat::hamlib::HamlibClient::set_ptt(&host, port, true).await;
         }
         let m2 = m.clone();
-        let _ = tokio::task::spawn_blocking(move || crate::media::voice_keyer::play_message(&m2)).await;
+        let _ =
+            tokio::task::spawn_blocking(move || crate::media::voice_keyer::play_message(&m2)).await;
         if key_ptt {
             let _ = crate::cat::hamlib::HamlibClient::set_ptt(&host, port, false).await;
         }

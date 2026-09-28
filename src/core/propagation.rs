@@ -7,7 +7,9 @@
 //! niezawodność łączności (Reliability %), przewidywany poziom sygnału (S-meter)
 //! oraz rodzaj warstwy jonosferycznej (F2, Es, D-Absorbed, Groundwave).
 
-use crate::core::geo::{calculate_bearing_deg, calculate_distance_km, locator_to_coordinates, Coordinates};
+use crate::core::geo::{
+    Coordinates, calculate_bearing_deg, calculate_distance_km, locator_to_coordinates,
+};
 use serde::{Deserialize, Serialize};
 
 /// Status otwarcia pasma
@@ -159,10 +161,19 @@ impl PropagationEngine {
     ) -> Result<PropagationForecast, &'static str> {
         let origin = locator_to_coordinates(origin_grid)?;
         let dest = locator_to_coordinates(dest_grid)?;
-        let freq_mhz = band_to_center_mhz(band)
-            .ok_or("Nieznane pasmo. Obsługiwane: 160m, 80m, 60m, 40m, 30m, 20m, 17m, 15m, 12m, 10m, 6m.")?;
+        let freq_mhz = band_to_center_mhz(band).ok_or(
+            "Nieznane pasmo. Obsługiwane: 160m, 80m, 60m, 40m, 30m, 20m, 17m, 15m, 12m, 10m, 6m.",
+        )?;
 
-        Ok(Self::calculate(origin, dest, freq_mhz, sfi, k_index, utc_hour, day_of_year))
+        Ok(Self::calculate(
+            origin,
+            dest,
+            freq_mhz,
+            sfi,
+            k_index,
+            utc_hour,
+            day_of_year,
+        ))
     }
 
     /// Oblicza prognozę oraz wytłumaczalne rozbicie dla trasy między lokatorami.
@@ -177,10 +188,19 @@ impl PropagationEngine {
     ) -> Result<(PropagationForecast, PropagationExplanation), &'static str> {
         let origin = locator_to_coordinates(origin_grid)?;
         let dest = locator_to_coordinates(dest_grid)?;
-        let freq_mhz = band_to_center_mhz(band)
-            .ok_or("Nieznane pasmo. Obsługiwane: 160m, 80m, 60m, 40m, 30m, 20m, 17m, 15m, 12m, 10m, 6m.")?;
+        let freq_mhz = band_to_center_mhz(band).ok_or(
+            "Nieznane pasmo. Obsługiwane: 160m, 80m, 60m, 40m, 30m, 20m, 17m, 15m, 12m, 10m, 6m.",
+        )?;
 
-        Ok(Self::explain(origin, dest, freq_mhz, sfi, k_index, utc_hour, day_of_year))
+        Ok(Self::explain(
+            origin,
+            dest,
+            freq_mhz,
+            sfi,
+            k_index,
+            utc_hour,
+            day_of_year,
+        ))
     }
 
     /// Oblicza prognozę na podstawie bezpośrednich współrzędnych i częstotliwości.
@@ -257,7 +277,8 @@ impl PropagationEngine {
         }
 
         // 2. Deklinacja słońca i wysokość słońca w punkcie środkowym trasy
-        let solar_declination_deg = -23.44 * ((2.0 * std::f64::consts::PI / 365.0) * (day_of_year as f64 + 10.0)).cos();
+        let solar_declination_deg =
+            -23.44 * ((2.0 * std::f64::consts::PI / 365.0) * (day_of_year as f64 + 10.0)).cos();
         let solar_dec_rad = solar_declination_deg.to_radians();
         let mid_lat_rad = mid_lat.to_radians();
 
@@ -266,7 +287,8 @@ impl PropagationEngine {
         let hour_angle_rad = ((solar_time_hours - 12.0) * 15.0).to_radians();
 
         // Sinus wysokości słońca (sin_elevation)
-        let sin_elevation = mid_lat_rad.sin() * solar_dec_rad.sin() + mid_lat_rad.cos() * solar_dec_rad.cos() * hour_angle_rad.cos();
+        let sin_elevation = mid_lat_rad.sin() * solar_dec_rad.sin()
+            + mid_lat_rad.cos() * solar_dec_rad.cos() * hour_angle_rad.cos();
         let is_daylight = sin_elevation > 0.0;
         let day_factor = sin_elevation.max(0.0);
 
@@ -453,8 +475,14 @@ mod tests {
 
         let forecast_20m = PropagationEngine::calculate(sp, us, 14.175, 150, 2, 14.0, 100);
         assert!(forecast_20m.distance_km > 6500.0);
-        assert!(forecast_20m.muf_mhz > 14.0, "W południe przy SFI 150 MUF powinien przekraczać 14 MHz");
-        assert!(forecast_20m.reliability_pct > 30, "Pasmo 20m powinno być otwarte lub częściowo otwarte");
+        assert!(
+            forecast_20m.muf_mhz > 14.0,
+            "W południe przy SFI 150 MUF powinien przekraczać 14 MHz"
+        );
+        assert!(
+            forecast_20m.reliability_pct > 30,
+            "Pasmo 20m powinno być otwarte lub częściowo otwarte"
+        );
     }
 
     #[test]
@@ -466,8 +494,14 @@ mod tests {
         let noon = PropagationEngine::calculate(sp, dl, 3.65, 120, 1, 12.0, 170);
         let midnight = PropagationEngine::calculate(sp, dl, 3.65, 120, 1, 0.0, 170);
 
-        assert!(noon.luf_mhz > midnight.luf_mhz, "LUF w południe powinien być wyższy niż o północy");
-        assert!(midnight.reliability_pct >= noon.reliability_pct, "80m w nocy powinno mieć lepszą niezawodność niż w dzień");
+        assert!(
+            noon.luf_mhz > midnight.luf_mhz,
+            "LUF w południe powinien być wyższy niż o północy"
+        );
+        assert!(
+            midnight.reliability_pct >= noon.reliability_pct,
+            "80m w nocy powinno mieć lepszą niezawodność niż w dzień"
+        );
     }
 
     #[test]
@@ -498,8 +532,7 @@ mod tests {
         let a = Coordinates::new(51.1079, 17.0385);
         let b = Coordinates::new(40.7128, -74.0060);
 
-        let (forecast, explanation) =
-            PropagationEngine::explain(a, b, 14.175, 150, 2, 14.0, 100);
+        let (forecast, explanation) = PropagationEngine::explain(a, b, 14.175, 150, 2, 14.0, 100);
         // Wynik z `calculate` musi być identyczny z `explain().0`.
         assert_eq!(
             forecast,
@@ -517,8 +550,7 @@ mod tests {
     fn test_explain_invalid_input() {
         let a = Coordinates::new(51.1079, 17.0385);
         let b = Coordinates::new(40.7128, -74.0060);
-        let (forecast, explanation) =
-            PropagationEngine::explain(a, b, f64::NAN, 150, 2, 14.0, 100);
+        let (forecast, explanation) = PropagationEngine::explain(a, b, f64::NAN, 150, 2, 14.0, 100);
         assert_eq!(forecast.status, BandOpeningStatus::Closed);
         assert_eq!(explanation.reason, "Nieprawidłowe dane wejściowe");
     }

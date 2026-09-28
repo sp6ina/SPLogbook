@@ -76,8 +76,16 @@ impl ClubLogClient {
         let status = resp.status();
         let body = resp.text().await?;
 
-        if status.is_success() && (body.contains("accepted") || body.contains("Uploaded") || body.contains("queued") || body.contains("OK")) {
-            Ok(format!("Club Log: Łączności przyjęte pomyślnie. ({})", body.trim()))
+        if status.is_success()
+            && (body.contains("accepted")
+                || body.contains("Uploaded")
+                || body.contains("queued")
+                || body.contains("OK"))
+        {
+            Ok(format!(
+                "Club Log: Łączności przyjęte pomyślnie. ({})",
+                body.trim()
+            ))
         } else {
             Err(format!("Club Log błąd: {} - {}", status, body.trim()).into())
         }

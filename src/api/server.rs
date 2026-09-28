@@ -2,13 +2,13 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use axum::{
+    Json, Router,
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
     extract::{Path, Query, State},
-    http::{header, HeaderValue, Method, StatusCode},
+    http::{HeaderValue, Method, StatusCode, header},
     middleware,
     response::{IntoResponse, Response},
     routing::{get, post},
-    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -260,28 +260,56 @@ pub struct ClusterQuery {
     pub call: Option<String>,
 }
 
+/// Akceptuje wyłącznie originy loopback (localhost / 127.0.0.1 / [::1]), dzięki
+/// czemu nagłówek CORS nie jest wystawiany dla dowolnej domeny (`*`), co ogranicza
+/// powierzchnię ataku typu „localhost drive-by" / DNS rebinding.
+fn loopback_origin_header(origin: &HeaderValue) -> Option<HeaderValue> {
+    let origin_str = origin.to_str().ok()?;
+    let rest = origin_str
+        .strip_prefix("http://")
+        .or_else(|| origin_str.strip_prefix("https://"))?;
+    let authority = rest.split('/').next()?;
+    let host = if let Some(bracketed) = authority.strip_prefix('[') {
+        bracketed.split(']').next()?
+    } else {
+        authority.split(':').next()?
+    };
+    match host {
+        "localhost" | "127.0.0.1" | "::1" => Some(origin.clone()),
+        _ => None,
+    }
+}
+
 async fn cors_middleware(req: axum::extract::Request, next: axum::middleware::Next) -> Response {
-    const ORIGIN: HeaderValue = HeaderValue::from_static("*");
     const METHODS: HeaderValue = HeaderValue::from_static("GET, POST, PUT, DELETE, OPTIONS");
-    const HEADERS: HeaderValue =
-        HeaderValue::from_static("Content-Type, Authorization, X-Api-Key");
+    const HEADERS: HeaderValue = HeaderValue::from_static("Content-Type, Authorization, X-Api-Key");
+    const VARY_ORIGIN: HeaderValue = HeaderValue::from_static("Origin");
+
+    let allow_origin = req
+        .headers()
+        .get(header::ORIGIN)
+        .and_then(loopback_origin_header);
 
     if req.method() == Method::OPTIONS {
         let mut res = Response::new(axum::body::Body::empty());
-        res.headers_mut()
-            .insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, ORIGIN);
-        res.headers_mut()
-            .insert(header::ACCESS_CONTROL_ALLOW_METHODS, METHODS);
-        res.headers_mut()
-            .insert(header::ACCESS_CONTROL_ALLOW_HEADERS, HEADERS);
+        if let Some(origin) = allow_origin {
+            res.headers_mut()
+                .insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, origin);
+            res.headers_mut()
+                .insert(header::ACCESS_CONTROL_ALLOW_METHODS, METHODS);
+            res.headers_mut()
+                .insert(header::ACCESS_CONTROL_ALLOW_HEADERS, HEADERS);
+            res.headers_mut().insert(header::VARY, VARY_ORIGIN);
+        }
         return res;
     }
 
     let mut res = next.run(req).await;
-    res.headers_mut().insert(
-        header::ACCESS_CONTROL_ALLOW_ORIGIN,
-        HeaderValue::from_static("*"),
-    );
+    if let Some(origin) = allow_origin {
+        res.headers_mut()
+            .insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, origin);
+        res.headers_mut().insert(header::VARY, VARY_ORIGIN);
+    }
     res
 }
 
@@ -296,10 +324,7 @@ async fn auth_middleware(
     next: axum::middleware::Next,
 ) -> Result<Response, StatusCode> {
     let path = req.uri().path();
-    if req.method() == Method::OPTIONS
-        || path == "/api/v1/status"
-        || path == "/api/v1/endpoints"
-    {
+    if req.method() == Method::OPTIONS || path == "/api/v1/status" || path == "/api/v1/endpoints" {
         return Ok(next.run(req).await);
     }
 
@@ -319,7 +344,9 @@ pub fn build_api_router(state: ApiState) -> Router {
         .route("/api/v1/qsos/callsign/{call}", get(get_qsos_by_callsign))
         .route(
             "/api/v1/qsos/{id}",
-            get(get_qso_by_id).put(put_qso_by_id).delete(delete_qso_by_id),
+            get(get_qso_by_id)
+                .put(put_qso_by_id)
+                .delete(delete_qso_by_id),
         )
         .route("/api/v1/lookup/{call}", get(lookup_callsign))
         .route("/api/v1/adif/export", get(export_adif_handler))
@@ -330,7 +357,10 @@ pub fn build_api_router(state: ApiState) -> Router {
         .route("/api/v1/stats", get(get_stats))
         .route("/api/v1/cluster/spots", get(get_cluster_spots))
         .route("/api/v1/ws", get(ws_handler))
-        .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ))
         .layer(middleware::from_fn(cors_middleware))
         .with_state(state)
 }
@@ -362,22 +392,52 @@ pub async fn start_api_server_with_state(state: ApiState, port: u16) {
         }
     };
     eprintln!("[REST API] Serwer uruchomiony na http://{bind_addr}");
-    eprintln!("[REST API] Wymagany naglowek uwierzytelniajacy X-Api-Key (patrz Narzedzia -> REST API).");
+    eprintln!(
+        "[REST API] Wymagany naglowek uwierzytelniajacy X-Api-Key (patrz Narzedzia -> REST API)."
+    );
     if let Err(e) = axum::serve(listener, app).await {
         eprintln!("[REST API] Blad serwera: {e}");
     }
+}
+
+/// Wykonuje operację na bazie danych poza wątkami roboczymi Tokio.
+/// Długie zapytania SQLite nie blokują wtedy obsługi pozostałych endpointów.
+async fn with_db<T, F>(state: &ApiState, f: F) -> Result<T, (StatusCode, String)>
+where
+    T: Send + 'static,
+    F: FnOnce(&mut LogDatabase) -> Result<T, rusqlite::Error> + Send + 'static,
+{
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let mut guard = db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        f(&mut guard)
+    })
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Błąd wykonania zapytania do bazy: {e}"),
+        )
+    })?
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
 async fn get_status(
     State(state): State<ApiState>,
 ) -> Result<Json<StatusResponse>, (StatusCode, String)> {
     let total_qsos = {
-        let db = state.db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let db = state
+            .db
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         db.count_all()
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     };
     let (rig_connected, frequency_hz, mode) = {
-        let rig = state.rig_state.read().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let rig = state
+            .rig_state
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         (rig.connected, rig.frequency_hz, rig.mode.clone())
     };
 
@@ -507,12 +567,21 @@ async fn get_endpoints() -> Json<Vec<EndpointDoc>> {
 }
 
 fn has_advanced_filter(query: &QsoQuery) -> bool {
-    query.callsign.as_ref().is_some_and(|s| !s.trim().is_empty())
+    query
+        .callsign
+        .as_ref()
+        .is_some_and(|s| !s.trim().is_empty())
         || query.band.as_ref().is_some_and(|s| !s.trim().is_empty())
         || query.mode.as_ref().is_some_and(|s| !s.trim().is_empty())
-        || query.date_from.as_ref().is_some_and(|s| !s.trim().is_empty())
+        || query
+            .date_from
+            .as_ref()
+            .is_some_and(|s| !s.trim().is_empty())
         || query.date_to.as_ref().is_some_and(|s| !s.trim().is_empty())
-        || query.journal_id.as_ref().is_some_and(|s| !s.trim().is_empty())
+        || query
+            .journal_id
+            .as_ref()
+            .is_some_and(|s| !s.trim().is_empty())
         || query.lotw_confirmed.is_some()
         || query.eqsl_confirmed.is_some()
         || query.qsl_rcvd.is_some()
@@ -532,7 +601,11 @@ fn build_advanced_filter(query: &QsoQuery) -> AdvancedQsoFilter {
         }
     }
     if let Some(ref m) = query.mode {
-        for part in m.split(',').map(|s| s.trim().to_uppercase()).filter(|s| !s.is_empty()) {
+        for part in m
+            .split(',')
+            .map(|s| s.trim().to_uppercase())
+            .filter(|s| !s.is_empty())
+        {
             filter.modes.push(part);
         }
     }
@@ -551,46 +624,54 @@ async fn get_qsos(
 ) -> Result<Json<Vec<QsoRecord>>, (StatusCode, String)> {
     let limit = clamp_usize(query.limit, 50, MAX_QSO_LIMIT);
     let offset = clamp_usize(query.offset, 0, MAX_QSO_OFFSET);
+    let advanced = has_advanced_filter(&query);
 
-    let db = state.db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-
-    if has_advanced_filter(&query) {
-        let filter = build_advanced_filter(&query);
-        let mut qsos = db
-            .search_qsos_advanced(&filter)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-        if offset < qsos.len() {
-            qsos.drain(0..offset);
+    let qsos = with_db(&state, move |db| {
+        if advanced {
+            let filter = build_advanced_filter(&query);
+            let mut qsos = db.search_qsos_advanced(&filter)?;
+            if offset < qsos.len() {
+                qsos.drain(0..offset);
+            } else {
+                qsos.clear();
+            }
+            qsos.truncate(limit);
+            Ok(qsos)
         } else {
-            qsos.clear();
+            db.get_qsos_paginated(limit, offset)
         }
-        qsos.truncate(limit);
-        Ok(Json(qsos))
-    } else {
-        let qsos = db
-            .get_qsos_paginated(limit, offset)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-        Ok(Json(qsos))
-    }
+    })
+    .await?;
+
+    Ok(Json(qsos))
 }
 
 async fn get_qso_by_id(
     State(state): State<ApiState>,
     Path(id): Path<i64>,
 ) -> Result<Json<QsoRecord>, (StatusCode, String)> {
-    let db = state.db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let db = state
+        .db
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let qso = db
         .get_qso_by_id(id)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     match qso {
         Some(q) => Ok(Json(q)),
-        None => Err((StatusCode::NOT_FOUND, format!("Nie znaleziono QSO o ID {id}"))),
+        None => Err((
+            StatusCode::NOT_FOUND,
+            format!("Nie znaleziono QSO o ID {id}"),
+        )),
     }
 }
 
 /// Normalizuje i wzbogaca rekord QSO przed zapisem/aktualizacją przez REST API.
-fn normalize_and_enrich_qso(qso: &mut QsoRecord, prefix_matcher: &PrefixMatcher) -> Result<(), (StatusCode, String)> {
+fn normalize_and_enrich_qso(
+    qso: &mut QsoRecord,
+    prefix_matcher: &PrefixMatcher,
+) -> Result<(), (StatusCode, String)> {
     qso.callsign = qso.callsign.trim().to_uppercase();
     if qso.callsign.is_empty() {
         return Err((
@@ -653,16 +734,23 @@ async fn post_qso(
     Json(mut qso): Json<QsoRecord>,
 ) -> Result<(StatusCode, Json<QsoRecord>), (StatusCode, String)> {
     normalize_and_enrich_qso(&mut qso, &state.prefix_matcher)?;
+    qso.validate().map_err(|e| (StatusCode::BAD_REQUEST, e))?;
 
     let id = {
-        let db = state.db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let db = state
+            .db
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         db.insert_qso(&qso)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     };
     qso.id = Some(id);
 
     {
-        let mut awards = state.awards_engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut awards = state
+            .awards_engine
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         awards.register_qso_record(&qso);
     }
     state.reload_flag.store(true, Ordering::Release);
@@ -684,14 +772,21 @@ async fn put_qso_by_id(
     Json(mut qso): Json<QsoRecord>,
 ) -> Result<Json<QsoRecord>, (StatusCode, String)> {
     normalize_and_enrich_qso(&mut qso, &state.prefix_matcher)?;
+    qso.validate().map_err(|e| (StatusCode::BAD_REQUEST, e))?;
 
     {
-        let db = state.db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let db = state
+            .db
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let existing = db
             .get_qso_by_id(id)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
         if existing.is_none() {
-            return Err((StatusCode::NOT_FOUND, format!("Nie znaleziono QSO o ID {id}")));
+            return Err((
+                StatusCode::NOT_FOUND,
+                format!("Nie znaleziono QSO o ID {id}"),
+            ));
         }
         db.update_qso(id, &qso)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -707,12 +802,18 @@ async fn delete_qso_by_id(
     Path(id): Path<i64>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     {
-        let db = state.db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let db = state
+            .db
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let existing = db
             .get_qso_by_id(id)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
         if existing.is_none() {
-            return Err((StatusCode::NOT_FOUND, format!("Nie znaleziono QSO o ID {id}")));
+            return Err((
+                StatusCode::NOT_FOUND,
+                format!("Nie znaleziono QSO o ID {id}"),
+            ));
         }
         db.delete_qso(id)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -732,7 +833,10 @@ async fn get_qsos_by_callsign(
 ) -> Result<Json<CallsignHistoryResponse>, (StatusCode, String)> {
     let clean_call = call.trim().to_uppercase();
     let previous_qsos = {
-        let db = state.db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let db = state
+            .db
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         db.find_previous_qsos(&clean_call)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     };
@@ -783,7 +887,10 @@ async fn lookup_callsign(
     let clubs = ClubRegistry::check(&clean);
 
     let award_status = prefix_info.as_ref().map(|info| {
-        let awards = state.awards_engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let awards = state
+            .awards_engine
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         awards.check_status_full(
             &clean,
             band,
@@ -798,9 +905,11 @@ async fn lookup_callsign(
     });
 
     let previous_qso_count = {
-        let db = state.db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        db.find_previous_qsos(&clean)
-            .map_or(0, |v| v.len())
+        let db = state
+            .db
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        db.find_previous_qsos(&clean).map_or(0, |v| v.len())
     };
 
     Ok(Json(LookupResponse {
@@ -824,25 +933,21 @@ async fn export_adif_handler(
     State(state): State<ApiState>,
     Query(query): Query<QsoQuery>,
 ) -> Result<Response, (StatusCode, String)> {
-    let qsos = {
-        let db = state.db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let qsos = with_db(&state, move |db| {
         if has_advanced_filter(&query) {
             let filter = build_advanced_filter(&query);
-            let mut list = db
-                .search_qsos_advanced(&filter)
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            let mut list = db.search_qsos_advanced(&filter)?;
             if let Some(lim) = query.limit {
                 list.truncate(lim);
             }
-            list
+            Ok(list)
         } else if let Some(lim) = query.limit {
             db.get_qsos_paginated(lim, query.offset.unwrap_or(0))
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         } else {
             db.get_all_qsos()
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         }
-    };
+    })
+    .await?;
 
     let adif_text = adif::export_adif(&qsos, "SPLogbook", &state.callsign);
     let mut resp = adif_text.into_response();
@@ -868,39 +973,79 @@ async fn import_adif_handler(
         ));
     }
 
-    let mut report = adif::parse_adif_with_report(&body);
-    for qso in &mut report.qsos {
-        let _ = normalize_and_enrich_qso(qso, &state.prefix_matcher);
+    let report = adif::parse_adif_with_report(&body);
+    let mut validation_rejected = 0usize;
+    let mut validation_errors: Vec<String> = Vec::new();
+    // Idempotentny import: pomijaj rekordy o kluczu istniejącym już w DEFAULT.
+    let mut seen_keys: std::collections::HashSet<String> =
+        with_db(&state, |db| db.existing_qso_keys("DEFAULT")).await?;
+    let mut qsos = Vec::with_capacity(report.qsos.len());
+    for mut qso in report.qsos {
+        // API nie posiada pojęcia „aktywnego dziennika” — import trafia do DEFAULT.
+        qso.journal_id = Some("DEFAULT".to_string());
+        let _ = normalize_and_enrich_qso(&mut qso, &state.prefix_matcher);
+        if let Err(reason) = qso.validate() {
+            validation_rejected += 1;
+            validation_errors.push(reason);
+            continue;
+        }
+        let key = format!(
+            "{}|{}|{}|{}|{}",
+            qso.callsign.to_uppercase(),
+            qso.band.to_uppercase(),
+            qso.mode.to_uppercase(),
+            qso.qso_date.replace('-', ""),
+            qso.time_on.replace(':', "")
+        );
+        if !seen_keys.insert(key) {
+            validation_rejected += 1;
+            validation_errors.push("duplikat (rekord już istnieje w dzienniku)".to_string());
+            continue;
+        }
+        qsos.push(qso);
     }
 
+    let qsos = std::sync::Arc::new(qsos);
+
     let (inserted, total_qsos) = {
-        let mut db = state.db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let ins = db
-            .batch_insert_qsos(&report.qsos)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-        let tot = db.count_all().unwrap_or(ins);
-        (ins, tot)
+        let qsos = std::sync::Arc::clone(&qsos);
+        with_db(&state, move |db| {
+            let ins = db.batch_insert_qsos(qsos.as_slice())?;
+            let tot = db.count_all().unwrap_or(ins);
+            Ok((ins, tot))
+        })
+        .await?
     };
 
     {
-        let mut awards = state.awards_engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        for qso in &report.qsos {
+        let mut awards = state
+            .awards_engine
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        for qso in qsos.iter() {
             awards.register_qso_record(qso);
         }
     }
     state.reload_flag.store(true, Ordering::Release);
 
+    let mut errors = report.errors;
+    errors.extend(validation_errors);
     Ok(Json(AdifImportApiResponse {
         imported: inserted,
-        rejected: report.rejected,
-        errors: report.errors,
+        rejected: report.rejected + validation_rejected,
+        errors,
         total_qsos,
     }))
 }
 
 async fn get_rig_state(State(state): State<ApiState>) -> Json<RigStateResponse> {
-    let rig = state.rig_state.read().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
-    let band = crate::core::bandplan::get_band_by_freq(rig.frequency_hz).map_or_else(|| "OTHER".to_string(), |b| b.name.to_string());
+    let rig = state
+        .rig_state
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone();
+    let band = crate::core::bandplan::get_band_by_freq(rig.frequency_hz)
+        .map_or_else(|| "OTHER".to_string(), |b| b.name.to_string());
     Json(RigStateResponse {
         connected: rig.connected,
         frequency_hz: rig.frequency_hz,
@@ -922,7 +1067,10 @@ async fn post_rig_control(
     Json(req): Json<RigControlRequest>,
 ) -> Json<RigStateResponse> {
     let updated = {
-        let mut rig = state.rig_state.write().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut rig = state
+            .rig_state
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(freq) = req.frequency_hz {
             rig.frequency_hz = freq;
         }
@@ -950,7 +1098,8 @@ async fn post_rig_control(
         connected: updated.connected,
     });
 
-    let band = crate::core::bandplan::get_band_by_freq(updated.frequency_hz).map_or_else(|| "OTHER".to_string(), |b| b.name.to_string());
+    let band = crate::core::bandplan::get_band_by_freq(updated.frequency_hz)
+        .map_or_else(|| "OTHER".to_string(), |b| b.name.to_string());
 
     Json(RigStateResponse {
         connected: updated.connected,
@@ -969,7 +1118,10 @@ async fn post_rig_control(
 }
 
 async fn get_awards_summary(State(state): State<ApiState>) -> Json<AwardsSummaryResponse> {
-    let a = state.awards_engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let a = state
+        .awards_engine
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     Json(AwardsSummaryResponse {
         dxcc_worked: a.worked_dxcc_all.len(),
         dxcc_confirmed: a.confirmed_dxcc.len(),
@@ -993,12 +1145,16 @@ async fn get_awards_summary(State(state): State<ApiState>) -> Json<AwardsSummary
 async fn get_journals(
     State(state): State<ApiState>,
 ) -> Result<Json<JournalsResponse>, (StatusCode, String)> {
-    let db = state.db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let db = state
+        .db
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let journals = db
         .get_all_journals()
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     let active_journal_id = db
-        .get_active_journal().map_or_else(|_| "DEFAULT".to_string(), |j| j.id);
+        .get_active_journal()
+        .map_or_else(|_| "DEFAULT".to_string(), |j| j.id);
     Ok(Json(JournalsResponse {
         active_journal_id,
         journals,
@@ -1008,54 +1164,45 @@ async fn get_journals(
 async fn get_stats(
     State(state): State<ApiState>,
 ) -> Result<Json<StatsResponse>, (StatusCode, String)> {
-    let db = state.db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let stats = with_db(&state, |db| {
+        let total = db.count_all()?;
+        let (unique_calls, unique_dxcc) = db.stats_unique_counts()?;
 
-    let total = db
-        .count_all()
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    let (unique_calls, unique_dxcc) = db
-        .stats_unique_counts()
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        let band_stats = db.stats_qso_per_band()?;
+        let mut by_band = HashMap::new();
+        for (band, count) in band_stats {
+            by_band.insert(band, count);
+        }
 
-    let band_stats = db
-        .stats_qso_per_band()
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    let mut by_band = HashMap::new();
-    for (band, count) in band_stats {
-        by_band.insert(band, count);
-    }
+        let mode_stats = db.stats_qso_per_mode()?;
+        let mut by_mode = HashMap::new();
+        for (mode, count) in mode_stats {
+            by_mode.insert(mode, count);
+        }
 
-    let mode_stats = db
-        .stats_qso_per_mode()
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    let mut by_mode = HashMap::new();
-    for (mode, count) in mode_stats {
-        by_mode.insert(mode, count);
-    }
+        let cont_stats = db.stats_qso_per_continent()?;
+        let mut by_continent = HashMap::new();
+        for (cont, count) in cont_stats {
+            by_continent.insert(cont, count);
+        }
 
-    let cont_stats = db
-        .stats_qso_per_continent()
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    let mut by_continent = HashMap::new();
-    for (cont, count) in cont_stats {
-        by_continent.insert(cont, count);
-    }
+        let (_tot, qsl_lotw, qsl_eqsl, qsl_paper) = db.stats_qsl_summary()?;
 
-    let (_tot, qsl_lotw, qsl_eqsl, qsl_paper) = db
-        .stats_qsl_summary()
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        Ok(StatsResponse {
+            total,
+            unique_calls,
+            unique_dxcc,
+            by_band,
+            by_mode,
+            by_continent,
+            qsl_lotw,
+            qsl_eqsl,
+            qsl_paper,
+        })
+    })
+    .await?;
 
-    Ok(Json(StatsResponse {
-        total,
-        unique_calls,
-        unique_dxcc,
-        by_band,
-        by_mode,
-        by_continent,
-        qsl_lotw,
-        qsl_eqsl,
-        qsl_paper,
-    }))
+    Ok(Json(stats))
 }
 
 /// GET /api/v1/cluster/spots?limit=N&band=20m&ft8=false&call=SP
@@ -1068,7 +1215,10 @@ async fn get_cluster_spots(
     let band_filter = query.band.as_deref().map(|b| b.trim().to_lowercase());
     let call_filter = query.call.as_deref().map(|c| c.trim().to_uppercase());
 
-    let spots = state.cluster_spots.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let spots = state
+        .cluster_spots
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let result: Vec<serde_json::Value> = spots
         .iter()
         .filter(|s| {
@@ -1194,8 +1344,14 @@ mod tests {
     fn clamp_usize_applies_default_and_max_cap() {
         assert_eq!(clamp_usize(None, 50, MAX_QSO_LIMIT), 50);
         assert_eq!(clamp_usize(Some(10), 50, MAX_QSO_LIMIT), 10);
-        assert_eq!(clamp_usize(Some(1_000_000), 50, MAX_QSO_LIMIT), MAX_QSO_LIMIT);
-        assert_eq!(clamp_usize(Some(999_999), 50, MAX_SPOT_LIMIT), MAX_SPOT_LIMIT);
+        assert_eq!(
+            clamp_usize(Some(1_000_000), 50, MAX_QSO_LIMIT),
+            MAX_QSO_LIMIT
+        );
+        assert_eq!(
+            clamp_usize(Some(999_999), 50, MAX_SPOT_LIMIT),
+            MAX_SPOT_LIMIT
+        );
         assert_eq!(clamp_usize(Some(0), 50, MAX_QSO_LIMIT), 0);
     }
 
@@ -1225,7 +1381,10 @@ mod tests {
         // 1. Publiczny /api/v1/status bez klucza
         let resp = call_router(
             &app,
-            Request::builder().uri("/api/v1/status").body(Body::empty()).unwrap(),
+            Request::builder()
+                .uri("/api/v1/status")
+                .body(Body::empty())
+                .unwrap(),
         )
         .await;
         assert_eq!(resp.status(), StatusCode::OK);
@@ -1233,7 +1392,10 @@ mod tests {
         // 2. Chroniony endpoint bez klucza -> 401 UNAUTHORIZED
         let resp = call_router(
             &app,
-            Request::builder().uri("/api/v1/qsos").body(Body::empty()).unwrap(),
+            Request::builder()
+                .uri("/api/v1/qsos")
+                .body(Body::empty())
+                .unwrap(),
         )
         .await;
         assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
@@ -1265,9 +1427,16 @@ mod tests {
 
         // Zdarzenie powinno zostać opublikowane na EventBus, a flaga odświeżenia GUI ustawiona
         assert!(state.reload_flag.load(Ordering::Acquire));
-        let ev = event_rx.try_recv().expect("Powinno zostać wyemitowane zdarzenie QsoLogged");
+        let ev = event_rx
+            .try_recv()
+            .expect("Powinno zostać wyemitowane zdarzenie QsoLogged");
         match ev {
-            AppEvent::QsoLogged { callsign, band, mode, .. } => {
+            AppEvent::QsoLogged {
+                callsign,
+                band,
+                mode,
+                ..
+            } => {
                 assert_eq!(callsign, "DL1ABC");
                 assert_eq!(band, "20m");
                 assert_eq!(mode, "CW");

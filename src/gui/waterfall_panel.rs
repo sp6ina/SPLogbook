@@ -77,13 +77,16 @@ impl WaterfallPanel {
 
         // Określenie częstotliwości próbkowania wybranego urządzenia (do budowy silnika FFT).
         let device_name = self.selected_device_name();
-        let sample_rate = pick_input_device(device_name.as_deref())
-            .map_or(48_000, |(_, cfg)| cfg.sample_rate());
+        let sample_rate =
+            pick_input_device(device_name.as_deref()).map_or(48_000, |(_, cfg)| cfg.sample_rate());
 
         let fft_size = FFT_SIZES[self.fft_idx];
         self.engine = Some(WaterfallEngine::new(fft_size, sample_rate, HISTORY_DEPTH));
         self.texture = None;
-        *self.error_slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+        *self
+            .error_slot
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
 
         let running = Arc::new(AtomicBool::new(true));
         let ring = self.ring.clone();
@@ -96,7 +99,9 @@ impl WaterfallPanel {
                 Ok(stream) => {
                     // Strumień pozostaje żywy, dopóki `thread_running` jest ustawione.
                     if let Err(e) = stream.play() {
-                        *error_slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+                        *error_slot
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner) =
                             Some(format!("Błąd odtwarzania strumienia: {e}"));
                     }
                     while thread_running.load(Ordering::Relaxed) {
@@ -105,7 +110,9 @@ impl WaterfallPanel {
                 }
                 Err(e) => {
                     log::error!("Nie udało się uruchomić przechwytywania audio: {e}");
-                    *error_slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(e);
+                    *error_slot
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(e);
                 }
             }
         });
@@ -136,7 +143,10 @@ impl WaterfallPanel {
             None => false,
         };
         if needs_rebuild {
-            let sample_rate = self.engine.as_ref().map_or(48_000, super::super::dsp::waterfall::WaterfallEngine::sample_rate);
+            let sample_rate = self.engine.as_ref().map_or(
+                48_000,
+                super::super::dsp::waterfall::WaterfallEngine::sample_rate,
+            );
             self.engine = Some(WaterfallEngine::new(fft_size, sample_rate, HISTORY_DEPTH));
             self.texture = None;
         }
@@ -173,7 +183,11 @@ impl WaterfallPanel {
                 self.start();
             }
 
-            if ui.button("⟳").on_hover_text("Odśwież listę urządzeń").clicked() {
+            if ui
+                .button("⟳")
+                .on_hover_text("Odśwież listę urządzeń")
+                .clicked()
+            {
                 self.refresh_devices();
             }
 
@@ -203,7 +217,12 @@ impl WaterfallPanel {
             }
         });
 
-        if let Some(err) = self.error_slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone() {
+        if let Some(err) = self
+            .error_slot
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+        {
             ui.colored_label(egui::Color32::from_rgb(239, 68, 68), format!("⚠ {err}"));
         }
 
@@ -222,7 +241,11 @@ impl WaterfallPanel {
         }
 
         // Rysowanie spektrogramu.
-        if self.engine.as_ref().is_some_and(|e| !e.history().is_empty()) {
+        if self
+            .engine
+            .as_ref()
+            .is_some_and(|e| !e.history().is_empty())
+        {
             self.draw_spectrogram(ui);
             ui.add_space(4.0);
             self.draw_spectrum(ui);
@@ -240,7 +263,9 @@ impl WaterfallPanel {
         // Obliczenie pikseli w osobnym zakresie, aby nie trzymać pożyczki `self.engine`
         // podczas mutowania `self.texture`.
         let (pixels, bins, rows) = {
-            let Some(engine) = self.engine.as_ref() else { return };
+            let Some(engine) = self.engine.as_ref() else {
+                return;
+            };
             let history = engine.history();
             let rows = history.len();
             let bins = history[0].len();
@@ -263,7 +288,10 @@ impl WaterfallPanel {
         if let Some(tex) = &mut self.texture {
             tex.set(image, options);
         } else {
-            self.texture = Some(ui.ctx().load_texture("waterfall_spectrogram", image, options));
+            self.texture = Some(
+                ui.ctx()
+                    .load_texture("waterfall_spectrogram", image, options),
+            );
         }
 
         let height = 240.0_f32;
@@ -274,8 +302,12 @@ impl WaterfallPanel {
     }
 
     fn draw_spectrum(&self, ui: &mut egui::Ui) {
-        let Some(engine) = self.engine.as_ref() else { return };
-        let Some(row) = engine.latest_row() else { return };
+        let Some(engine) = self.engine.as_ref() else {
+            return;
+        };
+        let Some(row) = engine.latest_row() else {
+            return;
+        };
         let desired = egui::vec2(ui.available_width().max(64.0), 120.0);
         let (rect, _) = ui.allocate_exact_size(desired, egui::Sense::hover());
         let painter = ui.painter();
@@ -338,7 +370,11 @@ pub fn render_waterfall_window(app: &mut SpLogApp, ctx: &egui::Context) {
         |app, ui| {
             egui::Panel::top("waterfall_vp_bar").show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    if ui.button("↙ Zadokuj").on_hover_text("Zadokuj kafelek").clicked() {
+                    if ui
+                        .button("↙ Zadokuj")
+                        .on_hover_text("Zadokuj kafelek")
+                        .clicked()
+                    {
                         dock_back = true;
                     }
                 });
@@ -410,7 +446,9 @@ fn lerp_u8(a: u8, b: u8, f: f32) -> u8 {
 }
 
 /// Wyszukuje urządzenie wejściowe po nazwie (lub domyślne) i zwraca je z konfiguracją.
-fn pick_input_device(name: Option<&str>) -> Result<(cpal::Device, cpal::SupportedStreamConfig), String> {
+fn pick_input_device(
+    name: Option<&str>,
+) -> Result<(cpal::Device, cpal::SupportedStreamConfig), String> {
     let host = cpal::default_host();
     let devices: Vec<cpal::Device> = host
         .input_devices()
@@ -422,12 +460,7 @@ fn pick_input_device(name: Option<&str>) -> Result<(cpal::Device, cpal::Supporte
 
     let by_name = name
         .filter(|n| !n.is_empty())
-        .and_then(|n| {
-            devices
-                .iter()
-                .find(|d| d.to_string() == n)
-                .cloned()
-        });
+        .and_then(|n| devices.iter().find(|d| d.to_string() == n).cloned());
 
     let device = by_name
         .or_else(|| host.default_input_device())
@@ -441,7 +474,10 @@ fn pick_input_device(name: Option<&str>) -> Result<(cpal::Device, cpal::Supporte
 }
 
 /// Buduje strumień wejściowy cpal dla wybranego urządzenia i formatu próbek.
-fn start_audio_stream(device_name: Option<&str>, ring: Arc<SampleRing>) -> Result<cpal::Stream, String> {
+fn start_audio_stream(
+    device_name: Option<&str>,
+    ring: Arc<SampleRing>,
+) -> Result<cpal::Stream, String> {
     let (device, supported) = pick_input_device(device_name)?;
     let sample_format = supported.sample_format();
     let channels = supported.channels() as usize;

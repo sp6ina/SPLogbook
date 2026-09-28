@@ -36,7 +36,11 @@ pub fn detect_tqsl_path() -> Option<PathBuf> {
 
     if let Ok(path_var) = std::env::var("PATH") {
         let bin_names = ["tqsl", "tqsl.exe"];
-        let separator = if cfg!(target_os = "windows") { ';' } else { ':' };
+        let separator = if cfg!(target_os = "windows") {
+            ';'
+        } else {
+            ':'
+        };
         for p in path_var.split(separator) {
             for b in &bin_names {
                 let p_buf = PathBuf::from(p).join(b);
@@ -57,7 +61,10 @@ pub fn export_and_sign_tqsl(
     adif_content: &str,
 ) -> Result<String, Box<dyn std::error::Error>> {
     let temp_dir = std::env::temp_dir();
-    let adif_path = temp_dir.join(format!("splogbook_lotw_{}.adi", chrono::Utc::now().timestamp()));
+    let adif_path = temp_dir.join(format!(
+        "splogbook_lotw_{}.adi",
+        chrono::Utc::now().timestamp()
+    ));
     std::fs::write(&adif_path, adif_content)?;
 
     // Argumenty TQSL:
@@ -83,9 +90,17 @@ pub fn export_and_sign_tqsl(
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
     if output.status.success() {
-        Ok(format!("TQSL sukces: {stdout}\n{stderr}").trim().to_string())
+        Ok(format!("TQSL sukces: {stdout}\n{stderr}")
+            .trim()
+            .to_string())
     } else {
-        Err(format!("Błąd wykonania TQSL (kod {}): {}\n{}", output.status.code().unwrap_or(-1), stdout, stderr).into())
+        Err(format!(
+            "Błąd wykonania TQSL (kod {}): {}\n{}",
+            output.status.code().unwrap_or(-1),
+            stdout,
+            stderr
+        )
+        .into())
     }
 }
 
@@ -128,12 +143,19 @@ pub async fn download_lotw_report(
     .await?;
     let text = resp.text().await?;
 
-    if text.contains("ARRL Logbook of the World") || text.contains("<EOH>") || text.contains("<eoh>") {
+    if text.contains("ARRL Logbook of the World")
+        || text.contains("<EOH>")
+        || text.contains("<eoh>")
+    {
         Ok(text)
     } else if text.contains("Password") || text.contains("Unknown Username") {
         Err("Błąd logowania do LoTW: Nieprawidłowy login lub hasło.".into())
     } else {
-        Err(format!("Nieznana odpowiedź z serwera LoTW: {}", text.chars().take(200).collect::<String>()).into())
+        Err(format!(
+            "Nieznana odpowiedź z serwera LoTW: {}",
+            text.chars().take(200).collect::<String>()
+        )
+        .into())
     }
 }
 
@@ -143,7 +165,9 @@ pub fn parse_lotw_confirmations(adif: &str) -> Vec<LotwConfirmation> {
     let qsos = crate::core::adif::parse_adif(adif);
 
     for q in qsos {
-        let rdate = q.lotw_qslrdate.unwrap_or_else(|| chrono::Utc::now().format("%Y%m%d").to_string());
+        let rdate = q
+            .lotw_qslrdate
+            .unwrap_or_else(|| chrono::Utc::now().format("%Y%m%d").to_string());
         confirmations.push(LotwConfirmation {
             callsign: q.callsign,
             band: q.band.to_lowercase(),

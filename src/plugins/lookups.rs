@@ -62,7 +62,11 @@ pub async fn lookup_pota(reference: &str) -> Result<PotaInfo, String> {
 
     let data: PotaResponse = resp.json().await.map_err(|e| format!("POTA JSON: {e}"))?;
     Ok(PotaInfo {
-        reference: if data.reference.is_empty() { clean } else { data.reference },
+        reference: if data.reference.is_empty() {
+            clean
+        } else {
+            data.reference
+        },
         name: data.name,
         active: data.active,
     })

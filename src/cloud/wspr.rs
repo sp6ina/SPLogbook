@@ -15,11 +15,11 @@ pub async fn fetch_wspr_spots(my_callsign: &str) -> Result<Vec<WsprSpot>, String
         .send()
         .await
         .map_err(|e| e.to_string())?;
-    
+
     if !resp.status().is_success() {
         return Err(format!("HTTP Error: {}", resp.status()));
     }
-    
+
     let body = resp.text().await.map_err(|e| e.to_string())?;
     let mut spots = Vec::new();
     for line in body.lines() {

@@ -34,9 +34,24 @@ pub static AMATEUR_BANDS: &[BandDefinition] = &[
         max_freq_hz: 2_000_000,
         default_freq_hz: 1_840_000,
         segments: &[
-            BandSegment { label: "CW", start_hz: 1_800_000, end_hz: 1_838_000, mode: SegmentMode::Cw },
-            BandSegment { label: "DIGI", start_hz: 1_838_000, end_hz: 1_840_000, mode: SegmentMode::Data },
-            BandSegment { label: "SSB", start_hz: 1_840_000, end_hz: 2_000_000, mode: SegmentMode::Ssb },
+            BandSegment {
+                label: "CW",
+                start_hz: 1_800_000,
+                end_hz: 1_838_000,
+                mode: SegmentMode::Cw,
+            },
+            BandSegment {
+                label: "DIGI",
+                start_hz: 1_838_000,
+                end_hz: 1_840_000,
+                mode: SegmentMode::Data,
+            },
+            BandSegment {
+                label: "SSB",
+                start_hz: 1_840_000,
+                end_hz: 2_000_000,
+                mode: SegmentMode::Ssb,
+            },
         ],
     },
     BandDefinition {
@@ -45,9 +60,24 @@ pub static AMATEUR_BANDS: &[BandDefinition] = &[
         max_freq_hz: 3_800_000,
         default_freq_hz: 3_710_000,
         segments: &[
-            BandSegment { label: "CW", start_hz: 3_500_000, end_hz: 3_570_000, mode: SegmentMode::Cw },
-            BandSegment { label: "DIGI/FT8", start_hz: 3_570_000, end_hz: 3_600_000, mode: SegmentMode::Data },
-            BandSegment { label: "SSB", start_hz: 3_600_000, end_hz: 3_800_000, mode: SegmentMode::Ssb },
+            BandSegment {
+                label: "CW",
+                start_hz: 3_500_000,
+                end_hz: 3_570_000,
+                mode: SegmentMode::Cw,
+            },
+            BandSegment {
+                label: "DIGI/FT8",
+                start_hz: 3_570_000,
+                end_hz: 3_600_000,
+                mode: SegmentMode::Data,
+            },
+            BandSegment {
+                label: "SSB",
+                start_hz: 3_600_000,
+                end_hz: 3_800_000,
+                mode: SegmentMode::Ssb,
+            },
         ],
     },
     BandDefinition {
@@ -56,8 +86,18 @@ pub static AMATEUR_BANDS: &[BandDefinition] = &[
         max_freq_hz: 5_366_500,
         default_freq_hz: 5_357_000,
         segments: &[
-            BandSegment { label: "CW/DIGI", start_hz: 5_351_500, end_hz: 5_354_000, mode: SegmentMode::Data },
-            BandSegment { label: "USB", start_hz: 5_354_000, end_hz: 5_366_500, mode: SegmentMode::Ssb },
+            BandSegment {
+                label: "CW/DIGI",
+                start_hz: 5_351_500,
+                end_hz: 5_354_000,
+                mode: SegmentMode::Data,
+            },
+            BandSegment {
+                label: "USB",
+                start_hz: 5_354_000,
+                end_hz: 5_366_500,
+                mode: SegmentMode::Ssb,
+            },
         ],
     },
     BandDefinition {
@@ -66,9 +106,24 @@ pub static AMATEUR_BANDS: &[BandDefinition] = &[
         max_freq_hz: 7_200_000,
         default_freq_hz: 7_150_000,
         segments: &[
-            BandSegment { label: "CW", start_hz: 7_000_000, end_hz: 7_040_000, mode: SegmentMode::Cw },
-            BandSegment { label: "DIGI/FT8", start_hz: 7_040_000, end_hz: 7_050_000, mode: SegmentMode::Data },
-            BandSegment { label: "SSB", start_hz: 7_050_000, end_hz: 7_200_000, mode: SegmentMode::Ssb },
+            BandSegment {
+                label: "CW",
+                start_hz: 7_000_000,
+                end_hz: 7_040_000,
+                mode: SegmentMode::Cw,
+            },
+            BandSegment {
+                label: "DIGI/FT8",
+                start_hz: 7_040_000,
+                end_hz: 7_050_000,
+                mode: SegmentMode::Data,
+            },
+            BandSegment {
+                label: "SSB",
+                start_hz: 7_050_000,
+                end_hz: 7_200_000,
+                mode: SegmentMode::Ssb,
+            },
         ],
     },
     BandDefinition {
@@ -77,8 +132,18 @@ pub static AMATEUR_BANDS: &[BandDefinition] = &[
         max_freq_hz: 10_150_000,
         default_freq_hz: 10_136_000,
         segments: &[
-            BandSegment { label: "CW", start_hz: 10_100_000, end_hz: 10_130_000, mode: SegmentMode::Cw },
-            BandSegment { label: "DIGI/FT8", start_hz: 10_130_000, end_hz: 10_150_000, mode: SegmentMode::Data },
+            BandSegment {
+                label: "CW",
+                start_hz: 10_100_000,
+                end_hz: 10_130_000,
+                mode: SegmentMode::Cw,
+            },
+            BandSegment {
+                label: "DIGI/FT8",
+                start_hz: 10_130_000,
+                end_hz: 10_150_000,
+                mode: SegmentMode::Data,
+            },
         ],
     },
     BandDefinition {
@@ -87,10 +152,30 @@ pub static AMATEUR_BANDS: &[BandDefinition] = &[
         max_freq_hz: 14_350_000,
         default_freq_hz: 14_195_000,
         segments: &[
-            BandSegment { label: "CW", start_hz: 14_000_000, end_hz: 14_070_000, mode: SegmentMode::Cw },
-            BandSegment { label: "DIGI/FT8", start_hz: 14_070_000, end_hz: 14_099_000, mode: SegmentMode::Data },
-            BandSegment { label: "BEACON", start_hz: 14_099_000, end_hz: 14_101_000, mode: SegmentMode::Beacon },
-            BandSegment { label: "SSB", start_hz: 14_101_000, end_hz: 14_350_000, mode: SegmentMode::Ssb },
+            BandSegment {
+                label: "CW",
+                start_hz: 14_000_000,
+                end_hz: 14_070_000,
+                mode: SegmentMode::Cw,
+            },
+            BandSegment {
+                label: "DIGI/FT8",
+                start_hz: 14_070_000,
+                end_hz: 14_099_000,
+                mode: SegmentMode::Data,
+            },
+            BandSegment {
+                label: "BEACON",
+                start_hz: 14_099_000,
+                end_hz: 14_101_000,
+                mode: SegmentMode::Beacon,
+            },
+            BandSegment {
+                label: "SSB",
+                start_hz: 14_101_000,
+                end_hz: 14_350_000,
+                mode: SegmentMode::Ssb,
+            },
         ],
     },
     BandDefinition {
@@ -99,9 +184,24 @@ pub static AMATEUR_BANDS: &[BandDefinition] = &[
         max_freq_hz: 18_168_000,
         default_freq_hz: 18_130_000,
         segments: &[
-            BandSegment { label: "CW", start_hz: 18_068_000, end_hz: 18_095_000, mode: SegmentMode::Cw },
-            BandSegment { label: "DIGI/FT8", start_hz: 18_095_000, end_hz: 18_111_000, mode: SegmentMode::Data },
-            BandSegment { label: "SSB", start_hz: 18_111_000, end_hz: 18_168_000, mode: SegmentMode::Ssb },
+            BandSegment {
+                label: "CW",
+                start_hz: 18_068_000,
+                end_hz: 18_095_000,
+                mode: SegmentMode::Cw,
+            },
+            BandSegment {
+                label: "DIGI/FT8",
+                start_hz: 18_095_000,
+                end_hz: 18_111_000,
+                mode: SegmentMode::Data,
+            },
+            BandSegment {
+                label: "SSB",
+                start_hz: 18_111_000,
+                end_hz: 18_168_000,
+                mode: SegmentMode::Ssb,
+            },
         ],
     },
     BandDefinition {
@@ -110,9 +210,24 @@ pub static AMATEUR_BANDS: &[BandDefinition] = &[
         max_freq_hz: 21_450_000,
         default_freq_hz: 21_250_000,
         segments: &[
-            BandSegment { label: "CW", start_hz: 21_000_000, end_hz: 21_070_000, mode: SegmentMode::Cw },
-            BandSegment { label: "DIGI/FT8", start_hz: 21_070_000, end_hz: 21_110_000, mode: SegmentMode::Data },
-            BandSegment { label: "SSB", start_hz: 21_150_000, end_hz: 21_450_000, mode: SegmentMode::Ssb },
+            BandSegment {
+                label: "CW",
+                start_hz: 21_000_000,
+                end_hz: 21_070_000,
+                mode: SegmentMode::Cw,
+            },
+            BandSegment {
+                label: "DIGI/FT8",
+                start_hz: 21_070_000,
+                end_hz: 21_110_000,
+                mode: SegmentMode::Data,
+            },
+            BandSegment {
+                label: "SSB",
+                start_hz: 21_150_000,
+                end_hz: 21_450_000,
+                mode: SegmentMode::Ssb,
+            },
         ],
     },
     BandDefinition {
@@ -121,9 +236,24 @@ pub static AMATEUR_BANDS: &[BandDefinition] = &[
         max_freq_hz: 24_990_000,
         default_freq_hz: 24_950_000,
         segments: &[
-            BandSegment { label: "CW", start_hz: 24_890_000, end_hz: 24_915_000, mode: SegmentMode::Cw },
-            BandSegment { label: "DIGI/FT8", start_hz: 24_915_000, end_hz: 24_940_000, mode: SegmentMode::Data },
-            BandSegment { label: "SSB", start_hz: 24_940_000, end_hz: 24_990_000, mode: SegmentMode::Ssb },
+            BandSegment {
+                label: "CW",
+                start_hz: 24_890_000,
+                end_hz: 24_915_000,
+                mode: SegmentMode::Cw,
+            },
+            BandSegment {
+                label: "DIGI/FT8",
+                start_hz: 24_915_000,
+                end_hz: 24_940_000,
+                mode: SegmentMode::Data,
+            },
+            BandSegment {
+                label: "SSB",
+                start_hz: 24_940_000,
+                end_hz: 24_990_000,
+                mode: SegmentMode::Ssb,
+            },
         ],
     },
     BandDefinition {
@@ -132,10 +262,30 @@ pub static AMATEUR_BANDS: &[BandDefinition] = &[
         max_freq_hz: 29_700_000,
         default_freq_hz: 28_500_000,
         segments: &[
-            BandSegment { label: "CW", start_hz: 28_000_000, end_hz: 28_070_000, mode: SegmentMode::Cw },
-            BandSegment { label: "DIGI/FT8", start_hz: 28_070_000, end_hz: 28_190_000, mode: SegmentMode::Data },
-            BandSegment { label: "SSB", start_hz: 28_300_000, end_hz: 29_000_000, mode: SegmentMode::Ssb },
-            BandSegment { label: "FM", start_hz: 29_510_000, end_hz: 29_700_000, mode: SegmentMode::Fm },
+            BandSegment {
+                label: "CW",
+                start_hz: 28_000_000,
+                end_hz: 28_070_000,
+                mode: SegmentMode::Cw,
+            },
+            BandSegment {
+                label: "DIGI/FT8",
+                start_hz: 28_070_000,
+                end_hz: 28_190_000,
+                mode: SegmentMode::Data,
+            },
+            BandSegment {
+                label: "SSB",
+                start_hz: 28_300_000,
+                end_hz: 29_000_000,
+                mode: SegmentMode::Ssb,
+            },
+            BandSegment {
+                label: "FM",
+                start_hz: 29_510_000,
+                end_hz: 29_700_000,
+                mode: SegmentMode::Fm,
+            },
         ],
     },
     BandDefinition {
@@ -144,8 +294,18 @@ pub static AMATEUR_BANDS: &[BandDefinition] = &[
         max_freq_hz: 52_000_000,
         default_freq_hz: 50_150_000,
         segments: &[
-            BandSegment { label: "CW", start_hz: 50_000_000, end_hz: 50_100_000, mode: SegmentMode::Cw },
-            BandSegment { label: "SSB/DIGI", start_hz: 50_100_000, end_hz: 50_500_000, mode: SegmentMode::Ssb },
+            BandSegment {
+                label: "CW",
+                start_hz: 50_000_000,
+                end_hz: 50_100_000,
+                mode: SegmentMode::Cw,
+            },
+            BandSegment {
+                label: "SSB/DIGI",
+                start_hz: 50_100_000,
+                end_hz: 50_500_000,
+                mode: SegmentMode::Ssb,
+            },
         ],
     },
     BandDefinition {
@@ -154,8 +314,18 @@ pub static AMATEUR_BANDS: &[BandDefinition] = &[
         max_freq_hz: 70_500_000,
         default_freq_hz: 70_200_000,
         segments: &[
-            BandSegment { label: "CW/SSB", start_hz: 70_000_000, end_hz: 70_250_000, mode: SegmentMode::Ssb },
-            BandSegment { label: "FM", start_hz: 70_250_000, end_hz: 70_500_000, mode: SegmentMode::Fm },
+            BandSegment {
+                label: "CW/SSB",
+                start_hz: 70_000_000,
+                end_hz: 70_250_000,
+                mode: SegmentMode::Ssb,
+            },
+            BandSegment {
+                label: "FM",
+                start_hz: 70_250_000,
+                end_hz: 70_500_000,
+                mode: SegmentMode::Fm,
+            },
         ],
     },
     BandDefinition {
@@ -164,9 +334,24 @@ pub static AMATEUR_BANDS: &[BandDefinition] = &[
         max_freq_hz: 146_000_000,
         default_freq_hz: 144_300_000,
         segments: &[
-            BandSegment { label: "CW", start_hz: 144_000_000, end_hz: 144_150_000, mode: SegmentMode::Cw },
-            BandSegment { label: "SSB/FT8", start_hz: 144_150_000, end_hz: 144_400_000, mode: SegmentMode::Ssb },
-            BandSegment { label: "FM/Simplex", start_hz: 145_200_000, end_hz: 145_590_000, mode: SegmentMode::Fm },
+            BandSegment {
+                label: "CW",
+                start_hz: 144_000_000,
+                end_hz: 144_150_000,
+                mode: SegmentMode::Cw,
+            },
+            BandSegment {
+                label: "SSB/FT8",
+                start_hz: 144_150_000,
+                end_hz: 144_400_000,
+                mode: SegmentMode::Ssb,
+            },
+            BandSegment {
+                label: "FM/Simplex",
+                start_hz: 145_200_000,
+                end_hz: 145_590_000,
+                mode: SegmentMode::Fm,
+            },
         ],
     },
     BandDefinition {
@@ -175,8 +360,18 @@ pub static AMATEUR_BANDS: &[BandDefinition] = &[
         max_freq_hz: 440_000_000,
         default_freq_hz: 432_200_000,
         segments: &[
-            BandSegment { label: "CW/SSB", start_hz: 432_000_000, end_hz: 432_400_000, mode: SegmentMode::Ssb },
-            BandSegment { label: "FM", start_hz: 433_000_000, end_hz: 434_000_000, mode: SegmentMode::Fm },
+            BandSegment {
+                label: "CW/SSB",
+                start_hz: 432_000_000,
+                end_hz: 432_400_000,
+                mode: SegmentMode::Ssb,
+            },
+            BandSegment {
+                label: "FM",
+                start_hz: 433_000_000,
+                end_hz: 434_000_000,
+                mode: SegmentMode::Fm,
+            },
         ],
     },
     BandDefinition {
@@ -185,8 +380,18 @@ pub static AMATEUR_BANDS: &[BandDefinition] = &[
         max_freq_hz: 1_300_000_000,
         default_freq_hz: 1_296_200_000,
         segments: &[
-            BandSegment { label: "CW/SSB", start_hz: 1_296_000_000, end_hz: 1_296_800_000, mode: SegmentMode::Ssb },
-            BandSegment { label: "FM/ATV", start_hz: 1_297_000_000, end_hz: 1_300_000_000, mode: SegmentMode::Fm },
+            BandSegment {
+                label: "CW/SSB",
+                start_hz: 1_296_000_000,
+                end_hz: 1_296_800_000,
+                mode: SegmentMode::Ssb,
+            },
+            BandSegment {
+                label: "FM/ATV",
+                start_hz: 1_297_000_000,
+                end_hz: 1_300_000_000,
+                mode: SegmentMode::Fm,
+            },
         ],
     },
     BandDefinition {
@@ -195,8 +400,18 @@ pub static AMATEUR_BANDS: &[BandDefinition] = &[
         max_freq_hz: 2_450_000_000,
         default_freq_hz: 2_400_050_000, // QO-100 uplink
         segments: &[
-            BandSegment { label: "CW/SSB", start_hz: 2_320_000_000, end_hz: 2_320_800_000, mode: SegmentMode::Ssb },
-            BandSegment { label: "QO-100 Uplink", start_hz: 2_400_000_000, end_hz: 2_400_500_000, mode: SegmentMode::Ssb },
+            BandSegment {
+                label: "CW/SSB",
+                start_hz: 2_320_000_000,
+                end_hz: 2_320_800_000,
+                mode: SegmentMode::Ssb,
+            },
+            BandSegment {
+                label: "QO-100 Uplink",
+                start_hz: 2_400_000_000,
+                end_hz: 2_400_500_000,
+                mode: SegmentMode::Ssb,
+            },
         ],
     },
     BandDefinition {
@@ -205,18 +420,32 @@ pub static AMATEUR_BANDS: &[BandDefinition] = &[
         max_freq_hz: 10_500_000_000,
         default_freq_hz: 10_489_500_000, // QO-100 downlink
         segments: &[
-            BandSegment { label: "CW/SSB", start_hz: 10_368_000_000, end_hz: 10_368_800_000, mode: SegmentMode::Ssb },
-            BandSegment { label: "QO-100 Downlink", start_hz: 10_489_500_000, end_hz: 10_490_000_000, mode: SegmentMode::Ssb },
+            BandSegment {
+                label: "CW/SSB",
+                start_hz: 10_368_000_000,
+                end_hz: 10_368_800_000,
+                mode: SegmentMode::Ssb,
+            },
+            BandSegment {
+                label: "QO-100 Downlink",
+                start_hz: 10_489_500_000,
+                end_hz: 10_490_000_000,
+                mode: SegmentMode::Ssb,
+            },
         ],
     },
 ];
 
 pub fn get_band_by_name(name: &str) -> Option<&'static BandDefinition> {
-    AMATEUR_BANDS.iter().find(|b| b.name.eq_ignore_ascii_case(name))
+    AMATEUR_BANDS
+        .iter()
+        .find(|b| b.name.eq_ignore_ascii_case(name))
 }
 
 pub fn get_band_by_freq(freq_hz: u64) -> Option<&'static BandDefinition> {
-    AMATEUR_BANDS.iter().find(|b| freq_hz >= b.min_freq_hz && freq_hz <= b.max_freq_hz)
+    AMATEUR_BANDS
+        .iter()
+        .find(|b| freq_hz >= b.min_freq_hz && freq_hz <= b.max_freq_hz)
 }
 
 /// Zwraca nazwę pasma krótkofalarskiego (np. `"20m"`, `"60m"`, `"3cm"`) dla podanej
@@ -288,4 +517,3 @@ mod tests {
         assert!(get_band_by_freq(0).is_none());
     }
 }
-

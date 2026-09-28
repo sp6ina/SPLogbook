@@ -76,7 +76,10 @@ impl ScpEngine {
 
     /// Wszystkie znaki w bazie (do lokalnego dopasowania rozmytego).
     pub fn candidates(&self) -> Vec<&str> {
-        self.callsigns.iter().map(std::string::String::as_str).collect()
+        self.callsigns
+            .iter()
+            .map(std::string::String::as_str)
+            .collect()
     }
 
     pub fn len(&self) -> usize {

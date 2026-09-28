@@ -57,7 +57,11 @@ impl QslDesignerDialog {
             let to = self.batch_date_to.trim();
             let band = self.batch_band.trim().to_uppercase();
             let mode = self.batch_mode.trim().to_uppercase();
-            let limit = if self.batch_limit == 0 { 48 } else { self.batch_limit };
+            let limit = if self.batch_limit == 0 {
+                48
+            } else {
+                self.batch_limit
+            };
 
             self.queued_qsos = all
                 .into_iter()
@@ -81,8 +85,10 @@ impl QslDesignerDialog {
                 })
                 .take(limit)
                 .collect();
-            self.status_message =
-                Some(format!("Dodano {} łączności do kolejki druku.", self.queued_qsos.len()));
+            self.status_message = Some(format!(
+                "Dodano {} łączności do kolejki druku.",
+                self.queued_qsos.len()
+            ));
         }
     }
 
@@ -123,10 +129,26 @@ impl QslDesignerDialog {
                             LabelSheetFormat::Avery2x7 => "Avery 2x7 (14 naklejek, 99.1x38.1 mm)",
                         })
                         .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut self.sheet_format, LabelSheetFormat::Avery3x8, "Avery 3x8 (24 naklejki)");
-                            ui.selectable_value(&mut self.sheet_format, LabelSheetFormat::Avery3x7, "Avery 3x7 (21 naklejek)");
-                            ui.selectable_value(&mut self.sheet_format, LabelSheetFormat::Avery2x8, "Avery 2x8 (16 naklejek)");
-                            ui.selectable_value(&mut self.sheet_format, LabelSheetFormat::Avery2x7, "Avery 2x7 (14 naklejek)");
+                            ui.selectable_value(
+                                &mut self.sheet_format,
+                                LabelSheetFormat::Avery3x8,
+                                "Avery 3x8 (24 naklejki)",
+                            );
+                            ui.selectable_value(
+                                &mut self.sheet_format,
+                                LabelSheetFormat::Avery3x7,
+                                "Avery 3x7 (21 naklejek)",
+                            );
+                            ui.selectable_value(
+                                &mut self.sheet_format,
+                                LabelSheetFormat::Avery2x8,
+                                "Avery 2x8 (16 naklejek)",
+                            );
+                            ui.selectable_value(
+                                &mut self.sheet_format,
+                                LabelSheetFormat::Avery2x7,
+                                "Avery 2x7 (14 naklejek)",
+                            );
                         });
                 });
 
@@ -143,7 +165,10 @@ impl QslDesignerDialog {
                 // Reguły masowego wyboru kart do wydruku
                 ui.separator();
                 ui.collapsing("🎯 Reguły wyboru kart do wydruku", |ui| {
-                    ui.checkbox(&mut self.only_unprinted, "Tylko niepotwierdzone (QSL wysłane: N/R)");
+                    ui.checkbox(
+                        &mut self.only_unprinted,
+                        "Tylko niepotwierdzone (QSL wysłane: N/R)",
+                    );
                     ui.horizontal(|ui| {
                         ui.label("Pasmo:");
                         ui.text_edit_singleline(&mut self.batch_band);
@@ -188,7 +213,13 @@ impl QslDesignerDialog {
                 }
 
                 ui.separator();
-                ui.label(egui::RichText::new(format!("Łączności w kolejce druku ({} szt.):", self.queued_qsos.len())).strong());
+                ui.label(
+                    egui::RichText::new(format!(
+                        "Łączności w kolejce druku ({} szt.):",
+                        self.queued_qsos.len()
+                    ))
+                    .strong(),
+                );
 
                 let (cols, rows_per_page) = match self.sheet_format {
                     LabelSheetFormat::Avery3x8 => (3, 8),
@@ -198,28 +229,55 @@ impl QslDesignerDialog {
                 };
 
                 // Podgląd siatki etykiet
-                egui::ScrollArea::vertical().max_height(280.0).show(ui, |ui| {
-                    let total_cells = cols * rows_per_page;
-                    egui::Grid::new("qsl_sheet_grid").num_columns(cols).spacing([10.0, 8.0]).show(ui, |ui| {
-                        for i in 0..total_cells {
-                            ui.group(|ui| {
-                                ui.set_min_size(egui::vec2(160.0, 70.0));
-                                if i < self.queued_qsos.len() {
-                                    let qso = &self.queued_qsos[i];
-                                    ui.label(egui::RichText::new(format!("TO: {}", qso.callsign)).strong().color(egui::Color32::YELLOW));
-                                    ui.label(format!("CFM QSO: {} {}", qso.qso_date, qso.time_on));
-                                    ui.label(format!("{} | {} | RST {}", qso.band, qso.mode, qso.rst_sent));
-                                    ui.label(egui::RichText::new(format!("TNX QSL PSE! de {my_callsign}")).small().italics());
-                                } else {
-                                    ui.label(egui::RichText::new(format!("[Puste #{}]", i + 1)).color(egui::Color32::DARK_GRAY));
+                egui::ScrollArea::vertical()
+                    .max_height(280.0)
+                    .show(ui, |ui| {
+                        let total_cells = cols * rows_per_page;
+                        egui::Grid::new("qsl_sheet_grid")
+                            .num_columns(cols)
+                            .spacing([10.0, 8.0])
+                            .show(ui, |ui| {
+                                for i in 0..total_cells {
+                                    ui.group(|ui| {
+                                        ui.set_min_size(egui::vec2(160.0, 70.0));
+                                        if i < self.queued_qsos.len() {
+                                            let qso = &self.queued_qsos[i];
+                                            ui.label(
+                                                egui::RichText::new(format!(
+                                                    "TO: {}",
+                                                    qso.callsign
+                                                ))
+                                                .strong()
+                                                .color(egui::Color32::YELLOW),
+                                            );
+                                            ui.label(format!(
+                                                "CFM QSO: {} {}",
+                                                qso.qso_date, qso.time_on
+                                            ));
+                                            ui.label(format!(
+                                                "{} | {} | RST {}",
+                                                qso.band, qso.mode, qso.rst_sent
+                                            ));
+                                            ui.label(
+                                                egui::RichText::new(format!(
+                                                    "TNX QSL PSE! de {my_callsign}"
+                                                ))
+                                                .small()
+                                                .italics(),
+                                            );
+                                        } else {
+                                            ui.label(
+                                                egui::RichText::new(format!("[Puste #{}]", i + 1))
+                                                    .color(egui::Color32::DARK_GRAY),
+                                            );
+                                        }
+                                    });
+                                    if (i + 1) % cols == 0 {
+                                        ui.end_row();
+                                    }
                                 }
                             });
-                            if (i + 1) % cols == 0 {
-                                ui.end_row();
-                            }
-                        }
                     });
-                });
 
                 ui.separator();
                 ui.horizontal(|ui| {
@@ -235,7 +293,13 @@ impl QslDesignerDialog {
                         {
                             use printpdf::*;
 
-                            fn text_ops(text: impl Into<String>, size_pt: f32, x_mm: f32, y_mm: f32, bold: bool) -> Vec<Op> {
+                            fn text_ops(
+                                text: impl Into<String>,
+                                size_pt: f32,
+                                x_mm: f32,
+                                y_mm: f32,
+                                bold: bool,
+                            ) -> Vec<Op> {
                                 vec![
                                     Op::StartTextSection,
                                     Op::SetFont {
@@ -272,16 +336,45 @@ impl QslDesignerDialog {
                             let row_h_mm = content_h / (rows_per_page as f32);
 
                             let mut ops: Vec<Op> = Vec::new();
-                            for (i, q) in self.queued_qsos.iter().enumerate().take(cols * rows_per_page) {
+                            for (i, q) in self
+                                .queued_qsos
+                                .iter()
+                                .enumerate()
+                                .take(cols * rows_per_page)
+                            {
                                 let c = i % cols;
                                 let r = i / cols;
                                 let x = self.margin_left_mm + (c as f32) * col_w_mm;
                                 let y = 297.0 - self.margin_top_mm - (r as f32) * row_h_mm;
 
-                                ops.extend(text_ops(format!("TO: {}", q.callsign), 11.0, x + 2.0, y - 5.0, true));
-                                ops.extend(text_ops(format!("QSO: {} {}", q.qso_date, q.time_on), 9.0, x + 2.0, y - 11.0, false));
-                                ops.extend(text_ops(format!("{} | {} | RST {}", q.band, q.mode, q.rst_sent), 9.0, x + 2.0, y - 17.0, false));
-                                ops.extend(text_ops(format!("TNX QSL! 73 de {my_callsign}"), 8.0, x + 2.0, y - 23.0, false));
+                                ops.extend(text_ops(
+                                    format!("TO: {}", q.callsign),
+                                    11.0,
+                                    x + 2.0,
+                                    y - 5.0,
+                                    true,
+                                ));
+                                ops.extend(text_ops(
+                                    format!("QSO: {} {}", q.qso_date, q.time_on),
+                                    9.0,
+                                    x + 2.0,
+                                    y - 11.0,
+                                    false,
+                                ));
+                                ops.extend(text_ops(
+                                    format!("{} | {} | RST {}", q.band, q.mode, q.rst_sent),
+                                    9.0,
+                                    x + 2.0,
+                                    y - 17.0,
+                                    false,
+                                ));
+                                ops.extend(text_ops(
+                                    format!("TNX QSL! 73 de {my_callsign}"),
+                                    8.0,
+                                    x + 2.0,
+                                    y - 23.0,
+                                    false,
+                                ));
                             }
 
                             let mut doc = PdfDocument::new("QSL Labels Sheet");
@@ -290,7 +383,10 @@ impl QslDesignerDialog {
                             let mut warnings = Vec::new();
                             let bytes = doc.save(&PdfSaveOptions::default(), &mut warnings);
                             if std::fs::write(&path, bytes).is_ok() {
-                                self.status_message = Some(format!("Zapisano arkusz naklejek PDF: {}", path.display()));
+                                self.status_message = Some(format!(
+                                    "Zapisano arkusz naklejek PDF: {}",
+                                    path.display()
+                                ));
                                 let _ = open::that(&path);
                             }
                         }

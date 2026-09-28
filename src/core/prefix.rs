@@ -44,21 +44,21 @@ fn parse_coord(s: &str) -> f64 {
     if s.is_empty() {
         return 0.0;
     }
-    let is_south_or_west = s.ends_with('S') || s.ends_with('W') || s.ends_with('s') || s.ends_with('w');
+    let is_south_or_west =
+        s.ends_with('S') || s.ends_with('W') || s.ends_with('s') || s.ends_with('w');
     let num_str = s.trim_matches(|c: char| c.is_alphabetic());
     let val: f64 = num_str.parse().unwrap_or(0.0);
-    if is_south_or_west {
-        -val
-    } else {
-        val
-    }
+    if is_south_or_west { -val } else { val }
 }
 
 /// Ekstrahuje prefiks WPX (np. SP6INA -> SP6, 3Z100POL -> 3Z100, W1AW -> W1, SP6INA/1 -> SP1, DL/SP6INA -> DL0)
 pub fn extract_wpx_prefix(call: &str) -> String {
     let clean = call.trim().to_uppercase();
     let is_operational_suffix = |s: &str| -> bool {
-        matches!(s, "P" | "M" | "MM" | "AM" | "QRP" | "LGT" | "LH" | "B" | "R" | "A" | "J")
+        matches!(
+            s,
+            "P" | "M" | "MM" | "AM" | "QRP" | "LGT" | "LH" | "B" | "R" | "A" | "J"
+        )
     };
 
     let parts: Vec<&str> = clean
@@ -109,7 +109,9 @@ fn extract_wpx_base(call: &str) -> String {
         }
     }
 
-    if let Some(idx) = last_digit_idx { call[..=idx].to_string() } else {
+    if let Some(idx) = last_digit_idx {
+        call[..=idx].to_string()
+    } else {
         let mut res = call.to_string();
         res.push('0');
         res
@@ -127,7 +129,7 @@ impl PrefixMatcher {
         // 1. UniqueCalls
         let mut unique_calls = HashMap::new();
         let mut stmt = conn.prepare(
-            "SELECT Callsign, Country, ARRLPrefix, DXCC, Continent, CQZone, ITUZone, Latitude, Longitude 
+            "SELECT Callsign, Country, ARRLPrefix, DXCC, Continent, CQZone, ITUZone, Latitude, Longitude
              FROM UniqueCalls WHERE Enable != '0' OR Enable IS NULL"
         )?;
 
@@ -160,7 +162,7 @@ impl PrefixMatcher {
         // 2. CountryDataEx
         let mut country_rules = Vec::new();
         let mut stmt = conn.prepare(
-            "SELECT Country, ARRLPrefix, DXCC, Continent, CQZone, ITUZone, Latitude, Longitude, PrefixList 
+            "SELECT Country, ARRLPrefix, DXCC, Continent, CQZone, ITUZone, Latitude, Longitude, PrefixList
              FROM CountryDataEx WHERE EndDate = '' OR EndDate IS NULL"
         )?;
 
@@ -203,7 +205,7 @@ impl PrefixMatcher {
         // 3. Province (Oblasty, stany itp.)
         let mut province_rules = Vec::new();
         let mut stmt = conn.prepare(
-            "SELECT Country, ARRLPrefix, DXCC, Continent, CQZone, ITUZone, Latitude, Longitude, PrefixList, Comment 
+            "SELECT Country, ARRLPrefix, DXCC, Continent, CQZone, ITUZone, Latitude, Longitude, PrefixList, Comment
              FROM Province WHERE EndDate = '' OR EndDate IS NULL"
         )?;
 
@@ -268,7 +270,10 @@ impl PrefixMatcher {
     /// Normalizuje znak wywoławczy dla potrzeb dopasowania prefiksu (obsługa /P, /M, prefiksów gościnnych itp.)
     pub fn normalize_call_for_prefix(clean: &str) -> &str {
         let is_operational_suffix = |s: &str| -> bool {
-            matches!(s, "P" | "M" | "MM" | "AM" | "QRP" | "LGT" | "LH" | "B" | "R" | "A" | "J")
+            matches!(
+                s,
+                "P" | "M" | "MM" | "AM" | "QRP" | "LGT" | "LH" | "B" | "R" | "A" | "J"
+            )
         };
 
         let mut parts: Vec<&str> = clean.split('/').collect();
@@ -299,11 +304,7 @@ impl PrefixMatcher {
         }
 
         // 3. Domyślnie bierzemy dłuższą część (znak główny)
-        if p0.len() >= p1.len() {
-            p0
-        } else {
-            p1
-        }
+        if p0.len() >= p1.len() { p0 } else { p1 }
     }
 
     /// Wyszukuje kraj DXCC, strefy CQ/ITU i dane dla podanego znaku.
@@ -396,12 +397,27 @@ mod tests {
 
     #[test]
     fn test_normalize_call_for_prefix() {
-        assert_eq!(PrefixMatcher::normalize_call_for_prefix("SP6INA/P"), "SP6INA");
-        assert_eq!(PrefixMatcher::normalize_call_for_prefix("SP6INA/M"), "SP6INA");
-        assert_eq!(PrefixMatcher::normalize_call_for_prefix("SP6INA/QRP"), "SP6INA");
+        assert_eq!(
+            PrefixMatcher::normalize_call_for_prefix("SP6INA/P"),
+            "SP6INA"
+        );
+        assert_eq!(
+            PrefixMatcher::normalize_call_for_prefix("SP6INA/M"),
+            "SP6INA"
+        );
+        assert_eq!(
+            PrefixMatcher::normalize_call_for_prefix("SP6INA/QRP"),
+            "SP6INA"
+        );
         assert_eq!(PrefixMatcher::normalize_call_for_prefix("DL/SP6INA"), "DL");
-        assert_eq!(PrefixMatcher::normalize_call_for_prefix("OE3/SP6INA"), "OE3");
-        assert_eq!(PrefixMatcher::normalize_call_for_prefix("3D2/SP6INA/P"), "3D2");
+        assert_eq!(
+            PrefixMatcher::normalize_call_for_prefix("OE3/SP6INA"),
+            "OE3"
+        );
+        assert_eq!(
+            PrefixMatcher::normalize_call_for_prefix("3D2/SP6INA/P"),
+            "3D2"
+        );
     }
 
     #[test]

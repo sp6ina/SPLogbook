@@ -13,7 +13,13 @@ impl PskReporterClient {
         }
     }
 
-    pub async fn submit_spot(&self, dx_call: &str, freq_hz: u64, mode: &str, snr: i32) -> Result<(), String> {
+    pub async fn submit_spot(
+        &self,
+        dx_call: &str,
+        freq_hz: u64,
+        mode: &str,
+        snr: i32,
+    ) -> Result<(), String> {
         let xml = format!(
             r#"<receptionReport reporter="{}" reporterLocator="{}" callsign="{}" frequency="{}" mode="{}" snr="{}" />"#,
             self.callsign, self.gridsquare, dx_call, freq_hz, mode, snr

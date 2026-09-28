@@ -65,7 +65,10 @@ impl QrzClient {
     }
 
     /// Pobiera dane stacji po znaku wywoławczym
-    pub async fn lookup(&mut self, callsign: &str) -> Result<CallbookData, Box<dyn std::error::Error>> {
+    pub async fn lookup(
+        &mut self,
+        callsign: &str,
+    ) -> Result<CallbookData, Box<dyn std::error::Error>> {
         if self.session_key.is_none() {
             self.login().await?;
         }
@@ -104,7 +107,10 @@ impl QrzClient {
         Self::parse_qrz_response(&resp, callsign)
     }
 
-    fn parse_qrz_response(xml: &str, callsign: &str) -> Result<CallbookData, Box<dyn std::error::Error>> {
+    fn parse_qrz_response(
+        xml: &str,
+        callsign: &str,
+    ) -> Result<CallbookData, Box<dyn std::error::Error>> {
         if let Some(err) = Self::extract_xml_tag(xml, "Error") {
             return Err(format!("QRZ: {err}").into());
         }
@@ -148,15 +154,14 @@ impl QrzClient {
         let start = xml.find(&open_tag)? + open_tag.len();
         let end = xml[start..].find(&close_tag)? + start;
         let val = xml[start..end].trim().to_string();
-        if val.is_empty() {
-            None
-        } else {
-            Some(val)
-        }
+        if val.is_empty() { None } else { Some(val) }
     }
 
     /// Przesyła rekordy ADIF do QRZ.com Logbook API za pomocą klucza API
-    pub async fn upload_to_logbook(api_key: &str, adif_content: &str) -> Result<String, Box<dyn std::error::Error>> {
+    pub async fn upload_to_logbook(
+        api_key: &str,
+        adif_content: &str,
+    ) -> Result<String, Box<dyn std::error::Error>> {
         let client = crate::core::http::http_client_with_timeout(30);
 
         let resp = crate::core::http::retry_async(

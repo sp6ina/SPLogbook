@@ -48,8 +48,9 @@ pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
             app.marketplace_install_rx = None;
             match result {
                 Ok(()) => {
-                    app.marketplace_status =
-                        Some(format!("Zainstalowano wtyczkę „{id}” — silnik przeładowany."));
+                    app.marketplace_status = Some(format!(
+                        "Zainstalowano wtyczkę „{id}” — silnik przeładowany."
+                    ));
                     reload_plugins(app);
                 }
                 Err(e) => app.marketplace_status = Some(e),

@@ -14,85 +14,312 @@ struct Command {
     run: fn(&mut SpLogApp),
 }
 
-fn toggle_awards(app: &mut SpLogApp) { app.show_awards_matrix_window = true; }
-fn toggle_stats(app: &mut SpLogApp) { app.show_statistics_window = true; }
-fn toggle_world_map(app: &mut SpLogApp) { app.panel_world_map.visible = true; app.show_world_map_window = true; }
-fn toggle_waterfall(app: &mut SpLogApp) { app.panel_waterfall.visible = true; }
-fn toggle_satellites(app: &mut SpLogApp) { app.panel_satellites.visible = true; app.show_satellites_window = true; }
-fn toggle_solar(app: &mut SpLogApp) { app.panel_solar.visible = true; app.show_solar_panel = true; }
-fn toggle_bandmap(app: &mut SpLogApp) { app.panel_bandmap.visible = true; app.show_bandmap_window = true; }
-fn toggle_cluster(app: &mut SpLogApp) { app.panel_cluster.visible = true; app.show_cluster_panel = true; }
-fn toggle_vfo(app: &mut SpLogApp) { app.panel_vfo.visible = true; app.show_vfo_panel = true; }
-fn toggle_qso(app: &mut SpLogApp) { app.panel_qso.visible = true; }
-fn toggle_log(app: &mut SpLogApp) { app.panel_log.visible = true; }
-fn toggle_contest(app: &mut SpLogApp) { app.show_contest_window = true; }
-fn toggle_cw(app: &mut SpLogApp) { app.show_cw_window = true; }
-fn toggle_sync(app: &mut SpLogApp) { app.show_online_sync_window = true; }
-fn toggle_qsl_designer(app: &mut SpLogApp) { app.qsl_designer_dialog.is_open = true; }
-fn toggle_duplicates(app: &mut SpLogApp) { app.show_find_duplicates_window = true; }
-fn toggle_profiles(app: &mut SpLogApp) { app.show_station_profiles_window = true; }
-fn toggle_columns(app: &mut SpLogApp) { app.show_column_settings = true; }
-fn toggle_advanced_filter(app: &mut SpLogApp) { app.advanced_filter_dialog.is_open = true; }
-fn toggle_about(app: &mut SpLogApp) { app.show_about_window = true; }
-fn toggle_shortcuts(app: &mut SpLogApp) { app.show_shortcuts_window = true; }
-fn toggle_legend(app: &mut SpLogApp) { app.show_legend_window = true; }
-fn toggle_wizard(app: &mut SpLogApp) { app.show_welcome_wizard = true; app.wizard_tab = 0; }
-fn toggle_multi_op(app: &mut SpLogApp) { app.show_multi_op_window = true; }
-fn toggle_pskreporter(app: &mut SpLogApp) { app.show_pskreporter_window = true; }
-fn toggle_wspr(app: &mut SpLogApp) { app.show_wspr_window = true; }
-fn toggle_voice_keyer(app: &mut SpLogApp) { app.show_voice_keyer_window = true; }
-fn toggle_manual(app: &mut SpLogApp) { app.show_user_manual = true; app.manual_section = None; }
+fn toggle_awards(app: &mut SpLogApp) {
+    app.show_awards_matrix_window = true;
+}
+fn toggle_stats(app: &mut SpLogApp) {
+    app.show_statistics_window = true;
+}
+fn toggle_world_map(app: &mut SpLogApp) {
+    app.panel_world_map.visible = true;
+    app.show_world_map_window = true;
+}
+fn toggle_waterfall(app: &mut SpLogApp) {
+    app.panel_waterfall.visible = true;
+}
+fn toggle_satellites(app: &mut SpLogApp) {
+    app.panel_satellites.visible = true;
+    app.show_satellites_window = true;
+}
+fn toggle_solar(app: &mut SpLogApp) {
+    app.panel_solar.visible = true;
+    app.show_solar_panel = true;
+}
+fn toggle_bandmap(app: &mut SpLogApp) {
+    app.panel_bandmap.visible = true;
+    app.show_bandmap_window = true;
+}
+fn toggle_cluster(app: &mut SpLogApp) {
+    app.panel_cluster.visible = true;
+    app.show_cluster_panel = true;
+}
+fn toggle_vfo(app: &mut SpLogApp) {
+    app.panel_vfo.visible = true;
+    app.show_vfo_panel = true;
+}
+fn toggle_qso(app: &mut SpLogApp) {
+    app.panel_qso.visible = true;
+}
+fn toggle_log(app: &mut SpLogApp) {
+    app.panel_log.visible = true;
+}
+fn toggle_contest(app: &mut SpLogApp) {
+    app.show_contest_window = true;
+}
+fn toggle_cw(app: &mut SpLogApp) {
+    app.show_cw_window = true;
+}
+fn toggle_sync(app: &mut SpLogApp) {
+    app.show_online_sync_window = true;
+}
+fn toggle_qsl_designer(app: &mut SpLogApp) {
+    app.qsl_designer_dialog.is_open = true;
+}
+fn toggle_duplicates(app: &mut SpLogApp) {
+    app.show_find_duplicates_window = true;
+}
+fn toggle_profiles(app: &mut SpLogApp) {
+    app.show_station_profiles_window = true;
+}
+fn toggle_columns(app: &mut SpLogApp) {
+    app.show_column_settings = true;
+}
+fn toggle_advanced_filter(app: &mut SpLogApp) {
+    app.advanced_filter_dialog.is_open = true;
+}
+fn toggle_about(app: &mut SpLogApp) {
+    app.show_about_window = true;
+}
+fn toggle_shortcuts(app: &mut SpLogApp) {
+    app.show_shortcuts_window = true;
+}
+fn toggle_legend(app: &mut SpLogApp) {
+    app.show_legend_window = true;
+}
+fn toggle_wizard(app: &mut SpLogApp) {
+    app.show_welcome_wizard = true;
+    app.wizard_tab = 0;
+}
+fn toggle_multi_op(app: &mut SpLogApp) {
+    app.show_multi_op_window = true;
+}
+fn toggle_pskreporter(app: &mut SpLogApp) {
+    app.show_pskreporter_window = true;
+}
+fn toggle_wspr(app: &mut SpLogApp) {
+    app.show_wspr_window = true;
+}
+fn toggle_voice_keyer(app: &mut SpLogApp) {
+    app.show_voice_keyer_window = true;
+}
+fn toggle_manual(app: &mut SpLogApp) {
+    app.show_user_manual = true;
+    app.manual_section = None;
+}
 fn send_spot(app: &mut SpLogApp) {
     let freq_khz = (app.rig_state.frequency_hz as f64) / 1000.0;
-    app.send_spot_dialog.open_with(&app.entry_callsign, freq_khz);
+    app.send_spot_dialog
+        .open_with(&app.entry_callsign, freq_khz);
 }
 
-fn save_qso(app: &mut SpLogApp) { app.save_qso(); }
-fn clear_qso(app: &mut SpLogApp) { app.wipe_qso_form(); }
-fn toggle_ptt(app: &mut SpLogApp) { app.toggle_ptt(); }
-fn connect_cluster(app: &mut SpLogApp) { app.connect_dx_cluster(); }
-fn disconnect_cluster(app: &mut SpLogApp) { app.disconnect_dx_cluster(); }
-fn refresh_log(app: &mut SpLogApp) { app.reload_qsos(); }
-fn cycle_theme(app: &mut SpLogApp) { app.cycle_theme(); }
+fn save_qso(app: &mut SpLogApp) {
+    app.save_qso();
+}
+fn clear_qso(app: &mut SpLogApp) {
+    app.wipe_qso_form();
+}
+fn toggle_ptt(app: &mut SpLogApp) {
+    app.toggle_ptt();
+}
+fn connect_cluster(app: &mut SpLogApp) {
+    app.connect_dx_cluster();
+}
+fn disconnect_cluster(app: &mut SpLogApp) {
+    app.disconnect_dx_cluster();
+}
+fn refresh_log(app: &mut SpLogApp) {
+    app.reload_qsos();
+}
+fn cycle_theme(app: &mut SpLogApp) {
+    app.cycle_theme();
+}
 
 const COMMANDS: &[Command] = &[
-    Command { label: "Nowe QSO (wyczyść formularz)", keywords: "new qso clear form", run: clear_qso },
-    Command { label: "Wyczyść formularz QSO (Wipe)", keywords: "wipe clear form qso", run: clear_qso },
-    Command { label: "Zapisz QSO", keywords: "save qso log", run: save_qso },
-    Command { label: "Przełącz nadawanie PTT (TX/RX)", keywords: "ptt tx rx transmit", run: toggle_ptt },
-    Command { label: "Odśwież dziennik (log)", keywords: "refresh reload log", run: refresh_log },
-    Command { label: "Wyślij spot DX do klastra", keywords: "spot send dx cluster", run: send_spot },
-    Command { label: "Odtwarzacz głosu (Voice Keyer)", keywords: "voice keyer ssb cq audio", run: toggle_voice_keyer },
-    Command { label: "Instrukcja obsługi (Podręcznik)", keywords: "help manual docs instrukcja", run: toggle_manual },
-    Command { label: "Połącz z DX Cluster", keywords: "connect dx cluster telnet", run: connect_cluster },
-    Command { label: "Rozłącz DX Cluster", keywords: "disconnect dx cluster", run: disconnect_cluster },
-    Command { label: "Macierz nagród (Awards)", keywords: "awards dxcc waz was matrix", run: toggle_awards },
-    Command { label: "Statystyki", keywords: "statistics stats charts", run: toggle_stats },
-    Command { label: "Mapa świata", keywords: "world map", run: toggle_world_map },
-    Command { label: "Widmo / Waterfall (SDR)", keywords: "waterfall spectrum sdr fft", run: toggle_waterfall },
-    Command { label: "Satelity", keywords: "satellite pass", run: toggle_satellites },
-    Command { label: "Panel słoneczny / propagacja", keywords: "solar propagation sfi", run: toggle_solar },
-    Command { label: "Bandmapa (panorama pasma)", keywords: "bandmap spots", run: toggle_bandmap },
-    Command { label: "Klaster DX", keywords: "cluster dx spots", run: toggle_cluster },
-    Command { label: "Panel VFO / radio", keywords: "vfo radio cat", run: toggle_vfo },
-    Command { label: "Formularz QSO", keywords: "qso entry form", run: toggle_qso },
-    Command { label: "Tabela logbooka", keywords: "logbook table log", run: toggle_log },
-    Command { label: "Moduł kontestowy", keywords: "contest cabrillo", run: toggle_contest },
-    Command { label: "Terminal / makra CW", keywords: "cw terminal macros keyer", run: toggle_cw },
-    Command { label: "Synchronizacja online", keywords: "online sync lotw eqsl clublog", run: toggle_sync },
-    Command { label: "Projektant naklejek QSL", keywords: "qsl label designer print", run: toggle_qsl_designer },
-    Command { label: "Znajdź duplikaty", keywords: "duplicates find", run: toggle_duplicates },
-    Command { label: "Profile stacji", keywords: "station profiles", run: toggle_profiles },
-    Command { label: "Ustawienia kolumn logbooka", keywords: "columns logbook", run: toggle_columns },
-    Command { label: "Filtr zaawansowany", keywords: "advanced filter", run: toggle_advanced_filter },
-    Command { label: "Multi-op / log sieciowy", keywords: "multi op network", run: toggle_multi_op },
-    Command { label: "PSK Reporter", keywords: "psk reporter spots", run: toggle_pskreporter },
-    Command { label: "Monitor WSPR", keywords: "wspr monitor", run: toggle_wspr },
-    Command { label: "O programie", keywords: "about", run: toggle_about },
-    Command { label: "Skróty klawiszowe", keywords: "shortcuts keyboard", run: toggle_shortcuts },
-    Command { label: "Legenda kolorów", keywords: "legend colors", run: toggle_legend },
-    Command { label: "Kreator konfiguracji", keywords: "wizard setup", run: toggle_wizard },
-    Command { label: "Przełącz motyw kolorystyczny", keywords: "theme cycle colors", run: cycle_theme },
+    Command {
+        label: "Nowe QSO (wyczyść formularz)",
+        keywords: "new qso clear form",
+        run: clear_qso,
+    },
+    Command {
+        label: "Wyczyść formularz QSO (Wipe)",
+        keywords: "wipe clear form qso",
+        run: clear_qso,
+    },
+    Command {
+        label: "Zapisz QSO",
+        keywords: "save qso log",
+        run: save_qso,
+    },
+    Command {
+        label: "Przełącz nadawanie PTT (TX/RX)",
+        keywords: "ptt tx rx transmit",
+        run: toggle_ptt,
+    },
+    Command {
+        label: "Odśwież dziennik (log)",
+        keywords: "refresh reload log",
+        run: refresh_log,
+    },
+    Command {
+        label: "Wyślij spot DX do klastra",
+        keywords: "spot send dx cluster",
+        run: send_spot,
+    },
+    Command {
+        label: "Odtwarzacz głosu (Voice Keyer)",
+        keywords: "voice keyer ssb cq audio",
+        run: toggle_voice_keyer,
+    },
+    Command {
+        label: "Instrukcja obsługi (Podręcznik)",
+        keywords: "help manual docs instrukcja",
+        run: toggle_manual,
+    },
+    Command {
+        label: "Połącz z DX Cluster",
+        keywords: "connect dx cluster telnet",
+        run: connect_cluster,
+    },
+    Command {
+        label: "Rozłącz DX Cluster",
+        keywords: "disconnect dx cluster",
+        run: disconnect_cluster,
+    },
+    Command {
+        label: "Macierz nagród (Awards)",
+        keywords: "awards dxcc waz was matrix",
+        run: toggle_awards,
+    },
+    Command {
+        label: "Statystyki",
+        keywords: "statistics stats charts",
+        run: toggle_stats,
+    },
+    Command {
+        label: "Mapa świata",
+        keywords: "world map",
+        run: toggle_world_map,
+    },
+    Command {
+        label: "Widmo / Waterfall (SDR)",
+        keywords: "waterfall spectrum sdr fft",
+        run: toggle_waterfall,
+    },
+    Command {
+        label: "Satelity",
+        keywords: "satellite pass",
+        run: toggle_satellites,
+    },
+    Command {
+        label: "Panel słoneczny / propagacja",
+        keywords: "solar propagation sfi",
+        run: toggle_solar,
+    },
+    Command {
+        label: "Bandmapa (panorama pasma)",
+        keywords: "bandmap spots",
+        run: toggle_bandmap,
+    },
+    Command {
+        label: "Klaster DX",
+        keywords: "cluster dx spots",
+        run: toggle_cluster,
+    },
+    Command {
+        label: "Panel VFO / radio",
+        keywords: "vfo radio cat",
+        run: toggle_vfo,
+    },
+    Command {
+        label: "Formularz QSO",
+        keywords: "qso entry form",
+        run: toggle_qso,
+    },
+    Command {
+        label: "Tabela logbooka",
+        keywords: "logbook table log",
+        run: toggle_log,
+    },
+    Command {
+        label: "Moduł kontestowy",
+        keywords: "contest cabrillo",
+        run: toggle_contest,
+    },
+    Command {
+        label: "Terminal / makra CW",
+        keywords: "cw terminal macros keyer",
+        run: toggle_cw,
+    },
+    Command {
+        label: "Synchronizacja online",
+        keywords: "online sync lotw eqsl clublog",
+        run: toggle_sync,
+    },
+    Command {
+        label: "Projektant naklejek QSL",
+        keywords: "qsl label designer print",
+        run: toggle_qsl_designer,
+    },
+    Command {
+        label: "Znajdź duplikaty",
+        keywords: "duplicates find",
+        run: toggle_duplicates,
+    },
+    Command {
+        label: "Profile stacji",
+        keywords: "station profiles",
+        run: toggle_profiles,
+    },
+    Command {
+        label: "Ustawienia kolumn logbooka",
+        keywords: "columns logbook",
+        run: toggle_columns,
+    },
+    Command {
+        label: "Filtr zaawansowany",
+        keywords: "advanced filter",
+        run: toggle_advanced_filter,
+    },
+    Command {
+        label: "Multi-op / log sieciowy",
+        keywords: "multi op network",
+        run: toggle_multi_op,
+    },
+    Command {
+        label: "PSK Reporter",
+        keywords: "psk reporter spots",
+        run: toggle_pskreporter,
+    },
+    Command {
+        label: "Monitor WSPR",
+        keywords: "wspr monitor",
+        run: toggle_wspr,
+    },
+    Command {
+        label: "O programie",
+        keywords: "about",
+        run: toggle_about,
+    },
+    Command {
+        label: "Skróty klawiszowe",
+        keywords: "shortcuts keyboard",
+        run: toggle_shortcuts,
+    },
+    Command {
+        label: "Legenda kolorów",
+        keywords: "legend colors",
+        run: toggle_legend,
+    },
+    Command {
+        label: "Kreator konfiguracji",
+        keywords: "wizard setup",
+        run: toggle_wizard,
+    },
+    Command {
+        label: "Przełącz motyw kolorystyczny",
+        keywords: "theme cycle colors",
+        run: cycle_theme,
+    },
 ];
 
 /// Renderuje okno palety poleceń. Wywoływane co klatkę z `app.update()`.
@@ -134,23 +361,34 @@ pub fn render_command_palette(app: &mut SpLogApp, ctx: &egui::Context) {
                 }
             }
 
-            egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
-                if matches.is_empty() {
-                    ui.label(egui::RichText::new(tr("palette.no_results", lang)).color(egui::Color32::from_rgb(148, 163, 184)));
-                }
-                for (row, &cmd_idx) in matches.iter().enumerate() {
-                    let cmd = &COMMANDS[cmd_idx];
-                    let selected = row == app.command_palette_selected;
-                    let text = if selected {
-                        egui::RichText::new(format!("▶ {}", cmd.label)).strong().color(egui::Color32::from_rgb(56, 189, 248))
-                    } else {
-                        egui::RichText::new(cmd.label).color(egui::Color32::from_rgb(203, 213, 225))
-                    };
-                    if ui.add_sized([f32::INFINITY, 24.0], egui::Button::new(text)).clicked() {
-                        run_idx = Some(cmd_idx);
+            egui::ScrollArea::vertical()
+                .max_height(320.0)
+                .show(ui, |ui| {
+                    if matches.is_empty() {
+                        ui.label(
+                            egui::RichText::new(tr("palette.no_results", lang))
+                                .color(egui::Color32::from_rgb(148, 163, 184)),
+                        );
                     }
-                }
-            });
+                    for (row, &cmd_idx) in matches.iter().enumerate() {
+                        let cmd = &COMMANDS[cmd_idx];
+                        let selected = row == app.command_palette_selected;
+                        let text = if selected {
+                            egui::RichText::new(format!("▶ {}", cmd.label))
+                                .strong()
+                                .color(egui::Color32::from_rgb(56, 189, 248))
+                        } else {
+                            egui::RichText::new(cmd.label)
+                                .color(egui::Color32::from_rgb(203, 213, 225))
+                        };
+                        if ui
+                            .add_sized([f32::INFINITY, 24.0], egui::Button::new(text))
+                            .clicked()
+                        {
+                            run_idx = Some(cmd_idx);
+                        }
+                    }
+                });
 
             // Nawigacja strzałkami i zatwierdzenie Enterem
             if app.command_palette_selected >= matches.len() {
@@ -160,7 +398,8 @@ pub fn render_command_palette(app: &mut SpLogApp, ctx: &egui::Context) {
             let up = ui.input(|i| i.key_pressed(egui::Key::ArrowUp));
             let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
             if down && !matches.is_empty() {
-                app.command_palette_selected = (app.command_palette_selected + 1).min(matches.len() - 1);
+                app.command_palette_selected =
+                    (app.command_palette_selected + 1).min(matches.len() - 1);
             }
             if up && !matches.is_empty() {
                 app.command_palette_selected = app.command_palette_selected.saturating_sub(1);

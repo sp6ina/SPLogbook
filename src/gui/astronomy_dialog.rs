@@ -27,7 +27,13 @@ impl AstronomyDialog {
         self.is_open = true;
     }
 
-    pub fn show(&mut self, ctx: &egui::Context, my_gridsquare: &str, rotor_state: &mut RotorState, lang: crate::core::i18n::Language) {
+    pub fn show(
+        &mut self,
+        ctx: &egui::Context,
+        my_gridsquare: &str,
+        rotor_state: &mut RotorState,
+        lang: crate::core::i18n::Language,
+    ) {
         use crate::core::i18n::tr;
         if !self.is_open {
             return;
@@ -55,24 +61,69 @@ impl AstronomyDialog {
             .default_height(400.0)
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new(format!("{} {} ({:.2}°, {:.2}°) | {} {}", tr("eme.location", lang), my_gridsquare, lat, lon, tr("eme.time", lang), now.format("%H:%M:%S UTC"))).small().color(egui::Color32::GRAY));
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "{} {} ({:.2}°, {:.2}°) | {} {}",
+                            tr("eme.location", lang),
+                            my_gridsquare,
+                            lat,
+                            lon,
+                            tr("eme.time", lang),
+                            now.format("%H:%M:%S UTC")
+                        ))
+                        .small()
+                        .color(egui::Color32::GRAY),
+                    );
                 });
                 ui.separator();
 
                 ui.columns(2, |cols| {
                     // Kolumna 1: Księżyc (Moon / EME)
                     cols[0].group(|ui| {
-                        ui.heading(egui::RichText::new(tr("eme.moon_heading", lang)).color(egui::Color32::from_rgb(186, 230, 253)));
+                        ui.heading(
+                            egui::RichText::new(tr("eme.moon_heading", lang))
+                                .color(egui::Color32::from_rgb(186, 230, 253)),
+                        );
                         ui.separator();
-                        ui.label(format!("{} {:.1}°", tr("eme.azimuth", lang), moon.azimuth_deg));
-                        ui.label(format!("{} {:.1}°", tr("eme.elevation", lang), moon.elevation_deg));
-                        ui.label(format!("{} {:.0} km", tr("eme.distance", lang), moon.distance_km));
-                        ui.label(format!("{} {:.2} h", tr("eme.ra", lang), moon.right_ascension_hours));
-                        ui.label(format!("{} {:.1}°", tr("eme.dec", lang), moon.declination_deg));
+                        ui.label(format!(
+                            "{} {:.1}°",
+                            tr("eme.azimuth", lang),
+                            moon.azimuth_deg
+                        ));
+                        ui.label(format!(
+                            "{} {:.1}°",
+                            tr("eme.elevation", lang),
+                            moon.elevation_deg
+                        ));
+                        ui.label(format!(
+                            "{} {:.0} km",
+                            tr("eme.distance", lang),
+                            moon.distance_km
+                        ));
+                        ui.label(format!(
+                            "{} {:.2} h",
+                            tr("eme.ra", lang),
+                            moon.right_ascension_hours
+                        ));
+                        ui.label(format!(
+                            "{} {:.1}°",
+                            tr("eme.dec", lang),
+                            moon.declination_deg
+                        ));
                         ui.add_space(4.0);
 
-                        let visible_txt = if moon.is_visible { tr("eme.above_horizon", lang) } else { tr("eme.below_horizon", lang) };
-                        ui.label(egui::RichText::new(visible_txt).strong().color(if moon.is_visible { egui::Color32::from_rgb(34, 197, 94) } else { egui::Color32::GRAY }));
+                        let visible_txt = if moon.is_visible {
+                            tr("eme.above_horizon", lang)
+                        } else {
+                            tr("eme.below_horizon", lang)
+                        };
+                        ui.label(egui::RichText::new(visible_txt).strong().color(
+                            if moon.is_visible {
+                                egui::Color32::from_rgb(34, 197, 94)
+                            } else {
+                                egui::Color32::GRAY
+                            },
+                        ));
 
                         ui.add_space(8.0);
                         if ui.button(tr("eme.point_rotor_moon", lang)).clicked() {
@@ -83,17 +134,50 @@ impl AstronomyDialog {
 
                     // Kolumna 2: Słońce (Sun)
                     cols[1].group(|ui| {
-                        ui.heading(egui::RichText::new(tr("eme.sun_heading", lang)).color(egui::Color32::from_rgb(253, 224, 71)));
+                        ui.heading(
+                            egui::RichText::new(tr("eme.sun_heading", lang))
+                                .color(egui::Color32::from_rgb(253, 224, 71)),
+                        );
                         ui.separator();
-                        ui.label(format!("{} {:.1}°", tr("eme.azimuth", lang), sun.azimuth_deg));
-                        ui.label(format!("{} {:.1}°", tr("eme.elevation", lang), sun.elevation_deg));
-                        ui.label(format!("{} {:.3} AU", tr("eme.distance", lang), sun.distance_km / 149_597_870.7));
-                        ui.label(format!("{} {:.2} h", tr("eme.ra", lang), sun.right_ascension_hours));
-                        ui.label(format!("{} {:.1}°", tr("eme.dec", lang), sun.declination_deg));
+                        ui.label(format!(
+                            "{} {:.1}°",
+                            tr("eme.azimuth", lang),
+                            sun.azimuth_deg
+                        ));
+                        ui.label(format!(
+                            "{} {:.1}°",
+                            tr("eme.elevation", lang),
+                            sun.elevation_deg
+                        ));
+                        ui.label(format!(
+                            "{} {:.3} AU",
+                            tr("eme.distance", lang),
+                            sun.distance_km / 149_597_870.7
+                        ));
+                        ui.label(format!(
+                            "{} {:.2} h",
+                            tr("eme.ra", lang),
+                            sun.right_ascension_hours
+                        ));
+                        ui.label(format!(
+                            "{} {:.1}°",
+                            tr("eme.dec", lang),
+                            sun.declination_deg
+                        ));
                         ui.add_space(4.0);
 
-                        let visible_txt = if sun.is_visible { tr("eme.day_above_horizon", lang) } else { tr("eme.night_below_horizon", lang) };
-                        ui.label(egui::RichText::new(visible_txt).strong().color(if sun.is_visible { egui::Color32::from_rgb(250, 204, 21) } else { egui::Color32::GRAY }));
+                        let visible_txt = if sun.is_visible {
+                            tr("eme.day_above_horizon", lang)
+                        } else {
+                            tr("eme.night_below_horizon", lang)
+                        };
+                        ui.label(egui::RichText::new(visible_txt).strong().color(
+                            if sun.is_visible {
+                                egui::Color32::from_rgb(250, 204, 21)
+                            } else {
+                                egui::Color32::GRAY
+                            },
+                        ));
 
                         ui.add_space(8.0);
                         if ui.button(tr("eme.point_rotor_sun", lang)).clicked() {
@@ -107,13 +191,33 @@ impl AstronomyDialog {
 
                 // Parametry łączności odbiciowej od Księżyca (EME)
                 ui.group(|ui| {
-                    ui.label(egui::RichText::new(tr("eme.params_heading", lang)).strong().color(egui::Color32::from_rgb(134, 239, 172)));
+                    ui.label(
+                        egui::RichText::new(tr("eme.params_heading", lang))
+                            .strong()
+                            .color(egui::Color32::from_rgb(134, 239, 172)),
+                    );
                     ui.separator();
-                    ui.label(format!("{} {:.1} dB", tr("eme.path_loss", lang), eme.path_loss_144_db));
+                    ui.label(format!(
+                        "{} {:.1} dB",
+                        tr("eme.path_loss", lang),
+                        eme.path_loss_144_db
+                    ));
                     ui.separator();
-                    ui.label(format!("{} {:+.1} Hz", tr("eme.doppler_144", lang), eme.doppler_144_hz));
-                    ui.label(format!("{} {:+.1} Hz", tr("eme.doppler_432", lang), eme.doppler_432_hz));
-                    ui.label(format!("{} {:+.1} Hz", tr("eme.doppler_1296", lang), eme.doppler_1296_hz));
+                    ui.label(format!(
+                        "{} {:+.1} Hz",
+                        tr("eme.doppler_144", lang),
+                        eme.doppler_144_hz
+                    ));
+                    ui.label(format!(
+                        "{} {:+.1} Hz",
+                        tr("eme.doppler_432", lang),
+                        eme.doppler_432_hz
+                    ));
+                    ui.label(format!(
+                        "{} {:+.1} Hz",
+                        tr("eme.doppler_1296", lang),
+                        eme.doppler_1296_hz
+                    ));
                 });
 
                 ui.add_space(8.0);

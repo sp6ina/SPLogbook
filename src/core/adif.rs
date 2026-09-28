@@ -34,9 +34,7 @@ impl AdifEngine {
     }
 
     /// Parsuje strumień ADIF i zwraca rekordy wraz z raportem błędów.
-    pub fn parse_reader_with_report<R: BufRead>(
-        mut reader: R,
-    ) -> Result<AdifImportResult, String> {
+    pub fn parse_reader_with_report<R: BufRead>(mut reader: R) -> Result<AdifImportResult, String> {
         let mut content = String::new();
         reader
             .read_to_string(&mut content)
@@ -81,7 +79,9 @@ impl AdifEngine {
                     if record_has_error {
                         // Rekord z błędem składni jest odrzucany; komunikat już zapisano.
                         rejected += 1;
-                    } else if let Some(qso) = Self::fields_to_qso(&current_fields) { qsos.push(qso) } else {
+                    } else if let Some(qso) = Self::fields_to_qso(&current_fields) {
+                        qsos.push(qso);
+                    } else {
                         rejected += 1;
                         errors.push(format!(
                             "Rekord {record_index} odrzucony: brak wymaganego pola CALL."
@@ -97,15 +97,36 @@ impl AdifEngine {
                 if parts.len() >= 2 {
                     let field_name = parts[0].trim().to_uppercase();
                     if let Ok(length) = parts[1].trim().parse::<usize>() {
-                        let end_idx = (idx + length).min(bytes.len());
+                        let end_idx = idx + length;
+                        // Zadeklarowana długość musi mieścić się w buforze; w przeciwnym
+                        // razie plik jest ucięty/uszkodzony i rekord należy odrzucić.
+                        if end_idx > bytes.len() {
+                            errors.push(format!(
+                                "Rekord {record_index}: pole „{field_name}” deklaruje {length} bajtów, ale dostępnych jest tylko {}.",
+                                bytes.len().saturating_sub(idx)
+                            ));
+                            record_has_error = true;
+                            idx = bytes.len();
+                            continue;
+                        }
                         let val_bytes = &bytes[idx..end_idx];
                         let val_str = String::from_utf8_lossy(val_bytes);
-                        current_fields.insert(field_name, val_str.trim().to_string());
+                        // Pola tekstowe, w których spacje brzegowe mogą być celowe,
+                        // zachowujemy w całości; pozostałe (tokeny, daty, referencje)
+                        // są przycinane zgodnie ze specyfikacją ADIF.
+                        let preserve_whitespace = matches!(
+                            field_name.as_str(),
+                            "COMMENT" | "NAME" | "QTH" | "NOTES" | "ADDRESS"
+                        );
+                        let value = if preserve_whitespace {
+                            val_str.into_owned()
+                        } else {
+                            val_str.trim().to_string()
+                        };
+                        current_fields.insert(field_name, value);
                         idx = end_idx;
                     } else {
-                        errors.push(format!(
-                            "Nieprawidłowa długość pola „{field_name}”."
-                        ));
+                        errors.push(format!("Nieprawidłowa długość pola „{field_name}”."));
                         record_has_error = true;
                     }
                 }
@@ -115,11 +136,14 @@ impl AdifEngine {
         }
 
         // Jeśli na końcu pliku pozostały niezatwierdzone pola bez <EOR>
-        if !current_fields.is_empty() {
+        // (lub rekord z błędem składni, który nie został zamknięty znacznikiem)
+        if !current_fields.is_empty() || record_has_error {
             record_index += 1;
             if record_has_error {
                 rejected += 1;
-            } else if let Some(qso) = Self::fields_to_qso(&current_fields) { qsos.push(qso) } else {
+            } else if let Some(qso) = Self::fields_to_qso(&current_fields) {
+                qsos.push(qso);
+            } else {
                 rejected += 1;
                 errors.push(format!(
                     "Rekord {record_index} odrzucony: brak wymaganego pola CALL."
@@ -137,7 +161,10 @@ impl AdifEngine {
 
     /// Mapuje nazwę emisji używaną w radiostacji/aplikacji na oficjalną parę `(MODE, Option<SUBMODE>)`
     /// zgodną ze specyfikacją ADIF 3.1.7 (marzec 2026).
-    pub fn normalize_mode_submode(mode: &str, submode: Option<&str>) -> (&'static str, Option<&'static str>) {
+    pub fn normalize_mode_submode(
+        mode: &str,
+        submode: Option<&str>,
+    ) -> (&'static str, Option<&'static str>) {
         let m = mode.trim().to_uppercase();
         let sub = submode.map(|s| s.trim().to_uppercase());
         let effective = sub.as_deref().unwrap_or(m.as_str());
@@ -214,8 +241,14 @@ impl AdifEngine {
             return None;
         }
 
-        let band = fields.get("BAND").cloned().unwrap_or_else(|| "20m".to_string());
-        let mode = fields.get("MODE").cloned().unwrap_or_else(|| "CW".to_string());
+        let band = fields
+            .get("BAND")
+            .cloned()
+            .unwrap_or_else(|| "20m".to_string());
+        let mode = fields
+            .get("MODE")
+            .cloned()
+            .unwrap_or_else(|| "CW".to_string());
 
         let mut qso = QsoRecord::new(call, band, mode);
 
@@ -354,7 +387,10 @@ impl AdifEngine {
         if let Some(qv) = fields.get("QSL_VIA") {
             qso.qsl_via = Some(qv.clone());
         }
-        if let Some(qm) = fields.get("QSL_VIA_MANAGER").or_else(|| fields.get("QSL_MANAGER")) {
+        if let Some(qm) = fields
+            .get("QSL_VIA_MANAGER")
+            .or_else(|| fields.get("QSL_MANAGER"))
+        {
             qso.qsl_manager = Some(qm.clone());
         }
 
@@ -367,7 +403,12 @@ impl AdifEngine {
         writeln!(writer, "Author: Mariusz Wozniak (SP6INA)")?;
         writeln!(writer, "<ADIF_VER:{}>{}", ADIF_VERSION.len(), ADIF_VERSION)?;
         writeln!(writer, "<PROGRAMID:9>SPLogbook")?;
-        writeln!(writer, "<PROGRAMVERSION:{}>{}", env!("CARGO_PKG_VERSION").len(), env!("CARGO_PKG_VERSION"))?;
+        writeln!(
+            writer,
+            "<PROGRAMVERSION:{}>{}",
+            env!("CARGO_PKG_VERSION").len(),
+            env!("CARGO_PKG_VERSION")
+        )?;
         writeln!(writer, "<EOH>")?;
 
         for q in qsos {
@@ -522,13 +563,20 @@ impl AdifEngine {
     }
 
     /// Eksportuje rekordy do formatu ADX (XML ADIF 3.1.7).
-    pub fn export_adx_to_writer<W: Write>(qsos: &[QsoRecord], mut writer: W) -> std::io::Result<()> {
+    pub fn export_adx_to_writer<W: Write>(
+        qsos: &[QsoRecord],
+        mut writer: W,
+    ) -> std::io::Result<()> {
         writeln!(writer, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>")?;
         writeln!(writer, "<ADX>")?;
         writeln!(writer, "  <HEADER>")?;
         writeln!(writer, "    <ADIF_VER>{ADIF_VERSION}</ADIF_VER>")?;
         writeln!(writer, "    <PROGRAMID>SPLogbook</PROGRAMID>")?;
-        writeln!(writer, "    <PROGRAMVERSION>{}</PROGRAMVERSION>", env!("CARGO_PKG_VERSION"))?;
+        writeln!(
+            writer,
+            "    <PROGRAMVERSION>{}</PROGRAMVERSION>",
+            env!("CARGO_PKG_VERSION")
+        )?;
         writeln!(writer, "  </HEADER>")?;
         writeln!(writer, "  <RECORDS>")?;
 
@@ -589,7 +637,6 @@ pub fn export_adx(qsos: &[QsoRecord]) -> String {
     String::from_utf8_lossy(&buffer).to_string()
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -643,7 +690,10 @@ mod tests {
         assert_eq!(p.callsign, "SP6INA/P");
         assert_eq!(p.name.as_deref(), Some("Stanisław"));
         assert_eq!(p.qth.as_deref(), Some("Kraków"));
-        assert_eq!(p.comment.as_deref(), Some("Łączność terenowa z żółtym namiotem"));
+        assert_eq!(
+            p.comment.as_deref(),
+            Some("Łączność terenowa z żółtym namiotem")
+        );
         assert_eq!(p.state.as_deref(), Some("CA"));
         assert_eq!(p.iota.as_deref(), Some("EU-132"));
         assert_eq!(p.sota_ref.as_deref(), Some("SP/BZ-001"));
@@ -661,13 +711,34 @@ mod tests {
 
     #[test]
     fn test_adif_3_1_7_mode_submode_normalization() {
-        assert_eq!(AdifEngine::normalize_mode_submode("FT2", None), ("MFSK", Some("FT2")));
-        assert_eq!(AdifEngine::normalize_mode_submode("FREEDATA", None), ("DYNAMIC", Some("FREEDATA")));
-        assert_eq!(AdifEngine::normalize_mode_submode("RIBBIT_SMS", None), ("OFDM", Some("RIBBIT_SMS")));
-        assert_eq!(AdifEngine::normalize_mode_submode("RIBBIT_PIX", None), ("OFDM", Some("RIBBIT_PIX")));
-        assert_eq!(AdifEngine::normalize_mode_submode("SCAMP_FAST", None), ("FSK", Some("SCAMP_FAST")));
-        assert_eq!(AdifEngine::normalize_mode_submode("SCAMP_OO", None), ("MTONE", Some("SCAMP_OO")));
-        assert_eq!(AdifEngine::normalize_mode_submode("USB", None), ("SSB", Some("USB")));
+        assert_eq!(
+            AdifEngine::normalize_mode_submode("FT2", None),
+            ("MFSK", Some("FT2"))
+        );
+        assert_eq!(
+            AdifEngine::normalize_mode_submode("FREEDATA", None),
+            ("DYNAMIC", Some("FREEDATA"))
+        );
+        assert_eq!(
+            AdifEngine::normalize_mode_submode("RIBBIT_SMS", None),
+            ("OFDM", Some("RIBBIT_SMS"))
+        );
+        assert_eq!(
+            AdifEngine::normalize_mode_submode("RIBBIT_PIX", None),
+            ("OFDM", Some("RIBBIT_PIX"))
+        );
+        assert_eq!(
+            AdifEngine::normalize_mode_submode("SCAMP_FAST", None),
+            ("FSK", Some("SCAMP_FAST"))
+        );
+        assert_eq!(
+            AdifEngine::normalize_mode_submode("SCAMP_OO", None),
+            ("MTONE", Some("SCAMP_OO"))
+        );
+        assert_eq!(
+            AdifEngine::normalize_mode_submode("USB", None),
+            ("SSB", Some("USB"))
+        );
         assert_eq!(AdifEngine::normalize_mode_submode("CW", None), ("CW", None));
     }
 
@@ -687,8 +758,18 @@ mod tests {
         assert_eq!(report.rejected, 2);
         assert_eq!(report.qsos.len(), 1);
         assert_eq!(report.qsos[0].callsign, "SP6INA");
-        assert!(report.errors.iter().any(|e| e.contains("brak wymaganego pola CALL")));
-        assert!(report.errors.iter().any(|e| e.contains("Nieprawidłowa długość pola")));
+        assert!(
+            report
+                .errors
+                .iter()
+                .any(|e| e.contains("brak wymaganego pola CALL"))
+        );
+        assert!(
+            report
+                .errors
+                .iter()
+                .any(|e| e.contains("Nieprawidłowa długość pola"))
+        );
     }
 
     #[test]
@@ -697,6 +778,45 @@ mod tests {
         let report = parse_adif_with_report(content);
         assert_eq!(report.imported, 1);
         assert_eq!(report.qsos[0].callsign, "SP6INA");
+    }
+
+    #[test]
+    fn test_adif_rejects_field_longer_than_buffer() {
+        // CALL deklaruje 10 bajtów, ale po znaczniku jest tylko 6 ("SP6INA").
+        let content = "<CALL:10>SP6INA";
+        let report = parse_adif_with_report(content);
+        assert_eq!(report.imported, 0);
+        assert_eq!(report.rejected, 1);
+        assert!(report.errors.iter().any(|e| e.contains("deklaruje")));
+    }
+
+    #[test]
+    fn test_adif_export_uses_byte_length_for_unicode() {
+        // Specyfikacja ADIF liczy długość pola w bajtach (UTF-8), nie w znakach.
+        // Test dokumentuje, że eksporter używa `str::len()` (bajty), dzięki czemu
+        // wielobajtowe znaki nie są mylnie zliczane jako jeden bajt.
+        let mut qso = QsoRecord::new("SP6INA", "20m", "CW");
+        qso.comment = Some("żółć łąka".to_string());
+
+        let mut buffer = Vec::new();
+        AdifEngine::export_to_writer(&[qso], &mut buffer).unwrap();
+        let adif = String::from_utf8_lossy(&buffer);
+
+        let expected_bytes = "żółć łąka".len();
+        assert!(adif.contains(&format!("<COMMENT:{expected_bytes}>żółć łąka")));
+
+        // Round-trip zachowuje wartość i długość po stronie bajtowej.
+        let parsed = AdifEngine::parse_reader(buffer.as_slice());
+        assert_eq!(parsed[0].comment.as_deref(), Some("żółć łąka"));
+    }
+
+    #[test]
+    fn test_adif_preserves_intentional_whitespace_in_free_text() {
+        // COMMENT jest polem tekstowym — spacje brzegowe mogą być celowe.
+        let content = "<CALL:6>SP6INA<BAND:3>20m<MODE:2>CW<COMMENT:10>  z lewej <EOR>";
+        let report = parse_adif_with_report(content);
+        assert_eq!(report.imported, 1);
+        assert_eq!(report.qsos[0].comment.as_deref(), Some("  z lewej "));
     }
 
     #[test]

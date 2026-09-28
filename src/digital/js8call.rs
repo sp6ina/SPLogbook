@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Wozniak (SP6INA)
 
 //! Integracja z JS8Call przez TCP API (port 2237)
@@ -76,7 +76,8 @@ impl Js8CallClient {
                     .parse()
                     .unwrap_or_else(|_| "127.0.0.1:2237".parse().unwrap());
 
-                if let Ok(stream) = TcpStream::connect_timeout(&parsed_addr, Duration::from_secs(3)) {
+                if let Ok(stream) = TcpStream::connect_timeout(&parsed_addr, Duration::from_secs(3))
+                {
                     let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
                     let mut reader = BufReader::new(stream);
                     let mut state = Js8CallState {
@@ -93,14 +94,22 @@ impl Js8CallClient {
                     let mut buf = String::new();
                     loop {
                         buf.clear();
-                        match (&mut reader).take((MAX_LINE_LEN + 1) as u64).read_line(&mut buf) {
+                        match (&mut reader)
+                            .take((MAX_LINE_LEN + 1) as u64)
+                            .read_line(&mut buf)
+                        {
                             Ok(0) | Err(_) => break, // koniec strumienia lub blad odczytu
                             Ok(_) if buf.len() > MAX_LINE_LEN => break, // zbyt dluga linia - rozlaczenie
                             Ok(_) => {
                                 let text = buf.trim();
                                 if !text.is_empty() {
                                     if let Ok(msg) = serde_json::from_str::<Js8Message>(text) {
-                                        process_message(msg, &mut state, &state_sender, &qso_sender);
+                                        process_message(
+                                            msg,
+                                            &mut state,
+                                            &state_sender,
+                                            &qso_sender,
+                                        );
                                     }
                                 }
                             }
@@ -215,7 +224,8 @@ fn build_qso_from_js8(params: &serde_json::Value, state: &Js8CallState) -> QsoRe
         rst_sent: "+0".to_string(),
         rst_rcvd: params
             .get("SNR")
-            .and_then(serde_json::Value::as_i64).map_or_else(|| "+0".to_string(), |s| format!("{s:+}")),
+            .and_then(serde_json::Value::as_i64)
+            .map_or_else(|| "+0".to_string(), |s| format!("{s:+}")),
         my_gridsquare: if state.grid.is_empty() {
             None
         } else {
@@ -268,7 +278,8 @@ mod tests {
 
     #[test]
     fn test_js8_message_parse_with_params() {
-        let json = r#"{"type":"LOG.QSO","value":"","params":{"CALL":"K1ABC","GRID":"FN31","SNR":-10}}"#;
+        let json =
+            r#"{"type":"LOG.QSO","value":"","params":{"CALL":"K1ABC","GRID":"FN31","SNR":-10}}"#;
         let msg: Js8Message = serde_json::from_str(json).unwrap();
         assert_eq!(msg.msg_type, "LOG.QSO");
         let params = msg.params.unwrap();

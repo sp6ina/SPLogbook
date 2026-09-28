@@ -151,11 +151,7 @@ fn ecef_position(def: &SatelliteDef, t: f64) -> [f64; 3] {
     let eci = eci_position(def, t);
     let theta = EARTH_ROT_RAD_S * t;
     let (c, s) = (theta.cos(), theta.sin());
-    [
-        eci[0] * c + eci[1] * s,
-        -eci[0] * s + eci[1] * c,
-        eci[2],
-    ]
+    [eci[0] * c + eci[1] * s, -eci[0] * s + eci[1] * c, eci[2]]
 }
 
 /// Pozycja obserwatora w ECEF (sferyczna Ziemia).
@@ -239,8 +235,16 @@ pub fn predict_passes(
     let mut prev_elev = elevation_deg(def, obs, t0);
     let mut in_pass = prev_elev > horizon_deg;
     let mut aos = if in_pass { t0 } else { 0.0 };
-    let mut max_elev = if in_pass { prev_elev } else { f64::NEG_INFINITY };
-    let mut aos_az = if in_pass { azimuth_deg(def, obs, t0) } else { 0.0 };
+    let mut max_elev = if in_pass {
+        prev_elev
+    } else {
+        f64::NEG_INFINITY
+    };
+    let mut aos_az = if in_pass {
+        azimuth_deg(def, obs, t0)
+    } else {
+        0.0
+    };
 
     for k in 1..=steps {
         let t = t0 + (k as f64) * dt;
@@ -290,7 +294,10 @@ mod tests {
     }
 
     fn warsaw() -> Observer {
-        Observer { lat_deg: 52.2297, lon_deg: 21.0122 }
+        Observer {
+            lat_deg: 52.2297,
+            lon_deg: 21.0122,
+        }
     }
 
     #[test]

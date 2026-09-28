@@ -171,7 +171,13 @@ mod tests {
 
     #[test]
     fn frequency_bcd_roundtrip() {
-        for &hz in &[14_074_000u64, 7_074_000, 144_390_000, 430_000_000, 50_125_000] {
+        for &hz in &[
+            14_074_000u64,
+            7_074_000,
+            144_390_000,
+            430_000_000,
+            50_125_000,
+        ] {
             let enc = CiV::encode_frequency(hz);
             assert_eq!(CiV::decode_frequency(&enc), hz, "failed for {hz}");
         }
@@ -180,13 +186,19 @@ mod tests {
     #[test]
     fn frequency_bcd_known_vector() {
         // 14,074,000 Hz -> "0014074000" -> [0x00, 0x40, 0x07, 0x14, 0x00]
-        assert_eq!(CiV::encode_frequency(14_074_000), [0x00, 0x40, 0x07, 0x14, 0x00]);
+        assert_eq!(
+            CiV::encode_frequency(14_074_000),
+            [0x00, 0x40, 0x07, 0x14, 0x00]
+        );
     }
 
     #[test]
     fn frequency_overflow_wraps_to_10_digits() {
         // Wartości >= 10 GHz są obcinane do 10 cyfr (bez paniki).
-        assert_eq!(CiV::decode_frequency(&CiV::encode_frequency(99_999_999_999)), 9_999_999_999);
+        assert_eq!(
+            CiV::decode_frequency(&CiV::encode_frequency(99_999_999_999)),
+            9_999_999_999
+        );
     }
 
     #[test]

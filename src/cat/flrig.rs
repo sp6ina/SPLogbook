@@ -2,11 +2,11 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 // Klient XML-RPC dla demona FLRig (http://www.w1hkj.com/flrig-help/)
 
-use quick_xml::events::Event;
 use quick_xml::Reader;
+use quick_xml::events::Event;
+use std::fmt::Write as _;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use std::fmt::Write as _;
 
 /// Wartość XML-RPC używana w parametrach i odpowiedziach.
 #[derive(Debug, Clone, PartialEq)]
@@ -61,7 +61,10 @@ pub struct XmlRpcRequest {
 
 impl XmlRpcRequest {
     pub fn new(method: impl Into<String>) -> Self {
-        Self { method: method.into(), params: Vec::new() }
+        Self {
+            method: method.into(),
+            params: Vec::new(),
+        }
     }
 
     pub fn param_int(mut self, v: i64) -> Self {
@@ -190,7 +193,9 @@ pub fn parse_response(xml: &str) -> Result<XmlRpcValue, String> {
                     }
                     "boolean" => {
                         if let Ok(txt) = read_text(&mut reader, &mut buf) {
-                            value = Some(XmlRpcValue::Bool(txt.trim() == "1" || txt.trim().eq_ignore_ascii_case("true")));
+                            value = Some(XmlRpcValue::Bool(
+                                txt.trim() == "1" || txt.trim().eq_ignore_ascii_case("true"),
+                            ));
                         }
                     }
                     "string" => {
@@ -251,7 +256,10 @@ pub struct FlrigClient {
 
 impl FlrigClient {
     pub fn new(host: impl Into<String>, port: u16) -> Self {
-        Self { host: host.into(), port }
+        Self {
+            host: host.into(),
+            port,
+        }
     }
 
     /// Wysyła żądanie i czyta odpowiedź do znacznika zamykającego `</methodResponse>`.
@@ -291,7 +299,11 @@ impl FlrigClient {
     /// Częstotliwość aktywnego VFO w Hz.
     pub async fn get_vfo(&self) -> Result<u64, String> {
         let req = XmlRpcRequest::new("rig.get_vfo").param_str("A");
-        self.call(&req).await?.as_int().map(|v| v as u64).ok_or_else(|| "Nieprawidłowa częstotliwość od FLRig".to_string())
+        self.call(&req)
+            .await?
+            .as_int()
+            .map(|v| v as u64)
+            .ok_or_else(|| "Nieprawidłowa częstotliwość od FLRig".to_string())
     }
 
     pub async fn set_vfo(&self, hz: u64) -> Result<(), String> {
@@ -302,7 +314,10 @@ impl FlrigClient {
 
     pub async fn get_mode(&self) -> Result<String, String> {
         let req = XmlRpcRequest::new("rig.get_mode");
-        self.call(&req).await?.as_str().ok_or_else(|| "Nieprawidłowy tryb od FLRig".to_string())
+        self.call(&req)
+            .await?
+            .as_str()
+            .ok_or_else(|| "Nieprawidłowy tryb od FLRig".to_string())
     }
 
     pub async fn set_mode(&self, mode: &str) -> Result<(), String> {
@@ -313,7 +328,10 @@ impl FlrigClient {
 
     pub async fn get_ptt(&self) -> Result<bool, String> {
         let req = XmlRpcRequest::new("rig.get_ptt");
-        self.call(&req).await?.as_bool().ok_or_else(|| "Nieprawidłowy stan PTT od FLRig".to_string())
+        self.call(&req)
+            .await?
+            .as_bool()
+            .ok_or_else(|| "Nieprawidłowy stan PTT od FLRig".to_string())
     }
 
     pub async fn set_ptt(&self, ptt: bool) -> Result<(), String> {
@@ -327,7 +345,10 @@ impl FlrigClient {
         self.call(&req).await.and_then(|v| match v {
             XmlRpcValue::Double(d) => Ok(d),
             XmlRpcValue::Int(i) => Ok(i as f64),
-            XmlRpcValue::Str(s) => s.trim().parse::<f64>().map_err(|_| "Nieprawidłowy S-meter".to_string()),
+            XmlRpcValue::Str(s) => s
+                .trim()
+                .parse::<f64>()
+                .map_err(|_| "Nieprawidłowy S-meter".to_string()),
             XmlRpcValue::Bool(_) => Err("Nieprawidłowy S-meter".to_string()),
         })
     }
@@ -404,7 +425,9 @@ mod tests {
 
     #[test]
     fn string_params_are_escaped() {
-        let xml = XmlRpcRequest::new("rig.set_mode").param_str("USB<test>").to_xml();
+        let xml = XmlRpcRequest::new("rig.set_mode")
+            .param_str("USB<test>")
+            .to_xml();
         assert!(xml.contains("USB&lt;test&gt;"));
     }
 
@@ -423,7 +446,10 @@ mod tests {
     #[test]
     fn parse_string_response() {
         let xml = "<?xml version=\"1.0\"?><methodResponse><params><param><value><string>USB</string></value></param></params></methodResponse>";
-        assert_eq!(parse_response(xml).unwrap(), XmlRpcValue::Str("USB".to_string()));
+        assert_eq!(
+            parse_response(xml).unwrap(),
+            XmlRpcValue::Str("USB".to_string())
+        );
     }
 
     #[test]
@@ -435,12 +461,19 @@ mod tests {
     #[test]
     fn parse_fault_response() {
         let xml = "<?xml version=\"1.0\"?><methodResponse><fault><value><struct><member><name>faultCode</name><value><int>4</int></value></member><member><name>faultString</name><value><string>Too many parameters</string></value></member></struct></value></fault></methodResponse>";
-        assert!(parse_response(xml).unwrap_err().contains("Too many parameters"));
+        assert!(
+            parse_response(xml)
+                .unwrap_err()
+                .contains("Too many parameters")
+        );
     }
 
     #[test]
     fn as_int_tolerates_numeric_strings() {
-        assert_eq!(XmlRpcValue::Str("14074000".to_string()).as_int(), Some(14_074_000));
+        assert_eq!(
+            XmlRpcValue::Str("14074000".to_string()).as_int(),
+            Some(14_074_000)
+        );
         assert_eq!(XmlRpcValue::Double(7_074_000.0).as_int(), Some(7_074_000));
         assert_eq!(XmlRpcValue::Bool(true).as_int(), Some(1));
     }

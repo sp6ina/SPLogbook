@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 // Okno zdalnego włączania komputera stacji (Wake-on-LAN)
 
-use crate::core::i18n::{tr, Language};
+use crate::core::i18n::{Language, tr};
 use crate::network::wol::WolClient;
 use eframe::egui;
 
@@ -53,7 +53,11 @@ impl WolDialog {
 
                 ui.horizontal(|ui| {
                     ui.label(tr("wol.mac_label", lang));
-                    ui.add(egui::TextEdit::singleline(&mut self.mac_address).hint_text("np. AA:BB:CC:DD:EE:FF").desired_width(180.0));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.mac_address)
+                            .hint_text("np. AA:BB:CC:DD:EE:FF")
+                            .desired_width(180.0),
+                    );
                 });
 
                 ui.horizontal(|ui| {
@@ -65,19 +69,31 @@ impl WolDialog {
 
                 if let Some(ref st) = self.status {
                     ui.add_space(4.0);
-                    ui.label(egui::RichText::new(st).color(egui::Color32::from_rgb(52, 211, 153)).strong());
+                    ui.label(
+                        egui::RichText::new(st)
+                            .color(egui::Color32::from_rgb(52, 211, 153))
+                            .strong(),
+                    );
                 }
 
                 ui.add_space(10.0);
                 ui.horizontal(|ui| {
-                    let btn = egui::Button::new(egui::RichText::new(tr("wol.send_btn", lang)).strong().color(egui::Color32::BLACK))
-                        .fill(egui::Color32::from_rgb(250, 204, 21));
+                    let btn = egui::Button::new(
+                        egui::RichText::new(tr("wol.send_btn", lang))
+                            .strong()
+                            .color(egui::Color32::BLACK),
+                    )
+                    .fill(egui::Color32::from_rgb(250, 204, 21));
 
                     if ui.add(btn).clicked() {
                         let target = format!("{}:{}", self.broadcast_ip, self.port);
                         match WolClient::send_wol(&self.mac_address, Some(&target)) {
                             Ok(()) => {
-                                self.status = Some(format!("{} -> {}", tr("wol.success", lang), self.mac_address));
+                                self.status = Some(format!(
+                                    "{} -> {}",
+                                    tr("wol.success", lang),
+                                    self.mac_address
+                                ));
                             }
                             Err(e) => {
                                 self.status = Some(format!("{} {}", tr("wol.error", lang), e));

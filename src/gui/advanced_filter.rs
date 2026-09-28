@@ -4,7 +4,7 @@
 
 use crate::core::adif::export_adif;
 use crate::core::database::{AdvancedQsoFilter, LogDatabase};
-use crate::core::i18n::{tr, Language};
+use crate::core::i18n::{Language, tr};
 use crate::core::qso::QsoRecord;
 use eframe::egui;
 use std::fs::File;
@@ -29,14 +29,26 @@ pub struct AdvancedFilterDialog {
 impl AdvancedFilterDialog {
     pub fn build_filter(&self, journal_id: Option<&str>) -> AdvancedQsoFilter {
         AdvancedQsoFilter {
-            date_from: if self.date_from.is_empty() { None } else { Some(self.date_from.clone()) },
-            date_to: if self.date_to.is_empty() { None } else { Some(self.date_to.clone()) },
+            date_from: if self.date_from.is_empty() {
+                None
+            } else {
+                Some(self.date_from.clone())
+            },
+            date_to: if self.date_to.is_empty() {
+                None
+            } else {
+                Some(self.date_to.clone())
+            },
             bands: self.selected_bands.clone(),
             modes: self.selected_modes.clone(),
             lotw_confirmed: if self.lotw_only { Some(true) } else { None },
             eqsl_confirmed: if self.eqsl_only { Some(true) } else { None },
             qsl_rcvd: if self.qsl_rcvd_only { Some(true) } else { None },
-            callsign_query: if self.call_query.is_empty() { None } else { Some(self.call_query.clone()) },
+            callsign_query: if self.call_query.is_empty() {
+                None
+            } else {
+                Some(self.call_query.clone())
+            },
             journal_id: journal_id.map(std::string::ToString::to_string),
         }
     }
@@ -66,23 +78,29 @@ impl AdvancedFilterDialog {
                 ui.heading(tr("filter.criteria_heading", lang));
                 ui.separator();
 
-                egui::Grid::new("filter_grid").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
-                    ui.label(tr("filter.date_from", lang));
-                    ui.text_edit_singleline(&mut self.date_from);
-                    ui.end_row();
+                egui::Grid::new("filter_grid")
+                    .num_columns(2)
+                    .spacing([12.0, 8.0])
+                    .show(ui, |ui| {
+                        ui.label(tr("filter.date_from", lang));
+                        ui.text_edit_singleline(&mut self.date_from);
+                        ui.end_row();
 
-                    ui.label(tr("filter.date_to", lang));
-                    ui.text_edit_singleline(&mut self.date_to);
-                    ui.end_row();
+                        ui.label(tr("filter.date_to", lang));
+                        ui.text_edit_singleline(&mut self.date_to);
+                        ui.end_row();
 
-                    ui.label(tr("filter.call_query", lang));
-                    ui.text_edit_singleline(&mut self.call_query);
-                    ui.end_row();
-                });
+                        ui.label(tr("filter.call_query", lang));
+                        ui.text_edit_singleline(&mut self.call_query);
+                        ui.end_row();
+                    });
 
                 ui.add_space(8.0);
                 ui.label(egui::RichText::new(tr("filter.bands_selection", lang)).strong());
-                let bands = ["160m", "80m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m", "2m", "70cm"];
+                let bands = [
+                    "160m", "80m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m", "2m",
+                    "70cm",
+                ];
                 ui.horizontal_wrapped(|ui| {
                     for b in &bands {
                         let mut is_sel = self.selected_bands.contains(&b.to_string());
@@ -133,17 +151,26 @@ impl AdvancedFilterDialog {
                 }
 
                 ui.horizontal(|ui| {
-                    if ui.button(format!("🔎 {}", tr("filter.apply_btn", lang))).clicked() {
+                    if ui
+                        .button(format!("🔎 {}", tr("filter.apply_btn", lang)))
+                        .clicked()
+                    {
                         let filter = self.build_filter(active_journal_id);
                         if let Ok(qsos) = db.search_qsos_advanced(&filter) {
                             self.filtered_count = qsos.len();
                             self.is_filtered_active = true;
-                            self.status_message = Some(format!("Znaleziono {} łączności spełniających kryteria.", self.filtered_count));
+                            self.status_message = Some(format!(
+                                "Znaleziono {} łączności spełniających kryteria.",
+                                self.filtered_count
+                            ));
                             on_filter_applied(qsos);
                         }
                     }
 
-                    if ui.button(format!("❌ {}", tr("filter.clear_btn", lang))).clicked() {
+                    if ui
+                        .button(format!("❌ {}", tr("filter.clear_btn", lang)))
+                        .clicked()
+                    {
                         self.date_from.clear();
                         self.date_to.clear();
                         self.selected_bands.clear();
@@ -153,25 +180,37 @@ impl AdvancedFilterDialog {
                         self.qsl_rcvd_only = false;
                         self.call_query.clear();
                         self.is_filtered_active = false;
-                        self.status_message = Some("Filtry zresetowane - wyświetlanie pełnego logu.".to_string());
+                        self.status_message =
+                            Some("Filtry zresetowane - wyświetlanie pełnego logu.".to_string());
                         on_filter_cleared();
                     }
 
-                    if ui.button(format!("📤 {}", tr("filter.export_adif_btn", lang))).clicked() {
+                    if ui
+                        .button(format!("📤 {}", tr("filter.export_adif_btn", lang)))
+                        .clicked()
+                    {
                         let filter = self.build_filter(active_journal_id);
                         if let Ok(qsos) = db.search_qsos_advanced(&filter) {
                             if qsos.is_empty() {
-                                self.status_message = Some("Brak łączności do wyeksportowania!".to_string());
+                                self.status_message =
+                                    Some("Brak łączności do wyeksportowania!".to_string());
                             } else if let Some(path) = rfd::FileDialog::new()
                                 .add_filter("ADIF Log Files", &["adi", "adif"])
                                 .set_file_name("SPLogbook-filtered.adi")
                                 .save_file()
                             {
-                                let author_call = if my_callsign.trim().is_empty() { "N0CALL" } else { my_callsign };
+                                let author_call = if my_callsign.trim().is_empty() {
+                                    "N0CALL"
+                                } else {
+                                    my_callsign
+                                };
                                 let content = export_adif(&qsos, "SPLogbook", author_call);
                                 if let Ok(mut f) = File::create(&path) {
                                     let _ = f.write_all(content.as_bytes());
-                                    self.status_message = Some(format!("Pomyślnie wyeksportowano do: {}", path.display()));
+                                    self.status_message = Some(format!(
+                                        "Pomyślnie wyeksportowano do: {}",
+                                        path.display()
+                                    ));
                                 }
                             }
                         }

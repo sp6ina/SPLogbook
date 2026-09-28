@@ -266,7 +266,10 @@ impl UploadScheduler {
 
     /// Ścieżka pliku kolejki offline (APPDATA/SPLogbook na Windows, katalog bieżący gdzie indziej).
     pub fn queue_path() -> PathBuf {
-        std::env::var("APPDATA").map_or_else(|_| PathBuf::from("upload_queue.json"), |p| PathBuf::from(p).join("SPLogbook").join("upload_queue.json"))
+        std::env::var("APPDATA").map_or_else(
+            |_| PathBuf::from("upload_queue.json"),
+            |p| PathBuf::from(p).join("SPLogbook").join("upload_queue.json"),
+        )
     }
 
     /// Wczytuje kolejkę z dysku; w razie braku/zniszczenia pliku zwraca pustą kolejkę.
@@ -274,22 +277,47 @@ impl UploadScheduler {
         let path = Self::queue_path();
         match std::fs::read_to_string(&path) {
             Ok(json) => Self::from_json(&json).unwrap_or_else(|e| {
-                log::warn!("Nie udało się odczytać kolejki wysyłki ({}): {}", path.display(), e);
+                log::warn!(
+                    "Nie udało się odczytać kolejki wysyłki ({}): {}",
+                    path.display(),
+                    e
+                );
                 Self::new()
             }),
             Err(_) => Self::new(),
         }
     }
 
-    /// Zapisuje kolejkę na dysk (best-effort).
+    /// Zapisuje kolejkę na dysk atomowo (best-effort): najpierw plik tymczasowy,
+    /// następnie `rename`, aby awaria nie pozostawiła pustego/uszkodzonego JSON
+    /// pod docelową nazwą i nie ukryła oczekujących wysyłek.
     pub fn save_to_disk(&self) {
         if let Ok(json) = self.to_json() {
             let path = Self::queue_path();
             if let Some(parent) = path.parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
-            if let Err(e) = std::fs::write(&path, json) {
-                log::warn!("Nie udało się zapisać kolejki wysyłki ({}): {}", path.display(), e);
+            let mut tmp_name = path
+                .file_name()
+                .map(std::ffi::OsString::from)
+                .unwrap_or_default();
+            tmp_name.push(".tmp");
+            let tmp_path = path.with_file_name(tmp_name);
+            if let Err(e) = std::fs::write(&tmp_path, json) {
+                log::warn!(
+                    "Nie udało się zapisać kolejki wysyłki ({}): {}",
+                    tmp_path.display(),
+                    e
+                );
+                return;
+            }
+            if let Err(e) = std::fs::rename(&tmp_path, &path) {
+                log::warn!(
+                    "Nie udało się sfinalizować zapisu kolejki ({}): {}",
+                    path.display(),
+                    e
+                );
+                let _ = std::fs::remove_file(&tmp_path);
             }
         }
     }
@@ -327,11 +355,16 @@ pub async fn execute_upload(
                 .await
                 .map_err(|e| e.to_string())
         }
-        UploadService::Qrz => crate::cloud::qrz::QrzClient::upload_to_logbook(&creds.qrz_api_key, adif)
-            .await
-            .map_err(|e| e.to_string()),
+        UploadService::Qrz => {
+            crate::cloud::qrz::QrzClient::upload_to_logbook(&creds.qrz_api_key, adif)
+                .await
+                .map_err(|e| e.to_string())
+        }
         UploadService::Eqsl => {
-            let client = crate::cloud::eqsl::EqslCardDownloader::new(&creds.eqsl_username, &creds.eqsl_password);
+            let client = crate::cloud::eqsl::EqslCardDownloader::new(
+                &creds.eqsl_username,
+                &creds.eqsl_password,
+            );
             client.upload_adif(adif).await.map_err(|e| e.to_string())
         }
     }

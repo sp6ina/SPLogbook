@@ -15,14 +15,17 @@ fn main() -> Result<(), eframe::Error> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     log::info!("SPLogbook v{} inicjalizacja...", env!("CARGO_PKG_VERSION"));
 
-    // Panic hook - log awarii do crash.log
+    // Panic hook - log awarii do pliku z sygnaturą czasową, aby kolejne awarie
+    // nie nadpisywały historii poprzednich zgłoszeń.
     std::panic::set_hook(Box::new(|info| {
         let msg = format!("Wystąpił nieoczekiwany błąd w SPLogbook:\n\n{info}");
         eprintln!("{msg}");
         log::error!("{msg}");
         if let Ok(exe) = std::env::current_exe() {
             if let Some(dir) = exe.parent() {
-                let _ = std::fs::write(dir.join("crash.log"), &msg);
+                let ts = chrono::Local::now().format("%Y%m%d_%H%M%S");
+                let path = dir.join(format!("crash_{ts}.log"));
+                let _ = std::fs::write(&path, &msg);
             }
         }
     }));
@@ -41,7 +44,10 @@ fn main() -> Result<(), eframe::Error> {
 
     #[cfg(windows)]
     let (app_data_dir, app_config_dir) = {
-        let base = std::env::var("APPDATA").map_or_else(|_| exe_dir.clone(), |p| std::path::PathBuf::from(p).join("SPLogbook"));
+        let base = std::env::var("APPDATA").map_or_else(
+            |_| exe_dir.clone(),
+            |p| std::path::PathBuf::from(p).join("SPLogbook"),
+        );
         (base.clone(), base)
     };
 
@@ -185,7 +191,8 @@ fn main() -> Result<(), eframe::Error> {
         Err(error) => {
             let message = format!(
                 "Nie można bezpiecznie otworzyć konfiguracji {}:\n{}\n\nSprawdź dostęp do systemowego magazynu poświadczeń. Oryginalny plik nie został nadpisany.",
-                config_file_path.display(), error
+                config_file_path.display(),
+                error
             );
             log::error!("{message}");
             rfd::MessageDialog::new()

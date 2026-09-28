@@ -75,11 +75,22 @@ impl CatBackendKind {
     }
 
     /// Wszystkie obsługiwane typy (do list rozwijanych).
-    pub const ALL: [Self; 6] = [Self::Hamlib, Self::Flrig, Self::Tci, Self::IcomCiV, Self::Kenwood, Self::So2r];
+    pub const ALL: [Self; 6] = [
+        Self::Hamlib,
+        Self::Flrig,
+        Self::Tci,
+        Self::IcomCiV,
+        Self::Kenwood,
+        Self::So2r,
+    ];
 }
 
 fn not_implemented(kind: CatBackendKind, op: &str) -> String {
-    format!("{}: operacja „{}” nie jest jeszcze zaimplementowana", kind.label(), op)
+    format!(
+        "{}: operacja „{}” nie jest jeszcze zaimplementowana",
+        kind.label(),
+        op
+    )
 }
 
 /// Wspólny interfejs wszystkich backendów CAT.

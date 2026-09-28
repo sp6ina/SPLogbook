@@ -7,11 +7,10 @@ use std::collections::HashSet;
 
 /// Lista 50 stanów USA w programie WAS (Worked All States)
 pub const US_STATES: [&str; 50] = [
-    "AK", "AL", "AR", "AZ", "CA", "CO", "CT", "DE", "FL", "GA",
-    "HI", "IA", "ID", "IL", "IN", "KS", "KY", "LA", "MA", "MD",
-    "ME", "MI", "MN", "MO", "MS", "MT", "NC", "ND", "NE", "NH",
-    "NJ", "NM", "NV", "NY", "OH", "OK", "OR", "PA", "RI", "SC",
-    "SD", "TN", "TX", "UT", "VA", "VT", "WA", "WI", "WV", "WY",
+    "AK", "AL", "AR", "AZ", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "IA", "ID", "IL", "IN", "KS",
+    "KY", "LA", "MA", "MD", "ME", "MI", "MN", "MO", "MS", "MT", "NC", "ND", "NE", "NH", "NJ", "NM",
+    "NV", "NY", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VA", "VT", "WA", "WI",
+    "WV", "WY",
 ];
 
 /// Kontynenty w programie WAC (Worked All Continents)
@@ -20,15 +19,15 @@ pub const CONTINENTS: [&str; 7] = ["AF", "AN", "AS", "EU", "NA", "OC", "SA"];
 /// Status łączności względem dyplomów (do podświetleń i alarmów w locie)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QsoAwardStatus {
-    pub is_worked_b4: bool,    // Czy ta sama stacja była już pracowana na tym samym paśmie i emisji
-    pub is_new_dxcc: bool,     // Nowy kraj DXCC (All Time New One - ATNO)
-    pub is_new_band: bool,     // Nowe pasmo dla danego kraju DXCC
-    pub is_new_mode: bool,     // Nowa emisja dla danego kraju DXCC
-    pub is_new_pga: bool,      // Nowa gmina polska w programie PGA
-    pub is_new_waz: bool,      // Nowa strefa CQ (WAZ 1-40)
-    pub is_new_was: bool,      // Nowy stan USA (WAS)
-    pub is_new_wac: bool,      // Nowy kontynent (WAC)
-    pub is_new_iota: bool,     // Nowa wyspa IOTA
+    pub is_worked_b4: bool, // Czy ta sama stacja była już pracowana na tym samym paśmie i emisji
+    pub is_new_dxcc: bool,  // Nowy kraj DXCC (All Time New One - ATNO)
+    pub is_new_band: bool,  // Nowe pasmo dla danego kraju DXCC
+    pub is_new_mode: bool,  // Nowa emisja dla danego kraju DXCC
+    pub is_new_pga: bool,   // Nowa gmina polska w programie PGA
+    pub is_new_waz: bool,   // Nowa strefa CQ (WAZ 1-40)
+    pub is_new_was: bool,   // Nowy stan USA (WAS)
+    pub is_new_wac: bool,   // Nowy kontynent (WAC)
+    pub is_new_iota: bool,  // Nowa wyspa IOTA
 }
 
 /// Okręgi Polskiego Związku Krótkofalowców (PZK) i województwa
@@ -68,17 +67,18 @@ pub fn extract_wpx_prefix(call: &str) -> String {
 }
 
 pub const WAE_EUROPEAN_ENTITIES: &[u32] = &[
-    1, 14, 15, 21, 22, 27, 29, 33, 40, 42, 45, 49, 54, 56, 61, 62, 63, 66, 70, 72, 74, 75, 76, 79, 82, 84, 86, 87, 88, 100, 104, 106, 110, 111, 113, 117, 118, 120, 123, 126, 128, 130, 134, 138, 146, 147, 150, 151, 152, 153, 154, 160, 163, 164, 169, 170, 175, 176, 177, 179, 230, 239, 248, 269, 279, 283, 496, 497, 221,
+    1, 14, 15, 21, 22, 27, 29, 33, 40, 42, 45, 49, 54, 56, 61, 62, 63, 66, 70, 72, 74, 75, 76, 79,
+    82, 84, 86, 87, 88, 100, 104, 106, 110, 111, 113, 117, 118, 120, 123, 126, 128, 130, 134, 138,
+    146, 147, 150, 151, 152, 153, 154, 160, 163, 164, 169, 170, 175, 176, 177, 179, 230, 239, 248,
+    269, 279, 283, 496, 497, 221,
 ];
 
 pub const SP_DISTRICTS: &[&str] = &[
-    "SP1", "SP2", "SP3", "SP4", "SP5", "SP6", "SP7", "SP8", "SP9",
-    "SO1", "SO2", "SO3", "SO4", "SO5", "SO6", "SO7", "SO8", "SO9",
-    "SN1", "SN2", "SN3", "SN4", "SN5", "SN6", "SN7", "SN8", "SN9",
-    "3Z1", "3Z2", "3Z3", "3Z4", "3Z5", "3Z6", "3Z7", "3Z8", "3Z9",
-    "HF1", "HF2", "HF3", "HF4", "HF5", "HF6", "HF7", "HF8", "HF9",
-    "SQ1", "SQ2", "SQ3", "SQ4", "SQ5", "SQ6", "SQ7", "SQ8", "SQ9",
-    "SR1", "SR2", "SR3", "SR4", "SR5", "SR6", "SR7", "SR8", "SR9",
+    "SP1", "SP2", "SP3", "SP4", "SP5", "SP6", "SP7", "SP8", "SP9", "SO1", "SO2", "SO3", "SO4",
+    "SO5", "SO6", "SO7", "SO8", "SO9", "SN1", "SN2", "SN3", "SN4", "SN5", "SN6", "SN7", "SN8",
+    "SN9", "3Z1", "3Z2", "3Z3", "3Z4", "3Z5", "3Z6", "3Z7", "3Z8", "3Z9", "HF1", "HF2", "HF3",
+    "HF4", "HF5", "HF6", "HF7", "HF8", "HF9", "SQ1", "SQ2", "SQ3", "SQ4", "SQ5", "SQ6", "SQ7",
+    "SQ8", "SQ9", "SR1", "SR2", "SR3", "SR4", "SR5", "SR6", "SR7", "SR8", "SR9",
 ];
 
 pub fn extract_sp_district(callsign: &str) -> Option<String> {
@@ -137,7 +137,7 @@ pub struct AwardsEngine {
 /// Szczegółowy rekord zaliczonej łączności dla dyplomów z zakładki "Inne"
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AwardWorkedRecord {
-    pub key: String,         // np. "SP6", "EU-001", "JO81", "WR01", "SP/SZ-001", "SP-0001"
+    pub key: String, // np. "SP6", "EU-001", "JO81", "WR01", "SP/SZ-001", "SP-0001"
     pub callsign: String,
     pub band: String,
     pub mode: String,
@@ -196,33 +196,40 @@ impl AwardsEngine {
     }
 
     pub fn register_qso_record(&mut self, qso: &QsoRecord) {
-        let is_confirmed = qso.qsl_rcvd == "Y" || qso.lotw_qsl_rcvd == "Y" || qso.eqsl_qsl_rcvd == "Y";
-        
+        let is_confirmed =
+            qso.qsl_rcvd == "Y" || qso.lotw_qsl_rcvd == "Y" || qso.eqsl_qsl_rcvd == "Y";
+
         let wpx = extract_wpx_prefix(&qso.callsign);
         if !wpx.is_empty() {
             self.worked_wpx.insert(wpx.clone());
-            self.details_wpx.entry(wpx.clone()).or_default().push(AwardWorkedRecord {
-                key: wpx,
-                callsign: qso.callsign.clone(),
-                band: qso.band.clone(),
-                mode: qso.mode.clone(),
-                qso_date: qso.qso_date.clone(),
-                is_confirmed,
-            });
-        }
-
-        if let Some(ref i) = qso.iota {
-            let i_clean = i.trim().to_uppercase();
-            if !i_clean.is_empty() {
-                self.worked_iota.insert(i_clean.clone());
-                self.details_iota.entry(i_clean.clone()).or_default().push(AwardWorkedRecord {
-                    key: i_clean,
+            self.details_wpx
+                .entry(wpx.clone())
+                .or_default()
+                .push(AwardWorkedRecord {
+                    key: wpx,
                     callsign: qso.callsign.clone(),
                     band: qso.band.clone(),
                     mode: qso.mode.clone(),
                     qso_date: qso.qso_date.clone(),
                     is_confirmed,
                 });
+        }
+
+        if let Some(ref i) = qso.iota {
+            let i_clean = i.trim().to_uppercase();
+            if !i_clean.is_empty() {
+                self.worked_iota.insert(i_clean.clone());
+                self.details_iota
+                    .entry(i_clean.clone())
+                    .or_default()
+                    .push(AwardWorkedRecord {
+                        key: i_clean,
+                        callsign: qso.callsign.clone(),
+                        band: qso.band.clone(),
+                        mode: qso.mode.clone(),
+                        qso_date: qso.qso_date.clone(),
+                        is_confirmed,
+                    });
             }
         }
 
@@ -231,14 +238,17 @@ impl AwardsEngine {
             if g_clean.len() >= 4 {
                 let grid4 = g_clean[..4].to_string();
                 self.worked_vucc.insert(grid4.clone());
-                self.details_vucc.entry(grid4.clone()).or_default().push(AwardWorkedRecord {
-                    key: grid4,
-                    callsign: qso.callsign.clone(),
-                    band: qso.band.clone(),
-                    mode: qso.mode.clone(),
-                    qso_date: qso.qso_date.clone(),
-                    is_confirmed,
-                });
+                self.details_vucc
+                    .entry(grid4.clone())
+                    .or_default()
+                    .push(AwardWorkedRecord {
+                        key: grid4,
+                        callsign: qso.callsign.clone(),
+                        band: qso.band.clone(),
+                        mode: qso.mode.clone(),
+                        qso_date: qso.qso_date.clone(),
+                        is_confirmed,
+                    });
             }
         }
 
@@ -246,14 +256,17 @@ impl AwardsEngine {
             let s_clean = s.trim().to_uppercase();
             if !s_clean.is_empty() {
                 self.worked_sota.insert(s_clean.clone());
-                self.details_sota.entry(s_clean.clone()).or_default().push(AwardWorkedRecord {
-                    key: s_clean,
-                    callsign: qso.callsign.clone(),
-                    band: qso.band.clone(),
-                    mode: qso.mode.clone(),
-                    qso_date: qso.qso_date.clone(),
-                    is_confirmed,
-                });
+                self.details_sota
+                    .entry(s_clean.clone())
+                    .or_default()
+                    .push(AwardWorkedRecord {
+                        key: s_clean,
+                        callsign: qso.callsign.clone(),
+                        band: qso.band.clone(),
+                        mode: qso.mode.clone(),
+                        qso_date: qso.qso_date.clone(),
+                        is_confirmed,
+                    });
             }
         }
 
@@ -261,14 +274,17 @@ impl AwardsEngine {
             let p_clean = p.trim().to_uppercase();
             if !p_clean.is_empty() {
                 self.worked_pota.insert(p_clean.clone());
-                self.details_pota.entry(p_clean.clone()).or_default().push(AwardWorkedRecord {
-                    key: p_clean,
-                    callsign: qso.callsign.clone(),
-                    band: qso.band.clone(),
-                    mode: qso.mode.clone(),
-                    qso_date: qso.qso_date.clone(),
-                    is_confirmed,
-                });
+                self.details_pota
+                    .entry(p_clean.clone())
+                    .or_default()
+                    .push(AwardWorkedRecord {
+                        key: p_clean,
+                        callsign: qso.callsign.clone(),
+                        band: qso.band.clone(),
+                        mode: qso.mode.clone(),
+                        qso_date: qso.qso_date.clone(),
+                        is_confirmed,
+                    });
             }
         }
 
@@ -276,14 +292,17 @@ impl AwardsEngine {
             let pga_clean = pga.trim().to_uppercase();
             if !pga_clean.is_empty() {
                 self.worked_pga.insert(pga_clean.clone());
-                self.details_pga.entry(pga_clean.clone()).or_default().push(AwardWorkedRecord {
-                    key: pga_clean,
-                    callsign: qso.callsign.clone(),
-                    band: qso.band.clone(),
-                    mode: qso.mode.clone(),
-                    qso_date: qso.qso_date.clone(),
-                    is_confirmed,
-                });
+                self.details_pga
+                    .entry(pga_clean.clone())
+                    .or_default()
+                    .push(AwardWorkedRecord {
+                        key: pga_clean,
+                        callsign: qso.callsign.clone(),
+                        band: qso.band.clone(),
+                        mode: qso.mode.clone(),
+                        qso_date: qso.qso_date.clone(),
+                        is_confirmed,
+                    });
             }
         }
 
@@ -304,8 +323,17 @@ impl AwardsEngine {
         );
     }
 
-    pub fn register_qso(&mut self, call: &str, band: &str, mode: &str, dxcc: Option<u32>, pga: Option<&str>) {
-        self.register_qso_full(call, band, mode, dxcc, pga, None, None, None, None, None, None, None, false);
+    pub fn register_qso(
+        &mut self,
+        call: &str,
+        band: &str,
+        mode: &str,
+        dxcc: Option<u32>,
+        pga: Option<&str>,
+    ) {
+        self.register_qso_full(
+            call, band, mode, dxcc, pga, None, None, None, None, None, None, None, false,
+        );
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -329,7 +357,8 @@ impl AwardsEngine {
         let band = band.to_string();
         let mode = mode.to_uppercase();
 
-        self.worked_calls.insert((call.clone(), band.clone(), mode.clone()));
+        self.worked_calls
+            .insert((call.clone(), band.clone(), mode.clone()));
 
         if let Some(dxcc_id) = dxcc {
             self.worked_dxcc_all.insert(dxcc_id);
@@ -433,7 +462,14 @@ impl AwardsEngine {
         }
     }
 
-    pub fn check_status(&self, call: &str, band: &str, mode: &str, dxcc: Option<u32>, pga: Option<&str>) -> QsoAwardStatus {
+    pub fn check_status(
+        &self,
+        call: &str,
+        band: &str,
+        mode: &str,
+        dxcc: Option<u32>,
+        pga: Option<&str>,
+    ) -> QsoAwardStatus {
         self.check_status_full(call, band, mode, dxcc, pga, None, None, None, None)
     }
 
@@ -454,7 +490,9 @@ impl AwardsEngine {
         let band = band.to_string();
         let mode = mode.to_uppercase();
 
-        let is_worked_b4 = self.worked_calls.contains(&(call, band.clone(), mode.clone()));
+        let is_worked_b4 = self
+            .worked_calls
+            .contains(&(call, band.clone(), mode.clone()));
 
         let (is_new_dxcc, is_new_band, is_new_mode) = match dxcc {
             Some(dxcc_id) => {
@@ -518,13 +556,22 @@ impl AwardsEngine {
 
     pub fn get_polish_district(call: &str) -> Option<PolishDistrictInfo> {
         let clean = call.trim().to_uppercase();
-        if !clean.starts_with("SP") && !clean.starts_with("SQ") && !clean.starts_with("SO")
-            && !clean.starts_with("SN") && !clean.starts_with("3Z") && !clean.starts_with("HF") {
+        if !clean.starts_with("SP")
+            && !clean.starts_with("SQ")
+            && !clean.starts_with("SO")
+            && !clean.starts_with("SN")
+            && !clean.starts_with("3Z")
+            && !clean.starts_with("HF")
+        {
             return None;
         }
 
         let parts: Vec<&str> = clean.split('/').collect();
-        let district = if let Some(d_str) = parts.iter().rev().find(|p| p.len() == 1 && p.chars().all(|c| c.is_ascii_digit() && c != '0')) {
+        let district = if let Some(d_str) = parts
+            .iter()
+            .rev()
+            .find(|p| p.len() == 1 && p.chars().all(|c| c.is_ascii_digit() && c != '0'))
+        {
             d_str.chars().next()?.to_digit(10)? as u8
         } else {
             let num_char = clean.chars().find(char::is_ascii_digit)?;
@@ -542,7 +589,10 @@ impl AwardsEngine {
             8 => vec!["Lubelskie", "Podkarpackie"],
             9 => vec!["Małopolskie", "Śląskie"],
             _ => vec!["Polska"],
-        }.into_iter().map(std::string::ToString::to_string).collect();
+        }
+        .into_iter()
+        .map(std::string::ToString::to_string)
+        .collect();
 
         Some(PolishDistrictInfo {
             district,
@@ -631,18 +681,46 @@ mod tests {
     #[test]
     fn test_invalid_waz_zone_ignored() {
         let engine = AwardsEngine::new();
-        assert!(!engine.check_status_full("X", "20m", "SSB", None, None, Some(0), None, None, None).is_new_waz);
-        assert!(!engine.check_status_full("X", "20m", "SSB", None, None, Some(41), None, None, None).is_new_waz);
-        assert!(engine.check_status_full("X", "20m", "SSB", None, None, Some(15), None, None, None).is_new_waz);
+        assert!(
+            !engine
+                .check_status_full("X", "20m", "SSB", None, None, Some(0), None, None, None)
+                .is_new_waz
+        );
+        assert!(
+            !engine
+                .check_status_full("X", "20m", "SSB", None, None, Some(41), None, None, None)
+                .is_new_waz
+        );
+        assert!(
+            engine
+                .check_status_full("X", "20m", "SSB", None, None, Some(15), None, None, None)
+                .is_new_waz
+        );
     }
 
     #[test]
     fn test_invalid_state_and_continent_ignored() {
         let engine = AwardsEngine::new();
-        assert!(!engine.check_status_full("X", "20m", "SSB", None, None, None, Some("ZZ"), None, None).is_new_was);
-        assert!(engine.check_status_full("X", "20m", "SSB", None, None, None, Some("CA"), None, None).is_new_was);
-        assert!(!engine.check_status_full("X", "20m", "SSB", None, None, None, None, Some("XX"), None).is_new_wac);
-        assert!(engine.check_status_full("X", "20m", "SSB", None, None, None, None, Some("EU"), None).is_new_wac);
+        assert!(
+            !engine
+                .check_status_full("X", "20m", "SSB", None, None, None, Some("ZZ"), None, None)
+                .is_new_was
+        );
+        assert!(
+            engine
+                .check_status_full("X", "20m", "SSB", None, None, None, Some("CA"), None, None)
+                .is_new_was
+        );
+        assert!(
+            !engine
+                .check_status_full("X", "20m", "SSB", None, None, None, None, Some("XX"), None)
+                .is_new_wac
+        );
+        assert!(
+            engine
+                .check_status_full("X", "20m", "SSB", None, None, None, None, Some("EU"), None)
+                .is_new_wac
+        );
     }
 
     #[test]

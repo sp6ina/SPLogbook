@@ -6,7 +6,15 @@ impl SpLogApp {
     /// układu dokowania oraz przy synchronizacji widoczności.
     pub fn all_tile_ids() -> [&'static str; 9] {
         [
-            "vfo", "qso", "log", "cluster", "bandmap", "solar", "satellites", "world_map", "waterfall",
+            "vfo",
+            "qso",
+            "log",
+            "cluster",
+            "bandmap",
+            "solar",
+            "satellites",
+            "world_map",
+            "waterfall",
         ]
     }
 
@@ -77,10 +85,10 @@ impl SpLogApp {
             if col_items.is_empty() {
                 continue;
             }
-            let [_, new_node] = self
-                .dock_state
-                .main_surface_mut()
-                .split_right(rightmost, 0.5, col_items.clone());
+            let [_, new_node] =
+                self.dock_state
+                    .main_surface_mut()
+                    .split_right(rightmost, 0.5, col_items.clone());
             rightmost = new_node;
         }
     }
@@ -139,7 +147,9 @@ impl SpLogApp {
         let result = ctx.show_viewport_immediate(viewport_id, builder, |vp_ui, _class| {
             let out = body(self, vp_ui);
             captured_geo = vp_ui.ctx().input(|i| {
-                i.viewport().outer_rect.map(|r| ([r.min.x, r.min.y], [r.width(), r.height()]))
+                i.viewport()
+                    .outer_rect
+                    .map(|r| ([r.min.x, r.min.y], [r.width(), r.height()]))
             });
             out
         });
@@ -151,15 +161,78 @@ impl SpLogApp {
         self.left_column_width = 350.0;
         self.right_column_width = 360.0;
 
-        self.panel_vfo      = ViewPanelConfig { visible: true,  floating: false, column: 0, order: 0, saved_pos: None, saved_size: None };
-        self.panel_qso      = ViewPanelConfig { visible: true,  floating: false, column: 0, order: 1, saved_pos: None, saved_size: None };
-        self.panel_log      = ViewPanelConfig { visible: true,  floating: false, column: 1, order: 0, saved_pos: None, saved_size: None };
-        self.panel_cluster  = ViewPanelConfig { visible: true,  floating: false, column: 1, order: 1, saved_pos: None, saved_size: None };
-        self.panel_bandmap  = ViewPanelConfig { visible: true,  floating: false, column: 0, order: 2, saved_pos: None, saved_size: None };
-        self.panel_solar    = ViewPanelConfig { visible: true,  floating: false, column: 2, order: 1, saved_pos: None, saved_size: None };
-        self.panel_satellites = ViewPanelConfig { visible: false, floating: false, column: 2, order: 2, saved_pos: None, saved_size: None };
-        self.panel_world_map  = ViewPanelConfig { visible: false, floating: false, column: 2, order: 0, saved_pos: None, saved_size: None };
-        self.panel_waterfall  = ViewPanelConfig { visible: false, floating: false, column: 2, order: 3, saved_pos: None, saved_size: None };
+        self.panel_vfo = ViewPanelConfig {
+            visible: true,
+            floating: false,
+            column: 0,
+            order: 0,
+            saved_pos: None,
+            saved_size: None,
+        };
+        self.panel_qso = ViewPanelConfig {
+            visible: true,
+            floating: false,
+            column: 0,
+            order: 1,
+            saved_pos: None,
+            saved_size: None,
+        };
+        self.panel_log = ViewPanelConfig {
+            visible: true,
+            floating: false,
+            column: 1,
+            order: 0,
+            saved_pos: None,
+            saved_size: None,
+        };
+        self.panel_cluster = ViewPanelConfig {
+            visible: true,
+            floating: false,
+            column: 1,
+            order: 1,
+            saved_pos: None,
+            saved_size: None,
+        };
+        self.panel_bandmap = ViewPanelConfig {
+            visible: true,
+            floating: false,
+            column: 0,
+            order: 2,
+            saved_pos: None,
+            saved_size: None,
+        };
+        self.panel_solar = ViewPanelConfig {
+            visible: true,
+            floating: false,
+            column: 2,
+            order: 1,
+            saved_pos: None,
+            saved_size: None,
+        };
+        self.panel_satellites = ViewPanelConfig {
+            visible: false,
+            floating: false,
+            column: 2,
+            order: 2,
+            saved_pos: None,
+            saved_size: None,
+        };
+        self.panel_world_map = ViewPanelConfig {
+            visible: false,
+            floating: false,
+            column: 2,
+            order: 0,
+            saved_pos: None,
+            saved_size: None,
+        };
+        self.panel_waterfall = ViewPanelConfig {
+            visible: false,
+            floating: false,
+            column: 2,
+            order: 3,
+            saved_pos: None,
+            saved_size: None,
+        };
 
         self.show_bandmap_window = false;
         self.show_satellites_window = false;
@@ -172,15 +245,49 @@ impl SpLogApp {
 
     pub fn get_tiles_in_column(&self, col: usize) -> Vec<String> {
         let mut items = Vec::new();
-        if self.panel_vfo.column == col && self.panel_vfo.visible && !self.panel_vfo.floating { items.push(("vfo".to_string(), self.panel_vfo.order)); }
-        if self.panel_qso.column == col && self.panel_qso.visible && !self.panel_qso.floating { items.push(("qso".to_string(), self.panel_qso.order)); }
-        if self.panel_log.column == col && self.panel_log.visible && !self.panel_log.floating { items.push(("log".to_string(), self.panel_log.order)); }
-        if self.panel_cluster.column == col && self.panel_cluster.visible && !self.panel_cluster.floating { items.push(("cluster".to_string(), self.panel_cluster.order)); }
-        if self.panel_bandmap.column == col && self.panel_bandmap.visible && !self.panel_bandmap.floating { items.push(("bandmap".to_string(), self.panel_bandmap.order)); }
-        if self.panel_solar.column == col && self.panel_solar.visible && !self.panel_solar.floating { items.push(("solar".to_string(), self.panel_solar.order)); }
-        if self.panel_satellites.column == col && self.panel_satellites.visible && !self.panel_satellites.floating { items.push(("satellites".to_string(), self.panel_satellites.order)); }
-        if self.panel_world_map.column == col && self.panel_world_map.visible && !self.panel_world_map.floating { items.push(("world_map".to_string(), self.panel_world_map.order)); }
-        if self.panel_waterfall.column == col && self.panel_waterfall.visible && !self.panel_waterfall.floating { items.push(("waterfall".to_string(), self.panel_waterfall.order)); }
+        if self.panel_vfo.column == col && self.panel_vfo.visible && !self.panel_vfo.floating {
+            items.push(("vfo".to_string(), self.panel_vfo.order));
+        }
+        if self.panel_qso.column == col && self.panel_qso.visible && !self.panel_qso.floating {
+            items.push(("qso".to_string(), self.panel_qso.order));
+        }
+        if self.panel_log.column == col && self.panel_log.visible && !self.panel_log.floating {
+            items.push(("log".to_string(), self.panel_log.order));
+        }
+        if self.panel_cluster.column == col
+            && self.panel_cluster.visible
+            && !self.panel_cluster.floating
+        {
+            items.push(("cluster".to_string(), self.panel_cluster.order));
+        }
+        if self.panel_bandmap.column == col
+            && self.panel_bandmap.visible
+            && !self.panel_bandmap.floating
+        {
+            items.push(("bandmap".to_string(), self.panel_bandmap.order));
+        }
+        if self.panel_solar.column == col && self.panel_solar.visible && !self.panel_solar.floating
+        {
+            items.push(("solar".to_string(), self.panel_solar.order));
+        }
+        if self.panel_satellites.column == col
+            && self.panel_satellites.visible
+            && !self.panel_satellites.floating
+        {
+            items.push(("satellites".to_string(), self.panel_satellites.order));
+        }
+        if self.panel_world_map.column == col
+            && self.panel_world_map.visible
+            && !self.panel_world_map.floating
+        {
+            items.push(("world_map".to_string(), self.panel_world_map.order));
+        }
+        if self.panel_waterfall.column == col
+            && self.panel_waterfall.visible
+            && !self.panel_waterfall.floating
+        {
+            items.push(("waterfall".to_string(), self.panel_waterfall.order));
+        }
         items.sort_by_key(|(_, ord)| *ord);
         items.into_iter().map(|(id, _)| id).collect()
     }
@@ -234,7 +341,8 @@ impl SpLogApp {
         };
         let mut tiles = self.get_tiles_in_column(col);
         if let Some(pos) = tiles.iter().position(|id| id == tile_id) {
-            let new_pos = (pos as i32 + delta).clamp(0, (tiles.len().saturating_sub(1)) as i32) as usize;
+            let new_pos =
+                (pos as i32 + delta).clamp(0, (tiles.len().saturating_sub(1)) as i32) as usize;
             if new_pos != pos {
                 tiles.swap(pos, new_pos);
                 for (idx, id) in tiles.into_iter().enumerate() {
@@ -275,15 +383,51 @@ impl SpLogApp {
     pub fn normalize_tile_orders(&mut self) {
         for col in 0..=2 {
             let mut items: Vec<(&str, usize)> = Vec::new();
-            if self.panel_vfo.column == col && self.panel_vfo.visible && !self.panel_vfo.floating { items.push(("vfo", self.panel_vfo.order)); }
-            if self.panel_qso.column == col && self.panel_qso.visible && !self.panel_qso.floating { items.push(("qso", self.panel_qso.order)); }
-            if self.panel_log.column == col && self.panel_log.visible && !self.panel_log.floating { items.push(("log", self.panel_log.order)); }
-            if self.panel_cluster.column == col && self.panel_cluster.visible && !self.panel_cluster.floating { items.push(("cluster", self.panel_cluster.order)); }
-            if self.panel_bandmap.column == col && self.panel_bandmap.visible && !self.panel_bandmap.floating { items.push(("bandmap", self.panel_bandmap.order)); }
-            if self.panel_solar.column == col && self.panel_solar.visible && !self.panel_solar.floating { items.push(("solar", self.panel_solar.order)); }
-            if self.panel_satellites.column == col && self.panel_satellites.visible && !self.panel_satellites.floating { items.push(("satellites", self.panel_satellites.order)); }
-            if self.panel_world_map.column == col && self.panel_world_map.visible && !self.panel_world_map.floating { items.push(("world_map", self.panel_world_map.order)); }
-            if self.panel_waterfall.column == col && self.panel_waterfall.visible && !self.panel_waterfall.floating { items.push(("waterfall", self.panel_waterfall.order)); }
+            if self.panel_vfo.column == col && self.panel_vfo.visible && !self.panel_vfo.floating {
+                items.push(("vfo", self.panel_vfo.order));
+            }
+            if self.panel_qso.column == col && self.panel_qso.visible && !self.panel_qso.floating {
+                items.push(("qso", self.panel_qso.order));
+            }
+            if self.panel_log.column == col && self.panel_log.visible && !self.panel_log.floating {
+                items.push(("log", self.panel_log.order));
+            }
+            if self.panel_cluster.column == col
+                && self.panel_cluster.visible
+                && !self.panel_cluster.floating
+            {
+                items.push(("cluster", self.panel_cluster.order));
+            }
+            if self.panel_bandmap.column == col
+                && self.panel_bandmap.visible
+                && !self.panel_bandmap.floating
+            {
+                items.push(("bandmap", self.panel_bandmap.order));
+            }
+            if self.panel_solar.column == col
+                && self.panel_solar.visible
+                && !self.panel_solar.floating
+            {
+                items.push(("solar", self.panel_solar.order));
+            }
+            if self.panel_satellites.column == col
+                && self.panel_satellites.visible
+                && !self.panel_satellites.floating
+            {
+                items.push(("satellites", self.panel_satellites.order));
+            }
+            if self.panel_world_map.column == col
+                && self.panel_world_map.visible
+                && !self.panel_world_map.floating
+            {
+                items.push(("world_map", self.panel_world_map.order));
+            }
+            if self.panel_waterfall.column == col
+                && self.panel_waterfall.visible
+                && !self.panel_waterfall.floating
+            {
+                items.push(("waterfall", self.panel_waterfall.order));
+            }
 
             items.sort_by_key(|(_, order)| *order);
             for (new_order, (id, _)) in items.into_iter().enumerate() {
@@ -298,11 +442,22 @@ impl SpLogApp {
             "qso" => self.panel_qso.floating = true,
             "log" => self.panel_log.floating = true,
             "cluster" => self.panel_cluster.floating = true,
-            "bandmap" => { self.panel_bandmap.floating = true; self.show_bandmap_window = true; }
+            "bandmap" => {
+                self.panel_bandmap.floating = true;
+                self.show_bandmap_window = true;
+            }
             "solar" => self.panel_solar.floating = true,
-            "satellites" => { self.panel_satellites.floating = true; self.show_satellites_window = true; }
-            "world_map" => { self.panel_world_map.floating = true; self.show_world_map_window = true; }
-            "waterfall" => { self.panel_waterfall.floating = true; }
+            "satellites" => {
+                self.panel_satellites.floating = true;
+                self.show_satellites_window = true;
+            }
+            "world_map" => {
+                self.panel_world_map.floating = true;
+                self.show_world_map_window = true;
+            }
+            "waterfall" => {
+                self.panel_waterfall.floating = true;
+            }
             _ => {}
         }
     }
@@ -313,11 +468,22 @@ impl SpLogApp {
             "qso" => self.panel_qso.visible = false,
             "log" => self.panel_log.visible = false,
             "cluster" => self.panel_cluster.visible = false,
-            "bandmap" => { self.panel_bandmap.visible = false; self.show_bandmap_window = false; }
+            "bandmap" => {
+                self.panel_bandmap.visible = false;
+                self.show_bandmap_window = false;
+            }
             "solar" => self.panel_solar.visible = false,
-            "satellites" => { self.panel_satellites.visible = false; self.show_satellites_window = false; }
-            "world_map" => { self.panel_world_map.visible = false; self.show_world_map_window = false; }
-            "waterfall" => { self.panel_waterfall.visible = false; }
+            "satellites" => {
+                self.panel_satellites.visible = false;
+                self.show_satellites_window = false;
+            }
+            "world_map" => {
+                self.panel_world_map.visible = false;
+                self.show_world_map_window = false;
+            }
+            "waterfall" => {
+                self.panel_waterfall.visible = false;
+            }
             _ => {}
         }
     }
@@ -342,42 +508,98 @@ impl SpLogApp {
         match tile_id {
             "vfo" => {
                 if self.vfo_split {
-                    ui.label(egui::RichText::new("SPLIT ON").color(egui::Color32::from_rgb(239, 68, 68)).strong().size(11.0));
+                    ui.label(
+                        egui::RichText::new("SPLIT ON")
+                            .color(egui::Color32::from_rgb(239, 68, 68))
+                            .strong()
+                            .size(11.0),
+                    );
                 } else {
-                    ui.label(egui::RichText::new("SPLIT OFF").color(egui::Color32::from_rgb(100, 116, 139)).size(11.0));
+                    ui.label(
+                        egui::RichText::new("SPLIT OFF")
+                            .color(egui::Color32::from_rgb(100, 116, 139))
+                            .size(11.0),
+                    );
                 }
             }
             "qso" => {
                 if self.cat_connected {
-                    if ui.button(egui::RichText::new("● CAT ONLINE").color(egui::Color32::from_rgb(34, 197, 94)).size(11.0).strong()).clicked() {
+                    if ui
+                        .button(
+                            egui::RichText::new("● CAT ONLINE")
+                                .color(egui::Color32::from_rgb(34, 197, 94))
+                                .size(11.0)
+                                .strong(),
+                        )
+                        .clicked()
+                    {
                         self.show_cat_settings_window = true;
                     }
-                } else if ui.button(egui::RichText::new("○ CAT OFFLINE").color(egui::Color32::from_rgb(148, 163, 184)).size(11.0)).clicked() {
+                } else if ui
+                    .button(
+                        egui::RichText::new("○ CAT OFFLINE")
+                            .color(egui::Color32::from_rgb(148, 163, 184))
+                            .size(11.0),
+                    )
+                    .clicked()
+                {
                     self.show_cat_settings_window = true;
                 }
             }
             "log" => {
-                ui.label(egui::RichText::new(format!("({} QSO)", self.recent_qsos.len())).size(11.0).color(egui::Color32::from_rgb(148, 163, 184)));
+                ui.label(
+                    egui::RichText::new(format!("({} QSO)", self.recent_qsos.len()))
+                        .size(11.0)
+                        .color(egui::Color32::from_rgb(148, 163, 184)),
+                );
                 let lang = self.current_language;
-                ui.add(egui::TextEdit::singleline(&mut self.log_search_query).hint_text(tr("qso.search", lang)).desired_width(110.0));
-                if ui.button("🔄").on_hover_text(tr("btn.refresh", lang)).clicked() {
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.log_search_query)
+                        .hint_text(tr("qso.search", lang))
+                        .desired_width(110.0),
+                );
+                if ui
+                    .button("🔄")
+                    .on_hover_text(tr("btn.refresh", lang))
+                    .clicked()
+                {
                     self.reload_qsos();
                 }
             }
             "cluster" => {
                 if self.cluster_connected {
-                    ui.label(egui::RichText::new("● ONLINE").color(egui::Color32::from_rgb(34, 197, 94)).size(10.0).strong());
+                    ui.label(
+                        egui::RichText::new("● ONLINE")
+                            .color(egui::Color32::from_rgb(34, 197, 94))
+                            .size(10.0)
+                            .strong(),
+                    );
                 } else if self.cluster_connecting {
-                    ui.label(egui::RichText::new("● ŁĄCZENIE...").color(egui::Color32::from_rgb(250, 204, 21)).size(10.0).strong());
+                    ui.label(
+                        egui::RichText::new("● ŁĄCZENIE...")
+                            .color(egui::Color32::from_rgb(250, 204, 21))
+                            .size(10.0)
+                            .strong(),
+                    );
                 } else {
-                    ui.label(egui::RichText::new("○ OFFLINE").color(egui::Color32::from_rgb(148, 163, 184)).size(10.0));
+                    ui.label(
+                        egui::RichText::new("○ OFFLINE")
+                            .color(egui::Color32::from_rgb(148, 163, 184))
+                            .size(10.0),
+                    );
                 }
-                if ui.button(egui::RichText::new("📢 Spot").strong().color(egui::Color32::from_rgb(56, 189, 248)))
+                if ui
+                    .button(
+                        egui::RichText::new("📢 Spot")
+                            .strong()
+                            .color(egui::Color32::from_rgb(56, 189, 248)),
+                    )
                     .on_hover_text("Wyślij spot DX do klastra Telnet")
                     .clicked()
                 {
                     let freq_khz = self.rig_state.frequency_hz as f64 / 1000.0;
-                    self.send_spot_dialog.open_with(&self.entry_callsign, freq_khz);
+                    self.send_spot_dialog
+                        .open_with(&self.entry_callsign, freq_khz);
                 }
             }
             _ => {}
@@ -419,7 +641,12 @@ impl SpLogApp {
                 } else {
                     egui::Color32::from_rgba_unmultiplied(56, 189, 248, 80)
                 };
-                ui.painter().rect_stroke(rect, 8.0, egui::Stroke::new(if hovered { 2.5_f32 } else { 1.5_f32 }, border_color), egui::StrokeKind::Inside);
+                ui.painter().rect_stroke(
+                    rect,
+                    8.0,
+                    egui::Stroke::new(if hovered { 2.5_f32 } else { 1.5_f32 }, border_color),
+                    egui::StrokeKind::Inside,
+                );
                 let fill = if hovered {
                     egui::Color32::from_rgba_unmultiplied(56, 189, 248, 30)
                 } else {
@@ -431,7 +658,11 @@ impl SpLogApp {
                     egui::Align2::CENTER_CENTER,
                     format!("➕ Upuść kafelek tutaj\n(Kolumna: {col_name})"),
                     egui::FontId::proportional(12.0),
-                    if hovered { egui::Color32::WHITE } else { egui::Color32::from_rgb(148, 163, 184) },
+                    if hovered {
+                        egui::Color32::WHITE
+                    } else {
+                        egui::Color32::from_rgb(148, 163, 184)
+                    },
                 );
                 if hovered && ui.input(|i| i.pointer.any_released()) {
                     if let Some(dragged) = self.dragging_tile.take() {
@@ -476,8 +707,14 @@ impl SpLogApp {
                     }
                 } else {
                     ui.painter().line_segment(
-                        [egui::pos2(slot_rect.left() + 20.0, slot_rect.center().y), egui::pos2(slot_rect.right() - 20.0, slot_rect.center().y)],
-                        egui::Stroke::new(1.0_f32, egui::Color32::from_rgba_unmultiplied(56, 189, 248, 40)),
+                        [
+                            egui::pos2(slot_rect.left() + 20.0, slot_rect.center().y),
+                            egui::pos2(slot_rect.right() - 20.0, slot_rect.center().y),
+                        ],
+                        egui::Stroke::new(
+                            1.0_f32,
+                            egui::Color32::from_rgba_unmultiplied(56, 189, 248, 40),
+                        ),
                     );
                 }
             }
@@ -563,10 +800,8 @@ impl SpLogApp {
 
         // Drop slot na samym końcu kolumny
         if is_dragging {
-            let (slot_rect, slot_resp) = ui.allocate_exact_size(
-                egui::vec2(ui.available_width(), 20.0),
-                egui::Sense::hover(),
-            );
+            let (slot_rect, slot_resp) = ui
+                .allocate_exact_size(egui::vec2(ui.available_width(), 20.0), egui::Sense::hover());
             let hovered = slot_resp.hovered();
             if hovered {
                 ui.painter().rect_filled(
@@ -588,8 +823,14 @@ impl SpLogApp {
                 }
             } else {
                 ui.painter().line_segment(
-                    [egui::pos2(slot_rect.left() + 20.0, slot_rect.center().y), egui::pos2(slot_rect.right() - 20.0, slot_rect.center().y)],
-                    egui::Stroke::new(1.0_f32, egui::Color32::from_rgba_unmultiplied(56, 189, 248, 40)),
+                    [
+                        egui::pos2(slot_rect.left() + 20.0, slot_rect.center().y),
+                        egui::pos2(slot_rect.right() - 20.0, slot_rect.center().y),
+                    ],
+                    egui::Stroke::new(
+                        1.0_f32,
+                        egui::Color32::from_rgba_unmultiplied(56, 189, 248, 40),
+                    ),
                 );
             }
         }
@@ -615,7 +856,12 @@ impl SpLogApp {
     /// Tryb zakładek: każda kolumna pokazuje pasek zakładek, a pod nim tylko
     /// jedną aktywną kartę (nagłówek + ciało). Zachowuje akcje odpinania,
     /// zamykania i przenoszenia między kolumnami.
-    pub fn render_tiles_in_column_tabbed(&mut self, ui: &mut egui::Ui, col_idx: usize, tiles: &[String]) {
+    pub fn render_tiles_in_column_tabbed(
+        &mut self,
+        ui: &mut egui::Ui,
+        col_idx: usize,
+        tiles: &[String],
+    ) {
         if tiles.is_empty() {
             return;
         }
@@ -627,7 +873,9 @@ impl SpLogApp {
         ui.horizontal_wrapped(|ui| {
             for (idx, tile_id) in tiles.iter().enumerate() {
                 let selected = idx == active;
-                let title = egui::RichText::new(self.tile_title(tile_id)).size(12.0).strong();
+                let title = egui::RichText::new(self.tile_title(tile_id))
+                    .size(12.0)
+                    .strong();
                 if ui.selectable_label(selected, title).clicked() {
                     self.active_tab[col_idx] = idx;
                 }
@@ -644,7 +892,10 @@ impl SpLogApp {
         egui::Frame::group(ui.style())
             .corner_radius(6.0)
             .inner_margin(egui::Margin::same(8))
-            .stroke(egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(51, 65, 85)))
+            .stroke(egui::Stroke::new(
+                1.0_f32,
+                egui::Color32::from_rgb(51, 65, 85),
+            ))
             .show(ui, |ui| {
                 ui.vertical(|ui| {
                     ui.horizontal(|ui| {
@@ -659,23 +910,36 @@ impl SpLogApp {
                             if ui.button("✕").on_hover_text("Ukryj ten kafelek").clicked() {
                                 action_close = Some(tile_id.clone());
                             }
-                            if ui.button("↗").on_hover_text("Odepnij do osobnego okna pływającego").clicked() {
+                            if ui
+                                .button("↗")
+                                .on_hover_text("Odepnij do osobnego okna pływającego")
+                                .clicked()
+                            {
                                 action_popout = Some(tile_id.clone());
                             }
                             if active + 1 < tiles.len()
-                                && ui.button("▼").on_hover_text("Przesuń niżej").clicked() {
+                                && ui.button("▼").on_hover_text("Przesuń niżej").clicked()
+                            {
                                 action_move_order = Some((tile_id.clone(), 1));
                             }
-                            if active > 0
-                                && ui.button("▲").on_hover_text("Przesuń wyżej").clicked() {
+                            if active > 0 && ui.button("▲").on_hover_text("Przesuń wyżej").clicked()
+                            {
                                 action_move_order = Some((tile_id.clone(), -1));
                             }
                             if col_idx < 2
-                                && ui.button("▶").on_hover_text("Przenieś do kolumny po prawej").clicked() {
+                                && ui
+                                    .button("▶")
+                                    .on_hover_text("Przenieś do kolumny po prawej")
+                                    .clicked()
+                            {
                                 action_move_col = Some((tile_id.clone(), 1));
                             }
                             if col_idx > 0
-                                && ui.button("◀").on_hover_text("Przenieś do kolumny po lewej").clicked() {
+                                && ui
+                                    .button("◀")
+                                    .on_hover_text("Przenieś do kolumny po lewej")
+                                    .clicked()
+                            {
                                 action_move_col = Some((tile_id.clone(), -1));
                             }
                         });

@@ -44,8 +44,15 @@ impl QslLabel {
              From: {} (QTH: {})\n\
              Msg:  {}\n\
              ----------------------------------------",
-            self.to_call, self.date, self.time_utc, self.band, self.mode, self.rst_sent,
-            self.my_call, self.my_grid, self.qsl_msg
+            self.to_call,
+            self.date,
+            self.time_utc,
+            self.band,
+            self.mode,
+            self.rst_sent,
+            self.my_call,
+            self.my_grid,
+            self.qsl_msg
         )
     }
 
@@ -59,7 +66,7 @@ impl QslLabel {
              .label { border: 1px dashed #bbb; padding: 4mm; height: 35mm; box-sizing: border-box; font-size: 11px; }\n\
              .call { font-size: 14px; font-weight: bold; color: #004488; }\n\
              .meta { font-size: 9px; color: #555; }\n\
-             </style></head><body><div class='grid'>\n"
+             </style></head><body><div class='grid'>\n",
         );
 
         for l in labels {

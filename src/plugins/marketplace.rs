@@ -89,8 +89,14 @@ pub enum InstallStatus {
 pub fn bundled_catalog() -> Vec<PluginCatalogEntry> {
     vec![
         PluginCatalogEntry::bundled(
-            "pota-helper", "POTA Helper", "Rejestruje aktywacje Parks on the Air i przypomina o referencjach POTA.",
-            "1.0.0", "SPLogbook", "POTA", "🌲", "pota_helper.rhai",
+            "pota-helper",
+            "POTA Helper",
+            "Rejestruje aktywacje Parks on the Air i przypomina o referencjach POTA.",
+            "1.0.0",
+            "SPLogbook",
+            "POTA",
+            "🌲",
+            "pota_helper.rhai",
             r#"
 // POTA Helper — powiadamia o łącznościach z referencją POTA.
 fn on_startup() {
@@ -107,8 +113,14 @@ fn on_qso_logged(call_sign, band, mode, freq, atno) {
 "#,
         ),
         PluginCatalogEntry::bundled(
-            "sota-helper", "SOTA Helper", "Śledzi szczyty Summits on the Air i zapisuje referencje SOTA.",
-            "1.0.0", "SPLogbook", "SOTA", "⛰", "sota_helper.rhai",
+            "sota-helper",
+            "SOTA Helper",
+            "Śledzi szczyty Summits on the Air i zapisuje referencje SOTA.",
+            "1.0.0",
+            "SPLogbook",
+            "SOTA",
+            "⛰",
+            "sota_helper.rhai",
             r#"
 // SOTA Helper — powiadamia o łącznościach z referencją SOTA.
 fn on_startup() {
@@ -125,8 +137,14 @@ fn on_qso_logged(call_sign, band, mode, freq, atno) {
 "#,
         ),
         PluginCatalogEntry::bundled(
-            "cw-macros", "CW Macros", "Automatyczne makra telegraficzne po zapisaniu łączności.",
-            "1.0.0", "SPLogbook", "CW", "⚡", "cw_macros.rhai",
+            "cw-macros",
+            "CW Macros",
+            "Automatyczne makra telegraficzne po zapisaniu łączności.",
+            "1.0.0",
+            "SPLogbook",
+            "CW",
+            "⚡",
+            "cw_macros.rhai",
             r#"
 // CW Macros — automatyczne nadanie potwierdzenia po QSO.
 fn on_startup() {
@@ -139,8 +157,14 @@ fn on_qso_logged(call_sign, band, mode, freq, atno) {
 "#,
         ),
         PluginCatalogEntry::bundled(
-            "contest-assistant", "Contest Assistant", "Wspomaga zawody: raporty, numeracja i log kontestowy.",
-            "1.0.0", "SPLogbook", "Contest", "🏁", "contest_assistant.rhai",
+            "contest-assistant",
+            "Contest Assistant",
+            "Wspomaga zawody: raporty, numeracja i log kontestowy.",
+            "1.0.0",
+            "SPLogbook",
+            "Contest",
+            "🏁",
+            "contest_assistant.rhai",
             r#"
 // Contest Assistant — automatyczny raport kontestowy z numerem.
 fn on_startup() {
@@ -154,8 +178,14 @@ fn on_qso_logged(call_sign, band, mode, freq, atno) {
 "#,
         ),
         PluginCatalogEntry::bundled(
-            "rotor-assistant", "Rotor Assistant", "Obraca antenę i reaguje na spoty DX.",
-            "1.0.0", "SPLogbook", "Rotor", "🧭", "rotor_assistant.rhai",
+            "rotor-assistant",
+            "Rotor Assistant",
+            "Obraca antenę i reaguje na spoty DX.",
+            "1.0.0",
+            "SPLogbook",
+            "Rotor",
+            "🧭",
+            "rotor_assistant.rhai",
             r#"
 // Rotor Assistant — obrót anteny na spot i pomocnicze komendy.
 fn on_startup() {
@@ -168,8 +198,14 @@ fn on_dx_spot(spotter, dx_call, freq_khz, band, comment, is_ft8) {
 "#,
         ),
         PluginCatalogEntry::bundled(
-            "award-tracker", "Award Tracker", "Monitoruje postępy DXCC, WAZ, WAS, WAC, IOTA i PGA na żywo.",
-            "1.0.0", "SPLogbook", "Awards", "🏆", "award_tracker.rhai",
+            "award-tracker",
+            "Award Tracker",
+            "Monitoruje postępy DXCC, WAZ, WAS, WAC, IOTA i PGA na żywo.",
+            "1.0.0",
+            "SPLogbook",
+            "Awards",
+            "🏆",
+            "award_tracker.rhai",
             r#"
 // Award Tracker — powiadamia o nowych krajach i podaje statystyki nagród.
 fn on_startup() {
@@ -187,8 +223,14 @@ fn on_qso_logged(call_sign, band, mode, freq, atno) {
 "#,
         ),
         PluginCatalogEntry::bundled(
-            "dx-spot-alerts", "DX Spot Alerts (ATNO)", "Alarmuje o nowych krajach i pasmach na klastrze DX.",
-            "1.0.0", "SPLogbook", "DX", "📡", "dx_spot_alerts.rhai",
+            "dx-spot-alerts",
+            "DX Spot Alerts (ATNO)",
+            "Alarmuje o nowych krajach i pasmach na klastrze DX.",
+            "1.0.0",
+            "SPLogbook",
+            "DX",
+            "📡",
+            "dx_spot_alerts.rhai",
             r#"
 // DX Spot Alerts — loguje spoty klastra.
 fn on_startup() {
@@ -201,8 +243,14 @@ fn on_dx_spot(spotter, dx_call, freq_khz, band, comment, is_ft8) {
 "#,
         ),
         PluginCatalogEntry::bundled(
-            "propagation-watchdog", "Propagation Watchdog", "Powiadamia o otwarciach pasm.",
-            "1.0.0", "SPLogbook", "DX", "☀", "propagation_watchdog.rhai",
+            "propagation-watchdog",
+            "Propagation Watchdog",
+            "Powiadamia o otwarciach pasm.",
+            "1.0.0",
+            "SPLogbook",
+            "DX",
+            "☀",
+            "propagation_watchdog.rhai",
             r#"
 // Propagation Watchdog — reaguje na otwarcia pasm.
 fn on_startup() {
@@ -215,8 +263,14 @@ fn on_band_opened(band) {
 "#,
         ),
         PluginCatalogEntry::bundled(
-            "band-activity-logger", "Band Activity Logger", "Zapisuje aktywność klastra z podziałem na pasma.",
-            "1.0.0", "SPLogbook", "DX", "📊", "band_activity_logger.rhai",
+            "band-activity-logger",
+            "Band Activity Logger",
+            "Zapisuje aktywność klastra z podziałem na pasma.",
+            "1.0.0",
+            "SPLogbook",
+            "DX",
+            "📊",
+            "band_activity_logger.rhai",
             r#"
 // Band Activity Logger — log aktywności klastra.
 fn on_startup() {
@@ -229,8 +283,14 @@ fn on_dx_spot(spotter, dx_call, freq_khz, band, comment, is_ft8) {
 "#,
         ),
         PluginCatalogEntry::bundled(
-            "qsl-reminder", "QSL Reminder", "Przypomina o wysyłce potwierdzeń QSL.",
-            "1.0.0", "SPLogbook", "Awards", "📬", "qsl_reminder.rhai",
+            "qsl-reminder",
+            "QSL Reminder",
+            "Przypomina o wysyłce potwierdzeń QSL.",
+            "1.0.0",
+            "SPLogbook",
+            "Awards",
+            "📬",
+            "qsl_reminder.rhai",
             r#"
 // QSL Reminder — przypomina o potwierdzeniach po każdej łączności.
 fn on_startup() {
@@ -243,8 +303,14 @@ fn on_qso_logged(call_sign, band, mode, freq, atno) {
 "#,
         ),
         PluginCatalogEntry::bundled(
-            "voice-keyer-trigger", "Voice Keyer Trigger", "Odtwarza wiadomości głosowe po QSO.",
-            "1.0.0", "SPLogbook", "CW", "🎙", "voice_keyer_trigger.rhai",
+            "voice-keyer-trigger",
+            "Voice Keyer Trigger",
+            "Odtwarza wiadomości głosowe po QSO.",
+            "1.0.0",
+            "SPLogbook",
+            "CW",
+            "🎙",
+            "voice_keyer_trigger.rhai",
             r#"
 // Voice Keyer Trigger — odtwórz podziękowanie po QSO.
 fn on_startup() {
@@ -257,8 +323,14 @@ fn on_qso_logged(call_sign, band, mode, freq, atno) {
 "#,
         ),
         PluginCatalogEntry::bundled(
-            "ft8-wsjt-bridge", "FT8/WSJT-X Bridge", "Reaguje na zmiany stanu radia przy pracy FT8.",
-            "1.0.0", "SPLogbook", "Digital", "💻", "ft8_wsjt_bridge.rhai",
+            "ft8-wsjt-bridge",
+            "FT8/WSJT-X Bridge",
+            "Reaguje na zmiany stanu radia przy pracy FT8.",
+            "1.0.0",
+            "SPLogbook",
+            "Digital",
+            "💻",
+            "ft8_wsjt_bridge.rhai",
             r#"
 // FT8/WSJT-X Bridge — monitor stanu radia.
 fn on_startup() {
@@ -367,10 +439,13 @@ async fn obtain_source(entry: &PluginCatalogEntry) -> Result<Vec<u8>, String> {
 
     let bytes = resp.bytes().await.map_err(|e| e.to_string())?.to_vec();
 
-    if let Some(expected) = entry.sha256.as_deref() {
-        if !crate::cloud::updater::verify_sha256(&bytes, expected) {
-            return Err("Suma kontrolna SHA256 pobranej wtyczki nie zgadza się.".to_string());
-        }
+    // Zdalna zawartość musi mieć obowiązkową sumę kontrolną — bez niej nie
+    // instalujemy, aby nie dopuścić do wykonania niezweryfikowanego kodu.
+    let expected = entry.sha256.as_deref().ok_or_else(|| {
+        "Wtyczka nie zawiera sumy kontrolnej SHA256 — odmowa instalacji.".to_string()
+    })?;
+    if !crate::cloud::updater::verify_sha256(&bytes, expected) {
+        return Err("Suma kontrolna SHA256 pobranej wtyczki nie zgadza się.".to_string());
     }
 
     Ok(bytes)
@@ -384,11 +459,12 @@ pub async fn install_entry(
     let bytes = obtain_source(entry).await?;
 
     let sha256 = crate::cloud::updater::sha256_hex(&bytes);
-    if let Some(expected) = entry.sha256.as_deref() {
-        // Wbudowane źródło ma już skrót — weryfikacja daje pewność spójności.
-        if !crate::cloud::updater::verify_sha256(&bytes, expected) {
-            return Err("Suma kontrolna SHA256 wtyczki nie zgadza się.".to_string());
-        }
+    // Obowiązkowa weryfikacja sumy kontrolnej — wtyczki bez skrótu nie są instalowane.
+    let expected = entry.sha256.as_deref().ok_or_else(|| {
+        "Wtyczka nie zawiera sumy kontrolnej SHA256 — odmowa instalacji.".to_string()
+    })?;
+    if !crate::cloud::updater::verify_sha256(&bytes, expected) {
+        return Err("Suma kontrolna SHA256 wtyczki nie zgadza się.".to_string());
     }
 
     if let Some(parent) = plugins_dir.parent() {
@@ -499,11 +575,42 @@ mod tests {
             .unwrap();
         let path = install_entry(&entry, &dir).await.expect("install");
         assert!(path.exists());
-        assert_eq!(install_status(&dir, &entry), InstallStatus::Installed { version: "1.0.0".into() });
+        assert_eq!(
+            install_status(&dir, &entry),
+            InstallStatus::Installed {
+                version: "1.0.0".into()
+            }
+        );
 
         uninstall_entry(&dir, &entry).expect("uninstall");
         assert!(!path.exists());
         assert_eq!(install_status(&dir, &entry), InstallStatus::NotInstalled);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn install_refuses_entry_without_checksum() {
+        let dir = temp_dir("no_checksum");
+        let entry = PluginCatalogEntry {
+            id: "no-sum".to_string(),
+            name: "No checksum".to_string(),
+            description: String::new(),
+            version: "1.0.0".to_string(),
+            author: String::new(),
+            category: "DX".to_string(),
+            icon: String::new(),
+            file: "no_sum.rhai".to_string(),
+            download_url: String::new(),
+            sha256: None,
+            min_version: None,
+            source: Some("// brak sumy kontrolnej".to_string()),
+        };
+        let res = install_entry(&entry, &dir).await;
+        assert!(
+            res.is_err(),
+            "instalacja bez sumy kontrolnej musi zostać odrzucona"
+        );
+        assert!(res.unwrap_err().contains("SHA256"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

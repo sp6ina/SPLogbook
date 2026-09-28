@@ -128,21 +128,48 @@ impl CsvExportDialog {
             .show(ctx, |ui| {
                 ui.label("Zakres danych:");
                 ui.horizontal(|ui| {
-                    ui.radio_value(&mut self.scope, CsvExportScope::All, CsvExportScope::All.label());
-                    ui.radio_value(&mut self.scope, CsvExportScope::Filtered, CsvExportScope::Filtered.label());
-                    ui.radio_value(&mut self.scope, CsvExportScope::Selected, CsvExportScope::Selected.label());
+                    ui.radio_value(
+                        &mut self.scope,
+                        CsvExportScope::All,
+                        CsvExportScope::All.label(),
+                    );
+                    ui.radio_value(
+                        &mut self.scope,
+                        CsvExportScope::Filtered,
+                        CsvExportScope::Filtered.label(),
+                    );
+                    ui.radio_value(
+                        &mut self.scope,
+                        CsvExportScope::Selected,
+                        CsvExportScope::Selected.label(),
+                    );
                 });
 
                 ui.add_space(8.0);
                 ui.label("Separator:");
                 ui.horizontal(|ui| {
-                    ui.radio_value(&mut self.delimiter, CsvDelimiter::Comma, CsvDelimiter::Comma.display_name());
-                    ui.radio_value(&mut self.delimiter, CsvDelimiter::Semicolon, CsvDelimiter::Semicolon.display_name());
-                    ui.radio_value(&mut self.delimiter, CsvDelimiter::Tab, CsvDelimiter::Tab.display_name());
+                    ui.radio_value(
+                        &mut self.delimiter,
+                        CsvDelimiter::Comma,
+                        CsvDelimiter::Comma.display_name(),
+                    );
+                    ui.radio_value(
+                        &mut self.delimiter,
+                        CsvDelimiter::Semicolon,
+                        CsvDelimiter::Semicolon.display_name(),
+                    );
+                    ui.radio_value(
+                        &mut self.delimiter,
+                        CsvDelimiter::Tab,
+                        CsvDelimiter::Tab.display_name(),
+                    );
                 });
 
                 ui.add_space(4.0);
-                ui.checkbox(&mut self.include_header, "Dołącz wiersz nagłówka (nazwy pól ADIF)");
+                ui.checkbox(
+                    &mut self.include_header,
+                    "Dołącz wiersz nagłówka (nazwy pól ADIF)",
+                );
 
                 ui.add_space(8.0);
                 ui.separator();

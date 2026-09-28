@@ -168,7 +168,10 @@ mod tests {
         h.record_observation("15m", ObservedOutcome::ConfirmedClosed);
 
         let acc = h.accuracy_pct().unwrap();
-        assert!((acc - 66.666).abs() < 0.1, "2/3 trafne => ~66.7%, było {acc}");
+        assert!(
+            (acc - 66.666).abs() < 0.1,
+            "2/3 trafne => ~66.7%, było {acc}"
+        );
         assert_eq!(h.verified_count(), 3);
     }
 

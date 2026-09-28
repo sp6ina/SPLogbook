@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
+use log::{error, info, warn};
 use std::path::PathBuf;
 use std::process::{Child, Command};
-use log::{info, warn, error};
 
 #[derive(Debug)]
 pub struct RigctldSupervisor {
@@ -49,7 +49,11 @@ impl RigctldSupervisor {
             }
         }
 
-        let bin_name = if cfg!(target_os = "windows") { "rigctld.exe" } else { "rigctld" };
+        let bin_name = if cfg!(target_os = "windows") {
+            "rigctld.exe"
+        } else {
+            "rigctld"
+        };
 
         if source == "system" {
             // Źródło systemowe: najpierw PATH, potem standardowe ścieżki instalacyjne
@@ -110,7 +114,11 @@ impl RigctldSupervisor {
                 if cand_hamlib_bin.is_file() {
                     return Some(cand_hamlib_bin);
                 }
-                let cand_win = parent.join("hamlib").join("hamlib-w64-4.7.2").join("bin").join(bin_name);
+                let cand_win = parent
+                    .join("hamlib")
+                    .join("hamlib-w64-4.7.2")
+                    .join("bin")
+                    .join(bin_name);
                 if cand_win.is_file() {
                     return Some(cand_win);
                 }
@@ -123,7 +131,9 @@ impl RigctldSupervisor {
             PathBuf::from(format!("hamlib/bin/{bin_name}")),
             PathBuf::from(format!("hamlib/{bin_name}")),
             PathBuf::from(format!("Bin/Windows/{bin_name}")),
-            PathBuf::from(format!("Bin/Windows/hamlib/hamlib-w64-4.7.2/bin/{bin_name}")),
+            PathBuf::from(format!(
+                "Bin/Windows/hamlib/hamlib-w64-4.7.2/bin/{bin_name}"
+            )),
             PathBuf::from(format!("Bin/Linux/{bin_name}")),
             PathBuf::from(format!("Bin/Linux/hamlib/bin/{bin_name}")),
         ];
@@ -140,7 +150,11 @@ impl RigctldSupervisor {
     /// Wyszukuje plik w zmiennej środowiskowej PATH
     fn find_in_path(bin_name: &str) -> Option<PathBuf> {
         if let Ok(path_var) = std::env::var("PATH") {
-            let separator = if cfg!(target_os = "windows") { ';' } else { ':' };
+            let separator = if cfg!(target_os = "windows") {
+                ';'
+            } else {
+                ':'
+            };
             for p in path_var.split(separator) {
                 let p_buf = PathBuf::from(p).join(bin_name);
                 if p_buf.is_file() {
@@ -155,15 +169,29 @@ impl RigctldSupervisor {
     pub fn start(&mut self) -> Result<(), String> {
         self.stop();
 
-        let default_bin = if cfg!(target_os = "windows") { "rigctld.exe" } else { "rigctld" };
+        let default_bin = if cfg!(target_os = "windows") {
+            "rigctld.exe"
+        } else {
+            "rigctld"
+        };
         let binary = Self::find_rigctld_binary(
             &self.source,
-            if self.custom_path.is_empty() { None } else { Some(&self.custom_path) },
+            if self.custom_path.is_empty() {
+                None
+            } else {
+                Some(&self.custom_path)
+            },
         )
         .unwrap_or_else(|| PathBuf::from(default_bin));
 
-        info!("Uruchamianie natywnego rigctld ({}, {}) dla Rig ID: {}, Port: {}, Baud: {}", 
-            self.source, binary.display(), self.rig_id, self.serial_port, self.baud_rate);
+        info!(
+            "Uruchamianie natywnego rigctld ({}, {}) dla Rig ID: {}, Port: {}, Baud: {}",
+            self.source,
+            binary.display(),
+            self.rig_id,
+            self.serial_port,
+            self.baud_rate
+        );
 
         let mut cmd = Command::new(&binary);
         cmd.arg("-m").arg(self.rig_id.to_string());
@@ -181,7 +209,11 @@ impl RigctldSupervisor {
         if let Some(parent) = binary.parent() {
             // Dodaj katalog binarki do PATH potomka (ułatwia odnalezienie DLL na Windows)
             if let Ok(old_path) = std::env::var("PATH") {
-                let sep = if cfg!(target_os = "windows") { ";" } else { ":" };
+                let sep = if cfg!(target_os = "windows") {
+                    ";"
+                } else {
+                    ":"
+                };
                 cmd.env("PATH", format!("{}{}{}", parent.display(), sep, old_path));
             }
 
@@ -191,7 +223,10 @@ impl RigctldSupervisor {
                 let mut lib_dirs = Vec::new();
                 let dir1 = parent.join("lib");
                 let dir2 = parent.parent().map(|p| p.join("lib")).unwrap_or_default();
-                let dir3 = parent.parent().map(|p| p.join("hamlib").join("lib")).unwrap_or_default();
+                let dir3 = parent
+                    .parent()
+                    .map(|p| p.join("hamlib").join("lib"))
+                    .unwrap_or_default();
                 let dir4 = parent.to_path_buf();
 
                 for d in &[dir1, dir2, dir3, dir4] {
@@ -221,14 +256,20 @@ impl RigctldSupervisor {
 
         match cmd.spawn() {
             Ok(child) => {
-                info!("Pomyślnie uruchomiono natywny proces rigctld (PID: {})", child.id());
+                info!(
+                    "Pomyślnie uruchomiono natywny proces rigctld (PID: {})",
+                    child.id()
+                );
                 self.child = Some(child);
-                // Daj procesowi chwilę na otwarcie gniazda TCP
-                std::thread::sleep(std::time::Duration::from_millis(300));
+                // Nie blokujemy wywołującego (potencjalnie wątku GUI) — gotowość
+                // gniazda TCP obsługuje warstwa CAT, która ponawia połączenie.
                 Ok(())
             }
             Err(e) => {
-                let err_msg = format!("Nie udało się uruchomić rigctld ({}): {e}", binary.display());
+                let err_msg = format!(
+                    "Nie udało się uruchomić rigctld ({}): {e}",
+                    binary.display()
+                );
                 error!("{err_msg}");
                 Err(err_msg)
             }

@@ -86,7 +86,9 @@ impl RotorClient {
                         break;
                     }
 
-                    if let (Ok(az), Ok(el)) = (az_line.trim().parse::<f32>(), el_line.trim().parse::<f32>()) {
+                    if let (Ok(az), Ok(el)) =
+                        (az_line.trim().parse::<f32>(), el_line.trim().parse::<f32>())
+                    {
                         current.azimuth_deg = az;
                         current.elevation_deg = el;
                     }
@@ -106,7 +108,12 @@ impl RotorClient {
     }
 
     /// Obraca antenę na zadany azymut (i ewentualną elewację)
-    pub async fn set_position(host: &str, port: u16, azimuth_deg: f32, elevation_deg: f32) -> Result<(), std::io::Error> {
+    pub async fn set_position(
+        host: &str,
+        port: u16,
+        azimuth_deg: f32,
+        elevation_deg: f32,
+    ) -> Result<(), std::io::Error> {
         let norm_az = (azimuth_deg % 360.0 + 360.0) % 360.0;
         let norm_el = elevation_deg.clamp(-10.0, 90.0);
         let mut stream = TcpStream::connect(format!("{host}:{port}")).await?;

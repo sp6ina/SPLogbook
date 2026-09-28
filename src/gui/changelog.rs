@@ -80,33 +80,35 @@ pub fn render_changelog_window(app: &mut SpLogApp, ctx: &egui::Context) {
         .default_size([520.0, 480.0])
         .resizable(true)
         .show(ctx, |ui| {
-            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                for entry in CHANGELOG {
-                    ui.group(|ui| {
-                        ui.horizontal(|ui| {
-                            ui.heading(
-                                egui::RichText::new(format!("v{}", entry.version))
-                                    .size(16.0)
-                                    .strong()
-                                    .color(egui::Color32::from_rgb(56, 189, 248)),
-                            );
-                            ui.label(
-                                egui::RichText::new(format!("({})", entry.date))
-                                    .size(11.0)
-                                    .color(egui::Color32::from_rgb(148, 163, 184)),
-                            );
-                        });
-                        ui.add_space(2.0);
-                        for item in entry.items {
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    for entry in CHANGELOG {
+                        ui.group(|ui| {
                             ui.horizontal(|ui| {
-                                ui.colored_label(egui::Color32::from_rgb(34, 197, 94), "•");
-                                ui.label(*item);
+                                ui.heading(
+                                    egui::RichText::new(format!("v{}", entry.version))
+                                        .size(16.0)
+                                        .strong()
+                                        .color(egui::Color32::from_rgb(56, 189, 248)),
+                                );
+                                ui.label(
+                                    egui::RichText::new(format!("({})", entry.date))
+                                        .size(11.0)
+                                        .color(egui::Color32::from_rgb(148, 163, 184)),
+                                );
                             });
-                        }
-                    });
-                    ui.add_space(6.0);
-                }
-            });
+                            ui.add_space(2.0);
+                            for item in entry.items {
+                                ui.horizontal(|ui| {
+                                    ui.colored_label(egui::Color32::from_rgb(34, 197, 94), "•");
+                                    ui.label(*item);
+                                });
+                            }
+                        });
+                        ui.add_space(6.0);
+                    }
+                });
         });
     app.show_changelog_window = is_open;
 }
@@ -133,7 +135,9 @@ pub fn render_update_check_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
             match &app.update_check_status {
                 None => {
-                    ui.label("Kliknij „Sprawdź teraz”, aby porównać z najnowszym wydaniem na GitHub.");
+                    ui.label(
+                        "Kliknij „Sprawdź teraz”, aby porównać z najnowszym wydaniem na GitHub.",
+                    );
                 }
                 Some(status) => {
                     ui.label(egui::RichText::new(status).size(13.0));
@@ -160,7 +164,9 @@ pub fn render_update_check_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 if ui.button("🔍 Sprawdź teraz").clicked() {
                     app.trigger_update_check();
                 }
-                if app.update_available.is_some() && ui.button("⬇️ Zainstaluj i uruchom ponownie").clicked() {
+                if app.update_available.is_some()
+                    && ui.button("⬇️ Zainstaluj i uruchom ponownie").clicked()
+                {
                     do_install = true;
                 }
                 if ui.button("🌐 Otwórz stronę wydań").clicked() {

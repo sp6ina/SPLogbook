@@ -69,7 +69,9 @@ pub fn compute_rate(qsos: &[QsoRecord], now_secs: i64) -> RateStats {
     };
 
     for q in qsos {
-        let Some(ts) = qso_epoch_secs(q) else { continue };
+        let Some(ts) = qso_epoch_secs(q) else {
+            continue;
+        };
         let age = now_secs - ts;
         if age < 0 {
             continue;
@@ -210,9 +212,15 @@ pub fn compute_mult_matrix(kind: MultKind, bands: &[&str], qsos: &[QsoRecord]) -
     let mut worked = vec![vec![0u8; columns_set.len()]; band_rows.len()];
 
     for q in qsos {
-        let Some(v) = mult_value(kind, q) else { continue };
-        let Some(col) = columns_set.iter().position(|c| *c == v) else { continue };
-        let Some(row) = band_rows.iter().position(|b| *b == q.band) else { continue };
+        let Some(v) = mult_value(kind, q) else {
+            continue;
+        };
+        let Some(col) = columns_set.iter().position(|c| *c == v) else {
+            continue;
+        };
+        let Some(row) = band_rows.iter().position(|b| *b == q.band) else {
+            continue;
+        };
         worked[row][col] = 2; // zaliczony na tym paśmie
     }
 
@@ -239,7 +247,14 @@ pub fn compute_mult_matrix(kind: MultKind, bands: &[&str], qsos: &[QsoRecord]) -
 mod tests {
     use super::*;
 
-    fn qso(call: &str, band: &str, date: &str, time: &str, dxcc: Option<u32>, cqz: Option<u32>) -> QsoRecord {
+    fn qso(
+        call: &str,
+        band: &str,
+        date: &str,
+        time: &str,
+        dxcc: Option<u32>,
+        cqz: Option<u32>,
+    ) -> QsoRecord {
         let mut q = QsoRecord::new(call, band, "CW");
         q.qso_date = date.to_string();
         q.time_on = time.to_string();
@@ -304,9 +319,7 @@ mod tests {
 
     #[test]
     fn test_mult_matrix_cqzone_full_set() {
-        let qsos = vec![
-            qso("A", "20m", "2026-01-01", "12:00:00", None, Some(15)),
-        ];
+        let qsos = vec![qso("A", "20m", "2026-01-01", "12:00:00", None, Some(15))];
 
         let m = compute_mult_matrix(MultKind::CqZone, &["20m"], &qsos);
         assert_eq!(m.columns.len(), 40);

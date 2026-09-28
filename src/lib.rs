@@ -36,6 +36,7 @@
     clippy::float_cmp
 )]
 
+pub mod api;
 pub mod cat;
 pub mod cloud;
 pub mod cluster;
@@ -46,6 +47,4 @@ pub mod gui;
 pub mod media;
 pub mod network;
 pub mod plugins;
-pub mod api;
 pub mod sync;
-

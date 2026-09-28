@@ -10,6 +10,7 @@ pub struct RigModelInfo {
     pub default_baud: u32,
 }
 
+#[rustfmt::skip]
 pub static ALL_RIG_MODELS: &[RigModelInfo] = &[
     RigModelInfo { rig_id: 1, mfg: "Hamlib", model: "Dummy", status: "Stable", default_baud: 9600 },
     RigModelInfo { rig_id: 2, mfg: "Hamlib", model: "NET rigctl", status: "Stable", default_baud: 9600 },
@@ -356,7 +357,10 @@ pub fn search_rig_models_by_mfg(mfg: &str, query: &str) -> Vec<&'static RigModel
     ALL_RIG_MODELS
         .iter()
         .filter(|r| {
-            (mfg.is_empty() || mfg == "Wszystkie" || mfg == "All" || r.mfg.eq_ignore_ascii_case(mfg))
+            (mfg.is_empty()
+                || mfg == "Wszystkie"
+                || mfg == "All"
+                || r.mfg.eq_ignore_ascii_case(mfg))
                 && (q.is_empty()
                     || r.model.to_lowercase().contains(&q)
                     || r.mfg.to_lowercase().contains(&q)

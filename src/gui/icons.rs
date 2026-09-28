@@ -54,7 +54,9 @@ impl Icon {
 
     /// Etykieta sformatowana (glif w kolorze + tekst).
     pub fn rich_label(self, text: impl Into<String>, size: f32) -> RichText {
-        RichText::new(format!("{} {}", self.glyph, text.into())).color(self.color).size(size)
+        RichText::new(format!("{} {}", self.glyph, text.into()))
+            .color(self.color)
+            .size(size)
     }
 }
 

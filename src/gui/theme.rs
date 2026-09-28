@@ -88,9 +88,15 @@ impl ThemePreset {
 
     pub fn description_pl(&self) -> &'static str {
         match self {
-            ThemePreset::OperatorDark => "Ciemny motyw operatorski do pracy wieczornej/kontestowej — mniejsze zmęczenie oczu.",
-            ThemePreset::Daylight => "Jasny motyw czytelny w słonecznym pomieszczeniu lub na dworze (polowe operacje).",
-            ThemePreset::HighContrast => "Wysoki kontrast i paleta bezpieczna dla daltonistów (bez polegania wyłącznie na czerwieni/zieleni).",
+            ThemePreset::OperatorDark => {
+                "Ciemny motyw operatorski do pracy wieczornej/kontestowej — mniejsze zmęczenie oczu."
+            }
+            ThemePreset::Daylight => {
+                "Jasny motyw czytelny w słonecznym pomieszczeniu lub na dworze (polowe operacje)."
+            }
+            ThemePreset::HighContrast => {
+                "Wysoki kontrast i paleta bezpieczna dla daltonistów (bez polegania wyłącznie na czerwieni/zieleni)."
+            }
         }
     }
 
@@ -148,11 +154,19 @@ impl ThemePreset {
     /// Wywoływane raz na klatkę z pętli renderowania aplikacji.
     pub fn apply(&self, ctx: &egui::Context) {
         let p = self.palette();
-        let mut visuals = if p.is_dark { egui::Visuals::dark() } else { egui::Visuals::light() };
+        let mut visuals = if p.is_dark {
+            egui::Visuals::dark()
+        } else {
+            egui::Visuals::light()
+        };
 
         visuals.hyperlink_color = p.accent;
         visuals.selection.bg_fill = p.accent;
-        visuals.selection.stroke.color = if p.is_dark { Color32::BLACK } else { Color32::WHITE };
+        visuals.selection.stroke.color = if p.is_dark {
+            Color32::BLACK
+        } else {
+            Color32::WHITE
+        };
         visuals.panel_fill = p.panel_bg;
         visuals.window_fill = p.window_bg;
         visuals.extreme_bg_color = if p.is_dark {
@@ -171,5 +185,9 @@ impl ThemePreset {
 fn blend(base: Color32, tint: Color32, t: f32) -> Color32 {
     let t = t.clamp(0.0, 1.0);
     let lerp = |a: u8, b: u8| -> u8 { (a as f32 + (b as f32 - a as f32) * t).round() as u8 };
-    Color32::from_rgb(lerp(base.r(), tint.r()), lerp(base.g(), tint.g()), lerp(base.b(), tint.b()))
+    Color32::from_rgb(
+        lerp(base.r(), tint.r()),
+        lerp(base.g(), tint.g()),
+        lerp(base.b(), tint.b()),
+    )
 }

@@ -51,12 +51,30 @@ impl FldigiClient {
 
     /// Pobiera aktualnie wprowadzane dane łączności z okna logu FLDIGI
     pub async fn get_qso_data(&self) -> Result<FldigiQsoState, String> {
-        let call = self.call_xmlrpc("log.get_call", "").await.unwrap_or_default();
-        let name = self.call_xmlrpc("log.get_name", "").await.unwrap_or_default();
-        let qth = self.call_xmlrpc("log.get_qth", "").await.unwrap_or_default();
-        let locator = self.call_xmlrpc("log.get_locator", "").await.unwrap_or_default();
-        let rst_sent = self.call_xmlrpc("log.get_rst_out", "").await.unwrap_or_else(|_| "599".to_string());
-        let rst_rcvd = self.call_xmlrpc("log.get_rst_in", "").await.unwrap_or_else(|_| "599".to_string());
+        let call = self
+            .call_xmlrpc("log.get_call", "")
+            .await
+            .unwrap_or_default();
+        let name = self
+            .call_xmlrpc("log.get_name", "")
+            .await
+            .unwrap_or_default();
+        let qth = self
+            .call_xmlrpc("log.get_qth", "")
+            .await
+            .unwrap_or_default();
+        let locator = self
+            .call_xmlrpc("log.get_locator", "")
+            .await
+            .unwrap_or_default();
+        let rst_sent = self
+            .call_xmlrpc("log.get_rst_out", "")
+            .await
+            .unwrap_or_else(|_| "599".to_string());
+        let rst_rcvd = self
+            .call_xmlrpc("log.get_rst_in", "")
+            .await
+            .unwrap_or_else(|_| "599".to_string());
         let freq_hz = self.get_frequency().await.unwrap_or(0.0);
         let mode = self.get_mode().await.unwrap_or_default();
 

@@ -16,59 +16,71 @@ pub fn render_awards_matrix_window(app: &mut SpLogApp, ctx: &egui::Context) {
     let mut is_open = app.show_awards_matrix_window;
     let mut close_req = false;
 
-    egui::Window::new(egui::RichText::new(format!("🏆 {}", tr("awards.matrix_title", lang))).size(12.0).strong())
-        .open(&mut is_open)
-        .default_size([720.0, 560.0])
-        .min_size([500.0, 360.0])
-        .resizable(true)
-        .show(ctx, |ui| {
-            ui.vertical(|ui| {
-                ui.horizontal(|ui| {
-                    ui.heading(
-                        egui::RichText::new("Centrum Osiągnięć Dyplomowych SPLogbook")
-                            .size(15.0)
-                            .color(egui::Color32::from_rgb(56, 189, 248)),
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        crate::gui::user_manual::help_button(app, ui, "awards");
-                    });
-                });
-
-                ui.add_space(2.0);
-
-                // Zakładki dyplomów
-                ui.horizontal(|ui| {
-                    ui.selectable_value(&mut app.awards_matrix_tab, 0, "🌍 DXCC");
-                    ui.selectable_value(&mut app.awards_matrix_tab, 1, "🌐 WAZ (Strefy CQ)");
-                    ui.selectable_value(&mut app.awards_matrix_tab, 2, "🇺🇸 WAS (Stany USA)");
-                    ui.selectable_value(&mut app.awards_matrix_tab, 3, "🌍 WAC (Kontynenty)");
-                    ui.selectable_value(&mut app.awards_matrix_tab, 4, "🏆 Inne (WPX/IOTA/VUCC/PGA)");
-                    ui.selectable_value(&mut app.awards_matrix_tab, 5, "🇵🇱 SP DX Award");
-                    ui.selectable_value(&mut app.awards_matrix_tab, 6, "🌍 WAE (Europe)");
-                });
-
-                ui.separator();
-
-                let awards = app.awards_engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-
-                match app.awards_matrix_tab {
-                    0 => render_tab_dxcc(app, ui, &awards),
-                    1 => render_tab_waz(ui, &awards),
-                    2 => render_tab_was(ui, &awards),
-                    3 => render_tab_wac(ui, &awards),
-                    5 => render_tab_sp_dx(ui, &awards),
-                    6 => render_tab_wae(ui, &awards),
-                    _ => render_tab_other(&mut app.awards_other_subtab, &mut app.awards_other_search, ui, &awards),
-                }
-
-                ui.separator();
-                ui.horizontal(|ui| {
-                    if ui.button(tr("btn.close", lang)).clicked() {
-                        close_req = true;
-                    }
+    egui::Window::new(
+        egui::RichText::new(format!("🏆 {}", tr("awards.matrix_title", lang)))
+            .size(12.0)
+            .strong(),
+    )
+    .open(&mut is_open)
+    .default_size([720.0, 560.0])
+    .min_size([500.0, 360.0])
+    .resizable(true)
+    .show(ctx, |ui| {
+        ui.vertical(|ui| {
+            ui.horizontal(|ui| {
+                ui.heading(
+                    egui::RichText::new("Centrum Osiągnięć Dyplomowych SPLogbook")
+                        .size(15.0)
+                        .color(egui::Color32::from_rgb(56, 189, 248)),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    crate::gui::user_manual::help_button(app, ui, "awards");
                 });
             });
+
+            ui.add_space(2.0);
+
+            // Zakładki dyplomów
+            ui.horizontal(|ui| {
+                ui.selectable_value(&mut app.awards_matrix_tab, 0, "🌍 DXCC");
+                ui.selectable_value(&mut app.awards_matrix_tab, 1, "🌐 WAZ (Strefy CQ)");
+                ui.selectable_value(&mut app.awards_matrix_tab, 2, "🇺🇸 WAS (Stany USA)");
+                ui.selectable_value(&mut app.awards_matrix_tab, 3, "🌍 WAC (Kontynenty)");
+                ui.selectable_value(&mut app.awards_matrix_tab, 4, "🏆 Inne (WPX/IOTA/VUCC/PGA)");
+                ui.selectable_value(&mut app.awards_matrix_tab, 5, "🇵🇱 SP DX Award");
+                ui.selectable_value(&mut app.awards_matrix_tab, 6, "🌍 WAE (Europe)");
+            });
+
+            ui.separator();
+
+            let awards = app
+                .awards_engine
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+            match app.awards_matrix_tab {
+                0 => render_tab_dxcc(app, ui, &awards),
+                1 => render_tab_waz(ui, &awards),
+                2 => render_tab_was(ui, &awards),
+                3 => render_tab_wac(ui, &awards),
+                5 => render_tab_sp_dx(ui, &awards),
+                6 => render_tab_wae(ui, &awards),
+                _ => render_tab_other(
+                    &mut app.awards_other_subtab,
+                    &mut app.awards_other_search,
+                    ui,
+                    &awards,
+                ),
+            }
+
+            ui.separator();
+            ui.horizontal(|ui| {
+                if ui.button(tr("btn.close", lang)).clicked() {
+                    close_req = true;
+                }
+            });
         });
+    });
 
     if close_req {
         is_open = false;
@@ -78,9 +90,15 @@ pub fn render_awards_matrix_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
 fn render_legend(ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
-        ui.colored_label(egui::Color32::from_rgb(34, 197, 94), "■ Potwierdzone (QSL/LoTW)");
+        ui.colored_label(
+            egui::Color32::from_rgb(34, 197, 94),
+            "■ Potwierdzone (QSL/LoTW)",
+        );
         ui.colored_label(egui::Color32::from_rgb(250, 204, 21), "■ Zrobione (Worked)");
-        ui.colored_label(egui::Color32::from_rgb(100, 116, 139), "■ Potrzebne (Needed)");
+        ui.colored_label(
+            egui::Color32::from_rgb(100, 116, 139),
+            "■ Potrzebne (Needed)",
+        );
     });
 }
 
@@ -91,17 +109,37 @@ fn render_tab_dxcc(app: &SpLogApp, ui: &mut egui::Ui, awards: &crate::core::awar
 
     ui.horizontal(|ui| {
         ui.group(|ui| {
-            ui.label(egui::RichText::new("🌍 Wszystkie podmioty DXCC").strong().size(12.0).color(egui::Color32::from_rgb(250, 204, 21)));
-            ui.label(format!("Zrobione: {worked_dxcc} | Potwierdzone: {conf_dxcc}"));
+            ui.label(
+                egui::RichText::new("🌍 Wszystkie podmioty DXCC")
+                    .strong()
+                    .size(12.0)
+                    .color(egui::Color32::from_rgb(250, 204, 21)),
+            );
+            ui.label(format!(
+                "Zrobione: {worked_dxcc} | Potwierdzone: {conf_dxcc}"
+            ));
         });
 
         ui.group(|ui| {
-            ui.label(egui::RichText::new("📊 Pasmo-Kraje").strong().size(12.0).color(egui::Color32::from_rgb(56, 189, 248)));
-            ui.label(format!("Sloty: {} band-slots", awards.worked_dxcc_band.len()));
+            ui.label(
+                egui::RichText::new("📊 Pasmo-Kraje")
+                    .strong()
+                    .size(12.0)
+                    .color(egui::Color32::from_rgb(56, 189, 248)),
+            );
+            ui.label(format!(
+                "Sloty: {} band-slots",
+                awards.worked_dxcc_band.len()
+            ));
         });
 
         ui.group(|ui| {
-            ui.label(egui::RichText::new("📋 Łącznie w logu").strong().size(12.0).color(egui::Color32::from_rgb(216, 180, 254)));
+            ui.label(
+                egui::RichText::new("📋 Łącznie w logu")
+                    .strong()
+                    .size(12.0)
+                    .color(egui::Color32::from_rgb(216, 180, 254)),
+            );
             ui.label(format!("{total_qsos} łączności"));
         });
     });
@@ -110,7 +148,10 @@ fn render_tab_dxcc(app: &SpLogApp, ui: &mut egui::Ui, awards: &crate::core::awar
     render_legend(ui);
     ui.add_space(4.0);
 
-    let bands = &["160m", "80m", "60m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m", "4m", "2m", "70cm"];
+    let bands = &[
+        "160m", "80m", "60m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m", "4m", "2m",
+        "70cm",
+    ];
     let modes = &["CW", "SSB", "DIGI", "MIXED"];
 
     egui::ScrollArea::vertical().show(ui, |ui| {
@@ -126,30 +167,61 @@ fn render_tab_dxcc(app: &SpLogApp, ui: &mut egui::Ui, awards: &crate::core::awar
                 ui.end_row();
 
                 for b in bands {
-                    ui.label(egui::RichText::new(*b).strong().color(egui::Color32::from_rgb(56, 189, 248)));
+                    ui.label(
+                        egui::RichText::new(*b)
+                            .strong()
+                            .color(egui::Color32::from_rgb(56, 189, 248)),
+                    );
 
                     for m in modes {
                         let worked = app.recent_qsos.iter().any(|q| {
-                            q.band == *b && (m == &"MIXED" || q.mode == *m || (*m == "DIGI" && (q.mode == "FT8" || q.mode == "FT4" || q.mode == "RTTY")))
+                            q.band == *b
+                                && (m == &"MIXED"
+                                    || q.mode == *m
+                                    || (*m == "DIGI"
+                                        && (q.mode == "FT8"
+                                            || q.mode == "FT4"
+                                            || q.mode == "RTTY")))
                         });
 
                         let confirmed = app.recent_qsos.iter().any(|q| {
                             q.band == *b
-                                && (m == &"MIXED" || q.mode == *m || (*m == "DIGI" && (q.mode == "FT8" || q.mode == "FT4" || q.mode == "RTTY")))
-                                && (q.lotw_qsl_rcvd == "Y" || q.qsl_rcvd == "Y" || q.eqsl_qsl_rcvd == "Y")
+                                && (m == &"MIXED"
+                                    || q.mode == *m
+                                    || (*m == "DIGI"
+                                        && (q.mode == "FT8"
+                                            || q.mode == "FT4"
+                                            || q.mode == "RTTY")))
+                                && (q.lotw_qsl_rcvd == "Y"
+                                    || q.qsl_rcvd == "Y"
+                                    || q.eqsl_qsl_rcvd == "Y")
                         });
 
                         if confirmed {
-                            ui.label(egui::RichText::new("✓ C").color(egui::Color32::from_rgb(34, 197, 94)).strong());
+                            ui.label(
+                                egui::RichText::new("✓ C")
+                                    .color(egui::Color32::from_rgb(34, 197, 94))
+                                    .strong(),
+                            );
                         } else if worked {
-                            ui.label(egui::RichText::new("● W").color(egui::Color32::from_rgb(250, 204, 21)));
+                            ui.label(
+                                egui::RichText::new("● W")
+                                    .color(egui::Color32::from_rgb(250, 204, 21)),
+                            );
                         } else {
-                            ui.label(egui::RichText::new("-").color(egui::Color32::from_rgb(100, 116, 139)));
+                            ui.label(
+                                egui::RichText::new("-")
+                                    .color(egui::Color32::from_rgb(100, 116, 139)),
+                            );
                         }
                     }
 
                     let band_qsos = app.recent_qsos.iter().filter(|q| q.band == *b).count();
-                    ui.label(egui::RichText::new(format!("{band_qsos} QSO")).size(11.0).color(egui::Color32::from_rgb(148, 163, 184)));
+                    ui.label(
+                        egui::RichText::new(format!("{band_qsos} QSO"))
+                            .size(11.0)
+                            .color(egui::Color32::from_rgb(148, 163, 184)),
+                    );
                     ui.end_row();
                 }
             });
@@ -162,8 +234,18 @@ fn render_tab_waz(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine)
 
     ui.horizontal(|ui| {
         ui.group(|ui| {
-            ui.label(egui::RichText::new("🌐 WAZ (Worked All Zones - 40 Stref CQ)").strong().size(13.0).color(egui::Color32::from_rgb(56, 189, 248)));
-            ui.label(format!("Zrobione: {} / 40 | Potwierdzone: {} / 40 | Potrzebne: {}", worked_count, conf_count, 40 - worked_count));
+            ui.label(
+                egui::RichText::new("🌐 WAZ (Worked All Zones - 40 Stref CQ)")
+                    .strong()
+                    .size(13.0)
+                    .color(egui::Color32::from_rgb(56, 189, 248)),
+            );
+            ui.label(format!(
+                "Zrobione: {} / 40 | Potwierdzone: {} / 40 | Potrzebne: {}",
+                worked_count,
+                conf_count,
+                40 - worked_count
+            ));
         });
     });
 
@@ -190,7 +272,11 @@ fn render_tab_waz(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine)
 
                     ui.group(|ui| {
                         ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new(format!("Z{zone:02}")).strong().size(11.0));
+                            ui.label(
+                                egui::RichText::new(format!("Z{zone:02}"))
+                                    .strong()
+                                    .size(11.0),
+                            );
                             ui.colored_label(color, mark);
                         });
                     });
@@ -209,8 +295,18 @@ fn render_tab_was(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine)
 
     ui.horizontal(|ui| {
         ui.group(|ui| {
-            ui.label(egui::RichText::new("🇺🇸 WAS (Worked All States - 50 Stanów USA)").strong().size(13.0).color(egui::Color32::from_rgb(244, 63, 94)));
-            ui.label(format!("Zrobione: {} / 50 | Potwierdzone: {} / 50 | Potrzebne: {}", worked_count, conf_count, 50 - worked_count));
+            ui.label(
+                egui::RichText::new("🇺🇸 WAS (Worked All States - 50 Stanów USA)")
+                    .strong()
+                    .size(13.0)
+                    .color(egui::Color32::from_rgb(244, 63, 94)),
+            );
+            ui.label(format!(
+                "Zrobione: {} / 50 | Potwierdzone: {} / 50 | Potrzebne: {}",
+                worked_count,
+                conf_count,
+                50 - worked_count
+            ));
         });
     });
 
@@ -256,8 +352,15 @@ fn render_tab_wac(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine)
 
     ui.horizontal(|ui| {
         ui.group(|ui| {
-            ui.label(egui::RichText::new("🌍 WAC (Worked All Continents - 7 Kontynentów)").strong().size(13.0).color(egui::Color32::from_rgb(234, 179, 8)));
-            ui.label(format!("Zrobione: {worked_count} / 7 | Potwierdzone: {conf_count} / 7"));
+            ui.label(
+                egui::RichText::new("🌍 WAC (Worked All Continents - 7 Kontynentów)")
+                    .strong()
+                    .size(13.0)
+                    .color(egui::Color32::from_rgb(234, 179, 8)),
+            );
+            ui.label(format!(
+                "Zrobione: {worked_count} / 7 | Potwierdzone: {conf_count} / 7"
+            ));
         });
     });
 
@@ -282,16 +385,30 @@ fn render_tab_wac(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine)
 
             ui.group(|ui| {
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new(code).strong().size(13.0).color(egui::Color32::from_rgb(56, 189, 248)));
+                    ui.label(
+                        egui::RichText::new(code)
+                            .strong()
+                            .size(13.0)
+                            .color(egui::Color32::from_rgb(56, 189, 248)),
+                    );
                     ui.label(name);
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if is_conf {
-                            ui.colored_label(egui::Color32::from_rgb(34, 197, 94), "✓ POTWIERDZONY (Confirmed)");
+                            ui.colored_label(
+                                egui::Color32::from_rgb(34, 197, 94),
+                                "✓ POTWIERDZONY (Confirmed)",
+                            );
                         } else if is_wrk {
-                            ui.colored_label(egui::Color32::from_rgb(250, 204, 21), "● ZROBIONY (Worked)");
+                            ui.colored_label(
+                                egui::Color32::from_rgb(250, 204, 21),
+                                "● ZROBIONY (Worked)",
+                            );
                         } else {
-                            ui.colored_label(egui::Color32::from_rgb(100, 116, 139), "- POTRZEBNY (Needed)");
+                            ui.colored_label(
+                                egui::Color32::from_rgb(100, 116, 139),
+                                "- POTRZEBNY (Needed)",
+                            );
                         }
                     });
                 });
@@ -441,37 +558,47 @@ fn render_tab_other(
 fn render_tab_sp_dx(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine) {
     ui.vertical(|ui| {
         ui.horizontal(|ui| {
-            ui.heading(egui::RichText::new("🇵🇱 SP DX Award — Worked Polish Districts")
-                .size(14.0).color(egui::Color32::from_rgb(220, 38, 38)));
+            ui.heading(
+                egui::RichText::new("🇵🇱 SP DX Award — Worked Polish Districts")
+                    .size(14.0)
+                    .color(egui::Color32::from_rgb(220, 38, 38)),
+            );
         });
-        
+
         let worked = awards.worked_sp_districts.len();
         let confirmed = awards.confirmed_sp_districts.len();
         let total = 9; // SP1-SP9 districts
-        
+
         ui.horizontal(|ui| {
             ui.colored_label(
                 egui::Color32::from_rgb(250, 204, 21),
-                format!("Pracowane okręgi: {worked}/{total}")
+                format!("Pracowane okręgi: {worked}/{total}"),
             );
             ui.separator();
             ui.colored_label(
                 egui::Color32::from_rgb(34, 197, 94),
-                format!("Potwierdzone: {confirmed}/{total}")
+                format!("Potwierdzone: {confirmed}/{total}"),
             );
         });
-        
+
         ui.add_space(4.0);
-        
+
         // Siatka okręgów SP1-SP9
-        let districts = ["SP1", "SP2", "SP3", "SP4", "SP5", "SP6", "SP7", "SP8", "SP9"];
-        let district_names = [
-            "Zachodniopomorskie/Lubuskie", "Kujawsko-Pomorskie/Pomorskie",
-            "Wielkopolskie", "Łódzkie", "Mazowieckie",
-            "Dolnośląskie/Opolskie", "Świętokrzyskie/Małopolskie",
-            "Podkarpackie/Lubelskie", "Podlaskie/Warmińsko-Mazurskie"
+        let districts = [
+            "SP1", "SP2", "SP3", "SP4", "SP5", "SP6", "SP7", "SP8", "SP9",
         ];
-        
+        let district_names = [
+            "Zachodniopomorskie/Lubuskie",
+            "Kujawsko-Pomorskie/Pomorskie",
+            "Wielkopolskie",
+            "Łódzkie",
+            "Mazowieckie",
+            "Dolnośląskie/Opolskie",
+            "Świętokrzyskie/Małopolskie",
+            "Podkarpackie/Lubelskie",
+            "Podlaskie/Warmińsko-Mazurskie",
+        ];
+
         egui::ScrollArea::vertical().show(ui, |ui| {
             egui::Grid::new("sp_districts_grid")
                 .num_columns(3)
@@ -480,7 +607,7 @@ fn render_tab_sp_dx(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngin
                     for (i, district) in districts.iter().enumerate() {
                         let confirmed = awards.confirmed_sp_districts.contains(*district);
                         let worked = awards.worked_sp_districts.contains(*district);
-                        
+
                         let color = if confirmed {
                             egui::Color32::from_rgb(34, 197, 94)
                         } else if worked {
@@ -488,7 +615,7 @@ fn render_tab_sp_dx(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngin
                         } else {
                             egui::Color32::from_rgb(100, 116, 139)
                         };
-                        
+
                         ui.colored_label(color, format!("■ {district}"));
                         ui.label(district_names[i]);
                         if confirmed {
@@ -509,11 +636,11 @@ fn render_tab_wae(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine)
     ui.vertical(|ui| {
         ui.heading(egui::RichText::new("🌍 WAE — Worked All Europe")
             .size(14.0).color(egui::Color32::from_rgb(56, 189, 248)));
-        
+
         let worked = awards.worked_wae.len();
         let confirmed = awards.confirmed_wae.len();
         let total = crate::core::awards::WAE_EUROPEAN_ENTITIES.len();
-        
+
         ui.horizontal(|ui| {
             ui.colored_label(
                 egui::Color32::from_rgb(250, 204, 21),
@@ -525,18 +652,18 @@ fn render_tab_wae(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine)
                 format!("Potwierdzone: {confirmed}/{total}")
             );
         });
-        
+
         let progress = worked as f32 / total.max(1) as f32;
         ui.add(egui::ProgressBar::new(progress)
             .text(format!("{:.0}%", progress * 100.0))
             .fill(egui::Color32::from_rgb(56, 189, 248))
         );
-        
+
         ui.add_space(4.0);
         ui.label(egui::RichText::new(
             "WAE Award wymaga przeprowadzenia łączności ze stacjami ze wszystkich europejskich enklaw DXCC."
         ).weak().size(11.0));
-        
+
         ui.separator();
         ui.horizontal(|ui| {
             ui.colored_label(egui::Color32::from_rgb(34, 197, 94), "■ Potwierdzone");
@@ -546,4 +673,3 @@ fn render_tab_wae(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine)
         ui.label(format!("Potrzeba jeszcze {} europejskich enklaw DXCC", total.saturating_sub(worked)));
     });
 }
-

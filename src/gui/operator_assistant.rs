@@ -77,13 +77,19 @@ pub fn recommend(
 
     let headline = match (&current, best_bands.first()) {
         (Some(f), _) if f.status == BandOpeningStatus::Open => {
-            format!("📡 Pasmo {current_band} otwarte ({}%) — pracuj teraz!", f.reliability_pct)
+            format!(
+                "📡 Pasmo {current_band} otwarte ({}%) — pracuj teraz!",
+                f.reliability_pct
+            )
         }
         (_, Some(best)) => {
             format!("📡 Przełącz na {best} — najlepsze warunki")
         }
         (Some(f), _) if f.status == BandOpeningStatus::Marginal => {
-            format!("⚠️ {current_band} trudne ({}%) — rozważ 20m/40m", f.reliability_pct)
+            format!(
+                "⚠️ {current_band} trudne ({}%) — rozważ 20m/40m",
+                f.reliability_pct
+            )
         }
         _ => "🌑 Wszystkie pasma zamknięte — obserwuj MUF i poczekaj".to_string(),
     };
@@ -127,7 +133,8 @@ fn current_band(app: &SpLogApp) -> String {
                     .abs()
                     .partial_cmp(&(b.1 - mhz).abs())
                     .unwrap_or(std::cmp::Ordering::Equal)
-            }).map_or_else(|| "20m".to_string(), |&(name, _)| name.to_string());
+            })
+            .map_or_else(|| "20m".to_string(), |&(name, _)| name.to_string());
     }
     "20m".to_string()
 }
@@ -239,10 +246,7 @@ pub fn render_operator_assistant(app: &mut SpLogApp, ctx: &egui::Context) {
             }
 
             ui.add_space(4.0);
-            ui.label(format!(
-                "📶 Aktualne pasmo: {}",
-                rec.current_band_status
-            ));
+            ui.label(format!("📶 Aktualne pasmo: {}", rec.current_band_status));
 
             if !rec.advice.is_empty() {
                 ui.add_space(4.0);
@@ -271,7 +275,10 @@ pub fn render_operator_assistant(app: &mut SpLogApp, ctx: &egui::Context) {
                             for (name, f) in &forecasts {
                                 let (icon, color) = status_style(f.status);
                                 ui.label(egui::RichText::new(*name).strong());
-                                ui.label(egui::RichText::new(format!("{icon} {}", f.status.as_str())).color(color));
+                                ui.label(
+                                    egui::RichText::new(format!("{icon} {}", f.status.as_str()))
+                                        .color(color),
+                                );
                                 ui.label(format!("{}%", f.reliability_pct));
                                 ui.label(&f.signal_s_units);
                                 ui.end_row();

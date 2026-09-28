@@ -5,7 +5,9 @@
 //! Umożliwia zapisywanie i przywracanie widoczności / pozycji / rozmiarów
 //! paneli głównego okna oraz wybór wbudowanych presetów.
 
-use crate::core::station::{workspace_profile_presets, ClusterFilter, WorkspaceFile, WorkspaceProfile};
+use crate::core::station::{
+    ClusterFilter, WorkspaceFile, WorkspaceProfile, workspace_profile_presets,
+};
 use crate::gui::app::SpLogApp;
 use crate::gui::theme::ThemePreset;
 use eframe::egui;
@@ -166,10 +168,21 @@ fn export_profile(app: &mut SpLogApp, profile: &WorkspaceProfile) {
         };
         match serde_json::to_string_pretty(&file) {
             Ok(json) => match std::fs::write(&path, json) {
-                Ok(()) => app.status_toast = Some((format!("Wyeksportowano: {}", path.display()), std::time::Instant::now())),
-                Err(e) => app.status_toast = Some((format!("Błąd zapisu: {e}"), std::time::Instant::now())),
+                Ok(()) => {
+                    app.status_toast = Some((
+                        format!("Wyeksportowano: {}", path.display()),
+                        std::time::Instant::now(),
+                    ));
+                }
+                Err(e) => {
+                    app.status_toast =
+                        Some((format!("Błąd zapisu: {e}"), std::time::Instant::now()));
+                }
             },
-            Err(e) => app.status_toast = Some((format!("Błąd serializacji: {e}"), std::time::Instant::now())),
+            Err(e) => {
+                app.status_toast =
+                    Some((format!("Błąd serializacji: {e}"), std::time::Instant::now()));
+            }
         }
     }
 }
@@ -184,23 +197,45 @@ fn import_profile(app: &mut SpLogApp) {
             Ok(text) => match serde_json::from_str::<WorkspaceFile>(&text) {
                 Ok(file) => {
                     if file.version > WorkspaceFile::CURRENT_VERSION {
-                        app.status_toast = Some((format!("Nieobsługiwana wersja pliku (v{}): {}", file.version, path.display()), std::time::Instant::now()));
+                        app.status_toast = Some((
+                            format!(
+                                "Nieobsługiwana wersja pliku (v{}): {}",
+                                file.version,
+                                path.display()
+                            ),
+                            std::time::Instant::now(),
+                        ));
                         return;
                     }
                     let mut ws = file.workspace;
                     ws.ensure_id();
                     // Nadpisz profil o tym samym id lub dodaj nowy.
-                    if let Some(existing) = app.workspace_profiles.iter_mut().find(|p| p.id == ws.id) {
+                    if let Some(existing) =
+                        app.workspace_profiles.iter_mut().find(|p| p.id == ws.id)
+                    {
                         *existing = ws.clone();
                     } else {
                         app.workspace_profiles.push(ws.clone());
                     }
                     app.save_station_config();
-                    app.status_toast = Some((format!("Zaimportowano profil: {}", ws.name), std::time::Instant::now()));
+                    app.status_toast = Some((
+                        format!("Zaimportowano profil: {}", ws.name),
+                        std::time::Instant::now(),
+                    ));
                 }
-                Err(e) => app.status_toast = Some((format!("Nieprawidłowy plik .spws: {e}"), std::time::Instant::now())),
+                Err(e) => {
+                    app.status_toast = Some((
+                        format!("Nieprawidłowy plik .spws: {e}"),
+                        std::time::Instant::now(),
+                    ));
+                }
             },
-            Err(e) => app.status_toast = Some((format!("Błąd odczytu pliku: {e}"), std::time::Instant::now())),
+            Err(e) => {
+                app.status_toast = Some((
+                    format!("Błąd odczytu pliku: {e}"),
+                    std::time::Instant::now(),
+                ));
+            }
         }
     }
 }

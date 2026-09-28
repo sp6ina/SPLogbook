@@ -16,12 +16,18 @@ pub struct Coordinates {
 
 impl Coordinates {
     pub fn new(latitude: f64, longitude: f64) -> Self {
-        Self { latitude, longitude }
+        Self {
+            latitude,
+            longitude,
+        }
     }
 }
 
 /// Konwertuje współrzędne geograficzne na lokator Maidenhead (QTH Locator)
-pub fn coordinates_to_locator(coords: Coordinates, precision: usize) -> Result<String, &'static str> {
+pub fn coordinates_to_locator(
+    coords: Coordinates,
+    precision: usize,
+) -> Result<String, &'static str> {
     if !(-90.0..=90.0).contains(&coords.latitude) || !(-180.0..=180.0).contains(&coords.longitude) {
         return Err("Współrzędne poza dozwolonym zakresem (-90..90, -180..180)");
     }
@@ -72,8 +78,11 @@ pub fn locator_to_coordinates(locator: &str) -> Result<Coordinates, &'static str
         return Err("Lokator musi mieć co najmniej 4 znaki");
     }
 
-    if !bytes[0].is_ascii_uppercase() || !bytes[1].is_ascii_uppercase()
-        || !bytes[2].is_ascii_digit() || !bytes[3].is_ascii_digit() {
+    if !bytes[0].is_ascii_uppercase()
+        || !bytes[1].is_ascii_uppercase()
+        || !bytes[2].is_ascii_digit()
+        || !bytes[3].is_ascii_digit()
+    {
         return Err("Nieprawidłowy format lokatora (oczekiwano np. JO81 lub JO81WA)");
     }
 
@@ -138,14 +147,18 @@ pub fn calculate_long_path_deg(short_path_deg: f64) -> f64 {
 /// Wynik kalkulacji pozycji słońca
 #[derive(Debug, Clone, Copy)]
 pub struct SolarPosition {
-    pub declination: f64,      // Deklinacja słońca w stopniach
-    pub gha: f64,              // Kąt godzinny Greenwich (Greenwich Hour Angle) w stopniach
-    pub elevation: f64,        // Elewacja słońca nad horyzontem w danym punkcie
-    pub is_grayline: bool,     // Czy punkt znajduje się w strefie Gray Line (-12° do 0° pod horyzontem)
+    pub declination: f64,  // Deklinacja słońca w stopniach
+    pub gha: f64,          // Kąt godzinny Greenwich (Greenwich Hour Angle) w stopniach
+    pub elevation: f64,    // Elewacja słońca nad horyzontem w danym punkcie
+    pub is_grayline: bool, // Czy punkt znajduje się w strefie Gray Line (-12° do 0° pod horyzontem)
 }
 
 /// Wylicza pozycję słońca dla danej lokalizacji i czasu UTC (rok, dzień roku, godzina dziesiętna UTC)
-pub fn calculate_solar_position(coords: Coordinates, day_of_year: u32, utc_hours: f64) -> SolarPosition {
+pub fn calculate_solar_position(
+    coords: Coordinates,
+    day_of_year: u32,
+    utc_hours: f64,
+) -> SolarPosition {
     // Przybliżenie równania czasu i deklinacji słońca (Spencer / NOAA / Meeus)
     let b = 2.0 * PI * (day_of_year as f64 - 81.0) / 365.0;
     let declination_rad = (23.45 * DEG_TO_RAD) * b.sin();
@@ -162,7 +175,8 @@ pub fn calculate_solar_position(coords: Coordinates, day_of_year: u32, utc_hours
     let lha_rad = (gha + coords.longitude) * DEG_TO_RAD;
 
     let lat_rad = coords.latitude * DEG_TO_RAD;
-    let sin_elev = lat_rad.sin() * declination_rad.sin() + lat_rad.cos() * declination_rad.cos() * lha_rad.cos();
+    let sin_elev = lat_rad.sin() * declination_rad.sin()
+        + lat_rad.cos() * declination_rad.cos() * lha_rad.cos();
     let elevation = sin_elev.clamp(-1.0, 1.0).asin() * RAD_TO_DEG;
 
     // Grayline to pasmo zmierzchu radiowego (zazwyczaj od zachodu słońca do zmierzchu morskiego: -12° do 0°)
@@ -212,8 +226,14 @@ mod tests {
         let noon_pos = calculate_solar_position(wroclaw, 81, 10.87);
         let night_pos = calculate_solar_position(wroclaw, 81, 23.0);
 
-        assert!(noon_pos.elevation > 35.0, "Elewacja w południe powinna wynosić ok. 39°");
-        assert!(night_pos.elevation < -30.0, "W nocy słońce powinno być głęboko pod horyzontem");
+        assert!(
+            noon_pos.elevation > 35.0,
+            "Elewacja w południe powinna wynosić ok. 39°"
+        );
+        assert!(
+            night_pos.elevation < -30.0,
+            "W nocy słońce powinno być głęboko pod horyzontem"
+        );
         assert!(!noon_pos.is_grayline);
     }
 }

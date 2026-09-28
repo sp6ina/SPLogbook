@@ -137,7 +137,11 @@ pub async fn latest_release() -> Result<LatestRelease, String> {
     let mut assets = Vec::new();
     if let Some(arr) = json.get("assets").and_then(|v| v.as_array()) {
         for asset in arr {
-            let name = asset.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let name = asset
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             let browser_download_url = asset
                 .get("browser_download_url")
                 .and_then(|v| v.as_str())
@@ -148,14 +152,27 @@ pub async fn latest_release() -> Result<LatestRelease, String> {
                 .and_then(|v| v.as_str())
                 .filter(|s| !s.is_empty())
                 .map(std::string::ToString::to_string);
-            let size = asset.get("size").and_then(serde_json::Value::as_u64).unwrap_or(0);
+            let size = asset
+                .get("size")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0);
             if !name.is_empty() && !browser_download_url.is_empty() {
-                assets.push(ReleaseAsset { name, browser_download_url, digest, size });
+                assets.push(ReleaseAsset {
+                    name,
+                    browser_download_url,
+                    digest,
+                    size,
+                });
             }
         }
     }
 
-    Ok(LatestRelease { tag, html_url, body: release_body, assets })
+    Ok(LatestRelease {
+        tag,
+        html_url,
+        body: release_body,
+        assets,
+    })
 }
 
 /// Oblicza sumę kontrolną SHA256 (hex, małe litery) z bajtów.
@@ -172,7 +189,10 @@ pub fn sha256_hex(data: &[u8]) -> String {
 
 /// Weryfikuje sumę kontrolną SHA256 (ignoruje wielkość liter i ewentualny prefiks `sha256:`).
 pub fn verify_sha256(data: &[u8], expected: &str) -> bool {
-    let expected = expected.trim().trim_start_matches("sha256:").trim_start_matches("SHA256:");
+    let expected = expected
+        .trim()
+        .trim_start_matches("sha256:")
+        .trim_start_matches("SHA256:");
     let actual = sha256_hex(data);
     actual.eq_ignore_ascii_case(expected)
 }
@@ -193,9 +213,10 @@ pub fn select_asset_for_platform(assets: &[ReleaseAsset]) -> Option<&ReleaseAsse
     let preferred: &[&str] = &[];
 
     for ext in preferred {
-        if let Some(asset) = assets.iter().find(|a| {
-            a.name.to_lowercase().ends_with(&ext.to_lowercase())
-        }) {
+        if let Some(asset) = assets
+            .iter()
+            .find(|a| a.name.to_lowercase().ends_with(&ext.to_lowercase()))
+        {
             return Some(asset);
         }
     }
@@ -204,7 +225,10 @@ pub fn select_asset_for_platform(assets: &[ReleaseAsset]) -> Option<&ReleaseAsse
 }
 
 /// Pobiera plik instalacyjny wydania do wskazanej lokalizacji.
-pub async fn download_release_asset(asset: &ReleaseAsset, dest_path: &Path) -> Result<usize, String> {
+pub async fn download_release_asset(
+    asset: &ReleaseAsset,
+    dest_path: &Path,
+) -> Result<usize, String> {
     let client = crate::core::http::http_client_with_timeout(300);
 
     let resp = client
@@ -215,7 +239,10 @@ pub async fn download_release_asset(asset: &ReleaseAsset, dest_path: &Path) -> R
         .map_err(|e| format!("Błąd pobierania aktualizacji: {e}"))?;
 
     if !resp.status().is_success() {
-        return Err(format!("Serwer zwrócił status {} podczas pobierania.", resp.status()));
+        return Err(format!(
+            "Serwer zwrócił status {} podczas pobierania.",
+            resp.status()
+        ));
     }
 
     let bytes = resp
@@ -239,8 +266,8 @@ pub async fn download_release_asset(asset: &ReleaseAsset, dest_path: &Path) -> R
 /// PowerShell czeka na zakończenie bieżącego procesu i dopiero wtedy podmienia
 /// plik oraz uruchamia nową wersję.
 pub async fn install_update(asset: &ReleaseAsset) -> Result<(), String> {
-    let current = std::env::current_exe()
-        .map_err(|e| format!("Nie można ustalić ścieżki programu: {e}"))?;
+    let current =
+        std::env::current_exe().map_err(|e| format!("Nie można ustalić ścieżki programu: {e}"))?;
 
     let parent = current
         .parent()
@@ -253,8 +280,8 @@ pub async fn install_update(asset: &ReleaseAsset) -> Result<(), String> {
 
     // 2. Zweryfikuj sumę kontrolną, jeśli GitHub ją udostępnił.
     if let Some(expected) = asset.digest.as_deref() {
-        let data = std::fs::read(&tmp_path)
-            .map_err(|e| format!("Błąd odczytu pobranego pliku: {e}"))?;
+        let data =
+            std::fs::read(&tmp_path).map_err(|e| format!("Błąd odczytu pobranego pliku: {e}"))?;
         if !verify_sha256(&data, expected) {
             let _ = std::fs::remove_file(&tmp_path);
             return Err(
@@ -288,7 +315,8 @@ fn self_replace(current: &Path, new: &Path) -> Result<(), String> {
 /// procesu, podmienia plik wykonywalny i uruchamia go ponownie.
 #[cfg(target_os = "windows")]
 fn install_via_powershell(current: &Path, new: &Path) -> Result<(), String> {
-    let script_path = std::env::temp_dir().join(format!("SPLogbook_update_{}.ps1", std::process::id()));
+    let script_path =
+        std::env::temp_dir().join(format!("SPLogbook_update_{}.ps1", std::process::id()));
 
     let exe = current.to_string_lossy().replace('\'', "''");
     let new_s = new.to_string_lossy().replace('\'', "''");
@@ -313,7 +341,14 @@ fn install_via_powershell(current: &Path, new: &Path) -> Result<(), String> {
         .map_err(|e| format!("Nie można zapisać skryptu aktualizacji: {e}"))?;
 
     std::process::Command::new("powershell.exe")
-        .args(["-NoProfile", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File"])
+        .args([
+            "-NoProfile",
+            "-WindowStyle",
+            "Hidden",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+        ])
         .arg(&script_path)
         .spawn()
         .map_err(|e| format!("Nie można uruchomić aktualizacji: {e}"))?;
@@ -338,7 +373,10 @@ mod tests {
     fn verify_sha256_accepts_case_and_prefix() {
         let expected = "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD";
         assert!(verify_sha256(b"abc", expected));
-        assert!(verify_sha256(b"abc", "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"));
+        assert!(verify_sha256(
+            b"abc",
+            "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        ));
         assert!(!verify_sha256(b"abd", expected));
     }
 
