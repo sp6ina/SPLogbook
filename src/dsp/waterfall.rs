@@ -192,8 +192,11 @@ impl WaterfallEngine {
     }
 
     fn compute_row(&mut self, samples: &[f32]) -> Vec<f32> {
-        for i in 0..self.fft_size {
-            self.scratch[i] = Complex::new(samples[i] * self.window[i], 0.0);
+        for (dst, (&sample, &win)) in self.scratch[..self.fft_size]
+            .iter_mut()
+            .zip(samples.iter().zip(&self.window))
+        {
+            *dst = Complex::new(sample * win, 0.0);
         }
         self.fft.process(&mut self.scratch);
 

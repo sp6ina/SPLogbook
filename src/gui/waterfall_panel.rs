@@ -32,6 +32,12 @@ pub struct WaterfallPanel {
     texture: Option<egui::TextureHandle>,
 }
 
+impl Default for WaterfallPanel {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WaterfallPanel {
     pub fn new() -> Self {
         Self {

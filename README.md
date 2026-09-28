@@ -81,7 +81,7 @@ From deep ionospheric modeling (VOACAP-lite HF propagation), automated antenna r
 | **Ham Clubs Directory** | Real-time recognition and color-coded badge display for SP-OTC, SPCWC, SKCC, CWOPS, FOC, and HSC with member number recognition. |
 | **QSL Vector PDF** | Full A4 vector PDF label sheet exporter for Avery 3x8, 3x7, 2x8, 2x7 formats, plus standalone QSL card visual designer. |
 | **Station Profiles** | Multi-profile workstation management (Home QTH, Field /P, SOTA/POTA, Contest) with instant 1-click preset switching. |
-| **Transceiver CAT & Sharing** | Unified **CAT abstraction layer** (`CatBackend` trait + `CatBackendKind`) over multiple rig backends: Hamlib `rigctld`, **FLRig (XML-RPC)**, **TCI (SDR)**, **Icom CI-V (serial)**, and **SO2R**; VFO A/B, split, RIT/XIT, mode, PTT, power, WinKeyer. Selectable **Bundled (Hamlib 4.7.2)** or **System-installed** source, plus integrated **Hamlib CAT TCP Proxy Server** (port 4534) for multi-app rig sharing. |
+| **Transceiver CAT & Sharing** | Unified **CAT abstraction layer** (`CatBackend` trait + `CatBackendKind`) over multiple rig backends: Hamlib `rigctld`, **Kenwood / Elecraft / Yaesu (direct serial CAT)**, **FLRig (XML-RPC)**, **TCI (SDR)**, **Icom CI-V (serial)**, and **SO2R**; VFO A/B, split, RIT/XIT, mode, PTT, power, WinKeyer. Selectable **Bundled (Hamlib 4.7.2)** or **System-installed** source, plus integrated **Hamlib CAT TCP Proxy Server** (port 4534) for multi-app rig sharing. |
 | **Digital Modes** | WSJT-X / JTDX bi-directional UDP bridge (port 2237), JS8Call TCP JSON API integration, FLDigi XML-RPC bridge. |
 | **Satellites** | SGP4/SDP4 Keplerian orbital propagation from TLE, real-time Doppler shift frequency correction via CAT, antenna elevation/azimuth steering. |
 | **SDR Waterfall & Spectrum** | Real-time FFT spectrum/waterfall panel capturing the radio's audio output (or any audio input) via `cpal`; selectable FFT sizes (512–4096), gain/floor/color-scale controls, input-device selection, and full docking support (dockable tile or floating multi-monitor window). |
@@ -103,7 +103,7 @@ From deep ionospheric modeling (VOACAP-lite HF propagation), automated antenna r
 | **Theming & Accessibility** | Central `theme.rs` palette with presets — **Operator Dark**, **Daylight**, **High-Contrast / colorblind-safe (Okabe-Ito)** — user font scaling and family selection, and a status legend window. |
 | **Command Palette** | Searchable command launcher (`Ctrl+Shift+P`) for instant keyboard-first navigation to any function. |
 | **Built-in Help** | In-app user manual (Help → Instrukcja obsługi), contextual "?" hints in complex panels, full changelog window, and GitHub update checker. |
-| **Languages** | 6 complete native translations: English, Polish, German, French, Spanish, Russian (100% verified test coverage). |
+| **Languages** | 7 complete native translations: English, Polish, German, French, Spanish, Italian, Russian (100% verified test coverage) with compile-time embedded JSON architecture in `locales/`. |
 
 ---
 
@@ -321,7 +321,10 @@ SPLogbook provides full multi-language support across all menus, toolbars, setti
 - 🇩🇪 **Deutsch** (DE)
 - 🇫🇷 **Français** (FR)
 - 🇪🇸 **Español** (ES)
+- 🇮🇹 **Italiano** (IT)
 - 🇷🇺 **Русский** (RU)
+
+All localization dictionaries are organized as clean JSON files inside `locales/` (`pl.json`, `en.json`, `de.json`, `fr.json`, `es.json`, `it.json`, `ru.json`) and baked directly into the binary at compile time via `include_str!` into zero-overhead static hash maps. This architecture enables community members to easily submit new language translations without touching Rust source code while speeding up project compilation times.
 
 ---
 
@@ -348,8 +351,9 @@ SPLogbook embeds the **Rhai** scripting language as a safe extension mechanism, 
 ---
 
 ### 19. CAT Abstraction Layer (Multi-Backend)
-A unified `CatBackend` trait and `CatBackendKind` enum (Hamlib, FLRig, TCI, Icom CI-V, SO2R) abstract away the hardware protocol so the rest of the application talks to **one `RigState`**, regardless of radio:
+A unified `CatBackend` trait and `CatBackendKind` enum (Hamlib, Kenwood/Yaesu serial, FLRig, TCI, Icom CI-V, SO2R) abstract away the hardware protocol so the rest of the application talks to **one `RigState`**, regardless of radio:
 - **Hamlib `rigctld`** — the default TCP backend.
+- **Kenwood / Elecraft / Yaesu (`src/cat/kenwood_yaesu.rs`)** — direct native serial ASCII CAT interface (`FA`, `FB`, `MD`, `TX`, `RX`, `IF`) bypassing external daemon requirements.
 - **FLRig (XML-RPC)** — cross-platform rig control via FLDigi's companion server.
 - **TCI** — Transceiver Control Interface for SDR platforms (SunSDR, ExpertSDR, Thetis).
 - **Icom CI-V** — direct serial control of Icom transceivers.
@@ -494,7 +498,7 @@ Ensure you have the Rust toolchain (version $\ge 1.80$) installed.
 git clone https://github.com/sp6ina/SPLogbook.git
 cd SPLogbook
 
-# 2. Run automated unit tests (205 tests)
+# 2. Run automated unit tests (231 tests)
 cargo test
 
 # 3. Build optimized release binary with Link-Time Optimization (LTO)
@@ -535,6 +539,7 @@ SPLogbook/
 │   └── Windows/
 │       └── SPLogbook.exe    # Deployed 64-bit standalone release binary
 ├── databases/               # Reference databases (CTY.DAT, callbooks, PGA, clubs)
+├── locales/                 # JSON translation dictionaries (pl, en, de, fr, es, it, ru)
 ├── assets/                  # Graphical icons, desktop shortcut, and portable launcher
 │   ├── icon.ico / icon.png  # Application branding icons
 │   ├── splogbook.desktop    # Freedesktop Linux application launcher
@@ -550,6 +555,7 @@ SPLogbook/
     │   ├── flrig.rs         # FLRig XML-RPC client
     │   ├── hamlib.rs        # Asynchronous TCP client for rigctld
     │   ├── icom_ci_v.rs     # Icom CI-V serial protocol client
+    │   ├── kenwood_yaesu.rs # Direct serial CAT protocol for Kenwood / Elecraft / Yaesu
     │   ├── rig_models.rs    # Database of transceiver models
     │   ├── rotor.rs         # Hamlib rotctld client (TCP port 4533)
     │   ├── server.rs        # Hamlib TCP proxy server (CAT sharing for WSJT-X/FLDigi)
@@ -574,7 +580,7 @@ SPLogbook/
     │   ├── lan_sync.rs      # Multi-operator LAN synchronization
     │   └── telnet.rs        # Multi-threaded Telnet client for DX Cluster
     ├── core/                # Core business logic & database
-    │   ├── adif.rs          # ADIF 3.1.4 parser & exporter (+ ADX XML export)
+    │   ├── adif.rs          # ADIF 3.1.5 parser & exporter (+ ADX XML export)
     │   ├── astronomy.rs     # Solar & lunar ephemeris, solar zenith calculation
     │   ├── awards.rs        # Awards tracking engine (DXCC, WAZ, WAS, PGA, etc.)
     │   ├── backup.rs        # Database rolling backup manager (10 revisions)
@@ -592,8 +598,7 @@ SPLogbook/
     │   ├── exchange.rs      # Contest exchange parser & validation
     │   ├── geo.rs           # Maidenhead grid converter, spherical trigonometry
     │   ├── http.rs          # Shared reqwest HTTP client (timeouts/retry)
-    │   ├── i18n.rs          # Translation dictionary & lookup (6 languages)
-    │   ├── i18n_tr.rs       # Translation strings data (include_str!)
+    │   ├── i18n.rs          # Translation dictionary & lookup (7 languages: PL, EN, DE, FR, ES, IT, RU)
     │   ├── pga.rs           # Polska Gmina Award logic
     │   ├── pga_data.rs      # PGA gmina database (2477 gminas, data)
     │   ├── prefix.rs        # ITU prefix allocations & DXCC country mapping

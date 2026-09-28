@@ -41,9 +41,10 @@ pub fn render_workspace_profiles_window(app: &mut SpLogApp, ctx: &egui::Context)
                     });
                 }
                 if let Some(i) = apply_preset {
-                    let preset = workspace_profile_presets().into_iter().nth(i).unwrap();
-                    apply_profile(app, &preset);
-                    app.status_toast = Some((format!("Zastosowano preset: {}", preset.name), std::time::Instant::now()));
+                    if let Some(preset) = workspace_profile_presets().into_iter().nth(i) {
+                        apply_profile(app, &preset);
+                        app.status_toast = Some((format!("Zastosowano preset: {}", preset.name), std::time::Instant::now()));
+                    }
                 }
             });
             ui.separator();

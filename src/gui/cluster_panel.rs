@@ -385,17 +385,22 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             continue;
         }
 
-        if filter_mode_sel == "CW" && (s.is_ft8 || s.comment.to_uppercase().contains("FT8") || s.comment.to_uppercase().contains("SSB")) {
-            continue;
-        } else if filter_mode_sel == "SSB" && (s.is_ft8 || s.comment.to_uppercase().contains("CW")) {
-            continue;
-        } else if filter_mode_sel == "DIGI" && !s.is_ft8 {
+        let mode_skip = match filter_mode_sel.as_str() {
+            "CW" => s.is_ft8 || s.comment.to_uppercase().contains("FT8") || s.comment.to_uppercase().contains("SSB"),
+            "SSB" => s.is_ft8 || s.comment.to_uppercase().contains("CW"),
+            "DIGI" => !s.is_ft8,
+            _ => false,
+        };
+        if mode_skip {
             continue;
         }
 
-        if filter_source_sel == "HUMAN" && s.is_skimmer {
-            continue;
-        } else if filter_source_sel == "RBN" && !s.is_skimmer {
+        let source_skip = match filter_source_sel.as_str() {
+            "HUMAN" => s.is_skimmer,
+            "RBN" => !s.is_skimmer,
+            _ => false,
+        };
+        if source_skip {
             continue;
         }
 

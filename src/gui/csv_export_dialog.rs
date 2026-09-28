@@ -45,6 +45,12 @@ pub struct CsvExportDialog {
     scope: CsvExportScope,
 }
 
+impl Default for CsvExportDialog {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CsvExportDialog {
     /// Domyślny, sensowny zestaw kolumn przy pierwszym otwarciu.
     fn default_columns() -> Vec<CsvColumn> {
