@@ -40,7 +40,12 @@ fn xml_escape(input: &str) -> String {
 /// (`YYYY-MM-DD HH:MM:SS`). W razie braku danych zwraca bieżący czas UTC.
 fn n1mm_timestamp(qso_date: &str, time_on: &str) -> String {
     let date = if qso_date.len() == 8 {
-        format!("{}-{}-{}", &qso_date[0..4], &qso_date[4..6], &qso_date[6..8])
+        format!(
+            "{}-{}-{}",
+            &qso_date[0..4],
+            &qso_date[4..6],
+            &qso_date[6..8]
+        )
     } else if qso_date.len() >= 10 {
         qso_date[0..10].to_string()
     } else {
@@ -207,7 +212,10 @@ mod tests {
 
     #[test]
     fn xml_escape_handles_special_chars() {
-        assert_eq!(xml_escape("a<b&c>d\"e'f"), "a&lt;b&amp;c&gt;d&quot;e&apos;f");
+        assert_eq!(
+            xml_escape("a<b&c>d\"e'f"),
+            "a&lt;b&amp;c&gt;d&quot;e&apos;f"
+        );
         assert_eq!(xml_escape("normal"), "normal");
     }
 
@@ -220,7 +228,10 @@ mod tests {
 
     #[test]
     fn n1mm_timestamp_normalizes_adif_dates() {
-        assert_eq!(n1mm_timestamp("2026-01-15", "12:34:56"), "2026-01-15 12:34:56");
+        assert_eq!(
+            n1mm_timestamp("2026-01-15", "12:34:56"),
+            "2026-01-15 12:34:56"
+        );
         assert_eq!(n1mm_timestamp("20260115", "123456"), "2026-01-15 12:34:56");
         assert_eq!(n1mm_timestamp("", "").len(), 19);
     }

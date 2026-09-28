@@ -2,7 +2,6 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 // Precyzyjny kalkulator astronomiczny pozycji Księżyca i Słońca dla łączności EME (Earth-Moon-Earth)
 
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct CelestialPosition {
     pub azimuth_deg: f64,
@@ -27,7 +26,11 @@ pub struct AstronomyEngine;
 
 impl AstronomyEngine {
     /// Oblicza aktualną pozycję Księżyca i Słońca oraz przesunięcie Dopplera EME dla danej pozycji na Ziemi
-    pub fn calculate_eme(lat_deg: f64, lon_deg: f64, now_utc: chrono::DateTime<chrono::Utc>) -> EmeStatus {
+    pub fn calculate_eme(
+        lat_deg: f64,
+        lon_deg: f64,
+        now_utc: chrono::DateTime<chrono::Utc>,
+    ) -> EmeStatus {
         let julian_day = Self::datetime_to_jd(now_utc);
         let d = julian_day - 2_451_543.5; // Dni od J2000.0
 
@@ -121,7 +124,8 @@ impl AstronomyEngine {
         let sin_alt = lat_rad.sin() * dec_rad.sin() + lat_rad.cos() * dec_rad.cos() * ha_rad.cos();
         let alt_rad = sin_alt.clamp(-1.0, 1.0).asin();
 
-        let cos_az = (dec_rad.sin() - lat_rad.sin() * alt_rad.sin()) / (lat_rad.cos() * alt_rad.cos());
+        let cos_az =
+            (dec_rad.sin() - lat_rad.sin() * alt_rad.sin()) / (lat_rad.cos() * alt_rad.cos());
         let sin_ha = ha_rad.sin();
         let mut az_deg = cos_az.clamp(-1.0, 1.0).acos().to_degrees();
         if sin_ha > 0.0 {
@@ -153,8 +157,12 @@ impl AstronomyEngine {
         let r = (x * x + y * y).sqrt();
         let v = y.atan2(x).to_degrees();
 
-        let x_ecl = r * (n.to_radians().cos() * (v + w).to_radians().cos() - n.to_radians().sin() * (v + w).to_radians().sin() * i.cos());
-        let y_ecl = r * (n.to_radians().sin() * (v + w).to_radians().cos() + n.to_radians().cos() * (v + w).to_radians().sin() * i.cos());
+        let x_ecl = r
+            * (n.to_radians().cos() * (v + w).to_radians().cos()
+                - n.to_radians().sin() * (v + w).to_radians().sin() * i.cos());
+        let y_ecl = r
+            * (n.to_radians().sin() * (v + w).to_radians().cos()
+                + n.to_radians().cos() * (v + w).to_radians().sin() * i.cos());
         let z_ecl = r * (v + w).to_radians().sin() * i.sin();
 
         let obl_ecl = (23.4393 - 3.563e-7 * d).to_radians();
@@ -172,7 +180,8 @@ impl AstronomyEngine {
         let sin_alt = lat_rad.sin() * dec_rad.sin() + lat_rad.cos() * dec_rad.cos() * ha_rad.cos();
         let alt_rad = sin_alt.clamp(-1.0, 1.0).asin();
 
-        let cos_az = (dec_rad.sin() - lat_rad.sin() * alt_rad.sin()) / (lat_rad.cos() * alt_rad.cos());
+        let cos_az =
+            (dec_rad.sin() - lat_rad.sin() * alt_rad.sin()) / (lat_rad.cos() * alt_rad.cos());
         let sin_ha = ha_rad.sin();
         let mut az_deg = cos_az.clamp(-1.0, 1.0).acos().to_degrees();
         if sin_ha > 0.0 {

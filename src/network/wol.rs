@@ -9,10 +9,7 @@ pub struct WolClient;
 impl WolClient {
     /// Parsuje adres MAC z ciągów znaków: "AA:BB:CC:DD:EE:FF", "AA-BB-CC-DD-EE-FF" lub "AABBCCDDEEFF"
     pub fn parse_mac(mac_str: &str) -> Result<[u8; 6], String> {
-        let clean: String = mac_str
-            .chars()
-            .filter(char::is_ascii_hexdigit)
-            .collect();
+        let clean: String = mac_str.chars().filter(char::is_ascii_hexdigit).collect();
 
         if clean.len() != 12 {
             return Err(format!("Nieprawidłowa długość adresu MAC: {mac_str}"));

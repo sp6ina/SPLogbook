@@ -63,10 +63,13 @@ impl AudioRecorder {
 
         #[cfg(not(target_os = "windows"))]
         {
-            let temp_file = std::env::temp_dir().join(format!("splog_rec_{}.wav", chrono::Utc::now().timestamp()));
+            let temp_file = std::env::temp_dir()
+                .join(format!("splog_rec_{}.wav", chrono::Utc::now().timestamp()));
             let child = std::process::Command::new("arecord")
-                .arg("-f").arg("cd")
-                .arg("-t").arg("wav")
+                .arg("-f")
+                .arg("cd")
+                .arg("-t")
+                .arg("wav")
                 .arg(&temp_file)
                 .spawn()
                 .or_else(|_| {
@@ -87,7 +90,10 @@ impl AudioRecorder {
                     Ok(())
                 }
                 Err(e) => {
-                    log::warn!("Nie udało się uruchomić nagrywania arecord/pw-record: {}", e);
+                    log::warn!(
+                        "Nie udało się uruchomić nagrywania arecord/pw-record: {}",
+                        e
+                    );
                     IS_RECORDING.store(true, Ordering::SeqCst);
                     Ok(())
                 }
@@ -114,7 +120,10 @@ impl AudioRecorder {
             Self::send_mci_cmd("close splog_rec")?;
             IS_RECORDING.store(false, Ordering::SeqCst);
 
-            info!("Pomyślnie zapisano nagranie łączności do: {}", output_path.display());
+            info!(
+                "Pomyślnie zapisano nagranie łączności do: {}",
+                output_path.display()
+            );
             Ok(output_path.to_path_buf())
         }
 
@@ -135,7 +144,10 @@ impl AudioRecorder {
                 }
             }
             IS_RECORDING.store(false, Ordering::SeqCst);
-            info!("Pomyślnie zapisano nagranie łączności do: {:?}", output_path);
+            info!(
+                "Pomyślnie zapisano nagranie łączności do: {:?}",
+                output_path
+            );
             Ok(output_path.to_path_buf())
         }
     }
@@ -161,11 +173,7 @@ impl AudioRecorder {
                 let _ = std::process::Command::new("aplay")
                     .arg(&p)
                     .status()
-                    .or_else(|_| {
-                        std::process::Command::new("pw-play")
-                            .arg(&p)
-                            .status()
-                    });
+                    .or_else(|_| std::process::Command::new("pw-play").arg(&p).status());
             });
             IS_PLAYING.store(true, Ordering::SeqCst);
             Ok(())
@@ -182,7 +190,10 @@ impl AudioRecorder {
 
         #[cfg(not(target_os = "windows"))]
         {
-            let _ = std::process::Command::new("pkill").arg("-f").arg("aplay").status();
+            let _ = std::process::Command::new("pkill")
+                .arg("-f")
+                .arg("aplay")
+                .status();
         }
 
         IS_PLAYING.store(false, Ordering::SeqCst);

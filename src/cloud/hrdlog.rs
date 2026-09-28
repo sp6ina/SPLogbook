@@ -12,13 +12,18 @@ pub struct HrdlogClient {
 
 impl HrdlogClient {
     pub fn new(callsign: String, upload_code: String) -> Self {
-        Self { callsign, upload_code }
+        Self {
+            callsign,
+            upload_code,
+        }
     }
 
     /// Wysyła łączność do serwisu HRDLog.net
     pub async fn upload_qso(&self, qso: &QsoRecord) -> Result<String, String> {
         if self.callsign.is_empty() || self.upload_code.is_empty() {
-            return Err("Brak skonfigurowanego znaku lub kodu autoryzacyjnego HRDLog.net".to_string());
+            return Err(
+                "Brak skonfigurowanego znaku lub kodu autoryzacyjnego HRDLog.net".to_string(),
+            );
         }
 
         let adif_text = export_adif(std::slice::from_ref(qso), "SPLogbook", &self.callsign);

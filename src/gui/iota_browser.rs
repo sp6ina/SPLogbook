@@ -30,9 +30,15 @@ impl RefStatus {
 
     fn label(&self) -> egui::RichText {
         match self {
-            RefStatus::Confirmed => egui::RichText::new("✔ Potwierdzone").color(egui::Color32::from_rgb(56, 189, 248)),
-            RefStatus::Worked => egui::RichText::new("✔ Zaliczona").color(egui::Color32::from_rgb(34, 197, 94)),
-            RefStatus::Needed => egui::RichText::new("— Potrzebna").color(egui::Color32::from_rgb(248, 113, 113)),
+            RefStatus::Confirmed => {
+                egui::RichText::new("✔ Potwierdzone").color(egui::Color32::from_rgb(56, 189, 248))
+            }
+            RefStatus::Worked => {
+                egui::RichText::new("✔ Zaliczona").color(egui::Color32::from_rgb(34, 197, 94))
+            }
+            RefStatus::Needed => {
+                egui::RichText::new("— Potrzebna").color(egui::Color32::from_rgb(248, 113, 113))
+            }
         }
     }
 }
@@ -43,7 +49,6 @@ pub struct IotaBrowserDialog {
     pub search_query: String,
     pub results: Vec<IotaRecord>,
 }
-
 
 impl IotaBrowserDialog {
     pub fn new() -> Self {
@@ -58,7 +63,12 @@ impl IotaBrowserDialog {
         self.results = sdb.search_iota(&self.search_query);
     }
 
-    pub fn show(&mut self, ctx: &egui::Context, sdb: &ServiceDatabase, awards: &AwardsEngine) -> Option<String> {
+    pub fn show(
+        &mut self,
+        ctx: &egui::Context,
+        sdb: &ServiceDatabase,
+        awards: &AwardsEngine,
+    ) -> Option<String> {
         if !self.is_open {
             return None;
         }
@@ -75,7 +85,9 @@ impl IotaBrowserDialog {
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.label("Szukaj IOTA (kod np. EU-001 lub nazwa wyspy):");
-                    let resp = ui.add(egui::TextEdit::singleline(&mut self.search_query).desired_width(200.0));
+                    let resp = ui.add(
+                        egui::TextEdit::singleline(&mut self.search_query).desired_width(200.0),
+                    );
                     if resp.changed() || (self.results.is_empty() && self.search_query.is_empty()) {
                         self.reload(sdb);
                     }
@@ -87,38 +99,60 @@ impl IotaBrowserDialog {
 
                 ui.separator();
 
-                ui.label(format!("Wyniki ({}) - baza serviceLOG:", self.results.len()));
+                ui.label(format!(
+                    "Wyniki ({}) - baza serviceLOG:",
+                    self.results.len()
+                ));
 
-                egui::ScrollArea::vertical().max_height(350.0).show(ui, |ui| {
-                    egui::Grid::new("iota_results_grid")
-                        .striped(true)
-                        .spacing([15.0, 6.0])
-                        .show(ui, |ui| {
-                            ui.label(egui::RichText::new("IOTA Kod").strong());
-                            ui.label(egui::RichText::new("Prefiks").strong());
-                            ui.label(egui::RichText::new("Nazwa grupy wysp").strong());
-                            ui.label(egui::RichText::new("Status").strong());
-                            ui.label(egui::RichText::new("Akcja").strong());
-                            ui.end_row();
-
-                            for item in &self.results {
-                                ui.label(egui::RichText::new(&item.iota).strong().color(egui::Color32::from_rgb(56, 189, 248)));
-                                ui.label(egui::RichText::new(&item.prefix).color(egui::Color32::from_rgb(251, 191, 36)));
-                                ui.label(&item.name);
-                                ui.label(RefStatus::of_iota(awards, &item.iota).label());
-
-                                if ui.button("Wybierz").on_hover_text("Użyj tej referencji IOTA").clicked() {
-                                    chosen = Some(item.iota.clone());
-                                    close_requested = true;
-                                }
+                egui::ScrollArea::vertical()
+                    .max_height(350.0)
+                    .show(ui, |ui| {
+                        egui::Grid::new("iota_results_grid")
+                            .striped(true)
+                            .spacing([15.0, 6.0])
+                            .show(ui, |ui| {
+                                ui.label(egui::RichText::new("IOTA Kod").strong());
+                                ui.label(egui::RichText::new("Prefiks").strong());
+                                ui.label(egui::RichText::new("Nazwa grupy wysp").strong());
+                                ui.label(egui::RichText::new("Status").strong());
+                                ui.label(egui::RichText::new("Akcja").strong());
                                 ui.end_row();
-                            }
-                        });
-                });
+
+                                for item in &self.results {
+                                    ui.label(
+                                        egui::RichText::new(&item.iota)
+                                            .strong()
+                                            .color(egui::Color32::from_rgb(56, 189, 248)),
+                                    );
+                                    ui.label(
+                                        egui::RichText::new(&item.prefix)
+                                            .color(egui::Color32::from_rgb(251, 191, 36)),
+                                    );
+                                    ui.label(&item.name);
+                                    ui.label(RefStatus::of_iota(awards, &item.iota).label());
+
+                                    if ui
+                                        .button("Wybierz")
+                                        .on_hover_text("Użyj tej referencji IOTA")
+                                        .clicked()
+                                    {
+                                        chosen = Some(item.iota.clone());
+                                        close_requested = true;
+                                    }
+                                    ui.end_row();
+                                }
+                            });
+                    });
 
                 ui.separator();
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("Baza zawiera 1 190 oficjalnych grup wysp programu RSGB IOTA.").small().color(egui::Color32::GRAY));
+                    ui.label(
+                        egui::RichText::new(
+                            "Baza zawiera 1 190 oficjalnych grup wysp programu RSGB IOTA.",
+                        )
+                        .small()
+                        .color(egui::Color32::GRAY),
+                    );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button("Zamknij").clicked() {
                             close_requested = true;

@@ -100,28 +100,72 @@ fn default_left_col_width() -> f32 {
 fn default_right_col_width() -> f32 {
     360.0
 }
-fn default_rotor_host() -> String { "127.0.0.1".to_string() }
-fn default_rotor_port() -> u16 { 4533 }
-fn default_cat_backend() -> String { "hamlib".to_string() }
-fn default_tci_host() -> String { "127.0.0.1".to_string() }
-fn default_tci_port() -> u16 { 40001 }
-fn default_fldigi_host() -> String { "127.0.0.1".to_string() }
-fn default_fldigi_port() -> u16 { 7362 }
-fn default_lan_sync_port() -> u16 { 7373 }
-fn default_lan_sync_server_ip() -> String { "127.0.0.1".to_string() }
-fn default_theme_preset() -> String { "operator_dark".to_string() }
-fn default_font_scale() -> f32 { 1.0 }
-fn default_font_family() -> String { String::new() }
-fn default_distance_unit() -> String { "km".to_string() }
-fn default_n1mm_broadcast_host() -> String { "127.0.0.1".to_string() }
-fn default_n1mm_broadcast_port() -> u16 { 12060 }
-fn default_callbook_cache_enabled() -> bool { true }
-fn default_callbook_cache_ttl_days() -> u32 { 30 }
-fn default_profile_id() -> String { "default".to_string() }
-fn default_cat_sharing_port() -> u16 { 4534 }
-fn default_hamlib_source() -> String { "bundled".to_string() }
-fn default_plugins_dir() -> String { "plugins".to_string() }
-fn default_operator_assistant_enabled() -> bool { true }
+fn default_rotor_host() -> String {
+    "127.0.0.1".to_string()
+}
+fn default_rotor_port() -> u16 {
+    4533
+}
+fn default_cat_backend() -> String {
+    "hamlib".to_string()
+}
+fn default_tci_host() -> String {
+    "127.0.0.1".to_string()
+}
+fn default_tci_port() -> u16 {
+    40001
+}
+fn default_fldigi_host() -> String {
+    "127.0.0.1".to_string()
+}
+fn default_fldigi_port() -> u16 {
+    7362
+}
+fn default_lan_sync_port() -> u16 {
+    7373
+}
+fn default_lan_sync_server_ip() -> String {
+    "127.0.0.1".to_string()
+}
+fn default_theme_preset() -> String {
+    "operator_dark".to_string()
+}
+fn default_font_scale() -> f32 {
+    1.0
+}
+fn default_font_family() -> String {
+    String::new()
+}
+fn default_distance_unit() -> String {
+    "km".to_string()
+}
+fn default_n1mm_broadcast_host() -> String {
+    "127.0.0.1".to_string()
+}
+fn default_n1mm_broadcast_port() -> u16 {
+    12060
+}
+fn default_callbook_cache_enabled() -> bool {
+    true
+}
+fn default_callbook_cache_ttl_days() -> u32 {
+    30
+}
+fn default_profile_id() -> String {
+    "default".to_string()
+}
+fn default_cat_sharing_port() -> u16 {
+    4534
+}
+fn default_hamlib_source() -> String {
+    "bundled".to_string()
+}
+fn default_plugins_dir() -> String {
+    "plugins".to_string()
+}
+fn default_operator_assistant_enabled() -> bool {
+    true
+}
 
 /// Konfiguracja pojedynczej kolumny w tabeli dziennika łączności
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
@@ -134,7 +178,12 @@ pub struct LogColumn {
 
 impl LogColumn {
     fn new(id: &str, label: &str, visible: bool, width: f32) -> Self {
-        Self { id: id.to_string(), label: label.to_string(), visible, width }
+        Self {
+            id: id.to_string(),
+            label: label.to_string(),
+            visible,
+            width,
+        }
     }
 }
 
@@ -147,21 +196,21 @@ pub struct ColumnPreset {
 
 pub fn default_logbook_columns() -> Vec<LogColumn> {
     vec![
-        LogColumn::new("nr",       "#",        true,  40.0),
-        LogColumn::new("date",     "Data",     true,  85.0),
-        LogColumn::new("time",     "Czas",     true,  55.0),
-        LogColumn::new("callsign", "Znak",     true,  105.0),
-        LogColumn::new("band",     "Pasmo",    true,  60.0),
-        LogColumn::new("mode",     "Emisja",   true,  60.0),
-        LogColumn::new("rst_s",    "RST S",    true,  55.0),
-        LogColumn::new("rst_r",    "RST R",    true,  55.0),
-        LogColumn::new("country",  "Kraj",     true,  130.0),
-        LogColumn::new("name",     "Imie",     false, 90.0),
-        LogColumn::new("qsl",      "QSL",      true,  55.0),
-        LogColumn::new("freq",     "Freq",     false, 80.0),
-        LogColumn::new("cqz",      "CQZ",      false, 45.0),
-        LogColumn::new("iota",     "IOTA",     false, 70.0),
-        LogColumn::new("comment",  "Uwagi",    false, 160.0),
+        LogColumn::new("nr", "#", true, 40.0),
+        LogColumn::new("date", "Data", true, 85.0),
+        LogColumn::new("time", "Czas", true, 55.0),
+        LogColumn::new("callsign", "Znak", true, 105.0),
+        LogColumn::new("band", "Pasmo", true, 60.0),
+        LogColumn::new("mode", "Emisja", true, 60.0),
+        LogColumn::new("rst_s", "RST S", true, 55.0),
+        LogColumn::new("rst_r", "RST R", true, 55.0),
+        LogColumn::new("country", "Kraj", true, 130.0),
+        LogColumn::new("name", "Imie", false, 90.0),
+        LogColumn::new("qsl", "QSL", true, 55.0),
+        LogColumn::new("freq", "Freq", false, 80.0),
+        LogColumn::new("cqz", "CQZ", false, 45.0),
+        LogColumn::new("iota", "IOTA", false, 70.0),
+        LogColumn::new("comment", "Uwagi", false, 160.0),
     ]
 }
 
@@ -196,10 +245,31 @@ impl Default for VoiceKeyerMessage {
 /// Domyślny zestaw slotów voice keyer'a (F1..F4).
 pub fn default_voice_keyer_messages() -> Vec<VoiceKeyerMessage> {
     vec![
-        VoiceKeyerMessage { label: "F1 CQ".to_string(), text: "CQ CQ CQ de SP6INA SP6INA SP6INA k".to_string(), enabled: true, repeat: true, ..Default::default() },
-        VoiceKeyerMessage { label: "F2 Raport".to_string(), text: "59 59 dziękuję".to_string(), enabled: true, ..Default::default() },
-        VoiceKeyerMessage { label: "F3 Podziękowanie".to_string(), text: "Dziękuję za łączność 73!".to_string(), enabled: true, ..Default::default() },
-        VoiceKeyerMessage { label: "F4 Znak".to_string(), text: "SP6INA SP6INA".to_string(), enabled: true, ..Default::default() },
+        VoiceKeyerMessage {
+            label: "F1 CQ".to_string(),
+            text: "CQ CQ CQ de SP6INA SP6INA SP6INA k".to_string(),
+            enabled: true,
+            repeat: true,
+            ..Default::default()
+        },
+        VoiceKeyerMessage {
+            label: "F2 Raport".to_string(),
+            text: "59 59 dziękuję".to_string(),
+            enabled: true,
+            ..Default::default()
+        },
+        VoiceKeyerMessage {
+            label: "F3 Podziękowanie".to_string(),
+            text: "Dziękuję za łączność 73!".to_string(),
+            enabled: true,
+            ..Default::default()
+        },
+        VoiceKeyerMessage {
+            label: "F4 Znak".to_string(),
+            text: "SP6INA SP6INA".to_string(),
+            enabled: true,
+            ..Default::default()
+        },
     ]
 }
 
@@ -456,7 +526,7 @@ pub struct AppConfig {
 
     #[serde(default)]
     pub logbook_column_presets: Vec<ColumnPreset>,
-    
+
     #[serde(default)]
     pub custom_contests: Vec<CustomContest>,
 }
@@ -559,7 +629,7 @@ pub struct ViewPanelConfig {
     #[serde(default)]
     pub column: usize, // 0 = Lewa, 1 = Srodek, 2 = Prawa
     #[serde(default)]
-    pub order: usize,  // Kolejnosc pionowa w kolumnie (0, 1, 2...)
+    pub order: usize, // Kolejnosc pionowa w kolumnie (0, 1, 2...)
     /// Ostatnia zapisana pozycja okna pływającego [x, y]
     #[serde(default)]
     pub saved_pos: Option<[f32; 2]>,
@@ -698,7 +768,14 @@ fn slugify(name: &str) -> String {
 
 /// Pomocniczy konstruktor panelu o podanych cechach.
 fn panel(visible: bool, floating: bool, column: usize, order: usize) -> ViewPanelConfig {
-    ViewPanelConfig { visible, floating, column, order, saved_pos: None, saved_size: None }
+    ViewPanelConfig {
+        visible,
+        floating,
+        column,
+        order,
+        saved_pos: None,
+        saved_size: None,
+    }
 }
 
 /// Wbudowane presety układu operatorskiego (nie są zapisywane do konfiguracji).
@@ -976,19 +1053,82 @@ impl Default for AppConfig {
             right_column_width: 360.0,
 
             // Kolumna 0 (Lewa): VFO -> QSO Entry -> Band Map
-            panel_vfo:     ViewPanelConfig { visible: true, floating: false, column: 0, order: 0, saved_pos: None, saved_size: None },
-            panel_qso:     ViewPanelConfig { visible: true, floating: false, column: 0, order: 1, saved_pos: None, saved_size: None },
-            panel_bandmap: ViewPanelConfig { visible: true, floating: false, column: 0, order: 2, saved_pos: None, saved_size: None },
+            panel_vfo: ViewPanelConfig {
+                visible: true,
+                floating: false,
+                column: 0,
+                order: 0,
+                saved_pos: None,
+                saved_size: None,
+            },
+            panel_qso: ViewPanelConfig {
+                visible: true,
+                floating: false,
+                column: 0,
+                order: 1,
+                saved_pos: None,
+                saved_size: None,
+            },
+            panel_bandmap: ViewPanelConfig {
+                visible: true,
+                floating: false,
+                column: 0,
+                order: 2,
+                saved_pos: None,
+                saved_size: None,
+            },
 
             // Kolumna 1 (Srodek): Tabela Dziennika -> DX Cluster
-            panel_log:     ViewPanelConfig { visible: true, floating: false, column: 1, order: 0, saved_pos: None, saved_size: None },
-            panel_cluster: ViewPanelConfig { visible: true, floating: false, column: 1, order: 1, saved_pos: None, saved_size: None },
+            panel_log: ViewPanelConfig {
+                visible: true,
+                floating: false,
+                column: 1,
+                order: 0,
+                saved_pos: None,
+                saved_size: None,
+            },
+            panel_cluster: ViewPanelConfig {
+                visible: true,
+                floating: false,
+                column: 1,
+                order: 1,
+                saved_pos: None,
+                saved_size: None,
+            },
 
             // Kolumna 2 (Prawa): Mapa Swiata -> Pogoda Solarna -> Satelity
-            panel_world_map:  ViewPanelConfig { visible: true, floating: false, column: 2, order: 0, saved_pos: None, saved_size: None },
-            panel_solar:      ViewPanelConfig { visible: true, floating: false, column: 2, order: 1, saved_pos: None, saved_size: None },
-            panel_satellites: ViewPanelConfig { visible: true, floating: false, column: 2, order: 2, saved_pos: None, saved_size: None },
-            panel_waterfall:  ViewPanelConfig { visible: false, floating: false, column: 2, order: 3, saved_pos: None, saved_size: None },
+            panel_world_map: ViewPanelConfig {
+                visible: true,
+                floating: false,
+                column: 2,
+                order: 0,
+                saved_pos: None,
+                saved_size: None,
+            },
+            panel_solar: ViewPanelConfig {
+                visible: true,
+                floating: false,
+                column: 2,
+                order: 1,
+                saved_pos: None,
+                saved_size: None,
+            },
+            panel_satellites: ViewPanelConfig {
+                visible: true,
+                floating: false,
+                column: 2,
+                order: 2,
+                saved_pos: None,
+                saved_size: None,
+            },
+            panel_waterfall: ViewPanelConfig {
+                visible: false,
+                floating: false,
+                column: 2,
+                order: 3,
+                saved_pos: None,
+                saved_size: None,
+            },
             tabbed_columns: false,
             dock_layout: None,
             plugins_enabled: true,
@@ -1074,6 +1214,9 @@ mod tests {
         assert_eq!(loaded.station_profiles.len(), 2);
         assert_eq!(loaded.active_profile_id, "p2");
         assert_eq!(loaded.station_profiles[1].callsign, "SP6INA/P");
-        assert_eq!(loaded.station_profiles[1].sota_ref.as_deref(), Some("SP/BZ-001"));
+        assert_eq!(
+            loaded.station_profiles[1].sota_ref.as_deref(),
+            Some("SP/BZ-001")
+        );
     }
 }

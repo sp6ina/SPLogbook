@@ -200,9 +200,11 @@ mod tests {
         data["qrz_api_key"] = "legacy-private".into();
         std::fs::write(&path, serde_json::to_vec(&data).unwrap()).unwrap();
         assert!(AppConfig::load_with_store(&path, &store).is_err());
-        assert!(std::fs::read_to_string(&path)
-            .unwrap()
-            .contains("legacy-private"));
+        assert!(
+            std::fs::read_to_string(&path)
+                .unwrap()
+                .contains("legacy-private")
+        );
     }
 }
 
@@ -218,7 +220,9 @@ impl CredentialStore for SystemCredentialStore {
     }
 
     fn get(&self, path: &Path, id: &str) -> io::Result<String> {
-        Self::entry(path, id)?.get_password().map_err(|e| store_error(&e))
+        Self::entry(path, id)?
+            .get_password()
+            .map_err(|e| store_error(&e))
     }
 
     fn remove(&self, path: &Path, id: &str) -> io::Result<()> {

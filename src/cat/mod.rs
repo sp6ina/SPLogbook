@@ -2,14 +2,14 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 pub mod backend;
-pub mod hamlib;
-pub mod rotor;
-pub mod rig_models;
-pub mod supervisor;
-pub mod winkeyer;
-pub mod tci;
-pub mod server;
 pub mod flrig;
+pub mod hamlib;
 pub mod icom_ci_v;
 pub mod kenwood;
+pub mod rig_models;
+pub mod rotor;
+pub mod server;
 pub mod so2r;
+pub mod supervisor;
+pub mod tci;
+pub mod winkeyer;

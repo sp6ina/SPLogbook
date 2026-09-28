@@ -15,11 +15,7 @@ pub struct KenwoodCat;
 impl KenwoodCat {
     /// Tworzy komendę odczytu częstotliwości VFO A (`FA;`) lub VFO B (`FB;`).
     pub fn read_freq_cmd(vfo_b: bool) -> &'static str {
-        if vfo_b {
-            "FB;"
-        } else {
-            "FA;"
-        }
+        if vfo_b { "FB;" } else { "FA;" }
     }
 
     /// Tworzy komendę ustawienia częstotliwości (11 cyfr w Hz).
@@ -88,11 +84,7 @@ impl KenwoodCat {
 
     /// Komenda załączenia / rozłączenia nadawania PTT (`TX;` / `RX;`).
     pub fn set_ptt_cmd(ptt: bool) -> &'static str {
-        if ptt {
-            "TX;"
-        } else {
-            "RX;"
-        }
+        if ptt { "TX;" } else { "RX;" }
     }
 
     /// Komenda odczytu stanu PTT (`TX;` -> zwraca `TX0;`, `TX1;` lub `TX2;`).
@@ -130,11 +122,7 @@ impl KenwoodCat {
 
     /// Włącza/wyłącza tryb Split (`FT1;` dla TX na VFO B, `FT0;` dla wyłączenia).
     pub fn set_split_cmd(split: bool) -> &'static str {
-        if split {
-            "FT1;"
-        } else {
-            "FT0;"
-        }
+        if split { "FT1;" } else { "FT0;" }
     }
 }
 

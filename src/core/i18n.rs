@@ -51,8 +51,7 @@ pub fn tr(key: &str, lang: Language) -> &str {
 
 /// Obsługiwane języki w programie SPLogbook
 /// Obsługa języków: Polski (PL), Angielski (EN), Niemiecki (DE), Francuski (FR), Hiszpański (ES), Włoski (IT), Rosyjski (RU)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum Language {
     #[serde(rename = "pl")]
     #[default]
@@ -110,13 +109,27 @@ impl Language {
 }
 
 // Funkcje pomocnicze dla poszczególnych języków
-pub fn translate_pl(key: &str) -> &str { tr(key, Language::Pl) }
-pub fn translate_en(key: &str) -> &str { tr(key, Language::En) }
-pub fn translate_de(key: &str) -> &str { tr(key, Language::De) }
-pub fn translate_fr(key: &str) -> &str { tr(key, Language::Fr) }
-pub fn translate_es(key: &str) -> &str { tr(key, Language::Es) }
-pub fn translate_it(key: &str) -> &str { tr(key, Language::It) }
-pub fn translate_ru(key: &str) -> &str { tr(key, Language::Ru) }
+pub fn translate_pl(key: &str) -> &str {
+    tr(key, Language::Pl)
+}
+pub fn translate_en(key: &str) -> &str {
+    tr(key, Language::En)
+}
+pub fn translate_de(key: &str) -> &str {
+    tr(key, Language::De)
+}
+pub fn translate_fr(key: &str) -> &str {
+    tr(key, Language::Fr)
+}
+pub fn translate_es(key: &str) -> &str {
+    tr(key, Language::Es)
+}
+pub fn translate_it(key: &str) -> &str {
+    tr(key, Language::It)
+}
+pub fn translate_ru(key: &str) -> &str {
+    tr(key, Language::Ru)
+}
 
 pub const ALL_I18N_KEYS: &[&str] = &[
     "app.name",
@@ -757,7 +770,10 @@ mod tests {
 
             assert_ne!(pl, key, "Brak polskiego tłumaczenia dla klucza: {key}");
             assert_ne!(en, key, "Missing English translation for key: {key}");
-            assert_ne!(de, key, "Fehlende deutsche Übersetzung für Schlüssel: {key}");
+            assert_ne!(
+                de, key,
+                "Fehlende deutsche Übersetzung für Schlüssel: {key}"
+            );
             assert_ne!(fr, key, "Traduction française manquante pour la clé: {key}");
             assert_ne!(es, key, "Falta traducción al español para la clave: {key}");
             assert_ne!(it, key, "Manca la traduzione italiana per la chiave: {key}");

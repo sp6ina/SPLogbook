@@ -44,7 +44,9 @@ impl MiniHudBar {
                         still_open = false;
                     }
                     captured_geo = ui.ctx().input(|i| {
-                        i.viewport().outer_rect.map(|r| ([r.min.x, r.min.y], [r.width(), r.height()]))
+                        i.viewport()
+                            .outer_rect
+                            .map(|r| ([r.min.x, r.min.y], [r.width(), r.height()]))
                     });
                 },
             );
@@ -69,11 +71,15 @@ impl MiniHudBar {
 
         // Domyślny wariant: swobodne, skalowalne okno wewnątrz pulpitu.
         let mut exit_compact = false;
-        let mut win = egui::Window::new(egui::RichText::new("📻 SPLogbook Mini HUD").strong().size(12.0))
-            .collapsible(false)
-            .resizable(true)
-            .default_width(app.hud_saved_size.map_or(460.0, |s| s[0]))
-            .default_height(app.hud_saved_size.map_or(260.0, |s| s[1]));
+        let mut win = egui::Window::new(
+            egui::RichText::new("📻 SPLogbook Mini HUD")
+                .strong()
+                .size(12.0),
+        )
+        .collapsible(false)
+        .resizable(true)
+        .default_width(app.hud_saved_size.map_or(460.0, |s| s[0]))
+        .default_height(app.hud_saved_size.map_or(260.0, |s| s[1]));
         if let Some(pos) = app.hud_saved_pos {
             win = win.default_pos(pos);
         }
@@ -106,7 +112,7 @@ fn render_hud_body(app: &mut SpLogApp, ui: &mut egui::Ui, exit_compact: &mut boo
                     .strong()
                     .size(20.0)
                     .monospace()
-                    .color(egui::Color32::from_rgb(34, 197, 94))
+                    .color(egui::Color32::from_rgb(34, 197, 94)),
             );
 
             if ui.button("◀ -1k").on_hover_text("Dostrój -1 kHz").clicked() {
@@ -120,7 +126,10 @@ fn render_hud_body(app: &mut SpLogApp, ui: &mut egui::Ui, exit_compact: &mut boo
                 .selected_text(&app.entry_band)
                 .width(55.0)
                 .show_ui(ui, |ui| {
-                    for b in &["160m", "80m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m", "2m", "70cm"] {
+                    for b in &[
+                        "160m", "80m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m", "2m",
+                        "70cm",
+                    ] {
                         ui.selectable_value(&mut app.entry_band, b.to_string(), *b);
                     }
                 });
@@ -135,7 +144,11 @@ fn render_hud_body(app: &mut SpLogApp, ui: &mut egui::Ui, exit_compact: &mut boo
                 });
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button(egui::RichText::new("🗗 Pełny pulpit").strong()).on_hover_text("Powróć do pełnego pulpitu roboczego SPLogbook").clicked() {
+                if ui
+                    .button(egui::RichText::new("🗗 Pełny pulpit").strong())
+                    .on_hover_text("Powróć do pełnego pulpitu roboczego SPLogbook")
+                    .clicked()
+                {
                     *exit_compact = true;
                 }
             });
@@ -149,14 +162,18 @@ fn render_hud_body(app: &mut SpLogApp, ui: &mut egui::Ui, exit_compact: &mut boo
                 egui::TextEdit::singleline(&mut app.entry_callsign)
                     .font(egui::TextStyle::Heading)
                     .desired_width(130.0)
-                    .hint_text("ZNAK DX")
+                    .hint_text("ZNAK DX"),
             );
             if call_edit.changed() {
                 app.entry_callsign = app.entry_callsign.to_uppercase();
                 app.on_callsign_changed();
             }
 
-            if ui.button(egui::RichText::new("🔍").strong()).on_hover_text("Pobierz dane z Callbook / HamQTH / QRZ").clicked() {
+            if ui
+                .button(egui::RichText::new("🔍").strong())
+                .on_hover_text("Pobierz dane z Callbook / HamQTH / QRZ")
+                .clicked()
+            {
                 app.lookup_active_callsign_online();
             }
 
@@ -164,7 +181,14 @@ fn render_hud_body(app: &mut SpLogApp, ui: &mut egui::Ui, exit_compact: &mut boo
             ui.add(egui::TextEdit::singleline(&mut app.entry_rst_sent).desired_width(38.0));
             ui.add(egui::TextEdit::singleline(&mut app.entry_rst_rcvd).desired_width(38.0));
 
-            if ui.button(egui::RichText::new("💾 ZAPISZ").strong().color(egui::Color32::from_rgb(34, 197, 94))).clicked() {
+            if ui
+                .button(
+                    egui::RichText::new("💾 ZAPISZ")
+                        .strong()
+                        .color(egui::Color32::from_rgb(34, 197, 94)),
+                )
+                .clicked()
+            {
                 app.save_qso();
             }
         });
@@ -178,7 +202,8 @@ fn render_hud_body(app: &mut SpLogApp, ui: &mut egui::Ui, exit_compact: &mut boo
             ui.add(egui::TextEdit::singleline(&mut app.entry_qth).desired_width(90.0));
 
             ui.label("Grid:");
-            let grid_edit = ui.add(egui::TextEdit::singleline(&mut app.entry_grid).desired_width(60.0));
+            let grid_edit =
+                ui.add(egui::TextEdit::singleline(&mut app.entry_grid).desired_width(60.0));
             if grid_edit.changed() {
                 app.entry_grid = app.entry_grid.to_uppercase();
                 app.recalculate_distance_from_grid();
@@ -188,9 +213,19 @@ fn render_hud_body(app: &mut SpLogApp, ui: &mut egui::Ui, exit_compact: &mut boo
         // 4. Etykiety DXCC i azymutu
         if let Some(ref info) = app.active_prefix_info {
             ui.horizontal_wrapped(|ui| {
-                ui.colored_label(egui::Color32::from_rgb(147, 197, 253), format!("📍 {} ({})", info.country, info.wpx_prefix));
+                ui.colored_label(
+                    egui::Color32::from_rgb(147, 197, 253),
+                    format!("📍 {} ({})", info.country, info.wpx_prefix),
+                );
                 if app.active_distance_km > 0.0 {
-                    ui.colored_label(egui::Color32::from_rgb(253, 224, 71), format!("🧭 {} | {:.0}°", app.active_distance_display(), app.active_bearing_deg));
+                    ui.colored_label(
+                        egui::Color32::from_rgb(253, 224, 71),
+                        format!(
+                            "🧭 {} | {:.0}°",
+                            app.active_distance_display(),
+                            app.active_bearing_deg
+                        ),
+                    );
                 }
             });
         }
@@ -200,10 +235,17 @@ fn render_hud_body(app: &mut SpLogApp, ui: &mut egui::Ui, exit_compact: &mut boo
         // 5. Ustawienia widoku Mini HUD
         ui.horizontal(|ui| {
             let mut changed = false;
-            if ui.checkbox(&mut app.hud_operating_bar, "📏 Pasek operacyjny").changed() {
+            if ui
+                .checkbox(&mut app.hud_operating_bar, "📏 Pasek operacyjny")
+                .changed()
+            {
                 changed = true;
             }
-            if ui.checkbox(&mut app.hud_always_on_top, "📌 Zawsze na wierzchu").on_hover_text("Otwórz Mini HUD jako zawsze-widoczne okno systemowe").changed() {
+            if ui
+                .checkbox(&mut app.hud_always_on_top, "📌 Zawsze na wierzchu")
+                .on_hover_text("Otwórz Mini HUD jako zawsze-widoczne okno systemowe")
+                .changed()
+            {
                 changed = true;
             }
             if changed {
@@ -224,7 +266,7 @@ fn render_operating_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     .strong()
                     .size(16.0)
                     .monospace()
-                    .color(egui::Color32::from_rgb(34, 197, 94))
+                    .color(egui::Color32::from_rgb(34, 197, 94)),
             );
 
             ui.separator();
@@ -233,7 +275,10 @@ fn render_operating_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .selected_text(&app.entry_band)
                 .width(52.0)
                 .show_ui(ui, |ui| {
-                    for b in &["160m", "80m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m", "2m", "70cm"] {
+                    for b in &[
+                        "160m", "80m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m", "2m",
+                        "70cm",
+                    ] {
                         ui.selectable_value(&mut app.entry_band, b.to_string(), *b);
                     }
                 });
@@ -253,7 +298,7 @@ fn render_operating_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 egui::TextEdit::singleline(&mut app.entry_callsign)
                     .font(egui::TextStyle::Heading)
                     .desired_width(120.0)
-                    .hint_text("ZNAK DX")
+                    .hint_text("ZNAK DX"),
             );
             if call_edit.changed() {
                 app.entry_callsign = app.entry_callsign.to_uppercase();
@@ -264,15 +309,30 @@ fn render_operating_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ui.add(egui::TextEdit::singleline(&mut app.entry_rst_sent).desired_width(34.0));
             ui.add(egui::TextEdit::singleline(&mut app.entry_rst_rcvd).desired_width(34.0));
 
-            if ui.button(egui::RichText::new("💾 ZAPISZ").strong().color(egui::Color32::from_rgb(34, 197, 94))).clicked() {
+            if ui
+                .button(
+                    egui::RichText::new("💾 ZAPISZ")
+                        .strong()
+                        .color(egui::Color32::from_rgb(34, 197, 94)),
+                )
+                .clicked()
+            {
                 app.save_qso();
             }
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("🗗 Pełny pulpit").on_hover_text("Powróć do pełnego pulpitu roboczego SPLogbook").clicked() {
+                if ui
+                    .button("🗗 Pełny pulpit")
+                    .on_hover_text("Powróć do pełnego pulpitu roboczego SPLogbook")
+                    .clicked()
+                {
                     exit_compact = true;
                 }
-                if ui.button("🪟 Okno HUD").on_hover_text("Przełącz na pływające okno Mini HUD").clicked() {
+                if ui
+                    .button("🪟 Okno HUD")
+                    .on_hover_text("Przełącz na pływające okno Mini HUD")
+                    .clicked()
+                {
                     app.hud_operating_bar = false;
                     app.save_station_config();
                 }

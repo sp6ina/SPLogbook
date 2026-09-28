@@ -22,8 +22,10 @@ pub fn request_stop() {
 /// Odtwarza plik WAV do domyślnego urządzenia wyjściowego (blokujące).
 pub fn play_wav_file(path: &str) -> Result<(), String> {
     let file = File::open(path).map_err(|e| format!("Nie można otworzyć pliku: {e}"))?;
-    let source = Decoder::new(BufReader::new(file)).map_err(|e| format!("Nieobsługiwany format audio: {e}"))?;
-    let sink = DeviceSinkBuilder::open_default_sink().map_err(|e| format!("Brak urządzenia audio: {e}"))?;
+    let source = Decoder::new(BufReader::new(file))
+        .map_err(|e| format!("Nieobsługiwany format audio: {e}"))?;
+    let sink = DeviceSinkBuilder::open_default_sink()
+        .map_err(|e| format!("Brak urządzenia audio: {e}"))?;
     let player = Player::connect_new(sink.mixer());
     player.append(source);
     player.sleep_until_end();
@@ -34,7 +36,8 @@ pub fn play_wav_file(path: &str) -> Result<(), String> {
 /// generuje krótki sygnał testowy (sine 800 Hz).
 pub fn play_message(msg: &VoiceKeyerMessage) -> Result<(), String> {
     STOP_PLAYBACK.store(false, Ordering::SeqCst);
-    let sink = DeviceSinkBuilder::open_default_sink().map_err(|e| format!("Brak urządzenia audio: {e}"))?;
+    let sink = DeviceSinkBuilder::open_default_sink()
+        .map_err(|e| format!("Brak urządzenia audio: {e}"))?;
     let player = Player::connect_new(sink.mixer());
 
     let wav_path = msg
@@ -45,7 +48,8 @@ pub fn play_message(msg: &VoiceKeyerMessage) -> Result<(), String> {
 
     if let Some(path) = wav_path {
         let file = File::open(&path).map_err(|e| format!("Nie można otworzyć pliku: {e}"))?;
-        let source = Decoder::new(BufReader::new(file)).map_err(|e| format!("Nieobsługiwany format audio: {e}"))?;
+        let source = Decoder::new(BufReader::new(file))
+            .map_err(|e| format!("Nieobsługiwany format audio: {e}"))?;
         if msg.repeat {
             player.append(source.repeat_infinite());
             wait_for_stop(&player);
@@ -113,7 +117,10 @@ mod tests {
     use super::*;
 
     fn msg(enabled: bool) -> VoiceKeyerMessage {
-        VoiceKeyerMessage { enabled, ..Default::default() }
+        VoiceKeyerMessage {
+            enabled,
+            ..Default::default()
+        }
     }
 
     #[test]

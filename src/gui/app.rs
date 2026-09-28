@@ -4,48 +4,53 @@
 use crate::cat::hamlib::RigState;
 use crate::cat::rotor::RotorState;
 use crate::cloud::solar::SpaceWeather;
+use crate::cluster::telnet::ClusterEvent;
 use crate::cluster::telnet::DxSpot;
 use crate::core::awards::{AwardsEngine, PolishDistrictInfo, QsoAwardStatus};
+use crate::core::backup::BackupManager;
 use crate::core::database::{Journal, LogDatabase};
 use crate::core::geo::{calculate_bearing_deg, calculate_distance_km, locator_to_coordinates};
-use crate::core::i18n::{tr, Language};
+use crate::core::i18n::{Language, tr};
 use crate::core::prefix::{PrefixInfo, PrefixMatcher};
 use crate::core::qso::QsoRecord;
 use crate::core::scp::ScpEngine;
-use crate::core::station::{AppConfig, EquipmentCategory, EquipmentItem, StationProfile, ViewPanelConfig, VoiceKeyerMessage, WorkspaceProfile};
-use crate::cluster::telnet::ClusterEvent;
+use crate::core::service_db::{QslManagerRecord, ServiceDatabase};
+use crate::core::station::{
+    AppConfig, EquipmentCategory, EquipmentItem, StationProfile, ViewPanelConfig,
+    VoiceKeyerMessage, WorkspaceProfile,
+};
+use crate::gui::astronomy_dialog::AstronomyDialog;
 use crate::gui::awards_matrix::render_awards_matrix_window;
 use crate::gui::bandmap::render_bandmap_window;
 use crate::gui::cat_settings::render_cat_settings_window;
 use crate::gui::cluster_panel::render_cluster_window;
 use crate::gui::contest::{render_contest_window, render_custom_contest_editor};
+use crate::gui::csv_export_dialog::{CsvExportDialog, CsvExportRequest, CsvExportScope};
 use crate::gui::cw_macros::render_cw_macros_window;
-use crate::gui::logbook_table::{render_edit_qso_dialog, render_logbook_window, render_column_settings};
+use crate::gui::icons;
+use crate::gui::iota_browser::IotaBrowserDialog;
+use crate::gui::logbook_table::{
+    render_column_settings, render_edit_qso_dialog, render_logbook_window,
+};
 use crate::gui::menu::{render_main_toolbar, render_menu_bar};
 use crate::gui::online_sync::render_online_sync_window;
+use crate::gui::photo_viewer::PhotoViewerDialog;
+use crate::gui::prefix_manager::PrefixManagerDialog;
+use crate::gui::qsl_manager::QslManagerDialog;
 use crate::gui::qso_entry::render_qso_entry_window;
 use crate::gui::satellites::render_satellites_window;
+use crate::gui::send_spot::SendSpotDialog;
 use crate::gui::solar_panel::render_solar_window;
+use crate::gui::sota_dialog::SotaDialog;
+use crate::gui::states_browser::StatesBrowserDialog;
 use crate::gui::station_ledger::render_station_ledger_window;
 use crate::gui::statistics::render_statistics_window;
 use crate::gui::vfo_panel::render_vfo_window;
 use crate::gui::voice_keyer::render_voice_keyer_window;
-use crate::gui::welcome_wizard::render_welcome_wizard;
-use crate::gui::world_map::render_world_map_window;
-use crate::core::service_db::{QslManagerRecord, ServiceDatabase};
-use crate::gui::icons;
-use crate::gui::astronomy_dialog::AstronomyDialog;
-use crate::gui::iota_browser::IotaBrowserDialog;
-use crate::gui::photo_viewer::PhotoViewerDialog;
-use crate::gui::prefix_manager::PrefixManagerDialog;
-use crate::gui::qsl_manager::QslManagerDialog;
-use crate::gui::send_spot::SendSpotDialog;
-use crate::gui::sota_dialog::SotaDialog;
-use crate::gui::csv_export_dialog::{CsvExportDialog, CsvExportRequest, CsvExportScope};
 use crate::gui::waterfall_panel::WaterfallPanel;
-use crate::gui::states_browser::StatesBrowserDialog;
+use crate::gui::welcome_wizard::render_welcome_wizard;
 use crate::gui::wol_dialog::WolDialog;
-use crate::core::backup::BackupManager;
+use crate::gui::world_map::render_world_map_window;
 use eframe::egui;
 use egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
 use std::fmt::Write as _;
@@ -79,11 +84,7 @@ impl DrillFilter {
         match self {
             DrillFilter::Band(b) => q.band.eq_ignore_ascii_case(b),
             DrillFilter::Mode(m) => q.mode.eq_ignore_ascii_case(m),
-            DrillFilter::Country(c) => q
-                .country
-                .as_deref()
-                .unwrap_or("")
-                .eq_ignore_ascii_case(c),
+            DrillFilter::Country(c) => q.country.as_deref().unwrap_or("").eq_ignore_ascii_case(c),
             DrillFilter::Month(m) => {
                 // Akceptuje zarówno "YYYY-MM-DD", jak i "YYYYMMDD".
                 q.qso_date.replace('-', "").starts_with(&m.replace('-', ""))
@@ -174,7 +175,7 @@ pub struct SpLogApp {
 
     // DX Cluster i pogoda kosmiczna
     pub cluster_spots: Vec<DxSpot>,
-    pub cluster_spots_api: Option<Arc<Mutex<Vec<DxSpot>>>>,  // wspoldzielone z REST API
+    pub cluster_spots_api: Option<Arc<Mutex<Vec<DxSpot>>>>, // wspoldzielone z REST API
     /// Cache kolorów/odznak spotów klastra (unika przeliczania prefiksu i statusu
     /// nagród w każdej klatce). Czyszczony przy zmianie danych nagród.
     pub cluster_badge_cache: std::collections::HashMap<String, (egui::Color32, &'static str)>,
@@ -189,7 +190,9 @@ pub struct SpLogApp {
     pub wspr_spots: Vec<crate::cloud::wspr::WsprSpot>,
     pub wspr_loading: bool,
     pub wspr_last_error: Option<String>,
-    pub wspr_fetch_slot: Option<std::sync::Arc<std::sync::Mutex<Option<Result<Vec<crate::cloud::wspr::WsprSpot>, String>>>>>,
+    pub wspr_fetch_slot: Option<
+        std::sync::Arc<std::sync::Mutex<Option<Result<Vec<crate::cloud::wspr::WsprSpot>, String>>>>,
+    >,
 
     // Moduł Satelitów
     pub show_satellites_window: bool,
@@ -210,7 +213,8 @@ pub struct SpLogApp {
     // Historia warunków solarnych (dla wykresu + alertu)
     pub solar_history: Vec<SpaceWeather>,
     pub solar_loading: bool,
-    pub solar_fetch_slot: Option<std::sync::Arc<std::sync::Mutex<Option<Result<SpaceWeather, String>>>>>,
+    pub solar_fetch_slot:
+        Option<std::sync::Arc<std::sync::Mutex<Option<Result<SpaceWeather, String>>>>>,
     pub solar_last_alert: Option<String>,
 
     // Jednostki odległości w monitorze WSPR
@@ -287,7 +291,8 @@ pub struct SpLogApp {
     pub manual_section: Option<String>,
     pub manual_selected: usize,
     pub update_check_status: Option<String>,
-    pub update_check_rx: Option<std::sync::mpsc::Receiver<crate::cloud::updater::UpdateCheckOutcome>>,
+    pub update_check_rx:
+        Option<std::sync::mpsc::Receiver<crate::cloud::updater::UpdateCheckOutcome>>,
     pub update_available: Option<crate::cloud::updater::LatestRelease>,
     pub update_install_status: Option<String>,
     pub update_install_rx: Option<std::sync::mpsc::Receiver<String>>,
@@ -348,7 +353,8 @@ pub struct SpLogApp {
     pub lan_sync_secret: String,
     pub show_multi_op_window: bool,
     pub multi_op_server: Option<std::sync::Arc<crate::cluster::lan_sync::MultiOpServer>>,
-    pub multi_op_incoming_rx: Option<tokio::sync::mpsc::UnboundedReceiver<crate::core::qso::QsoRecord>>,
+    pub multi_op_incoming_rx:
+        Option<tokio::sync::mpsc::UnboundedReceiver<crate::core::qso::QsoRecord>>,
     pub multi_op_is_server: bool,
     pub multi_op_status: String,
     pub multi_op_connected_count: usize,
@@ -539,10 +545,10 @@ pub struct SpLogApp {
     pub hamqth_password: String,
 
     // Sortowanie i paginacja tabeli logu
-    pub log_sort_column: u8,      // 0=data, 1=znak, 2=pasmo, 3=emisja, 4=kraj, 5..=13 pozostałe kolumny
+    pub log_sort_column: u8, // 0=data, 1=znak, 2=pasmo, 3=emisja, 4=kraj, 5..=13 pozostałe kolumny
     pub log_sort_asc: bool,
     pub log_page: usize,
-    pub log_page_size: usize,     // 25, 50, 100, 0=wszystkie
+    pub log_page_size: usize,       // 25, 50, 100, 0=wszystkie
     pub selected_qso_ids: Vec<i64>, // Zaznaczenie wielokrotne w logbooku (bulk delete)
     pub confirm_bulk_delete: bool,
 
@@ -618,7 +624,8 @@ pub struct SpLogApp {
     pub cat_sharing_active: bool,
     pub cat_shared_state: std::sync::Arc<std::sync::RwLock<crate::cat::hamlib::RigState>>,
     pub cat_proxy_server: Option<std::sync::Arc<crate::cat::server::HamlibProxyServer>>,
-    pub cat_proxy_rx: Option<tokio::sync::broadcast::Receiver<crate::cat::server::RigServerCommand>>,
+    pub cat_proxy_rx:
+        Option<tokio::sync::broadcast::Receiver<crate::cat::server::RigServerCommand>>,
 
     // VFO Konsola radiowa & DSP
     pub vfo_split_offset_khz: f64,
@@ -695,7 +702,9 @@ impl SpLogApp {
         let mut font_defs = egui::FontDefinitions::default();
         let win_dir = std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".to_string());
         let font_candidates = [
-            std::path::Path::new(&win_dir).join("Fonts").join("seguisym.ttf"),
+            std::path::Path::new(&win_dir)
+                .join("Fonts")
+                .join("seguisym.ttf"),
             std::path::PathBuf::from("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
             std::path::PathBuf::from("/usr/share/fonts/TTF/DejaVuSans.ttf"),
             std::path::PathBuf::from("/usr/share/fonts/dejavu/DejaVuSans.ttf"),
@@ -705,7 +714,10 @@ impl SpLogApp {
 
         for path in &font_candidates {
             if let Ok(bytes) = std::fs::read(path) {
-                font_defs.font_data.insert("symbol_font".to_owned(), egui::FontData::from_owned(bytes).into());
+                font_defs.font_data.insert(
+                    "symbol_font".to_owned(),
+                    egui::FontData::from_owned(bytes).into(),
+                );
                 if let Some(prop) = font_defs.families.get_mut(&egui::FontFamily::Proportional) {
                     prop.push("symbol_font".to_owned());
                 }
@@ -720,13 +732,18 @@ impl SpLogApp {
         if !app_config.font_family.is_empty() {
             if let Some(path) = resolve_font_path(&app_config.font_family) {
                 if let Ok(bytes) = std::fs::read(&path) {
-                    font_defs.font_data.insert("custom_ui_font".to_owned(), egui::FontData::from_owned(bytes).into());
-                    if let Some(prop) = font_defs.families.get_mut(&egui::FontFamily::Proportional) {
+                    font_defs.font_data.insert(
+                        "custom_ui_font".to_owned(),
+                        egui::FontData::from_owned(bytes).into(),
+                    );
+                    if let Some(prop) = font_defs.families.get_mut(&egui::FontFamily::Proportional)
+                    {
                         prop.insert(0, "custom_ui_font".to_owned());
                     }
                     let mono_family = app_config.font_family == "Consolas";
                     if mono_family {
-                        if let Some(mono) = font_defs.families.get_mut(&egui::FontFamily::Monospace) {
+                        if let Some(mono) = font_defs.families.get_mut(&egui::FontFamily::Monospace)
+                        {
                             mono.insert(0, "custom_ui_font".to_owned());
                         }
                     }
@@ -737,7 +754,9 @@ impl SpLogApp {
         cc.egui_ctx.set_fonts(font_defs);
 
         let (active_journal, recent_qsos, qso_numbers) = {
-            let db = log_db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let db = log_db
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             let j = match db.get_active_journal() {
                 Ok(j) => j,
                 Err(e) => {
@@ -745,7 +764,9 @@ impl SpLogApp {
                     Journal::default()
                 }
             };
-            let qsos = db.get_recent_qsos_for_journal(&j.id, 100).unwrap_or_default();
+            let qsos = db
+                .get_recent_qsos_for_journal(&j.id, 100)
+                .unwrap_or_default();
             let numbers = db.qso_numbers_for_journal(&j.id).unwrap_or_else(|error| {
                 log::error!("Nie udało się wyliczyć numerów QSO: {error}");
                 std::collections::HashMap::new()
@@ -809,7 +830,10 @@ impl SpLogApp {
             .ok()
             .and_then(|p| p.parent().map(std::path::Path::to_path_buf))
             .unwrap_or_else(|| {
-                std::env::var("APPDATA").map_or_else(|_| std::path::PathBuf::from("."), |p| std::path::PathBuf::from(p).join("SPLogbook"))
+                std::env::var("APPDATA").map_or_else(
+                    |_| std::path::PathBuf::from("."),
+                    |p| std::path::PathBuf::from(p).join("SPLogbook"),
+                )
             });
 
         let cb_candidates = [
@@ -1096,7 +1120,9 @@ impl SpLogApp {
 
             live_auto_upload_clublog: app_config.live_auto_upload_clublog,
             live_auto_upload_qrz: app_config.live_auto_upload_qrz,
-            upload_scheduler: Arc::new(Mutex::new(crate::cloud::scheduler::UploadScheduler::load_from_disk())),
+            upload_scheduler: Arc::new(Mutex::new(
+                crate::cloud::scheduler::UploadScheduler::load_from_disk(),
+            )),
             last_upload_poll_secs: 0,
             status_toast: None,
             sync_log_tx,
@@ -1262,11 +1288,17 @@ impl SpLogApp {
 
             // Dwuetapowy CAT i udostępnianie (CAT Sharing)
             cat_mfg_selected: "Wszystkie".to_string(),
-            cat_conn_type: if app_config.cat_backend == "tci" { "tci".to_string() } else { "serial".to_string() },
+            cat_conn_type: if app_config.cat_backend == "tci" {
+                "tci".to_string()
+            } else {
+                "serial".to_string()
+            },
             cat_sharing_enabled: app_config.cat_sharing_enabled,
             cat_sharing_port: app_config.cat_sharing_port,
             cat_sharing_active: false,
-            cat_shared_state: std::sync::Arc::new(std::sync::RwLock::new(crate::cat::hamlib::RigState::default())),
+            cat_shared_state: std::sync::Arc::new(std::sync::RwLock::new(
+                crate::cat::hamlib::RigState::default(),
+            )),
             cat_proxy_server: None,
             cat_proxy_rx: None,
 
@@ -1302,8 +1334,12 @@ impl SpLogApp {
             show_station_profiles_window: false,
             station_profiles: if app_config.station_profiles.is_empty() {
                 let mut def = app_config.station.clone();
-                if def.id.is_empty() { def.id = "default".to_string(); }
-                if def.name.is_empty() { def.name = "Główny (Dom QTH)".to_string(); }
+                if def.id.is_empty() {
+                    def.id = "default".to_string();
+                }
+                if def.name.is_empty() {
+                    def.name = "Główny (Dom QTH)".to_string();
+                }
                 vec![def]
             } else {
                 app_config.station_profiles.clone()
@@ -1363,20 +1399,22 @@ impl SpLogApp {
 
         // 1. Podpowiedzi SCP
         {
-            let scp = self.scp_engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let scp = self
+                .scp_engine
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             self.scp_suggestions = scp.search(&clean, 6);
         }
 
         // 1b. Lokalna korekta rozmyta (fuzzy) błędnie wpisanego/odebranego znaku
         {
-            let scp = self.scp_engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let scp = self
+                .scp_engine
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             let candidates = scp.candidates();
-            self.callsign_corrections = crate::core::callsign_correction::suggest_corrections(
-                &clean,
-                &candidates,
-                2,
-                4,
-            );
+            self.callsign_corrections =
+                crate::core::callsign_correction::suggest_corrections(&clean, &candidates, 2, 4);
         }
 
         // 2. Kluby krótkofalarskie (SP-OTC, PGA, SKCC, CWOPS, FOC)
@@ -1393,23 +1431,32 @@ impl SpLogApp {
                 let now = chrono::Utc::now();
                 let utc_hour = now.hour() as f64 + (now.minute() as f64) / 60.0;
                 let day_of_year = now.ordinal();
-                let sfi = if self.space_weather.sfi > 0 { self.space_weather.sfi } else { 140 };
+                let sfi = if self.space_weather.sfi > 0 {
+                    self.space_weather.sfi
+                } else {
+                    140
+                };
                 let k_index = self.space_weather.k_index;
-                let freq_mhz = crate::core::propagation::band_to_center_mhz(&self.entry_band).unwrap_or(14.175);
-                self.active_propagation = Some(crate::core::propagation::PropagationEngine::calculate(
-                    my_coords,
-                    dx_coords,
-                    freq_mhz,
-                    sfi,
-                    k_index as u8,
-                    utc_hour,
-                    day_of_year,
-                ));
+                let freq_mhz = crate::core::propagation::band_to_center_mhz(&self.entry_band)
+                    .unwrap_or(14.175);
+                self.active_propagation =
+                    Some(crate::core::propagation::PropagationEngine::calculate(
+                        my_coords,
+                        dx_coords,
+                        freq_mhz,
+                        sfi,
+                        k_index as u8,
+                        utc_hour,
+                        day_of_year,
+                    ));
             }
 
             self.active_polish_district = AwardsEngine::get_polish_district(&clean);
 
-            let awards = self.awards_engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let awards = self
+                .awards_engine
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             self.active_award_status = Some(awards.check_status_full(
                 &clean,
                 &self.entry_band,
@@ -1417,9 +1464,17 @@ impl SpLogApp {
                 Some(info.dxcc),
                 self.my_station.pga_gmina.as_deref(),
                 Some(info.cqz),
-                if self.entry_state.trim().is_empty() { None } else { Some(self.entry_state.trim()) },
+                if self.entry_state.trim().is_empty() {
+                    None
+                } else {
+                    Some(self.entry_state.trim())
+                },
                 Some(&info.continent),
-                if self.entry_iota.trim().is_empty() { None } else { Some(self.entry_iota.trim()) },
+                if self.entry_iota.trim().is_empty() {
+                    None
+                } else {
+                    Some(self.entry_iota.trim())
+                },
             ));
 
             self.active_prefix_info = Some(info);
@@ -1515,7 +1570,8 @@ impl SpLogApp {
         // 7. Jeśli włączono automatyczne pobieranie z serwisów online (HamQTH / Callook / QRZ)
         //    i znak ma min. 3 znaki — opóźnij o 600 ms (debounce), aby nie spamować zapytań przy szybkim pisaniu.
         if self.qrz_auto_lookup && clean.len() >= 3 {
-            self.lookup_debounce_until = Some(std::time::Instant::now() + std::time::Duration::from_millis(600));
+            self.lookup_debounce_until =
+                Some(std::time::Instant::now() + std::time::Duration::from_millis(600));
         }
     }
 
@@ -1535,7 +1591,10 @@ impl SpLogApp {
     pub fn recalculate_distance_from_grid(&mut self) {
         use chrono::{Datelike, Timelike};
         if self.entry_grid.len() >= 4 {
-            if let (Ok(p1), Ok(p2)) = (locator_to_coordinates(&self.my_station.gridsquare), locator_to_coordinates(&self.entry_grid)) {
+            if let (Ok(p1), Ok(p2)) = (
+                locator_to_coordinates(&self.my_station.gridsquare),
+                locator_to_coordinates(&self.entry_grid),
+            ) {
                 self.active_distance_km = calculate_distance_km(p1, p2);
                 self.active_bearing_deg = calculate_bearing_deg(p1, p2);
                 self.rotor_state.azimuth_deg = self.active_bearing_deg as f32;
@@ -1543,18 +1602,24 @@ impl SpLogApp {
                 let now = chrono::Utc::now();
                 let utc_hour = now.hour() as f64 + (now.minute() as f64) / 60.0;
                 let day_of_year = now.ordinal();
-                let sfi = if self.space_weather.sfi > 0 { self.space_weather.sfi } else { 140 };
+                let sfi = if self.space_weather.sfi > 0 {
+                    self.space_weather.sfi
+                } else {
+                    140
+                };
                 let k_index = self.space_weather.k_index;
-                let freq_mhz = crate::core::propagation::band_to_center_mhz(&self.entry_band).unwrap_or(14.175);
-                self.active_propagation = Some(crate::core::propagation::PropagationEngine::calculate(
-                    p1,
-                    p2,
-                    freq_mhz,
-                    sfi,
-                    k_index as u8,
-                    utc_hour,
-                    day_of_year,
-                ));
+                let freq_mhz = crate::core::propagation::band_to_center_mhz(&self.entry_band)
+                    .unwrap_or(14.175);
+                self.active_propagation =
+                    Some(crate::core::propagation::PropagationEngine::calculate(
+                        p1,
+                        p2,
+                        freq_mhz,
+                        sfi,
+                        k_index as u8,
+                        utc_hour,
+                        day_of_year,
+                    ));
             }
         }
     }
@@ -1565,10 +1630,14 @@ impl SpLogApp {
         let host = self.rotor_host.clone();
         let port = self.rotor_port;
         tokio::spawn(async move {
-            let _ = crate::cat::rotor::RotorClient::set_position(&host, port, azimuth_deg, 0.0).await;
+            let _ =
+                crate::cat::rotor::RotorClient::set_position(&host, port, azimuth_deg, 0.0).await;
         });
         self.status_toast = Some((
-            format!("Wysłano polecenie obrotu anteny na azymut {:.0}° ({}:{})", azimuth_deg, self.rotor_host, self.rotor_port),
+            format!(
+                "Wysłano polecenie obrotu anteny na azymut {:.0}° ({}:{})",
+                azimuth_deg, self.rotor_host, self.rotor_port
+            ),
             std::time::Instant::now(),
         ));
     }
@@ -1580,10 +1649,18 @@ impl SpLogApp {
         let host = self.rotor_host.clone();
         let port = self.rotor_port;
         tokio::spawn(async move {
-            let _ = crate::cat::rotor::RotorClient::set_position(&host, port, azimuth_deg, elevation_deg).await;
+            let _ = crate::cat::rotor::RotorClient::set_position(
+                &host,
+                port,
+                azimuth_deg,
+                elevation_deg,
+            )
+            .await;
         });
         self.status_toast = Some((
-            format!("Wysłano polecenie obrotu anteny: az {azimuth_deg:.0}°, el {elevation_deg:.0}°"),
+            format!(
+                "Wysłano polecenie obrotu anteny: az {azimuth_deg:.0}°, el {elevation_deg:.0}°"
+            ),
             std::time::Instant::now(),
         ));
     }
@@ -1592,7 +1669,10 @@ impl SpLogApp {
     /// dla getterów pluginów Rhai. Wywoływana co klatkę oraz po zapisie łączności.
     pub fn refresh_plugin_snapshot(&mut self) {
         let awards = {
-            let a = self.awards_engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let a = self
+                .awards_engine
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             crate::plugins::bridge::AwardSnapshot {
                 dxcc_worked: a.worked_dxcc_all.len() as i64,
                 dxcc_confirmed: a.confirmed_dxcc.len() as i64,
@@ -1615,8 +1695,16 @@ impl SpLogApp {
             name: self.entry_name.clone(),
             qth: self.entry_qth.clone(),
             gridsquare: self.entry_grid.clone(),
-            country: self.active_prefix_info.as_ref().map(|i| i.country.clone()).unwrap_or_default(),
-            dxcc: self.active_prefix_info.as_ref().map(|i| i.dxcc.to_string()).unwrap_or_default(),
+            country: self
+                .active_prefix_info
+                .as_ref()
+                .map(|i| i.country.clone())
+                .unwrap_or_default(),
+            dxcc: self
+                .active_prefix_info
+                .as_ref()
+                .map(|i| i.dxcc.to_string())
+                .unwrap_or_default(),
             sota_ref: self.entry_sota.clone(),
             pota_ref: self.entry_pota.clone(),
             pga_ref: self.entry_pga.clone(),
@@ -1635,18 +1723,19 @@ impl SpLogApp {
             is_new_pga: award.is_some_and(|s| s.is_new_pga),
         };
 
-        self.plugin_engine.set_snapshot(crate::plugins::bridge::PluginSnapshot {
-            rig_freq_mhz: self.rig_state.frequency_hz as f64 / 1_000_000.0,
-            rig_mode: self.rig_state.mode.clone(),
-            rig_band: self.entry_band.clone(),
-            rig_connected: self.rig_state.connected,
-            rotor_azimuth_deg: self.rotor_state.azimuth_deg,
-            rotor_elevation_deg: self.rotor_state.elevation_deg,
-            my_call: self.my_station.callsign.clone(),
-            qso_count: self.qso_numbers.len() as i64,
-            awards,
-            last_qso,
-        });
+        self.plugin_engine
+            .set_snapshot(crate::plugins::bridge::PluginSnapshot {
+                rig_freq_mhz: self.rig_state.frequency_hz as f64 / 1_000_000.0,
+                rig_mode: self.rig_state.mode.clone(),
+                rig_band: self.entry_band.clone(),
+                rig_connected: self.rig_state.connected,
+                rotor_azimuth_deg: self.rotor_state.azimuth_deg,
+                rotor_elevation_deg: self.rotor_state.elevation_deg,
+                my_call: self.my_station.callsign.clone(),
+                qso_count: self.qso_numbers.len() as i64,
+                awards,
+                last_qso,
+            });
     }
 
     /// Odpytuje kanał wyników zapytań POTA/SOTA z akcji pluginów i uruchamia
@@ -1660,11 +1749,21 @@ impl SpLogApp {
         }
         if let Some(r) = result {
             match r {
-                crate::plugins::bridge::PluginLookupResult::Pota { reference, name, active } => {
-                    self.plugin_engine.run_on_pota_info(&reference, &name, active);
+                crate::plugins::bridge::PluginLookupResult::Pota {
+                    reference,
+                    name,
+                    active,
+                } => {
+                    self.plugin_engine
+                        .run_on_pota_info(&reference, &name, active);
                 }
-                crate::plugins::bridge::PluginLookupResult::Sota { reference, name, points } => {
-                    self.plugin_engine.run_on_sota_info(&reference, &name, points);
+                crate::plugins::bridge::PluginLookupResult::Sota {
+                    reference,
+                    name,
+                    points,
+                } => {
+                    self.plugin_engine
+                        .run_on_sota_info(&reference, &name, points);
                 }
                 crate::plugins::bridge::PluginLookupResult::Error(msg) => {
                     self.status_toast = Some((format!("Plugin: {msg}"), std::time::Instant::now()));
@@ -1692,10 +1791,17 @@ impl SpLogApp {
                         ));
                     }
                 }
-                crate::plugins::bridge::PluginCommand::Rotate { azimuth_deg, elevation_deg } => {
+                crate::plugins::bridge::PluginCommand::Rotate {
+                    azimuth_deg,
+                    elevation_deg,
+                } => {
                     self.rotate_antenna_to_el(azimuth_deg, elevation_deg);
                 }
-                crate::plugins::bridge::PluginCommand::Spot { dx_call, freq_khz, comment } => {
+                crate::plugins::bridge::PluginCommand::Spot {
+                    dx_call,
+                    freq_khz,
+                    comment,
+                } => {
                     self.publish_local_spot(&dx_call, freq_khz, &comment);
                 }
                 crate::plugins::bridge::PluginCommand::SetQsoField { field, value } => {
@@ -1720,7 +1826,8 @@ impl SpLogApp {
     /// Wstawia lokalny spot DX (akcja `spot`). Kanał wysyłki telnetowej klastra
     /// nie jest dostępny dla pluginów, więc spot pojawia się w panelu klastra.
     fn publish_local_spot(&mut self, dx_call: &str, freq_khz: f64, comment: &str) {
-        let band_str = crate::core::bandplan::get_band_by_freq((freq_khz * 1000.0) as u64).map_or_else(|| "HF".to_string(), |b| b.name.to_string());
+        let band_str = crate::core::bandplan::get_band_by_freq((freq_khz * 1000.0) as u64)
+            .map_or_else(|| "HF".to_string(), |b| b.name.to_string());
         let is_ft8 = comment.to_uppercase().contains("FT8");
         let spot = crate::cluster::telnet::DxSpot {
             frequency_khz: freq_khz,
@@ -1767,10 +1874,12 @@ impl SpLogApp {
             "new_iota" | "iota" => crate::media::sounds::play_new_iota_alert(),
             "qso_saved" | "saved" => crate::media::sounds::play_qso_saved_alert(),
             "band_opened" | "band" => crate::media::sounds::play_band_opened_alert(),
-            _ => self.status_toast = Some((
-                format!("Nieznany dźwięk pluginu: {name}"),
-                std::time::Instant::now(),
-            )),
+            _ => {
+                self.status_toast = Some((
+                    format!("Nieznany dźwięk pluginu: {name}"),
+                    std::time::Instant::now(),
+                ));
+            }
         }
     }
 
@@ -1833,23 +1942,64 @@ impl SpLogApp {
         qso.time_on.clone_from(&time_str);
         qso.rst_sent = self.entry_rst_sent.clone();
         qso.rst_rcvd = self.entry_rst_rcvd.clone();
-        qso.name = if self.entry_name.is_empty() { None } else { Some(self.entry_name.clone()) };
-        qso.qth = if self.entry_qth.is_empty() { None } else { Some(self.entry_qth.clone()) };
-        qso.gridsquare = if self.entry_grid.is_empty() { None } else { Some(self.entry_grid.clone()) };
-        qso.pga_ref = if self.entry_pga.is_empty() { None } else { Some(self.entry_pga.clone()) };
-        qso.comment = if self.entry_comment.is_empty() { None } else { Some(self.entry_comment.clone()) };
-        qso.iota = if self.entry_iota.is_empty() { None } else { Some(self.entry_iota.clone()) };
-        qso.state = if self.entry_state.is_empty() { None } else { Some(self.entry_state.clone()) };
-        qso.sota_ref = if self.entry_sota.is_empty() { None } else { Some(self.entry_sota.clone()) };
-        qso.pota_ref = if self.entry_pota.is_empty() { None } else { Some(self.entry_pota.clone()) };
-        qso.qsl_via = if self.entry_qsl_manager.is_empty() { None } else { Some(self.entry_qsl_manager.clone()) };
+        qso.name = if self.entry_name.is_empty() {
+            None
+        } else {
+            Some(self.entry_name.clone())
+        };
+        qso.qth = if self.entry_qth.is_empty() {
+            None
+        } else {
+            Some(self.entry_qth.clone())
+        };
+        qso.gridsquare = if self.entry_grid.is_empty() {
+            None
+        } else {
+            Some(self.entry_grid.clone())
+        };
+        qso.pga_ref = if self.entry_pga.is_empty() {
+            None
+        } else {
+            Some(self.entry_pga.clone())
+        };
+        qso.comment = if self.entry_comment.is_empty() {
+            None
+        } else {
+            Some(self.entry_comment.clone())
+        };
+        qso.iota = if self.entry_iota.is_empty() {
+            None
+        } else {
+            Some(self.entry_iota.clone())
+        };
+        qso.state = if self.entry_state.is_empty() {
+            None
+        } else {
+            Some(self.entry_state.clone())
+        };
+        qso.sota_ref = if self.entry_sota.is_empty() {
+            None
+        } else {
+            Some(self.entry_sota.clone())
+        };
+        qso.pota_ref = if self.entry_pota.is_empty() {
+            None
+        } else {
+            Some(self.entry_pota.clone())
+        };
+        qso.qsl_via = if self.entry_qsl_manager.is_empty() {
+            None
+        } else {
+            Some(self.entry_qsl_manager.clone())
+        };
         qso.qsl_manager = qso.qsl_via.clone();
 
         // Sprawdzenie czy nagrywano audio łączności (Audio Memo) — zapis obok aktywnej bazy danych
         if crate::media::audio_recorder::AudioRecorder::is_recording() {
-            let rec_dir = self
-                .active_db_path
-                .parent().map_or_else(|| std::path::PathBuf::from("recordings"), |p| p.join("recordings"));
+            let rec_dir = self.active_db_path.parent().map_or_else(
+                || std::path::PathBuf::from("recordings"),
+                |p| p.join("recordings"),
+            );
             let clean_call = self.entry_callsign.trim().to_uppercase().replace('/', "_");
             let filename = format!("QSO_{clean_call}_{date_str}_{time_str}.wav");
             let path = rec_dir.join(filename);
@@ -1866,8 +2016,19 @@ impl SpLogApp {
             qso.ituz = Some(info.ituz);
         }
 
+        if let Err(e) = qso.validate() {
+            self.status_toast = Some((
+                format!("Nie zapisano łączności: {e}"),
+                std::time::Instant::now(),
+            ));
+            return;
+        }
+
         let insert_res = {
-            let db = self.log_db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let db = self
+                .log_db
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             db.insert_qso(&qso)
         };
 
@@ -1875,20 +2036,27 @@ impl SpLogApp {
             Ok(id) => {
                 qso.id = Some(id);
                 // Opublikuj zdarzenie na centralnej magistrali (WebSocket, plugin, toast).
-                self.event_bus.publish(crate::core::events::AppEvent::QsoLogged {
-                    callsign: qso.callsign.clone(),
-                    band: qso.band.clone(),
-                    mode: qso.mode.clone(),
-                    frequency_hz: (qso.freq.unwrap_or(0.0) * 1_000_000.0) as u64,
-                    time_utc: qso.time_on.clone(),
-                });
+                self.event_bus
+                    .publish(crate::core::events::AppEvent::QsoLogged {
+                        callsign: qso.callsign.clone(),
+                        band: qso.band.clone(),
+                        mode: qso.mode.clone(),
+                        frequency_hz: (qso.freq.unwrap_or(0.0) * 1_000_000.0) as u64,
+                        time_utc: qso.time_on.clone(),
+                    });
                 {
-                    let mut awards = self.awards_engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                    let mut awards = self
+                        .awards_engine
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
                     awards.register_qso_record(&qso);
                 }
                 self.invalidate_cluster_badges();
                 {
-                    let mut scp = self.scp_engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                    let mut scp = self
+                        .scp_engine
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
                     scp.insert(&qso.callsign);
                 }
             }
@@ -1897,6 +2065,9 @@ impl SpLogApp {
                     format!("Błąd zapisu łączności do bazy danych: {e}"),
                     std::time::Instant::now(),
                 ));
+                // Po nieudanym zapisie nie wykonujemy żadnych skutków ubocznych:
+                // liczników, dźwięków, eventów, uploadów ani czyszczenia formularza.
+                return;
             }
         }
 
@@ -1922,48 +2093,85 @@ impl SpLogApp {
         }
 
         self.status_toast = Some((
-            format!("Zapisano łączność z: {} ({}, {})", qso.callsign, qso.band, qso.mode),
+            format!(
+                "Zapisano łączność z: {} ({}, {})",
+                qso.callsign, qso.band, qso.mode
+            ),
             std::time::Instant::now(),
         ));
 
         // Weryfikacja prognozy propagacyjnej: udana łączność = potwierdzone otwarcie pasma.
-        self.propagation_history
-            .record_observation(&qso.band, crate::core::propagation_history::ObservedOutcome::ConfirmedOpen);
+        self.propagation_history.record_observation(
+            &qso.band,
+            crate::core::propagation_history::ObservedOutcome::ConfirmedOpen,
+        );
 
         // Hook pluginów użytkownika (Rhai) po zapisaniu łączności.
         self.refresh_plugin_snapshot();
-        self.plugin_engine.run_on_qso_logged(&crate::plugins::QsoHookContext {
-            callsign: qso.callsign.clone(),
-            band: qso.band.clone(),
-            mode: qso.mode.clone(),
-            freq_mhz: qso.freq.unwrap_or(0.0),
-            is_atno: self
-                .active_award_status
-                .as_ref()
-                .is_some_and(|s| s.is_new_dxcc),
-        });
+        self.plugin_engine
+            .run_on_qso_logged(&crate::plugins::QsoHookContext {
+                callsign: qso.callsign.clone(),
+                band: qso.band.clone(),
+                mode: qso.mode.clone(),
+                freq_mhz: qso.freq.unwrap_or(0.0),
+                is_atno: self
+                    .active_award_status
+                    .as_ref()
+                    .is_some_and(|s| s.is_new_dxcc),
+            });
 
         // Automatyczny przesył na żywo do Club Log — przez wspólną kolejkę wysyłki
-        if self.live_auto_upload_clublog && !self.clublog_callsign.is_empty() && !self.clublog_password.is_empty() {
-            let adif_record = crate::core::adif::export_adif(std::slice::from_ref(&qso), "SPLogbook", &self.my_station.callsign);
+        if self.live_auto_upload_clublog
+            && !self.clublog_callsign.is_empty()
+            && !self.clublog_password.is_empty()
+        {
+            let adif_record = crate::core::adif::export_adif(
+                std::slice::from_ref(&qso),
+                "SPLogbook",
+                &self.my_station.callsign,
+            );
             let now = crate::cloud::scheduler::now_unix();
-            let mut sched = self.upload_scheduler.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            sched.enqueue(crate::cloud::scheduler::UploadService::ClubLog, adif_record, now);
+            let mut sched = self
+                .upload_scheduler
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            sched.enqueue(
+                crate::cloud::scheduler::UploadService::ClubLog,
+                adif_record,
+                now,
+            );
             sched.save_to_disk();
         }
 
         // Automatyczny przesył na żywo do logbooka QRZ.com — przez wspólną kolejkę wysyłki
         if self.live_auto_upload_qrz && !self.qrz_api_key.is_empty() {
-            let adif_record = crate::core::adif::export_adif(std::slice::from_ref(&qso), "SPLogbook", &self.my_station.callsign);
+            let adif_record = crate::core::adif::export_adif(
+                std::slice::from_ref(&qso),
+                "SPLogbook",
+                &self.my_station.callsign,
+            );
             let now = crate::cloud::scheduler::now_unix();
-            let mut sched = self.upload_scheduler.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            sched.enqueue(crate::cloud::scheduler::UploadService::Qrz, adif_record, now);
+            let mut sched = self
+                .upload_scheduler
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            sched.enqueue(
+                crate::cloud::scheduler::UploadService::Qrz,
+                adif_record,
+                now,
+            );
             sched.save_to_disk();
         }
 
         // Automatyczne raportowanie do PSK Reporter
-        if self.psk_reporter_enabled && !self.my_station.callsign.is_empty() && !self.my_station.gridsquare.is_empty() {
-            let client = crate::cloud::psk_reporter::PskReporterClient::new(&self.my_station.callsign, &self.my_station.gridsquare);
+        if self.psk_reporter_enabled
+            && !self.my_station.callsign.is_empty()
+            && !self.my_station.gridsquare.is_empty()
+        {
+            let client = crate::cloud::psk_reporter::PskReporterClient::new(
+                &self.my_station.callsign,
+                &self.my_station.gridsquare,
+            );
             let qso_clone = qso.clone();
             tokio::spawn(async move {
                 let _ = client.submit_reception_report(&qso_clone).await;
@@ -2051,7 +2259,10 @@ impl SpLogApp {
     /// Cyklicznie przełącza motyw kolorystyczny (Dark -> Daylight -> High-Contrast).
     pub fn cycle_theme(&mut self) {
         let all = crate::gui::theme::ThemePreset::ALL;
-        let idx = all.iter().position(|t| t.id() == self.theme_preset.id()).unwrap_or(0);
+        let idx = all
+            .iter()
+            .position(|t| t.id() == self.theme_preset.id())
+            .unwrap_or(0);
         self.theme_preset = all[(idx + 1) % all.len()];
         self.dark_theme = self.theme_preset.is_dark();
         self.save_station_config();
@@ -2062,10 +2273,23 @@ impl SpLogApp {
     }
 
     pub fn reload_qsos(&mut self) {
-        // Pobierz duży bufor żeby paginacja w tabeli miała z czego czerpać
-        let limit = if self.log_page_size == 0 { 10000 } else { (self.log_page_size * 20).max(500) };
+        // Pobierz duży bufor żeby paginacja w tabeli miała z czego czerpać.
+        // Gdy dziennik jest większy niż bufor, ładujemy całość — w przeciwnym
+        // razie sortowanie, filtrowanie i eksport zakresu „Filtered" operowałyby
+        // na niepełnych danych.
         if let Ok(db) = self.log_db.lock() {
-            self.recent_qsos = db.get_recent_qsos_for_journal(&self.active_journal.id, limit).unwrap_or_default();
+            let total = db
+                .count_qsos_for_journal(&self.active_journal.id)
+                .unwrap_or(0);
+            let requested = if self.log_page_size == 0 {
+                10000
+            } else {
+                (self.log_page_size * 20).max(500)
+            };
+            let limit = requested.max(total);
+            self.recent_qsos = db
+                .get_recent_qsos_for_journal(&self.active_journal.id, limit)
+                .unwrap_or_default();
             match db.qso_numbers_for_journal(&self.active_journal.id) {
                 Ok(numbers) => self.qso_numbers = numbers,
                 Err(error) => {
@@ -2080,7 +2304,8 @@ impl SpLogApp {
         }
         // Zresetuj stronę jeśli wyszła poza zakres
         if self.log_page_size > 0 {
-            let pages = (self.recent_qsos.len() + self.log_page_size - 1) / self.log_page_size.max(1);
+            let pages =
+                (self.recent_qsos.len() + self.log_page_size - 1) / self.log_page_size.max(1);
             if self.log_page >= pages && pages > 0 {
                 self.log_page = pages - 1;
             }
@@ -2118,14 +2343,22 @@ impl SpLogApp {
 
     /// Zwraca kolor i odznakę (⭐ nowe DXCC, ✨ nowe pasmo) dla spotu klastra,
     /// korzystając z cache, aby nie przeliczać prefiksu i statusu nagród co klatkę.
-    pub fn cluster_spot_badge(&mut self, dx_call: &str, band: &str, is_ft8: bool) -> (egui::Color32, &'static str) {
+    pub fn cluster_spot_badge(
+        &mut self,
+        dx_call: &str,
+        band: &str,
+        is_ft8: bool,
+    ) -> (egui::Color32, &'static str) {
         let key = format!("{dx_call}|{band}|{is_ft8}");
         if let Some(&badge) = self.cluster_badge_cache.get(&key) {
             return badge;
         }
 
         let badge = if let Some(info) = self.prefix_matcher.lookup(dx_call) {
-            let awards = self.awards_engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let awards = self
+                .awards_engine
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             let st = awards.check_status_full(
                 dx_call,
                 band,
@@ -2159,10 +2392,16 @@ impl SpLogApp {
 
     /// Zwraca prognozy otwarcia pasm dla panelu słonecznego z cache'em kluczowanym
     /// po (SFI, K, godzina, minuta, dzień roku), aby nie przeliczać 11 pasm co klatkę.
-    pub fn solar_band_forecasts(&mut self) -> Vec<(&'static str, crate::core::propagation::PropagationForecast)> {
+    pub fn solar_band_forecasts(
+        &mut self,
+    ) -> Vec<(&'static str, crate::core::propagation::PropagationForecast)> {
         use chrono::{Datelike, Timelike};
 
-        let sfi = if self.space_weather.sfi > 0 { self.space_weather.sfi } else { 140 };
+        let sfi = if self.space_weather.sfi > 0 {
+            self.space_weather.sfi
+        } else {
+            140
+        };
         let k = self.space_weather.k_index;
         let now = chrono::Utc::now();
         let hour = now.hour();
@@ -2179,15 +2418,18 @@ impl SpLogApp {
         let sp = crate::core::geo::Coordinates::new(51.1, 17.0);
         let dx = crate::core::geo::Coordinates::new(40.7, -74.0);
         let utc_h = hour as f64 + (minute as f64) / 60.0;
-        let forecasts: Vec<(&'static str, crate::core::propagation::PropagationForecast)> = crate::core::propagation::HF_BANDS
-            .iter()
-            .map(|&(name, freq)| {
-                (
-                    name,
-                    crate::core::propagation::PropagationEngine::calculate(sp, dx, freq, sfi, k as u8, utc_h, doy),
-                )
-            })
-            .collect();
+        let forecasts: Vec<(&'static str, crate::core::propagation::PropagationForecast)> =
+            crate::core::propagation::HF_BANDS
+                .iter()
+                .map(|&(name, freq)| {
+                    (
+                        name,
+                        crate::core::propagation::PropagationEngine::calculate(
+                            sp, dx, freq, sfi, k as u8, utc_h, doy,
+                        ),
+                    )
+                })
+                .collect();
 
         // Zapis prognoz do historii dokładności oraz wykrywanie przejść
         // otwarcia/zamknięcia pasm (dla alertów dźwiękowych i pluginów).
@@ -2209,7 +2451,8 @@ impl SpLogApp {
                     newly_opened.push(band);
                 }
             }
-            self.previous_band_status.insert(band.to_string(), fc.status);
+            self.previous_band_status
+                .insert(band.to_string(), fc.status);
         }
 
         if !newly_opened.is_empty() && self.band_alert_enabled {
@@ -2230,7 +2473,9 @@ impl SpLogApp {
 
     pub fn rebuild_awards_full(&mut self) {
         if let Ok(db) = self.log_db.lock() {
-            self.recent_qsos = db.get_recent_qsos_for_journal(&self.active_journal.id, 100).unwrap_or_default();
+            self.recent_qsos = db
+                .get_recent_qsos_for_journal(&self.active_journal.id, 100)
+                .unwrap_or_default();
             if let Ok(all_qsos) = db.get_all_qsos() {
                 drop(db);
                 if let Ok(mut awards) = self.awards_engine.lock() {
@@ -2250,7 +2495,10 @@ impl SpLogApp {
         let mut first_err: Option<String> = None;
         for id in &ids {
             let result = {
-                let db = self.log_db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let db = self
+                    .log_db
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 db.delete_qso(*id)
             };
             if let Err(e) = result {
@@ -2270,7 +2518,10 @@ impl SpLogApp {
 
     pub fn delete_qso_by_id(&mut self, id: i64) {
         let result = {
-            let db = self.log_db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let db = self
+                .log_db
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             db.delete_qso(id)
         };
         if let Err(e) = result {
@@ -2286,17 +2537,29 @@ impl SpLogApp {
     pub fn perform_undo(&mut self) {
         if let Some(qso) = self.undo_stack.pop_front() {
             let callsign = qso.callsign.clone();
-            let mut restored = qso.clone();
-            restored.id = None; // nowe ID przy przywracaniu
+            // Zachowujemy oryginalny identyfikator rekordu (o ile istniał), aby
+            // przywrócona łączność zachowała tożsamość dla redo i referencji.
+            let restored = qso.clone();
             let result = {
-                let db = self.log_db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                db.insert_qso(&restored)
+                let db = self
+                    .log_db
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                db.restore_qso(&restored)
             };
-            if let Err(e) = result {
-                self.report_error(format!("Błąd przywracania łączności: {e}"));
-                return;
+            match result {
+                Ok(id) => {
+                    // Zapisujemy rzeczywiste ID przywróconego rekordu,
+                    // aby Redo usuwał dokładnie ten rekord, a nie dopasowany po znaku/dacie.
+                    let mut redo_entry = restored;
+                    redo_entry.id = Some(id);
+                    self.redo_stack.push_front(redo_entry);
+                }
+                Err(e) => {
+                    self.report_error(format!("Błąd przywracania łączności: {e}"));
+                    return;
+                }
             }
-            self.redo_stack.push_front(qso);
             self.rebuild_awards_full();
             self.reload_qsos();
             self.status_message = Some(format!("Przywrócono łączność z: {callsign}"));
@@ -2307,19 +2570,21 @@ impl SpLogApp {
     pub fn perform_redo(&mut self) {
         if let Some(qso) = self.redo_stack.pop_front() {
             let callsign = qso.callsign.clone();
-            // Szukamy QSO w bazie po znaku i dacie żeby je usunąć
-            let db = self.log_db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            if let Ok(all) = db.get_recent_qsos_for_journal(&self.active_journal.id, 10) {
-                for q in all {
-                    if q.callsign == qso.callsign && q.qso_date == qso.qso_date && q.time_on == qso.time_on {
-                        if let Some(id) = q.id {
-                            let _ = db.delete_qso(id);
-                            break;
-                        }
-                    }
-                }
+            let Some(id) = qso.id else {
+                self.report_error(format!("Redo: brak identyfikatora rekordu dla: {callsign}"));
+                return;
+            };
+            let result = {
+                let db = self
+                    .log_db
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                db.delete_qso(id)
+            };
+            if let Err(e) = result {
+                self.report_error(format!("Redo: błąd usuwania łączności #{id}: {e}"));
+                return;
             }
-            drop(db);
             self.undo_stack.push_front(qso);
             self.rebuild_awards_full();
             self.reload_qsos();
@@ -2329,16 +2594,26 @@ impl SpLogApp {
 
     pub fn save_edited_qso(&mut self) {
         if let Some(ref qso) = self.editing_qso {
+            if let Err(e) = qso.validate() {
+                self.report_error(format!("Nie zapisano zmian: {e}"));
+                return;
+            }
             if let Some(id) = qso.id {
                 let result = {
-                    let db = self.log_db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                    let db = self
+                        .log_db
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
                     db.update_qso(id, qso)
                 };
                 if let Err(e) = result {
                     self.report_error(format!("Błąd aktualizacji łączności #{id}: {e}"));
                     return;
                 }
-                self.status_message = Some(format!("Zaktualizowano rekord łączności z: {}", qso.callsign));
+                self.status_message = Some(format!(
+                    "Zaktualizowano rekord łączności z: {}",
+                    qso.callsign
+                ));
             }
         }
         self.editing_qso = None;
@@ -2353,14 +2628,22 @@ impl SpLogApp {
 
         // Natychmiastowe sprawdzenie lokalnej bazy (callbook.db + serviceLOG.db)
         if let Some(cb_data) = self.local_callbook.lookup(&call) {
-            if let Some(n) = cb_data.name.clone() { self.entry_name = n; }
-            if let Some(q) = cb_data.qth.clone() { self.entry_qth = q; }
-            if let Some(g) = cb_data.gridsquare.clone() { 
-                self.entry_grid = g; 
+            if let Some(n) = cb_data.name.clone() {
+                self.entry_name = n;
+            }
+            if let Some(q) = cb_data.qth.clone() {
+                self.entry_qth = q;
+            }
+            if let Some(g) = cb_data.gridsquare.clone() {
+                self.entry_grid = g;
                 self.recalculate_distance_from_grid();
             }
-            if let Some(s) = cb_data.state.clone() { self.entry_state = s; }
-            if let Some(mgr) = cb_data.qsl_manager.clone() { self.entry_qsl_manager = mgr; }
+            if let Some(s) = cb_data.state.clone() {
+                self.entry_state = s;
+            }
+            if let Some(mgr) = cb_data.qsl_manager.clone() {
+                self.entry_qsl_manager = mgr;
+            }
             self.status_message = Some(format!("Znaleziono w bazie Callbook: {call}"));
         }
 
@@ -2375,7 +2658,9 @@ impl SpLogApp {
         tokio::spawn(async move {
             if let Some(data) = crate::core::callbook::fetch_callsign_data(
                 call, lc, hamqth_u, hamqth_p, qrz_u, qrz_p, &priority,
-            ).await {
+            )
+            .await
+            {
                 let _ = tx.send(data);
             }
         });
@@ -2459,19 +2744,14 @@ impl SpLogApp {
         if let Ok(mut shared_rig) = self.cat_shared_state.write() {
             *shared_rig = self.rig_state.clone();
         }
-        let state = crate::api::server::ApiState::new(
-            db,
-            cs,
-            spots_for_api,
-            key,
-            self.event_bus.clone(),
-        )
-        .with_station_context(
-            self.prefix_matcher.clone(),
-            self.cat_shared_state.clone(),
-            self.awards_engine.clone(),
-            self.api_reload_flag.clone(),
-        );
+        let state =
+            crate::api::server::ApiState::new(db, cs, spots_for_api, key, self.event_bus.clone())
+                .with_station_context(
+                    self.prefix_matcher.clone(),
+                    self.cat_shared_state.clone(),
+                    self.awards_engine.clone(),
+                    self.api_reload_flag.clone(),
+                );
         tokio::spawn(async move {
             crate::api::server::start_api_server_with_state(state, port).await;
         });
@@ -2657,7 +2937,10 @@ impl SpLogApp {
         self.cluster_status_text = format!("Łączenie z {host}:{port}...");
 
         tokio::spawn(async move {
-            crate::cluster::telnet::DxClusterClient::run_with_events(host, port, call, event_tx, stop_rx).await;
+            crate::cluster::telnet::DxClusterClient::run_with_events(
+                host, port, call, event_tx, stop_rx,
+            )
+            .await;
         });
     }
 
@@ -2673,7 +2956,8 @@ impl SpLogApp {
 
     /// Uruchamia nasłuch TCP JS8Call — tworzy kanały mpsc i odpala wątek klienta
     pub fn connect_js8call(&mut self) {
-        let (state_tx, state_rx) = std::sync::mpsc::channel::<crate::digital::js8call::Js8CallState>();
+        let (state_tx, state_rx) =
+            std::sync::mpsc::channel::<crate::digital::js8call::Js8CallState>();
         let (qso_tx, qso_rx) = std::sync::mpsc::channel::<crate::core::qso::QsoRecord>();
 
         let client = crate::digital::js8call::Js8CallClient::new(
@@ -2686,7 +2970,10 @@ impl SpLogApp {
         self.js8call_qso_rx = Some(qso_rx);
         self.js8call_enabled = true;
         self.status_toast = Some((
-            format!("JS8Call: Uruchomiono nasłuch TCP na {}:{}", self.js8call_host, self.js8call_port),
+            format!(
+                "JS8Call: Uruchomiono nasłuch TCP na {}:{}",
+                self.js8call_host, self.js8call_port
+            ),
             std::time::Instant::now(),
         ));
     }
@@ -2697,7 +2984,10 @@ impl SpLogApp {
         self.js8call_qso_rx = None;
         self.js8call_enabled = false;
         self.js8call_state = crate::digital::js8call::Js8CallState::default();
-        self.status_toast = Some(("JS8Call: Integracja wyłączona.".to_string(), std::time::Instant::now()));
+        self.status_toast = Some((
+            "JS8Call: Integracja wyłączona.".to_string(),
+            std::time::Instant::now(),
+        ));
     }
 
     // ------------------------------------------------------------------
@@ -2722,7 +3012,10 @@ impl SpLogApp {
             match sup.start() {
                 Ok(()) => {
                     self.rigctld_supervisor = Some(sup);
-                    self.cat_test_result = Some(format!("Uruchomiono rigctld w tle dla {}!", self.cat_rig_model));
+                    self.cat_test_result = Some(format!(
+                        "Uruchomiono rigctld w tle dla {}!",
+                        self.cat_rig_model
+                    ));
                 }
                 Err(e) => {
                     self.cat_test_result = Some(format!("Błąd uruchomienia rigctld: {e}"));
@@ -2754,10 +3047,14 @@ impl SpLogApp {
                     tokio::time::sleep(std::time::Duration::from_millis(600)).await;
                     let mut client = crate::cat::flrig::FlrigClient::new(&host, port);
                     loop {
-                        let state = match crate::cat::backend::CatBackend::poll_state(&mut client).await {
-                            Ok(st) => st,
-                            Err(_) => crate::cat::hamlib::RigState { connected: false, ..Default::default() },
-                        };
+                        let state =
+                            match crate::cat::backend::CatBackend::poll_state(&mut client).await {
+                                Ok(st) => st,
+                                Err(_) => crate::cat::hamlib::RigState {
+                                    connected: false,
+                                    ..Default::default()
+                                },
+                            };
                         if cat_sender.send(state).is_err() {
                             break;
                         }
@@ -2795,7 +3092,10 @@ impl SpLogApp {
                 let _ = crate::cat::hamlib::HamlibClient::set_frequency(&host, port, freq_hz).await;
             });
         }
-        self.status_message = Some(format!("VFO dostrojone do: {:.3} kHz", (freq_hz as f64) / 1000.0));
+        self.status_message = Some(format!(
+            "VFO dostrojone do: {:.3} kHz",
+            (freq_hz as f64) / 1000.0
+        ));
     }
 
     pub fn step_vfo(&mut self, step_hz: i64) {
@@ -2825,17 +3125,26 @@ impl SpLogApp {
             let host = self.cat_host.clone();
             let port = self.cat_port;
             tokio::spawn(async move {
-                let _ = crate::cat::hamlib::HamlibClient::set_split(&host, port, enabled, "VFOB").await;
+                let _ =
+                    crate::cat::hamlib::HamlibClient::set_split(&host, port, enabled, "VFOB").await;
             });
         }
         self.status_message = Some(format!(
             "Tryb SPLIT: {}",
-            if enabled { "WŁĄCZONY (TX na VFO B)" } else { "WYŁĄCZONY" }
+            if enabled {
+                "WŁĄCZONY (TX na VFO B)"
+            } else {
+                "WYŁĄCZONY"
+            }
         ));
     }
 
     pub fn swap_vfo_ab(&mut self) {
-        let next_vfo = if self.rig_state.vfo == "VFOA" { "VFOB" } else { "VFOA" };
+        let next_vfo = if self.rig_state.vfo == "VFOA" {
+            "VFOB"
+        } else {
+            "VFOA"
+        };
         self.rig_state.vfo = next_vfo.to_string();
         if self.cat_connected {
             let host = self.cat_host.clone();
@@ -2856,7 +3165,8 @@ impl SpLogApp {
             let port = self.cat_port;
             let mode = self.rig_state.mode.clone();
             tokio::spawn(async move {
-                let _ = crate::cat::hamlib::HamlibClient::set_mode(&host, port, &mode, passband_hz).await;
+                let _ = crate::cat::hamlib::HamlibClient::set_mode(&host, port, &mode, passband_hz)
+                    .await;
             });
         }
         self.status_message = Some(format!("Filtr IF: {preset} ({passband_hz} Hz)"));
@@ -2868,9 +3178,17 @@ impl SpLogApp {
             category: self.new_eq_cat,
             manufacturer: self.new_eq_mfr.trim().to_string(),
             model: self.new_eq_model.trim().to_string(),
-            serial_number: if self.new_eq_sn.trim().is_empty() { None } else { Some(self.new_eq_sn.trim().to_string()) },
+            serial_number: if self.new_eq_sn.trim().is_empty() {
+                None
+            } else {
+                Some(self.new_eq_sn.trim().to_string())
+            },
             purchase_date: Some(chrono::Utc::now().format("%Y-%m-%d").to_string()),
-            notes: if self.new_eq_notes.trim().is_empty() { None } else { Some(self.new_eq_notes.trim().to_string()) },
+            notes: if self.new_eq_notes.trim().is_empty() {
+                None
+            } else {
+                Some(self.new_eq_notes.trim().to_string())
+            },
         };
         self.equipment_items.push(item);
         self.new_eq_model.clear();
@@ -2885,9 +3203,21 @@ impl SpLogApp {
             item.category = self.edit_eq_cat;
             item.manufacturer = self.edit_eq_mfr.trim().to_string();
             item.model = self.edit_eq_model.trim().to_string();
-            item.serial_number = if self.edit_eq_sn.trim().is_empty() { None } else { Some(self.edit_eq_sn.trim().to_string()) };
-            item.purchase_date = if self.edit_eq_date.trim().is_empty() { None } else { Some(self.edit_eq_date.trim().to_string()) };
-            item.notes = if self.edit_eq_notes.trim().is_empty() { None } else { Some(self.edit_eq_notes.trim().to_string()) };
+            item.serial_number = if self.edit_eq_sn.trim().is_empty() {
+                None
+            } else {
+                Some(self.edit_eq_sn.trim().to_string())
+            };
+            item.purchase_date = if self.edit_eq_date.trim().is_empty() {
+                None
+            } else {
+                Some(self.edit_eq_date.trim().to_string())
+            };
+            item.notes = if self.edit_eq_notes.trim().is_empty() {
+                None
+            } else {
+                Some(self.edit_eq_notes.trim().to_string())
+            };
         }
         self.editing_equipment_id = None;
         self.save_station_config();
@@ -2913,12 +3243,62 @@ impl SpLogApp {
                 Ok(bytes) => {
                     let content = String::from_utf8_lossy(&bytes);
                     let report = crate::core::adif::parse_adif_with_report(&content);
-                    let qsos = report.qsos;
-                    let count = qsos.len();
+                    let parsed = report.qsos;
                     let rejected = report.rejected;
                     let errors = report.errors;
+                    // Import zawsze trafia do aktualnie aktywnego dziennika,
+                    // niezależnie od domyślnego journal_id nadanego przez parser.
+                    let active_journal_id = self.active_journal.id.clone();
+
+                    // Klucze jednoznaczności istniejących QSO do idempotentnego importu.
+                    let existing_keys = {
+                        let db = self
+                            .log_db
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
+                        db.existing_qso_keys(&active_journal_id)
+                    };
+                    let mut seen_keys: std::collections::HashSet<String> = match existing_keys {
+                        Ok(keys) => keys,
+                        Err(e) => {
+                            self.status_message =
+                                Some(format!("Błąd odczytu bazy przed importem: {e}"));
+                            return;
+                        }
+                    };
+
+                    let mut qsos = Vec::with_capacity(parsed.len());
+                    let mut skipped_invalid = 0usize;
+                    let mut skipped_duplicates = 0usize;
+                    let mut first_validation_error: Option<String> = None;
+                    for mut qso in parsed {
+                        qso.journal_id = Some(active_journal_id.clone());
+                        if let Err(reason) = qso.validate() {
+                            skipped_invalid += 1;
+                            first_validation_error.get_or_insert(reason);
+                            continue;
+                        }
+                        let key = format!(
+                            "{}|{}|{}|{}|{}",
+                            qso.callsign.to_uppercase(),
+                            qso.band.to_uppercase(),
+                            qso.mode.to_uppercase(),
+                            qso.qso_date.replace('-', ""),
+                            qso.time_on.replace(':', "")
+                        );
+                        if !seen_keys.insert(key) {
+                            skipped_duplicates += 1;
+                            continue;
+                        }
+                        qsos.push(qso);
+                    }
+
+                    let inserted = qsos.len();
                     let insert_res = {
-                        let mut db = self.log_db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                        let mut db = self
+                            .log_db
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
                         db.batch_insert_qsos(&qsos)
                     };
                     match insert_res {
@@ -2926,27 +3306,48 @@ impl SpLogApp {
                             self.rebuild_awards_full();
                             self.reload_qsos();
                             let mut msg = format!(
-                                "Zaimportowano {} łączności, odrzucono {} z pliku: {}",
-                                count,
-                                rejected,
+                                "Zaimportowano {inserted} łączności z pliku: {}",
                                 path.display()
                             );
+                            let mut details: Vec<String> = Vec::new();
+                            if rejected > 0 {
+                                details.push(format!("{rejected} uszkodzonych rekordów ADIF"));
+                            }
+                            if skipped_invalid > 0 {
+                                details
+                                    .push(format!("{skipped_invalid} odrzuconych przez walidację"));
+                            }
+                            if skipped_duplicates > 0 {
+                                details
+                                    .push(format!("{skipped_duplicates} duplikatów pominiętych"));
+                            }
+                            if !details.is_empty() {
+                                let _ = write!(msg, " ({})", details.join(", "));
+                            }
                             if let Some(first_error) = errors.first() {
                                 if rejected > 0 || !errors.is_empty() {
                                     let _ = write!(msg, " | {first_error}");
                                 }
                             }
+                            if let Some(reason) = first_validation_error {
+                                let _ = write!(msg, " | pierwszy błąd walidacji: {reason}");
+                            }
                             self.status_message = Some(msg);
-                            self.status_toast = Some((format!("Zaimportowano {count} QSO (odrzucono {rejected})"), std::time::Instant::now()));
+                            self.status_toast = Some((
+                                format!("Zaimportowano {inserted} QSO"),
+                                std::time::Instant::now(),
+                            ));
                         }
                         Err(e) => {
-                            self.status_message = Some(format!("Błąd zapisu łączności do bazy: {e}"));
+                            self.status_message =
+                                Some(format!("Błąd zapisu łączności do bazy: {e}"));
                             self.report_error(format!("Błąd importu do bazy: {e}"));
                         }
                     }
                 }
                 Err(e) => {
-                    self.status_message = Some(format!("Błąd odczytu pliku {}: {}", path.display(), e));
+                    self.status_message =
+                        Some(format!("Błąd odczytu pliku {}: {}", path.display(), e));
                 }
             }
         }
@@ -2960,17 +3361,33 @@ impl SpLogApp {
             .save_file()
         {
             let qsos = {
-                let db = self.log_db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                db.get_recent_qsos(100_000).unwrap_or_default()
+                let db = self
+                    .log_db
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                match db.get_recent_qsos(100_000) {
+                    Ok(list) => list,
+                    Err(e) => {
+                        self.status_message =
+                            Some(format!("Błąd odczytu dziennika podczas eksportu ADIF: {e}"));
+                        return;
+                    }
+                }
             };
             let count = qsos.len();
-            let adif_text = crate::core::adif::export_adif(&qsos, "SPLogbook", &self.my_station.callsign);
+            let adif_text =
+                crate::core::adif::export_adif(&qsos, "SPLogbook", &self.my_station.callsign);
             match std::fs::write(&path, adif_text) {
                 Ok(()) => {
-                    self.status_message = Some(format!("Wyeksportowano pomyślnie {} łączności do pliku: {}", count, path.display()));
+                    self.status_message = Some(format!(
+                        "Wyeksportowano pomyślnie {} łączności do pliku: {}",
+                        count,
+                        path.display()
+                    ));
                 }
                 Err(e) => {
-                    self.status_message = Some(format!("Błąd zapisu pliku {}: {}", path.display(), e));
+                    self.status_message =
+                        Some(format!("Błąd zapisu pliku {}: {}", path.display(), e));
                 }
             }
         }
@@ -2984,17 +3401,32 @@ impl SpLogApp {
             .save_file()
         {
             let qsos = {
-                let db = self.log_db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                db.get_recent_qsos(100_000).unwrap_or_default()
+                let db = self
+                    .log_db
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                match db.get_recent_qsos(100_000) {
+                    Ok(list) => list,
+                    Err(e) => {
+                        self.status_message =
+                            Some(format!("Błąd odczytu dziennika podczas eksportu ADX: {e}"));
+                        return;
+                    }
+                }
             };
             let count = qsos.len();
             let adx_text = crate::core::adif::export_adx(&qsos);
             match std::fs::write(&path, adx_text) {
                 Ok(()) => {
-                    self.status_message = Some(format!("Wyeksportowano pomyślnie {} łączności do pliku: {}", count, path.display()));
+                    self.status_message = Some(format!(
+                        "Wyeksportowano pomyślnie {} łączności do pliku: {}",
+                        count,
+                        path.display()
+                    ));
                 }
                 Err(e) => {
-                    self.status_message = Some(format!("Błąd zapisu pliku {}: {}", path.display(), e));
+                    self.status_message =
+                        Some(format!("Błąd zapisu pliku {}: {}", path.display(), e));
                 }
             }
         }
@@ -3003,8 +3435,18 @@ impl SpLogApp {
     pub fn perform_csv_export(&mut self, req: &CsvExportRequest) {
         let qsos: Vec<QsoRecord> = match req.scope {
             CsvExportScope::All => {
-                let db = self.log_db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                db.get_recent_qsos(100_000).unwrap_or_default()
+                let db = self
+                    .log_db
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                match db.get_recent_qsos(100_000) {
+                    Ok(list) => list,
+                    Err(e) => {
+                        self.status_message =
+                            Some(format!("Błąd odczytu dziennika podczas eksportu CSV: {e}"));
+                        return;
+                    }
+                }
             }
             CsvExportScope::Filtered => self.recent_qsos.clone(),
             CsvExportScope::Selected => self
@@ -3016,7 +3458,8 @@ impl SpLogApp {
         };
 
         if qsos.is_empty() {
-            self.status_message = Some("Brak łączności do eksportu w wybranym zakresie.".to_string());
+            self.status_message =
+                Some("Brak łączności do eksportu w wybranym zakresie.".to_string());
             return;
         }
 
@@ -3027,7 +3470,12 @@ impl SpLogApp {
             .set_title("Zapisz eksport dziennika do pliku CSV")
             .save_file()
         {
-            let csv_text = crate::core::csv_export::export_csv(&qsos, &req.columns, req.delimiter, req.include_header);
+            let csv_text = crate::core::csv_export::export_csv(
+                &qsos,
+                &req.columns,
+                req.delimiter,
+                req.include_header,
+            );
             match std::fs::write(&path, csv_text) {
                 Ok(()) => {
                     self.status_message = Some(format!(
@@ -3037,30 +3485,41 @@ impl SpLogApp {
                     ));
                 }
                 Err(e) => {
-                    self.status_message = Some(format!("Błąd zapisu pliku {}: {}", path.display(), e));
+                    self.status_message =
+                        Some(format!("Błąd zapisu pliku {}: {}", path.display(), e));
                 }
             }
         }
     }
 
     pub fn run_manual_backup(&mut self) {
-        let backup_dir = self
-            .active_db_path
-            .parent().map_or_else(|| std::path::PathBuf::from("backups"), |p| p.join("backups"));
+        let backup_dir = self.active_db_path.parent().map_or_else(
+            || std::path::PathBuf::from("backups"),
+            |p| p.join("backups"),
+        );
         let _ = std::fs::create_dir_all(&backup_dir);
         let backup_res = BackupManager::backup_database(&self.active_db_path, &backup_dir);
-        
+
         let qsos = {
-            let db = self.log_db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let db = self
+                .log_db
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             db.get_recent_qsos(10000).unwrap_or_default()
         };
         let adif = crate::core::adif::export_adif(&qsos, "SPLogbook", &self.my_station.callsign);
         let _ = BackupManager::backup_adif(&adif, &backup_dir);
-        
+
         match backup_res {
             Ok(backed_path) => {
-                let name = backed_path.file_name().unwrap_or_default().to_string_lossy();
-                self.status_toast = Some((format!("Wykonano kopię zapasową: {name} w folderze backups/!"), std::time::Instant::now()));
+                let name = backed_path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy();
+                self.status_toast = Some((
+                    format!("Wykonano kopię zapasową: {name} w folderze backups/!"),
+                    std::time::Instant::now(),
+                ));
             }
             Err(e) => {
                 self.report_error(format!("Błąd tworzenia kopii zapasowej: {e}"));
@@ -3070,10 +3529,17 @@ impl SpLogApp {
 
     pub fn trigger_database_update(&mut self) {
         tokio::spawn(async move {
-            let res = crate::cloud::updater::DatabaseUpdater::update_all(std::path::Path::new("databases")).await;
+            let res = crate::cloud::updater::DatabaseUpdater::update_all(std::path::Path::new(
+                "databases",
+            ))
+            .await;
             println!("Database update completed: {res:?}");
         });
-        self.status_toast = Some(("Rozpoczęto pobieranie aktualizacji baz danych (cty.dat, SCP, LoTW) w tle...".to_string(), std::time::Instant::now()));
+        self.status_toast = Some((
+            "Rozpoczęto pobieranie aktualizacji baz danych (cty.dat, SCP, LoTW) w tle..."
+                .to_string(),
+            std::time::Instant::now(),
+        ));
     }
 
     /// Sprawdza najnowsze wydanie na GitHub w tle i zapisuje wynik do odbiornika.
@@ -3087,7 +3553,9 @@ impl SpLogApp {
                 Ok(release) => {
                     let local = env!("CARGO_PKG_VERSION");
                     if release.tag == local {
-                        crate::cloud::updater::UpdateCheckOutcome::UpToDate { local: local.to_string() }
+                        crate::cloud::updater::UpdateCheckOutcome::UpToDate {
+                            local: local.to_string(),
+                        }
                     } else {
                         crate::cloud::updater::UpdateCheckOutcome::NewVersion(release)
                     }
@@ -3103,7 +3571,9 @@ impl SpLogApp {
         let Some(release) = self.update_available.clone() else {
             return;
         };
-        let Some(asset) = crate::cloud::updater::select_asset_for_platform(&release.assets).cloned() else {
+        let Some(asset) =
+            crate::cloud::updater::select_asset_for_platform(&release.assets).cloned()
+        else {
             self.update_install_status =
                 Some("❌ Wydanie nie zawiera pliku instalacyjnego dla tego systemu.".to_string());
             return;
@@ -3132,7 +3602,10 @@ impl SpLogApp {
     }
 
     pub fn generate_qsl_sheet(&mut self) {
-        self.status_message = Some("Arkusz etykiet QSL (A4) wygenerowany gotowy do wydruku.".to_string());
+        // Otwiera projektant arkusza etykiet QSL (Avery A4), który zawiera
+        // rzeczywistą implementację generowania i eksportu PDF do druku.
+        self.qsl_designer_dialog.is_open = true;
+        self.qsl_designer_dialog.status_message = None;
     }
 
     pub fn render_column1(&mut self, ui: &mut egui::Ui) {
@@ -3155,7 +3628,10 @@ impl SpLogApp {
             if let Some(srv) = self.cat_proxy_server.take() {
                 srv.stop();
             }
-            let (srv, rx) = crate::cat::server::HamlibProxyServer::new(self.cat_sharing_port, self.cat_shared_state.clone());
+            let (srv, rx) = crate::cat::server::HamlibProxyServer::new(
+                self.cat_sharing_port,
+                self.cat_shared_state.clone(),
+            );
             let srv_arc = std::sync::Arc::new(srv);
             self.cat_proxy_server = Some(srv_arc.clone());
             self.cat_proxy_rx = Some(rx);
@@ -3181,14 +3657,26 @@ impl SpLogApp {
     }
 
     pub fn activate_station_profile(&mut self, profile_id: &str) {
-        if let Some(prof) = self.station_profiles.iter().find(|p| p.id == profile_id).cloned() {
+        if let Some(prof) = self
+            .station_profiles
+            .iter()
+            .find(|p| p.id == profile_id)
+            .cloned()
+        {
             self.active_profile_id.clone_from(&prof.id);
             self.my_station = prof.clone();
             self.entry_pota = prof.pota_ref.clone().unwrap_or_default();
             self.entry_sota = prof.sota_ref.clone().unwrap_or_default();
             self.save_station_config();
             self.status_toast = Some((
-                format!("Przełączono aktywny profil stacji na: {}", if prof.name.is_empty() { &prof.callsign } else { &prof.name }),
+                format!(
+                    "Przełączono aktywny profil stacji na: {}",
+                    if prof.name.is_empty() {
+                        &prof.callsign
+                    } else {
+                        &prof.name
+                    }
+                ),
                 std::time::Instant::now(),
             ));
         }
@@ -3222,7 +3710,10 @@ impl SpLogApp {
 
         // Pobierz gotowe zadania (maks. jedno na serwis, z uwzględnieniem rate-limit).
         let ready: Vec<(u64, UploadService, String)> = {
-            let mut sched = self.upload_scheduler.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut sched = self
+                .upload_scheduler
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             let ids = sched.ready_jobs(now);
             ids.into_iter()
                 .filter_map(|id| {
@@ -3242,7 +3733,9 @@ impl SpLogApp {
             for (id, service, adif) in ready {
                 let result = crate::cloud::scheduler::execute_upload(service, &creds, &adif).await;
                 let now = crate::cloud::scheduler::now_unix();
-                let mut sched = sched.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let mut sched = sched
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 match result {
                     Ok(_) => sched.mark_success(id, now),
                     Err(e) => {
@@ -3252,7 +3745,9 @@ impl SpLogApp {
                 sched.save_to_disk();
             }
             // Po zakończeniu serii utrzymaj kolejkę w rozsądnym rozmiarze.
-            let mut sched = sched.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut sched = sched
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             if sched.purge_done() > 0 {
                 sched.save_to_disk();
             }
@@ -3318,7 +3813,9 @@ impl SpLogApp {
                 .fetch_hamqth_solar()
                 .await
                 .map_err(|e| e.to_string());
-            *slot_clone.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(result);
+            *slot_clone
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(result);
             ctx_clone.request_repaint();
         });
 
@@ -3338,9 +3835,8 @@ impl SpLogApp {
                     match result {
                         Ok(weather) => self.record_solar_sample(weather),
                         Err(e) => {
-                            self.solar_last_alert = Some(format!(
-                                "Błąd pobierania danych solarnych: {e}"
-                            ));
+                            self.solar_last_alert =
+                                Some(format!("Błąd pobierania danych solarnych: {e}"));
                         }
                     }
                 }
@@ -3415,7 +3911,11 @@ impl TabViewer for SpLogApp {
                         if ui.button("✕").on_hover_text("Ukryj ten panel").clicked() {
                             action_close = true;
                         }
-                        if ui.button("🗗").on_hover_text("Odepnij do osobnego okna pływającego").clicked() {
+                        if ui
+                            .button("🗗")
+                            .on_hover_text("Odepnij do osobnego okna pływającego")
+                            .clicked()
+                        {
                             action_popout = true;
                         }
                     });
@@ -3517,61 +4017,100 @@ impl eframe::App for SpLogApp {
         let open_manual_f12 = ctx.input(|i| i.key_pressed(egui::Key::F12));
 
         // Skróty z klawiszem Ctrl / Cmd
-        let do_undo = ctx.input(|i| i.key_pressed(egui::Key::Z) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
+        let do_undo = ctx
+            .input(|i| i.key_pressed(egui::Key::Z) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
         let do_redo = ctx.input(|i| {
             (i.key_pressed(egui::Key::Z) && is_ctrl(&i.modifiers) && i.modifiers.shift)
-            || (i.key_pressed(egui::Key::Y) && is_ctrl(&i.modifiers))
+                || (i.key_pressed(egui::Key::Y) && is_ctrl(&i.modifiers))
         });
-        let open_stats = ctx.input(|i| i.key_pressed(egui::Key::S) && is_ctrl(&i.modifiers) && i.modifiers.shift);
-        let save_now = ctx.input(|i| i.key_pressed(egui::Key::S) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
-        let open_palette = ctx.input(|i| i.key_pressed(egui::Key::P) && is_ctrl(&i.modifiers) && i.modifiers.shift);
-        let open_manual_ctrl_h = ctx.input(|i| i.key_pressed(egui::Key::H) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
-        let quit_app_ctrl_q = ctx.input(|i| i.key_pressed(egui::Key::Q) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
+        let open_stats = ctx
+            .input(|i| i.key_pressed(egui::Key::S) && is_ctrl(&i.modifiers) && i.modifiers.shift);
+        let save_now = ctx
+            .input(|i| i.key_pressed(egui::Key::S) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
+        let open_palette = ctx
+            .input(|i| i.key_pressed(egui::Key::P) && is_ctrl(&i.modifiers) && i.modifiers.shift);
+        let open_manual_ctrl_h = ctx
+            .input(|i| i.key_pressed(egui::Key::H) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
+        let quit_app_ctrl_q = ctx
+            .input(|i| i.key_pressed(egui::Key::Q) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
 
         // Skróty edycyjne i nawigacyjne (tylko gdy użytkownik nie pisze w polu tekstowym)
         let wants_text = ctx.egui_wants_keyboard_input();
-        let focus_filter = ctx.input(|i| i.key_pressed(egui::Key::F) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
-        let new_qso = ctx.input(|i| i.key_pressed(egui::Key::N) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
-        let wipe_qso_ctrl_w = ctx.input(|i| i.key_pressed(egui::Key::W) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
-        let toggle_cluster = ctx.input(|i| i.key_pressed(egui::Key::D) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
-        let toggle_bandmap = ctx.input(|i| i.key_pressed(egui::Key::B) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
-        let toggle_map = ctx.input(|i| i.key_pressed(egui::Key::M) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
-        let toggle_cw = ctx.input(|i| i.key_pressed(egui::Key::K) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
-        let open_profiles = ctx.input(|i| i.key_pressed(egui::Key::P) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
-        let export_csv = ctx.input(|i| i.key_pressed(egui::Key::E) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
-        let import_adif = ctx.input(|i| i.key_pressed(egui::Key::I) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
-        let cycle_theme_ctrl_t = ctx.input(|i| i.key_pressed(egui::Key::T) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
-        let focus_log_ctrl_l = ctx.input(|i| i.key_pressed(egui::Key::L) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
+        let focus_filter = ctx
+            .input(|i| i.key_pressed(egui::Key::F) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
+        let new_qso = ctx
+            .input(|i| i.key_pressed(egui::Key::N) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
+        let wipe_qso_ctrl_w = ctx
+            .input(|i| i.key_pressed(egui::Key::W) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
+        let toggle_cluster = ctx
+            .input(|i| i.key_pressed(egui::Key::D) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
+        let toggle_bandmap = ctx
+            .input(|i| i.key_pressed(egui::Key::B) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
+        let toggle_map = ctx
+            .input(|i| i.key_pressed(egui::Key::M) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
+        let toggle_cw = ctx
+            .input(|i| i.key_pressed(egui::Key::K) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
+        let open_profiles = ctx
+            .input(|i| i.key_pressed(egui::Key::P) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
+        let export_csv = ctx
+            .input(|i| i.key_pressed(egui::Key::E) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
+        let import_adif = ctx
+            .input(|i| i.key_pressed(egui::Key::I) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
+        let cycle_theme_ctrl_t = ctx
+            .input(|i| i.key_pressed(egui::Key::T) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
+        let focus_log_ctrl_l = ctx
+            .input(|i| i.key_pressed(egui::Key::L) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
 
         // Wykonanie akcji
-        if do_undo { self.perform_undo(); }
-        if do_redo { self.perform_redo(); }
-        if open_stats { self.show_statistics_window = true; }
-        if open_shortcuts_f1 { self.show_shortcuts_window = !self.show_shortcuts_window; }
+        if do_undo {
+            self.perform_undo();
+        }
+        if do_redo {
+            self.perform_redo();
+        }
+        if open_stats {
+            self.show_statistics_window = true;
+        }
+        if open_shortcuts_f1 {
+            self.show_shortcuts_window = !self.show_shortcuts_window;
+        }
         if open_manual_f12 || open_manual_ctrl_h {
             self.show_user_manual = !self.show_user_manual;
             self.manual_section = None;
         }
-        if save_qso_f2 { self.save_qso(); }
-        if wipe_qso_f3 { self.wipe_qso_form(); }
+        if save_qso_f2 {
+            self.save_qso();
+        }
+        if wipe_qso_f3 {
+            self.wipe_qso_form();
+        }
         if lookup_qrz_f4 {
             let clean = self.entry_callsign.trim().to_uppercase();
             if clean.len() >= 3 {
                 self.lookup_active_callsign_online();
             }
         }
-        if refresh_log_f5 { self.reload_qsos(); }
+        if refresh_log_f5 {
+            self.reload_qsos();
+        }
         if send_spot_f6 {
             let freq_khz = (self.rig_state.frequency_hz as f64) / 1000.0;
-            self.send_spot_dialog.open_with(&self.entry_callsign, freq_khz);
+            self.send_spot_dialog
+                .open_with(&self.entry_callsign, freq_khz);
         }
-        if toggle_ptt_f7 { self.toggle_ptt(); }
-        if voice_keyer_f8 { self.show_voice_keyer_window = !self.show_voice_keyer_window; }
+        if toggle_ptt_f7 {
+            self.toggle_ptt();
+        }
+        if voice_keyer_f8 {
+            self.show_voice_keyer_window = !self.show_voice_keyer_window;
+        }
         if toggle_fullscreen_f11 {
             self.is_fullscreen = !self.is_fullscreen;
             ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(self.is_fullscreen));
         }
-        if save_now { self.save_station_config(); }
+        if save_now {
+            self.save_station_config();
+        }
         if open_palette {
             self.show_command_palette = !self.show_command_palette;
             self.command_palette_query.clear();
@@ -3582,8 +4121,12 @@ impl eframe::App for SpLogApp {
         }
 
         if !wants_text {
-            if focus_filter { self.advanced_filter_dialog.is_open = true; }
-            if new_qso || wipe_qso_ctrl_w { self.wipe_qso_form(); }
+            if focus_filter {
+                self.advanced_filter_dialog.is_open = true;
+            }
+            if new_qso || wipe_qso_ctrl_w {
+                self.wipe_qso_form();
+            }
             if toggle_cluster {
                 self.panel_cluster.visible = true;
                 self.show_cluster_panel = true;
@@ -3596,12 +4139,24 @@ impl eframe::App for SpLogApp {
                 self.panel_world_map.visible = true;
                 self.show_world_map_window = true;
             }
-            if toggle_cw { self.show_cw_window = !self.show_cw_window; }
-            if open_profiles { self.show_station_profiles_window = !self.show_station_profiles_window; }
-            if export_csv { self.csv_export_dialog.open(); }
-            if import_adif { self.trigger_import_adif(); }
-            if cycle_theme_ctrl_t { self.cycle_theme(); }
-            if focus_log_ctrl_l { self.panel_log.visible = true; }
+            if toggle_cw {
+                self.show_cw_window = !self.show_cw_window;
+            }
+            if open_profiles {
+                self.show_station_profiles_window = !self.show_station_profiles_window;
+            }
+            if export_csv {
+                self.csv_export_dialog.open();
+            }
+            if import_adif {
+                self.trigger_import_adif();
+            }
+            if cycle_theme_ctrl_t {
+                self.cycle_theme();
+            }
+            if focus_log_ctrl_l {
+                self.panel_log.visible = true;
+            }
         }
 
         // Debounced lookup Callbook/QRZ po wpisaniu znaku
@@ -3612,7 +4167,8 @@ impl eframe::App for SpLogApp {
             if let Ok(outcome) = rx.try_recv() {
                 match outcome {
                     crate::cloud::updater::UpdateCheckOutcome::UpToDate { local } => {
-                        self.update_check_status = Some(format!("✅ Masz najnowszą wersję (v{local})."));
+                        self.update_check_status =
+                            Some(format!("✅ Masz najnowszą wersję (v{local})."));
                     }
                     crate::cloud::updater::UpdateCheckOutcome::NewVersion(release) => {
                         self.update_check_status = Some(format!(
@@ -3655,15 +4211,18 @@ impl eframe::App for SpLogApp {
         // Odbiór asynchronicznego stanu radia z pętli Hamlib CAT (bi-directional sync)
         while let Ok(st) = self.cat_state_rx.try_recv() {
             self.cat_connected = st.connected;
-            self.event_bus.publish(crate::core::events::AppEvent::RigState {
-                frequency_hz: st.frequency_hz,
-                mode: st.mode.clone(),
-                connected: st.connected,
-            });
+            self.event_bus
+                .publish(crate::core::events::AppEvent::RigState {
+                    frequency_hz: st.frequency_hz,
+                    mode: st.mode.clone(),
+                    connected: st.connected,
+                });
             if st.connected {
                 self.rig_state = st;
                 if self.rig_state.frequency_hz > 0 {
-                    if let Some(band_def) = crate::core::bandplan::get_band_by_freq(self.rig_state.frequency_hz) {
+                    if let Some(band_def) =
+                        crate::core::bandplan::get_band_by_freq(self.rig_state.frequency_hz)
+                    {
                         self.entry_band = band_def.name.to_string();
                     }
                     if !self.rig_state.mode.is_empty() {
@@ -3687,7 +4246,10 @@ impl eframe::App for SpLogApp {
         }
 
         // Odświeżenie dziennika i dyplomów, jeśli zewnętrzny klient zmodyfikował bazę przez REST API
-        if self.api_reload_flag.swap(false, std::sync::atomic::Ordering::AcqRel) {
+        if self
+            .api_reload_flag
+            .swap(false, std::sync::atomic::Ordering::AcqRel)
+        {
             self.rebuild_awards_full();
             self.reload_qsos();
         }
@@ -3710,7 +4272,10 @@ impl eframe::App for SpLogApp {
                         let host = self.cat_host.clone();
                         let port = self.cat_port;
                         tokio::spawn(async move {
-                            let _ = crate::cat::hamlib::HamlibClient::set_split_frequency(&host, port, freq).await;
+                            let _ = crate::cat::hamlib::HamlibClient::set_split_frequency(
+                                &host, port, freq,
+                            )
+                            .await;
                         });
                     }
                 }
@@ -3723,7 +4288,8 @@ impl eframe::App for SpLogApp {
                         let host = self.cat_host.clone();
                         let port = self.cat_port;
                         tokio::spawn(async move {
-                            let _ = crate::cat::hamlib::HamlibClient::set_ptt(&host, port, ptt).await;
+                            let _ =
+                                crate::cat::hamlib::HamlibClient::set_ptt(&host, port, ptt).await;
                         });
                     }
                 }
@@ -3733,7 +4299,8 @@ impl eframe::App for SpLogApp {
                         let host = self.cat_host.clone();
                         let port = self.cat_port;
                         tokio::spawn(async move {
-                            let _ = crate::cat::hamlib::HamlibClient::set_vfo(&host, port, &vfo).await;
+                            let _ =
+                                crate::cat::hamlib::HamlibClient::set_vfo(&host, port, &vfo).await;
                         });
                     }
                 }
@@ -3744,7 +4311,10 @@ impl eframe::App for SpLogApp {
                         let host = self.cat_host.clone();
                         let port = self.cat_port;
                         tokio::spawn(async move {
-                            let _ = crate::cat::hamlib::HamlibClient::set_split(&host, port, enabled, &tx_vfo).await;
+                            let _ = crate::cat::hamlib::HamlibClient::set_split(
+                                &host, port, enabled, &tx_vfo,
+                            )
+                            .await;
                         });
                     }
                 }
@@ -3754,7 +4324,8 @@ impl eframe::App for SpLogApp {
                         let host = self.cat_host.clone();
                         let port = self.cat_port;
                         tokio::spawn(async move {
-                            let _ = crate::cat::hamlib::HamlibClient::set_rit(&host, port, rit).await;
+                            let _ =
+                                crate::cat::hamlib::HamlibClient::set_rit(&host, port, rit).await;
                         });
                     }
                 }
@@ -3764,7 +4335,8 @@ impl eframe::App for SpLogApp {
                         let host = self.cat_host.clone();
                         let port = self.cat_port;
                         tokio::spawn(async move {
-                            let _ = crate::cat::hamlib::HamlibClient::set_xit(&host, port, xit).await;
+                            let _ =
+                                crate::cat::hamlib::HamlibClient::set_xit(&host, port, xit).await;
                         });
                     }
                 }
@@ -3774,7 +4346,8 @@ impl eframe::App for SpLogApp {
                         let host = self.cat_host.clone();
                         let port = self.cat_port;
                         tokio::spawn(async move {
-                            let _ = crate::cat::hamlib::HamlibClient::set_power(&host, port, watts).await;
+                            let _ = crate::cat::hamlib::HamlibClient::set_power(&host, port, watts)
+                                .await;
                         });
                     }
                 }
@@ -3790,55 +4363,71 @@ impl eframe::App for SpLogApp {
                         self.cluster_connecting = false;
                         self.cluster_status_text.clone_from(&msg);
                         self.status_toast = Some((msg, std::time::Instant::now()));
-                        self.event_bus.publish(crate::core::events::AppEvent::ClusterStatus { connected: true });
+                        self.event_bus
+                            .publish(crate::core::events::AppEvent::ClusterStatus {
+                                connected: true,
+                            });
                     }
                     ClusterEvent::Disconnected(msg) => {
                         self.cluster_connected = false;
                         self.cluster_connecting = false;
                         self.cluster_status_text = msg;
-                        self.event_bus.publish(crate::core::events::AppEvent::ClusterStatus { connected: false });
+                        self.event_bus
+                            .publish(crate::core::events::AppEvent::ClusterStatus {
+                                connected: false,
+                            });
                     }
                     ClusterEvent::Spot(spot) => {
                         let is_duplicate = self.cluster_spots.iter().take(30).any(|s| {
-                            s.dx_call == spot.dx_call && s.band == spot.band && (s.frequency_khz - spot.frequency_khz).abs() < 2.0
+                            s.dx_call == spot.dx_call
+                                && s.band == spot.band
+                                && (s.frequency_khz - spot.frequency_khz).abs() < 2.0
                         });
                         if !is_duplicate {
-                            let is_atno = if let Some(info) = self.prefix_matcher.lookup(&spot.dx_call) {
-                                let awards = self.awards_engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                                let st = awards.check_status_full(
-                                    &spot.dx_call,
-                                    &spot.band,
-                                    if spot.is_ft8 { "FT8" } else { "CW" },
-                                    Some(info.dxcc),
-                                    None,
-                                    Some(info.cqz),
-                                    None,
-                                    Some(&info.continent),
-                                    None,
-                                );
-                                st.is_new_dxcc
-                            } else {
-                                false
-                            };
+                            let is_atno =
+                                if let Some(info) = self.prefix_matcher.lookup(&spot.dx_call) {
+                                    let awards = self
+                                        .awards_engine
+                                        .lock()
+                                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                                    let st = awards.check_status_full(
+                                        &spot.dx_call,
+                                        &spot.band,
+                                        if spot.is_ft8 { "FT8" } else { "CW" },
+                                        Some(info.dxcc),
+                                        None,
+                                        Some(info.cqz),
+                                        None,
+                                        Some(&info.continent),
+                                        None,
+                                    );
+                                    st.is_new_dxcc
+                                } else {
+                                    false
+                                };
 
                             if is_atno && self.band_alert_enabled {
                                 crate::media::sounds::play_new_dxcc_alert();
                                 self.status_toast = Some((
-                                    format!("⭐ ATNO DXCC: {} na pasmie {} ({:.1} kHz)!", spot.dx_call, spot.band, spot.frequency_khz),
+                                    format!(
+                                        "⭐ ATNO DXCC: {} na pasmie {} ({:.1} kHz)!",
+                                        spot.dx_call, spot.band, spot.frequency_khz
+                                    ),
                                     std::time::Instant::now(),
                                 ));
                             }
 
-                            self.event_bus.publish(crate::core::events::AppEvent::DxSpot {
-                                spotter: spot.spotter.clone(),
-                                dx_call: spot.dx_call.clone(),
-                                frequency_khz: spot.frequency_khz,
-                                band: spot.band.clone(),
-                                comment: spot.comment.clone(),
-                                time_utc: spot.time_utc.clone(),
-                                is_ft8: spot.is_ft8,
-                                is_skimmer: spot.is_skimmer,
-                            });
+                            self.event_bus
+                                .publish(crate::core::events::AppEvent::DxSpot {
+                                    spotter: spot.spotter.clone(),
+                                    dx_call: spot.dx_call.clone(),
+                                    frequency_khz: spot.frequency_khz,
+                                    band: spot.band.clone(),
+                                    comment: spot.comment.clone(),
+                                    time_utc: spot.time_utc.clone(),
+                                    is_ft8: spot.is_ft8,
+                                    is_skimmer: spot.is_skimmer,
+                                });
                             self.cluster_spots.insert(0, spot.clone());
                             // Hook pluginów Rhai na nowy spot DX.
                             self.plugin_engine.run_on_dx_spot(
@@ -3860,8 +4449,13 @@ impl eframe::App for SpLogApp {
         // do 200 najnowszych pozycji (nowe spoty są wstawiane na indeksie 0, więc ucinamy najstarsze od końca).
         let now_ts = chrono::Utc::now().timestamp();
         let spot_max_age_secs: i64 = 60 * 60;
-        if self.cluster_spots.iter().any(|s| now_ts - s.received_at > spot_max_age_secs) {
-            self.cluster_spots.retain(|s| now_ts - s.received_at <= spot_max_age_secs);
+        if self
+            .cluster_spots
+            .iter()
+            .any(|s| now_ts - s.received_at > spot_max_age_secs)
+        {
+            self.cluster_spots
+                .retain(|s| now_ts - s.received_at <= spot_max_age_secs);
         }
         if self.cluster_spots.len() > 200 {
             self.cluster_spots.truncate(200);
@@ -3899,8 +4493,14 @@ impl eframe::App for SpLogApp {
                 if let Some(img) = data.image_url {
                     self.photo_viewer_dialog.photo_url = Some(img);
                 }
-                self.status_message = Some(format!("Pobrano dane Callbook dla: {} ({})", data.callsign, self.entry_name));
-                self.status_toast = Some((format!("Pobrano dane korespondenta {}!", data.callsign), std::time::Instant::now()));
+                self.status_message = Some(format!(
+                    "Pobrano dane Callbook dla: {} ({})",
+                    data.callsign, self.entry_name
+                ));
+                self.status_toast = Some((
+                    format!("Pobrano dane korespondenta {}!", data.callsign),
+                    std::time::Instant::now(),
+                ));
             }
         }
 
@@ -3917,7 +4517,12 @@ impl eframe::App for SpLogApp {
         while let Ok(msg) = self.wsjtx_rx.try_recv() {
             self.wsjtx_packets_count += 1;
             match msg {
-                crate::digital::wsjtx::WsjtxMessage::Status { dial_freq, mode, dx_call, .. } => {
+                crate::digital::wsjtx::WsjtxMessage::Status {
+                    dial_freq,
+                    mode,
+                    dx_call,
+                    ..
+                } => {
                     if !dx_call.is_empty() {
                         self.wsjtx_last_call = Some(dx_call);
                     }
@@ -3950,22 +4555,34 @@ impl eframe::App for SpLogApp {
                     }
 
                     let insert_res = {
-                        let db = self.log_db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                        let db = self
+                            .log_db
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
                         db.insert_qso(&qso)
                     };
                     match insert_res {
                         Ok(id) => {
                             qso.id = Some(id);
                             {
-                                let mut awards = self.awards_engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                                let mut awards = self
+                                    .awards_engine
+                                    .lock()
+                                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                                 awards.register_qso_record(&qso);
                             }
                             self.invalidate_cluster_badges();
                             {
-                                let mut scp = self.scp_engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                                let mut scp = self
+                                    .scp_engine
+                                    .lock()
+                                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                                 scp.insert(&qso.callsign);
                             }
-                            self.status_toast = Some((format!("WSJT-X: Automatycznie dodano QSO z {}!", qso.callsign), std::time::Instant::now()));
+                            self.status_toast = Some((
+                                format!("WSJT-X: Automatycznie dodano QSO z {}!", qso.callsign),
+                                std::time::Instant::now(),
+                            ));
                             self.reload_qsos();
                         }
                         Err(e) => {
@@ -3983,7 +4600,9 @@ impl eframe::App for SpLogApp {
                 // Aktualizacja stanu połączenia i informacji o stacji JS8Call
                 if state.dial_freq_hz > 0 && state.dial_freq_hz != self.js8call_state.dial_freq_hz {
                     self.rig_state.frequency_hz = state.dial_freq_hz;
-                    if let Some(band_def) = crate::core::bandplan::get_band_by_freq(state.dial_freq_hz) {
+                    if let Some(band_def) =
+                        crate::core::bandplan::get_band_by_freq(state.dial_freq_hz)
+                    {
                         self.entry_band = band_def.name.to_string();
                     }
                 }
@@ -4017,19 +4636,28 @@ impl eframe::App for SpLogApp {
 
             // Zapisz QSO do bazy SQLite
             let insert_res = {
-                let db = self.log_db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let db = self
+                    .log_db
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 db.insert_qso(&qso)
             };
             match insert_res {
                 Ok(id) => {
                     qso.id = Some(id);
                     {
-                        let mut awards = self.awards_engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                        let mut awards = self
+                            .awards_engine
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
                         awards.register_qso_record(&qso);
                     }
                     self.invalidate_cluster_badges();
                     {
-                        let mut scp = self.scp_engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                        let mut scp = self
+                            .scp_engine
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
                         scp.insert(&qso.callsign);
                     }
                     self.status_toast = Some((
@@ -4064,21 +4692,33 @@ impl eframe::App for SpLogApp {
                 qso.ituz = Some(info.ituz);
             }
             let insert_res = {
-                let db = self.log_db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let db = self
+                    .log_db
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 db.insert_qso(&qso)
             };
             if let Ok(id) = insert_res {
                 qso.id = Some(id);
                 {
-                    let mut awards = self.awards_engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                    let mut awards = self
+                        .awards_engine
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
                     awards.register_qso_record(&qso);
                 }
                 self.invalidate_cluster_badges();
                 {
-                    let mut scp = self.scp_engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                    let mut scp = self
+                        .scp_engine
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
                     scp.insert(&qso.callsign);
                 }
-                self.multi_op_log.push(format!("Odebrano z LAN: {} ({} {})", qso.callsign, qso.band, qso.mode));
+                self.multi_op_log.push(format!(
+                    "Odebrano z LAN: {} ({} {})",
+                    qso.callsign, qso.band, qso.mode
+                ));
                 self.status_toast = Some((
                     format!("🌐 Multi-Op LAN: Dodano QSO z {}!", qso.callsign),
                     std::time::Instant::now(),
@@ -4115,60 +4755,139 @@ impl eframe::App for SpLogApp {
             ui.horizontal(|ui| {
                 let fallback_status = tr("status.ready_all_active", lang);
                 let status_txt = self.status_message.as_deref().unwrap_or(fallback_status);
-                ui.label(egui::RichText::new(status_txt).size(11.0).color(egui::Color32::from_rgb(148, 163, 184)));
+                ui.label(
+                    egui::RichText::new(status_txt)
+                        .size(11.0)
+                        .color(egui::Color32::from_rgb(148, 163, 184)),
+                );
 
                 ui.separator();
 
                 // Pasek operacyjny: częstotliwość, pasmo, tryb, split i RST
                 let freq_mhz = self.rig_state.frequency_hz as f64 / 1_000_000.0;
-                let mut op_txt = format!("📻 {:.3} MHz | {} | {}", freq_mhz, self.entry_band, self.entry_mode);
+                let mut op_txt = format!(
+                    "📻 {:.3} MHz | {} | {}",
+                    freq_mhz, self.entry_band, self.entry_mode
+                );
                 if self.vfo_split {
                     op_txt.push_str(" | SPLIT");
                 }
-                ui.label(egui::RichText::new(op_txt).size(11.0).monospace().color(egui::Color32::from_rgb(56, 189, 248)));
+                ui.label(
+                    egui::RichText::new(op_txt)
+                        .size(11.0)
+                        .monospace()
+                        .color(egui::Color32::from_rgb(56, 189, 248)),
+                );
 
                 ui.separator();
 
                 let rst_txt = format!("RST {} / {}", self.entry_rst_sent, self.entry_rst_rcvd);
-                ui.label(egui::RichText::new(rst_txt).size(11.0).monospace().color(egui::Color32::from_rgb(250, 204, 21)));
+                ui.label(
+                    egui::RichText::new(rst_txt)
+                        .size(11.0)
+                        .monospace()
+                        .color(egui::Color32::from_rgb(250, 204, 21)),
+                );
 
                 ui.separator();
 
-                let prop_txt = format!("🌞 SFI {} | K {}", self.space_weather.sfi, self.space_weather.k_index);
-                ui.label(egui::RichText::new(prop_txt).size(11.0).color(egui::Color32::from_rgb(52, 211, 153)));
+                let prop_txt = format!(
+                    "🌞 SFI {} | K {}",
+                    self.space_weather.sfi, self.space_weather.k_index
+                );
+                ui.label(
+                    egui::RichText::new(prop_txt)
+                        .size(11.0)
+                        .color(egui::Color32::from_rgb(52, 211, 153)),
+                );
 
                 ui.separator();
 
-                let journal_str = format!("📁 {}: {} ({} QSO)", tr("statusbar.log", lang), self.active_journal.name, self.recent_qsos.len());
-                ui.label(egui::RichText::new(journal_str).size(11.0).color(egui::Color32::from_rgb(52, 211, 153)));
+                let journal_str = format!(
+                    "📁 {}: {} ({} QSO)",
+                    tr("statusbar.log", lang),
+                    self.active_journal.name,
+                    self.recent_qsos.len()
+                );
+                ui.label(
+                    egui::RichText::new(journal_str)
+                        .size(11.0)
+                        .color(egui::Color32::from_rgb(52, 211, 153)),
+                );
 
                 ui.separator();
 
-                let prof_name = if self.my_station.name.is_empty() { &self.my_station.callsign } else { &self.my_station.name };
+                let prof_name = if self.my_station.name.is_empty() {
+                    &self.my_station.callsign
+                } else {
+                    &self.my_station.name
+                };
                 let profile_str = format!("🏷 {}: {}", tr("statusbar.profile", lang), prof_name);
-                ui.label(egui::RichText::new(profile_str).size(11.0).color(egui::Color32::from_rgb(250, 204, 21)));
+                ui.label(
+                    egui::RichText::new(profile_str)
+                        .size(11.0)
+                        .color(egui::Color32::from_rgb(250, 204, 21)),
+                );
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(egui::RichText::new(format!("SPLogbook v{} | SP6INA | GPLv3", env!("CARGO_PKG_VERSION"))).size(10.0).color(egui::Color32::from_rgb(100, 116, 139)));
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "SPLogbook v{} | SP6INA | GPLv3",
+                            env!("CARGO_PKG_VERSION")
+                        ))
+                        .size(10.0)
+                        .color(egui::Color32::from_rgb(100, 116, 139)),
+                    );
                     ui.separator();
 
-                    let utc_str = format!("⏱ {}: {}", tr("statusbar.utc", lang), chrono::Utc::now().format("%H:%M:%S"));
-                    ui.label(egui::RichText::new(utc_str).size(11.0).monospace().color(egui::Color32::from_rgb(56, 189, 248)));
+                    let utc_str = format!(
+                        "⏱ {}: {}",
+                        tr("statusbar.utc", lang),
+                        chrono::Utc::now().format("%H:%M:%S")
+                    );
+                    ui.label(
+                        egui::RichText::new(utc_str)
+                            .size(11.0)
+                            .monospace()
+                            .color(egui::Color32::from_rgb(56, 189, 248)),
+                    );
                     ui.separator();
 
                     if self.cat_connected {
-                        ui.label(egui::RichText::new("● CAT").size(11.0).strong().color(egui::Color32::from_rgb(34, 197, 94)));
+                        ui.label(
+                            egui::RichText::new("● CAT")
+                                .size(11.0)
+                                .strong()
+                                .color(egui::Color32::from_rgb(34, 197, 94)),
+                        );
                     } else {
-                        ui.label(egui::RichText::new("○ CAT").size(11.0).color(egui::Color32::from_rgb(148, 163, 184)));
+                        ui.label(
+                            egui::RichText::new("○ CAT")
+                                .size(11.0)
+                                .color(egui::Color32::from_rgb(148, 163, 184)),
+                        );
                     }
                     ui.separator();
 
                     if self.cluster_connected {
-                        ui.label(egui::RichText::new("● CLUSTER").size(11.0).strong().color(egui::Color32::from_rgb(34, 197, 94)));
+                        ui.label(
+                            egui::RichText::new("● CLUSTER")
+                                .size(11.0)
+                                .strong()
+                                .color(egui::Color32::from_rgb(34, 197, 94)),
+                        );
                     } else if self.cluster_connecting {
-                        ui.label(egui::RichText::new("● CLUSTER").size(11.0).color(egui::Color32::from_rgb(250, 204, 21)));
+                        ui.label(
+                            egui::RichText::new("● CLUSTER")
+                                .size(11.0)
+                                .color(egui::Color32::from_rgb(250, 204, 21)),
+                        );
                     } else {
-                        ui.label(egui::RichText::new("○ CLUSTER").size(11.0).color(egui::Color32::from_rgb(148, 163, 184)));
+                        ui.label(
+                            egui::RichText::new("○ CLUSTER")
+                                .size(11.0)
+                                .color(egui::Color32::from_rgb(148, 163, 184)),
+                        );
                     }
                 });
             });
@@ -4261,15 +4980,33 @@ impl eframe::App for SpLogApp {
             // Pływające okna modułów (pop-out windows) — renderowane tylko wtedy,
             // gdy panel jest „odpięty” (floating). Kafelki zadokowane rysuje
             // układ kolumnowy w CentralPanel poniżej.
-            if self.panel_qso.floating { render_qso_entry_window(self, ctx); }
-            if self.panel_vfo.floating { render_vfo_window(self, ctx); }
-            if self.panel_log.floating { render_logbook_window(self, ctx); }
-            if self.panel_cluster.floating { render_cluster_window(self, ctx); }
-            if self.panel_solar.floating { render_solar_window(self, ctx); }
-            if self.panel_bandmap.floating { render_bandmap_window(self, ctx); }
-            if self.panel_satellites.floating { render_satellites_window(self, ctx); }
-            if self.panel_world_map.floating { render_world_map_window(self, ctx); }
-            if self.panel_waterfall.floating { crate::gui::waterfall_panel::render_waterfall_window(self, ctx); }
+            if self.panel_qso.floating {
+                render_qso_entry_window(self, ctx);
+            }
+            if self.panel_vfo.floating {
+                render_vfo_window(self, ctx);
+            }
+            if self.panel_log.floating {
+                render_logbook_window(self, ctx);
+            }
+            if self.panel_cluster.floating {
+                render_cluster_window(self, ctx);
+            }
+            if self.panel_solar.floating {
+                render_solar_window(self, ctx);
+            }
+            if self.panel_bandmap.floating {
+                render_bandmap_window(self, ctx);
+            }
+            if self.panel_satellites.floating {
+                render_satellites_window(self, ctx);
+            }
+            if self.panel_world_map.floating {
+                render_world_map_window(self, ctx);
+            }
+            if self.panel_waterfall.floating {
+                crate::gui::waterfall_panel::render_waterfall_window(self, ctx);
+            }
         }
 
         // Pozostałe okna modułów zaawansowanych
@@ -4308,9 +5045,16 @@ impl eframe::App for SpLogApp {
                 self.my_station.callsign.clone_from(&j.station_callsign);
                 self.my_station.operator.clone_from(&j.operator);
                 self.my_station.gridsquare.clone_from(&j.my_gridsquare);
-                self.my_station.pga_gmina = if j.my_pga.is_empty() { None } else { Some(j.my_pga.clone()) };
+                self.my_station.pga_gmina = if j.my_pga.is_empty() {
+                    None
+                } else {
+                    Some(j.my_pga.clone())
+                };
                 self.reload_qsos();
-                self.status_toast = Some((format!("Przełączono aktywny profil dziennika na: {}", j.name), std::time::Instant::now()));
+                self.status_toast = Some((
+                    format!("Przełączono aktywny profil dziennika na: {}", j.name),
+                    std::time::Instant::now(),
+                ));
             }
         }
 
@@ -4359,7 +5103,8 @@ impl eframe::App for SpLogApp {
 
         // 2. Położenie Księżyca i Słońca (EME / Kalkulator astronomiczny)
         let my_grid = self.my_station.gridsquare.clone();
-        self.astronomy_dialog.show(ctx, &my_grid, &mut self.rotor_state, self.current_language);
+        self.astronomy_dialog
+            .show(ctx, &my_grid, &mut self.rotor_state, self.current_language);
 
         // 3. Moduł SOTA / POTA
         self.sota_dialog.show(ctx, &self.recent_qsos);
@@ -4376,7 +5121,10 @@ impl eframe::App for SpLogApp {
 
         // 4. Przeglądarka wysp IOTA
         {
-            let awards = self.awards_engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let awards = self
+                .awards_engine
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             if let Some(iota) = self.iota_dialog.show(ctx, &self.service_db, &awards) {
                 self.entry_iota = iota;
             }
@@ -4399,8 +5147,12 @@ impl eframe::App for SpLogApp {
         self.prefix_manager_dialog.show(ctx, &self.service_db);
 
         // 9. Formularz wysyłania własnego spotu do DX Cluster
-        if let Some(sub) = self.send_spot_dialog.show(ctx, &self.my_station.callsign, self.current_language) {
-            let band_str = crate::core::bandplan::get_band_by_freq((sub.freq_khz * 1000.0) as u64).map_or_else(|| "HF".to_string(), |b| b.name.to_string());
+        if let Some(sub) =
+            self.send_spot_dialog
+                .show(ctx, &self.my_station.callsign, self.current_language)
+        {
+            let band_str = crate::core::bandplan::get_band_by_freq((sub.freq_khz * 1000.0) as u64)
+                .map_or_else(|| "HF".to_string(), |b| b.name.to_string());
             let is_ft8 = sub.comment.to_uppercase().contains("FT8");
             let spot = crate::cluster::telnet::DxSpot {
                 frequency_khz: sub.freq_khz,
@@ -4414,7 +5166,10 @@ impl eframe::App for SpLogApp {
                 received_at: chrono::Utc::now().timestamp(),
             };
             self.cluster_spots.insert(0, spot);
-            self.status_toast = Some((format!("Wysłano spot dla {} ({:.1} kHz)", sub.dx_call, sub.freq_khz), std::time::Instant::now()));
+            self.status_toast = Some((
+                format!("Wysłano spot dla {} ({:.1} kHz)", sub.dx_call, sub.freq_khz),
+                std::time::Instant::now(),
+            ));
         }
 
         // Pływające powiadomienia Toast
@@ -4425,10 +5180,17 @@ impl eframe::App for SpLogApp {
                     .show(ctx, |ui| {
                         egui::Frame::popup(ui.style())
                             .fill(egui::Color32::from_rgb(15, 23, 42))
-                            .stroke(egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(56, 189, 248)))
+                            .stroke(egui::Stroke::new(
+                                1.0_f32,
+                                egui::Color32::from_rgb(56, 189, 248),
+                            ))
                             .inner_margin(egui::Margin::same(10))
                             .show(ui, |ui| {
-                                ui.label(egui::RichText::new(format!("🔔 {msg}")).strong().color(egui::Color32::WHITE));
+                                ui.label(
+                                    egui::RichText::new(format!("🔔 {msg}"))
+                                        .strong()
+                                        .color(egui::Color32::WHITE),
+                                );
                             });
                     });
             } else {
@@ -4495,17 +5257,28 @@ impl eframe::App for SpLogApp {
 
         if self.show_shortcuts_window {
             let mut is_open = self.show_shortcuts_window;
-            egui::Window::new(format!("⌨ {}", tr("help.shortcuts_title", self.current_language)))
-                .open(&mut is_open)
-                .default_size([600.0, 520.0])
-                .resizable(true)
-                .show(ctx, |ui| {
-                    egui::ScrollArea::vertical().show(ui, |ui| {
-                        let sections: &[(&str, &[(&str, &str)])] = &[
-                            ("📝 Logowanie i obsługa QSO", &[
+            egui::Window::new(format!(
+                "⌨ {}",
+                tr("help.shortcuts_title", self.current_language)
+            ))
+            .open(&mut is_open)
+            .default_size([600.0, 520.0])
+            .resizable(true)
+            .show(ctx, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    let sections: &[(&str, &[(&str, &str)])] = &[
+                        (
+                            "📝 Logowanie i obsługa QSO",
+                            &[
                                 ("Enter / F2", "Zapisz bieżące QSO w logbooku"),
-                                ("Esc / F3", "Wyczyść formularz QSO (Wipe) i przejdź do znaku"),
-                                ("Ctrl+N", "Nowe QSO — wyczyść formularz i ustaw kursor na znaku"),
+                                (
+                                    "Esc / F3",
+                                    "Wyczyść formularz QSO (Wipe) i przejdź do znaku",
+                                ),
+                                (
+                                    "Ctrl+N",
+                                    "Nowe QSO — wyczyść formularz i ustaw kursor na znaku",
+                                ),
                                 ("Ctrl+W", "Wyczyść formularz QSO (Wipe callsign / exchange)"),
                                 ("F4", "Wymuś wyszukanie znaku w Callbooku / QRZ.com"),
                                 ("Ctrl+S", "Zapisz konfigurację stacji i dziennik"),
@@ -4514,8 +5287,11 @@ impl eframe::App for SpLogApp {
                                 ("Ctrl+L", "Przełącz / aktywuj tabelę logbooka"),
                                 ("Ctrl+Z", "Cofnij usunięcie łączności (Undo)"),
                                 ("Ctrl+Y / Ctrl+Shift+Z", "Ponów operację (Redo)"),
-                            ]),
-                            ("📻 Transceiver, CAT i Eter", &[
+                            ],
+                        ),
+                        (
+                            "📻 Transceiver, CAT i Eter",
+                            &[
                                 ("F6", "Otwórz okno wysyłania spotu do klastra DX"),
                                 ("F7", "Przełącz nadawanie PTT (TX/RX) przez CAT"),
                                 ("F8", "Otwórz odtwarzacz komunikatów (Voice Keyer)"),
@@ -4524,38 +5300,60 @@ impl eframe::App for SpLogApp {
                                 ("Ctrl+B", "Przełącz / otwórz okno Bandmapy"),
                                 ("Ctrl+M", "Przełącz / otwórz mapę świata z linią Greyline"),
                                 ("Ctrl+P", "Menedżer profili stacji roboczej"),
-                            ]),
-                            ("⚙️ Narzędzia, Okna i Aplikacja", &[
-                                ("Ctrl+Shift+P", "Paleta poleceń (Command Palette) — szybki launcher akcji"),
+                            ],
+                        ),
+                        (
+                            "⚙️ Narzędzia, Okna i Aplikacja",
+                            &[
+                                (
+                                    "Ctrl+Shift+P",
+                                    "Paleta poleceń (Command Palette) — szybki launcher akcji",
+                                ),
                                 ("Ctrl+Shift+S", "Otwórz okno statystyk i analizy wykresów"),
                                 ("Ctrl+E", "Eksport dziennika do pliku CSV (konfigurowalny)"),
                                 ("Ctrl+I", "Import dziennika z pliku ADIF"),
-                                ("Ctrl+T", "Przełącz motyw kolorystyczny (Dark / Daylight / Contrast)"),
+                                (
+                                    "Ctrl+T",
+                                    "Przełącz motyw kolorystyczny (Dark / Daylight / Contrast)",
+                                ),
                                 ("F11", "Przełącz tryb pełnoekranowy (Toggle Fullscreen)"),
-                                ("F12 / Ctrl+H", "Otwórz wbudowaną instrukcję obsługi (Podręcznik)"),
+                                (
+                                    "F12 / Ctrl+H",
+                                    "Otwórz wbudowaną instrukcję obsługi (Podręcznik)",
+                                ),
                                 ("F1", "Skróty klawiszowe (to okno)"),
                                 ("Ctrl+Q", "Bezpieczne wyjście z programu"),
-                            ]),
-                        ];
+                            ],
+                        ),
+                    ];
 
-                        for (cat_title, rows) in sections {
-                            ui.add_space(6.0);
-                            ui.heading(egui::RichText::new(*cat_title).size(14.0).strong().color(egui::Color32::from_rgb(56, 189, 248)));
-                            ui.separator();
-                            egui::Grid::new(format!("shortcuts_grid_{cat_title}"))
-                                .num_columns(2)
-                                .spacing([20.0, 6.0])
-                                .striped(true)
-                                .show(ui, |ui| {
-                                    for (key, desc) in *rows {
-                                        ui.monospace(egui::RichText::new(*key).strong().color(egui::Color32::from_rgb(250, 204, 21)));
-                                        ui.label(*desc);
-                                        ui.end_row();
-                                    }
-                                });
-                        }
-                    });
+                    for (cat_title, rows) in sections {
+                        ui.add_space(6.0);
+                        ui.heading(
+                            egui::RichText::new(*cat_title)
+                                .size(14.0)
+                                .strong()
+                                .color(egui::Color32::from_rgb(56, 189, 248)),
+                        );
+                        ui.separator();
+                        egui::Grid::new(format!("shortcuts_grid_{cat_title}"))
+                            .num_columns(2)
+                            .spacing([20.0, 6.0])
+                            .striped(true)
+                            .show(ui, |ui| {
+                                for (key, desc) in *rows {
+                                    ui.monospace(
+                                        egui::RichText::new(*key)
+                                            .strong()
+                                            .color(egui::Color32::from_rgb(250, 204, 21)),
+                                    );
+                                    ui.label(*desc);
+                                    ui.end_row();
+                                }
+                            });
+                    }
                 });
+            });
             if !is_open {
                 self.show_shortcuts_window = false;
             }
@@ -4625,9 +5423,13 @@ impl Drop for SpLogApp {
         let _ = std::fs::create_dir_all(&backup_dir);
         let _ = BackupManager::backup_database(&self.active_db_path, &backup_dir);
 
-        let db = self.log_db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let db = self
+            .log_db
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Ok(qsos) = db.get_recent_qsos(5000) {
-            let adif = crate::core::adif::export_adif(&qsos, "SPLogbook", &self.my_station.callsign);
+            let adif =
+                crate::core::adif::export_adif(&qsos, "SPLogbook", &self.my_station.callsign);
             let _ = BackupManager::backup_adif(&adif, &backup_dir);
         }
     }

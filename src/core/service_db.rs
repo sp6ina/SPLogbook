@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 // Obsługa bazy referencyjnej serviceLOG.db (IOTA, Stany/Okręgi, Managerowie QSL, Unikalne znaki)
 
-use rusqlite::{params, Connection, OpenFlags};
+use rusqlite::{Connection, OpenFlags, params};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -10,7 +10,10 @@ use std::sync::{Arc, Mutex};
 /// przez użytkownika tekst wyszukiwania nie działał jak wzorzec wildcard SQL.
 /// Używać zawsze razem z klauzulą `ESCAPE '\'` w zapytaniu LIKE.
 fn escape_like(input: &str) -> String {
-    input.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
+    input
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -91,7 +94,10 @@ impl ServiceDatabase {
     }
 
     pub fn open_at(path: &Path) -> Result<Connection, rusqlite::Error> {
-        Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI)
+        Connection::open_with_flags(
+            path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
+        )
     }
 
     /// Wyszukuje grupy wysp IOTA (po kodzie np. 'EU-001' lub nazwie)
@@ -127,7 +133,9 @@ impl ServiceDatabase {
         let clean = code.trim().to_uppercase();
         if let Some(ref conn_mutex) = self.conn {
             if let Ok(conn) = conn_mutex.lock() {
-                if let Ok(mut stmt) = conn.prepare("SELECT IOTA, Name, Prefix1 FROM IOTA WHERE IOTA = ?1 LIMIT 1") {
+                if let Ok(mut stmt) =
+                    conn.prepare("SELECT IOTA, Name, Prefix1 FROM IOTA WHERE IOTA = ?1 LIMIT 1")
+                {
                     if let Ok(mut rows) = stmt.query_map(params![clean], |row| {
                         Ok(IotaRecord {
                             iota: row.get(0)?,
@@ -142,7 +150,9 @@ impl ServiceDatabase {
                 }
             }
         }
-        Self::fallback_iota(&clean).into_iter().find(|i| i.iota == clean)
+        Self::fallback_iota(&clean)
+            .into_iter()
+            .find(|i| i.iota == clean)
     }
 
     /// Wyszukuje stany USA (WAS) oraz rejony z bazy STATE
@@ -152,10 +162,7 @@ impl ServiceDatabase {
 
         // 1. Zawsze dołącz pasujące stany USA (50 stanów ARRL WAS)
         for &(code, name) in US_STATES {
-            if clean.is_empty()
-                || code.contains(&clean)
-                || name.to_uppercase().contains(&clean)
-            {
+            if clean.is_empty() || code.contains(&clean) || name.to_uppercase().contains(&clean) {
                 results.push(StateRecord {
                     code: code.to_string(),
                     name: name.to_string(),
@@ -199,7 +206,9 @@ impl ServiceDatabase {
 
         if let Some(ref conn_mutex) = self.conn {
             if let Ok(conn) = conn_mutex.lock() {
-                if let Ok(mut stmt) = conn.prepare("SELECT Call, Manager, Years, Notes FROM managers WHERE Call = ?1 LIMIT 1") {
+                if let Ok(mut stmt) = conn.prepare(
+                    "SELECT Call, Manager, Years, Notes FROM managers WHERE Call = ?1 LIMIT 1",
+                ) {
                     if let Ok(mut rows) = stmt.query_map(params![clean], |row| {
                         Ok(QslManagerRecord {
                             call: row.get(0)?,
@@ -322,7 +331,11 @@ impl ServiceDatabase {
             ("EU-001", "Dodecanese", "SV5"),
             ("EU-005", "Great Britain", "G"),
             ("EU-115", "Ireland", "EI"),
-            ("EU-132", "Polish Baltic Sea Coast Islands (Wolin, Usedom)", "SP"),
+            (
+                "EU-132",
+                "Polish Baltic Sea Coast Islands (Wolin, Usedom)",
+                "SP",
+            ),
             ("NA-001", "Greenland", "OX"),
             ("NA-015", "Cuba", "CO"),
             ("OC-001", "Australia", "VK"),
@@ -331,7 +344,9 @@ impl ServiceDatabase {
 
         sample
             .iter()
-            .filter(|(code, name, _)| query.is_empty() || code.contains(query) || name.to_uppercase().contains(query))
+            .filter(|(code, name, _)| {
+                query.is_empty() || code.contains(query) || name.to_uppercase().contains(query)
+            })
             .map(|(code, name, pfx)| IotaRecord {
                 iota: code.to_string(),
                 name: name.to_string(),
@@ -342,19 +357,57 @@ impl ServiceDatabase {
 }
 
 pub static US_STATES: &[(&str, &str)] = &[
-    ("AL", "Alabama"), ("AK", "Alaska"), ("AZ", "Arizona"), ("AR", "Arkansas"),
-    ("CA", "California"), ("CO", "Colorado"), ("CT", "Connecticut"), ("DE", "Delaware"),
-    ("FL", "Florida"), ("GA", "Georgia"), ("HI", "Hawaii"), ("ID", "Idaho"),
-    ("IL", "Illinois"), ("IN", "Indiana"), ("IA", "Iowa"), ("KS", "Kansas"),
-    ("KY", "Kentucky"), ("LA", "Louisiana"), ("ME", "Maine"), ("MD", "Maryland"),
-    ("MA", "Massachusetts"), ("MI", "Michigan"), ("MN", "Minnesota"), ("MS", "Mississippi"),
-    ("MO", "Missouri"), ("MT", "Montana"), ("NE", "Nebraska"), ("NV", "Nevada"),
-    ("NH", "New Hampshire"), ("NJ", "New Jersey"), ("NM", "New Mexico"), ("NY", "New York"),
-    ("NC", "North Carolina"), ("ND", "North Dakota"), ("OH", "Ohio"), ("OK", "Oklahoma"),
-    ("OR", "Oregon"), ("PA", "Pennsylvania"), ("RI", "Rhode Island"), ("SC", "South Carolina"),
-    ("SD", "South Dakota"), ("TN", "Tennessee"), ("TX", "Texas"), ("UT", "Utah"),
-    ("VT", "Vermont"), ("VA", "Virginia"), ("WA", "Washington"), ("WV", "West Virginia"),
-    ("WI", "Wisconsin"), ("WY", "Wyoming"), ("DC", "District of Columbia"),
+    ("AL", "Alabama"),
+    ("AK", "Alaska"),
+    ("AZ", "Arizona"),
+    ("AR", "Arkansas"),
+    ("CA", "California"),
+    ("CO", "Colorado"),
+    ("CT", "Connecticut"),
+    ("DE", "Delaware"),
+    ("FL", "Florida"),
+    ("GA", "Georgia"),
+    ("HI", "Hawaii"),
+    ("ID", "Idaho"),
+    ("IL", "Illinois"),
+    ("IN", "Indiana"),
+    ("IA", "Iowa"),
+    ("KS", "Kansas"),
+    ("KY", "Kentucky"),
+    ("LA", "Louisiana"),
+    ("ME", "Maine"),
+    ("MD", "Maryland"),
+    ("MA", "Massachusetts"),
+    ("MI", "Michigan"),
+    ("MN", "Minnesota"),
+    ("MS", "Mississippi"),
+    ("MO", "Missouri"),
+    ("MT", "Montana"),
+    ("NE", "Nebraska"),
+    ("NV", "Nevada"),
+    ("NH", "New Hampshire"),
+    ("NJ", "New Jersey"),
+    ("NM", "New Mexico"),
+    ("NY", "New York"),
+    ("NC", "North Carolina"),
+    ("ND", "North Dakota"),
+    ("OH", "Ohio"),
+    ("OK", "Oklahoma"),
+    ("OR", "Oregon"),
+    ("PA", "Pennsylvania"),
+    ("RI", "Rhode Island"),
+    ("SC", "South Carolina"),
+    ("SD", "South Dakota"),
+    ("TN", "Tennessee"),
+    ("TX", "Texas"),
+    ("UT", "Utah"),
+    ("VT", "Vermont"),
+    ("VA", "Virginia"),
+    ("WA", "Washington"),
+    ("WV", "West Virginia"),
+    ("WI", "Wisconsin"),
+    ("WY", "Wyoming"),
+    ("DC", "District of Columbia"),
 ];
 
 #[cfg(test)]

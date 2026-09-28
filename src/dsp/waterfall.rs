@@ -7,8 +7,8 @@
 //! FFT z normalizacją do dBFS, silnik akumulujący kolejne wiersze widma oraz
 //! współdzielony bufor próbek wypełniany przez wątek przechwytujący dźwięk.
 
-use rustfft::num_complex::Complex;
 use rustfft::FftPlanner;
+use rustfft::num_complex::Complex;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
@@ -86,7 +86,10 @@ impl SampleRing {
         if samples.is_empty() {
             return;
         }
-        let mut q = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut q = self
+            .inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         for &s in samples {
             if q.len() >= self.capacity {
                 q.pop_front();
@@ -97,12 +100,18 @@ impl SampleRing {
 
     /// Przenosi wszystkie zgromadzone próbki do `out` (w kolejności chronologicznej).
     pub fn drain(&self, out: &mut Vec<f32>) {
-        let mut q = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut q = self
+            .inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         out.extend(q.drain(..));
     }
 
     pub fn len(&self) -> usize {
-        self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner).len()
+        self.inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -127,7 +136,10 @@ pub struct WaterfallEngine {
 
 impl WaterfallEngine {
     pub fn new(fft_size: usize, sample_rate: u32, history_depth: usize) -> Self {
-        debug_assert!(fft_size >= 2 && fft_size.is_power_of_two(), "FFT size must be a power of two >= 2");
+        debug_assert!(
+            fft_size >= 2 && fft_size.is_power_of_two(),
+            "FFT size must be a power of two >= 2"
+        );
         let mut planner = FftPlanner::<f32>::new();
         let fft = planner.plan_fft_forward(fft_size);
         Self {
@@ -264,7 +276,10 @@ mod tests {
         let peak = spectrum[64];
         let away = spectrum[128];
         assert!(peak > -10.0, "szczyt powinien być silny, jest {peak}");
-        assert!(peak > away + 30.0, "szczyt powinien dominować nad sąsiednim pasmem");
+        assert!(
+            peak > away + 30.0,
+            "szczyt powinien dominować nad sąsiednim pasmem"
+        );
     }
 
     #[test]

@@ -1,20 +1,26 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
-use crate::gui::app::SpLogApp;
-use crate::core::i18n::tr;
 use crate::core::contest_rules::{RULES, calculate_score, detect_duplicate};
-use crate::core::contest_stats::{compute_mult_matrix, compute_rate, MultKind, MultMatrix, RateStats};
-use crate::core::exchange::{ExchangeField, apply_to_qso, exchange_summary, fields_from_format_string, parse_exchange};
+use crate::core::contest_stats::{
+    MultKind, MultMatrix, RateStats, compute_mult_matrix, compute_rate,
+};
+use crate::core::exchange::{
+    ExchangeField, apply_to_qso, exchange_summary, fields_from_format_string, parse_exchange,
+};
+use crate::core::i18n::tr;
 use crate::core::qso::QsoRecord;
 use crate::core::station::CustomContest;
+use crate::gui::app::SpLogApp;
 
 use eframe::egui;
 use std::collections::HashSet;
 
 pub fn render_custom_contest_editor(app: &mut SpLogApp, ctx: &egui::Context) {
     let mut open = app.show_custom_contest_editor;
-    if !open { return; }
+    if !open {
+        return;
+    }
     let lang = app.current_language;
 
     egui::Window::new(tr("contest.custom_editor_title", lang))
@@ -52,8 +58,12 @@ pub fn render_custom_contest_editor(app: &mut SpLogApp, ctx: &egui::Context) {
                 ui.separator();
 
                 ui.vertical(|ui| {
-                    ui.heading(if app.custom_contest_edit_idx.is_some() { tr("contest.editing", lang) } else { tr("contest.new", lang) });
-                    
+                    ui.heading(if app.custom_contest_edit_idx.is_some() {
+                        tr("contest.editing", lang)
+                    } else {
+                        tr("contest.new", lang)
+                    });
+
                     ui.horizontal(|ui| {
                         ui.label(tr("contest.name_label", lang));
                         ui.text_edit_singleline(&mut app.custom_contest_draft.name);
@@ -62,15 +72,22 @@ pub fn render_custom_contest_editor(app: &mut SpLogApp, ctx: &egui::Context) {
                         ui.label(tr("contest.exchange_label", lang));
                         ui.text_edit_singleline(&mut app.custom_contest_draft.exchange_format);
                     });
-                    
+
                     ui.label(tr("contest.points_per_qso_label", lang));
-                    ui.add(egui::Slider::new(&mut app.custom_contest_draft.points_per_qso, 1..=20));
+                    ui.add(egui::Slider::new(
+                        &mut app.custom_contest_draft.points_per_qso,
+                        1..=20,
+                    ));
 
                     ui.label(tr("contest.bands_label", lang));
-                    let all_bands = ["160m", "80m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m", "2m", "70cm"];
+                    let all_bands = [
+                        "160m", "80m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m", "2m",
+                        "70cm",
+                    ];
                     ui.horizontal_wrapped(|ui| {
                         for b in all_bands {
-                            let mut has_band = app.custom_contest_draft.bands.contains(&b.to_string());
+                            let mut has_band =
+                                app.custom_contest_draft.bands.contains(&b.to_string());
                             if ui.checkbox(&mut has_band, b).changed() {
                                 if has_band {
                                     app.custom_contest_draft.bands.push(b.to_string());
@@ -84,7 +101,9 @@ pub fn render_custom_contest_editor(app: &mut SpLogApp, ctx: &egui::Context) {
                     ui.label(tr("contest.description_label", lang));
                     ui.text_edit_multiline(&mut app.custom_contest_draft.description);
 
-                    if ui.button(tr("btn.save", lang)).clicked() && !app.custom_contest_draft.name.is_empty() {
+                    if ui.button(tr("btn.save", lang)).clicked()
+                        && !app.custom_contest_draft.name.is_empty()
+                    {
                         if let Some(i) = app.custom_contest_edit_idx {
                             app.custom_contests[i] = app.custom_contest_draft.clone();
                         } else {
@@ -96,7 +115,7 @@ pub fn render_custom_contest_editor(app: &mut SpLogApp, ctx: &egui::Context) {
                 });
             });
         });
-    
+
     app.show_custom_contest_editor = open;
 }
 
@@ -116,16 +135,23 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
     // Is it a custom contest?
     let mut is_custom = false;
     let mut custom_idx = None;
-    if let Some(idx) = app.custom_contests.iter().position(|c| c.name == app.contest_name) {
+    if let Some(idx) = app
+        .custom_contests
+        .iter()
+        .position(|c| c.name == app.contest_name)
+    {
         is_custom = true;
         custom_idx = Some(idx);
     }
 
     // Uporządkowane pola wymiany dla aktualnie wybranego kontestu.
     let exchange_fields: Option<Vec<ExchangeField>> = if let Some(idx) = custom_idx {
-        Some(fields_from_format_string(&app.custom_contests[idx].exchange_format))
+        Some(fields_from_format_string(
+            &app.custom_contests[idx].exchange_format,
+        ))
     } else {
-        RULES.iter()
+        RULES
+            .iter()
             .position(|r| r.name == app.contest_name)
             .map(|rule_idx| RULES[rule_idx].exchange_fields.to_vec())
     };
@@ -138,7 +164,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 .join(" + ")
         })
         .unwrap_or_default();
-    
+
     let my_dxcc: u32 = 269;
     let my_cqzone = app.my_station.cq_zone as u8;
 
@@ -168,7 +194,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
         unknown_contest_rule = true;
         (0, 0, 0)
     };
-    
+
     app.contest_points = pts;
     app.contest_mults = mults;
     app.contest_qsos = app.recent_qsos.len() as u32;
@@ -179,7 +205,11 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
     } else if let Some(rule_idx) = RULES.iter().position(|r| r.name == app.contest_name) {
         (
             RULES[rule_idx].mult_kind,
-            RULES[rule_idx].bands.iter().map(std::string::ToString::to_string).collect(),
+            RULES[rule_idx]
+                .bands
+                .iter()
+                .map(std::string::ToString::to_string)
+                .collect(),
         )
     } else {
         (MultKind::None, vec![])
@@ -204,7 +234,8 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
     } else {
         0.0
     };
-    let projected_1h = total as f64 + rate.rate_60m() as f64 * avg_points_per_qso * mults.max(1) as f64;
+    let projected_1h =
+        total as f64 + rate.rate_60m() as f64 * avg_points_per_qso * mults.max(1) as f64;
 
     egui::Window::new(tr("contest.window_title", lang))
         .id(egui::Id::new("splogbook_contest_window"))
@@ -227,7 +258,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 }
                             }
                         });
-                        
+
                     if ui.button(tr("contest.add_custom", lang)).clicked() {
                         app.show_custom_contest_editor = true;
                     }
@@ -307,14 +338,14 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     ui.label(egui::RichText::new(tr("contest.entry_header", lang)).strong());
                     ui.horizontal(|ui| {
                         ui.label(format!("{}:", tr("qso.callsign", lang)));
-                        
+
                         let dummy_qso = QsoRecord {
                             callsign: app.entry_callsign.clone(),
                             band: app.entry_band.clone(),
                             mode: app.entry_mode.clone(),
                             ..Default::default()
                         };
-                        
+
                         let is_dupe = if is_custom {
                             app.recent_qsos.iter().any(|q| q.callsign == dummy_qso.callsign && q.band == dummy_qso.band)
                         } else if let Some(rule_idx) = RULES.iter().position(|r| r.name == app.contest_name) {
@@ -324,20 +355,20 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             // zamiast cichego zastosowania reguł innego (pierwszego) kontestu.
                             app.recent_qsos.iter().any(|q| q.callsign == dummy_qso.callsign && q.band == dummy_qso.band)
                         };
-                        
+
                         if is_dupe && !app.entry_callsign.is_empty() {
                             ui.visuals_mut().widgets.inactive.bg_stroke = egui::Stroke::new(2.0_f32, egui::Color32::RED);
                         }
-                        
+
                         ui.add(egui::TextEdit::singleline(&mut app.entry_callsign).desired_width(120.0));
-                        
+
                         if is_dupe && !app.entry_callsign.is_empty() {
                             ui.label(egui::RichText::new("DUPE!").color(egui::Color32::RED).strong());
                         }
-                        
+
                         ui.label(tr("contest.rcvd_report_exchange", lang));
                         ui.add(egui::TextEdit::singleline(&mut app.entry_exchange).desired_width(200.0));
-                        
+
                         if ui.button(tr("contest.save_qso", lang)).clicked() {
                             save_clicked = true;
                         }
@@ -460,7 +491,11 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 app.entry_exchange = prev.rst_rcvd.clone();
             }
             app.status_toast = Some((
-                format!("{}: {}", tr("contest.worked_before", app.current_language), call),
+                format!(
+                    "{}: {}",
+                    tr("contest.worked_before", app.current_language),
+                    call
+                ),
                 std::time::Instant::now(),
             ));
         }
@@ -495,23 +530,30 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
         }
 
         if exchange_ok {
-            let insert_result = match app.log_db.lock() {
-                Ok(db) => db.insert_qso(&new_qso).map_err(|error| error.to_string()),
-                Err(error) => Err(format!("Nie można otworzyć dziennika: {error}")),
-            };
-            match insert_result {
-                Ok(_) => {
-                    app.contest_stx += 1;
-                    app.entry_callsign.clear();
-                    app.entry_rst_rcvd.clear();
-                    app.entry_exchange.clear();
-                    app.reload_qsos();
-                }
-                Err(error) => {
-                    app.status_toast = Some((
-                        format!("Błąd zapisu QSO kontestowego: {error}"),
-                        std::time::Instant::now(),
-                    ));
+            if let Err(reason) = new_qso.validate() {
+                app.status_toast = Some((
+                    format!("Błąd walidacji QSO kontestowego: {reason}"),
+                    std::time::Instant::now(),
+                ));
+            } else {
+                let insert_result = match app.log_db.lock() {
+                    Ok(db) => db.insert_qso(&new_qso).map_err(|error| error.to_string()),
+                    Err(error) => Err(format!("Nie można otworzyć dziennika: {error}")),
+                };
+                match insert_result {
+                    Ok(_) => {
+                        app.contest_stx += 1;
+                        app.entry_callsign.clear();
+                        app.entry_rst_rcvd.clear();
+                        app.entry_exchange.clear();
+                        app.reload_qsos();
+                    }
+                    Err(error) => {
+                        app.status_toast = Some((
+                            format!("Błąd zapisu QSO kontestowego: {error}"),
+                            std::time::Instant::now(),
+                        ));
+                    }
                 }
             }
         }
@@ -583,27 +625,36 @@ pub fn render_multi_op_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 app.save_station_config();
                             }
                         });
-                        ui.label(egui::RichText::new("⚠ Podaj to samo hasło na stacji klienckiej. Puste pole = brak uwierzytelniania (niezalecane).").size(11.0).italics());
+                        ui.label(egui::RichText::new("⚠ Podaj to samo hasło na stacji klienckiej. Hasło jest wymagane — serwer nie wystartuje bez niego.").size(11.0).italics());
 
                         ui.horizontal(|ui| {
                             if app.multi_op_server.is_some() {
                                 if ui.button(egui::RichText::new("🛑 ZATRZYMAJ SERWER LAN").color(egui::Color32::from_rgb(239, 68, 68)).strong()).clicked() {
-                                    app.multi_op_server = None;
+                                    if let Some(srv) = app.multi_op_server.take() {
+                                        srv.stop();
+                                    }
                                     app.multi_op_status = "Serwer zatrzymany".to_string();
                                     app.multi_op_log.push("Zatrzymano serwer Multi-Op LAN.".to_string());
                                 }
                             } else if ui.button(egui::RichText::new("🚀 URUCHOM SERWER LAN").color(egui::Color32::from_rgb(34, 197, 94)).strong()).clicked() {
-                                let secret = if app.lan_sync_secret.is_empty() { None } else { Some(app.lan_sync_secret.clone()) };
-                                let server = std::sync::Arc::new(crate::cluster::lan_sync::MultiOpServer::new_with_secret(app.lan_sync_port, secret));
-                                let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-                                app.multi_op_incoming_rx = Some(rx);
-                                let srv_clone = server.clone();
-                                tokio::spawn(async move {
-                                    let _ = srv_clone.start(tx).await;
-                                });
-                                app.multi_op_server = Some(server);
-                                app.multi_op_status = format!("Serwer nasłuchuje na porcie {}", app.lan_sync_port);
-                                app.multi_op_log.push(format!("Uruchomiono serwer Multi-Op LAN na porcie {}", app.lan_sync_port));
+                                if app.lan_sync_secret.trim().is_empty() {
+                                    app.multi_op_status = "Błąd: serwer wymaga hasła współdzielonego.".to_string();
+                                    app.multi_op_log.push("Odmowa uruchomienia serwera: brak hasła współdzielonego.".to_string());
+                                } else {
+                                    let secret = Some(app.lan_sync_secret.clone());
+                                    let server = std::sync::Arc::new(crate::cluster::lan_sync::MultiOpServer::new_with_secret(app.lan_sync_port, secret));
+                                    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+                                    app.multi_op_incoming_rx = Some(rx);
+                                    let srv_clone = server.clone();
+                                    tokio::spawn(async move {
+                                        if let Err(e) = srv_clone.start(tx).await {
+                                            log::error!("Multi-Op: nie udało się uruchomić serwera: {e}");
+                                        }
+                                    });
+                                    app.multi_op_server = Some(server);
+                                    app.multi_op_status = format!("Serwer nasłuchuje na porcie {}", app.lan_sync_port);
+                                    app.multi_op_log.push(format!("Uruchomiono serwer Multi-Op LAN na porcie {}", app.lan_sync_port));
+                                }
                             }
                         });
                     });
@@ -685,7 +736,8 @@ pub fn render_multi_op_window(app: &mut SpLogApp, ctx: &egui::Context) {
 fn render_rate_chart(ui: &mut egui::Ui, rate: &RateStats) {
     let chart_h = 60.0f32;
     let chart_w = ui.available_width();
-    let (resp, painter) = ui.allocate_painter(egui::vec2(chart_w, chart_h + 14.0), egui::Sense::hover());
+    let (resp, painter) =
+        ui.allocate_painter(egui::vec2(chart_w, chart_h + 14.0), egui::Sense::hover());
     let origin = resp.rect.min;
     let max_val = rate.per_minute.iter().copied().max().unwrap_or(1).max(1) as f32;
     let n = rate.per_minute.len();
@@ -704,7 +756,10 @@ fn render_rate_chart(ui: &mut egui::Ui, rate: &RateStats) {
     }
     // Linia bazowa i etykiety osi.
     painter.line_segment(
-        [egui::pos2(origin.x, origin.y + chart_h), egui::pos2(origin.x + chart_w, origin.y + chart_h)],
+        [
+            egui::pos2(origin.x, origin.y + chart_h),
+            egui::pos2(origin.x + chart_w, origin.y + chart_h),
+        ],
         egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(100, 116, 139)),
     );
     painter.text(
@@ -740,38 +795,44 @@ fn render_mult_matrix(ui: &mut egui::Ui, matrix: &MultMatrix, lang: crate::core:
         ui.colored_label(egui::Color32::from_rgb(71, 85, 105), "·");
         ui.label(tr("contest.mult_needed", lang));
         ui.label(
-            egui::RichText::new(format!("({}: {})", tr("contest.mult_needed_count", lang), matrix.needed_count()))
-                .weak(),
+            egui::RichText::new(format!(
+                "({}: {})",
+                tr("contest.mult_needed_count", lang),
+                matrix.needed_count()
+            ))
+            .weak(),
         );
     });
 
     egui::ScrollArea::horizontal().show(ui, |ui| {
-        egui::Grid::new("contest_mult_matrix").spacing([2.0, 2.0]).show(ui, |ui| {
-            // Nagłówek z etykietami mnożników.
-            ui.label("");
-            for col in &matrix.columns {
-                ui.label(
-                    egui::RichText::new(col)
-                        .size(8.0)
-                        .color(egui::Color32::from_rgb(148, 163, 184)),
-                );
-            }
-            ui.end_row();
-
-            for (r, band) in matrix.bands.iter().enumerate() {
-                ui.label(egui::RichText::new(band).strong().size(10.0));
-                for (c, col) in matrix.columns.iter().enumerate() {
-                    let v = matrix.worked[r][c];
-                    let (color, glyph) = match v {
-                        2 => (egui::Color32::from_rgb(34, 197, 94), "●"),
-                        1 => (egui::Color32::from_rgb(251, 191, 36), "◐"),
-                        _ => (egui::Color32::from_rgb(71, 85, 105), "·"),
-                    };
-                    ui.colored_label(color, glyph)
-                        .on_hover_text(format!("{band} × {col}"));
+        egui::Grid::new("contest_mult_matrix")
+            .spacing([2.0, 2.0])
+            .show(ui, |ui| {
+                // Nagłówek z etykietami mnożników.
+                ui.label("");
+                for col in &matrix.columns {
+                    ui.label(
+                        egui::RichText::new(col)
+                            .size(8.0)
+                            .color(egui::Color32::from_rgb(148, 163, 184)),
+                    );
                 }
                 ui.end_row();
-            }
-        });
+
+                for (r, band) in matrix.bands.iter().enumerate() {
+                    ui.label(egui::RichText::new(band).strong().size(10.0));
+                    for (c, col) in matrix.columns.iter().enumerate() {
+                        let v = matrix.worked[r][c];
+                        let (color, glyph) = match v {
+                            2 => (egui::Color32::from_rgb(34, 197, 94), "●"),
+                            1 => (egui::Color32::from_rgb(251, 191, 36), "◐"),
+                            _ => (egui::Color32::from_rgb(71, 85, 105), "·"),
+                        };
+                        ui.colored_label(color, glyph)
+                            .on_hover_text(format!("{band} × {col}"));
+                    }
+                    ui.end_row();
+                }
+            });
     });
 }

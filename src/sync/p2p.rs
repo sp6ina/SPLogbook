@@ -305,7 +305,10 @@ mod tests {
     #[test]
     fn seal_open_message_roundtrip() {
         let key = derive_key("haslo", b"sol-0123456789").unwrap();
-        let msg = P2pMessage::Hello { station: "SP6INA".to_string(), protocol: PROTOCOL_VERSION };
+        let msg = P2pMessage::Hello {
+            station: "SP6INA".to_string(),
+            protocol: PROTOCOL_VERSION,
+        };
         let frame = seal(&key, &msg).unwrap();
         let decoded: P2pMessage = open(&key, &frame).unwrap();
         assert_eq!(decoded, msg);
@@ -346,7 +349,10 @@ mod tests {
         remote_q.name = Some("Mariusz".to_string());
         remote_q.qth = Some("Warszawa".to_string());
 
-        let merged = merge_logs(std::slice::from_ref(&local_q), std::slice::from_ref(&remote_q));
+        let merged = merge_logs(
+            std::slice::from_ref(&local_q),
+            std::slice::from_ref(&remote_q),
+        );
         assert_eq!(merged.len(), 1);
         assert_eq!(merged[0].name.as_deref(), Some("Mariusz"));
     }

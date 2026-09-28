@@ -12,8 +12,16 @@ const WSJTX_MAGIC: u32 = 0xadbc_cbda;
 /// Pakiet zdekodowany z WSJT-X / JTDX
 #[derive(Debug, Clone)]
 pub enum WsjtxMessage {
-    Heartbeat { id: String },
-    Status { id: String, dial_freq: u64, mode: String, dx_call: String, report: String },
+    Heartbeat {
+        id: String,
+    },
+    Status {
+        id: String,
+        dial_freq: u64,
+        mode: String,
+        dx_call: String,
+        report: String,
+    },
     QsoLogged(Box<QsoRecord>),
 }
 
@@ -39,12 +47,22 @@ impl WsjtxReceiver {
         let mut buf = vec![0u8; 8192];
 
         loop {
-            if let Ok((len, _)) = socket.recv_from(&mut buf).await {
-                if let Some(msg) = Self::parse_packet(&buf[..len]) {
-                    let _ = sender.send(msg).await;
+            let (len, _) = match socket.recv_from(&mut buf).await {
+                Ok(v) => v,
+                Err(e) => {
+                    log::warn!("WSJT-X: błąd odbioru UDP: {e}");
+                    break;
+                }
+            };
+            if let Some(msg) = Self::parse_packet(&buf[..len]) {
+                // Zamknięcie kanału przez konsumenta (shutdown aplikacji) kończy nasłuch.
+                if sender.send(msg).await.is_err() {
+                    log::debug!("WSJT-X: kanał odbiorczy zamknięty, kończę nasłuch.");
+                    break;
                 }
             }
         }
+        Ok(())
     }
 
     /// Dekoduje strukturę QDateTime ze strumienia Qt QDataStream.
@@ -106,8 +124,10 @@ impl WsjtxReceiver {
                 let dx_grid = Self::read_utf8_string(&mut rdr).unwrap_or_default();
                 let dial_freq = rdr.read_u64::<BigEndian>().unwrap_or(0);
                 let mode = Self::read_utf8_string(&mut rdr).unwrap_or_else(|| "FT8".to_string());
-                let rst_sent = Self::read_utf8_string(&mut rdr).unwrap_or_else(|| "-10".to_string());
-                let rst_rcvd = Self::read_utf8_string(&mut rdr).unwrap_or_else(|| "-10".to_string());
+                let rst_sent =
+                    Self::read_utf8_string(&mut rdr).unwrap_or_else(|| "-10".to_string());
+                let rst_rcvd =
+                    Self::read_utf8_string(&mut rdr).unwrap_or_else(|| "-10".to_string());
                 let _tx_power = Self::read_utf8_string(&mut rdr);
                 let comments = Self::read_utf8_string(&mut rdr);
                 let name = Self::read_utf8_string(&mut rdr);
@@ -123,7 +143,8 @@ impl WsjtxReceiver {
                 let freq_mhz = (dial_freq as f64) / 1_000_000.0;
                 let band = Self::freq_to_band(dial_freq);
 
-                let (qso_date, time_on) = dt_on.unwrap_or_else(|| (date_off.clone(), time_off.clone()));
+                let (qso_date, time_on) =
+                    dt_on.unwrap_or_else(|| (date_off.clone(), time_off.clone()));
 
                 let mut qso = QsoRecord::new(dx_call, band, mode);
                 qso.qso_date = qso_date;
@@ -159,7 +180,8 @@ impl WsjtxReceiver {
             12 => {
                 // Logged ADIF packet (WSJT-X 2.7+ i 3.0+)
                 let adif_text = Self::read_utf8_string(&mut rdr)?;
-                let qsos = crate::core::adif::AdifEngine::parse_reader(std::io::Cursor::new(adif_text));
+                let qsos =
+                    crate::core::adif::AdifEngine::parse_reader(std::io::Cursor::new(adif_text));
                 if let Some(qso) = qsos.into_iter().next() {
                     return Some(WsjtxMessage::QsoLogged(Box::new(qso)));
                 }
@@ -185,7 +207,8 @@ impl WsjtxReceiver {
     }
 
     fn freq_to_band(freq_hz: u64) -> String {
-        crate::core::bandplan::get_band_by_freq(freq_hz).map_or_else(|| "OTHER".to_string(), |b| b.name.to_string())
+        crate::core::bandplan::get_band_by_freq(freq_hz)
+            .map_or_else(|| "OTHER".to_string(), |b| b.name.to_string())
     }
 }
 
@@ -240,7 +263,10 @@ mod tests {
         write_utf8(&mut packet, "F2");
 
         let msg = WsjtxReceiver::parse_packet(&packet);
-        assert!(msg.is_some(), "Pakiet Type 5 powinien zostać poprawnie zdekodowany");
+        assert!(
+            msg.is_some(),
+            "Pakiet Type 5 powinien zostać poprawnie zdekodowany"
+        );
 
         match msg {
             Some(WsjtxMessage::QsoLogged(qso)) => {
@@ -264,4 +290,3 @@ mod tests {
         }
     }
 }
-

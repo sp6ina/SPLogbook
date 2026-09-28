@@ -84,7 +84,9 @@ pub struct ExchangeError {
 
 impl ExchangeError {
     pub fn new(message: impl Into<String>) -> Self {
-        Self { message: message.into() }
+        Self {
+            message: message.into(),
+        }
     }
 }
 
@@ -99,18 +101,27 @@ impl std::error::Error for ExchangeError {}
 /// Parsuje wymianę wg uporządkowanej listy pól reguły kontestu.
 ///
 /// Zwraca ustrukturyzowaną wymianę lub [`ExchangeError`] z opisem problemu.
-pub fn parse_exchange(fields: &[ExchangeField], text: &str) -> Result<ParsedExchange, ExchangeError> {
+pub fn parse_exchange(
+    fields: &[ExchangeField],
+    text: &str,
+) -> Result<ParsedExchange, ExchangeError> {
     let raw = text.trim().to_string();
     if fields.is_empty() {
         // Brak zdefiniowanej struktury wymiany — nic nie walidujemy.
-        return Ok(ParsedExchange { raw, ..Default::default() });
+        return Ok(ParsedExchange {
+            raw,
+            ..Default::default()
+        });
     }
     if raw.is_empty() {
         return Err(ExchangeError::new("Pusta wymiana — wpisz raport i wymianę"));
     }
 
     let tokens = tokenize(&raw, fields);
-    let mut parsed = ParsedExchange { raw, ..Default::default() };
+    let mut parsed = ParsedExchange {
+        raw,
+        ..Default::default()
+    };
 
     let mut ti = 0usize;
     for field in fields.iter().copied() {
@@ -136,7 +147,10 @@ pub fn parse_exchange(fields: &[ExchangeField], text: &str) -> Result<ParsedExch
     }
 
     if ti < tokens.len() {
-        let extra: Vec<&str> = tokens[ti..].iter().map(std::string::String::as_str).collect();
+        let extra: Vec<&str> = tokens[ti..]
+            .iter()
+            .map(std::string::String::as_str)
+            .collect();
         return Err(ExchangeError::new(format!(
             "Nadmiarowe elementy wymiany: {}",
             extra.join(" ")
@@ -211,8 +225,11 @@ fn field_from_token(p: &str) -> ExchangeField {
     if p.contains("CATEGORY") || p.contains("CLASS") {
         return ExchangeField::Category;
     }
-    if p.contains("PROVINCE") || p.contains("DISTRICT") || p.contains("OBLAST")
-        || p.contains("PREFECTURE") || p.contains("SECTION")
+    if p.contains("PROVINCE")
+        || p.contains("DISTRICT")
+        || p.contains("OBLAST")
+        || p.contains("PREFECTURE")
+        || p.contains("SECTION")
     {
         return ExchangeField::District;
     }
@@ -418,10 +435,7 @@ fn tokenize(text: &str, fields: &[ExchangeField]) -> Vec<String> {
     if fields.first() == Some(&ExchangeField::Rst) {
         let compact: String = text.chars().filter(|c| !c.is_whitespace()).collect();
         let bytes = compact.as_bytes();
-        if compact.len() >= 5
-            && compact.len() <= 6
-            && bytes.iter().all(u8::is_ascii_digit)
-        {
+        if compact.len() >= 5 && compact.len() <= 6 && bytes.iter().all(u8::is_ascii_digit) {
             let rst_len = if compact.starts_with("599") { 3 } else { 2 };
             let rst = &compact[..rst_len];
             let rest = &compact[rst_len..];
@@ -799,7 +813,11 @@ mod tests {
     #[test]
     fn parses_iota_with_optional_missing() {
         let p = parse_exchange(
-            &[ExchangeField::Rst, ExchangeField::Serial, ExchangeField::Iota],
+            &[
+                ExchangeField::Rst,
+                ExchangeField::Serial,
+                ExchangeField::Iota,
+            ],
             "599 007 EU-115",
         )
         .unwrap();
@@ -807,7 +825,11 @@ mod tests {
         assert_eq!(p.iota.as_deref(), Some("EU-115"));
 
         let p = parse_exchange(
-            &[ExchangeField::Rst, ExchangeField::Serial, ExchangeField::Iota],
+            &[
+                ExchangeField::Rst,
+                ExchangeField::Serial,
+                ExchangeField::Iota,
+            ],
             "599 007",
         )
         .unwrap();
@@ -825,7 +847,11 @@ mod tests {
 
     #[test]
     fn parses_field_day_category_section() {
-        let p = parse_exchange(&[ExchangeField::Category, ExchangeField::District], "2A EPA").unwrap();
+        let p = parse_exchange(
+            &[ExchangeField::Category, ExchangeField::District],
+            "2A EPA",
+        )
+        .unwrap();
         assert_eq!(p.category.as_deref(), Some("2A"));
         assert_eq!(p.district.as_deref(), Some("EPA"));
     }
@@ -833,7 +859,12 @@ mod tests {
     #[test]
     fn parses_name_qth() {
         let p = parse_exchange(
-            &[ExchangeField::Rst, ExchangeField::Serial, ExchangeField::Name, ExchangeField::Qth],
+            &[
+                ExchangeField::Rst,
+                ExchangeField::Serial,
+                ExchangeField::Name,
+                ExchangeField::Qth,
+            ],
             "599 001 JOHN NYC",
         )
         .unwrap();
@@ -844,7 +875,11 @@ mod tests {
     #[test]
     fn parses_time() {
         let p = parse_exchange(
-            &[ExchangeField::Rst, ExchangeField::Serial, ExchangeField::Time],
+            &[
+                ExchangeField::Rst,
+                ExchangeField::Serial,
+                ExchangeField::Time,
+            ],
             "599 001 1452",
         )
         .unwrap();
@@ -876,7 +911,11 @@ mod tests {
     #[test]
     fn normalizes_iota_without_dash() {
         let p = parse_exchange(
-            &[ExchangeField::Rst, ExchangeField::Serial, ExchangeField::Iota],
+            &[
+                ExchangeField::Rst,
+                ExchangeField::Serial,
+                ExchangeField::Iota,
+            ],
             "599 001 EU115",
         )
         .unwrap();

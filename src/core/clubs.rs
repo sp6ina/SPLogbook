@@ -26,9 +26,19 @@ impl ClubRegistry {
         let mut list = Vec::new();
 
         // 1. Polskie kluby specjalistyczne
-        if clean.starts_with("SP") || clean.starts_with("SQ") || clean.starts_with("3Z") || clean.starts_with("SN") || clean.starts_with("SO") {
+        if clean.starts_with("SP")
+            || clean.starts_with("SQ")
+            || clean.starts_with("3Z")
+            || clean.starts_with("SN")
+            || clean.starts_with("SO")
+        {
             // SP-OTC (SP Old Timers Club) - stacje z długim stażem lub prefiksem SP1-SP9
-            if clean == "SP6INA" || clean == "SP6ZDA" || clean == "SP5PZK" || clean == "SP2FAX" || clean == "SP1PBW" {
+            if clean == "SP6INA"
+                || clean == "SP6ZDA"
+                || clean == "SP5PZK"
+                || clean == "SP2FAX"
+                || clean == "SP1PBW"
+            {
                 list.push(ClubAffiliation {
                     code: "SP-OTC",
                     name: "SP Old Timers Club",
@@ -38,7 +48,8 @@ impl ClubRegistry {
             }
 
             // Polski Klub Telegrafistów (SP-CW-C)
-            if clean.ends_with("CW") || clean == "SP6INA" || clean == "SP6PAZ" || clean == "SP2FAP" {
+            if clean.ends_with("CW") || clean == "SP6INA" || clean == "SP6PAZ" || clean == "SP2FAP"
+            {
                 list.push(ClubAffiliation {
                     code: "SPCWC",
                     name: "SP CW Club",

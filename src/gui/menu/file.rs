@@ -11,31 +11,49 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.current_language;
 
     ui.menu_button(tr("menu.file", lang), |ui| {
-        if ui.button(icons::FOLDER.label(tr("menu.journal_mgmt", lang))).clicked() {
+        if ui
+            .button(icons::FOLDER.label(tr("menu.journal_mgmt", lang)))
+            .clicked()
+        {
             if let Ok(db) = app.log_db.lock() {
                 app.journal_dialog.reload(&db);
             }
             app.journal_dialog.is_open = true;
             ui.close();
         }
-        if ui.button(icons::SEARCH.label(tr("menu.advanced_filter", lang))).clicked() {
+        if ui
+            .button(icons::SEARCH.label(tr("menu.advanced_filter", lang)))
+            .clicked()
+        {
             app.advanced_filter_dialog.is_open = true;
             ui.close();
         }
-        if ui.button(icons::BADGE.label(tr("menu.qsl_print", lang))).clicked() {
+        if ui
+            .button(icons::BADGE.label(tr("menu.qsl_print", lang)))
+            .clicked()
+        {
             app.qsl_designer_dialog.is_open = true;
             ui.close();
         }
-        if ui.button(icons::BADGE.label(tr("menu.station_profiles", lang))).clicked() {
+        if ui
+            .button(icons::BADGE.label(tr("menu.station_profiles", lang)))
+            .clicked()
+        {
             app.show_station_profiles_window = true;
             ui.close();
         }
         ui.separator();
-        if ui.button(icons::STAR.label(tr("wizard.setup_station", lang))).clicked() {
+        if ui
+            .button(icons::STAR.label(tr("wizard.setup_station", lang)))
+            .clicked()
+        {
             app.show_welcome_wizard = true;
             ui.close();
         }
-        if ui.button(icons::GLOBE.label(tr("menu.online_sync", lang))).clicked() {
+        if ui
+            .button(icons::GLOBE.label(tr("menu.online_sync", lang)))
+            .clicked()
+        {
             app.show_online_sync_window = true;
             ui.close();
         }
@@ -55,16 +73,25 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             app.csv_export_dialog.open();
             ui.close();
         }
-        if ui.button(icons::SOTA_MOUNTAIN.label(tr("menu.export_sota", lang))).clicked() {
+        if ui
+            .button(icons::SOTA_MOUNTAIN.label(tr("menu.export_sota", lang)))
+            .clicked()
+        {
             let call = app.my_station.callsign.clone();
             app.sota_dialog.open(&call);
             ui.close();
         }
-        if ui.button(icons::DOCUMENT.label(tr("menu.export_pdf", lang))).clicked() {
+        if ui
+            .button(icons::DOCUMENT.label(tr("menu.export_pdf", lang)))
+            .clicked()
+        {
             app.export_pdf_log();
             ui.close();
         }
-        if ui.button(icons::WORLD_MAP.label(tr("menu.export_gpx", lang))).clicked() {
+        if ui
+            .button(icons::WORLD_MAP.label(tr("menu.export_gpx", lang)))
+            .clicked()
+        {
             app.export_gpx_log();
             ui.close();
         }

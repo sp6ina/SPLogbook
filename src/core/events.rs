@@ -46,9 +46,7 @@ pub enum AppEvent {
         connected: bool,
     },
     /// Zmienił się stan połączenia z klastrem DX.
-    ClusterStatus {
-        connected: bool,
-    },
+    ClusterStatus { connected: bool },
     /// Zdarzenie synchronizacji z serwisem zewnętrznym (eQSL, LoTW, Club Log, QRZ…).
     CloudSync {
         service: String,
@@ -56,10 +54,7 @@ pub enum AppEvent {
         detail: String,
     },
     /// Ogólne powiadomienie / toast dla użytkownika.
-    Toast {
-        level: String,
-        message: String,
-    },
+    Toast { level: String, message: String },
 }
 
 /// Centralna magistrala zdarzeń. Tania w klonowaniu — współdzieli nadajnik.

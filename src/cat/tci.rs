@@ -4,11 +4,29 @@
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TciMessage {
-    Vfo { receiver: u8, vfo: u8, freq_hz: u64 },
-    Modulation { receiver: u8, mode: String },
-    Trx { receiver: u8, transmitting: bool },
-    Spot { callsign: String, freq_hz: u64, color: u32, text: String },
-    CwMacro { speed_wpm: u8, text: String },
+    Vfo {
+        receiver: u8,
+        vfo: u8,
+        freq_hz: u64,
+    },
+    Modulation {
+        receiver: u8,
+        mode: String,
+    },
+    Trx {
+        receiver: u8,
+        transmitting: bool,
+    },
+    Spot {
+        callsign: String,
+        freq_hz: u64,
+        color: u32,
+        text: String,
+    },
+    CwMacro {
+        speed_wpm: u8,
+        text: String,
+    },
     Unknown(String),
 }
 
@@ -32,7 +50,13 @@ impl TciProtocol {
 
     /// Formatuje komendę naniesienia spotu DX na wodospad SDR
     pub fn cmd_add_spot(callsign: &str, freq_hz: u64, color_argb: u32, text: &str) -> String {
-        format!("spot:{},{},{},{};", callsign.trim().to_uppercase(), freq_hz, color_argb, text.trim())
+        format!(
+            "spot:{},{},{},{};",
+            callsign.trim().to_uppercase(),
+            freq_hz,
+            color_argb,
+            text.trim()
+        )
     }
 
     /// Formatuje komendę nadania tekstu CW
@@ -49,7 +73,11 @@ impl TciProtocol {
                 let receiver = parts[0].parse::<u8>().unwrap_or(0);
                 let vfo = parts[1].parse::<u8>().unwrap_or(0);
                 let freq_hz = parts[2].parse::<u64>().unwrap_or(0);
-                return TciMessage::Vfo { receiver, vfo, freq_hz };
+                return TciMessage::Vfo {
+                    receiver,
+                    vfo,
+                    freq_hz,
+                };
             }
         } else if let Some(rest) = trimmed.strip_prefix("modulation:") {
             let parts: Vec<&str> = rest.split(',').collect();
@@ -63,7 +91,10 @@ impl TciProtocol {
             if parts.len() >= 2 {
                 let receiver = parts[0].parse::<u8>().unwrap_or(0);
                 let transmitting = parts[1].trim().eq_ignore_ascii_case("true");
-                return TciMessage::Trx { receiver, transmitting };
+                return TciMessage::Trx {
+                    receiver,
+                    transmitting,
+                };
             }
         } else if let Some(rest) = trimmed.strip_prefix("spot:") {
             let parts: Vec<&str> = rest.split(',').collect();
@@ -72,7 +103,12 @@ impl TciProtocol {
                 let freq_hz = parts[1].parse::<u64>().unwrap_or(0);
                 let color = parts[2].parse::<u32>().unwrap_or(0xFF00_FF00);
                 let text = parts[3].to_string();
-                return TciMessage::Spot { callsign, freq_hz, color, text };
+                return TciMessage::Spot {
+                    callsign,
+                    freq_hz,
+                    color,
+                    text,
+                };
             }
         }
         TciMessage::Unknown(raw.to_string())
@@ -85,7 +121,10 @@ mod tests {
 
     #[test]
     fn test_tci_formatters() {
-        assert_eq!(TciProtocol::cmd_set_vfo(0, 0, 14_074_000), "vfo:0,0,14074000;");
+        assert_eq!(
+            TciProtocol::cmd_set_vfo(0, 0, 14_074_000),
+            "vfo:0,0,14074000;"
+        );
         assert_eq!(TciProtocol::cmd_set_mode(0, "usb"), "modulation:0,USB;");
         assert_eq!(TciProtocol::cmd_set_trx(0, true), "trx:0,true;");
         assert_eq!(
@@ -97,12 +136,31 @@ mod tests {
     #[test]
     fn test_tci_parser() {
         let msg = TciProtocol::parse_message("vfo:0,0,7074000;");
-        assert_eq!(msg, TciMessage::Vfo { receiver: 0, vfo: 0, freq_hz: 7_074_000 });
+        assert_eq!(
+            msg,
+            TciMessage::Vfo {
+                receiver: 0,
+                vfo: 0,
+                freq_hz: 7_074_000
+            }
+        );
 
         let msg_mod = TciProtocol::parse_message("modulation:0,CW;");
-        assert_eq!(msg_mod, TciMessage::Modulation { receiver: 0, mode: "CW".to_string() });
+        assert_eq!(
+            msg_mod,
+            TciMessage::Modulation {
+                receiver: 0,
+                mode: "CW".to_string()
+            }
+        );
 
         let msg_trx = TciProtocol::parse_message("trx:0,true;");
-        assert_eq!(msg_trx, TciMessage::Trx { receiver: 0, transmitting: true });
+        assert_eq!(
+            msg_trx,
+            TciMessage::Trx {
+                receiver: 0,
+                transmitting: true
+            }
+        );
     }
 }

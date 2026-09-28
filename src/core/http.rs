@@ -9,7 +9,11 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 /// Stały identyfikator User-Agent dla wszystkich zapytań HTTP.
-pub const USER_AGENT: &str = concat!("SPLogbook/", env!("CARGO_PKG_VERSION"), " (SP6INA; contact@splogbook.org)");
+pub const USER_AGENT: &str = concat!(
+    "SPLogbook/",
+    env!("CARGO_PKG_VERSION"),
+    " (SP6INA; contact@splogbook.org)"
+);
 
 /// Domyślny timeout zapytań HTTP (bezpieczny dla wolnych usług cloudowych).
 const DEFAULT_TIMEOUT_SECS: u64 = 15;
@@ -92,14 +96,17 @@ fn jitter_ms(base_ms: u64, attempt: usize) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[test]
     fn test_http_client_is_shared_singleton() {
         let a = http_client();
         let b = http_client();
-        assert!(std::ptr::eq(a, b), "http_client() musi zwracać ten sam klient");
+        assert!(
+            std::ptr::eq(a, b),
+            "http_client() musi zwracać ten sam klient"
+        );
     }
 
     #[tokio::test]
@@ -130,11 +137,7 @@ mod tests {
                 let c = c.clone();
                 async move {
                     let n = c.fetch_add(1, Ordering::SeqCst) + 1;
-                    if n < 3 {
-                        Err("fail")
-                    } else {
-                        Ok("ok")
-                    }
+                    if n < 3 { Err("fail") } else { Ok("ok") }
                 }
             },
             3,

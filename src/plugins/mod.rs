@@ -42,7 +42,10 @@ struct PluginState {
 
 /// Dodaje polecenie do kolejki współdzielonego stanu pluginów.
 fn push_command(state: &Arc<PluginState>, cmd: PluginCommand) {
-    let mut v = state.commands.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut v = state
+        .commands
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     if v.len() < 256 {
         v.push(cmd);
     }
@@ -82,7 +85,10 @@ impl PluginEngine {
         // --- Bezpieczne API udostępniane skryptom ---
         let log_state = Arc::clone(&state);
         engine.register_fn("log", move |msg: &str| {
-            let mut v = log_state.log.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut v = log_state
+                .log
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             v.push(msg.to_string());
             if v.len() > 500 {
                 v.remove(0);
@@ -102,96 +108,116 @@ impl PluginEngine {
         });
 
         let count_state = Arc::clone(&state);
-        engine.register_fn("qso_count", move || count_state.qso_count.load(Ordering::Relaxed));
+        engine.register_fn("qso_count", move || {
+            count_state.qso_count.load(Ordering::Relaxed)
+        });
 
         // --- Gettery stanu (radio, rotor, nagrody, stacja, ostatnia łączność) ---
         let snap = Arc::clone(&state.snapshot);
         engine.register_fn("rig_freq_mhz", move || {
-            snap.read().unwrap_or_else(std::sync::PoisonError::into_inner).rig_freq_mhz
+            snap.read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .rig_freq_mhz
         });
         let snap = Arc::clone(&state.snapshot);
         engine.register_fn("rig_mode", move || {
-            snap.read().unwrap_or_else(std::sync::PoisonError::into_inner)
+            snap.read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .rig_mode
                 .clone()
         });
         let snap = Arc::clone(&state.snapshot);
         engine.register_fn("rig_band", move || {
-            snap.read().unwrap_or_else(std::sync::PoisonError::into_inner)
+            snap.read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .rig_band
                 .clone()
         });
         let snap = Arc::clone(&state.snapshot);
         engine.register_fn("rig_connected", move || {
-            snap.read().unwrap_or_else(std::sync::PoisonError::into_inner).rig_connected
+            snap.read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .rig_connected
         });
         let snap = Arc::clone(&state.snapshot);
         engine.register_fn("rotor_azimuth", move || {
-            snap.read().unwrap_or_else(std::sync::PoisonError::into_inner)
+            snap.read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .rotor_azimuth_deg
         });
         let snap = Arc::clone(&state.snapshot);
         engine.register_fn("rotor_elevation", move || {
-            snap.read().unwrap_or_else(std::sync::PoisonError::into_inner)
+            snap.read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .rotor_elevation_deg
         });
         let snap = Arc::clone(&state.snapshot);
         engine.register_fn("my_call", move || {
-            snap.read().unwrap_or_else(std::sync::PoisonError::into_inner)
+            snap.read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .my_call
                 .clone()
         });
         let snap = Arc::clone(&state.snapshot);
         engine.register_fn("dxcc_worked", move || {
-            snap.read().unwrap_or_else(std::sync::PoisonError::into_inner)
+            snap.read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .awards
                 .dxcc_worked
         });
         let snap = Arc::clone(&state.snapshot);
         engine.register_fn("dxcc_confirmed", move || {
-            snap.read().unwrap_or_else(std::sync::PoisonError::into_inner)
+            snap.read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .awards
                 .dxcc_confirmed
         });
         let snap = Arc::clone(&state.snapshot);
         engine.register_fn("waz_worked", move || {
-            snap.read().unwrap_or_else(std::sync::PoisonError::into_inner)
+            snap.read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .awards
                 .waz_worked
         });
         let snap = Arc::clone(&state.snapshot);
         engine.register_fn("was_worked", move || {
-            snap.read().unwrap_or_else(std::sync::PoisonError::into_inner)
+            snap.read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .awards
                 .was_worked
         });
         let snap = Arc::clone(&state.snapshot);
         engine.register_fn("wac_worked", move || {
-            snap.read().unwrap_or_else(std::sync::PoisonError::into_inner)
+            snap.read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .awards
                 .wac_worked
         });
         let snap = Arc::clone(&state.snapshot);
         engine.register_fn("iota_worked", move || {
-            snap.read().unwrap_or_else(std::sync::PoisonError::into_inner)
+            snap.read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .awards
                 .iota_worked
         });
         let snap = Arc::clone(&state.snapshot);
         engine.register_fn("pota_parks_worked", move || {
-            snap.read().unwrap_or_else(std::sync::PoisonError::into_inner)
+            snap.read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .awards
                 .pota_parks_worked
         });
         let snap = Arc::clone(&state.snapshot);
         engine.register_fn("sota_summits_worked", move || {
-            snap.read().unwrap_or_else(std::sync::PoisonError::into_inner)
+            snap.read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .awards
                 .sota_summits_worked
         });
         let snap = Arc::clone(&state.snapshot);
         engine.register_fn("pga_gminas_worked", move || {
-            snap.read().unwrap_or_else(std::sync::PoisonError::into_inner)
+            snap.read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .awards
                 .pga_gminas_worked
         });
@@ -206,11 +232,21 @@ impl PluginEngine {
         // --- Akcje (kolejkowane jako PluginCommand i wykonywane przez aplikację) ---
         let cmd = Arc::clone(&state);
         engine.register_fn("send_cw", move |text: &str| {
-            push_command(&cmd, PluginCommand::SendCw { text: text.to_string() });
+            push_command(
+                &cmd,
+                PluginCommand::SendCw {
+                    text: text.to_string(),
+                },
+            );
         });
         let cmd = Arc::clone(&state);
         engine.register_fn("send_voice", move |text: &str| {
-            push_command(&cmd, PluginCommand::SendVoice { text: text.to_string() });
+            push_command(
+                &cmd,
+                PluginCommand::SendVoice {
+                    text: text.to_string(),
+                },
+            );
         });
         let cmd = Arc::clone(&state);
         engine.register_fn("rotate", move |azimuth_deg: f32| {
@@ -233,16 +269,19 @@ impl PluginEngine {
             );
         });
         let cmd = Arc::clone(&state);
-        engine.register_fn("spot", move |dx_call: &str, freq_khz: f64, comment: &str| {
-            push_command(
-                &cmd,
-                PluginCommand::Spot {
-                    dx_call: dx_call.to_string(),
-                    freq_khz,
-                    comment: comment.to_string(),
-                },
-            );
-        });
+        engine.register_fn(
+            "spot",
+            move |dx_call: &str, freq_khz: f64, comment: &str| {
+                push_command(
+                    &cmd,
+                    PluginCommand::Spot {
+                        dx_call: dx_call.to_string(),
+                        freq_khz,
+                        comment: comment.to_string(),
+                    },
+                );
+            },
+        );
         let cmd = Arc::clone(&state);
         engine.register_fn("set_qso_field", move |field: &str, value: &str| {
             push_command(
@@ -255,15 +294,30 @@ impl PluginEngine {
         });
         let cmd = Arc::clone(&state);
         engine.register_fn("play_sound", move |name: &str| {
-            push_command(&cmd, PluginCommand::PlaySound { name: name.to_string() });
+            push_command(
+                &cmd,
+                PluginCommand::PlaySound {
+                    name: name.to_string(),
+                },
+            );
         });
         let cmd = Arc::clone(&state);
         engine.register_fn("pota_lookup", move |reference: &str| {
-            push_command(&cmd, PluginCommand::PotaLookup { reference: reference.to_string() });
+            push_command(
+                &cmd,
+                PluginCommand::PotaLookup {
+                    reference: reference.to_string(),
+                },
+            );
         });
         let cmd = Arc::clone(&state);
         engine.register_fn("sota_lookup", move |reference: &str| {
-            push_command(&cmd, PluginCommand::SotaLookup { reference: reference.to_string() });
+            push_command(
+                &cmd,
+                PluginCommand::SotaLookup {
+                    reference: reference.to_string(),
+                },
+            );
         });
 
         Self {
@@ -287,10 +341,13 @@ impl PluginEngine {
 
     /// Pobiera zakolejkowane przez pluginy polecenia i czyści bufor.
     pub fn drain_commands(&self) -> Vec<PluginCommand> {
-        let mut v = self.state.commands.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut v = self
+            .state
+            .commands
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         std::mem::take(&mut *v)
     }
-
 
     /// Włącza/wyłącza wykonywanie pluginów (bez wyładowywania skryptów).
     pub fn set_enabled(&mut self, enabled: bool) {
@@ -324,8 +381,10 @@ impl PluginEngine {
         paths.sort();
 
         for path in paths {
-            let name = path
-                .file_stem().map_or_else(|| path.display().to_string(), |s| s.to_string_lossy().to_string());
+            let name = path.file_stem().map_or_else(
+                || path.display().to_string(),
+                |s| s.to_string_lossy().to_string(),
+            );
             self.load_script(&name, &path);
         }
     }
@@ -380,7 +439,11 @@ impl PluginEngine {
 
     /// Pobiera zebrane komunikaty `log(...)` i czyści bufor.
     pub fn drain_log(&self) -> Vec<String> {
-        let mut v = self.state.log.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut v = self
+            .state
+            .log
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         std::mem::take(&mut *v)
     }
 
@@ -409,7 +472,11 @@ impl PluginEngine {
                 hook,
                 args.to_vec(),
             ) {
-                let mut log = self.state.log.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let mut log = self
+                    .state
+                    .log
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 log.push(format!("[{name}] {hook}: {e}"));
             }
         }

@@ -122,7 +122,10 @@ mod tests {
     fn test_winkeyer_protocol_frames() {
         assert_eq!(WinkeyerProtocol::set_speed(28), vec![0x02, 28]);
         assert_eq!(WinkeyerProtocol::abort_buffer(), vec![0x0A]);
-        assert_eq!(WinkeyerProtocol::encode_text("cq de sp6ina k"), b"CQ DE SP6INA K".to_vec());
+        assert_eq!(
+            WinkeyerProtocol::encode_text("cq de sp6ina k"),
+            b"CQ DE SP6INA K".to_vec()
+        );
     }
 
     #[test]

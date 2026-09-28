@@ -35,7 +35,9 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
     let max_h = (screen_height * 0.82).min(520.0);
 
     let active_tab_id = egui::Id::new("online_sync_active_tab");
-    let mut active_tab = ctx.data_mut(|d| d.get_temp::<SyncTab>(active_tab_id)).unwrap_or(SyncTab::Lotw);
+    let mut active_tab = ctx
+        .data_mut(|d| d.get_temp::<SyncTab>(active_tab_id))
+        .unwrap_or(SyncTab::Lotw);
 
     egui::Window::new(format!("🌐 {}", tr("sync.title", lang)))
         .open(&mut is_open)

@@ -7,11 +7,11 @@ use serde::{Deserialize, Serialize};
 /// Wskaźniki aktywności słonecznej i geomagnetycznej (NOAA SWPC / HamQTH)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SpaceWeather {
-    pub sfi: u32,             // Solar Flux Index (np. 145)
-    pub ssn: u32,             // Sunspot Number (Liczba Wolfa, np. 98)
-    pub a_index: u32,         // Indeks A (24-godzinna aktywność geomagnetyczna, np. 6)
-    pub k_index: u32,         // Indeks K (planitarny wskaźnik burz geomagnetycznych 0..9, np. 1)
-    pub x_ray: String,        // Poziom promieniowania rentgenowskiego (np. "B3.2", "M1.5")
+    pub sfi: u32,                  // Solar Flux Index (np. 145)
+    pub ssn: u32,                  // Sunspot Number (Liczba Wolfa, np. 98)
+    pub a_index: u32,              // Indeks A (24-godzinna aktywność geomagnetyczna, np. 6)
+    pub k_index: u32, // Indeks K (planitarny wskaźnik burz geomagnetycznych 0..9, np. 1)
+    pub x_ray: String, // Poziom promieniowania rentgenowskiego (np. "B3.2", "M1.5")
     pub geomagnetic_field: String, // "Quiet", "Unsettled", "Active", "Minor Storm"
     pub aurora_latitude: u32, // Szerokość geograficzna owalu zorzy polarnej (np. 67°N)
     pub updated_utc: String,
@@ -27,7 +27,9 @@ impl Default for SpaceWeather {
             x_ray: "B1.0".to_string(),
             geomagnetic_field: "Quiet".to_string(),
             aurora_latitude: 67,
-            updated_utc: chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC").to_string(),
+            updated_utc: chrono::Utc::now()
+                .format("%Y-%m-%d %H:%M:%S UTC")
+                .to_string(),
         }
     }
 }
@@ -88,12 +90,21 @@ impl SpaceWeatherClient {
         let url = "https://www.hamqth.com/xml.php?solar=1";
         let xml = self.client.get(url).send().await?.text().await?;
 
-        let sfi = Self::extract_tag(&xml, "solarflux").and_then(|v| v.parse().ok()).unwrap_or(135);
-        let ssn = Self::extract_tag(&xml, "sunspots").and_then(|v| v.parse().ok()).unwrap_or(80);
-        let a_index = Self::extract_tag(&xml, "aindex").and_then(|v| v.parse().ok()).unwrap_or(6);
-        let k_index = Self::extract_tag(&xml, "kindex").and_then(|v| v.parse().ok()).unwrap_or(1);
+        let sfi = Self::extract_tag(&xml, "solarflux")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(135);
+        let ssn = Self::extract_tag(&xml, "sunspots")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(80);
+        let a_index = Self::extract_tag(&xml, "aindex")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(6);
+        let k_index = Self::extract_tag(&xml, "kindex")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(1);
         let x_ray = Self::extract_tag(&xml, "xray").unwrap_or_else(|| "B1.0".to_string());
-        let geomagnetic_field = Self::extract_tag(&xml, "geomagfield").unwrap_or_else(|| "Quiet".to_string());
+        let geomagnetic_field =
+            Self::extract_tag(&xml, "geomagfield").unwrap_or_else(|| "Quiet".to_string());
 
         Ok(SpaceWeather {
             sfi,
@@ -103,7 +114,9 @@ impl SpaceWeatherClient {
             x_ray,
             geomagnetic_field,
             aurora_latitude: 65,
-            updated_utc: chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC").to_string(),
+            updated_utc: chrono::Utc::now()
+                .format("%Y-%m-%d %H:%M:%S UTC")
+                .to_string(),
         })
     }
 
@@ -114,10 +127,6 @@ impl SpaceWeatherClient {
         let start = xml.find(&open_tag)? + open_tag.len();
         let end = xml[start..].find(&close_tag)? + start;
         let val = xml[start..end].trim().to_string();
-        if val.is_empty() {
-            None
-        } else {
-            Some(val)
-        }
+        if val.is_empty() { None } else { Some(val) }
     }
 }

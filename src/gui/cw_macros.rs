@@ -56,9 +56,18 @@ pub fn render_cw_macros_window(app: &mut SpLogApp, ctx: &egui::Context) {
     }
 }
 
-fn render_macro_row(ui: &mut egui::Ui, label: &str, macro_text: &mut String, macro_to_transmit: &mut Option<String>) {
+fn render_macro_row(
+    ui: &mut egui::Ui,
+    label: &str,
+    macro_text: &mut String,
+    macro_to_transmit: &mut Option<String>,
+) {
     ui.horizontal(|ui| {
-        let btn = ui.button(egui::RichText::new(label).strong().color(egui::Color32::from_rgb(251, 191, 36)));
+        let btn = ui.button(
+            egui::RichText::new(label)
+                .strong()
+                .color(egui::Color32::from_rgb(251, 191, 36)),
+        );
         if btn.clicked() {
             *macro_to_transmit = Some(macro_text.clone());
         }

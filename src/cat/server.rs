@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
+use crate::cat::hamlib::RigState;
 use std::sync::Arc;
 use std::sync::RwLock;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 use tokio::sync::watch;
-use crate::cat::hamlib::RigState;
 
 /// Zdarzenia nadsyłane przez klientów TCP (np. WSJT-X, JTDX, FLDigi)
 #[derive(Debug, Clone, PartialEq)]
@@ -69,7 +69,12 @@ struct Dispatch {
 
 impl Dispatch {
     fn ok(response: impl Into<String>) -> Self {
-        Self { response: response.into(), mutations: Vec::new(), commands: Vec::new(), close: false }
+        Self {
+            response: response.into(),
+            mutations: Vec::new(),
+            commands: Vec::new(),
+            close: false,
+        }
     }
 
     fn rprt(code: i32) -> Self {
@@ -91,7 +96,12 @@ fn dispatch_command(trimmed: &str, state: &RigState) -> Dispatch {
     let args: Vec<&str> = parts.collect();
 
     match op {
-        "q" | "Q" => Dispatch { response: String::new(), mutations: Vec::new(), commands: Vec::new(), close: true },
+        "q" | "Q" => Dispatch {
+            response: String::new(),
+            mutations: Vec::new(),
+            commands: Vec::new(),
+            close: true,
+        },
 
         // ── Zapytania o stan ────────────────────────────────────────────────
         "\\dump_state" => Dispatch::ok(dump_state(state)),
@@ -100,7 +110,10 @@ fn dispatch_command(trimmed: &str, state: &RigState) -> Dispatch {
         "\\get_vfo" => Dispatch::ok(format!("{}\n", state.vfo)),
         "\\get_split" => Dispatch::ok(format!("{}\n", i32::from(state.split_enabled))),
         "\\get_split_vfo" => Dispatch::ok(format!("{}\n", state.tx_vfo)),
-        "\\get_split_freq" => Dispatch::ok(format!("{}\n", state.tx_frequency_hz.unwrap_or(state.frequency_hz))),
+        "\\get_split_freq" => Dispatch::ok(format!(
+            "{}\n",
+            state.tx_frequency_hz.unwrap_or(state.frequency_hz)
+        )),
         "\\get_rit" => Dispatch::ok(format!("{}\n", state.rit_hz)),
         "\\get_xit" => Dispatch::ok(format!("{}\n", state.xit_hz)),
         "\\get_info" => Dispatch::ok("Rig command set (SPLogbook Hamlib proxy) 1.0\n".to_string()),
@@ -117,9 +130,15 @@ fn dispatch_command(trimmed: &str, state: &RigState) -> Dispatch {
 
         // ── Krótkie zapytania (zgodne z rigctld) ────────────────────────────
         "f" if args.is_empty() => Dispatch::ok(format!("{}\n", state.frequency_hz)),
-        "m" if args.is_empty() => Dispatch::ok(format!("{}\n{}\n", hamlib_mode(&state.mode), state.passband_hz)),
+        "m" if args.is_empty() => Dispatch::ok(format!(
+            "{}\n{}\n",
+            hamlib_mode(&state.mode),
+            state.passband_hz
+        )),
         "v" if args.is_empty() => Dispatch::ok(format!("{}\n", state.vfo)),
-        "s" if args.is_empty() => Dispatch::ok(format!("{}\nVFOA\n", i32::from(state.split_enabled))),
+        "s" if args.is_empty() => {
+            Dispatch::ok(format!("{}\nVFOA\n", i32::from(state.split_enabled)))
+        }
         "t" if args.is_empty() => Dispatch::ok(format!("{}\n", i32::from(state.ptt))),
         "j" if args.is_empty() => Dispatch::ok(format!("{}\n", state.rit_hz)),
         "z" if args.is_empty() => Dispatch::ok(format!("{}\n", state.xit_hz)),
@@ -182,16 +201,26 @@ fn dispatch_command(trimmed: &str, state: &RigState) -> Dispatch {
                 return Dispatch::rprt(rprt::EINVAL);
             }
             let enabled = args[0] == "1";
-            let tx_vfo = args.get(1).map_or_else(|| "VFOA".to_string(), std::string::ToString::to_string);
+            let tx_vfo = args
+                .get(1)
+                .map_or_else(|| "VFOA".to_string(), std::string::ToString::to_string);
             let mut d = Dispatch::ok(format!("RPRT {}\n", rprt::OK));
-            d.mutations.push(StateMutation::SetSplit { enabled, tx_vfo: tx_vfo.clone() });
-            d.commands.push(RigServerCommand::SetSplit { enabled, tx_vfo });
+            d.mutations.push(StateMutation::SetSplit {
+                enabled,
+                tx_vfo: tx_vfo.clone(),
+            });
+            d.commands
+                .push(RigServerCommand::SetSplit { enabled, tx_vfo });
             d
         }
 
         // ── RIT / XIT ───────────────────────────────────────────────────────
-        "J" | "j" | "\\set_rit" => set_rit_xit(&args, StateMutation::SetRit, RigServerCommand::SetRit),
-        "Z" | "z" | "\\set_xit" => set_rit_xit(&args, StateMutation::SetXit, RigServerCommand::SetXit),
+        "J" | "j" | "\\set_rit" => {
+            set_rit_xit(&args, StateMutation::SetRit, RigServerCommand::SetRit)
+        }
+        "Z" | "z" | "\\set_xit" => {
+            set_rit_xit(&args, StateMutation::SetXit, RigServerCommand::SetXit)
+        }
 
         // ── Rozszerzone polecenia z odwrotnym ukośnikiem ────────────────────
         "\\set_split" => {
@@ -199,10 +228,16 @@ fn dispatch_command(trimmed: &str, state: &RigState) -> Dispatch {
                 return Dispatch::rprt(rprt::EINVAL);
             }
             let enabled = args[0] == "1";
-            let tx_vfo = args.get(1).map_or_else(|| "VFOA".to_string(), std::string::ToString::to_string);
+            let tx_vfo = args
+                .get(1)
+                .map_or_else(|| "VFOA".to_string(), std::string::ToString::to_string);
             let mut d = Dispatch::ok(format!("RPRT {}\n", rprt::OK));
-            d.mutations.push(StateMutation::SetSplit { enabled, tx_vfo: tx_vfo.clone() });
-            d.commands.push(RigServerCommand::SetSplit { enabled, tx_vfo });
+            d.mutations.push(StateMutation::SetSplit {
+                enabled,
+                tx_vfo: tx_vfo.clone(),
+            });
+            d.commands
+                .push(RigServerCommand::SetSplit { enabled, tx_vfo });
             d
         }
         "\\set_split_vfo" => {
@@ -212,8 +247,14 @@ fn dispatch_command(trimmed: &str, state: &RigState) -> Dispatch {
             // Aktualizujemy nazwę VFO nadawczego (bez zmiany stanu split).
             let vfo = args[0].to_string();
             let mut d = Dispatch::ok(format!("RPRT {}\n", rprt::OK));
-            d.mutations.push(StateMutation::SetSplit { enabled: state.split_enabled, tx_vfo: vfo.clone() });
-            d.commands.push(RigServerCommand::SetSplit { enabled: state.split_enabled, tx_vfo: vfo });
+            d.mutations.push(StateMutation::SetSplit {
+                enabled: state.split_enabled,
+                tx_vfo: vfo.clone(),
+            });
+            d.commands.push(RigServerCommand::SetSplit {
+                enabled: state.split_enabled,
+                tx_vfo: vfo,
+            });
             d
         }
         "\\set_split_freq" => {
@@ -318,7 +359,10 @@ pub struct HamlibProxyServer {
 }
 
 impl HamlibProxyServer {
-    pub fn new(port: u16, shared_state: Arc<RwLock<RigState>>) -> (Self, broadcast::Receiver<RigServerCommand>) {
+    pub fn new(
+        port: u16,
+        shared_state: Arc<RwLock<RigState>>,
+    ) -> (Self, broadcast::Receiver<RigServerCommand>) {
         let (cmd_sender, cmd_receiver) = broadcast::channel(64);
         let (stop_tx, _stop_rx) = watch::channel(false);
         (
@@ -451,7 +495,10 @@ fn apply_mutation(state: &mut RigState, m: &StateMutation) {
         StateMutation::SetMode(ref mode) => state.mode.clone_from(mode),
         StateMutation::SetPtt(ptt) => state.ptt = ptt,
         StateMutation::SetVfo(ref vfo) => state.vfo.clone_from(vfo),
-        StateMutation::SetSplit { enabled, ref tx_vfo } => {
+        StateMutation::SetSplit {
+            enabled,
+            ref tx_vfo,
+        } => {
             state.split_enabled = enabled;
             state.tx_vfo.clone_from(tx_vfo);
         }
@@ -497,16 +544,28 @@ mod tests {
         assert_eq!(d.mutations, vec![StateMutation::SetFrequency(14_200_000)]);
 
         let d = dispatch_command("M CW", &s);
-        assert_eq!(d.commands, vec![RigServerCommand::SetMode("CW".to_string())]);
+        assert_eq!(
+            d.commands,
+            vec![RigServerCommand::SetMode("CW".to_string())]
+        );
 
         let d = dispatch_command("T 1", &s);
         assert_eq!(d.commands, vec![RigServerCommand::SetPtt(true)]);
 
         let d = dispatch_command("V VFOB", &s);
-        assert_eq!(d.commands, vec![RigServerCommand::SetVfo("VFOB".to_string())]);
+        assert_eq!(
+            d.commands,
+            vec![RigServerCommand::SetVfo("VFOB".to_string())]
+        );
 
         let d = dispatch_command("S 1 VFOB", &s);
-        assert_eq!(d.commands, vec![RigServerCommand::SetSplit { enabled: true, tx_vfo: "VFOB".to_string() }]);
+        assert_eq!(
+            d.commands,
+            vec![RigServerCommand::SetSplit {
+                enabled: true,
+                tx_vfo: "VFOB".to_string()
+            }]
+        );
 
         let d = dispatch_command("J 250", &s);
         assert_eq!(d.commands, vec![RigServerCommand::SetRit(250)]);
@@ -524,7 +583,10 @@ mod tests {
         assert_eq!(dispatch_command("J notanum", &s).response, "RPRT -1\n");
         assert_eq!(dispatch_command("M", &s).response, "RPRT -1\n");
         assert_eq!(dispatch_command("S", &s).response, "RPRT -1\n");
-        assert_eq!(dispatch_command("\\set_level RFPOWER", &s).response, "RPRT -1\n");
+        assert_eq!(
+            dispatch_command("\\set_level RFPOWER", &s).response,
+            "RPRT -1\n"
+        );
     }
 
     #[test]
@@ -558,7 +620,13 @@ mod tests {
 
         // Setter z domyślnym VFO nadawczym.
         let d = dispatch_command("S 1", &s);
-        assert_eq!(d.commands, vec![RigServerCommand::SetSplit { enabled: true, tx_vfo: "VFOA".to_string() }]);
+        assert_eq!(
+            d.commands,
+            vec![RigServerCommand::SetSplit {
+                enabled: true,
+                tx_vfo: "VFOA".to_string()
+            }]
+        );
     }
 
     #[test]
@@ -568,7 +636,13 @@ mod tests {
         apply_mutation(&mut s, &StateMutation::SetMode("LSB".to_string()));
         apply_mutation(&mut s, &StateMutation::SetPtt(true));
         apply_mutation(&mut s, &StateMutation::SetVfo("VFOB".to_string()));
-        apply_mutation(&mut s, &StateMutation::SetSplit { enabled: true, tx_vfo: "VFOB".to_string() });
+        apply_mutation(
+            &mut s,
+            &StateMutation::SetSplit {
+                enabled: true,
+                tx_vfo: "VFOB".to_string(),
+            },
+        );
         apply_mutation(&mut s, &StateMutation::SetRit(500));
         apply_mutation(&mut s, &StateMutation::SetXit(-100));
         apply_mutation(&mut s, &StateMutation::SetPower(50.0));

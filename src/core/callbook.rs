@@ -174,7 +174,9 @@ impl LocalCallbook {
 
         if let Some(ref path) = self.callbook_path {
             if path.exists() {
-                if let Ok(conn) = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY) {
+                if let Ok(conn) =
+                    Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+                {
                     // Najpierw szukamy dokładnego znaku, a potem bazowego
                     for query_call in &[clean.as_str(), base_call] {
                         let Ok(mut stmt) = conn.prepare(
@@ -183,26 +185,33 @@ impl LocalCallbook {
                             continue;
                         };
 
-                        let found = stmt.query_row([query_call], |row| {
-                            let name: Option<String> = row.get(0).ok().and_then(|s: String| clean_opt_str(&s));
-                            let qth: Option<String> = row.get(1).ok().and_then(|s: String| clean_opt_str(&s));
-                            let grid: Option<String> = row.get(2).ok().and_then(|s: String| clean_opt_str(&s));
-                            let state: Option<String> = row.get(3).ok().and_then(|s: String| clean_opt_str(&s));
-                            let manager: Option<String> = row.get(4).ok().and_then(|s: String| clean_opt_str(&s));
+                        let found = stmt
+                            .query_row([query_call], |row| {
+                                let name: Option<String> =
+                                    row.get(0).ok().and_then(|s: String| clean_opt_str(&s));
+                                let qth: Option<String> =
+                                    row.get(1).ok().and_then(|s: String| clean_opt_str(&s));
+                                let grid: Option<String> =
+                                    row.get(2).ok().and_then(|s: String| clean_opt_str(&s));
+                                let state: Option<String> =
+                                    row.get(3).ok().and_then(|s: String| clean_opt_str(&s));
+                                let manager: Option<String> =
+                                    row.get(4).ok().and_then(|s: String| clean_opt_str(&s));
 
-                            Ok(CallbookData {
-                                callsign: clean.clone(),
-                                name,
-                                qth,
-                                gridsquare: grid,
-                                state,
-                                dxcc: None,
-                                country: None,
-                                qsl_manager: manager,
-                                email: None,
-                                image_url: None,
+                                Ok(CallbookData {
+                                    callsign: clean.clone(),
+                                    name,
+                                    qth,
+                                    gridsquare: grid,
+                                    state,
+                                    dxcc: None,
+                                    country: None,
+                                    qsl_manager: manager,
+                                    email: None,
+                                    image_url: None,
+                                })
                             })
-                        }).ok();
+                            .ok();
 
                         if let Some(res) = found {
                             data = Some(res);
@@ -222,17 +231,20 @@ impl LocalCallbook {
         if need_manager {
             if let Some(ref path) = self.servicelog_path {
                 if path.exists() {
-                    if let Ok(conn) = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY) {
+                    if let Ok(conn) =
+                        Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+                    {
                         for query_call in &[clean.as_str(), base_call] {
-                            let Ok(mut stmt) = conn.prepare(
-                                "SELECT Manager FROM managers WHERE Call = ? LIMIT 1"
-                            ) else {
+                            let Ok(mut stmt) =
+                                conn.prepare("SELECT Manager FROM managers WHERE Call = ? LIMIT 1")
+                            else {
                                 continue;
                             };
 
-                            let mgr: Option<String> = stmt.query_row([query_call], |row| {
-                                row.get(0)
-                            }).ok().and_then(|s: String| clean_opt_str(&s));
+                            let mgr: Option<String> = stmt
+                                .query_row([query_call], |row| row.get(0))
+                                .ok()
+                                .and_then(|s: String| clean_opt_str(&s));
 
                             if let Some(m) = mgr {
                                 if let Some(ref mut d) = data {
@@ -325,7 +337,8 @@ pub async fn lookup_callook_info(callsign: &str) -> Result<CallbookData, String>
         }
     }
 
-    let grid = json.get("location")
+    let grid = json
+        .get("location")
         .and_then(|loc| loc.get("gridsquare"))
         .and_then(|v| v.as_str())
         .map(str::to_uppercase);
@@ -396,15 +409,33 @@ fn merge_callbook(base: Option<CallbookData>, incoming: CallbookData) -> Callboo
     match base {
         None => incoming,
         Some(mut b) => {
-            if b.name.is_none() { b.name = incoming.name; }
-            if b.qth.is_none() { b.qth = incoming.qth; }
-            if b.gridsquare.is_none() { b.gridsquare = incoming.gridsquare; }
-            if b.state.is_none() { b.state = incoming.state; }
-            if b.dxcc.is_none() { b.dxcc = incoming.dxcc; }
-            if b.country.is_none() { b.country = incoming.country; }
-            if b.qsl_manager.is_none() { b.qsl_manager = incoming.qsl_manager; }
-            if b.email.is_none() { b.email = incoming.email; }
-            if b.image_url.is_none() { b.image_url = incoming.image_url; }
+            if b.name.is_none() {
+                b.name = incoming.name;
+            }
+            if b.qth.is_none() {
+                b.qth = incoming.qth;
+            }
+            if b.gridsquare.is_none() {
+                b.gridsquare = incoming.gridsquare;
+            }
+            if b.state.is_none() {
+                b.state = incoming.state;
+            }
+            if b.dxcc.is_none() {
+                b.dxcc = incoming.dxcc;
+            }
+            if b.country.is_none() {
+                b.country = incoming.country;
+            }
+            if b.qsl_manager.is_none() {
+                b.qsl_manager = incoming.qsl_manager;
+            }
+            if b.email.is_none() {
+                b.email = incoming.email;
+            }
+            if b.image_url.is_none() {
+                b.image_url = incoming.image_url;
+            }
             b
         }
     }
@@ -439,7 +470,10 @@ pub async fn fetch_callsign_data(
         || clean.starts_with('N')
         || (clean.starts_with('A')
             && clean.len() >= 2
-            && clean.chars().nth(1).is_some_and(|c| ('A'..='L').contains(&c)));
+            && clean
+                .chars()
+                .nth(1)
+                .is_some_and(|c| ('A'..='L').contains(&c)));
 
     let mut result: Option<CallbookData> = None;
 
@@ -576,10 +610,8 @@ mod tests {
 
     #[test]
     fn test_callbook_cache_roundtrip() {
-        let cache_path = std::env::temp_dir().join(format!(
-            "splogbook_cache_test_{}.db",
-            std::process::id()
-        ));
+        let cache_path =
+            std::env::temp_dir().join(format!("splogbook_cache_test_{}.db", std::process::id()));
         let _ = std::fs::remove_file(&cache_path);
 
         let cb = LocalCallbook::new(None, None).with_cache(Some(cache_path.clone()), 30);
@@ -598,7 +630,9 @@ mod tests {
 
         cb.cache_store(&data);
 
-        let got = cb.cache_lookup("sp6ina").expect("cache should return stored entry");
+        let got = cb
+            .cache_lookup("sp6ina")
+            .expect("cache should return stored entry");
         assert_eq!(got.callsign, "SP6INA");
         assert_eq!(got.name.as_deref(), Some("Mariusz"));
         assert_eq!(got.qth.as_deref(), Some("Wrocław"));

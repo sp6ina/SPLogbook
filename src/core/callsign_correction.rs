@@ -59,7 +59,8 @@ pub fn suggest_corrections(
 
         // Wstępny filtr długości — różnica większa niż `max_distance`
         // wyklucza możliwość dopasowania w granicach progu.
-        let len_diff = (cand.chars().count() as isize - query.chars().count() as isize).unsigned_abs();
+        let len_diff =
+            (cand.chars().count() as isize - query.chars().count() as isize).unsigned_abs();
         if len_diff > max_distance {
             continue;
         }

@@ -33,9 +33,16 @@ pub enum PluginCommand {
     /// Odtwórz wiadomość głosową (Voice Keyer) o podanej nazwie.
     SendVoice { text: String },
     /// Obróć antenę na podany azymut i elewację.
-    Rotate { azimuth_deg: f32, elevation_deg: f32 },
+    Rotate {
+        azimuth_deg: f32,
+        elevation_deg: f32,
+    },
     /// Wyślij spot DX na klaster.
-    Spot { dx_call: String, freq_khz: f64, comment: String },
+    Spot {
+        dx_call: String,
+        freq_khz: f64,
+        comment: String,
+    },
     /// Ustaw pole formularza QSO (np. "name", "qth", "comment").
     SetQsoField { field: String, value: String },
     /// Odtwórz dźwięk powiadomienia o podanej nazwie.

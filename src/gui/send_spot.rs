@@ -66,7 +66,12 @@ impl SendSpotDialog {
         self.status_message = None;
     }
 
-    pub fn show(&mut self, ctx: &egui::Context, _my_call: &str, lang: crate::core::i18n::Language) -> Option<SpotSubmission> {
+    pub fn show(
+        &mut self,
+        ctx: &egui::Context,
+        _my_call: &str,
+        lang: crate::core::i18n::Language,
+    ) -> Option<SpotSubmission> {
         use crate::core::i18n::tr;
         if !self.is_open {
             return None;
@@ -94,7 +99,11 @@ impl SendSpotDialog {
                         ui.end_row();
 
                         ui.label(tr("cluster.spot_freq", lang));
-                        ui.add(egui::DragValue::new(&mut self.freq_khz).speed(0.5).suffix(" kHz"));
+                        ui.add(
+                            egui::DragValue::new(&mut self.freq_khz)
+                                .speed(0.5)
+                                .suffix(" kHz"),
+                        );
                         ui.end_row();
 
                         ui.label(tr("cluster.spot_comment", lang));
@@ -114,24 +123,34 @@ impl SendSpotDialog {
 
                 if let Some(ref msg) = self.status_message {
                     ui.add_space(4.0);
-                    ui.label(egui::RichText::new(msg).small().color(egui::Color32::from_rgb(52, 211, 153)));
+                    ui.label(
+                        egui::RichText::new(msg)
+                            .small()
+                            .color(egui::Color32::from_rgb(52, 211, 153)),
+                    );
                 }
 
                 ui.separator();
                 ui.horizontal(|ui| {
-                    let btn = egui::Button::new(egui::RichText::new(tr("cluster.send_btn", lang)).strong().color(egui::Color32::from_rgb(15, 23, 42)))
-                        .fill(egui::Color32::from_rgb(56, 189, 248));
+                    let btn = egui::Button::new(
+                        egui::RichText::new(tr("cluster.send_btn", lang))
+                            .strong()
+                            .color(egui::Color32::from_rgb(15, 23, 42)),
+                    )
+                    .fill(egui::Color32::from_rgb(56, 189, 248));
 
-                    if ui.add(btn).clicked()
-                        && !self.dx_call.trim().is_empty() {
-                            submission = Some(SpotSubmission {
-                                dx_call: self.dx_call.clone(),
-                                freq_khz: self.freq_khz,
-                                comment: self.comment.clone(),
-                            });
-                            self.status_message = Some(format!("Spot dla {} ({:.1} kHz) OK!", self.dx_call, self.freq_khz));
-                            close_requested = true;
-                        }
+                    if ui.add(btn).clicked() && !self.dx_call.trim().is_empty() {
+                        submission = Some(SpotSubmission {
+                            dx_call: self.dx_call.clone(),
+                            freq_khz: self.freq_khz,
+                            comment: self.comment.clone(),
+                        });
+                        self.status_message = Some(format!(
+                            "Spot dla {} ({:.1} kHz) OK!",
+                            self.dx_call, self.freq_khz
+                        ));
+                        close_requested = true;
+                    }
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button(tr("btn.cancel", lang)).clicked() {

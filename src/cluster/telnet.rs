@@ -43,7 +43,11 @@ pub const CLUSTER_PRESETS: &[(&str, &str, u16)] = &[
     ("Polska - SR5DXC (Warszawa)", "sr5dxc.ampr.org", 8000),
     ("Europa - DXFun (Hiszpania)", "dxfun.com", 8000),
     ("Europa - DB0SUE (Niemcy)", "db0sue.de", 8000),
-    ("Europa - GB7DXM (Wielka Brytania)", "gb7dxm.shacknet.nu", 7300),
+    (
+        "Europa - GB7DXM (Wielka Brytania)",
+        "gb7dxm.shacknet.nu",
+        7300,
+    ),
     ("Ameryka - VE7CC (Kanada)", "ve7cc.net", 23),
     ("Ameryka - W3LPL (USA)", "w3lpl.net", 7373),
 ];
@@ -57,7 +61,11 @@ pub struct DxClusterClient {
 }
 
 impl DxClusterClient {
-    pub fn new(host: impl Into<String>, port: u16, my_call: impl Into<String>) -> (Self, broadcast::Receiver<DxSpot>) {
+    pub fn new(
+        host: impl Into<String>,
+        port: u16,
+        my_call: impl Into<String>,
+    ) -> (Self, broadcast::Receiver<DxSpot>) {
         let (tx, rx) = broadcast::channel(256);
         (
             Self {
@@ -90,7 +98,12 @@ impl DxClusterClient {
             let stream = match connect_result {
                 Some(Ok(s)) => s,
                 Some(Err(e)) => {
-                    if event_tx.send(ClusterEvent::Disconnected(format!("Błąd połączenia z {addr}: {e}"))).is_err() {
+                    if event_tx
+                        .send(ClusterEvent::Disconnected(format!(
+                            "Błąd połączenia z {addr}: {e}"
+                        )))
+                        .is_err()
+                    {
                         break;
                     }
                     tokio::select! {
@@ -102,7 +115,12 @@ impl DxClusterClient {
                 None => break,
             };
 
-            if event_tx.send(ClusterEvent::Connected(format!("Połączono z serwerem: {addr}"))).is_err() {
+            if event_tx
+                .send(ClusterEvent::Connected(format!(
+                    "Połączono z serwerem: {addr}"
+                )))
+                .is_err()
+            {
                 break;
             }
 
@@ -130,7 +148,9 @@ impl DxClusterClient {
 
                 match read_res {
                     Ok(0) => {
-                        let _ = event_tx.send(ClusterEvent::Disconnected(format!("Rozłączono przez serwer {addr}")));
+                        let _ = event_tx.send(ClusterEvent::Disconnected(format!(
+                            "Rozłączono przez serwer {addr}"
+                        )));
                         break;
                     }
                     Ok(_) if raw_line.len() > MAX_LINE_LEN => {
@@ -143,7 +163,9 @@ impl DxClusterClient {
                         let line_cow = String::from_utf8_lossy(&raw_line);
                         let trimmed = line_cow.trim();
                         if !trimmed.is_empty()
-                            && event_tx.send(ClusterEvent::RawLine(trimmed.to_string())).is_err()
+                            && event_tx
+                                .send(ClusterEvent::RawLine(trimmed.to_string()))
+                                .is_err()
                         {
                             break;
                         }
@@ -154,7 +176,9 @@ impl DxClusterClient {
                         }
                     }
                     Err(e) => {
-                        let _ = event_tx.send(ClusterEvent::Disconnected(format!("Błąd transmisji z {addr}: {e}")));
+                        let _ = event_tx.send(ClusterEvent::Disconnected(format!(
+                            "Błąd transmisji z {addr}: {e}"
+                        )));
                         break;
                     }
                 }
@@ -171,7 +195,9 @@ impl DxClusterClient {
             }
         }
 
-        let _ = event_tx.send(ClusterEvent::Disconnected("Rozłączono z klastrem DX.".to_string()));
+        let _ = event_tx.send(ClusterEvent::Disconnected(
+            "Rozłączono z klastrem DX.".to_string(),
+        ));
     }
 
     /// Łączy się z klastrem DX i transmituje odebrane spoty przez kanał broadcast
@@ -184,10 +210,16 @@ impl DxClusterClient {
                 let mut buf_reader = BufReader::new(reader);
 
                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                let _ = writer.write_all(format!("{}\n", self.my_call).as_bytes()).await;
+                let _ = writer
+                    .write_all(format!("{}\n", self.my_call).as_bytes())
+                    .await;
 
                 let mut raw_line = Vec::with_capacity(256);
-                while let Ok(n) = (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64).read_until(b'\n', &mut raw_line).await {
+                while let Ok(n) = (&mut buf_reader)
+                    .take((MAX_LINE_LEN + 1) as u64)
+                    .read_until(b'\n', &mut raw_line)
+                    .await
+                {
                     if n == 0 {
                         break;
                     }
@@ -236,8 +268,11 @@ pub fn parse_dx_spot(line: &str) -> Option<DxSpot> {
     let band = band_for_freq_khz(frequency_khz);
 
     let comment_upper = comment.to_uppercase();
-    let is_ft8 = comment_upper.contains("FT8") || comment_upper.contains("FT4") || comment_upper.contains("JS8");
-    let is_skimmer = spotter.contains("-#") || comment_upper.contains("BPS") || comment_upper.contains("WPM");
+    let is_ft8 = comment_upper.contains("FT8")
+        || comment_upper.contains("FT4")
+        || comment_upper.contains("JS8");
+    let is_skimmer =
+        spotter.contains("-#") || comment_upper.contains("BPS") || comment_upper.contains("WPM");
 
     Some(DxSpot {
         spotter,
@@ -290,9 +325,11 @@ mod tests {
     #[test]
     fn test_parse_dx_spot_lossy_non_utf8() {
         // Symulacja surowego strumienia z węzła DXSpider w kodowaniu Latin-1 (np. 'ü' = 0xfc)
-        let raw_bytes: &[u8] = b"DX de DL1ABC: 14195.0  SP6INA    Gr\xfc\xdfe aus M\xfcnchen  1420Z\r\n";
+        let raw_bytes: &[u8] =
+            b"DX de DL1ABC: 14195.0  SP6INA    Gr\xfc\xdfe aus M\xfcnchen  1420Z\r\n";
         let lossy = String::from_utf8_lossy(raw_bytes);
-        let spot = parse_dx_spot(lossy.trim()).expect("Spot ze znakami spoza UTF-8 powinien zostać sparsowany");
+        let spot = parse_dx_spot(lossy.trim())
+            .expect("Spot ze znakami spoza UTF-8 powinien zostać sparsowany");
         assert_eq!(spot.dx_call, "SP6INA");
         assert_eq!(spot.band, "20m");
         assert!(spot.comment.contains("Gr"));

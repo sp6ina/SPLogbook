@@ -18,7 +18,13 @@ pub fn extract_pota_sota(comment: &str) -> (Option<String>, Option<String>) {
         if let Some(dash_pos) = clean.find('-') {
             let prefix = &clean[..dash_pos];
             let suffix = &clean[dash_pos + 1..];
-            if !prefix.is_empty() && prefix.len() <= 4 && suffix.len() >= 3 && suffix.len() <= 5 && suffix.chars().all(|c| c.is_ascii_digit()) && !prefix.contains('/') {
+            if !prefix.is_empty()
+                && prefix.len() <= 4
+                && suffix.len() >= 3
+                && suffix.len() <= 5
+                && suffix.chars().all(|c| c.is_ascii_digit())
+                && !prefix.contains('/')
+            {
                 pota = Some(clean.to_string());
             }
         }
@@ -53,28 +59,56 @@ pub fn render_cluster_panel(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 );
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("✕").on_hover_text(tr("window.hide_tooltip", lang)).clicked() {
+                    if ui
+                        .button("✕")
+                        .on_hover_text(tr("window.hide_tooltip", lang))
+                        .clicked()
+                    {
                         app.panel_cluster.visible = false;
                         app.save_station_config();
                     }
-                    if ui.button("↗").on_hover_text(tr("window.popout_tooltip", lang)).clicked() {
+                    if ui
+                        .button("↗")
+                        .on_hover_text(tr("window.popout_tooltip", lang))
+                        .clicked()
+                    {
                         app.panel_cluster.floating = true;
                         app.save_station_config();
                     }
-                    if ui.button(egui::RichText::new("📢 Spot").strong().color(egui::Color32::from_rgb(56, 189, 248)))
+                    if ui
+                        .button(
+                            egui::RichText::new("📢 Spot")
+                                .strong()
+                                .color(egui::Color32::from_rgb(56, 189, 248)),
+                        )
                         .on_hover_text(tr("cluster.send_spot_tooltip", lang))
                         .clicked()
                     {
                         let freq_khz = app.rig_state.frequency_hz as f64 / 1000.0;
-                        app.send_spot_dialog.open_with(&app.entry_callsign, freq_khz);
+                        app.send_spot_dialog
+                            .open_with(&app.entry_callsign, freq_khz);
                     }
 
                     if app.cluster_connected {
-                        ui.label(egui::RichText::new(tr("cluster.status_online", lang)).color(egui::Color32::from_rgb(34, 197, 94)).size(10.0).strong());
+                        ui.label(
+                            egui::RichText::new(tr("cluster.status_online", lang))
+                                .color(egui::Color32::from_rgb(34, 197, 94))
+                                .size(10.0)
+                                .strong(),
+                        );
                     } else if app.cluster_connecting {
-                        ui.label(egui::RichText::new(tr("cluster.status_connecting", lang)).color(egui::Color32::from_rgb(250, 204, 21)).size(10.0).strong());
+                        ui.label(
+                            egui::RichText::new(tr("cluster.status_connecting", lang))
+                                .color(egui::Color32::from_rgb(250, 204, 21))
+                                .size(10.0)
+                                .strong(),
+                        );
                     } else {
-                        ui.label(egui::RichText::new(tr("cluster.status_offline", lang)).color(egui::Color32::from_rgb(148, 163, 184)).size(10.0));
+                        ui.label(
+                            egui::RichText::new(tr("cluster.status_offline", lang))
+                                .color(egui::Color32::from_rgb(148, 163, 184))
+                                .size(10.0),
+                        );
                     }
                 });
             });
@@ -106,20 +140,46 @@ pub fn render_cluster_window(app: &mut SpLogApp, ctx: &egui::Context) {
             |app, ui| {
                 egui::Panel::top("cluster_vp_bar").show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        if ui.button(format!("↙ {}", tr("window.dock", lang))).on_hover_text(tr("window.dock_tooltip", lang)).clicked() {
+                        if ui
+                            .button(format!("↙ {}", tr("window.dock", lang)))
+                            .on_hover_text(tr("window.dock_tooltip", lang))
+                            .clicked()
+                        {
                             dock_back = true;
                         }
                         ui.separator();
-                        if ui.button(egui::RichText::new("📢 Spot DX").strong().color(egui::Color32::from_rgb(56, 189, 248))).clicked() {
+                        if ui
+                            .button(
+                                egui::RichText::new("📢 Spot DX")
+                                    .strong()
+                                    .color(egui::Color32::from_rgb(56, 189, 248)),
+                            )
+                            .clicked()
+                        {
                             let freq_khz = app.rig_state.frequency_hz as f64 / 1000.0;
-                            app.send_spot_dialog.open_with(&app.entry_callsign, freq_khz);
+                            app.send_spot_dialog
+                                .open_with(&app.entry_callsign, freq_khz);
                         }
                         if app.cluster_connected {
-                            ui.label(egui::RichText::new(tr("cluster.status_online", lang)).color(egui::Color32::from_rgb(34, 197, 94)).size(11.0).strong());
+                            ui.label(
+                                egui::RichText::new(tr("cluster.status_online", lang))
+                                    .color(egui::Color32::from_rgb(34, 197, 94))
+                                    .size(11.0)
+                                    .strong(),
+                            );
                         } else if app.cluster_connecting {
-                            ui.label(egui::RichText::new(tr("cluster.status_connecting", lang)).color(egui::Color32::from_rgb(250, 204, 21)).size(11.0).strong());
+                            ui.label(
+                                egui::RichText::new(tr("cluster.status_connecting", lang))
+                                    .color(egui::Color32::from_rgb(250, 204, 21))
+                                    .size(11.0)
+                                    .strong(),
+                            );
                         } else {
-                            ui.label(egui::RichText::new(tr("cluster.status_offline", lang)).color(egui::Color32::from_rgb(148, 163, 184)).size(11.0));
+                            ui.label(
+                                egui::RichText::new(tr("cluster.status_offline", lang))
+                                    .color(egui::Color32::from_rgb(148, 163, 184))
+                                    .size(11.0),
+                            );
                         }
                     });
                 });
@@ -133,7 +193,9 @@ pub fn render_cluster_window(app: &mut SpLogApp, ctx: &egui::Context) {
         );
 
         if let Some((pos, size)) = captured_geo {
-            if app.panel_cluster.saved_pos != Some(pos) || app.panel_cluster.saved_size != Some(size) {
+            if app.panel_cluster.saved_pos != Some(pos)
+                || app.panel_cluster.saved_size != Some(size)
+            {
                 app.panel_cluster.saved_pos = Some(pos);
                 app.panel_cluster.saved_size = Some(size);
                 app.save_station_config();
@@ -163,12 +225,16 @@ pub fn render_cluster_window(app: &mut SpLogApp, ctx: &egui::Context) {
     let default_size = [mid_w, cluster_h];
 
     // Minimalistyczny pasek górny okna
-    let mut win = egui::Window::new(egui::RichText::new(format!("   📡 {}", tr("cluster.title", lang))).size(12.0).strong())
-        .open(&mut open)
-        .min_size([400.0, 200.0])
-        .resizable(true)
-        .collapsible(true)
-        .constrain_to(screen);
+    let mut win = egui::Window::new(
+        egui::RichText::new(format!("   📡 {}", tr("cluster.title", lang)))
+            .size(12.0)
+            .strong(),
+    )
+    .open(&mut open)
+    .min_size([400.0, 200.0])
+    .resizable(true)
+    .collapsible(true)
+    .constrain_to(screen);
 
     if app.reset_layout_requested {
         win = win.current_pos(default_pos).default_size(default_size);
@@ -181,16 +247,38 @@ pub fn render_cluster_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
     let win_res = win.show(ctx, |ui| {
         ui.horizontal(|ui| {
-            if ui.button(egui::RichText::new("📢 Spot DX").strong().color(egui::Color32::from_rgb(56, 189, 248))).clicked() {
+            if ui
+                .button(
+                    egui::RichText::new("📢 Spot DX")
+                        .strong()
+                        .color(egui::Color32::from_rgb(56, 189, 248)),
+                )
+                .clicked()
+            {
                 let freq_khz = app.rig_state.frequency_hz as f64 / 1000.0;
-                app.send_spot_dialog.open_with(&app.entry_callsign, freq_khz);
+                app.send_spot_dialog
+                    .open_with(&app.entry_callsign, freq_khz);
             }
             if app.cluster_connected {
-                ui.label(egui::RichText::new(tr("cluster.status_online", lang)).color(egui::Color32::from_rgb(34, 197, 94)).size(11.0).strong());
+                ui.label(
+                    egui::RichText::new(tr("cluster.status_online", lang))
+                        .color(egui::Color32::from_rgb(34, 197, 94))
+                        .size(11.0)
+                        .strong(),
+                );
             } else if app.cluster_connecting {
-                ui.label(egui::RichText::new(tr("cluster.status_connecting", lang)).color(egui::Color32::from_rgb(250, 204, 21)).size(11.0).strong());
+                ui.label(
+                    egui::RichText::new(tr("cluster.status_connecting", lang))
+                        .color(egui::Color32::from_rgb(250, 204, 21))
+                        .size(11.0)
+                        .strong(),
+                );
             } else {
-                ui.label(egui::RichText::new(tr("cluster.status_offline", lang)).color(egui::Color32::from_rgb(148, 163, 184)).size(11.0));
+                ui.label(
+                    egui::RichText::new(tr("cluster.status_offline", lang))
+                        .color(egui::Color32::from_rgb(148, 163, 184))
+                        .size(11.0),
+                );
             }
         });
         ui.separator();
@@ -198,7 +286,14 @@ pub fn render_cluster_window(app: &mut SpLogApp, ctx: &egui::Context) {
     });
 
     if let Some(ref res) = win_res {
-        crate::gui::render_titlebar_popout_button_if(ctx, "cluster_popout_btn", res.response.layer_id, res.response.rect, &mut app.panel_cluster.floating, true);
+        crate::gui::render_titlebar_popout_button_if(
+            ctx,
+            "cluster_popout_btn",
+            res.response.layer_id,
+            res.response.rect,
+            &mut app.panel_cluster.floating,
+            true,
+        );
         if app.panel_cluster.floating {
             app.save_station_config();
         }
@@ -206,7 +301,9 @@ pub fn render_cluster_window(app: &mut SpLogApp, ctx: &egui::Context) {
             let r = res.response.rect;
             let new_pos = [r.min.x, r.min.y];
             let new_size = [r.width(), r.height()];
-            if app.panel_cluster.saved_pos != Some(new_pos) || app.panel_cluster.saved_size != Some(new_size) {
+            if app.panel_cluster.saved_pos != Some(new_pos)
+                || app.panel_cluster.saved_size != Some(new_size)
+            {
                 app.panel_cluster.saved_pos = Some(new_pos);
                 app.panel_cluster.saved_size = Some(new_size);
                 app.save_station_config();
@@ -219,7 +316,6 @@ pub fn render_cluster_window(app: &mut SpLogApp, ctx: &egui::Context) {
         app.save_station_config();
     }
 }
-
 
 pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.current_language;
@@ -251,7 +347,11 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .selected_text(&selected_preset_name)
             .width(170.0)
             .show_ui(ui, |ui| {
-                ui.label(egui::RichText::new(tr("cluster.std_servers", lang)).size(10.0).color(egui::Color32::from_rgb(148, 163, 184)));
+                ui.label(
+                    egui::RichText::new(tr("cluster.std_servers", lang))
+                        .size(10.0)
+                        .color(egui::Color32::from_rgb(148, 163, 184)),
+                );
                 for (name, host, port) in CLUSTER_PRESETS {
                     let is_sel = app.cluster_host == *host && app.cluster_port == *port;
                     if ui.selectable_label(is_sel, *name).clicked() {
@@ -264,10 +364,17 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 let mut sel_custom = None;
                 if !app.custom_clusters.is_empty() {
                     ui.separator();
-                    ui.label(egui::RichText::new(tr("cluster.user_servers", lang)).size(10.0).color(egui::Color32::from_rgb(250, 204, 21)));
+                    ui.label(
+                        egui::RichText::new(tr("cluster.user_servers", lang))
+                            .size(10.0)
+                            .color(egui::Color32::from_rgb(250, 204, 21)),
+                    );
                     for s in &app.custom_clusters {
                         let is_sel = app.cluster_host == s.host && app.cluster_port == s.port;
-                        if ui.selectable_label(is_sel, format!("⭐ {}", s.name)).clicked() {
+                        if ui
+                            .selectable_label(is_sel, format!("⭐ {}", s.name))
+                            .clicked()
+                        {
                             sel_custom = Some((s.host.clone(), s.port));
                         }
                     }
@@ -280,7 +387,10 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 }
 
                 ui.separator();
-                if ui.selectable_label(false, tr("cluster.add_new_server", lang)).clicked() {
+                if ui
+                    .selectable_label(false, tr("cluster.add_new_server", lang))
+                    .clicked()
+                {
                     open_add_dialog = true;
                 }
             });
@@ -289,13 +399,21 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             app.show_add_cluster_dialog = true;
         }
 
-        if ui.button("➕").on_hover_text(tr("cluster.add_server_tooltip", lang)).clicked() {
+        if ui
+            .button("➕")
+            .on_hover_text(tr("cluster.add_server_tooltip", lang))
+            .clicked()
+        {
             app.show_add_cluster_dialog = true;
         }
 
         if is_custom {
             if let Some(idx) = custom_idx {
-                if ui.button("🗑").on_hover_text(tr("cluster.delete_server_tooltip", lang)).clicked() {
+                if ui
+                    .button("🗑")
+                    .on_hover_text(tr("cluster.delete_server_tooltip", lang))
+                    .clicked()
+                {
                     app.custom_clusters.remove(idx);
                     app.save_station_config();
                 }
@@ -303,12 +421,33 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
 
         if app.cluster_connected {
-            if ui.add(egui::Button::new(egui::RichText::new(tr("cluster.disconnect", lang)).color(egui::Color32::WHITE)).fill(egui::Color32::from_rgb(239, 68, 68))).clicked() {
+            if ui
+                .add(
+                    egui::Button::new(
+                        egui::RichText::new(tr("cluster.disconnect", lang))
+                            .color(egui::Color32::WHITE),
+                    )
+                    .fill(egui::Color32::from_rgb(239, 68, 68)),
+                )
+                .clicked()
+            {
                 app.disconnect_dx_cluster();
             }
         } else {
-            let conn_text = if app.cluster_connecting { tr("toolbar.cluster_connecting", lang) } else { tr("cluster.connect", lang) };
-            if ui.add(egui::Button::new(egui::RichText::new(conn_text).color(egui::Color32::from_rgb(15, 23, 42))).fill(egui::Color32::from_rgb(52, 211, 153))).clicked() {
+            let conn_text = if app.cluster_connecting {
+                tr("toolbar.cluster_connecting", lang)
+            } else {
+                tr("cluster.connect", lang)
+            };
+            if ui
+                .add(
+                    egui::Button::new(
+                        egui::RichText::new(conn_text).color(egui::Color32::from_rgb(15, 23, 42)),
+                    )
+                    .fill(egui::Color32::from_rgb(52, 211, 153)),
+                )
+                .clicked()
+            {
                 app.connect_dx_cluster();
             }
         }
@@ -321,7 +460,11 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.label("Port:");
         let p_resp = ui.add(egui::DragValue::new(&mut app.cluster_port).range(1..=65535));
         ui.label(format!("{}:", tr("qso.callsign", lang)));
-        let c_resp = ui.add(egui::TextEdit::singleline(&mut app.cluster_callsign).hint_text(&app.my_station.callsign).desired_width(70.0));
+        let c_resp = ui.add(
+            egui::TextEdit::singleline(&mut app.cluster_callsign)
+                .hint_text(&app.my_station.callsign)
+                .desired_width(70.0),
+        );
 
         if h_resp.changed() || p_resp.changed() || c_resp.changed() {
             app.save_station_config();
@@ -330,9 +473,20 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
     // Pasek statusu klastra
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(&app.cluster_status_text).size(10.0).color(egui::Color32::from_rgb(148, 163, 184)));
+        ui.label(
+            egui::RichText::new(&app.cluster_status_text)
+                .size(10.0)
+                .color(egui::Color32::from_rgb(148, 163, 184)),
+        );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.checkbox(&mut app.cluster_auto_connect, tr("cluster.auto_connect_startup", lang)).on_hover_text(tr("cluster.auto_connect_tooltip", lang)).changed() {
+            if ui
+                .checkbox(
+                    &mut app.cluster_auto_connect,
+                    tr("cluster.auto_connect_startup", lang),
+                )
+                .on_hover_text(tr("cluster.auto_connect_tooltip", lang))
+                .changed()
+            {
                 app.save_station_config();
             }
         });
@@ -342,23 +496,42 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
     // Pasek narzędziowy: Przełącznik bocznego panelu filtrów, Alerty, Czyszczenie
     ui.horizontal(|ui| {
-        let filter_btn_text = if app.cluster_show_filter_sidebar { "◀ Ukryj Filtry" } else { "🔍 Panel Filtrów" };
-        if ui.selectable_label(app.cluster_show_filter_sidebar, filter_btn_text).clicked() {
+        let filter_btn_text = if app.cluster_show_filter_sidebar {
+            "◀ Ukryj Filtry"
+        } else {
+            "🔍 Panel Filtrów"
+        };
+        if ui
+            .selectable_label(app.cluster_show_filter_sidebar, filter_btn_text)
+            .clicked()
+        {
             app.cluster_show_filter_sidebar = !app.cluster_show_filter_sidebar;
             app.save_station_config();
         }
 
         // Alert dźwiękowy dla nowych DXCC
         ui.separator();
-        if ui.button(if app.band_alert_enabled { "🔔 Alert ON" } else { "🔕 Alert OFF" })
-            .on_hover_text(format!("Alert przy nowym DXCC/IOTA (K-index ≥ {}). Kliknij aby przełączyć.", app.band_alert_k_index_threshold))
+        if ui
+            .button(if app.band_alert_enabled {
+                "🔔 Alert ON"
+            } else {
+                "🔕 Alert OFF"
+            })
+            .on_hover_text(format!(
+                "Alert przy nowym DXCC/IOTA (K-index ≥ {}). Kliknij aby przełączyć.",
+                app.band_alert_k_index_threshold
+            ))
             .clicked()
         {
             app.band_alert_enabled = !app.band_alert_enabled;
         }
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.button(format!("🗑 {}", tr("cluster.clear_spots", lang))).on_hover_text(tr("cluster.clear_spots_tooltip", lang)).clicked() {
+            if ui
+                .button(format!("🗑 {}", tr("cluster.clear_spots", lang)))
+                .on_hover_text(tr("cluster.clear_spots_tooltip", lang))
+                .clicked()
+            {
                 app.cluster_spots.clear();
             }
         });
@@ -386,7 +559,11 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
 
         let mode_skip = match filter_mode_sel.as_str() {
-            "CW" => s.is_ft8 || s.comment.to_uppercase().contains("FT8") || s.comment.to_uppercase().contains("SSB"),
+            "CW" => {
+                s.is_ft8
+                    || s.comment.to_uppercase().contains("FT8")
+                    || s.comment.to_uppercase().contains("SSB")
+            }
             "SSB" => s.is_ft8 || s.comment.to_uppercase().contains("CW"),
             "DIGI" => !s.is_ft8,
             _ => false,
@@ -432,51 +609,110 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ui.group(|ui| {
                 ui.set_width(170.0);
                 ui.vertical(|ui| {
-                    ui.label(egui::RichText::new(tr("cluster_filter.title", lang)).strong().color(egui::Color32::from_rgb(56, 189, 248)));
+                    ui.label(
+                        egui::RichText::new(tr("cluster_filter.title", lang))
+                            .strong()
+                            .color(egui::Color32::from_rgb(56, 189, 248)),
+                    );
                     ui.add_space(2.0);
 
-                    ui.label(egui::RichText::new(tr("cluster_filter.search", lang)).size(10.0).color(egui::Color32::from_rgb(148, 163, 184)));
-                    ui.add(egui::TextEdit::singleline(&mut app.cluster_search_query).hint_text("SP, W1, POTA").desired_width(155.0));
+                    ui.label(
+                        egui::RichText::new(tr("cluster_filter.search", lang))
+                            .size(10.0)
+                            .color(egui::Color32::from_rgb(148, 163, 184)),
+                    );
+                    ui.add(
+                        egui::TextEdit::singleline(&mut app.cluster_search_query)
+                            .hint_text("SP, W1, POTA")
+                            .desired_width(155.0),
+                    );
 
                     ui.add_space(4.0);
-                    ui.label(egui::RichText::new(format!("{}:", tr("qso.band", lang))).size(10.0).color(egui::Color32::from_rgb(148, 163, 184)));
+                    ui.label(
+                        egui::RichText::new(format!("{}:", tr("qso.band", lang)))
+                            .size(10.0)
+                            .color(egui::Color32::from_rgb(148, 163, 184)),
+                    );
                     egui::ComboBox::from_id_salt("sidebar_band_combo")
                         .selected_text(&app.cluster_filter_band_selection)
                         .width(155.0)
                         .show_ui(ui, |ui| {
-                            for b in &["ALL", "VFO", "160m", "80m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m", "2m", "70cm"] {
-                                ui.selectable_value(&mut app.cluster_filter_band_selection, b.to_string(), *b);
+                            for b in &[
+                                "ALL", "VFO", "160m", "80m", "40m", "30m", "20m", "17m", "15m",
+                                "12m", "10m", "6m", "2m", "70cm",
+                            ] {
+                                ui.selectable_value(
+                                    &mut app.cluster_filter_band_selection,
+                                    b.to_string(),
+                                    *b,
+                                );
                             }
                         });
 
                     ui.add_space(4.0);
-                    ui.label(egui::RichText::new(format!("{}:", tr("qso.mode", lang))).size(10.0).color(egui::Color32::from_rgb(148, 163, 184)));
+                    ui.label(
+                        egui::RichText::new(format!("{}:", tr("qso.mode", lang)))
+                            .size(10.0)
+                            .color(egui::Color32::from_rgb(148, 163, 184)),
+                    );
                     egui::ComboBox::from_id_salt("sidebar_mode_combo")
                         .selected_text(&app.cluster_filter_mode_selection)
                         .width(155.0)
                         .show_ui(ui, |ui| {
                             for m in &["ALL", "CW", "SSB", "DIGI"] {
-                                ui.selectable_value(&mut app.cluster_filter_mode_selection, m.to_string(), *m);
+                                ui.selectable_value(
+                                    &mut app.cluster_filter_mode_selection,
+                                    m.to_string(),
+                                    *m,
+                                );
                             }
                         });
 
                     ui.add_space(4.0);
-                    ui.label(egui::RichText::new(tr("cluster_filter.source", lang)).size(10.0).color(egui::Color32::from_rgb(148, 163, 184)));
+                    ui.label(
+                        egui::RichText::new(tr("cluster_filter.source", lang))
+                            .size(10.0)
+                            .color(egui::Color32::from_rgb(148, 163, 184)),
+                    );
                     egui::ComboBox::from_id_salt("sidebar_source_combo")
                         .selected_text(&app.cluster_filter_source)
                         .width(155.0)
                         .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut app.cluster_filter_source, "ALL".to_string(), tr("cluster_filter.source_all", lang));
-                            ui.selectable_value(&mut app.cluster_filter_source, "HUMAN".to_string(), tr("cluster_filter.source_human", lang));
-                            ui.selectable_value(&mut app.cluster_filter_source, "RBN".to_string(), tr("cluster_filter.source_skimmer", lang));
+                            ui.selectable_value(
+                                &mut app.cluster_filter_source,
+                                "ALL".to_string(),
+                                tr("cluster_filter.source_all", lang),
+                            );
+                            ui.selectable_value(
+                                &mut app.cluster_filter_source,
+                                "HUMAN".to_string(),
+                                tr("cluster_filter.source_human", lang),
+                            );
+                            ui.selectable_value(
+                                &mut app.cluster_filter_source,
+                                "RBN".to_string(),
+                                tr("cluster_filter.source_skimmer", lang),
+                            );
                         });
 
                     ui.add_space(6.0);
                     ui.separator();
-                    ui.checkbox(&mut app.cluster_filter_pota_sota_only, tr("cluster_filter.pota_sota_only", lang));
+                    ui.checkbox(
+                        &mut app.cluster_filter_pota_sota_only,
+                        tr("cluster_filter.pota_sota_only", lang),
+                    );
 
                     ui.add_space(8.0);
-                    ui.label(egui::RichText::new(format!("{}\n{}/{}", tr("cluster_filter.shown_label", lang), shown_spots, total_spots)).size(10.0).color(egui::Color32::GRAY));
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "{}\n{}/{}",
+                            tr("cluster_filter.shown_label", lang),
+                            shown_spots,
+                            total_spots
+                        ))
+                        .size(10.0)
+                        .color(egui::Color32::GRAY),
+                    );
 
                     if ui.button(tr("cluster_filter.clear_btn", lang)).clicked() {
                         app.cluster_search_query.clear();
@@ -508,32 +744,61 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                         ui.end_row();
 
                         for (spot, pota_ref, sota_ref) in &filtered_spots {
-                            let (call_color, badge) = app.cluster_spot_badge(&spot.dx_call, &spot.band, spot.is_ft8);
+                            let (call_color, badge) =
+                                app.cluster_spot_badge(&spot.dx_call, &spot.band, spot.is_ft8);
 
-                            if ui.button(egui::RichText::new(format!("{}{}", spot.dx_call, badge)).strong().color(call_color))
+                            if ui
+                                .button(
+                                    egui::RichText::new(format!("{}{}", spot.dx_call, badge))
+                                        .strong()
+                                        .color(call_color),
+                                )
                                 .on_hover_text(tr("cluster.tune_tooltip", lang))
-                                .clicked() 
+                                .clicked()
                             {
-                                tune_target = Some((spot.dx_call.clone(), spot.frequency_khz, spot.band.clone(), pota_ref.clone(), sota_ref.clone()));
+                                tune_target = Some((
+                                    spot.dx_call.clone(),
+                                    spot.frequency_khz,
+                                    spot.band.clone(),
+                                    pota_ref.clone(),
+                                    sota_ref.clone(),
+                                ));
                             }
 
                             ui.label(format!("{:.1} kHz", spot.frequency_khz));
-                            ui.label(egui::RichText::new(&spot.band).color(egui::Color32::from_rgb(251, 191, 36)));
+                            ui.label(
+                                egui::RichText::new(&spot.band)
+                                    .color(egui::Color32::from_rgb(251, 191, 36)),
+                            );
 
                             // Kolumna referencji POTA / SOTA
                             if let Some(p) = pota_ref {
-                                ui.label(egui::RichText::new(format!("🌲 {p}")).color(egui::Color32::from_rgb(34, 197, 94)).strong().size(11.0));
+                                ui.label(
+                                    egui::RichText::new(format!("🌲 {p}"))
+                                        .color(egui::Color32::from_rgb(34, 197, 94))
+                                        .strong()
+                                        .size(11.0),
+                                );
                             } else if let Some(s) = sota_ref {
-                                ui.label(egui::RichText::new(format!("⛰️ {s}")).color(egui::Color32::from_rgb(250, 204, 21)).strong().size(11.0));
+                                ui.label(
+                                    egui::RichText::new(format!("⛰️ {s}"))
+                                        .color(egui::Color32::from_rgb(250, 204, 21))
+                                        .strong()
+                                        .size(11.0),
+                                );
                             } else {
                                 ui.label("-");
                             }
 
-                            ui.label(egui::RichText::new(&spot.spotter).color(egui::Color32::from_rgb(148, 163, 184)));
+                            ui.label(
+                                egui::RichText::new(&spot.spotter)
+                                    .color(egui::Color32::from_rgb(148, 163, 184)),
+                            );
                             ui.label(egui::RichText::new(&spot.comment).size(11.0));
 
                             // Czas spotu + wiek (minuty/godziny od odebrania)
-                            let age_secs = (chrono::Utc::now().timestamp() - spot.received_at).max(0);
+                            let age_secs =
+                                (chrono::Utc::now().timestamp() - spot.received_at).max(0);
                             let age_text = if age_secs < 60 {
                                 format!("{age_secs}s")
                             } else if age_secs < 3600 {
@@ -541,9 +806,11 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                             } else {
                                 format!("{}h", age_secs / 3600)
                             };
-                            ui.label(egui::RichText::new(format!("{} ({})", spot.time_utc, age_text))
-                                .size(10.0)
-                                .color(egui::Color32::from_rgb(148, 163, 184)));
+                            ui.label(
+                                egui::RichText::new(format!("{} ({})", spot.time_utc, age_text))
+                                    .size(10.0)
+                                    .color(egui::Color32::from_rgb(148, 163, 184)),
+                            );
                             ui.end_row();
                         }
                     });
@@ -568,79 +835,98 @@ pub fn render_add_cluster_dialog(app: &mut SpLogApp, ctx: &egui::Context) {
 
     let lang = app.current_language;
     let mut is_open = app.show_add_cluster_dialog;
-    egui::Window::new(egui::RichText::new(tr("cluster.add_dialog_title", lang)).size(12.0).strong())
-        .open(&mut is_open)
-        .default_size([340.0, 160.0])
-        .resizable(false)
-        .show(ctx, |ui| {
-            ui.vertical(|ui| {
-                ui.label(tr("cluster.add_dialog_desc", lang));
-                ui.add_space(4.0);
+    egui::Window::new(
+        egui::RichText::new(tr("cluster.add_dialog_title", lang))
+            .size(12.0)
+            .strong(),
+    )
+    .open(&mut is_open)
+    .default_size([340.0, 160.0])
+    .resizable(false)
+    .show(ctx, |ui| {
+        ui.vertical(|ui| {
+            ui.label(tr("cluster.add_dialog_desc", lang));
+            ui.add_space(4.0);
 
-                ui.horizontal(|ui| {
-                    ui.label(tr("cluster.add_name", lang));
-                    ui.add(egui::TextEdit::singleline(&mut app.new_cluster_name).hint_text("np. SP7PKI DX Spider"));
-                });
-                ui.horizontal(|ui| {
-                    ui.label(tr("cluster.add_host", lang));
-                    ui.add(egui::TextEdit::singleline(&mut app.new_cluster_host).hint_text("np. dxc.sp7pki.pl"));
-                });
-                ui.horizontal(|ui| {
-                    ui.label(tr("cluster.add_port", lang));
-                    ui.add(egui::DragValue::new(&mut app.new_cluster_port).range(1..=65535));
-                });
+            ui.horizontal(|ui| {
+                ui.label(tr("cluster.add_name", lang));
+                ui.add(
+                    egui::TextEdit::singleline(&mut app.new_cluster_name)
+                        .hint_text("np. SP7PKI DX Spider"),
+                );
+            });
+            ui.horizontal(|ui| {
+                ui.label(tr("cluster.add_host", lang));
+                ui.add(
+                    egui::TextEdit::singleline(&mut app.new_cluster_host)
+                        .hint_text("np. dxc.sp7pki.pl"),
+                );
+            });
+            ui.horizontal(|ui| {
+                ui.label(tr("cluster.add_port", lang));
+                ui.add(egui::DragValue::new(&mut app.new_cluster_port).range(1..=65535));
+            });
 
-                ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    if ui.button(egui::RichText::new(tr("cluster.add_and_connect", lang)).strong().color(egui::Color32::from_rgb(34, 197, 94))).clicked() {
-                        let name = if app.new_cluster_name.trim().is_empty() {
-                            app.new_cluster_host.clone()
-                        } else {
-                            app.new_cluster_name.clone()
-                        };
-                        let host = app.new_cluster_host.trim().to_string();
-                        let port = app.new_cluster_port;
-                        if !host.is_empty() {
-                            app.custom_clusters.push(crate::core::station::CustomClusterServer {
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                if ui
+                    .button(
+                        egui::RichText::new(tr("cluster.add_and_connect", lang))
+                            .strong()
+                            .color(egui::Color32::from_rgb(34, 197, 94)),
+                    )
+                    .clicked()
+                {
+                    let name = if app.new_cluster_name.trim().is_empty() {
+                        app.new_cluster_host.clone()
+                    } else {
+                        app.new_cluster_name.clone()
+                    };
+                    let host = app.new_cluster_host.trim().to_string();
+                    let port = app.new_cluster_port;
+                    if !host.is_empty() {
+                        app.custom_clusters
+                            .push(crate::core::station::CustomClusterServer {
                                 name,
                                 host: host.clone(),
                                 port,
                             });
-                            app.cluster_host = host;
-                            app.cluster_port = port;
-                            app.save_station_config();
-                            app.connect_dx_cluster();
-                            app.show_add_cluster_dialog = false;
-                        }
-                    }
-
-                    if ui.button(tr("btn.add", lang)).clicked() {
-                        let name = if app.new_cluster_name.trim().is_empty() {
-                            app.new_cluster_host.clone()
-                        } else {
-                            app.new_cluster_name.clone()
-                        };
-                        let host = app.new_cluster_host.trim().to_string();
-                        let port = app.new_cluster_port;
-                        if !host.is_empty() {
-                            app.custom_clusters.push(crate::core::station::CustomClusterServer {
-                                name,
-                                host: host.clone(),
-                                port,
-                            });
-                            app.cluster_host = host;
-                            app.cluster_port = port;
-                            app.save_station_config();
-                            app.show_add_cluster_dialog = false;
-                        }
-                    }
-
-                    if ui.button(tr("btn.cancel", lang)).clicked() {
+                        app.cluster_host = host;
+                        app.cluster_port = port;
+                        app.save_station_config();
+                        app.connect_dx_cluster();
                         app.show_add_cluster_dialog = false;
                     }
-                });
+                }
+
+                if ui.button(tr("btn.add", lang)).clicked() {
+                    let name = if app.new_cluster_name.trim().is_empty() {
+                        app.new_cluster_host.clone()
+                    } else {
+                        app.new_cluster_name.clone()
+                    };
+                    let host = app.new_cluster_host.trim().to_string();
+                    let port = app.new_cluster_port;
+                    if !host.is_empty() {
+                        app.custom_clusters
+                            .push(crate::core::station::CustomClusterServer {
+                                name,
+                                host: host.clone(),
+                                port,
+                            });
+                        app.cluster_host = host;
+                        app.cluster_port = port;
+                        app.save_station_config();
+                        app.show_add_cluster_dialog = false;
+                    }
+                }
+
+                if ui.button(tr("btn.cancel", lang)).clicked() {
+                    app.show_add_cluster_dialog = false;
+                }
             });
         });
+    });
 
     app.show_add_cluster_dialog = is_open;
 }

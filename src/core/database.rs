@@ -2,7 +2,8 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::core::qso::QsoRecord;
-use rusqlite::{params, Connection, Result, Row};
+use log::error;
+use rusqlite::{Connection, Result, Row, params};
 use std::path::Path;
 
 /// Reprezentacja profilu / dziennika łączności (Wielodziennikowość)
@@ -153,7 +154,8 @@ impl LogDatabase {
     fn init_schema(&mut self) -> Result<()> {
         type MigrationFn = fn(&Connection) -> rusqlite::Result<()>;
         self.conn.execute_batch(
-            "PRAGMA journal_mode=WAL;
+            "PRAGMA foreign_keys=ON;
+            PRAGMA journal_mode=WAL;
             PRAGMA synchronous=NORMAL;
             PRAGMA cache_size=10000;
             PRAGMA temp_store=MEMORY;
@@ -161,7 +163,7 @@ impl LogDatabase {
             CREATE TABLE IF NOT EXISTS schema_version (
                 version INTEGER NOT NULL,
                 applied_at TEXT NOT NULL DEFAULT (datetime('now'))
-            );"
+            );",
         )?;
 
         // Lista migracji w kolejności rosnącej; każda jest wykonywana w transakcji
@@ -169,6 +171,7 @@ impl LogDatabase {
         let migrations: &[(i64, MigrationFn)] = &[
             (1, Self::migration_1_base_schema),
             (2, Self::migration_2_add_columns),
+            (3, Self::migration_3_foreign_keys),
         ];
 
         for (version, migrate) in migrations {
@@ -183,14 +186,66 @@ impl LogDatabase {
             }
         }
 
+        self.validate_schema()
+    }
+
+    /// Weryfikuje integralność schematu po migracjach. Wykrywa zawyżoną wersję
+    /// `schema_version`, brak kluczowych tabel lub kolumn, zamiast pozwolić
+    /// aplikacji działać na uszkodzonej bazie.
+    fn validate_schema(&self) -> Result<()> {
+        const KNOWN_MAX_VERSION: i64 = 3;
+
+        let version = self.current_schema_version()?;
+        if version > KNOWN_MAX_VERSION {
+            error!(
+                "Baza ma nieznaną wersję schematu {version} (znana maksymalna: {KNOWN_MAX_VERSION})"
+            );
+            return Err(rusqlite::Error::InvalidQuery);
+        }
+
+        let required_tables = ["journals", "qso_records", "upload_queue", "schema_version"];
+        for table in required_tables {
+            let exists: bool = self
+                .conn
+                .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1")?
+                .exists(params![table])?;
+            if !exists {
+                error!("Brak wymaganej tabeli `{table}` w bazie danych");
+                return Err(rusqlite::Error::InvalidQuery);
+            }
+        }
+
+        let required_columns: &[(&str, &str)] = &[
+            ("journals", "id"),
+            ("journals", "name"),
+            ("qso_records", "id"),
+            ("qso_records", "callsign"),
+            ("qso_records", "qso_date"),
+            ("qso_records", "time_on"),
+            ("qso_records", "journal_id"),
+            ("upload_queue", "id"),
+            ("upload_queue", "qso_id"),
+            ("upload_queue", "service"),
+        ];
+        for (table, column) in required_columns {
+            let exists: bool = self
+                .conn
+                .prepare("SELECT 1 FROM pragma_table_info(?1) WHERE name = ?2")?
+                .exists(params![table, column])?;
+            if !exists {
+                error!("Brak wymaganej kolumny `{table}.{column}` w bazie danych");
+                return Err(rusqlite::Error::InvalidQuery);
+            }
+        }
+
         Ok(())
     }
 
     /// Najwyższa zarejestrowana wersja schematu (0, gdy brak wpisów).
     fn current_schema_version(&self) -> Result<i64> {
-        let v: Option<i64> = self
-            .conn
-            .query_row("SELECT MAX(version) FROM schema_version", [], |r| r.get(0))?;
+        let v: Option<i64> =
+            self.conn
+                .query_row("SELECT MAX(version) FROM schema_version", [], |r| r.get(0))?;
         Ok(v.unwrap_or(0))
     }
 
@@ -305,6 +360,146 @@ impl LogDatabase {
         Ok(())
     }
 
+    /// Wersja 3: dodaje klucze obce (`journal_id` → `journals.id`,
+    /// `upload_queue.qso_id` → `qso_records.id`) przez odbudowę tabel, wraz
+    /// z usunięciem ewentualnych osieroconych wierszy. SQLite nie wspiera
+    /// `ALTER TABLE ... ADD CONSTRAINT`, dlatego tabele są tworzone od nowa.
+    fn migration_3_foreign_keys(conn: &Connection) -> rusqlite::Result<()> {
+        // Usuń osierocone wiersze, aby odbudowa z kluczami obcymi nie zawiodła.
+        conn.execute(
+            "DELETE FROM upload_queue WHERE qso_id NOT IN (SELECT id FROM qso_records)",
+            [],
+        )?;
+        conn.execute(
+            "UPDATE qso_records SET journal_id = 'DEFAULT' WHERE journal_id NOT IN (SELECT id FROM journals)",
+            [],
+        )?;
+
+        // Zmień nazwy starych tabel (bez kluczy obcych), aby utworzyć nowe.
+        conn.execute_batch(
+            "ALTER TABLE qso_records RENAME TO qso_records_old;
+             ALTER TABLE upload_queue RENAME TO upload_queue_old;",
+        )?;
+
+        conn.execute_batch(
+            "CREATE TABLE qso_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                callsign TEXT NOT NULL,
+                band TEXT NOT NULL,
+                mode TEXT NOT NULL,
+                submode TEXT,
+                qso_date TEXT NOT NULL,
+                time_on TEXT NOT NULL,
+                time_off TEXT,
+                freq REAL,
+                freq_rx REAL,
+                rst_sent TEXT NOT NULL,
+                rst_rcvd TEXT NOT NULL,
+                name TEXT,
+                qth TEXT,
+                gridsquare TEXT,
+                state TEXT,
+                iota TEXT,
+                sota_ref TEXT,
+                pota_ref TEXT,
+                pga_ref TEXT,
+                dxcc INTEGER,
+                country TEXT,
+                continent TEXT,
+                cqz INTEGER,
+                ituz INTEGER,
+                comment TEXT,
+                qsl_via TEXT,
+                qsl_manager TEXT,
+                qsl_sent TEXT DEFAULT 'N',
+                qsl_rcvd TEXT DEFAULT 'N',
+                qsl_sent_date TEXT,
+                qsl_rcvd_date TEXT,
+                lotw_qsl_sent TEXT DEFAULT 'N',
+                lotw_qsl_rcvd TEXT DEFAULT 'N',
+                lotw_qslrdate TEXT,
+                eqsl_qsl_sent TEXT DEFAULT 'N',
+                eqsl_qsl_rcvd TEXT DEFAULT 'N',
+                eqsl_qslrdate TEXT,
+                clublog_upload_status TEXT,
+                qrzcom_upload_status TEXT,
+                sat_name TEXT,
+                sat_mode TEXT,
+                prop_mode TEXT,
+                srx INTEGER,
+                stx INTEGER,
+                srx_string TEXT,
+                stx_string TEXT,
+                my_gridsquare TEXT,
+                my_state TEXT,
+                my_pota_ref TEXT,
+                my_sota_ref TEXT,
+                vucc_grids TEXT,
+                audio_file TEXT,
+                journal_id TEXT DEFAULT 'DEFAULT' REFERENCES journals(id) ON DELETE SET DEFAULT
+            );
+
+            INSERT INTO qso_records (
+                id, callsign, band, mode, submode, qso_date, time_on, time_off,
+                freq, freq_rx, rst_sent, rst_rcvd, name, qth, gridsquare,
+                state, iota, sota_ref, pota_ref, pga_ref, dxcc, country,
+                continent, cqz, ituz, comment, qsl_via, qsl_manager,
+                qsl_sent, qsl_rcvd, qsl_sent_date, qsl_rcvd_date,
+                lotw_qsl_sent, lotw_qsl_rcvd, lotw_qslrdate,
+                eqsl_qsl_sent, eqsl_qsl_rcvd, eqsl_qslrdate,
+                clublog_upload_status, qrzcom_upload_status,
+                sat_name, sat_mode, prop_mode, srx, stx, srx_string, stx_string,
+                my_gridsquare, my_state, my_pota_ref, my_sota_ref, vucc_grids, audio_file, journal_id
+            )
+            SELECT
+                id, callsign, band, mode, submode, qso_date, time_on, time_off,
+                freq, freq_rx, rst_sent, rst_rcvd, name, qth, gridsquare,
+                state, iota, sota_ref, pota_ref, pga_ref, dxcc, country,
+                continent, cqz, ituz, comment, qsl_via, qsl_manager,
+                qsl_sent, qsl_rcvd, qsl_sent_date, qsl_rcvd_date,
+                lotw_qsl_sent, lotw_qsl_rcvd, lotw_qslrdate,
+                eqsl_qsl_sent, eqsl_qsl_rcvd, eqsl_qslrdate,
+                clublog_upload_status, qrzcom_upload_status,
+                sat_name, sat_mode, prop_mode, srx, stx, srx_string, stx_string,
+                my_gridsquare, my_state, my_pota_ref, my_sota_ref, vucc_grids, audio_file, journal_id
+            FROM qso_records_old;
+
+            CREATE TABLE upload_queue (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                qso_id INTEGER NOT NULL REFERENCES qso_records(id) ON DELETE CASCADE,
+                service TEXT NOT NULL,
+                adif_data TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                retry_count INTEGER NOT NULL DEFAULT 0,
+                last_error TEXT
+            );
+            INSERT INTO upload_queue (id, qso_id, service, adif_data, created_at, retry_count, last_error)
+            SELECT id, qso_id, service, adif_data, created_at, retry_count, last_error FROM upload_queue_old;
+
+            DROP TABLE upload_queue_old;
+            DROP TABLE qso_records_old;",
+        )?;
+
+        // Odtwórz indeksy po odbudowie tabel.
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_upload_queue_service ON upload_queue(service, retry_count);
+            CREATE INDEX IF NOT EXISTS idx_qso_callsign ON qso_records(callsign);
+            CREATE INDEX IF NOT EXISTS idx_qso_date ON qso_records(qso_date);
+            CREATE INDEX IF NOT EXISTS idx_qso_date_time ON qso_records(qso_date, time_on);
+            CREATE INDEX IF NOT EXISTS idx_qso_band ON qso_records(band);
+            CREATE INDEX IF NOT EXISTS idx_qso_mode ON qso_records(mode);
+            CREATE INDEX IF NOT EXISTS idx_qso_dxcc ON qso_records(dxcc);
+            CREATE INDEX IF NOT EXISTS idx_qso_pga ON qso_records(pga_ref);
+            CREATE INDEX IF NOT EXISTS idx_qso_journal ON qso_records(journal_id);
+            CREATE INDEX IF NOT EXISTS idx_qso_lotw ON qso_records(lotw_qsl_rcvd);
+            CREATE INDEX IF NOT EXISTS idx_qso_eqsl ON qso_records(eqsl_qsl_rcvd);
+            CREATE INDEX IF NOT EXISTS idx_qso_cqz ON qso_records(cqz);
+            CREATE INDEX IF NOT EXISTS idx_qso_composite ON qso_records(callsign, band, mode);",
+        )?;
+
+        Ok(())
+    }
+
     /// Dodaje kolumnę tylko wtedy, gdy jeszcze nie istnieje (bez maskowania błędów).
     fn add_column_if_missing(
         conn: &Connection,
@@ -365,7 +560,16 @@ impl LogDatabase {
             "UPDATE journals SET name = ?2, station_callsign = ?3, operator = ?4,
              my_gridsquare = ?5, my_pga = ?6, description = ?7, is_default = ?8
              WHERE id = ?1",
-            params![j.id, j.name, j.station_callsign, j.operator, j.my_gridsquare, j.my_pga, j.description, i32::from(j.is_default)],
+            params![
+                j.id,
+                j.name,
+                j.station_callsign,
+                j.operator,
+                j.my_gridsquare,
+                j.my_pga,
+                j.description,
+                i32::from(j.is_default)
+            ],
         )?;
         Ok(())
     }
@@ -396,7 +600,10 @@ impl LogDatabase {
             );
         }
 
-        let tx = self.conn.unchecked_transaction().map_err(|e| e.to_string())?;
+        let tx = self
+            .conn
+            .unchecked_transaction()
+            .map_err(|e| e.to_string())?;
         tx.execute(
             "UPDATE qso_records SET journal_id = 'DEFAULT' WHERE journal_id = ?1",
             params![id],
@@ -443,11 +650,17 @@ impl LogDatabase {
             return Err(format!("Dziennik „{id}” nie istnieje."));
         }
 
-        let tx = self.conn.unchecked_transaction().map_err(|e| e.to_string())?;
+        let tx = self
+            .conn
+            .unchecked_transaction()
+            .map_err(|e| e.to_string())?;
         tx.execute("UPDATE journals SET is_default = 0", [])
             .map_err(|e| e.to_string())?;
-        tx.execute("UPDATE journals SET is_default = 1 WHERE id = ?1", params![id])
-            .map_err(|e| e.to_string())?;
+        tx.execute(
+            "UPDATE journals SET is_default = 1 WHERE id = ?1",
+            params![id],
+        )
+        .map_err(|e| e.to_string())?;
         tx.commit().map_err(|e| e.to_string())?;
         Ok(())
     }
@@ -551,6 +764,101 @@ impl LogDatabase {
         Ok(self.conn.last_insert_rowid())
     }
 
+    /// Przywraca usunięte QSO zachowując jego oryginalny identyfikator.
+    /// Używane przez Undo, aby redo oraz ewentualne referencje zachowały
+    /// tożsamość rekordu zamiast tworzyć nowe ID.
+    pub fn restore_qso(&self, qso: &QsoRecord) -> Result<i64> {
+        let Some(id) = qso.id else {
+            return self.insert_qso(qso);
+        };
+        let journal = qso.journal_id.as_deref().unwrap_or("DEFAULT");
+        self.conn.execute(
+            "INSERT INTO qso_records (
+                id,
+                callsign, band, mode, submode, qso_date, time_on, time_off,
+                freq, freq_rx, rst_sent, rst_rcvd, name, qth, gridsquare,
+                state, iota, sota_ref, pota_ref, pga_ref, dxcc, country,
+                continent, cqz, ituz, comment, qsl_via, qsl_manager,
+                qsl_sent, qsl_rcvd, qsl_sent_date, qsl_rcvd_date,
+                lotw_qsl_sent, lotw_qsl_rcvd, lotw_qslrdate,
+                eqsl_qsl_sent, eqsl_qsl_rcvd, eqsl_qslrdate,
+                clublog_upload_status, qrzcom_upload_status,
+                sat_name, sat_mode, prop_mode, srx, stx, srx_string, stx_string,
+                my_gridsquare, my_state, my_pota_ref, my_sota_ref, vucc_grids, audio_file, journal_id
+            ) VALUES (
+                ?54,
+                ?1, ?2, ?3, ?4, ?5, ?6, ?7,
+                ?8, ?9, ?10, ?11, ?12, ?13, ?14,
+                ?15, ?16, ?17, ?18, ?19, ?20, ?21,
+                ?22, ?23, ?24, ?25, ?26, ?27,
+                ?28, ?29, ?30, ?31,
+                ?32, ?33, ?34,
+                ?35, ?36, ?37,
+                ?38, ?39,
+                ?40, ?41, ?42, ?43, ?44, ?45, ?46,
+                ?47, ?48, ?49, ?50, ?51, ?52, ?53
+            )",
+            params![
+                qso.callsign.to_uppercase(),
+                qso.band,
+                qso.mode.to_uppercase(),
+                qso.submode,
+                qso.qso_date,
+                qso.time_on,
+                qso.time_off,
+                qso.freq,
+                qso.freq_rx,
+                qso.rst_sent,
+                qso.rst_rcvd,
+                qso.name,
+                qso.qth,
+                qso.gridsquare,
+                qso.state,
+                qso.iota,
+                qso.sota_ref,
+                qso.pota_ref,
+                qso.pga_ref,
+                qso.dxcc,
+                qso.country,
+                qso.continent,
+                qso.cqz,
+                qso.ituz,
+                qso.comment,
+                qso.qsl_via,
+                qso.qsl_manager,
+                qso.qsl_sent,
+                qso.qsl_rcvd,
+                qso.qsl_sent_date,
+                qso.qsl_rcvd_date,
+                qso.lotw_qsl_sent,
+                qso.lotw_qsl_rcvd,
+                qso.lotw_qslrdate,
+                qso.eqsl_qsl_sent,
+                qso.eqsl_qsl_rcvd,
+                qso.eqsl_qslrdate,
+                qso.clublog_upload_status,
+                qso.qrzcom_upload_status,
+                qso.sat_name,
+                qso.sat_mode,
+                qso.prop_mode,
+                qso.srx,
+                qso.stx,
+                qso.srx_string,
+                qso.stx_string,
+                qso.my_gridsquare,
+                qso.my_state,
+                qso.my_pota_ref,
+                qso.my_sota_ref,
+                qso.vucc_grids,
+                qso.audio_file,
+                journal,
+                id,
+            ],
+        )?;
+
+        Ok(id)
+    }
+
     /// Masowe wstawianie łączności w pojedynczej transakcji (bardzo szybki import ADIF)
     pub fn batch_insert_qsos(&mut self, qsos: &[QsoRecord]) -> Result<usize> {
         let tx = self.conn.transaction()?;
@@ -648,7 +956,9 @@ impl LogDatabase {
 
     /// Pobiera listę poprzednich łączności z daną stacją (do podglądu w locie)
     pub fn find_previous_qsos(&self, callsign: &str) -> Result<Vec<QsoRecord>> {
-        let sql = format!("SELECT {QSO_COLUMNS} FROM qso_records WHERE callsign = ?1 ORDER BY qso_date DESC, time_on DESC");
+        let sql = format!(
+            "SELECT {QSO_COLUMNS} FROM qso_records WHERE callsign = ?1 ORDER BY qso_date DESC, time_on DESC"
+        );
         let mut stmt = self.conn.prepare(&sql)?;
 
         let rows = stmt.query_map(params![callsign.to_uppercase()], row_to_qso)?;
@@ -662,7 +972,8 @@ impl LogDatabase {
 
     /// Usuwa łączność z bazy po ID
     pub fn delete_qso(&self, id: i64) -> Result<()> {
-        self.conn.execute("DELETE FROM qso_records WHERE id = ?1", params![id])?;
+        self.conn
+            .execute("DELETE FROM qso_records WHERE id = ?1", params![id])?;
         Ok(())
     }
 
@@ -836,29 +1147,59 @@ impl LogDatabase {
     }
 
     /// Oznacza potwierdzenie LoTW dla dopasowanej łączności
-    pub fn mark_lotw_confirmed(&self, callsign: &str, band: &str, mode: &str, qso_date: &str, rdate: &str) -> Result<usize> {
+    pub fn mark_lotw_confirmed(
+        &self,
+        callsign: &str,
+        band: &str,
+        mode: &str,
+        qso_date: &str,
+        rdate: &str,
+    ) -> Result<usize> {
         let count = self.conn.execute(
             "UPDATE qso_records
              SET lotw_qsl_rcvd = 'Y', lotw_qslrdate = ?1
              WHERE callsign = ?2 AND band = ?3 AND mode = ?4 AND qso_date = ?5",
-            params![rdate, callsign.to_uppercase(), band, mode.to_uppercase(), qso_date],
+            params![
+                rdate,
+                callsign.to_uppercase(),
+                band,
+                mode.to_uppercase(),
+                qso_date
+            ],
         )?;
         Ok(count)
     }
 
     /// Oznacza potwierdzenie eQSL dla dopasowanej łączności
-    pub fn mark_eqsl_confirmed(&self, callsign: &str, band: &str, mode: &str, qso_date: &str, rdate: &str) -> Result<usize> {
+    pub fn mark_eqsl_confirmed(
+        &self,
+        callsign: &str,
+        band: &str,
+        mode: &str,
+        qso_date: &str,
+        rdate: &str,
+    ) -> Result<usize> {
         let count = self.conn.execute(
             "UPDATE qso_records
              SET eqsl_qsl_rcvd = 'Y', eqsl_qslrdate = ?1
              WHERE callsign = ?2 AND band = ?3 AND mode = ?4 AND qso_date = ?5",
-            params![rdate, callsign.to_uppercase(), band, mode.to_uppercase(), qso_date],
+            params![
+                rdate,
+                callsign.to_uppercase(),
+                band,
+                mode.to_uppercase(),
+                qso_date
+            ],
         )?;
         Ok(count)
     }
 
     /// Pobiera ostatnio zarejestrowane łączności dla wybranego profilu/dziennika
-    pub fn get_recent_qsos_for_journal(&self, journal_id: &str, limit: usize) -> Result<Vec<QsoRecord>> {
+    pub fn get_recent_qsos_for_journal(
+        &self,
+        journal_id: &str,
+        limit: usize,
+    ) -> Result<Vec<QsoRecord>> {
         let sql = format!(
             "SELECT {QSO_COLUMNS} FROM qso_records WHERE journal_id = ?1 ORDER BY REPLACE(qso_date, '-', '') DESC, SUBSTR(REPLACE(time_on, ':', '') || '000000', 1, 6) DESC, id DESC LIMIT ?2"
         );
@@ -873,7 +1214,10 @@ impl LogDatabase {
 
     /// Chronological position of every QSO within its journal, independent of
     /// the logbook's pagination, search and display sort.
-    pub fn qso_numbers_for_journal(&self, journal_id: &str) -> Result<std::collections::HashMap<i64, usize>> {
+    pub fn qso_numbers_for_journal(
+        &self,
+        journal_id: &str,
+    ) -> Result<std::collections::HashMap<i64, usize>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, ROW_NUMBER() OVER (ORDER BY REPLACE(qso_date, '-', ''), SUBSTR(REPLACE(time_on, ':', '') || '000000', 1, 6), id)
              FROM qso_records WHERE journal_id = ?1"
@@ -928,6 +1272,30 @@ impl LogDatabase {
         Ok(res)
     }
 
+    /// Zwraca zbiór kluczy jednoznaczności już zapisanych w wybranym dzienniku.
+    /// Klucz to znormalizowane `callsign|band|mode|data|czas`, używane do
+    /// idempotentnego importu ADIF: ponowny import identycznego pliku nie tworzy
+    /// duplikatów, bo rekordy o tym samym kluczu są pomijane.
+    pub fn existing_qso_keys(&self, journal_id: &str) -> Result<std::collections::HashSet<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT UPPER(callsign), UPPER(band), UPPER(mode),
+                    REPLACE(COALESCE(qso_date, ''), '-', ''),
+                    REPLACE(COALESCE(time_on, ''), ':', '')
+             FROM qso_records WHERE journal_id = ?1",
+        )?;
+        let rows = stmt.query_map(params![journal_id], |row| {
+            Ok(format!(
+                "{}|{}|{}|{}|{}",
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?
+            ))
+        })?;
+        rows.collect()
+    }
+
     /// Wyszukiwanie łączności z wieloma kryteriami (zaawansowane filtrowanie).
     /// Wszystkie wartości pochodzące od użytkownika są przekazywane jako parametry
     /// wiązane (nie string-concat), a wzorce LIKE mają escapowane znaki wieloznaczne
@@ -954,17 +1322,25 @@ impl LogDatabase {
             }
         }
         if !filter.bands.is_empty() {
-            let placeholders: Vec<String> = filter.bands.iter().map(|b| {
-                values.push(Box::new(b.clone()));
-                format!("?{}", values.len())
-            }).collect();
+            let placeholders: Vec<String> = filter
+                .bands
+                .iter()
+                .map(|b| {
+                    values.push(Box::new(b.clone()));
+                    format!("?{}", values.len())
+                })
+                .collect();
             conditions.push(format!("band IN ({})", placeholders.join(",")));
         }
         if !filter.modes.is_empty() {
-            let placeholders: Vec<String> = filter.modes.iter().map(|m| {
-                values.push(Box::new(m.clone()));
-                format!("?{}", values.len())
-            }).collect();
+            let placeholders: Vec<String> = filter
+                .modes
+                .iter()
+                .map(|m| {
+                    values.push(Box::new(m.clone()));
+                    format!("?{}", values.len())
+                })
+                .collect();
             conditions.push(format!("mode IN ({})", placeholders.join(",")));
         }
         if let Some(lotw) = filter.lotw_confirmed {
@@ -993,7 +1369,10 @@ impl LogDatabase {
             if !q.is_empty() {
                 // Escapuje % i _ (znaki specjalne LIKE) znakiem ucieczki '\', żeby wpisany
                 // przez użytkownika tekst nie działał jak wzorzec wildcard.
-                let escaped = q.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+                let escaped = q
+                    .replace('\\', "\\\\")
+                    .replace('%', "\\%")
+                    .replace('_', "\\_");
                 let like_pattern = format!("%{escaped}%");
                 values.push(Box::new(like_pattern.clone()));
                 let p1 = values.len();
@@ -1015,7 +1394,8 @@ impl LogDatabase {
         sql.push_str(" ORDER BY qso_date DESC, time_on DESC");
 
         let mut stmt = self.conn.prepare(&sql)?;
-        let param_refs: Vec<&dyn rusqlite::ToSql> = values.iter().map(std::convert::AsRef::as_ref).collect();
+        let param_refs: Vec<&dyn rusqlite::ToSql> =
+            values.iter().map(std::convert::AsRef::as_ref).collect();
         let rows = stmt.query_map(param_refs.as_slice(), row_to_qso)?;
         let mut res = Vec::new();
         for r in rows {
@@ -1026,7 +1406,8 @@ impl LogDatabase {
 
     /// Pobiera wszystkie łączności z logu (np. do eksportu całego dziennika)
     pub fn get_all_qsos(&self) -> Result<Vec<QsoRecord>> {
-        let sql = format!("SELECT {QSO_COLUMNS} FROM qso_records ORDER BY qso_date DESC, time_on DESC");
+        let sql =
+            format!("SELECT {QSO_COLUMNS} FROM qso_records ORDER BY qso_date DESC, time_on DESC");
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map([], row_to_qso)?;
         let mut res = Vec::new();
@@ -1038,12 +1419,26 @@ impl LogDatabase {
 
     /// Liczba wszystkich łączności w logu
     pub fn count_all(&self) -> Result<usize> {
-        let count: i64 = self.conn.query_row("SELECT COUNT(*) FROM qso_records", [], |row| row.get(0))?;
+        let count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM qso_records", [], |row| row.get(0))?;
+        Ok(count as usize)
+    }
+
+    /// Liczba łączności w pojedynczym dzienniku.
+    pub fn count_qsos_for_journal(&self, journal_id: &str) -> Result<usize> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM qso_records WHERE journal_id = ?1",
+            [journal_id],
+            |row| row.get(0),
+        )?;
         Ok(count as usize)
     }
 
     pub fn vacuum_if_needed(&self) -> rusqlite::Result<()> {
-        let count: i64 = self.conn.query_row("SELECT COUNT(*) FROM qso_records", [], |r| r.get(0))?;
+        let count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM qso_records", [], |r| r.get(0))?;
         if count > 0 && count % 1000 == 0 {
             self.conn.execute_batch("VACUUM;")?;
         }
@@ -1051,7 +1446,12 @@ impl LogDatabase {
     }
 
     /// Dodaje QSO do kolejki ponownego przesyłania
-    pub fn queue_upload(&self, qso_id: i64, service: &str, adif_data: &str) -> rusqlite::Result<()> {
+    pub fn queue_upload(
+        &self,
+        qso_id: i64,
+        service: &str,
+        adif_data: &str,
+    ) -> rusqlite::Result<()> {
         self.conn.execute(
             "INSERT OR IGNORE INTO upload_queue (qso_id, service, adif_data) VALUES (?1, ?2, ?3)",
             params![qso_id, service, adif_data],
@@ -1060,21 +1460,33 @@ impl LogDatabase {
     }
 
     /// Pobiera oczekujące wpisy z kolejki (max 50, retry < 5)
-    pub fn get_pending_uploads(&self, service: &str) -> rusqlite::Result<Vec<(i64, String, String)>> {
+    pub fn get_pending_uploads(
+        &self,
+        service: &str,
+    ) -> rusqlite::Result<Vec<(i64, String, String)>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, qso_id, adif_data FROM upload_queue WHERE service = ?1 AND retry_count < 5 ORDER BY created_at LIMIT 50"
         )?;
         let rows = stmt.query_map([service], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1).map(|_| service.to_string()).unwrap_or_default(), row.get::<_, String>(2)?))
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)
+                    .map(|_| service.to_string())
+                    .unwrap_or_default(),
+                row.get::<_, String>(2)?,
+            ))
         })?;
         let mut items = Vec::new();
-        for r in rows.flatten() { items.push(r); }
+        for r in rows.flatten() {
+            items.push(r);
+        }
         Ok(items)
     }
 
     /// Usuwa wpis z kolejki po udanym przesłaniu
     pub fn remove_from_queue(&self, queue_id: i64) -> rusqlite::Result<()> {
-        self.conn.execute("DELETE FROM upload_queue WHERE id = ?1", params![queue_id])?;
+        self.conn
+            .execute("DELETE FROM upload_queue WHERE id = ?1", params![queue_id])?;
         Ok(())
     }
 

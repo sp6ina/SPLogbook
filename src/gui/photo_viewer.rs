@@ -55,7 +55,7 @@ impl PhotoViewerDialog {
                             egui::Image::new(url)
                                 .max_width(400.0)
                                 .max_height(300.0)
-                                .corner_radius(6.0)
+                                .corner_radius(6.0),
                         );
 
                         ui.add_space(8.0);
@@ -69,7 +69,13 @@ impl PhotoViewerDialog {
                         });
                     } else {
                         ui.add_space(30.0);
-                        ui.label(egui::RichText::new("Brak powiązanego zdjęcia dla tej stacji w QRZ / HamQTH.").italics().color(egui::Color32::GRAY));
+                        ui.label(
+                            egui::RichText::new(
+                                "Brak powiązanego zdjęcia dla tej stacji w QRZ / HamQTH.",
+                            )
+                            .italics()
+                            .color(egui::Color32::GRAY),
+                        );
                         ui.add_space(20.0);
                         let qrz_link = format!("https://www.qrz.com/db/{}", self.callsign);
                         if ui.button("🌐 Sprawdź profil na QRZ.com").clicked() {

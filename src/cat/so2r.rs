@@ -35,7 +35,11 @@ pub enum So2rError {
 impl std::fmt::Display for So2rError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            So2rError::TxAlreadyActive(slot) => write!(f, "{} nadaje — nie można nadać na drugim radiu", slot.label()),
+            So2rError::TxAlreadyActive(slot) => write!(
+                f,
+                "{} nadaje — nie można nadać na drugim radiu",
+                slot.label()
+            ),
         }
     }
 }
@@ -158,7 +162,10 @@ mod tests {
     fn single_tx_enforced() {
         let mut s = So2rState::new();
         assert!(s.start_tx(RadioSlot::A).is_ok());
-        assert_eq!(s.start_tx(RadioSlot::B), Err(So2rError::TxAlreadyActive(RadioSlot::A)));
+        assert_eq!(
+            s.start_tx(RadioSlot::B),
+            Err(So2rError::TxAlreadyActive(RadioSlot::A))
+        );
         // Ponowne załączenie tego samego radia jest idempotentne.
         assert!(s.start_tx(RadioSlot::A).is_ok());
     }

@@ -3,7 +3,7 @@
 
 use reqwest::Client;
 use std::path::{Path, PathBuf};
-use tokio::fs::{create_dir_all, File};
+use tokio::fs::{File, create_dir_all};
 use tokio::io::AsyncWriteExt;
 
 /// Klient pobierania graficznych kart e-QSL bezpośrednio z serwerów eQSL.cc (wzorem QLog)
@@ -28,7 +28,11 @@ impl EqslCardDownloader {
         }
     }
 
-    pub fn with_cache_dir(username: impl Into<String>, password: impl Into<String>, cache_dir: impl AsRef<Path>) -> Self {
+    pub fn with_cache_dir(
+        username: impl Into<String>,
+        password: impl Into<String>,
+        cache_dir: impl AsRef<Path>,
+    ) -> Self {
         let mut s = Self::new(username, password);
         s.cache_dir = cache_dir.as_ref().to_path_buf();
         s
@@ -97,7 +101,10 @@ impl EqslCardDownloader {
     }
 
     /// Przesyła łączności ADIF do serwisu eQSL.cc
-    pub async fn upload_adif(&self, adif_content: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn upload_adif(
+        &self,
+        adif_content: &str,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let client = self.client.clone();
         let username = self.username.clone();
         let password = self.password.clone();
@@ -125,7 +132,11 @@ impl EqslCardDownloader {
         .await?;
 
         let body = resp.text().await?;
-        if body.contains("Result: 200") || body.contains("records were added") || body.contains("Success") || body.contains("imported") {
+        if body.contains("Result: 200")
+            || body.contains("records were added")
+            || body.contains("Success")
+            || body.contains("imported")
+        {
             Ok(format!("eQSL sukces: {}", body.trim()))
         } else {
             Err(format!("eQSL błąd: {}", body.trim()).into())
@@ -133,19 +144,22 @@ impl EqslCardDownloader {
     }
 
     /// Pobiera skrzynkę odbiorczą potwierdzonych łączności z serwisu eQSL.cc
-    pub async fn download_inbox_adif(&self) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn download_inbox_adif(
+        &self,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let resp = self
             .client
             .get("https://www.eqsl.cc/qslcard/DownloadInBox.cfm")
-            .query(&[
-                ("UserName", &self.username),
-                ("Password", &self.password),
-            ])
+            .query(&[("UserName", &self.username), ("Password", &self.password)])
             .send()
             .await?;
 
         let body = resp.text().await?;
-        if body.contains("<EOH>") || body.contains("<eoh>") || body.contains("<CALL:") || body.contains("<call:") {
+        if body.contains("<EOH>")
+            || body.contains("<eoh>")
+            || body.contains("<CALL:")
+            || body.contains("<call:")
+        {
             Ok(body)
         } else {
             Err(format!("eQSL błąd pobierania skrzynki: {}", body.trim()).into())

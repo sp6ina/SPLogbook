@@ -124,11 +124,14 @@ impl HamQthXmlClient {
             .session_id
             .as_ref()
             .ok_or_else(|| "Nie udało się utworzyć sesji HamQTH".to_string())?;
-        let url = format!(
-            "https://www.hamqth.com/xml.php?id={sid}&callsign={clean}&prg=SPLogbook"
-        );
+        let url = format!("https://www.hamqth.com/xml.php?id={sid}&callsign={clean}&prg=SPLogbook");
 
-        let resp = self.client.get(&url).send().await.map_err(|e| e.to_string())?;
+        let resp = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
         let xml = resp.text().await.map_err(|e| e.to_string())?;
 
         // Jeśli sesja wygasła, zaloguj się ponownie
@@ -139,10 +142,14 @@ impl HamQthXmlClient {
                 .session_id
                 .as_ref()
                 .ok_or_else(|| "Nie udało się utworzyć sesji HamQTH".to_string())?;
-            let url2 = format!(
-                "https://www.hamqth.com/xml.php?id={sid2}&callsign={clean}&prg=SPLogbook"
-            );
-            let resp2 = self.client.get(&url2).send().await.map_err(|e| e.to_string())?;
+            let url2 =
+                format!("https://www.hamqth.com/xml.php?id={sid2}&callsign={clean}&prg=SPLogbook");
+            let resp2 = self
+                .client
+                .get(&url2)
+                .send()
+                .await
+                .map_err(|e| e.to_string())?;
             let xml2 = resp2.text().await.map_err(|e| e.to_string())?;
             return Self::parse_hamqth_xml(&xml2, &clean);
         }
