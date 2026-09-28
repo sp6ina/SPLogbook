@@ -146,16 +146,20 @@ pub struct SolarPosition {
 
 /// Wylicza pozycję słońca dla danej lokalizacji i czasu UTC (rok, dzień roku, godzina dziesiętna UTC)
 pub fn calculate_solar_position(coords: Coordinates, day_of_year: u32, utc_hours: f64) -> SolarPosition {
-    // Przybliżenie równania czasu i deklinacji słońca (Spencer / Meeus)
+    // Przybliżenie równania czasu i deklinacji słońca (Spencer / NOAA / Meeus)
     let b = 2.0 * PI * (day_of_year as f64 - 81.0) / 365.0;
     let declination_rad = (23.45 * DEG_TO_RAD) * b.sin();
     let declination = declination_rad * RAD_TO_DEG;
 
-    // Kąt godzinny Greenwich (GHA)
-    let gha = (utc_hours - 12.0) * 15.0;
+    // Równanie czasu (Equation of Time) w minutach i stopniach
+    let eot_minutes = 9.87 * (2.0 * b).sin() - 7.53 * b.cos() - 1.5 * b.sin();
+    let eot_deg = eot_minutes * 0.25; // 15° na 60 min = 0.25°/min
 
-    // Kąt godzinny lokalny (LHA)
-    let lha_rad = (gha - coords.longitude) * DEG_TO_RAD;
+    // Kąt godzinny Greenwich (GHA) z uwzględnieniem równania czasu
+    let gha = (utc_hours - 12.0) * 15.0 + eot_deg;
+
+    // Kąt godzinny lokalny (LHA): dla długości wschodniej (dodatniej) słońce góruje wcześniej
+    let lha_rad = (gha + coords.longitude) * DEG_TO_RAD;
 
     let lat_rad = coords.latitude * DEG_TO_RAD;
     let sin_elev = lat_rad.sin() * declination_rad.sin() + lat_rad.cos() * declination_rad.cos() * lha_rad.cos();
@@ -198,5 +202,18 @@ mod tests {
 
         let bearing = calculate_bearing_deg(p1, p2);
         assert!(bearing > 45.0 && bearing < 75.0); // Kierunek północny-wschód
+    }
+
+    #[test]
+    fn test_solar_position_noon() {
+        // Wrocław (51.1° N, 17.0° E) w równonoc (dzień 81)
+        let wroclaw = Coordinates::new(51.1, 17.0);
+        // Słońce w okolicach południka 17°E góruje ok. 10:52 UTC (17° / 15°/h = 1.13h = 1h08m przed 12:00)
+        let noon_pos = calculate_solar_position(wroclaw, 81, 10.87);
+        let night_pos = calculate_solar_position(wroclaw, 81, 23.0);
+
+        assert!(noon_pos.elevation > 35.0, "Elewacja w południe powinna wynosić ok. 39°");
+        assert!(night_pos.elevation < -30.0, "W nocy słońce powinno być głęboko pod horyzontem");
+        assert!(!noon_pos.is_grayline);
     }
 }

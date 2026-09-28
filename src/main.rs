@@ -10,10 +10,15 @@ use splogbook::gui::app::SpLogApp;
 use std::sync::{Arc, Mutex};
 
 fn main() -> Result<(), eframe::Error> {
+    // Inicjalizacja loggera diagnostycznego (RUST_LOG lub domyślnie info)
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    log::info!("SPLogbook v{} inicjalizacja...", env!("CARGO_PKG_VERSION"));
+
     // Panic hook - log awarii do crash.log
     std::panic::set_hook(Box::new(|info| {
         let msg = format!("Wystąpił nieoczekiwany błąd w SPLogbook:\n\n{}", info);
         eprintln!("{}", msg);
+        log::error!("{}", msg);
         if let Ok(exe) = std::env::current_exe() {
             if let Some(dir) = exe.parent() {
                 let _ = std::fs::write(dir.join("crash.log"), &msg);

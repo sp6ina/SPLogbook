@@ -24,7 +24,7 @@ pub fn calculate_score(rule: &ContestRule, qsos: &[QsoRecord], my_dxcc: u32, my_
 
 pub fn detect_duplicate(_rule: &ContestRule, qso: &QsoRecord, log: &[QsoRecord]) -> bool {
     for prev in log {
-        if prev.callsign == qso.callsign && prev.band == qso.band {
+        if prev.callsign == qso.callsign && prev.band == qso.band && prev.mode == qso.mode {
             return true;
         }
     }
@@ -37,7 +37,7 @@ fn score_sp_dx(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, 
     for q in qsos {
         pts += 3;
         if let Some(dxcc) = q.dxcc {
-            mults.insert(dxcc);
+            mults.insert(format!("{}:D{}", q.band, dxcc));
         }
     }
     let m = mults.len() as u32;
@@ -54,10 +54,10 @@ fn score_cqww(qsos: &[QsoRecord], my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, u3
             pts += 3; // 3 pts/diff DXCC
         }
         if let Some(z) = q.cqz {
-            mults.insert(format!("Z{}", z));
+            mults.insert(format!("{}:Z{}", q.band, z));
         }
         if let Some(d) = q.dxcc {
-            mults.insert(format!("D{}", d));
+            mults.insert(format!("{}:D{}", q.band, d));
         }
     }
     let m = mults.len() as u32;
@@ -70,7 +70,7 @@ fn score_arrl_dx(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32
     for q in qsos {
         pts += 3; // 3 pts per QSO
         if let Some(state) = &q.state {
-            mults.insert(state.clone());
+            mults.insert(format!("{}:{}", q.band, state));
         }
     }
     let m = mults.len() as u32;
@@ -82,8 +82,10 @@ fn score_wpx(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, u3
     let mut mults = HashSet::new();
     for q in qsos {
         pts += 2; // 1/2/3 pts approx
-        let prefix: String = q.callsign.chars().filter(|c| c.is_alphanumeric()).take(3).collect();
-        mults.insert(prefix);
+        let prefix = crate::core::prefix::extract_wpx_prefix(&q.callsign);
+        if !prefix.is_empty() {
+            mults.insert(prefix);
+        }
     }
     let m = mults.len() as u32;
     (pts, m, pts * m)
@@ -308,7 +310,7 @@ fn score_ukrainian(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u
 }
 
 pub const RULES: &[ContestRule] = &[
-    ContestRule { name: "SP DX Contest", exchange_format: "RST + Serial", exchange_fields: &[Rst, Serial], bands: &["80m", "40m", "20m", "15m", "10m"], mult_kind: MultKind::Dxcc, scoring_fn: score_sp_dx },
+    ContestRule { name: "SP DX Contest", exchange_format: "RST + Serial", exchange_fields: &[Rst, Serial], bands: &["80m", "40m", "20m", "15m", "10m"], mult_kind: MultKind::DxccPerBand, scoring_fn: score_sp_dx },
     ContestRule { name: "CQ World Wide DX Contest (CW)", exchange_format: "RST + CQ Zone", exchange_fields: &[Rst, Zone], bands: &["160m", "80m", "40m", "20m", "15m", "10m"], mult_kind: MultKind::CqZone, scoring_fn: score_cqww },
     ContestRule { name: "CQ World Wide DX Contest (SSB)", exchange_format: "RST + CQ Zone", exchange_fields: &[Rst, Zone], bands: &["160m", "80m", "40m", "20m", "15m", "10m"], mult_kind: MultKind::CqZone, scoring_fn: score_cqww },
     ContestRule { name: "CQ WPX Contest", exchange_format: "RST + Serial", exchange_fields: &[Rst, Serial], bands: &["160m", "80m", "40m", "20m", "15m", "10m"], mult_kind: MultKind::Prefix, scoring_fn: score_wpx },

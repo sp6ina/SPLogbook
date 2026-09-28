@@ -53,23 +53,26 @@ impl AdifEngine {
         // Czy bieżący rekord zawiera błąd składni (np. nieprawidłowa długość pola).
         let mut record_has_error = false;
 
-        // Bezpieczny stan maszyny parsowania
+        // Bezpieczny stan maszyny parsowania operującej na bajtach UTF-8 (zgodnie ze specyfikacją ADIF)
         let mut current_fields: HashMap<String, String> = HashMap::new();
-        let mut chars = body.char_indices().peekable();
+        let bytes = body.as_bytes();
+        let mut idx = 0;
 
-        while let Some(&(_, ch)) = chars.peek() {
-            if ch == '<' {
-                chars.next(); // pomiń '<'
-                let mut tag_content = String::new();
-                while let Some(&(_, c)) = chars.peek() {
-                    chars.next();
-                    if c == '>' {
-                        break;
-                    }
-                    tag_content.push(c);
+        while idx < bytes.len() {
+            if bytes[idx] == b'<' {
+                idx += 1; // pomiń '<'
+                let start_tag = idx;
+                while idx < bytes.len() && bytes[idx] != b'>' {
+                    idx += 1;
                 }
+                if idx >= bytes.len() {
+                    break;
+                }
+                let tag_raw = &bytes[start_tag..idx];
+                idx += 1; // pomiń '>'
 
-                let tag_upper = tag_content.trim().to_uppercase();
+                let tag_str = String::from_utf8_lossy(tag_raw);
+                let tag_upper = tag_str.trim().to_uppercase();
                 if tag_upper == "EOR" {
                     record_index += 1;
                     if record_has_error {
@@ -93,19 +96,16 @@ impl AdifEngine {
                 }
 
                 // Format tagu: NAZWA:DŁUGOŚĆ[:TYP]
-                let parts: Vec<&str> = tag_content.split(':').collect();
+                let parts: Vec<&str> = tag_str.split(':').collect();
                 if parts.len() >= 2 {
                     let field_name = parts[0].trim().to_uppercase();
                     match parts[1].trim().parse::<usize>() {
                         Ok(length) => {
-                            let mut val = String::with_capacity(length);
-                            for _ in 0..length {
-                                if let Some(&(_, c)) = chars.peek() {
-                                    chars.next();
-                                    val.push(c);
-                                }
-                            }
-                            current_fields.insert(field_name, val.trim().to_string());
+                            let end_idx = (idx + length).min(bytes.len());
+                            let val_bytes = &bytes[idx..end_idx];
+                            let val_str = String::from_utf8_lossy(val_bytes);
+                            current_fields.insert(field_name, val_str.trim().to_string());
+                            idx = end_idx;
                         }
                         Err(_) => {
                             errors.push(format!(
@@ -117,7 +117,7 @@ impl AdifEngine {
                     }
                 }
             } else {
-                chars.next();
+                idx += 1;
             }
         }
 
@@ -284,7 +284,7 @@ impl AdifEngine {
         writeln!(writer, "Author: Mariusz Wozniak (SP6INA)")?;
         writeln!(writer, "<ADIF_VER:5>3.1.5")?;
         writeln!(writer, "<PROGRAMID:9>SPLogbook")?;
-        writeln!(writer, "<PROGRAMVERSION:5>1.0.3")?;
+        writeln!(writer, "<PROGRAMVERSION:{}>{}", env!("CARGO_PKG_VERSION").len(), env!("CARGO_PKG_VERSION"))?;
         writeln!(writer, "<EOH>")?;
 
         for q in qsos {
@@ -402,7 +402,7 @@ impl AdifEngine {
 
     fn write_field<W: Write>(writer: &mut W, tag: &str, val: &str) -> std::io::Result<()> {
         if !val.is_empty() {
-            write!(writer, "<{}:{}>{}", tag, val.chars().count(), val)?;
+            write!(writer, "<{}:{}>{}", tag, val.len(), val)?;
         }
         Ok(())
     }
@@ -421,7 +421,7 @@ impl AdifEngine {
         writeln!(writer, "  <HEADER>")?;
         writeln!(writer, "    <ADIF_VER>3.1.5</ADIF_VER>")?;
         writeln!(writer, "    <PROGRAMID>SPLogbook</PROGRAMID>")?;
-        writeln!(writer, "    <PROGRAMVERSION>1.0.3</PROGRAMVERSION>")?;
+        writeln!(writer, "    <PROGRAMVERSION>{}</PROGRAMVERSION>", env!("CARGO_PKG_VERSION"))?;
         writeln!(writer, "  </HEADER>")?;
         writeln!(writer, "  <RECORDS>")?;
 

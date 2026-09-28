@@ -47,17 +47,24 @@ impl WsjtxReceiver {
         }
     }
 
-    /// Pomija strukturę QDateTime ze strumienia Qt QDataStream
-    /// QDate (8 bajtów) + QTime (4 bajty) + timespec (1 bajt) [+ 4 bajty offsetu gdy timespec==2]
-    fn skip_qdatetime(rdr: &mut Cursor<&[u8]>) -> Option<()> {
+    /// Dekoduje strukturę QDateTime ze strumienia Qt QDataStream
+    /// Zwraca (YYYY-MM-DD, HH:MM:SS) w UTC
+    fn read_qdatetime(rdr: &mut Cursor<&[u8]>) -> Option<(String, String)> {
         use byteorder::ReadBytesExt;
-        let _ = rdr.read_u64::<BigEndian>().ok()?;
-        let _ = rdr.read_u32::<BigEndian>().ok()?;
+        let julian_day = rdr.read_i64::<BigEndian>().ok()?;
+        let ms_since_midnight = rdr.read_u32::<BigEndian>().ok()?;
         let timespec = rdr.read_u8().ok()?;
         if timespec == 2 {
             let _ = rdr.read_i32::<BigEndian>().ok()?;
         }
-        Some(())
+
+        // Julian Day Number (JDN) 2440588 to 1970-01-01 (Unix Epoch)
+        let days_from_epoch = julian_day.checked_sub(2440588)?;
+        let secs = days_from_epoch.checked_mul(86400)? + (ms_since_midnight as i64 / 1000);
+        let dt = chrono::DateTime::from_timestamp(secs, 0)?;
+        let date_str = dt.format("%Y-%m-%d").to_string();
+        let time_str = dt.format("%H:%M:%S").to_string();
+        Some((date_str, time_str))
     }
 
     /// Dekoduje binarny pakiet Qt QDataStream z WSJT-X
@@ -91,8 +98,8 @@ impl WsjtxReceiver {
             }
             5 => {
                 // QSO Logged packet
-                // Prawidłowo pomiń date/time off (QDateTime: 8b QDate + 4b QTime + 1b timespec)
-                Self::skip_qdatetime(&mut rdr)?;
+                // Prawidłowo odczytaj date/time off z QDateTime
+                let (qso_date, time_off) = Self::read_qdatetime(&mut rdr)?;
                 let dx_call = Self::read_utf8_string(&mut rdr)?;
                 let dx_grid = Self::read_utf8_string(&mut rdr).unwrap_or_default();
                 let dial_freq = rdr.read_u64::<BigEndian>().unwrap_or(0);
@@ -107,6 +114,9 @@ impl WsjtxReceiver {
                 let band = Self::freq_to_band(freq_mhz);
 
                 let mut qso = QsoRecord::new(dx_call, band, mode);
+                qso.qso_date = qso_date;
+                qso.time_on = time_off.clone();
+                qso.time_off = Some(time_off);
                 qso.freq = Some(freq_mhz);
                 qso.rst_sent = rst_sent;
                 qso.rst_rcvd = rst_rcvd;
@@ -254,8 +264,11 @@ mod tests {
                 assert_eq!(qso.mode, "FT8");
                 assert_eq!(qso.rst_sent, "-05");
                 assert_eq!(qso.rst_rcvd, "-12");
+                assert_eq!(qso.qso_date, "2023-02-24");
+                assert_eq!(qso.time_on, "12:00:00");
+                assert_eq!(qso.time_off, Some("12:00:00".to_string()));
             }
-            _ => assert!(false, "Oczekiwano WsjtxMessage::QsoLogged"),
+            _ => panic!("Oczekiwano WsjtxMessage::QsoLogged"),
         }
     }
 }

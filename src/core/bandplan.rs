@@ -30,11 +30,11 @@ pub enum SegmentMode {
 pub static AMATEUR_BANDS: &[BandDefinition] = &[
     BandDefinition {
         name: "160m",
-        min_freq_hz: 1_810_000,
+        min_freq_hz: 1_800_000,
         max_freq_hz: 2_000_000,
         default_freq_hz: 1_840_000,
         segments: &[
-            BandSegment { label: "CW", start_hz: 1_810_000, end_hz: 1_838_000, mode: SegmentMode::Cw },
+            BandSegment { label: "CW", start_hz: 1_800_000, end_hz: 1_838_000, mode: SegmentMode::Cw },
             BandSegment { label: "DIGI", start_hz: 1_838_000, end_hz: 1_840_000, mode: SegmentMode::Data },
             BandSegment { label: "SSB", start_hz: 1_840_000, end_hz: 2_000_000, mode: SegmentMode::Ssb },
         ],
@@ -189,6 +189,26 @@ pub static AMATEUR_BANDS: &[BandDefinition] = &[
             BandSegment { label: "FM/ATV", start_hz: 1_297_000_000, end_hz: 1_300_000_000, mode: SegmentMode::Fm },
         ],
     },
+    BandDefinition {
+        name: "13cm",
+        min_freq_hz: 2_300_000_000,
+        max_freq_hz: 2_450_000_000,
+        default_freq_hz: 2_400_050_000, // QO-100 uplink
+        segments: &[
+            BandSegment { label: "CW/SSB", start_hz: 2_320_000_000, end_hz: 2_320_800_000, mode: SegmentMode::Ssb },
+            BandSegment { label: "QO-100 Uplink", start_hz: 2_400_000_000, end_hz: 2_400_500_000, mode: SegmentMode::Ssb },
+        ],
+    },
+    BandDefinition {
+        name: "3cm",
+        min_freq_hz: 10_000_000_000,
+        max_freq_hz: 10_500_000_000,
+        default_freq_hz: 10_489_500_000, // QO-100 downlink
+        segments: &[
+            BandSegment { label: "CW/SSB", start_hz: 10_368_000_000, end_hz: 10_368_800_000, mode: SegmentMode::Ssb },
+            BandSegment { label: "QO-100 Downlink", start_hz: 10_489_500_000, end_hz: 10_490_000_000, mode: SegmentMode::Ssb },
+        ],
+    },
 ];
 
 pub fn get_band_by_name(name: &str) -> Option<&'static BandDefinition> {
@@ -214,6 +234,12 @@ mod tests {
         let band2m = get_band_by_freq(144_300_000).unwrap();
         assert_eq!(band2m.name, "2m");
 
+        let band13cm = get_band_by_freq(2_400_050_000).unwrap();
+        assert_eq!(band13cm.name, "13cm");
+
+        let band3cm = get_band_by_freq(10_489_500_000).unwrap();
+        assert_eq!(band3cm.name, "3cm");
+
         assert!(get_band_by_freq(100_000).is_none());
     }
 
@@ -225,7 +251,7 @@ mod tests {
 
         // Tuż poniżej / powyżej granic pasm — luka między pasmami (brak pasma)
         assert!(get_band_by_freq(14_350_001).is_none());
-        assert!(get_band_by_freq(1_809_999).is_none());
+        assert!(get_band_by_freq(1_799_999).is_none());
     }
 
     #[test]
