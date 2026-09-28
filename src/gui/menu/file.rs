@@ -69,7 +69,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             app.trigger_export_adx();
             ui.close();
         }
-        if ui.button("Eksport CSV (konfigurowalny)…").clicked() {
+        if ui.button(tr("menu.export_csv", lang)).clicked() {
             app.csv_export_dialog.open();
             ui.close();
         }

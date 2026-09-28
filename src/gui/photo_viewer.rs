@@ -31,7 +31,7 @@ impl PhotoViewerDialog {
         self.is_open = true;
     }
 
-    pub fn show(&mut self, ctx: &egui::Context) {
+    pub fn show(&mut self, ctx: &egui::Context, lang: crate::core::i18n::Language) {
         if !self.is_open {
             return;
         }
@@ -39,13 +39,13 @@ impl PhotoViewerDialog {
         let mut open = self.is_open;
         let mut close_requested = false;
 
-        egui::Window::new(format!("📷 Zdjęcie stacji: {}", self.callsign))
+        egui::Window::new(format!("📷 {}: {}", crate::core::i18n::tr("qso.callsign", lang), self.callsign))
             .open(&mut open)
             .default_width(450.0)
             .default_height(350.0)
             .show(ctx, |ui| {
                 ui.vertical_centered(|ui| {
-                    ui.heading(format!("Znak: {}", self.callsign));
+                    ui.heading(format!("{}: {}", crate::core::i18n::tr("qso.callsign", lang), self.callsign));
 
                     if let Some(ref url) = self.photo_url {
                         ui.label(format!("Adres grafiki: {url}"));
@@ -60,10 +60,10 @@ impl PhotoViewerDialog {
 
                         ui.add_space(8.0);
                         ui.horizontal(|ui| {
-                            if ui.button("🌐 Otwórz w przeglądarce").clicked() {
+                            if ui.button(crate::core::i18n::tr("photo.open_browser", lang)).clicked() {
                                 ctx.open_url(egui::OpenUrl::new_tab(url));
                             }
-                            if ui.button("📋 Kopiuj link").clicked() {
+                            if ui.button(crate::core::i18n::tr("photo.copy_link", lang)).clicked() {
                                 ui.ctx().copy_text(url.clone());
                             }
                         });
@@ -78,13 +78,13 @@ impl PhotoViewerDialog {
                         );
                         ui.add_space(20.0);
                         let qrz_link = format!("https://www.qrz.com/db/{}", self.callsign);
-                        if ui.button("🌐 Sprawdź profil na QRZ.com").clicked() {
+                        if ui.button(crate::core::i18n::tr("photo.check_qrz", lang)).clicked() {
                             ctx.open_url(egui::OpenUrl::new_tab(qrz_link));
                         }
                     }
 
                     ui.add_space(10.0);
-                    if ui.button("Zamknij").clicked() {
+                    if ui.button(crate::core::i18n::tr("btn.close", lang)).clicked() {
                         close_requested = true;
                     }
                 });

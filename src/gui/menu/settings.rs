@@ -49,8 +49,8 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             for preset in ThemePreset::ALL {
                 let selected = app.theme_preset == preset;
                 if ui
-                    .selectable_label(selected, preset.label_pl())
-                    .on_hover_text(preset.description_pl())
+                    .selectable_label(selected, preset.label(lang))
+                    .on_hover_text(preset.description(lang))
                     .clicked()
                 {
                     app.theme_preset = preset;
@@ -112,11 +112,11 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         // Jednostka odległości używana w całym interfejsie (DX, azymut, mapa)
         ui.label(egui::RichText::new(tr("settings.distance_unit", lang)).strong());
         let mut selected_unit = app.distance_unit.clone();
-        let unit_label = |u: &str| -> &'static str {
+        let unit_label = |u: &str| -> &str {
             match u {
-                "mi" => "Mile (mi)",
-                "nmi" => "Mile morskie (NM)",
-                _ => "Kilometry (km)",
+                "mi" => tr("settings.unit_mi", lang),
+                "nmi" => tr("settings.unit_nmi", lang),
+                _ => tr("settings.unit_km", lang),
             }
         };
         egui::ComboBox::from_id_salt("settings_distance_unit")

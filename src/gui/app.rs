@@ -5107,11 +5107,11 @@ impl eframe::App for SpLogApp {
             .show(ctx, &my_grid, &mut self.rotor_state, self.current_language);
 
         // 3. Moduł SOTA / POTA
-        self.sota_dialog.show(ctx, &self.recent_qsos);
+        self.sota_dialog.show(ctx, &self.recent_qsos, self.current_language);
 
         // 3b. Konfigurowalny eksport CSV
         if self.csv_export_dialog.is_open {
-            if let Some(req) = self.csv_export_dialog.render(ctx) {
+            if let Some(req) = self.csv_export_dialog.render(ctx, self.current_language) {
                 self.perform_csv_export(&req);
             }
         }
@@ -5141,7 +5141,7 @@ impl eframe::App for SpLogApp {
         }
 
         // 7. Przeglądarka fotografii i kart QSL korespondenta
-        self.photo_viewer_dialog.show(ctx);
+        self.photo_viewer_dialog.show(ctx, self.current_language);
 
         // 8. Menedżer prefiksów DXCC
         self.prefix_manager_dialog.show(ctx, &self.service_db);

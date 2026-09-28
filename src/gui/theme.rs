@@ -86,6 +86,14 @@ impl ThemePreset {
         }
     }
 
+    pub fn label(&self, lang: crate::core::i18n::Language) -> &'static str {
+        match self {
+            ThemePreset::OperatorDark => crate::core::i18n::tr("theme.preset_dark_label", lang),
+            ThemePreset::Daylight => crate::core::i18n::tr("theme.preset_light_label", lang),
+            ThemePreset::HighContrast => crate::core::i18n::tr("theme.preset_contrast_label", lang),
+        }
+    }
+
     pub fn description_pl(&self) -> &'static str {
         match self {
             ThemePreset::OperatorDark => {
@@ -97,6 +105,14 @@ impl ThemePreset {
             ThemePreset::HighContrast => {
                 "Wysoki kontrast i paleta bezpieczna dla daltonistów (bez polegania wyłącznie na czerwieni/zieleni)."
             }
+        }
+    }
+
+    pub fn description(&self, lang: crate::core::i18n::Language) -> &'static str {
+        match self {
+            ThemePreset::OperatorDark => crate::core::i18n::tr("theme.preset_dark_desc", lang),
+            ThemePreset::Daylight => crate::core::i18n::tr("theme.preset_light_desc", lang),
+            ThemePreset::HighContrast => crate::core::i18n::tr("theme.preset_contrast_desc", lang),
         }
     }
 

@@ -8,6 +8,7 @@
 //! `SpLogApp::perform_csv_export` na podstawie zwróconego żądania.
 
 use crate::core::csv_export::{CsvColumn, CsvDelimiter};
+use crate::core::i18n::{Language, tr};
 use eframe::egui;
 
 /// Zakres danych podlegających eksportowi.
@@ -19,11 +20,11 @@ pub enum CsvExportScope {
 }
 
 impl CsvExportScope {
-    fn label(self) -> &'static str {
+    fn label(self, lang: Language) -> &'static str {
         match self {
-            CsvExportScope::All => "Wszystkie łączności",
-            CsvExportScope::Filtered => "Tylko bieżący widok (filtr)",
-            CsvExportScope::Selected => "Tylko zaznaczone",
+            CsvExportScope::All => tr("csv.scope_all", lang),
+            CsvExportScope::Filtered => tr("csv.scope_filtered", lang),
+            CsvExportScope::Selected => tr("csv.scope_selected", lang),
         }
     }
 }
@@ -111,7 +112,7 @@ impl CsvExportDialog {
     }
 
     /// Rysuje okno dialogowe. Zwraca `Some(request)`, gdy użytkownik kliknął „Eksportuj".
-    pub fn render(&mut self, ctx: &egui::Context) -> Option<CsvExportRequest> {
+    pub fn render(&mut self, ctx: &egui::Context, lang: Language) -> Option<CsvExportRequest> {
         if !self.is_open {
             return None;
         }
@@ -120,33 +121,33 @@ impl CsvExportDialog {
         let mut export_requested = false;
         let mut close_requested = false;
 
-        egui::Window::new("Eksport CSV")
+        egui::Window::new(tr("csv.title", lang))
             .open(&mut open)
             .collapsible(false)
             .resizable(true)
             .default_width(560.0)
             .show(ctx, |ui| {
-                ui.label("Zakres danych:");
+                ui.label(tr("csv.scope_label", lang));
                 ui.horizontal(|ui| {
                     ui.radio_value(
                         &mut self.scope,
                         CsvExportScope::All,
-                        CsvExportScope::All.label(),
+                        CsvExportScope::All.label(lang),
                     );
                     ui.radio_value(
                         &mut self.scope,
                         CsvExportScope::Filtered,
-                        CsvExportScope::Filtered.label(),
+                        CsvExportScope::Filtered.label(lang),
                     );
                     ui.radio_value(
                         &mut self.scope,
                         CsvExportScope::Selected,
-                        CsvExportScope::Selected.label(),
+                        CsvExportScope::Selected.label(lang),
                     );
                 });
 
                 ui.add_space(8.0);
-                ui.label("Separator:");
+                ui.label(tr("csv.delimiter_label", lang));
                 ui.horizontal(|ui| {
                     ui.radio_value(
                         &mut self.delimiter,
@@ -168,20 +169,20 @@ impl CsvExportDialog {
                 ui.add_space(4.0);
                 ui.checkbox(
                     &mut self.include_header,
-                    "Dołącz wiersz nagłówka (nazwy pól ADIF)",
+                    tr("csv.include_header", lang),
                 );
 
                 ui.add_space(8.0);
                 ui.separator();
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("Kolumny:").strong());
-                    if ui.small_button("Zaznacz wszystkie").clicked() {
+                    ui.label(egui::RichText::new(tr("csv.columns_label", lang)).strong());
+                    if ui.small_button(tr("csv.select_all", lang)).clicked() {
                         self.selected_columns = CsvColumn::ALL.to_vec();
                     }
-                    if ui.small_button("Wyczyść").clicked() {
+                    if ui.small_button(tr("csv.clear", lang)).clicked() {
                         self.selected_columns.clear();
                     }
-                    if ui.small_button("Przywróć domyślne").clicked() {
+                    if ui.small_button(tr("csv.restore_defaults", lang)).clicked() {
                         self.selected_columns = Self::default_columns();
                     }
                 });
@@ -204,13 +205,13 @@ impl CsvExportDialog {
                 ui.separator();
                 ui.horizontal(|ui| {
                     let count = self.ordered_selection().len();
-                    if ui.button("Eksportuj").clicked() && count > 0 {
+                    if ui.button(tr("csv.export_btn", lang)).clicked() && count > 0 {
                         export_requested = true;
                     }
-                    if ui.button("Zamknij").clicked() {
+                    if ui.button(tr("btn.close", lang)).clicked() {
                         close_requested = true;
                     }
-                    ui.label(format!("Wybrano {count} kolumn"));
+                    ui.label(format!("{}: {count}", tr("csv.selected_count", lang)));
                 });
             });
 

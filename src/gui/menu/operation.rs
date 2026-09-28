@@ -138,35 +138,35 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ui.close();
         }
         if ui
-            .button(icons::VOICE_KEYER.label("Voice Keyer (SSB)"))
+            .button(icons::VOICE_KEYER.label(tr("menu.voice_keyer", lang)))
             .clicked()
         {
             app.show_voice_keyer_window = true;
             ui.close();
         }
         if ui
-            .button(icons::DESKTOP.label("Profile układu (workspace)"))
+            .button(icons::DESKTOP.label(tr("menu.workspace_profiles", lang)))
             .clicked()
         {
             app.show_workspace_profiles_window = true;
             ui.close();
         }
         if ui
-            .button(icons::AI_ASSISTANT.label("Asystent operatora"))
+            .button(icons::AI_ASSISTANT.label(tr("menu.operator_assistant", lang)))
             .clicked()
         {
             app.show_operator_assistant = true;
             ui.close();
         }
         if ui
-            .button(icons::PLUGIN.label("Menedżer pluginów (Rhai)"))
+            .button(icons::PLUGIN.label(tr("menu.plugin_manager", lang)))
             .clicked()
         {
             app.show_plugin_manager = true;
             ui.close();
         }
         if ui
-            .button(icons::STORE.label("Marketplace pluginów"))
+            .button(icons::STORE.label(tr("menu.plugin_marketplace", lang)))
             .clicked()
         {
             app.show_marketplace = true;

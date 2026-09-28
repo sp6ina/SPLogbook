@@ -37,7 +37,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             app.show_wspr_window = true;
             ui.close();
         }
-        if ui.button(icons::SIGNAL_UP.label("Widmo / Waterfall (SDR)")).clicked() {
+        if ui.button(icons::SIGNAL_UP.label(tr("tools.waterfall", lang))).clicked() {
             app.panel_waterfall.visible = true;
             app.panel_waterfall.floating = false;
             app.save_station_config();
@@ -45,26 +45,26 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
         ui.separator();
         ui.menu_button(icons::GLOBE.label(tr("tools.rest_api_server", lang)), |ui| {
-            ui.label("Włącz serwer na porcie 8080 (wymaga restartu aplikacji dla zmiany portu)");
+            ui.label(tr("tools.rest_api_hint", lang));
             if ui.checkbox(&mut app.rest_api_enabled, tr("tools.rest_api_enable", lang)).changed() {
                 app.save_station_config();
                 if app.rest_api_enabled {
                     app.start_rest_api_server();
                 }
             }
-            ui.label(format!("API dostępne pod: http://127.0.0.1:{}/api/v1/", app.rest_api_port));
+            ui.label(format!("{} http://127.0.0.1:{}/api/v1/", tr("tools.rest_api_url", lang), app.rest_api_port));
             if app.rest_api_enabled {
                 let key = app.ensure_rest_api_key();
                 ui.separator();
-                ui.label(icons::WARNING.label("Wymagany nagłówek uwierzytelniający: X-Api-Key"));
+                ui.label(icons::WARNING.label(tr("tools.rest_api_header", lang)));
                 ui.horizontal(|ui| {
-                    ui.label("Klucz API:");
+                    ui.label(tr("tools.rest_api_key", lang));
                     let mut key_display = key.clone();
                     ui.add(egui::TextEdit::singleline(&mut key_display).desired_width(220.0));
-                    if ui.button(icons::LOGBOOK.as_str()).on_hover_text("Kopiuj klucz").clicked() {
+                    if ui.button(icons::LOGBOOK.as_str()).on_hover_text(tr("tools.rest_api_copy_key", lang)).clicked() {
                         ui.ctx().copy_text(key.clone());
                     }
-                    if ui.button(icons::REFRESH.as_str()).on_hover_text("Wygeneruj nowy klucz (wymaga wyłączenia i włączenia serwera, aby zaczął obowiązywać)").clicked() {
+                    if ui.button(icons::REFRESH.as_str()).on_hover_text(tr("tools.rest_api_regen_key", lang)).clicked() {
                         app.rest_api_key = crate::api::server::generate_api_key();
                         app.save_station_config();
                     }
@@ -74,7 +74,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 let _ = open::that(format!("http://127.0.0.1:{}/api/v1/status", app.rest_api_port));
                 ui.close();
             }
-            if ui.button(icons::BOOKS.label("Dokumentacja endpointów (/api/v1/endpoints)")).clicked() {
+            if ui.button(icons::BOOKS.label(tr("tools.rest_api_docs", lang))).clicked() {
                 let _ = open::that(format!("http://127.0.0.1:{}/api/v1/endpoints", app.rest_api_port));
                 ui.close();
             }

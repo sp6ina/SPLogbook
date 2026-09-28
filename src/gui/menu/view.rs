@@ -98,7 +98,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         if ui
             .checkbox(
                 &mut app.panel_waterfall.visible,
-                icons::SIGNAL_UP.label("Widmo / Waterfall (SDR)"),
+                icons::SIGNAL_UP.label(tr("view.panel_waterfall", lang)),
             )
             .changed()
         {

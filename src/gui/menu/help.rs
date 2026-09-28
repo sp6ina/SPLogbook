@@ -25,7 +25,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
         ui.separator();
         if ui
-            .add(egui::Button::new(icons::MANUAL.label("Instrukcja obsługi")).shortcut_text("F12"))
+            .add(egui::Button::new(icons::MANUAL.label(tr("help.user_manual", lang))).shortcut_text("F12"))
             .clicked()
         {
             app.show_user_manual = true;
@@ -43,7 +43,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ui.close();
         }
         if ui
-            .button(icons::SETTINGS.label("Konfiguracja Windows i Linux (Porty / Grupy)"))
+            .button(icons::SETTINGS.label(tr("help.os_setup", lang)))
             .clicked()
         {
             app.show_user_manual = true;
@@ -51,7 +51,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ui.close();
         }
         if ui
-            .button(icons::INFO_ICON.label("Rozwiązywanie problemów (FAQ)"))
+            .button(icons::INFO_ICON.label(tr("help.troubleshooting", lang)))
             .clicked()
         {
             app.show_user_manual = true;
@@ -67,7 +67,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
         ui.separator();
         if ui
-            .button(icons::FOLDER.label("Otwórz katalog danych programu"))
+            .button(icons::FOLDER.label(tr("help.open_data_dir", lang)))
             .clicked()
         {
             if let Some(parent) = app.config_file_path.parent() {
@@ -76,14 +76,14 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ui.close();
         }
         if ui
-            .button(icons::CHANGELOG.label("Dziennik zmian"))
+            .button(icons::CHANGELOG.label(tr("help.changelog", lang)))
             .clicked()
         {
             app.show_changelog_window = true;
             ui.close();
         }
         if ui
-            .button(icons::UPDATE.label("Sprawdź aktualizacje"))
+            .button(icons::UPDATE.label(tr("help.check_updates", lang)))
             .clicked()
         {
             app.show_update_window = true;
@@ -106,7 +106,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ui.close();
         }
         if ui
-            .button("☕ Postaw kawę autorowi (Buy Me a Coffee)")
+            .button(tr("help.buy_coffee", lang))
             .clicked()
         {
             let _ = open::that("https://buycoffee.to/sp6ina");
