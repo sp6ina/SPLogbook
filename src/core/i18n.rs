@@ -3,13 +3,54 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Moduł z tabelą tłumaczeń `tr` (wydzielony ze względu na rozmiar).
-#[path = "i18n_tr.rs"]
-mod i18n_tr;
-pub use i18n_tr::tr;
+use std::collections::HashMap;
+use std::sync::LazyLock;
+
+static PL_MAP: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
+    serde_json::from_str(include_str!("../../locales/pl.json")).expect("valid pl.json")
+});
+static EN_MAP: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
+    serde_json::from_str(include_str!("../../locales/en.json")).expect("valid en.json")
+});
+static DE_MAP: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
+    serde_json::from_str(include_str!("../../locales/de.json")).expect("valid de.json")
+});
+static FR_MAP: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
+    serde_json::from_str(include_str!("../../locales/fr.json")).expect("valid fr.json")
+});
+static ES_MAP: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
+    serde_json::from_str(include_str!("../../locales/es.json")).expect("valid es.json")
+});
+static IT_MAP: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
+    serde_json::from_str(include_str!("../../locales/it.json")).expect("valid it.json")
+});
+static RU_MAP: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
+    serde_json::from_str(include_str!("../../locales/ru.json")).expect("valid ru.json")
+});
+
+pub fn tr(key: &str, lang: Language) -> &str {
+    let map = match lang {
+        Language::Pl => &*PL_MAP,
+        Language::En => &*EN_MAP,
+        Language::De => &*DE_MAP,
+        Language::Fr => &*FR_MAP,
+        Language::Es => &*ES_MAP,
+        Language::It => &*IT_MAP,
+        Language::Ru => &*RU_MAP,
+    };
+    if let Some(val) = map.get(key) {
+        val.as_str()
+    } else if let Some(val) = EN_MAP.get(key) {
+        val.as_str()
+    } else if let Some(val) = PL_MAP.get(key) {
+        val.as_str()
+    } else {
+        key
+    }
+}
 
 /// Obsługiwane języki w programie SPLogbook
-/// Dodano obsługę języków: Niemiecki (DE), Francuski (FR) oraz Hiszpański (ES)
+/// Obsługa języków: Polski (PL), Angielski (EN), Niemiecki (DE), Francuski (FR), Hiszpański (ES), Włoski (IT), Rosyjski (RU)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[derive(Default)]
 pub enum Language {
@@ -24,6 +65,8 @@ pub enum Language {
     Fr,
     #[serde(rename = "es")]
     Es,
+    #[serde(rename = "it")]
+    It,
     #[serde(rename = "ru")]
     Ru,
 }
@@ -36,6 +79,7 @@ impl Language {
             Language::De => "de",
             Language::Fr => "fr",
             Language::Es => "es",
+            Language::It => "it",
             Language::Ru => "ru",
         }
     }
@@ -47,6 +91,7 @@ impl Language {
             Language::De => "Deutsch",
             Language::Fr => "Français",
             Language::Es => "Español",
+            Language::It => "Italiano",
             Language::Ru => "Русский",
         }
     }
@@ -57,6 +102,7 @@ impl Language {
             "de" | "de_de" | "de_at" | "de_ch" => Language::De,
             "fr" | "fr_fr" | "fr_be" | "fr_ca" => Language::Fr,
             "es" | "es_es" | "es_mx" => Language::Es,
+            "it" | "it_it" | "it_ch" => Language::It,
             "ru" | "ru_ru" => Language::Ru,
             _ => Language::Pl,
         }
@@ -69,6 +115,7 @@ pub fn translate_en(key: &str) -> &str { tr(key, Language::En) }
 pub fn translate_de(key: &str) -> &str { tr(key, Language::De) }
 pub fn translate_fr(key: &str) -> &str { tr(key, Language::Fr) }
 pub fn translate_es(key: &str) -> &str { tr(key, Language::Es) }
+pub fn translate_it(key: &str) -> &str { tr(key, Language::It) }
 pub fn translate_ru(key: &str) -> &str { tr(key, Language::Ru) }
 
 pub const ALL_I18N_KEYS: &[&str] = &[
@@ -684,14 +731,17 @@ mod tests {
         assert_eq!(tr("qso.callsign", Language::De), "Rufzeichen");
         assert_eq!(tr("qso.callsign", Language::Fr), "Indicatif");
         assert_eq!(tr("qso.callsign", Language::Es), "Indicativo");
+        assert_eq!(tr("qso.callsign", Language::It), "Indicativo");
 
         assert_eq!(tr("tab.new_qso", Language::De), "Neues QSO");
         assert_eq!(tr("tab.new_qso", Language::Fr), "Nouveau QSO");
         assert_eq!(tr("tab.new_qso", Language::Es), "Nuevo QSO");
+        assert_eq!(tr("tab.new_qso", Language::It), "Nuovo QSO");
 
         assert_eq!(tr("menu.file", Language::De), "Datei");
         assert_eq!(tr("menu.file", Language::Fr), "Fichier");
         assert_eq!(tr("menu.file", Language::Es), "Archivo");
+        assert_eq!(tr("menu.file", Language::It), "File");
     }
 
     #[test]
@@ -702,6 +752,7 @@ mod tests {
             let de = tr(key, Language::De);
             let fr = tr(key, Language::Fr);
             let es = tr(key, Language::Es);
+            let it = tr(key, Language::It);
             let ru = tr(key, Language::Ru);
 
             assert_ne!(pl, key, "Brak polskiego tłumaczenia dla klucza: {}", key);
@@ -709,6 +760,7 @@ mod tests {
             assert_ne!(de, key, "Fehlende deutsche Übersetzung für Schlüssel: {}", key);
             assert_ne!(fr, key, "Traduction française manquante pour la clé: {}", key);
             assert_ne!(es, key, "Falta traducción al español para la clave: {}", key);
+            assert_ne!(it, key, "Manca la traduzione italiana per la chiave: {}", key);
             assert_ne!(ru, key, "Отсутствует русский перевод для ключа: {}", key);
 
             assert!(!pl.trim().is_empty(), "Puste polskie tłumaczenie: {}", key);
@@ -716,6 +768,7 @@ mod tests {
             assert!(!de.trim().is_empty(), "Leere deutsche Übersetzung: {}", key);
             assert!(!fr.trim().is_empty(), "Traduction française vide: {}", key);
             assert!(!es.trim().is_empty(), "Traducción al español vacía: {}", key);
+            assert!(!it.trim().is_empty(), "Traduzione italiana vuota: {}", key);
             assert!(!ru.trim().is_empty(), "Пустой русский перевод: {}", key);
         }
     }

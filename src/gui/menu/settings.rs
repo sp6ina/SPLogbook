@@ -14,7 +14,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
     ui.menu_button(tr("menu.settings", lang), |ui| {
         // Język interfejsu
         ui.menu_button(icons::GLOBE.label(tr("settings.language", lang)), |ui| {
-            let langs = [Language::Pl, Language::En, Language::De, Language::Fr, Language::Es, Language::Ru];
+            let langs = [Language::Pl, Language::En, Language::De, Language::Fr, Language::Es, Language::It, Language::Ru];
             for l in langs {
                 let flag = match l {
                     Language::Pl => "🇵🇱",
@@ -22,6 +22,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     Language::De => "🇩🇪",
                     Language::Fr => "🇫🇷",
                     Language::Es => "🇪🇸",
+                    Language::It => "🇮🇹",
                     Language::Ru => "🇷🇺",
                 };
                 if ui.selectable_label(lang == l, format!("{} {}", flag, l.display_name())).clicked() {

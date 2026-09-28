@@ -36,7 +36,7 @@ pub fn render_welcome_wizard(app: &mut SpLogApp, ctx: &egui::Context) {
             ui.horizontal(|ui| {
                 ui.heading(egui::RichText::new("SPLogbook")
                     .size(24.0).color(egui::Color32::from_rgb(56, 189, 248)));
-                ui.label(egui::RichText::new("v1.0.3")
+                ui.label(egui::RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
                     .size(13.0).color(egui::Color32::from_rgb(100, 116, 139)));
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -52,6 +52,7 @@ pub fn render_welcome_wizard(app: &mut SpLogApp, ctx: &egui::Context) {
                     // Bezpośrednie przyciski wyboru języka z flagami (1-klik, brak popupu)
                     for (l, flag, name) in [
                         (Language::Ru, "🇷🇺", "RU"),
+                        (Language::It, "🇮🇹", "IT"),
                         (Language::Es, "🇪🇸", "ES"),
                         (Language::Fr, "🇫🇷", "FR"),
                         (Language::De, "🇩🇪", "DE"),
@@ -113,17 +114,15 @@ pub fn render_welcome_wizard(app: &mut SpLogApp, ctx: &egui::Context) {
 
             // --- Przyciski nawigacji ---
             ui.horizontal(|ui| {
-                if app.wizard_tab > 0 {
-                    if ui.button(format!("< {}", tr("btn.back", lang))).clicked() {
-                        app.wizard_tab -= 1;
-                    }
+                if app.wizard_tab > 0 && ui.button(format!("< {}", tr("btn.back", lang))).clicked() {
+                    app.wizard_tab -= 1;
                 }
-                if app.wizard_tab < 3 {
-                    if ui.button(
+                if app.wizard_tab < 3
+                    && ui.button(
                         egui::RichText::new(format!("{} >", tr("btn.next", lang))).strong()
-                    ).clicked() {
-                        app.wizard_tab += 1;
-                    }
+                    ).clicked()
+                {
+                    app.wizard_tab += 1;
                 }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -357,6 +356,7 @@ fn render_tab_appearance(
             (Language::De, "DE", "Deutsch"),
             (Language::Fr, "FR", "Francais"),
             (Language::Es, "ES", "Espanol"),
+            (Language::It, "IT", "Italiano"),
             (Language::Ru, "RU", "Russkiy"),
         ] {
             let selected = lang == l;
@@ -440,6 +440,7 @@ mod tests {
             Language::De,
             Language::Fr,
             Language::Es,
+            Language::It,
             Language::Ru,
             Language::Pl,
         ] {
