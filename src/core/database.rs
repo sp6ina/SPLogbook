@@ -890,11 +890,26 @@ impl LogDatabase {
     /// Pobiera ostatnio zarejestrowane łączności (domyślnie)
     pub fn get_recent_qsos(&self, limit: usize) -> Result<Vec<QsoRecord>> {
         let sql = format!(
-            "SELECT {} FROM qso_records ORDER BY qso_date DESC, time_on DESC LIMIT ?1",
+            "SELECT {} FROM qso_records ORDER BY REPLACE(qso_date, '-', '') DESC, SUBSTR(REPLACE(time_on, ':', '') || '000000', 1, 6) DESC, id DESC LIMIT ?1",
             QSO_COLUMNS
         );
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map(params![limit as i64], row_to_qso)?;
+        let mut res = Vec::new();
+        for r in rows {
+            res.push(r?);
+        }
+        Ok(res)
+    }
+
+    /// Pobiera stronicowaną listę łączności bezpośrednio w SQLite (`LIMIT ?1 OFFSET ?2`).
+    pub fn get_qsos_paginated(&self, limit: usize, offset: usize) -> Result<Vec<QsoRecord>> {
+        let sql = format!(
+            "SELECT {} FROM qso_records ORDER BY REPLACE(qso_date, '-', '') DESC, SUBSTR(REPLACE(time_on, ':', '') || '000000', 1, 6) DESC, id DESC LIMIT ?1 OFFSET ?2",
+            QSO_COLUMNS
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![limit as i64, offset as i64], row_to_qso)?;
         let mut res = Vec::new();
         for r in rows {
             res.push(r?);

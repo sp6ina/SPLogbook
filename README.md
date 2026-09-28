@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/Platform-Windows_%7C_GNU%2FLinux-blue.svg" alt="Platform">
   <img src="https://img.shields.io/badge/Version-1.1-emerald.svg" alt="Version">
   <a href="https://github.com/sp6ina/SPLogbook/actions"><img src="https://github.com/sp6ina/SPLogbook/actions/workflows/build-and-release.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/Tests-231%2F231_Passed-brightgreen.svg" alt="Tests">
+  <img src="https://img.shields.io/badge/Tests-234%2F234_Passed-brightgreen.svg" alt="Tests">
   <img src="https://img.shields.io/badge/i18n-7_Languages-cyan.svg" alt="i18n">
   <a href="https://buycoffee.to/sp6ina"><img src="https://img.shields.io/badge/☕_Buy_Me_a_Coffee-buycoffee.to%2Fsp6ina-FFDD00?style=flat&logoColor=black" alt="Buy Me a Coffee"></a>
 </p>
@@ -299,18 +299,29 @@ SPLogbook includes a visual analytics dashboard providing comprehensive insights
 
 ---
 
-### 15. Embedded Local REST API Server
-SPLogbook features a built-in, lightweight asynchronous HTTP server powered by **Axum** running on port `8080`. This enables external software, custom scripts, web dashboards, or home automation systems to interact with the logbook:
+### 15. Embedded Local REST API Server (v1 — 15 Endpoints)
+SPLogbook features a built-in asynchronous HTTP & WebSocket server powered by **Axum** running on `127.0.0.1:8080`. All endpoints except `/api/v1/status` and `/api/v1/endpoints` require the station's `X-Api-Key` header (viewable and regenerable under **Narzędzia → Serwer REST API**):
 
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/v1/status` | Returns application health, version, station callsign, total QSOs, and uptime. |
-| `GET` | `/api/v1/qsos` | Returns a paginated JSON list of logged QSOs (`limit`, `offset`). |
-| `GET` | `/api/v1/qsos/{id}` | Returns complete details for a specific QSO record. |
-| `POST` | `/api/v1/qsos` | Logs a new QSO record via JSON payload with full schema validation. |
-| `GET` | `/api/v1/stats` | Returns aggregated station statistics (by band, by mode, QSL counts). |
-| `GET` | `/api/v1/cluster/spots` | Returns active DX cluster spots in real-time. |
-| `WS` | `/api/v1/ws` | WebSocket streaming live application events (`QsoLogged`, `DxSpot`, `RigState`, `ClusterStatus`, `CloudSync`, `Toast`) as JSON. |
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| `GET` | `/api/v1/status` | Public | Application health, version, ADIF 3.1.7 version, station callsign, total QSOs, uptime, and live CAT summary. |
+| `GET` | `/api/v1/endpoints` | Public | Self-describing JSON catalog of all available REST & WebSocket endpoints. |
+| `GET` | `/api/v1/qsos` | `X-Api-Key` | Paginated & multi-criteria filtered QSO list (`limit`, `offset`, `callsign`, `band`, `mode`, `date_from`, `date_to`, `journal_id`, `lotw_confirmed`, `eqsl_confirmed`, `qsl_rcvd`). |
+| `POST` | `/api/v1/qsos` | `X-Api-Key` | Logs a new QSO record with automatic ADIF 3.1.7 mode/submode normalization, DXCC/CQZ/ITUZ prefix enrichment, AwardsEngine update, and real-time `QsoLogged` WebSocket event. |
+| `GET` | `/api/v1/qsos/{id}` | `X-Api-Key` | Returns complete details for a single QSO record by database ID. |
+| `PUT` | `/api/v1/qsos/{id}` | `X-Api-Key` | Updates an existing QSO record by ID and triggers GUI logbook refresh. |
+| `DELETE` | `/api/v1/qsos/{id}` | `X-Api-Key` | Deletes a QSO record by ID and triggers GUI logbook refresh. |
+| `GET` | `/api/v1/qsos/callsign/{call}` | `X-Api-Key` | Returns Worked-Before history and instant contest duplicate status (`?band=20m&mode=CW&same_day=true`). |
+| `GET` | `/api/v1/lookup/{call}` | `X-Api-Key` | Full callsign intelligence: DXCC entity, continent, CQ/ITU zones, award need status (`is_new_dxcc`, `is_new_band`, `is_new_mode`, etc.), and Ham Club memberships (SP-OTC, SPCWC, CWOPS, FOC, SKCC, HSC). |
+| `GET` | `/api/v1/adif/export` | `X-Api-Key` | Exports the logbook (or filtered subset via query parameters) in **ADIF 3.1.7** (`.adi`) format. |
+| `POST` | `/api/v1/adif/import` | `X-Api-Key` | Batch-imports raw ADIF 3.1.7 text in a single SQLite transaction with DXCC enrichment and import report. |
+| `GET` | `/api/v1/rig` | `X-Api-Key` | Returns current transceiver CAT state (frequency Hz/MHz, band, mode, passband, VFO, SPLIT, S-meter, power, PTT). |
+| `POST` | `/api/v1/rig` | `X-Api-Key` | Updates transceiver CAT state (`frequency_hz`, `mode`, `passband_hz`, `vfo`, `split_enabled`, `ptt`) and broadcasts `RigState`. |
+| `GET` | `/api/v1/awards` | `X-Api-Key` | Returns worked/confirmed counts across DXCC, WAZ, WAS, WAC, IOTA, SOTA, POTA, PGA, and SP districts. |
+| `GET` | `/api/v1/journals` | `X-Api-Key` | Lists all station journals/profiles and the active journal ID. |
+| `GET` | `/api/v1/stats` | `X-Api-Key` | Comprehensive station statistics (totals, unique callsigns/countries/grids, by band, mode, continent, top DXCC, monthly & hourly UTC activity, QSL confirmation breakdown). |
+| `GET` | `/api/v1/cluster/spots` | `X-Api-Key` | Returns active DX cluster spots with optional filtering (`?limit=50&band=20m&ft8=false&call=SP`). |
+| `WS` | `/api/v1/ws` | `X-Api-Key` | Live WebSocket stream broadcasting `QsoLogged`, `DxSpot`, `RigState`, `ClusterStatus`, `CloudSync`, and `Toast` events in real time. |
 
 ---
 
@@ -435,35 +446,44 @@ SPLogbook emits **N1MM Logger+ UDP broadcast** XML frames (loopback port `12060`
 
 ## 📡 REST API Documentation
 
-### Example 1: Querying Station Status
+### Example 1: Querying Station Status (Public)
 ```bash
 curl -X GET http://127.0.0.1:8080/api/v1/status
 ```
 **Response:**
 ```json
 {
-  "status": "online",
   "version": "1.1.0",
+  "adif_version": "3.1.7",
   "callsign": "SP6INA",
   "total_qsos": 14250,
-  "uptime_seconds": 3600
+  "uptime_secs": 3600,
+  "rig_connected": true,
+  "frequency_hz": 14025000,
+  "mode": "CW"
 }
 ```
 
-### Example 2: Ingesting a New QSO
+### Example 2: Ingesting a New QSO (Auto-DXCC & ADIF 3.1.7 Normalization)
 ```bash
 curl -X POST http://127.0.0.1:8080/api/v1/qsos \
+  -H "X-Api-Key: <YOUR_API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{
     "callsign": "W1AW",
-    "qso_date": "2026-09-21",
-    "time_on": "18:30:00",
+    "qso_date": "20260928",
+    "time_on": "183000",
     "band": "20m",
-    "mode": "CW",
-    "rst_sent": "599",
-    "rst_rcvd": "599",
-    "country": "United States"
+    "mode": "FT4",
+    "rst_sent": "-08",
+    "rst_rcvd": "-10"
   }'
+```
+
+### Example 3: Callsign DXCC, Club & Award Need Lookup
+```bash
+curl -X GET "http://127.0.0.1:8080/api/v1/lookup/DL1ABC?band=20m&mode=CW" \
+  -H "X-Api-Key: <YOUR_API_KEY>"
 ```
 
 ---

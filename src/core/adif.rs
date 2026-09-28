@@ -5,7 +5,10 @@ use crate::core::qso::QsoRecord;
 use std::collections::HashMap;
 use std::io::{BufRead, Write};
 
-/// Parser i generator formatu ADIF (Amateur Data Interchange Format) 3.1.4
+/// Aktualna wspierana wersja specyfikacji ADIF (marzec 2026).
+pub const ADIF_VERSION: &str = "3.1.7";
+
+/// Parser i generator formatu ADIF (Amateur Data Interchange Format) 3.1.7
 pub struct AdifEngine;
 
 /// Wynik importu ADIF wraz z pełnym raportem odrzuconych rekordów i błędów.
@@ -148,6 +151,78 @@ impl AdifEngine {
         })
     }
 
+    /// Mapuje nazwę emisji używaną w radiostacji/aplikacji na oficjalną parę `(MODE, Option<SUBMODE>)`
+    /// zgodną ze specyfikacją ADIF 3.1.7 (marzec 2026).
+    pub fn normalize_mode_submode(mode: &str, submode: Option<&str>) -> (&'static str, Option<&'static str>) {
+        let m = mode.trim().to_uppercase();
+        let sub = submode.map(|s| s.trim().to_uppercase());
+        let effective = sub.as_deref().unwrap_or(m.as_str());
+
+        match effective {
+            // ADIF 3.1.7: MFSK submodes (w tym nowe FT2)
+            "FT4" => ("MFSK", Some("FT4")),
+            "FT2" => ("MFSK", Some("FT2")),
+            "JS8" => ("MFSK", Some("JS8")),
+            "Q65" => ("MFSK", Some("Q65")),
+            "FST4" => ("MFSK", Some("FST4")),
+            "FST4W" => ("MFSK", Some("FST4W")),
+            "MFSK4" => ("MFSK", Some("MFSK4")),
+            "MFSK8" => ("MFSK", Some("MFSK8")),
+            "MFSK16" => ("MFSK", Some("MFSK16")),
+            "MFSK32" => ("MFSK", Some("MFSK32")),
+            "FSQCALL" => ("MFSK", Some("FSQCALL")),
+            // ADIF 3.1.7: DYNAMIC submodes (w tym nowe FREEDATA)
+            "FREEDATA" => ("DYNAMIC", Some("FREEDATA")),
+            "VARA HF" | "VARA_HF" => ("DYNAMIC", Some("VARA HF")),
+            "VARA FM" | "VARA_FM" => ("DYNAMIC", Some("VARA FM")),
+            "VARA SATELLITE" => ("DYNAMIC", Some("VARA SATELLITE")),
+            // ADIF 3.1.7: nowa emisja główna OFDM i jej submode'y RIBBIT
+            "RIBBIT_PIX" => ("OFDM", Some("RIBBIT_PIX")),
+            "RIBBIT_SMS" => ("OFDM", Some("RIBBIT_SMS")),
+            "OFDM" => ("OFDM", None),
+            // ADIF 3.1.6: SCAMP submodes dla FSK oraz MTONE
+            "SCAMP_FAST" => ("FSK", Some("SCAMP_FAST")),
+            "SCAMP_SLOW" => ("FSK", Some("SCAMP_SLOW")),
+            "SCAMP_VSLOW" => ("FSK", Some("SCAMP_VSLOW")),
+            "SCAMP_OO" => ("MTONE", Some("SCAMP_OO")),
+            "SCAMP_OO_SLW" => ("MTONE", Some("SCAMP_OO_SLW")),
+            // SSB submodes
+            "USB" => ("SSB", Some("USB")),
+            "LSB" => ("SSB", Some("LSB")),
+            // PSK submodes
+            "PSK31" | "BPSK31" => ("PSK", Some("PSK31")),
+            "PSK63" | "BPSK63" => ("PSK", Some("PSK63")),
+            "PSK125" | "BPSK125" => ("PSK", Some("PSK125")),
+            "QPSK31" => ("PSK", Some("QPSK31")),
+            "QPSK63" => ("PSK", Some("QPSK63")),
+            "QPSK125" => ("PSK", Some("QPSK125")),
+            // DIGITALVOICE submodes
+            "DMR" => ("DIGITALVOICE", Some("DMR")),
+            "C4FM" => ("DIGITALVOICE", Some("C4FM")),
+            "DSTAR" | "D-STAR" => ("DIGITALVOICE", Some("DSTAR")),
+            "FREEDV" => ("DIGITALVOICE", Some("FREEDV")),
+            "M17" => ("DIGITALVOICE", Some("M17")),
+            // Standardowe emisje główne
+            "CW" => ("CW", None),
+            "SSB" => ("SSB", None),
+            "AM" => ("AM", None),
+            "FM" => ("FM", None),
+            "FT8" => ("FT8", None),
+            "RTTY" => ("RTTY", None),
+            "SSTV" => ("SSTV", None),
+            "WSPR" => ("WSPR", None),
+            "JT65" => ("JT65", None),
+            "JT9" => ("JT9", None),
+            "MSK144" => ("MSK144", None),
+            "OLIVIA" => ("OLIVIA", None),
+            "CONTESTIA" => ("CONTESTIA", None),
+            "HELL" => ("HELL", None),
+            "PKT" => ("PKT", None),
+            "ATV" => ("ATV", None),
+            _ => ("OTHER", None),
+        }
+    }
+
     /// Konwertuje mapę pól ADIF na rekord QsoRecord
     fn fields_to_qso(fields: &HashMap<String, String>) -> Option<QsoRecord> {
         let call = fields.get("CALL")?;
@@ -241,17 +316,29 @@ impl AdifEngine {
         if let Some(q) = fields.get("QSL_RCVD") {
             qso.qsl_rcvd = q.clone();
         }
+        if let Some(qd) = fields.get("QSLSDATE") {
+            qso.qsl_sent_date = Some(qd.clone());
+        }
+        if let Some(qd) = fields.get("QSLRDATE") {
+            qso.qsl_rcvd_date = Some(qd.clone());
+        }
         if let Some(q) = fields.get("LOTW_QSL_SENT") {
             qso.lotw_qsl_sent = q.clone();
         }
         if let Some(q) = fields.get("LOTW_QSL_RCVD") {
             qso.lotw_qsl_rcvd = q.clone();
         }
+        if let Some(qd) = fields.get("LOTW_QSLRDATE") {
+            qso.lotw_qslrdate = Some(qd.clone());
+        }
         if let Some(q) = fields.get("EQSL_QSL_SENT") {
             qso.eqsl_qsl_sent = q.clone();
         }
         if let Some(q) = fields.get("EQSL_QSL_RCVD") {
             qso.eqsl_qsl_rcvd = q.clone();
+        }
+        if let Some(qd) = fields.get("EQSL_QSLRDATE") {
+            qso.eqsl_qslrdate = Some(qd.clone());
         }
         if let Some(sn) = fields.get("SAT_NAME") {
             qso.sat_name = Some(sn.clone());
@@ -261,6 +348,18 @@ impl AdifEngine {
         }
         if let Some(pm) = fields.get("PROP_MODE") {
             qso.prop_mode = Some(pm.clone());
+        }
+        if let Some(srx) = fields.get("SRX") {
+            qso.srx = srx.parse().ok();
+        }
+        if let Some(stx) = fields.get("STX") {
+            qso.stx = stx.parse().ok();
+        }
+        if let Some(srx_s) = fields.get("SRX_STRING") {
+            qso.srx_string = Some(srx_s.clone());
+        }
+        if let Some(stx_s) = fields.get("STX_STRING") {
+            qso.stx_string = Some(stx_s.clone());
         }
         if let Some(mg) = fields.get("MY_GRIDSQUARE") {
             qso.my_gridsquare = Some(mg.clone());
@@ -278,11 +377,11 @@ impl AdifEngine {
         Some(qso)
     }
 
-    /// Eksportuje listę łączności do formatu ADIF 3.1.4
+    /// Eksportuje listę łączności do formatu ADIF 3.1.7
     pub fn export_to_writer<W: Write>(qsos: &[QsoRecord], mut writer: W) -> std::io::Result<()> {
-        writeln!(writer, "SPLogbook ADIF 3.1.5 Export")?;
+        writeln!(writer, "SPLogbook ADIF {} Export", ADIF_VERSION)?;
         writeln!(writer, "Author: Mariusz Wozniak (SP6INA)")?;
-        writeln!(writer, "<ADIF_VER:5>3.1.5")?;
+        writeln!(writer, "<ADIF_VER:{}>{}", ADIF_VERSION.len(), ADIF_VERSION)?;
         writeln!(writer, "<PROGRAMID:9>SPLogbook")?;
         writeln!(writer, "<PROGRAMVERSION:{}>{}", env!("CARGO_PKG_VERSION").len(), env!("CARGO_PKG_VERSION"))?;
         writeln!(writer, "<EOH>")?;
@@ -309,7 +408,7 @@ impl AdifEngine {
         f.push(("QSO_DATE", q.adif_date()));
         f.push(("TIME_ON", q.adif_time()));
         if let Some(ref v) = q.time_off {
-            f.push(("TIME_OFF", v.clone()));
+            f.push(("TIME_OFF", v.replace(':', "")));
         }
         if let Some(v) = q.freq {
             f.push(("FREQ", format!("{:.6}", v)));
@@ -385,6 +484,18 @@ impl AdifEngine {
         if let Some(ref v) = q.prop_mode {
             f.push(("PROP_MODE", v.clone()));
         }
+        if let Some(v) = q.srx {
+            f.push(("SRX", v.to_string()));
+        }
+        if let Some(v) = q.stx {
+            f.push(("STX", v.to_string()));
+        }
+        if let Some(ref v) = q.srx_string {
+            f.push(("SRX_STRING", v.clone()));
+        }
+        if let Some(ref v) = q.stx_string {
+            f.push(("STX_STRING", v.clone()));
+        }
         if let Some(ref v) = q.my_gridsquare {
             f.push(("MY_GRIDSQUARE", v.clone()));
         }
@@ -393,10 +504,22 @@ impl AdifEngine {
         }
         f.push(("QSL_SENT", q.qsl_sent.clone()));
         f.push(("QSL_RCVD", q.qsl_rcvd.clone()));
+        if let Some(ref v) = q.qsl_sent_date {
+            f.push(("QSLSDATE", v.replace(['-', '.', '/'], "")));
+        }
+        if let Some(ref v) = q.qsl_rcvd_date {
+            f.push(("QSLRDATE", v.replace(['-', '.', '/'], "")));
+        }
         f.push(("LOTW_QSL_SENT", q.lotw_qsl_sent.clone()));
         f.push(("LOTW_QSL_RCVD", q.lotw_qsl_rcvd.clone()));
+        if let Some(ref v) = q.lotw_qslrdate {
+            f.push(("LOTW_QSLRDATE", v.replace(['-', '.', '/'], "")));
+        }
         f.push(("EQSL_QSL_SENT", q.eqsl_qsl_sent.clone()));
         f.push(("EQSL_QSL_RCVD", q.eqsl_qsl_rcvd.clone()));
+        if let Some(ref v) = q.eqsl_qslrdate {
+            f.push(("EQSL_QSLRDATE", v.replace(['-', '.', '/'], "")));
+        }
         f
     }
 
@@ -414,12 +537,12 @@ impl AdifEngine {
         Ok(())
     }
 
-    /// Eksportuje rekordy do formatu ADX (XML ADIF).
+    /// Eksportuje rekordy do formatu ADX (XML ADIF 3.1.7).
     pub fn export_adx_to_writer<W: Write>(qsos: &[QsoRecord], mut writer: W) -> std::io::Result<()> {
         writeln!(writer, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>")?;
         writeln!(writer, "<ADX>")?;
         writeln!(writer, "  <HEADER>")?;
-        writeln!(writer, "    <ADIF_VER>3.1.5</ADIF_VER>")?;
+        writeln!(writer, "    <ADIF_VER>{}</ADIF_VER>", ADIF_VERSION)?;
         writeln!(writer, "    <PROGRAMID>SPLogbook</PROGRAMID>")?;
         writeln!(writer, "    <PROGRAMVERSION>{}</PROGRAMVERSION>", env!("CARGO_PKG_VERSION"))?;
         writeln!(writer, "  </HEADER>")?;
@@ -522,6 +645,10 @@ mod tests {
         qso.prop_mode = Some("SAT".to_string());
         qso.qsl_via = Some("DIRECT".to_string());
         qso.qsl_manager = Some("SP6IXU".to_string());
+        qso.srx = Some(42);
+        qso.stx = Some(7);
+        qso.srx_string = Some("15".to_string());
+        qso.stx_string = Some("SP".to_string());
 
         let mut buffer = Vec::new();
         AdifEngine::export_to_writer(&[qso.clone()], &mut buffer).unwrap();
@@ -542,6 +669,22 @@ mod tests {
         assert_eq!(p.prop_mode.as_deref(), Some("SAT"));
         assert_eq!(p.qsl_via.as_deref(), Some("DIRECT"));
         assert_eq!(p.qsl_manager.as_deref(), Some("SP6IXU"));
+        assert_eq!(p.srx, Some(42));
+        assert_eq!(p.stx, Some(7));
+        assert_eq!(p.srx_string.as_deref(), Some("15"));
+        assert_eq!(p.stx_string.as_deref(), Some("SP"));
+    }
+
+    #[test]
+    fn test_adif_3_1_7_mode_submode_normalization() {
+        assert_eq!(AdifEngine::normalize_mode_submode("FT2", None), ("MFSK", Some("FT2")));
+        assert_eq!(AdifEngine::normalize_mode_submode("FREEDATA", None), ("DYNAMIC", Some("FREEDATA")));
+        assert_eq!(AdifEngine::normalize_mode_submode("RIBBIT_SMS", None), ("OFDM", Some("RIBBIT_SMS")));
+        assert_eq!(AdifEngine::normalize_mode_submode("RIBBIT_PIX", None), ("OFDM", Some("RIBBIT_PIX")));
+        assert_eq!(AdifEngine::normalize_mode_submode("SCAMP_FAST", None), ("FSK", Some("SCAMP_FAST")));
+        assert_eq!(AdifEngine::normalize_mode_submode("SCAMP_OO", None), ("MTONE", Some("SCAMP_OO")));
+        assert_eq!(AdifEngine::normalize_mode_submode("USB", None), ("SSB", Some("USB")));
+        assert_eq!(AdifEngine::normalize_mode_submode("CW", None), ("CW", None));
     }
 
     #[test]
@@ -581,7 +724,7 @@ mod tests {
         let adx = export_adx(&[qso]);
         assert!(adx.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
         assert!(adx.contains("<ADX>"));
-        assert!(adx.contains("<ADIF_VER>3.1.5</ADIF_VER>"));
+        assert!(adx.contains("<ADIF_VER>3.1.7</ADIF_VER>"));
         assert!(adx.contains("<RECORD>"));
         assert!(adx.contains("<CALL>SP6INA</CALL>"));
         assert!(adx.contains("<NAME>A&amp;B &lt;test&gt;</NAME>"));

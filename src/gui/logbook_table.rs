@@ -165,11 +165,47 @@ fn sort_col_id_for(col_id: &str) -> Option<u8> {
     }
 }
 
+/// Bezalokacyjne sprawdzenie zawierania podciągu bez rozróżniania wielkości liter (ASCII + pełny fallback UTF-8).
+#[inline]
+fn contains_case_insensitive(haystack: &str, needle_upper: &str) -> bool {
+    if needle_upper.is_empty() {
+        return true;
+    }
+    if haystack.len() < needle_upper.len() {
+        return false;
+    }
+    if haystack.is_ascii() && needle_upper.is_ascii() {
+        let h = haystack.as_bytes();
+        let n = needle_upper.as_bytes();
+        h.windows(n.len()).any(|w| w.eq_ignore_ascii_case(n))
+    } else {
+        haystack.to_uppercase().contains(needle_upper)
+    }
+}
+
+/// Normalizuje ciąg daty/czasu na stosie (pomija `-`, `:`, `.`, `/`) i dopełnia zerami z prawej strony do `N` znaków.
+#[inline]
+fn normalize_digits_stack<const N: usize>(s: &str) -> [u8; N] {
+    let mut out = [b'0'; N];
+    let mut idx = 0;
+    for &b in s.as_bytes() {
+        if b.is_ascii_digit() {
+            if idx < N {
+                out[idx] = b;
+                idx += 1;
+            } else {
+                break;
+            }
+        }
+    }
+    out
+}
+
 pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.current_language;
     let query = app.log_search_query.trim().to_uppercase();
 
-    // Filtrowanie (wyszukiwarka tekstowa + filtr drill-down ze statystyk)
+    // Filtrowanie (wyszukiwarka tekstowa + filtr drill-down ze statystyk) — bez alokacji na stercie dla ASCII
     let drill = app.log_drill_filter.clone();
     let mut sorted_indices: Vec<usize> = (0..app.recent_qsos.len())
         .filter(|&i| {
@@ -178,15 +214,18 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 if !d.matches(q) { return false; }
             }
             if query.is_empty() { return true; }
-            q.callsign.to_uppercase().contains(&query)
-                || q.band.to_uppercase().contains(&query)
-                || q.mode.to_uppercase().contains(&query)
-                || q.country.as_deref().unwrap_or("").to_uppercase().contains(&query)
-                || q.comment.as_deref().unwrap_or("").to_uppercase().contains(&query)
+            contains_case_insensitive(&q.callsign, &query)
+                || contains_case_insensitive(&q.band, &query)
+                || contains_case_insensitive(&q.mode, &query)
+                || contains_case_insensitive(q.country.as_deref().unwrap_or(""), &query)
+                || contains_case_insensitive(q.name.as_deref().unwrap_or(""), &query)
+                || contains_case_insensitive(q.qth.as_deref().unwrap_or(""), &query)
+                || contains_case_insensitive(q.gridsquare.as_deref().unwrap_or(""), &query)
+                || contains_case_insensitive(q.comment.as_deref().unwrap_or(""), &query)
         })
         .collect();
 
-    // Sortowanie
+    // Sortowanie (bezalokacyjne klucze na stosie dla daty i czasu)
     let sc = app.log_sort_column;
     let sa = app.log_sort_asc;
     sorted_indices.sort_by(|&a, &b| {
@@ -198,9 +237,14 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             3 => qa.mode.cmp(&qb.mode),
             4 => qa.country.as_deref().unwrap_or("").cmp(qb.country.as_deref().unwrap_or("")),
             _ => {
-                qa.qso_date.replace('-', "").cmp(&qb.qso_date.replace('-', ""))
-                    .then_with(|| format!("{:0<6}", qa.time_on.replace(':', ""))
-                        .cmp(&format!("{:0<6}", qb.time_on.replace(':', ""))))
+                let da = normalize_digits_stack::<8>(&qa.qso_date);
+                let db = normalize_digits_stack::<8>(&qb.qso_date);
+                da.cmp(&db)
+                    .then_with(|| {
+                        let ta = normalize_digits_stack::<6>(&qa.time_on);
+                        let tb = normalize_digits_stack::<6>(&qb.time_on);
+                        ta.cmp(&tb)
+                    })
                     .then_with(|| qa.id.cmp(&qb.id))
             }
         };

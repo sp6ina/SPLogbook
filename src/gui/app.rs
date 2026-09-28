@@ -564,6 +564,7 @@ pub struct SpLogApp {
     pub rest_api_enabled: bool,
     pub rest_api_port: u16,
     pub rest_api_key: String,
+    pub api_reload_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
 
     // Band opening alerts (K-index threshold)
     pub band_alert_k_index_threshold: u8,
@@ -1222,6 +1223,7 @@ impl SpLogApp {
             rest_api_enabled: false,
             rest_api_port: 8080,
             rest_api_key: app_config.rest_api_key.clone(),
+            api_reload_flag: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
 
             // Band opening alerts
             band_alert_k_index_threshold: 4,
@@ -1846,9 +1848,13 @@ impl SpLogApp {
         qso.qsl_via = if !self.entry_qsl_manager.is_empty() { Some(self.entry_qsl_manager.clone()) } else { None };
         qso.qsl_manager = qso.qsl_via.clone();
 
-        // Sprawdzenie czy nagrywano audio łączności (Audio Memo)
+        // Sprawdzenie czy nagrywano audio łączności (Audio Memo) — zapis obok aktywnej bazy danych
         if crate::media::audio_recorder::AudioRecorder::is_recording() {
-            let rec_dir = std::path::Path::new("recordings");
+            let rec_dir = self
+                .active_db_path
+                .parent()
+                .map(|p| p.join("recordings"))
+                .unwrap_or_else(|| std::path::PathBuf::from("recordings"));
             let clean_call = self.entry_callsign.trim().to_uppercase().replace('/', "_");
             let filename = format!("QSO_{}_{}_{}.wav", clean_call, date_str, time_str);
             let path = rec_dir.join(filename);
@@ -2037,16 +2043,13 @@ impl SpLogApp {
     /// Przełącza stan nadawania PTT (TX/RX) przez połączenie CAT.
     pub fn toggle_ptt(&mut self) {
         self.ptt_active = !self.ptt_active;
+        self.rig_state.ptt = self.ptt_active;
         if self.cat_connected {
             let host = self.cat_host.clone();
             let port = self.cat_port;
             let tx = self.ptt_active;
             tokio::spawn(async move {
-                use tokio::io::AsyncWriteExt;
-                if let Ok(mut stream) = tokio::net::TcpStream::connect(format!("{}:{}", host, port)).await {
-                    let cmd = if tx { "T 1\n" } else { "T 0\n" };
-                    let _ = stream.write_all(cmd.as_bytes()).await;
-                }
+                let _ = crate::cat::hamlib::HamlibClient::set_ptt(&host, port, tx).await;
             });
         }
     }
@@ -2396,13 +2399,8 @@ impl SpLogApp {
         if self.cat_connected {
             let host = self.cat_host.clone();
             let port = self.cat_port;
-            // Hamlib: "F <freq_hz>\n" ustawia częstotliwość VFO A
             tokio::spawn(async move {
-                use tokio::io::AsyncWriteExt;
-                if let Ok(mut stream) = tokio::net::TcpStream::connect(format!("{}:{}", host, port)).await {
-                    let cmd = format!("F {}\n", freq_hz);
-                    let _ = stream.write_all(cmd.as_bytes()).await;
-                }
+                let _ = crate::cat::hamlib::HamlibClient::set_frequency(&host, port, freq_hz).await;
             });
         }
         self.status_message = Some(format!("Auto-tune → {} na {:.1} kHz", dx_call, freq_khz));
@@ -2455,7 +2453,8 @@ impl SpLogApp {
     }
 
     /// Uruchamia wbudowany serwer REST API w osobnym zadaniu tokio, wykorzystując
-    /// bieżący stan aplikacji (baza, znak wywoławczy, port, klucz API, spoty klastra).
+    /// bieżący stan aplikacji (baza, znak wywoławczy, port, klucz API, spoty klastra,
+    /// prefiksy DXCC, stan radia CAT i silnik dyplomowy).
     pub fn start_rest_api_server(&mut self) {
         let db = self.log_db.clone();
         let cs = self.my_station.callsign.clone();
@@ -2463,9 +2462,24 @@ impl SpLogApp {
         let key = self.ensure_rest_api_key();
         let spots_for_api = Arc::new(Mutex::new(self.cluster_spots.clone()));
         self.cluster_spots_api = Some(spots_for_api.clone());
-        let events = self.event_bus.clone();
+        if let Ok(mut shared_rig) = self.cat_shared_state.write() {
+            *shared_rig = self.rig_state.clone();
+        }
+        let state = crate::api::server::ApiState::new(
+            db,
+            cs,
+            spots_for_api,
+            key,
+            self.event_bus.clone(),
+        )
+        .with_station_context(
+            self.prefix_matcher.clone(),
+            self.cat_shared_state.clone(),
+            self.awards_engine.clone(),
+            self.api_reload_flag.clone(),
+        );
         tokio::spawn(async move {
-            crate::api::server::start_api_server(db, cs, port, spots_for_api, key, events).await;
+            crate::api::server::start_api_server_with_state(state, port).await;
         });
     }
 
@@ -2810,6 +2824,50 @@ impl SpLogApp {
         self.status_message = Some(format!("Emisja zmieniona na: {}", mode));
     }
 
+    pub fn set_vfo_split(&mut self, enabled: bool) {
+        self.vfo_split = enabled;
+        self.rig_state.split_enabled = enabled;
+        if self.cat_connected {
+            let host = self.cat_host.clone();
+            let port = self.cat_port;
+            tokio::spawn(async move {
+                let _ = crate::cat::hamlib::HamlibClient::set_split(&host, port, enabled, "VFOB").await;
+            });
+        }
+        self.status_message = Some(format!(
+            "Tryb SPLIT: {}",
+            if enabled { "WŁĄCZONY (TX na VFO B)" } else { "WYŁĄCZONY" }
+        ));
+    }
+
+    pub fn swap_vfo_ab(&mut self) {
+        let next_vfo = if self.rig_state.vfo == "VFOA" { "VFOB" } else { "VFOA" };
+        self.rig_state.vfo = next_vfo.to_string();
+        if self.cat_connected {
+            let host = self.cat_host.clone();
+            let port = self.cat_port;
+            let vfo = next_vfo.to_string();
+            tokio::spawn(async move {
+                let _ = crate::cat::hamlib::HamlibClient::set_vfo(&host, port, &vfo).await;
+            });
+        }
+        self.status_message = Some(format!("Aktywne VFO przełączone na: {}", next_vfo));
+    }
+
+    pub fn set_vfo_filter(&mut self, preset: &str, passband_hz: u32) {
+        self.vfo_filter_preset = preset.to_string();
+        self.rig_state.passband_hz = passband_hz;
+        if self.cat_connected {
+            let host = self.cat_host.clone();
+            let port = self.cat_port;
+            let mode = self.rig_state.mode.clone();
+            tokio::spawn(async move {
+                let _ = crate::cat::hamlib::HamlibClient::set_mode(&host, port, &mode, passband_hz).await;
+            });
+        }
+        self.status_message = Some(format!("Filtr IF: {} ({} Hz)", preset, passband_hz));
+    }
+
     pub fn add_new_equipment(&mut self) {
         let item = EquipmentItem {
             id: format!("eq-{}", self.equipment_items.len() + 1),
@@ -2992,16 +3050,20 @@ impl SpLogApp {
     }
 
     pub fn run_manual_backup(&mut self) {
-        let backup_dir = std::path::Path::new("backups");
-        let _ = std::fs::create_dir_all(backup_dir);
-        let backup_res = BackupManager::backup_database(&self.active_db_path, backup_dir);
+        let backup_dir = self
+            .active_db_path
+            .parent()
+            .map(|p| p.join("backups"))
+            .unwrap_or_else(|| std::path::PathBuf::from("backups"));
+        let _ = std::fs::create_dir_all(&backup_dir);
+        let backup_res = BackupManager::backup_database(&self.active_db_path, &backup_dir);
         
         let qsos = {
             let db = self.log_db.lock().unwrap_or_else(|p| p.into_inner());
             db.get_recent_qsos(10000).unwrap_or_default()
         };
         let adif = crate::core::adif::export_adif(&qsos, "SPLogbook", &self.my_station.callsign);
-        let _ = BackupManager::backup_adif(&adif, backup_dir);
+        let _ = BackupManager::backup_adif(&adif, &backup_dir);
         
         match backup_res {
             Ok(backed_path) => {
@@ -3620,11 +3682,17 @@ impl eframe::App for SpLogApp {
             }
         }
 
-        // Synchronizuj stan radia do współdzielonego stanu serwera proxy (CAT Sharing)
-        if self.cat_sharing_enabled {
+        // Synchronizuj stan radia do współdzielonego stanu serwera proxy (CAT Sharing) oraz REST API
+        if self.cat_sharing_enabled || self.rest_api_enabled {
             if let Ok(mut shared) = self.cat_shared_state.write() {
                 *shared = self.rig_state.clone();
             }
+        }
+
+        // Odświeżenie dziennika i dyplomów, jeśli zewnętrzny klient zmodyfikował bazę przez REST API
+        if self.api_reload_flag.swap(false, std::sync::atomic::Ordering::AcqRel) {
+            self.rebuild_awards_full();
+            self.reload_qsos();
         }
 
         // Odbiór poleceń z serwera Hamlib proxy (np. zmiana częstotliwości/emisji/PTT przez WSJT-X / FLDigi)
@@ -4543,14 +4611,18 @@ impl eframe::App for SpLogApp {
 
 impl Drop for SpLogApp {
     fn drop(&mut self) {
-        let backup_dir = std::path::Path::new("backups");
-        let _ = std::fs::create_dir_all(backup_dir);
-        let _ = BackupManager::backup_database(&self.active_db_path, backup_dir);
-        
+        let backup_dir = self
+            .active_db_path
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .join("backups");
+        let _ = std::fs::create_dir_all(&backup_dir);
+        let _ = BackupManager::backup_database(&self.active_db_path, &backup_dir);
+
         let db = self.log_db.lock().unwrap_or_else(|p| p.into_inner());
         if let Ok(qsos) = db.get_recent_qsos(5000) {
             let adif = crate::core::adif::export_adif(&qsos, "SPLogbook", &self.my_station.callsign);
-            let _ = BackupManager::backup_adif(&adif, backup_dir);
+            let _ = BackupManager::backup_adif(&adif, &backup_dir);
         }
     }
 }

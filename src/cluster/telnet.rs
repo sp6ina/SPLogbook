@@ -115,16 +115,16 @@ impl DxClusterClient {
             }
             let _ = writer.write_all(format!("{}\n", my_call).as_bytes()).await;
 
-            let mut line = String::new();
+            let mut raw_line = Vec::with_capacity(256);
             loop {
                 if *stop_rx.borrow() {
                     break;
                 }
 
-                line.clear();
+                raw_line.clear();
                 let mut limited = (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64);
                 let read_res = tokio::select! {
-                    res = limited.read_line(&mut line) => res,
+                    res = limited.read_until(b'\n', &mut raw_line) => res,
                     _ = stop_rx.changed() => break,
                 };
 
@@ -133,14 +133,15 @@ impl DxClusterClient {
                         let _ = event_tx.send(ClusterEvent::Disconnected(format!("Rozłączono przez serwer {}", addr)));
                         break;
                     }
-                    Ok(_) if line.len() > MAX_LINE_LEN => {
+                    Ok(_) if raw_line.len() > MAX_LINE_LEN => {
                         let _ = event_tx.send(ClusterEvent::Disconnected(format!(
                             "Serwer {} wysłał zbyt długą linię (>{} B), rozłączono.", addr, MAX_LINE_LEN
                         )));
                         break;
                     }
                     Ok(_) => {
-                        let trimmed = line.trim();
+                        let line_cow = String::from_utf8_lossy(&raw_line);
+                        let trimmed = line_cow.trim();
                         if !trimmed.is_empty()
                             && event_tx.send(ClusterEvent::RawLine(trimmed.to_string())).is_err()
                         {
@@ -185,20 +186,21 @@ impl DxClusterClient {
                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                 let _ = writer.write_all(format!("{}\n", self.my_call).as_bytes()).await;
 
-                let mut line = String::new();
-                while let Ok(n) = (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64).read_line(&mut line).await {
+                let mut raw_line = Vec::with_capacity(256);
+                while let Ok(n) = (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64).read_until(b'\n', &mut raw_line).await {
                     if n == 0 {
                         break;
                     }
-                    if line.len() > MAX_LINE_LEN {
-                        line.clear();
+                    if raw_line.len() > MAX_LINE_LEN {
+                        raw_line.clear();
                         break;
                     }
-                    let trimmed = line.trim();
+                    let line_cow = String::from_utf8_lossy(&raw_line);
+                    let trimmed = line_cow.trim();
                     if let Some(spot) = parse_dx_spot(trimmed) {
                         let _ = self.spot_sender.send(spot);
                     }
-                    line.clear();
+                    raw_line.clear();
                 }
             }
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;
@@ -250,42 +252,11 @@ pub fn parse_dx_spot(line: &str) -> Option<DxSpot> {
     })
 }
 
-/// Mapuje częstotliwość (w kHz) na nazwę pasma amatorskiego.
+/// Mapuje częstotliwość (w kHz) na nazwę pasma amatorskiego z pełnego bandplanu IARU.
 pub fn band_for_freq_khz(khz: f64) -> String {
-    let mhz = khz / 1000.0;
-    if (1.8..=2.0).contains(&mhz) {
-        "160m".to_string()
-    } else if (3.5..=3.8).contains(&mhz) {
-        "80m".to_string()
-    } else if (5.25..=5.45).contains(&mhz) {
-        "60m".to_string()
-    } else if (7.0..=7.3).contains(&mhz) {
-        "40m".to_string()
-    } else if (10.1..=10.15).contains(&mhz) {
-        "30m".to_string()
-    } else if (14.0..=14.35).contains(&mhz) {
-        "20m".to_string()
-    } else if (18.068..=18.168).contains(&mhz) {
-        "17m".to_string()
-    } else if (21.0..=21.45).contains(&mhz) {
-        "15m".to_string()
-    } else if (24.89..=24.99).contains(&mhz) {
-        "12m".to_string()
-    } else if (28.0..=29.7).contains(&mhz) {
-        "10m".to_string()
-    } else if (50.0..=54.0).contains(&mhz) {
-        "6m".to_string()
-    } else if (69.9..=70.5).contains(&mhz) {
-        "4m".to_string()
-    } else if (144.0..=148.0).contains(&mhz) {
-        "2m".to_string()
-    } else if (430.0..=440.0).contains(&mhz) {
-        "70cm".to_string()
-    } else if (1240.0..=1300.0).contains(&mhz) {
-        "23cm".to_string()
-    } else {
-        "OTHER".to_string()
-    }
+    crate::core::bandplan::freq_khz_to_band(khz)
+        .unwrap_or("OTHER")
+        .to_string()
 }
 
 #[cfg(test)]
@@ -317,12 +288,24 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_dx_spot_lossy_non_utf8() {
+        // Symulacja surowego strumienia z węzła DXSpider w kodowaniu Latin-1 (np. 'ü' = 0xfc)
+        let raw_bytes: &[u8] = b"DX de DL1ABC: 14195.0  SP6INA    Gr\xfc\xdfe aus M\xfcnchen  1420Z\r\n";
+        let lossy = String::from_utf8_lossy(raw_bytes);
+        let spot = parse_dx_spot(lossy.trim()).expect("Spot ze znakami spoza UTF-8 powinien zostać sparsowany");
+        assert_eq!(spot.dx_call, "SP6INA");
+        assert_eq!(spot.band, "20m");
+        assert!(spot.comment.contains("Gr"));
+    }
+
+    #[test]
     fn test_band_for_freq_khz_boundaries() {
         assert_eq!(band_for_freq_khz(1800.0), "160m");
         assert_eq!(band_for_freq_khz(2000.0), "160m");
         assert_eq!(band_for_freq_khz(2001.0), "OTHER");
         assert_eq!(band_for_freq_khz(14000.0), "20m");
         assert_eq!(band_for_freq_khz(14350.0), "20m");
+        assert_eq!(band_for_freq_khz(10489500.0), "3cm");
         assert_eq!(band_for_freq_khz(0.0), "OTHER");
     }
 }

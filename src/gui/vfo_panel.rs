@@ -241,8 +241,8 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.label(egui::RichText::new(format!("{:.3} MHz", (split_freq as f64) / 1_000_000.0)).strong());
 
         if ui.selectable_label(app.vfo_split, "SPLIT").clicked() {
-            app.vfo_split = !app.vfo_split;
-            app.rig_state.split_enabled = app.vfo_split;
+            let enabled = !app.vfo_split;
+            app.set_vfo_split(enabled);
         }
 
         if app.vfo_split {
@@ -252,9 +252,7 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui.button("⇄ A/B").on_hover_text("Zamień VFO A i VFO B").clicked() {
-                // Zamiana VFO
-                let current_vfo = if app.rig_state.vfo == "VFOA" { "VFOB" } else { "VFOA" };
-                app.rig_state.vfo = current_vfo.to_string();
+                app.swap_vfo_ab();
             }
         });
     });
@@ -303,15 +301,35 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
             ui.add_space(8.0);
 
-            // Bezpośrednie wpisanie częstotliwości (kHz)
+            // Bezpośrednie wpisanie częstotliwości (kHz) z zachowaniem bufora edycji podczas fokusu
             ui.label(egui::RichText::new("kHz:").size(11.0).color(egui::Color32::from_rgb(148, 163, 184)));
-            let mut freq_khz_str = format!("{:.3}", (f as f64) / 1000.0);
-            let resp_txt = ui.add(egui::TextEdit::singleline(&mut freq_khz_str).desired_width(75.0));
+            let edit_id = egui::Id::new("vfo_freq_khz_input");
+            let is_focused = ui.ctx().memory(|m| m.has_focus(edit_id));
+            let mut freq_khz_str = if is_focused {
+                ui.ctx()
+                    .data_mut(|d| d.get_temp::<String>(edit_id))
+                    .unwrap_or_else(|| format!("{:.3}", (f as f64) / 1000.0))
+            } else {
+                format!("{:.3}", (f as f64) / 1000.0)
+            };
+            let resp_txt = ui.add(
+                egui::TextEdit::singleline(&mut freq_khz_str)
+                    .id(edit_id)
+                    .desired_width(75.0),
+            );
+            if resp_txt.has_focus() {
+                ui.ctx()
+                    .data_mut(|d| d.insert_temp(edit_id, freq_khz_str.clone()));
+            }
             if resp_txt.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                if let Ok(khz) = freq_khz_str.parse::<f64>() {
-                    let new_hz = (khz * 1000.0) as u64;
-                    app.set_vfo_frequency(new_hz);
+                let normalized = freq_khz_str.trim().replace(',', ".");
+                if let Ok(khz) = normalized.parse::<f64>() {
+                    if khz > 0.0 {
+                        let new_hz = (khz * 1000.0).round() as u64;
+                        app.set_vfo_frequency(new_hz);
+                    }
                 }
+                ui.ctx().data_mut(|d| d.remove::<String>(edit_id));
             }
         });
 
@@ -363,16 +381,13 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new(tr("vfo.filters", app.current_language)).size(10.0).strong().color(egui::Color32::from_rgb(148, 163, 184)));
             if ui.selectable_label(app.vfo_filter_preset == "FIL1", "FIL1 (3k)").clicked() {
-                app.vfo_filter_preset = "FIL1".to_string();
-                app.rig_state.passband_hz = 3000;
+                app.set_vfo_filter("FIL1", 3000);
             }
             if ui.selectable_label(app.vfo_filter_preset == "FIL2", "FIL2 (2.4k)").clicked() {
-                app.vfo_filter_preset = "FIL2".to_string();
-                app.rig_state.passband_hz = 2400;
+                app.set_vfo_filter("FIL2", 2400);
             }
             if ui.selectable_label(app.vfo_filter_preset == "FIL3", "FIL3 (500Hz)").clicked() {
-                app.vfo_filter_preset = "FIL3".to_string();
-                app.rig_state.passband_hz = 500;
+                app.set_vfo_filter("FIL3", 500);
             }
 
             ui.separator();

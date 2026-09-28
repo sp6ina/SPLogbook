@@ -4,16 +4,17 @@
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
-/// Reprezentacja pojedynczego rekordu łączności (QSO) w standardzie ADIF 3.1.4
+/// Reprezentacja pojedynczego rekordu łączności (QSO) w standardzie ADIF 3.1.7
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
 pub struct QsoRecord {
     pub id: Option<i64>,
     pub callsign: String,
     pub band: String,
     pub mode: String,
     pub submode: Option<String>,
-    pub qso_date: String, // YYYY-MM-DD lub YYYYMMDD
-    pub time_on: String,   // HH:MM:SS lub HHMMSS
+    pub qso_date: String, // YYYYMMDD (standard ADIF)
+    pub time_on: String,  // HHMMSS lub HHMM (standard ADIF)
     pub time_off: Option<String>,
     pub freq: Option<f64>,     // Częstotliwość TX w MHz
     pub freq_rx: Option<f64>,  // Częstotliwość RX w MHz (np. split/satelity)
@@ -56,7 +57,7 @@ pub struct QsoRecord {
     pub stx_string: Option<String>,
     pub my_gridsquare: Option<String>,
     pub my_state: Option<String>,
-    pub my_pota_ref: Option<String>, // ADIF 3.1.4: MY_POTA_REF
+    pub my_pota_ref: Option<String>, // ADIF: MY_POTA_REF
     pub my_sota_ref: Option<String>, // ADIF: MY_SOTA_REF
     pub vucc_grids: Option<String>,  // ADIF: VUCC_GRIDS (np. dla satelitów/VHF)
     pub audio_file: Option<String>, // Powiązany plik audio nagrania łączności
@@ -72,8 +73,8 @@ impl Default for QsoRecord {
             band: "20m".to_string(),
             mode: "CW".to_string(),
             submode: None,
-            qso_date: now.format("%Y-%m-%d").to_string(),
-            time_on: now.format("%H:%M:%S").to_string(),
+            qso_date: now.format("%Y%m%d").to_string(),
+            time_on: now.format("%H%M%S").to_string(),
             time_off: None,
             freq: Some(14.025),
             freq_rx: None,
@@ -129,9 +130,9 @@ impl QsoRecord {
     /// Tworzy nowy rekord QSO z podstawowymi parametrami
     pub fn new(callsign: impl Into<String>, band: impl Into<String>, mode: impl Into<String>) -> Self {
         let mode_str = mode.into().to_uppercase();
-        let (rst_sent, rst_rcvd) = if mode_str == "SSB" || mode_str == "FM" || mode_str == "AM" {
+        let (rst_sent, rst_rcvd) = if matches!(mode_str.as_str(), "SSB" | "LSB" | "USB" | "FM" | "AM" | "DV" | "DMR" | "C4FM" | "DSTAR") {
             ("59".to_string(), "59".to_string())
-        } else if mode_str == "FT8" || mode_str == "FT4" {
+        } else if matches!(mode_str.as_str(), "FT8" | "FT4" | "FT2" | "JS8" | "Q65" | "JT65" | "JT9" | "FST4" | "FST4W" | "WSPR" | "FREEDATA") {
             ("-10".to_string(), "-10".to_string())
         } else {
             ("599".to_string(), "599".to_string())

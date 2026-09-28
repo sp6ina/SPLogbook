@@ -2,10 +2,14 @@
 use super::LogDatabase;
 
 impl LogDatabase {
-    /// Zwraca liczbę QSO pogrupowaną według miesiąca (YYYY-MM)
+    /// Zwraca liczbę QSO pogrupowaną według miesiąca (YYYY-MM), obsługując formaty YYYYMMDD i YYYY-MM-DD.
     pub fn stats_qso_per_month(&self) -> rusqlite::Result<Vec<(String, i64)>> {
         let mut stmt = self.conn.prepare(
-            "SELECT substr(qso_date, 1, 7) as month, COUNT(*) as cnt FROM qso_records GROUP BY month ORDER BY month DESC LIMIT 24"
+            "SELECT substr(REPLACE(qso_date, '-', ''), 1, 4) || '-' || substr(REPLACE(qso_date, '-', ''), 5, 2) as month, \
+             COUNT(*) as cnt \
+             FROM qso_records \
+             WHERE length(REPLACE(qso_date, '-', '')) >= 6 \
+             GROUP BY month ORDER BY month DESC LIMIT 24",
         )?;
         let rows = stmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))?;
         let mut v = Vec::new();
@@ -35,10 +39,38 @@ impl LogDatabase {
         Ok(v)
     }
 
+    /// Zwraca liczbę QSO pogrupowaną według kontynentu
+    pub fn stats_qso_per_continent(&self) -> rusqlite::Result<Vec<(String, i64)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT COALESCE(NULLIF(TRIM(continent), ''), 'UN') as cont, COUNT(*) as cnt \
+             FROM qso_records GROUP BY cont ORDER BY cnt DESC"
+        )?;
+        let rows = stmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))?;
+        let mut v = Vec::new();
+        for x in rows.flatten() { v.push(x); }
+        Ok(v)
+    }
+
+    /// Zwraca liczbę unikalnych znaków wywoławczych oraz unikalnych podmiotów DXCC w logu
+    pub fn stats_unique_counts(&self) -> rusqlite::Result<(i64, i64)> {
+        let unique_calls: i64 = self.conn.query_row(
+            "SELECT COUNT(DISTINCT UPPER(callsign)) FROM qso_records WHERE callsign <> ''",
+            [],
+            |r| r.get(0),
+        )?;
+        let unique_dxcc: i64 = self.conn.query_row(
+            "SELECT COUNT(DISTINCT dxcc) FROM qso_records WHERE dxcc IS NOT NULL AND dxcc > 0",
+            [],
+            |r| r.get(0),
+        )?;
+        Ok((unique_calls, unique_dxcc))
+    }
+
     /// Zwraca histogram aktywności wg godziny UTC (0-23)
     pub fn stats_activity_by_hour(&self) -> rusqlite::Result<Vec<(u32, i64)>> {
         let mut stmt = self.conn.prepare(
-            "SELECT CAST(substr(time_on, 1, 2) AS INTEGER) as hour, COUNT(*) as cnt FROM qso_records GROUP BY hour ORDER BY hour"
+            "SELECT CAST(substr(REPLACE(time_on, ':', ''), 1, 2) AS INTEGER) as hour, COUNT(*) as cnt \
+             FROM qso_records WHERE length(REPLACE(time_on, ':', '')) >= 2 GROUP BY hour ORDER BY hour"
         )?;
         let rows = stmt.query_map([], |row| Ok((row.get::<_, u32>(0)?, row.get::<_, i64>(1)?)))?;
         let mut v = Vec::new();

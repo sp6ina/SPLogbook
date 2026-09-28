@@ -74,6 +74,10 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 let _ = open::that(format!("http://127.0.0.1:{}/api/v1/status", app.rest_api_port));
                 ui.close_menu();
             }
+            if ui.button(icons::BOOKS.label("Dokumentacja endpointów (/api/v1/endpoints)")).clicked() {
+                let _ = open::that(format!("http://127.0.0.1:{}/api/v1/endpoints", app.rest_api_port));
+                ui.close_menu();
+            }
         });
         ui.separator();
         if ui.button(tr("station.equipment", lang)).clicked() {

@@ -219,6 +219,16 @@ pub fn get_band_by_freq(freq_hz: u64) -> Option<&'static BandDefinition> {
     AMATEUR_BANDS.iter().find(|b| freq_hz >= b.min_freq_hz && freq_hz <= b.max_freq_hz)
 }
 
+/// Zwraca nazwę pasma krótkofalarskiego (np. `"20m"`, `"60m"`, `"3cm"`) dla podanej
+/// częstotliwości w kHz lub `None`, jeśli częstotliwość leży poza pasmami amatorskimi.
+pub fn freq_khz_to_band(khz: f64) -> Option<&'static str> {
+    if !khz.is_finite() || khz <= 0.0 {
+        return None;
+    }
+    let freq_hz = (khz * 1000.0).round() as u64;
+    get_band_by_freq(freq_hz).map(|b| b.name)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

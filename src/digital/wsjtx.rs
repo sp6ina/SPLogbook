@@ -47,8 +47,8 @@ impl WsjtxReceiver {
         }
     }
 
-    /// Dekoduje strukturę QDateTime ze strumienia Qt QDataStream
-    /// Zwraca (YYYY-MM-DD, HH:MM:SS) w UTC
+    /// Dekoduje strukturę QDateTime ze strumienia Qt QDataStream.
+    /// Zwraca `(YYYYMMDD, HHMMSS)` w UTC zgodnie ze standardem ADIF i bazą SQLite.
     fn read_qdatetime(rdr: &mut Cursor<&[u8]>) -> Option<(String, String)> {
         use byteorder::ReadBytesExt;
         let julian_day = rdr.read_i64::<BigEndian>().ok()?;
@@ -57,13 +57,16 @@ impl WsjtxReceiver {
         if timespec == 2 {
             let _ = rdr.read_i32::<BigEndian>().ok()?;
         }
+        if julian_day <= 0 {
+            return None;
+        }
 
         // Julian Day Number (JDN) 2440588 to 1970-01-01 (Unix Epoch)
         let days_from_epoch = julian_day.checked_sub(2440588)?;
         let secs = days_from_epoch.checked_mul(86400)? + (ms_since_midnight as i64 / 1000);
         let dt = chrono::DateTime::from_timestamp(secs, 0)?;
-        let date_str = dt.format("%Y-%m-%d").to_string();
-        let time_str = dt.format("%H:%M:%S").to_string();
+        let date_str = dt.format("%Y%m%d").to_string();
+        let time_str = dt.format("%H%M%S").to_string();
         Some((date_str, time_str))
     }
 
@@ -97,9 +100,8 @@ impl WsjtxReceiver {
                 })
             }
             5 => {
-                // QSO Logged packet
-                // Prawidłowo odczytaj date/time off z QDateTime
-                let (qso_date, time_off) = Self::read_qdatetime(&mut rdr)?;
+                // QSO Logged packet (WSJT-X NetworkMessage Type 5)
+                let (date_off, time_off) = Self::read_qdatetime(&mut rdr)?;
                 let dx_call = Self::read_utf8_string(&mut rdr)?;
                 let dx_grid = Self::read_utf8_string(&mut rdr).unwrap_or_default();
                 let dial_freq = rdr.read_u64::<BigEndian>().unwrap_or(0);
@@ -109,13 +111,23 @@ impl WsjtxReceiver {
                 let _tx_power = Self::read_utf8_string(&mut rdr);
                 let comments = Self::read_utf8_string(&mut rdr);
                 let name = Self::read_utf8_string(&mut rdr);
+                // Pola 11..17 specyfikacji WSJT-X UDP (opcjonalne dla krótszych ramek testowych)
+                let dt_on = Self::read_qdatetime(&mut rdr);
+                let _operator_call = Self::read_utf8_string(&mut rdr);
+                let _my_call = Self::read_utf8_string(&mut rdr);
+                let my_grid = Self::read_utf8_string(&mut rdr);
+                let exch_sent = Self::read_utf8_string(&mut rdr);
+                let exch_rcvd = Self::read_utf8_string(&mut rdr);
+                let prop_mode = Self::read_utf8_string(&mut rdr);
 
                 let freq_mhz = (dial_freq as f64) / 1_000_000.0;
-                let band = Self::freq_to_band(freq_mhz);
+                let band = Self::freq_to_band(dial_freq);
+
+                let (qso_date, time_on) = dt_on.unwrap_or_else(|| (date_off.clone(), time_off.clone()));
 
                 let mut qso = QsoRecord::new(dx_call, band, mode);
                 qso.qso_date = qso_date;
-                qso.time_on = time_off.clone();
+                qso.time_on = time_on;
                 qso.time_off = Some(time_off);
                 qso.freq = Some(freq_mhz);
                 qso.rst_sent = rst_sent;
@@ -123,15 +135,23 @@ impl WsjtxReceiver {
                 if !dx_grid.is_empty() {
                     qso.gridsquare = Some(dx_grid);
                 }
-                if let Some(n) = name {
-                    if !n.is_empty() {
-                        qso.name = Some(n);
-                    }
+                if let Some(n) = name.filter(|s| !s.is_empty()) {
+                    qso.name = Some(n);
                 }
-                if let Some(c) = comments {
-                    if !c.is_empty() {
-                        qso.comment = Some(c);
-                    }
+                if let Some(c) = comments.filter(|s| !s.is_empty()) {
+                    qso.comment = Some(c);
+                }
+                if let Some(mg) = my_grid.filter(|s| !s.is_empty()) {
+                    qso.my_gridsquare = Some(mg);
+                }
+                if let Some(es) = exch_sent.filter(|s| !s.is_empty()) {
+                    qso.stx_string = Some(es);
+                }
+                if let Some(er) = exch_rcvd.filter(|s| !s.is_empty()) {
+                    qso.srx_string = Some(er);
+                }
+                if let Some(pm) = prop_mode.filter(|s| !s.is_empty()) {
+                    qso.prop_mode = Some(pm);
                 }
 
                 Some(WsjtxMessage::QsoLogged(Box::new(qso)))
@@ -164,40 +184,10 @@ impl WsjtxReceiver {
         String::from_utf8(buf).ok()
     }
 
-    fn freq_to_band(mhz: f64) -> String {
-        if (1.8..=2.0).contains(&mhz) {
-            "160m".to_string()
-        } else if (3.5..=3.8).contains(&mhz) {
-            "80m".to_string()
-        } else if (5.25..=5.45).contains(&mhz) {
-            "60m".to_string()
-        } else if (7.0..=7.3).contains(&mhz) {
-            "40m".to_string()
-        } else if (10.1..=10.15).contains(&mhz) {
-            "30m".to_string()
-        } else if (14.0..=14.35).contains(&mhz) {
-            "20m".to_string()
-        } else if (18.068..=18.168).contains(&mhz) {
-            "17m".to_string()
-        } else if (21.0..=21.45).contains(&mhz) {
-            "15m".to_string()
-        } else if (24.89..=24.99).contains(&mhz) {
-            "12m".to_string()
-        } else if (28.0..=29.7).contains(&mhz) {
-            "10m".to_string()
-        } else if (50.0..=54.0).contains(&mhz) {
-            "6m".to_string()
-        } else if (69.9..=70.5).contains(&mhz) {
-            "4m".to_string()
-        } else if (144.0..=148.0).contains(&mhz) {
-            "2m".to_string()
-        } else if (430.0..=440.0).contains(&mhz) {
-            "70cm".to_string()
-        } else if (1240.0..=1300.0).contains(&mhz) {
-            "23cm".to_string()
-        } else {
-            "OTHER".to_string()
-        }
+    fn freq_to_band(freq_hz: u64) -> String {
+        crate::core::bandplan::get_band_by_freq(freq_hz)
+            .map(|b| b.name.to_string())
+            .unwrap_or_else(|| "OTHER".to_string())
     }
 }
 
@@ -205,6 +195,11 @@ impl WsjtxReceiver {
 mod tests {
     use super::*;
     use byteorder::{BigEndian, WriteBytesExt};
+
+    fn write_utf8(buf: &mut Vec<u8>, s: &str) {
+        buf.write_u32::<BigEndian>(s.len() as u32).unwrap();
+        buf.extend_from_slice(s.as_bytes());
+    }
 
     #[test]
     fn test_parse_wsjtx_type_5_qso_logged() {
@@ -216,42 +211,35 @@ mod tests {
         // Type: 5 (QSO Logged)
         packet.write_u32::<BigEndian>(5).unwrap();
         // Id: "WSJT-X"
-        let id = "WSJT-X";
-        packet.write_u32::<BigEndian>(id.len() as u32).unwrap();
-        packet.extend_from_slice(id.as_bytes());
+        write_utf8(&mut packet, "WSJT-X");
 
-        // QDateTime: QDate (8 bytes) + QTime (4 bytes) + timespec (1 byte)
-        packet.write_u64::<BigEndian>(2460000).unwrap(); // Julian day
-        packet.write_u32::<BigEndian>(43200000).unwrap(); // 12:00:00.000 ms
+        // QDateTime Off: QDate (8 bytes) + QTime (4 bytes) + timespec (1 byte)
+        packet.write_u64::<BigEndian>(2460000).unwrap(); // Julian day (2023-02-24)
+        packet.write_u32::<BigEndian>(43260000).unwrap(); // 12:01:00.000 ms
         packet.write_u8(1).unwrap(); // UTC timespec
 
-        // dx_call: "K1ABC"
-        let dx_call = "K1ABC";
-        packet.write_u32::<BigEndian>(dx_call.len() as u32).unwrap();
-        packet.extend_from_slice(dx_call.as_bytes());
-
-        // dx_grid: "FN31pr"
-        let dx_grid = "FN31pr";
-        packet.write_u32::<BigEndian>(dx_grid.len() as u32).unwrap();
-        packet.extend_from_slice(dx_grid.as_bytes());
-
-        // dial_freq: 14074000
+        write_utf8(&mut packet, "K1ABC");
+        write_utf8(&mut packet, "FN31pr");
         packet.write_u64::<BigEndian>(14_074_000).unwrap();
+        write_utf8(&mut packet, "FT8");
+        write_utf8(&mut packet, "-05");
+        write_utf8(&mut packet, "-12");
+        write_utf8(&mut packet, "50");
+        write_utf8(&mut packet, "73 TU");
+        write_utf8(&mut packet, "John");
 
-        // mode: "FT8"
-        let mode = "FT8";
-        packet.write_u32::<BigEndian>(mode.len() as u32).unwrap();
-        packet.extend_from_slice(mode.as_bytes());
+        // QDateTime On (pole 11): 12:00:00 UTC
+        packet.write_u64::<BigEndian>(2460000).unwrap();
+        packet.write_u32::<BigEndian>(43200000).unwrap();
+        packet.write_u8(1).unwrap();
 
-        // rst_sent: "-05"
-        let rst_sent = "-05";
-        packet.write_u32::<BigEndian>(rst_sent.len() as u32).unwrap();
-        packet.extend_from_slice(rst_sent.as_bytes());
-
-        // rst_rcvd: "-12"
-        let rst_rcvd = "-12";
-        packet.write_u32::<BigEndian>(rst_rcvd.len() as u32).unwrap();
-        packet.extend_from_slice(rst_rcvd.as_bytes());
+        // Pola 12..17: Operator, MyCall, MyGrid, ExchSent, ExchRcvd, PropMode
+        write_utf8(&mut packet, "SP6INA");
+        write_utf8(&mut packet, "SP6INA");
+        write_utf8(&mut packet, "JO81WA");
+        write_utf8(&mut packet, "599 15");
+        write_utf8(&mut packet, "599 05");
+        write_utf8(&mut packet, "F2");
 
         let msg = WsjtxReceiver::parse_packet(&packet);
         assert!(msg.is_some(), "Pakiet Type 5 powinien zostać poprawnie zdekodowany");
@@ -264,9 +252,15 @@ mod tests {
                 assert_eq!(qso.mode, "FT8");
                 assert_eq!(qso.rst_sent, "-05");
                 assert_eq!(qso.rst_rcvd, "-12");
-                assert_eq!(qso.qso_date, "2023-02-24");
-                assert_eq!(qso.time_on, "12:00:00");
-                assert_eq!(qso.time_off, Some("12:00:00".to_string()));
+                assert_eq!(qso.qso_date, "20230224");
+                assert_eq!(qso.time_on, "120000");
+                assert_eq!(qso.time_off, Some("120100".to_string()));
+                assert_eq!(qso.name.as_deref(), Some("John"));
+                assert_eq!(qso.comment.as_deref(), Some("73 TU"));
+                assert_eq!(qso.my_gridsquare.as_deref(), Some("JO81WA"));
+                assert_eq!(qso.stx_string.as_deref(), Some("599 15"));
+                assert_eq!(qso.srx_string.as_deref(), Some("599 05"));
+                assert_eq!(qso.prop_mode.as_deref(), Some("F2"));
             }
             _ => panic!("Oczekiwano WsjtxMessage::QsoLogged"),
         }
