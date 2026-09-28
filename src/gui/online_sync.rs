@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
-use crate::cloud::lotw::{detect_tqsl_path, export_and_sign_tqsl};
+use crate::cloud::lotw::detect_tqsl_path;
 use crate::core::i18n::tr;
 use crate::gui::app::SpLogApp;
 use eframe::egui;
@@ -113,20 +113,24 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                             } else {
                                                 vec![]
                                             };
+                                            let qso_count = qsos.len();
                                             let adif = crate::core::adif::export_adif(&qsos, "SPLogbook", &app.my_station.callsign);
                                             let tqsl_path = app.lotw_tqsl_path.clone();
                                             let station_loc = app.lotw_station_name.clone();
+                                            let tx = app.sync_log_tx.clone();
+                                            app.online_sync_logs.push(format!("[LoTW] Podpisywanie i wysyłanie {qso_count} łączności przez TQSL..."));
+                                            app.status_message = Some("Podpisywanie i wysyłka do LoTW w toku...".to_string());
 
-                                            match export_and_sign_tqsl(&tqsl_path, &station_loc, &adif) {
-                                                Ok(msg) => {
-                                                    app.online_sync_logs.push(format!("[LoTW SUKCES] Wyeksportowano i podpisano {} łączności: {}", qsos.len(), msg));
-                                                    app.status_message = Some("Łączności przesłane do LoTW pomyślnie.".to_string());
+                                            tokio::spawn(async move {
+                                                match crate::cloud::lotw::export_and_sign_tqsl_async(&tqsl_path, &station_loc, &adif).await {
+                                                    Ok(msg) => {
+                                                        let _ = tx.send((format!("[LoTW SUKCES] Wyeksportowano i podpisano {qso_count} łączności: {msg}"), false));
+                                                    }
+                                                    Err(e) => {
+                                                        let _ = tx.send((format!("[LoTW BŁĄD] {e}"), false));
+                                                    }
                                                 }
-                                                Err(e) => {
-                                                    app.online_sync_logs.push(format!("[LoTW BŁĄD] {e}"));
-                                                    app.status_message = Some(format!("Błąd LoTW: {e}"));
-                                                }
-                                            }
+                                            });
                                         }
 
                                         if ui.button(egui::RichText::new(format!("📥 {}", tr("sync.lotw_download", lang)))).clicked() {
@@ -139,18 +143,26 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                 let log_db = app.log_db.clone();
                                                 tokio::spawn(async move {
                                                     let _ = tx.send(("[LoTW] Pobieranie raportu potwierdzeń z serwera ARRL LoTW...".to_string(), false));
-                                                    match crate::cloud::lotw::download_lotw_report(&user, &pass, None).await {
+                                                    let report_res = crate::cloud::lotw::download_lotw_report(&user, &pass, None)
+                                                        .await
+                                                        .map_err(|e| e.to_string());
+                                                    match report_res {
                                                         Ok(adif) => {
-                                                            let confs = crate::cloud::lotw::parse_lotw_confirmations(&adif);
-                                                            let count = confs.len();
-                                                            let mut updated = 0;
-                                                            if let Ok(db) = log_db.lock() {
-                                                                for c in confs {
-                                                                    if let Ok(n) = db.mark_lotw_confirmed(&c.callsign, &c.band, &c.mode, &c.qso_date, &c.qsl_rdate) {
-                                                                        updated += n;
+                                                            let (count, updated) = tokio::task::spawn_blocking(move || {
+                                                                let confs = crate::cloud::lotw::parse_lotw_confirmations(&adif);
+                                                                let count = confs.len();
+                                                                let mut updated = 0;
+                                                                if let Ok(db) = log_db.lock() {
+                                                                    for c in confs {
+                                                                        if let Ok(n) = db.mark_lotw_confirmed(&c.callsign, &c.band, &c.mode, &c.qso_date, &c.qsl_rdate) {
+                                                                            updated += n;
+                                                                        }
                                                                     }
                                                                 }
-                                                            }
+                                                                (count, updated)
+                                                            })
+                                                            .await
+                                                            .unwrap_or((0, 0));
                                                             let _ = tx.send((format!("[LoTW SUKCES] Odebrano {count} potwierdzeń, zaktualizowano w bazie: {updated}"), true));
                                                         }
                                                         Err(e) => {
@@ -210,17 +222,22 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                     let _ = tx.send(("[eQSL] Pobieranie skrzynki odbiorczej (Inbox ADIF)...".to_string(), false));
                                                     match client.download_inbox_adif().await {
                                                         Ok(adif) => {
-                                                            let qsos = crate::core::adif::parse_adif(&adif);
-                                                            let mut updated = 0;
-                                                            if let Ok(db) = log_db.lock() {
-                                                                for q in &qsos {
-                                                                    let rdate = q.eqsl_qslrdate.as_deref().unwrap_or(&q.qso_date);
-                                                                    if let Ok(n) = db.mark_eqsl_confirmed(&q.callsign, &q.band, &q.mode, &q.qso_date, rdate) {
-                                                                        updated += n;
+                                                            let (count, updated) = tokio::task::spawn_blocking(move || {
+                                                                let qsos = crate::core::adif::parse_adif(&adif);
+                                                                let mut updated = 0;
+                                                                if let Ok(db) = log_db.lock() {
+                                                                    for q in &qsos {
+                                                                        let rdate = q.eqsl_qslrdate.as_deref().unwrap_or(&q.qso_date);
+                                                                        if let Ok(n) = db.mark_eqsl_confirmed(&q.callsign, &q.band, &q.mode, &q.qso_date, rdate) {
+                                                                            updated += n;
+                                                                        }
                                                                     }
                                                                 }
-                                                            }
-                                                            let _ = tx.send((format!("[eQSL SUKCES] Pobrano {} potwierdzeń, zaktualizowano w bazie: {}", qsos.len(), updated), true));
+                                                                (qsos.len(), updated)
+                                                            })
+                                                            .await
+                                                            .unwrap_or((0, 0));
+                                                            let _ = tx.send((format!("[eQSL SUKCES] Pobrano {count} potwierdzeń, zaktualizowano w bazie: {updated}"), true));
                                                         }
                                                         Err(e) => {
                                                             let _ = tx.send((format!("[eQSL BŁĄD] {e}"), false));
@@ -334,8 +351,32 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                         ui.add(egui::TextEdit::singleline(&mut app.hamqth_password).password(true).desired_width(120.0));
                                     });
                                     if ui.button("📤 Wyślij łączności do HamQTH").clicked() {
-                                        app.online_sync_logs.push("Wysyłanie danych do HamQTH.com...".to_string());
-                                        app.status_message = Some("Wysyłka do HamQTH w toku...".to_string());
+                                        if app.hamqth_username.is_empty() || app.hamqth_password.is_empty() {
+                                            app.online_sync_logs.push("[HamQTH] Błąd: Brak loginu lub hasła do HamQTH.com.".to_string());
+                                        } else {
+                                            let tx = app.sync_log_tx.clone();
+                                            let user = app.hamqth_username.clone();
+                                            let pass = app.hamqth_password.clone();
+                                            let qsos = if let Ok(db) = app.log_db.lock() { db.get_recent_qsos(100).unwrap_or_default() } else { vec![] };
+                                            app.status_message = Some("Wysyłka do HamQTH w toku...".to_string());
+                                            tokio::spawn(async move {
+                                                let client = crate::cloud::hamqth::HamQthClient::new(user, pass);
+                                                let _ = tx.send((format!("[HamQTH] Wysyłanie {} łączności do HamQTH.com...", qsos.len()), false));
+                                                let mut ok_count = 0usize;
+                                                let mut last_err = None;
+                                                for qso in &qsos {
+                                                    match client.upload_qso(qso).await {
+                                                        Ok(_) => ok_count += 1,
+                                                        Err(e) => last_err = Some(e),
+                                                    }
+                                                }
+                                                if let Some(e) = last_err {
+                                                    let _ = tx.send((format!("[HamQTH] Wysłano {ok_count}/{}, ostatni błąd: {e}", qsos.len()), false));
+                                                } else {
+                                                    let _ = tx.send((format!("[HamQTH SUKCES] Wysłano {ok_count} łączności."), false));
+                                                }
+                                            });
+                                        }
                                     }
                                 });
 
@@ -391,8 +432,32 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                         ui.add(egui::TextEdit::singleline(&mut app.cloudlog_api_key).password(true).desired_width(220.0));
                                     });
                                     if ui.button("📤 Wyślij łączności do Cloudlog").clicked() {
-                                        app.online_sync_logs.push("Wysyłanie łączności do Cloudlog REST API...".to_string());
-                                        app.status_message = Some("Wysyłka do Cloudlog w toku...".to_string());
+                                        if app.cloudlog_url.trim().is_empty() || app.cloudlog_api_key.trim().is_empty() {
+                                            app.online_sync_logs.push("[Cloudlog] Błąd: Brak adresu URL lub klucza API Cloudlog.".to_string());
+                                        } else {
+                                            let tx = app.sync_log_tx.clone();
+                                            let url = app.cloudlog_url.clone();
+                                            let api_key = app.cloudlog_api_key.clone();
+                                            let qsos = if let Ok(db) = app.log_db.lock() { db.get_recent_qsos(100).unwrap_or_default() } else { vec![] };
+                                            app.status_message = Some("Wysyłka do Cloudlog w toku...".to_string());
+                                            tokio::spawn(async move {
+                                                let client = crate::cloud::cloudlog::CloudlogClient::new(&url, api_key, "1".to_string());
+                                                let _ = tx.send((format!("[Cloudlog] Wysyłanie {} łączności do Cloudlog REST API...", qsos.len()), false));
+                                                let mut ok_count = 0usize;
+                                                let mut last_err = None;
+                                                for qso in &qsos {
+                                                    match client.upload_qso(qso).await {
+                                                        Ok(_) => ok_count += 1,
+                                                        Err(e) => last_err = Some(e),
+                                                    }
+                                                }
+                                                if let Some(e) = last_err {
+                                                    let _ = tx.send((format!("[Cloudlog] Wysłano {ok_count}/{}, ostatni błąd: {e}", qsos.len()), false));
+                                                } else {
+                                                    let _ = tx.send((format!("[Cloudlog SUKCES] Wysłano {ok_count} łączności."), false));
+                                                }
+                                            });
+                                        }
                                     }
                                 });
 
@@ -409,8 +474,32 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                         ui.add(egui::TextEdit::singleline(&mut app.hrdlog_upload_code).password(true).desired_width(120.0));
                                     });
                                     if ui.button("📤 Wyślij łączności do HRDLog.net").clicked() {
-                                        app.online_sync_logs.push("Wysyłanie danych do HRDLog.net...".to_string());
-                                        app.status_message = Some("Wysyłka do HRDLog.net w toku...".to_string());
+                                        if app.hrdlog_username.trim().is_empty() || app.hrdlog_upload_code.trim().is_empty() {
+                                            app.online_sync_logs.push("[HRDLog] Błąd: Brak znaku lub Upload Code do HRDLog.net.".to_string());
+                                        } else {
+                                            let tx = app.sync_log_tx.clone();
+                                            let call = app.hrdlog_username.clone();
+                                            let code = app.hrdlog_upload_code.clone();
+                                            let qsos = if let Ok(db) = app.log_db.lock() { db.get_recent_qsos(100).unwrap_or_default() } else { vec![] };
+                                            app.status_message = Some("Wysyłka do HRDLog.net w toku...".to_string());
+                                            tokio::spawn(async move {
+                                                let client = crate::cloud::hrdlog::HrdlogClient::new(call, code);
+                                                let _ = tx.send((format!("[HRDLog] Wysyłanie {} łączności do HRDLog.net...", qsos.len()), false));
+                                                let mut ok_count = 0usize;
+                                                let mut last_err = None;
+                                                for qso in &qsos {
+                                                    match client.upload_qso(qso).await {
+                                                        Ok(_) => ok_count += 1,
+                                                        Err(e) => last_err = Some(e),
+                                                    }
+                                                }
+                                                if let Some(e) = last_err {
+                                                    let _ = tx.send((format!("[HRDLog] Wysłano {ok_count}/{}, ostatni błąd: {e}", qsos.len()), false));
+                                                } else {
+                                                    let _ = tx.send((format!("[HRDLog SUKCES] Wysłano {ok_count} łączności."), false));
+                                                }
+                                            });
+                                        }
                                     }
                                 });
                             }

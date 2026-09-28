@@ -48,6 +48,7 @@ pub fn render_custom_contest_editor(app: &mut SpLogApp, ctx: &egui::Context) {
                             app.custom_contest_edit_idx = None;
                             app.custom_contest_draft = CustomContest::default();
                         }
+                        app.save_station_config();
                     }
                     if ui.button(tr("contest.new_custom_contest", lang)).clicked() {
                         app.custom_contest_edit_idx = None;
@@ -111,6 +112,7 @@ pub fn render_custom_contest_editor(app: &mut SpLogApp, ctx: &egui::Context) {
                         }
                         app.custom_contest_edit_idx = None;
                         app.custom_contest_draft = CustomContest::default();
+                        app.save_station_config();
                     }
                 });
             });
@@ -165,7 +167,11 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
         })
         .unwrap_or_default();
 
-    let my_dxcc: u32 = 269;
+    let my_dxcc: u32 = app
+        .prefix_matcher
+        .lookup(&app.my_station.callsign)
+        .and_then(|m| if m.dxcc > 0 { Some(m.dxcc) } else { None })
+        .unwrap_or(269);
     let my_cqzone = app.my_station.cq_zone as u8;
 
     let mut unknown_contest_rule = false;
@@ -347,13 +353,19 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         };
 
                         let is_dupe = if is_custom {
-                            app.recent_qsos.iter().any(|q| q.callsign == dummy_qso.callsign && q.band == dummy_qso.band)
+                            app.recent_qsos.iter().any(|q| {
+                                q.callsign.eq_ignore_ascii_case(&dummy_qso.callsign)
+                                    && q.band.eq_ignore_ascii_case(&dummy_qso.band)
+                            })
                         } else if let Some(rule_idx) = RULES.iter().position(|r| r.name == app.contest_name) {
                             detect_duplicate(&RULES[rule_idx], &dummy_qso, &app.recent_qsos)
                         } else {
                             // Nieznane reguły kontestu: prosta kontrola duplikatu wg znaku+pasma
                             // zamiast cichego zastosowania reguł innego (pierwszego) kontestu.
-                            app.recent_qsos.iter().any(|q| q.callsign == dummy_qso.callsign && q.band == dummy_qso.band)
+                            app.recent_qsos.iter().any(|q| {
+                                q.callsign.eq_ignore_ascii_case(&dummy_qso.callsign)
+                                    && q.band.eq_ignore_ascii_case(&dummy_qso.band)
+                            })
                         };
 
                         if is_dupe && !app.entry_callsign.is_empty() {
@@ -504,7 +516,30 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
     if save_clicked && !app.entry_callsign.is_empty() {
         let mut new_qso = QsoRecord::new(&app.entry_callsign, &app.entry_band, &app.entry_mode);
         new_qso.stx = Some(app.contest_stx);
-        new_qso.journal_id = Some("CONTEST".to_string());
+        new_qso.journal_id = Some(app.active_journal.id.clone());
+        if !app.my_station.gridsquare.trim().is_empty() {
+            new_qso.my_gridsquare = Some(app.my_station.gridsquare.clone());
+        }
+        if app.rig_state.frequency_hz > 0 {
+            new_qso.freq = Some(app.rig_state.frequency_hz as f64 / 1_000_000.0);
+        }
+        if let Some(info) = app.prefix_matcher.lookup(&new_qso.callsign) {
+            if info.dxcc > 0 {
+                new_qso.dxcc = Some(info.dxcc);
+            }
+            if !info.country.is_empty() {
+                new_qso.country = Some(info.country.clone());
+            }
+            if !info.continent.is_empty() {
+                new_qso.continent = Some(info.continent.clone());
+            }
+            if info.cqz > 0 {
+                new_qso.cqz = Some(info.cqz);
+            }
+            if info.ituz > 0 {
+                new_qso.ituz = Some(info.ituz);
+            }
+        }
 
         // Parsuj wymianę, jeśli kontest ma zdefiniowane pola; w przeciwnym razie
         // zachowaj dawny tryb "sam RST" w polu `entry_rst_rcvd`.
@@ -541,7 +576,15 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     Err(error) => Err(format!("Nie można otworzyć dziennika: {error}")),
                 };
                 match insert_result {
-                    Ok(_) => {
+                    Ok(id) => {
+                        new_qso.id = Some(id);
+                        if let Ok(mut awards) = app.awards_engine.lock() {
+                            awards.register_qso_record(&new_qso);
+                        }
+                        app.invalidate_cluster_badges();
+                        if let Ok(mut scp) = app.scp_engine.lock() {
+                            scp.insert(&new_qso.callsign);
+                        }
                         app.contest_stx += 1;
                         app.entry_callsign.clear();
                         app.entry_rst_rcvd.clear();

@@ -156,6 +156,8 @@ pub fn render_satellites_window(app: &mut SpLogApp, ctx: &egui::Context) {
             {
                 app.panel_satellites.saved_pos = Some(new_pos);
                 app.panel_satellites.saved_size = Some(new_size);
+            }
+            if res.response.drag_stopped() {
                 app.save_station_config();
             }
         }

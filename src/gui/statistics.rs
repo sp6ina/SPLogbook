@@ -81,103 +81,127 @@ pub fn render_statistics_window(app: &mut SpLogApp, ctx: &egui::Context) {
     app.show_statistics_window = is_open;
 }
 
-fn get_stats_band(app: &mut SpLogApp) -> Vec<(String, i64)> {
-    match app.log_db.lock() {
-        Ok(db) => match db.stats_qso_per_band() {
-            Ok(v) => v,
-            Err(e) => {
-                app.status_message = Some(format!("Błąd odczytu statystyk (pasma): {e}"));
-                vec![]
+#[derive(Clone, PartialEq, Eq)]
+struct StatsCacheKey {
+    journal_id: String,
+    qso_count: usize,
+    recent_len: usize,
+    first_id: Option<i64>,
+    confirmed_sample: usize,
+}
+
+#[derive(Clone, Default)]
+struct StatsCacheData {
+    band: Vec<(String, i64)>,
+    mode: Vec<(String, i64)>,
+    monthly: Vec<(String, i64)>,
+    hourly: Vec<(u32, i64)>,
+    countries: Vec<(String, i64)>,
+    qsl: (i64, i64, i64, i64),
+}
+
+static STATS_CACHE: std::sync::OnceLock<
+    std::sync::Mutex<Option<(StatsCacheKey, StatsCacheData)>>,
+> = std::sync::OnceLock::new();
+
+fn get_cached_stats(app: &mut SpLogApp) -> StatsCacheData {
+    let confirmed_sample = app
+        .recent_qsos
+        .iter()
+        .filter(|q| q.lotw_qsl_rcvd == "Y" || q.eqsl_qsl_rcvd == "Y" || q.qsl_rcvd == "Y")
+        .count();
+    let key = StatsCacheKey {
+        journal_id: app.active_journal.id.clone(),
+        qso_count: app.qso_numbers.len(),
+        recent_len: app.recent_qsos.len(),
+        first_id: app.recent_qsos.first().and_then(|q| q.id),
+        confirmed_sample,
+    };
+
+    let cache_mutex = STATS_CACHE.get_or_init(|| std::sync::Mutex::new(None));
+    if let Ok(guard) = cache_mutex.lock() {
+        if let Some((cached_key, cached_data)) = guard.as_ref() {
+            if *cached_key == key {
+                return cached_data.clone();
             }
-        },
-        Err(e) => {
-            app.status_message = Some(format!("Nie można otworzyć dziennika: {e}"));
-            vec![]
         }
     }
+
+    let data = match app.log_db.lock() {
+        Ok(db) => {
+            let band = db.stats_qso_per_band().unwrap_or_else(|e| {
+                app.status_message = Some(format!("Błąd odczytu statystyk (pasma): {e}"));
+                vec![]
+            });
+            let mode = db.stats_qso_per_mode().unwrap_or_else(|e| {
+                app.status_message = Some(format!("Błąd odczytu statystyk (emisje): {e}"));
+                vec![]
+            });
+            let monthly = match db.stats_qso_per_month() {
+                Ok(mut v) => {
+                    v.reverse();
+                    v
+                }
+                Err(e) => {
+                    app.status_message = Some(format!("Błąd odczytu statystyk (miesiące): {e}"));
+                    vec![]
+                }
+            };
+            let hourly = db.stats_activity_by_hour().unwrap_or_else(|e| {
+                app.status_message = Some(format!("Błąd odczytu statystyk (godziny): {e}"));
+                vec![]
+            });
+            let countries = db.stats_top_countries(15).unwrap_or_else(|e| {
+                app.status_message = Some(format!("Błąd odczytu statystyk (kraje): {e}"));
+                vec![]
+            });
+            let qsl = db.stats_qsl_summary().unwrap_or_else(|e| {
+                app.status_message = Some(format!("Błąd odczytu statystyk (QSL): {e}"));
+                (0, 0, 0, 0)
+            });
+            StatsCacheData {
+                band,
+                mode,
+                monthly,
+                hourly,
+                countries,
+                qsl,
+            }
+        }
+        Err(e) => {
+            app.status_message = Some(format!("Nie można otworzyć dziennika: {e}"));
+            StatsCacheData::default()
+        }
+    };
+
+    if let Ok(mut guard) = cache_mutex.lock() {
+        *guard = Some((key, data.clone()));
+    }
+    data
+}
+
+fn get_stats_band(app: &mut SpLogApp) -> Vec<(String, i64)> {
+    get_cached_stats(app).band
 }
 
 fn get_stats_mode(app: &mut SpLogApp) -> Vec<(String, i64)> {
-    match app.log_db.lock() {
-        Ok(db) => match db.stats_qso_per_mode() {
-            Ok(v) => v,
-            Err(e) => {
-                app.status_message = Some(format!("Błąd odczytu statystyk (emisje): {e}"));
-                vec![]
-            }
-        },
-        Err(e) => {
-            app.status_message = Some(format!("Nie można otworzyć dziennika: {e}"));
-            vec![]
-        }
-    }
+    get_cached_stats(app).mode
 }
 
 fn get_stats_monthly(app: &mut SpLogApp) -> Vec<(String, i64)> {
-    match app.log_db.lock() {
-        Ok(db) => match db.stats_qso_per_month() {
-            Ok(mut v) => {
-                v.reverse(); // chronologicznie
-                v
-            }
-            Err(e) => {
-                app.status_message = Some(format!("Błąd odczytu statystyk (miesiące): {e}"));
-                vec![]
-            }
-        },
-        Err(e) => {
-            app.status_message = Some(format!("Nie można otworzyć dziennika: {e}"));
-            vec![]
-        }
-    }
+    get_cached_stats(app).monthly
 }
 
 fn get_stats_hourly(app: &mut SpLogApp) -> Vec<(u32, i64)> {
-    match app.log_db.lock() {
-        Ok(db) => match db.stats_activity_by_hour() {
-            Ok(v) => v,
-            Err(e) => {
-                app.status_message = Some(format!("Błąd odczytu statystyk (godziny): {e}"));
-                vec![]
-            }
-        },
-        Err(e) => {
-            app.status_message = Some(format!("Nie można otworzyć dziennika: {e}"));
-            vec![]
-        }
-    }
+    get_cached_stats(app).hourly
 }
 
 fn get_stats_countries(app: &mut SpLogApp) -> Vec<(String, i64)> {
-    match app.log_db.lock() {
-        Ok(db) => match db.stats_top_countries(15) {
-            Ok(v) => v,
-            Err(e) => {
-                app.status_message = Some(format!("Błąd odczytu statystyk (kraje): {e}"));
-                vec![]
-            }
-        },
-        Err(e) => {
-            app.status_message = Some(format!("Nie można otworzyć dziennika: {e}"));
-            vec![]
-        }
-    }
+    get_cached_stats(app).countries
 }
 
 fn get_stats_qsl(app: &mut SpLogApp) -> (i64, i64, i64, i64) {
-    match app.log_db.lock() {
-        Ok(db) => match db.stats_qsl_summary() {
-            Ok(v) => v,
-            Err(e) => {
-                app.status_message = Some(format!("Błąd odczytu statystyk (QSL): {e}"));
-                (0, 0, 0, 0)
-            }
-        },
-        Err(e) => {
-            app.status_message = Some(format!("Nie można otworzyć dziennika: {e}"));
-            (0, 0, 0, 0)
-        }
-    }
+    get_cached_stats(app).qsl
 }
 
 /// Rysuje pionowy slupek na pozycji x, szerokosci w, wysokosci h (pixels), z kolorem i etykieta.
@@ -252,15 +276,11 @@ fn bar_chart_clickable(
         }
 
         // Etykieta pod słupkiem (rotacja przez skrócenie)
-        let short_label = if label.len() > 6 {
-            &label[..6]
-        } else {
-            label.as_str()
-        };
+        let short_label: String = label.chars().take(6).collect();
         painter.text(
             egui::pos2(x + bar_w / 2.0, origin.y + chart_h + 4.0),
             egui::Align2::CENTER_TOP,
-            short_label,
+            &short_label,
             egui::FontId::proportional(9.0),
             egui::Color32::from_rgb(148, 163, 184),
         );
@@ -576,7 +596,7 @@ fn render_tab_qsl(app: &mut SpLogApp, ui: &mut egui::Ui) {
             );
             ui.end_row();
 
-            let unconfirmed = total - lotw.max(eqsl).max(paper);
+            let unconfirmed = total.saturating_sub(lotw.max(eqsl).max(paper)).max(0);
             ui.label(
                 egui::RichText::new(format!("{}:", tr("stats.unconfirmed_label", lang)))
                     .strong()
@@ -585,8 +605,8 @@ fn render_tab_qsl(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ui.label(
                 egui::RichText::new(format!(
                     "{} ({:.1}%)",
-                    unconfirmed.max(0),
-                    unconfirmed.max(0) as f64 / total as f64 * 100.0
+                    unconfirmed,
+                    unconfirmed as f64 / total as f64 * 100.0
                 ))
                 .color(egui::Color32::from_rgb(100, 116, 139)),
             );
@@ -600,14 +620,12 @@ fn render_tab_qsl(app: &mut SpLogApp, ui: &mut egui::Ui) {
     ui.label(egui::RichText::new(tr("stats.visualization_label", lang)).strong());
     ui.add_space(4.0);
 
+    let unconfirmed = total.saturating_sub(lotw.max(eqsl).max(paper)).max(0);
     let bar_data = vec![
         ("LoTW".to_string(), lotw),
         ("eQSL".to_string(), eqsl),
         ("Papier".to_string(), paper),
-        (
-            "Brak".to_string(),
-            (total - lotw.max(eqsl).max(paper)).max(0),
-        ),
+        ("Brak".to_string(), unconfirmed),
     ];
     if let Some(i) = bar_chart_clickable(
         ui,

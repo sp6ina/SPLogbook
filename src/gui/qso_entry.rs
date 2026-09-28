@@ -168,6 +168,8 @@ pub fn render_qso_entry_window(app: &mut SpLogApp, ctx: &egui::Context) {
             {
                 app.panel_qso.saved_pos = Some(new_pos);
                 app.panel_qso.saved_size = Some(new_size);
+            }
+            if res.response.drag_stopped() {
                 app.save_station_config();
             }
         }
@@ -622,7 +624,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     });
 
     // Szybkie sterowanie rotatorem antenowym (SP / LP)
-    if app.active_bearing_deg > 0.0 {
+    if app.active_bearing_deg >= 0.0 && app.active_distance_km > 0.0 {
         ui.horizontal(|ui| {
             ui.label(
                 egui::RichText::new(format!("{}:", tr("geo.azimuth", lang)))

@@ -118,6 +118,8 @@ pub fn render_vfo_window(app: &mut SpLogApp, ctx: &egui::Context) {
             {
                 app.panel_vfo.saved_pos = Some(new_pos);
                 app.panel_vfo.saved_size = Some(new_size);
+            }
+            if res.response.drag_stopped() {
                 app.save_station_config();
             }
         }

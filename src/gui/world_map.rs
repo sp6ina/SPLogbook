@@ -402,11 +402,9 @@ pub fn render_world_map_window(app: &mut SpLogApp, ctx: &egui::Context) {
             let r = res.response.rect;
             let new_pos = [r.min.x, r.min.y];
             let new_size = [r.width(), r.height()];
-            if app.panel_world_map.saved_pos != Some(new_pos)
-                || app.panel_world_map.saved_size != Some(new_size)
-            {
-                app.panel_world_map.saved_pos = Some(new_pos);
-                app.panel_world_map.saved_size = Some(new_size);
+            app.panel_world_map.saved_pos = Some(new_pos);
+            app.panel_world_map.saved_size = Some(new_size);
+            if res.response.drag_stopped() {
                 app.save_station_config();
             }
         }
@@ -552,8 +550,6 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
             }
         }
 
-        ui.data_mut(|d| d.insert_temp(id, state));
-
         // Tło oceanu
         let ocean_color = egui::Color32::from_rgb(15, 23, 42);
         painter.rect_filled(rect, 4.0, ocean_color);
@@ -573,6 +569,8 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 }
             });
         });
+
+        ui.data_mut(|d| d.insert_temp(id, state));
 
         // Pomocnik projekcji: (lat, lon) -> Pos2
         let project = |lat: f64, lon: f64| -> egui::Pos2 {
@@ -979,7 +977,7 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
             egui::Color32::from_rgb(56, 189, 248),
         );
 
-        // Znacznik stacji DX oraz linia ortodromy (Great Circle trajectory)
+        // Znacznik stacji DX oraz linia ortodromy (Great Circle trajectory - sferyczna interpolacja SLERP)
         if let Some(dx_c) = dx_coords {
             let dx_pos = project(dx_c.latitude, dx_c.longitude);
             painter.circle_filled(dx_pos, 6.0, egui::Color32::from_rgb(239, 68, 68));
@@ -1002,12 +1000,35 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 egui::Color32::from_rgb(239, 68, 68),
             );
 
-            // Krzywa ortodromy łącząca stację własną ze stacją DX
+            // Krzywa ortodromy łącząca stację własną ze stacją DX (SLERP na sferze jednostkowej)
+            let lat1 = my_coords.latitude.to_radians();
+            let lon1 = my_coords.longitude.to_radians();
+            let lat2 = dx_c.latitude.to_radians();
+            let lon2 = dx_c.longitude.to_radians();
+            let v1 = [lat1.cos() * lon1.cos(), lat1.cos() * lon1.sin(), lat1.sin()];
+            let v2 = [lat2.cos() * lon2.cos(), lat2.cos() * lon2.sin(), lat2.sin()];
+            let dot = (v1[0] * v2[0] + v1[1] * v2[1] + v1[2] * v2[2]).clamp(-1.0, 1.0);
+            let omega = dot.acos();
+            let sin_omega = omega.sin();
+
             let mut prev_pt = my_pos;
-            for step in 1..=24 {
-                let t = step as f64 / 24.0;
-                let int_lat = my_coords.latitude * (1.0 - t) + dx_c.latitude * t;
-                let int_lon = my_coords.longitude * (1.0 - t) + dx_c.longitude * t;
+            for step in 1..=36 {
+                let t = step as f64 / 36.0;
+                let (int_lat, int_lon) = if sin_omega.abs() > 1e-6 {
+                    let a = ((1.0 - t) * omega).sin() / sin_omega;
+                    let b = (t * omega).sin() / sin_omega;
+                    let x = a * v1[0] + b * v2[0];
+                    let y = a * v1[1] + b * v2[1];
+                    let z = a * v1[2] + b * v2[2];
+                    let lat = z.atan2((x * x + y * y).sqrt()).to_degrees();
+                    let lon = y.atan2(x).to_degrees();
+                    (lat, lon)
+                } else {
+                    (
+                        my_coords.latitude * (1.0 - t) + dx_c.latitude * t,
+                        my_coords.longitude * (1.0 - t) + dx_c.longitude * t,
+                    )
+                };
                 let pt = project(int_lat, int_lon);
                 if (prev_pt.x - pt.x).abs() < rect.width() * 0.5 {
                     painter.line_segment(

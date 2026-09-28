@@ -626,6 +626,7 @@ pub struct SpLogApp {
     pub cat_proxy_server: Option<std::sync::Arc<crate::cat::server::HamlibProxyServer>>,
     pub cat_proxy_rx:
         Option<tokio::sync::broadcast::Receiver<crate::cat::server::RigServerCommand>>,
+    pub cat_poll_abort: Option<tokio::task::AbortHandle>,
 
     // VFO Konsola radiowa & DSP
     pub vfo_split_offset_khz: f64,
@@ -776,20 +777,25 @@ impl SpLogApp {
 
         let (cat_state_tx, cat_state_rx) = std::sync::mpsc::channel();
         let cat_sender_init = cat_state_tx.clone();
-        if app_config.cat_enabled {
+        let cat_poll_abort = if app_config.cat_enabled {
             let host = app_config.cat_host.clone();
             let port = app_config.cat_port;
             let poll_rate = app_config.cat_poll_rate_ms;
-            tokio::spawn(async move {
+            let jh = tokio::spawn(async move {
                 let (client, mut rx) = crate::cat::hamlib::HamlibClient::new(&host, port);
-                tokio::spawn(async move {
+                let inner_jh = tokio::spawn(async move {
                     client.run_poll_loop(poll_rate).await;
                 });
+                let _guard = inner_jh.abort_handle();
                 while let Ok(st) = rx.recv().await {
                     let _ = cat_sender_init.send(st);
                 }
+                inner_jh.abort();
             });
-        }
+            Some(jh.abort_handle())
+        } else {
+            None
+        };
 
         let (wsjtx_tx, wsjtx_rx) = std::sync::mpsc::channel();
         let ws_tx = wsjtx_tx.clone();
@@ -1301,6 +1307,7 @@ impl SpLogApp {
             )),
             cat_proxy_server: None,
             cat_proxy_rx: None,
+            cat_poll_abort,
 
             // VFO Konsola radiowa & DSP
             vfo_split_offset_khz: 1.0,
@@ -1426,7 +1433,6 @@ impl SpLogApp {
             if let Ok(my_coords) = locator_to_coordinates(&self.my_station.gridsquare) {
                 self.active_distance_km = calculate_distance_km(my_coords, dx_coords);
                 self.active_bearing_deg = calculate_bearing_deg(my_coords, dx_coords);
-                self.rotor_state.azimuth_deg = self.active_bearing_deg as f32;
 
                 let now = chrono::Utc::now();
                 let utc_hour = now.hour() as f64 + (now.minute() as f64) / 60.0;
@@ -1597,7 +1603,6 @@ impl SpLogApp {
             ) {
                 self.active_distance_km = calculate_distance_km(p1, p2);
                 self.active_bearing_deg = calculate_bearing_deg(p1, p2);
-                self.rotor_state.azimuth_deg = self.active_bearing_deg as f32;
 
                 let now = chrono::Utc::now();
                 let utc_hour = now.hour() as f64 + (now.minute() as f64) / 60.0;
@@ -1938,6 +1943,12 @@ impl SpLogApp {
 
         let mut qso = QsoRecord::new(&self.entry_callsign, &self.entry_band, &self.entry_mode);
         qso.journal_id = Some(self.active_journal.id.clone());
+        if !self.my_station.gridsquare.trim().is_empty() {
+            qso.my_gridsquare = Some(self.my_station.gridsquare.clone());
+        }
+        if self.rig_state.frequency_hz > 0 {
+            qso.freq = Some(self.rig_state.frequency_hz as f64 / 1_000_000.0);
+        }
         qso.qso_date.clone_from(&date_str);
         qso.time_on.clone_from(&time_str);
         qso.rst_sent = self.entry_rst_sent.clone();
@@ -2250,8 +2261,15 @@ impl SpLogApp {
             let host = self.cat_host.clone();
             let port = self.cat_port;
             let tx = self.ptt_active;
+            let backend = self.cat_backend_kind();
             tokio::spawn(async move {
-                let _ = crate::cat::hamlib::HamlibClient::set_ptt(&host, port, tx).await;
+                if matches!(backend, crate::cat::backend::CatBackendKind::Flrig) {
+                    let _ = crate::cat::flrig::FlrigClient::new(&host, port)
+                        .set_ptt(tx)
+                        .await;
+                } else {
+                    let _ = crate::cat::hamlib::HamlibClient::set_ptt(&host, port, tx).await;
+                }
             });
         }
     }
@@ -2472,17 +2490,28 @@ impl SpLogApp {
     }
 
     pub fn rebuild_awards_full(&mut self) {
-        if let Ok(db) = self.log_db.lock() {
-            self.recent_qsos = db
-                .get_recent_qsos_for_journal(&self.active_journal.id, 100)
-                .unwrap_or_default();
-            if let Ok(all_qsos) = db.get_all_qsos() {
-                drop(db);
-                if let Ok(mut awards) = self.awards_engine.lock() {
-                    awards.rebuild_from_qsos(&all_qsos);
-                }
+        let active_id = self.active_journal.id.clone();
+        let journal_qsos = if let Ok(db) = self.log_db.lock() {
+            db.get_all_qsos().ok().map(|all_qsos| {
+                all_qsos
+                    .into_iter()
+                    .filter(|q| {
+                        q.journal_id
+                            .as_deref()
+                            .unwrap_or("DEFAULT")
+                            .eq_ignore_ascii_case(&active_id)
+                    })
+                    .collect::<Vec<_>>()
+            })
+        } else {
+            None
+        };
+        if let Some(qsos) = journal_qsos {
+            if let Ok(mut awards) = self.awards_engine.lock() {
+                awards.rebuild_from_qsos(&qsos);
             }
         }
+        self.reload_qsos();
         // Stan nagród się zmienił — odznaki spotów klastra są nieaktualne.
         self.invalidate_cluster_badges();
     }
@@ -2617,7 +2646,7 @@ impl SpLogApp {
             }
         }
         self.editing_qso = None;
-        self.reload_qsos();
+        self.rebuild_awards_full();
     }
 
     pub fn lookup_active_callsign_online(&mut self) {
@@ -2671,48 +2700,49 @@ impl SpLogApp {
         self.entry_callsign = dx_call.to_string();
         self.entry_band = band.to_string();
         let freq_hz = (freq_khz * 1000.0) as u64;
-        self.rig_state.frequency_hz = freq_hz;
+        self.set_vfo_frequency(freq_hz);
         self.on_callsign_changed();
-
-        // Wyślij komendę do transceivera przez Hamlib TCP (rigctld) jeśli połączony
-        if self.cat_connected {
-            let host = self.cat_host.clone();
-            let port = self.cat_port;
-            tokio::spawn(async move {
-                let _ = crate::cat::hamlib::HamlibClient::set_frequency(&host, port, freq_hz).await;
-            });
-        }
         self.status_message = Some(format!("Auto-tune → {dx_call} na {freq_khz:.1} kHz"));
     }
 
     pub fn stop_rotor(&mut self) {
         self.rotor_state.moving = false;
+        let host = self.rotor_host.clone();
+        let port = self.rotor_port;
+        tokio::spawn(async move {
+            let _ = crate::cat::rotor::RotorClient::stop(&host, port).await;
+        });
     }
 
     pub fn turn_rotor_short_path(&mut self) {
-        if self.active_bearing_deg > 0.0 {
-            self.rotor_state.azimuth_deg = self.active_bearing_deg as f32;
+        if self.active_bearing_deg >= 0.0 {
+            self.rotate_antenna_to(self.active_bearing_deg as f32);
         }
     }
 
     pub fn turn_rotor_long_path(&mut self) {
-        if self.active_bearing_deg > 0.0 {
-            self.rotor_state.azimuth_deg = ((self.active_bearing_deg + 180.0) % 360.0) as f32;
+        if self.active_bearing_deg >= 0.0 {
+            let lp = ((self.active_bearing_deg + 180.0) % 360.0) as f32;
+            self.rotate_antenna_to(lp);
         }
     }
 
     pub fn tune_satellite_frequencies(&mut self) {
-        self.rig_state.frequency_hz = (self.sat_downlink_mhz * 1_000_000.0) as u64;
+        let freq_hz = (self.sat_downlink_mhz * 1_000_000.0) as u64;
+        if freq_hz > 0 {
+            self.set_vfo_frequency(freq_hz);
+        }
     }
 
     pub fn point_rotor_to_satellite(&mut self) {
-        self.rotor_state.azimuth_deg = self.sat_azimuth;
-        self.rotor_state.elevation_deg = self.sat_elevation;
+        self.rotate_antenna_to_el(self.sat_azimuth, self.sat_elevation);
     }
 
     pub fn transmit_cw_macro(&mut self, text: &str) {
         let resolved = text
             .replace("%MYCALL%", &self.my_station.callsign)
+            .replace("%MYQTH%", &self.my_station.city)
+            .replace("%MYLOC%", &self.my_station.gridsquare)
             .replace("%HISCALL%", &self.entry_callsign)
             .replace("%RST%", &self.entry_rst_sent)
             .replace("%SERIAL%", &format!("{:03}", self.contest_stx));
@@ -3000,6 +3030,13 @@ impl SpLogApp {
     }
 
     pub fn start_cat_service(&mut self) {
+        if let Some(handle) = self.cat_poll_abort.take() {
+            handle.abort();
+        }
+        if let Some(mut sup) = self.rigctld_supervisor.take() {
+            sup.stop();
+        }
+
         if self.cat_auto_start_rigctld {
             let mut sup = crate::cat::supervisor::RigctldSupervisor::new(
                 self.cat_port,
@@ -3031,19 +3068,21 @@ impl SpLogApp {
 
         match backend {
             crate::cat::backend::CatBackendKind::Hamlib => {
-                tokio::spawn(async move {
+                let jh = tokio::spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_millis(600)).await;
                     let (client, mut rx) = crate::cat::hamlib::HamlibClient::new(&host, port);
-                    tokio::spawn(async move {
+                    let inner_jh = tokio::spawn(async move {
                         client.run_poll_loop(poll_rate).await;
                     });
                     while let Ok(st) = rx.recv().await {
                         let _ = cat_sender.send(st);
                     }
+                    inner_jh.abort();
                 });
+                self.cat_poll_abort = Some(jh.abort_handle());
             }
             crate::cat::backend::CatBackendKind::Flrig => {
-                tokio::spawn(async move {
+                let jh = tokio::spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_millis(600)).await;
                     let mut client = crate::cat::flrig::FlrigClient::new(&host, port);
                     loop {
@@ -3061,6 +3100,7 @@ impl SpLogApp {
                         tokio::time::sleep(std::time::Duration::from_millis(poll_rate)).await;
                     }
                 });
+                self.cat_poll_abort = Some(jh.abort_handle());
             }
             other => {
                 self.cat_test_result = Some(format!(
@@ -3072,6 +3112,9 @@ impl SpLogApp {
     }
 
     pub fn stop_cat_service(&mut self) {
+        if let Some(handle) = self.cat_poll_abort.take() {
+            handle.abort();
+        }
         self.cat_connected = false;
         self.rig_state.connected = false;
         if let Some(mut sup) = self.rigctld_supervisor.take() {
@@ -3088,8 +3131,16 @@ impl SpLogApp {
         if self.cat_connected {
             let host = self.cat_host.clone();
             let port = self.cat_port;
+            let backend = self.cat_backend_kind();
             tokio::spawn(async move {
-                let _ = crate::cat::hamlib::HamlibClient::set_frequency(&host, port, freq_hz).await;
+                if matches!(backend, crate::cat::backend::CatBackendKind::Flrig) {
+                    let _ = crate::cat::flrig::FlrigClient::new(&host, port)
+                        .set_vfo(freq_hz)
+                        .await;
+                } else {
+                    let _ = crate::cat::hamlib::HamlibClient::set_frequency(&host, port, freq_hz)
+                        .await;
+                }
             });
         }
         self.status_message = Some(format!(
@@ -3111,8 +3162,15 @@ impl SpLogApp {
             let host = self.cat_host.clone();
             let port = self.cat_port;
             let m = mode.to_string();
+            let backend = self.cat_backend_kind();
             tokio::spawn(async move {
-                let _ = crate::cat::hamlib::HamlibClient::set_mode(&host, port, &m, 0).await;
+                if matches!(backend, crate::cat::backend::CatBackendKind::Flrig) {
+                    let _ = crate::cat::flrig::FlrigClient::new(&host, port)
+                        .set_mode(&m)
+                        .await;
+                } else {
+                    let _ = crate::cat::hamlib::HamlibClient::set_mode(&host, port, &m, 0).await;
+                }
             });
         }
         self.status_message = Some(format!("Emisja zmieniona na: {mode}"));
@@ -3173,8 +3231,15 @@ impl SpLogApp {
     }
 
     pub fn add_new_equipment(&mut self) {
+        let next_num = self
+            .equipment_items
+            .iter()
+            .filter_map(|e| e.id.strip_prefix("eq-").and_then(|s| s.parse::<usize>().ok()))
+            .max()
+            .unwrap_or(self.equipment_items.len())
+            + 1;
         let item = EquipmentItem {
-            id: format!("eq-{}", self.equipment_items.len() + 1),
+            id: format!("eq-{next_num}"),
             category: self.new_eq_cat,
             manufacturer: self.new_eq_mfr.trim().to_string(),
             model: self.new_eq_model.trim().to_string(),
@@ -3957,9 +4022,11 @@ impl eframe::App for SpLogApp {
         self.main_window_maximized = win_max;
 
         // ——— Plugin Rhai: odśwież migawkę stanu, wykonaj polecenia i odbierz wyniki zapytań ———
-        self.refresh_plugin_snapshot();
-        self.process_plugin_commands();
-        self.poll_plugin_lookup();
+        if self.plugins_enabled {
+            self.refresh_plugin_snapshot();
+            self.process_plugin_commands();
+            self.poll_plugin_lookup();
+        }
 
         // ——— Odbieranie wynikow asynchronicznych operacji ———
 
@@ -3984,10 +4051,18 @@ impl eframe::App for SpLogApp {
             }
         }
 
-        // Synchronizuj cluster_spots z watkiem REST API (na kazda klatke gdy sie rozni rozmiar)
+        // Synchronizuj cluster_spots z watkiem REST API (gdy zmieni sie rozmiar lub najnowszy spot)
         if let Some(ref api_slot) = self.cluster_spots_api.clone() {
             if let Ok(mut guard) = api_slot.try_lock() {
-                if guard.len() != self.cluster_spots.len() {
+                let changed = guard.len() != self.cluster_spots.len()
+                    || guard
+                        .first()
+                        .map(|s| (&s.dx_call, &s.time_utc, s.received_at))
+                        != self
+                            .cluster_spots
+                            .first()
+                            .map(|s| (&s.dx_call, &s.time_utc, s.received_at));
+                if changed {
                     (*guard).clone_from(&self.cluster_spots);
                 }
             }
@@ -4507,6 +4582,10 @@ impl eframe::App for SpLogApp {
         // Odbiór asynchronicznych komunikatów z synchronizacji online (LoTW, eQSL, Club Log, QRZ)
         while let Ok((msg, rebuild_awards)) = self.sync_log_rx.try_recv() {
             self.online_sync_logs.push(msg.clone());
+            if self.online_sync_logs.len() > 500 {
+                let excess = self.online_sync_logs.len() - 500;
+                self.online_sync_logs.drain(0..excess);
+            }
             self.status_toast = Some((msg, std::time::Instant::now()));
             if rebuild_awards {
                 self.rebuild_awards_full();
@@ -4719,6 +4798,10 @@ impl eframe::App for SpLogApp {
                     "Odebrano z LAN: {} ({} {})",
                     qso.callsign, qso.band, qso.mode
                 ));
+                if self.multi_op_log.len() > 500 {
+                    let excess = self.multi_op_log.len() - 500;
+                    self.multi_op_log.drain(0..excess);
+                }
                 self.status_toast = Some((
                     format!("🌐 Multi-Op LAN: Dodano QSO z {}!", qso.callsign),
                     std::time::Instant::now(),
@@ -4951,11 +5034,15 @@ impl eframe::App for SpLogApp {
                     // Zastosuj zmiany widoczności/odpięcia wykonane przyciskami nagłówka.
                     self.sync_dock_state();
 
-                    // Persystuj układ dokowania tylko wtedy, gdy faktycznie się zmienił.
-                    let current = self.serialize_dock_layout();
-                    if current != self.last_saved_dock_layout {
-                        self.last_saved_dock_layout = current;
-                        self.save_station_config();
+                    // Persystuj układ dokowania tylko po puszczeniu przycisku myszy (lub przy pierwszym zapisie),
+                    // aby uniknąć alokacji drzewa JSON w każdej klatce (60 FPS).
+                    let pointer_released = ui.ctx().input(|i| i.pointer.any_released());
+                    if pointer_released || self.last_saved_dock_layout.is_none() {
+                        let current = self.serialize_dock_layout();
+                        if current != self.last_saved_dock_layout {
+                            self.last_saved_dock_layout = current;
+                            self.save_station_config();
+                        }
                     }
 
                     // Dyskretny pasek pomocy i szybkiego resetowania układu na dole pulpitu

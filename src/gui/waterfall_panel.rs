@@ -205,15 +205,31 @@ impl WaterfallPanel {
         ui.add_space(4.0);
         ui.horizontal(|ui| {
             ui.label("Wzmocnienie:");
-            ui.add(egui::Slider::new(&mut self.gain_db, -40.0..=40.0).suffix(" dB"));
+            if ui
+                .add(egui::Slider::new(&mut self.gain_db, -40.0..=40.0).suffix(" dB"))
+                .changed()
+            {
+                self.texture = None;
+            }
             ui.label("Podłoga szumów:");
-            ui.add(egui::Slider::new(&mut self.floor_db, -160.0..=-40.0).suffix(" dB"));
+            if ui
+                .add(egui::Slider::new(&mut self.floor_db, -160.0..=-40.0).suffix(" dB"))
+                .changed()
+            {
+                self.texture = None;
+            }
             ui.label("Nasycenie:");
-            ui.add(egui::Slider::new(&mut self.color_scale, 0.1..=3.0));
+            if ui
+                .add(egui::Slider::new(&mut self.color_scale, 0.1..=3.0))
+                .changed()
+            {
+                self.texture = None;
+            }
             if ui.button("Wyczyść").clicked() {
                 if let Some(e) = self.engine.as_mut() {
                     e.clear();
                 }
+                self.texture = None;
             }
         });
 
@@ -260,38 +276,53 @@ impl WaterfallPanel {
     }
 
     fn draw_spectrogram(&mut self, ui: &mut egui::Ui) {
-        // Obliczenie pikseli w osobnym zakresie, aby nie trzymać pożyczki `self.engine`
-        // podczas mutowania `self.texture`.
-        let (pixels, bins, rows) = {
-            let Some(engine) = self.engine.as_ref() else {
-                return;
-            };
-            let history = engine.history();
-            let rows = history.len();
-            let bins = history[0].len();
-            let mut pixels = Vec::with_capacity(rows * bins);
-            let floor_db = self.floor_db;
-            let color_scale = self.color_scale;
+        if self.running || self.texture.is_none() {
+            // Obliczenie pikseli w osobnym zakresie, aby nie trzymać pożyczki `self.engine`
+            // podczas mutowania `self.texture`.
+            let (pixels, bins, rows) = {
+                let Some(engine) = self.engine.as_ref() else {
+                    return;
+                };
+                let history = engine.history();
+                let rows = history.len();
+                let bins = history[0].len();
+                let mut pixels = Vec::with_capacity(rows * bins);
+                let floor_db = if self.floor_db.is_finite() {
+                    self.floor_db.min(-1.0)
+                } else {
+                    -100.0
+                };
+                let denom = (-floor_db).max(1.0);
+                let color_scale = if self.color_scale.is_finite() {
+                    self.color_scale
+                } else {
+                    1.0
+                };
 
-            for row in history {
-                for &db in row {
-                    let t = ((db - floor_db) / (-floor_db)) * color_scale;
-                    pixels.push(waterfall_color(t));
+                for row in history {
+                    for &db in row {
+                        let norm = if db.is_finite() {
+                            (((db - floor_db) / denom) * color_scale).clamp(0.0, 1.0)
+                        } else {
+                            0.0
+                        };
+                        pixels.push(waterfall_color(norm));
+                    }
                 }
+                (pixels, bins, rows)
+            };
+
+            let image = egui::ColorImage::new([bins, rows], pixels);
+
+            let options = egui::TextureOptions::NEAREST;
+            if let Some(tex) = &mut self.texture {
+                tex.set(image, options);
+            } else {
+                self.texture = Some(
+                    ui.ctx()
+                        .load_texture("waterfall_spectrogram", image, options),
+                );
             }
-            (pixels, bins, rows)
-        };
-
-        let image = egui::ColorImage::new([bins, rows], pixels);
-
-        let options = egui::TextureOptions::NEAREST;
-        if let Some(tex) = &mut self.texture {
-            tex.set(image, options);
-        } else {
-            self.texture = Some(
-                ui.ctx()
-                    .load_texture("waterfall_spectrogram", image, options),
-            );
         }
 
         let height = 240.0_f32;
@@ -317,14 +348,23 @@ impl WaterfallPanel {
         if n < 2 {
             return;
         }
-        let span = -self.floor_db;
+        let floor_db = if self.floor_db.is_finite() {
+            self.floor_db.min(-1.0)
+        } else {
+            -100.0
+        };
+        let denom = (-floor_db).max(1.0);
         let points: Vec<egui::Pos2> = row
             .iter()
             .enumerate()
             .map(|(i, &db)| {
                 let x = rect.left() + rect.width() * (i as f32 / (n - 1) as f32);
-                let t = ((db - self.floor_db) / span).clamp(0.0, 1.0);
-                let y = rect.bottom() - t * rect.height();
+                let norm = if db.is_finite() {
+                    ((db - floor_db) / denom).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                let y = rect.bottom() - norm * rect.height();
                 egui::pos2(x, y)
             })
             .collect();
@@ -389,9 +429,15 @@ pub fn render_waterfall_window(app: &mut SpLogApp, ctx: &egui::Context) {
     );
 
     if let Some((pos, size)) = captured_geo {
-        app.panel_waterfall.saved_pos = Some(pos);
-        app.panel_waterfall.saved_size = Some(size);
-        app.save_station_config();
+        if app.panel_waterfall.saved_pos != Some(pos)
+            || app.panel_waterfall.saved_size != Some(size)
+        {
+            app.panel_waterfall.saved_pos = Some(pos);
+            app.panel_waterfall.saved_size = Some(size);
+            if !ctx.input(|i| i.pointer.any_down()) {
+                app.save_station_config();
+            }
+        }
     }
 
     if dock_back {
@@ -508,11 +554,12 @@ fn build_stream<T>(
 where
     T: cpal::Sample<Float = f32> + cpal::SizedSample,
 {
+    let mut mono: Vec<f32> = Vec::with_capacity(4096);
     device
         .build_input_stream(
             config,
             move |data: &[T], _: &cpal::InputCallbackInfo| {
-                let mut mono = Vec::with_capacity(data.len() / channels.max(1));
+                mono.clear();
                 for chunk in data.chunks(channels.max(1)) {
                     let sum: f32 = chunk.iter().map(|s| s.to_float_sample()).sum();
                     mono.push(sum / chunk.len() as f32);

@@ -127,6 +127,8 @@ impl JournalManagerDialog {
                 }
 
                 // Lista istniejących dzienników
+                let mut switched_journal: Option<Journal> = None;
+                let mut reload_needed = false;
                 egui::ScrollArea::vertical()
                     .max_height(240.0)
                     .show(ui, |ui| {
@@ -160,12 +162,13 @@ impl JournalManagerDialog {
                                                     match db.set_active_journal(&journal.id) {
                                                         Ok(()) => {
                                                             self.status_message = None;
-                                                            on_journal_switched(journal);
+                                                            switched_journal =
+                                                                Some(journal.clone());
                                                         }
                                                         Err(e) => self.status_message = Some(e),
                                                     }
                                                 }
-                                                if journal.id != "DEFAULT"
+                                                if !journal.id.eq_ignore_ascii_case("default")
                                                     && ui
                                                         .button("🗑")
                                                         .on_hover_text(tr(
@@ -175,7 +178,10 @@ impl JournalManagerDialog {
                                                         .clicked()
                                                 {
                                                     match db.delete_journal(&journal.id) {
-                                                        Ok(()) => self.status_message = None,
+                                                        Ok(()) => {
+                                                            self.status_message = None;
+                                                            reload_needed = true;
+                                                        }
                                                         Err(e) => self.status_message = Some(e),
                                                     }
                                                 }
@@ -200,6 +206,14 @@ impl JournalManagerDialog {
                             });
                         }
                     });
+
+                if let Some(ref j) = switched_journal {
+                    on_journal_switched(j);
+                    reload_needed = true;
+                }
+                if reload_needed {
+                    self.reload(db);
+                }
 
                 if let Some(msg) = &self.status_message {
                     ui.label(

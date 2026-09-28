@@ -13,6 +13,8 @@ pub fn render_cw_macros_window(app: &mut SpLogApp, ctx: &egui::Context) {
     let mut close_req = false;
     let mut macro_to_transmit: Option<String> = None;
 
+    let mut config_changed = false;
+
     egui::Window::new("⚡ Makra Telegraficzne CW & Kluczowanie (WinKeyer / COM)")
         .open(&mut open)
         .default_size([540.0, 400.0])
@@ -20,23 +22,26 @@ pub fn render_cw_macros_window(app: &mut SpLogApp, ctx: &egui::Context) {
             ui.vertical(|ui| {
                 ui.horizontal(|ui| {
                     ui.label("Prędkość nadawania (WPM):");
-                    ui.add(egui::Slider::new(&mut app.cw_wpm, 10..=50).text("WPM"));
+                    let s_resp = ui.add(egui::Slider::new(&mut app.cw_wpm, 10..=50).text("WPM"));
+                    if s_resp.drag_stopped() || (s_resp.changed() && !s_resp.dragged()) {
+                        config_changed = true;
+                    }
                 });
 
                 ui.separator();
                 ui.label(egui::RichText::new("KLAWISZE FUNKCYJNE (F1 - F8):").strong().color(egui::Color32::from_rgb(56, 189, 248)));
 
-                render_macro_row(ui, "F1 (CQ)", &mut app.cw_macro_f1, &mut macro_to_transmit);
-                render_macro_row(ui, "F2 (Raport)", &mut app.cw_macro_f2, &mut macro_to_transmit);
-                render_macro_row(ui, "F3 (TU/73)", &mut app.cw_macro_f3, &mut macro_to_transmit);
-                render_macro_row(ui, "F4 (Mój znak)", &mut app.cw_macro_f4, &mut macro_to_transmit);
-                render_macro_row(ui, "F5 (Jego znak)", &mut app.cw_macro_f5, &mut macro_to_transmit);
-                render_macro_row(ui, "F6 (QTH/Lokator)", &mut app.cw_macro_f6, &mut macro_to_transmit);
-                render_macro_row(ui, "F7 (Numer STX)", &mut app.cw_macro_f7, &mut macro_to_transmit);
-                render_macro_row(ui, "F8 (Znak zapytania)", &mut app.cw_macro_f8, &mut macro_to_transmit);
+                render_macro_row(ui, "F1 (CQ)", &mut app.cw_macro_f1, &mut macro_to_transmit, &mut config_changed);
+                render_macro_row(ui, "F2 (Raport)", &mut app.cw_macro_f2, &mut macro_to_transmit, &mut config_changed);
+                render_macro_row(ui, "F3 (TU/73)", &mut app.cw_macro_f3, &mut macro_to_transmit, &mut config_changed);
+                render_macro_row(ui, "F4 (Mój znak)", &mut app.cw_macro_f4, &mut macro_to_transmit, &mut config_changed);
+                render_macro_row(ui, "F5 (Jego znak)", &mut app.cw_macro_f5, &mut macro_to_transmit, &mut config_changed);
+                render_macro_row(ui, "F6 (QTH/Lokator)", &mut app.cw_macro_f6, &mut macro_to_transmit, &mut config_changed);
+                render_macro_row(ui, "F7 (Numer STX)", &mut app.cw_macro_f7, &mut macro_to_transmit, &mut config_changed);
+                render_macro_row(ui, "F8 (Znak zapytania)", &mut app.cw_macro_f8, &mut macro_to_transmit, &mut config_changed);
 
                 ui.separator();
-                ui.label("Zmienne w makrach: %MYCALL% = Znak stacji, %HISCALL% = Znak korespondenta, %RST% = Raport, %SERIAL% = Nr STX");
+                ui.label("Zmienne w makrach: %MYCALL% = Znak stacji, %HISCALL% = Znak korespondenta, %RST% = Raport, %SERIAL% = Nr STX, %MYQTH% = QTH, %MYLOC% = Lokator");
                 ui.separator();
                 ui.horizontal(|ui| {
                     if ui.button("Zamknij").clicked() {
@@ -45,6 +50,10 @@ pub fn render_cw_macros_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 });
             });
         });
+
+    if config_changed {
+        app.save_station_config();
+    }
 
     if close_req {
         open = false;
@@ -61,6 +70,7 @@ fn render_macro_row(
     label: &str,
     macro_text: &mut String,
     macro_to_transmit: &mut Option<String>,
+    config_changed: &mut bool,
 ) {
     ui.horizontal(|ui| {
         let btn = ui.button(
@@ -71,6 +81,9 @@ fn render_macro_row(
         if btn.clicked() {
             *macro_to_transmit = Some(macro_text.clone());
         }
-        ui.add(egui::TextEdit::singleline(macro_text).desired_width(ui.available_width()));
+        let resp = ui.add(egui::TextEdit::singleline(macro_text).desired_width(ui.available_width()));
+        if resp.lost_focus() || resp.changed() {
+            *config_changed = true;
+        }
     });
 }

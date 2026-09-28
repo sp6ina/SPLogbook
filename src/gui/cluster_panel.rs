@@ -14,16 +14,17 @@ pub fn extract_pota_sota(comment: &str) -> (Option<String>, Option<String>) {
 
     for word in upper.split_whitespace() {
         let clean = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '-' && c != '/');
-        // POTA: [1-4 litery/cyfry]-[3-5 cyfr]
+        // POTA: [1-2 litery]-[3-5 cyfr] (z pominięciem prefiksów modeli transceiverów np. IC-7300, FT-891)
         if let Some(dash_pos) = clean.find('-') {
             let prefix = &clean[..dash_pos];
             let suffix = &clean[dash_pos + 1..];
             if !prefix.is_empty()
-                && prefix.len() <= 4
+                && prefix.len() <= 2
+                && prefix.chars().all(|c| c.is_ascii_alphabetic())
+                && !matches!(prefix, "IC" | "FT" | "TS" | "KX" | "TM")
                 && suffix.len() >= 3
                 && suffix.len() <= 5
                 && suffix.chars().all(|c| c.is_ascii_digit())
-                && !prefix.contains('/')
             {
                 pota = Some(clean.to_string());
             }
@@ -301,11 +302,9 @@ pub fn render_cluster_window(app: &mut SpLogApp, ctx: &egui::Context) {
             let r = res.response.rect;
             let new_pos = [r.min.x, r.min.y];
             let new_size = [r.width(), r.height()];
-            if app.panel_cluster.saved_pos != Some(new_pos)
-                || app.panel_cluster.saved_size != Some(new_size)
-            {
-                app.panel_cluster.saved_pos = Some(new_pos);
-                app.panel_cluster.saved_size = Some(new_size);
+            app.panel_cluster.saved_pos = Some(new_pos);
+            app.panel_cluster.saved_size = Some(new_size);
+            if res.response.drag_stopped() {
                 app.save_station_config();
             }
         }
@@ -558,14 +557,34 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             continue;
         }
 
+        let comment_upper = s.comment.to_uppercase();
+        let freq_hz = (s.frequency_khz * 1000.0).round() as u64;
+        let inferred_mode = crate::core::bandplan::get_suggested_mode(freq_hz);
+        let is_digi = s.is_ft8
+            || comment_upper.contains("FT8")
+            || comment_upper.contains("FT4")
+            || comment_upper.contains("RTTY")
+            || comment_upper.contains("PSK")
+            || inferred_mode == Some("FT8")
+            || inferred_mode == Some("RTTY");
+        let is_cw = !is_digi
+            && (comment_upper.contains("CW")
+                || comment_upper.contains("UP")
+                || (!comment_upper.contains("SSB")
+                    && !comment_upper.contains("USB")
+                    && !comment_upper.contains("LSB")
+                    && inferred_mode == Some("CW")));
+        let is_ssb = !is_digi
+            && (comment_upper.contains("SSB")
+                || comment_upper.contains("USB")
+                || comment_upper.contains("LSB")
+                || (!comment_upper.contains("CW")
+                    && matches!(inferred_mode, Some("USB" | "LSB" | "SSB" | "FM"))));
+
         let mode_skip = match filter_mode_sel.as_str() {
-            "CW" => {
-                s.is_ft8
-                    || s.comment.to_uppercase().contains("FT8")
-                    || s.comment.to_uppercase().contains("SSB")
-            }
-            "SSB" => s.is_ft8 || s.comment.to_uppercase().contains("CW"),
-            "DIGI" => !s.is_ft8,
+            "CW" => !is_cw,
+            "SSB" => !is_ssb,
+            "DIGI" => !is_digi,
             _ => false,
         };
         if mode_skip {
@@ -950,6 +969,11 @@ mod tests {
         assert_eq!(sota, Some("W6/NC-421".to_string()));
 
         let (pota, sota) = extract_pota_sota("Just regular 599 tu 73");
+        assert_eq!(pota, None);
+        assert_eq!(sota, None);
+
+        // Rig model names must not be misidentified as POTA references
+        let (pota, sota) = extract_pota_sota("RIG IC-7300 FT-891 TS-590 100W");
         assert_eq!(pota, None);
         assert_eq!(sota, None);
     }

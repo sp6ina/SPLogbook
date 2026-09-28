@@ -44,6 +44,7 @@ pub struct StatesBrowserDialog {
     pub is_open: bool,
     pub search_query: String,
     pub results: Vec<StateRecord>,
+    pub loaded_initial: bool,
 }
 
 impl StatesBrowserDialog {
@@ -57,6 +58,7 @@ impl StatesBrowserDialog {
 
     pub fn reload(&mut self, sdb: &ServiceDatabase) {
         self.results = sdb.search_states(&self.search_query);
+        self.loaded_initial = true;
     }
 
     pub fn show(
@@ -84,7 +86,7 @@ impl StatesBrowserDialog {
                     let resp = ui.add(
                         egui::TextEdit::singleline(&mut self.search_query).desired_width(180.0),
                     );
-                    if resp.changed() || (self.results.is_empty() && self.search_query.is_empty()) {
+                    if resp.changed() || !self.loaded_initial {
                         self.reload(sdb);
                     }
                     if ui.button("Wyczyść").clicked() {

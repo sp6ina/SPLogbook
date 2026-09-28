@@ -61,7 +61,7 @@ impl SpLogApp {
                     },
                     |f| (f * 1000.0) as u64,
                 );
-                let date_str = if q.qso_date.len() == 8 {
+                let date_str = if q.qso_date.len() == 8 && q.qso_date.is_ascii() {
                     format!(
                         "{}-{}-{}",
                         &q.qso_date[0..4],
@@ -71,7 +71,7 @@ impl SpLogApp {
                 } else {
                     chrono::Utc::now().format("%Y-%m-%d").to_string()
                 };
-                let time_str = if q.time_on.len() >= 4 {
+                let time_str = if q.time_on.len() >= 4 && q.time_on.is_ascii() {
                     q.time_on[0..4].to_string()
                 } else {
                     chrono::Utc::now().format("%H%M").to_string()
@@ -128,6 +128,30 @@ impl SpLogApp {
         {
             use printpdf::*;
 
+            fn transliterate_pl(s: &str) -> String {
+                s.chars()
+                    .map(|c| match c {
+                        'ą' => 'a',
+                        'ć' => 'c',
+                        'ę' => 'e',
+                        'ł' => 'l',
+                        'ń' => 'n',
+                        'ó' => 'o',
+                        'ś' => 's',
+                        'ź' | 'ż' => 'z',
+                        'Ą' => 'A',
+                        'Ć' => 'C',
+                        'Ę' => 'E',
+                        'Ł' => 'L',
+                        'Ń' => 'N',
+                        'Ó' => 'O',
+                        'Ś' => 'S',
+                        'Ź' | 'Ż' => 'Z',
+                        other => other,
+                    })
+                    .collect()
+            }
+
             fn text_ops(
                 text: impl Into<String>,
                 size_pt: f32,
@@ -135,6 +159,7 @@ impl SpLogApp {
                 y_mm: f32,
                 bold: bool,
             ) -> Vec<Op> {
+                let safe_text = transliterate_pl(&text.into());
                 vec![
                     Op::StartTextSection,
                     Op::SetFont {
@@ -152,7 +177,7 @@ impl SpLogApp {
                         pos: Point::new(Mm(x_mm), Mm(y_mm)),
                     },
                     Op::ShowText {
-                        items: vec![TextItem::Text(text.into())],
+                        items: vec![TextItem::Text(safe_text)],
                     },
                     Op::EndTextSection,
                 ]

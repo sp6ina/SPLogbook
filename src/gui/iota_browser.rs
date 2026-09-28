@@ -48,6 +48,7 @@ pub struct IotaBrowserDialog {
     pub is_open: bool,
     pub search_query: String,
     pub results: Vec<IotaRecord>,
+    pub loaded_initial: bool,
 }
 
 impl IotaBrowserDialog {
@@ -61,6 +62,7 @@ impl IotaBrowserDialog {
 
     pub fn reload(&mut self, sdb: &ServiceDatabase) {
         self.results = sdb.search_iota(&self.search_query);
+        self.loaded_initial = true;
     }
 
     pub fn show(
@@ -88,7 +90,7 @@ impl IotaBrowserDialog {
                     let resp = ui.add(
                         egui::TextEdit::singleline(&mut self.search_query).desired_width(200.0),
                     );
-                    if resp.changed() || (self.results.is_empty() && self.search_query.is_empty()) {
+                    if resp.changed() || !self.loaded_initial {
                         self.reload(sdb);
                     }
                     if ui.button("Wyczyść").clicked() {

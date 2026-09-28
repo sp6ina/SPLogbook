@@ -229,6 +229,8 @@ pub fn render_logbook_window(app: &mut SpLogApp, ctx: &egui::Context) {
             {
                 app.panel_log.saved_pos = Some(new_pos);
                 app.panel_log.saved_size = Some(new_size);
+            }
+            if res.response.drag_stopped() {
                 app.save_station_config();
             }
         }

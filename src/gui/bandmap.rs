@@ -154,6 +154,8 @@ pub fn render_bandmap_window(app: &mut SpLogApp, ctx: &egui::Context) {
             {
                 app.panel_bandmap.saved_pos = Some(new_pos);
                 app.panel_bandmap.saved_size = Some(new_size);
+            }
+            if res.response.drag_stopped() {
                 app.save_station_config();
             }
         }

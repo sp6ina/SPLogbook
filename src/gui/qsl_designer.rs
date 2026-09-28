@@ -293,6 +293,31 @@ impl QslDesignerDialog {
                         {
                             use printpdf::*;
 
+                            fn pdf_ascii_safe(input: &str) -> String {
+                                input
+                                    .chars()
+                                    .map(|c| match c {
+                                        'ą' => 'a',
+                                        'ć' => 'c',
+                                        'ę' => 'e',
+                                        'ł' => 'l',
+                                        'ń' => 'n',
+                                        'ó' => 'o',
+                                        'ś' => 's',
+                                        'ź' | 'ż' => 'z',
+                                        'Ą' => 'A',
+                                        'Ć' => 'C',
+                                        'Ę' => 'E',
+                                        'Ł' => 'L',
+                                        'Ń' => 'N',
+                                        'Ó' => 'O',
+                                        'Ś' => 'S',
+                                        'Ź' | 'Ż' => 'Z',
+                                        other => other,
+                                    })
+                                    .collect()
+                            }
+
                             fn text_ops(
                                 text: impl Into<String>,
                                 size_pt: f32,
@@ -300,6 +325,7 @@ impl QslDesignerDialog {
                                 y_mm: f32,
                                 bold: bool,
                             ) -> Vec<Op> {
+                                let safe_text = pdf_ascii_safe(&text.into());
                                 vec![
                                     Op::StartTextSection,
                                     Op::SetFont {
@@ -317,7 +343,7 @@ impl QslDesignerDialog {
                                         pos: Point::new(Mm(x_mm), Mm(y_mm)),
                                     },
                                     Op::ShowText {
-                                        items: vec![TextItem::Text(text.into())],
+                                        items: vec![TextItem::Text(safe_text)],
                                     },
                                     Op::EndTextSection,
                                 ]
@@ -335,56 +361,55 @@ impl QslDesignerDialog {
                             let col_w_mm = content_w / (cols as f32);
                             let row_h_mm = content_h / (rows_per_page as f32);
 
-                            let mut ops: Vec<Op> = Vec::new();
-                            for (i, q) in self
-                                .queued_qsos
-                                .iter()
-                                .enumerate()
-                                .take(cols * rows_per_page)
-                            {
-                                let c = i % cols;
-                                let r = i / cols;
-                                let x = self.margin_left_mm + (c as f32) * col_w_mm;
-                                let y = 297.0 - self.margin_top_mm - (r as f32) * row_h_mm;
-
-                                ops.extend(text_ops(
-                                    format!("TO: {}", q.callsign),
-                                    11.0,
-                                    x + 2.0,
-                                    y - 5.0,
-                                    true,
-                                ));
-                                ops.extend(text_ops(
-                                    format!("QSO: {} {}", q.qso_date, q.time_on),
-                                    9.0,
-                                    x + 2.0,
-                                    y - 11.0,
-                                    false,
-                                ));
-                                ops.extend(text_ops(
-                                    format!("{} | {} | RST {}", q.band, q.mode, q.rst_sent),
-                                    9.0,
-                                    x + 2.0,
-                                    y - 17.0,
-                                    false,
-                                ));
-                                ops.extend(text_ops(
-                                    format!("TNX QSL! 73 de {my_callsign}"),
-                                    8.0,
-                                    x + 2.0,
-                                    y - 23.0,
-                                    false,
-                                ));
-                            }
-
+                            let labels_per_page = (cols * rows_per_page).max(1);
                             let mut doc = PdfDocument::new("QSL Labels Sheet");
-                            doc.pages.push(PdfPage::new(Mm(210.0), Mm(297.0), ops));
+
+                            for chunk in self.queued_qsos.chunks(labels_per_page) {
+                                let mut ops: Vec<Op> = Vec::new();
+                                for (i, q) in chunk.iter().enumerate() {
+                                    let c = i % cols;
+                                    let r = i / cols;
+                                    let x = self.margin_left_mm + (c as f32) * col_w_mm;
+                                    let y = 297.0 - self.margin_top_mm - (r as f32) * row_h_mm;
+
+                                    ops.extend(text_ops(
+                                        format!("TO: {}", q.callsign),
+                                        11.0,
+                                        x + 2.0,
+                                        y - 5.0,
+                                        true,
+                                    ));
+                                    ops.extend(text_ops(
+                                        format!("QSO: {} {}", q.qso_date, q.time_on),
+                                        9.0,
+                                        x + 2.0,
+                                        y - 11.0,
+                                        false,
+                                    ));
+                                    ops.extend(text_ops(
+                                        format!("{} | {} | RST {}", q.band, q.mode, q.rst_sent),
+                                        9.0,
+                                        x + 2.0,
+                                        y - 17.0,
+                                        false,
+                                    ));
+                                    ops.extend(text_ops(
+                                        format!("TNX QSL! 73 de {my_callsign}"),
+                                        8.0,
+                                        x + 2.0,
+                                        y - 23.0,
+                                        false,
+                                    ));
+                                }
+                                doc.pages.push(PdfPage::new(Mm(210.0), Mm(297.0), ops));
+                            }
 
                             let mut warnings = Vec::new();
                             let bytes = doc.save(&PdfSaveOptions::default(), &mut warnings);
                             if std::fs::write(&path, bytes).is_ok() {
                                 self.status_message = Some(format!(
-                                    "Zapisano arkusz naklejek PDF: {}",
+                                    "Zapisano arkusz naklejek PDF ({} str.): {}",
+                                    doc.pages.len(),
                                     path.display()
                                 ));
                                 let _ = open::that(&path);

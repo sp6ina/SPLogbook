@@ -116,10 +116,12 @@ fn render_hud_body(app: &mut SpLogApp, ui: &mut egui::Ui, exit_compact: &mut boo
             );
 
             if ui.button("◀ -1k").on_hover_text("Dostrój -1 kHz").clicked() {
-                app.rig_state.frequency_hz = app.rig_state.frequency_hz.saturating_sub(1000);
+                let new_freq = app.rig_state.frequency_hz.saturating_sub(1000);
+                app.set_vfo_frequency(new_freq);
             }
             if ui.button("▶ +1k").on_hover_text("Dostrój +1 kHz").clicked() {
-                app.rig_state.frequency_hz = app.rig_state.frequency_hz.saturating_add(1000);
+                let new_freq = app.rig_state.frequency_hz.saturating_add(1000);
+                app.set_vfo_frequency(new_freq);
             }
 
             egui::ComboBox::from_id_salt("hud_band")
