@@ -101,57 +101,82 @@ impl SpLogApp {
             };
 
             use printpdf::*;
-            let (doc, page1, layer1) = PdfDocument::new("SPLogbook Log", Mm(210.0), Mm(297.0), "Layer 1");
-            let mut current_layer = doc.get_page(page1).get_layer(layer1);
-            let font = doc.add_builtin_font(BuiltinFont::Helvetica).unwrap();
 
-            current_layer.use_text("SPLogbook Log", 24.0, Mm(10.0), Mm(280.0), &font);
-            current_layer.use_text(format!("Operator: {}", self.my_station.callsign), 12.0, Mm(10.0), Mm(270.0), &font);
-            current_layer.use_text(format!("Date: {}", chrono::Local::now().format("%Y-%m-%d")), 12.0, Mm(10.0), Mm(265.0), &font);
+            fn text_ops(text: impl Into<String>, size_pt: f32, x_mm: f32, y_mm: f32, bold: bool) -> Vec<Op> {
+                vec![
+                    Op::StartTextSection,
+                    Op::SetFont {
+                        font: PdfFontHandle::Builtin(if bold {
+                            BuiltinFont::HelveticaBold
+                        } else {
+                            BuiltinFont::Helvetica
+                        }),
+                        size: Pt(size_pt),
+                    },
+                    Op::SetFillColor {
+                        col: Color::Rgb(Rgb::new(0.0, 0.0, 0.0, None)),
+                    },
+                    Op::SetTextCursor {
+                        pos: Point::new(Mm(x_mm), Mm(y_mm)),
+                    },
+                    Op::ShowText {
+                        items: vec![TextItem::Text(text.into())],
+                    },
+                    Op::EndTextSection,
+                ]
+            }
+
+            let mut doc = PdfDocument::new("SPLogbook Log");
 
             // Table headers
             let headers = ["Date", "Time", "Callsign", "Band", "Mode", "RST S", "RST R", "Country", "QSL"];
-            let mut y = Mm(250.0);
-            let x_positions = [10.0, 35.0, 55.0, 85.0, 105.0, 125.0, 140.0, 155.0, 185.0];
+            let x_positions = [10.0f32, 35.0, 55.0, 85.0, 105.0, 125.0, 140.0, 155.0, 185.0];
 
+            let mut ops: Vec<Op> = Vec::new();
+            ops.extend(text_ops("SPLogbook Log", 24.0, 10.0, 280.0, true));
+            ops.extend(text_ops(format!("Operator: {}", self.my_station.callsign), 12.0, 10.0, 270.0, false));
+            ops.extend(text_ops(format!("Date: {}", chrono::Local::now().format("%Y-%m-%d")), 12.0, 10.0, 265.0, false));
+
+            let mut y = 250.0f32;
             for (i, h) in headers.iter().enumerate() {
-                current_layer.use_text(*h, 10.0, Mm(x_positions[i]), y, &font);
+                ops.extend(text_ops(*h, 10.0, x_positions[i], y, true));
             }
-            y -= Mm(5.0);
+            y -= 5.0;
 
-            let mut row_count = 0;
-            let mut page_num = 1;
+            let mut row_count = 0usize;
+            let mut page_num = 1usize;
 
             for qso in qsos.iter() {
-                if y.0 < 20.0 {
-                    let (page, layer) = doc.add_page(Mm(210.0), Mm(297.0), "Layer 1");
-                    current_layer = doc.get_page(page).get_layer(layer);
-                    y = Mm(280.0);
+                if y < 20.0 {
+                    doc.pages.push(PdfPage::new(Mm(210.0), Mm(297.0), std::mem::take(&mut ops)));
+                    y = 280.0;
                     page_num += 1;
                 }
-                current_layer.use_text(&qso.qso_date, 10.0, Mm(x_positions[0]), y, &font);
-                current_layer.use_text(&qso.time_on, 10.0, Mm(x_positions[1]), y, &font);
-                current_layer.use_text(&qso.callsign, 10.0, Mm(x_positions[2]), y, &font);
-                current_layer.use_text(&qso.band, 10.0, Mm(x_positions[3]), y, &font);
-                current_layer.use_text(&qso.mode, 10.0, Mm(x_positions[4]), y, &font);
-                current_layer.use_text(&qso.rst_sent, 10.0, Mm(x_positions[5]), y, &font);
-                current_layer.use_text(&qso.rst_rcvd, 10.0, Mm(x_positions[6]), y, &font);
-                current_layer.use_text(qso.country.as_deref().unwrap_or(""), 10.0, Mm(x_positions[7]), y, &font);
-                current_layer.use_text(format!("{}/{}", qso.qsl_sent, qso.qsl_rcvd), 10.0, Mm(x_positions[8]), y, &font);
-                y -= Mm(5.0);
+                ops.extend(text_ops(qso.qso_date.as_str(), 10.0, x_positions[0], y, false));
+                ops.extend(text_ops(qso.time_on.as_str(), 10.0, x_positions[1], y, false));
+                ops.extend(text_ops(qso.callsign.as_str(), 10.0, x_positions[2], y, false));
+                ops.extend(text_ops(qso.band.as_str(), 10.0, x_positions[3], y, false));
+                ops.extend(text_ops(qso.mode.as_str(), 10.0, x_positions[4], y, false));
+                ops.extend(text_ops(qso.rst_sent.as_str(), 10.0, x_positions[5], y, false));
+                ops.extend(text_ops(qso.rst_rcvd.as_str(), 10.0, x_positions[6], y, false));
+                ops.extend(text_ops(qso.country.as_deref().unwrap_or(""), 10.0, x_positions[7], y, false));
+                ops.extend(text_ops(format!("{}/{}", qso.qsl_sent, qso.qsl_rcvd), 10.0, x_positions[8], y, false));
+                y -= 5.0;
                 row_count += 1;
             }
 
             // Footer
-            current_layer.use_text(format!("Total QSOs: {}", row_count), 12.0, Mm(10.0), Mm(10.0), &font);
-            current_layer.use_text(format!("Page {}", page_num), 12.0, Mm(180.0), Mm(10.0), &font);
+            ops.extend(text_ops(format!("Total QSOs: {}", row_count), 12.0, 10.0, 10.0, false));
+            ops.extend(text_ops(format!("Page {}", page_num), 12.0, 180.0, 10.0, false));
 
-            if let Ok(file) = std::fs::File::create(&path) {
-                if doc.save(&mut std::io::BufWriter::new(file)).is_ok() {
-                    let filename = path.file_name().unwrap_or_default().to_string_lossy();
-                    self.status_toast = Some((format!("Wyeksportowano {} QSO do PDF: {}", row_count, filename), std::time::Instant::now()));
-                    let _ = open::that(&path);
-                }
+            doc.pages.push(PdfPage::new(Mm(210.0), Mm(297.0), ops));
+
+            let mut warnings = Vec::new();
+            let bytes = doc.save(&PdfSaveOptions::default(), &mut warnings);
+            if std::fs::write(&path, bytes).is_ok() {
+                let filename = path.file_name().unwrap_or_default().to_string_lossy();
+                self.status_toast = Some((format!("Wyeksportowano {} QSO do PDF: {}", row_count, filename), std::time::Instant::now()));
+                let _ = open::that(&path);
             }
         }
     }

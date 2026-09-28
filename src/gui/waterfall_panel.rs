@@ -64,8 +64,7 @@ impl WaterfallPanel {
         self.device_names.clear();
         if let Ok(devices) = cpal::default_host().input_devices() {
             for d in devices {
-                let name = d.name().unwrap_or_else(|_| "Nieznane urządzenie".to_string());
-                self.device_names.push(name);
+                self.device_names.push(d.to_string());
             }
         }
         self.devices_loaded = true;
@@ -79,7 +78,7 @@ impl WaterfallPanel {
         // Określenie częstotliwości próbkowania wybranego urządzenia (do budowy silnika FFT).
         let device_name = self.selected_device_name();
         let sample_rate = pick_input_device(device_name.as_deref())
-            .map(|(_, cfg)| cfg.sample_rate().0)
+            .map(|(_, cfg)| cfg.sample_rate())
             .unwrap_or(48_000);
 
         let fft_size = FFT_SIZES[self.fft_idx];
@@ -427,7 +426,7 @@ fn pick_input_device(name: Option<&str>) -> Result<(cpal::Device, cpal::Supporte
         .and_then(|n| {
             devices
                 .iter()
-                .find(|d| d.name().map(|dn| dn == n).unwrap_or(false))
+                .find(|d| d.to_string() == n)
                 .cloned()
         });
 
@@ -450,23 +449,23 @@ fn start_audio_stream(device_name: Option<&str>, ring: Arc<SampleRing>) -> Resul
     let config: cpal::StreamConfig = supported.into();
 
     match sample_format {
-        cpal::SampleFormat::F32 => build_stream::<f32>(&device, &config, channels, ring),
-        cpal::SampleFormat::I16 => build_stream::<i16>(&device, &config, channels, ring),
-        cpal::SampleFormat::U16 => build_stream::<u16>(&device, &config, channels, ring),
-        cpal::SampleFormat::I8 => build_stream::<i8>(&device, &config, channels, ring),
-        cpal::SampleFormat::U8 => build_stream::<u8>(&device, &config, channels, ring),
-        cpal::SampleFormat::I32 => build_stream::<i32>(&device, &config, channels, ring),
+        cpal::SampleFormat::F32 => build_stream::<f32>(&device, config, channels, ring),
+        cpal::SampleFormat::I16 => build_stream::<i16>(&device, config, channels, ring),
+        cpal::SampleFormat::U16 => build_stream::<u16>(&device, config, channels, ring),
+        cpal::SampleFormat::I8 => build_stream::<i8>(&device, config, channels, ring),
+        cpal::SampleFormat::U8 => build_stream::<u8>(&device, config, channels, ring),
+        cpal::SampleFormat::I32 => build_stream::<i32>(&device, config, channels, ring),
         other => Err(format!("Nieobsługiwany format próbek: {:?}", other)),
     }
 }
 
-fn stream_err_fn(err: cpal::StreamError) {
+fn stream_err_fn(err: cpal::Error) {
     log::error!("Błąd strumienia audio (waterfall): {}", err);
 }
 
 fn build_stream<T>(
     device: &cpal::Device,
-    config: &cpal::StreamConfig,
+    config: cpal::StreamConfig,
     channels: usize,
     ring: Arc<SampleRing>,
 ) -> Result<cpal::Stream, String>

@@ -5,7 +5,7 @@
 //! dźwiękową oraz pomocnicza logika wyboru slotów F1..F8.
 
 use crate::core::station::VoiceKeyerMessage;
-use rodio::{Decoder, OutputStream, Sink, Source};
+use rodio::{Decoder, DeviceSinkBuilder, Player, Source};
 use std::fs::File;
 use std::io::BufReader;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -23,10 +23,10 @@ pub fn request_stop() {
 pub fn play_wav_file(path: &str) -> Result<(), String> {
     let file = File::open(path).map_err(|e| format!("Nie można otworzyć pliku: {e}"))?;
     let source = Decoder::new(BufReader::new(file)).map_err(|e| format!("Nieobsługiwany format audio: {e}"))?;
-    let (_stream, handle) = OutputStream::try_default().map_err(|e| format!("Brak urządzenia audio: {e}"))?;
-    let sink = Sink::try_new(&handle).map_err(|e| e.to_string())?;
-    sink.append(source);
-    sink.sleep_until_end();
+    let sink = DeviceSinkBuilder::open_default_sink().map_err(|e| format!("Brak urządzenia audio: {e}"))?;
+    let player = Player::connect_new(sink.mixer());
+    player.append(source);
+    player.sleep_until_end();
     Ok(())
 }
 
@@ -34,8 +34,8 @@ pub fn play_wav_file(path: &str) -> Result<(), String> {
 /// generuje krótki sygnał testowy (sine 800 Hz).
 pub fn play_message(msg: &VoiceKeyerMessage) -> Result<(), String> {
     STOP_PLAYBACK.store(false, Ordering::SeqCst);
-    let (_stream, handle) = OutputStream::try_default().map_err(|e| format!("Brak urządzenia audio: {e}"))?;
-    let sink = Sink::try_new(&handle).map_err(|e| e.to_string())?;
+    let sink = DeviceSinkBuilder::open_default_sink().map_err(|e| format!("Brak urządzenia audio: {e}"))?;
+    let player = Player::connect_new(sink.mixer());
 
     let wav_path = msg
         .wav_path
@@ -47,33 +47,33 @@ pub fn play_message(msg: &VoiceKeyerMessage) -> Result<(), String> {
         let file = File::open(&path).map_err(|e| format!("Nie można otworzyć pliku: {e}"))?;
         let source = Decoder::new(BufReader::new(file)).map_err(|e| format!("Nieobsługiwany format audio: {e}"))?;
         if msg.repeat {
-            sink.append(source.repeat_infinite());
-            wait_for_stop(&sink);
+            player.append(source.repeat_infinite());
+            wait_for_stop(&player);
         } else {
-            sink.append(source);
-            sink.sleep_until_end();
+            player.append(source);
+            player.sleep_until_end();
         }
     } else {
         let tone = rodio::source::SineWave::new(800.0)
             .take_duration(Duration::from_millis(700))
             .amplify(0.25);
         if msg.repeat {
-            sink.append(tone.repeat_infinite());
-            wait_for_stop(&sink);
+            player.append(tone.repeat_infinite());
+            wait_for_stop(&player);
         } else {
-            sink.append(tone);
-            sink.sleep_until_end();
+            player.append(tone);
+            player.sleep_until_end();
         }
     }
     Ok(())
 }
 
 /// Oczekuje na żądanie zatrzymania (dla trybu pętli).
-fn wait_for_stop(sink: &Sink) {
+fn wait_for_stop(player: &Player) {
     while !STOP_PLAYBACK.load(Ordering::SeqCst) {
         std::thread::sleep(Duration::from_millis(50));
     }
-    sink.stop();
+    player.stop();
 }
 
 /// Zwraca indeks następnego włączonego slotu (z zawinięciem, pomija wyłączone).

@@ -234,20 +234,30 @@ impl QslDesignerDialog {
                             .save_file()
                         {
                             use printpdf::*;
-                            let (doc, page1, layer1) = PdfDocument::new("QSL Labels Sheet", Mm(210.0), Mm(297.0), "Labels Layer");
-                            let current_layer = doc.get_page(page1).get_layer(layer1);
-                            let (font, font_reg) = match (
-                                doc.add_builtin_font(BuiltinFont::HelveticaBold),
-                                doc.add_builtin_font(BuiltinFont::Helvetica),
-                            ) {
-                                (Ok(bold), Ok(regular)) => (bold, regular),
-                                _ => {
-                                    self.status_message = Some(
-                                        "Błąd: nie udało się załadować czcionek PDF. Eksport przerwany.".to_string(),
-                                    );
-                                    return;
-                                }
-                            };
+
+                            fn text_ops(text: impl Into<String>, size_pt: f32, x_mm: f32, y_mm: f32, bold: bool) -> Vec<Op> {
+                                vec![
+                                    Op::StartTextSection,
+                                    Op::SetFont {
+                                        font: PdfFontHandle::Builtin(if bold {
+                                            BuiltinFont::HelveticaBold
+                                        } else {
+                                            BuiltinFont::Helvetica
+                                        }),
+                                        size: Pt(size_pt),
+                                    },
+                                    Op::SetFillColor {
+                                        col: Color::Rgb(Rgb::new(0.0, 0.0, 0.0, None)),
+                                    },
+                                    Op::SetTextCursor {
+                                        pos: Point::new(Mm(x_mm), Mm(y_mm)),
+                                    },
+                                    Op::ShowText {
+                                        items: vec![TextItem::Text(text.into())],
+                                    },
+                                    Op::EndTextSection,
+                                ]
+                            }
 
                             let (cols, rows_per_page) = match self.sheet_format {
                                 LabelSheetFormat::Avery3x8 => (3, 8),
@@ -261,23 +271,27 @@ impl QslDesignerDialog {
                             let col_w_mm = content_w / (cols as f32);
                             let row_h_mm = content_h / (rows_per_page as f32);
 
+                            let mut ops: Vec<Op> = Vec::new();
                             for (i, q) in self.queued_qsos.iter().enumerate().take(cols * rows_per_page) {
                                 let c = i % cols;
                                 let r = i / cols;
                                 let x = self.margin_left_mm + (c as f32) * col_w_mm;
                                 let y = 297.0 - self.margin_top_mm - (r as f32) * row_h_mm;
 
-                                current_layer.use_text(format!("TO: {}", q.callsign), 11.0, Mm(x + 2.0), Mm(y - 5.0), &font);
-                                current_layer.use_text(format!("QSO: {} {}", q.qso_date, q.time_on), 9.0, Mm(x + 2.0), Mm(y - 11.0), &font_reg);
-                                current_layer.use_text(format!("{} | {} | RST {}", q.band, q.mode, q.rst_sent), 9.0, Mm(x + 2.0), Mm(y - 17.0), &font_reg);
-                                current_layer.use_text(format!("TNX QSL! 73 de {}", my_callsign), 8.0, Mm(x + 2.0), Mm(y - 23.0), &font_reg);
+                                ops.extend(text_ops(format!("TO: {}", q.callsign), 11.0, x + 2.0, y - 5.0, true));
+                                ops.extend(text_ops(format!("QSO: {} {}", q.qso_date, q.time_on), 9.0, x + 2.0, y - 11.0, false));
+                                ops.extend(text_ops(format!("{} | {} | RST {}", q.band, q.mode, q.rst_sent), 9.0, x + 2.0, y - 17.0, false));
+                                ops.extend(text_ops(format!("TNX QSL! 73 de {}", my_callsign), 8.0, x + 2.0, y - 23.0, false));
                             }
 
-                            if let Ok(file) = std::fs::File::create(&path) {
-                                if doc.save(&mut std::io::BufWriter::new(file)).is_ok() {
-                                    self.status_message = Some(format!("Zapisano arkusz naklejek PDF: {:?}", path));
-                                    let _ = open::that(&path);
-                                }
+                            let mut doc = PdfDocument::new("QSL Labels Sheet");
+                            doc.pages.push(PdfPage::new(Mm(210.0), Mm(297.0), ops));
+
+                            let mut warnings = Vec::new();
+                            let bytes = doc.save(&PdfSaveOptions::default(), &mut warnings);
+                            if std::fs::write(&path, bytes).is_ok() {
+                                self.status_message = Some(format!("Zapisano arkusz naklejek PDF: {:?}", path));
+                                let _ = open::that(&path);
                             }
                         }
                     }

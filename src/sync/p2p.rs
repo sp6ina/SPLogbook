@@ -13,8 +13,6 @@ use crate::core::qso::QsoRecord;
 use argon2::{Algorithm, Argon2, Params, Version};
 use chacha20poly1305::aead::{Aead, KeyInit};
 use chacha20poly1305::{Key, XChaCha20Poly1305, XNonce};
-use rand::rngs::OsRng;
-use rand::RngCore;
 use serde::{Deserialize, Serialize};
 
 /// Długość klucza symetrycznego (32 B) i nonce XChaCha20-Poly1305 (24 B).
@@ -40,17 +38,18 @@ pub fn derive_key(password: &str, salt: &[u8]) -> Result<[u8; KEY_LEN], String> 
 /// Generuje kryptograficznie losową sól (16 B).
 pub fn random_salt() -> [u8; 16] {
     let mut salt = [0u8; 16];
-    OsRng.fill_bytes(&mut salt);
+    rand::fill(&mut salt);
     salt
 }
 
 /// Szyfruje treść do ramki `[nonce][ciphertext+tag]`.
 pub fn encrypt_frame(key: &[u8; KEY_LEN], plaintext: &[u8]) -> Result<Vec<u8>, String> {
-    let cipher = XChaCha20Poly1305::new(Key::from_slice(key));
+    let cipher = XChaCha20Poly1305::new(&Key::from(*key));
     let mut nonce = [0u8; NONCE_LEN];
-    OsRng.fill_bytes(&mut nonce);
+    rand::fill(&mut nonce);
+    let nonce_arr = XNonce::from(nonce);
     let ciphertext = cipher
-        .encrypt(XNonce::from_slice(&nonce), plaintext)
+        .encrypt(&nonce_arr, plaintext)
         .map_err(|_| "Szyfrowanie nie powiodło się".to_string())?;
     let mut frame = Vec::with_capacity(NONCE_LEN + ciphertext.len());
     frame.extend_from_slice(&nonce);
@@ -65,9 +64,10 @@ pub fn decrypt_frame(key: &[u8; KEY_LEN], frame: &[u8]) -> Result<Vec<u8>, Strin
         return Err("Ramka za krótka (brak nonce)".to_string());
     }
     let (nonce, ciphertext) = frame.split_at(NONCE_LEN);
-    let cipher = XChaCha20Poly1305::new(Key::from_slice(key));
+    let nonce = XNonce::try_from(nonce).map_err(|_| "Nieprawidłowa długość nonce".to_string())?;
+    let cipher = XChaCha20Poly1305::new(&Key::from(*key));
     cipher
-        .decrypt(XNonce::from_slice(nonce), ciphertext)
+        .decrypt(&nonce, ciphertext)
         .map_err(|_| "Odszyfrowanie nie powiodło się (zły klucz lub uszkodzone dane)".to_string())
 }
 

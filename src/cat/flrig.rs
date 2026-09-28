@@ -164,7 +164,7 @@ pub fn parse_response(xml: &str) -> Result<XmlRpcValue, String> {
     loop {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Start(e)) => {
-                let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
+                let name = e.name().as_ref().to_string();
                 match name.as_str() {
                     "fault" => in_fault = true,
                     "value" => {
@@ -205,7 +205,7 @@ pub fn parse_response(xml: &str) -> Result<XmlRpcValue, String> {
                 }
             }
             Ok(Event::End(e)) => {
-                let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
+                let name = e.name().as_ref().to_string();
                 if name == "fault" {
                     in_fault = false;
                 } else if name == "value" {
@@ -231,8 +231,8 @@ fn read_text(reader: &mut Reader<&[u8]>, buf: &mut Vec<u8>) -> Result<String, qu
     let mut txt = String::new();
     loop {
         match reader.read_event_into(buf) {
-            Ok(Event::Text(t)) => txt.push_str(&t.unescape()?),
-            Ok(Event::CData(c)) => txt.push_str(&String::from_utf8_lossy(c.as_ref())),
+            Ok(Event::Text(t)) => txt.push_str(&quick_xml::escape::unescape(t.as_ref())?),
+            Ok(Event::CData(c)) => txt.push_str(c.as_ref()),
             Ok(Event::End(_)) | Ok(Event::Empty(_)) => break,
             Ok(Event::Eof) => break,
             Err(e) => return Err(e),
