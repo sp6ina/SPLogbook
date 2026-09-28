@@ -333,6 +333,7 @@ impl LogDatabase {
                 last_error TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_upload_queue_service ON upload_queue(service, retry_count);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_upload_queue_qso_service ON upload_queue(qso_id, service);
 
             CREATE INDEX IF NOT EXISTS idx_qso_callsign ON qso_records(callsign);
             DROP INDEX IF EXISTS idx_qso_call;
@@ -368,6 +369,10 @@ impl LogDatabase {
         // Usuń osierocone wiersze, aby odbudowa z kluczami obcymi nie zawiodła.
         conn.execute(
             "DELETE FROM upload_queue WHERE qso_id NOT IN (SELECT id FROM qso_records)",
+            [],
+        )?;
+        conn.execute(
+            "DELETE FROM upload_queue WHERE id NOT IN (SELECT MIN(id) FROM upload_queue GROUP BY qso_id, service)",
             [],
         )?;
         conn.execute(
@@ -483,6 +488,7 @@ impl LogDatabase {
         // Odtwórz indeksy po odbudowie tabel.
         conn.execute_batch(
             "CREATE INDEX IF NOT EXISTS idx_upload_queue_service ON upload_queue(service, retry_count);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_upload_queue_qso_service ON upload_queue(qso_id, service);
             CREATE INDEX IF NOT EXISTS idx_qso_callsign ON qso_records(callsign);
             CREATE INDEX IF NOT EXISTS idx_qso_date ON qso_records(qso_date);
             CREATE INDEX IF NOT EXISTS idx_qso_date_time ON qso_records(qso_date, time_on);
@@ -998,70 +1004,55 @@ impl LogDatabase {
     /// Wyszukuje duplikaty łączności w całym logu
     /// Grupuje po znaku, paśmie i emisji (opcjonalnie również po dacie)
     pub fn find_duplicate_qsos(&self, match_same_day: bool) -> Result<Vec<Vec<QsoRecord>>> {
-        let group_by = if match_same_day {
+        let partition_by = if match_same_day {
             "callsign, band, mode, qso_date"
         } else {
             "callsign, band, mode"
         };
 
-        let dup_keys_sql = format!(
-            "SELECT callsign, band, mode{} FROM qso_records GROUP BY {} HAVING COUNT(*) > 1 ORDER BY callsign ASC, band ASC",
-            if match_same_day { ", qso_date" } else { "" },
-            group_by
+        let query_sql = format!(
+            "SELECT {QSO_COLUMNS} FROM (
+                SELECT {QSO_COLUMNS},
+                       COUNT(*) OVER (PARTITION BY {partition_by}) AS dup_cnt
+                FROM qso_records
+            )
+            WHERE dup_cnt > 1
+            ORDER BY callsign ASC, band ASC, mode ASC, qso_date ASC, time_on ASC, id ASC"
         );
 
-        let mut key_stmt = self.conn.prepare(&dup_keys_sql)?;
-        let mut groups = Vec::new();
+        let mut stmt = self.conn.prepare(&query_sql)?;
+        let rows = stmt.query_map([], row_to_qso)?;
 
-        if match_same_day {
-            let keys = key_stmt.query_map([], |r| {
-                Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, String>(1)?,
-                    r.get::<_, String>(2)?,
-                    r.get::<_, String>(3)?,
-                ))
-            })?;
+        let mut groups: Vec<Vec<QsoRecord>> = Vec::new();
+        let mut current_key: Option<(String, String, String, String)> = None;
+        let mut current_cluster: Vec<QsoRecord> = Vec::new();
 
-            let query_sql = format!(
-                "SELECT {QSO_COLUMNS} FROM qso_records WHERE callsign = ?1 AND band = ?2 AND mode = ?3 AND qso_date = ?4 ORDER BY time_on ASC, id ASC"
+        for row in rows {
+            let qso = row?;
+            let key = (
+                qso.callsign.clone(),
+                qso.band.clone(),
+                qso.mode.clone(),
+                if match_same_day {
+                    qso.qso_date.clone()
+                } else {
+                    String::new()
+                },
             );
-            let mut q_stmt = self.conn.prepare(&query_sql)?;
-            for k in keys {
-                let (c, b, m, d) = k?;
-                let rows = q_stmt.query_map(params![c, b, m, d], row_to_qso)?;
-                let mut cluster = Vec::new();
-                for row in rows {
-                    cluster.push(row?);
+            if current_key.as_ref() == Some(&key) {
+                current_cluster.push(qso);
+            } else {
+                if current_cluster.len() > 1 {
+                    groups.push(std::mem::take(&mut current_cluster));
+                } else {
+                    current_cluster.clear();
                 }
-                if cluster.len() > 1 {
-                    groups.push(cluster);
-                }
+                current_key = Some(key);
+                current_cluster.push(qso);
             }
-        } else {
-            let keys = key_stmt.query_map([], |r| {
-                Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, String>(1)?,
-                    r.get::<_, String>(2)?,
-                ))
-            })?;
-
-            let query_sql = format!(
-                "SELECT {QSO_COLUMNS} FROM qso_records WHERE callsign = ?1 AND band = ?2 AND mode = ?3 ORDER BY qso_date ASC, time_on ASC, id ASC"
-            );
-            let mut q_stmt = self.conn.prepare(&query_sql)?;
-            for k in keys {
-                let (c, b, m) = k?;
-                let rows = q_stmt.query_map(params![c, b, m], row_to_qso)?;
-                let mut cluster = Vec::new();
-                for row in rows {
-                    cluster.push(row?);
-                }
-                if cluster.len() > 1 {
-                    groups.push(cluster);
-                }
-            }
+        }
+        if current_cluster.len() > 1 {
+            groups.push(current_cluster);
         }
 
         Ok(groups)
@@ -1158,13 +1149,16 @@ impl LogDatabase {
         let count = self.conn.execute(
             "UPDATE qso_records
              SET lotw_qsl_rcvd = 'Y', lotw_qslrdate = ?1
-             WHERE callsign = ?2 AND band = ?3 AND mode = ?4 AND qso_date = ?5",
+             WHERE UPPER(callsign) = UPPER(?2)
+               AND UPPER(band) = UPPER(?3)
+               AND (UPPER(mode) = UPPER(?4) OR (UPPER(?4) IN ('SSB', 'USB', 'LSB') AND UPPER(mode) IN ('SSB', 'USB', 'LSB')))
+               AND REPLACE(qso_date, '-', '') = REPLACE(?5, '-', '')",
             params![
                 rdate,
-                callsign.to_uppercase(),
-                band,
-                mode.to_uppercase(),
-                qso_date
+                callsign.trim(),
+                band.trim(),
+                mode.trim(),
+                qso_date.trim()
             ],
         )?;
         Ok(count)
@@ -1182,13 +1176,16 @@ impl LogDatabase {
         let count = self.conn.execute(
             "UPDATE qso_records
              SET eqsl_qsl_rcvd = 'Y', eqsl_qslrdate = ?1
-             WHERE callsign = ?2 AND band = ?3 AND mode = ?4 AND qso_date = ?5",
+             WHERE UPPER(callsign) = UPPER(?2)
+               AND UPPER(band) = UPPER(?3)
+               AND (UPPER(mode) = UPPER(?4) OR (UPPER(?4) IN ('SSB', 'USB', 'LSB') AND UPPER(mode) IN ('SSB', 'USB', 'LSB')))
+               AND REPLACE(qso_date, '-', '') = REPLACE(?5, '-', '')",
             params![
                 rdate,
-                callsign.to_uppercase(),
-                band,
-                mode.to_uppercase(),
-                qso_date
+                callsign.trim(),
+                band.trim(),
+                mode.trim(),
+                qso_date.trim()
             ],
         )?;
         Ok(count)
@@ -1440,7 +1437,8 @@ impl LogDatabase {
             .conn
             .query_row("SELECT COUNT(*) FROM qso_records", [], |r| r.get(0))?;
         if count > 0 && count % 1000 == 0 {
-            self.conn.execute_batch("VACUUM;")?;
+            self.conn
+                .execute_batch("PRAGMA wal_checkpoint(PASSIVE); PRAGMA optimize;")?;
         }
         Ok(())
     }
@@ -1471,7 +1469,7 @@ impl LogDatabase {
             Ok((
                 row.get::<_, i64>(0)?,
                 row.get::<_, i64>(1)
-                    .map(|_| service.to_string())
+                    .map(|id| id.to_string())
                     .unwrap_or_default(),
                 row.get::<_, String>(2)?,
             ))

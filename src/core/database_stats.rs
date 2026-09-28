@@ -113,25 +113,15 @@ impl LogDatabase {
 
     /// Zwraca statystyki QSL (total, lotw_confirmed, eqsl_confirmed, paper_confirmed)
     pub fn stats_qsl_summary(&self) -> rusqlite::Result<(i64, i64, i64, i64)> {
-        let total: i64 = self
-            .conn
-            .query_row("SELECT COUNT(*) FROM qso_records", [], |r| r.get(0))?;
-        let lotw: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM qso_records WHERE lotw_qsl_rcvd = 'Y'",
+        self.conn.query_row(
+            "SELECT COUNT(*), \
+             COALESCE(SUM(CASE WHEN lotw_qsl_rcvd = 'Y' THEN 1 ELSE 0 END), 0), \
+             COALESCE(SUM(CASE WHEN eqsl_qsl_rcvd = 'Y' THEN 1 ELSE 0 END), 0), \
+             COALESCE(SUM(CASE WHEN qsl_rcvd = 'Y' THEN 1 ELSE 0 END), 0) \
+             FROM qso_records",
             [],
-            |r| r.get(0),
-        )?;
-        let eqsl: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM qso_records WHERE eqsl_qsl_rcvd = 'Y'",
-            [],
-            |r| r.get(0),
-        )?;
-        let paper: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM qso_records WHERE qsl_rcvd = 'Y'",
-            [],
-            |r| r.get(0),
-        )?;
-        Ok((total, lotw, eqsl, paper))
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
     }
 
     /// Zwraca top N stref CQ wg liczby QSO

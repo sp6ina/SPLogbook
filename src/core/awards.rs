@@ -37,40 +37,82 @@ pub struct PolishDistrictInfo {
     pub voivodeships: Vec<String>,
 }
 
+fn extract_wpx_base(call: &str) -> String {
+    let bytes = call.as_bytes();
+    let mut seen_alpha = false;
+    let mut last_digit_after_alpha = None;
+    for (i, &b) in bytes.iter().enumerate() {
+        if b.is_ascii_alphabetic() {
+            seen_alpha = true;
+        } else if b.is_ascii_digit() && seen_alpha {
+            last_digit_after_alpha = Some(i);
+        }
+    }
+
+    if let Some(idx) = last_digit_after_alpha {
+        call[..=idx].to_string()
+    } else {
+        format!("{call}0")
+    }
+}
+
 /// Wyciąga prefiks WPX ze znaku (np. SP6INA -> SP6, DL/SP6INA -> DL0, K3LR -> K3)
 pub fn extract_wpx_prefix(call: &str) -> String {
     let clean = call.trim().to_uppercase();
     if clean.is_empty() {
         return String::new();
     }
-
-    let parts: Vec<&str> = clean.split('/').collect();
-    let main_call = if parts.len() > 1 {
-        if parts[0].len() <= 3 && !parts[0].chars().any(|c| c.is_ascii_digit()) {
-            return format!("{}0", parts[0]);
-        }
-        if parts[1].len() == 1 && parts[1].chars().all(|c| c.is_ascii_digit()) {
-            let pfx = extract_wpx_prefix(parts[0]);
-            let alpha: String = pfx.chars().take_while(|c| !c.is_ascii_digit()).collect();
-            return format!("{}{}", alpha, parts[1]);
-        }
-        parts[0]
-    } else {
-        &clean
+    let is_operational_suffix = |s: &str| -> bool {
+        matches!(
+            s,
+            "P" | "M" | "MM" | "AM" | "QRP" | "LGT" | "LH" | "B" | "R" | "A" | "J"
+        )
     };
 
-    if let Some(last_digit_pos) = main_call.rfind(|c: char| c.is_ascii_digit()) {
-        main_call[..=last_digit_pos].to_string()
-    } else {
-        format!("{main_call}0")
+    let parts: Vec<&str> = clean
+        .split('/')
+        .filter(|p| !is_operational_suffix(p) && !p.is_empty())
+        .collect();
+
+    if parts.is_empty() {
+        return String::new();
     }
+
+    let base_call = if parts.len() >= 2 {
+        let p0 = parts[0];
+        let p1 = parts[1];
+
+        if p0.len() <= 4 && p0.len() < p1.len() && !p0.chars().all(|c| c.is_ascii_digit()) {
+            p0
+        } else if p1.len() == 1 && p1.chars().all(|c| c.is_ascii_digit()) {
+            let prefix0 = extract_wpx_base(p0);
+            let mut prefix_chars: Vec<char> = prefix0.chars().collect();
+            if let Some(pos) = prefix_chars.iter().rposition(char::is_ascii_digit) {
+                if let Some(digit) = p1.chars().next() {
+                    prefix_chars[pos] = digit;
+                }
+                return prefix_chars.into_iter().collect();
+            }
+            return format!("{prefix0}{p1}");
+        } else if p1.len() <= 4 && p1.len() < p0.len() && !p1.chars().all(|c| c.is_ascii_digit()) {
+            p1
+        } else if p0.len() >= p1.len() {
+            p0
+        } else {
+            p1
+        }
+    } else {
+        parts[0]
+    };
+
+    extract_wpx_base(base_call)
 }
 
 pub const WAE_EUROPEAN_ENTITIES: &[u32] = &[
-    1, 14, 15, 21, 22, 27, 29, 33, 40, 42, 45, 49, 54, 56, 61, 62, 63, 66, 70, 72, 74, 75, 76, 79,
-    82, 84, 86, 87, 88, 100, 104, 106, 110, 111, 113, 117, 118, 120, 123, 126, 128, 130, 134, 138,
-    146, 147, 150, 151, 152, 153, 154, 160, 163, 164, 169, 170, 175, 176, 177, 179, 230, 239, 248,
-    269, 279, 283, 496, 497, 221,
+    14, 21, 27, 40, 45, 54, 61, 106, 114, 118, 122, 125, 126, 145, 149, 163, 179, 203, 206, 209,
+    212, 214, 221, 222, 223, 224, 225, 227, 230, 233, 236, 239, 245, 246, 248, 251, 254, 256, 257,
+    259, 260, 263, 265, 266, 269, 272, 275, 278, 279, 281, 283, 284, 287, 288, 294, 296, 496, 497,
+    499, 501, 502, 503, 504, 514, 515, 520,
 ];
 
 pub const SP_DISTRICTS: &[&str] = &[
@@ -83,11 +125,25 @@ pub const SP_DISTRICTS: &[&str] = &[
 
 pub fn extract_sp_district(callsign: &str) -> Option<String> {
     let call = callsign.trim().to_uppercase();
-    let base = call.split('/').next().unwrap_or(&call);
+    let parts: Vec<&str> = call.split('/').collect();
+    let base = parts.first().copied().unwrap_or(&call);
+    let portable_digit = parts
+        .get(1..)
+        .and_then(|rest_parts| {
+            rest_parts
+                .iter()
+                .rev()
+                .find(|p| p.len() == 1 && p.chars().all(|c| c.is_ascii_digit() && c != '0'))
+        })
+        .and_then(|s| s.chars().next());
+
     for prefix in &["SP", "SO", "SN", "3Z", "HF", "SQ", "SR"] {
         if let Some(rest) = base.strip_prefix(prefix) {
+            if let Some(d) = portable_digit {
+                return Some(format!("{prefix}{d}"));
+            }
             if let Some(digit) = rest.chars().next() {
-                if digit.is_ascii_digit() {
+                if digit.is_ascii_digit() && digit != '0' {
                     return Some(format!("{prefix}{digit}"));
                 }
             }
@@ -235,7 +291,7 @@ impl AwardsEngine {
 
         if let Some(ref g) = qso.gridsquare {
             let g_clean = g.trim().to_uppercase();
-            if g_clean.len() >= 4 {
+            if g_clean.is_ascii() && g_clean.len() >= 4 {
                 let grid4 = g_clean[..4].to_string();
                 self.worked_vucc.insert(grid4.clone());
                 self.details_vucc
@@ -407,7 +463,7 @@ impl AwardsEngine {
 
         if let Some(grid) = gridsquare {
             let g_clean = grid.trim().to_uppercase();
-            if g_clean.len() >= 4 {
+            if g_clean.is_ascii() && g_clean.len() >= 4 {
                 let grid4 = g_clean[..4].to_string();
                 self.worked_vucc.insert(grid4);
             }
@@ -556,25 +612,30 @@ impl AwardsEngine {
 
     pub fn get_polish_district(call: &str) -> Option<PolishDistrictInfo> {
         let clean = call.trim().to_uppercase();
-        if !clean.starts_with("SP")
-            && !clean.starts_with("SQ")
-            && !clean.starts_with("SO")
-            && !clean.starts_with("SN")
-            && !clean.starts_with("3Z")
-            && !clean.starts_with("HF")
-        {
-            return None;
-        }
-
         let parts: Vec<&str> = clean.split('/').collect();
+        let base = parts.first().copied().unwrap_or(&clean);
+
+        let mut rest_after_prefix = None;
+        for prefix in &["SP", "SQ", "SO", "SN", "3Z", "HF", "SR"] {
+            if let Some(rest) = base.strip_prefix(prefix) {
+                rest_after_prefix = Some(rest);
+                break;
+            }
+        }
+        let rest = rest_after_prefix?;
+
         let district = if let Some(d_str) = parts
-            .iter()
-            .rev()
-            .find(|p| p.len() == 1 && p.chars().all(|c| c.is_ascii_digit() && c != '0'))
+            .get(1..)
+            .and_then(|rest_parts| {
+                rest_parts
+                    .iter()
+                    .rev()
+                    .find(|p| p.len() == 1 && p.chars().all(|c| c.is_ascii_digit() && c != '0'))
+            })
         {
             d_str.chars().next()?.to_digit(10)? as u8
         } else {
-            let num_char = clean.chars().find(char::is_ascii_digit)?;
+            let num_char = rest.chars().find(char::is_ascii_digit)?;
             num_char.to_digit(10)? as u8
         };
 

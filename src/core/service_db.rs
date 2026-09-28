@@ -106,7 +106,7 @@ impl ServiceDatabase {
         if let Some(ref conn_mutex) = self.conn {
             if let Ok(conn) = conn_mutex.lock() {
                 let pattern = format!("%{}%", escape_like(&clean));
-                if let Ok(mut stmt) = conn.prepare("SELECT IOTA, Name, Prefix1 FROM IOTA WHERE IOTA LIKE ?1 ESCAPE '\' OR Name LIKE ?1 ESCAPE '\' ORDER BY IOTA ASC LIMIT 100") {
+                if let Ok(mut stmt) = conn.prepare("SELECT IOTA, Name, Prefix1 FROM IOTA WHERE IOTA LIKE ?1 ESCAPE '\\' OR Name LIKE ?1 ESCAPE '\\' ORDER BY IOTA ASC LIMIT 100") {
                     if let Ok(rows) = stmt.query_map(params![pattern], |row| {
                         Ok(IotaRecord {
                             iota: row.get::<_, String>(0)?,
@@ -175,7 +175,7 @@ impl ServiceDatabase {
         if let Some(ref conn_mutex) = self.conn {
             if let Ok(conn) = conn_mutex.lock() {
                 let pattern = format!("%{}%", escape_like(&clean));
-                if let Ok(mut stmt) = conn.prepare("SELECT State, Name, Country FROM STATE WHERE State LIKE ?1 ESCAPE '\' OR Name LIKE ?1 ESCAPE '\' LIMIT 100") {
+                if let Ok(mut stmt) = conn.prepare("SELECT State, Name, Country FROM STATE WHERE State LIKE ?1 ESCAPE '\\' OR Name LIKE ?1 ESCAPE '\\' LIMIT 100") {
                     if let Ok(rows) = stmt.query_map(params![pattern], |row| {
                         Ok(StateRecord {
                             code: row.get(0)?,
@@ -238,7 +238,7 @@ impl ServiceDatabase {
         if let Some(ref conn_mutex) = self.conn {
             if let Ok(conn) = conn_mutex.lock() {
                 let pattern = format!("%{}%", escape_like(&clean));
-                if let Ok(mut stmt) = conn.prepare("SELECT Call, Manager, Years, Notes FROM managers WHERE Call LIKE ?1 ESCAPE '\' OR Manager LIKE ?1 ESCAPE '\' ORDER BY Call ASC LIMIT 100") {
+                if let Ok(mut stmt) = conn.prepare("SELECT Call, Manager, Years, Notes FROM managers WHERE Call LIKE ?1 ESCAPE '\\' OR Manager LIKE ?1 ESCAPE '\\' ORDER BY Call ASC LIMIT 100") {
                     if let Ok(rows) = stmt.query_map(params![pattern], |row| {
                         Ok(QslManagerRecord {
                             call: row.get(0)?,
@@ -300,7 +300,7 @@ impl ServiceDatabase {
         if let Some(ref conn_mutex) = self.conn {
             if let Ok(conn) = conn_mutex.lock() {
                 let pattern = format!("%{}%", escape_like(&clean));
-                if let Ok(mut stmt) = conn.prepare("SELECT Callsign, Country, DXCC, ARRLPrefix, Continent, CQZone, ITUZone FROM UniqueCalls WHERE Callsign LIKE ?1 ESCAPE '\' OR Country LIKE ?1 ESCAPE '\' ORDER BY Callsign ASC LIMIT 100") {
+                if let Ok(mut stmt) = conn.prepare("SELECT Callsign, Country, DXCC, ARRLPrefix, Continent, CQZone, ITUZone FROM UniqueCalls WHERE Callsign LIKE ?1 ESCAPE '\\' OR Country LIKE ?1 ESCAPE '\\' ORDER BY Callsign ASC LIMIT 100") {
                     if let Ok(rows) = stmt.query_map(rusqlite::params![pattern], |row| {
                         let dxcc_str: String = row.get::<_, String>(2).unwrap_or_default();
                         let dxcc: u32 = dxcc_str.parse().unwrap_or(0);

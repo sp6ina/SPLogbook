@@ -358,7 +358,7 @@ pub struct AppConfig {
     pub workspace_profiles: Vec<WorkspaceProfile>,
 
     // System pluginów użytkownika (Rhai)
-    #[serde(default)]
+    #[serde(default = "default_operator_assistant_enabled")]
     pub plugins_enabled: bool,
     #[serde(default = "default_plugins_dir")]
     pub plugins_dir: String,
@@ -1146,6 +1146,19 @@ impl Default for AppConfig {
 impl AppConfig {
     pub fn load_from_file(path: &std::path::Path) -> Result<Self, std::io::Error> {
         Self::load_with_store(path, &super::credentials::SystemCredentialStore)
+    }
+
+    /// Wczytuje konfigurację bez poświadczeń z systemowego magazynu (np. po przeniesieniu
+    /// instalacji Portable na nowy komputer), nie nadpisując pliku na dysku.
+    pub fn load_without_secrets(path: &std::path::Path) -> Result<Self, std::io::Error> {
+        let data = match std::fs::read_to_string(path) {
+            Ok(data) => data,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
+            Err(e) => return Err(e),
+        };
+        let mut config: Self = serde_json::from_str(&data).map_err(std::io::Error::other)?;
+        config.secret_store_id.clear();
+        Ok(config)
     }
 
     /// Zapisuje konfigurację w sposób atomowy: najpierw do pliku tymczasowego w tym

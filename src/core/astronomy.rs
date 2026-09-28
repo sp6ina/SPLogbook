@@ -124,10 +124,14 @@ impl AstronomyEngine {
         let sin_alt = lat_rad.sin() * dec_rad.sin() + lat_rad.cos() * dec_rad.cos() * ha_rad.cos();
         let alt_rad = sin_alt.clamp(-1.0, 1.0).asin();
 
-        let cos_az =
-            (dec_rad.sin() - lat_rad.sin() * alt_rad.sin()) / (lat_rad.cos() * alt_rad.cos());
+        let denom = lat_rad.cos() * alt_rad.cos();
+        let cos_az = if denom.abs() > 1e-9 {
+            ((dec_rad.sin() - lat_rad.sin() * alt_rad.sin()) / denom).clamp(-1.0, 1.0)
+        } else {
+            0.0
+        };
         let sin_ha = ha_rad.sin();
-        let mut az_deg = cos_az.clamp(-1.0, 1.0).acos().to_degrees();
+        let mut az_deg = cos_az.acos().to_degrees();
         if sin_ha > 0.0 {
             az_deg = 360.0 - az_deg;
         }
@@ -149,46 +153,73 @@ impl AstronomyEngine {
         let a = 60.2666; // Earth radii
         let e = 0.054_900; // Eccentricity
         let m = Self::rev(115.3654 + 13.064_992_950_9 * d); // Mean anomaly
+        let ms = Self::rev(356.0470 + 0.985_600_258_5 * d); // Sun mean anomaly
+        let ws = 282.9404 + 4.70935e-5 * d;
+        let ls = Self::rev(ms + ws); // Sun mean longitude
+        let lm = Self::rev(n + w + m); // Moon mean longitude
+        let d_elong = Self::rev(lm - ls); // Mean elongation
 
         let e_rad = m.to_radians() + e * m.to_radians().sin() * (1.0 + e * m.to_radians().cos());
         let x = a * (e_rad.cos() - e);
         let y = a * (1.0 - e * e).sqrt() * e_rad.sin();
 
-        let r = (x * x + y * y).sqrt();
+        let r_base = (x * x + y * y).sqrt();
         let v = y.atan2(x).to_degrees();
 
+        // Główne perturbacje Księżyca (ewekcja i wariacja)
+        let lon_pert = -1.274 * (m - 2.0 * d_elong).to_radians().sin()
+            + 0.658 * (2.0 * d_elong).to_radians().sin()
+            - 0.186 * ms.to_radians().sin();
+        let r = r_base - 0.58 * (m - 2.0 * d_elong).to_radians().cos()
+            - 0.46 * (2.0 * d_elong).to_radians().cos();
+
+        let vw_rad = (v + w + lon_pert).to_radians();
         let x_ecl = r
-            * (n.to_radians().cos() * (v + w).to_radians().cos()
-                - n.to_radians().sin() * (v + w).to_radians().sin() * i.cos());
+            * (n.to_radians().cos() * vw_rad.cos()
+                - n.to_radians().sin() * vw_rad.sin() * i.cos());
         let y_ecl = r
-            * (n.to_radians().sin() * (v + w).to_radians().cos()
-                + n.to_radians().cos() * (v + w).to_radians().sin() * i.cos());
-        let z_ecl = r * (v + w).to_radians().sin() * i.sin();
+            * (n.to_radians().sin() * vw_rad.cos()
+                + n.to_radians().cos() * vw_rad.sin() * i.cos());
+        let z_ecl = r * vw_rad.sin() * i.sin();
 
         let obl_ecl = (23.4393 - 3.563e-7 * d).to_radians();
         let x_eq = x_ecl;
         let y_eq = y_ecl * obl_ecl.cos() - z_ecl * obl_ecl.sin();
         let z_eq = y_ecl * obl_ecl.sin() + z_ecl * obl_ecl.cos();
 
-        let ra_rad = y_eq.atan2(x_eq);
-        let dec_rad = z_eq.atan2((x_eq * x_eq + y_eq * y_eq).sqrt());
-
-        let sidereal_time = Self::greenwich_mean_sidereal_time(jd) + lon_deg;
-        let ha_rad = (sidereal_time - ra_rad.to_degrees()).to_radians();
-
+        // Pozycja obserwatora w promieniach Ziemi (poprawka topocentryczna + obrót Ziemi)
         let lat_rad = lat_deg.to_radians();
+        let lst_rad = (Self::greenwich_mean_sidereal_time(jd) + lon_deg).to_radians();
+        let obs_x = lat_rad.cos() * lst_rad.cos();
+        let obs_y = lat_rad.cos() * lst_rad.sin();
+        let obs_z = lat_rad.sin();
+
+        let dx = x_eq - obs_x;
+        let dy = y_eq - obs_y;
+        let dz = z_eq - obs_z;
+        let r_topo = (dx * dx + dy * dy + dz * dz).sqrt();
+
+        let ra_rad = dy.atan2(dx);
+        let dec_rad = dz.atan2((dx * dx + dy * dy).sqrt());
+
+        let ha_rad = lst_rad - ra_rad;
+
         let sin_alt = lat_rad.sin() * dec_rad.sin() + lat_rad.cos() * dec_rad.cos() * ha_rad.cos();
         let alt_rad = sin_alt.clamp(-1.0, 1.0).asin();
 
-        let cos_az =
-            (dec_rad.sin() - lat_rad.sin() * alt_rad.sin()) / (lat_rad.cos() * alt_rad.cos());
+        let denom = lat_rad.cos() * alt_rad.cos();
+        let cos_az = if denom.abs() > 1e-9 {
+            ((dec_rad.sin() - lat_rad.sin() * alt_rad.sin()) / denom).clamp(-1.0, 1.0)
+        } else {
+            0.0
+        };
         let sin_ha = ha_rad.sin();
-        let mut az_deg = cos_az.clamp(-1.0, 1.0).acos().to_degrees();
+        let mut az_deg = cos_az.acos().to_degrees();
         if sin_ha > 0.0 {
             az_deg = 360.0 - az_deg;
         }
 
-        let dist_km = r * 6378.137;
+        let dist_km = r_topo * 6378.137;
 
         CelestialPosition {
             azimuth_deg: az_deg,

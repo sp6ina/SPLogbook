@@ -102,14 +102,17 @@ pub fn extract_wpx_prefix(call: &str) -> String {
 
 fn extract_wpx_base(call: &str) -> String {
     let bytes = call.as_bytes();
-    let mut last_digit_idx = None;
+    let mut seen_alpha = false;
+    let mut last_digit_after_alpha = None;
     for (i, &b) in bytes.iter().enumerate() {
-        if b.is_ascii_digit() {
-            last_digit_idx = Some(i);
+        if b.is_ascii_alphabetic() {
+            seen_alpha = true;
+        } else if b.is_ascii_digit() && seen_alpha {
+            last_digit_after_alpha = Some(i);
         }
     }
 
-    if let Some(idx) = last_digit_idx {
+    if let Some(idx) = last_digit_after_alpha {
         call[..=idx].to_string()
     } else {
         let mut res = call.to_string();
@@ -301,6 +304,19 @@ impl PrefixMatcher {
         // 2. Przypadek stacji gościnnej na końcu: SP6INA/W6, SP6INA/DL
         if p1.len() <= 4 && p1.len() < p0.len() && !p1.chars().all(|c| c.is_ascii_digit()) {
             return p1;
+        }
+
+        // 2b. Przenośne stacje rosyjskie zmieniające okręg/kontynent (np. UA3ABC/9 -> UA9, RA9AAA/3 -> UA3)
+        if p1.len() == 1
+            && p1.as_bytes()[0].is_ascii_digit()
+            && (p0.starts_with('R') || p0.starts_with('U'))
+        {
+            match p1 {
+                "8" | "9" | "0" => return "UA9",
+                "2" => return "UA2",
+                "1" | "3" | "4" | "5" | "6" | "7" => return "UA3",
+                _ => {}
+            }
         }
 
         // 3. Domyślnie bierzemy dłuższą część (znak główny)

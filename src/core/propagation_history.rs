@@ -42,13 +42,17 @@ pub struct PropagationRecord {
     pub timestamp_unix: i64,
 }
 
+fn default_max_records() -> usize {
+    500
+}
+
 /// Pierścieniowy bufor prognoz z weryfikacją dokładności.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PropagationHistory {
     pub records: Vec<PropagationRecord>,
     /// Maksymalna liczba przechowywanych rekordów (nie jest serializowana).
-    #[serde(skip)]
+    #[serde(skip, default = "default_max_records")]
     max_records: usize,
 }
 
@@ -56,7 +60,7 @@ impl Default for PropagationHistory {
     fn default() -> Self {
         Self {
             records: Vec::new(),
-            max_records: 500,
+            max_records: default_max_records(),
         }
     }
 }
@@ -80,6 +84,9 @@ impl PropagationHistory {
         forecast_reliability_pct: u8,
         forecast_status: BandOpeningStatus,
     ) {
+        if self.max_records == 0 {
+            self.max_records = default_max_records();
+        }
         self.records.push(PropagationRecord {
             band: band.to_string(),
             utc_hour,

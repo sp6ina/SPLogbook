@@ -40,9 +40,9 @@ impl AdifEngine {
             .read_to_string(&mut content)
             .map_err(|e| format!("Błąd odczytu danych ADIF: {e}"))?;
 
-        // Pomiń nagłówek (do znacznika <EOH>)
-        let body = if let Some(pos) = content.to_ascii_uppercase().find("<EOH>") {
-            &content[pos + 5..]
+        // Pomiń nagłówek (do znacznika <EOH>) bez alokacji kopii całego pliku
+        let body = if let Some(end_pos) = find_tag_end_ci(content.as_bytes(), 0, b"<EOH>") {
+            &content[end_pos..]
         } else {
             &content
         };
@@ -97,7 +97,13 @@ impl AdifEngine {
                 if parts.len() >= 2 {
                     let field_name = parts[0].trim().to_uppercase();
                     if let Ok(length) = parts[1].trim().parse::<usize>() {
-                        let end_idx = idx + length;
+                        let Some(end_idx) = idx.checked_add(length) else {
+                            errors.push(format!(
+                                "Rekord {record_index}: pole „{field_name}” deklaruje przepełnienie długości ({length})."
+                            ));
+                            record_has_error = true;
+                            break;
+                        };
                         // Zadeklarowana długość musi mieścić się w buforze; w przeciwnym
                         // razie plik jest ucięty/uszkodzony i rekord należy odrzucić.
                         if end_idx > bytes.len() {
@@ -241,9 +247,21 @@ impl AdifEngine {
             return None;
         }
 
+        let parsed_freq: Option<f64> = fields.get("FREQ").and_then(|f| f.parse().ok());
         let band = fields
             .get("BAND")
+            .filter(|b| !b.is_empty())
             .cloned()
+            .or_else(|| {
+                parsed_freq
+                    .filter(|f| f.is_finite() && *f > 0.0)
+                    .and_then(|f_mhz| {
+                        crate::core::bandplan::get_band_by_freq(
+                            (f_mhz * 1_000_000.0).round() as u64,
+                        )
+                    })
+                    .map(|b| b.name.to_string())
+            })
             .unwrap_or_else(|| "20m".to_string());
         let mode = fields
             .get("MODE")
@@ -252,8 +270,14 @@ impl AdifEngine {
 
         let mut qso = QsoRecord::new(call, band, mode);
 
-        if let Some(sub) = fields.get("SUBMODE") {
-            qso.submode = Some(sub.clone());
+        if let Some(sub) = fields.get("SUBMODE").filter(|s| !s.is_empty()) {
+            let (norm_mode, norm_sub) = Self::normalize_mode_submode(&qso.mode, Some(sub));
+            if norm_mode != "OTHER" {
+                qso.mode = norm_mode.to_string();
+                qso.submode = norm_sub.map(str::to_string).or_else(|| Some(sub.clone()));
+            } else {
+                qso.submode = Some(sub.clone());
+            }
         }
         if let Some(d) = fields.get("QSO_DATE") {
             qso.qso_date.clone_from(d);
@@ -264,8 +288,8 @@ impl AdifEngine {
         if let Some(t) = fields.get("TIME_OFF") {
             qso.time_off = Some(t.clone());
         }
-        if let Some(f) = fields.get("FREQ") {
-            qso.freq = f.parse().ok();
+        if parsed_freq.is_some() {
+            qso.freq = parsed_freq;
         }
         if let Some(f) = fields.get("FREQ_RX") {
             qso.freq_rx = f.parse().ok();
@@ -593,6 +617,13 @@ impl AdifEngine {
 
         Ok(())
     }
+}
+
+fn find_tag_end_ci(bytes: &[u8], start: usize, tag: &[u8]) -> Option<usize> {
+    bytes[start..]
+        .windows(tag.len())
+        .position(|w| w.eq_ignore_ascii_case(tag))
+        .map(|pos| start + pos + tag.len())
 }
 
 fn xml_escape(s: &str) -> String {

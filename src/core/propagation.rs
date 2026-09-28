@@ -273,7 +273,11 @@ impl PropagationEngine {
         let mid_lat = f64::midpoint(origin.latitude, dest.latitude);
         let mut mid_lon = f64::midpoint(origin.longitude, dest.longitude);
         if (origin.longitude - dest.longitude).abs() > 180.0 {
-            mid_lon = (mid_lon + 180.0) % 360.0 - 180.0;
+            if mid_lon > 0.0 {
+                mid_lon -= 180.0;
+            } else {
+                mid_lon += 180.0;
+            }
         }
 
         // 2. Deklinacja słońca i wysokość słońca w punkcie środkowym trasy

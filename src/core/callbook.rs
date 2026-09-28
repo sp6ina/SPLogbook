@@ -343,14 +343,43 @@ pub async fn lookup_callook_info(callsign: &str) -> Result<CallbookData, String>
         .and_then(|v| v.as_str())
         .map(str::to_uppercase);
 
+    let (dxcc, country) = match state.as_deref() {
+        Some("AK") => (Some(6), Some("Alaska".to_string())),
+        Some("HI") => (Some(110), Some("Hawaii".to_string())),
+        Some("PR") => (Some(202), Some("Puerto Rico".to_string())),
+        Some("VI") => (Some(285), Some("US Virgin Islands".to_string())),
+        Some("GU") => (Some(103), Some("Guam".to_string())),
+        Some("MP") => (Some(166), Some("Mariana Islands".to_string())),
+        Some("AS") => (Some(9), Some("American Samoa".to_string())),
+        _ => {
+            if clean.starts_with("KL") || clean.starts_with("AL") || clean.starts_with("NL") || clean.starts_with("WL") {
+                (Some(6), Some("Alaska".to_string()))
+            } else if clean.starts_with("KH6") || clean.starts_with("NH6") || clean.starts_with("WH6") || clean.starts_with("AH6")
+                || clean.starts_with("KH7") || clean.starts_with("NH7") || clean.starts_with("WH7") || clean.starts_with("AH7")
+            {
+                (Some(110), Some("Hawaii".to_string()))
+            } else if clean.starts_with("KP4") || clean.starts_with("NP4") || clean.starts_with("WP4")
+                || clean.starts_with("KP3") || clean.starts_with("NP3") || clean.starts_with("WP3")
+            {
+                (Some(202), Some("Puerto Rico".to_string()))
+            } else if clean.starts_with("KP2") || clean.starts_with("NP2") || clean.starts_with("WP2") {
+                (Some(285), Some("US Virgin Islands".to_string()))
+            } else if clean.starts_with("KH2") || clean.starts_with("NH2") || clean.starts_with("WH2") || clean.starts_with("AH2") {
+                (Some(103), Some("Guam".to_string()))
+            } else {
+                (Some(291), Some("United States".to_string()))
+            }
+        }
+    };
+
     Ok(CallbookData {
         callsign: clean,
         name: if name.is_empty() { None } else { Some(name) },
         qth,
         gridsquare: grid,
         state,
-        dxcc: Some(291), // United States
-        country: Some("United States".to_string()),
+        dxcc,
+        country,
         qsl_manager: None,
         email: None,
         image_url: None,
@@ -479,8 +508,22 @@ pub async fn fetch_callsign_data(
 
     for src in priority {
         let found: Option<CallbookData> = match src {
-            CallbookSource::Local => local_callbook.lookup(&clean),
-            CallbookSource::Cache => local_callbook.cache_lookup(&clean),
+            CallbookSource::Local => {
+                let cb = local_callbook.clone();
+                let c = clean.clone();
+                tokio::task::spawn_blocking(move || cb.lookup(&c))
+                    .await
+                    .ok()
+                    .flatten()
+            }
+            CallbookSource::Cache => {
+                let cb = local_callbook.clone();
+                let c = clean.clone();
+                tokio::task::spawn_blocking(move || cb.cache_lookup(&c))
+                    .await
+                    .ok()
+                    .flatten()
+            }
             CallbookSource::Callook => {
                 if is_usa {
                     lookup_callook_info(&clean).await.ok()
@@ -512,7 +555,9 @@ pub async fn fetch_callsign_data(
                 CallbookSource::Callook | CallbookSource::HamQth | CallbookSource::Qrz
             );
             if from_online {
-                local_callbook.cache_store(&data);
+                let cb = local_callbook.clone();
+                let data_for_cache = data.clone();
+                let _ = tokio::task::spawn_blocking(move || cb.cache_store(&data_for_cache)).await;
             }
             let merged = merge_callbook(result.take(), data);
             let complete = is_complete(&merged);
@@ -527,7 +572,7 @@ pub async fn fetch_callsign_data(
         return Some(data);
     }
 
-    // Ostateczny fallback dla stacji demonstracyjnych
+    // Ostateczny fallback dla znanych stacji bazowych
     match clean.as_str() {
         "SP6INA" => Some(CallbookData {
             callsign: clean,
@@ -549,18 +594,6 @@ pub async fn fetch_callsign_data(
             state: Some("CT".to_string()),
             dxcc: Some(291),
             country: Some("United States".to_string()),
-            qsl_manager: None,
-            email: None,
-            image_url: None,
-        }),
-        "DL1ABC" => Some(CallbookData {
-            callsign: clean,
-            name: Some("Hans Schmidt".to_string()),
-            qth: Some("Berlin".to_string()),
-            gridsquare: Some("JO62QJ".to_string()),
-            state: None,
-            dxcc: Some(230),
-            country: Some("Fed. Rep. of Germany".to_string()),
             qsl_manager: None,
             email: None,
             image_url: None,

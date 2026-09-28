@@ -152,7 +152,9 @@ fn on_startup() {
 }
 
 fn on_qso_logged(call_sign, band, mode, freq, atno) {
-    send_cw("TU " + my_call() + " 5NN " + qso_field("rst_sent") + " 73");
+    if mode == "CW" {
+        send_cw(call_sign + " TU " + my_call() + " " + qso_field("rst_sent") + " 73");
+    }
 }
 "#,
         ),
@@ -173,7 +175,9 @@ fn on_startup() {
 
 fn on_qso_logged(call_sign, band, mode, freq, atno) {
     log("Kontest: " + call_sign + " na " + band + " (" + mode + ")");
-    send_cw("59(9) %SERIAL%");
+    if mode == "CW" {
+        send_cw("5NN %SERIAL%");
+    }
 }
 "#,
         ),
@@ -377,6 +381,23 @@ async fn fetch_remote_catalog() -> Result<Vec<PluginCatalogEntry>, String> {
     parse_catalog(&body)
 }
 
+/// Waliduje nazwę pliku/identyfikator pod kątem prób wyjścia poza katalog (`Path Traversal`).
+fn validate_safe_filename(name: &str) -> Result<(), String> {
+    if name.trim().is_empty()
+        || name.contains("..")
+        || name.contains('/')
+        || name.contains('\\')
+        || name.contains(':')
+    {
+        return Err(format!("Nieprawidłowa nazwa pliku wtyczki: {name}"));
+    }
+    let mut components = Path::new(name).components();
+    match (components.next(), components.next()) {
+        (Some(std::path::Component::Normal(_)), None) => Ok(()),
+        _ => Err(format!("Niedozwolona ścieżka wtyczki: {name}")),
+    }
+}
+
 /// Ścieżka bocznego manifestu instalacji dla wtyczki.
 fn manifest_path(plugins_dir: &Path, id: &str) -> PathBuf {
     plugins_dir.join(format!("{id}.json"))
@@ -397,6 +418,7 @@ pub struct InstalledManifest {
 
 /// Odczytuje wersję zainstalowanej wtyczki (lub `None`).
 pub fn read_installed_version(plugins_dir: &Path, id: &str) -> Option<String> {
+    validate_safe_filename(id).ok()?;
     let raw = std::fs::read_to_string(manifest_path(plugins_dir, id)).ok()?;
     serde_json::from_str::<InstalledManifest>(&raw)
         .ok()
@@ -456,6 +478,9 @@ pub async fn install_entry(
     entry: &PluginCatalogEntry,
     plugins_dir: &Path,
 ) -> Result<PathBuf, String> {
+    validate_safe_filename(&entry.id)?;
+    validate_safe_filename(&entry.file)?;
+
     let bytes = obtain_source(entry).await?;
 
     let sha256 = crate::cloud::updater::sha256_hex(&bytes);
@@ -492,6 +517,9 @@ pub async fn install_entry(
 
 /// Odinstalowuje wtyczkę (usuwa skrypt i manifest boczny).
 pub fn uninstall_entry(plugins_dir: &Path, entry: &PluginCatalogEntry) -> Result<(), String> {
+    validate_safe_filename(&entry.id)?;
+    validate_safe_filename(&entry.file)?;
+
     let script = script_path(plugins_dir, entry);
     if script.exists() {
         std::fs::remove_file(&script)

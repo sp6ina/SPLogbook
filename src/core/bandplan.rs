@@ -458,6 +458,29 @@ pub fn freq_khz_to_band(khz: f64) -> Option<&'static str> {
     get_band_by_freq(freq_hz).map(|b| b.name)
 }
 
+/// Zwraca sugerowaną emisję (np. `"CW"`, `"FT8"`, `"LSB"`, `"USB"`, `"FM"`) dla podanej
+/// częstotliwości w Hz na podstawie segmentów IARU Region 1.
+pub fn get_suggested_mode(freq_hz: u64) -> Option<&'static str> {
+    let band = get_band_by_freq(freq_hz)?;
+    for seg in band.segments {
+        if freq_hz >= seg.start_hz && freq_hz <= seg.end_hz {
+            return Some(match seg.mode {
+                SegmentMode::Cw | SegmentMode::Beacon => "CW",
+                SegmentMode::Data => "FT8",
+                SegmentMode::Fm => "FM",
+                SegmentMode::Ssb => {
+                    if freq_hz < 10_000_000 && !(5_351_500..=5_366_500).contains(&freq_hz) {
+                        "LSB"
+                    } else {
+                        "USB"
+                    }
+                }
+            });
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

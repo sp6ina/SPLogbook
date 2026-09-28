@@ -22,7 +22,7 @@ impl SystemCredentialStore {
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty())
             .unwrap_or_else(|| Path::new("."));
-        let absolute = std::fs::canonicalize(parent)?;
+        let absolute = std::fs::canonicalize(parent).unwrap_or_else(|_| parent.to_path_buf());
         let name = path.file_name().ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -30,6 +30,11 @@ impl SystemCredentialStore {
             )
         })?;
         let account = format!("{}\\{}:{}", absolute.display(), name.to_string_lossy(), id);
+        keyring::Entry::new("SPLogbook", &account).map_err(|e| store_error(&e))
+    }
+
+    fn portable_entry(id: &str) -> io::Result<keyring::Entry> {
+        let account = format!("secret:{id}");
         keyring::Entry::new("SPLogbook", &account).map_err(|e| store_error(&e))
     }
 }
@@ -216,16 +221,31 @@ impl CredentialStore for SystemCredentialStore {
     fn put(&self, path: &Path, id: &str, value: &str) -> io::Result<()> {
         Self::entry(path, id)?
             .set_password(value)
-            .map_err(|e| store_error(&e))
+            .map_err(|e| store_error(&e))?;
+        if let Ok(portable) = Self::portable_entry(id) {
+            let _ = portable.set_password(value);
+        }
+        Ok(())
     }
 
     fn get(&self, path: &Path, id: &str) -> io::Result<String> {
-        Self::entry(path, id)?
-            .get_password()
-            .map_err(|e| store_error(&e))
+        match Self::entry(path, id)?.get_password() {
+            Ok(secret) => Ok(secret),
+            Err(primary_err) => {
+                if let Ok(portable) = Self::portable_entry(id)
+                    && let Ok(secret) = portable.get_password()
+                {
+                    return Ok(secret);
+                }
+                Err(store_error(&primary_err))
+            }
+        }
     }
 
     fn remove(&self, path: &Path, id: &str) -> io::Result<()> {
+        if let Ok(portable) = Self::portable_entry(id) {
+            let _ = portable.delete_credential();
+        }
         Self::entry(path, id)?
             .delete_credential()
             .map_err(|e| store_error(&e))
@@ -333,10 +353,12 @@ impl AppConfig {
         let old_id = self.secret_store_id.clone();
         let unchanged = if old_id.is_empty() {
             false
+        } else if let Ok(saved) = store.get(path, &old_id) {
+            serde_json::from_str::<Secrets>(&saved)
+                .map(|previous| previous == secrets)
+                .unwrap_or(false)
         } else {
-            let saved = store.get(path, &old_id)?;
-            let previous: Secrets = serde_json::from_str(&saved).map_err(io::Error::other)?;
-            previous == secrets
+            false
         };
         let new_id = if unchanged {
             old_id.clone()

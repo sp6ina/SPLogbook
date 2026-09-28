@@ -79,6 +79,10 @@ impl PluginEngine {
         // Limity chroniące przed nadmiernym zużyciem pamięci / DoS ze skryptu.
         engine.set_max_string_size(64 * 1024);
         engine.set_max_expr_depths(64, 32);
+        engine.set_max_operations(100_000);
+        engine.set_max_array_size(4096);
+        engine.set_max_map_size(1024);
+        engine.set_max_call_levels(32);
 
         let state = Arc::new(PluginState::default());
 
@@ -141,15 +145,19 @@ impl PluginEngine {
         });
         let snap = Arc::clone(&state.snapshot);
         engine.register_fn("rotor_azimuth", move || {
-            snap.read()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .rotor_azimuth_deg
+            f64::from(
+                snap.read()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .rotor_azimuth_deg,
+            )
         });
         let snap = Arc::clone(&state.snapshot);
         engine.register_fn("rotor_elevation", move || {
-            snap.read()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .rotor_elevation_deg
+            f64::from(
+                snap.read()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .rotor_elevation_deg,
+            )
         });
         let snap = Arc::clone(&state.snapshot);
         engine.register_fn("my_call", move || {
@@ -265,6 +273,46 @@ impl PluginEngine {
                 PluginCommand::Rotate {
                     azimuth_deg,
                     elevation_deg,
+                },
+            );
+        });
+        let cmd = Arc::clone(&state);
+        engine.register_fn("rotate", move |azimuth_deg: f64| {
+            push_command(
+                &cmd,
+                PluginCommand::Rotate {
+                    azimuth_deg: azimuth_deg as f32,
+                    elevation_deg: 0.0,
+                },
+            );
+        });
+        let cmd = Arc::clone(&state);
+        engine.register_fn("rotate", move |azimuth_deg: f64, elevation_deg: f64| {
+            push_command(
+                &cmd,
+                PluginCommand::Rotate {
+                    azimuth_deg: azimuth_deg as f32,
+                    elevation_deg: elevation_deg as f32,
+                },
+            );
+        });
+        let cmd = Arc::clone(&state);
+        engine.register_fn("rotate", move |azimuth_deg: i64| {
+            push_command(
+                &cmd,
+                PluginCommand::Rotate {
+                    azimuth_deg: azimuth_deg as f32,
+                    elevation_deg: 0.0,
+                },
+            );
+        });
+        let cmd = Arc::clone(&state);
+        engine.register_fn("rotate", move |azimuth_deg: i64, elevation_deg: i64| {
+            push_command(
+                &cmd,
+                PluginCommand::Rotate {
+                    azimuth_deg: azimuth_deg as f32,
+                    elevation_deg: elevation_deg as f32,
                 },
             );
         });
@@ -478,6 +526,9 @@ impl PluginEngine {
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
                 log.push(format!("[{name}] {hook}: {e}"));
+                if log.len() > 500 {
+                    log.remove(0);
+                }
             }
         }
     }

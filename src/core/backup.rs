@@ -36,16 +36,20 @@ impl BackupManager {
         // `rename` — nagłe przerwanie nie pozostawi częściowej kopii pod docelową nazwą.
         let tmp_path = backup_dir.join(format!(".{dest_filename}.tmp"));
 
-        {
-            let source = Connection::open(source_db_path)
-                .map_err(|e| format!("Błąd otwarcia bazy źródłowej: {e}"))?;
-            let mut dest = Connection::open(&tmp_path)
-                .map_err(|e| format!("Błąd otwarcia pliku kopii: {e}"))?;
-            let backup = Backup::new(&source, &mut dest)
-                .map_err(|e| format!("Błąd inicjalizacji kopii zapasowej: {e}"))?;
-            backup
-                .run_to_completion(64, Duration::from_millis(50), None)
-                .map_err(|e| format!("Błąd wykonywania kopii zapasowej: {e}"))?;
+        let sqlite_ok = (|| -> rusqlite::Result<()> {
+            let source = Connection::open_with_flags(
+                source_db_path,
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+            )?;
+            let mut dest = Connection::open(&tmp_path)?;
+            let backup = Backup::new(&source, &mut dest)?;
+            backup.run_to_completion(64, Duration::from_millis(50), None)
+        })();
+
+        if let Err(e) = sqlite_ok {
+            let _ = fs::remove_file(&tmp_path);
+            fs::copy(source_db_path, &tmp_path)
+                .map_err(|copy_err| format!("Błąd wykonywania kopii zapasowej ({e}): {copy_err}"))?;
         }
 
         fs::rename(&tmp_path, &dest_path)

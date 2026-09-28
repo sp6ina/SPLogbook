@@ -116,13 +116,26 @@ pub const PROTOCOL_VERSION: u32 = 1;
 /// Lokalne identyfikatory bazy różnią się między stacjami, więc scalanie opiera
 /// się na zawartości: znak + pasmo + emisja + data + czas.
 pub fn qso_key(qso: &QsoRecord) -> String {
+    let date: String = qso
+        .qso_date
+        .trim()
+        .chars()
+        .filter(|&c| c != '-')
+        .collect();
+    let time: String = qso
+        .time_on
+        .trim()
+        .chars()
+        .filter(|&c| c != ':')
+        .take(4)
+        .collect();
     format!(
         "{}|{}|{}|{}|{}",
         qso.callsign.trim().to_uppercase(),
         qso.band.trim().to_uppercase(),
         qso.mode.trim().to_uppercase(),
-        qso.qso_date.trim(),
-        qso.time_on.trim()
+        date,
+        time
     )
 }
 

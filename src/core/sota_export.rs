@@ -32,12 +32,12 @@ pub fn export_sota_csv(qsos: &[QsoRecord], my_call: &str, my_sota: &str) -> Stri
 }
 
 fn format_sota_date(adif_date: &str) -> String {
-    let clean = adif_date.trim();
-    if clean.len() == 8 {
+    let digits: String = adif_date.chars().filter(char::is_ascii_digit).collect();
+    if digits.len() == 8 {
         // YYYYMMDD -> DD/MM/YY
-        let y = &clean[2..4];
-        let m = &clean[4..6];
-        let d = &clean[6..8];
+        let y = &digits[2..4];
+        let m = &digits[4..6];
+        let d = &digits[6..8];
         format!("{d}/{m}/{y}")
     } else {
         chrono::Utc::now().format("%d/%m/%y").to_string()
@@ -45,10 +45,10 @@ fn format_sota_date(adif_date: &str) -> String {
 }
 
 fn format_sota_time(adif_time: &str) -> String {
-    let clean = adif_time.trim();
-    if clean.len() >= 4 {
+    let digits: String = adif_time.chars().filter(char::is_ascii_digit).collect();
+    if digits.len() >= 4 {
         // HHMM -> HH:MM
-        format!("{}:{}", &clean[0..2], &clean[2..4])
+        format!("{}:{}", &digits[0..2], &digits[2..4])
     } else {
         chrono::Utc::now().format("%H:%M").to_string()
     }
@@ -70,8 +70,15 @@ fn format_sota_band(band: &str) -> String {
         "6m" => "50MHz".to_string(),
         "4m" => "70MHz".to_string(),
         "2m" => "144MHz".to_string(),
+        "1.25m" => "220MHz".to_string(),
         "70cm" => "432MHz".to_string(),
-        "23cm" => "1296MHz".to_string(),
+        "33cm" => "900MHz".to_string(),
+        "23cm" => "1240MHz".to_string(),
+        "13cm" => "2300MHz".to_string(),
+        "9cm" => "3400MHz".to_string(),
+        "6cm" => "5650MHz".to_string(),
+        "3cm" => "10000MHz".to_string(),
+        "1.25cm" => "24000MHz".to_string(),
         other => {
             if other.ends_with("mhz") {
                 other.to_uppercase()

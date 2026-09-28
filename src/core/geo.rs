@@ -35,15 +35,15 @@ pub fn coordinates_to_locator(
     let lat = coords.latitude + 90.0;
     let lon = coords.longitude + 180.0;
 
-    let f1 = (lon / 20.0).floor() as u8;
-    let f2 = (lat / 10.0).floor() as u8;
-    let rem_lon1 = lon - (f1 as f64 * 20.0);
-    let rem_lat1 = lat - (f2 as f64 * 10.0);
+    let f1 = ((lon / 20.0).floor() as u8).min(17);
+    let f2 = ((lat / 10.0).floor() as u8).min(17);
+    let rem_lon1 = (lon - (f1 as f64 * 20.0)).clamp(0.0, 19.999_999);
+    let rem_lat1 = (lat - (f2 as f64 * 10.0)).clamp(0.0, 9.999_999);
 
-    let s1 = (rem_lon1 / 2.0).floor() as u8;
-    let s2 = rem_lat1.floor() as u8;
-    let rem_lon2 = rem_lon1 - (s1 as f64 * 2.0);
-    let rem_lat2 = rem_lat1 - (s2 as f64);
+    let s1 = ((rem_lon1 / 2.0).floor() as u8).min(9);
+    let s2 = (rem_lat1.floor() as u8).min(9);
+    let rem_lon2 = (rem_lon1 - (s1 as f64 * 2.0)).max(0.0);
+    let rem_lat2 = (rem_lat1 - (s2 as f64)).max(0.0);
 
     let mut loc = String::with_capacity(precision);
     loc.push((b'A' + f1) as char);
@@ -59,8 +59,8 @@ pub fn coordinates_to_locator(
     }
 
     if precision >= 8 {
-        let rem_lon3 = rem_lon2 - (loc.as_bytes()[4] - b'A') as f64 * (2.0 / 24.0);
-        let rem_lat3 = rem_lat2 - (loc.as_bytes()[5] - b'A') as f64 * (1.0 / 24.0);
+        let rem_lon3 = (rem_lon2 - (loc.as_bytes()[4] - b'A') as f64 * (2.0 / 24.0)).max(0.0);
+        let rem_lat3 = (rem_lat2 - (loc.as_bytes()[5] - b'A') as f64 * (1.0 / 24.0)).max(0.0);
         let ext1 = (rem_lon3 / (2.0 / 240.0)).floor() as u8;
         let ext2 = (rem_lat3 / (1.0 / 240.0)).floor() as u8;
         loc.push((b'0' + ext1.min(9)) as char);
@@ -78,8 +78,8 @@ pub fn locator_to_coordinates(locator: &str) -> Result<Coordinates, &'static str
         return Err("Lokator musi mieć co najmniej 4 znaki");
     }
 
-    if !bytes[0].is_ascii_uppercase()
-        || !bytes[1].is_ascii_uppercase()
+    if !(b'A'..=b'R').contains(&bytes[0])
+        || !(b'A'..=b'R').contains(&bytes[1])
         || !bytes[2].is_ascii_digit()
         || !bytes[3].is_ascii_digit()
     {
@@ -94,11 +94,24 @@ pub fn locator_to_coordinates(locator: &str) -> Result<Coordinates, &'static str
     let mut lon = f1 * 20.0 + s1 * 2.0 - 180.0;
     let mut lat = f2 * 10.0 + s2 * 1.0 - 90.0;
 
-    if bytes.len() >= 6 && bytes[4].is_ascii_alphabetic() && bytes[5].is_ascii_alphabetic() {
+    if bytes.len() >= 6
+        && (b'A'..=b'X').contains(&bytes[4].to_ascii_uppercase())
+        && (b'A'..=b'X').contains(&bytes[5].to_ascii_uppercase())
+    {
         let sub1 = (bytes[4].to_ascii_uppercase() - b'A') as f64;
         let sub2 = (bytes[5].to_ascii_uppercase() - b'A') as f64;
-        lon += sub1 * (2.0 / 24.0) + (1.0 / 24.0); // środek podkwadratu
-        lat += sub2 * (1.0 / 24.0) + (0.5 / 24.0);
+        lon += sub1 * (2.0 / 24.0);
+        lat += sub2 * (1.0 / 24.0);
+
+        if bytes.len() >= 8 && bytes[6].is_ascii_digit() && bytes[7].is_ascii_digit() {
+            let ext1 = (bytes[6] - b'0') as f64;
+            let ext2 = (bytes[7] - b'0') as f64;
+            lon += ext1 * (2.0 / 240.0) + (1.0 / 240.0);
+            lat += ext2 * (1.0 / 240.0) + (0.5 / 240.0);
+        } else {
+            lon += 1.0 / 24.0; // środek podkwadratu
+            lat += 0.5 / 24.0;
+        }
     } else {
         // środek kwadratu 4-znakowego
         lon += 1.0;

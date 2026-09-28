@@ -244,7 +244,6 @@ pub fn apply_to_qso(parsed: &ParsedExchange, qso: &mut QsoRecord) {
     }
     if let Some(serial) = parsed.serial {
         qso.srx = Some(serial);
-        qso.srx_string = Some(serial.to_string());
     }
     if let Some(zone) = parsed.zone {
         qso.cqz = Some(zone);
@@ -275,7 +274,7 @@ pub fn apply_to_qso(parsed: &ParsedExchange, qso: &mut QsoRecord) {
         qso.qth = Some(qth.clone());
     }
     // Pełna, oryginalna wymiana trafia do SRX_STRING (ADIF) jako zapas.
-    if !parsed.raw.is_empty() {
+    if qso.srx_string.is_none() && !parsed.raw.is_empty() {
         qso.srx_string = Some(parsed.raw.clone());
     }
     // Dodatkowe, nie-ADIF pola (moc/wiek/rok/czas/HQ/kategoria) — do komentarza.
@@ -432,11 +431,27 @@ fn field_label(field: ExchangeField) -> &'static str {
 
 /// Dzieli tekst na tokeny, obsługując sklejoną formę `RST+numer` (np. `599001`).
 fn tokenize(text: &str, fields: &[ExchangeField]) -> Vec<String> {
-    if fields.first() == Some(&ExchangeField::Rst) {
-        let compact: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+    if fields.first() == Some(&ExchangeField::Rst) && text.split_whitespace().count() == 1 {
+        let compact = text.trim();
         let bytes = compact.as_bytes();
         if compact.len() >= 5 && compact.len() <= 6 && bytes.iter().all(u8::is_ascii_digit) {
-            let rst_len = if compact.starts_with("599") { 3 } else { 2 };
+            let is_3digit_cw_rst = (b'1'..=b'5').contains(&bytes[0])
+                && (b'1'..=b'9').contains(&bytes[1])
+                && (bytes[2] == b'8' || bytes[2] == b'9');
+            let expects_zone_or_serial = fields.get(1).is_some_and(|f| {
+                matches!(
+                    f,
+                    ExchangeField::Zone
+                        | ExchangeField::ZoneOrHq
+                        | ExchangeField::ItuZone
+                        | ExchangeField::Serial
+                )
+            });
+            let rst_len = if is_3digit_cw_rst && (compact.len() == 6 || expects_zone_or_serial) {
+                3
+            } else {
+                2
+            };
             let rst = &compact[..rst_len];
             let rest = &compact[rst_len..];
             if is_rst(rst) && !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()) {
