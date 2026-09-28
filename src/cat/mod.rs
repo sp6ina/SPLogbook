@@ -11,4 +11,5 @@ pub mod tci;
 pub mod server;
 pub mod flrig;
 pub mod icom_ci_v;
+pub mod kenwood;
 pub mod so2r;

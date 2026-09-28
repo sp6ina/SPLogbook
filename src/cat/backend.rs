@@ -21,18 +21,30 @@ pub enum CatBackendKind {
     Tci,
     /// Bezpośredni protokół Icom CI-V (port szeregowy).
     IcomCiV,
+    /// Bezpośredni tekstowy protokół Kenwood / Elecraft / Yaesu CAT.
+    Kenwood,
     /// Logika SO2R (dwa radia, blokada pojedynczego TX).
     So2r,
+}
+
+impl std::str::FromStr for CatBackendKind {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self::from_str(s))
+    }
 }
 
 impl CatBackendKind {
     /// Mapuje napis konfiguracyjny (`AppConfig.cat_backend`) na typ backendu.
     /// Nieznane wartości traktowane są jako Hamlib (bezpieczny domyślny backend).
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         match s.trim().to_ascii_lowercase().as_str() {
             "flrig" | "fldigi" => Self::Flrig,
             "tci" | "sunsdr" | "thetis" => Self::Tci,
             "icom_ci_v" | "icom-civ" | "ci-v" | "civ" | "icom" => Self::IcomCiV,
+            "kenwood" | "elecraft" | "yaesu" | "ts" | "k3" => Self::Kenwood,
             "so2r" => Self::So2r,
             _ => Self::Hamlib,
         }
@@ -45,6 +57,7 @@ impl CatBackendKind {
             Self::Flrig => "flrig",
             Self::Tci => "tci",
             Self::IcomCiV => "icom_ci_v",
+            Self::Kenwood => "kenwood",
             Self::So2r => "so2r",
         }
     }
@@ -56,12 +69,13 @@ impl CatBackendKind {
             Self::Flrig => "FLRig (XML-RPC)",
             Self::Tci => "TCI (SDR)",
             Self::IcomCiV => "Icom CI-V",
+            Self::Kenwood => "Kenwood / Elecraft / Yaesu (CAT)",
             Self::So2r => "SO2R",
         }
     }
 
     /// Wszystkie obsługiwane typy (do list rozwijanych).
-    pub const ALL: [Self; 5] = [Self::Hamlib, Self::Flrig, Self::Tci, Self::IcomCiV, Self::So2r];
+    pub const ALL: [Self; 6] = [Self::Hamlib, Self::Flrig, Self::Tci, Self::IcomCiV, Self::Kenwood, Self::So2r];
 }
 
 fn not_implemented(kind: CatBackendKind, op: &str) -> String {
@@ -263,6 +277,8 @@ mod tests {
         assert_eq!(CatBackendKind::from_str("flrig"), CatBackendKind::Flrig);
         assert_eq!(CatBackendKind::from_str("TCI"), CatBackendKind::Tci);
         assert_eq!(CatBackendKind::from_str("ci-v"), CatBackendKind::IcomCiV);
+        assert_eq!(CatBackendKind::from_str("kenwood"), CatBackendKind::Kenwood);
+        assert_eq!(CatBackendKind::from_str("yaesu"), CatBackendKind::Kenwood);
         assert_eq!(CatBackendKind::from_str("so2r"), CatBackendKind::So2r);
     }
 
