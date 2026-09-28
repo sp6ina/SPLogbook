@@ -21,7 +21,7 @@ use eframe::egui;
 
 /// Główny pasek menu (Menu Bar) z rozwijanymi kategoriami
 pub fn render_menu_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
-    egui::menu::bar(ui, |ui| {
+    egui::MenuBar::new().ui(ui, |ui| {
         file::render(app, ui);
         edit::render(app, ui);
         view::render(app, ui);

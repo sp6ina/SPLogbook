@@ -127,7 +127,7 @@ impl SpLogApp {
         min_size: [f32; 2],
         saved_pos: Option<[f32; 2]>,
         saved_size: Option<[f32; 2]>,
-        mut body: impl FnMut(&mut Self, &egui::Context) -> T,
+        mut body: impl FnMut(&mut Self, &mut egui::Ui) -> T,
     ) -> (T, Option<([f32; 2], [f32; 2])>) {
         let mut captured_geo: Option<([f32; 2], [f32; 2])> = None;
         let mut builder = egui::ViewportBuilder::default()
@@ -137,9 +137,9 @@ impl SpLogApp {
         if let Some([x, y]) = saved_pos {
             builder = builder.with_position(egui::pos2(x, y));
         }
-        let result = ctx.show_viewport_immediate(viewport_id, builder, |vp_ctx, _class| {
-            let out = body(self, vp_ctx);
-            captured_geo = vp_ctx.input(|i| {
+        let result = ctx.show_viewport_immediate(viewport_id, builder, |vp_ui, _class| {
+            let out = body(self, vp_ui);
+            captured_geo = vp_ui.ctx().input(|i| {
                 i.viewport().outer_rect.map(|r| ([r.min.x, r.min.y], [r.width(), r.height()]))
             });
             out
@@ -422,7 +422,7 @@ impl SpLogApp {
                 } else {
                     egui::Color32::from_rgba_unmultiplied(56, 189, 248, 80)
                 };
-                ui.painter().rect_stroke(rect, 8.0, egui::Stroke::new(if hovered { 2.5_f32 } else { 1.5_f32 }, border_color));
+                ui.painter().rect_stroke(rect, 8.0, egui::Stroke::new(if hovered { 2.5_f32 } else { 1.5_f32 }, border_color), egui::StrokeKind::Inside);
                 let fill = if hovered {
                     egui::Color32::from_rgba_unmultiplied(56, 189, 248, 30)
                 } else {
@@ -494,8 +494,8 @@ impl SpLogApp {
             };
 
             egui::Frame::group(ui.style())
-                .rounding(6.0)
-                .inner_margin(egui::Margin::same(8.0))
+                .corner_radius(6.0)
+                .inner_margin(egui::Margin::same(8))
                 .stroke(border_stroke)
                 .show(ui, |ui| {
                     ui.vertical(|ui| {
@@ -645,8 +645,8 @@ impl SpLogApp {
         let mut action_move_order: Option<(String, i32)> = None;
 
         egui::Frame::group(ui.style())
-            .rounding(6.0)
-            .inner_margin(egui::Margin::same(8.0))
+            .corner_radius(6.0)
+            .inner_margin(egui::Margin::same(8))
             .stroke(egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(51, 65, 85)))
             .show(ui, |ui| {
                 ui.vertical(|ui| {

@@ -49,18 +49,18 @@ pub fn render_bandmap_window(app: &mut SpLogApp, ctx: &egui::Context) {
             [280.0, 220.0],
             app.panel_bandmap.saved_pos,
             app.panel_bandmap.saved_size,
-            |app, ctx| {
-                egui::TopBottomPanel::top("bandmap_vp_bar").show(ctx, |ui| {
+            |app, ui| {
+                egui::Panel::top("bandmap_vp_bar").show(ui, |ui| {
                     ui.horizontal(|ui| {
                         if ui.button("↙ Przypnij do pulpitu").on_hover_text("Przenieś okno z powrotem na główny pulpit SPLogbook").clicked() {
                             dock_back = true;
                         }
                     });
                 });
-                egui::CentralPanel::default().show(ctx, |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
                     render_bandmap_content(app, ui);
                 });
-                if ctx.input(|i| i.viewport().close_requested()) {
+                if ui.ctx().input(|i| i.viewport().close_requested()) {
                     still_open = false;
                 }
             },
@@ -86,7 +86,7 @@ pub fn render_bandmap_window(app: &mut SpLogApp, ctx: &egui::Context) {
     }
 
     let mut open = app.panel_bandmap.visible;
-    let screen = ctx.available_rect();
+    let screen = ctx.content_rect();
     let right_w = 360.0_f32.min((screen.width() - 500.0).max(200.0));
     let mid_w = (screen.width() - 488.0 - right_w - 20.0).max(380.0);
     let right_x = screen.min.x + 488.0 + mid_w + 10.0;
@@ -208,7 +208,7 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         // Tło skali
         painter.rect_filled(rect, 4.0, egui::Color32::from_rgb(15, 23, 42));
-        painter.rect_stroke(rect, 4.0, egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(51, 65, 85)));
+        painter.rect_stroke(rect, 4.0, egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(51, 65, 85)), egui::StrokeKind::Inside);
 
         // Wycinki pasma wg IARU
         for seg in current_band_def.segments {

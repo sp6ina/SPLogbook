@@ -18,7 +18,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             app.show_command_palette = true;
             app.command_palette_query.clear();
             app.command_palette_selected = 0;
-            ui.close_menu();
+            ui.close();
         }
         ui.separator();
         if ui
@@ -27,62 +27,62 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         {
             app.show_user_manual = true;
             app.manual_section = None;
-            ui.close_menu();
+            ui.close();
         }
         if ui
             .add(egui::Button::new(icons::KEYBOARD.label(tr("help.shortcuts_title", lang))).shortcut_text("F1"))
             .clicked()
         {
             app.show_shortcuts_window = true;
-            ui.close_menu();
+            ui.close();
         }
         if ui.button(icons::SETTINGS.label("Konfiguracja Windows i Linux (Porty / Grupy)")).clicked() {
             app.show_user_manual = true;
             app.manual_section = Some("os_setup".to_string());
-            ui.close_menu();
+            ui.close();
         }
         if ui.button(icons::INFO_ICON.label("Rozwiązywanie problemów (FAQ)")).clicked() {
             app.show_user_manual = true;
             app.manual_section = Some("troubleshooting".to_string());
-            ui.close_menu();
+            ui.close();
         }
         if ui.button(icons::THEME.label(tr("help.legend", lang))).clicked() {
             app.show_legend_window = true;
-            ui.close_menu();
+            ui.close();
         }
         ui.separator();
         if ui.button(icons::FOLDER.label("Otwórz katalog danych programu")).clicked() {
             if let Some(parent) = app.config_file_path.parent() {
                 let _ = open::that(parent);
             }
-            ui.close_menu();
+            ui.close();
         }
         if ui.button(icons::CHANGELOG.label("Dziennik zmian")).clicked() {
             app.show_changelog_window = true;
-            ui.close_menu();
+            ui.close();
         }
         if ui.button(icons::UPDATE.label("Sprawdź aktualizacje")).clicked() {
             app.show_update_window = true;
-            ui.close_menu();
+            ui.close();
         }
         if ui.button(icons::WIZARD.label(tr("help.rerun_wizard", lang))).clicked() {
             app.show_welcome_wizard = true;
             app.wizard_tab = 0;
-            ui.close_menu();
+            ui.close();
         }
         ui.separator();
         if ui.button(icons::BUG.label(tr("help.report_bug", lang))).clicked() {
             let _ = open::that("https://github.com/sp6ina/SPLogbook/issues/new");
-            ui.close_menu();
+            ui.close();
         }
         if ui.button("☕ Postaw kawę autorowi (Buy Me a Coffee)").clicked() {
             let _ = open::that("https://buycoffee.to/sp6ina");
-            ui.close_menu();
+            ui.close();
         }
         ui.separator();
         if ui.button(tr("tab.about", lang)).clicked() {
             app.show_about_window = true;
-            ui.close_menu();
+            ui.close();
         }
     });
 }

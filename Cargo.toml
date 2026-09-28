@@ -30,9 +30,9 @@ log = "0.4"
 env_logger = "0.11"
 thiserror = "2.0"
 futures-util = "0.3"
-eframe = { version = "0.30", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
-egui_extras = { version = "0.30", features = ["default"] }
-egui_dock = { version = "0.15", features = ["serde"] }
+eframe = { version = "0.36", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
+egui_extras = { version = "0.36", features = ["default"] }
+egui_dock = { version = "0.21", features = ["serde"] }
 rfd = "0.15"
 
 # Audio, export, and API
@@ -41,9 +41,9 @@ cpal = "0.15"
 rustfft = "6.2"
 printpdf = "0.7"
 gpx = "0.10"
-axum = { version = "0.7", features = ["tokio", "ws"] }
+axum = { version = "0.8", features = ["tokio", "ws"] }
 open = "5"
-tower = "0.4"
+tower = "0.5"
 geo-types = "0.7"
 keyring = { version = "3.6", default-features = false }
 uuid = { version = "1", features = ["v4"] }

@@ -28,7 +28,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 if ui.selectable_label(lang == l, format!("{} {}", flag, l.display_name())).clicked() {
                     app.current_language = l;
                     app.save_station_config();
-                    ui.close_menu();
+                    ui.close();
                 }
             }
         });
@@ -40,7 +40,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 if ui.selectable_label(selected, preset.label_pl()).on_hover_text(preset.description_pl()).clicked() {
                     app.theme_preset = preset;
                     app.save_station_config();
-                    ui.close_menu();
+                    ui.close();
                 }
             }
         });

@@ -21,8 +21,8 @@ pub fn render_vfo_window(app: &mut SpLogApp, ctx: &egui::Context) {
             [400.0, 240.0],
             app.panel_vfo.saved_pos,
             app.panel_vfo.saved_size,
-            |app, ctx| {
-                egui::TopBottomPanel::top("vfo_vp_bar").show(ctx, |ui| {
+            |app, ui| {
+                egui::Panel::top("vfo_vp_bar").show(ui, |ui| {
                     ui.horizontal(|ui| {
                         let lang = app.current_language;
                         if ui.button(format!("↙ {}", tr("window.dock", lang))).on_hover_text(tr("window.dock_tooltip", lang)).clicked() {
@@ -30,10 +30,10 @@ pub fn render_vfo_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         }
                     });
                 });
-                egui::CentralPanel::default().show(ctx, |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
                     render_vfo_body(app, ui);
                 });
-                if ctx.input(|i| i.viewport().close_requested()) {
+                if ui.ctx().input(|i| i.viewport().close_requested()) {
                     still_open = false;
                 }
             },
@@ -59,7 +59,7 @@ pub fn render_vfo_window(app: &mut SpLogApp, ctx: &egui::Context) {
     }
 
     let mut open = app.panel_vfo.visible;
-    let screen = ctx.available_rect();
+    let screen = ctx.content_rect();
     let default_pos = [screen.min.x + 8.0, screen.min.y + 8.0];
     let default_size = [510.0, 310.0];
 
@@ -154,13 +154,7 @@ fn render_tuning_digit(
     ));
 
     if hovered {
-        let scroll_y = ui.input(|i| {
-            if i.raw_scroll_delta.y.abs() > 0.0 {
-                i.raw_scroll_delta.y
-            } else {
-                i.smooth_scroll_delta.y
-            }
-        });
+        let scroll_y = ui.input(|i| i.smooth_scroll_delta.y);
         if scroll_y > 0.0 {
             app.step_vfo(weight_hz);
         } else if scroll_y < 0.0 {

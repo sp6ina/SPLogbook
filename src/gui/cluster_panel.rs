@@ -103,8 +103,8 @@ pub fn render_cluster_window(app: &mut SpLogApp, ctx: &egui::Context) {
             [420.0, 280.0],
             app.panel_cluster.saved_pos,
             app.panel_cluster.saved_size,
-            |app, ctx| {
-                egui::TopBottomPanel::top("cluster_vp_bar").show(ctx, |ui| {
+            |app, ui| {
+                egui::Panel::top("cluster_vp_bar").show(ui, |ui| {
                     ui.horizontal(|ui| {
                         if ui.button(format!("↙ {}", tr("window.dock", lang))).on_hover_text(tr("window.dock_tooltip", lang)).clicked() {
                             dock_back = true;
@@ -123,10 +123,10 @@ pub fn render_cluster_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         }
                     });
                 });
-                egui::CentralPanel::default().show(ctx, |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
                     render_cluster_body(app, ui);
                 });
-                if ctx.input(|i| i.viewport().close_requested()) {
+                if ui.ctx().input(|i| i.viewport().close_requested()) {
                     still_open = false;
                 }
             },
@@ -152,7 +152,7 @@ pub fn render_cluster_window(app: &mut SpLogApp, ctx: &egui::Context) {
     }
 
     let mut open = app.panel_cluster.visible;
-    let screen = ctx.available_rect();
+    let screen = ctx.content_rect();
     let right_w = 360.0_f32.min((screen.width() - 500.0).max(200.0));
     let mid_w = (screen.width() - 488.0 - right_w - 20.0).max(380.0);
     let mid_h = (screen.height() * 0.56).max(340.0);

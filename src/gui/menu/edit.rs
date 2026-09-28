@@ -12,11 +12,11 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
     ui.menu_button(tr("menu.edit", lang), |ui| {
         if ui.button(tr("qso.clear", lang)).clicked() {
             app.clear_qso_form();
-            ui.close_menu();
+            ui.close();
         }
         if ui.button(tr("qso.delete", lang)).clicked() {
             app.delete_selected_qso();
-            ui.close_menu();
+            ui.close();
         }
     });
 }

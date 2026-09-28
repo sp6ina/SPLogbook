@@ -32,18 +32,18 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     format!("Zastosowano preset: {name}"),
                     std::time::Instant::now(),
                 ));
-                ui.close_menu();
+                ui.close();
             }
         }
 
         ui.separator();
         if ui.button("💾 Zapisz bieżący układ…").clicked() {
             app.show_workspace_profiles_window = true;
-            ui.close_menu();
+            ui.close();
         }
         if ui.button("📂 Zarządzaj profilami…").clicked() {
             app.show_workspace_profiles_window = true;
-            ui.close_menu();
+            ui.close();
         }
     });
 }

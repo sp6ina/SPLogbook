@@ -153,18 +153,18 @@ pub fn render_world_map_window(app: &mut SpLogApp, ctx: &egui::Context) {
             [460.0, 300.0],
             app.panel_world_map.saved_pos,
             app.panel_world_map.saved_size,
-            |app, ctx| {
-                egui::TopBottomPanel::top("world_map_vp_bar").show(ctx, |ui| {
+            |app, ui| {
+                egui::Panel::top("world_map_vp_bar").show(ui, |ui| {
                     ui.horizontal(|ui| {
                         if ui.button(format!("↙ {}", tr("window.dock", lang))).on_hover_text(tr("window.dock_tooltip", lang)).clicked() {
                             dock_back = true;
                         }
                     });
                 });
-                egui::CentralPanel::default().show(ctx, |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
                     render_world_map_content(app, ui);
                 });
-                if ctx.input(|i| i.viewport().close_requested()) {
+                if ui.ctx().input(|i| i.viewport().close_requested()) {
                     still_open = false;
                 }
             },
@@ -190,7 +190,7 @@ pub fn render_world_map_window(app: &mut SpLogApp, ctx: &egui::Context) {
     }
 
     let mut is_open = app.panel_world_map.visible;
-    let screen = ctx.available_rect();
+    let screen = ctx.content_rect();
     let right_w = 360.0_f32.min((screen.width() - 500.0).max(200.0));
     let mid_w = (screen.width() - 488.0 - right_w - 20.0).max(380.0);
 
@@ -319,7 +319,7 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
             state.pan += response.drag_delta();
         }
         if response.hovered() {
-            let scroll = ui.input(|i| i.raw_scroll_delta.y);
+            let scroll = ui.input(|i| i.smooth_scroll_delta.y);
             if scroll != 0.0 {
                 state.zoom = (state.zoom + scroll * 0.001).clamp(1.0, 5.0);
             }
@@ -336,7 +336,7 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
             rect.left_bottom() + egui::vec2(10.0, -70.0),
             egui::vec2(30.0, 60.0),
         );
-        ui.allocate_new_ui(egui::UiBuilder::new().max_rect(zoom_rect), |ui| {
+        ui.scope_builder(egui::UiBuilder::new().max_rect(zoom_rect), |ui| {
             ui.vertical(|ui| {
                 if ui.button("+").clicked() {
                     state.zoom = (state.zoom + 0.5).clamp(1.0, 5.0);
@@ -508,7 +508,7 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                         // Podpowiedź tooltip
                         let tip_box = egui::Rect::from_min_size(spot_pos + egui::vec2(8.0, -16.0), egui::vec2(110.0, 26.0));
                         painter.rect_filled(tip_box, 3.0, egui::Color32::from_rgba_unmultiplied(15, 23, 42, 235));
-                        painter.rect_stroke(tip_box, 3.0, egui::Stroke::new(1.0_f32, spot_color));
+                        painter.rect_stroke(tip_box, 3.0, egui::Stroke::new(1.0_f32, spot_color), egui::StrokeKind::Inside);
                         painter.text(
                             spot_pos + egui::vec2(12.0, -3.0),
                             egui::Align2::LEFT_CENTER,
@@ -549,7 +549,7 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                             if (hp - qso_pos).length() < 5.0 {
                                 let tip_box = egui::Rect::from_min_size(qso_pos + egui::vec2(6.0, -12.0), egui::vec2(90.0, 16.0));
                                 painter.rect_filled(tip_box, 3.0, egui::Color32::from_rgba_unmultiplied(15, 23, 42, 235));
-                                painter.rect_stroke(tip_box, 3.0, egui::Stroke::new(1.0_f32, color));
+                                painter.rect_stroke(tip_box, 3.0, egui::Stroke::new(1.0_f32, color), egui::StrokeKind::Inside);
                                 painter.text(
                                     qso_pos + egui::vec2(10.0, -4.0),
                                     egui::Align2::LEFT_CENTER,

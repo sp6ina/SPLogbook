@@ -45,7 +45,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         if ui.button(egui::RichText::new(icons::REFRESH.label(tr("view.reset_layout", lang))).strong()).clicked() {
             app.reset_panel_layout();
             app.save_station_config();
-            ui.close_menu();
+            ui.close();
         }
         ui.separator();
         ui.checkbox(&mut app.show_awards_matrix_window, icons::AWARDS.label(tr("view.awards_matrix", lang)));

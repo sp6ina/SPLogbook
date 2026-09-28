@@ -315,12 +315,12 @@ pub fn build_api_router(state: ApiState) -> Router {
         .route("/api/v1/status", get(get_status))
         .route("/api/v1/endpoints", get(get_endpoints))
         .route("/api/v1/qsos", get(get_qsos).post(post_qso))
-        .route("/api/v1/qsos/callsign/:call", get(get_qsos_by_callsign))
+        .route("/api/v1/qsos/callsign/{call}", get(get_qsos_by_callsign))
         .route(
-            "/api/v1/qsos/:id",
+            "/api/v1/qsos/{id}",
             get(get_qso_by_id).put(put_qso_by_id).delete(delete_qso_by_id),
         )
-        .route("/api/v1/lookup/:call", get(lookup_callsign))
+        .route("/api/v1/lookup/{call}", get(lookup_callsign))
         .route("/api/v1/adif/export", get(export_adif_handler))
         .route("/api/v1/adif/import", post(import_adif_handler))
         .route("/api/v1/rig", get(get_rig_state).post(post_rig_control))
@@ -421,31 +421,31 @@ async fn get_endpoints() -> Json<Vec<EndpointDoc>> {
         },
         EndpointDoc {
             method: "GET",
-            path: "/api/v1/qsos/:id",
+            path: "/api/v1/qsos/{id}",
             auth_required: true,
             description: "Pobiera pojedynczy rekord QSO po identyfikatorze ID.",
         },
         EndpointDoc {
             method: "PUT",
-            path: "/api/v1/qsos/:id",
+            path: "/api/v1/qsos/{id}",
             auth_required: true,
             description: "Aktualizuje istniejący rekord QSO po identyfikatorze ID.",
         },
         EndpointDoc {
             method: "DELETE",
-            path: "/api/v1/qsos/:id",
+            path: "/api/v1/qsos/{id}",
             auth_required: true,
             description: "Usuwa rekord QSO z bazy danych po identyfikatorze ID.",
         },
         EndpointDoc {
             method: "GET",
-            path: "/api/v1/qsos/callsign/:call",
+            path: "/api/v1/qsos/callsign/{call}",
             auth_required: true,
             description: "Historia łączności z danym znakiem wywoławczym oraz sprawdzanie duplikatów (?band=20m&mode=CW&same_day=true).",
         },
         EndpointDoc {
             method: "GET",
-            path: "/api/v1/lookup/:call",
+            path: "/api/v1/lookup/{call}",
             auth_required: true,
             description: "Rozpoznanie DXCC, stref CQ/ITU, okręgu SP, klubów oraz statusu dyplomowego ATNO dla znaku (?band=20m&mode=CW).",
         },
@@ -1135,7 +1135,7 @@ async fn handle_socket(socket: WebSocket, state: ApiState) {
         "adif_version": ADIF_VERSION,
     })
     .to_string();
-    if sender.send(Message::Text(hello)).await.is_err() {
+    if sender.send(Message::Text(hello.into())).await.is_err() {
         return;
     }
 
@@ -1149,13 +1149,13 @@ async fn handle_socket(socket: WebSocket, state: ApiState) {
                             Ok(t) => t,
                             Err(_) => continue,
                         };
-                        if sender.send(Message::Text(text)).await.is_err() {
+                        if sender.send(Message::Text(text.into())).await.is_err() {
                             break;
                         }
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
                         let skip = serde_json::json!({ "type": "lagged", "skipped": skipped }).to_string();
-                        if sender.send(Message::Text(skip)).await.is_err() {
+                        if sender.send(Message::Text(skip.into())).await.is_err() {
                             break;
                         }
                     }

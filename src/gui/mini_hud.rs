@@ -8,14 +8,15 @@ use eframe::egui;
 pub struct MiniHudBar;
 
 impl MiniHudBar {
-    pub fn render(app: &mut SpLogApp, ctx: &egui::Context) {
+    pub fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         if !app.compact_hud_mode {
             return;
         }
+        let ctx = ui.ctx().clone();
 
         // Wariant "pasek operacyjny" dokowany do dolnej krawędzi okna.
         if app.hud_operating_bar {
-            render_operating_bar(app, ctx);
+            render_operating_bar(app, ui);
             return;
         }
 
@@ -35,14 +36,14 @@ impl MiniHudBar {
             ctx.show_viewport_immediate(
                 egui::ViewportId::from_hash_of("mini_hud_aot_viewport"),
                 builder,
-                |ctx, _class| {
-                    egui::CentralPanel::default().show(ctx, |ui| {
+                |ui, _class| {
+                    egui::CentralPanel::default().show(ui, |ui| {
                         render_hud_body(app, ui, &mut exit_compact);
                     });
-                    if ctx.input(|i| i.viewport().close_requested()) {
+                    if ui.ctx().input(|i| i.viewport().close_requested()) {
                         still_open = false;
                     }
-                    captured_geo = ctx.input(|i| {
+                    captured_geo = ui.ctx().input(|i| {
                         i.viewport().outer_rect.map(|r| ([r.min.x, r.min.y], [r.width(), r.height()]))
                     });
                 },
@@ -77,7 +78,7 @@ impl MiniHudBar {
             win = win.default_pos(pos);
         }
 
-        let resp = win.show(ctx, |ui| {
+        let resp = win.show(&ctx, |ui| {
             render_hud_body(app, ui, &mut exit_compact);
         });
 
@@ -213,9 +214,9 @@ fn render_hud_body(app: &mut SpLogApp, ui: &mut egui::Ui, exit_compact: &mut boo
 }
 
 /// Smukły, dokowany pasek operacyjny u dołu okna (wariant "operating bar").
-fn render_operating_bar(app: &mut SpLogApp, ctx: &egui::Context) {
+fn render_operating_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let mut exit_compact = false;
-    egui::TopBottomPanel::bottom("mini_hud_operating_bar").show(ctx, |ui| {
+    egui::Panel::bottom("mini_hud_operating_bar").show(ui, |ui| {
         ui.horizontal(|ui| {
             let freq_mhz = app.rig_state.frequency_hz as f64 / 1_000_000.0;
             ui.label(

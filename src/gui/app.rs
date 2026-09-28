@@ -3398,6 +3398,10 @@ impl SpLogApp {
 impl TabViewer for SpLogApp {
     type Tab = String;
 
+    fn id(&mut self, tab: &mut Self::Tab) -> egui::Id {
+        egui::Id::new(tab.as_str())
+    }
+
     fn title(&mut self, tab: &mut Self::Tab) -> egui::WidgetText {
         self.tile_title(tab).into()
     }
@@ -3408,8 +3412,8 @@ impl TabViewer for SpLogApp {
         let mut action_close = false;
 
         egui::Frame::group(ui.style())
-            .rounding(4.0)
-            .inner_margin(egui::Margin::same(6.0))
+            .corner_radius(4.0)
+            .inner_margin(egui::Margin::same(6))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     // Własne widżety nagłówka (CAT, SPLIT, Szukaj, Spot)
@@ -3443,7 +3447,9 @@ impl TabViewer for SpLogApp {
 }
 
 impl eframe::App for SpLogApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
+        let ctx = &ctx;
         // Śledzenie geometrii okna głównego (zapisywane przy wyjściu — obsługa multi-monitor)
         let (win_pos, win_size, win_max) = ctx.input(|i| {
             let vp = i.viewport();
@@ -3532,7 +3538,7 @@ impl eframe::App for SpLogApp {
         let quit_app_ctrl_q = ctx.input(|i| i.key_pressed(egui::Key::Q) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
 
         // Skróty edycyjne i nawigacyjne (tylko gdy użytkownik nie pisze w polu tekstowym)
-        let wants_text = ctx.wants_keyboard_input();
+        let wants_text = ctx.egui_wants_keyboard_input();
         let focus_filter = ctx.input(|i| i.key_pressed(egui::Key::F) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
         let new_qso = ctx.input(|i| i.key_pressed(egui::Key::N) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
         let wipe_qso_ctrl_w = ctx.input(|i| i.key_pressed(egui::Key::W) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
@@ -4089,20 +4095,21 @@ impl eframe::App for SpLogApp {
         // Skala czcionki / UI (80–150%). Stosowana globalnie jako mnożnik zoom.
         ctx.set_zoom_factor(self.font_scale.clamp(0.8, 1.5));
 
-        ctx.style_mut(|s| {
-            s.spacing.window_margin = egui::Margin::symmetric(6.0, 4.0);
+        let theme = ctx.theme();
+        ctx.style_mut_of(theme, |s| {
+            s.spacing.window_margin = egui::Margin::symmetric(6, 4);
             s.spacing.button_padding = egui::vec2(4.0, 2.0);
         });
 
         // Górny pasek menu systemowego oraz pasek szybkiego dostępu (bez kolizji!)
-        egui::TopBottomPanel::top("top_menu_bar").show(ctx, |ui| {
+        egui::Panel::top("top_menu_bar").show(ui, |ui| {
             render_menu_bar(self, ui);
             ui.separator();
             render_main_toolbar(self, ui);
         });
 
         // Dolny pasek statusu stacji
-        egui::TopBottomPanel::bottom("bottom_status_bar").show(ctx, |ui| {
+        egui::Panel::bottom("bottom_status_bar").show(ui, |ui| {
             let lang = self.current_language;
             ui.horizontal(|ui| {
                 let fallback_status = tr("status.ready_all_active", lang);
@@ -4167,7 +4174,7 @@ impl eframe::App for SpLogApp {
         });
 
         // Główny obszar roboczy - swobodny pulpit stacji SPLogbook (MDI Desktop)
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             if self.compact_hud_mode {
                 ui.vertical_centered(|ui| {
                     ui.add_space(60.0);
@@ -4248,7 +4255,7 @@ impl eframe::App for SpLogApp {
 
         // W zależności od trybu: Mini HUD (tryb kompaktowy) lub pełny pulpit roboczy
         if self.compact_hud_mode {
-            crate::gui::mini_hud::MiniHudBar::render(self, ctx);
+            crate::gui::mini_hud::MiniHudBar::render(self, ui);
         } else {
             // Pływające okna modułów (pop-out windows) — renderowane tylko wtedy,
             // gdy panel jest „odpięty” (floating). Kafelki zadokowane rysuje
@@ -4420,7 +4427,7 @@ impl eframe::App for SpLogApp {
                         egui::Frame::popup(ui.style())
                             .fill(egui::Color32::from_rgb(15, 23, 42))
                             .stroke(egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(56, 189, 248)))
-                            .inner_margin(egui::Margin::same(10.0))
+                            .inner_margin(egui::Margin::same(10))
                             .show(ui, |ui| {
                                 ui.label(egui::RichText::new(format!("🔔 {}", msg)).strong().color(egui::Color32::WHITE));
                             });
@@ -4465,7 +4472,7 @@ impl eframe::App for SpLogApp {
                                     self.theme_preset.id(),
                                     self.config_file_path.display()
                                 );
-                                ui.output_mut(|o| o.copied_text = info);
+                                ui.ctx().copy_text(info);
                             }
                         });
                         ui.add_space(8.0);

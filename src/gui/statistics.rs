@@ -128,7 +128,7 @@ fn bar_chart_clickable(ui: &mut egui::Ui, data: &[(String, i64)], color: egui::C
             if rel >= 0.0 {
                 let idx = (rel / bar_w) as usize;
                 if idx == i {
-                    painter.rect_stroke(bar_rect, 2.0, egui::Stroke::new(1.0_f32, egui::Color32::WHITE));
+                    painter.rect_stroke(bar_rect, 2.0, egui::Stroke::new(1.0_f32, egui::Color32::WHITE), egui::StrokeKind::Inside);
                 }
             }
         }

@@ -47,18 +47,18 @@ pub fn render_satellites_window(app: &mut SpLogApp, ctx: &egui::Context) {
             [280.0, 200.0],
             app.panel_satellites.saved_pos,
             app.panel_satellites.saved_size,
-            |app, ctx| {
-                egui::TopBottomPanel::top("satellites_vp_bar").show(ctx, |ui| {
+            |app, ui| {
+                egui::Panel::top("satellites_vp_bar").show(ui, |ui| {
                     ui.horizontal(|ui| {
                         if ui.button(format!("↙ {}", tr("window.dock", lang))).on_hover_text(tr("window.dock_tooltip", lang)).clicked() {
                             dock_back = true;
                         }
                     });
                 });
-                egui::CentralPanel::default().show(ctx, |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
                     render_satellites_content(app, ui);
                 });
-                if ctx.input(|i| i.viewport().close_requested()) {
+                if ui.ctx().input(|i| i.viewport().close_requested()) {
                     still_open = false;
                 }
             },
@@ -84,7 +84,7 @@ pub fn render_satellites_window(app: &mut SpLogApp, ctx: &egui::Context) {
     }
 
     let mut open = app.panel_satellites.visible;
-    let screen = ctx.available_rect();
+    let screen = ctx.content_rect();
     let right_w = 360.0_f32.min((screen.width() - 500.0).max(200.0));
     let mid_w = (screen.width() - 488.0 - right_w - 20.0).max(380.0);
     let right_x = screen.min.x + 488.0 + mid_w + 10.0;

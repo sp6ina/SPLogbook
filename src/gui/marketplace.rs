@@ -231,7 +231,7 @@ fn render_card(
     let busy = app.marketplace_busy_id.as_deref() == Some(entry.id.as_str());
 
     egui::Frame::group(ui.style())
-        .inner_margin(egui::Margin::same(10.0))
+        .inner_margin(egui::Margin::same(10))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new(&entry.icon).size(22.0));

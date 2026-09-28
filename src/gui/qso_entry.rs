@@ -57,18 +57,18 @@ pub fn render_qso_entry_window(app: &mut SpLogApp, ctx: &egui::Context) {
             [360.0, 360.0],
             app.panel_qso.saved_pos,
             app.panel_qso.saved_size,
-            |app, ctx| {
-                egui::TopBottomPanel::top("qso_vp_bar").show(ctx, |ui| {
+            |app, ui| {
+                egui::Panel::top("qso_vp_bar").show(ui, |ui| {
                     ui.horizontal(|ui| {
                         if ui.button("↙ Przypnij do pulpitu").on_hover_text("Przenieś okno z powrotem na główny pulpit SPLogbook").clicked() {
                             dock_back = true;
                         }
                     });
                 });
-                egui::CentralPanel::default().show(ctx, |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
                     render_qso_entry_body(app, ui);
                 });
-                if ctx.input(|i| i.viewport().close_requested()) {
+                if ui.ctx().input(|i| i.viewport().close_requested()) {
                     still_open = false;
                 }
             },
@@ -94,7 +94,7 @@ pub fn render_qso_entry_window(app: &mut SpLogApp, ctx: &egui::Context) {
     }
 
     let mut open = app.panel_qso.visible;
-    let screen = ctx.available_rect();
+    let screen = ctx.content_rect();
     let default_pos = [screen.min.x + 8.0, screen.min.y + 265.0];
     let default_size = [470.0, (screen.height() - 275.0).max(420.0)];
 

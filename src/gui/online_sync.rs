@@ -31,7 +31,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
     let mut is_open = app.show_online_sync_window;
     let mut close_req = false;
 
-    let screen_height = ctx.screen_rect().height();
+    let screen_height = ctx.content_rect().height();
     let max_h = (screen_height * 0.82).min(520.0);
 
     let active_tab_id = egui::Id::new("online_sync_active_tab");

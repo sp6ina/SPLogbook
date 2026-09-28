@@ -259,10 +259,7 @@ impl WaterfallPanel {
             (pixels, bins, rows)
         };
 
-        let image = egui::ColorImage {
-            size: [bins, rows],
-            pixels,
-        };
+        let image = egui::ColorImage::new([bins, rows], pixels);
 
         let options = egui::TextureOptions::NEAREST;
         if let Some(tex) = &mut self.texture {
@@ -340,18 +337,18 @@ pub fn render_waterfall_window(app: &mut SpLogApp, ctx: &egui::Context) {
         [480.0, 320.0],
         app.panel_waterfall.saved_pos,
         app.panel_waterfall.saved_size,
-        |app, ctx| {
-            egui::TopBottomPanel::top("waterfall_vp_bar").show(ctx, |ui| {
+        |app, ui| {
+            egui::Panel::top("waterfall_vp_bar").show(ui, |ui| {
                 ui.horizontal(|ui| {
                     if ui.button("↙ Zadokuj").on_hover_text("Zadokuj kafelek").clicked() {
                         dock_back = true;
                     }
                 });
             });
-            egui::CentralPanel::default().show(ctx, |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 app.waterfall_panel.render_body(ui);
             });
-            if ctx.input(|i| i.viewport().close_requested()) {
+            if ui.ctx().input(|i| i.viewport().close_requested()) {
                 still_open = false;
             }
         },

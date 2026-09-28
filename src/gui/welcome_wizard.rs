@@ -445,15 +445,16 @@ mod tests {
             Language::Pl,
         ] {
             let close_wizard = false;
-            let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
                 egui::Window::new("SPLogbook — Setup Wizard")
                     .id(egui::Id::new("splogbook_welcome_wizard"))
                     .order(egui::Order::Foreground)
                     .collapsible(false)
-                    .show(ctx, |_ui| {
+                    .show(ui.ctx(), |_ui| {
                         selected_lang = target_lang;
                     });
             });
+            output.textures_delta.clear();
 
             if close_wizard {
                 show_wizard = false;
@@ -479,15 +480,16 @@ mod tests {
         });
 
         let mut close_wizard = false;
-        let _ = ctx.run(input, |ctx| {
-            if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        let mut output = ctx.run_ui(input, |ui| {
+            if ui.ctx().input(|i| i.key_pressed(egui::Key::Escape)) {
                 close_wizard = true;
             }
             egui::Window::new("SPLogbook — Setup Wizard")
                 .id(egui::Id::new("splogbook_welcome_wizard"))
                 .order(egui::Order::Foreground)
-                .show(ctx, |_ui| {});
+                .show(ui.ctx(), |_ui| {});
         });
+        output.textures_delta.clear();
 
         if close_wizard {
             show_wizard = false;

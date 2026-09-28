@@ -51,8 +51,8 @@ pub fn render_logbook_window(app: &mut SpLogApp, ctx: &egui::Context) {
             [500.0, 280.0],
             app.panel_log.saved_pos,
             app.panel_log.saved_size,
-            |app, ctx| {
-                egui::TopBottomPanel::top("logbook_vp_bar").show(ctx, |ui| {
+            |app, ui| {
+                egui::Panel::top("logbook_vp_bar").show(ui, |ui| {
                     ui.horizontal(|ui| {
                         if ui.button(format!("↙ {}", tr("window.dock", lang))).clicked() { dock_back = true; }
                         ui.separator();
@@ -64,8 +64,8 @@ pub fn render_logbook_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         });
                     });
                 });
-                egui::CentralPanel::default().show(ctx, |ui| { render_logbook_body(app, ui); });
-                if ctx.input(|i| i.viewport().close_requested()) { still_open = false; }
+                egui::CentralPanel::default().show(ui, |ui| { render_logbook_body(app, ui); });
+                if ui.ctx().input(|i| i.viewport().close_requested()) { still_open = false; }
             },
         );
         if let Some((pos, size)) = captured_geo {
@@ -80,7 +80,7 @@ pub fn render_logbook_window(app: &mut SpLogApp, ctx: &egui::Context) {
         return;
     }
     let mut open = app.panel_log.visible;
-    let screen = ctx.available_rect();
+    let screen = ctx.content_rect();
     let right_w = 360.0_f32.min((screen.width() - 500.0).max(200.0));
     let mid_w = (screen.width() - 488.0 - right_w - 20.0).max(380.0);
     let default_pos = [screen.min.x + 488.0, screen.min.y + 8.0];
@@ -177,10 +177,37 @@ fn contains_case_insensitive(haystack: &str, needle_upper: &str) -> bool {
     if haystack.is_ascii() && needle_upper.is_ascii() {
         let h = haystack.as_bytes();
         let n = needle_upper.as_bytes();
-        h.windows(n.len()).any(|w| w.eq_ignore_ascii_case(n))
-    } else {
-        haystack.to_uppercase().contains(needle_upper)
+        return h.windows(n.len()).any(|w| w.eq_ignore_ascii_case(n));
     }
+
+    // Bezalokacyjny fallback Unicode: okno przesuwne porównuje znaki przez ich
+    // rozwinięcie do wielkich liter (char::to_uppercase nie alokuje na stercie).
+    for (start, _) in haystack.char_indices() {
+        let mut h_chars = haystack[start..].chars();
+        let mut n_chars = needle_upper.chars();
+        let mut matched = true;
+        loop {
+            match n_chars.next() {
+                None => break,
+                Some(nc) => match h_chars.next() {
+                    Some(hc) => {
+                        if !hc.to_uppercase().eq(nc.to_uppercase()) {
+                            matched = false;
+                            break;
+                        }
+                    }
+                    None => {
+                        matched = false;
+                        break;
+                    }
+                },
+            }
+        }
+        if matched {
+            return true;
+        }
+    }
+    false
 }
 
 /// Normalizuje ciąg daty/czasu na stosie (pomija `-`, `:`, `.`, `/`) i dopełnia zerami z prawej strony do `N` znaków.

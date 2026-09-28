@@ -55,7 +55,7 @@ impl PhotoViewerDialog {
                             egui::Image::new(url)
                                 .max_width(400.0)
                                 .max_height(300.0)
-                                .rounding(6.0)
+                                .corner_radius(6.0)
                         );
 
                         ui.add_space(8.0);
@@ -64,7 +64,7 @@ impl PhotoViewerDialog {
                                 ctx.open_url(egui::OpenUrl::new_tab(url));
                             }
                             if ui.button("📋 Kopiuj link").clicked() {
-                                ui.output_mut(|o| o.copied_text = url.clone());
+                                ui.ctx().copy_text(url.clone());
                             }
                         });
                     } else {
