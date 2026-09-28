@@ -20,8 +20,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub fn now_unix() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+        .map_or(0, |d| d.as_secs())
 }
 
 /// Serwisy objęte wspólnym harmonogramem wysyłki ADIF.
@@ -45,8 +44,7 @@ impl UploadService {
     /// limitami API poszczególnych serwisów.
     pub fn rate_limit_secs(&self) -> u64 {
         match self {
-            UploadService::ClubLog => 5,
-            UploadService::Qrz => 5,
+            UploadService::ClubLog | UploadService::Qrz => 5,
             UploadService::Eqsl => 10,
         }
     }
@@ -139,7 +137,7 @@ impl UploadScheduler {
         let mut ready: Vec<u64> = Vec::new();
         let mut served: HashMap<UploadService, bool> = HashMap::new();
 
-        for job in self.jobs.iter() {
+        for job in &self.jobs {
             if job.status != UploadJobStatus::Pending {
                 continue;
             }
@@ -219,7 +217,7 @@ impl UploadScheduler {
                 UploadJobStatus::Done => s.done += 1,
                 UploadJobStatus::Failed => {
                     s.failed += 1;
-                    s.last_error = job.last_error.clone();
+                    s.last_error.clone_from(&job.last_error);
                 }
             }
         }
@@ -237,7 +235,7 @@ impl UploadScheduler {
     /// Ponownie kolejkuje wszystkie zadania zakończone porażką (ręczne „Ponów").
     pub fn retry_failed(&mut self, now: u64) -> usize {
         let mut count = 0;
-        for job in self.jobs.iter_mut() {
+        for job in &mut self.jobs {
             if job.status == UploadJobStatus::Failed {
                 job.status = UploadJobStatus::Pending;
                 job.attempts = 0;
@@ -268,9 +266,7 @@ impl UploadScheduler {
 
     /// Ścieżka pliku kolejki offline (APPDATA/SPLogbook na Windows, katalog bieżący gdzie indziej).
     pub fn queue_path() -> PathBuf {
-        std::env::var("APPDATA")
-            .map(|p| PathBuf::from(p).join("SPLogbook").join("upload_queue.json"))
-            .unwrap_or_else(|_| PathBuf::from("upload_queue.json"))
+        std::env::var("APPDATA").map_or_else(|_| PathBuf::from("upload_queue.json"), |p| PathBuf::from(p).join("SPLogbook").join("upload_queue.json"))
     }
 
     /// Wczytuje kolejkę z dysku; w razie braku/zniszczenia pliku zwraca pustą kolejkę.

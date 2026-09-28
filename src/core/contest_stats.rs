@@ -135,7 +135,7 @@ impl MultKind {
 pub fn mult_value(kind: MultKind, q: &QsoRecord) -> Option<String> {
     match kind {
         MultKind::Dxcc => q.dxcc.map(|d| d.to_string()),
-        MultKind::CqZone => q.cqz.map(|z| format!("{:02}", z)),
+        MultKind::CqZone => q.cqz.map(|z| format!("{z:02}")),
         MultKind::State => q.state.clone(),
         MultKind::Grid => q.gridsquare.as_ref().map(|g| g.chars().take(4).collect()),
         MultKind::Iota => q.iota.clone(),
@@ -199,13 +199,13 @@ pub fn compute_mult_matrix(kind: MultKind, bands: &[&str], qsos: &[QsoRecord]) -
     }
     if kind == MultKind::CqZone {
         for z in 1..=40u32 {
-            push_col(&mut columns_set, format!("{:02}", z));
+            push_col(&mut columns_set, format!("{z:02}"));
         }
     }
 
     columns_set.sort();
 
-    let band_rows: Vec<String> = bands.iter().map(|b| b.to_string()).collect();
+    let band_rows: Vec<String> = bands.iter().map(std::string::ToString::to_string).collect();
 
     let mut worked = vec![vec![0u8; columns_set.len()]; band_rows.len()];
 

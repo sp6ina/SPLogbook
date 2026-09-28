@@ -43,7 +43,7 @@ pub fn render_logbook_window(app: &mut SpLogApp, ctx: &egui::Context) {
     if app.panel_log.floating {
         let mut still_open = true;
         let mut dock_back = false;
-        let (_, captured_geo) = app.show_floating_viewport(
+        let ((), captured_geo) = app.show_floating_viewport(
             ctx,
             egui::ViewportId::from_hash_of("logbook_viewport"),
             format!("📋 {} ({} QSO) - SPLogbook", tr("tab.logbook", lang), app.recent_qsos.len()),
@@ -148,7 +148,7 @@ pub fn col_display_name(col_id: &str, default_label: &str, lang: crate::core::i1
 
 fn sort_header_btn(ui: &mut egui::Ui, label: &str, col_id: u8, sort_col: u8, sort_asc: bool) -> (bool, bool) {
     let arrow = if sort_col == col_id { if sort_asc { " ▲" } else { " ▼" } } else { "" };
-    let clicked = ui.button(egui::RichText::new(format!("{}{}", label, arrow)).strong()).clicked();
+    let clicked = ui.button(egui::RichText::new(format!("{label}{arrow}")).strong()).clicked();
     if clicked {
         if sort_col == col_id { (true, !sort_asc) } else { (true, false) }
     } else { (false, sort_asc) }
@@ -189,17 +189,14 @@ fn contains_case_insensitive(haystack: &str, needle_upper: &str) -> bool {
         loop {
             match n_chars.next() {
                 None => break,
-                Some(nc) => match h_chars.next() {
-                    Some(hc) => {
-                        if !hc.to_uppercase().eq(nc.to_uppercase()) {
-                            matched = false;
-                            break;
-                        }
-                    }
-                    None => {
+                Some(nc) => if let Some(hc) = h_chars.next() {
+                    if !hc.to_uppercase().eq(nc.to_uppercase()) {
                         matched = false;
                         break;
                     }
+                } else {
+                    matched = false;
+                    break;
                 },
             }
         }
@@ -340,7 +337,7 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     if !app.selected_qso_ids.is_empty() {
         ui.horizontal(|ui| {
             let n = app.selected_qso_ids.len();
-            ui.label(egui::RichText::new(format!("✔ Zaznaczono {} QSO", n)).color(egui::Color32::from_rgb(34, 197, 94)));
+            ui.label(egui::RichText::new(format!("✔ Zaznaczono {n} QSO")).color(egui::Color32::from_rgb(34, 197, 94)));
             if ui.button(format!("🗑 {}", tr("qso.delete", lang))).clicked() {
                 app.delete_selected_qso();
             }
@@ -448,8 +445,7 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     row.col(|ui| {
                         match col_id.as_str() {
                             "nr" => {
-                                ui.label(qso.id.and_then(|id| app.qso_numbers.get(&id).copied())
-                                    .map(|number| number.to_string()).unwrap_or_else(|| "—".to_string()));
+                                ui.label(qso.id.and_then(|id| app.qso_numbers.get(&id).copied()).map_or_else(|| "—".to_string(), |number| number.to_string()));
                             },
                             "date" => { ui.label(&qso.qso_date); },
                             "time" => { ui.label(&qso.time_on); },
@@ -476,11 +472,11 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                                 });
                             },
                             "freq" => {
-                                let freq_str = qso.freq.as_ref().map(|f| f.to_string()).unwrap_or_default();
+                                let freq_str = qso.freq.as_ref().map(std::string::ToString::to_string).unwrap_or_default();
                                 ui.label(freq_str);
                             },
                             "cqz" => {
-                                let cqz_str = qso.cqz.as_ref().map(|f| f.to_string()).unwrap_or_default();
+                                let cqz_str = qso.cqz.as_ref().map(std::string::ToString::to_string).unwrap_or_default();
                                 ui.label(cqz_str);
                             },
                             "iota" => { ui.label(qso.iota.as_deref().unwrap_or("")); },

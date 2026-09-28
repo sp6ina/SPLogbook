@@ -58,7 +58,7 @@ impl QrzClient {
             self.session_key = Some(key);
             Ok(())
         } else if let Some(err) = Self::extract_xml_tag(&resp, "Error") {
-            Err(format!("Błąd logowania QRZ.COM: {}", err).into())
+            Err(format!("Błąd logowania QRZ.COM: {err}").into())
         } else {
             Err("Nieznana odpowiedź serwera QRZ.COM".into())
         }
@@ -106,13 +106,13 @@ impl QrzClient {
 
     fn parse_qrz_response(xml: &str, callsign: &str) -> Result<CallbookData, Box<dyn std::error::Error>> {
         if let Some(err) = Self::extract_xml_tag(xml, "Error") {
-            return Err(format!("QRZ: {}", err).into());
+            return Err(format!("QRZ: {err}").into());
         }
 
         let fname = Self::extract_xml_tag(xml, "fname");
         let name = Self::extract_xml_tag(xml, "name");
         let full_name = match (fname, name) {
-            (Some(f), Some(n)) => Some(format!("{} {}", f, n)),
+            (Some(f), Some(n)) => Some(format!("{f} {n}")),
             (Some(f), None) => Some(f),
             (None, Some(n)) => Some(n),
             (None, None) => None,
@@ -142,8 +142,8 @@ impl QrzClient {
     }
 
     fn extract_xml_tag(xml: &str, tag: &str) -> Option<String> {
-        let open_tag = format!("<{}>", tag);
-        let close_tag = format!("</{}>", tag);
+        let open_tag = format!("<{tag}>");
+        let close_tag = format!("</{tag}>");
 
         let start = xml.find(&open_tag)? + open_tag.len();
         let end = xml[start..].find(&close_tag)? + start;

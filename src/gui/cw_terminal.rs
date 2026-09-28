@@ -74,22 +74,22 @@ impl CwTerminalDialog {
                 // Makra telegraficzne F1..F8
                 ui.horizontal_wrapped(|ui| {
                     if ui.button("F1: CQ").clicked() {
-                        let msg = format!("CQ CQ DE {} K ", my_callsign);
+                        let msg = format!("CQ CQ DE {my_callsign} K ");
                         self.buffer.append_to_queue(&msg);
                     }
                     if ui.button("F2: TEST").clicked() {
-                        let msg = format!("TEST {} ", my_callsign);
+                        let msg = format!("TEST {my_callsign} ");
                         self.buffer.append_to_queue(&msg);
                     }
                     if ui.button("F3: 599 TU").clicked() {
                         self.buffer.append_to_queue("5NN TU ");
                     }
                     if ui.button("F4: 73").clicked() {
-                        let msg = format!("73 EE {} ", my_callsign);
+                        let msg = format!("73 EE {my_callsign} ");
                         self.buffer.append_to_queue(&msg);
                     }
                     if ui.button("F5: ZNAK").clicked() {
-                        let msg = format!("{} ", my_callsign);
+                        let msg = format!("{my_callsign} ");
                         self.buffer.append_to_queue(&msg);
                     }
                     if ui.button("F6: AGN?").clicked() {
@@ -129,7 +129,7 @@ impl CwTerminalDialog {
                     && !self.input_text.trim().is_empty() {
                         let to_send = format!("{} ", self.input_text.trim().to_uppercase());
                         self.buffer.append_to_queue(&to_send);
-                        self.status_text = format!("Dodano do bufora: {}", to_send);
+                        self.status_text = format!("Dodano do bufora: {to_send}");
                         self.input_text.clear();
                         response.request_focus();
                     }

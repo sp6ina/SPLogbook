@@ -3,6 +3,7 @@
 // Dedykowany eksport łączności do oficjalnego formatu SOTA V2 CSV (Summits on the Air)
 
 use crate::core::qso::QsoRecord;
+use std::fmt::Write as _;
 
 /// Eksportuje wektor łączności do oficjalnego formatu SOTA Database V2 CSV
 /// Specyfikacja formatu:
@@ -21,19 +22,10 @@ pub fn export_sota_csv(qsos: &[QsoRecord], my_call: &str, my_sota: &str) -> Stri
         let his_sota = q.sota_ref.as_deref().unwrap_or("").trim().to_uppercase();
         let notes = q.comment.as_deref().unwrap_or("").trim().replace(',', ";");
 
-        out.push_str(&format!(
-            "V2,{},{},{},{},{},{},{},{},{}
-",
-            clean_my_call,
-            clean_my_sota,
-            date_formatted,
-            time_formatted,
-            band_formatted,
-            mode_formatted,
-            his_call,
-            his_sota,
-            notes
-        ));
+        let _ = writeln!(
+            out,
+            "V2,{clean_my_call},{clean_my_sota},{date_formatted},{time_formatted},{band_formatted},{mode_formatted},{his_call},{his_sota},{notes}"
+        );
     }
 
     out
@@ -46,7 +38,7 @@ fn format_sota_date(adif_date: &str) -> String {
         let y = &clean[2..4];
         let m = &clean[4..6];
         let d = &clean[6..8];
-        format!("{}/{}/{}", d, m, y)
+        format!("{d}/{m}/{y}")
     } else {
         chrono::Utc::now().format("%d/%m/%y").to_string()
     }
@@ -84,7 +76,7 @@ fn format_sota_band(band: &str) -> String {
             if other.ends_with("mhz") {
                 other.to_uppercase()
             } else {
-                format!("{}MHz", other.replace("m", ""))
+                format!("{}MHz", other.replace('m', ""))
             }
         }
     }

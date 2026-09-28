@@ -90,11 +90,11 @@ impl SotaDialog {
                             .save_file()
                         {
                             match std::fs::write(&path, csv_content) {
-                                Ok(_) => {
+                                Ok(()) => {
                                     self.status = Some(format!("Zapisano {} łączności w: {}", filtered.len(), path.display()));
                                 }
                                 Err(e) => {
-                                    self.status = Some(format!("Błąd zapisu pliku: {}", e));
+                                    self.status = Some(format!("Błąd zapisu pliku: {e}"));
                                 }
                             }
                         }

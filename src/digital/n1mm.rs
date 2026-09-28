@@ -54,8 +54,8 @@ fn n1mm_timestamp(qso_date: &str, time_on: &str) -> String {
         String::new()
     };
     match (date.is_empty(), time.is_empty()) {
-        (false, false) => format!("{} {}", date, time),
-        (false, true) => format!("{} 00:00:00", date),
+        (false, false) => format!("{date} {time}"),
+        (false, true) => format!("{date} 00:00:00"),
         (true, false) => time,
         (true, true) => chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string(),
     }
@@ -85,7 +85,7 @@ fn wpx_prefix(callsign: &str) -> String {
 
 /// Buduje ramkę `<contactinfo>` reprezentującą zapisane QSO.
 pub fn contactinfo_xml(qso: &QsoRecord, my_call: &str, radio_nr: u8) -> String {
-    let freq_khz = qso.freq.map(|f| (f * 1000.0).round() as i64).unwrap_or(0);
+    let freq_khz = qso.freq.map_or(0, |f| (f * 1000.0).round() as i64);
     let band_meters = band_to_meters(&qso.band);
     let continent = qso.continent.as_deref().unwrap_or("");
     let cqz = qso.cqz.map(|z| z.to_string()).unwrap_or_default();
@@ -196,7 +196,7 @@ fn band_to_meters(band: &str) -> String {
 /// Wysyła ramkę XML jako datagram UDP do podanego hosta i portu.
 /// Zwraca liczbę wysłanych bajtów.
 pub async fn send_broadcast(host: &str, port: u16, xml: &str) -> std::io::Result<usize> {
-    let addr = format!("{}:{}", host, port);
+    let addr = format!("{host}:{port}");
     let socket = UdpSocket::bind("0.0.0.0:0").await?;
     socket.send_to(xml.as_bytes(), &addr).await
 }

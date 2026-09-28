@@ -49,7 +49,7 @@ pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
             match result {
                 Ok(()) => {
                     app.marketplace_status =
-                        Some(format!("Zainstalowano wtyczkę „{}” — silnik przeładowany.", id));
+                        Some(format!("Zainstalowano wtyczkę „{id}” — silnik przeładowany."));
                     reload_plugins(app);
                 }
                 Err(e) => app.marketplace_status = Some(e),
@@ -166,8 +166,7 @@ pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
                         let matches_cat = app
                             .marketplace_category
                             .as_ref()
-                            .map(|c| &e.category == c)
-                            .unwrap_or(true);
+                            .is_none_or(|c| &e.category == c);
                         let hay = format!("{} {} {}", e.name, e.id, e.description).to_lowercase();
                         let matches_q = query.is_empty() || hay.contains(&query);
                         matches_cat && matches_q

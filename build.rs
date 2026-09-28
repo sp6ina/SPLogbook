@@ -8,7 +8,7 @@
         res.set("CompanyName", "Mariusz Wozniak (SP6INA)");
         res.set("LegalCopyright", "Copyright (C) 2026 Mariusz Wozniak (SP6INA)");
         if let Err(e) = res.compile() {
-            eprintln!("Warning: Failed to compile Windows resource: {}", e);
+            eprintln!("Warning: Failed to compile Windows resource: {e}");
         }
     }
 }

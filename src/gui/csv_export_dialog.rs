@@ -183,7 +183,7 @@ impl CsvExportDialog {
                     if ui.button("Zamknij").clicked() {
                         close_requested = true;
                     }
-                    ui.label(format!("Wybrano {} kolumn", count));
+                    ui.label(format!("Wybrano {count} kolumn"));
                 });
             });
 

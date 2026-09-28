@@ -83,8 +83,7 @@ where
 fn jitter_ms(base_ms: u64, attempt: usize) -> u64 {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.subsec_nanos() as u64)
-        .unwrap_or(0);
+        .map_or(0, |d| d.subsec_nanos() as u64);
     let seed = nanos ^ (attempt as u64).wrapping_mul(0x9E37_79B9);
     let pct = (seed % 41) as i64 - 20; // -20..=20
     (base_ms as i64 * pct / 100).max(0) as u64

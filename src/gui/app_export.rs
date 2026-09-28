@@ -17,8 +17,8 @@ impl SpLogApp {
 
             let mut out = String::new();
             out.push_str("START-OF-LOG: 3.0\n");
-            out.push_str(&format!("CONTEST: {}\n", self.contest_name));
-            out.push_str(&format!("CALLSIGN: {}\n", self.my_station.callsign));
+            let _ = writeln!(out, "CONTEST: {}", self.contest_name);
+            let _ = writeln!(out, "CALLSIGN: {}", self.my_station.callsign);
             out.push_str("CATEGORY-OPERATOR: SINGLE-OP\n");
             out.push_str("CATEGORY-TRANSMITTER: ONE\n");
             out.push_str("CATEGORY-POWER: HIGH\n");
@@ -26,14 +26,14 @@ impl SpLogApp {
             out.push_str("CATEGORY-MODE: MIXED\n");
             out.push_str("CATEGORY-STATION: FIXED\n");
             let total_score = self.contest_points * self.contest_mults.max(1);
-            out.push_str(&format!("CLAIMED-SCORE: {}\n", total_score));
-            out.push_str(&format!("OPERATORS: {}\n", self.my_station.callsign));
-            out.push_str(&format!("NAME: {}\n", self.my_station.operator));
-            out.push_str(&format!("ADDRESS: {}, {}\n", self.my_station.city, self.my_station.country));
+            let _ = writeln!(out, "CLAIMED-SCORE: {total_score}");
+            let _ = writeln!(out, "OPERATORS: {}", self.my_station.callsign);
+            let _ = writeln!(out, "NAME: {}", self.my_station.operator);
+            let _ = writeln!(out, "ADDRESS: {}, {}", self.my_station.city, self.my_station.country);
             out.push_str("SOAPBOX: Created with SPLogbook by SP6INA (GPLv3)\n");
 
             for (idx, q) in qsos.iter().rev().enumerate() {
-                let freq_khz = q.freq.map(|f| (f * 1000.0) as u64).unwrap_or_else(|| {
+                let freq_khz = q.freq.map_or_else(|| {
                     match q.band.as_str() {
                         "160m" => 1840,
                         "80m" => 3700,
@@ -43,7 +43,7 @@ impl SpLogApp {
                         "10m" => 28500,
                         _ => 14000,
                     }
-                });
+                }, |f| (f * 1000.0) as u64);
                 let date_str = if q.qso_date.len() == 8 {
                     format!("{}-{}-{}", &q.qso_date[0..4], &q.qso_date[4..6], &q.qso_date[6..8])
                 } else {
@@ -60,8 +60,9 @@ impl SpLogApp {
                 let my_serial = idx + 1;
                 let his_serial = q.srx.unwrap_or(1);
 
-                out.push_str(&format!(
-                    "QSO: {:5} {:2} {} {} {:10} {:3} {:03} {:10} {:3} {:03}\n",
+                let _ = writeln!(
+                    out,
+                    "QSO: {:5} {:2} {} {} {:10} {:3} {:03} {:10} {:3} {:03}",
                     freq_khz,
                     if q.mode == "CW" { "CW" } else { "PH" },
                     date_str,
@@ -72,17 +73,17 @@ impl SpLogApp {
                     q.callsign,
                     his_rst,
                     his_serial
-                ));
+                );
             }
             out.push_str("END-OF-LOG:\n");
 
             match std::fs::write(&path, out) {
-                Ok(_) => {
+                Ok(()) => {
                     self.status_message = Some(format!("Plik zawodów zapisany pomyślnie: {}", path.display()));
                     self.status_toast = Some((format!("Zapisano Cabrillo 3.0: {}", path.file_name().unwrap_or_default().to_string_lossy()), std::time::Instant::now()));
                 }
                 Err(e) => {
-                    self.status_message = Some(format!("Błąd zapisu pliku Cabrillo: {}", e));
+                    self.status_message = Some(format!("Błąd zapisu pliku Cabrillo: {e}"));
                 }
             }
         }
@@ -94,12 +95,6 @@ impl SpLogApp {
             .set_file_name("SPLogbook.pdf")
             .save_file()
         {
-            let qsos = if let Ok(db) = self.log_db.lock() {
-                db.get_recent_qsos_for_journal(&self.active_journal.id, 10000).unwrap_or_default()
-            } else {
-                vec![]
-            };
-
             use printpdf::*;
 
             fn text_ops(text: impl Into<String>, size_pt: f32, x_mm: f32, y_mm: f32, bold: bool) -> Vec<Op> {
@@ -126,6 +121,12 @@ impl SpLogApp {
                 ]
             }
 
+            let qsos = if let Ok(db) = self.log_db.lock() {
+                db.get_recent_qsos_for_journal(&self.active_journal.id, 10000).unwrap_or_default()
+            } else {
+                vec![]
+            };
+
             let mut doc = PdfDocument::new("SPLogbook Log");
 
             // Table headers
@@ -146,7 +147,7 @@ impl SpLogApp {
             let mut row_count = 0usize;
             let mut page_num = 1usize;
 
-            for qso in qsos.iter() {
+            for qso in &qsos {
                 if y < 20.0 {
                     doc.pages.push(PdfPage::new(Mm(210.0), Mm(297.0), std::mem::take(&mut ops)));
                     y = 280.0;
@@ -166,8 +167,8 @@ impl SpLogApp {
             }
 
             // Footer
-            ops.extend(text_ops(format!("Total QSOs: {}", row_count), 12.0, 10.0, 10.0, false));
-            ops.extend(text_ops(format!("Page {}", page_num), 12.0, 180.0, 10.0, false));
+            ops.extend(text_ops(format!("Total QSOs: {row_count}"), 12.0, 10.0, 10.0, false));
+            ops.extend(text_ops(format!("Page {page_num}"), 12.0, 180.0, 10.0, false));
 
             doc.pages.push(PdfPage::new(Mm(210.0), Mm(297.0), ops));
 
@@ -175,7 +176,7 @@ impl SpLogApp {
             let bytes = doc.save(&PdfSaveOptions::default(), &mut warnings);
             if std::fs::write(&path, bytes).is_ok() {
                 let filename = path.file_name().unwrap_or_default().to_string_lossy();
-                self.status_toast = Some((format!("Wyeksportowano {} QSO do PDF: {}", row_count, filename), std::time::Instant::now()));
+                self.status_toast = Some((format!("Wyeksportowano {row_count} QSO do PDF: {filename}"), std::time::Instant::now()));
                 let _ = open::that(&path);
             }
         }
@@ -187,18 +188,8 @@ impl SpLogApp {
             .set_file_name("SPLogbook.gpx")
             .save_file()
         {
-            let qsos = if let Ok(db) = self.log_db.lock() {
-                db.get_recent_qsos_for_journal(&self.active_journal.id, 10000).unwrap_or_default()
-            } else {
-                vec![]
-            };
-
             use gpx::{Gpx, GpxVersion, Waypoint};
             use geo_types::Point;
-            let mut gpx = Gpx {
-                version: GpxVersion::Gpx11,
-                ..Gpx::default()
-            };
 
             fn gridsquare_to_latlon(grid: &str) -> Option<(f64, f64)> {
                 // Współdzielona, zwalidowana logika lokatora Maidenhead (core::geo)
@@ -208,8 +199,19 @@ impl SpLogApp {
                     .map(|c| (c.latitude, c.longitude))
             }
 
+            let qsos = if let Ok(db) = self.log_db.lock() {
+                db.get_recent_qsos_for_journal(&self.active_journal.id, 10000).unwrap_or_default()
+            } else {
+                vec![]
+            };
+
+            let mut gpx = Gpx {
+                version: GpxVersion::Gpx11,
+                ..Gpx::default()
+            };
+
             let mut row_count = 0;
-            for qso in qsos.iter() {
+            for qso in &qsos {
                 if let Some(grid) = &qso.gridsquare {
                     if let Some((lat, lon)) = gridsquare_to_latlon(grid) {
                         let mut waypoint = Waypoint::new(Point::new(lon, lat));
@@ -225,7 +227,7 @@ impl SpLogApp {
             if let Ok(file) = std::fs::File::create(&path) {
                 if gpx::write(&gpx, file).is_ok() {
                     let filename = path.file_name().unwrap_or_default().to_string_lossy();
-                    self.status_toast = Some((format!("Wyeksportowano {} QSO do GPX: {}", row_count, filename), std::time::Instant::now()));
+                    self.status_toast = Some((format!("Wyeksportowano {row_count} QSO do GPX: {filename}"), std::time::Instant::now()));
                     let _ = open::that(&path);
                 }
             }

@@ -79,14 +79,13 @@ pub fn extract_wpx_prefix(call: &str) -> String {
         } else if p1.len() == 1 && p1.chars().all(|c| c.is_ascii_digit()) {
             let prefix0 = extract_wpx_base(p0);
             let mut prefix_chars: Vec<char> = prefix0.chars().collect();
-            if let Some(pos) = prefix_chars.iter().rposition(|c| c.is_ascii_digit()) {
+            if let Some(pos) = prefix_chars.iter().rposition(char::is_ascii_digit) {
                 if let Some(digit) = p1.chars().next() {
                     prefix_chars[pos] = digit;
                 }
                 return prefix_chars.into_iter().collect();
-            } else {
-                return format!("{}{}", prefix0, p1);
             }
+            return format!("{prefix0}{p1}");
         } else if p1.len() <= 4 && p1.len() < p0.len() && !p1.chars().all(|c| c.is_ascii_digit()) {
             p1
         } else if p0.len() >= p1.len() {
@@ -110,13 +109,10 @@ fn extract_wpx_base(call: &str) -> String {
         }
     }
 
-    match last_digit_idx {
-        Some(idx) => call[..=idx].to_string(),
-        None => {
-            let mut res = call.to_string();
-            res.push('0');
-            res
-        }
+    if let Some(idx) = last_digit_idx { call[..=idx].to_string() } else {
+        let mut res = call.to_string();
+        res.push('0');
+        res
     }
 }
 
@@ -195,7 +191,7 @@ impl PrefixMatcher {
             let pattern = if raw_regex.starts_with('^') {
                 raw_regex
             } else {
-                format!("^(?:{})", raw_regex)
+                format!("^(?:{raw_regex})")
             };
 
             if let Ok(reg) = Regex::new(&pattern) {
@@ -242,7 +238,7 @@ impl PrefixMatcher {
             let pattern = if raw_regex.starts_with('^') {
                 raw_regex
             } else {
-                format!("^(?:{})", raw_regex)
+                format!("^(?:{raw_regex})")
             };
 
             if let Ok(reg) = Regex::new(&pattern) {
@@ -324,7 +320,7 @@ impl PrefixMatcher {
         if let Some(cached) = self
             .cache
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .get(&clean)
         {
             return cached.clone();
@@ -334,7 +330,7 @@ impl PrefixMatcher {
 
         self.cache
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .insert(clean, result.clone());
 
         result
@@ -344,7 +340,7 @@ impl PrefixMatcher {
     pub fn clear_cache(&self) {
         self.cache
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clear();
     }
 

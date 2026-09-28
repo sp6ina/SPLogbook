@@ -95,7 +95,7 @@ pub fn render_cluster_window(app: &mut SpLogApp, ctx: &egui::Context) {
     if app.panel_cluster.floating {
         let mut still_open = true;
         let mut dock_back = false;
-        let (_, captured_geo) = app.show_floating_viewport(
+        let ((), captured_geo) = app.show_floating_viewport(
             ctx,
             egui::ViewportId::from_hash_of("cluster_viewport"),
             format!("📡 {} - SPLogbook", tr("cluster.title", lang)),
@@ -521,10 +521,10 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                             ui.label(egui::RichText::new(&spot.band).color(egui::Color32::from_rgb(251, 191, 36)));
 
                             // Kolumna referencji POTA / SOTA
-                            if let Some(ref p) = pota_ref {
-                                ui.label(egui::RichText::new(format!("🌲 {}", p)).color(egui::Color32::from_rgb(34, 197, 94)).strong().size(11.0));
-                            } else if let Some(ref s) = sota_ref {
-                                ui.label(egui::RichText::new(format!("⛰️ {}", s)).color(egui::Color32::from_rgb(250, 204, 21)).strong().size(11.0));
+                            if let Some(p) = pota_ref {
+                                ui.label(egui::RichText::new(format!("🌲 {p}")).color(egui::Color32::from_rgb(34, 197, 94)).strong().size(11.0));
+                            } else if let Some(s) = sota_ref {
+                                ui.label(egui::RichText::new(format!("⛰️ {s}")).color(egui::Color32::from_rgb(250, 204, 21)).strong().size(11.0));
                             } else {
                                 ui.label("-");
                             }
@@ -535,7 +535,7 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                             // Czas spotu + wiek (minuty/godziny od odebrania)
                             let age_secs = (chrono::Utc::now().timestamp() - spot.received_at).max(0);
                             let age_text = if age_secs < 60 {
-                                format!("{}s", age_secs)
+                                format!("{age_secs}s")
                             } else if age_secs < 3600 {
                                 format!("{}m", age_secs / 60)
                             } else {

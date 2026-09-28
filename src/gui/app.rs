@@ -48,6 +48,7 @@ use crate::gui::wol_dialog::WolDialog;
 use crate::core::backup::BackupManager;
 use eframe::egui;
 use egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
+use std::fmt::Write as _;
 use std::sync::{Arc, Mutex};
 
 /// Filtr „drill-down”: kliknięcie słupka/wiersza w statystykach przenosi do
@@ -89,7 +90,7 @@ impl DrillFilter {
             }
             DrillFilter::Hour(h) => {
                 // Pierwsze dwie cyfry czasu to godzina (dla "HH:MM:SS" i "HHMMSS").
-                let hh = format!("{:02}", h);
+                let hh = format!("{h:02}");
                 q.time_on.chars().take(2).collect::<String>() == hh
             }
             DrillFilter::Qsl(st) => match st {
@@ -106,11 +107,11 @@ impl DrillFilter {
     /// Krótka, czytelna etykieta aktywnego filtra (dla paska w tabeli logu).
     pub fn label(&self) -> String {
         match self {
-            DrillFilter::Band(b) => format!("📻 {}", b),
-            DrillFilter::Mode(m) => format!("📡 {}", m),
-            DrillFilter::Country(c) => format!("🌍 {}", c),
-            DrillFilter::Month(m) => format!("📅 {}", m),
-            DrillFilter::Hour(h) => format!("⏰ {:02}:00", h),
+            DrillFilter::Band(b) => format!("📻 {b}"),
+            DrillFilter::Mode(m) => format!("📡 {m}"),
+            DrillFilter::Country(c) => format!("🌍 {c}"),
+            DrillFilter::Month(m) => format!("📅 {m}"),
+            DrillFilter::Hour(h) => format!("⏰ {h:02}:00"),
             DrillFilter::Qsl(QslDrillStatus::Lotw) => "📬 LoTW".to_string(),
             DrillFilter::Qsl(QslDrillStatus::Eqsl) => "📬 eQSL".to_string(),
             DrillFilter::Qsl(QslDrillStatus::Paper) => "📬 QSL".to_string(),
@@ -681,7 +682,7 @@ fn resolve_font_path(family: &str) -> Option<std::path::PathBuf> {
 
 impl SpLogApp {
     pub fn new(
-        _cc: &eframe::CreationContext<'_>,
+        cc: &eframe::CreationContext<'_>,
         log_db: Arc<Mutex<LogDatabase>>,
         prefix_matcher: Arc<PrefixMatcher>,
         scp_engine: Arc<Mutex<ScpEngine>>,
@@ -733,10 +734,10 @@ impl SpLogApp {
             }
         }
 
-        _cc.egui_ctx.set_fonts(font_defs);
+        cc.egui_ctx.set_fonts(font_defs);
 
         let (active_journal, recent_qsos, qso_numbers) = {
-            let db = log_db.lock().unwrap_or_else(|p| p.into_inner());
+            let db = log_db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let j = match db.get_active_journal() {
                 Ok(j) => j,
                 Err(e) => {
@@ -806,11 +807,9 @@ impl SpLogApp {
 
         let exe_dir = std::env::current_exe()
             .ok()
-            .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+            .and_then(|p| p.parent().map(std::path::Path::to_path_buf))
             .unwrap_or_else(|| {
-                std::env::var("APPDATA")
-                    .map(|p| std::path::PathBuf::from(p).join("SPLogbook"))
-                    .unwrap_or_else(|_| std::path::PathBuf::from("."))
+                std::env::var("APPDATA").map_or_else(|_| std::path::PathBuf::from("."), |p| std::path::PathBuf::from(p).join("SPLogbook"))
             });
 
         let cb_candidates = [
@@ -926,7 +925,7 @@ impl SpLogApp {
             contest_mults: 0,
             show_custom_contest_editor: false,
             custom_contest_edit_idx: None,
-            custom_contest_draft: Default::default(),
+            custom_contest_draft: crate::core::station::CustomContest::default(),
             custom_contests: app_config.custom_contests.clone(),
 
             show_cw_window: false,
@@ -1346,6 +1345,7 @@ impl SpLogApp {
 
     /// Aktualizuje podpowiedzi SCP, rozpoznanie DXCC, azymut i dystans po wpisaniu znaku
     pub fn on_callsign_changed(&mut self) {
+        use chrono::{Datelike, Timelike};
         let clean = self.entry_callsign.trim().to_uppercase();
         if clean.is_empty() {
             self.scp_suggestions.clear();
@@ -1363,13 +1363,13 @@ impl SpLogApp {
 
         // 1. Podpowiedzi SCP
         {
-            let scp = self.scp_engine.lock().unwrap_or_else(|p| p.into_inner());
+            let scp = self.scp_engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             self.scp_suggestions = scp.search(&clean, 6);
         }
 
         // 1b. Lokalna korekta rozmyta (fuzzy) błędnie wpisanego/odebranego znaku
         {
-            let scp = self.scp_engine.lock().unwrap_or_else(|p| p.into_inner());
+            let scp = self.scp_engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let candidates = scp.candidates();
             self.callsign_corrections = crate::core::callsign_correction::suggest_corrections(
                 &clean,
@@ -1390,7 +1390,6 @@ impl SpLogApp {
                 self.active_bearing_deg = calculate_bearing_deg(my_coords, dx_coords);
                 self.rotor_state.azimuth_deg = self.active_bearing_deg as f32;
 
-                use chrono::{Datelike, Timelike};
                 let now = chrono::Utc::now();
                 let utc_hour = now.hour() as f64 + (now.minute() as f64) / 60.0;
                 let day_of_year = now.ordinal();
@@ -1410,7 +1409,7 @@ impl SpLogApp {
 
             self.active_polish_district = AwardsEngine::get_polish_district(&clean);
 
-            let awards = self.awards_engine.lock().unwrap_or_else(|p| p.into_inner());
+            let awards = self.awards_engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             self.active_award_status = Some(awards.check_status_full(
                 &clean,
                 &self.entry_band,
@@ -1463,7 +1462,7 @@ impl SpLogApp {
         // 4. Baza managerów QSL (serviceLOG)
         if let Some(mgr_rec) = self.service_db.find_manager(&clean) {
             if self.entry_qsl_manager.is_empty() {
-                self.entry_qsl_manager = mgr_rec.manager.clone();
+                self.entry_qsl_manager.clone_from(&mgr_rec.manager);
             }
             self.active_qsl_manager_record = Some(mgr_rec);
         } else {
@@ -1534,13 +1533,13 @@ impl SpLogApp {
     }
 
     pub fn recalculate_distance_from_grid(&mut self) {
+        use chrono::{Datelike, Timelike};
         if self.entry_grid.len() >= 4 {
             if let (Ok(p1), Ok(p2)) = (locator_to_coordinates(&self.my_station.gridsquare), locator_to_coordinates(&self.entry_grid)) {
                 self.active_distance_km = calculate_distance_km(p1, p2);
                 self.active_bearing_deg = calculate_bearing_deg(p1, p2);
                 self.rotor_state.azimuth_deg = self.active_bearing_deg as f32;
 
-                use chrono::{Datelike, Timelike};
                 let now = chrono::Utc::now();
                 let utc_hour = now.hour() as f64 + (now.minute() as f64) / 60.0;
                 let day_of_year = now.ordinal();
@@ -1584,7 +1583,7 @@ impl SpLogApp {
             let _ = crate::cat::rotor::RotorClient::set_position(&host, port, azimuth_deg, elevation_deg).await;
         });
         self.status_toast = Some((
-            format!("Wysłano polecenie obrotu anteny: az {:.0}°, el {:.0}°", azimuth_deg, elevation_deg),
+            format!("Wysłano polecenie obrotu anteny: az {azimuth_deg:.0}°, el {elevation_deg:.0}°"),
             std::time::Instant::now(),
         ));
     }
@@ -1593,7 +1592,7 @@ impl SpLogApp {
     /// dla getterów pluginów Rhai. Wywoływana co klatkę oraz po zapisie łączności.
     pub fn refresh_plugin_snapshot(&mut self) {
         let awards = {
-            let a = self.awards_engine.lock().unwrap_or_else(|p| p.into_inner());
+            let a = self.awards_engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             crate::plugins::bridge::AwardSnapshot {
                 dxcc_worked: a.worked_dxcc_all.len() as i64,
                 dxcc_confirmed: a.confirmed_dxcc.len() as i64,
@@ -1626,14 +1625,14 @@ impl SpLogApp {
             rst_sent: self.entry_rst_sent.clone(),
             rst_rcvd: self.entry_rst_rcvd.clone(),
             comment: self.entry_comment.clone(),
-            is_atno: award.map(|s| s.is_new_dxcc).unwrap_or(false),
-            is_new_band: award.map(|s| s.is_new_band).unwrap_or(false),
-            is_new_mode: award.map(|s| s.is_new_mode).unwrap_or(false),
-            is_new_iota: award.map(|s| s.is_new_iota).unwrap_or(false),
-            is_new_waz: award.map(|s| s.is_new_waz).unwrap_or(false),
-            is_new_was: award.map(|s| s.is_new_was).unwrap_or(false),
-            is_new_wac: award.map(|s| s.is_new_wac).unwrap_or(false),
-            is_new_pga: award.map(|s| s.is_new_pga).unwrap_or(false),
+            is_atno: award.is_some_and(|s| s.is_new_dxcc),
+            is_new_band: award.is_some_and(|s| s.is_new_band),
+            is_new_mode: award.is_some_and(|s| s.is_new_mode),
+            is_new_iota: award.is_some_and(|s| s.is_new_iota),
+            is_new_waz: award.is_some_and(|s| s.is_new_waz),
+            is_new_was: award.is_some_and(|s| s.is_new_was),
+            is_new_wac: award.is_some_and(|s| s.is_new_wac),
+            is_new_pga: award.is_some_and(|s| s.is_new_pga),
         };
 
         self.plugin_engine.set_snapshot(crate::plugins::bridge::PluginSnapshot {
@@ -1688,7 +1687,7 @@ impl SpLogApp {
                         let _ = crate::media::voice_keyer::play_wav_file(&path);
                     } else {
                         self.status_toast = Some((
-                            format!("🎙️ Zapowiedź głosowa: {}", text),
+                            format!("🎙️ Zapowiedź głosowa: {text}"),
                             std::time::Instant::now(),
                         ));
                     }
@@ -1721,9 +1720,7 @@ impl SpLogApp {
     /// Wstawia lokalny spot DX (akcja `spot`). Kanał wysyłki telnetowej klastra
     /// nie jest dostępny dla pluginów, więc spot pojawia się w panelu klastra.
     fn publish_local_spot(&mut self, dx_call: &str, freq_khz: f64, comment: &str) {
-        let band_str = crate::core::bandplan::get_band_by_freq((freq_khz * 1000.0) as u64)
-            .map(|b| b.name.to_string())
-            .unwrap_or_else(|| "HF".to_string());
+        let band_str = crate::core::bandplan::get_band_by_freq((freq_khz * 1000.0) as u64).map_or_else(|| "HF".to_string(), |b| b.name.to_string());
         let is_ft8 = comment.to_uppercase().contains("FT8");
         let spot = crate::cluster::telnet::DxSpot {
             frequency_khz: freq_khz,
@@ -1738,7 +1735,7 @@ impl SpLogApp {
         };
         self.cluster_spots.insert(0, spot);
         self.status_toast = Some((
-            format!("Spot (plugin): {} na {:.1} kHz", dx_call, freq_khz),
+            format!("Spot (plugin): {dx_call} na {freq_khz:.1} kHz"),
             std::time::Instant::now(),
         ));
     }
@@ -1771,7 +1768,7 @@ impl SpLogApp {
             "qso_saved" | "saved" => crate::media::sounds::play_qso_saved_alert(),
             "band_opened" | "band" => crate::media::sounds::play_band_opened_alert(),
             _ => self.status_toast = Some((
-                format!("Nieznany dźwięk pluginu: {}", name),
+                format!("Nieznany dźwięk pluginu: {name}"),
                 std::time::Instant::now(),
             )),
         }
@@ -1832,31 +1829,29 @@ impl SpLogApp {
 
         let mut qso = QsoRecord::new(&self.entry_callsign, &self.entry_band, &self.entry_mode);
         qso.journal_id = Some(self.active_journal.id.clone());
-        qso.qso_date = date_str.clone();
-        qso.time_on = time_str.clone();
+        qso.qso_date.clone_from(&date_str);
+        qso.time_on.clone_from(&time_str);
         qso.rst_sent = self.entry_rst_sent.clone();
         qso.rst_rcvd = self.entry_rst_rcvd.clone();
-        qso.name = if !self.entry_name.is_empty() { Some(self.entry_name.clone()) } else { None };
-        qso.qth = if !self.entry_qth.is_empty() { Some(self.entry_qth.clone()) } else { None };
-        qso.gridsquare = if !self.entry_grid.is_empty() { Some(self.entry_grid.clone()) } else { None };
-        qso.pga_ref = if !self.entry_pga.is_empty() { Some(self.entry_pga.clone()) } else { None };
-        qso.comment = if !self.entry_comment.is_empty() { Some(self.entry_comment.clone()) } else { None };
-        qso.iota = if !self.entry_iota.is_empty() { Some(self.entry_iota.clone()) } else { None };
-        qso.state = if !self.entry_state.is_empty() { Some(self.entry_state.clone()) } else { None };
-        qso.sota_ref = if !self.entry_sota.is_empty() { Some(self.entry_sota.clone()) } else { None };
-        qso.pota_ref = if !self.entry_pota.is_empty() { Some(self.entry_pota.clone()) } else { None };
-        qso.qsl_via = if !self.entry_qsl_manager.is_empty() { Some(self.entry_qsl_manager.clone()) } else { None };
+        qso.name = if self.entry_name.is_empty() { None } else { Some(self.entry_name.clone()) };
+        qso.qth = if self.entry_qth.is_empty() { None } else { Some(self.entry_qth.clone()) };
+        qso.gridsquare = if self.entry_grid.is_empty() { None } else { Some(self.entry_grid.clone()) };
+        qso.pga_ref = if self.entry_pga.is_empty() { None } else { Some(self.entry_pga.clone()) };
+        qso.comment = if self.entry_comment.is_empty() { None } else { Some(self.entry_comment.clone()) };
+        qso.iota = if self.entry_iota.is_empty() { None } else { Some(self.entry_iota.clone()) };
+        qso.state = if self.entry_state.is_empty() { None } else { Some(self.entry_state.clone()) };
+        qso.sota_ref = if self.entry_sota.is_empty() { None } else { Some(self.entry_sota.clone()) };
+        qso.pota_ref = if self.entry_pota.is_empty() { None } else { Some(self.entry_pota.clone()) };
+        qso.qsl_via = if self.entry_qsl_manager.is_empty() { None } else { Some(self.entry_qsl_manager.clone()) };
         qso.qsl_manager = qso.qsl_via.clone();
 
         // Sprawdzenie czy nagrywano audio łączności (Audio Memo) — zapis obok aktywnej bazy danych
         if crate::media::audio_recorder::AudioRecorder::is_recording() {
             let rec_dir = self
                 .active_db_path
-                .parent()
-                .map(|p| p.join("recordings"))
-                .unwrap_or_else(|| std::path::PathBuf::from("recordings"));
+                .parent().map_or_else(|| std::path::PathBuf::from("recordings"), |p| p.join("recordings"));
             let clean_call = self.entry_callsign.trim().to_uppercase().replace('/', "_");
-            let filename = format!("QSO_{}_{}_{}.wav", clean_call, date_str, time_str);
+            let filename = format!("QSO_{clean_call}_{date_str}_{time_str}.wav");
             let path = rec_dir.join(filename);
             if let Ok(saved) = crate::media::audio_recorder::AudioRecorder::stop_and_save(&path) {
                 qso.audio_file = Some(saved.to_string_lossy().to_string());
@@ -1872,7 +1867,7 @@ impl SpLogApp {
         }
 
         let insert_res = {
-            let db = self.log_db.lock().unwrap_or_else(|p| p.into_inner());
+            let db = self.log_db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             db.insert_qso(&qso)
         };
 
@@ -1888,18 +1883,18 @@ impl SpLogApp {
                     time_utc: qso.time_on.clone(),
                 });
                 {
-                    let mut awards = self.awards_engine.lock().unwrap_or_else(|p| p.into_inner());
+                    let mut awards = self.awards_engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                     awards.register_qso_record(&qso);
                 }
                 self.invalidate_cluster_badges();
                 {
-                    let mut scp = self.scp_engine.lock().unwrap_or_else(|p| p.into_inner());
+                    let mut scp = self.scp_engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                     scp.insert(&qso.callsign);
                 }
             }
             Err(e) => {
                 self.status_toast = Some((
-                    format!("Błąd zapisu łączności do bazy danych: {}", e),
+                    format!("Błąd zapisu łączności do bazy danych: {e}"),
                     std::time::Instant::now(),
                 ));
             }
@@ -1945,15 +1940,14 @@ impl SpLogApp {
             is_atno: self
                 .active_award_status
                 .as_ref()
-                .map(|s| s.is_new_dxcc)
-                .unwrap_or(false),
+                .is_some_and(|s| s.is_new_dxcc),
         });
 
         // Automatyczny przesył na żywo do Club Log — przez wspólną kolejkę wysyłki
         if self.live_auto_upload_clublog && !self.clublog_callsign.is_empty() && !self.clublog_password.is_empty() {
             let adif_record = crate::core::adif::export_adif(std::slice::from_ref(&qso), "SPLogbook", &self.my_station.callsign);
             let now = crate::cloud::scheduler::now_unix();
-            let mut sched = self.upload_scheduler.lock().unwrap_or_else(|p| p.into_inner());
+            let mut sched = self.upload_scheduler.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             sched.enqueue(crate::cloud::scheduler::UploadService::ClubLog, adif_record, now);
             sched.save_to_disk();
         }
@@ -1962,7 +1956,7 @@ impl SpLogApp {
         if self.live_auto_upload_qrz && !self.qrz_api_key.is_empty() {
             let adif_record = crate::core::adif::export_adif(std::slice::from_ref(&qso), "SPLogbook", &self.my_station.callsign);
             let now = crate::cloud::scheduler::now_unix();
-            let mut sched = self.upload_scheduler.lock().unwrap_or_else(|p| p.into_inner());
+            let mut sched = self.upload_scheduler.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             sched.enqueue(crate::cloud::scheduler::UploadService::Qrz, adif_record, now);
             sched.save_to_disk();
         }
@@ -1989,7 +1983,7 @@ impl SpLogApp {
             let xml = crate::digital::n1mm::contactinfo_xml(&qso, &my_call, 1);
             tokio::spawn(async move {
                 if let Err(e) = crate::digital::n1mm::send_broadcast(&host, port, &xml).await {
-                    log::warn!("N1MM broadcast nieudany ({}:{}): {}", host, port, e);
+                    log::warn!("N1MM broadcast nieudany ({host}:{port}): {e}");
                 }
             });
         }
@@ -2027,9 +2021,9 @@ impl SpLogApp {
     pub fn active_distance_display(&self) -> String {
         let km = self.active_distance_km;
         match self.distance_unit.as_str() {
-            "mi" => format!("{:.0} mi", km * 0.621371),
-            "nmi" => format!("{:.0} NM", km * 0.539957),
-            _ => format!("{:.0} km", km),
+            "mi" => format!("{:.0} mi", km * 0.621_371),
+            "nmi" => format!("{:.0} NM", km * 0.539_957),
+            _ => format!("{km:.0} km"),
         }
     }
 
@@ -2125,13 +2119,13 @@ impl SpLogApp {
     /// Zwraca kolor i odznakę (⭐ nowe DXCC, ✨ nowe pasmo) dla spotu klastra,
     /// korzystając z cache, aby nie przeliczać prefiksu i statusu nagród co klatkę.
     pub fn cluster_spot_badge(&mut self, dx_call: &str, band: &str, is_ft8: bool) -> (egui::Color32, &'static str) {
-        let key = format!("{}|{}|{}", dx_call, band, is_ft8);
+        let key = format!("{dx_call}|{band}|{is_ft8}");
         if let Some(&badge) = self.cluster_badge_cache.get(&key) {
             return badge;
         }
 
         let badge = if let Some(info) = self.prefix_matcher.lookup(dx_call) {
-            let awards = self.awards_engine.lock().unwrap_or_else(|p| p.into_inner());
+            let awards = self.awards_engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let st = awards.check_status_full(
                 dx_call,
                 band,
@@ -2198,7 +2192,7 @@ impl SpLogApp {
         // Zapis prognoz do historii dokładności oraz wykrywanie przejść
         // otwarcia/zamknięcia pasm (dla alertów dźwiękowych i pluginów).
         let mut newly_opened: Vec<&'static str> = Vec::new();
-        for (name, fc) in forecasts.iter() {
+        for (name, fc) in &forecasts {
             let band = *name;
             self.propagation_history.record_forecast(
                 band,
@@ -2256,12 +2250,12 @@ impl SpLogApp {
         let mut first_err: Option<String> = None;
         for id in &ids {
             let result = {
-                let db = self.log_db.lock().unwrap_or_else(|p| p.into_inner());
+                let db = self.log_db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 db.delete_qso(*id)
             };
             if let Err(e) = result {
                 if first_err.is_none() {
-                    first_err = Some(format!("Błąd usuwania łączności #{}: {}", id, e));
+                    first_err = Some(format!("Błąd usuwania łączności #{id}: {e}"));
                 }
             }
         }
@@ -2276,16 +2270,16 @@ impl SpLogApp {
 
     pub fn delete_qso_by_id(&mut self, id: i64) {
         let result = {
-            let db = self.log_db.lock().unwrap_or_else(|p| p.into_inner());
+            let db = self.log_db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             db.delete_qso(id)
         };
         if let Err(e) = result {
-            self.report_error(format!("Błąd usuwania łączności #{}: {}", id, e));
+            self.report_error(format!("Błąd usuwania łączności #{id}: {e}"));
             return;
         }
         self.rebuild_awards_full();
         self.reload_qsos();
-        self.status_message = Some(format!("Usunięto łączność #{} z dziennika.", id));
+        self.status_message = Some(format!("Usunięto łączność #{id} z dziennika."));
     }
 
     /// Cofa ostatnie usunięte QSO (Undo)
@@ -2295,17 +2289,17 @@ impl SpLogApp {
             let mut restored = qso.clone();
             restored.id = None; // nowe ID przy przywracaniu
             let result = {
-                let db = self.log_db.lock().unwrap_or_else(|p| p.into_inner());
+                let db = self.log_db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 db.insert_qso(&restored)
             };
             if let Err(e) = result {
-                self.report_error(format!("Błąd przywracania łączności: {}", e));
+                self.report_error(format!("Błąd przywracania łączności: {e}"));
                 return;
             }
             self.redo_stack.push_front(qso);
             self.rebuild_awards_full();
             self.reload_qsos();
-            self.status_message = Some(format!("Przywrócono łączność z: {}", callsign));
+            self.status_message = Some(format!("Przywrócono łączność z: {callsign}"));
         }
     }
 
@@ -2314,7 +2308,7 @@ impl SpLogApp {
         if let Some(qso) = self.redo_stack.pop_front() {
             let callsign = qso.callsign.clone();
             // Szukamy QSO w bazie po znaku i dacie żeby je usunąć
-            let db = self.log_db.lock().unwrap_or_else(|p| p.into_inner());
+            let db = self.log_db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             if let Ok(all) = db.get_recent_qsos_for_journal(&self.active_journal.id, 10) {
                 for q in all {
                     if q.callsign == qso.callsign && q.qso_date == qso.qso_date && q.time_on == qso.time_on {
@@ -2329,7 +2323,7 @@ impl SpLogApp {
             self.undo_stack.push_front(qso);
             self.rebuild_awards_full();
             self.reload_qsos();
-            self.status_message = Some(format!("Redo: usunięto łączność z: {}", callsign));
+            self.status_message = Some(format!("Redo: usunięto łączność z: {callsign}"));
         }
     }
 
@@ -2337,11 +2331,11 @@ impl SpLogApp {
         if let Some(ref qso) = self.editing_qso {
             if let Some(id) = qso.id {
                 let result = {
-                    let db = self.log_db.lock().unwrap_or_else(|p| p.into_inner());
+                    let db = self.log_db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                     db.update_qso(id, qso)
                 };
                 if let Err(e) = result {
-                    self.report_error(format!("Błąd aktualizacji łączności #{}: {}", id, e));
+                    self.report_error(format!("Błąd aktualizacji łączności #{id}: {e}"));
                     return;
                 }
                 self.status_message = Some(format!("Zaktualizowano rekord łączności z: {}", qso.callsign));
@@ -2367,7 +2361,7 @@ impl SpLogApp {
             }
             if let Some(s) = cb_data.state.clone() { self.entry_state = s; }
             if let Some(mgr) = cb_data.qsl_manager.clone() { self.entry_qsl_manager = mgr; }
-            self.status_message = Some(format!("Znaleziono w bazie Callbook: {}", call));
+            self.status_message = Some(format!("Znaleziono w bazie Callbook: {call}"));
         }
 
         let lc = self.local_callbook.clone();
@@ -2403,7 +2397,7 @@ impl SpLogApp {
                 let _ = crate::cat::hamlib::HamlibClient::set_frequency(&host, port, freq_hz).await;
             });
         }
-        self.status_message = Some(format!("Auto-tune → {} na {:.1} kHz", dx_call, freq_khz));
+        self.status_message = Some(format!("Auto-tune → {dx_call} na {freq_khz:.1} kHz"));
     }
 
     pub fn stop_rotor(&mut self) {
@@ -2624,7 +2618,7 @@ impl SpLogApp {
             custom_contests: self.custom_contests.clone(),
         };
         if let Err(e) = cfg.save_to_file(&self.config_file_path) {
-            self.report_error(format!("⚠ Błąd zapisu konfiguracji: {}", e));
+            self.report_error(format!("⚠ Błąd zapisu konfiguracji: {e}"));
         } else {
             self.secret_store_id = cfg.secret_store_id;
         }
@@ -2633,7 +2627,7 @@ impl SpLogApp {
     /// Scentralizowane zgłaszanie błędów: log + pływające powiadomienie w UI.
     pub fn report_error(&mut self, msg: impl Into<String>) {
         let msg = msg.into();
-        log::error!("{}", msg);
+        log::error!("{msg}");
         self.status_toast = Some((msg, std::time::Instant::now()));
     }
 
@@ -2647,10 +2641,10 @@ impl SpLogApp {
 
         let host = self.cluster_host.clone();
         let port = self.cluster_port;
-        let call = if !self.cluster_callsign.trim().is_empty() {
-            self.cluster_callsign.trim().to_uppercase()
-        } else {
+        let call = if self.cluster_callsign.trim().is_empty() {
             self.my_station.callsign.clone()
+        } else {
+            self.cluster_callsign.trim().to_uppercase()
         };
 
         let (event_tx, event_rx) = std::sync::mpsc::channel();
@@ -2660,7 +2654,7 @@ impl SpLogApp {
         self.cluster_stop_tx = Some(stop_tx);
         self.cluster_connecting = true;
         self.cluster_connected = false;
-        self.cluster_status_text = format!("Łączenie z {}:{}...", host, port);
+        self.cluster_status_text = format!("Łączenie z {host}:{port}...");
 
         tokio::spawn(async move {
             crate::cluster::telnet::DxClusterClient::run_with_events(host, port, call, event_tx, stop_rx).await;
@@ -2726,12 +2720,12 @@ impl SpLogApp {
                 &self.cat_custom_rigctld_path,
             );
             match sup.start() {
-                Ok(_) => {
+                Ok(()) => {
                     self.rigctld_supervisor = Some(sup);
                     self.cat_test_result = Some(format!("Uruchomiono rigctld w tle dla {}!", self.cat_rig_model));
                 }
                 Err(e) => {
-                    self.cat_test_result = Some(format!("Błąd uruchomienia rigctld: {}", e));
+                    self.cat_test_result = Some(format!("Błąd uruchomienia rigctld: {e}"));
                 }
             }
         }
@@ -2821,7 +2815,7 @@ impl SpLogApp {
                 let _ = crate::cat::hamlib::HamlibClient::set_mode(&host, port, &m, 0).await;
             });
         }
-        self.status_message = Some(format!("Emisja zmieniona na: {}", mode));
+        self.status_message = Some(format!("Emisja zmieniona na: {mode}"));
     }
 
     pub fn set_vfo_split(&mut self, enabled: bool) {
@@ -2851,7 +2845,7 @@ impl SpLogApp {
                 let _ = crate::cat::hamlib::HamlibClient::set_vfo(&host, port, &vfo).await;
             });
         }
-        self.status_message = Some(format!("Aktywne VFO przełączone na: {}", next_vfo));
+        self.status_message = Some(format!("Aktywne VFO przełączone na: {next_vfo}"));
     }
 
     pub fn set_vfo_filter(&mut self, preset: &str, passband_hz: u32) {
@@ -2865,7 +2859,7 @@ impl SpLogApp {
                 let _ = crate::cat::hamlib::HamlibClient::set_mode(&host, port, &mode, passband_hz).await;
             });
         }
-        self.status_message = Some(format!("Filtr IF: {} ({} Hz)", preset, passband_hz));
+        self.status_message = Some(format!("Filtr IF: {preset} ({passband_hz} Hz)"));
     }
 
     pub fn add_new_equipment(&mut self) {
@@ -2924,7 +2918,7 @@ impl SpLogApp {
                     let rejected = report.rejected;
                     let errors = report.errors;
                     let insert_res = {
-                        let mut db = self.log_db.lock().unwrap_or_else(|p| p.into_inner());
+                        let mut db = self.log_db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                         db.batch_insert_qsos(&qsos)
                     };
                     match insert_res {
@@ -2939,15 +2933,15 @@ impl SpLogApp {
                             );
                             if let Some(first_error) = errors.first() {
                                 if rejected > 0 || !errors.is_empty() {
-                                    msg.push_str(&format!(" | {}", first_error));
+                                    let _ = write!(msg, " | {first_error}");
                                 }
                             }
                             self.status_message = Some(msg);
-                            self.status_toast = Some((format!("Zaimportowano {} QSO (odrzucono {})", count, rejected), std::time::Instant::now()));
+                            self.status_toast = Some((format!("Zaimportowano {count} QSO (odrzucono {rejected})"), std::time::Instant::now()));
                         }
                         Err(e) => {
-                            self.status_message = Some(format!("Błąd zapisu łączności do bazy: {}", e));
-                            self.report_error(format!("Błąd importu do bazy: {}", e));
+                            self.status_message = Some(format!("Błąd zapisu łączności do bazy: {e}"));
+                            self.report_error(format!("Błąd importu do bazy: {e}"));
                         }
                     }
                 }
@@ -2966,13 +2960,13 @@ impl SpLogApp {
             .save_file()
         {
             let qsos = {
-                let db = self.log_db.lock().unwrap_or_else(|p| p.into_inner());
-                db.get_recent_qsos(100000).unwrap_or_default()
+                let db = self.log_db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                db.get_recent_qsos(100_000).unwrap_or_default()
             };
             let count = qsos.len();
             let adif_text = crate::core::adif::export_adif(&qsos, "SPLogbook", &self.my_station.callsign);
             match std::fs::write(&path, adif_text) {
-                Ok(_) => {
+                Ok(()) => {
                     self.status_message = Some(format!("Wyeksportowano pomyślnie {} łączności do pliku: {}", count, path.display()));
                 }
                 Err(e) => {
@@ -2990,13 +2984,13 @@ impl SpLogApp {
             .save_file()
         {
             let qsos = {
-                let db = self.log_db.lock().unwrap_or_else(|p| p.into_inner());
-                db.get_recent_qsos(100000).unwrap_or_default()
+                let db = self.log_db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                db.get_recent_qsos(100_000).unwrap_or_default()
             };
             let count = qsos.len();
             let adx_text = crate::core::adif::export_adx(&qsos);
             match std::fs::write(&path, adx_text) {
-                Ok(_) => {
+                Ok(()) => {
                     self.status_message = Some(format!("Wyeksportowano pomyślnie {} łączności do pliku: {}", count, path.display()));
                 }
                 Err(e) => {
@@ -3006,17 +3000,17 @@ impl SpLogApp {
         }
     }
 
-    pub fn perform_csv_export(&mut self, req: CsvExportRequest) {
+    pub fn perform_csv_export(&mut self, req: &CsvExportRequest) {
         let qsos: Vec<QsoRecord> = match req.scope {
             CsvExportScope::All => {
-                let db = self.log_db.lock().unwrap_or_else(|p| p.into_inner());
-                db.get_recent_qsos(100000).unwrap_or_default()
+                let db = self.log_db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                db.get_recent_qsos(100_000).unwrap_or_default()
             }
             CsvExportScope::Filtered => self.recent_qsos.clone(),
             CsvExportScope::Selected => self
                 .recent_qsos
                 .iter()
-                .filter(|q| q.id.map(|id| self.selected_qso_ids.contains(&id)).unwrap_or(false))
+                .filter(|q| q.id.is_some_and(|id| self.selected_qso_ids.contains(&id)))
                 .cloned()
                 .collect(),
         };
@@ -3035,7 +3029,7 @@ impl SpLogApp {
         {
             let csv_text = crate::core::csv_export::export_csv(&qsos, &req.columns, req.delimiter, req.include_header);
             match std::fs::write(&path, csv_text) {
-                Ok(_) => {
+                Ok(()) => {
                     self.status_message = Some(format!(
                         "Wyeksportowano pomyślnie {} łączności do pliku: {}",
                         qsos.len(),
@@ -3052,14 +3046,12 @@ impl SpLogApp {
     pub fn run_manual_backup(&mut self) {
         let backup_dir = self
             .active_db_path
-            .parent()
-            .map(|p| p.join("backups"))
-            .unwrap_or_else(|| std::path::PathBuf::from("backups"));
+            .parent().map_or_else(|| std::path::PathBuf::from("backups"), |p| p.join("backups"));
         let _ = std::fs::create_dir_all(&backup_dir);
         let backup_res = BackupManager::backup_database(&self.active_db_path, &backup_dir);
         
         let qsos = {
-            let db = self.log_db.lock().unwrap_or_else(|p| p.into_inner());
+            let db = self.log_db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             db.get_recent_qsos(10000).unwrap_or_default()
         };
         let adif = crate::core::adif::export_adif(&qsos, "SPLogbook", &self.my_station.callsign);
@@ -3068,10 +3060,10 @@ impl SpLogApp {
         match backup_res {
             Ok(backed_path) => {
                 let name = backed_path.file_name().unwrap_or_default().to_string_lossy();
-                self.status_toast = Some((format!("Wykonano kopię zapasową: {} w folderze backups/!", name), std::time::Instant::now()));
+                self.status_toast = Some((format!("Wykonano kopię zapasową: {name} w folderze backups/!"), std::time::Instant::now()));
             }
             Err(e) => {
-                self.report_error(format!("Błąd tworzenia kopii zapasowej: {}", e));
+                self.report_error(format!("Błąd tworzenia kopii zapasowej: {e}"));
             }
         }
     }
@@ -3079,7 +3071,7 @@ impl SpLogApp {
     pub fn trigger_database_update(&mut self) {
         tokio::spawn(async move {
             let res = crate::cloud::updater::DatabaseUpdater::update_all(std::path::Path::new("databases")).await;
-            println!("Database update completed: {:?}", res);
+            println!("Database update completed: {res:?}");
         });
         self.status_toast = Some(("Rozpoczęto pobieranie aktualizacji baz danych (cty.dat, SCP, LoTW) w tle...".to_string(), std::time::Instant::now()));
     }
@@ -3133,7 +3125,7 @@ impl SpLogApp {
         tokio::spawn(async move {
             let msg = match crate::cloud::updater::install_update(&asset).await {
                 Ok(()) => "✅ Aktualizacja pobrana i zweryfikowana. Aplikacja zostanie zamknięta i uruchomiona ponownie…".to_string(),
-                Err(e) => format!("❌ Instalacja nie powiodła się: {}", e),
+                Err(e) => format!("❌ Instalacja nie powiodła się: {e}"),
             };
             let _ = tx.send(msg);
         });
@@ -3172,7 +3164,7 @@ impl SpLogApp {
             let events = self.event_bus.clone();
             tokio::spawn(async move {
                 if let Err(e) = srv_arc.run().await {
-                    log::error!("Hamlib proxy server error: {}", e);
+                    log::error!("Hamlib proxy server error: {e}");
                     events.publish(crate::core::events::AppEvent::Toast {
                         level: "error".into(),
                         message: format!("Serwer proxy CAT (Hamlib) zatrzymany: {e}"),
@@ -3190,7 +3182,7 @@ impl SpLogApp {
 
     pub fn activate_station_profile(&mut self, profile_id: &str) {
         if let Some(prof) = self.station_profiles.iter().find(|p| p.id == profile_id).cloned() {
-            self.active_profile_id = prof.id.clone();
+            self.active_profile_id.clone_from(&prof.id);
             self.my_station = prof.clone();
             self.entry_pota = prof.pota_ref.clone().unwrap_or_default();
             self.entry_sota = prof.sota_ref.clone().unwrap_or_default();
@@ -3230,7 +3222,7 @@ impl SpLogApp {
 
         // Pobierz gotowe zadania (maks. jedno na serwis, z uwzględnieniem rate-limit).
         let ready: Vec<(u64, UploadService, String)> = {
-            let mut sched = self.upload_scheduler.lock().unwrap_or_else(|p| p.into_inner());
+            let mut sched = self.upload_scheduler.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let ids = sched.ready_jobs(now);
             ids.into_iter()
                 .filter_map(|id| {
@@ -3250,7 +3242,7 @@ impl SpLogApp {
             for (id, service, adif) in ready {
                 let result = crate::cloud::scheduler::execute_upload(service, &creds, &adif).await;
                 let now = crate::cloud::scheduler::now_unix();
-                let mut sched = sched.lock().unwrap_or_else(|p| p.into_inner());
+                let mut sched = sched.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 match result {
                     Ok(_) => sched.mark_success(id, now),
                     Err(e) => {
@@ -3260,7 +3252,7 @@ impl SpLogApp {
                 sched.save_to_disk();
             }
             // Po zakończeniu serii utrzymaj kolejkę w rozsądnym rozmiarze.
-            let mut sched = sched.lock().unwrap_or_else(|p| p.into_inner());
+            let mut sched = sched.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             if sched.purge_done() > 0 {
                 sched.save_to_disk();
             }
@@ -3326,7 +3318,7 @@ impl SpLogApp {
                 .fetch_hamqth_solar()
                 .await
                 .map_err(|e| e.to_string());
-            *slot_clone.lock().unwrap_or_else(|p| p.into_inner()) = Some(result);
+            *slot_clone.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(result);
             ctx_clone.request_repaint();
         });
 
@@ -3347,8 +3339,7 @@ impl SpLogApp {
                         Ok(weather) => self.record_solar_sample(weather),
                         Err(e) => {
                             self.solar_last_alert = Some(format!(
-                                "Błąd pobierania danych solarnych: {}",
-                                e
+                                "Błąd pobierania danych solarnych: {e}"
                             ));
                         }
                     }
@@ -3497,7 +3488,7 @@ impl eframe::App for SpLogApp {
         if let Some(ref api_slot) = self.cluster_spots_api.clone() {
             if let Ok(mut guard) = api_slot.try_lock() {
                 if guard.len() != self.cluster_spots.len() {
-                    *guard = self.cluster_spots.clone();
+                    (*guard).clone_from(&self.cluster_spots);
                 }
             }
         }
@@ -3621,7 +3612,7 @@ impl eframe::App for SpLogApp {
             if let Ok(outcome) = rx.try_recv() {
                 match outcome {
                     crate::cloud::updater::UpdateCheckOutcome::UpToDate { local } => {
-                        self.update_check_status = Some(format!("✅ Masz najnowszą wersję (v{}).", local));
+                        self.update_check_status = Some(format!("✅ Masz najnowszą wersję (v{local})."));
                     }
                     crate::cloud::updater::UpdateCheckOutcome::NewVersion(release) => {
                         self.update_check_status = Some(format!(
@@ -3633,7 +3624,7 @@ impl eframe::App for SpLogApp {
                     }
                     crate::cloud::updater::UpdateCheckOutcome::Error(e) => {
                         self.update_check_status =
-                            Some(format!("❌ Nie udało się sprawdzić aktualizacji: {}", e));
+                            Some(format!("❌ Nie udało się sprawdzić aktualizacji: {e}"));
                     }
                 }
                 self.update_check_rx = None;
@@ -3713,6 +3704,16 @@ impl eframe::App for SpLogApp {
                 crate::cat::server::RigServerCommand::SetFrequency(freq) => {
                     self.set_vfo_frequency(freq);
                 }
+                crate::cat::server::RigServerCommand::SetSplitFrequency(freq) => {
+                    self.rig_state.tx_frequency_hz = Some(freq);
+                    if self.cat_connected {
+                        let host = self.cat_host.clone();
+                        let port = self.cat_port;
+                        tokio::spawn(async move {
+                            let _ = crate::cat::hamlib::HamlibClient::set_split_frequency(&host, port, freq).await;
+                        });
+                    }
+                }
                 crate::cat::server::RigServerCommand::SetMode(mode) => {
                     self.set_vfo_mode(&mode);
                 }
@@ -3727,7 +3728,7 @@ impl eframe::App for SpLogApp {
                     }
                 }
                 crate::cat::server::RigServerCommand::SetVfo(vfo) => {
-                    self.rig_state.vfo = vfo.clone();
+                    self.rig_state.vfo.clone_from(&vfo);
                     if self.cat_connected {
                         let host = self.cat_host.clone();
                         let port = self.cat_port;
@@ -3787,7 +3788,7 @@ impl eframe::App for SpLogApp {
                     ClusterEvent::Connected(msg) => {
                         self.cluster_connected = true;
                         self.cluster_connecting = false;
-                        self.cluster_status_text = msg.clone();
+                        self.cluster_status_text.clone_from(&msg);
                         self.status_toast = Some((msg, std::time::Instant::now()));
                         self.event_bus.publish(crate::core::events::AppEvent::ClusterStatus { connected: true });
                     }
@@ -3803,7 +3804,7 @@ impl eframe::App for SpLogApp {
                         });
                         if !is_duplicate {
                             let is_atno = if let Some(info) = self.prefix_matcher.lookup(&spot.dx_call) {
-                                let awards = self.awards_engine.lock().unwrap_or_else(|p| p.into_inner());
+                                let awards = self.awards_engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                                 let st = awards.check_status_full(
                                     &spot.dx_call,
                                     &spot.band,
@@ -3858,9 +3859,9 @@ impl eframe::App for SpLogApp {
         // Usuń przestarzałe spoty (starsze niż 60 minut), a następnie ogranicz bufor
         // do 200 najnowszych pozycji (nowe spoty są wstawiane na indeksie 0, więc ucinamy najstarsze od końca).
         let now_ts = chrono::Utc::now().timestamp();
-        const SPOT_MAX_AGE_SECS: i64 = 60 * 60;
-        if self.cluster_spots.iter().any(|s| now_ts - s.received_at > SPOT_MAX_AGE_SECS) {
-            self.cluster_spots.retain(|s| now_ts - s.received_at <= SPOT_MAX_AGE_SECS);
+        let spot_max_age_secs: i64 = 60 * 60;
+        if self.cluster_spots.iter().any(|s| now_ts - s.received_at > spot_max_age_secs) {
+            self.cluster_spots.retain(|s| now_ts - s.received_at <= spot_max_age_secs);
         }
         if self.cluster_spots.len() > 200 {
             self.cluster_spots.truncate(200);
@@ -3949,30 +3950,30 @@ impl eframe::App for SpLogApp {
                     }
 
                     let insert_res = {
-                        let db = self.log_db.lock().unwrap_or_else(|p| p.into_inner());
+                        let db = self.log_db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                         db.insert_qso(&qso)
                     };
                     match insert_res {
                         Ok(id) => {
                             qso.id = Some(id);
                             {
-                                let mut awards = self.awards_engine.lock().unwrap_or_else(|p| p.into_inner());
+                                let mut awards = self.awards_engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                                 awards.register_qso_record(&qso);
                             }
                             self.invalidate_cluster_badges();
                             {
-                                let mut scp = self.scp_engine.lock().unwrap_or_else(|p| p.into_inner());
+                                let mut scp = self.scp_engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                                 scp.insert(&qso.callsign);
                             }
                             self.status_toast = Some((format!("WSJT-X: Automatycznie dodano QSO z {}!", qso.callsign), std::time::Instant::now()));
                             self.reload_qsos();
                         }
                         Err(e) => {
-                            self.report_error(format!("Błąd auto-zapisu WSJT-X: {}", e));
+                            self.report_error(format!("Błąd auto-zapisu WSJT-X: {e}"));
                         }
                     }
                 }
-                _ => {}
+                crate::digital::wsjtx::WsjtxMessage::Heartbeat { .. } => {}
             }
         }
 
@@ -4016,19 +4017,19 @@ impl eframe::App for SpLogApp {
 
             // Zapisz QSO do bazy SQLite
             let insert_res = {
-                let db = self.log_db.lock().unwrap_or_else(|p| p.into_inner());
+                let db = self.log_db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 db.insert_qso(&qso)
             };
             match insert_res {
                 Ok(id) => {
                     qso.id = Some(id);
                     {
-                        let mut awards = self.awards_engine.lock().unwrap_or_else(|p| p.into_inner());
+                        let mut awards = self.awards_engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                         awards.register_qso_record(&qso);
                     }
                     self.invalidate_cluster_badges();
                     {
-                        let mut scp = self.scp_engine.lock().unwrap_or_else(|p| p.into_inner());
+                        let mut scp = self.scp_engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                         scp.insert(&qso.callsign);
                     }
                     self.status_toast = Some((
@@ -4039,7 +4040,7 @@ impl eframe::App for SpLogApp {
                 }
                 Err(e) => {
                     self.status_toast = Some((
-                        format!("Błąd auto-zapisu JS8Call: {}", e),
+                        format!("Błąd auto-zapisu JS8Call: {e}"),
                         std::time::Instant::now(),
                     ));
                 }
@@ -4063,18 +4064,18 @@ impl eframe::App for SpLogApp {
                 qso.ituz = Some(info.ituz);
             }
             let insert_res = {
-                let db = self.log_db.lock().unwrap_or_else(|p| p.into_inner());
+                let db = self.log_db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 db.insert_qso(&qso)
             };
             if let Ok(id) = insert_res {
                 qso.id = Some(id);
                 {
-                    let mut awards = self.awards_engine.lock().unwrap_or_else(|p| p.into_inner());
+                    let mut awards = self.awards_engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                     awards.register_qso_record(&qso);
                 }
                 self.invalidate_cluster_badges();
                 {
-                    let mut scp = self.scp_engine.lock().unwrap_or_else(|p| p.into_inner());
+                    let mut scp = self.scp_engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                     scp.insert(&qso.callsign);
                 }
                 self.multi_op_log.push(format!("Odebrano z LAN: {} ({} {})", qso.callsign, qso.band, qso.mode));
@@ -4304,9 +4305,9 @@ impl eframe::App for SpLogApp {
             }
             if let Some(j) = switched_journal {
                 self.active_journal = j.clone();
-                self.my_station.callsign = j.station_callsign.clone();
-                self.my_station.operator = j.operator.clone();
-                self.my_station.gridsquare = j.my_gridsquare.clone();
+                self.my_station.callsign.clone_from(&j.station_callsign);
+                self.my_station.operator.clone_from(&j.operator);
+                self.my_station.gridsquare.clone_from(&j.my_gridsquare);
                 self.my_station.pga_gmina = if j.my_pga.is_empty() { None } else { Some(j.my_pga.clone()) };
                 self.reload_qsos();
                 self.status_toast = Some((format!("Przełączono aktywny profil dziennika na: {}", j.name), std::time::Instant::now()));
@@ -4366,7 +4367,7 @@ impl eframe::App for SpLogApp {
         // 3b. Konfigurowalny eksport CSV
         if self.csv_export_dialog.is_open {
             if let Some(req) = self.csv_export_dialog.render(ctx) {
-                self.perform_csv_export(req);
+                self.perform_csv_export(&req);
             }
         }
 
@@ -4375,7 +4376,7 @@ impl eframe::App for SpLogApp {
 
         // 4. Przeglądarka wysp IOTA
         {
-            let awards = self.awards_engine.lock().unwrap_or_else(|p| p.into_inner());
+            let awards = self.awards_engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             if let Some(iota) = self.iota_dialog.show(ctx, &self.service_db, &awards) {
                 self.entry_iota = iota;
             }
@@ -4399,9 +4400,7 @@ impl eframe::App for SpLogApp {
 
         // 9. Formularz wysyłania własnego spotu do DX Cluster
         if let Some(sub) = self.send_spot_dialog.show(ctx, &self.my_station.callsign, self.current_language) {
-            let band_str = crate::core::bandplan::get_band_by_freq((sub.freq_khz * 1000.0) as u64)
-                .map(|b| b.name.to_string())
-                .unwrap_or_else(|| "HF".to_string());
+            let band_str = crate::core::bandplan::get_band_by_freq((sub.freq_khz * 1000.0) as u64).map_or_else(|| "HF".to_string(), |b| b.name.to_string());
             let is_ft8 = sub.comment.to_uppercase().contains("FT8");
             let spot = crate::cluster::telnet::DxSpot {
                 frequency_khz: sub.freq_khz,
@@ -4429,7 +4428,7 @@ impl eframe::App for SpLogApp {
                             .stroke(egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(56, 189, 248)))
                             .inner_margin(egui::Margin::same(10))
                             .show(ui, |ui| {
-                                ui.label(egui::RichText::new(format!("🔔 {}", msg)).strong().color(egui::Color32::WHITE));
+                                ui.label(egui::RichText::new(format!("🔔 {msg}")).strong().color(egui::Color32::WHITE));
                             });
                     });
             } else {
@@ -4543,7 +4542,7 @@ impl eframe::App for SpLogApp {
                             ui.add_space(6.0);
                             ui.heading(egui::RichText::new(*cat_title).size(14.0).strong().color(egui::Color32::from_rgb(56, 189, 248)));
                             ui.separator();
-                            egui::Grid::new(format!("shortcuts_grid_{}", cat_title))
+                            egui::Grid::new(format!("shortcuts_grid_{cat_title}"))
                                 .num_columns(2)
                                 .spacing([20.0, 6.0])
                                 .striped(true)
@@ -4626,7 +4625,7 @@ impl Drop for SpLogApp {
         let _ = std::fs::create_dir_all(&backup_dir);
         let _ = BackupManager::backup_database(&self.active_db_path, &backup_dir);
 
-        let db = self.log_db.lock().unwrap_or_else(|p| p.into_inner());
+        let db = self.log_db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Ok(qsos) = db.get_recent_qsos(5000) {
             let adif = crate::core::adif::export_adif(&qsos, "SPLogbook", &self.my_station.callsign);
             let _ = BackupManager::backup_adif(&adif, &backup_dir);

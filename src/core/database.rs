@@ -151,6 +151,7 @@ impl LogDatabase {
     /// dzięki czemu starsze bazy są uaktualniane krok po kroku, a błędy
     /// `ALTER TABLE` nie są już maskowane.
     fn init_schema(&mut self) -> Result<()> {
+        type MigrationFn = fn(&Connection) -> rusqlite::Result<()>;
         self.conn.execute_batch(
             "PRAGMA journal_mode=WAL;
             PRAGMA synchronous=NORMAL;
@@ -165,7 +166,6 @@ impl LogDatabase {
 
         // Lista migracji w kolejności rosnącej; każda jest wykonywana w transakcji
         // i rejestrowana w `schema_version` dopiero po pełnym powodzeniu.
-        type MigrationFn = fn(&Connection) -> rusqlite::Result<()>;
         let migrations: &[(i64, MigrationFn)] = &[
             (1, Self::migration_1_base_schema),
             (2, Self::migration_2_add_columns),
@@ -317,7 +317,7 @@ impl LogDatabase {
             .exists(params![table, column])?;
         if !exists {
             conn.execute(
-                &format!("ALTER TABLE {} ADD COLUMN {} {}", table, column, decl),
+                &format!("ALTER TABLE {table} ADD COLUMN {column} {decl}"),
                 [],
             )?;
         }
@@ -354,7 +354,7 @@ impl LogDatabase {
         self.conn.execute(
             "INSERT INTO journals (id, name, station_callsign, operator, my_gridsquare, my_pga, description, is_default)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![j.id, j.name, j.station_callsign, j.operator, j.my_gridsquare, j.my_pga, j.description, if j.is_default { 1 } else { 0 }],
+            params![j.id, j.name, j.station_callsign, j.operator, j.my_gridsquare, j.my_pga, j.description, i32::from(j.is_default)],
         )?;
         Ok(())
     }
@@ -365,7 +365,7 @@ impl LogDatabase {
             "UPDATE journals SET name = ?2, station_callsign = ?3, operator = ?4,
              my_gridsquare = ?5, my_pga = ?6, description = ?7, is_default = ?8
              WHERE id = ?1",
-            params![j.id, j.name, j.station_callsign, j.operator, j.my_gridsquare, j.my_pga, j.description, if j.is_default { 1 } else { 0 }],
+            params![j.id, j.name, j.station_callsign, j.operator, j.my_gridsquare, j.my_pga, j.description, i32::from(j.is_default)],
         )?;
         Ok(())
     }
@@ -440,7 +440,7 @@ impl LogDatabase {
             .exists(params![id])
             .map_err(|e| e.to_string())?;
         if !exists {
-            return Err(format!("Dziennik „{}” nie istnieje.", id));
+            return Err(format!("Dziennik „{id}” nie istnieje."));
         }
 
         let tx = self.conn.unchecked_transaction().map_err(|e| e.to_string())?;
@@ -454,7 +454,7 @@ impl LogDatabase {
 
     /// Pobiera QSO po ID
     pub fn get_qso_by_id(&self, id: i64) -> Result<Option<QsoRecord>> {
-        let sql = format!("SELECT {} FROM qso_records WHERE id = ?1", QSO_COLUMNS);
+        let sql = format!("SELECT {QSO_COLUMNS} FROM qso_records WHERE id = ?1");
         let mut stmt = self.conn.prepare(&sql)?;
         let mut rows = stmt.query_map(params![id], row_to_qso)?;
         if let Some(Ok(qso)) = rows.next() {
@@ -648,7 +648,7 @@ impl LogDatabase {
 
     /// Pobiera listę poprzednich łączności z daną stacją (do podglądu w locie)
     pub fn find_previous_qsos(&self, callsign: &str) -> Result<Vec<QsoRecord>> {
-        let sql = format!("SELECT {} FROM qso_records WHERE callsign = ?1 ORDER BY qso_date DESC, time_on DESC", QSO_COLUMNS);
+        let sql = format!("SELECT {QSO_COLUMNS} FROM qso_records WHERE callsign = ?1 ORDER BY qso_date DESC, time_on DESC");
         let mut stmt = self.conn.prepare(&sql)?;
 
         let rows = stmt.query_map(params![callsign.to_uppercase()], row_to_qso)?;
@@ -713,8 +713,7 @@ impl LogDatabase {
             })?;
 
             let query_sql = format!(
-                "SELECT {} FROM qso_records WHERE callsign = ?1 AND band = ?2 AND mode = ?3 AND qso_date = ?4 ORDER BY time_on ASC, id ASC",
-                QSO_COLUMNS
+                "SELECT {QSO_COLUMNS} FROM qso_records WHERE callsign = ?1 AND band = ?2 AND mode = ?3 AND qso_date = ?4 ORDER BY time_on ASC, id ASC"
             );
             let mut q_stmt = self.conn.prepare(&query_sql)?;
             for k in keys {
@@ -738,8 +737,7 @@ impl LogDatabase {
             })?;
 
             let query_sql = format!(
-                "SELECT {} FROM qso_records WHERE callsign = ?1 AND band = ?2 AND mode = ?3 ORDER BY qso_date ASC, time_on ASC, id ASC",
-                QSO_COLUMNS
+                "SELECT {QSO_COLUMNS} FROM qso_records WHERE callsign = ?1 AND band = ?2 AND mode = ?3 ORDER BY qso_date ASC, time_on ASC, id ASC"
             );
             let mut q_stmt = self.conn.prepare(&query_sql)?;
             for k in keys {
@@ -862,8 +860,7 @@ impl LogDatabase {
     /// Pobiera ostatnio zarejestrowane łączności dla wybranego profilu/dziennika
     pub fn get_recent_qsos_for_journal(&self, journal_id: &str, limit: usize) -> Result<Vec<QsoRecord>> {
         let sql = format!(
-            "SELECT {} FROM qso_records WHERE journal_id = ?1 ORDER BY REPLACE(qso_date, '-', '') DESC, SUBSTR(REPLACE(time_on, ':', '') || '000000', 1, 6) DESC, id DESC LIMIT ?2",
-            QSO_COLUMNS
+            "SELECT {QSO_COLUMNS} FROM qso_records WHERE journal_id = ?1 ORDER BY REPLACE(qso_date, '-', '') DESC, SUBSTR(REPLACE(time_on, ':', '') || '000000', 1, 6) DESC, id DESC LIMIT ?2"
         );
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map(params![journal_id, limit as i64], row_to_qso)?;
@@ -890,8 +887,7 @@ impl LogDatabase {
     /// Pobiera ostatnio zarejestrowane łączności (domyślnie)
     pub fn get_recent_qsos(&self, limit: usize) -> Result<Vec<QsoRecord>> {
         let sql = format!(
-            "SELECT {} FROM qso_records ORDER BY REPLACE(qso_date, '-', '') DESC, SUBSTR(REPLACE(time_on, ':', '') || '000000', 1, 6) DESC, id DESC LIMIT ?1",
-            QSO_COLUMNS
+            "SELECT {QSO_COLUMNS} FROM qso_records ORDER BY REPLACE(qso_date, '-', '') DESC, SUBSTR(REPLACE(time_on, ':', '') || '000000', 1, 6) DESC, id DESC LIMIT ?1"
         );
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map(params![limit as i64], row_to_qso)?;
@@ -905,8 +901,7 @@ impl LogDatabase {
     /// Pobiera stronicowaną listę łączności bezpośrednio w SQLite (`LIMIT ?1 OFFSET ?2`).
     pub fn get_qsos_paginated(&self, limit: usize, offset: usize) -> Result<Vec<QsoRecord>> {
         let sql = format!(
-            "SELECT {} FROM qso_records ORDER BY REPLACE(qso_date, '-', '') DESC, SUBSTR(REPLACE(time_on, ':', '') || '000000', 1, 6) DESC, id DESC LIMIT ?1 OFFSET ?2",
-            QSO_COLUMNS
+            "SELECT {QSO_COLUMNS} FROM qso_records ORDER BY REPLACE(qso_date, '-', '') DESC, SUBSTR(REPLACE(time_on, ':', '') || '000000', 1, 6) DESC, id DESC LIMIT ?1 OFFSET ?2"
         );
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map(params![limit as i64, offset as i64], row_to_qso)?;
@@ -938,7 +933,7 @@ impl LogDatabase {
     /// wiązane (nie string-concat), a wzorce LIKE mają escapowane znaki wieloznaczne
     /// `%`/`_`, żeby wyszukiwane teksty użytkownika nie działały jak wildcardy.
     pub fn search_qsos_advanced(&self, filter: &AdvancedQsoFilter) -> Result<Vec<QsoRecord>> {
-        let mut sql = format!("SELECT {} FROM qso_records WHERE 1=1", QSO_COLUMNS);
+        let mut sql = format!("SELECT {QSO_COLUMNS} FROM qso_records WHERE 1=1");
         let mut conditions: Vec<String> = Vec::new();
         let mut values: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
@@ -999,7 +994,7 @@ impl LogDatabase {
                 // Escapuje % i _ (znaki specjalne LIKE) znakiem ucieczki '\', żeby wpisany
                 // przez użytkownika tekst nie działał jak wzorzec wildcard.
                 let escaped = q.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
-                let like_pattern = format!("%{}%", escaped);
+                let like_pattern = format!("%{escaped}%");
                 values.push(Box::new(like_pattern.clone()));
                 let p1 = values.len();
                 values.push(Box::new(like_pattern.clone()));
@@ -1007,8 +1002,7 @@ impl LogDatabase {
                 values.push(Box::new(like_pattern));
                 let p3 = values.len();
                 conditions.push(format!(
-                    "(callsign LIKE ?{} ESCAPE '\\' OR name LIKE ?{} ESCAPE '\\' OR comment LIKE ?{} ESCAPE '\\')",
-                    p1, p2, p3
+                    "(callsign LIKE ?{p1} ESCAPE '\\' OR name LIKE ?{p2} ESCAPE '\\' OR comment LIKE ?{p3} ESCAPE '\\')"
                 ));
             }
         }
@@ -1021,7 +1015,7 @@ impl LogDatabase {
         sql.push_str(" ORDER BY qso_date DESC, time_on DESC");
 
         let mut stmt = self.conn.prepare(&sql)?;
-        let param_refs: Vec<&dyn rusqlite::ToSql> = values.iter().map(|v| v.as_ref()).collect();
+        let param_refs: Vec<&dyn rusqlite::ToSql> = values.iter().map(std::convert::AsRef::as_ref).collect();
         let rows = stmt.query_map(param_refs.as_slice(), row_to_qso)?;
         let mut res = Vec::new();
         for r in rows {
@@ -1032,7 +1026,7 @@ impl LogDatabase {
 
     /// Pobiera wszystkie łączności z logu (np. do eksportu całego dziennika)
     pub fn get_all_qsos(&self) -> Result<Vec<QsoRecord>> {
-        let sql = format!("SELECT {} FROM qso_records ORDER BY qso_date DESC, time_on DESC", QSO_COLUMNS);
+        let sql = format!("SELECT {QSO_COLUMNS} FROM qso_records ORDER BY qso_date DESC, time_on DESC");
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map([], row_to_qso)?;
         let mut res = Vec::new();

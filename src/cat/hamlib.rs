@@ -13,7 +13,7 @@ const MAX_LINE_LEN: usize = 256;
 const CAT_TCP_TIMEOUT: Duration = Duration::from_millis(1500);
 
 async fn connect_timeout(host: &str, port: u16) -> Result<TcpStream, std::io::Error> {
-    match tokio::time::timeout(CAT_TCP_TIMEOUT, TcpStream::connect(format!("{}:{}", host, port))).await {
+    match tokio::time::timeout(CAT_TCP_TIMEOUT, TcpStream::connect(format!("{host}:{port}"))).await {
         Ok(res) => res,
         Err(_) => Err(std::io::Error::new(
             std::io::ErrorKind::TimedOut,
@@ -29,6 +29,7 @@ pub struct RigState {
     pub mode: String,
     pub passband_hz: u32,
     pub vfo: String,             // np. "VFOA", "VFOB", "Main", "Sub"
+    pub tx_vfo: String,          // VFO używane do nadawania w trybie Split
     pub split_enabled: bool,
     pub tx_frequency_hz: Option<u64>, // Częstotliwość nadawania w trybie Split
     pub s_meter_dbm: f32,        // Sygnał S-Metra w dBm (lub S9+dB)
@@ -47,6 +48,7 @@ impl Default for RigState {
             mode: "CW".to_string(),
             passband_hz: 500,
             vfo: "VFOA".to_string(),
+            tx_vfo: "VFOA".to_string(),
             split_enabled: false,
             tx_frequency_hz: None,
             s_meter_dbm: -100.0,
@@ -84,121 +86,118 @@ impl HamlibClient {
     pub fn raw_str_to_s_unit(db: f32) -> String {
         // W standardzie IARU S9 = 0 dB (względnie w Hamlib STRENGTH), a każdy stopień S poniżej S9 to 6 dB (-54..0 dB)
         if db >= 0.0 {
-            format!("S9+{:02.0}dB", db)
+            format!("S9+{db:02.0}dB")
         } else {
             let s_val = ((db + 54.0) / 6.0).clamp(0.0, 9.0).round() as u8;
-            format!("S{}", s_val)
+            format!("S{s_val}")
         }
     }
 
     /// Uruchamia pętlę ciągłego odpytywania stanu transceivera w tle
     pub async fn run_poll_loop(&self, poll_interval_ms: u64) {
         loop {
-            match connect_timeout(&self.host, self.port).await {
-                Ok(stream) => {
-                    let (reader, mut writer) = stream.into_split();
-                    let mut buf_reader = BufReader::new(reader);
-                    let mut current_state = RigState {
-                        connected: true,
-                        ..Default::default()
-                    };
+            if let Ok(stream) = connect_timeout(&self.host, self.port).await {
+                let (reader, mut writer) = stream.into_split();
+                let mut buf_reader = BufReader::new(reader);
+                let mut current_state = RigState {
+                    connected: true,
+                    ..Default::default()
+                };
 
-                    while current_state.connected {
-                        // 1. Odpytaj o częstotliwość ('f')
-                        if writer.write_all(b"f\n").await.is_err() {
-                            break;
-                        }
-                        let mut line = String::new();
-                        if (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64).read_line(&mut line).await.is_err()
-                            || line.is_empty()
-                            || line.len() > MAX_LINE_LEN
-                        {
-                            break;
-                        }
-                        if let Ok(freq) = line.trim().parse::<u64>() {
-                            current_state.frequency_hz = freq;
-                        }
-
-                        // 2. Odpytaj o emisję i szerokość filtru ('m')
-                        if writer.write_all(b"m\n").await.is_err() {
-                            break;
-                        }
-                        line.clear();
-                        if (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64).read_line(&mut line).await.is_err()
-                            || line.is_empty()
-                            || line.len() > MAX_LINE_LEN
-                        {
-                            break;
-                        }
-                        let trimmed_mode = line.trim();
-                        if !trimmed_mode.starts_with("RPRT") {
-                            current_state.mode = trimmed_mode.to_uppercase();
-                            line.clear();
-                            if (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64).read_line(&mut line).await.is_ok() {
-                                if let Ok(pb) = line.trim().parse::<u32>() {
-                                    current_state.passband_hz = pb;
-                                }
-                            }
-                        }
-
-                        // 3. Odpytaj o skalibrowany S-Meter ('l STRENGTH' — dB względem S9 w Hamlib)
-                        if writer.write_all(b"l STRENGTH\n").await.is_ok() {
-                            line.clear();
-                            if (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64).read_line(&mut line).await.is_ok() {
-                                if let Ok(val) = line.trim().parse::<f32>() {
-                                    current_state.s_meter_dbm = val;
-                                    current_state.s_meter_unit = Self::raw_str_to_s_unit(val);
-                                }
-                            }
-                        }
-
-                        // 4. Odpytaj o Split ('s')
-                        if writer.write_all(b"s\n").await.is_ok() {
-                            line.clear();
-                            if (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64).read_line(&mut line).await.is_ok() {
-                                let trimmed = line.trim();
-                                if !trimmed.starts_with("RPRT") {
-                                    let parts: Vec<&str> = trimmed.split_whitespace().collect();
-                                    if let Some(&s_flag) = parts.first() {
-                                        current_state.split_enabled = s_flag == "1";
-                                    }
-                                    // Druga linia odpowiedzi 's' w rigctld to TX VFO
-                                    let mut tx_vfo_line = String::new();
-                                    let _ = (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64).read_line(&mut tx_vfo_line).await;
-                                }
-                            }
-                        }
-
-                        // 5. Odpytaj o moc RF ('l RFPOWER')
-                        if writer.write_all(b"l RFPOWER\n").await.is_ok() {
-                            line.clear();
-                            if (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64).read_line(&mut line).await.is_ok() {
-                                if let Ok(pwr) = line.trim().parse::<f32>() {
-                                    current_state.rf_power_watts = pwr * 100.0; // Proporcja mocy
-                                }
-                            }
-                        }
-
-                        // 6. Odpytaj o stan PTT ('t')
-                        if writer.write_all(b"t\n").await.is_ok() {
-                            line.clear();
-                            if (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64).read_line(&mut line).await.is_ok() {
-                                current_state.ptt = line.trim() == "1";
-                            }
-                        }
-
-                        let _ = self.state_sender.send(current_state.clone());
-                        sleep(Duration::from_millis(poll_interval_ms)).await;
+                while current_state.connected {
+                    // 1. Odpytaj o częstotliwość ('f')
+                    if writer.write_all(b"f\n").await.is_err() {
+                        break;
                     }
+                    let mut line = String::new();
+                    if (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64).read_line(&mut line).await.is_err()
+                        || line.is_empty()
+                        || line.len() > MAX_LINE_LEN
+                    {
+                        break;
+                    }
+                    if let Ok(freq) = line.trim().parse::<u64>() {
+                        current_state.frequency_hz = freq;
+                    }
+
+                    // 2. Odpytaj o emisję i szerokość filtru ('m')
+                    if writer.write_all(b"m\n").await.is_err() {
+                        break;
+                    }
+                    line.clear();
+                    if (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64).read_line(&mut line).await.is_err()
+                        || line.is_empty()
+                        || line.len() > MAX_LINE_LEN
+                    {
+                        break;
+                    }
+                    let trimmed_mode = line.trim();
+                    if !trimmed_mode.starts_with("RPRT") {
+                        current_state.mode = trimmed_mode.to_uppercase();
+                        line.clear();
+                        if (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64).read_line(&mut line).await.is_ok() {
+                            if let Ok(pb) = line.trim().parse::<u32>() {
+                                current_state.passband_hz = pb;
+                            }
+                        }
+                    }
+
+                    // 3. Odpytaj o skalibrowany S-Meter ('l STRENGTH' — dB względem S9 w Hamlib)
+                    if writer.write_all(b"l STRENGTH\n").await.is_ok() {
+                        line.clear();
+                        if (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64).read_line(&mut line).await.is_ok() {
+                            if let Ok(val) = line.trim().parse::<f32>() {
+                                current_state.s_meter_dbm = val;
+                                current_state.s_meter_unit = Self::raw_str_to_s_unit(val);
+                            }
+                        }
+                    }
+
+                    // 4. Odpytaj o Split ('s')
+                    if writer.write_all(b"s\n").await.is_ok() {
+                        line.clear();
+                        if (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64).read_line(&mut line).await.is_ok() {
+                            let trimmed = line.trim();
+                            if !trimmed.starts_with("RPRT") {
+                                let parts: Vec<&str> = trimmed.split_whitespace().collect();
+                                if let Some(&s_flag) = parts.first() {
+                                    current_state.split_enabled = s_flag == "1";
+                                }
+                                // Druga linia odpowiedzi 's' w rigctld to TX VFO
+                                let mut tx_vfo_line = String::new();
+                                let _ = (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64).read_line(&mut tx_vfo_line).await;
+                            }
+                        }
+                    }
+
+                    // 5. Odpytaj o moc RF ('l RFPOWER')
+                    if writer.write_all(b"l RFPOWER\n").await.is_ok() {
+                        line.clear();
+                        if (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64).read_line(&mut line).await.is_ok() {
+                            if let Ok(pwr) = line.trim().parse::<f32>() {
+                                current_state.rf_power_watts = pwr * 100.0; // Proporcja mocy
+                            }
+                        }
+                    }
+
+                    // 6. Odpytaj o stan PTT ('t')
+                    if writer.write_all(b"t\n").await.is_ok() {
+                        line.clear();
+                        if (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64).read_line(&mut line).await.is_ok() {
+                            current_state.ptt = line.trim() == "1";
+                        }
+                    }
+
+                    let _ = self.state_sender.send(current_state.clone());
+                    sleep(Duration::from_millis(poll_interval_ms)).await;
                 }
-                Err(_) => {
-                    let offline = RigState {
-                        connected: false,
-                        ..Default::default()
-                    };
-                    let _ = self.state_sender.send(offline);
-                    sleep(Duration::from_secs(2)).await;
-                }
+            } else {
+                let offline = RigState {
+                    connected: false,
+                    ..Default::default()
+                };
+                let _ = self.state_sender.send(offline);
+                sleep(Duration::from_secs(2)).await;
             }
         }
     }
@@ -206,7 +205,15 @@ impl HamlibClient {
     /// Przestawia częstotliwość radia (w Hz)
     pub async fn set_frequency(host: &str, port: u16, freq_hz: u64) -> Result<(), std::io::Error> {
         let mut stream = connect_timeout(host, port).await?;
-        let cmd = format!("F {}\n", freq_hz);
+        let cmd = format!("F {freq_hz}\n");
+        stream.write_all(cmd.as_bytes()).await?;
+        Ok(())
+    }
+
+    /// Przestawia częstotliwość nadawania w trybie Split (w Hz)
+    pub async fn set_split_frequency(host: &str, port: u16, freq_hz: u64) -> Result<(), std::io::Error> {
+        let mut stream = connect_timeout(host, port).await?;
+        let cmd = format!("\\set_split_freq {freq_hz}\n");
         stream.write_all(cmd.as_bytes()).await?;
         Ok(())
     }
@@ -214,7 +221,7 @@ impl HamlibClient {
     /// Przestawia emisję i filtr radia
     pub async fn set_mode(host: &str, port: u16, mode: &str, passband_hz: u32) -> Result<(), std::io::Error> {
         let mut stream = connect_timeout(host, port).await?;
-        let cmd = format!("M {} {}\n", mode, passband_hz);
+        let cmd = format!("M {mode} {passband_hz}\n");
         stream.write_all(cmd.as_bytes()).await?;
         Ok(())
     }
@@ -222,7 +229,7 @@ impl HamlibClient {
     /// Włącza lub wyłącza tryb Split
     pub async fn set_split(host: &str, port: u16, enabled: bool, tx_vfo: &str) -> Result<(), std::io::Error> {
         let mut stream = connect_timeout(host, port).await?;
-        let cmd = format!("S {} {}\n", if enabled { 1 } else { 0 }, tx_vfo);
+        let cmd = format!("S {} {}\n", i32::from(enabled), tx_vfo);
         stream.write_all(cmd.as_bytes()).await?;
         Ok(())
     }
@@ -230,7 +237,7 @@ impl HamlibClient {
     /// Załącza lub wyłącza PTT (nadawanie)
     pub async fn set_ptt(host: &str, port: u16, ptt: bool) -> Result<(), std::io::Error> {
         let mut stream = connect_timeout(host, port).await?;
-        let cmd = format!("T {}\n", if ptt { 1 } else { 0 });
+        let cmd = format!("T {}\n", i32::from(ptt));
         stream.write_all(cmd.as_bytes()).await?;
         Ok(())
     }
@@ -238,7 +245,7 @@ impl HamlibClient {
     /// Wybiera aktywny VFO (np. "VFOA", "VFOB", "Main", "Sub")
     pub async fn set_vfo(host: &str, port: u16, vfo: &str) -> Result<(), std::io::Error> {
         let mut stream = connect_timeout(host, port).await?;
-        let cmd = format!("V {}\n", vfo);
+        let cmd = format!("V {vfo}\n");
         stream.write_all(cmd.as_bytes()).await?;
         Ok(())
     }
@@ -246,7 +253,7 @@ impl HamlibClient {
     /// Ustawia przesunięcie RIT w Hz (może być ujemne)
     pub async fn set_rit(host: &str, port: u16, rit_hz: i32) -> Result<(), std::io::Error> {
         let mut stream = connect_timeout(host, port).await?;
-        let cmd = format!("J {}\n", rit_hz);
+        let cmd = format!("J {rit_hz}\n");
         stream.write_all(cmd.as_bytes()).await?;
         Ok(())
     }
@@ -254,7 +261,7 @@ impl HamlibClient {
     /// Ustawia przesunięcie XIT w Hz (może być ujemne)
     pub async fn set_xit(host: &str, port: u16, xit_hz: i32) -> Result<(), std::io::Error> {
         let mut stream = connect_timeout(host, port).await?;
-        let cmd = format!("Z {}\n", xit_hz);
+        let cmd = format!("Z {xit_hz}\n");
         stream.write_all(cmd.as_bytes()).await?;
         Ok(())
     }
@@ -263,7 +270,7 @@ impl HamlibClient {
     pub async fn set_power(host: &str, port: u16, watts: f32) -> Result<(), std::io::Error> {
         let mut stream = connect_timeout(host, port).await?;
         let norm = (watts / 100.0).clamp(0.0, 1.0);
-        let cmd = format!("L RFPOWER {:.4}\n", norm);
+        let cmd = format!("L RFPOWER {norm:.4}\n");
         stream.write_all(cmd.as_bytes()).await?;
         Ok(())
     }
@@ -281,14 +288,14 @@ impl crate::cat::backend::CatBackend for HamlibClient {
         connect_timeout(&self.host, self.port)
             .await
             .map(|_| ())
-            .map_err(|e| format!("Brak połączenia z rigctld {}: {}", addr, e))
+            .map_err(|e| format!("Brak połączenia z rigctld {addr}: {e}"))
     }
 
     async fn poll_state(&mut self) -> Result<RigState, String> {
         let addr = format!("{}:{}", self.host, self.port);
         let stream = connect_timeout(&self.host, self.port)
             .await
-            .map_err(|e| format!("Brak połączenia z rigctld {}: {}", addr, e))?;
+            .map_err(|e| format!("Brak połączenia z rigctld {addr}: {e}"))?;
         let (reader, mut writer) = stream.into_split();
         let mut buf_reader = BufReader::new(reader);
         let mut state = RigState {

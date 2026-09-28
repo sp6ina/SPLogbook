@@ -250,8 +250,8 @@ impl PropagationEngine {
         let bearing_deg = calculate_bearing_deg(origin, dest);
 
         // 1. Wyznaczenie punktu środkowego trasy (ionospheric reflection midpoint)
-        let mid_lat = (origin.latitude + dest.latitude) / 2.0;
-        let mut mid_lon = (origin.longitude + dest.longitude) / 2.0;
+        let mid_lat = f64::midpoint(origin.latitude, dest.latitude);
+        let mut mid_lon = f64::midpoint(origin.longitude, dest.longitude);
         if (origin.longitude - dest.longitude).abs() > 180.0 {
             mid_lon = (mid_lon + 180.0) % 360.0 - 180.0;
         }

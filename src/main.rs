@@ -1,4 +1,5 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
+#![allow(clippy::too_many_lines)]
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
@@ -16,9 +17,9 @@ fn main() -> Result<(), eframe::Error> {
 
     // Panic hook - log awarii do crash.log
     std::panic::set_hook(Box::new(|info| {
-        let msg = format!("Wystąpił nieoczekiwany błąd w SPLogbook:\n\n{}", info);
-        eprintln!("{}", msg);
-        log::error!("{}", msg);
+        let msg = format!("Wystąpił nieoczekiwany błąd w SPLogbook:\n\n{info}");
+        eprintln!("{msg}");
+        log::error!("{msg}");
         if let Ok(exe) = std::env::current_exe() {
             if let Some(dir) = exe.parent() {
                 let _ = std::fs::write(dir.join("crash.log"), &msg);
@@ -35,14 +36,12 @@ fn main() -> Result<(), eframe::Error> {
     // Ścieżki bazy danych i konfiguracji (XDG na Linux, APPDATA na Windows)
     let exe_dir = std::env::current_exe()
         .ok()
-        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+        .and_then(|p| p.parent().map(std::path::Path::to_path_buf))
         .unwrap_or_else(|| std::path::PathBuf::from("."));
 
     #[cfg(windows)]
     let (app_data_dir, app_config_dir) = {
-        let base = std::env::var("APPDATA")
-            .map(|p| std::path::PathBuf::from(p).join("SPLogbook"))
-            .unwrap_or_else(|_| exe_dir.clone());
+        let base = std::env::var("APPDATA").map_or_else(|_| exe_dir.clone(), |p| std::path::PathBuf::from(p).join("SPLogbook"));
         (base.clone(), base)
     };
 
@@ -136,7 +135,7 @@ fn main() -> Result<(), eframe::Error> {
                 log_db_path.display(),
                 e
             );
-            eprintln!("{}", err_msg);
+            eprintln!("{err_msg}");
             let should_continue = rfd::MessageDialog::new()
                 .set_title("SPLogbook — krytyczny błąd bazy danych")
                 .set_description(&err_msg)

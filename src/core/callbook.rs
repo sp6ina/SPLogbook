@@ -101,15 +101,15 @@ impl LocalCallbook {
             }
             Ok(CallbookData {
                 callsign: clean.clone(),
-                name: row.get(0).ok().and_then(clean_opt_str),
-                qth: row.get(1).ok().and_then(clean_opt_str),
-                gridsquare: row.get(2).ok().and_then(clean_opt_str),
-                state: row.get(3).ok().and_then(clean_opt_str),
+                name: row.get(0).ok().and_then(|s: String| clean_opt_str(&s)),
+                qth: row.get(1).ok().and_then(|s: String| clean_opt_str(&s)),
+                gridsquare: row.get(2).ok().and_then(|s: String| clean_opt_str(&s)),
+                state: row.get(3).ok().and_then(|s: String| clean_opt_str(&s)),
                 dxcc: row.get(4).ok(),
-                country: row.get(5).ok().and_then(clean_opt_str),
-                qsl_manager: row.get(6).ok().and_then(clean_opt_str),
-                email: row.get(7).ok().and_then(clean_opt_str),
-                image_url: row.get(8).ok().and_then(clean_opt_str),
+                country: row.get(5).ok().and_then(|s: String| clean_opt_str(&s)),
+                qsl_manager: row.get(6).ok().and_then(|s: String| clean_opt_str(&s)),
+                email: row.get(7).ok().and_then(|s: String| clean_opt_str(&s)),
+                image_url: row.get(8).ok().and_then(|s: String| clean_opt_str(&s)),
             })
         })
         .ok()
@@ -117,16 +117,14 @@ impl LocalCallbook {
 
     /// Zapisuje dane callbook do cache offline (upsert).
     pub fn cache_store(&self, data: &CallbookData) {
-        let path = match &self.cache_path {
-            Some(p) => p,
-            None => return,
+        let Some(path) = &self.cache_path else {
+            return;
         };
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        let conn = match Connection::open(path) {
-            Ok(c) => c,
-            Err(_) => return,
+        let Ok(conn) = Connection::open(path) else {
+            return;
         };
         let _ = conn.execute(
             "CREATE TABLE IF NOT EXISTS CallbookCache (
@@ -179,19 +177,18 @@ impl LocalCallbook {
                 if let Ok(conn) = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY) {
                     // Najpierw szukamy dokładnego znaku, a potem bazowego
                     for query_call in &[clean.as_str(), base_call] {
-                        let mut stmt = match conn.prepare(
+                        let Ok(mut stmt) = conn.prepare(
                             "SELECT Name, QTH, Grid, State, Manager FROM Callbook WHERE Call = ? LIMIT 1"
-                        ) {
-                            Ok(s) => s,
-                            Err(_) => continue,
+                        ) else {
+                            continue;
                         };
 
                         let found = stmt.query_row([query_call], |row| {
-                            let name: Option<String> = row.get(0).ok().and_then(clean_opt_str);
-                            let qth: Option<String> = row.get(1).ok().and_then(clean_opt_str);
-                            let grid: Option<String> = row.get(2).ok().and_then(clean_opt_str);
-                            let state: Option<String> = row.get(3).ok().and_then(clean_opt_str);
-                            let manager: Option<String> = row.get(4).ok().and_then(clean_opt_str);
+                            let name: Option<String> = row.get(0).ok().and_then(|s: String| clean_opt_str(&s));
+                            let qth: Option<String> = row.get(1).ok().and_then(|s: String| clean_opt_str(&s));
+                            let grid: Option<String> = row.get(2).ok().and_then(|s: String| clean_opt_str(&s));
+                            let state: Option<String> = row.get(3).ok().and_then(|s: String| clean_opt_str(&s));
+                            let manager: Option<String> = row.get(4).ok().and_then(|s: String| clean_opt_str(&s));
 
                             Ok(CallbookData {
                                 callsign: clean.clone(),
@@ -227,16 +224,15 @@ impl LocalCallbook {
                 if path.exists() {
                     if let Ok(conn) = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY) {
                         for query_call in &[clean.as_str(), base_call] {
-                            let mut stmt = match conn.prepare(
+                            let Ok(mut stmt) = conn.prepare(
                                 "SELECT Manager FROM managers WHERE Call = ? LIMIT 1"
-                            ) {
-                                Ok(s) => s,
-                                Err(_) => continue,
+                            ) else {
+                                continue;
                             };
 
                             let mgr: Option<String> = stmt.query_row([query_call], |row| {
                                 row.get(0)
-                            }).ok().and_then(clean_opt_str);
+                            }).ok().and_then(|s: String| clean_opt_str(&s));
 
                             if let Some(m) = mgr {
                                 if let Some(ref mut d) = data {
@@ -268,7 +264,7 @@ impl LocalCallbook {
 }
 
 /// Pomocnik oczyszczający puste ciągi i znaki specjalne
-fn clean_opt_str(s: String) -> Option<String> {
+fn clean_opt_str(s: &str) -> Option<String> {
     let trimmed = s.trim().to_string();
     if trimmed.is_empty() || trimmed == "-" || trimmed == "?" {
         None
@@ -296,7 +292,7 @@ pub fn extract_base_call(call: &str) -> &str {
 /// Klient darmowego API callook.info (stacje USA z bazy FCC)
 pub async fn lookup_callook_info(callsign: &str) -> Result<CallbookData, String> {
     let clean = callsign.trim().to_uppercase();
-    let url = format!("https://callook.info/{}/json", clean);
+    let url = format!("https://callook.info/{clean}/json");
 
     let client = crate::core::http::http_client_with_timeout(6);
 
@@ -332,7 +328,7 @@ pub async fn lookup_callook_info(callsign: &str) -> Result<CallbookData, String>
     let grid = json.get("location")
         .and_then(|loc| loc.get("gridsquare"))
         .and_then(|v| v.as_str())
-        .map(|s| s.to_uppercase());
+        .map(str::to_uppercase);
 
     Ok(CallbookData {
         callsign: clean,
@@ -365,7 +361,7 @@ fn format_american_name(raw: &str) -> String {
         if first.is_empty() {
             last
         } else {
-            format!("{} {}", first, last)
+            format!("{first} {last}")
         }
     } else {
         to_title_case(clean)
@@ -381,7 +377,7 @@ fn to_title_case(s: &str) -> String {
         let mut chars = word.chars();
         if let Some(first) = chars.next() {
             result.extend(first.to_uppercase());
-            result.extend(chars.flat_map(|c| c.to_lowercase()));
+            result.extend(chars.flat_map(char::to_lowercase));
         }
     }
     result
@@ -391,8 +387,7 @@ fn to_title_case(s: &str) -> String {
 fn unix_now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+        .map_or(0, |d| d.as_secs())
 }
 
 /// Scala dane callbook: pola brakujące w bazie uzupełnia z nowego wyniku

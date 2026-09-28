@@ -12,7 +12,7 @@ static IS_RECORDING: AtomicBool = AtomicBool::new(false);
 static IS_PLAYING: AtomicBool = AtomicBool::new(false);
 
 #[cfg(target_os = "windows")]
-extern "system" {
+unsafe extern "system" {
     fn mciSendStringA(
         lpstrCommand: *const std::os::raw::c_char,
         lpstrReturnString: *mut std::os::raw::c_char,
@@ -37,7 +37,7 @@ impl AudioRecorder {
             if res == 0 {
                 Ok(())
             } else {
-                Err(format!("MCI error code: {}", res))
+                Err(format!("MCI error code: {res}"))
             }
         } else {
             Err("Nieprawidłowy ciąg znaków dla MCI".to_string())
@@ -108,13 +108,13 @@ impl AudioRecorder {
         #[cfg(target_os = "windows")]
         {
             let abs_path = output_path.to_string_lossy().replace('\\', "/");
-            let save_cmd = format!("save splog_rec \"{}\"", abs_path);
+            let save_cmd = format!("save splog_rec \"{abs_path}\"");
 
             Self::send_mci_cmd(&save_cmd)?;
             Self::send_mci_cmd("close splog_rec")?;
             IS_RECORDING.store(false, Ordering::SeqCst);
 
-            info!("Pomyślnie zapisano nagranie łączności do: {:?}", output_path);
+            info!("Pomyślnie zapisano nagranie łączności do: {}", output_path.display());
             Ok(output_path.to_path_buf())
         }
 
@@ -147,7 +147,7 @@ impl AudioRecorder {
         #[cfg(target_os = "windows")]
         {
             let abs_path = file_path.to_string_lossy().replace('\\', "/");
-            let open_cmd = format!("open \"{}\" type waveaudio alias splog_play", abs_path);
+            let open_cmd = format!("open \"{abs_path}\" type waveaudio alias splog_play");
             Self::send_mci_cmd(&open_cmd)?;
             Self::send_mci_cmd("play splog_play")?;
             IS_PLAYING.store(true, Ordering::SeqCst);

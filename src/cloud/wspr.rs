@@ -8,8 +8,7 @@ pub struct WsprSpot {
 
 pub async fn fetch_wspr_spots(my_callsign: &str) -> Result<Vec<WsprSpot>, String> {
     let url = format!(
-        "https://db1.wspr.live/?query=SELECT+callsign,frequency,snr,drift,gridsquare+FROM+wspr.rx+WHERE+rx_sign%3D%27{}%27+ORDER+BY+time+DESC+LIMIT+50+FORMAT+JSONEachRow",
-        my_callsign
+        "https://db1.wspr.live/?query=SELECT+callsign,frequency,snr,drift,gridsquare+FROM+wspr.rx+WHERE+rx_sign%3D%27{my_callsign}%27+ORDER+BY+time+DESC+LIMIT+50+FORMAT+JSONEachRow"
     );
     let resp = crate::core::http::http_client()
         .get(&url)

@@ -37,7 +37,7 @@ impl AdvancedFilterDialog {
             eqsl_confirmed: if self.eqsl_only { Some(true) } else { None },
             qsl_rcvd: if self.qsl_rcvd_only { Some(true) } else { None },
             callsign_query: if self.call_query.is_empty() { None } else { Some(self.call_query.clone()) },
-            journal_id: journal_id.map(|s| s.to_string()),
+            journal_id: journal_id.map(std::string::ToString::to_string),
         }
     }
 
@@ -171,7 +171,7 @@ impl AdvancedFilterDialog {
                                 let content = export_adif(&qsos, "SPLogbook", author_call);
                                 if let Ok(mut f) = File::create(&path) {
                                     let _ = f.write_all(content.as_bytes());
-                                    self.status_message = Some(format!("Pomyślnie wyeksportowano do: {:?}", path));
+                                    self.status_message = Some(format!("Pomyślnie wyeksportowano do: {}", path.display()));
                                 }
                             }
                         }

@@ -851,7 +851,7 @@ fn wp(
         panel_satellites: satellites,
         panel_world_map: world_map,
         panel_waterfall: waterfall,
-        theme_preset: theme.map(|s| s.to_string()),
+        theme_preset: theme.map(std::string::ToString::to_string),
         enabled_plugins: Vec::new(),
         cat_profile: None,
         cw_profile: None,
@@ -964,7 +964,7 @@ impl Default for AppConfig {
 
             cluster_host: "cluster.sp7pka.ampr.org".to_string(),
             cluster_port: 8000,
-            cluster_callsign: "".to_string(),
+            cluster_callsign: String::new(),
             cluster_auto_connect: false,
             cluster_filter_current_band: false,
             cluster_hide_ft8: false,

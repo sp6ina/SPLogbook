@@ -11,18 +11,18 @@ impl WolClient {
     pub fn parse_mac(mac_str: &str) -> Result<[u8; 6], String> {
         let clean: String = mac_str
             .chars()
-            .filter(|c| c.is_ascii_hexdigit())
+            .filter(char::is_ascii_hexdigit)
             .collect();
 
         if clean.len() != 12 {
-            return Err(format!("Nieprawidłowa długość adresu MAC: {}", mac_str));
+            return Err(format!("Nieprawidłowa długość adresu MAC: {mac_str}"));
         }
 
         let mut mac = [0u8; 6];
         for i in 0..6 {
             let byte_str = &clean[i * 2..i * 2 + 2];
             mac[i] = u8::from_str_radix(byte_str, 16)
-                .map_err(|e| format!("Błąd parsowania bajtu MAC {}: {}", byte_str, e))?;
+                .map_err(|e| format!("Błąd parsowania bajtu MAC {byte_str}: {e}"))?;
         }
 
         Ok(mac)
@@ -47,17 +47,17 @@ impl WolClient {
         let dest = target_broadcast.unwrap_or("255.255.255.255:9");
         let dest_addr: SocketAddr = dest
             .parse()
-            .map_err(|e| format!("Nieprawidłowy adres rozgłoszeniowy {}: {}", dest, e))?;
+            .map_err(|e| format!("Nieprawidłowy adres rozgłoszeniowy {dest}: {e}"))?;
 
         let socket = UdpSocket::bind("0.0.0.0:0")
-            .map_err(|e| format!("Błąd bindowania gniazda UDP: {}", e))?;
+            .map_err(|e| format!("Błąd bindowania gniazda UDP: {e}"))?;
         socket
             .set_broadcast(true)
-            .map_err(|e| format!("Błąd ustawiania flagi broadcast: {}", e))?;
+            .map_err(|e| format!("Błąd ustawiania flagi broadcast: {e}"))?;
 
         socket
             .send_to(&packet, dest_addr)
-            .map_err(|e| format!("Błąd wysyłania pakietu WOL: {}", e))?;
+            .map_err(|e| format!("Błąd wysyłania pakietu WOL: {e}"))?;
 
         Ok(())
     }

@@ -42,7 +42,7 @@ impl HamQthClient {
                         .form(&params)
                         .send()
                         .await
-                        .map_err(|e| format!("Błąd wysyłania do HamQTH.com: {}", e))
+                        .map_err(|e| format!("Błąd wysyłania do HamQTH.com: {e}"))
                 }
             },
             3,
@@ -57,7 +57,7 @@ impl HamQthClient {
         if body.contains("OK") {
             Ok("Pomyślnie dodano łączność do HamQTH.com".to_string())
         } else {
-            Err(format!("Odpowiedź HamQTH.com: {}", body))
+            Err(format!("Odpowiedź HamQTH.com: {body}"))
         }
     }
 }
@@ -103,7 +103,7 @@ impl HamQthXmlClient {
             self.session_id = Some(sid.clone());
             Ok(sid)
         } else if let Some(err) = Self::extract_tag(&xml, "error") {
-            Err(format!("Błąd logowania HamQTH: {}", err))
+            Err(format!("Błąd logowania HamQTH: {err}"))
         } else {
             Err("Nieznana odpowiedź autoryzacji HamQTH".to_string())
         }
@@ -125,8 +125,7 @@ impl HamQthXmlClient {
             .as_ref()
             .ok_or_else(|| "Nie udało się utworzyć sesji HamQTH".to_string())?;
         let url = format!(
-            "https://www.hamqth.com/xml.php?id={}&callsign={}&prg=SPLogbook",
-            sid, clean
+            "https://www.hamqth.com/xml.php?id={sid}&callsign={clean}&prg=SPLogbook"
         );
 
         let resp = self.client.get(&url).send().await.map_err(|e| e.to_string())?;
@@ -141,8 +140,7 @@ impl HamQthXmlClient {
                 .as_ref()
                 .ok_or_else(|| "Nie udało się utworzyć sesji HamQTH".to_string())?;
             let url2 = format!(
-                "https://www.hamqth.com/xml.php?id={}&callsign={}&prg=SPLogbook",
-                sid2, clean
+                "https://www.hamqth.com/xml.php?id={sid2}&callsign={clean}&prg=SPLogbook"
             );
             let resp2 = self.client.get(&url2).send().await.map_err(|e| e.to_string())?;
             let xml2 = resp2.text().await.map_err(|e| e.to_string())?;
@@ -181,8 +179,8 @@ impl HamQthXmlClient {
     }
 
     fn extract_tag(xml: &str, tag: &str) -> Option<String> {
-        let open_tag = format!("<{}>", tag);
-        let close_tag = format!("</{}>", tag);
+        let open_tag = format!("<{tag}>");
+        let close_tag = format!("</{tag}>");
         let start = xml.find(&open_tag)? + open_tag.len();
         let end = xml[start..].find(&close_tag)?;
         let content = &xml[start..start + end];

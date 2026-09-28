@@ -36,7 +36,7 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
             if let Some(ref err) = app.wspr_last_error.clone() {
                 ui.colored_label(egui::Color32::from_rgb(239, 68, 68),
-                    format!("Blad pobierania: {}", err));
+                    format!("Blad pobierania: {err}"));
             }
 
             ui.separator();
@@ -48,8 +48,8 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     ui.label(egui::RichText::new("Trend SNR:").small().color(egui::Color32::from_rgb(148, 163, 184)));
                     let snrs: Vec<f64> = app.wspr_spots.iter().map(|s| s.snr as f64).collect();
                     if snrs.len() >= 2 {
-                        let min = snrs.iter().cloned().fold(f64::INFINITY, f64::min);
-                        let max = snrs.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                        let min = snrs.iter().copied().fold(f64::INFINITY, f64::min);
+                        let max = snrs.iter().copied().fold(f64::NEG_INFINITY, f64::max);
                         ui.monospace(egui::RichText::new(snr_sparkline(&snrs, min, max)).color(egui::Color32::from_rgb(56, 189, 248)));
                     }
                 });
@@ -99,21 +99,18 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
                                 // Odległość i azymut z mojego lokatora
                                 let spot_coords = crate::core::geo::locator_to_coordinates(&spot.gridsquare).ok();
-                                match (my_coords, spot_coords) {
-                                    (Some(m), Some(s)) => {
-                                        let km = crate::core::geo::calculate_distance_km(m, s);
-                                        let az = crate::core::geo::calculate_bearing_deg(m, s);
-                                        if app.wspr_distance_miles {
-                                            ui.label(format!("{:.0} mi", km * 0.621371));
-                                        } else {
-                                            ui.label(format!("{:.0} km", km));
-                                        }
-                                        ui.label(format!("{:.0}°", az));
+                                if let (Some(m), Some(s)) = (my_coords, spot_coords) {
+                                    let km = crate::core::geo::calculate_distance_km(m, s);
+                                    let az = crate::core::geo::calculate_bearing_deg(m, s);
+                                    if app.wspr_distance_miles {
+                                        ui.label(format!("{:.0} mi", km * 0.621_371));
+                                    } else {
+                                        ui.label(format!("{km:.0} km"));
                                     }
-                                    _ => {
-                                        ui.label("—");
-                                        ui.label("—");
-                                    }
+                                    ui.label(format!("{az:.0}°"));
+                                } else {
+                                    ui.label("—");
+                                    ui.label("—");
                                 }
                                 ui.end_row();
                             }
@@ -147,7 +144,7 @@ fn fetch_wspr_spots_async(app: &mut SpLogApp, ctx: &egui::Context) {
 
     tokio::spawn(async move {
         let result = crate::cloud::wspr::fetch_wspr_spots(&callsign).await;
-        *slot_clone.lock().unwrap_or_else(|p| p.into_inner()) = Some(result);
+        *slot_clone.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(result);
         ctx_clone.request_repaint();
     });
 

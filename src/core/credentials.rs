@@ -30,7 +30,7 @@ impl SystemCredentialStore {
             )
         })?;
         let account = format!("{}\\{}:{}", absolute.display(), name.to_string_lossy(), id);
-        keyring::Entry::new("SPLogbook", &account).map_err(store_error)
+        keyring::Entry::new("SPLogbook", &account).map_err(|e| store_error(&e))
     }
 }
 
@@ -206,7 +206,7 @@ mod tests {
     }
 }
 
-fn store_error(error: keyring::Error) -> io::Error {
+fn store_error(error: &keyring::Error) -> io::Error {
     io::Error::other(format!("Systemowy magazyn poświadczeń: {error}"))
 }
 
@@ -214,17 +214,17 @@ impl CredentialStore for SystemCredentialStore {
     fn put(&self, path: &Path, id: &str, value: &str) -> io::Result<()> {
         Self::entry(path, id)?
             .set_password(value)
-            .map_err(store_error)
+            .map_err(|e| store_error(&e))
     }
 
     fn get(&self, path: &Path, id: &str) -> io::Result<String> {
-        Self::entry(path, id)?.get_password().map_err(store_error)
+        Self::entry(path, id)?.get_password().map_err(|e| store_error(&e))
     }
 
     fn remove(&self, path: &Path, id: &str) -> io::Result<()> {
         Self::entry(path, id)?
             .delete_credential()
-            .map_err(store_error)
+            .map_err(|e| store_error(&e))
     }
 }
 
@@ -349,7 +349,7 @@ impl AppConfig {
             )?;
         }
 
-        self.secret_store_id = new_id.clone();
+        self.secret_store_id.clone_from(&new_id);
         let result = (|| {
             let data = serde_json::to_string_pretty(self).map_err(io::Error::other)?;
             let tmp_path = path.with_extension("json.tmp");

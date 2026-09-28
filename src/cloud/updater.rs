@@ -40,7 +40,7 @@ impl DatabaseUpdater {
             .get(url)
             .send()
             .await
-            .map_err(|e| format!("Błąd pobierania {}: {}", url, e))?;
+            .map_err(|e| format!("Błąd pobierania {url}: {e}"))?;
 
         if !resp.status().is_success() {
             return Err(format!("Serwer zwrócił status {}: {}", resp.status(), url));
@@ -49,14 +49,14 @@ impl DatabaseUpdater {
         let bytes = resp
             .bytes()
             .await
-            .map_err(|e| format!("Błąd odczytu danych z {}: {}", url, e))?;
+            .map_err(|e| format!("Błąd odczytu danych z {url}: {e}"))?;
 
         if let Some(parent) = dest_path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
 
         std::fs::write(dest_path, &bytes)
-            .map_err(|e| format!("Błąd zapisu do pliku {:?}: {}", dest_path, e))?;
+            .map_err(|e| format!("Błąd zapisu do pliku {}: {e}", dest_path.display()))?;
 
         Ok(bytes.len())
     }
@@ -100,7 +100,7 @@ pub async fn latest_release() -> Result<LatestRelease, String> {
         .header("Accept", "application/vnd.github+json")
         .send()
         .await
-        .map_err(|e| format!("Błąd połączenia z GitHub: {}", e))?;
+        .map_err(|e| format!("Błąd połączenia z GitHub: {e}"))?;
 
     if !resp.status().is_success() {
         return Err(format!(
@@ -112,10 +112,10 @@ pub async fn latest_release() -> Result<LatestRelease, String> {
     let body = resp
         .text()
         .await
-        .map_err(|e| format!("Błąd odczytu odpowiedzi: {}", e))?;
+        .map_err(|e| format!("Błąd odczytu odpowiedzi: {e}"))?;
 
     let json: serde_json::Value = serde_json::from_str(&body)
-        .map_err(|e| format!("Błąd parsowania odpowiedzi GitHub: {}", e))?;
+        .map_err(|e| format!("Błąd parsowania odpowiedzi GitHub: {e}"))?;
 
     let tag = json
         .get("tag_name")
@@ -147,8 +147,8 @@ pub async fn latest_release() -> Result<LatestRelease, String> {
                 .get("digest")
                 .and_then(|v| v.as_str())
                 .filter(|s| !s.is_empty())
-                .map(|s| s.to_string());
-            let size = asset.get("size").and_then(|v| v.as_u64()).unwrap_or(0);
+                .map(std::string::ToString::to_string);
+            let size = asset.get("size").and_then(serde_json::Value::as_u64).unwrap_or(0);
             if !name.is_empty() && !browser_download_url.is_empty() {
                 assets.push(ReleaseAsset { name, browser_download_url, digest, size });
             }
@@ -161,8 +161,13 @@ pub async fn latest_release() -> Result<LatestRelease, String> {
 /// Oblicza sumę kontrolną SHA256 (hex, małe litery) z bajtów.
 pub fn sha256_hex(data: &[u8]) -> String {
     use sha2::{Digest, Sha256};
+    use std::fmt::Write as _;
     let digest = Sha256::digest(data);
-    digest.iter().map(|b| format!("{b:02x}")).collect()
+    let mut hex = String::with_capacity(digest.len() * 2);
+    for b in &digest {
+        let _ = write!(hex, "{b:02x}");
+    }
+    hex
 }
 
 /// Weryfikuje sumę kontrolną SHA256 (ignoruje wielkość liter i ewentualny prefiks `sha256:`).
@@ -207,7 +212,7 @@ pub async fn download_release_asset(asset: &ReleaseAsset, dest_path: &Path) -> R
         .header("User-Agent", "SPLogbook-update-check")
         .send()
         .await
-        .map_err(|e| format!("Błąd pobierania aktualizacji: {}", e))?;
+        .map_err(|e| format!("Błąd pobierania aktualizacji: {e}"))?;
 
     if !resp.status().is_success() {
         return Err(format!("Serwer zwrócił status {} podczas pobierania.", resp.status()));
@@ -216,14 +221,14 @@ pub async fn download_release_asset(asset: &ReleaseAsset, dest_path: &Path) -> R
     let bytes = resp
         .bytes()
         .await
-        .map_err(|e| format!("Błąd odczytu pobranych danych: {}", e))?;
+        .map_err(|e| format!("Błąd odczytu pobranych danych: {e}"))?;
 
     if let Some(parent) = dest_path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
 
     std::fs::write(dest_path, &bytes)
-        .map_err(|e| format!("Błąd zapisu pobranego pliku {:?}: {}", dest_path, e))?;
+        .map_err(|e| format!("Błąd zapisu pobranego pliku {}: {e}", dest_path.display()))?;
 
     Ok(bytes.len())
 }
@@ -235,7 +240,7 @@ pub async fn download_release_asset(asset: &ReleaseAsset, dest_path: &Path) -> R
 /// plik oraz uruchamia nową wersję.
 pub async fn install_update(asset: &ReleaseAsset) -> Result<(), String> {
     let current = std::env::current_exe()
-        .map_err(|e| format!("Nie można ustalić ścieżki programu: {}", e))?;
+        .map_err(|e| format!("Nie można ustalić ścieżki programu: {e}"))?;
 
     let parent = current
         .parent()
@@ -249,7 +254,7 @@ pub async fn install_update(asset: &ReleaseAsset) -> Result<(), String> {
     // 2. Zweryfikuj sumę kontrolną, jeśli GitHub ją udostępnił.
     if let Some(expected) = asset.digest.as_deref() {
         let data = std::fs::read(&tmp_path)
-            .map_err(|e| format!("Błąd odczytu pobranego pliku: {}", e))?;
+            .map_err(|e| format!("Błąd odczytu pobranego pliku: {e}"))?;
         if !verify_sha256(&data, expected) {
             let _ = std::fs::remove_file(&tmp_path);
             return Err(
@@ -305,13 +310,13 @@ fn install_via_powershell(current: &Path, new: &Path) -> Result<(), String> {
     );
 
     std::fs::write(&script_path, script)
-        .map_err(|e| format!("Nie można zapisać skryptu aktualizacji: {}", e))?;
+        .map_err(|e| format!("Nie można zapisać skryptu aktualizacji: {e}"))?;
 
     std::process::Command::new("powershell.exe")
         .args(["-NoProfile", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File"])
         .arg(&script_path)
         .spawn()
-        .map_err(|e| format!("Nie można uruchomić aktualizacji: {}", e))?;
+        .map_err(|e| format!("Nie można uruchomić aktualizacji: {e}"))?;
 
     Ok(())
 }

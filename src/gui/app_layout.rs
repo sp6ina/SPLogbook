@@ -12,7 +12,6 @@ impl SpLogApp {
 
     pub fn panel_config(&self, id: &str) -> &ViewPanelConfig {
         match id {
-            "vfo" => &self.panel_vfo,
             "qso" => &self.panel_qso,
             "log" => &self.panel_log,
             "cluster" => &self.panel_cluster,
@@ -57,7 +56,7 @@ impl SpLogApp {
                 columns[column].push(id.to_string());
             }
         }
-        for col in columns.iter_mut() {
+        for col in &mut columns {
             col.sort_by_key(|id| self.panel_config(id).order);
         }
 
@@ -353,10 +352,8 @@ impl SpLogApp {
                     if ui.button(egui::RichText::new("● CAT ONLINE").color(egui::Color32::from_rgb(34, 197, 94)).size(11.0).strong()).clicked() {
                         self.show_cat_settings_window = true;
                     }
-                } else {
-                    if ui.button(egui::RichText::new("○ CAT OFFLINE").color(egui::Color32::from_rgb(148, 163, 184)).size(11.0)).clicked() {
-                        self.show_cat_settings_window = true;
-                    }
+                } else if ui.button(egui::RichText::new("○ CAT OFFLINE").color(egui::Color32::from_rgb(148, 163, 184)).size(11.0)).clicked() {
+                    self.show_cat_settings_window = true;
                 }
             }
             "log" => {
@@ -432,7 +429,7 @@ impl SpLogApp {
                 ui.painter().text(
                     rect.center(),
                     egui::Align2::CENTER_CENTER,
-                    format!("➕ Upuść kafelek tutaj\n(Kolumna: {})", col_name),
+                    format!("➕ Upuść kafelek tutaj\n(Kolumna: {col_name})"),
                     egui::FontId::proportional(12.0),
                     if hovered { egui::Color32::WHITE } else { egui::Color32::from_rgb(148, 163, 184) },
                 );

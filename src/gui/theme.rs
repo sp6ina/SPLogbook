@@ -96,9 +96,8 @@ impl ThemePreset {
 
     pub fn is_dark(&self) -> bool {
         match self {
-            ThemePreset::OperatorDark => true,
+            ThemePreset::OperatorDark | ThemePreset::HighContrast => true,
             ThemePreset::Daylight => false,
-            ThemePreset::HighContrast => true,
         }
     }
 

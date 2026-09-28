@@ -7,7 +7,7 @@ use std::io::Cursor;
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
 
-const WSJTX_MAGIC: u32 = 0xadbccbda;
+const WSJTX_MAGIC: u32 = 0xadbc_cbda;
 
 /// Pakiet zdekodowany z WSJT-X / JTDX
 #[derive(Debug, Clone)]
@@ -62,7 +62,7 @@ impl WsjtxReceiver {
         }
 
         // Julian Day Number (JDN) 2440588 to 1970-01-01 (Unix Epoch)
-        let days_from_epoch = julian_day.checked_sub(2440588)?;
+        let days_from_epoch = julian_day.checked_sub(2_440_588)?;
         let secs = days_from_epoch.checked_mul(86400)? + (ms_since_midnight as i64 / 1000);
         let dt = chrono::DateTime::from_timestamp(secs, 0)?;
         let date_str = dt.format("%Y%m%d").to_string();
@@ -171,7 +171,7 @@ impl WsjtxReceiver {
 
     fn read_utf8_string(rdr: &mut Cursor<&[u8]>) -> Option<String> {
         let len = rdr.read_u32::<BigEndian>().ok()?;
-        if len == 0xffffffff {
+        if len == 0xffff_ffff {
             return None; // Null string w Qt
         }
         let len = len as usize;
@@ -185,9 +185,7 @@ impl WsjtxReceiver {
     }
 
     fn freq_to_band(freq_hz: u64) -> String {
-        crate::core::bandplan::get_band_by_freq(freq_hz)
-            .map(|b| b.name.to_string())
-            .unwrap_or_else(|| "OTHER".to_string())
+        crate::core::bandplan::get_band_by_freq(freq_hz).map_or_else(|| "OTHER".to_string(), |b| b.name.to_string())
     }
 }
 
@@ -214,8 +212,8 @@ mod tests {
         write_utf8(&mut packet, "WSJT-X");
 
         // QDateTime Off: QDate (8 bytes) + QTime (4 bytes) + timespec (1 byte)
-        packet.write_u64::<BigEndian>(2460000).unwrap(); // Julian day (2023-02-24)
-        packet.write_u32::<BigEndian>(43260000).unwrap(); // 12:01:00.000 ms
+        packet.write_u64::<BigEndian>(2_460_000).unwrap(); // Julian day (2023-02-24)
+        packet.write_u32::<BigEndian>(43_260_000).unwrap(); // 12:01:00.000 ms
         packet.write_u8(1).unwrap(); // UTC timespec
 
         write_utf8(&mut packet, "K1ABC");
@@ -229,8 +227,8 @@ mod tests {
         write_utf8(&mut packet, "John");
 
         // QDateTime On (pole 11): 12:00:00 UTC
-        packet.write_u64::<BigEndian>(2460000).unwrap();
-        packet.write_u32::<BigEndian>(43200000).unwrap();
+        packet.write_u64::<BigEndian>(2_460_000).unwrap();
+        packet.write_u32::<BigEndian>(43_200_000).unwrap();
         packet.write_u8(1).unwrap();
 
         // Pola 12..17: Operator, MyCall, MyGrid, ExchSent, ExchRcvd, PropMode

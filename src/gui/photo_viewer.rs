@@ -48,7 +48,7 @@ impl PhotoViewerDialog {
                     ui.heading(format!("Znak: {}", self.callsign));
 
                     if let Some(ref url) = self.photo_url {
-                        ui.label(format!("Adres grafiki: {}", url));
+                        ui.label(format!("Adres grafiki: {url}"));
                         ui.add_space(8.0);
 
                         ui.add(

@@ -138,7 +138,7 @@ fn bar_chart_clickable(ui: &mut egui::Ui, data: &[(String, i64)], color: egui::C
             painter.text(
                 egui::pos2(x + bar_w / 2.0, origin.y + chart_h - bar_h - 2.0),
                 egui::Align2::CENTER_BOTTOM,
-                format!("{}", val),
+                format!("{val}"),
                 egui::FontId::proportional(10.0),
                 egui::Color32::WHITE,
             );
@@ -186,7 +186,7 @@ fn render_tab_monthly(app: &mut SpLogApp, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(format!("{}: {} QSO ({} m.)", tr("stats.total_qso_count", lang), total, data.len())).strong());
         if let Some((best_month, best_val)) = data.iter().max_by_key(|(_, v)| v) {
-            ui.label(format!("  |  MAX: {} ({} QSO)", best_month, best_val));
+            ui.label(format!("  |  MAX: {best_month} ({best_val} QSO)"));
         }
     });
 }
@@ -211,7 +211,7 @@ fn render_tab_bands(app: &mut SpLogApp, ui: &mut egui::Ui) {
         let total: i64 = data.iter().map(|(_, v)| v).sum::<i64>().max(1);
         for (band, cnt) in &data {
             ui.colored_label(egui::Color32::from_rgb(251, 191, 36), band);
-            ui.label(format!("{}", cnt));
+            ui.label(format!("{cnt}"));
             ui.label(format!("{:.1}%", *cnt as f64 / total as f64 * 100.0));
             ui.end_row();
         }
@@ -238,7 +238,7 @@ fn render_tab_modes(app: &mut SpLogApp, ui: &mut egui::Ui) {
         let total: i64 = data.iter().map(|(_, v)| v).sum::<i64>().max(1);
         for (mode, cnt) in &data {
             ui.colored_label(egui::Color32::from_rgb(34, 197, 94), mode);
-            ui.label(format!("{}", cnt));
+            ui.label(format!("{cnt}"));
             ui.label(format!("{:.1}%", *cnt as f64 / total as f64 * 100.0));
             ui.end_row();
         }
@@ -255,11 +255,11 @@ fn render_tab_hourly(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let mut hours = vec![(String::new(), 0i64); 24];
     for (h, cnt) in &raw {
         if (*h as usize) < 24 {
-            hours[*h as usize] = (format!("{:02}:00", h), *cnt);
+            hours[*h as usize] = (format!("{h:02}:00"), *cnt);
         }
     }
     for (h, item) in hours.iter_mut().enumerate() {
-        if item.0.is_empty() { item.0 = format!("{:02}:00", h); }
+        if item.0.is_empty() { item.0 = format!("{h:02}:00"); }
     }
     let mut clicked: Option<usize> = None;
     egui::ScrollArea::horizontal().show(ui, |ui| {
@@ -300,7 +300,7 @@ fn render_tab_countries(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 if resp.clicked() {
                     clicked_country = Some(country.clone());
                 }
-                ui.label(format!("{}", cnt));
+                ui.label(format!("{cnt}"));
 
                 // Mini progress bar jako wykres
                 let progress = *cnt as f32 / max_val as f32;
@@ -333,7 +333,7 @@ fn render_tab_qsl(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
     egui::Grid::new("qsl_grid").spacing([20.0, 8.0]).show(ui, |ui| {
         ui.label(egui::RichText::new(format!("{}:", tr("stats.total_qso_count", lang))).strong());
-        ui.label(egui::RichText::new(format!("{}", total)).size(18.0).color(egui::Color32::WHITE));
+        ui.label(egui::RichText::new(format!("{total}")).size(18.0).color(egui::Color32::WHITE));
         ui.end_row();
 
         ui.label(egui::RichText::new(format!("{}:", tr("stats.lotw_confirmed_label", lang))).strong().color(egui::Color32::from_rgb(34, 197, 94)));

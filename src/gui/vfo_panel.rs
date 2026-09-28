@@ -13,7 +13,7 @@ pub fn render_vfo_window(app: &mut SpLogApp, ctx: &egui::Context) {
     if app.panel_vfo.floating {
         let mut still_open = true;
         let mut dock_back = false;
-        let (_, captured_geo) = app.show_floating_viewport(
+        let ((), captured_geo) = app.show_floating_viewport(
             ctx,
             egui::ViewportId::from_hash_of("vfo_viewport"),
             format!("📻 {} - SPLogbook", tr("view.panel_vfo", app.current_language)),
@@ -114,7 +114,7 @@ fn render_tuning_digit(
     unit_label: &str,
     app: &mut SpLogApp,
 ) {
-    let text = format!("{}", digit);
+    let text = format!("{digit}");
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(17.0, 36.0), egui::Sense::click());
     let hovered = resp.hovered();
 
@@ -149,8 +149,7 @@ fn render_tuning_digit(
 
     let resp = resp.on_hover_cursor(egui::CursorIcon::ResizeVertical);
     resp.clone().on_hover_text(format!(
-        "🎛 Krok strojenia: {}\n• Kółko myszy w górę: +{}\n• Kółko myszy w dół: -{}\n• Lewy klik: +{}, Prawy klik: -{}",
-        unit_label, unit_label, unit_label, unit_label, unit_label
+        "🎛 Krok strojenia: {unit_label}\n• Kółko myszy w górę: +{unit_label}\n• Kółko myszy w dół: -{unit_label}\n• Lewy klik: +{unit_label}, Prawy klik: -{unit_label}"
     ));
 
     if hovered {
@@ -178,17 +177,17 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
     // Nagłówek konsoli radiowej: Model radia + PTT + Ustawienia
     ui.horizontal(|ui| {
-        let rig_badge = if !app.cat_rig_model.is_empty() {
-            app.cat_rig_model.clone()
-        } else {
+        let rig_badge = if app.cat_rig_model.is_empty() {
             "Manual Transceiver".to_string()
+        } else {
+            app.cat_rig_model.clone()
         };
 
         if app.cat_connected {
-            ui.label(egui::RichText::new(format!("📻 {}", rig_badge)).color(egui::Color32::from_rgb(56, 189, 248)).strong().size(12.0));
+            ui.label(egui::RichText::new(format!("📻 {rig_badge}")).color(egui::Color32::from_rgb(56, 189, 248)).strong().size(12.0));
             ui.label(egui::RichText::new("● ONLINE").color(egui::Color32::from_rgb(34, 197, 94)).size(10.0));
         } else {
-            ui.label(egui::RichText::new(format!("📻 {}", rig_badge)).color(egui::Color32::from_rgb(148, 163, 184)).size(12.0));
+            ui.label(egui::RichText::new(format!("📻 {rig_badge}")).color(egui::Color32::from_rgb(148, 163, 184)).size(12.0));
             ui.label(egui::RichText::new("○ OFFLINE").color(egui::Color32::from_rgb(239, 68, 68)).size(10.0));
         }
 
@@ -417,7 +416,7 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let pwr = if app.ptt_active { app.my_station.power_watts as f32 } else { 0.0 };
             let swr = if app.ptt_active { 1.2 } else { 1.0 };
-            ui.label(egui::RichText::new(format!("PWR: {:.0} W | SWR: {:.1}", pwr, swr)).size(11.0).monospace().color(egui::Color32::from_rgb(56, 189, 248)));
+            ui.label(egui::RichText::new(format!("PWR: {pwr:.0} W | SWR: {swr:.1}")).size(11.0).monospace().color(egui::Color32::from_rgb(56, 189, 248)));
         });
     });
 

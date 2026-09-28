@@ -145,7 +145,7 @@ pub fn render_world_map_window(app: &mut SpLogApp, ctx: &egui::Context) {
     if app.panel_world_map.floating {
         let mut still_open = true;
         let mut dock_back = false;
-        let (_, captured_geo) = app.show_floating_viewport(
+        let ((), captured_geo) = app.show_floating_viewport(
             ctx,
             egui::ViewportId::from_hash_of("world_map_viewport"),
             format!("🗺 {} - SPLogbook", tr("map.world_title", lang)),
@@ -618,10 +618,10 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
             painter.circle_filled(dx_pos, 6.0, egui::Color32::from_rgb(239, 68, 68));
             painter.circle_stroke(dx_pos, 9.0, egui::Stroke::new(1.5_f32, egui::Color32::WHITE));
 
-            let dx_label = if !app.entry_callsign.is_empty() {
-                app.entry_callsign.clone()
-            } else {
+            let dx_label = if app.entry_callsign.is_empty() {
                 "DX".to_string()
+            } else {
+                app.entry_callsign.clone()
             };
             painter.text(
                 dx_pos + egui::vec2(10.0, -5.0),
@@ -673,7 +673,7 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
             painter.text(
                 compass_center + egui::vec2(0.0, 16.0),
                 egui::Align2::CENTER_CENTER,
-                format!("{:.0}°", az),
+                format!("{az:.0}°"),
                 egui::FontId::monospace(10.0),
                 egui::Color32::from_rgb(251, 191, 36),
             );

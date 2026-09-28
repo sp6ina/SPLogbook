@@ -1,6 +1,6 @@
 use crate::core::contest_stats::MultKind;
 use crate::core::exchange::ExchangeField;
-use crate::core::exchange::ExchangeField::*;
+use crate::core::exchange::ExchangeField::{Rst, Serial, Zone, Power, Grid, ZoneOrHq, Iota, Category, State, Year, District, Age, Time, Name, Qth};
 use crate::core::qso::QsoRecord;
 use std::collections::HashSet;
 

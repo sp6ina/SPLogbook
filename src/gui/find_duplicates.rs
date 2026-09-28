@@ -111,7 +111,7 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     ui.label(egui::RichText::new(format!("({} QSO)", group.len())).size(11.0).color(egui::Color32::GRAY));
                                 });
 
-                                egui::Grid::new(format!("dup_grid_{}", grp_idx))
+                                egui::Grid::new(format!("dup_grid_{grp_idx}"))
                                     .striped(true)
                                     .spacing([10.0, 3.0])
                                     .show(ui, |ui| {
@@ -134,7 +134,7 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                         app.duplicates_selected_ids.remove(&id);
                                                     }
                                                 }
-                                                ui.label(format!("#{}", id));
+                                                ui.label(format!("#{id}"));
                                                 ui.label(&qso.qso_date);
                                                 ui.label(&qso.time_on);
                                                 ui.label(format!("{}/{}", qso.rst_sent, qso.rst_rcvd));
@@ -188,10 +188,10 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
     app.show_find_duplicates_window = is_open;
 
     if scan_requested {
-        let db = app.log_db.lock().unwrap_or_else(|p| p.into_inner());
+        let db = app.log_db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         match db.find_duplicate_qsos(app.duplicates_match_date) {
             Ok(groups) => {
-                let total_dups: usize = groups.iter().map(|g| g.len()).sum();
+                let total_dups: usize = groups.iter().map(std::vec::Vec::len).sum();
                 app.duplicates_status = Some(format!("Found {} duplicate groups (total {} records)", groups.len(), total_dups));
                 app.duplicates_groups = groups;
                 app.duplicates_selected_ids.clear();
@@ -203,11 +203,11 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
     }
 
     if delete_requested {
-        let ids: Vec<i64> = app.duplicates_selected_ids.iter().cloned().collect();
-        let db = app.log_db.lock().unwrap_or_else(|p| p.into_inner());
+        let ids: Vec<i64> = app.duplicates_selected_ids.iter().copied().collect();
+        let db = app.log_db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         match db.delete_multiple_qsos(&ids) {
             Ok(deleted) => {
-                app.duplicates_status = Some(format!("Deleted {} duplicates", deleted));
+                app.duplicates_status = Some(format!("Deleted {deleted} duplicates"));
                 app.duplicates_selected_ids.clear();
                 if let Ok(groups) = db.find_duplicate_qsos(app.duplicates_match_date) {
                     app.duplicates_groups = groups;

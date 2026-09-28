@@ -86,7 +86,7 @@ impl SampleRing {
         if samples.is_empty() {
             return;
         }
-        let mut q = self.inner.lock().unwrap_or_else(|p| p.into_inner());
+        let mut q = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         for &s in samples {
             if q.len() >= self.capacity {
                 q.pop_front();
@@ -97,12 +97,12 @@ impl SampleRing {
 
     /// Przenosi wszystkie zgromadzone próbki do `out` (w kolejności chronologicznej).
     pub fn drain(&self, out: &mut Vec<f32>) {
-        let mut q = self.inner.lock().unwrap_or_else(|p| p.into_inner());
+        let mut q = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         out.extend(q.drain(..));
     }
 
     pub fn len(&self) -> usize {
-        self.inner.lock().unwrap_or_else(|p| p.into_inner()).len()
+        self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner).len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -214,7 +214,7 @@ impl WaterfallEngine {
 
     /// Najnowszy wiersz widma (dBFS), jeśli istnieje.
     pub fn latest_row(&self) -> Option<&[f32]> {
-        self.history.back().map(|r| r.as_slice())
+        self.history.back().map(std::vec::Vec::as_slice)
     }
 
     /// Historia wierszy (najstarszy na początku, najnowszy na końcu).
@@ -263,7 +263,7 @@ mod tests {
         assert_eq!(spectrum.len(), fft_size / 2);
         let peak = spectrum[64];
         let away = spectrum[128];
-        assert!(peak > -10.0, "szczyt powinien być silny, jest {}", peak);
+        assert!(peak > -10.0, "szczyt powinien być silny, jest {peak}");
         assert!(peak > away + 30.0, "szczyt powinien dominować nad sąsiednim pasmem");
     }
 

@@ -25,10 +25,8 @@ pub fn render_qso_entry_panel(app: &mut SpLogApp, ui: &mut egui::Ui) {
                         if ui.button(egui::RichText::new("● CAT ONLINE").color(egui::Color32::from_rgb(34, 197, 94)).size(11.0).strong()).clicked() {
                             app.show_cat_settings_window = true;
                         }
-                    } else {
-                        if ui.button(egui::RichText::new("○ CAT OFFLINE").color(egui::Color32::from_rgb(148, 163, 184)).size(11.0)).clicked() {
-                            app.show_cat_settings_window = true;
-                        }
+                    } else if ui.button(egui::RichText::new("○ CAT OFFLINE").color(egui::Color32::from_rgb(148, 163, 184)).size(11.0)).clicked() {
+                        app.show_cat_settings_window = true;
                     }
                 });
             });
@@ -49,7 +47,7 @@ pub fn render_qso_entry_window(app: &mut SpLogApp, ctx: &egui::Context) {
     if app.panel_qso.floating {
         let mut still_open = true;
         let mut dock_back = false;
-        let (_, captured_geo) = app.show_floating_viewport(
+        let ((), captured_geo) = app.show_floating_viewport(
             ctx,
             egui::ViewportId::from_hash_of("qso_entry_viewport"),
             format!("📝 {} - SPLogbook", tr("tab.new_qso", lang)),
@@ -462,10 +460,8 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     if ui.button(egui::RichText::new("⏹ STOP").color(egui::Color32::WHITE).strong()).on_hover_text("Zatrzymaj nagrywanie audio").clicked() {
                         let _ = crate::media::audio_recorder::AudioRecorder::stop_audio();
                     }
-                } else {
-                    if ui.button(egui::RichText::new("● REC").color(egui::Color32::from_rgb(239, 68, 68)).strong()).on_hover_text("Rozpocznij nagrywanie audio łączności (Audio Memo)").clicked() {
-                        let _ = crate::media::audio_recorder::AudioRecorder::start_recording();
-                    }
+                } else if ui.button(egui::RichText::new("● REC").color(egui::Color32::from_rgb(239, 68, 68)).strong()).on_hover_text("Rozpocznij nagrywanie audio łączności (Audio Memo)").clicked() {
+                    let _ = crate::media::audio_recorder::AudioRecorder::start_recording();
                 }
                 entry_field_ids.push(comment_resp.id);
             });

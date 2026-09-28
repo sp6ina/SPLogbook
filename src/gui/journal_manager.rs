@@ -114,7 +114,7 @@ impl JournalManagerDialog {
 
                 // Lista istniejących dzienników
                 egui::ScrollArea::vertical().max_height(240.0).show(ui, |ui| {
-                    for journal in self.journals.iter() {
+                    for journal in &self.journals {
                         let is_active = journal.is_default;
                         ui.group(|ui| {
                             ui.horizontal(|ui| {

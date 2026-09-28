@@ -66,7 +66,7 @@ pub fn render_welcome_wizard(app: &mut SpLogApp, ctx: &egui::Context) {
                             egui::Color32::from_rgba_unmultiplied(45, 45, 55, 200)
                         };
                         let btn = egui::Button::new(
-                            egui::RichText::new(format!("{} {}", flag, name))
+                            egui::RichText::new(format!("{flag} {name}"))
                                 .size(11.0)
                                 .color(if is_sel { egui::Color32::WHITE } else { egui::Color32::from_rgb(180, 190, 205) })
                         ).fill(fill);
@@ -366,7 +366,7 @@ fn render_tab_appearance(
                 egui::Color32::from_rgba_unmultiplied(40, 40, 40, 200)
             };
             let btn = egui::Button::new(
-                egui::RichText::new(format!("[{}] {}", flag, name)).size(12.0)
+                egui::RichText::new(format!("[{flag}] {name}")).size(12.0)
             ).fill(fill);
             if ui.add_sized([115.0, 34.0], btn).clicked() {
                 app.current_language = l;
@@ -460,7 +460,7 @@ mod tests {
                 show_wizard = false;
             }
 
-            assert!(show_wizard, "Kreator nie powinien się zamykać przy zmianie na {:?}", target_lang);
+            assert!(show_wizard, "Kreator nie powinien się zamykać przy zmianie na {target_lang:?}");
             assert_eq!(selected_lang, target_lang);
         }
     }

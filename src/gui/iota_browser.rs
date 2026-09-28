@@ -18,8 +18,7 @@ impl RefStatus {
         if engine
             .details_iota
             .get(iota)
-            .map(|v| v.iter().any(|r| r.is_confirmed))
-            .unwrap_or(false)
+            .is_some_and(|v| v.iter().any(|r| r.is_confirmed))
         {
             RefStatus::Confirmed
         } else if engine.worked_iota.contains(iota) {

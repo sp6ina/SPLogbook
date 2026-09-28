@@ -22,25 +22,25 @@ impl BackupManager {
             return Err("Plik bazy źródłowej nie istnieje".to_string());
         }
 
-        fs::create_dir_all(backup_dir).map_err(|e| format!("Błąd tworzenia katalogu kopii: {}", e))?;
+        fs::create_dir_all(backup_dir).map_err(|e| format!("Błąd tworzenia katalogu kopii: {e}"))?;
 
         let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S%.3f").to_string();
         let file_stem = source_db_path
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("log");
-        let dest_filename = format!("{}_backup_{}.db", file_stem, timestamp);
+        let dest_filename = format!("{file_stem}_backup_{timestamp}.db");
         let dest_path = backup_dir.join(dest_filename);
 
         let source = Connection::open(source_db_path)
-            .map_err(|e| format!("Błąd otwarcia bazy źródłowej: {}", e))?;
+            .map_err(|e| format!("Błąd otwarcia bazy źródłowej: {e}"))?;
         let mut dest = Connection::open(&dest_path)
-            .map_err(|e| format!("Błąd otwarcia pliku kopii: {}", e))?;
+            .map_err(|e| format!("Błąd otwarcia pliku kopii: {e}"))?;
         let backup = Backup::new(&source, &mut dest)
-            .map_err(|e| format!("Błąd inicjalizacji kopii zapasowej: {}", e))?;
+            .map_err(|e| format!("Błąd inicjalizacji kopii zapasowej: {e}"))?;
         backup
             .run_to_completion(64, Duration::from_millis(50), None)
-            .map_err(|e| format!("Błąd wykonywania kopii zapasowej: {}", e))?;
+            .map_err(|e| format!("Błąd wykonywania kopii zapasowej: {e}"))?;
 
         Self::prune_old_backups(backup_dir, ".db", 10).ok();
 
@@ -49,13 +49,13 @@ impl BackupManager {
 
     /// Wykonuje kopię zapasową w formacie ADIF
     pub fn backup_adif(adif_content: &str, backup_dir: &Path) -> Result<PathBuf, String> {
-        fs::create_dir_all(backup_dir).map_err(|e| format!("Błąd tworzenia katalogu kopii: {}", e))?;
+        fs::create_dir_all(backup_dir).map_err(|e| format!("Błąd tworzenia katalogu kopii: {e}"))?;
 
         let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S%.3f").to_string();
-        let dest_filename = format!("SPLogbook_backup_{}.adi", timestamp);
+        let dest_filename = format!("SPLogbook_backup_{timestamp}.adi");
         let dest_path = backup_dir.join(dest_filename);
 
-        fs::write(&dest_path, adif_content).map_err(|e| format!("Błąd zapisu pliku ADIF: {}", e))?;
+        fs::write(&dest_path, adif_content).map_err(|e| format!("Błąd zapisu pliku ADIF: {e}"))?;
         Self::prune_old_backups(backup_dir, ".adi", 10).ok();
 
         Ok(dest_path)

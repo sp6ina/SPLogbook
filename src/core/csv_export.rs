@@ -321,7 +321,7 @@ impl CsvColumn {
 /// Formatuje częstotliwość w MHz z maks. 6 miejscami po przecinku,
 /// usuwając zbędne zera na końcu.
 fn fmt_mhz(mhz: f64) -> String {
-    let mut s = format!("{:.6}", mhz);
+    let mut s = format!("{mhz:.6}");
     if s.contains('.') {
         while s.ends_with('0') {
             s.pop();
@@ -474,6 +474,6 @@ mod tests {
     fn fmt_mhz_trims_trailing_zeros() {
         assert_eq!(fmt_mhz(14.025), "14.025");
         assert_eq!(fmt_mhz(7.0), "7");
-        assert_eq!(fmt_mhz(14.025000001), "14.025");
+        assert_eq!(fmt_mhz(14.025_000_001), "14.025");
     }
 }

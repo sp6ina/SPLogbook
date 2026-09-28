@@ -42,7 +42,7 @@ impl HrdlogClient {
                         .form(&params)
                         .send()
                         .await
-                        .map_err(|e| format!("Błąd wysyłania do HRDLog.net: {}", e))
+                        .map_err(|e| format!("Błąd wysyłania do HRDLog.net: {e}"))
                 }
             },
             3,
@@ -57,7 +57,7 @@ impl HrdlogClient {
         if text.to_lowercase().contains("<insert>ok</insert>") || text.contains("OK") {
             Ok("Pomyślnie dodano łączność do HRDLog.net".to_string())
         } else {
-            Err(format!("Odpowiedź HRDLog.net: {}", text))
+            Err(format!("Odpowiedź HRDLog.net: {text}"))
         }
     }
 }

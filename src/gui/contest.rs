@@ -179,7 +179,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
     } else if let Some(rule_idx) = RULES.iter().position(|r| r.name == app.contest_name) {
         (
             RULES[rule_idx].mult_kind,
-            RULES[rule_idx].bands.iter().map(|b| b.to_string()).collect(),
+            RULES[rule_idx].bands.iter().map(std::string::ToString::to_string).collect(),
         )
     } else {
         (MultKind::None, vec![])
@@ -192,10 +192,10 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
     let rate = compute_rate(&app.recent_qsos, now_secs);
 
     let mult_matrix = if mult_kind != MultKind::None && !rule_bands.is_empty() {
-        let band_refs: Vec<&str> = rule_bands.iter().map(|s| s.as_str()).collect();
+        let band_refs: Vec<&str> = rule_bands.iter().map(std::string::String::as_str).collect();
         compute_mult_matrix(mult_kind, &band_refs, &app.recent_qsos)
     } else {
-        Default::default()
+        MultMatrix::default()
     };
 
     // Prognoza wyniku: obecny wynik + tempo z ostatniej godziny × średnia punktów × mnożniki.
@@ -223,7 +223,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             if !app.custom_contests.is_empty() {
                                 ui.separator();
                                 for c in &app.custom_contests {
-                                    ui.selectable_value(&mut app.contest_name, c.name.to_string(), c.name.clone());
+                                    ui.selectable_value(&mut app.contest_name, c.name.clone(), c.name.clone());
                                 }
                             }
                         });
@@ -345,7 +345,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
                     if !exchange_hint.is_empty() {
                         ui.label(
-                            egui::RichText::new(format!("Format wymiany: {}", exchange_hint))
+                            egui::RichText::new(format!("Format wymiany: {exchange_hint}"))
                                 .italics()
                                 .weak(),
                         );
@@ -389,7 +389,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     ui.label("");
                                     ui.end_row();
 
-                                    for spot in app.cluster_spots.iter() {
+                                    for spot in &app.cluster_spots {
                                         let worked = app
                                             .recent_qsos
                                             .iter()
@@ -491,7 +491,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 }
             }
         } else {
-            new_qso.rst_rcvd = app.entry_rst_rcvd.clone();
+            new_qso.rst_rcvd.clone_from(&app.entry_rst_rcvd);
         }
 
         if exchange_ok {
@@ -592,20 +592,18 @@ pub fn render_multi_op_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     app.multi_op_status = "Serwer zatrzymany".to_string();
                                     app.multi_op_log.push("Zatrzymano serwer Multi-Op LAN.".to_string());
                                 }
-                            } else {
-                                if ui.button(egui::RichText::new("🚀 URUCHOM SERWER LAN").color(egui::Color32::from_rgb(34, 197, 94)).strong()).clicked() {
-                                    let secret = if app.lan_sync_secret.is_empty() { None } else { Some(app.lan_sync_secret.clone()) };
-                                    let server = std::sync::Arc::new(crate::cluster::lan_sync::MultiOpServer::new_with_secret(app.lan_sync_port, secret));
-                                    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-                                    app.multi_op_incoming_rx = Some(rx);
-                                    let srv_clone = server.clone();
-                                    tokio::spawn(async move {
-                                        let _ = srv_clone.start(tx).await;
-                                    });
-                                    app.multi_op_server = Some(server);
-                                    app.multi_op_status = format!("Serwer nasłuchuje na porcie {}", app.lan_sync_port);
-                                    app.multi_op_log.push(format!("Uruchomiono serwer Multi-Op LAN na porcie {}", app.lan_sync_port));
-                                }
+                            } else if ui.button(egui::RichText::new("🚀 URUCHOM SERWER LAN").color(egui::Color32::from_rgb(34, 197, 94)).strong()).clicked() {
+                                let secret = if app.lan_sync_secret.is_empty() { None } else { Some(app.lan_sync_secret.clone()) };
+                                let server = std::sync::Arc::new(crate::cluster::lan_sync::MultiOpServer::new_with_secret(app.lan_sync_port, secret));
+                                let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+                                app.multi_op_incoming_rx = Some(rx);
+                                let srv_clone = server.clone();
+                                tokio::spawn(async move {
+                                    let _ = srv_clone.start(tx).await;
+                                });
+                                app.multi_op_server = Some(server);
+                                app.multi_op_status = format!("Serwer nasłuchuje na porcie {}", app.lan_sync_port);
+                                app.multi_op_log.push(format!("Uruchomiono serwer Multi-Op LAN na porcie {}", app.lan_sync_port));
                             }
                         });
                     });
@@ -634,16 +632,16 @@ pub fn render_multi_op_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             let ip = app.lan_sync_server_ip.clone();
                             let port = app.lan_sync_port;
                             match std::net::TcpStream::connect_timeout(
-                                &format!("{}:{}", ip, port).parse().unwrap_or_else(|_| "127.0.0.1:7373".parse().unwrap()),
+                                &format!("{ip}:{port}").parse().unwrap_or_else(|_| "127.0.0.1:7373".parse().unwrap()),
                                 std::time::Duration::from_millis(800),
                             ) {
                                 Ok(_) => {
-                                    app.multi_op_status = format!("Połączenie z Hostem {}:{} pomyślne!", ip, port);
-                                    app.multi_op_log.push(format!("Połączono z {}:{}", ip, port));
+                                    app.multi_op_status = format!("Połączenie z Hostem {ip}:{port} pomyślne!");
+                                    app.multi_op_log.push(format!("Połączono z {ip}:{port}"));
                                 }
                                 Err(e) => {
-                                    app.multi_op_status = format!("Błąd połączenia z {}:{}: {}", ip, port, e);
-                                    app.multi_op_log.push(format!("Błąd połączenia: {}", e));
+                                    app.multi_op_status = format!("Błąd połączenia z {ip}:{port}: {e}");
+                                    app.multi_op_log.push(format!("Błąd połączenia: {e}"));
                                 }
                             }
                         }
@@ -770,7 +768,7 @@ fn render_mult_matrix(ui: &mut egui::Ui, matrix: &MultMatrix, lang: crate::core:
                         _ => (egui::Color32::from_rgb(71, 85, 105), "·"),
                     };
                     ui.colored_label(color, glyph)
-                        .on_hover_text(format!("{} × {}", band, col));
+                        .on_hover_text(format!("{band} × {col}"));
                 }
                 ui.end_row();
             }

@@ -95,11 +95,12 @@ impl ApiState {
 /// same czerpią losowość z systemowego generatora (getrandom/CryptGenRandom).
 pub fn generate_api_key() -> String {
     use std::collections::hash_map::RandomState;
+    use std::fmt::Write as _;
     use std::hash::{BuildHasher, Hasher};
     let mut key = String::with_capacity(32);
     for _ in 0..4 {
         let h = RandomState::new().build_hasher().finish();
-        key.push_str(&format!("{:016x}", h));
+        let _ = write!(key, "{h:016x}");
     }
     key
 }
@@ -349,22 +350,21 @@ pub async fn start_api_server(
 pub async fn start_api_server_with_state(state: ApiState, port: u16) {
     let app = build_api_router(state);
 
-    let bind_addr = format!("127.0.0.1:{}", port);
+    let bind_addr = format!("127.0.0.1:{port}");
     let listener = match tokio::net::TcpListener::bind(&bind_addr).await {
         Ok(l) => l,
         Err(e) => {
             eprintln!(
-                "[REST API] Nie mozna uruchomic serwera na {}: {}. \
-                Zmien port w menu Narzedzia -> REST API lub zwolnij port.",
-                bind_addr, e
+                "[REST API] Nie mozna uruchomic serwera na {bind_addr}: {e}. \
+                Zmien port w menu Narzedzia -> REST API lub zwolnij port."
             );
             return;
         }
     };
-    eprintln!("[REST API] Serwer uruchomiony na http://{}", bind_addr);
+    eprintln!("[REST API] Serwer uruchomiony na http://{bind_addr}");
     eprintln!("[REST API] Wymagany naglowek uwierzytelniajacy X-Api-Key (patrz Narzedzia -> REST API).");
     if let Err(e) = axum::serve(listener, app).await {
-        eprintln!("[REST API] Blad serwera: {}", e);
+        eprintln!("[REST API] Blad serwera: {e}");
     }
 }
 
@@ -372,12 +372,12 @@ async fn get_status(
     State(state): State<ApiState>,
 ) -> Result<Json<StatusResponse>, (StatusCode, String)> {
     let total_qsos = {
-        let db = state.db.lock().unwrap_or_else(|p| p.into_inner());
+        let db = state.db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         db.count_all()
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     };
     let (rig_connected, frequency_hz, mode) = {
-        let rig = state.rig_state.read().unwrap_or_else(|p| p.into_inner());
+        let rig = state.rig_state.read().unwrap_or_else(std::sync::PoisonError::into_inner);
         (rig.connected, rig.frequency_hz, rig.mode.clone())
     };
 
@@ -527,7 +527,7 @@ fn build_advanced_filter(query: &QsoQuery) -> AdvancedQsoFilter {
         }
     }
     if let Some(ref b) = query.band {
-        for part in b.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        for part in b.split(',').map(str::trim).filter(|s| !s.is_empty()) {
             filter.bands.push(part.to_string());
         }
     }
@@ -536,9 +536,9 @@ fn build_advanced_filter(query: &QsoQuery) -> AdvancedQsoFilter {
             filter.modes.push(part);
         }
     }
-    filter.date_from = query.date_from.clone();
-    filter.date_to = query.date_to.clone();
-    filter.journal_id = query.journal_id.clone();
+    filter.date_from.clone_from(&query.date_from);
+    filter.date_to.clone_from(&query.date_to);
+    filter.journal_id.clone_from(&query.journal_id);
     filter.lotw_confirmed = query.lotw_confirmed;
     filter.eqsl_confirmed = query.eqsl_confirmed;
     filter.qsl_rcvd = query.qsl_rcvd;
@@ -552,7 +552,7 @@ async fn get_qsos(
     let limit = clamp_usize(query.limit, 50, MAX_QSO_LIMIT);
     let offset = clamp_usize(query.offset, 0, MAX_QSO_OFFSET);
 
-    let db = state.db.lock().unwrap_or_else(|p| p.into_inner());
+    let db = state.db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
 
     if has_advanced_filter(&query) {
         let filter = build_advanced_filter(&query);
@@ -578,14 +578,14 @@ async fn get_qso_by_id(
     State(state): State<ApiState>,
     Path(id): Path<i64>,
 ) -> Result<Json<QsoRecord>, (StatusCode, String)> {
-    let db = state.db.lock().unwrap_or_else(|p| p.into_inner());
+    let db = state.db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let qso = db
         .get_qso_by_id(id)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     match qso {
         Some(q) => Ok(Json(q)),
-        None => Err((StatusCode::NOT_FOUND, format!("Nie znaleziono QSO o ID {}", id))),
+        None => Err((StatusCode::NOT_FOUND, format!("Nie znaleziono QSO o ID {id}"))),
     }
 }
 
@@ -655,14 +655,14 @@ async fn post_qso(
     normalize_and_enrich_qso(&mut qso, &state.prefix_matcher)?;
 
     let id = {
-        let db = state.db.lock().unwrap_or_else(|p| p.into_inner());
+        let db = state.db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         db.insert_qso(&qso)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     };
     qso.id = Some(id);
 
     {
-        let mut awards = state.awards_engine.lock().unwrap_or_else(|p| p.into_inner());
+        let mut awards = state.awards_engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         awards.register_qso_record(&qso);
     }
     state.reload_flag.store(true, Ordering::Release);
@@ -686,12 +686,12 @@ async fn put_qso_by_id(
     normalize_and_enrich_qso(&mut qso, &state.prefix_matcher)?;
 
     {
-        let db = state.db.lock().unwrap_or_else(|p| p.into_inner());
+        let db = state.db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let existing = db
             .get_qso_by_id(id)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
         if existing.is_none() {
-            return Err((StatusCode::NOT_FOUND, format!("Nie znaleziono QSO o ID {}", id)));
+            return Err((StatusCode::NOT_FOUND, format!("Nie znaleziono QSO o ID {id}")));
         }
         db.update_qso(id, &qso)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -707,12 +707,12 @@ async fn delete_qso_by_id(
     Path(id): Path<i64>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     {
-        let db = state.db.lock().unwrap_or_else(|p| p.into_inner());
+        let db = state.db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let existing = db
             .get_qso_by_id(id)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
         if existing.is_none() {
-            return Err((StatusCode::NOT_FOUND, format!("Nie znaleziono QSO o ID {}", id)));
+            return Err((StatusCode::NOT_FOUND, format!("Nie znaleziono QSO o ID {id}")));
         }
         db.delete_qso(id)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -732,7 +732,7 @@ async fn get_qsos_by_callsign(
 ) -> Result<Json<CallsignHistoryResponse>, (StatusCode, String)> {
     let clean_call = call.trim().to_uppercase();
     let previous_qsos = {
-        let db = state.db.lock().unwrap_or_else(|p| p.into_inner());
+        let db = state.db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         db.find_previous_qsos(&clean_call)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     };
@@ -742,13 +742,11 @@ async fn get_qsos_by_callsign(
         let band_match = query
             .band
             .as_ref()
-            .map(|b| q.band.eq_ignore_ascii_case(b.trim()))
-            .unwrap_or(true);
+            .is_none_or(|b| q.band.eq_ignore_ascii_case(b.trim()));
         let mode_match = query
             .mode
             .as_ref()
-            .map(|m| q.mode.eq_ignore_ascii_case(m.trim()))
-            .unwrap_or(true);
+            .is_none_or(|m| q.mode.eq_ignore_ascii_case(m.trim()));
         let day_match = if query.same_day.unwrap_or(false) {
             q.adif_date() == today
         } else {
@@ -785,7 +783,7 @@ async fn lookup_callsign(
     let clubs = ClubRegistry::check(&clean);
 
     let award_status = prefix_info.as_ref().map(|info| {
-        let awards = state.awards_engine.lock().unwrap_or_else(|p| p.into_inner());
+        let awards = state.awards_engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         awards.check_status_full(
             &clean,
             band,
@@ -800,10 +798,9 @@ async fn lookup_callsign(
     });
 
     let previous_qso_count = {
-        let db = state.db.lock().unwrap_or_else(|p| p.into_inner());
+        let db = state.db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         db.find_previous_qsos(&clean)
-            .map(|v| v.len())
-            .unwrap_or(0)
+            .map_or(0, |v| v.len())
     };
 
     Ok(Json(LookupResponse {
@@ -828,7 +825,7 @@ async fn export_adif_handler(
     Query(query): Query<QsoQuery>,
 ) -> Result<Response, (StatusCode, String)> {
     let qsos = {
-        let db = state.db.lock().unwrap_or_else(|p| p.into_inner());
+        let db = state.db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if has_advanced_filter(&query) {
             let filter = build_advanced_filter(&query);
             let mut list = db
@@ -877,7 +874,7 @@ async fn import_adif_handler(
     }
 
     let (inserted, total_qsos) = {
-        let mut db = state.db.lock().unwrap_or_else(|p| p.into_inner());
+        let mut db = state.db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let ins = db
             .batch_insert_qsos(&report.qsos)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -886,7 +883,7 @@ async fn import_adif_handler(
     };
 
     {
-        let mut awards = state.awards_engine.lock().unwrap_or_else(|p| p.into_inner());
+        let mut awards = state.awards_engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         for qso in &report.qsos {
             awards.register_qso_record(qso);
         }
@@ -902,10 +899,8 @@ async fn import_adif_handler(
 }
 
 async fn get_rig_state(State(state): State<ApiState>) -> Json<RigStateResponse> {
-    let rig = state.rig_state.read().unwrap_or_else(|p| p.into_inner()).clone();
-    let band = crate::core::bandplan::get_band_by_freq(rig.frequency_hz)
-        .map(|b| b.name.to_string())
-        .unwrap_or_else(|| "OTHER".to_string());
+    let rig = state.rig_state.read().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+    let band = crate::core::bandplan::get_band_by_freq(rig.frequency_hz).map_or_else(|| "OTHER".to_string(), |b| b.name.to_string());
     Json(RigStateResponse {
         connected: rig.connected,
         frequency_hz: rig.frequency_hz,
@@ -927,7 +922,7 @@ async fn post_rig_control(
     Json(req): Json<RigControlRequest>,
 ) -> Json<RigStateResponse> {
     let updated = {
-        let mut rig = state.rig_state.write().unwrap_or_else(|p| p.into_inner());
+        let mut rig = state.rig_state.write().unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(freq) = req.frequency_hz {
             rig.frequency_hz = freq;
         }
@@ -955,9 +950,7 @@ async fn post_rig_control(
         connected: updated.connected,
     });
 
-    let band = crate::core::bandplan::get_band_by_freq(updated.frequency_hz)
-        .map(|b| b.name.to_string())
-        .unwrap_or_else(|| "OTHER".to_string());
+    let band = crate::core::bandplan::get_band_by_freq(updated.frequency_hz).map_or_else(|| "OTHER".to_string(), |b| b.name.to_string());
 
     Json(RigStateResponse {
         connected: updated.connected,
@@ -976,7 +969,7 @@ async fn post_rig_control(
 }
 
 async fn get_awards_summary(State(state): State<ApiState>) -> Json<AwardsSummaryResponse> {
-    let a = state.awards_engine.lock().unwrap_or_else(|p| p.into_inner());
+    let a = state.awards_engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     Json(AwardsSummaryResponse {
         dxcc_worked: a.worked_dxcc_all.len(),
         dxcc_confirmed: a.confirmed_dxcc.len(),
@@ -1000,14 +993,12 @@ async fn get_awards_summary(State(state): State<ApiState>) -> Json<AwardsSummary
 async fn get_journals(
     State(state): State<ApiState>,
 ) -> Result<Json<JournalsResponse>, (StatusCode, String)> {
-    let db = state.db.lock().unwrap_or_else(|p| p.into_inner());
+    let db = state.db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let journals = db
         .get_all_journals()
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     let active_journal_id = db
-        .get_active_journal()
-        .map(|j| j.id)
-        .unwrap_or_else(|_| "DEFAULT".to_string());
+        .get_active_journal().map_or_else(|_| "DEFAULT".to_string(), |j| j.id);
     Ok(Json(JournalsResponse {
         active_journal_id,
         journals,
@@ -1017,7 +1008,7 @@ async fn get_journals(
 async fn get_stats(
     State(state): State<ApiState>,
 ) -> Result<Json<StatsResponse>, (StatusCode, String)> {
-    let db = state.db.lock().unwrap_or_else(|p| p.into_inner());
+    let db = state.db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
 
     let total = db
         .count_all()
@@ -1077,7 +1068,7 @@ async fn get_cluster_spots(
     let band_filter = query.band.as_deref().map(|b| b.trim().to_lowercase());
     let call_filter = query.call.as_deref().map(|c| c.trim().to_uppercase());
 
-    let spots = state.cluster_spots.lock().unwrap_or_else(|e| e.into_inner());
+    let spots = state.cluster_spots.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let result: Vec<serde_json::Value> = spots
         .iter()
         .filter(|s| {
@@ -1145,9 +1136,8 @@ async fn handle_socket(socket: WebSocket, state: ApiState) {
             event = rx.recv() => {
                 match event {
                     Ok(ev) => {
-                        let text = match serde_json::to_string(&ev) {
-                            Ok(t) => t,
-                            Err(_) => continue,
+                        let Ok(text) = serde_json::to_string(&ev) else {
+                            continue;
                         };
                         if sender.send(Message::Text(text.into())).await.is_err() {
                             break;
@@ -1164,14 +1154,13 @@ async fn handle_socket(socket: WebSocket, state: ApiState) {
             }
             msg = receiver.next() => {
                 match msg {
-                    Some(Ok(Message::Close(_))) | None => break,
+                    Some(Ok(Message::Close(_)) | Err(_)) | None => break,
                     Some(Ok(Message::Ping(payload))) => {
                         if sender.send(Message::Pong(payload)).await.is_err() {
                             break;
                         }
                     }
-                    Some(Ok(Message::Pong(_))) | Some(Ok(Message::Text(_))) | Some(Ok(Message::Binary(_))) => {}
-                    Some(Err(_)) => break,
+                    Some(Ok(Message::Pong(_) | Message::Text(_) | Message::Binary(_))) => {}
                 }
             }
         }
@@ -1283,7 +1272,7 @@ mod tests {
                 assert_eq!(band, "20m");
                 assert_eq!(mode, "CW");
             }
-            other => panic!("Nieoczekiwane zdarzenie: {:?}", other),
+            other => panic!("Nieoczekiwane zdarzenie: {other:?}"),
         }
 
         // 4. GET /api/v1/qsos/callsign/DL1ABC?band=20m&mode=CW -> dupe check

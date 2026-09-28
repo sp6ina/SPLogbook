@@ -6,6 +6,7 @@ use quick_xml::events::Event;
 use quick_xml::Reader;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+use std::fmt::Write as _;
 
 /// Wartość XML-RPC używana w parametrach i odpowiedziach.
 #[derive(Debug, Clone, PartialEq)]
@@ -23,7 +24,7 @@ impl XmlRpcValue {
         match self {
             XmlRpcValue::Int(v) => Some(*v),
             XmlRpcValue::Double(v) => Some(*v as i64),
-            XmlRpcValue::Bool(b) => Some(if *b { 1 } else { 0 }),
+            XmlRpcValue::Bool(b) => Some(i64::from(*b)),
             XmlRpcValue::Str(s) => s.trim().parse::<i64>().ok(),
         }
     }
@@ -95,7 +96,7 @@ impl XmlRpcRequest {
     /// FLRig używa czystego XML-RPC po TCP).
     pub fn to_xml(&self) -> String {
         let mut out = String::from("<?xml version=\"1.0\"?>\n<methodCall>");
-        out.push_str(&format!("<methodName>{}</methodName>", escape_xml(&self.method)));
+        let _ = write!(out, "<methodName>{}</methodName>", escape_xml(&self.method));
         if !self.params.is_empty() {
             out.push_str("<params>");
             for p in &self.params {
@@ -128,15 +129,15 @@ pub fn escape_xml(s: &str) -> String {
 
 fn value_xml(v: &XmlRpcValue) -> String {
     match v {
-        XmlRpcValue::Int(i) => format!("<value><int>{}</int></value>", i),
+        XmlRpcValue::Int(i) => format!("<value><int>{i}</int></value>"),
         XmlRpcValue::Double(d) => {
             if d.fract() == 0.0 {
-                format!("<value><double>{:.0}</double></value>", d)
+                format!("<value><double>{d:.0}</double></value>")
             } else {
-                format!("<value><double>{}</double></value>", d)
+                format!("<value><double>{d}</double></value>")
             }
         }
-        XmlRpcValue::Bool(b) => format!("<value><boolean>{}</boolean></value>", if *b { 1 } else { 0 }),
+        XmlRpcValue::Bool(b) => format!("<value><boolean>{}</boolean></value>", i32::from(*b)),
         XmlRpcValue::Str(s) => format!("<value><string>{}</string></value>", escape_xml(s)),
     }
 }
@@ -213,14 +214,14 @@ pub fn parse_response(xml: &str) -> Result<XmlRpcValue, String> {
                 }
             }
             Ok(Event::Eof) => break,
-            Err(e) => return Err(format!("Błąd parsowania XML-RPC: {}", e)),
+            Err(e) => return Err(format!("Błąd parsowania XML-RPC: {e}")),
             _ => {}
         }
         buf.clear();
     }
 
     if fault_code != 0 || !fault_msg.is_empty() {
-        return Err(format!("Fault {}: {}", fault_code, fault_msg));
+        return Err(format!("Fault {fault_code}: {fault_msg}"));
     }
     let _ = value_depth;
     value.ok_or_else(|| "Pusta odpowiedź XML-RPC (brak <value>)".to_string())
@@ -233,8 +234,7 @@ fn read_text(reader: &mut Reader<&[u8]>, buf: &mut Vec<u8>) -> Result<String, qu
         match reader.read_event_into(buf) {
             Ok(Event::Text(t)) => txt.push_str(&quick_xml::escape::unescape(t.as_ref())?),
             Ok(Event::CData(c)) => txt.push_str(c.as_ref()),
-            Ok(Event::End(_)) | Ok(Event::Empty(_)) => break,
-            Ok(Event::Eof) => break,
+            Ok(Event::End(_) | Event::Empty(_) | Event::Eof) => break,
             Err(e) => return Err(e),
             _ => {}
         }
@@ -258,12 +258,12 @@ impl FlrigClient {
     async fn call(&self, req: &XmlRpcRequest) -> Result<XmlRpcValue, String> {
         let mut stream = TcpStream::connect(format!("{}:{}", self.host, self.port))
             .await
-            .map_err(|e| format!("Błąd połączenia z FLRig: {}", e))?;
+            .map_err(|e| format!("Błąd połączenia z FLRig: {e}"))?;
 
         stream
             .write_all(req.to_xml().as_bytes())
             .await
-            .map_err(|e| format!("Błąd wysyłki do FLRig: {}", e))?;
+            .map_err(|e| format!("Błąd wysyłki do FLRig: {e}"))?;
 
         let mut data = Vec::new();
         let mut buf = [0u8; 4096];
@@ -271,7 +271,7 @@ impl FlrigClient {
             let n = stream
                 .read(&mut buf)
                 .await
-                .map_err(|e| format!("Błąd odczytu z FLRig: {}", e))?;
+                .map_err(|e| format!("Błąd odczytu z FLRig: {e}"))?;
             if n == 0 {
                 break;
             }
@@ -345,7 +345,7 @@ impl crate::cat::backend::CatBackend for FlrigClient {
         self.get_vfo()
             .await
             .map(|_| ())
-            .map_err(|e| format!("Brak połączenia z FLRig: {}", e))
+            .map_err(|e| format!("Brak połączenia z FLRig: {e}"))
     }
 
     async fn poll_state(&mut self) -> Result<crate::cat::hamlib::RigState, String> {
@@ -388,7 +388,7 @@ mod tests {
 
     #[test]
     fn request_serializes_with_params() {
-        let req = XmlRpcRequest::new("rig.set_vfo").param_double(14074000.0);
+        let req = XmlRpcRequest::new("rig.set_vfo").param_double(14_074_000.0);
         let xml = req.to_xml();
         assert!(xml.contains("<methodName>rig.set_vfo</methodName>"));
         assert!(xml.contains("<double>14074000</double>"));
@@ -411,7 +411,7 @@ mod tests {
     #[test]
     fn parse_int_response() {
         let xml = "<?xml version=\"1.0\"?><methodResponse><params><param><value><int>14074000</int></value></param></params></methodResponse>";
-        assert_eq!(parse_response(xml).unwrap(), XmlRpcValue::Int(14074000));
+        assert_eq!(parse_response(xml).unwrap(), XmlRpcValue::Int(14_074_000));
     }
 
     #[test]
@@ -440,8 +440,8 @@ mod tests {
 
     #[test]
     fn as_int_tolerates_numeric_strings() {
-        assert_eq!(XmlRpcValue::Str("14074000".to_string()).as_int(), Some(14074000));
-        assert_eq!(XmlRpcValue::Double(7074000.0).as_int(), Some(7074000));
+        assert_eq!(XmlRpcValue::Str("14074000".to_string()).as_int(), Some(14_074_000));
+        assert_eq!(XmlRpcValue::Double(7_074_000.0).as_int(), Some(7_074_000));
         assert_eq!(XmlRpcValue::Bool(true).as_int(), Some(1));
     }
 

@@ -67,11 +67,11 @@ impl SendSpotDialog {
     }
 
     pub fn show(&mut self, ctx: &egui::Context, _my_call: &str, lang: crate::core::i18n::Language) -> Option<SpotSubmission> {
+        use crate::core::i18n::tr;
         if !self.is_open {
             return None;
         }
 
-        use crate::core::i18n::tr;
         let mut open = self.is_open;
         let mut close_requested = false;
         let mut submission = None;

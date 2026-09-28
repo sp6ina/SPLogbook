@@ -49,7 +49,7 @@ pub fn render_awards_matrix_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
                 ui.separator();
 
-                let awards = app.awards_engine.lock().unwrap_or_else(|p| p.into_inner());
+                let awards = app.awards_engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
 
                 match app.awards_matrix_tab {
                     0 => render_tab_dxcc(app, ui, &awards),
@@ -92,7 +92,7 @@ fn render_tab_dxcc(app: &SpLogApp, ui: &mut egui::Ui, awards: &crate::core::awar
     ui.horizontal(|ui| {
         ui.group(|ui| {
             ui.label(egui::RichText::new("🌍 Wszystkie podmioty DXCC").strong().size(12.0).color(egui::Color32::from_rgb(250, 204, 21)));
-            ui.label(format!("Zrobione: {} | Potwierdzone: {}", worked_dxcc, conf_dxcc));
+            ui.label(format!("Zrobione: {worked_dxcc} | Potwierdzone: {conf_dxcc}"));
         });
 
         ui.group(|ui| {
@@ -102,7 +102,7 @@ fn render_tab_dxcc(app: &SpLogApp, ui: &mut egui::Ui, awards: &crate::core::awar
 
         ui.group(|ui| {
             ui.label(egui::RichText::new("📋 Łącznie w logu").strong().size(12.0).color(egui::Color32::from_rgb(216, 180, 254)));
-            ui.label(format!("{} łączności", total_qsos));
+            ui.label(format!("{total_qsos} łączności"));
         });
     });
 
@@ -149,7 +149,7 @@ fn render_tab_dxcc(app: &SpLogApp, ui: &mut egui::Ui, awards: &crate::core::awar
                     }
 
                     let band_qsos = app.recent_qsos.iter().filter(|q| q.band == *b).count();
-                    ui.label(egui::RichText::new(format!("{} QSO", band_qsos)).size(11.0).color(egui::Color32::from_rgb(148, 163, 184)));
+                    ui.label(egui::RichText::new(format!("{band_qsos} QSO")).size(11.0).color(egui::Color32::from_rgb(148, 163, 184)));
                     ui.end_row();
                 }
             });
@@ -190,7 +190,7 @@ fn render_tab_waz(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine)
 
                     ui.group(|ui| {
                         ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new(format!("Z{:02}", zone)).strong().size(11.0));
+                            ui.label(egui::RichText::new(format!("Z{zone:02}")).strong().size(11.0));
                             ui.colored_label(color, mark);
                         });
                     });
@@ -257,7 +257,7 @@ fn render_tab_wac(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine)
     ui.horizontal(|ui| {
         ui.group(|ui| {
             ui.label(egui::RichText::new("🌍 WAC (Worked All Continents - 7 Kontynentów)").strong().size(13.0).color(egui::Color32::from_rgb(234, 179, 8)));
-            ui.label(format!("Zrobione: {} / 7 | Potwierdzone: {} / 7", worked_count, conf_count));
+            ui.label(format!("Zrobione: {worked_count} / 7 | Potwierdzone: {conf_count} / 7"));
         });
     });
 
@@ -351,7 +351,7 @@ fn render_tab_other(
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new(title).strong().size(13.0).color(color));
             ui.separator();
-            ui.label(format!("Zrobione: {} | Potwierdzone: {} | Łącznie łączności: {}", total_entities, total_confirmed, total_qsos));
+            ui.label(format!("Zrobione: {total_entities} | Potwierdzone: {total_confirmed} | Łącznie łączności: {total_qsos}"));
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add(egui::TextEdit::singleline(search_query).hint_text("🔍 Szukaj kodu, znaku, pasma...").desired_width(180.0));
@@ -452,12 +452,12 @@ fn render_tab_sp_dx(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngin
         ui.horizontal(|ui| {
             ui.colored_label(
                 egui::Color32::from_rgb(250, 204, 21),
-                format!("Pracowane okręgi: {}/{}", worked, total)
+                format!("Pracowane okręgi: {worked}/{total}")
             );
             ui.separator();
             ui.colored_label(
                 egui::Color32::from_rgb(34, 197, 94),
-                format!("Potwierdzone: {}/{}", confirmed, total)
+                format!("Potwierdzone: {confirmed}/{total}")
             );
         });
         
@@ -489,7 +489,7 @@ fn render_tab_sp_dx(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngin
                             egui::Color32::from_rgb(100, 116, 139)
                         };
                         
-                        ui.colored_label(color, format!("■ {}", district));
+                        ui.colored_label(color, format!("■ {district}"));
                         ui.label(district_names[i]);
                         if confirmed {
                             ui.label("✅ Potwierdzone");
@@ -517,12 +517,12 @@ fn render_tab_wae(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine)
         ui.horizontal(|ui| {
             ui.colored_label(
                 egui::Color32::from_rgb(250, 204, 21),
-                format!("Pracowane: {}/{}", worked, total)
+                format!("Pracowane: {worked}/{total}")
             );
             ui.separator();
             ui.colored_label(
                 egui::Color32::from_rgb(34, 197, 94),
-                format!("Potwierdzone: {}/{}", confirmed, total)
+                format!("Potwierdzone: {confirmed}/{total}")
             );
         });
         

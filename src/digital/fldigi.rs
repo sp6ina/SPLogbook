@@ -22,7 +22,7 @@ pub struct FldigiQsoState {
 impl FldigiClient {
     pub fn new(host: &str, port: u16) -> Self {
         Self {
-            endpoint: format!("http://{}:{}/RPC2", host, port),
+            endpoint: format!("http://{host}:{port}/RPC2"),
         }
     }
 
@@ -39,7 +39,7 @@ impl FldigiClient {
 
     /// Ustawia częstotliwość w FLDIGI (w Hz)
     pub async fn set_frequency(&self, freq_hz: f64) -> Result<(), String> {
-        let param = format!("<param><value><double>{}</double></value></param>", freq_hz);
+        let param = format!("<param><value><double>{freq_hz}</double></value></param>");
         self.call_xmlrpc("main.set_frequency", &param).await?;
         Ok(())
     }
@@ -87,8 +87,7 @@ impl FldigiClient {
     /// Wysyła surowe wywołanie metody XML-RPC do FLDIGI
     async fn call_xmlrpc(&self, method_name: &str, params_xml: &str) -> Result<String, String> {
         let body = format!(
-            r#"<?xml version="1.0"?><methodCall><methodName>{}</methodName><params>{}</params></methodCall>"#,
-            method_name, params_xml
+            r#"<?xml version="1.0"?><methodCall><methodName>{method_name}</methodName><params>{params_xml}</params></methodCall>"#
         );
 
         let client = crate::core::http::http_client_with_timeout_millis(500);
@@ -99,12 +98,12 @@ impl FldigiClient {
             .body(body)
             .send()
             .await
-            .map_err(|e| format!("Błąd połączenia z FLDIGI XML-RPC: {}", e))?;
+            .map_err(|e| format!("Błąd połączenia z FLDIGI XML-RPC: {e}"))?;
 
         let xml = resp
             .text()
             .await
-            .map_err(|e| format!("Błąd odczytu odpowiedzi FLDIGI: {}", e))?;
+            .map_err(|e| format!("Błąd odczytu odpowiedzi FLDIGI: {e}"))?;
 
         Self::parse_xmlrpc_value(&xml)
     }

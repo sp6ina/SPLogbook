@@ -44,7 +44,7 @@ impl CiV {
     /// Koduje częstotliwość w Hz do 5 bajtów BCD (little-endian, 10 cyfr).
     pub fn encode_frequency(hz: u64) -> [u8; 5] {
         let clamped = hz % 10_000_000_000;
-        let s = format!("{:010}", clamped);
+        let s = format!("{clamped:010}");
         let b = s.as_bytes();
         let mut out = [0u8; 5];
         for i in 0..5 {
@@ -96,7 +96,7 @@ impl CiV {
             "IC-575" => 0x16,
             "IC-725" => 0x28,
             "IC-726" => 0x2A,
-            "IC-728" => 0x2C,
+            "IC-728" | "IC-765" => 0x2C,
             "IC-729" => 0x2E,
             "IC-735" => 0x04,
             "IC-736" => 0x40,
@@ -110,7 +110,6 @@ impl CiV {
             "IC-756PROII" => 0x64,
             "IC-756PROIII" => 0x6E,
             "IC-761" => 0x1E,
-            "IC-765" => 0x2C,
             "IC-775" => 0x46,
             "IC-781" => 0x26,
             "IC-78" => 0x62,
@@ -174,7 +173,7 @@ mod tests {
     fn frequency_bcd_roundtrip() {
         for &hz in &[14_074_000u64, 7_074_000, 144_390_000, 430_000_000, 50_125_000] {
             let enc = CiV::encode_frequency(hz);
-            assert_eq!(CiV::decode_frequency(&enc), hz, "failed for {}", hz);
+            assert_eq!(CiV::decode_frequency(&enc), hz, "failed for {hz}");
         }
     }
 

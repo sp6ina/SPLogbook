@@ -42,7 +42,7 @@ struct PluginState {
 
 /// Dodaje polecenie do kolejki współdzielonego stanu pluginów.
 fn push_command(state: &Arc<PluginState>, cmd: PluginCommand) {
-    let mut v = state.commands.lock().unwrap_or_else(|p| p.into_inner());
+    let mut v = state.commands.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     if v.len() < 256 {
         v.push(cmd);
     }
@@ -82,7 +82,7 @@ impl PluginEngine {
         // --- Bezpieczne API udostępniane skryptom ---
         let log_state = Arc::clone(&state);
         engine.register_fn("log", move |msg: &str| {
-            let mut v = log_state.log.lock().unwrap_or_else(|p| p.into_inner());
+            let mut v = log_state.log.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             v.push(msg.to_string());
             if v.len() > 500 {
                 v.remove(0);
@@ -94,7 +94,7 @@ impl PluginEngine {
             let mut v = notify_state
                 .notifications
                 .lock()
-                .unwrap_or_else(|p| p.into_inner());
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             v.push(msg.to_string());
             if v.len() > 100 {
                 v.remove(0);
@@ -107,98 +107,98 @@ impl PluginEngine {
         // --- Gettery stanu (radio, rotor, nagrody, stacja, ostatnia łączność) ---
         let snap = Arc::clone(&state.snapshot);
         engine.register_fn("rig_freq_mhz", move || {
-            snap.read().unwrap_or_else(|p| p.into_inner()).rig_freq_mhz
+            snap.read().unwrap_or_else(std::sync::PoisonError::into_inner).rig_freq_mhz
         });
         let snap = Arc::clone(&state.snapshot);
         engine.register_fn("rig_mode", move || {
-            snap.read().unwrap_or_else(|p| p.into_inner())
+            snap.read().unwrap_or_else(std::sync::PoisonError::into_inner)
                 .rig_mode
                 .clone()
         });
         let snap = Arc::clone(&state.snapshot);
         engine.register_fn("rig_band", move || {
-            snap.read().unwrap_or_else(|p| p.into_inner())
+            snap.read().unwrap_or_else(std::sync::PoisonError::into_inner)
                 .rig_band
                 .clone()
         });
         let snap = Arc::clone(&state.snapshot);
         engine.register_fn("rig_connected", move || {
-            snap.read().unwrap_or_else(|p| p.into_inner()).rig_connected
+            snap.read().unwrap_or_else(std::sync::PoisonError::into_inner).rig_connected
         });
         let snap = Arc::clone(&state.snapshot);
         engine.register_fn("rotor_azimuth", move || {
-            snap.read().unwrap_or_else(|p| p.into_inner())
+            snap.read().unwrap_or_else(std::sync::PoisonError::into_inner)
                 .rotor_azimuth_deg
         });
         let snap = Arc::clone(&state.snapshot);
         engine.register_fn("rotor_elevation", move || {
-            snap.read().unwrap_or_else(|p| p.into_inner())
+            snap.read().unwrap_or_else(std::sync::PoisonError::into_inner)
                 .rotor_elevation_deg
         });
         let snap = Arc::clone(&state.snapshot);
         engine.register_fn("my_call", move || {
-            snap.read().unwrap_or_else(|p| p.into_inner())
+            snap.read().unwrap_or_else(std::sync::PoisonError::into_inner)
                 .my_call
                 .clone()
         });
         let snap = Arc::clone(&state.snapshot);
         engine.register_fn("dxcc_worked", move || {
-            snap.read().unwrap_or_else(|p| p.into_inner())
+            snap.read().unwrap_or_else(std::sync::PoisonError::into_inner)
                 .awards
                 .dxcc_worked
         });
         let snap = Arc::clone(&state.snapshot);
         engine.register_fn("dxcc_confirmed", move || {
-            snap.read().unwrap_or_else(|p| p.into_inner())
+            snap.read().unwrap_or_else(std::sync::PoisonError::into_inner)
                 .awards
                 .dxcc_confirmed
         });
         let snap = Arc::clone(&state.snapshot);
         engine.register_fn("waz_worked", move || {
-            snap.read().unwrap_or_else(|p| p.into_inner())
+            snap.read().unwrap_or_else(std::sync::PoisonError::into_inner)
                 .awards
                 .waz_worked
         });
         let snap = Arc::clone(&state.snapshot);
         engine.register_fn("was_worked", move || {
-            snap.read().unwrap_or_else(|p| p.into_inner())
+            snap.read().unwrap_or_else(std::sync::PoisonError::into_inner)
                 .awards
                 .was_worked
         });
         let snap = Arc::clone(&state.snapshot);
         engine.register_fn("wac_worked", move || {
-            snap.read().unwrap_or_else(|p| p.into_inner())
+            snap.read().unwrap_or_else(std::sync::PoisonError::into_inner)
                 .awards
                 .wac_worked
         });
         let snap = Arc::clone(&state.snapshot);
         engine.register_fn("iota_worked", move || {
-            snap.read().unwrap_or_else(|p| p.into_inner())
+            snap.read().unwrap_or_else(std::sync::PoisonError::into_inner)
                 .awards
                 .iota_worked
         });
         let snap = Arc::clone(&state.snapshot);
         engine.register_fn("pota_parks_worked", move || {
-            snap.read().unwrap_or_else(|p| p.into_inner())
+            snap.read().unwrap_or_else(std::sync::PoisonError::into_inner)
                 .awards
                 .pota_parks_worked
         });
         let snap = Arc::clone(&state.snapshot);
         engine.register_fn("sota_summits_worked", move || {
-            snap.read().unwrap_or_else(|p| p.into_inner())
+            snap.read().unwrap_or_else(std::sync::PoisonError::into_inner)
                 .awards
                 .sota_summits_worked
         });
         let snap = Arc::clone(&state.snapshot);
         engine.register_fn("pga_gminas_worked", move || {
-            snap.read().unwrap_or_else(|p| p.into_inner())
+            snap.read().unwrap_or_else(std::sync::PoisonError::into_inner)
                 .awards
                 .pga_gminas_worked
         });
         let snap = Arc::clone(&state.snapshot);
         engine.register_fn("qso_field", move |name: &str| {
             snap.read()
-                .unwrap_or_else(|p| p.into_inner())
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .last_qso
                 .field(name)
         });
@@ -281,13 +281,13 @@ impl PluginEngine {
             .state
             .snapshot
             .write()
-            .unwrap_or_else(|p| p.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         *w = snapshot;
     }
 
     /// Pobiera zakolejkowane przez pluginy polecenia i czyści bufor.
     pub fn drain_commands(&self) -> Vec<PluginCommand> {
-        let mut v = self.state.commands.lock().unwrap_or_else(|p| p.into_inner());
+        let mut v = self.state.commands.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         std::mem::take(&mut *v)
     }
 
@@ -312,23 +312,20 @@ impl PluginEngine {
         self.scripts.clear();
         self.infos.clear();
 
-        let entries = match std::fs::read_dir(dir) {
-            Ok(e) => e,
-            Err(_) => return, // katalog nie istnieje — brak pluginów
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return; // katalog nie istnieje — brak pluginów
         };
 
         let mut paths: Vec<PathBuf> = entries
-            .filter_map(|e| e.ok())
+            .filter_map(std::result::Result::ok)
             .map(|e| e.path())
-            .filter(|p| p.extension().map(|e| e == "rhai").unwrap_or(false))
+            .filter(|p| p.extension().is_some_and(|e| e == "rhai"))
             .collect();
         paths.sort();
 
         for path in paths {
             let name = path
-                .file_stem()
-                .map(|s| s.to_string_lossy().to_string())
-                .unwrap_or_else(|| path.display().to_string());
+                .file_stem().map_or_else(|| path.display().to_string(), |s| s.to_string_lossy().to_string());
             self.load_script(&name, &path);
         }
     }
@@ -383,7 +380,7 @@ impl PluginEngine {
 
     /// Pobiera zebrane komunikaty `log(...)` i czyści bufor.
     pub fn drain_log(&self) -> Vec<String> {
-        let mut v = self.state.log.lock().unwrap_or_else(|p| p.into_inner());
+        let mut v = self.state.log.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         std::mem::take(&mut *v)
     }
 
@@ -393,11 +390,11 @@ impl PluginEngine {
             .state
             .notifications
             .lock()
-            .unwrap_or_else(|p| p.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         std::mem::take(&mut *v)
     }
 
-    fn run_hook(&self, hook: &str, args: Vec<rhai::Dynamic>) {
+    fn run_hook(&self, hook: &str, args: &[rhai::Dynamic]) {
         if !self.enabled {
             return;
         }
@@ -410,9 +407,9 @@ impl PluginEngine {
                 &mut rhai::Scope::new(),
                 ast,
                 hook,
-                args.clone(),
+                args.to_vec(),
             ) {
-                let mut log = self.state.log.lock().unwrap_or_else(|p| p.into_inner());
+                let mut log = self.state.log.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 log.push(format!("[{name}] {hook}: {e}"));
             }
         }
@@ -420,7 +417,7 @@ impl PluginEngine {
 
     /// Wywołuje hak `on_startup()` we wszystkich pluginach.
     pub fn run_startup(&self) {
-        self.run_hook("on_startup", Vec::new());
+        self.run_hook("on_startup", &[]);
     }
 
     /// Wywołuje hak `on_qso_logged(call_sign, band, mode, freq_mhz, is_atno)`.
@@ -433,18 +430,18 @@ impl PluginEngine {
             ctx.freq_mhz.into(),
             ctx.is_atno.into(),
         ];
-        self.run_hook("on_qso_logged", args);
+        self.run_hook("on_qso_logged", &args);
     }
 
     /// Wywołuje hak `on_band_opened(band)`.
     pub fn run_on_band_opened(&self, band: &str) {
-        self.run_hook("on_band_opened", vec![band.to_string().into()]);
+        self.run_hook("on_band_opened", &[band.to_string().into()]);
     }
 
     /// Wywołuje hak `on_workspace_changed(name)` po przełączeniu profilu
     /// układu operatorskiego (workspace).
     pub fn run_on_workspace_changed(&self, name: &str) {
-        self.run_hook("on_workspace_changed", vec![name.to_string().into()]);
+        self.run_hook("on_workspace_changed", &[name.to_string().into()]);
     }
 
     /// Wywołuje hak `on_dx_spot(spotter, dx_call, freq_khz, band, comment, is_ft8)`.
@@ -459,7 +456,7 @@ impl PluginEngine {
     ) {
         self.run_hook(
             "on_dx_spot",
-            vec![
+            &[
                 spotter.to_string().into(),
                 dx_call.to_string().into(),
                 freq_khz.into(),
@@ -474,7 +471,7 @@ impl PluginEngine {
     pub fn run_on_rig_state(&self, freq_mhz: f64, mode: &str, connected: bool) {
         self.run_hook(
             "on_rig_state",
-            vec![freq_mhz.into(), mode.to_string().into(), connected.into()],
+            &[freq_mhz.into(), mode.to_string().into(), connected.into()],
         );
     }
 
@@ -482,7 +479,7 @@ impl PluginEngine {
     pub fn run_on_pota_info(&self, reference: &str, name: &str, active: bool) {
         self.run_hook(
             "on_pota_info",
-            vec![
+            &[
                 reference.to_string().into(),
                 name.to_string().into(),
                 active.into(),
@@ -494,7 +491,7 @@ impl PluginEngine {
     pub fn run_on_sota_info(&self, reference: &str, name: &str, points: i64) {
         self.run_hook(
             "on_sota_info",
-            vec![
+            &[
                 reference.to_string().into(),
                 name.to_string().into(),
                 points.into(),

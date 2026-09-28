@@ -17,13 +17,13 @@ fn test_tcp_connection(host: &str, port: u16, timeout_ms: u64) -> Result<(), Str
     }
     let mut addrs = (host, port)
         .to_socket_addrs()
-        .map_err(|e| format!("Nieprawidłowy adres {}:{} — {}", host, port, e))?;
+        .map_err(|e| format!("Nieprawidłowy adres {host}:{port} — {e}"))?;
     let addr = addrs
         .next()
-        .ok_or_else(|| format!("Nie udało się rozwiązać adresu {}:{}", host, port))?;
+        .ok_or_else(|| format!("Nie udało się rozwiązać adresu {host}:{port}"))?;
     std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(timeout_ms))
         .map(|_| ())
-        .map_err(|e| format!("Błąd połączenia z {}:{} — {}", host, port, e))
+        .map_err(|e| format!("Błąd połączenia z {host}:{port} — {e}"))
 }
 
 pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
@@ -155,8 +155,8 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 let host = app.tci_host.clone();
                                 let port = app.tci_port;
                                 match test_tcp_connection(&host, port, 800) {
-                                    Ok(()) => app.tci_test_result = Some(format!("TCI {}:{} OK", host, port)),
-                                    Err(e) => app.tci_test_result = Some(e.to_string()),
+                                    Ok(()) => app.tci_test_result = Some(format!("TCI {host}:{port} OK")),
+                                    Err(e) => app.tci_test_result = Some(e.clone()),
                                 }
                             }
                         });
@@ -184,8 +184,8 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             egui::ComboBox::from_id_salt("cat_baud_combo")
                                 .selected_text(format!("{} bps", app.cat_baud_rate))
                                 .show_ui(ui, |ui| {
-                                    for &b in &[4800, 9600, 19200, 38400, 57600, 115200] {
-                                        ui.selectable_value(&mut app.cat_baud_rate, b, format!("{} bps", b));
+                                    for &b in &[4800, 9600, 19200, 38400, 57600, 115_200] {
+                                        ui.selectable_value(&mut app.cat_baud_rate, b, format!("{b} bps"));
                                     }
                                 });
                         });
@@ -209,23 +209,20 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             );
 
                             ui.horizontal(|ui| {
-                                match detected {
-                                    Some(ref p) => {
-                                        ui.colored_label(egui::Color32::from_rgb(34, 197, 94), "✔");
-                                        ui.label(
-                                            egui::RichText::new(format!("{}: {}", tr("cat_settings.detected_binary", lang), p.display()))
-                                                .size(11.0)
-                                                .color(egui::Color32::from_rgb(148, 163, 184)),
-                                        );
-                                    }
-                                    None => {
-                                        ui.colored_label(egui::Color32::from_rgb(239, 68, 68), "⚠");
-                                        ui.label(
-                                            egui::RichText::new(tr("cat_settings.binary_not_found", lang))
-                                                .size(11.0)
-                                                .color(egui::Color32::from_rgb(239, 68, 68)),
-                                        );
-                                    }
+                                if let Some(ref p) = detected {
+                                    ui.colored_label(egui::Color32::from_rgb(34, 197, 94), "✔");
+                                    ui.label(
+                                        egui::RichText::new(format!("{}: {}", tr("cat_settings.detected_binary", lang), p.display()))
+                                            .size(11.0)
+                                            .color(egui::Color32::from_rgb(148, 163, 184)),
+                                    );
+                                } else {
+                                    ui.colored_label(egui::Color32::from_rgb(239, 68, 68), "⚠");
+                                    ui.label(
+                                        egui::RichText::new(tr("cat_settings.binary_not_found", lang))
+                                            .size(11.0)
+                                            .color(egui::Color32::from_rgb(239, 68, 68)),
+                                    );
                                 }
                             });
 
@@ -263,8 +260,8 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             let host = app.cat_host.clone();
                             let port = app.cat_port;
                             match test_tcp_connection(&host, port, 800) {
-                                Ok(()) => app.cat_test_result = Some(format!("TCP {}:{} OK", host, port)),
-                                Err(e) => app.cat_test_result = Some(e.to_string()),
+                                Ok(()) => app.cat_test_result = Some(format!("TCP {host}:{port} OK")),
+                                Err(e) => app.cat_test_result = Some(e.clone()),
                             }
                         }
                     });
@@ -319,8 +316,8 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             let host = app.rotor_host.clone();
                             let port = app.rotor_port;
                             match test_tcp_connection(&host, port, 800) {
-                                Ok(()) => app.rotor_test_result = Some(format!("rotctld {}:{} OK", host, port)),
-                                Err(e) => app.rotor_test_result = Some(e.to_string()),
+                                Ok(()) => app.rotor_test_result = Some(format!("rotctld {host}:{port} OK")),
+                                Err(e) => app.rotor_test_result = Some(e.clone()),
                             }
                         }
                     });

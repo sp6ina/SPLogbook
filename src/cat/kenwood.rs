@@ -26,7 +26,7 @@ impl KenwoodCat {
     /// Np. 14.074.000 Hz -> `FA00014074000;`
     pub fn set_freq_cmd(vfo_b: bool, hz: u64) -> String {
         let prefix = if vfo_b { "FB" } else { "FA" };
-        format!("{}{:011};", prefix, hz)
+        format!("{prefix}{hz:011};")
     }
 
     /// Dekoduje odpowiedź na zapytanie o częstotliwość (`FA00014074000;` lub `FB00014074000;`).
@@ -63,7 +63,7 @@ impl KenwoodCat {
             "PSK" => 9,
             _ => return None,
         };
-        Some(format!("MD{};", code))
+        Some(format!("MD{code};"))
     }
 
     /// Dekoduje odpowiedź emisji (`MD1;` -> `"LSB"` itp.).

@@ -28,11 +28,11 @@ impl AstronomyDialog {
     }
 
     pub fn show(&mut self, ctx: &egui::Context, my_gridsquare: &str, rotor_state: &mut RotorState, lang: crate::core::i18n::Language) {
+        use crate::core::i18n::tr;
         if !self.is_open {
             return;
         }
 
-        use crate::core::i18n::tr;
         let mut open = self.is_open;
         let mut close_requested = false;
 
@@ -87,7 +87,7 @@ impl AstronomyDialog {
                         ui.separator();
                         ui.label(format!("{} {:.1}°", tr("eme.azimuth", lang), sun.azimuth_deg));
                         ui.label(format!("{} {:.1}°", tr("eme.elevation", lang), sun.elevation_deg));
-                        ui.label(format!("{} {:.3} AU", tr("eme.distance", lang), sun.distance_km / 149597870.7));
+                        ui.label(format!("{} {:.3} AU", tr("eme.distance", lang), sun.distance_km / 149_597_870.7));
                         ui.label(format!("{} {:.2} h", tr("eme.ra", lang), sun.right_ascension_hours));
                         ui.label(format!("{} {:.1}°", tr("eme.dec", lang), sun.declination_deg));
                         ui.add_space(4.0);

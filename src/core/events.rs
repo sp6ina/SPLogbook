@@ -119,7 +119,7 @@ mod tests {
                 assert_eq!(level, "info");
                 assert_eq!(message, "test");
             }
-            other => panic!("nieoczekiwane zdarzenie: {:?}", other),
+            other => panic!("nieoczekiwane zdarzenie: {other:?}"),
         }
     }
 

@@ -13,7 +13,7 @@ pub struct CloudlogClient {
 }
 
 impl CloudlogClient {
-    pub fn new(server_url: String, api_key: String, station_id: String) -> Self {
+    pub fn new(server_url: &str, api_key: String, station_id: String) -> Self {
         Self {
             server_url: server_url.trim_end_matches('/').to_string(),
             api_key,
@@ -48,7 +48,7 @@ impl CloudlogClient {
                         .json(&payload)
                         .send()
                         .await
-                        .map_err(|e| format!("Błąd połączenia z Cloudlog {}: {}", endpoint, e))
+                        .map_err(|e| format!("Błąd połączenia z Cloudlog {endpoint}: {e}"))
                 }
             },
             3,
@@ -62,9 +62,9 @@ impl CloudlogClient {
             .unwrap_or_else(|_| "Brak treści odpowiedzi".to_string());
 
         if status.is_success() {
-            Ok(format!("Pomyślnie przesłano do Cloudlog: {}", body))
+            Ok(format!("Pomyślnie przesłano do Cloudlog: {body}"))
         } else {
-            Err(format!("Błąd serwera Cloudlog [{}]: {}", status, body))
+            Err(format!("Błąd serwera Cloudlog [{status}]: {body}"))
         }
     }
 }

@@ -72,8 +72,8 @@ impl MiniHudBar {
         let mut win = egui::Window::new(egui::RichText::new("📻 SPLogbook Mini HUD").strong().size(12.0))
             .collapsible(false)
             .resizable(true)
-            .default_width(app.hud_saved_size.map(|s| s[0]).unwrap_or(460.0))
-            .default_height(app.hud_saved_size.map(|s| s[1]).unwrap_or(260.0));
+            .default_width(app.hud_saved_size.map_or(460.0, |s| s[0]))
+            .default_height(app.hud_saved_size.map_or(260.0, |s| s[1]));
         if let Some(pos) = app.hud_saved_pos {
             win = win.default_pos(pos);
         }
@@ -102,7 +102,7 @@ fn render_hud_body(app: &mut SpLogApp, ui: &mut egui::Ui, exit_compact: &mut boo
         ui.horizontal(|ui| {
             let freq_mhz = app.rig_state.frequency_hz as f64 / 1_000_000.0;
             ui.label(
-                egui::RichText::new(format!("{:.3} MHz", freq_mhz))
+                egui::RichText::new(format!("{freq_mhz:.3} MHz"))
                     .strong()
                     .size(20.0)
                     .monospace()
@@ -220,7 +220,7 @@ fn render_operating_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             let freq_mhz = app.rig_state.frequency_hz as f64 / 1_000_000.0;
             ui.label(
-                egui::RichText::new(format!("{:.3} MHz", freq_mhz))
+                egui::RichText::new(format!("{freq_mhz:.3} MHz"))
                     .strong()
                     .size(16.0)
                     .monospace()

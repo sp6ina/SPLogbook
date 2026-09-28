@@ -41,7 +41,7 @@ pub fn play_message(msg: &VoiceKeyerMessage) -> Result<(), String> {
         .wav_path
         .as_deref()
         .filter(|p| !p.trim().is_empty())
-        .map(|p| p.to_string());
+        .map(std::string::ToString::to_string);
 
     if let Some(path) = wav_path {
         let file = File::open(&path).map_err(|e| format!("Nie można otworzyć pliku: {e}"))?;
@@ -82,7 +82,7 @@ pub fn next_enabled_index(messages: &[VoiceKeyerMessage], current: Option<usize>
     if n == 0 {
         return None;
     }
-    let start = current.map(|c| (c + 1) % n).unwrap_or(0);
+    let start = current.map_or(0, |c| (c + 1) % n);
     for i in 0..n {
         let idx = (start + i) % n;
         if messages[idx].enabled {
@@ -98,7 +98,7 @@ pub fn prev_enabled_index(messages: &[VoiceKeyerMessage], current: Option<usize>
     if n == 0 {
         return None;
     }
-    let start = current.map(|c| (c + n - 1) % n).unwrap_or(n - 1);
+    let start = current.map_or(n - 1, |c| (c + n - 1) % n);
     for i in 0..n {
         let idx = (start + n - i) % n;
         if messages[idx].enabled {

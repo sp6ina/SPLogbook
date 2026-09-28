@@ -41,7 +41,7 @@ pub fn render_bandmap_window(app: &mut SpLogApp, ctx: &egui::Context) {
     if app.panel_bandmap.floating {
         let mut still_open = true;
         let mut dock_back = false;
-        let (_, captured_geo) = app.show_floating_viewport(
+        let ((), captured_geo) = app.show_floating_viewport(
             ctx,
             egui::ViewportId::from_hash_of("bandmap_viewport"),
             format!("📶 {} - SPLogbook", tr("bandmap.title", lang)),
@@ -291,7 +291,7 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
         let gap = 6.0_f32;
         let mut lane_ends: Vec<f32> = Vec::new();
 
-        for (x, call) in in_band.iter() {
+        for (x, call) in &in_band {
             let half_width = (call.len() as f32) * 5.0_f32 + 4.0;
             let label_start = x - half_width;
             let label_end = x + half_width;
@@ -375,7 +375,7 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 ui.label(egui::RichText::new("Dostrój").strong());
                 ui.end_row();
 
-                for spot in app.cluster_spots.iter() {
+                for spot in &app.cluster_spots {
                     let spot_hz = (spot.frequency_khz * 1000.0).round() as u64;
                     if spot_hz >= min_freq && spot_hz <= max_freq {
                         ui.label(egui::RichText::new(&spot.dx_call).strong().color(egui::Color32::from_rgb(56, 189, 248)));

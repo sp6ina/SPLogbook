@@ -120,12 +120,12 @@ impl RigctldSupervisor {
         // Sprawdź w relatywnym katalogu projektu
         let local_candidates = [
             PathBuf::from(bin_name),
-            PathBuf::from(format!("hamlib/bin/{}", bin_name)),
-            PathBuf::from(format!("hamlib/{}", bin_name)),
-            PathBuf::from(format!("Bin/Windows/{}", bin_name)),
-            PathBuf::from(format!("Bin/Windows/hamlib/hamlib-w64-4.7.2/bin/{}", bin_name)),
-            PathBuf::from(format!("Bin/Linux/{}", bin_name)),
-            PathBuf::from(format!("Bin/Linux/hamlib/bin/{}", bin_name)),
+            PathBuf::from(format!("hamlib/bin/{bin_name}")),
+            PathBuf::from(format!("hamlib/{bin_name}")),
+            PathBuf::from(format!("Bin/Windows/{bin_name}")),
+            PathBuf::from(format!("Bin/Windows/hamlib/hamlib-w64-4.7.2/bin/{bin_name}")),
+            PathBuf::from(format!("Bin/Linux/{bin_name}")),
+            PathBuf::from(format!("Bin/Linux/hamlib/bin/{bin_name}")),
         ];
 
         for cand in &local_candidates {
@@ -162,8 +162,8 @@ impl RigctldSupervisor {
         )
         .unwrap_or_else(|| PathBuf::from(default_bin));
 
-        info!("Uruchamianie natywnego rigctld ({}, {:?}) dla Rig ID: {}, Port: {}, Baud: {}", 
-            self.source, binary, self.rig_id, self.serial_port, self.baud_rate);
+        info!("Uruchamianie natywnego rigctld ({}, {}) dla Rig ID: {}, Port: {}, Baud: {}", 
+            self.source, binary.display(), self.rig_id, self.serial_port, self.baud_rate);
 
         let mut cmd = Command::new(&binary);
         cmd.arg("-m").arg(self.rig_id.to_string());
@@ -216,7 +216,7 @@ impl RigctldSupervisor {
         #[cfg(target_os = "windows")]
         {
             use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x08000000);
+            cmd.creation_flags(0x0800_0000);
         }
 
         match cmd.spawn() {
@@ -228,8 +228,8 @@ impl RigctldSupervisor {
                 Ok(())
             }
             Err(e) => {
-                let err_msg = format!("Nie udało się uruchomić rigctld ({:?}): {}", binary, e);
-                error!("{}", err_msg);
+                let err_msg = format!("Nie udało się uruchomić rigctld ({}): {e}", binary.display());
+                error!("{err_msg}");
                 Err(err_msg)
             }
         }
@@ -241,12 +241,12 @@ impl RigctldSupervisor {
             match child.try_wait() {
                 Ok(None) => true,
                 Ok(Some(status)) => {
-                    info!("Proces rigctld zakończył działanie ze statusem: {:?}", status);
+                    info!("Proces rigctld zakończył działanie ze statusem: {status:?}");
                     self.child = None;
                     false
                 }
                 Err(e) => {
-                    warn!("Błąd sprawdzania statusu rigctld: {}", e);
+                    warn!("Błąd sprawdzania statusu rigctld: {e}");
                     false
                 }
             }
@@ -257,7 +257,7 @@ impl RigctldSupervisor {
 
     /// Zwraca identyfikator PID działającego procesu potomnego
     pub fn pid(&self) -> Option<u32> {
-        self.child.as_ref().map(|c| c.id())
+        self.child.as_ref().map(std::process::Child::id)
     }
 
     /// Zatrzymuje działający proces rigctld

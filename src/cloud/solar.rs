@@ -108,8 +108,8 @@ impl SpaceWeatherClient {
     }
 
     fn extract_tag(xml: &str, tag: &str) -> Option<String> {
-        let open_tag = format!("<{}>", tag);
-        let close_tag = format!("</{}>", tag);
+        let open_tag = format!("<{tag}>");
+        let close_tag = format!("</{tag}>");
 
         let start = xml.find(&open_tag)? + open_tag.len();
         let end = xml[start..].find(&close_tag)? + start;

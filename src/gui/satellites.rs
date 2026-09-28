@@ -39,7 +39,7 @@ pub fn render_satellites_window(app: &mut SpLogApp, ctx: &egui::Context) {
     if app.panel_satellites.floating {
         let mut still_open = true;
         let mut dock_back = false;
-        let (_, captured_geo) = app.show_floating_viewport(
+        let ((), captured_geo) = app.show_floating_viewport(
             ctx,
             egui::ViewportId::from_hash_of("satellites_viewport"),
             format!("🛰 {} - SPLogbook", tr("sat.window_title", lang)),
@@ -253,9 +253,9 @@ fn format_countdown(secs: f64) -> String {
     let m = (total % 3600) / 60;
     let s = total % 60;
     if h > 0 {
-        format!("{:02}:{:02}:{:02}", h, m, s)
+        format!("{h:02}:{m:02}:{s:02}")
     } else {
-        format!("{:02}:{:02}", m, s)
+        format!("{m:02}:{s:02}")
     }
 }
 
@@ -263,7 +263,5 @@ fn format_local_time(unix: f64) -> String {
     use chrono::TimeZone;
     chrono::Local
         .timestamp_opt(unix as i64, 0)
-        .single()
-        .map(|dt| dt.format("%H:%M").to_string())
-        .unwrap_or_else(|| "--:--".to_string())
+        .single().map_or_else(|| "--:--".to_string(), |dt| dt.format("%H:%M").to_string())
 }

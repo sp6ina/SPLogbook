@@ -83,7 +83,7 @@ pub fn export_and_sign_tqsl(
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
     if output.status.success() {
-        Ok(format!("TQSL sukces: {}\n{}", stdout, stderr).trim().to_string())
+        Ok(format!("TQSL sukces: {stdout}\n{stderr}").trim().to_string())
     } else {
         Err(format!("Błąd wykonania TQSL (kod {}): {}\n{}", output.status.code().unwrap_or(-1), stdout, stderr).into())
     }

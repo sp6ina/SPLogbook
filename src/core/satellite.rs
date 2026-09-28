@@ -11,10 +11,10 @@
 
 use std::f64::consts::PI;
 
-const MU: f64 = 398600.4418; // km^3/s^2 — parametr grawitacyjny Ziemi
+const MU: f64 = 398_600.441_8; // km^3/s^2 — parametr grawitacyjny Ziemi
 const EARTH_RADIUS_KM: f64 = 6371.0;
-const EARTH_ROT_RAD_S: f64 = 7.2921159e-5; // rotacja gwiazdowa Ziemi [rad/s]
-const C_KM_S: f64 = 299792.458; // prędkość światła [km/s]
+const EARTH_ROT_RAD_S: f64 = 7.292_115_9e-5; // rotacja gwiazdowa Ziemi [rad/s]
+const C_KM_S: f64 = 299_792.458; // prędkość światła [km/s]
 const DEG2RAD: f64 = PI / 180.0;
 const RAD2DEG: f64 = 180.0 / PI;
 

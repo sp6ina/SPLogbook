@@ -76,7 +76,7 @@ impl WolDialog {
                     if ui.add(btn).clicked() {
                         let target = format!("{}:{}", self.broadcast_ip, self.port);
                         match WolClient::send_wol(&self.mac_address, Some(&target)) {
-                            Ok(_) => {
+                            Ok(()) => {
                                 self.status = Some(format!("{} -> {}", tr("wol.success", lang), self.mac_address));
                             }
                             Err(e) => {

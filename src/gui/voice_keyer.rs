@@ -163,7 +163,7 @@ fn toggle_recording(app: &mut SpLogApp, idx: usize) {
     } else {
         match crate::media::audio_recorder::AudioRecorder::start_recording() {
             Ok(()) => app.voice_keyer_recording = Some(idx),
-            Err(e) => log::warn!("Nie udało się rozpocząć nagrywania: {}", e),
+            Err(e) => log::warn!("Nie udało się rozpocząć nagrywania: {e}"),
         }
     }
 }

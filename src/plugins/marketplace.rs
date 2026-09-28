@@ -399,7 +399,7 @@ pub async fn install_entry(
 
     let script = script_path(plugins_dir, entry);
     std::fs::write(&script, &bytes)
-        .map_err(|e| format!("Błąd zapisu skryptu {:?}: {e}", script))?;
+        .map_err(|e| format!("Błąd zapisu skryptu {}: {e}", script.display()))?;
 
     let manifest = InstalledManifest {
         id: entry.id.clone(),
@@ -419,7 +419,7 @@ pub fn uninstall_entry(plugins_dir: &Path, entry: &PluginCatalogEntry) -> Result
     let script = script_path(plugins_dir, entry);
     if script.exists() {
         std::fs::remove_file(&script)
-            .map_err(|e| format!("Błąd usuwania skryptu {:?}: {e}", script))?;
+            .map_err(|e| format!("Błąd usuwania skryptu {}: {e}", script.display()))?;
     }
     let manifest = manifest_path(plugins_dir, &entry.id);
     if manifest.exists() {

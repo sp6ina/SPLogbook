@@ -136,7 +136,7 @@ pub fn parse_exchange(fields: &[ExchangeField], text: &str) -> Result<ParsedExch
     }
 
     if ti < tokens.len() {
-        let extra: Vec<&str> = tokens[ti..].iter().map(|s| s.as_str()).collect();
+        let extra: Vec<&str> = tokens[ti..].iter().map(std::string::String::as_str).collect();
         return Err(ExchangeError::new(format!(
             "Nadmiarowe elementy wymiany: {}",
             extra.join(" ")
@@ -223,7 +223,7 @@ fn field_from_token(p: &str) -> ExchangeField {
 /// Przenosi sparsowaną wymianę do pól rekordu QSO (w tym pól mnożnikowych).
 pub fn apply_to_qso(parsed: &ParsedExchange, qso: &mut QsoRecord) {
     if let Some(rst) = &parsed.rst {
-        qso.rst_rcvd = rst.clone();
+        qso.rst_rcvd.clone_from(rst);
     }
     if let Some(serial) = parsed.serial {
         qso.srx = Some(serial);
@@ -265,7 +265,7 @@ pub fn apply_to_qso(parsed: &ParsedExchange, qso: &mut QsoRecord) {
     let extras = extra_fields_summary(parsed);
     if !extras.is_empty() {
         qso.comment = Some(match &qso.comment {
-            Some(existing) if !existing.is_empty() => format!("{} | {}", existing, extras),
+            Some(existing) if !existing.is_empty() => format!("{existing} | {extras}"),
             _ => extras,
         });
     }
@@ -275,52 +275,52 @@ pub fn apply_to_qso(parsed: &ParsedExchange, qso: &mut QsoRecord) {
 pub fn exchange_summary(parsed: &ParsedExchange) -> String {
     let mut parts: Vec<String> = Vec::new();
     if let Some(v) = &parsed.rst {
-        parts.push(format!("RST {}", v));
+        parts.push(format!("RST {v}"));
     }
     if let Some(v) = parsed.serial {
-        parts.push(format!("Numer {:03}", v));
+        parts.push(format!("Numer {v:03}"));
     }
     if let Some(v) = parsed.zone {
-        parts.push(format!("Strefa {}", v));
+        parts.push(format!("Strefa {v}"));
     }
     if let Some(v) = parsed.ituz {
-        parts.push(format!("ITU {}", v));
+        parts.push(format!("ITU {v}"));
     }
     if let Some(v) = &parsed.grid {
-        parts.push(format!("Lokator {}", v));
+        parts.push(format!("Lokator {v}"));
     }
     if let Some(v) = &parsed.state {
-        parts.push(format!("Stan {}", v));
+        parts.push(format!("Stan {v}"));
     }
     if let Some(v) = &parsed.power {
-        parts.push(format!("Moc {}", v));
+        parts.push(format!("Moc {v}"));
     }
     if let Some(v) = parsed.age {
-        parts.push(format!("Wiek {}", v));
+        parts.push(format!("Wiek {v}"));
     }
     if let Some(v) = parsed.year {
-        parts.push(format!("Rok {}", v));
+        parts.push(format!("Rok {v}"));
     }
     if let Some(v) = &parsed.iota {
-        parts.push(format!("IOTA {}", v));
+        parts.push(format!("IOTA {v}"));
     }
     if let Some(v) = &parsed.name {
-        parts.push(format!("Imię {}", v));
+        parts.push(format!("Imię {v}"));
     }
     if let Some(v) = &parsed.qth {
-        parts.push(format!("QTH {}", v));
+        parts.push(format!("QTH {v}"));
     }
     if let Some(v) = &parsed.time {
-        parts.push(format!("Czas {}", v));
+        parts.push(format!("Czas {v}"));
     }
     if let Some(v) = &parsed.hq {
-        parts.push(format!("HQ {}", v));
+        parts.push(format!("HQ {v}"));
     }
     if let Some(v) = &parsed.category {
-        parts.push(format!("Kategoria {}", v));
+        parts.push(format!("Kategoria {v}"));
     }
     if let Some(v) = &parsed.district {
-        parts.push(format!("Okręg {}", v));
+        parts.push(format!("Okręg {v}"));
     }
     parts.join(" · ")
 }
@@ -334,23 +334,23 @@ pub fn format_sent_exchange(fields: &[ExchangeField], rst: &str, serial: u32) ->
     for field in fields {
         match field {
             ExchangeField::Rst => parts.push(rst.to_string()),
-            ExchangeField::Serial => parts.push(format!("{:03}", serial)),
-            ExchangeField::Zone => parts.push("?".to_string()),
-            ExchangeField::ZoneOrHq => parts.push("?".to_string()),
-            ExchangeField::StateOrPower => parts.push("?".to_string()),
-            ExchangeField::ItuZone => parts.push("?".to_string()),
-            ExchangeField::Grid => parts.push("?".to_string()),
-            ExchangeField::State => parts.push("?".to_string()),
-            ExchangeField::Power => parts.push("?".to_string()),
-            ExchangeField::Age => parts.push("?".to_string()),
-            ExchangeField::Year => parts.push("?".to_string()),
-            ExchangeField::Iota => parts.push("?".to_string()),
-            ExchangeField::Name => parts.push("?".to_string()),
-            ExchangeField::Qth => parts.push("?".to_string()),
-            ExchangeField::Time => parts.push("?".to_string()),
-            ExchangeField::Hq => parts.push("?".to_string()),
-            ExchangeField::Category => parts.push("?".to_string()),
-            ExchangeField::District => parts.push("?".to_string()),
+            ExchangeField::Serial => parts.push(format!("{serial:03}")),
+            ExchangeField::Zone
+            | ExchangeField::ZoneOrHq
+            | ExchangeField::StateOrPower
+            | ExchangeField::ItuZone
+            | ExchangeField::Grid
+            | ExchangeField::State
+            | ExchangeField::Power
+            | ExchangeField::Age
+            | ExchangeField::Year
+            | ExchangeField::Iota
+            | ExchangeField::Name
+            | ExchangeField::Qth
+            | ExchangeField::Time
+            | ExchangeField::Hq
+            | ExchangeField::Category
+            | ExchangeField::District => parts.push("?".to_string()),
         }
     }
     parts.join(" ")
@@ -359,22 +359,22 @@ pub fn format_sent_exchange(fields: &[ExchangeField], rst: &str, serial: u32) ->
 fn extra_fields_summary(parsed: &ParsedExchange) -> String {
     let mut parts: Vec<String> = Vec::new();
     if let Some(v) = &parsed.power {
-        parts.push(format!("Power={}", v));
+        parts.push(format!("Power={v}"));
     }
     if let Some(v) = parsed.age {
-        parts.push(format!("Age={}", v));
+        parts.push(format!("Age={v}"));
     }
     if let Some(v) = parsed.year {
-        parts.push(format!("Year={}", v));
+        parts.push(format!("Year={v}"));
     }
     if let Some(v) = &parsed.time {
-        parts.push(format!("Time={}", v));
+        parts.push(format!("Time={v}"));
     }
     if let Some(v) = &parsed.hq {
-        parts.push(format!("HQ={}", v));
+        parts.push(format!("HQ={v}"));
     }
     if let Some(v) = &parsed.category {
-        parts.push(format!("Category={}", v));
+        parts.push(format!("Category={v}"));
     }
     parts.join(", ")
 }
@@ -420,7 +420,7 @@ fn tokenize(text: &str, fields: &[ExchangeField]) -> Vec<String> {
         let bytes = compact.as_bytes();
         if compact.len() >= 5
             && compact.len() <= 6
-            && bytes.iter().all(|b| b.is_ascii_digit())
+            && bytes.iter().all(u8::is_ascii_digit)
         {
             let rst_len = if compact.starts_with("599") { 3 } else { 2 };
             let rst = &compact[..rst_len];
@@ -430,7 +430,7 @@ fn tokenize(text: &str, fields: &[ExchangeField]) -> Vec<String> {
             }
         }
     }
-    text.split_whitespace().map(|s| s.to_uppercase()).collect()
+    text.split_whitespace().map(str::to_uppercase).collect()
 }
 
 fn match_token(field: ExchangeField, token: &str, out: &mut ParsedExchange) -> bool {

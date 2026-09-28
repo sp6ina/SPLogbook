@@ -53,8 +53,8 @@ impl MultiOpServer {
     /// Uruchamia serwer nasłuchujący w sieci LAN
     pub async fn start(&self, incoming_qso_sender: tokio::sync::mpsc::UnboundedSender<QsoRecord>) -> Result<(), String> {
         let addr = format!("0.0.0.0:{}", self.port);
-        let listener = TcpListener::bind(&addr).await.map_err(|e| format!("Błąd bindowania TCP {}: {}", addr, e))?;
-        info!("Serwer Multi-Op LAN nasłuchuje na {}", addr);
+        let listener = TcpListener::bind(&addr).await.map_err(|e| format!("Błąd bindowania TCP {addr}: {e}"))?;
+        info!("Serwer Multi-Op LAN nasłuchuje na {addr}");
 
         let tx = self.tx.clone();
         let running_flag = self.is_running.clone();
@@ -65,7 +65,7 @@ impl MultiOpServer {
             while *running_flag.lock().await {
                 match listener.accept().await {
                     Ok((stream, peer_addr)) => {
-                        info!("Nowe połączenie Multi-Op ze stacją: {}", peer_addr);
+                        info!("Nowe połączenie Multi-Op ze stacją: {peer_addr}");
                         let q_sender = incoming_qso_sender.clone();
                         let mut rx = tx.subscribe();
                         let (read_half, mut write_half) = stream.into_split();
@@ -81,7 +81,7 @@ impl MultiOpServer {
                                 match (&mut reader).take((MAX_LINE_BYTES + 1) as u64).read_line(&mut line).await {
                                     Ok(0) => break,
                                     Ok(_) if line.len() > MAX_LINE_BYTES => {
-                                        error!("Multi-Op: linia od {} przekracza limit {} B, zrywam połączenie.", peer_addr, MAX_LINE_BYTES);
+                                        error!("Multi-Op: linia od {peer_addr} przekracza limit {MAX_LINE_BYTES} B, zrywam połączenie.");
                                         break;
                                     }
                                     Ok(_) => {
@@ -90,7 +90,7 @@ impl MultiOpServer {
                                             MultiOpMessage::Auth { secret } => {
                                                 authenticated = secret_for_conn.as_deref() == Some(secret.as_str());
                                                 if !authenticated {
-                                                    error!("Multi-Op: nieprawidłowe hasło od {}, zrywam połączenie.", peer_addr);
+                                                    error!("Multi-Op: nieprawidłowe hasło od {peer_addr}, zrywam połączenie.");
                                                     break;
                                                 }
                                             }
@@ -98,7 +98,7 @@ impl MultiOpServer {
                                                 if authenticated {
                                                     let _ = q_sender.send(*qso);
                                                 } else {
-                                                    error!("Multi-Op: odrzucono QSO od {} (brak uwierzytelnienia).", peer_addr);
+                                                    error!("Multi-Op: odrzucono QSO od {peer_addr} (brak uwierzytelnienia).");
                                                     break;
                                                 }
                                             }
@@ -106,7 +106,7 @@ impl MultiOpServer {
                                         }
                                     }
                                     Err(e) => {
-                                        error!("Multi-Op: błąd odczytu od {}: {}", peer_addr, e);
+                                        error!("Multi-Op: błąd odczytu od {peer_addr}: {e}");
                                         break;
                                     }
                                 }
@@ -117,7 +117,7 @@ impl MultiOpServer {
                         tokio::spawn(async move {
                             while let Ok(msg) = rx.recv().await {
                                 if let Ok(json) = serde_json::to_string(&msg) {
-                                    if write_half.write_all(format!("{}\n", json).as_bytes()).await.is_err() {
+                                    if write_half.write_all(format!("{json}\n").as_bytes()).await.is_err() {
                                         break;
                                     }
                                 }
@@ -125,7 +125,7 @@ impl MultiOpServer {
                         });
                     }
                     Err(e) => {
-                        error!("Błąd akceptacji połączenia Multi-Op: {}", e);
+                        error!("Błąd akceptacji połączenia Multi-Op: {e}");
                     }
                 }
             }

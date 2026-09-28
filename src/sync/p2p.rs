@@ -26,12 +26,12 @@ pub const MAX_FRAME_BYTES: usize = 64 * 1024 * 1024;
 /// Determinizm: ta sama sól i hasło dają identyczny klucz.
 pub fn derive_key(password: &str, salt: &[u8]) -> Result<[u8; KEY_LEN], String> {
     let params = Params::new(19 * 1024, 2, 1, Some(KEY_LEN))
-        .map_err(|e| format!("Błąd parametrów Argon2: {}", e))?;
+        .map_err(|e| format!("Błąd parametrów Argon2: {e}"))?;
     let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
     let mut key = [0u8; KEY_LEN];
     argon2
         .hash_password_into(password.as_bytes(), salt, &mut key)
-        .map_err(|e| format!("Błąd wyprowadzania klucza: {}", e))?;
+        .map_err(|e| format!("Błąd wyprowadzania klucza: {e}"))?;
     Ok(key)
 }
 
@@ -73,14 +73,14 @@ pub fn decrypt_frame(key: &[u8; KEY_LEN], frame: &[u8]) -> Result<Vec<u8>, Strin
 
 /// Serializuje wartość do JSON i szyfruje do ramki.
 pub fn seal<T: Serialize>(key: &[u8; KEY_LEN], value: &T) -> Result<Vec<u8>, String> {
-    let json = serde_json::to_vec(value).map_err(|e| format!("Błąd serializacji: {}", e))?;
+    let json = serde_json::to_vec(value).map_err(|e| format!("Błąd serializacji: {e}"))?;
     encrypt_frame(key, &json)
 }
 
 /// Odszyfrowuje ramkę i deserializuje JSON do wartości.
 pub fn open<T: for<'de> Deserialize<'de>>(key: &[u8; KEY_LEN], frame: &[u8]) -> Result<T, String> {
     let plain = decrypt_frame(key, frame)?;
-    serde_json::from_slice(&plain).map_err(|e| format!("Błąd deserializacji: {}", e))
+    serde_json::from_slice(&plain).map_err(|e| format!("Błąd deserializacji: {e}"))
 }
 
 /// Długość ramki jako u32 BE (do ramkowania strumienia TCP).

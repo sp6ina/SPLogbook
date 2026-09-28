@@ -81,17 +81,11 @@ impl AdifEngine {
                     if record_has_error {
                         // Rekord z błędem składni jest odrzucany; komunikat już zapisano.
                         rejected += 1;
-                    } else {
-                        match Self::fields_to_qso(&current_fields) {
-                            Some(qso) => qsos.push(qso),
-                            None => {
-                                rejected += 1;
-                                errors.push(format!(
-                                    "Rekord {} odrzucony: brak wymaganego pola CALL.",
-                                    record_index
-                                ));
-                            }
-                        }
+                    } else if let Some(qso) = Self::fields_to_qso(&current_fields) { qsos.push(qso) } else {
+                        rejected += 1;
+                        errors.push(format!(
+                            "Rekord {record_index} odrzucony: brak wymaganego pola CALL."
+                        ));
                     }
                     current_fields.clear();
                     record_has_error = false;
@@ -102,21 +96,17 @@ impl AdifEngine {
                 let parts: Vec<&str> = tag_str.split(':').collect();
                 if parts.len() >= 2 {
                     let field_name = parts[0].trim().to_uppercase();
-                    match parts[1].trim().parse::<usize>() {
-                        Ok(length) => {
-                            let end_idx = (idx + length).min(bytes.len());
-                            let val_bytes = &bytes[idx..end_idx];
-                            let val_str = String::from_utf8_lossy(val_bytes);
-                            current_fields.insert(field_name, val_str.trim().to_string());
-                            idx = end_idx;
-                        }
-                        Err(_) => {
-                            errors.push(format!(
-                                "Nieprawidłowa długość pola „{}”.",
-                                field_name
-                            ));
-                            record_has_error = true;
-                        }
+                    if let Ok(length) = parts[1].trim().parse::<usize>() {
+                        let end_idx = (idx + length).min(bytes.len());
+                        let val_bytes = &bytes[idx..end_idx];
+                        let val_str = String::from_utf8_lossy(val_bytes);
+                        current_fields.insert(field_name, val_str.trim().to_string());
+                        idx = end_idx;
+                    } else {
+                        errors.push(format!(
+                            "Nieprawidłowa długość pola „{field_name}”."
+                        ));
+                        record_has_error = true;
                     }
                 }
             } else {
@@ -129,17 +119,11 @@ impl AdifEngine {
             record_index += 1;
             if record_has_error {
                 rejected += 1;
-            } else {
-                match Self::fields_to_qso(&current_fields) {
-                    Some(qso) => qsos.push(qso),
-                    None => {
-                        rejected += 1;
-                        errors.push(format!(
-                            "Rekord {} odrzucony: brak wymaganego pola CALL.",
-                            record_index
-                        ));
-                    }
-                }
+            } else if let Some(qso) = Self::fields_to_qso(&current_fields) { qsos.push(qso) } else {
+                rejected += 1;
+                errors.push(format!(
+                    "Rekord {record_index} odrzucony: brak wymaganego pola CALL."
+                ));
             }
         }
 
@@ -239,10 +223,10 @@ impl AdifEngine {
             qso.submode = Some(sub.clone());
         }
         if let Some(d) = fields.get("QSO_DATE") {
-            qso.qso_date = d.clone();
+            qso.qso_date.clone_from(d);
         }
         if let Some(t) = fields.get("TIME_ON") {
-            qso.time_on = t.clone();
+            qso.time_on.clone_from(t);
         }
         if let Some(t) = fields.get("TIME_OFF") {
             qso.time_off = Some(t.clone());
@@ -254,10 +238,10 @@ impl AdifEngine {
             qso.freq_rx = f.parse().ok();
         }
         if let Some(rst) = fields.get("RST_SENT") {
-            qso.rst_sent = rst.clone();
+            qso.rst_sent.clone_from(rst);
         }
         if let Some(rst) = fields.get("RST_RCVD") {
-            qso.rst_rcvd = rst.clone();
+            qso.rst_rcvd.clone_from(rst);
         }
         if let Some(name) = fields.get("NAME") {
             qso.name = Some(name.clone());
@@ -311,10 +295,10 @@ impl AdifEngine {
             qso.comment = Some(c.clone());
         }
         if let Some(q) = fields.get("QSL_SENT") {
-            qso.qsl_sent = q.clone();
+            qso.qsl_sent.clone_from(q);
         }
         if let Some(q) = fields.get("QSL_RCVD") {
-            qso.qsl_rcvd = q.clone();
+            qso.qsl_rcvd.clone_from(q);
         }
         if let Some(qd) = fields.get("QSLSDATE") {
             qso.qsl_sent_date = Some(qd.clone());
@@ -323,19 +307,19 @@ impl AdifEngine {
             qso.qsl_rcvd_date = Some(qd.clone());
         }
         if let Some(q) = fields.get("LOTW_QSL_SENT") {
-            qso.lotw_qsl_sent = q.clone();
+            qso.lotw_qsl_sent.clone_from(q);
         }
         if let Some(q) = fields.get("LOTW_QSL_RCVD") {
-            qso.lotw_qsl_rcvd = q.clone();
+            qso.lotw_qsl_rcvd.clone_from(q);
         }
         if let Some(qd) = fields.get("LOTW_QSLRDATE") {
             qso.lotw_qslrdate = Some(qd.clone());
         }
         if let Some(q) = fields.get("EQSL_QSL_SENT") {
-            qso.eqsl_qsl_sent = q.clone();
+            qso.eqsl_qsl_sent.clone_from(q);
         }
         if let Some(q) = fields.get("EQSL_QSL_RCVD") {
-            qso.eqsl_qsl_rcvd = q.clone();
+            qso.eqsl_qsl_rcvd.clone_from(q);
         }
         if let Some(qd) = fields.get("EQSL_QSLRDATE") {
             qso.eqsl_qslrdate = Some(qd.clone());
@@ -379,7 +363,7 @@ impl AdifEngine {
 
     /// Eksportuje listę łączności do formatu ADIF 3.1.7
     pub fn export_to_writer<W: Write>(qsos: &[QsoRecord], mut writer: W) -> std::io::Result<()> {
-        writeln!(writer, "SPLogbook ADIF {} Export", ADIF_VERSION)?;
+        writeln!(writer, "SPLogbook ADIF {ADIF_VERSION} Export")?;
         writeln!(writer, "Author: Mariusz Wozniak (SP6INA)")?;
         writeln!(writer, "<ADIF_VER:{}>{}", ADIF_VERSION.len(), ADIF_VERSION)?;
         writeln!(writer, "<PROGRAMID:9>SPLogbook")?;
@@ -411,10 +395,10 @@ impl AdifEngine {
             f.push(("TIME_OFF", v.replace(':', "")));
         }
         if let Some(v) = q.freq {
-            f.push(("FREQ", format!("{:.6}", v)));
+            f.push(("FREQ", format!("{v:.6}")));
         }
         if let Some(v) = q.freq_rx {
-            f.push(("FREQ_RX", format!("{:.6}", v)));
+            f.push(("FREQ_RX", format!("{v:.6}")));
         }
         f.push(("RST_SENT", q.rst_sent.clone()));
         f.push(("RST_RCVD", q.rst_rcvd.clone()));
@@ -542,7 +526,7 @@ impl AdifEngine {
         writeln!(writer, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>")?;
         writeln!(writer, "<ADX>")?;
         writeln!(writer, "  <HEADER>")?;
-        writeln!(writer, "    <ADIF_VER>{}</ADIF_VER>", ADIF_VERSION)?;
+        writeln!(writer, "    <ADIF_VER>{ADIF_VERSION}</ADIF_VER>")?;
         writeln!(writer, "    <PROGRAMID>SPLogbook</PROGRAMID>")?;
         writeln!(writer, "    <PROGRAMVERSION>{}</PROGRAMVERSION>", env!("CARGO_PKG_VERSION"))?;
         writeln!(writer, "  </HEADER>")?;

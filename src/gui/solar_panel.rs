@@ -41,7 +41,7 @@ pub fn render_solar_window(app: &mut SpLogApp, ctx: &egui::Context) {
     if app.panel_solar.floating {
         let mut still_open = true;
         let mut dock_back = false;
-        let (_, captured_geo) = app.show_floating_viewport(
+        let ((), captured_geo) = app.show_floating_viewport(
             ctx,
             egui::ViewportId::from_hash_of("solar_viewport"),
             format!("☀ {} - SPLogbook", tr("solar.title", lang)),
@@ -170,12 +170,12 @@ pub fn render_solar_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     // ——— Historia SFI (sparkline) ———
     let sfi_values: Vec<f64> = app.solar_history.iter().map(|w| w.sfi as f64).collect();
     if sfi_values.len() >= 2 {
-        let min = sfi_values.iter().cloned().fold(f64::INFINITY, f64::min);
-        let max = sfi_values.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = sfi_values.iter().copied().fold(f64::INFINITY, f64::min);
+        let max = sfi_values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new("SFI:").small().color(egui::Color32::from_rgb(148, 163, 184)));
             ui.monospace(egui::RichText::new(sparkline(&sfi_values, min, max)).color(egui::Color32::from_rgb(251, 191, 36)));
-            ui.label(egui::RichText::new(format!("min {:.0} / max {:.0}", min, max)).small().color(egui::Color32::from_rgb(148, 163, 184)));
+            ui.label(egui::RichText::new(format!("min {min:.0} / max {max:.0}")).small().color(egui::Color32::from_rgb(148, 163, 184)));
         });
     }
 
@@ -246,7 +246,7 @@ pub fn render_solar_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                         crate::core::propagation::BandOpeningStatus::Marginal => (egui::Color32::from_rgb(250, 204, 21), "◐"),
                         crate::core::propagation::BandOpeningStatus::Closed => (egui::Color32::from_rgb(100, 116, 139), "○"),
                     };
-                    ui.label(egui::RichText::new(format!("{} {}", sym, b_name)).color(st_color).small())
+                    ui.label(egui::RichText::new(format!("{sym} {b_name}")).color(st_color).small())
                         .on_hover_text(format!("{}: {}% REL, {}\nMUF: {:.1} MHz", b_name, forecast.reliability_pct, forecast.status.as_str(), forecast.muf_mhz));
                 }
             });

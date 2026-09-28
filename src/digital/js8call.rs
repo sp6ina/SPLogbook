@@ -69,52 +69,48 @@ impl Js8CallClient {
     ) -> std::thread::JoinHandle<()> {
         let addr = format!("{}:{}", self.host, self.port);
         std::thread::spawn(move || {
+            const MAX_LINE_LEN: usize = 64 * 1024;
             loop {
                 // Proba nawiazania polaczenia TCP z JS8Call
                 let parsed_addr = addr
                     .parse()
                     .unwrap_or_else(|_| "127.0.0.1:2237".parse().unwrap());
 
-                match TcpStream::connect_timeout(&parsed_addr, Duration::from_secs(3)) {
-                    Ok(stream) => {
-                        let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
-                        let mut reader = BufReader::new(stream);
-                        let mut state = Js8CallState {
-                            connected: true,
-                            ..Default::default()
-                        };
-                        // Powiadom aplikacje o podlaczeniu
-                        let _ = state_sender.send(state.clone());
+                if let Ok(stream) = TcpStream::connect_timeout(&parsed_addr, Duration::from_secs(3)) {
+                    let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
+                    let mut reader = BufReader::new(stream);
+                    let mut state = Js8CallState {
+                        connected: true,
+                        ..Default::default()
+                    };
+                    // Powiadom aplikacje o podlaczeniu
+                    let _ = state_sender.send(state.clone());
 
-                        // Przetwarzanie linii JSON ze strumienia TCP
-                        // Limit dlugosci linii chroni przed wyczerpaniem pamieci, gdyby druga
-                        // strona (JS8Call lub proces podszywajacy sie pod niego) wyslala dane
-                        // bez znaku nowej linii.
-                        const MAX_LINE_LEN: usize = 64 * 1024;
-                        let mut buf = String::new();
-                        loop {
-                            buf.clear();
-                            match (&mut reader).take((MAX_LINE_LEN + 1) as u64).read_line(&mut buf) {
-                                Ok(0) => break, // koniec strumienia
-                                Ok(_) if buf.len() > MAX_LINE_LEN => break, // zbyt dluga linia - rozlaczenie
-                                Ok(_) => {
-                                    let text = buf.trim();
-                                    if !text.is_empty() {
-                                        if let Ok(msg) = serde_json::from_str::<Js8Message>(text) {
-                                            process_message(msg, &mut state, &state_sender, &qso_sender);
-                                        }
+                    // Przetwarzanie linii JSON ze strumienia TCP
+                    // Limit dlugosci linii chroni przed wyczerpaniem pamieci, gdyby druga
+                    // strona (JS8Call lub proces podszywajacy sie pod niego) wyslala dane
+                    // bez znaku nowej linii.
+                    let mut buf = String::new();
+                    loop {
+                        buf.clear();
+                        match (&mut reader).take((MAX_LINE_LEN + 1) as u64).read_line(&mut buf) {
+                            Ok(0) | Err(_) => break, // koniec strumienia lub blad odczytu
+                            Ok(_) if buf.len() > MAX_LINE_LEN => break, // zbyt dluga linia - rozlaczenie
+                            Ok(_) => {
+                                let text = buf.trim();
+                                if !text.is_empty() {
+                                    if let Ok(msg) = serde_json::from_str::<Js8Message>(text) {
+                                        process_message(msg, &mut state, &state_sender, &qso_sender);
                                     }
                                 }
-                                Err(_) => break,
                             }
                         }
-                        // Utrata polaczenia - powiadom aplikacje
-                        state.connected = false;
-                        let _ = state_sender.send(state);
                     }
-                    Err(_) => {
-                        // Nie udalo sie polaczyc - JS8Call prawdopodobnie nie dziala
-                    }
+                    // Utrata polaczenia - powiadom aplikacje
+                    state.connected = false;
+                    let _ = state_sender.send(state);
+                } else {
+                    // Nie udalo sie polaczyc - JS8Call prawdopodobnie nie dziala
                 }
                 // Odczekaj przed kolejna proba reconnect
                 std::thread::sleep(Duration::from_secs(5));
@@ -159,9 +155,6 @@ fn process_message(
                 let _ = qso_sender.send(qso);
             }
         }
-        "RX.DIRECTED" => {
-            // Odebrano wiadomosc skierowana bezposrednio do naszej stacji
-        }
         "RX.SPOT" => {
             // Aktualizacja listy slyszanych stacji
             if let Some(params) = &msg.params {
@@ -180,11 +173,11 @@ fn process_message(
                             .to_string(),
                         snr: params
                             .get("SNR")
-                            .and_then(|v| v.as_i64())
+                            .and_then(serde_json::Value::as_i64)
                             .unwrap_or(0) as i32,
                         freq_hz: params
                             .get("FREQ")
-                            .and_then(|v| v.as_i64())
+                            .and_then(serde_json::Value::as_i64)
                             .unwrap_or(0),
                         utc: Utc::now().format("%H:%M:%S").to_string(),
                     };
@@ -195,6 +188,7 @@ fn process_message(
                 }
             }
         }
+        // Wiadomosci skierowane (RX.DIRECTED) i inne nieobslugiwane typy sa ignorowane.
         _ => {}
     }
 }
@@ -217,13 +211,11 @@ fn build_qso_from_js8(params: &serde_json::Value, state: &Js8CallState) -> QsoRe
             .get("GRID")
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
-            .map(|s| s.to_string()),
+            .map(std::string::ToString::to_string),
         rst_sent: "+0".to_string(),
         rst_rcvd: params
             .get("SNR")
-            .and_then(|v| v.as_i64())
-            .map(|s| format!("{:+}", s))
-            .unwrap_or_else(|| "+0".to_string()),
+            .and_then(serde_json::Value::as_i64).map_or_else(|| "+0".to_string(), |s| format!("{s:+}")),
         my_gridsquare: if state.grid.is_empty() {
             None
         } else {

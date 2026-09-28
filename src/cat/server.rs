@@ -13,6 +13,7 @@ use crate::cat::hamlib::RigState;
 #[derive(Debug, Clone, PartialEq)]
 pub enum RigServerCommand {
     SetFrequency(u64),
+    SetSplitFrequency(u64),
     SetMode(String),
     SetPtt(bool),
     SetVfo(String),
@@ -43,6 +44,7 @@ pub mod rprt {
 #[allow(clippy::enum_variant_names)]
 enum StateMutation {
     SetFrequency(u64),
+    SetSplitFrequency(u64),
     SetMode(String),
     SetPtt(bool),
     SetVfo(String),
@@ -71,7 +73,7 @@ impl Dispatch {
     }
 
     fn rprt(code: i32) -> Self {
-        Self::ok(format!("RPRT {}\n", code))
+        Self::ok(format!("RPRT {code}\n"))
     }
 }
 
@@ -94,10 +96,10 @@ fn dispatch_command(trimmed: &str, state: &RigState) -> Dispatch {
         // ── Zapytania o stan ────────────────────────────────────────────────
         "\\dump_state" => Dispatch::ok(dump_state(state)),
         "\\chk_vfo" => Dispatch::ok("CHKVFO 0\n".to_string()),
-        "\\get_powerstat" => Dispatch::ok(format!("{}\n", if state.connected { 1 } else { 0 })),
+        "\\get_powerstat" => Dispatch::ok(format!("{}\n", i32::from(state.connected))),
         "\\get_vfo" => Dispatch::ok(format!("{}\n", state.vfo)),
-        "\\get_split" => Dispatch::ok(format!("{}\n", if state.split_enabled { 1 } else { 0 })),
-        "\\get_split_vfo" => Dispatch::ok(format!("{}\n", state.vfo)),
+        "\\get_split" => Dispatch::ok(format!("{}\n", i32::from(state.split_enabled))),
+        "\\get_split_vfo" => Dispatch::ok(format!("{}\n", state.tx_vfo)),
         "\\get_split_freq" => Dispatch::ok(format!("{}\n", state.tx_frequency_hz.unwrap_or(state.frequency_hz))),
         "\\get_rit" => Dispatch::ok(format!("{}\n", state.rit_hz)),
         "\\get_xit" => Dispatch::ok(format!("{}\n", state.xit_hz)),
@@ -117,8 +119,8 @@ fn dispatch_command(trimmed: &str, state: &RigState) -> Dispatch {
         "f" if args.is_empty() => Dispatch::ok(format!("{}\n", state.frequency_hz)),
         "m" if args.is_empty() => Dispatch::ok(format!("{}\n{}\n", hamlib_mode(&state.mode), state.passband_hz)),
         "v" if args.is_empty() => Dispatch::ok(format!("{}\n", state.vfo)),
-        "s" if args.is_empty() => Dispatch::ok(format!("{}\nVFOA\n", if state.split_enabled { 1 } else { 0 })),
-        "t" if args.is_empty() => Dispatch::ok(format!("{}\n", if state.ptt { 1 } else { 0 })),
+        "s" if args.is_empty() => Dispatch::ok(format!("{}\nVFOA\n", i32::from(state.split_enabled))),
+        "t" if args.is_empty() => Dispatch::ok(format!("{}\n", i32::from(state.ptt))),
         "j" if args.is_empty() => Dispatch::ok(format!("{}\n", state.rit_hz)),
         "z" if args.is_empty() => Dispatch::ok(format!("{}\n", state.xit_hz)),
         "l" if args.is_empty() => Dispatch::ok(level_list()),
@@ -165,7 +167,7 @@ fn dispatch_command(trimmed: &str, state: &RigState) -> Dispatch {
         }
 
         // ── VFO / Split ─────────────────────────────────────────────────────
-        "V" | "v" => {
+        "V" | "v" | "\\set_vfo" => {
             if args.is_empty() {
                 return Dispatch::rprt(rprt::EINVAL);
             }
@@ -180,7 +182,7 @@ fn dispatch_command(trimmed: &str, state: &RigState) -> Dispatch {
                 return Dispatch::rprt(rprt::EINVAL);
             }
             let enabled = args[0] == "1";
-            let tx_vfo = args.get(1).map(|s| s.to_string()).unwrap_or_else(|| "VFOA".to_string());
+            let tx_vfo = args.get(1).map_or_else(|| "VFOA".to_string(), std::string::ToString::to_string);
             let mut d = Dispatch::ok(format!("RPRT {}\n", rprt::OK));
             d.mutations.push(StateMutation::SetSplit { enabled, tx_vfo: tx_vfo.clone() });
             d.commands.push(RigServerCommand::SetSplit { enabled, tx_vfo });
@@ -188,26 +190,16 @@ fn dispatch_command(trimmed: &str, state: &RigState) -> Dispatch {
         }
 
         // ── RIT / XIT ───────────────────────────────────────────────────────
-        "J" | "j" => set_rit_xit(args, StateMutation::SetRit, RigServerCommand::SetRit),
-        "Z" | "z" => set_rit_xit(args, StateMutation::SetXit, RigServerCommand::SetXit),
+        "J" | "j" | "\\set_rit" => set_rit_xit(&args, StateMutation::SetRit, RigServerCommand::SetRit),
+        "Z" | "z" | "\\set_xit" => set_rit_xit(&args, StateMutation::SetXit, RigServerCommand::SetXit),
 
         // ── Rozszerzone polecenia z odwrotnym ukośnikiem ────────────────────
-        "\\set_vfo" => {
-            if args.is_empty() {
-                return Dispatch::rprt(rprt::EINVAL);
-            }
-            let vfo = args[0].to_string();
-            let mut d = Dispatch::ok(format!("RPRT {}\n", rprt::OK));
-            d.mutations.push(StateMutation::SetVfo(vfo.clone()));
-            d.commands.push(RigServerCommand::SetVfo(vfo));
-            d
-        }
         "\\set_split" => {
             if args.is_empty() {
                 return Dispatch::rprt(rprt::EINVAL);
             }
             let enabled = args[0] == "1";
-            let tx_vfo = args.get(1).map(|s| s.to_string()).unwrap_or_else(|| "VFOA".to_string());
+            let tx_vfo = args.get(1).map_or_else(|| "VFOA".to_string(), std::string::ToString::to_string);
             let mut d = Dispatch::ok(format!("RPRT {}\n", rprt::OK));
             d.mutations.push(StateMutation::SetSplit { enabled, tx_vfo: tx_vfo.clone() });
             d.commands.push(RigServerCommand::SetSplit { enabled, tx_vfo });
@@ -231,15 +223,13 @@ fn dispatch_command(trimmed: &str, state: &RigState) -> Dispatch {
             match args[0].parse::<u64>() {
                 Ok(freq) => {
                     let mut d = Dispatch::ok(format!("RPRT {}\n", rprt::OK));
-                    d.mutations.push(StateMutation::SetFrequency(freq));
-                    d.commands.push(RigServerCommand::SetFrequency(freq));
+                    d.mutations.push(StateMutation::SetSplitFrequency(freq));
+                    d.commands.push(RigServerCommand::SetSplitFrequency(freq));
                     d
                 }
                 Err(_) => Dispatch::rprt(rprt::EINVAL),
             }
         }
-        "\\set_rit" => set_rit_xit(args, StateMutation::SetRit, RigServerCommand::SetRit),
-        "\\set_xit" => set_rit_xit(args, StateMutation::SetXit, RigServerCommand::SetXit),
         "\\set_level" => {
             if args.len() < 2 {
                 return Dispatch::rprt(rprt::EINVAL);
@@ -270,7 +260,7 @@ fn dispatch_command(trimmed: &str, state: &RigState) -> Dispatch {
 }
 
 /// Buduje wspólną odpowiedź dla ustawień RIT/XIT (wartości i32 w Hz).
-fn set_rit_xit<M, C>(args: Vec<&str>, mutation: M, command: C) -> Dispatch
+fn set_rit_xit<M, C>(args: &[&str], mutation: M, command: C) -> Dispatch
 where
     M: Fn(i32) -> StateMutation,
     C: Fn(i32) -> RigServerCommand,
@@ -292,7 +282,7 @@ where
 /// Wartość poziomu mocy w formacie Hamlib (znormalizowana 0.0–1.0).
 fn level_power(state: &RigState) -> String {
     let norm = (state.rf_power_watts / 100.0).clamp(0.0, 1.0);
-    format!("{:.4}", norm)
+    format!("{norm:.4}")
 }
 
 /// Lista dostępnych poziomów (skrócona, zgodna z rigctld `l`).
@@ -403,7 +393,7 @@ async fn handle_client(
             }
             read_res = limited.read_line(&mut line) => {
                 match read_res {
-                    Ok(0) => break, // EOF / Rozłączono
+                    Ok(0) | Err(_) => break, // EOF / Rozłączono / błąd odczytu
                     Ok(_) => {
                         // Ochrona przed nadmiernie długimi liniami (DoS / przepełnienie bufora).
                         if line.len() > MAX_LINE_LEN {
@@ -445,7 +435,6 @@ async fn handle_client(
                             break;
                         }
                     }
-                    Err(_) => break,
                 }
             }
         }
@@ -458,10 +447,14 @@ async fn handle_client(
 fn apply_mutation(state: &mut RigState, m: &StateMutation) {
     match *m {
         StateMutation::SetFrequency(freq) => state.frequency_hz = freq,
-        StateMutation::SetMode(ref mode) => state.mode = mode.clone(),
+        StateMutation::SetSplitFrequency(freq) => state.tx_frequency_hz = Some(freq),
+        StateMutation::SetMode(ref mode) => state.mode.clone_from(mode),
         StateMutation::SetPtt(ptt) => state.ptt = ptt,
-        StateMutation::SetVfo(ref vfo) => state.vfo = vfo.clone(),
-        StateMutation::SetSplit { enabled, .. } => state.split_enabled = enabled,
+        StateMutation::SetVfo(ref vfo) => state.vfo.clone_from(vfo),
+        StateMutation::SetSplit { enabled, ref tx_vfo } => {
+            state.split_enabled = enabled;
+            state.tx_vfo.clone_from(tx_vfo);
+        }
         StateMutation::SetRit(rit) => state.rit_hz = rit,
         StateMutation::SetXit(xit) => state.xit_hz = xit,
         StateMutation::SetPower(watts) => state.rf_power_watts = watts,

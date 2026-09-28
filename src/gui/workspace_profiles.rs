@@ -105,7 +105,7 @@ pub fn render_workspace_profiles_window(app: &mut SpLogApp, ctx: &egui::Context)
                                 }
                                 if ui.button("✏").on_hover_text("Zmień nazwę").clicked() {
                                     renaming = Some(idx);
-                                    rename_text = profile.name.clone();
+                                    rename_text.clone_from(&profile.name);
                                 }
                                 if ui.button("⤓").on_hover_text("Eksportuj do pliku .spws").clicked() {
                                     export_idx = Some(idx);
@@ -166,7 +166,7 @@ fn export_profile(app: &mut SpLogApp, profile: &WorkspaceProfile) {
         };
         match serde_json::to_string_pretty(&file) {
             Ok(json) => match std::fs::write(&path, json) {
-                Ok(_) => app.status_toast = Some((format!("Wyeksportowano: {}", path.display()), std::time::Instant::now())),
+                Ok(()) => app.status_toast = Some((format!("Wyeksportowano: {}", path.display()), std::time::Instant::now())),
                 Err(e) => app.status_toast = Some((format!("Błąd zapisu: {e}"), std::time::Instant::now())),
             },
             Err(e) => app.status_toast = Some((format!("Błąd serializacji: {e}"), std::time::Instant::now())),
@@ -245,9 +245,9 @@ pub(crate) fn apply_profile(app: &mut SpLogApp, p: &WorkspaceProfile) {
 
     // Filtr spotów DX Cluster przypisany do profilu (jeśli zapisany).
     if let Some(f) = &p.cluster_filter {
-        app.cluster_filter_band_selection = f.band.clone();
-        app.cluster_filter_mode_selection = f.mode.clone();
-        app.cluster_filter_source = f.source.clone();
+        app.cluster_filter_band_selection.clone_from(&f.band);
+        app.cluster_filter_mode_selection.clone_from(&f.mode);
+        app.cluster_filter_source.clone_from(&f.source);
         app.cluster_filter_pota_sota_only = f.pota_sota_only;
     }
 

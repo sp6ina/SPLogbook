@@ -121,8 +121,8 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                     app.status_message = Some("Łączności przesłane do LoTW pomyślnie.".to_string());
                                                 }
                                                 Err(e) => {
-                                                    app.online_sync_logs.push(format!("[LoTW BŁĄD] {}", e));
-                                                    app.status_message = Some(format!("Błąd LoTW: {}", e));
+                                                    app.online_sync_logs.push(format!("[LoTW BŁĄD] {e}"));
+                                                    app.status_message = Some(format!("Błąd LoTW: {e}"));
                                                 }
                                             }
                                         }
@@ -149,10 +149,10 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                                     }
                                                                 }
                                                             }
-                                                            let _ = tx.send((format!("[LoTW SUKCES] Odebrano {} potwierdzeń, zaktualizowano w bazie: {}", count, updated), true));
+                                                            let _ = tx.send((format!("[LoTW SUKCES] Odebrano {count} potwierdzeń, zaktualizowano w bazie: {updated}"), true));
                                                         }
                                                         Err(e) => {
-                                                            let _ = tx.send((format!("[LoTW BŁĄD] {}", e), false));
+                                                            let _ = tx.send((format!("[LoTW BŁĄD] {e}"), false));
                                                         }
                                                     }
                                                 });
@@ -189,8 +189,8 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                     let client = crate::cloud::eqsl::EqslClient::new(user, pass);
                                                     let _ = tx.send((format!("[eQSL] Wysyłanie pakietu {} łączności do eQSL.cc...", qsos.len()), false));
                                                     match client.upload_adif(&adif).await {
-                                                        Ok(msg) => { let _ = tx.send((format!("[eQSL SUKCES] {}", msg), false)); }
-                                                        Err(e) => { let _ = tx.send((format!("[eQSL BŁĄD] {}", e), false)); }
+                                                        Ok(msg) => { let _ = tx.send((format!("[eQSL SUKCES] {msg}"), false)); }
+                                                        Err(e) => { let _ = tx.send((format!("[eQSL BŁĄD] {e}"), false)); }
                                                     }
                                                 });
                                             }
@@ -221,7 +221,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                             let _ = tx.send((format!("[eQSL SUKCES] Pobrano {} potwierdzeń, zaktualizowano w bazie: {}", qsos.len(), updated), true));
                                                         }
                                                         Err(e) => {
-                                                            let _ = tx.send((format!("[eQSL BŁĄD] {}", e), false));
+                                                            let _ = tx.send((format!("[eQSL BŁĄD] {e}"), false));
                                                         }
                                                     }
                                                 });
@@ -270,8 +270,8 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                 let client = crate::cloud::clublog::ClubLogClient::new();
                                                 let _ = tx.send((format!("[Club Log] Wysyłanie dziennika ADIF ({} łączności)...", qsos.len()), false));
                                                 match client.upload_adif(&call, &email, &pass, &api, &adif).await {
-                                                    Ok(msg) => { let _ = tx.send((format!("[Club Log SUKCES] {}", msg), false)); }
-                                                    Err(e) => { let _ = tx.send((format!("[Club Log BŁĄD] {}", e), false)); }
+                                                    Ok(msg) => { let _ = tx.send((format!("[Club Log SUKCES] {msg}"), false)); }
+                                                    Err(e) => { let _ = tx.send((format!("[Club Log BŁĄD] {e}"), false)); }
                                                 }
                                             });
                                         }
@@ -311,8 +311,8 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                             tokio::spawn(async move {
                                                 let _ = tx.send((format!("[QRZ.com] Wysyłanie dziennika ({} łączności)...", qsos.len()), false));
                                                 match crate::cloud::qrz::QrzClient::upload_to_logbook(&api, &adif).await {
-                                                    Ok(msg) => { let _ = tx.send((format!("[QRZ.com SUKCES] {}", msg), false)); }
-                                                    Err(e) => { let _ = tx.send((format!("[QRZ.com BŁĄD] {}", e), false)); }
+                                                    Ok(msg) => { let _ = tx.send((format!("[QRZ.com SUKCES] {msg}"), false)); }
+                                                    Err(e) => { let _ = tx.send((format!("[QRZ.com BŁĄD] {e}"), false)); }
                                                 }
                                             });
                                         }
@@ -472,10 +472,10 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                             let client = crate::digital::fldigi::FldigiClient::new(&host, port);
                                             match client.get_version().await {
                                                 Ok(v) => {
-                                                    log::info!("FLDigi połączono: {}", v);
+                                                    log::info!("FLDigi połączono: {v}");
                                                 }
                                                 Err(e) => {
-                                                    log::warn!("FLDigi błąd: {}", e);
+                                                    log::warn!("FLDigi błąd: {e}");
                                                 }
                                             }
                                         });
@@ -544,23 +544,23 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     ui.horizontal(|ui| {
                                         if ui.button("🔁 Ponów nieudane").clicked() {
                                             let now = crate::cloud::scheduler::now_unix();
-                                            let n = app.upload_scheduler.lock().map(|mut s| {
+                                            let n = app.upload_scheduler.lock().map_or(0, |mut s| {
                                                 let n = s.retry_failed(now);
                                                 s.save_to_disk();
                                                 n
-                                            }).unwrap_or(0);
+                                            });
                                             if n > 0 {
-                                                app.online_sync_logs.push(format!("Ponowiono {} nieudanych zadań wysyłki.", n));
+                                                app.online_sync_logs.push(format!("Ponowiono {n} nieudanych zadań wysyłki."));
                                             }
                                         }
                                         if ui.button("🧹 Wyczyść wysłane").clicked() {
-                                            let n = app.upload_scheduler.lock().map(|mut s| {
+                                            let n = app.upload_scheduler.lock().map_or(0, |mut s| {
                                                 let n = s.purge_done();
                                                 s.save_to_disk();
                                                 n
-                                            }).unwrap_or(0);
+                                            });
                                             if n > 0 {
-                                                app.online_sync_logs.push(format!("Usunięto {} zakończonych zadań z kolejki.", n));
+                                                app.online_sync_logs.push(format!("Usunięto {n} zakończonych zadań z kolejki."));
                                             }
                                         }
                                     });

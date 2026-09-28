@@ -55,55 +55,52 @@ impl RotorClient {
         let addr = format!("{}:{}", self.host, self.port);
 
         loop {
-            match TcpStream::connect(&addr).await {
-                Ok(stream) => {
-                    let (reader, mut writer) = stream.into_split();
-                    let mut buf_reader = BufReader::new(reader);
-                    let mut current = RotorState {
-                        connected: true,
-                        ..Default::default()
-                    };
+            if let Ok(stream) = TcpStream::connect(&addr).await {
+                let (reader, mut writer) = stream.into_split();
+                let mut buf_reader = BufReader::new(reader);
+                let mut current = RotorState {
+                    connected: true,
+                    ..Default::default()
+                };
 
-                    while current.connected {
-                        if writer.write_all(b"p\n").await.is_err() {
-                            break;
-                        }
-
-                        let mut az_line = String::new();
-                        let mut el_line = String::new();
-
-                        let mut limited = (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64);
-                        if limited.read_line(&mut az_line).await.is_err()
-                            || az_line.is_empty()
-                            || az_line.len() > MAX_LINE_LEN
-                        {
-                            break;
-                        }
-                        let mut limited = (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64);
-                        if limited.read_line(&mut el_line).await.is_err()
-                            || el_line.is_empty()
-                            || el_line.len() > MAX_LINE_LEN
-                        {
-                            break;
-                        }
-
-                        if let (Ok(az), Ok(el)) = (az_line.trim().parse::<f32>(), el_line.trim().parse::<f32>()) {
-                            current.azimuth_deg = az;
-                            current.elevation_deg = el;
-                        }
-
-                        let _ = self.state_sender.send(current);
-                        sleep(Duration::from_millis(poll_interval_ms)).await;
+                while current.connected {
+                    if writer.write_all(b"p\n").await.is_err() {
+                        break;
                     }
+
+                    let mut az_line = String::new();
+                    let mut el_line = String::new();
+
+                    let mut limited = (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64);
+                    if limited.read_line(&mut az_line).await.is_err()
+                        || az_line.is_empty()
+                        || az_line.len() > MAX_LINE_LEN
+                    {
+                        break;
+                    }
+                    let mut limited = (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64);
+                    if limited.read_line(&mut el_line).await.is_err()
+                        || el_line.is_empty()
+                        || el_line.len() > MAX_LINE_LEN
+                    {
+                        break;
+                    }
+
+                    if let (Ok(az), Ok(el)) = (az_line.trim().parse::<f32>(), el_line.trim().parse::<f32>()) {
+                        current.azimuth_deg = az;
+                        current.elevation_deg = el;
+                    }
+
+                    let _ = self.state_sender.send(current);
+                    sleep(Duration::from_millis(poll_interval_ms)).await;
                 }
-                Err(_) => {
-                    let offline = RotorState {
-                        connected: false,
-                        ..Default::default()
-                    };
-                    let _ = self.state_sender.send(offline);
-                    sleep(Duration::from_secs(3)).await;
-                }
+            } else {
+                let offline = RotorState {
+                    connected: false,
+                    ..Default::default()
+                };
+                let _ = self.state_sender.send(offline);
+                sleep(Duration::from_secs(3)).await;
             }
         }
     }
@@ -112,15 +109,15 @@ impl RotorClient {
     pub async fn set_position(host: &str, port: u16, azimuth_deg: f32, elevation_deg: f32) -> Result<(), std::io::Error> {
         let norm_az = (azimuth_deg % 360.0 + 360.0) % 360.0;
         let norm_el = elevation_deg.clamp(-10.0, 90.0);
-        let mut stream = TcpStream::connect(format!("{}:{}", host, port)).await?;
-        let cmd = format!("P {:.1} {:.1}\n", norm_az, norm_el);
+        let mut stream = TcpStream::connect(format!("{host}:{port}")).await?;
+        let cmd = format!("P {norm_az:.1} {norm_el:.1}\n");
         stream.write_all(cmd.as_bytes()).await?;
         Ok(())
     }
 
     /// Zatrzymuje ruch rotora
     pub async fn stop(host: &str, port: u16) -> Result<(), std::io::Error> {
-        let mut stream = TcpStream::connect(format!("{}:{}", host, port)).await?;
+        let mut stream = TcpStream::connect(format!("{host}:{port}")).await?;
         stream.write_all(b"S\n").await?;
         Ok(())
     }

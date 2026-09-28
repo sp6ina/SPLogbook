@@ -29,7 +29,7 @@ impl AstronomyEngine {
     /// Oblicza aktualną pozycję Księżyca i Słońca oraz przesunięcie Dopplera EME dla danej pozycji na Ziemi
     pub fn calculate_eme(lat_deg: f64, lon_deg: f64, now_utc: chrono::DateTime<chrono::Utc>) -> EmeStatus {
         let julian_day = Self::datetime_to_jd(now_utc);
-        let d = julian_day - 2451543.5; // Dni od J2000.0
+        let d = julian_day - 2_451_543.5; // Dni od J2000.0
 
         let sun_pos = Self::calculate_sun(lat_deg, lon_deg, d, julian_day);
         let moon_pos = Self::calculate_moon(lat_deg, lon_deg, d, julian_day);
@@ -37,7 +37,7 @@ impl AstronomyEngine {
         // Wyliczenie prędkości radialnej Księżyca i przesunięcia Dopplera EME
         let dt_sec = 60.0;
         let jd_next = julian_day + (dt_sec / 86400.0);
-        let d_next = jd_next - 2451543.5;
+        let d_next = jd_next - 2_451_543.5;
         let moon_next = Self::calculate_moon(lat_deg, lon_deg, d_next, jd_next);
 
         let delta_dist_m = (moon_next.distance_km - moon_pos.distance_km) * 1000.0;
@@ -90,9 +90,9 @@ impl AstronomyEngine {
 
     fn calculate_sun(lat_deg: f64, lon_deg: f64, d: f64, jd: f64) -> CelestialPosition {
         let w = 282.9404 + 4.70935e-5 * d; // longitude of perihelion
-        let a = 1.000000; // semi-major axis
-        let e = 0.016709 - 1.151e-9 * d; // eccentricity
-        let m = Self::rev(356.0470 + 0.9856002585 * d); // mean anomaly
+        let a = 1.000_000; // semi-major axis
+        let e = 0.016_709 - 1.151e-9 * d; // eccentricity
+        let m = Self::rev(356.0470 + 0.985_600_258_5 * d); // mean anomaly
 
         let e_rad = m.to_radians() + e * m.to_radians().sin() * (1.0 + e * m.to_radians().cos());
         let x = a * (e_rad.cos() - e);
@@ -139,12 +139,12 @@ impl AstronomyEngine {
     }
 
     fn calculate_moon(lat_deg: f64, lon_deg: f64, d: f64, jd: f64) -> CelestialPosition {
-        let n = Self::rev(125.1228 - 0.0529538083 * d); // Long of asc. node
+        let n = Self::rev(125.1228 - 0.052_953_808_3 * d); // Long of asc. node
         let i = 5.1454_f64.to_radians(); // Inclination
-        let w = Self::rev(318.0634 + 0.1643573223 * d); // Arg of perigee
+        let w = Self::rev(318.0634 + 0.164_357_322_3 * d); // Arg of perigee
         let a = 60.2666; // Earth radii
-        let e = 0.054900; // Eccentricity
-        let m = Self::rev(115.3654 + 13.0649929509 * d); // Mean anomaly
+        let e = 0.054_900; // Eccentricity
+        let m = Self::rev(115.3654 + 13.064_992_950_9 * d); // Mean anomaly
 
         let e_rad = m.to_radians() + e * m.to_radians().sin() * (1.0 + e * m.to_radians().cos());
         let x = a * (e_rad.cos() - e);
@@ -192,8 +192,8 @@ impl AstronomyEngine {
     }
 
     fn greenwich_mean_sidereal_time(jd: f64) -> f64 {
-        let d = jd - 2451545.0;
-        let gmst = 280.46061837 + 360.98564736629 * d;
+        let d = jd - 2_451_545.0;
+        let gmst = 280.460_618_37 + 360.985_647_366_29 * d;
         Self::rev(gmst)
     }
 

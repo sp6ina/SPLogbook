@@ -98,7 +98,7 @@ pub fn recommend(
             "⚡ Indeks K={k_index}: podwyższony — sygnały mogą być niestabilne."
         ));
     }
-    if current.map(|f| f.reliability_pct).unwrap_or(0) < 30 && !best_bands.is_empty() {
+    if current.map_or(0, |f| f.reliability_pct) < 30 && !best_bands.is_empty() {
         advice.push(format!(
             "Aktualne pasmo słabe — najlepsze teraz: {}.",
             best_bands.join(", ")
@@ -127,9 +127,7 @@ fn current_band(app: &SpLogApp) -> String {
                     .abs()
                     .partial_cmp(&(b.1 - mhz).abs())
                     .unwrap_or(std::cmp::Ordering::Equal)
-            })
-            .map(|&(name, _)| name.to_string())
-            .unwrap_or_else(|| "20m".to_string());
+            }).map_or_else(|| "20m".to_string(), |&(name, _)| name.to_string());
     }
     "20m".to_string()
 }
@@ -155,7 +153,12 @@ pub fn render_operator_assistant(app: &mut SpLogApp, ctx: &egui::Context) {
         let now = chrono::Utc::now();
         let utc_h = now.hour() as f64 + (now.minute() as f64) / 60.0;
         let doy = now.ordinal();
-        if !app.entry_grid.is_empty() {
+        if app.entry_grid.is_empty() {
+            let sp = crate::core::geo::Coordinates::new(51.1, 17.0);
+            let dx = crate::core::geo::Coordinates::new(40.7, -74.0);
+            let freq = crate::core::propagation::band_to_center_mhz(&band).unwrap_or(14.175);
+            Some(PropagationEngine::explain(sp, dx, freq, sfi, k_index as u8, utc_h, doy).1)
+        } else {
             PropagationEngine::forecast_explain(
                 &app.my_station.gridsquare,
                 &app.entry_grid,
@@ -167,11 +170,6 @@ pub fn render_operator_assistant(app: &mut SpLogApp, ctx: &egui::Context) {
             )
             .ok()
             .map(|(_, e)| e)
-        } else {
-            let sp = crate::core::geo::Coordinates::new(51.1, 17.0);
-            let dx = crate::core::geo::Coordinates::new(40.7, -74.0);
-            let freq = crate::core::propagation::band_to_center_mhz(&band).unwrap_or(14.175);
-            Some(PropagationEngine::explain(sp, dx, freq, sfi, k_index as u8, utc_h, doy).1)
         }
     };
 
@@ -182,10 +180,10 @@ pub fn render_operator_assistant(app: &mut SpLogApp, ctx: &egui::Context) {
         .resizable(true)
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
-                let (icon, color) = if !app.rig_state.connected {
-                    ("⛔", egui::Color32::from_rgb(148, 163, 184))
-                } else {
+                let (icon, color) = if app.rig_state.connected {
                     ("📻", egui::Color32::from_rgb(56, 189, 248))
+                } else {
+                    ("⛔", egui::Color32::from_rgb(148, 163, 184))
                 };
                 ui.label(egui::RichText::new(icon).size(20.0));
                 if app.rig_state.connected {
@@ -201,7 +199,7 @@ pub fn render_operator_assistant(app: &mut SpLogApp, ctx: &egui::Context) {
                     );
                 } else {
                     ui.label(
-                        egui::RichText::new(format!("{} (CAT rozłączone)", band))
+                        egui::RichText::new(format!("{band} (CAT rozłączone)"))
                             .strong()
                             .size(15.0)
                             .color(color),

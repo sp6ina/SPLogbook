@@ -755,21 +755,21 @@ mod tests {
             let it = tr(key, Language::It);
             let ru = tr(key, Language::Ru);
 
-            assert_ne!(pl, key, "Brak polskiego tłumaczenia dla klucza: {}", key);
-            assert_ne!(en, key, "Missing English translation for key: {}", key);
-            assert_ne!(de, key, "Fehlende deutsche Übersetzung für Schlüssel: {}", key);
-            assert_ne!(fr, key, "Traduction française manquante pour la clé: {}", key);
-            assert_ne!(es, key, "Falta traducción al español para la clave: {}", key);
-            assert_ne!(it, key, "Manca la traduzione italiana per la chiave: {}", key);
-            assert_ne!(ru, key, "Отсутствует русский перевод для ключа: {}", key);
+            assert_ne!(pl, key, "Brak polskiego tłumaczenia dla klucza: {key}");
+            assert_ne!(en, key, "Missing English translation for key: {key}");
+            assert_ne!(de, key, "Fehlende deutsche Übersetzung für Schlüssel: {key}");
+            assert_ne!(fr, key, "Traduction française manquante pour la clé: {key}");
+            assert_ne!(es, key, "Falta traducción al español para la clave: {key}");
+            assert_ne!(it, key, "Manca la traduzione italiana per la chiave: {key}");
+            assert_ne!(ru, key, "Отсутствует русский перевод для ключа: {key}");
 
-            assert!(!pl.trim().is_empty(), "Puste polskie tłumaczenie: {}", key);
-            assert!(!en.trim().is_empty(), "Empty English translation: {}", key);
-            assert!(!de.trim().is_empty(), "Leere deutsche Übersetzung: {}", key);
-            assert!(!fr.trim().is_empty(), "Traduction française vide: {}", key);
-            assert!(!es.trim().is_empty(), "Traducción al español vacía: {}", key);
-            assert!(!it.trim().is_empty(), "Traduzione italiana vuota: {}", key);
-            assert!(!ru.trim().is_empty(), "Пустой русский перевод: {}", key);
+            assert!(!pl.trim().is_empty(), "Puste polskie tłumaczenie: {key}");
+            assert!(!en.trim().is_empty(), "Empty English translation: {key}");
+            assert!(!de.trim().is_empty(), "Leere deutsche Übersetzung: {key}");
+            assert!(!fr.trim().is_empty(), "Traduction française vide: {key}");
+            assert!(!es.trim().is_empty(), "Traducción al español vacía: {key}");
+            assert!(!it.trim().is_empty(), "Traduzione italiana vuota: {key}");
+            assert!(!ru.trim().is_empty(), "Пустой русский перевод: {key}");
         }
     }
 }

@@ -209,7 +209,7 @@ impl QslDesignerDialog {
                                     ui.label(egui::RichText::new(format!("TO: {}", qso.callsign)).strong().color(egui::Color32::YELLOW));
                                     ui.label(format!("CFM QSO: {} {}", qso.qso_date, qso.time_on));
                                     ui.label(format!("{} | {} | RST {}", qso.band, qso.mode, qso.rst_sent));
-                                    ui.label(egui::RichText::new(format!("TNX QSL PSE! de {}", my_callsign)).small().italics());
+                                    ui.label(egui::RichText::new(format!("TNX QSL PSE! de {my_callsign}")).small().italics());
                                 } else {
                                     ui.label(egui::RichText::new(format!("[Puste #{}]", i + 1)).color(egui::Color32::DARK_GRAY));
                                 }
@@ -281,7 +281,7 @@ impl QslDesignerDialog {
                                 ops.extend(text_ops(format!("TO: {}", q.callsign), 11.0, x + 2.0, y - 5.0, true));
                                 ops.extend(text_ops(format!("QSO: {} {}", q.qso_date, q.time_on), 9.0, x + 2.0, y - 11.0, false));
                                 ops.extend(text_ops(format!("{} | {} | RST {}", q.band, q.mode, q.rst_sent), 9.0, x + 2.0, y - 17.0, false));
-                                ops.extend(text_ops(format!("TNX QSL! 73 de {}", my_callsign), 8.0, x + 2.0, y - 23.0, false));
+                                ops.extend(text_ops(format!("TNX QSL! 73 de {my_callsign}"), 8.0, x + 2.0, y - 23.0, false));
                             }
 
                             let mut doc = PdfDocument::new("QSL Labels Sheet");
@@ -290,7 +290,7 @@ impl QslDesignerDialog {
                             let mut warnings = Vec::new();
                             let bytes = doc.save(&PdfSaveOptions::default(), &mut warnings);
                             if std::fs::write(&path, bytes).is_ok() {
-                                self.status_message = Some(format!("Zapisano arkusz naklejek PDF: {:?}", path));
+                                self.status_message = Some(format!("Zapisano arkusz naklejek PDF: {}", path.display()));
                                 let _ = open::that(&path);
                             }
                         }

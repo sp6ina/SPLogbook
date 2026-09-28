@@ -79,7 +79,7 @@ impl DxClusterClient {
         event_tx: std::sync::mpsc::Sender<ClusterEvent>,
         mut stop_rx: tokio::sync::watch::Receiver<bool>,
     ) {
-        let addr = format!("{}:{}", host, port);
+        let addr = format!("{host}:{port}");
 
         while !*stop_rx.borrow() {
             let connect_result = tokio::select! {
@@ -90,11 +90,11 @@ impl DxClusterClient {
             let stream = match connect_result {
                 Some(Ok(s)) => s,
                 Some(Err(e)) => {
-                    if event_tx.send(ClusterEvent::Disconnected(format!("Błąd połączenia z {}: {}", addr, e))).is_err() {
+                    if event_tx.send(ClusterEvent::Disconnected(format!("Błąd połączenia z {addr}: {e}"))).is_err() {
                         break;
                     }
                     tokio::select! {
-                        _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {}
+                        () = tokio::time::sleep(std::time::Duration::from_secs(5)) => {}
                         _ = stop_rx.changed() => break,
                     }
                     continue;
@@ -102,7 +102,7 @@ impl DxClusterClient {
                 None => break,
             };
 
-            if event_tx.send(ClusterEvent::Connected(format!("Połączono z serwerem: {}", addr))).is_err() {
+            if event_tx.send(ClusterEvent::Connected(format!("Połączono z serwerem: {addr}"))).is_err() {
                 break;
             }
 
@@ -113,7 +113,7 @@ impl DxClusterClient {
             if *stop_rx.borrow() {
                 break;
             }
-            let _ = writer.write_all(format!("{}\n", my_call).as_bytes()).await;
+            let _ = writer.write_all(format!("{my_call}\n").as_bytes()).await;
 
             let mut raw_line = Vec::with_capacity(256);
             loop {
@@ -130,12 +130,12 @@ impl DxClusterClient {
 
                 match read_res {
                     Ok(0) => {
-                        let _ = event_tx.send(ClusterEvent::Disconnected(format!("Rozłączono przez serwer {}", addr)));
+                        let _ = event_tx.send(ClusterEvent::Disconnected(format!("Rozłączono przez serwer {addr}")));
                         break;
                     }
                     Ok(_) if raw_line.len() > MAX_LINE_LEN => {
                         let _ = event_tx.send(ClusterEvent::Disconnected(format!(
-                            "Serwer {} wysłał zbyt długą linię (>{} B), rozłączono.", addr, MAX_LINE_LEN
+                            "Serwer {addr} wysłał zbyt długą linię (>{MAX_LINE_LEN} B), rozłączono."
                         )));
                         break;
                     }
@@ -154,7 +154,7 @@ impl DxClusterClient {
                         }
                     }
                     Err(e) => {
-                        let _ = event_tx.send(ClusterEvent::Disconnected(format!("Błąd transmisji z {}: {}", addr, e)));
+                        let _ = event_tx.send(ClusterEvent::Disconnected(format!("Błąd transmisji z {addr}: {e}")));
                         break;
                     }
                 }
@@ -166,7 +166,7 @@ impl DxClusterClient {
 
             // Oczekiwanie przed ponowną próbą
             tokio::select! {
-                _ = tokio::time::sleep(std::time::Duration::from_secs(4)) => {}
+                () = tokio::time::sleep(std::time::Duration::from_secs(4)) => {}
                 _ = stop_rx.changed() => break,
             }
         }
@@ -305,7 +305,7 @@ mod tests {
         assert_eq!(band_for_freq_khz(2001.0), "OTHER");
         assert_eq!(band_for_freq_khz(14000.0), "20m");
         assert_eq!(band_for_freq_khz(14350.0), "20m");
-        assert_eq!(band_for_freq_khz(10489500.0), "3cm");
+        assert_eq!(band_for_freq_khz(10_489_500.0), "3cm");
         assert_eq!(band_for_freq_khz(0.0), "OTHER");
     }
 }

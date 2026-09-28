@@ -3,6 +3,7 @@
 
 use crate::core::qso::QsoRecord;
 use serde::{Deserialize, Serialize};
+use std::fmt::Write as _;
 
 /// Etykieta na papierową kartę QSL (wzorem Log4OM / QLog)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -62,7 +63,8 @@ impl QslLabel {
         );
 
         for l in labels {
-            html.push_str(&format!(
+            let _ = write!(
+                html,
                 "<div class='label'>\n\
                  <div>Confirming QSO: <span class='call'>{}</span></div>\n\
                  <div><b>{}</b> {}z | <b>{}</b> {}</div>\n\
@@ -78,7 +80,7 @@ impl QslLabel {
                 Self::escape_html(&l.my_call),
                 Self::escape_html(&l.my_grid),
                 Self::escape_html(&l.qsl_msg),
-            ));
+            );
         }
 
         html.push_str("</div></body></html>");

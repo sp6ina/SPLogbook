@@ -63,7 +63,7 @@ pub fn extract_wpx_prefix(call: &str) -> String {
     if let Some(last_digit_pos) = main_call.rfind(|c: char| c.is_ascii_digit()) {
         main_call[..=last_digit_pos].to_string()
     } else {
-        format!("{}0", main_call)
+        format!("{main_call}0")
     }
 }
 
@@ -88,7 +88,7 @@ pub fn extract_sp_district(callsign: &str) -> Option<String> {
         if let Some(rest) = base.strip_prefix(prefix) {
             if let Some(digit) = rest.chars().next() {
                 if digit.is_ascii_digit() {
-                    return Some(format!("{}{}", prefix, digit));
+                    return Some(format!("{prefix}{digit}"));
                 }
             }
         }
@@ -426,9 +426,9 @@ impl AwardsEngine {
             }
         }
 
-        if let Some(ref wwff) = sota {
+        if let Some(wwff) = sota {
             if wwff.contains('-') && !wwff.starts_with('W') {
-                let _ = wwff;
+                let _ = &wwff;
             }
         }
     }
@@ -527,7 +527,7 @@ impl AwardsEngine {
         let district = if let Some(d_str) = parts.iter().rev().find(|p| p.len() == 1 && p.chars().all(|c| c.is_ascii_digit() && c != '0')) {
             d_str.chars().next()?.to_digit(10)? as u8
         } else {
-            let num_char = clean.chars().find(|c| c.is_ascii_digit())?;
+            let num_char = clean.chars().find(char::is_ascii_digit)?;
             num_char.to_digit(10)? as u8
         };
 
@@ -542,7 +542,7 @@ impl AwardsEngine {
             8 => vec!["Lubelskie", "Podkarpackie"],
             9 => vec!["Małopolskie", "Śląskie"],
             _ => vec!["Polska"],
-        }.into_iter().map(|s| s.to_string()).collect();
+        }.into_iter().map(std::string::ToString::to_string).collect();
 
         Some(PolishDistrictInfo {
             district,

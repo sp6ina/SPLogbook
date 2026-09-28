@@ -67,7 +67,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 for f in families {
                     let label = if f.is_empty() { tr("settings.font_default", lang) } else { f };
                     if ui.selectable_value(&mut selected_family, f.to_string(), label).changed() {
-                        app.font_family = selected_family.clone();
+                        app.font_family.clone_from(&selected_family);
                         app.save_station_config();
                     }
                 }
@@ -88,7 +88,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .show_ui(ui, |ui| {
                 for u in ["km", "mi", "nmi"] {
                     if ui.selectable_value(&mut selected_unit, u.to_string(), unit_label(u)).changed() {
-                        app.distance_unit = selected_unit.clone();
+                        app.distance_unit.clone_from(&selected_unit);
                         app.save_station_config();
                     }
                 }
