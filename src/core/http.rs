@@ -9,7 +9,7 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 /// Stały identyfikator User-Agent dla wszystkich zapytań HTTP.
-pub const USER_AGENT: &str = "SPLogbook/1.0.3 (SP6INA)";
+pub const USER_AGENT: &str = concat!("SPLogbook/", env!("CARGO_PKG_VERSION"), " (SP6INA; contact@splogbook.org)");
 
 /// Domyślny timeout zapytań HTTP (bezpieczny dla wolnych usług cloudowych).
 const DEFAULT_TIMEOUT_SECS: u64 = 15;

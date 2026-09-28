@@ -10,10 +10,10 @@
   <img src="https://img.shields.io/badge/GUI-egui_%2F_eframe-blueviolet.svg" alt="egui">
   <img src="https://img.shields.io/badge/License-GPLv3-blue.svg" alt="License">
   <img src="https://img.shields.io/badge/Platform-Windows_%7C_GNU%2FLinux-blue.svg" alt="Platform">
-  <img src="https://img.shields.io/badge/Version-1.0.3-emerald.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Version-1.1-emerald.svg" alt="Version">
   <a href="https://github.com/sp6ina/SPLogbook/actions"><img src="https://github.com/sp6ina/SPLogbook/actions/workflows/build-and-release.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/Tests-226%2F226_Passed-brightgreen.svg" alt="Tests">
-  <img src="https://img.shields.io/badge/i18n-6_Languages-cyan.svg" alt="i18n">
+  <img src="https://img.shields.io/badge/Tests-231%2F231_Passed-brightgreen.svg" alt="Tests">
+  <img src="https://img.shields.io/badge/i18n-7_Languages-cyan.svg" alt="i18n">
   <a href="https://buycoffee.to/sp6ina"><img src="https://img.shields.io/badge/☕_Buy_Me_a_Coffee-buycoffee.to%2Fsp6ina-FFDD00?style=flat&logoColor=black" alt="Buy Me a Coffee"></a>
 </p>
 
@@ -739,6 +739,7 @@ SPLogbook is licensed under the **GNU General Public License v3.0 (GPLv3)**. See
 
 ### Author & Maintainer
 **Mariusz Woźniak (SP6INA)**  
+- E-mail: [contact@splogbook.org](mailto:contact@splogbook.org)  
 - QRZ Profile: [SP6INA on QRZ.com](https://www.qrz.com/db/SP6INA)  
 - GitHub: [@sp6ina](https://github.com/sp6ina)  
 - ☕ Support & Donate: [buycoffee.to/sp6ina](https://buycoffee.to/sp6ina)  

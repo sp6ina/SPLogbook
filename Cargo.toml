@@ -1,8 +1,8 @@
 [package]
 name = "splogbook"
-version = "1.0.3"
+version = "1.1.0"
 edition = "2021"
-authors = ["Mariusz Woźniak (SP6INA)"]
+authors = ["Mariusz Woźniak (SP6INA) <contact@splogbook.org>"]
 description = "SPLogbook: Nowoczesny, zaawansowany program logujący dla krótkofalowców"
 license = "GPL-3.0-or-later"
 readme = "README.md"

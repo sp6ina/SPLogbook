@@ -16,6 +16,21 @@ pub struct ChangeLogEntry {
 /// i nie wymagała przebudowy dla drobnych poprawek tekstu.
 pub const CHANGELOG: &[ChangeLogEntry] = &[
     ChangeLogEntry {
+        version: "1.1",
+        date: "2026",
+        items: &[
+            "Dodano pełną obsługę języka włoskiego (Italiano).",
+            "Nowy, wysoce zoptymalizowany silnik i18n oparty na plikach JSON w locales/ (o ~65% szybsza kompilacja).",
+            "Natywny bezpośredni protokół CAT Kenwood / Elecraft / Yaesu (komendy FA, FB, MD, TX, SM, FT).",
+            "Pełna zgodność ze standardem ADIF 3 w UTF-8 (długość pól liczona w bajtach) dla LoTW/TQSL i ClubLog.",
+            "Precyzyjne wyliczanie pozycji Słońca i Szarej Linii z Równaniem Czasu (Equation of Time).",
+            "Poprawione dekodowanie znaczników czasu UTC z pakietów binarnych UDP WSJT-X / JTDX.",
+            "Rozszerzenie pasma 160m (od 1800 kHz) oraz dodanie pasm mikrofalowych 13cm/3cm dla satelity QO-100.",
+            "Poprawa logiki DUPE dla łączności Mixed oraz punktacji mnożników per-band w zawodach.",
+            "Inicjalizacja env_logger oraz optymalizacja pętli UI dla kolejki Cloud Auto-Upload.",
+        ],
+    },
+    ChangeLogEntry {
         version: "1.0.3",
         date: "2026",
         items: &[
@@ -145,10 +160,8 @@ pub fn render_update_check_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 if ui.button("🔍 Sprawdź teraz").clicked() {
                     app.trigger_update_check();
                 }
-                if app.update_available.is_some() {
-                    if ui.button("⬇️ Zainstaluj i uruchom ponownie").clicked() {
-                        do_install = true;
-                    }
+                if app.update_available.is_some() && ui.button("⬇️ Zainstaluj i uruchom ponownie").clicked() {
+                    do_install = true;
                 }
                 if ui.button("🌐 Otwórz stronę wydań").clicked() {
                     let _ = open::that("https://github.com/sp6ina/SPLogbook/releases");
