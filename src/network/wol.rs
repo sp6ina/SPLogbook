@@ -9,12 +9,24 @@ pub struct WolClient;
 impl WolClient {
     /// Parsuje adres MAC z ciągów znaków: "AA:BB:CC:DD:EE:FF", "AA-BB-CC-DD-EE-FF" lub "AABBCCDDEEFF"
     pub fn parse_mac(mac_str: &str) -> Result<[u8; 6], String> {
-        let clean: String = mac_str.chars().filter(char::is_ascii_hexdigit).collect();
+        let trimmed = mac_str.trim();
 
-        if clean.len() != 12 {
-            return Err(format!("Nieprawidłowa długość adresu MAC: {mac_str}"));
+        let is_contiguous_12 =
+            trimmed.len() == 12 && trimmed.chars().all(|c| c.is_ascii_hexdigit());
+
+        let is_separated_pairs = |sep: char| -> bool {
+            let parts: Vec<&str> = trimmed.split(sep).collect();
+            parts.len() == 6
+                && parts
+                    .iter()
+                    .all(|p| p.len() == 2 && p.chars().all(|c| c.is_ascii_hexdigit()))
+        };
+
+        if !is_contiguous_12 && !is_separated_pairs(':') && !is_separated_pairs('-') {
+            return Err(format!("Nieprawidłowy format adresu MAC: {mac_str}"));
         }
 
+        let clean: String = trimmed.chars().filter(char::is_ascii_hexdigit).collect();
         let mut mac = [0u8; 6];
         for i in 0..6 {
             let byte_str = &clean[i * 2..i * 2 + 2];
@@ -75,5 +87,20 @@ mod tests {
         assert_eq!(&packet[0..6], &[0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]);
         assert_eq!(&packet[6..12], &[0x00, 0x11, 0x22, 0x33, 0x44, 0x55]);
         assert_eq!(&packet[96..102], &[0x00, 0x11, 0x22, 0x33, 0x44, 0x55]);
+    }
+
+    #[test]
+    fn test_parse_mac_formats_and_rejects_invalid() {
+        assert_eq!(
+            WolClient::parse_mac("AA-BB-CC-DD-EE-FF").unwrap(),
+            [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]
+        );
+        assert_eq!(
+            WolClient::parse_mac("  aabbccddeeff  ").unwrap(),
+            [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]
+        );
+        assert!(WolClient::parse_mac("AA:BB-CC:DD-EE:FF").is_err());
+        assert!(WolClient::parse_mac("A:BB:CC:DD:EE:FFF").is_err());
+        assert!(WolClient::parse_mac("random text 001122334455 here").is_err());
     }
 }

@@ -2,12 +2,41 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::core::qso::QsoRecord;
-use byteorder::{BigEndian, ReadBytesExt};
-use std::io::Cursor;
+use std::io::{Cursor, Read};
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
 
 const WSJTX_MAGIC: u32 = 0xadbc_cbda;
+
+fn read_u8(rdr: &mut Cursor<&[u8]>) -> Option<u8> {
+    let mut b = [0u8; 1];
+    rdr.read_exact(&mut b).ok()?;
+    Some(b[0])
+}
+
+fn read_u32_be(rdr: &mut Cursor<&[u8]>) -> Option<u32> {
+    let mut b = [0u8; 4];
+    rdr.read_exact(&mut b).ok()?;
+    Some(u32::from_be_bytes(b))
+}
+
+fn read_i32_be(rdr: &mut Cursor<&[u8]>) -> Option<i32> {
+    let mut b = [0u8; 4];
+    rdr.read_exact(&mut b).ok()?;
+    Some(i32::from_be_bytes(b))
+}
+
+fn read_u64_be(rdr: &mut Cursor<&[u8]>) -> Option<u64> {
+    let mut b = [0u8; 8];
+    rdr.read_exact(&mut b).ok()?;
+    Some(u64::from_be_bytes(b))
+}
+
+fn read_i64_be(rdr: &mut Cursor<&[u8]>) -> Option<i64> {
+    let mut b = [0u8; 8];
+    rdr.read_exact(&mut b).ok()?;
+    Some(i64::from_be_bytes(b))
+}
 
 /// Pakiet zdekodowany z WSJT-X / JTDX
 #[derive(Debug, Clone)]
@@ -45,6 +74,7 @@ impl WsjtxReceiver {
             }
         };
         let mut buf = vec![0u8; 8192];
+        let mut last_logged_sig: Option<(String, std::time::Instant)> = None;
 
         loop {
             let (len, _) = match socket.recv_from(&mut buf).await {
@@ -55,6 +85,38 @@ impl WsjtxReceiver {
                 }
             };
             if let Some(msg) = Self::parse_packet(&buf[..len]) {
+                // WSJT-X wysyła bezpośrednio po sobie pakiet Type 5 (QSO Logged)
+                // oraz Type 12 (Logged ADIF) dla tej samej łączności.
+                if let WsjtxMessage::QsoLogged(ref qso) = msg {
+                    let hhmm: String = qso
+                        .time_on
+                        .chars()
+                        .filter(char::is_ascii_digit)
+                        .take(4)
+                        .collect();
+                    let date_norm: String = qso
+                        .qso_date
+                        .chars()
+                        .filter(char::is_ascii_digit)
+                        .take(8)
+                        .collect();
+                    let sig = format!(
+                        "{}|{}|{}|{}|{}",
+                        qso.callsign.trim().to_uppercase(),
+                        qso.band.trim().to_lowercase(),
+                        qso.mode.trim().to_uppercase(),
+                        date_norm,
+                        hhmm
+                    );
+                    if let Some((ref prev_sig, prev_ts)) = last_logged_sig
+                        && prev_sig == &sig
+                        && prev_ts.elapsed() < std::time::Duration::from_secs(5)
+                    {
+                        log::debug!("WSJT-X: pominięto zduplikowany pakiet QSO ({sig})");
+                        continue;
+                    }
+                    last_logged_sig = Some((sig, std::time::Instant::now()));
+                }
                 // Zamknięcie kanału przez konsumenta (shutdown aplikacji) kończy nasłuch.
                 if sender.send(msg).await.is_err() {
                     log::debug!("WSJT-X: kanał odbiorczy zamknięty, kończę nasłuch.");
@@ -68,20 +130,28 @@ impl WsjtxReceiver {
     /// Dekoduje strukturę QDateTime ze strumienia Qt QDataStream.
     /// Zwraca `(YYYYMMDD, HHMMSS)` w UTC zgodnie ze standardem ADIF i bazą SQLite.
     fn read_qdatetime(rdr: &mut Cursor<&[u8]>) -> Option<(String, String)> {
-        use byteorder::ReadBytesExt;
-        let julian_day = rdr.read_i64::<BigEndian>().ok()?;
-        let ms_since_midnight = rdr.read_u32::<BigEndian>().ok()?;
-        let timespec = rdr.read_u8().ok()?;
-        if timespec == 2 {
-            let _ = rdr.read_i32::<BigEndian>().ok()?;
-        }
-        if julian_day <= 0 {
+        let julian_day = read_i64_be(rdr)?;
+        let ms_since_midnight = read_u32_be(rdr)?;
+        let timespec = read_u8(rdr)?;
+        let utc_offset_secs: i64 = match timespec {
+            2 => i64::from(read_i32_be(rdr)?),
+            3 => {
+                // Qt::TimeZone — w strumieniu znajduje się QByteArray z identyfikatorem IANA
+                let _ = Self::read_utf8_string(rdr);
+                0
+            }
+            _ => 0,
+        };
+        if julian_day <= 0 || ms_since_midnight >= 86_400_000 {
             return None;
         }
 
         // Julian Day Number (JDN) 2440588 to 1970-01-01 (Unix Epoch)
         let days_from_epoch = julian_day.checked_sub(2_440_588)?;
-        let secs = days_from_epoch.checked_mul(86400)? + (ms_since_midnight as i64 / 1000);
+        let secs = days_from_epoch
+            .checked_mul(86400)?
+            .checked_add(i64::from(ms_since_midnight / 1000))?
+            .checked_sub(utc_offset_secs)?;
         let dt = chrono::DateTime::from_timestamp(secs, 0)?;
         let date_str = dt.format("%Y%m%d").to_string();
         let time_str = dt.format("%H%M%S").to_string();
@@ -91,20 +161,20 @@ impl WsjtxReceiver {
     /// Dekoduje binarny pakiet Qt QDataStream z WSJT-X
     pub fn parse_packet(data: &[u8]) -> Option<WsjtxMessage> {
         let mut rdr = Cursor::new(data);
-        let magic = rdr.read_u32::<BigEndian>().ok()?;
+        let magic = read_u32_be(&mut rdr)?;
         if magic != WSJTX_MAGIC {
             return None;
         }
 
-        let _schema = rdr.read_u32::<BigEndian>().ok()?;
-        let packet_type = rdr.read_u32::<BigEndian>().ok()?;
+        let _schema = read_u32_be(&mut rdr)?;
+        let packet_type = read_u32_be(&mut rdr)?;
         let id = Self::read_utf8_string(&mut rdr)?;
 
         match packet_type {
             0 => Some(WsjtxMessage::Heartbeat { id }),
             1 => {
                 // Status packet
-                let dial_freq = rdr.read_u64::<BigEndian>().unwrap_or(0);
+                let dial_freq = read_u64_be(&mut rdr).unwrap_or(0);
                 let mode = Self::read_utf8_string(&mut rdr).unwrap_or_default();
                 let dx_call = Self::read_utf8_string(&mut rdr).unwrap_or_default();
                 let report = Self::read_utf8_string(&mut rdr).unwrap_or_default();
@@ -122,7 +192,7 @@ impl WsjtxReceiver {
                 let (date_off, time_off) = Self::read_qdatetime(&mut rdr)?;
                 let dx_call = Self::read_utf8_string(&mut rdr)?;
                 let dx_grid = Self::read_utf8_string(&mut rdr).unwrap_or_default();
-                let dial_freq = rdr.read_u64::<BigEndian>().unwrap_or(0);
+                let dial_freq = read_u64_be(&mut rdr).unwrap_or(0);
                 let mode = Self::read_utf8_string(&mut rdr).unwrap_or_else(|| "FT8".to_string());
                 let rst_sent =
                     Self::read_utf8_string(&mut rdr).unwrap_or_else(|| "-10".to_string());
@@ -192,7 +262,7 @@ impl WsjtxReceiver {
     }
 
     fn read_utf8_string(rdr: &mut Cursor<&[u8]>) -> Option<String> {
-        let len = rdr.read_u32::<BigEndian>().ok()?;
+        let len = read_u32_be(rdr)?;
         if len == 0xffff_ffff {
             return None; // Null string w Qt
         }
@@ -215,10 +285,9 @@ impl WsjtxReceiver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use byteorder::{BigEndian, WriteBytesExt};
 
     fn write_utf8(buf: &mut Vec<u8>, s: &str) {
-        buf.write_u32::<BigEndian>(s.len() as u32).unwrap();
+        buf.extend_from_slice(&(s.len() as u32).to_be_bytes());
         buf.extend_from_slice(s.as_bytes());
     }
 
@@ -226,22 +295,22 @@ mod tests {
     fn test_parse_wsjtx_type_5_qso_logged() {
         let mut packet = Vec::new();
         // Magic
-        packet.write_u32::<BigEndian>(WSJTX_MAGIC).unwrap();
+        packet.extend_from_slice(&WSJTX_MAGIC.to_be_bytes());
         // Schema
-        packet.write_u32::<BigEndian>(2).unwrap();
+        packet.extend_from_slice(&2u32.to_be_bytes());
         // Type: 5 (QSO Logged)
-        packet.write_u32::<BigEndian>(5).unwrap();
+        packet.extend_from_slice(&5u32.to_be_bytes());
         // Id: "WSJT-X"
         write_utf8(&mut packet, "WSJT-X");
 
         // QDateTime Off: QDate (8 bytes) + QTime (4 bytes) + timespec (1 byte)
-        packet.write_u64::<BigEndian>(2_460_000).unwrap(); // Julian day (2023-02-24)
-        packet.write_u32::<BigEndian>(43_260_000).unwrap(); // 12:01:00.000 ms
-        packet.write_u8(1).unwrap(); // UTC timespec
+        packet.extend_from_slice(&2_460_000u64.to_be_bytes()); // Julian day (2023-02-24)
+        packet.extend_from_slice(&43_260_000u32.to_be_bytes()); // 12:01:00.000 ms
+        packet.push(1); // UTC timespec
 
         write_utf8(&mut packet, "K1ABC");
         write_utf8(&mut packet, "FN31pr");
-        packet.write_u64::<BigEndian>(14_074_000).unwrap();
+        packet.extend_from_slice(&14_074_000u64.to_be_bytes());
         write_utf8(&mut packet, "FT8");
         write_utf8(&mut packet, "-05");
         write_utf8(&mut packet, "-12");
@@ -250,9 +319,9 @@ mod tests {
         write_utf8(&mut packet, "John");
 
         // QDateTime On (pole 11): 12:00:00 UTC
-        packet.write_u64::<BigEndian>(2_460_000).unwrap();
-        packet.write_u32::<BigEndian>(43_200_000).unwrap();
-        packet.write_u8(1).unwrap();
+        packet.extend_from_slice(&2_460_000u64.to_be_bytes());
+        packet.extend_from_slice(&43_200_000u32.to_be_bytes());
+        packet.push(1);
 
         // Pola 12..17: Operator, MyCall, MyGrid, ExchSent, ExchRcvd, PropMode
         write_utf8(&mut packet, "SP6INA");

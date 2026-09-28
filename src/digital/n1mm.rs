@@ -39,21 +39,23 @@ fn xml_escape(input: &str) -> String {
 /// Zamienia łańcuch daty/czasu ADIF na format oczekiwany przez N1MM
 /// (`YYYY-MM-DD HH:MM:SS`). W razie braku danych zwraca bieżący czas UTC.
 fn n1mm_timestamp(qso_date: &str, time_on: &str) -> String {
-    let date = if qso_date.len() == 8 {
+    let date = if qso_date.len() == 8 && qso_date.is_ascii() {
         format!(
             "{}-{}-{}",
             &qso_date[0..4],
             &qso_date[4..6],
             &qso_date[6..8]
         )
-    } else if qso_date.len() >= 10 {
+    } else if qso_date.len() >= 10 && qso_date.is_ascii() {
         qso_date[0..10].to_string()
     } else {
         String::new()
     };
-    let time = if time_on.len() == 6 {
+    let time = if time_on.len() == 4 && time_on.is_ascii() {
+        format!("{}:{}:00", &time_on[0..2], &time_on[2..4])
+    } else if time_on.len() == 6 && time_on.is_ascii() {
         format!("{}:{}:{}", &time_on[0..2], &time_on[2..4], &time_on[4..6])
-    } else if time_on.len() >= 8 {
+    } else if time_on.len() >= 8 && time_on.is_ascii() {
         time_on[0..8].to_string()
     } else {
         String::new()
@@ -66,25 +68,13 @@ fn n1mm_timestamp(qso_date: &str, time_on: &str) -> String {
     }
 }
 
-/// Zwraca prefix kontynentu dla danego kodu kontynentu (używany do WPX).
+/// Zwraca prefix dla danego znaku (używany do WPX w N1MM).
 fn wpx_prefix(callsign: &str) -> String {
-    // Uproszczona heurystyka: bierzemy do 3 pierwszych znaków alfanumerycznych
-    // + ewentualną cyfrę. Wystarczające dla celów emisji do narzędzi zewnętrznych.
-    let mut out = String::new();
-    for ch in callsign.chars() {
-        if ch.is_ascii_alphanumeric() {
-            out.push(ch.to_ascii_uppercase());
-        } else if ch == '/' {
-            out.clear();
-        }
-        if out.len() == 3 {
-            break;
-        }
-    }
-    if out.is_empty() {
+    let pfx = crate::core::awards::extract_wpx_prefix(callsign);
+    if pfx.is_empty() {
         callsign.to_uppercase()
     } else {
-        out
+        pfx
     }
 }
 

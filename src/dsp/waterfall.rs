@@ -32,6 +32,9 @@ pub fn hann_window(size: usize) -> Vec<f32> {
 /// Przelicza moc widmową (kwadrat amplitudy) na decybele w skali FS,
 /// ograniczając wynik od dołu wartością `floor_db`.
 pub fn power_to_dbfs(power: f32, floor_db: f32) -> f32 {
+    if !power.is_finite() || power < 0.0 {
+        return floor_db;
+    }
     let db = 10.0 * (power + 1e-12).log10();
     db.max(floor_db)
 }
@@ -41,6 +44,9 @@ pub fn power_to_dbfs(power: f32, floor_db: f32) -> f32 {
 /// Zwraca `fft_size / 2` pasm (od DC do Nyquista). Pełnowymiarowa sinusoida
 /// o amplitudzie 1.0 odpowiada ~0 dBFS.
 pub fn spectrum_dbfs(samples: &[f32], fft_size: usize, floor_db: f32) -> Vec<f32> {
+    if fft_size < 2 {
+        return Vec::new();
+    }
     let window = hann_window(fft_size);
     let mut planner = FftPlanner::<f32>::new();
     let fft = planner.plan_fft_forward(fft_size);
@@ -136,15 +142,12 @@ pub struct WaterfallEngine {
 
 impl WaterfallEngine {
     pub fn new(fft_size: usize, sample_rate: u32, history_depth: usize) -> Self {
-        debug_assert!(
-            fft_size >= 2 && fft_size.is_power_of_two(),
-            "FFT size must be a power of two >= 2"
-        );
+        let fft_size = fft_size.max(2).next_power_of_two();
         let mut planner = FftPlanner::<f32>::new();
         let fft = planner.plan_fft_forward(fft_size);
         Self {
             fft_size,
-            sample_rate,
+            sample_rate: sample_rate.max(1),
             window: hann_window(fft_size),
             fft,
             scratch: vec![Complex::new(0.0, 0.0); fft_size],
@@ -193,35 +196,40 @@ impl WaterfallEngine {
     /// Dokłada próbki i wytwarza nowe wiersze widma, gdy zgromadzi się pełny blok FFT.
     pub fn feed(&mut self, samples: &[f32]) {
         self.pending.extend_from_slice(samples);
-        while self.pending.len() >= self.fft_size {
-            let block: Vec<f32> = self.pending.drain(..self.fft_size).collect();
-            let row = self.compute_row(&block);
+        let mut offset = 0;
+        while offset + self.fft_size <= self.pending.len() {
+            for (dst, (&sample, &win)) in self.scratch[..self.fft_size]
+                .iter_mut()
+                .zip(
+                    self.pending[offset..offset + self.fft_size]
+                        .iter()
+                        .zip(&self.window),
+                )
+            {
+                *dst = Complex::new(sample * win, 0.0);
+            }
+            self.fft.process(&mut self.scratch);
+
+            let norm = 2.0 / self.fft_size as f32;
+            let bins = self.fft_size / 2;
+            let row: Vec<f32> = (0..bins)
+                .map(|i| {
+                    let c = self.scratch[i];
+                    let mag = (c.re * c.re + c.im * c.im).sqrt() * norm;
+                    let db = power_to_dbfs(mag * mag, self.floor_db) + self.gain_db;
+                    db.max(self.floor_db)
+                })
+                .collect();
+
             if self.history.len() == self.history_depth {
                 self.history.pop_front();
             }
             self.history.push_back(row);
+            offset += self.fft_size;
         }
-    }
-
-    fn compute_row(&mut self, samples: &[f32]) -> Vec<f32> {
-        for (dst, (&sample, &win)) in self.scratch[..self.fft_size]
-            .iter_mut()
-            .zip(samples.iter().zip(&self.window))
-        {
-            *dst = Complex::new(sample * win, 0.0);
+        if offset > 0 {
+            self.pending.drain(..offset);
         }
-        self.fft.process(&mut self.scratch);
-
-        let norm = 2.0 / self.fft_size as f32;
-        let bins = self.fft_size / 2;
-        (0..bins)
-            .map(|i| {
-                let c = self.scratch[i];
-                let mag = (c.re * c.re + c.im * c.im).sqrt() * norm;
-                let db = power_to_dbfs(mag * mag, self.floor_db) + self.gain_db;
-                db.max(self.floor_db)
-            })
-            .collect()
     }
 
     /// Najnowszy wiersz widma (dBFS), jeśli istnieje.

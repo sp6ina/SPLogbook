@@ -4,7 +4,6 @@
 // Wykorzystuje podsystem Windows Multimedia (winmm.dll MCI) bez zewnętrznych zależności.
 
 use log::info;
-use std::ffi::CString;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -13,9 +12,9 @@ static IS_PLAYING: AtomicBool = AtomicBool::new(false);
 
 #[cfg(target_os = "windows")]
 unsafe extern "system" {
-    fn mciSendStringA(
-        lpstrCommand: *const std::os::raw::c_char,
-        lpstrReturnString: *mut std::os::raw::c_char,
+    fn mciSendStringW(
+        lpstrCommand: *const u16,
+        lpstrReturnString: *mut u16,
         uReturnLength: u32,
         hwndCallback: usize,
     ) -> u32;
@@ -24,23 +23,30 @@ unsafe extern "system" {
 #[cfg(not(target_os = "windows"))]
 static LINUX_REC_CHILD: std::sync::Mutex<Option<std::process::Child>> = std::sync::Mutex::new(None);
 #[cfg(not(target_os = "windows"))]
+static LINUX_PLAY_CHILD: std::sync::Mutex<Option<std::process::Child>> =
+    std::sync::Mutex::new(None);
+#[cfg(not(target_os = "windows"))]
 static LINUX_TEMP_FILE: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
 
 pub struct AudioRecorder;
 
 impl AudioRecorder {
-    /// Wysyła komendę MCI do podsystemu Windows Multimedia
+    /// Wysyła komendę MCI (UTF-16) do podsystemu Windows Multimedia
     #[cfg(target_os = "windows")]
     fn send_mci_cmd(cmd: &str) -> Result<(), String> {
-        if let Ok(c_str) = CString::new(cmd) {
-            let res = unsafe { mciSendStringA(c_str.as_ptr(), std::ptr::null_mut(), 0, 0) };
-            if res == 0 {
-                Ok(())
-            } else {
-                Err(format!("MCI error code: {res}"))
-            }
+        use std::os::windows::ffi::OsStrExt;
+        if cmd.contains('\0') {
+            return Err("Nieprawidłowy ciąg znaków dla MCI".to_string());
+        }
+        let wide: Vec<u16> = std::ffi::OsStr::new(cmd)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let res = unsafe { mciSendStringW(wide.as_ptr(), std::ptr::null_mut(), 0, 0) };
+        if res == 0 {
+            Ok(())
         } else {
-            Err("Nieprawidłowy ciąg znaków dla MCI".to_string())
+            Err(format!("MCI error code: {res}"))
         }
     }
 
@@ -56,7 +62,10 @@ impl AudioRecorder {
         {
             Self::send_mci_cmd("close splog_rec").ok();
             Self::send_mci_cmd("open new type waveaudio alias splog_rec")?;
-            Self::send_mci_cmd("record splog_rec")?;
+            if let Err(e) = Self::send_mci_cmd("record splog_rec") {
+                Self::send_mci_cmd("close splog_rec").ok();
+                return Err(e);
+            }
             IS_RECORDING.store(true, Ordering::SeqCst);
             Ok(())
         }
@@ -94,8 +103,7 @@ impl AudioRecorder {
                         "Nie udało się uruchomić nagrywania arecord/pw-record: {}",
                         e
                     );
-                    IS_RECORDING.store(true, Ordering::SeqCst);
-                    Ok(())
+                    Err(format!("Nie udało się uruchomić nagrywania: {e}"))
                 }
             }
         }
@@ -116,9 +124,10 @@ impl AudioRecorder {
             let abs_path = output_path.to_string_lossy().replace('\\', "/");
             let save_cmd = format!("save splog_rec \"{abs_path}\"");
 
-            Self::send_mci_cmd(&save_cmd)?;
-            Self::send_mci_cmd("close splog_rec")?;
+            let save_res = Self::send_mci_cmd(&save_cmd);
+            let _ = Self::send_mci_cmd("close splog_rec");
             IS_RECORDING.store(false, Ordering::SeqCst);
+            save_res?;
 
             info!(
                 "Pomyślnie zapisano nagranie łączności do: {}",
@@ -135,15 +144,16 @@ impl AudioRecorder {
                     let _ = child.wait();
                 }
             }
+            IS_RECORDING.store(false, Ordering::SeqCst);
             if let Ok(mut guard) = LINUX_TEMP_FILE.lock() {
                 if let Some(temp) = guard.take() {
                     if temp.exists() {
-                        let _ = std::fs::copy(&temp, output_path);
+                        std::fs::copy(&temp, output_path)
+                            .map_err(|e| format!("Błąd zapisu pliku WAV: {e}"))?;
                         let _ = std::fs::remove_file(temp);
                     }
                 }
             }
-            IS_RECORDING.store(false, Ordering::SeqCst);
             info!(
                 "Pomyślnie zapisano nagranie łączności do: {:?}",
                 output_path
@@ -161,7 +171,10 @@ impl AudioRecorder {
             let abs_path = file_path.to_string_lossy().replace('\\', "/");
             let open_cmd = format!("open \"{abs_path}\" type waveaudio alias splog_play");
             Self::send_mci_cmd(&open_cmd)?;
-            Self::send_mci_cmd("play splog_play")?;
+            if let Err(e) = Self::send_mci_cmd("play splog_play") {
+                Self::send_mci_cmd("close splog_play").ok();
+                return Err(e);
+            }
             IS_PLAYING.store(true, Ordering::SeqCst);
             Ok(())
         }
@@ -169,12 +182,14 @@ impl AudioRecorder {
         #[cfg(not(target_os = "windows"))]
         {
             let p = file_path.to_path_buf();
-            std::thread::spawn(move || {
-                let _ = std::process::Command::new("aplay")
-                    .arg(&p)
-                    .status()
-                    .or_else(|_| std::process::Command::new("pw-play").arg(&p).status());
-            });
+            let child = std::process::Command::new("aplay")
+                .arg(&p)
+                .spawn()
+                .or_else(|_| std::process::Command::new("pw-play").arg(&p).spawn())
+                .map_err(|e| format!("Nie udało się uruchomić odtwarzacza audio: {e}"))?;
+            if let Ok(mut guard) = LINUX_PLAY_CHILD.lock() {
+                *guard = Some(child);
+            }
             IS_PLAYING.store(true, Ordering::SeqCst);
             Ok(())
         }
@@ -190,10 +205,12 @@ impl AudioRecorder {
 
         #[cfg(not(target_os = "windows"))]
         {
-            let _ = std::process::Command::new("pkill")
-                .arg("-f")
-                .arg("aplay")
-                .status();
+            if let Ok(mut guard) = LINUX_PLAY_CHILD.lock() {
+                if let Some(mut child) = guard.take() {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+            }
         }
 
         IS_PLAYING.store(false, Ordering::SeqCst);

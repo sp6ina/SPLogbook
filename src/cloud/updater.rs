@@ -9,7 +9,7 @@ pub struct DatabaseUpdater;
 impl DatabaseUpdater {
     /// Pobiera najnowszy plik definicji krajów i prefiksów (cty.dat)
     pub async fn update_country_file(dest_path: &Path) -> Result<usize, String> {
-        let url = "http://www.country-files.com/cty/cty.dat";
+        let url = "https://www.country-files.com/cty/cty.dat";
         Self::download_file(url, dest_path).await
     }
 
@@ -21,9 +21,9 @@ impl DatabaseUpdater {
 
     /// Pobiera wszystkie bazy referencyjne do wskazanego katalogu
     pub async fn update_all(dir: &Path) -> Result<(), String> {
-        let _ = Self::update_country_file(&dir.join("cty.dat")).await;
-        let _ = Self::update_scp_file(&dir.join("MASTER.SCP")).await;
-        let _ = Self::update_lotw_users(&dir.join("lotw-user-activity.csv")).await;
+        Self::update_country_file(&dir.join("cty.dat")).await?;
+        Self::update_scp_file(&dir.join("MASTER.SCP")).await?;
+        Self::update_lotw_users(&dir.join("lotw-user-activity.csv")).await?;
         Ok(())
     }
 
@@ -52,10 +52,15 @@ impl DatabaseUpdater {
             .map_err(|e| format!("Błąd odczytu danych z {url}: {e}"))?;
 
         if let Some(parent) = dest_path.parent() {
-            let _ = std::fs::create_dir_all(parent);
+            if !parent.as_os_str().is_empty() {
+                tokio::fs::create_dir_all(parent).await.map_err(|e| {
+                    format!("Błąd tworzenia katalogu {}: {e}", parent.display())
+                })?;
+            }
         }
 
-        std::fs::write(dest_path, &bytes)
+        tokio::fs::write(dest_path, &bytes)
+            .await
             .map_err(|e| format!("Błąd zapisu do pliku {}: {e}", dest_path.display()))?;
 
         Ok(bytes.len())
@@ -198,6 +203,7 @@ pub fn verify_sha256(data: &[u8], expected: &str) -> bool {
 }
 
 /// Wybiera najlepszy plik instalacyjny dla bieżącego systemu operacyjnego.
+/// Zwraca `None`, jeśli żaden plik z wydania nie pasuje do docelowego systemu.
 pub fn select_asset_for_platform(assets: &[ReleaseAsset]) -> Option<&ReleaseAsset> {
     if assets.is_empty() {
         return None;
@@ -221,7 +227,7 @@ pub fn select_asset_for_platform(assets: &[ReleaseAsset]) -> Option<&ReleaseAsse
         }
     }
 
-    assets.first()
+    None
 }
 
 /// Pobiera plik instalacyjny wydania do wskazanej lokalizacji.
@@ -251,10 +257,15 @@ pub async fn download_release_asset(
         .map_err(|e| format!("Błąd odczytu pobranych danych: {e}"))?;
 
     if let Some(parent) = dest_path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+        if !parent.as_os_str().is_empty() {
+            tokio::fs::create_dir_all(parent).await.map_err(|e| {
+                format!("Błąd tworzenia katalogu {}: {e}", parent.display())
+            })?;
+        }
     }
 
-    std::fs::write(dest_path, &bytes)
+    tokio::fs::write(dest_path, &bytes)
+        .await
         .map_err(|e| format!("Błąd zapisu pobranego pliku {}: {e}", dest_path.display()))?;
 
     Ok(bytes.len())
@@ -280,10 +291,11 @@ pub async fn install_update(asset: &ReleaseAsset) -> Result<(), String> {
 
     // 2. Zweryfikuj sumę kontrolną, jeśli GitHub ją udostępnił.
     if let Some(expected) = asset.digest.as_deref() {
-        let data =
-            std::fs::read(&tmp_path).map_err(|e| format!("Błąd odczytu pobranego pliku: {e}"))?;
+        let data = tokio::fs::read(&tmp_path)
+            .await
+            .map_err(|e| format!("Błąd odczytu pobranego pliku: {e}"))?;
         if !verify_sha256(&data, expected) {
-            let _ = std::fs::remove_file(&tmp_path);
+            let _ = tokio::fs::remove_file(&tmp_path).await;
             return Err(
                 "Suma kontrolna SHA256 pobranej aktualizacji nie zgadza się z wartością z GitHub."
                     .to_string(),
@@ -381,7 +393,7 @@ mod tests {
     }
 
     #[test]
-    fn select_asset_prefers_exe_on_windows_and_falls_back() {
+    fn select_asset_prefers_matching_platform_and_rejects_unmatched() {
         let assets = vec![
             ReleaseAsset {
                 name: "SPLogbook-1.0.4-win64.zip".into(),
@@ -395,15 +407,43 @@ mod tests {
                 digest: None,
                 size: 0,
             },
+            ReleaseAsset {
+                name: "SPLogbook-1.0.4-linux.AppImage".into(),
+                browser_download_url: "https://example.com/l.AppImage".into(),
+                digest: None,
+                size: 0,
+            },
+            ReleaseAsset {
+                name: "SPLogbook-1.0.4-macos.dmg".into(),
+                browser_download_url: "https://example.com/m.dmg".into(),
+                digest: None,
+                size: 0,
+            },
         ];
 
-        let chosen = select_asset_for_platform(&assets).unwrap();
-        // Na Windowsie wybiera .exe, na innych systemach pierwszy dostępny.
         #[cfg(target_os = "windows")]
-        assert_eq!(chosen.name, "SPLogbook-1.0.4-win64.exe");
-        #[cfg(not(target_os = "windows"))]
-        assert_eq!(chosen.name, "SPLogbook-1.0.4-win64.zip");
+        assert_eq!(
+            select_asset_for_platform(&assets).unwrap().name,
+            "SPLogbook-1.0.4-win64.exe"
+        );
+        #[cfg(target_os = "linux")]
+        assert_eq!(
+            select_asset_for_platform(&assets).unwrap().name,
+            "SPLogbook-1.0.4-linux.AppImage"
+        );
+        #[cfg(target_os = "macos")]
+        assert_eq!(
+            select_asset_for_platform(&assets).unwrap().name,
+            "SPLogbook-1.0.4-macos.dmg"
+        );
 
+        let unmatched = vec![ReleaseAsset {
+            name: "checksums.txt".into(),
+            browser_download_url: "https://example.com/checksums.txt".into(),
+            digest: None,
+            size: 0,
+        }];
+        assert!(select_asset_for_platform(&unmatched).is_none());
         assert!(select_asset_for_platform(&[]).is_none());
     }
 }

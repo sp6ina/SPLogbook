@@ -147,13 +147,22 @@ impl QrzClient {
         })
     }
 
+    fn unescape_xml(s: &str) -> String {
+        s.replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&apos;", "'")
+            .replace("&#39;", "'")
+            .replace("&amp;", "&")
+    }
+
     fn extract_xml_tag(xml: &str, tag: &str) -> Option<String> {
         let open_tag = format!("<{tag}>");
         let close_tag = format!("</{tag}>");
 
         let start = xml.find(&open_tag)? + open_tag.len();
         let end = xml[start..].find(&close_tag)? + start;
-        let val = xml[start..end].trim().to_string();
+        let val = Self::unescape_xml(xml[start..end].trim());
         if val.is_empty() { None } else { Some(val) }
     }
 
@@ -186,7 +195,11 @@ impl QrzClient {
         .await?;
 
         let body = resp.text().await?;
-        if body.contains("RESULT=OK") || body.contains("STATUS=OK") || body.contains("COUNT=") {
+        if (body.contains("RESULT=OK")
+            || body.contains("RESULT=REPLACE")
+            || body.contains("STATUS=OK"))
+            && !body.contains("RESULT=FAIL")
+        {
             Ok(format!("QRZ Logbook sukces: {}", body.trim()))
         } else {
             Err(format!("QRZ Logbook błąd: {}", body.trim()).into())

@@ -153,16 +153,31 @@ pub struct XmlRpcFault {
 }
 
 /// Parsuje dokument XML-RPC (methodResponse) i zwraca pierwszą wartość
-/// lub błąd `<fault>`.
+/// lub błąd `<fault>`. Obsługuje zarówno surowe XML, jak i odpowiedzi z nagłówkami HTTP.
 pub fn parse_response(xml: &str) -> Result<XmlRpcValue, String> {
-    let mut reader = Reader::from_str(xml);
+    let trimmed_input = xml.trim_start();
+    let body = if trimmed_input.starts_with("HTTP/") {
+        if let Some(idx) = trimmed_input.find("\r\n\r\n") {
+            &trimmed_input[idx + 4..]
+        } else if let Some(idx) = trimmed_input.find("\n\n") {
+            &trimmed_input[idx + 2..]
+        } else {
+            trimmed_input
+        }
+    } else {
+        trimmed_input
+    };
+
+    let mut reader = Reader::from_str(body);
     reader.config_mut().trim_text(true);
 
     let mut in_fault = false;
+    let mut saw_fault = false;
     let mut fault_code: i64 = 0;
     let mut fault_msg = String::new();
     let mut value: Option<XmlRpcValue> = None;
-    let mut value_depth = 0usize;
+    let mut in_value = false;
+    let mut current_type = String::new();
     let mut buf = Vec::new();
 
     loop {
@@ -170,12 +185,16 @@ pub fn parse_response(xml: &str) -> Result<XmlRpcValue, String> {
             Ok(Event::Start(e)) => {
                 let name = e.name().as_ref().to_string();
                 match name.as_str() {
-                    "fault" => in_fault = true,
+                    "fault" => {
+                        in_fault = true;
+                        saw_fault = true;
+                    }
                     "value" => {
-                        // value otwierająca konkretną daną (nie nested w fault)
-                        value_depth += 1;
+                        in_value = true;
+                        current_type.clear();
                     }
                     "int" | "i4" | "i8" => {
+                        current_type = name;
                         if let Ok(txt) = read_text(&mut reader, &mut buf) {
                             if in_fault {
                                 fault_code = txt.trim().parse().unwrap_or(0);
@@ -185,6 +204,7 @@ pub fn parse_response(xml: &str) -> Result<XmlRpcValue, String> {
                         }
                     }
                     "double" => {
+                        current_type = name;
                         if let Ok(txt) = read_text(&mut reader, &mut buf) {
                             if let Ok(d) = txt.trim().parse::<f64>() {
                                 value = Some(XmlRpcValue::Double(d));
@@ -192,6 +212,7 @@ pub fn parse_response(xml: &str) -> Result<XmlRpcValue, String> {
                         }
                     }
                     "boolean" => {
+                        current_type = name;
                         if let Ok(txt) = read_text(&mut reader, &mut buf) {
                             value = Some(XmlRpcValue::Bool(
                                 txt.trim() == "1" || txt.trim().eq_ignore_ascii_case("true"),
@@ -199,6 +220,7 @@ pub fn parse_response(xml: &str) -> Result<XmlRpcValue, String> {
                         }
                     }
                     "string" => {
+                        current_type = name;
                         if let Ok(txt) = read_text(&mut reader, &mut buf) {
                             if in_fault {
                                 fault_msg = txt.trim().to_string();
@@ -207,7 +229,25 @@ pub fn parse_response(xml: &str) -> Result<XmlRpcValue, String> {
                             }
                         }
                     }
-                    _ => {}
+                    _ => {
+                        if in_value {
+                            current_type = name;
+                        }
+                    }
+                }
+            }
+            Ok(Event::Text(t)) => {
+                if in_value && current_type.is_empty() {
+                    if let Ok(unescaped) = quick_xml::escape::unescape(t.as_ref()) {
+                        let txt = unescaped.trim();
+                        if in_fault {
+                            if fault_msg.is_empty() && !txt.is_empty() {
+                                fault_msg = txt.to_string();
+                            }
+                        } else if value.is_none() {
+                            value = Some(XmlRpcValue::Str(txt.to_string()));
+                        }
+                    }
                 }
             }
             Ok(Event::End(e)) => {
@@ -215,7 +255,8 @@ pub fn parse_response(xml: &str) -> Result<XmlRpcValue, String> {
                 if name == "fault" {
                     in_fault = false;
                 } else if name == "value" {
-                    value_depth = value_depth.saturating_sub(1);
+                    in_value = false;
+                    current_type.clear();
                 }
             }
             Ok(Event::Eof) => break,
@@ -225,10 +266,9 @@ pub fn parse_response(xml: &str) -> Result<XmlRpcValue, String> {
         buf.clear();
     }
 
-    if fault_code != 0 || !fault_msg.is_empty() {
+    if saw_fault || fault_code != 0 || !fault_msg.is_empty() {
         return Err(format!("Fault {fault_code}: {fault_msg}"));
     }
-    let _ = value_depth;
     value.ok_or_else(|| "Pusta odpowiedź XML-RPC (brak <value>)".to_string())
 }
 
@@ -262,28 +302,45 @@ impl FlrigClient {
         }
     }
 
-    /// Wysyła żądanie i czyta odpowiedź do znacznika zamykającego `</methodResponse>`.
+    /// Wysyła żądanie HTTP/1.1 XML-RPC i czyta odpowiedź do znacznika zamykającego `</methodResponse>`.
     async fn call(&self, req: &XmlRpcRequest) -> Result<XmlRpcValue, String> {
-        let mut stream = TcpStream::connect(format!("{}:{}", self.host, self.port))
+        const FLRIG_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(1500);
+        const MAX_RESPONSE_BYTES: usize = 64 * 1024;
+
+        let addr = format!("{}:{}", self.host, self.port);
+        let mut stream = tokio::time::timeout(FLRIG_TIMEOUT, TcpStream::connect(&addr))
             .await
+            .map_err(|_| "Przekroczono czas oczekiwania na połączenie z FLRig".to_string())?
             .map_err(|e| format!("Błąd połączenia z FLRig: {e}"))?;
 
-        stream
-            .write_all(req.to_xml().as_bytes())
+        let xml = req.to_xml();
+        let http_req = format!(
+            "POST /RPC2 HTTP/1.1\r\nHost: {}:{}\r\nUser-Agent: SPLogbook\r\nContent-Type: text/xml\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            self.host,
+            self.port,
+            xml.len(),
+            xml
+        );
+
+        tokio::time::timeout(FLRIG_TIMEOUT, stream.write_all(http_req.as_bytes()))
             .await
+            .map_err(|_| "Przekroczono czas wysyłki do FLRig".to_string())?
             .map_err(|e| format!("Błąd wysyłki do FLRig: {e}"))?;
 
         let mut data = Vec::new();
         let mut buf = [0u8; 4096];
         loop {
-            let n = stream
-                .read(&mut buf)
+            let n = tokio::time::timeout(FLRIG_TIMEOUT, stream.read(&mut buf))
                 .await
+                .map_err(|_| "Przekroczono czas odczytu z FLRig".to_string())?
                 .map_err(|e| format!("Błąd odczytu z FLRig: {e}"))?;
             if n == 0 {
                 break;
             }
             data.extend_from_slice(&buf[..n]);
+            if data.len() > MAX_RESPONSE_BYTES {
+                return Err("Odpowiedź FLRig przekroczyła maksymalny rozmiar 64 KB".to_string());
+            }
             let text = String::from_utf8_lossy(&data);
             if text.contains("</methodResponse>") || text.contains("</methodCall>") {
                 break;
@@ -298,12 +355,17 @@ impl FlrigClient {
 
     /// Częstotliwość aktywnego VFO w Hz.
     pub async fn get_vfo(&self) -> Result<u64, String> {
-        let req = XmlRpcRequest::new("rig.get_vfo").param_str("A");
+        let req = XmlRpcRequest::new("rig.get_vfo");
         self.call(&req)
             .await?
             .as_int()
             .map(|v| v as u64)
             .ok_or_else(|| "Nieprawidłowa częstotliwość od FLRig".to_string())
+    }
+
+    /// Alias dla `get_vfo`.
+    pub async fn get_frequency(&self) -> Result<u64, String> {
+        self.get_vfo().await
     }
 
     pub async fn set_vfo(&self, hz: u64) -> Result<(), String> {

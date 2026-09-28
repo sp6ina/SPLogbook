@@ -85,22 +85,53 @@ impl DxClusterClient {
         port: u16,
         my_call: String,
         event_tx: std::sync::mpsc::Sender<ClusterEvent>,
+        stop_rx: tokio::sync::watch::Receiver<bool>,
+    ) {
+        Self::run_with_events_and_commands(host, port, my_call, event_tx, stop_rx, None).await;
+    }
+
+    /// Uruchamia pętlę nasłuchu ze sterowaniem zatrzymaniem, wysyłaniem zdarzeń do kanału mpsc
+    /// oraz opcjonalnym kanałem wychodzących komend Telnet (np. `DX <freq> <call> <comment>`).
+    pub async fn run_with_events_and_commands(
+        host: String,
+        port: u16,
+        my_call: String,
+        event_tx: std::sync::mpsc::Sender<ClusterEvent>,
         mut stop_rx: tokio::sync::watch::Receiver<bool>,
+        mut cmd_rx: Option<tokio::sync::mpsc::UnboundedReceiver<String>>,
     ) {
         let addr = format!("{host}:{port}");
 
         while !*stop_rx.borrow() {
             let connect_result = tokio::select! {
-                res = TcpStream::connect(&addr) => Some(res),
+                res = tokio::time::timeout(
+                    std::time::Duration::from_secs(10),
+                    TcpStream::connect(&addr),
+                ) => Some(res),
                 _ = stop_rx.changed() => None,
             };
 
             let stream = match connect_result {
-                Some(Ok(s)) => s,
-                Some(Err(e)) => {
+                Some(Ok(Ok(s))) => s,
+                Some(Ok(Err(e))) => {
                     if event_tx
                         .send(ClusterEvent::Disconnected(format!(
                             "Błąd połączenia z {addr}: {e}"
+                        )))
+                        .is_err()
+                    {
+                        break;
+                    }
+                    tokio::select! {
+                        () = tokio::time::sleep(std::time::Duration::from_secs(5)) => {}
+                        _ = stop_rx.changed() => break,
+                    }
+                    continue;
+                }
+                Some(Err(_)) => {
+                    if event_tx
+                        .send(ClusterEvent::Disconnected(format!(
+                            "Przekroczono czas oczekiwania na połączenie z {addr} (10s)"
                         )))
                         .is_err()
                     {
@@ -141,9 +172,50 @@ impl DxClusterClient {
 
                 raw_line.clear();
                 let mut limited = (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64);
-                let read_res = tokio::select! {
-                    res = limited.read_until(b'\n', &mut raw_line) => res,
-                    _ = stop_rx.changed() => break,
+
+                enum LoopAction {
+                    Read(Result<std::io::Result<usize>, tokio::time::error::Elapsed>),
+                    Command(String),
+                    Stop,
+                }
+
+                let action = tokio::select! {
+                    res = tokio::time::timeout(
+                        std::time::Duration::from_secs(300),
+                        limited.read_until(b'\n', &mut raw_line),
+                    ) => LoopAction::Read(res),
+                    Some(cmd) = async {
+                        match cmd_rx.as_mut() {
+                            Some(rx) => rx.recv().await,
+                            None => std::future::pending().await,
+                        }
+                    } => LoopAction::Command(cmd),
+                    _ = stop_rx.changed() => LoopAction::Stop,
+                };
+
+                let read_res = match action {
+                    LoopAction::Stop => break,
+                    LoopAction::Command(cmd) => {
+                        let formatted = if cmd.ends_with('\n') {
+                            cmd
+                        } else {
+                            format!("{}\r\n", cmd.trim_end_matches('\r'))
+                        };
+                        if let Err(e) = writer.write_all(formatted.as_bytes()).await {
+                            let _ = event_tx.send(ClusterEvent::Disconnected(format!(
+                                "Błąd wysyłania komendy do {addr}: {e}"
+                            )));
+                            break;
+                        }
+                        continue;
+                    }
+                    LoopAction::Read(Ok(res)) => res,
+                    LoopAction::Read(Err(_)) => {
+                        let _ = event_tx.send(ClusterEvent::Disconnected(format!(
+                            "Przekroczono czas oczekiwania na dane z {addr} (300s)"
+                        )));
+                        break;
+                    }
                 };
 
                 match read_res {
@@ -205,7 +277,12 @@ impl DxClusterClient {
         let addr = format!("{}:{}", self.host, self.port);
 
         loop {
-            if let Ok(stream) = TcpStream::connect(&addr).await {
+            if let Ok(Ok(stream)) = tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                TcpStream::connect(&addr),
+            )
+            .await
+            {
                 let (reader, mut writer) = stream.into_split();
                 let mut buf_reader = BufReader::new(reader);
 
@@ -215,11 +292,16 @@ impl DxClusterClient {
                     .await;
 
                 let mut raw_line = Vec::with_capacity(256);
-                while let Ok(n) = (&mut buf_reader)
-                    .take((MAX_LINE_LEN + 1) as u64)
-                    .read_until(b'\n', &mut raw_line)
+                loop {
+                    let mut limited = (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64);
+                    let Ok(Ok(n)) = tokio::time::timeout(
+                        std::time::Duration::from_secs(300),
+                        limited.read_until(b'\n', &mut raw_line),
+                    )
                     .await
-                {
+                    else {
+                        break;
+                    };
                     if n == 0 {
                         break;
                     }
@@ -240,12 +322,21 @@ impl DxClusterClient {
     }
 }
 
-/// Zwraca skompilowane wyrażenie regularne dla linii spotów DX (raz, współdzielone).
+/// Zwraca skompilowane wyrażenie regularne dla linii spotów DX z sufiksem `Z` (raz, współdzielone).
 fn spot_regex() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r"^DX de\s+([A-Z0-9/\-#]+):\s+([0-9.]+)\s+([A-Z0-9/]+)\s+(.*?)\s+([0-9]{4})Z?")
+        Regex::new(r"(?i)^DX de\s+([A-Z0-9/\-#]+):\s+([0-9.]+)\s+([A-Z0-9/]+)\s+(.*)\s+([0-9]{4})Z\s*$")
             .expect("spot regex musi być poprawny")
+    })
+}
+
+/// Zwraca zapasowe wyrażenie regularne dla linii spotów DX, w których pominięto literę `Z` na końcu.
+fn spot_regex_no_z() -> &'static Regex {
+    static RE_NO_Z: OnceLock<Regex> = OnceLock::new();
+    RE_NO_Z.get_or_init(|| {
+        Regex::new(r"(?i)^DX de\s+([A-Z0-9/\-#]+):\s+([0-9.]+)\s+([A-Z0-9/]+)\s+(.*)\s+([0-9]{4})\s*$")
+            .expect("spot fallback regex musi być poprawny")
     })
 }
 
@@ -256,11 +347,13 @@ pub fn parse_dx_spot(line: &str) -> Option<DxSpot> {
     if trimmed.is_empty() {
         return None;
     }
-    let caps = spot_regex().captures(trimmed)?;
+    let caps = spot_regex()
+        .captures(trimmed)
+        .or_else(|| spot_regex_no_z().captures(trimmed))?;
 
-    let spotter = caps.get(1)?.as_str().to_string();
+    let spotter = caps.get(1)?.as_str().to_uppercase();
     let freq_str = caps.get(2)?.as_str();
-    let dx_call = caps.get(3)?.as_str().to_string();
+    let dx_call = caps.get(3)?.as_str().to_uppercase();
     let comment = caps.get(4)?.as_str().trim().to_string();
     let time_utc = caps.get(5)?.as_str().to_string();
 
@@ -306,6 +399,17 @@ mod tests {
         assert_eq!(spot.band, "20m");
         assert!(spot.is_ft8);
         assert!(!spot.is_skimmer);
+    }
+
+    #[test]
+    fn test_parse_dx_spot_with_four_digit_number_in_comment() {
+        let spot = parse_dx_spot("DX de SP6INA: 7025.0 JA1ABC QSX 7150 UP 1420Z").unwrap();
+        assert_eq!(spot.spotter, "SP6INA");
+        assert_eq!(spot.dx_call, "JA1ABC");
+        assert_eq!(spot.frequency_khz, 7025.0);
+        assert_eq!(spot.band, "40m");
+        assert_eq!(spot.comment, "QSX 7150 UP");
+        assert_eq!(spot.time_utc, "1420");
     }
 
     #[test]

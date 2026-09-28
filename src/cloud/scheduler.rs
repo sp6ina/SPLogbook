@@ -264,18 +264,40 @@ impl UploadScheduler {
         serde_json::from_str(json)
     }
 
-    /// Ścieżka pliku kolejki offline (APPDATA/SPLogbook na Windows, katalog bieżący gdzie indziej).
+    /// Ścieżka pliku kolejki offline (APPDATA/SPLogbook na Windows, XDG_DATA_HOME lub ~/.local/share/splogbook na innych systemach).
     pub fn queue_path() -> PathBuf {
-        std::env::var("APPDATA").map_or_else(
-            |_| PathBuf::from("upload_queue.json"),
-            |p| PathBuf::from(p).join("SPLogbook").join("upload_queue.json"),
-        )
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            if !appdata.is_empty() {
+                return PathBuf::from(appdata)
+                    .join("SPLogbook")
+                    .join("upload_queue.json");
+            }
+        }
+        if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
+            if !xdg.is_empty() {
+                return PathBuf::from(xdg)
+                    .join("splogbook")
+                    .join("upload_queue.json");
+            }
+        }
+        if let Ok(home) = std::env::var("HOME") {
+            if !home.is_empty() {
+                return PathBuf::from(home)
+                    .join(".local")
+                    .join("share")
+                    .join("splogbook")
+                    .join("upload_queue.json");
+            }
+        }
+        PathBuf::from("upload_queue.json")
     }
 
     /// Wczytuje kolejkę z dysku; w razie braku/zniszczenia pliku zwraca pustą kolejkę.
+    /// Zadania pozostawione w stanie `InFlight` (np. po nagłym zamknięciu programu)
+    /// są przywracane do stanu `Pending`, aby zostały ponowione.
     pub fn load_from_disk() -> Self {
         let path = Self::queue_path();
-        match std::fs::read_to_string(&path) {
+        let mut scheduler = match std::fs::read_to_string(&path) {
             Ok(json) => Self::from_json(&json).unwrap_or_else(|e| {
                 log::warn!(
                     "Nie udało się odczytać kolejki wysyłki ({}): {}",
@@ -285,7 +307,13 @@ impl UploadScheduler {
                 Self::new()
             }),
             Err(_) => Self::new(),
+        };
+        for job in &mut scheduler.jobs {
+            if job.status == UploadJobStatus::InFlight {
+                job.status = UploadJobStatus::Pending;
+            }
         }
+        scheduler
     }
 
     /// Zapisuje kolejkę na dysk atomowo (best-effort): najpierw plik tymczasowy,

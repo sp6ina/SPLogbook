@@ -9,6 +9,63 @@ use tokio::time::sleep;
 
 /// Maksymalna długość pojedynczej linii odpowiedzi rotctld (azymut/elevacja).
 const MAX_LINE_LEN: usize = 256;
+/// Maksymalny czas oczekiwania na operacje sieciowe z rotctld.
+const ROTOR_TCP_TIMEOUT: Duration = Duration::from_millis(1500);
+
+async fn connect_timeout(addr: &str) -> Result<TcpStream, std::io::Error> {
+    match tokio::time::timeout(ROTOR_TCP_TIMEOUT, TcpStream::connect(addr)).await {
+        Ok(res) => res,
+        Err(_) => Err(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "Przekroczono czas oczekiwania na połączenie z rotctld",
+        )),
+    }
+}
+
+async fn write_cmd<W: AsyncWriteExt + Unpin>(
+    writer: &mut W,
+    cmd: &[u8],
+) -> Result<(), std::io::Error> {
+    match tokio::time::timeout(ROTOR_TCP_TIMEOUT, writer.write_all(cmd)).await {
+        Ok(res) => res,
+        Err(_) => Err(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "Przekroczono czas zapisu do rotctld",
+        )),
+    }
+}
+
+async fn read_line_timeout<R: AsyncBufReadExt + Unpin>(
+    reader: &mut R,
+    line: &mut String,
+) -> Result<usize, std::io::Error> {
+    line.clear();
+    let mut limited = reader.take((MAX_LINE_LEN + 1) as u64);
+    match tokio::time::timeout(ROTOR_TCP_TIMEOUT, limited.read_line(line)).await {
+        Ok(res) => res,
+        Err(_) => Err(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "Przekroczono czas odczytu z rotctld",
+        )),
+    }
+}
+
+async fn send_rotor_cmd(host: &str, port: u16, cmd: &str) -> Result<(), std::io::Error> {
+    let addr = format!("{host}:{port}");
+    let stream = connect_timeout(&addr).await?;
+    let (reader, mut writer) = stream.into_split();
+    write_cmd(&mut writer, cmd.as_bytes()).await?;
+    let mut buf_reader = BufReader::new(reader);
+    let mut resp = String::new();
+    let _ = tokio::time::timeout(
+        Duration::from_millis(500),
+        (&mut buf_reader)
+            .take((MAX_LINE_LEN + 1) as u64)
+            .read_line(&mut resp),
+    )
+    .await;
+    Ok(())
+}
 
 /// Stan położenia rotora antenowego
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -54,8 +111,8 @@ impl RotorClient {
     pub async fn run_poll_loop(&self, poll_interval_ms: u64) {
         let addr = format!("{}:{}", self.host, self.port);
 
-        loop {
-            if let Ok(stream) = TcpStream::connect(&addr).await {
+        'poll: loop {
+            if let Ok(stream) = connect_timeout(&addr).await {
                 let (reader, mut writer) = stream.into_split();
                 let mut buf_reader = BufReader::new(reader);
                 let mut current = RotorState {
@@ -64,36 +121,43 @@ impl RotorClient {
                 };
 
                 while current.connected {
-                    if writer.write_all(b"p\n").await.is_err() {
+                    if write_cmd(&mut writer, b"p\n").await.is_err() {
                         break;
                     }
 
                     let mut az_line = String::new();
                     let mut el_line = String::new();
 
-                    let mut limited = (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64);
-                    if limited.read_line(&mut az_line).await.is_err()
+                    if read_line_timeout(&mut buf_reader, &mut az_line)
+                        .await
+                        .is_err()
                         || az_line.is_empty()
                         || az_line.len() > MAX_LINE_LEN
                     {
                         break;
                     }
-                    let mut limited = (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64);
-                    if limited.read_line(&mut el_line).await.is_err()
-                        || el_line.is_empty()
-                        || el_line.len() > MAX_LINE_LEN
-                    {
-                        break;
+
+                    if !az_line.trim().starts_with("RPRT") {
+                        if read_line_timeout(&mut buf_reader, &mut el_line)
+                            .await
+                            .is_err()
+                            || el_line.is_empty()
+                            || el_line.len() > MAX_LINE_LEN
+                        {
+                            break;
+                        }
+
+                        if let (Ok(az), Ok(el)) =
+                            (az_line.trim().parse::<f32>(), el_line.trim().parse::<f32>())
+                        {
+                            current.azimuth_deg = az;
+                            current.elevation_deg = el;
+                        }
                     }
 
-                    if let (Ok(az), Ok(el)) =
-                        (az_line.trim().parse::<f32>(), el_line.trim().parse::<f32>())
-                    {
-                        current.azimuth_deg = az;
-                        current.elevation_deg = el;
+                    if self.state_sender.send(current).is_err() {
+                        break 'poll;
                     }
-
-                    let _ = self.state_sender.send(current);
                     sleep(Duration::from_millis(poll_interval_ms)).await;
                 }
             } else {
@@ -101,7 +165,9 @@ impl RotorClient {
                     connected: false,
                     ..Default::default()
                 };
-                let _ = self.state_sender.send(offline);
+                if self.state_sender.send(offline).is_err() {
+                    break 'poll;
+                }
                 sleep(Duration::from_secs(3)).await;
             }
         }
@@ -116,16 +182,12 @@ impl RotorClient {
     ) -> Result<(), std::io::Error> {
         let norm_az = (azimuth_deg % 360.0 + 360.0) % 360.0;
         let norm_el = elevation_deg.clamp(-10.0, 90.0);
-        let mut stream = TcpStream::connect(format!("{host}:{port}")).await?;
         let cmd = format!("P {norm_az:.1} {norm_el:.1}\n");
-        stream.write_all(cmd.as_bytes()).await?;
-        Ok(())
+        send_rotor_cmd(host, port, &cmd).await
     }
 
     /// Zatrzymuje ruch rotora
     pub async fn stop(host: &str, port: u16) -> Result<(), std::io::Error> {
-        let mut stream = TcpStream::connect(format!("{host}:{port}")).await?;
-        stream.write_all(b"S\n").await?;
-        Ok(())
+        send_rotor_cmd(host, port, "S\n").await
     }
 }

@@ -30,15 +30,14 @@ impl ClubLogClient {
         api_key: &str,
         adif_content: &str,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        if api_key.trim().is_empty() {
+            return Err("Brak klucza API ClubLog".into());
+        }
         let client = self.client.clone();
         let email = email.to_string();
         let password = password.to_string();
         let callsign = callsign.to_uppercase();
-        let api = if api_key.is_empty() {
-            "splogbook_api_key".to_string()
-        } else {
-            api_key.to_string()
-        };
+        let api = api_key.trim().to_string();
         let adif_bytes = adif_content.as_bytes().to_vec();
 
         let resp = crate::core::http::retry_async(

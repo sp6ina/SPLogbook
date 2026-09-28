@@ -89,18 +89,15 @@ impl ApiState {
     }
 }
 
-/// Generuje losowy klucz uwierzytelniający dla lokalnego serwera REST API.
-/// Nie zależy od zewnętrznych bibliotek RNG: miesza entropię z kilku niezależnie
-/// zainicjalizowanych `RandomState` (SipHash), które na większości platform
-/// same czerpią losowość z systemowego generatora (getrandom/CryptGenRandom).
+/// Generuje losowy klucz uwierzytelniający dla lokalnego serwera REST API
+/// za pomocą kryptograficznego generatora losowego (`rand::fill`).
 pub fn generate_api_key() -> String {
-    use std::collections::hash_map::RandomState;
     use std::fmt::Write as _;
-    use std::hash::{BuildHasher, Hasher};
-    let mut key = String::with_capacity(32);
-    for _ in 0..4 {
-        let h = RandomState::new().build_hasher().finish();
-        let _ = write!(key, "{h:016x}");
+    let mut bytes = [0u8; 32];
+    rand::fill(&mut bytes);
+    let mut key = String::with_capacity(64);
+    for b in bytes {
+        let _ = write!(key, "{b:02x}");
     }
     key
 }
@@ -313,8 +310,22 @@ async fn cors_middleware(req: axum::extract::Request, next: axum::middleware::Ne
     res
 }
 
+/// Porównuje dwa ciągi bajtów w stałym czasie (ochrona przed atakami czasowymi).
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (&x, &y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
 /// Wymaga poprawnego nagłówka `X-Api-Key` dla wszystkich żądań poza publicznymi
 /// `/api/v1/status`, `/api/v1/endpoints` i preflightem CORS (OPTIONS).
+/// Dla połączeń WebSocket (`/api/v1/ws`), gdy nagłówek `X-Api-Key` jest nieobecny,
+/// dopuszcza odczyt klucza z parametru zapytania `?api_key=...`.
 /// Zapobiega to odczytowi/zapisowi dziennika przez dowolną stronę WWW lub proces
 /// lokalny, który mógłby wykorzystać otwarte CORS (`*`) do wysyłania żądań do
 /// localhost (atak typu "localhost drive-by" / DNS rebinding).
@@ -328,9 +339,30 @@ async fn auth_middleware(
         return Ok(next.run(req).await);
     }
 
-    let provided = req.headers().get("x-api-key").and_then(|v| v.to_str().ok());
+    let header_key = req.headers().get("x-api-key").and_then(|v| v.to_str().ok());
+    let query_key = if header_key.is_none() && path == "/api/v1/ws" {
+        req.uri().query().and_then(|q| {
+            q.split('&').find_map(|pair| {
+                let (k, v) = pair.split_once('=')?;
+                if k == "api_key" {
+                    Some(v)
+                } else {
+                    None
+                }
+            })
+        })
+    } else {
+        None
+    };
+
+    let provided = header_key.or(query_key);
     match provided {
-        Some(key) if !state.api_key.is_empty() && key == state.api_key => Ok(next.run(req).await),
+        Some(key)
+            if !state.api_key.is_empty()
+                && constant_time_eq(key.as_bytes(), state.api_key.as_bytes()) =>
+        {
+            Ok(next.run(req).await)
+        }
         _ => Err(StatusCode::UNAUTHORIZED),
     }
 }
@@ -425,14 +457,7 @@ where
 async fn get_status(
     State(state): State<ApiState>,
 ) -> Result<Json<StatusResponse>, (StatusCode, String)> {
-    let total_qsos = {
-        let db = state
-            .db
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        db.count_all()
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    };
+    let total_qsos = with_db(&state, move |db| db.count_all()).await?;
     let (rig_connected, frequency_hz, mode) = {
         let rig = state
             .rig_state
@@ -650,13 +675,7 @@ async fn get_qso_by_id(
     State(state): State<ApiState>,
     Path(id): Path<i64>,
 ) -> Result<Json<QsoRecord>, (StatusCode, String)> {
-    let db = state
-        .db
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let qso = db
-        .get_qso_by_id(id)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let qso = with_db(&state, move |db| db.get_qso_by_id(id)).await?;
 
     match qso {
         Some(q) => Ok(Json(q)),
@@ -736,14 +755,8 @@ async fn post_qso(
     normalize_and_enrich_qso(&mut qso, &state.prefix_matcher)?;
     qso.validate().map_err(|e| (StatusCode::BAD_REQUEST, e))?;
 
-    let id = {
-        let db = state
-            .db
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        db.insert_qso(&qso)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    };
+    let qso_for_db = qso.clone();
+    let id = with_db(&state, move |db| db.insert_qso(&qso_for_db)).await?;
     qso.id = Some(id);
 
     {
@@ -774,22 +787,21 @@ async fn put_qso_by_id(
     normalize_and_enrich_qso(&mut qso, &state.prefix_matcher)?;
     qso.validate().map_err(|e| (StatusCode::BAD_REQUEST, e))?;
 
-    {
-        let db = state
-            .db
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let existing = db
-            .get_qso_by_id(id)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let qso_for_db = qso.clone();
+    let found = with_db(&state, move |db| {
+        let existing = db.get_qso_by_id(id)?;
         if existing.is_none() {
-            return Err((
-                StatusCode::NOT_FOUND,
-                format!("Nie znaleziono QSO o ID {id}"),
-            ));
+            return Ok(false);
         }
-        db.update_qso(id, &qso)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        db.update_qso(id, &qso_for_db)?;
+        Ok(true)
+    })
+    .await?;
+    if !found {
+        return Err((
+            StatusCode::NOT_FOUND,
+            format!("Nie znaleziono QSO o ID {id}"),
+        ));
     }
 
     qso.id = Some(id);
@@ -801,22 +813,20 @@ async fn delete_qso_by_id(
     State(state): State<ApiState>,
     Path(id): Path<i64>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    {
-        let db = state
-            .db
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let existing = db
-            .get_qso_by_id(id)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let found = with_db(&state, move |db| {
+        let existing = db.get_qso_by_id(id)?;
         if existing.is_none() {
-            return Err((
-                StatusCode::NOT_FOUND,
-                format!("Nie znaleziono QSO o ID {id}"),
-            ));
+            return Ok(false);
         }
-        db.delete_qso(id)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        db.delete_qso(id)?;
+        Ok(true)
+    })
+    .await?;
+    if !found {
+        return Err((
+            StatusCode::NOT_FOUND,
+            format!("Nie znaleziono QSO o ID {id}"),
+        ));
     }
 
     state.reload_flag.store(true, Ordering::Release);
@@ -832,14 +842,8 @@ async fn get_qsos_by_callsign(
     Query(query): Query<DupeCheckQuery>,
 ) -> Result<Json<CallsignHistoryResponse>, (StatusCode, String)> {
     let clean_call = call.trim().to_uppercase();
-    let previous_qsos = {
-        let db = state
-            .db
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        db.find_previous_qsos(&clean_call)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    };
+    let clean_call_for_db = clean_call.clone();
+    let previous_qsos = with_db(&state, move |db| db.find_previous_qsos(&clean_call_for_db)).await?;
 
     let today = chrono::Utc::now().format("%Y%m%d").to_string();
     let is_dupe = previous_qsos.iter().any(|q| {
@@ -904,13 +908,11 @@ async fn lookup_callsign(
         )
     });
 
-    let previous_qso_count = {
-        let db = state
-            .db
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        db.find_previous_qsos(&clean).map_or(0, |v| v.len())
-    };
+    let clean_for_db = clean.clone();
+    let previous_qso_count = with_db(&state, move |db| {
+        Ok(db.find_previous_qsos(&clean_for_db).map_or(0, |v| v.len()))
+    })
+    .await?;
 
     Ok(Json(LookupResponse {
         callsign: clean,
@@ -973,12 +975,15 @@ async fn import_adif_handler(
         ));
     }
 
-    let report = adif::parse_adif_with_report(&body);
+    // Idempotentny import: pomijaj rekordy o kluczu istniejącym już w DEFAULT.
+    let (report, mut seen_keys) = with_db(&state, move |db| {
+        let report = adif::parse_adif_with_report(&body);
+        let keys = db.existing_qso_keys("DEFAULT")?;
+        Ok((report, keys))
+    })
+    .await?;
     let mut validation_rejected = 0usize;
     let mut validation_errors: Vec<String> = Vec::new();
-    // Idempotentny import: pomijaj rekordy o kluczu istniejącym już w DEFAULT.
-    let mut seen_keys: std::collections::HashSet<String> =
-        with_db(&state, |db| db.existing_qso_keys("DEFAULT")).await?;
     let mut qsos = Vec::with_capacity(report.qsos.len());
     for mut qso in report.qsos {
         // API nie posiada pojęcia „aktywnego dziennika” — import trafia do DEFAULT.
@@ -1145,16 +1150,14 @@ async fn get_awards_summary(State(state): State<ApiState>) -> Json<AwardsSummary
 async fn get_journals(
     State(state): State<ApiState>,
 ) -> Result<Json<JournalsResponse>, (StatusCode, String)> {
-    let db = state
-        .db
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let journals = db
-        .get_all_journals()
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    let active_journal_id = db
-        .get_active_journal()
-        .map_or_else(|_| "DEFAULT".to_string(), |j| j.id);
+    let (journals, active_journal_id) = with_db(&state, move |db| {
+        let journals = db.get_all_journals()?;
+        let active_journal_id = db
+            .get_active_journal()
+            .map_or_else(|_| "DEFAULT".to_string(), |j| j.id);
+        Ok((journals, active_journal_id))
+    })
+    .await?;
     Ok(Json(JournalsResponse {
         active_journal_id,
         journals,
@@ -1370,6 +1373,18 @@ mod tests {
         let json = serde_json::to_string(&ev).expect("serializacja");
         assert!(json.contains("\"type\":\"dx_spot\""));
         assert!(json.contains("\"dx_call\":\"DL1ABC\""));
+    }
+
+    #[test]
+    fn generate_api_key_and_constant_time_eq_work() {
+        let k1 = generate_api_key();
+        let k2 = generate_api_key();
+        assert_eq!(k1.len(), 64);
+        assert_ne!(k1, k2);
+        assert!(k1.chars().all(|c| c.is_ascii_hexdigit()));
+        assert!(constant_time_eq(k1.as_bytes(), k1.as_bytes()));
+        assert!(!constant_time_eq(k1.as_bytes(), k2.as_bytes()));
+        assert!(!constant_time_eq(b"abc", b"abcd"));
     }
 
     #[tokio::test]

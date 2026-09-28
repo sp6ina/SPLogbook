@@ -46,6 +46,7 @@ enum StateMutation {
     SetFrequency(u64),
     SetSplitFrequency(u64),
     SetMode(String),
+    SetPassband(u32),
     SetPtt(bool),
     SetVfo(String),
     SetSplit { enabled: bool, tx_vfo: String },
@@ -136,9 +137,15 @@ fn dispatch_command(trimmed: &str, state: &RigState) -> Dispatch {
             state.passband_hz
         )),
         "v" if args.is_empty() => Dispatch::ok(format!("{}\n", state.vfo)),
-        "s" if args.is_empty() => {
-            Dispatch::ok(format!("{}\nVFOA\n", i32::from(state.split_enabled)))
-        }
+        "s" if args.is_empty() => Dispatch::ok(format!(
+            "{}\n{}\n",
+            i32::from(state.split_enabled),
+            if state.tx_vfo.is_empty() {
+                "VFOA"
+            } else {
+                &state.tx_vfo
+            }
+        )),
         "t" if args.is_empty() => Dispatch::ok(format!("{}\n", i32::from(state.ptt))),
         "j" if args.is_empty() => Dispatch::ok(format!("{}\n", state.rit_hz)),
         "z" if args.is_empty() => Dispatch::ok(format!("{}\n", state.xit_hz)),
@@ -171,6 +178,11 @@ fn dispatch_command(trimmed: &str, state: &RigState) -> Dispatch {
             let new_mode = args[0].to_string();
             let mut d = Dispatch::ok(format!("RPRT {}\n", rprt::OK));
             d.mutations.push(StateMutation::SetMode(new_mode.clone()));
+            if let Some(pb) = args.get(1).and_then(|s| s.parse::<u32>().ok()) {
+                if pb > 0 {
+                    d.mutations.push(StateMutation::SetPassband(pb));
+                }
+            }
             d.commands.push(RigServerCommand::SetMode(new_mode));
             d
         }
@@ -336,7 +348,8 @@ fn hamlib_mode(mode: &str) -> &'static str {
     match mode.to_uppercase().as_str() {
         "CW" => "CW",
         "LSB" => "LSB",
-        "USB" | "FT8" | "FT4" | "JS8" => "PKTUSB",
+        "USB" => "USB",
+        "FT8" | "FT4" | "JS8" | "PKTUSB" | "DATA" | "DIGI" => "PKTUSB",
         "AM" => "AM",
         "FM" => "FM",
         "RTTY" => "RTTY",
@@ -493,6 +506,7 @@ fn apply_mutation(state: &mut RigState, m: &StateMutation) {
         StateMutation::SetFrequency(freq) => state.frequency_hz = freq,
         StateMutation::SetSplitFrequency(freq) => state.tx_frequency_hz = Some(freq),
         StateMutation::SetMode(ref mode) => state.mode.clone_from(mode),
+        StateMutation::SetPassband(pb) => state.passband_hz = pb,
         StateMutation::SetPtt(ptt) => state.ptt = ptt,
         StateMutation::SetVfo(ref vfo) => state.vfo.clone_from(vfo),
         StateMutation::SetSplit {

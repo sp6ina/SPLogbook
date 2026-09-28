@@ -109,12 +109,17 @@ impl KenwoodCat {
         "SM0;"
     }
 
-    /// Dekoduje wartość S-metra z `SM00015;` (zwraca surową wartość 0..30).
+    /// Dekoduje wartość S-metra z `SM00015;` lub `SM0015;` (zwraca surową wartość 0..30).
     pub fn parse_smeter_resp(resp: &str) -> Option<u8> {
         let trimmed = resp.trim().trim_end_matches(';');
-        if trimmed.starts_with("SM") {
-            let digits = trimmed.trim_start_matches(|c: char| !c.is_ascii_digit());
-            digits.parse::<u8>().ok()
+        if let Some(rest) = trimmed.strip_prefix("SM") {
+            let digits = rest.trim();
+            let meter_str = if digits.len() == 5 && digits.is_ascii() {
+                &digits[1..]
+            } else {
+                digits
+            };
+            meter_str.parse::<u8>().ok()
         } else {
             None
         }
@@ -166,5 +171,7 @@ mod tests {
     fn test_kenwood_smeter() {
         assert_eq!(KenwoodCat::read_smeter_cmd(), "SM0;");
         assert_eq!(KenwoodCat::parse_smeter_resp("SM00015;"), Some(15));
+        assert_eq!(KenwoodCat::parse_smeter_resp("SM10015;"), Some(15));
+        assert_eq!(KenwoodCat::parse_smeter_resp("SM0015;"), Some(15));
     }
 }

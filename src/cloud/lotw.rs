@@ -61,10 +61,7 @@ pub fn export_and_sign_tqsl(
     adif_content: &str,
 ) -> Result<String, Box<dyn std::error::Error>> {
     let temp_dir = std::env::temp_dir();
-    let adif_path = temp_dir.join(format!(
-        "splogbook_lotw_{}.adi",
-        chrono::Utc::now().timestamp()
-    ));
+    let adif_path = temp_dir.join(format!("splogbook_lotw_{}.adi", uuid::Uuid::new_v4()));
     std::fs::write(&adif_path, adif_content)?;
 
     // Argumenty TQSL:
@@ -82,9 +79,53 @@ pub fn export_and_sign_tqsl(
         .arg("-l")
         .arg(station_location)
         .arg(&adif_path)
-        .output()?;
+        .output();
 
     let _ = std::fs::remove_file(&adif_path);
+    let output = output?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    if output.status.success() {
+        Ok(format!("TQSL sukces: {stdout}\n{stderr}")
+            .trim()
+            .to_string())
+    } else {
+        Err(format!(
+            "Błąd wykonania TQSL (kod {}): {}\n{}",
+            output.status.code().unwrap_or(-1),
+            stdout,
+            stderr
+        )
+        .into())
+    }
+}
+
+/// Asynchronicznie eksportuje i podpisuje plik ADIF za pomocą TQSL, a następnie przesyła do LoTW
+pub async fn export_and_sign_tqsl_async(
+    tqsl_path: impl AsRef<Path>,
+    station_location: &str,
+    adif_content: &str,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    let temp_dir = std::env::temp_dir();
+    let adif_path = temp_dir.join(format!("splogbook_lotw_{}.adi", uuid::Uuid::new_v4()));
+    tokio::fs::write(&adif_path, adif_content).await?;
+
+    let output = tokio::process::Command::new(tqsl_path.as_ref())
+        .arg("-d")
+        .arg("-u")
+        .arg("-a")
+        .arg("all")
+        .arg("-x")
+        .arg("-l")
+        .arg(station_location)
+        .arg(&adif_path)
+        .output()
+        .await;
+
+    let _ = tokio::fs::remove_file(&adif_path).await;
+    let output = output?;
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();

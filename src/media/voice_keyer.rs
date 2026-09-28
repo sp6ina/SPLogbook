@@ -13,14 +13,21 @@ use std::time::Duration;
 
 /// Globalna flaga zatrzymania odtwarzania w pętli (np. CQ loop).
 static STOP_PLAYBACK: AtomicBool = AtomicBool::new(false);
+static PLAYBACK_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// Żąda zatrzymania odtwarzania zapętlonego komunikatu.
+/// Żąda zatrzymania odtwarzania komunikatu.
 pub fn request_stop() {
     STOP_PLAYBACK.store(true, Ordering::SeqCst);
 }
 
-/// Odtwarza plik WAV do domyślnego urządzenia wyjściowego (blokujące).
+/// Odtwarza plik WAV do domyślnego urządzenia wyjściowego (blokujące, przerywalne przez `request_stop`).
 pub fn play_wav_file(path: &str) -> Result<(), String> {
+    request_stop();
+    let _guard = PLAYBACK_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    STOP_PLAYBACK.store(false, Ordering::SeqCst);
+
     let file = File::open(path).map_err(|e| format!("Nie można otworzyć pliku: {e}"))?;
     let source = Decoder::new(BufReader::new(file))
         .map_err(|e| format!("Nieobsługiwany format audio: {e}"))?;
@@ -28,14 +35,19 @@ pub fn play_wav_file(path: &str) -> Result<(), String> {
         .map_err(|e| format!("Brak urządzenia audio: {e}"))?;
     let player = Player::connect_new(sink.mixer());
     player.append(source);
-    player.sleep_until_end();
+    wait_until_done_or_stopped(&player);
     Ok(())
 }
 
 /// Odtwarza komunikat voice keyer'a. Gdy plik WAV nie jest ustawiony,
 /// generuje krótki sygnał testowy (sine 800 Hz).
 pub fn play_message(msg: &VoiceKeyerMessage) -> Result<(), String> {
+    request_stop();
+    let _guard = PLAYBACK_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     STOP_PLAYBACK.store(false, Ordering::SeqCst);
+
     let sink = DeviceSinkBuilder::open_default_sink()
         .map_err(|e| format!("Brak urządzenia audio: {e}"))?;
     let player = Player::connect_new(sink.mixer());
@@ -55,7 +67,7 @@ pub fn play_message(msg: &VoiceKeyerMessage) -> Result<(), String> {
             wait_for_stop(&player);
         } else {
             player.append(source);
-            player.sleep_until_end();
+            wait_until_done_or_stopped(&player);
         }
     } else {
         let tone = rodio::source::SineWave::new(800.0)
@@ -66,7 +78,7 @@ pub fn play_message(msg: &VoiceKeyerMessage) -> Result<(), String> {
             wait_for_stop(&player);
         } else {
             player.append(tone);
-            player.sleep_until_end();
+            wait_until_done_or_stopped(&player);
         }
     }
     Ok(())
@@ -75,7 +87,15 @@ pub fn play_message(msg: &VoiceKeyerMessage) -> Result<(), String> {
 /// Oczekuje na żądanie zatrzymania (dla trybu pętli).
 fn wait_for_stop(player: &Player) {
     while !STOP_PLAYBACK.load(Ordering::SeqCst) {
-        std::thread::sleep(Duration::from_millis(50));
+        std::thread::sleep(Duration::from_millis(40));
+    }
+    player.stop();
+}
+
+/// Oczekuje na koniec odtwarzania lub żądanie `request_stop()`.
+fn wait_until_done_or_stopped(player: &Player) {
+    while !player.empty() && !STOP_PLAYBACK.load(Ordering::SeqCst) {
+        std::thread::sleep(Duration::from_millis(40));
     }
     player.stop();
 }

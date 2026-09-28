@@ -7,8 +7,18 @@ pub struct WsprSpot {
 }
 
 pub async fn fetch_wspr_spots(my_callsign: &str) -> Result<Vec<WsprSpot>, String> {
+    let sanitized: String = my_callsign
+        .trim()
+        .to_ascii_uppercase()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '/')
+        .collect();
+    if sanitized.is_empty() {
+        return Err("Nieprawidłowy lub pusty znak wywoławczy".to_string());
+    }
+    let encoded_call = sanitized.replace('/', "%2F");
     let url = format!(
-        "https://db1.wspr.live/?query=SELECT+callsign,frequency,snr,drift,gridsquare+FROM+wspr.rx+WHERE+rx_sign%3D%27{my_callsign}%27+ORDER+BY+time+DESC+LIMIT+50+FORMAT+JSONEachRow"
+        "https://db1.wspr.live/?query=SELECT+callsign,frequency,snr,drift,gridsquare+FROM+wspr.rx+WHERE+rx_sign%3D%27{encoded_call}%27+ORDER+BY+time+DESC+LIMIT+50+FORMAT+JSONEachRow"
     );
     let resp = crate::core::http::http_client()
         .get(&url)

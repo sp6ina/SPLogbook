@@ -309,11 +309,10 @@ impl RigctldSupervisor {
             for _ in 0..10 {
                 match child.try_wait() {
                     Ok(Some(_)) => return,
-                    Ok(None) => std::thread::sleep(std::time::Duration::from_millis(50)),
+                    Ok(None) => std::thread::sleep(std::time::Duration::from_millis(15)),
                     Err(_) => break,
                 }
             }
-            let _ = child.wait();
         }
     }
 }

@@ -5,6 +5,7 @@
 #[derive(Debug, Clone)]
 pub struct FldigiClient {
     pub endpoint: String,
+    client: reqwest::Client,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -19,10 +20,19 @@ pub struct FldigiQsoState {
     pub mode: String,
 }
 
+fn unescape_xml_entities(s: &str) -> String {
+    s.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&amp;", "&")
+}
+
 impl FldigiClient {
     pub fn new(host: &str, port: u16) -> Self {
         Self {
             endpoint: format!("http://{host}:{port}/RPC2"),
+            client: crate::core::http::http_client_with_timeout_millis(500),
         }
     }
 
@@ -51,6 +61,8 @@ impl FldigiClient {
 
     /// Pobiera aktualnie wprowadzane dane łączności z okna logu FLDIGI
     pub async fn get_qso_data(&self) -> Result<FldigiQsoState, String> {
+        let freq_hz = self.get_frequency().await?;
+        let mode = self.get_mode().await.unwrap_or_default();
         let call = self
             .call_xmlrpc("log.get_call", "")
             .await
@@ -75,8 +87,6 @@ impl FldigiClient {
             .call_xmlrpc("log.get_rst_in", "")
             .await
             .unwrap_or_else(|_| "599".to_string());
-        let freq_hz = self.get_frequency().await.unwrap_or(0.0);
-        let mode = self.get_mode().await.unwrap_or_default();
 
         Ok(FldigiQsoState {
             call,
@@ -108,9 +118,8 @@ impl FldigiClient {
             r#"<?xml version="1.0"?><methodCall><methodName>{method_name}</methodName><params>{params_xml}</params></methodCall>"#
         );
 
-        let client = crate::core::http::http_client_with_timeout_millis(500);
-
-        let resp = client
+        let resp = self
+            .client
             .post(&self.endpoint)
             .header("Content-Type", "text/xml")
             .body(body)
@@ -126,7 +135,7 @@ impl FldigiClient {
         Self::parse_xmlrpc_value(&xml)
     }
 
-    /// Ekstrahuje zawartość z tagów <value><string>...</string></value> lub <double>
+    /// Ekstrahuje zawartość z tagów <value><string>...</string></value>, <double>, <i4>, <int>
     pub fn parse_xmlrpc_value(xml: &str) -> Result<String, String> {
         if xml.contains("<fault>") {
             return Err("FLDIGI zgłosiło błąd RPC Fault".to_string());
@@ -135,21 +144,28 @@ impl FldigiClient {
         // Szukaj <string>...</string>
         if let Some(start) = xml.find("<string>") {
             if let Some(end) = xml[start + 8..].find("</string>") {
-                return Ok(xml[start + 8..start + 8 + end].to_string());
+                return Ok(unescape_xml_entities(&xml[start + 8..start + 8 + end]));
             }
         }
 
         // Szukaj <double>...</double>
         if let Some(start) = xml.find("<double>") {
             if let Some(end) = xml[start + 8..].find("</double>") {
-                return Ok(xml[start + 8..start + 8 + end].to_string());
+                return Ok(unescape_xml_entities(&xml[start + 8..start + 8 + end]));
             }
         }
 
-        // Szukaj <i4>...</i4> lub <int>...</int>
+        // Szukaj <i4>...</i4>
         if let Some(start) = xml.find("<i4>") {
             if let Some(end) = xml[start + 4..].find("</i4>") {
-                return Ok(xml[start + 4..start + 4 + end].to_string());
+                return Ok(unescape_xml_entities(&xml[start + 4..start + 4 + end]));
+            }
+        }
+
+        // Szukaj <int>...</int>
+        if let Some(start) = xml.find("<int>") {
+            if let Some(end) = xml[start + 5..].find("</int>") {
+                return Ok(unescape_xml_entities(&xml[start + 5..start + 5 + end]));
             }
         }
 
@@ -158,7 +174,7 @@ impl FldigiClient {
             if let Some(end) = xml[start + 7..].find("</value>") {
                 let inner = &xml[start + 7..start + 7 + end];
                 if !inner.starts_with('<') {
-                    return Ok(inner.to_string());
+                    return Ok(unescape_xml_entities(inner));
                 }
             }
         }
@@ -180,5 +196,14 @@ mod tests {
         let xml_double = r#"<?xml version="1.0"?><methodResponse><params><param><value><double>14070000</double></value></param></params></methodResponse>"#;
         let freq = FldigiClient::parse_xmlrpc_value(xml_double).unwrap();
         assert_eq!(freq, "14070000");
+
+        let xml_int = r#"<?xml version="1.0"?><methodResponse><params><param><value><int>14074000</int></value></param></params></methodResponse>"#;
+        assert_eq!(FldigiClient::parse_xmlrpc_value(xml_int).unwrap(), "14074000");
+
+        let xml_escaped = r#"<?xml version="1.0"?><methodResponse><params><param><value><string>A &amp; B &lt;C&gt;</string></value></param></params></methodResponse>"#;
+        assert_eq!(
+            FldigiClient::parse_xmlrpc_value(xml_escaped).unwrap(),
+            "A & B <C>"
+        );
     }
 }

@@ -53,21 +53,36 @@ impl EqslCardDownloader {
     ) -> Result<PathBuf, Box<dyn std::error::Error + Send + Sync>> {
         create_dir_all(&self.cache_dir).await?;
 
+        let sanitize = |s: &str| -> String {
+            s.chars()
+                .map(|c| {
+                    if c.is_ascii_alphanumeric() || c == '-' {
+                        c
+                    } else {
+                        '_'
+                    }
+                })
+                .collect()
+        };
+        let safe_call = sanitize(&dx_call.to_uppercase());
+        let safe_band = sanitize(band);
+        let safe_mode = sanitize(mode);
+
         let file_name = format!(
             "eqsl_{}_{}_{}_{}{}{}_{}{}.jpg",
-            dx_call.to_uppercase(),
-            band,
-            mode,
-            year,
-            month,
-            day,
-            hour,
-            minute
+            safe_call,
+            safe_band,
+            safe_mode,
+            sanitize(year),
+            sanitize(month),
+            sanitize(day),
+            sanitize(hour),
+            sanitize(minute)
         );
         let target_path = self.cache_dir.join(&file_name);
 
         // Jeśli plik już jest w cache, zwróć go bez ponownego pobierania
-        if target_path.exists() {
+        if tokio::fs::try_exists(&target_path).await.unwrap_or(false) {
             return Ok(target_path);
         }
 

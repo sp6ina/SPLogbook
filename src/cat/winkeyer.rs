@@ -60,8 +60,10 @@ impl WinkeyerProtocol {
 
     /// Ustawienie częstotliwości podsłuchu (0x01, 0x04, sidetone_code)
     pub fn set_sidetone(hz: u16) -> Vec<u8> {
-        // Kod sidetone wg K1EL WK spec: 4000 / hz
-        let code = 4000u16.checked_div(hz).map_or(5, |c| c as u8);
+        // Kod sidetone wg K1EL WK spec: 1..=10 (4000 / hz)
+        let code = 4000u16
+            .checked_div(hz)
+            .map_or(5, |c| c.clamp(1, 10) as u8);
         vec![0x01, 0x04, code]
     }
 
@@ -98,13 +100,13 @@ impl CwTerminalBuffer {
     }
 
     pub fn advance_sent(&mut self, count: usize) {
-        if count >= self.queued_text.len() {
-            self.sent_text.push_str(&self.queued_text);
-            self.queued_text.clear();
-        } else {
-            let (sent_part, remaining) = self.queued_text.split_at(count);
+        if let Some((byte_idx, _)) = self.queued_text.char_indices().nth(count) {
+            let (sent_part, remaining) = self.queued_text.split_at(byte_idx);
             self.sent_text.push_str(sent_part);
             self.queued_text = remaining.to_string();
+        } else {
+            self.sent_text.push_str(&self.queued_text);
+            self.queued_text.clear();
         }
     }
 
@@ -138,5 +140,11 @@ mod tests {
         assert_eq!(buf.queued_text, "TEST");
         buf.abort();
         assert!(buf.queued_text.is_empty());
+
+        buf.sent_text.clear();
+        buf.append_to_queue("ŁÓDŹ K");
+        buf.advance_sent(5);
+        assert_eq!(buf.sent_text, "ŁÓDŹ ");
+        assert_eq!(buf.queued_text, "K");
     }
 }

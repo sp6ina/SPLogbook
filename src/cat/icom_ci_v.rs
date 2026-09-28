@@ -20,7 +20,7 @@ pub mod command {
 pub struct CiV;
 
 impl CiV {
-    /// Buduje ramkę CI-V: `FE FE <to> <from> <cmd> [sub] [data..] FD`.
+    /// Buduje ramkę CI-V z bajtem podkomendy: `FE FE <to> <from> <cmd> <sub> [data..] FD`.
     pub fn build_frame(to_addr: u8, from_addr: u8, cmd: u8, sub: u8, data: &[u8]) -> Vec<u8> {
         let mut f = Vec::with_capacity(6 + data.len());
         f.extend_from_slice(&CI_V_PREAMBLE);
@@ -31,6 +31,39 @@ impl CiV {
         f.extend_from_slice(data);
         f.push(CI_V_END);
         f
+    }
+
+    /// Buduje ramkę CI-V bez bajtu podkomendy: `FE FE <to> <from> <cmd> [data..] FD`.
+    pub fn build_simple_frame(to_addr: u8, from_addr: u8, cmd: u8, data: &[u8]) -> Vec<u8> {
+        let mut f = Vec::with_capacity(5 + data.len());
+        f.extend_from_slice(&CI_V_PREAMBLE);
+        f.push(to_addr);
+        f.push(from_addr);
+        f.push(cmd);
+        f.extend_from_slice(data);
+        f.push(CI_V_END);
+        f
+    }
+
+    /// Ramka odczytu częstotliwości (`0x03`, bez bajtu podkomendy).
+    pub fn read_frequency(to_addr: u8) -> Vec<u8> {
+        Self::build_simple_frame(to_addr, CI_V_CONTROLLER, command::READ_FREQUENCY, &[])
+    }
+
+    /// Ramka odczytu emisji (`0x04`, bez bajtu podkomendy).
+    pub fn read_mode(to_addr: u8) -> Vec<u8> {
+        Self::build_simple_frame(to_addr, CI_V_CONTROLLER, command::READ_MODE, &[])
+    }
+
+    /// Ramka ustawienia częstotliwości (`0x05` + 5 bajtów BCD, bez bajtu podkomendy).
+    pub fn set_frequency(to_addr: u8, hz: u64) -> Vec<u8> {
+        let bcd = Self::encode_frequency(hz);
+        Self::build_simple_frame(to_addr, CI_V_CONTROLLER, command::SET_FREQUENCY, &bcd)
+    }
+
+    /// Ramka ustawienia emisji (`0x06` + kod emisji, bez bajtu podkomendy).
+    pub fn set_mode(to_addr: u8, mode_code: u8) -> Vec<u8> {
+        Self::build_simple_frame(to_addr, CI_V_CONTROLLER, command::SET_MODE, &[mode_code])
     }
 
     /// Sprawdza poprawność struktury ramki CI-V (preamble + footer).
@@ -55,15 +88,19 @@ impl CiV {
         out
     }
 
-    /// Dekoduje częstotliwość z bajtów BCD (little-endian).
+    /// Dekoduje częstotliwość z bajtów BCD (little-endian, maks. 5 bajtów).
     pub fn decode_frequency(data: &[u8]) -> u64 {
         let mut hz = 0u64;
         let mut mult = 1u64;
-        for &byte in data {
-            let ones = (byte & 0x0F) as u64;
-            let tens = ((byte >> 4) & 0x0F) as u64;
-            hz += ones * mult + tens * mult * 10;
-            mult *= 100;
+        for &byte in data.iter().take(5) {
+            let ones = u64::from(byte & 0x0F);
+            let tens = u64::from((byte >> 4) & 0x0F);
+            if ones > 9 || tens > 9 {
+                return 0;
+            }
+            let pair = tens.saturating_mul(10).saturating_add(ones);
+            hz = hz.saturating_add(pair.saturating_mul(mult));
+            mult = mult.saturating_mul(100);
         }
         hz
     }

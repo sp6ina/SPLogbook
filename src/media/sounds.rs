@@ -34,8 +34,24 @@ fn chime_worker() -> &'static mpsc::SyncSender<Tones> {
         std::thread::Builder::new()
             .name("splogbook-audio".to_string())
             .spawn(move || {
+                let mut cached_sink = DeviceSinkBuilder::open_default_sink().ok();
                 while let Ok(tones) = rx.recv() {
-                    play_chime(&tones);
+                    if cached_sink.is_none() {
+                        cached_sink = DeviceSinkBuilder::open_default_sink().ok();
+                    }
+                    if let Some(ref sink) = cached_sink {
+                        let player = Player::connect_new(sink.mixer());
+                        for &(freq, amp, ms) in &tones {
+                            player.append(
+                                SineWave::new(freq)
+                                    .take_duration(Duration::from_millis(ms))
+                                    .amplify(amp),
+                            );
+                        }
+                        player.sleep_until_end();
+                    } else {
+                        play_chime(&tones);
+                    }
                 }
             })
             .expect("uruchomienie wątku audio");

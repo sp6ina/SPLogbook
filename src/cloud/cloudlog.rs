@@ -27,7 +27,12 @@ impl CloudlogClient {
             return Err("Brak skonfigurowanego adresu serwera Cloudlog lub klucza API".to_string());
         }
 
-        let adif_record = export_adif(std::slice::from_ref(qso), "SPLogbook", "SP6INA");
+        let station_call = if self.station_id.trim().is_empty() {
+            "SPLogbook"
+        } else {
+            self.station_id.trim()
+        };
+        let adif_record = export_adif(std::slice::from_ref(qso), "SPLogbook", station_call);
         let endpoint = format!("{}/index.php/api/qso", self.server_url);
 
         let payload = json!({

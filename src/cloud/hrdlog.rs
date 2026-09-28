@@ -27,7 +27,7 @@ impl HrdlogClient {
         }
 
         let adif_text = export_adif(std::slice::from_ref(qso), "SPLogbook", &self.callsign);
-        let endpoint = "http://robot.hrdlog.net/NewEntry.aspx";
+        let endpoint = "https://robot.hrdlog.net/NewEntry.aspx";
 
         let params = [
             ("Callsign", self.callsign.as_str()),

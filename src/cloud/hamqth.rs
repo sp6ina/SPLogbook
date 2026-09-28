@@ -22,7 +22,7 @@ impl HamQthClient {
         }
 
         let adif_text = export_adif(std::slice::from_ref(qso), "SPLogbook", &self.username);
-        let endpoint = "http://www.hamqth.com/qso_realtime.php";
+        let endpoint = "https://www.hamqth.com/qso_realtime.php";
 
         let params = [
             ("u", self.username.as_str()),
@@ -124,29 +124,40 @@ impl HamQthXmlClient {
             .session_id
             .as_ref()
             .ok_or_else(|| "Nie udało się utworzyć sesji HamQTH".to_string())?;
-        let url = format!("https://www.hamqth.com/xml.php?id={sid}&callsign={clean}&prg=SPLogbook");
 
         let resp = self
             .client
-            .get(&url)
+            .get("https://www.hamqth.com/xml.php")
+            .query(&[
+                ("id", sid.as_str()),
+                ("callsign", clean.as_str()),
+                ("prg", "SPLogbook"),
+            ])
             .send()
             .await
             .map_err(|e| e.to_string())?;
         let xml = resp.text().await.map_err(|e| e.to_string())?;
 
         // Jeśli sesja wygasła, zaloguj się ponownie
-        if xml.contains("Session does not exist") || xml.contains("session expired") {
+        let is_session_error = Self::extract_tag(&xml, "error")
+            .is_some_and(|err| err.to_ascii_lowercase().contains("session"))
+            || xml.to_ascii_lowercase().contains("session does not exist")
+            || xml.to_ascii_lowercase().contains("session expired");
+        if is_session_error {
             self.session_id = None;
             self.login().await?;
             let sid2 = self
                 .session_id
                 .as_ref()
                 .ok_or_else(|| "Nie udało się utworzyć sesji HamQTH".to_string())?;
-            let url2 =
-                format!("https://www.hamqth.com/xml.php?id={sid2}&callsign={clean}&prg=SPLogbook");
             let resp2 = self
                 .client
-                .get(&url2)
+                .get("https://www.hamqth.com/xml.php")
+                .query(&[
+                    ("id", sid2.as_str()),
+                    ("callsign", clean.as_str()),
+                    ("prg", "SPLogbook"),
+                ])
                 .send()
                 .await
                 .map_err(|e| e.to_string())?;
@@ -185,16 +196,25 @@ impl HamQthXmlClient {
         })
     }
 
+    fn unescape_xml(s: &str) -> String {
+        s.replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&apos;", "'")
+            .replace("&#39;", "'")
+            .replace("&amp;", "&")
+    }
+
     fn extract_tag(xml: &str, tag: &str) -> Option<String> {
         let open_tag = format!("<{tag}>");
         let close_tag = format!("</{tag}>");
         let start = xml.find(&open_tag)? + open_tag.len();
         let end = xml[start..].find(&close_tag)?;
-        let content = &xml[start..start + end];
+        let content = Self::unescape_xml(xml[start..start + end].trim());
         if content.is_empty() {
             None
         } else {
-            Some(content.trim().to_string())
+            Some(content)
         }
     }
 }
