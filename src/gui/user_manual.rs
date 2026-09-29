@@ -234,13 +234,239 @@ O: Tak! Wystarczy skopiować plik default_log.db (znajdziesz go klikając menu P
     },
 ];
 
+pub const MANUAL_SECTIONS_EN: &[ManualSection] = &[
+    ManualSection {
+        id: "start",
+        title: "1. Getting Started",
+        body: "Welcome to SPLogbook — an advanced, modern amateur radio logging and station automation environment built in Rust.\n\n\
+1. Initial Setup: Open Help → Welcome Wizard (or Station Profile Settings) to enter your station callsign (e.g. SP6INA), operator name, Maidenhead grid locator (e.g. JO81), and optional CQ/ITU zones.\n\n\
+2. Connecting Your Radio (CAT): Open Settings → CAT / Rotator Setup and choose the backend matching your transceiver (Hamlib rigctld, Kenwood/Yaesu/Elecraft serial, Icom CI-V, FLRig, or TCI for SDR). Once connected, VFO frequency, mode, and signal reports synchronize in real time.\n\n\
+3. Connecting to a DX Cluster: Open the DX Cluster tab or floating window, select a server preset (e.g. dxcluster.pl:8000, dxfun.com:8000, w3lpl.net:7373), and click 'Connect'. Clicking any DX spot automatically tunes your radio and populates the QSO entry form.\n\n\
+4. Logging a QSO: Enter the correspondent's callsign in the Callsign field and press Enter or F2. SPLogbook immediately resolves the DXCC prefix, calculates bearing and distance, queries online Callbooks (QRZ/HamQTH), and checks award status (ATNO / New Band / New Mode).\n\n\
+Tip: Press Ctrl+Shift+P at any time to open the Command Palette and invoke any application feature from the keyboard.",
+    },
+    ManualSection {
+        id: "station",
+        title: "2. Station & CAT Setup",
+        body: "SPLogbook provides a universal CAT abstraction layer supporting a wide range of transceivers and protocols:\n\n\
+- Hamlib (rigctld): Standard TCP network backend (default port 4532) or automatic background supervisor starting bundled/system rigctld on your chosen serial COM/tty port.\n\
+- Kenwood / Elecraft / Yaesu: Direct serial ASCII CAT protocol support (FA, FB, MD, TX, RX, IF) without requiring external daemons.\n\
+- Icom CI-V: Direct binary CI-V communication with Icom transceivers (configurable hex address, e.g. 0x94 for IC-7300, 0x88 for IC-7100).\n\
+- TCI (Transceiver Control Interface): High-speed network integration with SDR transceivers (Expert Electronics SunSDR2 PRO/DX, Thetis, ExpertSDR3).\n\
+- FLRig (XML-RPC): Seamless integration with the popular FLRig transceiver control server (default port 12345).\n\
+- SO2R: Single-Operator Two-Radio operation with automatic simultaneous transmit lockout (TX Lockout).\n\n\
+Antenna Rotator Control: The built-in rotctld client (TCP port 4533) rotates your antenna with a single click to the Short Path or Long Path azimuth from any DX spot, World Map, or QSO entry.\n\n\
+CAT Port Sharing: SPLogbook includes a built-in Hamlib proxy server (port 4534) so external applications (WSJT-X, JTDX, FLDigi) can share the same radio simultaneously without COM port conflicts.",
+    },
+    ManualSection {
+        id: "logging",
+        title: "3. QSO Logging & SQLite DB",
+        body: "At the core of SPLogbook is a high-performance SQLite database engine running in WAL (Write-Ahead Logging) mode:\n\n\
+- Data Integrity & Safety: WAL mode with transactional commits protects your log against corruption even during sudden power loss. Rolling automatic backups keep up to 10 historical revisions.\n\
+- High-Speed Indexing: Specialized SQLite indexes guarantee instantaneous searching and filtering even with logs exceeding ratusan thousands of QSOs.\n\
+- Smart QSO Entry Form: Automatic uppercase callsign normalization, Super Check Partial (SCP) suggestions, ITU prefix resolution, and CTY.DAT entity matching.\n\
+- Duplicate Detection: Instant visual [DUPE!] warning whenever a station has already been worked on the current band and mode.\n\
+- QSO Audio Recorder: Record live receiver audio from your soundcard and attach WAV recordings directly to individual QSO records.\n\
+- Multi-Journal Support: Maintain multiple independent logs (Home station, Club callsign, /P field activations, Contest logs).",
+    },
+    ManualSection {
+        id: "shortcuts",
+        title: "4. Keyboard Shortcuts",
+        body: "SPLogbook is designed for fast, hands-on-keyboard operation without reaching for the mouse:\n\n\
+Function Keys (Primary):\n\
+- F1 — Help window and complete keyboard shortcuts reference\n\
+- F2 — Save current QSO (Contest & DX standard)\n\
+- F3 — Wipe QSO entry form and focus Callsign input\n\
+- F4 — Force immediate online Callbook lookup (QRZ / HamQTH)\n\
+- F5 — Refresh logbook table from database\n\
+- F6 — Open Send DX Spot dialog\n\
+- F7 — Toggle transceiver PTT (TX / RX) via CAT\n\
+- F8 — Open Voice Keyer panel\n\
+- F11 — Toggle Fullscreen mode\n\
+- F12 — Open built-in User Manual (this window)\n\n\
+Modifier Shortcuts (Ctrl / Cmd):\n\
+- Ctrl+N — New QSO (clears form and focuses Callsign)\n\
+- Ctrl+W — Wipe QSO form\n\
+- Ctrl+S — Save station configuration and database\n\
+- Ctrl+F — Open Advanced Logbook Filter\n\
+- Ctrl+L — Focus / toggle Logbook table\n\
+- Ctrl+D — Open / toggle DX Cluster panel\n\
+- Ctrl+B — Open Bandmap window\n\
+- Ctrl+M — Open World Map & Grayline Terminator\n\
+- Ctrl+K — Open CW Keyer & Macros terminal\n\
+- Ctrl+P — Open Station Profiles manager\n\
+- Ctrl+E — Open configurable CSV Exporter\n\
+- Ctrl+I — Open ADIF Import dialog\n\
+- Ctrl+T — Cycle UI color theme (Dark / Daylight / High-Contrast)\n\
+- Ctrl+Z — Undo last deleted QSO\n\
+- Ctrl+Y / Ctrl+Shift+Z — Redo\n\
+- Ctrl+Shift+S — Open Statistics & Charts window\n\
+- Ctrl+Shift+P — Open Command Palette\n\
+- Ctrl+Q — Safely exit application",
+    },
+    ManualSection {
+        id: "cluster",
+        title: "5. DX Cluster & Bandmap",
+        body: "The DX Cluster module delivers real-time DX spots and award alerts:\n\n\
+- Built-in Telnet Client: Connects to any DXSpider, AR-Cluster, or CC-Cluster node with automatic reconnection and live command input (e.g. sh/dx 25).\n\
+- Smart Deduplication: Sliding window filter prevents duplicate spots from flooding your table.\n\
+- Visual & Audio Alerts:\n\
+  * Magenta Star (ATNO): All-Time New One DXCC entity with optional audio chime.\n\
+  * Emerald Badge: New Band or New Mode for a worked DXCC country.\n\
+- Advanced Filtering: Filter by HF / WARC / VHF bands, modes (CW, SSB, FT8/FT4, Digi), continent, or hide automated RBN skimmer spots.\n\
+- Click-to-Tune: Clicking any spot tunes your transceiver VFO to the spot frequency, sets the mode, and populates the QSO entry form.\n\
+- Visual Bandmap: Real-time frequency scale displaying active stations with age-based color fading.",
+    },
+    ManualSection {
+        id: "propagation",
+        title: "6. HF Propagation, Solar & EME",
+        body: "SPLogbook combines real-time ionospheric modeling with live geophysical telemetry:\n\n\
+- Space Weather Telemetry (NOAA SWPC): Live Solar Flux Index (SFI), Sunspot Number (SSN), geomagnetic A and Kp indices, X-ray background flux, and solar wind speed.\n\
+- VOACAP-lite HF Engine: Computes great-circle midpoint, solar zenith angle, D-layer absorption, critical/maximum usable frequencies (foF2, MUF, LUF, FOT), and band opening probability (0-100%) with estimated S-meter signal level.\n\
+- Dynamic Propagation Badge: Entering a callsign immediately displays predicted circuit reliability on all HF bands.\n\
+- EME (Earth-Moon-Earth) Planner: Real-time topocentric Moon azimuth, elevation, range, Doppler shift, path loss, degradation, and mutual visibility windows.",
+    },
+    ManualSection {
+        id: "digital",
+        title: "7. Digital Modes (WSJT-X, JS8, FLDigi)",
+        body: "SPLogbook integrates directly with external digital mode suites:\n\n\
+- WSJT-X / JTDX UDP Bridge (port 2237):\n\
+  * Decodes binary UDP frames: Heartbeat, Status, Decode, QSO Logged, and Clear.\n\
+  * Automatically logs completed FT8/FT4/JT65/Q65 QSOs with exact SNR dB reports and grid locators.\n\
+  * Highlights calling stations in real time when they represent an ATNO or new band/mode.\n\
+- JS8Call (JSON TCP/UDP port 2442): Captures RX.ACTIVITY, RIG.FREQ, and LOG.QSO frames.\n\
+- FLDigi (XML-RPC port 7362): Reads frequency, mode, and QSO fields for PSK31, RTTY, Olivia, and Contestia.\n\
+- N1MM UDP Broadcasts: Emits standard XML ContactInfo packets so tools like GridTracker track your logged QSOs.",
+    },
+    ManualSection {
+        id: "satellites",
+        title: "8. Satellite Tracking & Doppler",
+        body: "Dedicated tools for LEO amateur satellites and the QO-100 geostationary transponder:\n\n\
+- SGP4/SDP4 Orbital Propagator: Uses NORAD Two-Line Elements (TLE) with one-click online updates.\n\
+- Live Orbital Telemetry: Computes azimuth, elevation, slant range, radial velocity, and ground footprint.\n\
+- Automatic CAT Doppler Correction: Continuously calculates uplink and downlink Doppler shift:\n\
+  Δf = -f0 * (v_slant / c)\n\
+  and updates transceiver VFO frequencies via CAT.\n\
+- Azimuth/Elevation Rotator Tracking: Drives 2-axis satellite rotators via rotctld.",
+    },
+    ManualSection {
+        id: "waterfall",
+        title: "9. SDR Audio Spectrum & Waterfall",
+        body: "Real-time audio spectrum analyzer and waterfall display:\n\n\
+- Cross-Platform Audio Capture (cpal): Captures audio directly from your transceiver USB audio codec, line-in, or virtual audio cable.\n\
+- RustFFT Engine: Fast Hann-windowed FFT computation minimizing spectral leakage.\n\
+- Configurable Controls:\n\
+  * FFT sizes: 512, 1024, 2048, or 4096 bins.\n\
+  * Adjustable Gain (dB), Noise Floor (dB), and Pause/Resume inspection.\n\
+  * High-contrast color gradient for spotting weak CW and digital signals.\n\
+- Flexible Docking: Use inline inside the main workspace or undock to a second monitor.",
+    },
+    ManualSection {
+        id: "contest",
+        title: "10. Contest Engine & Cabrillo",
+        body: "High-speed contesting module compliant with international contest rules:\n\n\
+- Supported Contests: CQ WW DX, CQ WPX, ARRL DX, IARU HF Championship, SP DX Contest, VHF/UHF contests, and custom user-defined rules.\n\
+- Smart Exchange Parser: Single-line exchange entry (e.g. '599 001' or '599 15') automatically splits RST, serial number, CQ/ITU zone, or province.\n\
+- Live Score & Rate Sheet: Real-time QSO/hour rate (10-min and 60-min), multiplier matrix by band, and total score calculation.\n\
+- Export Formats: Generates official Cabrillo 3.0 logs, EDI (VHF/UHF) logs, and ADIF/ADX files.",
+    },
+    ManualSection {
+        id: "awards",
+        title: "11. Awards & Field Programs",
+        body: "Automatic progress tracking across major international and national award programs:\n\n\
+- DXCC: Mixed, Band (160m–6m), Mode (CW, Phone, Digital), and DXCC Challenge matrix with Worked vs. Confirmed status.\n\
+- WAZ, WAS & WAE: Tracks all 40 CQ Zones, 50 US States (with built-in States Browser), and European WAE entities.\n\
+- Polska Gmina Award (PGA): Complete database of all 2,477 Polish municipalities.\n\
+- SOTA, POTA, WWFF & IOTA: Dedicated reference fields, built-in IOTA Island Browser, and compliant SOTA CSV export.",
+    },
+    ManualSection {
+        id: "qsl",
+        title: "12. QSL Designer & Avery PDF Labels",
+        body: "Manage paper QSL confirmations and print address/QSO labels:\n\n\
+- Vector PDF Label Exporter: Generates print-ready A4 PDF sheets for standard Avery templates (3x8, 3x7, 2x8, 2x7 labels per page).\n\
+- Smart Print Queue: Filter QSOs waiting for paper QSLs by band, mode, or date range, with automatic multi-page pagination.\n\
+- Margin Calibration: Fine-tune horizontal and vertical offsets in millimeters for any laser or inkjet printer.\n\
+- Visual QSL Card Designer: Customize background, callsign typography, QSO data table, and station notes.",
+    },
+    ManualSection {
+        id: "export",
+        title: "13. Cloud Sync, ADIF & REST API",
+        body: "Comprehensive data exchange and cloud logbook synchronization:\n\n\
+- ADIF 3.1.5 & ADX: Full import/export compatibility with standard .adi and XML .adx files.\n\
+- Online Logbooks: Direct two-way or upload synchronization with ARRL LoTW (via TQSL), eQSL.cc, Club Log, QRZ.com Logbook, HamQTH, Cloudlog, and HRDLog.net.\n\
+- Resilient Upload Scheduler: Persistent queue with automatic retry and exponential backoff.\n\
+- Online Database Updater: One-click download and live reload of CTY.DAT (DXCC prefixes), MASTER.SCP (Super Check Partial), and LoTW user activity lists.\n\
+- Built-in REST & WebSocket API (port 8080): Local Axum server for third-party integrations.",
+    },
+    ManualSection {
+        id: "plugins",
+        title: "14. User Plugins (Rhai) & Marketplace",
+        body: "Extend SPLogbook safely with sandboxed user scripts:\n\n\
+- Rhai Scripting Sandbox: Write custom .rhai plugins without recompiling the application. Strict operation and memory limits keep the UI responsive.\n\
+- Lifecycle Hooks: on_startup(), on_qso_logged(call, band, mode, freq, is_atno), on_dx_spot(spotter, call, freq, comment), on_rig_state(freq, mode, connected), and on_band_opened(band).\n\
+- Command Bridge: Scripts can trigger CW macros, voice keyer messages, rotator headings, audio alerts, and QSO fields.\n\
+- Built-in Plugin Marketplace: One-click installation of curated plugins (POTA Helper, CW Macros, Contest Assistant, Rotor Assistant, Band Activity Logger).",
+    },
+    ManualSection {
+        id: "p2p",
+        title: "15. Encrypted LAN / P2P Sync",
+        body: "Multi-operator collaboration without relying on external cloud servers:\n\n\
+- End-to-End Encryption: Peer-to-peer synchronization over LAN or VPN secured with XChaCha20-Poly1305 authenticated encryption and Argon2id key derivation.\n\
+- Real-Time Multi-Op TCP Server: Broadcasts newly logged QSOs and live operator band/mode status across all connected operating positions.\n\
+- Field-Ready: Works completely offline over a local Wi-Fi router during Field Day or DXpeditions.",
+    },
+    ManualSection {
+        id: "os_setup",
+        title: "16. Windows & Linux Setup",
+        body: "SPLogbook runs natively on 64-bit Windows 10/11 and GNU/Linux. Key platform notes:\n\n\
+GNU/Linux (x86_64):\n\
+1. USB Serial Port Permissions:\n\
+   Add your user account to the serial group to access /dev/ttyUSB* and /dev/ttyACM*:\n\
+   - Debian / Ubuntu / Mint / Raspberry Pi OS:\n\
+     sudo usermod -aG dialout $USER\n\
+   - Arch / Manjaro / Fedora / openSUSE:\n\
+     sudo usermod -aG uucp $USER\n\
+   Log out and log back in after running the command.\n\
+2. Data Directories (XDG Standard):\n\
+   - Databases & logs: ~/.local/share/splogbook/\n\
+   - Configuration: ~/.config/splogbook/\n\n\
+Microsoft Windows (10 / 11 64-bit):\n\
+1. Virtual COM Ports: Install the transceiver manufacturer's USB UART driver (Silicon Labs CP210x, FTDI, or CH340) and select the detected COM port in CAT Settings.\n\
+2. Windows Firewall: Allow SPLogbook on private networks when using the WSJT-X UDP bridge (2237), CAT proxy (4534), or Multi-Op LAN sync.\n\
+3. Data Directory: Stored in %APPDATA%\\SPLogbook\\",
+    },
+    ManualSection {
+        id: "troubleshooting",
+        title: "17. Troubleshooting FAQ",
+        body: "Solutions to common technical questions:\n\n\
+Q: My transceiver does not connect via CAT.\n\
+A: 1. Ensure no other program (WSJT-X, OmniRig, Putty) is holding the same COM/tty serial port open.\n\
+   2. Verify that the Baud Rate in CAT Settings matches your radio's menu setting (e.g. 38400 or 115200).\n\
+   3. In Serial mode, enable 'Auto-start rigctld' or choose the direct Kenwood/Icom backend.\n\n\
+Q: Clicking 'Update Online Database' — how do I know it finished?\n\
+A: SPLogbook downloads the latest CTY.DAT, MASTER.SCP, and LoTW user activity list in the background, reloads them immediately into memory, and shows a confirmation toast notification.\n\n\
+Q: DX Cluster disconnects immediately after connecting.\n\
+A: DXSpider and AR-Cluster nodes require a valid amateur callsign at login. Set your callsign in Station Settings (if left as N0CALL, SPLogbook automatically uses a fallback guest callsign).\n\n\
+Q: Can I move my logbook database to another computer?\n\
+A: Yes! Click 'Open Data Directory' below and copy your .db file (or create a ZIP backup in the Backup Manager). SQLite files are 100% compatible across Windows and Linux.",
+    },
+];
+
+fn active_sections(lang: crate::core::i18n::Language) -> &'static [ManualSection] {
+    match lang {
+        crate::core::i18n::Language::Pl => MANUAL_SECTIONS,
+        _ => MANUAL_SECTIONS_EN,
+    }
+}
+
 /// Kontekstowa ikona pomocy „?” — otwiera podręcznik na wskazanej sekcji.
 pub fn help_button(app: &mut SpLogApp, ui: &mut egui::Ui, section: &'static str) {
-    if ui
-        .small_button("?")
-        .on_hover_text("Pomoc — otwórz podręcznik na tej sekcji")
-        .clicked()
-    {
+    let tip = crate::core::i18n::tr_or(
+        app.current_language,
+        "Pomoc — otwórz podręcznik na tej sekcji",
+        "Help — open User Manual at this section",
+    );
+    if ui.small_button("?").on_hover_text(tip).clicked() {
         app.show_user_manual = true;
         app.manual_section = Some(section.to_string());
     }
@@ -250,81 +476,280 @@ fn section_by_id(id: &str) -> usize {
     MANUAL_SECTIONS.iter().position(|s| s.id == id).unwrap_or(0)
 }
 
-/// Okno „Instrukcja obsługi” — panel boczny z sekcjami + przewijana treść.
+/// Okno „Instrukcja obsługi” — panel boczny z sekcjami + przewijana, czytelnie sformatowana treść.
 pub fn render_user_manual_window(app: &mut SpLogApp, ctx: &egui::Context) {
     if !app.show_user_manual {
         return;
     }
+    let lang = app.current_language;
+    let sections = active_sections(lang);
     let mut is_open = app.show_user_manual;
 
-    // Ustalenie aktywnej sekcji (z ewentualnego linku kontekstowego „?”).
     let selected = if let Some(section) = app.manual_section.take() {
         section_by_id(&section)
     } else {
-        app.manual_selected
+        app.manual_selected.min(sections.len().saturating_sub(1))
     };
 
     let mut new_selected = selected;
     let mut close_requested = false;
 
-    egui::Window::new("📖 Instrukcja obsługi i podręcznik użytkownika")
+    let screen = ctx.content_rect();
+    let max_w = (screen.width() - 32.0).clamp(640.0, 940.0);
+    let max_h = (screen.height() - 48.0).clamp(420.0, 680.0);
+    let default_w = 860.0_f32.min(max_w);
+    let default_h = 560.0_f32.min(max_h);
+
+    let win_title = crate::core::i18n::tr_or(
+        lang,
+        "📖 Instrukcja obsługi i podręcznik użytkownika",
+        "📖 User Manual & Operator Guide",
+    );
+
+    let search_id = egui::Id::new("user_manual_search_filter");
+    let mut search_query: String = ctx.data_mut(|d| d.get_temp(search_id).unwrap_or_default());
+
+    egui::Window::new(win_title)
+        .id(egui::Id::new("splogbook_user_manual_window"))
         .open(&mut is_open)
-        .default_size([880.0, 580.0])
-        .min_width(650.0)
-        .min_height(400.0)
+        .default_size([default_w, default_h])
+        .min_size([620.0, 380.0])
+        .max_size([max_w, max_h])
+        .constrain_to(screen)
         .resizable(true)
+        .collapsible(false)
         .show(ctx, |ui| {
+            ui.set_max_width(max_w - 20.0);
+
+            // Górny pasek nawigacji i wyszukiwarki
             ui.horizontal(|ui| {
-                // Panel boczny z listą sekcji.
-                egui::ScrollArea::vertical()
-                    .max_height(500.0)
+                ui.label(
+                    egui::RichText::new("🔍")
+                        .size(13.0)
+                        .color(egui::Color32::from_rgb(56, 189, 248)),
+                );
+                let hint = crate::core::i18n::tr_or(
+                    lang,
+                    "Szukaj w podręczniku (np. CAT, WSJT-X, skróty)...",
+                    "Search manual (e.g. CAT, WSJT-X, shortcuts)...",
+                );
+                ui.add(
+                    egui::TextEdit::singleline(&mut search_query)
+                        .hint_text(hint)
+                        .desired_width(260.0),
+                );
+                if !search_query.is_empty()
+                    && ui
+                        .small_button("✕")
+                        .on_hover_text(crate::core::i18n::tr_or(lang, "Wyczyść", "Clear"))
+                        .clicked()
+                {
+                    search_query.clear();
+                }
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let next_label = crate::core::i18n::tr_or(lang, "Następny ▶", "Next ▶");
+                    if ui
+                        .add_enabled(
+                            new_selected + 1 < sections.len(),
+                            egui::Button::new(next_label),
+                        )
+                        .clicked()
+                    {
+                        new_selected = (new_selected + 1).min(sections.len() - 1);
+                    }
+                    ui.label(
+                        egui::RichText::new(format!("{} / {}", new_selected + 1, sections.len()))
+                            .size(11.5)
+                            .color(egui::Color32::from_rgb(148, 163, 184)),
+                    );
+                    let prev_label = crate::core::i18n::tr_or(lang, "◀ Poprzedni", "◀ Prev");
+                    if ui
+                        .add_enabled(new_selected > 0, egui::Button::new(prev_label))
+                        .clicked()
+                    {
+                        new_selected = new_selected.saturating_sub(1);
+                    }
+                });
+            });
+
+            ui.add_space(4.0);
+            ui.separator();
+            ui.add_space(4.0);
+
+            let body_height = (ui.available_height() - 44.0).clamp(260.0, 540.0);
+            let q_lower = search_query.trim().to_lowercase();
+
+            ui.horizontal(|ui| {
+                // Lewy panel boczny: spis treści w układzie pionowym
+                egui::Frame::NONE
+                    .fill(egui::Color32::from_rgba_unmultiplied(15, 23, 42, 180))
+                    .corner_radius(6.0)
+                    .inner_margin(egui::Margin::same(6))
+                    .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(51, 65, 85)))
                     .show(ui, |ui| {
-                        ui.set_min_width(220.0);
-                        for (i, sec) in MANUAL_SECTIONS.iter().enumerate() {
-                            if ui.selectable_label(new_selected == i, sec.title).clicked() {
-                                new_selected = i;
-                            }
-                        }
+                        ui.set_width(235.0);
+                        ui.set_height(body_height);
+                        egui::ScrollArea::vertical()
+                            .id_salt("manual_toc_scroll")
+                            .max_height(body_height)
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                ui.vertical(|ui| {
+                                    ui.set_width(220.0);
+                                    for (i, sec) in sections.iter().enumerate() {
+                                        if !q_lower.is_empty()
+                                            && !sec.title.to_lowercase().contains(&q_lower)
+                                            && !sec.body.to_lowercase().contains(&q_lower)
+                                        {
+                                            continue;
+                                        }
+                                        let is_sel = new_selected == i;
+                                        let text = egui::RichText::new(sec.title)
+                                            .size(12.5)
+                                            .color(if is_sel {
+                                                egui::Color32::from_rgb(56, 189, 248)
+                                            } else {
+                                                egui::Color32::from_rgb(226, 232, 240)
+                                            })
+                                            .strong();
+                                        let resp = ui.add_sized(
+                                            [218.0, 26.0],
+                                            egui::Button::selectable(is_sel, text),
+                                        );
+                                        if resp.clicked() {
+                                            new_selected = i;
+                                        }
+                                    }
+                                });
+                            });
                     });
 
-                ui.separator();
+                ui.add_space(6.0);
 
-                // Treść aktywnej sekcji.
-                egui::ScrollArea::vertical()
-                    .auto_shrink([false, false])
+                // Prawy panel: treść rozdziału z zawijaniem wierszy w układzie pionowym
+                let content_width = (ui.available_width() - 4.0).max(340.0);
+                egui::Frame::NONE
+                    .fill(egui::Color32::from_rgba_unmultiplied(30, 41, 59, 140))
+                    .corner_radius(6.0)
+                    .inner_margin(egui::Margin::same(12))
+                    .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(51, 65, 85)))
                     .show(ui, |ui| {
-                        let sec = &MANUAL_SECTIONS[new_selected.min(MANUAL_SECTIONS.len() - 1)];
-                        ui.heading(egui::RichText::new(sec.title).size(18.0).strong());
-                        ui.separator();
-                        for paragraph in sec.body.split("\n\n") {
-                            ui.label(paragraph);
-                            ui.add_space(4.0);
-                        }
+                        ui.set_width(content_width);
+                        ui.set_height(body_height);
+                        egui::ScrollArea::vertical()
+                            .id_salt("manual_content_scroll")
+                            .max_height(body_height)
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                ui.vertical(|ui| {
+                                    let inner_w = (content_width - 28.0).max(300.0);
+                                    ui.set_max_width(inner_w);
+
+                                    let sec = &sections[new_selected.min(sections.len() - 1)];
+                                    ui.label(
+                                        egui::RichText::new(sec.title)
+                                            .size(17.5)
+                                            .strong()
+                                            .color(egui::Color32::from_rgb(56, 189, 248)),
+                                    );
+                                    ui.add_space(4.0);
+                                    ui.separator();
+                                    ui.add_space(8.0);
+
+                                    for paragraph in sec.body.split("\n\n") {
+                                        for line in paragraph.lines() {
+                                            let trimmed = line.trim();
+                                            if trimmed.is_empty() {
+                                                continue;
+                                            }
+                                            if let Some(rest) = trimmed.strip_prefix("- ") {
+                                                ui.horizontal_wrapped(|ui| {
+                                                    ui.set_max_width(inner_w);
+                                                    ui.label(
+                                                        egui::RichText::new("•")
+                                                            .strong()
+                                                            .color(egui::Color32::from_rgb(
+                                                                56, 189, 248,
+                                                            )),
+                                                    );
+                                                    ui.add(
+                                                        egui::Label::new(
+                                                            egui::RichText::new(rest).size(13.0),
+                                                        )
+                                                        .wrap(),
+                                                    );
+                                                });
+                                            } else if let Some(rest) = trimmed.strip_prefix("* ") {
+                                                ui.horizontal_wrapped(|ui| {
+                                                    ui.set_max_width(inner_w);
+                                                    ui.add_space(12.0);
+                                                    ui.label(
+                                                        egui::RichText::new("◦").color(
+                                                            egui::Color32::from_rgb(52, 211, 153),
+                                                        ),
+                                                    );
+                                                    ui.add(
+                                                        egui::Label::new(
+                                                            egui::RichText::new(rest).size(12.5),
+                                                        )
+                                                        .wrap(),
+                                                    );
+                                                });
+                                            } else {
+                                                ui.add(
+                                                    egui::Label::new(
+                                                        egui::RichText::new(trimmed).size(13.0),
+                                                    )
+                                                    .wrap(),
+                                                );
+                                            }
+                                            ui.add_space(3.0);
+                                        }
+                                        ui.add_space(8.0);
+                                    }
+                                });
+                            });
                     });
             });
 
+            ui.add_space(6.0);
             ui.separator();
             ui.horizontal(|ui| {
-                if ui
-                    .button("📁 Otwórz katalog danych programu")
-                    .on_hover_text("Otwiera folder z bazą danych i plikami konfiguracyjnymi")
-                    .clicked()
-                {
+                let open_dir_label = crate::core::i18n::tr_or(
+                    lang,
+                    "📁 Otwórz katalog danych programu",
+                    "📁 Open Data Directory",
+                );
+                let open_dir_tip = crate::core::i18n::tr_or(
+                    lang,
+                    "Otwiera folder z bazą danych i plikami konfiguracyjnymi",
+                    "Opens folder containing database and station configuration files",
+                );
+                if ui.button(open_dir_label).on_hover_text(open_dir_tip).clicked() {
                     if let Some(parent) = app.config_file_path.parent() {
                         let _ = open::that(parent);
                     }
                 }
-                if ui.button("🌐 Zgłoś uwagę lub błąd na GitHubie").clicked() {
+                let issue_label = crate::core::i18n::tr_or(
+                    lang,
+                    "🌐 Zgłoś uwagę lub błąd na GitHubie",
+                    "🌐 Report Issue on GitHub",
+                );
+                if ui.button(issue_label).clicked() {
                     let _ = open::that("https://github.com/sp6ina/SPLogbook/issues/new");
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("Zamknij (Esc)").clicked() {
+                    let close_label =
+                        crate::core::i18n::tr_or(lang, "Zamknij (Esc)", "Close (Esc)");
+                    if ui.button(close_label).clicked() {
                         close_requested = true;
                     }
                 });
             });
         });
 
+    ctx.data_mut(|d| d.insert_temp(search_id, search_query));
     app.manual_selected = new_selected;
     app.show_user_manual = is_open && !close_requested;
 }

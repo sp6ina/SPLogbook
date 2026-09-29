@@ -376,10 +376,21 @@ pub fn render_world_map_window(app: &mut SpLogApp, ctx: &egui::Context) {
     if app.reset_layout_requested {
         win = win.current_pos(default_pos).default_size(default_size);
     } else if let Some(pos) = app.panel_world_map.saved_pos {
-        let sz = app.panel_world_map.saved_size.unwrap_or(default_size);
-        win = win.current_pos(pos).default_size(sz);
+        let raw_sz = app.panel_world_map.saved_size.unwrap_or(default_size);
+        let max_w = (screen.width() - 24.0).max(420.0);
+        let max_h = (screen.height() - 24.0).max(320.0);
+        let sz = [
+            raw_sz[0].clamp(400.0, max_w),
+            raw_sz[1].clamp(300.0, max_h),
+        ];
+        win = win.current_pos(pos).default_size(sz).max_size([max_w, max_h]);
     } else {
-        win = win.default_pos(default_pos).default_size(default_size);
+        let max_w = (screen.width() - 24.0).max(420.0);
+        let max_h = (screen.height() - 24.0).max(320.0);
+        win = win
+            .default_pos(default_pos)
+            .default_size(default_size)
+            .max_size([max_w, max_h]);
     }
 
     let win_res = win.show(ctx, |ui| {
@@ -481,18 +492,25 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
             if let Some(dx_c) = dx_coords {
                 let dx_solar = calculate_solar_position(dx_c, day_of_year, utc_hour_f64);
                 ui.separator();
+                let az_label = crate::core::i18n::tr_or(lang, "Azymut", "Azimuth");
+                let rot_label = crate::core::i18n::tr_or(lang, "Obróć", "Rotate");
                 ui.label(
                     egui::RichText::new(format!(
-                        "DX: {} | Azymut: {:.0}°",
+                        "DX: {} | {}: {:.0}°",
                         app.active_distance_display(),
+                        az_label,
                         app.active_bearing_deg
                     ))
                     .strong()
                     .size(11.0),
                 );
                 if ui
-                    .small_button(format!("🔄 Obróć ({:.0}°)", app.active_bearing_deg))
-                    .on_hover_text("Ustawia rotor antenowy na azymut korespondenta przez rotctld")
+                    .small_button(format!("🔄 {rot_label} ({:.0}°)", app.active_bearing_deg))
+                    .on_hover_text(crate::core::i18n::tr_or(
+                        lang,
+                        "Ustawia rotor antenowy na azymut korespondenta przez rotctld",
+                        "Turns antenna rotator to correspondent's azimuth via rotctld",
+                    ))
                     .clicked()
                 {
                     app.rotate_antenna_to(app.active_bearing_deg as f32);
@@ -529,16 +547,17 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.add_space(2.0);
 
         // Płótno Canvas Mapy Świata (Equirectangular projection)
-        let canvas_size = ui.available_size_before_wrap();
-        let width = canvas_size.x.max(380.0);
-        let height = (width * 0.50).min(canvas_size.y.max(220.0));
+        let avail = ui.available_size();
+        let width = avail.x.clamp(240.0, 1600.0);
+        let height = (width * 0.50).min((avail.y - 4.0).max(180.0)).clamp(180.0, 900.0);
 
         let id = ui.id().with("world_map_state");
         let mut state = ui.data_mut(|d| d.get_temp::<MapState>(id).unwrap_or_default());
 
-        let (response, painter) =
+        let (response, raw_painter) =
             ui.allocate_painter(egui::vec2(width, height), egui::Sense::click_and_drag());
         let rect = response.rect;
+        let painter = raw_painter.with_clip_rect(rect);
 
         if response.dragged() {
             state.pan += response.drag_delta();

@@ -137,19 +137,63 @@ impl SpLogApp {
         mut body: impl FnMut(&mut Self, &mut egui::Ui) -> T,
     ) -> (T, Option<([f32; 2], [f32; 2])>) {
         let mut captured_geo: Option<([f32; 2], [f32; 2])> = None;
+
+        let init_cache_id = egui::Id::new(("floating_vp_init_geo", viewport_id));
+        let (init_pos, init_size) = ctx.data_mut(|d| {
+            *d.get_temp_mut_or_insert_with(init_cache_id, || {
+                let sanitized_size = saved_size
+                    .map(|[w, h]| {
+                        [
+                            w.clamp(min_size[0], 1600.0),
+                            h.clamp(min_size[1], 1000.0),
+                        ]
+                    })
+                    .unwrap_or(default_size);
+                let sanitized_pos = saved_pos.map(|[x, y]| {
+                    [x.clamp(-1920.0, 3840.0), y.clamp(0.0, 2000.0)]
+                });
+                (sanitized_pos, sanitized_size)
+            })
+        });
+
         let mut builder = egui::ViewportBuilder::default()
             .with_title(title)
-            .with_inner_size(saved_size.unwrap_or(default_size))
+            .with_inner_size(init_size)
             .with_min_inner_size(min_size);
-        if let Some([x, y]) = saved_pos {
+        if let Some([x, y]) = init_pos {
             builder = builder.with_position(egui::pos2(x, y));
         }
+
         let result = ctx.show_viewport_immediate(viewport_id, builder, |vp_ui, _class| {
             let out = body(self, vp_ui);
             captured_geo = vp_ui.ctx().input(|i| {
-                i.viewport()
+                let vp = i.viewport();
+                let pos = vp
                     .outer_rect
-                    .map(|r| ([r.min.x, r.min.y], [r.width(), r.height()]))
+                    .or(vp.inner_rect)
+                    .map(|r| [r.min.x.clamp(-1920.0, 3840.0), r.min.y.clamp(0.0, 2000.0)]);
+                let size = vp.inner_rect.map(|r| {
+                    [
+                        r.width().clamp(min_size[0], 1600.0),
+                        r.height().clamp(min_size[1], 1000.0),
+                    ]
+                });
+                match (pos, size) {
+                    (Some(p), Some(s)) => {
+                        let pos_changed = saved_pos
+                            .map(|sp| (sp[0] - p[0]).abs() > 2.0 || (sp[1] - p[1]).abs() > 2.0)
+                            .unwrap_or(true);
+                        let size_changed = saved_size
+                            .map(|ss| (ss[0] - s[0]).abs() > 2.0 || (ss[1] - s[1]).abs() > 2.0)
+                            .unwrap_or(true);
+                        if (pos_changed || size_changed) && !i.pointer.any_down() {
+                            Some((p, s))
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                }
             });
             out
         });
@@ -497,14 +541,19 @@ impl SpLogApp {
             "cluster" => icons::CLUSTER.label(tr("cluster.title", lang)),
             "bandmap" => icons::BANDMAP.label(tr("bandmap.title", lang)),
             "solar" => icons::SOLAR.label(tr("solar.title", lang)),
-            "satellites" => icons::SATELLITE.label("ŚLEDZENIE SATELITÓW"),
+            "satellites" => icons::SATELLITE.label(tr("sat.title", lang)),
             "world_map" => icons::WORLD_MAP.label(tr("map.world_title", lang)),
-            "waterfall" => icons::SIGNAL_UP.label("WIDMO / WATERFALL (SDR)"),
+            "waterfall" => icons::SIGNAL_UP.label(crate::core::i18n::tr_or(
+                lang,
+                "WIDMO / WATERFALL (SDR)",
+                "SPECTRUM / WATERFALL (SDR)",
+            )),
             _ => tile_id.to_string(),
         }
     }
 
     pub fn render_tile_header_custom(&mut self, tile_id: &str, ui: &mut egui::Ui) {
+        let lang = self.current_language;
         match tile_id {
             "vfo" => {
                 if self.vfo_split {
@@ -552,7 +601,6 @@ impl SpLogApp {
                         .size(11.0)
                         .color(egui::Color32::from_rgb(148, 163, 184)),
                 );
-                let lang = self.current_language;
                 ui.add(
                     egui::TextEdit::singleline(&mut self.log_search_query)
                         .hint_text(tr("qso.search", lang))
@@ -576,10 +624,14 @@ impl SpLogApp {
                     );
                 } else if self.cluster_connecting {
                     ui.label(
-                        egui::RichText::new("● ŁĄCZENIE...")
-                            .color(egui::Color32::from_rgb(250, 204, 21))
-                            .size(10.0)
-                            .strong(),
+                        egui::RichText::new(crate::core::i18n::tr_or(
+                            lang,
+                            "● ŁĄCZENIE...",
+                            "● CONNECTING...",
+                        ))
+                        .color(egui::Color32::from_rgb(250, 204, 21))
+                        .size(10.0)
+                        .strong(),
                     );
                 } else {
                     ui.label(
@@ -594,7 +646,11 @@ impl SpLogApp {
                             .strong()
                             .color(egui::Color32::from_rgb(56, 189, 248)),
                     )
-                    .on_hover_text("Wyślij spot DX do klastra Telnet")
+                    .on_hover_text(crate::core::i18n::tr_or(
+                        lang,
+                        "Wyślij spot DX do klastra Telnet",
+                        "Send DX spot to Telnet cluster",
+                    ))
                     .clicked()
                 {
                     let freq_khz = self.rig_state.frequency_hz as f64 / 1000.0;
@@ -622,11 +678,12 @@ impl SpLogApp {
     }
 
     pub fn render_tiles_in_column(&mut self, ui: &mut egui::Ui, col_idx: usize, tiles: &[String]) {
+        let lang = self.current_language;
         let is_dragging = self.dragging_tile.is_some();
         let col_name = match col_idx {
-            0 => "Lewa",
-            1 => "Środek",
-            _ => "Prawa",
+            0 => crate::core::i18n::tr_or(lang, "Lewa", "Left"),
+            1 => crate::core::i18n::tr_or(lang, "Środek", "Center"),
+            _ => crate::core::i18n::tr_or(lang, "Prawa", "Right"),
         };
 
         if tiles.is_empty() {
@@ -653,10 +710,15 @@ impl SpLogApp {
                     egui::Color32::from_rgba_unmultiplied(30, 41, 59, 120)
                 };
                 ui.painter().rect_filled(rect, 8.0, fill);
+                let drop_col_label = if lang == crate::core::i18n::Language::Pl {
+                    format!("➕ Upuść kafelek tutaj\n(Kolumna: {col_name})")
+                } else {
+                    format!("➕ Drop panel here\n(Column: {col_name})")
+                };
                 ui.painter().text(
                     rect.center(),
                     egui::Align2::CENTER_CENTER,
-                    format!("➕ Upuść kafelek tutaj\n(Kolumna: {col_name})"),
+                    drop_col_label,
                     egui::FontId::proportional(12.0),
                     if hovered {
                         egui::Color32::WHITE
@@ -696,7 +758,7 @@ impl SpLogApp {
                     ui.painter().text(
                         slot_rect.center(),
                         egui::Align2::CENTER_CENTER,
-                        "⬇ Upuść tutaj",
+                        crate::core::i18n::tr_or(lang, "⬇ Upuść tutaj", "⬇ Drop here"),
                         egui::FontId::proportional(10.0),
                         egui::Color32::WHITE,
                     );
@@ -739,7 +801,11 @@ impl SpLogApp {
                             let handle_label = egui::RichText::new("⠿").size(16.0).color(egui::Color32::from_rgb(148, 163, 184)).strong();
                             let handle_resp = ui.add(egui::Label::new(handle_label).sense(egui::Sense::drag()))
                                 .on_hover_cursor(egui::CursorIcon::Grab)
-                                .on_hover_text("Przeciągnij myszą, aby przenieść ten kafelek do innej kolumny lub pozycji");
+                                .on_hover_text(crate::core::i18n::tr_or(
+                                    lang,
+                                    "Przeciągnij myszą, aby przenieść ten kafelek do innej kolumny lub pozycji",
+                                    "Drag to move this panel to another column or position",
+                                ));
 
                             if handle_resp.drag_started() || handle_resp.dragged() {
                                 start_drag = Some(tile_id.clone());
@@ -753,7 +819,15 @@ impl SpLogApp {
                             ui.label(title_text);
 
                             if is_this_dragged {
-                                ui.label(egui::RichText::new("[Przenoszenie...]").size(10.0).color(egui::Color32::from_rgb(56, 189, 248)));
+                                ui.label(
+                                    egui::RichText::new(crate::core::i18n::tr_or(
+                                        lang,
+                                        "[Przenoszenie...]",
+                                        "[Moving...]",
+                                    ))
+                                    .size(10.0)
+                                    .color(egui::Color32::from_rgb(56, 189, 248)),
+                                );
                             }
 
                             // Własne widżety nagłówka (CAT, SPLIT, Szukaj, Spot)
@@ -761,28 +835,28 @@ impl SpLogApp {
 
                             // Przyciski przestawiania i zamykania (wyrównane do prawej)
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                if ui.button("✕").on_hover_text("Ukryj ten kafelek").clicked() {
+                                if ui.button("✕").on_hover_text(crate::core::i18n::tr_or(lang, "Ukryj ten kafelek", "Hide this panel")).clicked() {
                                     action_close = Some(tile_id.clone());
                                 }
-                                if ui.button("↗").on_hover_text("Odepnij do osobnego okna pływającego").clicked() {
+                                if ui.button("↗").on_hover_text(crate::core::i18n::tr_or(lang, "Odepnij do osobnego okna pływającego", "Undock into a floating window")).clicked() {
                                     action_popout = Some(tile_id.clone());
                                 }
 
                                 if idx + 1 < tiles.len()
-                                    && ui.button("▼").on_hover_text("Przesuń niżej").clicked() {
+                                    && ui.button("▼").on_hover_text(crate::core::i18n::tr_or(lang, "Przesuń niżej", "Move down")).clicked() {
                                         action_move_order = Some((tile_id.clone(), 1));
                                     }
                                 if idx > 0
-                                    && ui.button("▲").on_hover_text("Przesuń wyżej").clicked() {
+                                    && ui.button("▲").on_hover_text(crate::core::i18n::tr_or(lang, "Przesuń wyżej", "Move up")).clicked() {
                                         action_move_order = Some((tile_id.clone(), -1));
                                     }
 
                                 if col_idx < 2
-                                    && ui.button("▶").on_hover_text("Przenieś do kolumny po prawej").clicked() {
+                                    && ui.button("▶").on_hover_text(crate::core::i18n::tr_or(lang, "Przenieś do kolumny po prawej", "Move to right column")).clicked() {
                                         action_move_col = Some((tile_id.clone(), 1));
                                     }
                                 if col_idx > 0
-                                    && ui.button("◀").on_hover_text("Przenieś do kolumny po lewej").clicked() {
+                                    && ui.button("◀").on_hover_text(crate::core::i18n::tr_or(lang, "Przenieś do kolumny po lewej", "Move to left column")).clicked() {
                                         action_move_col = Some((tile_id.clone(), -1));
                                     }
                             });
@@ -812,7 +886,7 @@ impl SpLogApp {
                 ui.painter().text(
                     slot_rect.center(),
                     egui::Align2::CENTER_CENTER,
-                    "⬇ Upuść tutaj (na końcu)",
+                    crate::core::i18n::tr_or(lang, "⬇ Upuść tutaj (na końcu)", "⬇ Drop here (at end)"),
                     egui::FontId::proportional(10.0),
                     egui::Color32::WHITE,
                 );
@@ -865,6 +939,7 @@ impl SpLogApp {
         if tiles.is_empty() {
             return;
         }
+        let lang = self.current_language;
 
         let active = self.active_tab[col_idx].min(tiles.len() - 1);
         self.active_tab[col_idx] = active;
@@ -907,29 +982,29 @@ impl SpLogApp {
                         self.render_tile_header_custom(&tile_id, ui);
 
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("✕").on_hover_text("Ukryj ten kafelek").clicked() {
+                            if ui.button("✕").on_hover_text(crate::core::i18n::tr_or(lang, "Ukryj ten kafelek", "Hide this panel")).clicked() {
                                 action_close = Some(tile_id.clone());
                             }
                             if ui
                                 .button("↗")
-                                .on_hover_text("Odepnij do osobnego okna pływającego")
+                                .on_hover_text(crate::core::i18n::tr_or(lang, "Odepnij do osobnego okna pływającego", "Undock into a floating window"))
                                 .clicked()
                             {
                                 action_popout = Some(tile_id.clone());
                             }
                             if active + 1 < tiles.len()
-                                && ui.button("▼").on_hover_text("Przesuń niżej").clicked()
+                                && ui.button("▼").on_hover_text(crate::core::i18n::tr_or(lang, "Przesuń niżej", "Move down")).clicked()
                             {
                                 action_move_order = Some((tile_id.clone(), 1));
                             }
-                            if active > 0 && ui.button("▲").on_hover_text("Przesuń wyżej").clicked()
+                            if active > 0 && ui.button("▲").on_hover_text(crate::core::i18n::tr_or(lang, "Przesuń wyżej", "Move up")).clicked()
                             {
                                 action_move_order = Some((tile_id.clone(), -1));
                             }
                             if col_idx < 2
                                 && ui
                                     .button("▶")
-                                    .on_hover_text("Przenieś do kolumny po prawej")
+                                    .on_hover_text(crate::core::i18n::tr_or(lang, "Przenieś do kolumny po prawej", "Move to right column"))
                                     .clicked()
                             {
                                 action_move_col = Some((tile_id.clone(), 1));
@@ -937,7 +1012,7 @@ impl SpLogApp {
                             if col_idx > 0
                                 && ui
                                     .button("◀")
-                                    .on_hover_text("Przenieś do kolumny po lewej")
+                                    .on_hover_text(crate::core::i18n::tr_or(lang, "Przenieś do kolumny po lewej", "Move to left column"))
                                     .clicked()
                             {
                                 action_move_col = Some((tile_id.clone(), -1));
