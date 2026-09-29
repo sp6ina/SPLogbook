@@ -197,11 +197,32 @@ impl RigctldSupervisor {
         cmd.arg("-m").arg(self.rig_id.to_string());
         cmd.arg("-t").arg(self.port.to_string());
 
-        if !self.serial_port.is_empty() {
-            cmd.arg("-r").arg(&self.serial_port);
+        let normalized_port = self.serial_port.trim();
+        if !normalized_port.is_empty() {
+            #[cfg(target_os = "windows")]
+            let arg_port = {
+                let upper = normalized_port.to_ascii_uppercase();
+                if upper.starts_with("COM")
+                    && upper.len() > 4
+                    && !normalized_port.starts_with(r"\\.\")
+                {
+                    format!(r"\\.\{}", normalized_port)
+                } else {
+                    normalized_port.to_string()
+                }
+            };
+            #[cfg(not(target_os = "windows"))]
+            let arg_port = normalized_port.to_string();
+
+            cmd.arg("-r").arg(arg_port);
+        } else if self.rig_id > 6 {
+            return Err(
+                "Wybierz port szeregowy (np. COM3 / /dev/ttyUSB0) dla wybranego modelu radia."
+                    .to_string(),
+            );
         }
 
-        if self.baud_rate > 0 {
+        if self.baud_rate > 0 && self.rig_id > 6 {
             cmd.arg("-s").arg(self.baud_rate.to_string());
         }
 
@@ -255,14 +276,19 @@ impl RigctldSupervisor {
         }
 
         match cmd.spawn() {
-            Ok(child) => {
+            Ok(mut child) => {
+                std::thread::sleep(std::time::Duration::from_millis(90));
+                if let Ok(Some(status)) = child.try_wait() {
+                    return Err(format!(
+                        "rigctld zakończył działanie (kod: {status}) — sprawdź port '{}' ({} bps) oraz czy radio jest włączone.",
+                        self.serial_port, self.baud_rate
+                    ));
+                }
                 info!(
                     "Pomyślnie uruchomiono natywny proces rigctld (PID: {})",
                     child.id()
                 );
                 self.child = Some(child);
-                // Nie blokujemy wywołującego (potencjalnie wątku GUI) — gotowość
-                // gniazda TCP obsługuje warstwa CAT, która ponawia połączenie.
                 Ok(())
             }
             Err(e) => {

@@ -39,18 +39,74 @@ pub enum ClusterEvent {
 }
 
 pub const CLUSTER_PRESETS: &[(&str, &str, u16)] = &[
-    ("Polska - SP7PKA (Łódź)", "cluster.sp7pka.ampr.org", 8000),
-    ("Polska - SR5DXC (Warszawa)", "sr5dxc.ampr.org", 8000),
-    ("Europa - DXFun (Hiszpania)", "dxfun.com", 8000),
-    ("Europa - DB0SUE (Niemcy)", "db0sue.de", 8000),
-    (
-        "Europa - GB7DXM (Wielka Brytania)",
-        "gb7dxm.shacknet.nu",
-        7300,
-    ),
-    ("Ameryka - VE7CC (Kanada)", "ve7cc.net", 23),
+    ("Polska - DXCluster.pl (SP)", "dxcluster.pl", 8000),
+    ("Europa - DXFun (ES)", "dxfun.com", 8000),
+    ("Europa - DB0SUE (DL)", "db0sue.de", 8000),
+    ("Europa - PI4CC (PA)", "dxc.pi4cc.nl", 8000),
+    ("Europa - DXSpider (G)", "dxspider.co.uk", 7300),
+    ("Europa - OK0DXI (OK)", "ok0dxi.nagano.cz", 41112),
+    ("Europa - EA4URE (ES)", "ea4ure.com", 7300),
     ("Ameryka - W3LPL (USA)", "w3lpl.net", 7373),
+    ("Ameryka - NC7J (USA)", "dxc.nc7j.com", 7373),
+    ("Ameryka - K3LR (USA)", "dx.k3lr.com", 23),
 ];
+
+/// Sprawdza czy host należy do historycznych, nieaktywnych już serwerów domyślnych.
+pub fn is_dead_legacy_cluster_host(host: &str) -> bool {
+    let h = host.trim().to_ascii_lowercase();
+    h.is_empty()
+        || h == "cluster.sp7pka.ampr.org"
+        || h == "sr5dxc.ampr.org"
+        || h == "gb7dxm.shacknet.nu"
+        || h == "ve7cc.net"
+}
+
+/// Normalizuje znak wywoławczy do logowania w klastrze Telnet (węzły DXSpider/AR-Cluster
+/// odrzucają pusty znak, "N0CALL" oraz czasem sufiksy łamane `/P`).
+pub fn sanitize_login_call(raw_call: &str) -> String {
+    let trimmed = raw_call.trim().to_ascii_uppercase();
+    if trimmed.is_empty() || trimmed == "N0CALL" || trimmed == "NOCALL" {
+        return "SP0LOG".to_string();
+    }
+    let base = trimmed
+        .split('/')
+        .max_by_key(|part| part.len())
+        .unwrap_or(&trimmed);
+    let clean: String = base
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .collect();
+    if clean.len() >= 3 && clean.chars().any(|c| c.is_ascii_digit()) {
+        clean
+    } else {
+        "SP0LOG".to_string()
+    }
+}
+
+/// Usuwa bajty negocjacji Telnet IAC (0xFF + 2 bajty) oraz znaki sterujące BELL (0x07).
+fn strip_telnet_iac(bytes: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == 0xFF {
+            if i + 1 < bytes.len() {
+                let cmd = bytes[i + 1];
+                if (251..=254).contains(&cmd) {
+                    i += 3;
+                    continue;
+                }
+                i += 2;
+                continue;
+            }
+            break;
+        }
+        if bytes[i] != 0x07 && bytes[i] != 0x00 {
+            out.push(bytes[i]);
+        }
+        i += 1;
+    }
+    out
+}
 
 /// Asynchroniczny klient do węzłów DX Cluster (Telnet) z pętlą automatycznego wznawiania (Auto-Reconnect)
 pub struct DxClusterClient {
@@ -100,7 +156,13 @@ impl DxClusterClient {
         mut stop_rx: tokio::sync::watch::Receiver<bool>,
         mut cmd_rx: Option<tokio::sync::mpsc::UnboundedReceiver<String>>,
     ) {
-        let addr = format!("{host}:{port}");
+        let (effective_host, effective_port) = if is_dead_legacy_cluster_host(&host) {
+            ("dxcluster.pl".to_string(), 8000)
+        } else {
+            (host.trim().to_string(), if port == 0 { 8000 } else { port })
+        };
+        let addr = format!("{effective_host}:{effective_port}");
+        let login_call = sanitize_login_call(&my_call);
 
         while !*stop_rx.borrow() {
             let connect_result = tokio::select! {
@@ -116,7 +178,7 @@ impl DxClusterClient {
                 Some(Ok(Err(e))) => {
                     if event_tx
                         .send(ClusterEvent::Disconnected(format!(
-                            "Błąd połączenia z {addr}: {e}"
+                            "Connection error ({addr}): {e}"
                         )))
                         .is_err()
                     {
@@ -131,7 +193,7 @@ impl DxClusterClient {
                 Some(Err(_)) => {
                     if event_tx
                         .send(ClusterEvent::Disconnected(format!(
-                            "Przekroczono czas oczekiwania na połączenie z {addr} (10s)"
+                            "Connection timeout ({addr}, 10s)"
                         )))
                         .is_err()
                     {
@@ -148,7 +210,7 @@ impl DxClusterClient {
 
             if event_tx
                 .send(ClusterEvent::Connected(format!(
-                    "Połączono z serwerem: {addr}"
+                    "Connected to DX Cluster: {addr} (login: {login_call})"
                 )))
                 .is_err()
             {
@@ -158,16 +220,28 @@ impl DxClusterClient {
             let (reader, mut writer) = stream.into_split();
             let mut buf_reader = BufReader::new(reader);
 
-            tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+            tokio::time::sleep(std::time::Duration::from_millis(350)).await;
             if *stop_rx.borrow() {
                 break;
             }
-            let _ = writer.write_all(format!("{my_call}\n").as_bytes()).await;
+            let _ = writer
+                .write_all(format!("{login_call}\r\n").as_bytes())
+                .await;
+            let _ = writer.flush().await;
 
+            // Po krótkiej chwili pobierz ostatnie 25 spotów, aby tabela od razu się zapełniła
+            let mut sent_initial_sh_dx = false;
             let mut raw_line = Vec::with_capacity(256);
+
             loop {
                 if *stop_rx.borrow() {
                     break;
+                }
+
+                if !sent_initial_sh_dx {
+                    sent_initial_sh_dx = true;
+                    let _ = writer.write_all(b"sh/dx 25\r\n").await;
+                    let _ = writer.flush().await;
                 }
 
                 raw_line.clear();
@@ -196,23 +270,24 @@ impl DxClusterClient {
                 let read_res = match action {
                     LoopAction::Stop => break,
                     LoopAction::Command(cmd) => {
-                        let formatted = if cmd.ends_with('\n') {
+                        let formatted = if cmd.ends_with("\r\n") {
                             cmd
                         } else {
-                            format!("{}\r\n", cmd.trim_end_matches('\r'))
+                            format!("{}\r\n", cmd.trim_end_matches(['\r', '\n']))
                         };
                         if let Err(e) = writer.write_all(formatted.as_bytes()).await {
                             let _ = event_tx.send(ClusterEvent::Disconnected(format!(
-                                "Błąd wysyłania komendy do {addr}: {e}"
+                                "Write error ({addr}): {e}"
                             )));
                             break;
                         }
+                        let _ = writer.flush().await;
                         continue;
                     }
                     LoopAction::Read(Ok(res)) => res,
                     LoopAction::Read(Err(_)) => {
                         let _ = event_tx.send(ClusterEvent::Disconnected(format!(
-                            "Przekroczono czas oczekiwania na dane z {addr} (300s)"
+                            "Read timeout ({addr}, 300s)"
                         )));
                         break;
                     }
@@ -221,25 +296,37 @@ impl DxClusterClient {
                 match read_res {
                     Ok(0) => {
                         let _ = event_tx.send(ClusterEvent::Disconnected(format!(
-                            "Rozłączono przez serwer {addr}"
+                            "Disconnected by server {addr}"
                         )));
                         break;
                     }
                     Ok(_) if raw_line.len() > MAX_LINE_LEN => {
                         let _ = event_tx.send(ClusterEvent::Disconnected(format!(
-                            "Serwer {addr} wysłał zbyt długą linię (>{MAX_LINE_LEN} B), rozłączono."
+                            "Server {addr} sent line exceeding {MAX_LINE_LEN} B, disconnected."
                         )));
                         break;
                     }
                     Ok(_) => {
-                        let line_cow = String::from_utf8_lossy(&raw_line);
+                        let cleaned = strip_telnet_iac(&raw_line);
+                        let line_cow = String::from_utf8_lossy(&cleaned);
                         let trimmed = line_cow.trim();
-                        if !trimmed.is_empty()
-                            && event_tx
+                        if !trimmed.is_empty() {
+                            let lower = trimmed.to_ascii_lowercase();
+                            if lower.ends_with("login:")
+                                || lower.ends_with("call:")
+                                || lower.ends_with("callsign:")
+                            {
+                                let _ = writer
+                                    .write_all(format!("{login_call}\r\n").as_bytes())
+                                    .await;
+                                let _ = writer.flush().await;
+                            }
+                            if event_tx
                                 .send(ClusterEvent::RawLine(trimmed.to_string()))
                                 .is_err()
-                        {
-                            break;
+                            {
+                                break;
+                            }
                         }
                         if let Some(spot) = parse_dx_spot(trimmed) {
                             if event_tx.send(ClusterEvent::Spot(spot)).is_err() {
@@ -249,7 +336,7 @@ impl DxClusterClient {
                     }
                     Err(e) => {
                         let _ = event_tx.send(ClusterEvent::Disconnected(format!(
-                            "Błąd transmisji z {addr}: {e}"
+                            "Transmission error ({addr}): {e}"
                         )));
                         break;
                     }
@@ -268,13 +355,14 @@ impl DxClusterClient {
         }
 
         let _ = event_tx.send(ClusterEvent::Disconnected(
-            "Rozłączono z klastrem DX.".to_string(),
+            "Disconnected from DX Cluster.".to_string(),
         ));
     }
 
     /// Łączy się z klastrem DX i transmituje odebrane spoty przez kanał broadcast
     pub async fn run(&self) {
         let addr = format!("{}:{}", self.host, self.port);
+        let login_call = sanitize_login_call(&self.my_call);
 
         loop {
             if let Ok(Ok(stream)) = tokio::time::timeout(
@@ -286,9 +374,9 @@ impl DxClusterClient {
                 let (reader, mut writer) = stream.into_split();
                 let mut buf_reader = BufReader::new(reader);
 
-                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                tokio::time::sleep(std::time::Duration::from_millis(400)).await;
                 let _ = writer
-                    .write_all(format!("{}\n", self.my_call).as_bytes())
+                    .write_all(format!("{login_call}\r\n").as_bytes())
                     .await;
 
                 let mut raw_line = Vec::with_capacity(256);
@@ -309,7 +397,8 @@ impl DxClusterClient {
                         raw_line.clear();
                         break;
                     }
-                    let line_cow = String::from_utf8_lossy(&raw_line);
+                    let cleaned = strip_telnet_iac(&raw_line);
+                    let line_cow = String::from_utf8_lossy(&cleaned);
                     let trimmed = line_cow.trim();
                     if let Some(spot) = parse_dx_spot(trimmed) {
                         let _ = self.spot_sender.send(spot);
@@ -340,6 +429,16 @@ fn spot_regex_no_z() -> &'static Regex {
     })
 }
 
+/// Wyrażenie regularne dla wierszy historii `sh/dx` zwracanych przez węzły DXSpider / AR-Cluster:
+/// np. ` 14074.0  JA1ABC      29-Sep-2026 1420Z  FT8 -10 dB                    <SP6INA>`
+fn sh_dx_regex() -> &'static Regex {
+    static RE_SH_DX: OnceLock<Regex> = OnceLock::new();
+    RE_SH_DX.get_or_init(|| {
+        Regex::new(r"(?i)^\s*([0-9]+\.[0-9]+)\s+([A-Z0-9/]+)\s+[0-9]{1,2}-[A-Z]{3}-[0-9]{2,4}\s+([0-9]{4})Z?\s+(.*?)\s*<([A-Z0-9/\-#]+)>\s*$")
+            .expect("sh/dx regex musi być poprawny")
+    })
+}
+
 /// Parsuje pojedynczą linię spotu DX Cluster na `DxSpot`. Zwraca `None` dla linii,
 /// które nie są spotami (powitania, informacje serwera, pusta linia itd.).
 pub fn parse_dx_spot(line: &str) -> Option<DxSpot> {
@@ -347,15 +446,28 @@ pub fn parse_dx_spot(line: &str) -> Option<DxSpot> {
     if trimmed.is_empty() {
         return None;
     }
-    let caps = spot_regex()
+    let (spotter, freq_str, dx_call, comment, time_utc) = if let Some(caps) = spot_regex()
         .captures(trimmed)
-        .or_else(|| spot_regex_no_z().captures(trimmed))?;
-
-    let spotter = caps.get(1)?.as_str().to_uppercase();
-    let freq_str = caps.get(2)?.as_str();
-    let dx_call = caps.get(3)?.as_str().to_uppercase();
-    let comment = caps.get(4)?.as_str().trim().to_string();
-    let time_utc = caps.get(5)?.as_str().to_string();
+        .or_else(|| spot_regex_no_z().captures(trimmed))
+    {
+        (
+            caps.get(1)?.as_str().to_uppercase(),
+            caps.get(2)?.as_str(),
+            caps.get(3)?.as_str().to_uppercase(),
+            caps.get(4)?.as_str().trim().to_string(),
+            caps.get(5)?.as_str().to_string(),
+        )
+    } else if let Some(caps) = sh_dx_regex().captures(trimmed) {
+        (
+            caps.get(5)?.as_str().to_uppercase(),
+            caps.get(1)?.as_str(),
+            caps.get(2)?.as_str().to_uppercase(),
+            caps.get(4)?.as_str().trim().to_string(),
+            caps.get(3)?.as_str().to_string(),
+        )
+    } else {
+        return None;
+    };
 
     let frequency_khz: f64 = freq_str.parse().unwrap_or(0.0);
     let band = band_for_freq_khz(frequency_khz);

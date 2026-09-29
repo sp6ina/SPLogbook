@@ -948,7 +948,7 @@ impl Default for AppConfig {
             theme_preset: default_theme_preset(),
             cat_host: "127.0.0.1".to_string(),
             cat_port: 4532,
-            cat_enabled: true,
+            cat_enabled: false,
             cat_poll_rate_ms: 200,
             cat_rig_model: String::new(),
             cat_serial_port: String::new(),
@@ -1039,7 +1039,7 @@ impl Default for AppConfig {
             live_auto_upload_clublog: false,
             live_auto_upload_qrz: false,
 
-            cluster_host: "cluster.sp7pka.ampr.org".to_string(),
+            cluster_host: "dxcluster.pl".to_string(),
             cluster_port: 8000,
             cluster_callsign: String::new(),
             cluster_auto_connect: false,

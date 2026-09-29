@@ -191,6 +191,7 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         .clicked()
                     {
                         app.cat_backend = "hamlib".to_string();
+                        app.cat_auto_start_rigctld = true;
                     }
                     if ui
                         .selectable_value(
@@ -200,7 +201,9 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         )
                         .clicked()
                     {
-                        app.cat_backend = "hamlib".to_string();
+                        if app.cat_backend != "flrig" {
+                            app.cat_backend = "hamlib".to_string();
+                        }
                     }
                     if ui
                         .selectable_value(
@@ -238,58 +241,135 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 Ok(()) => {
                                     app.tci_test_result = Some(format!("TCI {host}:{port} OK"));
                                 }
-                                Err(e) => app.tci_test_result = Some(e.clone()),
+                                Err(e) => app.tci_test_result = Some(e),
                             }
                         }
                     });
                     if let Some(ref res) = app.tci_test_result {
                         ui.colored_label(egui::Color32::from_rgb(56, 189, 248), res);
                     }
-                } else if app.cat_conn_type == "tcp" {
-                    ui.horizontal(|ui| {
-                        ui.label("Host TCP:");
-                        ui.add(egui::TextEdit::singleline(&mut app.cat_host).desired_width(120.0));
-                        ui.add_space(10.0);
-                        ui.label("Port TCP:");
-                        let mut port_str = app.cat_port.to_string();
-                        if ui
-                            .add(egui::TextEdit::singleline(&mut port_str).desired_width(60.0))
-                            .changed()
-                        {
-                            if let Ok(p) = port_str.trim().parse::<u16>() {
-                                app.cat_port = p;
-                            }
-                        }
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label(tr("cat_settings.serial_port_label", lang));
-                        ui.add(
-                            egui::TextEdit::singleline(&mut app.cat_serial_port)
-                                .desired_width(110.0)
-                                .hint_text("COM3, /dev/ttyUSB0"),
-                        );
-                        ui.add_space(10.0);
-                        ui.label(tr("cat_settings.baud_rate_label", lang));
-                        egui::ComboBox::from_id_salt("cat_baud_combo")
-                            .selected_text(format!("{} bps", app.cat_baud_rate))
-                            .show_ui(ui, |ui| {
-                                for &b in &[4800, 9600, 19200, 38400, 57600, 115_200] {
-                                    ui.selectable_value(
-                                        &mut app.cat_baud_rate,
-                                        b,
-                                        format!("{b} bps"),
-                                    );
+                } else {
+                    if app.cat_conn_type == "tcp" {
+                        ui.horizontal(|ui| {
+                            ui.label("Backend TCP:");
+                            if ui
+                                .selectable_label(
+                                    app.cat_backend != "flrig",
+                                    "Hamlib (rigctld :4532)",
+                                )
+                                .clicked()
+                            {
+                                app.cat_backend = "hamlib".to_string();
+                                if app.cat_port == 12345 {
+                                    app.cat_port = 4532;
                                 }
-                            });
-                    });
+                            }
+                            if ui
+                                .selectable_label(
+                                    app.cat_backend == "flrig",
+                                    "FLRig (XML-RPC :12345)",
+                                )
+                                .clicked()
+                            {
+                                app.cat_backend = "flrig".to_string();
+                                app.cat_auto_start_rigctld = false;
+                                if app.cat_port == 4532 {
+                                    app.cat_port = 12345;
+                                }
+                            }
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Host TCP:");
+                            ui.add(
+                                egui::TextEdit::singleline(&mut app.cat_host).desired_width(120.0),
+                            );
+                            ui.add_space(10.0);
+                            ui.label("Port TCP:");
+                            let mut port_str = app.cat_port.to_string();
+                            if ui
+                                .add(egui::TextEdit::singleline(&mut port_str).desired_width(60.0))
+                                .changed()
+                            {
+                                if let Ok(p) = port_str.trim().parse::<u16>() {
+                                    app.cat_port = p;
+                                }
+                            }
+                        });
+                    } else {
+                        // Tryb Serial (RS-232 / USB) — automatycznie korzysta z lokalnego mostka rigctld
+                        app.cat_auto_start_rigctld = true;
+                        if app.cat_host.trim().is_empty() {
+                            app.cat_host = "127.0.0.1".to_string();
+                        }
+                        if app.cat_port == 0 {
+                            app.cat_port = 4532;
+                        }
+                    }
 
-                    ui.horizontal(|ui| {
-                        ui.checkbox(
-                            &mut app.cat_auto_start_rigctld,
-                            tr("cat_settings.auto_start_rigctld", lang),
-                        )
-                        .on_hover_text(tr("cat_settings.auto_start_rigctld_tooltip", lang));
-                    });
+                    if app.cat_conn_type == "serial" || app.cat_auto_start_rigctld {
+                        ui.horizontal(|ui| {
+                            ui.label(tr("cat_settings.serial_port_label", lang));
+                            ui.add(
+                                egui::TextEdit::singleline(&mut app.cat_serial_port)
+                                    .desired_width(95.0)
+                                    .hint_text("COM3, /dev/ttyUSB0"),
+                            );
+                            let port_presets: &[&str] = if cfg!(target_os = "windows") {
+                                &[
+                                    "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+                                    "COM9", "COM10", "COM11", "COM12",
+                                ]
+                            } else {
+                                &[
+                                    "/dev/ttyUSB0",
+                                    "/dev/ttyUSB1",
+                                    "/dev/ttyACM0",
+                                    "/dev/ttyACM1",
+                                    "/dev/ttyS0",
+                                ]
+                            };
+                            egui::ComboBox::from_id_salt("cat_serial_port_preset_combo")
+                                .width(85.0)
+                                .selected_text(if app.cat_serial_port.is_empty() {
+                                    crate::core::i18n::tr_or(lang, "Wybierz...", "Select...")
+                                } else {
+                                    app.cat_serial_port.as_str()
+                                })
+                                .show_ui(ui, |ui| {
+                                    for &p in port_presets {
+                                        ui.selectable_value(
+                                            &mut app.cat_serial_port,
+                                            p.to_string(),
+                                            p,
+                                        );
+                                    }
+                                });
+
+                            ui.add_space(6.0);
+                            ui.label(tr("cat_settings.baud_rate_label", lang));
+                            egui::ComboBox::from_id_salt("cat_baud_combo")
+                                .selected_text(format!("{} bps", app.cat_baud_rate))
+                                .show_ui(ui, |ui| {
+                                    for &b in &[4800, 9600, 19200, 38400, 57600, 115_200] {
+                                        ui.selectable_value(
+                                            &mut app.cat_baud_rate,
+                                            b,
+                                            format!("{b} bps"),
+                                        );
+                                    }
+                                });
+                        });
+                    }
+
+                    if app.cat_conn_type == "tcp" && app.cat_backend != "flrig" {
+                        ui.horizontal(|ui| {
+                            ui.checkbox(
+                                &mut app.cat_auto_start_rigctld,
+                                tr("cat_settings.auto_start_rigctld", lang),
+                            )
+                            .on_hover_text(tr("cat_settings.auto_start_rigctld_tooltip", lang));
+                        });
+                    }
 
                     if app.cat_auto_start_rigctld {
                         ui.add_space(2.0);
@@ -357,20 +437,25 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             );
                         });
 
-                        if let Some(ref sup) = app.rigctld_supervisor {
-                            if let Some(pid) = sup.pid() {
-                                ui.horizontal(|ui| {
-                                    ui.colored_label(egui::Color32::from_rgb(34, 197, 94), "●");
-                                    ui.label(
-                                        egui::RichText::new(format!(
-                                            "{} (PID: {})",
-                                            tr("cat_settings.running_pid", lang),
-                                            pid
-                                        ))
-                                        .size(11.0)
-                                        .color(egui::Color32::from_rgb(34, 197, 94)),
-                                    );
-                                });
+                        if let Some(ref mut sup) = app.rigctld_supervisor {
+                            if sup.is_running() {
+                                if let Some(pid) = sup.pid() {
+                                    ui.horizontal(|ui| {
+                                        ui.colored_label(
+                                            egui::Color32::from_rgb(34, 197, 94),
+                                            "●",
+                                        );
+                                        ui.label(
+                                            egui::RichText::new(format!(
+                                                "{} (PID: {})",
+                                                tr("cat_settings.running_pid", lang),
+                                                pid
+                                            ))
+                                            .size(11.0)
+                                            .color(egui::Color32::from_rgb(34, 197, 94)),
+                                        );
+                                    });
+                                }
                             }
                         }
                     }
@@ -391,7 +476,7 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         let port = app.cat_port;
                         match test_tcp_connection(&host, port, 800) {
                             Ok(()) => app.cat_test_result = Some(format!("TCP {host}:{port} OK")),
-                            Err(e) => app.cat_test_result = Some(e.clone()),
+                            Err(e) => app.cat_test_result = Some(e),
                         }
                     }
                 });
@@ -486,6 +571,9 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     .button(egui::RichText::new(tr("btn.save", lang)).strong())
                     .clicked()
                 {
+                    if app.cat_connected || app.cat_auto_start_rigctld {
+                        app.start_cat_service();
+                    }
                     app.save_station_config();
                     close_req = true;
                 }

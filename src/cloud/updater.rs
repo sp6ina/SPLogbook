@@ -21,10 +21,60 @@ impl DatabaseUpdater {
 
     /// Pobiera wszystkie bazy referencyjne do wskazanego katalogu
     pub async fn update_all(dir: &Path) -> Result<(), String> {
-        Self::update_country_file(&dir.join("cty.dat")).await?;
-        Self::update_scp_file(&dir.join("MASTER.SCP")).await?;
-        Self::update_lotw_users(&dir.join("lotw-user-activity.csv")).await?;
+        let _ = Self::update_all_with_report(dir, crate::core::i18n::Language::Pl).await?;
         Ok(())
+    }
+
+    /// Pobiera wszystkie bazy referencyjne (cty.dat, MASTER.SCP, lotw-user-activity.csv)
+    /// niezależnie od siebie i zwraca podsumowanie dla paska statusu / powiadomienia Toast.
+    pub async fn update_all_with_report(
+        dir: &Path,
+        lang: crate::core::i18n::Language,
+    ) -> Result<String, String> {
+        let mut ok_parts = Vec::new();
+        let mut err_parts = Vec::new();
+
+        match Self::update_country_file(&dir.join("cty.dat")).await {
+            Ok(bytes) => ok_parts.push(format!("cty.dat ({} KB)", bytes / 1024)),
+            Err(e) => err_parts.push(format!("cty.dat: {e}")),
+        }
+
+        match Self::update_scp_file(&dir.join("MASTER.SCP")).await {
+            Ok(bytes) => ok_parts.push(format!("MASTER.SCP ({} KB)", bytes / 1024)),
+            Err(e) => err_parts.push(format!("MASTER.SCP: {e}")),
+        }
+
+        match Self::update_lotw_users(&dir.join("lotw-user-activity.csv")).await {
+            Ok(bytes) => ok_parts.push(format!("LoTW ({} KB)", bytes / 1024)),
+            Err(e) => err_parts.push(format!("LoTW: {e}")),
+        }
+
+        if ok_parts.is_empty() {
+            let prefix = crate::core::i18n::tr_or(
+                lang,
+                "❌ Błąd aktualizacji baz online",
+                "❌ Online database update failed",
+            );
+            Err(format!("{prefix}: {}", err_parts.join(" | ")))
+        } else if err_parts.is_empty() {
+            let prefix = crate::core::i18n::tr_or(
+                lang,
+                "✔ Zaktualizowano bazy online",
+                "✔ Online databases updated",
+            );
+            Ok(format!("{prefix}: {}", ok_parts.join(", ")))
+        } else {
+            let prefix = crate::core::i18n::tr_or(
+                lang,
+                "⚠ Częściowa aktualizacja baz",
+                "⚠ Partial database update",
+            );
+            Ok(format!(
+                "{prefix}: OK [{}], Err [{}]",
+                ok_parts.join(", "),
+                err_parts.join("; ")
+            ))
+        }
     }
 
     /// Pobiera listę aktywnych użytkowników LoTW (lotw-user-activity.csv)
