@@ -33,8 +33,7 @@ impl ClubRegistry {
             || clean.starts_with("SO")
         {
             // SP-OTC (SP Old Timers Club) - stacje z długim stażem lub prefiksem SP1-SP9
-            if clean == "SP6INA"
-                || clean == "SP6ZDA"
+            if clean == "SP6ZDA"
                 || clean == "SP5PZK"
                 || clean == "SP2FAX"
                 || clean == "SP1PBW"
@@ -48,7 +47,7 @@ impl ClubRegistry {
             }
 
             // Polski Klub Telegrafistów (SP-CW-C)
-            if clean.ends_with("CW") || clean == "SP6INA" || clean == "SP6PAZ" || clean == "SP2FAP"
+            if clean == "SP6PAZ" || clean == "SP2FAP"
             {
                 list.push(ClubAffiliation {
                     code: "SPCWC",
@@ -61,20 +60,7 @@ impl ClubRegistry {
 
         // 2. Międzynarodowe kluby telegraficzne (CWOPS, SKCC, FOC, HSC)
         match clean.as_str() {
-            "SP6INA" => {
-                list.push(ClubAffiliation {
-                    code: "SKCC",
-                    name: "Straight Key Century Club",
-                    number: Some("#18942"),
-                    badge_color: (16, 185, 129), // Szmaragdowy
-                });
-                list.push(ClubAffiliation {
-                    code: "CWOPS",
-                    name: "CW Operators' Club",
-                    number: Some("#3120"),
-                    badge_color: (245, 158, 11), // Bursztynowy
-                });
-            }
+
             "W1AW" | "K1TTT" | "N1MM" => {
                 list.push(ClubAffiliation {
                     code: "CWOPS",

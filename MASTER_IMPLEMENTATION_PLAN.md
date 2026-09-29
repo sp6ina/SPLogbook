@@ -423,7 +423,7 @@ Zadania P0/P1 niezwiązane z updaterem mogą być wykonywane równolegle z torem
 #### FIX-CLUBS-HEURISTIC (CQ-2.1.A)
 - **Tor:** FIX
 - **Status techniczny:** POTWIERDZONY W KODZIE
-- **Status wykonawczy:** GOTOWY DO IMPLEMENTACJI
+- **Status wykonawczy:** ZAKOŃCZONY (DONE)
 - **Priorytet:** P1 Wysoki
 - **Źródło:** CQ: PROB-P1-02
 - **Pliki:** `src/core/clubs.rs`
@@ -433,11 +433,11 @@ Zadania P0/P1 niezwiązane z updaterem mogą być wykonywane równolegle z torem
 #### FIX-CALLBOOK-DEMO (CQ-2.1.B)
 - **Tor:** FIX
 - **Status techniczny:** POTWIERDZONY W KODZIE
-- **Status wykonawczy:** GOTOWY DO IMPLEMENTACJI
+- **Status wykonawczy:** ZAKOŃCZONY (DONE)
 - **Priorytet:** P1 Wysoki
 - **Źródło:** CQ: PROB-P1-02
 - **Pliki:** `src/core/callbook.rs`
-- **Sugerowany tytuł commita:** `fix(callbook): move hardcoded demo data to #[cfg(test)]`
+- **Sugerowany tytuł commita:** `fix(callbook): remove hardcoded demo data`
 
 #### FIX-WPX-PREFIX (CQ-2.2.A)
 - **Tor:** FIX

@@ -593,34 +593,7 @@ pub async fn fetch_callsign_data(
         return Some(data);
     }
 
-    // Ostateczny fallback dla znanych stacji bazowych
-    match clean.as_str() {
-        "SP6INA" => Some(CallbookData {
-            callsign: clean,
-            name: Some("Mariusz Woźniak".to_string()),
-            qth: Some("Wrocław".to_string()),
-            gridsquare: Some("JO81WA".to_string()),
-            state: None,
-            dxcc: Some(269),
-            country: Some("Poland".to_string()),
-            qsl_manager: None,
-            email: None,
-            image_url: None,
-        }),
-        "W1AW" => Some(CallbookData {
-            callsign: clean,
-            name: Some("ARRL HQ Station".to_string()),
-            qth: Some("Newington".to_string()),
-            gridsquare: Some("FN31PR".to_string()),
-            state: Some("CT".to_string()),
-            dxcc: Some(291),
-            country: Some("United States".to_string()),
-            qsl_manager: None,
-            email: None,
-            image_url: None,
-        }),
-        _ => None,
-    }
+    None
 }
 
 #[cfg(test)]
