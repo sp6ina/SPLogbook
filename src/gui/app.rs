@@ -2078,12 +2078,8 @@ impl SpLogApp {
             }
         }
 
-        if self.show_contest_window {
-            self.contest_qsos += 1;
-            self.contest_points += 3;
-            self.contest_mults += 1;
-            self.contest_stx += 1;
-        }
+        // Liczniki zawodów są aktualizowane w `render_contest_window` i `contest.rs`.
+        // Zwykłe QSO nie powinno fałszywie zwiększać tych liczników.
 
         if self.band_alert_enabled {
             if let Some(status) = &self.active_award_status {

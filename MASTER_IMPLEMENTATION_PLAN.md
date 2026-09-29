@@ -388,7 +388,7 @@ Zadania P0/P1 niezwiązane z updaterem mogą być wykonywane równolegle z torem
 #### FIX-SOTA-FALLBACK (CQ-1.1)
 - **Tor:** FIX
 - **Status techniczny:** POTWIERDZONY W KODZIE
-- **Status wykonawczy:** ZABLOKOWANY DO CZASU RAPORTU (VERIFY-P0)
+- **Status wykonawczy:** ZAKOŃCZONY (DONE)
 - **Priorytet:** P0 Krytyczny
 - **Źródło:** CQ: PROB-P0-01
 - **Pliki:** `src/core/sota_export.rs`
@@ -414,7 +414,7 @@ Zadania P0/P1 niezwiązane z updaterem mogą być wykonywane równolegle z torem
 #### FIX-CONTEST-COUNTERS (CQ-1.4)
 - **Tor:** FIX
 - **Status techniczny:** POTWIERDZONY W KODZIE
-- **Status wykonawczy:** ZABLOKOWANY DO CZASU RAPORTU (VERIFY-P0)
+- **Status wykonawczy:** ZAKOŃCZONY (DONE)
 - **Priorytet:** P1 Wysoki
 - **Źródło:** CQ: PROB-P1-01
 - **Pliki:** `src/gui/app.rs`
