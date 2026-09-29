@@ -144,6 +144,75 @@ pub enum UpdateCheckOutcome {
     Error(String),
 }
 
+/// Dokument manifestu nowej architektury wydawniczej zabezpieczony Ed25519.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ReleaseManifest {
+    pub manifest_version: u32,
+    pub key_id: String,
+    pub product: String,
+    pub version: String,
+    pub channel: String,
+    pub minimum_updater_version: String,
+    pub commit: String,
+    pub assets: Vec<ManifestAsset>,
+}
+
+impl ReleaseManifest {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.manifest_version != 1 {
+            return Err(format!(
+                "Nieznana wersja manifestu: {}",
+                self.manifest_version
+            ));
+        }
+        if self.product != "SPLogbook" {
+            return Err(format!(
+                "Oczekiwano product = SPLogbook, otrzymano: {}",
+                self.product
+            ));
+        }
+        if self.commit.len() != 40 || !self.commit.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err("Nieprawidłowy skrót commit SHA-1".into());
+        }
+        if self.assets.is_empty() {
+            return Err("Manifest nie zawiera artefaktów".into());
+        }
+
+        let mut names = std::collections::HashSet::new();
+        let mut triads = std::collections::HashSet::new();
+        for asset in &self.assets {
+            if !names.insert(&asset.filename) {
+                return Err(format!("Zduplikowany filename: {}", asset.filename));
+            }
+            let triad = (&asset.platform, &asset.arch, &asset.package_type);
+            if !triads.insert(triad) {
+                return Err(format!(
+                    "Niejednoznaczny pakiet (platform+arch+type): {:?}",
+                    triad
+                ));
+            }
+            if asset.sha256.len() != 64 || !asset.sha256.chars().all(|c| c.is_ascii_hexdigit()) {
+                return Err(format!(
+                    "Nieprawidłowy SHA-256 dla pliku {}",
+                    asset.filename
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Pojedynczy zasób zdefiniowany w manifeście.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ManifestAsset {
+    pub platform: String,
+    pub arch: String,
+    pub package_type: String,
+    pub filename: String,
+    pub size: u64,
+    pub sha256: String,
+}
+
 /// Pobiera metadane najnowszego wydania z GitHub API (bez autoryzacji).
 pub async fn latest_release() -> Result<LatestRelease, String> {
     let client = crate::core::http::http_client_with_timeout(15);
@@ -715,6 +784,44 @@ mod tests {
         }];
         assert!(select_asset_for_platform(&unmatched).is_none());
         assert!(select_asset_for_platform(&[]).is_none());
+    }
+
+    #[test]
+    fn manifest_validation_rejects_invalid_values() {
+        let mut m = ReleaseManifest {
+            manifest_version: 1,
+            key_id: "test".into(),
+            product: "SPLogbook".into(),
+            version: "1.0".into(),
+            channel: "stable".into(),
+            minimum_updater_version: "1.0".into(),
+            commit: "a1b2c3d4e5f6e7f8a9b0c1d2e3f4a5b6c7d8e9f0".into(),
+            assets: vec![ManifestAsset {
+                platform: "linux".into(),
+                arch: "x86_64".into(),
+                package_type: "tar.gz".into(),
+                filename: "file.tar.gz".into(),
+                size: 100,
+                sha256: "3d5f0e4c2f76c58916ec258f246851bea091d14d4247a2fc3e18694461b1816e".into(),
+            }],
+        };
+
+        assert!(m.validate().is_ok());
+
+        m.manifest_version = 2;
+        assert!(m.validate().is_err());
+        m.manifest_version = 1;
+
+        m.product = "Other".into();
+        assert!(m.validate().is_err());
+        m.product = "SPLogbook".into();
+
+        m.commit = "short".into();
+        assert!(m.validate().is_err());
+        m.commit = "a1b2c3d4e5f6e7f8a9b0c1d2e3f4a5b6c7d8e9f0".into();
+
+        m.assets.push(m.assets[0].clone());
+        assert!(m.validate().is_err()); // Duplicate filename and triad
     }
 
     #[test]
