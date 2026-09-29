@@ -2078,10 +2078,12 @@ impl SpLogApp {
             }
         }
 
-        self.contest_qsos += 1;
-        self.contest_points += 3;
-        self.contest_mults += 1;
-        self.contest_stx += 1;
+        if self.show_contest_window {
+            self.contest_qsos += 1;
+            self.contest_points += 3;
+            self.contest_mults += 1;
+            self.contest_stx += 1;
+        }
 
         if self.band_alert_enabled {
             if let Some(status) = &self.active_award_status {
@@ -2984,11 +2986,8 @@ impl SpLogApp {
         self.cluster_cmd_tx = Some(cmd_tx);
         self.cluster_connecting = true;
         self.cluster_connected = false;
-        let connecting_label = crate::core::i18n::tr_or(
-            self.current_language,
-            "Łączenie z",
-            "Connecting to",
-        );
+        let connecting_label =
+            crate::core::i18n::tr_or(self.current_language, "Łączenie z", "Connecting to");
         self.cluster_status_text = format!("{connecting_label} {host}:{port}...");
 
         tokio::spawn(async move {
@@ -3205,8 +3204,8 @@ impl SpLogApp {
                         .set_vfo(freq_hz)
                         .await;
                 } else {
-                    let _ = crate::cat::hamlib::HamlibClient::set_frequency(&host, port, freq_hz)
-                        .await;
+                    let _ =
+                        crate::cat::hamlib::HamlibClient::set_frequency(&host, port, freq_hz).await;
                 }
             });
         }
@@ -3301,7 +3300,10 @@ impl SpLogApp {
         let next_num = self
             .equipment_items
             .iter()
-            .filter_map(|e| e.id.strip_prefix("eq-").and_then(|s| s.parse::<usize>().ok()))
+            .filter_map(|e| {
+                e.id.strip_prefix("eq-")
+                    .and_then(|s| s.parse::<usize>().ok())
+            })
             .max()
             .unwrap_or(self.equipment_items.len())
             + 1;
@@ -5375,7 +5377,8 @@ impl eframe::App for SpLogApp {
             .show(ctx, &my_grid, &mut self.rotor_state, self.current_language);
 
         // 3. Moduł SOTA / POTA
-        self.sota_dialog.show(ctx, &self.recent_qsos, self.current_language);
+        self.sota_dialog
+            .show(ctx, &self.recent_qsos, self.current_language);
 
         // 3b. Konfigurowalny eksport CSV
         if self.csv_export_dialog.is_open {
@@ -5407,9 +5410,9 @@ impl eframe::App for SpLogApp {
         }
 
         // 6. Baza menedżerów QSL
-        if let Some(qslm) = self
-            .qsl_manager_dialog
-            .show(ctx, &self.service_db, self.current_language)
+        if let Some(qslm) =
+            self.qsl_manager_dialog
+                .show(ctx, &self.service_db, self.current_language)
         {
             self.entry_qsl_manager = qslm;
         }
@@ -5450,7 +5453,7 @@ impl eframe::App for SpLogApp {
                 received_at: chrono::Utc::now().timestamp(),
             };
             self.cluster_spots.insert(0, spot);
-            let toast_msg = if self. current_language == Language::Pl {
+            let toast_msg = if self.current_language == Language::Pl {
                 format!("Wysłano spot dla {} ({:.1} kHz)", sub.dx_call, sub.freq_khz)
             } else {
                 format!("DX spot sent for {} ({:.1} kHz)", sub.dx_call, sub.freq_khz)
@@ -5603,8 +5606,14 @@ impl eframe::App for SpLogApp {
                                 "📝 Logowanie i obsługa QSO",
                                 &[
                                     ("Enter / F2", "Zapisz bieżące QSO w logbooku"),
-                                    ("Esc / F3", "Wyczyść formularz QSO (Wipe) i przejdź do znaku"),
-                                    ("Ctrl+N", "Nowe QSO — wyczyść formularz i ustaw kursor na znaku"),
+                                    (
+                                        "Esc / F3",
+                                        "Wyczyść formularz QSO (Wipe) i przejdź do znaku",
+                                    ),
+                                    (
+                                        "Ctrl+N",
+                                        "Nowe QSO — wyczyść formularz i ustaw kursor na znaku",
+                                    ),
                                     ("Ctrl+W", "Wyczyść formularz QSO (Wipe callsign / exchange)"),
                                     ("F4", "Wymuś wyszukanie znaku w Callbooku / QRZ.com"),
                                     ("Ctrl+S", "Zapisz konfigurację stacji i dziennik"),
@@ -5631,13 +5640,22 @@ impl eframe::App for SpLogApp {
                             (
                                 "⚙️ Narzędzia, Okna i Aplikacja",
                                 &[
-                                    ("Ctrl+Shift+P", "Paleta poleceń (Command Palette) — szybki launcher akcji"),
+                                    (
+                                        "Ctrl+Shift+P",
+                                        "Paleta poleceń (Command Palette) — szybki launcher akcji",
+                                    ),
                                     ("Ctrl+Shift+S", "Otwórz okno statystyk i analizy wykresów"),
                                     ("Ctrl+E", "Eksport dziennika do pliku CSV (konfigurowalny)"),
                                     ("Ctrl+I", "Import dziennika z pliku ADIF"),
-                                    ("Ctrl+T", "Przełącz motyw kolorystyczny (Dark / Daylight / Contrast)"),
+                                    (
+                                        "Ctrl+T",
+                                        "Przełącz motyw kolorystyczny (Dark / Daylight / Contrast)",
+                                    ),
                                     ("F11", "Przełącz tryb pełnoekranowy (Toggle Fullscreen)"),
-                                    ("F12 / Ctrl+H", "Otwórz wbudowaną instrukcję obsługi (Podręcznik)"),
+                                    (
+                                        "F12 / Ctrl+H",
+                                        "Otwórz wbudowaną instrukcję obsługi (Podręcznik)",
+                                    ),
                                     ("F1", "Skróty klawiszowe (to okno)"),
                                     ("Ctrl+Q", "Bezpieczne wyjście z programu"),
                                 ],
