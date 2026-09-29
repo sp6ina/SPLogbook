@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
+use std::sync::OnceLock;
+
 use chrono::Utc;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 
 /// Reprezentacja pojedynczego rekordu łączności (QSO) w standardzie ADIF 3.1.7
@@ -162,6 +165,51 @@ fn validate_time_field(raw: &str, field_name: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Zwraca ostrzeżenie, jeśli niepusty napis nie pasuje do formatu IOTA (XX-NNN,
+/// np. EU-001). Walidacja miękka — nie blokuje zapisu.
+fn validate_iota_format(value: &str) -> Option<String> {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| Regex::new(r"^[A-Za-z]{2}-\d{3}$").unwrap());
+    let trimmed = value.trim();
+    if trimmed.is_empty() || re.is_match(trimmed) {
+        None
+    } else {
+        Some(format!(
+            "nieprawidłowy format IOTA (oczekiwano XX-NNN, np. EU-001): {value}"
+        ))
+    }
+}
+
+/// Zwraca ostrzeżenie, jeśli niepusty napis nie pasuje do formatu SOTA
+/// (XX/YY-NNN, np. SP/TA-001). Walidacja miękka — nie blokuje zapisu.
+fn validate_sota_format(value: &str) -> Option<String> {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| Regex::new(r"^[A-Za-z0-9]{1,3}/[A-Za-z0-9]{2,3}-\d{3}$").unwrap());
+    let trimmed = value.trim();
+    if trimmed.is_empty() || re.is_match(trimmed) {
+        None
+    } else {
+        Some(format!(
+            "nieprawidłowy format SOTA (oczekiwano XX/YY-NNN, np. SP/TA-001): {value}"
+        ))
+    }
+}
+
+/// Zwraca ostrzeżenie, jeśli niepusty napis nie pasuje do formatu POTA
+/// (XX-NNNN, np. SP-0001). Walidacja miękka — nie blokuje zapisu.
+fn validate_pota_format(value: &str) -> Option<String> {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| Regex::new(r"^[A-Za-z0-9]{1,4}-\d{4}$").unwrap());
+    let trimmed = value.trim();
+    if trimmed.is_empty() || re.is_match(trimmed) {
+        None
+    } else {
+        Some(format!(
+            "nieprawidłowy format POTA (oczekiwano XX-NNNN, np. SP-0001): {value}"
+        ))
+    }
+}
+
 impl QsoRecord {
     /// Tworzy nowy rekord QSO z podstawowymi parametrami
     pub fn new(
@@ -283,6 +331,29 @@ impl QsoRecord {
 
         Ok(())
     }
+
+    /// Zwraca miękkie ostrzeżenia walidacyjne (nie blokują zapisu). Służą do
+    /// sygnalizowania wartości o podejrzanym formacie (IOTA/SOTA/POTA), które
+    /// warto skorygować, ale które nie powinny uniemożliwiać zapisu rekordu.
+    pub fn warnings(&self) -> Vec<String> {
+        let mut warnings = Vec::new();
+        if let Some(ref value) = self.iota {
+            if let Some(w) = validate_iota_format(value) {
+                warnings.push(w);
+            }
+        }
+        if let Some(ref value) = self.sota_ref {
+            if let Some(w) = validate_sota_format(value) {
+                warnings.push(w);
+            }
+        }
+        if let Some(ref value) = self.pota_ref {
+            if let Some(w) = validate_pota_format(value) {
+                warnings.push(w);
+            }
+        }
+        warnings
+    }
 }
 
 #[cfg(test)]
@@ -364,5 +435,46 @@ mod tests {
         let mut q = valid_qso();
         q.cqz = Some(99);
         assert!(q.validate().is_err());
+    }
+
+    #[test]
+    fn warnings_accepts_valid_refs() {
+        let mut q = valid_qso();
+        q.iota = Some("EU-001".to_string());
+        q.sota_ref = Some("SP/TA-001".to_string());
+        q.pota_ref = Some("SP-0001".to_string());
+        assert!(q.warnings().is_empty());
+    }
+
+    #[test]
+    fn warnings_flags_invalid_iota() {
+        let mut q = valid_qso();
+        q.iota = Some("EU12".to_string());
+        let w = q.warnings();
+        assert_eq!(w.len(), 1);
+        assert!(w[0].contains("IOTA"));
+    }
+
+    #[test]
+    fn warnings_flags_invalid_sota() {
+        let mut q = valid_qso();
+        q.sota_ref = Some("SPTA-001".to_string());
+        assert_eq!(q.warnings().len(), 1);
+    }
+
+    #[test]
+    fn warnings_flags_invalid_pota() {
+        let mut q = valid_qso();
+        q.pota_ref = Some("SP-001".to_string());
+        assert_eq!(q.warnings().len(), 1);
+    }
+
+    #[test]
+    fn warnings_ignore_empty_and_none() {
+        let mut q = valid_qso();
+        q.iota = Some("   ".to_string());
+        q.sota_ref = None;
+        q.pota_ref = Some(String::new());
+        assert!(q.warnings().is_empty());
     }
 }

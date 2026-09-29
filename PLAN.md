@@ -91,13 +91,17 @@ Wszystkie pozostałe ustalenia raportu potwierdzono w kodzie. Najważniejsze:
 
 ### 1.4 Walidacja formatu IOTA / SOTA / POTA
 
-**Status:** TODO
+**Status:** DONE ✅ (2026-09-29)
 **Priorytet:** Średni
 **Złożoność:** Niska
 **Opis:** Dodać walidację formatów: IOTA `XX-NNN`, SOTA `XX/YY-NNN`, POTA `XX-NNNN` w `validate()` (lub przy imporcie ADIF).
-**Zmodyfikowane pliki:** `src/core/qso.rs` (ew. `src/core/adif.rs`)
+**Zmodyfikowane pliki:** `src/core/qso.rs`
 **Ryzyko:** Niskie/Średnie — wymaga ustalenia, czy walidacja ma być twarda (odrzucenie) czy miękka (ostrzeżenie).
 **Zależności:** brak
+
+**Podsumowanie zmian:** Decyzja produktowa (użytkownik): **walidacja miękka** — ostrzeżenia nie blokują zapisu. Dodano `QsoRecord::warnings() -> Vec<String>` oraz prywatne walidatory formatu `validate_iota_format` (XX-NNN), `validate_sota_format` (XX/YY-NNN), `validate_pota_format` (XX-NNNN) z użyciem `OnceLock<Regex>` (spójnie z `telnet.rs`). Walidatory pomijają wartości puste/białe znaki. Dodano 5 testów jednostkowych. Nie zmieniono twardej `validate()`. Walidacja: `cargo check` ✅, `cargo clippy` ✅ (15 istniejących ostrzeżeń, zero nowych), `cargo test` ✅ (259 passed, 0 failed).
+
+**Podpięcie do UI (2026-09-29):** Dodano metodę `SpLogApp::report_warning()` (log `warn` + pływające powiadomienie). Ostrzeżenia `warnings()` są teraz wyświetlane w trzech punktach GUI: zapis nowego QSO (`app.rs` — dopisane do toasta sukcesu), zapis edycji (`save_edited_qso`), zapis QSO kontestowego (`contest.rs`). Zakres minimalny — nie zmieniano API (`server.rs`). Walidacja: `cargo check` ✅, `cargo clippy` ✅ (15 istniejących), `cargo test` ✅ (259 passed).
 
 ---
 

@@ -578,6 +578,10 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 match insert_result {
                     Ok(id) => {
                         new_qso.id = Some(id);
+                        let warnings = new_qso.warnings();
+                        if !warnings.is_empty() {
+                            app.report_warning(format!("Ostrzeżenia: {}", warnings.join("; ")));
+                        }
                         if let Ok(mut awards) = app.awards_engine.lock() {
                             awards.register_qso_record(&new_qso);
                         }

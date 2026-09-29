@@ -2029,6 +2029,7 @@ impl SpLogApp {
             ));
             return;
         }
+        let validation_warnings = qso.warnings();
 
         let insert_res = {
             let db = self
@@ -2098,13 +2099,15 @@ impl SpLogApp {
             }
         }
 
-        self.status_toast = Some((
-            format!(
-                "Zapisano łączność z: {} ({}, {})",
-                qso.callsign, qso.band, qso.mode
-            ),
-            std::time::Instant::now(),
-        ));
+        let mut success_msg = format!(
+            "Zapisano łączność z: {} ({}, {})",
+            qso.callsign, qso.band, qso.mode
+        );
+        if !validation_warnings.is_empty() {
+            success_msg.push_str("\n⚠ ");
+            success_msg.push_str(&validation_warnings.join("; "));
+        }
+        self.status_toast = Some((success_msg, std::time::Instant::now()));
 
         // Weryfikacja prognozy propagacyjnej: udana łączność = potwierdzone otwarcie pasma.
         self.propagation_history.record_observation(
@@ -2617,10 +2620,15 @@ impl SpLogApp {
     }
 
     pub fn save_edited_qso(&mut self) {
+        let mut warnings_toast: Option<String> = None;
         if let Some(ref qso) = self.editing_qso {
             if let Err(e) = qso.validate() {
                 self.report_error(format!("Nie zapisano zmian: {e}"));
                 return;
+            }
+            let warnings = qso.warnings();
+            if !warnings.is_empty() {
+                warnings_toast = Some(format!("Ostrzeżenia: {}", warnings.join("; ")));
             }
             if let Some(id) = qso.id {
                 let result = {
@@ -2639,6 +2647,9 @@ impl SpLogApp {
                     qso.callsign
                 ));
             }
+        }
+        if let Some(msg) = warnings_toast {
+            self.report_warning(msg);
         }
         self.editing_qso = None;
         self.rebuild_awards_full();
@@ -2939,6 +2950,13 @@ impl SpLogApp {
     /// Scentralizowane zgłaszanie informacji/statusu (bez wpisu do logu błędów).
     pub fn report_info(&mut self, msg: impl Into<String>) {
         self.status_toast = Some((msg.into(), std::time::Instant::now()));
+    }
+
+    /// Scentralizowane zgłaszanie ostrzeżeń (log warning + pływające powiadomienie).
+    pub fn report_warning(&mut self, msg: impl Into<String>) {
+        let msg = msg.into();
+        log::warn!("{msg}");
+        self.status_toast = Some((msg, std::time::Instant::now()));
     }
 
     pub fn connect_dx_cluster(&mut self) {
