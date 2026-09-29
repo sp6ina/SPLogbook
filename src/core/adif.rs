@@ -5,10 +5,10 @@ use crate::core::qso::QsoRecord;
 use std::collections::HashMap;
 use std::io::{BufRead, Write};
 
-/// Aktualna wspierana wersja specyfikacji ADIF (marzec 2026).
-pub const ADIF_VERSION: &str = "3.1.7";
+/// Aktualna wspierana wersja specyfikacji ADIF (wrzesień 2026).
+pub const ADIF_VERSION: &str = "3.1.8";
 
-/// Parser i generator formatu ADIF (Amateur Data Interchange Format) 3.1.7
+/// Parser i generator formatu ADIF (Amateur Data Interchange Format) 3.1.8
 pub struct AdifEngine;
 
 /// Wynik importu ADIF wraz z pełnym raportem odrzuconych rekordów i błędów.
@@ -421,7 +421,7 @@ impl AdifEngine {
         Some(qso)
     }
 
-    /// Eksportuje listę łączności do formatu ADIF 3.1.7
+    /// Eksportuje listę łączności do formatu ADIF 3.1.8
     pub fn export_to_writer<W: Write>(qsos: &[QsoRecord], mut writer: W) -> std::io::Result<()> {
         writeln!(writer, "SPLogbook ADIF {ADIF_VERSION} Export")?;
         writeln!(writer, "Author: Mariusz Wozniak (SP6INA)")?;
@@ -586,7 +586,7 @@ impl AdifEngine {
         Ok(())
     }
 
-    /// Eksportuje rekordy do formatu ADX (XML ADIF 3.1.7).
+    /// Eksportuje rekordy do formatu ADX (XML ADIF 3.1.8).
     pub fn export_adx_to_writer<W: Write>(
         qsos: &[QsoRecord],
         mut writer: W,
@@ -859,7 +859,7 @@ mod tests {
         let adx = export_adx(&[qso]);
         assert!(adx.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
         assert!(adx.contains("<ADX>"));
-        assert!(adx.contains("<ADIF_VER>3.1.7</ADIF_VER>"));
+        assert!(adx.contains("<ADIF_VER>3.1.8</ADIF_VER>"));
         assert!(adx.contains("<RECORD>"));
         assert!(adx.contains("<CALL>SP6INA</CALL>"));
         assert!(adx.contains("<NAME>A&amp;B &lt;test&gt;</NAME>"));

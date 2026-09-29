@@ -109,13 +109,15 @@ Wszystkie pozostałe ustalenia raportu potwierdzono w kodzie. Najważniejsze:
 
 ### 2.1 Aktualizacja `ADIF_VERSION` do `"3.1.8"`
 
-**Status:** TODO
+**Status:** DONE ✅ (2026-09-29)
 **Priorytet:** Wysoki
 **Złożoność:** Niska
 **Opis:** Zmienić stałą `ADIF_VERSION` na `"3.1.8"` (specyfikacja z 26.09.2026) i zweryfikować listę pól/emisji względem 3.1.8.
 **Zmodyfikowane pliki:** `src/core/adif.rs`
 **Ryzyko:** Niskie — zmiana deklaratywna; wymaga przeglądu nowych pól ADIF 3.1.8 (osobne zadanie w razie potrzeby).
 **Zależności:** brak
+
+**Podsumowanie zmian:** Stała `ADIF_VERSION` zmieniona `"3.1.7"` → `"3.1.8"` (komentarz: wrzesień 2026). Zaktualizowano doc-commenty (`Parser i generator... 3.1.8`, `Eksportuje listę łączności do formatu ADIF 3.1.8`, `Eksportuje rekordy do formatu ADX (XML ADIF 3.1.8)`) oraz asercję testu ADX `<ADIF_VER>3.1.8</ADIF_VER>`. Eksport ADI/ADX używa stałej, więc zmiana jest deklaratywna. **Weryfikacja listy emisji:** mapowanie `normalize_mode_submode` (FT8/FT4/Q65/WSPR/JT65/JT9/MSK144 → submode `MFSK`) pozostaje do zadania **2.2** (zależność zachowana) — nie zmieniano. Walidacja: `cargo check` ✅, `cargo clippy` ✅ (15 istniejących, zero nowych), `cargo test` ✅ (259 passed, 0 failed).
 
 ---
 
