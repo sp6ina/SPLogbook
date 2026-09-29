@@ -241,6 +241,34 @@ pub fn verify_manifest_signature(
     Ok((key, manifest))
 }
 
+/// Weryfikuje czy manifest wnosi nowszą wersję w stosunku do aktualnie uruchomionej.
+/// Implementuje politykę CRYPTO-SEMVER-POLICY oraz CRYPTO-DOWNGRADE-PROTECTION,
+/// zapobiegając instalacji wersji równych oraz starszych.
+pub fn verify_downgrade_protection(
+    manifest_version: &str,
+    current_version: &str,
+) -> Result<(), String> {
+    let m_ver = semver::Version::parse(manifest_version)
+        .map_err(|e| format!("Nieprawidłowa wersja w manifeście: {}", e))?;
+    let c_ver = semver::Version::parse(current_version)
+        .map_err(|e| format!("Nieprawidłowa bieżąca wersja: {}", e))?;
+
+    if m_ver < c_ver {
+        return Err(format!(
+            "Odmowa downgrade: wersja w manifeście ({}) jest starsza od zainstalowanej ({}).",
+            manifest_version, current_version
+        ));
+    }
+    if m_ver == c_ver {
+        return Err(format!(
+            "Zainstalowana jest już ta sama wersja ({}) - aktualizacja odrzucona.",
+            current_version
+        ));
+    }
+
+    Ok(())
+}
+
 /// Dokument manifestu nowej architektury wydawniczej zabezpieczony Ed25519.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ReleaseManifest {
@@ -387,13 +415,41 @@ pub async fn latest_release() -> Result<LatestRelease, String> {
             }
         }
     }
-
-    Ok(LatestRelease {
+    let mut latest = LatestRelease {
         tag,
         html_url,
         body: release_body,
         assets,
-    })
+    };
+
+    // 3.1.G Integracja całości - uderza nowym pobieraniem z podaniem zaufanego pakietu
+    let current_version = env!("CARGO_PKG_VERSION");
+    let manifest = fetch_and_verify_manifest(&latest, current_version).await?;
+
+    // Podmień `assets` na wyłącznie te pliki, które są potwierdzone kryptograficznie w manifeście
+    let mut verified_assets = Vec::new();
+    for m_asset in manifest.assets {
+        if let Some(mut g_asset) = latest
+            .assets
+            .iter()
+            .find(|a| a.name == m_asset.filename)
+            .cloned()
+        {
+            // Nadpisz digest z GitHub wartością z zaufanego manifestu (SHA-256)
+            g_asset.digest = Some(format!("sha256:{}", m_asset.sha256));
+            verified_assets.push(g_asset);
+        }
+    }
+
+    if verified_assets.is_empty() {
+        return Err(
+            "Manifest nie zawiera plików dla tego wydania zbieżnych z GitHub API.".to_string(),
+        );
+    }
+
+    latest.assets = verified_assets;
+
+    Ok(latest)
 }
 
 /// Oblicza sumę kontrolną SHA256 (hex, małe litery) z bajtów.
@@ -416,6 +472,65 @@ pub fn verify_sha256(data: &[u8], expected: &str) -> bool {
         .trim_start_matches("SHA256:");
     let actual = sha256_hex(data);
     actual.eq_ignore_ascii_case(expected)
+}
+
+/// Pobiera plik do pamięci (używane dla manifestu i podpisu).
+pub async fn download_to_memory(url: &str, max_size: usize) -> Result<Vec<u8>, String> {
+    let client = crate::core::http::http_client_with_timeout(30);
+
+    let mut resp = client
+        .get(url)
+        .header("User-Agent", "SPLogbook-update-check")
+        .send()
+        .await
+        .map_err(|e| format!("Błąd pobierania url: {e}"))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("Serwer zwrócił status {}.", resp.status()));
+    }
+
+    let mut bytes = Vec::new();
+    while let Some(chunk) = resp.chunk().await.map_err(|e| format!("Błąd chunk: {e}"))? {
+        bytes.extend_from_slice(&chunk);
+        if bytes.len() > max_size {
+            return Err("Plik przekracza dozwolony limit wielkości.".to_string());
+        }
+    }
+
+    Ok(bytes)
+}
+
+/// Pobiera i weryfikuje manifest, implementując zabezpieczenia kryptograficzne i downgrade protection.
+pub async fn fetch_and_verify_manifest(
+    release: &LatestRelease,
+    current_version: &str,
+) -> Result<ReleaseManifest, String> {
+    let manifest_asset = release
+        .assets
+        .iter()
+        .find(|a| a.name == "release-manifest.json")
+        .ok_or_else(|| "Brak release-manifest.json w wydaniu.".to_string())?;
+
+    let sig_asset = release
+        .assets
+        .iter()
+        .find(|a| a.name == "release-manifest.json.sig")
+        .ok_or_else(|| "Brak podpisu release-manifest.json.sig w wydaniu.".to_string())?;
+
+    // Limit 1MB na manifest i podpis (ochrona pamięci)
+    let manifest_bytes =
+        download_to_memory(&manifest_asset.browser_download_url, 1024 * 1024).await?;
+    let sig_bytes = download_to_memory(&sig_asset.browser_download_url, 1024 * 1024).await?;
+    let sig_str = String::from_utf8(sig_bytes)
+        .map_err(|_| "Podpis nie jest prawidłowym ciągiem UTF-8".to_string())?;
+
+    // CRYPTO-ED25519-VERIFY & CRYPTO-MANIFEST-VALIDATE
+    let (_, manifest) = verify_manifest_signature(&manifest_bytes, sig_str.trim())?;
+
+    // CRYPTO-SEMVER-POLICY & CRYPTO-DOWNGRADE-PROTECTION
+    verify_downgrade_protection(&manifest.version, current_version)?;
+
+    Ok(manifest)
 }
 
 /// Wybiera najlepszy plik instalacyjny dla bieżącego systemu operacyjnego.
@@ -881,6 +996,15 @@ mod tests {
         }];
         assert!(select_asset_for_platform(&unmatched).is_none());
         assert!(select_asset_for_platform(&[]).is_none());
+    }
+
+    #[test]
+    fn downgrade_protection_blocks_older_and_equal_versions() {
+        assert!(verify_downgrade_protection("1.2.0", "1.1.0").is_ok()); // Newer
+        assert!(verify_downgrade_protection("2.0.0", "1.9.9").is_ok()); // Newer
+
+        assert!(verify_downgrade_protection("1.1.0", "1.1.0").is_err()); // Equal
+        assert!(verify_downgrade_protection("1.0.9", "1.1.0").is_err()); // Older
     }
 
     #[test]
