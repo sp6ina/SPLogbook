@@ -181,7 +181,7 @@ Brak modyfikacji kodu. Wyłącznie analiza.
 #### VERIFY-P0 — Weryfikacja problemów krytycznych P0
 - **Tor:** VERIFY
 - **Status techniczny:** POTWIERDZONY W KODZIE
-- **Status wykonawczy:** GOTOWY DO IMPLEMENTACJI
+- **Status wykonawczy:** ZAKOŃCZONY (DONE)
 - **Priorytet:** P0 Krytyczny
 - **Źródło:** CODE_QUALITY_NORMALIZATION_PLAN.md (CQ-0)
 - **Zakres:** Ponowna weryfikacja: SOTA Utc::now(), N1MM jednostki/pasma, updater Linux, updater Windows (nowo odkryty!), liczniki zawodów. Sprawdzenie osiągalności, przepływu wykonania, wpływu na dane.
