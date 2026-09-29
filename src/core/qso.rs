@@ -126,6 +126,42 @@ impl Default for QsoRecord {
     }
 }
 
+/// Waliduje pojedyncze pole czasu w formacie HHMM lub HHMMSS.
+/// Sprawdza format (długość 4/6, same cyfry) oraz zakresy: godzina 00–23,
+/// minuty 00–59, sekundy 00–59 (tylko dla HHMMSS).
+fn validate_time_field(raw: &str, field_name: &str) -> Result<(), String> {
+    let normalized = raw.trim().replace(':', "");
+    let valid_len = normalized.len() == 4 || normalized.len() == 6;
+    let valid_digits = normalized.chars().all(|c| c.is_ascii_digit());
+    if !valid_len || !valid_digits {
+        return Err(format!(
+            "błędny {field_name} (oczekiwano HHMM lub HHMMSS): {raw}"
+        ));
+    }
+
+    let hh: u32 = normalized[0..2].parse().unwrap();
+    let mm: u32 = normalized[2..4].parse().unwrap();
+    if hh > 23 {
+        return Err(format!(
+            "błędny {field_name} — godzina poza zakresem 00–23: {raw}"
+        ));
+    }
+    if mm > 59 {
+        return Err(format!(
+            "błędny {field_name} — minuty poza zakresem 00–59: {raw}"
+        ));
+    }
+    if normalized.len() == 6 {
+        let ss: u32 = normalized[4..6].parse().unwrap();
+        if ss > 59 {
+            return Err(format!(
+                "błędny {field_name} — sekundy poza zakresem 00–59: {raw}"
+            ));
+        }
+    }
+    Ok(())
+}
+
 impl QsoRecord {
     /// Tworzy nowy rekord QSO z podstawowymi parametrami
     pub fn new(
@@ -213,24 +249,10 @@ impl QsoRecord {
             return Err(format!("nieprawidłowa data: {}", self.qso_date));
         }
 
-        let time_on = self.time_on.trim().replace(':', "");
-        let time_on_ok = (time_on.len() == 4 || time_on.len() == 6)
-            && time_on.chars().all(|c| c.is_ascii_digit());
-        if !time_on_ok {
-            return Err(format!(
-                "błędny czas rozpoczęcia (oczekiwano HHMM lub HHMMSS): {}",
-                self.time_on
-            ));
-        }
+        validate_time_field(&self.time_on, "czas rozpoczęcia")?;
+
         if let Some(ref toff) = self.time_off {
-            let toff = toff.trim().replace(':', "");
-            let toff_ok =
-                (toff.len() == 4 || toff.len() == 6) && toff.chars().all(|c| c.is_ascii_digit());
-            if !toff_ok {
-                return Err(format!(
-                    "błędny czas zakończenia (oczekiwano HHMM lub HHMMSS): {toff}"
-                ));
-            }
+            validate_time_field(toff, "czas zakończenia")?;
         }
 
         if let Some(f) = self.freq {
@@ -299,6 +321,35 @@ mod tests {
         let mut q = valid_qso();
         q.time_on = "12:3".to_string();
         assert!(q.validate().is_err());
+    }
+
+    #[test]
+    fn validate_rejects_hour_out_of_range() {
+        let mut q = valid_qso();
+        q.time_on = "2460".to_string();
+        assert!(q.validate().is_err());
+    }
+
+    #[test]
+    fn validate_rejects_minute_out_of_range() {
+        let mut q = valid_qso();
+        q.time_on = "1860".to_string();
+        assert!(q.validate().is_err());
+    }
+
+    #[test]
+    fn validate_rejects_second_out_of_range() {
+        let mut q = valid_qso();
+        q.time_on = "183060".to_string();
+        assert!(q.validate().is_err());
+    }
+
+    #[test]
+    fn validate_accepts_edge_times() {
+        let mut q = valid_qso();
+        q.time_on = "0000".to_string();
+        q.time_off = Some("235959".to_string());
+        assert!(q.validate().is_ok());
     }
 
     #[test]

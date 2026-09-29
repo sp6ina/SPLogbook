@@ -110,11 +110,11 @@ fn row_to_qso(row: &Row) -> Result<QsoRecord> {
         stx_string: row.get(46)?,
         my_gridsquare: row.get(47)?,
         my_state: row.get(48)?,
-        my_pota_ref: row.get(49).ok(),
-        my_sota_ref: row.get(50).ok(),
-        vucc_grids: row.get(51).ok(),
+        my_pota_ref: row.get(49)?,
+        my_sota_ref: row.get(50)?,
+        vucc_grids: row.get(51)?,
         audio_file: row.get(52)?,
-        journal_id: row.get(53).ok(),
+        journal_id: row.get(53)?,
     })
 }
 
