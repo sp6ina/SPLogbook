@@ -450,9 +450,13 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 }
                 if award_st.is_new_pga {
                     ui.label(
-                        egui::RichText::new(tr_or(lang, "🇵🇱 NOWA GMINA PGA!", "🇵🇱 NEW PGA MUNICIPALITY!"))
-                            .color(egui::Color32::from_rgb(34, 197, 94))
-                            .strong(),
+                        egui::RichText::new(tr_or(
+                            lang,
+                            "🇵🇱 NOWA GMINA PGA!",
+                            "🇵🇱 NEW PGA MUNICIPALITY!",
+                        ))
+                        .color(egui::Color32::from_rgb(34, 197, 94))
+                        .strong(),
                     );
                 }
             }

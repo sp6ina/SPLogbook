@@ -388,7 +388,10 @@ fn render_quick_access_menu(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 )
                 .changed();
             changed |= ui
-                .checkbox(&mut app.quick_access.show_wsjtx, format!("● {}", tr("toolbar.wsjtx_status", lang)))
+                .checkbox(
+                    &mut app.quick_access.show_wsjtx,
+                    format!("● {}", tr("toolbar.wsjtx_status", lang)),
+                )
                 .changed();
             ui.end_row();
 
@@ -399,20 +402,32 @@ fn render_quick_access_menu(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 )
                 .changed();
             changed |= ui
-                .checkbox(&mut app.quick_access.show_vfo, icons::RADIO.label(tr("toolbar.vfo", lang)))
+                .checkbox(
+                    &mut app.quick_access.show_vfo,
+                    icons::RADIO.label(tr("toolbar.vfo", lang)),
+                )
                 .changed();
             ui.end_row();
 
             changed |= ui
-                .checkbox(&mut app.quick_access.show_qso, icons::NEW_QSO.label(tr("toolbar.qso", lang)))
+                .checkbox(
+                    &mut app.quick_access.show_qso,
+                    icons::NEW_QSO.label(tr("toolbar.qso", lang)),
+                )
                 .changed();
             changed |= ui
-                .checkbox(&mut app.quick_access.show_log, icons::LOGBOOK.label(tr("toolbar.log", lang)))
+                .checkbox(
+                    &mut app.quick_access.show_log,
+                    icons::LOGBOOK.label(tr("toolbar.log", lang)),
+                )
                 .changed();
             ui.end_row();
 
             changed |= ui
-                .checkbox(&mut app.quick_access.show_cat, icons::RADIO.label(tr("toolbar.cat", lang)))
+                .checkbox(
+                    &mut app.quick_access.show_cat,
+                    icons::RADIO.label(tr("toolbar.cat", lang)),
+                )
                 .changed();
             changed |= ui
                 .checkbox(
@@ -437,7 +452,10 @@ fn render_quick_access_menu(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ui.end_row();
 
             changed |= ui
-                .checkbox(&mut app.quick_access.show_lotw, icons::GLOBE.label(tr("toolbar.lotw", lang)))
+                .checkbox(
+                    &mut app.quick_access.show_lotw,
+                    icons::GLOBE.label(tr("toolbar.lotw", lang)),
+                )
                 .changed();
             changed |= ui
                 .checkbox(
@@ -495,7 +513,12 @@ fn render_quick_access_menu(app: &mut SpLogApp, ui: &mut egui::Ui) {
             changed |= ui
                 .checkbox(
                     &mut app.quick_access.show_theme,
-                    format!("{}/{} {}", icons::MOON.as_str(), icons::SOLAR.as_str(), tr("theme.menu", lang)),
+                    format!(
+                        "{}/{} {}",
+                        icons::MOON.as_str(),
+                        icons::SOLAR.as_str(),
+                        tr("theme.menu", lang)
+                    ),
                 )
                 .changed();
             ui.end_row();

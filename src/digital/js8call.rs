@@ -77,9 +77,7 @@ impl Js8CallClient {
                     .to_socket_addrs()
                     .ok()
                     .and_then(|mut it| it.next())
-                    .unwrap_or_else(|| {
-                        std::net::SocketAddr::from(([127, 0, 0, 1], port))
-                    });
+                    .unwrap_or_else(|| std::net::SocketAddr::from(([127, 0, 0, 1], port)));
 
                 if let Ok(stream) = TcpStream::connect_timeout(&parsed_addr, Duration::from_secs(3))
                 {
@@ -237,10 +235,7 @@ fn process_message(
                                 v.as_i64().or_else(|| v.as_f64().map(|f| f.round() as i64))
                             })
                             .unwrap_or(0) as i32,
-                        freq_hz: params
-                            .get("FREQ")
-                            .and_then(value_as_u64_hz)
-                            .unwrap_or(0) as i64,
+                        freq_hz: params.get("FREQ").and_then(value_as_u64_hz).unwrap_or(0) as i64,
                         utc: Utc::now().format("%H:%M:%S").to_string(),
                     };
                     // Limit listy do 50 ostatnio slyszanych stacji

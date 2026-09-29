@@ -624,15 +624,12 @@ impl AwardsEngine {
         }
         let rest = rest_after_prefix?;
 
-        let district = if let Some(d_str) = parts
-            .get(1..)
-            .and_then(|rest_parts| {
-                rest_parts
-                    .iter()
-                    .rev()
-                    .find(|p| p.len() == 1 && p.chars().all(|c| c.is_ascii_digit() && c != '0'))
-            })
-        {
+        let district = if let Some(d_str) = parts.get(1..).and_then(|rest_parts| {
+            rest_parts
+                .iter()
+                .rev()
+                .find(|p| p.len() == 1 && p.chars().all(|c| c.is_ascii_digit() && c != '0'))
+        }) {
             d_str.chars().next()?.to_digit(10)? as u8
         } else {
             let num_char = rest.chars().find(char::is_ascii_digit)?;

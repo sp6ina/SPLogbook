@@ -441,10 +441,7 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             if sup.is_running() {
                                 if let Some(pid) = sup.pid() {
                                     ui.horizontal(|ui| {
-                                        ui.colored_label(
-                                            egui::Color32::from_rgb(34, 197, 94),
-                                            "●",
-                                        );
+                                        ui.colored_label(egui::Color32::from_rgb(34, 197, 94), "●");
                                         ui.label(
                                             egui::RichText::new(format!(
                                                 "{} (PID: {})",

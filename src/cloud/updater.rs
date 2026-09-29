@@ -154,35 +154,37 @@ pub struct TrustedKey {
 }
 
 /// Zaufane klucze publiczne (hardcoded).
-pub const TRUSTED_KEYS: &[TrustedKey] = &[
-    TrustedKey {
-        key_id: "splogbook-release-2026-01",
-        public_key: [138, 136, 227, 221, 116, 9, 241, 149, 253, 82, 219, 45, 60, 186, 93, 114, 202, 103, 9, 191, 29, 148, 18, 27, 243, 116, 136, 1, 180, 15, 111, 92],
-        active: true,
-        min_version: Some("1.1.0"),
-        max_version: None,
-    }
-];
+pub const TRUSTED_KEYS: &[TrustedKey] = &[TrustedKey {
+    key_id: "splogbook-release-2026-01",
+    public_key: [
+        138, 136, 227, 221, 116, 9, 241, 149, 253, 82, 219, 45, 60, 186, 93, 114, 202, 103, 9, 191,
+        29, 148, 18, 27, 243, 116, 136, 1, 180, 15, 111, 92,
+    ],
+    active: true,
+    min_version: Some("1.1.0"),
+    max_version: None,
+}];
 
-/// Weryfikuje podpis na podstawie surowych bajtów manifestu. 
+/// Weryfikuje podpis na podstawie surowych bajtów manifestu.
 /// Sprawdza po kolei klucze. Zwraca dopasowany klucz i sparsowany manifest.
 pub fn verify_manifest_signature(
     manifest_bytes: &[u8],
     signature_base64: &str,
 ) -> Result<(&'static TrustedKey, ReleaseManifest), String> {
-    use ed25519_dalek::{Signature, Verifier, VerifyingKey};
     use base64::{Engine as _, engine::general_purpose::STANDARD};
+    use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 
-    let sig_bytes = STANDARD.decode(signature_base64)
+    let sig_bytes = STANDARD
+        .decode(signature_base64)
         .map_err(|e| format!("Błąd dekodowania podpisu Base64: {}", e))?;
-    
+
     if sig_bytes.len() != 64 {
         return Err("Nieprawidłowa długość podpisu Ed25519".into());
     }
-    
-    let signature = Signature::from_slice(&sig_bytes)
-        .map_err(|e| format!("Błąd ładowania podpisu: {}", e))?;
-    
+
+    let signature =
+        Signature::from_slice(&sig_bytes).map_err(|e| format!("Błąd ładowania podpisu: {}", e))?;
+
     let mut verified_key = None;
     for key in TRUSTED_KEYS.iter().filter(|k| k.active) {
         if let Ok(verifying_key) = VerifyingKey::from_bytes(&key.public_key) {
@@ -192,33 +194,47 @@ pub fn verify_manifest_signature(
             }
         }
     }
-    
-    let key = verified_key.ok_or_else(|| "Żaden z zaufanych kluczy nie zweryfikował tego podpisu".to_string())?;
-    
-    let manifest: ReleaseManifest = serde_json::from_slice(manifest_bytes)
-        .map_err(|e| format!("Błąd parsowania manifestu JSON po weryfikacji podpisu: {}", e))?;
-        
+
+    let key = verified_key
+        .ok_or_else(|| "Żaden z zaufanych kluczy nie zweryfikował tego podpisu".to_string())?;
+
+    let manifest: ReleaseManifest = serde_json::from_slice(manifest_bytes).map_err(|e| {
+        format!(
+            "Błąd parsowania manifestu JSON po weryfikacji podpisu: {}",
+            e
+        )
+    })?;
+
     if manifest.key_id != key.key_id {
-        return Err(format!("Manifest deklaruje key_id = {}, ale został podpisany kluczem {}", manifest.key_id, key.key_id));
+        return Err(format!(
+            "Manifest deklaruje key_id = {}, ale został podpisany kluczem {}",
+            manifest.key_id, key.key_id
+        ));
     }
-    
+
     manifest.validate()?;
-    
+
     // SemVer validation against key constraints
     let manifest_ver = semver::Version::parse(&manifest.version)
         .map_err(|e| format!("Nieprawidłowa wersja w manifeście: {}", e))?;
-        
+
     if let Some(min_v) = key.min_version {
         let min_ver = semver::Version::parse(min_v).unwrap();
         if manifest_ver < min_ver {
-            return Err(format!("Wersja {} jest zbyt stara dla tego klucza (min: {})", manifest.version, min_v));
+            return Err(format!(
+                "Wersja {} jest zbyt stara dla tego klucza (min: {})",
+                manifest.version, min_v
+            ));
         }
     }
-    
+
     if let Some(max_v) = key.max_version {
         let max_ver = semver::Version::parse(max_v).unwrap();
         if manifest_ver > max_ver {
-            return Err(format!("Wersja {} jest zbyt nowa dla tego klucza (max: {})", manifest.version, max_v));
+            return Err(format!(
+                "Wersja {} jest zbyt nowa dla tego klucza (max: {})",
+                manifest.version, max_v
+            ));
         }
     }
 

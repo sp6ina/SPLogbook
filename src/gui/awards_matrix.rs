@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::core::awards::US_STATES;
-use crate::core::i18n::{tr, tr_or, Language};
+use crate::core::i18n::{Language, tr, tr_or};
 use crate::gui::app::SpLogApp;
 use eframe::egui;
 
@@ -180,10 +180,7 @@ fn render_tab_dxcc(
                     .size(12.0)
                     .color(egui::Color32::from_rgb(216, 180, 254)),
             );
-            ui.label(format!(
-                "{total_qsos} {}",
-                tr_or(lang, "łączności", "QSOs")
-            ));
+            ui.label(format!("{total_qsos} {}", tr_or(lang, "łączności", "QSOs")));
         });
     });
 
@@ -271,11 +268,7 @@ fn render_tab_dxcc(
     });
 }
 
-fn render_tab_waz(
-    ui: &mut egui::Ui,
-    awards: &crate::core::awards::AwardsEngine,
-    lang: Language,
-) {
+fn render_tab_waz(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine, lang: Language) {
     let worked_count = awards.worked_waz.len();
     let conf_count = awards.confirmed_waz.len();
 
@@ -343,11 +336,7 @@ fn render_tab_waz(
     });
 }
 
-fn render_tab_was(
-    ui: &mut egui::Ui,
-    awards: &crate::core::awards::AwardsEngine,
-    lang: Language,
-) {
+fn render_tab_was(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine, lang: Language) {
     let worked_count = awards.worked_was.len();
     let conf_count = awards.confirmed_was.len();
 
@@ -411,11 +400,7 @@ fn render_tab_was(
     });
 }
 
-fn render_tab_wac(
-    ui: &mut egui::Ui,
-    awards: &crate::core::awards::AwardsEngine,
-    lang: Language,
-) {
+fn render_tab_wac(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine, lang: Language) {
     let worked_count = awards.worked_wac.len();
     let conf_count = awards.confirmed_wac.len();
 
@@ -448,9 +433,15 @@ fn render_tab_wac(
         ("AN", tr_or(lang, "Antarktyda (Antarctica)", "Antarctica")),
         ("AS", tr_or(lang, "Azja (Asia)", "Asia")),
         ("EU", tr_or(lang, "Europa (Europe)", "Europe")),
-        ("NA", tr_or(lang, "Ameryka Północna (North America)", "North America")),
+        (
+            "NA",
+            tr_or(lang, "Ameryka Północna (North America)", "North America"),
+        ),
         ("OC", "Oceania"),
-        ("SA", tr_or(lang, "Ameryka Południowa (South America)", "South America")),
+        (
+            "SA",
+            tr_or(lang, "Ameryka Południowa (South America)", "South America"),
+        ),
     ];
 
     ui.vertical(|ui| {
@@ -697,11 +688,7 @@ fn render_tab_other(
     });
 }
 
-fn render_tab_sp_dx(
-    ui: &mut egui::Ui,
-    awards: &crate::core::awards::AwardsEngine,
-    lang: Language,
-) {
+fn render_tab_sp_dx(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine, lang: Language) {
     ui.vertical(|ui| {
         ui.horizontal(|ui| {
             ui.heading(
@@ -784,11 +771,7 @@ fn render_tab_sp_dx(
     });
 }
 
-fn render_tab_wae(
-    ui: &mut egui::Ui,
-    awards: &crate::core::awards::AwardsEngine,
-    lang: Language,
-) {
+fn render_tab_wae(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine, lang: Language) {
     ui.vertical(|ui| {
         ui.heading(
             egui::RichText::new("🌍 WAE — Worked All Europe")

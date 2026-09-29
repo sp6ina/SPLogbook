@@ -81,7 +81,8 @@ fn render_macro_row(
         if btn.clicked() {
             *macro_to_transmit = Some(macro_text.clone());
         }
-        let resp = ui.add(egui::TextEdit::singleline(macro_text).desired_width(ui.available_width()));
+        let resp =
+            ui.add(egui::TextEdit::singleline(macro_text).desired_width(ui.available_width()));
         if resp.lost_focus() || resp.changed() {
             *config_changed = true;
         }

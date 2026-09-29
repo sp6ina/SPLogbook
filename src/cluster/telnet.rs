@@ -415,8 +415,10 @@ impl DxClusterClient {
 fn spot_regex() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r"(?i)^DX de\s+([A-Z0-9/\-#]+):\s+([0-9.]+)\s+([A-Z0-9/]+)\s+(.*)\s+([0-9]{4})Z\s*$")
-            .expect("spot regex musi być poprawny")
+        Regex::new(
+            r"(?i)^DX de\s+([A-Z0-9/\-#]+):\s+([0-9.]+)\s+([A-Z0-9/]+)\s+(.*)\s+([0-9]{4})Z\s*$",
+        )
+        .expect("spot regex musi być poprawny")
     })
 }
 
@@ -424,8 +426,10 @@ fn spot_regex() -> &'static Regex {
 fn spot_regex_no_z() -> &'static Regex {
     static RE_NO_Z: OnceLock<Regex> = OnceLock::new();
     RE_NO_Z.get_or_init(|| {
-        Regex::new(r"(?i)^DX de\s+([A-Z0-9/\-#]+):\s+([0-9.]+)\s+([A-Z0-9/]+)\s+(.*)\s+([0-9]{4})\s*$")
-            .expect("spot fallback regex musi być poprawny")
+        Regex::new(
+            r"(?i)^DX de\s+([A-Z0-9/\-#]+):\s+([0-9.]+)\s+([A-Z0-9/]+)\s+(.*)\s+([0-9]{4})\s*$",
+        )
+        .expect("spot fallback regex musi być poprawny")
     })
 }
 

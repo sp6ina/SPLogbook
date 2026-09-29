@@ -198,7 +198,10 @@ mod tests {
         assert_eq!(freq, "14070000");
 
         let xml_int = r#"<?xml version="1.0"?><methodResponse><params><param><value><int>14074000</int></value></param></params></methodResponse>"#;
-        assert_eq!(FldigiClient::parse_xmlrpc_value(xml_int).unwrap(), "14074000");
+        assert_eq!(
+            FldigiClient::parse_xmlrpc_value(xml_int).unwrap(),
+            "14074000"
+        );
 
         let xml_escaped = r#"<?xml version="1.0"?><methodResponse><params><param><value><string>A &amp; B &lt;C&gt;</string></value></param></params></methodResponse>"#;
         assert_eq!(

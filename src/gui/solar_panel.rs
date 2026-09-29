@@ -185,10 +185,7 @@ pub fn render_solar_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 ui.label(tr_or(lang, "Pobieranie...", "Fetching..."));
             } else {
                 let ctx = ui.ctx().clone();
-                if ui
-                    .button(tr_or(lang, "🔄 Odśwież", "🔄 Refresh"))
-                    .clicked()
-                {
+                if ui.button(tr_or(lang, "🔄 Odśwież", "🔄 Refresh")).clicked() {
                     app.refresh_solar_weather(&ctx);
                 }
             }

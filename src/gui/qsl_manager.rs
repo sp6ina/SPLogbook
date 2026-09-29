@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 // Okno przeglądarki managerów QSL (z bazy serviceLOG.db - 29 102 rekordów)
 
-use crate::core::i18n::{tr, tr_or, Language};
+use crate::core::i18n::{Language, tr, tr_or};
 use crate::core::service_db::{QslManagerRecord, ServiceDatabase};
 use eframe::egui;
 
@@ -49,7 +49,12 @@ impl QslManagerDialog {
 
     /// Rysuje okno wyszukiwarki managerów QSL.
     /// Zwraca Some(manager) jeśli użytkownik kliknął "Wybierz / Użyj".
-    pub fn show(&mut self, ctx: &egui::Context, db: &ServiceDatabase, lang: Language) -> Option<String> {
+    pub fn show(
+        &mut self,
+        ctx: &egui::Context,
+        db: &ServiceDatabase,
+        lang: Language,
+    ) -> Option<String> {
         if !self.is_open {
             return None;
         }
@@ -63,78 +68,118 @@ impl QslManagerDialog {
             "📋 Baza Managerów QSL (serviceLOG)",
             "📋 QSL Managers Database (serviceLOG)",
         ))
-            .open(&mut open)
-            .default_width(650.0)
-            .default_height(420.0)
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(tr_or(lang, "Szukaj znaku lub managera:", "Search callsign or manager:"));
-                    let edit = ui.add(
-                        egui::TextEdit::singleline(&mut self.search_query)
-                            .desired_width(220.0)
-                            .hint_text(tr_or(lang, "np. 3B8, VP8, SP6...", "e.g. 3B8, VP8, SP6..."))
-                    );
-                    if edit.changed() || (ui.input(|i| i.key_pressed(egui::Key::Enter)) && edit.has_focus()) {
-                        self.search_query = self.search_query.to_uppercase();
-                        self.execute_search(db);
-                    }
-
-                    if ui.button(format!("🔍 {}", tr("btn.search", lang))).clicked() {
-                        self.execute_search(db);
-                    }
-
-                    if ui.button(tr("btn.clear", lang)).clicked() {
-                        self.search_query.clear();
-                        self.results.clear();
-                    }
-                });
-
-                ui.separator();
-
-                ui.label(format!(
-                    "{}: {}",
-                    tr_or(lang, "Znaleziono rekordów", "Records found"),
-                    self.results.len()
+        .open(&mut open)
+        .default_width(650.0)
+        .default_height(420.0)
+        .show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(tr_or(
+                    lang,
+                    "Szukaj znaku lub managera:",
+                    "Search callsign or manager:",
                 ));
+                let edit = ui.add(
+                    egui::TextEdit::singleline(&mut self.search_query)
+                        .desired_width(220.0)
+                        .hint_text(tr_or(lang, "np. 3B8, VP8, SP6...", "e.g. 3B8, VP8, SP6...")),
+                );
+                if edit.changed()
+                    || (ui.input(|i| i.key_pressed(egui::Key::Enter)) && edit.has_focus())
+                {
+                    self.search_query = self.search_query.to_uppercase();
+                    self.execute_search(db);
+                }
 
-                egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
-                    egui::Grid::new("qsl_mgr_grid").striped(true).spacing([15.0, 6.0]).show(ui, |ui| {
-                        ui.label(egui::RichText::new(tr_or(lang, "Znak stacji", "Station Callsign")).strong());
-                        ui.label(egui::RichText::new("QSL Manager (Via)").strong());
-                        ui.label(egui::RichText::new(tr_or(lang, "Lata / Okres", "Years / Period")).strong());
-                        ui.label(egui::RichText::new(tr_or(lang, "Uwagi", "Notes")).strong());
-                        ui.label(egui::RichText::new(tr_or(lang, "Akcja", "Action")).strong());
-                        ui.end_row();
+                if ui
+                    .button(format!("🔍 {}", tr("btn.search", lang)))
+                    .clicked()
+                {
+                    self.execute_search(db);
+                }
 
-                        for rec in &self.results {
-                            ui.label(egui::RichText::new(&rec.call).strong().color(egui::Color32::from_rgb(56, 189, 248)));
-                            ui.label(egui::RichText::new(&rec.manager).strong().color(egui::Color32::from_rgb(34, 197, 94)));
-                            ui.label(&rec.years);
-                            ui.label(&rec.notes);
+                if ui.button(tr("btn.clear", lang)).clicked() {
+                    self.search_query.clear();
+                    self.results.clear();
+                }
+            });
 
-                            if ui.button(tr_or(lang, "Wybierz", "Select")).on_hover_text(tr_or(lang, "Użyj tego managera w formularzu QSO", "Use this manager in QSO form")).clicked() {
-                                chosen = Some(rec.manager.clone());
-                                close_requested = true;
-                            }
+            ui.separator();
+
+            ui.label(format!(
+                "{}: {}",
+                tr_or(lang, "Znaleziono rekordów", "Records found"),
+                self.results.len()
+            ));
+
+            egui::ScrollArea::vertical()
+                .max_height(300.0)
+                .show(ui, |ui| {
+                    egui::Grid::new("qsl_mgr_grid")
+                        .striped(true)
+                        .spacing([15.0, 6.0])
+                        .show(ui, |ui| {
+                            ui.label(
+                                egui::RichText::new(tr_or(lang, "Znak stacji", "Station Callsign"))
+                                    .strong(),
+                            );
+                            ui.label(egui::RichText::new("QSL Manager (Via)").strong());
+                            ui.label(
+                                egui::RichText::new(tr_or(lang, "Lata / Okres", "Years / Period"))
+                                    .strong(),
+                            );
+                            ui.label(egui::RichText::new(tr_or(lang, "Uwagi", "Notes")).strong());
+                            ui.label(egui::RichText::new(tr_or(lang, "Akcja", "Action")).strong());
                             ui.end_row();
-                        }
-                    });
+
+                            for rec in &self.results {
+                                ui.label(
+                                    egui::RichText::new(&rec.call)
+                                        .strong()
+                                        .color(egui::Color32::from_rgb(56, 189, 248)),
+                                );
+                                ui.label(
+                                    egui::RichText::new(&rec.manager)
+                                        .strong()
+                                        .color(egui::Color32::from_rgb(34, 197, 94)),
+                                );
+                                ui.label(&rec.years);
+                                ui.label(&rec.notes);
+
+                                if ui
+                                    .button(tr_or(lang, "Wybierz", "Select"))
+                                    .on_hover_text(tr_or(
+                                        lang,
+                                        "Użyj tego managera w formularzu QSO",
+                                        "Use this manager in QSO form",
+                                    ))
+                                    .clicked()
+                                {
+                                    chosen = Some(rec.manager.clone());
+                                    close_requested = true;
+                                }
+                                ui.end_row();
+                            }
+                        });
                 });
 
-                ui.separator();
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new(tr_or(
+            ui.separator();
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(tr_or(
                         lang,
                         "Baza serviceLOG zawiera ponad 29 000 powiązań stacji z managerami QSL.",
                         "serviceLOG database contains over 29,000 station-to-QSL manager mappings.",
-                    )).small().color(egui::Color32::GRAY));
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button(tr("btn.close", lang)).clicked() {
-                            close_requested = true;
-                        }
-                    });
+                    ))
+                    .small()
+                    .color(egui::Color32::GRAY),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button(tr("btn.close", lang)).clicked() {
+                        close_requested = true;
+                    }
                 });
             });
+        });
 
         if close_requested || !open {
             self.is_open = false;

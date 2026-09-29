@@ -352,19 +352,40 @@ pub async fn lookup_callook_info(callsign: &str) -> Result<CallbookData, String>
         Some("MP") => (Some(166), Some("Mariana Islands".to_string())),
         Some("AS") => (Some(9), Some("American Samoa".to_string())),
         _ => {
-            if clean.starts_with("KL") || clean.starts_with("AL") || clean.starts_with("NL") || clean.starts_with("WL") {
+            if clean.starts_with("KL")
+                || clean.starts_with("AL")
+                || clean.starts_with("NL")
+                || clean.starts_with("WL")
+            {
                 (Some(6), Some("Alaska".to_string()))
-            } else if clean.starts_with("KH6") || clean.starts_with("NH6") || clean.starts_with("WH6") || clean.starts_with("AH6")
-                || clean.starts_with("KH7") || clean.starts_with("NH7") || clean.starts_with("WH7") || clean.starts_with("AH7")
+            } else if clean.starts_with("KH6")
+                || clean.starts_with("NH6")
+                || clean.starts_with("WH6")
+                || clean.starts_with("AH6")
+                || clean.starts_with("KH7")
+                || clean.starts_with("NH7")
+                || clean.starts_with("WH7")
+                || clean.starts_with("AH7")
             {
                 (Some(110), Some("Hawaii".to_string()))
-            } else if clean.starts_with("KP4") || clean.starts_with("NP4") || clean.starts_with("WP4")
-                || clean.starts_with("KP3") || clean.starts_with("NP3") || clean.starts_with("WP3")
+            } else if clean.starts_with("KP4")
+                || clean.starts_with("NP4")
+                || clean.starts_with("WP4")
+                || clean.starts_with("KP3")
+                || clean.starts_with("NP3")
+                || clean.starts_with("WP3")
             {
                 (Some(202), Some("Puerto Rico".to_string()))
-            } else if clean.starts_with("KP2") || clean.starts_with("NP2") || clean.starts_with("WP2") {
+            } else if clean.starts_with("KP2")
+                || clean.starts_with("NP2")
+                || clean.starts_with("WP2")
+            {
                 (Some(285), Some("US Virgin Islands".to_string()))
-            } else if clean.starts_with("KH2") || clean.starts_with("NH2") || clean.starts_with("WH2") || clean.starts_with("AH2") {
+            } else if clean.starts_with("KH2")
+                || clean.starts_with("NH2")
+                || clean.starts_with("WH2")
+                || clean.starts_with("AH2")
+            {
                 (Some(103), Some("Guam".to_string()))
             } else {
                 (Some(291), Some("United States".to_string()))

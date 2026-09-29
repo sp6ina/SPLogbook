@@ -170,16 +170,15 @@ impl AstronomyEngine {
         let lon_pert = -1.274 * (m - 2.0 * d_elong).to_radians().sin()
             + 0.658 * (2.0 * d_elong).to_radians().sin()
             - 0.186 * ms.to_radians().sin();
-        let r = r_base - 0.58 * (m - 2.0 * d_elong).to_radians().cos()
+        let r = r_base
+            - 0.58 * (m - 2.0 * d_elong).to_radians().cos()
             - 0.46 * (2.0 * d_elong).to_radians().cos();
 
         let vw_rad = (v + w + lon_pert).to_radians();
         let x_ecl = r
-            * (n.to_radians().cos() * vw_rad.cos()
-                - n.to_radians().sin() * vw_rad.sin() * i.cos());
+            * (n.to_radians().cos() * vw_rad.cos() - n.to_radians().sin() * vw_rad.sin() * i.cos());
         let y_ecl = r
-            * (n.to_radians().sin() * vw_rad.cos()
-                + n.to_radians().cos() * vw_rad.sin() * i.cos());
+            * (n.to_radians().sin() * vw_rad.cos() + n.to_radians().cos() * vw_rad.sin() * i.cos());
         let z_ecl = r * vw_rad.sin() * i.sin();
 
         let obl_ecl = (23.4393 - 3.563e-7 * d).to_radians();

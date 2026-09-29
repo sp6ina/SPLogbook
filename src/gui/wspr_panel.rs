@@ -96,12 +96,22 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             .striped(true)
                             .show(ui, |ui| {
                                 // Naglowki
-                                ui.label(egui::RichText::new(tr("wspr.col_callsign", lang)).strong());
-                                ui.label(egui::RichText::new(tr("wspr.col_frequency", lang)).strong());
+                                ui.label(
+                                    egui::RichText::new(tr("wspr.col_callsign", lang)).strong(),
+                                );
+                                ui.label(
+                                    egui::RichText::new(tr("wspr.col_frequency", lang)).strong(),
+                                );
                                 ui.label(egui::RichText::new(tr("wspr.col_snr", lang)).strong());
-                                ui.label(egui::RichText::new(tr("wspr.col_locator", lang)).strong());
-                                ui.label(egui::RichText::new(tr("wspr.col_distance", lang)).strong());
-                                ui.label(egui::RichText::new(tr("wspr.col_azimuth", lang)).strong());
+                                ui.label(
+                                    egui::RichText::new(tr("wspr.col_locator", lang)).strong(),
+                                );
+                                ui.label(
+                                    egui::RichText::new(tr("wspr.col_distance", lang)).strong(),
+                                );
+                                ui.label(
+                                    egui::RichText::new(tr("wspr.col_azimuth", lang)).strong(),
+                                );
                                 ui.end_row();
 
                                 let my_coords = crate::core::geo::locator_to_coordinates(

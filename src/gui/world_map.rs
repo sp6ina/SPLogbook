@@ -379,11 +379,11 @@ pub fn render_world_map_window(app: &mut SpLogApp, ctx: &egui::Context) {
         let raw_sz = app.panel_world_map.saved_size.unwrap_or(default_size);
         let max_w = (screen.width() - 24.0).max(420.0);
         let max_h = (screen.height() - 24.0).max(320.0);
-        let sz = [
-            raw_sz[0].clamp(400.0, max_w),
-            raw_sz[1].clamp(300.0, max_h),
-        ];
-        win = win.current_pos(pos).default_size(sz).max_size([max_w, max_h]);
+        let sz = [raw_sz[0].clamp(400.0, max_w), raw_sz[1].clamp(300.0, max_h)];
+        win = win
+            .current_pos(pos)
+            .default_size(sz)
+            .max_size([max_w, max_h]);
     } else {
         let max_w = (screen.width() - 24.0).max(420.0);
         let max_h = (screen.height() - 24.0).max(320.0);
@@ -549,7 +549,9 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
         // Płótno Canvas Mapy Świata (Equirectangular projection)
         let avail = ui.available_size();
         let width = avail.x.clamp(240.0, 1600.0);
-        let height = (width * 0.50).min((avail.y - 4.0).max(180.0)).clamp(180.0, 900.0);
+        let height = (width * 0.50)
+            .min((avail.y - 4.0).max(180.0))
+            .clamp(180.0, 900.0);
 
         let id = ui.id().with("world_map_state");
         let mut state = ui.data_mut(|d| d.get_temp::<MapState>(id).unwrap_or_default());

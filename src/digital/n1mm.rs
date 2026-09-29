@@ -160,7 +160,7 @@ pub fn contactinfo_xml(qso: &QsoRecord, my_call: &str, radio_nr: u8) -> String {
 pub fn radioinfo_xml(freq_hz: u64, mode: &str, my_call: &str, radio_nr: u8) -> String {
     // W systemie N1MM wartości Freq/TXFreq również muszą być w rozdzielczości 10 Hz.
     let freq_n1mm = freq_hz / 10;
-    
+
     format!(
         "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\
 <radioinfo>\n\
@@ -189,7 +189,8 @@ pub fn radioinfo_xml(freq_hz: u64, mode: &str, my_call: &str, radio_nr: u8) -> S
 
 /// Zamienia pasmo ADIF (np. "20m", "70cm") na wartość numeryczną akceptowaną przez N1MM (np. "20", "70").
 fn band_to_meters(band: &str) -> String {
-    band.trim_end_matches(|c| c == 'm' || c == 'c' || c == 'M' || c == 'C').to_string()
+    band.trim_end_matches(|c| c == 'm' || c == 'c' || c == 'M' || c == 'C')
+        .to_string()
 }
 
 /// Wysyła ramkę XML jako datagram UDP do podanego hosta i portu.

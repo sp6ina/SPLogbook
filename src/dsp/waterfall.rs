@@ -198,14 +198,11 @@ impl WaterfallEngine {
         self.pending.extend_from_slice(samples);
         let mut offset = 0;
         while offset + self.fft_size <= self.pending.len() {
-            for (dst, (&sample, &win)) in self.scratch[..self.fft_size]
-                .iter_mut()
-                .zip(
-                    self.pending[offset..offset + self.fft_size]
-                        .iter()
-                        .zip(&self.window),
-                )
-            {
+            for (dst, (&sample, &win)) in self.scratch[..self.fft_size].iter_mut().zip(
+                self.pending[offset..offset + self.fft_size]
+                    .iter()
+                    .zip(&self.window),
+            ) {
                 *dst = Complex::new(sample * win, 0.0);
             }
             self.fft.process(&mut self.scratch);

@@ -48,8 +48,9 @@ impl BackupManager {
 
         if let Err(e) = sqlite_ok {
             let _ = fs::remove_file(&tmp_path);
-            fs::copy(source_db_path, &tmp_path)
-                .map_err(|copy_err| format!("Błąd wykonywania kopii zapasowej ({e}): {copy_err}"))?;
+            fs::copy(source_db_path, &tmp_path).map_err(|copy_err| {
+                format!("Błąd wykonywania kopii zapasowej ({e}): {copy_err}")
+            })?;
         }
 
         fs::rename(&tmp_path, &dest_path)

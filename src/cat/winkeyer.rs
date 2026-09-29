@@ -61,9 +61,7 @@ impl WinkeyerProtocol {
     /// Ustawienie częstotliwości podsłuchu (0x01, 0x04, sidetone_code)
     pub fn set_sidetone(hz: u16) -> Vec<u8> {
         // Kod sidetone wg K1EL WK spec: 1..=10 (4000 / hz)
-        let code = 4000u16
-            .checked_div(hz)
-            .map_or(5, |c| c.clamp(1, 10) as u8);
+        let code = 4000u16.checked_div(hz).map_or(5, |c| c.clamp(1, 10) as u8);
         vec![0x01, 0x04, code]
     }
 

@@ -667,11 +667,9 @@ pub fn render_user_manual_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                 ui.horizontal_wrapped(|ui| {
                                                     ui.set_max_width(inner_w);
                                                     ui.label(
-                                                        egui::RichText::new("•")
-                                                            .strong()
-                                                            .color(egui::Color32::from_rgb(
-                                                                56, 189, 248,
-                                                            )),
+                                                        egui::RichText::new("•").strong().color(
+                                                            egui::Color32::from_rgb(56, 189, 248),
+                                                        ),
                                                     );
                                                     ui.add(
                                                         egui::Label::new(
@@ -684,11 +682,9 @@ pub fn render_user_manual_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                 ui.horizontal_wrapped(|ui| {
                                                     ui.set_max_width(inner_w);
                                                     ui.add_space(12.0);
-                                                    ui.label(
-                                                        egui::RichText::new("◦").color(
-                                                            egui::Color32::from_rgb(52, 211, 153),
-                                                        ),
-                                                    );
+                                                    ui.label(egui::RichText::new("◦").color(
+                                                        egui::Color32::from_rgb(52, 211, 153),
+                                                    ));
                                                     ui.add(
                                                         egui::Label::new(
                                                             egui::RichText::new(rest).size(12.5),
@@ -726,7 +722,11 @@ pub fn render_user_manual_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     "Otwiera folder z bazą danych i plikami konfiguracyjnymi",
                     "Opens folder containing database and station configuration files",
                 );
-                if ui.button(open_dir_label).on_hover_text(open_dir_tip).clicked() {
+                if ui
+                    .button(open_dir_label)
+                    .on_hover_text(open_dir_tip)
+                    .clicked()
+                {
                     if let Some(parent) = app.config_file_path.parent() {
                         let _ = open::that(parent);
                     }

@@ -25,7 +25,10 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
         ui.separator();
         if ui
-            .add(egui::Button::new(icons::MANUAL.label(tr("help.user_manual", lang))).shortcut_text("F12"))
+            .add(
+                egui::Button::new(icons::MANUAL.label(tr("help.user_manual", lang)))
+                    .shortcut_text("F12"),
+            )
             .clicked()
         {
             app.show_user_manual = true;
@@ -105,10 +108,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             let _ = open::that("https://github.com/sp6ina/SPLogbook/issues/new");
             ui.close();
         }
-        if ui
-            .button(tr("help.buy_coffee", lang))
-            .clicked()
-        {
+        if ui.button(tr("help.buy_coffee", lang)).clicked() {
             let _ = open::that("https://buycoffee.to/sp6ina");
             ui.close();
         }

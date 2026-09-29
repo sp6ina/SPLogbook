@@ -167,10 +167,7 @@ impl CsvExportDialog {
                 });
 
                 ui.add_space(4.0);
-                ui.checkbox(
-                    &mut self.include_header,
-                    tr("csv.include_header", lang),
-                );
+                ui.checkbox(&mut self.include_header, tr("csv.include_header", lang));
 
                 ui.add_space(8.0);
                 ui.separator();

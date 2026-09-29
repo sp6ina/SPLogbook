@@ -142,16 +142,10 @@ impl SpLogApp {
         let (init_pos, init_size) = ctx.data_mut(|d| {
             *d.get_temp_mut_or_insert_with(init_cache_id, || {
                 let sanitized_size = saved_size
-                    .map(|[w, h]| {
-                        [
-                            w.clamp(min_size[0], 1600.0),
-                            h.clamp(min_size[1], 1000.0),
-                        ]
-                    })
+                    .map(|[w, h]| [w.clamp(min_size[0], 1600.0), h.clamp(min_size[1], 1000.0)])
                     .unwrap_or(default_size);
-                let sanitized_pos = saved_pos.map(|[x, y]| {
-                    [x.clamp(-1920.0, 3840.0), y.clamp(0.0, 2000.0)]
-                });
+                let sanitized_pos =
+                    saved_pos.map(|[x, y]| [x.clamp(-1920.0, 3840.0), y.clamp(0.0, 2000.0)]);
                 (sanitized_pos, sanitized_size)
             })
         });
@@ -886,7 +880,11 @@ impl SpLogApp {
                 ui.painter().text(
                     slot_rect.center(),
                     egui::Align2::CENTER_CENTER,
-                    crate::core::i18n::tr_or(lang, "⬇ Upuść tutaj (na końcu)", "⬇ Drop here (at end)"),
+                    crate::core::i18n::tr_or(
+                        lang,
+                        "⬇ Upuść tutaj (na końcu)",
+                        "⬇ Drop here (at end)",
+                    ),
                     egui::FontId::proportional(10.0),
                     egui::Color32::WHITE,
                 );
@@ -982,29 +980,60 @@ impl SpLogApp {
                         self.render_tile_header_custom(&tile_id, ui);
 
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("✕").on_hover_text(crate::core::i18n::tr_or(lang, "Ukryj ten kafelek", "Hide this panel")).clicked() {
+                            if ui
+                                .button("✕")
+                                .on_hover_text(crate::core::i18n::tr_or(
+                                    lang,
+                                    "Ukryj ten kafelek",
+                                    "Hide this panel",
+                                ))
+                                .clicked()
+                            {
                                 action_close = Some(tile_id.clone());
                             }
                             if ui
                                 .button("↗")
-                                .on_hover_text(crate::core::i18n::tr_or(lang, "Odepnij do osobnego okna pływającego", "Undock into a floating window"))
+                                .on_hover_text(crate::core::i18n::tr_or(
+                                    lang,
+                                    "Odepnij do osobnego okna pływającego",
+                                    "Undock into a floating window",
+                                ))
                                 .clicked()
                             {
                                 action_popout = Some(tile_id.clone());
                             }
                             if active + 1 < tiles.len()
-                                && ui.button("▼").on_hover_text(crate::core::i18n::tr_or(lang, "Przesuń niżej", "Move down")).clicked()
+                                && ui
+                                    .button("▼")
+                                    .on_hover_text(crate::core::i18n::tr_or(
+                                        lang,
+                                        "Przesuń niżej",
+                                        "Move down",
+                                    ))
+                                    .clicked()
                             {
                                 action_move_order = Some((tile_id.clone(), 1));
                             }
-                            if active > 0 && ui.button("▲").on_hover_text(crate::core::i18n::tr_or(lang, "Przesuń wyżej", "Move up")).clicked()
+                            if active > 0
+                                && ui
+                                    .button("▲")
+                                    .on_hover_text(crate::core::i18n::tr_or(
+                                        lang,
+                                        "Przesuń wyżej",
+                                        "Move up",
+                                    ))
+                                    .clicked()
                             {
                                 action_move_order = Some((tile_id.clone(), -1));
                             }
                             if col_idx < 2
                                 && ui
                                     .button("▶")
-                                    .on_hover_text(crate::core::i18n::tr_or(lang, "Przenieś do kolumny po prawej", "Move to right column"))
+                                    .on_hover_text(crate::core::i18n::tr_or(
+                                        lang,
+                                        "Przenieś do kolumny po prawej",
+                                        "Move to right column",
+                                    ))
                                     .clicked()
                             {
                                 action_move_col = Some((tile_id.clone(), 1));
@@ -1012,7 +1041,11 @@ impl SpLogApp {
                             if col_idx > 0
                                 && ui
                                     .button("◀")
-                                    .on_hover_text(crate::core::i18n::tr_or(lang, "Przenieś do kolumny po lewej", "Move to left column"))
+                                    .on_hover_text(crate::core::i18n::tr_or(
+                                        lang,
+                                        "Przenieś do kolumny po lewej",
+                                        "Move to left column",
+                                    ))
                                     .clicked()
                             {
                                 action_move_col = Some((tile_id.clone(), -1));

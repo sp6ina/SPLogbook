@@ -382,8 +382,8 @@ impl MultiOpClient {
         let auth_msg = MultiOpMessage::Auth {
             secret: self.shared_secret.clone(),
         };
-        let auth_json = serde_json::to_string(&auth_msg)
-            .map_err(|e| format!("Błąd serializacji Auth: {e}"))?;
+        let auth_json =
+            serde_json::to_string(&auth_msg).map_err(|e| format!("Błąd serializacji Auth: {e}"))?;
         if let Err(e) = tokio::time::timeout(
             std::time::Duration::from_secs(5),
             write_half.write_all(format!("{auth_json}\n").as_bytes()),

@@ -100,9 +100,8 @@ struct StatsCacheData {
     qsl: (i64, i64, i64, i64),
 }
 
-static STATS_CACHE: std::sync::OnceLock<
-    std::sync::Mutex<Option<(StatsCacheKey, StatsCacheData)>>,
-> = std::sync::OnceLock::new();
+static STATS_CACHE: std::sync::OnceLock<std::sync::Mutex<Option<(StatsCacheKey, StatsCacheData)>>> =
+    std::sync::OnceLock::new();
 
 fn get_cached_stats(app: &mut SpLogApp) -> StatsCacheData {
     let confirmed_sample = app

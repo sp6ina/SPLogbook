@@ -344,11 +344,7 @@ async fn auth_middleware(
         req.uri().query().and_then(|q| {
             q.split('&').find_map(|pair| {
                 let (k, v) = pair.split_once('=')?;
-                if k == "api_key" {
-                    Some(v)
-                } else {
-                    None
-                }
+                if k == "api_key" { Some(v) } else { None }
             })
         })
     } else {
@@ -843,7 +839,8 @@ async fn get_qsos_by_callsign(
 ) -> Result<Json<CallsignHistoryResponse>, (StatusCode, String)> {
     let clean_call = call.trim().to_uppercase();
     let clean_call_for_db = clean_call.clone();
-    let previous_qsos = with_db(&state, move |db| db.find_previous_qsos(&clean_call_for_db)).await?;
+    let previous_qsos =
+        with_db(&state, move |db| db.find_previous_qsos(&clean_call_for_db)).await?;
 
     let today = chrono::Utc::now().format("%Y%m%d").to_string();
     let is_dupe = previous_qsos.iter().any(|q| {

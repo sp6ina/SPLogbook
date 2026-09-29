@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 // Okno bazy prefiksów i znaków specjalnych (UniqueCalls z serviceLOG.db - 4 310 rekordów)
 
-use crate::core::i18n::{tr, tr_or, Language};
+use crate::core::i18n::{Language, tr, tr_or};
 use crate::core::service_db::{ServiceDatabase, UniqueCallRecord};
 use eframe::egui;
 

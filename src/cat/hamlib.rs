@@ -216,8 +216,7 @@ impl HamlibClient {
                                 .is_ok()
                             {
                                 let tx_vfo_trimmed = tx_vfo_line.trim();
-                                if !tx_vfo_trimmed.is_empty()
-                                    && !tx_vfo_trimmed.starts_with("RPRT")
+                                if !tx_vfo_trimmed.is_empty() && !tx_vfo_trimmed.starts_with("RPRT")
                                 {
                                     current_state.tx_vfo = tx_vfo_trimmed.to_string();
                                 }

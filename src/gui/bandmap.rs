@@ -18,7 +18,11 @@ pub fn render_bandmap_tile(app: &mut SpLogApp, ui: &mut egui::Ui) {
                         .color(egui::Color32::from_rgb(56, 189, 248)),
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("✕").on_hover_text(tr("window.hide_tooltip", lang)).clicked() {
+                    if ui
+                        .button("✕")
+                        .on_hover_text(tr("window.hide_tooltip", lang))
+                        .clicked()
+                    {
                         app.panel_bandmap.visible = false;
                         app.show_bandmap_window = false;
                         app.save_station_config();
