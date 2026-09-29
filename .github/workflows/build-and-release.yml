@@ -171,8 +171,72 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
+
+      - name: Build splogbook-signer
+        run: cargo build --release --bin splogbook-signer
+
+      - name: Create and sign Release Manifest
+        env:
+          SIGNER_PRIVATE_KEY: ${{ secrets.SIGNER_PRIVATE_KEY }}
+        run: |
+          # Write private key to temp file from Base64 secret
+          echo "$SIGNER_PRIVATE_KEY" | base64 -d > priv.key
+          
+          # Compute hashes
+          SHA_LINUX=$(./target/release/splogbook-signer hash SPLogbook-Linux-x86_64/SPLogbook-Linux-x86_64.tar.gz | awk '{print $2}')
+          SIZE_LINUX=$(stat -c%s SPLogbook-Linux-x86_64/SPLogbook-Linux-x86_64.tar.gz)
+          SHA_WIN=$(./target/release/splogbook-signer hash SPLogbook-Windows-x64/SPLogbook-Windows-x64.zip | awk '{print $2}')
+          SIZE_WIN=$(stat -c%s SPLogbook-Windows-x64/SPLogbook-Windows-x64.zip)
+
+          VERSION=${GITHUB_REF#refs/tags/v}
+          
+          # Git commit hash must be exactly 40 chars
+          COMMIT_SHA=$(git rev-parse HEAD)
+
+          # Generate release-manifest.json
+          cat > release-manifest.json <<EOF
+          {
+            "manifest_version": 1,
+            "key_id": "splogbook-release-2026-01",
+            "product": "SPLogbook",
+            "version": "$VERSION",
+            "channel": "stable",
+            "minimum_updater_version": "1.1.0",
+            "commit": "$COMMIT_SHA",
+            "assets": [
+              {
+                "platform": "linux",
+                "arch": "x86_64",
+                "package_type": "tar.gz",
+                "filename": "SPLogbook-Linux-x86_64.tar.gz",
+                "size": $SIZE_LINUX,
+                "sha256": "$SHA_LINUX"
+              },
+              {
+                "platform": "windows",
+                "arch": "x86_64",
+                "package_type": "zip",
+                "filename": "SPLogbook-Windows-x64.zip",
+                "size": $SIZE_WIN,
+                "sha256": "$SHA_WIN"
+              }
+            ]
+          }
+          EOF
+
+          # Sign manifest
+          ./target/release/splogbook-signer sign priv.key release-manifest.json
+          
+          # Clean up private key
+          rm -f priv.key
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -180,6 +244,8 @@ jobs:
           files: |
             SPLogbook-Linux-x86_64/SPLogbook-Linux-x86_64.tar.gz
             SPLogbook-Windows-x64/SPLogbook-Windows-x64.zip
+            release-manifest.json
+            release-manifest.json.sig
           generate_release_notes: true
           draft: false
           prerelease: false

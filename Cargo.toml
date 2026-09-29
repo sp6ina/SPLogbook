@@ -17,6 +17,10 @@ path = "src/lib.rs"
 name = "SPLogbook"
 path = "src/main.rs"
 
+[[bin]]
+name = "splogbook-signer"
+path = "src/bin/signer.rs"
+
 [dependencies]
 rusqlite = { version = "0.40", features = ["bundled", "backup"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time", "fs", "process"] }
@@ -53,9 +57,10 @@ sha2 = "0.11"
 flate2 = "1.1.10"
 tar = "0.4.46"
 walkdir = "2.5.0"
-ed25519-dalek = "3.0.0"
+ed25519-dalek = { version = "3.0.0", features = ["rand_core"] }
 base64 = "0.23.1"
 semver = "1.0.28"
+rand_core = { version = "0.6", features = ["getrandom"] }
 
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1"
