@@ -33,3 +33,6 @@ Thumbs.db
 desktop.ini
 SPLogbook-backup/
 mailmap.txt
+
+# Local working documents (kept out of the repository)
+PLAN.md
