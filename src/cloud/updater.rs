@@ -157,8 +157,7 @@ pub struct TrustedKey {
 pub const TRUSTED_KEYS: &[TrustedKey] = &[TrustedKey {
     key_id: "splogbook-release-2026-01",
     public_key: [
-        108, 158, 236, 247, 76, 222, 53, 150, 46, 23, 120, 161, 249, 13, 121, 38, 
-        124, 113, 138, 53, 232, 229, 152, 165, 63, 107, 44, 18, 74, 26, 19, 118
+        203, 142, 210, 212, 105, 105, 108, 227, 134, 187, 21, 218, 130, 171, 206, 34, 2, 8, 28, 215, 25, 30, 29, 155, 176, 60, 221, 202, 31, 156, 241, 112
     ],
     active: true,
     min_version: Some("1.1.0"),
@@ -1091,5 +1090,28 @@ mod tests {
 
         #[cfg(not(target_os = "windows"))]
         assert!(check_safety_gate(&zip).is_ok());
+    }
+
+    #[test]
+    fn verify_manifest_signature_fails_on_bad_signature() {
+        let manifest_json = r#"{
+            "manifest_version": 1,
+            "key_id": "splogbook-release-2026-01",
+            "product": "SPLogbook",
+            "version": "1.2.0",
+            "channel": "stable",
+            "minimum_updater_version": "1.1.0",
+            "commit": "a1b2c3d4e5f6e7f8a9b0c1d2e3f4a5b6c7d8e9f0",
+            "assets": []
+        }"#;
+
+        // Błędny podpis (losowy Base64 o dł. 64 bajtów po zdekodowaniu)
+        let bad_sig = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==";
+
+        let result = verify_manifest_signature(manifest_json.as_bytes(), bad_sig);
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert!(e.contains("Żaden z zaufanych kluczy nie zweryfikował tego podpisu") || e.contains("Błąd"));
+        }
     }
 }
