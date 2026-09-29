@@ -183,9 +183,9 @@ pub fn radioinfo_xml(freq_hz: u64, mode: &str, my_call: &str, radio_nr: u8) -> S
     )
 }
 
-/// Zamienia pasmo ADIF (np. "20m") na liczbę metrów (np. "20").
+/// Zamienia pasmo ADIF (np. "20m", "70cm") na wartość numeryczną akceptowaną przez N1MM (np. "20", "70").
 fn band_to_meters(band: &str) -> String {
-    band.trim_end_matches('m').to_string()
+    band.trim_end_matches(|c| c == 'm' || c == 'c' || c == 'M' || c == 'C').to_string()
 }
 
 /// Wysyła ramkę XML jako datagram UDP do podanego hosta i portu.
@@ -213,7 +213,9 @@ mod tests {
     fn band_to_meters_strips_suffix() {
         assert_eq!(band_to_meters("20m"), "20");
         assert_eq!(band_to_meters("2m"), "2");
-        assert_eq!(band_to_meters("70cm"), "70c");
+        assert_eq!(band_to_meters("70cm"), "70");
+        assert_eq!(band_to_meters("1.25cm"), "1.25");
+        assert_eq!(band_to_meters("6mm"), "6");
     }
 
     #[test]
