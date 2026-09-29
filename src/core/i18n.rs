@@ -49,6 +49,14 @@ pub fn tr(key: &str, lang: Language) -> &str {
     }
 }
 
+/// Zwraca tekst polski dla `Language::Pl`, a angielski (uniwersalny międzynarodowy) dla pozostałych języków.
+pub fn tr_or<'a>(lang: Language, pl: &'a str, en: &'a str) -> &'a str {
+    match lang {
+        Language::Pl => pl,
+        _ => en,
+    }
+}
+
 /// Obsługiwane języki w programie SPLogbook
 /// Obsługa języków: Polski (PL), Angielski (EN), Niemiecki (DE), Francuski (FR), Hiszpański (ES), Włoski (IT), Rosyjski (RU)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]

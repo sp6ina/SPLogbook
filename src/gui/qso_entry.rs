@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
-use crate::core::i18n::tr;
+use crate::core::i18n::{tr, tr_or};
 use crate::gui::app::SpLogApp;
 use eframe::egui;
 
@@ -17,13 +17,17 @@ pub fn render_qso_entry_panel(app: &mut SpLogApp, ui: &mut egui::Ui) {
                         .size(16.0),
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("✕").on_hover_text("Ukryj ten kafelek").clicked() {
+                    if ui
+                        .button("✕")
+                        .on_hover_text(tr("window.hide_tooltip", lang))
+                        .clicked()
+                    {
                         app.panel_qso.visible = false;
                         app.save_station_config();
                     }
                     if ui
                         .button("↗")
-                        .on_hover_text("Odepnij do osobnego okna pływającego")
+                        .on_hover_text(tr("window.popout_tooltip", lang))
                         .clicked()
                     {
                         app.panel_qso.floating = true;
@@ -81,9 +85,10 @@ pub fn render_qso_entry_window(app: &mut SpLogApp, ctx: &egui::Context) {
             |app, ui| {
                 egui::Panel::top("qso_vp_bar").show(ui, |ui| {
                     ui.horizontal(|ui| {
+                        let lang = app.current_language;
                         if ui
-                            .button("↙ Przypnij do pulpitu")
-                            .on_hover_text("Przenieś okno z powrotem na główny pulpit SPLogbook")
+                            .button(format!("↙ {}", tr("window.dock", lang)))
+                            .on_hover_text(tr("window.dock_tooltip", lang))
                             .clicked()
                         {
                             dock_back = true;
@@ -229,7 +234,11 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         if ui
             .button(egui::RichText::new("🔍 QRZ").strong())
-            .on_hover_text("Pobierz dane z bazy QRZ.com / Callbook")
+            .on_hover_text(tr_or(
+                lang,
+                "Pobierz dane z bazy QRZ.com / Callbook",
+                "Lookup callsign in QRZ.com / Callbook",
+            ))
             .clicked()
         {
             app.lookup_active_callsign_online();
@@ -266,7 +275,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     if !app.callsign_corrections.is_empty() {
         ui.horizontal_wrapped(|ui| {
             ui.label(
-                egui::RichText::new("Może chodziło o:")
+                egui::RichText::new(tr_or(lang, "Może chodziło o:", "Did you mean:"))
                     .size(11.0)
                     .color(egui::Color32::from_rgb(251, 191, 36)),
             );
@@ -296,13 +305,22 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             );
             ui.colored_label(
                 egui::Color32::from_rgb(216, 180, 254),
-                format!("Strefy: CQ {} / ITU {}", info.cqz, info.ituz),
+                format!(
+                    "{}: CQ {} / ITU {}",
+                    tr_or(lang, "Strefy", "Zones"),
+                    info.cqz,
+                    info.ituz
+                ),
             );
 
             if let Some(ref dist) = app.active_polish_district {
                 ui.colored_label(
                     egui::Color32::from_rgb(134, 239, 172),
-                    format!("🇵🇱 Okręg PZK SP{}", dist.district),
+                    format!(
+                        "🇵🇱 {} SP{}",
+                        tr_or(lang, "Okręg PZK", "PZK District"),
+                        dist.district
+                    ),
                 );
             }
             if app.active_distance_km > 0.0 {
@@ -315,10 +333,16 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     ),
                 );
                 if ui
-                    .small_button(format!("🔄 Obróć ({:.0}°)", app.active_bearing_deg))
-                    .on_hover_text(
+                    .small_button(format!(
+                        "🔄 {} ({:.0}°)",
+                        tr_or(lang, "Obróć", "Rotate"),
+                        app.active_bearing_deg
+                    ))
+                    .on_hover_text(tr_or(
+                        lang,
                         "Ustawia rotor antenowy na azymut korespondenta (Hamlib rotctld)",
-                    )
+                        "Turn antenna rotor to station azimuth (Hamlib rotctld)",
+                    ))
                     .clicked()
                 {
                     app.rotate_antenna_to(app.active_bearing_deg as f32);
@@ -354,11 +378,12 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                         crate::core::propagation::BandOpeningStatus::Marginal => egui::Color32::from_rgb(250, 204, 21),
                         crate::core::propagation::BandOpeningStatus::Closed => egui::Color32::from_rgb(239, 68, 68),
                     };
-                    let text = format!("📡 Propagacja: {}% REL · {} ({}) · MUF {:.1} MHz",
+                    let text = format!("📡 {}: {}% REL · {} ({}) · MUF {:.1} MHz",
+                        tr_or(lang, "Propagacja", "Propagation"),
                         prop.reliability_pct, prop.signal_s_units, prop.layer, prop.muf_mhz);
                     ui.colored_label(prop_color, egui::RichText::new(text).strong())
                         .on_hover_text(format!(
-                            "Prognoza HF VOACAP-lite:\nNiezawodność obwodu: {}%\nSiła sygnału: {}\nWarstwa: {}\nMUF: {:.1} MHz\nLUF: {:.1} MHz\nFOT/OWF: {:.1} MHz\nStatus: {}",
+                            "HF VOACAP-lite:\nREL: {}%\nS-Meter: {}\nLayer: {}\nMUF: {:.1} MHz\nLUF: {:.1} MHz\nFOT/OWF: {:.1} MHz\nStatus: {}",
                             prop.reliability_pct, prop.signal_s_units, prop.layer, prop.muf_mhz, prop.luf_mhz, prop.fot_mhz, prop.status.as_str()
                         ));
                 });
@@ -425,7 +450,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 }
                 if award_st.is_new_pga {
                     ui.label(
-                        egui::RichText::new("🇵🇱 NOWA GMINA PGA!")
+                        egui::RichText::new(tr_or(lang, "🇵🇱 NOWA GMINA PGA!", "🇵🇱 NEW PGA MUNICIPALITY!"))
                             .color(egui::Color32::from_rgb(34, 197, 94))
                             .strong(),
                     );
@@ -543,7 +568,11 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
         if ui
             .button("🔍")
-            .on_hover_text("Przeglądaj bazę wysp IOTA")
+            .on_hover_text(tr_or(
+                lang,
+                "Przeglądaj bazę wysp IOTA",
+                "Browse IOTA island database",
+            ))
             .clicked()
         {
             app.iota_dialog.open();
@@ -562,7 +591,11 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
         if ui
             .button("🔍")
-            .on_hover_text("Przeglądaj stany US/VE i okręgi")
+            .on_hover_text(tr_or(
+                lang,
+                "Przeglądaj stany US/VE i okręgi",
+                "Browse US/VE states and subdivisions",
+            ))
             .clicked()
         {
             app.states_dialog.open();
@@ -597,7 +630,11 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
         if ui
             .button("🔍")
-            .on_hover_text("Szukaj managera w bazie 29k")
+            .on_hover_text(tr_or(
+                lang,
+                "Szukaj managera w bazie 29k",
+                "Search QSL manager in 29k database",
+            ))
             .clicked()
         {
             let call = app.entry_callsign.clone();
@@ -613,8 +650,8 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
 
         if ui
-            .button("📷 Foto")
-            .on_hover_text("Pokaż zdjęcie stacji")
+            .button(tr_or(lang, "📷 Foto", "📷 Photo"))
+            .on_hover_text(tr_or(lang, "Pokaż zdjęcie stacji", "Show station photo"))
             .clicked()
         {
             let call = app.entry_callsign.clone();
@@ -672,7 +709,11 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                         .color(egui::Color32::WHITE)
                         .strong(),
                 )
-                .on_hover_text("Zatrzymaj nagrywanie audio")
+                .on_hover_text(tr_or(
+                    lang,
+                    "Zatrzymaj nagrywanie audio",
+                    "Stop audio recording",
+                ))
                 .clicked()
             {
                 let _ = crate::media::audio_recorder::AudioRecorder::stop_audio();
@@ -683,7 +724,11 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     .color(egui::Color32::from_rgb(239, 68, 68))
                     .strong(),
             )
-            .on_hover_text("Rozpocznij nagrywanie audio łączności (Audio Memo)")
+            .on_hover_text(tr_or(
+                lang,
+                "Rozpocznij nagrywanie audio łączności (Audio Memo)",
+                "Start recording QSO audio memo",
+            ))
             .clicked()
         {
             let _ = crate::media::audio_recorder::AudioRecorder::start_recording();

@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::core::bandplan::{AMATEUR_BANDS, SegmentMode, get_band_by_freq, get_band_by_name};
-use crate::core::i18n::tr;
+use crate::core::i18n::{tr, tr_or};
 use crate::gui::app::SpLogApp;
 use eframe::egui;
 
@@ -18,14 +18,14 @@ pub fn render_bandmap_tile(app: &mut SpLogApp, ui: &mut egui::Ui) {
                         .color(egui::Color32::from_rgb(56, 189, 248)),
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("✕").on_hover_text("Ukryj ten kafelek").clicked() {
+                    if ui.button("✕").on_hover_text(tr("window.hide_tooltip", lang)).clicked() {
                         app.panel_bandmap.visible = false;
                         app.show_bandmap_window = false;
                         app.save_station_config();
                     }
                     if ui
                         .button("↗")
-                        .on_hover_text("Odepnij do osobnego okna pływającego")
+                        .on_hover_text(tr("window.popout_tooltip", lang))
                         .clicked()
                     {
                         app.panel_bandmap.floating = true;
@@ -61,9 +61,10 @@ pub fn render_bandmap_window(app: &mut SpLogApp, ctx: &egui::Context) {
             |app, ui| {
                 egui::Panel::top("bandmap_vp_bar").show(ui, |ui| {
                     ui.horizontal(|ui| {
+                        let lang = app.current_language;
                         if ui
-                            .button("↙ Przypnij do pulpitu")
-                            .on_hover_text("Przenieś okno z powrotem na główny pulpit SPLogbook")
+                            .button(format!("↙ {}", tr("window.dock", lang)))
+                            .on_hover_text(tr("window.dock_tooltip", lang))
                             .clicked()
                         {
                             dock_back = true;
@@ -181,7 +182,7 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
             }
         }
 
-        ui.label("Pasmo:");
+        ui.label(format!("{}:", tr("qso.band", lang)));
         for band in AMATEUR_BANDS {
             let is_selected = app.bandmap_selected_band == band.name;
             if ui.selectable_label(is_selected, band.name).clicked() {
@@ -202,7 +203,8 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         ui.label(
             egui::RichText::new(format!(
-                "Pasmo {}: {:.3} - {:.3} MHz",
+                "{} {}: {:.3} - {:.3} MHz",
+                tr("qso.band", lang),
                 current_band_def.name,
                 (min_freq as f64) / 1_000_000.0,
                 (max_freq as f64) / 1_000_000.0
@@ -212,9 +214,13 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
         );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.label(
-                egui::RichText::new("🔴 ATNO  🟠 Nowe Pasmo  🟢 Zaliczony")
-                    .size(11.0)
-                    .color(egui::Color32::from_rgb(148, 163, 184)),
+                egui::RichText::new(tr_or(
+                    lang,
+                    "🔴 ATNO  🟠 Nowe Pasmo  🟢 Zaliczony",
+                    "🔴 ATNO  🟠 New Band  🟢 Worked",
+                ))
+                .size(11.0)
+                .color(egui::Color32::from_rgb(148, 163, 184)),
             );
         });
     });
@@ -407,7 +413,12 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
     // 5. Lista aktywnych stacji na wybranym paśmie z funkcją natychmiastowego QSY
     ui.add_space(8.0);
     ui.label(
-        egui::RichText::new("🎯 Aktywne stacje na paśmie (Kliknij, aby nastroić VFO):").strong(),
+        egui::RichText::new(tr_or(
+            lang,
+            "🎯 Aktywne stacje na paśmie (Kliknij, aby nastroić VFO):",
+            "🎯 Active stations on band (Click to tune VFO):",
+        ))
+        .strong(),
     );
 
     let mut tune_target: Option<(u64, String)> = None;
@@ -420,11 +431,11 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .num_columns(5)
                 .spacing([12.0, 4.0])
                 .show(ui, |ui| {
-                    ui.label(egui::RichText::new("Znak").strong());
-                    ui.label(egui::RichText::new("Częstotliwość").strong());
-                    ui.label(egui::RichText::new("Komentarz / Info").strong());
-                    ui.label(egui::RichText::new("Czas").strong());
-                    ui.label(egui::RichText::new("Dostrój").strong());
+                    ui.label(egui::RichText::new(tr("qso.callsign", lang)).strong());
+                    ui.label(egui::RichText::new(tr("cluster.freq", lang)).strong());
+                    ui.label(egui::RichText::new(tr("cluster.comment", lang)).strong());
+                    ui.label(egui::RichText::new(tr("cluster.time", lang)).strong());
+                    ui.label(egui::RichText::new(tr_or(lang, "Dostrój", "Tune")).strong());
                     ui.end_row();
 
                     for spot in &app.cluster_spots {

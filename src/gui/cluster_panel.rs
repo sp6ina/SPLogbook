@@ -496,9 +496,9 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     // Pasek narzędziowy: Przełącznik bocznego panelu filtrów, Alerty, Czyszczenie
     ui.horizontal(|ui| {
         let filter_btn_text = if app.cluster_show_filter_sidebar {
-            "◀ Ukryj Filtry"
+            crate::core::i18n::tr_or(lang, "◀ Ukryj Filtry", "◀ Hide Filters")
         } else {
-            "🔍 Panel Filtrów"
+            crate::core::i18n::tr_or(lang, "🔍 Panel Filtrów", "🔍 Filter Panel")
         };
         if ui
             .selectable_label(app.cluster_show_filter_sidebar, filter_btn_text)
@@ -517,7 +517,12 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 "🔕 Alert OFF"
             })
             .on_hover_text(format!(
-                "Alert przy nowym DXCC/IOTA (K-index ≥ {}). Kliknij aby przełączyć.",
+                "{} (K-index ≥ {}).",
+                crate::core::i18n::tr_or(
+                    lang,
+                    "Alert przy nowym DXCC/IOTA",
+                    "Audio alert on new DXCC/IOTA"
+                ),
                 app.band_alert_k_index_threshold
             ))
             .clicked()

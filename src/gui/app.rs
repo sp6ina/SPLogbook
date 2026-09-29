@@ -486,6 +486,7 @@ pub struct SpLogApp {
     pub new_cluster_port: u16,
     pub cluster_event_rx: Option<std::sync::mpsc::Receiver<ClusterEvent>>,
     pub cluster_stop_tx: Option<tokio::sync::watch::Sender<bool>>,
+    pub cluster_cmd_tx: Option<tokio::sync::mpsc::UnboundedSender<String>>,
 
     // Modułowy układ kafelków i okien pływających
     pub reset_layout_requested: bool,
@@ -694,7 +695,7 @@ impl SpLogApp {
         log_db: Arc<Mutex<LogDatabase>>,
         prefix_matcher: Arc<PrefixMatcher>,
         scp_engine: Arc<Mutex<ScpEngine>>,
-        app_config: AppConfig,
+        mut app_config: AppConfig,
         config_file_path: std::path::PathBuf,
         active_db_path: std::path::PathBuf,
     ) -> Self {
@@ -776,26 +777,13 @@ impl SpLogApp {
         };
 
         let (cat_state_tx, cat_state_rx) = std::sync::mpsc::channel();
-        let cat_sender_init = cat_state_tx.clone();
-        let cat_poll_abort = if app_config.cat_enabled {
-            let host = app_config.cat_host.clone();
-            let port = app_config.cat_port;
-            let poll_rate = app_config.cat_poll_rate_ms;
-            let jh = tokio::spawn(async move {
-                let (client, mut rx) = crate::cat::hamlib::HamlibClient::new(&host, port);
-                let inner_jh = tokio::spawn(async move {
-                    client.run_poll_loop(poll_rate).await;
-                });
-                let _guard = inner_jh.abort_handle();
-                while let Ok(st) = rx.recv().await {
-                    let _ = cat_sender_init.send(st);
-                }
-                inner_jh.abort();
-            });
-            Some(jh.abort_handle())
-        } else {
-            None
-        };
+        let initial_cat_enabled = app_config.cat_enabled;
+        let cat_poll_abort = None;
+
+        if crate::cluster::telnet::is_dead_legacy_cluster_host(&app_config.cluster_host) {
+            app_config.cluster_host = "dxcluster.pl".to_string();
+            app_config.cluster_port = 8000;
+        }
 
         let (wsjtx_tx, wsjtx_rx) = std::sync::mpsc::channel();
         let ws_tx = wsjtx_tx.clone();
@@ -906,7 +894,7 @@ impl SpLogApp {
 
             rig_state: rig,
             rotor_state: rotor,
-            cat_connected: true,
+            cat_connected: false,
             vfo_split: false,
 
             recent_qsos,
@@ -1014,7 +1002,7 @@ impl SpLogApp {
             cat_port: app_config.cat_port,
             cat_poll_rate_ms: app_config.cat_poll_rate_ms,
             cat_rig_model: app_config.cat_rig_model,
-            cat_serial_port: app_config.cat_serial_port,
+            cat_serial_port: app_config.cat_serial_port.clone(),
             cat_baud_rate: app_config.cat_baud_rate,
             cat_test_result: None,
             show_cat_settings_window: false,
@@ -1119,7 +1107,7 @@ impl SpLogApp {
             // JS8Call — domyślnie wyłączony, bez aktywnych kanałów
             js8call_enabled: false,
             js8call_host: "127.0.0.1".to_string(),
-            js8call_port: 2237,
+            js8call_port: 2442,
             js8call_state: crate::digital::js8call::Js8CallState::default(),
             js8call_state_rx: None,
             js8call_qso_rx: None,
@@ -1211,6 +1199,7 @@ impl SpLogApp {
             new_cluster_port: 7300,
             cluster_event_rx: None,
             cluster_stop_tx: None,
+            cluster_cmd_tx: None,
 
             reset_layout_requested: false,
             left_column_width: app_config.left_column_width,
@@ -1296,8 +1285,10 @@ impl SpLogApp {
             cat_mfg_selected: "Wszystkie".to_string(),
             cat_conn_type: if app_config.cat_backend == "tci" {
                 "tci".to_string()
-            } else {
+            } else if app_config.cat_auto_start_rigctld || !app_config.cat_serial_port.is_empty() {
                 "serial".to_string()
+            } else {
+                "tcp".to_string()
             },
             cat_sharing_enabled: app_config.cat_sharing_enabled,
             cat_sharing_port: app_config.cat_sharing_port,
@@ -1369,6 +1360,10 @@ impl SpLogApp {
             let total = app.qso_numbers.len() as i64;
             app.plugin_engine.set_qso_count(total);
             app.plugin_engine.run_startup();
+        }
+
+        if initial_cat_enabled {
+            app.start_cat_service();
         }
 
         if app.cat_sharing_enabled {
@@ -2949,6 +2944,11 @@ impl SpLogApp {
     pub fn connect_dx_cluster(&mut self) {
         self.disconnect_dx_cluster();
 
+        if crate::cluster::telnet::is_dead_legacy_cluster_host(&self.cluster_host) {
+            self.cluster_host = "dxcluster.pl".to_string();
+            self.cluster_port = 8000;
+        }
+
         let host = self.cluster_host.clone();
         let port = self.cluster_port;
         let call = if self.cluster_callsign.trim().is_empty() {
@@ -2959,16 +2959,28 @@ impl SpLogApp {
 
         let (event_tx, event_rx) = std::sync::mpsc::channel();
         let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
+        let (cmd_tx, cmd_rx) = tokio::sync::mpsc::unbounded_channel();
 
         self.cluster_event_rx = Some(event_rx);
         self.cluster_stop_tx = Some(stop_tx);
+        self.cluster_cmd_tx = Some(cmd_tx);
         self.cluster_connecting = true;
         self.cluster_connected = false;
-        self.cluster_status_text = format!("Łączenie z {host}:{port}...");
+        let connecting_label = crate::core::i18n::tr_or(
+            self.current_language,
+            "Łączenie z",
+            "Connecting to",
+        );
+        self.cluster_status_text = format!("{connecting_label} {host}:{port}...");
 
         tokio::spawn(async move {
-            crate::cluster::telnet::DxClusterClient::run_with_events(
-                host, port, call, event_tx, stop_rx,
+            crate::cluster::telnet::DxClusterClient::run_with_events_and_commands(
+                host,
+                port,
+                call,
+                event_tx,
+                stop_rx,
+                Some(cmd_rx),
             )
             .await;
         });
@@ -2979,9 +2991,15 @@ impl SpLogApp {
             let _ = stop_tx.send(true);
         }
         self.cluster_event_rx = None;
+        self.cluster_cmd_tx = None;
         self.cluster_connected = false;
         self.cluster_connecting = false;
-        self.cluster_status_text = "Rozłączono z klastrem DX.".to_string();
+        self.cluster_status_text = crate::core::i18n::tr_or(
+            self.current_language,
+            "Rozłączono z klastrem DX.",
+            "Disconnected from DX Cluster.",
+        )
+        .to_string();
     }
 
     /// Uruchamia nasłuch TCP JS8Call — tworzy kanały mpsc i odpala wątek klienta
@@ -3098,6 +3116,37 @@ impl SpLogApp {
                             break;
                         }
                         tokio::time::sleep(std::time::Duration::from_millis(poll_rate)).await;
+                    }
+                });
+                self.cat_poll_abort = Some(jh.abort_handle());
+            }
+            crate::cat::backend::CatBackendKind::Tci => {
+                let tci_host = self.tci_host.clone();
+                let tci_port = self.tci_port;
+                let mut state = crate::cat::hamlib::RigState {
+                    frequency_hz: self.rig_state.frequency_hz.max(14_074_000),
+                    mode: if self.rig_state.mode.is_empty() {
+                        "USB".to_string()
+                    } else {
+                        self.rig_state.mode.clone()
+                    },
+                    ..Default::default()
+                };
+                let jh = tokio::spawn(async move {
+                    loop {
+                        let addr = format!("{tci_host}:{tci_port}");
+                        let reachable = tokio::time::timeout(
+                            std::time::Duration::from_millis(800),
+                            tokio::net::TcpStream::connect(&addr),
+                        )
+                        .await
+                        .is_ok_and(|r| r.is_ok());
+                        state.connected = reachable;
+                        if cat_sender.send(state.clone()).is_err() {
+                            break;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(poll_rate.max(250)))
+                            .await;
                     }
                 });
                 self.cat_poll_abort = Some(jh.abort_handle());
@@ -3593,18 +3642,49 @@ impl SpLogApp {
     }
 
     pub fn trigger_database_update(&mut self) {
+        let lang = self.current_language;
+        let db_dir = if std::path::Path::new("databases").is_dir() {
+            std::path::PathBuf::from("databases")
+        } else {
+            self.active_db_path
+                .parent()
+                .map(|p| p.join("databases"))
+                .unwrap_or_else(|| std::path::PathBuf::from("databases"))
+        };
+        let tx = self.sync_log_tx.clone();
+        let scp = self.scp_engine.clone();
+
         tokio::spawn(async move {
-            let res = crate::cloud::updater::DatabaseUpdater::update_all(std::path::Path::new(
-                "databases",
-            ))
-            .await;
-            println!("Database update completed: {res:?}");
+            let outcome =
+                crate::cloud::updater::DatabaseUpdater::update_all_with_report(&db_dir, lang).await;
+
+            // Przeładuj świeżo pobrany plik MASTER.SCP do pamięci silnika SCP
+            let scp_path = db_dir.join("MASTER.SCP");
+            if let Ok(file) = std::fs::File::open(&scp_path) {
+                let reader = std::io::BufReader::new(file);
+                if let Ok(mut guard) = scp.lock() {
+                    guard.load_from_reader(reader);
+                }
+            }
+
+            match outcome {
+                Ok(msg) => {
+                    let _ = tx.send((msg, true));
+                }
+                Err(err_msg) => {
+                    let _ = tx.send((err_msg, false));
+                }
+            }
         });
-        self.status_toast = Some((
-            "Rozpoczęto pobieranie aktualizacji baz danych (cty.dat, SCP, LoTW) w tle..."
-                .to_string(),
-            std::time::Instant::now(),
-        ));
+
+        let start_msg = crate::core::i18n::tr_or(
+            lang,
+            "⏳ Pobieranie aktualizacji baz online (cty.dat, MASTER.SCP, LoTW)...",
+            "⏳ Downloading online database updates (cty.dat, MASTER.SCP, LoTW)...",
+        )
+        .to_string();
+        self.status_message = Some(start_msg.clone());
+        self.status_toast = Some((start_msg, std::time::Instant::now()));
     }
 
     /// Sprawdza najnowsze wydanie na GitHub w tle i zapisuje wynik do odbiornika.
@@ -4579,13 +4659,14 @@ impl eframe::App for SpLogApp {
             }
         }
 
-        // Odbiór asynchronicznych komunikatów z synchronizacji online (LoTW, eQSL, Club Log, QRZ)
+        // Odbiór asynchronicznych komunikatów z synchronizacji online (LoTW, eQSL, Club Log, QRZ, Aktualizacje baz)
         while let Ok((msg, rebuild_awards)) = self.sync_log_rx.try_recv() {
             self.online_sync_logs.push(msg.clone());
             if self.online_sync_logs.len() > 500 {
                 let excess = self.online_sync_logs.len() - 500;
                 self.online_sync_logs.drain(0..excess);
             }
+            self.status_message = Some(msg.clone());
             self.status_toast = Some((msg, std::time::Instant::now()));
             if rebuild_awards {
                 self.rebuild_awards_full();
@@ -4978,15 +5059,49 @@ impl eframe::App for SpLogApp {
 
         // Główny obszar roboczy - swobodny pulpit stacji SPLogbook (MDI Desktop)
         egui::CentralPanel::default().show(ui, |ui| {
+            let lang = self.current_language;
             if self.compact_hud_mode {
                 ui.vertical_centered(|ui| {
                     ui.add_space(60.0);
-                    ui.heading(egui::RichText::new("📻 Tryb Kompaktowy (Mini HUD)").size(22.0).color(egui::Color32::from_rgb(56, 189, 248)));
+                    ui.heading(
+                        egui::RichText::new(crate::core::i18n::tr_or(
+                            lang,
+                            "📻 Tryb Kompaktowy (Mini HUD)",
+                            "📻 Compact Mode (Mini HUD)",
+                        ))
+                        .size(22.0)
+                        .color(egui::Color32::from_rgb(56, 189, 248)),
+                    );
                     ui.add_space(8.0);
-                    ui.label(egui::RichText::new("Kompaktowe okno operacyjne VFO + QSO jest aktywne na pulpicie.").size(14.0));
-                    ui.label(egui::RichText::new("Możesz swobodnie pracować w innych programach (np. FT8/JTDX/przeglądarka) z minimalistycznym oknem SPLogbook.").color(egui::Color32::from_rgb(148, 163, 184)));
+                    ui.label(
+                        egui::RichText::new(crate::core::i18n::tr_or(
+                            lang,
+                            "Kompaktowe okno operacyjne VFO + QSO jest aktywne na pulpicie.",
+                            "Compact VFO + QSO operating bar is active on the desktop.",
+                        ))
+                        .size(14.0),
+                    );
+                    ui.label(
+                        egui::RichText::new(crate::core::i18n::tr_or(
+                            lang,
+                            "Możesz swobodnie pracować w innych programach (np. FT8/JTDX/przeglądarka) z minimalistycznym oknem SPLogbook.",
+                            "You can work comfortably alongside external applications (FT8/JTDX/browser) with the minimal SPLogbook bar.",
+                        ))
+                        .color(egui::Color32::from_rgb(148, 163, 184)),
+                    );
                     ui.add_space(16.0);
-                    if ui.button(egui::RichText::new("🗗 Powrót do pełnego pulpitu roboczego").size(14.0).strong()).clicked() {
+                    if ui
+                        .button(
+                            egui::RichText::new(crate::core::i18n::tr_or(
+                                lang,
+                                "🗗 Powrót do pełnego pulpitu roboczego",
+                                "🗗 Return to Full Workspace",
+                            ))
+                            .size(14.0)
+                            .strong(),
+                        )
+                        .clicked()
+                    {
                         self.compact_hud_mode = false;
                         self.save_station_config();
                     }
@@ -5007,10 +5122,35 @@ impl eframe::App for SpLogApp {
                         ui.add_space(80.0);
                         ui.heading(egui::RichText::new("📻 SPLogbook Workspace").size(26.0).color(egui::Color32::from_rgb(56, 189, 248)));
                         ui.add_space(8.0);
-                        ui.label(egui::RichText::new("Wszystkie kafelki modułów są obecnie zamknięte.").size(14.0));
-                        ui.label(egui::RichText::new("Możesz w każdej chwili przywrócić domyślny układ lub włączyć wybrane moduły z menu 'Widok'.").color(egui::Color32::from_rgb(148, 163, 184)));
+                        ui.label(
+                            egui::RichText::new(crate::core::i18n::tr_or(
+                                lang,
+                                "Wszystkie kafelki modułów są obecnie zamknięte.",
+                                "All workspace panels are currently hidden.",
+                            ))
+                            .size(14.0),
+                        );
+                        ui.label(
+                            egui::RichText::new(crate::core::i18n::tr_or(
+                                lang,
+                                "Możesz w każdej chwili przywrócić domyślny układ lub włączyć wybrane moduły z menu 'Widok'.",
+                                "You can restore the default layout at any time or enable individual panels from the 'View' menu.",
+                            ))
+                            .color(egui::Color32::from_rgb(148, 163, 184)),
+                        );
                         ui.add_space(16.0);
-                        if ui.button(egui::RichText::new("🔄 Przywróć optymalny układ kafelków").size(15.0).strong()).clicked() {
+                        if ui
+                            .button(
+                                egui::RichText::new(crate::core::i18n::tr_or(
+                                    lang,
+                                    "🔄 Przywróć optymalny układ kafelków",
+                                    "🔄 Restore Optimal Workspace Layout",
+                                ))
+                                .size(15.0)
+                                .strong(),
+                            )
+                            .clicked()
+                        {
                             self.reset_panel_layout();
                             self.save_station_config();
                         }
@@ -5049,11 +5189,34 @@ impl eframe::App for SpLogApp {
                     ui.with_layout(egui::Layout::bottom_up(egui::Align::RIGHT), |ui| {
                         ui.add_space(6.0);
                         ui.horizontal(|ui| {
-                            if ui.button(egui::RichText::new("🔄 Przywróć optymalny układ").size(11.0)).on_hover_text("Ustawia domyślne, ergonomiczne rozmieszczenie wszystkich otwartych kafelków").clicked() {
+                            if ui
+                                .button(
+                                    egui::RichText::new(crate::core::i18n::tr_or(
+                                        lang,
+                                        "🔄 Przywróć optymalny układ",
+                                        "🔄 Reset Layout",
+                                    ))
+                                    .size(11.0),
+                                )
+                                .on_hover_text(crate::core::i18n::tr_or(
+                                    lang,
+                                    "Ustawia domyślne, ergonomiczne rozmieszczenie wszystkich otwartych kafelków",
+                                    "Restores default ergonomic arrangement of all workspace panels",
+                                ))
+                                .clicked()
+                            {
                                 self.reset_panel_layout();
                                 self.save_station_config();
                             }
-                            ui.label(egui::RichText::new("SPLogbook • Przeciągaj karty za nagłówek • Zmieniaj rozmiar za krawędzie • Podział prawym przyciskiem").size(11.0).color(egui::Color32::from_rgb(100, 116, 139)));
+                            ui.label(
+                                egui::RichText::new(crate::core::i18n::tr_or(
+                                    lang,
+                                    "SPLogbook • Przeciągaj karty za nagłówek • Zmieniaj rozmiar za krawędzie • Podział prawym przyciskiem",
+                                    "SPLogbook • Drag tabs by header • Resize borders • Right-click to split",
+                                ))
+                                .size(11.0)
+                                .color(egui::Color32::from_rgb(100, 116, 139)),
+                            );
                         });
                     });
                 }
@@ -5203,27 +5366,33 @@ impl eframe::App for SpLogApp {
             }
         }
 
-        // 3c. Widmo / Waterfall (SDR) — panel dokowany renderowany w systemie
-        // kafelków; okno pływające jest obsługiwane w sekcji okien pop-out powyżej.
-
         // 4. Przeglądarka wysp IOTA
         {
             let awards = self
                 .awards_engine
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if let Some(iota) = self.iota_dialog.show(ctx, &self.service_db, &awards) {
+            if let Some(iota) =
+                self.iota_dialog
+                    .show(ctx, &self.service_db, &awards, self.current_language)
+            {
                 self.entry_iota = iota;
             }
 
             // 5. Przeglądarka stanów USA (WAS)
-            if let Some(state) = self.states_dialog.show(ctx, &self.service_db, &awards) {
+            if let Some(state) =
+                self.states_dialog
+                    .show(ctx, &self.service_db, &awards, self.current_language)
+            {
                 self.entry_state = state;
             }
         }
 
         // 6. Baza menedżerów QSL
-        if let Some(qslm) = self.qsl_manager_dialog.show(ctx, &self.service_db) {
+        if let Some(qslm) = self
+            .qsl_manager_dialog
+            .show(ctx, &self.service_db, self.current_language)
+        {
             self.entry_qsl_manager = qslm;
         }
 
@@ -5231,13 +5400,23 @@ impl eframe::App for SpLogApp {
         self.photo_viewer_dialog.show(ctx, self.current_language);
 
         // 8. Menedżer prefiksów DXCC
-        self.prefix_manager_dialog.show(ctx, &self.service_db);
+        self.prefix_manager_dialog
+            .show(ctx, &self.service_db, self.current_language);
 
         // 9. Formularz wysyłania własnego spotu do DX Cluster
         if let Some(sub) =
             self.send_spot_dialog
                 .show(ctx, &self.my_station.callsign, self.current_language)
         {
+            if let Some(ref tx) = self.cluster_cmd_tx {
+                let telnet_cmd = format!(
+                    "DX {:.1} {} {}\r\n",
+                    sub.freq_khz,
+                    sub.dx_call.trim().to_uppercase(),
+                    sub.comment.trim()
+                );
+                let _ = tx.send(telnet_cmd);
+            }
             let band_str = crate::core::bandplan::get_band_by_freq((sub.freq_khz * 1000.0) as u64)
                 .map_or_else(|| "HF".to_string(), |b| b.name.to_string());
             let is_ft8 = sub.comment.to_uppercase().contains("FT8");
@@ -5253,10 +5432,12 @@ impl eframe::App for SpLogApp {
                 received_at: chrono::Utc::now().timestamp(),
             };
             self.cluster_spots.insert(0, spot);
-            self.status_toast = Some((
-                format!("Wysłano spot dla {} ({:.1} kHz)", sub.dx_call, sub.freq_khz),
-                std::time::Instant::now(),
-            ));
+            let toast_msg = if self. current_language == Language::Pl {
+                format!("Wysłano spot dla {} ({:.1} kHz)", sub.dx_call, sub.freq_khz)
+            } else {
+                format!("DX spot sent for {} ({:.1} kHz)", sub.dx_call, sub.freq_khz)
+            };
+            self.status_toast = Some((toast_msg, std::time::Instant::now()));
         }
 
         // Pływające powiadomienia Toast
@@ -5287,35 +5468,83 @@ impl eframe::App for SpLogApp {
 
         // Okno "O programie SPLogbook"
         if self.show_about_window {
+            let lang = self.current_language;
             let mut is_open = self.show_about_window;
             let mut close_req = false;
-            egui::Window::new(tr("tab.about", self.current_language))
+            egui::Window::new(tr("tab.about", lang))
                 .open(&mut is_open)
                 .default_size([480.0, 340.0])
                 .show(ctx, |ui| {
                     ui.vertical_centered(|ui| {
                         ui.heading(egui::RichText::new("📻 SPLogbook").size(24.0).color(egui::Color32::from_rgb(56, 189, 248)));
-                        ui.label(egui::RichText::new("Zaawansowany Dziennik Krótkofalarski").size(14.0).strong());
+                        ui.label(
+                            egui::RichText::new(crate::core::i18n::tr_or(
+                                lang,
+                                "Zaawansowany Dziennik Krótkofalarski",
+                                "Advanced Amateur Radio Logbook & Station Suite",
+                            ))
+                            .size(14.0)
+                            .strong(),
+                        );
                         ui.add_space(8.0);
-                        ui.label(egui::RichText::new("Autor: Mariusz Woźniak (SP6INA)").size(13.0).strong().color(egui::Color32::from_rgb(250, 204, 21)));
+                        ui.label(
+                            egui::RichText::new(crate::core::i18n::tr_or(
+                                lang,
+                                "Autor: Mariusz Woźniak (SP6INA)",
+                                "Author: Mariusz Woźniak (SP6INA)",
+                            ))
+                            .size(13.0)
+                            .strong()
+                            .color(egui::Color32::from_rgb(250, 204, 21)),
+                        );
                         ui.label(egui::RichText::new("E-mail: contact@splogbook.org").size(12.0).color(egui::Color32::from_rgb(56, 189, 248)));
-                        ui.label("Licencja: GNU General Public License v3.0 (GPL-3.0-or-later)");
+                        ui.label(crate::core::i18n::tr_or(
+                            lang,
+                            "Licencja: GNU General Public License v3.0 (GPL-3.0-or-later)",
+                            "License: GNU General Public License v3.0 (GPL-3.0-or-later)",
+                        ));
                         ui.add_space(12.0);
-                        ui.label("Natywna, nowoczesna aplikacja okienkowa dla stacji krótkofalarskich.");
-                        ui.label("Pełna integracja z Hamlib 4.7+, TCI, rotctld, WSJT-X, NOAA, QRZ, HamQTH, eQSL, LoTW i Club Log.");
+                        ui.label(crate::core::i18n::tr_or(
+                            lang,
+                            "Natywna, nowoczesna aplikacja okienkowa dla stacji krótkofalarskich.",
+                            "Native, high-performance desktop application for amateur radio stations.",
+                        ));
+                        ui.label(crate::core::i18n::tr_or(
+                            lang,
+                            "Pełna integracja z Hamlib 4.7+, TCI, rotctld, WSJT-X, NOAA, QRZ, HamQTH, eQSL, LoTW i Club Log.",
+                            "Full integration with Hamlib 4.7+, TCI, rotctld, WSJT-X, NOAA, QRZ, HamQTH, eQSL, LoTW, and Club Log.",
+                        ));
                         ui.add_space(10.0);
-                        egui::CollapsingHeader::new("🩺 Diagnostyka").show(ui, |ui| {
-                            ui.horizontal(|ui| { ui.label("Wersja:"); ui.monospace(env!("CARGO_PKG_VERSION")); });
-                            ui.horizontal(|ui| { ui.label("Platforma:"); ui.monospace(std::env::consts::OS); });
-                            ui.horizontal(|ui| { ui.label("Architektura:"); ui.monospace(std::env::consts::ARCH); });
-                            ui.horizontal(|ui| { ui.label("Motyw:"); ui.monospace(self.theme_preset.label_pl()); });
+                        let diag_label = crate::core::i18n::tr_or(lang, "🩺 Diagnostyka", "🩺 Diagnostics");
+                        egui::CollapsingHeader::new(diag_label).show(ui, |ui| {
                             ui.horizontal(|ui| {
-                                ui.label("Repozytorium bazy danych:");
+                                ui.label(crate::core::i18n::tr_or(lang, "Wersja:", "Version:"));
+                                ui.monospace(env!("CARGO_PKG_VERSION"));
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label(crate::core::i18n::tr_or(lang, "Platforma:", "Platform:"));
+                                ui.monospace(std::env::consts::OS);
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label(crate::core::i18n::tr_or(lang, "Architektura:", "Architecture:"));
+                                ui.monospace(std::env::consts::ARCH);
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label(crate::core::i18n::tr_or(lang, "Motyw:", "Theme:"));
+                                ui.monospace(self.theme_preset.id());
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label(crate::core::i18n::tr_or(lang, "Katalog danych:", "Data directory:"));
                                 ui.monospace(self.config_file_path.parent().map(|p| p.display().to_string()).unwrap_or_default());
                             });
-                            if ui.button("📋 Kopiuj dane diagnostyczne").clicked() {
+                            let copy_diag = crate::core::i18n::tr_or(
+                                lang,
+                                "📋 Kopiuj dane diagnostyczne",
+                                "📋 Copy Diagnostic Info",
+                            );
+                            if ui.button(copy_diag).clicked() {
                                 let info = format!(
-                                    "SPLogbook {} | OS: {} {} | Motyw: {} | Konfiguracja: {}",
+                                    "SPLogbook {} | OS: {} {} | Theme: {} | Config: {}",
                                     env!("CARGO_PKG_VERSION"), std::env::consts::OS, std::env::consts::ARCH,
                                     self.theme_preset.id(),
                                     self.config_file_path.display()
@@ -5324,7 +5553,7 @@ impl eframe::App for SpLogApp {
                             }
                         });
                         ui.add_space(8.0);
-                        if ui.button(tr("btn.close", self.current_language)).clicked() {
+                        if ui.button(tr("btn.close", lang)).clicked() {
                             close_req = true;
                         }
                     });
@@ -5343,104 +5572,137 @@ impl eframe::App for SpLogApp {
         crate::gui::user_manual::render_user_manual_window(self, ctx);
 
         if self.show_shortcuts_window {
+            let lang = self.current_language;
             let mut is_open = self.show_shortcuts_window;
-            egui::Window::new(format!(
-                "⌨ {}",
-                tr("help.shortcuts_title", self.current_language)
-            ))
-            .open(&mut is_open)
-            .default_size([600.0, 520.0])
-            .resizable(true)
-            .show(ctx, |ui| {
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    let sections: &[(&str, &[(&str, &str)])] = &[
-                        (
-                            "📝 Logowanie i obsługa QSO",
-                            &[
-                                ("Enter / F2", "Zapisz bieżące QSO w logbooku"),
-                                (
-                                    "Esc / F3",
-                                    "Wyczyść formularz QSO (Wipe) i przejdź do znaku",
-                                ),
-                                (
-                                    "Ctrl+N",
-                                    "Nowe QSO — wyczyść formularz i ustaw kursor na znaku",
-                                ),
-                                ("Ctrl+W", "Wyczyść formularz QSO (Wipe callsign / exchange)"),
-                                ("F4", "Wymuś wyszukanie znaku w Callbooku / QRZ.com"),
-                                ("Ctrl+S", "Zapisz konfigurację stacji i dziennik"),
-                                ("F5", "Odśwież dziennik (przeładuj listę QSO z bazy)"),
-                                ("Ctrl+F", "Zaawansowane wyszukiwanie i filtry logbooka"),
-                                ("Ctrl+L", "Przełącz / aktywuj tabelę logbooka"),
-                                ("Ctrl+Z", "Cofnij usunięcie łączności (Undo)"),
-                                ("Ctrl+Y / Ctrl+Shift+Z", "Ponów operację (Redo)"),
-                            ],
-                        ),
-                        (
-                            "📻 Transceiver, CAT i Eter",
-                            &[
-                                ("F6", "Otwórz okno wysyłania spotu do klastra DX"),
-                                ("F7", "Przełącz nadawanie PTT (TX/RX) przez CAT"),
-                                ("F8", "Otwórz odtwarzacz komunikatów (Voice Keyer)"),
-                                ("Ctrl+K", "Otwórz terminal i makra telegraficzne CW"),
-                                ("Ctrl+D", "Przełącz / otwórz panel klastra DX"),
-                                ("Ctrl+B", "Przełącz / otwórz okno Bandmapy"),
-                                ("Ctrl+M", "Przełącz / otwórz mapę świata z linią Greyline"),
-                                ("Ctrl+P", "Menedżer profili stacji roboczej"),
-                            ],
-                        ),
-                        (
-                            "⚙️ Narzędzia, Okna i Aplikacja",
-                            &[
-                                (
-                                    "Ctrl+Shift+P",
-                                    "Paleta poleceń (Command Palette) — szybki launcher akcji",
-                                ),
-                                ("Ctrl+Shift+S", "Otwórz okno statystyk i analizy wykresów"),
-                                ("Ctrl+E", "Eksport dziennika do pliku CSV (konfigurowalny)"),
-                                ("Ctrl+I", "Import dziennika z pliku ADIF"),
-                                (
-                                    "Ctrl+T",
-                                    "Przełącz motyw kolorystyczny (Dark / Daylight / Contrast)",
-                                ),
-                                ("F11", "Przełącz tryb pełnoekranowy (Toggle Fullscreen)"),
-                                (
-                                    "F12 / Ctrl+H",
-                                    "Otwórz wbudowaną instrukcję obsługi (Podręcznik)",
-                                ),
-                                ("F1", "Skróty klawiszowe (to okno)"),
-                                ("Ctrl+Q", "Bezpieczne wyjście z programu"),
-                            ],
-                        ),
-                    ];
+            egui::Window::new(format!("⌨ {}", tr("help.shortcuts_title", lang)))
+                .open(&mut is_open)
+                .default_size([600.0, 520.0])
+                .resizable(true)
+                .show(ctx, |ui| {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        let sections_pl: &[(&str, &[(&str, &str)])] = &[
+                            (
+                                "📝 Logowanie i obsługa QSO",
+                                &[
+                                    ("Enter / F2", "Zapisz bieżące QSO w logbooku"),
+                                    ("Esc / F3", "Wyczyść formularz QSO (Wipe) i przejdź do znaku"),
+                                    ("Ctrl+N", "Nowe QSO — wyczyść formularz i ustaw kursor na znaku"),
+                                    ("Ctrl+W", "Wyczyść formularz QSO (Wipe callsign / exchange)"),
+                                    ("F4", "Wymuś wyszukanie znaku w Callbooku / QRZ.com"),
+                                    ("Ctrl+S", "Zapisz konfigurację stacji i dziennik"),
+                                    ("F5", "Odśwież dziennik (przeładuj listę QSO z bazy)"),
+                                    ("Ctrl+F", "Zaawansowane wyszukiwanie i filtry logbooka"),
+                                    ("Ctrl+L", "Przełącz / aktywuj tabelę logbooka"),
+                                    ("Ctrl+Z", "Cofnij usunięcie łączności (Undo)"),
+                                    ("Ctrl+Y / Ctrl+Shift+Z", "Ponów operację (Redo)"),
+                                ],
+                            ),
+                            (
+                                "📻 Transceiver, CAT i Eter",
+                                &[
+                                    ("F6", "Otwórz okno wysyłania spotu do klastra DX"),
+                                    ("F7", "Przełącz nadawanie PTT (TX/RX) przez CAT"),
+                                    ("F8", "Otwórz odtwarzacz komunikatów (Voice Keyer)"),
+                                    ("Ctrl+K", "Otwórz terminal i makra telegraficzne CW"),
+                                    ("Ctrl+D", "Przełącz / otwórz panel klastra DX"),
+                                    ("Ctrl+B", "Przełącz / otwórz okno Bandmapy"),
+                                    ("Ctrl+M", "Przełącz / otwórz mapę świata z linią Greyline"),
+                                    ("Ctrl+P", "Menedżer profili stacji roboczej"),
+                                ],
+                            ),
+                            (
+                                "⚙️ Narzędzia, Okna i Aplikacja",
+                                &[
+                                    ("Ctrl+Shift+P", "Paleta poleceń (Command Palette) — szybki launcher akcji"),
+                                    ("Ctrl+Shift+S", "Otwórz okno statystyk i analizy wykresów"),
+                                    ("Ctrl+E", "Eksport dziennika do pliku CSV (konfigurowalny)"),
+                                    ("Ctrl+I", "Import dziennika z pliku ADIF"),
+                                    ("Ctrl+T", "Przełącz motyw kolorystyczny (Dark / Daylight / Contrast)"),
+                                    ("F11", "Przełącz tryb pełnoekranowy (Toggle Fullscreen)"),
+                                    ("F12 / Ctrl+H", "Otwórz wbudowaną instrukcję obsługi (Podręcznik)"),
+                                    ("F1", "Skróty klawiszowe (to okno)"),
+                                    ("Ctrl+Q", "Bezpieczne wyjście z programu"),
+                                ],
+                            ),
+                        ];
+                        let sections_en: &[(&str, &[(&str, &str)])] = &[
+                            (
+                                "📝 QSO Logging & Logbook",
+                                &[
+                                    ("Enter / F2", "Save current QSO to logbook"),
+                                    ("Esc / F3", "Wipe QSO form and focus Callsign field"),
+                                    ("Ctrl+N", "New QSO — clear form and focus Callsign"),
+                                    ("Ctrl+W", "Wipe QSO form (callsign / exchange)"),
+                                    ("F4", "Force online Callbook / QRZ.com lookup"),
+                                    ("Ctrl+S", "Save station configuration and logbook"),
+                                    ("F5", "Refresh logbook (reload QSO list from DB)"),
+                                    ("Ctrl+F", "Advanced logbook search and filters"),
+                                    ("Ctrl+L", "Toggle / focus Logbook table"),
+                                    ("Ctrl+Z", "Undo last deleted QSO"),
+                                    ("Ctrl+Y / Ctrl+Shift+Z", "Redo"),
+                                ],
+                            ),
+                            (
+                                "📻 Transceiver, CAT & On-Air",
+                                &[
+                                    ("F6", "Open Send DX Spot dialog"),
+                                    ("F7", "Toggle PTT (TX/RX) via CAT"),
+                                    ("F8", "Open Voice Keyer window"),
+                                    ("Ctrl+K", "Open CW Terminal & Macros"),
+                                    ("Ctrl+D", "Toggle / open DX Cluster panel"),
+                                    ("Ctrl+B", "Toggle / open Bandmap window"),
+                                    ("Ctrl+M", "Toggle / open World Map & Grayline"),
+                                    ("Ctrl+P", "Station Profiles Manager"),
+                                ],
+                            ),
+                            (
+                                "⚙️ Tools, Windows & Application",
+                                &[
+                                    ("Ctrl+Shift+P", "Command Palette — quick action launcher"),
+                                    ("Ctrl+Shift+S", "Open Statistics & Charts window"),
+                                    ("Ctrl+E", "Export logbook to CSV (configurable)"),
+                                    ("Ctrl+I", "Import logbook from ADIF file"),
+                                    ("Ctrl+T", "Cycle UI theme (Dark / Daylight / High-Contrast)"),
+                                    ("F11", "Toggle Fullscreen mode"),
+                                    ("F12 / Ctrl+H", "Open built-in User Manual"),
+                                    ("F1", "Keyboard Shortcuts (this window)"),
+                                    ("Ctrl+Q", "Safely exit application"),
+                                ],
+                            ),
+                        ];
+                        let sections = if lang == Language::Pl {
+                            sections_pl
+                        } else {
+                            sections_en
+                        };
 
-                    for (cat_title, rows) in sections {
-                        ui.add_space(6.0);
-                        ui.heading(
-                            egui::RichText::new(*cat_title)
-                                .size(14.0)
-                                .strong()
-                                .color(egui::Color32::from_rgb(56, 189, 248)),
-                        );
-                        ui.separator();
-                        egui::Grid::new(format!("shortcuts_grid_{cat_title}"))
-                            .num_columns(2)
-                            .spacing([20.0, 6.0])
-                            .striped(true)
-                            .show(ui, |ui| {
-                                for (key, desc) in *rows {
-                                    ui.monospace(
-                                        egui::RichText::new(*key)
-                                            .strong()
-                                            .color(egui::Color32::from_rgb(250, 204, 21)),
-                                    );
-                                    ui.label(*desc);
-                                    ui.end_row();
-                                }
-                            });
-                    }
+                        for (cat_title, rows) in sections {
+                            ui.add_space(6.0);
+                            ui.heading(
+                                egui::RichText::new(*cat_title)
+                                    .size(14.0)
+                                    .strong()
+                                    .color(egui::Color32::from_rgb(56, 189, 248)),
+                            );
+                            ui.separator();
+                            egui::Grid::new(format!("shortcuts_grid_{cat_title}"))
+                                .num_columns(2)
+                                .spacing([20.0, 6.0])
+                                .striped(true)
+                                .show(ui, |ui| {
+                                    for (key, desc) in *rows {
+                                        ui.monospace(
+                                            egui::RichText::new(*key)
+                                                .strong()
+                                                .color(egui::Color32::from_rgb(250, 204, 21)),
+                                        );
+                                        ui.label(*desc);
+                                        ui.end_row();
+                                    }
+                                });
+                        }
+                    });
                 });
-            });
             if !is_open {
                 self.show_shortcuts_window = false;
             }
@@ -5448,18 +5710,25 @@ impl eframe::App for SpLogApp {
 
         // Legenda kolorów i statusów (niezależna od samego koloru — symbole + tekst)
         if self.show_legend_window {
+            let lang = self.current_language;
             let mut is_open = self.show_legend_window;
-            egui::Window::new(tr("legend.title", self.current_language))
+            egui::Window::new(tr("legend.title", lang))
                 .open(&mut is_open)
-                .default_size([460.0, 420.0])
+                .default_size([480.0, 420.0])
                 .show(ctx, |ui| {
                     egui::ScrollArea::vertical().show(ui, |ui| {
-                        ui.label(egui::RichText::new(
-                            "Każdy status jest oznaczony kolorem ORAZ symbolem/kształtem, aby był czytelny także dla osób z zaburzeniami widzenia barw."
-                        ).italics().color(egui::Color32::from_rgb(148, 163, 184)));
+                        ui.label(
+                            egui::RichText::new(crate::core::i18n::tr_or(
+                                lang,
+                                "Każdy status jest oznaczony kolorem ORAZ symbolem/kształtem, aby był czytelny także dla osób z zaburzeniami widzenia barw.",
+                                "Every status indicator uses both color AND a distinct symbol/shape so it remains accessible for users with color vision deficiency.",
+                            ))
+                            .italics()
+                            .color(egui::Color32::from_rgb(148, 163, 184)),
+                        );
 
                         ui.add_space(8.0);
-                        let rows: &[(egui::Color32, &str, &str, &str)] = &[
+                        let rows_pl: &[(egui::Color32, &str, &str, &str)] = &[
                             (egui::Color32::from_rgb(34, 197, 94), "●", "Zielony", "Połączono / aktywny — DX Cluster połączony, WSJT-X aktywny, QSO zapisane poprawnie."),
                             (egui::Color32::from_rgb(250, 204, 21), "◐", "Żółty / bursztyn", "Łączenie / ostrzeżenie — trwa łączenie z klastrem, aktywny filtr, status oczekujący."),
                             (egui::Color32::from_rgb(148, 163, 184), "○", "Szary", "Rozłączono / nieaktywny — klaster rozłączony, moduł wyłączony."),
@@ -5467,6 +5736,15 @@ impl eframe::App for SpLogApp {
                             (egui::Color32::from_rgb(56, 189, 248), "ℹ", "Niebieski", "Informacja / wartości aktywne — znak OP, nagłówki sekcji, wartości pomiarowe."),
                             (egui::Color32::from_rgb(52, 211, 153), "✦", "Cyjan / zielony", "Sukces / potwierdzenie — QSO potwierdzone (LoTW/eQSL), potwierdzony zapis."),
                         ];
+                        let rows_en: &[(egui::Color32, &str, &str, &str)] = &[
+                            (egui::Color32::from_rgb(34, 197, 94), "●", "Green", "Connected / Active — DX Cluster online, WSJT-X active, QSO logged."),
+                            (egui::Color32::from_rgb(250, 204, 21), "◐", "Amber / Yellow", "Connecting / Warning — connecting to cluster, active filter, pending state."),
+                            (egui::Color32::from_rgb(148, 163, 184), "○", "Gray", "Disconnected / Inactive — cluster offline, module disabled."),
+                            (egui::Color32::from_rgb(239, 68, 68), "⚠", "Red", "Error / Destructive action — operation error, disconnect button, delete entry."),
+                            (egui::Color32::from_rgb(56, 189, 248), "ℹ", "Blue", "Information / Active value — operator callsign, section headers, telemetry."),
+                            (egui::Color32::from_rgb(52, 211, 153), "✦", "Emerald / Cyan", "Confirmed / Verified — QSO confirmed via LoTW/eQSL/QSL, verified save."),
+                        ];
+                        let rows = if lang == Language::Pl { rows_pl } else { rows_en };
                         egui::Grid::new("legend_grid")
                             .num_columns(4)
                             .spacing([12.0, 8.0])
