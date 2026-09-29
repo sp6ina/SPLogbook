@@ -77,13 +77,15 @@ Wszystkie pozostałe ustalenia raportu potwierdzono w kodzie. Najważniejsze:
 
 ### 1.3 Indeksy `country` i `freq` (nowa migracja)
 
-**Status:** TODO
+**Status:** DONE ✅ (2026-09-29)
 **Priorytet:** Wysoki
 **Złożoność:** Niska
 **Opis:** Dodać migrację (v4) tworzącą `CREATE INDEX idx_qso_country ON qso_records(country)` oraz `idx_qso_freq ON qso_records(freq)`.
 **Zmodyfikowane pliki:** `src/core/database.rs`
 **Ryzyko:** Niskie — migracja idempotentna (`IF NOT EXISTS`); krótki czas tworzenia indeksu na dużych bazach.
 **Zależności:** brak
+
+**Podsumowanie zmian:** Dodano `migration_4_indexes()` tworzącą indeksy `idx_qso_country` i `idx_qso_freq` (oba `IF NOT EXISTS`), zarejestrowano ją w liście migracji `init_schema()` i podniesiono `KNOWN_MAX_VERSION` 3 → 4 w `validate_schema()`. Zaktualizowano test `schema_migrations_record_versions_and_are_idempotent` (oczekiwana wersja 4 + asercja istnienia obu indeksów). Walidacja: `cargo check` ✅, `cargo clippy` ✅ (15 istniejących ostrzeżeń, zero nowych), `cargo test` ✅ (254 passed, 0 failed).
 
 ---
 

@@ -172,6 +172,7 @@ impl LogDatabase {
             (1, Self::migration_1_base_schema),
             (2, Self::migration_2_add_columns),
             (3, Self::migration_3_foreign_keys),
+            (4, Self::migration_4_indexes),
         ];
 
         for (version, migrate) in migrations {
@@ -193,7 +194,7 @@ impl LogDatabase {
     /// `schema_version`, brak kluczowych tabel lub kolumn, zamiast pozwolić
     /// aplikacji działać na uszkodzonej bazie.
     fn validate_schema(&self) -> Result<()> {
-        const KNOWN_MAX_VERSION: i64 = 3;
+        const KNOWN_MAX_VERSION: i64 = 4;
 
         let version = self.current_schema_version()?;
         if version > KNOWN_MAX_VERSION {
@@ -504,6 +505,14 @@ impl LogDatabase {
         )?;
 
         Ok(())
+    }
+
+    /// Wersja 4: indeksy pomocnicze dla filtrów po kraju i częstotliwości.
+    fn migration_4_indexes(conn: &Connection) -> rusqlite::Result<()> {
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_qso_country ON qso_records(country);
+             CREATE INDEX IF NOT EXISTS idx_qso_freq ON qso_records(freq);",
+        )
     }
 
     /// Dodaje kolumnę tylko wtedy, gdy jeszcze nie istnieje (bez maskowania błędów).

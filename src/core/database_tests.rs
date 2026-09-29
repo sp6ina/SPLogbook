@@ -18,7 +18,7 @@ fn test_insert_and_find_qso() {
 fn schema_migrations_record_versions_and_are_idempotent() {
     let mut db = LogDatabase::open_in_memory().unwrap();
     // Wszystkie kroki migracji zostały zarejestrowane.
-    assert_eq!(db.current_schema_version().unwrap(), 3);
+    assert_eq!(db.current_schema_version().unwrap(), 4);
 
     // Kolumny z migracji 2 istnieją i ponowna inicjalizacja nie psuje schematu.
     let col_count: i64 = db
@@ -31,8 +31,19 @@ fn schema_migrations_record_versions_and_are_idempotent() {
             .unwrap();
     assert_eq!(col_count, 5);
 
+    // Indeksy z migracji 4 istnieją.
+    let idx_count: i64 = db
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name IN ('idx_qso_country','idx_qso_freq')",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(idx_count, 2);
+
     db.init_schema().unwrap();
-    assert_eq!(db.current_schema_version().unwrap(), 3);
+    assert_eq!(db.current_schema_version().unwrap(), 4);
 }
 
 #[test]
