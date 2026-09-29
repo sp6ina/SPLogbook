@@ -209,6 +209,12 @@ fn main() -> Result<(), eframe::Error> {
         }
     };
 
+    // Zdrowie po aktualizacji (health check dla updatera)
+    if std::env::args().any(|arg| arg == "--check-health-startup") {
+        let health_ok_path = exe_dir.join(".health_ok");
+        let _ = std::fs::write(&health_ok_path, "OK");
+    }
+
     let log_db_arc = Arc::new(Mutex::new(log_db));
     let prefix_matcher_arc = Arc::new(prefix_matcher);
     let scp_arc = Arc::new(Mutex::new(scp));

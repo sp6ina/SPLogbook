@@ -366,8 +366,10 @@ pub fn check_safety_gate(asset: &ReleaseAsset) -> Result<(), String> {
 
     #[cfg(target_os = "windows")]
     {
-        if name_lower.ends_with(".zip") || name_lower.ends_with(".msi") {
-            return Err("Błąd: Pobrany plik to archiwum. Nadpisanie aplikacji zniszczyłoby instalację. Zaktualizuj program ręcznie.".to_string());
+        if name_lower.ends_with(".msi") {
+            return Err(
+                "Błąd: Pobrany plik to instalator MSI. Zaktualizuj program ręcznie.".to_string(),
+            );
         }
     }
 
@@ -415,14 +417,65 @@ fn install_via_powershell(current: &Path, new: &Path) -> Result<(), String> {
          $exe = '{exe}'\n\
          $new = '{new_s}'\n\
          $pidToWait = {pid}\n\
+         \n\
+         $baseDir = Split-Path -Path $exe -Parent\n\
+         $staging = Join-Path $baseDir '.staging'\n\
+         $rollback = Join-Path $baseDir '.rollback'\n\
+         $healthOk = Join-Path $baseDir '.health_ok'\n\
+         \n\
+         if (Test-Path $staging) {{ Remove-Item -Recurse -Force $staging }}\n\
+         New-Item -ItemType Directory -Force -Path $staging | Out-Null\n\
+         Expand-Archive -LiteralPath $new -DestinationPath $staging -Force\n\
+         \n\
+         if (Test-Path $rollback) {{ Remove-Item -Recurse -Force $rollback }}\n\
+         New-Item -ItemType Directory -Force -Path $rollback | Out-Null\n\
+         \n\
          $deadline = (Get-Date).AddSeconds(90)\n\
          while (Get-Process -Id $pidToWait -ErrorAction SilentlyContinue) {{\n\
              if ((Get-Date) -gt $deadline) {{ exit 1 }}\n\
              Start-Sleep -Milliseconds 250\n\
          }}\n\
          Start-Sleep -Milliseconds 500\n\
-         Move-Item -Force -LiteralPath $new -Destination $exe\n\
-         Start-Process -FilePath $exe\n"
+         \n\
+         Get-ChildItem -Path $staging -Recurse -File | ForEach-Object {{\n\
+             $rel = $_.FullName.Substring($staging.Length + 1)\n\
+             $orig = Join-Path $baseDir $rel\n\
+             if (Test-Path $orig) {{\n\
+                 $dest = Join-Path $rollback $rel\n\
+                 $destDir = Split-Path $dest -Parent\n\
+                 if (-not (Test-Path $destDir)) {{ New-Item -ItemType Directory -Force -Path $destDir | Out-Null }}\n\
+                 Copy-Item -LiteralPath $orig -Destination $dest -Force\n\
+             }}\n\
+         }}\n\
+         \n\
+         Copy-Item -Path \"$staging\\*\" -Destination $baseDir -Recurse -Force\n\
+         \n\
+         if (Test-Path $healthOk) {{ Remove-Item -Force $healthOk }}\n\
+         \n\
+         $newProc = Start-Process -FilePath $exe -ArgumentList \"--check-health-startup\" -PassThru\n\
+         \n\
+         $healthDeadline = (Get-Date).AddSeconds(15)\n\
+         $success = $false\n\
+         while ((Get-Date) -lt $healthDeadline) {{\n\
+             if (Test-Path $healthOk) {{\n\
+                 $success = $true\n\
+                 break\n\
+             }}\n\
+             if ($newProc.HasExited) {{\n\
+                 break\n\
+             }}\n\
+             Start-Sleep -Milliseconds 250\n\
+         }}\n\
+         \n\
+         if ($success) {{\n\
+             Remove-Item -Recurse -Force $staging -ErrorAction SilentlyContinue\n\
+             Remove-Item -Recurse -Force $rollback -ErrorAction SilentlyContinue\n\
+             Remove-Item -Force $healthOk -ErrorAction SilentlyContinue\n\
+         }} else {{\n\
+             Stop-Process -Id $newProc.Id -Force -ErrorAction SilentlyContinue\n\
+             Copy-Item -Path \"$rollback\\*\" -Destination $baseDir -Recurse -Force\n\
+             Start-Process -FilePath $exe\n\
+         }}\n"
     );
 
     std::fs::write(&script_path, script)
@@ -549,7 +602,16 @@ mod tests {
         };
 
         #[cfg(target_os = "windows")]
-        assert!(check_safety_gate(&zip).is_err());
+        assert!(check_safety_gate(&zip).is_ok());
+
+        let msi = ReleaseAsset {
+            name: "SPLogbook-Windows-x64.msi".into(),
+            browser_download_url: "".into(),
+            digest: None,
+            size: 0,
+        };
+        #[cfg(target_os = "windows")]
+        assert!(check_safety_gate(&msi).is_err());
 
         #[cfg(not(target_os = "windows"))]
         assert!(check_safety_gate(&zip).is_ok());
