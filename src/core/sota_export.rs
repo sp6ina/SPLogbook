@@ -8,14 +8,16 @@ use std::fmt::Write as _;
 /// Eksportuje wektor łączności do oficjalnego formatu SOTA Database V2 CSV
 /// Specyfikacja formatu:
 /// V2,[MyCall],[MySOTA],[Date:DD/MM/YY],[Time:HH:MM],[Band:e.g. 14MHz],[Mode],[HisCall],[HisSOTA],[Notes]
-pub fn export_sota_csv(qsos: &[QsoRecord], my_call: &str, my_sota: &str) -> String {
+pub fn export_sota_csv(qsos: &[QsoRecord], my_call: &str, my_sota: &str) -> Result<String, String> {
     let mut out = String::new();
 
     for q in qsos {
         let clean_my_call = my_call.trim().to_uppercase();
         let clean_my_sota = my_sota.trim().to_uppercase();
-        let date_formatted = format_sota_date(&q.qso_date);
-        let time_formatted = format_sota_time(&q.time_on);
+        let date_formatted = format_sota_date(&q.qso_date)
+            .map_err(|_| format!("Nieprawidłowa data w łączności z {}", q.callsign))?;
+        let time_formatted = format_sota_time(&q.time_on)
+            .map_err(|_| format!("Nieprawidłowy czas w łączności z {}", q.callsign))?;
         let band_formatted = format_sota_band(&q.band);
         let mode_formatted = q.mode.trim().to_uppercase();
         let his_call = q.callsign.trim().to_uppercase();
@@ -28,29 +30,29 @@ pub fn export_sota_csv(qsos: &[QsoRecord], my_call: &str, my_sota: &str) -> Stri
         );
     }
 
-    out
+    Ok(out)
 }
 
-fn format_sota_date(adif_date: &str) -> String {
+fn format_sota_date(adif_date: &str) -> Result<String, ()> {
     let digits: String = adif_date.chars().filter(char::is_ascii_digit).collect();
     if digits.len() == 8 {
         // YYYYMMDD -> DD/MM/YY
         let y = &digits[2..4];
         let m = &digits[4..6];
         let d = &digits[6..8];
-        format!("{d}/{m}/{y}")
+        Ok(format!("{d}/{m}/{y}"))
     } else {
-        chrono::Utc::now().format("%d/%m/%y").to_string()
+        Err(())
     }
 }
 
-fn format_sota_time(adif_time: &str) -> String {
+fn format_sota_time(adif_time: &str) -> Result<String, ()> {
     let digits: String = adif_time.chars().filter(char::is_ascii_digit).collect();
     if digits.len() >= 4 {
         // HHMM -> HH:MM
-        format!("{}:{}", &digits[0..2], &digits[2..4])
+        Ok(format!("{}:{}", &digits[0..2], &digits[2..4]))
     } else {
-        chrono::Utc::now().format("%H:%M").to_string()
+        Err(())
     }
 }
 
@@ -92,7 +94,11 @@ fn format_sota_band(band: &str) -> String {
 pub struct SotaExporter;
 
 impl SotaExporter {
-    pub fn export_csv_v2(qsos: &[QsoRecord], my_call: &str, my_sota: &str) -> String {
+    pub fn export_csv_v2(
+        qsos: &[QsoRecord],
+        my_call: &str,
+        my_sota: &str,
+    ) -> Result<String, String> {
         export_sota_csv(qsos, my_call, my_sota)
     }
 }
@@ -109,7 +115,7 @@ mod tests {
         q.sota_ref = Some("OE/TI-123".to_string());
         q.comment = Some("Peak summit activation".to_string());
 
-        let csv = export_sota_csv(&[q], "SP6INA", "SP/SS-001");
+        let csv = export_sota_csv(&[q], "SP6INA", "SP/SS-001").unwrap();
         assert!(csv.starts_with("V2,SP6INA,SP/SS-001,20/09/26,14:30,14MHz,CW,OE/SP6INA/P,OE/TI-123,Peak summit activation"));
     }
 }

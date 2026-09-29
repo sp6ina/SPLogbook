@@ -38,7 +38,12 @@ impl SotaDialog {
         self.is_open = true;
     }
 
-    pub fn show(&mut self, ctx: &egui::Context, qsos: &[QsoRecord], lang: crate::core::i18n::Language) {
+    pub fn show(
+        &mut self,
+        ctx: &egui::Context,
+        qsos: &[QsoRecord],
+        lang: crate::core::i18n::Language,
+    ) {
         if !self.is_open {
             return;
         }
@@ -82,20 +87,25 @@ impl SotaDialog {
                             qsos.to_vec()
                         };
 
-                        let csv_content = SotaExporter::export_csv_v2(&filtered, &self.activator_call, &self.summit_ref);
-
-                        if let Some(path) = rfd::FileDialog::new()
-                            .set_file_name(format!("SOTA_{}_{}.csv", self.activator_call, self.summit_ref.replace('/', "_")))
-                            .add_filter("SOTA CSV File", &["csv"])
-                            .save_file()
-                        {
-                            match std::fs::write(&path, csv_content) {
-                                Ok(()) => {
-                                    self.status = Some(format!("Zapisano {} łączności w: {}", filtered.len(), path.display()));
+                        match SotaExporter::export_csv_v2(&filtered, &self.activator_call, &self.summit_ref) {
+                            Ok(csv_content) => {
+                                if let Some(path) = rfd::FileDialog::new()
+                                    .set_file_name(format!("SOTA_{}_{}.csv", self.activator_call, self.summit_ref.replace('/', "_")))
+                                    .add_filter("SOTA CSV File", &["csv"])
+                                    .save_file()
+                                {
+                                    match std::fs::write(&path, csv_content) {
+                                        Ok(()) => {
+                                            self.status = Some(format!("Zapisano {} łączności w: {}", filtered.len(), path.display()));
+                                        }
+                                        Err(e) => {
+                                            self.status = Some(format!("Błąd zapisu pliku: {e}"));
+                                        }
+                                    }
                                 }
-                                Err(e) => {
-                                    self.status = Some(format!("Błąd zapisu pliku: {e}"));
-                                }
+                            }
+                            Err(e) => {
+                                self.status = Some(format!("Błąd eksportu: {e}"));
                             }
                         }
                     }
