@@ -175,7 +175,7 @@ pub async fn latest_release() -> Result<LatestRelease, String> {
     let tag = json
         .get("tag_name")
         .and_then(|v| v.as_str())
-        .unwrap_or("nieznana")
+        .ok_or_else(|| "Brak pola tag_name w odpowiedzi z serwera.".to_string())?
         .trim_start_matches('v')
         .to_string();
     let html_url = json
@@ -336,6 +336,9 @@ pub async fn install_update(asset: &ReleaseAsset) -> Result<(), String> {
 
     let tmp_path = parent.join(format!(".SPLogbook_update_{}.tmp", std::process::id()));
 
+    // Zabezpieczenie przed uszkodzeniem instalacji
+    check_safety_gate(asset)?;
+
     // 1. Pobierz nowy plik do katalogu programu (ten sam wolumen → atomowe Move-Item).
     download_release_asset(asset, &tmp_path).await?;
 
@@ -355,6 +358,24 @@ pub async fn install_update(asset: &ReleaseAsset) -> Result<(), String> {
 
     // 3. Podmień plik wykonywalny i uruchom ponownie.
     self_replace(&current, &tmp_path)
+}
+
+/// Sprawdza, czy pobierany plik nie jest archiwum, co mogłoby uszkodzić instalację.
+pub fn check_safety_gate(asset: &ReleaseAsset) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    let _ = asset;
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let name_lower = asset.name.to_lowercase();
+        if name_lower.ends_with(".tar.gz")
+            || name_lower.ends_with(".deb")
+            || name_lower.ends_with(".rpm")
+        {
+            return Err("Błąd: Pobrany plik to archiwum. Nadpisanie aplikacji zniszczyłoby instalację. Zaktualizuj program ręcznie.".to_string());
+        }
+    }
+    Ok(())
 }
 
 /// Podmienia działający plik wykonywalny nową wersją.
@@ -495,5 +516,21 @@ mod tests {
         }];
         assert!(select_asset_for_platform(&unmatched).is_none());
         assert!(select_asset_for_platform(&[]).is_none());
+    }
+
+    #[test]
+    fn safety_gate_blocks_linux_archives() {
+        let tar_gz = ReleaseAsset {
+            name: "SPLogbook-Linux-x86_64.tar.gz".into(),
+            browser_download_url: "".into(),
+            digest: None,
+            size: 0,
+        };
+        
+        #[cfg(not(target_os = "windows"))]
+        assert!(check_safety_gate(&tar_gz).is_err());
+        
+        #[cfg(target_os = "windows")]
+        assert!(check_safety_gate(&tar_gz).is_ok()); // Windows is tested separately in UPDATE-WIN-SAFETY-GATE
     }
 }
