@@ -442,7 +442,7 @@ Zadania P0/P1 niezwiązane z updaterem mogą być wykonywane równolegle z torem
 #### FIX-WPX-PREFIX (CQ-2.2.A)
 - **Tor:** FIX
 - **Status techniczny:** POTWIERDZONY W KODZIE
-- **Status wykonawczy:** GOTOWY DO IMPLEMENTACJI
+- **Status wykonawczy:** ZAKOŃCZONY (DONE)
 - **Priorytet:** P1 Wysoki
 - **Źródło:** CQ: PROB-P1-03A
 - **Pliki:** `src/core/prefix.rs`, `src/core/awards.rs`
@@ -450,7 +450,7 @@ Zadania P0/P1 niezwiązane z updaterem mogą być wykonywane równolegle z torem
 #### FIX-SP-DISTRICT (CQ-2.2.B)
 - **Tor:** FIX
 - **Status techniczny:** POTWIERDZONY W KODZIE
-- **Status wykonawczy:** GOTOWY DO IMPLEMENTACJI
+- **Status wykonawczy:** ZAKOŃCZONY (DONE)
 - **Priorytet:** P1 Wysoki
 - **Źródło:** CQ: PROB-P1-03B
 - **Pliki:** `src/core/awards.rs`
@@ -458,7 +458,7 @@ Zadania P0/P1 niezwiązane z updaterem mogą być wykonywane równolegle z torem
 #### FIX-AWARDS-DOUBLE-REG (CQ-2.2.C)
 - **Tor:** FIX
 - **Status techniczny:** POTWIERDZONY W KODZIE
-- **Status wykonawczy:** GOTOWY DO IMPLEMENTACJI
+- **Status wykonawczy:** ZAKOŃCZONY (DONE)
 - **Priorytet:** P1 Wysoki
 - **Źródło:** CQ: PROB-P1-03C
 - **Pliki:** `src/core/awards.rs`

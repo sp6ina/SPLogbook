@@ -37,76 +37,7 @@ pub struct PolishDistrictInfo {
     pub voivodeships: Vec<String>,
 }
 
-fn extract_wpx_base(call: &str) -> String {
-    let bytes = call.as_bytes();
-    let mut seen_alpha = false;
-    let mut last_digit_after_alpha = None;
-    for (i, &b) in bytes.iter().enumerate() {
-        if b.is_ascii_alphabetic() {
-            seen_alpha = true;
-        } else if b.is_ascii_digit() && seen_alpha {
-            last_digit_after_alpha = Some(i);
-        }
-    }
 
-    if let Some(idx) = last_digit_after_alpha {
-        call[..=idx].to_string()
-    } else {
-        format!("{call}0")
-    }
-}
-
-/// Wyciąga prefiks WPX ze znaku (np. SP6INA -> SP6, DL/SP6INA -> DL0, K3LR -> K3)
-pub fn extract_wpx_prefix(call: &str) -> String {
-    let clean = call.trim().to_uppercase();
-    if clean.is_empty() {
-        return String::new();
-    }
-    let is_operational_suffix = |s: &str| -> bool {
-        matches!(
-            s,
-            "P" | "M" | "MM" | "AM" | "QRP" | "LGT" | "LH" | "B" | "R" | "A" | "J"
-        )
-    };
-
-    let parts: Vec<&str> = clean
-        .split('/')
-        .filter(|p| !is_operational_suffix(p) && !p.is_empty())
-        .collect();
-
-    if parts.is_empty() {
-        return String::new();
-    }
-
-    let base_call = if parts.len() >= 2 {
-        let p0 = parts[0];
-        let p1 = parts[1];
-
-        if p0.len() <= 4 && p0.len() < p1.len() && !p0.chars().all(|c| c.is_ascii_digit()) {
-            p0
-        } else if p1.len() == 1 && p1.chars().all(|c| c.is_ascii_digit()) {
-            let prefix0 = extract_wpx_base(p0);
-            let mut prefix_chars: Vec<char> = prefix0.chars().collect();
-            if let Some(pos) = prefix_chars.iter().rposition(char::is_ascii_digit) {
-                if let Some(digit) = p1.chars().next() {
-                    prefix_chars[pos] = digit;
-                }
-                return prefix_chars.into_iter().collect();
-            }
-            return format!("{prefix0}{p1}");
-        } else if p1.len() <= 4 && p1.len() < p0.len() && !p1.chars().all(|c| c.is_ascii_digit()) {
-            p1
-        } else if p0.len() >= p1.len() {
-            p0
-        } else {
-            p1
-        }
-    } else {
-        parts[0]
-    };
-
-    extract_wpx_base(base_call)
-}
 
 pub const WAE_EUROPEAN_ENTITIES: &[u32] = &[
     14, 21, 27, 40, 45, 54, 61, 106, 114, 118, 122, 125, 126, 145, 149, 163, 179, 203, 206, 209,
@@ -123,10 +54,11 @@ pub const SP_DISTRICTS: &[&str] = &[
     "SQ8", "SQ9", "SR1", "SR2", "SR3", "SR4", "SR5", "SR6", "SR7", "SR8", "SR9",
 ];
 
-pub fn extract_sp_district(callsign: &str) -> Option<String> {
+fn parse_sp_call(callsign: &str) -> Option<(&'static str, u8)> {
     let call = callsign.trim().to_uppercase();
     let parts: Vec<&str> = call.split('/').collect();
     let base = parts.first().copied().unwrap_or(&call);
+    
     let portable_digit = parts
         .get(1..)
         .and_then(|rest_parts| {
@@ -137,19 +69,23 @@ pub fn extract_sp_district(callsign: &str) -> Option<String> {
         })
         .and_then(|s| s.chars().next());
 
-    for prefix in &["SP", "SO", "SN", "3Z", "HF", "SQ", "SR"] {
+    for prefix in &["SP", "SQ", "SO", "SN", "3Z", "HF", "SR"] {
         if let Some(rest) = base.strip_prefix(prefix) {
             if let Some(d) = portable_digit {
-                return Some(format!("{prefix}{d}"));
+                return Some((prefix, d.to_digit(10)? as u8));
             }
-            if let Some(digit) = rest.chars().next() {
-                if digit.is_ascii_digit() && digit != '0' {
-                    return Some(format!("{prefix}{digit}"));
+            if let Some(digit) = rest.chars().find(|c| c.is_ascii_digit()) {
+                if digit != '0' {
+                    return Some((prefix, digit.to_digit(10)? as u8));
                 }
             }
         }
     }
     None
+}
+
+pub fn extract_sp_district(callsign: &str) -> Option<String> {
+    parse_sp_call(callsign).map(|(prefix, digit)| format!("{prefix}{digit}"))
 }
 
 /// Silnik śledzenia postępu dyplomowego (krajowego i międzynarodowego)
@@ -255,9 +191,8 @@ impl AwardsEngine {
         let is_confirmed =
             qso.qsl_rcvd == "Y" || qso.lotw_qsl_rcvd == "Y" || qso.eqsl_qsl_rcvd == "Y";
 
-        let wpx = extract_wpx_prefix(&qso.callsign);
+        let wpx = crate::core::prefix::extract_wpx_prefix(&qso.callsign);
         if !wpx.is_empty() {
-            self.worked_wpx.insert(wpx.clone());
             self.details_wpx
                 .entry(wpx.clone())
                 .or_default()
@@ -274,7 +209,6 @@ impl AwardsEngine {
         if let Some(ref i) = qso.iota {
             let i_clean = i.trim().to_uppercase();
             if !i_clean.is_empty() {
-                self.worked_iota.insert(i_clean.clone());
                 self.details_iota
                     .entry(i_clean.clone())
                     .or_default()
@@ -293,7 +227,6 @@ impl AwardsEngine {
             let g_clean = g.trim().to_uppercase();
             if g_clean.is_ascii() && g_clean.len() >= 4 {
                 let grid4 = g_clean[..4].to_string();
-                self.worked_vucc.insert(grid4.clone());
                 self.details_vucc
                     .entry(grid4.clone())
                     .or_default()
@@ -311,7 +244,6 @@ impl AwardsEngine {
         if let Some(ref s) = qso.sota_ref {
             let s_clean = s.trim().to_uppercase();
             if !s_clean.is_empty() {
-                self.worked_sota.insert(s_clean.clone());
                 self.details_sota
                     .entry(s_clean.clone())
                     .or_default()
@@ -329,7 +261,6 @@ impl AwardsEngine {
         if let Some(ref p) = qso.pota_ref {
             let p_clean = p.trim().to_uppercase();
             if !p_clean.is_empty() {
-                self.worked_pota.insert(p_clean.clone());
                 self.details_pota
                     .entry(p_clean.clone())
                     .or_default()
@@ -347,7 +278,6 @@ impl AwardsEngine {
         if let Some(ref pga) = qso.pga_ref {
             let pga_clean = pga.trim().to_uppercase();
             if !pga_clean.is_empty() {
-                self.worked_pga.insert(pga_clean.clone());
                 self.details_pga
                     .entry(pga_clean.clone())
                     .or_default()
@@ -490,7 +420,7 @@ impl AwardsEngine {
             }
         }
 
-        let pfx = extract_wpx_prefix(&call);
+        let pfx = crate::core::prefix::extract_wpx_prefix(&call);
         if !pfx.is_empty() {
             self.worked_wpx.insert(pfx);
         }
@@ -611,30 +541,7 @@ impl AwardsEngine {
     }
 
     pub fn get_polish_district(call: &str) -> Option<PolishDistrictInfo> {
-        let clean = call.trim().to_uppercase();
-        let parts: Vec<&str> = clean.split('/').collect();
-        let base = parts.first().copied().unwrap_or(&clean);
-
-        let mut rest_after_prefix = None;
-        for prefix in &["SP", "SQ", "SO", "SN", "3Z", "HF", "SR"] {
-            if let Some(rest) = base.strip_prefix(prefix) {
-                rest_after_prefix = Some(rest);
-                break;
-            }
-        }
-        let rest = rest_after_prefix?;
-
-        let district = if let Some(d_str) = parts.get(1..).and_then(|rest_parts| {
-            rest_parts
-                .iter()
-                .rev()
-                .find(|p| p.len() == 1 && p.chars().all(|c| c.is_ascii_digit() && c != '0'))
-        }) {
-            d_str.chars().next()?.to_digit(10)? as u8
-        } else {
-            let num_char = rest.chars().find(char::is_ascii_digit)?;
-            num_char.to_digit(10)? as u8
-        };
+        let (_, district) = parse_sp_call(call)?;
 
         let voivodeships: Vec<String> = match district {
             1 => vec!["Zachodniopomorskie"],
@@ -686,15 +593,6 @@ mod tests {
         assert!(st3.is_new_band);
     }
 
-    #[test]
-    fn test_wpx_extraction() {
-        assert_eq!(extract_wpx_prefix("SP6INA"), "SP6");
-        assert_eq!(extract_wpx_prefix("W1AW"), "W1");
-        assert_eq!(extract_wpx_prefix("K3LR"), "K3");
-        assert_eq!(extract_wpx_prefix("3Z100POL"), "3Z100");
-        assert_eq!(extract_wpx_prefix("DL/SP6INA"), "DL0");
-        assert_eq!(extract_wpx_prefix("SP6INA/1"), "SP1");
-    }
 
     #[test]
     fn test_polish_district() {
@@ -781,9 +679,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_empty_callsign_wpx_prefix() {
-        assert_eq!(extract_wpx_prefix(""), "");
-        assert_eq!(extract_wpx_prefix("   "), "");
-    }
 }

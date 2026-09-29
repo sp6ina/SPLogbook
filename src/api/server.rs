@@ -883,7 +883,7 @@ async fn lookup_callsign(
     let mode = query.mode.as_deref().unwrap_or("CW").to_uppercase();
 
     let prefix_info = state.prefix_matcher.lookup(&clean);
-    let wpx_prefix = crate::core::awards::extract_wpx_prefix(&clean);
+    let wpx_prefix = crate::core::prefix::extract_wpx_prefix(&clean);
     let polish_district = crate::core::awards::extract_sp_district(&clean);
     let clubs = ClubRegistry::check(&clean);
 

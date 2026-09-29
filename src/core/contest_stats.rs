@@ -142,7 +142,7 @@ pub fn mult_value(kind: MultKind, q: &QsoRecord) -> Option<String> {
         MultKind::Grid => q.gridsquare.as_ref().map(|g| g.chars().take(4).collect()),
         MultKind::Iota => q.iota.clone(),
         MultKind::Prefix => {
-            let prefix = crate::core::awards::extract_wpx_prefix(&q.callsign);
+            let prefix = crate::core::prefix::extract_wpx_prefix(&q.callsign);
             if prefix.is_empty() {
                 None
             } else {

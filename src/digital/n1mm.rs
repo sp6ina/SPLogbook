@@ -70,7 +70,7 @@ fn n1mm_timestamp(qso_date: &str, time_on: &str) -> String {
 
 /// Zwraca prefix dla danego znaku (używany do WPX w N1MM).
 fn wpx_prefix(callsign: &str) -> String {
-    let pfx = crate::core::awards::extract_wpx_prefix(callsign);
+    let pfx = crate::core::prefix::extract_wpx_prefix(callsign);
     if pfx.is_empty() {
         callsign.to_uppercase()
     } else {
