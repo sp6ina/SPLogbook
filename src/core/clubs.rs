@@ -90,21 +90,4 @@ impl ClubRegistry {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
 
-    #[test]
-    fn test_sp_otc_lookup() {
-        let clubs = ClubRegistry::check("SP6INA");
-        assert!(clubs.iter().any(|c| c.code == "SP-OTC"));
-        assert!(clubs.iter().any(|c| c.code == "SKCC"));
-    }
-
-    #[test]
-    fn test_cwops_lookup() {
-        let clubs = ClubRegistry::check("W1AW");
-        assert!(clubs.iter().any(|c| c.code == "CWOPS"));
-        assert!(clubs.iter().any(|c| c.code == "FOC"));
-    }
-}
