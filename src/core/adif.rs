@@ -81,6 +81,9 @@ impl AdifEngine {
                         rejected += 1;
                     } else if let Some(qso) = Self::fields_to_qso(&current_fields) {
                         qsos.push(qso);
+                        if let Some(msg) = Self::missing_mode_error(&current_fields, record_index) {
+                            errors.push(msg);
+                        }
                     } else {
                         rejected += 1;
                         errors.push(format!(
@@ -149,6 +152,9 @@ impl AdifEngine {
                 rejected += 1;
             } else if let Some(qso) = Self::fields_to_qso(&current_fields) {
                 qsos.push(qso);
+                if let Some(msg) = Self::missing_mode_error(&current_fields, record_index) {
+                    errors.push(msg);
+                }
             } else {
                 rejected += 1;
                 errors.push(format!(
@@ -165,78 +171,168 @@ impl AdifEngine {
         })
     }
 
-    /// Mapuje nazwę emisji używaną w radiostacji/aplikacji na oficjalną parę `(MODE, Option<SUBMODE>)`
-    /// zgodną ze specyfikacją ADIF 3.1.7 (marzec 2026).
+    /// Mapuje nazwę emisji na kanoniczną parę `(MODE, Option<SUBMODE>)`.
+    ///
+    /// Obejmuje 7 emisji cyfrowych z § 4–6 specyfikacji (FT8, FT4, Q65, JT65, JT9,
+    /// WSPR, MSK144), wartości import-only oraz dotychczasowe mapowanie pozostałych
+    /// emisji (wyłącznie gdy podano SUBMODE). Zwraca `None`, gdy pary nie należy
+    /// normalizować — wartość jest wtedy zachowywana bez zmian (§ 6.4).
     pub fn normalize_mode_submode(
         mode: &str,
         submode: Option<&str>,
-    ) -> (&'static str, Option<&'static str>) {
+    ) -> Option<(&'static str, Option<&'static str>)> {
         let m = mode.trim().to_uppercase();
         let sub = submode.map(|s| s.trim().to_uppercase());
-        let effective = sub.as_deref().unwrap_or(m.as_str());
 
-        match effective {
-            // ADIF 3.1.7: MFSK submodes (w tym nowe FT2)
-            "FT4" => ("MFSK", Some("FT4")),
-            "FT2" => ("MFSK", Some("FT2")),
-            "JS8" => ("MFSK", Some("JS8")),
-            "Q65" => ("MFSK", Some("Q65")),
-            "FST4" => ("MFSK", Some("FST4")),
-            "FST4W" => ("MFSK", Some("FST4W")),
-            "MFSK4" => ("MFSK", Some("MFSK4")),
-            "MFSK8" => ("MFSK", Some("MFSK8")),
-            "MFSK16" => ("MFSK", Some("MFSK16")),
-            "MFSK32" => ("MFSK", Some("MFSK32")),
-            "FSQCALL" => ("MFSK", Some("FSQCALL")),
-            // ADIF 3.1.7: DYNAMIC submodes (w tym nowe FREEDATA)
-            "FREEDATA" => ("DYNAMIC", Some("FREEDATA")),
-            "VARA HF" | "VARA_HF" => ("DYNAMIC", Some("VARA HF")),
-            "VARA FM" | "VARA_FM" => ("DYNAMIC", Some("VARA FM")),
-            "VARA SATELLITE" => ("DYNAMIC", Some("VARA SATELLITE")),
-            // ADIF 3.1.7: nowa emisja główna OFDM i jej submode'y RIBBIT
-            "RIBBIT_PIX" => ("OFDM", Some("RIBBIT_PIX")),
-            "RIBBIT_SMS" => ("OFDM", Some("RIBBIT_SMS")),
-            "OFDM" => ("OFDM", None),
-            // ADIF 3.1.6: SCAMP submodes dla FSK oraz MTONE
-            "SCAMP_FAST" => ("FSK", Some("SCAMP_FAST")),
-            "SCAMP_SLOW" => ("FSK", Some("SCAMP_SLOW")),
-            "SCAMP_VSLOW" => ("FSK", Some("SCAMP_VSLOW")),
-            "SCAMP_OO" => ("MTONE", Some("SCAMP_OO")),
-            "SCAMP_OO_SLW" => ("MTONE", Some("SCAMP_OO_SLW")),
-            // SSB submodes
-            "USB" => ("SSB", Some("USB")),
-            "LSB" => ("SSB", Some("LSB")),
-            // PSK submodes
-            "PSK31" | "BPSK31" => ("PSK", Some("PSK31")),
-            "PSK63" | "BPSK63" => ("PSK", Some("PSK63")),
-            "PSK125" | "BPSK125" => ("PSK", Some("PSK125")),
-            "QPSK31" => ("PSK", Some("QPSK31")),
-            "QPSK63" => ("PSK", Some("QPSK63")),
-            "QPSK125" => ("PSK", Some("QPSK125")),
-            // DIGITALVOICE submodes
-            "DMR" => ("DIGITALVOICE", Some("DMR")),
-            "C4FM" => ("DIGITALVOICE", Some("C4FM")),
-            "DSTAR" | "D-STAR" => ("DIGITALVOICE", Some("DSTAR")),
-            "FREEDV" => ("DIGITALVOICE", Some("FREEDV")),
-            "M17" => ("DIGITALVOICE", Some("M17")),
-            // Standardowe emisje główne
-            "CW" => ("CW", None),
-            "SSB" => ("SSB", None),
-            "AM" => ("AM", None),
-            "FM" => ("FM", None),
-            "FT8" => ("FT8", None),
-            "RTTY" => ("RTTY", None),
-            "SSTV" => ("SSTV", None),
-            "WSPR" => ("WSPR", None),
-            "JT65" => ("JT65", None),
-            "JT9" => ("JT9", None),
-            "MSK144" => ("MSK144", None),
-            "OLIVIA" => ("OLIVIA", None),
-            "CONTESTIA" => ("CONTESTIA", None),
-            "HELL" => ("HELL", None),
-            "PKT" => ("PKT", None),
-            "ATV" => ("ATV", None),
-            _ => ("OTHER", None),
+        // MODE = MFSK: o emisji decyduje SUBMODE (§ 6.1–6.2).
+        if m == "MFSK" {
+            if let Some(s) = sub.as_deref() {
+                match s {
+                    "FT4" => return Some(("FT4", None)),
+                    "Q65" => return Some(("Q65", None)),
+                    "FT8" => return Some(("FT8", None)),
+                    "WSPR" => return Some(("WSPR", None)),
+                    "MSK144" => return Some(("MSK144", None)),
+                    "JT65" => return Some(("JT65", None)),
+                    "JT9" => return Some(("JT9", None)),
+                    _ => {
+                        if let Some(v) = Self::jt65_submode(s) {
+                            return Some(("JT65", Some(v)));
+                        }
+                        if let Some(v) = Self::jt9_submode(s) {
+                            return Some(("JT9", Some(v)));
+                        }
+                    }
+                }
+            }
+            // MFSK bez rozpoznanego SUBMODE jest spoza zakresu — zachowaj bez zmian.
+            return None;
+        }
+
+        // Emisje z listy 7 jako MODE (§ 6.1–6.2).
+        match m.as_str() {
+            "FT8" => return Some(("FT8", None)),
+            "FT4" => return Some(("FT4", None)),
+            "Q65" => return Some(("Q65", None)),
+            "WSPR" => return Some(("WSPR", None)),
+            "MSK144" => return Some(("MSK144", None)),
+            "JT65" => return Some(("JT65", sub.as_deref().and_then(Self::jt65_submode))),
+            "JT9" => return Some(("JT9", sub.as_deref().and_then(Self::jt9_submode))),
+            _ => {}
+        }
+
+        // Wartości import-only jako MODE (§ 6.3): np. MODE=JT65A → JT65/JT65A.
+        if let Some(v) = Self::jt65_submode(m.as_str()) {
+            return Some(("JT65", Some(v)));
+        }
+        if let Some(v) = Self::jt9_submode(m.as_str()) {
+            return Some(("JT9", Some(v)));
+        }
+
+        // Import-only: legacy MODE=PCW (submode CW) → CW/PCW.
+        if m == "PCW" {
+            return Some(("CW", Some("PCW")));
+        }
+
+        // Pozostałe emisje — dotychczasowe mapowanie wyłącznie, gdy podano SUBMODE.
+        // Bare MODE spoza listy 7 nie jest normalizowany (spoza zakresu 2.2).
+        if let Some(s) = sub.as_deref() {
+            match s {
+                // ADIF 3.1.7: MFSK submodes (w tym nowe FT2)
+                "FT2" => return Some(("MFSK", Some("FT2"))),
+                "JS8" => return Some(("MFSK", Some("JS8"))),
+                "FST4" => return Some(("MFSK", Some("FST4"))),
+                "FST4W" => return Some(("MFSK", Some("FST4W"))),
+                "MFSK4" => return Some(("MFSK", Some("MFSK4"))),
+                "MFSK8" => return Some(("MFSK", Some("MFSK8"))),
+                "MFSK16" => return Some(("MFSK", Some("MFSK16"))),
+                "MFSK32" => return Some(("MFSK", Some("MFSK32"))),
+                "FSQCALL" => return Some(("MFSK", Some("FSQCALL"))),
+                // DYNAMIC submodes
+                "FREEDATA" => return Some(("DYNAMIC", Some("FREEDATA"))),
+                "VARA HF" | "VARA_HF" => return Some(("DYNAMIC", Some("VARA HF"))),
+                "VARA FM" | "VARA_FM" => return Some(("DYNAMIC", Some("VARA FM"))),
+                "VARA SATELLITE" => return Some(("DYNAMIC", Some("VARA SATELLITE"))),
+                // OFDM i submode'y RIBBIT
+                "RIBBIT_PIX" => return Some(("OFDM", Some("RIBBIT_PIX"))),
+                "RIBBIT_SMS" => return Some(("OFDM", Some("RIBBIT_SMS"))),
+                // SCAMP submodes dla FSK oraz MTONE
+                "SCAMP_FAST" => return Some(("FSK", Some("SCAMP_FAST"))),
+                "SCAMP_SLOW" => return Some(("FSK", Some("SCAMP_SLOW"))),
+                "SCAMP_VSLOW" => return Some(("FSK", Some("SCAMP_VSLOW"))),
+                "SCAMP_OO" => return Some(("MTONE", Some("SCAMP_OO"))),
+                "SCAMP_OO_SLW" => return Some(("MTONE", Some("SCAMP_OO_SLW"))),
+                // SSB submodes
+                "USB" => return Some(("SSB", Some("USB"))),
+                "LSB" => return Some(("SSB", Some("LSB"))),
+                // PSK submodes
+                "PSK31" | "BPSK31" => return Some(("PSK", Some("PSK31"))),
+                "PSK63" | "BPSK63" => return Some(("PSK", Some("PSK63"))),
+                "PSK125" | "BPSK125" => return Some(("PSK", Some("PSK125"))),
+                "QPSK31" => return Some(("PSK", Some("QPSK31"))),
+                "QPSK63" => return Some(("PSK", Some("QPSK63"))),
+                "QPSK125" => return Some(("PSK", Some("QPSK125"))),
+                // DIGITALVOICE submodes
+                "DMR" => return Some(("DIGITALVOICE", Some("DMR"))),
+                "C4FM" => return Some(("DIGITALVOICE", Some("C4FM"))),
+                "DSTAR" | "D-STAR" => return Some(("DIGITALVOICE", Some("DSTAR"))),
+                "FREEDV" => return Some(("DIGITALVOICE", Some("FREEDV"))),
+                "M17" => return Some(("DIGITALVOICE", Some("M17"))),
+                _ => {}
+            }
+        }
+
+        None
+    }
+
+    /// Zwraca kanoniczną nazwę submode'u JT65 lub `None`.
+    fn jt65_submode(value: &str) -> Option<&'static str> {
+        match value {
+            "JT65A" => Some("JT65A"),
+            "JT65B" => Some("JT65B"),
+            "JT65B2" => Some("JT65B2"),
+            "JT65C" => Some("JT65C"),
+            "JT65C2" => Some("JT65C2"),
+            _ => None,
+        }
+    }
+
+    /// Zwraca kanoniczną nazwę submode'u JT9 lub `None`.
+    fn jt9_submode(value: &str) -> Option<&'static str> {
+        match value {
+            "JT9-1" => Some("JT9-1"),
+            "JT9-2" => Some("JT9-2"),
+            "JT9-5" => Some("JT9-5"),
+            "JT9-10" => Some("JT9-10"),
+            "JT9-30" => Some("JT9-30"),
+            "JT9A" => Some("JT9A"),
+            "JT9B" => Some("JT9B"),
+            "JT9C" => Some("JT9C"),
+            "JT9D" => Some("JT9D"),
+            "JT9E" => Some("JT9E"),
+            "JT9F" => Some("JT9F"),
+            "JT9G" => Some("JT9G"),
+            "JT9H" => Some("JT9H"),
+            "JT9E FAST" => Some("JT9E FAST"),
+            "JT9F FAST" => Some("JT9F FAST"),
+            "JT9G FAST" => Some("JT9G FAST"),
+            "JT9H FAST" => Some("JT9H FAST"),
+            _ => None,
+        }
+    }
+
+    /// Zwraca komunikat błędu, gdy rekord nie zawiera ani MODE, ani APP_LoTW_MODE.
+    fn missing_mode_error(fields: &HashMap<String, String>, record_index: usize) -> Option<String> {
+        let has_mode = fields.get("MODE").is_some_and(|m| !m.trim().is_empty());
+        let has_lotw = fields
+            .get("APP_LOTW_MODE")
+            .is_some_and(|m| !m.trim().is_empty());
+        if !has_mode && !has_lotw {
+            Some(format!(
+                "Rekord {record_index}: brak pola MODE i APP_LoTW_MODE — emisja pozostaje pusta."
+            ))
+        } else {
+            None
         }
     }
 
@@ -263,21 +359,32 @@ impl AdifEngine {
                     .map(|b| b.name.to_string())
             })
             .unwrap_or_else(|| "20m".to_string());
+        // MODE → APP_LoTW_MODE (§ 6.2) → puste (§ 6.4: rekord bez emisji).
         let mode = fields
             .get("MODE")
+            .filter(|m| !m.trim().is_empty())
             .cloned()
-            .unwrap_or_else(|| "CW".to_string());
+            .or_else(|| {
+                fields
+                    .get("APP_LOTW_MODE")
+                    .filter(|m| !m.trim().is_empty())
+                    .cloned()
+            })
+            .unwrap_or_default();
 
         let mut qso = QsoRecord::new(call, band, mode);
 
-        if let Some(sub) = fields.get("SUBMODE").filter(|s| !s.is_empty()) {
-            let (norm_mode, norm_sub) = Self::normalize_mode_submode(&qso.mode, Some(sub));
-            if norm_mode != "OTHER" {
+        if let Some(sub) = fields.get("SUBMODE").filter(|s| !s.is_empty()).cloned() {
+            if let Some((norm_mode, norm_sub)) = Self::normalize_mode_submode(&qso.mode, Some(&sub))
+            {
                 qso.mode = norm_mode.to_string();
-                qso.submode = norm_sub.map(str::to_string).or_else(|| Some(sub.clone()));
+                qso.submode = norm_sub.map(str::to_string);
             } else {
-                qso.submode = Some(sub.clone());
+                qso.submode = Some(sub);
             }
+        } else if let Some((norm_mode, norm_sub)) = Self::normalize_mode_submode(&qso.mode, None) {
+            qso.mode = norm_mode.to_string();
+            qso.submode = norm_sub.map(str::to_string);
         }
         if let Some(d) = fields.get("QSO_DATE") {
             qso.qso_date.clone_from(d);
@@ -450,9 +557,16 @@ impl AdifEngine {
         let mut f: Vec<(&'static str, String)> = Vec::new();
         f.push(("CALL", q.callsign.clone()));
         f.push(("BAND", q.band.clone()));
-        f.push(("MODE", q.mode.clone()));
-        if let Some(ref v) = q.submode {
-            f.push(("SUBMODE", v.clone()));
+        // § 5: FT4/Q65 eksportowane jako MODE=MFSK + SUBMODE (ADIF 3.1.x);
+        // JT65/JT9 z wariantem przechodzą bez zmian, pozostałe emisje bez zmian.
+        let (export_mode, export_submode) = match (q.mode.as_str(), q.submode.as_deref()) {
+            ("FT4", _) => ("MFSK", Some("FT4")),
+            ("Q65", _) => ("MFSK", Some("Q65")),
+            _ => (q.mode.as_str(), q.submode.as_deref()),
+        };
+        f.push(("MODE", export_mode.to_string()));
+        if let Some(v) = export_submode {
+            f.push(("SUBMODE", v.to_string()));
         }
         f.push(("QSO_DATE", q.adif_date()));
         f.push(("TIME_ON", q.adif_time()));
@@ -741,36 +855,174 @@ mod tests {
     }
 
     #[test]
-    fn test_adif_3_1_7_mode_submode_normalization() {
+    fn test_adif_mode_submode_normalization() {
+        let norm = |m: &str, s: Option<&str>| AdifEngine::normalize_mode_submode(m, s);
+
+        // § 6.1: standardowe pary (w tym MFSK + SUBMODE dla FT4/Q65).
+        assert_eq!(norm("FT8", None), Some(("FT8", None)));
+        assert_eq!(norm("FT4", None), Some(("FT4", None)));
+        assert_eq!(norm("MFSK", Some("FT4")), Some(("FT4", None)));
+        assert_eq!(norm("Q65", None), Some(("Q65", None)));
+        assert_eq!(norm("MFSK", Some("Q65")), Some(("Q65", None)));
+        assert_eq!(norm("WSPR", None), Some(("WSPR", None)));
+        assert_eq!(norm("MSK144", None), Some(("MSK144", None)));
+        assert_eq!(norm("JT65", None), Some(("JT65", None)));
+        assert_eq!(norm("JT65", Some("JT65B")), Some(("JT65", Some("JT65B"))));
+        assert_eq!(norm("JT9", None), Some(("JT9", None)));
         assert_eq!(
-            AdifEngine::normalize_mode_submode("FT2", None),
-            ("MFSK", Some("FT2"))
+            norm("JT9", Some("JT9E FAST")),
+            Some(("JT9", Some("JT9E FAST")))
         );
-        assert_eq!(
-            AdifEngine::normalize_mode_submode("FREEDATA", None),
-            ("DYNAMIC", Some("FREEDATA"))
-        );
-        assert_eq!(
-            AdifEngine::normalize_mode_submode("RIBBIT_SMS", None),
-            ("OFDM", Some("RIBBIT_SMS"))
-        );
-        assert_eq!(
-            AdifEngine::normalize_mode_submode("RIBBIT_PIX", None),
-            ("OFDM", Some("RIBBIT_PIX"))
-        );
-        assert_eq!(
-            AdifEngine::normalize_mode_submode("SCAMP_FAST", None),
-            ("FSK", Some("SCAMP_FAST"))
-        );
-        assert_eq!(
-            AdifEngine::normalize_mode_submode("SCAMP_OO", None),
-            ("MTONE", Some("SCAMP_OO"))
-        );
-        assert_eq!(
-            AdifEngine::normalize_mode_submode("USB", None),
-            ("SSB", Some("USB"))
-        );
-        assert_eq!(AdifEngine::normalize_mode_submode("CW", None), ("CW", None));
+
+        // § 6.2: postacie niestandardowe sprowadzane do kanonicznej.
+        assert_eq!(norm("MFSK", Some("FT8")), Some(("FT8", None)));
+        assert_eq!(norm("MFSK", Some("WSPR")), Some(("WSPR", None)));
+        assert_eq!(norm("MFSK", Some("MSK144")), Some(("MSK144", None)));
+        // MODE z listy 7 wygrywa nad nieznanym SUBMODE.
+        assert_eq!(norm("FT8", Some("FT4")), Some(("FT8", None)));
+
+        // § 6.3: wartości import-only jako MODE.
+        assert_eq!(norm("JT65A", None), Some(("JT65", Some("JT65A"))));
+        assert_eq!(norm("JT9E FAST", None), Some(("JT9", Some("JT9E FAST"))));
+
+        // § 6.4: nieznane wartości zachowane bez zmian (None).
+        assert_eq!(norm("NOT_A_MODE", None), None);
+
+        // Spoza zakresu 2.2: legacy mapowanie z SUBMODE nadal działa.
+        assert_eq!(norm("SSB", Some("USB")), Some(("SSB", Some("USB"))));
+    }
+
+    #[test]
+    fn test_adif_export_import_mode_submode_roundtrip() {
+        let cases: &[(&str, Option<&str>)] = &[
+            ("FT8", None),
+            ("FT4", None),
+            ("Q65", None),
+            ("JT65", None),
+            ("JT65", Some("JT65B")),
+            ("JT9", None),
+            ("JT9", Some("JT9E FAST")),
+            ("WSPR", None),
+            ("MSK144", None),
+        ];
+
+        for &(mode, submode) in cases {
+            let mut qso = QsoRecord::new("SP6INA", "20m", mode);
+            qso.submode = submode.map(str::to_string);
+
+            let mut buffer = Vec::new();
+            AdifEngine::export_to_writer(&[qso], &mut buffer).unwrap();
+
+            let parsed = AdifEngine::parse_reader(buffer.as_slice());
+            assert_eq!(parsed.len(), 1, "mode={mode} submode={submode:?}");
+            assert_eq!(parsed[0].mode, mode, "mode={mode} submode={submode:?}");
+            assert_eq!(
+                parsed[0].submode.as_deref(),
+                submode,
+                "mode={mode} submode={submode:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_adif_import_uses_app_lotw_mode_fallback() {
+        let content = "<CALL:6>SP6INA<BAND:3>20m<APP_LOTW_MODE:3>FT4<EOR>";
+        let report = parse_adif_with_report(content);
+        assert_eq!(report.imported, 1);
+        assert_eq!(report.qsos[0].mode, "FT4");
+        assert_eq!(report.qsos[0].submode, None);
+    }
+
+    #[test]
+    fn test_adif_import_without_mode_is_empty_and_reported() {
+        let content = "<CALL:6>SP6INA<BAND:3>20m<EOR>";
+        let report = parse_adif_with_report(content);
+        assert_eq!(report.imported, 1);
+        assert_eq!(report.qsos[0].mode, "");
+        assert!(report.errors.iter().any(|e| e.contains("MODE")));
+    }
+
+    #[test]
+    fn test_adif_import_cw_and_pcw_modes() {
+        // 1. MODE=CW → mode="CW", submode=None.
+        let report = parse_adif_with_report("<CALL:6>SP6INA<BAND:3>20m<MODE:2>CW<EOR>");
+        assert_eq!(report.qsos[0].mode, "CW");
+        assert_eq!(report.qsos[0].submode, None);
+
+        // 2. MODE=CW + SUBMODE=PCW → mode="CW", submode=Some("PCW").
+        let report =
+            parse_adif_with_report("<CALL:6>SP6INA<BAND:3>20m<MODE:2>CW<SUBMODE:3>PCW<EOR>");
+        assert_eq!(report.qsos[0].mode, "CW");
+        assert_eq!(report.qsos[0].submode.as_deref(), Some("PCW"));
+
+        // 3. Tolerancyjny import legacy MODE=PCW → mode="CW", submode=Some("PCW").
+        let report = parse_adif_with_report("<CALL:6>SP6INA<BAND:3>20m<MODE:3>PCW<EOR>");
+        assert_eq!(report.qsos[0].mode, "CW");
+        assert_eq!(report.qsos[0].submode.as_deref(), Some("PCW"));
+    }
+
+    #[test]
+    fn test_adif_export_cw_and_pcw() {
+        // 4. Zwykły CW → MODE=CW, bez SUBMODE.
+        let qso = QsoRecord::new("SP6INA", "20m", "CW");
+        let adif = export_adif(&[qso], "", "");
+        assert!(adif.contains("<MODE:2>CW"), "{adif}");
+        assert!(!adif.contains("<SUBMODE:"), "{adif}");
+
+        // 5. PCW → MODE=CW, SUBMODE=PCW.
+        let mut qso = QsoRecord::new("SP6INA", "20m", "CW");
+        qso.submode = Some("PCW".to_string());
+        let adif = export_adif(&[qso], "", "");
+        assert!(adif.contains("<MODE:2>CW"), "{adif}");
+        assert!(adif.contains("<SUBMODE:3>PCW"), "{adif}");
+    }
+
+    #[test]
+    fn test_adif_cw_pcw_roundtrip() {
+        // 6. Round-trip CW i PCW.
+        let cases: &[(&str, Option<&str>)] = &[("CW", None), ("CW", Some("PCW"))];
+        for &(mode, submode) in cases {
+            let mut qso = QsoRecord::new("SP6INA", "20m", mode);
+            qso.submode = submode.map(str::to_string);
+            let adif = export_adif(&[qso], "", "");
+            let report = parse_adif_with_report(&adif);
+            assert_eq!(report.qsos[0].mode, "CW", "mode={mode} submode={submode:?}");
+            assert_eq!(
+                report.qsos[0].submode.as_deref(),
+                submode,
+                "mode={mode} submode={submode:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_adif_mfsk_ft8_import_normalizes_and_reexports_as_ft8() {
+        // 7. MODE=MFSK + SUBMODE=FT8 → FT8/None; re-eksport → MODE=FT8 bez SUBMODE.
+        let report =
+            parse_adif_with_report("<CALL:6>SP6INA<BAND:3>20m<MODE:4>MFSK<SUBMODE:3>FT8<EOR>");
+        assert_eq!(report.qsos[0].mode, "FT8");
+        assert_eq!(report.qsos[0].submode, None);
+
+        let adif = export_adif(&report.qsos, "", "");
+        assert!(adif.contains("<MODE:3>FT8"), "{adif}");
+        assert!(!adif.contains("<SUBMODE:"), "{adif}");
+    }
+
+    #[test]
+    fn test_adif_app_lotw_mode_fallback_rules() {
+        // 8a. APP_LOTW_MODE użyty wyłącznie przy braku MODE.
+        let report = parse_adif_with_report("<CALL:6>SP6INA<BAND:3>20m<APP_LOTW_MODE:3>FT4<EOR>");
+        assert_eq!(report.qsos[0].mode, "FT4");
+
+        // 8b. MODE ma pierwszeństwo nad APP_LOTW_MODE.
+        let report =
+            parse_adif_with_report("<CALL:6>SP6INA<BAND:3>20m<MODE:2>CW<APP_LOTW_MODE:3>FT4<EOR>");
+        assert_eq!(report.qsos[0].mode, "CW");
+
+        // 8c. Pusta wartość APP_LOTW_MODE nie jest akceptowana → pusta emisja + błąd.
+        let report = parse_adif_with_report("<CALL:6>SP6INA<BAND:3>20m<APP_LOTW_MODE:0><EOR>");
+        assert_eq!(report.qsos[0].mode, "");
+        assert!(report.errors.iter().any(|e| e.contains("MODE")));
     }
 
     #[test]
