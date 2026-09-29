@@ -80,7 +80,8 @@ fn wpx_prefix(callsign: &str) -> String {
 
 /// Buduje ramkę `<contactinfo>` reprezentującą zapisane QSO.
 pub fn contactinfo_xml(qso: &QsoRecord, my_call: &str, radio_nr: u8) -> String {
-    let freq_khz = qso.freq.map_or(0, |f| (f * 1000.0).round() as i64);
+    // W systemie N1MM wartości txfreq/rxfreq muszą być w rozdzielczości 10 Hz (czyli MHz * 100_000).
+    let freq_n1mm = qso.freq.map_or(0, |f| (f * 100_000.0).round() as i64);
     let band_meters = band_to_meters(&qso.band);
     let continent = qso.continent.as_deref().unwrap_or("");
     let cqz = qso.cqz.map(|z| z.to_string()).unwrap_or_default();
@@ -136,7 +137,7 @@ pub fn contactinfo_xml(qso: &QsoRecord, my_call: &str, radio_nr: u8) -> String {
         timestamp = xml_escape(&timestamp),
         my_call = xml_escape(my_call),
         band = xml_escape(&band_meters),
-        freq = freq_khz,
+        freq = freq_n1mm,
         mode = xml_escape(&qso.mode),
         call = xml_escape(&qso.callsign),
         countryprefix = xml_escape(&wpx_prefix(&qso.callsign)),
@@ -157,6 +158,9 @@ pub fn contactinfo_xml(qso: &QsoRecord, my_call: &str, radio_nr: u8) -> String {
 
 /// Buduje ramkę `<radioinfo>` opisującą bieżący stan radia (częstotliwość/tryb).
 pub fn radioinfo_xml(freq_hz: u64, mode: &str, my_call: &str, radio_nr: u8) -> String {
+    // W systemie N1MM wartości Freq/TXFreq również muszą być w rozdzielczości 10 Hz.
+    let freq_n1mm = freq_hz / 10;
+    
     format!(
         "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\
 <radioinfo>\n\
@@ -178,7 +182,7 @@ pub fn radioinfo_xml(freq_hz: u64, mode: &str, my_call: &str, radio_nr: u8) -> S
         app = APP_NAME,
         my_call = xml_escape(my_call),
         radio = radio_nr,
-        freq = freq_hz,
+        freq = freq_n1mm,
         mode = xml_escape(mode),
     )
 }
@@ -247,7 +251,7 @@ mod tests {
         assert!(xml.contains("<contactinfo>"));
         assert!(xml.contains("<call>SP9ABC</call>"));
         assert!(xml.contains("<mycall>SP6INA</mycall>"));
-        assert!(xml.contains("<rxfreq>14200</rxfreq>"));
+        assert!(xml.contains("<rxfreq>1420000</rxfreq>"));
         assert!(xml.contains("<band>20</band>"));
         assert!(xml.contains("<gridsquare>JO90</gridsquare>"));
     }
@@ -262,5 +266,12 @@ mod tests {
         let xml = contactinfo_xml(&qso, "SP6INA", 1);
         assert!(xml.contains("<call>SP9A&lt;B&gt;</call>"));
         assert!(xml.contains("<comment>test &amp; more</comment>"));
+    }
+
+    #[test]
+    fn radioinfo_scales_frequency_correctly() {
+        let xml = radioinfo_xml(14025000, "CW", "SP6INA", 1);
+        assert!(xml.contains("<Freq>1402500</Freq>"));
+        assert!(xml.contains("<TXFreq>1402500</TXFreq>"));
     }
 }
