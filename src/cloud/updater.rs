@@ -103,9 +103,9 @@ impl DatabaseUpdater {
 
         if let Some(parent) = dest_path.parent() {
             if !parent.as_os_str().is_empty() {
-                tokio::fs::create_dir_all(parent).await.map_err(|e| {
-                    format!("Błąd tworzenia katalogu {}: {e}", parent.display())
-                })?;
+                tokio::fs::create_dir_all(parent)
+                    .await
+                    .map_err(|e| format!("Błąd tworzenia katalogu {}: {e}", parent.display()))?;
             }
         }
 
@@ -308,9 +308,9 @@ pub async fn download_release_asset(
 
     if let Some(parent) = dest_path.parent() {
         if !parent.as_os_str().is_empty() {
-            tokio::fs::create_dir_all(parent).await.map_err(|e| {
-                format!("Błąd tworzenia katalogu {}: {e}", parent.display())
-            })?;
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| format!("Błąd tworzenia katalogu {}: {e}", parent.display()))?;
         }
     }
 
@@ -362,12 +362,17 @@ pub async fn install_update(asset: &ReleaseAsset) -> Result<(), String> {
 
 /// Sprawdza, czy pobierany plik nie jest archiwum, co mogłoby uszkodzić instalację.
 pub fn check_safety_gate(asset: &ReleaseAsset) -> Result<(), String> {
+    let name_lower = asset.name.to_lowercase();
+
     #[cfg(target_os = "windows")]
-    let _ = asset;
+    {
+        if name_lower.ends_with(".zip") || name_lower.ends_with(".msi") {
+            return Err("Błąd: Pobrany plik to archiwum. Nadpisanie aplikacji zniszczyłoby instalację. Zaktualizuj program ręcznie.".to_string());
+        }
+    }
 
     #[cfg(not(target_os = "windows"))]
     {
-        let name_lower = asset.name.to_lowercase();
         if name_lower.ends_with(".tar.gz")
             || name_lower.ends_with(".deb")
             || name_lower.ends_with(".rpm")
@@ -526,11 +531,27 @@ mod tests {
             digest: None,
             size: 0,
         };
-        
+
         #[cfg(not(target_os = "windows"))]
         assert!(check_safety_gate(&tar_gz).is_err());
-        
+
         #[cfg(target_os = "windows")]
         assert!(check_safety_gate(&tar_gz).is_ok()); // Windows is tested separately in UPDATE-WIN-SAFETY-GATE
+    }
+
+    #[test]
+    fn safety_gate_blocks_windows_archives() {
+        let zip = ReleaseAsset {
+            name: "SPLogbook-Windows-x64.zip".into(),
+            browser_download_url: "".into(),
+            digest: None,
+            size: 0,
+        };
+
+        #[cfg(target_os = "windows")]
+        assert!(check_safety_gate(&zip).is_err());
+
+        #[cfg(not(target_os = "windows"))]
+        assert!(check_safety_gate(&zip).is_ok());
     }
 }
