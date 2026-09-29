@@ -677,7 +677,6 @@ fn self_replace(current: &Path, new: &Path) -> Result<(), String> {
 #[cfg(not(target_os = "windows"))]
 fn install_via_tar_gz(current: &Path, new: &Path) -> Result<(), String> {
     use std::fs;
-    use std::os::unix::fs::PermissionsExt;
 
     let base_dir = current
         .parent()
@@ -719,7 +718,7 @@ fn install_via_tar_gz(current: &Path, new: &Path) -> Result<(), String> {
             .path()
             .map_err(|e| format!("Błąd ścieżki w archiwum: {e}"))?;
 
-        let path_str = path.to_string_lossy();
+        let path_str = path.to_string_lossy().into_owned();
         if path_str.contains("..") || path_str.starts_with('/') {
             return Err(format!(
                 "Archiwum zawiera potencjalnie niebezpieczną ścieżkę (ZipSlip): {}",
