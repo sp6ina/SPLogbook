@@ -355,6 +355,7 @@ pub struct SpLogApp {
     pub multi_op_server: Option<std::sync::Arc<crate::cluster::lan_sync::MultiOpServer>>,
     pub multi_op_incoming_rx:
         Option<tokio::sync::mpsc::UnboundedReceiver<crate::core::qso::QsoRecord>>,
+    pub multi_op_test_rx: Option<std::sync::mpsc::Receiver<Result<String, String>>>,
     pub multi_op_is_server: bool,
     pub multi_op_status: String,
     pub multi_op_connected_count: usize,
@@ -1042,6 +1043,7 @@ impl SpLogApp {
             show_multi_op_window: false,
             multi_op_server: None,
             multi_op_incoming_rx: None,
+            multi_op_test_rx: None,
             multi_op_is_server: true,
             multi_op_status: "Serwer wyłączony".to_string(),
             multi_op_connected_count: 0,
@@ -4686,6 +4688,23 @@ impl eframe::App for SpLogApp {
             self.status_toast = Some((msg, std::time::Instant::now()));
             if rebuild_awards {
                 self.rebuild_awards_full();
+            }
+        }
+
+        // Odbiór wyniku testu sieci Multi-Op
+        if let Some(rx) = &self.multi_op_test_rx {
+            if let Ok(res) = rx.try_recv() {
+                match res {
+                    Ok(msg) => {
+                        self.multi_op_status = msg.clone();
+                        self.multi_op_log.push(msg);
+                    }
+                    Err(e) => {
+                        self.multi_op_status = e.clone();
+                        self.multi_op_log.push(e);
+                    }
+                }
+                self.multi_op_test_rx = None;
             }
         }
 

@@ -727,21 +727,31 @@ pub fn render_multi_op_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             }
                         });
                         if ui.button("⚡ Test Połączenia z Hostem").clicked() {
+                            app.multi_op_status = "Testowanie połączenia...".to_string();
                             let ip = app.lan_sync_server_ip.clone();
                             let port = app.lan_sync_port;
-                            match std::net::TcpStream::connect_timeout(
-                                &format!("{ip}:{port}").parse().unwrap_or_else(|_| "127.0.0.1:7373".parse().unwrap()),
-                                std::time::Duration::from_millis(800),
-                            ) {
-                                Ok(_) => {
-                                    app.multi_op_status = format!("Połączenie z Hostem {ip}:{port} pomyślne!");
-                                    app.multi_op_log.push(format!("Połączono z {ip}:{port}"));
-                                }
-                                Err(e) => {
-                                    app.multi_op_status = format!("Błąd połączenia z {ip}:{port}: {e}");
-                                    app.multi_op_log.push(format!("Błąd połączenia: {e}"));
-                                }
-                            }
+                            let (tx, rx) = std::sync::mpsc::channel();
+                            app.multi_op_test_rx = Some(rx);
+
+                            tokio::spawn(async move {
+                                let addr_str = format!("{ip}:{port}");
+                                let res = match addr_str.parse::<std::net::SocketAddr>() {
+                                    Ok(addr) => {
+                                        match tokio::time::timeout(
+                                            std::time::Duration::from_millis(800),
+                                            tokio::net::TcpStream::connect(&addr),
+                                        )
+                                        .await
+                                        {
+                                            Ok(Ok(_)) => Ok(format!("Połączenie z Hostem {addr_str} pomyślne!")),
+                                            Ok(Err(e)) => Err(format!("Błąd połączenia z {addr_str}: {e}")),
+                                            Err(_) => Err(format!("Błąd połączenia z {addr_str}: Timeout")),
+                                        }
+                                    }
+                                    Err(_) => Err(format!("Nieprawidłowy adres IP lub port: {addr_str}")),
+                                };
+                                let _ = tx.send(res);
+                            });
                         }
                     });
                 }

@@ -466,7 +466,7 @@ Zadania P0/P1 niezwiązane z updaterem mogą być wykonywane równolegle z torem
 #### FIX-MULTIOP-FALLBACK (CQ-2.3.A)
 - **Tor:** FIX
 - **Status techniczny:** POTWIERDZONY W KODZIE
-- **Status wykonawczy:** GOTOWY DO IMPLEMENTACJI
+- **Status wykonawczy:** ZAKOŃCZONY (DONE)
 - **Priorytet:** P1 Wysoki
 - **Źródło:** CQ: PROB-P1-04
 - **Pliki:** `src/gui/contest.rs`
@@ -474,7 +474,7 @@ Zadania P0/P1 niezwiązane z updaterem mogą być wykonywane równolegle z torem
 #### FIX-VOICEKEYER-CAT (CQ-2.3.B)
 - **Tor:** FIX
 - **Status techniczny:** POTWIERDZONY W KODZIE
-- **Status wykonawczy:** GOTOWY DO IMPLEMENTACJI
+- **Status wykonawczy:** ZAKOŃCZONY (DONE)
 - **Priorytet:** P1 Wysoki
 - **Źródło:** CQ: PROB-P1-05
 - **Pliki:** `src/gui/voice_keyer.rs`
