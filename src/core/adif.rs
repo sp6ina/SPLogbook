@@ -79,16 +79,21 @@ impl AdifEngine {
                     if record_has_error {
                         // Rekord z błędem składni jest odrzucany; komunikat już zapisano.
                         rejected += 1;
-                    } else if let Some(qso) = Self::fields_to_qso(&current_fields) {
-                        qsos.push(qso);
-                        if let Some(msg) = Self::missing_mode_error(&current_fields, record_index) {
-                            errors.push(msg);
-                        }
                     } else {
-                        rejected += 1;
-                        errors.push(format!(
-                            "Rekord {record_index} odrzucony: brak wymaganego pola CALL."
-                        ));
+                        match Self::fields_to_qso(&current_fields) {
+                            Ok(qso) => {
+                                qsos.push(qso);
+                                if let Some(msg) =
+                                    Self::missing_mode_error(&current_fields, record_index)
+                                {
+                                    errors.push(msg);
+                                }
+                            }
+                            Err(reason) => {
+                                rejected += 1;
+                                errors.push(format!("Rekord {record_index} odrzucony: {reason}"));
+                            }
+                        }
                     }
                     current_fields.clear();
                     record_has_error = false;
@@ -150,16 +155,19 @@ impl AdifEngine {
             record_index += 1;
             if record_has_error {
                 rejected += 1;
-            } else if let Some(qso) = Self::fields_to_qso(&current_fields) {
-                qsos.push(qso);
-                if let Some(msg) = Self::missing_mode_error(&current_fields, record_index) {
-                    errors.push(msg);
-                }
             } else {
-                rejected += 1;
-                errors.push(format!(
-                    "Rekord {record_index} odrzucony: brak wymaganego pola CALL."
-                ));
+                match Self::fields_to_qso(&current_fields) {
+                    Ok(qso) => {
+                        qsos.push(qso);
+                        if let Some(msg) = Self::missing_mode_error(&current_fields, record_index) {
+                            errors.push(msg);
+                        }
+                    }
+                    Err(reason) => {
+                        rejected += 1;
+                        errors.push(format!("Rekord {record_index} odrzucony: {reason}"));
+                    }
+                }
             }
         }
 
@@ -336,12 +344,15 @@ impl AdifEngine {
         }
     }
 
-    /// Konwertuje mapę pól ADIF na rekord QsoRecord
-    fn fields_to_qso(fields: &HashMap<String, String>) -> Option<QsoRecord> {
-        let call = fields.get("CALL")?;
-        if call.is_empty() {
-            return None;
-        }
+    /// Konwertuje mapę pól ADIF na rekord QsoRecord.
+    ///
+    /// Zwraca `Err` z komunikatem odrzucenia, gdy brakuje wymaganego pola CALL
+    /// lub gdy nie da się ustalić pasma (brak BAND i rozpoznawalnej FREQ).
+    fn fields_to_qso(fields: &HashMap<String, String>) -> Result<QsoRecord, String> {
+        let call = match fields.get("CALL") {
+            Some(c) if !c.is_empty() => c,
+            _ => return Err("brak wymaganego pola CALL.".to_string()),
+        };
 
         let parsed_freq: Option<f64> = fields.get("FREQ").and_then(|f| f.parse().ok());
         let band = fields
@@ -358,7 +369,7 @@ impl AdifEngine {
                     })
                     .map(|b| b.name.to_string())
             })
-            .unwrap_or_else(|| "20m".to_string());
+            .ok_or_else(|| "brak pola BAND ani rozpoznawalnej FREQ.".to_string())?;
         // MODE → APP_LoTW_MODE (§ 6.2) → puste (§ 6.4: rekord bez emisji).
         let mode = fields
             .get("MODE")
@@ -525,7 +536,7 @@ impl AdifEngine {
             qso.qsl_manager = Some(qm.clone());
         }
 
-        Some(qso)
+        Ok(qso)
     }
 
     /// Eksportuje listę łączności do formatu ADIF 3.1.8
@@ -1023,6 +1034,39 @@ mod tests {
         let report = parse_adif_with_report("<CALL:6>SP6INA<BAND:3>20m<APP_LOTW_MODE:0><EOR>");
         assert_eq!(report.qsos[0].mode, "");
         assert!(report.errors.iter().any(|e| e.contains("MODE")));
+    }
+
+    #[test]
+    fn test_adif_import_band_fallback_is_rejected() {
+        // Rekord z BAND jest importowany.
+        let report = parse_adif_with_report("<CALL:6>SP6INA<BAND:3>20m<MODE:2>CW<EOR>");
+        assert_eq!(report.imported, 1);
+        assert_eq!(report.rejected, 0);
+        assert_eq!(report.qsos[0].band, "20m");
+
+        // Rekord z poprawną FREQ (bez BAND) jest importowany, pasmo wyznaczone z FREQ.
+        let report = parse_adif_with_report("<CALL:6>SP6INA<FREQ:6>14.074<MODE:2>CW<EOR>");
+        assert_eq!(report.imported, 1);
+        assert_eq!(report.rejected, 0);
+        assert_eq!(report.qsos[0].band, "20m");
+
+        // Rekord bez BAND i bez rozpoznawalnej FREQ jest odrzucany z komunikatem.
+        let report = parse_adif_with_report("<CALL:6>SP6INA<MODE:2>CW<EOR>");
+        assert_eq!(report.imported, 0);
+        assert_eq!(report.rejected, 1);
+        assert!(report.qsos.is_empty());
+        assert!(
+            report
+                .errors
+                .iter()
+                .any(|e| e.contains("BAND") && e.contains("FREQ"))
+        );
+
+        // FREQ spoza pasm amatorskich (brak dopasowania) też jest odrzucany.
+        let report = parse_adif_with_report("<CALL:6>SP6INA<FREQ:5>1.000<MODE:2>CW<EOR>");
+        assert_eq!(report.imported, 0);
+        assert_eq!(report.rejected, 1);
+        assert!(report.errors.iter().any(|e| e.contains("BAND")));
     }
 
     #[test]
