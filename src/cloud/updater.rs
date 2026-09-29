@@ -375,11 +375,8 @@ pub fn check_safety_gate(asset: &ReleaseAsset) -> Result<(), String> {
 
     #[cfg(not(target_os = "windows"))]
     {
-        if name_lower.ends_with(".tar.gz")
-            || name_lower.ends_with(".deb")
-            || name_lower.ends_with(".rpm")
-        {
-            return Err("Błąd: Pobrany plik to archiwum. Nadpisanie aplikacji zniszczyłoby instalację. Zaktualizuj program ręcznie.".to_string());
+        if name_lower.ends_with(".deb") || name_lower.ends_with(".rpm") {
+            return Err("Błąd: Pobrany plik to zarządzany pakiet systemowy. Zaktualizuj program używając menedżera pakietów.".to_string());
         }
     }
     Ok(())
@@ -394,11 +391,155 @@ fn self_replace(current: &Path, new: &Path) -> Result<(), String> {
 /// Podmienia działający plik wykonywalny nową wersją (systemy Unix).
 #[cfg(not(target_os = "windows"))]
 fn self_replace(current: &Path, new: &Path) -> Result<(), String> {
-    std::fs::rename(new, current)
-        .map_err(|e| format!("Nie można podmienić pliku programu: {}", e))?;
-    // Uruchom ponownie nową wersję w tle.
-    let _ = std::process::Command::new(current).spawn();
-    Ok(())
+    install_via_tar_gz(current, new)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn install_via_tar_gz(current: &Path, new: &Path) -> Result<(), String> {
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+
+    let base_dir = current
+        .parent()
+        .ok_or_else(|| "Brak katalogu nadrzędnego dla pliku wykonywalnego".to_string())?;
+
+    // 1. Sprawdzenie praw dostępu (Target Validation)
+    let md =
+        fs::metadata(base_dir).map_err(|e| format!("Brak dostępu do katalogu aplikacji: {e}"))?;
+    if md.permissions().readonly() {
+        return Err("Katalog aplikacji jest chroniony przed zapisem (np. zainstalowano przez root). Zaktualizuj program używając menedżera pakietów lub jako root.".into());
+    }
+
+    let staging_dir = base_dir.join(".staging");
+    let rollback_dir = base_dir.join(".rollback");
+    let health_ok = base_dir.join(".health_ok");
+
+    // Czyszczenie starego staging/rollback
+    let _ = fs::remove_dir_all(&staging_dir);
+    let _ = fs::remove_dir_all(&rollback_dir);
+    let _ = fs::remove_file(&health_ok);
+
+    fs::create_dir_all(&staging_dir)
+        .map_err(|e| format!("Nie można utworzyć katalogu tymczasowego: {e}"))?;
+    fs::create_dir_all(&rollback_dir)
+        .map_err(|e| format!("Nie można utworzyć katalogu kopii zapasowej: {e}"))?;
+
+    // 2. Ekstrakcja poza strefą działania (Staging / ZipSlip Protection)
+    let tar_gz =
+        fs::File::open(new).map_err(|e| format!("Nie można otworzyć pobranego archiwum: {e}"))?;
+    let tar = flate2::read::GzDecoder::new(tar_gz);
+    let mut archive = tar::Archive::new(tar);
+
+    for file in archive
+        .entries()
+        .map_err(|e| format!("Błąd odczytu wpisów w archiwum: {e}"))?
+    {
+        let mut file = file.map_err(|e| format!("Błąd wpisu w archiwum: {e}"))?;
+        let path = file
+            .path()
+            .map_err(|e| format!("Błąd ścieżki w archiwum: {e}"))?;
+
+        let path_str = path.to_string_lossy();
+        if path_str.contains("..") || path_str.starts_with('/') {
+            return Err(format!(
+                "Archiwum zawiera potencjalnie niebezpieczną ścieżkę (ZipSlip): {}",
+                path_str
+            ));
+        }
+
+        let out_path = staging_dir.join(&path);
+
+        // Zignoruj wpisy niewspierane
+        if file.header().entry_type() != tar::EntryType::Regular
+            && file.header().entry_type() != tar::EntryType::Directory
+        {
+            continue;
+        }
+
+        if let Some(p) = out_path.parent() {
+            let _ = fs::create_dir_all(p);
+        }
+
+        file.unpack(&out_path)
+            .map_err(|e| format!("Błąd rozpakowywania pliku {}: {}", path_str, e))?;
+    }
+
+    // 3. Kopia Zapasowa (Rollback)
+    for entry in walkdir::WalkDir::new(&staging_dir).min_depth(1) {
+        let entry = entry.map_err(|e| format!("Błąd przeszukiwania plików instalacyjnych: {e}"))?;
+        if entry.file_type().is_file() {
+            let rel = entry.path().strip_prefix(&staging_dir).unwrap();
+            let orig = base_dir.join(rel);
+            if orig.exists() {
+                let dest = rollback_dir.join(rel);
+                if let Some(p) = dest.parent() {
+                    let _ = fs::create_dir_all(p);
+                }
+                fs::copy(&orig, &dest).map_err(|e| {
+                    format!(
+                        "Nie można utworzyć kopii zapasowej {}: {}",
+                        rel.display(),
+                        e
+                    )
+                })?;
+            }
+        }
+    }
+
+    // 4. Atomowa podmiana - Rename Swap
+    for entry in walkdir::WalkDir::new(&staging_dir).min_depth(1) {
+        let entry = entry.map_err(|e| format!("Błąd przeszukiwania plików instalacyjnych: {e}"))?;
+        if entry.file_type().is_file() {
+            let rel = entry.path().strip_prefix(&staging_dir).unwrap();
+            let orig = base_dir.join(rel);
+            if let Some(p) = orig.parent() {
+                let _ = fs::create_dir_all(p);
+            }
+            fs::rename(entry.path(), &orig)
+                .map_err(|e| format!("Błąd podmiany pliku {}: {}", rel.display(), e))?;
+        }
+    }
+
+    // 5. Health Confirmation & Ping
+    let mut child = std::process::Command::new(current)
+        .arg("--check-health-startup")
+        .spawn()
+        .map_err(|e| format!("Nie można uruchomić zaktualizowanego programu: {}", e))?;
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    let mut success = false;
+
+    while std::time::Instant::now() < deadline {
+        if health_ok.exists() {
+            success = true;
+            break;
+        }
+        if let Ok(Some(_)) = child.try_wait() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
+
+    if success {
+        let _ = fs::remove_dir_all(&staging_dir);
+        let _ = fs::remove_dir_all(&rollback_dir);
+        let _ = fs::remove_file(&health_ok);
+        std::process::exit(0); // Pomyślnie. Zakończ stary proces.
+    } else {
+        // Rollback!
+        let _ = child.kill();
+        for entry in walkdir::WalkDir::new(&rollback_dir).min_depth(1) {
+            if let Ok(entry) = entry {
+                if entry.file_type().is_file() {
+                    let rel = entry.path().strip_prefix(&rollback_dir).unwrap();
+                    let orig = base_dir.join(rel);
+                    let _ = fs::rename(entry.path(), &orig);
+                }
+            }
+        }
+        let _ = std::process::Command::new(current).spawn(); // Odpal starą
+        return Err("Zaktualizowana aplikacja uległa natychmiastowej awarii (segfault/panic). Przywrócono starszą wersję.".into());
+    }
 }
 
 /// Windows: uruchamia skrypt PowerShell, który czeka na zamknięcie bieżącego
@@ -586,10 +727,17 @@ mod tests {
         };
 
         #[cfg(not(target_os = "windows"))]
-        assert!(check_safety_gate(&tar_gz).is_err());
+        assert!(check_safety_gate(&tar_gz).is_ok());
 
-        #[cfg(target_os = "windows")]
-        assert!(check_safety_gate(&tar_gz).is_ok()); // Windows is tested separately in UPDATE-WIN-SAFETY-GATE
+        let deb = ReleaseAsset {
+            name: "SPLogbook-Linux-x86_64.deb".into(),
+            browser_download_url: "".into(),
+            digest: None,
+            size: 0,
+        };
+
+        #[cfg(not(target_os = "windows"))]
+        assert!(check_safety_gate(&deb).is_err());
     }
 
     #[test]
