@@ -15,8 +15,8 @@ impl LogDatabase {
             Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
         })?;
         let mut v = Vec::new();
-        for x in rows.flatten() {
-            v.push(x);
+        for x in rows {
+            v.push(x?);
         }
         Ok(v)
     }
@@ -30,8 +30,8 @@ impl LogDatabase {
             Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
         })?;
         let mut v = Vec::new();
-        for x in rows.flatten() {
-            v.push(x);
+        for x in rows {
+            v.push(x?);
         }
         Ok(v)
     }
@@ -45,8 +45,8 @@ impl LogDatabase {
             Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
         })?;
         let mut v = Vec::new();
-        for x in rows.flatten() {
-            v.push(x);
+        for x in rows {
+            v.push(x?);
         }
         Ok(v)
     }
@@ -61,8 +61,8 @@ impl LogDatabase {
             Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
         })?;
         let mut v = Vec::new();
-        for x in rows.flatten() {
-            v.push(x);
+        for x in rows {
+            v.push(x?);
         }
         Ok(v)
     }
@@ -90,8 +90,8 @@ impl LogDatabase {
         )?;
         let rows = stmt.query_map([], |row| Ok((row.get::<_, u32>(0)?, row.get::<_, i64>(1)?)))?;
         let mut v = Vec::new();
-        for x in rows.flatten() {
-            v.push(x);
+        for x in rows {
+            v.push(x?);
         }
         Ok(v)
     }
@@ -105,8 +105,8 @@ impl LogDatabase {
             Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
         })?;
         let mut v = Vec::new();
-        for x in rows.flatten() {
-            v.push(x);
+        for x in rows {
+            v.push(x?);
         }
         Ok(v)
     }
@@ -133,8 +133,8 @@ impl LogDatabase {
             Ok((row.get::<_, u32>(0)?, row.get::<_, i64>(1)?))
         })?;
         let mut v = Vec::new();
-        for x in rows.flatten() {
-            v.push(x);
+        for x in rows {
+            v.push(x?);
         }
         Ok(v)
     }

@@ -460,7 +460,7 @@ Nie potwierdzono nieskończonej pętli ani deadlocka.
 
 * PROB-P2-02
   → weryfikacja: ZAKOŃCZONY (DONE)
-  → implementacja: CQ-2.4.C1, CQ-2.4.C2, CQ-2.4.C3, CQ-2.4.C4
+  → implementacja: ZAKOŃCZONY (DONE)
   → zależność: zatwierdzenie proponowanych polityk w CQ-2.4.B
   → zamknięcie: ostateczne poprawki SQLite per plik
 

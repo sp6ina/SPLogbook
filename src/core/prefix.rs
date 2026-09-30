@@ -158,7 +158,14 @@ impl PrefixMatcher {
             })
         })?;
 
-        for r in rows.flatten() {
+        for r in rows {
+            let r = match r {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("Ignorowanie bledu w prefix.rs: {}", e);
+                    continue;
+                }
+            };
             unique_calls.insert(r.callsign.to_uppercase(), r);
         }
 
@@ -192,7 +199,14 @@ impl PrefixMatcher {
             ))
         })?;
 
-        for (mut info, raw_regex) in rows.flatten() {
+        for row_res in rows {
+            let (mut info, raw_regex) = match row_res {
+                Ok(val) => val,
+                Err(e) => {
+                    eprintln!("Ignorowanie bledu w prefix.rs: {}", e);
+                    continue;
+                }
+            };
             let pattern = if raw_regex.starts_with('^') {
                 raw_regex
             } else {
@@ -239,7 +253,14 @@ impl PrefixMatcher {
             ))
         })?;
 
-        for (mut info, raw_regex) in rows.flatten() {
+        for row_res in rows {
+            let (mut info, raw_regex) = match row_res {
+                Ok(val) => val,
+                Err(e) => {
+                    eprintln!("Ignorowanie bledu w prefix.rs: {}", e);
+                    continue;
+                }
+            };
             let pattern = if raw_regex.starts_with('^') {
                 raw_regex
             } else {

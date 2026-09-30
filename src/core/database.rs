@@ -1484,8 +1484,8 @@ impl LogDatabase {
             ))
         })?;
         let mut items = Vec::new();
-        for r in rows.flatten() {
-            items.push(r);
+        for r in rows {
+            items.push(r?);
         }
         Ok(items)
     }

@@ -115,7 +115,14 @@ impl ServiceDatabase {
                         })
                     }) {
                         let mut res = Vec::new();
-                        for r in rows.flatten() {
+                        for r in rows {
+            let r = match r {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("Ignorowanie bledu w service_db.rs: {}", e);
+                    continue;
+                }
+            };
                             res.push(r);
                         }
                         if !res.is_empty() {
@@ -183,7 +190,14 @@ impl ServiceDatabase {
                             country: row.get(2)?,
                         })
                     }) {
-                        for r in rows.flatten() {
+                        for r in rows {
+            let r = match r {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("Ignorowanie bledu w service_db.rs: {}", e);
+                    continue;
+                }
+            };
                             if !results.iter().any(|s| s.code == r.code && s.country == r.country) {
                                 results.push(r);
                             }
@@ -247,7 +261,14 @@ impl ServiceDatabase {
                             notes: row.get::<_, String>(3).unwrap_or_default(),
                         })
                     }) {
-                        return rows.flatten().collect();
+                        let mut res = Vec::new();
+        for r in rows {
+            match r {
+                Ok(r) => res.push(r),
+                Err(e) => eprintln!("Ignorowanie bledu w service_db.rs: {}", e),
+            }
+        }
+        return res;
                     }
                 }
             }
@@ -314,7 +335,14 @@ impl ServiceDatabase {
                             itu_zone: row.get::<_, u32>(6).unwrap_or(0),
                         })
                     }) {
-                        return rows.flatten().collect();
+                        let mut res = Vec::new();
+        for r in rows {
+            match r {
+                Ok(r) => res.push(r),
+                Err(e) => eprintln!("Ignorowanie bledu w service_db.rs: {}", e),
+            }
+        }
+        return res;
                     }
                 }
             }
