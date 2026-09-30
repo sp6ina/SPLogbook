@@ -2345,16 +2345,7 @@ impl SpLogApp {
 
     /// Pokazuje panel logu i ustawia go jako aktywną zakładkę w swojej kolumnie.
     pub fn focus_logbook(&mut self) {
-        if self.panel_log.floating {
-            self.panel_log.visible = true;
-            return;
-        }
         self.panel_log.visible = true;
-        let col = self.panel_log.column;
-        let tiles = self.get_tiles_in_column(col);
-        if let Some(idx) = tiles.iter().position(|t| t == "log") {
-            self.active_tab[col] = idx;
-        }
     }
 
     /// Zwraca kolor i odznakę (⭐ nowe DXCC, ✨ nowe pasmo) dla spotu klastra,
@@ -3771,20 +3762,11 @@ impl SpLogApp {
         self.qsl_designer_dialog.status_message = None;
     }
 
-    pub fn render_column1(&mut self, ui: &mut egui::Ui) {
-        let tiles = self.get_tiles_in_column(0);
-        self.render_tiles_in_column(ui, 0, &tiles);
-    }
 
-    pub fn render_column2(&mut self, ui: &mut egui::Ui) {
-        let tiles = self.get_tiles_in_column(1);
-        self.render_tiles_in_column(ui, 1, &tiles);
-    }
 
-    pub fn render_column3(&mut self, ui: &mut egui::Ui) {
-        let tiles = self.get_tiles_in_column(2);
-        self.render_tiles_in_column(ui, 2, &tiles);
-    }
+
+
+
 
     pub fn toggle_cat_proxy_server(&mut self) {
         if self.cat_sharing_enabled {
