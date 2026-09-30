@@ -187,10 +187,35 @@ pub fn radioinfo_xml(freq_hz: u64, mode: &str, my_call: &str, radio_nr: u8) -> S
     )
 }
 
-/// Zamienia pasmo ADIF (np. "20m", "70cm") na wartość numeryczną akceptowaną przez N1MM (np. "20", "70").
+/// Zamienia pasmo ADIF (np. "20m", "70cm") na wartość numeryczną akceptowaną przez N1MM (np. "20", "432").
 fn band_to_meters(band: &str) -> String {
-    band.trim_end_matches(|c| c == 'm' || c == 'c' || c == 'M' || c == 'C')
-        .to_string()
+    let b = band.to_lowercase();
+    match b.as_str() {
+        "160m" => "1.8",
+        "80m" => "3.5",
+        "60m" => "5.3",
+        "40m" => "7",
+        "30m" => "10",
+        "20m" => "14",
+        "17m" => "18",
+        "15m" => "21",
+        "12m" => "24",
+        "10m" => "28",
+        "6m" => "50",
+        "4m" => "70",
+        "2m" => "144",
+        "1.25m" => "222",
+        "70cm" => "432",
+        "33cm" => "902",
+        "23cm" => "1.2G",
+        "13cm" => "2.3G",
+        "9cm" => "3.4G",
+        "6cm" => "5.7G",
+        "3cm" => "10G",
+        _ => band
+            .trim_end_matches(|c| c == 'm' || c == 'c' || c == 'M' || c == 'C'),
+    }
+    .to_string()
 }
 
 /// Wysyła ramkę XML jako datagram UDP do podanego hosta i portu.
@@ -215,12 +240,12 @@ mod tests {
     }
 
     #[test]
-    fn band_to_meters_strips_suffix() {
-        assert_eq!(band_to_meters("20m"), "20");
-        assert_eq!(band_to_meters("2m"), "2");
-        assert_eq!(band_to_meters("70cm"), "70");
-        assert_eq!(band_to_meters("1.25cm"), "1.25");
-        assert_eq!(band_to_meters("6mm"), "6");
+    fn band_to_meters_maps_to_n1mm_format() {
+        assert_eq!(band_to_meters("20m"), "14");
+        assert_eq!(band_to_meters("2m"), "144");
+        assert_eq!(band_to_meters("70cm"), "432");
+        assert_eq!(band_to_meters("23cm"), "1.2G");
+        assert_eq!(band_to_meters("Unknown_123m"), "Unknown_123");
     }
 
     #[test]
@@ -253,7 +278,7 @@ mod tests {
         assert!(xml.contains("<call>SP9ABC</call>"));
         assert!(xml.contains("<mycall>SP6INA</mycall>"));
         assert!(xml.contains("<rxfreq>1420000</rxfreq>"));
-        assert!(xml.contains("<band>20</band>"));
+        assert!(xml.contains("<band>14</band>"));
         assert!(xml.contains("<gridsquare>JO90</gridsquare>"));
     }
 
