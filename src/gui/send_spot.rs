@@ -59,13 +59,6 @@ impl SendSpotDialog {
         self.status_message = None;
     }
 
-    pub fn open_for_station(&mut self, call: &str, freq_hz: u64) {
-        self.dx_call = call.trim().to_uppercase();
-        self.freq_khz = (freq_hz as f64) / 1000.0;
-        self.is_open = true;
-        self.status_message = None;
-    }
-
     pub fn show(
         &mut self,
         ctx: &egui::Context,

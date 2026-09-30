@@ -5,10 +5,7 @@
 use crate::gui::app::SpLogApp;
 use eframe::egui;
 
-pub struct MiniHudBar;
-
-impl MiniHudBar {
-    pub fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
+pub fn render_mini_hud_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
         if !app.compact_hud_mode {
             return;
         }
@@ -99,7 +96,7 @@ impl MiniHudBar {
             app.save_station_config();
         }
     }
-}
+
 
 /// Wspólna treść okna Mini HUD (używana przez wariant okna oraz viewport always-on-top).
 fn render_hud_body(app: &mut SpLogApp, ui: &mut egui::Ui, exit_compact: &mut bool) {

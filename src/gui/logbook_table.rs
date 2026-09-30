@@ -6,66 +6,6 @@ use crate::gui::app::SpLogApp;
 use eframe::egui;
 use egui_extras::{Column, TableBuilder};
 
-pub fn render_logbook_table(app: &mut SpLogApp, ui: &mut egui::Ui) {
-    let lang = app.current_language;
-    ui.group(|ui| {
-        ui.vertical(|ui| {
-            ui.horizontal(|ui| {
-                ui.label(
-                    egui::RichText::new(format!("📋 {}", tr("tab.logbook", lang)))
-                        .strong()
-                        .size(14.0)
-                        .color(egui::Color32::from_rgb(56, 189, 248)),
-                );
-                ui.label(
-                    egui::RichText::new(format!("({} QSO)", app.recent_qsos.len()))
-                        .size(12.0)
-                        .color(egui::Color32::from_rgb(148, 163, 184)),
-                );
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui
-                        .button("✕")
-                        .on_hover_text(tr("window.hide_tooltip", lang))
-                        .clicked()
-                    {
-                        app.panel_log.visible = false;
-                        app.save_station_config();
-                    }
-                    if ui
-                        .button("↗")
-                        .on_hover_text(tr("window.popout_tooltip", lang))
-                        .clicked()
-                    {
-                        app.panel_log.floating = true;
-                        app.save_station_config();
-                    }
-                    if ui
-                        .button(format!("⚙ {}", tr("columns.title", lang)))
-                        .on_hover_text(tr("columns.title", lang))
-                        .clicked()
-                    {
-                        app.show_column_settings = true;
-                    }
-                    if ui
-                        .button("🔄")
-                        .on_hover_text(tr("btn.refresh", lang))
-                        .clicked()
-                    {
-                        app.reload_qsos();
-                    }
-                    ui.add(
-                        egui::TextEdit::singleline(&mut app.log_search_query)
-                            .hint_text(tr("qso.search", lang))
-                            .desired_width(160.0),
-                    );
-                });
-            });
-            ui.separator();
-            render_logbook_body(app, ui);
-        });
-    });
-}
-
 pub fn render_logbook_window(app: &mut SpLogApp, ctx: &egui::Context) {
     if !app.panel_log.visible {
         return;

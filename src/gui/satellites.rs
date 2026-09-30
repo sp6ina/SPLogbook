@@ -5,44 +5,6 @@ use crate::core::i18n::tr;
 use crate::gui::app::SpLogApp;
 use eframe::egui;
 
-pub fn render_satellites_tile(app: &mut SpLogApp, ui: &mut egui::Ui) {
-    let lang = app.current_language;
-    ui.group(|ui| {
-        ui.vertical(|ui| {
-            ui.horizontal(|ui| {
-                ui.label(
-                    egui::RichText::new(format!("🛰 {}", tr("sat.window_title", lang)))
-                        .strong()
-                        .size(13.0)
-                        .color(egui::Color32::from_rgb(56, 189, 248)),
-                );
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui
-                        .button("✕")
-                        .on_hover_text(tr("window.hide_tooltip", lang))
-                        .clicked()
-                    {
-                        app.panel_satellites.visible = false;
-                        app.show_satellites_window = false;
-                        app.save_station_config();
-                    }
-                    if ui
-                        .button("↗")
-                        .on_hover_text(tr("window.popout_tooltip", lang))
-                        .clicked()
-                    {
-                        app.panel_satellites.floating = true;
-                        app.show_satellites_window = true;
-                        app.save_station_config();
-                    }
-                });
-            });
-            ui.separator();
-            render_satellites_content(app, ui);
-        });
-    });
-}
-
 pub fn render_satellites_window(app: &mut SpLogApp, ctx: &egui::Context) {
     if !app.panel_satellites.visible {
         return;

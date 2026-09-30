@@ -50,15 +50,6 @@ pub mod world_map;
 pub mod wspr_panel;
 
 /// Pomocnik rysujący mały przycisk "↗" (Odepnij do osobnego okna OS) bezpośrednio na pasku tytułowym okna egui.
-pub fn render_titlebar_popout_button(
-    ctx: &eframe::egui::Context,
-    id_str: &str,
-    parent_layer: eframe::egui::LayerId,
-    window_rect: eframe::egui::Rect,
-    popout_target: &mut bool,
-) {
-    render_titlebar_popout_button_if(ctx, id_str, parent_layer, window_rect, popout_target, true);
-}
 
 /// Wersja warunkowa — rejestruje przycisk jako `sublayer` okna w pamięci egui.
 /// Dzięki temu przycisk ZAWSZE pozostaje na wierzchu paska tytułowego swojego okna rodzica,

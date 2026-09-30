@@ -254,45 +254,6 @@ impl Default for MapState {
     }
 }
 
-pub fn render_world_map_tile(app: &mut SpLogApp, ui: &mut egui::Ui) {
-    let lang = app.current_language;
-    ui.group(|ui| {
-        ui.vertical(|ui| {
-            ui.horizontal(|ui| {
-                ui.label(
-                    egui::RichText::new(format!("🗺 {}", tr("map.world_title", lang)))
-                        .strong()
-                        .size(12.0)
-                        .color(egui::Color32::from_rgb(56, 189, 248)),
-                );
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui
-                        .button("✕")
-                        .on_hover_text(tr("window.hide_tooltip", lang))
-                        .clicked()
-                    {
-                        app.panel_world_map.visible = false;
-                        app.show_world_map_window = false;
-                        app.save_station_config();
-                    }
-                    if ui
-                        .button("↗")
-                        .on_hover_text("Odepnij do osobnego okna systemu (multi-monitor)")
-                        .clicked()
-                    {
-                        app.panel_world_map.floating = true;
-                        app.show_world_map_window = true;
-                        app.save_station_config();
-                    }
-                });
-            });
-            ui.separator();
-            render_world_map_content(app, ui);
-        });
-    });
-}
-
-/// Okno interaktywnej mapy świata z wizualizacją linii zmierzchu (Grayline) i ortodromy
 pub fn render_world_map_window(app: &mut SpLogApp, ctx: &egui::Context) {
     if !app.panel_world_map.visible {
         return;

@@ -17,7 +17,7 @@ Obejmuje możliwe przekłamanie danych, złamanie standardu lub protokołu, utra
 
 #### `PROB-P0-01` — Ciche podstawianie bieżącej daty i godziny (`Utc::now()`) w eksporcie SOTA CSV
 - **Status techniczny:** POTWIERDZONY W KODZIE
-- **Status wykonawczy:** ZABLOKOWANY DO CZASU RAPORTU P0
+- **Status wykonawczy:** GOTOWY DO IMPLEMENTACJI
 - **Priorytet:** P0 Krytyczny
 - **Plik i zakres linii:** `src/core/sota_export.rs:34-55` (`format_sota_date`, `format_sota_time`)
 - **Opis:** Funkcje z cichym fallbackiem na bieżący czas. Powoduje to ciche generowanie nieprawdziwych danych w eksportowanym logu CSV SOTA (utrata autentyczności łączności).
@@ -25,7 +25,7 @@ Obejmuje możliwe przekłamanie danych, złamanie standardu lub protokołu, utra
 
 #### `PROB-N1MM-A` — Niepoprawne usuwanie sufiksu pasma
 - **Status techniczny:** ZAKOŃCZONY (DONE)
-- **Status wykonawczy:** ZABLOKOWANY DO CZASU RAPORTU P0
+- **Status wykonawczy:** GOTOWY DO IMPLEMENTACJI
 - **Priorytet tymczasowy:** P1 Wysoki
 - **Potencjalny priorytet:** P0 po potwierdzeniu specyfikacji i wpływu
 - **Plik:** `src/digital/n1mm.rs`
@@ -34,7 +34,7 @@ Obejmuje możliwe przekłamanie danych, złamanie standardu lub protokołu, utra
 
 #### `PROB-N1MM-B` — Niespójne jednostki częstotliwości w ContactInfo i RadioInfo
 - **Status techniczny:** ZAKOŃCZONY (DONE)
-- **Status wykonawczy:** ZABLOKOWANY DO CZASU RAPORTU P0
+- **Status wykonawczy:** GOTOWY DO IMPLEMENTACJI
 - **Priorytet tymczasowy:** P1 Wysoki
 - **Potencjalny priorytet:** P0 po potwierdzeniu specyfikacji i wpływu
 - **Plik:** `src/digital/n1mm.rs`
@@ -43,7 +43,7 @@ Obejmuje możliwe przekłamanie danych, złamanie standardu lub protokołu, utra
 
 #### `PROB-P0-03` — Awaryjna poprawka updatera Linux
 - **Status techniczny:** POTWIERDZONY W KODZIE
-- **Status wykonawczy:** ZABLOKOWANY DO CZASU RAPORTU P0
+- **Status wykonawczy:** GOTOWY DO IMPLEMENTACJI
 - **Priorytet:** P0 Krytyczny
 - **Plik i zakres linii:** `src/cloud/updater.rs:267-276, 368-375`
 - **Opis:** Obecny updater może nadpisać instalacyjną binarkę archiwum gzip i trwale zepsuć aplikację.
@@ -51,7 +51,7 @@ Obejmuje możliwe przekłamanie danych, złamanie standardu lub protokołu, utra
 
 #### `PROB-P1-01` — Bezwarunkowa inkrementacja liczników zawodów w SpLogApp
 - **Status techniczny:** POTWIERDZONY W KODZIE
-- **Status wykonawczy:** ZABLOKOWANY DO CZASU RAPORTU P0
+- **Status wykonawczy:** GOTOWY DO IMPLEMENTACJI
 - **Priorytet:** P1 Wysoki
 - **Plik:** `src/gui/app.rs:2081-2084`
 - **Opis:** Zwykłe QSO podnosi `contest_qsos`. Wpływa to na bieżącą sesję GUI i eksport Cabrillo, ale oryginalne dane SQLite zachowują integralność i logikę da się przeliczyć.
@@ -119,8 +119,8 @@ Obejmuje możliwe przekłamanie danych, złamanie standardu lub protokołu, utra
 Obejmuje komentarze, nazewnictwo, lokalne duplikacje, nieidiomatyczne konstrukcje, małe abstrakcje, styl i utrzymywalność.
 
 #### `PROB-P2-01` — Martwy kod GUI i nieosiągalne gałęzie
-- **Status techniczny:** WYMAGA TESTU URUCHOMIENIOWEGO
-- **Status wykonawczy:** ZABLOKOWANY DO CZASU WERYFIKACJI
+- **Status techniczny:** ZAKOŃCZONY (DONE)
+- **Status wykonawczy:** ZAKOŃCZONY (DONE)
 - **Priorytet:** P2 Średni
 - **Pliki:** `src/gui/app_layout.rs`
 - **Opis:** Ok. 1000 linii nieosiągalnych z powodu `if ... return;` albo usunięcia dawnego układu z kolumnami.
@@ -265,8 +265,8 @@ Wynik ma trafić do dokumentu `DEAD_CODE_VERIFICATION_REPORT.md` (bez modyfikacj
 Każde z poniższych zadań nadaje się do osobnego commita, osobnej sesji. 
 
 - **CQ-1.1**: Zwracanie błędu w SOTA CSV zamiast `Utc::now()`.
-- **CQ-1.2.A**: N1MM - usuwanie liter przy sufiksach centymetrowych (ZABLOKOWANE, po teście specyfikacji).
-- **CQ-1.2.B**: N1MM - wyrównanie jednostek między ContactInfo a RadioInfo (ZABLOKOWANE, po teście specyfikacji).
+- **CQ-1.2.A**: N1MM - usuwanie liter przy sufiksach centymetrowych (GOTOWE DO IMPLEMENTACJI).
+- **CQ-1.2.B**: N1MM - wyrównanie jednostek między ContactInfo a RadioInfo (GOTOWE DO IMPLEMENTACJI).
 - **CQ-1.3**: Awaryjna blokada niszczącej auto-instalacji nieobsługiwanych artefaktów Linux.
 - **CQ-2.1.A**: Naprawa heurystyki członkostwa klubowego.
 - **CQ-2.1.B**: Usunięcie danych demonstracyjnych z produkcyjnego callbooka.

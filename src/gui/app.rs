@@ -2939,9 +2939,6 @@ impl SpLogApp {
     }
 
     /// Scentralizowane zgłaszanie informacji/statusu (bez wpisu do logu błędów).
-    pub fn report_info(&mut self, msg: impl Into<String>) {
-        self.status_toast = Some((msg.into(), std::time::Instant::now()));
-    }
 
     /// Scentralizowane zgłaszanie ostrzeżeń (log warning + pływające powiadomienie).
     pub fn report_warning(&mut self, msg: impl Into<String>) {
@@ -3009,46 +3006,6 @@ impl SpLogApp {
     }
 
     /// Uruchamia nasłuch TCP JS8Call — tworzy kanały mpsc i odpala wątek klienta
-    pub fn connect_js8call(&mut self) {
-        let (state_tx, state_rx) =
-            std::sync::mpsc::channel::<crate::digital::js8call::Js8CallState>();
-        let (qso_tx, qso_rx) = std::sync::mpsc::channel::<crate::core::qso::QsoRecord>();
-
-        let client = crate::digital::js8call::Js8CallClient::new(
-            self.js8call_host.clone(),
-            self.js8call_port,
-        );
-        client.start_listener(state_tx, qso_tx);
-
-        self.js8call_state_rx = Some(state_rx);
-        self.js8call_qso_rx = Some(qso_rx);
-        self.js8call_enabled = true;
-        self.status_toast = Some((
-            format!(
-                "JS8Call: Uruchomiono nasłuch TCP na {}:{}",
-                self.js8call_host, self.js8call_port
-            ),
-            std::time::Instant::now(),
-        ));
-    }
-
-    /// Zatrzymuje integrację JS8Call (zamyka kanały przez upuszczenie receiverów)
-    pub fn disconnect_js8call(&mut self) {
-        self.js8call_state_rx = None;
-        self.js8call_qso_rx = None;
-        self.js8call_enabled = false;
-        self.js8call_state = crate::digital::js8call::Js8CallState::default();
-        self.status_toast = Some((
-            "JS8Call: Integracja wyłączona.".to_string(),
-            std::time::Instant::now(),
-        ));
-    }
-
-    // ------------------------------------------------------------------
-    // egui_dock: rzeczywisty układ dokowania paneli
-    // ------------------------------------------------------------------
-
-    /// Typ backendu CAT wybrany w konfiguracji (mapowanie `cat_backend`).
     pub fn cat_backend_kind(&self) -> crate::cat::backend::CatBackendKind {
         crate::cat::backend::CatBackendKind::from_str(&self.cat_backend)
     }
@@ -3755,13 +3712,6 @@ impl SpLogApp {
         });
     }
 
-    pub fn generate_qsl_sheet(&mut self) {
-        // Otwiera projektant arkusza etykiet QSL (Avery A4), który zawiera
-        // rzeczywistą implementację generowania i eksportu PDF do druku.
-        self.qsl_designer_dialog.is_open = true;
-        self.qsl_designer_dialog.status_message = None;
-    }
-
 
 
 
@@ -3825,10 +3775,6 @@ impl SpLogApp {
                 std::time::Instant::now(),
             ));
         }
-    }
-
-    pub fn refresh_qso_list(&mut self) {
-        self.reload_qsos();
     }
 
     /// Obsługuje wspólną kolejkę wysyłki: pobiera gotowe zadania i uruchamia
@@ -5242,7 +5188,7 @@ impl eframe::App for SpLogApp {
 
         // W zależności od trybu: Mini HUD (tryb kompaktowy) lub pełny pulpit roboczy
         if self.compact_hud_mode {
-            crate::gui::mini_hud::MiniHudBar::render(self, ui);
+            crate::gui::mini_hud::render_mini_hud_bar(self, ui);
         } else {
             // Pływające okna modułów (pop-out windows) — renderowane tylko wtedy,
             // gdy panel jest „odpięty” (floating). Kafelki zadokowane rysuje

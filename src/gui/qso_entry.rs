@@ -5,65 +5,6 @@ use crate::core::i18n::{tr, tr_or};
 use crate::gui::app::SpLogApp;
 use eframe::egui;
 
-pub fn render_qso_entry_panel(app: &mut SpLogApp, ui: &mut egui::Ui) {
-    let lang = app.current_language;
-
-    ui.group(|ui| {
-        ui.vertical(|ui| {
-            ui.horizontal(|ui| {
-                ui.heading(
-                    egui::RichText::new(format!("📝 {}", tr("tab.new_qso", lang)))
-                        .color(egui::Color32::from_rgb(56, 189, 248))
-                        .size(16.0),
-                );
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui
-                        .button("✕")
-                        .on_hover_text(tr("window.hide_tooltip", lang))
-                        .clicked()
-                    {
-                        app.panel_qso.visible = false;
-                        app.save_station_config();
-                    }
-                    if ui
-                        .button("↗")
-                        .on_hover_text(tr("window.popout_tooltip", lang))
-                        .clicked()
-                    {
-                        app.panel_qso.floating = true;
-                        app.save_station_config();
-                    }
-                    if app.cat_connected {
-                        if ui
-                            .button(
-                                egui::RichText::new("● CAT ONLINE")
-                                    .color(egui::Color32::from_rgb(34, 197, 94))
-                                    .size(11.0)
-                                    .strong(),
-                            )
-                            .clicked()
-                        {
-                            app.show_cat_settings_window = true;
-                        }
-                    } else if ui
-                        .button(
-                            egui::RichText::new("○ CAT OFFLINE")
-                                .color(egui::Color32::from_rgb(148, 163, 184))
-                                .size(11.0),
-                        )
-                        .clicked()
-                    {
-                        app.show_cat_settings_window = true;
-                    }
-                });
-            });
-            ui.separator();
-
-            render_qso_entry_body(app, ui);
-        });
-    });
-}
-
 pub fn render_qso_entry_window(app: &mut SpLogApp, ctx: &egui::Context) {
     if !app.panel_qso.visible {
         return;
