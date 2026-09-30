@@ -59,7 +59,7 @@ pub fn export_and_sign_tqsl(
     tqsl_path: impl AsRef<Path>,
     station_location: &str,
     adif_content: &str,
-) -> Result<String, Box<dyn std::error::Error>> {
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     let temp_dir = std::env::temp_dir();
     let adif_path = temp_dir.join(format!("splogbook_lotw_{}.adi", uuid::Uuid::new_v4()));
     std::fs::write(&adif_path, adif_content)?;
@@ -156,7 +156,7 @@ pub async fn download_lotw_report(
     username: &str,
     password: &str,
     since_date: Option<&str>,
-) -> Result<String, Box<dyn std::error::Error>> {
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     let client = crate::core::http::http_client_with_timeout(30);
 
     let mut query: Vec<(&str, &str)> = vec![("login", username), ("password", password)];

@@ -1,6 +1,5 @@
 use std::env;
 use std::fs;
-use std::path::Path;
 
 fn print_usage() {
     println!("Użycie: splogbook-signer <komenda> [argumenty]");

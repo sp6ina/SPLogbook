@@ -167,7 +167,7 @@ Brak modyfikacji kodu. Wyłącznie analiza.
 #### VERIFY-ARTIFACTS — Inwentaryzacja artefaktów Windows i Linux
 - **Tor:** VERIFY
 - **Status techniczny:** POTWIERDZONY W KODZIE
-- **Status wykonawczy:** GOTOWY DO IMPLEMENTACJI
+- **Status wykonawczy:** ZAKOŃCZONY (DONE)
 - **Priorytet:** P0 Krytyczny
 - **Źródło:** MASTER_IMPLEMENTATION_PLAN.md
 - **Zakres:** Ustalić faktyczne formaty, nazwy, struktury archiwów, lokalizacje binarek, dane użytkownika, uprawnienia zapisu. Zbadać `build-and-release.yml` i istniejące release'y GitHub.
@@ -194,7 +194,7 @@ Brak modyfikacji kodu. Wyłącznie analiza.
 #### VERIFY-GITHUB-DIGEST — Analiza GitHub Digest API
 - **Tor:** VERIFY
 - **Status techniczny:** WYMAGA SPECYFIKACJI ZEWNĘTRZNEJ
-- **Status wykonawczy:** GOTOWY DO IMPLEMENTACJI
+- **Status wykonawczy:** ZAKOŃCZONY (DONE)
 - **Priorytet:** P1 Wysoki
 - **Źródło:** DESIGN_3_1_UPDATER_SIGNATURES.md
 - **Zakres:** Ustalenie, czy GitHub API dostarcza digest dla własnych release assets i w jakim formacie.
@@ -220,7 +220,7 @@ Minimalne poprawki zapobiegające niszczącej aktualizacji.
 #### UPDATE-LINUX-SAFETY-GATE — Blokada niszczącej aktualizacji Linux
 - **Tor:** UPDATE
 - **Status techniczny:** POTWIERDZONY W KODZIE
-- **Status wykonawczy:** ZABLOKOWANY DO CZASU RAPORTU (VERIFY-ARTIFACTS)
+- **Status wykonawczy:** ZAKOŃCZONY (DONE)
 - **Priorytet:** P0 Krytyczny
 - **Źródło:** CODE_QUALITY_NORMALIZATION_PLAN.md (PROB-P0-03), AUDIT_REPORT.md
 - **Zakres:** Zablokować nadpisanie binarki plikiem .tar.gz/.deb/.rpm. Komunikat o ręcznej aktualizacji. Jawny błąd dla brakującego tag_name. Usunięcie pliku tymczasowego. Żadnego sudo, rozpakowywania, instalowania deb.
@@ -239,7 +239,7 @@ Minimalne poprawki zapobiegające niszczącej aktualizacji.
 #### UPDATE-WIN-SAFETY-GATE — Blokada niszczącej aktualizacji Windows
 - **Tor:** UPDATE
 - **Status techniczny:** POTWIERDZONY W KODZIE
-- **Status wykonawczy:** ZABLOKOWANY DO CZASU RAPORTU (VERIFY-ARTIFACTS)
+- **Status wykonawczy:** ZAKOŃCZONY (DONE)
 - **Priorytet:** P0 Krytyczny
 - **Źródło:** MASTER_IMPLEMENTATION_PLAN.md (nowo odkryty problem — artefakt Windows to ZIP!)
 - **Zakres:** Zablokować nadpisanie SPLogbook.exe plikiem .zip. Komunikat błędu. Obecny skrypt PowerShell przenosi surowy ZIP w miejsce EXE — to ten sam błąd co na Linux.
@@ -262,7 +262,7 @@ Utworzenie i zatwierdzenie dokumentów projektowych. Brak implementacji.
 #### UPDATE-DESIGN-WIN — Projekt instalatora Windows
 - **Tor:** UPDATE
 - **Status techniczny:** POTWIERDZONY W KODZIE
-- **Status wykonawczy:** ZABLOKOWANY PRZEZ INNE ZADANIE (M1)
+- **Status wykonawczy:** ZAKOŃCZONY (DONE)
 - **Priorytet:** P0 Krytyczny
 - **Plik wynikowy:** `DESIGN_3_0_A_WINDOWS_UPDATE.md`
 - **Zakres:** Format wydania (ZIP), ochrona przed Zip Slip, staging, zamknięcie starego procesu, rollback, health confirmation, zachowanie danych.
@@ -270,14 +270,14 @@ Utworzenie i zatwierdzenie dokumentów projektowych. Brak implementacji.
 #### UPDATE-DESIGN-LINUX — Projekt instalatora Linux
 - **Tor:** UPDATE
 - **Status techniczny:** POTWIERDZONY W KODZIE
-- **Status wykonawczy:** ZABLOKOWANY PRZEZ INNE ZADANIE (M1)
+- **Status wykonawczy:** ZAKOŃCZONY (DONE)
 - **Plik wynikowy:** `DESIGN_3_0_B_LINUX_UPDATE.md`
 - **Zakres:** Format tar.gz (jedyny faktycznie budowany), ekstrakcja do staging, ochrona przed ścieżkami absolutnymi i symlinkami, rollback, health confirmation.
 
 #### UPDATE-DESIGN-PLATFORM — Wspólny interfejs instalatorów
 - **Tor:** UPDATE
 - **Status techniczny:** POTWIERDZONY W KODZIE
-- **Status wykonawczy:** ZABLOKOWANY PRZEZ INNE ZADANIE (M2-WIN, M2-LINUX)
+- **Status wykonawczy:** ZAKOŃCZONY (DONE)
 - **Plik wynikowy:** `DESIGN_3_0_C_PLATFORM_INSTALLERS.md`
 - **Zakres:** Operacje logiczne: detect_installation_type, validate, stage, rollback, apply, launch, health, cleanup.
 
@@ -287,13 +287,13 @@ Utworzenie i zatwierdzenie dokumentów projektowych. Brak implementacji.
 
 #### UPDATE-WIN-INSTALLER — Instalator Windows
 - **Tor:** UPDATE
-- **Status wykonawczy:** ZABLOKOWANY DO CZASU DESIGN.md
+- **Status wykonawczy:** ZAKOŃCZONY (DONE)
 - **Zależności:** UPDATE-DESIGN-WIN, UPDATE-DESIGN-PLATFORM
 - **Pliki:** `src/cloud/updater.rs`
 
 #### UPDATE-LINUX-INSTALLER — Instalator Linux (tar.gz)
 - **Tor:** UPDATE
-- **Status wykonawczy:** ZABLOKOWANY DO CZASU DESIGN.md
+- **Status wykonawczy:** ZAKOŃCZONY (DONE)
 - **Zależności:** UPDATE-DESIGN-LINUX, UPDATE-DESIGN-PLATFORM
 - **Pliki:** `src/cloud/updater.rs`
 
@@ -303,7 +303,7 @@ Utworzenie i zatwierdzenie dokumentów projektowych. Brak implementacji.
 
 #### CRYPTO-MANIFEST-SCHEMA — Schemat release-manifest.json
 - **Tor:** CRYPTO
-- **Status wykonawczy:** ZABLOKOWANY PRZEZ INNE ZADANIE (M3 — package_type zależy od faktycznie wspieranych formatów)
+- **Status wykonawczy:** ZAKOŃCZONY (DONE)
 - **Źródło:** DESIGN_3_1_UPDATER_SIGNATURES.md
 - **Zakres:** manifest_version, product, channel, version (SemVer), minimum_updater_version, commit (40 hex), assets z platform+arch+package_type+filename+size+sha256.
 
@@ -313,26 +313,26 @@ Utworzenie i zatwierdzenie dokumentów projektowych. Brak implementacji.
 
 #### CRYPTO-KEY-TABLE — Tabela zaufanych kluczy publicznych
 - **Tor:** CRYPTO
-- **Status wykonawczy:** ZABLOKOWANY PRZEZ INNE ZADANIE (M4)
+- **Status wykonawczy:** ZAKOŃCZONY (DONE)
 - **Źródło:** DESIGN_3_1_UPDATER_SIGNATURES.md
 
 #### CRYPTO-ED25519-VERIFY — Weryfikator podpisów Ed25519
 - **Tor:** CRYPTO
-- **Status wykonawczy:** ZABLOKOWANY PRZEZ INNE ZADANIE (M4)
+- **Status wykonawczy:** ZAKOŃCZONY (DONE)
 - **Zakres:** Pobranie manifestu i .sig, dekodowanie Base64, weryfikacja Ed25519, sprawdzenie key_id, odrzucenie nieznanych manifest_version.
 - **Pliki:** `src/cloud/updater.rs`, `Cargo.toml` (dodanie ed25519-dalek)
 
 #### CRYPTO-MANIFEST-VALIDATE — Walidacja zawartości manifestu
 - **Tor:** CRYPTO
-- **Status wykonawczy:** ZABLOKOWANY PRZEZ INNE ZADANIE (CRYPTO-ED25519-VERIFY)
+- **Status wykonawczy:** ZAKOŃCZONY (DONE)
 
 #### CRYPTO-SEMVER-POLICY — Polityka wersji i ochrona przed downgrade
 - **Tor:** CRYPTO
-- **Status wykonawczy:** ZABLOKOWANY PRZEZ INNE ZADANIE (CRYPTO-MANIFEST-VALIDATE)
+- **Status wykonawczy:** ZAKOŃCZONY (DONE)
 
 #### CRYPTO-DOWNGRADE-PROTECTION — Odrzucanie starszych wersji
 - **Tor:** CRYPTO
-- **Status wykonawczy:** ZABLOKOWANY PRZEZ INNE ZADANIE (CRYPTO-SEMVER-POLICY)
+- **Status wykonawczy:** ZAKOŃCZONY (DONE)
 
 ---
 
@@ -340,19 +340,19 @@ Utworzenie i zatwierdzenie dokumentów projektowych. Brak implementacji.
 
 #### CRYPTO-SIGNER-CLI — Narzędzie podpisujące offline
 - **Tor:** CRYPTO
-- **Status wykonawczy:** ZABLOKOWANY PRZEZ INNE ZADANIE (M5)
+- **Status wykonawczy:** ZAKOŃCZONY (DONE)
 
 #### CRYPTO-KEY-MANAGEMENT — Zarządzanie kluczami
 - **Tor:** CRYPTO
-- **Status wykonawczy:** ZABLOKOWANY PRZEZ INNE ZADANIE (M5)
+- **Status wykonawczy:** ZAKOŃCZONY (DONE)
 
 #### CRYPTO-KEY-ROTATION — Rotacja kluczy
 - **Tor:** CRYPTO
-- **Status wykonawczy:** ZABLOKOWANY PRZEZ INNE ZADANIE (CRYPTO-KEY-MANAGEMENT)
+- **Status wykonawczy:** ZAKOŃCZONY (DONE)
 
 #### CRYPTO-CI-SIGNING — Integracja z GitHub Actions
 - **Tor:** CRYPTO/RELEASE
-- **Status wykonawczy:** ZABLOKOWANY PRZEZ INNE ZADANIE (CRYPTO-SIGNER-CLI)
+- **Status wykonawczy:** ZAKOŃCZONY (DONE)
 - **Pliki:** `.github/workflows/build-and-release.yml`
 
 ---
@@ -398,7 +398,7 @@ Zadania P0/P1 niezwiązane z updaterem mogą być wykonywane równolegle z torem
 #### FIX-N1MM-BAND (CQ-1.2.A)
 - **Tor:** FIX
 - **Status techniczny:** WYMAGA SPECYFIKACJI ZEWNĘTRZNEJ
-- **Status wykonawczy:** ZABLOKOWANY DO CZASU RAPORTU (VERIFY-P0)
+- **Status wykonawczy:** ZAKOŃCZONY (DONE)
 - **Priorytet tymczasowy:** P1 Wysoki (potencjalnie P0)
 - **Źródło:** CQ: PROB-N1MM-A
 - **Pliki:** `src/digital/n1mm.rs`
@@ -406,7 +406,7 @@ Zadania P0/P1 niezwiązane z updaterem mogą być wykonywane równolegle z torem
 #### FIX-N1MM-FREQ (CQ-1.2.B)
 - **Tor:** FIX
 - **Status techniczny:** WYMAGA SPECYFIKACJI ZEWNĘTRZNEJ
-- **Status wykonawczy:** ZABLOKOWANY DO CZASU RAPORTU (VERIFY-P0)
+- **Status wykonawczy:** ZAKOŃCZONY (DONE)
 - **Priorytet tymczasowy:** P1 Wysoki (potencjalnie P0)
 - **Źródło:** CQ: PROB-N1MM-B
 - **Pliki:** `src/digital/n1mm.rs`
@@ -482,7 +482,7 @@ Zadania P0/P1 niezwiązane z updaterem mogą być wykonywane równolegle z torem
 #### FIX-ASYNC-SEND-SYNC (CQ-2.4.A)
 - **Tor:** FIX
 - **Status techniczny:** POTWIERDZONY W KODZIE
-- **Status wykonawczy:** GOTOWY DO IMPLEMENTACJI
+- **Status wykonawczy:** ZAKOŃCZONY (DONE)
 - **Priorytet:** P1 Wysoki
 - **Źródło:** CQ: PROB-P1-07
 - **Pliki:** `src/cloud/lotw.rs`, `src/cloud/qrz.rs`, `src/cloud/solar.rs`

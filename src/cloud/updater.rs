@@ -1045,7 +1045,7 @@ mod tests {
 
     #[test]
     fn safety_gate_blocks_linux_archives() {
-        let tar_gz = ReleaseAsset {
+        let _tar_gz = ReleaseAsset {
             name: "SPLogbook-Linux-x86_64.tar.gz".into(),
             browser_download_url: "".into(),
             digest: None,
@@ -1053,9 +1053,9 @@ mod tests {
         };
 
         #[cfg(not(target_os = "windows"))]
-        assert!(check_safety_gate(&tar_gz).is_ok());
+        assert!(check_safety_gate(&_tar_gz).is_ok());
 
-        let deb = ReleaseAsset {
+        let _deb = ReleaseAsset {
             name: "SPLogbook-Linux-x86_64.deb".into(),
             browser_download_url: "".into(),
             digest: None,
@@ -1063,7 +1063,7 @@ mod tests {
         };
 
         #[cfg(not(target_os = "windows"))]
-        assert!(check_safety_gate(&deb).is_err());
+        assert!(check_safety_gate(&_deb).is_err());
     }
 
     #[test]

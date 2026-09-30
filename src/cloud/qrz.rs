@@ -40,7 +40,7 @@ impl QrzClient {
     }
 
     /// Loguje się do QRZ.COM i pobiera token sesji
-    pub async fn login(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn login(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let resp = self
             .client
             .get("https://xmldata.qrz.com/xml/current/")
@@ -68,7 +68,7 @@ impl QrzClient {
     pub async fn lookup(
         &mut self,
         callsign: &str,
-    ) -> Result<CallbookData, Box<dyn std::error::Error>> {
+    ) -> Result<CallbookData, Box<dyn std::error::Error + Send + Sync>> {
         if self.session_key.is_none() {
             self.login().await?;
         }
@@ -110,7 +110,7 @@ impl QrzClient {
     fn parse_qrz_response(
         xml: &str,
         callsign: &str,
-    ) -> Result<CallbookData, Box<dyn std::error::Error>> {
+    ) -> Result<CallbookData, Box<dyn std::error::Error + Send + Sync>> {
         if let Some(err) = Self::extract_xml_tag(xml, "Error") {
             return Err(format!("QRZ: {err}").into());
         }
@@ -170,7 +170,7 @@ impl QrzClient {
     pub async fn upload_to_logbook(
         api_key: &str,
         adif_content: &str,
-    ) -> Result<String, Box<dyn std::error::Error>> {
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let client = crate::core::http::http_client_with_timeout(30);
 
         let resp = crate::core::http::retry_async(
