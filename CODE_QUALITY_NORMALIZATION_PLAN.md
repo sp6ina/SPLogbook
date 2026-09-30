@@ -459,7 +459,7 @@ Nie potwierdzono nieskończonej pętli ani deadlocka.
   → zamknięcie: usunięcie poszczególnych partii martwego kodu w oddzielnych commitach
 
 * PROB-P2-02
-  → weryfikacja: CQ-2.4.B (Audyt)
+  → weryfikacja: ZAKOŃCZONY (DONE)
   → implementacja: CQ-2.4.C1, CQ-2.4.C2, CQ-2.4.C3, CQ-2.4.C4
   → zależność: zatwierdzenie proponowanych polityk w CQ-2.4.B
   → zamknięcie: ostateczne poprawki SQLite per plik
