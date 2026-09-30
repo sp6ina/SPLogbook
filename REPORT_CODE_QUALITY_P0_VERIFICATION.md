@@ -11,7 +11,7 @@
 
 ## 2. PROB-N1MM-A: Niepoprawne usuwanie sufiksu pasma
 
-- **Status:** POTWIERDZONE W KODZIE / WYMAGA SPECYFIKACJI ZEWNĘTRZNEJ
+- **Status:** POTWIERDZONE W KODZIE / ZAKOŃCZONY (DONE)
 - **Priorytet końcowy:** P1 Wysoki (nie osiąga poziomu P0, ponieważ uszkodzona jest tylko integracja N1MM z określonymi narzędziami innych firm dla pasm UKF, nie dotyka integralności głównego dziennika w SQLite).
 - **Plik i zakres:** `src/digital/n1mm.rs:186-189` (`band_to_meters`)
 - **Stan obecny:** Funkcja konwertuje ciągi poprzez proste wywołanie `band.trim_end_matches('m')`. Prowadzi to do rezultatu `"70c"` dla wejściowego `"70cm"` zamiast wymaganej wartości dla pasma UKF.
@@ -20,7 +20,7 @@
 
 ## 3. PROB-N1MM-B: Niespójne jednostki częstotliwości w N1MM XML
 
-- **Status:** POTWIERDZONE W KODZIE / WYMAGA SPECYFIKACJI ZEWNĘTRZNEJ
+- **Status:** POTWIERDZONE W KODZIE / ZAKOŃCZONY (DONE)
 - **Priorytet końcowy:** P1 Wysoki (zniekształcenie pakietów sieciowych, brak utraty danych w systemie lokalnym).
 - **Plik i zakres:** `src/digital/n1mm.rs:83, 98-99, 159`
 - **Stan obecny:** W ramce `<contactinfo>` pole `txfreq`/`rxfreq` wypełniane jest wartością przemnożoną przez 1000 i zaokrągloną (traktowaną jako kHz), podczas gdy w ramce `<radioinfo>` pole `Freq`/`TXFreq` operuje na innej wielkości (Hz, wejściowy parametr `freq_hz`).

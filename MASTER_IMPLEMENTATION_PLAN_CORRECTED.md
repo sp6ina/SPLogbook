@@ -1,7 +1,7 @@
 # MASTER_IMPLEMENTATION_PLAN.md — SPLogbook
 
 **Utworzono:** 2026-09-29  
-**Wersja:** 1.0  
+**Wersja:** 1.1  
 **Rola:** Jedyny nadrzędny plan organizacyjny projektu SPLogbook.
 
 ---
@@ -63,6 +63,7 @@ Etapy DONE nie podlegają ponownemu otwieraniu bez potwierdzonej regresji.
 - Brak: AppImage, deb, rpm, Flatpak, MSI, standalone .exe release
 - Brak: `ed25519-dalek` w `Cargo.toml`
 - CI nie uruchamia `cargo fmt` ani `cargo clippy`
+- Obowiązująca wydana specyfikacja ADIF: **3.1.7**. ADIF 3.1.8 nie może być deklarowany jako obsługiwany standard, dopóki nie zostanie oficjalnie wydany i świadomie wdrożony w SPLogbook.
 
 ---
 
@@ -84,7 +85,7 @@ Etapy DONE nie podlegają ponownemu otwieraniu bez potwierdzonej regresji.
 
 - POTWIERDZONY W KODZIE
 - CZĘŚCIOWO POTWIERDZONY
-- ZAKOŃCZONY (DONE)
+- WYMAGA SPECYFIKACJI ZEWNĘTRZNEJ
 - WYMAGA TESTU URUCHOMIENIOWEGO
 - NIEPOTWIERDZONY
 - FAŁSZYWY ALARM
@@ -103,6 +104,23 @@ Etapy DONE nie podlegają ponownemu otwieraniu bez potwierdzonej regresji.
 
 Zadanie implementacyjne wymaga statusu wykonawczego = `GOTOWY DO IMPLEMENTACJI`.
 
+## Typy zadań
+
+- `EPIC` — grupuje prace; nie jest wykonywany jako pojedyncza sesja ani commit.
+- `DESIGN` — tworzy lub aktualizuje dokument architektoniczny; nie zmienia kodu.
+- `REPORT` — zadanie analityczne zakończone raportem; nie zmienia kodu.
+- `IMPLEMENTATION` — pojedyncza zmiana kodu, jedna sesja i jeden commit.
+- `TEST` — izolowana walidacja lub kampania testowa.
+- `RELEASE` — próbne lub publiczne wydanie.
+
+## Gotowość
+
+- `GOTOWY DO WYKONANIA`
+- `ZABLOKOWANY`
+- `DONE`
+
+`Status wykonawczy` określa rodzaj dozwolonego działania, a `Gotowość` odpowiada na pytanie, czy zadanie można rozpocząć. Zadania typu `REPORT` i `DESIGN` mogą mieć status wykonawczy `TYLKO ZADANIE ANALITYCZNE` oraz gotowość `GOTOWY DO WYKONANIA`.
+
 ---
 
 # 5. Zasady własności problemów
@@ -117,46 +135,46 @@ Problem `PROB-P0-03` (updater Linux) z audytu jakości → **ROZWIĄZYWANY PRZEZ
 
 # 6. Mapa zależności
 
-```
-VERIFY-ARTIFACTS ─────────────────────────────────────┐
-VERIFY-P0 ────────────────────────────────────────────┤
-VERIFY-GITHUB-DIGEST ─────────────────────────────────┤
-                                                      ▼
-                                              ETAP M1: Safety Gates
-                                              UPDATE-WIN-SAFETY-GATE
-                                              UPDATE-LINUX-SAFETY-GATE
-                                                      │
-                                                      ▼
-                                              ETAP M2: DESIGN docs
-                                              DESIGN_3_0_A/B/C
-                                                      │
-                                                      ▼
-                                              ETAP M3: Instalatory
-                                              UPDATE-WIN-INSTALLER
-                                              UPDATE-LINUX-INSTALLER
-                                                      │
-                                                      ▼
-                                              ETAP M4: Schemat manifestu
-                                              CRYPTO-MANIFEST-SCHEMA
-                                                      │
-                                                      ▼
-                                              ETAP M5: Kryptografia
-                                              CRYPTO-ED25519-VERIFY
-                                                      │
-                                                      ▼
-                                              ETAP M6: CI signing
-                                              CRYPTO-CI-SIGNING
-                                                      │
-                                                      ▼
-                                              ETAP M7: Wydania próbne
-                                                      │
-                                                      ▼
-                                              ETAP M8: Wydanie publiczne
+```text
+VERIFY-ARTIFACTS ───────────────┬── UPDATE-WIN-SAFETY-GATE ───────┐
+                                ├── UPDATE-LINUX-SAFETY-GATE ─────┤
+                                ├── UPDATE-DESIGN-WIN ────────────┤
+                                └── UPDATE-DESIGN-LINUX ──────────┤
+                                                                  ▼
+                                                     UPDATE-DESIGN-PLATFORM
+                                                                  │
+                    ┌─────────────────────────────────────────────┴──────────────────────────┐
+                    ▼                                                                        ▼
+          UPDATE-WIN-INSTALLER                                                   UPDATE-LINUX-INSTALLER
+                    │                                                                        │
+                    └──────────────────────────────┬─────────────────────────────────────────┘
+                                                   ▼
+                                     RELEASE-TRIAL-WIN / RELEASE-TRIAL-LINUX
 
-    (Równolegle z M1-M8, jeśli brak konfliktu plików:)
-    CQ-0 → CQ-1.x → CQ-2.x → CQ-3.x → CQ-4.x
-    ARCH-* (po M8 i stabilizacji)
+VERIFY-ARTIFACTS + UPDATE-DESIGN-WIN + UPDATE-DESIGN-LINUX + UPDATE-DESIGN-PLATFORM
+                                                   │
+                                                   ▼
+                                      CRYPTO-MANIFEST-SCHEMA
+                                                   │
+                                                   ▼
+                            CRYPTO-KEY-TABLE / CRYPTO-ED25519-VERIFY
+                                                   │
+                                                   ▼
+                  CRYPTO-MANIFEST-VALIDATE → CRYPTO-SEMVER-POLICY → DOWNGRADE
+                                                   │
+                                                   ▼
+                              CRYPTO-SIGNER-CLI → CRYPTO-CI-SIGNING
+                                                   │
+                                                   ▼
+                                     wydania próbne → wydanie publiczne
+
+Równolegle, jeśli nie występuje konflikt plików:
+VERIFY-P0 → FIX-* oraz VERIFY-DEAD-CODE → CQ-*
+
+ARCH-* dopiero po stabilizacji updatera i zakończeniu M8.
 ```
+
+Projekty instalatorów mogą rozpocząć się po `VERIFY-ARTIFACTS`. Nie muszą czekać na wykonanie bramek bezpieczeństwa M1. Schemat manifestu może być projektowany po zatwierdzeniu trzech dokumentów instalatorów i ustaleniu `package_type`; nie musi czekać na pełną implementację M3.
 
 ---
 
@@ -165,51 +183,57 @@ VERIFY-GITHUB-DIGEST ───────────────────�
 Brak modyfikacji kodu. Wyłącznie analiza.
 
 #### VERIFY-ARTIFACTS — Inwentaryzacja artefaktów Windows i Linux
+- **Typ:** REPORT
 - **Tor:** VERIFY
 - **Status techniczny:** POTWIERDZONY W KODZIE
-- **Status wykonawczy:** ZAKOŃCZONY (DONE)
-- **Priorytet:** P0 Krytyczny
+- **Status wykonawczy:** TYLKO ZADANIE ANALITYCZNE
+- **Gotowość:** GOTOWY DO WYKONANIA
+- **Priorytet zadania:** P1 Wysoki
+- **Blokuje problemy:** P0 Krytyczny w updaterze Windows i Linux
 - **Źródło:** MASTER_IMPLEMENTATION_PLAN.md
-- **Zakres:** Ustalić faktyczne formaty, nazwy, struktury archiwów, lokalizacje binarek, dane użytkownika, uprawnienia zapisu. Zbadać `build-and-release.yml` i istniejące release'y GitHub.
-- **Poza zakresem:** Zmiana kodu, zmiana workflow.
-- **Pliki (read-only):** `.github/workflows/build-and-release.yml`, `src/cloud/updater.rs`
+- **Zakres:** Ustalić faktyczne formaty, nazwy, struktury archiwów, lokalizacje binarek, dane użytkownika i uprawnienia zapisu. Zbadać workflow oraz istniejące wydania GitHub.
+- **Poza zakresem:** Zmiana kodu, zmiana workflow, projektowanie instalatora.
+- **Pliki tylko do odczytu:** `.github/workflows/build-and-release.yml`, `src/cloud/updater.rs`, `Cargo.toml` oraz opublikowane artefakty.
 - **Plik wynikowy:** `UPDATE_ARTIFACT_INVENTORY_REPORT.md`
 - **Zależności:** brak
-- **Konflikty:** brak
-- **Kryterium ukończenia:** Raport zawiera pełną listę artefaktów obu platform z dokładnymi nazwami i strukturą.
+- **Kryterium ukończenia:** Raport zawiera pełną listę artefaktów obu platform, dokładne nazwy, formaty, strukturę wewnętrzną, miejsce danych użytkownika oraz ograniczenia uprawnień.
 
 #### VERIFY-P0 — Weryfikacja problemów krytycznych P0
+- **Typ:** REPORT
 - **Tor:** VERIFY
-- **Status techniczny:** POTWIERDZONY W KODZIE
-- **Status wykonawczy:** ZAKOŃCZONY (DONE)
-- **Priorytet:** P0 Krytyczny
-- **Źródło:** CODE_QUALITY_NORMALIZATION_PLAN.md (CQ-0)
-- **Zakres:** Ponowna weryfikacja: SOTA Utc::now(), N1MM jednostki/pasma, updater Linux, updater Windows (nowo odkryty!), liczniki zawodów. Sprawdzenie osiągalności, przepływu wykonania, wpływu na dane.
-- **Poza zakresem:** Zmiana kodu.
-- **Pliki (read-only):** `src/core/sota_export.rs`, `src/digital/n1mm.rs`, `src/cloud/updater.rs`, `src/gui/app.rs`
+- **Status techniczny:** CZĘŚCIOWO POTWIERDZONY
+- **Status wykonawczy:** TYLKO ZADANIE ANALITYCZNE
+- **Gotowość:** GOTOWY DO WYKONANIA
+- **Priorytet zadania:** P1 Wysoki
+- **Blokuje problemy:** potencjalne P0/P1
+- **Źródło:** CODE_QUALITY_NORMALIZATION_PLAN.md
+- **Zakres:** Ponowna weryfikacja SOTA `Utc::now()`, N1MM, updatera Linux i Windows oraz liczników zawodów. Sprawdzenie osiągalności, przepływu i wpływu na dane.
+- **Poza zakresem:** Zmiana kodu i nadawanie priorytetów bez dowodu.
 - **Plik wynikowy:** `REPORT_CODE_QUALITY_P0_VERIFICATION.md`
-- **Zależności:** brak
-- **Kryterium ukończenia:** Raport z ostatecznym priorytetem każdego P0.
+- **Kryterium ukończenia:** Każde znalezisko ma dowód, ostateczny priorytet i wskazane zadanie implementacyjne albo status fałszywego alarmu.
 
 #### VERIFY-GITHUB-DIGEST — Analiza GitHub Digest API
+- **Typ:** REPORT
 - **Tor:** VERIFY
-- **Status techniczny:** ZAKOŃCZONY (DONE)
-- **Status wykonawczy:** ZAKOŃCZONY (DONE)
-- **Priorytet:** P1 Wysoki
+- **Status techniczny:** WYMAGA SPECYFIKACJI ZEWNĘTRZNEJ
+- **Status wykonawczy:** TYLKO ZADANIE ANALITYCZNE
+- **Gotowość:** GOTOWY DO WYKONANIA
+- **Priorytet zadania:** P1 Wysoki
 - **Źródło:** DESIGN_3_1_UPDATER_SIGNATURES.md
-- **Zakres:** Ustalenie, czy GitHub API dostarcza digest dla własnych release assets i w jakim formacie.
-- **Poza zakresem:** Implementacja.
+- **Zakres:** Ustalenie obecności, formatu i zachowania pola `digest` dla bieżących i starszych zasobów wydań.
+- **Poza zakresem:** Implementacja lub zmiana workflow.
 - **Plik wynikowy:** `REPORT_3_1_A_GITHUB_DIGEST.md`
-- **Zależności:** brak
 
 #### VERIFY-DEAD-CODE — Raport użycia symboli
+- **Typ:** REPORT
 - **Tor:** VERIFY
 - **Status techniczny:** WYMAGA TESTU URUCHOMIENIOWEGO
 - **Status wykonawczy:** TYLKO ZADANIE ANALITYCZNE
-- **Priorytet:** P2 Średni
-- **Źródło:** CODE_QUALITY_NORMALIZATION_PLAN.md (CQ-3.1.A)
+- **Gotowość:** GOTOWY DO WYKONANIA
+- **Priorytet zadania:** P2 Średni
+- **Źródło:** CODE_QUALITY_NORMALIZATION_PLAN.md
 - **Plik wynikowy:** `DEAD_CODE_VERIFICATION_REPORT.md`
-- **Zależności:** brak
+- **Poza zakresem:** Usuwanie symboli.
 
 ---
 
@@ -218,12 +242,13 @@ Brak modyfikacji kodu. Wyłącznie analiza.
 Minimalne poprawki zapobiegające niszczącej aktualizacji.
 
 #### UPDATE-LINUX-SAFETY-GATE — Blokada niszczącej aktualizacji Linux
+- **Typ:** IMPLEMENTATION
 - **Tor:** UPDATE
 - **Status techniczny:** POTWIERDZONY W KODZIE
-- **Status wykonawczy:** ZAKOŃCZONY (DONE)
+- **Status wykonawczy:** ZABLOKOWANY DO CZASU RAPORTU (VERIFY-ARTIFACTS)
 - **Priorytet:** P0 Krytyczny
 - **Źródło:** CODE_QUALITY_NORMALIZATION_PLAN.md (PROB-P0-03), AUDIT_REPORT.md
-- **Zakres:** Zablokować nadpisanie binarki plikiem .tar.gz/.deb/.rpm. Komunikat o ręcznej aktualizacji. Jawny błąd dla brakującego tag_name. Usunięcie pliku tymczasowego. Żadnego sudo, rozpakowywania, instalowania deb.
+- **Zakres:** Stosować allowlistę jawnie obsługiwanych `package_type`. Każdy typ nieznany lub nieobsługiwany, w tym obecnie `.tar.gz`, `.deb` i `.rpm`, odrzucić przed zmianą instalacji. Pokazać komunikat o ręcznej aktualizacji, usunąć plik tymczasowy i zwrócić błąd dla brakującego `tag_name`. Bez sudo, rozpakowywania ani instalowania pakietów.
 - **Poza zakresem:** Pełny instalator Linux. Rozpakowywanie tar.gz. Ed25519.
 - **Pliki:** `src/cloud/updater.rs`
 - **Zależności:** VERIFY-ARTIFACTS
@@ -237,12 +262,13 @@ Minimalne poprawki zapobiegające niszczącej aktualizacji.
 - **Sugerowany tytuł commita:** `fix(updater): block destructive Linux self-replace with archive files`
 
 #### UPDATE-WIN-SAFETY-GATE — Blokada niszczącej aktualizacji Windows
+- **Typ:** IMPLEMENTATION
 - **Tor:** UPDATE
 - **Status techniczny:** POTWIERDZONY W KODZIE
-- **Status wykonawczy:** ZAKOŃCZONY (DONE)
+- **Status wykonawczy:** ZABLOKOWANY DO CZASU RAPORTU (VERIFY-ARTIFACTS)
 - **Priorytet:** P0 Krytyczny
 - **Źródło:** MASTER_IMPLEMENTATION_PLAN.md (nowo odkryty problem — artefakt Windows to ZIP!)
-- **Zakres:** Zablokować nadpisanie SPLogbook.exe plikiem .zip. Komunikat błędu. Obecny skrypt PowerShell przenosi surowy ZIP w miejsce EXE — to ten sam błąd co na Linux.
+- **Zakres:** Stosować allowlistę jawnie obsługiwanych `package_type`. Do czasu wdrożenia instalatora ZIP odrzucać ZIP przed zmianą `SPLogbook.exe`, zachować instalację i wyświetlić komunikat ręcznej aktualizacji.
 - **Poza zakresem:** Pełny instalator Windows. Rozpakowanie ZIP.
 - **Pliki:** `src/cloud/updater.rs`
 - **Zależności:** VERIFY-ARTIFACTS
@@ -260,24 +286,27 @@ Minimalne poprawki zapobiegające niszczącej aktualizacji.
 Utworzenie i zatwierdzenie dokumentów projektowych. Brak implementacji.
 
 #### UPDATE-DESIGN-WIN — Projekt instalatora Windows
+- **Typ:** DESIGN
 - **Tor:** UPDATE
 - **Status techniczny:** POTWIERDZONY W KODZIE
-- **Status wykonawczy:** ZAKOŃCZONY (DONE)
+- **Status wykonawczy:** ZABLOKOWANY PRZEZ INNE ZADANIE (`VERIFY-ARTIFACTS`)
 - **Priorytet:** P0 Krytyczny
 - **Plik wynikowy:** `DESIGN_3_0_A_WINDOWS_UPDATE.md`
 - **Zakres:** Format wydania (ZIP), ochrona przed Zip Slip, staging, zamknięcie starego procesu, rollback, health confirmation, zachowanie danych.
 
 #### UPDATE-DESIGN-LINUX — Projekt instalatora Linux
+- **Typ:** DESIGN
 - **Tor:** UPDATE
 - **Status techniczny:** POTWIERDZONY W KODZIE
-- **Status wykonawczy:** ZAKOŃCZONY (DONE)
+- **Status wykonawczy:** ZABLOKOWANY PRZEZ INNE ZADANIE (`VERIFY-ARTIFACTS`)
 - **Plik wynikowy:** `DESIGN_3_0_B_LINUX_UPDATE.md`
 - **Zakres:** Format tar.gz (jedyny faktycznie budowany), ekstrakcja do staging, ochrona przed ścieżkami absolutnymi i symlinkami, rollback, health confirmation.
 
 #### UPDATE-DESIGN-PLATFORM — Wspólny interfejs instalatorów
+- **Typ:** DESIGN
 - **Tor:** UPDATE
 - **Status techniczny:** POTWIERDZONY W KODZIE
-- **Status wykonawczy:** ZAKOŃCZONY (DONE)
+- **Status wykonawczy:** ZABLOKOWANY PRZEZ INNE ZADANIE (M2-WIN, M2-LINUX)
 - **Plik wynikowy:** `DESIGN_3_0_C_PLATFORM_INSTALLERS.md`
 - **Zakres:** Operacje logiczne: detect_installation_type, validate, stage, rollback, apply, launch, health, cleanup.
 
@@ -287,13 +316,13 @@ Utworzenie i zatwierdzenie dokumentów projektowych. Brak implementacji.
 
 #### UPDATE-WIN-INSTALLER — Instalator Windows
 - **Tor:** UPDATE
-- **Status wykonawczy:** ZAKOŃCZONY (DONE)
+- **Status wykonawczy:** ZABLOKOWANY DO CZASU DESIGN.md
 - **Zależności:** UPDATE-DESIGN-WIN, UPDATE-DESIGN-PLATFORM
 - **Pliki:** `src/cloud/updater.rs`
 
 #### UPDATE-LINUX-INSTALLER — Instalator Linux (tar.gz)
 - **Tor:** UPDATE
-- **Status wykonawczy:** ZAKOŃCZONY (DONE)
+- **Status wykonawczy:** ZABLOKOWANY DO CZASU DESIGN.md
 - **Zależności:** UPDATE-DESIGN-LINUX, UPDATE-DESIGN-PLATFORM
 - **Pliki:** `src/cloud/updater.rs`
 
@@ -303,7 +332,7 @@ Utworzenie i zatwierdzenie dokumentów projektowych. Brak implementacji.
 
 #### CRYPTO-MANIFEST-SCHEMA — Schemat release-manifest.json
 - **Tor:** CRYPTO
-- **Status wykonawczy:** ZAKOŃCZONY (DONE)
+- **Status wykonawczy:** ZABLOKOWANY PRZEZ INNE ZADANIE (M3 — package_type zależy od faktycznie wspieranych formatów)
 - **Źródło:** DESIGN_3_1_UPDATER_SIGNATURES.md
 - **Zakres:** manifest_version, product, channel, version (SemVer), minimum_updater_version, commit (40 hex), assets z platform+arch+package_type+filename+size+sha256.
 
@@ -312,48 +341,58 @@ Utworzenie i zatwierdzenie dokumentów projektowych. Brak implementacji.
 # 12. Etap M5: Ed25519 i polityka wersji
 
 #### CRYPTO-KEY-TABLE — Tabela zaufanych kluczy publicznych
+- **Typ:** IMPLEMENTATION
 - **Tor:** CRYPTO
-- **Status wykonawczy:** ZAKOŃCZONY (DONE)
+- **Status wykonawczy:** ZABLOKOWANY PRZEZ INNE ZADANIE (M4)
 - **Źródło:** DESIGN_3_1_UPDATER_SIGNATURES.md
 
 #### CRYPTO-ED25519-VERIFY — Weryfikator podpisów Ed25519
+- **Typ:** IMPLEMENTATION
 - **Tor:** CRYPTO
-- **Status wykonawczy:** ZAKOŃCZONY (DONE)
+- **Status wykonawczy:** ZABLOKOWANY PRZEZ INNE ZADANIE (M4)
 - **Zakres:** Pobranie manifestu i .sig, dekodowanie Base64, weryfikacja Ed25519, sprawdzenie key_id, odrzucenie nieznanych manifest_version.
-- **Pliki:** `src/cloud/updater.rs`, `Cargo.toml` (dodanie ed25519-dalek)
+- **Przewidywane pliki:** `src/cloud/update_crypto.rs`, `src/cloud/mod.rs`, `Cargo.toml`, `Cargo.lock`; `src/cloud/updater.rs` wyłącznie do późniejszej integracji orkiestracyjnej.
+- **Zasada modularności:** Weryfikacja kryptograficzna nie może zostać zaimplementowana bezpośrednio jako rozbudowany blok w `updater.rs`.
 
 #### CRYPTO-MANIFEST-VALIDATE — Walidacja zawartości manifestu
+- **Typ:** IMPLEMENTATION
 - **Tor:** CRYPTO
-- **Status wykonawczy:** ZAKOŃCZONY (DONE)
+- **Status wykonawczy:** ZABLOKOWANY PRZEZ INNE ZADANIE (CRYPTO-ED25519-VERIFY)
+- **Przewidywane pliki:** `src/cloud/update_manifest.rs`, `src/cloud/mod.rs`
 
 #### CRYPTO-SEMVER-POLICY — Polityka wersji i ochrona przed downgrade
+- **Typ:** IMPLEMENTATION
 - **Tor:** CRYPTO
-- **Status wykonawczy:** ZAKOŃCZONY (DONE)
+- **Status wykonawczy:** ZABLOKOWANY PRZEZ INNE ZADANIE (CRYPTO-MANIFEST-VALIDATE)
+- **Przewidywane pliki:** `src/cloud/update_policy.rs`, `src/cloud/mod.rs`
 
 #### CRYPTO-DOWNGRADE-PROTECTION — Odrzucanie starszych wersji
 - **Tor:** CRYPTO
-- **Status wykonawczy:** ZAKOŃCZONY (DONE)
+- **Status wykonawczy:** ZABLOKOWANY PRZEZ INNE ZADANIE (CRYPTO-SEMVER-POLICY)
 
 ---
 
 # 13. Etap M6: CI i podpisywanie
 
-#### CRYPTO-SIGNER-CLI — Narzędzie podpisujące offline
+#### CRYPTO-SIGNER-CLI — Narzędzie podpisujące manifest
+- **Typ:** IMPLEMENTATION
 - **Tor:** CRYPTO
-- **Status wykonawczy:** ZAKOŃCZONY (DONE)
+- **Status wykonawczy:** ZABLOKOWANY PRZEZ INNE ZADANIE (M5)
 
 #### CRYPTO-KEY-MANAGEMENT — Zarządzanie kluczami
 - **Tor:** CRYPTO
-- **Status wykonawczy:** ZAKOŃCZONY (DONE)
+- **Status wykonawczy:** ZABLOKOWANY PRZEZ INNE ZADANIE (M5)
 
 #### CRYPTO-KEY-ROTATION — Rotacja kluczy
 - **Tor:** CRYPTO
-- **Status wykonawczy:** ZAKOŃCZONY (DONE)
+- **Status wykonawczy:** ZABLOKOWANY PRZEZ INNE ZADANIE (CRYPTO-KEY-MANAGEMENT)
 
 #### CRYPTO-CI-SIGNING — Integracja z GitHub Actions
+- **Typ:** IMPLEMENTATION
 - **Tor:** CRYPTO/RELEASE
-- **Status wykonawczy:** ZAKOŃCZONY (DONE)
+- **Status wykonawczy:** ZABLOKOWANY PRZEZ INNE ZADANIE (CRYPTO-SIGNER-CLI)
 - **Pliki:** `.github/workflows/build-and-release.yml`
+- **Decyzja:** Wybrano wariant B z zatwierdzonego projektu. Signer CLI pozostaje osobnym narzędziem, lecz produkcyjnie uruchamia go chroniony job GitHub Actions w Protected Environment po ręcznym zatwierdzeniu. Podpisywanie lokalne jest procedurą awaryjną i testową, nie drugim równoległym procesem wydawniczym.
 
 ---
 
@@ -361,13 +400,13 @@ Utworzenie i zatwierdzenie dokumentów projektowych. Brak implementacji.
 
 #### RELEASE-TRIAL-WIN — Wydanie próbne Windows
 - **Tor:** RELEASE
-- **Status wykonawczy:** ZAKOŃCZONY (DONE)
+- **Status wykonawczy:** ZABLOKOWANY PRZEZ INNE ZADANIE (M6)
 - **Zakres:** Test poprawnego wydania, podmieniony manifest/podpis/artefakt, zły rozmiar, przerwany transfer, rollback, health confirmation.
 - **Test Windows:** TAK
 
 #### RELEASE-TRIAL-LINUX — Wydanie próbne Linux
 - **Tor:** RELEASE
-- **Status wykonawczy:** ZAKOŃCZONY (DONE)
+- **Status wykonawczy:** ZABLOKOWANY PRZEZ INNE ZADANIE (M6)
 - **Test Linux:** TAK
 
 ---
@@ -376,7 +415,7 @@ Utworzenie i zatwierdzenie dokumentów projektowych. Brak implementacji.
 
 #### RELEASE-PUBLIC-V1 — Pierwsze wydanie z podpisami
 - **Tor:** RELEASE
-- **Status wykonawczy:** ZAKOŃCZONY (DONE)
+- **Status wykonawczy:** ZABLOKOWANY PRZEZ INNE ZADANIE (M7)
 - **Zależności:** RELEASE-TRIAL-WIN OK, RELEASE-TRIAL-LINUX OK
 
 ---
@@ -388,7 +427,7 @@ Zadania P0/P1 niezwiązane z updaterem mogą być wykonywane równolegle z torem
 #### FIX-SOTA-FALLBACK (CQ-1.1)
 - **Tor:** FIX
 - **Status techniczny:** POTWIERDZONY W KODZIE
-- **Status wykonawczy:** ZAKOŃCZONY (DONE)
+- **Status wykonawczy:** ZABLOKOWANY DO CZASU RAPORTU (VERIFY-P0)
 - **Priorytet:** P0 Krytyczny
 - **Źródło:** CQ: PROB-P0-01
 - **Pliki:** `src/core/sota_export.rs`
@@ -397,16 +436,16 @@ Zadania P0/P1 niezwiązane z updaterem mogą być wykonywane równolegle z torem
 
 #### FIX-N1MM-BAND (CQ-1.2.A)
 - **Tor:** FIX
-- **Status techniczny:** ZAKOŃCZONY (DONE)
-- **Status wykonawczy:** ZAKOŃCZONY (DONE)
+- **Status techniczny:** WYMAGA SPECYFIKACJI ZEWNĘTRZNEJ
+- **Status wykonawczy:** ZABLOKOWANY DO CZASU RAPORTU (VERIFY-P0)
 - **Priorytet tymczasowy:** P1 Wysoki (potencjalnie P0)
 - **Źródło:** CQ: PROB-N1MM-A
 - **Pliki:** `src/digital/n1mm.rs`
 
 #### FIX-N1MM-FREQ (CQ-1.2.B)
 - **Tor:** FIX
-- **Status techniczny:** ZAKOŃCZONY (DONE)
-- **Status wykonawczy:** ZAKOŃCZONY (DONE)
+- **Status techniczny:** WYMAGA SPECYFIKACJI ZEWNĘTRZNEJ
+- **Status wykonawczy:** ZABLOKOWANY DO CZASU RAPORTU (VERIFY-P0)
 - **Priorytet tymczasowy:** P1 Wysoki (potencjalnie P0)
 - **Źródło:** CQ: PROB-N1MM-B
 - **Pliki:** `src/digital/n1mm.rs`
@@ -414,7 +453,7 @@ Zadania P0/P1 niezwiązane z updaterem mogą być wykonywane równolegle z torem
 #### FIX-CONTEST-COUNTERS (CQ-1.4)
 - **Tor:** FIX
 - **Status techniczny:** POTWIERDZONY W KODZIE
-- **Status wykonawczy:** ZAKOŃCZONY (DONE)
+- **Status wykonawczy:** ZABLOKOWANY DO CZASU RAPORTU (VERIFY-P0)
 - **Priorytet:** P1 Wysoki
 - **Źródło:** CQ: PROB-P1-01
 - **Pliki:** `src/gui/app.rs`
@@ -423,7 +462,7 @@ Zadania P0/P1 niezwiązane z updaterem mogą być wykonywane równolegle z torem
 #### FIX-CLUBS-HEURISTIC (CQ-2.1.A)
 - **Tor:** FIX
 - **Status techniczny:** POTWIERDZONY W KODZIE
-- **Status wykonawczy:** ZAKOŃCZONY (DONE)
+- **Status wykonawczy:** GOTOWY DO IMPLEMENTACJI
 - **Priorytet:** P1 Wysoki
 - **Źródło:** CQ: PROB-P1-02
 - **Pliki:** `src/core/clubs.rs`
@@ -433,16 +472,16 @@ Zadania P0/P1 niezwiązane z updaterem mogą być wykonywane równolegle z torem
 #### FIX-CALLBOOK-DEMO (CQ-2.1.B)
 - **Tor:** FIX
 - **Status techniczny:** POTWIERDZONY W KODZIE
-- **Status wykonawczy:** ZAKOŃCZONY (DONE)
+- **Status wykonawczy:** GOTOWY DO IMPLEMENTACJI
 - **Priorytet:** P1 Wysoki
 - **Źródło:** CQ: PROB-P1-02
 - **Pliki:** `src/core/callbook.rs`
-- **Sugerowany tytuł commita:** `fix(callbook): remove hardcoded demo data`
+- **Sugerowany tytuł commita:** `fix(callbook): move hardcoded demo data to #[cfg(test)]`
 
 #### FIX-WPX-PREFIX (CQ-2.2.A)
 - **Tor:** FIX
 - **Status techniczny:** POTWIERDZONY W KODZIE
-- **Status wykonawczy:** ZAKOŃCZONY (DONE)
+- **Status wykonawczy:** GOTOWY DO IMPLEMENTACJI
 - **Priorytet:** P1 Wysoki
 - **Źródło:** CQ: PROB-P1-03A
 - **Pliki:** `src/core/prefix.rs`, `src/core/awards.rs`
@@ -450,7 +489,7 @@ Zadania P0/P1 niezwiązane z updaterem mogą być wykonywane równolegle z torem
 #### FIX-SP-DISTRICT (CQ-2.2.B)
 - **Tor:** FIX
 - **Status techniczny:** POTWIERDZONY W KODZIE
-- **Status wykonawczy:** ZAKOŃCZONY (DONE)
+- **Status wykonawczy:** GOTOWY DO IMPLEMENTACJI
 - **Priorytet:** P1 Wysoki
 - **Źródło:** CQ: PROB-P1-03B
 - **Pliki:** `src/core/awards.rs`
@@ -458,7 +497,7 @@ Zadania P0/P1 niezwiązane z updaterem mogą być wykonywane równolegle z torem
 #### FIX-AWARDS-DOUBLE-REG (CQ-2.2.C)
 - **Tor:** FIX
 - **Status techniczny:** POTWIERDZONY W KODZIE
-- **Status wykonawczy:** ZAKOŃCZONY (DONE)
+- **Status wykonawczy:** GOTOWY DO IMPLEMENTACJI
 - **Priorytet:** P1 Wysoki
 - **Źródło:** CQ: PROB-P1-03C
 - **Pliki:** `src/core/awards.rs`
@@ -466,7 +505,7 @@ Zadania P0/P1 niezwiązane z updaterem mogą być wykonywane równolegle z torem
 #### FIX-MULTIOP-FALLBACK (CQ-2.3.A)
 - **Tor:** FIX
 - **Status techniczny:** POTWIERDZONY W KODZIE
-- **Status wykonawczy:** ZAKOŃCZONY (DONE)
+- **Status wykonawczy:** GOTOWY DO IMPLEMENTACJI
 - **Priorytet:** P1 Wysoki
 - **Źródło:** CQ: PROB-P1-04
 - **Pliki:** `src/gui/contest.rs`
@@ -474,7 +513,7 @@ Zadania P0/P1 niezwiązane z updaterem mogą być wykonywane równolegle z torem
 #### FIX-VOICEKEYER-CAT (CQ-2.3.B)
 - **Tor:** FIX
 - **Status techniczny:** POTWIERDZONY W KODZIE
-- **Status wykonawczy:** ZAKOŃCZONY (DONE)
+- **Status wykonawczy:** GOTOWY DO IMPLEMENTACJI
 - **Priorytet:** P1 Wysoki
 - **Źródło:** CQ: PROB-P1-05
 - **Pliki:** `src/gui/voice_keyer.rs`
@@ -482,7 +521,7 @@ Zadania P0/P1 niezwiązane z updaterem mogą być wykonywane równolegle z torem
 #### FIX-ASYNC-SEND-SYNC (CQ-2.4.A)
 - **Tor:** FIX
 - **Status techniczny:** POTWIERDZONY W KODZIE
-- **Status wykonawczy:** ZAKOŃCZONY (DONE)
+- **Status wykonawczy:** GOTOWY DO IMPLEMENTACJI
 - **Priorytet:** P1 Wysoki
 - **Źródło:** CQ: PROB-P1-07
 - **Pliki:** `src/cloud/lotw.rs`, `src/cloud/qrz.rs`, `src/cloud/solar.rs`
@@ -512,30 +551,37 @@ Każde zadanie: osobny commit, osobna sesja. Szczegóły w `CODE_QUALITY_NORMALI
 
 # 18. Etap M11: Duże refaktoryzacje
 
-Każde wymaga osobnego DESIGN.md. Nie wolno wykonywać podczas napraw krytycznych updatera.
+Poniższe pozycje są typu `EPIC`, nie są zadaniami commitowymi i nie mogą być wykonywane bez dalszego podziału. Każde wymaga osobnego DESIGN.md. Nie wolno wykonywać podczas napraw krytycznych updatera.
 
 #### ARCH-SPLOGAPP — Dekompozycja SpLogApp
+- **Typ:** EPIC
 - **Status wykonawczy:** ZABLOKOWANY DO CZASU DESIGN.md
 - **Pliki:** `src/gui/app.rs` (konflikt z FIX-CONTEST-COUNTERS)
 
 #### ARCH-QSO-PIPELINE — Wspólny potok zapisu QSO
+- **Typ:** EPIC
 - **Status wykonawczy:** ZABLOKOWANY DO CZASU DESIGN.md
 - **Źródło:** CQ: PROB-P1-06
 
 #### ARCH-SQL-NORMALIZE — Normalizacja 53-kolumnowego SQL
+- **Typ:** EPIC
 - **Status wykonawczy:** ZABLOKOWANY DO CZASU DESIGN.md
 - **Pliki:** `src/core/database.rs` (strefa wyłączności)
 
 #### ARCH-CAT — Architektura CAT z TCI
+- **Typ:** EPIC
 - **Status wykonawczy:** ZABLOKOWANY DO CZASU DESIGN.md
 
 #### ARCH-SYNC — Synchronizacja P2P vs LAN
+- **Typ:** EPIC
 - **Status wykonawczy:** ZABLOKOWANY DO CZASU DESIGN.md
 
 #### ARCH-I18N — Pełna lokalizacja
+- **Typ:** EPIC
 - **Status wykonawczy:** ZABLOKOWANY DO CZASU DESIGN.md
 
 #### ARCH-THEMES — Centralizacja motywów
+- **Typ:** EPIC
 - **Status wykonawczy:** ZABLOKOWANY DO CZASU DESIGN.md
 
 ---
@@ -647,6 +693,27 @@ Problem: Skrypty robocze i brak CI lint
 
 ---
 
+
+### Reguła kompletności macierzy
+
+Każdy identyfikator `PROB-*` z dokumentów audytowych musi wystąpić dokładnie raz w tej macierzy oraz wskazywać jednego właściciela, etap, weryfikację, implementację albo uzasadnienie `NIE IMPLEMENTOWAĆ`, a także kryterium zamknięcia.
+
+Uzupełnienia dla pozostałych klas problemów:
+
+- `PROB-P2-03` wrappery viewportu → właściciel `CQ`, zadanie `CQ-3.3.A` albo osobny DESIGN, jeśli helper zmienia architekturę GUI.
+- `PROB-P2-04` funkcje proxy i struktury jednostkowe → właściciel `CQ`, zadania `CQ-3.3.A–D`.
+- `PROB-P2-05` kalkulatory zawodów → właściciel `CQ`, zadanie `CQ-3.3.E`.
+- `PROB-P2-06` helpery XML/Text/Socket → właściciel `CQ`, zadania `CQ-3.4.A–G`.
+- `PROB-P2-07` praca w pętli GUI → właściciel `CQ`, zadania `CQ-3.5.A–E`.
+- `PROB-P2-08` mylące nazwy API → właściciel `CQ`, zadanie `CQ-3.5.F`.
+- `PROB-P2-09` słabe asercje testów → właściciel `CQ`, zadanie powiązane z naprawianym modułem; brak osobnego masowego commita.
+- `PROB-P3-01` komentarze → właściciel `CQ`, zadania `CQ-4.1.A–E`.
+- `PROB-P3-02` diakrytyka i SPDX → właściciel `CQ`, zadania `CQ-4.2.A–B`.
+- `PROB-P3-03` nazewnictwo → właściciel `CQ`, zadania `CQ-4.3.A–D`.
+- `PROB-P3-04` pliki robocze i CI → właściciel `CQ`; czyszczenie repozytorium i zmiana workflow muszą być osobnymi commitami, a zmiana workflow nie może kolidować z `CRYPTO-CI-SIGNING`.
+
+---
+
 # 20. Migracja ze starych planów
 
 ## Z PLAN.md:
@@ -700,6 +767,8 @@ Równoległość dozwolona: FIX-CLUBS-HEURISTIC (clubs.rs) ∥ FIX-WPX-PREFIX (p
 
 # 22. Kryteria akceptacji
 
+Pozycje skrócone w tym dokumencie są `EPIC`, `DESIGN` albo `REPORT`, jeśli nie zawierają pełnego zestawu pól zadania implementacyjnego. Przed nadaniem typu `IMPLEMENTATION` muszą zostać uzupełnione o pełny zakres, wykluczenia, ryzyko, zachowanie przed i po, testy, wpływ na API i format danych oraz tytuł commita.
+
 Dla każdego zadania implementacyjnego:
 - Zachowanie przed zmianą (udokumentowane).
 - Zachowanie po zmianie (udokumentowane).
@@ -727,7 +796,15 @@ Dla zmian redakcyjnych: kompilacja i testy wystarczają.
 
 ---
 
-# 23. Otwarte decyzje właściciela projektu
+# 23. Decyzje rozstrzygnięte i otwarte
+
+## Decyzja rozstrzygnięta: ADIF
+
+- Aktualną wydaną specyfikacją przyjętą przez projekt jest **ADIF 3.1.7**.
+- Eksport nie może deklarować ADIF 3.1.8, dopóki wersja nie zostanie oficjalnie wydana i świadomie obsłużona w SPLogbook.
+- Jeżeli aktualny kod deklaruje `ADIF_VERSION = "3.1.8"`, należy utworzyć osobne zadanie weryfikacyjne. Nie wolno automatycznie otwierać ukończonego PLAN 2.1 bez potwierdzonej regresji.
+
+## Otwarte decyzje właściciela projektu
 
 1. **Czy updater Windows ma obsługiwać rozpakowanie ZIP w ramach aktualizacji?** (Aktualny artefakt to ZIP z wieloma plikami: EXE, DLL, bazy danych). Czy docelowo format Windows zmieni się na standalone EXE lub MSI?
 2. **Czy plik `serviceLOG.db` powinien być w archiwum wydania?** (Obecnie jest pakowany. Powinien być instalowany tylko przy pierwszym uruchomieniu, nie nadpisywany przy aktualizacji.)

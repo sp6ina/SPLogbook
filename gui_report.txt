@@ -1,0 +1,120 @@
+--- advanced_filter.rs (232 lines) ---
+
+--- app.rs (5807 lines) ---
+
+--- app_export.rs (404 lines) ---
+
+--- app_layout.rs (1041 lines) ---
+
+--- astronomy_dialog.rs (242 lines) ---
+
+--- awards_matrix.rs (861 lines) ---
+
+--- bandmap.rs (479 lines) ---
+
+--- cat_settings.rs (591 lines) ---
+
+--- changelog.rs (186 lines) ---
+
+--- cluster_panel.rs (985 lines) ---
+
+--- command_palette.rs (419 lines) ---
+
+--- contest.rs (881 lines) ---
+Error handling calls:
+  Line 729: &format!("{ip}:{port}").parse().unwrap_or_else(|_| "127.0.0.1:7373".parse().unwrap()),
+
+--- csv_export_dialog.rs (236 lines) ---
+
+--- cw_macros.rs (89 lines) ---
+
+--- cw_terminal.rs (186 lines) ---
+
+--- find_duplicates.rs (328 lines) ---
+
+--- icons.rs (247 lines) ---
+
+--- iota_browser.rs (185 lines) ---
+
+--- journal_manager.rs (239 lines) ---
+
+--- logbook_table.rs (1079 lines) ---
+
+--- marketplace.rs (344 lines) ---
+
+--- mini_hud.rs (349 lines) ---
+
+--- mod.rs (103 lines) ---
+
+--- online_sync.rs (705 lines) ---
+
+--- operator_assistant.rs (360 lines) ---
+
+--- photo_viewer.rs (97 lines) ---
+
+--- plugin_manager.rs (152 lines) ---
+
+--- prefix_manager.rs (129 lines) ---
+
+--- qsl_designer.rs (433 lines) ---
+
+--- qsl_manager.rs (145 lines) ---
+
+--- qso_entry.rs (827 lines) ---
+
+--- satellites.rs (370 lines) ---
+
+--- send_spot.rs (169 lines) ---
+
+--- solar_panel.rs (393 lines) ---
+
+--- sota_dialog.rs (113 lines) ---
+
+--- states_browser.rs (181 lines) ---
+
+--- station_ledger.rs (339 lines) ---
+
+--- station_profiles.rs (400 lines) ---
+
+--- statistics.rs (644 lines) ---
+
+--- theme.rs (209 lines) ---
+
+--- user_manual.rs (755 lines) ---
+
+--- vfo_panel.rs (629 lines) ---
+
+--- voice_keyer.rs (170 lines) ---
+
+--- waterfall_panel.rs (573 lines) ---
+
+--- welcome_wizard.rs (624 lines) ---
+
+--- wol_dialog.rs (114 lines) ---
+
+--- workspace_profiles.rs (326 lines) ---
+
+--- world_map.rs (1160 lines) ---
+
+--- wspr_panel.rs (209 lines) ---
+
+--- menu\edit.rs (22 lines) ---
+
+--- menu\file.rs (108 lines) ---
+
+--- menu\help.rs (121 lines) ---
+
+--- menu\mod.rs (538 lines) ---
+
+--- menu\operation.rs (199 lines) ---
+
+--- menu\references.rs (65 lines) ---
+
+--- menu\settings.rs (136 lines) ---
+
+--- menu\tools.rs (92 lines) ---
+
+--- menu\view.rs (138 lines) ---
+
+--- menu\workspace.rs (52 lines) ---
+
