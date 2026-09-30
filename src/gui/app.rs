@@ -3712,12 +3712,6 @@ impl SpLogApp {
         });
     }
 
-
-
-
-
-
-
     pub fn toggle_cat_proxy_server(&mut self) {
         if self.cat_sharing_enabled {
             if let Some(srv) = self.cat_proxy_server.take() {
@@ -4451,6 +4445,9 @@ impl eframe::App for SpLogApp {
                                 .await;
                         });
                     }
+                }
+                crate::cat::server::RigServerCommand::SetPassband(pb) => {
+                    self.rig_state.passband_hz = pb;
                 }
             }
         }
