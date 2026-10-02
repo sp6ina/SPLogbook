@@ -174,8 +174,8 @@ pub fn radioinfo_xml(freq_hz: u64, mode: &str, my_call: &str, radio_nr: u8) -> S
 
 /// Zamienia pasmo ADIF (np. "20m", "70cm") na wartość numeryczną akceptowaną przez N1MM (np. "20", "432").
 fn band_to_meters(band: &str) -> String {
-    let b = band.to_lowercase();
-    match b.as_str() {
+    let band_lower = band.to_lowercase();
+    match band_lower.as_str() {
         "160m" => "1.8",
         "80m" => "3.5",
         "60m" => "5.3",

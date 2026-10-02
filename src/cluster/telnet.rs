@@ -53,12 +53,12 @@ pub const CLUSTER_PRESETS: &[(&str, &str, u16)] = &[
 
 /// Sprawdza czy host należy do historycznych, nieaktywnych już serwerów domyślnych.
 pub fn is_dead_legacy_cluster_host(host: &str) -> bool {
-    let h = host.trim().to_ascii_lowercase();
-    h.is_empty()
-        || h == "cluster.sp7pka.ampr.org"
-        || h == "sr5dxc.ampr.org"
-        || h == "gb7dxm.shacknet.nu"
-        || h == "ve7cc.net"
+    let normalized_host = host.trim().to_ascii_lowercase();
+    normalized_host.is_empty()
+        || normalized_host == "cluster.sp7pka.ampr.org"
+        || normalized_host == "sr5dxc.ampr.org"
+        || normalized_host == "gb7dxm.shacknet.nu"
+        || normalized_host == "ve7cc.net"
 }
 
 /// Normalizuje znak wywoławczy do logowania w klastrze Telnet (węzły DXSpider/AR-Cluster

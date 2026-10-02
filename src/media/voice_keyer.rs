@@ -102,13 +102,13 @@ fn wait_until_done_or_stopped(player: &Player) {
 
 /// Zwraca indeks następnego włączonego slotu (z zawinięciem, pomija wyłączone).
 pub fn next_enabled_index(messages: &[VoiceKeyerMessage], current: Option<usize>) -> Option<usize> {
-    let n = messages.len();
-    if n == 0 {
+    let count = messages.len();
+    if count == 0 {
         return None;
     }
-    let start = current.map_or(0, |c| (c + 1) % n);
-    for i in 0..n {
-        let idx = (start + i) % n;
+    let start = current.map_or(0, |c| (c + 1) % count);
+    for i in 0..count {
+        let idx = (start + i) % count;
         if messages[idx].enabled {
             return Some(idx);
         }
@@ -118,13 +118,13 @@ pub fn next_enabled_index(messages: &[VoiceKeyerMessage], current: Option<usize>
 
 /// Zwraca indeks poprzedniego włączonego slotu (z zawinięciem, pomija wyłączone).
 pub fn prev_enabled_index(messages: &[VoiceKeyerMessage], current: Option<usize>) -> Option<usize> {
-    let n = messages.len();
-    if n == 0 {
+    let count = messages.len();
+    if count == 0 {
         return None;
     }
-    let start = current.map_or(n - 1, |c| (c + n - 1) % n);
-    for i in 0..n {
-        let idx = (start + n - i) % n;
+    let start = current.map_or(count - 1, |c| (c + count - 1) % count);
+    for i in 0..count {
+        let idx = (start + count - i) % count;
         if messages[idx].enabled {
             return Some(idx);
         }

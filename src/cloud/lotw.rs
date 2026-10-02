@@ -27,8 +27,8 @@ pub const DEFAULT_TQSL_PATHS: &[&str] = &[
 
 /// Wykrywa czy program Trusted QSL jest zainstalowany w standardowej lokalizacji lub w PATH
 pub fn detect_tqsl_path() -> Option<PathBuf> {
-    for p in DEFAULT_TQSL_PATHS {
-        let path = Path::new(p);
+    for candidate in DEFAULT_TQSL_PATHS {
+        let path = Path::new(candidate);
         if path.exists() && path.is_file() {
             return Some(path.to_path_buf());
         }
@@ -41,9 +41,9 @@ pub fn detect_tqsl_path() -> Option<PathBuf> {
         } else {
             ':'
         };
-        for p in path_var.split(separator) {
-            for b in &bin_names {
-                let p_buf = PathBuf::from(p).join(b);
+        for dir in path_var.split(separator) {
+            for bin_name in &bin_names {
+                let p_buf = PathBuf::from(dir).join(bin_name);
                 if p_buf.exists() && p_buf.is_file() {
                     return Some(p_buf);
                 }
@@ -205,15 +205,15 @@ pub fn parse_lotw_confirmations(adif: &str) -> Vec<LotwConfirmation> {
     let mut confirmations = Vec::new();
     let qsos = crate::core::adif::parse_adif(adif);
 
-    for q in qsos {
-        let rdate = q
+    for qso in qsos {
+        let rdate = qso
             .lotw_qslrdate
             .unwrap_or_else(|| chrono::Utc::now().format("%Y%m%d").to_string());
         confirmations.push(LotwConfirmation {
-            callsign: q.callsign,
-            band: q.band.to_lowercase(),
-            mode: q.mode,
-            qso_date: q.qso_date,
+            callsign: qso.callsign,
+            band: qso.band.to_lowercase(),
+            mode: qso.mode,
+            qso_date: qso.qso_date,
             qsl_rdate: rdate,
         });
     }

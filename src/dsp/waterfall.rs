@@ -23,8 +23,8 @@ pub fn hann_window(size: usize) -> Vec<f32> {
     let denom = (size - 1) as f32;
     (0..size)
         .map(|i| {
-            let t = i as f32 / denom;
-            0.5 - 0.5 * (2.0 * std::f32::consts::PI * t).cos()
+            let frac = i as f32 / denom;
+            0.5 - 0.5 * (2.0 * std::f32::consts::PI * frac).cos()
         })
         .collect()
 }
@@ -53,8 +53,8 @@ pub fn spectrum_dbfs(samples: &[f32], fft_size: usize, floor_db: f32) -> Vec<f32
 
     let mut buf: Vec<Complex<f32>> = (0..fft_size)
         .map(|i| {
-            let s = samples.get(i).copied().unwrap_or(0.0);
-            Complex::new(s * window[i], 0.0)
+            let sample = samples.get(i).copied().unwrap_or(0.0);
+            Complex::new(sample * window[i], 0.0)
         })
         .collect();
     fft.process(&mut buf);
@@ -63,8 +63,8 @@ pub fn spectrum_dbfs(samples: &[f32], fft_size: usize, floor_db: f32) -> Vec<f32
     let bins = fft_size / 2;
     (0..bins)
         .map(|i| {
-            let c = buf[i];
-            let mag = (c.re * c.re + c.im * c.im).sqrt() * norm;
+            let complex = buf[i];
+            let mag = (complex.re * complex.re + complex.im * complex.im).sqrt() * norm;
             power_to_dbfs(mag * mag, floor_db)
         })
         .collect()
@@ -92,25 +92,25 @@ impl SampleRing {
         if samples.is_empty() {
             return;
         }
-        let mut q = self
+        let mut queue = self
             .inner
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         for &s in samples {
-            if q.len() >= self.capacity {
-                q.pop_front();
+            if queue.len() >= self.capacity {
+                queue.pop_front();
             }
-            q.push_back(s);
+            queue.push_back(s);
         }
     }
 
     /// Przenosi wszystkie zgromadzone próbki do `out` (w kolejności chronologicznej).
     pub fn drain(&self, out: &mut Vec<f32>) {
-        let mut q = self
+        let mut queue = self
             .inner
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        out.extend(q.drain(..));
+        out.extend(queue.drain(..));
     }
 
     pub fn len(&self) -> usize {
@@ -211,8 +211,8 @@ impl WaterfallEngine {
             let bins = self.fft_size / 2;
             let row: Vec<f32> = (0..bins)
                 .map(|i| {
-                    let c = self.scratch[i];
-                    let mag = (c.re * c.re + c.im * c.im).sqrt() * norm;
+                    let complex = self.scratch[i];
+                    let mag = (complex.re * complex.re + complex.im * complex.im).sqrt() * norm;
                     let db = power_to_dbfs(mag * mag, self.floor_db) + self.gain_db;
                     db.max(self.floor_db)
                 })

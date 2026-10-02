@@ -181,11 +181,11 @@ impl AudioRecorder {
 
         #[cfg(not(target_os = "windows"))]
         {
-            let p = file_path.to_path_buf();
+            let path = file_path.to_path_buf();
             let child = std::process::Command::new("aplay")
-                .arg(&p)
+                .arg(&path)
                 .spawn()
-                .or_else(|_| std::process::Command::new("pw-play").arg(&p).spawn())
+                .or_else(|_| std::process::Command::new("pw-play").arg(&path).spawn())
                 .map_err(|e| format!("Nie udało się uruchomić odtwarzacza audio: {e}"))?;
             if let Ok(mut guard) = LINUX_PLAY_CHILD.lock() {
                 *guard = Some(child);

@@ -138,7 +138,7 @@ pub fn qso_key(qso: &QsoRecord) -> String {
 /// Pola liczbowe (`f64`/`u32`) oraz tekstowe są zliczane osobno, ponieważ
 /// w tablicy muszą mieć jednolity typ.
 fn richness(qso: &QsoRecord) -> usize {
-    let mut n = 0;
+    let mut count = 0;
 
     for filled in [
         qso.submode.as_ref(),
@@ -175,33 +175,33 @@ fn richness(qso: &QsoRecord) -> usize {
         qso.my_sota_ref.as_ref(),
     ] {
         if filled.is_some() {
-            n += 1;
+            count += 1;
         }
     }
 
     if qso.freq.is_some() {
-        n += 1;
+        count += 1;
     }
     if qso.freq_rx.is_some() {
-        n += 1;
+        count += 1;
     }
     if qso.dxcc.is_some() {
-        n += 1;
+        count += 1;
     }
     if qso.cqz.is_some() {
-        n += 1;
+        count += 1;
     }
     if qso.ituz.is_some() {
-        n += 1;
+        count += 1;
     }
     if qso.srx.is_some() {
-        n += 1;
+        count += 1;
     }
     if qso.stx.is_some() {
-        n += 1;
+        count += 1;
     }
 
-    n
+    count
 }
 
 /// Scala dwa zbiory rekordów. Przy kolizji klucza wygrywa rekord o większej
@@ -211,32 +211,32 @@ pub fn merge_logs(local: &[QsoRecord], remote: &[QsoRecord]) -> Vec<QsoRecord> {
     use std::collections::HashMap;
 
     let mut remote_by_key: HashMap<String, &QsoRecord> = HashMap::new();
-    for q in remote {
-        remote_by_key.entry(qso_key(q)).or_insert(q);
+    for qso in remote {
+        remote_by_key.entry(qso_key(qso)).or_insert(qso);
     }
 
     let mut result: Vec<QsoRecord> = Vec::with_capacity(local.len() + remote.len());
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-    for q in local {
-        let key = qso_key(q);
+    for qso in local {
+        let key = qso_key(qso);
         seen.insert(key.clone());
         if let Some(remote_q) = remote_by_key.get(&key) {
             // Konflikt: wybierz rekord bogatszy w dane.
-            if richness(remote_q) > richness(q) {
+            if richness(remote_q) > richness(qso) {
                 result.push((*remote_q).clone());
             } else {
-                result.push(q.clone());
+                result.push(qso.clone());
             }
         } else {
-            result.push(q.clone());
+            result.push(qso.clone());
         }
     }
 
-    for q in remote {
-        let key = qso_key(q);
+    for qso in remote {
+        let key = qso_key(qso);
         if seen.insert(key) {
-            result.push(q.clone());
+            result.push(qso.clone());
         }
     }
 

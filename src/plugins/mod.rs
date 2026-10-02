@@ -42,12 +42,12 @@ struct PluginState {
 
 /// Dodaje polecenie do kolejki współdzielonego stanu pluginów.
 fn push_command(state: &Arc<PluginState>, cmd: PluginCommand) {
-    let mut v = state
+    let mut commands = state
         .commands
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if v.len() < 256 {
-        v.push(cmd);
+    if commands.len() < 256 {
+        commands.push(cmd);
     }
 }
 
@@ -104,25 +104,25 @@ impl PluginEngine {
         // --- Bezpieczne API udostępniane skryptom ---
         let log_state = Arc::clone(&state);
         engine.register_fn("log", move |msg: &str| {
-            let mut v = log_state
+            let mut log = log_state
                 .log
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            v.push(msg.to_string());
-            if v.len() > 500 {
-                v.remove(0);
+            log.push(msg.to_string());
+            if log.len() > 500 {
+                log.remove(0);
             }
         });
 
         let notify_state = Arc::clone(&state);
         engine.register_fn("notify", move |msg: &str| {
-            let mut v = notify_state
+            let mut notifications = notify_state
                 .notifications
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            v.push(msg.to_string());
-            if v.len() > 100 {
-                v.remove(0);
+            notifications.push(msg.to_string());
+            if notifications.len() > 100 {
+                notifications.remove(0);
             }
         });
 
@@ -310,22 +310,22 @@ impl PluginEngine {
 
     /// Ustawia migawkę stanu widoczną dla getterów pluginów.
     pub fn set_snapshot(&self, snapshot: PluginSnapshot) {
-        let mut w = self
+        let mut snapshot_guard = self
             .state
             .snapshot
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        *w = snapshot;
+        *snapshot_guard = snapshot;
     }
 
     /// Pobiera zakolejkowane przez pluginy polecenia i czyści bufor.
     pub fn drain_commands(&self) -> Vec<PluginCommand> {
-        let mut v = self
+        let mut commands = self
             .state
             .commands
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        std::mem::take(&mut *v)
+        std::mem::take(&mut *commands)
     }
 
     /// Włącza/wyłącza wykonywanie pluginów (bez wyładowywania skryptów).
@@ -418,22 +418,22 @@ impl PluginEngine {
 
     /// Pobiera zebrane komunikaty `log(...)` i czyści bufor.
     pub fn drain_log(&self) -> Vec<String> {
-        let mut v = self
+        let mut log = self
             .state
             .log
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        std::mem::take(&mut *v)
+        std::mem::take(&mut *log)
     }
 
     /// Pobiera zebrane powiadomienia `notify(...)` i czyści bufor.
     pub fn drain_notifications(&self) -> Vec<String> {
-        let mut v = self
+        let mut notifications = self
             .state
             .notifications
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        std::mem::take(&mut *v)
+        std::mem::take(&mut *notifications)
     }
 
     fn run_hook(&self, hook: &str, args: &[rhai::Dynamic]) {

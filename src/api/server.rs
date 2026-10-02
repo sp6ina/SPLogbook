@@ -96,8 +96,8 @@ pub fn generate_api_key() -> String {
     let mut bytes = [0u8; 32];
     rand::fill(&mut bytes);
     let mut key = String::with_capacity(64);
-    for b in bytes {
-        let _ = write!(key, "{b:02x}");
+    for byte in bytes {
+        let _ = write!(key, "{byte:02x}");
     }
     key
 }
@@ -1113,27 +1113,27 @@ async fn post_rig_control(
 }
 
 async fn get_awards_summary(State(state): State<ApiState>) -> Json<AwardsSummaryResponse> {
-    let a = state
+    let awards = state
         .awards_engine
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     Json(AwardsSummaryResponse {
-        dxcc_worked: a.worked_dxcc_all.len(),
-        dxcc_confirmed: a.confirmed_dxcc.len(),
-        waz_worked: a.worked_waz.len(),
-        waz_confirmed: a.confirmed_waz.len(),
-        wac_worked: a.worked_wac.len(),
-        wac_confirmed: a.confirmed_wac.len(),
-        was_worked: a.worked_was.len(),
-        was_confirmed: a.confirmed_was.len(),
-        wpx_worked: a.worked_wpx.len(),
-        vucc_grids_worked: a.worked_vucc.len(),
-        iota_worked: a.worked_iota.len(),
-        sota_worked: a.worked_sota.len(),
-        pota_worked: a.worked_pota.len(),
-        pga_worked: a.worked_pga.len(),
-        sp_districts_worked: a.worked_sp_districts.len(),
-        sp_districts_confirmed: a.confirmed_sp_districts.len(),
+        dxcc_worked: awards.worked_dxcc_all.len(),
+        dxcc_confirmed: awards.confirmed_dxcc.len(),
+        waz_worked: awards.worked_waz.len(),
+        waz_confirmed: awards.confirmed_waz.len(),
+        wac_worked: awards.worked_wac.len(),
+        wac_confirmed: awards.confirmed_wac.len(),
+        was_worked: awards.worked_was.len(),
+        was_confirmed: awards.confirmed_was.len(),
+        wpx_worked: awards.worked_wpx.len(),
+        vucc_grids_worked: awards.worked_vucc.len(),
+        iota_worked: awards.worked_iota.len(),
+        sota_worked: awards.worked_sota.len(),
+        pota_worked: awards.worked_pota.len(),
+        pga_worked: awards.worked_pga.len(),
+        sp_districts_worked: awards.worked_sp_districts.len(),
+        sp_districts_confirmed: awards.confirmed_sp_districts.len(),
     })
 }
 

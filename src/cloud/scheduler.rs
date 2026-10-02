@@ -209,19 +209,19 @@ impl UploadScheduler {
 
     /// Migawka statusu dla jednego serwisu.
     pub fn service_status(&self, service: UploadService) -> UploadServiceStatus {
-        let mut s = UploadServiceStatus::default();
+        let mut status = UploadServiceStatus::default();
         for job in self.jobs.iter().filter(|j| j.service == service) {
             match job.status {
-                UploadJobStatus::Pending => s.pending += 1,
-                UploadJobStatus::InFlight => s.in_flight += 1,
-                UploadJobStatus::Done => s.done += 1,
+                UploadJobStatus::Pending => status.pending += 1,
+                UploadJobStatus::InFlight => status.in_flight += 1,
+                UploadJobStatus::Done => status.done += 1,
                 UploadJobStatus::Failed => {
-                    s.failed += 1;
-                    s.last_error.clone_from(&job.last_error);
+                    status.failed += 1;
+                    status.last_error.clone_from(&job.last_error);
                 }
             }
         }
-        s
+        status
     }
 
     /// Migawka statusu wszystkich serwisów.

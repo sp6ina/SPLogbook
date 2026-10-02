@@ -9,33 +9,33 @@ use tokio::sync::mpsc;
 const WSJTX_MAGIC: u32 = 0xadbc_cbda;
 
 fn read_u8(rdr: &mut Cursor<&[u8]>) -> Option<u8> {
-    let mut b = [0u8; 1];
-    rdr.read_exact(&mut b).ok()?;
-    Some(b[0])
+    let mut buf = [0u8; 1];
+    rdr.read_exact(&mut buf).ok()?;
+    Some(buf[0])
 }
 
 fn read_u32_be(rdr: &mut Cursor<&[u8]>) -> Option<u32> {
-    let mut b = [0u8; 4];
-    rdr.read_exact(&mut b).ok()?;
-    Some(u32::from_be_bytes(b))
+    let mut buf = [0u8; 4];
+    rdr.read_exact(&mut buf).ok()?;
+    Some(u32::from_be_bytes(buf))
 }
 
 fn read_i32_be(rdr: &mut Cursor<&[u8]>) -> Option<i32> {
-    let mut b = [0u8; 4];
-    rdr.read_exact(&mut b).ok()?;
-    Some(i32::from_be_bytes(b))
+    let mut buf = [0u8; 4];
+    rdr.read_exact(&mut buf).ok()?;
+    Some(i32::from_be_bytes(buf))
 }
 
 fn read_u64_be(rdr: &mut Cursor<&[u8]>) -> Option<u64> {
-    let mut b = [0u8; 8];
-    rdr.read_exact(&mut b).ok()?;
-    Some(u64::from_be_bytes(b))
+    let mut buf = [0u8; 8];
+    rdr.read_exact(&mut buf).ok()?;
+    Some(u64::from_be_bytes(buf))
 }
 
 fn read_i64_be(rdr: &mut Cursor<&[u8]>) -> Option<i64> {
-    let mut b = [0u8; 8];
-    rdr.read_exact(&mut b).ok()?;
-    Some(i64::from_be_bytes(b))
+    let mut buf = [0u8; 8];
+    rdr.read_exact(&mut buf).ok()?;
+    Some(i64::from_be_bytes(buf))
 }
 
 /// Pakiet zdekodowany z WSJT-X / JTDX
