@@ -991,14 +991,7 @@ async fn import_adif_handler(
             validation_errors.push(reason);
             continue;
         }
-        let key = format!(
-            "{}|{}|{}|{}|{}",
-            qso.callsign.to_uppercase(),
-            qso.band.to_uppercase(),
-            qso.mode.to_uppercase(),
-            qso.qso_date.replace('-', ""),
-            qso.time_on.replace(':', "")
-        );
+        let key = qso.dedup_key();
         if !seen_keys.insert(key) {
             validation_rejected += 1;
             validation_errors.push("duplikat (rekord już istnieje w dzienniku)".to_string());

@@ -3358,14 +3358,7 @@ impl SpLogApp {
                             first_validation_error.get_or_insert(reason);
                             continue;
                         }
-                        let key = format!(
-                            "{}|{}|{}|{}|{}",
-                            qso.callsign.to_uppercase(),
-                            qso.band.to_uppercase(),
-                            qso.mode.to_uppercase(),
-                            qso.qso_date.replace('-', ""),
-                            qso.time_on.replace(':', "")
-                        );
+                        let key = qso.dedup_key();
                         if !seen_keys.insert(key) {
                             skipped_duplicates += 1;
                             continue;

@@ -261,6 +261,20 @@ impl QsoRecord {
         self.time_on.replace(':', "")
     }
 
+    /// Zwraca klucz jednoznaczności QSO (`ZNAK|PASMO|EMISJA|DATA|CZAS`), używany do
+    /// idempotentnego importu ADIF: rekordy o tym samym kluczu są pomijane jako
+    /// duplikaty. Format jest zgodny z `LogDatabase::existing_qso_keys`.
+    pub fn dedup_key(&self) -> String {
+        format!(
+            "{}|{}|{}|{}|{}",
+            self.callsign.to_uppercase(),
+            self.band.to_uppercase(),
+            self.mode.to_uppercase(),
+            self.qso_date.replace('-', ""),
+            self.time_on.replace(':', "")
+        )
+    }
+
     /// Centralna walidacja domenowa rekordu QSO. Zwraca `Ok(())` gdy rekord
     /// nadaje się do zapisania, lub `Err` z opisem pierwszego wykrytego błędu.
     /// Wywoływana przy zapisie z formularza, edycji i imporcie, aby uniemożliwić
