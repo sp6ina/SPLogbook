@@ -208,7 +208,9 @@ pub struct SpLogApp {
     pub sat_auto_track_rotator: bool,
     pub sat_auto_tune_radio: bool,
     pub sat_passes: Vec<crate::core::satellite::SatellitePass>,
-    pub sat_passes_key: String,
+    pub sat_passes_sat: String,
+    pub sat_passes_grid: String,
+    pub sat_passes_minute: u64,
 
     // Historia warunków solarnych (dla wykresu + alertu)
     pub solar_history: Vec<SpaceWeather>,
@@ -929,7 +931,9 @@ impl SpLogApp {
             sat_auto_track_rotator: true,
             sat_auto_tune_radio: true,
             sat_passes: Vec::new(),
-            sat_passes_key: String::new(),
+            sat_passes_sat: String::new(),
+            sat_passes_grid: String::new(),
+            sat_passes_minute: u64::MAX,
 
             solar_history: vec![SpaceWeather::default()],
             solar_loading: false,
@@ -3846,14 +3850,15 @@ impl SpLogApp {
     pub fn refresh_satellite_tracking(&mut self) {
         let now = crate::cloud::scheduler::now_unix() as f64;
         let minute = (now / 60.0) as u64;
-        let key = format!(
-            "{}|{}|{}",
-            self.selected_satellite, self.my_station.gridsquare, minute
-        );
-        if self.sat_passes_key == key {
+        if self.sat_passes_sat == self.selected_satellite
+            && self.sat_passes_grid == self.my_station.gridsquare
+            && self.sat_passes_minute == minute
+        {
             return;
         }
-        self.sat_passes_key = key;
+        self.sat_passes_sat.clone_from(&self.selected_satellite);
+        self.sat_passes_grid.clone_from(&self.my_station.gridsquare);
+        self.sat_passes_minute = minute;
 
         let def = crate::core::satellite::default_satellites()
             .into_iter()
