@@ -153,8 +153,8 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                                 let count = confs.len();
                                                                 let mut updated = 0;
                                                                 if let Ok(db) = log_db.lock() {
-                                                                    for c in confs {
-                                                                        if let Ok(n) = db.mark_lotw_confirmed(&c.callsign, &c.band, &c.mode, &c.qso_date, &c.qsl_rdate) {
+                                                                    for conf in confs {
+                                                                        if let Ok(n) = db.mark_lotw_confirmed(&conf.callsign, &conf.band, &conf.mode, &conf.qso_date, &conf.qsl_rdate) {
                                                                             updated += n;
                                                                         }
                                                                     }
@@ -226,9 +226,9 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                                 let qsos = crate::core::adif::parse_adif(&adif);
                                                                 let mut updated = 0;
                                                                 if let Ok(db) = log_db.lock() {
-                                                                    for q in &qsos {
-                                                                        let rdate = q.eqsl_qslrdate.as_deref().unwrap_or(&q.qso_date);
-                                                                        if let Ok(n) = db.mark_eqsl_confirmed(&q.callsign, &q.band, &q.mode, &q.qso_date, rdate) {
+                                                                    for qso in &qsos {
+                                                                        let rdate = qso.eqsl_qslrdate.as_deref().unwrap_or(&qso.qso_date);
+                                                                        if let Ok(n) = db.mark_eqsl_confirmed(&qso.callsign, &qso.band, &qso.mode, &qso.qso_date, rdate) {
                                                                             updated += n;
                                                                         }
                                                                     }
@@ -635,23 +635,23 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     ui.horizontal(|ui| {
                                         if ui.button("🔁 Ponów nieudane").clicked() {
                                             let now = crate::cloud::scheduler::now_unix();
-                                            let n = app.upload_scheduler.lock().map_or(0, |mut s| {
-                                                let n = s.retry_failed(now);
+                                            let retry_count = app.upload_scheduler.lock().map_or(0, |mut s| {
+                                                let retried = s.retry_failed(now);
                                                 s.save_to_disk();
-                                                n
+                                                retried
                                             });
-                                            if n > 0 {
-                                                app.online_sync_logs.push(format!("Ponowiono {n} nieudanych zadań wysyłki."));
+                                            if retry_count > 0 {
+                                                app.online_sync_logs.push(format!("Ponowiono {retry_count} nieudanych zadań wysyłki."));
                                             }
                                         }
                                         if ui.button("🧹 Wyczyść wysłane").clicked() {
-                                            let n = app.upload_scheduler.lock().map_or(0, |mut s| {
-                                                let n = s.purge_done();
+                                            let purged_count = app.upload_scheduler.lock().map_or(0, |mut s| {
+                                                let purged = s.purge_done();
                                                 s.save_to_disk();
-                                                n
+                                                purged
                                             });
-                                            if n > 0 {
-                                                app.online_sync_logs.push(format!("Usunięto {n} zakończonych zadań z kolejki."));
+                                            if purged_count > 0 {
+                                                app.online_sync_logs.push(format!("Usunięto {purged_count} zakończonych zadań z kolejki."));
                                             }
                                         }
                                     });

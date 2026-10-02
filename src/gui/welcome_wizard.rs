@@ -60,7 +60,7 @@ pub fn render_welcome_wizard(app: &mut SpLogApp, ctx: &egui::Context) {
                     ui.add_space(8.0);
 
                     // Bezpośrednie przyciski wyboru języka z flagami (1-klik, brak popupu)
-                    for (l, flag, name) in [
+                    for (language, flag, name) in [
                         (Language::Ru, "🇷🇺", "RU"),
                         (Language::It, "🇮🇹", "IT"),
                         (Language::Es, "🇪🇸", "ES"),
@@ -69,7 +69,7 @@ pub fn render_welcome_wizard(app: &mut SpLogApp, ctx: &egui::Context) {
                         (Language::En, "🇬🇧", "EN"),
                         (Language::Pl, "🇵🇱", "PL"),
                     ] {
-                        let is_sel = lang == l;
+                        let is_sel = lang == language;
                         let fill = if is_sel {
                             egui::Color32::from_rgb(30, 64, 100)
                         } else {
@@ -87,7 +87,7 @@ pub fn render_welcome_wizard(app: &mut SpLogApp, ctx: &egui::Context) {
                         .fill(fill);
 
                         if ui.add(btn).clicked() {
-                            app.current_language = l;
+                            app.current_language = language;
                         }
                     }
 
@@ -261,8 +261,12 @@ fn render_tab_station(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
                 )
                 .changed()
             {
-                let u = pga.to_uppercase();
-                app.my_station.pga_gmina = if u.trim().is_empty() { None } else { Some(u) };
+                let pga_upper = pga.to_uppercase();
+                app.my_station.pga_gmina = if pga_upper.trim().is_empty() {
+                    None
+                } else {
+                    Some(pga_upper)
+                };
             }
             ui.end_row();
 
@@ -461,7 +465,7 @@ fn render_tab_appearance(
     ui.add_space(4.0);
 
     ui.horizontal_wrapped(|ui| {
-        for (l, flag, name) in [
+        for (language, flag, name) in [
             (Language::Pl, "PL", "Polski"),
             (Language::En, "EN", "English"),
             (Language::De, "DE", "Deutsch"),
@@ -470,7 +474,7 @@ fn render_tab_appearance(
             (Language::It, "IT", "Italiano"),
             (Language::Ru, "RU", "Russkiy"),
         ] {
-            let selected = lang == l;
+            let selected = lang == language;
             let fill = if selected {
                 egui::Color32::from_rgb(30, 64, 100)
             } else {
@@ -479,7 +483,7 @@ fn render_tab_appearance(
             let btn = egui::Button::new(egui::RichText::new(format!("[{flag}] {name}")).size(12.0))
                 .fill(fill);
             if ui.add_sized([115.0, 34.0], btn).clicked() {
-                app.current_language = l;
+                app.current_language = language;
             }
         }
     });

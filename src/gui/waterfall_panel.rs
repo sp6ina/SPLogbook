@@ -63,8 +63,8 @@ impl WaterfallPanel {
     pub fn refresh_devices(&mut self) {
         self.device_names.clear();
         if let Ok(devices) = cpal::default_host().input_devices() {
-            for d in devices {
-                self.device_names.push(d.to_string());
+            for device in devices {
+                self.device_names.push(device.to_string());
             }
         }
         self.devices_loaded = true;
@@ -196,8 +196,8 @@ impl WaterfallPanel {
             egui::ComboBox::from_id_salt("waterfall_fft")
                 .selected_text(format!("{}", FFT_SIZES[self.fft_idx]))
                 .show_ui(ui, |ui| {
-                    for (i, n) in FFT_SIZES.iter().enumerate() {
-                        ui.selectable_value(&mut self.fft_idx, i, n.to_string());
+                    for (i, size) in FFT_SIZES.iter().enumerate() {
+                        ui.selectable_value(&mut self.fft_idx, i, size.to_string());
                     }
                 });
         });
@@ -344,8 +344,8 @@ impl WaterfallPanel {
         let painter = ui.painter();
         painter.rect_filled(rect, 0.0, egui::Color32::from_gray(8));
 
-        let n = row.len();
-        if n < 2 {
+        let count = row.len();
+        if count < 2 {
             return;
         }
         let floor_db = if self.floor_db.is_finite() {
@@ -358,14 +358,14 @@ impl WaterfallPanel {
             .iter()
             .enumerate()
             .map(|(i, &db)| {
-                let x = rect.left() + rect.width() * (i as f32 / (n - 1) as f32);
+                let x_pos = rect.left() + rect.width() * (i as f32 / (count - 1) as f32);
                 let norm = if db.is_finite() {
                     ((db - floor_db) / denom).clamp(0.0, 1.0)
                 } else {
                     0.0
                 };
-                let y = rect.bottom() - norm * rect.height();
-                egui::pos2(x, y)
+                let y_pos = rect.bottom() - norm * rect.height();
+                egui::pos2(x_pos, y_pos)
             })
             .collect();
 
@@ -463,7 +463,7 @@ fn icons_stop() -> &'static str {
 /// Mapuje wartość znormalizowaną (0..1) na kolor waterfallu:
 /// czarny → granat → cyjan → zielony → żółty → czerwony.
 fn waterfall_color(t: f32) -> egui::Color32 {
-    let t = t.clamp(0.0, 1.0);
+    let value = t.clamp(0.0, 1.0);
     let stops: [(f32, (u8, u8, u8)); 6] = [
         (0.00, (0, 0, 0)),
         (0.25, (0, 0, 128)),
@@ -472,16 +472,20 @@ fn waterfall_color(t: f32) -> egui::Color32 {
         (0.85, (255, 230, 0)),
         (1.00, (255, 0, 0)),
     ];
-    for w in stops.windows(2) {
-        let (t0, c0) = w[0];
-        let (t1, c1) = w[1];
-        if t <= t1 {
-            let f = if t1 > t0 { (t - t0) / (t1 - t0) } else { 0.0 };
-            let f = f.clamp(0.0, 1.0);
-            let r = lerp_u8(c0.0, c1.0, f);
-            let g = lerp_u8(c0.1, c1.1, f);
-            let b = lerp_u8(c0.2, c1.2, f);
-            return egui::Color32::from_rgb(r, g, b);
+    for window in stops.windows(2) {
+        let (t0, c0) = window[0];
+        let (t1, c1) = window[1];
+        if value <= t1 {
+            let frac = if t1 > t0 {
+                (value - t0) / (t1 - t0)
+            } else {
+                0.0
+            };
+            let frac = frac.clamp(0.0, 1.0);
+            let red = lerp_u8(c0.0, c1.0, frac);
+            let green = lerp_u8(c0.1, c1.1, frac);
+            let blue = lerp_u8(c0.2, c1.2, frac);
+            return egui::Color32::from_rgb(red, green, blue);
         }
     }
     egui::Color32::from_rgb(255, 0, 0)

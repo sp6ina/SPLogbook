@@ -371,9 +371,9 @@ pub fn render_world_map_window(app: &mut SpLogApp, ctx: &egui::Context) {
             app.save_station_config();
         }
         if res.response.dragged() || res.response.drag_stopped() {
-            let r = res.response.rect;
-            let new_pos = [r.min.x, r.min.y];
-            let new_size = [r.width(), r.height()];
+            let rect = res.response.rect;
+            let new_pos = [rect.min.x, rect.min.y];
+            let new_size = [rect.width(), rect.height()];
             app.panel_world_map.saved_pos = Some(new_pos);
             app.panel_world_map.saved_size = Some(new_size);
             if res.response.drag_stopped() {
@@ -995,20 +995,22 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
             let mut prev_pt = my_pos;
             for step in 1..=36 {
-                let t = step as f64 / 36.0;
+                let interp_t = step as f64 / 36.0;
                 let (int_lat, int_lon) = if sin_omega.abs() > 1e-6 {
-                    let a = ((1.0 - t) * omega).sin() / sin_omega;
-                    let b = (t * omega).sin() / sin_omega;
-                    let x = a * v1[0] + b * v2[0];
-                    let y = a * v1[1] + b * v2[1];
-                    let z = a * v1[2] + b * v2[2];
-                    let lat = z.atan2((x * x + y * y).sqrt()).to_degrees();
-                    let lon = y.atan2(x).to_degrees();
+                    let start_weight = ((1.0 - interp_t) * omega).sin() / sin_omega;
+                    let end_weight = (interp_t * omega).sin() / sin_omega;
+                    let x_coord = start_weight * v1[0] + end_weight * v2[0];
+                    let y_coord = start_weight * v1[1] + end_weight * v2[1];
+                    let z_coord = start_weight * v1[2] + end_weight * v2[2];
+                    let lat = z_coord
+                        .atan2((x_coord * x_coord + y_coord * y_coord).sqrt())
+                        .to_degrees();
+                    let lon = y_coord.atan2(x_coord).to_degrees();
                     (lat, lon)
                 } else {
                     (
-                        my_coords.latitude * (1.0 - t) + dx_c.latitude * t,
-                        my_coords.longitude * (1.0 - t) + dx_c.longitude * t,
+                        my_coords.latitude * (1.0 - interp_t) + dx_c.latitude * interp_t,
+                        my_coords.longitude * (1.0 - interp_t) + dx_c.longitude * interp_t,
                     )
                 };
                 let pt = project(int_lat, int_lon);

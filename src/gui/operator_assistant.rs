@@ -240,8 +240,8 @@ pub fn render_operator_assistant(app: &mut SpLogApp, ctx: &egui::Context) {
                         .color(egui::Color32::from_rgb(148, 163, 184)),
                 );
             } else {
-                for b in &rec.best_bands {
-                    ui.label(format!("   🟢 {b}"));
+                for band in &rec.best_bands {
+                    ui.label(format!("   🟢 {band}"));
                 }
             }
 
@@ -251,8 +251,10 @@ pub fn render_operator_assistant(app: &mut SpLogApp, ctx: &egui::Context) {
             if !rec.advice.is_empty() {
                 ui.add_space(4.0);
                 ui.label(egui::RichText::new("💡 Wskazówki").strong());
-                for a in &rec.advice {
-                    ui.label(egui::RichText::new(a).color(egui::Color32::from_rgb(250, 204, 21)));
+                for advice in &rec.advice {
+                    ui.label(
+                        egui::RichText::new(advice).color(egui::Color32::from_rgb(250, 204, 21)),
+                    );
                 }
             }
 
@@ -272,15 +274,18 @@ pub fn render_operator_assistant(app: &mut SpLogApp, ctx: &egui::Context) {
                             ui.label(egui::RichText::new("Rel.").strong());
                             ui.label(egui::RichText::new("S").strong());
                             ui.end_row();
-                            for (name, f) in &forecasts {
-                                let (icon, color) = status_style(f.status);
+                            for (name, forecast) in &forecasts {
+                                let (icon, color) = status_style(forecast.status);
                                 ui.label(egui::RichText::new(*name).strong());
                                 ui.label(
-                                    egui::RichText::new(format!("{icon} {}", f.status.as_str()))
-                                        .color(color),
+                                    egui::RichText::new(format!(
+                                        "{icon} {}",
+                                        forecast.status.as_str()
+                                    ))
+                                    .color(color),
                                 );
-                                ui.label(format!("{}%", f.reliability_pct));
-                                ui.label(&f.signal_s_units);
+                                ui.label(format!("{}%", forecast.reliability_pct));
+                                ui.label(&forecast.signal_s_units);
                                 ui.end_row();
                             }
                         });

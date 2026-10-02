@@ -102,13 +102,13 @@ impl AdvancedFilterDialog {
                     "70cm",
                 ];
                 ui.horizontal_wrapped(|ui| {
-                    for b in &bands {
-                        let mut is_sel = self.selected_bands.contains(&b.to_string());
-                        if ui.checkbox(&mut is_sel, *b).changed() {
+                    for band in &bands {
+                        let mut is_sel = self.selected_bands.contains(&band.to_string());
+                        if ui.checkbox(&mut is_sel, *band).changed() {
                             if is_sel {
-                                self.selected_bands.push(b.to_string());
+                                self.selected_bands.push(band.to_string());
                             } else {
-                                self.selected_bands.retain(|x| x != *b);
+                                self.selected_bands.retain(|x| x != *band);
                             }
                         }
                     }
@@ -121,13 +121,13 @@ impl AdvancedFilterDialog {
                 ui.label(egui::RichText::new(tr("filter.modes_selection", lang)).strong());
                 let modes = ["CW", "SSB", "FT8", "FT4", "RTTY", "PSK", "FM", "AM"];
                 ui.horizontal_wrapped(|ui| {
-                    for m in &modes {
-                        let mut is_sel = self.selected_modes.contains(&m.to_string());
-                        if ui.checkbox(&mut is_sel, *m).changed() {
+                    for mode in &modes {
+                        let mut is_sel = self.selected_modes.contains(&mode.to_string());
+                        if ui.checkbox(&mut is_sel, *mode).changed() {
                             if is_sel {
-                                self.selected_modes.push(m.to_string());
+                                self.selected_modes.push(mode.to_string());
                             } else {
-                                self.selected_modes.retain(|x| x != *m);
+                                self.selected_modes.retain(|x| x != *mode);
                             }
                         }
                     }

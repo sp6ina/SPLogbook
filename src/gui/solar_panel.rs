@@ -111,9 +111,9 @@ pub fn render_solar_window(app: &mut SpLogApp, ctx: &egui::Context) {
             app.save_station_config();
         }
         if res.response.dragged() || res.response.drag_stopped() {
-            let r = res.response.rect;
-            let new_pos = [r.min.x, r.min.y];
-            let new_size = [r.width(), r.height()];
+            let rect = res.response.rect;
+            let new_pos = [rect.min.x, rect.min.y];
+            let new_size = [rect.width(), rect.height()];
             if app.panel_solar.saved_pos != Some(new_pos)
                 || app.panel_solar.saved_size != Some(new_size)
             {

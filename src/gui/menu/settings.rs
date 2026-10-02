@@ -23,8 +23,8 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 Language::It,
                 Language::Ru,
             ];
-            for l in langs {
-                let flag = match l {
+            for language in langs {
+                let flag = match language {
                     Language::Pl => "🇵🇱",
                     Language::En => "🇬🇧",
                     Language::De => "🇩🇪",
@@ -34,10 +34,13 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     Language::Ru => "🇷🇺",
                 };
                 if ui
-                    .selectable_label(lang == l, format!("{} {}", flag, l.display_name()))
+                    .selectable_label(
+                        lang == language,
+                        format!("{} {}", flag, language.display_name()),
+                    )
                     .clicked()
                 {
-                    app.current_language = l;
+                    app.current_language = language;
                     app.save_station_config();
                     ui.close();
                 }
@@ -93,14 +96,14 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         egui::ComboBox::from_id_salt("settings_font_family")
             .selected_text(current_label)
             .show_ui(ui, |ui| {
-                for f in families {
-                    let label = if f.is_empty() {
+                for family in families {
+                    let label = if family.is_empty() {
                         tr("settings.font_default", lang)
                     } else {
-                        f
+                        family
                     };
                     if ui
-                        .selectable_value(&mut selected_family, f.to_string(), label)
+                        .selectable_value(&mut selected_family, family.to_string(), label)
                         .changed()
                     {
                         app.font_family.clone_from(&selected_family);
@@ -122,9 +125,9 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         egui::ComboBox::from_id_salt("settings_distance_unit")
             .selected_text(unit_label(&selected_unit))
             .show_ui(ui, |ui| {
-                for u in ["km", "mi", "nmi"] {
+                for unit in ["km", "mi", "nmi"] {
                     if ui
-                        .selectable_value(&mut selected_unit, u.to_string(), unit_label(u))
+                        .selectable_value(&mut selected_unit, unit.to_string(), unit_label(unit))
                         .changed()
                     {
                         app.distance_unit.clone_from(&selected_unit);

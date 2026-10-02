@@ -760,21 +760,23 @@ impl SpLogApp {
             let db = log_db
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            let j = match db.get_active_journal() {
-                Ok(j) => j,
+            let journal = match db.get_active_journal() {
+                Ok(journal) => journal,
                 Err(e) => {
                     log::error!("Nie udało się pobrać aktywnego dziennika: {e}");
                     Journal::default()
                 }
             };
             let qsos = db
-                .get_recent_qsos_for_journal(&j.id, 100)
+                .get_recent_qsos_for_journal(&journal.id, 100)
                 .unwrap_or_default();
-            let numbers = db.qso_numbers_for_journal(&j.id).unwrap_or_else(|error| {
-                log::error!("Nie udało się wyliczyć numerów QSO: {error}");
-                std::collections::HashMap::new()
-            });
-            (j, qsos, numbers)
+            let numbers = db
+                .qso_numbers_for_journal(&journal.id)
+                .unwrap_or_else(|error| {
+                    log::error!("Nie udało się wyliczyć numerów QSO: {error}");
+                    std::collections::HashMap::new()
+                });
+            (journal, qsos, numbers)
         };
 
         let (cat_state_tx, cat_state_rx) = std::sync::mpsc::channel();
@@ -1671,20 +1673,20 @@ impl SpLogApp {
     /// dla getterów pluginów Rhai. Wywoływana co klatkę oraz po zapisie łączności.
     pub fn refresh_plugin_snapshot(&mut self) {
         let awards = {
-            let a = self
+            let guard = self
                 .awards_engine
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             crate::plugins::bridge::AwardSnapshot {
-                dxcc_worked: a.worked_dxcc_all.len() as i64,
-                dxcc_confirmed: a.confirmed_dxcc.len() as i64,
-                waz_worked: a.worked_waz.len() as i64,
-                was_worked: a.worked_was.len() as i64,
-                wac_worked: a.worked_wac.len() as i64,
-                iota_worked: a.worked_iota.len() as i64,
-                pota_parks_worked: a.worked_pota.len() as i64,
-                sota_summits_worked: a.worked_sota.len() as i64,
-                pga_gminas_worked: a.worked_pga.len() as i64,
+                dxcc_worked: guard.worked_dxcc_all.len() as i64,
+                dxcc_confirmed: guard.confirmed_dxcc.len() as i64,
+                waz_worked: guard.worked_waz.len() as i64,
+                was_worked: guard.worked_was.len() as i64,
+                wac_worked: guard.worked_wac.len() as i64,
+                iota_worked: guard.worked_iota.len() as i64,
+                pota_parks_worked: guard.worked_pota.len() as i64,
+                sota_summits_worked: guard.worked_sota.len() as i64,
+                pga_gminas_worked: guard.worked_pga.len() as i64,
             }
         };
 
@@ -2409,12 +2411,12 @@ impl SpLogApp {
         } else {
             140
         };
-        let k = self.space_weather.k_index;
+        let k_index = self.space_weather.k_index;
         let now = chrono::Utc::now();
         let hour = now.hour();
         let minute = now.minute();
         let doy = now.ordinal();
-        let key = (sfi, k, hour, minute, doy);
+        let key = (sfi, k_index, hour, minute, doy);
 
         if let Some((cached_key, cached)) = &self.solar_propagation_cache {
             if *cached_key == key {
@@ -2432,7 +2434,13 @@ impl SpLogApp {
                     (
                         name,
                         crate::core::propagation::PropagationEngine::calculate(
-                            sp, dx, freq, sfi, k as u8, utc_h, doy,
+                            sp,
+                            dx,
+                            freq,
+                            sfi,
+                            k_index as u8,
+                            utc_h,
+                            doy,
                         ),
                     )
                 })
@@ -2447,7 +2455,7 @@ impl SpLogApp {
                 band,
                 utc_h,
                 sfi,
-                k as u8,
+                k_index as u8,
                 fc.reliability_pct,
                 fc.status,
             );
@@ -3173,15 +3181,16 @@ impl SpLogApp {
         if self.cat_connected {
             let host = self.cat_host.clone();
             let port = self.cat_port;
-            let m = mode.to_string();
+            let mode_str = mode.to_string();
             let backend = self.cat_backend_kind();
             tokio::spawn(async move {
                 if matches!(backend, crate::cat::backend::CatBackendKind::Flrig) {
                     let _ = crate::cat::flrig::FlrigClient::new(&host, port)
-                        .set_mode(&m)
+                        .set_mode(&mode_str)
                         .await;
                 } else {
-                    let _ = crate::cat::hamlib::HamlibClient::set_mode(&host, port, &m, 0).await;
+                    let _ =
+                        crate::cat::hamlib::HamlibClient::set_mode(&host, port, &mode_str, 0).await;
                 }
             });
         }

@@ -200,35 +200,35 @@ fn render_tab_dxcc(
             .spacing([18.0, 6.0])
             .show(ui, |ui| {
                 ui.label(egui::RichText::new(tr_or(lang, "Pasmo", "Band")).strong());
-                for m in modes {
-                    ui.label(egui::RichText::new(*m).strong());
+                for mode in modes {
+                    ui.label(egui::RichText::new(*mode).strong());
                 }
                 ui.label(egui::RichText::new(tr_or(lang, "Łączności", "QSOs")).strong());
                 ui.end_row();
 
-                for b in bands {
+                for band in bands {
                     ui.label(
-                        egui::RichText::new(*b)
+                        egui::RichText::new(*band)
                             .strong()
                             .color(egui::Color32::from_rgb(56, 189, 248)),
                     );
 
-                    for m in modes {
+                    for mode in modes {
                         let worked = app.recent_qsos.iter().any(|q| {
-                            q.band == *b
-                                && (m == &"MIXED"
-                                    || q.mode == *m
-                                    || (*m == "DIGI"
+                            q.band == *band
+                                && (mode == &"MIXED"
+                                    || q.mode == *mode
+                                    || (*mode == "DIGI"
                                         && (q.mode == "FT8"
                                             || q.mode == "FT4"
                                             || q.mode == "RTTY")))
                         });
 
                         let confirmed = app.recent_qsos.iter().any(|q| {
-                            q.band == *b
-                                && (m == &"MIXED"
-                                    || q.mode == *m
-                                    || (*m == "DIGI"
+                            q.band == *band
+                                && (mode == &"MIXED"
+                                    || q.mode == *mode
+                                    || (*mode == "DIGI"
                                         && (q.mode == "FT8"
                                             || q.mode == "FT4"
                                             || q.mode == "RTTY")))
@@ -256,7 +256,7 @@ fn render_tab_dxcc(
                         }
                     }
 
-                    let band_qsos = app.recent_qsos.iter().filter(|q| q.band == *b).count();
+                    let band_qsos = app.recent_qsos.iter().filter(|q| q.band == *band).count();
                     ui.label(
                         egui::RichText::new(format!("{band_qsos} QSO"))
                             .size(11.0)

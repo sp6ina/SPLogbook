@@ -93,26 +93,26 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         "SunSDR",
                         "Hamlib",
                     ];
-                    for m in top_mfgs {
-                        let is_sel = if m == "SunSDR" {
+                    for mfg in top_mfgs {
+                        let is_sel = if mfg == "SunSDR" {
                             app.cat_backend == "tci"
                         } else {
-                            app.cat_mfg_selected == m && app.cat_backend != "tci"
+                            app.cat_mfg_selected == mfg && app.cat_backend != "tci"
                         };
 
-                        let display_mfg = if m == "Wszystkie" {
+                        let display_mfg = if mfg == "Wszystkie" {
                             tr("cat_settings.all_mfgs", lang)
                         } else {
-                            m
+                            mfg
                         };
                         if ui.selectable_label(is_sel, display_mfg).clicked() {
-                            if m == "SunSDR" {
+                            if mfg == "SunSDR" {
                                 app.cat_backend = "tci".to_string();
                                 app.cat_conn_type = "tci".to_string();
                                 app.cat_rig_model = "Expert Electronics SunSDR / TCI".to_string();
                             } else {
                                 app.cat_backend = "hamlib".to_string();
-                                app.cat_mfg_selected = m.to_string();
+                                app.cat_mfg_selected = mfg.to_string();
                                 if app.cat_conn_type == "tci" {
                                     app.cat_conn_type = "serial".to_string();
                                 }

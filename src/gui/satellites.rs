@@ -110,9 +110,9 @@ pub fn render_satellites_window(app: &mut SpLogApp, ctx: &egui::Context) {
             app.save_station_config();
         }
         if res.response.dragged() || res.response.drag_stopped() {
-            let r = res.response.rect;
-            let new_pos = [r.min.x, r.min.y];
-            let new_size = [r.width(), r.height()];
+            let rect = res.response.rect;
+            let new_pos = [rect.min.x, rect.min.y];
+            let new_size = [rect.width(), rect.height()];
             if app.panel_satellites.saved_pos != Some(new_pos)
                 || app.panel_satellites.saved_size != Some(new_size)
             {
@@ -313,13 +313,13 @@ pub fn render_satellites_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
 fn format_countdown(secs: f64) -> String {
     let total = secs.max(0.0) as u64;
-    let h = total / 3600;
-    let m = (total % 3600) / 60;
-    let s = total % 60;
-    if h > 0 {
-        format!("{h:02}:{m:02}:{s:02}")
+    let hours = total / 3600;
+    let minutes = (total % 3600) / 60;
+    let seconds = total % 60;
+    if hours > 0 {
+        format!("{hours:02}:{minutes:02}:{seconds:02}")
     } else {
-        format!("{m:02}:{s:02}")
+        format!("{minutes:02}:{seconds:02}")
     }
 }
 

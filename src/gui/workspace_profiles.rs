@@ -119,9 +119,9 @@ pub fn render_workspace_profiles_window(app: &mut SpLogApp, ctx: &egui::Context)
                         });
                     }
                     if let Some(idx) = apply_idx {
-                        let p = app.workspace_profiles[idx].clone();
-                        apply_profile(app, &p);
-                        app.status_toast = Some((format!("Zastosowano profil: {}", p.name), std::time::Instant::now()));
+                        let profile = app.workspace_profiles[idx].clone();
+                        apply_profile(app, &profile);
+                        app.status_toast = Some((format!("Zastosowano profil: {}", profile.name), std::time::Instant::now()));
                     }
                     if let Some(idx) = commit_rename {
                         app.workspace_profiles[idx].name = rename_text.trim().to_string();

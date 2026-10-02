@@ -134,12 +134,12 @@ fn transmit_message(msg: &VoiceKeyerMessage, app: &SpLogApp) {
     let was_already_transmitting = app.rig_state.ptt || app.ptt_active;
     let key_ptt = msg.ptt && connected && !was_already_transmitting;
 
-    let m = msg.clone();
+    let msg_clone = msg.clone();
     tokio::spawn(async move {
         if key_ptt {
             let _ = crate::cat::hamlib::HamlibClient::set_ptt(&host, port, true).await;
         }
-        let m2 = m.clone();
+        let m2 = msg_clone.clone();
         let _ =
             tokio::task::spawn_blocking(move || crate::media::voice_keyer::play_message(&m2)).await;
         if key_ptt {

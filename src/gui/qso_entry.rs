@@ -106,9 +106,9 @@ pub fn render_qso_entry_window(app: &mut SpLogApp, ctx: &egui::Context) {
             app.save_station_config();
         }
         if res.response.dragged() || res.response.drag_stopped() {
-            let r = res.response.rect;
-            let new_pos = [r.min.x, r.min.y];
-            let new_size = [r.width(), r.height()];
+            let rect = res.response.rect;
+            let new_pos = [rect.min.x, rect.min.y];
+            let new_size = [rect.width(), rect.height()];
             if app.panel_qso.saved_pos != Some(new_pos)
                 || app.panel_qso.saved_size != Some(new_size)
             {
@@ -412,11 +412,11 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         egui::ComboBox::from_id_salt("qso_band")
             .selected_text(&app.entry_band)
             .show_ui(ui, |ui| {
-                for b in &[
+                for band in &[
                     "160m", "80m", "60m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m",
                     "4m", "2m", "70cm", "23cm",
                 ] {
-                    ui.selectable_value(&mut app.entry_band, b.to_string(), *b);
+                    ui.selectable_value(&mut app.entry_band, band.to_string(), *band);
                 }
             });
 
@@ -426,8 +426,8 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         egui::ComboBox::from_id_salt("qso_mode")
             .selected_text(&app.entry_mode)
             .show_ui(ui, |ui| {
-                for m in &["CW", "SSB", "FT8", "FT4", "RTTY", "PSK31", "AM", "FM"] {
-                    ui.selectable_value(&mut app.entry_mode, m.to_string(), *m);
+                for mode in &["CW", "SSB", "FT8", "FT4", "RTTY", "PSK31", "AM", "FM"] {
+                    ui.selectable_value(&mut app.entry_mode, mode.to_string(), *mode);
                 }
             });
     });

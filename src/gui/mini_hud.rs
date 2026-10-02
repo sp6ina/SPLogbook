@@ -124,11 +124,11 @@ fn render_hud_body(app: &mut SpLogApp, ui: &mut egui::Ui, exit_compact: &mut boo
                 .selected_text(&app.entry_band)
                 .width(55.0)
                 .show_ui(ui, |ui| {
-                    for b in &[
+                    for band in &[
                         "160m", "80m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m", "2m",
                         "70cm",
                     ] {
-                        ui.selectable_value(&mut app.entry_band, b.to_string(), *b);
+                        ui.selectable_value(&mut app.entry_band, band.to_string(), *band);
                     }
                 });
 
@@ -136,8 +136,8 @@ fn render_hud_body(app: &mut SpLogApp, ui: &mut egui::Ui, exit_compact: &mut boo
                 .selected_text(&app.entry_mode)
                 .width(50.0)
                 .show_ui(ui, |ui| {
-                    for m in &["CW", "SSB", "FT8", "FT4", "RTTY", "AM", "FM"] {
-                        ui.selectable_value(&mut app.entry_mode, m.to_string(), *m);
+                    for mode in &["CW", "SSB", "FT8", "FT4", "RTTY", "AM", "FM"] {
+                        ui.selectable_value(&mut app.entry_mode, mode.to_string(), *mode);
                     }
                 });
 
@@ -273,11 +273,11 @@ fn render_operating_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .selected_text(&app.entry_band)
                 .width(52.0)
                 .show_ui(ui, |ui| {
-                    for b in &[
+                    for band in &[
                         "160m", "80m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m", "2m",
                         "70cm",
                     ] {
-                        ui.selectable_value(&mut app.entry_band, b.to_string(), *b);
+                        ui.selectable_value(&mut app.entry_band, band.to_string(), *band);
                     }
                 });
 
@@ -285,8 +285,8 @@ fn render_operating_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .selected_text(&app.entry_mode)
                 .width(48.0)
                 .show_ui(ui, |ui| {
-                    for m in &["CW", "SSB", "FT8", "FT4", "RTTY", "AM", "FM"] {
-                        ui.selectable_value(&mut app.entry_mode, m.to_string(), *m);
+                    for mode in &["CW", "SSB", "FT8", "FT4", "RTTY", "AM", "FM"] {
+                        ui.selectable_value(&mut app.entry_mode, mode.to_string(), *mode);
                     }
                 });
 

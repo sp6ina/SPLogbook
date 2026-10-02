@@ -101,7 +101,7 @@ impl JournalManagerDialog {
                                 && !self.new_journal_id.trim().is_empty()
                                 && !self.new_journal_name.trim().is_empty()
                             {
-                                let j = Journal {
+                                let journal = Journal {
                                     id: self.new_journal_id.trim().to_uppercase(),
                                     name: self.new_journal_name.trim().to_string(),
                                     station_callsign: self
@@ -114,7 +114,7 @@ impl JournalManagerDialog {
                                     description: self.new_journal_desc.trim().to_string(),
                                     is_default: false,
                                 };
-                                let _ = db.create_journal(&j);
+                                let _ = db.create_journal(&journal);
                                 self.show_create_form = false;
                                 self.reload(db);
                             }

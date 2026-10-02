@@ -161,9 +161,9 @@ pub fn render_logbook_window(app: &mut SpLogApp, ctx: &egui::Context) {
             app.save_station_config();
         }
         if res.response.dragged() || res.response.drag_stopped() {
-            let r = res.response.rect;
-            let new_pos = [r.min.x, r.min.y];
-            let new_size = [r.width(), r.height()];
+            let rect = res.response.rect;
+            let new_pos = [rect.min.x, rect.min.y];
+            let new_size = [rect.width(), rect.height()];
             if app.panel_log.saved_pos != Some(new_pos)
                 || app.panel_log.saved_size != Some(new_size)
             {
@@ -253,9 +253,11 @@ fn contains_case_insensitive(haystack: &str, needle_upper: &str) -> bool {
         return false;
     }
     if haystack.is_ascii() && needle_upper.is_ascii() {
-        let h = haystack.as_bytes();
-        let n = needle_upper.as_bytes();
-        return h.windows(n.len()).any(|w| w.eq_ignore_ascii_case(n));
+        let haystack_bytes = haystack.as_bytes();
+        let needle_bytes = needle_upper.as_bytes();
+        return haystack_bytes
+            .windows(needle_bytes.len())
+            .any(|w| w.eq_ignore_ascii_case(needle_bytes));
     }
 
     // Bezalokacyjny fallback Unicode: okno przesuwne porównuje znaki przez ich
@@ -313,23 +315,23 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let drill = app.log_drill_filter.clone();
     let mut sorted_indices: Vec<usize> = (0..app.recent_qsos.len())
         .filter(|&i| {
-            let q = &app.recent_qsos[i];
+            let qso = &app.recent_qsos[i];
             if let Some(ref d) = drill {
-                if !d.matches(q) {
+                if !d.matches(qso) {
                     return false;
                 }
             }
             if query.is_empty() {
                 return true;
             }
-            contains_case_insensitive(&q.callsign, &query)
-                || contains_case_insensitive(&q.band, &query)
-                || contains_case_insensitive(&q.mode, &query)
-                || contains_case_insensitive(q.country.as_deref().unwrap_or(""), &query)
-                || contains_case_insensitive(q.name.as_deref().unwrap_or(""), &query)
-                || contains_case_insensitive(q.qth.as_deref().unwrap_or(""), &query)
-                || contains_case_insensitive(q.gridsquare.as_deref().unwrap_or(""), &query)
-                || contains_case_insensitive(q.comment.as_deref().unwrap_or(""), &query)
+            contains_case_insensitive(&qso.callsign, &query)
+                || contains_case_insensitive(&qso.band, &query)
+                || contains_case_insensitive(&qso.mode, &query)
+                || contains_case_insensitive(qso.country.as_deref().unwrap_or(""), &query)
+                || contains_case_insensitive(qso.name.as_deref().unwrap_or(""), &query)
+                || contains_case_insensitive(qso.qth.as_deref().unwrap_or(""), &query)
+                || contains_case_insensitive(qso.gridsquare.as_deref().unwrap_or(""), &query)
+                || contains_case_insensitive(qso.comment.as_deref().unwrap_or(""), &query)
         })
         .collect();
 
@@ -453,9 +455,9 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     // Pasek operacji masowych (widoczny, gdy cokolwiek zaznaczono)
     if !app.selected_qso_ids.is_empty() {
         ui.horizontal(|ui| {
-            let n = app.selected_qso_ids.len();
+            let count = app.selected_qso_ids.len();
             ui.label(
-                egui::RichText::new(format!("✔ Zaznaczono {n} QSO"))
+                egui::RichText::new(format!("✔ Zaznaczono {count} QSO"))
                     .color(egui::Color32::from_rgb(34, 197, 94)),
             );
             if ui.button(format!("🗑 {}", tr("qso.delete", lang))).clicked() {
@@ -534,10 +536,11 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 let id = id.clone();
                 header.col(|ui| {
                     if let Some(sc_id) = sort_col_id_for(&id) {
-                        let (c, s) = sort_header_btn(ui, &label, sc_id, new_sc, new_sa);
-                        if c {
+                        let (clicked, sort_asc) =
+                            sort_header_btn(ui, &label, sc_id, new_sc, new_sa);
+                        if clicked {
                             new_sc = sc_id;
-                            new_sa = s;
+                            new_sa = sort_asc;
                         }
                     } else {
                         ui.label(egui::RichText::new(&label).strong());
@@ -778,59 +781,59 @@ pub fn render_edit_qso_dialog(app: &mut SpLogApp, ctx: &egui::Context) {
                 ui.group(|ui| {
                     ui.horizontal(|ui| {
                         ui.label(tr("qso.name", lang));
-                        let mut v = qso.name.clone().unwrap_or_default();
+                        let mut value = qso.name.clone().unwrap_or_default();
                         if ui
-                            .add(egui::TextEdit::singleline(&mut v).desired_width(130.0))
+                            .add(egui::TextEdit::singleline(&mut value).desired_width(130.0))
                             .changed()
                         {
-                            qso.name = if v.is_empty() { None } else { Some(v) };
+                            qso.name = if value.is_empty() { None } else { Some(value) };
                         }
                         ui.label(tr("qso.locator", lang));
-                        let mut v = qso.gridsquare.clone().unwrap_or_default();
+                        let mut value = qso.gridsquare.clone().unwrap_or_default();
                         if ui
-                            .add(egui::TextEdit::singleline(&mut v).desired_width(80.0))
+                            .add(egui::TextEdit::singleline(&mut value).desired_width(80.0))
                             .changed()
                         {
-                            qso.gridsquare = if v.is_empty() {
+                            qso.gridsquare = if value.is_empty() {
                                 None
                             } else {
-                                Some(v.to_uppercase())
+                                Some(value.to_uppercase())
                             };
                         }
                     });
                     ui.horizontal(|ui| {
                         ui.label(tr("qso.qth", lang));
-                        let mut v = qso.qth.clone().unwrap_or_default();
+                        let mut value = qso.qth.clone().unwrap_or_default();
                         if ui
-                            .add(egui::TextEdit::singleline(&mut v).desired_width(140.0))
+                            .add(egui::TextEdit::singleline(&mut value).desired_width(140.0))
                             .changed()
                         {
-                            qso.qth = if v.is_empty() { None } else { Some(v) };
+                            qso.qth = if value.is_empty() { None } else { Some(value) };
                         }
                         ui.label("PGA:");
-                        let mut v = qso.pga_ref.clone().unwrap_or_default();
+                        let mut value = qso.pga_ref.clone().unwrap_or_default();
                         if ui
-                            .add(egui::TextEdit::singleline(&mut v).desired_width(70.0))
+                            .add(egui::TextEdit::singleline(&mut value).desired_width(70.0))
                             .changed()
                         {
-                            qso.pga_ref = if v.is_empty() {
+                            qso.pga_ref = if value.is_empty() {
                                 None
                             } else {
-                                Some(v.to_uppercase())
+                                Some(value.to_uppercase())
                             };
                         }
                     });
                     ui.horizontal(|ui| {
                         ui.label(tr("qso.comment", lang));
-                        let mut v = qso.comment.clone().unwrap_or_default();
+                        let mut value = qso.comment.clone().unwrap_or_default();
                         if ui
                             .add(
-                                egui::TextEdit::singleline(&mut v)
+                                egui::TextEdit::singleline(&mut value)
                                     .desired_width(ui.available_width()),
                             )
                             .changed()
                         {
-                            qso.comment = if v.is_empty() { None } else { Some(v) };
+                            qso.comment = if value.is_empty() { None } else { Some(value) };
                         }
                     });
                 });

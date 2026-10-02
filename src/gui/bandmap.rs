@@ -113,9 +113,9 @@ pub fn render_bandmap_window(app: &mut SpLogApp, ctx: &egui::Context) {
             app.save_station_config();
         }
         if res.response.dragged() || res.response.drag_stopped() {
-            let r = res.response.rect;
-            let new_pos = [r.min.x, r.min.y];
-            let new_size = [r.width(), r.height()];
+            let rect = res.response.rect;
+            let new_pos = [rect.min.x, rect.min.y];
+            let new_size = [rect.width(), rect.height()];
             if app.panel_bandmap.saved_pos != Some(new_pos)
                 || app.panel_bandmap.saved_size != Some(new_size)
             {
@@ -262,18 +262,18 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
         let mut tick_hz = first_tick;
         while tick_hz < max_freq {
             let frac = ((tick_hz - min_freq) as f32 / freq_span).clamp(0.0, 1.0);
-            let x = rect.min.x + frac * rect.width();
+            let x_pos = rect.min.x + frac * rect.width();
 
             painter.line_segment(
                 [
-                    egui::pos2(x, rect.min.y + 26.0),
-                    egui::pos2(x, rect.max.y - 18.0),
+                    egui::pos2(x_pos, rect.min.y + 26.0),
+                    egui::pos2(x_pos, rect.max.y - 18.0),
                 ],
                 egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(51, 65, 85)),
             );
 
             painter.text(
-                egui::pos2(x, rect.max.y - 10.0),
+                egui::pos2(x_pos, rect.max.y - 10.0),
                 egui::Align2::CENTER_CENTER,
                 format!("{:.3}", (tick_hz as f64) / 1_000_000.0),
                 egui::FontId::monospace(9.0),
@@ -294,8 +294,8 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 let spot_hz = (spot.frequency_khz * 1000.0).round() as u64;
                 if spot_hz >= min_freq && spot_hz <= max_freq {
                     let frac = ((spot_hz - min_freq) as f32 / freq_span).clamp(0.0, 1.0);
-                    let x = rect.min.x + frac * rect.width();
-                    Some((x, spot.dx_call.clone()))
+                    let x_pos = rect.min.x + frac * rect.width();
+                    Some((x_pos, spot.dx_call.clone()))
                 } else {
                     None
                 }
@@ -308,10 +308,10 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
         let gap = 6.0_f32;
         let mut lane_ends: Vec<f32> = Vec::new();
 
-        for (x, call) in &in_band {
+        for (spot_x, call) in &in_band {
             let half_width = (call.len() as f32) * 5.0_f32 + 4.0;
-            let label_start = x - half_width;
-            let label_end = x + half_width;
+            let label_start = spot_x - half_width;
+            let label_end = spot_x + half_width;
 
             let mut lane = 0;
             while lane < lane_ends.len() && lane_ends[lane] + gap > label_start {
@@ -324,19 +324,19 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
             }
 
             let y_offset = 32.0 + (lane as f32) * lane_height;
-            let x = *x;
+            let x_pos = *spot_x;
 
             // Pionowa kreska spotu
             painter.line_segment(
                 [
-                    egui::pos2(x, rect.min.y + 24.0),
-                    egui::pos2(x, rect.max.y - 20.0),
+                    egui::pos2(x_pos, rect.min.y + 24.0),
+                    egui::pos2(x_pos, rect.max.y - 20.0),
                 ],
                 egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(250, 204, 21)),
             );
 
             // Etykieta znaku
-            let badge_pos = egui::pos2(x, rect.min.y + y_offset);
+            let badge_pos = egui::pos2(x_pos, rect.min.y + y_offset);
             painter.text(
                 badge_pos,
                 egui::Align2::CENTER_CENTER,

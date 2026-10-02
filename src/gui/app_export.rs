@@ -51,9 +51,9 @@ impl SpLogApp {
             );
             out.push_str("SOAPBOX: Created with SPLogbook by SP6INA (GPLv3)\n");
 
-            for (idx, q) in qsos.iter().rev().enumerate() {
-                let freq_khz = q.freq.map_or_else(
-                    || match q.band.as_str() {
+            for (idx, qso) in qsos.iter().rev().enumerate() {
+                let freq_khz = qso.freq.map_or_else(
+                    || match qso.band.as_str() {
                         "160m" => 1840,
                         "80m" => 3700,
                         "40m" => 7100,
@@ -64,38 +64,38 @@ impl SpLogApp {
                     },
                     |f| (f * 1000.0) as u64,
                 );
-                let date_str = if q.qso_date.len() == 8 && q.qso_date.is_ascii() {
+                let date_str = if qso.qso_date.len() == 8 && qso.qso_date.is_ascii() {
                     format!(
                         "{}-{}-{}",
-                        &q.qso_date[0..4],
-                        &q.qso_date[4..6],
-                        &q.qso_date[6..8]
+                        &qso.qso_date[0..4],
+                        &qso.qso_date[4..6],
+                        &qso.qso_date[6..8]
                     )
                 } else {
                     chrono::Utc::now().format("%Y-%m-%d").to_string()
                 };
-                let time_str = if q.time_on.len() >= 4 && q.time_on.is_ascii() {
-                    q.time_on[0..4].to_string()
+                let time_str = if qso.time_on.len() >= 4 && qso.time_on.is_ascii() {
+                    qso.time_on[0..4].to_string()
                 } else {
                     chrono::Utc::now().format("%H%M").to_string()
                 };
 
-                let my_rst = if q.mode == "CW" { "599" } else { "59" };
-                let his_rst = &q.rst_rcvd;
+                let my_rst = if qso.mode == "CW" { "599" } else { "59" };
+                let his_rst = &qso.rst_rcvd;
                 let my_serial = idx + 1;
-                let his_serial = q.srx.unwrap_or(1);
+                let his_serial = qso.srx.unwrap_or(1);
 
                 let _ = writeln!(
                     out,
                     "QSO: {:5} {:2} {} {} {:10} {:3} {:03} {:10} {:3} {:03}",
                     freq_khz,
-                    if q.mode == "CW" { "CW" } else { "PH" },
+                    if qso.mode == "CW" { "CW" } else { "PH" },
                     date_str,
                     time_str,
                     self.my_station.callsign,
                     my_rst,
                     my_serial,
-                    q.callsign,
+                    qso.callsign,
                     his_rst,
                     his_serial
                 );
@@ -201,74 +201,86 @@ impl SpLogApp {
                 false,
             ));
 
-            let mut y = 250.0f32;
-            for (i, h) in headers.iter().enumerate() {
-                ops.extend(text_ops(*h, 10.0, x_positions[i], y, true));
+            let mut y_pos = 250.0f32;
+            for (i, header) in headers.iter().enumerate() {
+                ops.extend(text_ops(*header, 10.0, x_positions[i], y_pos, true));
             }
-            y -= 5.0;
+            y_pos -= 5.0;
 
             let mut row_count = 0usize;
             let mut page_num = 1usize;
 
             for qso in &qsos {
-                if y < 20.0 {
+                if y_pos < 20.0 {
                     doc.pages
                         .push(PdfPage::new(Mm(210.0), Mm(297.0), std::mem::take(&mut ops)));
-                    y = 280.0;
+                    y_pos = 280.0;
                     page_num += 1;
                 }
                 ops.extend(text_ops(
                     qso.qso_date.as_str(),
                     10.0,
                     x_positions[0],
-                    y,
+                    y_pos,
                     false,
                 ));
                 ops.extend(text_ops(
                     qso.time_on.as_str(),
                     10.0,
                     x_positions[1],
-                    y,
+                    y_pos,
                     false,
                 ));
                 ops.extend(text_ops(
                     qso.callsign.as_str(),
                     10.0,
                     x_positions[2],
-                    y,
+                    y_pos,
                     false,
                 ));
-                ops.extend(text_ops(qso.band.as_str(), 10.0, x_positions[3], y, false));
-                ops.extend(text_ops(qso.mode.as_str(), 10.0, x_positions[4], y, false));
+                ops.extend(text_ops(
+                    qso.band.as_str(),
+                    10.0,
+                    x_positions[3],
+                    y_pos,
+                    false,
+                ));
+                ops.extend(text_ops(
+                    qso.mode.as_str(),
+                    10.0,
+                    x_positions[4],
+                    y_pos,
+                    false,
+                ));
                 ops.extend(text_ops(
                     qso.rst_sent.as_str(),
                     10.0,
                     x_positions[5],
-                    y,
+                    y_pos,
                     false,
                 ));
                 ops.extend(text_ops(
                     qso.rst_rcvd.as_str(),
                     10.0,
                     x_positions[6],
-                    y,
+                    y_pos,
                     false,
                 ));
                 ops.extend(text_ops(
                     qso.country.as_deref().unwrap_or(""),
                     10.0,
                     x_positions[7],
-                    y,
+                    y_pos,
                     false,
                 ));
                 ops.extend(text_ops(
                     format!("{}/{}", qso.qsl_sent, qso.qsl_rcvd),
                     10.0,
                     x_positions[8],
-                    y,
+                    y_pos,
                     false,
                 ));
-                y -= 5.0;
+                y_pos -= 5.0;
                 row_count += 1;
             }
 

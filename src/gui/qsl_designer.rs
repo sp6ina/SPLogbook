@@ -341,38 +341,41 @@ impl QslDesignerDialog {
 
                             for chunk in self.queued_qsos.chunks(labels_per_page) {
                                 let mut ops: Vec<Op> = Vec::new();
-                                for (i, q) in chunk.iter().enumerate() {
-                                    let c = i % cols;
-                                    let r = i / cols;
-                                    let x = self.margin_left_mm + (c as f32) * col_w_mm;
-                                    let y = 297.0 - self.margin_top_mm - (r as f32) * row_h_mm;
+                                for (i, qso) in chunk.iter().enumerate() {
+                                    let col = i % cols;
+                                    let row = i / cols;
+                                    let x_mm = self.margin_left_mm + (col as f32) * col_w_mm;
+                                    let y_mm = 297.0 - self.margin_top_mm - (row as f32) * row_h_mm;
 
                                     ops.extend(text_ops(
-                                        format!("TO: {}", q.callsign),
+                                        format!("TO: {}", qso.callsign),
                                         11.0,
-                                        x + 2.0,
-                                        y - 5.0,
+                                        x_mm + 2.0,
+                                        y_mm - 5.0,
                                         true,
                                     ));
                                     ops.extend(text_ops(
-                                        format!("QSO: {} {}", q.qso_date, q.time_on),
+                                        format!("QSO: {} {}", qso.qso_date, qso.time_on),
                                         9.0,
-                                        x + 2.0,
-                                        y - 11.0,
+                                        x_mm + 2.0,
+                                        y_mm - 11.0,
                                         false,
                                     ));
                                     ops.extend(text_ops(
-                                        format!("{} | {} | RST {}", q.band, q.mode, q.rst_sent),
+                                        format!(
+                                            "{} | {} | RST {}",
+                                            qso.band, qso.mode, qso.rst_sent
+                                        ),
                                         9.0,
-                                        x + 2.0,
-                                        y - 17.0,
+                                        x_mm + 2.0,
+                                        y_mm - 17.0,
                                         false,
                                     ));
                                     ops.extend(text_ops(
                                         format!("TNX QSL! 73 de {my_callsign}"),
                                         8.0,
-                                        x + 2.0,
-                                        y - 23.0,
+                                        x_mm + 2.0,
+                                        y_mm - 23.0,
                                         false,
                                     ));
                                 }

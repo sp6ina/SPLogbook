@@ -169,38 +169,40 @@ impl ThemePreset {
     /// Buduje i stosuje kompletny `egui::Visuals` na podstawie tego motywu.
     /// Wywoływane raz na klatkę z pętli renderowania aplikacji.
     pub fn apply(&self, ctx: &egui::Context) {
-        let p = self.palette();
-        let mut visuals = if p.is_dark {
+        let palette = self.palette();
+        let mut visuals = if palette.is_dark {
             egui::Visuals::dark()
         } else {
             egui::Visuals::light()
         };
 
-        visuals.hyperlink_color = p.accent;
-        visuals.selection.bg_fill = p.accent;
-        visuals.selection.stroke.color = if p.is_dark {
+        visuals.hyperlink_color = palette.accent;
+        visuals.selection.bg_fill = palette.accent;
+        visuals.selection.stroke.color = if palette.is_dark {
             Color32::BLACK
         } else {
             Color32::WHITE
         };
-        visuals.panel_fill = p.panel_bg;
-        visuals.window_fill = p.window_bg;
-        visuals.extreme_bg_color = if p.is_dark {
+        visuals.panel_fill = palette.panel_bg;
+        visuals.window_fill = palette.window_bg;
+        visuals.extreme_bg_color = if palette.is_dark {
             Color32::from_rgb(8, 12, 20)
         } else {
             Color32::from_rgb(233, 236, 241)
         };
         visuals.override_text_color = None; // pozostaw domyślną logikę kontrastu per-widget
-        visuals.widgets.hovered.bg_fill = blend(visuals.widgets.hovered.bg_fill, p.accent, 0.12);
-        visuals.widgets.active.bg_fill = blend(visuals.widgets.active.bg_fill, p.accent, 0.22);
+        visuals.widgets.hovered.bg_fill =
+            blend(visuals.widgets.hovered.bg_fill, palette.accent, 0.12);
+        visuals.widgets.active.bg_fill =
+            blend(visuals.widgets.active.bg_fill, palette.accent, 0.22);
 
         ctx.set_visuals(visuals);
     }
 }
 
 fn blend(base: Color32, tint: Color32, t: f32) -> Color32 {
-    let t = t.clamp(0.0, 1.0);
-    let lerp = |a: u8, b: u8| -> u8 { (a as f32 + (b as f32 - a as f32) * t).round() as u8 };
+    let factor = t.clamp(0.0, 1.0);
+    let lerp = |a: u8, b: u8| -> u8 { (a as f32 + (b as f32 - a as f32) * factor).round() as u8 };
     Color32::from_rgb(
         lerp(base.r(), tint.r()),
         lerp(base.g(), tint.g()),

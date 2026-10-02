@@ -240,9 +240,9 @@ fn bar_chart_clickable(
 
     for (i, (label, val)) in data.iter().enumerate() {
         let bar_h = (*val as f32 / max_val as f32) * chart_h;
-        let x = origin.x + 30.0 + i as f32 * bar_w;
+        let x_pos = origin.x + 30.0 + i as f32 * bar_w;
         let bar_rect = egui::Rect::from_min_size(
-            egui::pos2(x + 1.0, origin.y + chart_h - bar_h),
+            egui::pos2(x_pos + 1.0, origin.y + chart_h - bar_h),
             egui::vec2(bar_w - 2.0, bar_h),
         );
         painter.rect_filled(bar_rect, 2.0, color);
@@ -266,7 +266,7 @@ fn bar_chart_clickable(
         // Wartość nad słupkiem
         if bar_h > 16.0 {
             painter.text(
-                egui::pos2(x + bar_w / 2.0, origin.y + chart_h - bar_h - 2.0),
+                egui::pos2(x_pos + bar_w / 2.0, origin.y + chart_h - bar_h - 2.0),
                 egui::Align2::CENTER_BOTTOM,
                 format!("{val}"),
                 egui::FontId::proportional(10.0),
@@ -277,7 +277,7 @@ fn bar_chart_clickable(
         // Etykieta pod słupkiem (rotacja przez skrócenie)
         let short_label: String = label.chars().take(6).collect();
         painter.text(
-            egui::pos2(x + bar_w / 2.0, origin.y + chart_h + 4.0),
+            egui::pos2(x_pos + bar_w / 2.0, origin.y + chart_h + 4.0),
             egui::Align2::CENTER_TOP,
             &short_label,
             egui::FontId::proportional(9.0),
@@ -431,9 +431,9 @@ fn render_tab_hourly(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let raw = get_stats_hourly(app);
     // Uzupełnij brakujące godziny
     let mut hours = vec![(String::new(), 0i64); 24];
-    for (h, cnt) in &raw {
-        if (*h as usize) < 24 {
-            hours[*h as usize] = (format!("{h:02}:00"), *cnt);
+    for (hour, cnt) in &raw {
+        if (*hour as usize) < 24 {
+            hours[*hour as usize] = (format!("{hour:02}:00"), *cnt);
         }
     }
     for (h, item) in hours.iter_mut().enumerate() {

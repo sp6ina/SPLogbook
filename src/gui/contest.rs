@@ -30,12 +30,12 @@ pub fn render_custom_contest_editor(app: &mut SpLogApp, ctx: &egui::Context) {
                 ui.vertical(|ui| {
                     ui.heading(tr("contest.your_contests", lang));
                     let mut to_delete = None;
-                    for (i, c) in app.custom_contests.iter().enumerate() {
+                    for (i, contest) in app.custom_contests.iter().enumerate() {
                         ui.horizontal(|ui| {
-                            ui.label(&c.name);
+                            ui.label(&contest.name);
                             if ui.button(tr("btn.edit", lang)).clicked() {
                                 app.custom_contest_edit_idx = Some(i);
-                                app.custom_contest_draft = c.clone();
+                                app.custom_contest_draft = contest.clone();
                             }
                             if ui.button(tr("btn.delete", lang)).clicked() {
                                 to_delete = Some(i);
@@ -86,14 +86,14 @@ pub fn render_custom_contest_editor(app: &mut SpLogApp, ctx: &egui::Context) {
                         "70cm",
                     ];
                     ui.horizontal_wrapped(|ui| {
-                        for b in all_bands {
+                        for band in all_bands {
                             let mut has_band =
-                                app.custom_contest_draft.bands.contains(&b.to_string());
-                            if ui.checkbox(&mut has_band, b).changed() {
+                                app.custom_contest_draft.bands.contains(&band.to_string());
+                            if ui.checkbox(&mut has_band, band).changed() {
                                 if has_band {
-                                    app.custom_contest_draft.bands.push(b.to_string());
+                                    app.custom_contest_draft.bands.push(band.to_string());
                                 } else {
-                                    app.custom_contest_draft.bands.retain(|x| x != b);
+                                    app.custom_contest_draft.bands.retain(|x| x != band);
                                 }
                             }
                         }
@@ -176,21 +176,21 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
     let mut unknown_contest_rule = false;
     let (pts, mults, total) = if let Some(idx) = custom_idx {
-        let c = &app.custom_contests[idx];
-        let mut p = 0;
-        let mut m = HashSet::new();
-        for q in &app.recent_qsos {
-            p += c.points_per_qso;
-            if let Some(d) = q.dxcc {
-                m.insert(d.to_string());
-            } else if let Some(z) = q.cqz {
-                m.insert(z.to_string());
-            } else if !q.rst_rcvd.is_empty() {
-                m.insert(q.rst_rcvd.clone());
+        let contest = &app.custom_contests[idx];
+        let mut points = 0;
+        let mut multipliers = HashSet::new();
+        for qso in &app.recent_qsos {
+            points += contest.points_per_qso;
+            if let Some(d) = qso.dxcc {
+                multipliers.insert(d.to_string());
+            } else if let Some(z) = qso.cqz {
+                multipliers.insert(z.to_string());
+            } else if !qso.rst_rcvd.is_empty() {
+                multipliers.insert(qso.rst_rcvd.clone());
             }
         }
-        let mult_count = m.len() as u32;
-        (p, mult_count, p * mult_count)
+        let mult_count = multipliers.len() as u32;
+        (points, mult_count, points * mult_count)
     } else if let Some(rule_idx) = RULES.iter().position(|r| r.name == app.contest_name) {
         let active_rule = &RULES[rule_idx];
         calculate_score(active_rule, &app.recent_qsos, my_dxcc, my_cqzone)
@@ -254,13 +254,13 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     egui::ComboBox::from_id_salt("contest_type")
                         .selected_text(&app.contest_name)
                         .show_ui(ui, |ui| {
-                            for r in RULES {
-                                ui.selectable_value(&mut app.contest_name, r.name.to_string(), r.name);
+                            for rule in RULES {
+                                ui.selectable_value(&mut app.contest_name, rule.name.to_string(), rule.name);
                             }
                             if !app.custom_contests.is_empty() {
                                 ui.separator();
-                                for c in &app.custom_contests {
-                                    ui.selectable_value(&mut app.contest_name, c.name.clone(), c.name.clone());
+                                for contest in &app.custom_contests {
+                                    ui.selectable_value(&mut app.contest_name, contest.name.clone(), contest.name.clone());
                                 }
                             }
                         });
@@ -296,13 +296,13 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         ui.label(egui::RichText::new(tr("contest.band_stats", lang)).strong().color(egui::Color32::from_rgb(147, 197, 253)));
                         egui::ScrollArea::vertical().id_salt("band_stats").max_height(80.0).show(ui, |ui| {
                             let mut bands = std::collections::HashMap::new();
-                            for q in &app.recent_qsos {
-                                *bands.entry(q.band.clone()).or_insert(0) += 1;
+                            for qso in &app.recent_qsos {
+                                *bands.entry(qso.band.clone()).or_insert(0) += 1;
                             }
                             let mut band_vec: Vec<_> = bands.into_iter().collect();
                             band_vec.sort_by_key(|a| std::cmp::Reverse(a.1));
-                            for (b, count) in band_vec {
-                                ui.label(format!("{} {}: {} QSOs", tr("contest.band_header", lang), b, count));
+                            for (band, count) in band_vec {
+                                ui.label(format!("{} {}: {} QSOs", tr("contest.band_header", lang), band, count));
                             }
                         });
                     });
@@ -797,16 +797,16 @@ fn render_rate_chart(ui: &mut egui::Ui, rate: &RateStats) {
         ui.allocate_painter(egui::vec2(chart_w, chart_h + 14.0), egui::Sense::hover());
     let origin = resp.rect.min;
     let max_val = rate.per_minute.iter().copied().max().unwrap_or(1).max(1) as f32;
-    let n = rate.per_minute.len();
-    if n == 0 {
+    let count = rate.per_minute.len();
+    if count == 0 {
         return;
     }
-    let bar_w = chart_w / n as f32;
-    for (i, v) in rate.per_minute.iter().enumerate() {
-        let bar_h = (*v as f32 / max_val) * chart_h;
-        let x = origin.x + i as f32 * bar_w;
+    let bar_w = chart_w / count as f32;
+    for (i, value) in rate.per_minute.iter().enumerate() {
+        let bar_h = (*value as f32 / max_val) * chart_h;
+        let x_pos = origin.x + i as f32 * bar_w;
         let rect = egui::Rect::from_min_size(
-            egui::pos2(x + 0.5, origin.y + chart_h - bar_h),
+            egui::pos2(x_pos + 0.5, origin.y + chart_h - bar_h),
             egui::vec2((bar_w - 1.0).max(0.5), bar_h),
         );
         painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(56, 189, 248));
@@ -879,8 +879,8 @@ fn render_mult_matrix(ui: &mut egui::Ui, matrix: &MultMatrix, lang: crate::core:
                 for (r, band) in matrix.bands.iter().enumerate() {
                     ui.label(egui::RichText::new(band).strong().size(10.0));
                     for (c, col) in matrix.columns.iter().enumerate() {
-                        let v = matrix.worked[r][c];
-                        let (color, glyph) = match v {
+                        let value = matrix.worked[r][c];
+                        let (color, glyph) = match value {
                             2 => (egui::Color32::from_rgb(34, 197, 94), "●"),
                             1 => (egui::Color32::from_rgb(251, 191, 36), "◐"),
                             _ => (egui::Color32::from_rgb(71, 85, 105), "·"),

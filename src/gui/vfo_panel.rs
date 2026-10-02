@@ -110,9 +110,9 @@ pub fn render_vfo_window(app: &mut SpLogApp, ctx: &egui::Context) {
             app.save_station_config();
         }
         if res.response.dragged() || res.response.drag_stopped() {
-            let r = res.response.rect;
-            let new_pos = [r.min.x, r.min.y];
-            let new_size = [r.width(), r.height()];
+            let rect = res.response.rect;
+            let new_pos = [rect.min.x, rect.min.y];
+            let new_size = [rect.width(), rect.height()];
             if app.panel_vfo.saved_pos != Some(new_pos)
                 || app.panel_vfo.saved_size != Some(new_size)
             {
@@ -202,7 +202,7 @@ fn render_tuning_dot(ui: &mut egui::Ui) {
 }
 
 pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
-    let f = app.rig_state.frequency_hz;
+    let frequency_hz = app.rig_state.frequency_hz;
 
     // Nagłówek konsoli radiowej: Model radia + PTT + Ustawienia
     ui.horizontal(|ui| {
@@ -280,13 +280,15 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             egui::Color32::GRAY
         };
         ui.label(egui::RichText::new("VFO A:").strong().color(color_a));
-        ui.label(egui::RichText::new(format!("{:.3} MHz", (f as f64) / 1_000_000.0)).strong());
+        ui.label(
+            egui::RichText::new(format!("{:.3} MHz", (frequency_hz as f64) / 1_000_000.0)).strong(),
+        );
 
         ui.separator();
         let split_freq = if app.vfo_split {
-            f + (app.vfo_split_offset_khz * 1000.0) as u64
+            frequency_hz + (app.vfo_split_offset_khz * 1000.0) as u64
         } else {
-            f
+            frequency_hz
         };
         let color_b = if app.vfo_split {
             egui::Color32::from_rgb(239, 68, 68)
@@ -326,18 +328,18 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     ui.separator();
 
     // Rozbicie częstotliwości na poszczególne cyfry
-    let d_100m = (f / 100_000_000) % 10;
-    let d_10m = (f / 10_000_000) % 10;
-    let d_1m = (f / 1_000_000) % 10;
-    let d_100k = (f / 100_000) % 10;
-    let d_10k = (f / 10_000) % 10;
-    let d_1k = (f / 1_000) % 10;
-    let d_100h = (f / 100) % 10;
-    let d_10h = (f / 10) % 10;
-    let d_1h = f % 10;
+    let d_100m = (frequency_hz / 100_000_000) % 10;
+    let d_10m = (frequency_hz / 10_000_000) % 10;
+    let d_1m = (frequency_hz / 1_000_000) % 10;
+    let d_100k = (frequency_hz / 100_000) % 10;
+    let d_10k = (frequency_hz / 10_000) % 10;
+    let d_1k = (frequency_hz / 1_000) % 10;
+    let d_100h = (frequency_hz / 100) % 10;
+    let d_10h = (frequency_hz / 10) % 10;
+    let d_1h = frequency_hz % 10;
 
-    let dim_100m = f < 100_000_000;
-    let dim_10m = f < 10_000_000;
+    let dim_100m = frequency_hz < 100_000_000;
+    let dim_10m = frequency_hz < 10_000_000;
 
     ui.vertical_centered(|ui| {
         ui.horizontal(|ui| {
@@ -383,9 +385,9 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             let mut freq_khz_str = if is_focused {
                 ui.ctx()
                     .data_mut(|d| d.get_temp::<String>(edit_id))
-                    .unwrap_or_else(|| format!("{:.3}", (f as f64) / 1000.0))
+                    .unwrap_or_else(|| format!("{:.3}", (frequency_hz as f64) / 1000.0))
             } else {
-                format!("{:.3}", (f as f64) / 1000.0)
+                format!("{:.3}", (frequency_hz as f64) / 1000.0)
             };
             let resp_txt = ui.add(
                 egui::TextEdit::singleline(&mut freq_khz_str)
@@ -430,10 +432,10 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             }
 
             ui.separator();
-            for m in &["CW", "LSB", "USB", "FT8", "FT4", "RTTY", "AM", "FM"] {
-                let is_sel = app.rig_state.mode == *m;
-                if ui.selectable_label(is_sel, *m).clicked() {
-                    app.set_vfo_mode(m);
+            for mode in &["CW", "LSB", "USB", "FT8", "FT4", "RTTY", "AM", "FM"] {
+                let is_sel = app.rig_state.mode == *mode;
+                if ui.selectable_label(is_sel, *mode).clicked() {
+                    app.set_vfo_mode(mode);
                 }
             }
         });

@@ -226,9 +226,9 @@ pub fn render_cluster_window(app: &mut SpLogApp, ctx: &egui::Context) {
             app.save_station_config();
         }
         if res.response.dragged() || res.response.drag_stopped() {
-            let r = res.response.rect;
-            let new_pos = [r.min.x, r.min.y];
-            let new_size = [r.width(), r.height()];
+            let rect = res.response.rect;
+            let new_pos = [rect.min.x, rect.min.y];
+            let new_size = [rect.width(), rect.height()];
             app.panel_cluster.saved_pos = Some(new_pos);
             app.panel_cluster.saved_size = Some(new_size);
             if res.response.drag_stopped() {
@@ -258,9 +258,9 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 break;
             }
         }
-        for (i, s) in app.custom_clusters.iter().enumerate() {
-            if app.cluster_host == s.host && app.cluster_port == s.port {
-                selected_preset_name = format!("⭐ {}", s.name);
+        for (i, cluster) in app.custom_clusters.iter().enumerate() {
+            if app.cluster_host == cluster.host && app.cluster_port == cluster.port {
+                selected_preset_name = format!("⭐ {}", cluster.name);
                 is_custom = true;
                 custom_idx = Some(i);
                 break;
@@ -295,13 +295,14 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                             .size(10.0)
                             .color(egui::Color32::from_rgb(250, 204, 21)),
                     );
-                    for s in &app.custom_clusters {
-                        let is_sel = app.cluster_host == s.host && app.cluster_port == s.port;
+                    for cluster in &app.custom_clusters {
+                        let is_sel =
+                            app.cluster_host == cluster.host && app.cluster_port == cluster.port;
                         if ui
-                            .selectable_label(is_sel, format!("⭐ {}", s.name))
+                            .selectable_label(is_sel, format!("⭐ {}", cluster.name))
                             .clicked()
                         {
-                            sel_custom = Some((s.host.clone(), s.port));
+                            sel_custom = Some((cluster.host.clone(), cluster.port));
                         }
                     }
                 }
@@ -480,19 +481,19 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     // Pojedynczy przebieg: tanie filtry najpierw, parsowanie POTA/SOTA tylko raz na spot.
     let mut filtered_spots: Vec<(DxSpot, Option<String>, Option<String>)> =
         Vec::with_capacity(app.cluster_spots.len());
-    for s in &app.cluster_spots {
+    for spot in &app.cluster_spots {
         if filter_band_sel == "VFO" {
-            if s.band != current_band {
+            if spot.band != current_band {
                 continue;
             }
-        } else if filter_band_sel != "ALL" && s.band != filter_band_sel {
+        } else if filter_band_sel != "ALL" && spot.band != filter_band_sel {
             continue;
         }
 
-        let comment_upper = s.comment.to_uppercase();
-        let freq_hz = (s.frequency_khz * 1000.0).round() as u64;
+        let comment_upper = spot.comment.to_uppercase();
+        let freq_hz = (spot.frequency_khz * 1000.0).round() as u64;
         let inferred_mode = crate::core::bandplan::get_suggested_mode(freq_hz);
-        let is_digi = s.is_ft8
+        let is_digi = spot.is_ft8
             || comment_upper.contains("FT8")
             || comment_upper.contains("FT4")
             || comment_upper.contains("RTTY")
@@ -524,30 +525,30 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
 
         let source_skip = match filter_source_sel.as_str() {
-            "HUMAN" => s.is_skimmer,
-            "RBN" => !s.is_skimmer,
+            "HUMAN" => spot.is_skimmer,
+            "RBN" => !spot.is_skimmer,
             _ => false,
         };
         if source_skip {
             continue;
         }
 
-        let (pota, sota) = extract_pota_sota(&s.comment);
+        let (pota, sota) = extract_pota_sota(&spot.comment);
 
         if filter_pota_only && pota.is_none() && sota.is_none() {
             continue;
         }
 
         if !search_q.is_empty() {
-            let match_call = s.dx_call.to_uppercase().contains(&search_q);
-            let match_comment = s.comment.to_uppercase().contains(&search_q);
-            let match_spotter = s.spotter.to_uppercase().contains(&search_q);
+            let match_call = spot.dx_call.to_uppercase().contains(&search_q);
+            let match_comment = spot.comment.to_uppercase().contains(&search_q);
+            let match_spotter = spot.spotter.to_uppercase().contains(&search_q);
             if !match_call && !match_comment && !match_spotter {
                 continue;
             }
         }
 
-        filtered_spots.push((s.clone(), pota, sota));
+        filtered_spots.push((spot.clone(), pota, sota));
     }
 
     let total_spots = app.cluster_spots.len();
@@ -588,14 +589,14 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                         .selected_text(&app.cluster_filter_band_selection)
                         .width(155.0)
                         .show_ui(ui, |ui| {
-                            for b in &[
+                            for band in &[
                                 "ALL", "VFO", "160m", "80m", "40m", "30m", "20m", "17m", "15m",
                                 "12m", "10m", "6m", "2m", "70cm",
                             ] {
                                 ui.selectable_value(
                                     &mut app.cluster_filter_band_selection,
-                                    b.to_string(),
-                                    *b,
+                                    band.to_string(),
+                                    *band,
                                 );
                             }
                         });
@@ -610,11 +611,11 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                         .selected_text(&app.cluster_filter_mode_selection)
                         .width(155.0)
                         .show_ui(ui, |ui| {
-                            for m in &["ALL", "CW", "SSB", "DIGI"] {
+                            for mode in &["ALL", "CW", "SSB", "DIGI"] {
                                 ui.selectable_value(
                                     &mut app.cluster_filter_mode_selection,
-                                    m.to_string(),
-                                    *m,
+                                    mode.to_string(),
+                                    *mode,
                                 );
                             }
                         });
