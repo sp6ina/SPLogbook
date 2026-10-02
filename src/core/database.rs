@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::core::qso::QsoRecord;
+use crate::core::text::escape_like;
 use log::error;
 use rusqlite::{Connection, Result, Row, params};
 use std::path::Path;
@@ -1375,10 +1376,7 @@ impl LogDatabase {
             if !q.is_empty() {
                 // Escapuje % i _ (znaki specjalne LIKE) znakiem ucieczki '\', żeby wpisany
                 // przez użytkownika tekst nie działał jak wzorzec wildcard.
-                let escaped = q
-                    .replace('\\', "\\\\")
-                    .replace('%', "\\%")
-                    .replace('_', "\\_");
+                let escaped = escape_like(&q);
                 let like_pattern = format!("%{escaped}%");
                 values.push(Box::new(like_pattern.clone()));
                 let p1 = values.len();

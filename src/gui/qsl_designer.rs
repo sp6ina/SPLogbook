@@ -293,31 +293,6 @@ impl QslDesignerDialog {
                         {
                             use printpdf::*;
 
-                            fn pdf_ascii_safe(input: &str) -> String {
-                                input
-                                    .chars()
-                                    .map(|c| match c {
-                                        'ą' => 'a',
-                                        'ć' => 'c',
-                                        'ę' => 'e',
-                                        'ł' => 'l',
-                                        'ń' => 'n',
-                                        'ó' => 'o',
-                                        'ś' => 's',
-                                        'ź' | 'ż' => 'z',
-                                        'Ą' => 'A',
-                                        'Ć' => 'C',
-                                        'Ę' => 'E',
-                                        'Ł' => 'L',
-                                        'Ń' => 'N',
-                                        'Ó' => 'O',
-                                        'Ś' => 'S',
-                                        'Ź' | 'Ż' => 'Z',
-                                        other => other,
-                                    })
-                                    .collect()
-                            }
-
                             fn text_ops(
                                 text: impl Into<String>,
                                 size_pt: f32,
@@ -325,7 +300,7 @@ impl QslDesignerDialog {
                                 y_mm: f32,
                                 bold: bool,
                             ) -> Vec<Op> {
-                                let safe_text = pdf_ascii_safe(&text.into());
+                                let safe_text = crate::core::text::transliterate_pl(&text.into());
                                 vec![
                                     Op::StartTextSection,
                                     Op::SetFont {

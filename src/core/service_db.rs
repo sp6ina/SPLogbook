@@ -2,19 +2,10 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 // Obsługa bazy referencyjnej serviceLOG.db (IOTA, Stany/Okręgi, Managerowie QSL, Unikalne znaki)
 
+use crate::core::text::escape_like;
 use rusqlite::{Connection, OpenFlags, params};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-
-/// Escapuje znaki specjalne LIKE (`%`, `_`, oraz sam znak ucieczki), aby wpisywany
-/// przez użytkownika tekst wyszukiwania nie działał jak wzorzec wildcard SQL.
-/// Używać zawsze razem z klauzulą `ESCAPE '\'` w zapytaniu LIKE.
-fn escape_like(input: &str) -> String {
-    input
-        .replace('\\', "\\\\")
-        .replace('%', "\\%")
-        .replace('_', "\\_")
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IotaRecord {
