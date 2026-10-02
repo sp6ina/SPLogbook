@@ -121,7 +121,7 @@ From deep ionospheric modeling (VOACAP-lite HF propagation), automated antenna r
   - `idx_qso_cqz` (CQ zone statistics)
   - `idx_qso_composite` (`callsign, band, mode` composite index for instant duplicate checking)
 - **Automatic Health & Housekeeping:**
-  - `vacuum_if_needed`: Automatically triggers `VACUUM;` every 1,000 logged QSOs to maintain minimal database fragmentation.
+  - `checkpoint_and_optimize_if_needed`: Runs a passive WAL checkpoint and `PRAGMA optimize` every 1,000 logged QSOs to maintain minimal database fragmentation.
   - **Fail-Safe Mutexes:** Mutex locks (`log_db`, `awards_engine`, `scp_engine`) utilize poison-recovery patterns (`unwrap_or_else(|p| p.into_inner())`), preventing entire application crashes if an asynchronous worker encounters an error.
   - **Rolling Backups:** Automatic timestamped SQLite backup created on shutdown into `%APPDATA%/SPLogbook/backups/`, with automated pruning keeping the 10 most recent backups.
   - **Upload Retry Queue:** An embedded `upload_queue` table tracks failed cloud uploads (LoTW, eQSL, Club Log, QRZ, Cloudlog) with retry counters and backoff logging.

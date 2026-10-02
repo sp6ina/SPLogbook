@@ -1439,7 +1439,7 @@ impl LogDatabase {
         Ok(count as usize)
     }
 
-    pub fn vacuum_if_needed(&self) -> rusqlite::Result<()> {
+    pub fn checkpoint_and_optimize_if_needed(&self) -> rusqlite::Result<()> {
         let count: i64 = self
             .conn
             .query_row("SELECT COUNT(*) FROM qso_records", [], |r| r.get(0))?;
