@@ -6,7 +6,7 @@ use crate::cloud::qrz::{CallbookData, QrzClient};
 use rusqlite::{Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Źródło danych callbook używane w agregacji z priorytetami.
@@ -51,19 +51,29 @@ pub fn default_callbook_priority() -> Vec<CallbookSource> {
 /// Lokalna baza danych Callbook (offline) + cache wyników online
 #[derive(Debug, Clone)]
 pub struct LocalCallbook {
-    callbook_path: Option<PathBuf>,
-    servicelog_path: Option<PathBuf>,
     cache_path: Option<PathBuf>,
     cache_ttl_days: u32,
+    callbook_conn: Option<Arc<Mutex<Connection>>>,
+    servicelog_conn: Option<Arc<Mutex<Connection>>>,
 }
 
 impl LocalCallbook {
     pub fn new(callbook_path: Option<PathBuf>, servicelog_path: Option<PathBuf>) -> Self {
+        let callbook_conn = callbook_path.and_then(|p| {
+            Connection::open_with_flags(&p, OpenFlags::SQLITE_OPEN_READ_ONLY)
+                .ok()
+                .map(|c| Arc::new(Mutex::new(c)))
+        });
+        let servicelog_conn = servicelog_path.and_then(|p| {
+            Connection::open_with_flags(&p, OpenFlags::SQLITE_OPEN_READ_ONLY)
+                .ok()
+                .map(|c| Arc::new(Mutex::new(c)))
+        });
         Self {
-            callbook_path,
-            servicelog_path,
             cache_path: None,
             cache_ttl_days: 30,
+            callbook_conn,
+            servicelog_conn,
         }
     }
 
@@ -172,52 +182,49 @@ impl LocalCallbook {
 
         let mut data: Option<CallbookData> = None;
 
-        if let Some(ref path) = self.callbook_path {
-            if path.exists() {
-                if let Ok(conn) =
-                    Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-                {
-                    // Najpierw szukamy dokładnego znaku, a potem bazowego
-                    for query_call in &[clean.as_str(), base_call] {
-                        let Ok(mut stmt) = conn.prepare(
-                            "SELECT Name, QTH, Grid, State, Manager FROM Callbook WHERE Call = ? LIMIT 1"
-                        ) else {
-                            continue;
-                        };
+        if let Some(ref conn_mutex) = self.callbook_conn {
+            let conn = conn_mutex
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            // Najpierw szukamy dokładnego znaku, a potem bazowego
+            for query_call in &[clean.as_str(), base_call] {
+                let Ok(mut stmt) = conn.prepare(
+                    "SELECT Name, QTH, Grid, State, Manager FROM Callbook WHERE Call = ? LIMIT 1",
+                ) else {
+                    continue;
+                };
 
-                        let found = stmt
-                            .query_row([query_call], |row| {
-                                let name: Option<String> =
-                                    row.get(0).ok().and_then(|s: String| clean_opt_str(&s));
-                                let qth: Option<String> =
-                                    row.get(1).ok().and_then(|s: String| clean_opt_str(&s));
-                                let grid: Option<String> =
-                                    row.get(2).ok().and_then(|s: String| clean_opt_str(&s));
-                                let state: Option<String> =
-                                    row.get(3).ok().and_then(|s: String| clean_opt_str(&s));
-                                let manager: Option<String> =
-                                    row.get(4).ok().and_then(|s: String| clean_opt_str(&s));
+                let found = stmt
+                    .query_row([query_call], |row| {
+                        let name: Option<String> =
+                            row.get(0).ok().and_then(|s: String| clean_opt_str(&s));
+                        let qth: Option<String> =
+                            row.get(1).ok().and_then(|s: String| clean_opt_str(&s));
+                        let grid: Option<String> =
+                            row.get(2).ok().and_then(|s: String| clean_opt_str(&s));
+                        let state: Option<String> =
+                            row.get(3).ok().and_then(|s: String| clean_opt_str(&s));
+                        let manager: Option<String> =
+                            row.get(4).ok().and_then(|s: String| clean_opt_str(&s));
 
-                                Ok(CallbookData {
-                                    callsign: clean.clone(),
-                                    name,
-                                    qth,
-                                    gridsquare: grid,
-                                    state,
-                                    dxcc: None,
-                                    country: None,
-                                    qsl_manager: manager,
-                                    email: None,
-                                    image_url: None,
-                                })
-                            })
-                            .ok();
+                        Ok(CallbookData {
+                            callsign: clean.clone(),
+                            name,
+                            qth,
+                            gridsquare: grid,
+                            state,
+                            dxcc: None,
+                            country: None,
+                            qsl_manager: manager,
+                            email: None,
+                            image_url: None,
+                        })
+                    })
+                    .ok();
 
-                        if let Some(res) = found {
-                            data = Some(res);
-                            break;
-                        }
-                    }
+                if let Some(res) = found {
+                    data = Some(res);
+                    break;
                 }
             }
         }
@@ -229,43 +236,40 @@ impl LocalCallbook {
         };
 
         if need_manager {
-            if let Some(ref path) = self.servicelog_path {
-                if path.exists() {
-                    if let Ok(conn) =
-                        Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-                    {
-                        for query_call in &[clean.as_str(), base_call] {
-                            let Ok(mut stmt) =
-                                conn.prepare("SELECT Manager FROM managers WHERE Call = ? LIMIT 1")
-                            else {
-                                continue;
-                            };
+            if let Some(ref conn_mutex) = self.servicelog_conn {
+                let conn = conn_mutex
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                for query_call in &[clean.as_str(), base_call] {
+                    let Ok(mut stmt) =
+                        conn.prepare("SELECT Manager FROM managers WHERE Call = ? LIMIT 1")
+                    else {
+                        continue;
+                    };
 
-                            let mgr: Option<String> = stmt
-                                .query_row([query_call], |row| row.get(0))
-                                .ok()
-                                .and_then(|s: String| clean_opt_str(&s));
+                    let mgr: Option<String> = stmt
+                        .query_row([query_call], |row| row.get(0))
+                        .ok()
+                        .and_then(|s: String| clean_opt_str(&s));
 
-                            if let Some(m) = mgr {
-                                if let Some(ref mut d) = data {
-                                    d.qsl_manager = Some(m);
-                                } else {
-                                    data = Some(CallbookData {
-                                        callsign: clean.clone(),
-                                        name: None,
-                                        qth: None,
-                                        gridsquare: None,
-                                        state: None,
-                                        dxcc: None,
-                                        country: None,
-                                        qsl_manager: Some(m),
-                                        email: None,
-                                        image_url: None,
-                                    });
-                                }
-                                break;
-                            }
+                    if let Some(m) = mgr {
+                        if let Some(ref mut d) = data {
+                            d.qsl_manager = Some(m);
+                        } else {
+                            data = Some(CallbookData {
+                                callsign: clean.clone(),
+                                name: None,
+                                qth: None,
+                                gridsquare: None,
+                                state: None,
+                                dxcc: None,
+                                country: None,
+                                qsl_manager: Some(m),
+                                email: None,
+                                image_url: None,
+                            });
                         }
+                        break;
                     }
                 }
             }
