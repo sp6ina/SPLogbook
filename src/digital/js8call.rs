@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Mariusz Wozniak (SP6INA)
 
 //! Integracja z JS8Call przez TCP API (domyślny port 2442)
-//! JS8Call implementuje prosty protokol JSON przez TCP
+//! JS8Call implementuje prosty protokół JSON przez TCP
 //! API: https://github.com/jsherer/js8call/blob/master/TCPAPI.md
 
 use crate::core::qso::QsoRecord;
@@ -12,7 +12,7 @@ use std::io::{BufRead, BufReader, Read};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
-/// Wiadomosc API JS8Call (JSON)
+/// Wiadomość API JS8Call (JSON)
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Js8Message {
     #[serde(rename = "type")]
@@ -23,7 +23,7 @@ pub struct Js8Message {
     pub params: Option<serde_json::Value>,
 }
 
-/// Stan polaczenia z JS8Call
+/// Stan połączenia z JS8Call
 #[derive(Debug, Clone, Default)]
 pub struct Js8CallState {
     pub connected: bool,
@@ -35,7 +35,7 @@ pub struct Js8CallState {
     pub last_heard: Vec<Js8HeardStation>,
 }
 
-/// Stacja ostatnio slyszana przez JS8Call
+/// Stacja ostatnio słyszana przez JS8Call
 #[derive(Debug, Clone)]
 pub struct Js8HeardStation {
     pub callsign: String,
@@ -59,9 +59,9 @@ impl Js8CallClient {
         }
     }
 
-    /// Laczy sie z JS8Call i odbiera wiadomosci w osobnym watku.
-    /// Wiadomosci stanu przekazywane sa przez state_sender,
-    /// a zakonczone QSO przez qso_sender do automatycznego logowania.
+    /// Łączy się z JS8Call i odbiera wiadomości w osobnym wątku.
+    /// Wiadomości stanu przekazywane są przez state_sender,
+    /// a zakończone QSO przez qso_sender do automatycznego logowania.
     pub fn start_listener(
         &self,
         state_sender: std::sync::mpsc::Sender<Js8CallState>,
@@ -72,7 +72,7 @@ impl Js8CallClient {
         std::thread::spawn(move || {
             const MAX_LINE_LEN: usize = 64 * 1024;
             'listener: loop {
-                // Proba nawiazania polaczenia TCP z JS8Call
+                // Próba nawiązania połączenia TCP z JS8Call
                 let parsed_addr = (host.as_str(), port)
                     .to_socket_addrs()
                     .ok()
@@ -87,14 +87,14 @@ impl Js8CallClient {
                         connected: true,
                         ..Default::default()
                     };
-                    // Powiadom aplikacje o podlaczeniu
+                    // Powiadom aplikację o podłączeniu
                     if state_sender.send(state.clone()).is_err() {
                         break 'listener;
                     }
 
                     // Przetwarzanie linii JSON ze strumienia TCP
-                    // Limit dlugosci linii chroni przed wyczerpaniem pamieci, gdyby druga
-                    // strona (JS8Call lub proces podszywajacy sie pod niego) wyslala dane
+                    // Limit długości linii chroni przed wyczerpaniem pamięci, gdyby druga
+                    // strona (JS8Call lub proces podszywający się pod niego) wysłała dane
                     // bez znaku nowej linii.
                     let mut buf = String::new();
                     loop {
@@ -103,8 +103,8 @@ impl Js8CallClient {
                             .take((MAX_LINE_LEN + 1) as u64)
                             .read_line(&mut buf)
                         {
-                            Ok(0) | Err(_) => break, // koniec strumienia lub blad odczytu
-                            Ok(_) if buf.len() > MAX_LINE_LEN => break, // zbyt dluga linia - rozlaczenie
+                            Ok(0) | Err(_) => break, // koniec strumienia lub błąd odczytu
+                            Ok(_) if buf.len() > MAX_LINE_LEN => break, // zbyt długa linia - rozłączenie
                             Ok(_) => {
                                 let text = buf.trim();
                                 if !text.is_empty() {
@@ -122,15 +122,15 @@ impl Js8CallClient {
                             }
                         }
                     }
-                    // Utrata polaczenia - powiadom aplikacje
+                    // Utrata połączenia - powiadom aplikację
                     state.connected = false;
                     if state_sender.send(state).is_err() {
                         break 'listener;
                     }
                 } else {
-                    // Nie udalo sie polaczyc - JS8Call prawdopodobnie nie dziala
+                    // Nie udało się połączyć - JS8Call prawdopodobnie nie działa
                 }
-                // Odczekaj przed kolejna proba reconnect
+                // Odczekaj przed kolejna próba reconnect
                 std::thread::sleep(Duration::from_secs(5));
             }
         })
@@ -161,7 +161,7 @@ fn value_as_u64_hz(val: &serde_json::Value) -> Option<u64> {
         })
 }
 
-/// Przetwarza pojedyncza wiadomosc JSON odebrana z API JS8Call.
+/// Przetwarza pojedyncza wiadomość JSON odebrana z API JS8Call.
 /// Zwraca `false`, gdy odbiorca kanału został zamknięty.
 fn process_message(
     msg: Js8Message,
@@ -171,7 +171,7 @@ fn process_message(
 ) -> bool {
     match msg.msg_type.as_str() {
         "STATION.CALLSIGN" => {
-            // Odebrano znak wywolawczy naszej stacji z JS8Call
+            // Odebrano znak wywoławczy naszej stacji z JS8Call
             if let Some(v) = msg.value.as_str() {
                 state.callsign = v.to_string();
                 if state_sender.send(state.clone()).is_err() {
@@ -189,7 +189,7 @@ fn process_message(
             }
         }
         "DIAL.FREQ" | "RIG.FREQ" => {
-            // Aktualizacja czestotliwosci nosnej (dial frequency)
+            // Aktualizacja częstotliwości nośnej (dial frequency)
             let freq_opt = value_as_u64_hz(&msg.value).or_else(|| {
                 msg.params.as_ref().and_then(|p| {
                     p.get("FREQ")
@@ -205,7 +205,7 @@ fn process_message(
             }
         }
         "LOG.QSO" => {
-            // JS8Call zakonczyl QSO - auto-import do SPLogbook
+            // JS8Call zakończył QSO - auto-import do SPLogbook
             if let Some(params) = msg.params {
                 let qso = build_qso_from_js8(&params, state);
                 if qso_sender.send(qso).is_err() {
@@ -214,7 +214,7 @@ fn process_message(
             }
         }
         "RX.SPOT" => {
-            // Aktualizacja listy slyszanych stacji
+            // Aktualizacja listy słyszanych stacji
             if let Some(params) = &msg.params {
                 let callsign = params
                     .get("CALL")
@@ -238,7 +238,7 @@ fn process_message(
                         freq_hz: params.get("FREQ").and_then(value_as_u64_hz).unwrap_or(0) as i64,
                         utc: Utc::now().format("%H:%M:%S").to_string(),
                     };
-                    // Limit listy do 50 ostatnio slyszanych stacji
+                    // Limit listy do 50 ostatnio słyszanych stacji
                     state.last_heard.insert(0, heard);
                     state.last_heard.truncate(50);
                     if state_sender.send(state.clone()).is_err() {
@@ -247,13 +247,13 @@ fn process_message(
                 }
             }
         }
-        // Wiadomosci skierowane (RX.DIRECTED) i inne nieobslugiwane typy sa ignorowane.
+        // Wiadomości skierowane (RX.DIRECTED) i inne nieobsługiwane typy są ignorowane.
         _ => {}
     }
     true
 }
 
-/// Buduje rekord QSO z parametrow wiadomosci LOG.QSO z JS8Call
+/// Buduje rekord QSO z parametrów wiadomości LOG.QSO z JS8Call
 fn build_qso_from_js8(params: &serde_json::Value, state: &Js8CallState) -> QsoRecord {
     let now = Utc::now();
     let freq_hz = params
@@ -367,7 +367,7 @@ fn build_qso_from_js8(params: &serde_json::Value, state: &Js8CallState) -> QsoRe
     }
 }
 
-/// Zamienia czestotliwosc w Hz na nazwe pasma amatorskiego
+/// Zamienia częstotliwość w Hz na nazwę pasma amatorskiego
 fn freq_hz_to_band(hz: u64) -> &'static str {
     match hz {
         1_800_000..=2_000_000 => "160m",

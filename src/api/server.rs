@@ -413,18 +413,18 @@ pub async fn start_api_server_with_state(state: ApiState, port: u16) {
         Ok(l) => l,
         Err(e) => {
             eprintln!(
-                "[REST API] Nie mozna uruchomic serwera na {bind_addr}: {e}. \
-                Zmien port w menu Narzedzia -> REST API lub zwolnij port."
+                "[REST API] Nie można uruchomić serwera na {bind_addr}: {e}. \
+                Zmień port w menu Narzędzia -> REST API lub zwolnij port."
             );
             return;
         }
     };
     eprintln!("[REST API] Serwer uruchomiony na http://{bind_addr}");
     eprintln!(
-        "[REST API] Wymagany naglowek uwierzytelniajacy X-Api-Key (patrz Narzedzia -> REST API)."
+        "[REST API] Wymagany nagłówek uwierzytelniający X-Api-Key (patrz Narzędzia -> REST API)."
     );
     if let Err(e) = axum::serve(listener, app).await {
-        eprintln!("[REST API] Blad serwera: {e}");
+        eprintln!("[REST API] Błąd serwera: {e}");
     }
 }
 

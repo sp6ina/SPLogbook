@@ -162,7 +162,7 @@ impl PrefixMatcher {
             let r = match r {
                 Ok(r) => r,
                 Err(e) => {
-                    eprintln!("Ignorowanie bledu w prefix.rs: {}", e);
+                    eprintln!("Ignorowanie błędu w prefix.rs: {}", e);
                     continue;
                 }
             };
@@ -203,7 +203,7 @@ impl PrefixMatcher {
             let (mut info, raw_regex) = match row_res {
                 Ok(val) => val,
                 Err(e) => {
-                    eprintln!("Ignorowanie bledu w prefix.rs: {}", e);
+                    eprintln!("Ignorowanie błędu w prefix.rs: {}", e);
                     continue;
                 }
             };
@@ -257,7 +257,7 @@ impl PrefixMatcher {
             let (mut info, raw_regex) = match row_res {
                 Ok(val) => val,
                 Err(e) => {
-                    eprintln!("Ignorowanie bledu w prefix.rs: {}", e);
+                    eprintln!("Ignorowanie błędu w prefix.rs: {}", e);
                     continue;
                 }
             };

@@ -110,7 +110,7 @@ impl ServiceDatabase {
             let r = match r {
                 Ok(r) => r,
                 Err(e) => {
-                    eprintln!("Ignorowanie bledu w service_db.rs: {}", e);
+                    eprintln!("Ignorowanie błędu w service_db.rs: {}", e);
                     continue;
                 }
             };
@@ -185,7 +185,7 @@ impl ServiceDatabase {
             let r = match r {
                 Ok(r) => r,
                 Err(e) => {
-                    eprintln!("Ignorowanie bledu w service_db.rs: {}", e);
+                    eprintln!("Ignorowanie błędu w service_db.rs: {}", e);
                     continue;
                 }
             };
@@ -256,7 +256,7 @@ impl ServiceDatabase {
         for r in rows {
             match r {
                 Ok(r) => res.push(r),
-                Err(e) => eprintln!("Ignorowanie bledu w service_db.rs: {}", e),
+                Err(e) => eprintln!("Ignorowanie błędu w service_db.rs: {}", e),
             }
         }
         return res;
@@ -330,7 +330,7 @@ impl ServiceDatabase {
         for r in rows {
             match r {
                 Ok(r) => res.push(r),
-                Err(e) => eprintln!("Ignorowanie bledu w service_db.rs: {}", e),
+                Err(e) => eprintln!("Ignorowanie błędu w service_db.rs: {}", e),
             }
         }
         return res;

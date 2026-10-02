@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Wozniak (SP6INA)
 
-//! Modul statystyk i wykresow QSO — wykresy pasmo/emisja/godzina/miesiac/QSL
+//! Moduł statystyk i wykresów QSO — wykresy pasmo/emisja/godzina/miesiąc/QSL
 
 use crate::core::i18n::tr;
 use crate::gui::app::{DrillFilter, QslDrillStatus, SpLogApp};

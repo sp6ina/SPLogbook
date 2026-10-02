@@ -4041,9 +4041,9 @@ impl eframe::App for SpLogApp {
             self.poll_plugin_lookup();
         }
 
-        // ——— Odbieranie wynikow asynchronicznych operacji ———
+        // ——— Odbieranie wyników asynchronicznych operacji ———
 
-        // WSPR: sprawdz czy pobieranie zakonczylo sie
+        // WSPR: sprawdź czy pobieranie zakończyło się
         if self.wspr_loading {
             if let Some(ref slot) = self.wspr_fetch_slot.clone() {
                 if let Ok(mut guard) = slot.try_lock() {
@@ -4064,7 +4064,7 @@ impl eframe::App for SpLogApp {
             }
         }
 
-        // Synchronizuj cluster_spots z watkiem REST API (gdy zmieni sie rozmiar lub najnowszy spot)
+        // Synchronizuj cluster_spots z wątkiem REST API (gdy zmieni się rozmiar lub najnowszy spot)
         if let Some(ref api_slot) = self.cluster_spots_api.clone() {
             if let Ok(mut guard) = api_slot.try_lock() {
                 let changed = guard.len() != self.cluster_spots.len()

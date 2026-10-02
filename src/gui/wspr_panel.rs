@@ -19,7 +19,7 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
         .resizable(true)
         .default_size([680.0, 440.0])
         .show(ctx, |ui| {
-            // --- Naglowek z przyciskiem odswiezania ---
+            // --- Nagłówek z przyciskiem odświeżania ---
             ui.horizontal(|ui| {
                 ui.heading(tr("wspr.title", lang));
                 ui.label(
@@ -45,7 +45,7 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
             if let Some(ref err) = app.wspr_last_error.clone() {
                 ui.colored_label(
                     egui::Color32::from_rgb(239, 68, 68),
-                    format!("Blad pobierania: {err}"),
+                    format!("Błąd pobierania: {err}"),
                 );
             }
 
@@ -72,7 +72,7 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 });
             }
 
-            // --- Tabela spotow ---
+            // --- Tabela spotów ---
             if app.wspr_spots.is_empty() {
                 ui.vertical_centered(|ui| {
                     ui.add_space(40.0);
@@ -96,7 +96,7 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             .spacing([12.0, 4.0])
                             .striped(true)
                             .show(ui, |ui| {
-                                // Naglowki
+                                // Nagłówki
                                 ui.label(
                                     egui::RichText::new(tr("wspr.col_callsign", lang)).strong(),
                                 );
@@ -163,7 +163,7 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 ui.add_space(4.0);
                 ui.label(
                     egui::RichText::new(format!(
-                        "Lacznie {} spotow z wspr.live",
+                        "Łącznie {} spotów z wspr.live",
                         app.wspr_spots.len()
                     ))
                     .small()
@@ -175,8 +175,8 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
     app.show_wspr_window = open;
 }
 
-/// Uruchamia asynchroniczne pobieranie spotow WSPR w tle Tokio.
-/// Wynik zapisuje do app.wspr_spots przez kanal.
+/// Uruchamia asynchroniczne pobieranie spotów WSPR w tle Tokio.
+/// Wynik zapisuje do app.wspr_spots przez kanał.
 fn fetch_wspr_spots_async(app: &mut SpLogApp, ctx: &egui::Context) {
     if app.wspr_loading {
         return;
@@ -187,7 +187,7 @@ fn fetch_wspr_spots_async(app: &mut SpLogApp, ctx: &egui::Context) {
     let callsign = app.my_station.callsign.clone();
     let ctx_clone = ctx.clone();
 
-    // Uzywamy tokio::spawn bo jestesmy w srodowisku tokio (eframe + runtime)
+    // Używamy tokio::spawn bo jesteśmy w środowisku tokio (eframe + runtime)
     // Wynik przekazujemy przez Arc<Mutex<Option<Result>>>
     let result_slot: std::sync::Arc<
         std::sync::Mutex<Option<Result<Vec<crate::cloud::wspr::WsprSpot>, String>>>,
@@ -202,6 +202,6 @@ fn fetch_wspr_spots_async(app: &mut SpLogApp, ctx: &egui::Context) {
         ctx_clone.request_repaint();
     });
 
-    // Zapisujemy Arc w app zeby moc odczytac w nastepnej klatce
+    // Zapisujemy Arc w app żeby móc odczytać w następnej klatce
     app.wspr_fetch_slot = Some(result_slot);
 }

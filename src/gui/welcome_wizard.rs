@@ -19,12 +19,12 @@ pub fn render_welcome_wizard(app: &mut SpLogApp, ctx: &egui::Context) {
         close_wizard = true;
     }
 
-    // WAZNE:
-    // 1. Stale ID okna oraz staly tytul okna (niezalezny od jezyka) eliminuja reset stanu okna w egui.
-    // 2. .order(egui::Order::Foreground) gwarantuje, ze okno kreatora ZAWSZE pozostaje na wierzchu
-    //    i nie chowa sie pod oknami modulow na pulpicie MDI.
-    // 3. Bezposrednie przyciski wyboru jezyka [PL] [EN] [DE] [FR] [ES] [RU] w naglowku zamiast popupu ComboBox,
-    //    dzieki czemu klikniecie nie wywoluje zdarzen zamkniecia popupu ani przesloniecia okna.
+    // WAŻNE:
+    // 1. Stałe ID okna oraz stały tytuł okna (niezależny od języka) eliminują reset stanu okna w egui.
+    // 2. .order(egui::Order::Foreground) gwarantuje, że okno kreatora ZAWSZE pozostaje na wierzchu
+    //    i nie chowa się pod oknami modułów na pulpicie MDI.
+    // 3. Bezpośrednie przyciski wyboru języka [PL] [EN] [DE] [FR] [ES] [RU] w nagłówku zamiast popupu ComboBox,
+    //    dzięki czemu kliknięcie nie wywołuje zdarzeń zamknięcia popupu ani przesłonięcia okna.
     egui::Window::new("SPLogbook — Setup Wizard")
         .id(egui::Id::new("splogbook_welcome_wizard"))
         .order(egui::Order::Foreground)
@@ -34,7 +34,7 @@ pub fn render_welcome_wizard(app: &mut SpLogApp, ctx: &egui::Context) {
         .default_width(680.0)
         .min_size([580.0, 540.0])
         .show(ctx, |ui| {
-            // --- Naglowek ---
+            // --- Nagłówek ---
             ui.horizontal(|ui| {
                 ui.heading(
                     egui::RichText::new("SPLogbook")
@@ -450,7 +450,7 @@ fn render_tab_appearance(
     lang: Language,
     ctx: &egui::Context,
 ) {
-    // --- Jezyk ---
+    // --- Język ---
     ui.label(
         egui::RichText::new(format!(
             "{} / Interface language:",
