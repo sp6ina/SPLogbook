@@ -1,74 +1,35 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
+use super::tcp::{self, MAX_LINE_LEN};
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::sync::broadcast;
 use tokio::time::sleep;
 
-/// Maksymalna długość pojedynczej linii odpowiedzi rigctld (wartości numeryczne/statusy).
-const MAX_LINE_LEN: usize = 256;
-/// Maksymalny czas oczekiwania na połączenie TCP z lokalnym lub zdalnym demonem rigctld.
-const CAT_TCP_TIMEOUT: Duration = Duration::from_millis(1500);
+const DAEMON: &str = "rigctld";
 
 async fn connect_timeout(host: &str, port: u16) -> Result<TcpStream, std::io::Error> {
-    match tokio::time::timeout(
-        CAT_TCP_TIMEOUT,
-        TcpStream::connect(format!("{host}:{port}")),
-    )
-    .await
-    {
-        Ok(res) => res,
-        Err(_) => Err(std::io::Error::new(
-            std::io::ErrorKind::TimedOut,
-            "Przekroczono czas oczekiwania na połączenie z rigctld",
-        )),
-    }
+    tcp::connect_timeout(&format!("{host}:{port}"), DAEMON).await
 }
 
 async fn write_cmd<W: AsyncWriteExt + Unpin>(
     writer: &mut W,
     cmd: &[u8],
 ) -> Result<(), std::io::Error> {
-    match tokio::time::timeout(CAT_TCP_TIMEOUT, writer.write_all(cmd)).await {
-        Ok(res) => res,
-        Err(_) => Err(std::io::Error::new(
-            std::io::ErrorKind::TimedOut,
-            "Przekroczono czas zapisu do rigctld",
-        )),
-    }
+    tcp::write_cmd(writer, cmd, DAEMON).await
 }
 
 async fn read_line_timeout<R: AsyncBufReadExt + Unpin>(
     reader: &mut R,
     line: &mut String,
 ) -> Result<usize, std::io::Error> {
-    line.clear();
-    let mut limited = reader.take((MAX_LINE_LEN + 1) as u64);
-    match tokio::time::timeout(CAT_TCP_TIMEOUT, limited.read_line(line)).await {
-        Ok(res) => res,
-        Err(_) => Err(std::io::Error::new(
-            std::io::ErrorKind::TimedOut,
-            "Przekroczono czas odczytu z rigctld",
-        )),
-    }
+    tcp::read_line_timeout(reader, line, DAEMON).await
 }
 
 async fn send_setter_cmd(host: &str, port: u16, cmd: &str) -> Result<(), std::io::Error> {
-    let stream = connect_timeout(host, port).await?;
-    let (reader, mut writer) = stream.into_split();
-    write_cmd(&mut writer, cmd.as_bytes()).await?;
-    let mut buf_reader = BufReader::new(reader);
-    let mut resp = String::new();
-    let _ = tokio::time::timeout(
-        Duration::from_millis(500),
-        (&mut buf_reader)
-            .take((MAX_LINE_LEN + 1) as u64)
-            .read_line(&mut resp),
-    )
-    .await;
-    Ok(())
+    tcp::send_cmd_ignore_reply(&format!("{host}:{port}"), cmd, DAEMON).await
 }
 
 /// Pełny stan transceivera zgodny z protokołem Hamlib 4.6+ (rigctld)

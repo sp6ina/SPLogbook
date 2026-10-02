@@ -1,70 +1,35 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
+use super::tcp::{self, MAX_LINE_LEN};
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::sync::broadcast;
 use tokio::time::sleep;
 
-/// Maksymalna długość pojedynczej linii odpowiedzi rotctld (azymut/elevacja).
-const MAX_LINE_LEN: usize = 256;
-/// Maksymalny czas oczekiwania na operacje sieciowe z rotctld.
-const ROTOR_TCP_TIMEOUT: Duration = Duration::from_millis(1500);
+const DAEMON: &str = "rotctld";
 
 async fn connect_timeout(addr: &str) -> Result<TcpStream, std::io::Error> {
-    match tokio::time::timeout(ROTOR_TCP_TIMEOUT, TcpStream::connect(addr)).await {
-        Ok(res) => res,
-        Err(_) => Err(std::io::Error::new(
-            std::io::ErrorKind::TimedOut,
-            "Przekroczono czas oczekiwania na połączenie z rotctld",
-        )),
-    }
+    tcp::connect_timeout(addr, DAEMON).await
 }
 
 async fn write_cmd<W: AsyncWriteExt + Unpin>(
     writer: &mut W,
     cmd: &[u8],
 ) -> Result<(), std::io::Error> {
-    match tokio::time::timeout(ROTOR_TCP_TIMEOUT, writer.write_all(cmd)).await {
-        Ok(res) => res,
-        Err(_) => Err(std::io::Error::new(
-            std::io::ErrorKind::TimedOut,
-            "Przekroczono czas zapisu do rotctld",
-        )),
-    }
+    tcp::write_cmd(writer, cmd, DAEMON).await
 }
 
 async fn read_line_timeout<R: AsyncBufReadExt + Unpin>(
     reader: &mut R,
     line: &mut String,
 ) -> Result<usize, std::io::Error> {
-    line.clear();
-    let mut limited = reader.take((MAX_LINE_LEN + 1) as u64);
-    match tokio::time::timeout(ROTOR_TCP_TIMEOUT, limited.read_line(line)).await {
-        Ok(res) => res,
-        Err(_) => Err(std::io::Error::new(
-            std::io::ErrorKind::TimedOut,
-            "Przekroczono czas odczytu z rotctld",
-        )),
-    }
+    tcp::read_line_timeout(reader, line, DAEMON).await
 }
 
 async fn send_rotor_cmd(host: &str, port: u16, cmd: &str) -> Result<(), std::io::Error> {
-    let addr = format!("{host}:{port}");
-    let stream = connect_timeout(&addr).await?;
-    let (reader, mut writer) = stream.into_split();
-    write_cmd(&mut writer, cmd.as_bytes()).await?;
-    let mut buf_reader = BufReader::new(reader);
-    let mut resp = String::new();
-    let _ = tokio::time::timeout(
-        Duration::from_millis(500),
-        (&mut buf_reader)
-            .take((MAX_LINE_LEN + 1) as u64)
-            .read_line(&mut resp),
-    )
-    .await;
-    Ok(())
+    tcp::send_cmd_ignore_reply(&format!("{host}:{port}"), cmd, DAEMON).await
 }
 
 /// Stan położenia rotora antenowego
