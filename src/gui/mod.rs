@@ -92,3 +92,16 @@ pub fn render_titlebar_popout_button_if(
             }
         });
 }
+
+/// Buduje tekstowy sparkline (▁▂▃▄▅▆▇█) z listy wartości liczbowych.
+pub fn text_sparkline(values: &[f64], min: f64, max: f64) -> String {
+    const BLOCKS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+    let range = (max - min).max(1e-9);
+    values
+        .iter()
+        .map(|v| {
+            let idx = (((v - min) / range) * 7.0).round().clamp(0.0, 7.0) as usize;
+            BLOCKS[idx]
+        })
+        .collect()
+}

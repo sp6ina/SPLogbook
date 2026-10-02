@@ -4,6 +4,7 @@
 use crate::cloud::solar::BandCondition;
 use crate::core::i18n::{tr, tr_or};
 use crate::gui::app::SpLogApp;
+use crate::gui::text_sparkline;
 use eframe::egui;
 
 pub fn render_solar_window(app: &mut SpLogApp, ctx: &egui::Context) {
@@ -176,7 +177,7 @@ pub fn render_solar_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     .color(egui::Color32::from_rgb(148, 163, 184)),
             );
             ui.monospace(
-                egui::RichText::new(sparkline(&sfi_values, min, max))
+                egui::RichText::new(text_sparkline(&sfi_values, min, max))
                     .color(egui::Color32::from_rgb(251, 191, 36)),
             );
             ui.label(
@@ -336,17 +337,4 @@ pub fn render_solar_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ));
         }
     });
-}
-
-/// Buduje tekstowy sparkline (▁▂▃▄▅▆▇█) z listy wartości liczbowych.
-fn sparkline(values: &[f64], min: f64, max: f64) -> String {
-    const BLOCKS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
-    let range = (max - min).max(1e-9);
-    values
-        .iter()
-        .map(|v| {
-            let idx = (((v - min) / range) * 7.0).round().clamp(0.0, 7.0) as usize;
-            BLOCKS[idx]
-        })
-        .collect()
 }

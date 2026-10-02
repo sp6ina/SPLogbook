@@ -3,6 +3,7 @@
 
 use crate::core::i18n::tr;
 use crate::gui::app::SpLogApp;
+use crate::gui::text_sparkline;
 use eframe::egui;
 
 pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
@@ -64,7 +65,7 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         let min = snrs.iter().copied().fold(f64::INFINITY, f64::min);
                         let max = snrs.iter().copied().fold(f64::NEG_INFINITY, f64::max);
                         ui.monospace(
-                            egui::RichText::new(snr_sparkline(&snrs, min, max))
+                            egui::RichText::new(text_sparkline(&snrs, min, max))
                                 .color(egui::Color32::from_rgb(56, 189, 248)),
                         );
                     }
@@ -203,17 +204,4 @@ fn fetch_wspr_spots_async(app: &mut SpLogApp, ctx: &egui::Context) {
 
     // Zapisujemy Arc w app zeby moc odczytac w nastepnej klatce
     app.wspr_fetch_slot = Some(result_slot);
-}
-
-/// Buduje tekstowy sparkline (▁▂▃▄▅▆▇█) z listy wartości SNR.
-fn snr_sparkline(values: &[f64], min: f64, max: f64) -> String {
-    const BLOCKS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
-    let range = (max - min).max(1e-9);
-    values
-        .iter()
-        .map(|v| {
-            let idx = (((v - min) / range) * 7.0).round().clamp(0.0, 7.0) as usize;
-            BLOCKS[idx]
-        })
-        .collect()
 }
