@@ -95,8 +95,7 @@ impl XmlRpcRequest {
         &self.params
     }
 
-    /// Serializuje żądanie do dokumentu XML-RPC (bez nagłówka HTTP —
-    /// FLRig używa czystego XML-RPC po TCP).
+    /// Serializuje żądanie do dokumentu XML-RPC, bez nagłówków HTTP.
     pub fn to_xml(&self) -> String {
         let mut out = String::from("<?xml version=\"1.0\"?>\n<methodCall>");
         let _ = write!(out, "<methodName>{}</methodName>", escape_xml(&self.method));

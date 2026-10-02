@@ -190,7 +190,7 @@ impl HamlibClient {
                         && read_line_timeout(&mut buf_reader, &mut line).await.is_ok()
                     {
                         if let Ok(pwr) = line.trim().parse::<f32>() {
-                            current_state.rf_power_watts = pwr * 100.0; // Proporcja mocy
+                            current_state.rf_power_watts = pwr * 100.0; // Hamlib zwraca RFPOWER w zakresie 0.0–1.0; tutaj zachowujemy skalę 0–100.
                         }
                     }
 
