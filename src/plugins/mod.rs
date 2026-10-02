@@ -51,6 +51,21 @@ fn push_command(state: &Arc<PluginState>, cmd: PluginCommand) {
     }
 }
 
+/// Rejestruje bezargumentowy getter Rhai odczytujący wartość z migawki stanu.
+fn register_snapshot_getter<T: std::any::Any + Clone + Send + Sync>(
+    engine: &mut rhai::Engine,
+    state: &Arc<PluginState>,
+    name: &str,
+    get: impl Fn(&PluginSnapshot) -> T + Send + Sync + 'static,
+) {
+    let snap = Arc::clone(&state.snapshot);
+    engine.register_fn(name, move || {
+        get(&snap
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner))
+    });
+}
+
 /// Silnik pluginów Rhai. Wczytuje i uruchamia skrypty `.rhai` z katalogu pluginów.
 pub struct PluginEngine {
     engine: rhai::Engine,
@@ -117,117 +132,33 @@ impl PluginEngine {
         });
 
         // --- Gettery stanu (radio, rotor, nagrody, stacja, ostatnia łączność) ---
-        let snap = Arc::clone(&state.snapshot);
-        engine.register_fn("rig_freq_mhz", move || {
-            snap.read()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .rig_freq_mhz
+        register_snapshot_getter(&mut engine, &state, "rig_freq_mhz", |s| s.rig_freq_mhz);
+        register_snapshot_getter(&mut engine, &state, "rig_mode", |s| s.rig_mode.clone());
+        register_snapshot_getter(&mut engine, &state, "rig_band", |s| s.rig_band.clone());
+        register_snapshot_getter(&mut engine, &state, "rig_connected", |s| s.rig_connected);
+        register_snapshot_getter(&mut engine, &state, "rotor_azimuth", |s| {
+            f64::from(s.rotor_azimuth_deg)
         });
-        let snap = Arc::clone(&state.snapshot);
-        engine.register_fn("rig_mode", move || {
-            snap.read()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .rig_mode
-                .clone()
+        register_snapshot_getter(&mut engine, &state, "rotor_elevation", |s| {
+            f64::from(s.rotor_elevation_deg)
         });
-        let snap = Arc::clone(&state.snapshot);
-        engine.register_fn("rig_band", move || {
-            snap.read()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .rig_band
-                .clone()
+        register_snapshot_getter(&mut engine, &state, "my_call", |s| s.my_call.clone());
+        register_snapshot_getter(&mut engine, &state, "dxcc_worked", |s| s.awards.dxcc_worked);
+        register_snapshot_getter(&mut engine, &state, "dxcc_confirmed", |s| {
+            s.awards.dxcc_confirmed
         });
-        let snap = Arc::clone(&state.snapshot);
-        engine.register_fn("rig_connected", move || {
-            snap.read()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .rig_connected
+        register_snapshot_getter(&mut engine, &state, "waz_worked", |s| s.awards.waz_worked);
+        register_snapshot_getter(&mut engine, &state, "was_worked", |s| s.awards.was_worked);
+        register_snapshot_getter(&mut engine, &state, "wac_worked", |s| s.awards.wac_worked);
+        register_snapshot_getter(&mut engine, &state, "iota_worked", |s| s.awards.iota_worked);
+        register_snapshot_getter(&mut engine, &state, "pota_parks_worked", |s| {
+            s.awards.pota_parks_worked
         });
-        let snap = Arc::clone(&state.snapshot);
-        engine.register_fn("rotor_azimuth", move || {
-            f64::from(
-                snap.read()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .rotor_azimuth_deg,
-            )
+        register_snapshot_getter(&mut engine, &state, "sota_summits_worked", |s| {
+            s.awards.sota_summits_worked
         });
-        let snap = Arc::clone(&state.snapshot);
-        engine.register_fn("rotor_elevation", move || {
-            f64::from(
-                snap.read()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .rotor_elevation_deg,
-            )
-        });
-        let snap = Arc::clone(&state.snapshot);
-        engine.register_fn("my_call", move || {
-            snap.read()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .my_call
-                .clone()
-        });
-        let snap = Arc::clone(&state.snapshot);
-        engine.register_fn("dxcc_worked", move || {
-            snap.read()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .awards
-                .dxcc_worked
-        });
-        let snap = Arc::clone(&state.snapshot);
-        engine.register_fn("dxcc_confirmed", move || {
-            snap.read()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .awards
-                .dxcc_confirmed
-        });
-        let snap = Arc::clone(&state.snapshot);
-        engine.register_fn("waz_worked", move || {
-            snap.read()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .awards
-                .waz_worked
-        });
-        let snap = Arc::clone(&state.snapshot);
-        engine.register_fn("was_worked", move || {
-            snap.read()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .awards
-                .was_worked
-        });
-        let snap = Arc::clone(&state.snapshot);
-        engine.register_fn("wac_worked", move || {
-            snap.read()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .awards
-                .wac_worked
-        });
-        let snap = Arc::clone(&state.snapshot);
-        engine.register_fn("iota_worked", move || {
-            snap.read()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .awards
-                .iota_worked
-        });
-        let snap = Arc::clone(&state.snapshot);
-        engine.register_fn("pota_parks_worked", move || {
-            snap.read()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .awards
-                .pota_parks_worked
-        });
-        let snap = Arc::clone(&state.snapshot);
-        engine.register_fn("sota_summits_worked", move || {
-            snap.read()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .awards
-                .sota_summits_worked
-        });
-        let snap = Arc::clone(&state.snapshot);
-        engine.register_fn("pga_gminas_worked", move || {
-            snap.read()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .awards
-                .pga_gminas_worked
+        register_snapshot_getter(&mut engine, &state, "pga_gminas_worked", |s| {
+            s.awards.pga_gminas_worked
         });
         let snap = Arc::clone(&state.snapshot);
         engine.register_fn("qso_field", move |name: &str| {
