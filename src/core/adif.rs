@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::core::qso::QsoRecord;
+use crate::core::xml::escape_xml as xml_escape;
 use std::collections::HashMap;
 use std::io::{BufRead, Write};
 
@@ -749,21 +750,6 @@ fn find_tag_end_ci(bytes: &[u8], start: usize, tag: &[u8]) -> Option<usize> {
         .windows(tag.len())
         .position(|w| w.eq_ignore_ascii_case(tag))
         .map(|pos| start + pos + tag.len())
-}
-
-fn xml_escape(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            '\'' => out.push_str("&apos;"),
-            _ => out.push(c),
-        }
-    }
-    out
 }
 
 pub fn parse_adif(content: &str) -> Vec<QsoRecord> {

@@ -4,6 +4,8 @@
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
+use crate::core::xml::extract_tag;
+
 /// Dane korespondenta pobrane z internetowej bazy danych (QRZ.COM / HamQTH)
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct CallbookData {
@@ -54,10 +56,10 @@ impl QrzClient {
             .text()
             .await?;
 
-        if let Some(key) = Self::extract_xml_tag(&resp, "Key") {
+        if let Some(key) = extract_tag(&resp, "Key") {
             self.session_key = Some(key);
             Ok(())
-        } else if let Some(err) = Self::extract_xml_tag(&resp, "Error") {
+        } else if let Some(err) = extract_tag(&resp, "Error") {
             Err(format!("Błąd logowania QRZ.COM: {err}").into())
         } else {
             Err("Nieznana odpowiedź serwera QRZ.COM".into())
@@ -111,12 +113,12 @@ impl QrzClient {
         xml: &str,
         callsign: &str,
     ) -> Result<CallbookData, Box<dyn std::error::Error + Send + Sync>> {
-        if let Some(err) = Self::extract_xml_tag(xml, "Error") {
+        if let Some(err) = extract_tag(xml, "Error") {
             return Err(format!("QRZ: {err}").into());
         }
 
-        let fname = Self::extract_xml_tag(xml, "fname");
-        let name = Self::extract_xml_tag(xml, "name");
+        let fname = extract_tag(xml, "fname");
+        let name = extract_tag(xml, "name");
         let full_name = match (fname, name) {
             (Some(f), Some(n)) => Some(format!("{f} {n}")),
             (Some(f), None) => Some(f),
@@ -124,14 +126,14 @@ impl QrzClient {
             (None, None) => None,
         };
 
-        let qth = Self::extract_xml_tag(xml, "addr2");
-        let gridsquare = Self::extract_xml_tag(xml, "grid");
-        let state = Self::extract_xml_tag(xml, "state");
-        let dxcc = Self::extract_xml_tag(xml, "dxcc").and_then(|d| d.parse().ok());
-        let country = Self::extract_xml_tag(xml, "country");
-        let qsl_manager = Self::extract_xml_tag(xml, "qslmgr");
-        let email = Self::extract_xml_tag(xml, "email");
-        let image_url = Self::extract_xml_tag(xml, "image");
+        let qth = extract_tag(xml, "addr2");
+        let gridsquare = extract_tag(xml, "grid");
+        let state = extract_tag(xml, "state");
+        let dxcc = extract_tag(xml, "dxcc").and_then(|d| d.parse().ok());
+        let country = extract_tag(xml, "country");
+        let qsl_manager = extract_tag(xml, "qslmgr");
+        let email = extract_tag(xml, "email");
+        let image_url = extract_tag(xml, "image");
 
         Ok(CallbookData {
             callsign: callsign.to_uppercase(),
@@ -145,25 +147,6 @@ impl QrzClient {
             email,
             image_url,
         })
-    }
-
-    fn unescape_xml(s: &str) -> String {
-        s.replace("&lt;", "<")
-            .replace("&gt;", ">")
-            .replace("&quot;", "\"")
-            .replace("&apos;", "'")
-            .replace("&#39;", "'")
-            .replace("&amp;", "&")
-    }
-
-    fn extract_xml_tag(xml: &str, tag: &str) -> Option<String> {
-        let open_tag = format!("<{tag}>");
-        let close_tag = format!("</{tag}>");
-
-        let start = xml.find(&open_tag)? + open_tag.len();
-        let end = xml[start..].find(&close_tag)? + start;
-        let val = Self::unescape_xml(xml[start..end].trim());
-        if val.is_empty() { None } else { Some(val) }
     }
 
     /// Przesyła rekordy ADIF do QRZ.com Logbook API za pomocą klucza API

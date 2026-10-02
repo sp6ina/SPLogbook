@@ -4,6 +4,8 @@
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
+use crate::core::xml::extract_tag;
+
 /// Wskaźniki aktywności słonecznej i geomagnetycznej (NOAA SWPC / HamQTH)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SpaceWeather {
@@ -92,21 +94,21 @@ impl SpaceWeatherClient {
         let url = "https://www.hamqth.com/xml.php?solar=1";
         let xml = self.client.get(url).send().await?.text().await?;
 
-        let sfi = Self::extract_tag(&xml, "solarflux")
+        let sfi = extract_tag(&xml, "solarflux")
             .and_then(|v| v.parse().ok())
             .unwrap_or(135);
-        let ssn = Self::extract_tag(&xml, "sunspots")
+        let ssn = extract_tag(&xml, "sunspots")
             .and_then(|v| v.parse().ok())
             .unwrap_or(80);
-        let a_index = Self::extract_tag(&xml, "aindex")
+        let a_index = extract_tag(&xml, "aindex")
             .and_then(|v| v.parse().ok())
             .unwrap_or(6);
-        let k_index = Self::extract_tag(&xml, "kindex")
+        let k_index = extract_tag(&xml, "kindex")
             .and_then(|v| v.parse().ok())
             .unwrap_or(1);
-        let x_ray = Self::extract_tag(&xml, "xray").unwrap_or_else(|| "B1.0".to_string());
+        let x_ray = extract_tag(&xml, "xray").unwrap_or_else(|| "B1.0".to_string());
         let geomagnetic_field =
-            Self::extract_tag(&xml, "geomagfield").unwrap_or_else(|| "Quiet".to_string());
+            extract_tag(&xml, "geomagfield").unwrap_or_else(|| "Quiet".to_string());
 
         Ok(SpaceWeather {
             sfi,
@@ -122,13 +124,4 @@ impl SpaceWeatherClient {
         })
     }
 
-    fn extract_tag(xml: &str, tag: &str) -> Option<String> {
-        let open_tag = format!("<{tag}>");
-        let close_tag = format!("</{tag}>");
-
-        let start = xml.find(&open_tag)? + open_tag.len();
-        let end = xml[start..].find(&close_tag)? + start;
-        let val = xml[start..end].trim().to_string();
-        if val.is_empty() { None } else { Some(val) }
-    }
 }

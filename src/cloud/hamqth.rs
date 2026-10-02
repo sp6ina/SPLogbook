@@ -4,6 +4,7 @@
 
 use crate::core::adif::export_adif;
 use crate::core::qso::QsoRecord;
+use crate::core::xml::extract_tag;
 
 pub struct HamQthClient {
     pub username: String,
@@ -99,10 +100,10 @@ impl HamQthXmlClient {
             .map_err(|e| e.to_string())?;
         let xml = resp.text().await.map_err(|e| e.to_string())?;
 
-        if let Some(sid) = Self::extract_tag(&xml, "session_id") {
+        if let Some(sid) = extract_tag(&xml, "session_id") {
             self.session_id = Some(sid.clone());
             Ok(sid)
-        } else if let Some(err) = Self::extract_tag(&xml, "error") {
+        } else if let Some(err) = extract_tag(&xml, "error") {
             Err(format!("Błąd logowania HamQTH: {err}"))
         } else {
             Err("Nieznana odpowiedź autoryzacji HamQTH".to_string())
@@ -139,7 +140,7 @@ impl HamQthXmlClient {
         let xml = resp.text().await.map_err(|e| e.to_string())?;
 
         // Jeśli sesja wygasła, zaloguj się ponownie
-        let is_session_error = Self::extract_tag(&xml, "error")
+        let is_session_error = extract_tag(&xml, "error")
             .is_some_and(|err| err.to_ascii_lowercase().contains("session"))
             || xml.to_ascii_lowercase().contains("session does not exist")
             || xml.to_ascii_lowercase().contains("session expired");
@@ -173,48 +174,27 @@ impl HamQthXmlClient {
             return Err("Nie znaleziono znaku w HamQTH".to_string());
         }
 
-        let call = Self::extract_tag(xml, "callsign").unwrap_or_else(|| query_call.to_string());
-        let name = Self::extract_tag(xml, "nick").or_else(|| Self::extract_tag(xml, "name"));
-        let qth = Self::extract_tag(xml, "qth");
-        let grid = Self::extract_tag(xml, "grid");
-        let country = Self::extract_tag(xml, "country");
-        let dxcc = Self::extract_tag(xml, "adif").and_then(|d| d.parse::<u32>().ok());
-        let qsl_manager = Self::extract_tag(xml, "qsl");
-        let image_url = Self::extract_tag(xml, "picture");
+        let call = extract_tag(xml, "callsign").unwrap_or_else(|| query_call.to_string());
+        let name = extract_tag(xml, "nick").or_else(|| extract_tag(xml, "name"));
+        let qth = extract_tag(xml, "qth");
+        let grid = extract_tag(xml, "grid");
+        let country = extract_tag(xml, "country");
+        let dxcc = extract_tag(xml, "adif").and_then(|d| d.parse::<u32>().ok());
+        let qsl_manager = extract_tag(xml, "qsl");
+        let image_url = extract_tag(xml, "picture");
 
         Ok(CallbookData {
             callsign: call,
             name,
             qth,
             gridsquare: grid,
-            state: Self::extract_tag(xml, "us_state"),
+            state: extract_tag(xml, "us_state"),
             dxcc,
             country,
             qsl_manager,
-            email: Self::extract_tag(xml, "email"),
+            email: extract_tag(xml, "email"),
             image_url,
         })
     }
 
-    fn unescape_xml(s: &str) -> String {
-        s.replace("&lt;", "<")
-            .replace("&gt;", ">")
-            .replace("&quot;", "\"")
-            .replace("&apos;", "'")
-            .replace("&#39;", "'")
-            .replace("&amp;", "&")
-    }
-
-    fn extract_tag(xml: &str, tag: &str) -> Option<String> {
-        let open_tag = format!("<{tag}>");
-        let close_tag = format!("</{tag}>");
-        let start = xml.find(&open_tag)? + open_tag.len();
-        let end = xml[start..].find(&close_tag)?;
-        let content = Self::unescape_xml(xml[start..start + end].trim());
-        if content.is_empty() {
-            None
-        } else {
-            Some(content)
-        }
-    }
 }

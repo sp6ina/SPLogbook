@@ -9,6 +9,7 @@
 //! ekosystemem narzędzi N1MM bez żadnych dodatkowych wtyczek.
 
 use crate::core::qso::QsoRecord;
+use crate::core::xml::escape_xml as xml_escape;
 use tokio::net::UdpSocket;
 
 /// Domyślny adres nasłuchu N1MM Logger+ (loopback).
@@ -19,22 +20,6 @@ pub const N1MM_DEFAULT_PORT: u16 = 12060;
 
 /// Nazwa aplikacji umieszczana w polu `<app>` ramek.
 const APP_NAME: &str = "SPLogbook";
-
-/// Zamienia znaki specjalne XML na encje, aby ramka była poprawna.
-fn xml_escape(input: &str) -> String {
-    let mut out = String::with_capacity(input.len());
-    for ch in input.chars() {
-        match ch {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            '\'' => out.push_str("&apos;"),
-            _ => out.push(ch),
-        }
-    }
-    out
-}
 
 /// Zamienia łańcuch daty/czasu ADIF na format oczekiwany przez N1MM
 /// (`YYYY-MM-DD HH:MM:SS`). W razie braku danych zwraca bieżący czas UTC.

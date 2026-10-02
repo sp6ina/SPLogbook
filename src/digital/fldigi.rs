@@ -2,6 +2,8 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 // Integracja z programem emisji cyfrowych FLDIGI za pośrednictwem protokołu XML-RPC
 
+use crate::core::xml::unescape_xml as unescape_xml_entities;
+
 #[derive(Debug, Clone)]
 pub struct FldigiClient {
     pub endpoint: String,
@@ -18,14 +20,6 @@ pub struct FldigiQsoState {
     pub rst_rcvd: String,
     pub freq_hz: f64,
     pub mode: String,
-}
-
-fn unescape_xml_entities(s: &str) -> String {
-    s.replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&apos;", "'")
-        .replace("&amp;", "&")
 }
 
 impl FldigiClient {
