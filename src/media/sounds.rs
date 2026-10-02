@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Mariusz Woźniak (SP6INA)
+
 use rodio::source::SineWave;
 use rodio::{DeviceSinkBuilder, Player, Source};
 use std::sync::OnceLock;

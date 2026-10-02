@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Mariusz Woźniak (SP6INA)
+
 // Dane gmin PGA (wygenerowane z pga.rs) — patrz moduł pga.
 &[
     PgaGmina { code: "AB01", name: "Boguszów-Gorce  (miasto)", powiat: "Wałbrzych" },

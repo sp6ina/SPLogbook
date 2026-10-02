@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Mariusz Woźniak (SP6INA)
+
 use crate::core::qso::QsoRecord;
 use crate::core::xml::escape_xml as escape_xml_attr;
 

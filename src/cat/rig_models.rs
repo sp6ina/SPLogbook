@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Mariusz Woźniak (SP6INA)
+
 // SPLogbook: Kompletna baza wszystkich modeli radiostacji Hamlib (313 modeli)
 // Wygenerowane automatycznie z oficjalnego Hamlib 4.7.2
 

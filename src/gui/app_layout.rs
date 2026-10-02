@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Mariusz Woźniak (SP6INA)
+
 // Układ dokowania i kafelki — wydzielone z app.rs.
 use super::*;
 

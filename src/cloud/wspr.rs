@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Mariusz Woźniak (SP6INA)
+
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct WsprSpot {
     pub callsign: String,
