@@ -81,7 +81,7 @@ impl AdifEngine {
                         // Rekord z błędem składni jest odrzucany; komunikat już zapisano.
                         rejected += 1;
                     } else {
-                        match Self::fields_to_qso(&current_fields) {
+                        match Self::fields_to_qso(&mut current_fields) {
                             Ok(qso) => {
                                 qsos.push(qso);
                                 if let Some(msg) =
@@ -157,7 +157,7 @@ impl AdifEngine {
             if record_has_error {
                 rejected += 1;
             } else {
-                match Self::fields_to_qso(&current_fields) {
+                match Self::fields_to_qso(&mut current_fields) {
                     Ok(qso) => {
                         qsos.push(qso);
                         if let Some(msg) = Self::missing_mode_error(&current_fields, record_index) {
@@ -349,17 +349,16 @@ impl AdifEngine {
     ///
     /// Zwraca `Err` z komunikatem odrzucenia, gdy brakuje wymaganego pola CALL
     /// lub gdy nie da się ustalić pasma (brak BAND i rozpoznawalnej FREQ).
-    fn fields_to_qso(fields: &HashMap<String, String>) -> Result<QsoRecord, String> {
-        let call = match fields.get("CALL") {
+    fn fields_to_qso(fields: &mut HashMap<String, String>) -> Result<QsoRecord, String> {
+        let call = match fields.remove("CALL") {
             Some(c) if !c.is_empty() => c,
             _ => return Err("brak wymaganego pola CALL.".to_string()),
         };
 
         let parsed_freq: Option<f64> = fields.get("FREQ").and_then(|f| f.parse().ok());
         let band = fields
-            .get("BAND")
+            .remove("BAND")
             .filter(|b| !b.is_empty())
-            .cloned()
             .or_else(|| {
                 parsed_freq
                     .filter(|f| f.is_finite() && *f > 0.0)
@@ -386,7 +385,7 @@ impl AdifEngine {
 
         let mut qso = QsoRecord::new(call, band, mode);
 
-        if let Some(sub) = fields.get("SUBMODE").filter(|s| !s.is_empty()).cloned() {
+        if let Some(sub) = fields.remove("SUBMODE").filter(|s| !s.is_empty()) {
             if let Some((norm_mode, norm_sub)) = Self::normalize_mode_submode(&qso.mode, Some(&sub))
             {
                 qso.mode = norm_mode.to_string();
@@ -398,144 +397,87 @@ impl AdifEngine {
             qso.mode = norm_mode.to_string();
             qso.submode = norm_sub.map(str::to_string);
         }
-        if let Some(d) = fields.get("QSO_DATE") {
-            qso.qso_date.clone_from(d);
+        if let Some(d) = fields.remove("QSO_DATE") {
+            qso.qso_date = d;
         }
-        if let Some(t) = fields.get("TIME_ON") {
-            qso.time_on.clone_from(t);
+        if let Some(t) = fields.remove("TIME_ON") {
+            qso.time_on = t;
         }
-        if let Some(t) = fields.get("TIME_OFF") {
-            qso.time_off = Some(t.clone());
-        }
+        qso.time_off = fields.remove("TIME_OFF");
         if parsed_freq.is_some() {
             qso.freq = parsed_freq;
         }
         if let Some(f) = fields.get("FREQ_RX") {
             qso.freq_rx = f.parse().ok();
         }
-        if let Some(rst) = fields.get("RST_SENT") {
-            qso.rst_sent.clone_from(rst);
+        if let Some(rst) = fields.remove("RST_SENT") {
+            qso.rst_sent = rst;
         }
-        if let Some(rst) = fields.get("RST_RCVD") {
-            qso.rst_rcvd.clone_from(rst);
+        if let Some(rst) = fields.remove("RST_RCVD") {
+            qso.rst_rcvd = rst;
         }
-        if let Some(name) = fields.get("NAME") {
-            qso.name = Some(name.clone());
-        }
-        if let Some(qth) = fields.get("QTH") {
-            qso.qth = Some(qth.clone());
-        }
-        if let Some(grid) = fields.get("GRIDSQUARE") {
-            qso.gridsquare = Some(grid.clone());
-        }
-        if let Some(st) = fields.get("STATE") {
-            qso.state = Some(st.clone());
-        }
-        if let Some(iota) = fields.get("IOTA") {
-            qso.iota = Some(iota.clone());
-        }
-        if let Some(sota) = fields.get("SOTA_REF") {
-            qso.sota_ref = Some(sota.clone());
-        }
-        if let Some(pota) = fields.get("POTA_REF") {
-            qso.pota_ref = Some(pota.clone());
-        }
-        if let Some(my_pota) = fields.get("MY_POTA_REF") {
-            qso.my_pota_ref = Some(my_pota.clone());
-        }
-        if let Some(my_sota) = fields.get("MY_SOTA_REF") {
-            qso.my_sota_ref = Some(my_sota.clone());
-        }
-        if let Some(vucc) = fields.get("VUCC_GRIDS") {
-            qso.vucc_grids = Some(vucc.clone());
-        }
-        if let Some(pga) = fields.get("PGA_REF").or_else(|| fields.get("PGA")) {
-            qso.pga_ref = Some(pga.clone());
-        }
+        qso.name = fields.remove("NAME");
+        qso.qth = fields.remove("QTH");
+        qso.gridsquare = fields.remove("GRIDSQUARE");
+        qso.state = fields.remove("STATE");
+        qso.iota = fields.remove("IOTA");
+        qso.sota_ref = fields.remove("SOTA_REF");
+        qso.pota_ref = fields.remove("POTA_REF");
+        qso.my_pota_ref = fields.remove("MY_POTA_REF");
+        qso.my_sota_ref = fields.remove("MY_SOTA_REF");
+        qso.vucc_grids = fields.remove("VUCC_GRIDS");
+        qso.pga_ref = fields.remove("PGA_REF").or_else(|| fields.remove("PGA"));
         if let Some(dxcc) = fields.get("DXCC") {
             qso.dxcc = dxcc.parse().ok();
         }
-        if let Some(cnt) = fields.get("COUNTRY") {
-            qso.country = Some(cnt.clone());
-        }
-        if let Some(cont) = fields.get("CONT") {
-            qso.continent = Some(cont.clone());
-        }
+        qso.country = fields.remove("COUNTRY");
+        qso.continent = fields.remove("CONT");
         if let Some(cq) = fields.get("CQZ") {
             qso.cqz = cq.parse().ok();
         }
         if let Some(itu) = fields.get("ITUZ") {
             qso.ituz = itu.parse().ok();
         }
-        if let Some(c) = fields.get("COMMENT") {
-            qso.comment = Some(c.clone());
+        qso.comment = fields.remove("COMMENT");
+        if let Some(q) = fields.remove("QSL_SENT") {
+            qso.qsl_sent = q;
         }
-        if let Some(q) = fields.get("QSL_SENT") {
-            qso.qsl_sent.clone_from(q);
+        if let Some(q) = fields.remove("QSL_RCVD") {
+            qso.qsl_rcvd = q;
         }
-        if let Some(q) = fields.get("QSL_RCVD") {
-            qso.qsl_rcvd.clone_from(q);
+        qso.qsl_sent_date = fields.remove("QSLSDATE");
+        qso.qsl_rcvd_date = fields.remove("QSLRDATE");
+        if let Some(q) = fields.remove("LOTW_QSL_SENT") {
+            qso.lotw_qsl_sent = q;
         }
-        if let Some(qd) = fields.get("QSLSDATE") {
-            qso.qsl_sent_date = Some(qd.clone());
+        if let Some(q) = fields.remove("LOTW_QSL_RCVD") {
+            qso.lotw_qsl_rcvd = q;
         }
-        if let Some(qd) = fields.get("QSLRDATE") {
-            qso.qsl_rcvd_date = Some(qd.clone());
+        qso.lotw_qslrdate = fields.remove("LOTW_QSLRDATE");
+        if let Some(q) = fields.remove("EQSL_QSL_SENT") {
+            qso.eqsl_qsl_sent = q;
         }
-        if let Some(q) = fields.get("LOTW_QSL_SENT") {
-            qso.lotw_qsl_sent.clone_from(q);
+        if let Some(q) = fields.remove("EQSL_QSL_RCVD") {
+            qso.eqsl_qsl_rcvd = q;
         }
-        if let Some(q) = fields.get("LOTW_QSL_RCVD") {
-            qso.lotw_qsl_rcvd.clone_from(q);
-        }
-        if let Some(qd) = fields.get("LOTW_QSLRDATE") {
-            qso.lotw_qslrdate = Some(qd.clone());
-        }
-        if let Some(q) = fields.get("EQSL_QSL_SENT") {
-            qso.eqsl_qsl_sent.clone_from(q);
-        }
-        if let Some(q) = fields.get("EQSL_QSL_RCVD") {
-            qso.eqsl_qsl_rcvd.clone_from(q);
-        }
-        if let Some(qd) = fields.get("EQSL_QSLRDATE") {
-            qso.eqsl_qslrdate = Some(qd.clone());
-        }
-        if let Some(sn) = fields.get("SAT_NAME") {
-            qso.sat_name = Some(sn.clone());
-        }
-        if let Some(sm) = fields.get("SAT_MODE") {
-            qso.sat_mode = Some(sm.clone());
-        }
-        if let Some(pm) = fields.get("PROP_MODE") {
-            qso.prop_mode = Some(pm.clone());
-        }
+        qso.eqsl_qslrdate = fields.remove("EQSL_QSLRDATE");
+        qso.sat_name = fields.remove("SAT_NAME");
+        qso.sat_mode = fields.remove("SAT_MODE");
+        qso.prop_mode = fields.remove("PROP_MODE");
         if let Some(srx) = fields.get("SRX") {
             qso.srx = srx.parse().ok();
         }
         if let Some(stx) = fields.get("STX") {
             qso.stx = stx.parse().ok();
         }
-        if let Some(srx_s) = fields.get("SRX_STRING") {
-            qso.srx_string = Some(srx_s.clone());
-        }
-        if let Some(stx_s) = fields.get("STX_STRING") {
-            qso.stx_string = Some(stx_s.clone());
-        }
-        if let Some(mg) = fields.get("MY_GRIDSQUARE") {
-            qso.my_gridsquare = Some(mg.clone());
-        }
-        if let Some(ms) = fields.get("MY_STATE") {
-            qso.my_state = Some(ms.clone());
-        }
-        if let Some(qv) = fields.get("QSL_VIA") {
-            qso.qsl_via = Some(qv.clone());
-        }
-        if let Some(qm) = fields
-            .get("QSL_VIA_MANAGER")
-            .or_else(|| fields.get("QSL_MANAGER"))
-        {
-            qso.qsl_manager = Some(qm.clone());
-        }
+        qso.srx_string = fields.remove("SRX_STRING");
+        qso.stx_string = fields.remove("STX_STRING");
+        qso.my_gridsquare = fields.remove("MY_GRIDSQUARE");
+        qso.my_state = fields.remove("MY_STATE");
+        qso.qsl_via = fields.remove("QSL_VIA");
+        qso.qsl_manager = fields
+            .remove("QSL_VIA_MANAGER")
+            .or_else(|| fields.remove("QSL_MANAGER"));
 
         Ok(qso)
     }
