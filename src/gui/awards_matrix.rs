@@ -194,6 +194,42 @@ fn render_tab_dxcc(
     ];
     let modes = &["CW", "SSB", "DIGI", "MIXED"];
 
+    // Pojedynczy przebieg po QSO zamiast skanowania listy dla każdej komórki siatki.
+    let mut worked = vec![[false; 4]; bands.len()];
+    let mut confirmed = vec![[false; 4]; bands.len()];
+    let mut band_counts = vec![0usize; bands.len()];
+
+    for q in &app.recent_qsos {
+        let Some(bi) = bands.iter().position(|b| *b == q.band) else {
+            continue;
+        };
+        band_counts[bi] += 1;
+
+        let mut mode_flags = [false; 4];
+        mode_flags[3] = true; // MIXED — każde QSO pasuje do pasma
+        if q.mode == "CW" {
+            mode_flags[0] = true;
+        }
+        if q.mode == "SSB" {
+            mode_flags[1] = true;
+        }
+        if q.mode == "DIGI" || q.mode == "FT8" || q.mode == "FT4" || q.mode == "RTTY" {
+            mode_flags[2] = true;
+        }
+
+        let is_confirmed =
+            q.lotw_qsl_rcvd == "Y" || q.qsl_rcvd == "Y" || q.eqsl_qsl_rcvd == "Y";
+
+        for (mi, &flag) in mode_flags.iter().enumerate() {
+            if flag {
+                worked[bi][mi] = true;
+                if is_confirmed {
+                    confirmed[bi][mi] = true;
+                }
+            }
+        }
+    }
+
     egui::ScrollArea::vertical().show(ui, |ui| {
         egui::Grid::new("awards_dxcc_grid")
             .striped(true)
@@ -206,36 +242,16 @@ fn render_tab_dxcc(
                 ui.label(egui::RichText::new(tr_or(lang, "Łączności", "QSOs")).strong());
                 ui.end_row();
 
-                for band in bands {
+                for (bi, band) in bands.iter().enumerate() {
                     ui.label(
                         egui::RichText::new(*band)
                             .strong()
                             .color(egui::Color32::from_rgb(56, 189, 248)),
                     );
 
-                    for mode in modes {
-                        let worked = app.recent_qsos.iter().any(|q| {
-                            q.band == *band
-                                && (mode == &"MIXED"
-                                    || q.mode == *mode
-                                    || (*mode == "DIGI"
-                                        && (q.mode == "FT8"
-                                            || q.mode == "FT4"
-                                            || q.mode == "RTTY")))
-                        });
-
-                        let confirmed = app.recent_qsos.iter().any(|q| {
-                            q.band == *band
-                                && (mode == &"MIXED"
-                                    || q.mode == *mode
-                                    || (*mode == "DIGI"
-                                        && (q.mode == "FT8"
-                                            || q.mode == "FT4"
-                                            || q.mode == "RTTY")))
-                                && (q.lotw_qsl_rcvd == "Y"
-                                    || q.qsl_rcvd == "Y"
-                                    || q.eqsl_qsl_rcvd == "Y")
-                        });
+                    for mi in 0..modes.len() {
+                        let worked = worked[bi][mi];
+                        let confirmed = confirmed[bi][mi];
 
                         if confirmed {
                             ui.label(
@@ -256,7 +272,7 @@ fn render_tab_dxcc(
                         }
                     }
 
-                    let band_qsos = app.recent_qsos.iter().filter(|q| q.band == *band).count();
+                    let band_qsos = band_counts[bi];
                     ui.label(
                         egui::RichText::new(format!("{band_qsos} QSO"))
                             .size(11.0)
