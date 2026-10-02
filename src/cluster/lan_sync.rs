@@ -6,7 +6,9 @@ use crate::core::qso::QsoRecord;
 use log::{error, info};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{
+    AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader,
+};
 use tokio::net::TcpListener;
 use tokio::sync::{Notify, broadcast};
 
@@ -47,6 +49,38 @@ async fn read_line_limited<R: AsyncBufRead + Unpin>(
         .take((MAX_LINE_BYTES + 1) as u64)
         .read_line(line)
         .await
+}
+
+/// Pętla nadawcza: serializuje wiadomości z kanału broadcast i zapisuje je do klienta
+/// (jedna linia JSON na wiadomość) aż do zamknięcia, rozłączenia lub błędu zapisu.
+async fn write_loop<W: AsyncWrite + Unpin>(
+    mut write_half: W,
+    mut rx: broadcast::Receiver<MultiOpMessage>,
+    shutdown: Arc<Notify>,
+    conn_shutdown: Arc<Notify>,
+) {
+    loop {
+        let msg = tokio::select! {
+            () = shutdown.notified() => break,
+            () = conn_shutdown.notified() => break,
+            m = rx.recv() => match m {
+                Ok(msg) => msg,
+                Err(_) => break,
+            },
+        };
+        if let Ok(json) = serde_json::to_string(&msg) {
+            let payload = format!("{json}\n");
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                write_half.write_all(payload.as_bytes()),
+            )
+            .await
+            {
+                Ok(Ok(())) => {}
+                _ => break,
+            }
+        }
+    }
 }
 
 pub struct MultiOpServer {
@@ -144,7 +178,7 @@ impl MultiOpServer {
                                 info!("Nowe połączenie Multi-Op ze stacją: {peer_addr}");
                                 let q_sender = incoming_qso_sender.clone();
                                 let tx_for_conn = tx.clone();
-                                let (read_half, mut write_half) = stream.into_split();
+                                let (read_half, write_half) = stream.into_split();
                                 let mut reader = BufReader::new(read_half);
                                 let secret_for_conn = shared_secret.clone();
                                 let shutdown_rx = shutdown.clone();
@@ -198,33 +232,15 @@ impl MultiOpServer {
                                     let conn_shutdown = Arc::new(Notify::new());
                                     let conn_shutdown_tx = conn_shutdown.clone();
                                     let shutdown_tx = shutdown_rx.clone();
-                                    let mut rx = tx_for_conn.subscribe();
+                                    let rx = tx_for_conn.subscribe();
 
                                     // Wątek nadawczy do klienta uruchamiany dopiero PO pomyślnej autoryzacji
-                                    tokio::spawn(async move {
-                                        loop {
-                                            let msg = tokio::select! {
-                                                () = shutdown_tx.notified() => break,
-                                                () = conn_shutdown_tx.notified() => break,
-                                                m = rx.recv() => match m {
-                                                    Ok(msg) => msg,
-                                                    Err(_) => break,
-                                                },
-                                            };
-                                            if let Ok(json) = serde_json::to_string(&msg) {
-                                                let payload = format!("{json}\n");
-                                                match tokio::time::timeout(
-                                                    std::time::Duration::from_secs(5),
-                                                    write_half.write_all(payload.as_bytes()),
-                                                )
-                                                .await
-                                                {
-                                                    Ok(Ok(())) => {}
-                                                    _ => break,
-                                                }
-                                            }
-                                        }
-                                    });
+                                    tokio::spawn(write_loop(
+                                        write_half,
+                                        rx,
+                                        shutdown_tx,
+                                        conn_shutdown_tx,
+                                    ));
 
                                     loop {
                                         line.clear();
@@ -397,37 +413,14 @@ impl MultiOpClient {
             return Err(e);
         }
 
-        let mut rx = self.tx.subscribe();
+        let rx = self.tx.subscribe();
         let shutdown_rx = self.shutdown.clone();
         let shutdown_tx = self.shutdown.clone();
         let is_running = self.is_running.clone();
         let conn_shutdown = Arc::new(Notify::new());
         let conn_shutdown_tx = conn_shutdown.clone();
 
-        tokio::spawn(async move {
-            loop {
-                let msg = tokio::select! {
-                    () = shutdown_tx.notified() => break,
-                    () = conn_shutdown_tx.notified() => break,
-                    m = rx.recv() => match m {
-                        Ok(msg) => msg,
-                        Err(_) => break,
-                    },
-                };
-                if let Ok(json) = serde_json::to_string(&msg) {
-                    let payload = format!("{json}\n");
-                    match tokio::time::timeout(
-                        std::time::Duration::from_secs(5),
-                        write_half.write_all(payload.as_bytes()),
-                    )
-                    .await
-                    {
-                        Ok(Ok(())) => {}
-                        _ => break,
-                    }
-                }
-            }
-        });
+        tokio::spawn(write_loop(write_half, rx, shutdown_tx, conn_shutdown_tx));
 
         tokio::spawn(async move {
             let mut reader = BufReader::new(read_half);
