@@ -129,7 +129,7 @@ fn score_iaru(qsos: &[QsoRecord], _my_dxcc: u32, my_cqzone: u8) -> (u32, u32, u3
     (pts, m, pts * m)
 }
 
-fn score_wae(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, u32) {
+fn score_1pt_dxcc(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, u32) {
     let mut pts = 0;
     let mut mults = HashSet::new();
     for q in qsos {
@@ -174,19 +174,6 @@ fn score_field_day(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u
     (pts, m, pts * m)
 }
 
-fn score_sac(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, u32) {
-    let mut pts = 0;
-    let mut mults = HashSet::new();
-    for q in qsos {
-        pts += 1;
-        if let Some(d) = q.dxcc {
-            mults.insert(d.to_string());
-        }
-    }
-    let m = mults.len() as u32;
-    (pts, m, pts * m)
-}
-
 fn score_eu_hf(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, u32) {
     let mut pts = 0;
     let mut mults = HashSet::new();
@@ -204,7 +191,7 @@ fn score_eu_hf(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, 
     (pts, m, pts * m)
 }
 
-fn score_ok_om(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, u32) {
+fn score_3pt_dxcc(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, u32) {
     let mut pts = 0;
     let mut mults = HashSet::new();
     for q in qsos {
@@ -234,32 +221,6 @@ fn score_king_spain(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, 
     (pts, m, pts * m)
 }
 
-fn score_all_asian(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, u32) {
-    let mut pts = 0;
-    let mut mults = HashSet::new();
-    for q in qsos {
-        pts += 1;
-        if let Some(d) = q.dxcc {
-            mults.insert(d.to_string());
-        }
-    }
-    let m = mults.len() as u32;
-    (pts, m, pts * m)
-}
-
-fn score_jidx(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, u32) {
-    let mut pts = 0;
-    let mut mults = HashSet::new();
-    for q in qsos {
-        pts += 1;
-        if let Some(d) = q.dxcc {
-            mults.insert(d.to_string());
-        }
-    }
-    let m = mults.len() as u32;
-    (pts, m, pts * m)
-}
-
 fn score_rda(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, u32) {
     let mut pts = 0;
     let mut mults = HashSet::new();
@@ -273,19 +234,6 @@ fn score_rda(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, u3
     (pts, m, pts * m)
 }
 
-fn score_marconi(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, u32) {
-    let mut pts = 0;
-    let mut mults = HashSet::new();
-    for q in qsos {
-        pts += 1;
-        if let Some(d) = q.dxcc {
-            mults.insert(d.to_string());
-        }
-    }
-    let m = mults.len() as u32;
-    (pts, m, pts * m)
-}
-
 fn score_bartg(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, u32) {
     let mut pts = 0;
     let mut mults = HashSet::new();
@@ -293,19 +241,6 @@ fn score_bartg(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, 
         pts += 6;
         if let Some(d) = q.dxcc {
             mults.insert(format!("{}-{}", d, q.band));
-        }
-    }
-    let m = mults.len() as u32;
-    (pts, m, pts * m)
-}
-
-fn score_na_rtty(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, u32) {
-    let mut pts = 0;
-    let mut mults = HashSet::new();
-    for q in qsos {
-        pts += 3;
-        if let Some(d) = q.dxcc {
-            mults.insert(d.to_string());
         }
     }
     let m = mults.len() as u32;
@@ -388,7 +323,7 @@ pub const RULES: &[ContestRule] = &[
         exchange_fields: &[Rst, Serial],
         bands: &["80m", "40m", "20m", "15m", "10m"],
         mult_kind: MultKind::Dxcc,
-        scoring_fn: score_wae,
+        scoring_fn: score_1pt_dxcc,
     },
     ContestRule {
         name: "RSGB IOTA Contest",
@@ -412,7 +347,7 @@ pub const RULES: &[ContestRule] = &[
         exchange_fields: &[Rst, Serial],
         bands: &["80m", "40m", "20m", "15m", "10m"],
         mult_kind: MultKind::Dxcc,
-        scoring_fn: score_sac,
+        scoring_fn: score_1pt_dxcc,
     },
     ContestRule {
         name: "EU HF Championship",
@@ -428,7 +363,7 @@ pub const RULES: &[ContestRule] = &[
         exchange_fields: &[Rst, District],
         bands: &["160m", "80m", "40m", "20m", "15m", "10m"],
         mult_kind: MultKind::Dxcc,
-        scoring_fn: score_ok_om,
+        scoring_fn: score_3pt_dxcc,
     },
     ContestRule {
         name: "King of Spain DX Contest",
@@ -444,7 +379,7 @@ pub const RULES: &[ContestRule] = &[
         exchange_fields: &[Rst, Age],
         bands: &["160m", "80m", "40m", "20m", "15m", "10m"],
         mult_kind: MultKind::Dxcc,
-        scoring_fn: score_all_asian,
+        scoring_fn: score_1pt_dxcc,
     },
     ContestRule {
         name: "JIDX Contest",
@@ -452,7 +387,7 @@ pub const RULES: &[ContestRule] = &[
         exchange_fields: &[Rst, District],
         bands: &["160m", "80m", "40m", "20m", "15m", "10m"],
         mult_kind: MultKind::Dxcc,
-        scoring_fn: score_jidx,
+        scoring_fn: score_1pt_dxcc,
     },
     ContestRule {
         name: "RDA Contest",
@@ -468,7 +403,7 @@ pub const RULES: &[ContestRule] = &[
         exchange_fields: &[Rst, Serial],
         bands: &["160m", "80m", "40m", "20m", "15m", "10m"],
         mult_kind: MultKind::Dxcc,
-        scoring_fn: score_marconi,
+        scoring_fn: score_1pt_dxcc,
     },
     ContestRule {
         name: "BARTG HF RTTY",
@@ -484,7 +419,7 @@ pub const RULES: &[ContestRule] = &[
         exchange_fields: &[Rst, Serial, Name, Qth],
         bands: &["80m", "40m", "20m"],
         mult_kind: MultKind::Dxcc,
-        scoring_fn: score_na_rtty,
+        scoring_fn: score_3pt_dxcc,
     },
     ContestRule {
         name: "Ukrainian DX Contest",
