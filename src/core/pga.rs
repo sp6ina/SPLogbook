@@ -19,29 +19,29 @@ pub fn find_by_code(code: &str) -> Option<&'static PgaGmina> {
 
 /// Wyszukuje gminy po nazwie miejscowości, powiatu lub fragmencie kodu PGA
 pub fn search_pga(query: &str) -> Vec<&'static PgaGmina> {
-    let q = query.trim().to_uppercase();
-    if q.is_empty() {
+    let query_upper = query.trim().to_uppercase();
+    if query_upper.is_empty() {
         return Vec::new();
     }
     ALL_PGA_GMINAS
         .iter()
         .filter(|g| {
-            g.code.contains(&q)
-                || g.name.to_uppercase().contains(&q)
-                || g.powiat.to_uppercase().contains(&q)
+            g.code.contains(&query_upper)
+                || g.name.to_uppercase().contains(&query_upper)
+                || g.powiat.to_uppercase().contains(&query_upper)
         })
         .collect()
 }
 
 /// Podpowiada kod PGA na podstawie podanego QTH/miasta
 pub fn suggest_pga_for_qth(qth: &str) -> Option<&'static PgaGmina> {
-    let q = qth.trim().to_uppercase();
-    if q.len() < 3 {
+    let qth_upper = qth.trim().to_uppercase();
+    if qth_upper.len() < 3 {
         return None;
     }
-    ALL_PGA_GMINAS
-        .iter()
-        .find(|g| g.name.to_uppercase().contains(&q) || q.contains(&g.name.to_uppercase()))
+    ALL_PGA_GMINAS.iter().find(|g| {
+        g.name.to_uppercase().contains(&qth_upper) || qth_upper.contains(&g.name.to_uppercase())
+    })
 }
 
 #[cfg(test)]

@@ -17,11 +17,11 @@ impl LogDatabase {
         let rows = stmt.query_map([], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
         })?;
-        let mut v = Vec::new();
-        for x in rows {
-            v.push(x?);
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row?);
         }
-        Ok(v)
+        Ok(results)
     }
 
     /// Zwraca liczbę QSO pogrupowaną według pasma
@@ -32,11 +32,11 @@ impl LogDatabase {
         let rows = stmt.query_map([], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
         })?;
-        let mut v = Vec::new();
-        for x in rows {
-            v.push(x?);
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row?);
         }
-        Ok(v)
+        Ok(results)
     }
 
     /// Zwraca liczbę QSO pogrupowaną według emisji
@@ -47,11 +47,11 @@ impl LogDatabase {
         let rows = stmt.query_map([], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
         })?;
-        let mut v = Vec::new();
-        for x in rows {
-            v.push(x?);
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row?);
         }
-        Ok(v)
+        Ok(results)
     }
 
     /// Zwraca liczbę QSO pogrupowaną według kontynentu
@@ -63,11 +63,11 @@ impl LogDatabase {
         let rows = stmt.query_map([], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
         })?;
-        let mut v = Vec::new();
-        for x in rows {
-            v.push(x?);
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row?);
         }
-        Ok(v)
+        Ok(results)
     }
 
     /// Zwraca liczbę unikalnych znaków wywoławczych oraz unikalnych podmiotów DXCC w logu
@@ -92,11 +92,11 @@ impl LogDatabase {
              FROM qso_records WHERE length(REPLACE(time_on, ':', '')) >= 2 GROUP BY hour ORDER BY hour"
         )?;
         let rows = stmt.query_map([], |row| Ok((row.get::<_, u32>(0)?, row.get::<_, i64>(1)?)))?;
-        let mut v = Vec::new();
-        for x in rows {
-            v.push(x?);
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row?);
         }
-        Ok(v)
+        Ok(results)
     }
 
     /// Zwraca top N krajów wg liczby QSO
@@ -107,11 +107,11 @@ impl LogDatabase {
         let rows = stmt.query_map([limit as i64], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
         })?;
-        let mut v = Vec::new();
-        for x in rows {
-            v.push(x?);
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row?);
         }
-        Ok(v)
+        Ok(results)
     }
 
     /// Zwraca statystyki QSL (total, lotw_confirmed, eqsl_confirmed, paper_confirmed)
@@ -135,10 +135,10 @@ impl LogDatabase {
         let rows = stmt.query_map([limit as i64], |row| {
             Ok((row.get::<_, u32>(0)?, row.get::<_, i64>(1)?))
         })?;
-        let mut v = Vec::new();
-        for x in rows {
-            v.push(x?);
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row?);
         }
-        Ok(v)
+        Ok(results)
     }
 }

@@ -37,10 +37,10 @@ fn format_sota_date(adif_date: &str) -> Result<String, ()> {
     let digits: String = adif_date.chars().filter(char::is_ascii_digit).collect();
     if digits.len() == 8 {
         // YYYYMMDD -> DD/MM/YY
-        let y = &digits[2..4];
-        let m = &digits[4..6];
-        let d = &digits[6..8];
-        Ok(format!("{d}/{m}/{y}"))
+        let year = &digits[2..4];
+        let month = &digits[4..6];
+        let day = &digits[6..8];
+        Ok(format!("{day}/{month}/{year}"))
     } else {
         Err(())
     }

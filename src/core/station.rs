@@ -738,10 +738,10 @@ fn slugify(name: &str) -> String {
     let mut out = String::with_capacity(name.len());
     let mut last_dash = false;
     for ch in name.chars() {
-        let c = ch.to_ascii_lowercase();
-        let ok = if c.is_ascii_alphanumeric() {
-            c
-        } else if c == ' ' || c == '_' || c == '-' {
+        let lowercased = ch.to_ascii_lowercase();
+        let ok = if lowercased.is_ascii_alphanumeric() {
+            lowercased
+        } else if lowercased == ' ' || lowercased == '_' || lowercased == '-' {
             '-'
         } else {
             continue;

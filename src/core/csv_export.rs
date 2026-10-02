@@ -321,16 +321,16 @@ impl CsvColumn {
 /// Formatuje częstotliwość w MHz z maks. 6 miejscami po przecinku,
 /// usuwając zbędne zera na końcu.
 fn fmt_mhz(mhz: f64) -> String {
-    let mut s = format!("{mhz:.6}");
-    if s.contains('.') {
-        while s.ends_with('0') {
-            s.pop();
+    let mut text = format!("{mhz:.6}");
+    if text.contains('.') {
+        while text.ends_with('0') {
+            text.pop();
         }
-        if s.ends_with('.') {
-            s.pop();
+        if text.ends_with('.') {
+            text.pop();
         }
     }
-    s
+    text
 }
 
 /// Zabezpiecza pojedyncze pole CSV: cudzysłowia są podwajane, a pola zawierające

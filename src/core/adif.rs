@@ -190,11 +190,11 @@ impl AdifEngine {
         mode: &str,
         submode: Option<&str>,
     ) -> Option<(&'static str, Option<&'static str>)> {
-        let m = mode.trim().to_uppercase();
+        let mode_upper = mode.trim().to_uppercase();
         let sub = submode.map(|s| s.trim().to_uppercase());
 
         // MODE = MFSK: o emisji decyduje SUBMODE (§ 6.1–6.2).
-        if m == "MFSK" {
+        if mode_upper == "MFSK" {
             if let Some(s) = sub.as_deref() {
                 match s {
                     "FT4" => return Some(("FT4", None)),
@@ -219,7 +219,7 @@ impl AdifEngine {
         }
 
         // Emisje z listy 7 jako MODE (§ 6.1–6.2).
-        match m.as_str() {
+        match mode_upper.as_str() {
             "FT8" => return Some(("FT8", None)),
             "FT4" => return Some(("FT4", None)),
             "Q65" => return Some(("Q65", None)),
@@ -231,15 +231,15 @@ impl AdifEngine {
         }
 
         // Wartości import-only jako MODE (§ 6.3): np. MODE=JT65A → JT65/JT65A.
-        if let Some(v) = Self::jt65_submode(m.as_str()) {
+        if let Some(v) = Self::jt65_submode(mode_upper.as_str()) {
             return Some(("JT65", Some(v)));
         }
-        if let Some(v) = Self::jt9_submode(m.as_str()) {
+        if let Some(v) = Self::jt9_submode(mode_upper.as_str()) {
             return Some(("JT9", Some(v)));
         }
 
         // Import-only: legacy MODE=PCW (submode CW) → CW/PCW.
-        if m == "PCW" {
+        if mode_upper == "PCW" {
             return Some(("CW", Some("PCW")));
         }
 

@@ -245,10 +245,10 @@ impl LogDatabase {
 
     /// Najwyższa zarejestrowana wersja schematu (0, gdy brak wpisów).
     fn current_schema_version(&self) -> Result<i64> {
-        let v: Option<i64> =
+        let version: Option<i64> =
             self.conn
                 .query_row("SELECT MAX(version) FROM schema_version", [], |r| r.get(0))?;
-        Ok(v.unwrap_or(0))
+        Ok(version.unwrap_or(0))
     }
 
     /// Wersja 1: bazowe tabele (dzienniki, QSO, kolejka uploadów) i indeksy.
@@ -1372,11 +1372,11 @@ impl LogDatabase {
             });
         }
         if let Some(ref query) = filter.callsign_query {
-            let q = query.trim().to_uppercase();
-            if !q.is_empty() {
+            let query_upper = query.trim().to_uppercase();
+            if !query_upper.is_empty() {
                 // Escapuje % i _ (znaki specjalne LIKE) znakiem ucieczki '\', żeby wpisany
                 // przez użytkownika tekst nie działał jak wzorzec wildcard.
-                let escaped = escape_like(&q);
+                let escaped = escape_like(&query_upper);
                 let like_pattern = format!("%{escaped}%");
                 values.push(Box::new(like_pattern.clone()));
                 let p1 = values.len();

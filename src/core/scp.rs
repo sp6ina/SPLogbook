@@ -43,15 +43,15 @@ impl ScpEngine {
 
     /// Wyszukuje znaki pasujące do wpisanego prefiksu lub fragmentu (Super Check Partial)
     pub fn search(&self, query: &str, limit: usize) -> Vec<String> {
-        let q = query.trim().to_uppercase();
-        if q.is_empty() {
+        let query_upper = query.trim().to_uppercase();
+        if query_upper.is_empty() {
             return Vec::new();
         }
 
         let mut prefix_matches: Vec<String> = self
             .callsigns
             .iter()
-            .filter(|call| call.starts_with(&q))
+            .filter(|call| call.starts_with(&query_upper))
             .cloned()
             .collect();
         prefix_matches.sort();
@@ -64,7 +64,7 @@ impl ScpEngine {
         let mut contains_matches: Vec<String> = self
             .callsigns
             .iter()
-            .filter(|call| !call.starts_with(&q) && call.contains(&q))
+            .filter(|call| !call.starts_with(&query_upper) && call.contains(&query_upper))
             .cloned()
             .collect();
         contains_matches.sort();

@@ -51,8 +51,8 @@ fn score_sp_dx(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, 
             mults.insert(format!("{}:D{}", q.band, dxcc));
         }
     }
-    let m = mults.len() as u32;
-    (pts, m, pts * m)
+    let mult_count = mults.len() as u32;
+    (pts, mult_count, pts * mult_count)
 }
 
 fn score_cqww(qsos: &[QsoRecord], my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, u32) {
@@ -71,8 +71,8 @@ fn score_cqww(qsos: &[QsoRecord], my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, u3
             mults.insert(format!("{}:D{}", q.band, d));
         }
     }
-    let m = mults.len() as u32;
-    (pts, m, pts * m)
+    let mult_count = mults.len() as u32;
+    (pts, mult_count, pts * mult_count)
 }
 
 fn score_arrl_dx(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, u32) {
@@ -84,8 +84,8 @@ fn score_arrl_dx(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32
             mults.insert(format!("{}:{}", q.band, state));
         }
     }
-    let m = mults.len() as u32;
-    (pts, m, pts * m)
+    let mult_count = mults.len() as u32;
+    (pts, mult_count, pts * mult_count)
 }
 
 fn score_wpx(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, u32) {
@@ -98,8 +98,8 @@ fn score_wpx(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, u3
             mults.insert(prefix);
         }
     }
-    let m = mults.len() as u32;
-    (pts, m, pts * m)
+    let mult_count = mults.len() as u32;
+    (pts, mult_count, pts * mult_count)
 }
 
 fn score_vhf(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, u32) {
@@ -111,8 +111,8 @@ fn score_vhf(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, u3
             mults.insert(grid.clone());
         }
     }
-    let m = mults.len() as u32;
-    (pts, m, pts * m)
+    let mult_count = mults.len() as u32;
+    (pts, mult_count, pts * mult_count)
 }
 
 fn score_iaru(qsos: &[QsoRecord], _my_dxcc: u32, my_cqzone: u8) -> (u32, u32, u32) {
@@ -128,8 +128,8 @@ fn score_iaru(qsos: &[QsoRecord], _my_dxcc: u32, my_cqzone: u8) -> (u32, u32, u3
             mults.insert(z.to_string());
         }
     }
-    let m = mults.len() as u32;
-    (pts, m, pts * m)
+    let mult_count = mults.len() as u32;
+    (pts, mult_count, pts * mult_count)
 }
 
 fn score_1pt_dxcc(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, u32) {
@@ -141,8 +141,8 @@ fn score_1pt_dxcc(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u3
             mults.insert(d.to_string());
         }
     }
-    let m = mults.len() as u32;
-    (pts, m, pts * m)
+    let mult_count = mults.len() as u32;
+    (pts, mult_count, pts * mult_count)
 }
 
 fn score_iota(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, u32) {
@@ -156,8 +156,8 @@ fn score_iota(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, u
             pts += 3;
         }
     }
-    let m = mults.len() as u32;
-    (pts, m, pts * m)
+    let mult_count = mults.len() as u32;
+    (pts, mult_count, pts * mult_count)
 }
 
 fn score_field_day(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, u32) {
@@ -173,8 +173,8 @@ fn score_field_day(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u
             mults.insert(state.clone());
         }
     }
-    let m = mults.len() as u32;
-    (pts, m, pts * m)
+    let mult_count = mults.len() as u32;
+    (pts, mult_count, pts * mult_count)
 }
 
 fn score_eu_hf(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, u32) {
@@ -190,8 +190,8 @@ fn score_eu_hf(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, 
             mults.insert(d.to_string());
         }
     }
-    let m = mults.len() as u32;
-    (pts, m, pts * m)
+    let mult_count = mults.len() as u32;
+    (pts, mult_count, pts * mult_count)
 }
 
 fn score_3pt_dxcc(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, u32) {
@@ -203,8 +203,8 @@ fn score_3pt_dxcc(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u3
             mults.insert(d.to_string());
         }
     }
-    let m = mults.len() as u32;
-    (pts, m, pts * m)
+    let mult_count = mults.len() as u32;
+    (pts, mult_count, pts * mult_count)
 }
 
 fn score_king_spain(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, u32) {
@@ -220,8 +220,8 @@ fn score_king_spain(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, 
             mults.insert(s.clone());
         }
     }
-    let m = mults.len() as u32;
-    (pts, m, pts * m)
+    let mult_count = mults.len() as u32;
+    (pts, mult_count, pts * mult_count)
 }
 
 fn score_rda(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, u32) {
@@ -233,8 +233,8 @@ fn score_rda(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, u3
             mults.insert(s.clone());
         }
     }
-    let m = mults.len() as u32;
-    (pts, m, pts * m)
+    let mult_count = mults.len() as u32;
+    (pts, mult_count, pts * mult_count)
 }
 
 fn score_bartg(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, u32) {
@@ -246,8 +246,8 @@ fn score_bartg(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, 
             mults.insert(format!("{}-{}", d, q.band));
         }
     }
-    let m = mults.len() as u32;
-    (pts, m, pts * m)
+    let mult_count = mults.len() as u32;
+    (pts, mult_count, pts * mult_count)
 }
 
 fn score_ukrainian(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, u32) {
@@ -259,8 +259,8 @@ fn score_ukrainian(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u
             mults.insert(s.clone());
         }
     }
-    let m = mults.len() as u32;
-    (pts, m, pts * m)
+    let mult_count = mults.len() as u32;
+    (pts, mult_count, pts * mult_count)
 }
 
 pub const RULES: &[ContestRule] = &[

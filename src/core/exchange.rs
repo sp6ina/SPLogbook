@@ -167,11 +167,11 @@ pub fn fields_from_format_string(format: &str) -> Vec<ExchangeField> {
     let upper = format.to_uppercase();
     let mut out = Vec::new();
     for part in upper.split('+') {
-        let p = part.trim();
-        if p.is_empty() {
+        let trimmed = part.trim();
+        if trimmed.is_empty() {
             continue;
         }
-        out.push(field_from_token(p));
+        out.push(field_from_token(trimmed));
     }
     out
 }
@@ -640,10 +640,10 @@ fn is_itu_zone(token: &str) -> bool {
 }
 
 fn is_grid(token: &str) -> bool {
-    let b = token.as_bytes();
-    let alpha2 = |i: usize| b[i].is_ascii_alphabetic();
-    let digit2 = |i: usize| b[i].is_ascii_digit();
-    match b.len() {
+    let bytes = token.as_bytes();
+    let alpha2 = |i: usize| bytes[i].is_ascii_alphabetic();
+    let digit2 = |i: usize| bytes[i].is_ascii_digit();
+    match bytes.len() {
         4 => alpha2(0) && alpha2(1) && digit2(2) && digit2(3),
         6 => alpha2(0) && alpha2(1) && digit2(2) && digit2(3) && alpha2(4) && alpha2(5),
         8 => {
@@ -696,32 +696,32 @@ fn is_iota(token: &str) -> bool {
     if is_digits(token) {
         return token.len() == 3;
     }
-    let b = token.as_bytes();
+    let bytes = token.as_bytes();
     // "EU-115" (6 znaków, z myślnikiem na pozycji 2).
-    if b.len() == 6 && b[2] == b'-' {
-        return b[0].is_ascii_alphabetic()
-            && b[1].is_ascii_alphabetic()
-            && b[3].is_ascii_digit()
-            && b[4].is_ascii_digit()
-            && b[5].is_ascii_digit();
+    if bytes.len() == 6 && bytes[2] == b'-' {
+        return bytes[0].is_ascii_alphabetic()
+            && bytes[1].is_ascii_alphabetic()
+            && bytes[3].is_ascii_digit()
+            && bytes[4].is_ascii_digit()
+            && bytes[5].is_ascii_digit();
     }
     // "EU115" (5 znaków, bez myślnika).
-    if b.len() == 5 {
-        return b[0].is_ascii_alphabetic()
-            && b[1].is_ascii_alphabetic()
-            && b[2].is_ascii_digit()
-            && b[3].is_ascii_digit()
-            && b[4].is_ascii_digit();
+    if bytes.len() == 5 {
+        return bytes[0].is_ascii_alphabetic()
+            && bytes[1].is_ascii_alphabetic()
+            && bytes[2].is_ascii_digit()
+            && bytes[3].is_ascii_digit()
+            && bytes[4].is_ascii_digit();
     }
     false
 }
 
 fn normalize_iota(token: &str) -> String {
-    let t = token.to_uppercase();
-    if t.len() == 5 && !t.contains('-') {
-        format!("{}-{}", &t[..2], &t[2..])
+    let upper = token.to_uppercase();
+    if upper.len() == 5 && !upper.contains('-') {
+        format!("{}-{}", &upper[..2], &upper[2..])
     } else {
-        t
+        upper
     }
 }
 
@@ -744,8 +744,8 @@ fn is_hq(token: &str) -> bool {
 
 fn is_category(token: &str) -> bool {
     if token.len() == 2 {
-        let b = token.as_bytes();
-        return b[0].is_ascii_digit() && b[1].is_ascii_alphabetic();
+        let bytes = token.as_bytes();
+        return bytes[0].is_ascii_digit() && bytes[1].is_ascii_alphabetic();
     }
     is_word(token) && token.len() <= 3
 }
