@@ -196,5 +196,4 @@ impl HamQthXmlClient {
             image_url,
         })
     }
-
 }

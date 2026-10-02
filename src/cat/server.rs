@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz WoÅºniak (SP6INA)
 
 use crate::cat::hamlib::RigState;
@@ -45,7 +45,7 @@ pub mod rprt {
 struct Dispatch {
     /// PeÅna odpowiedÅº tekstowa zapisywana do klienta (zakoÅczona `\n`).
     response: String,
-    
+
     /// Zdarzenia do rozesÅania do warstwy GUI (np. rzeczywiste przestrojenie radia).
     commands: Vec<RigServerCommand>,
     /// Czy zamknÄÄ poÅÄczenie.
@@ -160,8 +160,7 @@ fn dispatch_command(trimmed: &str, state: &RigState) -> Dispatch {
             let mut d = Dispatch::ok(format!("RPRT {}\n", rprt::OK));
 
             if let Some(pb) = args.get(1).and_then(|s| s.parse::<u32>().ok()) {
-                if pb > 0 {
-                    }
+                if pb > 0 {}
             }
             d.commands.push(RigServerCommand::SetMode(new_mode));
             d
@@ -202,12 +201,8 @@ fn dispatch_command(trimmed: &str, state: &RigState) -> Dispatch {
         }
 
         // ââ RIT / XIT âââââââââââââââââââââââââââââââââââââââââââââââââââââââ
-        "J" | "j" | "\\set_rit" => {
-            set_rit_xit(&args, RigServerCommand::SetRit)
-        }
-        "Z" | "z" | "\\set_xit" => {
-            set_rit_xit(&args, RigServerCommand::SetXit)
-        }
+        "J" | "j" | "\\set_rit" => set_rit_xit(&args, RigServerCommand::SetRit),
+        "Z" | "z" | "\\set_xit" => set_rit_xit(&args, RigServerCommand::SetXit),
 
         // ââ Rozszerzone polecenia z odwrotnym ukoÅnikiem ââââââââââââââââââââ
         "\\set_split" => {

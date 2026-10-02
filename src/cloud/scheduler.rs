@@ -389,10 +389,8 @@ pub async fn execute_upload(
                 .map_err(|e| e.to_string())
         }
         UploadService::Eqsl => {
-            let client = crate::cloud::eqsl::EqslClient::new(
-                &creds.eqsl_username,
-                &creds.eqsl_password,
-            );
+            let client =
+                crate::cloud::eqsl::EqslClient::new(&creds.eqsl_username, &creds.eqsl_password);
             client.upload_adif(adif).await.map_err(|e| e.to_string())
         }
     }

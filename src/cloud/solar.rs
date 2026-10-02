@@ -123,5 +123,4 @@ impl SpaceWeatherClient {
                 .to_string(),
         })
     }
-
 }
