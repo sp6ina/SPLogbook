@@ -332,16 +332,16 @@ pub static ALL_RIG_MODELS: &[RigModelInfo] = &[
 
 /// Wyszukuje modele radiostacji po nazwie, producencie lub identyfikatorze
 pub fn search_rig_models(query: &str) -> Vec<&'static RigModelInfo> {
-    let q = query.trim().to_uppercase();
-    if q.is_empty() {
+    let query_upper = query.trim().to_uppercase();
+    if query_upper.is_empty() {
         return ALL_RIG_MODELS.iter().collect();
     }
     ALL_RIG_MODELS
         .iter()
         .filter(|r| {
-            r.mfg.to_uppercase().contains(&q)
-                || r.model.to_uppercase().contains(&q)
-                || r.rig_id.to_string().contains(&q)
+            r.mfg.to_uppercase().contains(&query_upper)
+                || r.model.to_uppercase().contains(&query_upper)
+                || r.rig_id.to_string().contains(&query_upper)
         })
         .collect()
 }
@@ -356,7 +356,7 @@ pub fn get_all_manufacturers() -> Vec<&'static str> {
 
 /// Wyszukuje modele radiostacji z opcjonalnym filtrowaniem po producencie
 pub fn search_rig_models_by_mfg(mfg: &str, query: &str) -> Vec<&'static RigModelInfo> {
-    let q = query.trim().to_lowercase();
+    let query_lower = query.trim().to_lowercase();
     ALL_RIG_MODELS
         .iter()
         .filter(|r| {
@@ -364,10 +364,10 @@ pub fn search_rig_models_by_mfg(mfg: &str, query: &str) -> Vec<&'static RigModel
                 || mfg == "Wszystkie"
                 || mfg == "All"
                 || r.mfg.eq_ignore_ascii_case(mfg))
-                && (q.is_empty()
-                    || r.model.to_lowercase().contains(&q)
-                    || r.mfg.to_lowercase().contains(&q)
-                    || r.rig_id.to_string().contains(&q))
+                && (query_lower.is_empty()
+                    || r.model.to_lowercase().contains(&query_lower)
+                    || r.mfg.to_lowercase().contains(&query_lower)
+                    || r.rig_id.to_string().contains(&query_lower))
         })
         .collect()
 }

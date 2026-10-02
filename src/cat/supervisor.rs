@@ -42,9 +42,9 @@ impl RigctldSupervisor {
         if let Some(cp) = custom_path {
             let cp_trimmed = cp.trim();
             if !cp_trimmed.is_empty() {
-                let p = PathBuf::from(cp_trimmed);
-                if p.is_file() {
-                    return Some(p);
+                let path = PathBuf::from(cp_trimmed);
+                if path.is_file() {
+                    return Some(path);
                 }
             }
         }
@@ -155,8 +155,8 @@ impl RigctldSupervisor {
             } else {
                 ':'
             };
-            for p in path_var.split(separator) {
-                let p_buf = PathBuf::from(p).join(bin_name);
+            for part in path_var.split(separator) {
+                let p_buf = PathBuf::from(part).join(bin_name);
                 if p_buf.is_file() {
                     return Some(p_buf);
                 }
@@ -250,9 +250,9 @@ impl RigctldSupervisor {
                     .unwrap_or_default();
                 let dir4 = parent.to_path_buf();
 
-                for d in &[dir1, dir2, dir3, dir4] {
-                    if d.is_dir() {
-                        lib_dirs.push(d.to_string_lossy().to_string());
+                for dir in &[dir1, dir2, dir3, dir4] {
+                    if dir.is_dir() {
+                        lib_dirs.push(dir.to_string_lossy().to_string());
                     }
                 }
 

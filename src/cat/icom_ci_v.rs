@@ -22,27 +22,27 @@ pub struct CiV;
 impl CiV {
     /// Buduje ramkę CI-V z bajtem podkomendy: `FE FE <to> <from> <cmd> <sub> [data..] FD`.
     pub fn build_frame(to_addr: u8, from_addr: u8, cmd: u8, sub: u8, data: &[u8]) -> Vec<u8> {
-        let mut f = Vec::with_capacity(6 + data.len());
-        f.extend_from_slice(&CI_V_PREAMBLE);
-        f.push(to_addr);
-        f.push(from_addr);
-        f.push(cmd);
-        f.push(sub);
-        f.extend_from_slice(data);
-        f.push(CI_V_END);
-        f
+        let mut frame = Vec::with_capacity(6 + data.len());
+        frame.extend_from_slice(&CI_V_PREAMBLE);
+        frame.push(to_addr);
+        frame.push(from_addr);
+        frame.push(cmd);
+        frame.push(sub);
+        frame.extend_from_slice(data);
+        frame.push(CI_V_END);
+        frame
     }
 
     /// Buduje ramkę CI-V bez bajtu podkomendy: `FE FE <to> <from> <cmd> [data..] FD`.
     pub fn build_simple_frame(to_addr: u8, from_addr: u8, cmd: u8, data: &[u8]) -> Vec<u8> {
-        let mut f = Vec::with_capacity(5 + data.len());
-        f.extend_from_slice(&CI_V_PREAMBLE);
-        f.push(to_addr);
-        f.push(from_addr);
-        f.push(cmd);
-        f.extend_from_slice(data);
-        f.push(CI_V_END);
-        f
+        let mut frame = Vec::with_capacity(5 + data.len());
+        frame.extend_from_slice(&CI_V_PREAMBLE);
+        frame.push(to_addr);
+        frame.push(from_addr);
+        frame.push(cmd);
+        frame.extend_from_slice(data);
+        frame.push(CI_V_END);
+        frame
     }
 
     /// Ramka odczytu częstotliwości (`0x03`, bez bajtu podkomendy).
@@ -77,12 +77,12 @@ impl CiV {
     /// Koduje częstotliwość w Hz do 5 bajtów BCD (little-endian, 10 cyfr).
     pub fn encode_frequency(hz: u64) -> [u8; 5] {
         let clamped = hz % 10_000_000_000;
-        let s = format!("{clamped:010}");
-        let b = s.as_bytes();
+        let freq_str = format!("{clamped:010}");
+        let bytes = freq_str.as_bytes();
         let mut out = [0u8; 5];
         for i in 0..5 {
-            let tens = b[8 - 2 * i] - b'0';
-            let ones = b[9 - 2 * i] - b'0';
+            let tens = bytes[8 - 2 * i] - b'0';
+            let ones = bytes[9 - 2 * i] - b'0';
             out[i] = (tens << 4) | ones;
         }
         out
@@ -108,19 +108,19 @@ impl CiV {
     /// Domyślny adres CI-V transceivera dla popularnych modeli Icom.
     /// Zawiera szerokie pokrycie; nieznane modele dostają bezpieczny domyślny 0x44.
     pub fn default_address(model: &str) -> u8 {
-        let m = model.to_ascii_uppercase();
-        let m = m.trim();
+        let model_upper = model.to_ascii_uppercase();
+        let model_upper = model_upper.trim();
         // Najpierw dokładne dopasowanie (np. "IC-706MKIIG" ma własny adres).
-        if let Some(addr) = Self::lookup(m) {
+        if let Some(addr) = Self::lookup(model_upper) {
             return addr;
         }
         // Normalizacja przyrostków (np. "IC-7300MK2" -> "IC-7300").
-        let base: &str = m
+        let base: &str = model_upper
             .strip_suffix("MKIIG")
-            .or_else(|| m.strip_suffix("MK2"))
-            .or_else(|| m.strip_suffix("MKII"))
-            .or_else(|| m.strip_suffix("MKIII"))
-            .unwrap_or(m);
+            .or_else(|| model_upper.strip_suffix("MK2"))
+            .or_else(|| model_upper.strip_suffix("MKII"))
+            .or_else(|| model_upper.strip_suffix("MKIII"))
+            .unwrap_or(model_upper);
 
         Self::lookup(base).unwrap_or(0x44)
     }

@@ -102,9 +102,9 @@ impl XmlRpcRequest {
         let _ = write!(out, "<methodName>{}</methodName>", escape_xml(&self.method));
         if !self.params.is_empty() {
             out.push_str("<params>");
-            for p in &self.params {
+            for param in &self.params {
                 out.push_str("<param>");
-                out.push_str(&value_xml(p));
+                out.push_str(&value_xml(param));
                 out.push_str("</param>");
             }
             out.push_str("</params>");
@@ -317,14 +317,14 @@ impl FlrigClient {
         let mut data = Vec::new();
         let mut buf = [0u8; 4096];
         loop {
-            let n = tokio::time::timeout(FLRIG_TIMEOUT, stream.read(&mut buf))
+            let bytes_read = tokio::time::timeout(FLRIG_TIMEOUT, stream.read(&mut buf))
                 .await
                 .map_err(|_| "Przekroczono czas odczytu z FLRig".to_string())?
                 .map_err(|e| format!("Błąd odczytu z FLRig: {e}"))?;
-            if n == 0 {
+            if bytes_read == 0 {
                 break;
             }
-            data.extend_from_slice(&buf[..n]);
+            data.extend_from_slice(&buf[..bytes_read]);
             if data.len() > MAX_RESPONSE_BYTES {
                 return Err("Odpowiedź FLRig przekroczyła maksymalny rozmiar 64 KB".to_string());
             }

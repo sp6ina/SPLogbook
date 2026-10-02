@@ -145,9 +145,11 @@ fn dispatch_command(trimmed: &str, state: &RigState) -> Dispatch {
             }
             match args[0].parse::<u64>() {
                 Ok(freq) => {
-                    let mut d = Dispatch::ok(format!("RPRT {}\n", rprt::OK));
-                    d.commands.push(RigServerCommand::SetFrequency(freq));
-                    d
+                    let mut dispatch_result = Dispatch::ok(format!("RPRT {}\n", rprt::OK));
+                    dispatch_result
+                        .commands
+                        .push(RigServerCommand::SetFrequency(freq));
+                    dispatch_result
                 }
                 Err(_) => Dispatch::rprt(rprt::EINVAL),
             }
@@ -157,22 +159,24 @@ fn dispatch_command(trimmed: &str, state: &RigState) -> Dispatch {
                 return Dispatch::rprt(rprt::EINVAL);
             }
             let new_mode = args[0].to_string();
-            let mut d = Dispatch::ok(format!("RPRT {}\n", rprt::OK));
+            let mut dispatch_result = Dispatch::ok(format!("RPRT {}\n", rprt::OK));
 
             if let Some(pb) = args.get(1).and_then(|s| s.parse::<u32>().ok()) {
                 if pb > 0 {}
             }
-            d.commands.push(RigServerCommand::SetMode(new_mode));
-            d
+            dispatch_result
+                .commands
+                .push(RigServerCommand::SetMode(new_mode));
+            dispatch_result
         }
         "T" | "t" => {
             if args.is_empty() {
                 return Dispatch::rprt(rprt::EINVAL);
             }
             let ptt = args[0] == "1";
-            let mut d = Dispatch::ok(format!("RPRT {}\n", rprt::OK));
-            d.commands.push(RigServerCommand::SetPtt(ptt));
-            d
+            let mut dispatch_result = Dispatch::ok(format!("RPRT {}\n", rprt::OK));
+            dispatch_result.commands.push(RigServerCommand::SetPtt(ptt));
+            dispatch_result
         }
 
         // ââ VFO / Split âââââââââââââââââââââââââââââââââââââââââââââââââââââ
@@ -181,10 +185,10 @@ fn dispatch_command(trimmed: &str, state: &RigState) -> Dispatch {
                 return Dispatch::rprt(rprt::EINVAL);
             }
             let vfo = args[0].to_string();
-            let mut d = Dispatch::ok(format!("RPRT {}\n", rprt::OK));
+            let mut dispatch_result = Dispatch::ok(format!("RPRT {}\n", rprt::OK));
 
-            d.commands.push(RigServerCommand::SetVfo(vfo));
-            d
+            dispatch_result.commands.push(RigServerCommand::SetVfo(vfo));
+            dispatch_result
         }
         "S" | "s" => {
             if args.is_empty() {
@@ -194,10 +198,11 @@ fn dispatch_command(trimmed: &str, state: &RigState) -> Dispatch {
             let tx_vfo = args
                 .get(1)
                 .map_or_else(|| "VFOA".to_string(), std::string::ToString::to_string);
-            let mut d = Dispatch::ok(format!("RPRT {}\n", rprt::OK));
-            d.commands
+            let mut dispatch_result = Dispatch::ok(format!("RPRT {}\n", rprt::OK));
+            dispatch_result
+                .commands
                 .push(RigServerCommand::SetSplit { enabled, tx_vfo });
-            d
+            dispatch_result
         }
 
         // ââ RIT / XIT âââââââââââââââââââââââââââââââââââââââââââââââââââââââ
@@ -213,10 +218,11 @@ fn dispatch_command(trimmed: &str, state: &RigState) -> Dispatch {
             let tx_vfo = args
                 .get(1)
                 .map_or_else(|| "VFOA".to_string(), std::string::ToString::to_string);
-            let mut d = Dispatch::ok(format!("RPRT {}\n", rprt::OK));
-            d.commands
+            let mut dispatch_result = Dispatch::ok(format!("RPRT {}\n", rprt::OK));
+            dispatch_result
+                .commands
                 .push(RigServerCommand::SetSplit { enabled, tx_vfo });
-            d
+            dispatch_result
         }
         "\\set_split_vfo" => {
             if args.is_empty() {
@@ -224,12 +230,12 @@ fn dispatch_command(trimmed: &str, state: &RigState) -> Dispatch {
             }
             // Aktualizujemy nazwÄ VFO nadawczego (bez zmiany stanu split).
             let vfo = args[0].to_string();
-            let mut d = Dispatch::ok(format!("RPRT {}\n", rprt::OK));
-            d.commands.push(RigServerCommand::SetSplit {
+            let mut dispatch_result = Dispatch::ok(format!("RPRT {}\n", rprt::OK));
+            dispatch_result.commands.push(RigServerCommand::SetSplit {
                 enabled: state.split_enabled,
                 tx_vfo: vfo,
             });
-            d
+            dispatch_result
         }
         "\\set_split_freq" => {
             if args.is_empty() {
@@ -237,9 +243,11 @@ fn dispatch_command(trimmed: &str, state: &RigState) -> Dispatch {
             }
             match args[0].parse::<u64>() {
                 Ok(freq) => {
-                    let mut d = Dispatch::ok(format!("RPRT {}\n", rprt::OK));
-                    d.commands.push(RigServerCommand::SetSplitFrequency(freq));
-                    d
+                    let mut dispatch_result = Dispatch::ok(format!("RPRT {}\n", rprt::OK));
+                    dispatch_result
+                        .commands
+                        .push(RigServerCommand::SetSplitFrequency(freq));
+                    dispatch_result
                 }
                 Err(_) => Dispatch::rprt(rprt::EINVAL),
             }
@@ -252,9 +260,11 @@ fn dispatch_command(trimmed: &str, state: &RigState) -> Dispatch {
                 "RFPOWER" => match args[1].parse::<f32>() {
                     Ok(norm) => {
                         let watts = norm.clamp(0.0, 1.0) * 100.0;
-                        let mut d = Dispatch::ok(format!("RPRT {}\n", rprt::OK));
-                        d.commands.push(RigServerCommand::SetPower(watts));
-                        d
+                        let mut dispatch_result = Dispatch::ok(format!("RPRT {}\n", rprt::OK));
+                        dispatch_result
+                            .commands
+                            .push(RigServerCommand::SetPower(watts));
+                        dispatch_result
                     }
                     Err(_) => Dispatch::rprt(rprt::EINVAL),
                 },
@@ -282,10 +292,10 @@ where
     }
     match args[0].parse::<i32>() {
         Ok(v) => {
-            let mut d = Dispatch::ok(format!("RPRT {}\n", rprt::OK));
+            let mut dispatch_result = Dispatch::ok(format!("RPRT {}\n", rprt::OK));
 
-            d.commands.push(command(v));
-            d
+            dispatch_result.commands.push(command(v));
+            dispatch_result
         }
         Err(_) => Dispatch::rprt(rprt::EINVAL),
     }
