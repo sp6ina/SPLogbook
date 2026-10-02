@@ -2,6 +2,8 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 // Kompletna baza gmin programu Polska Gmina Award (PGA) wg spga.pl / PZK
 
+use std::sync::LazyLock;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PgaGmina {
     pub code: &'static str,
@@ -10,6 +12,14 @@ pub struct PgaGmina {
 }
 
 pub static ALL_PGA_GMINAS: &[PgaGmina] = include!("pga_data.rs");
+
+/// Wielkie litery nazw i powiatów, wyliczane raz (bez alokacji per zapytanie).
+static ALL_PGA_UPPER: LazyLock<Vec<(String, String)>> = LazyLock::new(|| {
+    ALL_PGA_GMINAS
+        .iter()
+        .map(|g| (g.name.to_uppercase(), g.powiat.to_uppercase()))
+        .collect()
+});
 
 /// Wyszukuje gminę po kodzie PGA (dokładne dopasowanie, np. "BE01")
 pub fn find_by_code(code: &str) -> Option<&'static PgaGmina> {
@@ -25,11 +35,13 @@ pub fn search_pga(query: &str) -> Vec<&'static PgaGmina> {
     }
     ALL_PGA_GMINAS
         .iter()
-        .filter(|g| {
+        .zip(ALL_PGA_UPPER.iter())
+        .filter(|(g, (name_upper, powiat_upper))| {
             g.code.contains(&query_upper)
-                || g.name.to_uppercase().contains(&query_upper)
-                || g.powiat.to_uppercase().contains(&query_upper)
+                || name_upper.contains(&query_upper)
+                || powiat_upper.contains(&query_upper)
         })
+        .map(|(g, _)| g)
         .collect()
 }
 
@@ -39,9 +51,13 @@ pub fn suggest_pga_for_qth(qth: &str) -> Option<&'static PgaGmina> {
     if qth_upper.len() < 3 {
         return None;
     }
-    ALL_PGA_GMINAS.iter().find(|g| {
-        g.name.to_uppercase().contains(&qth_upper) || qth_upper.contains(&g.name.to_uppercase())
-    })
+    ALL_PGA_GMINAS
+        .iter()
+        .zip(ALL_PGA_UPPER.iter())
+        .find(|(_, (name_upper, _))| {
+            name_upper.contains(&qth_upper) || qth_upper.contains(name_upper)
+        })
+        .map(|(g, _)| g)
 }
 
 #[cfg(test)]
