@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
-// Statystyki bazy dziennika — wydzielone z database.rs.
+// Statystyki bazy dziennika.
 use super::LogDatabase;
 
 impl LogDatabase {

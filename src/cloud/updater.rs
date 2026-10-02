@@ -214,7 +214,7 @@ pub fn verify_manifest_signature(
 
     manifest.validate()?;
 
-    // SemVer validation against key constraints
+    // Walidacja SemVer względem ograniczeń klucza.
     let manifest_ver = semver::Version::parse(&manifest.version)
         .map_err(|e| format!("Nieprawidłowa wersja w manifeście: {}", e))?;
 
@@ -422,7 +422,7 @@ pub async fn latest_release() -> Result<LatestRelease, String> {
         assets,
     };
 
-    // 3.1.G Integracja całości - uderza nowym pobieraniem z podaniem zaufanego pakietu
+    // Pobierz i zweryfikuj podpisany manifest, zanim zaufamy plikom wydania.
     let current_version = env!("CARGO_PKG_VERSION");
     let manifest = fetch_and_verify_manifest(&latest, current_version).await?;
 
