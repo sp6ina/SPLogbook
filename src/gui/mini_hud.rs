@@ -6,97 +6,96 @@ use crate::gui::app::SpLogApp;
 use eframe::egui;
 
 pub fn render_mini_hud_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
-        if !app.compact_hud_mode {
-            return;
-        }
-        let ctx = ui.ctx().clone();
+    if !app.compact_hud_mode {
+        return;
+    }
+    let ctx = ui.ctx().clone();
 
-        // Wariant "pasek operacyjny" dokowany do dolnej krawędzi okna.
-        if app.hud_operating_bar {
-            render_operating_bar(app, ui);
-            return;
-        }
-
-        // Wariant "zawsze na wierzchu" — osobny, niezależny viewport systemowy.
-        if app.hud_always_on_top {
-            let mut still_open = true;
-            let mut exit_compact = false;
-            let mut captured_geo: Option<([f32; 2], [f32; 2])> = None;
-            let mut builder = egui::ViewportBuilder::default()
-                .with_title("📻 SPLogbook Mini HUD")
-                .with_decorations(false)
-                .with_always_on_top()
-                .with_inner_size(app.hud_saved_size.unwrap_or([460.0, 260.0]));
-            if let Some([x, y]) = app.hud_saved_pos {
-                builder = builder.with_position(egui::pos2(x, y));
-            }
-            ctx.show_viewport_immediate(
-                egui::ViewportId::from_hash_of("mini_hud_aot_viewport"),
-                builder,
-                |ui, _class| {
-                    egui::CentralPanel::default().show(ui, |ui| {
-                        render_hud_body(app, ui, &mut exit_compact);
-                    });
-                    if ui.ctx().input(|i| i.viewport().close_requested()) {
-                        still_open = false;
-                    }
-                    captured_geo = ui.ctx().input(|i| {
-                        i.viewport()
-                            .outer_rect
-                            .map(|r| ([r.min.x, r.min.y], [r.width(), r.height()]))
-                    });
-                },
-            );
-            if let Some((pos, size)) = captured_geo {
-                if app.hud_saved_pos != Some(pos) || app.hud_saved_size != Some(size) {
-                    app.hud_saved_pos = Some(pos);
-                    app.hud_saved_size = Some(size);
-                    app.save_station_config();
-                }
-            }
-            if exit_compact {
-                app.compact_hud_mode = false;
-                app.hud_always_on_top = false;
-                app.save_station_config();
-            }
-            if !still_open {
-                app.hud_always_on_top = false;
-                app.save_station_config();
-            }
-            return;
-        }
-
-        // Domyślny wariant: swobodne, skalowalne okno wewnątrz pulpitu.
-        let mut exit_compact = false;
-        let mut win = egui::Window::new(
-            egui::RichText::new("📻 SPLogbook Mini HUD")
-                .strong()
-                .size(12.0),
-        )
-        .collapsible(false)
-        .resizable(true)
-        .default_width(app.hud_saved_size.map_or(460.0, |s| s[0]))
-        .default_height(app.hud_saved_size.map_or(260.0, |s| s[1]));
-        if let Some(pos) = app.hud_saved_pos {
-            win = win.default_pos(pos);
-        }
-
-        let resp = win.show(&ctx, |ui| {
-            render_hud_body(app, ui, &mut exit_compact);
-        });
-
-        if let Some(inner) = resp {
-            let rect = inner.response.rect;
-            app.hud_saved_pos = Some([rect.min.x, rect.min.y]);
-            app.hud_saved_size = Some([rect.width(), rect.height()]);
-        }
-
-        if exit_compact {
-            app.compact_hud_mode = false;
-            app.save_station_config();
-        }
+    // Wariant "pasek operacyjny" dokowany do dolnej krawędzi okna.
+    if app.hud_operating_bar {
+        render_operating_bar(app, ui);
+        return;
     }
 
+    // Wariant "zawsze na wierzchu" — osobny, niezależny viewport systemowy.
+    if app.hud_always_on_top {
+        let mut still_open = true;
+        let mut exit_compact = false;
+        let mut captured_geo: Option<([f32; 2], [f32; 2])> = None;
+        let mut builder = egui::ViewportBuilder::default()
+            .with_title("📻 SPLogbook Mini HUD")
+            .with_decorations(false)
+            .with_always_on_top()
+            .with_inner_size(app.hud_saved_size.unwrap_or([460.0, 260.0]));
+        if let Some([x, y]) = app.hud_saved_pos {
+            builder = builder.with_position(egui::pos2(x, y));
+        }
+        ctx.show_viewport_immediate(
+            egui::ViewportId::from_hash_of("mini_hud_aot_viewport"),
+            builder,
+            |ui, _class| {
+                egui::CentralPanel::default().show(ui, |ui| {
+                    render_hud_body(app, ui, &mut exit_compact);
+                });
+                if ui.ctx().input(|i| i.viewport().close_requested()) {
+                    still_open = false;
+                }
+                captured_geo = ui.ctx().input(|i| {
+                    i.viewport()
+                        .outer_rect
+                        .map(|r| ([r.min.x, r.min.y], [r.width(), r.height()]))
+                });
+            },
+        );
+        if let Some((pos, size)) = captured_geo {
+            if app.hud_saved_pos != Some(pos) || app.hud_saved_size != Some(size) {
+                app.hud_saved_pos = Some(pos);
+                app.hud_saved_size = Some(size);
+                app.save_station_config();
+            }
+        }
+        if exit_compact {
+            app.compact_hud_mode = false;
+            app.hud_always_on_top = false;
+            app.save_station_config();
+        }
+        if !still_open {
+            app.hud_always_on_top = false;
+            app.save_station_config();
+        }
+        return;
+    }
+
+    // Domyślny wariant: swobodne, skalowalne okno wewnątrz pulpitu.
+    let mut exit_compact = false;
+    let mut win = egui::Window::new(
+        egui::RichText::new("📻 SPLogbook Mini HUD")
+            .strong()
+            .size(12.0),
+    )
+    .collapsible(false)
+    .resizable(true)
+    .default_width(app.hud_saved_size.map_or(460.0, |s| s[0]))
+    .default_height(app.hud_saved_size.map_or(260.0, |s| s[1]));
+    if let Some(pos) = app.hud_saved_pos {
+        win = win.default_pos(pos);
+    }
+
+    let resp = win.show(&ctx, |ui| {
+        render_hud_body(app, ui, &mut exit_compact);
+    });
+
+    if let Some(inner) = resp {
+        let rect = inner.response.rect;
+        app.hud_saved_pos = Some([rect.min.x, rect.min.y]);
+        app.hud_saved_size = Some([rect.width(), rect.height()]);
+    }
+
+    if exit_compact {
+        app.compact_hud_mode = false;
+        app.save_station_config();
+    }
+}
 
 /// Wspólna treść okna Mini HUD (używana przez wariant okna oraz viewport always-on-top).
 fn render_hud_body(app: &mut SpLogApp, ui: &mut egui::Ui, exit_compact: &mut bool) {

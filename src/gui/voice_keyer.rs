@@ -133,7 +133,7 @@ fn transmit_message(msg: &VoiceKeyerMessage, app: &SpLogApp) {
     let connected = app.cat_connected;
     let was_already_transmitting = app.rig_state.ptt || app.ptt_active;
     let key_ptt = msg.ptt && connected && !was_already_transmitting;
-    
+
     let m = msg.clone();
     tokio::spawn(async move {
         if key_ptt {

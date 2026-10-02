@@ -157,7 +157,8 @@ pub struct TrustedKey {
 pub const TRUSTED_KEYS: &[TrustedKey] = &[TrustedKey {
     key_id: "splogbook-release-2026-01",
     public_key: [
-        203, 142, 210, 212, 105, 105, 108, 227, 134, 187, 21, 218, 130, 171, 206, 34, 2, 8, 28, 215, 25, 30, 29, 155, 176, 60, 221, 202, 31, 156, 241, 112
+        203, 142, 210, 212, 105, 105, 108, 227, 134, 187, 21, 218, 130, 171, 206, 34, 2, 8, 28,
+        215, 25, 30, 29, 155, 176, 60, 221, 202, 31, 156, 241, 112,
     ],
     active: true,
     min_version: Some("1.1.0"),
@@ -1110,7 +1111,10 @@ mod tests {
         let result = verify_manifest_signature(manifest_json.as_bytes(), bad_sig);
         assert!(result.is_err());
         if let Err(e) = result {
-            assert!(e.contains("Żaden z zaufanych kluczy nie zweryfikował tego podpisu") || e.contains("Błąd"));
+            assert!(
+                e.contains("Żaden z zaufanych kluczy nie zweryfikował tego podpisu")
+                    || e.contains("Błąd")
+            );
         }
     }
 }

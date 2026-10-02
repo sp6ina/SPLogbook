@@ -212,8 +212,7 @@ fn band_to_meters(band: &str) -> String {
         "9cm" => "3.4G",
         "6cm" => "5.7G",
         "3cm" => "10G",
-        _ => band
-            .trim_end_matches(|c| c == 'm' || c == 'c' || c == 'M' || c == 'C'),
+        _ => band.trim_end_matches(|c| c == 'm' || c == 'c' || c == 'M' || c == 'C'),
     }
     .to_string()
 }

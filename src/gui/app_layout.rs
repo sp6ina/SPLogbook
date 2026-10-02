@@ -281,18 +281,6 @@ impl SpLogApp {
         self.last_saved_dock_layout = self.serialize_dock_layout();
     }
 
-
-
-
-
-
-
-
-
-
-
-
-
     pub fn popout_tile(&mut self, tile_id: &str) {
         match tile_id {
             "vfo" => self.panel_vfo.floating = true,
@@ -489,5 +477,4 @@ impl SpLogApp {
             _ => {}
         }
     }
-
 }

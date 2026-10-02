@@ -6,7 +6,6 @@ use crate::core::i18n::{tr, tr_or};
 use crate::gui::app::SpLogApp;
 use eframe::egui;
 
-
 pub fn render_bandmap_window(app: &mut SpLogApp, ctx: &egui::Context) {
     if !app.panel_bandmap.visible {
         return;

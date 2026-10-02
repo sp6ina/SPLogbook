@@ -33,11 +33,7 @@ impl ClubRegistry {
             || clean.starts_with("SO")
         {
             // SP-OTC (SP Old Timers Club) - stacje z długim stażem lub prefiksem SP1-SP9
-            if clean == "SP6ZDA"
-                || clean == "SP5PZK"
-                || clean == "SP2FAX"
-                || clean == "SP1PBW"
-            {
+            if clean == "SP6ZDA" || clean == "SP5PZK" || clean == "SP2FAX" || clean == "SP1PBW" {
                 list.push(ClubAffiliation {
                     code: "SP-OTC",
                     name: "SP Old Timers Club",
@@ -47,8 +43,7 @@ impl ClubRegistry {
             }
 
             // Polski Klub Telegrafistów (SP-CW-C)
-            if clean == "SP6PAZ" || clean == "SP2FAP"
-            {
+            if clean == "SP6PAZ" || clean == "SP2FAP" {
                 list.push(ClubAffiliation {
                     code: "SPCWC",
                     name: "SP CW Club",
@@ -60,7 +55,6 @@ impl ClubRegistry {
 
         // 2. Międzynarodowe kluby telegraficzne (CWOPS, SKCC, FOC, HSC)
         match clean.as_str() {
-
             "W1AW" | "K1TTT" | "N1MM" => {
                 list.push(ClubAffiliation {
                     code: "CWOPS",
@@ -89,5 +83,3 @@ impl ClubRegistry {
         list
     }
 }
-
-

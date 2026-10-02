@@ -86,7 +86,9 @@ impl SpaceWeatherClient {
     }
 
     /// Pobiera najnowszy raport solarny z HamQTH XML
-    pub async fn fetch_hamqth_solar(&self) -> Result<SpaceWeather, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn fetch_hamqth_solar(
+        &self,
+    ) -> Result<SpaceWeather, Box<dyn std::error::Error + Send + Sync>> {
         let url = "https://www.hamqth.com/xml.php?solar=1";
         let xml = self.client.get(url).send().await?.text().await?;
 

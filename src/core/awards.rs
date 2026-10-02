@@ -37,8 +37,6 @@ pub struct PolishDistrictInfo {
     pub voivodeships: Vec<String>,
 }
 
-
-
 pub const WAE_EUROPEAN_ENTITIES: &[u32] = &[
     14, 21, 27, 40, 45, 54, 61, 106, 114, 118, 122, 125, 126, 145, 149, 163, 179, 203, 206, 209,
     212, 214, 221, 222, 223, 224, 225, 227, 230, 233, 236, 239, 245, 246, 248, 251, 254, 256, 257,
@@ -58,7 +56,7 @@ fn parse_sp_call(callsign: &str) -> Option<(&'static str, u8)> {
     let call = callsign.trim().to_uppercase();
     let parts: Vec<&str> = call.split('/').collect();
     let base = parts.first().copied().unwrap_or(&call);
-    
+
     let portable_digit = parts
         .get(1..)
         .and_then(|rest_parts| {
@@ -593,7 +591,6 @@ mod tests {
         assert!(st3.is_new_band);
     }
 
-
     #[test]
     fn test_polish_district() {
         let d6 = AwardsEngine::get_polish_district("SP6INA").unwrap();
@@ -678,5 +675,4 @@ mod tests {
                 .is_new_wac
         );
     }
-
 }
