@@ -217,8 +217,7 @@ fn render_tab_dxcc(
             mode_flags[2] = true;
         }
 
-        let is_confirmed =
-            q.lotw_qsl_rcvd == "Y" || q.qsl_rcvd == "Y" || q.eqsl_qsl_rcvd == "Y";
+        let is_confirmed = q.lotw_qsl_rcvd == "Y" || q.qsl_rcvd == "Y" || q.eqsl_qsl_rcvd == "Y";
 
         for (mi, &flag) in mode_flags.iter().enumerate() {
             if flag {
