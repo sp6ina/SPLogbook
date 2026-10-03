@@ -3017,7 +3017,6 @@ impl SpLogApp {
         .to_string();
     }
 
-    /// Uruchamia nasłuch TCP JS8Call — tworzy kanały mpsc i odpala wątek klienta
     pub fn cat_backend_kind(&self) -> crate::cat::backend::CatBackendKind {
         crate::cat::backend::CatBackendKind::from_str(&self.cat_backend)
     }
