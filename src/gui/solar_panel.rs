@@ -135,7 +135,7 @@ pub fn render_solar_window(app: &mut SpLogApp, ctx: &egui::Context) {
 pub fn render_solar_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.current_language;
 
-    // ——— Pasek odświeżania danych solarnych ———
+    // Pasek odświeżania danych solarnych
     ui.horizontal(|ui| {
         ui.label(
             egui::RichText::new("NOAA / HamQTH")
@@ -155,7 +155,7 @@ pub fn render_solar_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         });
     });
 
-    // ——— Alert o istotnej zmianie propagacji ———
+    // Alert o istotnej zmianie propagacji
     if let Some(alert) = app.solar_last_alert.as_ref() {
         let color = if alert.starts_with('⚠') {
             egui::Color32::from_rgb(250, 204, 21)
@@ -165,7 +165,7 @@ pub fn render_solar_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.colored_label(color, alert);
     }
 
-    // ——— Historia SFI (sparkline) ———
+    // Historia SFI (sparkline)
     let sfi_values: Vec<f64> = app.solar_history.iter().map(|w| w.sfi as f64).collect();
     if sfi_values.len() >= 2 {
         let min = sfi_values.iter().copied().fold(f64::INFINITY, f64::min);

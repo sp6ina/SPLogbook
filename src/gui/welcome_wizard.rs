@@ -34,7 +34,7 @@ pub fn render_welcome_wizard(app: &mut SpLogApp, ctx: &egui::Context) {
         .default_width(680.0)
         .min_size([580.0, 540.0])
         .show(ctx, |ui| {
-            // --- Nagłówek ---
+            // Nagłówek
             ui.horizontal(|ui| {
                 ui.heading(
                     egui::RichText::new("SPLogbook")
@@ -108,7 +108,7 @@ pub fn render_welcome_wizard(app: &mut SpLogApp, ctx: &egui::Context) {
             ui.separator();
             ui.add_space(4.0);
 
-            // --- Zakladki kreatora (jak Log4OM) ---
+            // Zakladki kreatora (jak Log4OM)
             ui.horizontal(|ui| {
                 ui.selectable_value(
                     &mut app.wizard_tab,
@@ -145,7 +145,7 @@ pub fn render_welcome_wizard(app: &mut SpLogApp, ctx: &egui::Context) {
             ui.separator();
             ui.add_space(6.0);
 
-            // --- Przyciski nawigacji ---
+            // Przyciski nawigacji
             ui.horizontal(|ui| {
                 if app.wizard_tab > 0 && ui.button(format!("< {}", tr("btn.back", lang))).clicked()
                 {
@@ -192,7 +192,7 @@ pub fn render_welcome_wizard(app: &mut SpLogApp, ctx: &egui::Context) {
     }
 }
 
-// === ZAKLADKA 1: Dane stacji ================================================
+// ZAKLADKA 1: Dane stacji
 fn render_tab_station(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
     egui::Grid::new("wiz_station_grid")
         .num_columns(2)
@@ -296,7 +296,7 @@ fn render_tab_station(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
     );
 }
 
-// === ZAKLADKA 2: Sprzet radiowy =============================================
+// ZAKLADKA 2: Sprzet radiowy
 fn render_tab_radio(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
     egui::Grid::new("wiz_radio_grid")
         .num_columns(2)
@@ -382,7 +382,7 @@ fn render_tab_radio(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
     );
 }
 
-// === ZAKLADKA 3: Serwisy online =============================================
+// ZAKLADKA 3: Serwisy online
 fn render_tab_services(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
     ui.label(egui::RichText::new(tr("wizard.services_sub", lang)).strong());
     ui.add_space(8.0);
@@ -447,14 +447,14 @@ fn render_tab_services(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
     );
 }
 
-// === ZAKLADKA 4: Wyglad =====================================================
+// ZAKLADKA 4: Wyglad
 fn render_tab_appearance(
     app: &mut SpLogApp,
     ui: &mut egui::Ui,
     lang: Language,
     ctx: &egui::Context,
 ) {
-    // --- Język ---
+    // Język
     ui.label(
         egui::RichText::new(format!(
             "{} / Interface language:",
@@ -492,7 +492,7 @@ fn render_tab_appearance(
     ui.separator();
     ui.add_space(8.0);
 
-    // --- Motyw ---
+    // Motyw
     ui.label(egui::RichText::new(tr("wizard.theme_label", lang)).strong());
     ui.add_space(4.0);
     ui.horizontal(|ui| {
@@ -528,7 +528,7 @@ fn render_tab_appearance(
     ui.separator();
     ui.add_space(8.0);
 
-    // --- Pasek szybkiego dostepu ---
+    // Pasek szybkiego dostepu
     ui.label(egui::RichText::new(tr("wizard.quick_access_label", lang)).strong());
     ui.add_space(4.0);
     ui.horizontal_wrapped(|ui| {

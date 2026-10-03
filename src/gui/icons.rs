@@ -10,9 +10,7 @@
 
 use eframe::egui::{Color32, RichText};
 
-// ---------------------------------------------------------------------------
 // Paleta semantyczna (spójna z `theme.rs`)
-// ---------------------------------------------------------------------------
 pub const ACCENT: Color32 = Color32::from_rgb(56, 189, 248); // cyjan — radio/CAT
 pub const SUCCESS: Color32 = Color32::from_rgb(34, 197, 94); // zielony — OK/potwierdzenie
 pub const DANGER: Color32 = Color32::from_rgb(239, 68, 68); // czerwony — błąd/niszczące
@@ -23,9 +21,7 @@ pub const HIGHLIGHT: Color32 = Color32::from_rgb(217, 70, 239); // fuksja — wy
 pub const GOLD: Color32 = Color32::from_rgb(234, 179, 8); // złoto — nagrody
 pub const VIOLET: Color32 = Color32::from_rgb(216, 180, 254); // fiolet
 
-// ---------------------------------------------------------------------------
 // Ikona = glif + kolor semantyczny
-// ---------------------------------------------------------------------------
 #[derive(Clone, Copy)]
 pub struct Icon {
     pub glyph: &'static str,
@@ -60,9 +56,7 @@ impl Icon {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Radio / CAT / sprzęt
-// ---------------------------------------------------------------------------
 pub const RADIO: Icon = Icon::new("📻", ACCENT);
 pub const VFO_KNOB: Icon = Icon::new("🎛", ACCENT);
 pub const ROTOR: Icon = Icon::new("🧭", ACCENT);
@@ -73,9 +67,7 @@ pub const PTT_MIC: Icon = Icon::new("🎙", ACCENT);
 pub const VOICE_KEYER: Icon = Icon::new("🎙", ACCENT);
 pub const CAT_LINK: Icon = Icon::new("🔗", INFO);
 
-// ---------------------------------------------------------------------------
 // Dziennik / łączności
-// ---------------------------------------------------------------------------
 pub const NEW_QSO: Icon = Icon::new("📝", ACCENT);
 pub const LOGBOOK: Icon = Icon::new("📋", ACCENT);
 pub const SEARCH: Icon = Icon::new("🔍", INFO);
@@ -98,9 +90,7 @@ pub const ADD: Icon = Icon::new("➕", SUCCESS);
 pub const FILTER: Icon = Icon::new("🔎", INFO);
 pub const DUPLICATES: Icon = Icon::new("🧹", WARN);
 
-// ---------------------------------------------------------------------------
 // Pasmo / klaster / mapa
-// ---------------------------------------------------------------------------
 pub const CLUSTER: Icon = Icon::new("📡", ACCENT);
 pub const BANDMAP: Icon = Icon::new("📶", ACCENT);
 pub const SPOT: Icon = Icon::new("📢", ACCENT);
@@ -110,9 +100,7 @@ pub const ANTENNA_TUNER: Icon = Icon::new("📶", ACCENT);
 pub const SIGNAL_UP: Icon = Icon::new("⬆", SUCCESS);
 pub const SIGNAL_DOWN: Icon = Icon::new("⬇", DANGER);
 
-// ---------------------------------------------------------------------------
 // Propagacja / pogoda kosmiczna
-// ---------------------------------------------------------------------------
 pub const SOLAR: Icon = Icon::new("☀", GOLD);
 pub const SUN: Icon = Icon::new("🌞", GOLD);
 pub const MOON: Icon = Icon::new("🌙", NEUTRAL);
@@ -121,9 +109,7 @@ pub const SATELLITE: Icon = Icon::new("🛰", ACCENT);
 pub const ASTRONOMY: Icon = Icon::new("🔬", VIOLET);
 pub const STORM: Icon = Icon::new("🌪", WARN);
 
-// ---------------------------------------------------------------------------
 // Nagrody / osiągnięcia
-// ---------------------------------------------------------------------------
 pub const AWARDS: Icon = Icon::new("🏆", GOLD);
 pub const DXCC: Icon = Icon::new("🌍", ACCENT);
 pub const WAZ: Icon = Icon::new("🌐", ACCENT);
@@ -141,9 +127,7 @@ pub const MEDAL: Icon = Icon::new("🎖", GOLD);
 pub const FLAG: Icon = Icon::new("🏁", ACCENT);
 pub const BADGE: Icon = Icon::new("🏷", GOLD);
 
-// ---------------------------------------------------------------------------
 // Konfiguracja / narzędzia
-// ---------------------------------------------------------------------------
 pub const SETTINGS: Icon = Icon::new("⚙", NEUTRAL);
 pub const THEME: Icon = Icon::new("🎨", VIOLET);
 pub const PLUGIN: Icon = Icon::new("🧩", VIOLET);
@@ -175,9 +159,7 @@ pub const SPARKLE: Icon = Icon::new("✨", HIGHLIGHT);
 pub const STAR: Icon = Icon::new("⭐", GOLD);
 pub const COPYRIGHT: Icon = Icon::new("©", NEUTRAL);
 
-// ---------------------------------------------------------------------------
 // Status / stany
-// ---------------------------------------------------------------------------
 pub const WARNING: Icon = Icon::new("⚠", WARN);
 pub const OK: Icon = Icon::new("✓", SUCCESS);
 pub const OK_CHECK: Icon = Icon::new("✔", SUCCESS);
@@ -194,9 +176,7 @@ pub const DOT_BLACK: Icon = Icon::new("⚫", NEUTRAL);
 pub const CROSS: Icon = Icon::new("✖", DANGER);
 pub const DIAMOND: Icon = Icon::new("✦", SUCCESS);
 
-// ---------------------------------------------------------------------------
 // Różne / funkcje specjalne
-// ---------------------------------------------------------------------------
 pub const AI_ASSISTANT: Icon = Icon::new("🤖", ACCENT);
 pub const WIZARD: Icon = Icon::new("🧙", VIOLET);
 pub const BUG: Icon = Icon::new("🐛", DANGER);
@@ -219,9 +199,7 @@ pub const TIMER: Icon = Icon::new("⏱", NEUTRAL);
 pub const DIAMOND_SM: Icon = Icon::new("🔹", INFO);
 pub const KEYBOARD: Icon = Icon::new("⌨", NEUTRAL);
 
-// ---------------------------------------------------------------------------
 // Testy
-// ---------------------------------------------------------------------------
 #[cfg(test)]
 mod tests {
     use super::*;

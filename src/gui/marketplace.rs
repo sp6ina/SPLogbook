@@ -26,7 +26,7 @@ pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
         return;
     }
 
-    // ——— Odbiór wyników asynchronicznego pobierania katalogu ———
+    // Odbiór wyników asynchronicznego pobierania katalogu
     if let Some(rx) = &app.marketplace_fetch_rx {
         if let Ok(result) = rx.try_recv() {
             app.marketplace_loading = false;
@@ -41,7 +41,7 @@ pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
         }
     }
 
-    // ——— Odbiór wyniku asynchronicznej instalacji ———
+    // Odbiór wyniku asynchronicznej instalacji
     if let Some(rx) = &app.marketplace_install_rx {
         if let Ok((id, result)) = rx.try_recv() {
             app.marketplace_busy_id = None;
@@ -93,7 +93,7 @@ pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
             );
             ui.add_space(6.0);
 
-            // ——— Pasek wyszukiwania i filtru kategorii ———
+            // Pasek wyszukiwania i filtru kategorii
             ui.horizontal(|ui| {
                 ui.label("🔍");
                 ui.add(
@@ -194,7 +194,7 @@ pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
 
     app.show_marketplace = open;
 
-    // ——— Wykonanie akcji po zamknięciu pętli UI ———
+    // Wykonanie akcji po zamknięciu pętli UI
     match action {
         Some(Action::Refresh) => start_fetch(app),
         Some(Action::Install(id)) => {

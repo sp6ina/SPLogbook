@@ -19,7 +19,7 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
         .resizable(true)
         .default_size([680.0, 440.0])
         .show(ctx, |ui| {
-            // --- Nagłówek z przyciskiem odświeżania ---
+            // Nagłówek z przyciskiem odświeżania
             ui.horizontal(|ui| {
                 ui.heading(tr("wspr.title", lang));
                 ui.label(
@@ -51,7 +51,7 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
             ui.separator();
 
-            // ——— Kontrolki: jednostki odległości + trend SNR ———
+            // Kontrolki: jednostki odległości + trend SNR
             if !app.wspr_spots.is_empty() {
                 ui.horizontal(|ui| {
                     ui.checkbox(&mut app.wspr_distance_miles, "Odległość w milach");
@@ -72,7 +72,7 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 });
             }
 
-            // --- Tabela spotów ---
+            // Tabela spotów
             if app.wspr_spots.is_empty() {
                 ui.vertical_centered(|ui| {
                     ui.add_space(40.0);

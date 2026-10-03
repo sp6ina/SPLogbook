@@ -235,7 +235,7 @@ pub fn render_satellites_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         ui.separator();
 
-        // ——— Najbliższe przeloty + Doppler ———
+        // Najbliższe przeloty + Doppler
         ui.label(
             egui::RichText::new("🕒 Najbliższe przeloty (24 h)")
                 .strong()

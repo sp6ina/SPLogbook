@@ -783,7 +783,7 @@ fn panel(visible: bool, floating: bool, column: usize, order: usize) -> ViewPane
 /// aktywacje terenowe (POTA/SOTA) oraz pracę przez satelity i EME.
 pub fn workspace_profile_presets() -> Vec<WorkspaceProfile> {
     vec![
-        // ── Codzienny DX / logowanie ─────────────────────────────────────────
+        // Codzienny DX / logowanie
         wp(
             "normal-dx",
             "Normalny DX",
@@ -799,7 +799,7 @@ pub fn workspace_profile_presets() -> Vec<WorkspaceProfile> {
             panel(false, false, 2, 3),
             panel(false, false, 2, 4),
         ),
-        // ── Zawody (kontest) ─────────────────────────────────────────────────
+        // Zawody (kontest)
         wp(
             "contest",
             "Kontest",
@@ -815,7 +815,7 @@ pub fn workspace_profile_presets() -> Vec<WorkspaceProfile> {
             panel(false, false, 2, 4),
             panel(false, false, 2, 5),
         ),
-        // ── Tryby cyfrowe (FT8 / WSJT-X) ─────────────────────────────────────
+        // Tryby cyfrowe (FT8 / WSJT-X)
         wp(
             "ft8",
             "Cyfrowe (FT8/WSJT-X)",
@@ -831,7 +831,7 @@ pub fn workspace_profile_presets() -> Vec<WorkspaceProfile> {
             panel(false, false, 2, 4),
             panel(false, false, 2, 5),
         ),
-        // ── POTA (Parks on the Air) ──────────────────────────────────────────
+        // POTA (Parks on the Air)
         wp(
             "pota",
             "POTA",
@@ -847,7 +847,7 @@ pub fn workspace_profile_presets() -> Vec<WorkspaceProfile> {
             panel(true, false, 1, 2),
             panel(false, false, 2, 3),
         ),
-        // ── SOTA (Summits on the Air) ────────────────────────────────────────
+        // SOTA (Summits on the Air)
         wp(
             "sota",
             "SOTA",
@@ -863,7 +863,7 @@ pub fn workspace_profile_presets() -> Vec<WorkspaceProfile> {
             panel(true, false, 1, 2),
             panel(false, false, 2, 3),
         ),
-        // ── Satelity ─────────────────────────────────────────────────────────
+        // Satelity
         wp(
             "satellite",
             "Satelity",
@@ -879,7 +879,7 @@ pub fn workspace_profile_presets() -> Vec<WorkspaceProfile> {
             panel(false, false, 2, 2),
             panel(false, false, 2, 3),
         ),
-        // ── EME (Moonbounce) ─────────────────────────────────────────────────
+        // EME (Moonbounce)
         wp(
             "eme",
             "EME (Księżyc)",

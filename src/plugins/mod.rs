@@ -101,7 +101,7 @@ impl PluginEngine {
 
         let state = Arc::new(PluginState::default());
 
-        // --- Bezpieczne API udostępniane skryptom ---
+        // Bezpieczne API udostępniane skryptom
         let log_state = Arc::clone(&state);
         engine.register_fn("log", move |msg: &str| {
             let mut log = log_state
@@ -131,7 +131,7 @@ impl PluginEngine {
             count_state.qso_count.load(Ordering::Relaxed)
         });
 
-        // --- Gettery stanu (radio, rotor, nagrody, stacja, ostatnia łączność) ---
+        // Gettery stanu (radio, rotor, nagrody, stacja, ostatnia łączność)
         register_snapshot_getter(&mut engine, &state, "rig_freq_mhz", |s| s.rig_freq_mhz);
         register_snapshot_getter(&mut engine, &state, "rig_mode", |s| s.rig_mode.clone());
         register_snapshot_getter(&mut engine, &state, "rig_band", |s| s.rig_band.clone());
@@ -168,7 +168,7 @@ impl PluginEngine {
                 .field(name)
         });
 
-        // --- Akcje (kolejkowane jako PluginCommand i wykonywane przez aplikację) ---
+        // Akcje (kolejkowane jako PluginCommand i wykonywane przez aplikację)
         let cmd = Arc::clone(&state);
         engine.register_fn("send_cw", move |text: &str| {
             push_command(

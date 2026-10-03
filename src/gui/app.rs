@@ -4047,14 +4047,14 @@ impl eframe::App for SpLogApp {
         }
         self.main_window_maximized = win_max;
 
-        // ——— Plugin Rhai: odśwież migawkę stanu, wykonaj polecenia i odbierz wyniki zapytań ———
+        // Plugin Rhai: odśwież migawkę stanu, wykonaj polecenia i odbierz wyniki zapytań
         if self.plugins_enabled {
             self.refresh_plugin_snapshot();
             self.process_plugin_commands();
             self.poll_plugin_lookup();
         }
 
-        // ——— Odbieranie wyników asynchronicznych operacji ———
+        // Odbieranie wyników asynchronicznych operacji
 
         // WSPR: sprawdź czy pobieranie zakończyło się
         if self.wspr_loading {
@@ -4101,7 +4101,7 @@ impl eframe::App for SpLogApp {
         self.refresh_satellite_tracking();
         self.poll_solar_fetch();
 
-        // ——— Globalne skróty klawiszowe ———
+        // Globalne skróty klawiszowe
         // Sprawdzanie modyfikatora: Ctrl (Windows/Linux) oraz Command (macOS)
         let is_ctrl = |m: &egui::Modifiers| m.ctrl || m.command;
 
