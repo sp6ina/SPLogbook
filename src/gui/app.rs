@@ -122,7 +122,28 @@ impl DrillFilter {
 }
 
 /// Główny stan aplikacji natywnego pulpitu SPLogbook
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ShutdownPolicy {
+    None,
+    Backup,
+}
+
+pub struct AppInit {
+    pub config: AppConfig,
+    pub config_file_path: std::path::PathBuf,
+    pub active_db_path: std::path::PathBuf,
+    pub shutdown_policy: ShutdownPolicy,
+}
+
+pub struct AppDeps {
+    pub log_db: std::sync::Arc<std::sync::Mutex<crate::core::database::LogDatabase>>,
+    pub prefix_matcher: std::sync::Arc<crate::core::prefix::PrefixMatcher>,
+    pub scp_engine: std::sync::Arc<std::sync::Mutex<crate::core::scp::ScpEngine>>,
+}
+
 pub struct SpLogApp {
+    pub shutdown_policy: ShutdownPolicy,
+    pub initial_cat_enabled: bool,
     // Podsystemy bazodanowe i analityczne
     pub log_db: Arc<Mutex<LogDatabase>>,
     pub prefix_matcher: Arc<PrefixMatcher>,
@@ -695,71 +716,38 @@ fn resolve_font_path(family: &str) -> Option<std::path::PathBuf> {
 impl SpLogApp {
     pub fn new(
         cc: &eframe::CreationContext<'_>,
-        log_db: Arc<Mutex<LogDatabase>>,
-        prefix_matcher: Arc<PrefixMatcher>,
-        scp_engine: Arc<Mutex<ScpEngine>>,
-        mut app_config: AppConfig,
+        log_db: std::sync::Arc<std::sync::Mutex<crate::core::database::LogDatabase>>,
+        prefix_matcher: std::sync::Arc<crate::core::prefix::PrefixMatcher>,
+        scp_engine: std::sync::Arc<std::sync::Mutex<crate::core::scp::ScpEngine>>,
+        app_config: AppConfig,
         config_file_path: std::path::PathBuf,
         active_db_path: std::path::PathBuf,
     ) -> Self {
-        // Rejestracja czcionki symboli systemowych (seguisym na Windows, DejaVu/Noto na Linux)
-        // dla pełnej obsługi znaków Unicode, symboli radiowych, strzałek ▲/▼, planet, satelitów i statusów
-        let mut font_defs = egui::FontDefinitions::default();
-        let win_dir = std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".to_string());
-        let font_candidates = [
-            std::path::Path::new(&win_dir)
-                .join("Fonts")
-                .join("seguisym.ttf"),
-            std::path::PathBuf::from("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
-            std::path::PathBuf::from("/usr/share/fonts/TTF/DejaVuSans.ttf"),
-            std::path::PathBuf::from("/usr/share/fonts/dejavu/DejaVuSans.ttf"),
-            std::path::PathBuf::from("/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf"),
-            std::path::PathBuf::from("/usr/share/fonts/truetype/freefont/FreeSans.ttf"),
-        ];
+        let init = AppInit {
+            config: app_config,
+            config_file_path,
+            active_db_path,
+            shutdown_policy: ShutdownPolicy::Backup,
+        };
+        let deps = AppDeps {
+            log_db,
+            prefix_matcher,
+            scp_engine,
+        };
+        let mut app = Self::build(init, deps);
+        app.configure_egui(&cc.egui_ctx);
+        app.start_background();
+        app
+    }
 
-        for path in &font_candidates {
-            if let Ok(bytes) = std::fs::read(path) {
-                font_defs.font_data.insert(
-                    "symbol_font".to_owned(),
-                    egui::FontData::from_owned(bytes).into(),
-                );
-                if let Some(prop) = font_defs.families.get_mut(&egui::FontFamily::Proportional) {
-                    prop.push("symbol_font".to_owned());
-                }
-                if let Some(mono) = font_defs.families.get_mut(&egui::FontFamily::Monospace) {
-                    mono.push("symbol_font".to_owned());
-                }
-                break;
-            }
-        }
+    pub fn for_tests(init: AppInit, deps: AppDeps) -> Self {
+        Self::build(init, deps)
+    }
 
-        // Wybrana przez użytkownika rodzina czcionek (zmiana wymaga ponownego uruchomienia).
-        if !app_config.font_family.is_empty() {
-            if let Some(path) = resolve_font_path(&app_config.font_family) {
-                if let Ok(bytes) = std::fs::read(&path) {
-                    font_defs.font_data.insert(
-                        "custom_ui_font".to_owned(),
-                        egui::FontData::from_owned(bytes).into(),
-                    );
-                    if let Some(prop) = font_defs.families.get_mut(&egui::FontFamily::Proportional)
-                    {
-                        prop.insert(0, "custom_ui_font".to_owned());
-                    }
-                    let mono_family = app_config.font_family == "Consolas";
-                    if mono_family {
-                        if let Some(mono) = font_defs.families.get_mut(&egui::FontFamily::Monospace)
-                        {
-                            mono.insert(0, "custom_ui_font".to_owned());
-                        }
-                    }
-                }
-            }
-        }
-
-        cc.egui_ctx.set_fonts(font_defs);
-
+    pub fn build(mut init: AppInit, deps: AppDeps) -> Self {
         let (active_journal, recent_qsos, qso_numbers) = {
-            let db = log_db
+            let db = deps
+                .log_db
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             let journal = match db.get_active_journal() {
@@ -782,29 +770,18 @@ impl SpLogApp {
         };
 
         let (cat_state_tx, cat_state_rx) = std::sync::mpsc::channel();
-        let initial_cat_enabled = app_config.cat_enabled;
+
         let cat_poll_abort = None;
 
-        if crate::cluster::telnet::is_dead_legacy_cluster_host(&app_config.cluster_host) {
-            app_config.cluster_host = "dxcluster.pl".to_string();
-            app_config.cluster_port = 8000;
+        if crate::cluster::telnet::is_dead_legacy_cluster_host(&init.config.cluster_host) {
+            init.config.cluster_host = "dxcluster.pl".to_string();
+            init.config.cluster_port = 8000;
         }
 
         let (wsjtx_tx, wsjtx_rx) = std::sync::mpsc::channel();
-        let ws_tx = wsjtx_tx.clone();
-        tokio::spawn(async move {
-            let receiver = crate::digital::wsjtx::WsjtxReceiver::new(2237);
-            let (tokio_tx, mut tokio_rx) = tokio::sync::mpsc::channel(100);
-            tokio::spawn(async move {
-                let _ = receiver.run(tokio_tx).await;
-            });
-            while let Some(msg) = tokio_rx.recv().await {
-                let _ = ws_tx.send(msg);
-            }
-        });
 
         let sample_spots = Vec::new();
-        let equipment_items = app_config.equipment;
+        let equipment_items = init.config.equipment;
 
         let rig = RigState {
             frequency_hz: 14_025_000,
@@ -821,7 +798,7 @@ impl SpLogApp {
             ..Default::default()
         };
 
-        let show_wizard = !app_config.is_configured;
+        let show_wizard = !init.config.is_configured;
         let (qrz_lookup_tx, qrz_lookup_rx) = std::sync::mpsc::channel();
         let (sync_log_tx, sync_log_rx) = std::sync::mpsc::channel();
 
@@ -852,13 +829,15 @@ impl SpLogApp {
         let srv_path = srv_candidates.into_iter().find(|p| p.exists());
 
         // Cache offline wyników callbook — obok bazy dziennika (katalog zapisywalny).
-        let callbook_cache_path = if app_config.callbook_cache_enabled {
-            active_db_path.parent().map(|p| p.join("callbook_cache.db"))
+        let callbook_cache_path = if init.config.callbook_cache_enabled {
+            init.active_db_path
+                .parent()
+                .map(|p| p.join("callbook_cache.db"))
         } else {
             None
         };
-        let callbook_cache_ttl_days = app_config.callbook_cache_ttl_days;
-        let callbook_priority = app_config.callbook_priority.clone();
+        let callbook_cache_ttl_days = init.config.callbook_cache_ttl_days;
+        let callbook_priority = init.config.callbook_priority.clone();
 
         let local_callbook = std::sync::Arc::new(
             crate::core::callbook::LocalCallbook::new(cb_path, srv_path)
@@ -866,13 +845,15 @@ impl SpLogApp {
         );
 
         let mut app = Self {
-            log_db,
-            prefix_matcher,
-            scp_engine,
+            shutdown_policy: init.shutdown_policy,
+            initial_cat_enabled: init.config.cat_enabled,
+            log_db: deps.log_db,
+            prefix_matcher: deps.prefix_matcher,
+            scp_engine: deps.scp_engine,
             awards_engine: Arc::new(Mutex::new(AwardsEngine::new())),
-            my_station: app_config.station.clone(),
+            my_station: init.config.station.clone(),
             // Wczytanie zapisanego języka z konfiguracji stacji
-            current_language: Language::from_code(&app_config.current_language),
+            current_language: Language::from_code(&init.config.current_language),
             status_message: None,
 
             entry_callsign: String::new(),
@@ -951,7 +932,7 @@ impl SpLogApp {
             show_custom_contest_editor: false,
             custom_contest_edit_idx: None,
             custom_contest_draft: crate::core::station::CustomContest::default(),
-            custom_contests: app_config.custom_contests.clone(),
+            custom_contests: init.config.custom_contests.clone(),
 
             show_cw_window: false,
             cw_wpm: 28,
@@ -979,16 +960,16 @@ impl SpLogApp {
             new_eq_sn: String::new(),
             new_eq_notes: String::new(),
 
-            dark_theme: app_config.dark_theme,
-            theme_preset: crate::gui::theme::ThemePreset::from_id(&app_config.theme_preset),
-            font_scale: app_config.font_scale,
-            font_family: app_config.font_family.clone(),
-            distance_unit: app_config.distance_unit.clone(),
+            dark_theme: init.config.dark_theme,
+            theme_preset: crate::gui::theme::ThemePreset::from_id(&init.config.theme_preset),
+            font_scale: init.config.font_scale,
+            font_family: init.config.font_family.clone(),
+            distance_unit: init.config.distance_unit.clone(),
             show_welcome_wizard: show_wizard,
             wizard_tab: 0,
-            config_file_path,
-            secret_store_id: app_config.secret_store_id.clone(),
-            active_db_path,
+            config_file_path: init.config_file_path,
+            secret_store_id: init.config.secret_store_id.clone(),
+            active_db_path: init.active_db_path,
             is_fullscreen: false,
 
             show_bandmap_window: false,
@@ -1005,47 +986,47 @@ impl SpLogApp {
             show_cluster_panel: true,
             show_solar_panel: true,
 
-            cat_host: app_config.cat_host,
-            cat_port: app_config.cat_port,
-            cat_poll_rate_ms: app_config.cat_poll_rate_ms,
-            cat_rig_model: app_config.cat_rig_model,
-            cat_serial_port: app_config.cat_serial_port.clone(),
-            cat_baud_rate: app_config.cat_baud_rate,
+            cat_host: init.config.cat_host,
+            cat_port: init.config.cat_port,
+            cat_poll_rate_ms: init.config.cat_poll_rate_ms,
+            cat_rig_model: init.config.cat_rig_model,
+            cat_serial_port: init.config.cat_serial_port.clone(),
+            cat_baud_rate: init.config.cat_baud_rate,
             cat_test_result: None,
             show_cat_settings_window: false,
 
-            rotor_host: app_config.rotor_host,
-            rotor_port: app_config.rotor_port,
+            rotor_host: init.config.rotor_host,
+            rotor_port: init.config.rotor_port,
             rotor_test_result: None,
 
-            cat_backend: app_config.cat_backend.clone(),
-            tci_host: app_config.tci_host,
-            tci_port: app_config.tci_port,
+            cat_backend: init.config.cat_backend.clone(),
+            tci_host: init.config.tci_host,
+            tci_port: init.config.tci_port,
             tci_test_result: None,
 
-            fldigi_enabled: app_config.fldigi_enabled,
-            fldigi_host: app_config.fldigi_host,
-            fldigi_port: app_config.fldigi_port,
+            fldigi_enabled: init.config.fldigi_enabled,
+            fldigi_host: init.config.fldigi_host,
+            fldigi_port: init.config.fldigi_port,
             fldigi_test_result: None,
 
-            psk_reporter_enabled: app_config.psk_reporter_enabled,
+            psk_reporter_enabled: init.config.psk_reporter_enabled,
 
-            n1mm_broadcast_enabled: app_config.n1mm_broadcast_enabled,
-            n1mm_broadcast_host: app_config.n1mm_broadcast_host,
-            n1mm_broadcast_port: app_config.n1mm_broadcast_port,
+            n1mm_broadcast_enabled: init.config.n1mm_broadcast_enabled,
+            n1mm_broadcast_host: init.config.n1mm_broadcast_host,
+            n1mm_broadcast_port: init.config.n1mm_broadcast_port,
 
-            voice_keyer_messages: app_config.voice_keyer_messages,
+            voice_keyer_messages: init.config.voice_keyer_messages,
             voice_keyer_active: None,
             voice_keyer_recording: None,
             show_voice_keyer_window: false,
 
-            workspace_profiles: app_config.workspace_profiles,
+            workspace_profiles: init.config.workspace_profiles,
             show_workspace_profiles_window: false,
 
-            lan_sync_port: app_config.lan_sync_port,
-            lan_sync_auto_start: app_config.lan_sync_auto_start,
-            lan_sync_server_ip: app_config.lan_sync_server_ip,
-            lan_sync_secret: app_config.lan_sync_secret,
+            lan_sync_port: init.config.lan_sync_port,
+            lan_sync_auto_start: init.config.lan_sync_auto_start,
+            lan_sync_server_ip: init.config.lan_sync_server_ip,
+            lan_sync_secret: init.config.lan_sync_secret,
             show_multi_op_window: false,
             multi_op_server: None,
             multi_op_incoming_rx: None,
@@ -1055,23 +1036,23 @@ impl SpLogApp {
             multi_op_connected_count: 0,
             multi_op_log: Vec::new(),
 
-            lotw_tqsl_path: app_config.lotw_tqsl_path,
-            lotw_station_name: app_config.lotw_station_name,
-            lotw_username: app_config.lotw_username,
-            lotw_password: app_config.lotw_password,
+            lotw_tqsl_path: init.config.lotw_tqsl_path,
+            lotw_station_name: init.config.lotw_station_name,
+            lotw_username: init.config.lotw_username,
+            lotw_password: init.config.lotw_password,
 
-            qrz_username: app_config.qrz_username,
-            qrz_password: app_config.qrz_password,
-            qrz_api_key: app_config.qrz_api_key,
-            qrz_auto_lookup: app_config.qrz_auto_lookup,
+            qrz_username: init.config.qrz_username,
+            qrz_password: init.config.qrz_password,
+            qrz_api_key: init.config.qrz_api_key,
+            qrz_auto_lookup: init.config.qrz_auto_lookup,
 
-            eqsl_username: app_config.eqsl_username,
-            eqsl_password: app_config.eqsl_password,
+            eqsl_username: init.config.eqsl_username,
+            eqsl_password: init.config.eqsl_password,
 
-            clublog_callsign: app_config.clublog_callsign,
-            clublog_email: app_config.clublog_email,
-            clublog_password: app_config.clublog_password,
-            clublog_api_key: app_config.clublog_api_key,
+            clublog_callsign: init.config.clublog_callsign,
+            clublog_email: init.config.clublog_email,
+            clublog_password: init.config.clublog_password,
+            clublog_api_key: init.config.clublog_api_key,
 
             show_online_sync_window: false,
             online_sync_logs: Vec::new(),
@@ -1089,16 +1070,16 @@ impl SpLogApp {
             awards_other_search: String::new(),
             local_callbook,
             callbook_priority,
-            callbook_cache_enabled: app_config.callbook_cache_enabled,
+            callbook_cache_enabled: init.config.callbook_cache_enabled,
             callbook_cache_ttl_days,
-            quick_access: app_config.quick_access,
+            quick_access: init.config.quick_access,
             show_quick_access_customizer: false,
 
-            cat_rig_id: app_config.cat_rig_id,
+            cat_rig_id: init.config.cat_rig_id,
             cat_model_search: String::new(),
-            cat_auto_start_rigctld: app_config.cat_auto_start_rigctld,
-            cat_hamlib_source: app_config.cat_hamlib_source,
-            cat_custom_rigctld_path: app_config.cat_custom_rigctld_path,
+            cat_auto_start_rigctld: init.config.cat_auto_start_rigctld,
+            cat_hamlib_source: init.config.cat_hamlib_source,
+            cat_custom_rigctld_path: init.config.cat_custom_rigctld_path,
             rigctld_supervisor: None,
 
             journal_dialog: crate::gui::journal_manager::JournalManagerDialog::default(),
@@ -1120,8 +1101,8 @@ impl SpLogApp {
             js8call_state_rx: None,
             js8call_qso_rx: None,
 
-            live_auto_upload_clublog: app_config.live_auto_upload_clublog,
-            live_auto_upload_qrz: app_config.live_auto_upload_qrz,
+            live_auto_upload_clublog: init.config.live_auto_upload_clublog,
+            live_auto_upload_qrz: init.config.live_auto_upload_qrz,
             upload_scheduler: Arc::new(Mutex::new(
                 crate::cloud::scheduler::UploadScheduler::load_from_disk(),
             )),
@@ -1144,8 +1125,8 @@ impl SpLogApp {
             update_install_status: None,
             update_install_rx: None,
             pending_restart: false,
-            logbook_columns: app_config.logbook_columns.clone(),
-            logbook_column_presets: app_config.logbook_column_presets.clone(),
+            logbook_columns: init.config.logbook_columns.clone(),
+            logbook_column_presets: init.config.logbook_column_presets.clone(),
             column_preset_name: String::new(),
             iota_dialog: IotaBrowserDialog::new(),
             states_dialog: StatesBrowserDialog::new(),
@@ -1158,18 +1139,18 @@ impl SpLogApp {
             csv_export_dialog: CsvExportDialog::new(),
             waterfall_panel: WaterfallPanel::new(),
 
-            compact_hud_mode: app_config.compact_hud_mode,
-            tabbed_columns: app_config.tabbed_columns,
+            compact_hud_mode: init.config.compact_hud_mode,
+            tabbed_columns: init.config.tabbed_columns,
             active_tab: [0; 3],
             dock_state: DockState::new(vec![]),
             last_saved_dock_layout: None,
-            hud_always_on_top: app_config.hud_always_on_top,
-            hud_saved_pos: app_config.hud_saved_pos,
-            hud_saved_size: app_config.hud_saved_size,
-            hud_operating_bar: app_config.hud_operating_bar,
-            main_window_pos: app_config.main_window_pos,
-            main_window_size: app_config.main_window_size,
-            main_window_maximized: app_config.main_window_maximized,
+            hud_always_on_top: init.config.hud_always_on_top,
+            hud_saved_pos: init.config.hud_saved_pos,
+            hud_saved_size: init.config.hud_saved_size,
+            hud_operating_bar: init.config.hud_operating_bar,
+            main_window_pos: init.config.main_window_pos,
+            main_window_size: init.config.main_window_size,
+            main_window_maximized: init.config.main_window_maximized,
 
             entry_iota: String::new(),
             entry_state: String::new(),
@@ -1178,29 +1159,29 @@ impl SpLogApp {
             entry_qsl_manager: String::new(),
             active_qsl_manager_record: None,
 
-            cloudlog_url: app_config.cloudlog_url,
-            cloudlog_api_key: app_config.cloudlog_api_key,
-            hrdlog_username: app_config.hrdlog_username,
-            hrdlog_upload_code: app_config.hrdlog_upload_code,
-            hamqth_username: app_config.hamqth_username,
-            hamqth_password: app_config.hamqth_password,
+            cloudlog_url: init.config.cloudlog_url,
+            cloudlog_api_key: init.config.cloudlog_api_key,
+            hrdlog_username: init.config.hrdlog_username,
+            hrdlog_upload_code: init.config.hrdlog_upload_code,
+            hamqth_username: init.config.hamqth_username,
+            hamqth_password: init.config.hamqth_password,
 
             cat_state_tx,
             cat_state_rx,
 
             event_bus: crate::core::events::EventBus::default(),
 
-            cluster_host: app_config.cluster_host,
-            cluster_port: app_config.cluster_port,
-            cluster_callsign: app_config.cluster_callsign,
-            cluster_auto_connect: app_config.cluster_auto_connect,
+            cluster_host: init.config.cluster_host,
+            cluster_port: init.config.cluster_port,
+            cluster_callsign: init.config.cluster_callsign,
+            cluster_auto_connect: init.config.cluster_auto_connect,
             cluster_connected: false,
             cluster_connecting: false,
             cluster_status_text: "Rozłączono z klastrem DX.".to_string(),
-            cluster_filter_current_band: app_config.cluster_filter_current_band,
-            cluster_hide_ft8: app_config.cluster_hide_ft8,
-            cluster_hide_skimmers: app_config.cluster_hide_skimmers,
-            custom_clusters: app_config.custom_clusters,
+            cluster_filter_current_band: init.config.cluster_filter_current_band,
+            cluster_hide_ft8: init.config.cluster_hide_ft8,
+            cluster_hide_skimmers: init.config.cluster_hide_skimmers,
+            custom_clusters: init.config.custom_clusters,
             show_add_cluster_dialog: false,
             new_cluster_name: String::new(),
             new_cluster_host: String::new(),
@@ -1210,19 +1191,19 @@ impl SpLogApp {
             cluster_cmd_tx: None,
 
             reset_layout_requested: false,
-            left_column_width: app_config.left_column_width,
-            right_column_width: app_config.right_column_width,
+            left_column_width: init.config.left_column_width,
+            right_column_width: init.config.right_column_width,
             dragging_tile: None,
 
-            panel_vfo: app_config.panel_vfo,
-            panel_qso: app_config.panel_qso,
-            panel_log: app_config.panel_log,
-            panel_cluster: app_config.panel_cluster,
-            panel_solar: app_config.panel_solar,
-            panel_bandmap: app_config.panel_bandmap.clone(),
-            panel_satellites: app_config.panel_satellites.clone(),
-            panel_world_map: app_config.panel_world_map.clone(),
-            panel_waterfall: app_config.panel_waterfall.clone(),
+            panel_vfo: init.config.panel_vfo,
+            panel_qso: init.config.panel_qso,
+            panel_log: init.config.panel_log,
+            panel_cluster: init.config.panel_cluster,
+            panel_solar: init.config.panel_solar,
+            panel_bandmap: init.config.panel_bandmap.clone(),
+            panel_satellites: init.config.panel_satellites.clone(),
+            panel_world_map: init.config.panel_world_map.clone(),
+            panel_waterfall: init.config.panel_waterfall.clone(),
 
             // Sortowanie i paginacja logu
             log_sort_column: 0,
@@ -1250,7 +1231,7 @@ impl SpLogApp {
             // REST API
             rest_api_enabled: false,
             rest_api_port: 8080,
-            rest_api_key: app_config.rest_api_key.clone(),
+            rest_api_key: init.config.rest_api_key.clone(),
             api_reload_flag: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
 
             // Band opening alerts
@@ -1258,8 +1239,8 @@ impl SpLogApp {
             band_alert_enabled: true,
 
             // System pluginów użytkownika (Rhai)
-            plugins_enabled: app_config.plugins_enabled,
-            plugins_dir: app_config.plugins_dir.clone(),
+            plugins_enabled: init.config.plugins_enabled,
+            plugins_dir: init.config.plugins_dir.clone(),
             show_plugin_manager: false,
             plugin_engine: crate::plugins::PluginEngine::new(),
             plugin_log: Vec::new(),
@@ -1278,12 +1259,12 @@ impl SpLogApp {
             plugin_lookup_rx: None,
 
             // Zintegrowany pasek asystenta operatora
-            operator_assistant_enabled: app_config.operator_assistant_enabled,
-            show_operator_assistant: app_config.operator_assistant_enabled,
+            operator_assistant_enabled: init.config.operator_assistant_enabled,
+            show_operator_assistant: init.config.operator_assistant_enabled,
             show_propagation_explain: false,
 
             // Historia i weryfikacja prognoz propagacyjnych
-            propagation_history: app_config.propagation_history.clone(),
+            propagation_history: init.config.propagation_history.clone(),
             previous_band_status: std::collections::HashMap::new(),
 
             // PTT
@@ -1291,15 +1272,16 @@ impl SpLogApp {
 
             // Dwuetapowy CAT i udostępnianie (CAT Sharing)
             cat_mfg_selected: "Wszystkie".to_string(),
-            cat_conn_type: if app_config.cat_backend == "tci" {
+            cat_conn_type: if init.config.cat_backend == "tci" {
                 "tci".to_string()
-            } else if app_config.cat_auto_start_rigctld || !app_config.cat_serial_port.is_empty() {
+            } else if init.config.cat_auto_start_rigctld || !init.config.cat_serial_port.is_empty()
+            {
                 "serial".to_string()
             } else {
                 "tcp".to_string()
             },
-            cat_sharing_enabled: app_config.cat_sharing_enabled,
-            cat_sharing_port: app_config.cat_sharing_port,
+            cat_sharing_enabled: init.config.cat_sharing_enabled,
+            cat_sharing_port: init.config.cat_sharing_port,
             cat_sharing_active: false,
             cat_shared_state: std::sync::Arc::new(std::sync::RwLock::new(
                 crate::cat::hamlib::RigState::default(),
@@ -1338,8 +1320,8 @@ impl SpLogApp {
 
             // Profile stacji roboczej
             show_station_profiles_window: false,
-            station_profiles: if app_config.station_profiles.is_empty() {
-                let mut def = app_config.station.clone();
+            station_profiles: if init.config.station_profiles.is_empty() {
+                let mut def = init.config.station.clone();
                 if def.id.is_empty() {
                     def.id = "default".to_string();
                 }
@@ -1348,9 +1330,9 @@ impl SpLogApp {
                 }
                 vec![def]
             } else {
-                app_config.station_profiles.clone()
+                init.config.station_profiles.clone()
             },
-            active_profile_id: app_config.active_profile_id.clone(),
+            active_profile_id: init.config.active_profile_id.clone(),
             focus_callsign_requested: false,
             lookup_debounce_until: None,
         };
@@ -1358,35 +1340,105 @@ impl SpLogApp {
         app.rebuild_awards_full();
 
         // Zbuduj (lub wczytaj z konfiguracji) układ dokowania paneli.
-        app.build_dock_state(app_config.dock_layout.as_ref());
+        app.build_dock_state(init.config.dock_layout.as_ref());
+        app
+    }
 
+    pub fn configure_egui(&self, ctx: &egui::Context) {
+        // Rejestracja czcionki symboli systemowych (seguisym na Windows, DejaVu/Noto na Linux)
+        // dla pełnej obsługi znaków Unicode, symboli radiowych, strzałek ▲/▼, planet, satelitów i statusów
+        let mut font_defs = egui::FontDefinitions::default();
+        let win_dir = std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".to_string());
+        let font_candidates = [
+            std::path::Path::new(&win_dir)
+                .join("Fonts")
+                .join("seguisym.ttf"),
+            std::path::PathBuf::from("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+            std::path::PathBuf::from("/usr/share/fonts/TTF/DejaVuSans.ttf"),
+            std::path::PathBuf::from("/usr/share/fonts/dejavu/DejaVuSans.ttf"),
+            std::path::PathBuf::from("/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf"),
+            std::path::PathBuf::from("/usr/share/fonts/truetype/freefont/FreeSans.ttf"),
+        ];
+
+        for path in &font_candidates {
+            if let Ok(bytes) = std::fs::read(path) {
+                font_defs.font_data.insert(
+                    "symbol_font".to_owned(),
+                    egui::FontData::from_owned(bytes).into(),
+                );
+                if let Some(prop) = font_defs.families.get_mut(&egui::FontFamily::Proportional) {
+                    prop.push("symbol_font".to_owned());
+                }
+                if let Some(mono) = font_defs.families.get_mut(&egui::FontFamily::Monospace) {
+                    mono.push("symbol_font".to_owned());
+                }
+                break;
+            }
+        }
+
+        // Wybrana przez użytkownika rodzina czcionek (zmiana wymaga ponownego uruchomienia).
+        if !self.font_family.is_empty() {
+            if let Some(path) = resolve_font_path(&self.font_family) {
+                if let Ok(bytes) = std::fs::read(&path) {
+                    font_defs.font_data.insert(
+                        "custom_ui_font".to_owned(),
+                        egui::FontData::from_owned(bytes).into(),
+                    );
+                    if let Some(prop) = font_defs.families.get_mut(&egui::FontFamily::Proportional)
+                    {
+                        prop.insert(0, "custom_ui_font".to_owned());
+                    }
+                    let mono_family = self.font_family == "Consolas";
+                    if mono_family {
+                        if let Some(mono) = font_defs.families.get_mut(&egui::FontFamily::Monospace)
+                        {
+                            mono.insert(0, "custom_ui_font".to_owned());
+                        }
+                    }
+                }
+            }
+        }
+
+        ctx.set_fonts(font_defs);
+    }
+
+    pub fn start_background(&mut self) {
+        let ws_tx = self.wsjtx_tx.clone();
+        tokio::spawn(async move {
+            let receiver = crate::digital::wsjtx::WsjtxReceiver::new(2237);
+            let (tokio_tx, mut tokio_rx) = tokio::sync::mpsc::channel(100);
+            tokio::spawn(async move {
+                let _ = receiver.run(tokio_tx).await;
+            });
+            while let Some(msg) = tokio_rx.recv().await {
+                let _ = ws_tx.send(msg);
+            }
+        });
         // Wczytanie pluginów użytkownika (Rhai) z katalogu i uruchomienie on_startup().
         {
-            let dir = std::path::PathBuf::from(&app.plugins_dir);
-            app.plugin_engine.set_enabled(app.plugins_enabled);
-            app.plugin_engine.load_dir(&dir);
-            let total = app.qso_numbers.len() as i64;
-            app.plugin_engine.set_qso_count(total);
-            app.plugin_engine.run_startup();
+            let dir = std::path::PathBuf::from(&self.plugins_dir);
+            self.plugin_engine.set_enabled(self.plugins_enabled);
+            self.plugin_engine.load_dir(&dir);
+            let total = self.qso_numbers.len() as i64;
+            self.plugin_engine.set_qso_count(total);
+            self.plugin_engine.run_startup();
         }
 
-        if initial_cat_enabled {
-            app.start_cat_service();
+        if self.initial_cat_enabled {
+            self.start_cat_service();
         }
 
-        if app.cat_sharing_enabled {
-            app.toggle_cat_proxy_server();
+        if self.cat_sharing_enabled {
+            self.toggle_cat_proxy_server();
         }
 
-        if app.rest_api_enabled {
-            app.start_rest_api_server();
+        if self.rest_api_enabled {
+            self.start_rest_api_server();
         }
 
-        if app.cluster_auto_connect {
-            app.connect_dx_cluster();
+        if self.cluster_auto_connect {
+            self.connect_dx_cluster();
         }
-
-        app
     }
 
     /// Aktualizuje podpowiedzi SCP, rozpoznanie DXCC, azymut i dystans po wpisaniu znaku
@@ -5762,6 +5814,10 @@ impl eframe::App for SpLogApp {
 
 impl Drop for SpLogApp {
     fn drop(&mut self) {
+        if self.shutdown_policy == ShutdownPolicy::None {
+            return;
+        }
+
         let backup_dir = self
             .active_db_path
             .parent()
@@ -5787,3 +5843,114 @@ mod app_export;
 
 #[path = "app_layout.rs"]
 mod app_layout;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::database::{Journal, LogDatabase};
+    use crate::core::prefix::PrefixMatcher;
+    use crate::core::scp::ScpEngine;
+    use crate::core::station::AppConfig;
+    use std::sync::{Arc, Mutex};
+
+    fn test_deps() -> AppDeps {
+        AppDeps {
+            log_db: Arc::new(Mutex::new(LogDatabase::open_in_memory().unwrap())),
+            prefix_matcher: Arc::new(PrefixMatcher::empty()),
+            scp_engine: Arc::new(Mutex::new(ScpEngine::new())),
+        }
+    }
+
+    #[test]
+    fn build_loads_active_journal_and_qso_numbers() {
+        let deps = test_deps();
+        {
+            let db = deps.log_db.lock().unwrap();
+            let j = Journal {
+                id: "test-id".to_string(),
+                name: "Test".to_string(),
+                ..Default::default()
+            };
+            db.create_journal(&j).unwrap();
+            db.set_active_journal("test-id").unwrap();
+        }
+
+        let init = AppInit {
+            config: AppConfig::default(),
+            config_file_path: std::path::PathBuf::from("config.json"),
+            active_db_path: std::path::PathBuf::from("db.sqlite"),
+            shutdown_policy: ShutdownPolicy::None,
+        };
+
+        let app = SpLogApp::for_tests(init, deps);
+        assert_eq!(app.active_journal.name, "Test");
+    }
+
+    #[test]
+    fn build_with_empty_database() {
+        let deps = test_deps();
+        let init = AppInit {
+            config: AppConfig::default(),
+            config_file_path: std::path::PathBuf::from("config.json"),
+            active_db_path: std::path::PathBuf::from("db.sqlite"),
+            shutdown_policy: ShutdownPolicy::None,
+        };
+        let app = SpLogApp::for_tests(init, deps);
+        assert_eq!(app.active_journal.name, "Główny Dziennik");
+    }
+
+    #[test]
+    fn build_does_not_start_background_services() {
+        let deps = test_deps();
+        let init = AppInit {
+            config: AppConfig::default(),
+            config_file_path: std::path::PathBuf::from("config.json"),
+            active_db_path: std::path::PathBuf::from("db.sqlite"),
+            shutdown_policy: ShutdownPolicy::None,
+        };
+        let _app = SpLogApp::for_tests(init, deps);
+
+        // Ensure UDP 2237 is free
+        let socket = std::net::UdpSocket::bind("0.0.0.0:2237");
+        assert!(socket.is_ok(), "Port 2237 was occupied by build!");
+    }
+
+    #[test]
+    fn drop_with_none_policy_does_not_touch_disk() {
+        let temp = tempfile::tempdir().unwrap();
+        let active_db = temp.path().join("db.sqlite");
+        let deps = test_deps();
+        let init = AppInit {
+            config: AppConfig::default(),
+            config_file_path: temp.path().join("config.json"),
+            active_db_path: active_db.clone(),
+            shutdown_policy: ShutdownPolicy::None,
+        };
+
+        {
+            let _app = SpLogApp::for_tests(init, deps);
+        }
+
+        assert!(!temp.path().join("backups").exists());
+    }
+
+    #[test]
+    fn drop_with_backup_policy_creates_backup() {
+        let temp = tempfile::tempdir().unwrap();
+        let active_db = temp.path().join("db.sqlite");
+        std::fs::write(&active_db, "dummy data").unwrap();
+
+        let deps = test_deps();
+        let init = AppInit {
+            config: AppConfig::default(),
+            config_file_path: temp.path().join("config.json"),
+            active_db_path: active_db.clone(),
+            shutdown_policy: ShutdownPolicy::Backup,
+        };
+
+        {
+            let _app = SpLogApp::for_tests(init, deps);
+        }
+
+        assert!(temp.path().join("backups").exists());
+    }
+}
