@@ -1505,9 +1505,7 @@ impl LogDatabase {
     }
 }
 
-#[path = "database_stats.rs"]
-mod database_stats;
+mod stats;
 
 #[cfg(test)]
-#[path = "database_tests.rs"]
 mod tests;
