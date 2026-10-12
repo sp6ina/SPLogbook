@@ -5848,6 +5848,7 @@ mod tests {
     use super::*;
     use crate::core::database::{Journal, LogDatabase};
     use crate::core::prefix::PrefixMatcher;
+    use crate::core::qso::QsoRecord;
     use crate::core::scp::ScpEngine;
     use crate::core::station::AppConfig;
     use std::sync::{Arc, Mutex};
@@ -5863,7 +5864,7 @@ mod tests {
     #[test]
     fn build_loads_active_journal_and_qso_numbers() {
         let deps = test_deps();
-        {
+        let (first_id, second_id) = {
             let db = deps.log_db.lock().unwrap();
             let j = Journal {
                 id: "test-id".to_string(),
@@ -5872,7 +5873,21 @@ mod tests {
             };
             db.create_journal(&j).unwrap();
             db.set_active_journal("test-id").unwrap();
-        }
+
+            let mut q1 = QsoRecord::new("SP1ABC", "20m", "CW");
+            q1.journal_id = Some("test-id".to_string());
+            q1.qso_date = "2026-01-01".to_string();
+            q1.time_on = "10:00:00".to_string();
+            let id1 = db.insert_qso(&q1).unwrap();
+
+            let mut q2 = QsoRecord::new("SP2DEF", "40m", "SSB");
+            q2.journal_id = Some("test-id".to_string());
+            q2.qso_date = "2026-01-01".to_string();
+            q2.time_on = "10:15:00".to_string();
+            let id2 = db.insert_qso(&q2).unwrap();
+
+            (id1, id2)
+        };
 
         let init = AppInit {
             config: AppConfig::default(),
@@ -5883,6 +5898,11 @@ mod tests {
 
         let app = SpLogApp::for_tests(init, deps);
         assert_eq!(app.active_journal.name, "Test");
+        assert_eq!(app.active_journal.id, "test-id");
+        assert_eq!(app.qso_numbers.len(), 2);
+        assert_eq!(app.qso_numbers.get(&first_id), Some(&1));
+        assert_eq!(app.qso_numbers.get(&second_id), Some(&2));
+        assert_eq!(app.recent_qsos.len(), 2);
     }
 
     #[test]
