@@ -570,7 +570,10 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
         if exchange_ok {
             if let Err(reason) = new_qso.validate() {
                 app.status_toast = Some((
-                    format!("Błąd walidacji QSO kontestowego: {reason}"),
+                    format!(
+                        "Błąd walidacji QSO kontestowego: {}",
+                        reason.msg().text(app.current_language)
+                    ),
                     std::time::Instant::now(),
                 ));
             } else {
@@ -583,7 +586,14 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         new_qso.id = Some(id);
                         let warnings = new_qso.warnings();
                         if !warnings.is_empty() {
-                            app.report_warning(format!("Ostrzeżenia: {}", warnings.join("; ")));
+                            let warning_texts: Vec<String> = warnings
+                                .iter()
+                                .map(|w| w.msg().text(app.current_language))
+                                .collect();
+                            app.report_warning(format!(
+                                "Ostrzeżenia: {}",
+                                warning_texts.join("; ")
+                            ));
                         }
                         if let Ok(mut awards) = app.awards_engine.lock() {
                             awards.register_qso_record(&new_qso);

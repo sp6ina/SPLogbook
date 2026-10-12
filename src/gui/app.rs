@@ -10,7 +10,7 @@ use crate::core::awards::{AwardsEngine, PolishDistrictInfo, QsoAwardStatus};
 use crate::core::backup::BackupManager;
 use crate::core::database::{Journal, LogDatabase};
 use crate::core::geo::{calculate_bearing_deg, calculate_distance_km, locator_to_coordinates};
-use crate::core::i18n::{Language, key, tr};
+use crate::core::i18n::{Language, Msg, key, tr};
 use crate::core::prefix::{PrefixInfo, PrefixMatcher};
 use crate::core::qso::QsoRecord;
 use crate::core::scp::ScpEngine;
@@ -2084,7 +2084,9 @@ impl SpLogApp {
 
         if let Err(e) = qso.validate() {
             self.status_toast = Some((
-                format!("Nie zapisano łączności: {e}"),
+                Msg::new(key::MSG_QSO_NOT_SAVED)
+                    .arg("reason", e.msg().text(self.current_language))
+                    .text(self.current_language),
                 std::time::Instant::now(),
             ));
             return;
@@ -2163,7 +2165,11 @@ impl SpLogApp {
         );
         if !validation_warnings.is_empty() {
             success_msg.push_str("\n⚠ ");
-            success_msg.push_str(&validation_warnings.join("; "));
+            let warning_texts: Vec<String> = validation_warnings
+                .iter()
+                .map(|w| w.msg().text(self.current_language))
+                .collect();
+            success_msg.push_str(&warning_texts.join("; "));
         }
         self.status_toast = Some((success_msg, std::time::Instant::now()));
 
@@ -2678,12 +2684,19 @@ impl SpLogApp {
         let mut warnings_toast: Option<String> = None;
         if let Some(ref qso) = self.editing_qso {
             if let Err(e) = qso.validate() {
-                self.report_error(format!("Nie zapisano zmian: {e}"));
+                self.report_error(format!(
+                    "Nie zapisano zmian: {}",
+                    e.msg().text(self.current_language)
+                ));
                 return;
             }
             let warnings = qso.warnings();
             if !warnings.is_empty() {
-                warnings_toast = Some(format!("Ostrzeżenia: {}", warnings.join("; ")));
+                let warning_texts: Vec<String> = warnings
+                    .iter()
+                    .map(|w| w.msg().text(self.current_language))
+                    .collect();
+                warnings_toast = Some(format!("Ostrzeżenia: {}", warning_texts.join("; ")));
             }
             if let Some(id) = qso.id {
                 let result = {
@@ -3420,7 +3433,8 @@ impl SpLogApp {
                         qso.journal_id = Some(active_journal_id.clone());
                         if let Err(reason) = qso.validate() {
                             skipped_invalid += 1;
-                            first_validation_error.get_or_insert(reason);
+                            first_validation_error
+                                .get_or_insert_with(|| reason.msg().text(self.current_language));
                             continue;
                         }
                         let key = qso.identity();

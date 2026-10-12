@@ -7,6 +7,8 @@ use chrono::Utc;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
+use crate::core::i18n::{Language, Msg, key};
+
 /// Reprezentacja pojedynczego rekordu łączności (QSO) w standardzie ADIF 3.1.7
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
@@ -129,37 +131,143 @@ impl Default for QsoRecord {
     }
 }
 
+/// Pole czasu podlegające walidacji
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TimeField {
+    On,
+    Off,
+}
+
+/// Składnik pola czasu podlegający walidacji
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TimePart {
+    Format,
+    Hour,
+    Minute,
+    Second,
+}
+
+/// Błędy walidacji rekordu QSO blokujące zapis
+#[derive(Debug, Clone, PartialEq)]
+pub enum QsoIssue {
+    EmptyCallsign,
+    CallsignChars(String),
+    EmptyBand,
+    EmptyMode,
+    DateFormat(String),
+    DateInvalid(String),
+    Time {
+        field: TimeField,
+        part: TimePart,
+        raw: String,
+    },
+    FreqTx(f64),
+    FreqRx(f64),
+    CqZone(u32),
+    ItuZone(u32),
+}
+
+impl QsoIssue {
+    pub fn msg(&self) -> Msg {
+        match self {
+            Self::EmptyCallsign => Msg::new(key::QSO_ISSUE_EMPTY_CALLSIGN),
+            Self::CallsignChars(v) => Msg::new(key::QSO_ISSUE_CALLSIGN_CHARS).arg("value", v),
+            Self::EmptyBand => Msg::new(key::QSO_ISSUE_EMPTY_BAND),
+            Self::EmptyMode => Msg::new(key::QSO_ISSUE_EMPTY_MODE),
+            Self::DateFormat(v) => Msg::new(key::QSO_ISSUE_DATE_FORMAT).arg("value", v),
+            Self::DateInvalid(v) => Msg::new(key::QSO_ISSUE_DATE_INVALID).arg("value", v),
+            Self::Time { field, part, raw } => {
+                let k = match (field, part) {
+                    (TimeField::On, TimePart::Format) => key::QSO_ISSUE_TIME_ON_FORMAT,
+                    (TimeField::On, TimePart::Hour) => key::QSO_ISSUE_TIME_ON_HOUR,
+                    (TimeField::On, TimePart::Minute) => key::QSO_ISSUE_TIME_ON_MINUTE,
+                    (TimeField::On, TimePart::Second) => key::QSO_ISSUE_TIME_ON_SECOND,
+                    (TimeField::Off, TimePart::Format) => key::QSO_ISSUE_TIME_OFF_FORMAT,
+                    (TimeField::Off, TimePart::Hour) => key::QSO_ISSUE_TIME_OFF_HOUR,
+                    (TimeField::Off, TimePart::Minute) => key::QSO_ISSUE_TIME_OFF_MINUTE,
+                    (TimeField::Off, TimePart::Second) => key::QSO_ISSUE_TIME_OFF_SECOND,
+                };
+                Msg::new(k).arg("value", raw)
+            }
+            Self::FreqTx(v) => Msg::new(key::QSO_ISSUE_FREQ_TX).arg("value", v),
+            Self::FreqRx(v) => Msg::new(key::QSO_ISSUE_FREQ_RX).arg("value", v),
+            Self::CqZone(v) => Msg::new(key::QSO_ISSUE_CQ_ZONE).arg("value", v),
+            Self::ItuZone(v) => Msg::new(key::QSO_ISSUE_ITU_ZONE).arg("value", v),
+        }
+    }
+}
+
+impl std::fmt::Display for QsoIssue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.msg().text(Language::En))
+    }
+}
+
+impl std::error::Error for QsoIssue {}
+
+/// Miękkie ostrzeżenia walidacyjne rekordu QSO (nie blokują zapisu)
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum QsoWarning {
+    Iota(String),
+    Sota(String),
+    Pota(String),
+}
+
+impl QsoWarning {
+    pub fn msg(&self) -> Msg {
+        match self {
+            Self::Iota(v) => Msg::new(key::QSO_WARNING_IOTA).arg("value", v),
+            Self::Sota(v) => Msg::new(key::QSO_WARNING_SOTA).arg("value", v),
+            Self::Pota(v) => Msg::new(key::QSO_WARNING_POTA).arg("value", v),
+        }
+    }
+}
+
+impl std::fmt::Display for QsoWarning {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.msg().text(Language::En))
+    }
+}
+
 /// Waliduje pojedyncze pole czasu w formacie HHMM lub HHMMSS.
 /// Sprawdza format (długość 4/6, same cyfry) oraz zakresy: godzina 00–23,
 /// minuty 00–59, sekundy 00–59 (tylko dla HHMMSS).
-fn validate_time_field(raw: &str, field_name: &str) -> Result<(), String> {
+fn validate_time_field(raw: &str, field: TimeField) -> Result<(), QsoIssue> {
     let normalized = raw.trim().replace(':', "");
     let valid_len = normalized.len() == 4 || normalized.len() == 6;
     let valid_digits = normalized.chars().all(|c| c.is_ascii_digit());
     if !valid_len || !valid_digits {
-        return Err(format!(
-            "błędny {field_name} (oczekiwano HHMM lub HHMMSS): {raw}"
-        ));
+        return Err(QsoIssue::Time {
+            field,
+            part: TimePart::Format,
+            raw: raw.to_string(),
+        });
     }
 
     let hh: u32 = normalized[0..2].parse().unwrap();
     let mm: u32 = normalized[2..4].parse().unwrap();
     if hh > 23 {
-        return Err(format!(
-            "błędny {field_name} — godzina poza zakresem 00–23: {raw}"
-        ));
+        return Err(QsoIssue::Time {
+            field,
+            part: TimePart::Hour,
+            raw: raw.to_string(),
+        });
     }
     if mm > 59 {
-        return Err(format!(
-            "błędny {field_name} — minuty poza zakresem 00–59: {raw}"
-        ));
+        return Err(QsoIssue::Time {
+            field,
+            part: TimePart::Minute,
+            raw: raw.to_string(),
+        });
     }
     if normalized.len() == 6 {
         let ss: u32 = normalized[4..6].parse().unwrap();
         if ss > 59 {
-            return Err(format!(
-                "błędny {field_name} — sekundy poza zakresem 00–59: {raw}"
-            ));
+            return Err(QsoIssue::Time {
+                field,
+                part: TimePart::Second,
+                raw: raw.to_string(),
+            });
         }
     }
     Ok(())
@@ -167,46 +275,40 @@ fn validate_time_field(raw: &str, field_name: &str) -> Result<(), String> {
 
 /// Zwraca ostrzeżenie, jeśli niepusty napis nie pasuje do formatu IOTA (XX-NNN,
 /// np. EU-001). Walidacja miękka — nie blokuje zapisu.
-fn validate_iota_format(value: &str) -> Option<String> {
+fn validate_iota_format(value: &str) -> Option<QsoWarning> {
     static RE: OnceLock<Regex> = OnceLock::new();
     let re = RE.get_or_init(|| Regex::new(r"^[A-Za-z]{2}-\d{3}$").unwrap());
     let trimmed = value.trim();
     if trimmed.is_empty() || re.is_match(trimmed) {
         None
     } else {
-        Some(format!(
-            "nieprawidłowy format IOTA (oczekiwano XX-NNN, np. EU-001): {value}"
-        ))
+        Some(QsoWarning::Iota(value.to_string()))
     }
 }
 
 /// Zwraca ostrzeżenie, jeśli niepusty napis nie pasuje do formatu SOTA
 /// (XX/YY-NNN, np. SP/TA-001). Walidacja miękka — nie blokuje zapisu.
-fn validate_sota_format(value: &str) -> Option<String> {
+fn validate_sota_format(value: &str) -> Option<QsoWarning> {
     static RE: OnceLock<Regex> = OnceLock::new();
     let re = RE.get_or_init(|| Regex::new(r"^[A-Za-z0-9]{1,3}/[A-Za-z0-9]{2,3}-\d{3}$").unwrap());
     let trimmed = value.trim();
     if trimmed.is_empty() || re.is_match(trimmed) {
         None
     } else {
-        Some(format!(
-            "nieprawidłowy format SOTA (oczekiwano XX/YY-NNN, np. SP/TA-001): {value}"
-        ))
+        Some(QsoWarning::Sota(value.to_string()))
     }
 }
 
 /// Zwraca ostrzeżenie, jeśli niepusty napis nie pasuje do formatu POTA
 /// (XX-NNNN, np. SP-0001). Walidacja miękka — nie blokuje zapisu.
-fn validate_pota_format(value: &str) -> Option<String> {
+fn validate_pota_format(value: &str) -> Option<QsoWarning> {
     static RE: OnceLock<Regex> = OnceLock::new();
     let re = RE.get_or_init(|| Regex::new(r"^[A-Za-z0-9]{1,4}-\d{4}$").unwrap());
     let trimmed = value.trim();
     if trimmed.is_empty() || re.is_match(trimmed) {
         None
     } else {
-        Some(format!(
-            "nieprawidłowy format POTA (oczekiwano XX-NNNN, np. SP-0001): {value}"
-        ))
+        Some(QsoWarning::Pota(value.to_string()))
     }
 }
 
@@ -328,67 +430,58 @@ impl QsoRecord {
     /// nadaje się do zapisania, lub `Err` z opisem pierwszego wykrytego błędu.
     /// Wywoływana przy zapisie z formularza, edycji i imporcie, aby uniemożliwić
     /// zapis błędnej daty, czasu, pasma, częstotliwości i stref.
-    pub fn validate(&self) -> Result<(), String> {
+    pub fn validate(&self) -> Result<(), QsoIssue> {
         let callsign = self.callsign.trim();
         if callsign.is_empty() {
-            return Err("znak wywoławczy nie może być pusty".to_string());
+            return Err(QsoIssue::EmptyCallsign);
         }
         if !callsign
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '/')
         {
-            return Err(format!(
-                "znak wywoławczy zawiera niedozwolone znaki: {callsign}"
-            ));
+            return Err(QsoIssue::CallsignChars(callsign.to_string()));
         }
 
         if self.band.trim().is_empty() {
-            return Err("pasmo nie może być puste".to_string());
+            return Err(QsoIssue::EmptyBand);
         }
         if self.mode.trim().is_empty() {
-            return Err("rodzaj emisji nie może być pusty".to_string());
+            return Err(QsoIssue::EmptyMode);
         }
 
         let date = self.qso_date.trim().replace(['-', '.', '/'], "");
         if date.len() != 8 || !date.chars().all(|c| c.is_ascii_digit()) {
-            return Err(format!(
-                "błędna data (oczekiwano YYYYMMDD): {}",
-                self.qso_date
-            ));
+            return Err(QsoIssue::DateFormat(self.qso_date.clone()));
         }
         if chrono::NaiveDate::parse_from_str(&date, "%Y%m%d").is_err() {
-            return Err(format!("nieprawidłowa data: {}", self.qso_date));
+            return Err(QsoIssue::DateInvalid(self.qso_date.clone()));
         }
 
-        validate_time_field(&self.time_on, "czas rozpoczęcia")?;
+        validate_time_field(&self.time_on, TimeField::On)?;
 
         if let Some(ref toff) = self.time_off {
-            validate_time_field(toff, "czas zakończenia")?;
+            validate_time_field(toff, TimeField::Off)?;
         }
 
         if let Some(f) = self.freq {
             if !f.is_finite() || f <= 0.0 {
-                return Err(format!(
-                    "częstotliwość TX musi być skończona i dodatnia: {f}"
-                ));
+                return Err(QsoIssue::FreqTx(f));
             }
         }
         if let Some(f) = self.freq_rx {
             if !f.is_finite() || f < 0.0 {
-                return Err(format!(
-                    "częstotliwość RX musi być skończona i nieujemna: {f}"
-                ));
+                return Err(QsoIssue::FreqRx(f));
             }
         }
 
         if let Some(cqz) = self.cqz {
             if !(1..=40).contains(&cqz) {
-                return Err(format!("strefa CQ musi być z zakresu 1–40: {cqz}"));
+                return Err(QsoIssue::CqZone(cqz));
             }
         }
         if let Some(ituz) = self.ituz {
             if !(1..=90).contains(&ituz) {
-                return Err(format!("strefa ITU musi być z zakresu 1–90: {ituz}"));
+                return Err(QsoIssue::ItuZone(ituz));
             }
         }
 
@@ -398,7 +491,7 @@ impl QsoRecord {
     /// Zwraca miękkie ostrzeżenia walidacyjne (nie blokują zapisu). Służą do
     /// sygnalizowania wartości o podejrzanym formacie (IOTA/SOTA/POTA), które
     /// warto skorygować, ale które nie powinny uniemożliwiać zapisu rekordu.
-    pub fn warnings(&self) -> Vec<String> {
+    pub fn warnings(&self) -> Vec<QsoWarning> {
         let mut warnings = Vec::new();
         if let Some(ref value) = self.iota {
             if let Some(w) = validate_iota_format(value) {
@@ -440,42 +533,73 @@ mod tests {
     fn validate_rejects_empty_callsign() {
         let mut q = valid_qso();
         q.callsign = "   ".to_string();
-        assert!(q.validate().is_err());
+        assert_eq!(q.validate(), Err(QsoIssue::EmptyCallsign));
     }
 
     #[test]
     fn validate_rejects_bad_date() {
         let mut q = valid_qso();
         q.qso_date = "20261340".to_string();
-        assert!(q.validate().is_err());
+        assert_eq!(
+            q.validate(),
+            Err(QsoIssue::DateInvalid("20261340".to_string()))
+        );
     }
 
     #[test]
     fn validate_rejects_bad_time() {
         let mut q = valid_qso();
         q.time_on = "12:3".to_string();
-        assert!(q.validate().is_err());
+        assert_eq!(
+            q.validate(),
+            Err(QsoIssue::Time {
+                field: TimeField::On,
+                part: TimePart::Format,
+                raw: "12:3".to_string(),
+            })
+        );
     }
 
     #[test]
     fn validate_rejects_hour_out_of_range() {
         let mut q = valid_qso();
         q.time_on = "2460".to_string();
-        assert!(q.validate().is_err());
+        assert_eq!(
+            q.validate(),
+            Err(QsoIssue::Time {
+                field: TimeField::On,
+                part: TimePart::Hour,
+                raw: "2460".to_string(),
+            })
+        );
     }
 
     #[test]
     fn validate_rejects_minute_out_of_range() {
         let mut q = valid_qso();
         q.time_on = "1860".to_string();
-        assert!(q.validate().is_err());
+        assert_eq!(
+            q.validate(),
+            Err(QsoIssue::Time {
+                field: TimeField::On,
+                part: TimePart::Minute,
+                raw: "1860".to_string(),
+            })
+        );
     }
 
     #[test]
     fn validate_rejects_second_out_of_range() {
         let mut q = valid_qso();
         q.time_on = "183060".to_string();
-        assert!(q.validate().is_err());
+        assert_eq!(
+            q.validate(),
+            Err(QsoIssue::Time {
+                field: TimeField::On,
+                part: TimePart::Second,
+                raw: "183060".to_string(),
+            })
+        );
     }
 
     #[test]
@@ -490,14 +614,14 @@ mod tests {
     fn validate_rejects_nan_freq() {
         let mut q = valid_qso();
         q.freq = Some(f64::NAN);
-        assert!(q.validate().is_err());
+        assert!(matches!(q.validate(), Err(QsoIssue::FreqTx(f)) if f.is_nan()));
     }
 
     #[test]
     fn validate_rejects_out_of_range_zone() {
         let mut q = valid_qso();
         q.cqz = Some(99);
-        assert!(q.validate().is_err());
+        assert_eq!(q.validate(), Err(QsoIssue::CqZone(99)));
     }
 
     #[test]
@@ -514,22 +638,22 @@ mod tests {
         let mut q = valid_qso();
         q.iota = Some("EU12".to_string());
         let w = q.warnings();
-        assert_eq!(w.len(), 1);
-        assert!(w[0].contains("IOTA"));
+        assert_eq!(w, vec![QsoWarning::Iota("EU12".to_string())]);
+        assert!(w[0].to_string().contains("IOTA"));
     }
 
     #[test]
     fn warnings_flags_invalid_sota() {
         let mut q = valid_qso();
         q.sota_ref = Some("SPTA-001".to_string());
-        assert_eq!(q.warnings().len(), 1);
+        assert_eq!(q.warnings(), vec![QsoWarning::Sota("SPTA-001".to_string())]);
     }
 
     #[test]
     fn warnings_flags_invalid_pota() {
         let mut q = valid_qso();
         q.pota_ref = Some("SP-001".to_string());
-        assert_eq!(q.warnings().len(), 1);
+        assert_eq!(q.warnings(), vec![QsoWarning::Pota("SP-001".to_string())]);
     }
 
     #[test]
@@ -539,5 +663,275 @@ mod tests {
         q.sota_ref = None;
         q.pota_ref = Some(String::new());
         assert!(q.warnings().is_empty());
+    }
+
+    #[test]
+    fn validate_reports_empty_callsign() {
+        let mut q = valid_qso();
+        q.callsign = String::new();
+        assert_eq!(q.validate(), Err(QsoIssue::EmptyCallsign));
+    }
+
+    #[test]
+    fn validate_reports_callsign_chars() {
+        let mut q = valid_qso();
+        q.callsign = "SP6INA@".to_string();
+        assert_eq!(
+            q.validate(),
+            Err(QsoIssue::CallsignChars("SP6INA@".to_string()))
+        );
+    }
+
+    #[test]
+    fn validate_reports_empty_band() {
+        let mut q = valid_qso();
+        q.band = "   ".to_string();
+        assert_eq!(q.validate(), Err(QsoIssue::EmptyBand));
+    }
+
+    #[test]
+    fn validate_reports_empty_mode() {
+        let mut q = valid_qso();
+        q.mode = String::new();
+        assert_eq!(q.validate(), Err(QsoIssue::EmptyMode));
+    }
+
+    #[test]
+    fn validate_reports_date_format() {
+        let mut q = valid_qso();
+        q.qso_date = "2026-09".to_string();
+        assert_eq!(
+            q.validate(),
+            Err(QsoIssue::DateFormat("2026-09".to_string()))
+        );
+    }
+
+    #[test]
+    fn validate_reports_date_invalid() {
+        let mut q = valid_qso();
+        q.qso_date = "20260230".to_string();
+        assert_eq!(
+            q.validate(),
+            Err(QsoIssue::DateInvalid("20260230".to_string()))
+        );
+    }
+
+    #[test]
+    fn validate_reports_time_on_format() {
+        let mut q = valid_qso();
+        q.time_on = "12:3".to_string();
+        assert_eq!(
+            q.validate(),
+            Err(QsoIssue::Time {
+                field: TimeField::On,
+                part: TimePart::Format,
+                raw: "12:3".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn validate_reports_time_on_hour() {
+        let mut q = valid_qso();
+        q.time_on = "2400".to_string();
+        assert_eq!(
+            q.validate(),
+            Err(QsoIssue::Time {
+                field: TimeField::On,
+                part: TimePart::Hour,
+                raw: "2400".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn validate_reports_time_on_minute() {
+        let mut q = valid_qso();
+        q.time_on = "1260".to_string();
+        assert_eq!(
+            q.validate(),
+            Err(QsoIssue::Time {
+                field: TimeField::On,
+                part: TimePart::Minute,
+                raw: "1260".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn validate_reports_time_on_second() {
+        let mut q = valid_qso();
+        q.time_on = "123060".to_string();
+        assert_eq!(
+            q.validate(),
+            Err(QsoIssue::Time {
+                field: TimeField::On,
+                part: TimePart::Second,
+                raw: "123060".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn validate_reports_time_off_format() {
+        let mut q = valid_qso();
+        q.time_off = Some("99".to_string());
+        assert_eq!(
+            q.validate(),
+            Err(QsoIssue::Time {
+                field: TimeField::Off,
+                part: TimePart::Format,
+                raw: "99".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn validate_reports_time_off_hour() {
+        let mut q = valid_qso();
+        q.time_off = Some("2500".to_string());
+        assert_eq!(
+            q.validate(),
+            Err(QsoIssue::Time {
+                field: TimeField::Off,
+                part: TimePart::Hour,
+                raw: "2500".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn validate_reports_time_off_minute() {
+        let mut q = valid_qso();
+        q.time_off = Some("1265".to_string());
+        assert_eq!(
+            q.validate(),
+            Err(QsoIssue::Time {
+                field: TimeField::Off,
+                part: TimePart::Minute,
+                raw: "1265".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn validate_reports_time_off_second() {
+        let mut q = valid_qso();
+        q.time_off = Some("123075".to_string());
+        assert_eq!(
+            q.validate(),
+            Err(QsoIssue::Time {
+                field: TimeField::Off,
+                part: TimePart::Second,
+                raw: "123075".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn validate_reports_freq_tx() {
+        let mut q = valid_qso();
+        q.freq = Some(0.0);
+        assert_eq!(q.validate(), Err(QsoIssue::FreqTx(0.0)));
+    }
+
+    #[test]
+    fn validate_reports_freq_rx() {
+        let mut q = valid_qso();
+        q.freq_rx = Some(-1.0);
+        assert_eq!(q.validate(), Err(QsoIssue::FreqRx(-1.0)));
+    }
+
+    #[test]
+    fn validate_reports_cq_zone() {
+        let mut q = valid_qso();
+        q.cqz = Some(41);
+        assert_eq!(q.validate(), Err(QsoIssue::CqZone(41)));
+    }
+
+    #[test]
+    fn validate_reports_itu_zone() {
+        let mut q = valid_qso();
+        q.ituz = Some(91);
+        assert_eq!(q.validate(), Err(QsoIssue::ItuZone(91)));
+    }
+
+    #[test]
+    fn issue_messages_have_no_unsubstituted_placeholders() {
+        let sample_issues = [
+            QsoIssue::EmptyCallsign,
+            QsoIssue::CallsignChars("SP6INA/P".to_string()),
+            QsoIssue::EmptyBand,
+            QsoIssue::EmptyMode,
+            QsoIssue::DateFormat("2026-09".to_string()),
+            QsoIssue::DateInvalid("20260230".to_string()),
+            QsoIssue::Time {
+                field: TimeField::On,
+                part: TimePart::Format,
+                raw: "12:3".to_string(),
+            },
+            QsoIssue::Time {
+                field: TimeField::On,
+                part: TimePart::Hour,
+                raw: "2500".to_string(),
+            },
+            QsoIssue::Time {
+                field: TimeField::On,
+                part: TimePart::Minute,
+                raw: "1260".to_string(),
+            },
+            QsoIssue::Time {
+                field: TimeField::On,
+                part: TimePart::Second,
+                raw: "123060".to_string(),
+            },
+            QsoIssue::Time {
+                field: TimeField::Off,
+                part: TimePart::Format,
+                raw: "99".to_string(),
+            },
+            QsoIssue::Time {
+                field: TimeField::Off,
+                part: TimePart::Hour,
+                raw: "2500".to_string(),
+            },
+            QsoIssue::Time {
+                field: TimeField::Off,
+                part: TimePart::Minute,
+                raw: "1260".to_string(),
+            },
+            QsoIssue::Time {
+                field: TimeField::Off,
+                part: TimePart::Second,
+                raw: "123060".to_string(),
+            },
+            QsoIssue::FreqTx(0.0),
+            QsoIssue::FreqRx(-1.0),
+            QsoIssue::CqZone(45),
+            QsoIssue::ItuZone(95),
+        ];
+
+        let sample_warnings = [
+            QsoWarning::Iota("EU-9999".to_string()),
+            QsoWarning::Sota("SP/TA-9999".to_string()),
+            QsoWarning::Pota("SP-9999".to_string()),
+        ];
+
+        for lang in Language::ALL {
+            for issue in &sample_issues {
+                let text = issue.msg().text(lang);
+                assert!(
+                    !text.contains('{') && !text.contains('}'),
+                    "Unsubstituted placeholder in issue {issue:?} for language {lang:?}: '{text}'"
+                );
+            }
+            for warning in &sample_warnings {
+                let text = warning.msg().text(lang);
+                assert!(
+                    !text.contains('{') && !text.contains('}'),
+                    "Unsubstituted placeholder in warning {warning:?} for language {lang:?}: '{text}'"
+                );
+            }
+        }
     }
 }

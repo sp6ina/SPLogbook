@@ -23,6 +23,7 @@ use crate::core::awards::{AwardsEngine, QsoAwardStatus};
 use crate::core::clubs::{ClubAffiliation, ClubRegistry};
 use crate::core::database::{AdvancedQsoFilter, Journal, LogDatabase};
 use crate::core::events::{AppEvent, EventBus};
+use crate::core::i18n::Language;
 use crate::core::prefix::PrefixMatcher;
 use crate::core::qso::QsoRecord;
 
@@ -749,7 +750,8 @@ async fn post_qso(
     Json(mut qso): Json<QsoRecord>,
 ) -> Result<(StatusCode, Json<QsoRecord>), (StatusCode, String)> {
     normalize_and_enrich_qso(&mut qso, &state.prefix_matcher)?;
-    qso.validate().map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    qso.validate()
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.msg().text(Language::Pl)))?;
 
     let qso_for_db = qso.clone();
     let id = with_db(&state, move |db| db.insert_qso(&qso_for_db)).await?;
@@ -781,7 +783,8 @@ async fn put_qso_by_id(
     Json(mut qso): Json<QsoRecord>,
 ) -> Result<Json<QsoRecord>, (StatusCode, String)> {
     normalize_and_enrich_qso(&mut qso, &state.prefix_matcher)?;
-    qso.validate().map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    qso.validate()
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.msg().text(Language::Pl)))?;
 
     let qso_for_db = qso.clone();
     let found = with_db(&state, move |db| {
@@ -988,7 +991,7 @@ async fn import_adif_handler(
         let _ = normalize_and_enrich_qso(&mut qso, &state.prefix_matcher);
         if let Err(reason) = qso.validate() {
             validation_rejected += 1;
-            validation_errors.push(reason);
+            validation_errors.push(reason.msg().text(Language::Pl));
             continue;
         }
         let key = qso.identity();
