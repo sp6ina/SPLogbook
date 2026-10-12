@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use super::LogDatabase;
-use super::schema::{QSO_COLUMNS, row_to_qso};
+use super::schema::{QSO_SQL, qso_from_row};
 use crate::core::qso::QsoRecord;
 use crate::core::text::escape_like;
 use rusqlite::Result;
@@ -32,17 +32,18 @@ impl LogDatabase {
         };
 
         let query_sql = format!(
-            "SELECT {QSO_COLUMNS} FROM (
-                SELECT {QSO_COLUMNS},
+            "SELECT {} FROM (
+                SELECT {},
                        COUNT(*) OVER (PARTITION BY {partition_by}) AS dup_cnt
                 FROM qso_records
             )
             WHERE dup_cnt > 1
-            ORDER BY callsign ASC, band ASC, mode ASC, qso_date ASC, time_on ASC, id ASC"
+            ORDER BY callsign ASC, band ASC, mode ASC, qso_date ASC, time_on ASC, id ASC",
+            QSO_SQL.select_columns, QSO_SQL.select_columns
         );
 
         let mut stmt = self.conn.prepare(&query_sql)?;
-        let rows = stmt.query_map([], row_to_qso)?;
+        let rows = stmt.query_map([], qso_from_row)?;
 
         let mut groups: Vec<Vec<QsoRecord>> = Vec::new();
         let mut current_key: Option<(String, String, String, String)> = None;
@@ -84,7 +85,10 @@ impl LogDatabase {
     /// wiązane (nie string-concat), a wzorce LIKE mają escapowane znaki wieloznaczne
     /// `%`/`_`, żeby wyszukiwane teksty użytkownika nie działały jak wildcardy.
     pub fn search_qsos_advanced(&self, filter: &AdvancedQsoFilter) -> Result<Vec<QsoRecord>> {
-        let mut sql = format!("SELECT {QSO_COLUMNS} FROM qso_records WHERE 1=1");
+        let mut sql = format!(
+            "SELECT {} FROM qso_records WHERE 1=1",
+            QSO_SQL.select_columns
+        );
         let mut conditions: Vec<String> = Vec::new();
         let mut values: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
@@ -176,7 +180,7 @@ impl LogDatabase {
         let mut stmt = self.conn.prepare(&sql)?;
         let param_refs: Vec<&dyn rusqlite::ToSql> =
             values.iter().map(std::convert::AsRef::as_ref).collect();
-        let rows = stmt.query_map(param_refs.as_slice(), row_to_qso)?;
+        let rows = stmt.query_map(param_refs.as_slice(), qso_from_row)?;
         let mut res = Vec::new();
         for r in rows {
             res.push(r?);

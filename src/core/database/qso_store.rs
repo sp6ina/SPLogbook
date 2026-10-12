@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use super::LogDatabase;
-use super::schema::{QSO_COLUMNS, row_to_qso};
+use super::schema::{QSO_DATA_COLUMN_COUNT, QSO_SQL, bind_params, for_storage, qso_from_row};
 use crate::core::qso::QsoRecord;
 use rusqlite::{Result, params};
 use std::collections::{HashMap, HashSet};
@@ -10,9 +10,12 @@ use std::collections::{HashMap, HashSet};
 impl LogDatabase {
     /// Pobiera QSO po ID
     pub fn get_qso_by_id(&self, id: i64) -> Result<Option<QsoRecord>> {
-        let sql = format!("SELECT {QSO_COLUMNS} FROM qso_records WHERE id = ?1");
+        let sql = format!(
+            "SELECT {} FROM qso_records WHERE id = ?1",
+            QSO_SQL.select_columns
+        );
         let mut stmt = self.conn.prepare(&sql)?;
-        let mut rows = stmt.query_map(params![id], row_to_qso)?;
+        let mut rows = stmt.query_map(params![id], qso_from_row)?;
         if let Some(Ok(qso)) = rows.next() {
             Ok(Some(qso))
         } else {
@@ -22,88 +25,10 @@ impl LogDatabase {
 
     /// Wstawia nowy rekord QSO do bazy i zwraca nadane ID
     pub fn insert_qso(&self, qso: &QsoRecord) -> Result<i64> {
-        let journal = qso.journal_id.as_deref().unwrap_or("DEFAULT");
-        self.conn.execute(
-            "INSERT INTO qso_records (
-                callsign, band, mode, submode, qso_date, time_on, time_off,
-                freq, freq_rx, rst_sent, rst_rcvd, name, qth, gridsquare,
-                state, iota, sota_ref, pota_ref, pga_ref, dxcc, country,
-                continent, cqz, ituz, comment, qsl_via, qsl_manager,
-                qsl_sent, qsl_rcvd, qsl_sent_date, qsl_rcvd_date,
-                lotw_qsl_sent, lotw_qsl_rcvd, lotw_qslrdate,
-                eqsl_qsl_sent, eqsl_qsl_rcvd, eqsl_qslrdate,
-                clublog_upload_status, qrzcom_upload_status,
-                sat_name, sat_mode, prop_mode, srx, stx, srx_string, stx_string,
-                my_gridsquare, my_state, my_pota_ref, my_sota_ref, vucc_grids, audio_file, journal_id
-            ) VALUES (
-                ?1, ?2, ?3, ?4, ?5, ?6, ?7,
-                ?8, ?9, ?10, ?11, ?12, ?13, ?14,
-                ?15, ?16, ?17, ?18, ?19, ?20, ?21,
-                ?22, ?23, ?24, ?25, ?26, ?27,
-                ?28, ?29, ?30, ?31,
-                ?32, ?33, ?34,
-                ?35, ?36, ?37,
-                ?38, ?39,
-                ?40, ?41, ?42, ?43, ?44, ?45, ?46,
-                ?47, ?48, ?49, ?50, ?51, ?52, ?53
-            )",
-            params![
-                qso.callsign.to_uppercase(),
-                qso.band,
-                qso.mode.to_uppercase(),
-                qso.submode,
-                qso.qso_date,
-                qso.time_on,
-                qso.time_off,
-                qso.freq,
-                qso.freq_rx,
-                qso.rst_sent,
-                qso.rst_rcvd,
-                qso.name,
-                qso.qth,
-                qso.gridsquare,
-                qso.state,
-                qso.iota,
-                qso.sota_ref,
-                qso.pota_ref,
-                qso.pga_ref,
-                qso.dxcc,
-                qso.country,
-                qso.continent,
-                qso.cqz,
-                qso.ituz,
-                qso.comment,
-                qso.qsl_via,
-                qso.qsl_manager,
-                qso.qsl_sent,
-                qso.qsl_rcvd,
-                qso.qsl_sent_date,
-                qso.qsl_rcvd_date,
-                qso.lotw_qsl_sent,
-                qso.lotw_qsl_rcvd,
-                qso.lotw_qslrdate,
-                qso.eqsl_qsl_sent,
-                qso.eqsl_qsl_rcvd,
-                qso.eqsl_qslrdate,
-                qso.clublog_upload_status,
-                qso.qrzcom_upload_status,
-                qso.sat_name,
-                qso.sat_mode,
-                qso.prop_mode,
-                qso.srx,
-                qso.stx,
-                qso.srx_string,
-                qso.stx_string,
-                qso.my_gridsquare,
-                qso.my_state,
-                qso.my_pota_ref,
-                qso.my_sota_ref,
-                qso.vucc_grids,
-                qso.audio_file,
-                journal,
-            ],
-        )?;
-
+        let stored = for_storage(qso);
+        let params = bind_params(&stored);
+        let mut stmt = self.conn.prepare_cached(&QSO_SQL.insert)?;
+        stmt.execute(params.as_slice())?;
         Ok(self.conn.last_insert_rowid())
     }
 
@@ -114,91 +39,13 @@ impl LogDatabase {
         let Some(id) = qso.id else {
             return self.insert_qso(qso);
         };
-        let journal = qso.journal_id.as_deref().unwrap_or("DEFAULT");
-        self.conn.execute(
-            "INSERT INTO qso_records (
-                id,
-                callsign, band, mode, submode, qso_date, time_on, time_off,
-                freq, freq_rx, rst_sent, rst_rcvd, name, qth, gridsquare,
-                state, iota, sota_ref, pota_ref, pga_ref, dxcc, country,
-                continent, cqz, ituz, comment, qsl_via, qsl_manager,
-                qsl_sent, qsl_rcvd, qsl_sent_date, qsl_rcvd_date,
-                lotw_qsl_sent, lotw_qsl_rcvd, lotw_qslrdate,
-                eqsl_qsl_sent, eqsl_qsl_rcvd, eqsl_qslrdate,
-                clublog_upload_status, qrzcom_upload_status,
-                sat_name, sat_mode, prop_mode, srx, stx, srx_string, stx_string,
-                my_gridsquare, my_state, my_pota_ref, my_sota_ref, vucc_grids, audio_file, journal_id
-            ) VALUES (
-                ?54,
-                ?1, ?2, ?3, ?4, ?5, ?6, ?7,
-                ?8, ?9, ?10, ?11, ?12, ?13, ?14,
-                ?15, ?16, ?17, ?18, ?19, ?20, ?21,
-                ?22, ?23, ?24, ?25, ?26, ?27,
-                ?28, ?29, ?30, ?31,
-                ?32, ?33, ?34,
-                ?35, ?36, ?37,
-                ?38, ?39,
-                ?40, ?41, ?42, ?43, ?44, ?45, ?46,
-                ?47, ?48, ?49, ?50, ?51, ?52, ?53
-            )",
-            params![
-                qso.callsign.to_uppercase(),
-                qso.band,
-                qso.mode.to_uppercase(),
-                qso.submode,
-                qso.qso_date,
-                qso.time_on,
-                qso.time_off,
-                qso.freq,
-                qso.freq_rx,
-                qso.rst_sent,
-                qso.rst_rcvd,
-                qso.name,
-                qso.qth,
-                qso.gridsquare,
-                qso.state,
-                qso.iota,
-                qso.sota_ref,
-                qso.pota_ref,
-                qso.pga_ref,
-                qso.dxcc,
-                qso.country,
-                qso.continent,
-                qso.cqz,
-                qso.ituz,
-                qso.comment,
-                qso.qsl_via,
-                qso.qsl_manager,
-                qso.qsl_sent,
-                qso.qsl_rcvd,
-                qso.qsl_sent_date,
-                qso.qsl_rcvd_date,
-                qso.lotw_qsl_sent,
-                qso.lotw_qsl_rcvd,
-                qso.lotw_qslrdate,
-                qso.eqsl_qsl_sent,
-                qso.eqsl_qsl_rcvd,
-                qso.eqsl_qslrdate,
-                qso.clublog_upload_status,
-                qso.qrzcom_upload_status,
-                qso.sat_name,
-                qso.sat_mode,
-                qso.prop_mode,
-                qso.srx,
-                qso.stx,
-                qso.srx_string,
-                qso.stx_string,
-                qso.my_gridsquare,
-                qso.my_state,
-                qso.my_pota_ref,
-                qso.my_sota_ref,
-                qso.vucc_grids,
-                qso.audio_file,
-                journal,
-                id,
-            ],
-        )?;
-
+        let stored = for_storage(qso);
+        let data_params = bind_params(&stored);
+        let mut params: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(QSO_DATA_COLUMN_COUNT + 1);
+        params.extend_from_slice(&data_params);
+        params.push(&id);
+        let mut stmt = self.conn.prepare_cached(&QSO_SQL.insert_with_id)?;
+        stmt.execute(params.as_slice())?;
         Ok(id)
     }
 
@@ -207,89 +54,11 @@ impl LogDatabase {
         let tx = self.conn.transaction()?;
         let mut count = 0;
         {
-            let mut stmt = tx.prepare_cached(
-                "INSERT INTO qso_records (
-                    callsign, band, mode, submode, qso_date, time_on, time_off,
-                    freq, freq_rx, rst_sent, rst_rcvd, name, qth, gridsquare,
-                    state, iota, sota_ref, pota_ref, pga_ref, dxcc, country,
-                    continent, cqz, ituz, comment, qsl_via, qsl_manager,
-                    qsl_sent, qsl_rcvd, qsl_sent_date, qsl_rcvd_date,
-                    lotw_qsl_sent, lotw_qsl_rcvd, lotw_qslrdate,
-                    eqsl_qsl_sent, eqsl_qsl_rcvd, eqsl_qslrdate,
-                    clublog_upload_status, qrzcom_upload_status,
-                    sat_name, sat_mode, prop_mode, srx, stx, srx_string, stx_string,
-                    my_gridsquare, my_state, my_pota_ref, my_sota_ref, vucc_grids, audio_file, journal_id
-                ) VALUES (
-                    ?1, ?2, ?3, ?4, ?5, ?6, ?7,
-                    ?8, ?9, ?10, ?11, ?12, ?13, ?14,
-                    ?15, ?16, ?17, ?18, ?19, ?20, ?21,
-                    ?22, ?23, ?24, ?25, ?26, ?27,
-                    ?28, ?29, ?30, ?31,
-                    ?32, ?33, ?34,
-                    ?35, ?36, ?37,
-                    ?38, ?39,
-                    ?40, ?41, ?42, ?43, ?44, ?45, ?46,
-                    ?47, ?48, ?49, ?50, ?51, ?52, ?53
-                )",
-            )?;
-
+            let mut stmt = tx.prepare_cached(&QSO_SQL.insert)?;
             for qso in qsos {
-                let journal = qso.journal_id.as_deref().unwrap_or("DEFAULT");
-                stmt.execute(params![
-                    qso.callsign.to_uppercase(),
-                    qso.band,
-                    qso.mode.to_uppercase(),
-                    qso.submode,
-                    qso.qso_date,
-                    qso.time_on,
-                    qso.time_off,
-                    qso.freq,
-                    qso.freq_rx,
-                    qso.rst_sent,
-                    qso.rst_rcvd,
-                    qso.name,
-                    qso.qth,
-                    qso.gridsquare,
-                    qso.state,
-                    qso.iota,
-                    qso.sota_ref,
-                    qso.pota_ref,
-                    qso.pga_ref,
-                    qso.dxcc,
-                    qso.country,
-                    qso.continent,
-                    qso.cqz,
-                    qso.ituz,
-                    qso.comment,
-                    qso.qsl_via,
-                    qso.qsl_manager,
-                    qso.qsl_sent,
-                    qso.qsl_rcvd,
-                    qso.qsl_sent_date,
-                    qso.qsl_rcvd_date,
-                    qso.lotw_qsl_sent,
-                    qso.lotw_qsl_rcvd,
-                    qso.lotw_qslrdate,
-                    qso.eqsl_qsl_sent,
-                    qso.eqsl_qsl_rcvd,
-                    qso.eqsl_qslrdate,
-                    qso.clublog_upload_status,
-                    qso.qrzcom_upload_status,
-                    qso.sat_name,
-                    qso.sat_mode,
-                    qso.prop_mode,
-                    qso.srx,
-                    qso.stx,
-                    qso.srx_string,
-                    qso.stx_string,
-                    qso.my_gridsquare,
-                    qso.my_state,
-                    qso.my_pota_ref,
-                    qso.my_sota_ref,
-                    qso.vucc_grids,
-                    qso.audio_file,
-                    journal,
-                ])?;
+                let stored = for_storage(qso);
+                let params = bind_params(&stored);
+                stmt.execute(params.as_slice())?;
                 count += 1;
             }
         }
@@ -300,12 +69,11 @@ impl LogDatabase {
     /// Pobiera listę poprzednich łączności z daną stacją (do podglądu w locie)
     pub fn find_previous_qsos(&self, callsign: &str) -> Result<Vec<QsoRecord>> {
         let sql = format!(
-            "SELECT {QSO_COLUMNS} FROM qso_records WHERE callsign = ?1 ORDER BY qso_date DESC, time_on DESC"
+            "SELECT {} FROM qso_records WHERE callsign = ?1 ORDER BY qso_date DESC, time_on DESC",
+            QSO_SQL.select_columns
         );
         let mut stmt = self.conn.prepare(&sql)?;
-
-        let rows = stmt.query_map(params![callsign.to_uppercase()], row_to_qso)?;
-
+        let rows = stmt.query_map(params![callsign.to_uppercase()], qso_from_row)?;
         let mut res = Vec::new();
         for r in rows {
             res.push(r?);
@@ -340,80 +108,13 @@ impl LogDatabase {
 
     /// Aktualizuje istniejący rekord QSO w bazie po ID
     pub fn update_qso(&self, id: i64, qso: &QsoRecord) -> Result<()> {
-        let journal = qso.journal_id.as_deref().unwrap_or("DEFAULT");
-        self.conn.execute(
-            "UPDATE qso_records SET
-                callsign = ?1, band = ?2, mode = ?3, submode = ?4, qso_date = ?5,
-                time_on = ?6, time_off = ?7, freq = ?8, freq_rx = ?9, rst_sent = ?10,
-                rst_rcvd = ?11, name = ?12, qth = ?13, gridsquare = ?14, state = ?15,
-                iota = ?16, sota_ref = ?17, pota_ref = ?18, pga_ref = ?19, dxcc = ?20,
-                country = ?21, continent = ?22, cqz = ?23, ituz = ?24, comment = ?25,
-                qsl_via = ?26, qsl_manager = ?27, qsl_sent = ?28, qsl_rcvd = ?29,
-                qsl_sent_date = ?30, qsl_rcvd_date = ?31, lotw_qsl_sent = ?32,
-                lotw_qsl_rcvd = ?33, lotw_qslrdate = ?34, eqsl_qsl_sent = ?35,
-                eqsl_qsl_rcvd = ?36, eqsl_qslrdate = ?37, clublog_upload_status = ?38,
-                qrzcom_upload_status = ?39, sat_name = ?40, sat_mode = ?41, prop_mode = ?42,
-                srx = ?43, stx = ?44, srx_string = ?45, stx_string = ?46,
-                my_gridsquare = ?47, my_state = ?48, my_pota_ref = ?49, my_sota_ref = ?50,
-                vucc_grids = ?51, audio_file = ?52, journal_id = ?53
-             WHERE id = ?54",
-            params![
-                qso.callsign.to_uppercase(),
-                qso.band,
-                qso.mode.to_uppercase(),
-                qso.submode,
-                qso.qso_date,
-                qso.time_on,
-                qso.time_off,
-                qso.freq,
-                qso.freq_rx,
-                qso.rst_sent,
-                qso.rst_rcvd,
-                qso.name,
-                qso.qth,
-                qso.gridsquare,
-                qso.state,
-                qso.iota,
-                qso.sota_ref,
-                qso.pota_ref,
-                qso.pga_ref,
-                qso.dxcc,
-                qso.country,
-                qso.continent,
-                qso.cqz,
-                qso.ituz,
-                qso.comment,
-                qso.qsl_via,
-                qso.qsl_manager,
-                qso.qsl_sent,
-                qso.qsl_rcvd,
-                qso.qsl_sent_date,
-                qso.qsl_rcvd_date,
-                qso.lotw_qsl_sent,
-                qso.lotw_qsl_rcvd,
-                qso.lotw_qslrdate,
-                qso.eqsl_qsl_sent,
-                qso.eqsl_qsl_rcvd,
-                qso.eqsl_qslrdate,
-                qso.clublog_upload_status,
-                qso.qrzcom_upload_status,
-                qso.sat_name,
-                qso.sat_mode,
-                qso.prop_mode,
-                qso.srx,
-                qso.stx,
-                qso.srx_string,
-                qso.stx_string,
-                qso.my_gridsquare,
-                qso.my_state,
-                qso.my_pota_ref,
-                qso.my_sota_ref,
-                qso.vucc_grids,
-                qso.audio_file,
-                journal,
-                id
-            ],
-        )?;
+        let stored = for_storage(qso);
+        let data_params = bind_params(&stored);
+        let mut params: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(QSO_DATA_COLUMN_COUNT + 1);
+        params.extend_from_slice(&data_params);
+        params.push(&id);
+        let mut stmt = self.conn.prepare_cached(&QSO_SQL.update)?;
+        stmt.execute(params.as_slice())?;
         Ok(())
     }
 
@@ -424,10 +125,11 @@ impl LogDatabase {
         limit: usize,
     ) -> Result<Vec<QsoRecord>> {
         let sql = format!(
-            "SELECT {QSO_COLUMNS} FROM qso_records WHERE journal_id = ?1 ORDER BY REPLACE(qso_date, '-', '') DESC, SUBSTR(REPLACE(time_on, ':', '') || '000000', 1, 6) DESC, id DESC LIMIT ?2"
+            "SELECT {} FROM qso_records WHERE journal_id = ?1 ORDER BY REPLACE(qso_date, '-', '') DESC, SUBSTR(REPLACE(time_on, ':', '') || '000000', 1, 6) DESC, id DESC LIMIT ?2",
+            QSO_SQL.select_columns
         );
         let mut stmt = self.conn.prepare(&sql)?;
-        let rows = stmt.query_map(params![journal_id, limit as i64], row_to_qso)?;
+        let rows = stmt.query_map(params![journal_id, limit as i64], qso_from_row)?;
         let mut res = Vec::new();
         for r in rows {
             res.push(r?);
@@ -451,10 +153,11 @@ impl LogDatabase {
     /// Pobiera ostatnio zarejestrowane łączności (domyślnie)
     pub fn get_recent_qsos(&self, limit: usize) -> Result<Vec<QsoRecord>> {
         let sql = format!(
-            "SELECT {QSO_COLUMNS} FROM qso_records ORDER BY REPLACE(qso_date, '-', '') DESC, SUBSTR(REPLACE(time_on, ':', '') || '000000', 1, 6) DESC, id DESC LIMIT ?1"
+            "SELECT {} FROM qso_records ORDER BY REPLACE(qso_date, '-', '') DESC, SUBSTR(REPLACE(time_on, ':', '') || '000000', 1, 6) DESC, id DESC LIMIT ?1",
+            QSO_SQL.select_columns
         );
         let mut stmt = self.conn.prepare(&sql)?;
-        let rows = stmt.query_map(params![limit as i64], row_to_qso)?;
+        let rows = stmt.query_map(params![limit as i64], qso_from_row)?;
         let mut res = Vec::new();
         for r in rows {
             res.push(r?);
@@ -465,10 +168,11 @@ impl LogDatabase {
     /// Pobiera stronicowaną listę łączności bezpośrednio w SQLite (`LIMIT ?1 OFFSET ?2`).
     pub fn get_qsos_paginated(&self, limit: usize, offset: usize) -> Result<Vec<QsoRecord>> {
         let sql = format!(
-            "SELECT {QSO_COLUMNS} FROM qso_records ORDER BY REPLACE(qso_date, '-', '') DESC, SUBSTR(REPLACE(time_on, ':', '') || '000000', 1, 6) DESC, id DESC LIMIT ?1 OFFSET ?2"
+            "SELECT {} FROM qso_records ORDER BY REPLACE(qso_date, '-', '') DESC, SUBSTR(REPLACE(time_on, ':', '') || '000000', 1, 6) DESC, id DESC LIMIT ?1 OFFSET ?2",
+            QSO_SQL.select_columns
         );
         let mut stmt = self.conn.prepare(&sql)?;
-        let rows = stmt.query_map(params![limit as i64, offset as i64], row_to_qso)?;
+        let rows = stmt.query_map(params![limit as i64, offset as i64], qso_from_row)?;
         let mut res = Vec::new();
         for r in rows {
             res.push(r?);
@@ -518,10 +222,12 @@ impl LogDatabase {
 
     /// Pobiera wszystkie łączności z logu (np. do eksportu całego dziennika)
     pub fn get_all_qsos(&self) -> Result<Vec<QsoRecord>> {
-        let sql =
-            format!("SELECT {QSO_COLUMNS} FROM qso_records ORDER BY qso_date DESC, time_on DESC");
+        let sql = format!(
+            "SELECT {} FROM qso_records ORDER BY qso_date DESC, time_on DESC",
+            QSO_SQL.select_columns
+        );
         let mut stmt = self.conn.prepare(&sql)?;
-        let rows = stmt.query_map([], row_to_qso)?;
+        let rows = stmt.query_map([], qso_from_row)?;
         let mut res = Vec::new();
         for r in rows {
             res.push(r?);
