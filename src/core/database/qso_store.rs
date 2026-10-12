@@ -2,9 +2,12 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use super::LogDatabase;
-use super::schema::{QSO_DATA_COLUMN_COUNT, QSO_SQL, bind_params, for_storage, qso_from_row};
+use super::schema::{
+    ORDER_CHRONO_ASC, ORDER_CHRONO_DESC, QSO_DATA_COLUMN_COUNT, QSO_SQL, bind_params,
+    collect_qsos, for_storage, qso_from_row,
+};
 use crate::core::qso::QsoRecord;
-use rusqlite::{Result, params};
+use rusqlite::{OptionalExtension, Result, params};
 use std::collections::{HashMap, HashSet};
 
 impl LogDatabase {
@@ -14,13 +17,9 @@ impl LogDatabase {
             "SELECT {} FROM qso_records WHERE id = ?1",
             QSO_SQL.select_columns
         );
-        let mut stmt = self.conn.prepare(&sql)?;
-        let mut rows = stmt.query_map(params![id], qso_from_row)?;
-        if let Some(Ok(qso)) = rows.next() {
-            Ok(Some(qso))
-        } else {
-            Ok(None)
-        }
+        self.conn
+            .query_row(&sql, params![id], qso_from_row)
+            .optional()
     }
 
     /// Wstawia nowy rekord QSO do bazy i zwraca nadane ID
@@ -50,8 +49,8 @@ impl LogDatabase {
     }
 
     /// Masowe wstawianie łączności w pojedynczej transakcji (bardzo szybki import ADIF)
-    pub fn batch_insert_qsos(&mut self, qsos: &[QsoRecord]) -> Result<usize> {
-        let tx = self.conn.transaction()?;
+    pub fn batch_insert_qsos(&self, qsos: &[QsoRecord]) -> Result<usize> {
+        let tx = self.conn.unchecked_transaction()?;
         let mut count = 0;
         {
             let mut stmt = tx.prepare_cached(&QSO_SQL.insert)?;
@@ -69,16 +68,11 @@ impl LogDatabase {
     /// Pobiera listę poprzednich łączności z daną stacją (do podglądu w locie)
     pub fn find_previous_qsos(&self, callsign: &str) -> Result<Vec<QsoRecord>> {
         let sql = format!(
-            "SELECT {} FROM qso_records WHERE callsign = ?1 ORDER BY qso_date DESC, time_on DESC",
+            "SELECT {} FROM qso_records WHERE callsign = ?1 ORDER BY {ORDER_CHRONO_DESC}",
             QSO_SQL.select_columns
         );
         let mut stmt = self.conn.prepare(&sql)?;
-        let rows = stmt.query_map(params![callsign.to_uppercase()], qso_from_row)?;
-        let mut res = Vec::new();
-        for r in rows {
-            res.push(r?);
-        }
-        Ok(res)
+        collect_qsos(&mut stmt, params![callsign.to_uppercase()])
     }
 
     /// Usuwa łączność z bazy po ID
@@ -125,25 +119,20 @@ impl LogDatabase {
         limit: usize,
     ) -> Result<Vec<QsoRecord>> {
         let sql = format!(
-            "SELECT {} FROM qso_records WHERE journal_id = ?1 ORDER BY REPLACE(qso_date, '-', '') DESC, SUBSTR(REPLACE(time_on, ':', '') || '000000', 1, 6) DESC, id DESC LIMIT ?2",
+            "SELECT {} FROM qso_records WHERE journal_id = ?1 ORDER BY {ORDER_CHRONO_DESC} LIMIT ?2",
             QSO_SQL.select_columns
         );
         let mut stmt = self.conn.prepare(&sql)?;
-        let rows = stmt.query_map(params![journal_id, limit as i64], qso_from_row)?;
-        let mut res = Vec::new();
-        for r in rows {
-            res.push(r?);
-        }
-        Ok(res)
+        collect_qsos(&mut stmt, params![journal_id, limit as i64])
     }
 
     /// Chronological position of every QSO within its journal, independent of
     /// the logbook's pagination, search and display sort.
     pub fn qso_numbers_for_journal(&self, journal_id: &str) -> Result<HashMap<i64, usize>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id, ROW_NUMBER() OVER (ORDER BY REPLACE(qso_date, '-', ''), SUBSTR(REPLACE(time_on, ':', '') || '000000', 1, 6), id)
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT id, ROW_NUMBER() OVER (ORDER BY {ORDER_CHRONO_ASC}) \
              FROM qso_records WHERE journal_id = ?1"
-        )?;
+        ))?;
         let rows = stmt.query_map(params![journal_id], |row| {
             Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)? as usize))
         })?;
@@ -153,31 +142,21 @@ impl LogDatabase {
     /// Pobiera ostatnio zarejestrowane łączności (domyślnie)
     pub fn get_recent_qsos(&self, limit: usize) -> Result<Vec<QsoRecord>> {
         let sql = format!(
-            "SELECT {} FROM qso_records ORDER BY REPLACE(qso_date, '-', '') DESC, SUBSTR(REPLACE(time_on, ':', '') || '000000', 1, 6) DESC, id DESC LIMIT ?1",
+            "SELECT {} FROM qso_records ORDER BY {ORDER_CHRONO_DESC} LIMIT ?1",
             QSO_SQL.select_columns
         );
         let mut stmt = self.conn.prepare(&sql)?;
-        let rows = stmt.query_map(params![limit as i64], qso_from_row)?;
-        let mut res = Vec::new();
-        for r in rows {
-            res.push(r?);
-        }
-        Ok(res)
+        collect_qsos(&mut stmt, params![limit as i64])
     }
 
     /// Pobiera stronicowaną listę łączności bezpośrednio w SQLite (`LIMIT ?1 OFFSET ?2`).
     pub fn get_qsos_paginated(&self, limit: usize, offset: usize) -> Result<Vec<QsoRecord>> {
         let sql = format!(
-            "SELECT {} FROM qso_records ORDER BY REPLACE(qso_date, '-', '') DESC, SUBSTR(REPLACE(time_on, ':', '') || '000000', 1, 6) DESC, id DESC LIMIT ?1 OFFSET ?2",
+            "SELECT {} FROM qso_records ORDER BY {ORDER_CHRONO_DESC} LIMIT ?1 OFFSET ?2",
             QSO_SQL.select_columns
         );
         let mut stmt = self.conn.prepare(&sql)?;
-        let rows = stmt.query_map(params![limit as i64, offset as i64], qso_from_row)?;
-        let mut res = Vec::new();
-        for r in rows {
-            res.push(r?);
-        }
-        Ok(res)
+        collect_qsos(&mut stmt, params![limit as i64, offset as i64])
     }
 
     /// Pobiera unikalne, niepuste znaki wywoławcze z całego dziennika (do
@@ -223,16 +202,11 @@ impl LogDatabase {
     /// Pobiera wszystkie łączności z logu (np. do eksportu całego dziennika)
     pub fn get_all_qsos(&self) -> Result<Vec<QsoRecord>> {
         let sql = format!(
-            "SELECT {} FROM qso_records ORDER BY qso_date DESC, time_on DESC",
+            "SELECT {} FROM qso_records ORDER BY {ORDER_CHRONO_DESC}",
             QSO_SQL.select_columns
         );
         let mut stmt = self.conn.prepare(&sql)?;
-        let rows = stmt.query_map([], qso_from_row)?;
-        let mut res = Vec::new();
-        for r in rows {
-            res.push(r?);
-        }
-        Ok(res)
+        collect_qsos(&mut stmt, [])
     }
 
     /// Liczba wszystkich łączności w logu

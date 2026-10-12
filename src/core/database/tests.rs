@@ -211,7 +211,7 @@ fn test_journal_integrity_guards() {
 
 #[test]
 fn test_advanced_search_filtering() {
-    let mut db = LogDatabase::open_in_memory().unwrap();
+    let db = LogDatabase::open_in_memory().unwrap();
     let mut q1 = QsoRecord::new("SP6INA", "20m", "CW");
     q1.qso_date = "2026-09-01".to_string();
     q1.lotw_qsl_rcvd = "Y".to_string();
@@ -240,7 +240,7 @@ fn test_advanced_search_filtering() {
 
 #[test]
 fn test_batch_insert() {
-    let mut db = LogDatabase::open_in_memory().unwrap();
+    let db = LogDatabase::open_in_memory().unwrap();
     let qsos = vec![
         QsoRecord::new("SP6INA", "20m", "CW"),
         QsoRecord::new("W1AW", "40m", "SSB"),
@@ -855,7 +855,7 @@ fn restore_qso_keeps_id_and_columns() {
 
 #[test]
 fn batch_insert_roundtrip() {
-    let mut db = LogDatabase::open_in_memory().unwrap();
+    let db = LogDatabase::open_in_memory().unwrap();
     let qso1 = QsoRecord {
         id: None,
         callsign: "ja1abc".to_string(),
@@ -1187,5 +1187,66 @@ fn frozen_migrations_match_baseline_hashes() {
     assert_eq!(
         m3_hash, "f05d04d12225e5235f0b7bca077d21479348cefd1e4871900d3d2887c9804d04",
         "MIGRATION_3_SQL hash mismatch against refactor-baseline"
+    );
+}
+
+#[test]
+fn ordering_is_consistent_for_mixed_formats() {
+    let db = LogDatabase::open_in_memory().unwrap();
+
+    let q0 = make_test_qso_literal("QSO0", "2025-12-30", "12:30");
+    let q1 = make_test_qso_literal("QSO1", "2025-12-31", "1229");
+    let q2 = make_test_qso_literal("QSO2", "20251231", "1230");
+    let q3 = make_test_qso_literal("QSO3", "2025-12-31", "12:30");
+    let q4 = make_test_qso_literal("QSO4", "20251231", "1231");
+    let q5 = make_test_qso_literal("QSO5", "2026-01-01", "12:30");
+
+    db.insert_qso(&q0).unwrap();
+    db.insert_qso(&q1).unwrap();
+    db.insert_qso(&q2).unwrap();
+    db.insert_qso(&q3).unwrap();
+    db.insert_qso(&q4).unwrap();
+    db.insert_qso(&q5).unwrap();
+
+    let expected_calls = vec!["QSO5", "QSO4", "QSO3", "QSO2", "QSO1", "QSO0"];
+
+    let all = db.get_all_qsos().unwrap();
+    let all_calls: Vec<&str> = all.iter().map(|q| q.callsign.as_str()).collect();
+    assert_eq!(all_calls, expected_calls, "get_all_qsos ordering mismatch");
+
+    let searched = db
+        .search_qsos_advanced(&AdvancedQsoFilter::default())
+        .unwrap();
+    let search_calls: Vec<&str> = searched.iter().map(|q| q.callsign.as_str()).collect();
+    assert_eq!(
+        search_calls, expected_calls,
+        "search_qsos_advanced ordering mismatch"
+    );
+}
+
+#[test]
+fn get_qso_by_id_propagates_errors() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    let qso = make_test_qso_literal("SP6INA", "2026-01-01", "12:00");
+    let id = db.insert_qso(&qso).unwrap();
+
+    // Verify row can be read normally
+    assert!(db.get_qso_by_id(id).unwrap().is_some());
+
+    // Non-existent ID returns Ok(None)
+    assert!(db.get_qso_by_id(id + 9999).unwrap().is_none());
+
+    // Corrupt the row: dxcc column is INTEGER, setting text causes type conversion error on retrieval
+    db.conn
+        .execute(
+            "UPDATE qso_records SET dxcc = 'abc' WHERE id = ?1",
+            rusqlite::params![id],
+        )
+        .unwrap();
+
+    let res = db.get_qso_by_id(id);
+    assert!(
+        res.is_err(),
+        "expected Err when retrieving corrupted row, got {res:?}"
     );
 }

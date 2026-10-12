@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use super::LogDatabase;
-use super::schema::{QSO_SQL, qso_from_row};
+use super::schema::{ORDER_CHRONO_DESC, QSO_SQL, collect_qsos, qso_from_row};
 use crate::core::qso::QsoRecord;
 use crate::core::text::escape_like;
 use rusqlite::Result;
@@ -175,16 +175,11 @@ impl LogDatabase {
             sql.push_str(&c);
         }
 
-        sql.push_str(" ORDER BY qso_date DESC, time_on DESC");
+        sql.push_str(&format!(" ORDER BY {ORDER_CHRONO_DESC}"));
 
         let mut stmt = self.conn.prepare(&sql)?;
         let param_refs: Vec<&dyn rusqlite::ToSql> =
             values.iter().map(std::convert::AsRef::as_ref).collect();
-        let rows = stmt.query_map(param_refs.as_slice(), qso_from_row)?;
-        let mut res = Vec::new();
-        for r in rows {
-            res.push(r?);
-        }
-        Ok(res)
+        collect_qsos(&mut stmt, param_refs.as_slice())
     }
 }

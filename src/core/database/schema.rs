@@ -141,3 +141,38 @@ pub(super) fn for_storage(qso: &QsoRecord) -> Cow<'_, QsoRecord> {
         Cow::Owned(owned)
     }
 }
+
+pub(super) const ORDER_CHRONO_DESC: &str =
+    "REPLACE(qso_date, '-', '') DESC, SUBSTR(REPLACE(time_on, ':', '') || '000000', 1, 6) DESC, id DESC";
+pub(super) const ORDER_CHRONO_ASC: &str =
+    "REPLACE(qso_date, '-', '') ASC, SUBSTR(REPLACE(time_on, ':', '') || '000000', 1, 6) ASC, id ASC";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum QslChannel {
+    Lotw,
+    Eqsl,
+}
+
+impl QslChannel {
+    pub(super) const fn rcvd_column(self) -> &'static str {
+        match self {
+            Self::Lotw => "lotw_qsl_rcvd",
+            Self::Eqsl => "eqsl_qsl_rcvd",
+        }
+    }
+
+    pub(super) const fn rdate_column(self) -> &'static str {
+        match self {
+            Self::Lotw => "lotw_qslrdate",
+            Self::Eqsl => "eqsl_qslrdate",
+        }
+    }
+}
+
+pub(super) fn collect_qsos<P: rusqlite::Params>(
+    stmt: &mut rusqlite::Statement<'_>,
+    params: P,
+) -> rusqlite::Result<Vec<QsoRecord>> {
+    let rows = stmt.query_map(params, qso_from_row)?;
+    rows.collect()
+}

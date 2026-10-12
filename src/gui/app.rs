@@ -3432,7 +3432,7 @@ impl SpLogApp {
 
                     let inserted = qsos.len();
                     let insert_res = {
-                        let mut db = self
+                        let db = self
                             .log_db
                             .lock()
                             .unwrap_or_else(std::sync::PoisonError::into_inner);
