@@ -934,4 +934,92 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn qso_issue_display_is_english() {
+        let sample_issues = [
+            QsoIssue::EmptyCallsign,
+            QsoIssue::CallsignChars("SP6INA/P".to_string()),
+            QsoIssue::EmptyBand,
+            QsoIssue::EmptyMode,
+            QsoIssue::DateFormat("2026-09".to_string()),
+            QsoIssue::DateInvalid("20260230".to_string()),
+            QsoIssue::Time {
+                field: TimeField::On,
+                part: TimePart::Format,
+                raw: "12:3".to_string(),
+            },
+            QsoIssue::Time {
+                field: TimeField::On,
+                part: TimePart::Hour,
+                raw: "2500".to_string(),
+            },
+            QsoIssue::Time {
+                field: TimeField::On,
+                part: TimePart::Minute,
+                raw: "1260".to_string(),
+            },
+            QsoIssue::Time {
+                field: TimeField::On,
+                part: TimePart::Second,
+                raw: "123060".to_string(),
+            },
+            QsoIssue::Time {
+                field: TimeField::Off,
+                part: TimePart::Format,
+                raw: "99".to_string(),
+            },
+            QsoIssue::Time {
+                field: TimeField::Off,
+                part: TimePart::Hour,
+                raw: "2500".to_string(),
+            },
+            QsoIssue::Time {
+                field: TimeField::Off,
+                part: TimePart::Minute,
+                raw: "1260".to_string(),
+            },
+            QsoIssue::Time {
+                field: TimeField::Off,
+                part: TimePart::Second,
+                raw: "123060".to_string(),
+            },
+            QsoIssue::FreqTx(0.0),
+            QsoIssue::FreqRx(-1.0),
+            QsoIssue::CqZone(45),
+            QsoIssue::ItuZone(95),
+        ];
+
+        for issue in &sample_issues {
+            let display_text = issue.to_string();
+            assert_eq!(display_text, issue.msg().text(Language::En));
+            assert!(
+                !display_text.contains('{') && !display_text.contains('}'),
+                "Display for {issue:?} contains unformatted placeholder: '{display_text}'"
+            );
+        }
+
+        let sample_warnings = [
+            QsoWarning::Iota("EU-9999".to_string()),
+            QsoWarning::Sota("SP/TA-9999".to_string()),
+            QsoWarning::Pota("SP-9999".to_string()),
+        ];
+        for warning in &sample_warnings {
+            let display_text = warning.to_string();
+            assert_eq!(display_text, warning.msg().text(Language::En));
+            assert!(
+                !display_text.contains('{') && !display_text.contains('}'),
+                "Display for {warning:?} contains unformatted placeholder: '{display_text}'"
+            );
+        }
+    }
+
+    #[test]
+    fn qso_issue_implements_error() {
+        let issue = QsoIssue::EmptyCallsign;
+        let err: &dyn std::error::Error = &issue;
+        assert!(err.source().is_none());
+        let boxed: Box<dyn std::error::Error> = Box::new(issue);
+        assert_eq!(boxed.to_string(), "callsign cannot be empty");
+    }
 }
