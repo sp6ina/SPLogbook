@@ -19,6 +19,7 @@ pub mod exchange;
 pub mod geo;
 pub mod http;
 pub mod i18n;
+pub mod ingest;
 pub mod pga;
 pub mod prefix;
 pub mod propagation;
