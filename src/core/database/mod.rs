@@ -1,6 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
+//! Moduł bazy danych SQLite dla logu łączności SPLogbook.
+//!
+//! Podział na wyspecjalizowane moduły:
+//! - `journals`: definicja `Journal` i operacje na profilach dzienników
+//! - `migrations`: historyczne migracje schematu (1–4) i walidacja schematu
+//! - `qsl`: obsługa potwierdzeń LoTW i eQSL
+//! - `qso_store`: operacje CRUD na rekordach QSO
+//! - `schema`: centralna definicja kolumn tabeli, mapowanie wierszy i zapytania SQL
+//! - `search`: zaawansowane filtrowanie i wyszukiwanie duplikatów
+//! - `stats`: statystyki bazy danych
+
 use rusqlite::{Connection, Result};
 use std::path::Path;
 
