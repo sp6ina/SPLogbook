@@ -121,10 +121,9 @@ From deep ionospheric modeling (VOACAP-lite HF propagation), automated antenna r
   - `idx_qso_cqz` (CQ zone statistics)
   - `idx_qso_composite` (`callsign, band, mode` composite index for instant duplicate checking)
 - **Automatic Health & Housekeeping:**
-  - `checkpoint_and_optimize_if_needed`: Runs a passive WAL checkpoint and `PRAGMA optimize` every 1,000 logged QSOs to maintain minimal database fragmentation.
   - **Fail-Safe Mutexes:** Mutex locks (`log_db`, `awards_engine`, `scp_engine`) utilize poison-recovery patterns (`unwrap_or_else(|p| p.into_inner())`), preventing entire application crashes if an asynchronous worker encounters an error.
   - **Rolling Backups:** Automatic timestamped SQLite backup created on shutdown into `%APPDATA%/SPLogbook/backups/`, with automated pruning keeping the 10 most recent backups.
-  - **Upload Retry Queue:** An embedded `upload_queue` table tracks failed cloud uploads (LoTW, eQSL, Club Log, QRZ, Cloudlog) with retry counters and backoff logging.
+  - **Upload Retry Queue:** Failed cloud uploads are queued in a persistent JSON file managed by `cloud/scheduler.rs` with exponential backoff and rate limiting. The SQLite `upload_queue` table is retained strictly for schema stability and is not used by active runtime code.
 - **Persistent Window Geometry:** All 8 major dockable panels (`VFO`, `QSO Entry`, `Logbook Table`, `DX Cluster`, `BandMap`, `Solar Weather`, `Satellites`, `World Map`) persistently record their coordinates and dimensions across sessions in `station_config.json`.
 
 ---
@@ -634,8 +633,16 @@ SPLogbook/
     │   ├── contest_stats.rs # Contest rate meter & multiplier matrix
     │   ├── credentials.rs   # OS credential store (keyring) integration
     │   ├── csv_export.rs    # Configurable logbook CSV export formatter
-    │   ├── database.rs      # SQLite WAL backend, 10 indexes, upload queue
-    │   ├── database_stats.rs# Aggregated statistics queries
+    │   ├── database/        # Modular SQLite WAL backend (ARCH-SQL-NORMALIZE)
+    │   │   ├── journals.rs  # Journal profile management & CRUD
+    │   │   ├── migrations.rs# Versioned schema migrations (1-4) & schema verification
+    │   │   ├── mod.rs       # Connection lifecycle, initialization & re-exports
+    │   │   ├── qsl.rs       # LoTW & eQSL confirmation operations
+    │   │   ├── qso_store.rs # QSO record persistence, paging & retrieval
+    │   │   ├── schema.rs    # Central column macros, SQL builders & chronological order
+    │   │   ├── search.rs    # Advanced filtering & duplicate detection
+    │   │   ├── stats.rs     # Aggregated statistics queries
+    │   │   └── tests.rs     # Database characterization & regression test suite
     │   ├── events.rs        # Central event bus (tokio::sync::broadcast)
     │   ├── exchange.rs      # Contest exchange parser & validation
     │   ├── geo.rs           # Maidenhead grid converter, spherical trigonometry
