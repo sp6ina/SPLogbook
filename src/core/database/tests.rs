@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use super::*;
+use crate::core::qso::QsoRecord;
 
 #[test]
 fn test_insert_and_find_qso() {
@@ -1158,4 +1159,33 @@ fn validate_schema_reports_missing_table() {
 
     let res = LogDatabase::open(&db_path);
     assert!(matches!(res, Err(rusqlite::Error::InvalidQuery)));
+}
+
+#[test]
+fn frozen_migrations_match_baseline_hashes() {
+    use sha2::{Digest, Sha256};
+
+    let hash_sql = |sql: &str| {
+        let normalized = sql.replace("\r\n", "\n");
+        let mut hasher = Sha256::new();
+        hasher.update(normalized.as_bytes());
+        let result = hasher.finalize();
+        result.iter().fold(String::new(), |mut acc, b| {
+            use std::fmt::Write;
+            let _ = write!(acc, "{b:02x}");
+            acc
+        })
+    };
+
+    let m1_hash = hash_sql(crate::core::database::migrations::MIGRATION_1_SQL);
+    let m3_hash = hash_sql(crate::core::database::migrations::MIGRATION_3_SQL);
+
+    assert_eq!(
+        m1_hash, "8c179cd36654e3305112c6bbda1c46ba36cc4a51e3da831b93ee14addf60f6ca",
+        "MIGRATION_1_SQL hash mismatch against refactor-baseline"
+    );
+    assert_eq!(
+        m3_hash, "f05d04d12225e5235f0b7bca077d21479348cefd1e4871900d3d2887c9804d04",
+        "MIGRATION_3_SQL hash mismatch against refactor-baseline"
+    );
 }
