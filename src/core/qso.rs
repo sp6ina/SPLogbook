@@ -289,14 +289,14 @@ impl QsoIdentity {
         let band = band.trim().to_uppercase();
         let mode = mode.trim().to_uppercase();
 
-        let date_digits: String = date.chars().filter(|c| c.is_ascii_digit()).collect();
+        let date_digits: String = date.chars().filter(char::is_ascii_digit).collect();
         let date = if date_digits.len() >= 8 {
             date_digits[..8].to_string()
         } else {
             format!("?{}", date.trim())
         };
 
-        let time_digits: String = time.chars().filter(|c| c.is_ascii_digit()).collect();
+        let time_digits: String = time.chars().filter(char::is_ascii_digit).collect();
         let minute = if time_digits.len() >= 4 {
             time_digits[..4].to_string()
         } else {

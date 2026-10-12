@@ -175,7 +175,8 @@ impl LogDatabase {
             sql.push_str(&c);
         }
 
-        sql.push_str(&format!(" ORDER BY {ORDER_CHRONO_DESC}"));
+        sql.push_str(" ORDER BY ");
+        sql.push_str(ORDER_CHRONO_DESC);
 
         let mut stmt = self.conn.prepare(&sql)?;
         let param_refs: Vec<&dyn rusqlite::ToSql> =
