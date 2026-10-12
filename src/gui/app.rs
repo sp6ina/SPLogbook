@@ -3394,22 +3394,23 @@ impl SpLogApp {
                     // niezależnie od domyślnego journal_id nadanego przez parser.
                     let active_journal_id = self.active_journal.id.clone();
 
-                    // Klucze jednoznaczności istniejących QSO do idempotentnego importu.
+                    // Tożsamości istniejących QSO do idempotentnego importu.
                     let existing_keys = {
                         let db = self
                             .log_db
                             .lock()
                             .unwrap_or_else(std::sync::PoisonError::into_inner);
-                        db.existing_qso_keys(&active_journal_id)
+                        db.existing_identities(&active_journal_id)
                     };
-                    let mut seen_keys: std::collections::HashSet<String> = match existing_keys {
-                        Ok(keys) => keys,
-                        Err(e) => {
-                            self.status_message =
-                                Some(format!("Błąd odczytu bazy przed importem: {e}"));
-                            return;
-                        }
-                    };
+                    let mut seen_keys: std::collections::HashSet<crate::core::qso::QsoIdentity> =
+                        match existing_keys {
+                            Ok(keys) => keys,
+                            Err(e) => {
+                                self.status_message =
+                                    Some(format!("Błąd odczytu bazy przed importem: {e}"));
+                                return;
+                            }
+                        };
 
                     let mut qsos = Vec::with_capacity(parsed.len());
                     let mut skipped_invalid = 0usize;
@@ -3422,7 +3423,7 @@ impl SpLogApp {
                             first_validation_error.get_or_insert(reason);
                             continue;
                         }
-                        let key = qso.dedup_key();
+                        let key = qso.identity();
                         if !seen_keys.insert(key) {
                             skipped_duplicates += 1;
                             continue;

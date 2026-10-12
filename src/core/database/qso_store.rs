@@ -3,10 +3,10 @@
 
 use super::LogDatabase;
 use super::schema::{
-    ORDER_CHRONO_ASC, ORDER_CHRONO_DESC, QSO_DATA_COLUMN_COUNT, QSO_SQL, bind_params,
-    collect_qsos, for_storage, qso_from_row,
+    ORDER_CHRONO_ASC, ORDER_CHRONO_DESC, QSO_DATA_COLUMN_COUNT, QSO_SQL, bind_params, collect_qsos,
+    for_storage, qso_from_row,
 };
-use crate::core::qso::QsoRecord;
+use crate::core::qso::{QsoIdentity, QsoRecord};
 use rusqlite::{OptionalExtension, Result, params};
 use std::collections::{HashMap, HashSet};
 
@@ -175,25 +175,22 @@ impl LogDatabase {
         Ok(res)
     }
 
-    /// Zwraca zbiór kluczy jednoznaczności już zapisanych w wybranym dzienniku.
-    /// Klucz to znormalizowane `callsign|band|mode|data|czas`, używane do
-    /// idempotentnego importu ADIF: ponowny import identycznego pliku nie tworzy
-    /// duplikatów, bo rekordy o tym samym kluczu są pomijane.
-    pub fn existing_qso_keys(&self, journal_id: &str) -> Result<HashSet<String>> {
+    /// Zwraca zbiór tożsamości łączności (`QsoIdentity`) już zapisanych w wybranym dzienniku.
+    /// Używane do idempotentnego importu ADIF: ponowny import identycznego pliku nie tworzy
+    /// duplikatów, bo rekordy o tej samej tożsamości są pomijane.
+    pub fn existing_identities(&self, journal_id: &str) -> Result<HashSet<QsoIdentity>> {
         let mut stmt = self.conn.prepare(
-            "SELECT UPPER(callsign), UPPER(band), UPPER(mode),
-                    REPLACE(COALESCE(qso_date, ''), '-', ''),
-                    REPLACE(COALESCE(time_on, ''), ':', '')
+            "SELECT callsign, band, mode, qso_date, time_on \
              FROM qso_records WHERE journal_id = ?1",
         )?;
         let rows = stmt.query_map(params![journal_id], |row| {
-            Ok(format!(
-                "{}|{}|{}|{}|{}",
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, String>(4)?
+            let callsign: String = row.get(0)?;
+            let band: String = row.get(1)?;
+            let mode: String = row.get(2)?;
+            let qso_date: String = row.get(3)?;
+            let time_on: String = row.get(4)?;
+            Ok(QsoIdentity::from_fields(
+                &callsign, &band, &mode, &qso_date, &time_on,
             ))
         })?;
         rows.collect()

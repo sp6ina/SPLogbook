@@ -142,10 +142,8 @@ pub(super) fn for_storage(qso: &QsoRecord) -> Cow<'_, QsoRecord> {
     }
 }
 
-pub(super) const ORDER_CHRONO_DESC: &str =
-    "REPLACE(qso_date, '-', '') DESC, SUBSTR(REPLACE(time_on, ':', '') || '000000', 1, 6) DESC, id DESC";
-pub(super) const ORDER_CHRONO_ASC: &str =
-    "REPLACE(qso_date, '-', '') ASC, SUBSTR(REPLACE(time_on, ':', '') || '000000', 1, 6) ASC, id ASC";
+pub(super) const ORDER_CHRONO_DESC: &str = "REPLACE(qso_date, '-', '') DESC, SUBSTR(REPLACE(time_on, ':', '') || '000000', 1, 6) DESC, id DESC";
+pub(super) const ORDER_CHRONO_ASC: &str = "REPLACE(qso_date, '-', '') ASC, SUBSTR(REPLACE(time_on, ':', '') || '000000', 1, 6) ASC, id ASC";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum QslChannel {

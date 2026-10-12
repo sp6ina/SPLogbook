@@ -1250,3 +1250,81 @@ fn get_qso_by_id_propagates_errors() {
         "expected Err when retrieving corrupted row, got {res:?}"
     );
 }
+
+#[test]
+fn qso_identity_ignores_case_and_whitespace() {
+    let id1 = crate::core::qso::QsoIdentity::from_fields(
+        "  sp6ina  ",
+        " 20m ",
+        " cw ",
+        " 20260928 ",
+        " 1230 ",
+    );
+    let id2 = crate::core::qso::QsoIdentity::from_fields("SP6INA", "20M", "CW", "20260928", "1230");
+    assert_eq!(id1, id2);
+    assert_eq!(id1.to_string(), "SP6INA|20M|CW|20260928|1230");
+}
+
+#[test]
+fn qso_identity_minute_resolution_matches_hhmm_and_hhmmss() {
+    let id_hhmm =
+        crate::core::qso::QsoIdentity::from_fields("SP6INA", "20M", "CW", "20260928", "1230");
+    let id_hhmmss =
+        crate::core::qso::QsoIdentity::from_fields("SP6INA", "20M", "CW", "20260928", "123045");
+    let id_colon =
+        crate::core::qso::QsoIdentity::from_fields("SP6INA", "20M", "CW", "20260928", "12:30:45");
+    assert_eq!(id_hhmm, id_hhmmss);
+    assert_eq!(id_hhmm, id_colon);
+}
+
+#[test]
+fn qso_identity_ignores_date_separators() {
+    let id_raw =
+        crate::core::qso::QsoIdentity::from_fields("SP6INA", "20M", "CW", "20260928", "1230");
+    let id_dash =
+        crate::core::qso::QsoIdentity::from_fields("SP6INA", "20M", "CW", "2026-09-28", "1230");
+    let id_dot =
+        crate::core::qso::QsoIdentity::from_fields("SP6INA", "20M", "CW", "2026.09.28", "1230");
+    let id_slash =
+        crate::core::qso::QsoIdentity::from_fields("SP6INA", "20M", "CW", "2026/09/28", "1230");
+    assert_eq!(id_raw, id_dash);
+    assert_eq!(id_raw, id_dot);
+    assert_eq!(id_raw, id_slash);
+}
+
+#[test]
+fn qso_identity_keeps_distinct_invalid_values_distinct() {
+    let id_bad1 =
+        crate::core::qso::QsoIdentity::from_fields("SP6INA", "20M", "CW", "bad-date-1", "1230");
+    let id_bad2 =
+        crate::core::qso::QsoIdentity::from_fields("SP6INA", "20M", "CW", "bad-date-2", "1230");
+    let id_bad1_dup =
+        crate::core::qso::QsoIdentity::from_fields("SP6INA", "20M", "CW", "bad-date-1", "1230");
+    assert_ne!(id_bad1, id_bad2);
+    assert_eq!(id_bad1, id_bad1_dup);
+    assert!(id_bad1.date.starts_with('?'));
+
+    let id_bad_time1 =
+        crate::core::qso::QsoIdentity::from_fields("SP6INA", "20M", "CW", "20260928", "12");
+    let id_bad_time2 =
+        crate::core::qso::QsoIdentity::from_fields("SP6INA", "20M", "CW", "20260928", "34");
+    let id_bad_time1_dup =
+        crate::core::qso::QsoIdentity::from_fields("SP6INA", "20M", "CW", "20260928", "12");
+    assert_ne!(id_bad_time1, id_bad_time2);
+    assert_eq!(id_bad_time1, id_bad_time1_dup);
+    assert!(id_bad_time1.minute.starts_with('?'));
+}
+
+#[test]
+fn existing_identities_matches_record_identity() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    let q1 = make_test_qso_literal("SP6INA", "2026-09-28", "12:30:15");
+    let q2 = make_test_qso_literal("W1AW", "20260928", "1230");
+    db.insert_qso(&q1).unwrap();
+    db.insert_qso(&q2).unwrap();
+
+    let identities = db.existing_identities("DEFAULT").unwrap();
+    assert_eq!(identities.len(), 2);
+    assert!(identities.contains(&q1.identity()));
+    assert!(identities.contains(&q2.identity()));
+}

@@ -972,10 +972,10 @@ async fn import_adif_handler(
         ));
     }
 
-    // Idempotentny import: pomijaj rekordy o kluczu istniejącym już w DEFAULT.
+    // Idempotentny import: pomijaj rekordy o tożsamości istniejącej już w DEFAULT.
     let (report, mut seen_keys) = with_db(&state, move |db| {
         let report = adif::parse_adif_with_report(&body);
-        let keys = db.existing_qso_keys("DEFAULT")?;
+        let keys = db.existing_identities("DEFAULT")?;
         Ok((report, keys))
     })
     .await?;
@@ -991,7 +991,7 @@ async fn import_adif_handler(
             validation_errors.push(reason);
             continue;
         }
-        let key = qso.dedup_key();
+        let key = qso.identity();
         if !seen_keys.insert(key) {
             validation_rejected += 1;
             validation_errors.push("duplikat (rekord już istnieje w dzienniku)".to_string());

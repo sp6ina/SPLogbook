@@ -261,20 +261,69 @@ impl QsoRecord {
         self.time_on.replace(':', "")
     }
 
-    /// Zwraca klucz jednoznaczności QSO (`ZNAK|PASMO|EMISJA|DATA|CZAS`), używany do
-    /// idempotentnego importu ADIF: rekordy o tym samym kluczu są pomijane jako
-    /// duplikaty. Format jest zgodny z `LogDatabase::existing_qso_keys`.
-    pub fn dedup_key(&self) -> String {
-        format!(
-            "{}|{}|{}|{}|{}",
-            self.callsign.to_uppercase(),
-            self.band.to_uppercase(),
-            self.mode.to_uppercase(),
-            self.qso_date.replace('-', ""),
-            self.time_on.replace(':', "")
+    /// Zwraca znormalizowaną tożsamość QSO (`QsoIdentity`).
+    pub fn identity(&self) -> QsoIdentity {
+        QsoIdentity::from_fields(
+            &self.callsign,
+            &self.band,
+            &self.mode,
+            &self.qso_date,
+            &self.time_on,
         )
     }
+}
 
+/// Klucz jednoznaczności łączności (znormalizowana tożsamość QSO)
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct QsoIdentity {
+    pub callsign: String,
+    pub band: String,
+    pub mode: String,
+    pub date: String,
+    pub minute: String,
+}
+
+impl QsoIdentity {
+    pub fn from_fields(callsign: &str, band: &str, mode: &str, date: &str, time: &str) -> Self {
+        let callsign = callsign.trim().to_uppercase();
+        let band = band.trim().to_uppercase();
+        let mode = mode.trim().to_uppercase();
+
+        let date_digits: String = date.chars().filter(|c| c.is_ascii_digit()).collect();
+        let date = if date_digits.len() >= 8 {
+            date_digits[..8].to_string()
+        } else {
+            format!("?{}", date.trim())
+        };
+
+        let time_digits: String = time.chars().filter(|c| c.is_ascii_digit()).collect();
+        let minute = if time_digits.len() >= 4 {
+            time_digits[..4].to_string()
+        } else {
+            format!("?{}", time.trim())
+        };
+
+        Self {
+            callsign,
+            band,
+            mode,
+            date,
+            minute,
+        }
+    }
+}
+
+impl std::fmt::Display for QsoIdentity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}|{}|{}|{}|{}",
+            self.callsign, self.band, self.mode, self.date, self.minute
+        )
+    }
+}
+
+impl QsoRecord {
     /// Centralna walidacja domenowa rekordu QSO. Zwraca `Ok(())` gdy rekord
     /// nadaje się do zapisania, lub `Err` z opisem pierwszego wykrytego błędu.
     /// Wywoływana przy zapisie z formularza, edycji i imporcie, aby uniemożliwić
