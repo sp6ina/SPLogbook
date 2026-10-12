@@ -162,19 +162,6 @@ fn generate_i18n_catalog() {
 }
 
 fn is_valid_key(key: &str) -> bool {
-    let is_legacy = matches!(
-        key,
-        "cat_amplifier"
-            | "cat_antenna"
-            | "cat_keyer"
-            | "cat_other"
-            | "cat_power_supply"
-            | "cat_transceiver"
-            | "cat_tuner"
-    );
-    if is_legacy {
-        return true;
-    }
     let parts: Vec<&str> = key.split('.').collect();
     if parts.len() < 2 {
         return false;

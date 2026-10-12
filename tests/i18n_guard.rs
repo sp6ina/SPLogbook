@@ -112,6 +112,20 @@ fn catalog_languages_have_identical_keys() {
                 k
             );
 
+            let parts: Vec<&str> = k.split('.').collect();
+            assert!(
+                parts.len() >= 2
+                    && parts.iter().all(|part| {
+                        !part.is_empty()
+                            && part
+                                .chars()
+                                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+                    }),
+                "Plik {}, klucz '{}': klucz musi spełniać wzorzec ^[a-z0-9_]+(\\.[a-z0-9_]+)+$",
+                file_path.display(),
+                k
+            );
+
             let key_params = extract_params(&format!("{lang}.json"), &k, &text);
             params.insert(k.clone(), key_params);
             keys.insert(k);
