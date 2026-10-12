@@ -45,6 +45,79 @@ pub fn tr_or<'a>(lang: Language, pl: &'a str, en: &'a str) -> &'a str {
     }
 }
 
+/// Bezpieczna struktura do budowania komunikatów z nazwanymi parametrami `{param}`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Msg {
+    key: Key,
+    args: Vec<(&'static str, String)>,
+}
+
+impl Msg {
+    pub fn new(key: Key) -> Self {
+        Self {
+            key,
+            args: Vec::new(),
+        }
+    }
+
+    pub fn arg(mut self, name: &'static str, value: impl ToString) -> Self {
+        let val_str = value.to_string();
+        drop(value);
+        self.args.push((name, val_str));
+        self
+    }
+
+    pub fn text(&self, lang: Language) -> String {
+        let template = tr(self.key, lang);
+        let mut result = String::with_capacity(template.len() + 32);
+        let mut chars = template.chars().peekable();
+
+        while let Some(c) = chars.next() {
+            if c == '{' {
+                let mut name = String::new();
+                let mut closed = false;
+                for inner in chars.by_ref() {
+                    if inner == '}' {
+                        closed = true;
+                        break;
+                    }
+                    name.push(inner);
+                }
+
+                if closed {
+                    if let Some((_, val)) =
+                        self.args.iter().rev().find(|(k, _)| *k == name.as_str())
+                    {
+                        result.push_str(val);
+                    } else {
+                        log::error!(
+                            "Missing argument '{name}' for i18n key {:?} ({})",
+                            self.key,
+                            self.key.as_str()
+                        );
+                        result.push('{');
+                        result.push_str(&name);
+                        result.push('}');
+                    }
+                } else {
+                    result.push('{');
+                    result.push_str(&name);
+                }
+            } else {
+                result.push(c);
+            }
+        }
+
+        result
+    }
+}
+
+impl std::fmt::Display for Msg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.text(Language::En))
+    }
+}
+
 /// Obsługiwane języki w programie SPLogbook
 /// Obsługa języków: Polski (PL), Angielski (EN), Niemiecki (DE), Francuski (FR), Hiszpański (ES), Włoski (IT), Rosyjski (RU)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -137,5 +210,42 @@ mod tests {
         for lang in Language::ALL {
             assert_eq!(Language::from_code(lang.code()), lang);
         }
+    }
+
+    #[test]
+    fn msg_substitutes_named_arguments() {
+        let msg = Msg::new(key::MSG_QSO_SAVED)
+            .arg("callsign", "SP6INA")
+            .arg("band", "20m")
+            .arg("mode", "CW");
+
+        let text_pl = msg.text(Language::Pl);
+        assert_eq!(text_pl, "Zapisano łączność z: SP6INA (20m, CW)");
+        assert!(!text_pl.contains('{'));
+        assert!(!text_pl.contains('}'));
+
+        let text_en = msg.text(Language::En);
+        assert_eq!(text_en, "QSO saved with: SP6INA (20m, CW)");
+        assert!(!text_en.contains('{'));
+        assert!(!text_en.contains('}'));
+    }
+
+    #[test]
+    fn msg_with_missing_argument_keeps_placeholder() {
+        let msg = Msg::new(key::MSG_QSO_SAVED)
+            .arg("callsign", "SP6INA")
+            .arg("mode", "CW");
+
+        let text_pl = msg.text(Language::Pl);
+        assert_eq!(text_pl, "Zapisano łączność z: SP6INA ({band}, CW)");
+        assert!(text_pl.contains("{band}"));
+    }
+
+    #[test]
+    fn msg_display_uses_english() {
+        let msg = Msg::new(key::MSG_QSO_NOT_SAVED).arg("reason", "duplicate callsign");
+
+        assert_eq!(format!("{msg}"), msg.text(Language::En));
+        assert_eq!(format!("{msg}"), "QSO not saved: duplicate callsign");
     }
 }
