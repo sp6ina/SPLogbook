@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::cat::rig_models::search_rig_models_by_mfg;
-use crate::core::i18n::tr;
+use crate::core::i18n::{key, tr};
 use crate::gui::app::SpLogApp;
 use eframe::egui;
 
@@ -36,7 +36,7 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
     let mut close_req = false;
 
     egui::Window::new(
-        egui::RichText::new(format!("📻 {}", tr("cat.settings_title", lang)))
+        egui::RichText::new(format!("📻 {}", tr(key::CAT_SETTINGS_TITLE, lang)))
             .size(14.0)
             .strong(),
     )
@@ -50,17 +50,17 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 if app.cat_connected {
                     ui.colored_label(
                         egui::Color32::from_rgb(34, 197, 94),
-                        tr("cat.connected", lang),
+                        tr(key::CAT_CONNECTED, lang),
                     );
-                    if ui.button(tr("cat.disconnect_radio", lang)).clicked() {
+                    if ui.button(tr(key::CAT_DISCONNECT_RADIO, lang)).clicked() {
                         app.stop_cat_service();
                     }
                 } else {
                     ui.colored_label(
                         egui::Color32::from_rgb(239, 68, 68),
-                        tr("cat.disconnected", lang),
+                        tr(key::CAT_DISCONNECTED, lang),
                     );
-                    if ui.button(tr("cat.connect_radio", lang)).clicked() {
+                    if ui.button(tr(key::CAT_CONNECT_RADIO, lang)).clicked() {
                         app.start_cat_service();
                     }
                 }
@@ -70,7 +70,7 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
             ui.group(|ui| {
                 ui.label(
-                    egui::RichText::new(tr("cat_settings.step1_title", lang))
+                    egui::RichText::new(tr(key::CAT_SETTINGS_STEP1_TITLE, lang))
                         .strong()
                         .color(egui::Color32::from_rgb(250, 204, 21)),
                 );
@@ -78,7 +78,7 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
                 ui.horizontal_wrapped(|ui| {
                     ui.label(
-                        egui::RichText::new(tr("cat_settings.filter_mfg", lang))
+                        egui::RichText::new(tr(key::CAT_SETTINGS_FILTER_MFG, lang))
                             .size(11.0)
                             .color(egui::Color32::from_rgb(148, 163, 184)),
                     );
@@ -101,7 +101,7 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         };
 
                         let display_mfg = if mfg == "Wszystkie" {
-                            tr("cat_settings.all_mfgs", lang)
+                            tr(key::CAT_SETTINGS_ALL_MFGS, lang)
                         } else {
                             mfg
                         };
@@ -123,7 +123,7 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
                 if app.cat_backend != "tci" {
                     ui.horizontal(|ui| {
-                        ui.label(tr("cat_settings.search_model", lang));
+                        ui.label(tr(key::CAT_SETTINGS_SEARCH_MODEL, lang));
                         ui.add(
                             egui::TextEdit::singleline(&mut app.cat_model_search)
                                 .hint_text("7300, FT-891, TS-590, G90, K4"),
@@ -161,7 +161,7 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
                 ui.horizontal(|ui| {
                     ui.label(
-                        egui::RichText::new(format!("{}:", tr("cat.rig_model", lang))).strong(),
+                        egui::RichText::new(format!("{}:", tr(key::CAT_RIG_MODEL, lang))).strong(),
                     );
                     ui.colored_label(
                         egui::Color32::from_rgb(56, 189, 248),
@@ -174,19 +174,19 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
             ui.group(|ui| {
                 ui.label(
-                    egui::RichText::new(tr("cat_settings.step2_title", lang))
+                    egui::RichText::new(tr(key::CAT_SETTINGS_STEP2_TITLE, lang))
                         .strong()
                         .color(egui::Color32::from_rgb(250, 204, 21)),
                 );
                 ui.add_space(2.0);
 
                 ui.horizontal(|ui| {
-                    ui.label(tr("cat_settings.conn_type", lang));
+                    ui.label(tr(key::CAT_SETTINGS_CONN_TYPE, lang));
                     if ui
                         .selectable_value(
                             &mut app.cat_conn_type,
                             "serial".to_string(),
-                            tr("cat_settings.conn_serial", lang),
+                            tr(key::CAT_SETTINGS_CONN_SERIAL, lang),
                         )
                         .clicked()
                     {
@@ -197,7 +197,7 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         .selectable_value(
                             &mut app.cat_conn_type,
                             "tcp".to_string(),
-                            tr("cat_settings.conn_tcp", lang),
+                            tr(key::CAT_SETTINGS_CONN_TCP, lang),
                         )
                         .clicked()
                     {
@@ -209,7 +209,7 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         .selectable_value(
                             &mut app.cat_conn_type,
                             "tci".to_string(),
-                            tr("cat_settings.conn_tci", lang),
+                            tr(key::CAT_SETTINGS_CONN_TCI, lang),
                         )
                         .clicked()
                     {
@@ -234,7 +234,7 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 app.tci_port = p;
                             }
                         }
-                        if ui.button(tr("cat_settings.test_tci", lang)).clicked() {
+                        if ui.button(tr(key::CAT_SETTINGS_TEST_TCI, lang)).clicked() {
                             let host = app.tci_host.clone();
                             let port = app.tci_port;
                             match test_tcp_connection(&host, port, 800) {
@@ -308,7 +308,7 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
                     if app.cat_conn_type == "serial" || app.cat_auto_start_rigctld {
                         ui.horizontal(|ui| {
-                            ui.label(tr("cat_settings.serial_port_label", lang));
+                            ui.label(tr(key::CAT_SETTINGS_SERIAL_PORT_LABEL, lang));
                             ui.add(
                                 egui::TextEdit::singleline(&mut app.cat_serial_port)
                                     .desired_width(95.0)
@@ -346,7 +346,7 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 });
 
                             ui.add_space(6.0);
-                            ui.label(tr("cat_settings.baud_rate_label", lang));
+                            ui.label(tr(key::CAT_SETTINGS_BAUD_RATE_LABEL, lang));
                             egui::ComboBox::from_id_salt("cat_baud_combo")
                                 .selected_text(format!("{} bps", app.cat_baud_rate))
                                 .show_ui(ui, |ui| {
@@ -365,9 +365,9 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         ui.horizontal(|ui| {
                             ui.checkbox(
                                 &mut app.cat_auto_start_rigctld,
-                                tr("cat_settings.auto_start_rigctld", lang),
+                                tr(key::CAT_SETTINGS_AUTO_START_RIGCTLD, lang),
                             )
-                            .on_hover_text(tr("cat_settings.auto_start_rigctld_tooltip", lang));
+                            .on_hover_text(tr(key::CAT_SETTINGS_AUTO_START_RIGCTLD_TOOLTIP, lang));
                         });
                     }
 
@@ -377,19 +377,19 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             ui.label(
                                 egui::RichText::new(format!(
                                     "{}:",
-                                    tr("cat_settings.hamlib_source", lang)
+                                    tr(key::CAT_SETTINGS_HAMLIB_SOURCE, lang)
                                 ))
                                 .strong(),
                             );
                             ui.selectable_value(
                                 &mut app.cat_hamlib_source,
                                 "bundled".to_string(),
-                                tr("cat_settings.hamlib_source_bundled", lang),
+                                tr(key::CAT_SETTINGS_HAMLIB_SOURCE_BUNDLED, lang),
                             );
                             ui.selectable_value(
                                 &mut app.cat_hamlib_source,
                                 "system".to_string(),
-                                tr("cat_settings.hamlib_source_system", lang),
+                                tr(key::CAT_SETTINGS_HAMLIB_SOURCE_SYSTEM, lang),
                             );
                         });
 
@@ -409,7 +409,7 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 ui.label(
                                     egui::RichText::new(format!(
                                         "{}: {}",
-                                        tr("cat_settings.detected_binary", lang),
+                                        tr(key::CAT_SETTINGS_DETECTED_BINARY, lang),
                                         p.display()
                                     ))
                                     .size(11.0)
@@ -418,22 +418,25 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             } else {
                                 ui.colored_label(egui::Color32::from_rgb(239, 68, 68), "⚠");
                                 ui.label(
-                                    egui::RichText::new(tr("cat_settings.binary_not_found", lang))
-                                        .size(11.0)
-                                        .color(egui::Color32::from_rgb(239, 68, 68)),
+                                    egui::RichText::new(tr(
+                                        key::CAT_SETTINGS_BINARY_NOT_FOUND,
+                                        lang,
+                                    ))
+                                    .size(11.0)
+                                    .color(egui::Color32::from_rgb(239, 68, 68)),
                                 );
                             }
                         });
 
                         ui.horizontal(|ui| {
                             ui.label(
-                                egui::RichText::new(tr("cat_settings.custom_path_label", lang))
+                                egui::RichText::new(tr(key::CAT_SETTINGS_CUSTOM_PATH_LABEL, lang))
                                     .size(11.0),
                             );
                             ui.add(
                                 egui::TextEdit::singleline(&mut app.cat_custom_rigctld_path)
                                     .desired_width(220.0)
-                                    .hint_text(tr("cat_settings.custom_path_hint", lang)),
+                                    .hint_text(tr(key::CAT_SETTINGS_CUSTOM_PATH_HINT, lang)),
                             );
                         });
 
@@ -445,7 +448,7 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                         ui.label(
                                             egui::RichText::new(format!(
                                                 "{} (PID: {})",
-                                                tr("cat_settings.running_pid", lang),
+                                                tr(key::CAT_SETTINGS_RUNNING_PID, lang),
                                                 pid
                                             ))
                                             .size(11.0)
@@ -459,7 +462,7 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 }
 
                 ui.horizontal(|ui| {
-                    ui.label(format!("{}:", tr("cat.poll_rate", lang)));
+                    ui.label(format!("{}:", tr(key::CAT_POLL_RATE, lang)));
                     ui.add(
                         egui::DragValue::new(&mut app.cat_poll_rate_ms)
                             .range(50..=2000)
@@ -467,7 +470,7 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     );
 
                     if app.cat_conn_type != "tci"
-                        && ui.button(tr("cat_settings.test_tcp", lang)).clicked()
+                        && ui.button(tr(key::CAT_SETTINGS_TEST_TCP, lang)).clicked()
                     {
                         let host = app.cat_host.clone();
                         let port = app.cat_port;
@@ -493,7 +496,7 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
             ui.group(|ui| {
                 ui.label(
-                    egui::RichText::new(tr("cat_settings.sharing_title", lang))
+                    egui::RichText::new(tr(key::CAT_SETTINGS_SHARING_TITLE, lang))
                         .strong()
                         .color(egui::Color32::from_rgb(56, 189, 248)),
                 );
@@ -501,7 +504,7 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     if ui
                         .checkbox(
                             &mut app.cat_sharing_enabled,
-                            tr("cat_settings.sharing_enable", lang),
+                            tr(key::CAT_SETTINGS_SHARING_ENABLE, lang),
                         )
                         .changed()
                     {
@@ -509,7 +512,7 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         app.save_station_config();
                     }
                     ui.add_space(10.0);
-                    ui.label(tr("cat_settings.server_port", lang));
+                    ui.label(tr(key::CAT_SETTINGS_SERVER_PORT, lang));
                     ui.add(egui::DragValue::new(&mut app.cat_sharing_port).range(1024..=65535));
                 });
 
@@ -526,7 +529,7 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
             ui.group(|ui| {
                 ui.label(
-                    egui::RichText::new(tr("cat_settings.rotor_section", lang))
+                    egui::RichText::new(tr(key::CAT_SETTINGS_ROTOR_SECTION, lang))
                         .strong()
                         .color(egui::Color32::from_rgb(56, 189, 248)),
                 );
@@ -545,7 +548,7 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         }
                     }
                     ui.add_space(10.0);
-                    if ui.button(tr("cat_settings.test_rotor", lang)).clicked() {
+                    if ui.button(tr(key::CAT_SETTINGS_TEST_ROTOR, lang)).clicked() {
                         let host = app.rotor_host.clone();
                         let port = app.rotor_port;
                         match test_tcp_connection(&host, port, 800) {
@@ -565,7 +568,7 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
             ui.separator();
             ui.horizontal(|ui| {
                 if ui
-                    .button(egui::RichText::new(tr("btn.save", lang)).strong())
+                    .button(egui::RichText::new(tr(key::BTN_SAVE, lang)).strong())
                     .clicked()
                 {
                     if app.cat_connected || app.cat_auto_start_rigctld {
@@ -574,7 +577,7 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     app.save_station_config();
                     close_req = true;
                 }
-                if ui.button(tr("btn.close", lang)).clicked() {
+                if ui.button(tr(key::BTN_CLOSE, lang)).clicked() {
                     close_req = true;
                 }
             });

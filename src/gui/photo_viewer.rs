@@ -41,7 +41,7 @@ impl PhotoViewerDialog {
 
         egui::Window::new(format!(
             "📷 {}: {}",
-            crate::core::i18n::tr("qso.callsign", lang),
+            crate::core::i18n::tr(crate::core::i18n::key::QSO_CALLSIGN, lang),
             self.callsign
         ))
         .open(&mut open)
@@ -51,7 +51,7 @@ impl PhotoViewerDialog {
             ui.vertical_centered(|ui| {
                 ui.heading(format!(
                     "{}: {}",
-                    crate::core::i18n::tr("qso.callsign", lang),
+                    crate::core::i18n::tr(crate::core::i18n::key::QSO_CALLSIGN, lang),
                     self.callsign
                 ));
 
@@ -69,13 +69,19 @@ impl PhotoViewerDialog {
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
                         if ui
-                            .button(crate::core::i18n::tr("photo.open_browser", lang))
+                            .button(crate::core::i18n::tr(
+                                crate::core::i18n::key::PHOTO_OPEN_BROWSER,
+                                lang,
+                            ))
                             .clicked()
                         {
                             ctx.open_url(egui::OpenUrl::new_tab(url));
                         }
                         if ui
-                            .button(crate::core::i18n::tr("photo.copy_link", lang))
+                            .button(crate::core::i18n::tr(
+                                crate::core::i18n::key::PHOTO_COPY_LINK,
+                                lang,
+                            ))
                             .clicked()
                         {
                             ui.ctx().copy_text(url.clone());
@@ -93,7 +99,10 @@ impl PhotoViewerDialog {
                     ui.add_space(20.0);
                     let qrz_link = format!("https://www.qrz.com/db/{}", self.callsign);
                     if ui
-                        .button(crate::core::i18n::tr("photo.check_qrz", lang))
+                        .button(crate::core::i18n::tr(
+                            crate::core::i18n::key::PHOTO_CHECK_QRZ,
+                            lang,
+                        ))
                         .clicked()
                     {
                         ctx.open_url(egui::OpenUrl::new_tab(qrz_link));
@@ -102,7 +111,10 @@ impl PhotoViewerDialog {
 
                 ui.add_space(10.0);
                 if ui
-                    .button(crate::core::i18n::tr("btn.close", lang))
+                    .button(crate::core::i18n::tr(
+                        crate::core::i18n::key::BTN_CLOSE,
+                        lang,
+                    ))
                     .clicked()
                 {
                     close_requested = true;

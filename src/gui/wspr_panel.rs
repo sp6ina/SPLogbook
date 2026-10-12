@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Wozniak (SP6INA)
 
-use crate::core::i18n::tr;
+use crate::core::i18n::{key, tr};
 use crate::gui::app::SpLogApp;
 use crate::gui::text_sparkline;
 use eframe::egui;
@@ -13,7 +13,7 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
     let lang = app.current_language;
     let mut open = app.show_wspr_window;
 
-    egui::Window::new(tr("wspr.title", lang))
+    egui::Window::new(tr(key::WSPR_TITLE, lang))
         .id(egui::Id::new("splogbook_wspr_window"))
         .open(&mut open)
         .resizable(true)
@@ -21,7 +21,7 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
         .show(ctx, |ui| {
             // Nagłówek z przyciskiem odświeżania
             ui.horizontal(|ui| {
-                ui.heading(tr("wspr.title", lang));
+                ui.heading(tr(key::WSPR_TITLE, lang));
                 ui.label(
                     egui::RichText::new("| wspr.live API")
                         .color(egui::Color32::from_rgb(100, 116, 139))
@@ -33,7 +33,7 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         ui.spinner();
                         ui.label("Pobieranie...");
                     } else {
-                        let refresh_btn = ui.button(tr("wspr.refresh", lang));
+                        let refresh_btn = ui.button(tr(key::WSPR_REFRESH, lang));
                         if refresh_btn.clicked() {
                             fetch_wspr_spots_async(app, ctx);
                         }
@@ -56,7 +56,7 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 ui.horizontal(|ui| {
                     ui.checkbox(&mut app.wspr_distance_miles, "Odległość w milach");
                     ui.label(
-                        egui::RichText::new(tr("wspr.trend_snr", lang))
+                        egui::RichText::new(tr(key::WSPR_TREND_SNR, lang))
                             .small()
                             .color(egui::Color32::from_rgb(148, 163, 184)),
                     );
@@ -77,11 +77,11 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 ui.vertical_centered(|ui| {
                     ui.add_space(40.0);
                     ui.label(
-                        egui::RichText::new(tr("wspr.no_spots", lang))
+                        egui::RichText::new(tr(key::WSPR_NO_SPOTS, lang))
                             .color(egui::Color32::from_rgb(100, 116, 139)),
                     );
                     ui.label(
-                        egui::RichText::new(tr("wspr.refresh_hint", lang))
+                        egui::RichText::new(tr(key::WSPR_REFRESH_HINT, lang))
                             .color(egui::Color32::from_rgb(100, 116, 139))
                             .small(),
                     );
@@ -98,20 +98,20 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             .show(ui, |ui| {
                                 // Nagłówki
                                 ui.label(
-                                    egui::RichText::new(tr("wspr.col_callsign", lang)).strong(),
+                                    egui::RichText::new(tr(key::WSPR_COL_CALLSIGN, lang)).strong(),
                                 );
                                 ui.label(
-                                    egui::RichText::new(tr("wspr.col_frequency", lang)).strong(),
+                                    egui::RichText::new(tr(key::WSPR_COL_FREQUENCY, lang)).strong(),
                                 );
-                                ui.label(egui::RichText::new(tr("wspr.col_snr", lang)).strong());
+                                ui.label(egui::RichText::new(tr(key::WSPR_COL_SNR, lang)).strong());
                                 ui.label(
-                                    egui::RichText::new(tr("wspr.col_locator", lang)).strong(),
-                                );
-                                ui.label(
-                                    egui::RichText::new(tr("wspr.col_distance", lang)).strong(),
+                                    egui::RichText::new(tr(key::WSPR_COL_LOCATOR, lang)).strong(),
                                 );
                                 ui.label(
-                                    egui::RichText::new(tr("wspr.col_azimuth", lang)).strong(),
+                                    egui::RichText::new(tr(key::WSPR_COL_DISTANCE, lang)).strong(),
+                                );
+                                ui.label(
+                                    egui::RichText::new(tr(key::WSPR_COL_AZIMUTH, lang)).strong(),
                                 );
                                 ui.end_row();
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
-use crate::core::i18n::tr;
+use crate::core::i18n::{key, tr};
 use crate::gui::app::SpLogApp;
 use eframe::egui;
 
@@ -18,7 +18,7 @@ pub fn render_vfo_window(app: &mut SpLogApp, ctx: &egui::Context) {
             egui::ViewportId::from_hash_of("vfo_viewport"),
             format!(
                 "📻 {} - SPLogbook",
-                tr("view.panel_vfo", app.current_language)
+                tr(key::VIEW_PANEL_VFO, app.current_language)
             ),
             [520.0, 320.0],
             [400.0, 240.0],
@@ -29,8 +29,8 @@ pub fn render_vfo_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     ui.horizontal(|ui| {
                         let lang = app.current_language;
                         if ui
-                            .button(format!("↙ {}", tr("window.dock", lang)))
-                            .on_hover_text(tr("window.dock_tooltip", lang))
+                            .button(format!("↙ {}", tr(key::WINDOW_DOCK, lang)))
+                            .on_hover_text(tr(key::WINDOW_DOCK_TOOLTIP, lang))
                             .clicked()
                         {
                             dock_back = true;
@@ -73,7 +73,7 @@ pub fn render_vfo_window(app: &mut SpLogApp, ctx: &egui::Context) {
     let mut win = egui::Window::new(
         egui::RichText::new(format!(
             "   📻 {}",
-            tr("view.panel_vfo", app.current_language)
+            tr(key::VIEW_PANEL_VFO, app.current_language)
         ))
         .size(12.0)
         .strong(),
@@ -261,7 +261,7 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui
                 .button("⚙")
-                .on_hover_text(tr("cat.settings_tooltip", app.current_language))
+                .on_hover_text(tr(key::CAT_SETTINGS_TOOLTIP, app.current_language))
                 .clicked()
             {
                 app.show_cat_settings_window = true;
@@ -443,7 +443,7 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         // Szybki wybór pasm KF/VHF
         ui.horizontal_wrapped(|ui| {
             ui.label(
-                egui::RichText::new(tr("vfo.band_label", app.current_language))
+                egui::RichText::new(tr(key::VFO_BAND_LABEL, app.current_language))
                     .size(11.0)
                     .strong()
                     .color(egui::Color32::from_rgb(148, 163, 184)),
@@ -474,7 +474,7 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         // Pasek DSP / Filtrów / AGC
         ui.horizontal(|ui| {
             ui.label(
-                egui::RichText::new(tr("vfo.filters", app.current_language))
+                egui::RichText::new(tr(key::VFO_FILTERS, app.current_language))
                     .size(10.0)
                     .strong()
                     .color(egui::Color32::from_rgb(148, 163, 184)),

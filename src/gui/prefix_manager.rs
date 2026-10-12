@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 // Okno bazy prefiksów i znaków specjalnych (UniqueCalls z serviceLOG.db - 4 310 rekordów)
 
-use crate::core::i18n::{Language, tr, tr_or};
+use crate::core::i18n::{Language, key, tr, tr_or};
 use crate::core::service_db::{ServiceDatabase, UniqueCallRecord};
 use eframe::egui;
 
@@ -68,11 +68,11 @@ impl PrefixManagerDialog {
                         self.execute_search(db);
                     }
 
-                    if ui.button(format!("🔍 {}", tr("btn.search", lang))).clicked() {
+                    if ui.button(format!("🔍 {}", tr(key::BTN_SEARCH, lang))).clicked() {
                         self.execute_search(db);
                     }
 
-                    if ui.button(tr("btn.clear", lang)).clicked() {
+                    if ui.button(tr(key::BTN_CLEAR, lang)).clicked() {
                         self.search_query.clear();
                         self.results.clear();
                     }
@@ -115,7 +115,7 @@ impl PrefixManagerDialog {
                         "Database contains 4,310 unique DXCC rules for irregular callsigns and DXpeditions.",
                     )).small().color(egui::Color32::GRAY));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button(tr("btn.close", lang)).clicked() {
+                        if ui.button(tr(key::BTN_CLOSE, lang)).clicked() {
                             close_requested = true;
                         }
                     });

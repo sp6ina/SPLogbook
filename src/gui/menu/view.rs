@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
-use crate::core::i18n::tr;
+use crate::core::i18n::{key, tr};
 use crate::gui::app::SpLogApp;
 use crate::gui::icons;
 use eframe::egui;
@@ -10,9 +10,9 @@ use eframe::egui;
 pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.current_language;
 
-    ui.menu_button(tr("menu.view", lang), |ui| {
+    ui.menu_button(tr(key::MENU_VIEW, lang), |ui| {
         ui.label(
-            egui::RichText::new(tr("view.panels_title", lang))
+            egui::RichText::new(tr(key::VIEW_PANELS_TITLE, lang))
                 .strong()
                 .color(egui::Color32::from_rgb(56, 189, 248)),
         );
@@ -23,7 +23,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         if ui
             .checkbox(
                 &mut app.panel_vfo.visible,
-                icons::RADIO.label(tr("view.panel_vfo", lang)),
+                icons::RADIO.label(tr(key::VIEW_PANEL_VFO, lang)),
             )
             .changed()
         {
@@ -32,7 +32,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         if ui
             .checkbox(
                 &mut app.panel_qso.visible,
-                icons::NEW_QSO.label(tr("view.panel_qso", lang)),
+                icons::NEW_QSO.label(tr(key::VIEW_PANEL_QSO, lang)),
             )
             .changed()
         {
@@ -41,7 +41,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         if ui
             .checkbox(
                 &mut app.panel_log.visible,
-                icons::LOGBOOK.label(tr("view.panel_log", lang)),
+                icons::LOGBOOK.label(tr(key::VIEW_PANEL_LOG, lang)),
             )
             .changed()
         {
@@ -50,7 +50,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         if ui
             .checkbox(
                 &mut app.panel_cluster.visible,
-                icons::CLUSTER.label(tr("view.panel_cluster", lang)),
+                icons::CLUSTER.label(tr(key::VIEW_PANEL_CLUSTER, lang)),
             )
             .changed()
         {
@@ -59,7 +59,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         if ui
             .checkbox(
                 &mut app.panel_bandmap.visible,
-                icons::BANDMAP.label(tr("view.panel_bandmap", lang)),
+                icons::BANDMAP.label(tr(key::VIEW_PANEL_BANDMAP, lang)),
             )
             .changed()
         {
@@ -69,7 +69,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         if ui
             .checkbox(
                 &mut app.panel_solar.visible,
-                icons::SOLAR.label(tr("view.panel_solar", lang)),
+                icons::SOLAR.label(tr(key::VIEW_PANEL_SOLAR, lang)),
             )
             .changed()
         {
@@ -78,7 +78,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         if ui
             .checkbox(
                 &mut app.panel_satellites.visible,
-                icons::SATELLITE.label(tr("view.panel_satellites", lang)),
+                icons::SATELLITE.label(tr(key::VIEW_PANEL_SATELLITES, lang)),
             )
             .changed()
         {
@@ -88,7 +88,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         if ui
             .checkbox(
                 &mut app.panel_world_map.visible,
-                icons::WORLD_MAP.label(tr("view.panel_world_map", lang)),
+                icons::WORLD_MAP.label(tr(key::VIEW_PANEL_WORLD_MAP, lang)),
             )
             .changed()
         {
@@ -98,7 +98,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         if ui
             .checkbox(
                 &mut app.panel_waterfall.visible,
-                icons::SIGNAL_UP.label(tr("view.panel_waterfall", lang)),
+                icons::SIGNAL_UP.label(tr(key::VIEW_PANEL_WATERFALL, lang)),
             )
             .changed()
         {
@@ -112,7 +112,8 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.separator();
         if ui
             .button(
-                egui::RichText::new(icons::REFRESH.label(tr("view.reset_layout", lang))).strong(),
+                egui::RichText::new(icons::REFRESH.label(tr(key::VIEW_RESET_LAYOUT, lang)))
+                    .strong(),
             )
             .clicked()
         {
@@ -123,12 +124,12 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.separator();
         ui.checkbox(
             &mut app.show_awards_matrix_window,
-            icons::AWARDS.label(tr("view.awards_matrix", lang)),
+            icons::AWARDS.label(tr(key::VIEW_AWARDS_MATRIX, lang)),
         );
         if ui
             .checkbox(
                 &mut app.compact_hud_mode,
-                icons::COMPACT.label(tr("view.compact_hud", lang)),
+                icons::COMPACT.label(tr(key::VIEW_COMPACT_HUD, lang)),
             )
             .changed()
         {

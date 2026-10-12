@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 // Okno zdalnego włączania komputera stacji (Wake-on-LAN)
 
-use crate::core::i18n::{Language, tr};
+use crate::core::i18n::{Language, key, tr};
 use crate::network::wol::WolClient;
 use eframe::egui;
 
@@ -43,16 +43,16 @@ impl WolDialog {
         let mut open = self.is_open;
         let mut close_requested = false;
 
-        egui::Window::new(tr("wol.window_title", lang))
+        egui::Window::new(tr(key::WOL_WINDOW_TITLE, lang))
             .open(&mut open)
             .default_width(450.0)
             .default_height(240.0)
             .show(ctx, |ui| {
-                ui.label(tr("wol.description", lang));
+                ui.label(tr(key::WOL_DESCRIPTION, lang));
                 ui.separator();
 
                 ui.horizontal(|ui| {
-                    ui.label(tr("wol.mac_label", lang));
+                    ui.label(tr(key::WOL_MAC_LABEL, lang));
                     ui.add(
                         egui::TextEdit::singleline(&mut self.mac_address)
                             .hint_text("np. AA:BB:CC:DD:EE:FF")
@@ -61,9 +61,9 @@ impl WolDialog {
                 });
 
                 ui.horizontal(|ui| {
-                    ui.label(tr("wol.broadcast_label", lang));
+                    ui.label(tr(key::WOL_BROADCAST_LABEL, lang));
                     ui.add(egui::TextEdit::singleline(&mut self.broadcast_ip).desired_width(140.0));
-                    ui.label(tr("wol.port_label", lang));
+                    ui.label(tr(key::WOL_PORT_LABEL, lang));
                     ui.add(egui::DragValue::new(&mut self.port));
                 });
 
@@ -79,7 +79,7 @@ impl WolDialog {
                 ui.add_space(10.0);
                 ui.horizontal(|ui| {
                     let btn = egui::Button::new(
-                        egui::RichText::new(tr("wol.send_btn", lang))
+                        egui::RichText::new(tr(key::WOL_SEND_BTN, lang))
                             .strong()
                             .color(egui::Color32::BLACK),
                     )
@@ -91,17 +91,17 @@ impl WolDialog {
                             Ok(()) => {
                                 self.status = Some(format!(
                                     "{} -> {}",
-                                    tr("wol.success", lang),
+                                    tr(key::WOL_SUCCESS, lang),
                                     self.mac_address
                                 ));
                             }
                             Err(e) => {
-                                self.status = Some(format!("{} {}", tr("wol.error", lang), e));
+                                self.status = Some(format!("{} {}", tr(key::WOL_ERROR, lang), e));
                             }
                         }
                     }
 
-                    if ui.button(tr("btn.close", lang)).clicked() {
+                    if ui.button(tr(key::BTN_CLOSE, lang)).clicked() {
                         close_requested = true;
                     }
                 });

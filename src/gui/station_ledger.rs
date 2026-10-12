@@ -1,20 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
-use crate::core::i18n::{Language, tr};
+use crate::core::i18n::{Language, key, tr};
 use crate::core::station::{EquipmentCategory, EquipmentItem};
 use crate::gui::app::SpLogApp;
 use eframe::egui;
 
 fn category_label(cat: &EquipmentCategory, lang: Language) -> &str {
     match cat {
-        EquipmentCategory::Transceiver => tr("ledger.cat_transceiver", lang),
-        EquipmentCategory::Antenna => tr("ledger.cat_antenna", lang),
-        EquipmentCategory::Amplifier => tr("ledger.cat_amplifier", lang),
-        EquipmentCategory::Tuner => tr("ledger.cat_tuner", lang),
-        EquipmentCategory::PowerSupply => tr("ledger.cat_powersupply", lang),
-        EquipmentCategory::Keyer => tr("ledger.cat_keyer", lang),
-        EquipmentCategory::Other => tr("ledger.cat_other", lang),
+        EquipmentCategory::Transceiver => tr(key::LEDGER_CAT_TRANSCEIVER, lang),
+        EquipmentCategory::Antenna => tr(key::LEDGER_CAT_ANTENNA, lang),
+        EquipmentCategory::Amplifier => tr(key::LEDGER_CAT_AMPLIFIER, lang),
+        EquipmentCategory::Tuner => tr(key::LEDGER_CAT_TUNER, lang),
+        EquipmentCategory::PowerSupply => tr(key::LEDGER_CAT_POWERSUPPLY, lang),
+        EquipmentCategory::Keyer => tr(key::LEDGER_CAT_KEYER, lang),
+        EquipmentCategory::Other => tr(key::LEDGER_CAT_OTHER, lang),
     }
 }
 
@@ -29,7 +29,7 @@ pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
     let mut item_to_delete: Option<String> = None;
     let mut item_to_edit: Option<EquipmentItem> = None;
 
-    egui::Window::new(format!("📋 {}", tr("ledger.title", lang)))
+    egui::Window::new(format!("📋 {}", tr(key::LEDGER_TITLE, lang)))
         .open(&mut open)
         .default_size([760.0, 520.0])
         .min_size([650.0, 400.0])
@@ -37,20 +37,21 @@ pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
             ui.vertical(|ui| {
                 ui.horizontal(|ui| {
                     ui.label(
-                        egui::RichText::new(tr("ledger.profile_heading", lang))
+                        egui::RichText::new(tr(key::LEDGER_PROFILE_HEADING, lang))
                             .strong()
                             .color(egui::Color32::from_rgb(56, 189, 248)),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button(tr("ledger.save_profile", lang)).clicked() {
+                        if ui.button(tr(key::LEDGER_SAVE_PROFILE, lang)).clicked() {
                             app.save_station_config();
-                            app.status_message = Some(tr("ledger.profile_saved", lang).to_string());
+                            app.status_message =
+                                Some(tr(key::LEDGER_PROFILE_SAVED, lang).to_string());
                         }
                     });
                 });
 
                 ui.horizontal(|ui| {
-                    ui.label(format!("{}:", tr("qso.callsign", lang)));
+                    ui.label(format!("{}:", tr(key::QSO_CALLSIGN, lang)));
                     let call_resp = ui.add(
                         egui::TextEdit::singleline(&mut app.my_station.callsign)
                             .desired_width(80.0),
@@ -59,13 +60,13 @@ pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         app.my_station.callsign = app.my_station.callsign.to_uppercase();
                     }
 
-                    ui.label(format!("{}:", tr("station.operator", lang)));
+                    ui.label(format!("{}:", tr(key::STATION_OPERATOR, lang)));
                     ui.add(
                         egui::TextEdit::singleline(&mut app.my_station.operator)
                             .desired_width(120.0),
                     );
 
-                    ui.label(format!("{}:", tr("geo.locator", lang)));
+                    ui.label(format!("{}:", tr(key::GEO_LOCATOR, lang)));
                     let loc_resp = ui.add(
                         egui::TextEdit::singleline(&mut app.my_station.gridsquare)
                             .desired_width(65.0),
@@ -83,13 +84,13 @@ pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 ui.separator();
                 ui.horizontal(|ui| {
                     ui.label(
-                        egui::RichText::new(tr("ledger.registered_equipment", lang))
+                        egui::RichText::new(tr(key::LEDGER_REGISTERED_EQUIPMENT, lang))
                             .strong()
                             .color(egui::Color32::from_rgb(251, 191, 36)),
                     );
                     ui.label(format!(
                         "({} {})",
-                        tr("ledger.total_items", lang),
+                        tr(key::LEDGER_TOTAL_ITEMS, lang),
                         app.equipment_items.len()
                     ));
                 });
@@ -102,27 +103,28 @@ pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             .spacing([8.0, 6.0])
                             .show(ui, |ui| {
                                 ui.label(
-                                    egui::RichText::new(tr("ledger.col_category", lang)).strong(),
-                                );
-                                ui.label(
-                                    egui::RichText::new(tr("ledger.col_manufacturer", lang))
+                                    egui::RichText::new(tr(key::LEDGER_COL_CATEGORY, lang))
                                         .strong(),
                                 );
                                 ui.label(
-                                    egui::RichText::new(tr("ledger.col_model", lang)).strong(),
-                                );
-                                ui.label(
-                                    egui::RichText::new(tr("ledger.col_serial", lang)).strong(),
-                                );
-                                ui.label(
-                                    egui::RichText::new(tr("ledger.col_purchase_date", lang))
+                                    egui::RichText::new(tr(key::LEDGER_COL_MANUFACTURER, lang))
                                         .strong(),
                                 );
                                 ui.label(
-                                    egui::RichText::new(tr("ledger.col_notes", lang)).strong(),
+                                    egui::RichText::new(tr(key::LEDGER_COL_MODEL, lang)).strong(),
                                 );
                                 ui.label(
-                                    egui::RichText::new(tr("ledger.col_actions", lang)).strong(),
+                                    egui::RichText::new(tr(key::LEDGER_COL_SERIAL, lang)).strong(),
+                                );
+                                ui.label(
+                                    egui::RichText::new(tr(key::LEDGER_COL_PURCHASE_DATE, lang))
+                                        .strong(),
+                                );
+                                ui.label(
+                                    egui::RichText::new(tr(key::LEDGER_COL_NOTES, lang)).strong(),
+                                );
+                                ui.label(
+                                    egui::RichText::new(tr(key::LEDGER_COL_ACTIONS, lang)).strong(),
                                 );
                                 ui.end_row();
 
@@ -141,7 +143,7 @@ pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
                                     ui.horizontal(|ui| {
                                         if ui
-                                            .button(format!("✏ {}", tr("btn.edit", lang)))
+                                            .button(format!("✏ {}", tr(key::BTN_EDIT, lang)))
                                             .clicked()
                                         {
                                             item_to_edit = Some(item.clone());
@@ -167,7 +169,7 @@ pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 if let Some(ref edit_id) = app.editing_equipment_id.clone() {
                     ui.group(|ui| {
                         ui.label(
-                            egui::RichText::new(tr("ledger.edit_item", lang))
+                            egui::RichText::new(tr(key::LEDGER_EDIT_ITEM, lang))
                                 .strong()
                                 .color(egui::Color32::from_rgb(250, 204, 21)),
                         );
@@ -176,7 +178,7 @@ pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             .num_columns(2)
                             .spacing([10.0, 6.0])
                             .show(ui, |ui| {
-                                ui.label(format!("{}:", tr("ledger.col_category", lang)));
+                                ui.label(format!("{}:", tr(key::LEDGER_COL_CATEGORY, lang)));
                                 egui::ComboBox::from_id_salt("edit_eq_cat")
                                     .selected_text(category_label(&app.edit_eq_cat, lang))
                                     .show_ui(ui, |ui| {
@@ -190,35 +192,35 @@ pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     });
                                 ui.end_row();
 
-                                ui.label(format!("{}:", tr("ledger.col_manufacturer", lang)));
+                                ui.label(format!("{}:", tr(key::LEDGER_COL_MANUFACTURER, lang)));
                                 ui.add(
                                     egui::TextEdit::singleline(&mut app.edit_eq_mfr)
                                         .desired_width(220.0),
                                 );
                                 ui.end_row();
 
-                                ui.label(format!("{}:", tr("ledger.col_model", lang)));
+                                ui.label(format!("{}:", tr(key::LEDGER_COL_MODEL, lang)));
                                 ui.add(
                                     egui::TextEdit::singleline(&mut app.edit_eq_model)
                                         .desired_width(220.0),
                                 );
                                 ui.end_row();
 
-                                ui.label(format!("{}:", tr("ledger.col_serial", lang)));
+                                ui.label(format!("{}:", tr(key::LEDGER_COL_SERIAL, lang)));
                                 ui.add(
                                     egui::TextEdit::singleline(&mut app.edit_eq_sn)
                                         .desired_width(220.0),
                                 );
                                 ui.end_row();
 
-                                ui.label(format!("{}:", tr("ledger.col_purchase_date", lang)));
+                                ui.label(format!("{}:", tr(key::LEDGER_COL_PURCHASE_DATE, lang)));
                                 ui.add(
                                     egui::TextEdit::singleline(&mut app.edit_eq_date)
                                         .desired_width(220.0),
                                 );
                                 ui.end_row();
 
-                                ui.label(format!("{}:", tr("ledger.col_notes", lang)));
+                                ui.label(format!("{}:", tr(key::LEDGER_COL_NOTES, lang)));
                                 ui.add(
                                     egui::TextEdit::singleline(&mut app.edit_eq_notes)
                                         .desired_width(320.0),
@@ -229,7 +231,7 @@ pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         ui.horizontal(|ui| {
                             if ui
                                 .button(
-                                    egui::RichText::new(format!("💾 {}", tr("btn.save", lang)))
+                                    egui::RichText::new(format!("💾 {}", tr(key::BTN_SAVE, lang)))
                                         .strong()
                                         .color(egui::Color32::WHITE),
                                 )
@@ -237,7 +239,7 @@ pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             {
                                 app.save_edited_equipment(edit_id);
                             }
-                            if ui.button(tr("btn.cancel", lang)).clicked() {
+                            if ui.button(tr(key::BTN_CANCEL, lang)).clicked() {
                                 app.editing_equipment_id = None;
                             }
                         });
@@ -245,7 +247,7 @@ pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 } else {
                     ui.group(|ui| {
                         ui.label(
-                            egui::RichText::new(tr("ledger.add_new_title", lang))
+                            egui::RichText::new(tr(key::LEDGER_ADD_NEW_TITLE, lang))
                                 .strong()
                                 .color(egui::Color32::from_rgb(34, 197, 94)),
                         );
@@ -254,7 +256,7 @@ pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             .num_columns(4)
                             .spacing([10.0, 6.0])
                             .show(ui, |ui| {
-                                ui.label(format!("{}:", tr("ledger.col_category", lang)));
+                                ui.label(format!("{}:", tr(key::LEDGER_COL_CATEGORY, lang)));
                                 egui::ComboBox::from_id_salt("new_eq_cat")
                                     .selected_text(category_label(&app.new_eq_cat, lang))
                                     .show_ui(ui, |ui| {
@@ -267,27 +269,27 @@ pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                         }
                                     });
 
-                                ui.label(format!("{}:", tr("ledger.col_manufacturer", lang)));
+                                ui.label(format!("{}:", tr(key::LEDGER_COL_MANUFACTURER, lang)));
                                 ui.add(
                                     egui::TextEdit::singleline(&mut app.new_eq_mfr)
                                         .hint_text("np. Icom, Yaesu, Kenwood"),
                                 );
                                 ui.end_row();
 
-                                ui.label(format!("{}:", tr("ledger.col_model", lang)));
+                                ui.label(format!("{}:", tr(key::LEDGER_COL_MODEL, lang)));
                                 ui.add(
                                     egui::TextEdit::singleline(&mut app.new_eq_model)
                                         .hint_text("np. IC-7610, FT-891"),
                                 );
 
-                                ui.label(format!("{}:", tr("ledger.col_serial", lang)));
+                                ui.label(format!("{}:", tr(key::LEDGER_COL_SERIAL, lang)));
                                 ui.add(
                                     egui::TextEdit::singleline(&mut app.new_eq_sn)
                                         .hint_text("opcjonalnie"),
                                 );
                                 ui.end_row();
 
-                                ui.label(format!("{}:", tr("ledger.col_notes", lang)));
+                                ui.label(format!("{}:", tr(key::LEDGER_COL_NOTES, lang)));
                                 ui.add(
                                     egui::TextEdit::singleline(&mut app.new_eq_notes)
                                         .hint_text("np. moc 100W, pasma KF/6m"),
@@ -298,7 +300,7 @@ pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         ui.add_space(4.0);
                         if ui
                             .button(
-                                egui::RichText::new(tr("ledger.add_button", lang))
+                                egui::RichText::new(tr(key::LEDGER_ADD_BUTTON, lang))
                                     .strong()
                                     .color(egui::Color32::from_rgb(34, 197, 94)),
                             )
@@ -311,7 +313,7 @@ pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 }
                 ui.separator();
                 ui.horizontal(|ui| {
-                    if ui.button(tr("btn.close", lang)).clicked() {
+                    if ui.button(tr(key::BTN_CLOSE, lang)).clicked() {
                         close_req = true;
                     }
                 });

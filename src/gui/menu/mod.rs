@@ -14,7 +14,7 @@ mod tools;
 mod view;
 mod workspace;
 
-use crate::core::i18n::tr;
+use crate::core::i18n::{key, tr};
 use crate::gui::app::SpLogApp;
 use crate::gui::icons;
 use eframe::egui;
@@ -69,7 +69,7 @@ fn render_right_side(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     .color(egui::Color32::from_rgb(250, 204, 21))
                     .size(11.0),
             )
-            .on_hover_text(tr("profiles.title", lang))
+            .on_hover_text(tr(key::PROFILES_TITLE, lang))
             .clicked()
         {
             app.show_station_profiles_window = true;
@@ -89,14 +89,14 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .button(
                     egui::RichText::new(icons::FOLDER.label(format!(
                         "{}: {} ({})",
-                        tr("toolbar.journal", lang),
+                        tr(key::TOOLBAR_JOURNAL, lang),
                         app.active_journal.name,
                         app.active_journal.station_callsign
                     )))
                     .strong()
                     .color(egui::Color32::from_rgb(100, 220, 100)),
                 )
-                .on_hover_text(tr("toolbar.journal_tooltip", lang))
+                .on_hover_text(tr(key::TOOLBAR_JOURNAL_TOOLTIP, lang))
                 .clicked()
         {
             if let Ok(db) = app.log_db.lock() {
@@ -118,7 +118,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
         if app.advanced_filter_dialog.is_filtered_active
             && ui
                 .button(
-                    egui::RichText::new(icons::SEARCH.label(tr("toolbar.filter", lang)))
+                    egui::RichText::new(icons::SEARCH.label(tr(key::TOOLBAR_FILTER, lang)))
                         .strong()
                         .color(egui::Color32::YELLOW),
                 )
@@ -137,18 +137,18 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
             } else if app.cluster_connecting {
                 (
                     egui::Color32::from_rgb(250, 204, 21),
-                    format!("● Cluster: {}", tr("toolbar.cluster_connecting", lang)),
+                    format!("● Cluster: {}", tr(key::TOOLBAR_CLUSTER_CONNECTING, lang)),
                 )
             } else {
                 (
                     egui::Color32::from_rgb(148, 163, 184),
-                    format!("○ Cluster: {}", tr("toolbar.cluster_disconnected", lang)),
+                    format!("○ Cluster: {}", tr(key::TOOLBAR_CLUSTER_DISCONNECTED, lang)),
                 )
             };
 
             if ui
                 .button(egui::RichText::new(cl_text).small().color(cl_color))
-                .on_hover_text(tr("toolbar.cluster_toggle_tooltip", lang))
+                .on_hover_text(tr(key::TOOLBAR_CLUSTER_TOGGLE_TOOLTIP, lang))
                 .clicked()
             {
                 if app.cluster_connected {
@@ -164,8 +164,8 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
         // 5. Szybkie przyciski modułów
         if app.quick_access.show_vfo
             && ui
-                .button(icons::RADIO.label(tr("toolbar.vfo", lang)))
-                .on_hover_text(tr("toolbar.vfo_tooltip", lang))
+                .button(icons::RADIO.label(tr(key::TOOLBAR_VFO, lang)))
+                .on_hover_text(tr(key::TOOLBAR_VFO_TOOLTIP, lang))
                 .clicked()
         {
             app.panel_vfo.visible = !app.panel_vfo.visible;
@@ -174,8 +174,8 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         if app.quick_access.show_qso
             && ui
-                .button(icons::NEW_QSO.label(tr("toolbar.qso", lang)))
-                .on_hover_text(tr("toolbar.qso_tooltip", lang))
+                .button(icons::NEW_QSO.label(tr(key::TOOLBAR_QSO, lang)))
+                .on_hover_text(tr(key::TOOLBAR_QSO_TOOLTIP, lang))
                 .clicked()
         {
             app.panel_qso.visible = !app.panel_qso.visible;
@@ -184,8 +184,8 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         if app.quick_access.show_log
             && ui
-                .button(icons::LOGBOOK.label(tr("toolbar.log", lang)))
-                .on_hover_text(tr("toolbar.log_tooltip", lang))
+                .button(icons::LOGBOOK.label(tr(key::TOOLBAR_LOG, lang)))
+                .on_hover_text(tr(key::TOOLBAR_LOG_TOOLTIP, lang))
                 .clicked()
         {
             app.panel_log.visible = !app.panel_log.visible;
@@ -194,8 +194,8 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         if app.quick_access.show_cat
             && ui
-                .button(icons::RADIO.label(tr("toolbar.cat", lang)))
-                .on_hover_text(tr("toolbar.cat_tooltip", lang))
+                .button(icons::RADIO.label(tr(key::TOOLBAR_CAT, lang)))
+                .on_hover_text(tr(key::TOOLBAR_CAT_TOOLTIP, lang))
                 .clicked()
         {
             app.show_cat_settings_window = !app.show_cat_settings_window;
@@ -203,8 +203,8 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         if app.quick_access.show_cluster
             && ui
-                .button(icons::CLUSTER.label(tr("toolbar.cluster", lang)))
-                .on_hover_text(tr("toolbar.cluster_tooltip", lang))
+                .button(icons::CLUSTER.label(tr(key::TOOLBAR_CLUSTER, lang)))
+                .on_hover_text(tr(key::TOOLBAR_CLUSTER_TOOLTIP, lang))
                 .clicked()
         {
             app.panel_cluster.visible = !app.panel_cluster.visible;
@@ -213,8 +213,8 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         if app.quick_access.show_bandmap
             && ui
-                .button(icons::BANDMAP.label(tr("toolbar.bandmap", lang)))
-                .on_hover_text(tr("toolbar.bandmap_tooltip", lang))
+                .button(icons::BANDMAP.label(tr(key::TOOLBAR_BANDMAP, lang)))
+                .on_hover_text(tr(key::TOOLBAR_BANDMAP_TOOLTIP, lang))
                 .clicked()
         {
             app.panel_bandmap.visible = !app.panel_bandmap.visible;
@@ -224,8 +224,8 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         if app.quick_access.show_solar
             && ui
-                .button(icons::SOLAR.label(tr("toolbar.solar", lang)))
-                .on_hover_text(tr("toolbar.solar_tooltip", lang))
+                .button(icons::SOLAR.label(tr(key::TOOLBAR_SOLAR, lang)))
+                .on_hover_text(tr(key::TOOLBAR_SOLAR_TOOLTIP, lang))
                 .clicked()
         {
             app.panel_solar.visible = !app.panel_solar.visible;
@@ -234,8 +234,8 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         if app.quick_access.show_lotw
             && ui
-                .button(icons::GLOBE.label(tr("toolbar.lotw", lang)))
-                .on_hover_text(tr("toolbar.sync_tooltip", lang))
+                .button(icons::GLOBE.label(tr(key::TOOLBAR_LOTW, lang)))
+                .on_hover_text(tr(key::TOOLBAR_SYNC_TOOLTIP, lang))
                 .clicked()
         {
             app.show_online_sync_window = !app.show_online_sync_window;
@@ -243,8 +243,8 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         if app.quick_access.show_map
             && ui
-                .button(icons::WORLD_MAP.label(tr("toolbar.map", lang)))
-                .on_hover_text(tr("toolbar.map_tooltip", lang))
+                .button(icons::WORLD_MAP.label(tr(key::TOOLBAR_MAP, lang)))
+                .on_hover_text(tr(key::TOOLBAR_MAP_TOOLTIP, lang))
                 .clicked()
         {
             app.panel_world_map.visible = !app.panel_world_map.visible;
@@ -254,8 +254,8 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         if app.quick_access.show_awards
             && ui
-                .button(icons::AWARDS.label(tr("toolbar.awards", lang)))
-                .on_hover_text(tr("toolbar.awards_tooltip", lang))
+                .button(icons::AWARDS.label(tr(key::TOOLBAR_AWARDS, lang)))
+                .on_hover_text(tr(key::TOOLBAR_AWARDS_TOOLTIP, lang))
                 .clicked()
         {
             app.show_awards_matrix_window = !app.show_awards_matrix_window;
@@ -263,8 +263,8 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         if app.quick_access.show_cw
             && ui
-                .button(icons::CW_TERMINAL.label(tr("toolbar.cw", lang)))
-                .on_hover_text(tr("toolbar.cw_tooltip", lang))
+                .button(icons::CW_TERMINAL.label(tr(key::TOOLBAR_CW, lang)))
+                .on_hover_text(tr(key::TOOLBAR_CW_TOOLTIP, lang))
                 .clicked()
         {
             app.cw_terminal_dialog.is_open = !app.cw_terminal_dialog.is_open;
@@ -272,8 +272,8 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         if app.quick_access.show_satellites
             && ui
-                .button(icons::SATELLITE.label(tr("toolbar.satellites", lang)))
-                .on_hover_text(tr("toolbar.satellites_tooltip", lang))
+                .button(icons::SATELLITE.label(tr(key::TOOLBAR_SATELLITES, lang)))
+                .on_hover_text(tr(key::TOOLBAR_SATELLITES_TOOLTIP, lang))
                 .clicked()
         {
             app.panel_satellites.visible = !app.panel_satellites.visible;
@@ -283,8 +283,8 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         if app.quick_access.show_contest
             && ui
-                .button(icons::FLAG.label(tr("toolbar.contest", lang)))
-                .on_hover_text(tr("toolbar.contest_tooltip", lang))
+                .button(icons::FLAG.label(tr(key::TOOLBAR_CONTEST, lang)))
+                .on_hover_text(tr(key::TOOLBAR_CONTEST_TOOLTIP, lang))
                 .clicked()
         {
             app.show_contest_window = !app.show_contest_window;
@@ -292,8 +292,8 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         if app.quick_access.show_equipment
             && ui
-                .button(icons::PACKAGE.label(tr("toolbar.equipment", lang)))
-                .on_hover_text(tr("toolbar.equipment_tooltip", lang))
+                .button(icons::PACKAGE.label(tr(key::TOOLBAR_EQUIPMENT, lang)))
+                .on_hover_text(tr(key::TOOLBAR_EQUIPMENT_TOOLTIP, lang))
                 .clicked()
         {
             app.show_ledger_window = !app.show_ledger_window;
@@ -302,7 +302,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
         if app.quick_access.show_eme
             && ui
                 .button(icons::MOON.label("EME"))
-                .on_hover_text(tr("toolbar.eme_tooltip", lang))
+                .on_hover_text(tr(key::TOOLBAR_EME_TOOLTIP, lang))
                 .clicked()
         {
             app.astronomy_dialog.open();
@@ -311,7 +311,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
         if app.quick_access.show_wol
             && ui
                 .button(icons::LIGHTNING.label("WOL"))
-                .on_hover_text(tr("toolbar.wol_tooltip", lang))
+                .on_hover_text(tr(key::TOOLBAR_WOL_TOOLTIP, lang))
                 .clicked()
         {
             app.wol_dialog.open();
@@ -321,7 +321,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
             let theme_btn_text = icons::THEME.label(app.theme_preset.label(lang));
             if ui
                 .button(theme_btn_text)
-                .on_hover_text(tr("toolbar.theme_cycle_hint", lang))
+                .on_hover_text(tr(key::TOOLBAR_THEME_CYCLE_HINT, lang))
                 .clicked()
             {
                 let all = crate::gui::theme::ThemePreset::ALL;
@@ -334,7 +334,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
         // Przycisk personalizacji paska (oprócz PPM)
         if ui
             .button(icons::SETTINGS.rich(12.0))
-            .on_hover_text(tr("toolbar.customize_tooltip", lang))
+            .on_hover_text(tr(key::TOOLBAR_CUSTOMIZE_TOOLTIP, lang))
             .clicked()
         {
             show_customize_popup = true;
@@ -352,7 +352,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
     if app.show_quick_access_customizer {
         let mut open = true;
-        egui::Window::new(icons::SETTINGS.label(tr("toolbar.customize_title", lang)))
+        egui::Window::new(icons::SETTINGS.label(tr(key::TOOLBAR_CUSTOMIZE_TITLE, lang)))
             .open(&mut open)
             .resizable(false)
             .collapsible(false)
@@ -368,9 +368,9 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
 fn render_quick_access_menu(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.current_language;
-    ui.heading(tr("toolbar.visible_elements", lang));
+    ui.heading(tr(key::TOOLBAR_VISIBLE_ELEMENTS, lang));
     ui.label(
-        egui::RichText::new(tr("toolbar.visible_elements_hint", lang))
+        egui::RichText::new(tr(key::TOOLBAR_VISIBLE_ELEMENTS_HINT, lang))
             .size(11.0)
             .color(egui::Color32::from_rgb(148, 163, 184)),
     );
@@ -384,13 +384,13 @@ fn render_quick_access_menu(app: &mut SpLogApp, ui: &mut egui::Ui) {
             changed |= ui
                 .checkbox(
                     &mut app.quick_access.show_journal,
-                    icons::FOLDER.label(tr("toolbar.journal", lang)),
+                    icons::FOLDER.label(tr(key::TOOLBAR_JOURNAL, lang)),
                 )
                 .changed();
             changed |= ui
                 .checkbox(
                     &mut app.quick_access.show_wsjtx,
-                    format!("● {}", tr("toolbar.wsjtx_status", lang)),
+                    format!("● {}", tr(key::TOOLBAR_WSJTX_STATUS, lang)),
                 )
                 .changed();
             ui.end_row();
@@ -398,13 +398,13 @@ fn render_quick_access_menu(app: &mut SpLogApp, ui: &mut egui::Ui) {
             changed |= ui
                 .checkbox(
                     &mut app.quick_access.show_cluster_status,
-                    icons::CLUSTER.label(tr("toolbar.cluster_status", lang)),
+                    icons::CLUSTER.label(tr(key::TOOLBAR_CLUSTER_STATUS, lang)),
                 )
                 .changed();
             changed |= ui
                 .checkbox(
                     &mut app.quick_access.show_vfo,
-                    icons::RADIO.label(tr("toolbar.vfo", lang)),
+                    icons::RADIO.label(tr(key::TOOLBAR_VFO, lang)),
                 )
                 .changed();
             ui.end_row();
@@ -412,13 +412,13 @@ fn render_quick_access_menu(app: &mut SpLogApp, ui: &mut egui::Ui) {
             changed |= ui
                 .checkbox(
                     &mut app.quick_access.show_qso,
-                    icons::NEW_QSO.label(tr("toolbar.qso", lang)),
+                    icons::NEW_QSO.label(tr(key::TOOLBAR_QSO, lang)),
                 )
                 .changed();
             changed |= ui
                 .checkbox(
                     &mut app.quick_access.show_log,
-                    icons::LOGBOOK.label(tr("toolbar.log", lang)),
+                    icons::LOGBOOK.label(tr(key::TOOLBAR_LOG, lang)),
                 )
                 .changed();
             ui.end_row();
@@ -426,13 +426,13 @@ fn render_quick_access_menu(app: &mut SpLogApp, ui: &mut egui::Ui) {
             changed |= ui
                 .checkbox(
                     &mut app.quick_access.show_cat,
-                    icons::RADIO.label(tr("toolbar.cat", lang)),
+                    icons::RADIO.label(tr(key::TOOLBAR_CAT, lang)),
                 )
                 .changed();
             changed |= ui
                 .checkbox(
                     &mut app.quick_access.show_cluster,
-                    icons::CLUSTER.label(tr("toolbar.cluster", lang)),
+                    icons::CLUSTER.label(tr(key::TOOLBAR_CLUSTER, lang)),
                 )
                 .changed();
             ui.end_row();
@@ -440,13 +440,13 @@ fn render_quick_access_menu(app: &mut SpLogApp, ui: &mut egui::Ui) {
             changed |= ui
                 .checkbox(
                     &mut app.quick_access.show_bandmap,
-                    icons::BANDMAP.label(tr("toolbar.bandmap", lang)),
+                    icons::BANDMAP.label(tr(key::TOOLBAR_BANDMAP, lang)),
                 )
                 .changed();
             changed |= ui
                 .checkbox(
                     &mut app.quick_access.show_solar,
-                    icons::SOLAR.label(tr("toolbar.solar", lang)),
+                    icons::SOLAR.label(tr(key::TOOLBAR_SOLAR, lang)),
                 )
                 .changed();
             ui.end_row();
@@ -454,13 +454,13 @@ fn render_quick_access_menu(app: &mut SpLogApp, ui: &mut egui::Ui) {
             changed |= ui
                 .checkbox(
                     &mut app.quick_access.show_lotw,
-                    icons::GLOBE.label(tr("toolbar.lotw", lang)),
+                    icons::GLOBE.label(tr(key::TOOLBAR_LOTW, lang)),
                 )
                 .changed();
             changed |= ui
                 .checkbox(
                     &mut app.quick_access.show_map,
-                    icons::WORLD_MAP.label(tr("toolbar.map", lang)),
+                    icons::WORLD_MAP.label(tr(key::TOOLBAR_MAP, lang)),
                 )
                 .changed();
             ui.end_row();
@@ -468,13 +468,13 @@ fn render_quick_access_menu(app: &mut SpLogApp, ui: &mut egui::Ui) {
             changed |= ui
                 .checkbox(
                     &mut app.quick_access.show_awards,
-                    icons::AWARDS.label(tr("toolbar.awards", lang)),
+                    icons::AWARDS.label(tr(key::TOOLBAR_AWARDS, lang)),
                 )
                 .changed();
             changed |= ui
                 .checkbox(
                     &mut app.quick_access.show_cw,
-                    icons::CW_TERMINAL.label(tr("toolbar.cw", lang)),
+                    icons::CW_TERMINAL.label(tr(key::TOOLBAR_CW, lang)),
                 )
                 .changed();
             ui.end_row();
@@ -482,13 +482,13 @@ fn render_quick_access_menu(app: &mut SpLogApp, ui: &mut egui::Ui) {
             changed |= ui
                 .checkbox(
                     &mut app.quick_access.show_satellites,
-                    icons::SATELLITE.label(tr("toolbar.satellites", lang)),
+                    icons::SATELLITE.label(tr(key::TOOLBAR_SATELLITES, lang)),
                 )
                 .changed();
             changed |= ui
                 .checkbox(
                     &mut app.quick_access.show_contest,
-                    icons::FLAG.label(tr("toolbar.contest", lang)),
+                    icons::FLAG.label(tr(key::TOOLBAR_CONTEST, lang)),
                 )
                 .changed();
             ui.end_row();
@@ -496,7 +496,7 @@ fn render_quick_access_menu(app: &mut SpLogApp, ui: &mut egui::Ui) {
             changed |= ui
                 .checkbox(
                     &mut app.quick_access.show_equipment,
-                    icons::PACKAGE.label(tr("toolbar.equipment", lang)),
+                    icons::PACKAGE.label(tr(key::TOOLBAR_EQUIPMENT, lang)),
                 )
                 .changed();
             changed |= ui
@@ -517,7 +517,7 @@ fn render_quick_access_menu(app: &mut SpLogApp, ui: &mut egui::Ui) {
                         "{}/{} {}",
                         icons::MOON.as_str(),
                         icons::SOLAR.as_str(),
-                        tr("theme.menu", lang)
+                        tr(key::THEME_MENU, lang)
                     ),
                 )
                 .changed();
@@ -526,11 +526,11 @@ fn render_quick_access_menu(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
     ui.separator();
     ui.horizontal(|ui| {
-        if ui.button(tr("toolbar.restore_defaults", lang)).clicked() {
+        if ui.button(tr(key::TOOLBAR_RESTORE_DEFAULTS, lang)).clicked() {
             app.quick_access = crate::core::station::QuickAccessConfig::default();
             changed = true;
         }
-        if ui.button(tr("toolbar.minimal_toolbar", lang)).clicked() {
+        if ui.button(tr(key::TOOLBAR_MINIMAL_TOOLBAR, lang)).clicked() {
             app.quick_access.show_journal = true;
             app.quick_access.show_wsjtx = true;
             app.quick_access.show_cluster_status = true;

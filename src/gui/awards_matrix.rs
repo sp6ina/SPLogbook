@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::core::awards::US_STATES;
-use crate::core::i18n::{Language, tr, tr_or};
+use crate::core::i18n::{Language, key, tr, tr_or};
 use crate::gui::app::SpLogApp;
 use eframe::egui;
 
@@ -17,7 +17,7 @@ pub fn render_awards_matrix_window(app: &mut SpLogApp, ctx: &egui::Context) {
     let mut close_req = false;
 
     egui::Window::new(
-        egui::RichText::new(format!("🏆 {}", tr("awards.matrix_title", lang)))
+        egui::RichText::new(format!("🏆 {}", tr(key::AWARDS_MATRIX_TITLE, lang)))
             .size(12.0)
             .strong(),
     )
@@ -100,7 +100,7 @@ pub fn render_awards_matrix_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
             ui.separator();
             ui.horizontal(|ui| {
-                if ui.button(tr("btn.close", lang)).clicked() {
+                if ui.button(tr(key::BTN_CLOSE, lang)).clicked() {
                     close_req = true;
                 }
             });

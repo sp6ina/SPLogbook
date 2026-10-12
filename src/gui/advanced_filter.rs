@@ -4,7 +4,7 @@
 
 use crate::core::adif::export_adif;
 use crate::core::database::{AdvancedQsoFilter, LogDatabase};
-use crate::core::i18n::{Language, tr};
+use crate::core::i18n::{Language, key, tr};
 use crate::core::qso::QsoRecord;
 use eframe::egui;
 use std::fs::File;
@@ -69,34 +69,34 @@ impl AdvancedFilterDialog {
 
         let mut open = self.is_open;
         let mut close_requested = false;
-        egui::Window::new(tr("filter.dialog_title", lang))
+        egui::Window::new(tr(key::FILTER_DIALOG_TITLE, lang))
             .open(&mut open)
             .collapsible(false)
             .resizable(true)
             .default_width(520.0)
             .show(ctx, |ui| {
-                ui.heading(tr("filter.criteria_heading", lang));
+                ui.heading(tr(key::FILTER_CRITERIA_HEADING, lang));
                 ui.separator();
 
                 egui::Grid::new("filter_grid")
                     .num_columns(2)
                     .spacing([12.0, 8.0])
                     .show(ui, |ui| {
-                        ui.label(tr("filter.date_from", lang));
+                        ui.label(tr(key::FILTER_DATE_FROM, lang));
                         ui.text_edit_singleline(&mut self.date_from);
                         ui.end_row();
 
-                        ui.label(tr("filter.date_to", lang));
+                        ui.label(tr(key::FILTER_DATE_TO, lang));
                         ui.text_edit_singleline(&mut self.date_to);
                         ui.end_row();
 
-                        ui.label(tr("filter.call_query", lang));
+                        ui.label(tr(key::FILTER_CALL_QUERY, lang));
                         ui.text_edit_singleline(&mut self.call_query);
                         ui.end_row();
                     });
 
                 ui.add_space(8.0);
-                ui.label(egui::RichText::new(tr("filter.bands_selection", lang)).strong());
+                ui.label(egui::RichText::new(tr(key::FILTER_BANDS_SELECTION, lang)).strong());
                 let bands = [
                     "160m", "80m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m", "2m",
                     "70cm",
@@ -112,13 +112,13 @@ impl AdvancedFilterDialog {
                             }
                         }
                     }
-                    if ui.button(tr("filter.all_btn", lang)).clicked() {
+                    if ui.button(tr(key::FILTER_ALL_BTN, lang)).clicked() {
                         self.selected_bands.clear();
                     }
                 });
 
                 ui.add_space(8.0);
-                ui.label(egui::RichText::new(tr("filter.modes_selection", lang)).strong());
+                ui.label(egui::RichText::new(tr(key::FILTER_MODES_SELECTION, lang)).strong());
                 let modes = ["CW", "SSB", "FT8", "FT4", "RTTY", "PSK", "FM", "AM"];
                 ui.horizontal_wrapped(|ui| {
                     for mode in &modes {
@@ -131,17 +131,17 @@ impl AdvancedFilterDialog {
                             }
                         }
                     }
-                    if ui.button(tr("filter.all_btn", lang)).clicked() {
+                    if ui.button(tr(key::FILTER_ALL_BTN, lang)).clicked() {
                         self.selected_modes.clear();
                     }
                 });
 
                 ui.add_space(8.0);
-                ui.label(egui::RichText::new(tr("filter.qsl_status_heading", lang)).strong());
+                ui.label(egui::RichText::new(tr(key::FILTER_QSL_STATUS_HEADING, lang)).strong());
                 ui.horizontal(|ui| {
-                    ui.checkbox(&mut self.lotw_only, tr("filter.lotw_only", lang));
-                    ui.checkbox(&mut self.eqsl_only, tr("filter.eqsl_only", lang));
-                    ui.checkbox(&mut self.qsl_rcvd_only, tr("filter.paper_only", lang));
+                    ui.checkbox(&mut self.lotw_only, tr(key::FILTER_LOTW_ONLY, lang));
+                    ui.checkbox(&mut self.eqsl_only, tr(key::FILTER_EQSL_ONLY, lang));
+                    ui.checkbox(&mut self.qsl_rcvd_only, tr(key::FILTER_PAPER_ONLY, lang));
                 });
 
                 ui.separator();
@@ -152,7 +152,7 @@ impl AdvancedFilterDialog {
 
                 ui.horizontal(|ui| {
                     if ui
-                        .button(format!("🔎 {}", tr("filter.apply_btn", lang)))
+                        .button(format!("🔎 {}", tr(key::FILTER_APPLY_BTN, lang)))
                         .clicked()
                     {
                         let filter = self.build_filter(active_journal_id);
@@ -168,7 +168,7 @@ impl AdvancedFilterDialog {
                     }
 
                     if ui
-                        .button(format!("❌ {}", tr("filter.clear_btn", lang)))
+                        .button(format!("❌ {}", tr(key::FILTER_CLEAR_BTN, lang)))
                         .clicked()
                     {
                         self.date_from.clear();
@@ -186,7 +186,7 @@ impl AdvancedFilterDialog {
                     }
 
                     if ui
-                        .button(format!("📤 {}", tr("filter.export_adif_btn", lang)))
+                        .button(format!("📤 {}", tr(key::FILTER_EXPORT_ADIF_BTN, lang)))
                         .clicked()
                     {
                         let filter = self.build_filter(active_journal_id);
@@ -217,7 +217,7 @@ impl AdvancedFilterDialog {
                     }
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button(tr("btn.close", lang)).clicked() {
+                        if ui.button(tr(key::BTN_CLOSE, lang)).clicked() {
                             close_requested = true;
                         }
                     });

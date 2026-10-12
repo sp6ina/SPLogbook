@@ -3,7 +3,7 @@
 // Wyszukiwarka poleceń (Command Palette) — szybkie uruchamianie akcji i okien
 // przez Ctrl+Shift+P, na wzór edytorów kodu i nowoczesnych aplikacji.
 
-use crate::core::i18n::tr;
+use crate::core::i18n::{key, tr};
 use crate::gui::app::SpLogApp;
 use eframe::egui;
 
@@ -296,7 +296,7 @@ pub fn render_command_palette(app: &mut SpLogApp, ctx: &egui::Context) {
     let mut open = app.show_command_palette;
     let mut run_idx: Option<usize> = None;
 
-    egui::Window::new(egui::RichText::new(format!("🔎 {}", tr("palette.title", lang))).strong())
+    egui::Window::new(egui::RichText::new(format!("🔎 {}", tr(key::PALETTE_TITLE, lang))).strong())
         .open(&mut open)
         .collapsible(false)
         .resizable(false)
@@ -305,7 +305,7 @@ pub fn render_command_palette(app: &mut SpLogApp, ctx: &egui::Context) {
         .show(ctx, |ui| {
             let resp = ui.add(
                 egui::TextEdit::singleline(&mut app.command_palette_query)
-                    .hint_text(tr("palette.search_hint", lang))
+                    .hint_text(tr(key::PALETTE_SEARCH_HINT, lang))
                     .desired_width(f32::INFINITY),
             );
             if resp.changed() {
@@ -330,7 +330,7 @@ pub fn render_command_palette(app: &mut SpLogApp, ctx: &egui::Context) {
                 .show(ui, |ui| {
                     if matches.is_empty() {
                         ui.label(
-                            egui::RichText::new(tr("palette.no_results", lang))
+                            egui::RichText::new(tr(key::PALETTE_NO_RESULTS, lang))
                                 .color(egui::Color32::from_rgb(148, 163, 184)),
                         );
                     }

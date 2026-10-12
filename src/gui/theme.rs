@@ -88,9 +88,15 @@ impl ThemePreset {
 
     pub fn label(&self, lang: crate::core::i18n::Language) -> &'static str {
         match self {
-            ThemePreset::OperatorDark => crate::core::i18n::tr("theme.preset_dark_label", lang),
-            ThemePreset::Daylight => crate::core::i18n::tr("theme.preset_light_label", lang),
-            ThemePreset::HighContrast => crate::core::i18n::tr("theme.preset_contrast_label", lang),
+            ThemePreset::OperatorDark => {
+                crate::core::i18n::tr(crate::core::i18n::key::THEME_PRESET_DARK_LABEL, lang)
+            }
+            ThemePreset::Daylight => {
+                crate::core::i18n::tr(crate::core::i18n::key::THEME_PRESET_LIGHT_LABEL, lang)
+            }
+            ThemePreset::HighContrast => {
+                crate::core::i18n::tr(crate::core::i18n::key::THEME_PRESET_CONTRAST_LABEL, lang)
+            }
         }
     }
 
@@ -110,9 +116,15 @@ impl ThemePreset {
 
     pub fn description(&self, lang: crate::core::i18n::Language) -> &'static str {
         match self {
-            ThemePreset::OperatorDark => crate::core::i18n::tr("theme.preset_dark_desc", lang),
-            ThemePreset::Daylight => crate::core::i18n::tr("theme.preset_light_desc", lang),
-            ThemePreset::HighContrast => crate::core::i18n::tr("theme.preset_contrast_desc", lang),
+            ThemePreset::OperatorDark => {
+                crate::core::i18n::tr(crate::core::i18n::key::THEME_PRESET_DARK_DESC, lang)
+            }
+            ThemePreset::Daylight => {
+                crate::core::i18n::tr(crate::core::i18n::key::THEME_PRESET_LIGHT_DESC, lang)
+            }
+            ThemePreset::HighContrast => {
+                crate::core::i18n::tr(crate::core::i18n::key::THEME_PRESET_CONTRAST_DESC, lang)
+            }
         }
     }
 

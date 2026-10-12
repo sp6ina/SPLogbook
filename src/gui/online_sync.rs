@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::cloud::lotw::detect_tqsl_path;
-use crate::core::i18n::tr;
+use crate::core::i18n::{key, tr};
 use crate::gui::app::SpLogApp;
 use eframe::egui;
 
@@ -39,7 +39,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
         .data_mut(|d| d.get_temp::<SyncTab>(active_tab_id))
         .unwrap_or(SyncTab::Lotw);
 
-    egui::Window::new(format!("🌐 {}", tr("sync.title", lang)))
+    egui::Window::new(format!("🌐 {}", tr(key::SYNC_TITLE, lang)))
         .open(&mut is_open)
         .default_size([640.0, 420.0])
         .max_height(max_h)
@@ -107,7 +107,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
                                     ui.add_space(6.0);
                                     ui.horizontal(|ui| {
-                                        if ui.button(egui::RichText::new(format!("📤 {}", tr("sync.lotw_tqsl", lang))).strong()).clicked() {
+                                        if ui.button(egui::RichText::new(format!("📤 {}", tr(key::SYNC_LOTW_TQSL, lang))).strong()).clicked() {
                                             let qsos = if let Ok(db) = app.log_db.lock() {
                                                 db.get_recent_qsos(1000).unwrap_or_default()
                                             } else {
@@ -133,7 +133,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                             });
                                         }
 
-                                        if ui.button(egui::RichText::new(format!("📥 {}", tr("sync.lotw_download", lang)))).clicked() {
+                                        if ui.button(egui::RichText::new(format!("📥 {}", tr(key::SYNC_LOTW_DOWNLOAD, lang)))).clicked() {
                                             if app.lotw_username.is_empty() || app.lotw_password.is_empty() {
                                                 app.online_sync_logs.push("[LoTW] Błąd: Brak loginu lub hasła do LoTW.".to_string());
                                             } else {
@@ -190,7 +190,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
                                     ui.add_space(6.0);
                                     ui.horizontal(|ui| {
-                                        if ui.button(format!("📤 {}", tr("sync.eqsl_upload", lang))).clicked() {
+                                        if ui.button(format!("📤 {}", tr(key::SYNC_EQSL_UPLOAD, lang))).clicked() {
                                             if app.eqsl_username.is_empty() || app.eqsl_password.is_empty() {
                                                 app.online_sync_logs.push("[eQSL] Błąd: Brak loginu lub hasła do eQSL.cc.".to_string());
                                             } else {
@@ -209,7 +209,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                 });
                                             }
                                         }
-                                        if ui.button(format!("📥 {}", tr("sync.eqsl_download", lang))).clicked() {
+                                        if ui.button(format!("📥 {}", tr(key::SYNC_EQSL_DOWNLOAD, lang))).clicked() {
                                             if app.eqsl_username.is_empty() || app.eqsl_password.is_empty() {
                                                 app.online_sync_logs.push("[eQSL] Błąd: Brak loginu lub hasła do eQSL.cc.".to_string());
                                             } else {
@@ -274,7 +274,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     ui.checkbox(&mut app.live_auto_upload_clublog, "Automatycznie wysyłaj każde nowo dodane QSO w czasie rzeczywistym");
 
                                     ui.add_space(6.0);
-                                    if ui.button(format!("📤 {}", tr("sync.clublog_upload", lang))).clicked() {
+                                    if ui.button(format!("📤 {}", tr(key::SYNC_CLUBLOG_UPLOAD, lang))).clicked() {
                                         if app.clublog_callsign.is_empty() || app.clublog_password.is_empty() {
                                             app.online_sync_logs.push("[Club Log] Błąd: Brak znaku lub hasła do Club Log.".to_string());
                                         } else {
@@ -302,7 +302,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     ui.label(egui::RichText::new("📖 QRZ.COM Callbook & Logbook").strong().size(13.0).color(egui::Color32::from_rgb(251, 146, 60)));
                                     ui.separator();
 
-                                    ui.checkbox(&mut app.qrz_auto_lookup, tr("sync.auto_lookup", lang));
+                                    ui.checkbox(&mut app.qrz_auto_lookup, tr(key::SYNC_AUTO_LOOKUP, lang));
                                     ui.checkbox(&mut app.live_auto_upload_qrz, "Automatycznie przesyłaj łączności do logbooka QRZ.com");
 
                                     ui.horizontal(|ui| {
@@ -319,7 +319,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     });
 
                                     ui.add_space(4.0);
-                                    if ui.button(format!("📤 {}", tr("sync.qrz_upload", lang))).clicked() {
+                                    if ui.button(format!("📤 {}", tr(key::SYNC_QRZ_UPLOAD, lang))).clicked() {
                                         if app.qrz_api_key.is_empty() {
                                             app.online_sync_logs.push("[QRZ.com] Błąd: Brak klucza API logbooka QRZ.".to_string());
                                         } else {
@@ -685,11 +685,11 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
                 ui.separator();
                 ui.horizontal(|ui| {
-                    if ui.button(egui::RichText::new(tr("btn.save", lang)).strong()).clicked() {
+                    if ui.button(egui::RichText::new(tr(key::BTN_SAVE, lang)).strong()).clicked() {
                         app.save_station_config();
                         close_req = true;
                     }
-                    if ui.button(tr("btn.close", lang)).clicked() {
+                    if ui.button(tr(key::BTN_CLOSE, lang)).clicked() {
                         close_req = true;
                     }
                 });

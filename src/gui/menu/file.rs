@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
-use crate::core::i18n::tr;
+use crate::core::i18n::{key, tr};
 use crate::gui::app::SpLogApp;
 use crate::gui::icons;
 use eframe::egui;
@@ -10,9 +10,9 @@ use eframe::egui;
 pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.current_language;
 
-    ui.menu_button(tr("menu.file", lang), |ui| {
+    ui.menu_button(tr(key::MENU_FILE, lang), |ui| {
         if ui
-            .button(icons::FOLDER.label(tr("menu.journal_mgmt", lang)))
+            .button(icons::FOLDER.label(tr(key::MENU_JOURNAL_MGMT, lang)))
             .clicked()
         {
             if let Ok(db) = app.log_db.lock() {
@@ -22,21 +22,21 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ui.close();
         }
         if ui
-            .button(icons::SEARCH.label(tr("menu.advanced_filter", lang)))
+            .button(icons::SEARCH.label(tr(key::MENU_ADVANCED_FILTER, lang)))
             .clicked()
         {
             app.advanced_filter_dialog.is_open = true;
             ui.close();
         }
         if ui
-            .button(icons::BADGE.label(tr("menu.qsl_print", lang)))
+            .button(icons::BADGE.label(tr(key::MENU_QSL_PRINT, lang)))
             .clicked()
         {
             app.qsl_designer_dialog.is_open = true;
             ui.close();
         }
         if ui
-            .button(icons::BADGE.label(tr("menu.station_profiles", lang)))
+            .button(icons::BADGE.label(tr(key::MENU_STATION_PROFILES, lang)))
             .clicked()
         {
             app.show_station_profiles_window = true;
@@ -44,37 +44,37 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
         ui.separator();
         if ui
-            .button(icons::STAR.label(tr("wizard.setup_station", lang)))
+            .button(icons::STAR.label(tr(key::WIZARD_SETUP_STATION, lang)))
             .clicked()
         {
             app.show_welcome_wizard = true;
             ui.close();
         }
         if ui
-            .button(icons::GLOBE.label(tr("menu.online_sync", lang)))
+            .button(icons::GLOBE.label(tr(key::MENU_ONLINE_SYNC, lang)))
             .clicked()
         {
             app.show_online_sync_window = true;
             ui.close();
         }
-        if ui.button(tr("menu.import_adif", lang)).clicked() {
+        if ui.button(tr(key::MENU_IMPORT_ADIF, lang)).clicked() {
             app.trigger_import_adif();
             ui.close();
         }
-        if ui.button(tr("menu.export_adif", lang)).clicked() {
+        if ui.button(tr(key::MENU_EXPORT_ADIF, lang)).clicked() {
             app.trigger_export_adif();
             ui.close();
         }
-        if ui.button(tr("menu.export_adx", lang)).clicked() {
+        if ui.button(tr(key::MENU_EXPORT_ADX, lang)).clicked() {
             app.trigger_export_adx();
             ui.close();
         }
-        if ui.button(tr("menu.export_csv", lang)).clicked() {
+        if ui.button(tr(key::MENU_EXPORT_CSV, lang)).clicked() {
             app.csv_export_dialog.open();
             ui.close();
         }
         if ui
-            .button(icons::SOTA_MOUNTAIN.label(tr("menu.export_sota", lang)))
+            .button(icons::SOTA_MOUNTAIN.label(tr(key::MENU_EXPORT_SOTA, lang)))
             .clicked()
         {
             let call = app.my_station.callsign.clone();
@@ -82,26 +82,26 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ui.close();
         }
         if ui
-            .button(icons::DOCUMENT.label(tr("menu.export_pdf", lang)))
+            .button(icons::DOCUMENT.label(tr(key::MENU_EXPORT_PDF, lang)))
             .clicked()
         {
             app.export_pdf_log();
             ui.close();
         }
         if ui
-            .button(icons::WORLD_MAP.label(tr("menu.export_gpx", lang)))
+            .button(icons::WORLD_MAP.label(tr(key::MENU_EXPORT_GPX, lang)))
             .clicked()
         {
             app.export_gpx_log();
             ui.close();
         }
         ui.separator();
-        if ui.button(tr("menu.backup", lang)).clicked() {
+        if ui.button(tr(key::MENU_BACKUP, lang)).clicked() {
             app.run_manual_backup();
             ui.close();
         }
         ui.separator();
-        if ui.button(tr("menu.exit", lang)).clicked() {
+        if ui.button(tr(key::MENU_EXIT, lang)).clicked() {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
         }
     });

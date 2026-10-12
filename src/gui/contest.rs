@@ -8,7 +8,7 @@ use crate::core::contest_stats::{
 use crate::core::exchange::{
     ExchangeField, apply_to_qso, exchange_summary, fields_from_format_string, parse_exchange,
 };
-use crate::core::i18n::tr;
+use crate::core::i18n::{key, tr};
 use crate::core::qso::QsoRecord;
 use crate::core::station::CustomContest;
 use crate::gui::app::SpLogApp;
@@ -23,21 +23,21 @@ pub fn render_custom_contest_editor(app: &mut SpLogApp, ctx: &egui::Context) {
     }
     let lang = app.current_language;
 
-    egui::Window::new(tr("contest.custom_editor_title", lang))
+    egui::Window::new(tr(key::CONTEST_CUSTOM_EDITOR_TITLE, lang))
         .open(&mut open)
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {
-                    ui.heading(tr("contest.your_contests", lang));
+                    ui.heading(tr(key::CONTEST_YOUR_CONTESTS, lang));
                     let mut to_delete = None;
                     for (i, contest) in app.custom_contests.iter().enumerate() {
                         ui.horizontal(|ui| {
                             ui.label(&contest.name);
-                            if ui.button(tr("btn.edit", lang)).clicked() {
+                            if ui.button(tr(key::BTN_EDIT, lang)).clicked() {
                                 app.custom_contest_edit_idx = Some(i);
                                 app.custom_contest_draft = contest.clone();
                             }
-                            if ui.button(tr("btn.delete", lang)).clicked() {
+                            if ui.button(tr(key::BTN_DELETE, lang)).clicked() {
                                 to_delete = Some(i);
                             }
                         });
@@ -50,7 +50,10 @@ pub fn render_custom_contest_editor(app: &mut SpLogApp, ctx: &egui::Context) {
                         }
                         app.save_station_config();
                     }
-                    if ui.button(tr("contest.new_custom_contest", lang)).clicked() {
+                    if ui
+                        .button(tr(key::CONTEST_NEW_CUSTOM_CONTEST, lang))
+                        .clicked()
+                    {
                         app.custom_contest_edit_idx = None;
                         app.custom_contest_draft = CustomContest::default();
                     }
@@ -60,27 +63,27 @@ pub fn render_custom_contest_editor(app: &mut SpLogApp, ctx: &egui::Context) {
 
                 ui.vertical(|ui| {
                     ui.heading(if app.custom_contest_edit_idx.is_some() {
-                        tr("contest.editing", lang)
+                        tr(key::CONTEST_EDITING, lang)
                     } else {
-                        tr("contest.new", lang)
+                        tr(key::CONTEST_NEW, lang)
                     });
 
                     ui.horizontal(|ui| {
-                        ui.label(tr("contest.name_label", lang));
+                        ui.label(tr(key::CONTEST_NAME_LABEL, lang));
                         ui.text_edit_singleline(&mut app.custom_contest_draft.name);
                     });
                     ui.horizontal(|ui| {
-                        ui.label(tr("contest.exchange_label", lang));
+                        ui.label(tr(key::CONTEST_EXCHANGE_LABEL, lang));
                         ui.text_edit_singleline(&mut app.custom_contest_draft.exchange_format);
                     });
 
-                    ui.label(tr("contest.points_per_qso_label", lang));
+                    ui.label(tr(key::CONTEST_POINTS_PER_QSO_LABEL, lang));
                     ui.add(egui::Slider::new(
                         &mut app.custom_contest_draft.points_per_qso,
                         1..=20,
                     ));
 
-                    ui.label(tr("contest.bands_label", lang));
+                    ui.label(tr(key::CONTEST_BANDS_LABEL, lang));
                     let all_bands = [
                         "160m", "80m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m", "2m",
                         "70cm",
@@ -99,10 +102,10 @@ pub fn render_custom_contest_editor(app: &mut SpLogApp, ctx: &egui::Context) {
                         }
                     });
 
-                    ui.label(tr("contest.description_label", lang));
+                    ui.label(tr(key::CONTEST_DESCRIPTION_LABEL, lang));
                     ui.text_edit_multiline(&mut app.custom_contest_draft.description);
 
-                    if ui.button(tr("btn.save", lang)).clicked()
+                    if ui.button(tr(key::BTN_SAVE, lang)).clicked()
                         && !app.custom_contest_draft.name.is_empty()
                     {
                         if let Some(i) = app.custom_contest_edit_idx {
@@ -243,14 +246,14 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
     let projected_1h =
         total as f64 + rate.rate_60m() as f64 * avg_points_per_qso * mults.max(1) as f64;
 
-    egui::Window::new(tr("contest.window_title", lang))
+    egui::Window::new(tr(key::CONTEST_WINDOW_TITLE, lang))
         .id(egui::Id::new("splogbook_contest_window"))
         .open(&mut open)
         .default_size([800.0, 600.0])
         .show(ctx, |ui| {
             ui.vertical(|ui| {
                 ui.horizontal(|ui| {
-                    ui.label(tr("contest.select", lang));
+                    ui.label(tr(key::CONTEST_SELECT, lang));
                     egui::ComboBox::from_id_salt("contest_type")
                         .selected_text(&app.contest_name)
                         .show_ui(ui, |ui| {
@@ -265,7 +268,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             }
                         });
 
-                    if ui.button(tr("contest.add_custom", lang)).clicked() {
+                    if ui.button(tr(key::CONTEST_ADD_CUSTOM, lang)).clicked() {
                         app.show_custom_contest_editor = true;
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -284,16 +287,16 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
                 ui.columns(3, |cols| {
                     cols[0].group(|ui| {
-                        ui.label(egui::RichText::new(tr("contest.current_results", lang)).strong().color(egui::Color32::from_rgb(251, 191, 36)));
-                        ui.label(format!("{} {}", tr("contest.qso_count", lang), app.contest_qsos));
-                        ui.label(format!("{} {}", tr("contest.qso_points", lang), app.contest_points));
-                        ui.label(format!("{} {}", tr("contest.multipliers", lang), app.contest_mults));
+                        ui.label(egui::RichText::new(tr(key::CONTEST_CURRENT_RESULTS, lang)).strong().color(egui::Color32::from_rgb(251, 191, 36)));
+                        ui.label(format!("{} {}", tr(key::CONTEST_QSO_COUNT, lang), app.contest_qsos));
+                        ui.label(format!("{} {}", tr(key::CONTEST_QSO_POINTS, lang), app.contest_points));
+                        ui.label(format!("{} {}", tr(key::CONTEST_MULTIPLIERS, lang), app.contest_mults));
                         ui.separator();
-                        ui.label(egui::RichText::new(format!("{}: {}", tr("contest.final_score", lang), total)).size(16.0).strong().color(egui::Color32::from_rgb(34, 197, 94)));
+                        ui.label(egui::RichText::new(format!("{}: {}", tr(key::CONTEST_FINAL_SCORE, lang), total)).size(16.0).strong().color(egui::Color32::from_rgb(34, 197, 94)));
                     });
 
                     cols[1].group(|ui| {
-                        ui.label(egui::RichText::new(tr("contest.band_stats", lang)).strong().color(egui::Color32::from_rgb(147, 197, 253)));
+                        ui.label(egui::RichText::new(tr(key::CONTEST_BAND_STATS, lang)).strong().color(egui::Color32::from_rgb(147, 197, 253)));
                         egui::ScrollArea::vertical().id_salt("band_stats").max_height(80.0).show(ui, |ui| {
                             let mut bands = std::collections::HashMap::new();
                             for qso in &app.recent_qsos {
@@ -302,22 +305,22 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             let mut band_vec: Vec<_> = bands.into_iter().collect();
                             band_vec.sort_by_key(|a| std::cmp::Reverse(a.1));
                             for (band, count) in band_vec {
-                                ui.label(format!("{} {}: {} QSOs", tr("contest.band_header", lang), band, count));
+                                ui.label(format!("{} {}: {} QSOs", tr(key::CONTEST_BAND_HEADER, lang), band, count));
                             }
                         });
                     });
 
                     cols[2].group(|ui| {
-                        ui.label(egui::RichText::new(tr("contest.rate", lang)).strong().color(egui::Color32::from_rgb(56, 189, 248)));
+                        ui.label(egui::RichText::new(tr(key::CONTEST_RATE, lang)).strong().color(egui::Color32::from_rgb(56, 189, 248)));
                         ui.label(format!("1m:  {} QSO/h", rate.rate_1m()));
                         ui.label(format!("5m:  {} QSO/h", rate.rate_5m()));
                         ui.label(format!("10m: {} QSO/h", rate.rate_10m()));
                         ui.label(format!("60m: {} QSO/h", rate.rate_60m()));
                         ui.label(
-                            egui::RichText::new(format!("{}: {:.0}", tr("contest.projected_1h", lang), projected_1h))
+                            egui::RichText::new(format!("{}: {:.0}", tr(key::CONTEST_PROJECTED_1H, lang), projected_1h))
                                 .color(egui::Color32::from_rgb(34, 197, 94)),
                         );
-                        ui.label(format!("{} {:03}", tr("contest.stx_nr", lang), app.contest_stx));
+                        ui.label(format!("{} {:03}", tr(key::CONTEST_STX_NR, lang), app.contest_stx));
                     });
                 });
 
@@ -325,14 +328,14 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 ui.separator();
 
                 // Wykres tempa (ostatnie 60 minut) + macierz mnożników.
-                egui::CollapsingHeader::new(tr("contest.rate_chart", lang))
+                egui::CollapsingHeader::new(tr(key::CONTEST_RATE_CHART, lang))
                     .default_open(false)
                     .show(ui, |ui| {
                         render_rate_chart(ui, &rate);
                     });
 
                 if mult_kind != MultKind::None && !rule_bands.is_empty() {
-                    egui::CollapsingHeader::new(format!("{} ({})", tr("contest.mult_matrix", lang), mult_kind.as_str()))
+                    egui::CollapsingHeader::new(format!("{} ({})", tr(key::CONTEST_MULT_MATRIX, lang), mult_kind.as_str()))
                         .default_open(false)
                         .show(ui, |ui| {
                             render_mult_matrix(ui, &mult_matrix, lang);
@@ -341,9 +344,9 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
                 // QSO ENTRY FORM
                 ui.group(|ui| {
-                    ui.label(egui::RichText::new(tr("contest.entry_header", lang)).strong());
+                    ui.label(egui::RichText::new(tr(key::CONTEST_ENTRY_HEADER, lang)).strong());
                     ui.horizontal(|ui| {
-                        ui.label(format!("{}:", tr("qso.callsign", lang)));
+                        ui.label(format!("{}:", tr(key::QSO_CALLSIGN, lang)));
 
                         let dummy_qso = QsoRecord {
                             callsign: app.entry_callsign.clone(),
@@ -378,10 +381,10 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             ui.label(egui::RichText::new("DUPE!").color(egui::Color32::RED).strong());
                         }
 
-                        ui.label(tr("contest.rcvd_report_exchange", lang));
+                        ui.label(tr(key::CONTEST_RCVD_REPORT_EXCHANGE, lang));
                         ui.add(egui::TextEdit::singleline(&mut app.entry_exchange).desired_width(200.0));
 
-                        if ui.button(tr("contest.save_qso", lang)).clicked() {
+                        if ui.button(tr(key::CONTEST_SAVE_QSO, lang)).clicked() {
                             save_clicked = true;
                         }
                     });
@@ -415,7 +418,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 });
 
                 // DX Cluster / Bandmap wbudowany w okno kontestu: spot -> wpis jednym klikiem.
-                egui::CollapsingHeader::new(tr("contest.spot_list", lang))
+                egui::CollapsingHeader::new(tr(key::CONTEST_SPOT_LIST, lang))
                     .default_open(false)
                     .show(ui, |ui| {
                         let mut tune: Option<(String, f64, String, bool)> = None;
@@ -425,10 +428,10 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 .num_columns(5)
                                 .spacing([10.0, 3.0])
                                 .show(ui, |ui| {
-                                    ui.label(egui::RichText::new(tr("cluster.dx", lang)).strong());
-                                    ui.label(egui::RichText::new(tr("cluster.freq", lang)).strong());
-                                    ui.label(egui::RichText::new(tr("qso.band", lang)).strong());
-                                    ui.label(egui::RichText::new(tr("cluster.comment", lang)).strong());
+                                    ui.label(egui::RichText::new(tr(key::CLUSTER_DX, lang)).strong());
+                                    ui.label(egui::RichText::new(tr(key::CLUSTER_FREQ, lang)).strong());
+                                    ui.label(egui::RichText::new(tr(key::QSO_BAND, lang)).strong());
+                                    ui.label(egui::RichText::new(tr(key::CLUSTER_COMMENT, lang)).strong());
                                     ui.label("");
                                     ui.end_row();
 
@@ -453,7 +456,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                         ui.label(egui::RichText::new(&spot.band).color(egui::Color32::from_rgb(251, 191, 36)));
                                         ui.label(egui::RichText::new(&spot.comment).size(11.0).weak());
                                         if ui
-                                            .button(egui::RichText::new(tr("contest.spot_fill_entry", lang)).color(egui::Color32::from_rgb(34, 197, 94)))
+                                            .button(egui::RichText::new(tr(key::CONTEST_SPOT_FILL_ENTRY, lang)).color(egui::Color32::from_rgb(34, 197, 94)))
                                             .clicked()
                                         {
                                             tune = Some((spot.dx_call.clone(), spot.frequency_khz, spot.band.clone(), spot.is_ft8));
@@ -472,13 +475,13 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 ui.separator();
 
                 ui.horizontal(|ui| {
-                    if ui.button(tr("contest.export_cabrillo", lang)).clicked() {
+                    if ui.button(tr(key::CONTEST_EXPORT_CABRILLO, lang)).clicked() {
                         export_clicked = true;
                     }
-                    if ui.button(tr("contest.reset_numbering", lang)).clicked() {
+                    if ui.button(tr(key::CONTEST_RESET_NUMBERING, lang)).clicked() {
                         reset_clicked = true;
                     }
-                    if ui.button(tr("btn.close", lang)).clicked() {
+                    if ui.button(tr(key::BTN_CLOSE, lang)).clicked() {
                         close_req = true;
                     }
                 });
@@ -505,7 +508,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
             app.status_toast = Some((
                 format!(
                     "{}: {}",
-                    tr("contest.worked_before", app.current_language),
+                    tr(key::CONTEST_WORKED_BEFORE, app.current_language),
                     call
                 ),
                 std::time::Instant::now(),
@@ -773,11 +776,11 @@ pub fn render_multi_op_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
                 ui.separator();
                 ui.horizontal(|ui| {
-                    if ui.button(egui::RichText::new(tr("btn.save", lang)).strong()).clicked() {
+                    if ui.button(egui::RichText::new(tr(key::BTN_SAVE, lang)).strong()).clicked() {
                         app.save_station_config();
                         close_req = true;
                     }
-                    if ui.button(tr("btn.close", lang)).clicked() {
+                    if ui.button(tr(key::BTN_CLOSE, lang)).clicked() {
                         close_req = true;
                     }
                 });
@@ -839,22 +842,22 @@ fn render_rate_chart(ui: &mut egui::Ui, rate: &RateStats) {
 /// Zielony = zaliczony na paśmie, żółty = zaliczony gdzie indziej, szary = potrzebny.
 fn render_mult_matrix(ui: &mut egui::Ui, matrix: &MultMatrix, lang: crate::core::i18n::Language) {
     if matrix.bands.is_empty() {
-        ui.label(tr("log.no_results", lang));
+        ui.label(tr(key::LOG_NO_RESULTS, lang));
         return;
     }
 
     // Legenda.
     ui.horizontal(|ui| {
         ui.colored_label(egui::Color32::from_rgb(34, 197, 94), "●");
-        ui.label(tr("contest.mult_worked_here", lang));
+        ui.label(tr(key::CONTEST_MULT_WORKED_HERE, lang));
         ui.colored_label(egui::Color32::from_rgb(251, 191, 36), "◐");
-        ui.label(tr("contest.mult_worked_other", lang));
+        ui.label(tr(key::CONTEST_MULT_WORKED_OTHER, lang));
         ui.colored_label(egui::Color32::from_rgb(71, 85, 105), "·");
-        ui.label(tr("contest.mult_needed", lang));
+        ui.label(tr(key::CONTEST_MULT_NEEDED, lang));
         ui.label(
             egui::RichText::new(format!(
                 "({}: {})",
-                tr("contest.mult_needed_count", lang),
+                tr(key::CONTEST_MULT_NEEDED_COUNT, lang),
                 matrix.needed_count()
             ))
             .weak(),

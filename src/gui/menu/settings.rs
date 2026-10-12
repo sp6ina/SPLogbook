@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
-use crate::core::i18n::{Language, tr};
+use crate::core::i18n::{Language, key, tr};
 use crate::gui::app::SpLogApp;
 use crate::gui::icons;
 use crate::gui::theme::ThemePreset;
@@ -11,9 +11,9 @@ use eframe::egui;
 pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.current_language;
 
-    ui.menu_button(tr("menu.settings", lang), |ui| {
+    ui.menu_button(tr(key::MENU_SETTINGS, lang), |ui| {
         // Język interfejsu
-        ui.menu_button(icons::GLOBE.label(tr("settings.language", lang)), |ui| {
+        ui.menu_button(icons::GLOBE.label(tr(key::SETTINGS_LANGUAGE, lang)), |ui| {
             let langs = [
                 Language::Pl,
                 Language::En,
@@ -48,7 +48,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         });
 
         // Motyw kolorystyczny
-        ui.menu_button(icons::THEME.label(tr("theme.menu", lang)), |ui| {
+        ui.menu_button(icons::THEME.label(tr(key::THEME_MENU, lang)), |ui| {
             for preset in ThemePreset::ALL {
                 let selected = app.theme_preset == preset;
                 if ui
@@ -66,7 +66,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.separator();
 
         // Skala czcionki / UI
-        ui.label(egui::RichText::new(tr("settings.font_scale", lang)).strong());
+        ui.label(egui::RichText::new(tr(key::SETTINGS_FONT_SCALE, lang)).strong());
         let mut scale = app.font_scale;
         if ui
             .add(egui::Slider::new(&mut scale, 0.8..=1.5).step_by(0.05))
@@ -78,7 +78,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.label(format!("{:.0}%", app.font_scale * 100.0));
 
         // Rodzina czcionek (zmiana wymaga ponownego uruchomienia)
-        ui.label(egui::RichText::new(tr("settings.font_family", lang)).strong());
+        ui.label(egui::RichText::new(tr(key::SETTINGS_FONT_FAMILY, lang)).strong());
         let mut selected_family = app.font_family.clone();
         let families = [
             "",
@@ -89,7 +89,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             "Noto Sans",
         ];
         let current_label = if selected_family.is_empty() {
-            tr("settings.font_default", lang)
+            tr(key::SETTINGS_FONT_DEFAULT, lang)
         } else {
             selected_family.as_str()
         };
@@ -98,7 +98,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .show_ui(ui, |ui| {
                 for family in families {
                     let label = if family.is_empty() {
-                        tr("settings.font_default", lang)
+                        tr(key::SETTINGS_FONT_DEFAULT, lang)
                     } else {
                         family
                     };
@@ -113,13 +113,13 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             });
 
         // Jednostka odległości używana w całym interfejsie (DX, azymut, mapa)
-        ui.label(egui::RichText::new(tr("settings.distance_unit", lang)).strong());
+        ui.label(egui::RichText::new(tr(key::SETTINGS_DISTANCE_UNIT, lang)).strong());
         let mut selected_unit = app.distance_unit.clone();
         let unit_label = |u: &str| -> &str {
             match u {
-                "mi" => tr("settings.unit_mi", lang),
-                "nmi" => tr("settings.unit_nmi", lang),
-                _ => tr("settings.unit_km", lang),
+                "mi" => tr(key::SETTINGS_UNIT_MI, lang),
+                "nmi" => tr(key::SETTINGS_UNIT_NMI, lang),
+                _ => tr(key::SETTINGS_UNIT_KM, lang),
             }
         };
         egui::ComboBox::from_id_salt("settings_distance_unit")

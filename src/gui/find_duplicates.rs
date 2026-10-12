@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
-use crate::core::i18n::tr;
+use crate::core::i18n::{key, tr};
 use crate::gui::app::SpLogApp;
 use eframe::egui;
 
@@ -17,7 +17,7 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
     let mut delete_requested = false;
 
     egui::Window::new(
-        egui::RichText::new(tr("duplicates.title", lang))
+        egui::RichText::new(tr(key::DUPLICATES_TITLE, lang))
             .size(14.0)
             .strong(),
     )
@@ -28,11 +28,11 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
     .show(ctx, |ui| {
         ui.vertical(|ui| {
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(tr("duplicates.criteria", lang)).strong());
+                ui.label(egui::RichText::new(tr(key::DUPLICATES_CRITERIA, lang)).strong());
                 if ui
                     .checkbox(
                         &mut app.duplicates_match_date,
-                        tr("duplicates.same_day", lang),
+                        tr(key::DUPLICATES_SAME_DAY, lang),
                     )
                     .changed()
                 {
@@ -41,7 +41,7 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
                         .button(
-                            egui::RichText::new(tr("duplicates.scan_btn", lang))
+                            egui::RichText::new(tr(key::DUPLICATES_SCAN_BTN, lang))
                                 .color(egui::Color32::from_rgb(56, 189, 248))
                                 .strong(),
                         )
@@ -56,11 +56,11 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
             ui.horizontal_wrapped(|ui| {
                 ui.label(
-                    egui::RichText::new(tr("duplicates.quick_select", lang))
+                    egui::RichText::new(tr(key::DUPLICATES_QUICK_SELECT, lang))
                         .size(11.0)
                         .color(egui::Color32::from_rgb(148, 163, 184)),
                 );
-                if ui.button(tr("duplicates.keep_oldest", lang)).clicked() {
+                if ui.button(tr(key::DUPLICATES_KEEP_OLDEST, lang)).clicked() {
                     app.duplicates_selected_ids.clear();
                     for group in &app.duplicates_groups {
                         for qso in group.iter().skip(1) {
@@ -71,7 +71,7 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     }
                 }
 
-                if ui.button(tr("duplicates.keep_newest", lang)).clicked() {
+                if ui.button(tr(key::DUPLICATES_KEEP_NEWEST, lang)).clicked() {
                     app.duplicates_selected_ids.clear();
                     for group in &app.duplicates_groups {
                         let count = group.len();
@@ -83,7 +83,10 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     }
                 }
 
-                if ui.button(tr("duplicates.keep_confirmed", lang)).clicked() {
+                if ui
+                    .button(tr(key::DUPLICATES_KEEP_CONFIRMED, lang))
+                    .clicked()
+                {
                     app.duplicates_selected_ids.clear();
                     for group in &app.duplicates_groups {
                         let has_confirmed = group.iter().any(|q| {
@@ -108,7 +111,7 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     }
                 }
 
-                if ui.button(tr("duplicates.clear_sel", lang)).clicked() {
+                if ui.button(tr(key::DUPLICATES_CLEAR_SEL, lang)).clicked() {
                     app.duplicates_selected_ids.clear();
                 }
             });
@@ -166,12 +169,12 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                         ui.label(egui::RichText::new("✓").strong().size(11.0));
                                         ui.label(egui::RichText::new("ID").strong().size(11.0));
                                         ui.label(
-                                            egui::RichText::new(tr("qso.date", lang))
+                                            egui::RichText::new(tr(key::QSO_DATE, lang))
                                                 .strong()
                                                 .size(11.0),
                                         );
                                         ui.label(
-                                            egui::RichText::new(tr("qso.time", lang))
+                                            egui::RichText::new(tr(key::QSO_TIME, lang))
                                                 .strong()
                                                 .size(11.0),
                                         );
@@ -180,7 +183,7 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                         );
                                         ui.label(egui::RichText::new("QSL").strong().size(11.0));
                                         ui.label(
-                                            egui::RichText::new(tr("qso.comment", lang))
+                                            egui::RichText::new(tr(key::QSO_COMMENT, lang))
                                                 .strong()
                                                 .size(11.0),
                                         );
@@ -247,20 +250,20 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 ui.label(
                     egui::RichText::new(format!(
                         "{} {}",
-                        tr("duplicates.selected_count", lang),
+                        tr(key::DUPLICATES_SELECTED_COUNT, lang),
                         sel_count
                     ))
                     .strong(),
                 );
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button(tr("btn.close", lang)).clicked() {
+                    if ui.button(tr(key::BTN_CLOSE, lang)).clicked() {
                         close_requested = true;
                     }
 
                     if sel_count > 0 {
                         let btn_text =
-                            format!("{} ({})", tr("duplicates.delete_btn", lang), sel_count);
+                            format!("{} ({})", tr(key::DUPLICATES_DELETE_BTN, lang), sel_count);
                         if ui
                             .button(
                                 egui::RichText::new(btn_text)

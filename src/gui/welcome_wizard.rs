@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Wozniak (SP6INA)
 
-use crate::core::i18n::{Language, tr};
+use crate::core::i18n::{Language, key, tr};
 use crate::gui::app::SpLogApp;
 use eframe::egui;
 
@@ -51,7 +51,7 @@ pub fn render_welcome_wizard(app: &mut SpLogApp, ctx: &egui::Context) {
                     // Dedykowany przycisk [✕] w nagłówku
                     if ui
                         .button(egui::RichText::new(" ✕ ").size(13.0).strong())
-                        .on_hover_text(tr("btn.cancel", lang))
+                        .on_hover_text(tr(key::BTN_CANCEL, lang))
                         .clicked()
                     {
                         close_wizard = true;
@@ -92,7 +92,7 @@ pub fn render_welcome_wizard(app: &mut SpLogApp, ctx: &egui::Context) {
                     }
 
                     ui.label(
-                        egui::RichText::new(format!("{}:", tr("menu.language", lang)))
+                        egui::RichText::new(format!("{}:", tr(key::MENU_LANGUAGE, lang)))
                             .size(11.0)
                             .color(egui::Color32::from_rgb(148, 163, 184)),
                     );
@@ -100,7 +100,7 @@ pub fn render_welcome_wizard(app: &mut SpLogApp, ctx: &egui::Context) {
             });
 
             ui.label(
-                egui::RichText::new(tr("wizard.welcome", lang))
+                egui::RichText::new(tr(key::WIZARD_WELCOME, lang))
                     .size(13.0)
                     .color(egui::Color32::from_rgb(148, 163, 184)),
             );
@@ -113,22 +113,22 @@ pub fn render_welcome_wizard(app: &mut SpLogApp, ctx: &egui::Context) {
                 ui.selectable_value(
                     &mut app.wizard_tab,
                     0,
-                    format!("1. {}", tr("wizard.tab.station", lang)),
+                    format!("1. {}", tr(key::WIZARD_TAB_STATION, lang)),
                 );
                 ui.selectable_value(
                     &mut app.wizard_tab,
                     1,
-                    format!("2. {}", tr("wizard.tab.radio", lang)),
+                    format!("2. {}", tr(key::WIZARD_TAB_RADIO, lang)),
                 );
                 ui.selectable_value(
                     &mut app.wizard_tab,
                     2,
-                    format!("3. {}", tr("wizard.tab.services", lang)),
+                    format!("3. {}", tr(key::WIZARD_TAB_SERVICES, lang)),
                 );
                 ui.selectable_value(
                     &mut app.wizard_tab,
                     3,
-                    format!("4. {}", tr("wizard.tab.appearance", lang)),
+                    format!("4. {}", tr(key::WIZARD_TAB_APPEARANCE, lang)),
                 );
             });
             ui.separator();
@@ -147,27 +147,32 @@ pub fn render_welcome_wizard(app: &mut SpLogApp, ctx: &egui::Context) {
 
             // Przyciski nawigacji
             ui.horizontal(|ui| {
-                if app.wizard_tab > 0 && ui.button(format!("< {}", tr("btn.back", lang))).clicked()
+                if app.wizard_tab > 0
+                    && ui
+                        .button(format!("< {}", tr(key::BTN_BACK, lang)))
+                        .clicked()
                 {
                     app.wizard_tab -= 1;
                 }
                 if app.wizard_tab < 3
                     && ui
-                        .button(egui::RichText::new(format!("{} >", tr("btn.next", lang))).strong())
+                        .button(
+                            egui::RichText::new(format!("{} >", tr(key::BTN_NEXT, lang))).strong(),
+                        )
                         .clicked()
                 {
                     app.wizard_tab += 1;
                 }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button(tr("btn.cancel", lang)).clicked() {
+                    if ui.button(tr(key::BTN_CANCEL, lang)).clicked() {
                         close_wizard = true;
                     }
                     if ui
                         .button(
                             egui::RichText::new(format!(
                                 "  {}  ",
-                                tr("wizard.save_and_start", lang)
+                                tr(key::WIZARD_SAVE_AND_START, lang)
                             ))
                             .size(13.0)
                             .strong()
@@ -200,7 +205,7 @@ fn render_tab_station(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
         .striped(true)
         .show(ui, |ui| {
             // Znak wywoławczy
-            ui.label(egui::RichText::new(format!("(*) {}:", tr("qso.callsign", lang))).strong());
+            ui.label(egui::RichText::new(format!("(*) {}:", tr(key::QSO_CALLSIGN, lang))).strong());
             let call = ui.add(
                 egui::TextEdit::singleline(&mut app.my_station.callsign)
                     .hint_text("np. SP6INA, W1AW, DL1ABC")
@@ -212,7 +217,7 @@ fn render_tab_station(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
             ui.end_row();
 
             // Operator
-            ui.label(egui::RichText::new(format!("{}:", tr("station.operator", lang))).strong());
+            ui.label(egui::RichText::new(format!("{}:", tr(key::STATION_OPERATOR, lang))).strong());
             ui.add(
                 egui::TextEdit::singleline(&mut app.my_station.operator)
                     .hint_text("np. Jan Kowalski")
@@ -221,7 +226,7 @@ fn render_tab_station(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
             ui.end_row();
 
             // Lokator Maidenhead
-            ui.label(egui::RichText::new(format!("(*) {}:", tr("geo.locator", lang))).strong());
+            ui.label(egui::RichText::new(format!("(*) {}:", tr(key::GEO_LOCATOR, lang))).strong());
             let loc = ui.add(
                 egui::TextEdit::singleline(&mut app.my_station.gridsquare)
                     .hint_text("np. JO81WA, KO02AA")
@@ -242,7 +247,7 @@ fn render_tab_station(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
             ui.end_row();
 
             // Kraj / DXCC
-            ui.label(egui::RichText::new(format!("{}:", tr("geo.dxcc", lang))).strong());
+            ui.label(egui::RichText::new(format!("{}:", tr(key::GEO_DXCC, lang))).strong());
             ui.add(
                 egui::TextEdit::singleline(&mut app.my_station.country)
                     .hint_text("np. Poland, Germany")
@@ -251,7 +256,7 @@ fn render_tab_station(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
             ui.end_row();
 
             // Gmina PGA
-            ui.label(egui::RichText::new(format!("{}:", tr("qso.pga", lang))).strong());
+            ui.label(egui::RichText::new(format!("{}:", tr(key::QSO_PGA, lang))).strong());
             let mut pga = app.my_station.pga_gmina.clone().unwrap_or_default();
             if ui
                 .add(
@@ -274,8 +279,8 @@ fn render_tab_station(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
             ui.label(
                 egui::RichText::new(format!(
                     "{} / {}:",
-                    tr("geo.cq_zone", lang),
-                    tr("geo.itu_zone", lang)
+                    tr(key::GEO_CQ_ZONE, lang),
+                    tr(key::GEO_ITU_ZONE, lang)
                 ))
                 .strong(),
             );
@@ -290,7 +295,7 @@ fn render_tab_station(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
 
     ui.add_space(6.0);
     ui.label(
-        egui::RichText::new(tr("wizard.required_hint", lang))
+        egui::RichText::new(tr(key::WIZARD_REQUIRED_HINT, lang))
             .small()
             .color(egui::Color32::from_rgb(148, 163, 184)),
     );
@@ -303,7 +308,9 @@ fn render_tab_radio(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
         .spacing([12.0, 8.0])
         .striped(true)
         .show(ui, |ui| {
-            ui.label(egui::RichText::new(format!("{}:", tr("wizard.transceiver", lang))).strong());
+            ui.label(
+                egui::RichText::new(format!("{}:", tr(key::WIZARD_TRANSCEIVER, lang))).strong(),
+            );
             let mut rig = app.my_station.default_rig.clone().unwrap_or_default();
             if ui
                 .add(
@@ -321,7 +328,7 @@ fn render_tab_radio(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
             }
             ui.end_row();
 
-            ui.label(egui::RichText::new(format!("{}:", tr("wizard.antenna", lang))).strong());
+            ui.label(egui::RichText::new(format!("{}:", tr(key::WIZARD_ANTENNA, lang))).strong());
             let mut ant = app.my_station.default_antenna.clone().unwrap_or_default();
             if ui
                 .add(
@@ -339,7 +346,7 @@ fn render_tab_radio(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
             }
             ui.end_row();
 
-            ui.label(egui::RichText::new(format!("{}:", tr("wizard.tx_power", lang))).strong());
+            ui.label(egui::RichText::new(format!("{}:", tr(key::WIZARD_TX_POWER, lang))).strong());
             ui.horizontal(|ui| {
                 ui.add(
                     egui::DragValue::new(&mut app.my_station.power_watts)
@@ -364,7 +371,10 @@ fn render_tab_radio(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
 
             ui.label(egui::RichText::new("JS8Call:").strong());
             ui.horizontal(|ui| {
-                ui.checkbox(&mut app.js8call_enabled, tr("wizard.enable_js8call", lang));
+                ui.checkbox(
+                    &mut app.js8call_enabled,
+                    tr(key::WIZARD_ENABLE_JS8CALL, lang),
+                );
                 ui.label(
                     egui::RichText::new("(port 2237)")
                         .color(egui::Color32::from_rgb(148, 163, 184))
@@ -376,7 +386,7 @@ fn render_tab_radio(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
 
     ui.add_space(8.0);
     ui.label(
-        egui::RichText::new(tr("wizard.cat_hint", lang))
+        egui::RichText::new(tr(key::WIZARD_CAT_HINT, lang))
             .small()
             .color(egui::Color32::from_rgb(148, 163, 184)),
     );
@@ -384,7 +394,7 @@ fn render_tab_radio(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
 
 // ZAKLADKA 3: Serwisy online
 fn render_tab_services(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
-    ui.label(egui::RichText::new(tr("wizard.services_sub", lang)).strong());
+    ui.label(egui::RichText::new(tr(key::WIZARD_SERVICES_SUB, lang)).strong());
     ui.add_space(8.0);
 
     egui::Grid::new("wiz_services_grid")
@@ -432,7 +442,7 @@ fn render_tab_services(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
             // REST API
             ui.label(egui::RichText::new("Lokalny REST API:").strong());
             ui.horizontal(|ui| {
-                ui.checkbox(&mut app.rest_api_enabled, tr("wizard.enable_http", lang));
+                ui.checkbox(&mut app.rest_api_enabled, tr(key::WIZARD_ENABLE_HTTP, lang));
                 ui.label("Port:");
                 ui.add(egui::DragValue::new(&mut app.rest_api_port).range(1024..=65535));
             });
@@ -441,7 +451,7 @@ fn render_tab_services(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
 
     ui.add_space(8.0);
     ui.label(
-        egui::RichText::new(tr("wizard.services_hint", lang))
+        egui::RichText::new(tr(key::WIZARD_SERVICES_HINT, lang))
             .small()
             .color(egui::Color32::from_rgb(148, 163, 184)),
     );
@@ -458,7 +468,7 @@ fn render_tab_appearance(
     ui.label(
         egui::RichText::new(format!(
             "{} / Interface language:",
-            tr("menu.language", lang)
+            tr(key::MENU_LANGUAGE, lang)
         ))
         .strong(),
     );
@@ -493,13 +503,13 @@ fn render_tab_appearance(
     ui.add_space(8.0);
 
     // Motyw
-    ui.label(egui::RichText::new(tr("wizard.theme_label", lang)).strong());
+    ui.label(egui::RichText::new(tr(key::WIZARD_THEME_LABEL, lang)).strong());
     ui.add_space(4.0);
     ui.horizontal(|ui| {
         if ui
             .add_sized(
                 [140.0, 30.0],
-                egui::Button::new(egui::RichText::new(tr("wizard.theme_dark", lang)).size(12.0))
+                egui::Button::new(egui::RichText::new(tr(key::WIZARD_THEME_DARK, lang)).size(12.0))
                     .fill(egui::Color32::from_rgb(30, 30, 50)),
             )
             .clicked()
@@ -512,8 +522,10 @@ fn render_tab_appearance(
         if ui
             .add_sized(
                 [140.0, 30.0],
-                egui::Button::new(egui::RichText::new(tr("wizard.theme_light", lang)).size(12.0))
-                    .fill(egui::Color32::from_rgb(220, 220, 230)),
+                egui::Button::new(
+                    egui::RichText::new(tr(key::WIZARD_THEME_LIGHT, lang)).size(12.0),
+                )
+                .fill(egui::Color32::from_rgb(220, 220, 230)),
             )
             .clicked()
         {
@@ -529,19 +541,19 @@ fn render_tab_appearance(
     ui.add_space(8.0);
 
     // Pasek szybkiego dostepu
-    ui.label(egui::RichText::new(tr("wizard.quick_access_label", lang)).strong());
+    ui.label(egui::RichText::new(tr(key::WIZARD_QUICK_ACCESS_LABEL, lang)).strong());
     ui.add_space(4.0);
     ui.horizontal_wrapped(|ui| {
         let qa = &mut app.quick_access;
-        ui.checkbox(&mut qa.show_vfo, tr("tab.vfo", lang));
-        ui.checkbox(&mut qa.show_log, tr("tab.logbook", lang));
-        ui.checkbox(&mut qa.show_cluster, tr("tab.dx_cluster", lang));
-        ui.checkbox(&mut qa.show_map, tr("tab.map", lang));
-        ui.checkbox(&mut qa.show_awards, tr("tab.awards", lang));
-        ui.checkbox(&mut qa.show_contest, tr("toolbar.contest", lang));
-        ui.checkbox(&mut qa.show_solar, tr("tab.solar", lang));
-        ui.checkbox(&mut qa.show_satellites, tr("toolbar.satellites", lang));
-        ui.checkbox(&mut qa.show_bandmap, tr("tab.band_map", lang));
+        ui.checkbox(&mut qa.show_vfo, tr(key::TAB_VFO, lang));
+        ui.checkbox(&mut qa.show_log, tr(key::TAB_LOGBOOK, lang));
+        ui.checkbox(&mut qa.show_cluster, tr(key::TAB_DX_CLUSTER, lang));
+        ui.checkbox(&mut qa.show_map, tr(key::TAB_MAP, lang));
+        ui.checkbox(&mut qa.show_awards, tr(key::TAB_AWARDS, lang));
+        ui.checkbox(&mut qa.show_contest, tr(key::TOOLBAR_CONTEST, lang));
+        ui.checkbox(&mut qa.show_solar, tr(key::TAB_SOLAR, lang));
+        ui.checkbox(&mut qa.show_satellites, tr(key::TOOLBAR_SATELLITES, lang));
+        ui.checkbox(&mut qa.show_bandmap, tr(key::TAB_BAND_MAP, lang));
         ui.checkbox(&mut qa.show_lotw, "LoTW");
         ui.checkbox(&mut qa.show_cw, "CW");
     });

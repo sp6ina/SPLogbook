@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
-use crate::core::i18n::tr;
+use crate::core::i18n::{key, tr};
 use crate::gui::app::SpLogApp;
 use eframe::egui;
 
@@ -17,7 +17,7 @@ pub fn render_satellites_window(app: &mut SpLogApp, ctx: &egui::Context) {
         let ((), captured_geo) = app.show_floating_viewport(
             ctx,
             egui::ViewportId::from_hash_of("satellites_viewport"),
-            format!("🛰 {} - SPLogbook", tr("sat.window_title", lang)),
+            format!("🛰 {} - SPLogbook", tr(key::SAT_WINDOW_TITLE, lang)),
             [400.0, 340.0],
             [280.0, 200.0],
             app.panel_satellites.saved_pos,
@@ -26,8 +26,8 @@ pub fn render_satellites_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 egui::Panel::top("satellites_vp_bar").show(ui, |ui| {
                     ui.horizontal(|ui| {
                         if ui
-                            .button(format!("↙ {}", tr("window.dock", lang)))
-                            .on_hover_text(tr("window.dock_tooltip", lang))
+                            .button(format!("↙ {}", tr(key::WINDOW_DOCK, lang)))
+                            .on_hover_text(tr(key::WINDOW_DOCK_TOOLTIP, lang))
                             .clicked()
                         {
                             dock_back = true;
@@ -74,7 +74,7 @@ pub fn render_satellites_window(app: &mut SpLogApp, ctx: &egui::Context) {
     let default_size = [right_w.max(340.0), 300.0];
 
     let mut win = egui::Window::new(
-        egui::RichText::new(format!("   🛰 {}", tr("sat.window_title", lang)))
+        egui::RichText::new(format!("   🛰 {}", tr(key::SAT_WINDOW_TITLE, lang)))
             .size(12.0)
             .strong(),
     )
@@ -138,7 +138,7 @@ pub fn render_satellites_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let mut point_rotor_clicked = false;
     ui.vertical(|ui| {
         ui.horizontal(|ui| {
-            ui.label(tr("sat.select", lang));
+            ui.label(tr(key::SAT_SELECT, lang));
             egui::ComboBox::from_id_salt("sat_select")
                 .selected_text(&app.selected_satellite)
                 .show_ui(ui, |ui| {
@@ -161,48 +161,48 @@ pub fn render_satellites_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.columns(2, |cols| {
             cols[0].group(|ui| {
                 ui.label(
-                    egui::RichText::new(tr("sat.position", lang))
+                    egui::RichText::new(tr(key::SAT_POSITION, lang))
                         .strong()
                         .color(egui::Color32::from_rgb(56, 189, 248)),
                 );
                 ui.label(format!(
                     "{}: {:.1}°",
-                    tr("sat.azimuth", lang),
+                    tr(key::SAT_AZIMUTH, lang),
                     app.sat_azimuth
                 ));
                 ui.label(format!(
                     "{}: {:.1}°",
-                    tr("sat.elevation", lang),
+                    tr(key::SAT_ELEVATION, lang),
                     app.sat_elevation
                 ));
                 ui.label(format!(
                     "{}: {:.0} km",
-                    tr("sat.slant_range", lang),
+                    tr(key::SAT_SLANT_RANGE, lang),
                     app.sat_range_km
                 ));
                 ui.label(format!(
                     "{}: {:.0} km",
-                    tr("sat.altitude", lang),
+                    tr(key::SAT_ALTITUDE, lang),
                     app.sat_altitude_km
                 ));
             });
 
             cols[1].group(|ui| {
                 ui.label(
-                    egui::RichText::new(tr("sat.frequencies", lang))
+                    egui::RichText::new(tr(key::SAT_FREQUENCIES, lang))
                         .strong()
                         .color(egui::Color32::from_rgb(251, 191, 36)),
                 );
                 ui.label(format!(
                     "{}: {:.4} MHz",
-                    tr("sat.downlink", lang),
+                    tr(key::SAT_DOWNLINK, lang),
                     app.sat_downlink_mhz
                 ));
                 ui.label(format!("Doppler RX: {:+.2} kHz", app.sat_rx_doppler_khz));
                 ui.separator();
                 ui.label(format!(
                     "{}: {:.4} MHz",
-                    tr("sat.uplink", lang),
+                    tr(key::SAT_UPLINK, lang),
                     app.sat_uplink_mhz
                 ));
                 ui.label(format!("Doppler TX: {:+.2} kHz", app.sat_tx_doppler_khz));
@@ -212,21 +212,27 @@ pub fn render_satellites_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.add_space(8.0);
 
         ui.horizontal(|ui| {
-            ui.checkbox(&mut app.sat_auto_track_rotator, tr("sat.auto_rotor", lang));
-            ui.checkbox(&mut app.sat_auto_tune_radio, tr("sat.auto_doppler", lang));
+            ui.checkbox(
+                &mut app.sat_auto_track_rotator,
+                tr(key::SAT_AUTO_ROTOR, lang),
+            );
+            ui.checkbox(
+                &mut app.sat_auto_tune_radio,
+                tr(key::SAT_AUTO_DOPPLER, lang),
+            );
         });
 
         ui.separator();
 
         ui.horizontal(|ui| {
             if ui
-                .button(format!("📡 {}", tr("sat.set_frequencies", lang)))
+                .button(format!("📡 {}", tr(key::SAT_SET_FREQUENCIES, lang)))
                 .clicked()
             {
                 tune_clicked = true;
             }
             if ui
-                .button(format!("🧭 {}", tr("sat.point_rotor", lang)))
+                .button(format!("🧭 {}", tr(key::SAT_POINT_ROTOR, lang)))
                 .clicked()
             {
                 point_rotor_clicked = true;

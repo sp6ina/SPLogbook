@@ -8,7 +8,7 @@
 //! `SpLogApp::perform_csv_export` na podstawie zwróconego żądania.
 
 use crate::core::csv_export::{CsvColumn, CsvDelimiter};
-use crate::core::i18n::{Language, tr};
+use crate::core::i18n::{Language, key, tr};
 use eframe::egui;
 
 /// Zakres danych podlegających eksportowi.
@@ -22,9 +22,9 @@ pub enum CsvExportScope {
 impl CsvExportScope {
     fn label(self, lang: Language) -> &'static str {
         match self {
-            CsvExportScope::All => tr("csv.scope_all", lang),
-            CsvExportScope::Filtered => tr("csv.scope_filtered", lang),
-            CsvExportScope::Selected => tr("csv.scope_selected", lang),
+            CsvExportScope::All => tr(key::CSV_SCOPE_ALL, lang),
+            CsvExportScope::Filtered => tr(key::CSV_SCOPE_FILTERED, lang),
+            CsvExportScope::Selected => tr(key::CSV_SCOPE_SELECTED, lang),
         }
     }
 }
@@ -121,13 +121,13 @@ impl CsvExportDialog {
         let mut export_requested = false;
         let mut close_requested = false;
 
-        egui::Window::new(tr("csv.title", lang))
+        egui::Window::new(tr(key::CSV_TITLE, lang))
             .open(&mut open)
             .collapsible(false)
             .resizable(true)
             .default_width(560.0)
             .show(ctx, |ui| {
-                ui.label(tr("csv.scope_label", lang));
+                ui.label(tr(key::CSV_SCOPE_LABEL, lang));
                 ui.horizontal(|ui| {
                     ui.radio_value(
                         &mut self.scope,
@@ -147,7 +147,7 @@ impl CsvExportDialog {
                 });
 
                 ui.add_space(8.0);
-                ui.label(tr("csv.delimiter_label", lang));
+                ui.label(tr(key::CSV_DELIMITER_LABEL, lang));
                 ui.horizontal(|ui| {
                     ui.radio_value(
                         &mut self.delimiter,
@@ -167,19 +167,22 @@ impl CsvExportDialog {
                 });
 
                 ui.add_space(4.0);
-                ui.checkbox(&mut self.include_header, tr("csv.include_header", lang));
+                ui.checkbox(&mut self.include_header, tr(key::CSV_INCLUDE_HEADER, lang));
 
                 ui.add_space(8.0);
                 ui.separator();
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new(tr("csv.columns_label", lang)).strong());
-                    if ui.small_button(tr("csv.select_all", lang)).clicked() {
+                    ui.label(egui::RichText::new(tr(key::CSV_COLUMNS_LABEL, lang)).strong());
+                    if ui.small_button(tr(key::CSV_SELECT_ALL, lang)).clicked() {
                         self.selected_columns = CsvColumn::ALL.to_vec();
                     }
-                    if ui.small_button(tr("csv.clear", lang)).clicked() {
+                    if ui.small_button(tr(key::CSV_CLEAR, lang)).clicked() {
                         self.selected_columns.clear();
                     }
-                    if ui.small_button(tr("csv.restore_defaults", lang)).clicked() {
+                    if ui
+                        .small_button(tr(key::CSV_RESTORE_DEFAULTS, lang))
+                        .clicked()
+                    {
                         self.selected_columns = Self::default_columns();
                     }
                 });
@@ -202,13 +205,13 @@ impl CsvExportDialog {
                 ui.separator();
                 ui.horizontal(|ui| {
                     let count = self.ordered_selection().len();
-                    if ui.button(tr("csv.export_btn", lang)).clicked() && count > 0 {
+                    if ui.button(tr(key::CSV_EXPORT_BTN, lang)).clicked() && count > 0 {
                         export_requested = true;
                     }
-                    if ui.button(tr("btn.close", lang)).clicked() {
+                    if ui.button(tr(key::BTN_CLOSE, lang)).clicked() {
                         close_requested = true;
                     }
-                    ui.label(format!("{}: {count}", tr("csv.selected_count", lang)));
+                    ui.label(format!("{}: {count}", tr(key::CSV_SELECTED_COUNT, lang)));
                 });
             });
 

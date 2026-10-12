@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::cluster::telnet::CLUSTER_PRESETS;
-use crate::core::i18n::tr;
+use crate::core::i18n::{key, tr};
 use crate::gui::app::SpLogApp;
 use crate::gui::icons;
 use eframe::egui;
@@ -11,17 +11,17 @@ use eframe::egui;
 pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.current_language;
 
-    ui.menu_button(tr("menu.operation", lang), |ui| {
+    ui.menu_button(tr(key::MENU_OPERATION, lang), |ui| {
         // Sekcja DX Cluster
         ui.label(
-            egui::RichText::new(icons::CLUSTER.label(tr("menu.dx_cluster", lang)))
+            egui::RichText::new(icons::CLUSTER.label(tr(key::MENU_DX_CLUSTER, lang)))
                 .strong()
                 .color(egui::Color32::from_rgb(56, 189, 248)),
         );
         ui.separator();
         if app.cluster_connected {
             if ui
-                .button(icons::DOT_RED.label(tr("cluster.disconnect_btn", lang)))
+                .button(icons::DOT_RED.label(tr(key::CLUSTER_DISCONNECT_BTN, lang)))
                 .clicked()
             {
                 app.disconnect_dx_cluster();
@@ -29,9 +29,9 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             }
         } else {
             let txt = if app.cluster_connecting {
-                format!("● {}", tr("cluster.connecting_btn", lang))
+                format!("● {}", tr(key::CLUSTER_CONNECTING_BTN, lang))
             } else {
-                format!("● {}", tr("cluster.connect_btn", lang))
+                format!("● {}", tr(key::CLUSTER_CONNECT_BTN, lang))
             };
             if ui.button(txt).clicked() {
                 app.connect_dx_cluster();
@@ -40,7 +40,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
 
         if ui
-            .button(icons::SPOT.label(tr("cluster.announce_spot", lang)))
+            .button(icons::SPOT.label(tr(key::CLUSTER_ANNOUNCE_SPOT, lang)))
             .clicked()
         {
             let freq_khz = app.rig_state.frequency_hz as f64 / 1000.0;
@@ -50,7 +50,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
 
         ui.separator();
-        ui.label(egui::RichText::new(tr("cluster.quick_server", lang)).strong());
+        ui.label(egui::RichText::new(tr(key::CLUSTER_QUICK_SERVER, lang)).strong());
         for (name, host, port) in CLUSTER_PRESETS {
             let is_current = app.cluster_host == *host && app.cluster_port == *port;
             if ui.selectable_label(is_current, *name).clicked() {
@@ -65,11 +65,11 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
 
         ui.separator();
-        ui.label(egui::RichText::new(tr("cluster.filters_options", lang)).strong());
+        ui.label(egui::RichText::new(tr(key::CLUSTER_FILTERS_OPTIONS, lang)).strong());
         if ui
             .checkbox(
                 &mut app.cluster_auto_connect,
-                tr("cluster.auto_connect_startup", lang),
+                tr(key::CLUSTER_AUTO_CONNECT_STARTUP, lang),
             )
             .changed()
         {
@@ -78,14 +78,14 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         if ui
             .checkbox(
                 &mut app.cluster_filter_current_band,
-                tr("cluster.filter_vfo_band", lang),
+                tr(key::CLUSTER_FILTER_VFO_BAND, lang),
             )
             .changed()
         {
             app.save_station_config();
         }
         if ui
-            .checkbox(&mut app.cluster_hide_ft8, tr("cluster.hide_ft8", lang))
+            .checkbox(&mut app.cluster_hide_ft8, tr(key::CLUSTER_HIDE_FT8, lang))
             .changed()
         {
             app.save_station_config();
@@ -93,7 +93,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         if ui
             .checkbox(
                 &mut app.cluster_hide_skimmers,
-                tr("cluster.hide_skimmers", lang),
+                tr(key::CLUSTER_HIDE_SKIMMERS, lang),
             )
             .changed()
         {
@@ -102,7 +102,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         ui.separator();
         if ui
-            .button(icons::DELETE.label(tr("cluster.clear_spots", lang)))
+            .button(icons::DELETE.label(tr(key::CLUSTER_CLEAR_SPOTS, lang)))
             .clicked()
         {
             app.cluster_spots.clear();
@@ -112,68 +112,68 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         // Sekcja radio / CAT / praca
         ui.separator();
         ui.label(
-            egui::RichText::new(tr("tools.cat_connection", lang))
+            egui::RichText::new(tr(key::TOOLS_CAT_CONNECTION, lang))
                 .strong()
                 .color(egui::Color32::from_rgb(56, 189, 248)),
         );
         if ui
-            .button(icons::RADIO.label(tr("tools.cat_connection", lang)))
+            .button(icons::RADIO.label(tr(key::TOOLS_CAT_CONNECTION, lang)))
             .clicked()
         {
             app.show_cat_settings_window = true;
             ui.close();
         }
         if ui
-            .button(icons::CW_TERMINAL.label(tr("tools.cw_terminal", lang)))
+            .button(icons::CW_TERMINAL.label(tr(key::TOOLS_CW_TERMINAL, lang)))
             .clicked()
         {
             app.cw_terminal_dialog.is_open = true;
             ui.close();
         }
         if ui
-            .button(icons::CW_KEYER.label(tr("tools.cw_macros", lang)))
+            .button(icons::CW_KEYER.label(tr(key::TOOLS_CW_MACROS, lang)))
             .clicked()
         {
             app.show_cw_window = true;
             ui.close();
         }
         if ui
-            .button(icons::VOICE_KEYER.label(tr("menu.voice_keyer", lang)))
+            .button(icons::VOICE_KEYER.label(tr(key::MENU_VOICE_KEYER, lang)))
             .clicked()
         {
             app.show_voice_keyer_window = true;
             ui.close();
         }
         if ui
-            .button(icons::DESKTOP.label(tr("menu.workspace_profiles", lang)))
+            .button(icons::DESKTOP.label(tr(key::MENU_WORKSPACE_PROFILES, lang)))
             .clicked()
         {
             app.show_workspace_profiles_window = true;
             ui.close();
         }
         if ui
-            .button(icons::AI_ASSISTANT.label(tr("menu.operator_assistant", lang)))
+            .button(icons::AI_ASSISTANT.label(tr(key::MENU_OPERATOR_ASSISTANT, lang)))
             .clicked()
         {
             app.show_operator_assistant = true;
             ui.close();
         }
         if ui
-            .button(icons::PLUGIN.label(tr("menu.plugin_manager", lang)))
+            .button(icons::PLUGIN.label(tr(key::MENU_PLUGIN_MANAGER, lang)))
             .clicked()
         {
             app.show_plugin_manager = true;
             ui.close();
         }
         if ui
-            .button(icons::STORE.label(tr("menu.plugin_marketplace", lang)))
+            .button(icons::STORE.label(tr(key::MENU_PLUGIN_MARKETPLACE, lang)))
             .clicked()
         {
             app.show_marketplace = true;
             ui.close();
         }
         if ui
-            .button(icons::SATELLITE.label(tr("tools.satellites", lang)))
+            .button(icons::SATELLITE.label(tr(key::TOOLS_SATELLITES, lang)))
             .clicked()
         {
             app.panel_satellites.visible = true;
@@ -182,14 +182,14 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ui.close();
         }
         if ui
-            .button(icons::FLAG.label(tr("tools.contest_module", lang)))
+            .button(icons::FLAG.label(tr(key::TOOLS_CONTEST_MODULE, lang)))
             .clicked()
         {
             app.show_contest_window = true;
             ui.close();
         }
         if ui
-            .button(icons::GLOBE.label(tr("tools.multi_op", lang)))
+            .button(icons::GLOBE.label(tr(key::TOOLS_MULTI_OP, lang)))
             .clicked()
         {
             app.show_multi_op_window = true;

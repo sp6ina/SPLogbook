@@ -340,13 +340,13 @@ impl SpLogApp {
         let lang = self.current_language;
         match tile_id {
             "vfo" => icons::RADIO.label("TRANSCEIVER VFO"),
-            "qso" => icons::NEW_QSO.label(tr("tab.new_qso", lang)),
-            "log" => icons::LOGBOOK.label(tr("tab.logbook", lang)),
-            "cluster" => icons::CLUSTER.label(tr("cluster.title", lang)),
-            "bandmap" => icons::BANDMAP.label(tr("bandmap.title", lang)),
-            "solar" => icons::SOLAR.label(tr("solar.title", lang)),
-            "satellites" => icons::SATELLITE.label(tr("sat.title", lang)),
-            "world_map" => icons::WORLD_MAP.label(tr("map.world_title", lang)),
+            "qso" => icons::NEW_QSO.label(tr(key::TAB_NEW_QSO, lang)),
+            "log" => icons::LOGBOOK.label(tr(key::TAB_LOGBOOK, lang)),
+            "cluster" => icons::CLUSTER.label(tr(key::CLUSTER_TITLE, lang)),
+            "bandmap" => icons::BANDMAP.label(tr(key::BANDMAP_TITLE, lang)),
+            "solar" => icons::SOLAR.label(tr(key::SOLAR_TITLE, lang)),
+            "satellites" => icons::SATELLITE.label(tr(key::SAT_TITLE, lang)),
+            "world_map" => icons::WORLD_MAP.label(tr(key::MAP_WORLD_TITLE, lang)),
             "waterfall" => icons::SIGNAL_UP.label(crate::core::i18n::tr_or(
                 lang,
                 "WIDMO / WATERFALL (SDR)",
@@ -407,12 +407,12 @@ impl SpLogApp {
                 );
                 ui.add(
                     egui::TextEdit::singleline(&mut self.log_search_query)
-                        .hint_text(tr("qso.search", lang))
+                        .hint_text(tr(key::QSO_SEARCH, lang))
                         .desired_width(110.0),
                 );
                 if ui
                     .button("🔄")
-                    .on_hover_text(tr("btn.refresh", lang))
+                    .on_hover_text(tr(key::BTN_REFRESH, lang))
                     .clicked()
                 {
                     self.reload_qsos();

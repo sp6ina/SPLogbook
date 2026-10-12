@@ -3,7 +3,7 @@
 // Przeglądarka stanów USA (WAS - Worked All States) i prowincji z bazy serviceLOG.db
 
 use crate::core::awards::AwardsEngine;
-use crate::core::i18n::{Language, tr, tr_or};
+use crate::core::i18n::{Language, key, tr, tr_or};
 use crate::core::service_db::{ServiceDatabase, StateRecord};
 use eframe::egui;
 
@@ -97,7 +97,7 @@ impl StatesBrowserDialog {
                 if resp.changed() || !self.loaded_initial {
                     self.reload(sdb);
                 }
-                if ui.button(tr("btn.clear", lang)).clicked() {
+                if ui.button(tr(key::BTN_CLEAR, lang)).clicked() {
                     self.search_query.clear();
                     self.reload(sdb);
                 }
@@ -174,7 +174,7 @@ impl StatesBrowserDialog {
                     .color(egui::Color32::GRAY),
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button(tr("btn.close", lang)).clicked() {
+                    if ui.button(tr(key::BTN_CLOSE, lang)).clicked() {
                         close_requested = true;
                     }
                 });

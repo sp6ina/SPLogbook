@@ -3,7 +3,7 @@
 
 //! Menu „Workspace" — szybkie przełączanie profili układu operatorskiego.
 
-use crate::core::i18n::tr;
+use crate::core::i18n::{key, tr};
 use crate::core::station::workspace_profile_presets;
 use crate::gui::app::SpLogApp;
 use crate::gui::icons;
@@ -14,9 +14,9 @@ use eframe::egui;
 pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.current_language;
 
-    ui.menu_button(icons::DESKTOP.label(tr("menu.workspace", lang)), |ui| {
+    ui.menu_button(icons::DESKTOP.label(tr(key::MENU_WORKSPACE, lang)), |ui| {
         ui.label(
-            egui::RichText::new(tr("workspace.builtin_presets", lang))
+            egui::RichText::new(tr(key::WORKSPACE_BUILTIN_PRESETS, lang))
                 .strong()
                 .color(egui::Color32::from_rgb(250, 204, 21)),
         );
@@ -32,7 +32,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             if resp.clicked() {
                 apply_profile(app, &preset);
                 app.status_toast = Some((
-                    format!("{}: {name}", tr("workspace.preset_applied", lang)),
+                    format!("{}: {name}", tr(key::WORKSPACE_PRESET_APPLIED, lang)),
                     std::time::Instant::now(),
                 ));
                 ui.close();
@@ -40,11 +40,14 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
 
         ui.separator();
-        if ui.button(tr("workspace.save_current", lang)).clicked() {
+        if ui.button(tr(key::WORKSPACE_SAVE_CURRENT, lang)).clicked() {
             app.show_workspace_profiles_window = true;
             ui.close();
         }
-        if ui.button(tr("workspace.manage_profiles", lang)).clicked() {
+        if ui
+            .button(tr(key::WORKSPACE_MANAGE_PROFILES, lang))
+            .clicked()
+        {
             app.show_workspace_profiles_window = true;
             ui.close();
         }

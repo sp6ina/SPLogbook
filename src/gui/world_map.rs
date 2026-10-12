@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::core::geo::{Coordinates, calculate_solar_position, locator_to_coordinates};
-use crate::core::i18n::tr;
+use crate::core::i18n::{key, tr};
 use crate::gui::app::SpLogApp;
 use eframe::egui;
 
@@ -268,7 +268,7 @@ pub fn render_world_map_window(app: &mut SpLogApp, ctx: &egui::Context) {
         let ((), captured_geo) = app.show_floating_viewport(
             ctx,
             egui::ViewportId::from_hash_of("world_map_viewport"),
-            format!("🗺 {} - SPLogbook", tr("map.world_title", lang)),
+            format!("🗺 {} - SPLogbook", tr(key::MAP_WORLD_TITLE, lang)),
             [900.0, 560.0],
             [460.0, 300.0],
             app.panel_world_map.saved_pos,
@@ -277,8 +277,8 @@ pub fn render_world_map_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 egui::Panel::top("world_map_vp_bar").show(ui, |ui| {
                     ui.horizontal(|ui| {
                         if ui
-                            .button(format!("↙ {}", tr("window.dock", lang)))
-                            .on_hover_text(tr("window.dock_tooltip", lang))
+                            .button(format!("↙ {}", tr(key::WINDOW_DOCK, lang)))
+                            .on_hover_text(tr(key::WINDOW_DOCK_TOOLTIP, lang))
                             .clicked()
                         {
                             dock_back = true;
@@ -324,7 +324,7 @@ pub fn render_world_map_window(app: &mut SpLogApp, ctx: &egui::Context) {
     let default_size = [mid_w, (screen.height() - 20.0).max(450.0)];
 
     let mut win = egui::Window::new(
-        egui::RichText::new(format!("   🗺 {}", tr("map.world_title", lang)))
+        egui::RichText::new(format!("   🗺 {}", tr(key::MAP_WORLD_TITLE, lang)))
             .size(12.0)
             .strong(),
     )
@@ -436,17 +436,17 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
             if my_solar.is_grayline {
                 ui.colored_label(
                     egui::Color32::from_rgb(34, 197, 94),
-                    format!("● {}", tr("map.my_in_grayline", lang)),
+                    format!("● {}", tr(key::MAP_MY_IN_GRAYLINE, lang)),
                 );
             } else if my_solar.elevation > 0.0 {
                 ui.colored_label(
                     egui::Color32::from_rgb(250, 204, 21),
-                    format!("☀ {}", tr("map.day", lang)),
+                    format!("☀ {}", tr(key::MAP_DAY, lang)),
                 );
             } else {
                 ui.colored_label(
                     egui::Color32::from_rgb(147, 197, 253),
-                    format!("🌙 {}", tr("map.night", lang)),
+                    format!("🌙 {}", tr(key::MAP_NIGHT, lang)),
                 );
             }
 
@@ -479,7 +479,7 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 if dx_solar.is_grayline {
                     ui.colored_label(
                         egui::Color32::from_rgb(34, 197, 94),
-                        format!("● {}", tr("map.dx_in_grayline", lang)),
+                        format!("● {}", tr(key::MAP_DX_IN_GRAYLINE, lang)),
                     );
                 }
             }
@@ -487,17 +487,17 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ui.separator();
             ui.checkbox(
                 &mut app.map_show_beam_lobe,
-                format!("📡 {}", tr("map.beam_lobe", lang)),
+                format!("📡 {}", tr(key::MAP_BEAM_LOBE, lang)),
             );
             ui.checkbox(
                 &mut app.map_show_compass,
-                format!("🧭 {}", tr("map.compass", lang)),
+                format!("🧭 {}", tr(key::MAP_COMPASS, lang)),
             );
             ui.separator();
             ui.label(
                 egui::RichText::new(format!(
                     "{}: {}",
-                    tr("map.spots_on_map", lang),
+                    tr(key::MAP_SPOTS_ON_MAP, lang),
                     app.cluster_spots.len()
                 ))
                 .size(10.0)

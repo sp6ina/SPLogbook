@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::core::bandplan::{AMATEUR_BANDS, SegmentMode, get_band_by_freq, get_band_by_name};
-use crate::core::i18n::{tr, tr_or};
+use crate::core::i18n::{key, tr, tr_or};
 use crate::gui::app::SpLogApp;
 use eframe::egui;
 
@@ -19,7 +19,7 @@ pub fn render_bandmap_window(app: &mut SpLogApp, ctx: &egui::Context) {
         let ((), captured_geo) = app.show_floating_viewport(
             ctx,
             egui::ViewportId::from_hash_of("bandmap_viewport"),
-            format!("📶 {} - SPLogbook", tr("bandmap.title", lang)),
+            format!("📶 {} - SPLogbook", tr(key::BANDMAP_TITLE, lang)),
             [380.0, 360.0],
             [280.0, 220.0],
             app.panel_bandmap.saved_pos,
@@ -29,8 +29,8 @@ pub fn render_bandmap_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     ui.horizontal(|ui| {
                         let lang = app.current_language;
                         if ui
-                            .button(format!("↙ {}", tr("window.dock", lang)))
-                            .on_hover_text(tr("window.dock_tooltip", lang))
+                            .button(format!("↙ {}", tr(key::WINDOW_DOCK, lang)))
+                            .on_hover_text(tr(key::WINDOW_DOCK_TOOLTIP, lang))
                             .clicked()
                         {
                             dock_back = true;
@@ -77,7 +77,7 @@ pub fn render_bandmap_window(app: &mut SpLogApp, ctx: &egui::Context) {
     let default_size = [right_w.max(340.0), 320.0];
 
     let mut win = egui::Window::new(
-        egui::RichText::new(format!("   📶 {}", tr("bandmap.title", lang)))
+        egui::RichText::new(format!("   📶 {}", tr(key::BANDMAP_TITLE, lang)))
             .size(12.0)
             .strong(),
     )
@@ -139,7 +139,10 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
     // 1. Pasek sterowania pasmem
     ui.horizontal(|ui| {
-        ui.checkbox(&mut app.bandmap_auto_track, tr("bandmap.auto_track", lang));
+        ui.checkbox(
+            &mut app.bandmap_auto_track,
+            tr(key::BANDMAP_AUTO_TRACK, lang),
+        );
         ui.separator();
 
         if app.bandmap_auto_track {
@@ -148,7 +151,7 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
             }
         }
 
-        ui.label(format!("{}:", tr("qso.band", lang)));
+        ui.label(format!("{}:", tr(key::QSO_BAND, lang)));
         for band in AMATEUR_BANDS {
             let is_selected = app.bandmap_selected_band == band.name;
             if ui.selectable_label(is_selected, band.name).clicked() {
@@ -170,7 +173,7 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.label(
             egui::RichText::new(format!(
                 "{} {}: {:.3} - {:.3} MHz",
-                tr("qso.band", lang),
+                tr(key::QSO_BAND, lang),
                 current_band_def.name,
                 (min_freq as f64) / 1_000_000.0,
                 (max_freq as f64) / 1_000_000.0
@@ -397,10 +400,10 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .num_columns(5)
                 .spacing([12.0, 4.0])
                 .show(ui, |ui| {
-                    ui.label(egui::RichText::new(tr("qso.callsign", lang)).strong());
-                    ui.label(egui::RichText::new(tr("cluster.freq", lang)).strong());
-                    ui.label(egui::RichText::new(tr("cluster.comment", lang)).strong());
-                    ui.label(egui::RichText::new(tr("cluster.time", lang)).strong());
+                    ui.label(egui::RichText::new(tr(key::QSO_CALLSIGN, lang)).strong());
+                    ui.label(egui::RichText::new(tr(key::CLUSTER_FREQ, lang)).strong());
+                    ui.label(egui::RichText::new(tr(key::CLUSTER_COMMENT, lang)).strong());
+                    ui.label(egui::RichText::new(tr(key::CLUSTER_TIME, lang)).strong());
                     ui.label(egui::RichText::new(tr_or(lang, "Dostrój", "Tune")).strong());
                     ui.end_row();
 

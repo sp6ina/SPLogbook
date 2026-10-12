@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Wozniak (SP6INA)
 
-use crate::core::i18n::tr;
+use crate::core::i18n::{key, tr};
 use crate::gui::app::SpLogApp;
 use eframe::egui;
 use egui_extras::{Column, TableBuilder};
@@ -19,7 +19,7 @@ pub fn render_logbook_window(app: &mut SpLogApp, ctx: &egui::Context) {
             egui::ViewportId::from_hash_of("logbook_viewport"),
             format!(
                 "📋 {} ({} QSO) - SPLogbook",
-                tr("tab.logbook", lang),
+                tr(key::TAB_LOGBOOK, lang),
                 app.recent_qsos.len()
             ),
             [900.0, 560.0],
@@ -30,7 +30,7 @@ pub fn render_logbook_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 egui::Panel::top("logbook_vp_bar").show(ui, |ui| {
                     ui.horizontal(|ui| {
                         if ui
-                            .button(format!("↙ {}", tr("window.dock", lang)))
+                            .button(format!("↙ {}", tr(key::WINDOW_DOCK, lang)))
                             .clicked()
                         {
                             dock_back = true;
@@ -40,21 +40,21 @@ pub fn render_logbook_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             app.reload_qsos();
                         }
                         if ui
-                            .button(format!("⚙ {}", tr("columns.title", lang)))
+                            .button(format!("⚙ {}", tr(key::COLUMNS_TITLE, lang)))
                             .clicked()
                         {
                             app.show_column_settings = true;
                         }
                         ui.add(
                             egui::TextEdit::singleline(&mut app.log_search_query)
-                                .hint_text(tr("qso.search", lang))
+                                .hint_text(tr(key::QSO_SEARCH, lang))
                                 .desired_width(200.0),
                         );
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             ui.label(
                                 egui::RichText::new(format!(
                                     "{}: {} QSO",
-                                    tr("log.total_qsos", lang),
+                                    tr(key::LOG_TOTAL_QSOS, lang),
                                     app.recent_qsos.len()
                                 ))
                                 .size(11.0)
@@ -98,7 +98,7 @@ pub fn render_logbook_window(app: &mut SpLogApp, ctx: &egui::Context) {
     let mut win = egui::Window::new(
         egui::RichText::new(format!(
             "   📋 {} ({} QSO)",
-            tr("tab.logbook", lang),
+            tr(key::TAB_LOGBOOK, lang),
             app.recent_qsos.len()
         ))
         .size(12.0)
@@ -123,21 +123,21 @@ pub fn render_logbook_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 app.reload_qsos();
             }
             if ui
-                .button(format!("⚙ {}", tr("columns.title", lang)))
+                .button(format!("⚙ {}", tr(key::COLUMNS_TITLE, lang)))
                 .clicked()
             {
                 app.show_column_settings = true;
             }
             ui.add(
                 egui::TextEdit::singleline(&mut app.log_search_query)
-                    .hint_text(tr("qso.search", lang))
+                    .hint_text(tr(key::QSO_SEARCH, lang))
                     .desired_width(180.0),
             );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.label(
                     egui::RichText::new(format!(
                         "{}: {} QSO",
-                        tr("log.total_qsos", lang),
+                        tr(key::LOG_TOTAL_QSOS, lang),
                         app.recent_qsos.len()
                     ))
                     .size(11.0)
@@ -188,20 +188,20 @@ pub fn col_display_name(
 ) -> String {
     match col_id {
         "nr" => "Nr".to_string(),
-        "date" => tr("qso.date", lang).to_string(),
-        "time" => tr("qso.time", lang).to_string(),
-        "callsign" => tr("qso.callsign", lang).to_string(),
-        "band" => tr("qso.band", lang).to_string(),
-        "mode" => tr("qso.mode", lang).to_string(),
-        "rst_s" => tr("qso.rst_sent", lang).to_string(),
-        "rst_r" => tr("qso.rst_rcvd", lang).to_string(),
-        "country" => tr("geo.country", lang).to_string(),
-        "name" => tr("qso.name", lang).to_string(),
+        "date" => tr(key::QSO_DATE, lang).to_string(),
+        "time" => tr(key::QSO_TIME, lang).to_string(),
+        "callsign" => tr(key::QSO_CALLSIGN, lang).to_string(),
+        "band" => tr(key::QSO_BAND, lang).to_string(),
+        "mode" => tr(key::QSO_MODE, lang).to_string(),
+        "rst_s" => tr(key::QSO_RST_SENT, lang).to_string(),
+        "rst_r" => tr(key::QSO_RST_RCVD, lang).to_string(),
+        "country" => tr(key::GEO_COUNTRY, lang).to_string(),
+        "name" => tr(key::QSO_NAME, lang).to_string(),
         "qsl" => "QSL".to_string(),
-        "freq" => tr("qso.freq", lang).to_string(),
-        "cqz" => tr("geo.cq_zone", lang).to_string(),
-        "iota" => tr("qso.iota", lang).to_string(),
-        "comment" => tr("qso.comment", lang).to_string(),
+        "freq" => tr(key::QSO_FREQ, lang).to_string(),
+        "cqz" => tr(key::GEO_CQ_ZONE, lang).to_string(),
+        "iota" => tr(key::QSO_IOTA, lang).to_string(),
+        "comment" => tr(key::QSO_COMMENT, lang).to_string(),
         _ => default_label.to_string(),
     }
 }
@@ -375,7 +375,7 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ui.label(
                 egui::RichText::new(format!(
                     "🔎 {}: {}",
-                    tr("stats.drilldown_filter", lang),
+                    tr(key::STATS_DRILLDOWN_FILTER, lang),
                     label
                 ))
                 .size(12.0)
@@ -383,7 +383,7 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             );
             if ui
                 .small_button("✕")
-                .on_hover_text(tr("stats.drilldown_clear", lang))
+                .on_hover_text(tr(key::STATS_DRILLDOWN_CLEAR, lang))
                 .clicked()
             {
                 clear = true;
@@ -397,10 +397,10 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
     // Pasek paginacji
     ui.horizontal(|ui| {
-        ui.label(tr("log.rows_per_page", lang));
+        ui.label(tr(key::LOG_ROWS_PER_PAGE, lang));
         for &size in &[25usize, 50, 100, 0usize] {
             let lbl = if size == 0 {
-                tr("log.all_rows", lang).to_string()
+                tr(key::LOG_ALL_ROWS, lang).to_string()
             } else {
                 size.to_string()
             };
@@ -417,7 +417,7 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         if total > 0 {
             ui.label(format!("{}-{} / {}", start + 1, end, total));
         } else {
-            ui.label(tr("log.no_results", lang));
+            ui.label(tr(key::LOG_NO_RESULTS, lang));
         }
         if app.log_page_size > 0 {
             let pages = (total + app.log_page_size - 1) / app.log_page_size.max(1);
@@ -438,7 +438,7 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.separator();
         if ui
             .add_enabled(!app.undo_stack.is_empty(), egui::Button::new("↩ Undo"))
-            .on_hover_text(tr("log.undo_tooltip", lang))
+            .on_hover_text(tr(key::LOG_UNDO_TOOLTIP, lang))
             .clicked()
         {
             app.perform_undo();
@@ -460,7 +460,10 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 egui::RichText::new(format!("✔ Zaznaczono {count} QSO"))
                     .color(egui::Color32::from_rgb(34, 197, 94)),
             );
-            if ui.button(format!("🗑 {}", tr("qso.delete", lang))).clicked() {
+            if ui
+                .button(format!("🗑 {}", tr(key::QSO_DELETE, lang)))
+                .clicked()
+            {
                 app.delete_selected_qso();
             }
             if ui
@@ -526,7 +529,7 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     table
         .header(22.0, |mut header| {
             header.col(|ui| {
-                ui.label(egui::RichText::new(tr("ledger.col_actions", lang)).strong());
+                ui.label(egui::RichText::new(tr(key::LEDGER_COL_ACTIONS, lang)).strong());
             });
             header.col(|ui| {
                 ui.checkbox(&mut select_all, "");
@@ -558,14 +561,14 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     ui.horizontal(|ui| {
                         if ui
                             .small_button("✏")
-                            .on_hover_text(tr("log.edit_tooltip", lang))
+                            .on_hover_text(tr(key::LOG_EDIT_TOOLTIP, lang))
                             .clicked()
                         {
                             qso_to_edit = Some(qso.clone());
                         }
                         if ui
                             .small_button("🗑")
-                            .on_hover_text(tr("log.delete_tooltip", lang))
+                            .on_hover_text(tr(key::LOG_DELETE_TOOLTIP, lang))
                             .clicked()
                         {
                             if let Some(id) = qso_id {
@@ -747,7 +750,7 @@ pub fn render_edit_qso_dialog(app: &mut SpLogApp, ctx: &egui::Context) {
     if let Some(ref mut qso) = app.editing_qso {
         egui::Window::new(format!(
             "✏ {} - {}",
-            tr("qso.edit_title", lang),
+            tr(key::QSO_EDIT_TITLE, lang),
             qso.callsign
         ))
         .open(&mut is_open)
@@ -757,30 +760,30 @@ pub fn render_edit_qso_dialog(app: &mut SpLogApp, ctx: &egui::Context) {
             ui.vertical(|ui| {
                 ui.group(|ui| {
                     ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new(tr("qso.callsign", lang)).strong());
+                        ui.label(egui::RichText::new(tr(key::QSO_CALLSIGN, lang)).strong());
                         ui.add(egui::TextEdit::singleline(&mut qso.callsign).desired_width(120.0));
-                        ui.label(tr("qso.band", lang));
+                        ui.label(tr(key::QSO_BAND, lang));
                         ui.add(egui::TextEdit::singleline(&mut qso.band).desired_width(60.0));
-                        ui.label(tr("qso.mode", lang));
+                        ui.label(tr(key::QSO_MODE, lang));
                         ui.add(egui::TextEdit::singleline(&mut qso.mode).desired_width(60.0));
                     });
                     ui.horizontal(|ui| {
-                        ui.label(tr("qso.date", lang));
+                        ui.label(tr(key::QSO_DATE, lang));
                         ui.add(egui::TextEdit::singleline(&mut qso.qso_date).desired_width(90.0));
-                        ui.label(tr("qso.time", lang));
+                        ui.label(tr(key::QSO_TIME, lang));
                         ui.add(egui::TextEdit::singleline(&mut qso.time_on).desired_width(70.0));
                     });
                     ui.horizontal(|ui| {
-                        ui.label(tr("qso.rst_sent", lang));
+                        ui.label(tr(key::QSO_RST_SENT, lang));
                         ui.add(egui::TextEdit::singleline(&mut qso.rst_sent).desired_width(60.0));
-                        ui.label(tr("qso.rst_rcvd", lang));
+                        ui.label(tr(key::QSO_RST_RCVD, lang));
                         ui.add(egui::TextEdit::singleline(&mut qso.rst_rcvd).desired_width(60.0));
                     });
                 });
                 ui.add_space(6.0);
                 ui.group(|ui| {
                     ui.horizontal(|ui| {
-                        ui.label(tr("qso.name", lang));
+                        ui.label(tr(key::QSO_NAME, lang));
                         let mut value = qso.name.clone().unwrap_or_default();
                         if ui
                             .add(egui::TextEdit::singleline(&mut value).desired_width(130.0))
@@ -788,7 +791,7 @@ pub fn render_edit_qso_dialog(app: &mut SpLogApp, ctx: &egui::Context) {
                         {
                             qso.name = if value.is_empty() { None } else { Some(value) };
                         }
-                        ui.label(tr("qso.locator", lang));
+                        ui.label(tr(key::QSO_LOCATOR, lang));
                         let mut value = qso.gridsquare.clone().unwrap_or_default();
                         if ui
                             .add(egui::TextEdit::singleline(&mut value).desired_width(80.0))
@@ -802,7 +805,7 @@ pub fn render_edit_qso_dialog(app: &mut SpLogApp, ctx: &egui::Context) {
                         }
                     });
                     ui.horizontal(|ui| {
-                        ui.label(tr("qso.qth", lang));
+                        ui.label(tr(key::QSO_QTH, lang));
                         let mut value = qso.qth.clone().unwrap_or_default();
                         if ui
                             .add(egui::TextEdit::singleline(&mut value).desired_width(140.0))
@@ -824,7 +827,7 @@ pub fn render_edit_qso_dialog(app: &mut SpLogApp, ctx: &egui::Context) {
                         }
                     });
                     ui.horizontal(|ui| {
-                        ui.label(tr("qso.comment", lang));
+                        ui.label(tr(key::QSO_COMMENT, lang));
                         let mut value = qso.comment.clone().unwrap_or_default();
                         if ui
                             .add(
@@ -839,33 +842,33 @@ pub fn render_edit_qso_dialog(app: &mut SpLogApp, ctx: &egui::Context) {
                 });
                 ui.add_space(6.0);
                 ui.group(|ui| {
-                    ui.label(egui::RichText::new(tr("qso.qsl_status_heading", lang)).strong());
+                    ui.label(egui::RichText::new(tr(key::QSO_QSL_STATUS_HEADING, lang)).strong());
                     ui.horizontal(|ui| {
                         ui.label(format!(
                             "{} {}:",
-                            tr("stats.paper_qsl_label", lang),
-                            tr("qso.paper_sent", lang)
+                            tr(key::STATS_PAPER_QSL_LABEL, lang),
+                            tr(key::QSO_PAPER_SENT, lang)
                         ));
                         ui.add(egui::TextEdit::singleline(&mut qso.qsl_sent).desired_width(30.0));
-                        ui.label(format!("{}:", tr("qso.received", lang)));
+                        ui.label(format!("{}:", tr(key::QSO_RECEIVED, lang)));
                         ui.add(egui::TextEdit::singleline(&mut qso.qsl_rcvd).desired_width(30.0));
                     });
                     ui.horizontal(|ui| {
-                        ui.label(format!("LoTW {}:", tr("qso.lotw_sent", lang)));
+                        ui.label(format!("LoTW {}:", tr(key::QSO_LOTW_SENT, lang)));
                         ui.add(
                             egui::TextEdit::singleline(&mut qso.lotw_qsl_sent).desired_width(30.0),
                         );
-                        ui.label(format!("{}:", tr("qso.received", lang)));
+                        ui.label(format!("{}:", tr(key::QSO_RECEIVED, lang)));
                         ui.add(
                             egui::TextEdit::singleline(&mut qso.lotw_qsl_rcvd).desired_width(30.0),
                         );
                     });
                     ui.horizontal(|ui| {
-                        ui.label(format!("eQSL {}:", tr("qso.eqsl_sent", lang)));
+                        ui.label(format!("eQSL {}:", tr(key::QSO_EQSL_SENT, lang)));
                         ui.add(
                             egui::TextEdit::singleline(&mut qso.eqsl_qsl_sent).desired_width(30.0),
                         );
-                        ui.label(format!("{}:", tr("qso.received", lang)));
+                        ui.label(format!("{}:", tr(key::QSO_RECEIVED, lang)));
                         ui.add(
                             egui::TextEdit::singleline(&mut qso.eqsl_qsl_rcvd).desired_width(30.0),
                         );
@@ -874,7 +877,7 @@ pub fn render_edit_qso_dialog(app: &mut SpLogApp, ctx: &egui::Context) {
                 ui.horizontal(|ui| {
                     let save_btn = ui.add(
                         egui::Button::new(
-                            egui::RichText::new(format!("💾 {}", tr("btn.save", lang)))
+                            egui::RichText::new(format!("💾 {}", tr(key::BTN_SAVE, lang)))
                                 .strong()
                                 .color(egui::Color32::from_rgb(15, 23, 42)),
                         )
@@ -883,7 +886,7 @@ pub fn render_edit_qso_dialog(app: &mut SpLogApp, ctx: &egui::Context) {
                     if save_btn.clicked() {
                         should_save = true;
                     }
-                    if ui.button(tr("btn.cancel", lang)).clicked() {
+                    if ui.button(tr(key::BTN_CANCEL, lang)).clicked() {
                         should_cancel = true;
                     }
                 });
@@ -911,12 +914,12 @@ pub fn render_column_settings(app: &mut SpLogApp, ctx: &egui::Context) {
     let mut load_preset: Option<usize> = None;
     let mut delete_preset: Option<usize> = None;
 
-    egui::Window::new(format!("⚙ {}", tr("columns.title", lang)))
+    egui::Window::new(format!("⚙ {}", tr(key::COLUMNS_TITLE, lang)))
         .open(&mut is_open)
         .collapsible(false)
         .resizable(false)
         .show(ctx, |ui| {
-            ui.label(tr("columns.subtitle", lang));
+            ui.label(tr(key::COLUMNS_SUBTITLE, lang));
             ui.separator();
 
             egui::ScrollArea::vertical()
@@ -972,13 +975,13 @@ pub fn render_column_settings(app: &mut SpLogApp, ctx: &egui::Context) {
 
             ui.separator();
             ui.horizontal(|ui| {
-                if ui.button(tr("btn.save", lang)).clicked() {
+                if ui.button(tr(key::BTN_SAVE, lang)).clicked() {
                     save = true;
                 }
-                if ui.button(tr("btn.close", lang)).clicked() {
+                if ui.button(tr(key::BTN_CLOSE, lang)).clicked() {
                     app.show_column_settings = false;
                 }
-                if ui.button(tr("toolbar.restore_defaults", lang)).clicked() {
+                if ui.button(tr(key::TOOLBAR_RESTORE_DEFAULTS, lang)).clicked() {
                     reset = true;
                 }
             });

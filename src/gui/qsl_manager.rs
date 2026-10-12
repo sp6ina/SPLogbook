@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 // Okno przeglądarki managerów QSL (z bazy serviceLOG.db - 29 102 rekordów)
 
-use crate::core::i18n::{Language, tr, tr_or};
+use crate::core::i18n::{Language, key, tr, tr_or};
 use crate::core::service_db::{QslManagerRecord, ServiceDatabase};
 use eframe::egui;
 
@@ -91,13 +91,13 @@ impl QslManagerDialog {
                 }
 
                 if ui
-                    .button(format!("🔍 {}", tr("btn.search", lang)))
+                    .button(format!("🔍 {}", tr(key::BTN_SEARCH, lang)))
                     .clicked()
                 {
                     self.execute_search(db);
                 }
 
-                if ui.button(tr("btn.clear", lang)).clicked() {
+                if ui.button(tr(key::BTN_CLEAR, lang)).clicked() {
                     self.search_query.clear();
                     self.results.clear();
                 }
@@ -174,7 +174,7 @@ impl QslManagerDialog {
                     .color(egui::Color32::GRAY),
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button(tr("btn.close", lang)).clicked() {
+                    if ui.button(tr(key::BTN_CLOSE, lang)).clicked() {
                         close_requested = true;
                     }
                 });

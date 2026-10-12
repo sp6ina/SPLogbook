@@ -3,7 +3,7 @@
 
 //! Moduł statystyk i wykresów QSO — wykresy pasmo/emisja/godzina/miesiąc/QSL
 
-use crate::core::i18n::tr;
+use crate::core::i18n::{key, tr};
 use crate::gui::app::{DrillFilter, QslDrillStatus, SpLogApp};
 use eframe::egui;
 
@@ -15,7 +15,7 @@ pub fn render_statistics_window(app: &mut SpLogApp, ctx: &egui::Context) {
     let mut is_open = app.show_statistics_window;
 
     egui::Window::new(
-        egui::RichText::new(format!("📊 {}", tr("stats.window_title", lang)))
+        egui::RichText::new(format!("📊 {}", tr(key::STATS_WINDOW_TITLE, lang)))
             .size(12.0)
             .strong(),
     )
@@ -26,7 +26,7 @@ pub fn render_statistics_window(app: &mut SpLogApp, ctx: &egui::Context) {
     .show(ctx, |ui| {
         ui.horizontal(|ui| {
             ui.heading(
-                egui::RichText::new(tr("stats.center_title", lang))
+                egui::RichText::new(tr(key::STATS_CENTER_TITLE, lang))
                     .size(15.0)
                     .color(egui::Color32::from_rgb(56, 189, 248)),
             );
@@ -38,32 +38,32 @@ pub fn render_statistics_window(app: &mut SpLogApp, ctx: &egui::Context) {
             ui.selectable_value(
                 &mut app.stats_tab,
                 0,
-                format!("📅 {}", tr("stats.tab_monthly", lang)),
+                format!("📅 {}", tr(key::STATS_TAB_MONTHLY, lang)),
             );
             ui.selectable_value(
                 &mut app.stats_tab,
                 1,
-                format!("📻 {}", tr("stats.tab_bands", lang)),
+                format!("📻 {}", tr(key::STATS_TAB_BANDS, lang)),
             );
             ui.selectable_value(
                 &mut app.stats_tab,
                 2,
-                format!("📡 {}", tr("stats.tab_modes", lang)),
+                format!("📡 {}", tr(key::STATS_TAB_MODES, lang)),
             );
             ui.selectable_value(
                 &mut app.stats_tab,
                 3,
-                format!("⏰ {}", tr("stats.tab_hourly", lang)),
+                format!("⏰ {}", tr(key::STATS_TAB_HOURLY, lang)),
             );
             ui.selectable_value(
                 &mut app.stats_tab,
                 4,
-                format!("🌍 {}", tr("stats.tab_countries", lang)),
+                format!("🌍 {}", tr(key::STATS_TAB_COUNTRIES, lang)),
             );
             ui.selectable_value(
                 &mut app.stats_tab,
                 5,
-                format!("📬 {}", tr("stats.tab_qsl", lang)),
+                format!("📬 {}", tr(key::STATS_TAB_QSL, lang)),
             );
         });
         ui.separator();
@@ -299,9 +299,9 @@ fn bar_chart_clickable(
 
 fn render_tab_monthly(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.current_language;
-    ui.label(egui::RichText::new(tr("stats.monthly_dist", lang)).strong());
+    ui.label(egui::RichText::new(tr(key::STATS_MONTHLY_DIST, lang)).strong());
     ui.label(
-        egui::RichText::new(tr("stats.drilldown_hint", lang))
+        egui::RichText::new(tr(key::STATS_DRILLDOWN_HINT, lang))
             .size(10.5)
             .color(egui::Color32::from_rgb(148, 163, 184)),
     );
@@ -313,7 +313,7 @@ fn render_tab_monthly(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ui,
             &data,
             egui::Color32::from_rgb(56, 189, 248),
-            tr("log.no_results", lang),
+            tr(key::LOG_NO_RESULTS, lang),
         );
     });
     if let Some(i) = clicked {
@@ -329,7 +329,7 @@ fn render_tab_monthly(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.label(
             egui::RichText::new(format!(
                 "{}: {} QSO ({} m.)",
-                tr("stats.total_qso_count", lang),
+                tr(key::STATS_TOTAL_QSO_COUNT, lang),
                 total,
                 data.len()
             ))
@@ -343,9 +343,9 @@ fn render_tab_monthly(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
 fn render_tab_bands(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.current_language;
-    ui.label(egui::RichText::new(tr("stats.bands_dist", lang)).strong());
+    ui.label(egui::RichText::new(tr(key::STATS_BANDS_DIST, lang)).strong());
     ui.label(
-        egui::RichText::new(tr("stats.drilldown_hint", lang))
+        egui::RichText::new(tr(key::STATS_DRILLDOWN_HINT, lang))
             .size(10.5)
             .color(egui::Color32::from_rgb(148, 163, 184)),
     );
@@ -355,7 +355,7 @@ fn render_tab_bands(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui,
         &data,
         egui::Color32::from_rgb(251, 191, 36),
-        tr("log.no_results", lang),
+        tr(key::LOG_NO_RESULTS, lang),
     ) {
         if let Some((band, _)) = data.get(i) {
             app.drill_down(DrillFilter::Band(band.clone()));
@@ -366,7 +366,7 @@ fn render_tab_bands(app: &mut SpLogApp, ui: &mut egui::Ui) {
         .striped(true)
         .spacing([20.0, 4.0])
         .show(ui, |ui| {
-            ui.label(egui::RichText::new(tr("qso.band", lang)).strong());
+            ui.label(egui::RichText::new(tr(key::QSO_BAND, lang)).strong());
             ui.label(egui::RichText::new("QSO").strong());
             ui.label(egui::RichText::new("%").strong());
             ui.end_row();
@@ -382,9 +382,9 @@ fn render_tab_bands(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
 fn render_tab_modes(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.current_language;
-    ui.label(egui::RichText::new(tr("stats.modes_dist", lang)).strong());
+    ui.label(egui::RichText::new(tr(key::STATS_MODES_DIST, lang)).strong());
     ui.label(
-        egui::RichText::new(tr("stats.drilldown_hint", lang))
+        egui::RichText::new(tr(key::STATS_DRILLDOWN_HINT, lang))
             .size(10.5)
             .color(egui::Color32::from_rgb(148, 163, 184)),
     );
@@ -394,7 +394,7 @@ fn render_tab_modes(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui,
         &data,
         egui::Color32::from_rgb(34, 197, 94),
-        tr("log.no_results", lang),
+        tr(key::LOG_NO_RESULTS, lang),
     ) {
         if let Some((mode, _)) = data.get(i) {
             app.drill_down(DrillFilter::Mode(mode.clone()));
@@ -405,7 +405,7 @@ fn render_tab_modes(app: &mut SpLogApp, ui: &mut egui::Ui) {
         .striped(true)
         .spacing([20.0, 4.0])
         .show(ui, |ui| {
-            ui.label(egui::RichText::new(tr("qso.mode", lang)).strong());
+            ui.label(egui::RichText::new(tr(key::QSO_MODE, lang)).strong());
             ui.label(egui::RichText::new("QSO").strong());
             ui.label(egui::RichText::new("%").strong());
             ui.end_row();
@@ -421,9 +421,9 @@ fn render_tab_modes(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
 fn render_tab_hourly(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.current_language;
-    ui.label(egui::RichText::new(tr("stats.activity_histogram", lang)).strong());
+    ui.label(egui::RichText::new(tr(key::STATS_ACTIVITY_HISTOGRAM, lang)).strong());
     ui.label(
-        egui::RichText::new(tr("stats.drilldown_hint", lang))
+        egui::RichText::new(tr(key::STATS_DRILLDOWN_HINT, lang))
             .size(10.5)
             .color(egui::Color32::from_rgb(148, 163, 184)),
     );
@@ -447,7 +447,7 @@ fn render_tab_hourly(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ui,
             &hours,
             egui::Color32::from_rgb(147, 197, 253),
-            tr("log.no_results", lang),
+            tr(key::LOG_NO_RESULTS, lang),
         );
     });
     if let Some(i) = clicked {
@@ -461,7 +461,7 @@ fn render_tab_hourly(app: &mut SpLogApp, ui: &mut egui::Ui) {
         if *cnt > 0 {
             ui.label(format!(
                 "{}: {:02}:00–{:02}:00 UTC ({} QSO)",
-                tr("stats.peak_activity", lang),
+                tr(key::STATS_PEAK_ACTIVITY, lang),
                 h,
                 (h + 1) % 24,
                 cnt
@@ -472,9 +472,9 @@ fn render_tab_hourly(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
 fn render_tab_countries(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.current_language;
-    ui.label(egui::RichText::new(tr("stats.top_countries_title", lang)).strong());
+    ui.label(egui::RichText::new(tr(key::STATS_TOP_COUNTRIES_TITLE, lang)).strong());
     ui.label(
-        egui::RichText::new(tr("stats.drilldown_hint", lang))
+        egui::RichText::new(tr(key::STATS_DRILLDOWN_HINT, lang))
             .size(10.5)
             .color(egui::Color32::from_rgb(148, 163, 184)),
     );
@@ -489,7 +489,7 @@ fn render_tab_countries(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .spacing([12.0, 4.0])
             .show(ui, |ui| {
                 ui.label(egui::RichText::new("#").strong());
-                ui.label(egui::RichText::new(tr("geo.country", lang)).strong());
+                ui.label(egui::RichText::new(tr(key::GEO_COUNTRY, lang)).strong());
                 ui.label(egui::RichText::new("QSO").strong());
                 ui.label(egui::RichText::new("%").strong());
                 ui.end_row();
@@ -524,16 +524,16 @@ fn render_tab_countries(app: &mut SpLogApp, ui: &mut egui::Ui) {
 fn render_tab_qsl(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.current_language;
     let (total, lotw, eqsl, paper) = get_stats_qsl(app);
-    ui.label(egui::RichText::new(tr("stats.qsl_summary_title", lang)).strong());
+    ui.label(egui::RichText::new(tr(key::STATS_QSL_SUMMARY_TITLE, lang)).strong());
     ui.label(
-        egui::RichText::new(tr("stats.drilldown_hint", lang))
+        egui::RichText::new(tr(key::STATS_DRILLDOWN_HINT, lang))
             .size(10.5)
             .color(egui::Color32::from_rgb(148, 163, 184)),
     );
     ui.add_space(8.0);
 
     if total == 0 {
-        ui.label(tr("log.no_results", lang));
+        ui.label(tr(key::LOG_NO_RESULTS, lang));
         return;
     }
 
@@ -541,7 +541,7 @@ fn render_tab_qsl(app: &mut SpLogApp, ui: &mut egui::Ui) {
         .spacing([20.0, 8.0])
         .show(ui, |ui| {
             ui.label(
-                egui::RichText::new(format!("{}:", tr("stats.total_qso_count", lang))).strong(),
+                egui::RichText::new(format!("{}:", tr(key::STATS_TOTAL_QSO_COUNT, lang))).strong(),
             );
             ui.label(
                 egui::RichText::new(format!("{total}"))
@@ -551,7 +551,7 @@ fn render_tab_qsl(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ui.end_row();
 
             ui.label(
-                egui::RichText::new(format!("{}:", tr("stats.lotw_confirmed_label", lang)))
+                egui::RichText::new(format!("{}:", tr(key::STATS_LOTW_CONFIRMED_LABEL, lang)))
                     .strong()
                     .color(egui::Color32::from_rgb(34, 197, 94)),
             );
@@ -566,7 +566,7 @@ fn render_tab_qsl(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ui.end_row();
 
             ui.label(
-                egui::RichText::new(format!("{}:", tr("stats.eqsl_confirmed_label", lang)))
+                egui::RichText::new(format!("{}:", tr(key::STATS_EQSL_CONFIRMED_LABEL, lang)))
                     .strong()
                     .color(egui::Color32::from_rgb(56, 189, 248)),
             );
@@ -581,7 +581,7 @@ fn render_tab_qsl(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ui.end_row();
 
             ui.label(
-                egui::RichText::new(format!("{}:", tr("stats.paper_qsl_label", lang)))
+                egui::RichText::new(format!("{}:", tr(key::STATS_PAPER_QSL_LABEL, lang)))
                     .strong()
                     .color(egui::Color32::from_rgb(250, 204, 21)),
             );
@@ -597,7 +597,7 @@ fn render_tab_qsl(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
             let unconfirmed = total.saturating_sub(lotw.max(eqsl).max(paper)).max(0);
             ui.label(
-                egui::RichText::new(format!("{}:", tr("stats.unconfirmed_label", lang)))
+                egui::RichText::new(format!("{}:", tr(key::STATS_UNCONFIRMED_LABEL, lang)))
                     .strong()
                     .color(egui::Color32::from_rgb(100, 116, 139)),
             );
@@ -616,7 +616,7 @@ fn render_tab_qsl(app: &mut SpLogApp, ui: &mut egui::Ui) {
     ui.separator();
 
     // Wizualizacja słupkowa
-    ui.label(egui::RichText::new(tr("stats.visualization_label", lang)).strong());
+    ui.label(egui::RichText::new(tr(key::STATS_VISUALIZATION_LABEL, lang)).strong());
     ui.add_space(4.0);
 
     let unconfirmed = total.saturating_sub(lotw.max(eqsl).max(paper)).max(0);
@@ -630,7 +630,7 @@ fn render_tab_qsl(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui,
         &bar_data,
         egui::Color32::from_rgb(56, 189, 248),
-        tr("log.no_results", lang),
+        tr(key::LOG_NO_RESULTS, lang),
     ) {
         let filter = match i {
             0 => QslDrillStatus::Lotw,

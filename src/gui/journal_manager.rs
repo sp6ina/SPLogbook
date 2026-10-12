@@ -3,7 +3,7 @@
 // Wielodziennikowość - Okno zarządzania profilami dzienników łączności
 
 use crate::core::database::{Journal, LogDatabase};
-use crate::core::i18n::{Language, tr};
+use crate::core::i18n::{Language, key, tr};
 use eframe::egui;
 
 #[derive(Default)]
@@ -43,16 +43,16 @@ impl JournalManagerDialog {
 
         let mut open = self.is_open;
         let mut close_requested = false;
-        egui::Window::new(tr("journal.title", lang))
+        egui::Window::new(tr(key::JOURNAL_TITLE, lang))
             .open(&mut open)
             .collapsible(false)
             .resizable(true)
             .default_width(550.0)
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.heading(tr("journal.defined_profiles", lang));
+                    ui.heading(tr(key::JOURNAL_DEFINED_PROFILES, lang));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button(tr("journal.new_profile", lang)).clicked() {
+                        if ui.button(tr(key::JOURNAL_NEW_PROFILE, lang)).clicked() {
                             self.show_create_form = !self.show_create_form;
                         }
                     });
@@ -62,42 +62,44 @@ impl JournalManagerDialog {
 
                 if self.show_create_form {
                     ui.group(|ui| {
-                        ui.label(egui::RichText::new(tr("journal.create_title", lang)).strong());
+                        ui.label(egui::RichText::new(tr(key::JOURNAL_CREATE_TITLE, lang)).strong());
                         egui::Grid::new("new_journal_grid")
                             .num_columns(2)
                             .spacing([10.0, 6.0])
                             .show(ui, |ui| {
-                                ui.label(tr("journal.id_code", lang));
+                                ui.label(tr(key::JOURNAL_ID_CODE, lang));
                                 ui.text_edit_singleline(&mut self.new_journal_id);
                                 ui.end_row();
 
-                                ui.label(tr("journal.profile_name", lang));
+                                ui.label(tr(key::JOURNAL_PROFILE_NAME, lang));
                                 ui.text_edit_singleline(&mut self.new_journal_name);
                                 ui.end_row();
 
-                                ui.label(format!("{}:", tr("qso.callsign", lang)));
+                                ui.label(format!("{}:", tr(key::QSO_CALLSIGN, lang)));
                                 ui.text_edit_singleline(&mut self.new_journal_callsign);
                                 ui.end_row();
 
-                                ui.label(format!("{}:", tr("station.operator", lang)));
+                                ui.label(format!("{}:", tr(key::STATION_OPERATOR, lang)));
                                 ui.text_edit_singleline(&mut self.new_journal_operator);
                                 ui.end_row();
 
-                                ui.label(format!("{}:", tr("geo.locator", lang)));
+                                ui.label(format!("{}:", tr(key::GEO_LOCATOR, lang)));
                                 ui.text_edit_singleline(&mut self.new_journal_grid);
                                 ui.end_row();
 
-                                ui.label(format!("{}:", tr("qso.pga", lang)));
+                                ui.label(format!("{}:", tr(key::QSO_PGA, lang)));
                                 ui.text_edit_singleline(&mut self.new_journal_pga);
                                 ui.end_row();
 
-                                ui.label(format!("{}:", tr("qso.comment", lang)));
+                                ui.label(format!("{}:", tr(key::QSO_COMMENT, lang)));
                                 ui.text_edit_singleline(&mut self.new_journal_desc);
                                 ui.end_row();
                             });
 
                         ui.horizontal(|ui| {
-                            if ui.button(format!("💾 {}", tr("btn.save", lang))).clicked()
+                            if ui
+                                .button(format!("💾 {}", tr(key::BTN_SAVE, lang)))
+                                .clicked()
                                 && !self.new_journal_id.trim().is_empty()
                                 && !self.new_journal_name.trim().is_empty()
                             {
@@ -118,7 +120,7 @@ impl JournalManagerDialog {
                                 self.show_create_form = false;
                                 self.reload(db);
                             }
-                            if ui.button(tr("btn.cancel", lang)).clicked() {
+                            if ui.button(tr(key::BTN_CANCEL, lang)).clicked() {
                                 self.show_create_form = false;
                             }
                         });
@@ -137,7 +139,7 @@ impl JournalManagerDialog {
                             ui.group(|ui| {
                                 ui.horizontal(|ui| {
                                     let badge = if is_active {
-                                        tr("journal.active_badge", lang)
+                                        tr(key::JOURNAL_ACTIVE_BADGE, lang)
                                     } else {
                                         "📁 "
                                     };
@@ -157,7 +159,9 @@ impl JournalManagerDialog {
                                         egui::Layout::right_to_left(egui::Align::Center),
                                         |ui| {
                                             if !is_active {
-                                                if ui.button(tr("journal.activate", lang)).clicked()
+                                                if ui
+                                                    .button(tr(key::JOURNAL_ACTIVATE, lang))
+                                                    .clicked()
                                                 {
                                                     match db.set_active_journal(&journal.id) {
                                                         Ok(()) => {
@@ -172,7 +176,7 @@ impl JournalManagerDialog {
                                                     && ui
                                                         .button("🗑")
                                                         .on_hover_text(tr(
-                                                            "journal.delete_tooltip",
+                                                            key::JOURNAL_DELETE_TOOLTIP,
                                                             lang,
                                                         ))
                                                         .clicked()
@@ -191,11 +195,11 @@ impl JournalManagerDialog {
                                 });
                                 ui.label(format!(
                                     "{}: {} | {}: {} | {}: {}",
-                                    tr("station.operator", lang),
+                                    tr(key::STATION_OPERATOR, lang),
                                     journal.operator,
-                                    tr("geo.locator", lang),
+                                    tr(key::GEO_LOCATOR, lang),
                                     journal.my_gridsquare,
-                                    tr("qso.pga", lang),
+                                    tr(key::QSO_PGA, lang),
                                     journal.my_pga
                                 ));
                                 if !journal.description.is_empty() {
@@ -225,7 +229,7 @@ impl JournalManagerDialog {
 
                 ui.separator();
                 ui.horizontal(|ui| {
-                    if ui.button(tr("btn.close", lang)).clicked() {
+                    if ui.button(tr(key::BTN_CLOSE, lang)).clicked() {
                         close_requested = true;
                     }
                 });

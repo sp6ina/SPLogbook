@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::cloud::solar::BandCondition;
-use crate::core::i18n::{tr, tr_or};
+use crate::core::i18n::{key, tr, tr_or};
 use crate::gui::app::SpLogApp;
 use crate::gui::text_sparkline;
 use eframe::egui;
@@ -20,7 +20,7 @@ pub fn render_solar_window(app: &mut SpLogApp, ctx: &egui::Context) {
         let ((), captured_geo) = app.show_floating_viewport(
             ctx,
             egui::ViewportId::from_hash_of("solar_viewport"),
-            format!("☀ {} - SPLogbook", tr("solar.title", lang)),
+            format!("☀ {} - SPLogbook", tr(key::SOLAR_TITLE, lang)),
             [380.0, 260.0],
             [280.0, 180.0],
             app.panel_solar.saved_pos,
@@ -29,8 +29,8 @@ pub fn render_solar_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 egui::Panel::top("solar_vp_bar").show(ui, |ui| {
                     ui.horizontal(|ui| {
                         if ui
-                            .button(format!("↙ {}", tr("window.dock", lang)))
-                            .on_hover_text(tr("window.dock_tooltip", lang))
+                            .button(format!("↙ {}", tr(key::WINDOW_DOCK, lang)))
+                            .on_hover_text(tr(key::WINDOW_DOCK_TOOLTIP, lang))
                             .clicked()
                         {
                             dock_back = true;
@@ -75,7 +75,7 @@ pub fn render_solar_window(app: &mut SpLogApp, ctx: &egui::Context) {
     let default_size = [right_w.max(340.0), 240.0];
 
     let mut win = egui::Window::new(
-        egui::RichText::new(format!("   ☀ {}", tr("solar.title", lang)))
+        egui::RichText::new(format!("   ☀ {}", tr(key::SOLAR_TITLE, lang)))
             .size(12.0)
             .strong(),
     )
@@ -257,39 +257,39 @@ pub fn render_solar_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         let hf_str = match weather.hf_day_condition() {
             BandCondition::Good => (
-                tr("solar.condition_good", lang),
+                tr(key::SOLAR_CONDITION_GOOD, lang),
                 egui::Color32::from_rgb(34, 197, 94),
             ),
             BandCondition::Fair => (
-                tr("solar.condition_fair", lang),
+                tr(key::SOLAR_CONDITION_FAIR, lang),
                 egui::Color32::from_rgb(250, 204, 21),
             ),
             BandCondition::Poor => (
-                tr("solar.condition_poor", lang),
+                tr(key::SOLAR_CONDITION_POOR, lang),
                 egui::Color32::from_rgb(239, 68, 68),
             ),
         };
         let lf_str = match weather.lf_night_condition() {
             BandCondition::Good => (
-                tr("solar.condition_good", lang),
+                tr(key::SOLAR_CONDITION_GOOD, lang),
                 egui::Color32::from_rgb(34, 197, 94),
             ),
             BandCondition::Fair => (
-                tr("solar.condition_fair", lang),
+                tr(key::SOLAR_CONDITION_FAIR, lang),
                 egui::Color32::from_rgb(250, 204, 21),
             ),
             BandCondition::Poor => (
-                tr("solar.condition_poor", lang),
+                tr(key::SOLAR_CONDITION_POOR, lang),
                 egui::Color32::from_rgb(239, 68, 68),
             ),
         };
 
-        ui.label(format!("{}:", tr("solar.hf_day", lang)));
+        ui.label(format!("{}:", tr(key::SOLAR_HF_DAY, lang)));
         ui.label(egui::RichText::new(hf_str.0).color(hf_str.1).strong());
 
         ui.add_space(8.0);
 
-        ui.label(format!("{}:", tr("solar.lf_night", lang)));
+        ui.label(format!("{}:", tr(key::SOLAR_LF_NIGHT, lang)));
         ui.label(egui::RichText::new(lf_str.0).color(lf_str.1).strong());
     });
 

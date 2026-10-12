@@ -10,7 +10,7 @@ use crate::core::awards::{AwardsEngine, PolishDistrictInfo, QsoAwardStatus};
 use crate::core::backup::BackupManager;
 use crate::core::database::{Journal, LogDatabase};
 use crate::core::geo::{calculate_bearing_deg, calculate_distance_km, locator_to_coordinates};
-use crate::core::i18n::{Language, tr};
+use crate::core::i18n::{Language, key, tr};
 use crate::core::prefix::{PrefixInfo, PrefixMatcher};
 use crate::core::qso::QsoRecord;
 use crate::core::scp::ScpEngine;
@@ -4936,7 +4936,7 @@ impl eframe::App for SpLogApp {
         egui::Panel::bottom("bottom_status_bar").show(ui, |ui| {
             let lang = self.current_language;
             ui.horizontal(|ui| {
-                let fallback_status = tr("status.ready_all_active", lang);
+                let fallback_status = tr(key::STATUS_READY_ALL_ACTIVE, lang);
                 let status_txt = self.status_message.as_deref().unwrap_or(fallback_status);
                 ui.label(
                     egui::RichText::new(status_txt)
@@ -4988,7 +4988,7 @@ impl eframe::App for SpLogApp {
 
                 let journal_str = format!(
                     "📁 {}: {} ({} QSO)",
-                    tr("statusbar.log", lang),
+                    tr(key::STATUSBAR_LOG, lang),
                     self.active_journal.name,
                     self.recent_qsos.len()
                 );
@@ -5005,7 +5005,7 @@ impl eframe::App for SpLogApp {
                 } else {
                     &self.my_station.name
                 };
-                let profile_str = format!("🏷 {}: {}", tr("statusbar.profile", lang), prof_name);
+                let profile_str = format!("🏷 {}: {}", tr(key::STATUSBAR_PROFILE, lang), prof_name);
                 ui.label(
                     egui::RichText::new(profile_str)
                         .size(11.0)
@@ -5025,7 +5025,7 @@ impl eframe::App for SpLogApp {
 
                     let utc_str = format!(
                         "⏱ {}: {}",
-                        tr("statusbar.utc", lang),
+                        tr(key::STATUSBAR_UTC, lang),
                         chrono::Utc::now().format("%H:%M:%S")
                     );
                     ui.label(
@@ -5491,7 +5491,7 @@ impl eframe::App for SpLogApp {
             let lang = self.current_language;
             let mut is_open = self.show_about_window;
             let mut close_req = false;
-            egui::Window::new(tr("tab.about", lang))
+            egui::Window::new(tr(key::TAB_ABOUT, lang))
                 .open(&mut is_open)
                 .default_size([480.0, 340.0])
                 .show(ctx, |ui| {
@@ -5573,7 +5573,7 @@ impl eframe::App for SpLogApp {
                             }
                         });
                         ui.add_space(8.0);
-                        if ui.button(tr("btn.close", lang)).clicked() {
+                        if ui.button(tr(key::BTN_CLOSE, lang)).clicked() {
                             close_req = true;
                         }
                     });
@@ -5594,7 +5594,7 @@ impl eframe::App for SpLogApp {
         if self.show_shortcuts_window {
             let lang = self.current_language;
             let mut is_open = self.show_shortcuts_window;
-            egui::Window::new(format!("⌨ {}", tr("help.shortcuts_title", lang)))
+            egui::Window::new(format!("⌨ {}", tr(key::HELP_SHORTCUTS_TITLE, lang)))
                 .open(&mut is_open)
                 .default_size([600.0, 520.0])
                 .resizable(true)
@@ -5747,7 +5747,7 @@ impl eframe::App for SpLogApp {
         if self.show_legend_window {
             let lang = self.current_language;
             let mut is_open = self.show_legend_window;
-            egui::Window::new(tr("legend.title", lang))
+            egui::Window::new(tr(key::LEGEND_TITLE, lang))
                 .open(&mut is_open)
                 .default_size([480.0, 420.0])
                 .show(ctx, |ui| {

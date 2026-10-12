@@ -65,7 +65,7 @@ impl SendSpotDialog {
         _my_call: &str,
         lang: crate::core::i18n::Language,
     ) -> Option<SpotSubmission> {
-        use crate::core::i18n::tr;
+        use crate::core::i18n::{key, tr};
         if !self.is_open {
             return None;
         }
@@ -74,24 +74,24 @@ impl SendSpotDialog {
         let mut close_requested = false;
         let mut submission = None;
 
-        egui::Window::new(tr("cluster.send_spot_title", lang))
+        egui::Window::new(tr(key::CLUSTER_SEND_SPOT_TITLE, lang))
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
             .default_width(420.0)
             .show(ctx, |ui| {
-                ui.heading(tr("cluster.spot_dialog_sub", lang));
+                ui.heading(tr(key::CLUSTER_SPOT_DIALOG_SUB, lang));
                 ui.separator();
 
                 egui::Grid::new("send_spot_grid")
                     .num_columns(2)
                     .spacing([12.0, 8.0])
                     .show(ui, |ui| {
-                        ui.label(tr("cluster.spot_dx_call", lang));
+                        ui.label(tr(key::CLUSTER_SPOT_DX_CALL, lang));
                         ui.add(egui::TextEdit::singleline(&mut self.dx_call).desired_width(160.0));
                         ui.end_row();
 
-                        ui.label(tr("cluster.spot_freq", lang));
+                        ui.label(tr(key::CLUSTER_SPOT_FREQ, lang));
                         ui.add(
                             egui::DragValue::new(&mut self.freq_khz)
                                 .speed(0.5)
@@ -99,13 +99,13 @@ impl SendSpotDialog {
                         );
                         ui.end_row();
 
-                        ui.label(tr("cluster.spot_comment", lang));
+                        ui.label(tr(key::CLUSTER_SPOT_COMMENT, lang));
                         ui.add(egui::TextEdit::singleline(&mut self.comment).desired_width(260.0));
                         ui.end_row();
                     });
 
                 ui.add_space(4.0);
-                ui.label(tr("cluster.quick_templates", lang));
+                ui.label(tr(key::CLUSTER_QUICK_TEMPLATES, lang));
                 ui.horizontal_wrapped(|ui| {
                     for &tmpl in QUICK_SPOT_COMMENTS {
                         if ui.button(tmpl).clicked() {
@@ -126,7 +126,7 @@ impl SendSpotDialog {
                 ui.separator();
                 ui.horizontal(|ui| {
                     let btn = egui::Button::new(
-                        egui::RichText::new(tr("cluster.send_btn", lang))
+                        egui::RichText::new(tr(key::CLUSTER_SEND_BTN, lang))
                             .strong()
                             .color(egui::Color32::from_rgb(15, 23, 42)),
                     )
@@ -146,7 +146,7 @@ impl SendSpotDialog {
                     }
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button(tr("btn.cancel", lang)).clicked() {
+                        if ui.button(tr(key::BTN_CANCEL, lang)).clicked() {
                             close_requested = true;
                         }
                     });

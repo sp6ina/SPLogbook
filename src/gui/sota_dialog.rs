@@ -78,7 +78,7 @@ impl SotaDialog {
 
                 ui.add_space(10.0);
                 ui.horizontal(|ui| {
-                    if ui.button(egui::RichText::new(format!("💾 {}", crate::core::i18n::tr("sota.export_csv", lang))).strong()).clicked() {
+                    if ui.button(egui::RichText::new(format!("💾 {}", crate::core::i18n::tr(crate::core::i18n::key::SOTA_EXPORT_CSV, lang))).strong()).clicked() {
                         let filtered: Vec<_> = if self.filter_today_only {
                             let today = chrono::Utc::now().format("%Y%m%d").to_string();
                             let today_dash = chrono::Utc::now().format("%Y-%m-%d").to_string();
@@ -110,7 +110,7 @@ impl SotaDialog {
                         }
                     }
 
-                    if ui.button(crate::core::i18n::tr("btn.close", lang)).clicked() {
+                    if ui.button(crate::core::i18n::tr(crate::core::i18n::key::BTN_CLOSE, lang)).clicked() {
                         close_requested = true;
                     }
                 });
