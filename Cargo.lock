@@ -5010,6 +5010,7 @@ dependencies = [
  "tar",
  "tempfile",
  "tokio",
+ "tokio-tungstenite",
  "tower",
  "uuid",
  "walkdir",
