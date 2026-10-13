@@ -251,13 +251,31 @@ Przykład: 14 074 000 Hz:
 
 ---
 
-## 12. Mapa Yaesu CAT (Plan NATIVE-3)
+## 12. Mapa Yaesu CAT (Wdrożono w NATIVE-3)
 
-1. Architektura rodzinna Yaesu:
-   - **Nowoczesna rodzina tekstowa** (FT-891, FT-991A, FT-710, FTDX10): komendy ASCII kończone `;`, np. `FA014074000;` (9 cyfr częstotliwości).
-   - **Klasyczna rodzina binarna** (FT-817, FT-857, FT-897): 5-bajtowe pakiety binarne z opcodem w ostatnim bajcie.
-2. Dedykowany `YaesuCodec` rozróżniający typ ramkowania w zależności od profilu modelu.
-3. Obsługa podwójnych wirtualnych portów COM (Enhanced vs Standard).
+1. **Format protokołu**:
+   - **Nowoczesna rodzina tekstowa ASCII** (FT-891, FT-991A, FT-710, FTDX10): komendy alfanumeryczne zakończone średnikiem `;`.
+   - **Klasyczna rodzina binarna** (FT-817, FT-857, FT-897): 5-bajtowe pakiety binarne z opcodem w ostatnim bajcie (zaklasyfikowana w enumie `YaesuProtocolFamily::LegacyBinary`).
+2. **Kluczowe komendy ASCII**:
+   - `FA<9 cyfr Hz>;` / `FB<9 cyfr Hz>;` — częstotliwość VFO A / VFO B (odczyt: `FA;` / `FB;`), np. `FA014074000;` dla 14.074 MHz.
+   - `MD0<kod>;` — emisja (1: LSB, 2: USB, 3: CW-U, 4: FM, 5: AM, 6: RTTY-L, 7: CW-L, 8: DATA-L, 9: RTTY-U, A: DATA-FM, B: FM-N, C: DATA-U, D: AM-N, E: PSK).
+   - `TX1;` / `TX0;` — bezpieczne sterowanie PTT bez ponawiania (odczyt: `TX;` zwraca `TX0;`/`TX1;`/`TX2;`).
+   - `SM0;` — odczyt S-metra (odpowiedź `SM000xx;`, mapowana na dBm i jednostki S).
+   - `FT0;` / `FT1;` — załączenie i wyłączenie pracy Split.
+   - `IF;` — 27-znakowy blok statusu transceivera (częstotliwość 9B, offset RIT 5B, flagi RIT/XIT, stan TX/RX, emisja, VFO, Split).
+   - `AI1;` / `AI0;` — włączenie / wyłączenie trybu Auto Information.
+   - `?;` — odpowiedź błędu radioodbiornika na nieprawidłowe lub niedozwolone polecenie.
+3. **Tryb Auto Information (AI)**:
+   - Włączenie `AI1;` przy nawiązywaniu połączenia eliminuje konieczność ciągłego odpytywania częstotliwości, emisji i PTT.
+   - Transceiver asynchronicznie rozsyła zmiany parametrów (ruch gałką, zmiana emisji, PTT), minimalizując ruch na magistrali.
+4. **Transport i podwójne porty COM**:
+   - Transceivery Yaesu ze zintegrowanym kontrolerem USB (Silicon Labs CP2105) udostępniają dwa porty COM: **Enhanced COM Port** (sterowanie CAT, komendy ASCII) oraz **Standard COM Port** (kluczowanie CW/FSK lub PTT liniami DTR/RTS).
+   - Backend udostępnia funkcję pomocniczą `is_enhanced_port_recommended()` ostrzegającą w logach w przypadku omyłkowego podpięcia pod Standard COM Port.
+5. **Profile referencyjne**:
+   - `FT-891` (przenośny KF/50MHz, 38400 baud domyślnie, 2 bity stopu, brak wbudowanej karty dźwiękowej USB na audio, pojedynczy port CAT),
+   - `FT-991A` (stacjonarno-przewoźny KF/VHF/UHF z C4FM, 38400 baud, podwójny port USB CP2105),
+   - `FT-710` (Direct Sampling SDR, 38400 baud domyślnie, podwójny port USB CP2105),
+   - `FTDX10` (Hybrid SDR, 38400 baud domyślnie, podwójny port USB CP2105).
 
 ---
 
@@ -358,7 +376,7 @@ W falach NATIVE-0 i NATIVE-1 interfejs GUI nie ulega modyfikacji runtime, co gwa
 
 ---
 
-## 23. Kryteria ukończenia fal NATIVE-0, NATIVE-1 i NATIVE-2
+## 23. Kryteria ukończenia fal NATIVE-0, NATIVE-1, NATIVE-2 i NATIVE-3
 
 ### Kryteria NATIVE-0:
 - [x] Pełny audyt istniejących modułów CAT.
@@ -388,6 +406,18 @@ W falach NATIVE-0 i NATIVE-1 interfejs GUI nie ulega modyfikacji runtime, co gwa
 - [x] Rygorystyczne bezpieczeństwo PTT (brak PTT podczas connect/probe, brak ponawiania SetPtt(true), bezpieczne idempotentne rozłączanie).
 - [x] Kompletny zestaw 39 deterministycznych testów jednostkowych (kodek, backend, LAN KNS, profile).
 - [x] Pełna walidacja (fmt, check, clippy 218 bez nowych ostrzeżeń, 483 testy przechodzące bez błędów).
+
+### Kryteria NATIVE-3:
+- [x] Rygorystyczny audyt oficjalnych instrukcji Yaesu CAT (FT-891, FT-991A, FT-710, FTDX10).
+- [x] Rozdzielenie rodzin protokołów Yaesu na nowoczesną tekstową (`YaesuAsciiCat`) i klasyczną binarną (`YaesuLegacyBinaryCat`).
+- [x] Implementacja strumieniowego `YaesuAsciiCodec` z buforowaniem ramkowym zakończonym `;`, obsługą fragmentacji, `?;` i Auto Information.
+- [x] Implementacja `YaesuBackend` implementującego kontrakt `RigBackend`.
+- [x] Obsługa podwójnych portów COM wirtualnych urządzeń Silicon Labs CP2105 (Enhanced vs Standard) z dedykowaną heurystyką `is_enhanced_port_recommended`.
+- [x] Obsługa asynchronicznego Auto Information (`AI1;`) redukującego polling.
+- [x] Utworzenie profili dla referencyjnych transceiverów Yaesu (`FT-891`, `FT-991A`, `FT-710`, `FTDX10`) z kodowaniem 9-cyfrowym częstotliwości i poprawnym mapowaniem emisji.
+- [x] Rygorystyczne bezpieczeństwo PTT (brak PTT podczas connect/probe, probe wyłącznie tylko do odczytu, brak retry dla SetPtt(true), bezpieczne idempotentne rozłączanie).
+- [x] Kompletny zestaw deterministycznych testów jednostkowych (kodek, backend na dupleksie, profile).
+- [x] Pełna walidacja kompilatora i testów (fmt, check, clippy 218 bez nowych ostrzeżeń, 513 testów przechodzących bez błędów).
 
 ---
 

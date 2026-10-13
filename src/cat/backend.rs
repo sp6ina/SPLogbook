@@ -13,6 +13,7 @@ use crate::cat::flrig::FlrigClient;
 use crate::cat::hamlib::{HamlibClient, RigState};
 pub use crate::cat::native::icom::IcomCiVBackend;
 pub use crate::cat::native::kenwood::KenwoodBackend;
+pub use crate::cat::native::yaesu::YaesuBackend;
 use crate::cat::rig::{RigCapabilities, RigCommand, RigError};
 
 /// Nowoczesny kontrakt backendu CAT oparty o trwałą sesję i typowane błędy (Rust Edition 2024).
@@ -50,8 +51,10 @@ pub enum CatBackendKind {
     Tci,
     /// Bezpośredni protokół Icom CI-V (port szeregowy).
     IcomCiV,
-    /// Bezpośredni tekstowy protokół Kenwood / Elecraft / Yaesu CAT.
+    /// Bezpośredni tekstowy protokół Kenwood / Elecraft CAT.
     Kenwood,
+    /// Bezpośredni protokół Yaesu CAT.
+    Yaesu,
     /// Logika SO2R (dwa radia, blokada pojedynczego TX).
     So2r,
 }
@@ -73,7 +76,9 @@ impl CatBackendKind {
             "flrig" | "fldigi" => Self::Flrig,
             "tci" | "sunsdr" | "thetis" => Self::Tci,
             "icom_ci_v" | "icom-civ" | "ci-v" | "civ" | "icom" => Self::IcomCiV,
-            "kenwood" | "elecraft" | "yaesu" | "ts" | "k3" => Self::Kenwood,
+            "kenwood" | "elecraft" | "ts" | "k3" => Self::Kenwood,
+            "yaesu" | "ft" | "ftdx" => Self::Yaesu,
+            str_val if str_val.starts_with("ft-") || str_val.starts_with("ftdx") => Self::Yaesu,
             "so2r" => Self::So2r,
             _ => Self::Hamlib,
         }
@@ -87,6 +92,7 @@ impl CatBackendKind {
             Self::Tci => "tci",
             Self::IcomCiV => "icom_ci_v",
             Self::Kenwood => "kenwood",
+            Self::Yaesu => "yaesu",
             Self::So2r => "so2r",
         }
     }
@@ -98,18 +104,20 @@ impl CatBackendKind {
             Self::Flrig => "FLRig (XML-RPC)",
             Self::Tci => "TCI (SDR)",
             Self::IcomCiV => "Icom CI-V",
-            Self::Kenwood => "Kenwood / Elecraft / Yaesu (CAT)",
+            Self::Kenwood => "Kenwood / Elecraft (CAT)",
+            Self::Yaesu => "Yaesu CAT",
             Self::So2r => "SO2R",
         }
     }
 
     /// Wszystkie obsługiwane typy (do list rozwijanych).
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::Hamlib,
         Self::Flrig,
         Self::Tci,
         Self::IcomCiV,
         Self::Kenwood,
+        Self::Yaesu,
         Self::So2r,
     ];
 }
@@ -318,7 +326,8 @@ mod tests {
         assert_eq!(CatBackendKind::from_str("TCI"), CatBackendKind::Tci);
         assert_eq!(CatBackendKind::from_str("ci-v"), CatBackendKind::IcomCiV);
         assert_eq!(CatBackendKind::from_str("kenwood"), CatBackendKind::Kenwood);
-        assert_eq!(CatBackendKind::from_str("yaesu"), CatBackendKind::Kenwood);
+        assert_eq!(CatBackendKind::from_str("yaesu"), CatBackendKind::Yaesu);
+        assert_eq!(CatBackendKind::from_str("FT-891"), CatBackendKind::Yaesu);
         assert_eq!(CatBackendKind::from_str("so2r"), CatBackendKind::So2r);
     }
 

@@ -293,6 +293,148 @@ pub static KENWOOD_TS990S: RigModelProfile = RigModelProfile {
     safe_poll_commands: &["read_if", "read_smeter"],
 };
 
+// Referencyjne profile Yaesu CAT (zweryfikowane z oficjalną dokumentacją Yaesu):
+
+/// Yaesu FT-891 — kompaktowy terenowy transceiver HF/50MHz z odbiornikiem z potrójną przemianą i USB CAT (Enhanced COM port).
+pub static YAESU_FT891: RigModelProfile = RigModelProfile {
+    model_id: "FT-891",
+    name: "Yaesu FT-891",
+    vendor: RigVendor::Yaesu,
+    default_baud_rate: 115_200,
+    supported_baud_rates: &[4800, 9600, 19200, 38400, 57600, 115_200],
+    default_ci_v_address: None,
+    frequency_bytes: 9,
+    capabilities: RigCapabilities {
+        frequency: true,
+        mode: true,
+        passband: true,
+        split: true,
+        split_frequency: true,
+        ptt: true,
+        vfo: true,
+        rit: true,
+        xit: true,
+        power: false,
+        s_meter: true,
+    },
+    extended_capabilities: NativeRigCapabilities {
+        dualwatch: false,
+        main_sub_tracking: false,
+        transceive_broadcast: true,
+        attenuator: true,
+        preamp: true,
+        antenna_select: false,
+        filter_width: true,
+        noise_reduction: true,
+    },
+    safe_poll_commands: &["read_freq", "read_mode", "read_smeter", "read_ptt"],
+};
+
+/// Yaesu FT-991A — uniwersalny transceiver stacyjny all-mode HF/50/144/430MHz z USB CAT (Enhanced COM port).
+pub static YAESU_FT991A: RigModelProfile = RigModelProfile {
+    model_id: "FT-991A",
+    name: "Yaesu FT-991A",
+    vendor: RigVendor::Yaesu,
+    default_baud_rate: 115_200,
+    supported_baud_rates: &[4800, 9600, 19200, 38400, 57600, 115_200],
+    default_ci_v_address: None,
+    frequency_bytes: 9,
+    capabilities: RigCapabilities {
+        frequency: true,
+        mode: true,
+        passband: true,
+        split: true,
+        split_frequency: true,
+        ptt: true,
+        vfo: true,
+        rit: true,
+        xit: true,
+        power: false,
+        s_meter: true,
+    },
+    extended_capabilities: NativeRigCapabilities {
+        dualwatch: false,
+        main_sub_tracking: false,
+        transceive_broadcast: true,
+        attenuator: true,
+        preamp: true,
+        antenna_select: false,
+        filter_width: true,
+        noise_reduction: true,
+    },
+    safe_poll_commands: &["read_freq", "read_mode", "read_smeter", "read_ptt"],
+};
+
+/// Yaesu FT-710 — transceiver HF/50MHz z architekturą SDR i interfejsem USB CAT (Enhanced COM port).
+pub static YAESU_FT710: RigModelProfile = RigModelProfile {
+    model_id: "FT-710",
+    name: "Yaesu FT-710",
+    vendor: RigVendor::Yaesu,
+    default_baud_rate: 115_200,
+    supported_baud_rates: &[4800, 9600, 19200, 38400, 57600, 115_200],
+    default_ci_v_address: None,
+    frequency_bytes: 9,
+    capabilities: RigCapabilities {
+        frequency: true,
+        mode: true,
+        passband: true,
+        split: true,
+        split_frequency: true,
+        ptt: true,
+        vfo: true,
+        rit: true,
+        xit: true,
+        power: false,
+        s_meter: true,
+    },
+    extended_capabilities: NativeRigCapabilities {
+        dualwatch: false,
+        main_sub_tracking: false,
+        transceive_broadcast: true,
+        attenuator: true,
+        preamp: true,
+        antenna_select: false,
+        filter_width: true,
+        noise_reduction: true,
+    },
+    safe_poll_commands: &["read_freq", "read_mode", "read_smeter", "read_ptt"],
+};
+
+/// Yaesu FTDX10 — kompaktowy flagowy transceiver HF/50/70MHz z hybrydową architekturą SDR i USB CAT (Enhanced COM port).
+pub static YAESU_FTDX10: RigModelProfile = RigModelProfile {
+    model_id: "FTDX10",
+    name: "Yaesu FTDX10",
+    vendor: RigVendor::Yaesu,
+    default_baud_rate: 115_200,
+    supported_baud_rates: &[4800, 9600, 19200, 38400, 57600, 115_200],
+    default_ci_v_address: None,
+    frequency_bytes: 9,
+    capabilities: RigCapabilities {
+        frequency: true,
+        mode: true,
+        passband: true,
+        split: true,
+        split_frequency: true,
+        ptt: true,
+        vfo: true,
+        rit: true,
+        xit: true,
+        power: false,
+        s_meter: true,
+    },
+    extended_capabilities: NativeRigCapabilities {
+        dualwatch: false,
+        main_sub_tracking: false,
+        transceive_broadcast: true,
+        attenuator: true,
+        preamp: true,
+        antenna_select: true,
+        filter_width: true,
+        noise_reduction: true,
+    },
+    safe_poll_commands: &["read_freq", "read_mode", "read_smeter", "read_ptt"],
+};
+
 /// Wszystkie oficjalnie zarejestrowane profile.
 pub static ALL_PROFILES: &[&RigModelProfile] = &[
     &ICOM_IC7300,
@@ -303,6 +445,10 @@ pub static ALL_PROFILES: &[&RigModelProfile] = &[
     &KENWOOD_TS590SG,
     &KENWOOD_TS890S,
     &KENWOOD_TS990S,
+    &YAESU_FT891,
+    &YAESU_FT991A,
+    &YAESU_FT710,
+    &YAESU_FTDX10,
 ];
 
 /// Wyszukuje profil modelu po nazwie lub identyfikatorze (case-insensitive).
@@ -366,6 +512,9 @@ mod tests {
 
         let kenwood_profiles = profiles_by_vendor(RigVendor::Kenwood);
         assert_eq!(kenwood_profiles.len(), 4);
+
+        let yaesu_profiles = profiles_by_vendor(RigVendor::Yaesu);
+        assert_eq!(yaesu_profiles.len(), 4);
     }
 
     #[test]
@@ -385,5 +534,24 @@ mod tests {
         let ts990 = find_profile_by_model("TS-990S").expect("TS-990S missing");
         assert_eq!(ts990.vendor, RigVendor::Kenwood);
         assert!(ts990.extended_capabilities.dualwatch);
+    }
+
+    #[test]
+    fn test_lookup_yaesu_profiles() {
+        let ft891 = find_profile_by_model("FT-891").expect("FT-891 missing");
+        assert_eq!(ft891.vendor, RigVendor::Yaesu);
+        assert_eq!(ft891.default_baud_rate, 115_200);
+        assert_eq!(ft891.frequency_bytes, 9);
+        assert!(ft891.extended_capabilities.transceive_broadcast);
+
+        let ft991a = find_profile_by_model("Yaesu FT-991A").expect("FT-991A missing");
+        assert_eq!(ft991a.vendor, RigVendor::Yaesu);
+
+        let ft710 = find_profile_by_model("FT-710").expect("FT-710 missing");
+        assert_eq!(ft710.vendor, RigVendor::Yaesu);
+
+        let ftdx10 = find_profile_by_model("FTDX10").expect("FTDX10 missing");
+        assert_eq!(ftdx10.vendor, RigVendor::Yaesu);
+        assert!(ftdx10.extended_capabilities.antenna_select);
     }
 }

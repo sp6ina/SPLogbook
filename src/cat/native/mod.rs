@@ -12,6 +12,7 @@ pub mod kenwood;
 pub mod profile;
 pub mod registry;
 pub mod transport;
+pub mod yaesu;
 
 use crate::cat::rig::{RigCommand, RigState};
 

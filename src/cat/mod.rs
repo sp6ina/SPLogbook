@@ -7,6 +7,7 @@ pub mod hamlib;
 pub mod native;
 pub use native::icom::codec as icom_ci_v;
 pub use native::kenwood::codec as kenwood;
+pub use native::yaesu::codec as yaesu;
 pub mod rig;
 pub mod rig_models;
 pub mod rotor;
