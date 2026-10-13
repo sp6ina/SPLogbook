@@ -401,3 +401,30 @@ impl crate::cat::backend::CatBackend for HamlibClient {
             .map_err(|e| e.to_string())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn raw_str_to_s_unit_characteristics() {
+        let cases: &[(f32, &str)] = &[
+            (0.0, "S9+00dB"),
+            (10.0, "S9+10dB"),
+            (20.0, "S9+20dB"),
+            (25.4, "S9+25dB"),
+            (-6.0, "S8"),
+            (-12.0, "S7"),
+            (-54.0, "S0"),
+            (-60.0, "S0"),
+        ];
+
+        for &(input, expected) in cases {
+            let actual = HamlibClient::raw_str_to_s_unit(input);
+            assert_eq!(
+                actual, expected,
+                "raw_str_to_s_unit({input}) expected {expected}, got {actual}"
+            );
+        }
+    }
+}
