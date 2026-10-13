@@ -17,7 +17,7 @@ use crate::core::prefix::PrefixMatcher;
 use crate::core::qso::{QsoIssue, QsoRecord, QsoWarning};
 use crate::core::scp::ScpEngine;
 
-use self::enrich::apply_prefix_info;
+use self::enrich::{apply_prefix_info, normalize_qso_fields};
 pub use self::import::{ImportOptions, ImportReport};
 pub use self::origin::{IngestPolicy, PostEffects, QsoOrigin, ValidationMode};
 
@@ -97,21 +97,28 @@ impl QsoIngestor {
     /// Przetwarza i zapisuje pojedyncze QSO zgodnie z polityką dla wskazanego źródła (`origin`).
     ///
     /// Kolejność kroków:
-    /// 1. Weryfikacja niepustego znaku wywoławczego (`EmptyCallsign`).
-    /// 2. Wzbogacenie DXCC/kraju/kontynentu/stref z `PrefixMatcher`, wyłącznie gdy `qso.dxcc.is_none()`.
-    /// 3. Walidacja twarda (`Reject`) lub doradcza (`Advisory`) według polityki źródła.
-    /// 4. Wyznaczenie ostrzeżeń miękkich (`warnings()`).
-    /// 5. Zapis rekordu w `LogDatabase` i nadanie `qso.id`.
-    /// 6. Publikacja zdarzenia `AppEvent::QsoLogged` na `EventBus`.
-    /// 7. Rejestracja rekordu w `AwardsEngine`.
-    /// 8. Dodanie znaku wywoławczego do `ScpEngine`.
-    /// 9. Zwrócenie `IngestOutcome` z flagami `PostEffects` wynikającymi z polityki źródła.
+    /// 1. Bezpieczna normalizacja domenowa pól rekordu (`normalize_qso_fields`):
+    ///    - `callsign`: trim + uppercase,
+    ///    - `mode`: trim + uppercase,
+    ///    - `band`: wyznaczenie z częstotliwości (`freq`), jeśli pole jest puste i częstotliwość dostępna,
+    ///    - format `qso_date` oraz `time_on` / `time_off`: usunięcie separatorów bez generowania nowych wartości.
+    /// 2. Weryfikacja niepustego znaku wywoławczego (`EmptyCallsign`).
+    /// 3. Wzbogacenie DXCC/kraju/kontynentu/stref z `PrefixMatcher`, wyłącznie gdy `qso.dxcc.is_none()`.
+    /// 4. Walidacja twarda (`Reject`) lub doradcza (`Advisory`) według polityki źródła.
+    /// 5. Wyznaczenie ostrzeżeń miękkich (`warnings()`).
+    /// 6. Zapis rekordu w `LogDatabase` i nadanie `qso.id`.
+    /// 7. Publikacja zdarzenia `AppEvent::QsoLogged` na `EventBus`.
+    /// 8. Rejestracja rekordu w `AwardsEngine`.
+    /// 9. Dodanie znaku wywoławczego do `ScpEngine`.
+    /// 10. Zwrócenie `IngestOutcome` z flagami `PostEffects` wynikającymi z polityki źródła.
     pub fn ingest(
         &self,
         mut qso: QsoRecord,
         origin: QsoOrigin,
     ) -> Result<IngestOutcome, IngestError> {
-        if qso.callsign.trim().is_empty() {
+        normalize_qso_fields(&mut qso);
+
+        if qso.callsign.is_empty() {
             return Err(IngestError::EmptyCallsign);
         }
 
@@ -180,7 +187,7 @@ mod tests {
     use crate::core::database::{Journal, LogDatabase};
     use crate::core::events::{AppEvent, EventBus};
     use crate::core::prefix::PrefixMatcher;
-    use crate::core::qso::{QsoIssue, QsoRecord, QsoWarning};
+    use crate::core::qso::{QsoIssue, QsoRecord, QsoWarning, TimeField, TimePart};
     use crate::core::scp::ScpEngine;
 
     static NEXT_MEMDB_ID: AtomicUsize = AtomicUsize::new(1);
@@ -417,6 +424,7 @@ mod tests {
         let mut fixture = TestFixture::new();
         let mut qso = sample_valid_qso("SP6INA");
         qso.band = String::new();
+        qso.freq = None;
 
         let result = fixture.ingestor.ingest(qso, QsoOrigin::Form);
         match result {
@@ -510,9 +518,10 @@ mod tests {
     fn ingest_empty_callsign() {
         let mut fixture = TestFixture::new();
         let mut qso = sample_valid_qso("   ");
-        // Ustaw również puste pasmo — gdyby potok przeszedł do validate(),
+        // Ustaw również puste pasmo i brak częstotliwości — gdyby potok przeszedł do validate(),
         // albo wywołał zapis, wynik byłby inny niż EmptyCallsign.
         qso.band = String::new();
+        qso.freq = None;
 
         let result = fixture.ingestor.ingest(qso, QsoOrigin::WsjtX);
         assert!(
@@ -848,5 +857,410 @@ mod tests {
             assert_eq!(outcome.origin, origin);
             assert_eq!(outcome.effects, origin.policy().effects);
         }
+    }
+
+    #[test]
+    fn ingest_normalizes_callsign_to_uppercase() {
+        let mut fixture = TestFixture::new();
+        let mut qso = sample_valid_qso("SP6INA");
+        qso.callsign = "  sp6ina  ".to_string();
+
+        let outcome = match fixture.ingestor.ingest(qso, QsoOrigin::Form) {
+            Ok(outcome) => outcome,
+            Err(e) => panic!("expected successful ingest, got error: {e}"),
+        };
+
+        assert_eq!(outcome.qso.callsign, "SP6INA");
+        let Some(id) = outcome.qso.id else {
+            panic!("expected qso.id to be assigned");
+        };
+        let Some(stored) = fixture.get_qso(id) else {
+            panic!("expected stored QSO in database");
+        };
+        assert_eq!(stored.callsign, "SP6INA");
+
+        {
+            let awards = fixture
+                .ingestor
+                .awards
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            assert!(awards.worked_calls.iter().any(|(c, _, _)| c == "SP6INA"));
+        }
+
+        {
+            let scp = fixture
+                .ingestor
+                .scp
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            assert_eq!(scp.search("SP6INA", 5), vec!["SP6INA".to_string()]);
+        }
+
+        match fixture.events_rx.try_recv() {
+            Ok(AppEvent::QsoLogged { callsign, .. }) => {
+                assert_eq!(callsign, "SP6INA");
+            }
+            other => panic!("expected AppEvent::QsoLogged, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn ingest_normalizes_mode_to_uppercase() {
+        let mut fixture = TestFixture::new();
+        let mut qso = sample_valid_qso("SP6INA");
+        qso.mode = "  cw  ".to_string();
+
+        let outcome = match fixture.ingestor.ingest(qso, QsoOrigin::Form) {
+            Ok(outcome) => outcome,
+            Err(e) => panic!("expected successful ingest, got error: {e}"),
+        };
+
+        assert_eq!(outcome.qso.mode, "CW");
+        let Some(id) = outcome.qso.id else {
+            panic!("expected qso.id to be assigned");
+        };
+        let Some(stored) = fixture.get_qso(id) else {
+            panic!("expected stored QSO in database");
+        };
+        assert_eq!(stored.mode, "CW");
+
+        {
+            let awards = fixture
+                .ingestor
+                .awards
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            assert!(awards.worked_calls.contains(&(
+                "SP6INA".to_string(),
+                "20m".to_string(),
+                "CW".to_string()
+            )));
+        }
+
+        match fixture.events_rx.try_recv() {
+            Ok(AppEvent::QsoLogged { mode, .. }) => {
+                assert_eq!(mode, "CW");
+            }
+            other => panic!("expected AppEvent::QsoLogged, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn ingest_calculates_band_when_empty_and_freq_present() {
+        let mut fixture = TestFixture::new();
+        let mut qso = sample_valid_qso("SP6INA");
+        qso.band = "   ".to_string();
+        qso.freq = Some(14.025);
+
+        let outcome = match fixture.ingestor.ingest(qso, QsoOrigin::Form) {
+            Ok(outcome) => outcome,
+            Err(e) => panic!("expected successful ingest, got error: {e}"),
+        };
+
+        assert_eq!(outcome.qso.band, "20m");
+        let Some(id) = outcome.qso.id else {
+            panic!("expected qso.id to be assigned");
+        };
+        let Some(stored) = fixture.get_qso(id) else {
+            panic!("expected stored QSO in database");
+        };
+        assert_eq!(stored.band, "20m");
+
+        {
+            let awards = fixture
+                .ingestor
+                .awards
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            assert!(awards.worked_calls.contains(&(
+                "SP6INA".to_string(),
+                "20m".to_string(),
+                "CW".to_string()
+            )));
+        }
+
+        match fixture.events_rx.try_recv() {
+            Ok(AppEvent::QsoLogged { band, .. }) => {
+                assert_eq!(band, "20m");
+            }
+            other => panic!("expected AppEvent::QsoLogged, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn ingest_rest_api_missing_date_rejects_with_date_format_issue() {
+        let mut fixture = TestFixture::new();
+        let mut qso = sample_valid_qso("SP6INA");
+        qso.qso_date = String::new();
+
+        let result = fixture.ingestor.ingest(qso, QsoOrigin::RestApi);
+        match result {
+            Err(IngestError::Invalid(QsoIssue::DateFormat(ref raw))) => {
+                assert_eq!(raw, "");
+            }
+            other => panic!("expected Err(IngestError::Invalid(QsoIssue::DateFormat)), got {other:?}"),
+        }
+
+        assert_eq!(fixture.count_qsos(), 0);
+        assert!(matches!(
+            fixture.events_rx.try_recv(),
+            Err(TryRecvError::Empty)
+        ));
+
+        {
+            let awards = fixture
+                .ingestor
+                .awards
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            assert_eq!(awards.worked_calls.len(), 0);
+        }
+
+        {
+            let scp = fixture
+                .ingestor
+                .scp
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            assert_eq!(scp.len(), 0);
+        }
+    }
+
+    #[test]
+    fn ingest_rest_api_missing_time_rejects_with_time_format_issue() {
+        let mut fixture = TestFixture::new();
+        let mut qso = sample_valid_qso("SP6INA");
+        qso.time_on = String::new();
+
+        let result = fixture.ingestor.ingest(qso, QsoOrigin::RestApi);
+        match result {
+            Err(IngestError::Invalid(QsoIssue::Time {
+                field,
+                part,
+                ref raw,
+            })) => {
+                assert_eq!(field, TimeField::On);
+                assert_eq!(part, TimePart::Format);
+                assert_eq!(raw, "");
+            }
+            other => panic!("expected Err(IngestError::Invalid(QsoIssue::Time(Format))), got {other:?}"),
+        }
+
+        assert_eq!(fixture.count_qsos(), 0);
+        assert!(matches!(
+            fixture.events_rx.try_recv(),
+            Err(TryRecvError::Empty)
+        ));
+
+        {
+            let awards = fixture
+                .ingestor
+                .awards
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            assert_eq!(awards.worked_calls.len(), 0);
+        }
+
+        {
+            let scp = fixture
+                .ingestor
+                .scp
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            assert_eq!(scp.len(), 0);
+        }
+    }
+
+    #[test]
+    fn ingest_wsjtx_missing_date_stores_with_advisory_issue() {
+        let fixture = TestFixture::new();
+        let mut qso = sample_valid_qso("SP6INA");
+        qso.qso_date = String::new();
+
+        let outcome = match fixture.ingestor.ingest(qso, QsoOrigin::WsjtX) {
+            Ok(outcome) => outcome,
+            Err(e) => panic!("expected advisory ingest for WsjtX to succeed, got error: {e}"),
+        };
+
+        assert_eq!(outcome.origin, QsoOrigin::WsjtX);
+        assert_eq!(
+            outcome.advisory_issue,
+            Some(QsoIssue::DateFormat(String::new()))
+        );
+        let Some(id) = outcome.qso.id else {
+            panic!("expected advisory record to have assigned id");
+        };
+        assert!(id > 0);
+        assert_eq!(fixture.count_qsos(), 1);
+
+        let Some(stored) = fixture.get_qso(id) else {
+            panic!("expected stored QSO in database");
+        };
+        assert_eq!(stored.qso_date, "");
+
+        {
+            let awards = fixture
+                .ingestor
+                .awards
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            assert!(awards.worked_calls.contains(&(
+                "SP6INA".to_string(),
+                "20m".to_string(),
+                "CW".to_string()
+            )));
+        }
+
+        {
+            let scp = fixture
+                .ingestor
+                .scp
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            assert_eq!(scp.search("SP6INA", 5), vec!["SP6INA".to_string()]);
+        }
+    }
+
+    #[test]
+    fn ingest_js8call_missing_time_stores_with_advisory_issue() {
+        let fixture = TestFixture::new();
+        let mut qso = sample_valid_qso("SP6INA");
+        qso.time_on = String::new();
+
+        let outcome = match fixture.ingestor.ingest(qso, QsoOrigin::Js8Call) {
+            Ok(outcome) => outcome,
+            Err(e) => panic!("expected advisory ingest for Js8Call to succeed, got error: {e}"),
+        };
+
+        assert_eq!(outcome.origin, QsoOrigin::Js8Call);
+        assert_eq!(
+            outcome.advisory_issue,
+            Some(QsoIssue::Time {
+                field: TimeField::On,
+                part: TimePart::Format,
+                raw: String::new(),
+            })
+        );
+        let Some(id) = outcome.qso.id else {
+            panic!("expected advisory record to have assigned id");
+        };
+        assert!(id > 0);
+        assert_eq!(fixture.count_qsos(), 1);
+
+        let Some(stored) = fixture.get_qso(id) else {
+            panic!("expected stored QSO in database");
+        };
+        assert_eq!(stored.time_on, "");
+
+        {
+            let awards = fixture
+                .ingestor
+                .awards
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            assert!(awards.worked_calls.contains(&(
+                "SP6INA".to_string(),
+                "20m".to_string(),
+                "CW".to_string()
+            )));
+        }
+
+        {
+            let scp = fixture
+                .ingestor
+                .scp
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            assert_eq!(scp.search("SP6INA", 5), vec!["SP6INA".to_string()]);
+        }
+    }
+
+    #[test]
+    fn ingest_updates_scp_engine() {
+        let fixture = TestFixture::new();
+        {
+            let scp = fixture
+                .ingestor
+                .scp
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            assert_eq!(scp.len(), 0);
+        }
+
+        let qso = sample_valid_qso("DL1ABC");
+        let outcome = match fixture.ingestor.ingest(qso, QsoOrigin::Form) {
+            Ok(outcome) => outcome,
+            Err(e) => panic!("expected ingest to succeed: {e}"),
+        };
+        assert!(outcome.qso.id.is_some());
+
+        let scp = fixture
+            .ingestor
+            .scp
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        assert_eq!(scp.search("DL1ABC", 5), vec!["DL1ABC".to_string()]);
+    }
+
+    #[test]
+    fn ingest_updates_awards_engine() {
+        let fixture = TestFixture::new();
+        {
+            let awards = fixture
+                .ingestor
+                .awards
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            assert_eq!(awards.worked_calls.len(), 0);
+            assert_eq!(awards.worked_dxcc_all.len(), 0);
+        }
+
+        let qso = sample_valid_qso("SP6INA");
+        let outcome = match fixture.ingestor.ingest(qso, QsoOrigin::Form) {
+            Ok(outcome) => outcome,
+            Err(e) => panic!("expected ingest to succeed: {e}"),
+        };
+        assert!(outcome.qso.id.is_some());
+
+        let awards = fixture
+            .ingestor
+            .awards
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        assert!(awards.worked_calls.contains(&(
+            "SP6INA".to_string(),
+            "20m".to_string(),
+            "CW".to_string()
+        )));
+        assert!(awards.worked_dxcc_all.contains(&269));
+    }
+
+    #[test]
+    fn ingest_normalizes_existing_date_and_time_format_without_fabrication() {
+        let fixture = TestFixture::new();
+        let mut qso = sample_valid_qso("SP6INA");
+        qso.qso_date = "2026-10-13".to_string();
+        qso.time_on = "14:25:36".to_string();
+        qso.time_off = Some("14:30:00".to_string());
+
+        let outcome = match fixture.ingestor.ingest(qso, QsoOrigin::Form) {
+            Ok(outcome) => outcome,
+            Err(e) => panic!("expected ingest to succeed with formatted date and time: {e}"),
+        };
+
+        assert_eq!(outcome.qso.qso_date, "20261013");
+        assert_eq!(outcome.qso.time_on, "142536");
+        assert_eq!(outcome.qso.time_off, Some("143000".to_string()));
+
+        let Some(id) = outcome.qso.id else {
+            panic!("expected qso.id to be assigned");
+        };
+        let Some(stored) = fixture.get_qso(id) else {
+            panic!("expected stored QSO in database");
+        };
+        assert_eq!(stored.qso_date, "20261013");
+        assert_eq!(stored.time_on, "142536");
+        assert_eq!(stored.time_off, Some("143000".to_string()));
     }
 }
