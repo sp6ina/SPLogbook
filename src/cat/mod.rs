@@ -6,6 +6,7 @@ pub mod flrig;
 pub mod hamlib;
 pub mod icom_ci_v;
 pub mod kenwood;
+pub mod native;
 pub mod rig;
 pub mod rig_models;
 pub mod rotor;

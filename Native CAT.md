@@ -1,0 +1,394 @@
+# Native CAT — Architektura natywnych protokołów radiotelefonów SPLogbook
+
+Stan odniesienia: SPLogbook v1.2.0, commit bazowy `ca125ec739821a1fad3e7e496732581c4ae67c59`, Rust Edition 2024.
+
+---
+
+## 1. Cele programu
+
+Głównym celem programu **NATIVE-CAT** jest wdrożenie bezpośredniej, asynchronicznej i niezależnej od zewnętrznych bibliotek (takich jak Hamlib) komunikacji z radiotelefonami amatorskimi. Hamlib (`rigctld`) pozostaje w pełni wspieranym, uniwersalnym backendem CAT, jednak natywne protokoły pozwalają na:
+1. Bezpośrednią pracę przez porty szeregowe / USB Virtual COM bez konieczności uruchamiania zewnętrznego procesu `rigctld`.
+2. Dostęp do zaawansowanych możliwości producentów (Main/Sub VFO, Dualwatch, sterowanie filtrami DSP, nastawy RIT/XIT, precyzyjne odczyty mierników, zdarzenia transceive/broadcast), których uogólniony kontrakt Hamlib nie udostępnia lub udostępnia z opóźnieniem.
+3. Wyeliminowanie narzutu i niestabilności pośrednich procesów w systemach Windows, Linux i macOS.
+4. Zagwarantowanie najwyższego poziomu niezawodności, determinizmu i bezpieczeństwa operacji nadawczo-odbiorczych (w szczególności rygorystyczne bezpieczeństwo PTT).
+
+---
+
+## 2. Zakres
+
+Program NATIVE-CAT obejmuje:
+1. **Wspólny asynchroniczny transport szeregowy** (`tokio-serial`, obsługa baud rate, bitów danych, parzystości, bitów stopu, kontroli przepływu, bezpiecznych timeoutów, strumieniowego buforowania i odporności na fragmentację).
+2. **Architekturę profili urządzeń i rejestru modeli** (`RigModelProfile`, `NativeCapabilities`, precyzyjne mapy trybów i ograniczeń pasm).
+3. **Wdrożenie falami natywnych backendów**:
+   - **NATIVE-1**: Icom CI-V (kodowanie binarne/BCD, ramki FE FE ... FD, obsługa ACK/NAK, filtracja echa, obsługa zdarzeń transceive),
+   - **NATIVE-2**: Kenwood PC Control (komendy tekstowe ASCII zakończone średnikiem, Auto Information, obsługa portów szeregowych i LAN),
+   - **NATIVE-3**: Yaesu CAT (rozróżnienie rodzin klasycznych binarnych i współczesnych tekstowych ASCII),
+   - **NATIVE-4**: Elecraft (rodziny K3/KX oraz K4 LAN/Ethernet),
+   - **NATIVE-5**: FlexRadio SmartSDR API (TCP discovery/command API, slices, metering).
+4. **Rozszerzalny model domenowy**:
+   - Zachowanie pełnej wstecznej zgodności z istniejącym kontraktem `RigBackend`, `RigCommand`, `RigState`, `RigCapabilities`, `RigError`,
+   - Wprowadzenie dedykowanych komend i zdarzeń producentów (`NativeRigCommand`, `NativeRigEvent`).
+5. **Pełny zestaw testów automatycznych**: kodeki, symulacje duplex stream, testy odporności na błędy transportu, bezkontaktowe testy PTT oraz przygotowanie pod testy Hardware-In-The-Loop (HIL).
+
+---
+
+## 3. Elementy poza zakresem
+
+1. **SO2R jako RigBackend**: SO2R nie jest i nie będzie klasą `RigBackend`. SO2R to warstwa koordynacji wyższego rzędu nad dwiema niezależnymi instancjami `RigService`.
+2. **Implementacja wczesnych atrap**: Żaden protokół (np. Xiegu, JRC, Ten-Tec) nie może zostać dodany na zasadzie zgadywania komend bez oficjalnej dokumentacji i profili.
+3. **Modyfikacja schematu SQLite**: Baza danych pozostaje nienaruszona (zgodnie z AD-04).
+4. **Wymuszanie fizycznego sprzętu w CI**: Wszystkie testy regresyjne i jednostkowe działają deterministycznie na strumieniach pamięciowych (`tokio::io::duplex`).
+
+---
+
+## 4. Inwentaryzacja aktualnego kodu
+
+W stanie wejściowym repozytorium zidentyfikowano następujące komponenty powiązane z CAT:
+
+| Plik | Stan wejściowy | Wnioski i decyzja audytu |
+|---|---|---|
+| `src/cat/backend.rs` | Definiuje `RigBackend`, `CatBackendKind`, stary `CatBackend` i `CatController` | Trait `RigBackend` stanowi stabilny fundament. `CatBackendKind` wymaga rozszerzenia o nowe natywne backendy. |
+| `src/cat/rig.rs` | `RigState`, `RigCommand`, `RigCapabilities`, `RigError`, `RigStatus` | Zachowujemy 100% kompatybilność. Rozszerzenia natywne w osobnym module `src/cat/native`. |
+| `src/cat/icom_ci_v.rs` | Pomocnicza struktura `CiV`: build_frame, BCD freq, lookup adresów modeli | Brak dekodera strumieniowego, brak ACK/NAK, brak transportu, brak `RigBackend`. Migracja przez `git mv` do `src/cat/native/icom/` w NATIVE-1. |
+| `src/cat/kenwood.rs` | Statyczne formatowanie napisów FA, FB, MD, TX | Brak transportu, brak dekodera strumieniowego. Zachowany bez zmian w NATIVE-0/1, podstawa pod NATIVE-2. |
+| `src/cat/so2r.rs` | `So2rState`, `RadioSlot`, `So2rError` (blokada TX, fokus) | Czysta domena dwu-radiowa. Zachowany bez modyfikacji. |
+| `src/cat/hamlib.rs` | `HamlibClient`, trwała sesja TCP do `rigctld` | Działa stabilnie, testy przechodzą w 100%. |
+| `src/cat/flrig.rs` | `FlrigClient`, XML-RPC po TCP | Działa stabilnie, testy przechodzą w 100%. |
+| `src/cat/tci.rs` | `TciClient`, WebSocket | Działa stabilnie, testy przechodzą w 100%. |
+| `src/cat/supervisor.rs` | Nadzorca procesu `rigctld` | Zarządza uruchamianiem Hamlib dla połączeń szeregowych. |
+| `src/gui/cat_settings.rs` | UI konfiguracji CAT | Obecnie pozwala na wybór Hamlib, FLRig, TCI. Nie ruszane w NATIVE-0/1. |
+
+---
+
+## 5. Diagram architektury
+
+```mermaid
+graph TD
+    UI[Warstwa Prezentacji: GUI / CatSettings] --> Hub[RigHub / RigService]
+    Hub --> Backend[RigBackend Trait]
+    
+    subgraph "Istniejące Backendy"
+        Backend --> Hamlib[HamlibBackend / rigctld TCP]
+        Backend --> Flrig[FlrigBackend / XML-RPC TCP]
+        Backend --> Tci[TciBackend / WebSocket]
+    end
+
+    subgraph "Natywna Architektura Native-CAT"
+        Backend --> IcomBackend[IcomCiVBackend]
+        Backend --> KenwoodBackend[KenwoodBackend (NATIVE-2)]
+        Backend --> YaesuBackend[YaesuBackend (NATIVE-3)]
+        Backend --> ElecraftBackend[ElecraftBackend (NATIVE-4)]
+        Backend --> FlexBackend[FlexRadioBackend (NATIVE-5)]
+        
+        IcomBackend --> IcomCodec[IcomCiVCodec (FE FE .. FD)]
+        IcomBackend --> ProfileRegistry[RigModelRegistry / ModelProfile]
+        IcomBackend --> SerialTransport[Async Serial Transport (tokio-serial)]
+        
+        KenwoodBackend --> KenwoodCodec[KenwoodCodec (;)]
+        KenwoodBackend --> SerialTransport
+        
+        YaesuBackend --> YaesuCodec[YaesuCodec]
+        YaesuBackend --> SerialTransport
+    end
+
+    subgraph "Koordynacja Multi-Radio"
+        So2rCoordinator[So2rCoordinator] --> HubA[RigService Radio A]
+        So2rCoordinator --> HubB[RigService Radio B]
+        So2rCoordinator --> Interlock[PTT Interlock Engine]
+    end
+```
+
+---
+
+## 6. Warstwy Native-CAT
+
+Architektura jest ściśle podzielona na 7 warstw:
+1. **Domena (`src/cat/rig.rs`, `src/cat/native/mod.rs`)**:
+   - Podstawowe typy niezmienne: `RigCommand`, `RigState`, `RigCapabilities`, `RigError`.
+   - Typy rozszerzone: `NativeRigCommand`, `NativeRigCapabilities`, `NativeRigEvent`.
+2. **Wspólny transport szeregowy (`src/cat/native/transport.rs`)**:
+   - `SerialConfig` (port, baud, bity danych, stop, parzystość, flow control, timeouty).
+   - `AsyncSerialTransport` implementujący asynchroniczny odczyt/zapis z buforowaniem ramkowym i odpornością na częściowe pakiety.
+3. **Kodek protokołu (`src/cat/native/<vendor>/codec.rs`)**:
+   - Odpowiedzialny wyłącznie za kodowanie struktur domenowych do strumienia bajtów oraz dekodowanie strumienia do struktur odpowiedzi/zdarzeń.
+   - Niezależny od wejścia/wyjścia sieciowego i sprzętowego (czysta logika bez I/O).
+4. **Profil modelu (`src/cat/native/profile.rs`, `registry.rs`)**:
+   - Metadane urządzeń: identyfikator modelu, domyślne parametry transmisji, obsługiwane komendy, ograniczenia sprzętowe, adresy CI-V / ID producenta.
+5. **Backend (`src/cat/native/<vendor>/backend.rs`)**:
+   - Implementuje `RigBackend` dla danego producenta.
+   - Zarządza cyklem życia połączenia, obsługuje odpytywanie (`poll`), asynchroniczne zdarzenia transceive oraz wysyłanie komend (`execute`).
+6. **Usługa (`RigService` / `RigHub`)**:
+   - Aktor zarządzający pętlą I/O, kolejką komend i rozsyłaniem stanu do subskrybentów za pomocą `tokio::sync::watch`.
+7. **Interfejs Użytkownika (`src/gui/cat_settings.rs`)**:
+   - Formularze konfiguracji specyficzne dla danego backendu (port COM, prędkość, adres CI-V, podgląd możliwości).
+
+---
+
+## 7. Projekt wspólnego transportu szeregowego
+
+Wspólny transport szeregowy zlokalizowany w `src/cat/native/transport.rs` opiera się na bibliotece `tokio-serial` (wersja 5.5.0) oraz abstrakcjach `AsyncRead + AsyncWrite`.
+
+### 7.1. Konfiguracja portu
+```rust
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SerialPortConfig {
+    pub port_name: String,
+    pub baud_rate: u32,
+    pub data_bits: SerialDataBits,
+    pub stop_bits: SerialStopBits,
+    pub parity: SerialParity,
+    pub flow_control: SerialFlowControl,
+    pub read_timeout: Duration,
+    pub write_timeout: Duration,
+}
+```
+
+### 7.2. Gwarancje transportu
+- **Brak operacji blokujących**: Całość operacji I/O jest wykonywana asynchronicznie w środowisku Tokio.
+- **Buforowanie strumieniowe**: Bufor kołowy/liniowy o konfigurowalnym maksymalnym rozmiarze (np. 4096 bajtów), zapobiegający wyciekom pamięci.
+- **Odporność na fragmentację**: Kodek odpytuje bufor o obecność pełnej ramki; jeśli ramka jest niekompletna, transport kontynuuje asynchroniczny odczyt.
+- **Bezpieczne anulowanie**: Wszystkie operacje I/O mogą zostać bezpiecznie przerwane przez timeout lub anulowanie future bez uszkodzenia stanu wewnętrznego.
+- **Testowalność bez sprzętu**: Warstwa transportowa przyjmuje generyczny strumień `T: AsyncRead + AsyncWrite + Unpin + Send`, co umożliwia bezpośrednie testowanie na `tokio::io::duplex`.
+
+---
+
+## 8. Projekt rejestru protokołów i profili modeli
+
+Transceivery jednego producenta różnią się między sobą zestawem instrukcji, formatem kodowania oraz zakresem obsługiwanych parametrów. Dlatego każdy model posiada swój formalny profil:
+
+```rust
+#[derive(Debug, Clone, PartialEq)]
+pub struct RigModelProfile {
+    pub model_id: &'static str,
+    pub name: &'static str,
+    pub vendor: RigVendor,
+    pub default_baud_rate: u32,
+    pub supported_baud_rates: &'static [u32],
+    pub default_ci_v_address: Option<u8>,
+    pub capabilities: RigCapabilities,
+    pub extended_capabilities: NativeRigCapabilities,
+    pub safe_poll_commands: &'static [&'static str],
+}
+```
+
+Rejestr profili (`RigModelRegistry`) udostępnia metody wyszukiwania po nazwie, producencie i identyfikatorze, umożliwiając automatyczne uzupełnianie parametrów w konfiguracji CAT.
+
+---
+
+## 9. Model capabilities podstawowych i rozszerzonych
+
+### 9.1. Capabilities podstawowe (`RigCapabilities`)
+Obsługuje wspólny kontrakt przenośny:
+- `frequency`, `mode`, `passband`, `split`, `split_frequency`, `ptt`, `vfo`, `rit`, `xit`, `power`, `s_meter`.
+
+### 9.2. Capabilities rozszerzone (`NativeRigCapabilities`)
+Obsługuje specyficzne funkcje transceiverów:
+- `dualwatch`: jednoczesny odbiór na dwóch częstotliwościach,
+- `main_sub_tracking`: śledzenie VFO Main i Sub,
+- `antenna_selection`: przełączanie złączy antenowych (ANT1, ANT2, RX ANT),
+- `dsp_filter_shapes`: wybór kształtu filtru DSP (Sharp / Soft),
+- `preamp_attenuator`: wielostopniowy przedwzmacniacz (Preamp 1/2) i tłumik (ATT 6/12/18 dB),
+- `noise_reduction_level`: płynna regulacja redukcji szumów (NR 0-15),
+- `notch_auto_manual`: sterowanie filtrem wycinającym (Auto Notch, Manual Notch),
+- `transceive_broadcast`: obsługa spontanicznych ramek wysyłanych przez radio po poruszeniu gałką.
+
+---
+
+## 10. Mapa Icom CI-V
+
+### 10.1. Struktura protokołu
+Ramka CI-V:
+```
+[0xFE, 0xFE] [to_address] [from_address] [command] [subcommand (opcjonalne)] [dane BCD/bajty] [0xFD]
+```
+- Preambuła: `0xFE, 0xFE`
+- Terminator: `0xFD`
+- Kontroler SPLogbook: domyślnie `0xE0`
+- Odpowiedź pozytywna (ACK): `FE FE <from> <to> FB FD`
+- Odpowiedź negatywna (NAK): `FE FE <from> <to> FA FD`
+
+### 10.2. Obsługa kodowania częstotliwości (BCD)
+Częstotliwość w Hz jest kodowana jako 5 bajtów (10 cyfr) BCD w porządku little-endian (od najmniej znaczących dziesiątek/jednostek Hz do setek MHz i GHz).
+Przykład: 14 074 000 Hz:
+- Wartość 10-cyfrowa: `00 14 07 40 00`
+- Bajty CI-V BCD (od prawej do lewej): `[0x00, 0x40, 0x07, 0x14, 0x00]`
+
+### 10.3. Mapowanie podstawowych poleceń
+| Funkcja | Komenda | Subkomenda | Format danych |
+|---|---|---|---|
+| Odczyt częstotliwości | `0x03` | brak | radio odpowiada ramką `0x03` + 5B BCD |
+| Ustawienie częstotliwości | `0x05` | brak | 5 bajtów BCD |
+| Odczyt trybu i filtru | `0x04` | brak | radio odpowiada ramką `0x04` + tryb (1B) + filtr (1B) |
+| Ustawienie trybu i filtru | `0x06` | brak | tryb (1B) + opcjonalnie filtr (1B) |
+| Wybór VFO | `0x07` | brak | `0x00` (VFO A), `0x01` (VFO B), `0xA0` (Main), `0xB0` (Sub) |
+| Wybór Split | `0x0F` | brak | `0x00` (OFF), `0x01` (ON) |
+| S-Meter | `0x15` | `0x02` | 2 bajty BCD (0000 - 0255) |
+| PTT | `0x1C` | `0x00` | `0x00` (RX), `0x01` (TX) |
+| RF Power | `0x14` | `0x0A` | 2 bajty BCD (0000 - 0255) |
+
+---
+
+## 11. Mapa Kenwood PC Control (Plan NATIVE-2)
+
+1. Format: Tekst ASCII zakończony `;`.
+2. Kluczowe komendy:
+   - `FA<11 cyfr Hz>;` / `FB<11 cyfr Hz>;` (częstotliwość VFO A / VFO B),
+   - `MD<kod>;` (emisja),
+   - `TX;` / `RX;` (załączenie / wyłączenie PTT),
+   - `SM0;` (odczyt S-metra),
+   - `FT0;` / `FT1;` (sterowanie split).
+3. Tryb Auto Information: `AI2;` włącza asynchroniczne raportowanie zmian przez radio.
+4. Transport: RS-232, USB Serial oraz opcjonalny LAN (protokół KNS: port TCP 60000 z handshake `##CN` i uwierzytelnieniem `##ID`).
+
+---
+
+## 12. Mapa Yaesu CAT (Plan NATIVE-3)
+
+1. Architektura rodzinna Yaesu:
+   - **Nowoczesna rodzina tekstowa** (FT-891, FT-991A, FT-710, FTDX10): komendy ASCII kończone `;`, np. `FA014074000;` (9 cyfr częstotliwości).
+   - **Klasyczna rodzina binarna** (FT-817, FT-857, FT-897): 5-bajtowe pakiety binarne z opcodem w ostatnim bajcie.
+2. Dedykowany `YaesuCodec` rozróżniający typ ramkowania w zależności od profilu modelu.
+3. Obsługa podwójnych wirtualnych portów COM (Enhanced vs Standard).
+
+---
+
+## 13. Plan Elecraft (Plan NATIVE-4)
+
+1. Rodzina K3/K3S/KX2/KX3: rozszerzony zestaw Kenwood-compatible z komendami specyficznymi Elecraft (`DS`, `BW`, `PC`).
+2. Rodzina K4: pełny interfejs Ethernet (TCP), Auto Information, strumienie JSON i panadapter.
+
+---
+
+## 14. Plan FlexRadio SmartSDR (Plan NATIVE-5)
+
+1. Odkrywanie w sieci lokalnej przez broadcast UDP 4992.
+2. Połączenie sterujące TCP 4992 z protokołem asynchronicznym: `C<seq>|<cmd>`, odpowiedzi `R<seq>|...`, statusy `S<handle>|...`.
+3. Model Slice Receivers: odrębne odbiorniki programowe przypisywane do VFO.
+
+---
+
+## 15. Plan innych producentów
+
+Kolejni producenci (m.in. Xiegu X6100/G90, Lab599 TX-500, Expert Electronics, Ten-Tec) będą dołączani wyłącznie po skompletowaniu oficjalnej dokumentacji, zdefiniowaniu profilu w rejestrze i napisaniu dedykowanego zestawu testów kodeka i transportu.
+
+---
+
+## 16. Bezpieczeństwo PTT (Rygor krytyczny)
+
+Zasady bezpieczeństwa operacji nadawczych:
+1. **Brak automatycznego PTT podczas inicjalizacji**: Metody `connect()`, `probe()`, detekcja modelu i odpytywanie wstępne **pod żadnym pozorem** nie wysyłają rozkazu przejścia na nadawanie.
+2. **Zakaz PTT w testach jednostkowych**: Żaden automatyczny test nie może aktywować nadawania na podłączonym fizycznym sprzęcie.
+3. **Brak retry dla PTT**: Jeżeli rozkaz `SetPtt(true)` lub `SetPtt(false)` zakończy się błędem, timeoutem lub brakiem potwierdzenia, backend **nie ponawia** próby automatycznie, lecz natychmiast raportuje błąd krytyczny `RigError::Protocol` do operatora.
+4. **Idempotentne rozłączanie (Fail-Safe)**: W przypadku wywołania `disconnect()` lub zerwania sesji następuje bezwarunkowa próba wysłania rozkazu wyłączenia PTT (`SetPtt(false)`), a następnie zamknięcie portu.
+5. **Blokada komend inwazyjnych**: Podczas `probe()` zabronione jest strojenie tunera, nadawanie nośnej, zapisywanie komórek pamięci i skanowanie pasma.
+
+---
+
+## 17. Model testów bez sprzętu
+
+Testowanie transportów szeregowych i kodeków odbywa się w pełni deterministycznie w środowisku CI:
+- **`tokio::io::duplex`**: Emuluje dwukierunkowy kanał szeregowy (strumień bajtów).
+- **Testy fragmentacji**: Wstrzykiwanie danych po 1 bajcie z opóźnieniami, weryfikacja czy kodek poprawnie scala ramki.
+- **Testy sklejania**: Przesyłanie wielu pełnych ramek w jednym pakiecie I/O, weryfikacja kolejności przetwarzania.
+- **Testy zakłóceń**: Wstrzykiwanie śmieciowych bajtów przed prawidłową preambułą `0xFE, 0xFE` lub po terminatorze `0xFD`.
+- **Testy błędów protokołu**: Weryfikacja reakcji na NAK (`0xFA`), błędny BCD, przekroczenie maksymalnego rozmiaru ramki.
+
+---
+
+## 18. Model testów Hardware-In-The-Loop (HIL)
+
+Dla laboratoriów wyposażonych w fizyczne urządzenia lub mikrokontrolery symulujące radio (np. Teensy/RP2040 udające IC-7300/TS-590):
+- Dedykowana flaga testowa `#[ignore = "hardware-in-the-loop"]`,
+- Testy HIL uruchamiane wyłącznie ręcznie z jawną konfiguracją portu COM i modelu przez zmienne środowiskowe (np. `SPLOG_HIL_PORT=COM3`, `SPLOG_HIL_MODEL=IC-7300`).
+- Testy HIL podlegają tym samym rygorom bezpieczeństwa PTT (brak nadawania RF bez sztucznego obciążenia i zgody operatora).
+
+---
+
+## 19. Plan migracji konfiguracji
+
+Konfiguracja stacji (`AppConfig` / `station_config.json`) zachowuje wsteczną kompatybilność:
+- Pole `cat_backend` przyjmuje nowe wartości: `"icom_ci_v"`, `"kenwood"`, `"yaesu"`, `"elecraft"`, `"flexradio"`,
+- Zachowane zostają dotychczasowe pola `cat_serial_port` i `cat_baud_rate`,
+- Dodane zostaną opcjonalne pola dla zaawansowanych ustawień CI-V / sieciowych (`cat_ci_v_address: Option<u8>`).
+
+---
+
+## 20. Plan interfejsu użytkownika (UI)
+
+W fali NATIVE-6 okno `cat_settings.rs` zostanie wzbogacone o:
+1. Dynamiczne formularze zależne od wybranego backendu (np. pole adresu CI-V widoczne tylko dla Icom, konfiguracja IP/portu dla FlexRadio i Kenwood LAN).
+2. Przycisk bezpiecznego testu połączenia („Testuj połączenie”) wykonujący wyłącznie operację `probe()` (odczyt wersji/częstotliwości, bez PTT).
+3. Wyświetlanie wykrytych możliwości transceivera (`RigCapabilities`).
+
+W falach NATIVE-0 i NATIVE-1 interfejs GUI nie ulega modyfikacji runtime, co gwarantuje pełną stabilność aplikacji.
+
+---
+
+## 21. Rozstrzygnięcie dotyczące SO2R
+
+1. **SO2R nie jest backendem radiowym**: Moduł `src/cat/so2r.rs` zostaje zachowany w dotychczasowej postaci jako czysta domena stanu dwóch transceiverów.
+2. **Architektura przyszłości**: Koordynator SO2R (`So2rCoordinator`) będzie zarządzać dwiema niezależnymi instancjami `RigService` (Radio A i Radio B), odpowiadając za:
+   - PTT Interlock (sprzętową i logiczną blokadę nadawania na dwóch radiach jednocześnie),
+   - Fokus odbiorczy i nadawczy (RX/TX focus),
+   - Przełączanie audio (lewe ucho / prawe ucho).
+
+---
+
+## 22. Fale realizacyjne (NATIVE-0 do NATIVE-7)
+
+| Fala | Nazwa fali | Zakres i cel |
+|---|---|---|
+| **NATIVE-0** | Fundament architektury i transport szeregowy | Audyt, dokument `Native CAT.md`, struktura `src/cat/native/`, wspólny transport `tokio-serial`, model profili i testy transportu. |
+| **NATIVE-1** | Pełny Icom CI-V Backend | Migracja `icom_ci_v.rs` przez `git mv`, dekoder strumieniowy, obsługa ACK/NAK/echo/transceive, profil IC-7300/7610/705, implementacja `RigBackend`, testy. |
+| **NATIVE-2** | Pełny Kenwood PC Control | Implementacja KenwoodCodec, Auto Information, obsługa portów szeregowych i LAN, profile TS-590/890/990. |
+| **NATIVE-3** | Pełny Yaesu CAT | Implementacja YaesuCodec (rodziny tekstowe i binarne), obsługa portów Enhanced/Standard. |
+| **NATIVE-4** | Elecraft Backend | K3/KX oraz K4 Ethernet, multisesyjność. |
+| **NATIVE-5** | FlexRadio SmartSDR | Protokół TCP/UDP SmartSDR, obsługa slice receivers i subskrypcji. |
+| **NATIVE-6** | Fabryka backendów, migracja i UI | Integracja z `cat_settings.rs`, dynamiczne panele konfiguracji, walidacja i18n. |
+| **NATIVE-7** | Testy HIL, dokumentacja i audyt końcowy | Procedury testów sprzętowych, aktualizacja podręcznika i audyt bezpieczeństwa. |
+
+---
+
+## 23. Kryteria ukończenia fal NATIVE-0 i NATIVE-1
+
+### Kryteria NATIVE-0:
+- [x] Pełny audyt istniejących modułów CAT.
+- [x] Opracowanie kompletnego dokumentu `Native CAT.md`.
+- [x] Dodanie zależności `tokio-serial` z czystym `cargo tree -d`.
+- [x] Utworzenie modułów `src/cat/native/` (`transport.rs`, `profile.rs`, `registry.rs`).
+- [x] Zapewnienie asynchronicznego transportu opartego na `tokio-serial` z testami na `tokio::io::duplex`.
+- [x] Wszystkie dotychczasowe 419 testów przechodzą, brak nowych ostrzeżeń clippy.
+
+### Kryteria NATIVE-1:
+- [ ] Migracja `icom_ci_v.rs` przez `git mv` z zachowaniem historii.
+- [ ] Implementacja `IcomCiVCodec` z obsługą fragmentacji, ACK, NAK, BCD i echa.
+- [ ] Implementacja `IcomCiVBackend` spełniającego kontrakt `RigBackend`.
+- [ ] Utworzenie profili dla referencyjnych transceiverów Icom (IC-7300, IC-7610, IC-705).
+- [ ] Zestaw 20 deterministycznych testów Icom.
+- [ ] Pełna walidacja kompilatora i testów (fmt, check, clippy, testy CAT i pełne).
+
+---
+
+## 24. Strategia wycofania (Rollback)
+
+W razie niepowodzenia lub nieprzewidzianej regresji:
+1. Każda fala jest zamykana atomowym commitem.
+2. Gałęzie `main` i `refactor/w4-arch-cat` są synchronizowane wyłącznie fast-forward.
+3. Wycofanie fali sprowadza się do `git revert` commita fali, co przywraca w 100% poprzedni stabilny stan bez konfliktów.
+
+---
+
+## 25. Rejestr zmian funkcjonalnych
+
+W falach NATIVE-0 i NATIVE-1 nie wprowadza się żadnych zmian łamiących dotychczasowe zachowanie runtime aplikacji:
+- Hamlib, FLRig i TCI zachowują 100% dotychczasowego kodu i funkcjonalności.
+- Istniejące profile konfiguracji nie ulegają uszkodzeniu.
+- Nowe backendy są dodawane jako niezależne, modularne komponenty.
+
+---
+
+## 26. Ryzyka licencyjne dokumentacji i implementacji
+
+1. **Licencja kodu**: Całość nowego kodu SPLogbook powstaje na licencji GPL-3.0-or-later.
+2. **Dokumentacja producentów**: Wszystkie stałe protokołów (adresy, kody komend) stanowią fakty techniczne konieczne do interoperacyjności (zgodnie z prawem autorskim i orzecznictwem dotyczącym inżynierii wstecznej i protokołów komunikacyjnych). Żadne zastrzeżone fragmenty tabel producentów nie są kopiowane dosłownie do repozytorium.
+3. **Izolacja czystego pokoju**: Implementacje ramek i kodeków bazują wyłącznie na własnej logice parsowania binarnego i tekstowego.
