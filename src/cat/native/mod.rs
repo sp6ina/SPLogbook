@@ -7,6 +7,7 @@
 //! bez pośrednictwa zewnętrznych demonów, pełną obsługę możliwości
 //! producentów oraz bezpieczny transport szeregowy i sieciowy.
 
+pub mod icom;
 pub mod profile;
 pub mod registry;
 pub mod transport;

@@ -297,10 +297,10 @@ where
     }
 }
 
-/// Otwiera fizyczny port szeregowy za pomocą biblioteki `tokio-serial`.
-pub fn open_serial_port(
+/// Otwiera asynchroniczny strumień portu szeregowego.
+pub fn open_serial_stream(
     config: &SerialConfig,
-) -> Result<AsyncFramedTransport<tokio_serial::SerialStream>, TransportError> {
+) -> Result<tokio_serial::SerialStream, TransportError> {
     use tokio_serial::SerialPortBuilderExt;
 
     let builder = tokio_serial::new(&config.port_name, config.baud_rate)
@@ -310,12 +310,19 @@ pub fn open_serial_port(
         .flow_control(config.flow_control.into())
         .timeout(config.read_timeout);
 
-    let stream = builder
+    builder
         .open_native_async()
         .map_err(|e| TransportError::Connect {
             port: config.port_name.clone(),
             detail: e.to_string(),
-        })?;
+        })
+}
+
+/// Otwiera fizyczny port szeregowy za pomocą biblioteki `tokio-serial`.
+pub fn open_serial_port(
+    config: &SerialConfig,
+) -> Result<AsyncFramedTransport<tokio_serial::SerialStream>, TransportError> {
+    let stream = open_serial_stream(config)?;
 
     Ok(AsyncFramedTransport::from_stream(
         stream,
