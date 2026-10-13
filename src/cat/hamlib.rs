@@ -32,45 +32,8 @@ async fn send_setter_cmd(host: &str, port: u16, cmd: &str) -> Result<(), std::io
     tcp::send_cmd_ignore_reply(&format!("{host}:{port}"), cmd, DAEMON).await
 }
 
-/// Pełny stan transceivera zgodny z protokołem Hamlib 4.6+ (rigctld)
-#[derive(Debug, Clone, PartialEq)]
-pub struct RigState {
-    pub frequency_hz: u64,
-    pub mode: String,
-    pub passband_hz: u32,
-    pub vfo: String,    // np. "VFOA", "VFOB", "Main", "Sub"
-    pub tx_vfo: String, // VFO używane do nadawania w trybie Split
-    pub split_enabled: bool,
-    pub tx_frequency_hz: Option<u64>, // Częstotliwość nadawania w trybie Split
-    pub s_meter_dbm: f32,             // Sygnał S-Metra w dBm (lub S9+dB)
-    pub s_meter_unit: String,         // np. "S9+10dB" lub "S7"
-    pub rf_power_watts: f32,          // Moc wyjściowa w Watach
-    pub ptt: bool,
-    pub rit_hz: i32, // Przesunięcie RIT w Hz
-    pub xit_hz: i32, // Przesunięcie XIT w Hz
-    pub connected: bool,
-}
-
-impl Default for RigState {
-    fn default() -> Self {
-        Self {
-            frequency_hz: 14_025_000,
-            mode: "CW".to_string(),
-            passband_hz: 500,
-            vfo: "VFOA".to_string(),
-            tx_vfo: "VFOA".to_string(),
-            split_enabled: false,
-            tx_frequency_hz: None,
-            s_meter_dbm: -100.0,
-            s_meter_unit: "S1".to_string(),
-            rf_power_watts: 0.0,
-            ptt: false,
-            rit_hz: 0,
-            xit_hz: 0,
-            connected: false,
-        }
-    }
-}
+// Re-eksport przejściowy RigState z modułu domenowego crate::cat::rig
+pub use crate::cat::rig::RigState;
 
 /// Asynchroniczny klient do demona Hamlib (rigctld) wspierający rozszerzenia Hamlib 4.6+
 pub struct HamlibClient {
