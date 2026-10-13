@@ -4,6 +4,7 @@
 //! Moduł potoku zapisu QSO (`core::ingest`).
 
 mod enrich;
+mod import;
 mod origin;
 
 use std::sync::{Arc, Mutex, PoisonError};
@@ -17,6 +18,7 @@ use crate::core::qso::{QsoIssue, QsoRecord, QsoWarning};
 use crate::core::scp::ScpEngine;
 
 use self::enrich::apply_prefix_info;
+pub use self::import::{ImportOptions, ImportReport};
 pub use self::origin::{IngestPolicy, PostEffects, QsoOrigin, ValidationMode};
 
 /// Błąd domenowego potoku zapisu QSO (`core::ingest`).
@@ -175,7 +177,7 @@ mod tests {
 
     use super::{IngestError, QsoIngestor, QsoOrigin};
     use crate::core::awards::AwardsEngine;
-    use crate::core::database::LogDatabase;
+    use crate::core::database::{Journal, LogDatabase};
     use crate::core::events::{AppEvent, EventBus};
     use crate::core::prefix::PrefixMatcher;
     use crate::core::qso::{QsoIssue, QsoRecord, QsoWarning};
@@ -183,13 +185,13 @@ mod tests {
 
     static NEXT_MEMDB_ID: AtomicUsize = AtomicUsize::new(1);
 
-    struct TestFixture {
-        ingestor: QsoIngestor,
-        events_rx: broadcast::Receiver<AppEvent>,
+    pub(super) struct TestFixture {
+        pub(super) ingestor: QsoIngestor,
+        pub(super) events_rx: broadcast::Receiver<AppEvent>,
     }
 
     impl TestFixture {
-        fn new() -> Self {
+        pub(super) fn new() -> Self {
             Self::with_prefixes(build_test_prefix_matcher())
         }
 
@@ -210,7 +212,7 @@ mod tests {
             }
         }
 
-        fn count_qsos(&self) -> usize {
+        pub(super) fn count_qsos(&self) -> usize {
             let db = self
                 .ingestor
                 .db
@@ -222,7 +224,7 @@ mod tests {
             }
         }
 
-        fn get_qso(&self, id: i64) -> Option<QsoRecord> {
+        pub(super) fn get_qso(&self, id: i64) -> Option<QsoRecord> {
             let db = self
                 .ingestor
                 .db
@@ -231,6 +233,35 @@ mod tests {
             match db.get_qso_by_id(id) {
                 Ok(qso) => qso,
                 Err(e) => panic!("get_qso_by_id failed: {e}"),
+            }
+        }
+
+        pub(super) fn create_journal(&self, id: &str) {
+            let db = self
+                .ingestor
+                .db
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            let journal = Journal {
+                id: id.to_string(),
+                name: format!("Test Journal {id}"),
+                is_default: false,
+                ..Journal::default()
+            };
+            if let Err(e) = db.create_journal(&journal) {
+                panic!("create_journal({id}) failed: {e}");
+            }
+        }
+
+        pub(super) fn qsos_for_journal(&self, journal_id: &str) -> Vec<QsoRecord> {
+            let db = self
+                .ingestor
+                .db
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            match db.get_recent_qsos_for_journal(journal_id, 1000) {
+                Ok(qsos) => qsos,
+                Err(e) => panic!("get_recent_qsos_for_journal({journal_id}) failed: {e}"),
             }
         }
     }
@@ -297,7 +328,7 @@ mod tests {
         }
     }
 
-    fn sample_valid_qso(callsign: &str) -> QsoRecord {
+    pub(super) fn sample_valid_qso(callsign: &str) -> QsoRecord {
         let mut qso = QsoRecord::new(callsign, "20m", "CW");
         qso.qso_date = "20261013".to_string();
         qso.time_on = "123456".to_string();
