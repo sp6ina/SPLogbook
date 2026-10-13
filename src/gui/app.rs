@@ -149,6 +149,7 @@ pub struct SpLogApp {
     pub prefix_matcher: Arc<PrefixMatcher>,
     pub scp_engine: Arc<Mutex<ScpEngine>>,
     pub awards_engine: Arc<Mutex<AwardsEngine>>,
+    pub qso_ingestor: crate::core::ingest::QsoIngestor,
 
     // Konfiguracja stacji i lokalizacja
     pub my_station: StationProfile,
@@ -844,13 +845,24 @@ impl SpLogApp {
                 .with_cache(callbook_cache_path, callbook_cache_ttl_days),
         );
 
+        let awards_engine = Arc::new(Mutex::new(AwardsEngine::new()));
+        let event_bus = crate::core::events::EventBus::default();
+        let qso_ingestor = crate::core::ingest::QsoIngestor::new(
+            deps.log_db.clone(),
+            awards_engine.clone(),
+            deps.scp_engine.clone(),
+            deps.prefix_matcher.clone(),
+            event_bus.clone(),
+        );
+
         let mut app = Self {
             shutdown_policy: init.shutdown_policy,
             initial_cat_enabled: init.config.cat_enabled,
             log_db: deps.log_db,
             prefix_matcher: deps.prefix_matcher,
             scp_engine: deps.scp_engine,
-            awards_engine: Arc::new(Mutex::new(AwardsEngine::new())),
+            awards_engine,
+            qso_ingestor,
             my_station: init.config.station.clone(),
             // Wczytanie zapisanego języka z konfiguracji stacji
             current_language: Language::from_code(&init.config.current_language),
@@ -1169,7 +1181,7 @@ impl SpLogApp {
             cat_state_tx,
             cat_state_rx,
 
-            event_bus: crate::core::events::EventBus::default(),
+            event_bus,
 
             cluster_host: init.config.cluster_host,
             cluster_port: init.config.cluster_port,
@@ -2855,7 +2867,8 @@ impl SpLogApp {
                     self.cat_shared_state.clone(),
                     self.awards_engine.clone(),
                     self.api_reload_flag.clone(),
-                );
+                )
+                .with_ingestor(self.qso_ingestor.clone());
         tokio::spawn(async move {
             crate::api::server::start_api_server_with_state(state, port).await;
         });
@@ -3390,6 +3403,65 @@ impl SpLogApp {
         self.status_message = Some("Pozycja sprzętu została usunięta z ewidencji.".to_string());
     }
 
+    pub fn import_adif_content(&mut self, content: &str, source_name: &str) {
+        let report = crate::core::adif::parse_adif_with_report(content);
+        let parsed = report.qsos;
+        let rejected = report.rejected;
+        let errors = report.errors;
+
+        let active_journal_id = self.active_journal.id.clone();
+        let options = crate::core::ingest::ImportOptions {
+            journal_id: active_journal_id,
+            enrich: true,
+        };
+
+        match self.qso_ingestor.import_batch(parsed, &options) {
+            Ok(import_report) => {
+                self.reload_qsos();
+                self.invalidate_cluster_badges();
+                let inserted = import_report.inserted;
+                let mut msg = format!("Zaimportowano {inserted} łączności z pliku: {source_name}");
+                let mut details: Vec<String> = Vec::new();
+                if rejected > 0 {
+                    details.push(format!("{rejected} uszkodzonych rekordów ADIF"));
+                }
+                if import_report.rejected_invalid > 0 {
+                    details.push(format!(
+                        "{} odrzuconych przez walidację",
+                        import_report.rejected_invalid
+                    ));
+                }
+                if import_report.skipped_duplicates > 0 {
+                    details.push(format!(
+                        "{} duplikatów pominiętych",
+                        import_report.skipped_duplicates
+                    ));
+                }
+                if !details.is_empty() {
+                    let _ = write!(msg, " ({})", details.join(", "));
+                }
+                if let Some(first_error) = errors.first() {
+                    if rejected > 0 || !errors.is_empty() {
+                        let _ = write!(msg, " | {first_error}");
+                    }
+                }
+                if let Some(issue) = import_report.first_issue {
+                    let reason = issue.msg().text(self.current_language);
+                    let _ = write!(msg, " | pierwszy błąd walidacji: {reason}");
+                }
+                self.status_message = Some(msg);
+                self.status_toast = Some((
+                    format!("Zaimportowano {inserted} QSO"),
+                    std::time::Instant::now(),
+                ));
+            }
+            Err(e) => {
+                self.status_message = Some(format!("Błąd zapisu łączności do bazy: {e}"));
+                self.report_error(format!("Błąd importu do bazy: {e}"));
+            }
+        }
+    }
+
     pub fn trigger_import_adif(&mut self) {
         if let Some(path) = rfd::FileDialog::new()
             .add_filter("Pliki ADIF (*.adi, *.adif)", &["adi", "adif"])
@@ -3399,103 +3471,7 @@ impl SpLogApp {
             match std::fs::read(&path) {
                 Ok(bytes) => {
                     let content = String::from_utf8_lossy(&bytes);
-                    let report = crate::core::adif::parse_adif_with_report(&content);
-                    let parsed = report.qsos;
-                    let rejected = report.rejected;
-                    let errors = report.errors;
-                    // Import zawsze trafia do aktualnie aktywnego dziennika,
-                    // niezależnie od domyślnego journal_id nadanego przez parser.
-                    let active_journal_id = self.active_journal.id.clone();
-
-                    // Tożsamości istniejących QSO do idempotentnego importu.
-                    let existing_keys = {
-                        let db = self
-                            .log_db
-                            .lock()
-                            .unwrap_or_else(std::sync::PoisonError::into_inner);
-                        db.existing_identities(&active_journal_id)
-                    };
-                    let mut seen_keys: std::collections::HashSet<crate::core::qso::QsoIdentity> =
-                        match existing_keys {
-                            Ok(keys) => keys,
-                            Err(e) => {
-                                self.status_message =
-                                    Some(format!("Błąd odczytu bazy przed importem: {e}"));
-                                return;
-                            }
-                        };
-
-                    let mut qsos = Vec::with_capacity(parsed.len());
-                    let mut skipped_invalid = 0usize;
-                    let mut skipped_duplicates = 0usize;
-                    let mut first_validation_error: Option<String> = None;
-                    for mut qso in parsed {
-                        qso.journal_id = Some(active_journal_id.clone());
-                        if let Err(reason) = qso.validate() {
-                            skipped_invalid += 1;
-                            first_validation_error
-                                .get_or_insert_with(|| reason.msg().text(self.current_language));
-                            continue;
-                        }
-                        let key = qso.identity();
-                        if !seen_keys.insert(key) {
-                            skipped_duplicates += 1;
-                            continue;
-                        }
-                        qsos.push(qso);
-                    }
-
-                    let inserted = qsos.len();
-                    let insert_res = {
-                        let db = self
-                            .log_db
-                            .lock()
-                            .unwrap_or_else(std::sync::PoisonError::into_inner);
-                        db.batch_insert_qsos(&qsos)
-                    };
-                    match insert_res {
-                        Ok(_) => {
-                            self.rebuild_awards_full();
-                            self.reload_qsos();
-                            let mut msg = format!(
-                                "Zaimportowano {inserted} łączności z pliku: {}",
-                                path.display()
-                            );
-                            let mut details: Vec<String> = Vec::new();
-                            if rejected > 0 {
-                                details.push(format!("{rejected} uszkodzonych rekordów ADIF"));
-                            }
-                            if skipped_invalid > 0 {
-                                details
-                                    .push(format!("{skipped_invalid} odrzuconych przez walidację"));
-                            }
-                            if skipped_duplicates > 0 {
-                                details
-                                    .push(format!("{skipped_duplicates} duplikatów pominiętych"));
-                            }
-                            if !details.is_empty() {
-                                let _ = write!(msg, " ({})", details.join(", "));
-                            }
-                            if let Some(first_error) = errors.first() {
-                                if rejected > 0 || !errors.is_empty() {
-                                    let _ = write!(msg, " | {first_error}");
-                                }
-                            }
-                            if let Some(reason) = first_validation_error {
-                                let _ = write!(msg, " | pierwszy błąd walidacji: {reason}");
-                            }
-                            self.status_message = Some(msg);
-                            self.status_toast = Some((
-                                format!("Zaimportowano {inserted} QSO"),
-                                std::time::Instant::now(),
-                            ));
-                        }
-                        Err(e) => {
-                            self.status_message =
-                                Some(format!("Błąd zapisu łączności do bazy: {e}"));
-                            self.report_error(format!("Błąd importu do bazy: {e}"));
-                        }
-                    }
+                    self.import_adif_content(&content, &path.display().to_string());
                 }
                 Err(e) => {
                     self.status_message =
@@ -5987,5 +5963,78 @@ mod tests {
         }
 
         assert!(temp.path().join("backups").exists());
+    }
+
+    #[test]
+    fn gui_import_adif_content_success_duplicates_and_state_refresh() {
+        let deps = test_deps();
+        let scp = Arc::clone(&deps.scp_engine);
+        let init = AppInit {
+            config: AppConfig::default(),
+            config_file_path: std::path::PathBuf::from("config.json"),
+            active_db_path: std::path::PathBuf::from("db.sqlite"),
+            shutdown_policy: ShutdownPolicy::None,
+        };
+        let mut app = SpLogApp::for_tests(init, deps);
+
+        let adif = "<CALL:6>SP6INA <BAND:3>20m <MODE:2>CW <QSO_DATE:8>20261012 <TIME_ON:6>120000 <RST_SENT:3>599 <RST_RCVD:3>599 <EOR>\n\
+                    <CALL:6>DL1ABC <BAND:3>40m <MODE:3>SSB <QSO_DATE:8>20261012 <TIME_ON:6>121500 <RST_SENT:2>59 <RST_RCVD:2>59 <EOR>";
+
+        // 1. Pierwszy poprawny import
+        app.import_adif_content(adif, "test_file.adi");
+
+        assert_eq!(app.recent_qsos.len(), 2);
+        assert_eq!(app.qso_numbers.len(), 2);
+        assert!(
+            app.status_message
+                .as_ref()
+                .unwrap()
+                .contains("Zaimportowano 2")
+        );
+
+        // Weryfikacja aktualizacji SCP
+        {
+            let scp_guard = scp.lock().unwrap();
+            let matches = scp_guard.search("SP6INA", 5);
+            assert!(matches.contains(&"SP6INA".to_string()));
+            let matches_dl = scp_guard.search("DL1ABC", 5);
+            assert!(matches_dl.contains(&"DL1ABC".to_string()));
+        }
+
+        // Weryfikacja aktualizacji AwardsEngine
+        {
+            let awards_guard = app.awards_engine.lock().unwrap();
+            assert!(
+                awards_guard
+                    .worked_calls
+                    .iter()
+                    .any(|(call, _, _)| call == "SP6INA")
+            );
+            assert!(
+                awards_guard
+                    .worked_calls
+                    .iter()
+                    .any(|(call, _, _)| call == "DL1ABC")
+            );
+        }
+
+        // 2. Import duplikatów
+        app.import_adif_content(adif, "test_file.adi");
+
+        // Liczba rekordów nie wzrosła
+        assert_eq!(app.recent_qsos.len(), 2);
+        assert_eq!(app.qso_numbers.len(), 2);
+        assert!(
+            app.status_message
+                .as_ref()
+                .unwrap()
+                .contains("Zaimportowano 0")
+        );
+        assert!(
+            app.status_message
+                .as_ref()
+                .unwrap()
+                .contains("duplikatów pominiętych")
+        );
     }
 }

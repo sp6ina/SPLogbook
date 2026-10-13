@@ -24,8 +24,10 @@ use crate::core::clubs::{ClubAffiliation, ClubRegistry};
 use crate::core::database::{AdvancedQsoFilter, Journal, LogDatabase};
 use crate::core::events::{AppEvent, EventBus};
 use crate::core::i18n::Language;
+use crate::core::ingest::{ImportOptions, IngestError, QsoIngestor};
 use crate::core::prefix::PrefixMatcher;
 use crate::core::qso::QsoRecord;
+use crate::core::scp::ScpEngine;
 
 /// Ogranicza opcjonalną wartość `limit`/`offset` do przedziału `[0, max]`,
 /// aby zapytanie typu `limit=1_000_000` nie wymuszało nadmiernego transferu.
@@ -49,8 +51,10 @@ pub struct ApiState {
     pub prefix_matcher: Arc<PrefixMatcher>,
     pub rig_state: Arc<RwLock<RigState>>,
     pub awards_engine: Arc<Mutex<AwardsEngine>>,
+    pub scp_engine: Arc<Mutex<ScpEngine>>,
     /// Flaga informująca główną pętlę GUI o zmianie zawartości bazy przez REST API.
     pub reload_flag: Arc<AtomicBool>,
+    pub ingestor: QsoIngestor,
 }
 
 impl ApiState {
@@ -61,6 +65,16 @@ impl ApiState {
         api_key: String,
         events: EventBus,
     ) -> Self {
+        let awards_engine = Arc::new(Mutex::new(AwardsEngine::new()));
+        let prefix_matcher = Arc::new(PrefixMatcher::empty());
+        let scp_engine = Arc::new(Mutex::new(ScpEngine::new()));
+        let ingestor = QsoIngestor::new(
+            Arc::clone(&db),
+            Arc::clone(&awards_engine),
+            Arc::clone(&scp_engine),
+            Arc::clone(&prefix_matcher),
+            events.clone(),
+        );
         Self {
             db,
             callsign,
@@ -68,10 +82,12 @@ impl ApiState {
             cluster_spots,
             events,
             api_key,
-            prefix_matcher: Arc::new(PrefixMatcher::empty()),
+            prefix_matcher,
             rig_state: Arc::new(RwLock::new(RigState::default())),
-            awards_engine: Arc::new(Mutex::new(AwardsEngine::new())),
+            awards_engine,
+            scp_engine,
             reload_flag: Arc::new(AtomicBool::new(false)),
+            ingestor,
         }
     }
 
@@ -86,6 +102,11 @@ impl ApiState {
         self.rig_state = rig_state;
         self.awards_engine = awards_engine;
         self.reload_flag = reload_flag;
+        self
+    }
+
+    pub fn with_ingestor(mut self, ingestor: QsoIngestor) -> Self {
+        self.ingestor = ingestor;
         self
     }
 }
@@ -975,65 +996,59 @@ async fn import_adif_handler(
         ));
     }
 
-    // Idempotentny import: pomijaj rekordy o tożsamości istniejącej już w DEFAULT.
-    let (report, mut seen_keys) = with_db(&state, move |db| {
-        let report = adif::parse_adif_with_report(&body);
-        let keys = db.existing_identities("DEFAULT")?;
-        Ok((report, keys))
+    let ingestor = state.ingestor.clone();
+    let db = Arc::clone(&state.db);
+    let task_result = tokio::task::spawn_blocking(move || {
+        let parse_report = adif::parse_adif_with_report(&body);
+        let qsos = parse_report.qsos;
+        let rejected = parse_report.rejected;
+        let errors = parse_report.errors;
+        let options = ImportOptions {
+            journal_id: "DEFAULT".to_string(),
+            enrich: true,
+        };
+        let import_report = ingestor.import_batch(qsos, &options)?;
+        let total_qsos = {
+            let db_guard = db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            db_guard.count_all().unwrap_or(import_report.inserted)
+        };
+        Ok::<_, IngestError>((rejected, errors, import_report, total_qsos))
     })
-    .await?;
-    let mut validation_rejected = 0usize;
-    let mut validation_errors: Vec<String> = Vec::new();
-    let mut qsos = Vec::with_capacity(report.qsos.len());
-    for mut qso in report.qsos {
-        // API nie posiada pojęcia „aktywnego dziennika” — import trafia do DEFAULT.
-        qso.journal_id = Some("DEFAULT".to_string());
-        let _ = normalize_and_enrich_qso(&mut qso, &state.prefix_matcher);
-        if let Err(reason) = qso.validate() {
-            validation_rejected += 1;
-            validation_errors.push(reason.msg().text(Language::Pl));
-            continue;
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Błąd zadania asynchronicznego: {e}"),
+        )
+    })?;
+
+    match task_result {
+        Ok((adif_rejected, mut errors, import_report, total_qsos)) => {
+            state.reload_flag.store(true, Ordering::Release);
+            if let Some(issue) = import_report.first_issue {
+                errors.push(issue.msg().text(Language::Pl));
+            }
+            if import_report.skipped_duplicates > 0 {
+                errors.push("duplikat (rekord już istnieje w dzienniku)".to_string());
+            }
+            let rejected =
+                adif_rejected + import_report.rejected_invalid + import_report.skipped_duplicates;
+            Ok(Json(AdifImportApiResponse {
+                imported: import_report.inserted,
+                rejected,
+                errors,
+                total_qsos,
+            }))
         }
-        let key = qso.identity();
-        if !seen_keys.insert(key) {
-            validation_rejected += 1;
-            validation_errors.push("duplikat (rekord już istnieje w dzienniku)".to_string());
-            continue;
-        }
-        qsos.push(qso);
+        Err(IngestError::Storage(e)) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Błąd bazy danych podczas importu: {e}"),
+        )),
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            format!("Błąd walidacji importu: {e}"),
+        )),
     }
-
-    let qsos = std::sync::Arc::new(qsos);
-
-    let (inserted, total_qsos) = {
-        let qsos = std::sync::Arc::clone(&qsos);
-        with_db(&state, move |db| {
-            let ins = db.batch_insert_qsos(qsos.as_slice())?;
-            let tot = db.count_all().unwrap_or(ins);
-            Ok((ins, tot))
-        })
-        .await?
-    };
-
-    {
-        let mut awards = state
-            .awards_engine
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        for qso in qsos.iter() {
-            awards.register_qso_record(qso);
-        }
-    }
-    state.reload_flag.store(true, Ordering::Release);
-
-    let mut errors = report.errors;
-    errors.extend(validation_errors);
-    Ok(Json(AdifImportApiResponse {
-        imported: inserted,
-        rejected: report.rejected + validation_rejected,
-        errors,
-        total_qsos,
-    }))
 }
 
 async fn get_rig_state(State(state): State<ApiState>) -> Json<RigStateResponse> {
@@ -1509,5 +1524,173 @@ mod tests {
         )
         .await;
         assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn rest_api_import_adif_empty_body_rejected() {
+        let state = test_api_state();
+        let app = build_api_router(state);
+
+        let resp = call_router(
+            &app,
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/v1/adif/import")
+                .header("x-api-key", "secret-key-123")
+                .header(header::CONTENT_TYPE, "text/plain")
+                .body(Body::from("   \n\t"))
+                .unwrap(),
+        )
+        .await;
+
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let msg = String::from_utf8_lossy(&bytes);
+        assert!(msg.contains("Treść żądania ADIF jest pusta."));
+    }
+
+    #[tokio::test]
+    async fn rest_api_import_adif_success_duplicates_and_scp_update() {
+        let state = test_api_state();
+        let app = build_api_router(state.clone());
+
+        let adif = "<CALL:6>SP1ABC <BAND:3>20m <MODE:2>CW <QSO_DATE:8>20261012 <TIME_ON:6>120000 <RST_SENT:3>599 <RST_RCVD:3>599 <EOR>\n\
+                    <CALL:6>DL2DEF <BAND:3>40m <MODE:3>SSB <QSO_DATE:8>20261012 <TIME_ON:6>121500 <RST_SENT:2>59 <RST_RCVD:2>59 <EOR>";
+
+        // Pierwszy import - 2 rekordy
+        let resp = call_router(
+            &app,
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/v1/adif/import")
+                .header("x-api-key", "secret-key-123")
+                .header(header::CONTENT_TYPE, "text/plain")
+                .body(Body::from(adif))
+                .unwrap(),
+        )
+        .await;
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["imported"], 2);
+        assert_eq!(json["rejected"], 0);
+        assert_eq!(json["total_qsos"], 2);
+
+        // Flaga odświeżenia GUI
+        assert!(state.reload_flag.load(Ordering::Acquire));
+
+        // SCP zaktualizowany
+        {
+            let scp = state.scp_engine.lock().unwrap();
+            let matches = scp.search("SP1ABC", 5);
+            assert!(matches.contains(&"SP1ABC".to_string()));
+            let matches_dl = scp.search("DL2DEF", 5);
+            assert!(matches_dl.contains(&"DL2DEF".to_string()));
+        }
+
+        // Awards zaktualizowane
+        {
+            let awards = state.awards_engine.lock().unwrap();
+            assert!(
+                awards
+                    .worked_calls
+                    .iter()
+                    .any(|(call, _, _)| call == "SP1ABC")
+            );
+            assert!(
+                awards
+                    .worked_calls
+                    .iter()
+                    .any(|(call, _, _)| call == "DL2DEF")
+            );
+        }
+
+        // Drugi import - duplikaty
+        let resp_dup = call_router(
+            &app,
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/v1/adif/import")
+                .header("x-api-key", "secret-key-123")
+                .header(header::CONTENT_TYPE, "text/plain")
+                .body(Body::from(adif))
+                .unwrap(),
+        )
+        .await;
+
+        assert_eq!(resp_dup.status(), StatusCode::OK);
+        let bytes_dup = axum::body::to_bytes(resp_dup.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json_dup: serde_json::Value = serde_json::from_slice(&bytes_dup).unwrap();
+        assert_eq!(json_dup["imported"], 0);
+        assert_eq!(json_dup["rejected"], 2);
+        assert_eq!(json_dup["total_qsos"], 2);
+        let errors = json_dup["errors"].as_array().unwrap();
+        assert!(!errors.is_empty());
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.as_str().unwrap().contains("duplikat"))
+        );
+    }
+
+    #[tokio::test]
+    async fn rest_api_import_adif_malformed_records() {
+        let state = test_api_state();
+        let app = build_api_router(state);
+
+        // Rekord ze składnią uszkodzoną (brak zamknięcia tagu) oraz rekord bez CALL
+        let malformed_adif = "<CALL:6>SP1ABC <BAND:3>20m <MODE:2>CW <QSO_DATE:8>20261012 <TIME_ON:6>120000 <EOR>\n<CALL:6>SP2XYZ <BAND";
+
+        let resp = call_router(
+            &app,
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/v1/adif/import")
+                .header("x-api-key", "secret-key-123")
+                .header(header::CONTENT_TYPE, "text/plain")
+                .body(Body::from(malformed_adif))
+                .unwrap(),
+        )
+        .await;
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        // Pierwszy poprawny rekord powinien wejść
+        assert_eq!(json["imported"], 1);
+
+        // Rekord bez znaku wywoławczego (odrzucony przez walidację)
+        let invalid_record_adif =
+            "<BAND:3>20m <MODE:2>CW <QSO_DATE:8>20261012 <TIME_ON:6>120000 <EOR>";
+        let resp2 = call_router(
+            &app,
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/v1/adif/import")
+                .header("x-api-key", "secret-key-123")
+                .header(header::CONTENT_TYPE, "text/plain")
+                .body(Body::from(invalid_record_adif))
+                .unwrap(),
+        )
+        .await;
+
+        assert_eq!(resp2.status(), StatusCode::OK);
+        let bytes2 = axum::body::to_bytes(resp2.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json2: serde_json::Value = serde_json::from_slice(&bytes2).unwrap();
+        assert_eq!(json2["imported"], 0);
+        assert_eq!(json2["rejected"], 1);
+        let errors = json2["errors"].as_array().unwrap();
+        assert!(!errors.is_empty());
     }
 }
