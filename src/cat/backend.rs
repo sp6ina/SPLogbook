@@ -12,6 +12,7 @@ use std::future::Future;
 use crate::cat::flrig::FlrigClient;
 use crate::cat::hamlib::{HamlibClient, RigState};
 pub use crate::cat::native::icom::IcomCiVBackend;
+pub use crate::cat::native::kenwood::KenwoodBackend;
 use crate::cat::rig::{RigCapabilities, RigCommand, RigError};
 
 /// Nowoczesny kontrakt backendu CAT oparty o trwałą sesję i typowane błędy (Rust Edition 2024).

@@ -151,9 +151,159 @@ pub static ICOM_IC706MKIIG: RigModelProfile = RigModelProfile {
     safe_poll_commands: &["read_freq", "read_mode", "read_smeter", "read_ptt"],
 };
 
+// Referencyjne profile Kenwood PC Control (zweryfikowane z oficjalną dokumentacją Kenwood):
+
+/// Kenwood TS-590S — transceiver HF/50MHz z odbiornikiem o bezpośredniej przemianie (down-conversion) i USB Virtual COM.
+pub static KENWOOD_TS590S: RigModelProfile = RigModelProfile {
+    model_id: "TS-590S",
+    name: "Kenwood TS-590S",
+    vendor: RigVendor::Kenwood,
+    default_baud_rate: 115_200,
+    supported_baud_rates: &[4800, 9600, 19200, 38400, 57600, 115_200],
+    default_ci_v_address: None,
+    frequency_bytes: 11,
+    capabilities: RigCapabilities {
+        frequency: true,
+        mode: true,
+        passband: true,
+        split: true,
+        split_frequency: true,
+        ptt: true,
+        vfo: true,
+        rit: true,
+        xit: true,
+        power: true,
+        s_meter: true,
+    },
+    extended_capabilities: NativeRigCapabilities {
+        dualwatch: false,
+        main_sub_tracking: false,
+        transceive_broadcast: true,
+        attenuator: true,
+        preamp: true,
+        antenna_select: true,
+        filter_width: true,
+        noise_reduction: true,
+    },
+    safe_poll_commands: &["read_if", "read_smeter"],
+};
+
+/// Kenwood TS-590SG — unowocześniona wersja TS-590S z ulepszonym odbiornikiem, funkcją CW tune i Auto Information AI2.
+pub static KENWOOD_TS590SG: RigModelProfile = RigModelProfile {
+    model_id: "TS-590SG",
+    name: "Kenwood TS-590SG",
+    vendor: RigVendor::Kenwood,
+    default_baud_rate: 115_200,
+    supported_baud_rates: &[4800, 9600, 19200, 38400, 57600, 115_200],
+    default_ci_v_address: None,
+    frequency_bytes: 11,
+    capabilities: RigCapabilities {
+        frequency: true,
+        mode: true,
+        passband: true,
+        split: true,
+        split_frequency: true,
+        ptt: true,
+        vfo: true,
+        rit: true,
+        xit: true,
+        power: true,
+        s_meter: true,
+    },
+    extended_capabilities: NativeRigCapabilities {
+        dualwatch: false,
+        main_sub_tracking: false,
+        transceive_broadcast: true,
+        attenuator: true,
+        preamp: true,
+        antenna_select: true,
+        filter_width: true,
+        noise_reduction: true,
+    },
+    safe_poll_commands: &["read_if", "read_smeter"],
+};
+
+/// Kenwood TS-890S — zaawansowany transceiver HF/50MHz/70MHz z architekturą hybrid SDR, USB oraz wbudowanym interfejsem KNS LAN (Ethernet).
+pub static KENWOOD_TS890S: RigModelProfile = RigModelProfile {
+    model_id: "TS-890S",
+    name: "Kenwood TS-890S",
+    vendor: RigVendor::Kenwood,
+    default_baud_rate: 115_200,
+    supported_baud_rates: &[4800, 9600, 19200, 38400, 57600, 115_200],
+    default_ci_v_address: None,
+    frequency_bytes: 11,
+    capabilities: RigCapabilities {
+        frequency: true,
+        mode: true,
+        passband: true,
+        split: true,
+        split_frequency: true,
+        ptt: true,
+        vfo: true,
+        rit: true,
+        xit: true,
+        power: true,
+        s_meter: true,
+    },
+    extended_capabilities: NativeRigCapabilities {
+        dualwatch: false,
+        main_sub_tracking: true,
+        transceive_broadcast: true,
+        attenuator: true,
+        preamp: true,
+        antenna_select: true,
+        filter_width: true,
+        noise_reduction: true,
+    },
+    safe_poll_commands: &["read_if", "read_smeter"],
+};
+
+/// Kenwood TS-990S — flagowy dwuodbiornikowy (Main + Sub) transceiver HF/50MHz 200W z podwójnym wyświetlaczem TFT, USB i interfejsem KNS LAN.
+pub static KENWOOD_TS990S: RigModelProfile = RigModelProfile {
+    model_id: "TS-990S",
+    name: "Kenwood TS-990S",
+    vendor: RigVendor::Kenwood,
+    default_baud_rate: 115_200,
+    supported_baud_rates: &[4800, 9600, 19200, 38400, 57600, 115_200],
+    default_ci_v_address: None,
+    frequency_bytes: 11,
+    capabilities: RigCapabilities {
+        frequency: true,
+        mode: true,
+        passband: true,
+        split: true,
+        split_frequency: true,
+        ptt: true,
+        vfo: true,
+        rit: true,
+        xit: true,
+        power: true,
+        s_meter: true,
+    },
+    extended_capabilities: NativeRigCapabilities {
+        dualwatch: true,
+        main_sub_tracking: true,
+        transceive_broadcast: true,
+        attenuator: true,
+        preamp: true,
+        antenna_select: true,
+        filter_width: true,
+        noise_reduction: true,
+    },
+    safe_poll_commands: &["read_if", "read_smeter"],
+};
+
 /// Wszystkie oficjalnie zarejestrowane profile.
-pub static ALL_PROFILES: &[&RigModelProfile] =
-    &[&ICOM_IC7300, &ICOM_IC7610, &ICOM_IC705, &ICOM_IC706MKIIG];
+pub static ALL_PROFILES: &[&RigModelProfile] = &[
+    &ICOM_IC7300,
+    &ICOM_IC7610,
+    &ICOM_IC705,
+    &ICOM_IC706MKIIG,
+    &KENWOOD_TS590S,
+    &KENWOOD_TS590SG,
+    &KENWOOD_TS890S,
+    &KENWOOD_TS990S,
+];
 
 /// Wyszukuje profil modelu po nazwie lub identyfikatorze (case-insensitive).
 pub fn find_profile_by_model(name: &str) -> Option<&'static RigModelProfile> {
@@ -213,6 +363,27 @@ mod tests {
     fn test_profiles_by_vendor() {
         let icom_profiles = profiles_by_vendor(RigVendor::Icom);
         assert!(icom_profiles.len() >= 4);
-        assert!(profiles_by_vendor(RigVendor::Kenwood).is_empty());
+
+        let kenwood_profiles = profiles_by_vendor(RigVendor::Kenwood);
+        assert_eq!(kenwood_profiles.len(), 4);
+    }
+
+    #[test]
+    fn test_lookup_kenwood_profiles() {
+        let ts590 = find_profile_by_model("TS-590S").expect("TS-590S missing");
+        assert_eq!(ts590.vendor, RigVendor::Kenwood);
+        assert_eq!(ts590.default_baud_rate, 115_200);
+        assert!(ts590.extended_capabilities.transceive_broadcast);
+
+        let ts590sg = find_profile_by_model("TS-590SG").expect("TS-590SG missing");
+        assert_eq!(ts590sg.vendor, RigVendor::Kenwood);
+
+        let ts890 = find_profile_by_model("Kenwood TS-890S").expect("TS-890S missing");
+        assert_eq!(ts890.vendor, RigVendor::Kenwood);
+        assert!(ts890.extended_capabilities.main_sub_tracking);
+
+        let ts990 = find_profile_by_model("TS-990S").expect("TS-990S missing");
+        assert_eq!(ts990.vendor, RigVendor::Kenwood);
+        assert!(ts990.extended_capabilities.dualwatch);
     }
 }

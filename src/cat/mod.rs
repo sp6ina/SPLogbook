@@ -4,9 +4,9 @@
 pub mod backend;
 pub mod flrig;
 pub mod hamlib;
-pub mod kenwood;
 pub mod native;
 pub use native::icom::codec as icom_ci_v;
+pub use native::kenwood::codec as kenwood;
 pub mod rig;
 pub mod rig_models;
 pub mod rotor;

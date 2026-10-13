@@ -228,17 +228,26 @@ Przykład: 14 074 000 Hz:
 
 ---
 
-## 11. Mapa Kenwood PC Control (Plan NATIVE-2)
+## 11. Mapa Kenwood PC Control (Wdrożono w NATIVE-2)
 
-1. Format: Tekst ASCII zakończony `;`.
-2. Kluczowe komendy:
-   - `FA<11 cyfr Hz>;` / `FB<11 cyfr Hz>;` (częstotliwość VFO A / VFO B),
-   - `MD<kod>;` (emisja),
-   - `TX;` / `RX;` (załączenie / wyłączenie PTT),
-   - `SM0;` (odczyt S-metra),
-   - `FT0;` / `FT1;` (sterowanie split).
-3. Tryb Auto Information: `AI2;` włącza asynchroniczne raportowanie zmian przez radio.
-4. Transport: RS-232, USB Serial oraz opcjonalny LAN (protokół KNS: port TCP 60000 z handshake `##CN` i uwierzytelnieniem `##ID`).
+1. **Format**: Tekst ASCII ze średnikiem `;` jako terminatorem każdej ramki.
+2. **Kluczowe komendy**:
+   - `FA<11 cyfr Hz>;` / `FB<11 cyfr Hz>;` — częstotliwość VFO A / VFO B (odczyt: `FA;` / `FB;`),
+   - `MD<kod>;` — emisja (1: LSB, 2: USB, 3: CW, 4: FM, 5: AM, 6: FSK/RTTY, 7: CW-R, 8: FSK-R, 9: PSK),
+   - `TX;` / `RX;` — bezpieczne sterowanie PTT bez ponawiania (odczyt: `TX;` zwraca `TX0;`/`TX1;`/`TX2;`),
+   - `SM0;` — odczyt S-metra (odpowiedź `SM000xx;`, mapowana na dBm i jednostki S),
+   - `FT0;` / `FT1;` — załączenie i wyłączenie pracy Split,
+   - `IF;` — pełny 38-znakowy blok statusu transceivera (częstotliwość, RIT/XIT offset, stan TX/RX, emisja, VFO, Split).
+3. **Tryb Auto Information (AI)**:
+   - Włączenie `AI2;` przy nawiązywaniu połączenia eliminuje konieczność ciągłego odpytywania częstotliwości, emisji i PTT.
+   - Radio samorzutnie rozsyła zmiany parametrów (np. obrót gałką VFO, zmiana pasma, aktywacja PTT), redukując ruch na szynie o ponad 80%.
+4. **Transport**:
+   - Porty szeregowe / USB Virtual COM przez `tokio-serial`,
+   - Kenwood Network Command System (KNS LAN): TCP port 60000 dla TS-890S i TS-990S, negocjacja `##CN` / `##ID` z bezpiecznym maskowaniem poświadczeń.
+5. **Profile referencyjne**:
+   - `TS-590S` i `TS-590SG` (USB Virtual COM / RS-232C, brak wbudowanego Ethernetu),
+   - `TS-890S` (Hybrid SDR, USB + KNS LAN),
+   - `TS-990S` (Dual RX Main + Sub, USB + KNS LAN).
 
 ---
 
@@ -349,7 +358,7 @@ W falach NATIVE-0 i NATIVE-1 interfejs GUI nie ulega modyfikacji runtime, co gwa
 
 ---
 
-## 23. Kryteria ukończenia fal NATIVE-0 i NATIVE-1
+## 23. Kryteria ukończenia fal NATIVE-0, NATIVE-1 i NATIVE-2
 
 ### Kryteria NATIVE-0:
 - [x] Pełny audyt istniejących modułów CAT.
@@ -360,12 +369,25 @@ W falach NATIVE-0 i NATIVE-1 interfejs GUI nie ulega modyfikacji runtime, co gwa
 - [x] Wszystkie dotychczasowe 419 testów przechodzą, brak nowych ostrzeżeń clippy.
 
 ### Kryteria NATIVE-1:
-- [ ] Migracja `icom_ci_v.rs` przez `git mv` z zachowaniem historii.
-- [ ] Implementacja `IcomCiVCodec` z obsługą fragmentacji, ACK, NAK, BCD i echa.
-- [ ] Implementacja `IcomCiVBackend` spełniającego kontrakt `RigBackend`.
-- [ ] Utworzenie profili dla referencyjnych transceiverów Icom (IC-7300, IC-7610, IC-705).
-- [ ] Zestaw 20 deterministycznych testów Icom.
-- [ ] Pełna walidacja kompilatora i testów (fmt, check, clippy, testy CAT i pełne).
+- [x] Migracja `icom_ci_v.rs` przez `git mv` z zachowaniem historii.
+- [x] Implementacja `IcomCiVCodec` z obsługą fragmentacji, ACK, NAK, BCD i echa.
+- [x] Implementacja `IcomCiVBackend` spełniającego kontrakt `RigBackend`.
+- [x] Utworzenie profili dla referencyjnych transceiverów Icom (IC-7300, IC-7610, IC-705, IC-706MKIIG).
+- [x] Zestaw 20 deterministycznych testów Icom.
+- [x] Pełna walidacja kompilatora i testów (fmt, check, clippy, testy CAT i pełne).
+
+### Kryteria NATIVE-2:
+- [x] Migracja `kenwood.rs` przez `git mv` do `src/cat/native/kenwood/codec.rs` z zachowaniem historii.
+- [x] Implementacja strumieniowego `KenwoodCodec` z buforowaniem ramkowym i wykrywaniem fragmentacji.
+- [x] Implementacja parsera stanu transceivera `IF;` (`KenwoodIfInfo`).
+- [x] Implementacja `KenwoodBackend` spełniającego kontrakt `RigBackend`.
+- [x] Obsługa transportu szeregowego RS-232C i USB Virtual COM.
+- [x] Obsługa asynchronicznego Auto Information (`AI2;`) z redukcją nadmiarowego pollingu.
+- [x] Implementacja dedykowanego transportu sieciowego Kenwood Network Command System (`KenwoodLanTransport`) z protokołem handshake `##CN`, uwierzytelnianiem `##ID` i bezpiecznym maskowaniem poświadczeń.
+- [x] Utworzenie profili dla referencyjnych transceiverów Kenwood (`TS-590S`, `TS-590SG`, `TS-890S`, `TS-990S`).
+- [x] Rygorystyczne bezpieczeństwo PTT (brak PTT podczas connect/probe, brak ponawiania SetPtt(true), bezpieczne idempotentne rozłączanie).
+- [x] Kompletny zestaw 39 deterministycznych testów jednostkowych (kodek, backend, LAN KNS, profile).
+- [x] Pełna walidacja (fmt, check, clippy 218 bez nowych ostrzeżeń, 483 testy przechodzące bez błędów).
 
 ---
 
