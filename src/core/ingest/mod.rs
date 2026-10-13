@@ -999,7 +999,9 @@ mod tests {
             Err(IngestError::Invalid(QsoIssue::DateFormat(ref raw))) => {
                 assert_eq!(raw, "");
             }
-            other => panic!("expected Err(IngestError::Invalid(QsoIssue::DateFormat)), got {other:?}"),
+            other => {
+                panic!("expected Err(IngestError::Invalid(QsoIssue::DateFormat)), got {other:?}")
+            }
         }
 
         assert_eq!(fixture.count_qsos(), 0);
@@ -1044,7 +1046,9 @@ mod tests {
                 assert_eq!(part, TimePart::Format);
                 assert_eq!(raw, "");
             }
-            other => panic!("expected Err(IngestError::Invalid(QsoIssue::Time(Format))), got {other:?}"),
+            other => {
+                panic!("expected Err(IngestError::Invalid(QsoIssue::Time(Format))), got {other:?}")
+            }
         }
 
         assert_eq!(fixture.count_qsos(), 0);

@@ -8,7 +8,8 @@ use crate::core::contest_stats::{
 use crate::core::exchange::{
     ExchangeField, apply_to_qso, exchange_summary, fields_from_format_string, parse_exchange,
 };
-use crate::core::i18n::{key, tr};
+use crate::core::i18n::{Msg, key, tr};
+use crate::core::ingest::{IngestError, QsoOrigin};
 use crate::core::qso::QsoRecord;
 use crate::core::station::CustomContest;
 use crate::gui::app::SpLogApp;
@@ -526,24 +527,6 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
         if app.rig_state.frequency_hz > 0 {
             new_qso.freq = Some(app.rig_state.frequency_hz as f64 / 1_000_000.0);
         }
-        if let Some(info) = app.prefix_matcher.lookup(&new_qso.callsign) {
-            if info.dxcc > 0 {
-                new_qso.dxcc = Some(info.dxcc);
-            }
-            if !info.country.is_empty() {
-                new_qso.country = Some(info.country.clone());
-            }
-            if !info.continent.is_empty() {
-                new_qso.continent = Some(info.continent.clone());
-            }
-            if info.cqz > 0 {
-                new_qso.cqz = Some(info.cqz);
-            }
-            if info.ituz > 0 {
-                new_qso.ituz = Some(info.ituz);
-            }
-        }
-
         // Parsuj wymianę, jeśli kontest ma zdefiniowane pola; w przeciwnym razie
         // zachowaj dawny tryb "sam RST" w polu `entry_rst_rcvd`.
         let mut exchange_ok = true;
@@ -568,52 +551,54 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
         }
 
         if exchange_ok {
-            if let Err(reason) = new_qso.validate() {
-                app.status_toast = Some((
-                    format!(
-                        "Błąd walidacji QSO kontestowego: {}",
-                        reason.msg().text(app.current_language)
-                    ),
-                    std::time::Instant::now(),
-                ));
-            } else {
-                let insert_result = match app.log_db.lock() {
-                    Ok(db) => db.insert_qso(&new_qso).map_err(|error| error.to_string()),
-                    Err(error) => Err(format!("Nie można otworzyć dziennika: {error}")),
-                };
-                match insert_result {
-                    Ok(id) => {
-                        new_qso.id = Some(id);
-                        let warnings = new_qso.warnings();
-                        if !warnings.is_empty() {
-                            let warning_texts: Vec<String> = warnings
-                                .iter()
-                                .map(|w| w.msg().text(app.current_language))
-                                .collect();
-                            app.report_warning(format!(
-                                "Ostrzeżenia: {}",
-                                warning_texts.join("; ")
-                            ));
-                        }
-                        if let Ok(mut awards) = app.awards_engine.lock() {
-                            awards.register_qso_record(&new_qso);
-                        }
-                        app.invalidate_cluster_badges();
-                        if let Ok(mut scp) = app.scp_engine.lock() {
-                            scp.insert(&new_qso.callsign);
-                        }
-                        app.contest_stx += 1;
-                        app.entry_callsign.clear();
-                        app.entry_rst_rcvd.clear();
-                        app.entry_exchange.clear();
-                        app.reload_qsos();
+            match app.qso_ingestor.ingest(new_qso, QsoOrigin::Contest) {
+                Ok(outcome) => {
+                    if !outcome.warnings.is_empty() {
+                        let warning_texts: Vec<String> = outcome
+                            .warnings
+                            .iter()
+                            .map(|w| w.msg().text(app.current_language))
+                            .collect();
+                        app.report_warning(format!("Ostrzeżenia: {}", warning_texts.join("; ")));
                     }
-                    Err(error) => {
-                        app.status_toast = Some((
-                            format!("Błąd zapisu QSO kontestowego: {error}"),
-                            std::time::Instant::now(),
-                        ));
-                    }
+                    app.invalidate_cluster_badges();
+                    app.apply_post_effects(&outcome);
+                    app.contest_stx += 1;
+                    app.status_toast = Some((
+                        format!(
+                            "Zapisano QSO zawodów: {} ({}, {})",
+                            outcome.qso.callsign, outcome.qso.band, outcome.qso.mode
+                        ),
+                        std::time::Instant::now(),
+                    ));
+                    app.entry_callsign.clear();
+                    app.entry_rst_rcvd.clear();
+                    app.entry_exchange.clear();
+                    app.reload_qsos();
+                }
+                Err(IngestError::Invalid(reason)) => {
+                    app.status_toast = Some((
+                        format!(
+                            "Błąd walidacji QSO kontestowego: {}",
+                            reason.msg().text(app.current_language)
+                        ),
+                        std::time::Instant::now(),
+                    ));
+                }
+                Err(IngestError::EmptyCallsign) => {
+                    app.status_toast = Some((
+                        format!(
+                            "Błąd walidacji QSO kontestowego: {}",
+                            Msg::new(key::QSO_ISSUE_EMPTY_CALLSIGN).text(app.current_language)
+                        ),
+                        std::time::Instant::now(),
+                    ));
+                }
+                Err(IngestError::Storage(error)) => {
+                    app.status_toast = Some((
+                        format!("Błąd zapisu QSO kontestowego: {error}"),
+                        std::time::Instant::now(),
+                    ));
                 }
             }
         }

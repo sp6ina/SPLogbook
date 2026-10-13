@@ -11,6 +11,7 @@ use crate::core::backup::BackupManager;
 use crate::core::database::{Journal, LogDatabase};
 use crate::core::geo::{calculate_bearing_deg, calculate_distance_km, locator_to_coordinates};
 use crate::core::i18n::{Language, Msg, key, tr};
+use crate::core::ingest::{IngestError, IngestOutcome, QsoOrigin};
 use crate::core::prefix::{PrefixInfo, PrefixMatcher};
 use crate::core::qso::QsoRecord;
 use crate::core::scp::ScpEngine;
@@ -2086,76 +2087,56 @@ impl SpLogApp {
             }
         }
 
-        if let Some(ref info) = self.active_prefix_info {
-            qso.country = Some(info.country.clone());
-            qso.dxcc = Some(info.dxcc);
-            qso.continent = Some(info.continent.clone());
-            qso.cqz = Some(info.cqz);
-            qso.ituz = Some(info.ituz);
-        }
-
-        if let Err(e) = qso.validate() {
-            self.status_toast = Some((
-                Msg::new(key::MSG_QSO_NOT_SAVED)
-                    .arg("reason", e.msg().text(self.current_language))
-                    .text(self.current_language),
-                std::time::Instant::now(),
-            ));
-            return;
-        }
-        let validation_warnings = qso.warnings();
-
-        let insert_res = {
-            let db = self
-                .log_db
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            db.insert_qso(&qso)
-        };
-
-        match insert_res {
-            Ok(id) => {
-                qso.id = Some(id);
-                // Opublikuj zdarzenie na centralnej magistrali (WebSocket, plugin, toast).
-                self.event_bus
-                    .publish(crate::core::events::AppEvent::QsoLogged {
-                        callsign: qso.callsign.clone(),
-                        band: qso.band.clone(),
-                        mode: qso.mode.clone(),
-                        frequency_hz: (qso.freq.unwrap_or(0.0) * 1_000_000.0) as u64,
-                        time_utc: qso.time_on.clone(),
-                    });
-                {
-                    let mut awards = self
-                        .awards_engine
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner);
-                    awards.register_qso_record(&qso);
-                }
-                self.invalidate_cluster_badges();
-                {
-                    let mut scp = self
-                        .scp_engine
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner);
-                    scp.insert(&qso.callsign);
-                }
-            }
+        let outcome = match self.qso_ingestor.ingest(qso, QsoOrigin::Form) {
+            Ok(outcome) => outcome,
             Err(e) => {
-                self.status_toast = Some((
-                    format!("Błąd zapisu łączności do bazy danych: {e}"),
-                    std::time::Instant::now(),
-                ));
-                // Po nieudanym zapisie nie wykonujemy żadnych skutków ubocznych:
-                // liczników, dźwięków, eventów, uploadów ani czyszczenia formularza.
+                let msg = match e {
+                    IngestError::EmptyCallsign => {
+                        Msg::new(key::QSO_ISSUE_EMPTY_CALLSIGN).text(self.current_language)
+                    }
+                    IngestError::Invalid(issue) => Msg::new(key::MSG_QSO_NOT_SAVED)
+                        .arg("reason", issue.msg().text(self.current_language))
+                        .text(self.current_language),
+                    IngestError::Storage(err) => {
+                        format!("Błąd zapisu łączności do bazy danych: {err}")
+                    }
+                };
+                self.status_toast = Some((msg, std::time::Instant::now()));
                 return;
             }
+        };
+
+        self.invalidate_cluster_badges();
+        self.apply_post_effects(&outcome);
+
+        let mut success_msg = format!(
+            "Zapisano łączność z: {} ({}, {})",
+            outcome.qso.callsign, outcome.qso.band, outcome.qso.mode
+        );
+        if !outcome.warnings.is_empty() {
+            success_msg.push_str("\n⚠ ");
+            let warning_texts: Vec<String> = outcome
+                .warnings
+                .iter()
+                .map(|w| w.msg().text(self.current_language))
+                .collect();
+            success_msg.push_str(&warning_texts.join("; "));
         }
+        self.status_toast = Some((success_msg, std::time::Instant::now()));
 
-        // Liczniki zawodów są aktualizowane w `render_contest_window` i `contest.rs`.
-        // Zwykłe QSO nie powinno fałszywie zwiększać tych liczników.
+        self.clear_qso_form();
+        self.reload_qsos();
+    }
 
-        if self.band_alert_enabled {
+    /// Wykonuje centralne efekty uboczne po pomyślnym zapisie QSO w potoku `core::ingest` (PIPE-4B.3).
+    ///
+    /// Każdy efekt jest wykonywany tylko wtedy, gdy flaga w `outcome.effects` ma wartość `true`.
+    pub fn apply_post_effects(&mut self, outcome: &IngestOutcome) {
+        let qso = &outcome.qso;
+        let effects = &outcome.effects;
+
+        // 1. Dźwięki i alerty (alert_sound)
+        if effects.alert_sound && self.band_alert_enabled {
             if let Some(status) = &self.active_award_status {
                 if status.is_new_dxcc {
                     crate::media::sounds::play_new_dxcc_alert();
@@ -2171,85 +2152,79 @@ impl SpLogApp {
             }
         }
 
-        let mut success_msg = format!(
-            "Zapisano łączność z: {} ({}, {})",
-            qso.callsign, qso.band, qso.mode
-        );
-        if !validation_warnings.is_empty() {
-            success_msg.push_str("\n⚠ ");
-            let warning_texts: Vec<String> = validation_warnings
-                .iter()
-                .map(|w| w.msg().text(self.current_language))
-                .collect();
-            success_msg.push_str(&warning_texts.join("; "));
-        }
-        self.status_toast = Some((success_msg, std::time::Instant::now()));
-
-        // Weryfikacja prognozy propagacyjnej: udana łączność = potwierdzone otwarcie pasma.
-        self.propagation_history.record_observation(
-            &qso.band,
-            crate::core::propagation_history::ObservedOutcome::ConfirmedOpen,
-        );
-
-        // Hook pluginów użytkownika (Rhai) po zapisaniu łączności.
-        self.refresh_plugin_snapshot();
-        self.plugin_engine
-            .run_on_qso_logged(&crate::plugins::QsoHookContext {
-                callsign: qso.callsign.clone(),
-                band: qso.band.clone(),
-                mode: qso.mode.clone(),
-                freq_mhz: qso.freq.unwrap_or(0.0),
-                is_atno: self
-                    .active_award_status
-                    .as_ref()
-                    .is_some_and(|s| s.is_new_dxcc),
-            });
-
-        // Automatyczny przesył na żywo do Club Log — przez wspólną kolejkę wysyłki
-        if self.live_auto_upload_clublog
-            && !self.clublog_callsign.is_empty()
-            && !self.clublog_password.is_empty()
-        {
-            let adif_record = crate::core::adif::export_adif(
-                std::slice::from_ref(&qso),
-                "SPLogbook",
-                &self.my_station.callsign,
+        // 2. Weryfikacja prognozy propagacyjnej (propagation_observation)
+        if effects.propagation_observation {
+            self.propagation_history.record_observation(
+                &qso.band,
+                crate::core::propagation_history::ObservedOutcome::ConfirmedOpen,
             );
-            let now = crate::cloud::scheduler::now_unix();
-            let mut sched = self
-                .upload_scheduler
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            sched.enqueue(
-                crate::cloud::scheduler::UploadService::ClubLog,
-                adif_record,
-                now,
-            );
-            sched.save_to_disk();
         }
 
-        // Automatyczny przesył na żywo do logbooka QRZ.com — przez wspólną kolejkę wysyłki
-        if self.live_auto_upload_qrz && !self.qrz_api_key.is_empty() {
-            let adif_record = crate::core::adif::export_adif(
-                std::slice::from_ref(&qso),
-                "SPLogbook",
-                &self.my_station.callsign,
-            );
-            let now = crate::cloud::scheduler::now_unix();
-            let mut sched = self
-                .upload_scheduler
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            sched.enqueue(
-                crate::cloud::scheduler::UploadService::Qrz,
-                adif_record,
-                now,
-            );
-            sched.save_to_disk();
+        // 3. Hook pluginów użytkownika (plugin_hook)
+        if effects.plugin_hook {
+            self.refresh_plugin_snapshot();
+            self.plugin_engine
+                .run_on_qso_logged(&crate::plugins::QsoHookContext {
+                    callsign: qso.callsign.clone(),
+                    band: qso.band.clone(),
+                    mode: qso.mode.clone(),
+                    freq_mhz: qso.freq.unwrap_or(0.0),
+                    is_atno: self
+                        .active_award_status
+                        .as_ref()
+                        .is_some_and(|s| s.is_new_dxcc),
+                });
         }
 
-        // Automatyczne raportowanie do PSK Reporter
-        if self.psk_reporter_enabled
+        // 4. Kolejka uploadów chmurowych (enqueue_uploads)
+        if effects.enqueue_uploads {
+            // Automatyczny przesył na żywo do Club Log — przez wspólną kolejkę wysyłki
+            if self.live_auto_upload_clublog
+                && !self.clublog_callsign.is_empty()
+                && !self.clublog_password.is_empty()
+            {
+                let adif_record = crate::core::adif::export_adif(
+                    std::slice::from_ref(qso),
+                    "SPLogbook",
+                    &self.my_station.callsign,
+                );
+                let now = crate::cloud::scheduler::now_unix();
+                let mut sched = self
+                    .upload_scheduler
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                sched.enqueue(
+                    crate::cloud::scheduler::UploadService::ClubLog,
+                    adif_record,
+                    now,
+                );
+                sched.save_to_disk();
+            }
+
+            // Automatyczny przesył na żywo do logbooka QRZ.com — przez wspólną kolejkę wysyłki
+            if self.live_auto_upload_qrz && !self.qrz_api_key.is_empty() {
+                let adif_record = crate::core::adif::export_adif(
+                    std::slice::from_ref(qso),
+                    "SPLogbook",
+                    &self.my_station.callsign,
+                );
+                let now = crate::cloud::scheduler::now_unix();
+                let mut sched = self
+                    .upload_scheduler
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                sched.enqueue(
+                    crate::cloud::scheduler::UploadService::Qrz,
+                    adif_record,
+                    now,
+                );
+                sched.save_to_disk();
+            }
+        }
+
+        // 5. Automatyczne raportowanie do PSK Reporter (psk_report)
+        if effects.psk_report
+            && self.psk_reporter_enabled
             && !self.my_station.callsign.is_empty()
             && !self.my_station.gridsquare.is_empty()
         {
@@ -2263,26 +2238,125 @@ impl SpLogApp {
             });
         }
 
-        // Rozgłaszanie w sieci lokalnej Multi-Op LAN
-        if let Some(ref srv) = self.multi_op_server {
-            srv.broadcast_qso(&qso);
+        // 6. Rozgłaszanie w sieci lokalnej Multi-Op LAN (broadcast_lan)
+        if effects.broadcast_lan
+            && let Some(ref srv) = self.multi_op_server
+        {
+            srv.broadcast_qso(qso);
         }
 
-        // Emisja zdarzenia w formacie N1MM Logger+ UDP broadcast (GridTracker itp.)
-        if self.n1mm_broadcast_enabled {
+        // 7. Emisja zdarzenia w formacie N1MM Logger+ UDP broadcast (broadcast_n1mm)
+        if effects.broadcast_n1mm && self.n1mm_broadcast_enabled {
             let host = self.n1mm_broadcast_host.clone();
             let port = self.n1mm_broadcast_port;
             let my_call = self.my_station.callsign.clone();
-            let xml = crate::digital::n1mm::contactinfo_xml(&qso, &my_call, 1);
+            let xml = crate::digital::n1mm::contactinfo_xml(qso, &my_call, 1);
             tokio::spawn(async move {
                 if let Err(e) = crate::digital::n1mm::send_broadcast(&host, port, &xml).await {
                     log::warn!("N1MM broadcast nieudany ({host}:{port}): {e}");
                 }
             });
         }
+    }
 
-        self.clear_qso_form();
-        self.reload_qsos();
+    /// Przetwarza i loguje QSO odebrane z WSJT-X (PIPE-4B.3).
+    pub fn handle_wsjtx_qso(&mut self, mut qso: QsoRecord) {
+        let now = chrono::Utc::now();
+        if qso.qso_date.is_empty() {
+            qso.qso_date = now.format("%Y%m%d").to_string();
+        }
+        if qso.time_on.is_empty() {
+            qso.time_on = now.format("%H%M").to_string();
+        }
+        qso.journal_id = Some(self.active_journal.id.clone());
+
+        match self.qso_ingestor.ingest(qso, QsoOrigin::WsjtX) {
+            Ok(outcome) => {
+                self.invalidate_cluster_badges();
+                self.apply_post_effects(&outcome);
+                if let Some(ref issue) = outcome.advisory_issue {
+                    log::warn!(
+                        "WSJT-X QSO advisory issue: {}",
+                        issue.msg().text(self.current_language)
+                    );
+                }
+                self.status_toast = Some((
+                    format!(
+                        "WSJT-X: Automatycznie dodano QSO z {}!",
+                        outcome.qso.callsign
+                    ),
+                    std::time::Instant::now(),
+                ));
+                self.reload_qsos();
+            }
+            Err(e) => {
+                self.report_error(format!("Błąd auto-zapisu WSJT-X: {e}"));
+            }
+        }
+    }
+
+    /// Przetwarza i loguje QSO odebrane z JS8Call (PIPE-4B.3).
+    pub fn handle_js8call_qso(&mut self, mut qso: QsoRecord) {
+        qso.journal_id = Some(self.active_journal.id.clone());
+
+        match self.qso_ingestor.ingest(qso, QsoOrigin::Js8Call) {
+            Ok(outcome) => {
+                self.invalidate_cluster_badges();
+                self.apply_post_effects(&outcome);
+                if let Some(ref issue) = outcome.advisory_issue {
+                    log::warn!(
+                        "JS8Call QSO advisory issue: {}",
+                        issue.msg().text(self.current_language)
+                    );
+                }
+                self.status_toast = Some((
+                    format!(
+                        "JS8Call: Automatycznie dodano QSO z {}!",
+                        outcome.qso.callsign
+                    ),
+                    std::time::Instant::now(),
+                ));
+                self.reload_qsos();
+            }
+            Err(e) => {
+                self.status_toast = Some((
+                    format!("Błąd auto-zapisu JS8Call: {e}"),
+                    std::time::Instant::now(),
+                ));
+            }
+        }
+    }
+
+    /// Przetwarza i loguje QSO odebrane z sieci LAN Multi-Op (PIPE-4B.3).
+    pub fn handle_lan_qso(&mut self, qso: QsoRecord) {
+        match self.qso_ingestor.ingest(qso, QsoOrigin::LanPeer) {
+            Ok(outcome) => {
+                self.invalidate_cluster_badges();
+                self.apply_post_effects(&outcome);
+                if let Some(ref issue) = outcome.advisory_issue {
+                    log::warn!(
+                        "Multi-Op LAN QSO advisory issue: {}",
+                        issue.msg().text(self.current_language)
+                    );
+                }
+                self.multi_op_log.push(format!(
+                    "Odebrano z LAN: {} ({} {})",
+                    outcome.qso.callsign, outcome.qso.band, outcome.qso.mode
+                ));
+                if self.multi_op_log.len() > 500 {
+                    let excess = self.multi_op_log.len() - 500;
+                    self.multi_op_log.drain(0..excess);
+                }
+                self.status_toast = Some((
+                    format!("🌐 Multi-Op LAN: Dodano QSO z {}!", outcome.qso.callsign),
+                    std::time::Instant::now(),
+                ));
+                self.reload_qsos();
+            }
+            Err(e) => {
+                log::warn!("Błąd auto-zapisu Multi-Op LAN: {e}");
+            }
+        }
     }
 
     pub fn clear_qso_form(&mut self) {
@@ -4705,59 +4779,8 @@ impl eframe::App for SpLogApp {
                         self.entry_mode = mode;
                     }
                 }
-                crate::digital::wsjtx::WsjtxMessage::QsoLogged(mut qso) => {
-                    let now = chrono::Utc::now();
-                    if qso.qso_date.is_empty() {
-                        qso.qso_date = now.format("%Y%m%d").to_string();
-                    }
-                    if qso.time_on.is_empty() {
-                        qso.time_on = now.format("%H%M").to_string();
-                    }
-                    qso.journal_id = Some(self.active_journal.id.clone());
-
-                    if let Some(info) = self.prefix_matcher.lookup(&qso.callsign) {
-                        qso.country = Some(info.country.clone());
-                        qso.dxcc = Some(info.dxcc);
-                        qso.continent = Some(info.continent.clone());
-                        qso.cqz = Some(info.cqz);
-                        qso.ituz = Some(info.ituz);
-                    }
-
-                    let insert_res = {
-                        let db = self
-                            .log_db
-                            .lock()
-                            .unwrap_or_else(std::sync::PoisonError::into_inner);
-                        db.insert_qso(&qso)
-                    };
-                    match insert_res {
-                        Ok(id) => {
-                            qso.id = Some(id);
-                            {
-                                let mut awards = self
-                                    .awards_engine
-                                    .lock()
-                                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                                awards.register_qso_record(&qso);
-                            }
-                            self.invalidate_cluster_badges();
-                            {
-                                let mut scp = self
-                                    .scp_engine
-                                    .lock()
-                                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                                scp.insert(&qso.callsign);
-                            }
-                            self.status_toast = Some((
-                                format!("WSJT-X: Automatycznie dodano QSO z {}!", qso.callsign),
-                                std::time::Instant::now(),
-                            ));
-                            self.reload_qsos();
-                        }
-                        Err(e) => {
-                            self.report_error(format!("Błąd auto-zapisu WSJT-X: {e}"));
-                        }
-                    }
+                crate::digital::wsjtx::WsjtxMessage::QsoLogged(qso) => {
+                    self.handle_wsjtx_qso(*qso);
                 }
                 crate::digital::wsjtx::WsjtxMessage::Heartbeat { .. } => {}
             }
@@ -4790,58 +4813,8 @@ impl eframe::App for SpLogApp {
                 js8_new_qsos.push(qso);
             }
         }
-        for mut qso in js8_new_qsos {
-            // Uzupełnij identyfikator aktywnego dziennika
-            qso.journal_id = Some(self.active_journal.id.clone());
-
-            // Wzbogać QSO o dane DXCC z lokalnej bazy prefiksów
-            if let Some(info) = self.prefix_matcher.lookup(&qso.callsign) {
-                qso.country = Some(info.country.clone());
-                qso.dxcc = Some(info.dxcc);
-                qso.continent = Some(info.continent.clone());
-                qso.cqz = Some(info.cqz);
-                qso.ituz = Some(info.ituz);
-            }
-
-            // Zapisz QSO do bazy SQLite
-            let insert_res = {
-                let db = self
-                    .log_db
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                db.insert_qso(&qso)
-            };
-            match insert_res {
-                Ok(id) => {
-                    qso.id = Some(id);
-                    {
-                        let mut awards = self
-                            .awards_engine
-                            .lock()
-                            .unwrap_or_else(std::sync::PoisonError::into_inner);
-                        awards.register_qso_record(&qso);
-                    }
-                    self.invalidate_cluster_badges();
-                    {
-                        let mut scp = self
-                            .scp_engine
-                            .lock()
-                            .unwrap_or_else(std::sync::PoisonError::into_inner);
-                        scp.insert(&qso.callsign);
-                    }
-                    self.status_toast = Some((
-                        format!("JS8Call: Automatycznie dodano QSO z {}!", qso.callsign),
-                        std::time::Instant::now(),
-                    ));
-                    self.reload_qsos();
-                }
-                Err(e) => {
-                    self.status_toast = Some((
-                        format!("Błąd auto-zapisu JS8Call: {e}"),
-                        std::time::Instant::now(),
-                    ));
-                }
-            }
+        for qso in js8_new_qsos {
+            self.handle_js8call_qso(qso);
         }
 
         // Odbiór QSO ze stacji w sieci LAN Multi-Op
@@ -4851,53 +4824,8 @@ impl eframe::App for SpLogApp {
                 lan_new_qsos.push(qso);
             }
         }
-        for mut qso in lan_new_qsos {
-            qso.journal_id = Some(self.active_journal.id.clone());
-            if let Some(info) = self.prefix_matcher.lookup(&qso.callsign) {
-                qso.country = Some(info.country.clone());
-                qso.dxcc = Some(info.dxcc);
-                qso.continent = Some(info.continent.clone());
-                qso.cqz = Some(info.cqz);
-                qso.ituz = Some(info.ituz);
-            }
-            let insert_res = {
-                let db = self
-                    .log_db
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                db.insert_qso(&qso)
-            };
-            if let Ok(id) = insert_res {
-                qso.id = Some(id);
-                {
-                    let mut awards = self
-                        .awards_engine
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner);
-                    awards.register_qso_record(&qso);
-                }
-                self.invalidate_cluster_badges();
-                {
-                    let mut scp = self
-                        .scp_engine
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner);
-                    scp.insert(&qso.callsign);
-                }
-                self.multi_op_log.push(format!(
-                    "Odebrano z LAN: {} ({} {})",
-                    qso.callsign, qso.band, qso.mode
-                ));
-                if self.multi_op_log.len() > 500 {
-                    let excess = self.multi_op_log.len() - 500;
-                    self.multi_op_log.drain(0..excess);
-                }
-                self.status_toast = Some((
-                    format!("🌐 Multi-Op LAN: Dodano QSO z {}!", qso.callsign),
-                    std::time::Instant::now(),
-                ));
-                self.reload_qsos();
-            }
+        for qso in lan_new_qsos {
+            self.handle_lan_qso(qso);
         }
 
         // Zastosowanie wybranego motywu kolorystycznego (patrz gui::theme::ThemePreset).
@@ -6035,6 +5963,323 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .contains("duplikatów pominiętych")
+        );
+    }
+
+    #[test]
+    fn form_qso_save_success_and_side_effects() {
+        let deps = test_deps();
+        let init = AppInit {
+            config: AppConfig::default(),
+            config_file_path: std::path::PathBuf::from("config.json"),
+            active_db_path: std::path::PathBuf::from("db.sqlite"),
+            shutdown_policy: ShutdownPolicy::None,
+        };
+        let mut app = SpLogApp::for_tests(init, deps);
+        let mut event_rx = app.event_bus.subscribe();
+
+        app.entry_callsign = "SP6INA".to_string();
+        app.entry_band = "20m".to_string();
+        app.entry_mode = "CW".to_string();
+        app.entry_rst_sent = "599".to_string();
+        app.entry_rst_rcvd = "599".to_string();
+
+        app.save_qso();
+
+        // 1. Formularz wyczyszczony
+        assert_eq!(app.entry_callsign, "");
+
+        // 2. Rekord zapisany w bazie z aktywnym journal_id
+        assert_eq!(app.recent_qsos.len(), 1);
+        assert_eq!(app.recent_qsos[0].callsign, "SP6INA");
+        assert_eq!(
+            app.recent_qsos[0].journal_id,
+            Some(app.active_journal.id.clone())
+        );
+
+        // 3. Awards i SCP zaktualizowane
+        {
+            let awards = app.awards_engine.lock().unwrap();
+            assert!(awards.worked_calls.iter().any(|(c, _, _)| c == "SP6INA"));
+        }
+        {
+            let scp = app.scp_engine.lock().unwrap();
+            assert!(scp.search("SP6INA", 5).contains(&"SP6INA".to_string()));
+        }
+
+        // 4. AppEvent::QsoLogged opublikowany dokładnie raz
+        let event = event_rx.try_recv().expect("Oczekiwano zdarzenia AppEvent");
+        assert!(
+            matches!(event, crate::core::events::AppEvent::QsoLogged { ref callsign, .. } if callsign == "SP6INA")
+        );
+        assert!(
+            event_rx.try_recv().is_err(),
+            "Zdarzenie powinno być opublikowane dokładnie raz"
+        );
+    }
+
+    #[test]
+    fn form_qso_validation_error_aborts_without_side_effects() {
+        let deps = test_deps();
+        let init = AppInit {
+            config: AppConfig::default(),
+            config_file_path: std::path::PathBuf::from("config.json"),
+            active_db_path: std::path::PathBuf::from("db.sqlite"),
+            shutdown_policy: ShutdownPolicy::None,
+        };
+        let mut app = SpLogApp::for_tests(init, deps);
+        let mut event_rx = app.event_bus.subscribe();
+
+        // Błąd walidacji: niedozwolony znak w znaku wywoławczym (QsoIssue::CallsignChars)
+        app.entry_callsign = "SP6INA@".to_string();
+        app.entry_band = "20m".to_string();
+        app.entry_mode = "CW".to_string();
+
+        app.save_qso();
+
+        // Formularz NIE został wyczyszczony
+        assert_eq!(app.entry_callsign, "SP6INA@");
+
+        // Brak rekordu w bazie
+        assert_eq!(app.recent_qsos.len(), 0);
+
+        // Brak zdarzeń
+        assert!(event_rx.try_recv().is_err());
+
+        // Toast z błędem
+        assert!(app.status_toast.is_some());
+    }
+
+    #[test]
+    fn contest_qso_ingest_success_and_stx_increment() {
+        let deps = test_deps();
+        let init = AppInit {
+            config: AppConfig::default(),
+            config_file_path: std::path::PathBuf::from("config.json"),
+            active_db_path: std::path::PathBuf::from("db.sqlite"),
+            shutdown_policy: ShutdownPolicy::None,
+        };
+        let mut app = SpLogApp::for_tests(init, deps);
+        let mut event_rx = app.event_bus.subscribe();
+        let initial_stx = app.contest_stx;
+
+        let mut new_qso = QsoRecord::new("SN0HQ", "40m", "CW");
+        new_qso.stx = Some(app.contest_stx);
+        new_qso.journal_id = Some(app.active_journal.id.clone());
+
+        let outcome = app
+            .qso_ingestor
+            .ingest(new_qso, QsoOrigin::Contest)
+            .unwrap();
+        app.apply_post_effects(&outcome);
+        app.contest_stx += 1;
+        app.reload_qsos();
+
+        assert_eq!(app.contest_stx, initial_stx + 1);
+        assert_eq!(app.recent_qsos.len(), 1);
+        assert_eq!(app.recent_qsos[0].callsign, "SN0HQ");
+
+        let event = event_rx.try_recv().expect("Oczekiwano zdarzenia AppEvent");
+        assert!(
+            matches!(event, crate::core::events::AppEvent::QsoLogged { ref callsign, .. } if callsign == "SN0HQ")
+        );
+        assert!(event_rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn contest_qso_validation_error_does_not_increment_stx() {
+        let deps = test_deps();
+        let init = AppInit {
+            config: AppConfig::default(),
+            config_file_path: std::path::PathBuf::from("config.json"),
+            active_db_path: std::path::PathBuf::from("db.sqlite"),
+            shutdown_policy: ShutdownPolicy::None,
+        };
+        let app = SpLogApp::for_tests(init, deps);
+        let initial_stx = app.contest_stx;
+
+        let mut bad_qso = QsoRecord::new("SN0HQ", "", "CW");
+        bad_qso.freq = None;
+
+        let res = app.qso_ingestor.ingest(bad_qso, QsoOrigin::Contest);
+        assert!(matches!(res, Err(IngestError::Invalid(_))));
+        assert_eq!(app.contest_stx, initial_stx);
+    }
+
+    #[test]
+    fn wsjtx_qso_ingest_advisory_issue_persists_and_registers() {
+        let deps = test_deps();
+        let init = AppInit {
+            config: AppConfig::default(),
+            config_file_path: std::path::PathBuf::from("config.json"),
+            active_db_path: std::path::PathBuf::from("db.sqlite"),
+            shutdown_policy: ShutdownPolicy::None,
+        };
+        let mut app = SpLogApp::for_tests(init, deps);
+        let mut event_rx = app.event_bus.subscribe();
+
+        let mut qso = QsoRecord::new("K1ABC", "20m", "FT8");
+        qso.cqz = Some(99); // advisory issue
+        qso.qso_date.clear(); // fallback w adapterze
+        qso.time_on.clear(); // fallback w adapterze
+
+        app.handle_wsjtx_qso(qso);
+
+        assert_eq!(app.recent_qsos.len(), 1);
+        let stored = &app.recent_qsos[0];
+        assert_eq!(stored.callsign, "K1ABC");
+        assert_ne!(stored.qso_date, "");
+        assert_ne!(stored.time_on, "");
+
+        {
+            let awards = app.awards_engine.lock().unwrap();
+            assert!(awards.worked_calls.iter().any(|(c, _, _)| c == "K1ABC"));
+        }
+        {
+            let scp = app.scp_engine.lock().unwrap();
+            assert!(scp.search("K1ABC", 5).contains(&"K1ABC".to_string()));
+        }
+
+        let event = event_rx.try_recv().expect("Oczekiwano zdarzenia AppEvent");
+        assert!(
+            matches!(event, crate::core::events::AppEvent::QsoLogged { ref callsign, .. } if callsign == "K1ABC")
+        );
+        assert!(event_rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn js8call_qso_ingest_handles_batch_and_errors() {
+        let deps = test_deps();
+        let init = AppInit {
+            config: AppConfig::default(),
+            config_file_path: std::path::PathBuf::from("config.json"),
+            active_db_path: std::path::PathBuf::from("db.sqlite"),
+            shutdown_policy: ShutdownPolicy::None,
+        };
+        let mut app = SpLogApp::for_tests(init, deps);
+        let mut event_rx = app.event_bus.subscribe();
+
+        let qso1 = QsoRecord::new("JS8ONE", "40m", "JS8");
+        let qso2 = QsoRecord::new("", "40m", "JS8"); // pusty znak - błąd
+        let qso3 = QsoRecord::new("JS8TWO", "40m", "JS8");
+
+        app.handle_js8call_qso(qso1);
+        app.handle_js8call_qso(qso2);
+        app.handle_js8call_qso(qso3);
+
+        assert_eq!(app.recent_qsos.len(), 2);
+        assert!(app.recent_qsos.iter().any(|q| q.callsign == "JS8ONE"));
+        assert!(app.recent_qsos.iter().any(|q| q.callsign == "JS8TWO"));
+
+        let mut events_count = 0;
+        while let Ok(event) = event_rx.try_recv() {
+            if matches!(event, crate::core::events::AppEvent::QsoLogged { .. }) {
+                events_count += 1;
+            }
+        }
+        assert_eq!(events_count, 2);
+    }
+
+    #[test]
+    fn lan_peer_qso_ingest_no_broadcast_loop() {
+        let deps = test_deps();
+        let init = AppInit {
+            config: AppConfig::default(),
+            config_file_path: std::path::PathBuf::from("config.json"),
+            active_db_path: std::path::PathBuf::from("db.sqlite"),
+            shutdown_policy: ShutdownPolicy::None,
+        };
+        let mut app = SpLogApp::for_tests(init, deps);
+        let mut event_rx = app.event_bus.subscribe();
+
+        assert!(
+            !QsoOrigin::LanPeer.policy().effects.broadcast_lan,
+            "LanPeer nie może broadcastować do LAN"
+        );
+
+        {
+            let db = app.log_db.lock().unwrap();
+            let j = Journal {
+                id: "PEER_JOURNAL".to_string(),
+                name: "Peer Journal".to_string(),
+                ..Default::default()
+            };
+            db.create_journal(&j).unwrap();
+        }
+
+        let mut qso = QsoRecord::new("LANSTN", "80m", "SSB");
+        qso.journal_id = Some("PEER_JOURNAL".to_string());
+
+        app.handle_lan_qso(qso);
+
+        let db_records = app
+            .log_db
+            .lock()
+            .unwrap()
+            .get_recent_qsos_for_journal("PEER_JOURNAL", 10)
+            .unwrap();
+        assert_eq!(db_records.len(), 1);
+        assert_eq!(db_records[0].callsign, "LANSTN");
+        assert_eq!(db_records[0].journal_id.as_deref(), Some("PEER_JOURNAL"));
+        assert!(app.multi_op_log.iter().any(|line| line.contains("LANSTN")));
+
+        let event = event_rx.try_recv().expect("Oczekiwano zdarzenia AppEvent");
+        assert!(
+            matches!(event, crate::core::events::AppEvent::QsoLogged { ref callsign, .. } if callsign == "LANSTN")
+        );
+        assert!(event_rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn post_effects_execution_matches_flags() {
+        let deps = test_deps();
+        let init = AppInit {
+            config: AppConfig::default(),
+            config_file_path: std::path::PathBuf::from("config.json"),
+            active_db_path: std::path::PathBuf::from("db.sqlite"),
+            shutdown_policy: ShutdownPolicy::None,
+        };
+        let mut app = SpLogApp::for_tests(init, deps);
+
+        let qso = QsoRecord::new("SP1TEST", "20m", "CW");
+        let mut effects = crate::core::ingest::PostEffects::default();
+
+        app.propagation_history.record_forecast(
+            "20m",
+            12.0,
+            120,
+            2,
+            85,
+            crate::core::propagation::BandOpeningStatus::Open,
+        );
+        assert_eq!(app.propagation_history.records.len(), 1);
+        assert!(app.propagation_history.records[0].observed.is_none());
+
+        let outcome = IngestOutcome {
+            origin: QsoOrigin::Form,
+            qso: qso.clone(),
+            warnings: Vec::new(),
+            advisory_issue: None,
+            effects,
+        };
+
+        // Bez flag - obserwacja nie jest zapisana
+        app.apply_post_effects(&outcome);
+        assert!(app.propagation_history.records[0].observed.is_none());
+
+        // Włączona flaga propagation_observation
+        effects.propagation_observation = true;
+        let outcome_with_prop = IngestOutcome {
+            origin: QsoOrigin::Form,
+            qso,
+            warnings: Vec::new(),
+            advisory_issue: None,
+            effects,
+        };
+        app.apply_post_effects(&outcome_with_prop);
+        assert_eq!(
+            app.propagation_history.records[0].observed,
+            Some(crate::core::propagation_history::ObservedOutcome::ConfirmedOpen)
         );
     }
 }
