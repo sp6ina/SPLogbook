@@ -125,6 +125,10 @@ From deep ionospheric modeling (VOACAP-lite HF propagation), automated antenna r
   - **Rolling Backups:** Automatic timestamped SQLite backup created on shutdown into `%APPDATA%/SPLogbook/backups/`, with automated pruning keeping the 10 most recent backups.
   - **Upload Retry Queue:** Failed cloud uploads are queued in a persistent JSON file managed by `cloud/scheduler.rs` with exponential backoff and rate limiting. The SQLite `upload_queue` table is retained strictly for schema stability and is not used by active runtime code.
 - **Persistent Window Geometry:** All 8 major dockable panels (`VFO`, `QSO Entry`, `Logbook Table`, `DX Cluster`, `BandMap`, `Solar Weather`, `Satellites`, `World Map`) persistently record their coordinates and dimensions across sessions in `station_config.json`.
+- **Centralized QSO Ingest Pipeline (`core::ingest`):** All incoming single QSO records (`Form`, `Contest`, `WsjtX`, `Js8Call`, `LanPeer`, `RestApi`) and bulk imports converge into a unified pipeline orchestrated by `QsoIngestor`:
+  - `QsoIngestor::ingest()`: Single-entry point enforcing typed validation (`Reject` for interactive form and REST API input vs. `Advisory` for automated decoders), non-fabricating domain normalization, atomic SQLite insertion, `EventBus` publication (`AppEvent::QsoLogged`), and synchronized `AwardsEngine` / `ScpEngine` updates without nested mutex locks.
+  - `QsoIngestor::import_batch()`: High-throughput batch import engine performing deduplication via minute-resolution `QsoIdentity` and bulk awards/SCP indexing.
+  - **Decoupled Side Effects:** Post-ingest actions (`PostEffects` including cloud upload queueing, LAN multi-op broadcast, N1MM UDP frames, plugin hooks, and acoustic alerts) are dispatched strictly by the GUI adapter based on origin policy; `UPDATE` and `DELETE` bypass the ingest pipeline.
 
 ---
 
@@ -445,6 +449,12 @@ SPLogbook emits **N1MM Logger+ UDP broadcast** XML frames (loopback port `12060`
 
 ## 📡 REST API Documentation
 
+The embedded Axum server exposes RESTful endpoints for logbook operations and station automation. All QSO creation and import operations run through the shared `QsoIngestor` pipeline:
+- `POST /api/v1/qsos`: Ingests a new single QSO through `QsoIngestor::ingest(QsoOrigin::RestApi)` using `tokio::task::spawn_blocking`, updating the SQLite database, `EventBus`, awards, and `ScpEngine`. GUI-specific post-effects (alerts, LAN broadcast) are bypassed.
+- `POST /api/v1/import/adif`: Bulk ADIF log import via `QsoIngestor::import_batch()` with minute-resolution `QsoIdentity` deduplication, updating database, awards, and SCP.
+- `PUT /api/v1/qsos/:id`: Retained strictly as an `UPDATE` operation (`db.update_qso`), performing typed validation without triggering new QSO ingest pipeline effects.
+- `DELETE /api/v1/qsos/:id`: Direct database removal (`db.delete_qso`) bypassing the ingest pipeline.
+
 ### Example 1: Querying Station Status (Public)
 ```bash
 curl -X GET http://127.0.0.1:8080/api/v1/status
@@ -648,6 +658,11 @@ SPLogbook/
     │   ├── geo.rs           # Maidenhead grid converter, spherical trigonometry
     │   ├── http.rs          # Shared reqwest HTTP client (timeouts/retry)
     │   ├── i18n.rs          # Translation dictionary & lookup (7 languages: PL, EN, DE, FR, ES, IT, RU)
+    │   ├── ingest/          # Centralized QSO ingest pipeline (ARCH-QSO-PIPELINE)
+    │   │   ├── enrich.rs    # Safe domain normalization & DXCC enrichment
+    │   │   ├── import.rs    # Batch ADIF import & QsoIdentity deduplication
+    │   │   ├── mod.rs       # QsoIngestor engine, IngestOutcome & error contracts
+    │   │   └── origin.rs    # QsoOrigin policies (Reject/Advisory) & PostEffects
     │   ├── pga.rs           # Polska Gmina Award logic
     │   ├── pga_data.rs      # PGA gmina database (2477 gminas, data)
     │   ├── prefix.rs        # ITU prefix allocations & DXCC country mapping
