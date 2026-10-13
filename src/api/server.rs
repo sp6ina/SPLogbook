@@ -24,7 +24,7 @@ use crate::core::clubs::{ClubAffiliation, ClubRegistry};
 use crate::core::database::{AdvancedQsoFilter, Journal, LogDatabase};
 use crate::core::events::{AppEvent, EventBus};
 use crate::core::i18n::Language;
-use crate::core::ingest::{ImportOptions, IngestError, QsoIngestor};
+use crate::core::ingest::{ImportOptions, IngestError, QsoIngestor, QsoOrigin};
 use crate::core::prefix::PrefixMatcher;
 use crate::core::qso::QsoRecord;
 use crate::core::scp::ScpEngine;
@@ -102,6 +102,13 @@ impl ApiState {
         self.rig_state = rig_state;
         self.awards_engine = awards_engine;
         self.reload_flag = reload_flag;
+        self.ingestor = QsoIngestor::new(
+            Arc::clone(&self.db),
+            Arc::clone(&self.awards_engine),
+            Arc::clone(&self.scp_engine),
+            Arc::clone(&self.prefix_matcher),
+            self.events.clone(),
+        );
         self
     }
 
@@ -768,34 +775,34 @@ fn normalize_and_enrich_qso(
 
 async fn post_qso(
     State(state): State<ApiState>,
-    Json(mut qso): Json<QsoRecord>,
+    Json(qso): Json<QsoRecord>,
 ) -> Result<(StatusCode, Json<QsoRecord>), (StatusCode, String)> {
-    normalize_and_enrich_qso(&mut qso, &state.prefix_matcher)?;
-    qso.validate()
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.msg().text(Language::Pl)))?;
+    let ingestor = state.ingestor.clone();
+    let outcome = tokio::task::spawn_blocking(move || ingestor.ingest(qso, QsoOrigin::RestApi))
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Błąd zadania asynchronicznego: {e}"),
+            )
+        })?
+        .map_err(|err| match err {
+            IngestError::EmptyCallsign => (StatusCode::BAD_REQUEST, err.msg().text(Language::Pl)),
+            IngestError::Invalid(issue) => {
+                (StatusCode::BAD_REQUEST, issue.msg().text(Language::Pl))
+            }
+            IngestError::Storage(error) => {
+                eprintln!("[REST API] Błąd zapisu QSO do bazy danych: {error}");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Błąd zapisu QSO do bazy danych.".to_string(),
+                )
+            }
+        })?;
 
-    let qso_for_db = qso.clone();
-    let id = with_db(&state, move |db| db.insert_qso(&qso_for_db)).await?;
-    qso.id = Some(id);
-
-    {
-        let mut awards = state
-            .awards_engine
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        awards.register_qso_record(&qso);
-    }
     state.reload_flag.store(true, Ordering::Release);
 
-    state.events.publish(AppEvent::QsoLogged {
-        callsign: qso.callsign.clone(),
-        band: qso.band.clone(),
-        mode: qso.mode.clone(),
-        frequency_hz: (qso.freq.unwrap_or(0.0) * 1_000_000.0) as u64,
-        time_utc: qso.time_on.clone(),
-    });
-
-    Ok((StatusCode::CREATED, Json(qso)))
+    Ok((StatusCode::CREATED, Json(outcome.qso)))
 }
 
 async fn put_qso_by_id(
@@ -1692,5 +1699,399 @@ mod tests {
         assert_eq!(json2["rejected"], 1);
         let errors = json2["errors"].as_array().unwrap();
         assert!(!errors.is_empty());
+    }
+
+    #[tokio::test]
+    async fn rest_api_post_qso_success_persists_and_registers_side_effects() {
+        let state = test_api_state();
+        let mut event_rx = state.events.subscribe();
+        let app = build_api_router(state.clone());
+
+        assert!(!state.reload_flag.load(Ordering::Acquire));
+
+        let qso_payload = serde_json::json!({
+            "callsign": "SP1ABC",
+            "band": "20m",
+            "mode": "CW",
+            "qso_date": "20261012",
+            "time_on": "120000",
+            "rst_sent": "599",
+            "rst_rcvd": "599",
+            "freq": 14.025
+        })
+        .to_string();
+
+        let resp = call_router(
+            &app,
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/v1/qsos")
+                .header("x-api-key", "secret-key-123")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(qso_payload))
+                .unwrap(),
+        )
+        .await;
+
+        assert_eq!(resp.status(), StatusCode::CREATED);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let created: QsoRecord = serde_json::from_slice(&bytes).unwrap();
+        let qso_id = created.id.expect("ID should be assigned");
+        assert!(qso_id > 0);
+        assert_eq!(created.callsign, "SP1ABC");
+
+        // 1. Rekord w bazie danych
+        {
+            let db = state.db.lock().unwrap();
+            let stored = db
+                .get_qso_by_id(qso_id)
+                .expect("db query failed")
+                .expect("qso must exist");
+            assert_eq!(stored.callsign, "SP1ABC");
+            assert_eq!(stored.band, "20m");
+            assert_eq!(stored.mode, "CW");
+        }
+
+        // 2. Aktualizacja AwardsEngine
+        {
+            let awards = state.awards_engine.lock().unwrap();
+            assert!(
+                awards
+                    .worked_calls
+                    .iter()
+                    .any(|(call, band, mode)| call == "SP1ABC" && band == "20m" && mode == "CW")
+            );
+        }
+
+        // 3. Aktualizacja ScpEngine
+        {
+            let scp = state.scp_engine.lock().unwrap();
+            let matches = scp.search("SP1ABC", 5);
+            assert!(matches.contains(&"SP1ABC".to_string()));
+        }
+
+        // 4. Publikacja zdarzenia AppEvent::QsoLogged dokładnie raz
+        let ev = event_rx
+            .try_recv()
+            .expect("QsoLogged event must be published");
+        match ev {
+            AppEvent::QsoLogged {
+                callsign,
+                band,
+                mode,
+                frequency_hz,
+                time_utc,
+            } => {
+                assert_eq!(callsign, "SP1ABC");
+                assert_eq!(band, "20m");
+                assert_eq!(mode, "CW");
+                assert_eq!(frequency_hz, 14_025_000);
+                assert_eq!(time_utc, "120000");
+            }
+            other => panic!("Unexpected event: {other:?}"),
+        }
+        assert!(event_rx.try_recv().is_err(), "Expected exactly one event");
+
+        // 5. Reload flag
+        assert!(state.reload_flag.load(Ordering::Acquire));
+    }
+
+    #[tokio::test]
+    async fn rest_api_post_qso_normalizes_callsign_and_mode() {
+        let state = test_api_state();
+        let app = build_api_router(state.clone());
+
+        let qso_payload = serde_json::json!({
+            "callsign": "  dl2def  ",
+            "band": "40m",
+            "mode": "  ssb  ",
+            "qso_date": "20261012",
+            "time_on": "130000",
+            "rst_sent": "59",
+            "rst_rcvd": "59"
+        })
+        .to_string();
+
+        let resp = call_router(
+            &app,
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/v1/qsos")
+                .header("x-api-key", "secret-key-123")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(qso_payload))
+                .unwrap(),
+        )
+        .await;
+
+        assert_eq!(resp.status(), StatusCode::CREATED);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let created: QsoRecord = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(created.callsign, "DL2DEF");
+        assert_eq!(created.mode, "SSB");
+
+        let db = state.db.lock().unwrap();
+        let stored = db.get_qso_by_id(created.id.unwrap()).unwrap().unwrap();
+        assert_eq!(stored.callsign, "DL2DEF");
+        assert_eq!(stored.mode, "SSB");
+    }
+
+    #[tokio::test]
+    async fn rest_api_post_qso_derives_band_from_freq() {
+        let state = test_api_state();
+        let app = build_api_router(state.clone());
+
+        let qso_payload = serde_json::json!({
+            "callsign": "DL3GHI",
+            "band": "",
+            "freq": 14.025,
+            "mode": "CW",
+            "qso_date": "20261012",
+            "time_on": "140000",
+            "rst_sent": "599",
+            "rst_rcvd": "599"
+        })
+        .to_string();
+
+        let resp = call_router(
+            &app,
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/v1/qsos")
+                .header("x-api-key", "secret-key-123")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(qso_payload))
+                .unwrap(),
+        )
+        .await;
+
+        assert_eq!(resp.status(), StatusCode::CREATED);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let created: QsoRecord = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(created.band, "20m");
+
+        let db = state.db.lock().unwrap();
+        let stored = db.get_qso_by_id(created.id.unwrap()).unwrap().unwrap();
+        assert_eq!(stored.band, "20m");
+    }
+
+    #[tokio::test]
+    async fn rest_api_post_qso_empty_callsign_rejected_without_side_effects() {
+        let state = test_api_state();
+        let mut event_rx = state.events.subscribe();
+        let app = build_api_router(state.clone());
+
+        assert!(!state.reload_flag.load(Ordering::Acquire));
+
+        let qso_payload = serde_json::json!({
+            "callsign": "   ",
+            "band": "20m",
+            "mode": "CW",
+            "qso_date": "20261012",
+            "time_on": "120000"
+        })
+        .to_string();
+
+        let resp = call_router(
+            &app,
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/v1/qsos")
+                .header("x-api-key", "secret-key-123")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(qso_payload))
+                .unwrap(),
+        )
+        .await;
+
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+        // Brak zapisu w bazie
+        assert_eq!(state.db.lock().unwrap().count_all().unwrap(), 0);
+        // Brak wpisu w Awards
+        assert!(state.awards_engine.lock().unwrap().worked_calls.is_empty());
+        // Brak wpisu w SCP
+        assert!(state.scp_engine.lock().unwrap().search("", 5).is_empty());
+        // Brak zdarzenia w EventBus
+        assert!(event_rx.try_recv().is_err());
+        // Reload flag pozostaje false
+        assert!(!state.reload_flag.load(Ordering::Acquire));
+    }
+
+    #[tokio::test]
+    async fn rest_api_post_qso_missing_date_rejected_without_fabrication() {
+        let state = test_api_state();
+        let mut event_rx = state.events.subscribe();
+        let app = build_api_router(state.clone());
+
+        assert!(!state.reload_flag.load(Ordering::Acquire));
+
+        let qso_payload = serde_json::json!({
+            "callsign": "SP5XYZ",
+            "band": "20m",
+            "mode": "CW",
+            "qso_date": "",
+            "time_on": "120000"
+        })
+        .to_string();
+
+        let resp = call_router(
+            &app,
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/v1/qsos")
+                .header("x-api-key", "secret-key-123")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(qso_payload))
+                .unwrap(),
+        )
+        .await;
+
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+        // Brak autogeneracji Utc::now() i brak zapisu w bazie
+        assert_eq!(state.db.lock().unwrap().count_all().unwrap(), 0);
+        // Brak efektów ubocznych
+        assert!(state.awards_engine.lock().unwrap().worked_calls.is_empty());
+        assert!(
+            state
+                .scp_engine
+                .lock()
+                .unwrap()
+                .search("SP5XYZ", 5)
+                .is_empty()
+        );
+        assert!(event_rx.try_recv().is_err());
+        assert!(!state.reload_flag.load(Ordering::Acquire));
+    }
+
+    #[tokio::test]
+    async fn rest_api_post_qso_missing_time_rejected_without_fabrication() {
+        let state = test_api_state();
+        let mut event_rx = state.events.subscribe();
+        let app = build_api_router(state.clone());
+
+        assert!(!state.reload_flag.load(Ordering::Acquire));
+
+        let qso_payload = serde_json::json!({
+            "callsign": "SP5XYZ",
+            "band": "20m",
+            "mode": "CW",
+            "qso_date": "20261012",
+            "time_on": ""
+        })
+        .to_string();
+
+        let resp = call_router(
+            &app,
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/v1/qsos")
+                .header("x-api-key", "secret-key-123")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(qso_payload))
+                .unwrap(),
+        )
+        .await;
+
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+        // Brak autogeneracji Utc::now() i brak zapisu w bazie
+        assert_eq!(state.db.lock().unwrap().count_all().unwrap(), 0);
+        // Brak efektów ubocznych
+        assert!(state.awards_engine.lock().unwrap().worked_calls.is_empty());
+        assert!(
+            state
+                .scp_engine
+                .lock()
+                .unwrap()
+                .search("SP5XYZ", 5)
+                .is_empty()
+        );
+        assert!(event_rx.try_recv().is_err());
+        assert!(!state.reload_flag.load(Ordering::Acquire));
+    }
+
+    #[tokio::test]
+    async fn rest_api_post_qso_dxcc_enrichment_from_prefix_matcher() {
+        use std::sync::atomic::AtomicU64;
+        static CNT: AtomicU64 = AtomicU64::new(1);
+        let id = CNT.fetch_add(1, Ordering::Relaxed);
+        let uri = format!("file:test_api_prefix_{id}?mode=memory&cache=shared");
+        let conn = rusqlite::Connection::open_with_flags(
+            &uri,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE
+                | rusqlite::OpenFlags::SQLITE_OPEN_CREATE
+                | rusqlite::OpenFlags::SQLITE_OPEN_URI,
+        )
+        .unwrap();
+        conn.execute_batch(
+            "CREATE TABLE UniqueCalls (
+                Callsign TEXT, Country TEXT, ARRLPrefix TEXT, DXCC TEXT,
+                Continent TEXT, CQZone INTEGER, ITUZone INTEGER,
+                Latitude TEXT, Longitude TEXT, Enable TEXT
+            );
+            CREATE TABLE CountryDataEx (
+                Country TEXT, ARRLPrefix TEXT, DXCC INTEGER, Continent TEXT,
+                CQZone INTEGER, ITUZone INTEGER, Latitude TEXT, Longitude TEXT,
+                PrefixList TEXT, EndDate TEXT
+            );
+            CREATE TABLE Province (
+                Country TEXT, ARRLPrefix TEXT, DXCC TEXT, Continent TEXT,
+                CQZone INTEGER, ITUZone INTEGER, Latitude TEXT, Longitude TEXT,
+                PrefixList TEXT, Comment TEXT, EndDate TEXT
+            );
+            INSERT INTO UniqueCalls VALUES
+                ('SP6INA', 'Poland', 'SP', '269', 'EU', 15, 28, '51.1N', '17.0E', '1');",
+        )
+        .unwrap();
+        let matcher = Arc::new(PrefixMatcher::load_from_db(&uri).unwrap());
+
+        let base_state = test_api_state();
+        let state = base_state.with_station_context(
+            matcher,
+            Arc::new(RwLock::new(RigState::default())),
+            Arc::new(Mutex::new(AwardsEngine::new())),
+            Arc::new(AtomicBool::new(false)),
+        );
+        let app = build_api_router(state.clone());
+
+        let qso_payload = serde_json::json!({
+            "callsign": "SP6INA",
+            "band": "20m",
+            "mode": "CW",
+            "qso_date": "20261012",
+            "time_on": "120000"
+        })
+        .to_string();
+
+        let resp = call_router(
+            &app,
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/v1/qsos")
+                .header("x-api-key", "secret-key-123")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(qso_payload))
+                .unwrap(),
+        )
+        .await;
+
+        assert_eq!(resp.status(), StatusCode::CREATED);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let created: QsoRecord = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(created.dxcc, Some(269));
+        assert_eq!(created.country, Some("Poland".to_string()));
+        assert_eq!(created.continent, Some("EU".to_string()));
+        assert_eq!(created.cqz, Some(15));
+        assert_eq!(created.ituz, Some(28));
     }
 }
