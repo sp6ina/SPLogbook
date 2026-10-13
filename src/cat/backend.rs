@@ -7,8 +7,35 @@
 //! Mapowanie napisu konfiguracyjnego na typ backendu realizuje [`CatBackendKind`],
 //! a wybór konkretnej implementacji w locie — [`CatController`].
 
+use std::future::Future;
+
 use crate::cat::flrig::FlrigClient;
 use crate::cat::hamlib::{HamlibClient, RigState};
+use crate::cat::rig::{RigCapabilities, RigCommand, RigError};
+
+/// Nowoczesny kontrakt backendu CAT oparty o trwałą sesję i typowane błędy (Rust Edition 2024).
+pub trait RigBackend: Send {
+    /// Typ backendu CAT.
+    fn kind(&self) -> CatBackendKind;
+
+    /// Możliwości techniczne transceivera i backendu.
+    fn capabilities(&self) -> RigCapabilities;
+
+    /// Nawiązuje trwałe połączenie z radiem/demonem.
+    fn connect(&mut self) -> impl Future<Output = Result<(), RigError>> + Send;
+
+    /// Sekwencyjny odczyt pełnego stanu radia przez trwałą sesję.
+    fn poll(&mut self) -> impl Future<Output = Result<RigState, RigError>> + Send;
+
+    /// Wykonuje polecenie domenowe przez trwałą sesję.
+    fn execute(
+        &mut self,
+        command: &RigCommand,
+    ) -> impl Future<Output = Result<(), RigError>> + Send;
+
+    /// Bezpiecznie zamyka połączenie z radiem/demonem.
+    fn disconnect(&mut self) -> impl Future<Output = ()> + Send;
+}
 
 /// Typy backendów CAT obsługiwane przez program.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
