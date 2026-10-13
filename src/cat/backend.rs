@@ -41,9 +41,10 @@ pub trait RigBackend: Send {
 }
 
 /// Typy backendów CAT obsługiwane przez program.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum CatBackendKind {
     /// Demon Hamlib (`rigctld`) — tekstowy protokół TCP.
+    #[default]
     Hamlib,
     /// FLRig — XML-RPC po TCP.
     Flrig,
@@ -57,6 +58,12 @@ pub enum CatBackendKind {
     Yaesu,
     /// Logika SO2R (dwa radia, blokada pojedynczego TX).
     So2r,
+}
+
+impl std::fmt::Display for CatBackendKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
 }
 
 impl std::str::FromStr for CatBackendKind {
@@ -351,5 +358,48 @@ mod tests {
 
         let ctl = CatController::new(CatBackendKind::Tci, "127.0.0.1", 40001);
         assert_eq!(ctl.kind(), CatBackendKind::Tci);
+    }
+
+    #[test]
+    fn backend_kind_parses_yaesu() {
+        assert_eq!(CatBackendKind::from_str("yaesu"), CatBackendKind::Yaesu);
+        assert_eq!(CatBackendKind::from_str("YAESU"), CatBackendKind::Yaesu);
+        assert_eq!(CatBackendKind::from_str("ft-891"), CatBackendKind::Yaesu);
+        assert_eq!(CatBackendKind::from_str("FT-991A"), CatBackendKind::Yaesu);
+        assert_eq!(CatBackendKind::from_str("ft-710"), CatBackendKind::Yaesu);
+        assert_eq!(CatBackendKind::from_str("ftdx10"), CatBackendKind::Yaesu);
+    }
+
+    #[test]
+    fn backend_kind_yaesu_roundtrip() {
+        assert_eq!(CatBackendKind::Yaesu.as_str(), "yaesu");
+        assert_eq!(
+            CatBackendKind::from_str(CatBackendKind::Yaesu.as_str()),
+            CatBackendKind::Yaesu
+        );
+        assert_eq!(format!("{}", CatBackendKind::Yaesu), "yaesu");
+        assert_eq!(CatBackendKind::default(), CatBackendKind::Hamlib);
+    }
+
+    #[test]
+    fn backend_kind_yaesu_capabilities_match_profile() {
+        use crate::cat::native::registry::YAESU_FT891;
+        assert_eq!(
+            YAESU_FT891.vendor,
+            crate::cat::native::profile::RigVendor::Yaesu
+        );
+        assert!(YAESU_FT891.capabilities.frequency);
+        assert!(YAESU_FT891.capabilities.mode);
+        assert!(YAESU_FT891.capabilities.ptt);
+        assert!(!YAESU_FT891.capabilities.power);
+    }
+
+    #[test]
+    fn backend_kind_unknown_fallback_unchanged() {
+        assert_eq!(
+            CatBackendKind::from_str("unknown_xyz"),
+            CatBackendKind::Hamlib
+        );
+        assert_eq!(CatBackendKind::from_str(""), CatBackendKind::Hamlib);
     }
 }

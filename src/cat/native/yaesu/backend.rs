@@ -106,7 +106,9 @@ impl YaesuBackend {
                 }
             }
             "MD0" | "MD" => {
-                if let Some(mode) = YaesuCat::parse_mode_resp(&frame.raw) {
+                if let Some(mode) =
+                    YaesuCat::parse_mode_resp_for_model(self.profile.model_id, &frame.raw)
+                {
                     self.state.mode = mode.to_string();
                 }
             }
@@ -118,9 +120,7 @@ impl YaesuBackend {
             }
             "SM0" | "SM" => {
                 if let Some(raw) = YaesuCat::parse_smeter_resp(&frame.raw) {
-                    let (dbm, unit) = YaesuCat::smeter_to_dbm_and_unit(raw);
-                    self.state.s_meter_dbm = dbm;
-                    self.state.s_meter_unit = unit;
+                    self.state.s_meter_unit = YaesuCat::smeter_to_unit(raw);
                 }
             }
             "FT" => {
@@ -129,7 +129,8 @@ impl YaesuBackend {
                 }
             }
             "IF" => {
-                if let Some(info) = YaesuIfInfo::parse(&frame.raw) {
+                if let Some(info) = YaesuIfInfo::parse_for_model(self.profile.model_id, &frame.raw)
+                {
                     self.state.frequency_hz = info.frequency_hz;
                     self.state.mode = info.mode.to_string();
                     self.state.ptt = info.tx;
@@ -380,9 +381,7 @@ impl RigBackend for YaesuBackend {
             if let Ok(frame) = self.roundtrip_command(YaesuCat::read_smeter(), "SM0").await
                 && let Some(raw) = YaesuCat::parse_smeter_resp(&frame.raw)
             {
-                let (dbm, unit) = YaesuCat::smeter_to_dbm_and_unit(raw);
-                self.state.s_meter_dbm = dbm;
-                self.state.s_meter_unit = unit;
+                self.state.s_meter_unit = YaesuCat::smeter_to_unit(raw);
             }
             return Ok(self.state.clone());
         }
@@ -390,7 +389,7 @@ impl RigBackend for YaesuBackend {
         // 3. Standardowy pełny polling: próba IF; (jeśli wspierana) lub odrębne odpytania
         let if_cmd = YaesuCat::read_if();
         if let Ok(frame) = self.roundtrip_command(if_cmd, "IF").await {
-            if let Some(info) = YaesuIfInfo::parse(&frame.raw) {
+            if let Some(info) = YaesuIfInfo::parse_for_model(self.profile.model_id, &frame.raw) {
                 self.state.frequency_hz = info.frequency_hz;
                 self.state.mode = info.mode.to_string();
                 self.state.ptt = info.tx;
@@ -409,7 +408,8 @@ impl RigBackend for YaesuBackend {
             }
 
             if let Ok(f) = self.roundtrip_command(YaesuCat::read_mode(), "MD0").await
-                && let Some(mode) = YaesuCat::parse_mode_resp(&f.raw)
+                && let Some(mode) =
+                    YaesuCat::parse_mode_resp_for_model(self.profile.model_id, &f.raw)
             {
                 self.state.mode = mode.to_string();
             }
@@ -426,9 +426,7 @@ impl RigBackend for YaesuBackend {
         if let Ok(f) = self.roundtrip_command(YaesuCat::read_smeter(), "SM0").await
             && let Some(raw) = YaesuCat::parse_smeter_resp(&f.raw)
         {
-            let (dbm, unit) = YaesuCat::smeter_to_dbm_and_unit(raw);
-            self.state.s_meter_dbm = dbm;
-            self.state.s_meter_unit = unit;
+            self.state.s_meter_unit = YaesuCat::smeter_to_unit(raw);
         }
 
         Ok(self.state.clone())
@@ -442,7 +440,14 @@ impl RigBackend for YaesuBackend {
 
         match command {
             RigCommand::SetFrequency(hz) => {
-                let cmd = YaesuCat::set_freq(false, *hz);
+                let cmd =
+                    YaesuCat::format_freq_checked(false, *hz, self.profile.frequency_digits())
+                        .ok_or_else(|| RigError::Protocol {
+                            detail: format!(
+                                "frequency {hz} Hz out of bounds for profile {}",
+                                self.profile.model_id
+                            ),
+                        })?;
                 let encoded = self.codec.encode_command(&cmd);
                 transport
                     .write_all(&encoded)
@@ -453,7 +458,7 @@ impl RigBackend for YaesuBackend {
                 Ok(())
             }
             RigCommand::SetMode { mode, .. } => {
-                let Some(cmd) = YaesuCat::set_mode(mode) else {
+                let Some(cmd) = YaesuCat::set_mode_for_model(self.profile.model_id, mode) else {
                     return Err(RigError::Unsupported {
                         backend: CatBackendKind::Yaesu,
                         command: "SetMode",
@@ -509,7 +514,13 @@ impl RigBackend for YaesuBackend {
                 Ok(())
             }
             RigCommand::SetSplitFrequency(hz) => {
-                let cmd = YaesuCat::set_freq(true, *hz);
+                let cmd = YaesuCat::format_freq_checked(true, *hz, self.profile.frequency_digits())
+                    .ok_or_else(|| RigError::Protocol {
+                        detail: format!(
+                            "split frequency {hz} Hz out of bounds for profile {}",
+                            self.profile.model_id
+                        ),
+                    })?;
                 let encoded = self.codec.encode_command(&cmd);
                 transport
                     .write_all(&encoded)
@@ -566,7 +577,7 @@ impl RigBackend for YaesuBackend {
 
     async fn disconnect(&mut self) {
         // Idempotentne, bezpieczne rozłączenie:
-        // Jeśli PTT było aktywne, podejmij ograniczoną czasowo (500 ms) próbę powrotu do odbioru (TX0;)
+        // 1. Jeśli PTT było aktywne, podejmij pojedynczą ograniczoną czasowo (500 ms) próbę powrotu do odbioru (TX0;)
         if self.confirmed_ptt {
             if let Some(transport) = self.transport.as_mut() {
                 let rx_cmd = YaesuCat::set_ptt(false);
@@ -575,6 +586,17 @@ impl RigBackend for YaesuBackend {
                 let _ = tokio::time::timeout(Duration::from_millis(500), write_fut).await;
             }
             self.confirmed_ptt = false;
+        }
+
+        // 2. Jeśli AI było aktywne, wyłącz tryb Auto Information (AI0;), aby radio nie zalewało portu
+        if self.ai_active {
+            if let Some(transport) = self.transport.as_mut() {
+                let ai_cmd = YaesuCat::set_ai(false);
+                let encoded = self.codec.encode_command(ai_cmd);
+                let write_fut = transport.write_all(&encoded);
+                let _ = tokio::time::timeout(Duration::from_millis(500), write_fut).await;
+            }
+            self.ai_active = false;
         }
 
         if let Some(mut transport) = self.transport.take() {
@@ -757,12 +779,113 @@ mod tests {
 
             // Podczas disconnect, ponieważ PTT było confirmed true, backend wysyła TX0;
             assert_eq!(read_frame(&mut server_io).await, "TX0;");
+            // Ponieważ AI było aktywne, backend wysyła również AI0;
+            assert_eq!(read_frame(&mut server_io).await, "AI0;");
         });
 
         backend.connect().await.unwrap();
         backend.execute(&RigCommand::SetPtt(true)).await.unwrap();
 
         backend.disconnect().await;
+        assert!(!backend.current_state().connected);
+
+        server_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn yaesu_probe_sends_only_read_commands() {
+        let (client_io, mut server_io) = tokio::io::duplex(1024);
+        let mut backend = YaesuBackend::with_stream(client_io, YAESU_FT891.clone());
+
+        let server_task = tokio::spawn(async move {
+            use tokio::io::AsyncWriteExt;
+            let cmd1 = read_frame(&mut server_io).await;
+            // Podczas probe wysyłany jest wyłącznie odczyt częstotliwości (FA;)
+            assert_eq!(cmd1, "FA;");
+            assert!(!cmd1.contains("TX"));
+            server_io.write_all(b"FA014074000;").await.unwrap();
+
+            let cmd2 = read_frame(&mut server_io).await;
+            // Następnie wyłącznie włączenie AI1;
+            assert_eq!(cmd2, "AI1;");
+            assert!(!cmd2.contains("TX"));
+        });
+
+        backend.connect().await.unwrap();
+        server_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn yaesu_connect_never_sends_tx() {
+        let (client_io, mut server_io) = tokio::io::duplex(1024);
+        let mut backend = YaesuBackend::with_stream(client_io, YAESU_FT891.clone());
+
+        let server_task = tokio::spawn(async move {
+            use tokio::io::AsyncWriteExt;
+            let req1 = read_frame(&mut server_io).await;
+            assert!(!req1.starts_with("TX"));
+            server_io.write_all(b"FA014074000;").await.unwrap();
+
+            let req2 = read_frame(&mut server_io).await;
+            assert!(!req2.starts_with("TX"));
+        });
+
+        backend.connect().await.unwrap();
+        assert!(!backend.current_state().ptt);
+        server_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn yaesu_ptt_true_is_never_retried() {
+        let (client_io, mut server_io) = tokio::io::duplex(1024);
+        let mut backend = YaesuBackend::with_stream(client_io, YAESU_FT891.clone());
+
+        let server_task = tokio::spawn(async move {
+            use tokio::io::AsyncWriteExt;
+            assert_eq!(read_frame(&mut server_io).await, "FA;");
+            server_io.write_all(b"FA014074000;").await.unwrap();
+            assert_eq!(read_frame(&mut server_io).await, "AI1;");
+
+            // Serwer celowo zrywa połączenie
+            drop(server_io);
+        });
+
+        backend.connect().await.unwrap();
+        server_task.await.unwrap();
+
+        // Jednokrotna próba nadawania: błąd nie powoduje zapętlenia retry
+        let res = backend.execute(&RigCommand::SetPtt(true)).await;
+        assert!(res.is_err());
+        assert!(!backend.current_state().ptt);
+    }
+
+    #[tokio::test]
+    async fn yaesu_disconnect_rx_attempt_is_single_and_bounded() {
+        let (client_io, mut server_io) = tokio::io::duplex(1024);
+        let mut backend = YaesuBackend::with_stream(client_io, YAESU_FT891.clone());
+
+        let server_task = tokio::spawn(async move {
+            use tokio::io::AsyncWriteExt;
+            assert_eq!(read_frame(&mut server_io).await, "FA;");
+            server_io.write_all(b"FA014074000;").await.unwrap();
+            assert_eq!(read_frame(&mut server_io).await, "AI1;");
+
+            // SetPtt(true)
+            assert_eq!(read_frame(&mut server_io).await, "TX1;");
+
+            // Disconnect próbuje jednorazowo wysłać TX0;
+            assert_eq!(read_frame(&mut server_io).await, "TX0;");
+            // oraz AI0;
+            assert_eq!(read_frame(&mut server_io).await, "AI0;");
+        });
+
+        backend.connect().await.unwrap();
+        backend.execute(&RigCommand::SetPtt(true)).await.unwrap();
+
+        let t0 = std::time::Instant::now();
+        backend.disconnect().await;
+        // Bounded: disconnect nie może wisieć dłużej niż limit fail-safe
+        assert!(t0.elapsed() < Duration::from_millis(1500));
         assert!(!backend.current_state().connected);
 
         server_task.await.unwrap();
@@ -827,7 +950,7 @@ mod tests {
         let state = backend.poll().await.expect("poll should succeed");
 
         assert_eq!(state.frequency_hz, 14_080_000);
-        assert_eq!(state.mode, "CW");
+        assert_eq!(state.mode, "CW-U");
         assert_eq!(state.s_meter_unit, "S5");
 
         server_task.await.unwrap();

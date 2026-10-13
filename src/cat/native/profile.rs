@@ -72,6 +72,11 @@ pub struct RigModelProfile {
 }
 
 impl RigModelProfile {
+    /// Liczba cyfr częstotliwości w protokole tekstowym (lub liczba bajtów w protokole binarnym).
+    pub fn frequency_digits(&self) -> usize {
+        self.frequency_bytes
+    }
+
     /// Weryfikuje, czy dany baud rate jest akceptowany przez ten model.
     pub fn supports_baud_rate(&self, baud: u32) -> bool {
         self.supported_baud_rates.contains(&baud)

@@ -8,21 +8,52 @@ use crate::cat::rig::RigCapabilities;
 
 pub use crate::cat::native::registry::{YAESU_FT710, YAESU_FT891, YAESU_FT991A, YAESU_FTDX10};
 
-/// Weryfikuje, czy dla danego modelu Yaesu zalecany jest port Enhanced COM (zamiast Standard COM).
+/// Zwraca preferowany port COM dla komunikacji CAT danego modelu Yaesu.
 ///
 /// Współczesne transceivery Yaesu ze zintegrowanym kontrolerem USB (Silicon Labs CP2105)
 /// udostępniają w systemie operacyjnym dwa wirtualne porty COM:
-/// 1. Enhanced COM Port — dedykowany do komunikacji CAT i komend sterujących (`FA;`, `MD;`, `TX;`).
-/// 2. Standard COM Port — dedykowany wyłącznie do sprzętowego kluczowania PTT/CW przez linie RTS/DTR.
-///
-/// Wybranie portu Standard COM do komunikacji CAT skutkuje brakiem odpowiedzi na komendy tekstowe.
-pub fn is_enhanced_port_recommended(model_id: &str) -> bool {
+/// 1. Enhanced COM Port — preferowany/główny port do komunikacji CAT i komend sterujących (`FA;`, `MD;`, `TX;`).
+/// 2. Standard COM Port — w zależności od modelu:
+///    - na FT-710 może zostać skonfigurowany w menu do obsługi komend CAT (jako port CAT-2),
+///    - na FT-891, FT-991A i FTDX10 służy przede wszystkim do sprzętowego kluczowania PTT/CW/FSK przez linie RTS/DTR.
+pub fn preferred_cat_port(model_id: &str) -> &'static str {
     let id = model_id.trim().to_ascii_uppercase();
-    id.contains("891")
+    if id.contains("891")
         || id.contains("991")
         || id.contains("710")
         || id.contains("DX10")
         || id.contains("101")
+    {
+        "Enhanced COM Port"
+    } else {
+        "Standard COM Port"
+    }
+}
+
+/// Sprawdza, czy alternatywny port Standard COM może obsługiwać komendy CAT w danym modelu.
+/// Na FT-710 port Standard COM (CAT-2) wspiera ramki CAT po odpowiednim ustawieniu w menu.
+/// Na FT-891, FT-991A i FTDX10 port Standard COM jest ograniczony do sprzętowych linii TX.
+pub fn supports_cat_on_standard_port(model_id: &str) -> bool {
+    let id = model_id.trim().to_ascii_uppercase();
+    id.contains("710")
+}
+
+/// Zwraca role sprzętowe portu Standard COM dla danego modelu Yaesu.
+pub fn standard_port_roles(model_id: &str) -> &'static [&'static str] {
+    let id = model_id.trim().to_ascii_uppercase();
+    if id.contains("710") {
+        &["PTT", "CW", "FSK", "CAT-2"]
+    } else if id.contains("891") || id.contains("991") || id.contains("DX10") || id.contains("101")
+    {
+        &["PTT", "CW", "FSK"]
+    } else {
+        &["CAT", "PTT", "CW"]
+    }
+}
+
+/// Weryfikuje, czy dla danego modelu Yaesu zalecany jest port Enhanced COM (zamiast Standard COM).
+pub fn is_enhanced_port_recommended(model_id: &str) -> bool {
+    preferred_cat_port(model_id) == "Enhanced COM Port"
 }
 
 /// Weryfikuje, czy dany model należy do klasycznej rodziny binarnej Yaesu (5-bajtowe pakiety bez średnika).
@@ -108,5 +139,31 @@ mod tests {
         assert_eq!(profile.frequency_bytes, 9);
         assert!(profile.supports_baud_rate(115_200));
         assert!(profile.extended_capabilities.transceive_broadcast);
+    }
+
+    #[test]
+    fn yaesu_standard_port_capability_is_profile_specific() {
+        // FT-710 pozwala na port Standard COM (CAT-2) do transmisji komend CAT
+        assert!(supports_cat_on_standard_port("FT-710"));
+        assert_eq!(
+            standard_port_roles("FT-710"),
+            &["PTT", "CW", "FSK", "CAT-2"]
+        );
+
+        // FT-891, FT-991A, FTDX10 nie wspierają CAT po porcie Standard COM (wyłącznie linie TX)
+        assert!(!supports_cat_on_standard_port("FT-891"));
+        assert_eq!(standard_port_roles("FT-891"), &["PTT", "CW", "FSK"]);
+
+        assert!(!supports_cat_on_standard_port("FT-991A"));
+        assert_eq!(standard_port_roles("FT-991A"), &["PTT", "CW", "FSK"]);
+
+        assert!(!supports_cat_on_standard_port("FTDX10"));
+        assert_eq!(standard_port_roles("FTDX10"), &["PTT", "CW", "FSK"]);
+
+        // Preferowane porty CAT
+        assert_eq!(preferred_cat_port("FT-891"), "Enhanced COM Port");
+        assert_eq!(preferred_cat_port("FT-991A"), "Enhanced COM Port");
+        assert_eq!(preferred_cat_port("FT-710"), "Enhanced COM Port");
+        assert_eq!(preferred_cat_port("FTDX10"), "Enhanced COM Port");
     }
 }

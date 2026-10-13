@@ -295,13 +295,13 @@ pub static KENWOOD_TS990S: RigModelProfile = RigModelProfile {
 
 // Referencyjne profile Yaesu CAT (zweryfikowane z oficjalną dokumentacją Yaesu):
 
-/// Yaesu FT-891 — kompaktowy terenowy transceiver HF/50MHz z odbiornikiem z potrójną przemianą i USB CAT (Enhanced COM port).
+/// Yaesu FT-891 — kompaktowy transceiver KF/50MHz z portem USB CAT (Enhanced COM port).
 pub static YAESU_FT891: RigModelProfile = RigModelProfile {
     model_id: "FT-891",
     name: "Yaesu FT-891",
     vendor: RigVendor::Yaesu,
-    default_baud_rate: 115_200,
-    supported_baud_rates: &[4800, 9600, 19200, 38400, 57600, 115_200],
+    default_baud_rate: 4800,
+    supported_baud_rates: &[4800, 9600, 19200, 38400],
     default_ci_v_address: None,
     frequency_bytes: 9,
     capabilities: RigCapabilities {
@@ -330,13 +330,13 @@ pub static YAESU_FT891: RigModelProfile = RigModelProfile {
     safe_poll_commands: &["read_freq", "read_mode", "read_smeter", "read_ptt"],
 };
 
-/// Yaesu FT-991A — uniwersalny transceiver stacyjny all-mode HF/50/144/430MHz z USB CAT (Enhanced COM port).
+/// Yaesu FT-991A — transceiver KF/50/144/430MHz z portem USB CAT (Enhanced COM port).
 pub static YAESU_FT991A: RigModelProfile = RigModelProfile {
     model_id: "FT-991A",
     name: "Yaesu FT-991A",
     vendor: RigVendor::Yaesu,
-    default_baud_rate: 115_200,
-    supported_baud_rates: &[4800, 9600, 19200, 38400, 57600, 115_200],
+    default_baud_rate: 4800,
+    supported_baud_rates: &[4800, 9600, 19200, 38400],
     default_ci_v_address: None,
     frequency_bytes: 9,
     capabilities: RigCapabilities {
@@ -365,13 +365,13 @@ pub static YAESU_FT991A: RigModelProfile = RigModelProfile {
     safe_poll_commands: &["read_freq", "read_mode", "read_smeter", "read_ptt"],
 };
 
-/// Yaesu FT-710 — transceiver HF/50MHz z architekturą SDR i interfejsem USB CAT (Enhanced COM port).
+/// Yaesu FT-710 — transceiver KF/50MHz z interfejsem USB CAT (CAT-1 Enhanced COM port).
 pub static YAESU_FT710: RigModelProfile = RigModelProfile {
     model_id: "FT-710",
     name: "Yaesu FT-710",
     vendor: RigVendor::Yaesu,
-    default_baud_rate: 115_200,
-    supported_baud_rates: &[4800, 9600, 19200, 38400, 57600, 115_200],
+    default_baud_rate: 38400,
+    supported_baud_rates: &[4800, 9600, 19200, 38400, 115_200],
     default_ci_v_address: None,
     frequency_bytes: 9,
     capabilities: RigCapabilities {
@@ -400,13 +400,13 @@ pub static YAESU_FT710: RigModelProfile = RigModelProfile {
     safe_poll_commands: &["read_freq", "read_mode", "read_smeter", "read_ptt"],
 };
 
-/// Yaesu FTDX10 — kompaktowy flagowy transceiver HF/50/70MHz z hybrydową architekturą SDR i USB CAT (Enhanced COM port).
+/// Yaesu FTDX10 — transceiver KF/50/70MHz z interfejsem USB CAT (Enhanced COM port).
 pub static YAESU_FTDX10: RigModelProfile = RigModelProfile {
     model_id: "FTDX10",
     name: "Yaesu FTDX10",
     vendor: RigVendor::Yaesu,
-    default_baud_rate: 115_200,
-    supported_baud_rates: &[4800, 9600, 19200, 38400, 57600, 115_200],
+    default_baud_rate: 38400,
+    supported_baud_rates: &[4800, 9600, 19200, 38400, 115_200],
     default_ci_v_address: None,
     frequency_bytes: 9,
     capabilities: RigCapabilities {
@@ -540,18 +540,110 @@ mod tests {
     fn test_lookup_yaesu_profiles() {
         let ft891 = find_profile_by_model("FT-891").expect("FT-891 missing");
         assert_eq!(ft891.vendor, RigVendor::Yaesu);
-        assert_eq!(ft891.default_baud_rate, 115_200);
+        assert_eq!(ft891.default_baud_rate, 4800);
         assert_eq!(ft891.frequency_bytes, 9);
         assert!(ft891.extended_capabilities.transceive_broadcast);
 
         let ft991a = find_profile_by_model("Yaesu FT-991A").expect("FT-991A missing");
         assert_eq!(ft991a.vendor, RigVendor::Yaesu);
+        assert_eq!(ft991a.default_baud_rate, 4800);
 
         let ft710 = find_profile_by_model("FT-710").expect("FT-710 missing");
         assert_eq!(ft710.vendor, RigVendor::Yaesu);
+        assert_eq!(ft710.default_baud_rate, 38400);
 
         let ftdx10 = find_profile_by_model("FTDX10").expect("FTDX10 missing");
         assert_eq!(ftdx10.vendor, RigVendor::Yaesu);
+        assert_eq!(ftdx10.default_baud_rate, 38400);
         assert!(ftdx10.extended_capabilities.antenna_select);
+    }
+
+    #[test]
+    fn yaesu_ft891_serial_defaults_match_manual() {
+        assert_eq!(YAESU_FT891.default_baud_rate, 4800);
+        assert_eq!(
+            YAESU_FT891.supported_baud_rates,
+            &[4800, 9600, 19200, 38400]
+        );
+        assert!(YAESU_FT891.supports_baud_rate(4800));
+        assert!(YAESU_FT891.supports_baud_rate(9600));
+        assert!(YAESU_FT891.supports_baud_rate(19200));
+        assert!(YAESU_FT891.supports_baud_rate(38400));
+        assert!(!YAESU_FT891.supports_baud_rate(57600));
+        assert!(!YAESU_FT891.supports_baud_rate(115_200));
+    }
+
+    #[test]
+    fn yaesu_ft991a_serial_defaults_match_manual() {
+        assert_eq!(YAESU_FT991A.default_baud_rate, 4800);
+        assert_eq!(
+            YAESU_FT991A.supported_baud_rates,
+            &[4800, 9600, 19200, 38400]
+        );
+        assert!(YAESU_FT991A.supports_baud_rate(4800));
+        assert!(YAESU_FT991A.supports_baud_rate(38400));
+        assert!(!YAESU_FT991A.supports_baud_rate(115_200));
+    }
+
+    #[test]
+    fn yaesu_ft710_serial_defaults_match_manual() {
+        assert_eq!(YAESU_FT710.default_baud_rate, 38400);
+        assert_eq!(
+            YAESU_FT710.supported_baud_rates,
+            &[4800, 9600, 19200, 38400, 115_200]
+        );
+        assert!(YAESU_FT710.supports_baud_rate(4800));
+        assert!(YAESU_FT710.supports_baud_rate(38400));
+        assert!(YAESU_FT710.supports_baud_rate(115_200));
+        assert!(!YAESU_FT710.supports_baud_rate(57600));
+    }
+
+    #[test]
+    fn yaesu_ftdx10_serial_defaults_match_manual() {
+        assert_eq!(YAESU_FTDX10.default_baud_rate, 38400);
+        assert_eq!(
+            YAESU_FTDX10.supported_baud_rates,
+            &[4800, 9600, 19200, 38400, 115_200]
+        );
+        assert!(YAESU_FTDX10.supports_baud_rate(4800));
+        assert!(YAESU_FTDX10.supports_baud_rate(38400));
+        assert!(YAESU_FTDX10.supports_baud_rate(115_200));
+        assert!(!YAESU_FTDX10.supports_baud_rate(57600));
+    }
+
+    #[test]
+    fn yaesu_ft891_frequency_digits_match_manual() {
+        assert_eq!(YAESU_FT891.frequency_digits(), 9);
+        assert_eq!(YAESU_FT891.frequency_bytes, 9);
+    }
+
+    #[test]
+    fn yaesu_ft991a_frequency_digits_match_manual() {
+        assert_eq!(YAESU_FT991A.frequency_digits(), 9);
+        assert_eq!(YAESU_FT991A.frequency_bytes, 9);
+    }
+
+    #[test]
+    fn yaesu_ft710_frequency_digits_match_manual() {
+        assert_eq!(YAESU_FT710.frequency_digits(), 9);
+        assert_eq!(YAESU_FT710.frequency_bytes, 9);
+    }
+
+    #[test]
+    fn yaesu_ftdx10_frequency_digits_match_manual() {
+        assert_eq!(YAESU_FTDX10.frequency_digits(), 9);
+        assert_eq!(YAESU_FTDX10.frequency_bytes, 9);
+    }
+
+    #[test]
+    fn yaesu_legacy_binary_not_advertised_without_codec() {
+        assert!(find_profile_by_model("FT-817").is_none());
+        assert!(find_profile_by_model("FT-817ND").is_none());
+        assert!(find_profile_by_model("FT-818").is_none());
+        assert!(find_profile_by_model("FT-857").is_none());
+        assert!(find_profile_by_model("FT-857D").is_none());
+        assert!(find_profile_by_model("FT-897").is_none());
+        assert!(find_profile_by_model("FT-897D").is_none());
+        assert!(find_profile_by_model("FT-100").is_none());
     }
 }

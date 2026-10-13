@@ -240,7 +240,7 @@ Przykład: 14 074 000 Hz:
    - `IF;` — pełny 38-znakowy blok statusu transceivera (częstotliwość, RIT/XIT offset, stan TX/RX, emisja, VFO, Split).
 3. **Tryb Auto Information (AI)**:
    - Włączenie `AI2;` przy nawiązywaniu połączenia eliminuje konieczność ciągłego odpytywania częstotliwości, emisji i PTT.
-   - Radio samorzutnie rozsyła zmiany parametrów (np. obrót gałką VFO, zmiana pasma, aktywacja PTT), redukując ruch na szynie o ponad 80%.
+   - Radio samorzutnie rozsyła zmiany parametrów (np. obrót gałką VFO, zmiana pasma, aktywacja PTT), redukując nadmiarowy ruch odpytywania.
 4. **Transport**:
    - Porty szeregowe / USB Virtual COM przez `tokio-serial`,
    - Kenwood Network Command System (KNS LAN): TCP port 60000 dla TS-890S i TS-990S, negocjacja `##CN` / `##ID` z bezpiecznym maskowaniem poświadczeń.
@@ -251,31 +251,32 @@ Przykład: 14 074 000 Hz:
 
 ---
 
-## 12. Mapa Yaesu CAT (Wdrożono w NATIVE-3)
+## 12. Mapa Yaesu CAT (Wdrożono w NATIVE-3, Audyt NATIVE-3A)
 
 1. **Format protokołu**:
    - **Nowoczesna rodzina tekstowa ASCII** (FT-891, FT-991A, FT-710, FTDX10): komendy alfanumeryczne zakończone średnikiem `;`.
-   - **Klasyczna rodzina binarna** (FT-817, FT-857, FT-897): 5-bajtowe pakiety binarne z opcodem w ostatnim bajcie (zaklasyfikowana w enumie `YaesuProtocolFamily::LegacyBinary`).
+   - **Klasyczna rodzina binarna** (FT-817, FT-857, FT-897): LegacyBinary sklasyfikowano w enumie `YaesuProtocolFamily::LegacyBinary`, ale nie wdrożono w NATIVE-3 (brak kodeka binarnego, modele nie są rejestrowane jako aktywne profile).
 2. **Kluczowe komendy ASCII**:
-   - `FA<9 cyfr Hz>;` / `FB<9 cyfr Hz>;` — częstotliwość VFO A / VFO B (odczyt: `FA;` / `FB;`), np. `FA014074000;` dla 14.074 MHz.
-   - `MD0<kod>;` — emisja (1: LSB, 2: USB, 3: CW-U, 4: FM, 5: AM, 6: RTTY-L, 7: CW-L, 8: DATA-L, 9: RTTY-U, A: DATA-FM, B: FM-N, C: DATA-U, D: AM-N, E: PSK).
+   - `FA<9 cyfr Hz>;` / `FB<9 cyfr Hz>;` — częstotliwość VFO A / VFO B (odczyt: `FA;` / `FB;`), np. `FA014074000;` dla 14.074 MHz (9 cyfr Hz). Formatter odrzuca wartości niepoprawne i przekraczające limit profilu.
+   - `MD0<kod>;` — emisja (1: LSB, 2: USB, 3: CW-U, 4: FM, 5: AM, 6: RTTY-L, 7: CW-L, 8: DATA-L, 9: RTTY-U, A: DATA-FM, B: FM-N, C: DATA-U, D: AM-N, E: PSK na FT-710/FTDX10 lub C4FM na FT-991A; brak na FT-891). Brak cichego fallbacku do USB.
    - `TX1;` / `TX0;` — bezpieczne sterowanie PTT bez ponawiania (odczyt: `TX;` zwraca `TX0;`/`TX1;`/`TX2;`).
-   - `SM0;` — odczyt S-metra (odpowiedź `SM000xx;`, mapowana na dBm i jednostki S).
+   - `SM0;` — odczyt S-metra (odpowiedź `SM0[000-255];`). Protokół zwraca surową wartość przetwornika ADC i nie definiuje przeliczenia na dBm — backend nie fabrykuje sztucznych wartości dBm.
    - `FT0;` / `FT1;` — załączenie i wyłączenie pracy Split.
-   - `IF;` — 27-znakowy blok statusu transceivera (częstotliwość 9B, offset RIT 5B, flagi RIT/XIT, stan TX/RX, emisja, VFO, Split).
-   - `AI1;` / `AI0;` — włączenie / wyłączenie trybu Auto Information.
+   - `IF;` — 29-znakowy (lub 27-znakowy bez P11/P12) blok statusu transceivera (częstotliwość 9B, offset RIT 5B, flagi RIT/XIT, stan TX/RX, emisja, VFO, Split).
+   - `AI1;` / `AI0;` — włączenie / wyłączenie trybu Auto Information (podczas rozłączania sesji wysyłane jest `AI0;` w celu wyłączenia strumieniowania).
    - `?;` — odpowiedź błędu radioodbiornika na nieprawidłowe lub niedozwolone polecenie.
 3. **Tryb Auto Information (AI)**:
    - Włączenie `AI1;` przy nawiązywaniu połączenia eliminuje konieczność ciągłego odpytywania częstotliwości, emisji i PTT.
-   - Transceiver asynchronicznie rozsyła zmiany parametrów (ruch gałką, zmiana emisji, PTT), minimalizując ruch na magistrali.
-4. **Transport i podwójne porty COM**:
-   - Transceivery Yaesu ze zintegrowanym kontrolerem USB (Silicon Labs CP2105) udostępniają dwa porty COM: **Enhanced COM Port** (sterowanie CAT, komendy ASCII) oraz **Standard COM Port** (kluczowanie CW/FSK lub PTT liniami DTR/RTS).
-   - Backend udostępnia funkcję pomocniczą `is_enhanced_port_recommended()` ostrzegającą w logach w przypadku omyłkowego podpięcia pod Standard COM Port.
+   - Transceiver asynchronicznie rozsyła zmiany parametrów (ruch gałką, zmiana emisji, PTT), redukując liczbę zapytań pollingowych w stanie spoczynku do pojedynczego odczytu S-metra.
+4. **Transport i porty COM per profil**:
+   - Transceivery Yaesu ze zintegrowanym kontrolerem USB (Silicon Labs CP2105) udostępniają w systemie dwa wirtualne porty: **Enhanced COM Port** i **Standard COM Port**.
+   - **Enhanced COM Port** jest preferowanym portem do sterowania CAT dla wszystkich nowoczesnych modeli.
+   - **Standard COM Port**: na FT-710 port CAT-2 (Standard COM) może zostać w menu skonfigurowany do obsługi komend CAT. Na FT-891, FT-991A i FTDX10 port Standard COM służy wyłącznie do sprzętowego kluczowania PTT/CW/FSK przez linie RTS/DTR.
 5. **Profile referencyjne**:
-   - `FT-891` (przenośny KF/50MHz, 38400 baud domyślnie, 2 bity stopu, brak wbudowanej karty dźwiękowej USB na audio, pojedynczy port CAT),
-   - `FT-991A` (stacjonarno-przewoźny KF/VHF/UHF z C4FM, 38400 baud, podwójny port USB CP2105),
-   - `FT-710` (Direct Sampling SDR, 38400 baud domyślnie, podwójny port USB CP2105),
-   - `FTDX10` (Hybrid SDR, 38400 baud domyślnie, podwójny port USB CP2105).
+   - `FT-891` (fabrycznie 4800 baud, dozwolone: 4800, 9600, 19200, 38400 bps, 9 cyfr Hz, pojedynczy port CAT na Enhanced COM),
+   - `FT-991A` (fabrycznie 4800 baud [Menu 031 CAT RATE], dozwolone: 4800, 9600, 19200, 38400 bps, 9 cyfr Hz, Enhanced COM dla CAT, kod E = C4FM),
+   - `FT-710` (fabrycznie 38400 baud [CAT-1 RATE], dozwolone: 4800, 9600, 19200, 38400, 115200 bps, 9 cyfr Hz, Standard COM CAT-2 konfigurowalny w menu),
+   - `FTDX10` (fabrycznie 38400 baud, dozwolone: 4800, 9600, 19200, 38400, 115200 bps, 9 cyfr Hz, Enhanced COM dla CAT, kod E = PSK).
 
 ---
 

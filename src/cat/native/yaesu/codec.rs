@@ -138,6 +138,11 @@ pub struct YaesuIfInfo {
 
 impl YaesuIfInfo {
     /// Parsuje surową odpowiedź Yaesu na komendę `IF;`.
+    pub fn parse(raw: &str) -> Option<Self> {
+        Self::parse_for_model("", raw)
+    }
+
+    /// Parsuje surową odpowiedź Yaesu na komendę `IF;` z uwzględnieniem specyfiki danego modelu.
     ///
     /// Typowa struktura ramki Yaesu `IF;` (zgodna z FT-891, FT-991A, FT-710, FTDX10):
     /// `IF[P1:3][P2:9][P3:5][P4:1][P5:1][P6:1][P7:1][P8:1][P9:1][P10:1][P11:1][P12:1];`
@@ -151,7 +156,7 @@ impl YaesuIfInfo {
     /// - P8 (znak 23): tryb emisji (kod Yaesu MD: 1..9, A..E)
     /// - P9 (znak 24): stan nadawania (0 = RX, 1 = TX) lub stan skanera
     /// - P10 (znak 25): status Split (0 = OFF, 1 = ON)
-    pub fn parse(raw: &str) -> Option<Self> {
+    pub fn parse_for_model(model_id: &str, raw: &str) -> Option<Self> {
         let trimmed = raw.trim();
         if !trimmed.starts_with("IF") || !trimmed.ends_with(';') {
             return None;
@@ -169,6 +174,9 @@ impl YaesuIfInfo {
             return None;
         }
         let freq_str: String = chars[3..12].iter().collect();
+        if !freq_str.chars().all(|c| c.is_ascii_digit()) {
+            return None;
+        }
         let frequency_hz = freq_str.trim().parse::<u64>().ok()?;
 
         // 2. RIT offset P3 (5 znaków, indeksy 12..17)
@@ -191,9 +199,13 @@ impl YaesuIfInfo {
         // 5. VFO selection P7 (indeks 20)
         let vfo_b = chars.get(20).copied() == Some('1');
 
-        // 6. Mode P8 (indeks 21)
-        let mode_char = chars.get(21).copied().unwrap_or('2');
-        let mode = YaesuCat::map_mode_code(mode_char);
+        // 6. Mode P8 (indeks 21) — brak cichego fallbacku do USB
+        let mode_char = chars.get(21).copied()?;
+        let mode = if model_id.is_empty() {
+            YaesuCat::map_mode_code_opt(mode_char)?
+        } else {
+            YaesuCat::map_mode_code_for_model(model_id, mode_char)?
+        };
 
         // 7. TX status P9 (indeks 22)
         let tx = chars.get(22).copied() == Some('1');
@@ -218,11 +230,27 @@ impl YaesuIfInfo {
 pub struct YaesuCat;
 
 impl YaesuCat {
+    /// Format polecenia ustawienia częstotliwości VFO A lub B w Hz ze wskazaną liczbą cyfr.
+    /// Odrzuca wartości, które nie mieszczą się w zadanym rozmiarze bez obcinania najstarszych cyfr.
+    pub fn format_freq_checked(vfo_b: bool, freq_hz: u64, digits: usize) -> Option<String> {
+        if digits == 0 {
+            return None;
+        }
+        let s = freq_hz.to_string();
+        if s.len() > digits {
+            return None;
+        }
+        let cmd = if vfo_b { "FB" } else { "FA" };
+        Some(format!("{cmd}{freq_hz:0digits$};"))
+    }
+
     /// Format polecenia ustawienia częstotliwości VFO A lub B w Hz.
     /// Standard Yaesu ASCII używa 9 cyfr Hz (np. "FA014074000;").
     pub fn set_freq(vfo_b: bool, freq_hz: u64) -> String {
-        let cmd = if vfo_b { "FB" } else { "FA" };
-        format!("{cmd}{freq_hz:09};")
+        Self::format_freq_checked(vfo_b, freq_hz, 9).unwrap_or_else(|| {
+            let cmd = if vfo_b { "FB" } else { "FA" };
+            format!("{cmd}{freq_hz:09};")
+        })
     }
 
     /// Polecenie odczytu częstotliwości VFO A lub B.
@@ -230,27 +258,47 @@ impl YaesuCat {
         if vfo_b { "FB;" } else { "FA;" }
     }
 
-    /// Format polecenia ustawienia emisji transceivera.
-    /// Yaesu stosuje polecenie `MD0<kod>;` (np. `MD02;` dla USB, `MD0C;` dla DATA-U).
-    pub fn set_mode(mode: &str) -> Option<String> {
+    /// Format polecenia ustawienia emisji transceivera dla danego profilu modelu.
+    pub fn set_mode_for_model(model_id: &str, mode: &str) -> Option<String> {
         let code = match mode.to_ascii_uppercase().as_str() {
             "LSB" => '1',
             "USB" => '2',
             "CW" | "CW-U" => '3',
             "FM" => '4',
             "AM" => '5',
-            "RTTY" | "RTTY-LSB" | "FSK" => '6',
+            "RTTY" | "RTTY-L" | "RTTY-LSB" | "FSK" => '6',
             "CW-R" | "CW-L" => '7',
             "DATA-L" | "DATA-LSB" | "PKT-LSB" => '8',
-            "RTTY-R" | "RTTY-USB" | "FSK-R" => '9',
+            "RTTY-R" | "RTTY-U" | "RTTY-USB" | "FSK-R" => '9',
             "DATA-FM" => 'A',
             "FM-N" => 'B',
             "DATA" | "DATA-U" | "DATA-USB" | "PKT-USB" | "FT8" => 'C',
             "AM-N" => 'D',
-            "PSK" => 'E',
+            "PSK" => {
+                let id = model_id.trim().to_ascii_uppercase();
+                // PSK jest wspierane m.in. na FT-710 i FTDX10 (kod 'E'), ale nie na FT-891
+                if id.contains("891") {
+                    return None;
+                }
+                'E'
+            }
+            "C4FM" => {
+                let id = model_id.trim().to_ascii_uppercase();
+                if id.contains("991") {
+                    'E'
+                } else {
+                    return None;
+                }
+            }
             _ => return None,
         };
         Some(format!("MD0{code};"))
+    }
+
+    /// Format polecenia ustawienia emisji transceivera.
+    /// Yaesu stosuje polecenie `MD0<kod>;` (np. `MD02;` dla USB, `MD0C;` dla DATA-U).
+    pub fn set_mode(mode: &str) -> Option<String> {
+        Self::set_mode_for_model("", mode)
     }
 
     /// Polecenie odczytu bieżącej emisji transceivera.
@@ -294,24 +342,91 @@ impl YaesuCat {
         "IF;"
     }
 
-    /// Mapuje 1-znakowy kod emisji Yaesu na ujednolicony napis emisji.
-    pub fn map_mode_code(code: char) -> &'static str {
+    /// Bezpieczne mapowanie 1-znakowego kodu emisji Yaesu na ujednolicony napis emisji (brak fallbacku do USB).
+    pub fn map_mode_code_opt(code: char) -> Option<&'static str> {
         match code {
-            '1' => "LSB",
-            '3' => "CW",
-            '4' => "FM",
-            '5' => "AM",
-            '6' => "RTTY",
-            '7' => "CW-R",
-            '8' => "DATA-L",
-            '9' => "RTTY-R",
-            'A' => "DATA-FM",
-            'B' => "FM-N",
-            'C' => "DATA-U",
-            'D' => "AM-N",
-            'E' => "PSK",
-            _ => "USB",
+            '1' => Some("LSB"),
+            '2' => Some("USB"),
+            '3' => Some("CW-U"),
+            '4' => Some("FM"),
+            '5' => Some("AM"),
+            '6' => Some("RTTY-L"),
+            '7' => Some("CW-L"),
+            '8' => Some("DATA-L"),
+            '9' => Some("RTTY-U"),
+            'A' => Some("DATA-FM"),
+            'B' => Some("FM-N"),
+            'C' => Some("DATA-U"),
+            'D' => Some("AM-N"),
+            'E' => Some("PSK"),
+            _ => None,
         }
+    }
+
+    /// Mapuje 1-znakowy kod emisji Yaesu dla konkretnego profilu modelu.
+    pub fn map_mode_code_for_model(model_id: &str, code: char) -> Option<&'static str> {
+        let id = model_id.trim().to_ascii_uppercase();
+        if id.contains("891") {
+            match code {
+                '1' => Some("LSB"),
+                '2' => Some("USB"),
+                '3' => Some("CW-U"),
+                '4' => Some("FM"),
+                '5' => Some("AM"),
+                '6' => Some("RTTY-L"),
+                '7' => Some("CW-L"),
+                '8' => Some("DATA-L"),
+                '9' => Some("RTTY-U"),
+                'A' => Some("DATA-FM"),
+                'B' => Some("FM-N"),
+                'C' => Some("DATA-U"),
+                'D' => Some("AM-N"),
+                _ => None,
+            }
+        } else if id.contains("991") {
+            match code {
+                '1' => Some("LSB"),
+                '2' => Some("USB"),
+                '3' => Some("CW-U"),
+                '4' => Some("FM"),
+                '5' => Some("AM"),
+                '6' => Some("RTTY-L"),
+                '7' => Some("CW-L"),
+                '8' => Some("DATA-L"),
+                '9' => Some("RTTY-U"),
+                'A' => Some("DATA-FM"),
+                'B' => Some("FM-N"),
+                'C' => Some("DATA-U"),
+                'D' => Some("AM-N"),
+                'E' => Some("C4FM"),
+                _ => None,
+            }
+        } else if id.contains("710") || id.contains("DX10") || id.contains("101") {
+            match code {
+                '1' => Some("LSB"),
+                '2' => Some("USB"),
+                '3' => Some("CW-U"),
+                '4' => Some("FM"),
+                '5' => Some("AM"),
+                '6' => Some("RTTY-L"),
+                '7' => Some("CW-L"),
+                '8' => Some("DATA-L"),
+                '9' => Some("RTTY-U"),
+                'A' => Some("DATA-FM"),
+                'B' => Some("FM-N"),
+                'C' => Some("DATA-U"),
+                'D' => Some("AM-N"),
+                'E' => Some("PSK"),
+                _ => None,
+            }
+        } else {
+            Self::map_mode_code_opt(code)
+        }
+    }
+
+    /// Mapuje 1-znakowy kod emisji Yaesu na ujednolicony napis emisji (dla kompatybilności wstecznej).
+    pub fn map_mode_code(code: char) -> &'static str {
+        Self::map_mode_code_opt(code).unwrap_or("USB")
     }
 
     /// Parsuje odpowiedź na odczyt częstotliwości (`FA<częstotliwość>;` lub `FB<częstotliwość>;`).
@@ -325,12 +440,20 @@ impl YaesuCat {
         };
 
         let digits = content.trim_end_matches(';').trim();
+        if digits.is_empty() || !digits.chars().all(|c| c.is_ascii_digit()) {
+            return None;
+        }
         let hz = digits.parse::<u64>().ok()?;
         Some((is_vfo_b, hz))
     }
 
     /// Parsuje odpowiedź na odczyt emisji (`MD0<kod>;` lub `MD<kod>;`).
     pub fn parse_mode_resp(resp: &str) -> Option<&'static str> {
+        Self::parse_mode_resp_for_model("", resp)
+    }
+
+    /// Parsuje odpowiedź na odczyt emisji dla konkretnego profilu modelu.
+    pub fn parse_mode_resp_for_model(model_id: &str, resp: &str) -> Option<&'static str> {
         let trimmed = resp.trim();
         let body = if let Some(s) = trimmed.strip_prefix("MD0") {
             s
@@ -339,7 +462,11 @@ impl YaesuCat {
         };
 
         let code_char = body.trim_end_matches(';').chars().next()?;
-        Some(Self::map_mode_code(code_char))
+        if model_id.is_empty() {
+            Self::map_mode_code_opt(code_char)
+        } else {
+            Self::map_mode_code_for_model(model_id, code_char)
+        }
     }
 
     /// Parsuje odpowiedź na odczyt stanu PTT (`TX0;` -> RX, `TX1;` lub `TX2;` -> TX).
@@ -377,24 +504,32 @@ impl YaesuCat {
         digits.parse::<u16>().ok()
     }
 
-    /// Przelicza surową wartość S-metra Yaesu (zazwyczaj 0..255) na dBm oraz etykietę S-jednostki.
-    pub fn smeter_to_dbm_and_unit(raw: u16) -> (f32, String) {
-        // Skala referencyjna IARU: S9 = -73 dBm (dla HF, 50 uV na 50 Ohm), 6 dB na jednostkę S.
-        // W transceiverach Yaesu wartość ~120 odpowiada zazwyczaj S9.
+    /// Przelicza surowy odczyt S-metra Yaesu (0..255) na etykietę jednostki S (np. "S0".."S9", "S9+10dB"..).
+    /// Protokół Yaesu nie definiuje w oficjalnej specyfikacji CAT przeliczenia na dBm ani punktów
+    /// progowych dla dBm, dlatego backend nie fabrykuje sztucznej wartości dBm.
+    pub fn smeter_to_unit(raw: u16) -> String {
         let raw_val = raw.min(255);
-        let (dbm, unit) = if raw_val <= 120 {
-            // Zakres S0 do S9 (-127 dBm do -73 dBm, rozpiętość 54 dB)
-            let fraction = raw_val as f32 / 120.0;
-            let dbm = -127.0 + fraction * 54.0;
-            let s_num = (fraction * 9.0).round() as u8;
-            (dbm, format!("S{s_num}"))
+        if raw_val <= 120 {
+            let s_num = ((raw_val as f32 / 120.0) * 9.0).round() as u8;
+            format!("S{s_num}")
         } else {
-            // Zakres powyżej S9 (-73 dBm do -13 dBm, do S9+60dB)
             let over_fraction = (raw_val - 120) as f32 / 135.0;
             let db_over = (over_fraction * 60.0).round() as u8;
-            let dbm = -73.0 + over_fraction * 60.0;
             let step = (db_over / 10) * 10;
-            (dbm, format!("S9+{step}dB"))
+            format!("S9+{step}dB")
+        }
+    }
+
+    /// Pomocnicza funkcja zachowana dla celów testowych/interoperacyjnych.
+    /// Wartość dBm jest oznaczana jako przybliżenie referencyjne IARU (S9=-73dBm),
+    /// a nie fabryczny parametr sprzętu.
+    pub fn smeter_to_dbm_and_unit(raw: u16) -> (f32, String) {
+        let unit = Self::smeter_to_unit(raw);
+        let raw_val = raw.min(255);
+        let dbm = if raw_val <= 120 {
+            -127.0 + (raw_val as f32 / 120.0) * 54.0
+        } else {
+            -73.0 + ((raw_val - 120) as f32 / 135.0) * 60.0
         };
         (dbm, unit)
     }
@@ -586,6 +721,20 @@ mod tests {
         let (is_sub2, hz2) = YaesuCat::parse_freq_resp(&cmd_sub).expect("parse sub freq");
         assert!(is_sub2);
         assert_eq!(hz2, 7_040_000);
+
+        // format_freq_checked
+        assert_eq!(
+            YaesuCat::format_freq_checked(false, 14_074_000, 9),
+            Some("FA014074000;".to_string())
+        );
+        // Odrzucenie wartości przekraczającej liczbę cyfr
+        assert_eq!(YaesuCat::format_freq_checked(false, 1_000_000_000, 9), None);
+        assert_eq!(YaesuCat::format_freq_checked(false, 14_074_000, 0), None);
+
+        // Odrzucenie znaków nienumerycznych w parse_freq_resp
+        assert_eq!(YaesuCat::parse_freq_resp("FA+14074000;"), None);
+        assert_eq!(YaesuCat::parse_freq_resp("FA14A74000;"), None);
+        assert_eq!(YaesuCat::parse_freq_resp("FA;"), None);
     }
 
     #[test]
@@ -593,13 +742,13 @@ mod tests {
         let modes = [
             ("USB", "MD02;", "USB"),
             ("LSB", "MD01;", "LSB"),
-            ("CW", "MD03;", "CW"),
+            ("CW", "MD03;", "CW-U"),
             ("FM", "MD04;", "FM"),
             ("AM", "MD05;", "AM"),
-            ("RTTY", "MD06;", "RTTY"),
-            ("CW-R", "MD07;", "CW-R"),
+            ("RTTY", "MD06;", "RTTY-L"),
+            ("CW-R", "MD07;", "CW-L"),
             ("DATA-L", "MD08;", "DATA-L"),
-            ("RTTY-R", "MD09;", "RTTY-R"),
+            ("RTTY-R", "MD09;", "RTTY-U"),
             ("DATA-FM", "MD0A;", "DATA-FM"),
             ("FM-N", "MD0B;", "FM-N"),
             ("DATA-U", "MD0C;", "DATA-U"),
@@ -616,6 +765,69 @@ mod tests {
         }
 
         assert!(YaesuCat::set_mode("UNKNOWN_MODE").is_none());
+        assert_eq!(YaesuCat::map_mode_code_opt('X'), None);
+        assert_eq!(YaesuCat::map_mode_code_opt('0'), None);
+    }
+
+    #[test]
+    fn yaesu_mode_maps_are_profile_specific() {
+        // FT-891 nie posiada trybu PSK (kod 'E') ani C4FM
+        assert_eq!(YaesuCat::set_mode_for_model("FT-891", "PSK"), None);
+        assert_eq!(YaesuCat::map_mode_code_for_model("FT-891", 'E'), None);
+        assert_eq!(
+            YaesuCat::map_mode_code_for_model("FT-891", '1'),
+            Some("LSB")
+        );
+        assert_eq!(
+            YaesuCat::map_mode_code_for_model("FT-891", '2'),
+            Some("USB")
+        );
+        assert_eq!(
+            YaesuCat::map_mode_code_for_model("FT-891", '3'),
+            Some("CW-U")
+        );
+        assert_eq!(
+            YaesuCat::map_mode_code_for_model("FT-891", '7'),
+            Some("CW-L")
+        );
+        assert_eq!(
+            YaesuCat::map_mode_code_for_model("FT-891", 'C'),
+            Some("DATA-U")
+        );
+
+        // FT-991A: kod 'E' to C4FM
+        assert_eq!(
+            YaesuCat::set_mode_for_model("FT-991A", "C4FM"),
+            Some("MD0E;".to_string())
+        );
+        assert_eq!(
+            YaesuCat::map_mode_code_for_model("FT-991A", 'E'),
+            Some("C4FM")
+        );
+
+        // FT-710 / FTDX10: kod 'E' to PSK
+        assert_eq!(
+            YaesuCat::set_mode_for_model("FT-710", "PSK"),
+            Some("MD0E;".to_string())
+        );
+        assert_eq!(
+            YaesuCat::map_mode_code_for_model("FT-710", 'E'),
+            Some("PSK")
+        );
+        assert_eq!(
+            YaesuCat::set_mode_for_model("FTDX10", "PSK"),
+            Some("MD0E;".to_string())
+        );
+        assert_eq!(
+            YaesuCat::map_mode_code_for_model("FTDX10", 'E'),
+            Some("PSK")
+        );
+
+        // Brak fallbacku do USB dla nieznanych kodów
+        assert_eq!(YaesuCat::map_mode_code_for_model("FT-891", 'Z'), None);
+        assert_eq!(YaesuCat::map_mode_code_for_model("FT-991A", 'Z'), None);
+        assert_eq!(YaesuCat::map_mode_code_for_model("FT-710", 'Z'), None);
+        assert_eq!(YaesuCat::map_mode_code_for_model("FTDX10", 'Z'), None);
     }
 
     #[test]
@@ -639,17 +851,30 @@ mod tests {
         assert_eq!(YaesuCat::parse_smeter_resp("SM00120;"), Some(120));
         assert_eq!(YaesuCat::parse_smeter_resp("SM0000;"), Some(0));
 
-        let (dbm_zero, unit_zero) = YaesuCat::smeter_to_dbm_and_unit(0);
-        assert!((dbm_zero - (-127.0)).abs() < 0.1);
+        let unit_zero = YaesuCat::smeter_to_unit(0);
         assert_eq!(unit_zero, "S0");
 
-        let (dbm_s9, unit_s9) = YaesuCat::smeter_to_dbm_and_unit(120);
-        assert!((dbm_s9 - (-73.0)).abs() < 0.1);
+        let unit_s9 = YaesuCat::smeter_to_unit(120);
         assert_eq!(unit_s9, "S9");
 
-        let (dbm_over, unit_over) = YaesuCat::smeter_to_dbm_and_unit(255);
-        assert!((dbm_over - (-13.0)).abs() < 0.1);
+        let unit_over = YaesuCat::smeter_to_unit(255);
         assert_eq!(unit_over, "S9+60dB");
+    }
+
+    #[test]
+    fn yaesu_smeter_does_not_fabricate_dbm() {
+        // Protokół Yaesu SM0 zwraca surowe 000..255. Sprawdzamy, że smeter_to_unit
+        // zachowuje czystą skalę wskaźnika S bez arbitralnego przeliczania na dBm.
+        let u0 = YaesuCat::smeter_to_unit(0);
+        assert_eq!(u0, "S0");
+        let u60 = YaesuCat::smeter_to_unit(60);
+        assert_eq!(u60, "S5");
+        let u120 = YaesuCat::smeter_to_unit(120);
+        assert_eq!(u120, "S9");
+        let u180 = YaesuCat::smeter_to_unit(180);
+        assert_eq!(u180, "S9+20dB");
+        let u255 = YaesuCat::smeter_to_unit(255);
+        assert_eq!(u255, "S9+60dB");
     }
 
     #[test]
@@ -680,10 +905,48 @@ mod tests {
     }
 
     #[test]
+    fn yaesu_if_layouts_are_profile_validated() {
+        // Fixture FT-891: 14.074.000 Hz USB, RX, VFO-A, RIT off
+        let ft891_raw = "IF000014074000+0000000020000;";
+        let ft891_info = YaesuIfInfo::parse_for_model("FT-891", ft891_raw).expect("FT-891 parse");
+        assert_eq!(ft891_info.frequency_hz, 14_074_000);
+        assert_eq!(ft891_info.mode, "USB");
+        assert!(!ft891_info.tx);
+        assert!(!ft891_info.vfo_b);
+
+        // Fixture FT-991A: 144.200.000 Hz, C4FM (kod E), RX, VFO-A
+        let ft991a_raw = "IF000144200000+00000000E0000;";
+        let ft991a_info =
+            YaesuIfInfo::parse_for_model("FT-991A", ft991a_raw).expect("FT-991A parse");
+        assert_eq!(ft991a_info.frequency_hz, 144_200_000);
+        assert_eq!(ft991a_info.mode, "C4FM");
+
+        // Fixture FT-710: 7.074.000 Hz, DATA-U (kod C), TX, VFO-B, Split ON
+        let ft710_raw = "IF000007074000+00000001C1100;";
+        let ft710_info = YaesuIfInfo::parse_for_model("FT-710", ft710_raw).expect("FT-710 parse");
+        assert_eq!(ft710_info.frequency_hz, 7_074_000);
+        assert_eq!(ft710_info.mode, "DATA-U");
+        assert!(ft710_info.tx);
+        assert!(ft710_info.vfo_b);
+        assert!(ft710_info.split);
+
+        // Fixture FTDX10: 50.313.000 Hz, PSK (kod E), RX, VFO-A
+        let ftdx10_raw = "IF000050313000+00000000E0000;";
+        let ftdx10_info = YaesuIfInfo::parse_for_model("FTDX10", ftdx10_raw).expect("FTDX10 parse");
+        assert_eq!(ftdx10_info.frequency_hz, 50_313_000);
+        assert_eq!(ftdx10_info.mode, "PSK");
+
+        // Odrzucenie niepoprawnego kodu emisji bez cichego fallbacku do USB
+        let invalid_mode = "IF000014074000+00000000Z0000;";
+        assert!(YaesuIfInfo::parse_for_model("FT-891", invalid_mode).is_none());
+    }
+
+    #[test]
     fn test_if_info_parser_malformed() {
         assert!(YaesuIfInfo::parse("").is_none());
         assert!(YaesuIfInfo::parse("FA014074000;").is_none());
         assert!(YaesuIfInfo::parse("IF;").is_none());
         assert!(YaesuIfInfo::parse("IF123;").is_none());
+        assert!(YaesuIfInfo::parse("IF000014074000+0000000;").is_none());
     }
 }
