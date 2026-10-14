@@ -49,6 +49,7 @@ pub struct ElecraftBackend {
     ai_active: bool,
     confirmed_ptt: bool,
     raw_smeter: Option<u16>,
+    subreceiver_detected: Option<bool>,
 }
 
 impl ElecraftBackend {
@@ -65,6 +66,7 @@ impl ElecraftBackend {
             ai_active: false,
             confirmed_ptt: false,
             raw_smeter: None,
+            subreceiver_detected: None,
         }
     }
 
@@ -81,6 +83,7 @@ impl ElecraftBackend {
             ai_active: false,
             confirmed_ptt: false,
             raw_smeter: None,
+            subreceiver_detected: None,
         }
     }
 
@@ -100,6 +103,7 @@ impl ElecraftBackend {
             ai_active: false,
             confirmed_ptt: false,
             raw_smeter: None,
+            subreceiver_detected: None,
         }
     }
 
@@ -116,6 +120,7 @@ impl ElecraftBackend {
             ai_active: false,
             confirmed_ptt: false,
             raw_smeter: None,
+            subreceiver_detected: None,
         }
     }
 
@@ -142,6 +147,12 @@ impl ElecraftBackend {
     /// Zwraca ostatnio odczytaną surową wartość S-metra (słupki LCD).
     pub fn raw_smeter(&self) -> Option<u16> {
         self.raw_smeter
+    }
+
+    /// Informuje, czy w transceiverze wykryto aktywny/zainstalowany drugi odbiornik (KRX3/KRX4).
+    pub fn has_subreceiver(&self) -> bool {
+        self.subreceiver_detected
+            .unwrap_or(self.profile.supports_subreceiver)
     }
 
     /// Zwraca nazwę punktu końcowego (COM lub IP:port) do logów i błędów.
@@ -238,6 +249,8 @@ impl ElecraftBackend {
             } => {
                 if self.state.mode == "DATA" {
                     self.state.mode = name.to_string();
+                } else if self.state.mode == "DATA-R" {
+                    self.state.mode = format!("{name}-R");
                 }
             }
             ElecraftMessage::IfInfo(info) => {
@@ -301,6 +314,10 @@ impl ElecraftBackend {
                 vfo_b: false, dbm, ..
             } => {
                 self.state.s_meter_dbm = *dbm;
+            }
+            ElecraftMessage::OptionModule(opts) => {
+                let has_krx3 = opts.contains('S');
+                self.subreceiver_detected = Some(has_krx3);
             }
             _ => {}
         }
@@ -481,6 +498,24 @@ impl RigBackend for ElecraftBackend {
         let _ = self.query_and_await_response("FA;", "FA").await?;
         let _ = self.query_and_await_response("MD;", "MD").await;
 
+        // Wykryj obecność opcjonalnego modułu KRX3 na K3/K3S za pomocą OM;
+        if self.profile.static_subreceiver_capable
+            && self.profile.family == ElecraftProtocolFamily::K3Compatible
+        {
+            match self.query_and_await_response("OM;", "OM").await {
+                Ok(ElecraftMessage::OptionModule(opts)) => {
+                    self.subreceiver_detected = Some(opts.contains('S'));
+                }
+                _ => {
+                    self.subreceiver_detected = Some(false);
+                }
+            }
+        } else if self.profile.family == ElecraftProtocolFamily::K4 {
+            self.subreceiver_detected = Some(true);
+        } else {
+            self.subreceiver_detected = Some(false);
+        }
+
         // Faza 2: Inicjalizacja sesji i Auto-Info (jeśli wspierane przez profil)
         if self.profile.supports_auto_info {
             let ai_cmd = ElecraftCat::set_auto_info(self.profile.preferred_auto_info_mode);
@@ -520,7 +555,11 @@ impl RigBackend for ElecraftBackend {
         // 3. Odczyt mierników (w zależności od możliwości profilu)
         if self.profile.family == ElecraftProtocolFamily::K4 && self.profile.capabilities.s_meter {
             let _ = self.query_and_await_response("SMH;", "SMH").await;
-        } else if self.profile.capabilities.power && self.state.ptt {
+        } else if self.profile.family == ElecraftProtocolFamily::K3Compatible {
+            let _ = self.query_and_await_response("SM;", "SM").await;
+        }
+
+        if self.profile.capabilities.power && self.state.ptt {
             let _ = self.query_and_await_response("PO;", "PO").await;
         }
 
@@ -550,6 +589,12 @@ impl RigBackend for ElecraftBackend {
                     return Err(RigError::Unsupported {
                         backend: CatBackendKind::Elecraft,
                         command: "SetSplitFrequency",
+                    });
+                }
+                if !self.profile.supports_vfo_b_modifier {
+                    return Err(RigError::Unsupported {
+                        backend: CatBackendKind::Elecraft,
+                        command: "vfo_b_unsupported",
                     });
                 }
                 let cmd = ElecraftCat::set_freq(true, *hz);
@@ -692,7 +737,9 @@ impl RigBackend for ElecraftBackend {
                     });
                 }
                 let is_k4 = self.profile.family == ElecraftProtocolFamily::K4;
-                let cmd = ElecraftCat::set_power(*watts, is_k4);
+                let is_qrp = self.profile.model_id == "KX2" || self.profile.model_id == "KX3";
+                let max_w = self.profile.max_power_watts();
+                let cmd = ElecraftCat::set_power(*watts, max_w, is_k4, is_qrp);
                 self.send_command_raw(&cmd).await?;
                 self.state.rf_power_watts = *watts;
                 Ok(())
@@ -726,6 +773,7 @@ impl RigBackend for ElecraftBackend {
         self.session_active = false;
         self.ai_active = false;
         self.confirmed_ptt = false;
+        self.subreceiver_detected = None;
         self.state.connected = false;
     }
 }
@@ -752,7 +800,7 @@ mod tests {
             // Następnie odpytanie stanu początkowego
             let _ = server.read(&mut buf).await.unwrap();
             server
-                .write_all(b"FA00014074000;FB00007074000;MD2;")
+                .write_all(b"FA00014074000;FB00007074000;MD2;OMAP1S;")
                 .await
                 .unwrap();
 
@@ -764,6 +812,7 @@ mod tests {
         backend.connect().await.unwrap();
         assert!(backend.is_session_active());
         assert!(backend.is_ai_active());
+        assert!(backend.has_subreceiver());
         assert_eq!(backend.current_state().frequency_hz, 14_074_000);
 
         server_jh.await.unwrap();
@@ -818,7 +867,7 @@ mod tests {
                 } else if s.contains("FA;") {
                     server
                         .write_all(
-                            b"FA00014074000;FB00007074000;MD2;IF00014074000     +000000 000200001;",
+                            b"FA00014074000;FB00007074000;MD2;IF00014074000     +000000 000200001;OMAP1S;",
                         )
                         .await
                         .unwrap();
@@ -846,7 +895,9 @@ mod tests {
             server.write_all(b"ID017;").await.unwrap();
             let _ = server.read(&mut buf).await.unwrap();
             server
-                .write_all(b"FA00014074000;FB00007074000;MD2;IF00014074000     +000000 000200001;")
+                .write_all(
+                    b"FA00014074000;FB00007074000;MD2;IF00014074000     +000000 000200001;OMAP1S;",
+                )
                 .await
                 .unwrap();
 
@@ -874,15 +925,17 @@ mod tests {
             server.write_all(b"ID017;").await.unwrap();
             let _ = server.read(&mut buf).await.unwrap();
             server
-                .write_all(b"FA00014074000;FB00007074000;MD2;")
+                .write_all(b"FA00014074000;FB00007074000;MD2;OMAP1S;")
                 .await
                 .unwrap();
             let _ = server.read(&mut buf).await.unwrap();
             server.write_all(b"AI2;").await.unwrap();
 
-            // W pętli poll backend odpytuje TQ;
+            // W pętli poll backend odpytuje TQ; oraz SM;
             let _ = server.read(&mut buf).await.unwrap();
             server.write_all(b"TQ0;").await.unwrap();
+            let _ = server.read(&mut buf).await.unwrap();
+            server.write_all(b"SM0012;").await.unwrap();
         });
 
         backend.connect().await.unwrap();
@@ -890,6 +943,7 @@ mod tests {
         assert_eq!(state.frequency_hz, 14_074_000);
         assert_eq!(state.mode, "USB");
         assert!(!state.ptt);
+        assert_eq!(backend.raw_smeter(), Some(12));
 
         server_jh.await.unwrap();
     }
@@ -905,7 +959,7 @@ mod tests {
             server.write_all(b"ID017;").await.unwrap();
             let _ = server.read(&mut buf).await.unwrap();
             server
-                .write_all(b"FA00014074000;FB00007074000;MD2;")
+                .write_all(b"FA00014074000;FB00007074000;MD2;OMAP1S;")
                 .await
                 .unwrap();
             let _ = server.read(&mut buf).await.unwrap();
@@ -937,7 +991,7 @@ mod tests {
             server.write_all(b"ID017;").await.unwrap();
             let _ = server.read(&mut buf).await.unwrap();
             server
-                .write_all(b"FA00014074000;FB00007074000;MD2;")
+                .write_all(b"FA00014074000;FB00007074000;MD2;OMAP1S;")
                 .await
                 .unwrap();
             let _ = server.read(&mut buf).await.unwrap();
@@ -972,7 +1026,7 @@ mod tests {
             server.write_all(b"ID017;").await.unwrap();
             let _ = server.read(&mut buf).await.unwrap();
             server
-                .write_all(b"FA00014074000;FB00007074000;MD2;")
+                .write_all(b"FA00014074000;FB00007074000;MD2;OMAP1S;")
                 .await
                 .unwrap();
             let _ = server.read(&mut buf).await.unwrap();
@@ -1007,7 +1061,7 @@ mod tests {
             server.write_all(b"ID017;").await.unwrap();
             let _ = server.read(&mut buf).await.unwrap();
             server
-                .write_all(b"FA00014074000;FB00007074000;MD2;")
+                .write_all(b"FA00014074000;FB00007074000;MD2;OMAP1S;")
                 .await
                 .unwrap();
             let _ = server.read(&mut buf).await.unwrap();
@@ -1108,7 +1162,7 @@ mod tests {
             server.write_all(b"ID017;").await.unwrap();
             let _ = server.read(&mut buf).await.unwrap();
             server
-                .write_all(b"FA00014074000;FB00007074000;MD2;")
+                .write_all(b"FA00014074000;FB00007074000;MD2;OMAP1S;")
                 .await
                 .unwrap();
             let _ = server.read(&mut buf).await.unwrap();
@@ -1138,20 +1192,23 @@ mod tests {
             server.write_all(b"ID017;").await.unwrap();
             let _ = server.read(&mut buf).await.unwrap();
             server
-                .write_all(b"FA00014074000;FB00007074000;MD2;")
+                .write_all(b"FA00014074000;FB00007074000;MD2;OMAP1S;")
                 .await
                 .unwrap();
             let _ = server.read(&mut buf).await.unwrap();
             server.write_all(b"AI2;").await.unwrap();
 
-            // Backend pyta o TQ;, a serwer najpierw zwraca spontaniczne Auto-Info BG;
+            // Backend pyta o TQ; oraz SM;, a serwer najpierw zwraca spontaniczne Auto-Info BG;
             let _ = server.read(&mut buf).await.unwrap();
             server.write_all(b"BG05R;TQ0;").await.unwrap();
+            let _ = server.read(&mut buf).await.unwrap();
+            server.write_all(b"SM0010;").await.unwrap();
         });
 
         backend.connect().await.unwrap();
         let st = backend.poll().await.unwrap();
         assert!(!st.ptt);
+        assert_eq!(backend.raw_smeter(), Some(10));
 
         server_jh.await.unwrap();
     }
@@ -1170,7 +1227,7 @@ mod tests {
             server.write_all(b"FA00014").await.unwrap();
             tokio::time::sleep(Duration::from_millis(50)).await;
             server
-                .write_all(b"074000;FB00007074000;MD2;")
+                .write_all(b"074000;FB00007074000;MD2;OMAP1S;")
                 .await
                 .unwrap();
             let _ = server.read(&mut buf).await.unwrap();
@@ -1206,7 +1263,7 @@ mod tests {
             server.write_all(b"ID017;").await.unwrap();
             let _ = server.read(&mut buf).await.unwrap();
             server
-                .write_all(b"FA00014074000;FB00007074000;MD2;")
+                .write_all(b"FA00014074000;FB00007074000;MD2;OMAP1S;")
                 .await
                 .unwrap();
             // Odrzucenie AI
@@ -1239,7 +1296,7 @@ mod tests {
             server.write_all(b"ID017;").await.unwrap();
             let _ = server.read(&mut buf).await.unwrap();
             server
-                .write_all(b"FA00014074000;FB00007074000;MD2;")
+                .write_all(b"FA00014074000;FB00007074000;MD2;OMAP1S;")
                 .await
                 .unwrap();
             let _ = server.read(&mut buf).await.unwrap();
@@ -1269,7 +1326,7 @@ mod tests {
             server.write_all(b"ID017;").await.unwrap();
             let _ = server.read(&mut buf).await.unwrap();
             server
-                .write_all(b"FA00014074000;FB00007074000;MD2;")
+                .write_all(b"FA00014074000;FB00007074000;MD2;OMAP1S;")
                 .await
                 .unwrap();
             let _ = server.read(&mut buf).await.unwrap();
@@ -1301,7 +1358,7 @@ mod tests {
             server.write_all(b"ID017;").await.unwrap();
             let _ = server.read(&mut buf).await.unwrap();
             server
-                .write_all(b"FA00014074000;FB00007074000;MD2;")
+                .write_all(b"FA00014074000;FB00007074000;MD2;OMAP1S;")
                 .await
                 .unwrap();
             let _ = server.read(&mut buf).await.unwrap();
@@ -1340,5 +1397,155 @@ mod tests {
         let start = std::time::Instant::now();
         backend.disconnect().await;
         assert!(start.elapsed() < Duration::from_millis(500));
+    }
+
+    #[tokio::test]
+    async fn elecraft_backend_k3_krx3_detection_with_s() {
+        let (client, mut server) = duplex(1024);
+        let mut backend = ElecraftBackend::with_stream(client, ELECRAFT_K3_PROFILE.clone());
+
+        let server_jh = tokio::spawn(async move {
+            let mut buf = [0u8; 128];
+            let _ = server.read(&mut buf).await.unwrap();
+            server.write_all(b"ID017;").await.unwrap();
+            let _ = server.read(&mut buf).await.unwrap();
+            server
+                .write_all(b"FA00014074000;FB00007074000;MD2;")
+                .await
+                .unwrap();
+            let _ = server.read(&mut buf).await.unwrap();
+            // OM zawiera 'S' (KRX3 zainstalowany)
+            server.write_all(b"OMAP1S;").await.unwrap();
+            let _ = server.read(&mut buf).await.unwrap();
+            server.write_all(b"AI2;").await.unwrap();
+        });
+
+        backend.connect().await.unwrap();
+        assert!(backend.has_subreceiver());
+        server_jh.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn elecraft_backend_k3_krx3_detection_without_s() {
+        let (client, mut server) = duplex(1024);
+        let mut backend = ElecraftBackend::with_stream(client, ELECRAFT_K3_PROFILE.clone());
+
+        let server_jh = tokio::spawn(async move {
+            let mut buf = [0u8; 128];
+            let _ = server.read(&mut buf).await.unwrap();
+            server.write_all(b"ID017;").await.unwrap();
+            let _ = server.read(&mut buf).await.unwrap();
+            server
+                .write_all(b"FA00014074000;FB00007074000;MD2;")
+                .await
+                .unwrap();
+            let _ = server.read(&mut buf).await.unwrap();
+            // OM bez 'S' (brak modułu KRX3)
+            server.write_all(b"OMAP1;").await.unwrap();
+            let _ = server.read(&mut buf).await.unwrap();
+            server.write_all(b"AI2;").await.unwrap();
+        });
+
+        backend.connect().await.unwrap();
+        assert!(!backend.has_subreceiver());
+        server_jh.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn elecraft_backend_kx2_has_subreceiver_false() {
+        let (client, mut server) = duplex(1024);
+        let mut backend = ElecraftBackend::with_stream(client, ELECRAFT_KX2_PROFILE.clone());
+
+        let server_jh = tokio::spawn(async move {
+            let mut buf = [0u8; 128];
+            let _ = server.read(&mut buf).await.unwrap();
+            server.write_all(b"ID017;").await.unwrap();
+            let _ = server.read(&mut buf).await.unwrap();
+            server
+                .write_all(b"FA00014074000;FB00007074000;MD2;")
+                .await
+                .unwrap();
+            let _ = server.read(&mut buf).await.unwrap();
+            server.write_all(b"AI2;").await.unwrap();
+        });
+
+        backend.connect().await.unwrap();
+        // KX2 nie ma modułu drugiego odbiornika w.cz.
+        assert!(!backend.has_subreceiver());
+        server_jh.await.unwrap();
+    }
+
+    #[test]
+    fn elecraft_backend_data_submode_preserves_data_r() {
+        let (client, _) = duplex(64);
+        let mut backend = ElecraftBackend::with_stream(client, ELECRAFT_K3_PROFILE.clone());
+        backend.state.mode = "DATA-R".to_string();
+
+        let msg = ElecraftMessage::DataSubMode {
+            vfo_b: false,
+            submode: 3,
+            name: "PSK D",
+        };
+        backend.apply_message_to_state(&msg);
+        assert_eq!(backend.current_state().mode, "PSK D-R");
+    }
+
+    #[tokio::test]
+    async fn elecraft_backend_kx2_set_split_frequency_allowed() {
+        let (client, mut server) = duplex(1024);
+        let mut backend = ElecraftBackend::with_stream(client, ELECRAFT_KX2_PROFILE.clone());
+
+        let server_jh = tokio::spawn(async move {
+            let mut buf = [0u8; 128];
+            let _ = server.read(&mut buf).await.unwrap();
+            server.write_all(b"ID017;").await.unwrap();
+            let _ = server.read(&mut buf).await.unwrap();
+            server
+                .write_all(b"FA00014074000;FB00007074000;MD2;")
+                .await
+                .unwrap();
+            let _ = server.read(&mut buf).await.unwrap();
+            server.write_all(b"AI2;").await.unwrap();
+
+            // SetSplitFrequency wysyła FB00014075000;
+            let n = server.read(&mut buf).await.unwrap();
+            assert_eq!(std::str::from_utf8(&buf[..n]).unwrap(), "FB00014075000;");
+        });
+
+        backend.connect().await.unwrap();
+        backend
+            .execute(&RigCommand::SetSplitFrequency(14_075_000))
+            .await
+            .unwrap();
+        assert_eq!(backend.current_state().tx_frequency_hz, Some(14_075_000));
+        server_jh.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn elecraft_backend_power_qrp_scale() {
+        let (client, mut server) = duplex(1024);
+        let mut backend = ElecraftBackend::with_stream(client, ELECRAFT_KX2_PROFILE.clone());
+
+        let server_jh = tokio::spawn(async move {
+            let mut buf = [0u8; 128];
+            let _ = server.read(&mut buf).await.unwrap();
+            server.write_all(b"ID017;").await.unwrap();
+            let _ = server.read(&mut buf).await.unwrap();
+            server
+                .write_all(b"FA00014074000;FB00007074000;MD2;")
+                .await
+                .unwrap();
+            let _ = server.read(&mut buf).await.unwrap();
+            server.write_all(b"AI2;").await.unwrap();
+
+            // SetPower(5.0) na KX2 wysyła PC050L;
+            let n = server.read(&mut buf).await.unwrap();
+            assert_eq!(std::str::from_utf8(&buf[..n]).unwrap(), "PC050L;");
+        });
+
+        backend.connect().await.unwrap();
+        backend.execute(&RigCommand::SetPower(5.0)).await.unwrap();
+        assert_eq!(backend.current_state().rf_power_watts, 5.0);
+        server_jh.await.unwrap();
     }
 }

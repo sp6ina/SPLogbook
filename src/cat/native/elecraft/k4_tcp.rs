@@ -470,4 +470,12 @@ mod tests {
             .await
             .expect("Server task should be awaited without errors");
     }
+
+    #[test]
+    fn elecraft_k4_default_tcp_port_constant() {
+        assert_eq!(K4_DEFAULT_TCP_PORT, 9200);
+        let default_cfg = ElecraftTcpConfig::default();
+        assert_eq!(default_cfg.port, 9200);
+        assert_eq!(default_cfg.host, "127.0.0.1");
+    }
 }

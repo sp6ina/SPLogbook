@@ -79,6 +79,25 @@ impl std::fmt::Display for ElecraftCodecError {
 
 impl std::error::Error for ElecraftCodecError {}
 
+/// Znane 4-znakowe prefiksy poleceń Elecraft (np. z prefiksem `#`).
+pub const KNOWN_PREFIXES_4: &[&str] = &[
+    "#AVG", "#DPO", "#FQO", "#K41", "#K42", "#K31", "#PAN", "#RVM", "#VCH",
+];
+
+/// Znane 3-znakowe prefiksy poleceń Elecraft.
+pub const KNOWN_PREFIXES_3: &[&str] = &[
+    "BNR", "DBA", "DND", "DNU", "DSW", "K30", "K31", "K40", "K41", "K42", "SMH", "SWH", "SWT",
+];
+
+/// Znane 2-znakowe prefiksy poleceń Elecraft.
+pub const KNOWN_PREFIXES_2: &[&str] = &[
+    "AG", "AI", "AN", "AP", "BG", "BN", "BW", "CP", "CW", "DN", "DS", "DT", "DV", "FA", "FB", "FI",
+    "FP", "FR", "FT", "FW", "GT", "IC", "ID", "IF", "IS", "KS", "KY", "LK", "MD", "MG", "ML", "NB",
+    "NL", "NR", "NT", "OM", "PA", "PC", "PL", "PO", "PS", "RA", "RC", "RG", "RL", "RO", "RT", "RU",
+    "RV", "RX", "SB", "SG", "SM", "SP", "SQ", "SW", "TB", "TE", "TM", "TQ", "TS", "TX", "UP", "VG",
+    "VT", "XF", "XT",
+];
+
 /// Pojedyncza ramka protokołu Elecraft wyodrębniona ze strumienia.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ElecraftFrame {
@@ -122,24 +141,26 @@ impl ElecraftFrame {
             });
         }
 
-        let has_hash = content.starts_with('#');
-        let offset = usize::from(has_hash);
+        let upper = content.to_ascii_uppercase();
 
-        // Zlicz litery prefiksu (2, 3 lub 4 znaki)
-        let letters_count = content[offset..]
-            .chars()
-            .take_while(char::is_ascii_alphabetic)
-            .count();
-
-        let prefix_len = (offset + letters_count).min(4);
-        if prefix_len < 2 && !has_hash {
-            return Ok(Self {
-                prefix: content.to_string(),
-                has_vfo_b_modifier: false,
-                payload: String::new(),
-                raw: trimmed.to_string(),
-            });
-        }
+        let prefix_len = if upper.starts_with('#') {
+            if let Some(&p) = KNOWN_PREFIXES_4.iter().find(|&&p| upper.starts_with(p)) {
+                p.len()
+            } else {
+                let cnt = upper[1..]
+                    .chars()
+                    .take_while(char::is_ascii_alphabetic)
+                    .count();
+                (1 + cnt).min(4)
+            }
+        } else if let Some(&p) = KNOWN_PREFIXES_3.iter().find(|&&p| upper.starts_with(p)) {
+            p.len()
+        } else if let Some(&p) = KNOWN_PREFIXES_2.iter().find(|&&p| upper.starts_with(p)) {
+            p.len()
+        } else {
+            let cnt = upper.chars().take_while(char::is_ascii_alphabetic).count();
+            cnt.min(2).max(1)
+        };
 
         let prefix = &content[..prefix_len];
         let rest = &content[prefix_len..];
@@ -151,7 +172,7 @@ impl ElecraftFrame {
         };
 
         Ok(Self {
-            prefix: prefix.to_string(),
+            prefix: prefix.to_ascii_uppercase(),
             has_vfo_b_modifier,
             payload: payload.to_string(),
             raw: trimmed.to_string(),
@@ -310,6 +331,8 @@ pub enum ElecraftMessage {
     HighResSMeter { vfo_b: bool, dbm: f32 },
     /// Odczyt segmentów linijki LCD / bargraph (`BG`).
     Bargraph { raw: String },
+    /// Odpowiedź na zapytanie o moduły opcjonalne `OM` (np. K3 'S' = KRX3 zainstalowany).
+    OptionModule(String),
     /// Odpowiedź błędu `?;`.
     Error,
     /// Bezpieczny odczyt poprawnej, ale nieobsługiwanej ramki.
@@ -350,6 +373,7 @@ impl ElecraftMessage {
             Self::RawSMeter { .. } => q == "SM" || q == "SM$",
             Self::HighResSMeter { .. } => q == "SMH" || q == "SMH$",
             Self::Bargraph { .. } => q == "BG",
+            Self::OptionModule(_) => q == "OM",
             Self::Error => true,
             Self::Unknown { prefix, .. } => q == prefix.to_ascii_uppercase(),
         }
@@ -681,6 +705,7 @@ impl ElecraftCodec {
             "BG" => Ok(ElecraftMessage::Bargraph {
                 raw: frame.payload.clone(),
             }),
+            "OM" => Ok(ElecraftMessage::OptionModule(frame.payload.clone())),
             _ => Ok(ElecraftMessage::Unknown {
                 prefix: frame.prefix.clone(),
                 vfo_b_modifier: frame.has_vfo_b_modifier,
@@ -788,17 +813,26 @@ impl ElecraftCat {
         if vfo_b { "RC$;" } else { "RC;" }
     }
 
-    pub fn set_power(watts: f32, is_k4: bool) -> String {
-        let w = watts.clamp(0.0, 150.0).round() as u32;
-        if is_k4 {
+    pub fn set_power(watts: f32, max_watts: f32, is_k4: bool, is_qrp: bool) -> String {
+        let clamped = watts.clamp(0.0, max_watts);
+        if (is_k4 || is_qrp) && clamped < 10.0 {
+            let tenths = (clamped * 10.0).round() as u32;
+            format!("PC{tenths:03}L;")
+        } else if is_k4 {
+            let w = clamped.round() as u32;
             format!("PC{w:03}H;")
         } else {
+            let w = clamped.round() as u32;
             format!("PC{w:03};")
         }
     }
 
     pub fn read_power() -> &'static str {
         "PC;"
+    }
+
+    pub fn read_options() -> &'static str {
+        "OM;"
     }
 
     pub fn read_smeter(vfo_b: bool) -> &'static str {
@@ -1046,5 +1080,178 @@ mod tests {
             ElecraftPacket::AutoInfoEvent(msg.clone())
         };
         assert_eq!(pkt_event, ElecraftPacket::AutoInfoEvent(msg));
+    }
+
+    #[test]
+    fn elecraft_codec_deterministic_prefix_omap() {
+        let (f1, _) = ElecraftCodec::new()
+            .decode_frame(b"OMAP1;")
+            .unwrap()
+            .unwrap();
+        assert_eq!(f1.prefix, "OM");
+        assert!(!f1.has_vfo_b_modifier);
+        assert_eq!(f1.payload, "AP1");
+
+        let (f2, _) = ElecraftCodec::new().decode_frame(b"OM;").unwrap().unwrap();
+        assert_eq!(f2.prefix, "OM");
+        assert_eq!(f2.payload, "");
+
+        let (f3, _) = ElecraftCodec::new()
+            .decode_frame(b"SMH-073;")
+            .unwrap()
+            .unwrap();
+        assert_eq!(f3.prefix, "SMH");
+        assert!(!f3.has_vfo_b_modifier);
+        assert_eq!(f3.payload, "-073");
+
+        let (f4, _) = ElecraftCodec::new()
+            .decode_frame(b"SMH$+010;")
+            .unwrap()
+            .unwrap();
+        assert_eq!(f4.prefix, "SMH");
+        assert!(f4.has_vfo_b_modifier);
+        assert_eq!(f4.payload, "+010");
+    }
+
+    #[test]
+    fn elecraft_codec_power_control_l_and_h_scale() {
+        let codec = ElecraftCodec::new();
+
+        // Skala L (dziesiąte części wata): PC050L = 5.0W
+        let (f1, _) = codec.decode_frame(b"PC050L;").unwrap().unwrap();
+        let m1 = codec
+            .decode_message(&f1, ElecraftProtocolFamily::K4)
+            .unwrap();
+        assert_eq!(
+            m1,
+            ElecraftMessage::PowerControl {
+                watts: 5.0,
+                raw_scale: 'L'
+            }
+        );
+
+        // Skala H (pełne waty): PC100H = 100.0W
+        let (f2, _) = codec.decode_frame(b"PC100H;").unwrap().unwrap();
+        let m2 = codec
+            .decode_message(&f2, ElecraftProtocolFamily::K4)
+            .unwrap();
+        assert_eq!(
+            m2,
+            ElecraftMessage::PowerControl {
+                watts: 100.0,
+                raw_scale: 'H'
+            }
+        );
+
+        // Skala domyślna bez litery: PC050 = 50.0W
+        let (f3, _) = codec.decode_frame(b"PC050;").unwrap().unwrap();
+        let m3 = codec
+            .decode_message(&f3, ElecraftProtocolFamily::K3Compatible)
+            .unwrap();
+        assert_eq!(
+            m3,
+            ElecraftMessage::PowerControl {
+                watts: 50.0,
+                raw_scale: 'H'
+            }
+        );
+    }
+
+    #[test]
+    fn elecraft_codec_power_output_tenth_watts() {
+        let codec = ElecraftCodec::new();
+
+        let (f1, _) = codec.decode_frame(b"PO0100;").unwrap().unwrap();
+        let m1 = codec
+            .decode_message(&f1, ElecraftProtocolFamily::K3Compatible)
+            .unwrap();
+        assert_eq!(m1, ElecraftMessage::PowerOutput(10.0));
+
+        let (f2, _) = codec.decode_frame(b"PO0050;").unwrap().unwrap();
+        let m2 = codec
+            .decode_message(&f2, ElecraftProtocolFamily::K3Compatible)
+            .unwrap();
+        assert_eq!(m2, ElecraftMessage::PowerOutput(5.0));
+    }
+
+    #[test]
+    fn elecraft_codec_smeter_k3_raw_vs_k4_smh() {
+        let codec = ElecraftCodec::new();
+
+        // K3/K3S/KX2/KX3: surowy odczyt słupków
+        let (f1, _) = codec.decode_frame(b"SM0015;").unwrap().unwrap();
+        let m1 = codec
+            .decode_message(&f1, ElecraftProtocolFamily::K3Compatible)
+            .unwrap();
+        assert_eq!(
+            m1,
+            ElecraftMessage::RawSMeter {
+                vfo_b: false,
+                raw: 15
+            }
+        );
+
+        let (f2, _) = codec.decode_frame(b"SM$0021;").unwrap().unwrap();
+        let m2 = codec
+            .decode_message(&f2, ElecraftProtocolFamily::K3Compatible)
+            .unwrap();
+        assert_eq!(
+            m2,
+            ElecraftMessage::RawSMeter {
+                vfo_b: true,
+                raw: 21
+            }
+        );
+
+        // K4: precyzyjny odczyt dBm
+        let (f3, _) = codec.decode_frame(b"SMH-073;").unwrap().unwrap();
+        let m3 = codec
+            .decode_message(&f3, ElecraftProtocolFamily::K4)
+            .unwrap();
+        assert_eq!(
+            m3,
+            ElecraftMessage::HighResSMeter {
+                vfo_b: false,
+                dbm: -73.0
+            }
+        );
+
+        let (f4, _) = codec.decode_frame(b"SMH$+010;").unwrap().unwrap();
+        let m4 = codec
+            .decode_message(&f4, ElecraftProtocolFamily::K4)
+            .unwrap();
+        assert_eq!(
+            m4,
+            ElecraftMessage::HighResSMeter {
+                vfo_b: true,
+                dbm: 10.0
+            }
+        );
+    }
+
+    #[test]
+    fn elecraft_codec_option_module_message() {
+        let codec = ElecraftCodec::new();
+        let (f, _) = codec.decode_frame(b"OMAP1S;").unwrap().unwrap();
+        let m = codec
+            .decode_message(&f, ElecraftProtocolFamily::K3Compatible)
+            .unwrap();
+        assert_eq!(m, ElecraftMessage::OptionModule("AP1S".to_string()));
+        assert!(m.matches_query_prefix("OM"));
+    }
+
+    #[test]
+    fn elecraft_cat_set_power_qrp_and_k4() {
+        // KX2 QRP: poniżej 10W używa skali L
+        assert_eq!(ElecraftCat::set_power(5.0, 12.0, false, true), "PC050L;");
+        assert_eq!(ElecraftCat::set_power(10.0, 12.0, false, true), "PC010;");
+
+        // K4: poniżej 10W używa skali L, powyżej skali H
+        assert_eq!(ElecraftCat::set_power(5.0, 105.0, true, false), "PC050L;");
+        assert_eq!(ElecraftCat::set_power(100.0, 105.0, true, false), "PC100H;");
+
+        // K3: używa formatu PCnnn;
+        assert_eq!(ElecraftCat::set_power(5.0, 120.0, false, false), "PC005;");
+        assert_eq!(ElecraftCat::set_power(100.0, 120.0, false, false), "PC100;");
     }
 }

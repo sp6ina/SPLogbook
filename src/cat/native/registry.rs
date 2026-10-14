@@ -10,7 +10,7 @@ use crate::cat::native::profile::{NativeRigCapabilities, RigModelProfile, RigVen
 use crate::cat::rig::RigCapabilities;
 
 pub use crate::cat::native::elecraft::models::{
-    ELECRAFT_K3, ELECRAFT_K3S, ELECRAFT_K4, ELECRAFT_K4D, ELECRAFT_KX2, ELECRAFT_KX3,
+    ELECRAFT_K3, ELECRAFT_K3S, ELECRAFT_K4, ELECRAFT_K4D, ELECRAFT_K4HD, ELECRAFT_KX2, ELECRAFT_KX3,
 };
 
 // Referencyjne profile Icom CI-V (zweryfikowane z oficjalną dokumentacją Icom):
@@ -459,6 +459,7 @@ pub static ALL_PROFILES: &[&RigModelProfile] = &[
     &ELECRAFT_KX3,
     &ELECRAFT_K4,
     &ELECRAFT_K4D,
+    &ELECRAFT_K4HD,
 ];
 
 /// Wyszukuje profil modelu po nazwie lub identyfikatorze (case-insensitive).
@@ -527,7 +528,7 @@ mod tests {
         assert_eq!(yaesu_profiles.len(), 4);
 
         let elecraft_profiles = profiles_by_vendor(RigVendor::Elecraft);
-        assert_eq!(elecraft_profiles.len(), 6);
+        assert_eq!(elecraft_profiles.len(), 7);
     }
 
     #[test]
@@ -542,7 +543,7 @@ mod tests {
 
         let kx2 = find_profile_by_model("KX2").expect("KX2 missing");
         assert_eq!(kx2.vendor, RigVendor::Elecraft);
-        assert!(!kx2.extended_capabilities.dualwatch);
+        assert!(kx2.extended_capabilities.dualwatch);
 
         let kx3 = find_profile_by_model("KX3").expect("KX3 missing");
         assert_eq!(kx3.vendor, RigVendor::Elecraft);
@@ -554,6 +555,9 @@ mod tests {
 
         let k4d = find_profile_by_model("K4D").expect("K4D missing");
         assert_eq!(k4d.vendor, RigVendor::Elecraft);
+
+        let k4hd = find_profile_by_model("K4HD").expect("K4HD missing");
+        assert_eq!(k4hd.vendor, RigVendor::Elecraft);
     }
 
     #[test]

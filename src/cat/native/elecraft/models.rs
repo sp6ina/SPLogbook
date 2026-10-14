@@ -49,6 +49,7 @@ pub struct ElecraftModelProfile {
     pub supports_auto_info: bool,
     pub preferred_auto_info_mode: u8,
     pub supports_subreceiver: bool,
+    pub static_subreceiver_capable: bool,
     pub supports_vfo_b_modifier: bool,
     pub supports_tcp: bool,
     pub default_tcp_port: Option<u16>,
@@ -78,6 +79,49 @@ impl ElecraftModelProfile {
     /// Weryfikuje, czy dany baud rate jest akceptowany przez profil.
     pub fn supports_baud_rate(&self, baud: u32) -> bool {
         self.supported_baud_rates.contains(&baud)
+    }
+
+    /// Weryfikuje, czy dany model dopuszcza użycie modyfikatora `$` dla konkretnego polecenia.
+    pub fn supports_dollar_command(&self, cmd_prefix: &str) -> bool {
+        if !self.supports_vfo_b_modifier {
+            return false;
+        }
+        let clean = cmd_prefix
+            .trim()
+            .trim_end_matches([';', '$'])
+            .to_ascii_uppercase();
+        match self.model_id {
+            "KX2" | "KX3" => matches!(
+                clean.as_str(),
+                "AG" | "BW"
+                    | "FW"
+                    | "IS"
+                    | "LK"
+                    | "MD"
+                    | "RG"
+                    | "RT"
+                    | "SM"
+                    | "SQ"
+                    | "XT"
+                    | "RO"
+                    | "RC"
+                    | "DT"
+            ),
+            "K3" | "K3S" => !matches!(clean.as_str(), "AN" | "SMH"),
+            "K4" | "K4D" | "K4HD" => true,
+            _ => true,
+        }
+    }
+
+    /// Zwraca maksymalną moc wyjściową w watach dla danego modelu transceivera.
+    pub fn max_power_watts(&self) -> f32 {
+        match self.model_id {
+            "KX2" => 12.0,
+            "KX3" => 15.0,
+            "K3" | "K3S" => 120.0,
+            "K4" | "K4D" | "K4HD" => 105.0,
+            _ => 100.0,
+        }
     }
 
     /// Mapuje nazwę emisji na kod protokołu Elecraft `MD` i opcjonalny podtryb cyfrowy `DT`.
@@ -143,7 +187,9 @@ pub static ELECRAFT_K3_PROFILE: ElecraftModelProfile = ElecraftModelProfile {
     transmitter_count: 1,
     supports_auto_info: true,
     preferred_auto_info_mode: 2,
-    supports_subreceiver: true,
+    // Bazowy K3 ma 1 odbiornik fizyczny; subreceiver KRX3 jest wyposażeniem opcjonalnym wykrywanym przez OM;
+    supports_subreceiver: false,
+    static_subreceiver_capable: true,
     supports_vfo_b_modifier: true,
     supports_tcp: false,
     default_tcp_port: None,
@@ -195,7 +241,8 @@ pub static ELECRAFT_K3S_PROFILE: ElecraftModelProfile = ElecraftModelProfile {
     transmitter_count: 1,
     supports_auto_info: true,
     preferred_auto_info_mode: 2,
-    supports_subreceiver: true,
+    supports_subreceiver: false,
+    static_subreceiver_capable: true,
     supports_vfo_b_modifier: true,
     supports_tcp: false,
     default_tcp_port: None,
@@ -226,7 +273,7 @@ pub static ELECRAFT_K3S_PROFILE: ElecraftModelProfile = ElecraftModelProfile {
     firmware_constraints: "MCU 5.0+",
 };
 
-/// Elecraft KX2 — ultrakompaktowy transceiver QRP HF z pojedynczym odbiornikiem.
+/// Elecraft KX2 — ultrakompaktowy transceiver QRP HF z programowym DSP dual-watch w jednym paśmie.
 pub static ELECRAFT_KX2_PROFILE: ElecraftModelProfile = ElecraftModelProfile {
     model_id: "KX2",
     name: "Elecraft KX2",
@@ -245,9 +292,11 @@ pub static ELECRAFT_KX2_PROFILE: ElecraftModelProfile = ElecraftModelProfile {
     transmitter_count: 1,
     supports_auto_info: true,
     preferred_auto_info_mode: 2,
-    // KX2 jest urządzeniem jednoukładowym bez modułu drugiego odbiornika
+    // KX2 jest urządzeniem jednoukładowym bez modułu drugiego odbiornika w.cz.
     supports_subreceiver: false,
-    supports_vfo_b_modifier: false,
+    static_subreceiver_capable: false,
+    // KX2 obsługuje modyfikator '$' dla VFO B w ramach DSP dual-watch (Rev G5 Programmer's Ref s. 2)
+    supports_vfo_b_modifier: true,
     supports_tcp: false,
     default_tcp_port: None,
     capabilities: RigCapabilities {
@@ -264,7 +313,8 @@ pub static ELECRAFT_KX2_PROFILE: ElecraftModelProfile = ElecraftModelProfile {
         s_meter: false,
     },
     extended_capabilities: NativeRigCapabilities {
-        dualwatch: false,
+        // KX2 obsługuje DSP dual-watch w jednym paśmie (MENU:DUAL RX, SB1;)
+        dualwatch: true,
         main_sub_tracking: false,
         transceive_broadcast: true,
         attenuator: true,
@@ -298,7 +348,9 @@ pub static ELECRAFT_KX3_PROFILE: ElecraftModelProfile = ElecraftModelProfile {
     preferred_auto_info_mode: 2,
     // KX3 nie ma fizycznego niezależnego drugiego toru w.cz. (tylko programowy dual-watch w tym samym paśmie)
     supports_subreceiver: false,
-    supports_vfo_b_modifier: false,
+    static_subreceiver_capable: false,
+    // KX3 obsługuje modyfikator '$' dla VFO B / dual watch (Rev G5 Programmer's Ref s. 2)
+    supports_vfo_b_modifier: true,
     supports_tcp: false,
     default_tcp_port: None,
     capabilities: RigCapabilities {
@@ -335,7 +387,7 @@ pub static ELECRAFT_K4_PROFILE: ElecraftModelProfile = ElecraftModelProfile {
     vendor: RigVendor::Elecraft,
     family: ElecraftProtocolFamily::K4,
     default_baud_rate: 38400,
-    supported_baud_rates: &[4800, 9600, 19200, 38400, 115_200],
+    supported_baud_rates: &[4800, 9600, 19200, 38400, 57600, 115_200],
     data_bits: SerialDataBits::Eight,
     stop_bits: SerialStopBits::One,
     parity: SerialParity::None,
@@ -348,6 +400,7 @@ pub static ELECRAFT_K4_PROFILE: ElecraftModelProfile = ElecraftModelProfile {
     supports_auto_info: true,
     preferred_auto_info_mode: 2,
     supports_subreceiver: true,
+    static_subreceiver_capable: true,
     supports_vfo_b_modifier: true,
     supports_tcp: true,
     default_tcp_port: Some(9200),
@@ -386,7 +439,7 @@ pub static ELECRAFT_K4D_PROFILE: ElecraftModelProfile = ElecraftModelProfile {
     vendor: RigVendor::Elecraft,
     family: ElecraftProtocolFamily::K4,
     default_baud_rate: 38400,
-    supported_baud_rates: &[4800, 9600, 19200, 38400, 115_200],
+    supported_baud_rates: &[4800, 9600, 19200, 38400, 57600, 115_200],
     data_bits: SerialDataBits::Eight,
     stop_bits: SerialStopBits::One,
     parity: SerialParity::None,
@@ -399,6 +452,7 @@ pub static ELECRAFT_K4D_PROFILE: ElecraftModelProfile = ElecraftModelProfile {
     supports_auto_info: true,
     preferred_auto_info_mode: 2,
     supports_subreceiver: true,
+    static_subreceiver_capable: true,
     supports_vfo_b_modifier: true,
     supports_tcp: true,
     default_tcp_port: Some(9200),
@@ -427,6 +481,57 @@ pub static ELECRAFT_K4D_PROFILE: ElecraftModelProfile = ElecraftModelProfile {
     },
     safe_poll_commands: &["FA", "FB", "MD", "IF", "TQ", "SMH"],
     firmware_constraints: "K4 OS 2.0+",
+};
+
+/// Elecraft K4HD — wersja z fabrycznie zainstalowanym odbiornikiem KDDC4 dual superhet front-end.
+pub static ELECRAFT_K4HD_PROFILE: ElecraftModelProfile = ElecraftModelProfile {
+    model_id: "K4HD",
+    name: "Elecraft K4HD",
+    vendor: RigVendor::Elecraft,
+    family: ElecraftProtocolFamily::K4,
+    default_baud_rate: 38400,
+    supported_baud_rates: &[4800, 9600, 19200, 38400, 57600, 115_200],
+    data_bits: SerialDataBits::Eight,
+    stop_bits: SerialStopBits::One,
+    parity: SerialParity::None,
+    flow_control: SerialFlowControl::None,
+    command_interval: Duration::from_millis(5),
+    max_message_length: 256,
+    frequency_digits: 11,
+    receiver_count: 2,
+    transmitter_count: 1,
+    supports_auto_info: true,
+    preferred_auto_info_mode: 2,
+    supports_subreceiver: true,
+    static_subreceiver_capable: true,
+    supports_vfo_b_modifier: true,
+    supports_tcp: true,
+    default_tcp_port: Some(9200),
+    capabilities: RigCapabilities {
+        frequency: true,
+        mode: true,
+        passband: true,
+        split: true,
+        split_frequency: true,
+        ptt: true,
+        vfo: true,
+        rit: true,
+        xit: true,
+        power: true,
+        s_meter: true,
+    },
+    extended_capabilities: NativeRigCapabilities {
+        dualwatch: true,
+        main_sub_tracking: true,
+        transceive_broadcast: true,
+        attenuator: true,
+        preamp: true,
+        antenna_select: true,
+        filter_width: true,
+        noise_reduction: true,
+    },
+    safe_poll_commands: &["FA", "FB", "MD", "IF", "TQ", "SMH"],
+    firmware_constraints: "K4 OS 2.0+ (z KDDC4 dual superhet front-end)",
 };
 
 // Statyczne referencje dla rejestru Native CAT:
@@ -487,7 +592,7 @@ pub static ELECRAFT_K4: RigModelProfile = RigModelProfile {
     name: "Elecraft K4",
     vendor: RigVendor::Elecraft,
     default_baud_rate: 38400,
-    supported_baud_rates: &[4800, 9600, 19200, 38400, 115_200],
+    supported_baud_rates: &[4800, 9600, 19200, 38400, 57600, 115_200],
     default_ci_v_address: None,
     frequency_bytes: 11,
     capabilities: ELECRAFT_K4_PROFILE.capabilities,
@@ -500,12 +605,25 @@ pub static ELECRAFT_K4D: RigModelProfile = RigModelProfile {
     name: "Elecraft K4D",
     vendor: RigVendor::Elecraft,
     default_baud_rate: 38400,
-    supported_baud_rates: &[4800, 9600, 19200, 38400, 115_200],
+    supported_baud_rates: &[4800, 9600, 19200, 38400, 57600, 115_200],
     default_ci_v_address: None,
     frequency_bytes: 11,
     capabilities: ELECRAFT_K4D_PROFILE.capabilities,
     extended_capabilities: ELECRAFT_K4D_PROFILE.extended_capabilities,
     safe_poll_commands: ELECRAFT_K4D_PROFILE.safe_poll_commands,
+};
+
+pub static ELECRAFT_K4HD: RigModelProfile = RigModelProfile {
+    model_id: "K4HD",
+    name: "Elecraft K4HD",
+    vendor: RigVendor::Elecraft,
+    default_baud_rate: 38400,
+    supported_baud_rates: &[4800, 9600, 19200, 38400, 57600, 115_200],
+    default_ci_v_address: None,
+    frequency_bytes: 11,
+    capabilities: ELECRAFT_K4HD_PROFILE.capabilities,
+    extended_capabilities: ELECRAFT_K4HD_PROFILE.extended_capabilities,
+    safe_poll_commands: ELECRAFT_K4HD_PROFILE.safe_poll_commands,
 };
 
 /// Wszystkie oficjalne profile Elecraft.
@@ -516,6 +634,7 @@ pub static ALL_ELECRAFT_PROFILES: &[&ElecraftModelProfile] = &[
     &ELECRAFT_KX3_PROFILE,
     &ELECRAFT_K4_PROFILE,
     &ELECRAFT_K4D_PROFILE,
+    &ELECRAFT_K4HD_PROFILE,
 ];
 
 /// Wyszukuje profil Elecraft po nazwie modelu.
@@ -542,7 +661,9 @@ mod tests {
         assert_eq!(p.frequency_digits, 11);
         assert!(p.supports_auto_info);
         assert_eq!(p.preferred_auto_info_mode, 2);
-        assert!(p.supports_subreceiver);
+        // Bazowy K3 nie ma subreceivera, dopóki OM; nie potwierdzi obecności modułu KRX3 ('S')
+        assert!(!p.supports_subreceiver);
+        assert!(p.static_subreceiver_capable);
         assert!(p.supports_vfo_b_modifier);
         assert!(!p.supports_tcp);
         assert_eq!(p.default_tcp_port, None);
@@ -551,6 +672,7 @@ mod tests {
         assert!(p.capabilities.ptt);
         assert!(p.capabilities.power);
         assert!(!p.capabilities.s_meter); // K3 raw bars only
+        assert_eq!(p.max_power_watts(), 120.0);
     }
 
     #[test]
@@ -560,10 +682,12 @@ mod tests {
         assert_eq!(p.family, ElecraftProtocolFamily::K3Compatible);
         assert_eq!(p.default_baud_rate, 38400);
         assert_eq!(p.supported_baud_rates, &[4800, 9600, 19200, 38400]);
-        assert!(p.supports_subreceiver);
+        assert!(!p.supports_subreceiver);
+        assert!(p.static_subreceiver_capable);
         assert!(p.supports_vfo_b_modifier);
         assert!(!p.supports_tcp);
         assert!(!p.capabilities.s_meter);
+        assert_eq!(p.max_power_watts(), 120.0);
     }
 
     #[test]
@@ -574,10 +698,21 @@ mod tests {
         assert_eq!(p.default_baud_rate, 38400);
         assert_eq!(p.receiver_count, 1);
         assert!(!p.supports_subreceiver);
-        assert!(!p.supports_vfo_b_modifier);
-        assert!(!p.extended_capabilities.dualwatch);
+        assert!(!p.static_subreceiver_capable);
+        // KX2 obsługuje modyfikator '$' dla VFO B w ramach DSP dual-watch
+        assert!(p.supports_vfo_b_modifier);
+        assert!(p.extended_capabilities.dualwatch);
         assert!(!p.extended_capabilities.antenna_select);
         assert!(!p.supports_tcp);
+        assert_eq!(p.max_power_watts(), 12.0);
+
+        // Test dopuszczalności modyfikatora '$' na KX2
+        assert!(p.supports_dollar_command("MD"));
+        assert!(p.supports_dollar_command("BW"));
+        assert!(p.supports_dollar_command("RT"));
+        assert!(p.supports_dollar_command("SM"));
+        assert!(!p.supports_dollar_command("AN"));
+        assert!(!p.supports_dollar_command("SMH"));
     }
 
     #[test]
@@ -588,10 +723,12 @@ mod tests {
         assert_eq!(p.default_baud_rate, 38400);
         assert_eq!(p.receiver_count, 1);
         assert!(!p.supports_subreceiver);
-        assert!(!p.supports_vfo_b_modifier);
+        assert!(!p.static_subreceiver_capable);
+        assert!(p.supports_vfo_b_modifier);
         assert!(p.extended_capabilities.dualwatch); // In-band DSP dual-watch
         assert!(!p.extended_capabilities.antenna_select);
         assert!(!p.supports_tcp);
+        assert_eq!(p.max_power_watts(), 15.0);
     }
 
     #[test]
@@ -600,14 +737,35 @@ mod tests {
         assert_eq!(p.model_id, "K4");
         assert_eq!(p.family, ElecraftProtocolFamily::K4);
         assert_eq!(p.default_baud_rate, 38400);
-        assert_eq!(p.supported_baud_rates, &[4800, 9600, 19200, 38400, 115_200]);
+        assert_eq!(
+            p.supported_baud_rates,
+            &[4800, 9600, 19200, 38400, 57600, 115_200]
+        );
         assert!(p.supports_tcp);
         assert_eq!(p.default_tcp_port, Some(9200));
         assert!(p.supports_subreceiver);
+        assert!(p.static_subreceiver_capable);
         assert!(p.supports_vfo_b_modifier);
         assert!(p.capabilities.s_meter); // K4 SMH provides calibrated dBm
         assert!(p.extended_capabilities.dualwatch);
         assert!(p.extended_capabilities.antenna_select);
+        assert_eq!(p.max_power_watts(), 105.0);
+    }
+
+    #[test]
+    fn elecraft_k4hd_profile_matches_manual() {
+        let p = &ELECRAFT_K4HD_PROFILE;
+        assert_eq!(p.model_id, "K4HD");
+        assert_eq!(p.family, ElecraftProtocolFamily::K4);
+        assert_eq!(p.default_baud_rate, 38400);
+        assert!(p.supports_baud_rate(57600));
+        assert!(p.supports_baud_rate(115_200));
+        assert!(p.supports_tcp);
+        assert_eq!(p.default_tcp_port, Some(9200));
+        assert!(p.supports_subreceiver);
+        assert!(p.static_subreceiver_capable);
+        assert!(p.capabilities.s_meter);
+        assert_eq!(p.max_power_watts(), 105.0);
     }
 
     #[test]
@@ -626,7 +784,7 @@ mod tests {
         // KX2 nie deklaruje obsługi subreceivera ani wyboru anteny
         assert!(!ELECRAFT_KX2_PROFILE.supports_subreceiver);
         assert!(!ELECRAFT_KX2_PROFILE.extended_capabilities.antenna_select);
-        assert!(!ELECRAFT_KX2_PROFILE.extended_capabilities.dualwatch);
+        assert!(ELECRAFT_KX2_PROFILE.extended_capabilities.dualwatch);
 
         // KX3 nie deklaruje wyboru anteny w menu w.cz.
         assert!(!ELECRAFT_KX3_PROFILE.extended_capabilities.antenna_select);
@@ -635,22 +793,28 @@ mod tests {
 
     #[test]
     fn elecraft_subreceiver_capability_is_profile_specific() {
-        assert!(ELECRAFT_K3_PROFILE.supports_subreceiver);
-        assert!(ELECRAFT_K3S_PROFILE.supports_subreceiver);
+        assert!(ELECRAFT_K3_PROFILE.static_subreceiver_capable);
+        assert!(!ELECRAFT_K3_PROFILE.supports_subreceiver);
+        assert!(ELECRAFT_K3S_PROFILE.static_subreceiver_capable);
+        assert!(!ELECRAFT_K3S_PROFILE.supports_subreceiver);
+        assert!(!ELECRAFT_KX2_PROFILE.static_subreceiver_capable);
         assert!(!ELECRAFT_KX2_PROFILE.supports_subreceiver);
+        assert!(!ELECRAFT_KX3_PROFILE.static_subreceiver_capable);
         assert!(!ELECRAFT_KX3_PROFILE.supports_subreceiver);
         assert!(ELECRAFT_K4_PROFILE.supports_subreceiver);
         assert!(ELECRAFT_K4D_PROFILE.supports_subreceiver);
+        assert!(ELECRAFT_K4HD_PROFILE.supports_subreceiver);
     }
 
     #[test]
     fn elecraft_vfo_b_modifier_is_profile_specific() {
         assert!(ELECRAFT_K3_PROFILE.supports_vfo_b_modifier);
         assert!(ELECRAFT_K3S_PROFILE.supports_vfo_b_modifier);
-        assert!(!ELECRAFT_KX2_PROFILE.supports_vfo_b_modifier);
-        assert!(!ELECRAFT_KX3_PROFILE.supports_vfo_b_modifier);
+        assert!(ELECRAFT_KX2_PROFILE.supports_vfo_b_modifier);
+        assert!(ELECRAFT_KX3_PROFILE.supports_vfo_b_modifier);
         assert!(ELECRAFT_K4_PROFILE.supports_vfo_b_modifier);
         assert!(ELECRAFT_K4D_PROFILE.supports_vfo_b_modifier);
+        assert!(ELECRAFT_K4HD_PROFILE.supports_vfo_b_modifier);
     }
 
     #[test]
@@ -674,6 +838,7 @@ mod tests {
         // K4 ma potwierdzoną w Programmer's Ref komendę SMH (dBm)
         assert!(ELECRAFT_K4_PROFILE.capabilities.s_meter);
         assert!(ELECRAFT_K4D_PROFILE.capabilities.s_meter);
+        assert!(ELECRAFT_K4HD_PROFILE.capabilities.s_meter);
     }
 
     #[test]
@@ -682,6 +847,8 @@ mod tests {
         assert_eq!(ELECRAFT_K4_PROFILE.default_tcp_port, Some(9200));
         assert!(ELECRAFT_K4D_PROFILE.supports_tcp);
         assert_eq!(ELECRAFT_K4D_PROFILE.default_tcp_port, Some(9200));
+        assert!(ELECRAFT_K4HD_PROFILE.supports_tcp);
+        assert_eq!(ELECRAFT_K4HD_PROFILE.default_tcp_port, Some(9200));
 
         assert!(!ELECRAFT_K3_PROFILE.supports_tcp);
         assert_eq!(ELECRAFT_K3_PROFILE.default_tcp_port, None);

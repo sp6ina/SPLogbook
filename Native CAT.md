@@ -500,6 +500,26 @@ W falach NATIVE-0 i NATIVE-1 interfejs GUI nie ulega modyfikacji runtime, co gwa
 - [x] Rozstrzygnięcie niespójności raportowych i oparcie metryk wyłącznie na bezpośrednich wynikach narzędzi.
 - [x] Pełna walidacja: 46 testów modułu Yaesu, 215 testów CAT, 543 testy pełnego zestawu — wszystkie passed, 0 błędów, 0 nowych ostrzeżeń clippy.
 
+### Kryteria NATIVE-4:
+- [x] Implementacja natywnego backendu Elecraft CAT (`K3`, `K3S`, `KX2`, `KX3`, `K4`, `K4D`).
+- [x] Rozróżnienie rodzin `ElecraftProtocolFamily::K3Compatible` oraz `ElecraftProtocolFamily::K4`.
+- [x] Strumieniowy tekstowy `ElecraftCodec` z terminatorem `;` i modyfikatorem `$`.
+- [x] Obsługa asynchronicznego Auto Information (`AI2;`).
+- [x] Dedykowany transport sieciowy TCP dla K4 (port 9200) z obsługą wielu klientów.
+- [x] Rygorystyczne bezpieczeństwo PTT (read-only probe, brak retry SetPtt(true), bezpieczny disconnect).
+- [x] Zestaw testów deterministycznych na strumieniach dupleksowych i socketach testowych.
+
+### Kryteria NATIVE-4A (Niezależny audyt zgodności z dokumentacją Elecraft):
+- [x] Audyt profili z *K3S, K3, KX3, and KX2 Programmer's Reference* Rev G5 i *K4 Programmer's Reference* Rev D12.
+- [x] Precyzyjna obsługa modyfikatora `$` oraz weryfikacja DSP dual-watch w KX2 i KX3 (`extended_capabilities.dualwatch = true`, `supports_vfo_b_modifier = true`).
+- [x] Filtrowanie komend z modyfikatorem `$` per model (`supports_dollar_command()`) — odrzucenie `AN$` i `SMH$` na urządzeniach bez odpowiedniego sprzętu.
+- [x] Rozróżnienie hardware subreceivera na K3/K3S: `static_subreceiver_capable: bool` vs runtime detekcja modułu opcjonalnego KRX3 za pomocą zapytania `OM;` (flaga `'S'`).
+- [x] Deterministyczny parser prefiksów poleceń z tabelami `KNOWN_PREFIXES_4`, `KNOWN_PREFIXES_3`, `KNOWN_PREFIXES_2` eliminujący błędne dopasowania prefiksów w komendach o alfabetycznych parametrach (np. `OMAP1;`).
+- [x] Precyzyjna semantyka S-metra: surowe słupki `SM;` (0000..0015/0021) na K3/KX oraz skalibrowany odczyt w dBm (`SMH;`) na K4.
+- [x] Weryfikacja formatów mocy `PC` i `PO`: skala `L` (0.1W) dla QRP i K4 (<10W), skala `H` (1W) oraz odczyt rzeczywistej mocy nadawania `PO` w 0.1W.
+- [x] Rejestracja profilu `ELECRAFT_K4HD` (KDDC4 dual superhet front-end) oraz uzupełnienie prędkości 57600 baud dla rodziny K4.
+- [x] Weryfikacja stałej portu TCP `K4_DEFAULT_TCP_PORT = 9200` i zapewnienie dynamicznych portów (`127.0.0.1:0`) we wszystkich testach asynchronicznych.
+
 ---
 
 ## 24. Strategia wycofania (Rollback)

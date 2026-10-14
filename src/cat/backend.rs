@@ -89,7 +89,7 @@ impl CatBackendKind {
             "kenwood" | "ts" => Self::Kenwood,
             "yaesu" | "ft" | "ftdx" => Self::Yaesu,
             str_val if str_val.starts_with("ft-") || str_val.starts_with("ftdx") => Self::Yaesu,
-            "elecraft" | "k3" | "k3s" | "kx2" | "kx3" | "k4" | "k4d" => Self::Elecraft,
+            "elecraft" | "k3" | "k3s" | "kx2" | "kx3" | "k4" | "k4d" | "k4hd" => Self::Elecraft,
             "so2r" => Self::So2r,
             _ => Self::Hamlib,
         }
@@ -417,6 +417,7 @@ mod tests {
         assert_eq!(CatBackendKind::from_str("kx3"), CatBackendKind::Elecraft);
         assert_eq!(CatBackendKind::from_str("k4"), CatBackendKind::Elecraft);
         assert_eq!(CatBackendKind::from_str("k4d"), CatBackendKind::Elecraft);
+        assert_eq!(CatBackendKind::from_str("k4hd"), CatBackendKind::Elecraft);
     }
 
     #[test]
