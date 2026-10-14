@@ -19,12 +19,15 @@ Głównym celem programu **NATIVE-CAT** jest wdrożenie bezpośredniej, asynchro
 Program NATIVE-CAT obejmuje:
 1. **Wspólny asynchroniczny transport szeregowy** (`tokio-serial`, obsługa baud rate, bitów danych, parzystości, bitów stopu, kontroli przepływu, bezpiecznych timeoutów, strumieniowego buforowania i odporności na fragmentację).
 2. **Architekturę profili urządzeń i rejestru modeli** (`RigModelProfile`, `NativeCapabilities`, precyzyjne mapy trybów i ograniczeń pasm).
-3. **Wdrożenie falami natywnych backendów**:
+3. **Wdrożenie falami natywnych backendów i warstwy wykonawczej**:
    - **NATIVE-1**: Icom CI-V (kodowanie binarne/BCD, ramki FE FE ... FD, obsługa ACK/NAK, filtracja echa, obsługa zdarzeń transceive),
    - **NATIVE-2**: Kenwood PC Control (komendy tekstowe ASCII zakończone średnikiem, Auto Information, obsługa portów szeregowych i LAN),
    - **NATIVE-3**: Yaesu CAT (rozróżnienie rodzin klasycznych binarnych i współczesnych tekstowych ASCII),
    - **NATIVE-4**: Elecraft (rodziny K3/KX oraz K4 LAN/Ethernet),
-   - **NATIVE-5**: FlexRadio SmartSDR API (TCP discovery/command API, slices, metering).
+   - **NATIVE-5**: FlexRadio SmartSDR API (TCP discovery/command API, slices, metering),
+   - **NATIVE-6A**: Multi-Radio Execution Core, RigHub i bezpieczny arbitraż TX (bezgłowa warstwa wykonawcza),
+   - **NATIVE-6B**: Fabryka backendów, migracja konfiguracji i integracja UI (cat_settings.rs, dynamiczne panele, i18n),
+   - **NATIVE-7**: Testy HIL, dokumentacja i audyt końcowy.
 4. **Rozszerzalny model domenowy**:
    - Zachowanie pełnej wstecznej zgodności z istniejącym kontraktem `RigBackend`, `RigCommand`, `RigState`, `RigCapabilities`, `RigError`,
    - Wprowadzenie dedykowanych komend i zdarzeń producentów (`NativeRigCommand`, `NativeRigEvent`).
@@ -56,7 +59,7 @@ W stanie wejściowym repozytorium zidentyfikowano następujące komponenty powi�
 | `src/cat/flrig.rs` | `FlrigClient`, XML-RPC po TCP | Działa stabilnie, testy przechodzą w 100%. |
 | `src/cat/tci.rs` | `TciClient`, WebSocket | Działa stabilnie, testy przechodzą w 100%. |
 | `src/cat/supervisor.rs` | Nadzorca procesu `rigctld` | Zarządza uruchamianiem Hamlib dla połączeń szeregowych. |
-| `src/gui/cat_settings.rs` | UI konfiguracji CAT | Obecnie pozwala na wybór Hamlib, FLRig, TCI. Nie ruszane w NATIVE-0/1. |
+| `src/gui/cat_settings.rs` | UI konfiguracji CAT | Obecnie pozwala na wybór Hamlib, FLRig, TCI. Nie modyfikowane w falach NATIVE-0 do NATIVE-6A; integracja i dynamiczne panele w NATIVE-6B. |
 
 ---
 
@@ -64,67 +67,144 @@ W stanie wejściowym repozytorium zidentyfikowano następujące komponenty powi�
 
 ```mermaid
 graph TD
-    UI[Warstwa Prezentacji: GUI / CatSettings] --> Hub[RigHub / RigService]
-    Hub --> Backend[RigBackend Trait]
-    
-    subgraph "Istniejące Backendy"
-        Backend --> Hamlib[HamlibBackend / rigctld TCP]
-        Backend --> Flrig[FlrigBackend / XML-RPC TCP]
-        Backend --> Tci[TciBackend / WebSocket]
+    subgraph "Warstwa Prezentacji (UI) [implemented / planned NATIVE-6B]"
+        UI[SpLogApp / GUI / cat_settings.rs]
     end
 
-    subgraph "Natywna Architektura Native-CAT"
-        Backend --> IcomBackend[IcomCiVBackend]
-        Backend --> KenwoodBackend[KenwoodBackend (NATIVE-2)]
-        Backend --> YaesuBackend[YaesuBackend (NATIVE-3)]
-        Backend --> ElecraftBackend[ElecraftBackend (NATIVE-4)]
-        Backend --> FlexBackend[FlexRadioBackend (NATIVE-5)]
-        
-        IcomBackend --> IcomCodec[IcomCiVCodec (FE FE .. FD)]
-        IcomBackend --> ProfileRegistry[RigModelRegistry / ModelProfile]
-        IcomBackend --> SerialTransport[Async Serial Transport (tokio-serial)]
-
-        KenwoodBackend --> KenwoodCodec[KenwoodCodec (;)]
-        KenwoodBackend --> SerialTransport
-
-        YaesuBackend --> YaesuCodec[YaesuCodec]
-        YaesuBackend --> SerialTransport
-
-        ElecraftBackend --> ElecraftCodec[ElecraftCodec (;)]
-        ElecraftBackend --> SerialTransport
-        ElecraftBackend --> TcpTransport[Async TCP Transport (tokio::net::TcpStream)]
+    subgraph "Multi-Radio Execution Core (RigHub) [planned]"
+        Hub[RigHub API: routing i rejestr sesji]
+        Arbiter[TxArbiter: bezpieczny pojedynczy właściciel TX]
+        EventBus[Event Bus / Snapshot / Watch State]
+        Hub --> Arbiter
+        Hub --> EventBus
     end
 
-    subgraph "Koordynacja Multi-Radio"
-        So2rCoordinator[So2rCoordinator] --> HubA[RigService Radio A]
-        So2rCoordinator --> HubB[RigService Radio B]
-        So2rCoordinator --> Interlock[PTT Interlock Engine]
+    subgraph "Warstwa Sesji Radiowej (RigService) [planned]"
+        HandleA[RigServiceHandle Radio A]
+        HandleB[RigServiceHandle Radio B]
+        TaskA[RigService Task Radio A: pętla aktora Tokio]
+        TaskB[RigService Task Radio B: pętla aktora Tokio]
+
+        HandleA -->|bounded command queue| TaskA
+        HandleB -->|bounded command queue| TaskB
+        TaskA -->|RoutedRigEvent| EventBus
+        TaskB -->|RoutedRigEvent| EventBus
     end
+
+    subgraph "Warstwa Backendów Radiowych (RigBackend Trait) [implemented]"
+        BackendA[RigBackend Radio A: jedyny właściciel w TaskA]
+        BackendB[RigBackend Radio B: jedyny właściciel w TaskB]
+        TaskA --> BackendA
+        TaskB --> BackendB
+
+        BackendA -.-> IcomBackend[IcomCiVBackend]
+        BackendA -.-> KenwoodBackend[KenwoodBackend]
+        BackendA -.-> YaesuBackend[YaesuBackend]
+        BackendA -.-> ElecraftBackend[ElecraftBackend]
+        BackendA -.-> FlexBackend[FlexRadioBackend]
+        BackendA -.-> LegacyBackend[Hamlib / FLRig / TCI]
+    end
+
+    subgraph "Warstwa Transportów Asynchronicznych [implemented]"
+        TransportA[Async Transport: SerialPort / TcpStream / UdpSocket]
+        TransportB[Async Transport: SerialPort / TcpStream / UdpSocket]
+        BackendA --> TransportA
+        BackendB --> TransportB
+    end
+
+    subgraph "Urządzenia Radiowe"
+        RadioA[Radio A / SDR]
+        RadioB[Radio B / SDR]
+        TransportA --> RadioA
+        TransportB --> RadioB
+    end
+
+    UI -->|RoutedRigCommand / Publiczne API| Hub
+    EventBus -->|Subskrypcja stanu / Snapshot| UI
+    Arbiter -->|Autoryzacja PTT / Blokada kolizji| HandleA
+    Arbiter -->|Autoryzacja PTT / Blokada kolizji| HandleB
 ```
+
+### 5.1. Przepływ komend sterujących (Command Flow)
+
+```text
+SpLogApp / GUI
+    -> RigHub API
+        -> RigServiceHandle
+            -> RigService task
+                -> RigBackend
+                    -> Transport
+                        -> Radio
+```
+
+### 5.2. Przepływ zdarzeń i telemetrii (Event Flow)
+
+```text
+Radio
+    -> RigBackend
+        -> RigService
+            -> RoutedRigEvent
+                -> RigHub
+                    -> snapshot/watch/event bus
+                        -> SpLogApp / GUI
+```
+
+### 5.3. Przepływ arbitrażu nadawania TX (TX Arbitration Flow)
+
+```text
+SpLogApp
+    -> RigHub
+        -> TxArbiter
+            -> dokładnie jeden RigService
+                -> dokładnie jeden RigBackend
+```
+
+### 5.4. Kluczowe niezmienniki architektoniczne (Invariants)
+
+1. **GUI nie posiada transportu**: Warstwa prezentacji (`SpLogApp`, okna dialogowe) nie ma bezpośredniego dostępu do deskryptorów portów szeregowych ani gniazd sieciowych.
+2. **GUI nie posiada backendu**: Obiekty implementujące `RigBackend` nigdy nie są przekazywane do struktur UI ani trzymane w stanie widgetów.
+3. **RigHub nie posiada bezpośrednio transportu**: `RigHub` jest dyspozytorem routingu i rejestrem sesji; nie zarządza bezpośrednio połączeniami fizycznymi.
+4. **RigService jest wyłącznym właścicielem backendu**: Każda sesja `RigService` posiada dokładnie jeden obiekt `RigBackend` wewnątrz dedykowanego tasku aktora Tokio (`Actor loop`), co eliminuje konieczność stosowania blokad `Arc<Mutex<Box<dyn RigBackend>>>`.
+5. **Backend nie musi implementować `Sync`**: Wymóg `Send` jest w zupełności wystarczający dla przeniesienia backendu do autonomicznego tasku Tokio. Brak wymagania `Sync` upraszcza implementację i zabezpiecza przed nieuprawnionym współbieżnym wywoływaniem metod I/O.
+6. **Taski nie mogą być detached**: Każdy uruchamiany task aktora sesyjnego oraz pętli I/O przechowuje `JoinHandle`. Procedura wyłączania (`shutdown`) jest deterministyczna, idempotenta i czeka na poprawne zakończenie powiązanych wątków asynchronicznych.
 
 ---
 
 ## 6. Warstwy Native-CAT
 
-Architektura jest ściśle podzielona na 7 warstw:
-1. **Domena (`src/cat/rig.rs`, `src/cat/native/mod.rs`)**:
-   - Podstawowe typy niezmienne: `RigCommand`, `RigState`, `RigCapabilities`, `RigError`.
-   - Typy rozszerzone: `NativeRigCommand`, `NativeRigCapabilities`, `NativeRigEvent`.
-2. **Wspólny transport szeregowy (`src/cat/native/transport.rs`)**:
+Architektura jest ściśle podzielona na 7 warstw (z jawnym oznaczeniem statusu implementacji: `implemented` vs `planned`):
+1. **Domena (`src/cat/rig.rs` [implemented], `src/cat/native/mod.rs` [implemented])**:
+   - Typy podstawowe [implemented]: `RigCommand`, `RigState`, `RigCapabilities`, `RigError`, `RigStatus`.
+   - Typy routingu i celów [planned]: `RigId`, `ReceiverId`, `RigTarget`, `ActiveRxTarget`, `ActiveTxTarget`, `RigCommandId`, `RoutedRigCommand`, `RoutedRigEvent`.
+   - Typy rozszerzone [implemented]: `NativeRigCommand`, `NativeRigCapabilities`, `NativeRigEvent`.
+2. **Wspólny transport szeregowy (`src/cat/native/transport.rs` [implemented])**:
    - `SerialConfig` (port, baud, bity danych, stop, parzystość, flow control, timeouty).
    - `AsyncSerialTransport` implementujący asynchroniczny odczyt/zapis z buforowaniem ramkowym i odpornością na częściowe pakiety.
-3. **Kodek protokołu (`src/cat/native/<vendor>/codec.rs`)**:
-   - Odpowiedzialny wyłącznie za kodowanie struktur domenowych do strumienia bajtów oraz dekodowanie strumienia do struktur odpowiedzi/zdarzeń.
-   - Niezależny od wejścia/wyjścia sieciowego i sprzętowego (czysta logika bez I/O).
-4. **Profil modelu (`src/cat/native/profile.rs`, `registry.rs`)**:
+3. **Kodeki protokołów (`src/cat/native/<vendor>/codec.rs` [implemented])**:
+   - Odpowiedzialne wyłącznie za kodowanie struktur domenowych do strumienia bajtów oraz dekodowanie strumienia do struktur odpowiedzi/zdarzeń (`IcomCiVCodec`, `KenwoodCodec`, `YaesuAsciiCodec`, `ElecraftCodec`, `FlexProtocolCodec`, `FlexDiscoveryCodec`).
+   - Niezależne od wejścia/wyjścia sieciowego i sprzętowego (czysta logika bez I/O).
+4. **Profil modelu i rejestr (`src/cat/native/profile.rs` [implemented], `registry.rs` [implemented])**:
    - Metadane urządzeń: identyfikator modelu, domyślne parametry transmisji, obsługiwane komendy, ograniczenia sprzętowe, adresy CI-V / ID producenta.
-5. **Backend (`src/cat/native/<vendor>/backend.rs`)**:
-   - Implementuje `RigBackend` dla danego producenta.
-   - Zarządza cyklem życia połączenia, obsługuje odpytywanie (`poll`), asynchroniczne zdarzenia transceive oraz wysyłanie komend (`execute`).
-6. **Usługa (`RigService` / `RigHub`)**:
-   - Aktor zarządzający pętlą I/O, kolejką komend i rozsyłaniem stanu do subskrybentów za pomocą `tokio::sync::watch`.
-7. **Interfejs Użytkownika (`src/gui/cat_settings.rs`)**:
-   - Formularze konfiguracji specyficzne dla danego backendu (port COM, prędkość, adres CI-V, podgląd możliwości).
+5. **Backendy radiowe (`src/cat/native/<vendor>/backend.rs` [implemented])**:
+   - Implementują kontrakt `RigBackend` dla każdego producenta (`IcomCiVBackend`, `KenwoodBackend`, `YaesuBackend`, `ElecraftBackend`, `FlexRadioBackend`) oraz adaptery istniejące (`HamlibBackend`, `FlrigBackend`, `TciBackend`).
+   - Zarządzają cyklem życia połączenia, obsługują odpytywanie (`poll`), asynchroniczne zdarzenia transceive oraz wysyłanie komend (`execute`).
+6. **Warstwa wykonawcza Multi-Radio (`RigService` [planned], `RigHub` [planned], `TxArbiter` [planned])**:
+   - `RigService` [planned]: Aktor zarządzający pętlą I/O pojedynczej sesji, bounded kolejką komend, timeoutami, pollingiem i cyklem życia backendu.
+   - `RigHub` [planned]: Centralny rejestr wielu instancji sesji, deterministyczny routing poleceń, agregacja zdarzeń, snapshot stanu.
+   - `TxArbiter` [planned]: Arbiter gwarantujący maksymalnie jednego lokalnego właściciela TX w całej stacji.
+7. **Interfejs Użytkownika i Fabryka Backendów (`src/gui/cat_settings.rs` [implemented], fabryka [planned])**:
+   - Dynamiczne formularze konfiguracji zależne od wybranego backendu (port COM, prędkość, adres CI-V, parametry sieciowe, podgląd możliwości `RigCapabilities`), bezpieczny przycisk testowy (`probe()`), walidacja i18n.
+
+### 6.1. Macierz odpowiedzialności komponentów warstwy CAT
+
+| Komponent | Status | Zakres odpowiedzialności |
+|---|---|---|
+| **RigBackend** | implemented | Semantyka pojedynczego radia, protokół producenta, transport, stan radia (`RigState`), potwierdzenia komend. |
+| **RigService** | planned | Lifecycle jednej sesji, kolejka komend (bounded), polling, timeouty, zdarzenia, snapshot sesji, shutdown i JoinHandle. |
+| **RigHub** | planned | Rejestr sesji, deterministyczny routing komend i zdarzeń, aktywny RX (`ActiveRxTarget`), aktywny TX (`ActiveTxTarget`), agregacja zdarzeń, snapshot wszystkich radii. |
+| **TxArbiter** | planned | Pojedynczy lokalny właściciel TX, maszyna stanów (`Requesting`, `Owned`, `Releasing`, `Unknown`), blokada drugiego TX. |
+| **So2rCoordinator** | planned | Przyszła polityka dwóch radii, wybór RX/TX, integracja z RigHub, bez bezpośredniego dostępu do backendów. |
+| **GUI** | implemented / planned (NATIVE-6B) | Konfiguracja stacji, prezentacja stanu, wywołania API RigHub, brak I/O radiowego i brak posiadania backendu/transportu. |
 
 ---
 
@@ -439,41 +519,94 @@ Konfiguracja stacji (`AppConfig` / `station_config.json`) zachowuje wsteczną ko
 
 ## 20. Plan interfejsu użytkownika (UI)
 
-W fali NATIVE-6 okno `cat_settings.rs` zostanie wzbogacone o:
+W fali NATIVE-6B (po ukończeniu i przetestowaniu warstwy wykonawczej NATIVE-6A) okno `cat_settings.rs` zostanie wzbogacone o:
 1. Dynamiczne formularze zależne od wybranego backendu (np. pole adresu CI-V widoczne tylko dla Icom, konfiguracja IP/portu dla FlexRadio i Kenwood LAN).
 2. Przycisk bezpiecznego testu połączenia („Testuj połączenie”) wykonujący wyłącznie operację `probe()` (odczyt wersji/częstotliwości, bez PTT).
 3. Wyświetlanie wykrytych możliwości transceivera (`RigCapabilities`).
 
-W falach NATIVE-0 i NATIVE-1 interfejs GUI nie ulega modyfikacji runtime, co gwarantuje pełną stabilność aplikacji.
+W falach NATIVE-0 do NATIVE-6A interfejs GUI nie ulega modyfikacji runtime, co gwarantuje pełną stabilność aplikacji i niezależność testowania warstwy wykonawczej.
 
 ---
 
 ## 21. Rozstrzygnięcie dotyczące SO2R
 
-1. **SO2R nie jest backendem radiowym**: Moduł `src/cat/so2r.rs` zostaje zachowany w dotychczasowej postaci jako czysta domena stanu dwóch transceiverów.
-2. **Architektura przyszłości**: Koordynator SO2R (`So2rCoordinator`) będzie zarządzać dwiema niezależnymi instancjami `RigService` (Radio A i Radio B), odpowiadając za:
-   - PTT Interlock (sprzętową i logiczną blokadę nadawania na dwóch radiach jednocześnie),
-   - Fokus odbiorczy i nadawczy (RX/TX focus),
+1. **SO2R nie jest backendem radiowym**: Moduł `src/cat/so2r.rs` zostaje zachowany w dotychczasowej postaci jako czysta domena stanu dwóch transceiverów (`implemented`).
+2. **Architektura przyszłości**: Koordynator SO2R (`So2rCoordinator` [planned]) będzie zarządzać dwiema niezależnymi instancjami `RigService` [planned] (Radio A i Radio B) za pośrednictwem `RigHub` [planned], odpowiadając za:
+   - PTT Interlock (sprzętową i logiczną blokadę nadawania na dwóch radiach jednocześnie przez `TxArbiter` [planned]),
+   - Fokus odbiorczy i nadawczy (`ActiveRxTarget` [planned] i `ActiveTxTarget` [planned]),
    - Przełączanie audio (lewe ucho / prawe ucho).
+   - Całkowity brak bezpośredniego dostępu do backendów radiowych ani transportów.
 
 ---
 
-## 22. Fale realizacyjne (NATIVE-0 do NATIVE-7)
+## 22. Decyzja architektoniczna AD-NATIVE-6-SPLIT
+
+- **ID decyzji**: `AD-NATIVE-6-SPLIT`
+- **Tytuł**: Rozdzielenie warstwy wykonawczej CAT od fabryki backendów i integracji UI
+- **Status**: `Accepted`
+
+### Uzasadnienie:
+1. Backendy natywne zostały zaimplementowane i przetestowane.
+2. `RigBackend` implementuje `Send`, ale nie wymaga `Sync`.
+3. Backend powinien mieć jednego właściciela w tasku aktora.
+4. `RigHub` i `RigService` nie istnieją jeszcze w kodzie produkcyjnym.
+5. GUI nie powinno posiadać backendów ani transportów.
+6. Integracja UI wymaga stabilnego API warstwy wykonawczej.
+7. Bezpieczne PTT w układzie wieloradiowym wymaga centralnego arbitra.
+8. FlexRadio wymaga zachowania identyfikatorów slice bez mapowania na VFO A/B.
+9. Warstwa wykonawcza musi zostać przetestowana offline przed integracją GUI.
+10. Rozdzielenie ogranicza zakres zmian i umożliwia osobny rollback.
+
+### Konsekwencje:
+- dotychczasowa NATIVE-6 zostaje zastąpiona przez NATIVE-6A i NATIVE-6B,
+- NATIVE-6A nie zmienia GUI,
+- NATIVE-6B nie projektuje ponownie warstwy wykonawczej,
+- NATIVE-7 rozpoczyna się dopiero po ukończeniu obu podfal,
+- raport wcześniejszego przerwania pozostaje historycznie poprawny.
+
+---
+
+## 23. Rejestr ryzyk architektonicznych (R1 – R10)
+
+| Identyfikator | Tytuł ryzyka | Opis zagrożenia | Mechanizm mitygacji |
+|---|---|---|---|
+| **R1** | Równoczesny TX dwóch radii | Niezamierzona jednoczesna aktywacja nadawania na dwóch radiotelefonach prowadząca do uszkodzenia odbiorników lub zakłóceń. | Centralny komponent `TxArbiter`: ścisła maszyna stanów z pojedynczym właścicielem TX i natychmiastowym odrzuceniem prób współbieżnego nadawania. |
+| **R2** | Nieznany stan PTT po timeout | Brak odpowiedzi lub timeout rozkazu PTT pozostawia niepewność, czy stopień końcowy nadaje. | Wprowadzenie stanu `Unknown` w `TxArbiter` oraz backendzie; stan `Unknown` blokuje kolejne żądania TX do czasu bezpiecznego resetu lub jednoznacznego potwierdzenia RX. Brak retry dla `SetPtt(true)`. |
+| **R3** | Awaria jednego backendu zatrzymuje cały CAT | Błąd I/O lub panika w obsłudze jednego radia paraliżuje całą aplikację i pozostałe sesje. | Całkowita izolacja sesji: każdy `RigBackend` działa w autonomicznym tasku aktora `RigService`; awaria lub restart sesji Radia A nie wpływa na ciągłość pracy Radia B. |
+| **R4** | GUI posiada backend lub transport | Wyciek referencji backendu lub transportu do warstwy prezentacji łamiący architekturę wątkową. | Całkowity zakaz trzymania backendu i transportu w GUI; jedynym interfejsem dla GUI jest bezgłowe API `RigHub` (kanały bounded mpsc / watch snapshot). |
+| **R5** | Nieograniczone kolejki komend i zdarzeń | Wolny backend lub lawina zdarzeń powoduje nieograniczony wzrost pamięci kanałów asynchronicznych (OOM). | Wszystkie kanały komend i zdarzeń są ograniczone (`bounded channels`); jawna polityka backpressure z typowanym błędem `QueueFull`. |
+| **R6** | Zagubione taski asynchroniczne | Wyciek tasków Tokio w tle po zamknięciu sesji lub wyłączeniu aplikacji (dangling tasks). | Każdy uruchomiony task posiada powiązany `tokio::task::JoinHandle`; kontrolowany, deterministyczny i idempotentny proces `shutdown` oczekujący na zakończenie pętli aktora. |
+| **R7** | FlexSliceId zostaje błędnie zamieniony na VFO | Uproszczenie wieloodbiornikowej architektury FlexRadio do tradycyjnego modelu VFO A/B prowadzi do utraty tożsamości slice. | Wprowadzenie dedykowanego typu `ReceiverId::Slice(FlexSliceId)` obok `ReceiverId::Vfo(VfoId)`; brak syntetycznego mapowania slice na VFO A/B. |
+| **R8** | Automatyczny fallback PTT na inne radio | W przypadku niedostępności żądanego radia system omyłkowo kieruje nadawanie na pierwsze dostępne radio. | Całkowity zakaz niejawnego fallbacku routingu dla komend mutujących; błąd adresowania lub brak wskazanego `RigTarget` skutkuje natychmiastowym błędem typowanym bez emisji RF. |
+| **R9** | Migracja konfiguracji niszczy ustawienia | Konwersja formatu konfiguracji stacji unieważnia istniejące ustawienia użytkowników. | Idempotentny proces migracji w NATIVE-6B z zachowaniem pól archiwalnych i automatycznym testem procedury cofnięcia (rollback). |
+| **R10** | Probe uruchamia komendę mutującą | Procedura testowania połączenia („Testuj połączenie”) przypadkowo przestawia radio lub uruchamia nadawanie. | Ścisły rygor `probe()`: metoda jest bezwzględnie tylko do odczytu (read-only), wyklucza wysyłanie PTT, AI czy komend strojenia; potwierdzone dedykowanymi testami offline. |
+
+---
+
+## 24. Fale realizacyjne (NATIVE-0 do NATIVE-7)
 
 | Fala | Nazwa fali | Zakres i cel |
 |---|---|---|
-| **NATIVE-0** | Fundament architektury i transport szeregowy | Audyt, dokument `Native CAT.md`, struktura `src/cat/native/`, wspólny transport `tokio-serial`, model profili i testy transportu. |
-| **NATIVE-1** | Pełny Icom CI-V Backend | Migracja `icom_ci_v.rs` przez `git mv`, dekoder strumieniowy, obsługa ACK/NAK/echo/transceive, profil IC-7300/7610/705, implementacja `RigBackend`, testy. |
-| **NATIVE-2** | Pełny Kenwood PC Control | Implementacja KenwoodCodec, Auto Information, obsługa portów szeregowych i LAN, profile TS-590/890/990. |
-| **NATIVE-3** | Pełny Yaesu CAT | Implementacja YaesuCodec (rodziny tekstowe i binarne), obsługa portów Enhanced/Standard. |
-| **NATIVE-4** | Elecraft Backend | K3/KX oraz K4 Ethernet, multisesyjność. |
-| **NATIVE-5** | FlexRadio SmartSDR | Protokół TCP/UDP SmartSDR, obsługa slice receivers i subskrypcji. |
-| **NATIVE-6** | Fabryka backendów, migracja i UI | Integracja z `cat_settings.rs`, dynamiczne panele konfiguracji, walidacja i18n. |
-| **NATIVE-7** | Testy HIL, dokumentacja i audyt końcowy | Procedury testów sprzętowych, aktualizacja podręcznika i audyt bezpieczeństwa. |
+| **NATIVE-0** | Fundament architektury i transport szeregowy | Audyt, dokument `Native CAT.md`, struktura `src/cat/native/`, wspólny transport `tokio-serial`, model profili i testy transportu. [zrealizowano] |
+| **NATIVE-1** | Pełny Icom CI-V Backend | Migracja `icom_ci_v.rs` przez `git mv`, dekoder strumieniowy, obsługa ACK/NAK/echo/transceive, profil IC-7300/7610/705, implementacja `RigBackend`, testy. [zrealizowano] |
+| **NATIVE-2** | Pełny Kenwood PC Control | Implementacja KenwoodCodec, Auto Information, obsługa portów szeregowych i LAN, profile TS-590/890/990. [zrealizowano] |
+| **NATIVE-3** | Pełny Yaesu CAT | Implementacja YaesuCodec (rodziny tekstowe i binarne), obsługa portów Enhanced/Standard. [zrealizowano] |
+| **NATIVE-4** | Elecraft Backend | K3/KX oraz K4 Ethernet, multisesyjność. [zrealizowano] |
+| **NATIVE-5** | FlexRadio SmartSDR | Protokół TCP/UDP SmartSDR, obsługa slice receivers i subskrypcji. [zrealizowano] |
+| **NATIVE-6** | Fala nadrzędna: Multi-Radio Execution Core, fabryka backendów, migracja i integracja UI | Fala nadrzędna podzielona formalnie na NATIVE-6A i NATIVE-6B (decyzja AD-NATIVE-6-SPLIT). Brak osobnych kryteriów wykonawczych. |
+| **NATIVE-6A** | Multi-Radio Execution Core, RigHub i bezpieczny arbitraż TX | Zaimplementowanie bezgłowej, produkcyjnej warstwy wykonawczej (RigService, RigHub, TxArbiter, routing, bounded queues, lifecycle, shutdown) bez zmian w GUI. [planned] |
+| **NATIVE-6B** | Fabryka backendów, migracja konfiguracji i UI | Podłączenie istniejących backendów i warstwy wykonawczej do GUI (`cat_settings.rs`), dynamiczne panele konfiguracji, fabryka backendów, walidacja i18n, migracja `AppConfig`. [planned] |
+| **NATIVE-7** | Testy HIL, dokumentacja i audyt końcowy | Procedury testów sprzętowych Hardware-In-The-Loop, aktualizacja podręcznika i audyt bezpieczeństwa. [planned] |
+
+### 24.1. Łańcuch zależności fal realizacyjnych
+
+```text
+NATIVE-0 -> NATIVE-1 -> NATIVE-2 -> NATIVE-3 -> NATIVE-4 -> NATIVE-5 (5A-5E) -> NATIVE-6A -> NATIVE-6B -> NATIVE-7
+```
 
 ---
 
-## 23. Kryteria ukończenia fal NATIVE-0, NATIVE-1, NATIVE-2 i NATIVE-3
+## 25. Kryteria ukończenia fal realizacyjnych (NATIVE-0 do NATIVE-7)
 
 ### Kryteria NATIVE-0:
 - [x] Pełny audyt istniejących modułów CAT.
@@ -615,9 +748,171 @@ W falach NATIVE-0 i NATIVE-1 interfejs GUI nie ulega modyfikacji runtime, co gwa
 - [x] Literalny niezależny fixture specyfikacyjny discovery: Zachowano `packet_type` `0x3` i zaktualizowano nazewnictwo na `LITERAL_SPECIFICATION_DISCOVERY_PACKET` (literalny niezależny fixture specyfikacyjny) wraz z testem `flex_discovery_fixture_is_specification_fixture`.
 - [x] Kompletny zestaw testów jednostkowych i integracyjnych: Dodano i zaktualizowano testy weryfikujące poprawność subskrypcji, brak wysyłania komend niepotwierdzonych oraz poprawność reakcji na odrzucenia.
 
+### Kryteria NATIVE-6A (Multi-Radio Execution Core, RigHub i bezpieczny arbitraż TX):
+
+- **Cel**: Zaimplementowanie bezgłowej, produkcyjnej warstwy wykonawczej pomiędzy `RigBackend` a przyszłą integracją aplikacji.
+- **Status**: `planned`
+
+#### Zakres obowiązkowy:
+1. `RigId`.
+2. `ReceiverId`.
+3. `RigTarget`.
+4. `ActiveRxTarget`.
+5. `ActiveTxTarget`.
+6. `RigService`.
+7. `RigServiceHandle`.
+8. Jawny lifecycle sesji.
+9. Bounded command queue.
+10. Bounded event queue.
+11. Jawna polityka backpressure.
+12. `RigHub`.
+13. Rejestr wielu sesji.
+14. `RoutedRigCommand`.
+15. `RigCommandId`.
+16. `RoutedRigEvent`.
+17. Snapshot całego `RigHub`.
+18. Deterministyczny routing.
+19. `TxArbiter`.
+20. Maksymalnie jeden lokalny właściciel TX.
+21. Stan `Unknown` po niejednoznacznym wyniku PTT.
+22. Brak automatycznego retry `SetPtt(true)`.
+23. Multi-slice routing dla FlexRadio.
+24. Zachowanie `FlexSliceId`.
+25. Brak syntetycznego VFO A/B dla FlexRadio.
+26. Awaria jednej sesji nie zatrzymuje pozostałych.
+27. Kontrolowany shutdown wszystkich tasków.
+28. `JoinHandle` dla każdego uruchomionego taska.
+29. Deterministyczne testy offline.
+30. Dokumentacja publicznego API warstwy wykonawczej.
+
+#### Pliki przewidywane:
+- `src/cat/hub.rs`,
+- `src/cat/service.rs`,
+- `src/cat/routing.rs`,
+- `src/cat/tx_arbiter.rs`,
+- `src/cat/mod.rs`,
+- minimalne współdzielone typy domenowe,
+- testy,
+- `Native CAT.md`.
+
+#### Poza zakresem NATIVE-6A:
+- GUI,
+- `cat_settings.rs`,
+- migracja konfiguracji użytkownika,
+- `station_config.json`,
+- dynamiczne formularze,
+- i18n GUI,
+- fizyczne kontrolery SO2R,
+- routing audio,
+- routing mikrofonu,
+- routing CW,
+- anteny,
+- wzmacniacze,
+- filtry,
+- SmartLink,
+- VITA-49 data plane,
+- DAX,
+- audio,
+- IQ,
+- FFT,
+- panadapter,
+- waterfall,
+- HIL,
+- NATIVE-6B,
+- NATIVE-7.
+
+#### Kryteria odbioru NATIVE-6A:
+- brak `Arc<Mutex<Box<dyn RigBackend>>>`,
+- jeden właściciel backendu,
+- brak unbounded channels,
+- brak detached tasks,
+- brak blokady trzymanej przez await,
+- bounded kolejki,
+- typed errors,
+- routing bez fallbacku na pierwsze radio,
+- osobne `ActiveRxTarget` i `ActiveTxTarget`,
+- jeden lokalny właściciel TX,
+- `Unknown` blokuje następne rozpoczęcie TX,
+- brak retry PTT true,
+- shutdown jest idempotentny,
+- wszystkie testy przechodzą,
+- brak zmian GUI,
+- jeden commit,
+- synchronizacja z `main` przez fast-forward.
+
+### Kryteria NATIVE-6B (Fabryka backendów, migracja konfiguracji i integracja UI):
+
+- **Warunek wejściowy**: NATIVE-6A PASSED
+- **Cel**: Podłączenie istniejących backendów i warstwy wykonawczej do aplikacji oraz konfiguracji użytkownika.
+- **Status**: `planned`
+
+#### Zakres obowiązkowy:
+1. Fabryka backendów.
+2. Tworzenie właściwego `RigBackend` na podstawie konfiguracji.
+3. Migracja dotychczasowych ustawień CAT.
+4. Integracja `RigHub` ze `SpLogApp`.
+5. Usunięcie bezpośredniego sterowania Hamlib z GUI, jeśli przewiduje to aktualny plan ARCH-CAT.
+6. Usunięcie osobnej pętli FLRig, jeśli zostanie zastąpiona `RigService`.
+7. Integracja natywnych backendów Icom, Kenwood, Yaesu, Elecraft i FlexRadio.
+8. Integracja Hamlib, FLRig i TCI przez wspólną warstwę wykonawczą.
+9. Dynamiczne formularze w `cat_settings.rs`.
+10. Walidacja zależna od rodzaju backendu.
+11. Bezpieczny przycisk „Testuj połączenie” używający wyłącznie `probe()`.
+12. Brak PTT podczas `probe()`.
+13. Prezentacja `RigCapabilities`.
+14. Prezentacja stanu lifecycle.
+15. Prezentacja błędów typowanych.
+16. Lokalizacja wszystkich nowych tekstów.
+17. Walidacja wszystkich plików i18n.
+18. Zachowanie konfiguracji po restarcie.
+19. Bezpieczny rollback migracji.
+20. Testy integracyjne bez fizycznego sprzętu.
+
+#### Poza zakresem NATIVE-6B:
+- projektowanie nowego `RigHub`,
+- projektowanie nowego `TxArbiter`,
+- zmiana semantyki protokołów radiowych,
+- fizyczne kontrolery SO2R,
+- przełączanie audio,
+- przełączanie mikrofonu,
+- anteny,
+- wzmacniacze,
+- SmartLink,
+- data plane,
+- HIL,
+- NATIVE-7.
+
+#### Kryteria odbioru NATIVE-6B:
+- GUI nie posiada backendów bezpośrednio,
+- GUI komunikuje się przez warstwę NATIVE-6A,
+- factory pokrywa wszystkie obsługiwane backendy,
+- migracja jest idempotentna,
+- probe jest read-only,
+- probe nigdy nie uruchamia PTT,
+- wszystkie teksty mają klucze i18n,
+- brak surowych kluczy w GUI,
+- pełna walidacja przechodzi,
+- jeden atomowy commit,
+- synchronizacja z `main` przez fast-forward.
+
+### Kryteria NATIVE-7 (Testy HIL, dokumentacja i audyt końcowy):
+
+- **Warunki wejściowe**:
+  - NATIVE-6A PASSED,
+  - NATIVE-6B PASSED,
+  - repozytorium clean,
+  - gałęzie zsynchronizowane,
+  - pełna walidacja przechodzi.
+- **Zakres**: Procedury testów sprzętowych Hardware-In-The-Loop, aktualizacja podręcznika i audyt bezpieczeństwa.
+- **Zasady i rygory**:
+  - HIL nie należy do NATIVE-6A,
+  - HIL nie należy do NATIVE-6B,
+  - użycie fizycznego PTT wymaga osobnej, kontrolowanej procedury,
+  - testy produkcyjne NATIVE-6A i NATIVE-6B pozostają offline.
+
 ---
 
-## 24. Strategia wycofania (Rollback)
+## 26. Strategia wycofania (Rollback)
 
 W razie niepowodzenia lub nieprzewidzianej regresji:
 1. Każda fala jest zamykana atomowym commitem.
@@ -626,7 +921,7 @@ W razie niepowodzenia lub nieprzewidzianej regresji:
 
 ---
 
-## 25. Rejestr zmian funkcjonalnych
+## 27. Rejestr zmian funkcjonalnych
 
 W falach NATIVE-0 i NATIVE-1 nie wprowadza się żadnych zmian łamiących dotychczasowe zachowanie runtime aplikacji:
 - Hamlib, FLRig i TCI zachowują 100% dotychczasowego kodu i funkcjonalności.
@@ -635,7 +930,7 @@ W falach NATIVE-0 i NATIVE-1 nie wprowadza się żadnych zmian łamiących dotyc
 
 ---
 
-## 26. Ryzyka licencyjne dokumentacji i implementacji
+## 28. Ryzyka licencyjne dokumentacji i implementacji
 
 1. **Licencja kodu**: Całość nowego kodu SPLogbook powstaje na licencji GPL-3.0-or-later.
 2. **Dokumentacja producentów**: Wszystkie stałe protokołów (adresy, kody komend) stanowią fakty techniczne konieczne do interoperacyjności (zgodnie z prawem autorskim i orzecznictwem dotyczącym inżynierii wstecznej i protokołów komunikacyjnych). Żadne zastrzeżone fragmenty tabel producentów nie są kopiowane dosłownie do repozytorium.
