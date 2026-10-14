@@ -299,9 +299,13 @@ impl FlexRadioConnection {
     }
 
     /// Idempotentne, bezpieczne zamknięcie połączenia TCP.
+    ///
+    /// Semantyka Tokio: zamyka asynchronicznie kierunek zapisu gniazda (`AsyncWriteExt::shutdown`)
+    /// z ograniczonym czasem oczekiwania (500 ms). Całkowite zwolnienie gniazda systemu operacyjnego
+    /// następuje w momencie porzucenia struktury [`FlexRadioConnection`] lub obiektu [`tokio::net::TcpStream`].
     pub async fn disconnect(&mut self) {
         self.handshake_state = HandshakeState::Disconnected;
-        let _ = self.stream.shutdown().await;
+        let _ = tokio::time::timeout(Duration::from_millis(500), self.stream.shutdown()).await;
         self.read_buffer.clear();
         self.early_messages.clear();
         self.version = None;

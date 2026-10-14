@@ -29,8 +29,32 @@ pub const FLEX_DISCOVERY_PORT: u16 = 4992;
 /// Oficjalny Stream ID dla pakietów discovery VITA-49 SmartSDR.
 pub const FLEX_DISCOVERY_STREAM_ID: u32 = 0x0000_0800;
 
+/// Typy pakietów VITA-49 (ANSI/VITA 49.0 Sekcja 6.1, Packet Type field - bity 31..28):
+/// * `0x0` (`0x0000_0000`): IF Data Packet (standardowe próbki IF bez Stream ID)
+/// * `0x1` (`0x1000_0000`): IF Data Packet with Stream ID
+/// * `0x2` (`0x2000_0000`): Extension Data Packet (dane rozszerzone bez Stream ID)
+/// * `0x3` (`0x3000_0000`): Extension Data Packet with Stream ID (oficjalny typ FlexRadio Discovery)
+/// * `0x4` (`0x4000_0000`): Context Packet (pakiet kontekstowy)
+/// * `0x5` (`0x5000_0000`): Extension Context Packet (pakiet kontekstowy rozszerzony)
+pub const VITA_PACKET_TYPE_IF_DATA: u8 = 0x00;
+
+/// Typ VITA-49: IF Data Packet with Stream ID (0x01 / 0x1000_0000).
+pub const VITA_PACKET_TYPE_IF_DATA_WITH_STREAM_ID: u8 = 0x01;
+
+/// Typ VITA-49: Extension Data Packet without Stream ID (0x02 / 0x2000_0000).
+pub const VITA_PACKET_TYPE_EXT_DATA: u8 = 0x02;
+
 /// Oficjalny typ pakietu VITA-49: Extension Data Packet with Stream ID (0x03).
 pub const VITA_PACKET_TYPE_EXT_DATA_WITH_STREAM_ID: u8 = 0x03;
+
+/// Oficjalny typ pakietu VITA-49 jako 32-bitowe słowo po przesunięciu o 28 bitów (0x3000_0000).
+pub const VITA_PACKET_TYPE_EXT_DATA_WITH_STREAM_ID_WORD: u32 = 0x3000_0000;
+
+/// Typ VITA-49: Context Packet (0x04 / 0x4000_0000).
+pub const VITA_PACKET_TYPE_CONTEXT: u8 = 0x04;
+
+/// Typ VITA-49: Extension Context Packet (0x05 / 0x5000_0000).
+pub const VITA_PACKET_TYPE_EXT_CONTEXT: u8 = 0x05;
 
 /// Oficjalny wskaźnik czasu TSI: Other (0b11).
 pub const VITA_TSI_OTHER: u8 = 0b11;
@@ -545,6 +569,66 @@ mod tests {
         buf
     }
 
+    /// Niezależny, literalny pakiet binarny FlexRadio Discovery VITA-49 (112 bajtów = 28 słów 32-bitowych).
+    /// Zbudowany bez użycia produkcyjnego enkodera, funkcji pomocniczych ani stałych parsera.
+    ///
+    /// Słowo po słowie (Big-Endian / Network Byte Order):
+    /// - Słowo 0: [0x38, 0xD0, 0x00, 0x1C] (0x38D0001C)
+    ///   - Bity 31..28 (0x3): Typ pakietu = Extension Data Packet with Stream ID (0x03)
+    ///   - Bit 27 (1): Class ID Present
+    ///   - Bit 26 (0): Trailer Absent
+    ///   - Bity 25..24 (00): Reserved
+    ///   - Bity 23..22 (11): TSI = Other (0b11)
+    ///   - Bity 21..20 (01): TSF = Sample Count 64-bit (0b01)
+    ///   - Bity 19..16 (0000): Packet Count = 0
+    ///   - Bity 15..0 (0x001C = 28): Rozmiar pakietu w słowach 32-bitowych (7 słów nagłówka + 21 słów payloadu = 112 bajtów)
+    /// - Słowo 1: [0x00, 0x00, 0x08, 0x00] (0x00000800) -> Stream ID
+    /// - Słowo 2: [0x00, 0x00, 0x1C, 0x2D] (0x00001C2D) -> Class ID High (IEEE 24-bit OUI producenta FlexRadio Systems)
+    /// - Słowo 3: [0x53, 0x4C, 0xFF, 0xFF] (0x534CFFFF) -> Class ID Low (Information Class Code 0x534C "SL", Packet Class Code 0xFFFF)
+    /// - Słowo 4: [0x00, 0x00, 0x00, 0x00] -> Raw Timestamp Integer (0)
+    /// - Słowo 5: [0x00, 0x00, 0x00, 0x00] -> Raw Timestamp Fractional High (0)
+    /// - Słowo 6: [0x00, 0x00, 0x00, 0x00] -> Raw Timestamp Fractional Low (0)
+    /// - Słowa 7..27 (84 bajty): 83 bajty payloadu ASCII + 1 bajt terminacji/wyrównania NUL (83 + 1 = 84 bajty = 21 słów)
+    pub const LITERAL_OFFICIAL_DISCOVERY_PACKET: [u8; 112] = [
+        // Słowo 0: Header Word (Typ 0x3, Class ID=1, Trailer=0, TSI=0b11, TSF=0b01, Count=0, Words=28)
+        0x38, 0xD0, 0x00, 0x1C, // Słowo 1: Stream ID (0x00000800)
+        0x00, 0x00, 0x08, 0x00, // Słowo 2: Class ID High (OUI 0x001C2D)
+        0x00, 0x00, 0x1C, 0x2D, // Słowo 3: Class ID Low (0x534CFFFF)
+        0x53, 0x4C, 0xFF, 0xFF, // Słowo 4: Raw Timestamp Integer (0)
+        0x00, 0x00, 0x00, 0x00, // Słowo 5: Raw Timestamp Fractional High (0)
+        0x00, 0x00, 0x00, 0x00, // Słowo 6: Raw Timestamp Fractional Low (0)
+        0x00, 0x00, 0x00, 0x00, // Słowa 7..26: 83 bajty ASCII payloadu:
+        b'm', b'o', b'd', b'e', b'l', b'=', b'F', b'L', b'E', b'X', b'-', b'6', b'6', b'0', b'0',
+        b' ', b's', b'e', b'r', b'i', b'a', b'l', b'=', b'1', b'3', b'2', b'0', b'-', b'5', b'6',
+        b'9', b'1', b'-', b'6', b'4', b'0', b'0', b'-', b'6', b'8', b'7', b'4', b' ', b'v', b'e',
+        b'r', b's', b'i', b'o', b'n', b'=', b'3', b'.', b'7', b'.', b'4', b' ', b'i', b'p', b'=',
+        b'1', b'9', b'2', b'.', b'1', b'6', b'8', b'.', b'1', b'.', b'1', b'2', b'0', b' ', b'p',
+        b'o', b'r', b't', b'=', b'4', b'9', b'9', b'2',
+        // Słowo 27: 1 bajt NUL terminacji i wyrównania (83 + 1 = 84 bajty = 21 słów)
+        0x00,
+    ];
+
+    /// Niezależny, literalny pakiet binarny o długości payloadu podzielnej przez 4 (len = 52, 52 % 4 == 0).
+    /// Zgodnie z oficjalnym algorytmem producenta: payload_words = (52 + 4) / 4 = 14 słów (56 bajtów).
+    /// Końcowe 4 bajty w ostatnim 32-bitowym słowie payloadu to dokładnie cztery bajty NUL (1 terminator NUL + 3 bajty paddingu).
+    pub const LITERAL_MODULO_4_DISCOVERY_PACKET: [u8; 84] = [
+        // Słowo 0: Header Word (Typ 0x3, Class ID=1, Trailer=0, TSI=0b11, TSF=0b01, Count=0, Words=21 -> 84 bajty)
+        0x38, 0xD0, 0x00, 0x15, // Słowo 1: Stream ID (0x00000800)
+        0x00, 0x00, 0x08, 0x00, // Słowo 2: Class ID High (OUI 0x001C2D)
+        0x00, 0x00, 0x1C, 0x2D, // Słowo 3: Class ID Low (0x534CFFFF)
+        0x53, 0x4C, 0xFF, 0xFF, // Słowo 4: Raw Timestamp Integer (0)
+        0x00, 0x00, 0x00, 0x00, // Słowo 5: Raw Timestamp Fractional High (0)
+        0x00, 0x00, 0x00, 0x00, // Słowo 6: Raw Timestamp Fractional Low (0)
+        0x00, 0x00, 0x00, 0x00,
+        // Słowa 7..19: 52 bajty ASCII: "model=FLEX-6600 serial=1320 ip=192.168.1.50 tag=ABCD"
+        b'm', b'o', b'd', b'e', b'l', b'=', b'F', b'L', b'E', b'X', b'-', b'6', b'6', b'0', b'0',
+        b' ', b's', b'e', b'r', b'i', b'a', b'l', b'=', b'1', b'3', b'2', b'0', b' ', b'i', b'p',
+        b'=', b'1', b'9', b'2', b'.', b'1', b'6', b'8', b'.', b'1', b'.', b'5', b'0', b' ', b't',
+        b'a', b'g', b'=', b'A', b'B', b'C', b'D',
+        // Słowo 20: Dokładnie 4 bajty NUL (1 terminator + 3 bajty paddingu wyrównania 32-bit)
+        0x00, 0x00, 0x00, 0x00,
+    ];
+
     fn sample_valid_packet() -> FlexDiscoveryPacket {
         FlexDiscoveryPacket {
             header: FlexDiscoveryVitaHeader::default(),
@@ -591,6 +675,171 @@ mod tests {
         assert_eq!(packet.header.stream_id, FLEX_DISCOVERY_STREAM_ID);
         assert_eq!(packet.header.class_id_high & 0x00FF_FFFF, FLEX_OUI);
         assert_eq!(packet.header.class_id_low, FLEX_DISCOVERY_CLASS_ID_LOW);
+    }
+
+    #[test]
+    fn flex_discovery_decodes_literal_official_fixture() {
+        let codec = FlexDiscoveryCodec::new();
+        let packet = codec
+            .decode_packet(&LITERAL_OFFICIAL_DISCOVERY_PACKET)
+            .expect("literal official fixture must decode successfully");
+
+        assert_eq!(packet.model, "FLEX-6600");
+        assert_eq!(packet.serial, "1320-5691-6400-6874");
+        assert_eq!(packet.version, "3.7.4");
+        assert_eq!(packet.ip, IpAddr::V4(Ipv4Addr::new(192, 168, 1, 120)));
+        assert_eq!(packet.port, 4992);
+        assert_eq!(packet.header.packet_type, 0x03);
+        assert_eq!(packet.header.stream_id, 0x0000_0800);
+        assert_eq!(packet.header.class_id_high & 0x00FF_FFFF, 0x00_1C2D);
+        assert_eq!(packet.header.class_id_low, 0x534C_FFFF);
+        assert_eq!(packet.header.raw_timestamp_integer, 0);
+        assert_eq!(packet.header.raw_timestamp_fractional, 0);
+    }
+
+    #[test]
+    fn flex_discovery_official_fixture_uses_packet_type_0x3() {
+        let packet_type_nibble = (LITERAL_OFFICIAL_DISCOVERY_PACKET[0] >> 4) & 0x0F;
+        assert_eq!(packet_type_nibble, 0x03);
+        assert_ne!(packet_type_nibble, 0x04);
+        assert_ne!(packet_type_nibble, 0x05);
+        assert_ne!(packet_type_nibble, 0x02);
+
+        let codec = FlexDiscoveryCodec::new();
+        let packet = codec
+            .decode_packet(&LITERAL_OFFICIAL_DISCOVERY_PACKET)
+            .expect("decode");
+        assert_eq!(packet.header.packet_type, 0x03);
+    }
+
+    #[test]
+    fn flex_discovery_rejects_context_type_0x4() {
+        let codec = FlexDiscoveryCodec::new();
+        let mut datagram = LITERAL_OFFICIAL_DISCOVERY_PACKET;
+        // Mutacja nibble packet type ze statycznego 0x3 na 0x4 (Context Packet)
+        datagram[0] = (datagram[0] & 0x0F) | (0x04 << 4);
+
+        let err = codec
+            .decode_packet(&datagram)
+            .expect_err("context packet (0x4) must be rejected");
+        assert!(matches!(
+            err,
+            FlexProtocolError::UnsupportedVitaPacketType {
+                expected: 0x03,
+                actual: 0x04
+            }
+        ));
+    }
+
+    #[test]
+    fn flex_discovery_rejects_extension_context_type_0x5() {
+        let codec = FlexDiscoveryCodec::new();
+        let mut datagram = LITERAL_OFFICIAL_DISCOVERY_PACKET;
+        // Mutacja nibble packet type ze statycznego 0x3 na 0x5 (Extension Context Packet)
+        datagram[0] = (datagram[0] & 0x0F) | (0x05 << 4);
+
+        let err = codec
+            .decode_packet(&datagram)
+            .expect_err("extension context packet (0x5) must be rejected");
+        assert!(matches!(
+            err,
+            FlexProtocolError::UnsupportedVitaPacketType {
+                expected: 0x03,
+                actual: 0x05
+            }
+        ));
+    }
+
+    #[test]
+    fn flex_discovery_rejects_ext_data_without_stream_id_0x2() {
+        let codec = FlexDiscoveryCodec::new();
+        let mut datagram = LITERAL_OFFICIAL_DISCOVERY_PACKET;
+        // Mutacja nibble packet type ze statycznego 0x3 na 0x2 (Extension Data without Stream ID)
+        datagram[0] = (datagram[0] & 0x0F) | (0x02 << 4);
+
+        let err = codec
+            .decode_packet(&datagram)
+            .expect_err("extension data w/o stream ID (0x2) must be rejected");
+        assert!(matches!(
+            err,
+            FlexProtocolError::UnsupportedVitaPacketType {
+                expected: 0x03,
+                actual: 0x02
+            }
+        ));
+    }
+
+    #[test]
+    fn flex_discovery_test_fixture_does_not_use_production_encoder() {
+        // Test weryfikuje niezależność stałej LITERAL_OFFICIAL_DISCOVERY_PACKET od jakiejkolwiek
+        // funkcji produkcyjnej lub dynamicznego kodera nagłówka.
+        let header_word0 = u32::from_be_bytes([
+            LITERAL_OFFICIAL_DISCOVERY_PACKET[0],
+            LITERAL_OFFICIAL_DISCOVERY_PACKET[1],
+            LITERAL_OFFICIAL_DISCOVERY_PACKET[2],
+            LITERAL_OFFICIAL_DISCOVERY_PACKET[3],
+        ]);
+        assert_eq!(header_word0, 0x38D0_001C);
+
+        let stream_id = u32::from_be_bytes([
+            LITERAL_OFFICIAL_DISCOVERY_PACKET[4],
+            LITERAL_OFFICIAL_DISCOVERY_PACKET[5],
+            LITERAL_OFFICIAL_DISCOVERY_PACKET[6],
+            LITERAL_OFFICIAL_DISCOVERY_PACKET[7],
+        ]);
+        assert_eq!(stream_id, 0x0000_0800);
+
+        let class_id_high = u32::from_be_bytes([
+            LITERAL_OFFICIAL_DISCOVERY_PACKET[8],
+            LITERAL_OFFICIAL_DISCOVERY_PACKET[9],
+            LITERAL_OFFICIAL_DISCOVERY_PACKET[10],
+            LITERAL_OFFICIAL_DISCOVERY_PACKET[11],
+        ]);
+        assert_eq!(class_id_high, 0x0000_1C2D);
+
+        let class_id_low = u32::from_be_bytes([
+            LITERAL_OFFICIAL_DISCOVERY_PACKET[12],
+            LITERAL_OFFICIAL_DISCOVERY_PACKET[13],
+            LITERAL_OFFICIAL_DISCOVERY_PACKET[14],
+            LITERAL_OFFICIAL_DISCOVERY_PACKET[15],
+        ]);
+        assert_eq!(class_id_low, 0x534C_FFFF);
+    }
+
+    #[test]
+    fn flex_discovery_rejects_reversed_class_id_words() {
+        let codec = FlexDiscoveryCodec::new();
+        let mut datagram = LITERAL_OFFICIAL_DISCOVERY_PACKET;
+        // Odwrócenie słów Class ID: Słowo 2 zamienione ze Słowem 3
+        datagram[8..12].copy_from_slice(&[0x53, 0x4C, 0xFF, 0xFF]);
+        datagram[12..16].copy_from_slice(&[0x00, 0x00, 0x1C, 0x2D]);
+
+        let err = codec
+            .decode_packet(&datagram)
+            .expect_err("reversed class ID words must be rejected");
+        // OUI czytane z najmłodszych 24 bitów słowa 2 to 0x4CFFFF zamiast 0x001C2D
+        assert!(matches!(
+            err,
+            FlexProtocolError::WrongOui {
+                expected: 0x00_1C2D,
+                actual: 0x4C_FFFF,
+            }
+        ));
+    }
+
+    #[test]
+    fn flex_discovery_literal_modulo_4_exact_four_nuls() {
+        let codec = FlexDiscoveryCodec::new();
+        // Pakiet o długości payloadu 52 bajty (52 % 4 == 0)
+        let last_four_bytes = &LITERAL_MODULO_4_DISCOVERY_PACKET[80..84];
+        assert_eq!(last_four_bytes, &[0x00, 0x00, 0x00, 0x00]);
+
+        let packet = codec
+            .decode_packet(&LITERAL_MODULO_4_DISCOVERY_PACKET)
+            .expect("literal modulo 4 packet must decode");
+        assert_eq!(packet.model, "FLEX-6600");
+        assert_eq!(packet.serial, "1320");
+        assert_eq!(packet.extra_fields.get("tag"), Some(&"ABCD".to_string()));
     }
 
     #[test]
