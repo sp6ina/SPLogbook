@@ -14,7 +14,7 @@
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use crate::cat::backend::{CatBackendKind, RigBackend};
+use crate::cat::backend::{BoxFuture, CatBackendKind, RigBackend};
 use crate::cat::native::profile::RigModelProfile;
 use crate::cat::native::transport::{AsyncFramedTransport, SerialConfig, open_serial_stream};
 use crate::cat::native::yaesu::codec::{YaesuAsciiCodec, YaesuCat, YaesuFrame, YaesuIfInfo};
@@ -374,311 +374,322 @@ impl RigBackend for YaesuBackend {
         self.profile.capabilities
     }
 
-    async fn connect(&mut self) -> Result<(), RigError> {
-        let endpoint = self.endpoint_name();
+    fn connect(&mut self) -> BoxFuture<'_, Result<(), RigError>> {
+        Box::pin(async move {
+            let endpoint = self.endpoint_name();
 
-        // 1. Inicjalizacja transportu
-        self.ensure_transport()?;
+            // 1. Inicjalizacja transportu
+            self.ensure_transport()?;
 
-        // 2. Bezpieczny odczyt probe (wyłącznie odczyt częstotliwości FA;, pod żadnym pozorem nie dotykamy PTT)
-        if let Some(t) = self.transport.as_mut() {
-            t.clear_buffer();
-        }
-
-        let probe_frame = match self
-            .roundtrip_command(YaesuCat::read_freq(false), "FA")
-            .await
-        {
-            Ok(frame) => frame,
-            Err(e) => {
-                // Nieudane połączenie: wycofanie transportu i zagwarantowanie, że AI nie pozostanie aktywne
-                self.ai_active = false;
-                self.state.connected = false;
-                if let Some(mut transport) = self.transport.take() {
-                    transport.close().await;
-                }
-                return Err(e);
+            // 2. Bezpieczny odczyt probe (wyłącznie odczyt częstotliwości FA;, pod żadnym pozorem nie dotykamy PTT)
+            if let Some(t) = self.transport.as_mut() {
+                t.clear_buffer();
             }
-        };
 
-        if let Some((_, hz)) = YaesuCat::parse_freq_resp(&probe_frame.raw) {
-            self.state.frequency_hz = hz;
-        }
-
-        // Sesja została potwierdzona odpowiedzią transceivera
-        self.state.connected = true;
-
-        // 3. Inicjalizacja modyfikująca konfigurację radia (state-changing):
-        // Włączenie trybu Auto Information (AI1;) wyłącznie po potwierdzeniu sesji z radiem.
-        if self.profile.extended_capabilities.transceive_broadcast {
-            let ai_cmd = YaesuCat::set_ai(true);
-            let encoded = self.codec.encode_command(ai_cmd);
-            let write_res = if let Some(transport) = self.transport.as_mut() {
-                transport.write_all(&encoded).await
-            } else {
-                Err(crate::cat::native::transport::TransportError::Closed)
-            };
-
-            if let Err(e) = write_res {
-                self.ai_active = false;
-                self.state.connected = false;
-                if let Some(mut transport) = self.transport.take() {
-                    transport.close().await;
-                }
-                return Err(e.to_rig_error(CatBackendKind::Yaesu, &endpoint));
-            }
-            self.ai_active = true;
-        }
-
-        Ok(())
-    }
-
-    async fn poll(&mut self) -> Result<RigState, RigError> {
-        if self.transport.is_none() {
-            return Err(RigError::NotConnected);
-        }
-
-        // 1. Zawsze zbierz oczekujące ramki z łącza
-        self.drain_incoming().await?;
-
-        // 2. Jeśli AI jest aktywne i mamy już częstotliwość, odpytujemy jedynie S-meter
-        if self.ai_active && self.state.frequency_hz > 0 {
-            if let Ok(frame) = self.roundtrip_command(YaesuCat::read_smeter(), "SM0").await
-                && let Some(raw) = YaesuCat::parse_smeter_resp(&frame.raw)
-            {
-                self.raw_smeter = Some(raw);
-            }
-            return Ok(self.state.clone());
-        }
-
-        // 3. Standardowy pełny polling: próba IF; (jeśli wspierana) lub odrębne odpytania
-        let if_cmd = YaesuCat::read_if();
-        if let Ok(frame) = self.roundtrip_command(if_cmd, "IF").await {
-            if let Some(info) = YaesuIfInfo::parse_for_model(self.profile.model_id, &frame.raw) {
-                self.state.frequency_hz = info.frequency_hz;
-                self.state.mode = info.mode.to_string();
-                self.state.ptt = info.tx;
-                self.confirmed_ptt = info.tx;
-                self.state.split_enabled = info.split;
-                self.state.rit_hz = info.rit_offset_hz;
-            }
-        } else {
-            // Odrębne bezpieczne odpytania
-            if let Ok(f) = self
+            let probe_frame = match self
                 .roundtrip_command(YaesuCat::read_freq(false), "FA")
                 .await
-                && let Some((_, hz)) = YaesuCat::parse_freq_resp(&f.raw)
             {
+                Ok(frame) => frame,
+                Err(e) => {
+                    // Nieudane połączenie: wycofanie transportu i zagwarantowanie, że AI nie pozostanie aktywne
+                    self.ai_active = false;
+                    self.state.connected = false;
+                    if let Some(mut transport) = self.transport.take() {
+                        transport.close().await;
+                    }
+                    return Err(e);
+                }
+            };
+
+            if let Some((_, hz)) = YaesuCat::parse_freq_resp(&probe_frame.raw) {
                 self.state.frequency_hz = hz;
             }
 
-            if let Ok(f) = self.roundtrip_command(YaesuCat::read_mode(), "MD0").await
-                && let Some(mode) =
-                    YaesuCat::parse_mode_resp_for_model(self.profile.model_id, &f.raw)
-            {
-                self.state.mode = mode.to_string();
+            // Sesja została potwierdzona odpowiedzią transceivera
+            self.state.connected = true;
+
+            // 3. Inicjalizacja modyfikująca konfigurację radia (state-changing):
+            // Włączenie trybu Auto Information (AI1;) wyłącznie po potwierdzeniu sesji z radiem.
+            if self.profile.extended_capabilities.transceive_broadcast {
+                let ai_cmd = YaesuCat::set_ai(true);
+                let encoded = self.codec.encode_command(ai_cmd);
+                let write_res = if let Some(transport) = self.transport.as_mut() {
+                    transport.write_all(&encoded).await
+                } else {
+                    Err(crate::cat::native::transport::TransportError::Closed)
+                };
+
+                if let Err(e) = write_res {
+                    self.ai_active = false;
+                    self.state.connected = false;
+                    if let Some(mut transport) = self.transport.take() {
+                        transport.close().await;
+                    }
+                    return Err(e.to_rig_error(CatBackendKind::Yaesu, &endpoint));
+                }
+                self.ai_active = true;
             }
 
-            if let Ok(f) = self.roundtrip_command(YaesuCat::read_ptt(), "TX").await
-                && let Some(ptt) = YaesuCat::parse_ptt_resp(&f.raw)
-            {
-                self.state.ptt = ptt;
-                self.confirmed_ptt = ptt;
-            }
-        }
-
-        // Odczyt S-metra
-        if let Ok(f) = self.roundtrip_command(YaesuCat::read_smeter(), "SM0").await
-            && let Some(raw) = YaesuCat::parse_smeter_resp(&f.raw)
-        {
-            self.raw_smeter = Some(raw);
-        }
-
-        Ok(self.state.clone())
+            Ok(())
+        })
     }
 
-    async fn execute(&mut self, command: &RigCommand) -> Result<(), RigError> {
-        let endpoint = self.endpoint_name();
-        let Some(transport) = self.transport.as_mut() else {
-            return Err(RigError::NotConnected);
-        };
+    fn poll(&mut self) -> BoxFuture<'_, Result<RigState, RigError>> {
+        Box::pin(async move {
+            if self.transport.is_none() {
+                return Err(RigError::NotConnected);
+            }
 
-        match command {
-            RigCommand::SetFrequency(hz) => {
-                let cmd =
-                    YaesuCat::format_freq_checked(false, *hz, self.profile.frequency_digits())
-                        .ok_or_else(|| RigError::Protocol {
+            // 1. Zawsze zbierz oczekujące ramki z łącza
+            self.drain_incoming().await?;
+
+            // 2. Jeśli AI jest aktywne i mamy już częstotliwość, odpytujemy jedynie S-meter
+            if self.ai_active && self.state.frequency_hz > 0 {
+                if let Ok(frame) = self.roundtrip_command(YaesuCat::read_smeter(), "SM0").await
+                    && let Some(raw) = YaesuCat::parse_smeter_resp(&frame.raw)
+                {
+                    self.raw_smeter = Some(raw);
+                }
+                return Ok(self.state.clone());
+            }
+
+            // 3. Standardowy pełny polling: próba IF; (jeśli wspierana) lub odrębne odpytania
+            let if_cmd = YaesuCat::read_if();
+            if let Ok(frame) = self.roundtrip_command(if_cmd, "IF").await {
+                if let Some(info) = YaesuIfInfo::parse_for_model(self.profile.model_id, &frame.raw)
+                {
+                    self.state.frequency_hz = info.frequency_hz;
+                    self.state.mode = info.mode.to_string();
+                    self.state.ptt = info.tx;
+                    self.confirmed_ptt = info.tx;
+                    self.state.split_enabled = info.split;
+                    self.state.rit_hz = info.rit_offset_hz;
+                }
+            } else {
+                // Odrębne bezpieczne odpytania
+                if let Ok(f) = self
+                    .roundtrip_command(YaesuCat::read_freq(false), "FA")
+                    .await
+                    && let Some((_, hz)) = YaesuCat::parse_freq_resp(&f.raw)
+                {
+                    self.state.frequency_hz = hz;
+                }
+
+                if let Ok(f) = self.roundtrip_command(YaesuCat::read_mode(), "MD0").await
+                    && let Some(mode) =
+                        YaesuCat::parse_mode_resp_for_model(self.profile.model_id, &f.raw)
+                {
+                    self.state.mode = mode.to_string();
+                }
+
+                if let Ok(f) = self.roundtrip_command(YaesuCat::read_ptt(), "TX").await
+                    && let Some(ptt) = YaesuCat::parse_ptt_resp(&f.raw)
+                {
+                    self.state.ptt = ptt;
+                    self.confirmed_ptt = ptt;
+                }
+            }
+
+            // Odczyt S-metra
+            if let Ok(f) = self.roundtrip_command(YaesuCat::read_smeter(), "SM0").await
+                && let Some(raw) = YaesuCat::parse_smeter_resp(&f.raw)
+            {
+                self.raw_smeter = Some(raw);
+            }
+
+            Ok(self.state.clone())
+        })
+    }
+
+    fn execute<'a>(&'a mut self, command: &'a RigCommand) -> BoxFuture<'a, Result<(), RigError>> {
+        Box::pin(async move {
+            let endpoint = self.endpoint_name();
+            let Some(transport) = self.transport.as_mut() else {
+                return Err(RigError::NotConnected);
+            };
+
+            match command {
+                RigCommand::SetFrequency(hz) => {
+                    let cmd =
+                        YaesuCat::format_freq_checked(false, *hz, self.profile.frequency_digits())
+                            .ok_or_else(|| RigError::Protocol {
+                                detail: format!(
+                                    "frequency {hz} Hz out of bounds for profile {}",
+                                    self.profile.model_id
+                                ),
+                            })?;
+                    let encoded = self.codec.encode_command(&cmd);
+                    transport
+                        .write_all(&encoded)
+                        .await
+                        .map_err(|e| e.to_rig_error(CatBackendKind::Yaesu, &endpoint))?;
+                    self.state.frequency_hz = *hz;
+                    let _ = self.drain_incoming().await;
+                    Ok(())
+                }
+                RigCommand::SetMode { mode, .. } => {
+                    let Some(cmd) = YaesuCat::set_mode_for_model(self.profile.model_id, mode)
+                    else {
+                        return Err(RigError::Unsupported {
+                            backend: CatBackendKind::Yaesu,
+                            command: "SetMode",
+                        });
+                    };
+                    let encoded = self.codec.encode_command(&cmd);
+                    transport
+                        .write_all(&encoded)
+                        .await
+                        .map_err(|e| e.to_rig_error(CatBackendKind::Yaesu, &endpoint))?;
+                    self.state.mode.clone_from(mode);
+                    let _ = self.drain_incoming().await;
+                    Ok(())
+                }
+                RigCommand::SetPtt(true) => {
+                    // RYGORYSTYCZNE BEZPIECZEŃSTWO PTT:
+                    // Jednokrotna próba przejścia na nadawanie. W razie błędu/timeoutu NIGDY nie ponawiaj.
+                    let cmd = YaesuCat::set_ptt(true);
+                    let encoded = self.codec.encode_command(cmd);
+
+                    if let Err(e) = transport.write_all(&encoded).await {
+                        return Err(e.to_rig_error(CatBackendKind::Yaesu, &endpoint));
+                    }
+
+                    // Odbierz potwierdzenie z radia
+                    self.confirmed_ptt = true;
+                    self.state.ptt = true;
+                    let _ = self.drain_incoming().await;
+                    Ok(())
+                }
+                RigCommand::SetPtt(false) => {
+                    let cmd = YaesuCat::set_ptt(false);
+                    let encoded = self.codec.encode_command(cmd);
+
+                    if let Err(e) = transport.write_all(&encoded).await {
+                        return Err(e.to_rig_error(CatBackendKind::Yaesu, &endpoint));
+                    }
+
+                    self.confirmed_ptt = false;
+                    self.state.ptt = false;
+                    let _ = self.drain_incoming().await;
+                    Ok(())
+                }
+                RigCommand::SetSplit { enabled, .. } => {
+                    let cmd = YaesuCat::set_split(*enabled);
+                    let encoded = self.codec.encode_command(cmd);
+                    transport
+                        .write_all(&encoded)
+                        .await
+                        .map_err(|e| e.to_rig_error(CatBackendKind::Yaesu, &endpoint))?;
+                    self.state.split_enabled = *enabled;
+                    let _ = self.drain_incoming().await;
+                    Ok(())
+                }
+                RigCommand::SetSplitFrequency(hz) => {
+                    let cmd =
+                        YaesuCat::format_freq_checked(true, *hz, self.profile.frequency_digits())
+                            .ok_or_else(|| RigError::Protocol {
                             detail: format!(
-                                "frequency {hz} Hz out of bounds for profile {}",
+                                "split frequency {hz} Hz out of bounds for profile {}",
                                 self.profile.model_id
                             ),
                         })?;
-                let encoded = self.codec.encode_command(&cmd);
-                transport
-                    .write_all(&encoded)
-                    .await
-                    .map_err(|e| e.to_rig_error(CatBackendKind::Yaesu, &endpoint))?;
-                self.state.frequency_hz = *hz;
-                let _ = self.drain_incoming().await;
-                Ok(())
-            }
-            RigCommand::SetMode { mode, .. } => {
-                let Some(cmd) = YaesuCat::set_mode_for_model(self.profile.model_id, mode) else {
-                    return Err(RigError::Unsupported {
-                        backend: CatBackendKind::Yaesu,
-                        command: "SetMode",
-                    });
-                };
-                let encoded = self.codec.encode_command(&cmd);
-                transport
-                    .write_all(&encoded)
-                    .await
-                    .map_err(|e| e.to_rig_error(CatBackendKind::Yaesu, &endpoint))?;
-                self.state.mode.clone_from(mode);
-                let _ = self.drain_incoming().await;
-                Ok(())
-            }
-            RigCommand::SetPtt(true) => {
-                // RYGORYSTYCZNE BEZPIECZEŃSTWO PTT:
-                // Jednokrotna próba przejścia na nadawanie. W razie błędu/timeoutu NIGDY nie ponawiaj.
-                let cmd = YaesuCat::set_ptt(true);
-                let encoded = self.codec.encode_command(cmd);
-
-                if let Err(e) = transport.write_all(&encoded).await {
-                    return Err(e.to_rig_error(CatBackendKind::Yaesu, &endpoint));
+                    let encoded = self.codec.encode_command(&cmd);
+                    transport
+                        .write_all(&encoded)
+                        .await
+                        .map_err(|e| e.to_rig_error(CatBackendKind::Yaesu, &endpoint))?;
+                    self.state.tx_frequency_hz = Some(*hz);
+                    let _ = self.drain_incoming().await;
+                    Ok(())
                 }
-
-                // Odbierz potwierdzenie z radia
-                self.confirmed_ptt = true;
-                self.state.ptt = true;
-                let _ = self.drain_incoming().await;
-                Ok(())
-            }
-            RigCommand::SetPtt(false) => {
-                let cmd = YaesuCat::set_ptt(false);
-                let encoded = self.codec.encode_command(cmd);
-
-                if let Err(e) = transport.write_all(&encoded).await {
-                    return Err(e.to_rig_error(CatBackendKind::Yaesu, &endpoint));
+                RigCommand::SetPassband(_) => Err(RigError::Unsupported {
+                    backend: CatBackendKind::Yaesu,
+                    command: "SetPassband",
+                }),
+                RigCommand::SetVfo(vfo) => {
+                    let is_b = vfo.to_ascii_uppercase().contains('B');
+                    let cmd = if is_b { "VS1;" } else { "VS0;" };
+                    let encoded = self.codec.encode_command(cmd);
+                    transport
+                        .write_all(&encoded)
+                        .await
+                        .map_err(|e| e.to_rig_error(CatBackendKind::Yaesu, &endpoint))?;
+                    self.state.vfo.clone_from(vfo);
+                    let _ = self.drain_incoming().await;
+                    Ok(())
                 }
-
-                self.confirmed_ptt = false;
-                self.state.ptt = false;
-                let _ = self.drain_incoming().await;
-                Ok(())
+                RigCommand::SetRit(hz) => {
+                    let cmd = if *hz == 0 { "RT0;" } else { "RT1;" };
+                    let encoded = self.codec.encode_command(cmd);
+                    transport
+                        .write_all(&encoded)
+                        .await
+                        .map_err(|e| e.to_rig_error(CatBackendKind::Yaesu, &endpoint))?;
+                    self.state.rit_hz = *hz;
+                    let _ = self.drain_incoming().await;
+                    Ok(())
+                }
+                RigCommand::SetXit(hz) => {
+                    let cmd = if *hz == 0 { "XT0;" } else { "XT1;" };
+                    let encoded = self.codec.encode_command(cmd);
+                    transport
+                        .write_all(&encoded)
+                        .await
+                        .map_err(|e| e.to_rig_error(CatBackendKind::Yaesu, &endpoint))?;
+                    self.state.xit_hz = *hz;
+                    let _ = self.drain_incoming().await;
+                    Ok(())
+                }
+                RigCommand::SetPower(_) => Err(RigError::Unsupported {
+                    backend: CatBackendKind::Yaesu,
+                    command: "SetPower",
+                }),
             }
-            RigCommand::SetSplit { enabled, .. } => {
-                let cmd = YaesuCat::set_split(*enabled);
-                let encoded = self.codec.encode_command(cmd);
-                transport
-                    .write_all(&encoded)
-                    .await
-                    .map_err(|e| e.to_rig_error(CatBackendKind::Yaesu, &endpoint))?;
-                self.state.split_enabled = *enabled;
-                let _ = self.drain_incoming().await;
-                Ok(())
-            }
-            RigCommand::SetSplitFrequency(hz) => {
-                let cmd = YaesuCat::format_freq_checked(true, *hz, self.profile.frequency_digits())
-                    .ok_or_else(|| RigError::Protocol {
-                        detail: format!(
-                            "split frequency {hz} Hz out of bounds for profile {}",
-                            self.profile.model_id
-                        ),
-                    })?;
-                let encoded = self.codec.encode_command(&cmd);
-                transport
-                    .write_all(&encoded)
-                    .await
-                    .map_err(|e| e.to_rig_error(CatBackendKind::Yaesu, &endpoint))?;
-                self.state.tx_frequency_hz = Some(*hz);
-                let _ = self.drain_incoming().await;
-                Ok(())
-            }
-            RigCommand::SetPassband(_) => Err(RigError::Unsupported {
-                backend: CatBackendKind::Yaesu,
-                command: "SetPassband",
-            }),
-            RigCommand::SetVfo(vfo) => {
-                let is_b = vfo.to_ascii_uppercase().contains('B');
-                let cmd = if is_b { "VS1;" } else { "VS0;" };
-                let encoded = self.codec.encode_command(cmd);
-                transport
-                    .write_all(&encoded)
-                    .await
-                    .map_err(|e| e.to_rig_error(CatBackendKind::Yaesu, &endpoint))?;
-                self.state.vfo.clone_from(vfo);
-                let _ = self.drain_incoming().await;
-                Ok(())
-            }
-            RigCommand::SetRit(hz) => {
-                let cmd = if *hz == 0 { "RT0;" } else { "RT1;" };
-                let encoded = self.codec.encode_command(cmd);
-                transport
-                    .write_all(&encoded)
-                    .await
-                    .map_err(|e| e.to_rig_error(CatBackendKind::Yaesu, &endpoint))?;
-                self.state.rit_hz = *hz;
-                let _ = self.drain_incoming().await;
-                Ok(())
-            }
-            RigCommand::SetXit(hz) => {
-                let cmd = if *hz == 0 { "XT0;" } else { "XT1;" };
-                let encoded = self.codec.encode_command(cmd);
-                transport
-                    .write_all(&encoded)
-                    .await
-                    .map_err(|e| e.to_rig_error(CatBackendKind::Yaesu, &endpoint))?;
-                self.state.xit_hz = *hz;
-                let _ = self.drain_incoming().await;
-                Ok(())
-            }
-            RigCommand::SetPower(_) => Err(RigError::Unsupported {
-                backend: CatBackendKind::Yaesu,
-                command: "SetPower",
-            }),
-        }
+        })
     }
 
-    async fn disconnect(&mut self) {
-        // Idempotentne, bezpieczne rozłączenie sesji:
-        let has_active_session = self.transport.is_some() && self.state.connected;
+    fn disconnect(&mut self) -> BoxFuture<'_, ()> {
+        Box::pin(async move {
+            // Idempotentne, bezpieczne rozłączenie sesji:
+            let has_active_session = self.transport.is_some() && self.state.connected;
 
-        if has_active_session {
-            // 1. Jeśli PTT było potwierdzone i profil potwierdza właściwą komendę RX,
-            //    podejmij pojedynczą, ograniczoną czasowo (500 ms) próbę przejścia do RX (TX0;).
-            //    Brak retry, błąd I/O nie blokuje zamknięcia transportu.
-            if self.confirmed_ptt && self.profile.capabilities.ptt {
-                if let Some(transport) = self.transport.as_mut() {
-                    let rx_cmd = YaesuCat::set_ptt(false);
-                    let encoded = self.codec.encode_command(rx_cmd);
-                    let write_fut = transport.write_all(&encoded);
-                    let _ = tokio::time::timeout(Duration::from_millis(500), write_fut).await;
+            if has_active_session {
+                // 1. Jeśli PTT było potwierdzone i profil potwierdza właściwą komendę RX,
+                //    podejmij pojedynczą, ograniczoną czasowo (500 ms) próbę przejścia do RX (TX0;).
+                //    Brak retry, błąd I/O nie blokuje zamknięcia transportu.
+                if self.confirmed_ptt && self.profile.capabilities.ptt {
+                    if let Some(transport) = self.transport.as_mut() {
+                        let rx_cmd = YaesuCat::set_ptt(false);
+                        let encoded = self.codec.encode_command(rx_cmd);
+                        let write_fut = transport.write_all(&encoded);
+                        let _ = tokio::time::timeout(Duration::from_millis(500), write_fut).await;
+                    }
+                }
+
+                // 2. Jeśli AI było aktywne, wyślij pojedynczą, ograniczoną czasowo (500 ms) komendę wyłączenia AI (AI0;),
+                //    aby radio nie zalewało portu po zamknięciu sesji.
+                if self.ai_active {
+                    if let Some(transport) = self.transport.as_mut() {
+                        let ai_cmd = YaesuCat::set_ai(false);
+                        let encoded = self.codec.encode_command(ai_cmd);
+                        let write_fut = transport.write_all(&encoded);
+                        let _ = tokio::time::timeout(Duration::from_millis(500), write_fut).await;
+                    }
                 }
             }
 
-            // 2. Jeśli AI było aktywne, wyślij pojedynczą, ograniczoną czasowo (500 ms) komendę wyłączenia AI (AI0;),
-            //    aby radio nie zalewało portu po zamknięciu sesji.
-            if self.ai_active {
-                if let Some(transport) = self.transport.as_mut() {
-                    let ai_cmd = YaesuCat::set_ai(false);
-                    let encoded = self.codec.encode_command(ai_cmd);
-                    let write_fut = transport.write_all(&encoded);
-                    let _ = tokio::time::timeout(Duration::from_millis(500), write_fut).await;
-                }
+            self.confirmed_ptt = false;
+            self.state.ptt = false;
+            self.ai_active = false;
+
+            // 3. Zawsze zamknij transport
+            if let Some(mut transport) = self.transport.take() {
+                transport.close().await;
             }
-        }
 
-        self.confirmed_ptt = false;
-        self.state.ptt = false;
-        self.ai_active = false;
-
-        // 3. Zawsze zamknij transport
-        if let Some(mut transport) = self.transport.take() {
-            transport.close().await;
-        }
-
-        self.state.connected = false;
+            self.state.connected = false;
+        })
     }
 }
 

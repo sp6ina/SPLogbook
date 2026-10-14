@@ -12,7 +12,7 @@
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use crate::cat::backend::{CatBackendKind, RigBackend};
+use crate::cat::backend::{BoxFuture, CatBackendKind, RigBackend};
 use crate::cat::native::icom::codec::{
     CI_V_CONTROLLER, CI_V_NAK, IcomCiVCodec, IcomCiVFrame, command, subcommand,
 };
@@ -387,246 +387,254 @@ impl RigBackend for IcomCiVBackend {
         self.profile.capabilities
     }
 
-    async fn connect(&mut self) -> Result<(), RigError> {
-        if self.transport.is_some() {
-            return Ok(());
-        }
+    fn connect(&mut self) -> BoxFuture<'_, Result<(), RigError>> {
+        Box::pin(async move {
+            if self.transport.is_some() {
+                return Ok(());
+            }
 
-        if let Some(mock) = self.mock_stream.take() {
-            self.transport = Some(AsyncFramedTransport::from_stream(
-                mock,
-                self.config.max_buffer_size,
-                self.config.read_timeout,
-                self.config.write_timeout,
-            ));
-        } else {
-            let stream = open_serial_stream(&self.config)
-                .map_err(|e| e.to_rig_error(CatBackendKind::IcomCiV, &self.config.port_name))?;
+            if let Some(mock) = self.mock_stream.take() {
+                self.transport = Some(AsyncFramedTransport::from_stream(
+                    mock,
+                    self.config.max_buffer_size,
+                    self.config.read_timeout,
+                    self.config.write_timeout,
+                ));
+            } else {
+                let stream = open_serial_stream(&self.config)
+                    .map_err(|e| e.to_rig_error(CatBackendKind::IcomCiV, &self.config.port_name))?;
 
-            let boxed_transport = AsyncFramedTransport::from_stream(
-                Box::new(stream) as Box<dyn AsyncReaderWriter>,
-                self.config.max_buffer_size,
-                self.config.read_timeout,
-                self.config.write_timeout,
-            );
-            self.transport = Some(boxed_transport);
-        }
+                let boxed_transport = AsyncFramedTransport::from_stream(
+                    Box::new(stream) as Box<dyn AsyncReaderWriter>,
+                    self.config.max_buffer_size,
+                    self.config.read_timeout,
+                    self.config.write_timeout,
+                );
+                self.transport = Some(boxed_transport);
+            }
 
-        self.state.connected = true;
-        // PTT Safety: connect NIGDY nie załącza PTT
-        self.state.ptt = false;
-        tokio::task::yield_now().await;
-        Ok(())
+            self.state.connected = true;
+            // PTT Safety: connect NIGDY nie załącza PTT
+            self.state.ptt = false;
+            tokio::task::yield_now().await;
+            Ok(())
+        })
     }
 
-    async fn poll(&mut self) -> Result<RigState, RigError> {
-        if self.transport.is_none() {
-            return Err(RigError::NotConnected);
-        }
+    fn poll(&mut self) -> BoxFuture<'_, Result<RigState, RigError>> {
+        Box::pin(async move {
+            if self.transport.is_none() {
+                return Err(RigError::NotConnected);
+            }
 
-        if self.profile.capabilities.frequency {
-            self.poll_frequency().await?;
-        }
+            if self.profile.capabilities.frequency {
+                self.poll_frequency().await?;
+            }
 
-        if self.profile.capabilities.mode {
-            self.poll_mode().await?;
-        }
+            if self.profile.capabilities.mode {
+                self.poll_mode().await?;
+            }
 
-        if self.profile.capabilities.s_meter {
-            let _ = self.poll_smeter().await;
-        }
+            if self.profile.capabilities.s_meter {
+                let _ = self.poll_smeter().await;
+            }
 
-        if self.profile.capabilities.power {
-            let _ = self.poll_rf_power().await;
-        }
+            if self.profile.capabilities.power {
+                let _ = self.poll_rf_power().await;
+            }
 
-        if self.profile.capabilities.ptt {
-            let _ = self.poll_ptt().await;
-        }
+            if self.profile.capabilities.ptt {
+                let _ = self.poll_ptt().await;
+            }
 
-        Ok(self.state.clone())
+            Ok(self.state.clone())
+        })
     }
 
-    async fn execute(&mut self, command: &RigCommand) -> Result<(), RigError> {
-        if self.transport.is_none() {
-            return Err(RigError::NotConnected);
-        }
+    fn execute<'a>(&'a mut self, command: &'a RigCommand) -> BoxFuture<'a, Result<(), RigError>> {
+        Box::pin(async move {
+            if self.transport.is_none() {
+                return Err(RigError::NotConnected);
+            }
 
-        if !self.profile.capabilities.supports(command) {
-            return Err(RigError::Unsupported {
-                backend: CatBackendKind::IcomCiV,
-                command: match command {
-                    RigCommand::SetFrequency(_) => "SetFrequency",
-                    RigCommand::SetSplitFrequency(_) => "SetSplitFrequency",
-                    RigCommand::SetMode { .. } => "SetMode",
-                    RigCommand::SetPassband(_) => "SetPassband",
-                    RigCommand::SetSplit { .. } => "SetSplit",
-                    RigCommand::SetPtt(_) => "SetPtt",
-                    RigCommand::SetVfo(_) => "SetVfo",
-                    RigCommand::SetRit(_) => "SetRit",
-                    RigCommand::SetXit(_) => "SetXit",
-                    RigCommand::SetPower(_) => "SetPower",
-                },
-            });
-        }
+            if !self.profile.capabilities.supports(command) {
+                return Err(RigError::Unsupported {
+                    backend: CatBackendKind::IcomCiV,
+                    command: match command {
+                        RigCommand::SetFrequency(_) => "SetFrequency",
+                        RigCommand::SetSplitFrequency(_) => "SetSplitFrequency",
+                        RigCommand::SetMode { .. } => "SetMode",
+                        RigCommand::SetPassband(_) => "SetPassband",
+                        RigCommand::SetSplit { .. } => "SetSplit",
+                        RigCommand::SetPtt(_) => "SetPtt",
+                        RigCommand::SetVfo(_) => "SetVfo",
+                        RigCommand::SetRit(_) => "SetRit",
+                        RigCommand::SetXit(_) => "SetXit",
+                        RigCommand::SetPower(_) => "SetPower",
+                    },
+                });
+            }
 
-        match command {
-            RigCommand::SetFrequency(hz) => {
-                let bcd = IcomCiVCodec::encode_frequency_bcd(*hz, self.profile.frequency_bytes);
-                let reply = self
-                    .send_query_and_await_reply(
-                        command::SET_FREQUENCY,
-                        None,
-                        &bcd,
-                        self.config.write_timeout,
-                    )
-                    .await?;
-                if reply.is_ack() || reply.command == command::SET_FREQUENCY {
-                    self.state.frequency_hz = *hz;
+            match command {
+                RigCommand::SetFrequency(hz) => {
+                    let bcd = IcomCiVCodec::encode_frequency_bcd(*hz, self.profile.frequency_bytes);
+                    let reply = self
+                        .send_query_and_await_reply(
+                            command::SET_FREQUENCY,
+                            None,
+                            &bcd,
+                            self.config.write_timeout,
+                        )
+                        .await?;
+                    if reply.is_ack() || reply.command == command::SET_FREQUENCY {
+                        self.state.frequency_hz = *hz;
+                    }
+                }
+                RigCommand::SetSplitFrequency(hz) => {
+                    let bcd = IcomCiVCodec::encode_frequency_bcd(*hz, self.profile.frequency_bytes);
+                    let reply = self
+                        .send_query_and_await_reply(
+                            command::SET_FREQUENCY,
+                            None,
+                            &bcd,
+                            self.config.write_timeout,
+                        )
+                        .await?;
+                    if reply.is_ack() || reply.command == command::SET_FREQUENCY {
+                        self.state.tx_frequency_hz = Some(*hz);
+                    }
+                }
+                RigCommand::SetMode { mode, .. } => {
+                    let (code, filter) = IcomCiVCodec::mode_to_code(mode);
+                    let mut data = vec![code];
+                    if let Some(f) = filter {
+                        data.push(f);
+                    }
+                    let reply = self
+                        .send_query_and_await_reply(
+                            command::SET_MODE,
+                            None,
+                            &data,
+                            self.config.write_timeout,
+                        )
+                        .await?;
+                    if reply.is_ack() || reply.command == command::SET_MODE {
+                        self.state.mode.clone_from(mode);
+                    }
+                }
+                RigCommand::SetPassband(_) => {
+                    // Filtry passband w Icom CI-V są zintegrowane z komendą SET_MODE
+                }
+                RigCommand::SetSplit { enabled, tx_vfo } => {
+                    let arg = u8::from(*enabled);
+                    let reply = self
+                        .send_query_and_await_reply(
+                            command::SPLIT_SELECT,
+                            None,
+                            &[arg],
+                            self.config.write_timeout,
+                        )
+                        .await?;
+                    if reply.is_ack() || reply.command == command::SPLIT_SELECT {
+                        self.state.split_enabled = *enabled;
+                        self.state.tx_vfo.clone_from(tx_vfo);
+                    }
+                }
+                RigCommand::SetPtt(ptt) => {
+                    let arg = u8::from(*ptt);
+                    // Rygor PTT: brak automatycznego ponawiania w razie błędu
+                    let reply = self
+                        .send_query_and_await_reply(
+                            command::SET_PTT,
+                            Some(subcommand::PTT_CTRL),
+                            &[arg],
+                            self.config.write_timeout,
+                        )
+                        .await?;
+                    if reply.is_ack() || reply.command == command::SET_PTT {
+                        self.state.ptt = *ptt;
+                    }
+                }
+                RigCommand::SetVfo(vfo) => {
+                    let code = match vfo.to_ascii_uppercase().as_str() {
+                        "VFOB" | "SUB" => 0x01,
+                        _ => 0x00,
+                    };
+                    let reply = self
+                        .send_query_and_await_reply(
+                            command::VFO_SELECT,
+                            None,
+                            &[code],
+                            self.config.write_timeout,
+                        )
+                        .await?;
+                    if reply.is_ack() || reply.command == command::VFO_SELECT {
+                        self.state.vfo.clone_from(vfo);
+                    }
+                }
+                RigCommand::SetRit(hz) => {
+                    let enable = u8::from(*hz != 0);
+                    let _ = self
+                        .send_query_and_await_reply(
+                            command::RIT_XIT,
+                            Some(subcommand::RIT_FREQ),
+                            &[enable],
+                            self.config.write_timeout,
+                        )
+                        .await;
+                    self.state.rit_hz = *hz;
+                }
+                RigCommand::SetXit(hz) => {
+                    let enable = u8::from(*hz != 0);
+                    let _ = self
+                        .send_query_and_await_reply(
+                            command::RIT_XIT,
+                            Some(subcommand::XIT_FREQ),
+                            &[enable],
+                            self.config.write_timeout,
+                        )
+                        .await;
+                    self.state.xit_hz = *hz;
+                }
+                RigCommand::SetPower(watts) => {
+                    let raw_val = ((watts / 100.0).clamp(0.0, 1.0) * 255.0).round() as u8;
+                    let data = IcomCiVCodec::encode_frequency_bcd(raw_val as u64, 2);
+                    let reply = self
+                        .send_query_and_await_reply(
+                            command::LEVEL_SET,
+                            Some(subcommand::LEVEL_RF_POWER),
+                            &data,
+                            self.config.write_timeout,
+                        )
+                        .await?;
+                    if reply.is_ack() || reply.command == command::LEVEL_SET {
+                        self.state.rf_power_watts = *watts;
+                    }
                 }
             }
-            RigCommand::SetSplitFrequency(hz) => {
-                let bcd = IcomCiVCodec::encode_frequency_bcd(*hz, self.profile.frequency_bytes);
-                let reply = self
-                    .send_query_and_await_reply(
-                        command::SET_FREQUENCY,
-                        None,
-                        &bcd,
-                        self.config.write_timeout,
-                    )
-                    .await?;
-                if reply.is_ack() || reply.command == command::SET_FREQUENCY {
-                    self.state.tx_frequency_hz = Some(*hz);
-                }
-            }
-            RigCommand::SetMode { mode, .. } => {
-                let (code, filter) = IcomCiVCodec::mode_to_code(mode);
-                let mut data = vec![code];
-                if let Some(f) = filter {
-                    data.push(f);
-                }
-                let reply = self
-                    .send_query_and_await_reply(
-                        command::SET_MODE,
-                        None,
-                        &data,
-                        self.config.write_timeout,
-                    )
-                    .await?;
-                if reply.is_ack() || reply.command == command::SET_MODE {
-                    self.state.mode.clone_from(mode);
-                }
-            }
-            RigCommand::SetPassband(_) => {
-                // Filtry passband w Icom CI-V są zintegrowane z komendą SET_MODE
-            }
-            RigCommand::SetSplit { enabled, tx_vfo } => {
-                let arg = u8::from(*enabled);
-                let reply = self
-                    .send_query_and_await_reply(
-                        command::SPLIT_SELECT,
-                        None,
-                        &[arg],
-                        self.config.write_timeout,
-                    )
-                    .await?;
-                if reply.is_ack() || reply.command == command::SPLIT_SELECT {
-                    self.state.split_enabled = *enabled;
-                    self.state.tx_vfo.clone_from(tx_vfo);
-                }
-            }
-            RigCommand::SetPtt(ptt) => {
-                let arg = u8::from(*ptt);
-                // Rygor PTT: brak automatycznego ponawiania w razie błędu
-                let reply = self
-                    .send_query_and_await_reply(
+
+            Ok(())
+        })
+    }
+
+    fn disconnect(&mut self) -> BoxFuture<'_, ()> {
+        Box::pin(async move {
+            if let Some(mut transport) = self.transport.take() {
+                // PTT Safety: bezwarunkowe wyłączenie PTT przy rozłączaniu
+                if self.state.ptt {
+                    let rx_frame = IcomCiVFrame::new(
+                        self.radio_address,
+                        self.controller_address,
                         command::SET_PTT,
                         Some(subcommand::PTT_CTRL),
-                        &[arg],
-                        self.config.write_timeout,
-                    )
-                    .await?;
-                if reply.is_ack() || reply.command == command::SET_PTT {
-                    self.state.ptt = *ptt;
+                        vec![0x00],
+                    );
+                    let _ = transport.write_all(&rx_frame.encode()).await;
+                    self.state.ptt = false;
                 }
+                transport.close().await;
             }
-            RigCommand::SetVfo(vfo) => {
-                let code = match vfo.to_ascii_uppercase().as_str() {
-                    "VFOB" | "SUB" => 0x01,
-                    _ => 0x00,
-                };
-                let reply = self
-                    .send_query_and_await_reply(
-                        command::VFO_SELECT,
-                        None,
-                        &[code],
-                        self.config.write_timeout,
-                    )
-                    .await?;
-                if reply.is_ack() || reply.command == command::VFO_SELECT {
-                    self.state.vfo.clone_from(vfo);
-                }
-            }
-            RigCommand::SetRit(hz) => {
-                let enable = u8::from(*hz != 0);
-                let _ = self
-                    .send_query_and_await_reply(
-                        command::RIT_XIT,
-                        Some(subcommand::RIT_FREQ),
-                        &[enable],
-                        self.config.write_timeout,
-                    )
-                    .await;
-                self.state.rit_hz = *hz;
-            }
-            RigCommand::SetXit(hz) => {
-                let enable = u8::from(*hz != 0);
-                let _ = self
-                    .send_query_and_await_reply(
-                        command::RIT_XIT,
-                        Some(subcommand::XIT_FREQ),
-                        &[enable],
-                        self.config.write_timeout,
-                    )
-                    .await;
-                self.state.xit_hz = *hz;
-            }
-            RigCommand::SetPower(watts) => {
-                let raw_val = ((watts / 100.0).clamp(0.0, 1.0) * 255.0).round() as u8;
-                let data = IcomCiVCodec::encode_frequency_bcd(raw_val as u64, 2);
-                let reply = self
-                    .send_query_and_await_reply(
-                        command::LEVEL_SET,
-                        Some(subcommand::LEVEL_RF_POWER),
-                        &data,
-                        self.config.write_timeout,
-                    )
-                    .await?;
-                if reply.is_ack() || reply.command == command::LEVEL_SET {
-                    self.state.rf_power_watts = *watts;
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    async fn disconnect(&mut self) {
-        if let Some(mut transport) = self.transport.take() {
-            // PTT Safety: bezwarunkowe wyłączenie PTT przy rozłączaniu
-            if self.state.ptt {
-                let rx_frame = IcomCiVFrame::new(
-                    self.radio_address,
-                    self.controller_address,
-                    command::SET_PTT,
-                    Some(subcommand::PTT_CTRL),
-                    vec![0x00],
-                );
-                let _ = transport.write_all(&rx_frame.encode()).await;
-                self.state.ptt = false;
-            }
-            transport.close().await;
-        }
-        self.state.connected = false;
+            self.state.connected = false;
+        })
     }
 }

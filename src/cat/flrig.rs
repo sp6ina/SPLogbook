@@ -5,12 +5,11 @@
 use quick_xml::Reader;
 use quick_xml::events::Event;
 use std::fmt::Write as _;
-use std::future::Future;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-use crate::cat::backend::{CatBackendKind, RigBackend};
+use crate::cat::backend::{BoxFuture, CatBackendKind, RigBackend};
 use crate::cat::hamlib::HamlibClient;
 use crate::cat::rig::{RigCapabilities, RigCommand, RigError, RigState};
 
@@ -664,24 +663,21 @@ impl RigBackend for FlrigBackend {
         }
     }
 
-    fn connect(&mut self) -> impl Future<Output = Result<(), RigError>> + Send {
-        self.connect_internal()
+    fn connect(&mut self) -> BoxFuture<'_, Result<(), RigError>> {
+        Box::pin(self.connect_internal())
     }
 
-    fn poll(&mut self) -> impl Future<Output = Result<RigState, RigError>> + Send {
-        self.poll_internal()
+    fn poll(&mut self) -> BoxFuture<'_, Result<RigState, RigError>> {
+        Box::pin(self.poll_internal())
     }
 
-    fn execute(
-        &mut self,
-        command: &RigCommand,
-    ) -> impl Future<Output = Result<(), RigError>> + Send {
-        self.execute_cmd(command)
+    fn execute<'a>(&'a mut self, command: &'a RigCommand) -> BoxFuture<'a, Result<(), RigError>> {
+        Box::pin(self.execute_cmd(command))
     }
 
-    fn disconnect(&mut self) -> impl Future<Output = ()> + Send {
+    fn disconnect(&mut self) -> BoxFuture<'_, ()> {
         self.disconnect_internal();
-        std::future::ready(())
+        Box::pin(std::future::ready(()))
     }
 }
 

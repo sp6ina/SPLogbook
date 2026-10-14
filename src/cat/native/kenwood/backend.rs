@@ -12,7 +12,7 @@
 
 use std::time::Duration;
 
-use crate::cat::backend::{CatBackendKind, RigBackend};
+use crate::cat::backend::{BoxFuture, CatBackendKind, RigBackend};
 use crate::cat::native::kenwood::codec::{KenwoodCat, KenwoodCodec, KenwoodFrame, KenwoodIfInfo};
 use crate::cat::native::kenwood::lan::{AsyncReaderWriter, KenwoodLanConfig, KenwoodLanTransport};
 use crate::cat::native::profile::RigModelProfile;
@@ -330,205 +330,215 @@ impl RigBackend for KenwoodBackend {
         self.profile.capabilities
     }
 
-    async fn connect(&mut self) -> Result<(), RigError> {
-        if self.transport.is_some() {
-            return Ok(());
-        }
+    fn connect(&mut self) -> BoxFuture<'_, Result<(), RigError>> {
+        Box::pin(async move {
+            if self.transport.is_some() {
+                return Ok(());
+            }
 
-        let endpoint = self.endpoint_name();
+            let endpoint = self.endpoint_name();
 
-        // 1. Inicjalizacja warstwy I/O
-        if let Some(mock) = self.mock_stream.take() {
-            if let Some(ref lan_cfg) = self.lan_config {
-                let lan = KenwoodLanTransport::from_stream(mock, lan_cfg).await?;
+            // 1. Inicjalizacja warstwy I/O
+            if let Some(mock) = self.mock_stream.take() {
+                if let Some(ref lan_cfg) = self.lan_config {
+                    let lan = KenwoodLanTransport::from_stream(mock, lan_cfg).await?;
+                    self.transport = Some(lan.into_framed());
+                } else {
+                    let framed = AsyncFramedTransport::from_stream(
+                        mock,
+                        1024,
+                        Duration::from_millis(1000),
+                        Duration::from_millis(1000),
+                    );
+                    self.transport = Some(framed);
+                }
+            } else if let Some(ref lan_cfg) = self.lan_config {
+                let lan = KenwoodLanTransport::connect(lan_cfg).await?;
                 self.transport = Some(lan.into_framed());
-            } else {
+            } else if let Some(ref serial_cfg) = self.serial_config {
+                let stream = open_serial_stream(serial_cfg)
+                    .map_err(|e| e.to_rig_error(CatBackendKind::Kenwood, &endpoint))?;
                 let framed = AsyncFramedTransport::from_stream(
-                    mock,
-                    1024,
-                    Duration::from_millis(1000),
-                    Duration::from_millis(1000),
+                    Box::new(stream) as Box<dyn AsyncReaderWriter>,
+                    serial_cfg.max_buffer_size,
+                    serial_cfg.read_timeout,
+                    serial_cfg.write_timeout,
                 );
                 self.transport = Some(framed);
+            } else {
+                return Err(RigError::Connect {
+                    endpoint,
+                    detail: "missing transport configuration".to_string(),
+                });
             }
-        } else if let Some(ref lan_cfg) = self.lan_config {
-            let lan = KenwoodLanTransport::connect(lan_cfg).await?;
-            self.transport = Some(lan.into_framed());
-        } else if let Some(ref serial_cfg) = self.serial_config {
-            let stream = open_serial_stream(serial_cfg)
-                .map_err(|e| e.to_rig_error(CatBackendKind::Kenwood, &endpoint))?;
-            let framed = AsyncFramedTransport::from_stream(
-                Box::new(stream) as Box<dyn AsyncReaderWriter>,
-                serial_cfg.max_buffer_size,
-                serial_cfg.read_timeout,
-                serial_cfg.write_timeout,
-            );
-            self.transport = Some(framed);
-        } else {
-            return Err(RigError::Connect {
-                endpoint,
-                detail: "missing transport configuration".to_string(),
-            });
-        }
 
-        // 2. Rygorystyczny test obecności radia (Probe) — wyłącznie komendy bezpieczne READ-ONLY!
-        // Zakaz jakiegokolwiek załączania PTT podczas connect/probe!
-        let probe_res = self
-            .roundtrip_command(KenwoodCat::read_freq_cmd(false), "FA")
-            .await;
-        if probe_res.is_err() {
-            // Alternatywna bezpieczna próba: komenda IF
-            let _ = self
-                .roundtrip_command(KenwoodCat::read_if_cmd(), "IF")
-                .await?;
-        }
-
-        // 3. Włączenie Auto Information (AI2) jeśli profil wspiera transceive_broadcast
-        if self.profile.extended_capabilities.transceive_broadcast {
-            let ai_cmd = KenwoodCat::set_ai_cmd(2);
-            if self.roundtrip_command(&ai_cmd, "AI").await.is_ok() {
-                self.ai_active = true;
-            }
-        }
-
-        self.confirmed_ptt = false;
-        self.state.ptt = false;
-        self.state.connected = true;
-        Ok(())
-    }
-
-    async fn poll(&mut self) -> Result<RigState, RigError> {
-        if self.transport.is_none() {
-            return Err(RigError::NotConnected);
-        }
-
-        // Odbierz wszelkie asynchroniczne powiadomienia AI obecne w buforze
-        let _ = self.drain_incoming().await;
-
-        if !self.ai_active {
-            // Gdy Auto Information nie jest aktywne, odpytaj stan komendą IF
-            let _ = self
-                .roundtrip_command(KenwoodCat::read_if_cmd(), "IF")
-                .await?;
-        }
-
-        // S-Meter jest miernikiem analogowym i nie jest rozsyłany samorzutnie przez AI
-        if self.profile.capabilities.s_meter {
-            let _ = self
-                .roundtrip_command(KenwoodCat::read_smeter_cmd(), "SM")
+            // 2. Rygorystyczny test obecności radia (Probe) — wyłącznie komendy bezpieczne READ-ONLY!
+            // Zakaz jakiegokolwiek załączania PTT podczas connect/probe!
+            let probe_res = self
+                .roundtrip_command(KenwoodCat::read_freq_cmd(false), "FA")
                 .await;
-        }
-
-        self.state.connected = true;
-        Ok(self.state.clone())
-    }
-
-    async fn execute(&mut self, command: &RigCommand) -> Result<(), RigError> {
-        if self.transport.is_none() {
-            return Err(RigError::NotConnected);
-        }
-
-        match command {
-            RigCommand::SetFrequency(hz) => {
-                let cmd = KenwoodCat::set_freq_cmd(false, *hz);
-                self.roundtrip_command(&cmd, "FA").await?;
-                self.state.frequency_hz = *hz;
-                Ok(())
+            if probe_res.is_err() {
+                // Alternatywna bezpieczna próba: komenda IF
+                let _ = self
+                    .roundtrip_command(KenwoodCat::read_if_cmd(), "IF")
+                    .await?;
             }
-            RigCommand::SetMode {
-                mode,
-                passband_hz: _,
-            } => {
-                let Some(cmd) = KenwoodCat::set_mode_cmd(mode) else {
-                    return Err(RigError::Protocol {
-                        detail: format!("unsupported mode: {mode}"),
-                    });
-                };
-                self.roundtrip_command(&cmd, "MD").await?;
-                self.state.mode.clone_from(mode);
-                Ok(())
-            }
-            RigCommand::SetPtt(ptt) => {
-                // BEZPIECZEŃSTWO PTT:
-                // SetPtt(true) NIE MOŻE być ponawiane w przypadku błędu/timeoutu!
-                let cmd = KenwoodCat::set_ptt_cmd(*ptt);
-                let res = self
-                    .roundtrip_command(cmd, if *ptt { "TX" } else { "RX" })
-                    .await;
-                match res {
-                    Ok(_) => {
-                        self.confirmed_ptt = *ptt;
-                        self.state.ptt = *ptt;
-                        Ok(())
-                    }
-                    Err(e) => {
-                        // Brak retry! Natychmiastowe zgłoszenie błędu
-                        if !*ptt {
-                            self.confirmed_ptt = false;
-                            self.state.ptt = false;
-                        }
-                        Err(e)
-                    }
+
+            // 3. Włączenie Auto Information (AI2) jeśli profil wspiera transceive_broadcast
+            if self.profile.extended_capabilities.transceive_broadcast {
+                let ai_cmd = KenwoodCat::set_ai_cmd(2);
+                if self.roundtrip_command(&ai_cmd, "AI").await.is_ok() {
+                    self.ai_active = true;
                 }
             }
-            RigCommand::SetSplit { enabled, tx_vfo: _ } => {
-                let cmd = KenwoodCat::set_split_cmd(*enabled);
-                self.roundtrip_command(cmd, "FT").await?;
-                self.state.split_enabled = *enabled;
-                Ok(())
-            }
-            RigCommand::SetSplitFrequency(hz) => {
-                let cmd = KenwoodCat::set_freq_cmd(true, *hz);
-                self.roundtrip_command(&cmd, "FB").await?;
-                self.state.tx_frequency_hz = Some(*hz);
-                Ok(())
-            }
-            RigCommand::SetVfo(vfo) => {
-                let vfo_str = vfo.to_ascii_uppercase();
-                let cmd = if vfo_str.contains('B') {
-                    "FR1;"
-                } else {
-                    "FR0;"
-                };
-                self.roundtrip_command(cmd, "FR").await?;
-                self.state.vfo.clone_from(vfo);
-                Ok(())
-            }
-            _ => Err(RigError::Unsupported {
-                backend: CatBackendKind::Kenwood,
-                command: "unsupported command",
-            }),
-        }
-    }
 
-    async fn disconnect(&mut self) {
-        // BEZPIECZEŃSTWO PTT:
-        // Jeśli radio było w stanie nadawania, wykonaj bezpieczną próbę przejścia na odbiór (RX)
-        if self.confirmed_ptt {
-            if let Some(transport) = self.transport.as_mut() {
-                let rx_bytes = b"RX;";
-                let _ =
-                    tokio::time::timeout(Duration::from_millis(200), transport.write_all(rx_bytes))
-                        .await;
-            }
             self.confirmed_ptt = false;
             self.state.ptt = false;
-        }
+            self.state.connected = true;
+            Ok(())
+        })
+    }
 
-        // Zamknięcie transportu KNS LAN lub portu szeregowego
-        if let Some(mut transport) = self.transport.take() {
-            if self.lan_config.is_some() {
-                let _ = tokio::time::timeout(
-                    Duration::from_millis(200),
-                    transport.write_all(b"##BY;\r\n"),
-                )
-                .await;
+    fn poll(&mut self) -> BoxFuture<'_, Result<RigState, RigError>> {
+        Box::pin(async move {
+            if self.transport.is_none() {
+                return Err(RigError::NotConnected);
             }
-            transport.close().await;
-        }
 
-        self.ai_active = false;
-        self.state.connected = false;
+            // Odbierz wszelkie asynchroniczne powiadomienia AI obecne w buforze
+            let _ = self.drain_incoming().await;
+
+            if !self.ai_active {
+                // Gdy Auto Information nie jest aktywne, odpytaj stan komendą IF
+                let _ = self
+                    .roundtrip_command(KenwoodCat::read_if_cmd(), "IF")
+                    .await?;
+            }
+
+            // S-Meter jest miernikiem analogowym i nie jest rozsyłany samorzutnie przez AI
+            if self.profile.capabilities.s_meter {
+                let _ = self
+                    .roundtrip_command(KenwoodCat::read_smeter_cmd(), "SM")
+                    .await;
+            }
+
+            self.state.connected = true;
+            Ok(self.state.clone())
+        })
+    }
+
+    fn execute<'a>(&'a mut self, command: &'a RigCommand) -> BoxFuture<'a, Result<(), RigError>> {
+        Box::pin(async move {
+            if self.transport.is_none() {
+                return Err(RigError::NotConnected);
+            }
+
+            match command {
+                RigCommand::SetFrequency(hz) => {
+                    let cmd = KenwoodCat::set_freq_cmd(false, *hz);
+                    self.roundtrip_command(&cmd, "FA").await?;
+                    self.state.frequency_hz = *hz;
+                    Ok(())
+                }
+                RigCommand::SetMode {
+                    mode,
+                    passband_hz: _,
+                } => {
+                    let Some(cmd) = KenwoodCat::set_mode_cmd(mode) else {
+                        return Err(RigError::Protocol {
+                            detail: format!("unsupported mode: {mode}"),
+                        });
+                    };
+                    self.roundtrip_command(&cmd, "MD").await?;
+                    self.state.mode.clone_from(mode);
+                    Ok(())
+                }
+                RigCommand::SetPtt(ptt) => {
+                    // BEZPIECZEŃSTWO PTT:
+                    // SetPtt(true) NIE MOŻE być ponawiane w przypadku błędu/timeoutu!
+                    let cmd = KenwoodCat::set_ptt_cmd(*ptt);
+                    let res = self
+                        .roundtrip_command(cmd, if *ptt { "TX" } else { "RX" })
+                        .await;
+                    match res {
+                        Ok(_) => {
+                            self.confirmed_ptt = *ptt;
+                            self.state.ptt = *ptt;
+                            Ok(())
+                        }
+                        Err(e) => {
+                            // Brak retry! Natychmiastowe zgłoszenie błędu
+                            if !*ptt {
+                                self.confirmed_ptt = false;
+                                self.state.ptt = false;
+                            }
+                            Err(e)
+                        }
+                    }
+                }
+                RigCommand::SetSplit { enabled, tx_vfo: _ } => {
+                    let cmd = KenwoodCat::set_split_cmd(*enabled);
+                    self.roundtrip_command(cmd, "FT").await?;
+                    self.state.split_enabled = *enabled;
+                    Ok(())
+                }
+                RigCommand::SetSplitFrequency(hz) => {
+                    let cmd = KenwoodCat::set_freq_cmd(true, *hz);
+                    self.roundtrip_command(&cmd, "FB").await?;
+                    self.state.tx_frequency_hz = Some(*hz);
+                    Ok(())
+                }
+                RigCommand::SetVfo(vfo) => {
+                    let vfo_str = vfo.to_ascii_uppercase();
+                    let cmd = if vfo_str.contains('B') {
+                        "FR1;"
+                    } else {
+                        "FR0;"
+                    };
+                    self.roundtrip_command(cmd, "FR").await?;
+                    self.state.vfo.clone_from(vfo);
+                    Ok(())
+                }
+                _ => Err(RigError::Unsupported {
+                    backend: CatBackendKind::Kenwood,
+                    command: "unsupported command",
+                }),
+            }
+        })
+    }
+
+    fn disconnect(&mut self) -> BoxFuture<'_, ()> {
+        Box::pin(async move {
+            // BEZPIECZEŃSTWO PTT:
+            // Jeśli radio było w stanie nadawania, wykonaj bezpieczną próbę przejścia na odbiór (RX)
+            if self.confirmed_ptt {
+                if let Some(transport) = self.transport.as_mut() {
+                    let rx_bytes = b"RX;";
+                    let _ = tokio::time::timeout(
+                        Duration::from_millis(200),
+                        transport.write_all(rx_bytes),
+                    )
+                    .await;
+                }
+                self.confirmed_ptt = false;
+                self.state.ptt = false;
+            }
+
+            // Zamknięcie transportu KNS LAN lub portu szeregowego
+            if let Some(mut transport) = self.transport.take() {
+                if self.lan_config.is_some() {
+                    let _ = tokio::time::timeout(
+                        Duration::from_millis(200),
+                        transport.write_all(b"##BY;\r\n"),
+                    )
+                    .await;
+                }
+                transport.close().await;
+            }
+
+            self.ai_active = false;
+            self.state.connected = false;
+        })
     }
 }
 

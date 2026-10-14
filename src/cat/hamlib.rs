@@ -2,7 +2,6 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use super::tcp::{self, MAX_LINE_LEN};
-use std::future::Future;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
@@ -10,7 +9,7 @@ use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::sync::broadcast;
 use tokio::time::sleep;
 
-use crate::cat::backend::{CatBackendKind, RigBackend};
+use crate::cat::backend::{BoxFuture, CatBackendKind, RigBackend};
 use crate::cat::rig::{RigCapabilities, RigCommand, RigError};
 
 const DAEMON: &str = "rigctld";
@@ -686,23 +685,20 @@ impl RigBackend for HamlibBackend {
         RigCapabilities::ALL
     }
 
-    fn connect(&mut self) -> impl Future<Output = Result<(), RigError>> + Send {
-        self.connect_internal()
+    fn connect(&mut self) -> BoxFuture<'_, Result<(), RigError>> {
+        Box::pin(self.connect_internal())
     }
 
-    fn poll(&mut self) -> impl Future<Output = Result<RigState, RigError>> + Send {
-        self.poll_internal()
+    fn poll(&mut self) -> BoxFuture<'_, Result<RigState, RigError>> {
+        Box::pin(self.poll_internal())
     }
 
-    fn execute(
-        &mut self,
-        command: &RigCommand,
-    ) -> impl Future<Output = Result<(), RigError>> + Send {
-        self.execute_cmd(command)
+    fn execute<'a>(&'a mut self, command: &'a RigCommand) -> BoxFuture<'a, Result<(), RigError>> {
+        Box::pin(self.execute_cmd(command))
     }
 
-    fn disconnect(&mut self) -> impl Future<Output = ()> + Send {
-        self.disconnect_internal()
+    fn disconnect(&mut self) -> BoxFuture<'_, ()> {
+        Box::pin(self.disconnect_internal())
     }
 }
 

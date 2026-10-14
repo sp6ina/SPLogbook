@@ -594,7 +594,7 @@ W falach NATIVE-0 do NATIVE-6A interfejs GUI nie ulega modyfikacji runtime, co g
 | **NATIVE-4** | Elecraft Backend | K3/KX oraz K4 Ethernet, multisesyjność. [zrealizowano] |
 | **NATIVE-5** | FlexRadio SmartSDR | Protokół TCP/UDP SmartSDR, obsługa slice receivers i subskrypcji. [zrealizowano] |
 | **NATIVE-6** | Fala nadrzędna: Multi-Radio Execution Core, fabryka backendów, migracja i integracja UI | Fala nadrzędna podzielona formalnie na NATIVE-6A i NATIVE-6B (decyzja AD-NATIVE-6-SPLIT). Brak osobnych kryteriów wykonawczych. |
-| **NATIVE-6A** | Multi-Radio Execution Core, RigHub i bezpieczny arbitraż TX | Zaimplementowanie bezgłowej, produkcyjnej warstwy wykonawczej (RigService, RigHub, TxArbiter, routing, bounded queues, lifecycle, shutdown) bez zmian w GUI. [planned] |
+| **NATIVE-6A** | Multi-Radio Execution Core, RigHub i bezpieczny arbitraż TX | Zaimplementowanie bezgłowej, produkcyjnej warstwy wykonawczej (RigService, RigHub, TxArbiter, routing, bounded queues, lifecycle, shutdown) bez zmian w GUI. [zrealizowano] |
 | **NATIVE-6B** | Fabryka backendów, migracja konfiguracji i UI | Podłączenie istniejących backendów i warstwy wykonawczej do GUI (`cat_settings.rs`), dynamiczne panele konfiguracji, fabryka backendów, walidacja i18n, migracja `AppConfig`. [planned] |
 | **NATIVE-7** | Testy HIL, dokumentacja i audyt końcowy | Procedury testów sprzętowych Hardware-In-The-Loop, aktualizacja podręcznika i audyt bezpieczeństwa. [planned] |
 
@@ -751,94 +751,98 @@ NATIVE-0 -> NATIVE-1 -> NATIVE-2 -> NATIVE-3 -> NATIVE-4 -> NATIVE-5 (5A-5E) -> 
 ### Kryteria NATIVE-6A (Multi-Radio Execution Core, RigHub i bezpieczny arbitraż TX):
 
 - **Cel**: Zaimplementowanie bezgłowej, produkcyjnej warstwy wykonawczej pomiędzy `RigBackend` a przyszłą integracją aplikacji.
-- **Status**: `planned`
+- **Status**: zrealizowano (2026-10-14)
 
-#### Zakres obowiązkowy:
-1. `RigId`.
-2. `ReceiverId`.
-3. `RigTarget`.
-4. `ActiveRxTarget`.
-5. `ActiveTxTarget`.
-6. `RigService`.
-7. `RigServiceHandle`.
-8. Jawny lifecycle sesji.
-9. Bounded command queue.
-10. Bounded event queue.
-11. Jawna polityka backpressure.
-12. `RigHub`.
-13. Rejestr wielu sesji.
-14. `RoutedRigCommand`.
-15. `RigCommandId`.
-16. `RoutedRigEvent`.
-17. Snapshot całego `RigHub`.
-18. Deterministyczny routing.
-19. `TxArbiter`.
-20. Maksymalnie jeden lokalny właściciel TX.
-21. Stan `Unknown` po niejednoznacznym wyniku PTT.
-22. Brak automatycznego retry `SetPtt(true)`.
-23. Multi-slice routing dla FlexRadio.
-24. Zachowanie `FlexSliceId`.
-25. Brak syntetycznego VFO A/B dla FlexRadio.
-26. Awaria jednej sesji nie zatrzymuje pozostałych.
-27. Kontrolowany shutdown wszystkich tasków.
-28. `JoinHandle` dla każdego uruchomionego taska.
-29. Deterministyczne testy offline.
-30. Dokumentacja publicznego API warstwy wykonawczej.
+#### Zakres zrealizowany:
+1. [x] `RigId`: Silnie typowany identyfikator sesji (`RigId::new`), walidacja niepustości, białych znaków, znaków sterujących ASCII/C0/C1, `Ord`, `Hash`, `Display`.
+2. [x] `ReceiverId`: Silnie typowany identyfikator odbiornika / VFO / Flex slice (`Vfo(VfoId)`, `Slice(u32)`, `SubReceiver(u8)`), zachowanie surowego indeksu slice SDR.
+3. [x] `RigTarget`: Precyzyjny cel polecenia (`RigTarget::entire_rig`, `RigTarget::receiver`), brak niejednoznaczności adresowania.
+4. [x] `ActiveRxTarget`: Jawny cel aktywnego nasłuchu (Active RX) z emisją zdarzenia `RigHubEvent::ActiveRxChanged`.
+5. [x] `ActiveTxTarget`: Jawny cel aktywnego nadawania (Active TX) z blokadą mutacji w stanie `Owned` lub `Requesting`.
+6. [x] `RigService`: Autonomiczny aktor sesji radiowej w dedykowanym tasku Tokio, wyłączny właściciel backendu (`Box<dyn RigBackend>`), brak `Arc<Mutex<Box<dyn RigBackend>>>`.
+7. [x] `RigServiceHandle`: Bezpieczny, klonowalny interfejs sterujący sesją, wyposażony wyłącznie w bounded nadajniki, odbiornik snapshotu i zarządzany `JoinHandle`.
+8. [x] Jawny lifecycle sesji: Maszyna stanów `RigServiceState` (`Created`, `Connecting`, `Synchronizing`, `Ready`, `Degraded`, `Disconnecting`, `Disconnected`, `Failed`) z walidacją dozwolonych przejść.
+9. [x] Bounded command queue: Ograniczona kolejka rozkazów `MAX_RIG_COMMAND_QUEUE = 32` z natychmiastowym odrzuceniem `QueueFull` (backpressure).
+10. [x] Bounded event queue: Ograniczony bufor zdarzeń `MAX_RIG_EVENT_QUEUE = 128` z polityką `broadcast`.
+11. [x] Jawna polityka backpressure: Odrzucenie poleceń przy zapełnieniu kolejki (`QueueFull`) oraz weryfikacja terminu `deadline` przed zakolejkowaniem i przed wykonaniem.
+12. [x] `RigHub`: Centralny rejestr sesji radiowych, routing komend bez niejawnych fallbacków, koordynacja arbitrażu TX.
+13. [x] Rejestr wielu sesji: Zarządzanie wieloma instancjami `RigServiceHandle`, bezpieczna rejestracja i wyrejestrowanie sesji.
+14. [x] `RoutedRigCommand`: Komenda zaadresowana z monotonicznym `RigCommandId`, celem `RigTarget`, treścią `RigCommand` i bezwzględnym `tokio::time::Instant` deadline.
+15. [x] `RigCommandId`: Monotoniczny, unikalny identyfikator polecenia generowany przez węzeł wykonawczy.
+16. [x] `RoutedRigEvent`: Zdarzenie zidentyfikowane pochodzeniem (`RigId`, `Option<ReceiverId>`) i typowanym ładunkiem `RigHubEvent`.
+17. [x] Snapshot całego `RigHub`: Niezmienna, natychmiastowa struktura `RigHubSnapshot` z pełnym stanem wszystkich sesji, celów focusu i stanu arbitrażu.
+18. [x] Deterministyczny routing: Bezpośrednie kierowanie komend do sesji docelowej; błąd `RigNotFound` w przypadku nieobecności radia; zakaz cichego przekierowania na radio domyślne.
+19. [x] `TxArbiter`: Autonomiczny arbiter nadawania pilnujący pojedynczego nadajnika w systemie.
+20. [x] Maksymalnie jeden lokalny właściciel TX: Maszyna stanów `TxArbiterState` (`Idle`, `Requesting`, `Owned`, `Releasing`, `Unknown`) gwarantująca wyłączność nadawania.
+21. [x] Stan `Unknown` po niejednoznacznym wyniku PTT: Timeout, błąd protokołu lub awaria transportu podczas operacji PTT bezwzględnie ustawia `Unknown` i blokuje kolejne operacje TX.
+22. [x] Brak automatycznego retry `SetPtt(true)`: Żadne polecenie załączenia PTT nie jest ponawiane automatycznie po błędzie.
+23. [x] Multi-slice routing dla FlexRadio: Bezpośrednie adresowanie wycinków SDR za pomocą `ReceiverId::slice(n)`.
+24. [x] Zachowanie `FlexSliceId`: Pełne zachowanie tożsamości `u32` odbiornika FlexRadio bez rzutowania na enum VFO.
+25. [x] Brak syntetycznego VFO A/B dla FlexRadio: Architektura traktuje slice SDR jako niezależne odbiorniki zgodnie z modelem SmartSDR.
+26. [x] Awaria jednej sesji nie zatrzymuje pozostałych: Błąd połączenia lub wejście w stan `Failed` w jednej sesji nie wpływa na działanie innych sesji w `RigHub`.
+27. [x] Kontrolowany shutdown wszystkich tasków: Idempotentne zamykanie pojedynczych sesji oraz całego węzła `RigHub::shutdown`, z próbą bezpiecznego zwolnienia PTT i respektowaniem deadline'u.
+28. [x] `JoinHandle` dla każdego uruchomionego taska: Brak jakichkolwiek tasków porzuconych (`detached`); każdy task jest dołączany (`join`) lub przerywany (`abort`) przy przekroczeniu limitu czasu.
+29. [x] Deterministyczne testy offline: 45 testów jednostkowych i integracyjnych w `tests/cat_native_6a.rs` z deterministycznym `MockRigBackend`.
+30. [x] Dokumentacja publicznego API warstwy wykonawczej: Kompletne docstringi w języku polskim dla wszystkich typów, funkcji i metod w `hub.rs`, `service.rs`, `routing.rs` i `tx_arbiter.rs`.
 
-#### Pliki przewidywane:
-- `src/cat/hub.rs`,
-- `src/cat/service.rs`,
-- `src/cat/routing.rs`,
-- `src/cat/tx_arbiter.rs`,
-- `src/cat/mod.rs`,
-- minimalne współdzielone typy domenowe,
-- testy,
-- `Native CAT.md`.
+#### Pliki zaimplementowane:
+- `src/cat/hub.rs` (nowy moduł rejestru i routingu `RigHub`),
+- `src/cat/service.rs` (nowy moduł aktora sesji `RigService` i uchwytu `RigServiceHandle`),
+- `src/cat/routing.rs` (nowy moduł typów adresowania `RigId`, `ReceiverId`, `RigTarget`, komend i zdarzeń),
+- `src/cat/tx_arbiter.rs` (nowy moduł bezpiecznego arbitrażu nadawania `TxArbiter`),
+- `src/cat/mod.rs` (re-eksporty nowej warstwy wykonawczej),
+- `src/cat/backend.rs` (alias `BoxFuture` i dyn-compatibility dla `RigBackend`),
+- `tests/cat_native_6a.rs` (kompletny zestaw 45 testów NATIVE-6A),
+- `Native CAT.md` (niniejsza dokumentacja i raport wykonawczy).
 
-#### Poza zakresem NATIVE-6A:
-- GUI,
+#### Stan baseline i metryki testów NATIVE-6A:
+- FlexRadio: 224 passed, 0 failed
+- Native CAT: 426 passed, 0 failed
+- CAT ogółem: 513 passed, 0 failed
+- Zestaw NATIVE-6A (`cat_native_6a.rs`): 45 passed, 0 failed
+- i18n_guard: 1 passed, 0 failed
+- Cały projekt: 886 passed (840 unit/integration + 45 native-6a + 1 i18n_guard), 0 failed
+- Clippy: kod wyjścia 0, 45 unikalnych zastanych ostrzeżeń (identycznie jak przed NATIVE-6A), 0 ostrzeżeń w `src/cat`
+- Zależności Cargo: brak zmian w `Cargo.toml` i `Cargo.lock` (`git diff` pusty)
+
+#### Mapowanie ryzyk R1-R10 na mechanizmy NATIVE-6A:
+- **R1 (Wyścig PTT / jednoczesne nadawanie)**: Wyłączność w `TxArbiter` (`Owned`), atomowe przejścia stanów, blokada ponownego `request_tx`.
+- **R2 (Niejednoznaczny stan PTT po błędzie/timeoucie)**: Stan `TxArbiterState::Unknown` blokujący wszelkie kolejne operacje TX do czasu ręcznej lub zweryfikowanej resynchronizacji; bezwzględny brak automatycznego retry `SetPtt(true)`.
+- **R3 (Niekontrolowany wyciek tasków asynchronicznych)**: Każdy aktor `RigService` powiązany z `JoinHandle`, zarządzany shutdown z bounded deadline'em, brak `tokio::spawn` bez uchwytu.
+- **R4 (Niekontrolowana alokacja pamięci / backpressure)**: Ścisłe ograniczenie buforów (`MAX_RIG_COMMAND_QUEUE = 32`, `MAX_RIG_EVENT_QUEUE = 128`, `MAX_HUB_EVENT_QUEUE = 256`), brak `unbounded_channel`.
+- **R5 (Zawieszenie na blokadzie / deadlock)**: Całkowity zakaz trzymania blokad `Mutex` przez punkty `.await`, brak `Arc<Mutex<Box<dyn RigBackend>>>`, model aktora Tokio z kanałami mpsc/watch.
+- **R6 (Błędne zaadresowanie komendy do innego radia)**: Silnie typowany `RigId` i `RigTarget`, brak fallbacku na radio domyślne, ścisła walidacja obecności w rejestrze.
+- **R7 (Mylenie wycinków SDR z VFO A/B)**: Silnie typowany `ReceiverId::Slice(u32)` ze ścisłym zachowaniem tożsamości slice FlexRadio, brak sztucznego mapowania na `VfoA`/`VfoB`.
+- **R8 (Kaskadowa awaria sesji radiowych)**: Każda sesja działa w odrębnym tasku, izolacja błędów w `RigServiceSnapshot`, awaria sesji A nie destabilizuje sesji B.
+- **R9 (Zawieszenie aplikacji przy zamykaniu)**: Idempotentny `shutdown` ze ścisłym monotonicznym deadline'em, awaryjne `abort()` przy przekroczeniu czasu.
+- **R10 (Nieuprawnione nadawanie podczas testów / diagnostyki)**: Read-only `probe()`, bezpieczny arbitraż, komendy PTT kierowane wyłącznie po jawnej autoryzacji arbitra.
+
+#### Poza zakresem NATIVE-6A (przekazane do NATIVE-6B i NATIVE-7):
+- GUI oraz zmiany w `src/gui/**`,
 - `cat_settings.rs`,
+- fabryka backendów na podstawie konfiguracji,
+- integracja ze `SpLogApp`,
 - migracja konfiguracji użytkownika,
-- `station_config.json`,
-- dynamiczne formularze,
-- i18n GUI,
-- fizyczne kontrolery SO2R,
-- routing audio,
-- routing mikrofonu,
-- routing CW,
-- anteny,
-- wzmacniacze,
-- filtry,
-- SmartLink,
-- VITA-49 data plane,
-- DAX,
-- audio,
-- IQ,
-- FFT,
-- panadapter,
-- waterfall,
-- HIL,
-- NATIVE-6B,
-- NATIVE-7.
+- fizyczne kontrolery SO2R i Hardware-In-The-Loop (NATIVE-7).
 
 #### Kryteria odbioru NATIVE-6A:
-- brak `Arc<Mutex<Box<dyn RigBackend>>>`,
-- jeden właściciel backendu,
-- brak unbounded channels,
-- brak detached tasks,
-- brak blokady trzymanej przez await,
-- bounded kolejki,
-- typed errors,
-- routing bez fallbacku na pierwsze radio,
-- osobne `ActiveRxTarget` i `ActiveTxTarget`,
-- jeden lokalny właściciel TX,
-- `Unknown` blokuje następne rozpoczęcie TX,
-- brak retry PTT true,
-- shutdown jest idempotentny,
-- wszystkie testy przechodzą,
-- brak zmian GUI,
-- jeden commit,
-- synchronizacja z `main` przez fast-forward.
+- [x] brak `Arc<Mutex<Box<dyn RigBackend>>>`,
+- [x] jeden właściciel backendu,
+- [x] brak unbounded channels,
+- [x] brak detached tasks,
+- [x] brak blokady trzymanej przez await,
+- [x] bounded kolejki,
+- [x] typed errors,
+- [x] routing bez fallbacku na pierwsze radio,
+- [x] osobne `ActiveRxTarget` i `ActiveTxTarget`,
+- [x] jeden lokalny właściciel TX,
+- [x] `Unknown` blokuje następne rozpoczęcie TX,
+- [x] brak retry PTT true,
+- [x] shutdown jest idempotentny,
+- [x] wszystkie testy przechodzą,
+- [x] brak zmian GUI,
+- [x] jeden commit,
+- [x] synchronizacja z `main` przez fast-forward.
 
 ### Kryteria NATIVE-6B (Fabryka backendów, migracja konfiguracji i integracja UI):
 

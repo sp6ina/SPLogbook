@@ -14,7 +14,7 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::time::Duration;
 
-use crate::cat::backend::{CatBackendKind, RigBackend};
+use crate::cat::backend::{BoxFuture, CatBackendKind, RigBackend};
 use crate::cat::native::NativeRigEvent;
 use crate::cat::native::profile::RigModelProfile;
 use crate::cat::rig::{RigCapabilities, RigCommand, RigError, RigState};
@@ -625,108 +625,33 @@ impl RigBackend for FlexRadioBackend {
         caps
     }
 
-    async fn connect(&mut self) -> Result<(), RigError> {
-        let endpoint = format!("{}:{}", self.config.host, self.config.port);
+    fn connect(&mut self) -> BoxFuture<'_, Result<(), RigError>> {
+        Box::pin(async move {
+            let endpoint = format!("{}:{}", self.config.host, self.config.port);
 
-        let mut conn = FlexRadioConnection::connect(self.config.clone())
-            .await
-            .map_err(|e| e.to_rig_error(&endpoint))?;
+            let mut conn = FlexRadioConnection::connect(self.config.clone())
+                .await
+                .map_err(|e| e.to_rig_error(&endpoint))?;
 
-        let (ver, handle) = conn
-            .perform_handshake()
-            .await
-            .map_err(|e| e.to_rig_error(&endpoint))?;
+            let (ver, handle) = conn
+                .perform_handshake()
+                .await
+                .map_err(|e| e.to_rig_error(&endpoint))?;
 
-        self.protocol_version = Some(ver);
-        self.client_handle = Some(handle);
-        self.connection = Some(conn);
+            self.protocol_version = Some(ver);
+            self.client_handle = Some(handle);
+            self.connection = Some(conn);
 
-        // 1. Wyślij komendę info i zweryfikuj tożsamość radia
-        let info_seq = match self.send_command_tracked("info").await {
-            Ok(s) => s,
-            Err(e) => {
-                self.cleanup_failed_connection().await;
-                return Err(e.to_rig_error(&endpoint));
-            }
-        };
-        let info_resp = match self
-            .wait_for_response(info_seq, DEFAULT_COMMAND_TIMEOUT)
-            .await
-        {
-            Ok(r) => r,
-            Err(e) => {
-                self.cleanup_failed_connection().await;
-                return Err(e.to_rig_error(&endpoint));
-            }
-        };
-
-        if !info_resp.is_success() {
-            self.cleanup_failed_connection().await;
-            return Err(RigError::Protocol {
-                detail: format!(
-                    "info command rejected with code {}: {}",
-                    info_resp.code, info_resp.message
-                ),
-            });
-        }
-
-        let (_, info_props) = super::protocol::tokenize_smart_sdr_fields(&info_resp.message);
-
-        // Walidacja modelu z info
-        if let Some(exp_model) = self.config.expected_model.clone() {
-            let actual_model = info_props.get("model").cloned().unwrap_or_default();
-            if !actual_model.eq_ignore_ascii_case(&exp_model) {
-                self.cleanup_failed_connection().await;
-                return Err(FlexProtocolError::ModelMismatch {
-                    expected: exp_model,
-                    actual: actual_model,
-                }
-                .to_rig_error(&endpoint));
-            }
-        }
-
-        // Walidacja chassis_serial / serial z info
-        if let Some(exp_serial) = self.config.expected_serial.clone() {
-            let actual_serial = info_props
-                .get("chassis_serial")
-                .or_else(|| info_props.get("serial"))
-                .cloned()
-                .unwrap_or_default();
-            if !actual_serial.eq_ignore_ascii_case(&exp_serial) {
-                self.cleanup_failed_connection().await;
-                return Err(FlexProtocolError::SerialMismatch {
-                    expected: exp_serial,
-                    actual: actual_serial,
-                }
-                .to_rig_error(&endpoint));
-            }
-        }
-
-        // Runtime slice observation
-        if let Some(slice_count) = info_props.get("slice").and_then(|s| s.parse::<u32>().ok()) {
-            self.runtime_slice_count = Some(slice_count);
-        }
-
-        // Jeśli model jest znany w info i obecny profil to FLEX_GENERIC, zaktualizuj profil
-        if let Some(actual_model) = info_props.get("model").filter(|_| !self.forced_model) {
-            let identified_profile = find_flex_profile(actual_model);
-            if identified_profile != &FLEX_GENERIC {
-                self.profile = identified_profile;
-            }
-        }
-
-        // 2. Jeśli jawnie skonfigurowano client_id, wykonaj client bind
-        if let Some(client_id) = self.config.client_id.clone() {
-            let bind_cmd = format!("client bind client_id={client_id}");
-            let bind_seq = match self.send_command_tracked(bind_cmd).await {
+            // 1. Wyślij komendę info i zweryfikuj tożsamość radia
+            let info_seq = match self.send_command_tracked("info").await {
                 Ok(s) => s,
                 Err(e) => {
                     self.cleanup_failed_connection().await;
                     return Err(e.to_rig_error(&endpoint));
                 }
             };
-            let bind_resp = match self
-                .wait_for_response(bind_seq, DEFAULT_COMMAND_TIMEOUT)
+            let info_resp = match self
+                .wait_for_response(info_seq, DEFAULT_COMMAND_TIMEOUT)
                 .await
             {
                 Ok(r) => r,
@@ -736,347 +661,431 @@ impl RigBackend for FlexRadioBackend {
                 }
             };
 
-            if !bind_resp.is_success() {
+            if !info_resp.is_success() {
                 self.cleanup_failed_connection().await;
                 return Err(RigError::Protocol {
                     detail: format!(
-                        "client bind failed with code {}: {}",
-                        bind_resp.code, bind_resp.message
+                        "info command rejected with code {}: {}",
+                        info_resp.code, info_resp.message
                     ),
                 });
             }
-        }
 
-        // 3. Subskrybuj zestaw subskrypcji control plane
-        for spec in &CONTROL_SUBSCRIPTIONS {
-            let sub_seq = match self.send_command_tracked(spec.command).await {
-                Ok(s) => s,
-                Err(e) => {
-                    self.cleanup_failed_connection().await;
-                    return Err(e.to_rig_error(&endpoint));
-                }
-            };
-            let sub_resp = match self
-                .wait_for_response(sub_seq, DEFAULT_COMMAND_TIMEOUT)
-                .await
-            {
-                Ok(r) => r,
-                Err(e) => {
-                    self.cleanup_failed_connection().await;
-                    return Err(e.to_rig_error(&endpoint));
-                }
-            };
+            let (_, info_props) = super::protocol::tokenize_smart_sdr_fields(&info_resp.message);
 
-            if !sub_resp.is_success() {
-                match spec.requirement {
-                    FlexSubscriptionRequirement::Required => {
+            // Walidacja modelu z info
+            if let Some(exp_model) = self.config.expected_model.clone() {
+                let actual_model = info_props.get("model").cloned().unwrap_or_default();
+                if !actual_model.eq_ignore_ascii_case(&exp_model) {
+                    self.cleanup_failed_connection().await;
+                    return Err(FlexProtocolError::ModelMismatch {
+                        expected: exp_model,
+                        actual: actual_model,
+                    }
+                    .to_rig_error(&endpoint));
+                }
+            }
+
+            // Walidacja chassis_serial / serial z info
+            if let Some(exp_serial) = self.config.expected_serial.clone() {
+                let actual_serial = info_props
+                    .get("chassis_serial")
+                    .or_else(|| info_props.get("serial"))
+                    .cloned()
+                    .unwrap_or_default();
+                if !actual_serial.eq_ignore_ascii_case(&exp_serial) {
+                    self.cleanup_failed_connection().await;
+                    return Err(FlexProtocolError::SerialMismatch {
+                        expected: exp_serial,
+                        actual: actual_serial,
+                    }
+                    .to_rig_error(&endpoint));
+                }
+            }
+
+            // Runtime slice observation
+            if let Some(slice_count) = info_props.get("slice").and_then(|s| s.parse::<u32>().ok()) {
+                self.runtime_slice_count = Some(slice_count);
+            }
+
+            // Jeśli model jest znany w info i obecny profil to FLEX_GENERIC, zaktualizuj profil
+            if let Some(actual_model) = info_props.get("model").filter(|_| !self.forced_model) {
+                let identified_profile = find_flex_profile(actual_model);
+                if identified_profile != &FLEX_GENERIC {
+                    self.profile = identified_profile;
+                }
+            }
+
+            // 2. Jeśli jawnie skonfigurowano client_id, wykonaj client bind
+            if let Some(client_id) = self.config.client_id.clone() {
+                let bind_cmd = format!("client bind client_id={client_id}");
+                let bind_seq = match self.send_command_tracked(bind_cmd).await {
+                    Ok(s) => s,
+                    Err(e) => {
                         self.cleanup_failed_connection().await;
-                        return Err(FlexProtocolError::SubscriptionRejected {
-                            subject: spec.command.to_string(),
-                            code: sub_resp.code,
-                            message: sub_resp.message,
-                        }
-                        .to_rig_error(&endpoint));
+                        return Err(e.to_rig_error(&endpoint));
                     }
-                    FlexSubscriptionRequirement::Optional => {
-                        // Odrzucenie subskrypcji opcjonalnej nie blokuje połączenia
-                        if spec.name == "tx" {
-                            self.tx_telemetry_enabled = false;
-                        }
-                    }
-                }
-            } else if spec.name == "tx" {
-                self.tx_telemetry_enabled = true;
-            }
-        }
-
-        // Dopiero po sukcesie wymaganych subskrypcji backend przechodzi do Ready
-        if let Some(conn) = self.connection.as_mut() {
-            conn.mark_ready();
-        }
-        self.recompute_ptt_state();
-        self.last_state.connected = true;
-
-        Ok(())
-    }
-
-    async fn poll(&mut self) -> Result<RigState, RigError> {
-        let endpoint = format!("{}:{}", self.config.host, self.config.port);
-
-        let messages = {
-            let conn = self.connection.as_mut().ok_or(RigError::NotConnected)?;
-
-            match conn.read_messages().await {
-                Ok(m) => m,
-                Err(e) => {
-                    self.confirmed_ptt_state = FlexConfirmedPttState::Unknown;
-                    return Err(e.to_rig_error(&endpoint));
-                }
-            }
-        };
-
-        self.process_inbound_messages(messages);
-        let new_state = self.build_rig_state();
-
-        if new_state != self.last_state {
-            self.events
-                .push_back(NativeRigEvent::StateChanged(new_state.clone()));
-            self.last_state = new_state.clone();
-        }
-
-        Ok(new_state)
-    }
-
-    async fn execute(&mut self, command: &RigCommand) -> Result<(), RigError> {
-        let endpoint = format!("{}:{}", self.config.host, self.config.port);
-
-        if !self.capabilities().supports(command) {
-            let cmd_name = match command {
-                RigCommand::SetVfo(_) => "SetVfo",
-                RigCommand::SetRit(_) => "SetRit",
-                RigCommand::SetXit(_) => "SetXit",
-                RigCommand::SetPassband(_) => "SetPassband",
-                RigCommand::SetPtt(_) => "SetPtt",
-                RigCommand::SetPower(_) => "SetPower",
-                RigCommand::SetSplit { .. } => "SetSplit",
-                _ => "unsupported_command",
-            };
-            return Err(RigError::Unsupported {
-                backend: CatBackendKind::FlexRadio,
-                command: cmd_name,
-            });
-        }
-
-        match command {
-            RigCommand::SetFrequency(freq_hz) => {
-                let slice = select_write_slice(
-                    &self.slices,
-                    self.config.preferred_slice,
-                    self.client_handle.as_deref(),
-                    false,
-                )
-                .map_err(|e| e.to_rig_error(&endpoint))?;
-
-                let mhz = *freq_hz as f64 / 1_000_000.0;
-                let cmd = format!("slice set {} freq={:.6}", slice.id, mhz);
-
-                self.send_command_tracked(cmd)
+                };
+                let bind_resp = match self
+                    .wait_for_response(bind_seq, DEFAULT_COMMAND_TIMEOUT)
                     .await
-                    .map_err(|e| e.to_rig_error(&endpoint))?;
-            }
-            RigCommand::SetSplitFrequency(freq_hz) => {
-                let slice = select_tx_slice(&self.slices, self.client_handle.as_deref())
-                    .map_err(|e| e.to_rig_error(&endpoint))?;
-
-                let mhz = *freq_hz as f64 / 1_000_000.0;
-                let cmd = format!("slice set {} freq={:.6}", slice.id, mhz);
-
-                self.send_command_tracked(cmd)
-                    .await
-                    .map_err(|e| e.to_rig_error(&endpoint))?;
-            }
-            RigCommand::SetMode { mode, passband_hz } => {
-                let slice = select_write_slice(
-                    &self.slices,
-                    self.config.preferred_slice,
-                    self.client_handle.as_deref(),
-                    false,
-                )
-                .map_err(|e| e.to_rig_error(&endpoint))?;
-
-                let m = mode.trim().to_ascii_uppercase();
-                let (lo, hi) = match m.as_str() {
-                    "LSB" | "DIGL" => (-100i32 - *passband_hz as i32, -100i32),
-                    "CW" | "AM" | "SAM" | "FM" | "NFM" | "DFM" => {
-                        let half = (*passband_hz / 2) as i32;
-                        (-half, half)
+                {
+                    Ok(r) => r,
+                    Err(e) => {
+                        self.cleanup_failed_connection().await;
+                        return Err(e.to_rig_error(&endpoint));
                     }
-                    _ => (100i32, 100i32 + *passband_hz as i32),
                 };
 
-                let cmd = format!(
-                    "slice set {} mode={} filter_lo={} filter_hi={}",
-                    slice.id, m, lo, hi
-                );
-
-                self.send_command_tracked(cmd)
-                    .await
-                    .map_err(|e| e.to_rig_error(&endpoint))?;
-            }
-            RigCommand::SetPassband(passband_hz) => {
-                let slice = select_write_slice(
-                    &self.slices,
-                    self.config.preferred_slice,
-                    self.client_handle.as_deref(),
-                    false,
-                )
-                .map_err(|e| e.to_rig_error(&endpoint))?;
-
-                let m = slice.mode.as_str();
-                let (lo, hi) = match m {
-                    "LSB" | "DIGL" => (
-                        slice.filter_high_hz - *passband_hz as i32,
-                        slice.filter_high_hz,
-                    ),
-                    "CW" | "AM" | "SAM" => {
-                        let half = (*passband_hz / 2) as i32;
-                        (-half, half)
-                    }
-                    _ => (
-                        slice.filter_low_hz,
-                        slice.filter_low_hz + *passband_hz as i32,
-                    ),
-                };
-
-                let cmd = format!("slice set {} filter_lo={} filter_hi={}", slice.id, lo, hi);
-
-                self.send_command_tracked(cmd)
-                    .await
-                    .map_err(|e| e.to_rig_error(&endpoint))?;
-            }
-            RigCommand::SetSplit { enabled, tx_vfo: _ } => {
-                if *enabled && self.slices.len() < 2 {
+                if !bind_resp.is_success() {
+                    self.cleanup_failed_connection().await;
                     return Err(RigError::Protocol {
-                        detail: "split requires at least 2 active slices".to_string(),
+                        detail: format!(
+                            "client bind failed with code {}: {}",
+                            bind_resp.code, bind_resp.message
+                        ),
                     });
                 }
             }
-            RigCommand::SetPtt(true) => {
-                // Bezpieczeństwo PTT: pojedyncze wysłanie polecenia xmit 1 bez ponawiania (no retry)
-                self.ptt_request_pending = true;
-                self.xmit_command_responded = false;
 
-                let seq = match self.send_command_tracked("xmit 1").await {
+            // 3. Subskrybuj zestaw subskrypcji control plane
+            for spec in &CONTROL_SUBSCRIPTIONS {
+                let sub_seq = match self.send_command_tracked(spec.command).await {
                     Ok(s) => s,
                     Err(e) => {
-                        self.confirmed_ptt_state = FlexConfirmedPttState::Unknown;
-                        self.ptt_initiated_by_this_session = false;
-                        self.ptt_request_pending = false;
+                        self.cleanup_failed_connection().await;
                         return Err(e.to_rig_error(&endpoint));
                     }
                 };
-                self.last_xmit_seq = Some(seq);
+                let sub_resp = match self
+                    .wait_for_response(sub_seq, DEFAULT_COMMAND_TIMEOUT)
+                    .await
+                {
+                    Ok(r) => r,
+                    Err(e) => {
+                        self.cleanup_failed_connection().await;
+                        return Err(e.to_rig_error(&endpoint));
+                    }
+                };
 
-                match self.wait_for_response(seq, self.config.write_timeout).await {
-                    Ok(resp) => {
-                        if resp.is_success() {
-                            self.xmit_command_responded = true;
-                            self.recompute_ptt_state();
-                        } else {
-                            self.confirmed_ptt_state = FlexConfirmedPttState::Unknown;
-                            self.ptt_initiated_by_this_session = false;
-                            self.ptt_request_pending = false;
-                            return Err(RigError::Protocol {
-                                detail: format!(
-                                    "xmit 1 rejected with code {}: {}",
-                                    resp.code, resp.message
-                                ),
-                            });
+                if !sub_resp.is_success() {
+                    match spec.requirement {
+                        FlexSubscriptionRequirement::Required => {
+                            self.cleanup_failed_connection().await;
+                            return Err(FlexProtocolError::SubscriptionRejected {
+                                subject: spec.command.to_string(),
+                                code: sub_resp.code,
+                                message: sub_resp.message,
+                            }
+                            .to_rig_error(&endpoint));
+                        }
+                        FlexSubscriptionRequirement::Optional => {
+                            // Odrzucenie subskrypcji opcjonalnej nie blokuje połączenia
+                            if spec.name == "tx" {
+                                self.tx_telemetry_enabled = false;
+                            }
                         }
                     }
+                } else if spec.name == "tx" {
+                    self.tx_telemetry_enabled = true;
+                }
+            }
+
+            // Dopiero po sukcesie wymaganych subskrypcji backend przechodzi do Ready
+            if let Some(conn) = self.connection.as_mut() {
+                conn.mark_ready();
+            }
+            self.recompute_ptt_state();
+            self.last_state.connected = true;
+
+            Ok(())
+        })
+    }
+
+    fn poll(&mut self) -> BoxFuture<'_, Result<RigState, RigError>> {
+        Box::pin(async move {
+            let endpoint = format!("{}:{}", self.config.host, self.config.port);
+
+            let messages = {
+                let conn = self.connection.as_mut().ok_or(RigError::NotConnected)?;
+
+                match conn.read_messages().await {
+                    Ok(m) => m,
                     Err(e) => {
                         self.confirmed_ptt_state = FlexConfirmedPttState::Unknown;
-                        self.ptt_initiated_by_this_session = false;
-                        self.ptt_request_pending = false;
                         return Err(e.to_rig_error(&endpoint));
                     }
                 }
+            };
+
+            self.process_inbound_messages(messages);
+            let new_state = self.build_rig_state();
+
+            if new_state != self.last_state {
+                self.events
+                    .push_back(NativeRigEvent::StateChanged(new_state.clone()));
+                self.last_state = new_state.clone();
             }
-            RigCommand::SetPtt(false) => {
-                self.ptt_request_pending = false;
-                self.xmit_command_responded = false;
 
-                let seq = self
-                    .send_command_tracked("xmit 0")
-                    .await
-                    .map_err(|e| e.to_rig_error(&endpoint))?;
-
-                let _ = self.wait_for_response(seq, self.config.write_timeout).await;
-            }
-            RigCommand::SetPower(watts) => {
-                let power = watts.round().clamp(0.0, 100.0) as u32;
-                let cmd = format!("transmit set rfpower={power}");
-
-                self.send_command_tracked(cmd)
-                    .await
-                    .map_err(|e| e.to_rig_error(&endpoint))?;
-            }
-            RigCommand::SetVfo(_) => {
-                return Err(RigError::Unsupported {
-                    backend: CatBackendKind::FlexRadio,
-                    command: "SetVfo",
-                });
-            }
-            RigCommand::SetRit(rit_hz) => {
-                let slice = select_write_slice(
-                    &self.slices,
-                    self.config.preferred_slice,
-                    self.client_handle.as_deref(),
-                    false,
-                )
-                .map_err(|e| e.to_rig_error(&endpoint))?;
-
-                let (on, freq) = if *rit_hz != 0 { (1, *rit_hz) } else { (0, 0) };
-                let cmd = format!("slice set {} rit_on={on} rit_freq={freq}", slice.id);
-
-                self.send_command_tracked(cmd)
-                    .await
-                    .map_err(|e| e.to_rig_error(&endpoint))?;
-            }
-            RigCommand::SetXit(xit_hz) => {
-                let slice = select_write_slice(
-                    &self.slices,
-                    self.config.preferred_slice,
-                    self.client_handle.as_deref(),
-                    false,
-                )
-                .map_err(|e| e.to_rig_error(&endpoint))?;
-
-                let (on, freq) = if *xit_hz != 0 { (1, *xit_hz) } else { (0, 0) };
-                let cmd = format!("slice set {} xit_on={on} xit_freq={freq}", slice.id);
-
-                self.send_command_tracked(cmd)
-                    .await
-                    .map_err(|e| e.to_rig_error(&endpoint))?;
-            }
-        }
-
-        Ok(())
+            Ok(new_state)
+        })
     }
 
-    async fn disconnect(&mut self) {
-        // Bezpieczeństwo PTT w środowisku wieloklientowym:
-        // Pojedynczą próbę xmit 0 wysyłamy TYLKO wtedy, gdy to nasza sesja zainicjowała
-        // nadawanie i stan jest potwierdzony jako Tx (ptt_initiated_by_this_session == true && confirmed_ptt_state == Tx).
-        // Nigdy nie wyłączamy nadawania należącego do innego klienta ani stanu nieznanego!
-        if let Some(conn) = self.connection.as_mut().filter(|_| {
-            self.ptt_initiated_by_this_session
-                && self.confirmed_ptt_state == FlexConfirmedPttState::Tx
-        }) {
-            let cmd = FlexCommand::new(self.seq_allocator.next_seq(), "xmit 0");
-            let _ = tokio::time::timeout(Duration::from_millis(500), conn.send_command(&cmd)).await;
-        }
-        self.ptt_initiated_by_this_session = false;
-        self.confirmed_ptt_state = FlexConfirmedPttState::Unknown;
-        self.ptt_request_pending = false;
-        self.xmit_command_responded = false;
-        self.last_xmit_seq = None;
+    fn execute<'a>(&'a mut self, command: &'a RigCommand) -> BoxFuture<'a, Result<(), RigError>> {
+        Box::pin(async move {
+            let endpoint = format!("{}:{}", self.config.host, self.config.port);
 
-        // Anulowanie oczekujących poleceń przed zamknięciem gniazda
-        self.pending_registry.clear();
+            if !self.capabilities().supports(command) {
+                let cmd_name = match command {
+                    RigCommand::SetVfo(_) => "SetVfo",
+                    RigCommand::SetRit(_) => "SetRit",
+                    RigCommand::SetXit(_) => "SetXit",
+                    RigCommand::SetPassband(_) => "SetPassband",
+                    RigCommand::SetPtt(_) => "SetPtt",
+                    RigCommand::SetPower(_) => "SetPower",
+                    RigCommand::SetSplit { .. } => "SetSplit",
+                    _ => "unsupported_command",
+                };
+                return Err(RigError::Unsupported {
+                    backend: CatBackendKind::FlexRadio,
+                    command: cmd_name,
+                });
+            }
 
-        // Standardowe, bezpieczne zakończenie własnej sesji przez zamknięcie TcpStream
-        if let Some(mut conn) = self.connection.take() {
-            conn.disconnect().await;
-        }
-        self.slices.clear();
-        self.client_handle = None;
-        self.protocol_version = None;
-        self.interlock_state = "READY".to_string();
-        self.tx_client_handle = None;
-        self.last_state.connected = false;
-        self.tx_telemetry_enabled = false;
-        self.registered_clients.clear();
+            match command {
+                RigCommand::SetFrequency(freq_hz) => {
+                    let slice = select_write_slice(
+                        &self.slices,
+                        self.config.preferred_slice,
+                        self.client_handle.as_deref(),
+                        false,
+                    )
+                    .map_err(|e| e.to_rig_error(&endpoint))?;
+
+                    let mhz = *freq_hz as f64 / 1_000_000.0;
+                    let cmd = format!("slice set {} freq={:.6}", slice.id, mhz);
+
+                    self.send_command_tracked(cmd)
+                        .await
+                        .map_err(|e| e.to_rig_error(&endpoint))?;
+                }
+                RigCommand::SetSplitFrequency(freq_hz) => {
+                    let slice = select_tx_slice(&self.slices, self.client_handle.as_deref())
+                        .map_err(|e| e.to_rig_error(&endpoint))?;
+
+                    let mhz = *freq_hz as f64 / 1_000_000.0;
+                    let cmd = format!("slice set {} freq={:.6}", slice.id, mhz);
+
+                    self.send_command_tracked(cmd)
+                        .await
+                        .map_err(|e| e.to_rig_error(&endpoint))?;
+                }
+                RigCommand::SetMode { mode, passband_hz } => {
+                    let slice = select_write_slice(
+                        &self.slices,
+                        self.config.preferred_slice,
+                        self.client_handle.as_deref(),
+                        false,
+                    )
+                    .map_err(|e| e.to_rig_error(&endpoint))?;
+
+                    let m = mode.trim().to_ascii_uppercase();
+                    let (lo, hi) = match m.as_str() {
+                        "LSB" | "DIGL" => (-100i32 - *passband_hz as i32, -100i32),
+                        "CW" | "AM" | "SAM" | "FM" | "NFM" | "DFM" => {
+                            let half = (*passband_hz / 2) as i32;
+                            (-half, half)
+                        }
+                        _ => (100i32, 100i32 + *passband_hz as i32),
+                    };
+
+                    let cmd = format!(
+                        "slice set {} mode={} filter_lo={} filter_hi={}",
+                        slice.id, m, lo, hi
+                    );
+
+                    self.send_command_tracked(cmd)
+                        .await
+                        .map_err(|e| e.to_rig_error(&endpoint))?;
+                }
+                RigCommand::SetPassband(passband_hz) => {
+                    let slice = select_write_slice(
+                        &self.slices,
+                        self.config.preferred_slice,
+                        self.client_handle.as_deref(),
+                        false,
+                    )
+                    .map_err(|e| e.to_rig_error(&endpoint))?;
+
+                    let m = slice.mode.as_str();
+                    let (lo, hi) = match m {
+                        "LSB" | "DIGL" => (
+                            slice.filter_high_hz - *passband_hz as i32,
+                            slice.filter_high_hz,
+                        ),
+                        "CW" | "AM" | "SAM" => {
+                            let half = (*passband_hz / 2) as i32;
+                            (-half, half)
+                        }
+                        _ => (
+                            slice.filter_low_hz,
+                            slice.filter_low_hz + *passband_hz as i32,
+                        ),
+                    };
+
+                    let cmd = format!("slice set {} filter_lo={} filter_hi={}", slice.id, lo, hi);
+
+                    self.send_command_tracked(cmd)
+                        .await
+                        .map_err(|e| e.to_rig_error(&endpoint))?;
+                }
+                RigCommand::SetSplit { enabled, tx_vfo: _ } => {
+                    if *enabled && self.slices.len() < 2 {
+                        return Err(RigError::Protocol {
+                            detail: "split requires at least 2 active slices".to_string(),
+                        });
+                    }
+                }
+                RigCommand::SetPtt(true) => {
+                    // Bezpieczeństwo PTT: pojedyncze wysłanie polecenia xmit 1 bez ponawiania (no retry)
+                    self.ptt_request_pending = true;
+                    self.xmit_command_responded = false;
+
+                    let seq = match self.send_command_tracked("xmit 1").await {
+                        Ok(s) => s,
+                        Err(e) => {
+                            self.confirmed_ptt_state = FlexConfirmedPttState::Unknown;
+                            self.ptt_initiated_by_this_session = false;
+                            self.ptt_request_pending = false;
+                            return Err(e.to_rig_error(&endpoint));
+                        }
+                    };
+                    self.last_xmit_seq = Some(seq);
+
+                    match self.wait_for_response(seq, self.config.write_timeout).await {
+                        Ok(resp) => {
+                            if resp.is_success() {
+                                self.xmit_command_responded = true;
+                                self.recompute_ptt_state();
+                            } else {
+                                self.confirmed_ptt_state = FlexConfirmedPttState::Unknown;
+                                self.ptt_initiated_by_this_session = false;
+                                self.ptt_request_pending = false;
+                                return Err(RigError::Protocol {
+                                    detail: format!(
+                                        "xmit 1 rejected with code {}: {}",
+                                        resp.code, resp.message
+                                    ),
+                                });
+                            }
+                        }
+                        Err(e) => {
+                            self.confirmed_ptt_state = FlexConfirmedPttState::Unknown;
+                            self.ptt_initiated_by_this_session = false;
+                            self.ptt_request_pending = false;
+                            return Err(e.to_rig_error(&endpoint));
+                        }
+                    }
+                }
+                RigCommand::SetPtt(false) => {
+                    self.ptt_request_pending = false;
+                    self.xmit_command_responded = false;
+
+                    let seq = self
+                        .send_command_tracked("xmit 0")
+                        .await
+                        .map_err(|e| e.to_rig_error(&endpoint))?;
+
+                    let _ = self.wait_for_response(seq, self.config.write_timeout).await;
+                }
+                RigCommand::SetPower(watts) => {
+                    let power = watts.round().clamp(0.0, 100.0) as u32;
+                    let cmd = format!("transmit set rfpower={power}");
+
+                    self.send_command_tracked(cmd)
+                        .await
+                        .map_err(|e| e.to_rig_error(&endpoint))?;
+                }
+                RigCommand::SetVfo(_) => {
+                    return Err(RigError::Unsupported {
+                        backend: CatBackendKind::FlexRadio,
+                        command: "SetVfo",
+                    });
+                }
+                RigCommand::SetRit(rit_hz) => {
+                    let slice = select_write_slice(
+                        &self.slices,
+                        self.config.preferred_slice,
+                        self.client_handle.as_deref(),
+                        false,
+                    )
+                    .map_err(|e| e.to_rig_error(&endpoint))?;
+
+                    let (on, freq) = if *rit_hz != 0 { (1, *rit_hz) } else { (0, 0) };
+                    let cmd = format!("slice set {} rit_on={on} rit_freq={freq}", slice.id);
+
+                    self.send_command_tracked(cmd)
+                        .await
+                        .map_err(|e| e.to_rig_error(&endpoint))?;
+                }
+                RigCommand::SetXit(xit_hz) => {
+                    let slice = select_write_slice(
+                        &self.slices,
+                        self.config.preferred_slice,
+                        self.client_handle.as_deref(),
+                        false,
+                    )
+                    .map_err(|e| e.to_rig_error(&endpoint))?;
+
+                    let (on, freq) = if *xit_hz != 0 { (1, *xit_hz) } else { (0, 0) };
+                    let cmd = format!("slice set {} xit_on={on} xit_freq={freq}", slice.id);
+
+                    self.send_command_tracked(cmd)
+                        .await
+                        .map_err(|e| e.to_rig_error(&endpoint))?;
+                }
+            }
+
+            Ok(())
+        })
+    }
+
+    fn disconnect(&mut self) -> BoxFuture<'_, ()> {
+        Box::pin(async move {
+            // Bezpieczeństwo PTT w środowisku wieloklientowym:
+            // Pojedynczą próbę xmit 0 wysyłamy TYLKO wtedy, gdy to nasza sesja zainicjowała
+            // nadawanie i stan jest potwierdzony jako Tx (ptt_initiated_by_this_session == true && confirmed_ptt_state == Tx).
+            // Nigdy nie wyłączamy nadawania należącego do innego klienta ani stanu nieznanego!
+            if let Some(conn) = self.connection.as_mut().filter(|_| {
+                self.ptt_initiated_by_this_session
+                    && self.confirmed_ptt_state == FlexConfirmedPttState::Tx
+            }) {
+                let cmd = FlexCommand::new(self.seq_allocator.next_seq(), "xmit 0");
+                let _ =
+                    tokio::time::timeout(Duration::from_millis(500), conn.send_command(&cmd)).await;
+            }
+            self.ptt_initiated_by_this_session = false;
+            self.confirmed_ptt_state = FlexConfirmedPttState::Unknown;
+            self.ptt_request_pending = false;
+            self.xmit_command_responded = false;
+            self.last_xmit_seq = None;
+
+            // Anulowanie oczekujących poleceń przed zamknięciem gniazda
+            self.pending_registry.clear();
+
+            // Standardowe, bezpieczne zakończenie własnej sesji przez zamknięcie TcpStream
+            if let Some(mut conn) = self.connection.take() {
+                conn.disconnect().await;
+            }
+            self.slices.clear();
+            self.client_handle = None;
+            self.protocol_version = None;
+            self.interlock_state = "READY".to_string();
+            self.tx_client_handle = None;
+            self.last_state.connected = false;
+            self.tx_telemetry_enabled = false;
+            self.registered_clients.clear();
+        })
     }
 }
 

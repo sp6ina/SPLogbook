@@ -23,7 +23,7 @@ use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
 
-use crate::cat::backend::{CatBackendKind, RigBackend};
+use crate::cat::backend::{BoxFuture, CatBackendKind, RigBackend};
 use crate::cat::rig::{RigCapabilities, RigCommand, RigError, RigState};
 
 type WsStream =
@@ -1090,20 +1090,20 @@ impl RigBackend for TciBackend {
         }
     }
 
-    async fn connect(&mut self) -> Result<(), RigError> {
-        self.connect_internal().await
+    fn connect(&mut self) -> BoxFuture<'_, Result<(), RigError>> {
+        Box::pin(self.connect_internal())
     }
 
-    async fn poll(&mut self) -> Result<RigState, RigError> {
-        self.poll_internal().await
+    fn poll(&mut self) -> BoxFuture<'_, Result<RigState, RigError>> {
+        Box::pin(self.poll_internal())
     }
 
-    async fn execute(&mut self, command: &RigCommand) -> Result<(), RigError> {
-        self.execute_cmd(command).await
+    fn execute<'a>(&'a mut self, command: &'a RigCommand) -> BoxFuture<'a, Result<(), RigError>> {
+        Box::pin(self.execute_cmd(command))
     }
 
-    async fn disconnect(&mut self) {
-        self.disconnect_internal().await;
+    fn disconnect(&mut self) -> BoxFuture<'_, ()> {
+        Box::pin(self.disconnect_internal())
     }
 }
 

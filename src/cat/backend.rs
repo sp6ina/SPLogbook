@@ -8,6 +8,7 @@
 //! a wybór konkretnej implementacji w locie — [`CatController`].
 
 use std::future::Future;
+use std::pin::Pin;
 
 use crate::cat::flrig::FlrigClient;
 use crate::cat::hamlib::{HamlibClient, RigState};
@@ -18,7 +19,10 @@ pub use crate::cat::native::kenwood::KenwoodBackend;
 pub use crate::cat::native::yaesu::YaesuBackend;
 use crate::cat::rig::{RigCapabilities, RigCommand, RigError};
 
-/// Nowoczesny kontrakt backendu CAT oparty o trwałą sesję i typowane błędy (Rust Edition 2024).
+/// Alias dla spakowanego asynchronicznego wyniku metody cechy [`RigBackend`] (umożliwia obiekt cechy `dyn RigBackend`).
+pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+/// Nowoczesny kontrakt backendu CAT oparty o trwałą sesję, typowane błędy i dynamiczny dispatch (Rust Edition 2024).
 pub trait RigBackend: Send {
     /// Typ backendu CAT.
     fn kind(&self) -> CatBackendKind;
@@ -27,19 +31,16 @@ pub trait RigBackend: Send {
     fn capabilities(&self) -> RigCapabilities;
 
     /// Nawiązuje trwałe połączenie z radiem/demonem.
-    fn connect(&mut self) -> impl Future<Output = Result<(), RigError>> + Send;
+    fn connect(&mut self) -> BoxFuture<'_, Result<(), RigError>>;
 
     /// Sekwencyjny odczyt pełnego stanu radia przez trwałą sesję.
-    fn poll(&mut self) -> impl Future<Output = Result<RigState, RigError>> + Send;
+    fn poll(&mut self) -> BoxFuture<'_, Result<RigState, RigError>>;
 
     /// Wykonuje polecenie domenowe przez trwałą sesję.
-    fn execute(
-        &mut self,
-        command: &RigCommand,
-    ) -> impl Future<Output = Result<(), RigError>> + Send;
+    fn execute<'a>(&'a mut self, command: &'a RigCommand) -> BoxFuture<'a, Result<(), RigError>>;
 
     /// Bezpiecznie zamyka połączenie z radiem/demonem.
-    fn disconnect(&mut self) -> impl Future<Output = ()> + Send;
+    fn disconnect(&mut self) -> BoxFuture<'_, ()>;
 }
 
 /// Typy backendów CAT obsługiwane przez program.

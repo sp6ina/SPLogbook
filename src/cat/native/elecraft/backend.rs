@@ -15,7 +15,7 @@
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use crate::cat::backend::{CatBackendKind, RigBackend};
+use crate::cat::backend::{BoxFuture, CatBackendKind, RigBackend};
 use crate::cat::native::elecraft::codec::{ElecraftCat, ElecraftCodec, ElecraftMessage};
 use crate::cat::native::elecraft::k4_tcp::{ElecraftTcpConfig, open_k4_tcp_stream};
 use crate::cat::native::elecraft::models::{ElecraftModelProfile, ElecraftProtocolFamily};
@@ -486,295 +486,309 @@ impl RigBackend for ElecraftBackend {
         self.profile.capabilities
     }
 
-    async fn connect(&mut self) -> Result<(), RigError> {
-        if self.session_active {
-            self.disconnect().await;
-        }
+    fn connect(&mut self) -> BoxFuture<'_, Result<(), RigError>> {
+        Box::pin(async move {
+            if self.session_active {
+                self.disconnect().await;
+            }
 
-        self.open_transport().await?;
+            self.open_transport().await?;
 
-        // Faza 1: Odczyt tożsamości i stanu początkowego (Strictly Read-Only)
-        self.query_and_await_response("ID;", "ID").await?;
-        let _ = self.query_and_await_response("FA;", "FA").await?;
-        let _ = self.query_and_await_response("MD;", "MD").await;
+            // Faza 1: Odczyt tożsamości i stanu początkowego (Strictly Read-Only)
+            self.query_and_await_response("ID;", "ID").await?;
+            let _ = self.query_and_await_response("FA;", "FA").await?;
+            let _ = self.query_and_await_response("MD;", "MD").await;
 
-        // Wykryj obecność opcjonalnego modułu KRX3 na K3/K3S za pomocą OM;
-        if self.profile.static_subreceiver_capable
-            && self.profile.family == ElecraftProtocolFamily::K3Compatible
-        {
-            match self.query_and_await_response("OM;", "OM").await {
-                Ok(ElecraftMessage::OptionModule(opts)) => {
-                    self.subreceiver_detected = Some(opts.contains('S'));
+            // Wykryj obecność opcjonalnego modułu KRX3 na K3/K3S za pomocą OM;
+            if self.profile.static_subreceiver_capable
+                && self.profile.family == ElecraftProtocolFamily::K3Compatible
+            {
+                match self.query_and_await_response("OM;", "OM").await {
+                    Ok(ElecraftMessage::OptionModule(opts)) => {
+                        self.subreceiver_detected = Some(opts.contains('S'));
+                    }
+                    _ => {
+                        self.subreceiver_detected = Some(false);
+                    }
                 }
-                _ => {
-                    self.subreceiver_detected = Some(false);
+            } else if self.profile.family == ElecraftProtocolFamily::K4 {
+                self.subreceiver_detected = Some(true);
+            } else {
+                self.subreceiver_detected = Some(false);
+            }
+
+            // Faza 2: Inicjalizacja sesji i Auto-Info (jeśli wspierane przez profil)
+            if self.profile.supports_auto_info {
+                let ai_cmd = ElecraftCat::set_auto_info(self.profile.preferred_auto_info_mode);
+                match self.query_and_await_response(&ai_cmd, "AI").await {
+                    Ok(_) => {
+                        self.ai_active = true;
+                    }
+                    Err(_) => {
+                        // W razie braku akceptacji AI przez starszy firmware przejdź bezpiecznie do trybu pollingu
+                        self.ai_active = false;
+                    }
                 }
             }
-        } else if self.profile.family == ElecraftProtocolFamily::K4 {
-            self.subreceiver_detected = Some(true);
-        } else {
-            self.subreceiver_detected = Some(false);
-        }
 
-        // Faza 2: Inicjalizacja sesji i Auto-Info (jeśli wspierane przez profil)
-        if self.profile.supports_auto_info {
-            let ai_cmd = ElecraftCat::set_auto_info(self.profile.preferred_auto_info_mode);
-            match self.query_and_await_response(&ai_cmd, "AI").await {
-                Ok(_) => {
-                    self.ai_active = true;
+            self.session_active = true;
+            self.state.connected = true;
+            Ok(())
+        })
+    }
+
+    fn poll(&mut self) -> BoxFuture<'_, Result<RigState, RigError>> {
+        Box::pin(async move {
+            if !self.session_active || self.transport.is_none() {
+                return Err(RigError::NotConnected);
+            }
+
+            // 1. Zawsze najpierw opróżnij bufor z nadchodzących zdarzeń Auto-Info
+            self.drain_incoming_events().await?;
+
+            // 2. Jeśli Auto-Info jest aktywne, zweryfikuj stan PTT, w przeciwnym razie odpytaj brakujące pola
+            if self.ai_active {
+                let _ = self.query_and_await_response("TQ;", "TQ").await;
+            } else {
+                let _ = self.query_and_await_response("FA;", "FA").await?;
+                let _ = self.query_and_await_response("MD;", "MD").await?;
+                let _ = self.query_and_await_response("TQ;", "TQ").await;
+            }
+
+            // 3. Odczyt mierników (w zależności od możliwości profilu)
+            if self.profile.family == ElecraftProtocolFamily::K4
+                && self.profile.capabilities.s_meter
+            {
+                let _ = self.query_and_await_response("SMH;", "SMH").await;
+            } else if self.profile.family == ElecraftProtocolFamily::K3Compatible {
+                let _ = self.query_and_await_response("SM;", "SM").await;
+            }
+
+            if self.profile.capabilities.power && self.state.ptt {
+                let _ = self.query_and_await_response("PO;", "PO").await;
+            }
+
+            Ok(self.state.clone())
+        })
+    }
+
+    fn execute<'a>(&'a mut self, command: &'a RigCommand) -> BoxFuture<'a, Result<(), RigError>> {
+        Box::pin(async move {
+            if !self.session_active || self.transport.is_none() {
+                return Err(RigError::NotConnected);
+            }
+
+            match command {
+                RigCommand::SetFrequency(hz) => {
+                    if !self.profile.capabilities.frequency {
+                        return Err(RigError::Unsupported {
+                            backend: CatBackendKind::Elecraft,
+                            command: "SetFrequency",
+                        });
+                    }
+                    let cmd = ElecraftCat::set_freq(false, *hz);
+                    self.send_command_raw(&cmd).await?;
+                    self.state.frequency_hz = *hz;
+                    Ok(())
                 }
-                Err(_) => {
-                    // W razie braku akceptacji AI przez starszy firmware przejdź bezpiecznie do trybu pollingu
+                RigCommand::SetSplitFrequency(hz) => {
+                    if !self.profile.capabilities.split_frequency {
+                        return Err(RigError::Unsupported {
+                            backend: CatBackendKind::Elecraft,
+                            command: "SetSplitFrequency",
+                        });
+                    }
+                    if !self.profile.supports_vfo_b_modifier {
+                        return Err(RigError::Unsupported {
+                            backend: CatBackendKind::Elecraft,
+                            command: "vfo_b_unsupported",
+                        });
+                    }
+                    let cmd = ElecraftCat::set_freq(true, *hz);
+                    self.send_command_raw(&cmd).await?;
+                    self.state.tx_frequency_hz = Some(*hz);
+                    Ok(())
+                }
+                RigCommand::SetMode { mode, .. } => {
+                    if !self.profile.capabilities.mode {
+                        return Err(RigError::Unsupported {
+                            backend: CatBackendKind::Elecraft,
+                            command: "SetMode",
+                        });
+                    }
+                    let (code, submode) =
+                        self.profile
+                            .map_mode_to_code(mode)
+                            .ok_or(RigError::Unsupported {
+                                backend: CatBackendKind::Elecraft,
+                                command: "mode_not_supported",
+                            })?;
+
+                    let cmd = ElecraftCat::set_mode(false, code);
+                    self.send_command_raw(&cmd).await?;
+
+                    if let Some(sm) = submode {
+                        let sub_cmd = ElecraftCat::set_data_submode(false, sm);
+                        self.send_command_raw(&sub_cmd).await?;
+                    }
+
+                    self.state.mode.clone_from(mode);
+                    Ok(())
+                }
+                RigCommand::SetPassband(hz) => {
+                    if !self.profile.capabilities.passband {
+                        return Err(RigError::Unsupported {
+                            backend: CatBackendKind::Elecraft,
+                            command: "SetPassband",
+                        });
+                    }
+                    let cmd = ElecraftCat::set_passband(false, *hz);
+                    self.send_command_raw(&cmd).await?;
+                    self.state.passband_hz = *hz;
+                    Ok(())
+                }
+                RigCommand::SetSplit { enabled, .. } => {
+                    if !self.profile.capabilities.split {
+                        return Err(RigError::Unsupported {
+                            backend: CatBackendKind::Elecraft,
+                            command: "SetSplit",
+                        });
+                    }
+                    let cmd = ElecraftCat::set_split(*enabled);
+                    self.send_command_raw(cmd).await?;
+                    self.state.split_enabled = *enabled;
+                    Ok(())
+                }
+                RigCommand::SetPtt(ptt) => {
+                    if !self.profile.capabilities.ptt {
+                        return Err(RigError::Unsupported {
+                            backend: CatBackendKind::Elecraft,
+                            command: "SetPtt",
+                        });
+                    }
+
+                    if *ptt {
+                        // Krytyczny rygor PTT: SetPtt(true) NIE JEST PONAWIANE w razie błędu/timeoutu
+                        let cmd = ElecraftCat::set_ptt(true);
+                        self.send_command_raw(cmd).await?;
+                        self.confirmed_ptt = true;
+                        self.state.ptt = true;
+                    } else {
+                        // SetPtt(false): jednorazowa próba wyłączenia nadawania
+                        let cmd = ElecraftCat::set_ptt(false);
+                        self.send_command_raw(cmd).await?;
+                        self.confirmed_ptt = false;
+                        self.state.ptt = false;
+                    }
+                    Ok(())
+                }
+                RigCommand::SetVfo(vfo) => {
+                    if !self.profile.capabilities.vfo {
+                        return Err(RigError::Unsupported {
+                            backend: CatBackendKind::Elecraft,
+                            command: "SetVfo",
+                        });
+                    }
+                    let vfo_b = vfo.to_ascii_uppercase().contains('B')
+                        || vfo.to_ascii_uppercase().contains("SUB");
+                    let cmd = ElecraftCat::set_vfo(vfo_b);
+                    self.send_command_raw(cmd).await?;
+                    self.state.vfo = if vfo_b {
+                        "VFOB".to_string()
+                    } else {
+                        "VFOA".to_string()
+                    };
+                    Ok(())
+                }
+                RigCommand::SetRit(hz) => {
+                    if !self.profile.capabilities.rit {
+                        return Err(RigError::Unsupported {
+                            backend: CatBackendKind::Elecraft,
+                            command: "SetRit",
+                        });
+                    }
+                    let enabled = *hz != 0;
+                    let cmd = ElecraftCat::set_rit(false, enabled);
+                    self.send_command_raw(cmd).await?;
+
+                    if enabled {
+                        let off_cmd = ElecraftCat::set_rit_offset(false, *hz);
+                        self.send_command_raw(&off_cmd).await?;
+                    }
+                    self.state.rit_hz = *hz;
+                    Ok(())
+                }
+                RigCommand::SetXit(hz) => {
+                    if !self.profile.capabilities.xit {
+                        return Err(RigError::Unsupported {
+                            backend: CatBackendKind::Elecraft,
+                            command: "SetXit",
+                        });
+                    }
+                    let enabled = *hz != 0;
+                    let cmd = ElecraftCat::set_xit(false, enabled);
+                    self.send_command_raw(cmd).await?;
+
+                    if enabled {
+                        let off_cmd = ElecraftCat::set_rit_offset(false, *hz);
+                        self.send_command_raw(&off_cmd).await?;
+                    }
+                    self.state.xit_hz = *hz;
+                    Ok(())
+                }
+                RigCommand::SetPower(watts) => {
+                    if !self.profile.capabilities.power {
+                        return Err(RigError::Unsupported {
+                            backend: CatBackendKind::Elecraft,
+                            command: "SetPower",
+                        });
+                    }
+                    let is_k4 = self.profile.family == ElecraftProtocolFamily::K4;
+                    let is_qrp = self.profile.model_id == "KX2" || self.profile.model_id == "KX3";
+                    let max_w = self.profile.max_power_watts();
+                    let cmd = ElecraftCat::set_power(*watts, max_w, is_k4, is_qrp);
+                    self.send_command_raw(&cmd).await?;
+                    self.state.rf_power_watts = *watts;
+                    Ok(())
+                }
+            }
+        })
+    }
+
+    fn disconnect(&mut self) -> BoxFuture<'_, ()> {
+        Box::pin(async move {
+            if let Some(mut transport) = self.transport.take() {
+                // Jeśli sesja była aktywna i potwierdzono załączenie PTT, wykonaj pojedynczą ograniczoną próbę RX;
+                if self.session_active && self.confirmed_ptt && self.profile.capabilities.ptt {
+                    let rx_cmd = ElecraftCat::set_ptt(false);
+                    let bytes = self.codec.encode_command(rx_cmd);
+                    let _ = tokio::time::timeout(
+                        Duration::from_millis(200),
+                        transport.write_all(&bytes),
+                    )
+                    .await;
+                    self.confirmed_ptt = false;
+                }
+
+                // Jeśli Auto-Info było aktywne, wykonaj pojedynczą ograniczoną próbę wyłączenia AI0;
+                if self.session_active && self.ai_active && self.profile.supports_auto_info {
+                    let ai_off_cmd = ElecraftCat::set_auto_info(0);
+                    let bytes = self.codec.encode_command(&ai_off_cmd);
+                    let _ = tokio::time::timeout(
+                        Duration::from_millis(200),
+                        transport.write_all(&bytes),
+                    )
+                    .await;
                     self.ai_active = false;
                 }
             }
-        }
 
-        self.session_active = true;
-        self.state.connected = true;
-        Ok(())
-    }
-
-    async fn poll(&mut self) -> Result<RigState, RigError> {
-        if !self.session_active || self.transport.is_none() {
-            return Err(RigError::NotConnected);
-        }
-
-        // 1. Zawsze najpierw opróżnij bufor z nadchodzących zdarzeń Auto-Info
-        self.drain_incoming_events().await?;
-
-        // 2. Jeśli Auto-Info jest aktywne, zweryfikuj stan PTT, w przeciwnym razie odpytaj brakujące pola
-        if self.ai_active {
-            let _ = self.query_and_await_response("TQ;", "TQ").await;
-        } else {
-            let _ = self.query_and_await_response("FA;", "FA").await?;
-            let _ = self.query_and_await_response("MD;", "MD").await?;
-            let _ = self.query_and_await_response("TQ;", "TQ").await;
-        }
-
-        // 3. Odczyt mierników (w zależności od możliwości profilu)
-        if self.profile.family == ElecraftProtocolFamily::K4 && self.profile.capabilities.s_meter {
-            let _ = self.query_and_await_response("SMH;", "SMH").await;
-        } else if self.profile.family == ElecraftProtocolFamily::K3Compatible {
-            let _ = self.query_and_await_response("SM;", "SM").await;
-        }
-
-        if self.profile.capabilities.power && self.state.ptt {
-            let _ = self.query_and_await_response("PO;", "PO").await;
-        }
-
-        Ok(self.state.clone())
-    }
-
-    async fn execute(&mut self, command: &RigCommand) -> Result<(), RigError> {
-        if !self.session_active || self.transport.is_none() {
-            return Err(RigError::NotConnected);
-        }
-
-        match command {
-            RigCommand::SetFrequency(hz) => {
-                if !self.profile.capabilities.frequency {
-                    return Err(RigError::Unsupported {
-                        backend: CatBackendKind::Elecraft,
-                        command: "SetFrequency",
-                    });
-                }
-                let cmd = ElecraftCat::set_freq(false, *hz);
-                self.send_command_raw(&cmd).await?;
-                self.state.frequency_hz = *hz;
-                Ok(())
-            }
-            RigCommand::SetSplitFrequency(hz) => {
-                if !self.profile.capabilities.split_frequency {
-                    return Err(RigError::Unsupported {
-                        backend: CatBackendKind::Elecraft,
-                        command: "SetSplitFrequency",
-                    });
-                }
-                if !self.profile.supports_vfo_b_modifier {
-                    return Err(RigError::Unsupported {
-                        backend: CatBackendKind::Elecraft,
-                        command: "vfo_b_unsupported",
-                    });
-                }
-                let cmd = ElecraftCat::set_freq(true, *hz);
-                self.send_command_raw(&cmd).await?;
-                self.state.tx_frequency_hz = Some(*hz);
-                Ok(())
-            }
-            RigCommand::SetMode { mode, .. } => {
-                if !self.profile.capabilities.mode {
-                    return Err(RigError::Unsupported {
-                        backend: CatBackendKind::Elecraft,
-                        command: "SetMode",
-                    });
-                }
-                let (code, submode) =
-                    self.profile
-                        .map_mode_to_code(mode)
-                        .ok_or(RigError::Unsupported {
-                            backend: CatBackendKind::Elecraft,
-                            command: "mode_not_supported",
-                        })?;
-
-                let cmd = ElecraftCat::set_mode(false, code);
-                self.send_command_raw(&cmd).await?;
-
-                if let Some(sm) = submode {
-                    let sub_cmd = ElecraftCat::set_data_submode(false, sm);
-                    self.send_command_raw(&sub_cmd).await?;
-                }
-
-                self.state.mode.clone_from(mode);
-                Ok(())
-            }
-            RigCommand::SetPassband(hz) => {
-                if !self.profile.capabilities.passband {
-                    return Err(RigError::Unsupported {
-                        backend: CatBackendKind::Elecraft,
-                        command: "SetPassband",
-                    });
-                }
-                let cmd = ElecraftCat::set_passband(false, *hz);
-                self.send_command_raw(&cmd).await?;
-                self.state.passband_hz = *hz;
-                Ok(())
-            }
-            RigCommand::SetSplit { enabled, .. } => {
-                if !self.profile.capabilities.split {
-                    return Err(RigError::Unsupported {
-                        backend: CatBackendKind::Elecraft,
-                        command: "SetSplit",
-                    });
-                }
-                let cmd = ElecraftCat::set_split(*enabled);
-                self.send_command_raw(cmd).await?;
-                self.state.split_enabled = *enabled;
-                Ok(())
-            }
-            RigCommand::SetPtt(ptt) => {
-                if !self.profile.capabilities.ptt {
-                    return Err(RigError::Unsupported {
-                        backend: CatBackendKind::Elecraft,
-                        command: "SetPtt",
-                    });
-                }
-
-                if *ptt {
-                    // Krytyczny rygor PTT: SetPtt(true) NIE JEST PONAWIANE w razie błędu/timeoutu
-                    let cmd = ElecraftCat::set_ptt(true);
-                    self.send_command_raw(cmd).await?;
-                    self.confirmed_ptt = true;
-                    self.state.ptt = true;
-                } else {
-                    // SetPtt(false): jednorazowa próba wyłączenia nadawania
-                    let cmd = ElecraftCat::set_ptt(false);
-                    self.send_command_raw(cmd).await?;
-                    self.confirmed_ptt = false;
-                    self.state.ptt = false;
-                }
-                Ok(())
-            }
-            RigCommand::SetVfo(vfo) => {
-                if !self.profile.capabilities.vfo {
-                    return Err(RigError::Unsupported {
-                        backend: CatBackendKind::Elecraft,
-                        command: "SetVfo",
-                    });
-                }
-                let vfo_b = vfo.to_ascii_uppercase().contains('B')
-                    || vfo.to_ascii_uppercase().contains("SUB");
-                let cmd = ElecraftCat::set_vfo(vfo_b);
-                self.send_command_raw(cmd).await?;
-                self.state.vfo = if vfo_b {
-                    "VFOB".to_string()
-                } else {
-                    "VFOA".to_string()
-                };
-                Ok(())
-            }
-            RigCommand::SetRit(hz) => {
-                if !self.profile.capabilities.rit {
-                    return Err(RigError::Unsupported {
-                        backend: CatBackendKind::Elecraft,
-                        command: "SetRit",
-                    });
-                }
-                let enabled = *hz != 0;
-                let cmd = ElecraftCat::set_rit(false, enabled);
-                self.send_command_raw(cmd).await?;
-
-                if enabled {
-                    let off_cmd = ElecraftCat::set_rit_offset(false, *hz);
-                    self.send_command_raw(&off_cmd).await?;
-                }
-                self.state.rit_hz = *hz;
-                Ok(())
-            }
-            RigCommand::SetXit(hz) => {
-                if !self.profile.capabilities.xit {
-                    return Err(RigError::Unsupported {
-                        backend: CatBackendKind::Elecraft,
-                        command: "SetXit",
-                    });
-                }
-                let enabled = *hz != 0;
-                let cmd = ElecraftCat::set_xit(false, enabled);
-                self.send_command_raw(cmd).await?;
-
-                if enabled {
-                    let off_cmd = ElecraftCat::set_rit_offset(false, *hz);
-                    self.send_command_raw(&off_cmd).await?;
-                }
-                self.state.xit_hz = *hz;
-                Ok(())
-            }
-            RigCommand::SetPower(watts) => {
-                if !self.profile.capabilities.power {
-                    return Err(RigError::Unsupported {
-                        backend: CatBackendKind::Elecraft,
-                        command: "SetPower",
-                    });
-                }
-                let is_k4 = self.profile.family == ElecraftProtocolFamily::K4;
-                let is_qrp = self.profile.model_id == "KX2" || self.profile.model_id == "KX3";
-                let max_w = self.profile.max_power_watts();
-                let cmd = ElecraftCat::set_power(*watts, max_w, is_k4, is_qrp);
-                self.send_command_raw(&cmd).await?;
-                self.state.rf_power_watts = *watts;
-                Ok(())
-            }
-        }
-    }
-
-    async fn disconnect(&mut self) {
-        if let Some(mut transport) = self.transport.take() {
-            // Jeśli sesja była aktywna i potwierdzono załączenie PTT, wykonaj pojedynczą ograniczoną próbę RX;
-            if self.session_active && self.confirmed_ptt && self.profile.capabilities.ptt {
-                let rx_cmd = ElecraftCat::set_ptt(false);
-                let bytes = self.codec.encode_command(rx_cmd);
-                let _ =
-                    tokio::time::timeout(Duration::from_millis(200), transport.write_all(&bytes))
-                        .await;
-                self.confirmed_ptt = false;
-            }
-
-            // Jeśli Auto-Info było aktywne, wykonaj pojedynczą ograniczoną próbę wyłączenia AI0;
-            if self.session_active && self.ai_active && self.profile.supports_auto_info {
-                let ai_off_cmd = ElecraftCat::set_auto_info(0);
-                let bytes = self.codec.encode_command(&ai_off_cmd);
-                let _ =
-                    tokio::time::timeout(Duration::from_millis(200), transport.write_all(&bytes))
-                        .await;
-                self.ai_active = false;
-            }
-        }
-
-        self.session_active = false;
-        self.ai_active = false;
-        self.confirmed_ptt = false;
-        self.subreceiver_detected = None;
-        self.state.connected = false;
+            self.session_active = false;
+            self.ai_active = false;
+            self.confirmed_ptt = false;
+            self.subreceiver_detected = None;
+            self.state.connected = false;
+        })
     }
 }
 
