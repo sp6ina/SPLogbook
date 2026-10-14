@@ -12,6 +12,10 @@ use crate::cat::rig::RigCapabilities;
 pub use crate::cat::native::elecraft::models::{
     ELECRAFT_K3, ELECRAFT_K3S, ELECRAFT_K4, ELECRAFT_K4D, ELECRAFT_K4HD, ELECRAFT_KX2, ELECRAFT_KX3,
 };
+pub use crate::cat::native::flexradio::models::{
+    FLEX_6300, FLEX_6400, FLEX_6400M, FLEX_6500, FLEX_6600, FLEX_6600M, FLEX_6700, FLEX_8400,
+    FLEX_8400M, FLEX_8600, FLEX_8600M, FLEX_GENERIC,
+};
 
 // Referencyjne profile Icom CI-V (zweryfikowane z oficjalną dokumentacją Icom):
 
@@ -460,6 +464,17 @@ pub static ALL_PROFILES: &[&RigModelProfile] = &[
     &ELECRAFT_K4,
     &ELECRAFT_K4D,
     &ELECRAFT_K4HD,
+    &FLEX_6300,
+    &FLEX_6400,
+    &FLEX_6400M,
+    &FLEX_6500,
+    &FLEX_6600,
+    &FLEX_6600M,
+    &FLEX_6700,
+    &FLEX_8400,
+    &FLEX_8400M,
+    &FLEX_8600,
+    &FLEX_8600M,
 ];
 
 /// Wyszukuje profil modelu po nazwie lub identyfikatorze (case-insensitive).
@@ -529,6 +544,27 @@ mod tests {
 
         let elecraft_profiles = profiles_by_vendor(RigVendor::Elecraft);
         assert_eq!(elecraft_profiles.len(), 7);
+
+        let flex_profiles = profiles_by_vendor(RigVendor::FlexRadio);
+        assert_eq!(flex_profiles.len(), 11);
+    }
+
+    #[test]
+    fn test_lookup_flexradio_profiles() {
+        let f6400 = find_profile_by_model("FLEX-6400").expect("FLEX-6400 missing");
+        assert_eq!(f6400.vendor, RigVendor::FlexRadio);
+        assert_eq!(f6400.model_id, "FLEX-6400");
+        assert!(f6400.capabilities.frequency);
+        assert!(f6400.capabilities.ptt);
+
+        let f6600 = find_profile_by_model("FlexRadio FLEX-6600").expect("FLEX-6600 missing");
+        assert_eq!(f6600.vendor, RigVendor::FlexRadio);
+
+        let f8400 = find_profile_by_model("FLEX-8400").expect("FLEX-8400 missing");
+        assert_eq!(f8400.vendor, RigVendor::FlexRadio);
+
+        let f8600m = find_profile_by_model("FLEX-8600M").expect("FLEX-8600M missing");
+        assert_eq!(f8600m.vendor, RigVendor::FlexRadio);
     }
 
     #[test]

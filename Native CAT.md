@@ -351,11 +351,39 @@ Dane strumieniowe Data Plane pod żadnym pozorem nie będą mieszane ze struktur
 
 ---
 
-## 14. Plan FlexRadio SmartSDR (Plan NATIVE-5)
+## 14. Natywna obsługa FlexRadio SmartSDR API (Wdrożenie NATIVE-5)
 
-1. Odkrywanie w sieci lokalnej przez broadcast UDP 4992.
-2. Połączenie sterujące TCP 4992 z protokołem asynchronicznym: `C<seq>|<cmd>`, odpowiedzi `R<seq>|...`, statusy `S<handle>|...`.
-3. Model Slice Receivers: odrębne odbiorniki programowe przypisywane do VFO.
+Wdrożono natywny backend `FlexRadioBackend` komunikujący się z transceiverami FlexRadio Systems (rodziny FLEX-6000 i FLEX-8000) bezpośrednio przez sieć lokalną za pomocą UDP Discovery oraz protokołu TCP/IP SmartSDR API (port 4992).
+
+### 14.1. Architektura modułu FlexRadio
+Moduł `src/cat/native/flexradio` zawiera następujące wyspecjalizowane komponenty:
+- `discovery.rs`: Pasywny nasłuch UDP (port 4992), dekoder `FlexDiscoveryCodec`, model `FlexDiscoveryPacket` oraz deterministyczna deduplikacja urządzeń po unikalnym numerze seryjnym sprzętu (`serial`).
+- `protocol.rs`: Strumieniowy kodek `FlexProtocolCodec`, monotoniczny generator sekwencji `FlexSequenceAllocator`, obsługa komend `C<seq>|...`, odpowiedzi `R<seq>|...`, asynchronicznych statusów `S<handle>|...` oraz komunikatów `V`, `H`, `M`.
+- `client.rs`: Asynchroniczny klient TCP `FlexRadioConnection` z maszyną stanów procedury handshake (`Disconnected` -> `Connecting` -> `AwaitingInit` -> `Ready`), pojedynczym właścicielem gniazda i asynchronicznymi limitami czasu.
+- `slice.rs`: Pełny model odbiorników slice `FlexSliceState`, parsowanie parametrów, walidacja filtrów DSP oraz deterministyczna polityka wyboru aktywnego odbiornika RX i nadajnika TX.
+- `models.rs`: Zweryfikowane profile sprzętowe modeli FLEX-6300, FLEX-6400, FLEX-6400M, FLEX-6500, FLEX-6600, FLEX-6600M, FLEX-6700, FLEX-8400, FLEX-8400M, FLEX-8600, FLEX-8600M oraz profil ogólny FLEX-GENERIC.
+- `backend.rs`: Implementacja `RigBackend` z bounded pending command registry (`PendingCommandRegistry`), mapowaniem poleceń domenowych, read-only probe i rygorem bezpieczeństwa PTT.
+
+### 14.2. Rozdział Control Plane od Data Plane (Architektura FlexStreamService)
+W NATIVE-5 zaimplementowano wyłącznie **Control Plane**. Wszelkie strumienie multimedialne Data Plane pozostają poza zakresem i zostaną zaimplementowane w przyszłości jako odrębna usługa `FlexStreamService`:
+
+```text
++------------------------------------------------------------------------+
+|                              SPLogbook                                 |
++------------------------------------+-----------------------------------+
+|            CONTROL PLANE           |             DATA PLANE            |
+|       (Wdrożone w NATIVE-5)        |      (Projekt przyszłościowy)     |
++------------------------------------+-----------------------------------+
+|          FlexRadioBackend          |         FlexStreamService         |
+|    - UDP Broadcast 4992 (Discovery)|    - Odrębne gniazda UDP 4991     |
+|    - TCP Port 4992 (SmartSDR API)  |    - Pakiety binarne VITA-49 (VRT)|
+|    - Handshake (V, H) & Komendy (C)|    - Próbki FFT Panadaptera       |
+|    - Odpowiedzi (R) i Statusy (S)  |    - Strumienie Waterfall         |
+|    - Slices, Interlock, Transmit   |    - Cyfrowy strumień DAX / Audio |
+|    - RigState & NativeRigEvent     |    - Strumień próbek I/Q          |
++------------------------------------+-----------------------------------+
+```
+Dane strumieniowe Data Plane pod żadnym pozorem nie trafiają do `RigState`, `NativeRigEvent`, pętli `poll()` ani `FlexRadioBackend`.
 
 ---
 
@@ -519,6 +547,19 @@ W falach NATIVE-0 i NATIVE-1 interfejs GUI nie ulega modyfikacji runtime, co gwa
 - [x] Weryfikacja formatów mocy `PC` i `PO`: skala `L` (0.1W) dla QRP i K4 (<10W), skala `H` (1W) oraz odczyt rzeczywistej mocy nadawania `PO` w 0.1W.
 - [x] Rejestracja profilu `ELECRAFT_K4HD` (KDDC4 dual superhet front-end) oraz uzupełnienie prędkości 57600 baud dla rodziny K4.
 - [x] Weryfikacja stałej portu TCP `K4_DEFAULT_TCP_PORT = 9200` i zapewnienie dynamicznych portów (`127.0.0.1:0`) we wszystkich testach asynchronicznych.
+
+### Kryteria NATIVE-5:
+- [x] Implementacja natywnego odkrywania UDP Discovery (port 4992) i dekodera `FlexDiscoveryCodec`.
+- [x] Pasywny nasłuch UDP bez inwazyjnych zapytań i deterministyczna deduplikacja urządzeń po `serial`.
+- [x] Klient TCP SmartSDR Control/Status API (port 4992) z maszyną stanów handshake (`V`, `H`).
+- [x] Monotoniczny przydział numerów sekwencyjnych `FlexSequenceAllocator` i korelacja odpowiedzi `R<seq>`.
+- [x] Bounded `PendingCommandRegistry` z ochroną przed duplikatami i wyciekami pamięci.
+- [x] Obsługa asynchronicznych statusów `S<handle>|...` z częściowymi aktualizacjami i usuwaniem `in_use=0`.
+- [x] Model `FlexSliceState` i deterministyczny wybór aktywnego RX slice i nadajnika TX slice (brak fabricowania VFO).
+- [x] Rygor bezpieczeństwa PTT: brak retry dla SetPtt(true), pojedyncza ograniczona próba zwolnienia TX przy disconnect, brak PTT w probe.
+- [x] Ścisły rozdział Control Plane od Data Plane (strumienie VITA-49, IQ, audio i panadapter wykluczone z backendu).
+- [x] Profile sprzętowe potwierdzonych modeli FLEX-6000 i FLEX-8000 oraz profil ostrożny `FLEX-GENERIC`.
+- [x] Kompletny zestaw deterministycznych testów jednostkowych i asynchronicznych bez fizycznego sprzętu.
 
 ---
 

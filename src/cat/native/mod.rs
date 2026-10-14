@@ -8,6 +8,7 @@
 //! producentów oraz bezpieczny transport szeregowy i sieciowy.
 
 pub mod elecraft;
+pub mod flexradio;
 pub mod icom;
 pub mod kenwood;
 pub mod profile;

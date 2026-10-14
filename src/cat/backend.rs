@@ -12,6 +12,7 @@ use std::future::Future;
 use crate::cat::flrig::FlrigClient;
 use crate::cat::hamlib::{HamlibClient, RigState};
 pub use crate::cat::native::elecraft::ElecraftBackend;
+pub use crate::cat::native::flexradio::FlexRadioBackend;
 pub use crate::cat::native::icom::IcomCiVBackend;
 pub use crate::cat::native::kenwood::KenwoodBackend;
 pub use crate::cat::native::yaesu::YaesuBackend;
@@ -59,6 +60,8 @@ pub enum CatBackendKind {
     Yaesu,
     /// Bezpośredni natywny protokół Elecraft CAT (K3, K3S, KX2, KX3, K4, K4D).
     Elecraft,
+    /// Bezpośredni natywny protokół FlexRadio SmartSDR (TCP/IP API & UDP Discovery).
+    FlexRadio,
     /// Logika SO2R (dwa radia, blokada pojedynczego TX).
     So2r,
 }
@@ -90,6 +93,7 @@ impl CatBackendKind {
             "yaesu" | "ft" | "ftdx" => Self::Yaesu,
             str_val if str_val.starts_with("ft-") || str_val.starts_with("ftdx") => Self::Yaesu,
             "elecraft" | "k3" | "k3s" | "kx2" | "kx3" | "k4" | "k4d" | "k4hd" => Self::Elecraft,
+            "flexradio" | "flex" | "smartsdr" => Self::FlexRadio,
             "so2r" => Self::So2r,
             _ => Self::Hamlib,
         }
@@ -105,6 +109,7 @@ impl CatBackendKind {
             Self::Kenwood => "kenwood",
             Self::Yaesu => "yaesu",
             Self::Elecraft => "elecraft",
+            Self::FlexRadio => "flexradio",
             Self::So2r => "so2r",
         }
     }
@@ -119,12 +124,13 @@ impl CatBackendKind {
             Self::Kenwood => "Kenwood CAT",
             Self::Yaesu => "Yaesu CAT",
             Self::Elecraft => "Elecraft CAT",
+            Self::FlexRadio => "FlexRadio SmartSDR",
             Self::So2r => "SO2R",
         }
     }
 
     /// Wszystkie obsługiwane typy (do list rozwijanych).
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::Hamlib,
         Self::Flrig,
         Self::Tci,
@@ -132,6 +138,7 @@ impl CatBackendKind {
         Self::Kenwood,
         Self::Yaesu,
         Self::Elecraft,
+        Self::FlexRadio,
         Self::So2r,
     ];
 }
