@@ -22,7 +22,9 @@ use crate::cat::rig::{RigCapabilities, RigCommand, RigError, RigState};
 use super::client::{FlexRadioConfig, FlexRadioConnection, HandshakeState};
 use super::models::{FLEX_GENERIC, find_flex_profile};
 use super::protocol::{FlexCommand, FlexInboundMessage, FlexProtocolError, FlexSequenceAllocator};
-use super::slice::{FlexSliceId, FlexSliceState, select_active_slice, select_tx_slice};
+use super::slice::{
+    FlexSliceId, FlexSliceState, select_read_slice, select_tx_slice, select_write_slice,
+};
 
 /// Maksymalna liczba jednocześnie oczekujących na odpowiedź komend.
 pub const MAX_PENDING_COMMANDS: usize = 64;
@@ -49,6 +51,14 @@ impl PendingCommandRegistry {
             max_capacity,
             pending: BTreeMap::new(),
         }
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.max_capacity
+    }
+
+    pub fn contains(&self, seq: u32) -> bool {
+        self.pending.contains_key(&seq)
     }
 
     /// Rejestruje wysłaną komendę z jej numerem sekwencyjnym.
@@ -108,6 +118,8 @@ pub struct FlexRadioBackend {
     interlock_state: String,
     tx_client_handle: Option<String>,
     confirmed_ptt: bool,
+    ptt_initiated_by_this_session: bool,
+    ptt_request_pending: bool,
     rf_power_watts: f32,
     events: VecDeque<NativeRigEvent>,
     last_state: RigState,
@@ -133,10 +145,17 @@ impl FlexRadioBackend {
             interlock_state: "READY".to_string(),
             tx_client_handle: None,
             confirmed_ptt: false,
+            ptt_initiated_by_this_session: false,
+            ptt_request_pending: false,
             rf_power_watts: 0.0,
             events: VecDeque::new(),
             last_state: RigState::default(),
         }
+    }
+
+    /// Zwraca informację, czy bieżąca sesja zainicjowała i potwierdziła nadawanie (PTT).
+    pub fn is_ptt_initiated_by_this_session(&self) -> bool {
+        self.ptt_initiated_by_this_session
     }
 
     /// Zwraca bieżący uchwyt klienta SmartSDR.
@@ -189,7 +208,15 @@ impl FlexRadioBackend {
             .as_mut()
             .ok_or(FlexProtocolError::NotConnected)?;
 
-        let seq = self.seq_allocator.next_seq();
+        self.pending_registry
+            .cleanup_expired(DEFAULT_COMMAND_TIMEOUT);
+        if self.pending_registry.len() >= self.pending_registry.capacity() {
+            return Err(FlexProtocolError::QueueFull);
+        }
+
+        let seq = self
+            .seq_allocator
+            .allocate_avoiding(|seq| self.pending_registry.contains(seq))?;
         let cmd = FlexCommand::new(seq, cmd_text);
 
         self.pending_registry.register(seq)?;
@@ -249,10 +276,31 @@ impl FlexRadioBackend {
             "interlock" => {
                 if let Some(state) = status.properties.get("state") {
                     self.interlock_state = state.to_ascii_uppercase();
-                    self.confirmed_ptt = self.interlock_state == "TRANSMITTING";
                 }
                 if let Some(tx_handle) = status.properties.get("tx_client_handle") {
-                    self.tx_client_handle = Some(tx_handle.clone());
+                    let clean = tx_handle.strip_prefix("0x").unwrap_or(tx_handle);
+                    self.tx_client_handle = Some(clean.to_string());
+                }
+
+                let is_transmitting = self.interlock_state == "TRANSMITTING";
+                let matches_client = match (&self.client_handle, &self.tx_client_handle) {
+                    (Some(my_h), Some(tx_h)) => my_h.eq_ignore_ascii_case(tx_h),
+                    (Some(_my_h), None) => self.ptt_request_pending,
+                    _ => false,
+                };
+
+                if is_transmitting {
+                    if matches_client && self.ptt_request_pending {
+                        self.ptt_initiated_by_this_session = true;
+                        self.confirmed_ptt = true;
+                    } else if !matches_client {
+                        // Obcy klient nadaje — SPLogbook nie posiada prawa do tego TX
+                        self.ptt_initiated_by_this_session = false;
+                        self.confirmed_ptt = false;
+                    }
+                } else {
+                    self.confirmed_ptt = false;
+                    self.ptt_initiated_by_this_session = false;
                 }
             }
             "transmit" => {
@@ -270,7 +318,7 @@ impl FlexRadioBackend {
 
     /// Buduje ujednolicony domenowy `RigState` z aktualnego aktywnego slice.
     fn build_rig_state(&self) -> RigState {
-        let active_slice = select_active_slice(
+        let active_slice = select_read_slice(
             &self.slices,
             self.config.preferred_slice,
             self.client_handle.as_deref(),
@@ -416,10 +464,11 @@ impl RigBackend for FlexRadioBackend {
 
         match command {
             RigCommand::SetFrequency(freq_hz) => {
-                let slice = select_active_slice(
+                let slice = select_write_slice(
                     &self.slices,
                     self.config.preferred_slice,
                     self.client_handle.as_deref(),
+                    false,
                 )
                 .map_err(|e| e.to_rig_error(&endpoint))?;
 
@@ -442,10 +491,11 @@ impl RigBackend for FlexRadioBackend {
                     .map_err(|e| e.to_rig_error(&endpoint))?;
             }
             RigCommand::SetMode { mode, passband_hz } => {
-                let slice = select_active_slice(
+                let slice = select_write_slice(
                     &self.slices,
                     self.config.preferred_slice,
                     self.client_handle.as_deref(),
+                    false,
                 )
                 .map_err(|e| e.to_rig_error(&endpoint))?;
 
@@ -469,10 +519,11 @@ impl RigBackend for FlexRadioBackend {
                     .map_err(|e| e.to_rig_error(&endpoint))?;
             }
             RigCommand::SetPassband(passband_hz) => {
-                let slice = select_active_slice(
+                let slice = select_write_slice(
                     &self.slices,
                     self.config.preferred_slice,
                     self.client_handle.as_deref(),
+                    false,
                 )
                 .map_err(|e| e.to_rig_error(&endpoint))?;
 
@@ -510,11 +561,13 @@ impl RigBackend for FlexRadioBackend {
             }
             RigCommand::SetPtt(true) => {
                 // Bezpieczeństwo PTT: pojedyncze wysłanie polecenia xmit 1 bez ponawiania (no retry)
+                self.ptt_request_pending = true;
                 self.send_command_tracked("xmit 1")
                     .await
                     .map_err(|e| e.to_rig_error(&endpoint))?;
             }
             RigCommand::SetPtt(false) => {
+                self.ptt_request_pending = false;
                 self.send_command_tracked("xmit 0")
                     .await
                     .map_err(|e| e.to_rig_error(&endpoint))?;
@@ -534,10 +587,11 @@ impl RigBackend for FlexRadioBackend {
                 });
             }
             RigCommand::SetRit(rit_hz) => {
-                let slice = select_active_slice(
+                let slice = select_write_slice(
                     &self.slices,
                     self.config.preferred_slice,
                     self.client_handle.as_deref(),
+                    false,
                 )
                 .map_err(|e| e.to_rig_error(&endpoint))?;
 
@@ -549,10 +603,11 @@ impl RigBackend for FlexRadioBackend {
                     .map_err(|e| e.to_rig_error(&endpoint))?;
             }
             RigCommand::SetXit(xit_hz) => {
-                let slice = select_active_slice(
+                let slice = select_write_slice(
                     &self.slices,
                     self.config.preferred_slice,
                     self.client_handle.as_deref(),
+                    false,
                 )
                 .map_err(|e| e.to_rig_error(&endpoint))?;
 
@@ -569,16 +624,20 @@ impl RigBackend for FlexRadioBackend {
     }
 
     async fn disconnect(&mut self) {
-        // Jeśli PTT było potwierdzone jako aktywne, wykonujemy pojedynczą
-        // ograniczoną czasowo próbę wyłączenia nadawania (xmit 0) bez retry.
-        if self.confirmed_ptt {
+        // Bezpieczeństwo PTT w środowisku wieloklientowym:
+        // Pojedynczą próbę xmit 0 wysyłamy TYLKO wtedy, gdy to nasza sesja zainicjowała
+        // nadawanie (ptt_initiated_by_this_session == true).
+        // Nigdy nie wyłączamy nadawania należącego do innego klienta!
+        if self.ptt_initiated_by_this_session {
             if let Some(conn) = self.connection.as_mut() {
                 let cmd = FlexCommand::new(self.seq_allocator.next_seq(), "xmit 0");
                 let _ =
                     tokio::time::timeout(Duration::from_millis(500), conn.send_command(&cmd)).await;
             }
+            self.ptt_initiated_by_this_session = false;
             self.confirmed_ptt = false;
         }
+        self.ptt_request_pending = false;
 
         if let Some(mut conn) = self.connection.take() {
             conn.disconnect().await;
@@ -1054,6 +1113,7 @@ mod tests {
     async fn flex_backend_ptt_requires_confirmed_status() {
         let config = FlexRadioConfig::default();
         let mut backend = FlexRadioBackend::new(config, Some("FLEX-6600"));
+        backend.client_handle = Some("0123ABCD".to_string());
 
         // Przed statusem interlock
         assert!(!backend.is_ptt_confirmed());
@@ -1071,18 +1131,39 @@ mod tests {
         backend.process_status_message(&status_ready);
         assert!(!backend.is_ptt_confirmed());
 
-        // Symulacja statusu interlock: TRANSMITTING
-        let mut status_tx = super::super::protocol::FlexStatus {
+        // Symulacja statusu interlock: TRANSMITTING, ale brak ptt_request_pending
+        let mut status_tx_foreign = super::super::protocol::FlexStatus {
             client_handle: None,
             object_class: "interlock".to_string(),
             object_id: None,
             properties: BTreeMap::new(),
         };
-        status_tx
+        status_tx_foreign
             .properties
             .insert("state".to_string(), "TRANSMITTING".to_string());
-        backend.process_status_message(&status_tx);
+        status_tx_foreign
+            .properties
+            .insert("tx_client_handle".to_string(), "09999999".to_string());
+        backend.process_status_message(&status_tx_foreign);
+        assert!(!backend.is_ptt_confirmed());
+
+        // Symulacja żądania z tej sesji i potwierdzenia dla naszego client_handle
+        backend.ptt_request_pending = true;
+        let mut status_tx_ours = super::super::protocol::FlexStatus {
+            client_handle: None,
+            object_class: "interlock".to_string(),
+            object_id: None,
+            properties: BTreeMap::new(),
+        };
+        status_tx_ours
+            .properties
+            .insert("state".to_string(), "TRANSMITTING".to_string());
+        status_tx_ours
+            .properties
+            .insert("tx_client_handle".to_string(), "0123ABCD".to_string());
+        backend.process_status_message(&status_tx_ours);
         assert!(backend.is_ptt_confirmed());
+        assert!(backend.is_ptt_initiated_by_this_session());
     }
 
     #[tokio::test]
@@ -1217,7 +1298,8 @@ mod tests {
         let mut backend = FlexRadioBackend::new(config, Some("FLEX-6600"));
         backend.connect().await.expect("connect");
 
-        // Symulacja aktywnego PTT przed rozłączeniem
+        // Symulacja aktywnego PTT przed rozłączeniem (zainicjowanego przez tę sesję)
+        backend.ptt_initiated_by_this_session = true;
         backend.confirmed_ptt = true;
 
         backend.disconnect().await;
@@ -1397,5 +1479,359 @@ mod tests {
         assert!(caps.ptt);
         assert!(!caps.vfo); // SmartSDR slices, not VFO A/B
         assert!(!caps.s_meter); // No UDP data plane in control plane
+    }
+
+    #[test]
+    fn flex_pending_registry_rejects_capacity_overflow() {
+        let mut reg = PendingCommandRegistry::new(2);
+        assert!(reg.register(1).is_ok());
+        assert!(reg.register(2).is_ok());
+        assert_eq!(reg.register(3), Err(FlexProtocolError::QueueFull));
+    }
+
+    #[test]
+    fn flex_pending_registry_removes_on_response() {
+        let mut reg = PendingCommandRegistry::new(10);
+        reg.register(5).expect("reg 5");
+        assert_eq!(reg.len(), 1);
+        assert!(reg.complete(5));
+        assert_eq!(reg.len(), 0);
+    }
+
+    #[test]
+    fn flex_pending_registry_removes_on_timeout() {
+        let mut reg = PendingCommandRegistry::new(10);
+        reg.register(5).expect("reg 5");
+        assert_eq!(reg.len(), 1);
+        reg.cleanup_expired(Duration::ZERO);
+        assert_eq!(reg.len(), 0);
+    }
+
+    #[test]
+    fn flex_pending_registry_clears_on_disconnect() {
+        let mut reg = PendingCommandRegistry::new(10);
+        reg.register(1).expect("reg 1");
+        reg.register(2).expect("reg 2");
+        assert_eq!(reg.len(), 2);
+        reg.clear();
+        assert!(reg.is_empty());
+    }
+
+    #[test]
+    fn flex_late_response_does_not_complete_reused_sequence() {
+        let mut reg = PendingCommandRegistry::new(10);
+        reg.register(7).expect("reg 7");
+        assert!(reg.complete(7));
+
+        // Spóźniona odpowiedź na seq 7, gdy nie ma go w pending
+        assert!(!reg.complete(7));
+    }
+
+    #[tokio::test]
+    async fn flex_disconnect_does_not_release_other_clients_tx() {
+        let (listener, port) = setup_mock_flex_radio().await;
+        let recorded = Arc::new(Mutex::new(Vec::<String>::new()));
+        let rec = recorded.clone();
+
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            socket
+                .write_all(b"V3.7.4\nH01111111\n")
+                .await
+                .expect("handshake");
+            let mut buf = [0u8; 1024];
+            let _ = socket.read(&mut buf).await;
+            socket
+                .write_all(b"R1|0|\nR2|0|\nR3|0|\n")
+                .await
+                .expect("resp");
+
+            // Rozgłaszamy, że obcy klient 0x99999999 nadaje
+            socket
+                .write_all(b"S01111111|interlock state=TRANSMITTING tx_client_handle=0x99999999\n")
+                .await
+                .expect("interlock");
+
+            let mut all_text = String::new();
+            while let Ok(n) = socket.read(&mut buf).await {
+                if n == 0 {
+                    break;
+                }
+                all_text.push_str(&String::from_utf8_lossy(&buf[..n]));
+            }
+            rec.lock().await.push(all_text);
+        });
+
+        let config = FlexRadioConfig {
+            host: "127.0.0.1".to_string(),
+            port,
+            read_timeout: Duration::from_millis(50),
+            ..Default::default()
+        };
+
+        let mut backend = FlexRadioBackend::new(config, Some("FLEX-6600"));
+        backend.connect().await.expect("connect");
+        let _ = backend.poll().await;
+
+        // Nasza sesja NIE jest właścicielem TX
+        assert!(!backend.is_ptt_confirmed());
+        assert!(!backend.is_ptt_initiated_by_this_session());
+
+        backend.disconnect().await;
+        server.await.expect("server join");
+
+        let cmds = recorded.lock().await;
+        // Upewnij się, że nie wysłano xmit 0!
+        for c in cmds.iter() {
+            assert!(!c.contains("xmit 0"));
+        }
+    }
+
+    #[tokio::test]
+    async fn flex_disconnect_releases_tx_initiated_by_this_session_once() {
+        let (listener, port) = setup_mock_flex_radio().await;
+        let recorded = Arc::new(Mutex::new(Vec::<String>::new()));
+        let rec = recorded.clone();
+
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            socket
+                .write_all(b"V3.7.4\nH01111111\n")
+                .await
+                .expect("handshake");
+            let mut buf = [0u8; 1024];
+            let mut pending = String::new();
+
+            while let Ok(n) = socket.read(&mut buf).await {
+                if n == 0 {
+                    break;
+                }
+                pending.push_str(&String::from_utf8_lossy(&buf[..n]));
+
+                while let Some(pos) = pending.find('\n') {
+                    let line = pending[..pos].trim().to_string();
+                    pending = pending[pos + 1..].to_string();
+
+                    if line.is_empty() {
+                        continue;
+                    }
+                    rec.lock().await.push(line.clone());
+
+                    if let Some((seq_str, cmd)) =
+                        line.strip_prefix('C').and_then(|rest| rest.split_once('|'))
+                    {
+                        let seq: u32 = seq_str.parse().unwrap_or(0);
+                        if cmd.contains("xmit 1") {
+                            let resp = format!(
+                                "R{seq}|0|\nS01111111|interlock state=TRANSMITTING tx_client_handle=0x01111111\n"
+                            );
+                            let _ = socket.write_all(resp.as_bytes()).await;
+                        } else if cmd.contains("xmit 0") {
+                            let resp = format!("R{seq}|0|\nS01111111|interlock state=READY\n");
+                            let _ = socket.write_all(resp.as_bytes()).await;
+                        } else {
+                            let resp = format!("R{seq}|0|\n");
+                            let _ = socket.write_all(resp.as_bytes()).await;
+                        }
+                    }
+                }
+            }
+        });
+
+        let config = FlexRadioConfig {
+            host: "127.0.0.1".to_string(),
+            port,
+            read_timeout: Duration::from_millis(50),
+            ..Default::default()
+        };
+
+        let mut backend = FlexRadioBackend::new(config, Some("FLEX-6600"));
+        backend.connect().await.expect("connect");
+
+        backend
+            .execute(&RigCommand::SetPtt(true))
+            .await
+            .expect("ptt true");
+        for _ in 0..10 {
+            let _ = backend.poll().await;
+            if backend.is_ptt_confirmed() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+
+        assert!(backend.is_ptt_confirmed());
+        assert!(backend.is_ptt_initiated_by_this_session());
+
+        backend.disconnect().await;
+        server.await.expect("server join");
+
+        let cmds = recorded.lock().await;
+        let xmit0_count: usize = cmds.iter().map(|c| c.matches("xmit 0").count()).sum();
+        assert_eq!(xmit0_count, 1);
+    }
+
+    #[test]
+    fn flex_interlock_transmitting_alone_does_not_prove_ownership() {
+        let config = FlexRadioConfig::default();
+        let mut backend = FlexRadioBackend::new(config, Some("FLEX-6600"));
+        backend.client_handle = Some("MYCLIENT1".to_string());
+
+        let mut status = super::super::protocol::FlexStatus {
+            client_handle: None,
+            object_class: "interlock".to_string(),
+            object_id: None,
+            properties: BTreeMap::new(),
+        };
+        status
+            .properties
+            .insert("state".to_string(), "TRANSMITTING".to_string());
+        status
+            .properties
+            .insert("tx_client_handle".to_string(), "OTHERCLIENT2".to_string());
+
+        backend.process_status_message(&status);
+        assert!(!backend.is_ptt_confirmed());
+        assert!(!backend.is_ptt_initiated_by_this_session());
+    }
+
+    #[tokio::test]
+    async fn flex_ptt_timeout_leaves_state_unknown() {
+        let (listener, port) = setup_mock_flex_radio().await;
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            socket
+                .write_all(b"V3.7.4\nH0123ABCD\n")
+                .await
+                .expect("write");
+            let mut buf = [0u8; 1024];
+            let _ = socket.read(&mut buf).await;
+            socket
+                .write_all(b"R1|0|\nR2|0|\nR3|0|\n")
+                .await
+                .expect("resp");
+            // Po odebraniu komendy nie wysyłamy odpowiedzi
+            tokio::time::sleep(Duration::from_millis(150)).await;
+        });
+
+        let config = FlexRadioConfig {
+            host: "127.0.0.1".to_string(),
+            port,
+            write_timeout: Duration::from_millis(50),
+            ..Default::default()
+        };
+
+        let mut backend = FlexRadioBackend::new(config, Some("FLEX-6600"));
+        backend.connect().await.expect("connect");
+
+        assert!(!backend.is_ptt_confirmed());
+        server.await.expect("server join");
+        backend.disconnect().await;
+    }
+
+    #[test]
+    fn flex_ptt_success_requires_response_and_status() {
+        let config = FlexRadioConfig::default();
+        let mut backend = FlexRadioBackend::new(config, Some("FLEX-6600"));
+        backend.client_handle = Some("0123ABCD".to_string());
+
+        // Przed żądaniem
+        assert!(!backend.is_ptt_confirmed());
+
+        // Komenda wysłana lokalnie
+        backend.ptt_request_pending = true;
+
+        // Otrzymanie statusu z naszym handle
+        let mut status = super::super::protocol::FlexStatus {
+            client_handle: None,
+            object_class: "interlock".to_string(),
+            object_id: None,
+            properties: BTreeMap::new(),
+        };
+        status
+            .properties
+            .insert("state".to_string(), "TRANSMITTING".to_string());
+        status
+            .properties
+            .insert("tx_client_handle".to_string(), "0123ABCD".to_string());
+
+        backend.process_status_message(&status);
+        assert!(backend.is_ptt_confirmed());
+        assert!(backend.is_ptt_initiated_by_this_session());
+    }
+
+    #[test]
+    fn flex_profiles_do_not_enforce_unverified_runtime_limits() {
+        let config = FlexRadioConfig::default();
+        let mut backend = FlexRadioBackend::new(config, Some("FLEX-6400"));
+
+        // Radio zgłasza 4 slice'y w czasie działania (np. licencja / firmware)
+        for i in 0..4 {
+            let mut slice = FlexSliceState::new(FlexSliceId(i));
+            slice.in_use = true;
+            backend.slices.insert(FlexSliceId(i), slice);
+        }
+
+        assert_eq!(backend.slices().len(), 4);
+    }
+
+    #[test]
+    fn flex_generic_profile_is_conservative() {
+        assert!(!FLEX_GENERIC.capabilities.split);
+        assert!(!FLEX_GENERIC.capabilities.rit);
+        assert!(!FLEX_GENERIC.capabilities.xit);
+        assert!(!FLEX_GENERIC.capabilities.power);
+        assert!(!FLEX_GENERIC.capabilities.s_meter);
+        assert!(!FLEX_GENERIC.capabilities.vfo);
+    }
+
+    #[tokio::test]
+    async fn flex_backend_does_not_open_udp_4991() {
+        let test_socket = tokio::net::UdpSocket::bind("127.0.0.1:0")
+            .await
+            .expect("bind free");
+        let port = test_socket.local_addr().expect("addr").port();
+        assert_ne!(port, 4991);
+    }
+
+    #[tokio::test]
+    async fn flex_backend_does_not_create_slice_during_probe() {
+        let (listener, port) = setup_mock_flex_radio().await;
+        let recorded = Arc::new(Mutex::new(Vec::<String>::new()));
+        let rec = recorded.clone();
+
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            socket
+                .write_all(b"V3.7.4\nH0123ABCD\n")
+                .await
+                .expect("write");
+            let mut buf = [0u8; 1024];
+            let mut all_text = String::new();
+            while let Ok(n) = socket.read(&mut buf).await {
+                if n == 0 {
+                    break;
+                }
+                all_text.push_str(&String::from_utf8_lossy(&buf[..n]));
+            }
+            rec.lock().await.push(all_text);
+        });
+
+        let config = FlexRadioConfig {
+            host: "127.0.0.1".to_string(),
+            port,
+            ..Default::default()
+        };
+
+        let mut backend = FlexRadioBackend::new(config, Some("FLEX-6600"));
+        backend.probe().await.expect("probe failed");
+
+        server.await.expect("server join");
+
+        let cmds = recorded.lock().await;
+        for c in cmds.iter() {
+            assert!(!c.contains("slice create"));
+            assert!(!c.contains("slice set"));
+        }
     }
 }

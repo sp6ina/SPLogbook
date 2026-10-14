@@ -4,7 +4,8 @@
 //! Klient połączenia TCP control/status FlexRadio SmartSDR API.
 //!
 //! Zapewnia asynchroniczne połączenie TCP (domyślnie port 4992),
-//! bezpieczny state machine procedury handshake (oczekiwanie na V i H),
+//! bezpieczny state machine procedury handshake (oczekiwanie na V i H w dowolnej kolejności),
+//! zachowanie statusów nadeszłych w trakcie inicjalizacji,
 //! pojedynczego właściciela strumienia (brak Arc<Mutex<TcpStream>>),
 //! asynchroniczne timeouty, buforowanie i idempotentne rozłączenie.
 
@@ -77,6 +78,7 @@ pub struct FlexRadioConnection {
     handshake_state: HandshakeState,
     version: Option<String>,
     client_handle: Option<String>,
+    early_messages: Vec<FlexInboundMessage>,
 }
 
 impl FlexRadioConnection {
@@ -110,6 +112,7 @@ impl FlexRadioConnection {
             handshake_state: HandshakeState::Connecting,
             version: None,
             client_handle: None,
+            early_messages: Vec::new(),
         })
     }
 
@@ -126,7 +129,8 @@ impl FlexRadioConnection {
     }
 
     /// Przeprowadza pełną procedurę handshake: odbiera `V<version>` i `H<handle>`.
-    /// Ustawia stan `Ready` dopiero po poprawnym odebraniu obu wymaganych nagłówków.
+    /// Akceptuje dowolną kolejność nagłówków, odrzuca sprzeczne duplikaty,
+    /// buforuje statusy nadeszłe w trakcie procedury oraz stosuje łączny deadline handshake.
     pub async fn perform_handshake(&mut self) -> Result<(String, String), FlexProtocolError> {
         self.handshake_state = HandshakeState::AwaitingInit;
 
@@ -141,6 +145,12 @@ impl FlexRadioConnection {
             }
 
             let remaining = timeout_duration.saturating_sub(start.elapsed());
+            if remaining.is_zero() {
+                return Err(FlexProtocolError::Timeout {
+                    operation: "handshake",
+                });
+            }
+
             let mut temp = [0u8; 1024];
 
             let n = match tokio::time::timeout(remaining, self.stream.read(&mut temp)).await {
@@ -159,7 +169,7 @@ impl FlexRadioConnection {
                 }
                 Err(_) => {
                     return Err(FlexProtocolError::Timeout {
-                        operation: "handshake_read",
+                        operation: "handshake",
                     });
                 }
             };
@@ -177,23 +187,27 @@ impl FlexRadioConnection {
             for msg in messages {
                 match msg {
                     FlexInboundMessage::Version(ver) => {
-                        if self.version.is_some() {
+                        if let Some(existing) = self.version.as_deref().filter(|&e| e != ver) {
                             return Err(FlexProtocolError::DuplicateInitMessage(format!(
-                                "version '{ver}' received more than once"
+                                "conflicting version received: '{existing}' vs '{ver}'"
                             )));
                         }
                         self.version = Some(ver);
                     }
                     FlexInboundMessage::Handle(h) => {
-                        if self.client_handle.is_some() {
+                        if let Some(existing) = self.client_handle.as_deref().filter(|&e| e != h) {
                             return Err(FlexProtocolError::DuplicateInitMessage(format!(
-                                "handle '{h}' received more than once"
+                                "conflicting handle received: '{existing}' vs '{h}'"
                             )));
                         }
                         self.client_handle = Some(h);
                     }
-                    // Ignorujemy wstępne komunikaty statusu przed zakończeniem nagłówków
-                    _ => {}
+                    status @ FlexInboundMessage::Status(_) => {
+                        self.early_messages.push(status);
+                    }
+                    other => {
+                        self.early_messages.push(other);
+                    }
                 }
             }
         }
@@ -233,16 +247,20 @@ impl FlexRadioConnection {
     }
 
     /// Odczytuje dostępne komunikaty ze strumienia TCP (nie blokuje w nieskończoność).
+    /// Zwraca również komunikaty przechowane podczas handshake (`early_messages`).
     pub async fn read_messages(&mut self) -> Result<Vec<FlexInboundMessage>, FlexProtocolError> {
+        let mut messages = std::mem::take(&mut self.early_messages);
+        let buffered = self.codec.decode_stream(&mut self.read_buffer)?;
+        messages.extend(buffered);
+
         let mut temp = [0u8; 4096];
-
-        // Sprawdź czy mamy już coś w buforze
-        let mut messages = self.codec.decode_stream(&mut self.read_buffer)?;
-
         let read_fut = self.stream.read(&mut temp);
         match tokio::time::timeout(self.config.read_timeout, read_fut).await {
             Ok(Ok(0)) => {
                 self.handshake_state = HandshakeState::Closing;
+                if !messages.is_empty() {
+                    return Ok(messages);
+                }
                 return Err(FlexProtocolError::Transport(
                     "connection closed by radio".to_string(),
                 ));
@@ -264,8 +282,7 @@ impl FlexRadioConnection {
                 )));
             }
             Err(_) => {
-                // Timeout odczytu nie oznacza błędu, jeśli odebraliśmy już jakieś wiadomości
-                // lub radio po prostu nie ma nowych asynchronicznych komunikatów
+                // Timeout odczytu nie oznacza błędu, jeśli radio po prostu nie ma nowych asynchronicznych komunikatów
             }
         }
 
@@ -277,7 +294,185 @@ impl FlexRadioConnection {
         self.handshake_state = HandshakeState::Disconnected;
         let _ = self.stream.shutdown().await;
         self.read_buffer.clear();
+        self.early_messages.clear();
         self.version = None;
         self.client_handle = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::net::TcpListener;
+
+    async fn setup_mock_socket() -> (TcpListener, u16) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind mock");
+        let port = listener.local_addr().expect("port mock").port();
+        (listener, port)
+    }
+
+    #[tokio::test]
+    async fn flex_handshake_accepts_documented_order() {
+        // Test 1: V potem H
+        let (listener1, port1) = setup_mock_socket().await;
+        let s1 = tokio::spawn(async move {
+            let (mut sock, _) = listener1.accept().await.expect("accept");
+            sock.write_all(b"V3.7.4\nH0123ABCD\n").await.expect("write");
+        });
+        let config1 = FlexRadioConfig {
+            host: "127.0.0.1".to_string(),
+            port: port1,
+            ..Default::default()
+        };
+        let mut conn1 = FlexRadioConnection::connect(config1)
+            .await
+            .expect("connect");
+        let (ver1, handle1) = conn1.perform_handshake().await.expect("handshake");
+        assert_eq!(ver1, "3.7.4");
+        assert_eq!(handle1, "0123ABCD");
+        s1.await.expect("server join");
+        conn1.disconnect().await;
+
+        // Test 2: H potem V (odwrotna kolejność)
+        let (listener2, port2) = setup_mock_socket().await;
+        let s2 = tokio::spawn(async move {
+            let (mut sock, _) = listener2.accept().await.expect("accept");
+            sock.write_all(b"HFEEDFACE\nV3.8.0\n").await.expect("write");
+        });
+        let config2 = FlexRadioConfig {
+            host: "127.0.0.1".to_string(),
+            port: port2,
+            ..Default::default()
+        };
+        let mut conn2 = FlexRadioConnection::connect(config2)
+            .await
+            .expect("connect");
+        let (ver2, handle2) = conn2.perform_handshake().await.expect("handshake");
+        assert_eq!(ver2, "3.8.0");
+        assert_eq!(handle2, "FEEDFACE");
+        s2.await.expect("server join");
+        conn2.disconnect().await;
+    }
+
+    #[tokio::test]
+    async fn flex_handshake_handles_interleaved_status() {
+        let (listener, port) = setup_mock_socket().await;
+        let server = tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.expect("accept");
+            // Status nadsyłany między V a H
+            sock.write_all(
+                b"V3.7.4\nS0123ABCD|slice 0 in_use=1 rf_frequency=14.074000\nH0123ABCD\n",
+            )
+            .await
+            .expect("write");
+            let mut buf = [0u8; 16];
+            let _ = sock.read(&mut buf).await;
+        });
+
+        let config = FlexRadioConfig {
+            host: "127.0.0.1".to_string(),
+            port,
+            read_timeout: Duration::from_millis(50),
+            ..Default::default()
+        };
+
+        let mut conn = FlexRadioConnection::connect(config).await.expect("connect");
+        let (ver, handle) = conn.perform_handshake().await.expect("handshake");
+        assert_eq!(ver, "3.7.4");
+        assert_eq!(handle, "0123ABCD");
+
+        // Status nie został utracony i pojawia się przy read_messages
+        let msgs = conn.read_messages().await.expect("read failed");
+        assert!(
+            msgs.iter()
+                .any(|m| matches!(m, FlexInboundMessage::Status(s) if s.object_class == "slice"))
+        );
+
+        conn.disconnect().await;
+        server.await.expect("server join");
+    }
+
+    #[tokio::test]
+    async fn flex_handshake_rejects_conflicting_version() {
+        let (listener, port) = setup_mock_socket().await;
+        let server = tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.expect("accept");
+            sock.write_all(b"V3.7.4\nV3.8.0\nH0123ABCD\n")
+                .await
+                .expect("write");
+        });
+
+        let config = FlexRadioConfig {
+            host: "127.0.0.1".to_string(),
+            port,
+            ..Default::default()
+        };
+
+        let mut conn = FlexRadioConnection::connect(config).await.expect("connect");
+        let err = conn
+            .perform_handshake()
+            .await
+            .expect_err("should reject conflicting version");
+        assert!(matches!(err, FlexProtocolError::DuplicateInitMessage(_)));
+
+        server.await.expect("server join");
+        conn.disconnect().await;
+    }
+
+    #[tokio::test]
+    async fn flex_handshake_rejects_conflicting_handle() {
+        let (listener, port) = setup_mock_socket().await;
+        let server = tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.expect("accept");
+            sock.write_all(b"V3.7.4\nH1111\nH2222\n")
+                .await
+                .expect("write");
+        });
+
+        let config = FlexRadioConfig {
+            host: "127.0.0.1".to_string(),
+            port,
+            ..Default::default()
+        };
+
+        let mut conn = FlexRadioConnection::connect(config).await.expect("connect");
+        let err = conn
+            .perform_handshake()
+            .await
+            .expect_err("should reject conflicting handle");
+        assert!(matches!(err, FlexProtocolError::DuplicateInitMessage(_)));
+
+        server.await.expect("server join");
+        conn.disconnect().await;
+    }
+
+    #[tokio::test]
+    async fn flex_handshake_uses_total_deadline() {
+        let (listener, port) = setup_mock_socket().await;
+        let server = tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.expect("accept");
+            // Wysyłamy V, a potem milczymy
+            sock.write_all(b"V3.7.4\n").await.expect("write");
+            tokio::time::sleep(Duration::from_millis(150)).await;
+        });
+
+        let config = FlexRadioConfig {
+            host: "127.0.0.1".to_string(),
+            port,
+            connect_timeout: Duration::from_millis(50),
+            ..Default::default()
+        };
+
+        let mut conn = FlexRadioConnection::connect(config).await.expect("connect");
+        let err = conn.perform_handshake().await.expect_err("should timeout");
+        assert!(matches!(
+            err,
+            FlexProtocolError::Timeout {
+                operation: "handshake"
+            }
+        ));
+
+        server.await.expect("server join");
+        conn.disconnect().await;
     }
 }

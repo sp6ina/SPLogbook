@@ -29,6 +29,25 @@ pub enum FlexProtocolError {
         max: usize,
         actual: usize,
     },
+    InvalidVitaHeader(String),
+    WrongStreamId {
+        expected: u32,
+        actual: u32,
+    },
+    WrongClassId {
+        expected: u32,
+        actual: u32,
+    },
+    MissingClassId,
+    InvalidPacketSize {
+        expected: usize,
+        actual: usize,
+    },
+    TruncatedHeader {
+        expected: usize,
+        actual: usize,
+    },
+    SliceOwnershipMismatch(String),
     MissingRequiredField(String),
     LineTooLong {
         max: usize,
@@ -63,6 +82,37 @@ impl std::fmt::Display for FlexProtocolError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::InvalidHeader(detail) => write!(f, "invalid SmartSDR packet header: {detail}"),
+            Self::InvalidVitaHeader(detail) => {
+                write!(f, "invalid VITA-49 discovery packet header: {detail}")
+            }
+            Self::WrongStreamId { expected, actual } => {
+                write!(
+                    f,
+                    "VITA-49 stream ID mismatch: expected 0x{expected:08X}, got 0x{actual:08X}"
+                )
+            }
+            Self::WrongClassId { expected, actual } => {
+                write!(
+                    f,
+                    "VITA-49 class ID mismatch: expected 0x{expected:08X}, got 0x{actual:08X}"
+                )
+            }
+            Self::MissingClassId => write!(f, "VITA-49 header missing class ID indicator"),
+            Self::InvalidPacketSize { expected, actual } => {
+                write!(
+                    f,
+                    "VITA-49 packet size mismatch: expected {expected} bytes, datagram has {actual} bytes"
+                )
+            }
+            Self::TruncatedHeader { expected, actual } => {
+                write!(
+                    f,
+                    "truncated VITA-49 header: expected {expected} bytes, got {actual} bytes"
+                )
+            }
+            Self::SliceOwnershipMismatch(detail) => {
+                write!(f, "slice ownership mismatch: {detail}")
+            }
             Self::InvalidUtf8(detail) => write!(f, "invalid UTF-8 in SmartSDR stream: {detail}"),
             Self::OversizedDatagram { max, actual } => {
                 write!(
@@ -167,6 +217,22 @@ impl FlexSequenceAllocator {
                 return current;
             }
         }
+    }
+
+    /// Alokuje kolejny numer sekwencyjny, omijając numer 0 oraz sprawdzając,
+    /// czy dany numer nie jest aktualnie zarezerwowany w `is_in_use`.
+    /// Zwraca błąd po wyczerpaniu limitu prób (ochrona przed blokadą).
+    pub fn allocate_avoiding<F>(&self, is_in_use: F) -> Result<u32, FlexProtocolError>
+    where
+        F: Fn(u32) -> bool,
+    {
+        for _ in 0..1024 {
+            let seq = self.next_seq();
+            if !is_in_use(seq) {
+                return Ok(seq);
+            }
+        }
+        Err(FlexProtocolError::QueueFull)
     }
 
     /// Resetuje stan alokatora do 1 (np. przy nowej sesji TCP).
@@ -679,5 +745,28 @@ mod tests {
 
         let msg = codec.decode_line("").expect("empty line");
         assert_eq!(msg, FlexInboundMessage::Unknown(String::new()));
+    }
+
+    #[test]
+    fn flex_sequence_wraparound_avoids_pending_ids() {
+        let allocator = FlexSequenceAllocator::new();
+        // Ustaw licznik tuż przed przepełnieniem u32
+        allocator.next.store(u32::MAX, Ordering::SeqCst);
+
+        // Pierwszy przydział: u32::MAX
+        let s1 = allocator.next_seq();
+        assert_eq!(s1, u32::MAX);
+
+        // Kolejny przydział: przepełnienie (u32::MAX + 1 = 0), więc pomija 0 i zwraca 1!
+        let s2 = allocator.next_seq();
+        assert_eq!(s2, 1);
+
+        // Test allocate_avoiding: niech ID 2 będzie zajęte w pending
+        let pending_ids = [2u32];
+        let s3 = allocator
+            .allocate_avoiding(|id| pending_ids.contains(&id))
+            .expect("allocate failed");
+        // Powinien pominąć 2 i zwrócić 3
+        assert_eq!(s3, 3);
     }
 }

@@ -351,39 +351,43 @@ Dane strumieniowe Data Plane pod żadnym pozorem nie będą mieszane ze struktur
 
 ---
 
-## 14. Natywna obsługa FlexRadio SmartSDR API (Wdrożenie NATIVE-5)
+## 14. Natywna obsługa FlexRadio SmartSDR API (Wdrożenie NATIVE-5 i NATIVE-5A)
 
 Wdrożono natywny backend `FlexRadioBackend` komunikujący się z transceiverami FlexRadio Systems (rodziny FLEX-6000 i FLEX-8000) bezpośrednio przez sieć lokalną za pomocą UDP Discovery oraz protokołu TCP/IP SmartSDR API (port 4992).
 
+Minimalne dekodowanie koperty VITA-49 jest implementowane wyłącznie dla pakietów discovery SmartSDR. Strumienie VITA-49 data plane pozostają poza zakresem Native CAT.
+
 ### 14.1. Architektura modułu FlexRadio
 Moduł `src/cat/native/flexradio` zawiera następujące wyspecjalizowane komponenty:
-- `discovery.rs`: Pasywny nasłuch UDP (port 4992), dekoder `FlexDiscoveryCodec`, model `FlexDiscoveryPacket` oraz deterministyczna deduplikacja urządzeń po unikalnym numerze seryjnym sprzętu (`serial`).
-- `protocol.rs`: Strumieniowy kodek `FlexProtocolCodec`, monotoniczny generator sekwencji `FlexSequenceAllocator`, obsługa komend `C<seq>|...`, odpowiedzi `R<seq>|...`, asynchronicznych statusów `S<handle>|...` oraz komunikatów `V`, `H`, `M`.
-- `client.rs`: Asynchroniczny klient TCP `FlexRadioConnection` z maszyną stanów procedury handshake (`Disconnected` -> `Connecting` -> `AwaitingInit` -> `Ready`), pojedynczym właścicielem gniazda i asynchronicznymi limitami czasu.
-- `slice.rs`: Pełny model odbiorników slice `FlexSliceState`, parsowanie parametrów, walidacja filtrów DSP oraz deterministyczna polityka wyboru aktywnego odbiornika RX i nadajnika TX.
-- `models.rs`: Zweryfikowane profile sprzętowe modeli FLEX-6300, FLEX-6400, FLEX-6400M, FLEX-6500, FLEX-6600, FLEX-6600M, FLEX-6700, FLEX-8400, FLEX-8400M, FLEX-8600, FLEX-8600M oraz profil ogólny FLEX-GENERIC.
-- `backend.rs`: Implementacja `RigBackend` z bounded pending command registry (`PendingCommandRegistry`), mapowaniem poleceń domenowych, read-only probe i rygorem bezpieczeństwa PTT.
+- `discovery.rs`: Pasywny nasłuch UDP (port 4992), dekoder koperty VITA-49 (`FlexDiscoveryCodec`, `FlexDiscoveryVitaHeader`: Stream ID 0x00000800, Class ID 0x534CFFFF, network byte order, 28-bajtowa preambuła), model `FlexDiscoveryPacket`, deterministyczna deduplikacja urządzeń po `serial` z aktualizacją adresów i portów oraz hierarchia wyboru portu połączenia TCP (`resolve_connection_port`).
+- `protocol.rs`: Strumieniowy kodek `FlexProtocolCodec`, monotoniczny generator sekwencji `FlexSequenceAllocator` z metodą `allocate_avoiding` chroniącą przed kolizjami przy wraparound, obsługa komend `C<seq>|...`, odpowiedzi `R<seq>|...`, asynchronicznych statusów `S<handle>|...` oraz komunikatów `V`, `H`, `M`.
+- `client.rs`: Asynchroniczny klient TCP `FlexRadioConnection` z maszyną stanów procedury handshake (`Disconnected` -> `Connecting` -> `AwaitingInit` -> `Ready`), akceptacją dowolnej kolejności nagłówków `V` i `H`, buforowaniem wczesnych statusów (`early_messages`), łącznym deadlinem handshake, pojedynczym właścicielem gniazda i asynchronicznymi limitami czasu.
+- `slice.rs`: Pełny model odbiorników slice `FlexSliceState`, parsowanie parametrów ze ścisłą walidacją znanych pól, walidacja filtrów DSP oraz deterministyczny podział polityki wyboru slice: `select_read_slice` (odczyt), `select_write_slice` (zabezpieczenie przed mutacją obcych slice bez uprawnień) i `select_tx_slice` (kontekst nadawczy).
+- `models.rs`: Zweryfikowane profile sprzętowe modeli FLEX-6300, FLEX-6400, FLEX-6400M, FLEX-6500, FLEX-6600, FLEX-6600M, FLEX-6700, FLEX-8400, FLEX-8400M, FLEX-8600, FLEX-8600M oraz ostrożny profil ogólny `FLEX-GENERIC`. Profile nie blokują runtime limitów slice nadesłanych z radia.
+- `backend.rs`: Implementacja `RigBackend` ze ściśle ograniczonym rejestrem oczekujących komend (`PendingCommandRegistry`, limit 64), mapowaniem poleceń domenowych, read-only probe oraz zaawansowanym rygorem bezpieczeństwa PTT w środowisku wieloklientowym (`ptt_initiated_by_this_session`, weryfikacja `tx_client_handle` w statusie interlock, brak wysyłania `xmit 0` przy disconnect jeśli nadaje obcy klient).
 
 ### 14.2. Rozdział Control Plane od Data Plane (Architektura FlexStreamService)
-W NATIVE-5 zaimplementowano wyłącznie **Control Plane**. Wszelkie strumienie multimedialne Data Plane pozostają poza zakresem i zostaną zaimplementowane w przyszłości jako odrębna usługa `FlexStreamService`:
+W Native CAT zaimplementowano wyłącznie **Control Plane** (w tym minimalną kopertę VITA-49 discovery). Wszelkie strumienie multimedialne Data Plane (port UDP 4991) pozostają poza zakresem i zostaną zaimplementowane w przyszłości jako odrębna usługa `FlexStreamService`:
 
 ```text
 +------------------------------------------------------------------------+
 |                              SPLogbook                                 |
 +------------------------------------+-----------------------------------+
 |            CONTROL PLANE           |             DATA PLANE            |
-|       (Wdrożone w NATIVE-5)        |      (Projekt przyszłościowy)     |
+|     (Wdrożone w NATIVE-5 / 5A)     |      (Projekt przyszłościowy)     |
 +------------------------------------+-----------------------------------+
 |          FlexRadioBackend          |         FlexStreamService         |
 |    - UDP Broadcast 4992 (Discovery)|    - Odrębne gniazda UDP 4991     |
-|    - TCP Port 4992 (SmartSDR API)  |    - Pakiety binarne VITA-49 (VRT)|
-|    - Handshake (V, H) & Komendy (C)|    - Próbki FFT Panadaptera       |
-|    - Odpowiedzi (R) i Statusy (S)  |    - Strumienie Waterfall         |
-|    - Slices, Interlock, Transmit   |    - Cyfrowy strumień DAX / Audio |
-|    - RigState & NativeRigEvent     |    - Strumień próbek I/Q          |
+|      (Koperta VITA-49: Stream 0x800|    - Strumienie VITA-49 (VRT)     |
+|       Class ID 0x534CFFFF, payload)|    - Próbki FFT Panadaptera       |
+|    - TCP Port 4992 (SmartSDR API)  |    - Strumienie Waterfall         |
+|    - Handshake (V, H) & Komendy (C)|    - Cyfrowy strumień DAX / Audio |
+|    - Odpowiedzi (R) i Statusy (S)  |    - Strumień próbek I/Q          |
+|    - Slices, Interlock, Transmit   |                                   |
+|    - RigState & NativeRigEvent     |                                   |
 +------------------------------------+-----------------------------------+
 ```
-Dane strumieniowe Data Plane pod żadnym pozorem nie trafiają do `RigState`, `NativeRigEvent`, pętli `poll()` ani `FlexRadioBackend`.
+Dane strumieniowe Data Plane (UDP 4991) pod żadnym pozorem nie trafiają do `RigState`, `NativeRigEvent`, pętli `poll()` ani `FlexRadioBackend`. Gniazdo UDP 4991 nie jest otwierane.
 
 ---
 
@@ -559,6 +563,16 @@ W falach NATIVE-0 i NATIVE-1 interfejs GUI nie ulega modyfikacji runtime, co gwa
 - [x] Rygor bezpieczeństwa PTT: brak retry dla SetPtt(true), pojedyncza ograniczona próba zwolnienia TX przy disconnect, brak PTT w probe.
 - [x] Ścisły rozdział Control Plane od Data Plane (strumienie VITA-49, IQ, audio i panadapter wykluczone z backendu).
 - [x] Profile sprzętowe potwierdzonych modeli FLEX-6000 i FLEX-8000 oraz profil ostrożny `FLEX-GENERIC`.
+- [x] Kompletny zestaw deterministycznych testów jednostkowych i asynchronicznych bez fizycznego sprzętu.
+
+### Kryteria NATIVE-5A (Niezależny audyt FlexRadio, koperty VITA-49 Discovery i własności PTT):
+- [x] Precyzyjna implementacja 28-bajtowej binarnej koperty VITA-49 Extension Data Packet (ANSI/VITA 49.0 / SmartSDR Discovery protocol) dla portu UDP 4992 (Stream ID 0x00000800, Class ID 0x534CFFFF, network byte order, 32-bit alignment padding).
+- [x] Ścisły podział: obsługa koperty VITA-49 Discovery w Control Plane przy całkowitym wykluczeniu strumieni Data Plane (brak UDP 4991, IQ, audio, DAX, panadapter, FFT).
+- [x] Bezpieczna izolacja PTT w środowisku wieloklientowym: śledzenie własności nadawania `ptt_initiated_by_this_session`, brak przerywania obcego TX (`xmit 0`) podczas rozłączania sesji.
+- [x] Rozdzielenie selekcji slice receiverów: `select_read_slice` (obserwacja obcych slice), `select_write_slice` (blokada modyfikacji obcych slice bez flagi) oraz `select_tx_slice` (wymóg własnego TX slice).
+- [x] Odporność na zapętlenie numeracji sekwencyjnej `FlexSequenceAllocator::allocate_avoiding` z ochroną przed kolizjami z oczekującymi odpowiedziami.
+- [x] Asynchroniczny handshake z tolerancją przeplatanych statusów, buforowaniem wczesnych komunikatów i globalnym deadlinem.
+- [x] Rejestracja profili FlexRadio FLEX-6300, FLEX-6400/M, FLEX-6500, FLEX-6600/M, FLEX-6700/R, FLEX-8400/M, FLEX-8600/M oraz profilu ostrożnego FLEX-GENERIC.
 - [x] Kompletny zestaw deterministycznych testów jednostkowych i asynchronicznych bez fizycznego sprzętu.
 
 ---

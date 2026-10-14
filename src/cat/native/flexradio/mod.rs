@@ -15,12 +15,15 @@ pub use backend::{
 };
 pub use client::{FlexRadioConfig, FlexRadioConnection, HandshakeState};
 pub use discovery::{
-    FLEX_DISCOVERY_PORT, FlexDiscoveryCodec, FlexDiscoveryPacket, MAX_DISCOVERY_DATAGRAM_SIZE,
-    deduplicate_radios, discover_radios,
+    FLEX_DISCOVERY_PORT, FlexDiscoveryCodec, FlexDiscoveryPacket, FlexDiscoveryVitaHeader,
+    MAX_DISCOVERY_DATAGRAM_SIZE, deduplicate_radios, discover_radios, resolve_connection_port,
 };
 pub use models::*;
 pub use protocol::{
     FlexCommand, FlexInboundMessage, FlexMessage, FlexProtocolCodec, FlexProtocolError,
     FlexResponse, FlexSequenceAllocator, FlexStatus, MAX_LINE_LENGTH,
 };
-pub use slice::{FlexSliceId, FlexSliceState, select_active_slice, select_tx_slice};
+pub use slice::{
+    FlexSliceId, FlexSliceState, select_active_slice, select_read_slice, select_tx_slice,
+    select_write_slice,
+};

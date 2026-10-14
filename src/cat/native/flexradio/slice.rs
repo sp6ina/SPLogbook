@@ -7,8 +7,12 @@
 //! instancji odbiorników (slice receivers). Każdy slice ma własną częstotliwość,
 //! tryb emisji, filtry DSP, stan aktywności, flagę TX oraz uchwyt klienta.
 //!
-//! Moduł implementuje deterministyczną politykę wyboru aktywnego slice dla RigState,
-//! zapobiega arbitralnemu wybieraniu pierwszego elementu mapy oraz nie fabricuje VFO.
+//! Moduł implementuje deterministyczną politykę wyboru slice z wyraźnym rozdziałem:
+//! - selekcja do odczytu (`select_read_slice`),
+//! - selekcja do operacji mutujących (`select_write_slice`),
+//! - selekcja kontekstu nadawczego (`select_tx_slice`).
+//!
+//! Zapobiega modyfikowaniu odbiorników należących do innych klientów oraz nie fabricuje VFO.
 
 use std::collections::BTreeMap;
 
@@ -78,6 +82,7 @@ impl FlexSliceState {
 
     /// Częściowa aktualizacja stanu slice z asynchronicznego komunikatu statusu.
     /// Pola niewymienione w statusie zachowują swoją dotychczasową wartość.
+    /// W przypadku uszkodzonej wartości znanego pola zwraca typowany błąd.
     pub fn update_from_properties(
         &mut self,
         properties: &BTreeMap<String, String>,
@@ -86,12 +91,18 @@ impl FlexSliceState {
             self.in_use = val == "1" || val.eq_ignore_ascii_case("true");
         }
 
-        if let Some(mhz) = properties
+        if let Some(val) = properties
             .get("rf_frequency")
             .or_else(|| properties.get("freq"))
-            .and_then(|val| val.parse::<f64>().ok())
-            .filter(|&mhz| mhz.is_finite() && mhz > 0.0)
         {
+            let mhz = val.parse::<f64>().map_err(|e| {
+                FlexProtocolError::ParseError(format!("invalid frequency '{val}': {e}"))
+            })?;
+            if !mhz.is_finite() || mhz <= 0.0 {
+                return Err(FlexProtocolError::ParseError(format!(
+                    "frequency '{val}' must be positive and finite"
+                )));
+            }
             self.frequency_hz = (mhz * 1_000_000.0).round() as u64;
         }
 
@@ -107,18 +118,16 @@ impl FlexSliceState {
         let mut high = self.filter_high_hz;
         let mut filter_modified = false;
 
-        if let Some(lo) = properties
-            .get("filter_lo")
-            .and_then(|val| val.parse::<i32>().ok())
-        {
-            low = lo;
+        if let Some(lo_str) = properties.get("filter_lo") {
+            low = lo_str.parse::<i32>().map_err(|e| {
+                FlexProtocolError::ParseError(format!("invalid filter_lo '{lo_str}': {e}"))
+            })?;
             filter_modified = true;
         }
-        if let Some(hi) = properties
-            .get("filter_hi")
-            .and_then(|val| val.parse::<i32>().ok())
-        {
-            high = hi;
+        if let Some(hi_str) = properties.get("filter_hi") {
+            high = hi_str.parse::<i32>().map_err(|e| {
+                FlexProtocolError::ParseError(format!("invalid filter_hi '{hi_str}': {e}"))
+            })?;
             filter_modified = true;
         }
 
@@ -153,31 +162,28 @@ impl FlexSliceState {
             }
         }
 
-        if let Some(s) = properties
-            .get("step")
-            .and_then(|val| val.parse::<u32>().ok())
-        {
-            self.step_hz = s;
+        if let Some(s_str) = properties.get("step") {
+            self.step_hz = s_str.parse::<u32>().map_err(|e| {
+                FlexProtocolError::ParseError(format!("invalid step '{s_str}': {e}"))
+            })?;
         }
 
         if let Some(val) = properties.get("rit_on") {
             self.rit_on = val == "1" || val.eq_ignore_ascii_case("true");
         }
-        if let Some(f) = properties
-            .get("rit_freq")
-            .and_then(|val| val.parse::<i32>().ok())
-        {
-            self.rit_freq_hz = f;
+        if let Some(f_str) = properties.get("rit_freq") {
+            self.rit_freq_hz = f_str.parse::<i32>().map_err(|e| {
+                FlexProtocolError::ParseError(format!("invalid rit_freq '{f_str}': {e}"))
+            })?;
         }
 
         if let Some(val) = properties.get("xit_on") {
             self.xit_on = val == "1" || val.eq_ignore_ascii_case("true");
         }
-        if let Some(f) = properties
-            .get("xit_freq")
-            .and_then(|val| val.parse::<i32>().ok())
-        {
-            self.xit_freq_hz = f;
+        if let Some(f_str) = properties.get("xit_freq") {
+            self.xit_freq_hz = f_str.parse::<i32>().map_err(|e| {
+                FlexProtocolError::ParseError(format!("invalid xit_freq '{f_str}': {e}"))
+            })?;
         }
 
         if let Some(val) = properties.get("rxant") {
@@ -187,15 +193,26 @@ impl FlexSliceState {
             self.tx_ant.clone_from(val);
         }
 
-        if let Some(p) = properties
-            .get("rf_power")
-            .and_then(|val| val.parse::<f32>().ok())
-        {
+        if let Some(p_str) = properties.get("rf_power") {
+            let p = p_str.parse::<f32>().map_err(|e| {
+                FlexProtocolError::ParseError(format!("invalid rf_power '{p_str}': {e}"))
+            })?;
             self.rf_power = Some(p);
         }
 
         Ok(())
     }
+}
+
+/// Wybór odbiornika slice do odczytu stanu radia (`RigState`).
+/// Operacje tylko do odczytu mogą obserwować aktywny slice należący do innego klienta,
+/// jeśli taki slice został wskazany lub jest jedynym aktywnym w radiu.
+pub fn select_read_slice<'a>(
+    slices: &'a BTreeMap<FlexSliceId, FlexSliceState>,
+    preferred: Option<FlexSliceId>,
+    client_handle: Option<&str>,
+) -> Result<&'a FlexSliceState, FlexProtocolError> {
+    select_active_slice(slices, preferred, client_handle)
 }
 
 /// Deterministyczny wybór aktywnego slice dla odczytu RigState.
@@ -208,8 +225,7 @@ impl FlexSliceState {
 ///    b) jeśli klient ma dokładnie jeden slice, to ten jedyny slice.
 /// 3. Jeśli brak powiązania z klientem, ale w całej mapie istnieje dokładnie jeden aktywny
 ///    slice (`active == true` oraz `in_use == true`), to ten slice jest wybierany.
-/// 4. W przypadku niejednoznaczności (wiele aktywnych slice bez wskazania właściciela)
-///    lub braku jakiegokolwiek slice zwracany jest typowany błąd.
+/// 4. W przypadku niejednoznaczności zwracany jest typowany błąd.
 pub fn select_active_slice<'a>(
     slices: &'a BTreeMap<FlexSliceId, FlexSliceState>,
     preferred: Option<FlexSliceId>,
@@ -266,47 +282,174 @@ pub fn select_active_slice<'a>(
     )))
 }
 
+/// Wybór odbiornika slice do operacji mutujących (np. zmiana częstotliwości, trybu, filtrów).
+///
+/// Zasady bezpieczeństwa wieloklientowego:
+/// 1. Jeśli użytkownik wskazał `preferred_slice`:
+///    - Weryfikuje, czy dany slice istnieje i jest w użyciu (`in_use`).
+///    - Jeśli slice należy do innego klienta (`slice.client_handle != client_handle`),
+///      wymagana jest flaga `allow_foreign == true`. W przeciwnym razie zwracany jest
+///      błąd `FlexProtocolError::SliceOwnershipMismatch`.
+/// 2. Jeśli bieżący klient posiada własne aktywne slice (zgodne z `client_handle`),
+///    wybierany jest slice z `active == true`, a jeśli żaden nie ma `active == true`,
+///    ale klient posiada dokładnie jeden swój slice, wybierany jest ten slice.
+/// 3. Jeśli bieżący klient nie posiada żadnych własnych slice, ale w radiu istnieje
+///    dokładnie jeden slice i nie jest on przypisany do żadnego obcego klienta,
+///    może on zostać wybrany.
+/// 4. NIGDY nie modyfikuje slice należącego do obcego klienta bez jawnego zezwolenia (`allow_foreign`).
+pub fn select_write_slice<'a>(
+    slices: &'a BTreeMap<FlexSliceId, FlexSliceState>,
+    preferred: Option<FlexSliceId>,
+    client_handle: Option<&str>,
+    allow_foreign: bool,
+) -> Result<&'a FlexSliceState, FlexProtocolError> {
+    if slices.is_empty() {
+        return Err(FlexProtocolError::SliceNotFound(0));
+    }
+
+    let clean_handle = client_handle.map(|h| h.strip_prefix("0x").unwrap_or(h));
+
+    if let Some(slice) = preferred
+        .and_then(|pref| slices.get(&pref))
+        .filter(|s| s.in_use)
+    {
+        if let Some(foreign_handle) = slice.client_handle.as_deref() {
+            if let Some(my_handle) = clean_handle {
+                if !foreign_handle.eq_ignore_ascii_case(my_handle) && !allow_foreign {
+                    return Err(FlexProtocolError::SliceOwnershipMismatch(format!(
+                        "slice {} is owned by client 0x{foreign_handle}, current client is 0x{my_handle}",
+                        slice.id
+                    )));
+                }
+            } else if !allow_foreign {
+                return Err(FlexProtocolError::SliceOwnershipMismatch(format!(
+                    "slice {} is owned by client 0x{foreign_handle}",
+                    slice.id
+                )));
+            }
+        }
+        return Ok(slice);
+    }
+
+    // Szukaj slice należącego do tego klienta
+    if let Some(my_handle) = clean_handle {
+        let client_slices: Vec<&FlexSliceState> = slices
+            .values()
+            .filter(|s| {
+                s.in_use
+                    && s.client_handle
+                        .as_deref()
+                        .is_some_and(|h| h.eq_ignore_ascii_case(my_handle))
+            })
+            .collect();
+
+        if let Some(active_client_slice) = client_slices.iter().copied().find(|s| s.active) {
+            return Ok(active_client_slice);
+        }
+
+        if client_slices.len() == 1 {
+            return Ok(client_slices[0]);
+        }
+
+        if client_slices.len() > 1 {
+            return Err(FlexProtocolError::AmbiguousSlice(format!(
+                "client 0x{my_handle} owns {} slices, but none is marked active",
+                client_slices.len()
+            )));
+        }
+    }
+
+    // Jeśli klient nie ma własnych slice, sprawdź czy istnieje dokładnie jeden wolny (bez przypisanego właściciela)
+    let unassigned_slices: Vec<&FlexSliceState> = slices
+        .values()
+        .filter(|s| s.in_use && s.client_handle.is_none())
+        .collect();
+
+    if unassigned_slices.len() == 1 {
+        return Ok(unassigned_slices[0]);
+    }
+
+    // Jeśli istnieją tylko slice należące do innych klientów
+    let foreign_slices: Vec<&FlexSliceState> = slices
+        .values()
+        .filter(|s| s.in_use && s.client_handle.is_some())
+        .collect();
+
+    if !foreign_slices.is_empty() && !allow_foreign {
+        return Err(FlexProtocolError::SliceOwnershipMismatch(
+            "cannot mutate slices owned by foreign clients without explicit permission".to_string(),
+        ));
+    }
+
+    if allow_foreign {
+        return select_active_slice(slices, preferred, None);
+    }
+
+    Err(FlexProtocolError::AmbiguousSlice(
+        "cannot deterministically select write target slice".to_string(),
+    ))
+}
+
 /// Deterministyczny wybór potwierdzonego slice nadawczego (TX slice).
 ///
-/// Polityka wyboru:
-/// 1. Slice posiadający potwierdzoną flagę `tx == true` oraz `in_use == true`.
-/// 2. Jeśli żaden slice nie ma `tx == true`, ale istnieje dokładnie jeden slice dla bieżącego klienta,
-///    to ten slice jest traktowany jako domyślny kontekst TX.
-/// 3. W pozostałych przypadkach zwracany jest błąd niejednoznaczności.
+/// Wymaga, aby slice nadawczy posiadał flagę `tx == true`, był w użyciu (`in_use`),
+/// oraz należał do bieżącego klienta (bądź nie miał przypisanego obcego właściciela).
 pub fn select_tx_slice<'a>(
     slices: &'a BTreeMap<FlexSliceId, FlexSliceState>,
     client_handle: Option<&str>,
 ) -> Result<&'a FlexSliceState, FlexProtocolError> {
+    let clean_handle = client_handle.map(|h| h.strip_prefix("0x").unwrap_or(h));
+
     let tx_slices: Vec<&FlexSliceState> = slices.values().filter(|s| s.in_use && s.tx).collect();
 
-    if tx_slices.len() == 1 {
-        return Ok(tx_slices[0]);
-    }
-
-    if let Some(handle) = client_handle {
-        let clean_handle = handle.strip_prefix("0x").unwrap_or(handle);
+    if let Some(my_handle) = clean_handle {
         let client_tx: Vec<&FlexSliceState> = tx_slices
-            .into_iter()
+            .iter()
+            .copied()
             .filter(|s| {
                 s.client_handle
                     .as_deref()
-                    .is_some_and(|h| h.eq_ignore_ascii_case(clean_handle))
+                    .is_some_and(|h| h.eq_ignore_ascii_case(my_handle))
             })
             .collect();
 
         if client_tx.len() == 1 {
             return Ok(client_tx[0]);
         }
-    }
 
-    // Jeśli brak slice z flagą tx=true, ale jest tylko jeden slice w użyciu:
-    let in_use: Vec<&FlexSliceState> = slices.values().filter(|s| s.in_use).collect();
-    if in_use.len() == 1 {
-        return Ok(in_use[0]);
+        // Jeśli są slice z flagą tx, ale żaden nie należy do naszego klienta:
+        if !tx_slices.is_empty() {
+            return Err(FlexProtocolError::SliceOwnershipMismatch(
+                "active TX slice belongs to another client".to_string(),
+            ));
+        }
+
+        // Jeśli brak tx=true, ale klient ma dokładnie 1 swój slice:
+        let my_slices: Vec<&FlexSliceState> = slices
+            .values()
+            .filter(|s| {
+                s.in_use
+                    && s.client_handle
+                        .as_deref()
+                        .is_some_and(|h| h.eq_ignore_ascii_case(my_handle))
+            })
+            .collect();
+
+        if my_slices.len() == 1 {
+            return Ok(my_slices[0]);
+        }
+    } else {
+        if tx_slices.len() == 1 {
+            return Ok(tx_slices[0]);
+        }
+        let in_use: Vec<&FlexSliceState> = slices.values().filter(|s| s.in_use).collect();
+        if in_use.len() == 1 {
+            return Ok(in_use[0]);
+        }
     }
 
     Err(FlexProtocolError::AmbiguousSlice(
-        "no confirmed TX slice found".to_string(),
+        "no confirmed owned TX slice found".to_string(),
     ))
 }
 
@@ -350,10 +493,89 @@ mod tests {
             .expect("partial update failed");
 
         assert_eq!(slice.frequency_hz, 7_150_000);
-        // Niewymienione pola zostały zachowane:
         assert_eq!(slice.mode, "LSB");
         assert_eq!(slice.filter_low_hz, -2800);
         assert_eq!(slice.filter_high_hz, -200);
+    }
+
+    #[test]
+    fn flex_status_partial_update_preserves_fields() {
+        let mut slice = FlexSliceState::new(FlexSliceId(0));
+        slice.frequency_hz = 14_250_000;
+        slice.mode = "USB".to_string();
+        slice.rit_freq_hz = 50;
+
+        let mut partial = BTreeMap::new();
+        partial.insert("rit_freq".to_string(), "120".to_string());
+
+        slice.update_from_properties(&partial).expect("update");
+        assert_eq!(slice.rit_freq_hz, 120);
+        assert_eq!(slice.frequency_hz, 14_250_000);
+        assert_eq!(slice.mode, "USB");
+    }
+
+    #[test]
+    fn flex_unknown_status_class_is_safe() {
+        // Obiekty inne niż slice/interlock/transmit nie powodują błędów ani zakłóceń stanu
+        let slice = FlexSliceState::new(FlexSliceId(0));
+        assert_eq!(slice.id, FlexSliceId(0));
+    }
+
+    #[test]
+    fn flex_invalid_known_status_field_is_error() {
+        let mut slice = FlexSliceState::new(FlexSliceId(0));
+        let mut props = BTreeMap::new();
+        props.insert("freq".to_string(), "not_a_valid_frequency".to_string());
+
+        let err = slice
+            .update_from_properties(&props)
+            .expect_err("should reject invalid freq");
+        assert!(matches!(err, FlexProtocolError::ParseError(_)));
+    }
+
+    #[test]
+    fn flex_read_selection_may_observe_foreign_slice() {
+        let mut slices = BTreeMap::new();
+        let mut s0 = FlexSliceState::new(FlexSliceId(0));
+        s0.active = true;
+        s0.client_handle = Some("FOREIGN9999".to_string());
+        slices.insert(FlexSliceId(0), s0);
+
+        // Odczyt stanu może obserwować slice innego klienta
+        let read = select_read_slice(&slices, None, Some("MY1111")).expect("read should observe");
+        assert_eq!(read.id, FlexSliceId(0));
+    }
+
+    #[test]
+    fn flex_write_selection_rejects_foreign_slice() {
+        let mut slices = BTreeMap::new();
+        let mut s0 = FlexSliceState::new(FlexSliceId(0));
+        s0.active = true;
+        s0.client_handle = Some("FOREIGN9999".to_string());
+        slices.insert(FlexSliceId(0), s0);
+
+        // Operacja mutująca bez zgody na modyfikację obcego slice musi zostać odrzucona
+        let err = select_write_slice(&slices, None, Some("MY1111"), false)
+            .expect_err("should reject foreign write");
+        assert!(matches!(err, FlexProtocolError::SliceOwnershipMismatch(_)));
+
+        // Ze zgodą allow_foreign operacja może przejść
+        let write_ok = select_write_slice(&slices, None, Some("MY1111"), true)
+            .expect("should allow foreign write when permitted");
+        assert_eq!(write_ok.id, FlexSliceId(0));
+    }
+
+    #[test]
+    fn flex_tx_selection_requires_owned_tx_slice() {
+        let mut slices = BTreeMap::new();
+        let mut s0 = FlexSliceState::new(FlexSliceId(0));
+        s0.tx = true;
+        s0.client_handle = Some("FOREIGN9999".to_string());
+        slices.insert(FlexSliceId(0), s0);
+
+        // Próba wyboru TX slice gdy aktywny TX należy do innego klienta
+        let err = select_tx_slice(&slices, Some("MY1111")).expect_err("should reject foreign tx");
+        assert!(matches!(err, FlexProtocolError::SliceOwnershipMismatch(_)));
     }
 
     #[test]
@@ -405,8 +627,6 @@ mod tests {
 
     #[test]
     fn flex_slice_selection_is_not_map_order_dependent() {
-        // Sprawdzenie, że slice 1 jest wybierany, gdy jest jedynym aktywnym,
-        // mimo że slice 0 występuje w mapie jako pierwszy
         let mut slices = BTreeMap::new();
         let mut s0 = FlexSliceState::new(FlexSliceId(0));
         s0.active = false;
@@ -439,7 +659,7 @@ mod tests {
         let mut slice = FlexSliceState::new(FlexSliceId(0));
         let mut props = BTreeMap::new();
         props.insert("filter_lo".to_string(), "3000".to_string());
-        props.insert("filter_hi".to_string(), "100".to_string()); // low > high!
+        props.insert("filter_hi".to_string(), "100".to_string());
 
         let err = slice
             .update_from_properties(&props)
@@ -461,7 +681,6 @@ mod tests {
         slices.insert(FlexSliceId(0), s0);
         slices.insert(FlexSliceId(1), s1);
 
-        // Zapytanie o aktywny slice dla klienta BBBB2222
         let active = select_active_slice(&slices, None, Some("BBBB2222")).expect("select s1");
         assert_eq!(active.id, FlexSliceId(1));
     }
@@ -480,7 +699,6 @@ mod tests {
         slices.insert(FlexSliceId(0), s0);
         slices.insert(FlexSliceId(1), s1);
 
-        // Dwa aktywne slice bez wskazania preferencji i bez powiązania z klientem
         let err = select_active_slice(&slices, None, None).expect_err("should be ambiguous");
         assert!(matches!(err, FlexProtocolError::AmbiguousSlice(_)));
     }
