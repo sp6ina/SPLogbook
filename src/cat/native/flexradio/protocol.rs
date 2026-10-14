@@ -649,10 +649,15 @@ impl FlexProtocolCodec {
                     )
                 };
 
-                let (positional, properties) = tokenize_smart_sdr_fields(payload);
+                let (positional, mut properties) = tokenize_smart_sdr_fields(payload);
                 let mut pos_iter = positional.into_iter();
                 let object_class = pos_iter.next().unwrap_or_default().to_ascii_lowercase();
                 let object_id = pos_iter.next();
+                for rem in pos_iter {
+                    properties
+                        .entry(rem.to_ascii_lowercase())
+                        .or_insert_with(|| "1".to_string());
+                }
 
                 Ok(FlexInboundMessage::Status(FlexStatus {
                     client_handle,

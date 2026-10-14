@@ -74,6 +74,7 @@ pub enum HandshakeState {
     Disconnected,
     Connecting,
     AwaitingInit,
+    Connected,
     Ready,
     Closing,
 }
@@ -230,8 +231,13 @@ impl FlexRadioConnection {
             .clone()
             .ok_or_else(|| FlexProtocolError::HandshakeIncomplete("missing handle".into()))?;
 
-        self.handshake_state = HandshakeState::Ready;
+        self.handshake_state = HandshakeState::Connected;
         Ok((ver, handle))
+    }
+
+    /// Oznacza procedurę nawiązywania połączenia i subskrypcji jako zakończoną sukcesem (stan Ready).
+    pub fn mark_ready(&mut self) {
+        self.handshake_state = HandshakeState::Ready;
     }
 
     /// Wysyła komendę do radia przez strumień TCP z limitem czasu.

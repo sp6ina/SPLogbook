@@ -569,7 +569,7 @@ mod tests {
         buf
     }
 
-    /// Niezależny, literalny pakiet binarny FlexRadio Discovery VITA-49 (112 bajtów = 28 słów 32-bitowych).
+    /// Literalny niezależny fixture specyfikacyjny FlexRadio Discovery VITA-49 (112 bajtów = 28 słów 32-bitowych).
     /// Zbudowany bez użycia produkcyjnego enkodera, funkcji pomocniczych ani stałych parsera.
     ///
     /// Słowo po słowie (Big-Endian / Network Byte Order):
@@ -589,7 +589,7 @@ mod tests {
     /// - Słowo 5: [0x00, 0x00, 0x00, 0x00] -> Raw Timestamp Fractional High (0)
     /// - Słowo 6: [0x00, 0x00, 0x00, 0x00] -> Raw Timestamp Fractional Low (0)
     /// - Słowa 7..27 (84 bajty): 83 bajty payloadu ASCII + 1 bajt terminacji/wyrównania NUL (83 + 1 = 84 bajty = 21 słów)
-    pub const LITERAL_OFFICIAL_DISCOVERY_PACKET: [u8; 112] = [
+    pub const LITERAL_SPECIFICATION_DISCOVERY_PACKET: [u8; 112] = [
         // Słowo 0: Header Word (Typ 0x3, Class ID=1, Trailer=0, TSI=0b11, TSF=0b01, Count=0, Words=28)
         0x38, 0xD0, 0x00, 0x1C, // Słowo 1: Stream ID (0x00000800)
         0x00, 0x00, 0x08, 0x00, // Słowo 2: Class ID High (OUI 0x001C2D)
@@ -607,6 +607,9 @@ mod tests {
         // Słowo 27: 1 bajt NUL terminacji i wyrównania (83 + 1 = 84 bajty = 21 słów)
         0x00,
     ];
+
+    /// Alias fixture zachowujący kompatybilność testów specyfikacyjnych.
+    pub const LITERAL_OFFICIAL_DISCOVERY_PACKET: [u8; 112] = LITERAL_SPECIFICATION_DISCOVERY_PACKET;
 
     /// Niezależny, literalny pakiet binarny o długości payloadu podzielnej przez 4 (len = 52, 52 % 4 == 0).
     /// Zgodnie z oficjalnym algorytmem producenta: payload_words = (52 + 4) / 4 = 14 słów (56 bajtów).
@@ -710,6 +713,13 @@ mod tests {
             .decode_packet(&LITERAL_OFFICIAL_DISCOVERY_PACKET)
             .expect("decode");
         assert_eq!(packet.header.packet_type, 0x03);
+    }
+
+    #[test]
+    fn flex_discovery_fixture_is_specification_fixture() {
+        assert_eq!(LITERAL_SPECIFICATION_DISCOVERY_PACKET.len(), 112);
+        let nibble = (LITERAL_SPECIFICATION_DISCOVERY_PACKET[0] >> 4) & 0x0F;
+        assert_eq!(nibble, 0x03);
     }
 
     #[test]
