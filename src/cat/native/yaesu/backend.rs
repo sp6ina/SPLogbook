@@ -34,6 +34,7 @@ pub struct YaesuBackend {
     codec: YaesuAsciiCodec,
     ai_active: bool,
     confirmed_ptt: bool,
+    raw_smeter: Option<u16>,
 }
 
 impl YaesuBackend {
@@ -48,6 +49,7 @@ impl YaesuBackend {
             codec: YaesuAsciiCodec::new(),
             ai_active: false,
             confirmed_ptt: false,
+            raw_smeter: None,
         }
     }
 
@@ -65,6 +67,7 @@ impl YaesuBackend {
             codec: YaesuAsciiCodec::new(),
             ai_active: false,
             confirmed_ptt: false,
+            raw_smeter: None,
         }
     }
 
@@ -83,6 +86,13 @@ impl YaesuBackend {
         self.ai_active
     }
 
+    /// Zwraca ostatnio odczytaną surową wartość S-metra (000..255).
+    /// Odczyt pochodzi bezpośrednio z transceivera (komenda SM0;) i nie jest
+    /// poddawany arbitralnemu mapowaniu do nieoficjalnych progów S-jednostek ani dBm.
+    pub fn raw_smeter(&self) -> Option<u16> {
+        self.raw_smeter
+    }
+
     /// Zwraca bieżący endpoint do komunikatów diagnostycznych.
     fn endpoint_name(&self) -> String {
         if let Some(ref serial) = self.serial_config {
@@ -90,6 +100,60 @@ impl YaesuBackend {
         } else {
             "MOCK_STREAM".to_string()
         }
+    }
+
+    /// Zapewnia zainicjalizowany transport ramkowy (ze strumienia szeregowego lub mock streamu).
+    fn ensure_transport(&mut self) -> Result<(), RigError> {
+        let endpoint = self.endpoint_name();
+        if self.transport.is_none() {
+            if let Some(mock) = self.mock_stream.take() {
+                let framed = AsyncFramedTransport::from_stream(
+                    mock,
+                    1024,
+                    Duration::from_millis(1500),
+                    Duration::from_millis(1500),
+                );
+                self.transport = Some(framed);
+            } else if let Some(ref config) = self.serial_config {
+                let stream = open_serial_stream(config)
+                    .map_err(|e| e.to_rig_error(CatBackendKind::Yaesu, &endpoint))?;
+                let boxed_stream: Box<dyn AsyncReaderWriter> = Box::new(stream);
+                let framed = AsyncFramedTransport::from_stream(
+                    boxed_stream,
+                    1024,
+                    Duration::from_millis(1500),
+                    Duration::from_millis(1500),
+                );
+                self.transport = Some(framed);
+            } else {
+                return Err(RigError::Connect {
+                    endpoint: "unspecified".to_string(),
+                    detail: "neither serial config nor mock stream provided".to_string(),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// Bezpieczny odczyt parametrów bez zmiany konfiguracji radia i bez PTT (Probe).
+    /// Probe jest operacją ściśle tylko do odczytu (read-only): wysyła wyłącznie zapytania
+    /// diagnostyczne (np. FA;) i pod żadnym pozorem nie wysyła komend modyfikujących
+    /// konfigurację transceivera (np. AI1;, TX1;).
+    pub async fn probe(&mut self) -> Result<RigState, RigError> {
+        self.ensure_transport()?;
+
+        if let Some(t) = self.transport.as_mut() {
+            t.clear_buffer();
+        }
+
+        let probe_frame = self
+            .roundtrip_command(YaesuCat::read_freq(false), "FA")
+            .await?;
+        if let Some((_, hz)) = YaesuCat::parse_freq_resp(&probe_frame.raw) {
+            self.state.frequency_hz = hz;
+        }
+
+        Ok(self.state.clone())
     }
 
     /// Przetwarza zdekodowaną ramkę Yaesu i aktualizuje lokalny stan radia.
@@ -120,7 +184,7 @@ impl YaesuBackend {
             }
             "SM0" | "SM" => {
                 if let Some(raw) = YaesuCat::parse_smeter_resp(&frame.raw) {
-                    self.state.s_meter_unit = YaesuCat::smeter_to_unit(raw);
+                    self.raw_smeter = Some(raw);
                 }
             }
             "FT" => {
@@ -314,57 +378,58 @@ impl RigBackend for YaesuBackend {
         let endpoint = self.endpoint_name();
 
         // 1. Inicjalizacja transportu
-        if self.transport.is_none() {
-            if let Some(mock) = self.mock_stream.take() {
-                let framed = AsyncFramedTransport::from_stream(
-                    mock,
-                    1024,
-                    Duration::from_millis(1500),
-                    Duration::from_millis(1500),
-                );
-                self.transport = Some(framed);
-            } else if let Some(ref config) = self.serial_config {
-                let stream = open_serial_stream(config)
-                    .map_err(|e| e.to_rig_error(CatBackendKind::Yaesu, &endpoint))?;
-                let boxed_stream: Box<dyn AsyncReaderWriter> = Box::new(stream);
-                let framed = AsyncFramedTransport::from_stream(
-                    boxed_stream,
-                    1024,
-                    Duration::from_millis(1500),
-                    Duration::from_millis(1500),
-                );
-                self.transport = Some(framed);
-            } else {
-                return Err(RigError::Connect {
-                    endpoint: "unspecified".to_string(),
-                    detail: "neither serial config nor mock stream provided".to_string(),
-                });
-            }
-        }
+        self.ensure_transport()?;
 
-        // 2. Bezpieczny odczyt probe (wyłącznie odczyt częstotliwości, pod żadnym pozorem nie dotykamy PTT)
+        // 2. Bezpieczny odczyt probe (wyłącznie odczyt częstotliwości FA;, pod żadnym pozorem nie dotykamy PTT)
         if let Some(t) = self.transport.as_mut() {
             t.clear_buffer();
         }
 
-        let probe_frame = self
+        let probe_frame = match self
             .roundtrip_command(YaesuCat::read_freq(false), "FA")
-            .await?;
+            .await
+        {
+            Ok(frame) => frame,
+            Err(e) => {
+                // Nieudane połączenie: wycofanie transportu i zagwarantowanie, że AI nie pozostanie aktywne
+                self.ai_active = false;
+                self.state.connected = false;
+                if let Some(mut transport) = self.transport.take() {
+                    transport.close().await;
+                }
+                return Err(e);
+            }
+        };
+
         if let Some((_, hz)) = YaesuCat::parse_freq_resp(&probe_frame.raw) {
             self.state.frequency_hz = hz;
         }
 
-        // 3. Włączenie trybu Auto Information (AI1;), jeśli radio go wspiera
+        // Sesja została potwierdzona odpowiedzią transceivera
+        self.state.connected = true;
+
+        // 3. Inicjalizacja modyfikująca konfigurację radia (state-changing):
+        // Włączenie trybu Auto Information (AI1;) wyłącznie po potwierdzeniu sesji z radiem.
         if self.profile.extended_capabilities.transceive_broadcast {
             let ai_cmd = YaesuCat::set_ai(true);
             let encoded = self.codec.encode_command(ai_cmd);
-            if let Some(transport) = self.transport.as_mut() {
-                let _ = transport.write_all(&encoded).await;
+            let write_res = if let Some(transport) = self.transport.as_mut() {
+                transport.write_all(&encoded).await
+            } else {
+                Err(crate::cat::native::transport::TransportError::Closed)
+            };
+
+            if let Err(e) = write_res {
+                self.ai_active = false;
+                self.state.connected = false;
+                if let Some(mut transport) = self.transport.take() {
+                    transport.close().await;
+                }
+                return Err(e.to_rig_error(CatBackendKind::Yaesu, &endpoint));
             }
             self.ai_active = true;
         }
 
-        self.state.connected = true;
         Ok(())
     }
 
@@ -381,7 +446,7 @@ impl RigBackend for YaesuBackend {
             if let Ok(frame) = self.roundtrip_command(YaesuCat::read_smeter(), "SM0").await
                 && let Some(raw) = YaesuCat::parse_smeter_resp(&frame.raw)
             {
-                self.state.s_meter_unit = YaesuCat::smeter_to_unit(raw);
+                self.raw_smeter = Some(raw);
             }
             return Ok(self.state.clone());
         }
@@ -426,7 +491,7 @@ impl RigBackend for YaesuBackend {
         if let Ok(f) = self.roundtrip_command(YaesuCat::read_smeter(), "SM0").await
             && let Some(raw) = YaesuCat::parse_smeter_resp(&f.raw)
         {
-            self.state.s_meter_unit = YaesuCat::smeter_to_unit(raw);
+            self.raw_smeter = Some(raw);
         }
 
         Ok(self.state.clone())
@@ -576,29 +641,39 @@ impl RigBackend for YaesuBackend {
     }
 
     async fn disconnect(&mut self) {
-        // Idempotentne, bezpieczne rozłączenie:
-        // 1. Jeśli PTT było aktywne, podejmij pojedynczą ograniczoną czasowo (500 ms) próbę powrotu do odbioru (TX0;)
-        if self.confirmed_ptt {
-            if let Some(transport) = self.transport.as_mut() {
-                let rx_cmd = YaesuCat::set_ptt(false);
-                let encoded = self.codec.encode_command(rx_cmd);
-                let write_fut = transport.write_all(&encoded);
-                let _ = tokio::time::timeout(Duration::from_millis(500), write_fut).await;
+        // Idempotentne, bezpieczne rozłączenie sesji:
+        let has_active_session = self.transport.is_some() && self.state.connected;
+
+        if has_active_session {
+            // 1. Jeśli PTT było potwierdzone i profil potwierdza właściwą komendę RX,
+            //    podejmij pojedynczą, ograniczoną czasowo (500 ms) próbę przejścia do RX (TX0;).
+            //    Brak retry, błąd I/O nie blokuje zamknięcia transportu.
+            if self.confirmed_ptt && self.profile.capabilities.ptt {
+                if let Some(transport) = self.transport.as_mut() {
+                    let rx_cmd = YaesuCat::set_ptt(false);
+                    let encoded = self.codec.encode_command(rx_cmd);
+                    let write_fut = transport.write_all(&encoded);
+                    let _ = tokio::time::timeout(Duration::from_millis(500), write_fut).await;
+                }
             }
-            self.confirmed_ptt = false;
+
+            // 2. Jeśli AI było aktywne, wyślij pojedynczą, ograniczoną czasowo (500 ms) komendę wyłączenia AI (AI0;),
+            //    aby radio nie zalewało portu po zamknięciu sesji.
+            if self.ai_active {
+                if let Some(transport) = self.transport.as_mut() {
+                    let ai_cmd = YaesuCat::set_ai(false);
+                    let encoded = self.codec.encode_command(ai_cmd);
+                    let write_fut = transport.write_all(&encoded);
+                    let _ = tokio::time::timeout(Duration::from_millis(500), write_fut).await;
+                }
+            }
         }
 
-        // 2. Jeśli AI było aktywne, wyłącz tryb Auto Information (AI0;), aby radio nie zalewało portu
-        if self.ai_active {
-            if let Some(transport) = self.transport.as_mut() {
-                let ai_cmd = YaesuCat::set_ai(false);
-                let encoded = self.codec.encode_command(ai_cmd);
-                let write_fut = transport.write_all(&encoded);
-                let _ = tokio::time::timeout(Duration::from_millis(500), write_fut).await;
-            }
-            self.ai_active = false;
-        }
+        self.confirmed_ptt = false;
+        self.state.ptt = false;
+        self.ai_active = false;
 
+        // 3. Zawsze zamknij transport
         if let Some(mut transport) = self.transport.take() {
             transport.close().await;
         }
@@ -678,7 +753,7 @@ mod tests {
         backend.connect().await.unwrap();
         let state = backend.poll().await.expect("poll should succeed");
         assert_eq!(state.frequency_hz, 14_074_000);
-        assert_eq!(state.s_meter_unit, "S9");
+        assert_eq!(backend.raw_smeter(), Some(120));
 
         server_task.await.unwrap();
     }
@@ -793,25 +868,30 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn yaesu_probe_sends_only_read_commands() {
+    async fn yaesu_probe_is_strictly_read_only() {
         let (client_io, mut server_io) = tokio::io::duplex(1024);
         let mut backend = YaesuBackend::with_stream(client_io, YAESU_FT891.clone());
 
         let server_task = tokio::spawn(async move {
-            use tokio::io::AsyncWriteExt;
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
             let cmd1 = read_frame(&mut server_io).await;
-            // Podczas probe wysyłany jest wyłącznie odczyt częstotliwości (FA;)
+            // Probe wysyła wyłącznie odczyt częstotliwości (FA;)
             assert_eq!(cmd1, "FA;");
             assert!(!cmd1.contains("TX"));
+            assert!(!cmd1.contains("AI"));
             server_io.write_all(b"FA014074000;").await.unwrap();
 
-            let cmd2 = read_frame(&mut server_io).await;
-            // Następnie wyłącznie włączenie AI1;
-            assert_eq!(cmd2, "AI1;");
-            assert!(!cmd2.contains("TX"));
+            // Upewnij się, że probe nie wysyła żadnych komend modyfikujących
+            let mut buf = [0u8; 32];
+            let res =
+                tokio::time::timeout(Duration::from_millis(100), server_io.read(&mut buf)).await;
+            assert!(matches!(res, Ok(Ok(0)) | Err(_)));
         });
 
-        backend.connect().await.unwrap();
+        let state = backend.probe().await.expect("probe should succeed");
+        assert_eq!(state.frequency_hz, 14_074_000);
+        assert!(!backend.is_ai_active(), "probe must not activate AI");
+        assert!(!state.ptt, "probe must not set PTT");
         server_task.await.unwrap();
     }
 
@@ -823,15 +903,199 @@ mod tests {
         let server_task = tokio::spawn(async move {
             use tokio::io::AsyncWriteExt;
             let req1 = read_frame(&mut server_io).await;
-            assert!(!req1.starts_with("TX"));
+            assert!(!req1.starts_with("TX"), "connect probe must not send TX");
             server_io.write_all(b"FA014074000;").await.unwrap();
 
             let req2 = read_frame(&mut server_io).await;
-            assert!(!req2.starts_with("TX"));
+            assert!(!req2.starts_with("TX"), "connect init must not send TX");
         });
 
         backend.connect().await.unwrap();
         assert!(!backend.current_state().ptt);
+        server_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn yaesu_connect_enables_ai_only_after_confirmation() {
+        // Scenariusz A: brak potwierdzenia radia (błąd probe) nie aktywuje AI
+        {
+            let (client_io, mut server_io) = tokio::io::duplex(1024);
+            let mut backend = YaesuBackend::with_stream(client_io, YAESU_FT891.clone());
+
+            let server_task = tokio::spawn(async move {
+                assert_eq!(read_frame(&mut server_io).await, "FA;");
+                tokio::io::AsyncWriteExt::write_all(&mut server_io, b"?;")
+                    .await
+                    .unwrap();
+            });
+
+            let res = backend.connect().await;
+            assert!(res.is_err());
+            assert!(!backend.is_ai_active());
+            assert!(!backend.current_state().connected);
+            server_task.await.unwrap();
+        }
+
+        // Scenariusz B: sesja potwierdzona -> włączenie AI1; dopiero po FA;
+        {
+            let (client_io, mut server_io) = tokio::io::duplex(1024);
+            let mut backend = YaesuBackend::with_stream(client_io, YAESU_FT891.clone());
+
+            let server_task = tokio::spawn(async move {
+                use tokio::io::AsyncWriteExt;
+                assert_eq!(read_frame(&mut server_io).await, "FA;");
+                server_io.write_all(b"FA014074000;").await.unwrap();
+                assert_eq!(read_frame(&mut server_io).await, "AI1;");
+            });
+
+            backend.connect().await.unwrap();
+            assert!(backend.is_ai_active());
+            assert!(backend.current_state().connected);
+            server_task.await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn yaesu_disconnect_skips_ai0_when_ai_inactive() {
+        let (client_io, mut server_io) = tokio::io::duplex(1024);
+        let mut custom_profile = YAESU_FT891.clone();
+        custom_profile.extended_capabilities.transceive_broadcast = false;
+        let mut backend = YaesuBackend::with_stream(client_io, custom_profile);
+
+        let server_task = tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            assert_eq!(read_frame(&mut server_io).await, "FA;");
+            server_io.write_all(b"FA014074000;").await.unwrap();
+
+            // Disconnect: AI nie było aktywne, więc AI0; nie może zostać wysłane
+            let mut buf = [0u8; 32];
+            let res =
+                tokio::time::timeout(Duration::from_millis(100), server_io.read(&mut buf)).await;
+            assert!(matches!(res, Ok(Ok(0)) | Err(_)));
+        });
+
+        backend.connect().await.unwrap();
+        assert!(!backend.is_ai_active());
+
+        backend.disconnect().await;
+        assert!(!backend.current_state().connected);
+        server_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn yaesu_disconnect_sends_ai0_once_when_ai_active() {
+        let (client_io, mut server_io) = tokio::io::duplex(1024);
+        let mut backend = YaesuBackend::with_stream(client_io, YAESU_FT891.clone());
+
+        let server_task = tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            assert_eq!(read_frame(&mut server_io).await, "FA;");
+            server_io.write_all(b"FA014074000;").await.unwrap();
+            assert_eq!(read_frame(&mut server_io).await, "AI1;");
+
+            // Rozłączenie: wysyła AI0; dokładnie raz
+            assert_eq!(read_frame(&mut server_io).await, "AI0;");
+
+            // Drugi disconnect: brak kolejnych ramek
+            let mut buf = [0u8; 32];
+            let res =
+                tokio::time::timeout(Duration::from_millis(100), server_io.read(&mut buf)).await;
+            assert!(matches!(res, Ok(Ok(0)) | Err(_)));
+        });
+
+        backend.connect().await.unwrap();
+        assert!(backend.is_ai_active());
+
+        backend.disconnect().await;
+        assert!(!backend.is_ai_active());
+        assert!(!backend.current_state().connected);
+
+        // Idempotentność: drugie wywołanie disconnect
+        backend.disconnect().await;
+
+        server_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn yaesu_disconnect_skips_rx_when_ptt_not_confirmed() {
+        let (client_io, mut server_io) = tokio::io::duplex(1024);
+        let mut backend = YaesuBackend::with_stream(client_io, YAESU_FT891.clone());
+
+        let server_task = tokio::spawn(async move {
+            use tokio::io::AsyncWriteExt;
+            assert_eq!(read_frame(&mut server_io).await, "FA;");
+            server_io.write_all(b"FA014074000;").await.unwrap();
+            assert_eq!(read_frame(&mut server_io).await, "AI1;");
+
+            // Disconnect: PTT nie było aktywne, więc jedyna komenda to AI0; (brak TX0;)
+            let frame = read_frame(&mut server_io).await;
+            assert_eq!(frame, "AI0;");
+            assert!(!frame.contains("TX"));
+        });
+
+        backend.connect().await.unwrap();
+        assert!(!backend.current_state().ptt);
+
+        backend.disconnect().await;
+        server_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn yaesu_disconnect_sends_rx_once_when_ptt_confirmed() {
+        let (client_io, mut server_io) = tokio::io::duplex(1024);
+        let mut backend = YaesuBackend::with_stream(client_io, YAESU_FT891.clone());
+
+        let server_task = tokio::spawn(async move {
+            use tokio::io::AsyncWriteExt;
+            assert_eq!(read_frame(&mut server_io).await, "FA;");
+            server_io.write_all(b"FA014074000;").await.unwrap();
+            assert_eq!(read_frame(&mut server_io).await, "AI1;");
+
+            assert_eq!(read_frame(&mut server_io).await, "TX1;");
+
+            // Rozłączenie przy potwierdzonym PTT: najpierw TX0;, potem AI0;
+            assert_eq!(read_frame(&mut server_io).await, "TX0;");
+            assert_eq!(read_frame(&mut server_io).await, "AI0;");
+        });
+
+        backend.connect().await.unwrap();
+        backend.execute(&RigCommand::SetPtt(true)).await.unwrap();
+        assert!(backend.current_state().ptt);
+
+        backend.disconnect().await;
+        assert!(!backend.current_state().ptt);
+        assert!(!backend.current_state().connected);
+
+        // Drugie wywołanie disconnect nie ponawia TX0;
+        backend.disconnect().await;
+
+        server_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn yaesu_disconnect_cleanup_is_bounded() {
+        let (client_io, mut server_io) = tokio::io::duplex(1024);
+        let mut backend = YaesuBackend::with_stream(client_io, YAESU_FT891.clone());
+
+        let server_task = tokio::spawn(async move {
+            use tokio::io::AsyncWriteExt;
+            assert_eq!(read_frame(&mut server_io).await, "FA;");
+            server_io.write_all(b"FA014074000;").await.unwrap();
+            assert_eq!(read_frame(&mut server_io).await, "AI1;");
+            assert_eq!(read_frame(&mut server_io).await, "TX1;");
+            // Symulacja zablokowania odpowiedzi ze strony transceivera
+            tokio::time::sleep(Duration::from_millis(600)).await;
+        });
+
+        backend.connect().await.unwrap();
+        backend.execute(&RigCommand::SetPtt(true)).await.unwrap();
+
+        let t0 = std::time::Instant::now();
+        backend.disconnect().await;
+        // Pojedyncza ograniczona czasowo próba powrotu do RX i wyłączenia AI musi skończyć się w zadanym oknie
+        assert!(t0.elapsed() < Duration::from_millis(1500));
+        assert!(!backend.current_state().connected);
+
         server_task.await.unwrap();
     }
 
@@ -951,7 +1215,7 @@ mod tests {
 
         assert_eq!(state.frequency_hz, 14_080_000);
         assert_eq!(state.mode, "CW-U");
-        assert_eq!(state.s_meter_unit, "S5");
+        assert_eq!(backend.raw_smeter(), Some(60));
 
         server_task.await.unwrap();
     }
@@ -978,7 +1242,7 @@ mod tests {
         let state = backend.poll().await.expect("poll should succeed");
 
         assert!(state.ptt);
-        assert_eq!(state.s_meter_unit, "S9");
+        assert_eq!(backend.raw_smeter(), Some(120));
 
         server_task.await.unwrap();
     }

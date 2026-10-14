@@ -504,34 +504,13 @@ impl YaesuCat {
         digits.parse::<u16>().ok()
     }
 
-    /// Przelicza surowy odczyt S-metra Yaesu (0..255) na etykietę jednostki S (np. "S0".."S9", "S9+10dB"..).
-    /// Protokół Yaesu nie definiuje w oficjalnej specyfikacji CAT przeliczenia na dBm ani punktów
-    /// progowych dla dBm, dlatego backend nie fabrykuje sztucznej wartości dBm.
+    /// Transparentne opakowanie surowej wartości S-metra Yaesu (000..255).
+    /// Oficjalne instrukcje transceiverów Yaesu (FT-891, FT-991A, FT-710, FTDX10)
+    /// definiują odpowiedź SM wyłącznie jako surową liczbę 000..255 (defleksja przetwornika),
+    /// bez wzorów ani tabel mapujących na jednostki S, dB ponad S9 czy dBm.
+    /// Funkcja zwraca bezpośrednią reprezentację wartości surowej i nie generuje sztucznej skali.
     pub fn smeter_to_unit(raw: u16) -> String {
-        let raw_val = raw.min(255);
-        if raw_val <= 120 {
-            let s_num = ((raw_val as f32 / 120.0) * 9.0).round() as u8;
-            format!("S{s_num}")
-        } else {
-            let over_fraction = (raw_val - 120) as f32 / 135.0;
-            let db_over = (over_fraction * 60.0).round() as u8;
-            let step = (db_over / 10) * 10;
-            format!("S9+{step}dB")
-        }
-    }
-
-    /// Pomocnicza funkcja zachowana dla celów testowych/interoperacyjnych.
-    /// Wartość dBm jest oznaczana jako przybliżenie referencyjne IARU (S9=-73dBm),
-    /// a nie fabryczny parametr sprzętu.
-    pub fn smeter_to_dbm_and_unit(raw: u16) -> (f32, String) {
-        let unit = Self::smeter_to_unit(raw);
-        let raw_val = raw.min(255);
-        let dbm = if raw_val <= 120 {
-            -127.0 + (raw_val as f32 / 120.0) * 54.0
-        } else {
-            -73.0 + ((raw_val - 120) as f32 / 135.0) * 60.0
-        };
-        (dbm, unit)
+        raw.min(255).to_string()
     }
 }
 
@@ -850,31 +829,57 @@ mod tests {
         assert_eq!(YaesuCat::read_smeter(), "SM0;");
         assert_eq!(YaesuCat::parse_smeter_resp("SM00120;"), Some(120));
         assert_eq!(YaesuCat::parse_smeter_resp("SM0000;"), Some(0));
+        assert_eq!(YaesuCat::parse_smeter_resp("SM0255;"), Some(255));
 
         let unit_zero = YaesuCat::smeter_to_unit(0);
-        assert_eq!(unit_zero, "S0");
+        assert_eq!(unit_zero, "0");
 
-        let unit_s9 = YaesuCat::smeter_to_unit(120);
-        assert_eq!(unit_s9, "S9");
+        let unit_mid = YaesuCat::smeter_to_unit(120);
+        assert_eq!(unit_mid, "120");
 
-        let unit_over = YaesuCat::smeter_to_unit(255);
-        assert_eq!(unit_over, "S9+60dB");
+        let unit_max = YaesuCat::smeter_to_unit(255);
+        assert_eq!(unit_max, "255");
     }
 
     #[test]
-    fn yaesu_smeter_does_not_fabricate_dbm() {
-        // Protokół Yaesu SM0 zwraca surowe 000..255. Sprawdzamy, że smeter_to_unit
-        // zachowuje czystą skalę wskaźnika S bez arbitralnego przeliczania na dBm.
-        let u0 = YaesuCat::smeter_to_unit(0);
-        assert_eq!(u0, "S0");
-        let u60 = YaesuCat::smeter_to_unit(60);
-        assert_eq!(u60, "S5");
-        let u120 = YaesuCat::smeter_to_unit(120);
-        assert_eq!(u120, "S9");
-        let u180 = YaesuCat::smeter_to_unit(180);
-        assert_eq!(u180, "S9+20dB");
-        let u255 = YaesuCat::smeter_to_unit(255);
-        assert_eq!(u255, "S9+60dB");
+    fn yaesu_smeter_preserves_raw_value() {
+        assert_eq!(YaesuCat::parse_smeter_resp("SM0000;"), Some(0));
+        assert_eq!(YaesuCat::parse_smeter_resp("SM0060;"), Some(60));
+        assert_eq!(YaesuCat::parse_smeter_resp("SM0120;"), Some(120));
+        assert_eq!(YaesuCat::parse_smeter_resp("SM0180;"), Some(180));
+        assert_eq!(YaesuCat::parse_smeter_resp("SM0255;"), Some(255));
+
+        assert_eq!(YaesuCat::smeter_to_unit(0), "0");
+        assert_eq!(YaesuCat::smeter_to_unit(60), "60");
+        assert_eq!(YaesuCat::smeter_to_unit(120), "120");
+        assert_eq!(YaesuCat::smeter_to_unit(180), "180");
+        assert_eq!(YaesuCat::smeter_to_unit(255), "255");
+    }
+
+    #[test]
+    fn yaesu_smeter_does_not_generate_dbm() {
+        for raw in [0, 10, 60, 120, 180, 240, 255] {
+            let u = YaesuCat::smeter_to_unit(raw);
+            assert!(
+                !u.contains("dBm"),
+                "Yaesu smeter must never generate synthetic dBm: {u}"
+            );
+        }
+    }
+
+    #[test]
+    fn yaesu_smeter_does_not_generate_s_units_without_calibration() {
+        for raw in [0, 10, 60, 120, 180, 240, 255] {
+            let u = YaesuCat::smeter_to_unit(raw);
+            assert!(
+                !u.starts_with('S'),
+                "Yaesu smeter must not fabricate S-units without official calibration: {u}"
+            );
+            assert!(
+                !u.contains("dB"),
+                "Yaesu smeter must not fabricate dB above S9 without official calibration: {u}"
+            );
+        }
     }
 
     #[test]

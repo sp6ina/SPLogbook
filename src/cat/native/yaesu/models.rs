@@ -90,7 +90,9 @@ pub fn create_custom_yaesu_profile(model_id: &str, baud_rate: u32) -> RigModelPr
             rit: true,
             xit: true,
             power: false,
-            s_meter: true,
+            // Oficjalne instrukcje Yaesu nie definiują kalibracji SM na dBm/S-unit.
+            // Backend udostępnia odczyt surowy przez raw_smeter(), nie fabrykując jednostek w RigState.
+            s_meter: false,
         },
         extended_capabilities: NativeRigCapabilities {
             dualwatch: model_id.contains("101") || model_id.contains("DX10"),
@@ -109,6 +111,18 @@ pub fn create_custom_yaesu_profile(model_id: &str, baud_rate: u32) -> RigModelPr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn yaesu_profile_smeter_semantics_are_explicit() {
+        use crate::cat::native::registry::{YAESU_FT710, YAESU_FT891, YAESU_FT991A, YAESU_FTDX10};
+        assert!(!YAESU_FT891.capabilities.s_meter);
+        assert!(!YAESU_FT991A.capabilities.s_meter);
+        assert!(!YAESU_FT710.capabilities.s_meter);
+        assert!(!YAESU_FTDX10.capabilities.s_meter);
+
+        let custom = create_custom_yaesu_profile("FT-891", 38400);
+        assert!(!custom.capabilities.s_meter);
+    }
 
     #[test]
     fn test_enhanced_port_detection() {

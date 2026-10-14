@@ -315,7 +315,7 @@ pub static YAESU_FT891: RigModelProfile = RigModelProfile {
         rit: true,
         xit: true,
         power: false,
-        s_meter: true,
+        s_meter: false,
     },
     extended_capabilities: NativeRigCapabilities {
         dualwatch: false,
@@ -350,7 +350,7 @@ pub static YAESU_FT991A: RigModelProfile = RigModelProfile {
         rit: true,
         xit: true,
         power: false,
-        s_meter: true,
+        s_meter: false,
     },
     extended_capabilities: NativeRigCapabilities {
         dualwatch: false,
@@ -385,7 +385,7 @@ pub static YAESU_FT710: RigModelProfile = RigModelProfile {
         rit: true,
         xit: true,
         power: false,
-        s_meter: true,
+        s_meter: false,
     },
     extended_capabilities: NativeRigCapabilities {
         dualwatch: false,
@@ -420,7 +420,7 @@ pub static YAESU_FTDX10: RigModelProfile = RigModelProfile {
         rit: true,
         xit: true,
         power: false,
-        s_meter: true,
+        s_meter: false,
     },
     extended_capabilities: NativeRigCapabilities {
         dualwatch: false,

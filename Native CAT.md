@@ -251,7 +251,7 @@ Przykład: 14 074 000 Hz:
 
 ---
 
-## 12. Mapa Yaesu CAT (Wdrożono w NATIVE-3, Audyt NATIVE-3A)
+## 12. Mapa Yaesu CAT (Wdrożono w NATIVE-3, Audyt NATIVE-3A, Korekta Semantyki NATIVE-3B)
 
 1. **Format protokołu**:
    - **Nowoczesna rodzina tekstowa ASCII** (FT-891, FT-991A, FT-710, FTDX10): komendy alfanumeryczne zakończone średnikiem `;`.
@@ -260,23 +260,27 @@ Przykład: 14 074 000 Hz:
    - `FA<9 cyfr Hz>;` / `FB<9 cyfr Hz>;` — częstotliwość VFO A / VFO B (odczyt: `FA;` / `FB;`), np. `FA014074000;` dla 14.074 MHz (9 cyfr Hz). Formatter odrzuca wartości niepoprawne i przekraczające limit profilu.
    - `MD0<kod>;` — emisja (1: LSB, 2: USB, 3: CW-U, 4: FM, 5: AM, 6: RTTY-L, 7: CW-L, 8: DATA-L, 9: RTTY-U, A: DATA-FM, B: FM-N, C: DATA-U, D: AM-N, E: PSK na FT-710/FTDX10 lub C4FM na FT-991A; brak na FT-891). Brak cichego fallbacku do USB.
    - `TX1;` / `TX0;` — bezpieczne sterowanie PTT bez ponawiania (odczyt: `TX;` zwraca `TX0;`/`TX1;`/`TX2;`).
-   - `SM0;` — odczyt S-metra (odpowiedź `SM0[000-255];`). Protokół zwraca surową wartość przetwornika ADC i nie definiuje przeliczenia na dBm — backend nie fabrykuje sztucznych wartości dBm.
+   - `SM0;` — odczyt S-metra (odpowiedź `SM0[000-255];`). Oficjalne instrukcje CAT Yaesu (FT-891, FT-991A, FT-710, FTDX10) definiują odpowiedź SM wyłącznie jako surowy 3-cyfrowy poziom defleksji wskaźnika (000..255), zależny od przedwzmacniacza, tłumika i AGC. Instrukcje nie podają wzorów, progów S0..S9, dB ponad S9 ani dBm. SPLogbook nie fabrykuje syntetycznych jednostek: `smeter_to_unit` jest transparentnym opakowaniem raw, `s_meter_dbm`/`s_meter_unit` nie są zniekształcane w `RigState`, a profile Yaesu deklarują `RigCapabilities::s_meter = false`. Odczyt surowy dostępny jest przez `YaesuBackend::raw_smeter()`.
    - `FT0;` / `FT1;` — załączenie i wyłączenie pracy Split.
    - `IF;` — 29-znakowy (lub 27-znakowy bez P11/P12) blok statusu transceivera (częstotliwość 9B, offset RIT 5B, flagi RIT/XIT, stan TX/RX, emisja, VFO, Split).
-   - `AI1;` / `AI0;` — włączenie / wyłączenie trybu Auto Information (podczas rozłączania sesji wysyłane jest `AI0;` w celu wyłączenia strumieniowania).
+   - `AI1;` / `AI0;` — włączenie / wyłączenie trybu Auto Information (podczas rozłączania aktywnej sesji wysyłane jest `AI0;` z pojedynczą ograniczoną czasowo próbą).
    - `?;` — odpowiedź błędu radioodbiornika na nieprawidłowe lub niedozwolone polecenie.
 3. **Tryb Auto Information (AI)**:
-   - Włączenie `AI1;` przy nawiązywaniu połączenia eliminuje konieczność ciągłego odpytywania częstotliwości, emisji i PTT.
+   - Włączenie `AI1;` następuje wyłącznie po potwierdzeniu sesji przez odczyt weryfikacyjny (probe).
    - Transceiver asynchronicznie rozsyła zmiany parametrów (ruch gałką, zmiana emisji, PTT), redukując liczbę zapytań pollingowych w stanie spoczynku do pojedynczego odczytu S-metra.
-4. **Transport i porty COM per profil**:
+4. **Rozdzielenie Probe, Connect i Disconnect**:
+   - **Probe**: ściśle read-only (`FA;`). Nigdy nie aktywuje AI ani PTT.
+   - **Connect**: weryfikacja probe, a po jej sukcesie inicjalizacja zmieniająca konfigurację (`AI1;`). W razie niepowodzenia AI nie pozostaje aktywne.
+   - **Disconnect**: bezpieczne wyłączenie nadawania (`TX0;` wysyłane tylko gdy transport istnieje, sesja jest aktywna, `confirmed_ptt == true` i profil potwierdza PTT) oraz wyłączenie AI (`AI0;` wysyłane tylko gdy transport istnieje, sesja jest aktywna i `ai_active == true`). Każda próba jest pojedyncza, ograniczona czasowo (500 ms) i nie blokuje zamknięcia transportu.
+5. **Transport i porty COM per profil**:
    - Transceivery Yaesu ze zintegrowanym kontrolerem USB (Silicon Labs CP2105) udostępniają w systemie dwa wirtualne porty: **Enhanced COM Port** i **Standard COM Port**.
    - **Enhanced COM Port** jest preferowanym portem do sterowania CAT dla wszystkich nowoczesnych modeli.
    - **Standard COM Port**: na FT-710 port CAT-2 (Standard COM) może zostać w menu skonfigurowany do obsługi komend CAT. Na FT-891, FT-991A i FTDX10 port Standard COM służy wyłącznie do sprzętowego kluczowania PTT/CW/FSK przez linie RTS/DTR.
-5. **Profile referencyjne**:
-   - `FT-891` (fabrycznie 4800 baud, dozwolone: 4800, 9600, 19200, 38400 bps, 9 cyfr Hz, pojedynczy port CAT na Enhanced COM),
-   - `FT-991A` (fabrycznie 4800 baud [Menu 031 CAT RATE], dozwolone: 4800, 9600, 19200, 38400 bps, 9 cyfr Hz, Enhanced COM dla CAT, kod E = C4FM),
-   - `FT-710` (fabrycznie 38400 baud [CAT-1 RATE], dozwolone: 4800, 9600, 19200, 38400, 115200 bps, 9 cyfr Hz, Standard COM CAT-2 konfigurowalny w menu),
-   - `FTDX10` (fabrycznie 38400 baud, dozwolone: 4800, 9600, 19200, 38400, 115200 bps, 9 cyfr Hz, Enhanced COM dla CAT, kod E = PSK).
+6. **Profile referencyjne**:
+   - `FT-891` (fabrycznie 4800 baud, dozwolone: 4800, 9600, 19200, 38400 bps, 9 cyfr Hz, pojedynczy port CAT na Enhanced COM, `s_meter: false`),
+   - `FT-991A` (fabrycznie 4800 baud [Menu 031 CAT RATE], dozwolone: 4800, 9600, 19200, 38400 bps, 9 cyfr Hz, Enhanced COM dla CAT, kod E = C4FM, `s_meter: false`),
+   - `FT-710` (fabrycznie 38400 baud [CAT-1 RATE], dozwolone: 4800, 9600, 19200, 38400, 115200 bps, 9 cyfr Hz, Standard COM CAT-2 konfigurowalny w menu, `s_meter: false`),
+   - `FTDX10` (fabrycznie 38400 baud, dozwolone: 4800, 9600, 19200, 38400, 115200 bps, 9 cyfr Hz, Enhanced COM dla CAT, kod E = PSK, `s_meter: false`).
 
 ---
 
@@ -419,6 +423,22 @@ W falach NATIVE-0 i NATIVE-1 interfejs GUI nie ulega modyfikacji runtime, co gwa
 - [x] Rygorystyczne bezpieczeństwo PTT (brak PTT podczas connect/probe, probe wyłącznie tylko do odczytu, brak retry dla SetPtt(true), bezpieczne idempotentne rozłączanie).
 - [x] Kompletny zestaw deterministycznych testów jednostkowych (kodek, backend na dupleksie, profile).
 - [x] Pełna walidacja kompilatora i testów (fmt, check, clippy 218 bez nowych ostrzeżeń, 513 testów przechodzących bez błędów).
+
+### Kryteria NATIVE-3A:
+- [x] Precyzyjny audyt profili FT-891, FT-991A, FT-710, FTDX10 na podstawie oficjalnych instrukcji CAT.
+- [x] Korekta baud rate (FT-891 i FT-991A fabrycznie 4800 baud).
+- [x] Usunięcie nieudokumentowanego przeliczania wartości SM na dBm.
+- [x] Walidacja długości ramek IF per rodzina modeli.
+- [x] Zestaw testów audytowych Yaesu.
+
+### Kryteria NATIVE-3B (Finalna korekta semantyki pomiarów i sesji Yaesu):
+- [x] Weryfikacja komendy SM: oficjalne instrukcje FT-891, FT-991A, FT-710, FTDX10 definiują wyłącznie 000..255 (defleksja wskaźnika) bez progów S0..S9, dB ponad S9 ani dBm.
+- [x] Eliminacja syntetycznych jednostek S (`smeter_to_unit` jest transparentnym opakowaniem raw, usunięto `smeter_to_dbm_and_unit`).
+- [x] `RigCapabilities::s_meter = false` dla profili Yaesu (brak skalibrowanego dBm w RigState); surowy odczyt dostępny jako `raw_smeter()`.
+- [x] Audyt `disconnect()`: warunkowe wysyłanie `TX0;` i `AI0;`, pojedyncza ograniczona czasowo próba (500 ms), brak retry, brak blokowania zamknięcia transportu, bezpieczne czyszczenie stanu.
+- [x] Audyt `connect()` i `probe()`: ścisły podział na read-only `probe()` (`FA;`, brak modyfikacji stanu) i `connect()` (weryfikacja + potwierdzona inicjalizacja `AI1;`).
+- [x] Rozstrzygnięcie niespójności raportowych i oparcie metryk wyłącznie na bezpośrednich wynikach narzędzi.
+- [x] Pełna walidacja: 46 testów modułu Yaesu, 215 testów CAT, 543 testy pełnego zestawu — wszystkie passed, 0 błędów, 0 nowych ostrzeżeń clippy.
 
 ---
 
