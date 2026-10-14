@@ -11,6 +11,7 @@ use std::future::Future;
 
 use crate::cat::flrig::FlrigClient;
 use crate::cat::hamlib::{HamlibClient, RigState};
+pub use crate::cat::native::elecraft::ElecraftBackend;
 pub use crate::cat::native::icom::IcomCiVBackend;
 pub use crate::cat::native::kenwood::KenwoodBackend;
 pub use crate::cat::native::yaesu::YaesuBackend;
@@ -52,10 +53,12 @@ pub enum CatBackendKind {
     Tci,
     /// Bezpośredni protokół Icom CI-V (port szeregowy).
     IcomCiV,
-    /// Bezpośredni tekstowy protokół Kenwood / Elecraft CAT.
+    /// Bezpośredni tekstowy protokół Kenwood CAT.
     Kenwood,
     /// Bezpośredni protokół Yaesu CAT.
     Yaesu,
+    /// Bezpośredni natywny protokół Elecraft CAT (K3, K3S, KX2, KX3, K4, K4D).
+    Elecraft,
     /// Logika SO2R (dwa radia, blokada pojedynczego TX).
     So2r,
 }
@@ -83,9 +86,10 @@ impl CatBackendKind {
             "flrig" | "fldigi" => Self::Flrig,
             "tci" | "sunsdr" | "thetis" => Self::Tci,
             "icom_ci_v" | "icom-civ" | "ci-v" | "civ" | "icom" => Self::IcomCiV,
-            "kenwood" | "elecraft" | "ts" | "k3" => Self::Kenwood,
+            "kenwood" | "ts" => Self::Kenwood,
             "yaesu" | "ft" | "ftdx" => Self::Yaesu,
             str_val if str_val.starts_with("ft-") || str_val.starts_with("ftdx") => Self::Yaesu,
+            "elecraft" | "k3" | "k3s" | "kx2" | "kx3" | "k4" | "k4d" => Self::Elecraft,
             "so2r" => Self::So2r,
             _ => Self::Hamlib,
         }
@@ -100,6 +104,7 @@ impl CatBackendKind {
             Self::IcomCiV => "icom_ci_v",
             Self::Kenwood => "kenwood",
             Self::Yaesu => "yaesu",
+            Self::Elecraft => "elecraft",
             Self::So2r => "so2r",
         }
     }
@@ -111,20 +116,22 @@ impl CatBackendKind {
             Self::Flrig => "FLRig (XML-RPC)",
             Self::Tci => "TCI (SDR)",
             Self::IcomCiV => "Icom CI-V",
-            Self::Kenwood => "Kenwood / Elecraft (CAT)",
+            Self::Kenwood => "Kenwood CAT",
             Self::Yaesu => "Yaesu CAT",
+            Self::Elecraft => "Elecraft CAT",
             Self::So2r => "SO2R",
         }
     }
 
     /// Wszystkie obsługiwane typy (do list rozwijanych).
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Hamlib,
         Self::Flrig,
         Self::Tci,
         Self::IcomCiV,
         Self::Kenwood,
         Self::Yaesu,
+        Self::Elecraft,
         Self::So2r,
     ];
 }
@@ -392,6 +399,47 @@ mod tests {
         assert!(YAESU_FT891.capabilities.mode);
         assert!(YAESU_FT891.capabilities.ptt);
         assert!(!YAESU_FT891.capabilities.power);
+    }
+
+    #[test]
+    fn backend_kind_parses_elecraft() {
+        assert_eq!(
+            CatBackendKind::from_str("elecraft"),
+            CatBackendKind::Elecraft
+        );
+        assert_eq!(
+            CatBackendKind::from_str("ELECRAFT"),
+            CatBackendKind::Elecraft
+        );
+        assert_eq!(CatBackendKind::from_str("k3"), CatBackendKind::Elecraft);
+        assert_eq!(CatBackendKind::from_str("K3S"), CatBackendKind::Elecraft);
+        assert_eq!(CatBackendKind::from_str("kx2"), CatBackendKind::Elecraft);
+        assert_eq!(CatBackendKind::from_str("kx3"), CatBackendKind::Elecraft);
+        assert_eq!(CatBackendKind::from_str("k4"), CatBackendKind::Elecraft);
+        assert_eq!(CatBackendKind::from_str("k4d"), CatBackendKind::Elecraft);
+    }
+
+    #[test]
+    fn backend_kind_elecraft_roundtrip() {
+        assert_eq!(CatBackendKind::Elecraft.as_str(), "elecraft");
+        assert_eq!(
+            CatBackendKind::from_str(CatBackendKind::Elecraft.as_str()),
+            CatBackendKind::Elecraft
+        );
+        assert_eq!(format!("{}", CatBackendKind::Elecraft), "elecraft");
+    }
+
+    #[test]
+    fn backend_kind_elecraft_capabilities_match_profile() {
+        use crate::cat::native::registry::ELECRAFT_K3;
+        assert_eq!(
+            ELECRAFT_K3.vendor,
+            crate::cat::native::profile::RigVendor::Elecraft
+        );
+        assert!(ELECRAFT_K3.capabilities.frequency);
+        assert!(ELECRAFT_K3.capabilities.mode);
+        assert!(ELECRAFT_K3.capabilities.ptt);
+        assert!(ELECRAFT_K3.capabilities.power);
     }
 
     #[test]

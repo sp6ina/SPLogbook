@@ -9,6 +9,10 @@
 use crate::cat::native::profile::{NativeRigCapabilities, RigModelProfile, RigVendor};
 use crate::cat::rig::RigCapabilities;
 
+pub use crate::cat::native::elecraft::models::{
+    ELECRAFT_K3, ELECRAFT_K3S, ELECRAFT_K4, ELECRAFT_K4D, ELECRAFT_KX2, ELECRAFT_KX3,
+};
+
 // Referencyjne profile Icom CI-V (zweryfikowane z oficjalną dokumentacją Icom):
 
 /// Icom IC-7300 — nowoczesny transceiver HF/50MHz z bezpośrednią przemianą i USB CI-V.
@@ -449,6 +453,12 @@ pub static ALL_PROFILES: &[&RigModelProfile] = &[
     &YAESU_FT991A,
     &YAESU_FT710,
     &YAESU_FTDX10,
+    &ELECRAFT_K3,
+    &ELECRAFT_K3S,
+    &ELECRAFT_KX2,
+    &ELECRAFT_KX3,
+    &ELECRAFT_K4,
+    &ELECRAFT_K4D,
 ];
 
 /// Wyszukuje profil modelu po nazwie lub identyfikatorze (case-insensitive).
@@ -515,6 +525,35 @@ mod tests {
 
         let yaesu_profiles = profiles_by_vendor(RigVendor::Yaesu);
         assert_eq!(yaesu_profiles.len(), 4);
+
+        let elecraft_profiles = profiles_by_vendor(RigVendor::Elecraft);
+        assert_eq!(elecraft_profiles.len(), 6);
+    }
+
+    #[test]
+    fn test_lookup_elecraft_profiles() {
+        let k3 = find_profile_by_model("K3").expect("K3 missing");
+        assert_eq!(k3.vendor, RigVendor::Elecraft);
+        assert_eq!(k3.default_baud_rate, 38400);
+        assert!(k3.extended_capabilities.transceive_broadcast);
+
+        let k3s = find_profile_by_model("Elecraft K3S").expect("K3S missing");
+        assert_eq!(k3s.vendor, RigVendor::Elecraft);
+
+        let kx2 = find_profile_by_model("KX2").expect("KX2 missing");
+        assert_eq!(kx2.vendor, RigVendor::Elecraft);
+        assert!(!kx2.extended_capabilities.dualwatch);
+
+        let kx3 = find_profile_by_model("KX3").expect("KX3 missing");
+        assert_eq!(kx3.vendor, RigVendor::Elecraft);
+        assert!(kx3.extended_capabilities.dualwatch);
+
+        let k4 = find_profile_by_model("K4").expect("K4 missing");
+        assert_eq!(k4.vendor, RigVendor::Elecraft);
+        assert!(k4.capabilities.s_meter);
+
+        let k4d = find_profile_by_model("K4D").expect("K4D missing");
+        assert_eq!(k4d.vendor, RigVendor::Elecraft);
     }
 
     #[test]

@@ -83,12 +83,16 @@ graph TD
         IcomBackend --> IcomCodec[IcomCiVCodec (FE FE .. FD)]
         IcomBackend --> ProfileRegistry[RigModelRegistry / ModelProfile]
         IcomBackend --> SerialTransport[Async Serial Transport (tokio-serial)]
-        
+
         KenwoodBackend --> KenwoodCodec[KenwoodCodec (;)]
         KenwoodBackend --> SerialTransport
-        
+
         YaesuBackend --> YaesuCodec[YaesuCodec]
         YaesuBackend --> SerialTransport
+
+        ElecraftBackend --> ElecraftCodec[ElecraftCodec (;)]
+        ElecraftBackend --> SerialTransport
+        ElecraftBackend --> TcpTransport[Async TCP Transport (tokio::net::TcpStream)]
     end
 
     subgraph "Koordynacja Multi-Radio"
@@ -284,10 +288,66 @@ Przykład: 14 074 000 Hz:
 
 ---
 
-## 13. Plan Elecraft (Plan NATIVE-4)
+## 13. Natywna obsługa Elecraft (Wdrożenie NATIVE-4)
 
-1. Rodzina K3/K3S/KX2/KX3: rozszerzony zestaw Kenwood-compatible z komendami specyficznymi Elecraft (`DS`, `BW`, `PC`).
-2. Rodzina K4: pełny interfejs Ethernet (TCP), Auto Information, strumienie JSON i panadapter.
+### 13.1. Oficjalne źródła referencyjne
+1. **Elecraft K3S, K3, KX3, and KX2 Programmer's Reference**, Rev G5, February 20, 2019.
+2. **Elecraft K4 Programmer's Reference**, Rev D12, May 5, 2026.
+
+### 13.2. Rozdzielenie rodzin protokołów
+Protokół Elecraft NIE jest traktowany jako alias Kenwooda. Zaimplementowano jawny podział:
+- `ElecraftProtocolFamily::K3Compatible`:
+  - Modele: K3, K3S, KX2, KX3.
+  - Architektura oparta o rozszerzenia K31 / K22 na porcie szeregowym / USB.
+  - Parametry: 8N1, domyślnie 38400 baud, 11 cyfr częstotliwości w Hz.
+- `ElecraftProtocolFamily::K4`:
+  - Modele: K4, K4D (z drugim fizycznym odbiornikiem KRX4).
+  - Architektura direct-sampling SDR z obsługą USB oraz Ethernet TCP (port 9200).
+  - Wsparcie dla wielu równorzędnych klientów sterujących.
+
+### 13.3. Różnice sprzętowe i ograniczenia profili
+- **KX2**: Urządzenie jednoukładowe bez subreceivera (`supports_subreceiver: false`, `supports_vfo_b_modifier: false`, `dualwatch: false`, `antenna_select: false`).
+- **KX3**: Pojedynczy tor RF z programowym dual-watch w tym samym paśmie (`supports_subreceiver: false`, `dualwatch: true`, `antenna_select: false`).
+- **K3 / K3S**: Podwójny odbiornik z modułem KRX3 (`supports_subreceiver: true`, `supports_vfo_b_modifier: true`, `dualwatch: true`, `antenna_select: true`).
+- **K4 / K4D**: Pełny dwuodbiornikowy SDR z obsługą TCP port 9200 (`supports_tcp: true`, `supports_subreceiver: true`, `supports_vfo_b_modifier: true`).
+
+### 13.4. Kodek strumieniowy (ElecraftCodec)
+- Terminator `;`.
+- Zmienna długość prefiksów: 2 znaki (`FA`, `FB`, `MD`, `IF`, `TQ`, `PC`), 3 znaki (`SMH`, `SWT`, `SWH`), 4 znaki (`#RVM`).
+- Modyfikator `$` kierujący komendy do VFO B / Sub-RX (`MD$`, `BW$`, `SMH$`, `DT$`).
+- Rozróżnienie odpowiedzi na zapytania GET od asynchronicznych powiadomień Auto-Info (`AI1`, `AI2`, `AI4`).
+- Obsługa ramek błędu `?;` oraz bezpieczny wariant `ElecraftMessage::Unknown` dla nieznanych poleceń.
+
+### 13.5. Semantyka mierników (Meters)
+- **K3 / K3S / KX2 / KX3**: Komenda `SM;` zwraca surową liczbę segmentów LCD (0..15 / 0..21). Brak oficjalnej kalibracji na dBm czy S-unit w dokumentacji. Backend udostępnia odczyt surowy przez `raw_smeter()`, a `capabilities.s_meter = false` (brak sztucznych jednostek w `RigState`).
+- **K4 / K4D**: Komenda `SMH;` / `SMH$;` udostępnia skalibrowaną moc sygnału w dBm (`+nnn` / `-nnn`), co pozwala na włączenie `capabilities.s_meter = true`.
+
+### 13.6. Bezpieczeństwo PTT i sesji
+- `probe()` jest całkowicie read-only (wysyła wyłącznie `ID;`, `FA;`, `MD;`, zamykając transport).
+- `connect()` jest dwufazowy: faza 1 weryfikuje radio w trybie read-only, faza 2 aktywuje `AI2;`.
+- `SetPtt(true)` jest komendą jednokrotną — brak retry w przypadku błędu.
+- `disconnect()` wykonuje pojedynczą, ograniczoną czasowo (200ms) próbę wysłania `RX;` tylko przy potwierdzonym PTT oraz `AI0;` tylko przy aktywnym Auto-Info.
+
+### 13.7. Architektura przyszłego Data Plane K4 (ElecraftStreamService)
+W NATIVE-4 zaimplementowano wyłącznie **Control Plane** (CAT, status, Auto-Info przez Serial/TCP).
+Obsługa **Data Plane** (strumienie szerokopasmowe) zostanie zaimplementowana w przyszłości jako odrębna usługa:
+
+```text
++------------------------------------------------------------------------+
+|                              SPLogbook                                 |
++------------------------------------+-----------------------------------+
+|            CONTROL PLANE           |             DATA PLANE            |
+|       (Wdrożone w NATIVE-4)        |      (Projekt przyszłościowy)     |
++------------------------------------+-----------------------------------+
+|         ElecraftBackend            |       ElecraftStreamService       |
+|    - Port szeregowy / USB          |    - Odrębne gniazda TCP/UDP      |
+|    - Port TCP 9200 (ASCII CAT)     |    - Strumień panadaptera (#PAN)  |
+|    - FA, FB, MD, IF, AI, TQ        |    - Strumień widma dB/bin (#DBS) |
+|    - RigState & NativeRigEvent     |    - Strumień próbek I/Q (#IQ)    |
+|    - Pętla poll() i zdarzenia AI   |    - Cyfrowy strumień audio (#AUD)|
++------------------------------------+-----------------------------------+
+```
+Dane strumieniowe Data Plane pod żadnym pozorem nie będą mieszane ze strukturą `RigState` ani wspólnym transportem ramek CAT.
 
 ---
 
