@@ -117,6 +117,57 @@ pub enum FlexConfirmedPttState {
     Tx,
 }
 
+/// Klasyfikacja subskrypcji kontrolnych SmartSDR.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FlexSubscriptionRequirement {
+    /// Wymagana do działania backendu CAT (odrzucenie blokuje connect).
+    Required,
+    /// Opcjonalna telemetryczna/pomocnicza (odrzucenie nie blokuje connect).
+    Optional,
+}
+
+/// Specyfikacja subskrypcji API SmartSDR.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FlexSubscriptionSpec {
+    pub name: &'static str,
+    pub command: &'static str,
+    pub min_major_version: u32,
+    pub requirement: FlexSubscriptionRequirement,
+}
+
+pub const CONTROL_SUBSCRIPTIONS: [FlexSubscriptionSpec; 5] = [
+    FlexSubscriptionSpec {
+        name: "slice",
+        command: "sub slice all",
+        min_major_version: 1,
+        requirement: FlexSubscriptionRequirement::Required,
+    },
+    FlexSubscriptionSpec {
+        name: "interlock",
+        command: "sub interlock all",
+        min_major_version: 1,
+        requirement: FlexSubscriptionRequirement::Required,
+    },
+    FlexSubscriptionSpec {
+        name: "tx",
+        command: "sub tx all",
+        min_major_version: 1,
+        requirement: FlexSubscriptionRequirement::Optional,
+    },
+    FlexSubscriptionSpec {
+        name: "radio",
+        command: "sub radio all",
+        min_major_version: 1,
+        requirement: FlexSubscriptionRequirement::Optional,
+    },
+    FlexSubscriptionSpec {
+        name: "client",
+        command: "sub client all",
+        min_major_version: 2,
+        requirement: FlexSubscriptionRequirement::Optional,
+    },
+];
+
 /// Minimalny zestaw subskrypcji wyłącznie w warstwie sterowania (control plane).
 pub const MINIMAL_CONTROL_SUBSCRIPTIONS: [&str; 5] = [
     "sub slice all",
@@ -626,10 +677,22 @@ impl RigBackend for FlexRadioBackend {
             }
         }
 
-        // 3. Subskrybuj wyłącznie minimalny zestaw subskrypcji control plane i oczekuj na ACK
-        for &sub in &MINIMAL_CONTROL_SUBSCRIPTIONS {
+        // 3. Subskrybuj zestaw subskrypcji control plane
+        let api_major = self
+            .protocol_version
+            .as_deref()
+            .and_then(|v| v.split('.').next())
+            .and_then(|v| v.parse::<u32>().ok())
+            .unwrap_or(3);
+
+        for spec in &CONTROL_SUBSCRIPTIONS {
+            if api_major < spec.min_major_version {
+                // Nieobsługiwana w danej wersji API (np. sub client all w SmartSDR v1.x)
+                continue;
+            }
+
             let sub_seq = self
-                .send_command_tracked(sub)
+                .send_command_tracked(spec.command)
                 .await
                 .map_err(|e| e.to_rig_error(&endpoint))?;
             let sub_resp = self
@@ -638,12 +701,19 @@ impl RigBackend for FlexRadioBackend {
                 .map_err(|e| e.to_rig_error(&endpoint))?;
 
             if !sub_resp.is_success() {
-                return Err(FlexProtocolError::SubscriptionRejected {
-                    subject: sub.to_string(),
-                    code: sub_resp.code,
-                    message: sub_resp.message,
+                match spec.requirement {
+                    FlexSubscriptionRequirement::Required => {
+                        return Err(FlexProtocolError::SubscriptionRejected {
+                            subject: spec.command.to_string(),
+                            code: sub_resp.code,
+                            message: sub_resp.message,
+                        }
+                        .to_rig_error(&endpoint));
+                    }
+                    FlexSubscriptionRequirement::Optional => {
+                        // Odrzucenie subskrypcji opcjonalnej nie blokuje połączenia
+                    }
                 }
-                .to_rig_error(&endpoint));
             }
         }
 
@@ -916,23 +986,13 @@ impl RigBackend for FlexRadioBackend {
         self.xmit_command_responded = false;
         self.last_xmit_seq = None;
 
-        // Jeśli wysyłamy client disconnect, celujemy WYŁĄCZNIE we własny uchwyt
-        if let (Some(conn), Some(handle)) =
-            (self.connection.as_mut(), self.client_handle.as_deref())
-        {
-            let disc_cmd = FlexCommand::new(
-                self.seq_allocator.next_seq(),
-                format!("client disconnect {handle}"),
-            );
-            let _ = tokio::time::timeout(Duration::from_millis(500), conn.send_command(&disc_cmd))
-                .await;
-        }
+        // Anulowanie oczekujących poleceń przed zamknięciem gniazda
+        self.pending_registry.clear();
 
+        // Standardowe, bezpieczne zakończenie własnej sesji przez zamknięcie TcpStream
         if let Some(mut conn) = self.connection.take() {
             conn.disconnect().await;
         }
-
-        self.pending_registry.clear();
         self.slices.clear();
         self.client_handle = None;
         self.protocol_version = None;
@@ -2679,7 +2739,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn flex_disconnect_does_not_disconnect_other_clients() {
+    async fn flex_disconnect_closes_own_tcp_socket() {
         let (listener, port) = setup_mock_flex_radio().await;
         let recorded = Arc::new(Mutex::new(Vec::new()));
         let server = spawn_standard_mock_radio(listener, recorded.clone()).await;
@@ -2692,20 +2752,15 @@ mod tests {
 
         let mut backend = FlexRadioBackend::new(config, Some("FLEX-6600"));
         backend.connect().await.expect("connect");
-        backend.disconnect().await;
-        server.await.expect("server join");
+        assert!(backend.connection.is_some());
 
-        let cmds = recorded.lock().await;
-        for c in cmds.iter() {
-            if c.contains("client disconnect") {
-                assert!(c.contains("client disconnect 0123ABCD"));
-                assert!(!c.contains("client disconnect 9999"));
-            }
-        }
+        backend.disconnect().await;
+        assert!(backend.connection.is_none());
+        server.await.expect("server joins cleanly on EOF");
     }
 
     #[tokio::test]
-    async fn flex_disconnect_never_disconnects_all_clients() {
+    async fn flex_disconnect_does_not_send_client_disconnect_without_handle() {
         let (listener, port) = setup_mock_flex_radio().await;
         let recorded = Arc::new(Mutex::new(Vec::new()));
         let server = spawn_standard_mock_radio(listener, recorded.clone()).await;
@@ -2730,7 +2785,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn flex_client_disconnect_always_targets_own_handle_if_sent() {
+    async fn flex_disconnect_does_not_send_client_disconnect_for_own_handle() {
         let (listener, port) = setup_mock_flex_radio().await;
         let recorded = Arc::new(Mutex::new(Vec::new()));
         let server = spawn_standard_mock_radio(listener, recorded.clone()).await;
@@ -2743,19 +2798,459 @@ mod tests {
 
         let mut backend = FlexRadioBackend::new(config, Some("FLEX-6600"));
         backend.connect().await.expect("connect");
-        let my_handle = backend.client_handle().unwrap().to_string();
+        let own_handle = backend.client_handle().unwrap().to_string();
 
         backend.disconnect().await;
         server.await.expect("server join");
 
         let cmds = recorded.lock().await;
-        let disc_cmds: Vec<&String> = cmds
-            .iter()
-            .filter(|c| c.contains("client disconnect"))
-            .collect();
-        for c in disc_cmds {
-            assert!(c.contains(&format!("client disconnect {my_handle}")));
+        for c in cmds.iter() {
+            assert!(
+                !c.contains(&format!("client disconnect {own_handle}")),
+                "own handle should not be sent with client disconnect: {c}"
+            );
         }
+    }
+
+    #[tokio::test]
+    async fn flex_disconnect_does_not_disconnect_other_clients() {
+        let (listener, port) = setup_mock_flex_radio().await;
+        let recorded = Arc::new(Mutex::new(Vec::new()));
+        let server = spawn_standard_mock_radio(listener, recorded.clone()).await;
+
+        let config = FlexRadioConfig {
+            host: "127.0.0.1".to_string(),
+            port,
+            ..Default::default()
+        };
+
+        let mut backend = FlexRadioBackend::new(config, Some("FLEX-6600"));
+        backend.connect().await.expect("connect");
+        backend.disconnect().await;
+        server.await.expect("server join");
+
+        let cmds = recorded.lock().await;
+        for c in cmds.iter() {
+            assert!(
+                !c.contains("client disconnect"),
+                "disconnect must never send administrative client disconnect: {c}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn flex_disconnect_is_idempotent() {
+        let (listener, port) = setup_mock_flex_radio().await;
+        let recorded = Arc::new(Mutex::new(Vec::new()));
+        let server = spawn_standard_mock_radio(listener, recorded.clone()).await;
+
+        let config = FlexRadioConfig {
+            host: "127.0.0.1".to_string(),
+            port,
+            ..Default::default()
+        };
+
+        let mut backend = FlexRadioBackend::new(config, Some("FLEX-6600"));
+        backend.connect().await.expect("connect");
+
+        backend.disconnect().await;
+        assert!(backend.connection.is_none());
+        backend.disconnect().await;
+        assert!(backend.connection.is_none());
+        backend.disconnect().await;
+        assert!(backend.connection.is_none());
+
+        server.await.expect("server join");
+    }
+
+    #[tokio::test]
+    async fn flex_disconnect_clears_pending_registry() {
+        let (listener, port) = setup_mock_flex_radio().await;
+        let recorded = Arc::new(Mutex::new(Vec::new()));
+        let server = spawn_standard_mock_radio(listener, recorded.clone()).await;
+
+        let config = FlexRadioConfig {
+            host: "127.0.0.1".to_string(),
+            port,
+            ..Default::default()
+        };
+
+        let mut backend = FlexRadioBackend::new(config, Some("FLEX-6600"));
+        backend.connect().await.expect("connect");
+        let _ = backend.pending_registry.register(999);
+        assert!(!backend.pending_registry.is_empty());
+
+        backend.disconnect().await;
+        assert!(backend.pending_registry.is_empty());
+        server.await.expect("server join");
+    }
+
+    #[tokio::test]
+    async fn flex_disconnect_owned_tx_cleanup_precedes_socket_shutdown() {
+        let (listener, port) = setup_mock_flex_radio().await;
+        let recorded = Arc::new(Mutex::new(Vec::new()));
+        let server = spawn_standard_mock_radio(listener, recorded.clone()).await;
+
+        let config = FlexRadioConfig {
+            host: "127.0.0.1".to_string(),
+            port,
+            ..Default::default()
+        };
+
+        let mut backend = FlexRadioBackend::new(config, Some("FLEX-6600"));
+        backend.connect().await.expect("connect");
+        backend.confirmed_ptt_state = FlexConfirmedPttState::Tx;
+        backend.ptt_initiated_by_this_session = true;
+
+        backend.disconnect().await;
+        server.await.expect("server join");
+
+        let cmds = recorded.lock().await;
+        assert!(cmds.iter().any(|c| c.contains("xmit 0")));
+    }
+
+    #[tokio::test]
+    async fn flex_subscription_slice_is_required_and_confirmed() {
+        let (listener, port) = setup_mock_flex_radio().await;
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            let _ = socket.write_all(b"V3.7.4\nH0123ABCD\n").await;
+            let mut buf = [0u8; 1024];
+            let mut pending = String::new();
+            while let Ok(n) = socket.read(&mut buf).await {
+                if n == 0 {
+                    break;
+                }
+                pending.push_str(&String::from_utf8_lossy(&buf[..n]));
+                while let Some(pos) = pending.find('\n') {
+                    let line = pending[..pos].trim().to_string();
+                    pending = pending[pos + 1..].to_string();
+                    if let Some((seq_str, cmd)) =
+                        line.strip_prefix('C').and_then(|r| r.split_once('|'))
+                    {
+                        let seq: u32 = seq_str.parse().unwrap_or(0);
+                        if cmd == "info" {
+                            let _ = socket
+                                .write_all(
+                                    format!(
+                                        "R{seq}|0|model=FLEX-6600 chassis_serial=1234 slice=4\n"
+                                    )
+                                    .as_bytes(),
+                                )
+                                .await;
+                        } else if cmd == "sub slice all" {
+                            let _ = socket
+                                .write_all(format!("R{seq}|1|error slice\n").as_bytes())
+                                .await;
+                        } else {
+                            let _ = socket.write_all(format!("R{seq}|0|\n").as_bytes()).await;
+                        }
+                    }
+                }
+            }
+        });
+
+        let config = FlexRadioConfig {
+            host: "127.0.0.1".to_string(),
+            port,
+            ..Default::default()
+        };
+        let mut backend = FlexRadioBackend::new(config, Some("FLEX-6600"));
+        let err = backend
+            .connect()
+            .await
+            .expect_err("required subscription must fail connect");
+        assert!(
+            err.to_string().contains("SubscriptionRejected")
+                || err.to_string().contains("sub slice all")
+        );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn flex_subscription_interlock_is_required_and_confirmed() {
+        let (listener, port) = setup_mock_flex_radio().await;
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            let _ = socket.write_all(b"V3.7.4\nH0123ABCD\n").await;
+            let mut buf = [0u8; 1024];
+            let mut pending = String::new();
+            while let Ok(n) = socket.read(&mut buf).await {
+                if n == 0 {
+                    break;
+                }
+                pending.push_str(&String::from_utf8_lossy(&buf[..n]));
+                while let Some(pos) = pending.find('\n') {
+                    let line = pending[..pos].trim().to_string();
+                    pending = pending[pos + 1..].to_string();
+                    if let Some((seq_str, cmd)) =
+                        line.strip_prefix('C').and_then(|r| r.split_once('|'))
+                    {
+                        let seq: u32 = seq_str.parse().unwrap_or(0);
+                        if cmd == "info" {
+                            let _ = socket
+                                .write_all(
+                                    format!(
+                                        "R{seq}|0|model=FLEX-6600 chassis_serial=1234 slice=4\n"
+                                    )
+                                    .as_bytes(),
+                                )
+                                .await;
+                        } else if cmd == "sub interlock all" {
+                            let _ = socket
+                                .write_all(format!("R{seq}|1|error interlock\n").as_bytes())
+                                .await;
+                        } else {
+                            let _ = socket.write_all(format!("R{seq}|0|\n").as_bytes()).await;
+                        }
+                    }
+                }
+            }
+        });
+
+        let config = FlexRadioConfig {
+            host: "127.0.0.1".to_string(),
+            port,
+            ..Default::default()
+        };
+        let mut backend = FlexRadioBackend::new(config, Some("FLEX-6600"));
+        let err = backend
+            .connect()
+            .await
+            .expect_err("required subscription must fail connect");
+        assert!(
+            err.to_string().contains("SubscriptionRejected")
+                || err.to_string().contains("sub interlock all")
+        );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn flex_subscription_tx_is_optional_and_tolerates_rejection() {
+        let (listener, port) = setup_mock_flex_radio().await;
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            let _ = socket.write_all(b"V3.7.4\nH0123ABCD\n").await;
+            let mut buf = [0u8; 1024];
+            let mut pending = String::new();
+            while let Ok(n) = socket.read(&mut buf).await {
+                if n == 0 {
+                    break;
+                }
+                pending.push_str(&String::from_utf8_lossy(&buf[..n]));
+                while let Some(pos) = pending.find('\n') {
+                    let line = pending[..pos].trim().to_string();
+                    pending = pending[pos + 1..].to_string();
+                    if let Some((seq_str, cmd)) =
+                        line.strip_prefix('C').and_then(|r| r.split_once('|'))
+                    {
+                        let seq: u32 = seq_str.parse().unwrap_or(0);
+                        if cmd == "info" {
+                            let _ = socket
+                                .write_all(
+                                    format!(
+                                        "R{seq}|0|model=FLEX-6600 chassis_serial=1234 slice=4\n"
+                                    )
+                                    .as_bytes(),
+                                )
+                                .await;
+                        } else if cmd == "sub tx all" {
+                            let _ = socket
+                                .write_all(format!("R{seq}|1|error tx optional\n").as_bytes())
+                                .await;
+                        } else {
+                            let _ = socket.write_all(format!("R{seq}|0|\n").as_bytes()).await;
+                        }
+                    }
+                }
+            }
+        });
+
+        let config = FlexRadioConfig {
+            host: "127.0.0.1".to_string(),
+            port,
+            ..Default::default()
+        };
+        let mut backend = FlexRadioBackend::new(config, Some("FLEX-6600"));
+        backend
+            .connect()
+            .await
+            .expect("optional tx subscription rejection must not block connect");
+        assert!(backend.connection.is_some());
+        backend.disconnect().await;
+        server.await.expect("server join");
+    }
+
+    #[tokio::test]
+    async fn flex_subscription_radio_is_optional_and_tolerates_rejection() {
+        let (listener, port) = setup_mock_flex_radio().await;
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            let _ = socket.write_all(b"V3.7.4\nH0123ABCD\n").await;
+            let mut buf = [0u8; 1024];
+            let mut pending = String::new();
+            while let Ok(n) = socket.read(&mut buf).await {
+                if n == 0 {
+                    break;
+                }
+                pending.push_str(&String::from_utf8_lossy(&buf[..n]));
+                while let Some(pos) = pending.find('\n') {
+                    let line = pending[..pos].trim().to_string();
+                    pending = pending[pos + 1..].to_string();
+                    if let Some((seq_str, cmd)) =
+                        line.strip_prefix('C').and_then(|r| r.split_once('|'))
+                    {
+                        let seq: u32 = seq_str.parse().unwrap_or(0);
+                        if cmd == "info" {
+                            let _ = socket
+                                .write_all(
+                                    format!(
+                                        "R{seq}|0|model=FLEX-6600 chassis_serial=1234 slice=4\n"
+                                    )
+                                    .as_bytes(),
+                                )
+                                .await;
+                        } else if cmd == "sub radio all" {
+                            let _ = socket
+                                .write_all(format!("R{seq}|1|error radio optional\n").as_bytes())
+                                .await;
+                        } else {
+                            let _ = socket.write_all(format!("R{seq}|0|\n").as_bytes()).await;
+                        }
+                    }
+                }
+            }
+        });
+
+        let config = FlexRadioConfig {
+            host: "127.0.0.1".to_string(),
+            port,
+            ..Default::default()
+        };
+        let mut backend = FlexRadioBackend::new(config, Some("FLEX-6600"));
+        backend
+            .connect()
+            .await
+            .expect("optional radio subscription rejection must not block connect");
+        assert!(backend.connection.is_some());
+        backend.disconnect().await;
+        server.await.expect("server join");
+    }
+
+    #[tokio::test]
+    async fn flex_subscription_client_is_optional_and_tolerates_rejection() {
+        let (listener, port) = setup_mock_flex_radio().await;
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            let _ = socket.write_all(b"V3.7.4\nH0123ABCD\n").await;
+            let mut buf = [0u8; 1024];
+            let mut pending = String::new();
+            while let Ok(n) = socket.read(&mut buf).await {
+                if n == 0 {
+                    break;
+                }
+                pending.push_str(&String::from_utf8_lossy(&buf[..n]));
+                while let Some(pos) = pending.find('\n') {
+                    let line = pending[..pos].trim().to_string();
+                    pending = pending[pos + 1..].to_string();
+                    if let Some((seq_str, cmd)) =
+                        line.strip_prefix('C').and_then(|r| r.split_once('|'))
+                    {
+                        let seq: u32 = seq_str.parse().unwrap_or(0);
+                        if cmd == "info" {
+                            let _ = socket
+                                .write_all(
+                                    format!(
+                                        "R{seq}|0|model=FLEX-6600 chassis_serial=1234 slice=4\n"
+                                    )
+                                    .as_bytes(),
+                                )
+                                .await;
+                        } else if cmd == "sub client all" {
+                            let _ = socket
+                                .write_all(format!("R{seq}|1|error client optional\n").as_bytes())
+                                .await;
+                        } else {
+                            let _ = socket.write_all(format!("R{seq}|0|\n").as_bytes()).await;
+                        }
+                    }
+                }
+            }
+        });
+
+        let config = FlexRadioConfig {
+            host: "127.0.0.1".to_string(),
+            port,
+            ..Default::default()
+        };
+        let mut backend = FlexRadioBackend::new(config, Some("FLEX-6600"));
+        backend
+            .connect()
+            .await
+            .expect("optional client subscription rejection must not block connect");
+        assert!(backend.connection.is_some());
+        backend.disconnect().await;
+        server.await.expect("server join");
+    }
+
+    #[tokio::test]
+    async fn flex_subscription_client_unsupported_on_legacy_api_version() {
+        let (listener, port) = setup_mock_flex_radio().await;
+        let recorded = Arc::new(Mutex::new(Vec::new()));
+        let recorded_clone = recorded.clone();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            // SmartSDR v1.x legacy handshake
+            let _ = socket.write_all(b"V1.11.0\nH0123ABCD\n").await;
+            let mut buf = [0u8; 1024];
+            let mut pending = String::new();
+            while let Ok(n) = socket.read(&mut buf).await {
+                if n == 0 {
+                    break;
+                }
+                pending.push_str(&String::from_utf8_lossy(&buf[..n]));
+                while let Some(pos) = pending.find('\n') {
+                    let line = pending[..pos].trim().to_string();
+                    pending = pending[pos + 1..].to_string();
+                    recorded_clone.lock().await.push(line.clone());
+                    if let Some((seq_str, cmd)) =
+                        line.strip_prefix('C').and_then(|r| r.split_once('|'))
+                    {
+                        let seq: u32 = seq_str.parse().unwrap_or(0);
+                        if cmd == "info" {
+                            let _ = socket
+                                .write_all(
+                                    format!(
+                                        "R{seq}|0|model=FLEX-6600 chassis_serial=1234 slice=4\n"
+                                    )
+                                    .as_bytes(),
+                                )
+                                .await;
+                        } else {
+                            let _ = socket.write_all(format!("R{seq}|0|\n").as_bytes()).await;
+                        }
+                    }
+                }
+            }
+        });
+
+        let config = FlexRadioConfig {
+            host: "127.0.0.1".to_string(),
+            port,
+            ..Default::default()
+        };
+        let mut backend = FlexRadioBackend::new(config, Some("FLEX-6600"));
+        backend
+            .connect()
+            .await
+            .expect("legacy v1 API connection succeeds");
+        backend.disconnect().await;
+        server.await.expect("server join");
+
+        let cmds = recorded.lock().await;
+        // W v1.x sub client all jest pomijane jako unsupported
+        assert!(!cmds.iter().any(|c| c.contains("sub client all")));
+        assert!(cmds.iter().any(|c| c.contains("sub slice all")));
     }
 
     #[tokio::test]

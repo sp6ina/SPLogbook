@@ -65,16 +65,15 @@ pub struct FlexDiscoveryVitaHeader {
     pub packet_type: u8,
     pub class_id_present: bool,
     pub trailer_present: bool,
-    pub tsi: u8,
-    pub tsf: u8,
+    pub tsi_code: u8,
+    pub tsf_code: u8,
     pub packet_count: u8,
     pub packet_size_words: u16,
     pub stream_id: u32,
     pub class_id_high: u32,
     pub class_id_low: u32,
-    pub timestamp_int: u32,
-    pub timestamp_frac_high: u32,
-    pub timestamp_frac_low: u32,
+    pub raw_timestamp_integer: u32,
+    pub raw_timestamp_fractional: u64,
 }
 
 impl Default for FlexDiscoveryVitaHeader {
@@ -83,16 +82,15 @@ impl Default for FlexDiscoveryVitaHeader {
             packet_type: VITA_PACKET_TYPE_EXT_DATA_WITH_STREAM_ID, // 0x03
             class_id_present: true,
             trailer_present: false,
-            tsi: VITA_TSI_OTHER,        // 0b11
-            tsf: VITA_TSF_SAMPLE_COUNT, // 0b01
+            tsi_code: VITA_TSI_OTHER,        // 0b11 (Other)
+            tsf_code: VITA_TSF_SAMPLE_COUNT, // 0b01 (Sample Count)
             packet_count: 0,
             packet_size_words: 7,
             stream_id: FLEX_DISCOVERY_STREAM_ID,
             class_id_high: FLEX_DISCOVERY_CLASS_ID_HIGH,
             class_id_low: FLEX_DISCOVERY_CLASS_ID_LOW,
-            timestamp_int: 0,
-            timestamp_frac_high: 0,
-            timestamp_frac_low: 0,
+            raw_timestamp_integer: 0,
+            raw_timestamp_fractional: 0,
         }
     }
 }
@@ -188,8 +186,8 @@ impl FlexDiscoveryCodec {
         let packet_type = ((word0 >> 28) & 0x0F) as u8;
         let class_id_present = ((word0 >> 27) & 0x01) == 1;
         let trailer_present = ((word0 >> 26) & 0x01) == 1;
-        let tsi = ((word0 >> 22) & 0x03) as u8;
-        let tsf = ((word0 >> 20) & 0x03) as u8;
+        let tsi_code = ((word0 >> 22) & 0x03) as u8;
+        let tsf_code = ((word0 >> 20) & 0x03) as u8;
         let packet_count = ((word0 >> 16) & 0x0F) as u8;
         let packet_size_words = (word0 & 0xFFFF) as u16;
 
@@ -205,17 +203,17 @@ impl FlexDiscoveryCodec {
             return Err(FlexProtocolError::MissingClassId);
         }
 
-        if tsi != VITA_TSI_OTHER {
+        if tsi_code != VITA_TSI_OTHER {
             return Err(FlexProtocolError::UnsupportedVitaTsi {
                 expected: VITA_TSI_OTHER,
-                actual: tsi,
+                actual: tsi_code,
             });
         }
 
-        if tsf != VITA_TSF_SAMPLE_COUNT {
+        if tsf_code != VITA_TSF_SAMPLE_COUNT {
             return Err(FlexProtocolError::UnsupportedVitaTsf {
                 expected: VITA_TSF_SAMPLE_COUNT,
-                actual: tsf,
+                actual: tsf_code,
             });
         }
 
@@ -269,34 +267,36 @@ impl FlexDiscoveryCodec {
             });
         }
 
-        // Słowa 4, 5, 6: Timestamp fields
-        let timestamp_int = u32::from_be_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]);
+        // Słowa 4, 5, 6: Timestamp fields (przechowywane jako surowe bez konwersji na UTC/GPS/pikosekundy)
+        let raw_timestamp_integer =
+            u32::from_be_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]);
         let timestamp_frac_high = u32::from_be_bytes([bytes[20], bytes[21], bytes[22], bytes[23]]);
         let timestamp_frac_low = u32::from_be_bytes([bytes[24], bytes[25], bytes[26], bytes[27]]);
+        let raw_timestamp_fractional =
+            ((timestamp_frac_high as u64) << 32) | (timestamp_frac_low as u64);
 
         let header = FlexDiscoveryVitaHeader {
             packet_type,
             class_id_present,
             trailer_present,
-            tsi,
-            tsf,
+            tsi_code,
+            tsf_code,
             packet_count,
             packet_size_words,
             stream_id,
             class_id_high,
             class_id_low,
-            timestamp_int,
-            timestamp_frac_high,
-            timestamp_frac_low,
+            raw_timestamp_integer,
+            raw_timestamp_fractional,
         };
 
-        // Wyznaczenie granicy payloadu (wyłącznie końcowe bajty NUL od 0 do 3 jako wyrównanie 32-bitowe)
+        // Wyznaczenie granicy payloadu (wyłącznie końcowe bajty NUL od 0 do 4 jako terminacja i wyrównanie 32-bitowe)
         let payload_slice = &bytes[VITA49_DISCOVERY_HEADER_BYTES..expected_total_bytes];
         let trailing_nuls = payload_slice.iter().rev().take_while(|&&b| b == 0).count();
-        if trailing_nuls > 3 {
+        if trailing_nuls > 4 {
             return Err(FlexProtocolError::ExcessiveNulPadding {
                 actual: trailing_nuls,
-                max: 3,
+                max: 4,
             });
         }
 
@@ -430,16 +430,19 @@ impl FlexDiscoveryCodec {
         }
 
         let payload = parts.join(" ").into_bytes();
-        let pad_len = (4 - (payload.len() % 4)) % 4;
-        let total_payload_len = payload.len() + pad_len;
+        let payload_len_bytes = payload.len();
+        // Oficjalny algorytm producenta: (payload_len_bytes + 4) / 4 słów z terminacją i paddingiem
+        let payload_words = (payload_len_bytes + 4) / 4;
+        let total_payload_len = payload_words * 4;
+        let pad_len = total_payload_len - payload_len_bytes;
         let total_words = ((VITA49_DISCOVERY_HEADER_BYTES + total_payload_len) / 4) as u16;
 
         let mut buf = Vec::with_capacity(total_words as usize * 4);
         let word0: u32 = ((packet.header.packet_type as u32) << 28)
             | ((packet.header.class_id_present as u32) << 27)
             | ((packet.header.trailer_present as u32) << 26)
-            | ((packet.header.tsi as u32) << 22)
-            | ((packet.header.tsf as u32) << 20)
+            | ((packet.header.tsi_code as u32) << 22)
+            | ((packet.header.tsf_code as u32) << 20)
             | ((packet.header.packet_count as u32) << 16)
             | (total_words as u32);
 
@@ -447,9 +450,8 @@ impl FlexDiscoveryCodec {
         buf.extend_from_slice(&packet.header.stream_id.to_be_bytes());
         buf.extend_from_slice(&packet.header.class_id_high.to_be_bytes());
         buf.extend_from_slice(&packet.header.class_id_low.to_be_bytes());
-        buf.extend_from_slice(&packet.header.timestamp_int.to_be_bytes());
-        buf.extend_from_slice(&packet.header.timestamp_frac_high.to_be_bytes());
-        buf.extend_from_slice(&packet.header.timestamp_frac_low.to_be_bytes());
+        buf.extend_from_slice(&packet.header.raw_timestamp_integer.to_be_bytes());
+        buf.extend_from_slice(&packet.header.raw_timestamp_fractional.to_be_bytes());
         buf.extend_from_slice(&payload);
         buf.resize(buf.len() + pad_len, 0);
         buf
@@ -519,8 +521,10 @@ mod tests {
     use std::net::Ipv4Addr;
 
     pub(crate) fn build_valid_vita49_packet(payload: &[u8]) -> Vec<u8> {
-        let pad_len = (4 - (payload.len() % 4)) % 4;
-        let total_payload_len = payload.len() + pad_len;
+        let payload_len_bytes = payload.len();
+        let payload_words = (payload_len_bytes + 4) / 4;
+        let total_payload_len = payload_words * 4;
+        let pad_len = total_payload_len - payload_len_bytes;
         let total_words = ((VITA49_DISCOVERY_HEADER_BYTES + total_payload_len) / 4) as u16;
         let word0: u32 = ((VITA_PACKET_TYPE_EXT_DATA_WITH_STREAM_ID as u32) << 28)
             | (1 << 27) // Class ID present (bit 26 trailer present = 0)
@@ -533,9 +537,9 @@ mod tests {
         buf.extend_from_slice(&FLEX_DISCOVERY_STREAM_ID.to_be_bytes());
         buf.extend_from_slice(&FLEX_OUI.to_be_bytes()); // Słowo 2: 24-bit OUI 0x001C2D
         buf.extend_from_slice(&FLEX_DISCOVERY_CLASS_ID_LOW.to_be_bytes()); // Słowo 3: 0x534CFFFF
-        buf.extend_from_slice(&1_609_459_200_u32.to_be_bytes()); // timestamp int
-        buf.extend_from_slice(&0x1234_5678u32.to_be_bytes()); // timestamp frac high
-        buf.extend_from_slice(&0x9ABC_DEF0u32.to_be_bytes()); // timestamp frac low
+        buf.extend_from_slice(&0_u32.to_be_bytes()); // raw timestamp int: 0 per official spec
+        buf.extend_from_slice(&0_u32.to_be_bytes()); // raw timestamp frac high: 0 per official spec
+        buf.extend_from_slice(&0_u32.to_be_bytes()); // raw timestamp frac low: 0 per official spec
         buf.extend_from_slice(payload);
         buf.resize(buf.len() + pad_len, 0);
         buf
@@ -783,8 +787,8 @@ mod tests {
         assert_eq!(packet.header.packet_type, 0x03);
         assert!(packet.header.class_id_present);
         assert!(!packet.header.trailer_present);
-        assert_eq!(packet.header.tsi, 0b11);
-        assert_eq!(packet.header.tsf, 0b01);
+        assert_eq!(packet.header.tsi_code, 0b11);
+        assert_eq!(packet.header.tsf_code, 0b01);
     }
 
     #[test]
@@ -875,19 +879,165 @@ mod tests {
     }
 
     #[test]
-    fn flex_discovery_padding_zero_to_three_bytes() {
+    fn flex_discovery_zero_timestamps_are_valid() {
         let codec = FlexDiscoveryCodec::new();
-        // Sprawdź payload o różnych długościach generujących padding 0, 1, 2, 3 bajtów
-        for pad_needed in 0..4 {
-            let base = "model=FLEX-6400 serial=1234 ip=10.0.0.1 custom=";
-            let padding_char = "X".repeat(pad_needed);
-            let payload_str = format!("{base}{padding_char}");
-            let datagram = build_valid_vita49_packet(payload_str.as_bytes());
-            let packet = codec
-                .decode_packet(&datagram)
-                .expect("valid padding length");
-            assert_eq!(packet.model, "FLEX-6400");
+        let payload = b"model=FLEX-6600 serial=1320 ip=192.168.1.50";
+        let datagram = build_valid_vita49_packet(payload);
+        assert_eq!(&datagram[16..20], &[0, 0, 0, 0]);
+        assert_eq!(&datagram[20..28], &[0, 0, 0, 0, 0, 0, 0, 0]);
+
+        let packet = codec
+            .decode_packet(&datagram)
+            .expect("valid zero timestamps accepted");
+        assert_eq!(packet.header.raw_timestamp_integer, 0);
+        assert_eq!(packet.header.raw_timestamp_fractional, 0);
+    }
+
+    #[test]
+    fn flex_discovery_timestamps_remain_raw() {
+        let codec = FlexDiscoveryCodec::new();
+        let payload = b"model=FLEX-6600 serial=1320 ip=192.168.1.50";
+        let mut datagram = build_valid_vita49_packet(payload);
+        let raw_int: u32 = 0x1234_5678;
+        let raw_frac: u64 = 0x9ABC_DEF0_1357_9BDF;
+        datagram[16..20].copy_from_slice(&raw_int.to_be_bytes());
+        datagram[20..28].copy_from_slice(&raw_frac.to_be_bytes());
+
+        let packet = codec.decode_packet(&datagram).expect("decoded");
+        assert_eq!(packet.header.raw_timestamp_integer, raw_int);
+        assert_eq!(packet.header.raw_timestamp_fractional, raw_frac);
+    }
+
+    #[test]
+    fn flex_discovery_does_not_label_tsi_other_as_utc() {
+        let codec = FlexDiscoveryCodec::new();
+        let payload = b"model=FLEX-6600 serial=1320 ip=192.168.1.50";
+        let datagram = build_valid_vita49_packet(payload);
+        let packet = codec.decode_packet(&datagram).expect("decoded");
+
+        assert_eq!(packet.header.tsi_code, VITA_TSI_OTHER);
+        assert_eq!(packet.header.tsi_code, 0b11);
+        assert_ne!(packet.header.tsi_code, 0b01);
+    }
+
+    #[test]
+    fn flex_discovery_does_not_convert_fractional_timestamp() {
+        let codec = FlexDiscoveryCodec::new();
+        let payload = b"model=FLEX-6600 serial=1320 ip=192.168.1.50";
+        let mut datagram = build_valid_vita49_packet(payload);
+        let sample_frac: u64 = 0xFEDC_BA98_7654_3210;
+        datagram[20..28].copy_from_slice(&sample_frac.to_be_bytes());
+
+        let packet = codec.decode_packet(&datagram).expect("decoded");
+        assert_eq!(packet.header.raw_timestamp_fractional, sample_frac);
+    }
+
+    #[test]
+    fn flex_discovery_tsi_tsf_codes_match_official_header() {
+        let codec = FlexDiscoveryCodec::new();
+        let payload = b"model=FLEX-6600 serial=1320 ip=192.168.1.50";
+        let datagram = build_valid_vita49_packet(payload);
+        let packet = codec.decode_packet(&datagram).expect("decoded");
+
+        assert_eq!(packet.header.tsi_code, 0b11);
+        assert_eq!(packet.header.tsf_code, 0b01);
+    }
+
+    #[test]
+    fn flex_discovery_padding_matches_official_copy_algorithm() {
+        for n in 0..100 {
+            let payload_words = (n + 4) / 4;
+            let total_payload_bytes = payload_words * 4;
+            let pad_len = total_payload_bytes - n;
+            let expected_pad = 4 - (n % 4);
+            assert_eq!(pad_len, expected_pad);
+            assert!((1..=4).contains(&pad_len));
         }
+    }
+
+    #[test]
+    fn flex_discovery_payload_modulo_zero() {
+        let codec = FlexDiscoveryCodec::new();
+        let text = b"model=FLEX-6600 serial=1320 ip=192.168.1.50 tag=";
+        assert_eq!(text.len() % 4, 0);
+        let datagram = build_valid_vita49_packet(text);
+        let trailing_nuls = datagram[28..].iter().rev().take_while(|&&b| b == 0).count();
+        assert_eq!(trailing_nuls, 4);
+
+        let packet = codec.decode_packet(&datagram).expect("decoded modulo 0");
+        assert_eq!(packet.model, "FLEX-6600");
+        assert_eq!(packet.serial, "1320");
+    }
+
+    #[test]
+    fn flex_discovery_payload_modulo_one() {
+        let codec = FlexDiscoveryCodec::new();
+        let text = b"model=FLEX-6600 serial=1320 ip=192.168.1.50 tag=a";
+        assert_eq!(text.len() % 4, 1);
+        let datagram = build_valid_vita49_packet(text);
+        let trailing_nuls = datagram[28..].iter().rev().take_while(|&&b| b == 0).count();
+        assert_eq!(trailing_nuls, 3);
+
+        let packet = codec.decode_packet(&datagram).expect("decoded modulo 1");
+        assert_eq!(packet.model, "FLEX-6600");
+    }
+
+    #[test]
+    fn flex_discovery_payload_modulo_two() {
+        let codec = FlexDiscoveryCodec::new();
+        let text = b"model=FLEX-6600 serial=1320 ip=192.168.1.50 tag=ab";
+        assert_eq!(text.len() % 4, 2);
+        let datagram = build_valid_vita49_packet(text);
+        let trailing_nuls = datagram[28..].iter().rev().take_while(|&&b| b == 0).count();
+        assert_eq!(trailing_nuls, 2);
+
+        let packet = codec.decode_packet(&datagram).expect("decoded modulo 2");
+        assert_eq!(packet.model, "FLEX-6600");
+    }
+
+    #[test]
+    fn flex_discovery_payload_modulo_three() {
+        let codec = FlexDiscoveryCodec::new();
+        let text = b"model=FLEX-6600 serial=1320 ip=192.168.1.50 tag=abc";
+        assert_eq!(text.len() % 4, 3);
+        let datagram = build_valid_vita49_packet(text);
+        let trailing_nuls = datagram[28..].iter().rev().take_while(|&&b| b == 0).count();
+        assert_eq!(trailing_nuls, 1);
+
+        let packet = codec.decode_packet(&datagram).expect("decoded modulo 3");
+        assert_eq!(packet.model, "FLEX-6600");
+    }
+
+    #[test]
+    fn flex_discovery_accepts_official_aligned_payload() {
+        let codec = FlexDiscoveryCodec::new();
+        let payload = b"model=FLEX-6400 serial=5678 ip=10.0.0.5 port=4992";
+        let datagram = build_valid_vita49_packet(payload);
+        let packet = codec
+            .decode_packet(&datagram)
+            .expect("official aligned packet decoded");
+        assert_eq!(packet.model, "FLEX-6400");
+        assert_eq!(packet.serial, "5678");
+        assert_eq!(packet.port, 4992);
+        assert_eq!(packet.ip.to_string(), "10.0.0.5");
+    }
+
+    #[test]
+    fn flex_discovery_packet_size_controls_payload_boundary() {
+        let codec = FlexDiscoveryCodec::new();
+        let payload = b"model=FLEX-6400 serial=1111 ip=10.0.0.1";
+        let datagram = build_valid_vita49_packet(payload);
+        let total_words = (datagram.len() / 4) as u16;
+
+        let packet = codec.decode_packet(&datagram).expect("decoded");
+        assert_eq!(packet.header.packet_size_words, total_words);
+
+        let mut malformed = datagram.clone();
+        malformed.extend_from_slice(&[0xDE, 0xAD, 0xBE, 0xEF]);
+        let err = codec
+            .decode_packet(&malformed)
+            .expect_err("extra bytes rejected");
+        assert!(matches!(err, FlexProtocolError::InvalidPacketSize { .. }));
     }
 
     #[test]
@@ -895,11 +1045,10 @@ mod tests {
         let codec = FlexDiscoveryCodec::new();
         let payload = b"model=FLEX-6400 serial=1234 ip=10.0.0.1";
         let mut datagram = build_valid_vita49_packet(payload);
-        // Zwiększ zadeklarowany packet_size o 1 słowo (4 bajty NUL)
-        let total_words = (datagram.len() / 4 + 1) as u16;
+        let total_words = (datagram.len() / 4 + 2) as u16;
         datagram[2] = (total_words >> 8) as u8;
         datagram[3] = (total_words & 0xFF) as u8;
-        datagram.extend_from_slice(&[0, 0, 0, 0]);
+        datagram.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 0]);
 
         let err = codec
             .decode_packet(&datagram)
