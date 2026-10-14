@@ -30,6 +30,19 @@ pub enum FlexProtocolError {
         actual: usize,
     },
     InvalidVitaHeader(String),
+    UnsupportedVitaPacketType {
+        expected: u8,
+        actual: u8,
+    },
+    UnsupportedVitaTsi {
+        expected: u8,
+        actual: u8,
+    },
+    UnsupportedVitaTsf {
+        expected: u8,
+        actual: u8,
+    },
+    TrailerNotPermitted,
     WrongStreamId {
         expected: u32,
         actual: u32,
@@ -37,6 +50,18 @@ pub enum FlexProtocolError {
     WrongClassId {
         expected: u32,
         actual: u32,
+    },
+    WrongOui {
+        expected: u32,
+        actual: u32,
+    },
+    WrongInformationClass {
+        expected: u16,
+        actual: u16,
+    },
+    WrongPacketClass {
+        expected: u16,
+        actual: u16,
     },
     MissingClassId,
     InvalidPacketSize {
@@ -47,6 +72,11 @@ pub enum FlexProtocolError {
         expected: usize,
         actual: usize,
     },
+    ExcessiveNulPadding {
+        actual: usize,
+        max: usize,
+    },
+    EmbeddedNulInPayload,
     SliceOwnershipMismatch(String),
     MissingRequiredField(String),
     LineTooLong {
@@ -76,6 +106,19 @@ pub enum FlexProtocolError {
     AmbiguousSlice(String),
     SliceNotFound(u32),
     Unsupported(String),
+    ModelMismatch {
+        expected: String,
+        actual: String,
+    },
+    SerialMismatch {
+        expected: String,
+        actual: String,
+    },
+    SubscriptionRejected {
+        subject: String,
+        code: u32,
+        message: String,
+    },
 }
 
 impl std::fmt::Display for FlexProtocolError {
@@ -84,6 +127,27 @@ impl std::fmt::Display for FlexProtocolError {
             Self::InvalidHeader(detail) => write!(f, "invalid SmartSDR packet header: {detail}"),
             Self::InvalidVitaHeader(detail) => {
                 write!(f, "invalid VITA-49 discovery packet header: {detail}")
+            }
+            Self::UnsupportedVitaPacketType { expected, actual } => {
+                write!(
+                    f,
+                    "unsupported VITA-49 packet type 0x{actual:X}: expected 0x{expected:X} (Extension Data with Stream ID)"
+                )
+            }
+            Self::UnsupportedVitaTsi { expected, actual } => {
+                write!(
+                    f,
+                    "unsupported VITA-49 TSI 0b{actual:02b}: expected 0b{expected:02b} (Other)"
+                )
+            }
+            Self::UnsupportedVitaTsf { expected, actual } => {
+                write!(
+                    f,
+                    "unsupported VITA-49 TSF 0b{actual:02b}: expected 0b{expected:02b} (Sample Count)"
+                )
+            }
+            Self::TrailerNotPermitted => {
+                write!(f, "VITA-49 trailer is not permitted in discovery packet")
             }
             Self::WrongStreamId { expected, actual } => {
                 write!(
@@ -95,6 +159,24 @@ impl std::fmt::Display for FlexProtocolError {
                 write!(
                     f,
                     "VITA-49 class ID mismatch: expected 0x{expected:08X}, got 0x{actual:08X}"
+                )
+            }
+            Self::WrongOui { expected, actual } => {
+                write!(
+                    f,
+                    "VITA-49 OUI mismatch: expected 0x{expected:06X}, got 0x{actual:06X}"
+                )
+            }
+            Self::WrongInformationClass { expected, actual } => {
+                write!(
+                    f,
+                    "VITA-49 information class mismatch: expected 0x{expected:04X}, got 0x{actual:04X}"
+                )
+            }
+            Self::WrongPacketClass { expected, actual } => {
+                write!(
+                    f,
+                    "VITA-49 packet class mismatch: expected 0x{expected:04X}, got 0x{actual:04X}"
                 )
             }
             Self::MissingClassId => write!(f, "VITA-49 header missing class ID indicator"),
@@ -109,6 +191,15 @@ impl std::fmt::Display for FlexProtocolError {
                     f,
                     "truncated VITA-49 header: expected {expected} bytes, got {actual} bytes"
                 )
+            }
+            Self::ExcessiveNulPadding { actual, max } => {
+                write!(
+                    f,
+                    "excessive NUL padding in discovery payload ({actual} > max {max} bytes)"
+                )
+            }
+            Self::EmbeddedNulInPayload => {
+                write!(f, "embedded NUL byte encountered in discovery text payload")
             }
             Self::SliceOwnershipMismatch(detail) => {
                 write!(f, "slice ownership mismatch: {detail}")
@@ -149,6 +240,28 @@ impl std::fmt::Display for FlexProtocolError {
             Self::AmbiguousSlice(detail) => write!(f, "ambiguous slice selection: {detail}"),
             Self::SliceNotFound(id) => write!(f, "slice {id} not found in active slice map"),
             Self::Unsupported(cmd) => write!(f, "unsupported SmartSDR command: {cmd}"),
+            Self::ModelMismatch { expected, actual } => {
+                write!(
+                    f,
+                    "radio model mismatch: discovery expected '{expected}', info reported '{actual}'"
+                )
+            }
+            Self::SerialMismatch { expected, actual } => {
+                write!(
+                    f,
+                    "radio chassis serial mismatch: discovery expected '{expected}', info reported '{actual}'"
+                )
+            }
+            Self::SubscriptionRejected {
+                subject,
+                code,
+                message,
+            } => {
+                write!(
+                    f,
+                    "required status subscription '{subject}' rejected with code 0x{code:08X}: {message}"
+                )
+            }
         }
     }
 }
@@ -303,6 +416,87 @@ pub enum FlexInboundMessage {
     Unknown(String),
 }
 
+/// Parsuje ciąg tokenów SmartSDR, rozróżniając tokeny pozycyjne oraz pary klucz=wartość,
+/// z pełną obsługą wartości w cudzysłowach ("..."), escapowania znaków (\", \\),
+/// pustych wartości (""), liczb ze znakiem, wartości hex i raw unknown fields.
+pub fn tokenize_smart_sdr_fields(input: &str) -> (Vec<String>, BTreeMap<String, String>) {
+    let mut positional = Vec::new();
+    let mut properties = BTreeMap::new();
+
+    let mut chars = input.chars().peekable();
+
+    while let Some(&ch) = chars.peek() {
+        if ch.is_whitespace() {
+            chars.next();
+            continue;
+        }
+
+        let mut token = String::new();
+        let mut in_quote = false;
+        let mut has_equals = false;
+
+        while let Some(&c) = chars.peek() {
+            if c == '"' {
+                in_quote = !in_quote;
+                token.push(c);
+                chars.next();
+            } else if c == '\\' && in_quote {
+                chars.next();
+                if let Some(escaped) = chars.next() {
+                    token.push(escaped);
+                }
+            } else if c == '=' && !in_quote && !has_equals {
+                has_equals = true;
+                token.push(c);
+                chars.next();
+                break;
+            } else if c.is_whitespace() && !in_quote {
+                break;
+            } else {
+                token.push(c);
+                chars.next();
+            }
+        }
+
+        if has_equals {
+            let key = token.trim_end_matches('=').trim().to_ascii_lowercase();
+            let mut val = String::new();
+            if let Some(&'"') = chars.peek() {
+                chars.next(); // zjedz otwierający '"'
+                while let Some(c) = chars.next() {
+                    if c == '"' {
+                        break;
+                    } else if c == '\\' {
+                        if let Some(escaped) = chars.next() {
+                            val.push(escaped);
+                        }
+                    } else {
+                        val.push(c);
+                    }
+                }
+            } else {
+                while let Some(&c) = chars.peek() {
+                    if c.is_whitespace() {
+                        break;
+                    }
+                    val.push(c);
+                    chars.next();
+                }
+            }
+            properties.insert(key, val);
+        } else if !token.is_empty() {
+            let clean = if token.starts_with('"') && token.ends_with('"') && token.len() >= 2 {
+                &token[1..token.len() - 1]
+            } else {
+                &token
+            };
+            positional.push(clean.to_string());
+        }
+    }
+
+    (positional, properties)
+}
+
 /// Kodek protokołu strumieniowego FlexRadio.
 #[derive(Debug, Clone, Default)]
 pub struct FlexProtocolCodec {
@@ -455,29 +649,10 @@ impl FlexProtocolCodec {
                     )
                 };
 
-                let mut tokens = payload.split_whitespace();
-                let object_class = match tokens.next() {
-                    Some(c) => c.to_ascii_lowercase(),
-                    None => {
-                        return Ok(FlexInboundMessage::Status(FlexStatus {
-                            client_handle,
-                            object_class: String::new(),
-                            object_id: None,
-                            properties: BTreeMap::new(),
-                        }));
-                    }
-                };
-
-                let mut object_id = None;
-                let mut properties = BTreeMap::new();
-
-                for token in tokens {
-                    if let Some((k, v)) = token.split_once('=') {
-                        properties.insert(k.to_ascii_lowercase(), v.to_string());
-                    } else if object_id.is_none() && !token.contains('=') {
-                        object_id = Some(token.to_string());
-                    }
-                }
+                let (positional, properties) = tokenize_smart_sdr_fields(payload);
+                let mut pos_iter = positional.into_iter();
+                let object_class = pos_iter.next().unwrap_or_default().to_ascii_lowercase();
+                let object_id = pos_iter.next();
 
                 Ok(FlexInboundMessage::Status(FlexStatus {
                     client_handle,
@@ -768,5 +943,58 @@ mod tests {
             .expect("allocate failed");
         // Powinien pominąć 2 i zwrócić 3
         assert_eq!(s3, 3);
+    }
+
+    #[test]
+    fn flex_status_tokenizer_handles_quoted_values() {
+        let input = r#"radio model="FLEX-6600" chassis_serial="1320-5691-6400-6874" nickname="Shack Main Rig" empty="" count=4 freq=14.074000 offset=-50 hex=0x1A2B antennas=ANT1,ANT2 escaped="Quote: \"Hello\" and backslash \\""#;
+        let (positional, properties) = tokenize_smart_sdr_fields(input);
+
+        assert_eq!(positional, vec!["radio"]);
+        assert_eq!(properties.get("model"), Some(&"FLEX-6600".to_string()));
+        assert_eq!(
+            properties.get("chassis_serial"),
+            Some(&"1320-5691-6400-6874".to_string())
+        );
+        assert_eq!(
+            properties.get("nickname"),
+            Some(&"Shack Main Rig".to_string())
+        );
+        assert_eq!(properties.get("empty"), Some(&String::new()));
+        assert_eq!(properties.get("count"), Some(&"4".to_string()));
+        assert_eq!(properties.get("freq"), Some(&"14.074000".to_string()));
+        assert_eq!(properties.get("offset"), Some(&"-50".to_string()));
+        assert_eq!(properties.get("hex"), Some(&"0x1A2B".to_string()));
+        assert_eq!(properties.get("antennas"), Some(&"ANT1,ANT2".to_string()));
+        assert_eq!(
+            properties.get("escaped"),
+            Some(&r#"Quote: "Hello" and backslash \"#.to_string())
+        );
+    }
+
+    #[test]
+    fn flex_status_decodes_quoted_status_message() {
+        let codec = FlexProtocolCodec::new();
+        let line = r#"S0123ABCD|slice 0 freq=14.074000 mode=USB nickname="FT8 Slice" tx=1"#;
+        let msg = codec.decode_line(line).expect("decode failed");
+
+        match msg {
+            FlexInboundMessage::Status(status) => {
+                assert_eq!(status.client_handle, Some("0123ABCD".to_string()));
+                assert_eq!(status.object_class, "slice");
+                assert_eq!(status.object_id, Some("0".to_string()));
+                assert_eq!(
+                    status.properties.get("freq"),
+                    Some(&"14.074000".to_string())
+                );
+                assert_eq!(status.properties.get("mode"), Some(&"USB".to_string()));
+                assert_eq!(
+                    status.properties.get("nickname"),
+                    Some(&"FT8 Slice".to_string())
+                );
+                assert_eq!(status.properties.get("tx"), Some(&"1".to_string()));
+            }
+            _ => unreachable!("expected status"),
+        }
     }
 }

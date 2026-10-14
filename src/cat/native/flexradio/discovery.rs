@@ -21,7 +21,7 @@ use std::time::Duration;
 use tokio::net::UdpSocket;
 
 use super::models::FLEX_DEFAULT_PORT;
-use super::protocol::FlexProtocolError;
+use super::protocol::{FlexProtocolError, tokenize_smart_sdr_fields};
 
 /// Domyślny oficjalny port rozgłoszeniowy UDP SmartSDR.
 pub const FLEX_DISCOVERY_PORT: u16 = 4992;
@@ -29,8 +29,29 @@ pub const FLEX_DISCOVERY_PORT: u16 = 4992;
 /// Oficjalny Stream ID dla pakietów discovery VITA-49 SmartSDR.
 pub const FLEX_DISCOVERY_STREAM_ID: u32 = 0x0000_0800;
 
-/// Oficjalna górna część Class ID (ASCII "SL\xFF\xFF").
-pub const FLEX_DISCOVERY_CLASS_ID_HIGH: u32 = 0x534C_FFFF;
+/// Oficjalny typ pakietu VITA-49: Extension Data Packet with Stream ID (0x03).
+pub const VITA_PACKET_TYPE_EXT_DATA_WITH_STREAM_ID: u8 = 0x03;
+
+/// Oficjalny wskaźnik czasu TSI: Other (0b11).
+pub const VITA_TSI_OTHER: u8 = 0b11;
+
+/// Oficjalny wskaźnik czasu TSF: Sample Count 64-bit (0b01).
+pub const VITA_TSF_SAMPLE_COUNT: u8 = 0b01;
+
+/// Oficjalny 24-bitowy IEEE OUI producenta FlexRadio Systems, Inc. (0x001C2D).
+pub const FLEX_OUI: u32 = 0x0000_1C2D;
+
+/// Oficjalny 16-bitowy kod klasy informacji SmoothLake (ASCII "SL" = 0x534C).
+pub const FLEX_INFO_CLASS_SMOOTHLAKE: u16 = 0x534C;
+
+/// Oficjalny 16-bitowy kod klasy pakietu discovery broadcast (0xFFFF).
+pub const FLEX_PACKET_CLASS_DISCOVERY: u16 = 0xFFFF;
+
+/// Oficjalne dolne słowo Class ID (0x534CFFFF: Information Class 0x534C, Packet Class 0xFFFF).
+pub const FLEX_DISCOVERY_CLASS_ID_LOW: u32 = 0x534C_FFFF;
+
+/// Oficjalna górna część Class ID (OUI w 24 najmłodszych bitach).
+pub const FLEX_DISCOVERY_CLASS_ID_HIGH: u32 = FLEX_OUI;
 
 /// Minimalny rozmiar preambuły nagłówka VITA-49 discovery w bajtach (7 słów 32-bitowych).
 pub const VITA49_DISCOVERY_HEADER_BYTES: usize = 28;
@@ -59,16 +80,16 @@ pub struct FlexDiscoveryVitaHeader {
 impl Default for FlexDiscoveryVitaHeader {
     fn default() -> Self {
         Self {
-            packet_type: 0x4, // Context packet
+            packet_type: VITA_PACKET_TYPE_EXT_DATA_WITH_STREAM_ID, // 0x03
             class_id_present: true,
             trailer_present: false,
-            tsi: 0b01, // UTC
-            tsf: 0b10, // Real-time picoseconds
+            tsi: VITA_TSI_OTHER,        // 0b11
+            tsf: VITA_TSF_SAMPLE_COUNT, // 0b01
             packet_count: 0,
             packet_size_words: 7,
             stream_id: FLEX_DISCOVERY_STREAM_ID,
             class_id_high: FLEX_DISCOVERY_CLASS_ID_HIGH,
-            class_id_low: 0x0000_0000,
+            class_id_low: FLEX_DISCOVERY_CLASS_ID_LOW,
             timestamp_int: 0,
             timestamp_frac_high: 0,
             timestamp_frac_low: 0,
@@ -172,19 +193,38 @@ impl FlexDiscoveryCodec {
         let packet_count = ((word0 >> 16) & 0x0F) as u8;
         let packet_size_words = (word0 & 0xFFFF) as u16;
 
-        // Typ pakietu VITA-49: Extension Data / Context / Ext Context (0x3, 0x4 lub 0x5)
-        if packet_type != 0x3 && packet_type != 0x4 && packet_type != 0x5 {
-            return Err(FlexProtocolError::InvalidVitaHeader(format!(
-                "unsupported VITA-49 packet type 0x{packet_type:X} (expected context/extension 0x3, 0x4, or 0x5)"
-            )));
+        // Dokładny typ pakietu VITA-49 discovery: wyłącznie Extension Data with Stream ID (0x03)
+        if packet_type != VITA_PACKET_TYPE_EXT_DATA_WITH_STREAM_ID {
+            return Err(FlexProtocolError::UnsupportedVitaPacketType {
+                expected: VITA_PACKET_TYPE_EXT_DATA_WITH_STREAM_ID,
+                actual: packet_type,
+            });
         }
 
         if !class_id_present {
             return Err(FlexProtocolError::MissingClassId);
         }
 
+        if tsi != VITA_TSI_OTHER {
+            return Err(FlexProtocolError::UnsupportedVitaTsi {
+                expected: VITA_TSI_OTHER,
+                actual: tsi,
+            });
+        }
+
+        if tsf != VITA_TSF_SAMPLE_COUNT {
+            return Err(FlexProtocolError::UnsupportedVitaTsf {
+                expected: VITA_TSF_SAMPLE_COUNT,
+                actual: tsf,
+            });
+        }
+
+        if trailer_present {
+            return Err(FlexProtocolError::TrailerNotPermitted);
+        }
+
         let expected_total_bytes = (packet_size_words as usize) * 4;
-        if (packet_size_words as usize) < 7 || bytes.len() < expected_total_bytes {
+        if (packet_size_words as usize) < 7 || bytes.len() != expected_total_bytes {
             return Err(FlexProtocolError::InvalidPacketSize {
                 expected: expected_total_bytes,
                 actual: bytes.len(),
@@ -200,15 +240,32 @@ impl FlexDiscoveryCodec {
             });
         }
 
-        // Słowa 2 i 3: Class ID (wymagane 0x534CFFFF w class_id_high lub class_id_low)
+        // Słowa 2 i 3: Class ID
+        // Word 2 (class_id_high): 24-bit IEEE OUI w najmłodszych 24 bitach (0x001C2D)
+        // Bity 31..24 to pole zarezerwowane/rozszerzenia (nie zakładamy zera, zachowujemy diagnostycznie)
         let class_id_high = u32::from_be_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]);
+        let oui = class_id_high & 0x00FF_FFFF;
+        if oui != FLEX_OUI {
+            return Err(FlexProtocolError::WrongOui {
+                expected: FLEX_OUI,
+                actual: oui,
+            });
+        }
+
+        // Word 3 (class_id_low): Information Class Code (0x534C) i Packet Class Code (0xFFFF)
         let class_id_low = u32::from_be_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]);
-        if class_id_high != FLEX_DISCOVERY_CLASS_ID_HIGH
-            && class_id_low != FLEX_DISCOVERY_CLASS_ID_HIGH
-        {
-            return Err(FlexProtocolError::WrongClassId {
-                expected: FLEX_DISCOVERY_CLASS_ID_HIGH,
-                actual: class_id_high,
+        let info_class = ((class_id_low >> 16) & 0xFFFF) as u16;
+        if info_class != FLEX_INFO_CLASS_SMOOTHLAKE {
+            return Err(FlexProtocolError::WrongInformationClass {
+                expected: FLEX_INFO_CLASS_SMOOTHLAKE,
+                actual: info_class,
+            });
+        }
+        let packet_class = (class_id_low & 0xFFFF) as u16;
+        if packet_class != FLEX_PACKET_CLASS_DISCOVERY {
+            return Err(FlexProtocolError::WrongPacketClass {
+                expected: FLEX_PACKET_CLASS_DISCOVERY,
+                actual: packet_class,
             });
         }
 
@@ -233,22 +290,25 @@ impl FlexDiscoveryCodec {
             timestamp_frac_low,
         };
 
-        // Wyznaczenie granicy payloadu (usuwanie wyłącznie końcowego wyrównania NUL)
+        // Wyznaczenie granicy payloadu (wyłącznie końcowe bajty NUL od 0 do 3 jako wyrównanie 32-bitowe)
         let payload_slice = &bytes[VITA49_DISCOVERY_HEADER_BYTES..expected_total_bytes];
-        let trimmed_bytes = match payload_slice.iter().rposition(|&b| b != 0) {
-            Some(idx) => &payload_slice[..=idx],
-            None => &[][..],
-        };
+        let trailing_nuls = payload_slice.iter().rev().take_while(|&&b| b == 0).count();
+        if trailing_nuls > 3 {
+            return Err(FlexProtocolError::ExcessiveNulPadding {
+                actual: trailing_nuls,
+                max: 3,
+            });
+        }
 
-        let text = std::str::from_utf8(trimmed_bytes)
+        let text_bytes = &payload_slice[..payload_slice.len() - trailing_nuls];
+        if text_bytes.contains(&0) {
+            return Err(FlexProtocolError::EmbeddedNulInPayload);
+        }
+
+        let text = std::str::from_utf8(text_bytes)
             .map_err(|e| FlexProtocolError::InvalidUtf8(e.to_string()))?;
 
-        let mut fields: BTreeMap<String, String> = BTreeMap::new();
-        for token in text.split_whitespace() {
-            if let Some((k, v)) = token.split_once('=') {
-                fields.insert(k.to_ascii_lowercase(), v.to_string());
-            }
-        }
+        let (_, mut fields) = tokenize_smart_sdr_fields(text);
 
         let model = fields
             .remove("model")
@@ -462,14 +522,17 @@ mod tests {
         let pad_len = (4 - (payload.len() % 4)) % 4;
         let total_payload_len = payload.len() + pad_len;
         let total_words = ((VITA49_DISCOVERY_HEADER_BYTES + total_payload_len) / 4) as u16;
-        let word0: u32 =
-            (0x4 << 28) | (1 << 27) | (0b01 << 22) | (0b10 << 20) | (total_words as u32);
+        let word0: u32 = ((VITA_PACKET_TYPE_EXT_DATA_WITH_STREAM_ID as u32) << 28)
+            | (1 << 27) // Class ID present (bit 26 trailer present = 0)
+            | ((VITA_TSI_OTHER as u32) << 22)
+            | ((VITA_TSF_SAMPLE_COUNT as u32) << 20)
+            | (total_words as u32);
 
         let mut buf = Vec::with_capacity(total_words as usize * 4);
         buf.extend_from_slice(&word0.to_be_bytes());
         buf.extend_from_slice(&FLEX_DISCOVERY_STREAM_ID.to_be_bytes());
-        buf.extend_from_slice(&FLEX_DISCOVERY_CLASS_ID_HIGH.to_be_bytes());
-        buf.extend_from_slice(&0x0000_0000u32.to_be_bytes());
+        buf.extend_from_slice(&FLEX_OUI.to_be_bytes()); // Słowo 2: 24-bit OUI 0x001C2D
+        buf.extend_from_slice(&FLEX_DISCOVERY_CLASS_ID_LOW.to_be_bytes()); // Słowo 3: 0x534CFFFF
         buf.extend_from_slice(&1_609_459_200_u32.to_be_bytes()); // timestamp int
         buf.extend_from_slice(&0x1234_5678u32.to_be_bytes()); // timestamp frac high
         buf.extend_from_slice(&0x9ABC_DEF0u32.to_be_bytes()); // timestamp frac low
@@ -517,8 +580,81 @@ mod tests {
         assert_eq!(packet.status, "Available");
         assert_eq!(packet.max_slices, Some(4));
         assert_eq!(packet.available_slices, Some(4));
+        assert_eq!(
+            packet.header.packet_type,
+            VITA_PACKET_TYPE_EXT_DATA_WITH_STREAM_ID
+        );
         assert_eq!(packet.header.stream_id, FLEX_DISCOVERY_STREAM_ID);
-        assert_eq!(packet.header.class_id_high, FLEX_DISCOVERY_CLASS_ID_HIGH);
+        assert_eq!(packet.header.class_id_high & 0x00FF_FFFF, FLEX_OUI);
+        assert_eq!(packet.header.class_id_low, FLEX_DISCOVERY_CLASS_ID_LOW);
+    }
+
+    #[test]
+    fn flex_discovery_accepts_only_official_packet_type() {
+        let codec = FlexDiscoveryCodec::new();
+        let payload = b"model=FLEX-6600 serial=1320 ip=192.168.1.120";
+        let datagram = build_valid_vita49_packet(payload);
+        let packet = codec
+            .decode_packet(&datagram)
+            .expect("should accept official type");
+        assert_eq!(packet.header.packet_type, 0x03);
+    }
+
+    #[test]
+    fn flex_discovery_rejects_context_packet() {
+        let codec = FlexDiscoveryCodec::new();
+        let payload = b"model=FLEX-6400 serial=1111 ip=10.0.0.1";
+        let mut datagram = build_valid_vita49_packet(payload);
+        // Ustaw typ na 0x4 (Context packet)
+        datagram[0] = (datagram[0] & 0x0F) | (0x4 << 4);
+        let err = codec
+            .decode_packet(&datagram)
+            .expect_err("should reject context packet");
+        assert!(matches!(
+            err,
+            FlexProtocolError::UnsupportedVitaPacketType {
+                expected: 0x03,
+                actual: 0x04
+            }
+        ));
+    }
+
+    #[test]
+    fn flex_discovery_rejects_extension_context_packet() {
+        let codec = FlexDiscoveryCodec::new();
+        let payload = b"model=FLEX-6400 serial=1111 ip=10.0.0.1";
+        let mut datagram = build_valid_vita49_packet(payload);
+        // Ustaw typ na 0x5 (Extension Context packet)
+        datagram[0] = (datagram[0] & 0x0F) | (0x5 << 4);
+        let err = codec
+            .decode_packet(&datagram)
+            .expect_err("should reject extension context packet");
+        assert!(matches!(
+            err,
+            FlexProtocolError::UnsupportedVitaPacketType {
+                expected: 0x03,
+                actual: 0x05
+            }
+        ));
+    }
+
+    #[test]
+    fn flex_discovery_rejects_extension_data_without_stream_id() {
+        let codec = FlexDiscoveryCodec::new();
+        let payload = b"model=FLEX-6400 serial=1111 ip=10.0.0.1";
+        let mut datagram = build_valid_vita49_packet(payload);
+        // Ustaw typ na 0x2 (Extension data w/o stream ID)
+        datagram[0] = (datagram[0] & 0x0F) | (0x2 << 4);
+        let err = codec
+            .decode_packet(&datagram)
+            .expect_err("should reject extension data without stream ID");
+        assert!(matches!(
+            err,
+            FlexProtocolError::UnsupportedVitaPacketType {
+                expected: 0x03,
+                actual: 0x02
+            }
+        ));
     }
 
     #[test]
@@ -528,10 +664,10 @@ mod tests {
         let err = codec
             .decode_packet(plain_text)
             .expect_err("should reject plain text");
-        // Pierwsze 4 bajty tekstu to ASCII "disc", czyli 0x64697363 -> packet_type 0x6 != 0x3/0x4/0x5
         assert!(matches!(
             err,
-            FlexProtocolError::InvalidVitaHeader(_)
+            FlexProtocolError::UnsupportedVitaPacketType { .. }
+                | FlexProtocolError::InvalidVitaHeader(_)
                 | FlexProtocolError::WrongStreamId { .. }
                 | FlexProtocolError::WrongClassId { .. }
         ));
@@ -547,7 +683,254 @@ mod tests {
         let err = codec
             .decode_packet(&datagram)
             .expect_err("should reject packet type 0x0");
-        assert!(matches!(err, FlexProtocolError::InvalidVitaHeader(_)));
+        assert!(matches!(
+            err,
+            FlexProtocolError::UnsupportedVitaPacketType {
+                expected: 0x03,
+                actual: 0x00
+            }
+        ));
+    }
+
+    #[test]
+    fn flex_discovery_class_id_layout_matches_spec() {
+        let codec = FlexDiscoveryCodec::new();
+        let payload = b"model=FLEX-6600 serial=1320 ip=192.168.1.50";
+        let datagram = build_valid_vita49_packet(payload);
+
+        let packet = codec.decode_packet(&datagram).expect("decoding failed");
+        assert_eq!(packet.header.class_id_high & 0x00FF_FFFF, FLEX_OUI);
+        assert_eq!((packet.header.class_id_low >> 16) as u16, 0x534C);
+        assert_eq!((packet.header.class_id_low & 0xFFFF) as u16, 0xFFFF);
+    }
+
+    #[test]
+    fn flex_discovery_rejects_wrong_oui() {
+        let codec = FlexDiscoveryCodec::new();
+        let payload = b"model=FLEX-6400 serial=1111 ip=10.0.0.1";
+        let mut datagram = build_valid_vita49_packet(payload);
+        // Zmień OUI z 0x001C2D na 0x112233
+        datagram[9] = 0x11;
+        datagram[10] = 0x22;
+        datagram[11] = 0x33;
+        let err = codec
+            .decode_packet(&datagram)
+            .expect_err("should reject wrong OUI");
+        assert!(matches!(err, FlexProtocolError::WrongOui { .. }));
+    }
+
+    #[test]
+    fn flex_discovery_rejects_wrong_information_class() {
+        let codec = FlexDiscoveryCodec::new();
+        let payload = b"model=FLEX-6400 serial=1111 ip=10.0.0.1";
+        let mut datagram = build_valid_vita49_packet(payload);
+        // Zmień Information Class z 0x534C ("SL") na 0x1234
+        datagram[12] = 0x12;
+        datagram[13] = 0x34;
+        let err = codec
+            .decode_packet(&datagram)
+            .expect_err("should reject wrong info class");
+        assert!(matches!(
+            err,
+            FlexProtocolError::WrongInformationClass {
+                expected: 0x534C,
+                actual: 0x1234
+            }
+        ));
+    }
+
+    #[test]
+    fn flex_discovery_rejects_wrong_packet_class() {
+        let codec = FlexDiscoveryCodec::new();
+        let payload = b"model=FLEX-6400 serial=1111 ip=10.0.0.1";
+        let mut datagram = build_valid_vita49_packet(payload);
+        // Zmień Packet Class z 0xFFFF na 0x0001
+        datagram[14] = 0x00;
+        datagram[15] = 0x01;
+        let err = codec
+            .decode_packet(&datagram)
+            .expect_err("should reject wrong packet class");
+        assert!(matches!(
+            err,
+            FlexProtocolError::WrongPacketClass {
+                expected: 0xFFFF,
+                actual: 0x0001
+            }
+        ));
+    }
+
+    #[test]
+    fn flex_discovery_does_not_assume_undocumented_zero_word() {
+        let codec = FlexDiscoveryCodec::new();
+        let payload = b"model=FLEX-6600 serial=1320 ip=192.168.1.50";
+        let mut datagram = build_valid_vita49_packet(payload);
+        // Ustaw bajt 8 (bity 31..24 słowa class_id_high, pole pad/vendor) na wartość niezerową 0xAA
+        datagram[8] = 0xAA;
+        let packet = codec
+            .decode_packet(&datagram)
+            .expect("should accept non-zero pad word if OUI matches");
+        assert_eq!(packet.header.class_id_high >> 24, 0xAA);
+        assert_eq!(packet.header.class_id_high & 0x00FF_FFFF, FLEX_OUI);
+    }
+
+    #[test]
+    fn flex_discovery_header_layout_matches_spec() {
+        let codec = FlexDiscoveryCodec::new();
+        let payload = b"model=FLEX-6600 serial=1320 ip=192.168.1.50";
+        let datagram = build_valid_vita49_packet(payload);
+        let packet = codec.decode_packet(&datagram).expect("decode failed");
+
+        assert_eq!(packet.header.packet_type, 0x03);
+        assert!(packet.header.class_id_present);
+        assert!(!packet.header.trailer_present);
+        assert_eq!(packet.header.tsi, 0b11);
+        assert_eq!(packet.header.tsf, 0b01);
+    }
+
+    #[test]
+    fn flex_discovery_rejects_unsupported_tsi() {
+        let codec = FlexDiscoveryCodec::new();
+        let payload = b"model=FLEX-6400 serial=1111 ip=10.0.0.1";
+        let mut datagram = build_valid_vita49_packet(payload);
+        // Zmień TSI z 0b11 (Other) na 0b01 (UTC)
+        datagram[1] = (datagram[1] & !(0x03 << 6)) | (0b01 << 6);
+        let err = codec
+            .decode_packet(&datagram)
+            .expect_err("should reject unsupported TSI");
+        assert!(matches!(
+            err,
+            FlexProtocolError::UnsupportedVitaTsi {
+                expected: 0b11,
+                actual: 0b01
+            }
+        ));
+    }
+
+    #[test]
+    fn flex_discovery_rejects_unsupported_tsf() {
+        let codec = FlexDiscoveryCodec::new();
+        let payload = b"model=FLEX-6400 serial=1111 ip=10.0.0.1";
+        let mut datagram = build_valid_vita49_packet(payload);
+        // Zmień TSF z 0b01 (Sample count) na 0b10 (Real-time)
+        datagram[1] = (datagram[1] & !(0x03 << 4)) | (0b10 << 4);
+        let err = codec
+            .decode_packet(&datagram)
+            .expect_err("should reject unsupported TSF");
+        assert!(matches!(
+            err,
+            FlexProtocolError::UnsupportedVitaTsf {
+                expected: 0b01,
+                actual: 0b10
+            }
+        ));
+    }
+
+    #[test]
+    fn flex_discovery_handles_or_rejects_trailer_explicitly() {
+        let codec = FlexDiscoveryCodec::new();
+        let payload = b"model=FLEX-6400 serial=1111 ip=10.0.0.1";
+        let mut datagram = build_valid_vita49_packet(payload);
+        // Ustaw bit trailer present (bit 26)
+        datagram[0] |= 1 << 2;
+        let err = codec
+            .decode_packet(&datagram)
+            .expect_err("should explicitly reject trailer in discovery packet");
+        assert!(matches!(err, FlexProtocolError::TrailerNotPermitted));
+    }
+
+    #[test]
+    fn flex_discovery_trailer_policy_is_explicit() {
+        let codec = FlexDiscoveryCodec::new();
+        let payload = b"model=FLEX-6400 serial=1111 ip=10.0.0.1";
+        let mut datagram = build_valid_vita49_packet(payload);
+        datagram[0] |= 1 << 2; // trailer bit set
+        let err = codec
+            .decode_packet(&datagram)
+            .expect_err("trailer rejected");
+        assert_eq!(err, FlexProtocolError::TrailerNotPermitted);
+    }
+
+    #[test]
+    fn flex_discovery_packet_size_matches_datagram_exactly() {
+        let codec = FlexDiscoveryCodec::new();
+        let payload = b"model=FLEX-6400 serial=1111 ip=10.0.0.1";
+        let mut datagram = build_valid_vita49_packet(payload);
+        // Dodaj 4 nadmiarowe bajty poza packet_size
+        datagram.extend_from_slice(&[0xDE, 0xAD, 0xBE, 0xEF]);
+        let err = codec
+            .decode_packet(&datagram)
+            .expect_err("should reject extra bytes beyond packet_size");
+        assert!(matches!(err, FlexProtocolError::InvalidPacketSize { .. }));
+    }
+
+    #[test]
+    fn flex_discovery_padding_is_bounded() {
+        let codec = FlexDiscoveryCodec::new();
+        let payload = b"model=FLEX-6400 serial=1234 ip=10.0.0.1";
+        let datagram = build_valid_vita49_packet(payload);
+        let packet = codec
+            .decode_packet(&datagram)
+            .expect("valid padding accepted");
+        assert_eq!(packet.model, "FLEX-6400");
+    }
+
+    #[test]
+    fn flex_discovery_padding_zero_to_three_bytes() {
+        let codec = FlexDiscoveryCodec::new();
+        // Sprawdź payload o różnych długościach generujących padding 0, 1, 2, 3 bajtów
+        for pad_needed in 0..4 {
+            let base = "model=FLEX-6400 serial=1234 ip=10.0.0.1 custom=";
+            let padding_char = "X".repeat(pad_needed);
+            let payload_str = format!("{base}{padding_char}");
+            let datagram = build_valid_vita49_packet(payload_str.as_bytes());
+            let packet = codec
+                .decode_packet(&datagram)
+                .expect("valid padding length");
+            assert_eq!(packet.model, "FLEX-6400");
+        }
+    }
+
+    #[test]
+    fn flex_discovery_rejects_excessive_nul_padding() {
+        let codec = FlexDiscoveryCodec::new();
+        let payload = b"model=FLEX-6400 serial=1234 ip=10.0.0.1";
+        let mut datagram = build_valid_vita49_packet(payload);
+        // Zwiększ zadeklarowany packet_size o 1 słowo (4 bajty NUL)
+        let total_words = (datagram.len() / 4 + 1) as u16;
+        datagram[2] = (total_words >> 8) as u8;
+        datagram[3] = (total_words & 0xFF) as u8;
+        datagram.extend_from_slice(&[0, 0, 0, 0]);
+
+        let err = codec
+            .decode_packet(&datagram)
+            .expect_err("should reject excessive NUL padding");
+        assert!(matches!(err, FlexProtocolError::ExcessiveNulPadding { .. }));
+    }
+
+    #[test]
+    fn flex_discovery_rejects_embedded_nul() {
+        let codec = FlexDiscoveryCodec::new();
+        let mut payload = b"model=FLEX-6400 serial=1234 ip=10.0.0.1".to_vec();
+        // Wstaw znak NUL w środku tekstu
+        payload[10] = 0;
+        let datagram = build_valid_vita49_packet(&payload);
+        let err = codec
+            .decode_packet(&datagram)
+            .expect_err("should reject embedded NUL");
+        assert_eq!(err, FlexProtocolError::EmbeddedNulInPayload);
+    }
+
+    #[test]
+    fn flex_discovery_payload_boundary_excludes_trailer() {
+        let codec = FlexDiscoveryCodec::new();
+        let payload = b"model=FLEX-6400 serial=1234 ip=10.0.0.1";
+        let mut datagram = build_valid_vita49_packet(payload);
+        datagram[0] |= 1 << 2; // set trailer bit
+        // Powinno zostać odrzucone zgodnie z polityką braku trailera
+        let err = codec
+            .decode_packet(&datagram)
+            .expect_err("trailer rejected");
+        assert_eq!(err, FlexProtocolError::TrailerNotPermitted);
     }
 
     #[test]
@@ -581,12 +964,12 @@ mod tests {
         let codec = FlexDiscoveryCodec::new();
         let payload = b"model=FLEX-6400 serial=1111 ip=10.0.0.1";
         let mut datagram = build_valid_vita49_packet(payload);
-        // Zmień Class ID high z 0x534CFFFF na 0x11223344
-        datagram[8] = 0x11;
+        // Zmień OUI na błędne
+        datagram[10] = 0x99;
         let err = codec
             .decode_packet(&datagram)
-            .expect_err("should reject wrong class ID");
-        assert!(matches!(err, FlexProtocolError::WrongClassId { .. }));
+            .expect_err("should reject wrong class ID / OUI");
+        assert!(matches!(err, FlexProtocolError::WrongOui { .. }));
     }
 
     #[test]
@@ -620,7 +1003,8 @@ mod tests {
 
         // Upewnij się, że słowa w pamięci są dokładnie Big Endian
         assert_eq!(&datagram[4..8], &[0x00, 0x00, 0x08, 0x00]); // stream ID 0x800
-        assert_eq!(&datagram[8..12], &[0x53, 0x4C, 0xFF, 0xFF]); // class ID
+        assert_eq!(&datagram[8..12], &[0x00, 0x00, 0x1C, 0x2D]); // class ID high (OUI)
+        assert_eq!(&datagram[12..16], &[0x53, 0x4C, 0xFF, 0xFF]); // class ID low
 
         let packet = codec.decode_packet(&datagram).expect("decode failed");
         assert_eq!(packet.model, "FLEX-6600");

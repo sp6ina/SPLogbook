@@ -23,7 +23,8 @@ pub struct FlexRadioModelMeta {
     pub display_name: &'static str,
     pub family: &'static str,
     pub api_version: &'static str,
-    pub max_slices: u32,
+    pub max_slices: Option<u32>,
+    pub max_power_watts: Option<u32>,
     pub max_panadapters: u32,
     pub has_tx: bool,
     pub has_front_panel: bool,
@@ -80,7 +81,8 @@ pub static FLEX_6300_META: FlexRadioModelMeta = FlexRadioModelMeta {
     display_name: "FlexRadio FLEX-6300",
     family: "FLEX-6000",
     api_version: "v3",
-    max_slices: 2,
+    max_slices: Some(2),
+    max_power_watts: Some(100),
     max_panadapters: 1,
     has_tx: true,
     has_front_panel: false,
@@ -130,7 +132,8 @@ pub static FLEX_6400_META: FlexRadioModelMeta = FlexRadioModelMeta {
     display_name: "FlexRadio FLEX-6400",
     family: "FLEX-6000",
     api_version: "v3",
-    max_slices: 2,
+    max_slices: Some(2),
+    max_power_watts: Some(100),
     max_panadapters: 2,
     has_tx: true,
     has_front_panel: false,
@@ -180,7 +183,8 @@ pub static FLEX_6400M_META: FlexRadioModelMeta = FlexRadioModelMeta {
     display_name: "FlexRadio FLEX-6400M",
     family: "FLEX-6000",
     api_version: "v3",
-    max_slices: 2,
+    max_slices: Some(2),
+    max_power_watts: Some(100),
     max_panadapters: 2,
     has_tx: true,
     has_front_panel: true,
@@ -230,7 +234,8 @@ pub static FLEX_6500_META: FlexRadioModelMeta = FlexRadioModelMeta {
     display_name: "FlexRadio FLEX-6500",
     family: "FLEX-6000",
     api_version: "v3",
-    max_slices: 4,
+    max_slices: Some(4),
+    max_power_watts: Some(100),
     max_panadapters: 4,
     has_tx: true,
     has_front_panel: false,
@@ -280,7 +285,8 @@ pub static FLEX_6600_META: FlexRadioModelMeta = FlexRadioModelMeta {
     display_name: "FlexRadio FLEX-6600",
     family: "FLEX-6000",
     api_version: "v3",
-    max_slices: 4,
+    max_slices: Some(4),
+    max_power_watts: Some(100),
     max_panadapters: 4,
     has_tx: true,
     has_front_panel: false,
@@ -330,7 +336,8 @@ pub static FLEX_6600M_META: FlexRadioModelMeta = FlexRadioModelMeta {
     display_name: "FlexRadio FLEX-6600M",
     family: "FLEX-6000",
     api_version: "v3",
-    max_slices: 4,
+    max_slices: Some(4),
+    max_power_watts: Some(100),
     max_panadapters: 4,
     has_tx: true,
     has_front_panel: true,
@@ -380,7 +387,8 @@ pub static FLEX_6700_META: FlexRadioModelMeta = FlexRadioModelMeta {
     display_name: "FlexRadio FLEX-6700",
     family: "FLEX-6000",
     api_version: "v3",
-    max_slices: 8,
+    max_slices: Some(8),
+    max_power_watts: Some(100),
     max_panadapters: 8,
     has_tx: true,
     has_front_panel: false,
@@ -430,7 +438,8 @@ pub static FLEX_8400_META: FlexRadioModelMeta = FlexRadioModelMeta {
     display_name: "FlexRadio FLEX-8400",
     family: "FLEX-8000",
     api_version: "v3",
-    max_slices: 2,
+    max_slices: Some(2),
+    max_power_watts: Some(100),
     max_panadapters: 2,
     has_tx: true,
     has_front_panel: false,
@@ -480,7 +489,8 @@ pub static FLEX_8400M_META: FlexRadioModelMeta = FlexRadioModelMeta {
     display_name: "FlexRadio FLEX-8400M",
     family: "FLEX-8000",
     api_version: "v3",
-    max_slices: 2,
+    max_slices: Some(2),
+    max_power_watts: Some(100),
     max_panadapters: 2,
     has_tx: true,
     has_front_panel: true,
@@ -530,7 +540,8 @@ pub static FLEX_8600_META: FlexRadioModelMeta = FlexRadioModelMeta {
     display_name: "FlexRadio FLEX-8600",
     family: "FLEX-8000",
     api_version: "v3",
-    max_slices: 4,
+    max_slices: Some(4),
+    max_power_watts: Some(100),
     max_panadapters: 4,
     has_tx: true,
     has_front_panel: false,
@@ -580,7 +591,8 @@ pub static FLEX_8600M_META: FlexRadioModelMeta = FlexRadioModelMeta {
     display_name: "FlexRadio FLEX-8600M",
     family: "FLEX-8000",
     api_version: "v3",
-    max_slices: 4,
+    max_slices: Some(4),
+    max_power_watts: Some(100),
     max_panadapters: 4,
     has_tx: true,
     has_front_panel: true,
@@ -590,8 +602,8 @@ pub static FLEX_8600M_META: FlexRadioModelMeta = FlexRadioModelMeta {
     supported_modes: FLEX_STANDARD_MODES,
 };
 
-/// Ostrożny profil ogólny dla niewymienionych lub nieznanych modeli FlexRadio.
-/// Wszystkie niepotwierdzone możliwości są ustawione na false.
+/// Ściśle zachowawczy profil ogólny dla niewymienionych lub nieznanych modeli FlexRadio.
+/// Wszystkie niepotwierdzone możliwości, TX, PTT, moc, split i limity slice są wyłączone.
 pub static FLEX_GENERIC: RigModelProfile = RigModelProfile {
     model_id: "FLEX-GENERIC",
     name: "FlexRadio Generic (SmartSDR)",
@@ -606,7 +618,7 @@ pub static FLEX_GENERIC: RigModelProfile = RigModelProfile {
         passband: true,
         split: false,
         split_frequency: false,
-        ptt: true,
+        ptt: false,
         vfo: false,
         rit: false,
         xit: false,
@@ -616,7 +628,7 @@ pub static FLEX_GENERIC: RigModelProfile = RigModelProfile {
     extended_capabilities: NativeRigCapabilities {
         dualwatch: false,
         main_sub_tracking: false,
-        transceive_broadcast: true,
+        transceive_broadcast: false,
         attenuator: false,
         preamp: false,
         antenna_select: false,
@@ -631,9 +643,10 @@ pub static FLEX_GENERIC_META: FlexRadioModelMeta = FlexRadioModelMeta {
     display_name: "FlexRadio Generic (SmartSDR)",
     family: "Generic",
     api_version: "v3",
-    max_slices: 1,
+    max_slices: None,
+    max_power_watts: None,
     max_panadapters: 0,
-    has_tx: true,
+    has_tx: false,
     has_front_panel: false,
     dual_scu: false,
     rx_antennas: &[],
@@ -695,7 +708,8 @@ mod tests {
     fn flex_profile_flex6300() {
         assert_eq!(FLEX_6300.model_id, "FLEX-6300");
         assert_eq!(FLEX_6300_META.family, "FLEX-6000");
-        assert_eq!(FLEX_6300_META.max_slices, 2);
+        assert_eq!(FLEX_6300_META.max_slices, Some(2));
+        assert_eq!(FLEX_6300_META.max_power_watts, Some(100));
         assert_eq!(FLEX_6300_META.max_panadapters, 1);
         assert!(FLEX_6300.capabilities.frequency);
         assert!(FLEX_6300.capabilities.ptt);
@@ -707,7 +721,7 @@ mod tests {
     fn flex_profile_flex6400() {
         assert_eq!(FLEX_6400.model_id, "FLEX-6400");
         assert_eq!(FLEX_6400_META.family, "FLEX-6000");
-        assert_eq!(FLEX_6400_META.max_slices, 2);
+        assert_eq!(FLEX_6400_META.max_slices, Some(2));
         assert_eq!(FLEX_6400_META.max_panadapters, 2);
         assert!(!FLEX_6400_META.has_front_panel);
     }
@@ -716,7 +730,7 @@ mod tests {
     fn flex_profile_flex6400m() {
         assert_eq!(FLEX_6400M.model_id, "FLEX-6400M");
         assert_eq!(FLEX_6400M_META.family, "FLEX-6000");
-        assert_eq!(FLEX_6400M_META.max_slices, 2);
+        assert_eq!(FLEX_6400M_META.max_slices, Some(2));
         assert!(FLEX_6400M_META.has_front_panel);
     }
 
@@ -724,7 +738,7 @@ mod tests {
     fn flex_profile_flex6500() {
         assert_eq!(FLEX_6500.model_id, "FLEX-6500");
         assert_eq!(FLEX_6500_META.family, "FLEX-6000");
-        assert_eq!(FLEX_6500_META.max_slices, 4);
+        assert_eq!(FLEX_6500_META.max_slices, Some(4));
         assert_eq!(FLEX_6500_META.max_panadapters, 4);
     }
 
@@ -732,7 +746,7 @@ mod tests {
     fn flex_profile_flex6600() {
         assert_eq!(FLEX_6600.model_id, "FLEX-6600");
         assert_eq!(FLEX_6600_META.family, "FLEX-6000");
-        assert_eq!(FLEX_6600_META.max_slices, 4);
+        assert_eq!(FLEX_6600_META.max_slices, Some(4));
         assert_eq!(FLEX_6600_META.max_panadapters, 4);
         assert!(FLEX_6600_META.dual_scu);
     }
@@ -741,7 +755,7 @@ mod tests {
     fn flex_profile_flex6600m() {
         assert_eq!(FLEX_6600M.model_id, "FLEX-6600M");
         assert_eq!(FLEX_6600M_META.family, "FLEX-6000");
-        assert_eq!(FLEX_6600M_META.max_slices, 4);
+        assert_eq!(FLEX_6600M_META.max_slices, Some(4));
         assert!(FLEX_6600M_META.dual_scu);
         assert!(FLEX_6600M_META.has_front_panel);
     }
@@ -750,7 +764,7 @@ mod tests {
     fn flex_profile_flex6700() {
         assert_eq!(FLEX_6700.model_id, "FLEX-6700");
         assert_eq!(FLEX_6700_META.family, "FLEX-6000");
-        assert_eq!(FLEX_6700_META.max_slices, 8);
+        assert_eq!(FLEX_6700_META.max_slices, Some(8));
         assert_eq!(FLEX_6700_META.max_panadapters, 8);
         assert!(FLEX_6700_META.dual_scu);
     }
@@ -759,14 +773,14 @@ mod tests {
     fn flex_profile_flex8400() {
         assert_eq!(FLEX_8400.model_id, "FLEX-8400");
         assert_eq!(FLEX_8400_META.family, "FLEX-8000");
-        assert_eq!(FLEX_8400_META.max_slices, 2);
+        assert_eq!(FLEX_8400_META.max_slices, Some(2));
     }
 
     #[test]
     fn flex_profile_flex8400m() {
         assert_eq!(FLEX_8400M.model_id, "FLEX-8400M");
         assert_eq!(FLEX_8400M_META.family, "FLEX-8000");
-        assert_eq!(FLEX_8400M_META.max_slices, 2);
+        assert_eq!(FLEX_8400M_META.max_slices, Some(2));
         assert!(FLEX_8400M_META.has_front_panel);
     }
 
@@ -774,7 +788,7 @@ mod tests {
     fn flex_profile_flex8600() {
         assert_eq!(FLEX_8600.model_id, "FLEX-8600");
         assert_eq!(FLEX_8600_META.family, "FLEX-8000");
-        assert_eq!(FLEX_8600_META.max_slices, 4);
+        assert_eq!(FLEX_8600_META.max_slices, Some(4));
         assert!(FLEX_8600_META.dual_scu);
     }
 
@@ -782,7 +796,7 @@ mod tests {
     fn flex_profile_flex8600m() {
         assert_eq!(FLEX_8600M.model_id, "FLEX-8600M");
         assert_eq!(FLEX_8600M_META.family, "FLEX-8000");
-        assert_eq!(FLEX_8600M_META.max_slices, 4);
+        assert_eq!(FLEX_8600M_META.max_slices, Some(4));
         assert!(FLEX_8600M_META.dual_scu);
         assert!(FLEX_8600M_META.has_front_panel);
     }
@@ -791,10 +805,43 @@ mod tests {
     fn flex_profile_generic() {
         assert_eq!(FLEX_GENERIC.model_id, "FLEX-GENERIC");
         assert_eq!(FLEX_GENERIC_META.family, "Generic");
-        assert_eq!(FLEX_GENERIC_META.max_slices, 1);
+        assert_eq!(FLEX_GENERIC_META.max_slices, None);
+        assert_eq!(FLEX_GENERIC_META.max_power_watts, None);
+        assert!(!FLEX_GENERIC_META.has_tx);
+        assert!(!FLEX_GENERIC.capabilities.ptt);
         assert!(!FLEX_GENERIC.capabilities.split);
         assert!(!FLEX_GENERIC.capabilities.rit);
         assert!(!FLEX_GENERIC.capabilities.power);
+    }
+
+    #[test]
+    fn flex_generic_profile_has_no_assumed_slice_limit() {
+        assert_eq!(FLEX_GENERIC_META.max_slices, None);
+    }
+
+    #[test]
+    fn flex_generic_profile_has_no_assumed_power() {
+        assert_eq!(FLEX_GENERIC_META.max_power_watts, None);
+        assert!(!FLEX_GENERIC.capabilities.power);
+    }
+
+    #[test]
+    fn flex_generic_profile_is_not_tx_capable() {
+        assert!(!FLEX_GENERIC_META.has_tx);
+    }
+
+    #[test]
+    fn flex_generic_profile_rejects_ptt() {
+        assert!(!FLEX_GENERIC.capabilities.ptt);
+    }
+
+    #[test]
+    fn flex_generic_runtime_info_does_not_bypass_model_validation() {
+        // Nieznany model z runtime_info nie aktywuje automatycznie uprawnień nadawczych
+        let p = find_flex_profile("FLEX-UNKNOWN-EXPERIMENT");
+        assert_eq!(p.model_id, "FLEX-GENERIC");
+        assert!(!p.capabilities.ptt);
+        assert!(!p.capabilities.power);
     }
 
     #[test]
@@ -804,9 +851,11 @@ mod tests {
         assert!(!p.capabilities.split);
         assert!(!p.capabilities.split_frequency);
         assert!(!p.capabilities.power);
+        assert!(!p.capabilities.ptt);
 
         let meta = find_flex_meta("FLEX-UNKNOWN-999");
-        assert_eq!(meta.max_slices, 1);
+        assert_eq!(meta.max_slices, None);
+        assert!(!meta.has_tx);
     }
 
     #[test]
@@ -820,18 +869,22 @@ mod tests {
 
     #[test]
     fn flex_profiles_do_not_claim_unverified_slice_limits() {
-        assert_eq!(FLEX_6300_META.max_slices, 2);
-        assert_eq!(FLEX_6400_META.max_slices, 2);
-        assert_eq!(FLEX_6500_META.max_slices, 4);
-        assert_eq!(FLEX_6600_META.max_slices, 4);
-        assert_eq!(FLEX_6700_META.max_slices, 8);
+        assert_eq!(FLEX_6300_META.max_slices, Some(2));
+        assert_eq!(FLEX_6400_META.max_slices, Some(2));
+        assert_eq!(FLEX_6500_META.max_slices, Some(4));
+        assert_eq!(FLEX_6600_META.max_slices, Some(4));
+        assert_eq!(FLEX_6700_META.max_slices, Some(8));
     }
 
     #[test]
     fn flex_profiles_require_confirmed_tx_capability() {
         for (p, meta) in ALL_FLEX_PROFILES {
             assert_eq!(p.capabilities.ptt, meta.has_tx);
-            assert!(meta.has_tx);
+            if meta.model_id == "FLEX-GENERIC" {
+                assert!(!meta.has_tx);
+            } else {
+                assert!(meta.has_tx);
+            }
         }
     }
 

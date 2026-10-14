@@ -29,6 +29,9 @@ pub struct FlexRadioConfig {
     pub write_timeout: Duration,
     pub max_buffer_size: usize,
     pub preferred_slice: Option<FlexSliceId>,
+    pub expected_model: Option<String>,
+    pub expected_serial: Option<String>,
+    pub client_id: Option<String>,
 }
 
 impl Default for FlexRadioConfig {
@@ -41,6 +44,9 @@ impl Default for FlexRadioConfig {
             write_timeout: Duration::from_millis(1500),
             max_buffer_size: 65536,
             preferred_slice: None,
+            expected_model: None,
+            expected_serial: None,
+            client_id: None,
         }
     }
 }
@@ -55,6 +61,9 @@ impl std::fmt::Debug for FlexRadioConfig {
             .field("write_timeout", &self.write_timeout)
             .field("max_buffer_size", &self.max_buffer_size)
             .field("preferred_slice", &self.preferred_slice)
+            .field("expected_model", &self.expected_model)
+            .field("expected_serial", &self.expected_serial)
+            .field("client_id", &self.client_id)
             .finish()
     }
 }

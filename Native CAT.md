@@ -575,6 +575,19 @@ W falach NATIVE-0 i NATIVE-1 interfejs GUI nie ulega modyfikacji runtime, co gwa
 - [x] Rejestracja profili FlexRadio FLEX-6300, FLEX-6400/M, FLEX-6500, FLEX-6600/M, FLEX-6700/R, FLEX-8400/M, FLEX-8600/M oraz profilu ostrożnego FLEX-GENERIC.
 - [x] Kompletny zestaw deterministycznych testów jednostkowych i asynchronicznych bez fizycznego sprzętu.
 
+### Kryteria NATIVE-5B (Finalny audyt zgodności FlexRadio przed NATIVE-6):
+- [x] Ścisły typ pakietu VITA-49 Discovery: wyłącznie `0x03` (Extension Data with Stream ID). Odrzucenie Context Packet (`0x04`), Extension Context (`0x05`), IF Data Packet i Extension Data bez Stream ID (`0x02`).
+- [x] Rzeczywisty układ Class ID: IEEE OUI w słowie 2 (bity 23..0 = `0x001C2D`), Information Class Code w słowie 3 górne 16 bitów (`0x534C`), Packet Class Code w słowie 3 dolne 16 bitów (`0xFFFF`).
+- [x] Restrykcyjna polityka nagłówka i trailera: Class ID (`0b1`), TSI Other (`0b11`), TSF Sample Count (`0b01`), wykluczenie bitu trailera w discovery, ścisła walidacja rozmiaru pakietu z rozmiarem datagramu UDP.
+- [x] Ograniczenie paddingu payloadu: wyłącznie `0..=3` końcowych bajtów NUL wynikających z wyrównania 32-bitowego, odrzucenie wewnętrznych bajtów NUL w tekście payloadu.
+- [x] Bezpieczeństwo PTT jako stan trójwartościowy: `FlexConfirmedPttState { Unknown, Rx, Tx }`. Timeout, odrzucenie lub utrata połączenia ustawia `Unknown` (nigdy nie raportowane jako `Rx`, brak ponawiania SetPtt).
+- [x] Izolacja własności nadawania: `ptt_initiated_by_this_session = true` wymaga łącznego spełnienia żądania lokalnego, odpowiedzi sukcesu sekwencji komendy, statusu interlock `TRANSMITTING` i zgodnego `tx_client_handle`. Idempotentny disconnect wysyła `xmit 0` tylko przy potwierdzonym lokalnym `Tx`.
+- [x] Konserwatywny profil `FLEX-GENERIC`: `max_slices: None`, `max_power_watts: None`, `has_tx: false`, wyłączone PTT/Power/Split/RIT/XIT.
+- [x] Minimalny zestaw subskrypcji Control Plane: `sub slice all`, `sub tx all`, `sub interlock all`, `sub radio all`, `sub client all` z oczekiwaniem na potwierdzenia (ACK). Całkowite wykluczenie subskrypcji Data Plane (`audio_stream`, `dax`, `panadapter`, itp.).
+- [x] Rozróżnienie `client_handle` (przydzielany per połączenie) vs `client_id` (UUID stacji). Rejestracja GUI wykluczona (`probe` i backend nigdy nie wysyłają `client gui`). `client bind` warunkowe na jawnym `client_id`.
+- [x] Weryfikacja tożsamości `info` na connect: walidacja oczekiwanego modelu i numeru seryjnego z discovery, bezpieczna obserwacja liczby slice w runtime bez nadpisywania ograniczeń sprzętowych.
+- [x] Pełny zestaw testów: 177 testów FlexRadio passed, 379 testów native CAT passed, 466 testów CAT passed, 794 testy całościowe passed, 0 błędów, 0 nowych ostrzeżeń clippy.
+
 ---
 
 ## 24. Strategia wycofania (Rollback)
