@@ -17,6 +17,49 @@ use crate::cat::tx_arbiter::{TxArbiterState, redact_sensitive_info};
 use crate::core::i18n::{key, tr};
 use crate::gui::app::SpLogApp;
 
+/// Podręczny bufor wariantów konfiguracji backendu w formularzu UI,
+/// zapobiegający utracie niezapisanych danych podczas przełączania typu backendu.
+#[derive(Debug, Clone, Default)]
+pub struct FormVariantCache {
+    pub hamlib: Option<HamlibBackendConfig>,
+    pub flrig: Option<FlrigBackendConfig>,
+    pub tci: Option<TciBackendConfig>,
+    pub icom: Option<IcomBackendConfig>,
+    pub kenwood: Option<KenwoodBackendConfig>,
+    pub yaesu: Option<YaesuBackendConfig>,
+    pub elecraft: Option<ElecraftBackendConfig>,
+    pub flexradio: Option<FlexRadioBackendConfig>,
+}
+
+impl FormVariantCache {
+    pub fn save(&mut self, backend: &RigBackendConfig) {
+        match backend {
+            RigBackendConfig::Hamlib(cfg) => self.hamlib = Some(cfg.clone()),
+            RigBackendConfig::Flrig(cfg) => self.flrig = Some(cfg.clone()),
+            RigBackendConfig::Tci(cfg) => self.tci = Some(cfg.clone()),
+            RigBackendConfig::Icom(cfg) => self.icom = Some(cfg.clone()),
+            RigBackendConfig::Kenwood(cfg) => self.kenwood = Some(cfg.clone()),
+            RigBackendConfig::Yaesu(cfg) => self.yaesu = Some(cfg.clone()),
+            RigBackendConfig::Elecraft(cfg) => self.elecraft = Some(cfg.clone()),
+            RigBackendConfig::FlexRadio(cfg) => self.flexradio = Some(cfg.clone()),
+        }
+    }
+
+    pub fn restore_or_default(&self, tag: &str) -> RigBackendConfig {
+        match tag {
+            "flrig" => RigBackendConfig::Flrig(self.flrig.clone().unwrap_or_default()),
+            "tci" => RigBackendConfig::Tci(self.tci.clone().unwrap_or_default()),
+            "icom" => RigBackendConfig::Icom(self.icom.clone().unwrap_or_default()),
+            "kenwood" => RigBackendConfig::Kenwood(self.kenwood.clone().unwrap_or_default()),
+            "yaesu" => RigBackendConfig::Yaesu(self.yaesu.clone().unwrap_or_default()),
+            "elecraft" => RigBackendConfig::Elecraft(self.elecraft.clone().unwrap_or_default()),
+            "flexradio" => RigBackendConfig::FlexRadio(self.flexradio.clone().unwrap_or_default()),
+            // Hamlib oraz domyślny fallback
+            _ => RigBackendConfig::Hamlib(self.hamlib.clone().unwrap_or_default()),
+        }
+    }
+}
+
 pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
     if !app.show_cat_settings_window {
         return;
@@ -68,6 +111,69 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
     .show(ctx, |ui| {
         egui::ScrollArea::vertical().show(ui, |ui| {
             ui.vertical(|ui| {
+                // Wybór radia oraz kontrola Active RX / Active TX
+                ui.group(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("Radio:").strong());
+                        for (idx, r) in station_cfg.rigs.iter().enumerate() {
+                            let is_selected = idx == current_idx;
+                            let display_label = if r.display_name.is_empty() {
+                                r.id.as_str()
+                            } else {
+                                &r.display_name
+                            };
+                            if ui.selectable_label(is_selected, display_label).clicked() {
+                                app.cat_selected_rig_idx = idx;
+                            }
+                        }
+                    });
+
+                    ui.horizontal(|ui| {
+                        let selected_id = &station_cfg.rigs[current_idx].id;
+                        let is_current_rx = station_cfg
+                            .active_rx
+                            .as_ref()
+                            .is_some_and(|t| &t.rig_id == selected_id);
+                        if ui
+                            .selectable_label(is_current_rx, "🎧 Active RX")
+                            .clicked()
+                            && !is_current_rx
+                        {
+                            station_cfg.active_rx =
+                                Some(RigTargetConfig::rig_only(selected_id.clone()));
+                        }
+
+                        let is_current_tx = station_cfg
+                            .active_tx
+                            .as_ref()
+                            .is_some_and(|t| &t.rig_id == selected_id);
+                        let is_arbiter_busy = matches!(
+                            cat_snap.tx_state,
+                            TxArbiterState::Requesting { .. }
+                                | TxArbiterState::Owned { .. }
+                                | TxArbiterState::Releasing { .. }
+                        );
+                        let tx_btn = ui.add_enabled(
+                            !is_arbiter_busy || is_current_tx,
+                            egui::Button::new("🎙 Active TX").selected(is_current_tx),
+                        );
+                        if is_arbiter_busy && !is_current_tx {
+                            tx_btn.on_disabled_hover_text(
+                                "Cannot switch Active TX while transmitter is active or arbiter is busy",
+                            );
+                        } else if tx_btn.clicked() {
+                            if is_current_tx {
+                                station_cfg.active_tx = None;
+                            } else {
+                                station_cfg.active_tx =
+                                    Some(RigTargetConfig::rig_only(selected_id.clone()));
+                            }
+                        }
+                    });
+                });
+
+                ui.add_space(2.0);
+
                 {
                     let rig = &mut station_cfg.rigs[current_idx];
 
@@ -96,7 +202,7 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     .suffix(" ms"),
                             );
                             ui.label(
-                                egui::RichText::new("(50 - 2000 ms, domyślnie 250 ms)")
+                                egui::RichText::new("(50 - 2000 ms, default 250 ms)")
                                     .size(11.0)
                                     .color(egui::Color32::from_rgb(148, 163, 184)),
                             );
@@ -159,14 +265,21 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
         });
     });
 
-    if close_req {
-        is_open = false;
+    if !is_open || close_req {
+        if let Some(jh) = app.cat_probe_task.take() {
+            jh.abort();
+        }
+        if app.cat_probe_running {
+            app.cat_probe_running = false;
+            app.cat_probe_state = crate::cat::probe::ProbeState::Cancelled;
+        }
+        app.show_cat_settings_window = false;
         app.cat_station = Some(station_cfg);
         app.save_station_config();
     } else {
         app.cat_station = Some(station_cfg);
+        app.show_cat_settings_window = true;
     }
-    app.show_cat_settings_window = is_open;
 }
 
 /// Renderuje pasek stanu cyklu życia sesji ([`RigServiceState`]) oraz arbitrażu nadawania ([`TxArbiterState`]).
@@ -195,12 +308,13 @@ fn render_lifecycle_status_bar(
                     tr(key::CAT_SETTINGS_STATE_DEGRADED, lang),
                 ),
                 RigServiceState::Disconnecting => {
-                    (egui::Color32::from_rgb(148, 163, 184), "Rozłączanie...")
+                    (egui::Color32::from_rgb(148, 163, 184), "Disconnecting...")
                 }
                 RigServiceState::Synchronizing => {
-                    (egui::Color32::from_rgb(56, 189, 248), "Synchronizacja...")
+                    (egui::Color32::from_rgb(56, 189, 248), "Synchronizing...")
                 }
-                RigServiceState::Disconnected | RigServiceState::Created => (
+                RigServiceState::Created => (egui::Color32::from_rgb(148, 163, 184), "Created"),
+                RigServiceState::Disconnected => (
                     egui::Color32::from_rgb(148, 163, 184),
                     tr(key::CAT_SETTINGS_STATE_DISCONNECTED, lang),
                 ),
@@ -210,15 +324,9 @@ fn render_lifecycle_status_bar(
                 ),
             }
         } else if app.cat_connected {
-            (
-                egui::Color32::from_rgb(34, 197, 94),
-                tr(key::CAT_SETTINGS_STATE_CONNECTED, lang),
-            )
+            (egui::Color32::from_rgb(250, 204, 21), "Registering...")
         } else {
-            (
-                egui::Color32::from_rgb(148, 163, 184),
-                tr(key::CAT_SETTINGS_STATE_DISCONNECTED, lang),
-            )
+            (egui::Color32::from_rgb(148, 163, 184), "—")
         };
 
         ui.colored_label(color, format!("● {text}"));
@@ -313,19 +421,8 @@ fn render_backend_kind_selector(
             for (tag, label) in backends {
                 let is_sel = current_kind == tag;
                 if ui.selectable_label(is_sel, label).clicked() && !is_sel {
-                    rig.backend = match tag {
-                        "hamlib" => RigBackendConfig::Hamlib(HamlibBackendConfig::default()),
-                        "flrig" => RigBackendConfig::Flrig(FlrigBackendConfig::default()),
-                        "tci" => RigBackendConfig::Tci(TciBackendConfig::default()),
-                        "icom" => RigBackendConfig::Icom(IcomBackendConfig::default()),
-                        "kenwood" => RigBackendConfig::Kenwood(KenwoodBackendConfig::default()),
-                        "yaesu" => RigBackendConfig::Yaesu(YaesuBackendConfig::default()),
-                        "elecraft" => RigBackendConfig::Elecraft(ElecraftBackendConfig::default()),
-                        "flexradio" => {
-                            RigBackendConfig::FlexRadio(FlexRadioBackendConfig::default())
-                        }
-                        _ => RigBackendConfig::Hamlib(HamlibBackendConfig::default()),
-                    };
+                    app.cat_form_cache.save(&rig.backend);
+                    rig.backend = app.cat_form_cache.restore_or_default(tag);
                     app.cat_backend = tag.to_string();
                 }
             }
@@ -413,10 +510,9 @@ fn render_hamlib_form(
             if ui
                 .add(egui::TextEdit::singleline(&mut port_str).desired_width(60.0))
                 .changed()
+                && let Ok(p) = port_str.trim().parse::<u16>()
             {
-                if let Ok(p) = port_str.trim().parse::<u16>() {
-                    cfg.port = p;
-                }
+                cfg.port = p;
             }
         });
     } else {
@@ -479,13 +575,12 @@ fn render_flrig_form(ui: &mut egui::Ui, cfg: &mut FlrigBackendConfig) {
         if ui
             .add(egui::TextEdit::singleline(&mut port_str).desired_width(60.0))
             .changed()
+            && let Ok(p) = port_str.trim().parse::<u16>()
         {
-            if let Ok(p) = port_str.trim().parse::<u16>() {
-                cfg.port = p;
-            }
+            cfg.port = p;
         }
         ui.label(
-            egui::RichText::new("(domyślnie :12345)")
+            egui::RichText::new("(default :12345)")
                 .size(11.0)
                 .color(egui::Color32::from_rgb(148, 163, 184)),
         );
@@ -502,13 +597,12 @@ fn render_tci_form(ui: &mut egui::Ui, cfg: &mut TciBackendConfig) {
         if ui
             .add(egui::TextEdit::singleline(&mut port_str).desired_width(60.0))
             .changed()
+            && let Ok(p) = port_str.trim().parse::<u16>()
         {
-            if let Ok(p) = port_str.trim().parse::<u16>() {
-                cfg.port = p;
-            }
+            cfg.port = p;
         }
         ui.label(
-            egui::RichText::new("(domyślnie :40001)")
+            egui::RichText::new("(default :40001)")
                 .size(11.0)
                 .color(egui::Color32::from_rgb(148, 163, 184)),
         );
@@ -558,7 +652,7 @@ fn render_kenwood_form(
         {
             cfg.transport = KenwoodTransportConfig::Serial {
                 port_name: "COM1".to_string(),
-                baud_rate: 115200,
+                baud_rate: 115_200,
             };
         }
         if ui
@@ -593,10 +687,9 @@ fn render_kenwood_form(
                 if ui
                     .add(egui::TextEdit::singleline(&mut port_str).desired_width(60.0))
                     .changed()
+                    && let Ok(p) = port_str.trim().parse::<u16>()
                 {
-                    if let Ok(p) = port_str.trim().parse::<u16>() {
-                        *port = p;
-                    }
+                    *port = p;
                 }
             });
         }
@@ -671,10 +764,9 @@ fn render_elecraft_form(
                 if ui
                     .add(egui::TextEdit::singleline(&mut port_str).desired_width(60.0))
                     .changed()
+                    && let Ok(p) = port_str.trim().parse::<u16>()
                 {
-                    if let Ok(p) = port_str.trim().parse::<u16>() {
-                        *port = p;
-                    }
+                    *port = p;
                 }
             });
         }
@@ -692,7 +784,7 @@ fn render_flexradio_form(
     lang: crate::core::i18n::Language,
 ) {
     ui.horizontal(|ui| {
-        ui.label("Połączenie FlexRadio:");
+        ui.label(format!("{}:", tr(key::CAT_SETTINGS_CONN_TYPE, lang)));
         let is_auto = matches!(cfg.connection, FlexRadioConnectionConfig::AutoDiscovery);
         if ui
             .selectable_label(is_auto, tr(key::CAT_SETTINGS_FLEX_DISCOVERY, lang))
@@ -727,10 +819,9 @@ fn render_flexradio_form(
             if ui
                 .add(egui::TextEdit::singleline(&mut port_str).desired_width(60.0))
                 .changed()
+                && let Ok(p) = port_str.trim().parse::<u16>()
             {
-                if let Ok(p) = port_str.trim().parse::<u16>() {
-                    *port = p;
-                }
+                *port = p;
             }
         });
     }
@@ -790,7 +881,7 @@ fn render_serial_port_selector(
         egui::ComboBox::from_id_salt("cat_serial_port_preset_combo")
             .width(85.0)
             .selected_text(if port_name.is_empty() {
-                crate::core::i18n::tr_or(lang, "Wybierz...", "Select...")
+                "—"
             } else {
                 port_name.as_str()
             })
@@ -874,22 +965,21 @@ fn render_rigctld_supervisor_controls(
         );
     });
 
-    if let Some(ref mut sup) = app.rigctld_supervisor {
-        if sup.is_running() {
-            if let Some(pid) = sup.pid() {
-                ui.horizontal(|ui| {
-                    ui.colored_label(egui::Color32::from_rgb(34, 197, 94), "●");
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "{} (PID: {pid})",
-                            tr(key::CAT_SETTINGS_RUNNING_PID, lang)
-                        ))
-                        .size(11.0)
-                        .color(egui::Color32::from_rgb(34, 197, 94)),
-                    );
-                });
-            }
-        }
+    if let Some(ref mut sup) = app.rigctld_supervisor
+        && sup.is_running()
+        && let Some(pid) = sup.pid()
+    {
+        ui.horizontal(|ui| {
+            ui.colored_label(egui::Color32::from_rgb(34, 197, 94), "●");
+            ui.label(
+                egui::RichText::new(format!(
+                    "{} (PID: {pid})",
+                    tr(key::CAT_SETTINGS_RUNNING_PID, lang)
+                ))
+                .size(11.0)
+                .color(egui::Color32::from_rgb(34, 197, 94)),
+            );
+        });
     }
 }
 
@@ -902,24 +992,37 @@ fn render_probe_section(
 ) {
     ui.group(|ui| {
         ui.horizontal(|ui| {
-            if ui.button(tr(key::CAT_SETTINGS_PROBE_BTN, lang)).clicked() && !app.cat_probe_running
-            {
+            let btn = ui.add_enabled(
+                !app.cat_probe_running,
+                egui::Button::new(tr(key::CAT_SETTINGS_PROBE_BTN, lang)),
+            );
+            if btn.clicked() {
                 if let Err(e) = rig.validate() {
                     app.cat_test_result = Some(format!(
                         "{}: {e}",
                         tr(key::CAT_SETTINGS_VALIDATION_FAILED, lang)
                     ));
+                    app.cat_probe_state = crate::cat::probe::ProbeState::Failed {
+                        generation: app.cat_probe_generation,
+                        error: e.to_string(),
+                    };
                 } else {
+                    app.cat_probe_generation += 1;
+                    let current_gen = app.cat_probe_generation;
+                    app.cat_probe_state = crate::cat::probe::ProbeState::Running {
+                        generation: current_gen,
+                    };
                     let (tx, rx) = std::sync::mpsc::channel();
                     app.cat_probe_rx = Some(rx);
                     app.cat_probe_running = true;
                     app.cat_probe_result = None;
                     let rig_copy = rig.clone();
 
-                    tokio::spawn(async move {
+                    let handle = tokio::spawn(async move {
                         let res = RigProbeRunner::probe(&rig_copy).await;
-                        let _ = tx.send(res.map_err(|e| e.to_string()));
+                        let _ = tx.send((current_gen, res.map_err(|e| e.to_string())));
                     });
+                    app.cat_probe_task = Some(handle);
                 }
             }
 
@@ -942,7 +1045,7 @@ fn render_probe_section(
                     );
                     ui.horizontal_wrapped(|ui| {
                         ui.label(format!(
-                            "Identyfikacja: {}",
+                            "Identity: {}",
                             res.identity.as_deref().unwrap_or("—")
                         ));
                         ui.label("|");
@@ -1025,14 +1128,14 @@ fn render_capabilities_and_diagnostics(
                     .color(egui::Color32::from_rgb(148, 163, 184)),
             );
             ui.horizontal_wrapped(|ui| {
-                ui.label(format!("Generacja stanu: {}", svc.state_generation));
+                ui.label(format!("State generation: {}", svc.state_generation));
                 ui.label("|");
-                ui.label(format!("Świeżość: {:?}", svc.freshness));
+                ui.label(format!("Freshness: {:?}", svc.freshness));
                 if let Some(ref err) = svc.last_error {
                     ui.label("|");
                     ui.colored_label(
                         egui::Color32::from_rgb(239, 68, 68),
-                        format!("Ostatni błąd: {}", redact_sensitive_info(err)),
+                        format!("Last error: {}", redact_sensitive_info(err)),
                     );
                 }
             });
@@ -1114,10 +1217,9 @@ fn render_rotor_section(app: &mut SpLogApp, ui: &mut egui::Ui, lang: crate::core
             if ui
                 .add(egui::TextEdit::singleline(&mut port_str).desired_width(60.0))
                 .changed()
+                && let Ok(p) = port_str.trim().parse::<u16>()
             {
-                if let Ok(p) = port_str.trim().parse::<u16>() {
-                    app.rotor_port = p;
-                }
+                app.rotor_port = p;
             }
         });
 
@@ -1133,19 +1235,19 @@ fn sync_legacy_fields_from_rig(app: &mut SpLogApp, rig: &RigConfig) {
 
     match &rig.backend {
         RigBackendConfig::Hamlib(cfg) => {
-            app.cat_host = cfg.host.clone();
+            app.cat_host.clone_from(&cfg.host);
             app.cat_port = cfg.port;
         }
         RigBackendConfig::Flrig(cfg) => {
-            app.cat_host = cfg.host.clone();
+            app.cat_host.clone_from(&cfg.host);
             app.cat_port = cfg.port;
         }
         RigBackendConfig::Tci(cfg) => {
-            app.tci_host = cfg.host.clone();
+            app.tci_host.clone_from(&cfg.host);
             app.tci_port = cfg.port;
         }
         RigBackendConfig::Icom(cfg) => {
-            app.cat_serial_port = cfg.port_name.clone();
+            app.cat_serial_port.clone_from(&cfg.port_name);
             app.cat_baud_rate = cfg.baud_rate;
         }
         RigBackendConfig::Kenwood(cfg) => match &cfg.transport {
@@ -1153,16 +1255,16 @@ fn sync_legacy_fields_from_rig(app: &mut SpLogApp, rig: &RigConfig) {
                 port_name,
                 baud_rate,
             } => {
-                app.cat_serial_port = port_name.clone();
+                app.cat_serial_port.clone_from(port_name);
                 app.cat_baud_rate = *baud_rate;
             }
             KenwoodTransportConfig::Lan { host, port } => {
-                app.cat_host = host.clone();
+                app.cat_host.clone_from(host);
                 app.cat_port = *port;
             }
         },
         RigBackendConfig::Yaesu(cfg) => {
-            app.cat_serial_port = cfg.port_name.clone();
+            app.cat_serial_port.clone_from(&cfg.port_name);
             app.cat_baud_rate = cfg.baud_rate;
         }
         RigBackendConfig::Elecraft(cfg) => match &cfg.transport {
@@ -1170,17 +1272,17 @@ fn sync_legacy_fields_from_rig(app: &mut SpLogApp, rig: &RigConfig) {
                 port_name,
                 baud_rate,
             } => {
-                app.cat_serial_port = port_name.clone();
+                app.cat_serial_port.clone_from(port_name);
                 app.cat_baud_rate = *baud_rate;
             }
             ElecraftTransportConfig::Tcp { host, port } => {
-                app.cat_host = host.clone();
+                app.cat_host.clone_from(host);
                 app.cat_port = *port;
             }
         },
         RigBackendConfig::FlexRadio(cfg) => {
             if let FlexRadioConnectionConfig::Manual { host, port } = &cfg.connection {
-                app.cat_host = host.clone();
+                app.cat_host.clone_from(host);
                 app.cat_port = *port;
             }
         }

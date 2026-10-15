@@ -98,28 +98,28 @@ pub fn render_voice_keyer_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     }
 
                     // Przetwarzanie akcji po pętli (unikamy jednoczesnego pożyczania)
-                    if let Some(idx) = preview_idx {
-                        if let Some(m) = app.voice_keyer_messages.get(idx).cloned() {
-                            std::thread::spawn(move || {
-                                let _ = crate::media::voice_keyer::play_message(&m);
-                            });
-                        }
+                    if let Some(idx) = preview_idx
+                        && let Some(m) = app.voice_keyer_messages.get(idx).cloned()
+                    {
+                        std::thread::spawn(move || {
+                            let _ = crate::media::voice_keyer::play_message(&m);
+                        });
                     }
-                    if let Some(idx) = tx_idx {
-                        if let Some(m) = app.voice_keyer_messages.get(idx).cloned() {
-                            app.voice_keyer_active = Some(idx);
-                            transmit_message(&m, app);
-                        }
+                    if let Some(idx) = tx_idx
+                        && let Some(m) = app.voice_keyer_messages.get(idx).cloned()
+                    {
+                        app.voice_keyer_active = Some(idx);
+                        transmit_message(&m, app);
                     }
                     if let Some(idx) = rec_idx {
                         toggle_recording(app, idx);
                     }
-                    if let Some(idx) = remove_idx {
-                        if idx < app.voice_keyer_messages.len() {
-                            app.voice_keyer_messages.remove(idx);
-                            app.voice_keyer_active = None;
-                            app.save_station_config();
-                        }
+                    if let Some(idx) = remove_idx
+                        && idx < app.voice_keyer_messages.len()
+                    {
+                        app.voice_keyer_messages.remove(idx);
+                        app.voice_keyer_active = None;
+                        app.save_station_config();
                     }
                 });
         });
@@ -137,25 +137,20 @@ fn transmit_message(msg: &VoiceKeyerMessage, app: &SpLogApp) {
         .active_tx
         .as_ref()
         .map(|t| t.rig_id.clone())
-        .or_else(|| snap.active_rx.as_ref().map(|r| r.rig_id.clone()))
-        .or_else(|| snap.rigs.keys().next().cloned());
+        .or_else(|| snap.active_rx.as_ref().map(|r| r.rig_id.clone()));
     let rt = app.cat_runtime.clone();
 
     let msg_clone = msg.clone();
     tokio::spawn(async move {
-        if key_ptt {
-            if let Some(ref rig_id) = tx_rig {
-                rt.request_tx(rig_id.clone(), std::time::Duration::from_millis(1500));
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-            }
+        if key_ptt && let Some(ref rig_id) = tx_rig {
+            rt.request_tx(rig_id.clone(), std::time::Duration::from_millis(1500));
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
         let m2 = msg_clone.clone();
         let _ =
             tokio::task::spawn_blocking(move || crate::media::voice_keyer::play_message(&m2)).await;
-        if key_ptt {
-            if let Some(ref rig_id) = tx_rig {
-                rt.release_tx(rig_id.clone(), std::time::Duration::from_millis(1500));
-            }
+        if key_ptt && let Some(ref rig_id) = tx_rig {
+            rt.release_tx(rig_id.clone(), std::time::Duration::from_millis(1500));
         }
     });
 }

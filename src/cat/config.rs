@@ -50,6 +50,8 @@ pub enum CatConfigValidationError {
     ActiveRxTargetNotFound(RigId),
     /// Cel Active TX wskazuje na niezarejestrowane radio.
     ActiveTxTargetNotFound(RigId),
+    /// Nieobsługiwana wersja schematu konfiguracji CAT.
+    UnsupportedSchemaVersion(u32),
 }
 
 impl fmt::Display for CatConfigValidationError {
@@ -87,6 +89,9 @@ impl fmt::Display for CatConfigValidationError {
             }
             Self::ActiveTxTargetNotFound(id) => {
                 write!(f, "cel Active TX wskazuje nieistniejące radio: '{id}'")
+            }
+            Self::UnsupportedSchemaVersion(v) => {
+                write!(f, "nieobsługiwana wersja schematu konfiguracji CAT: {v}")
             }
         }
     }
@@ -166,6 +171,12 @@ impl Default for CatStationConfig {
 impl CatStationConfig {
     /// Weryfikuje poprawność całej konfiguracji stacji CAT.
     pub fn validate(&self) -> Result<(), CatConfigValidationError> {
+        if self.schema_version != CURRENT_SCHEMA_VERSION {
+            return Err(CatConfigValidationError::UnsupportedSchemaVersion(
+                self.schema_version,
+            ));
+        }
+
         let mut ids = BTreeSet::new();
         for rig in &self.rigs {
             rig.validate()?;

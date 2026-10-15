@@ -658,13 +658,20 @@ pub struct SpLogApp {
     pub cat_station: Option<crate::cat::config::CatStationConfig>,
     /// Centralny komponent aplikacyjny zarządzający węzłem RigHub i sesjami RigService.
     pub cat_runtime: crate::cat::runtime::CatRuntime,
-    /// Kanał odbioru wyników asynchronicznego probe CAT.
-    pub cat_probe_rx:
-        Option<std::sync::mpsc::Receiver<Result<crate::cat::backend::RigProbeResult, String>>>,
+    /// Kanał odbioru wyników asynchronicznego probe CAT wraz z numerem generacji.
+    pub cat_probe_rx: Option<
+        std::sync::mpsc::Receiver<(u64, Result<crate::cat::backend::RigProbeResult, String>)>,
+    >,
     /// Flaga trwającego testu probe CAT.
     pub cat_probe_running: bool,
     /// Ostatni wynik testu probe CAT.
     pub cat_probe_result: Option<Result<crate::cat::backend::RigProbeResult, String>>,
+    /// Asynchroniczny stan probe CAT skorelowany z generacją formularza.
+    pub cat_probe_state: crate::cat::probe::ProbeState,
+    /// Bieżąca generacja formularza CAT probe.
+    pub cat_probe_generation: u64,
+    /// Aktywny task asynchronicznego probe CAT.
+    pub cat_probe_task: Option<tokio::task::JoinHandle<()>>,
     /// Kanał odbioru asynchronicznie uruchamianego CatRuntime.
     pub cat_start_rx: Option<
         std::sync::mpsc::Receiver<
@@ -673,6 +680,8 @@ pub struct SpLogApp {
     >,
     /// Indeks aktualnie edytowanego radia w oknie ustawień CAT.
     pub cat_selected_rig_idx: usize,
+    /// Pamięć podręczna formularza konfiguracji backendów w UI.
+    pub cat_form_cache: crate::gui::cat_settings::FormVariantCache,
 
     // VFO Konsola radiowa & DSP
     pub vfo_split_offset_khz: f64,
@@ -1326,8 +1335,12 @@ impl SpLogApp {
             cat_probe_rx: None,
             cat_probe_running: false,
             cat_probe_result: None,
+            cat_probe_state: crate::cat::probe::ProbeState::Idle,
+            cat_probe_generation: 0,
+            cat_probe_task: None,
             cat_start_rx: None,
             cat_selected_rig_idx: 0,
+            cat_form_cache: crate::gui::cat_settings::FormVariantCache::default(),
 
             // VFO Konsola radiowa & DSP
             vfo_split_offset_khz: 1.0,
@@ -2434,8 +2447,7 @@ impl SpLogApp {
             .active_tx
             .as_ref()
             .map(|t| t.rig_id.clone())
-            .or_else(|| snap.active_rx.as_ref().map(|r| r.rig_id.clone()))
-            .or_else(|| snap.rigs.keys().next().cloned());
+            .or_else(|| snap.active_rx.as_ref().map(|r| r.rig_id.clone()));
 
         if let Some(rig_id) = tx_rig {
             let is_transmitting = match snap.tx_state {
@@ -4429,9 +4441,26 @@ impl eframe::App for SpLogApp {
 
         // Odbiór asynchronicznych wyników testu (probe)
         if let Some(ref rx) = self.cat_probe_rx {
-            if let Ok(res) = rx.try_recv() {
-                self.cat_probe_running = false;
-                self.cat_probe_result = Some(res);
+            if let Ok((probe_gen, res)) = rx.try_recv() {
+                if probe_gen == self.cat_probe_generation {
+                    self.cat_probe_running = false;
+                    match &res {
+                        Ok(r) => {
+                            self.cat_probe_state = crate::cat::probe::ProbeState::Succeeded {
+                                generation: probe_gen,
+                                result: r.clone(),
+                            };
+                        }
+                        Err(e) => {
+                            self.cat_probe_state = crate::cat::probe::ProbeState::Failed {
+                                generation: probe_gen,
+                                error: e.clone(),
+                            };
+                        }
+                    }
+                    self.cat_probe_result = Some(res);
+                    self.cat_probe_task = None;
+                }
             }
         }
 
@@ -4528,8 +4557,7 @@ impl eframe::App for SpLogApp {
                         .active_tx
                         .as_ref()
                         .map(|t| t.rig_id.clone())
-                        .or_else(|| snap.active_rx.as_ref().map(|r| r.rig_id.clone()))
-                        .or_else(|| snap.rigs.keys().next().cloned());
+                        .or_else(|| snap.active_rx.as_ref().map(|r| r.rig_id.clone()));
                     if let Some(rig_id) = tx_rig {
                         if ptt {
                             self.cat_runtime

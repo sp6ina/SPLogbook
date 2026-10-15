@@ -55,3 +55,39 @@ impl RigProbeRunner {
         }
     }
 }
+
+/// Stan asynchronicznego procesu próbkowania w GUI.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ProbeState {
+    /// Oczekiwanie na akcję użytkownika.
+    Idle,
+    /// Trwa sprawdzanie poprawności formularza przed uruchomieniem testu.
+    Validating,
+    /// Trwa asynchroniczny test (z powiązanym numerem generacji formularza).
+    Running {
+        /// Numer generacji formularza skorelowany z zadaniem testowym.
+        generation: u64,
+    },
+    /// Test zakończony sukcesem dla wskazanej generacji.
+    Succeeded {
+        /// Numer generacji formularza.
+        generation: u64,
+        /// Potwierdzony wynik próbkowania.
+        result: RigProbeResult,
+    },
+    /// Test zakończony błędem dla wskazanej generacji.
+    Failed {
+        /// Numer generacji formularza.
+        generation: u64,
+        /// Zredagowany komunikat błędu.
+        error: String,
+    },
+    /// Test został anulowany (np. przez zamknięcie okna lub modyfikację konfiguracji).
+    Cancelled,
+}
+
+impl Default for ProbeState {
+    fn default() -> Self {
+        Self::Idle
+    }
+}

@@ -78,6 +78,8 @@ pub struct CatRuntime {
     snapshot: Arc<StdRwLock<RigHubSnapshot>>,
     event_tx: broadcast::Sender<RoutedRigEvent>,
     shutting_down: Arc<AtomicBool>,
+    sync_handle: Arc<std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    sync_panic_observed: Arc<AtomicBool>,
 }
 
 impl Default for CatRuntime {
@@ -98,6 +100,8 @@ impl CatRuntime {
             snapshot: Arc::new(StdRwLock::new(initial_snapshot)),
             event_tx,
             shutting_down: Arc::new(AtomicBool::new(false)),
+            sync_handle: Arc::new(std::sync::Mutex::new(None)),
+            sync_panic_observed: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -112,6 +116,8 @@ impl CatRuntime {
             snapshot: Arc::new(StdRwLock::new(initial_snapshot)),
             event_tx,
             shutting_down: Arc::new(AtomicBool::new(false)),
+            sync_handle: Arc::new(std::sync::Mutex::new(None)),
+            sync_panic_observed: Arc::new(AtomicBool::new(false)),
         };
 
         runtime.spawn_sync_loop(event_rx);
@@ -131,22 +137,38 @@ impl CatRuntime {
     /// 8. Publikuje początkowy snapshot.
     pub async fn start(config: &CatStationConfig) -> Result<Self, CatRuntimeError> {
         config.validate()?;
+        tokio::task::yield_now().await;
 
         let mut hub = RigHub::new();
+        let mut startup_errors = Vec::new();
 
         for rig_cfg in &config.rigs {
             if !rig_cfg.enabled {
                 continue;
             }
 
-            let backend = RigBackendFactory::create(rig_cfg)?;
-            let poll_dur = Duration::from_millis(rig_cfg.poll_interval_ms);
-            let (service, mut handle) = RigService::spawn(rig_cfg.id.clone(), backend, poll_dur);
+            match RigBackendFactory::create(rig_cfg) {
+                Ok(backend) => {
+                    let poll_dur = Duration::from_millis(rig_cfg.poll_interval_ms);
+                    let (service, mut handle) =
+                        RigService::spawn(rig_cfg.id.clone(), backend, poll_dur);
 
-            let worker_jh = tokio::spawn(async move { service.run().await });
-            handle.attach_join_handle(worker_jh);
+                    let worker_jh = tokio::spawn(async move { service.run().await });
+                    handle.attach_join_handle(worker_jh);
 
-            hub.register_service(handle)?;
+                    if let Err(e) = hub.register_service(handle) {
+                        log::error!("[CatRuntime] Błąd rejestracji usługi '{}': {e}", rig_cfg.id);
+                        startup_errors.push(format!("{}: {e}", rig_cfg.id));
+                    }
+                }
+                Err(err) => {
+                    log::error!(
+                        "[CatRuntime] Błąd utworzenia backendu dla '{}': {err}",
+                        rig_cfg.id
+                    );
+                    startup_errors.push(format!("{}: {err}", rig_cfg.id));
+                }
+            }
         }
 
         // Odtwarzanie celów
@@ -179,10 +201,19 @@ impl CatRuntime {
             snapshot: Arc::new(StdRwLock::new(initial_snapshot)),
             event_tx: event_tx.clone(),
             shutting_down: Arc::new(AtomicBool::new(false)),
+            sync_handle: Arc::new(std::sync::Mutex::new(None)),
+            sync_panic_observed: Arc::new(AtomicBool::new(false)),
         };
 
         // Uruchomienie pętli synchronizującej snapshot i zdarzenia
         runtime.spawn_sync_loop(event_rx);
+
+        if !startup_errors.is_empty() {
+            log::warn!(
+                "[CatRuntime] Częściowy start stacji CAT: {}",
+                startup_errors.join("; ")
+            );
+        }
 
         Ok(runtime)
     }
@@ -203,6 +234,19 @@ impl CatRuntime {
         self.event_tx.subscribe()
     }
 
+    /// Zwraca informację, czy pętla synchronizacji posiada aktywny uchwyt `JoinHandle`.
+    pub fn has_sync_loop_handle(&self) -> bool {
+        self.sync_handle
+            .lock()
+            .map(|l| l.is_some())
+            .unwrap_or(false)
+    }
+
+    /// Zwraca informację, czy odnotowano panic w pętli synchronizacji.
+    pub fn is_sync_loop_panic_observed(&self) -> bool {
+        self.sync_panic_observed.load(Ordering::SeqCst)
+    }
+
     /// Zwraca referencję do współdzielonego muteksu [`RigHub`] (dla zaawansowanych operacji).
     pub fn hub(&self) -> &Arc<TokioMutex<RigHub>> {
         &self.hub
@@ -214,49 +258,62 @@ impl CatRuntime {
         let hub_ref = Arc::clone(&self.hub);
         let event_tx = self.event_tx.clone();
         let shutting_down = Arc::clone(&self.shutting_down);
+        let panic_observed = Arc::clone(&self.sync_panic_observed);
 
-        tokio::spawn(async move {
-            let mut ticker = tokio::time::interval(Duration::from_millis(100));
-            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let sync_jh = tokio::spawn(async move {
+            let res = std::panic::AssertUnwindSafe(async {
+                let mut ticker = tokio::time::interval(Duration::from_millis(100));
+                ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-            while !shutting_down.load(Ordering::Relaxed) {
-                tokio::select! {
-                    event_res = hub_event_rx.recv() => {
-                        match event_res {
-                            Ok(event) => {
-                                // Retransmituj zdarzenie do subskrybentów GUI
-                                let _ = event_tx.send(event);
-                                // Odśwież snapshot
-                                let snap = {
-                                    let hub_lock = hub_ref.lock().await;
-                                    hub_lock.snapshot()
-                                };
-                                *snapshot_cache.write().unwrap_or_else(|e| e.into_inner()) = snap;
-                            }
-                            Err(broadcast::error::RecvError::Lagged(dropped)) => {
-                                log::warn!("[CatRuntime] Wykryto opóźnienie w kolejce zdarzeń (utracono {dropped}), pobieranie pełnego snapshotu");
-                                let snap = {
-                                    let hub_lock = hub_ref.lock().await;
-                                    hub_lock.snapshot()
-                                };
-                                *snapshot_cache.write().unwrap_or_else(|e| e.into_inner()) = snap;
-                            }
-                            Err(broadcast::error::RecvError::Closed) => {
-                                break;
+                while !shutting_down.load(Ordering::Relaxed) {
+                    tokio::select! {
+                        event_res = hub_event_rx.recv() => {
+                            match event_res {
+                                Ok(event) => {
+                                    // Retransmituj zdarzenie do subskrybentów GUI
+                                    let _ = event_tx.send(event);
+                                    // Odśwież snapshot
+                                    let snap = {
+                                        let hub_lock = hub_ref.lock().await;
+                                        hub_lock.snapshot()
+                                    };
+                                    *snapshot_cache.write().unwrap_or_else(|e| e.into_inner()) = snap;
+                                }
+                                Err(broadcast::error::RecvError::Lagged(dropped)) => {
+                                    log::warn!("[CatRuntime] Wykryto opóźnienie w kolejce zdarzeń (utracono {dropped}), pobieranie pełnego snapshotu");
+                                    let snap = {
+                                        let hub_lock = hub_ref.lock().await;
+                                        hub_lock.snapshot()
+                                    };
+                                    *snapshot_cache.write().unwrap_or_else(|e| e.into_inner()) = snap;
+                                }
+                                Err(broadcast::error::RecvError::Closed) => {
+                                    break;
+                                }
                             }
                         }
-                    }
-                    _ = ticker.tick() => {
-                        let snap = {
-                            let mut hub_lock = hub_ref.lock().await;
-                            hub_lock.poll_service_health();
-                            hub_lock.snapshot()
-                        };
-                        *snapshot_cache.write().unwrap_or_else(|e| e.into_inner()) = snap;
+                        _ = ticker.tick() => {
+                            let snap = {
+                                let mut hub_lock = hub_ref.lock().await;
+                                hub_lock.poll_service_health();
+                                hub_lock.snapshot()
+                            };
+                            *snapshot_cache.write().unwrap_or_else(|e| e.into_inner()) = snap;
+                        }
                     }
                 }
+            });
+
+            use futures_util::FutureExt;
+            if res.catch_unwind().await.is_err() {
+                log::error!("[CatRuntime] Wykryto panikę w pętli synchronizacji sync_loop!");
+                panic_observed.store(true, Ordering::SeqCst);
             }
         });
+
+        if let Ok(mut lock) = self.sync_handle.lock() {
+            *lock = Some(sync_jh);
+        }
     }
 
     /// Asynchronicznie przesyła polecenie zmiany częstotliwości do aktywnego celu odbiorczego.
@@ -406,24 +463,59 @@ impl CatRuntime {
         self.shutting_down.store(true, Ordering::SeqCst);
 
         let mut hub = self.hub.lock().await;
-        hub.shutdown(timeout).await?;
+        let hub_res = hub.shutdown(timeout).await;
 
         // Zaktualizuj snapshot na stan końcowy
         *self.snapshot.write().unwrap_or_else(|e| e.into_inner()) = hub.snapshot();
-        Ok(())
+        drop(hub);
+
+        // Dołącz i zamknij pętlę synchronizacji snapshotu
+        let handle_opt = self.sync_handle.lock().ok().and_then(|mut l| l.take());
+        if let Some(mut handle) = handle_opt {
+            let _ = tokio::time::timeout(Duration::from_millis(500), &mut handle).await;
+        }
+
+        hub_res.map_err(Into::into)
     }
 
     /// Synchroniczne opakowanie metody shutdown do wywołania podczas zamykania aplikacji (np. `on_exit`).
+    ///
+    /// # Gwarancje bezpieczeństwa:
+    /// - Bezpieczne do wywołania zarówno z wnętrza aktywnego środowiska Tokio, jak i poza nim,
+    /// - Nigdy nie powoduje błędu `Cannot start a runtime from within a runtime` (brak nested runtime panic),
+    /// - Globalny deadline obejmuje cały proces shutdownu,
+    /// - Całkowita idempotentność: wielokrotne wywołanie nie wykonuje zbędnych operacji.
     pub fn shutdown_blocking(&mut self, timeout: Duration) {
-        self.shutting_down.store(true, Ordering::SeqCst);
+        if self.shutting_down.swap(true, Ordering::SeqCst) {
+            return;
+        }
         let mut self_clone = self.clone();
 
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            let _ = tokio::task::block_in_place(|| {
-                handle.block_on(async move {
-                    let _ = self_clone.shutdown(timeout).await;
-                })
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let res = handle.block_on(async move { self_clone.shutdown(timeout).await });
+                let _ = tx.send(res);
             });
+            let _ = rx.recv_timeout(timeout + Duration::from_millis(200));
+        } else if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            let _ = rt.block_on(async move { self_clone.shutdown(timeout).await });
+        }
+    }
+}
+
+impl Drop for CatRuntime {
+    fn drop(&mut self) {
+        if Arc::strong_count(&self.shutting_down) == 1 {
+            self.shutting_down.store(true, Ordering::SeqCst);
+            if let Ok(mut lock) = self.sync_handle.lock() {
+                if let Some(jh) = lock.take() {
+                    jh.abort();
+                }
+            }
         }
     }
 }

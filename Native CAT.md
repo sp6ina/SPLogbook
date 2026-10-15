@@ -877,14 +877,16 @@ NATIVE-0 -> NATIVE-1 -> NATIVE-2 -> NATIVE-3 -> NATIVE-4 -> NATIVE-5 (5A-5E) -> 
 
 #### Wynik realizacji NATIVE-6B:
 - [x] Fabryka backendów (`RigBackendFactory`) dla 8 backendów bez fallbacku na Hamlib.
-- [x] Walidowany, silnie typowany model konfiguracji (`CatStationConfig`, `RigConfig`).
-- [x] Idempotentna migracja z automatyczną ochroną danych użytkownika.
-- [x] Całkowite usunięcie bezpośredniego I/O sieciowego z GUI.
-- [x] Bezpieczny, strictly read-only probe (`RigProbeRunner`) bez wywoływania PTT.
-- [x] Pełna koordynacja cyklu życia i telemetrii przez `CatRuntime`.
+- [x] Walidowany, silnie typowany model konfiguracji (`CatStationConfig`, `RigConfig`) ze sprawdzaniem wersji schematu (`CURRENT_SCHEMA_VERSION`).
+- [x] Idempotentna migracja z atomowym zapisem pliku (`.tmp` + `rename`) i zachowaniem pól legacy w razie niepowodzenia walidacji.
+- [x] Całkowite usunięcie bezpośredniego I/O sieciowego z wątku egui; komunikacja asynchroniczna przez mpsc i korelacja generacji (`ProbeState`).
+- [x] Zachowanie niezapisanych danych formularza przy przełączaniu backendu za pomocą `FormVariantCache`.
+- [x] Blokowanie przełączania `Active TX` podczas aktywności nadajnika lub zajętości arbitra (`TxArbiterState::Requesting`, `Owned`, `Releasing`).
+- [x] Bezpieczny, strictly read-only probe (`RigProbeRunner`) bez wywoływania PTT i bez zapisu VFO, z redagowaniem poświadczeń (`[REDACTED]`).
+- [x] Pełna koordynacja cyklu życia i telemetrii przez `CatRuntime` z deterministycznym, nieblokującym i odpornym na zagnieżdżone runtime'y `shutdown_blocking()`.
 - [x] Resynchronizacja `TxArbiter` ze stanu `Unknown` do `Idle` po potwierdzeniu RX.
-- [x] Kompletna lokalizacja we wszystkich 7 językach (zweryfikowana przez `i18n_guard`).
-- [x] Kompletny zestaw testów offline w `tests/cat_native_6b.rs` (9 passed).
+- [x] Kompletna lokalizacja we wszystkich 7 językach (zweryfikowana przez testy i `i18n_guard`).
+- [x] Kompletny zestaw testów integracyjnych w `tests/cat_native_6b.rs` (75 passed).
 
 ### Kryteria NATIVE-7 (Testy HIL, dokumentacja i audyt końcowy):
 
