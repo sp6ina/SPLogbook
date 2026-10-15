@@ -832,6 +832,14 @@ impl RigBackend for FlexRadioBackend {
     }
 
     fn execute<'a>(&'a mut self, command: &'a RigCommand) -> BoxFuture<'a, Result<(), RigError>> {
+        self.execute_routed(None, command)
+    }
+
+    fn execute_routed<'a>(
+        &'a mut self,
+        receiver: Option<&'a crate::cat::routing::ReceiverId>,
+        command: &'a RigCommand,
+    ) -> BoxFuture<'a, Result<(), RigError>> {
         Box::pin(async move {
             let endpoint = format!("{}:{}", self.config.host, self.config.port);
 
@@ -852,42 +860,107 @@ impl RigBackend for FlexRadioBackend {
                 });
             }
 
+            // Rozstrzygnij docelowy slice ID w oparciu o silnie typowany ReceiverId
+            let target_slice_id: Option<FlexSliceId> = match receiver {
+                Some(crate::cat::routing::ReceiverId::Slice(slice_id)) => {
+                    let slice_key = FlexSliceId(*slice_id);
+                    // Weryfikacja istnienia i aktywności wskazanego plastra SDR (brak cichego fallbacku!)
+                    let slice = self
+                        .slices
+                        .get(&slice_key)
+                        .ok_or_else(|| RigError::Protocol {
+                            detail: format!("Slice {slice_id} not found"),
+                        })?;
+                    if !slice.in_use {
+                        return Err(RigError::Protocol {
+                            detail: format!("Slice {slice_id} is no longer active"),
+                        });
+                    }
+                    // Weryfikacja własności plastra (ochrona przed zapisem do cudzego slice)
+                    if let Some(ref foreign_handle) = slice.client_handle {
+                        let clean_handle = self
+                            .client_handle
+                            .as_deref()
+                            .map(|h| h.strip_prefix("0x").unwrap_or(h));
+                        if let Some(my_handle) = clean_handle {
+                            if !foreign_handle.eq_ignore_ascii_case(my_handle) {
+                                return Err(RigError::Protocol {
+                                    detail: format!(
+                                        "slice {slice_id} is owned by foreign client 0x{foreign_handle}"
+                                    ),
+                                });
+                            }
+                        }
+                    }
+                    Some(slice_key)
+                }
+                Some(crate::cat::routing::ReceiverId::VfoA)
+                | Some(crate::cat::routing::ReceiverId::VfoB)
+                | Some(crate::cat::routing::ReceiverId::Main)
+                | Some(crate::cat::routing::ReceiverId::Sub) => {
+                    // Brak niejawnego aliasowania VFO A/B ani Main do slice FlexRadio!
+                    return Err(RigError::Unsupported {
+                        backend: CatBackendKind::FlexRadio,
+                        command: "vfo_or_main_receiver_not_supported_on_flexradio",
+                    });
+                }
+                Some(crate::cat::routing::ReceiverId::BackendDefined(_)) => {
+                    self.config.preferred_slice
+                }
+                None => self.config.preferred_slice,
+            };
+
             match command {
                 RigCommand::SetFrequency(freq_hz) => {
-                    let slice = select_write_slice(
-                        &self.slices,
-                        self.config.preferred_slice,
-                        self.client_handle.as_deref(),
-                        false,
-                    )
-                    .map_err(|e| e.to_rig_error(&endpoint))?;
+                    let slice_id = if let Some(id) = target_slice_id {
+                        id
+                    } else {
+                        let slice = select_write_slice(
+                            &self.slices,
+                            self.config.preferred_slice,
+                            self.client_handle.as_deref(),
+                            false,
+                        )
+                        .map_err(|e| e.to_rig_error(&endpoint))?;
+                        slice.id
+                    };
 
                     let mhz = *freq_hz as f64 / 1_000_000.0;
-                    let cmd = format!("slice set {} freq={:.6}", slice.id, mhz);
+                    let cmd = format!("slice set {} freq={:.6}", slice_id, mhz);
 
                     self.send_command_tracked(cmd)
                         .await
                         .map_err(|e| e.to_rig_error(&endpoint))?;
                 }
                 RigCommand::SetSplitFrequency(freq_hz) => {
-                    let slice = select_tx_slice(&self.slices, self.client_handle.as_deref())
-                        .map_err(|e| e.to_rig_error(&endpoint))?;
+                    let slice_id = if let Some(id) = target_slice_id {
+                        id
+                    } else {
+                        let slice = select_tx_slice(&self.slices, self.client_handle.as_deref())
+                            .map_err(|e| e.to_rig_error(&endpoint))?;
+                        slice.id
+                    };
 
                     let mhz = *freq_hz as f64 / 1_000_000.0;
-                    let cmd = format!("slice set {} freq={:.6}", slice.id, mhz);
+                    let cmd = format!("slice set {} freq={:.6}", slice_id, mhz);
 
                     self.send_command_tracked(cmd)
                         .await
                         .map_err(|e| e.to_rig_error(&endpoint))?;
                 }
                 RigCommand::SetMode { mode, passband_hz } => {
-                    let slice = select_write_slice(
-                        &self.slices,
-                        self.config.preferred_slice,
-                        self.client_handle.as_deref(),
-                        false,
-                    )
-                    .map_err(|e| e.to_rig_error(&endpoint))?;
+                    let slice_id = if let Some(id) = target_slice_id {
+                        id
+                    } else {
+                        let slice = select_write_slice(
+                            &self.slices,
+                            self.config.preferred_slice,
+                            self.client_handle.as_deref(),
+                            false,
+                        )
+                        .map_err(|e| e.to_rig_error(&endpoint))?;
+                        slice.id
+                    };
 
                     let m = mode.trim().to_ascii_uppercase();
                     let (lo, hi) = match m.as_str() {
@@ -901,7 +974,7 @@ impl RigBackend for FlexRadioBackend {
 
                     let cmd = format!(
                         "slice set {} mode={} filter_lo={} filter_hi={}",
-                        slice.id, m, lo, hi
+                        slice_id, m, lo, hi
                     );
 
                     self.send_command_tracked(cmd)
@@ -909,13 +982,19 @@ impl RigBackend for FlexRadioBackend {
                         .map_err(|e| e.to_rig_error(&endpoint))?;
                 }
                 RigCommand::SetPassband(passband_hz) => {
-                    let slice = select_write_slice(
-                        &self.slices,
-                        self.config.preferred_slice,
-                        self.client_handle.as_deref(),
-                        false,
-                    )
-                    .map_err(|e| e.to_rig_error(&endpoint))?;
+                    let slice = if let Some(id) = target_slice_id {
+                        self.slices.get(&id).ok_or_else(|| RigError::Protocol {
+                            detail: format!("Slice {} not found", id.0),
+                        })?
+                    } else {
+                        select_write_slice(
+                            &self.slices,
+                            self.config.preferred_slice,
+                            self.client_handle.as_deref(),
+                            false,
+                        )
+                        .map_err(|e| e.to_rig_error(&endpoint))?
+                    };
 
                     let m = slice.mode.as_str();
                     let (lo, hi) = match m {

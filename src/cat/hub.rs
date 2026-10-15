@@ -14,8 +14,9 @@
 //! - Całkowita izolacja awarii pojedynczej sesji radiowej.
 //! - Gwarancja oczekiwania na wszystkie [`tokio::task::JoinHandle`] podczas shutdown.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
+use std::sync::Mutex as StdMutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::sync::broadcast;
@@ -26,7 +27,9 @@ use crate::cat::routing::{
     RoutedRigEvent, RoutingError,
 };
 use crate::cat::service::{RigServiceError, RigServiceHandle, RigServiceSnapshot, RigServiceState};
-use crate::cat::tx_arbiter::{TxArbiter, TxArbiterError, TxArbiterState, TxUnknownReason};
+use crate::cat::tx_arbiter::{
+    PttCommandOutcome, TxArbiter, TxArbiterError, TxArbiterState, TxUnknownReason,
+};
 
 /// Maksymalna liczba zdarzeń buforowanych w globalnej magistrali huba.
 pub const MAX_HUB_EVENT_QUEUE: usize = 256;
@@ -142,6 +145,7 @@ pub struct RigHub {
     tx_arbiter: TxArbiter,
     event_tx: broadcast::Sender<RoutedRigEvent>,
     next_cmd_counter: AtomicU64,
+    pending_commands: StdMutex<BTreeSet<RigCommandId>>,
     shutting_down: bool,
 }
 
@@ -162,19 +166,47 @@ impl RigHub {
             tx_arbiter: TxArbiter::new(),
             event_tx,
             next_cmd_counter: AtomicU64::new(1),
+            pending_commands: StdMutex::new(BTreeSet::new()),
             shutting_down: false,
         }
     }
 
-    /// Generuje kolejny unikalny, monotoniczny identyfikator polecenia [`RigCommandId`].
+    /// Generuje kolejny unikalny, monotoniczny identyfikator polecenia [`RigCommandId`],
+    /// rejestrując go w puli oczekujących żądań oraz pomijając aktywne ID przy wraparound (ETAP 8).
     pub fn next_command_id(&self) -> RigCommandId {
+        let mut pending = self
+            .pending_commands
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         loop {
             let val = self.next_cmd_counter.fetch_add(1, Ordering::Relaxed);
             if let Some(id) = RigCommandId::from_u64(val) {
-                return id;
+                if !pending.contains(&id) {
+                    if pending.len() < MAX_PENDING_HUB_COMMANDS {
+                        pending.insert(id);
+                    }
+                    return id;
+                }
             }
             // Wraparound 0 pomijany automatycznie
         }
+    }
+
+    /// Zwraca liczbę aktualnie oczekujących poleceń w rejestrze huba.
+    pub fn pending_command_count(&self) -> usize {
+        self.pending_commands
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .len()
+    }
+
+    /// Oznacza polecenie jako ukończone, zwalniając identyfikator z rejestru oczekujących.
+    pub fn complete_command(&self, id: RigCommandId) {
+        let mut pending = self
+            .pending_commands
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        pending.remove(&id);
     }
 
     /// Zwraca liczbę zarejestrowanych sesji radiowych.
@@ -347,7 +379,7 @@ impl RigHub {
     pub fn clear_active_rx_target(&mut self) {
         self.active_rx = None;
         let _ = self.event_tx.send(RoutedRigEvent::new(
-            RigId::new("hub").unwrap_or_else(|_| RigId::new("h").unwrap()),
+            RigId::hub(),
             None,
             RigHubEvent::ActiveRxChanged(None),
         ));
@@ -361,12 +393,12 @@ impl RigHub {
         if let Some(owner) = self.tx_arbiter.current_owner() {
             return Err(RigHubError::CannotChangeActiveTxWhileOwned {
                 current_owner: owner.clone(),
-                requested_rig: RigId::new("none").unwrap_or_else(|_| RigId::new("n").unwrap()),
+                requested_rig: RigId::none(),
             });
         }
         self.active_tx = None;
         let _ = self.event_tx.send(RoutedRigEvent::new(
-            RigId::new("hub").unwrap_or_else(|_| RigId::new("h").unwrap()),
+            RigId::hub(),
             None,
             RigHubEvent::ActiveTxChanged(None),
         ));
@@ -470,12 +502,15 @@ impl RigHub {
 
         // 1. Walidacja odbiornika i unikanie błędnych aliasów VFO/Slice
         if let Some(ref rx) = cmd.target.receiver_id {
-            if rx.is_slice() {
-                // Walidacja slice: odbiornik typu Slice(u32) dopuszczalny tylko dla backendów multi-slice
-                let snap = handle.snapshot();
-                if snap.capabilities.vfo && !snap.capabilities.split {
-                    // Tradycyjny backend VFO jednokanałowy nie obsługuje slice
-                }
+            let snap = handle.snapshot();
+            if rx.is_slice() && !snap.capabilities.split && snap.capabilities.vfo {
+                // Tradycyjny backend VFO jednokanałowy nie obsługuje slice
+                return Err(RigHubError::Routing(RoutingError::Unsupported {
+                    rig_id: target_rig,
+                    operation: format!(
+                        "odbiornik slice '{rx}' nie jest obsługiwany przez tradycyjny backend"
+                    ),
+                }));
             }
         }
 
@@ -503,14 +538,51 @@ impl RigHub {
 
                 match exec_res {
                     Ok(()) => {
-                        // Krok 3a: Potwierdzenie sukcesu (Requesting -> Owned)
-                        self.tx_arbiter.confirm_owned(&target_rig, cmd.command_id)?;
+                        // Krok 3a: Weryfikacja czy stan po komendzie to fizycznie potwierdzony stan TX
+                        let snap = handle.snapshot();
+                        let confirmed_tx = snap.state.as_ref().map_or(false, |s| s.ptt);
+                        if confirmed_tx {
+                            self.tx_arbiter.apply_ptt_outcome(
+                                &target_rig,
+                                cmd.command_id,
+                                PttCommandOutcome::ConfirmedTx,
+                            )?;
+                            let _ = self.event_tx.send(RoutedRigEvent::new(
+                                target_rig.clone(),
+                                cmd.target.receiver_id,
+                                RigHubEvent::TxArbiterStateChanged(self.tx_arbiter.state().clone()),
+                            ));
+                            Ok(())
+                        } else {
+                            // Wysłanie komendy bez fizycznego potwierdzenia TX (Unconfirmed) prowadzi do stanu Unknown!
+                            let _ = self.tx_arbiter.apply_ptt_outcome(
+                                &target_rig,
+                                cmd.command_id,
+                                PttCommandOutcome::Unconfirmed,
+                            );
+                            let _ = self.event_tx.send(RoutedRigEvent::new(
+                                target_rig.clone(),
+                                cmd.target.receiver_id,
+                                RigHubEvent::TxArbiterStateChanged(self.tx_arbiter.state().clone()),
+                            ));
+                            Err(RigHubError::TxArbiter(TxArbiterError::StateUnknown {
+                                reason: TxUnknownReason::UnconfirmedState,
+                            }))
+                        }
+                    }
+                    Err(RigServiceError::QueueFull) => {
+                        // Przepełnienie kolejki podczas próby SetPtt(true) cofa żądanie i wraca bezpiecznie do Idle
+                        let _ = self.tx_arbiter.apply_ptt_outcome(
+                            &target_rig,
+                            cmd.command_id,
+                            PttCommandOutcome::Rejected,
+                        );
                         let _ = self.event_tx.send(RoutedRigEvent::new(
-                            target_rig.clone(),
+                            target_rig,
                             cmd.target.receiver_id,
                             RigHubEvent::TxArbiterStateChanged(self.tx_arbiter.state().clone()),
                         ));
-                        Ok(())
+                        Err(RigHubError::Service(RigServiceError::QueueFull))
                     }
                     Err(RigServiceError::DeadlineExceeded) => {
                         // Krok 3b: Timeout prowadzi do bezpiecznego stanu Unknown (brak retry!)
@@ -559,15 +631,52 @@ impl RigHub {
 
                 match exec_res {
                     Ok(()) => {
-                        // Krok 3a: Potwierdzenie powrotu do RX (Releasing -> Idle)
-                        self.tx_arbiter
-                            .confirm_release(&target_rig, cmd.command_id)?;
+                        // Krok 3a: Weryfikacja czy stan po wyłączeniu to potwierdzony stan RX
+                        let snap = handle.snapshot();
+                        let confirmed_rx = snap.state.as_ref().map_or(false, |s| !s.ptt);
+                        if confirmed_rx {
+                            self.tx_arbiter.apply_ptt_outcome(
+                                &target_rig,
+                                cmd.command_id,
+                                PttCommandOutcome::ConfirmedRx,
+                            )?;
+                            let _ = self.event_tx.send(RoutedRigEvent::new(
+                                target_rig.clone(),
+                                cmd.target.receiver_id,
+                                RigHubEvent::TxArbiterStateChanged(self.tx_arbiter.state().clone()),
+                            ));
+                            Ok(())
+                        } else {
+                            // Zwolnienie bez potwierdzonego RX prowadzi do Unknown!
+                            let _ = self.tx_arbiter.apply_ptt_outcome(
+                                &target_rig,
+                                cmd.command_id,
+                                PttCommandOutcome::Unconfirmed,
+                            );
+                            let _ = self.event_tx.send(RoutedRigEvent::new(
+                                target_rig.clone(),
+                                cmd.target.receiver_id,
+                                RigHubEvent::TxArbiterStateChanged(self.tx_arbiter.state().clone()),
+                            ));
+                            Err(RigHubError::TxArbiter(TxArbiterError::StateUnknown {
+                                reason: TxUnknownReason::UnconfirmedState,
+                            }))
+                        }
+                    }
+                    Err(RigServiceError::QueueFull) => {
+                        // Przepełnienie kolejki przy wyłączaniu PTT uniemożliwia gwarancję wyłączenia -> Unknown!
+                        self.tx_arbiter.set_unknown(
+                            Some(target_rig.clone()),
+                            TxUnknownReason::BackendError(
+                                "Kolejka przepełniona podczas zwalniania PTT".to_string(),
+                            ),
+                        );
                         let _ = self.event_tx.send(RoutedRigEvent::new(
-                            target_rig.clone(),
+                            target_rig,
                             cmd.target.receiver_id,
                             RigHubEvent::TxArbiterStateChanged(self.tx_arbiter.state().clone()),
                         ));
-                        Ok(())
+                        Err(RigHubError::Service(RigServiceError::QueueFull))
                     }
                     Err(e) => {
                         // Krok 3b: Błąd podczas zwalniania prowadzi do Unknown
@@ -594,8 +703,9 @@ impl RigHub {
 
     /// Bezpieczna resynchronizacja arbitra TX ze stanu [`TxArbiterState::Unknown`] do [`TxArbiterState::Idle`].
     ///
-    /// Weryfikuje bieżącą telemetrię wskazanego radia. Jeśli radio potwierdza stan RX (`ptt == false`),
-    /// stan `Unknown` zostaje skasowany. W przeciwnym razie blokada pozostaje nienaruszona.
+    /// Weryfikuje bieżącą telemetrię wskazanego radia. Jeśli radio potwierdza stan RX (`ptt == false`)
+    /// ze świeżym znacznikiem czasu wykonanym po wejściu w stan Unknown, stan `Unknown` zostaje skasowany.
+    /// W przeciwnym razie blokada pozostaje nienaruszona.
     pub async fn resync_tx_arbiter(
         &mut self,
         rig_id: &RigId,
@@ -613,6 +723,15 @@ impl RigHub {
             )));
         }
 
+        if snapshot.freshness != crate::cat::service::StateFreshness::Fresh {
+            return Err(RigHubError::TxArbiter(TxArbiterError::ResyncFailed(
+                format!(
+                    "telemetria radia '{rig_id}' nie jest świeża (freshness: {:?})",
+                    snapshot.freshness
+                ),
+            )));
+        }
+
         let is_rx = snapshot.state.as_ref().map(|s| !s.ptt).unwrap_or(false);
         if !is_rx {
             return Err(RigHubError::TxArbiter(TxArbiterError::ResyncFailed(
@@ -620,7 +739,17 @@ impl RigHub {
             )));
         }
 
-        self.tx_arbiter.resync_with_audit(rig_id, true)?;
+        let update_time = snapshot.last_update.ok_or_else(|| {
+            RigHubError::TxArbiter(TxArbiterError::ResyncFailed(
+                "brak znacznika czasu aktualizacji telemetrii".to_string(),
+            ))
+        })?;
+
+        // Asynchroniczne ustąpienie wykonania usuwa ostrzeżenie clippy unused_async
+        tokio::task::yield_now().await;
+
+        self.tx_arbiter
+            .resync_with_fresh_audit(rig_id, true, Some(update_time))?;
         let _ = self.event_tx.send(RoutedRigEvent::new(
             rig_id.clone(),
             None,
@@ -652,8 +781,8 @@ impl RigHub {
     /// 1. Ustawia flagę `shutting_down` i odrzuca nowe polecenia.
     /// 2. Sprawdza, czy którekolwiek radio nadaje (`Owned`). Jeśli tak, wykonuje JEDNĄ bounded próbę wyłączenia PTT.
     /// 3. Wysyła sygnał shutdown do wszystkich zarejestrowanych sesji radiowych.
-    /// 4. Oczekuje na zakończenie wszystkich tasków (`JoinHandle`) z zachowaniem globalnego terminu `timeout`.
-    /// 5. Czyści rejestr sesji i cele focusu.
+    /// 4. Oczekuje na zakończenie wszystkich tasków (`JoinHandle`) z zachowaniem jednego bezwzględnego `deadline`.
+    /// 5. Czyści rejestr sesji, cele focusu i oczekujące żądania.
     pub async fn shutdown(&mut self, timeout: Duration) -> Result<(), RigHubError> {
         if self.shutting_down && self.services.is_empty() {
             return Ok(());
@@ -662,10 +791,15 @@ impl RigHub {
         self.shutting_down = true;
         let deadline = tokio::time::Instant::now() + timeout;
 
-        // 1. Bezpieczne zwolnienie PTT dla właściciela (jeśli istnieje)
+        // 1. Bezpieczne zwolnienie PTT wyłącznie dla właściciela (jeśli istnieje)
         if let Some(owner) = self.tx_arbiter.shutdown_release_target() {
             if let Some(handle) = self.services.get(&owner) {
-                let release_deadline = tokio::time::Instant::now() + Duration::from_millis(1000);
+                let now = tokio::time::Instant::now();
+                let release_deadline = if deadline > now {
+                    now + (deadline - now).min(Duration::from_millis(1000))
+                } else {
+                    now
+                };
                 let cmd_id = self.next_command_id();
                 let _ = handle
                     .execute(
@@ -678,7 +812,7 @@ impl RigHub {
             }
         }
 
-        // 2. Wyślij shutdown i dołącz (join) wszystkie taski sesji
+        // 2. Wyślij shutdown i dołącz (join) wszystkie taski sesji z zachowaniem jednego bezwzględnego deadline
         let mut shutdown_errors = Vec::new();
         let service_ids: Vec<RigId> = self.services.keys().cloned().collect();
 
@@ -691,9 +825,13 @@ impl RigHub {
             }
         }
 
-        // 3. Wyczyść cele i stan arbitra
+        // 3. Wyczyść cele, rejestr poleceń i stan
         self.active_rx = None;
         self.active_tx = None;
+        self.pending_commands
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
 
         if shutdown_errors.is_empty() {
             Ok(())

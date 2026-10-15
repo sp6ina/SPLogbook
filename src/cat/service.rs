@@ -110,8 +110,10 @@ pub struct RigServiceSnapshot {
     pub rig_id: RigId,
     /// Aktualny stan cyklu życia.
     pub lifecycle: RigServiceState,
-    /// Ostatni potwierdzony stan transceivera (o ile dostępny).
+    /// Ostatni potwierdzony stan transceivera (potwierdzona telemetria).
     pub state: Option<RigState>,
+    /// Ostatni żądany stan (optymistyczny bufor komend przed potwierdzeniem z radia).
+    pub requested_state: Option<RigState>,
     /// Możliwości techniczne transceivera i backendu.
     pub capabilities: RigCapabilities,
     /// Monotoniczny czas ostatniej aktualizacji stanu.
@@ -129,6 +131,7 @@ impl RigServiceSnapshot {
             rig_id,
             lifecycle: RigServiceState::Created,
             state: None,
+            requested_state: None,
             capabilities,
             last_update: None,
             freshness: StateFreshness::Missing,
@@ -250,8 +253,15 @@ impl RigService {
         (service, handle)
     }
 
-    /// Pomocnicza metoda aktualizacji stanu cyklu życia i publikacji w snapshotcie i zdarzeniach.
-    fn set_lifecycle(&mut self, next: RigServiceState, error: Option<String>) {
+    /// Weryfikuje i wykonuje przejście cyklu życia, publikując nowy snapshot i zdarzenie.
+    ///
+    /// W przypadku niedozwolonego przejścia zwraca typed error [`RigServiceError::InvalidLifecycleTransition`]
+    /// i nie mutuje stanu ani snapshotu.
+    pub fn transition_to(
+        &mut self,
+        next: RigServiceState,
+        error: Option<String>,
+    ) -> Result<(), RigServiceError> {
         if !self.snapshot.lifecycle.can_transition_to(next) {
             log::warn!(
                 "[{}] Niedozwolone przejście cyklu życia: {} -> {}",
@@ -259,25 +269,38 @@ impl RigService {
                 self.snapshot.lifecycle,
                 next
             );
-            return;
+            return Err(RigServiceError::InvalidLifecycleTransition {
+                from: self.snapshot.lifecycle,
+                to: next,
+            });
         }
 
         self.snapshot.lifecycle = next;
-        self.snapshot.last_error = error.clone();
+        self.snapshot.last_error = error
+            .as_deref()
+            .map(crate::cat::tx_arbiter::redact_sensitive_info);
         self.snapshot.last_update = Some(tokio::time::Instant::now());
 
         let hub_event = match next {
-            RigServiceState::Created => return,
+            RigServiceState::Created => return Ok(()),
             RigServiceState::Connecting => RigHubEvent::RigConnecting,
             RigServiceState::Synchronizing => RigHubEvent::RigSynchronizing,
             RigServiceState::Ready => RigHubEvent::RigReady,
             RigServiceState::Degraded => {
-                RigHubEvent::RigDegraded(error.unwrap_or_else(|| "stan Degraded".to_string()))
+                let msg = error
+                    .as_deref()
+                    .map(crate::cat::tx_arbiter::redact_sensitive_info)
+                    .unwrap_or_else(|| "stan Degraded".to_string());
+                RigHubEvent::RigDegraded(msg)
             }
             RigServiceState::Disconnecting => RigHubEvent::RigDisconnecting,
             RigServiceState::Disconnected => RigHubEvent::RigDisconnected,
             RigServiceState::Failed => {
-                RigHubEvent::RigFailed(error.unwrap_or_else(|| "awaria sesji".to_string()))
+                let msg = error
+                    .as_deref()
+                    .map(crate::cat::tx_arbiter::redact_sensitive_info)
+                    .unwrap_or_else(|| "awaria sesji".to_string());
+                RigHubEvent::RigFailed(msg)
             }
         };
 
@@ -285,6 +308,12 @@ impl RigService {
             .event_tx
             .send(RoutedRigEvent::new(self.rig_id.clone(), None, hub_event));
         let _ = self.snapshot_tx.send(self.snapshot.clone());
+        Ok(())
+    }
+
+    /// Pomocnicza metoda aktualizacji stanu cyklu życia (ignoruje błąd niepoprawnego przejścia).
+    fn set_lifecycle(&mut self, next: RigServiceState, error: Option<String>) {
+        let _ = self.transition_to(next, error);
     }
 
     /// Aktualizuje zbuforowany stan telemetrii.
@@ -452,35 +481,46 @@ impl RigService {
             return;
         };
 
-        // 4. Wykonaj polecenie na backendzie z bounded timeoutem
-        let exec_res = tokio::time::timeout(remaining, self.backend.execute(&req.command)).await;
+        // 4. Wykonaj polecenie na backendzie z bounded timeoutem oraz uwzględnieniem docelowego odbiornika
+        let exec_res = tokio::time::timeout(
+            remaining,
+            self.backend
+                .execute_routed(req.target.receiver_id.as_ref(), &req.command),
+        )
+        .await;
 
         match exec_res {
             Ok(Ok(())) => {
-                // Po udanej komendzie zaktualizuj lokalny stan telemetrii jeśli dotyczy
-                let mut state_changed = false;
-                if let Some(ref mut st) = self.snapshot.state {
+                // Po udanej komendzie zaktualizuj stan żądany (requested state).
+                // Ważne: stan potwierdzony (self.snapshot.state) NIE MOŻE być fabrykowany na podstawie
+                // samego wysłania komendy — aktualizuje go wyłącznie telemetria z radia (update_state).
+                let mut req_state = self
+                    .snapshot
+                    .requested_state
+                    .clone()
+                    .or_else(|| self.snapshot.state.clone());
+
+                if let Some(ref mut st) = req_state {
                     match req.command {
                         RigCommand::SetPtt(ptt_val) => {
                             st.ptt = ptt_val;
-                            state_changed = true;
                         }
                         RigCommand::SetFrequency(hz) => {
                             st.frequency_hz = hz;
-                            state_changed = true;
                         }
-                        RigCommand::SetMode { mode, passband_hz } => {
+                        RigCommand::SetMode {
+                            ref mode,
+                            passband_hz,
+                        } => {
                             st.mode = mode.to_string();
                             st.passband_hz = passband_hz;
-                            state_changed = true;
                         }
                         _ => {}
                     }
                 }
-                if state_changed {
-                    self.snapshot.last_update = Some(tokio::time::Instant::now());
-                    let _ = self.snapshot_tx.send(self.snapshot.clone());
-                }
+                self.snapshot.requested_state = req_state;
+                self.snapshot.last_update = Some(tokio::time::Instant::now());
+                let _ = self.snapshot_tx.send(self.snapshot.clone());
                 let _ = req.responder.send(Ok(()));
             }
             Ok(Err(e)) => {
@@ -538,6 +578,11 @@ impl RigServiceHandle {
     /// Zwraca subskrypcję asynchronicznych zdarzeń emitowanych przez tę sesję.
     pub fn subscribe_events(&self) -> broadcast::Receiver<RoutedRigEvent> {
         self.event_tx.subscribe()
+    }
+
+    /// Zwraca referencję do wewnętrznego nadajnika poleceń (do testów kolejki).
+    pub fn command_sender(&self) -> &mpsc::Sender<RigServiceRequest> {
+        &self.cmd_tx
     }
 
     /// Wysyła polecenie do sesji z uwzględnieniem ograniczenia kolejki i monotonicznego terminu.
@@ -603,11 +648,11 @@ impl RigServiceHandle {
         // 2. Oczekuj na zakończenie pętli taska (JoinHandle)
         if let Some(mut handle) = self.join_handle.take() {
             let now = tokio::time::Instant::now();
-            let remaining = if deadline > now {
-                deadline - now
-            } else {
-                Duration::from_millis(50)
-            };
+            if now >= deadline {
+                handle.abort();
+                return Err(RigServiceError::DeadlineExceeded);
+            }
+            let remaining = deadline - now;
 
             match tokio::time::timeout(remaining, &mut handle).await {
                 Ok(Ok(_run_res)) => Ok(()),

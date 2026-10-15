@@ -51,6 +51,16 @@ impl RigId {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// Bezpieczny identyfikator logiczny centralnego dyspozytora (huba).
+    pub fn hub() -> Self {
+        Self("hub".to_string())
+    }
+
+    /// Bezpieczny identyfikator logiczny braku przypisania.
+    pub fn none() -> Self {
+        Self("none".to_string())
+    }
 }
 
 impl fmt::Display for RigId {
@@ -359,6 +369,26 @@ impl ActiveTxTarget {
     }
 }
 
+/// Błędy walidacji identyfikatora [`RigCommandId`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RigCommandIdError {
+    /// Wartość 0 jest zarezerwowana i niedozwolona w architekturze.
+    ZeroReserved,
+}
+
+impl fmt::Display for RigCommandIdError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ZeroReserved => write!(
+                f,
+                "wartość 0 jest zarezerwowana w architekturze RigCommandId"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for RigCommandIdError {}
+
 /// Monotoniczny, bezkolizyjny identyfikator polecenia CAT w obrębie instancji [`crate::cat::hub::RigHub`].
 ///
 /// Wartość 0 jest zarezerwowana (reprezentowana przez [`NonZeroU64`]).
@@ -367,17 +397,25 @@ impl ActiveTxTarget {
 pub struct RigCommandId(NonZeroU64);
 
 impl RigCommandId {
+    /// Jawna deklaracja polityki: identyfikator o wartości 0 jest zarezerwowany.
+    pub const ZERO_RESERVED: bool = true;
+
     /// Tworzy identyfikator z wartości niezerowej.
     pub const fn from_nonzero(id: NonZeroU64) -> Self {
         Self(id)
     }
 
-    /// Tworzy identyfikator z liczby u64 (wymaga wartości większej od 0).
-    ///
-    /// # Panics
-    /// Panikuje, jeśli `id == 0`.
+    /// Bezpiecznie tworzy identyfikator z liczby u64 z jawną obsługą błędu zera (bez paniki).
+    pub fn try_new(id: u64) -> Result<Self, RigCommandIdError> {
+        NonZeroU64::new(id)
+            .map(Self)
+            .ok_or(RigCommandIdError::ZeroReserved)
+    }
+
+    /// Tworzy identyfikator z liczby u64 (dla kompatybilności w testach).
+    /// W przypadku podania wartości 0 zwraca bezpieczny identyfikator minimalny bez paniki.
     pub fn new(id: u64) -> Self {
-        Self::from_u64(id).expect("RigCommandId musi być większe od 0")
+        Self::from_u64(id).unwrap_or(Self(NonZeroU64::MIN))
     }
 
     /// Tworzy identyfikator z liczby u64, o ile nie jest zerem.

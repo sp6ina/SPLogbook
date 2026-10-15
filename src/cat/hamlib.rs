@@ -513,6 +513,7 @@ impl HamlibBackend {
         }
     }
 
+    #[allow(clippy::unused_async)]
     async fn disconnect_internal(&mut self) {
         self.reader = None;
         self.writer = None;

@@ -39,6 +39,17 @@ pub trait RigBackend: Send {
     /// Wykonuje polecenie domenowe przez trwałą sesję.
     fn execute<'a>(&'a mut self, command: &'a RigCommand) -> BoxFuture<'a, Result<(), RigError>>;
 
+    /// Wykonuje polecenie domenowe zaadresowane do konkretnego odbiornika (np. Flex slice lub VFO).
+    ///
+    /// Domyślna implementacja ignoruje cel odbiornika i deleguje bezpośrednio do [`Self::execute`].
+    fn execute_routed<'a>(
+        &'a mut self,
+        _receiver: Option<&'a crate::cat::routing::ReceiverId>,
+        command: &'a RigCommand,
+    ) -> BoxFuture<'a, Result<(), RigError>> {
+        self.execute(command)
+    }
+
     /// Bezpiecznie zamyka połączenie z radiem/demonem.
     fn disconnect(&mut self) -> BoxFuture<'_, ()>;
 }

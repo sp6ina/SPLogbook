@@ -16,6 +16,62 @@ use std::fmt;
 
 use crate::cat::routing::{RigCommandId, RigId};
 
+/// Zastępuje wrażliwe dane w komunikatach diagnostycznych (hasła, tokeny, tajemnice).
+pub fn redact_sensitive_info(msg: &str) -> String {
+    let mut out = msg.to_string();
+    for pattern in &[
+        "password=",
+        "password:",
+        "token=",
+        "token:",
+        "secret=",
+        "secret:",
+        "client_id=",
+        "pass=",
+        "bearer ",
+    ] {
+        let mut search_from = 0;
+        while search_from < out.len() {
+            let lower = out[search_from..].to_lowercase();
+            if let Some(pos) = lower.find(pattern) {
+                let abs_pos = search_from + pos;
+                let start = abs_pos + pattern.len();
+                let end = out[start..]
+                    .find(|c: char| {
+                        c == '&'
+                            || c == ' '
+                            || c == ';'
+                            || c == ','
+                            || c == '"'
+                            || c == '\''
+                            || c == '\n'
+                    })
+                    .map(|p| start + p)
+                    .unwrap_or(out.len());
+                let replacement = "[REDACTED]";
+                out.replace_range(start..end, replacement);
+                search_from = start + replacement.len();
+            } else {
+                break;
+            }
+        }
+    }
+    out
+}
+
+/// Wynik wykonania polecenia PTT przez backend CAT (ETAP 5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PttCommandOutcome {
+    /// Fizycznie potwierdzony stan nadawania (TX).
+    ConfirmedTx,
+    /// Fizycznie potwierdzony stan odbioru (RX).
+    ConfirmedRx,
+    /// Polecenie zostało odrzucone przez urządzenie lub backend.
+    Rejected,
+    /// Polecenie zostało wysłane lub przyjęte, ale stan fizyczny TX/RX nie jest jeszcze potwierdzony.
+    Unconfirmed,
+}
+
 /// Przyczyny przejścia arbitra do stanu niejednoznaczności [`TxArbiterState::Unknown`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TxUnknownReason {
@@ -58,7 +114,9 @@ impl fmt::Display for TxUnknownReason {
                     "przekroczono limit czasu podczas wyłączania PTT (release)"
                 )
             }
-            Self::BackendError(msg) => write!(f, "błąd backendu radiowego: {msg}"),
+            Self::BackendError(msg) => {
+                write!(f, "błąd backendu radiowego: {}", redact_sensitive_info(msg))
+            }
             Self::UnconfirmedState => {
                 write!(f, "telemetria radia nie potwierdza jednoznacznie stanu RX")
             }
@@ -194,6 +252,8 @@ impl std::error::Error for TxArbiterError {}
 #[derive(Debug, Clone)]
 pub struct TxArbiter {
     state: TxArbiterState,
+    unknown_since: Option<tokio::time::Instant>,
+    generation: u64,
 }
 
 impl Default for TxArbiter {
@@ -207,7 +267,19 @@ impl TxArbiter {
     pub fn new() -> Self {
         Self {
             state: TxArbiterState::Idle,
+            unknown_since: None,
+            generation: 0,
         }
+    }
+
+    /// Monotoniczny znacznik czasu wejścia w stan Unknown, o ile arbiter aktualnie w nim przebywa.
+    pub fn unknown_since(&self) -> Option<tokio::time::Instant> {
+        self.unknown_since
+    }
+
+    /// Monotoniczny numer generacji stanu arbitra.
+    pub fn generation(&self) -> u64 {
+        self.generation
     }
 
     /// Aktualny stan maszyny arbitra.
@@ -423,9 +495,95 @@ impl TxArbiter {
         }
     }
 
+    /// Aplikuje wynik polecenia PTT z zachowaniem rygorów bezpieczeństwa (ETAP 5).
+    pub fn apply_ptt_outcome(
+        &mut self,
+        rig_id: &RigId,
+        command_id: RigCommandId,
+        outcome: PttCommandOutcome,
+    ) -> Result<(), TxArbiterError> {
+        match (&self.state, outcome) {
+            (
+                TxArbiterState::Requesting {
+                    rig_id: req_rig,
+                    command_id: req_cmd,
+                },
+                PttCommandOutcome::ConfirmedTx,
+            ) if req_rig == rig_id && *req_cmd == command_id => {
+                self.state = TxArbiterState::Owned {
+                    rig_id: rig_id.clone(),
+                    command_id,
+                };
+                self.generation += 1;
+                Ok(())
+            }
+            (
+                TxArbiterState::Requesting {
+                    rig_id: req_rig,
+                    command_id: req_cmd,
+                },
+                PttCommandOutcome::Rejected,
+            ) if req_rig == rig_id && *req_cmd == command_id => {
+                self.state = TxArbiterState::Idle;
+                self.generation += 1;
+                Ok(())
+            }
+            (
+                TxArbiterState::Requesting {
+                    rig_id: req_rig,
+                    command_id: req_cmd,
+                },
+                PttCommandOutcome::Unconfirmed,
+            ) if req_rig == rig_id && *req_cmd == command_id => {
+                self.set_unknown(Some(rig_id.clone()), TxUnknownReason::UnconfirmedState);
+                Err(TxArbiterError::StateUnknown {
+                    reason: TxUnknownReason::UnconfirmedState,
+                })
+            }
+            (
+                TxArbiterState::Releasing {
+                    rig_id: rel_rig,
+                    command_id: rel_cmd,
+                },
+                PttCommandOutcome::ConfirmedRx,
+            ) if rel_rig == rig_id && *rel_cmd == command_id => {
+                self.state = TxArbiterState::Idle;
+                self.generation += 1;
+                Ok(())
+            }
+            (
+                TxArbiterState::Releasing {
+                    rig_id: rel_rig,
+                    command_id: rel_cmd,
+                },
+                PttCommandOutcome::Unconfirmed,
+            ) if rel_rig == rig_id && *rel_cmd == command_id => {
+                self.set_unknown(Some(rig_id.clone()), TxUnknownReason::UnconfirmedState);
+                Err(TxArbiterError::StateUnknown {
+                    reason: TxUnknownReason::UnconfirmedState,
+                })
+            }
+            (other, _) => Err(TxArbiterError::InvalidTransition {
+                from: other.to_string(),
+                to: format!("Outcome({outcome:?})"),
+            }),
+        }
+    }
+
     /// Wymusza przejście do stanu `Unknown` w przypadku timeoutu, zerwania transportu lub błędu I/O.
     pub fn set_unknown(&mut self, rig_id: Option<RigId>, reason: TxUnknownReason) {
-        self.state = TxArbiterState::Unknown { rig_id, reason };
+        let redacted_reason = match reason {
+            TxUnknownReason::BackendError(msg) => {
+                TxUnknownReason::BackendError(redact_sensitive_info(&msg))
+            }
+            other => other,
+        };
+        self.state = TxArbiterState::Unknown {
+            rig_id,
+            reason: redacted_reason,
+        };
+        self.unknown_since = Some(tokio::time::Instant::now());
+        self.generation += 1;
     }
 
     /// Oznacza stan jako nieznany (synonim [`Self::set_unknown`]).
@@ -465,20 +623,24 @@ impl TxArbiter {
     /// Resynchronizuje arbiter bezpośrednio do stanu Idle.
     pub fn resync_to_idle(&mut self) {
         self.state = TxArbiterState::Idle;
+        self.unknown_since = None;
+        self.generation += 1;
     }
 
-    /// Resynchronizuje arbiter ze stanu `Unknown` do `Idle` z weryfikacją stanu RX.
+    /// Resynchronizuje arbiter ze stanu `Unknown` do `Idle` z weryfikacją świeżości pomiaru RX (ETAP 6).
     ///
     /// Przejście jest dozwolone wyłącznie wtedy, gdy:
     /// 1. Radio jest osiągalne i dostarczyło świeży, jednoznaczny stan RX (`rx_confirmed == true`),
     /// 2. Jeżeli stan `Unknown` wskazywał konkretne radio, `confirmed_rig_id` musi odpowiadać temu radiu,
-    /// 3. Brak potwierdzonego stanu TX na którymkolwiek radiu.
+    /// 3. Pomiar RX (`observation_time`) nastąpił PO wejściu w stan `Unknown` (brak stale cache),
+    /// 4. Brak potwierdzonego stanu TX na którymkolwiek radiu.
     ///
     /// W przypadku niespełnienia kryteriów stan `Unknown` pozostaje nienaruszony.
-    pub fn resync_with_audit(
+    pub fn resync_with_fresh_audit(
         &mut self,
         confirmed_rig_id: &RigId,
         rx_confirmed: bool,
+        observation_time: Option<tokio::time::Instant>,
     ) -> Result<(), TxArbiterError> {
         match &self.state {
             TxArbiterState::Idle => Ok(()),
@@ -500,13 +662,42 @@ impl TxArbiter {
                     ));
                 }
 
+                // Weryfikacja świeżości pomiaru: observation_time musi być PO wejściu w Unknown
+                if let (Some(unknown_t), Some(obs_t)) = (self.unknown_since, observation_time) {
+                    if obs_t < unknown_t {
+                        return Err(TxArbiterError::ResyncFailed(
+                            "pomiar RX wykonany przed wejściem w stan Unknown (nieświeży stan)"
+                                .to_string(),
+                        ));
+                    }
+                } else if self.unknown_since.is_some() && observation_time.is_none() {
+                    return Err(TxArbiterError::ResyncFailed(
+                        "brak znacznika czasu pomiaru RX po wejściu w stan Unknown".to_string(),
+                    ));
+                }
+
                 self.state = TxArbiterState::Idle;
+                self.unknown_since = None;
+                self.generation += 1;
                 Ok(())
             }
             other => Err(TxArbiterError::ResyncFailed(format!(
                 "resynchronizacja ze stanu '{other}' nie jest dozwolona (dozwolona wyłącznie z Unknown)"
             ))),
         }
+    }
+
+    /// Resynchronizuje arbiter ze stanu `Unknown` do `Idle` z weryfikacją stanu RX.
+    pub fn resync_with_audit(
+        &mut self,
+        confirmed_rig_id: &RigId,
+        rx_confirmed: bool,
+    ) -> Result<(), TxArbiterError> {
+        self.resync_with_fresh_audit(
+            confirmed_rig_id,
+            rx_confirmed,
+            Some(tokio::time::Instant::now()),
+        )
     }
 
     /// Zwraca radio, które należy bezpiecznie rozłączyć (wyłączyć PTT) w trakcie procedury shutdown.
