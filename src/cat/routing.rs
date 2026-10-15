@@ -7,6 +7,7 @@
 //! identyfikatory poleceń ([`RigCommandId`]) oraz struktury przekazywania komend i zdarzeń
 //! ([`RoutedRigCommand`], [`RoutedRigEvent`]).
 
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::num::NonZeroU64;
 
@@ -19,8 +20,23 @@ use crate::cat::tx_arbiter::TxArbiterState;
 /// Identyfikator jest niezależny od kolejności rejestracji sesji, indeksów kolekcji
 /// oraz nazwy wyświetlanej użytkownikowi. Nie może być pusty ani składać się wyłącznie
 /// ze znaków białych.
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
 pub struct RigId(String);
+
+impl TryFrom<String> for RigId {
+    type Error = RigIdError;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        Self::new(s)
+    }
+}
+
+impl From<RigId> for String {
+    fn from(r: RigId) -> Self {
+        r.0
+    }
+}
 
 impl RigId {
     /// Tworzy nowy [`RigId`] po uprzedniej walidacji.
@@ -112,7 +128,7 @@ impl std::error::Error for RigIdError {}
 /// Gwarantuje brak niepożądanego aliasowania pomiędzy tradycyjnym modelem VFO (Main, Sub, VfoA, VfoB)
 /// a wieloodbiornikową architekturą SDR Multi-Slice (np. FlexRadio SmartSDR `Slice(u32)`).
 /// Wartość `Slice(0)` nie jest równoważna ani `VfoA`, ani `Main`.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum ReceiverId {
     /// Główny odbiornik klasycznego radia.
     Main,

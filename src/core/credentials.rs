@@ -325,6 +325,7 @@ impl AppConfig {
             Err(e) => return Err(e),
         };
         let mut config: Self = serde_json::from_str(&data).map_err(io::Error::other)?;
+        let _ = crate::cat::config::migrate_legacy_cat_config(&mut config);
         if !config.secret_store_id.is_empty() {
             if !Secrets::from_config(&config).is_empty() {
                 return Err(io::Error::new(

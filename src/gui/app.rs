@@ -654,6 +654,25 @@ pub struct SpLogApp {
     pub cat_proxy_rx:
         Option<tokio::sync::broadcast::Receiver<crate::cat::server::RigServerCommand>>,
     pub cat_poll_abort: Option<tokio::task::AbortHandle>,
+    /// Nowoczesna konfiguracja wieloradiowa CAT (NATIVE-6B).
+    pub cat_station: Option<crate::cat::config::CatStationConfig>,
+    /// Centralny komponent aplikacyjny zarządzający węzłem RigHub i sesjami RigService.
+    pub cat_runtime: crate::cat::runtime::CatRuntime,
+    /// Kanał odbioru wyników asynchronicznego probe CAT.
+    pub cat_probe_rx:
+        Option<std::sync::mpsc::Receiver<Result<crate::cat::backend::RigProbeResult, String>>>,
+    /// Flaga trwającego testu probe CAT.
+    pub cat_probe_running: bool,
+    /// Ostatni wynik testu probe CAT.
+    pub cat_probe_result: Option<Result<crate::cat::backend::RigProbeResult, String>>,
+    /// Kanał odbioru asynchronicznie uruchamianego CatRuntime.
+    pub cat_start_rx: Option<
+        std::sync::mpsc::Receiver<
+            Result<crate::cat::runtime::CatRuntime, crate::cat::runtime::CatRuntimeError>,
+        >,
+    >,
+    /// Indeks aktualnie edytowanego radia w oknie ustawień CAT.
+    pub cat_selected_rig_idx: usize,
 
     // VFO Konsola radiowa & DSP
     pub vfo_split_offset_khz: f64,
@@ -1302,6 +1321,13 @@ impl SpLogApp {
             cat_proxy_server: None,
             cat_proxy_rx: None,
             cat_poll_abort,
+            cat_station: init.config.cat_station.clone(),
+            cat_runtime: crate::cat::runtime::CatRuntime::new(),
+            cat_probe_rx: None,
+            cat_probe_running: false,
+            cat_probe_result: None,
+            cat_start_rx: None,
+            cat_selected_rig_idx: 0,
 
             // VFO Konsola radiowa & DSP
             vfo_split_offset_khz: 1.0,
@@ -2401,24 +2427,30 @@ impl SpLogApp {
         self.focus_callsign_requested = true;
     }
 
-    /// Przełącza stan nadawania PTT (TX/RX) przez połączenie CAT.
+    /// Przełącza stan nadawania PTT (TX/RX) z pełną weryfikacją w TxArbiter.
     pub fn toggle_ptt(&mut self) {
-        self.ptt_active = !self.ptt_active;
-        self.rig_state.ptt = self.ptt_active;
-        if self.cat_connected {
-            let host = self.cat_host.clone();
-            let port = self.cat_port;
-            let tx = self.ptt_active;
-            let backend = self.cat_backend_kind();
-            tokio::spawn(async move {
-                if matches!(backend, crate::cat::backend::CatBackendKind::Flrig) {
-                    let _ = crate::cat::flrig::FlrigClient::new(&host, port)
-                        .set_ptt(tx)
-                        .await;
-                } else {
-                    let _ = crate::cat::hamlib::HamlibClient::set_ptt(&host, port, tx).await;
-                }
-            });
+        let snap = self.cat_runtime.snapshot();
+        let tx_rig = snap
+            .active_tx
+            .as_ref()
+            .map(|t| t.rig_id.clone())
+            .or_else(|| snap.active_rx.as_ref().map(|r| r.rig_id.clone()))
+            .or_else(|| snap.rigs.keys().next().cloned());
+
+        if let Some(rig_id) = tx_rig {
+            let is_transmitting = match snap.tx_state {
+                crate::cat::tx_arbiter::TxArbiterState::Owned {
+                    rig_id: ref owner, ..
+                } => owner == &rig_id,
+                _ => false,
+            };
+            if is_transmitting {
+                self.cat_runtime
+                    .release_tx(rig_id, std::time::Duration::from_millis(1500));
+            } else {
+                self.cat_runtime
+                    .request_tx(rig_id, std::time::Duration::from_millis(1500));
+            }
         }
     }
 
@@ -2948,13 +2980,14 @@ impl SpLogApp {
         });
     }
 
-    pub fn save_station_config(&mut self) {
+    /// Tworzy zaktualizowaną strukturę [`AppConfig`] odzwierciedlającą bieżący stan aplikacji.
+    pub fn build_app_config(&self) -> AppConfig {
         let is_configured = if self.show_welcome_wizard {
             false
         } else {
             !self.my_station.callsign.is_empty() && self.my_station.callsign != "N0CALL"
         };
-        let mut cfg = AppConfig {
+        AppConfig {
             secret_store_id: self.secret_store_id.clone(),
             is_configured,
             station: self.my_station.clone(),
@@ -2985,6 +3018,7 @@ impl SpLogApp {
             cat_backend: self.cat_backend.clone(),
             tci_host: self.tci_host.clone(),
             tci_port: self.tci_port,
+            cat_station: self.cat_station.clone(),
 
             fldigi_enabled: self.fldigi_enabled,
             fldigi_host: self.fldigi_host.clone(),
@@ -3087,7 +3121,11 @@ impl SpLogApp {
             logbook_columns: self.logbook_columns.clone(),
             logbook_column_presets: self.logbook_column_presets.clone(),
             custom_contests: self.custom_contests.clone(),
-        };
+        }
+    }
+
+    pub fn save_station_config(&mut self) {
+        let mut cfg = self.build_app_config();
         if let Err(e) = cfg.save_to_file(&self.config_file_path) {
             self.report_error(format!("⚠ Błąd zapisu konfiguracji: {e}"));
         } else {
@@ -3181,6 +3219,23 @@ impl SpLogApp {
             sup.stop();
         }
 
+        // 1. Upewnij się, że stacja CAT jest zainicjalizowana i zsynchronizowana
+        if self.cat_station.is_none() {
+            let mut temp_cfg = self.build_app_config();
+            let _ = crate::cat::config::migrate_legacy_cat_config(&mut temp_cfg);
+            self.cat_station = temp_cfg.cat_station;
+        }
+
+        let station_cfg = match self.cat_station.clone() {
+            Some(cfg) => cfg,
+            None => {
+                let default_cfg = crate::cat::config::CatStationConfig::default();
+                self.cat_station = Some(default_cfg.clone());
+                default_cfg
+            }
+        };
+
+        // 2. Jeśli radio to Hamlib serial i ma włączony auto-start rigctld:
         if self.cat_auto_start_rigctld {
             let mut sup = crate::cat::supervisor::RigctldSupervisor::new(
                 self.cat_port,
@@ -3204,92 +3259,32 @@ impl SpLogApp {
             }
         }
 
-        let host = self.cat_host.clone();
-        let port = self.cat_port;
-        let poll_rate = self.cat_poll_rate_ms;
-        let cat_sender = self.cat_state_tx.clone();
-        let backend = self.cat_backend_kind();
+        // 3. Asynchroniczne uruchomienie CatRuntime przez warstwę Tokio
+        let mut old_rt = self.cat_runtime.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.cat_start_rx = Some(rx);
 
-        match backend {
-            crate::cat::backend::CatBackendKind::Hamlib => {
-                let jh = tokio::spawn(async move {
-                    tokio::time::sleep(std::time::Duration::from_millis(600)).await;
-                    let (client, mut rx) = crate::cat::hamlib::HamlibClient::new(&host, port);
-                    let inner_jh = tokio::spawn(async move {
-                        client.run_poll_loop(poll_rate).await;
-                    });
-                    while let Ok(st) = rx.recv().await {
-                        let _ = cat_sender.send(st);
-                    }
-                    inner_jh.abort();
-                });
-                self.cat_poll_abort = Some(jh.abort_handle());
-            }
-            crate::cat::backend::CatBackendKind::Flrig => {
-                let jh = tokio::spawn(async move {
-                    tokio::time::sleep(std::time::Duration::from_millis(600)).await;
-                    let mut client = crate::cat::flrig::FlrigClient::new(&host, port);
-                    loop {
-                        let state =
-                            match crate::cat::backend::CatBackend::poll_state(&mut client).await {
-                                Ok(st) => st,
-                                Err(_) => crate::cat::hamlib::RigState {
-                                    connected: false,
-                                    ..Default::default()
-                                },
-                            };
-                        if cat_sender.send(state).is_err() {
-                            break;
-                        }
-                        tokio::time::sleep(std::time::Duration::from_millis(poll_rate)).await;
-                    }
-                });
-                self.cat_poll_abort = Some(jh.abort_handle());
-            }
-            crate::cat::backend::CatBackendKind::Tci => {
-                let tci_host = self.tci_host.clone();
-                let tci_port = self.tci_port;
-                let mut state = crate::cat::hamlib::RigState {
-                    frequency_hz: self.rig_state.frequency_hz.max(14_074_000),
-                    mode: if self.rig_state.mode.is_empty() {
-                        "USB".to_string()
-                    } else {
-                        self.rig_state.mode.clone()
-                    },
-                    ..Default::default()
-                };
-                let jh = tokio::spawn(async move {
-                    loop {
-                        let addr = format!("{tci_host}:{tci_port}");
-                        let reachable = tokio::time::timeout(
-                            std::time::Duration::from_millis(800),
-                            tokio::net::TcpStream::connect(&addr),
-                        )
-                        .await
-                        .is_ok_and(|r| r.is_ok());
-                        state.connected = reachable;
-                        if cat_sender.send(state.clone()).is_err() {
-                            break;
-                        }
-                        tokio::time::sleep(std::time::Duration::from_millis(poll_rate.max(250)))
-                            .await;
-                    }
-                });
-                self.cat_poll_abort = Some(jh.abort_handle());
-            }
-            other => {
-                self.cat_test_result = Some(format!(
-                    "Backend {} nie jest jeszcze podłączony do pętli odpytywania.",
-                    other.label()
-                ));
-            }
-        }
+        tokio::spawn(async move {
+            let _ = old_rt
+                .shutdown(std::time::Duration::from_millis(1500))
+                .await;
+            let res = crate::cat::runtime::CatRuntime::start(&station_cfg).await;
+            let _ = tx.send(res);
+        });
+
+        self.cat_test_result =
+            Some("Inicjalizacja środowiska wykonawczego CAT w toku...".to_string());
     }
 
     pub fn stop_cat_service(&mut self) {
         if let Some(handle) = self.cat_poll_abort.take() {
             handle.abort();
         }
+        self.cat_start_rx = None;
+        let mut rt = self.cat_runtime.clone();
+        tokio::spawn(async move {
+            let _ = rt.shutdown(std::time::Duration::from_millis(1500)).await;
+        });
         self.cat_connected = false;
         self.rig_state.connected = false;
         if let Some(mut sup) = self.rigctld_supervisor.take() {
@@ -3303,21 +3298,7 @@ impl SpLogApp {
         if let Some(band_def) = crate::core::bandplan::get_band_by_freq(freq_hz) {
             self.entry_band = band_def.name.to_string();
         }
-        if self.cat_connected {
-            let host = self.cat_host.clone();
-            let port = self.cat_port;
-            let backend = self.cat_backend_kind();
-            tokio::spawn(async move {
-                if matches!(backend, crate::cat::backend::CatBackendKind::Flrig) {
-                    let _ = crate::cat::flrig::FlrigClient::new(&host, port)
-                        .set_vfo(freq_hz)
-                        .await;
-                } else {
-                    let _ =
-                        crate::cat::hamlib::HamlibClient::set_frequency(&host, port, freq_hz).await;
-                }
-            });
-        }
+        self.cat_runtime.set_frequency(freq_hz);
         self.status_message = Some(format!(
             "VFO dostrojone do: {:.3} kHz",
             (freq_hz as f64) / 1000.0
@@ -3333,36 +3314,15 @@ impl SpLogApp {
     pub fn set_vfo_mode(&mut self, mode: &str) {
         self.rig_state.mode = mode.to_string();
         self.entry_mode = mode.to_string();
-        if self.cat_connected {
-            let host = self.cat_host.clone();
-            let port = self.cat_port;
-            let mode_str = mode.to_string();
-            let backend = self.cat_backend_kind();
-            tokio::spawn(async move {
-                if matches!(backend, crate::cat::backend::CatBackendKind::Flrig) {
-                    let _ = crate::cat::flrig::FlrigClient::new(&host, port)
-                        .set_mode(&mode_str)
-                        .await;
-                } else {
-                    let _ =
-                        crate::cat::hamlib::HamlibClient::set_mode(&host, port, &mode_str, 0).await;
-                }
-            });
-        }
+        self.cat_runtime
+            .set_mode(mode.to_string(), self.rig_state.passband_hz);
         self.status_message = Some(format!("Emisja zmieniona na: {mode}"));
     }
 
     pub fn set_vfo_split(&mut self, enabled: bool) {
         self.vfo_split = enabled;
         self.rig_state.split_enabled = enabled;
-        if self.cat_connected {
-            let host = self.cat_host.clone();
-            let port = self.cat_port;
-            tokio::spawn(async move {
-                let _ =
-                    crate::cat::hamlib::HamlibClient::set_split(&host, port, enabled, "VFOB").await;
-            });
-        }
+        self.cat_runtime.set_split(enabled, "VFOB".to_string());
         self.status_message = Some(format!(
             "Tryb SPLIT: {}",
             if enabled {
@@ -3380,30 +3340,54 @@ impl SpLogApp {
             "VFOA"
         };
         self.rig_state.vfo = next_vfo.to_string();
-        if self.cat_connected {
-            let host = self.cat_host.clone();
-            let port = self.cat_port;
-            let vfo = next_vfo.to_string();
-            tokio::spawn(async move {
-                let _ = crate::cat::hamlib::HamlibClient::set_vfo(&host, port, &vfo).await;
-            });
-        }
+        self.cat_runtime.set_vfo(next_vfo.to_string());
         self.status_message = Some(format!("Aktywne VFO przełączone na: {next_vfo}"));
     }
 
     pub fn set_vfo_filter(&mut self, preset: &str, passband_hz: u32) {
         self.vfo_filter_preset = preset.to_string();
         self.rig_state.passband_hz = passband_hz;
-        if self.cat_connected {
-            let host = self.cat_host.clone();
-            let port = self.cat_port;
-            let mode = self.rig_state.mode.clone();
-            tokio::spawn(async move {
-                let _ = crate::cat::hamlib::HamlibClient::set_mode(&host, port, &mode, passband_hz)
-                    .await;
-            });
-        }
+        self.cat_runtime
+            .set_mode(self.rig_state.mode.clone(), passband_hz);
         self.status_message = Some(format!("Filtr IF: {preset} ({passband_hz} Hz)"));
+    }
+
+    /// Aktualizuje bieżący stan radia i PTT na podstawie telemetrii z warstwy CAT.
+    pub fn update_cat_state_from_telemetry(
+        &mut self,
+        st: crate::cat::hamlib::RigState,
+        is_tx: bool,
+    ) {
+        let changed = st.frequency_hz != self.rig_state.frequency_hz
+            || st.mode != self.rig_state.mode
+            || st.connected != self.cat_connected
+            || is_tx != self.ptt_active;
+
+        self.cat_connected = st.connected;
+        self.rig_state = st.clone();
+        self.ptt_active = is_tx;
+
+        if changed {
+            self.event_bus
+                .publish(crate::core::events::AppEvent::RigState {
+                    frequency_hz: st.frequency_hz,
+                    mode: st.mode.clone(),
+                    connected: st.connected,
+                });
+            if st.frequency_hz > 0 {
+                if let Some(band_def) = crate::core::bandplan::get_band_by_freq(st.frequency_hz) {
+                    self.entry_band = band_def.name.to_string();
+                }
+                if !st.mode.is_empty() {
+                    self.entry_mode = st.mode.clone();
+                }
+            }
+            self.plugin_engine.run_on_rig_state(
+                st.frequency_hz as f64 / 1_000_000.0,
+                &st.mode,
+                st.connected,
+            );
+        }
     }
 
     pub fn add_new_equipment(&mut self) {
@@ -4426,34 +4410,80 @@ impl eframe::App for SpLogApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
 
-        // Odbiór asynchronicznego stanu radia z pętli Hamlib CAT (bi-directional sync)
-        while let Ok(st) = self.cat_state_rx.try_recv() {
-            self.cat_connected = st.connected;
-            self.event_bus
-                .publish(crate::core::events::AppEvent::RigState {
-                    frequency_hz: st.frequency_hz,
-                    mode: st.mode.clone(),
-                    connected: st.connected,
-                });
-            if st.connected {
-                self.rig_state = st;
-                if self.rig_state.frequency_hz > 0 {
-                    if let Some(band_def) =
-                        crate::core::bandplan::get_band_by_freq(self.rig_state.frequency_hz)
-                    {
-                        self.entry_band = band_def.name.to_string();
+        // Odbiór asynchronicznego wyniku uruchomienia CatRuntime
+        if let Some(ref rx) = self.cat_start_rx {
+            if let Ok(res) = rx.try_recv() {
+                match res {
+                    Ok(rt) => {
+                        self.cat_runtime = rt;
+                        self.cat_connected = true;
+                        self.cat_test_result = Some("CAT uruchomiony pomyślnie.".to_string());
                     }
-                    if !self.rig_state.mode.is_empty() {
-                        self.entry_mode = self.rig_state.mode.clone();
+                    Err(e) => {
+                        self.cat_connected = false;
+                        self.cat_test_result = Some(format!("Błąd uruchomienia CAT: {e}"));
                     }
                 }
-                // Hook pluginów Rhai na zmianę stanu radia.
-                self.plugin_engine.run_on_rig_state(
-                    self.rig_state.frequency_hz as f64 / 1_000_000.0,
-                    &self.rig_state.mode,
-                    true,
-                );
             }
+        }
+
+        // Odbiór asynchronicznych wyników testu (probe)
+        if let Some(ref rx) = self.cat_probe_rx {
+            if let Ok(res) = rx.try_recv() {
+                self.cat_probe_running = false;
+                self.cat_probe_result = Some(res);
+            }
+        }
+
+        // Aktualizacja stanu telemetrycznego i cyklu życia ze snapshotu RigHub
+        let cat_snap = self.cat_runtime.snapshot();
+        let mut active_state_found = false;
+
+        if let Some(ref rx_target) = cat_snap.active_rx {
+            if let Some(svc) = cat_snap.rigs.get(&rx_target.rig_id) {
+                active_state_found = true;
+                let is_conn = matches!(
+                    svc.lifecycle,
+                    crate::cat::service::RigServiceState::Ready
+                        | crate::cat::service::RigServiceState::Degraded
+                );
+                let mut st = svc.state.clone().unwrap_or_default();
+                st.connected = is_conn;
+
+                let is_tx = match cat_snap.tx_state {
+                    crate::cat::tx_arbiter::TxArbiterState::Owned { ref rig_id, .. } => {
+                        rig_id == &rx_target.rig_id
+                    }
+                    _ => false,
+                };
+                self.update_cat_state_from_telemetry(st, is_tx);
+            }
+        }
+
+        if !active_state_found {
+            if let Some((rig_id, svc)) = cat_snap.rigs.iter().next() {
+                let is_conn = matches!(
+                    svc.lifecycle,
+                    crate::cat::service::RigServiceState::Ready
+                        | crate::cat::service::RigServiceState::Degraded
+                );
+                let mut st = svc.state.clone().unwrap_or_default();
+                st.connected = is_conn;
+
+                let is_tx = match cat_snap.tx_state {
+                    crate::cat::tx_arbiter::TxArbiterState::Owned {
+                        rig_id: ref owner, ..
+                    } => owner == rig_id,
+                    _ => false,
+                };
+                self.update_cat_state_from_telemetry(st, is_tx);
+            }
+        }
+
+        // Odbiór ewentualnych zdarzeń z legacy kanału cat_state_rx
+        while let Ok(st) = self.cat_state_rx.try_recv() {
+            let ptt = self.ptt_active;
+            self.update_cat_state_from_telemetry(st, ptt);
         }
 
         // Synchronizuj stan radia do współdzielonego stanu serwera proxy (CAT Sharing) oraz REST API
@@ -4486,91 +4516,58 @@ impl eframe::App for SpLogApp {
                 }
                 crate::cat::server::RigServerCommand::SetSplitFrequency(freq) => {
                     self.rig_state.tx_frequency_hz = Some(freq);
-                    if self.cat_connected {
-                        let host = self.cat_host.clone();
-                        let port = self.cat_port;
-                        tokio::spawn(async move {
-                            let _ = crate::cat::hamlib::HamlibClient::set_split_frequency(
-                                &host, port, freq,
-                            )
-                            .await;
-                        });
-                    }
+                    self.cat_runtime
+                        .execute_cmd(crate::cat::rig::RigCommand::SetSplitFrequency(freq));
                 }
                 crate::cat::server::RigServerCommand::SetMode(mode) => {
                     self.set_vfo_mode(&mode);
                 }
                 crate::cat::server::RigServerCommand::SetPtt(ptt) => {
-                    self.ptt_active = ptt;
-                    if self.cat_connected {
-                        let host = self.cat_host.clone();
-                        let port = self.cat_port;
-                        tokio::spawn(async move {
-                            let _ =
-                                crate::cat::hamlib::HamlibClient::set_ptt(&host, port, ptt).await;
-                        });
+                    let snap = self.cat_runtime.snapshot();
+                    let tx_rig = snap
+                        .active_tx
+                        .as_ref()
+                        .map(|t| t.rig_id.clone())
+                        .or_else(|| snap.active_rx.as_ref().map(|r| r.rig_id.clone()))
+                        .or_else(|| snap.rigs.keys().next().cloned());
+                    if let Some(rig_id) = tx_rig {
+                        if ptt {
+                            self.cat_runtime
+                                .request_tx(rig_id, std::time::Duration::from_millis(1500));
+                        } else {
+                            self.cat_runtime
+                                .release_tx(rig_id, std::time::Duration::from_millis(1500));
+                        }
                     }
                 }
                 crate::cat::server::RigServerCommand::SetVfo(vfo) => {
                     self.rig_state.vfo.clone_from(&vfo);
-                    if self.cat_connected {
-                        let host = self.cat_host.clone();
-                        let port = self.cat_port;
-                        tokio::spawn(async move {
-                            let _ =
-                                crate::cat::hamlib::HamlibClient::set_vfo(&host, port, &vfo).await;
-                        });
-                    }
+                    self.cat_runtime.set_vfo(vfo);
                 }
                 crate::cat::server::RigServerCommand::SetSplit { enabled, tx_vfo } => {
                     self.vfo_split = enabled;
                     self.rig_state.split_enabled = enabled;
-                    if self.cat_connected {
-                        let host = self.cat_host.clone();
-                        let port = self.cat_port;
-                        tokio::spawn(async move {
-                            let _ = crate::cat::hamlib::HamlibClient::set_split(
-                                &host, port, enabled, &tx_vfo,
-                            )
-                            .await;
-                        });
-                    }
+                    self.cat_runtime.set_split(enabled, tx_vfo);
                 }
                 crate::cat::server::RigServerCommand::SetRit(rit) => {
                     self.rig_state.rit_hz = rit;
-                    if self.cat_connected {
-                        let host = self.cat_host.clone();
-                        let port = self.cat_port;
-                        tokio::spawn(async move {
-                            let _ =
-                                crate::cat::hamlib::HamlibClient::set_rit(&host, port, rit).await;
-                        });
-                    }
+                    self.cat_runtime
+                        .execute_cmd(crate::cat::rig::RigCommand::SetRit(rit));
                 }
                 crate::cat::server::RigServerCommand::SetXit(xit) => {
                     self.rig_state.xit_hz = xit;
-                    if self.cat_connected {
-                        let host = self.cat_host.clone();
-                        let port = self.cat_port;
-                        tokio::spawn(async move {
-                            let _ =
-                                crate::cat::hamlib::HamlibClient::set_xit(&host, port, xit).await;
-                        });
-                    }
+                    self.cat_runtime
+                        .execute_cmd(crate::cat::rig::RigCommand::SetXit(xit));
                 }
                 crate::cat::server::RigServerCommand::SetPower(watts) => {
                     self.rig_state.rf_power_watts = watts;
-                    if self.cat_connected {
-                        let host = self.cat_host.clone();
-                        let port = self.cat_port;
-                        tokio::spawn(async move {
-                            let _ = crate::cat::hamlib::HamlibClient::set_power(&host, port, watts)
-                                .await;
-                        });
-                    }
+                    self.cat_runtime
+                        .execute_cmd(crate::cat::rig::RigCommand::SetPower(watts));
                 }
                 crate::cat::server::RigServerCommand::SetPassband(pb) => {
                     self.rig_state.passband_hz = pb;
+                    self.cat_runtime
+                        .execute_cmd(crate::cat::rig::RigCommand::SetPassband(pb));
                 }
             }
         }
@@ -5726,6 +5723,11 @@ impl eframe::App for SpLogApp {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.cat_runtime
+            .shutdown_blocking(std::time::Duration::from_millis(1500));
+        if let Some(mut sup) = self.rigctld_supervisor.take() {
+            sup.stop();
+        }
         // Zapisanie geometrii okna głównego (i pozostałej konfiguracji) przy zamknięciu aplikacji.
         self.save_station_config();
     }

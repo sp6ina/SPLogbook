@@ -52,6 +52,48 @@ pub trait RigBackend: Send {
 
     /// Bezpiecznie zamyka połączenie z radiem/demonem.
     fn disconnect(&mut self) -> BoxFuture<'_, ()>;
+
+    /// Bezpieczne, wyłącznie odczytowe próbkowanie transceivera (read-only probe).
+    ///
+    /// Domyślna implementacja wykonuje bezpieczną sekwencję connect -> poll -> disconnect,
+    /// gwarantując brak emisji jakichkolwiek rozkazów PTT lub mutujących nastawy radia.
+    fn probe(&mut self) -> BoxFuture<'_, Result<RigProbeResult, RigError>> {
+        Box::pin(async move {
+            self.connect().await?;
+            let state = self.poll().await.ok();
+            let caps = self.capabilities();
+            let kind = self.kind();
+            self.disconnect().await;
+            Ok(RigProbeResult {
+                reachable: true,
+                identity: Some(kind.label().to_string()),
+                model: None,
+                firmware: None,
+                capabilities: caps,
+                state,
+                safe_diagnostic: format!("Połączenie z {} powiodło się", kind.label()),
+            })
+        })
+    }
+}
+
+/// Potwierdzony wynik bezpiecznego, wyłącznie odczytowego próbkowania transceivera ([`RigBackend::probe`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct RigProbeResult {
+    /// Czy transceiver/demon odpowiedział i jest osiągalny.
+    pub reachable: bool,
+    /// Potwierdzona tożsamość urządzenia (np. z ramki ID, get_vfo itp.).
+    pub identity: Option<String>,
+    /// Wykryty lub potwierdzony model.
+    pub model: Option<String>,
+    /// Wersja oprogramowania układowego (firmware), o ile udostępniana przez protokół.
+    pub firmware: Option<String>,
+    /// Potwierdzone możliwości transceivera i backendu.
+    pub capabilities: RigCapabilities,
+    /// Potwierdzony stan początkowy (np. częstotliwość, tryb), o ile odczytany bezpiecznie bez PTT.
+    pub state: Option<RigState>,
+    /// Bezpieczny, zredagowany komunikat diagnostyczny.
+    pub safe_diagnostic: String,
 }
 
 /// Typy backendów CAT obsługiwane przez program.

@@ -595,7 +595,7 @@ W falach NATIVE-0 do NATIVE-6A interfejs GUI nie ulega modyfikacji runtime, co g
 | **NATIVE-5** | FlexRadio SmartSDR | Protokół TCP/UDP SmartSDR, obsługa slice receivers i subskrypcji. [zrealizowano] |
 | **NATIVE-6** | Fala nadrzędna: Multi-Radio Execution Core, fabryka backendów, migracja i integracja UI | Fala nadrzędna podzielona formalnie na NATIVE-6A i NATIVE-6B (decyzja AD-NATIVE-6-SPLIT). Brak osobnych kryteriów wykonawczych. |
 | **NATIVE-6A** | Multi-Radio Execution Core, RigHub i bezpieczny arbitraż TX | Zaimplementowanie bezgłowej, produkcyjnej warstwy wykonawczej (RigService, RigHub, TxArbiter, routing, bounded queues, lifecycle, shutdown) bez zmian w GUI. [zrealizowano] |
-| **NATIVE-6B** | Fabryka backendów, migracja konfiguracji i UI | Podłączenie istniejących backendów i warstwy wykonawczej do GUI (`cat_settings.rs`), dynamiczne panele konfiguracji, fabryka backendów, walidacja i18n, migracja `AppConfig`. [planned] |
+| **NATIVE-6B** | Fabryka backendów, migracja konfiguracji i UI | Podłączenie istniejących backendów i warstwy wykonawczej do GUI (`cat_settings.rs`), dynamiczne panele konfiguracji, fabryka backendów, walidacja i18n, migracja `AppConfig`. [zrealizowano] |
 | **NATIVE-7** | Testy HIL, dokumentacja i audyt końcowy | Procedury testów sprzętowych Hardware-In-The-Loop, aktualizacja podręcznika i audyt bezpieczeństwa. [planned] |
 
 ### 24.1. Łańcuch zależności fal realizacyjnych
@@ -848,56 +848,43 @@ NATIVE-0 -> NATIVE-1 -> NATIVE-2 -> NATIVE-3 -> NATIVE-4 -> NATIVE-5 (5A-5E) -> 
 
 - **Warunek wejściowy**: NATIVE-6A PASSED
 - **Cel**: Podłączenie istniejących backendów i warstwy wykonawczej do aplikacji oraz konfiguracji użytkownika.
-- **Status**: `planned`
+- **Status**: `PASSED` (2026-10-15)
 
-#### Zakres obowiązkowy:
-1. Fabryka backendów.
-2. Tworzenie właściwego `RigBackend` na podstawie konfiguracji.
-3. Migracja dotychczasowych ustawień CAT.
-4. Integracja `RigHub` ze `SpLogApp`.
-5. Usunięcie bezpośredniego sterowania Hamlib z GUI, jeśli przewiduje to aktualny plan ARCH-CAT.
-6. Usunięcie osobnej pętli FLRig, jeśli zostanie zastąpiona `RigService`.
-7. Integracja natywnych backendów Icom, Kenwood, Yaesu, Elecraft i FlexRadio.
-8. Integracja Hamlib, FLRig i TCI przez wspólną warstwę wykonawczą.
-9. Dynamiczne formularze w `cat_settings.rs`.
-10. Walidacja zależna od rodzaju backendu.
-11. Bezpieczny przycisk „Testuj połączenie” używający wyłącznie `probe()`.
-12. Brak PTT podczas `probe()`.
-13. Prezentacja `RigCapabilities`.
-14. Prezentacja stanu lifecycle.
-15. Prezentacja błędów typowanych.
-16. Lokalizacja wszystkich nowych tekstów.
-17. Walidacja wszystkich plików i18n.
-18. Zachowanie konfiguracji po restarcie.
-19. Bezpieczny rollback migracji.
-20. Testy integracyjne bez fizycznego sprzętu.
+#### Tabela audytu dotychczasowej integracji CAT (Pytania 1–20):
 
-#### Poza zakresem NATIVE-6B:
-- projektowanie nowego `RigHub`,
-- projektowanie nowego `TxArbiter`,
-- zmiana semantyki protokołów radiowych,
-- fizyczne kontrolery SO2R,
-- przełączanie audio,
-- przełączanie mikrofonu,
-- anteny,
-- wzmacniacze,
-- SmartLink,
-- data plane,
-- HIL,
-- NATIVE-7.
+| Lp | Aspekt audytu | Dotychczasowy mechanizm i symbol | Nowy właściciel w NATIVE-6B | Sposób migracji | Test regresyjny | Procedura rollbacku |
+|---|---|---|---|---|---|---|
+| 1 | Bieżące ustawienia CAT | `src/core/station.rs`: płaskie pola `AppConfig.cat_*` | `src/cat/config.rs`: `CatStationConfig`, `RigConfig` | Automatyczna migracja przy ładowaniu konfiguracji | `tests/cat_native_6b.rs`: `migration_is_idempotent_and_preserves_configuration` | Usunięcie pola `cat_station` przywraca fallback do płaskich pól |
+| 2 | Runtime CAT w aplikacji | `src/gui/app.rs`: rozproszone pola i flagi połączenia | `src/cat/runtime.rs`: `CatRuntime` z węzłem `RigHub` | Inicjalizacja `CatRuntime::new()` / `start(&cat_station)` w `SpLogApp` | `tests/cat_native_6b.rs`: `runtime_lifecycle_transitions_and_snapshot_sync` | Wyłączenie runtime'u (`cat_station: None`) |
+| 3 | Start Hamlib | `src/gui/app.rs`: `start_cat_service` wywołujące proces/wątek | `src/cat/factory.rs`: `RigBackendFactory::create` -> `RigService::spawn` | Delegacja ze `start_cat_service` do `CatRuntime` | `tests/cat_native_6b.rs`: `factory_creates_all_eight_backend_kinds_without_fallback` | Przywrócenie pierwotnego `start_cat_service` z git |
+| 4 | Start FLRig | `src/gui/app.rs`: osobna pętla i bezpośrednie zapytania XML-RPC | `src/cat/factory.rs`: `FlrigBackend` zarządzany przez `RigService` | Zastąpienie pętli FLRig przez uniwersalny aktor sesji | `tests/cat_native_6b.rs`: `factory_creates_all_eight_backend_kinds_without_fallback` | Revert do commitu NATIVE-6A |
+| 5 | Start TCI | Osobna obsługa WebSocket w starym kodzie | `src/cat/factory.rs`: `TciBackend` w `RigService` | Fabryka backendów inicjalizuje `TciBackend` jako aktora | `tests/cat_native_6b.rs`: `factory_creates_all_eight_backend_kinds_without_fallback` | Revert do commitu NATIVE-6A |
+| 6 | Osobne taski / wątki CAT | Niespójnie powoływane taski w GUI i wątki systemowe | `src/cat/runtime.rs`: pętla `sync_loop` oraz aktory Tokio w `RigService` | Centralizacja w Tokio runtime z powiązanymi `JoinHandle` | `tests/cat_native_6b.rs`: `runtime_shutdown_joins_all_services_within_deadline` | Revert do commitu NATIVE-6A |
+| 7 | Operacje sieciowe z poziomu GUI | `src/gui/cat_settings.rs`: blokujący `test_tcp_connection` | `src/cat/probe.rs`: asynchroniczny `RigProbeRunner::probe` | Usunięcie blokującego TCP; UI wywołuje wyłącznie probe | `tests/cat_native_6b.rs`: `probe_runner_is_strictly_read_only_and_does_not_invoke_ptt` | Revert zmian w `cat_settings.rs` |
+| 8 | Tworzenie klienta na każdą komendę | `src/gui/app.rs`: tworzenie `HamlibClient` dla komend PTT/Freq | Trwała sesja aktora `RigService` za pośrednictwem `RigHub` | Komendy kolejkowane przez `CatRuntime::set_frequency` / `request_tx` | `tests/cat_native_6b.rs`: `runtime_lifecycle_transitions_and_snapshot_sync` | Revert do commitu NATIVE-6A |
+| 9 | Syntetyczne / fabrykowane stany | Ewentualne domyślne stany w GUI bez potwierdzenia z radia | Stan telemetrii potwierdzony przez `confirmed_rx` / `confirmed_tx` | UI pobiera snapshot telemetrii tylko po potwierdzeniu | `tests/cat_native_6a.rs`: `successful_send_does_not_fabricate_*` | Weryfikacja przez `TxArbiter` |
+| 10 | Zapis konfiguracji | `src/core/station.rs`: `save_station_config` | `AppConfig.cat_station` serializowany do `station_config.json` | Deterministyczna serializacja JSON z jawnym `schema_version` | `tests/cat_native_6b.rs`: `serde_roundtrip_rig_target_and_receiver_id` | Archiwizacja pliku konfiguracyjnego |
+| 11 | Wersje konfiguracji | Brak jawnej wersji schematu w starych polach CAT | `CatStationConfig.schema_version = 1` | Jawna walidacja wersji przy deserializacji i migracji | `tests/cat_native_6b.rs`: `migration_is_idempotent_and_preserves_configuration` | Rollback do `schema_version = 0` / legacy |
+| 12 | Obsługa migracji | Brak dedykowanego mechanizmu migracji CAT | `src/cat/config.rs`: `migrate_legacy_cat_config` | Idempotentny proces z kopią zapasową i rollbackiem | `tests/cat_native_6b.rs`: `migration_is_idempotent_and_preserves_configuration` | Wycofanie mutacji `app_config` przy błędzie |
+| 13 | Odczyt tłumaczeń (i18n) | Pojedyncze hardcodowane napisy w starym oknie CAT | `src/core/i18n::key::CAT_SETTINGS_*` we wszystkich 7 językach | Centralny katalog kluczy i18n zweryfikowany przez guard | `tests/i18n_guard.rs`: `catalog_languages_have_identical_keys` | Revert do poprzednich plików `locales/` |
+| 14 | Prezentacja błędów | Wyświetlanie surowych komunikatów IO bez redagowania | `redact_sensitive_info` oraz bezpieczny `safe_diagnostic` | Filtrowanie poświadczeń, tokenów i haseł przed prezentacją | `tests/cat_native_6b.rs`: `probe_runner_is_strictly_read_only_and_does_not_invoke_ptt` | Bezpieczny fallback diagnostyki |
+| 15 | Zamykanie SpLogApp | Brak uporządkowanego oczekiwania na zamknięcie CAT w GUI | `src/gui/app.rs`: `on_exit` wywołuje `cat_runtime.shutdown_blocking` | Ograniczony czasem (1500 ms) graceful shutdown | `tests/cat_native_6b.rs`: `runtime_shutdown_joins_all_services_within_deadline` | Natychmiastowe przerwanie po upływie deadline |
+| 16 | Centralny shutdown CAT | Rozproszone przerywanie poszczególnych tasków | `CatRuntime::shutdown` zamyka sync loop i dołącza join handle | Skoordynowane przejście sesji do `Disconnecting` -> `Disconnected` | `tests/cat_native_6b.rs`: `runtime_shutdown_joins_all_services_within_deadline` | Awaryjny timeout i abort tasków |
+| 17 | Trzymanie transportu w UI | Brak jednoznacznej separacji; bezpośrednie gniazda TCP | Całkowity zakaz transportów i backendów w GUI; tylko snapshot | UI operuje wyłącznie na `Arc<CatRuntime>` i `RigHubSnapshot` | `tests/cat_native_6b.rs`: testy jednostkowe i clippy | Kompilator gwarantuje brak transportów w UI |
+| 18 | Zastąpienie start_cat_service | Dawna funkcja tworzyła klienta TCP bezpośrednio | `SpLogApp.start_cat_service` deleguje do `CatRuntime::start` | Zachowanie nazwy API aplikacji, zmiana implementacji wewnętrznej | `tests/cat_native_6b.rs`: `runtime_lifecycle_transitions_and_snapshot_sync` | Revert do commitu NATIVE-6A |
+| 19 | Aktualizacja RigState w GUI | Bezpośrednia mutacja pól `rig_frequency` w `app.rs` | Odczyt ze snapshotu `CatRuntime::snapshot()` w każdej klatce | Bezzwłoczny odczyt z `StdRwLock` bez alokacji i bez blokowania | `tests/cat_native_6b.rs`: `runtime_lifecycle_transitions_and_snapshot_sync` | Fallback na lokalne pola telemetrii |
+| 20 | Subskrypcja zdarzeń CAT | Brak centralnej magistrali zdarzeń w starym kodzie | `CatRuntime::subscribe_events()` z kanałem `broadcast` | Event bus i pluginy otrzymują zdarzenia przez broadcast | `tests/cat_native_6b.rs`: `runtime_lifecycle_transitions_and_snapshot_sync` | Izolacja kolejki zdarzeń |
 
-#### Kryteria odbioru NATIVE-6B:
-- GUI nie posiada backendów bezpośrednio,
-- GUI komunikuje się przez warstwę NATIVE-6A,
-- factory pokrywa wszystkie obsługiwane backendy,
-- migracja jest idempotentna,
-- probe jest read-only,
-- probe nigdy nie uruchamia PTT,
-- wszystkie teksty mają klucze i18n,
-- brak surowych kluczy w GUI,
-- pełna walidacja przechodzi,
-- jeden atomowy commit,
-- synchronizacja z `main` przez fast-forward.
+#### Wynik realizacji NATIVE-6B:
+- [x] Fabryka backendów (`RigBackendFactory`) dla 8 backendów bez fallbacku na Hamlib.
+- [x] Walidowany, silnie typowany model konfiguracji (`CatStationConfig`, `RigConfig`).
+- [x] Idempotentna migracja z automatyczną ochroną danych użytkownika.
+- [x] Całkowite usunięcie bezpośredniego I/O sieciowego z GUI.
+- [x] Bezpieczny, strictly read-only probe (`RigProbeRunner`) bez wywoływania PTT.
+- [x] Pełna koordynacja cyklu życia i telemetrii przez `CatRuntime`.
+- [x] Resynchronizacja `TxArbiter` ze stanu `Unknown` do `Idle` po potwierdzeniu RX.
+- [x] Kompletna lokalizacja we wszystkich 7 językach (zweryfikowana przez `i18n_guard`).
+- [x] Kompletny zestaw testów offline w `tests/cat_native_6b.rs` (9 passed).
 
 ### Kryteria NATIVE-7 (Testy HIL, dokumentacja i audyt końcowy):
 

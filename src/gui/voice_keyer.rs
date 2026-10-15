@@ -128,22 +128,34 @@ pub fn render_voice_keyer_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
 /// Kluczuje PTT (jeśli włączone i CAT połączony), odtwarza komunikat, zwalnia PTT.
 fn transmit_message(msg: &VoiceKeyerMessage, app: &SpLogApp) {
-    let host = app.cat_host.clone();
-    let port = app.cat_port;
     let connected = app.cat_connected;
     let was_already_transmitting = app.rig_state.ptt || app.ptt_active;
     let key_ptt = msg.ptt && connected && !was_already_transmitting;
 
+    let snap = app.cat_runtime.snapshot();
+    let tx_rig = snap
+        .active_tx
+        .as_ref()
+        .map(|t| t.rig_id.clone())
+        .or_else(|| snap.active_rx.as_ref().map(|r| r.rig_id.clone()))
+        .or_else(|| snap.rigs.keys().next().cloned());
+    let rt = app.cat_runtime.clone();
+
     let msg_clone = msg.clone();
     tokio::spawn(async move {
         if key_ptt {
-            let _ = crate::cat::hamlib::HamlibClient::set_ptt(&host, port, true).await;
+            if let Some(ref rig_id) = tx_rig {
+                rt.request_tx(rig_id.clone(), std::time::Duration::from_millis(1500));
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
         }
         let m2 = msg_clone.clone();
         let _ =
             tokio::task::spawn_blocking(move || crate::media::voice_keyer::play_message(&m2)).await;
         if key_ptt {
-            let _ = crate::cat::hamlib::HamlibClient::set_ptt(&host, port, false).await;
+            if let Some(ref rig_id) = tx_rig {
+                rt.release_tx(rig_id.clone(), std::time::Duration::from_millis(1500));
+            }
         }
     });
 }

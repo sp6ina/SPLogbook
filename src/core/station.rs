@@ -329,6 +329,10 @@ pub struct AppConfig {
     #[serde(default = "default_tci_port")]
     pub tci_port: u16,
 
+    /// Nowoczesny kanoniczny model konfiguracji stacji wieloradiowej CAT (NATIVE-6B).
+    #[serde(default)]
+    pub cat_station: Option<crate::cat::config::CatStationConfig>,
+
     // Konfiguracja FLDigi
     #[serde(default)]
     pub fldigi_enabled: bool,
@@ -969,6 +973,7 @@ impl Default for AppConfig {
             cat_backend: "hamlib".to_string(),
             tci_host: "127.0.0.1".to_string(),
             tci_port: 40001,
+            cat_station: None,
 
             fldigi_enabled: false,
             fldigi_host: "127.0.0.1".to_string(),
@@ -1157,6 +1162,7 @@ impl AppConfig {
             Err(e) => return Err(e),
         };
         let mut config: Self = serde_json::from_str(&data).map_err(std::io::Error::other)?;
+        let _ = crate::cat::config::migrate_legacy_cat_config(&mut config);
         config.secret_store_id.clear();
         Ok(config)
     }
