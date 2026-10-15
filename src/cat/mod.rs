@@ -23,13 +23,13 @@ mod tcp;
 pub mod tx_arbiter;
 pub mod winkeyer;
 
-pub use hub::{RigHub, RigHubError, RigHubSnapshot};
+pub use hub::{PendingCommandGuard, RigHub, RigHubError, RigHubSnapshot};
 pub use routing::{
     ActiveRxTarget, ActiveTxTarget, ReceiverId, ReceiverIdError, RigCommandId, RigHubEvent, RigId,
     RigIdError, RigTarget, RoutedRigCommand, RoutedRigEvent, RoutingError,
 };
 pub use service::{
-    RigService, RigServiceError, RigServiceHandle, RigServiceSnapshot, RigServiceState,
-    StateFreshness,
+    RigService, RigServiceError, RigServiceHandle, RigServiceLifecycle, RigServiceSnapshot,
+    RigServiceState, RigServiceSupervisor, StateFreshness,
 };
 pub use tx_arbiter::{TxArbiter, TxArbiterError, TxArbiterState, TxUnknownReason};

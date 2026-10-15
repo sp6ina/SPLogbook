@@ -14,6 +14,7 @@
 //! - Sprawdzanie monotonicznego terminu (`deadline`) przed zakolejkowaniem i przed wykonaniem polecenia.
 
 use std::fmt;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
@@ -55,6 +56,7 @@ impl RigServiceState {
     pub fn can_transition_to(self, next: Self) -> bool {
         match (self, next) {
             (Self::Created, Self::Connecting) => true,
+            (Self::Created, Self::Disconnecting) => true,
             (Self::Connecting, Self::Synchronizing) => true,
             (Self::Connecting, Self::Disconnecting) => true,
             (Self::Connecting, Self::Failed) => true,
@@ -76,6 +78,9 @@ impl RigServiceState {
         }
     }
 }
+
+/// Kanoniczny alias typu cyklu życia usługi sesji radiowej ([`RigServiceState`]).
+pub type RigServiceLifecycle = RigServiceState;
 
 impl fmt::Display for RigServiceState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -118,6 +123,10 @@ pub struct RigServiceSnapshot {
     pub capabilities: RigCapabilities,
     /// Monotoniczny czas ostatniej aktualizacji stanu.
     pub last_update: Option<tokio::time::Instant>,
+    /// Monotoniczny czas ostatniej aktualizacji potwierdzonej telemetrii (state).
+    pub last_state_update: Option<tokio::time::Instant>,
+    /// Monotoniczny numer generacji potwierdzonej telemetrii.
+    pub state_generation: u64,
     /// Świeżość stanu telemetrii.
     pub freshness: StateFreshness,
     /// Ostatni zarejestrowany błąd diagnostyczny (pozbawiony danych poufnych).
@@ -134,6 +143,8 @@ impl RigServiceSnapshot {
             requested_state: None,
             capabilities,
             last_update: None,
+            last_state_update: None,
+            state_generation: 0,
             freshness: StateFreshness::Missing,
             last_error: None,
         }
@@ -208,7 +219,7 @@ pub struct RigService {
     backend: Box<dyn RigBackend>,
     cmd_rx: mpsc::Receiver<RigServiceRequest>,
     event_tx: broadcast::Sender<RoutedRigEvent>,
-    snapshot_tx: watch::Sender<RigServiceSnapshot>,
+    snapshot_tx: Arc<watch::Sender<RigServiceSnapshot>>,
     shutdown_rx: oneshot::Receiver<()>,
     snapshot: RigServiceSnapshot,
     poll_interval: Duration,
@@ -229,13 +240,14 @@ impl RigService {
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
         let initial_snapshot = RigServiceSnapshot::initial(rig_id.clone(), caps);
         let (snapshot_tx, snapshot_rx) = watch::channel(initial_snapshot.clone());
+        let snapshot_tx = Arc::new(snapshot_tx);
 
         let service = Self {
             rig_id: rig_id.clone(),
             backend,
             cmd_rx,
             event_tx: event_tx.clone(),
-            snapshot_tx,
+            snapshot_tx: Arc::clone(&snapshot_tx),
             shutdown_rx,
             snapshot: initial_snapshot,
             poll_interval,
@@ -245,9 +257,13 @@ impl RigService {
             rig_id,
             cmd_tx,
             snapshot_rx,
+            snapshot_tx,
             event_tx,
             shutdown_tx: Some(shutdown_tx),
-            join_handle: None,
+            supervisor: None,
+            supervisor_handle: None,
+            worker_abort: None,
+            supervisor_shutdown_tx: None,
         };
 
         (service, handle)
@@ -318,8 +334,11 @@ impl RigService {
 
     /// Aktualizuje zbuforowany stan telemetrii.
     fn update_state(&mut self, state: RigState) {
+        let now = tokio::time::Instant::now();
         self.snapshot.state = Some(state.clone());
-        self.snapshot.last_update = Some(tokio::time::Instant::now());
+        self.snapshot.last_state_update = Some(now);
+        self.snapshot.state_generation = self.snapshot.state_generation.wrapping_add(1);
+        self.snapshot.last_update = Some(now);
         self.snapshot.freshness = StateFreshness::Fresh;
         let _ = self.snapshot_tx.send(self.snapshot.clone());
 
@@ -491,6 +510,21 @@ impl RigService {
 
         match exec_res {
             Ok(Ok(())) => {
+                // Po udanej komendzie PTT wykonaj natychmiastowe odpytanie stanu backendu (polling/status)
+                if matches!(req.command, RigCommand::SetPtt(_)) {
+                    let now = tokio::time::Instant::now();
+                    let poll_dur = if req.deadline > now {
+                        (req.deadline - now).min(Duration::from_millis(500))
+                    } else {
+                        Duration::from_millis(100)
+                    };
+                    if let Ok(Ok(polled_state)) =
+                        tokio::time::timeout(poll_dur, self.backend.poll()).await
+                    {
+                        self.update_state(polled_state);
+                    }
+                }
+
                 // Po udanej komendzie zaktualizuj stan żądany (requested state).
                 // Ważne: stan potwierdzony (self.snapshot.state) NIE MOŻE być fabrykowany na podstawie
                 // samego wysłania komendy — aktualizuje go wyłącznie telemetria z radia (update_state).
@@ -546,6 +580,42 @@ impl RigService {
     }
 }
 
+/// Nadzorca taska usługi sesji radiowej ([`RigService`]).
+///
+/// Monitoruje wykonanie pętli aktora w dedykowanym tasku Tokio.
+/// Posiada powiązany [`JoinHandle`] usługi. W przypadku paniki aktora natychmiast
+/// aktualizuje snapshot sesji na [`RigServiceState::Failed`] i emituje zdarzenie [`RigHubEvent::RigFailed`].
+#[derive(Debug)]
+pub struct RigServiceSupervisor {
+    rig_id: RigId,
+    active: bool,
+}
+
+impl RigServiceSupervisor {
+    /// Tworzy nową instancję nadzorcy.
+    pub fn new(rig_id: RigId) -> Self {
+        Self {
+            rig_id,
+            active: true,
+        }
+    }
+
+    /// Identyfikator sesji nadzorowanego radia.
+    pub fn rig_id(&self) -> &RigId {
+        &self.rig_id
+    }
+
+    /// Sprawdza, czy nadzorca jest aktywny.
+    pub fn is_active(&self) -> bool {
+        self.active
+    }
+
+    /// Sprawdza, czy nadzorca posiada powiązany uchwyt zadania.
+    pub fn has_join_handle(&self) -> bool {
+        self.active
+    }
+}
+
 /// Bezpieczny uchwyt do usługi sesji radiowej ([`RigService`]).
 ///
 /// Posiada wyłącznie ograniczone nadajniki kanałów, odbiornik snapshotu oraz
@@ -554,15 +624,103 @@ pub struct RigServiceHandle {
     rig_id: RigId,
     cmd_tx: mpsc::Sender<RigServiceRequest>,
     snapshot_rx: watch::Receiver<RigServiceSnapshot>,
+    snapshot_tx: Arc<watch::Sender<RigServiceSnapshot>>,
     event_tx: broadcast::Sender<RoutedRigEvent>,
     shutdown_tx: Option<oneshot::Sender<()>>,
-    join_handle: Option<JoinHandle<Result<(), RigServiceError>>>,
+    supervisor: Option<RigServiceSupervisor>,
+    supervisor_handle: Option<JoinHandle<Result<(), RigServiceError>>>,
+    worker_abort: Option<tokio::task::AbortHandle>,
+    supervisor_shutdown_tx: Option<oneshot::Sender<()>>,
 }
 
 impl RigServiceHandle {
-    /// Przypisuje `JoinHandle` uruchomionego taska do uchwytu.
-    pub fn attach_join_handle(&mut self, handle: JoinHandle<Result<(), RigServiceError>>) {
-        self.join_handle = Some(handle);
+    /// Pomocnicza metoda aktualizacji snapshotu i rozesłania zdarzenia w razie paniki taska aktora.
+    fn publish_panic_failure(
+        snapshot_tx: &Arc<watch::Sender<RigServiceSnapshot>>,
+        rig_id: &RigId,
+        event_tx: &broadcast::Sender<RoutedRigEvent>,
+        err_msg: &str,
+    ) {
+        let mut snap = snapshot_tx.borrow().clone();
+        snap.lifecycle = RigServiceState::Failed;
+        snap.last_error = Some(err_msg.to_string());
+        snap.last_update = Some(tokio::time::Instant::now());
+        let _ = snapshot_tx.send(snap);
+
+        let _ = event_tx.send(RoutedRigEvent::new(
+            rig_id.clone(),
+            None,
+            RigHubEvent::RigFailed(err_msg.to_string()),
+        ));
+    }
+
+    /// Przypisuje `JoinHandle` uruchomionego taska do uchwytu i uruchamia nadzorcę (supervisor).
+    pub fn attach_join_handle(&mut self, mut worker_jh: JoinHandle<Result<(), RigServiceError>>) {
+        let rig_id = self.rig_id.clone();
+        let snapshot_tx = Arc::clone(&self.snapshot_tx);
+        let event_tx = self.event_tx.clone();
+        let abort_handle = worker_jh.abort_handle();
+        self.worker_abort = Some(abort_handle);
+        self.supervisor = Some(RigServiceSupervisor::new(rig_id.clone()));
+
+        let (sup_shut_tx, mut sup_shut_rx) = oneshot::channel::<()>();
+        self.supervisor_shutdown_tx = Some(sup_shut_tx);
+
+        let sup_jh = tokio::spawn(async move {
+            tokio::select! {
+                _ = &mut sup_shut_rx => {
+                    // Żądanie shutdown z uchwytu
+                    match worker_jh.await {
+                        Ok(res) => res,
+                        Err(join_err) => {
+                            if join_err.is_panic() {
+                                let err_msg = "BackendTaskPanicked: panika w tasku aktora".to_string();
+                                Self::publish_panic_failure(&snapshot_tx, &rig_id, &event_tx, &err_msg);
+                                Err(RigServiceError::BackendPanic(err_msg))
+                            } else if join_err.is_cancelled() {
+                                Ok(())
+                            } else {
+                                Err(RigServiceError::BackendPanic(join_err.to_string()))
+                            }
+                        }
+                    }
+                }
+                res = &mut worker_jh => {
+                    // Task aktora zakończył się autonomicznie (błąd, panika lub normalny powrót)
+                    match res {
+                        Ok(res) => res,
+                        Err(join_err) => {
+                            if join_err.is_panic() {
+                                let err_msg = "BackendTaskPanicked: panika w tasku aktora".to_string();
+                                Self::publish_panic_failure(&snapshot_tx, &rig_id, &event_tx, &err_msg);
+                                Err(RigServiceError::BackendPanic(err_msg))
+                            } else if join_err.is_cancelled() {
+                                Ok(())
+                            } else {
+                                Err(RigServiceError::BackendPanic(join_err.to_string()))
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        self.supervisor_handle = Some(sup_jh);
+    }
+
+    /// Zwraca referencję do nadzorcy taska, o ile powiązany.
+    pub fn supervisor(&self) -> Option<&RigServiceSupervisor> {
+        self.supervisor.as_ref()
+    }
+
+    /// Zwraca referencję do JoinHandle nadzorcy taska.
+    pub fn supervisor_join_handle(&self) -> Option<&JoinHandle<Result<(), RigServiceError>>> {
+        self.supervisor_handle.as_ref()
+    }
+
+    /// Zwraca referencję do JoinHandle zarządzanego taska.
+    pub fn join_handle(&self) -> Option<&JoinHandle<Result<(), RigServiceError>>> {
+        self.supervisor_handle.as_ref()
     }
 
     /// Identyfikator sesji radiowej.
@@ -635,7 +793,7 @@ impl RigServiceHandle {
     /// Wykonuje kontrolowane, asynchroniczne zatrzymanie usługi sesji radiowej.
     ///
     /// Oczekuje na zakończenie taska aktora z uwzględnieniem podanego terminu `deadline`.
-    /// W przypadku przekroczenia terminu task zostaje przerwany (`abort()`).
+    /// W przypadku przekroczenia terminu task zostaje przerwany (`abort()`), a następnie dołączony (`join`).
     pub async fn shutdown(
         &mut self,
         deadline: tokio::time::Instant,
@@ -644,37 +802,70 @@ impl RigServiceHandle {
         if let Some(tx) = self.shutdown_tx.take() {
             let _ = tx.send(());
         }
+        if let Some(tx) = self.supervisor_shutdown_tx.take() {
+            let _ = tx.send(());
+        }
 
         // 2. Oczekuj na zakończenie pętli taska (JoinHandle)
-        if let Some(mut handle) = self.join_handle.take() {
+        if let Some(mut handle) = self.supervisor_handle.take() {
             let now = tokio::time::Instant::now();
             if now >= deadline {
+                if let Some(ref abort) = self.worker_abort {
+                    abort.abort();
+                }
                 handle.abort();
+                // Po abort: oczekuj na JoinHandle ("abort_is_followed_by_join")
+                let _ = handle.await;
                 return Err(RigServiceError::DeadlineExceeded);
             }
             let remaining = deadline - now;
 
             match tokio::time::timeout(remaining, &mut handle).await {
-                Ok(Ok(_run_res)) => Ok(()),
+                Ok(Ok(Ok(()))) => Ok(()),
+                Ok(Ok(Err(RigServiceError::BackendPanic(msg)))) => {
+                    Err(RigServiceError::BackendPanic(msg))
+                }
+                Ok(Ok(Err(_other_run_err))) => Ok(()),
                 Ok(Err(join_err)) => {
-                    log::error!(
-                        "[{}] Błąd łączenia taska aktora (JoinError): {join_err}",
-                        self.rig_id
-                    );
-                    Err(RigServiceError::BackendPanic(join_err.to_string()))
+                    if join_err.is_panic() {
+                        log::error!("[{}] Panika w tasku aktora: {join_err}", self.rig_id);
+                        Err(RigServiceError::BackendPanic(join_err.to_string()))
+                    } else if join_err.is_cancelled() {
+                        Ok(())
+                    } else {
+                        Err(RigServiceError::BackendPanic(join_err.to_string()))
+                    }
                 }
                 Err(_) => {
                     log::warn!(
                         "[{}] Przekroczono limit czasu shutdown, wymuszenie przerwania taska (abort)",
                         self.rig_id
                     );
+                    if let Some(ref abort) = self.worker_abort {
+                        abort.abort();
+                    }
                     handle.abort();
+                    // Po abort: oczekuj na JoinHandle ("abort_is_followed_by_join")
+                    let _ = handle.await;
                     Err(RigServiceError::DeadlineExceeded)
                 }
             }
         } else {
             // Task został już wcześniej zamknięty
             Ok(())
+        }
+    }
+}
+
+impl Drop for RigServiceHandle {
+    fn drop(&mut self) {
+        if let Some(ref abort) = self.worker_abort {
+            abort.abort();
+        }
+        if let Some(ref jh) = self.supervisor_handle {
+            if !jh.is_finished() {
+                jh.abort();
+            }
         }
     }
 }

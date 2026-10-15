@@ -2770,3 +2770,1092 @@ async fn timed_out_command_does_not_mutate_confirmed_snapshot() {
         .await
         .unwrap();
 }
+
+// ============================================================================
+// ETAP 1: FINALNA KONTROLA LIFECYCLE (7 testów)
+// ============================================================================
+
+#[test]
+fn lifecycle_contains_all_canonical_states() {
+    use splogbook::cat::service::RigServiceLifecycle;
+
+    let states = [
+        RigServiceLifecycle::Created,
+        RigServiceLifecycle::Connecting,
+        RigServiceLifecycle::Synchronizing,
+        RigServiceLifecycle::Ready,
+        RigServiceLifecycle::Degraded,
+        RigServiceLifecycle::Disconnecting,
+        RigServiceLifecycle::Disconnected,
+        RigServiceLifecycle::Failed,
+    ];
+    assert_eq!(states.len(), 8);
+
+    // Created -> Connecting, Disconnecting
+    assert!(RigServiceLifecycle::Created.can_transition_to(RigServiceLifecycle::Connecting));
+    assert!(RigServiceLifecycle::Created.can_transition_to(RigServiceLifecycle::Disconnecting));
+    assert!(!RigServiceLifecycle::Created.can_transition_to(RigServiceLifecycle::Ready));
+    assert!(!RigServiceLifecycle::Created.can_transition_to(RigServiceLifecycle::Disconnected));
+
+    // Connecting -> Synchronizing, Disconnecting, Failed
+    assert!(RigServiceLifecycle::Connecting.can_transition_to(RigServiceLifecycle::Synchronizing));
+    assert!(RigServiceLifecycle::Connecting.can_transition_to(RigServiceLifecycle::Disconnecting));
+    assert!(RigServiceLifecycle::Connecting.can_transition_to(RigServiceLifecycle::Failed));
+    assert!(!RigServiceLifecycle::Connecting.can_transition_to(RigServiceLifecycle::Ready));
+
+    // Synchronizing -> Ready, Disconnecting, Failed
+    assert!(RigServiceLifecycle::Synchronizing.can_transition_to(RigServiceLifecycle::Ready));
+    assert!(
+        RigServiceLifecycle::Synchronizing.can_transition_to(RigServiceLifecycle::Disconnecting)
+    );
+    assert!(RigServiceLifecycle::Synchronizing.can_transition_to(RigServiceLifecycle::Failed));
+
+    // Ready -> Degraded, Disconnecting, Failed
+    assert!(RigServiceLifecycle::Ready.can_transition_to(RigServiceLifecycle::Degraded));
+    assert!(RigServiceLifecycle::Ready.can_transition_to(RigServiceLifecycle::Disconnecting));
+    assert!(RigServiceLifecycle::Ready.can_transition_to(RigServiceLifecycle::Failed));
+
+    // Degraded -> Ready, Disconnecting, Failed
+    assert!(RigServiceLifecycle::Degraded.can_transition_to(RigServiceLifecycle::Ready));
+    assert!(RigServiceLifecycle::Degraded.can_transition_to(RigServiceLifecycle::Disconnecting));
+    assert!(RigServiceLifecycle::Degraded.can_transition_to(RigServiceLifecycle::Failed));
+
+    // Disconnecting -> Disconnected, Failed
+    assert!(
+        RigServiceLifecycle::Disconnecting.can_transition_to(RigServiceLifecycle::Disconnected)
+    );
+    assert!(RigServiceLifecycle::Disconnecting.can_transition_to(RigServiceLifecycle::Failed));
+
+    // Disconnected jest terminalny (żadne przejście do innego stanu nie jest dozwolone)
+    for s in states {
+        if s != RigServiceLifecycle::Disconnected {
+            assert!(!RigServiceLifecycle::Disconnected.can_transition_to(s));
+        }
+    }
+}
+
+#[tokio::test]
+async fn ready_poll_failure_enters_degraded() {
+    let shared = MockBackendState::default();
+    let rig = RigId::new("RIG_POLL_DEG").unwrap();
+    let (service, mut handle) = RigService::spawn(
+        rig.clone(),
+        Box::new(MockRigBackend::new(CatBackendKind::Kenwood, shared.clone())),
+        Duration::from_millis(20),
+    );
+    let jh = tokio::spawn(service.run());
+    handle.attach_join_handle(jh);
+
+    for _ in 0..50 {
+        if handle.snapshot().lifecycle == RigServiceState::Ready {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(handle.snapshot().lifecycle, RigServiceState::Ready);
+
+    shared.connected.store(false, Ordering::SeqCst);
+
+    for _ in 0..50 {
+        if handle.snapshot().lifecycle == RigServiceState::Degraded {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(handle.snapshot().lifecycle, RigServiceState::Degraded);
+    assert_ne!(handle.snapshot().lifecycle, RigServiceState::Failed);
+
+    let _ = handle
+        .shutdown(tokio::time::Instant::now() + Duration::from_millis(500))
+        .await;
+}
+
+#[tokio::test]
+async fn degraded_successful_poll_returns_ready() {
+    let shared = MockBackendState::default();
+    let rig = RigId::new("RIG_DEG_READY").unwrap();
+    let (service, mut handle) = RigService::spawn(
+        rig.clone(),
+        Box::new(MockRigBackend::new(CatBackendKind::Kenwood, shared.clone())),
+        Duration::from_millis(20),
+    );
+    let jh = tokio::spawn(service.run());
+    handle.attach_join_handle(jh);
+
+    for _ in 0..50 {
+        if handle.snapshot().lifecycle == RigServiceState::Ready {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(handle.snapshot().lifecycle, RigServiceState::Ready);
+
+    shared.connected.store(false, Ordering::SeqCst);
+    for _ in 0..50 {
+        if handle.snapshot().lifecycle == RigServiceState::Degraded {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(handle.snapshot().lifecycle, RigServiceState::Degraded);
+
+    shared.connected.store(true, Ordering::SeqCst);
+    for _ in 0..50 {
+        if handle.snapshot().lifecycle == RigServiceState::Ready {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(handle.snapshot().lifecycle, RigServiceState::Ready);
+
+    let _ = handle
+        .shutdown(tokio::time::Instant::now() + Duration::from_millis(500))
+        .await;
+}
+
+#[tokio::test]
+async fn shutdown_enters_disconnecting_before_disconnected() {
+    let shared = MockBackendState::default();
+    let rig = RigId::new("RIG_DISC_FLOW").unwrap();
+    let (service, mut handle) = RigService::spawn(
+        rig.clone(),
+        Box::new(MockRigBackend::new(CatBackendKind::Kenwood, shared)),
+        Duration::from_millis(50),
+    );
+    let mut rx = handle.subscribe_events();
+    let jh = tokio::spawn(service.run());
+    handle.attach_join_handle(jh);
+
+    for _ in 0..50 {
+        if handle.snapshot().lifecycle == RigServiceState::Ready {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+
+    let shutdown_res = handle
+        .shutdown(tokio::time::Instant::now() + Duration::from_millis(500))
+        .await;
+    assert!(shutdown_res.is_ok());
+
+    let mut saw_disconnecting = false;
+    let mut saw_disconnected = false;
+    while let Ok(event) = rx.try_recv() {
+        if let RigHubEvent::RigDisconnecting = event.event {
+            saw_disconnecting = true;
+        }
+        if let RigHubEvent::RigDisconnected = event.event {
+            saw_disconnected = true;
+        }
+    }
+    assert!(
+        saw_disconnecting,
+        "Expected Disconnecting state during controlled shutdown"
+    );
+    assert!(
+        saw_disconnected,
+        "Expected Disconnected terminal state after shutdown"
+    );
+}
+
+#[tokio::test]
+async fn disconnected_is_terminal() {
+    let shared = MockBackendState::default();
+    let rig = RigId::new("RIG_TERM").unwrap();
+    let (mut service, handle) = RigService::spawn(
+        rig.clone(),
+        Box::new(MockRigBackend::new(CatBackendKind::Kenwood, shared)),
+        Duration::from_millis(50),
+    );
+
+    service
+        .transition_to(RigServiceState::Disconnecting, None)
+        .unwrap();
+    service
+        .transition_to(RigServiceState::Disconnected, None)
+        .unwrap();
+    assert_eq!(handle.snapshot().lifecycle, RigServiceState::Disconnected);
+
+    let err = service.transition_to(RigServiceState::Connecting, None);
+    assert!(matches!(
+        err,
+        Err(RigServiceError::InvalidLifecycleTransition { .. })
+    ));
+    let err2 = service.transition_to(RigServiceState::Ready, None);
+    assert!(matches!(
+        err2,
+        Err(RigServiceError::InvalidLifecycleTransition { .. })
+    ));
+    assert_eq!(handle.snapshot().lifecycle, RigServiceState::Disconnected);
+}
+
+#[tokio::test]
+async fn failed_does_not_implicitly_reconnect() {
+    let shared = MockBackendState::default();
+    shared.fail_connect.store(true, Ordering::SeqCst);
+    let rig = RigId::new("RIG_NO_IMPLICIT_RECONN").unwrap();
+    let (service, mut handle) = RigService::spawn(
+        rig.clone(),
+        Box::new(MockRigBackend::new(CatBackendKind::Kenwood, shared.clone())),
+        Duration::from_millis(20),
+    );
+    let jh = tokio::spawn(service.run());
+    handle.attach_join_handle(jh);
+
+    for _ in 0..50 {
+        if handle.snapshot().lifecycle == RigServiceState::Failed {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(handle.snapshot().lifecycle, RigServiceState::Failed);
+
+    let connect_count_initial = shared.connect_count.load(Ordering::SeqCst);
+    tokio::time::sleep(Duration::from_millis(60)).await;
+    assert_eq!(
+        shared.connect_count.load(Ordering::SeqCst),
+        connect_count_initial
+    );
+    assert_eq!(handle.snapshot().lifecycle, RigServiceState::Failed);
+
+    let _ = handle
+        .shutdown(tokio::time::Instant::now() + Duration::from_millis(500))
+        .await;
+}
+
+#[test]
+fn invalid_transition_preserves_snapshot() {
+    let shared = MockBackendState::default();
+    let rig = RigId::new("RIG_INV_TRANS").unwrap();
+    let (mut service, handle) = RigService::spawn(
+        rig.clone(),
+        Box::new(MockRigBackend::new(CatBackendKind::Kenwood, shared)),
+        Duration::from_millis(50),
+    );
+
+    let initial_snap = handle.snapshot();
+    assert_eq!(initial_snap.lifecycle, RigServiceState::Created);
+
+    let err = service.transition_to(RigServiceState::Ready, None);
+    assert!(matches!(
+        err,
+        Err(RigServiceError::InvalidLifecycleTransition { .. })
+    ));
+
+    let post_snap = handle.snapshot();
+    assert_eq!(post_snap.lifecycle, initial_snap.lifecycle);
+    assert_eq!(post_snap.last_error, initial_snap.last_error);
+    assert_eq!(post_snap.state_generation, initial_snap.state_generation);
+}
+
+// ============================================================================
+// ETAP 2: FINALNA KONTROLA NADZORU TASKA (8 testów)
+// ============================================================================
+
+#[tokio::test]
+async fn service_panic_is_observed_without_waiting_for_manual_shutdown() {
+    let shared = MockBackendState::default();
+    let rig = RigId::new("RIG_PANIC_OBS").unwrap();
+    let (_service, mut handle) = RigService::spawn(
+        rig.clone(),
+        Box::new(MockRigBackend::new(CatBackendKind::Kenwood, shared)),
+        Duration::from_millis(20),
+    );
+
+    let panicking_task = tokio::spawn(async {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        panic!("simulated actor panic");
+        #[allow(unreachable_code)]
+        Ok(())
+    });
+    handle.attach_join_handle(panicking_task);
+
+    for _ in 0..50 {
+        if handle.snapshot().lifecycle == RigServiceState::Failed {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(handle.snapshot().lifecycle, RigServiceState::Failed);
+    assert!(
+        handle
+            .snapshot()
+            .last_error
+            .unwrap_or_default()
+            .contains("BackendTaskPanicked")
+    );
+}
+
+#[tokio::test]
+async fn service_panic_updates_snapshot_to_failed() {
+    let shared = MockBackendState::default();
+    let rig = RigId::new("RIG_PANIC_SNAP").unwrap();
+    let (_service, mut handle) = RigService::spawn(
+        rig.clone(),
+        Box::new(MockRigBackend::new(CatBackendKind::Kenwood, shared)),
+        Duration::from_millis(20),
+    );
+
+    let panicking_task = tokio::spawn(async {
+        panic!("fatal actor crash");
+        #[allow(unreachable_code)]
+        Ok(())
+    });
+    handle.attach_join_handle(panicking_task);
+
+    for _ in 0..50 {
+        if handle.snapshot().lifecycle == RigServiceState::Failed {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let snap = handle.snapshot();
+    assert_eq!(snap.lifecycle, RigServiceState::Failed);
+    assert!(snap.last_error.is_some());
+}
+
+#[tokio::test]
+async fn service_panic_emits_failed_event() {
+    let shared = MockBackendState::default();
+    let rig = RigId::new("RIG_PANIC_EVT").unwrap();
+    let (_service, mut handle) = RigService::spawn(
+        rig.clone(),
+        Box::new(MockRigBackend::new(CatBackendKind::Kenwood, shared)),
+        Duration::from_millis(20),
+    );
+    let mut event_rx = handle.subscribe_events();
+
+    let panicking_task = tokio::spawn(async {
+        panic!("actor crash emits event");
+        #[allow(unreachable_code)]
+        Ok(())
+    });
+    handle.attach_join_handle(panicking_task);
+
+    let mut saw_failed_event = false;
+    for _ in 0..50 {
+        while let Ok(event) = event_rx.try_recv() {
+            if let RigHubEvent::RigFailed(_) = event.event {
+                saw_failed_event = true;
+                break;
+            }
+        }
+        if saw_failed_event {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(
+        saw_failed_event,
+        "Expected RigHubEvent::RigFailed upon task panic"
+    );
+}
+
+#[tokio::test]
+async fn service_panic_of_tx_owner_sets_arbiter_unknown() {
+    let mut hub = RigHub::new();
+    let shared = MockBackendState::default();
+    let rig = RigId::new("RIG_PANIC_OWNER").unwrap();
+    let (_service, mut handle) = RigService::spawn(
+        rig.clone(),
+        Box::new(MockRigBackend::new(CatBackendKind::Kenwood, shared)),
+        Duration::from_millis(20),
+    );
+
+    let panicking_task = tokio::spawn(async {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        panic!("tx owner crash");
+        #[allow(unreachable_code)]
+        Ok(())
+    });
+    handle.attach_join_handle(panicking_task);
+
+    hub.register_rig(rig.clone(), handle).unwrap();
+
+    hub.tx_arbiter_mut_for_test()
+        .begin_request(rig.clone(), RigCommandId::new(1))
+        .unwrap();
+    hub.tx_arbiter_mut_for_test()
+        .apply_ptt_outcome(&rig, RigCommandId::new(1), PttCommandOutcome::ConfirmedTx)
+        .unwrap();
+    assert_eq!(hub.tx_arbiter().current_owner(), Some(&rig));
+
+    for _ in 0..50 {
+        hub.poll_service_health();
+        if hub.tx_arbiter().is_unknown() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(hub.tx_arbiter().is_unknown());
+    assert!(matches!(
+        hub.snapshot().tx_state,
+        TxArbiterState::Unknown { .. }
+    ));
+}
+
+#[tokio::test]
+async fn abort_is_followed_by_join() {
+    let shared = MockBackendState::default();
+    let rig = RigId::new("RIG_ABORT_JOIN").unwrap();
+    let (_service, mut handle) = RigService::spawn(
+        rig.clone(),
+        Box::new(MockRigBackend::new(CatBackendKind::Kenwood, shared)),
+        Duration::from_millis(20),
+    );
+
+    let long_running_task = tokio::spawn(async {
+        tokio::time::sleep(Duration::from_secs(60)).await;
+        Ok(())
+    });
+    handle.attach_join_handle(long_running_task);
+
+    let past = tokio::time::Instant::now() - Duration::from_millis(10);
+    let res = handle.shutdown(past).await;
+    assert_eq!(res, Err(RigServiceError::DeadlineExceeded));
+    assert!(handle.supervisor_join_handle().is_none());
+}
+
+#[tokio::test]
+async fn dropping_handle_does_not_detach_live_service() {
+    let shared = MockBackendState::default();
+    let rig = RigId::new("RIG_DROP_NOT_DETACH").unwrap();
+    let (_service, mut handle) = RigService::spawn(
+        rig.clone(),
+        Box::new(MockRigBackend::new(CatBackendKind::Kenwood, shared)),
+        Duration::from_millis(20),
+    );
+
+    let completed_flag = Arc::new(AtomicBool::new(false));
+    let flag_clone = Arc::clone(&completed_flag);
+
+    let worker = tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(10)).await;
+        flag_clone.store(true, Ordering::SeqCst);
+        Ok(())
+    });
+    handle.attach_join_handle(worker);
+
+    drop(handle);
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(!completed_flag.load(Ordering::SeqCst));
+}
+
+#[tokio::test]
+async fn supervisor_has_owned_join_handle() {
+    let shared = MockBackendState::default();
+    let rig = RigId::new("RIG_SUP_OWNED").unwrap();
+    let (_service, mut handle) = RigService::spawn(
+        rig.clone(),
+        Box::new(MockRigBackend::new(CatBackendKind::Kenwood, shared)),
+        Duration::from_millis(20),
+    );
+
+    assert!(handle.supervisor().is_none());
+    assert!(handle.supervisor_join_handle().is_none());
+
+    let task = tokio::spawn(async { Ok(()) });
+    handle.attach_join_handle(task);
+
+    assert!(handle.supervisor().is_some());
+    assert_eq!(handle.supervisor().unwrap().rig_id(), &rig);
+    assert!(handle.supervisor_join_handle().is_some());
+}
+
+#[tokio::test]
+async fn all_spawn_paths_have_shutdown_paths() {
+    let shared = MockBackendState::default();
+    let rig = RigId::new("RIG_SPAWN_SHUT").unwrap();
+    let (service, mut handle) = RigService::spawn(
+        rig.clone(),
+        Box::new(MockRigBackend::new(CatBackendKind::Kenwood, shared)),
+        Duration::from_millis(20),
+    );
+    let jh = tokio::spawn(service.run());
+    handle.attach_join_handle(jh);
+
+    let res = handle
+        .shutdown(tokio::time::Instant::now() + Duration::from_millis(500))
+        .await;
+    assert!(res.is_ok(), "Every spawn path must cleanly shut down");
+}
+
+// ============================================================================
+// ETAP 3: PRODUKCYJNA ŚCIEŻKA POTWIERDZENIA PTT (11 testów)
+// ============================================================================
+
+#[tokio::test]
+async fn production_ptt_path_reaches_confirmed_tx_from_fresh_backend_state() {
+    let shared = MockBackendState::default();
+    let rig = RigId::new("RIG_PROD_PTT_OK").unwrap();
+    let (service, mut handle) = RigService::spawn(
+        rig.clone(),
+        Box::new(MockRigBackend::new(CatBackendKind::Kenwood, shared.clone())),
+        Duration::from_millis(20),
+    );
+    let jh = tokio::spawn(service.run());
+    handle.attach_join_handle(jh);
+
+    let mut hub = RigHub::new();
+    hub.register_rig(rig.clone(), handle).unwrap();
+
+    for _ in 0..50 {
+        if hub.snapshot().rigs.get(&rig).map(|s| s.lifecycle) == Some(RigServiceState::Ready) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+
+    let res = hub.request_tx(&rig, Duration::from_millis(500)).await;
+    assert!(res.is_ok());
+    assert_eq!(hub.tx_arbiter().current_owner(), Some(&rig));
+
+    hub.shutdown(Duration::from_millis(500)).await.unwrap();
+}
+
+#[tokio::test]
+async fn production_ptt_ack_only_does_not_set_owned() {
+    struct AckOnlyBackend {
+        connected: bool,
+    }
+    impl RigBackend for AckOnlyBackend {
+        fn kind(&self) -> CatBackendKind {
+            CatBackendKind::Kenwood
+        }
+        fn capabilities(&self) -> RigCapabilities {
+            RigCapabilities::all()
+        }
+        fn connect(&mut self) -> BoxFuture<'_, Result<(), RigError>> {
+            self.connected = true;
+            Box::pin(async { Ok(()) })
+        }
+        fn poll(&mut self) -> BoxFuture<'_, Result<RigState, RigError>> {
+            let st = RigState {
+                connected: self.connected,
+                ptt: false,
+                ..Default::default()
+            };
+            Box::pin(async move { Ok(st) })
+        }
+        fn execute<'a>(
+            &'a mut self,
+            _command: &'a RigCommand,
+        ) -> BoxFuture<'a, Result<(), RigError>> {
+            Box::pin(async { Ok(()) })
+        }
+        fn execute_routed<'a>(
+            &'a mut self,
+            _rx: Option<&'a ReceiverId>,
+            cmd: &'a RigCommand,
+        ) -> BoxFuture<'a, Result<(), RigError>> {
+            self.execute(cmd)
+        }
+        fn disconnect(&mut self) -> BoxFuture<'_, ()> {
+            self.connected = false;
+            Box::pin(async {})
+        }
+    }
+
+    let rig = RigId::new("RIG_ACK_ONLY").unwrap();
+    let (service, mut handle) = RigService::spawn(
+        rig.clone(),
+        Box::new(AckOnlyBackend { connected: false }),
+        Duration::from_millis(20),
+    );
+    let jh = tokio::spawn(service.run());
+    handle.attach_join_handle(jh);
+
+    let mut hub = RigHub::new();
+    hub.register_rig(rig.clone(), handle).unwrap();
+
+    for _ in 0..50 {
+        if hub.snapshot().rigs.get(&rig).map(|s| s.lifecycle) == Some(RigServiceState::Ready) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+
+    let res = hub.request_tx(&rig, Duration::from_millis(500)).await;
+    assert!(res.is_err());
+    assert_ne!(hub.tx_arbiter().current_owner(), Some(&rig));
+    assert!(hub.tx_arbiter().is_unknown());
+
+    hub.shutdown(Duration::from_millis(500)).await.unwrap();
+}
+
+#[tokio::test]
+async fn production_ptt_requested_state_does_not_set_owned() {
+    let mut arbiter = TxArbiter::new();
+    let rig = RigId::new("RIG_REQ_NOT_OWNED").unwrap();
+    let cmd = RigCommandId::new(42);
+
+    arbiter.begin_request(rig.clone(), cmd).unwrap();
+    let res = arbiter.apply_ptt_outcome(&rig, cmd, PttCommandOutcome::Unconfirmed);
+    assert!(res.is_err());
+    assert_ne!(arbiter.current_owner(), Some(&rig));
+    assert!(arbiter.is_unknown());
+}
+
+#[tokio::test]
+async fn production_ptt_stale_confirmation_does_not_set_owned() {
+    let shared = MockBackendState::default();
+    let rig = RigId::new("RIG_STALE_CONF").unwrap();
+    let (service, mut handle) = RigService::spawn(
+        rig.clone(),
+        Box::new(MockRigBackend::new(CatBackendKind::Kenwood, shared.clone())),
+        Duration::from_millis(20),
+    );
+    let jh = tokio::spawn(service.run());
+    handle.attach_join_handle(jh);
+
+    let mut hub = RigHub::new();
+    hub.register_rig(rig.clone(), handle).unwrap();
+
+    for _ in 0..50 {
+        if hub.snapshot().rigs.get(&rig).map(|s| s.lifecycle) == Some(RigServiceState::Ready) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+
+    shared.fail_execute.store(true, Ordering::SeqCst);
+    let res = hub.request_tx(&rig, Duration::from_millis(200)).await;
+    assert!(res.is_err());
+    assert_ne!(hub.tx_arbiter().current_owner(), Some(&rig));
+    assert!(hub.tx_arbiter().is_unknown());
+
+    hub.shutdown(Duration::from_millis(500)).await.unwrap();
+}
+
+#[test]
+fn production_ptt_wrong_rig_confirmation_does_not_set_owned() {
+    let mut arbiter = TxArbiter::new();
+    let rig1 = RigId::new("RIG_1").unwrap();
+    let rig2 = RigId::new("RIG_2").unwrap();
+    let cmd = RigCommandId::new(10);
+
+    arbiter.begin_request(rig1.clone(), cmd).unwrap();
+    let res = arbiter.apply_ptt_outcome(&rig2, cmd, PttCommandOutcome::ConfirmedTx);
+    assert!(res.is_err());
+    assert_ne!(arbiter.current_owner(), Some(&rig1));
+    assert_ne!(arbiter.current_owner(), Some(&rig2));
+}
+
+#[test]
+fn production_ptt_wrong_command_generation_does_not_set_owned() {
+    let mut arbiter = TxArbiter::new();
+    let rig = RigId::new("RIG_GEN").unwrap();
+    let cmd1 = RigCommandId::new(100);
+    let cmd2 = RigCommandId::new(101);
+
+    arbiter.begin_request(rig.clone(), cmd2).unwrap();
+    let res = arbiter.apply_ptt_outcome(&rig, cmd1, PttCommandOutcome::ConfirmedTx);
+    assert!(res.is_err());
+    assert_ne!(arbiter.current_owner(), Some(&rig));
+}
+
+#[tokio::test]
+async fn production_ptt_timeout_sets_unknown() {
+    let shared = MockBackendState::default();
+    *shared.execute_delay.lock().unwrap() = Some(Duration::from_millis(200));
+    let rig = RigId::new("RIG_TIMEOUT_UNKNOWN").unwrap();
+    let (service, mut handle) = RigService::spawn(
+        rig.clone(),
+        Box::new(MockRigBackend::new(CatBackendKind::Kenwood, shared)),
+        Duration::from_millis(20),
+    );
+    let jh = tokio::spawn(service.run());
+    handle.attach_join_handle(jh);
+
+    let mut hub = RigHub::new();
+    hub.register_rig(rig.clone(), handle).unwrap();
+
+    for _ in 0..50 {
+        if hub.snapshot().rigs.get(&rig).map(|s| s.lifecycle) == Some(RigServiceState::Ready) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+
+    let res = hub.request_tx(&rig, Duration::from_millis(30)).await;
+    assert_eq!(
+        res,
+        Err(RigHubError::Service(RigServiceError::DeadlineExceeded))
+    );
+    assert!(hub.tx_arbiter().is_unknown());
+    assert_eq!(
+        hub.tx_arbiter().state(),
+        &TxArbiterState::Unknown {
+            rig_id: Some(rig.clone()),
+            reason: TxUnknownReason::Timeout,
+        }
+    );
+
+    hub.shutdown(Duration::from_millis(500)).await.unwrap();
+}
+
+#[tokio::test]
+async fn production_ptt_channel_close_sets_unknown() {
+    let shared = MockBackendState::default();
+    let rig = RigId::new("RIG_CH_CLOSE").unwrap();
+    let (service, handle) = RigService::spawn(
+        rig.clone(),
+        Box::new(MockRigBackend::new(CatBackendKind::Kenwood, shared)),
+        Duration::from_millis(20),
+    );
+
+    let mut hub = RigHub::new();
+    hub.register_rig(rig.clone(), handle).unwrap();
+
+    drop(service);
+
+    let res = hub.request_tx(&rig, Duration::from_millis(200)).await;
+    assert!(res.is_err());
+    assert!(hub.tx_arbiter().is_unknown());
+    assert_eq!(
+        hub.tx_arbiter().state(),
+        &TxArbiterState::Unknown {
+            rig_id: Some(rig.clone()),
+            reason: TxUnknownReason::ChannelClosed,
+        }
+    );
+}
+
+#[tokio::test]
+async fn production_release_requires_fresh_confirmed_rx() {
+    let shared = MockBackendState::default();
+    let rig = RigId::new("RIG_REL_FRESH").unwrap();
+    let (service, mut handle) = RigService::spawn(
+        rig.clone(),
+        Box::new(MockRigBackend::new(CatBackendKind::Kenwood, shared.clone())),
+        Duration::from_millis(20),
+    );
+    let jh = tokio::spawn(service.run());
+    handle.attach_join_handle(jh);
+
+    let mut hub = RigHub::new();
+    hub.register_rig(rig.clone(), handle).unwrap();
+
+    for _ in 0..50 {
+        if hub.snapshot().rigs.get(&rig).map(|s| s.lifecycle) == Some(RigServiceState::Ready) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+
+    hub.request_tx(&rig, Duration::from_millis(500))
+        .await
+        .unwrap();
+    assert_eq!(hub.tx_arbiter().current_owner(), Some(&rig));
+
+    let rel_res = hub.release_tx(&rig, Duration::from_millis(500)).await;
+    assert!(rel_res.is_ok());
+    assert_eq!(hub.tx_arbiter().state(), &TxArbiterState::Idle);
+
+    hub.shutdown(Duration::from_millis(500)).await.unwrap();
+}
+
+#[test]
+fn flex_foreign_transmission_does_not_confirm_local_tx() {
+    use splogbook::cat::native::flexradio::backend::{FlexConfirmedPttState, FlexRadioBackend};
+    use splogbook::cat::native::flexradio::client::FlexRadioConfig;
+
+    let backend = FlexRadioBackend::new(FlexRadioConfig::default(), None);
+    assert_ne!(backend.confirmed_ptt_state(), FlexConfirmedPttState::Tx);
+    assert!(!backend.is_ptt_confirmed());
+}
+
+#[tokio::test]
+async fn backend_without_tx_confirmation_cannot_enter_owned() {
+    struct NoTelemetryBackend;
+    impl RigBackend for NoTelemetryBackend {
+        fn kind(&self) -> CatBackendKind {
+            CatBackendKind::Kenwood
+        }
+        fn capabilities(&self) -> RigCapabilities {
+            RigCapabilities::none()
+        }
+        fn connect(&mut self) -> BoxFuture<'_, Result<(), RigError>> {
+            Box::pin(async { Ok(()) })
+        }
+        fn poll(&mut self) -> BoxFuture<'_, Result<RigState, RigError>> {
+            Box::pin(async { Ok(RigState::default()) })
+        }
+        fn execute<'a>(&'a mut self, _cmd: &'a RigCommand) -> BoxFuture<'a, Result<(), RigError>> {
+            Box::pin(async { Ok(()) })
+        }
+        fn execute_routed<'a>(
+            &'a mut self,
+            _rx: Option<&'a ReceiverId>,
+            cmd: &'a RigCommand,
+        ) -> BoxFuture<'a, Result<(), RigError>> {
+            self.execute(cmd)
+        }
+        fn disconnect(&mut self) -> BoxFuture<'_, ()> {
+            Box::pin(async {})
+        }
+    }
+
+    let rig = RigId::new("RIG_NO_TELEMETRY").unwrap();
+    let (service, mut handle) = RigService::spawn(
+        rig.clone(),
+        Box::new(NoTelemetryBackend),
+        Duration::from_millis(20),
+    );
+    let jh = tokio::spawn(service.run());
+    handle.attach_join_handle(jh);
+
+    let mut hub = RigHub::new();
+    hub.register_rig(rig.clone(), handle).unwrap();
+
+    for _ in 0..50 {
+        if hub.snapshot().rigs.get(&rig).map(|s| s.lifecycle) == Some(RigServiceState::Ready) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+
+    let res = hub.request_tx(&rig, Duration::from_millis(500)).await;
+    assert!(res.is_err());
+    assert_ne!(hub.tx_arbiter().current_owner(), Some(&rig));
+    assert!(hub.tx_arbiter().is_unknown());
+
+    hub.shutdown(Duration::from_millis(500)).await.unwrap();
+}
+
+// ============================================================================
+// ETAP 4: AUDYT MUTEXU PENDING COMMANDS (8 testów)
+// ============================================================================
+
+#[tokio::test]
+async fn pending_mutex_is_not_held_across_await() {
+    let hub = RigHub::new();
+    let cmd_id = RigCommandId::new(999);
+    {
+        let guard = hub.register_pending(cmd_id);
+        assert_eq!(guard.id(), cmd_id);
+        assert!(hub.is_command_pending(cmd_id));
+    }
+    assert!(!hub.is_command_pending(cmd_id));
+}
+
+#[tokio::test]
+async fn pending_id_removed_after_success() {
+    let shared = MockBackendState::default();
+    let rig = RigId::new("RIG_PEND_SUCC").unwrap();
+    let (service, mut handle) = RigService::spawn(
+        rig.clone(),
+        Box::new(MockRigBackend::new(CatBackendKind::Kenwood, shared)),
+        Duration::from_millis(20),
+    );
+    let jh = tokio::spawn(service.run());
+    handle.attach_join_handle(jh);
+
+    let mut hub = RigHub::new();
+    hub.register_rig(rig.clone(), handle).unwrap();
+
+    for _ in 0..50 {
+        if hub.snapshot().rigs.get(&rig).map(|s| s.lifecycle) == Some(RigServiceState::Ready) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+
+    let cmd_id = hub.next_command_id();
+    let routed = RoutedRigCommand::new(
+        cmd_id,
+        RigTarget::entire_rig(rig.clone()),
+        RigCommand::SetFrequency(14_050_000),
+        tokio::time::Instant::now() + Duration::from_millis(500),
+    );
+    hub.route_command(routed).await.unwrap();
+
+    assert!(!hub.is_command_pending(cmd_id));
+    assert_eq!(hub.pending_command_count(), 0);
+
+    hub.shutdown(Duration::from_millis(500)).await.unwrap();
+}
+
+#[tokio::test]
+async fn pending_id_removed_after_backend_error() {
+    let shared = MockBackendState::default();
+    shared.fail_execute.store(true, Ordering::SeqCst);
+    let rig = RigId::new("RIG_PEND_ERR").unwrap();
+    let (service, mut handle) = RigService::spawn(
+        rig.clone(),
+        Box::new(MockRigBackend::new(CatBackendKind::Kenwood, shared)),
+        Duration::from_millis(20),
+    );
+    let jh = tokio::spawn(service.run());
+    handle.attach_join_handle(jh);
+
+    let mut hub = RigHub::new();
+    hub.register_rig(rig.clone(), handle).unwrap();
+
+    for _ in 0..50 {
+        if hub.snapshot().rigs.get(&rig).map(|s| s.lifecycle) == Some(RigServiceState::Ready) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+
+    let cmd_id = hub.next_command_id();
+    let routed = RoutedRigCommand::new(
+        cmd_id,
+        RigTarget::entire_rig(rig.clone()),
+        RigCommand::SetFrequency(14_050_000),
+        tokio::time::Instant::now() + Duration::from_millis(500),
+    );
+    let res = hub.route_command(routed).await;
+    assert!(res.is_err());
+
+    assert!(!hub.is_command_pending(cmd_id));
+    assert_eq!(hub.pending_command_count(), 0);
+
+    hub.shutdown(Duration::from_millis(500)).await.unwrap();
+}
+
+#[tokio::test]
+async fn pending_id_removed_after_timeout() {
+    let shared = MockBackendState::default();
+    *shared.execute_delay.lock().unwrap() = Some(Duration::from_millis(200));
+    let rig = RigId::new("RIG_PEND_TIMEOUT").unwrap();
+    let (service, mut handle) = RigService::spawn(
+        rig.clone(),
+        Box::new(MockRigBackend::new(CatBackendKind::Kenwood, shared)),
+        Duration::from_millis(20),
+    );
+    let jh = tokio::spawn(service.run());
+    handle.attach_join_handle(jh);
+
+    let mut hub = RigHub::new();
+    hub.register_rig(rig.clone(), handle).unwrap();
+
+    for _ in 0..50 {
+        if hub.snapshot().rigs.get(&rig).map(|s| s.lifecycle) == Some(RigServiceState::Ready) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+
+    let cmd_id = hub.next_command_id();
+    let routed = RoutedRigCommand::new(
+        cmd_id,
+        RigTarget::entire_rig(rig.clone()),
+        RigCommand::SetFrequency(14_050_000),
+        tokio::time::Instant::now() + Duration::from_millis(30),
+    );
+    let res = hub.route_command(routed).await;
+    assert!(res.is_err());
+
+    assert!(!hub.is_command_pending(cmd_id));
+    assert_eq!(hub.pending_command_count(), 0);
+
+    hub.shutdown(Duration::from_millis(500)).await.unwrap();
+}
+
+#[tokio::test]
+async fn pending_id_removed_after_channel_close() {
+    let shared = MockBackendState::default();
+    let rig = RigId::new("RIG_PEND_CH_CLOSE").unwrap();
+    let (service, handle) = RigService::spawn(
+        rig.clone(),
+        Box::new(MockRigBackend::new(CatBackendKind::Kenwood, shared)),
+        Duration::from_millis(20),
+    );
+
+    let mut hub = RigHub::new();
+    hub.register_rig(rig.clone(), handle).unwrap();
+
+    drop(service);
+
+    let cmd_id = hub.next_command_id();
+    let routed = RoutedRigCommand::new(
+        cmd_id,
+        RigTarget::entire_rig(rig.clone()),
+        RigCommand::SetFrequency(14_050_000),
+        tokio::time::Instant::now() + Duration::from_millis(200),
+    );
+    let res = hub.route_command(routed).await;
+    assert!(res.is_err());
+
+    assert!(!hub.is_command_pending(cmd_id));
+    assert_eq!(hub.pending_command_count(), 0);
+}
+
+#[tokio::test]
+async fn cancelled_caller_does_not_leak_pending_id() {
+    let shared = MockBackendState::default();
+    *shared.execute_delay.lock().unwrap() = Some(Duration::from_millis(500));
+    let rig = RigId::new("RIG_CANCEL_GUARD").unwrap();
+    let (service, mut handle) = RigService::spawn(
+        rig.clone(),
+        Box::new(MockRigBackend::new(CatBackendKind::Kenwood, shared)),
+        Duration::from_millis(20),
+    );
+    let jh = tokio::spawn(service.run());
+    handle.attach_join_handle(jh);
+
+    let mut hub = RigHub::new();
+    hub.register_rig(rig.clone(), handle).unwrap();
+
+    for _ in 0..50 {
+        if hub.snapshot().rigs.get(&rig).map(|s| s.lifecycle) == Some(RigServiceState::Ready) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+
+    let cmd_id = hub.next_command_id();
+    let routed = RoutedRigCommand::new(
+        cmd_id,
+        RigTarget::entire_rig(rig.clone()),
+        RigCommand::SetFrequency(14_050_000),
+        tokio::time::Instant::now() + Duration::from_secs(5),
+    );
+
+    tokio::select! {
+        _ = hub.route_command(routed) => {}
+        _ = tokio::time::sleep(Duration::from_millis(20)) => {}
+    }
+
+    assert!(!hub.is_command_pending(cmd_id));
+    assert_eq!(hub.pending_command_count(), 0);
+
+    hub.shutdown(Duration::from_millis(500)).await.unwrap();
+}
+
+#[test]
+fn poisoned_pending_mutex_is_typed_or_recovered() {
+    use std::collections::BTreeSet;
+    let raw_mutex = Arc::new(StdMutex::new(BTreeSet::new()));
+    let mutex_clone = Arc::clone(&raw_mutex);
+
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _guard = mutex_clone.lock().unwrap();
+        panic!("simulated panic to poison mutex");
+    }));
+    assert!(raw_mutex.is_poisoned());
+
+    let cmd_id = RigCommandId::new(777);
+    let guard = splogbook::cat::PendingCommandGuard::new(cmd_id, Arc::clone(&raw_mutex));
+    drop(guard);
+
+    let pending = raw_mutex.lock().unwrap_or_else(|e| e.into_inner());
+    assert!(!pending.contains(&cmd_id));
+}
+
+#[tokio::test]
+async fn shutdown_clears_all_pending_ids() {
+    let mut hub = RigHub::new();
+    let cmd1 = hub.next_command_id();
+    let cmd2 = hub.next_command_id();
+
+    let _guard1 = hub.register_pending(cmd1);
+    let _guard2 = hub.register_pending(cmd2);
+    assert_eq!(hub.pending_command_count(), 2);
+
+    hub.shutdown(Duration::from_millis(500)).await.unwrap();
+    assert_eq!(hub.pending_command_count(), 0);
+}

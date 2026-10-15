@@ -295,6 +295,16 @@ impl TxArbiter {
         }
     }
 
+    /// Identyfikator radia zaangażowanego w operację nadawania (`Requesting`, `Owned`, `Releasing`).
+    pub fn active_target(&self) -> Option<&RigId> {
+        match &self.state {
+            TxArbiterState::Requesting { rig_id, .. }
+            | TxArbiterState::Owned { rig_id, .. }
+            | TxArbiterState::Releasing { rig_id, .. } => Some(rig_id),
+            _ => None,
+        }
+    }
+
     /// Sprawdza, czy arbiter znajduje się w stanie spoczynku ([`TxArbiterState::Idle`]).
     pub fn is_idle(&self) -> bool {
         matches!(self.state, TxArbiterState::Idle)
