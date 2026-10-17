@@ -19,7 +19,7 @@ pub const MANUAL_SECTIONS: &[ManualSection] = &[
         title: "1. Pierwsze kroki",
         body: "Witaj w SPLogbook — zaawansowanym, nowoczesnym środowisku logowania i automatyzacji stacji krótkofalarskiej stworzonym w języku Rust.\n\n\
 1. Konfiguracja początkowa: Wybierz menu Pomoc → Kreator pierwszego uruchomienia (Welcome Wizard), aby wprowadzić swój znak stacji (np. SP6INA), imię, locator Maidenhead (np. JO81) oraz opcjonalny kod gminy PGA i strefy CQ/ITU.\n\n\
-2. Podłączenie radia (CAT): W menu Ustawienia → Konfiguracja CAT / Rotora wybierz backend odpowiedni dla Twojego sprzętu (Hamlib, Kenwood/Yaesu, Icom CI-V, FLRig lub TCI dla SDR). Po połączeniu częstotliwość, emisja i raporty będą synchronizowane w czasie rzeczywistym.\n\n\
+2. Podłączenie radia (CAT): W menu Ustawienia → Konfiguracja CAT / Rotora wybierz backend odpowiedni dla Twojego sprzętu (Hamlib, FLRig, TCI, Icom CI-V, Kenwood, Yaesu, Elecraft lub FlexRadio SmartSDR). Po połączeniu częstotliwość, emisja i raporty będą synchronizowane w czasie rzeczywistym.\n\n\
 3. Podłączenie klastra DX: Przejdź do zakładki lub pływającego okna DX Cluster. Kliknij 'Połącz' (domyślny węzeł: cluster.sp7pka.ampr.org:7300 lub własny serwer Telnet). Kliknięcie dowolnego spotu automatycznie przestraja radio i wypełnia formularz logowania.\n\n\
 4. Logowanie QSO: Wpisz znak korespondenta w polu Callsign i naciśnij Enter lub F2. SPLogbook natychmiast zweryfikuje prefiks, wyznaczy azymut i odległość, pobierze dane z bazy Callbook/QRZ oraz sprawdzi status dyplomowy (ATNO / nowe pasmo).\n\n\
 Wskazówka: Naciśnij Ctrl+Shift+P w dowolnym momencie, aby otworzyć Paletę Poleceń (Command Palette) i natychmiast wywołać dowolną funkcję programu z klawiatury.",
@@ -27,15 +27,21 @@ Wskazówka: Naciśnij Ctrl+Shift+P w dowolnym momencie, aby otworzyć Paletę Po
     ManualSection {
         id: "station",
         title: "2. Konfiguracja stacji i CAT",
-        body: "SPLogbook oferuje uniwersalną warstwę abstrakcji CAT (CatBackend), obsługującą szeroki wachlarz protokołów:\n\n\
-- Hamlib (rigctld): Domyślny backend sieciowy TCP (port 4533/4534). Możesz korzystać z wbudowanej binarki (Bundled Hamlib 4.7.2) lub zainstalowanej w systemie (/usr/bin/rigctld lub systemowy PATH na Windowsie).\n\
-- Kenwood / Elecraft / Yaesu: Bezpośrednia obsługa szeregowego protokołu ASCII CAT (komendy FA, FB, MD, TX, RX, IF) bez konieczności uruchamiania zewnętrznych demonów.\n\
-- Icom CI-V: Bezpośrednia komunikacja binarna z radiami Icom (wybór adresu szesnastkowego CI-V, np. 0x94 dla IC-7300, 0x88 dla IC-7100).\n\
-- TCI (Transceiver Control Interface): Błyskawiczna integracja z transceiverami SDR firm Expert Electronics (SunSDR2 PRO/DX), Thetis, ExpertSDR3 przez protokół WebSocket.\n\
-- FLRig (XML-RPC): Integracja z popularnym serwerem sterowania FLRig.\n\
-- SO2R: Tryb pracy na dwa radia (Single-Operator Two-Radio) z automatyczną blokadą jednoczesnego nadawania (TX Lockout).\n\n\
-Sterowanie rotorem antenowym: Wbudowany klient rotctld (TCP port 4533) umożliwia obrót anteny jednym kliknięciem na azymut ortodromy (Short Path) ze wskazanego spotu, mapy lub formularza QSO.\n\n\
-Współdzielenie portu CAT: SPLogbook posiada wbudowany serwer proxy Hamlib (port 4534), dzięki czemu programy zewnętrzne (np. WSJT-X, FLDigi, JTDX) mogą współdzielić to samo radio bez konfliktów portu szeregowego.",
+        body: "SPLogbook oferuje nowoczesną, w pełni asynchroniczną warstwę sterowania radiem NATIVE-CAT opartą na rdzeniu RigHub oraz arbiterze nadawania TxArbiter. Obsługuje 8 wyspecjalizowanych backendów sprzętowych i sieciowych:\n\n\
+- Hamlib (rigctld): Standardowy backend sieciowy TCP (domyślny port 4532) oraz nadzorca procesu (Supervisor) automatycznie uruchamiający dołączony lub systemowy rigctld na wybranym porcie szeregowym.\n\
+- Icom CI-V: Bezpośrednia natywna komunikacja binarna (ramki CI-V $FE $FE ... $FD) przez port szeregowy lub TCP z automatyczną detekcją adresu radia (np. 0x94 dla IC-7300, 0xA2 dla IC-705) i backoffem kolizyjnym.\n\
+- Kenwood: Bezpośredni asynchroniczny protokół szeregowy ASCII (komendy FA, FB, MD, TX, RX, IF) z buforowanym analizatorem strumieniowym.\n\
+- Yaesu: Obsługa wielopokoleniowa obejmująca protokoły CAT-V (5-bajtowe ramki binarne dla FT-817/857/897), ASCII (FT-dx10, FT-991A, FT-710) oraz generacje CAT-III, CAT-IV i CAT-IX.\n\
+- Elecraft: Dedykowana obsługa transceiverów K2, K3, K3S, KX2, KX3 oraz K4 (z bezpośrednim transportem szeregowym lub sieciowym K4 TCP).\n\
+- FlexRadio: Bezpośrednia integracja SmartSDR TCP API (wersje 2.0–3.x) z subskrypcjami slice/meter oraz automatycznym wykrywaniem radioodbiorników w sieci LAN przez broadcast UDP (port 4992).\n\
+- FLRig (XML-RPC): Integracja z popularnym serwerem sterowania FLRig przez interfejs XML-RPC.\n\
+- TCI (Transceiver Control Interface): Błyskawiczna integracja z transceiverami SDR (Expert Electronics SunSDR2 PRO/DX, Thetis, ExpertSDR3) przez protokół WebSocket.\n\n\
+Rdzeń wieloradiowy i bezpieczeństwo RF:\n\
+- RigHub i TxArbiter: Aplikacja umożliwia konfigurację dwóch niezależnych radiolinii (Radio 1 i Radio 2) z arbitrem nadawania (TxArbiter) wymuszającym pojedynczego właściciela nadawania (Single-TX Interlock) oraz zakaz automatycznego ponawiania SetPtt(true) w celu ochrony stopni końcowych PA.\n\
+- Bezpieczny Probe: Skanowanie i testowanie portów transceivera odbywa się w trybie ściśle odczytowym (Read-Only), bez mutacji rejestrów i bez aktywacji nadawania.\n\
+- Sterowanie rotorem antenowym: Wbudowany klient rotctld (TCP port 4533) umożliwia obrót anteny jednym kliknięciem na azymut ortodromy (Short Path) ze wskazanego spotu, mapy lub formularza QSO.\n\
+- Współdzielenie portu CAT: Wbudowany serwer proxy Hamlib (port 4534) pozwala programom zewnętrznym (WSJT-X, JTDX, FLDigi) na równoległe korzystanie z radia bez konfliktów portu COM.\n\
+- Środowisko testowe HIL: Moduł testów sprzętowych (Hardware-in-the-Loop) wymaga bezwzględnego podłączenia sztucznego obciążenia (Dummy Load 50 Ω) i zakazuje jakichkolwiek prób nadawania z podłączoną anteną.",
     },
     ManualSection {
         id: "logging",
@@ -240,7 +246,7 @@ pub const MANUAL_SECTIONS_EN: &[ManualSection] = &[
         title: "1. Getting Started",
         body: "Welcome to SPLogbook — an advanced, modern amateur radio logging and station automation environment built in Rust.\n\n\
 1. Initial Setup: Open Help → Welcome Wizard (or Station Profile Settings) to enter your station callsign (e.g. SP6INA), operator name, Maidenhead grid locator (e.g. JO81), and optional CQ/ITU zones.\n\n\
-2. Connecting Your Radio (CAT): Open Settings → CAT / Rotator Setup and choose the backend matching your transceiver (Hamlib rigctld, Kenwood/Yaesu/Elecraft serial, Icom CI-V, FLRig, or TCI for SDR). Once connected, VFO frequency, mode, and signal reports synchronize in real time.\n\n\
+2. Connecting Your Radio (CAT): Open Settings → CAT / Rotator Setup and choose the backend matching your transceiver (Hamlib rigctld, FLRig, TCI, Icom CI-V, Kenwood, Yaesu, Elecraft, or FlexRadio SmartSDR). Once connected, VFO frequency, mode, and signal reports synchronize in real time.\n\n\
 3. Connecting to a DX Cluster: Open the DX Cluster tab or floating window, select a server preset (e.g. dxcluster.pl:8000, dxfun.com:8000, w3lpl.net:7373), and click 'Connect'. Clicking any DX spot automatically tunes your radio and populates the QSO entry form.\n\n\
 4. Logging a QSO: Enter the correspondent's callsign in the Callsign field and press Enter or F2. SPLogbook immediately resolves the DXCC prefix, calculates bearing and distance, queries online Callbooks (QRZ/HamQTH), and checks award status (ATNO / New Band / New Mode).\n\n\
 Tip: Press Ctrl+Shift+P at any time to open the Command Palette and invoke any application feature from the keyboard.",
@@ -248,15 +254,21 @@ Tip: Press Ctrl+Shift+P at any time to open the Command Palette and invoke any a
     ManualSection {
         id: "station",
         title: "2. Station & CAT Setup",
-        body: "SPLogbook provides a universal CAT abstraction layer supporting a wide range of transceivers and protocols:\n\n\
-- Hamlib (rigctld): Standard TCP network backend (default port 4532) or automatic background supervisor starting bundled/system rigctld on your chosen serial COM/tty port.\n\
-- Kenwood / Elecraft / Yaesu: Direct serial ASCII CAT protocol support (FA, FB, MD, TX, RX, IF) without requiring external daemons.\n\
-- Icom CI-V: Direct binary CI-V communication with Icom transceivers (configurable hex address, e.g. 0x94 for IC-7300, 0x88 for IC-7100).\n\
-- TCI (Transceiver Control Interface): High-speed network integration with SDR transceivers (Expert Electronics SunSDR2 PRO/DX, Thetis, ExpertSDR3).\n\
-- FLRig (XML-RPC): Seamless integration with the popular FLRig transceiver control server (default port 12345).\n\
-- SO2R: Single-Operator Two-Radio operation with automatic simultaneous transmit lockout (TX Lockout).\n\n\
-Antenna Rotator Control: The built-in rotctld client (TCP port 4533) rotates your antenna with a single click to the Short Path or Long Path azimuth from any DX spot, World Map, or QSO entry.\n\n\
-CAT Port Sharing: SPLogbook includes a built-in Hamlib proxy server (port 4534) so external applications (WSJT-X, JTDX, FLDigi) can share the same radio simultaneously without COM port conflicts.",
+        body: "SPLogbook provides the modern NATIVE-CAT async rig control architecture powered by the RigHub multi-radio core and the TxArbiter interlock. It supports 8 dedicated hardware and network backends:\n\n\
+- Hamlib (rigctld): Standard TCP network backend (default port 4532) or background supervisor launching bundled/system rigctld on your serial port.\n\
+- Icom CI-V: Direct native binary communication (CI-V $FE $FE ... $FD frames) via serial COM or TCP with auto-address discovery (e.g. 0x94 for IC-7300, 0xA2 for IC-705) and collision backoff.\n\
+- Kenwood: Direct native asynchronous ASCII serial CAT (FA, FB, MD, TX, RX, IF commands) with a streaming buffered parser.\n\
+- Yaesu: Multi-generational support including CAT-V (5-byte binary frames for FT-817/857/897), ASCII (FT-dx10, FT-991A, FT-710), and CAT-III/IV/IX generations.\n\
+- Elecraft: Native support for K2, K3, K3S, KX2, KX3, and K4 transceivers (with serial COM or direct K4 TCP network transport).\n\
+- FlexRadio: Native SmartSDR TCP API integration (v2.0–3.x) with slice/meter subscriptions and automatic LAN discovery via UDP broadcast (port 4992).\n\
+- FLRig (XML-RPC): Seamless integration with the popular FLRig transceiver control server.\n\
+- TCI (Transceiver Control Interface): High-speed WebSocket integration with SDR transceivers (Expert Electronics SunSDR2 PRO/DX, Thetis, ExpertSDR3).\n\n\
+Multi-Radio Core & RF Safety:\n\
+- RigHub & TxArbiter: Full dual-rig configuration support (Radio 1 & Radio 2) with a strict transmit arbiter (TxArbiter) enforcing a Single-TX Interlock and zero retry on SetPtt(true) to protect power amplifiers.\n\
+- Safe Read-Only Probe: Port detection and handshake probing is strictly non-invasive (read-only), with zero register mutations and zero TX emission.\n\
+- Antenna Rotator Control: Built-in rotctld client (TCP port 4533) rotates your antenna with a single click to the Short Path or Long Path azimuth from spots, map, or log.\n\
+- CAT Port Sharing: Built-in Hamlib proxy server (port 4534) allows external digital programs (WSJT-X, JTDX, FLDigi) to share the same radio simultaneously without port conflicts.\n\
+- HIL Test Harness: Laboratory Hardware-in-the-Loop harness requiring mandatory 50 Ω dummy load termination and strictly prohibiting PTT tests on live antennas.",
     },
     ManualSection {
         id: "logging",

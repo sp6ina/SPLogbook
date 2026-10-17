@@ -501,10 +501,74 @@ Testowanie transportów szeregowych i kodeków odbywa się w pełni deterministy
 
 ## 18. Model testów Hardware-In-The-Loop (HIL)
 
-Dla laboratoriów wyposażonych w fizyczne urządzenia lub mikrokontrolery symulujące radio (np. Teensy/RP2040 udające IC-7300/TS-590):
-- Dedykowana flaga testowa `#[ignore = "hardware-in-the-loop"]`,
-- Testy HIL uruchamiane wyłącznie ręcznie z jawną konfiguracją portu COM i modelu przez zmienne środowiskowe (np. `SPLOG_HIL_PORT=COM3`, `SPLOG_HIL_MODEL=IC-7300`).
-- Testy HIL podlegają tym samym rygorom bezpieczeństwa PTT (brak nadawania RF bez sztucznego obciążenia i zgody operatora).
+W etapie NATIVE-7 wdrożono dedykowany podsystem **Hardware-In-The-Loop (HIL)** w module `src/cat/hil/`, stanowiący kompletny harness laboratoryjny do deterministycznej weryfikacji sprzętowej i programowej.
+
+### 18.1. Architektura dwubramkowa (NATIVE-7A i NATIVE-7B)
+
+Program HIL został podzielony na dwie niezależne bramki jakościowe:
+1. **NATIVE-7A (Harness programowy, walidacja offline i procedury)**:
+   - Działająca domena harnessu HIL (`src/cat/hil/`),
+   - Parser i walidator manifestu laboratoryjnego (`HilTestBenchManifest`),
+   - Walidator gotowości laboratoryjnej (`HilReadinessValidator`),
+   - Ścisła kategoryzacja dowodów (`HilReadinessEvidenceKind`) i statusów (`HilReadinessStatus`),
+   - Zestaw 25 deterministycznych testów integracyjnych offline (`tests/cat_native_7.rs`),
+   - Bezpieczne punkty wejścia do testów fizycznych z blokadą w CI (`#[ignore = "hardware-in-the-loop"]`),
+   - Dokumentacja procedur laboratoryjnych i synchronizacja dokumentów projektu.
+   - **Bramka NATIVE-7A jest w pełni zrealizowana i niezależna od dostępności fizycznego radia.**
+
+2. **NATIVE-7B (Kontrolowane wykonanie na fizycznym stanowisku laboratoryjnym)**:
+   - Wykonywane wyłącznie na rzeczywistym stanowisku pomiarowym,
+   - Dopuszczalne wyłącznie po uzyskaniu pełnego statusu **HIL-READY** (`HilReadinessStatus::Passed`),
+   - Wymaga fizycznego podłączenia atestowanego sztucznego obciążenia 50 Ω,
+   - Wymaga jawnego tokenu autoryzacji operatora (`HilPttConsentToken`),
+   - Odizolowane od standardowych testów regresyjnych i CI.
+   - **W środowiskach bez podłączonego fizycznego transceivera bramka NATIVE-7B pozostaje w stanie BLOCKED / NOT RUN bez fałszowania wyników.**
+
+### 18.2. Macierz testowa HIL
+
+Wymiary macierzy testowej HIL są zdefiniowane jako krotka czterowymiarowa:
+```text
+backend x radio x transport x firmware
+```
+Gdzie:
+- **backend**: Rodzaj backendu (`CatBackendKind`: IcomCiV, Kenwood, Yaesu, Elecraft, FlexRadio, Hamlib, FLRig, TCI),
+- **radio**: Identyfikator i profil transceivera z rejestru modeli (`RigModelInfo`),
+- **transport**: Precyzyjnie skonfigurowany port szeregowy (`Serial { port_name, baud_rate, data_bits, parity, stop_bits, flow_control }`) lub sieciowy (`Network { host, port }`),
+- **firmware**: Wersja oprogramowania układowego radia potwierdzona w laboratorium.
+
+### 18.3. Rozdzielenie rodzajów dowodów (HilReadinessEvidenceKind)
+
+Każdy sprawdzany warunek HIL-READY posiada dokładnie jedną, nienaruszalną kategorię dowodu:
+```rust
+pub enum HilReadinessEvidenceKind {
+    /// Warunek potwierdzony automatycznie przez kod na podstawie repozytorium,
+    /// konfiguracji, snapshotu, runtime lub obsługiwanego instrumentu cyfrowego.
+    MachineVerified,
+    /// Warunek fizyczny potwierdzony ręcznie przez operatora, którego aplikacja
+    /// nie może samodzielnie zmierzyć (np. fizyczne dokręcenie sztucznego obciążenia).
+    OperatorAttested,
+    /// Warunek potwierdzony przez jawnie wskazany przyrząd pomiarowy i zapisany odczyt.
+    InstrumentVerified,
+}
+
+pub enum HilReadinessStatus {
+    Passed,
+    Failed,
+    Blocked,
+    NotRun,
+}
+```
+
+Deklaracja operatora nie może być traktowana jako automatyczny pomiar cyfrowy, a odczyt cyfrowy nie zastępuje manualnego potwierdzenia fizycznego obwodu w.cz.
+
+### 18.4. Nadrzędne reguły bezpieczeństwa w.cz. (RF Safety)
+
+1. **Bezwzględny wymóg sztucznego obciążenia 50 Ω**: Wszelkie próby z załączeniem nadajnika (PTT) w warunkach HIL mogą odbywać się wyłącznie przy podłączeniu atestowanego sztucznego obciążenia o dopuszczalnej mocy ciągłej/impulsowej przewyższającej moc testową (`max_test_power_watts <= power_rating_watts`).
+2. **Bezwzględny zakaz nadawania na antenie**: Zakończenie toru w.cz. anteną (`HilRfTermination::Antenna`) powoduje natychmiastowe ustawienie statusu `Failed` i blokadę wykonania PTT (`HilError::SafetyViolation`).
+3. **Pojedyncza próba PTT (Zero Retry Invariant)**: Żadne polecenie `SetPtt(true)` nie może być ponawiane automatycznie. W razie braku potwierdzenia następuje przejście do stanu `Unknown` i natychmiastowe zrzucenie do trybu RX.
+4. **Zakaz automatycznego zgadywania portu i radia**: Manifest HIL musi zawierać jawnie wskazany identyfikator portu (np. `COM3`) i identyfikator radia (`RigId`). Wszelkie wartości typu "AUTO", "FIRST" lub brak identyfikatora skutkują natychmiastowym błędem walidacji.
+5. **Blokada PTT w fazie NATIVE-7A**: W fazie 7A wywołanie metody `execute_controlled_ptt()` zwraca bezwzględny błąd typowany `HilError::PttForbiddenInStage7A`.
+6. **Token zgody operatora**: Każda próba nadawania w NATIVE-7B wymaga podania obiektu `HilPttConsentToken`, który może powstać wyłącznie przy niepustym znaku wywoławczym operatora.
 
 ---
 
@@ -596,7 +660,8 @@ W falach NATIVE-0 do NATIVE-6A interfejs GUI nie ulega modyfikacji runtime, co g
 | **NATIVE-6** | Fala nadrzędna: Multi-Radio Execution Core, fabryka backendów, migracja i integracja UI | Fala nadrzędna podzielona formalnie na NATIVE-6A i NATIVE-6B (decyzja AD-NATIVE-6-SPLIT). Brak osobnych kryteriów wykonawczych. |
 | **NATIVE-6A** | Multi-Radio Execution Core, RigHub i bezpieczny arbitraż TX | Zaimplementowanie bezgłowej, produkcyjnej warstwy wykonawczej (RigService, RigHub, TxArbiter, routing, bounded queues, lifecycle, shutdown) bez zmian w GUI. [zrealizowano] |
 | **NATIVE-6B** | Fabryka backendów, migracja konfiguracji i UI | Podłączenie istniejących backendów i warstwy wykonawczej do GUI (`cat_settings.rs`), dynamiczne panele konfiguracji, fabryka backendów, walidacja i18n, migracja `AppConfig`. [zrealizowano] |
-| **NATIVE-7** | Testy HIL, dokumentacja i audyt końcowy | Procedury testów sprzętowych Hardware-In-The-Loop, aktualizacja podręcznika i audyt bezpieczeństwa. [planned] |
+| **NATIVE-7A** | Funkcjonalny harness HIL, walidator HIL-READY i audyt | Kompletna domena HIL (`src/cat/hil/`), parser manifestu, walidator gotowości laboratoryjnej, 25 testów offline, synchronizacja podręcznika i audyt ARCH-CAT. [zrealizowano] |
+| **NATIVE-7B** | Kontrolowane wykonanie na fizycznym sprzęcie | Uruchomienie testów na rzeczywistym transceiverze wyłącznie po spełnieniu HIL-READY i zgodzie operatora; w środowisku bez fizycznego radia bramka oczekuje na stanowisko. [gotowość procedur, oczekiwanie na fizyczne stanowisko] |
 
 ### 24.1. Łańcuch zależności fal realizacyjnych
 
@@ -891,17 +956,27 @@ NATIVE-0 -> NATIVE-1 -> NATIVE-2 -> NATIVE-3 -> NATIVE-4 -> NATIVE-5 (5A-5E) -> 
 ### Kryteria NATIVE-7 (Testy HIL, dokumentacja i audyt końcowy):
 
 - **Warunki wejściowe**:
-  - NATIVE-6A PASSED,
-  - NATIVE-6B PASSED,
-  - repozytorium clean,
-  - gałęzie zsynchronizowane,
-  - pełna walidacja przechodzi.
-- **Zakres**: Procedury testów sprzętowych Hardware-In-The-Loop, aktualizacja podręcznika i audyt bezpieczeństwa.
-- **Zasady i rygory**:
-  - HIL nie należy do NATIVE-6A,
-  - HIL nie należy do NATIVE-6B,
-  - użycie fizycznego PTT wymaga osobnej, kontrolowanej procedury,
-  - testy produkcyjne NATIVE-6A i NATIVE-6B pozostają offline.
+  - [x] NATIVE-6A PASSED (160 passed),
+  - [x] NATIVE-6B PASSED (75 passed),
+  - [x] repozytorium clean,
+  - [x] gałęzie zsynchronizowane,
+  - [x] pełna walidacja przechodzi (1076 baseline passed).
+- **Bramka NATIVE-7A (Harness programowy, walidacja offline i synchronizacja) — PASSED**:
+  - [x] Implementacja silnie typowanej domeny HIL w `src/cat/hil/` (`manifest`, `evidence`, `validator`, `session`, `error`).
+  - [x] Ścisłe rozdzielenie dowodów `HilReadinessEvidenceKind` (`MachineVerified`, `OperatorAttested`, `InstrumentVerified`) oraz statusów `HilReadinessStatus`.
+  - [x] Parser manifestu laboratoryjnego `HilTestBenchManifest` z weryfikacją macierzy (backend x radio x transport x firmware).
+  - [x] Deterministyczny walidator `HilReadinessValidator` sprawdzający 9 kryteriów bezpieczeństwa i wyznaczający status HIL-READY.
+  - [x] Bezwzględna blokada fizycznego PTT w fazie NATIVE-7A (`HilError::PttForbiddenInStage7A`).
+  - [x] Bezwzględny wymóg sztucznego obciążenia 50 Ω oraz blokada PTT na antenie (`HilError::SafetyViolation`).
+  - [x] Nienaruszalna zasada pojedynczego załączenia PTT (Zero Retry Invariant).
+  - [x] Bezpieczny token autoryzacji PTT przez operatora (`HilPttConsentToken`).
+  - [x] 25 deterministycznych testów integracyjnych offline w `tests/cat_native_7.rs` (wszystkie passed).
+  - [x] Bezpieczny punkt wejścia do testów fizycznych `hil_hardware_live_test_bench` (`#[ignore = "hardware-in-the-loop"]`).
+  - [x] Przykładowy kanoniczny manifest stanowiska `tests/hil/ic7300_lab_bench.json`.
+  - [x] Pełna synchronizacja `Refaktoryzacje.md`, `Native CAT.md`, `src/gui/user_manual.rs` i `README.md`.
+- **Bramka NATIVE-7B (Fizyczne wykonanie na sprzęcie laboratoryjnym) — BLOCKED / NOT RUN**:
+  - [-] Wymaga rzeczywistego fizycznego transceivera i atestowanego sztucznego obciążenia 50 Ω.
+  - [-] Zgodnie z nadrzędnymi regułami wykonania, testy fizyczne nie są symulowane ani zaliczane na podstawie atrap/deklaracji. W obecnym środowisku wykonawczym (gdzie jedyne porty szeregowe to wirtualne porty Bluetooth COM7/COM8) bramka NATIVE-7B pozostaje w pełni przygotowana procedurowo, lecz nieuruchomiona.
 
 ---
 

@@ -1,0 +1,48 @@
+{
+  "bench_id": "SP6INA-LAB-BENCH-01",
+  "operator_callsign": "SP6INA",
+  "operator_name": "Mariusz Woźniak",
+  "matrix": {
+    "backend_kind": "icom_ci_v",
+    "rig_id": "RIG-IC7300-BENCH1",
+    "model_name": "IC-7300",
+    "transport": {
+      "type": "serial",
+      "port_name": "COM3",
+      "baud_rate": 115200,
+      "data_bits": 8,
+      "parity": "none",
+      "stop_bits": 1,
+      "flow_control": "none"
+    },
+    "firmware_version": "v1.42"
+  },
+  "rf_safety": {
+    "termination": {
+      "type": "dummy_load",
+      "power_rating_watts": 100.0,
+      "max_swr": 1.15,
+      "serial_number": "DL-50W-SP6INA-0442",
+      "impedance_ohms": 50.0
+    },
+    "max_test_power_watts": 10.0,
+    "frequency_range_hz": [
+      14000000,
+      14350000
+    ],
+    "interlock_engaged": true
+  },
+  "operator_attestation": {
+    "dummy_load_physically_connected": true,
+    "rf_perimeter_secured": true,
+    "ptt_consent_granted": true,
+    "attestation_timestamp": "2026-10-17T20:56:06Z"
+  },
+  "instrument_verification": {
+    "instrument_id": "BIRD-43-LAB1",
+    "instrument_model": "Bird Model 43 Thruline",
+    "measured_swr": 1.05,
+    "measured_power_watts": 9.8,
+    "calibration_valid_until": "2027-12-31"
+  }
+}

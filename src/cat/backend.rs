@@ -134,6 +134,25 @@ impl std::str::FromStr for CatBackendKind {
     }
 }
 
+impl serde::Serialize for CatBackendKind {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for CatBackendKind {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Ok(Self::from_str(&s))
+    }
+}
+
 impl CatBackendKind {
     /// Mapuje napis konfiguracyjny (`AppConfig.cat_backend`) na typ backendu.
     /// Nieznane wartości traktowane są jako Hamlib (bezpieczny domyślny backend).

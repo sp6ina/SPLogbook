@@ -81,7 +81,7 @@ From deep ionospheric modeling (VOACAP-lite HF propagation), automated antenna r
 | **Ham Clubs Directory** | Real-time recognition and color-coded badge display for SP-OTC, SPCWC, SKCC, CWOPS, FOC, and HSC with member number recognition. |
 | **QSL Vector PDF** | Full A4 vector PDF label sheet exporter for Avery 3x8, 3x7, 2x8, 2x7 formats, plus standalone QSL card visual designer. |
 | **Station Profiles** | Multi-profile workstation management (Home QTH, Field /P, SOTA/POTA, Contest) with instant 1-click preset switching. |
-| **Transceiver CAT & Sharing** | Unified **CAT abstraction layer** (`CatBackend` trait + `CatBackendKind`) over multiple rig backends: Hamlib `rigctld`, **Kenwood / Elecraft / Yaesu (direct serial CAT)**, **FLRig (XML-RPC)**, **TCI (SDR)**, **Icom CI-V (serial)**, and **SO2R**; VFO A/B, split, RIT/XIT, mode, PTT, power, WinKeyer. Selectable **Bundled (Hamlib 4.7.2)** or **System-installed** source, plus integrated **Hamlib CAT TCP Proxy Server** (port 4534) for multi-app rig sharing. |
+| **Transceiver CAT & Sharing** | Asynchronous **NATIVE-CAT** subsystem (`RigHub` multi-radio core, `TxArbiter` single-TX interlock, `CatRuntime`) supporting 8 dedicated backends: **Hamlib `rigctld`**, **Icom CI-V**, **Kenwood**, **Yaesu**, **Elecraft**, **FlexRadio (SmartSDR)**, **FLRig (XML-RPC)**, and **TCI (WebSocket)**; VFO A/B, split, RIT/XIT, mode, PTT, power, WinKeyer. Safe read-only probe, laboratory HIL harness with mandatory dummy load, integrated **Hamlib CAT TCP Proxy Server** (port 4534) for multi-app rig sharing. |
 | **Digital Modes** | WSJT-X / JTDX bi-directional UDP bridge (port 2237), JS8Call TCP JSON API integration, FLDigi XML-RPC bridge. |
 | **Satellites** | SGP4/SDP4 Keplerian orbital propagation from TLE, real-time Doppler shift frequency correction via CAT, antenna elevation/azimuth steering. |
 | **SDR Waterfall & Spectrum** | Real-time FFT spectrum/waterfall panel capturing the radio's audio output (or any audio input) via `cpal`; selectable FFT sizes (512–4096), gain/floor/color-scale controls, input-device selection, and full docking support (dockable tile or floating multi-monitor window). |
@@ -364,15 +364,17 @@ SPLogbook embeds the **Rhai** scripting language as a safe extension mechanism, 
 
 ---
 
-### 19. CAT Abstraction Layer (Multi-Backend)
-A unified `CatBackend` trait and `CatBackendKind` enum (Hamlib, Kenwood/Yaesu serial, FLRig, TCI, Icom CI-V, SO2R) abstract away the hardware protocol so the rest of the application talks to **one `RigState`**, regardless of radio:
-- **Hamlib `rigctld`** — the default TCP backend.
-- **Kenwood / Elecraft / Yaesu (`src/cat/kenwood_yaesu.rs`)** — direct native serial ASCII CAT interface (`FA`, `FB`, `MD`, `TX`, `RX`, `IF`) bypassing external daemon requirements.
+### 19. NATIVE-CAT Rig Control Architecture (Multi-Backend & Multi-Radio Core)
+A modern, asynchronous rig control subsystem powered by the `RigHub` multi-radio core (`Radio1` / `Radio2`), the `TxArbiter` single-TX interlock, and the `CatRuntime` non-blocking lifecycle manager. It abstracts hardware protocols into unified `RigState` streaming while supporting 8 dedicated backends:
+- **Hamlib `rigctld`** — persistent TCP network session (default port 4532) and supervisor for background execution.
+- **Icom CI-V** — direct native binary CI-V protocol with auto-address discovery, collision backoff, and serial COM / TCP transport.
+- **Kenwood** — direct native asynchronous ASCII serial CAT (`FA`, `FB`, `MD`, `TX`, `RX`, `IF`) with streaming buffered parser.
+- **Yaesu** — multi-generational protocol support: CAT-V (5-byte binary for FT-817/857/897), ASCII (FT-dx10, FT-991A, FT-710), CAT-III, CAT-IV, and CAT-IX.
+- **Elecraft** — native support for K2, K3, K3S, KX2, KX3, and K4 transceivers (serial COM and direct K4 TCP network transport).
+- **FlexRadio** — native SmartSDR TCP API (v2.0–3.x) with slice/meter subscriptions and automatic UDP discovery (port 4992).
 - **FLRig (XML-RPC)** — cross-platform rig control via FLDigi's companion server.
-- **TCI** — Transceiver Control Interface for SDR platforms (SunSDR, ExpertSDR, Thetis).
-- **Icom CI-V** — direct serial control of Icom transceivers.
-- **SO2R** — single-operator two-radio logic with TX lockout.
-- A `CatController` dispatcher selects the active implementation at runtime; unimplemented operations return descriptive errors so new backends can be added incrementally.
+- **TCI (WebSocket)** — high-speed Transceiver Control Interface for SDR platforms (SunSDR2, Thetis, ExpertSDR3).
+- **RF Safety & HIL Harness** — `TxArbiter` enforcing single-TX lockout and zero retry on `SetPtt(true)`, safe read-only probe (`ProbeState`), and laboratory Hardware-in-the-Loop harness (`src/cat/hil/`) requiring mandatory 50 Ω dummy load termination.
 
 ---
 
@@ -601,18 +603,42 @@ SPLogbook/
     ├── api/                 # Local REST API server (Axum, port 8080)
     │   ├── mod.rs
     │   └── server.rs
-    ├── cat/                 # Hardware control & rig supervision
-    │   ├── backend.rs       # CAT abstraction layer (CatBackend trait + CatBackendKind)
-    │   ├── flrig.rs         # FLRig XML-RPC client
-    │   ├── hamlib.rs        # Asynchronous TCP client for rigctld
-    │   ├── icom_ci_v.rs     # Icom CI-V serial protocol client
-    │   ├── kenwood_yaesu.rs # Direct serial CAT protocol for Kenwood / Elecraft / Yaesu
-    │   ├── rig_models.rs    # Database of transceiver models
+    ├── cat/                 # Hardware control, multi-radio core & HIL harness
+    │   ├── mod.rs           # Module exports & re-exports
+    │   ├── backend.rs       # CatBackendKind (8 backends), RigBackend trait, AnyBackend
+    │   ├── config.rs        # CatStationConfig (v0->v1 migration & rollback)
+    │   ├── factory.rs       # RigBackendFactory: profile and transport instantiation
+    │   ├── flrig.rs         # FLRig XML-RPC backend
+    │   ├── hamlib.rs        # Persistent TCP client for rigctld
+    │   ├── hil/             # Hardware-in-the-Loop test harness & RF safety validator
+    │   │   ├── error.rs     # HilError typed error domain
+    │   │   ├── evidence.rs  # MachineVerified / OperatorAttested / InstrumentVerified
+    │   │   ├── manifest.rs  # HilTestBenchManifest, matrix entry, RF safety specs
+    │   │   ├── session.rs   # HilHardwareSession, HilPttConsentToken
+    │   │   └── validator.rs # HilReadinessValidator (RF safety & config checks)
+    │   ├── hub.rs           # RigHub: multi-radio routing (Radio1/Radio2), JoinHandles
+    │   ├── native/          # Direct asynchronous protocol implementations
+    │   │   ├── elecraft/    # Elecraft K2/K3/KX2/KX3/K4 direct protocol & K4 TCP
+    │   │   ├── flexradio/   # FlexRadio SmartSDR TCP API v2.0-v3.x & UDP discovery
+    │   │   ├── icom/        # Icom CI-V serial & TCP protocol with auto-addressing
+    │   │   ├── kenwood/     # Kenwood serial ASCII CAT streaming protocol
+    │   │   ├── yaesu/       # Yaesu multi-generation CAT (CAT-V/ASCII/III/IV/IX)
+    │   │   ├── profile.rs   # Native radio profile definitions
+    │   │   ├── registry.rs  # ProfileRegistry & model capability lookup
+    │   │   └── transport.rs # Serial and TCP async transport wrappers
+    │   ├── probe.rs         # Safe read-only probe (zero mutations, zero TX)
+    │   ├── rig.rs           # RigState, RigCommand, RigCapabilities, RigError, RigStatus
+    │   ├── rig_models.rs    # Database of transceiver models & legacy tables
     │   ├── rotor.rs         # Hamlib rotctld client (TCP port 4533)
-    │   ├── server.rs        # Hamlib TCP proxy server (CAT sharing for WSJT-X/FLDigi)
-    │   ├── so2r.rs          # Single-operator two-radio (SO2R) logic
+    │   ├── routing.rs       # RigId, RigRoute multi-radio routing primitives
+    │   ├── runtime.rs       # CatRuntime: lifecycle management & graceful shutdown
+    │   ├── server.rs        # Hamlib TCP proxy server (CAT sharing on port 4534)
+    │   ├── service.rs       # RigService actor task
+    │   ├── so2r.rs          # SO2R coordination types
     │   ├── supervisor.rs    # Non-blocking rigctld subprocess supervisor
-    │   ├── tci.rs           # Expert Electronics TCI protocol client
+    │   ├── tci.rs           # Expert Electronics TCI WebSocket protocol client
+    │   ├── tcp.rs           # Shared TCP transport for rigctld/rotctld
+    │   ├── tx_arbiter.rs    # TxArbiter: single-TX interlock, zero retry on SetPtt(true)
     │   └── winkeyer.rs      # K1EL WinKeyer serial keyer protocol
     ├── cloud/               # Online services & cloud synchronization
     │   ├── cloudlog.rs      # Cloudlog REST API sync

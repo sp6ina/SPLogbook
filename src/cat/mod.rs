@@ -12,6 +12,7 @@ pub use native::elecraft::codec as elecraft;
 pub use native::icom::codec as icom_ci_v;
 pub use native::kenwood::codec as kenwood;
 pub use native::yaesu::codec as yaesu;
+pub mod hil;
 pub mod probe;
 pub mod rig;
 pub mod rig_models;
@@ -34,6 +35,13 @@ pub use config::{
     RigConfig, RigTargetConfig, TciConfig, YaesuConfig, migrate_legacy_cat_config,
 };
 pub use factory::{FactoryError, RigBackendFactory};
+pub use hil::{
+    HilDummyLoadSpec, HilError, HilExecutionStage, HilHardwareSession, HilInstrumentMeasurement,
+    HilMatrixEntry, HilOperatorAttestation, HilProbeResult, HilPttConsentToken,
+    HilPttExecutionResult, HilReadinessCheck, HilReadinessEvidenceKind, HilReadinessReport,
+    HilReadinessStatus, HilReadinessValidator, HilRfSafetyConfig, HilRfTermination,
+    HilTestBenchManifest, HilTransportConfig,
+};
 pub use hub::{PendingCommandGuard, RigHub, RigHubError, RigHubSnapshot};
 pub use probe::RigProbeRunner;
 pub use routing::{
