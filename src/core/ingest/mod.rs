@@ -96,6 +96,11 @@ impl QsoIngestor {
         }
     }
 
+    /// Zwraca referencję do współdzielonego uchwytu bazy danych.
+    pub fn db(&self) -> &Arc<Mutex<LogDatabase>> {
+        &self.db
+    }
+
     /// Przetwarza i zapisuje pojedyncze QSO zgodnie z polityką dla wskazanego źródła (`origin`).
     ///
     /// Kolejność kroków:

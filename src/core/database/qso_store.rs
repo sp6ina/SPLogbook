@@ -126,6 +126,16 @@ impl LogDatabase {
         collect_qsos(&mut stmt, params![journal_id, limit as i64])
     }
 
+    /// Pobiera wszystkie łączności dla wybranego profilu/dziennika
+    pub fn get_all_qsos_for_journal(&self, journal_id: &str) -> Result<Vec<QsoRecord>> {
+        let sql = format!(
+            "SELECT {} FROM qso_records WHERE journal_id = ?1 ORDER BY {ORDER_CHRONO_ASC}",
+            QSO_SQL.select_columns
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        collect_qsos(&mut stmt, params![journal_id])
+    }
+
     /// Chronological position of every QSO within its journal, independent of
     /// the logbook's pagination, search and display sort.
     pub fn qso_numbers_for_journal(&self, journal_id: &str) -> Result<HashMap<i64, usize>> {

@@ -21,6 +21,10 @@ pub struct SessionSender {
 }
 
 impl SessionSender {
+    pub fn from_channel(tx: mpsc::Sender<Message>) -> Self {
+        Self { tx }
+    }
+
     pub async fn send(&self, msg: Message) -> Result<(), SyncError> {
         self.tx
             .send(msg)
@@ -131,15 +135,13 @@ async fn run_writer_loop(
     while let Some(msg) = rx.recv().await {
         let is_bye = matches!(msg, Message::Bye);
 
-        let plaintext = match msg.to_json() {
-            Ok(bytes) => bytes,
-            Err(_) => break,
+        let Ok(plaintext) = msg.to_json() else {
+            break;
         };
 
         let aad = build_aad(&session_id, send_direction, counter);
-        let encrypted = match encrypt_payload(&key, &aad, &plaintext) {
-            Ok(bytes) => bytes,
-            Err(_) => break,
+        let Ok(encrypted) = encrypt_payload(&key, &aad, &plaintext) else {
+            break;
         };
 
         counter = counter.wrapping_add(1);

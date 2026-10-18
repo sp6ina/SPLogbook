@@ -3,6 +3,7 @@
 
 //! Zunifikowany podsystem synchronizacji QSO Host/Peer (SYNC-1..SYNC-7).
 
+pub mod catchup;
 pub mod crypto;
 pub mod error;
 pub mod frame;
@@ -12,7 +13,12 @@ pub mod peer;
 pub mod protocol;
 pub mod service;
 pub mod session;
+pub mod store;
 
+pub use catchup::{
+    CatchUpHandler, MAX_CHUNK_BYTES, MAX_RECORD_BYTES, chunk_inventory, chunk_records,
+    chunk_requests,
+};
 pub use crypto::*;
 pub use error::SyncError;
 pub use frame::{MAX_FRAME_BYTES, decode_length, encode_length, read_frame, write_frame};
@@ -22,14 +28,30 @@ pub use peer::{INITIAL_BACKOFF, MAX_BACKOFF, ReconnectBackoff, SyncPeer};
 pub use protocol::{ClientHello, MAGIC, Message, PROTOCOL_VERSION, Reject, ServerHello};
 pub use service::{SyncConfig, SyncEvent, SyncRole, SyncState, SyncStatus};
 pub use session::{QUEUE_CAPACITY, SessionSender, SyncSession};
+pub use store::{MemorySyncStore, SyncStore};
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::qso::QsoRecord;
+    use crate::core::qso::{QsoIdentity, QsoRecord};
+    use std::collections::HashSet;
     use std::io::Cursor;
+    use std::sync::Arc;
     use std::time::Duration;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    fn test_ingestor() -> crate::core::ingest::QsoIngestor {
+        let db = Arc::new(std::sync::Mutex::new(
+            crate::core::database::LogDatabase::open_in_memory().unwrap(),
+        ));
+        let awards = Arc::new(std::sync::Mutex::new(
+            crate::core::awards::AwardsEngine::new(),
+        ));
+        let scp = Arc::new(std::sync::Mutex::new(crate::core::scp::ScpEngine::new()));
+        let prefixes = Arc::new(crate::core::prefix::PrefixMatcher::empty());
+        let events = crate::core::events::EventBus::new(16);
+        crate::core::ingest::QsoIngestor::new(db, awards, scp, prefixes, events)
+    }
 
     fn sample_qso(call: &str) -> QsoRecord {
         let mut q = QsoRecord::new(call, "20m", "CW");
@@ -1182,5 +1204,506 @@ mod tests {
 
         peer1.stop();
         peer2.stop();
+    }
+
+    #[test]
+    fn catchup_diff_is_symmetric() {
+        let store_a = MemorySyncStore::new();
+        let store_b = MemorySyncStore::new();
+
+        let q1 = sample_qso("SP1AAA");
+        let q2 = sample_qso("SP2BBB");
+        let q3 = sample_qso("SP3CCC");
+
+        store_a.insert_test_qso("DEFAULT", q1.clone());
+        store_a.insert_test_qso("DEFAULT", q2.clone());
+
+        store_b.insert_test_qso("DEFAULT", q2.clone());
+        store_b.insert_test_qso("DEFAULT", q3.clone());
+
+        let inv_a = store_a.inventory("DEFAULT").unwrap();
+        let inv_b = store_b.inventory("DEFAULT").unwrap();
+
+        let wanted_by_a: HashSet<_> = inv_b.difference(&inv_a).cloned().collect();
+        let wanted_by_b: HashSet<_> = inv_a.difference(&inv_b).cloned().collect();
+
+        assert_eq!(wanted_by_a.len(), 1);
+        assert!(wanted_by_a.contains(&q3.identity()));
+
+        assert_eq!(wanted_by_b.len(), 1);
+        assert!(wanted_by_b.contains(&q1.identity()));
+    }
+
+    #[test]
+    #[allow(clippy::assert_is_empty)]
+    fn catchup_chunks_by_serialized_size() {
+        let short_ids: Vec<QsoIdentity> = (0..500)
+            .map(|i| QsoIdentity::from_fields(&format!("S{i}"), "20m", "CW", "20261018", "120000"))
+            .collect();
+
+        let long_ids: Vec<QsoIdentity> = (0..500)
+            .map(|i| {
+                let long_call = format!("SPECIAL_EVENT_STATION_VERY_LONG_CALLSIGN_{i}");
+                QsoIdentity::from_fields(&long_call, "20m", "CW", "20261018", "120000")
+            })
+            .collect();
+
+        let short_bytes: usize = short_ids
+            .iter()
+            .map(|id| serde_json::to_vec(id).unwrap().len())
+            .sum();
+        let long_bytes: usize = long_ids
+            .iter()
+            .map(|id| serde_json::to_vec(id).unwrap().len())
+            .sum();
+
+        assert!(long_bytes > short_bytes);
+
+        let c1 = chunk_inventory("DEFAULT", &short_ids);
+        let c2 = chunk_inventory("DEFAULT", &long_ids);
+        assert!(!c1.is_empty());
+        assert!(!c2.is_empty());
+    }
+
+    #[test]
+    fn each_inventory_chunk_is_at_most_one_mib() {
+        let identities: Vec<QsoIdentity> = (0..15_000)
+            .map(|i| {
+                let call = format!("VERY_LONG_CALLSIGN_FOR_TEST_{i}");
+                QsoIdentity::from_fields(&call, "20m", "CW", "20261018", "120000")
+            })
+            .collect();
+
+        let chunks = chunk_inventory("DEFAULT", &identities);
+        assert!(
+            chunks.len() > 1,
+            "Must produce multiple chunks for 15k items"
+        );
+
+        for (idx, chunk) in chunks.iter().enumerate() {
+            let bytes = serde_json::to_vec(chunk).unwrap();
+            assert!(
+                bytes.len() <= MAX_CHUNK_BYTES,
+                "Chunk {idx} size ({} B) exceeds 1 MiB limit",
+                bytes.len()
+            );
+            if idx == chunks.len() - 1 {
+                if let Message::Inventory { last, .. } = chunk {
+                    assert!(*last, "Terminal chunk must have last == true");
+                }
+            } else if let Message::Inventory { last, .. } = chunk {
+                assert!(!*last, "Non-terminal chunk must have last == false");
+            }
+        }
+    }
+
+    #[test]
+    fn each_request_chunk_is_at_most_one_mib() {
+        let identities: Vec<QsoIdentity> = (0..15_000)
+            .map(|i| {
+                let call = format!("REQUESTED_CALLSIGN_{i}");
+                QsoIdentity::from_fields(&call, "40m", "SSB", "20261018", "130000")
+            })
+            .collect();
+
+        let chunks = chunk_requests(&identities);
+        assert!(
+            chunks.len() > 1,
+            "Must produce multiple chunks for 15k items"
+        );
+
+        for (idx, chunk) in chunks.iter().enumerate() {
+            let bytes = serde_json::to_vec(chunk).unwrap();
+            assert!(
+                bytes.len() <= MAX_CHUNK_BYTES,
+                "Request chunk {idx} size ({} B) exceeds 1 MiB",
+                bytes.len()
+            );
+            if idx == chunks.len() - 1 {
+                if let Message::Request { last, .. } = chunk {
+                    assert!(*last);
+                }
+            } else if let Message::Request { last, .. } = chunk {
+                assert!(!*last);
+            }
+        }
+    }
+
+    #[test]
+    fn each_records_chunk_is_at_most_one_mib() {
+        let records: Vec<QsoRecord> = (0..3_000)
+            .map(|i| {
+                let mut q = sample_qso(&format!("RECORDS_TEST_{i}"));
+                q.comment = Some("A".repeat(500));
+                q
+            })
+            .collect();
+
+        let chunks = chunk_records(&records, None);
+        assert!(chunks.len() > 1, "Must produce multiple chunks");
+
+        for (idx, chunk) in chunks.iter().enumerate() {
+            let bytes = serde_json::to_vec(chunk).unwrap();
+            assert!(
+                bytes.len() <= MAX_CHUNK_BYTES,
+                "Records chunk {idx} size ({} B) exceeds 1 MiB",
+                bytes.len()
+            );
+            if idx == chunks.len() - 1 {
+                if let Message::Records { last, .. } = chunk {
+                    assert!(*last);
+                }
+            } else if let Message::Records { last, .. } = chunk {
+                assert!(!*last);
+            }
+        }
+    }
+
+    #[test]
+    fn oversized_record_is_skipped_not_fatal() {
+        let (tx, rx) = std::sync::mpsc::channel();
+
+        let mut oversized = sample_qso("OVERSIZED_CALL");
+        oversized.comment = Some("X".repeat(7 * 1024 * 1024));
+
+        let normal = sample_qso("NORMAL_CALL");
+
+        let chunks = chunk_records(&[oversized, normal], Some(&tx));
+
+        let mut total_records = 0;
+        let mut has_normal = false;
+        let mut has_oversized = false;
+        for c in chunks {
+            if let Message::Records { qsos, .. } = c {
+                total_records += qsos.len();
+                for q in qsos {
+                    if q.callsign == "NORMAL_CALL" {
+                        has_normal = true;
+                    }
+                    if q.callsign == "OVERSIZED_CALL" {
+                        has_oversized = true;
+                    }
+                }
+            }
+        }
+
+        assert_eq!(total_records, 1);
+        assert!(has_normal);
+        assert!(!has_oversized);
+
+        let mut error_reported = false;
+        while let Ok(evt) = rx.try_recv() {
+            if let SyncEvent::Error(SyncError::RecordTooLarge { size, limit }) = evt {
+                assert!(size > 6 * 1024 * 1024);
+                assert_eq!(limit, 6 * 1024 * 1024);
+                error_reported = true;
+            }
+        }
+        assert!(error_reported, "RecordTooLarge error must be reported");
+    }
+
+    #[tokio::test]
+    async fn catchup_exchanges_missing_records_both_ways() {
+        let store_a = Arc::new(MemorySyncStore::new());
+        let store_b = Arc::new(MemorySyncStore::new());
+
+        let q1 = sample_qso("CALL_A_ONLY");
+        let q2 = sample_qso("CALL_SHARED");
+        let q3 = sample_qso("CALL_B_ONLY");
+
+        store_a.insert_test_qso("DEFAULT", q1.clone());
+        store_a.insert_test_qso("DEFAULT", q2.clone());
+
+        store_b.insert_test_qso("DEFAULT", q2.clone());
+        store_b.insert_test_qso("DEFAULT", q3.clone());
+
+        let (host_events_tx, _host_events_rx) = std::sync::mpsc::channel();
+        let mut host = SyncHost::bind_with_store(
+            "127.0.0.1:0".parse().unwrap(),
+            "HOST".to_string(),
+            "secret".to_string(),
+            Some("DEFAULT".to_string()),
+            Some(store_a.clone()),
+            host_events_tx,
+        )
+        .await
+        .unwrap();
+
+        let (peer_events_tx, _peer_events_rx) = std::sync::mpsc::channel();
+        let mut peer = SyncPeer::start_with_store(
+            host.local_addr(),
+            "PEER".to_string(),
+            "secret".to_string(),
+            Some("DEFAULT".to_string()),
+            Some(store_b.clone()),
+            peer_events_tx,
+        );
+
+        for _ in 0..100 {
+            if store_a.count("DEFAULT") == 3 && store_b.count("DEFAULT") == 3 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(30)).await;
+        }
+
+        assert_eq!(store_a.count("DEFAULT"), 3);
+        assert_eq!(store_b.count("DEFAULT"), 3);
+
+        let inv_a = store_a.inventory("DEFAULT").unwrap();
+        let inv_b = store_b.inventory("DEFAULT").unwrap();
+        assert_eq!(inv_a, inv_b);
+
+        peer.stop();
+        host.stop();
+    }
+
+    #[tokio::test]
+    async fn catchup_second_run_inserts_nothing() {
+        let store_a = Arc::new(MemorySyncStore::new());
+        let store_b = Arc::new(MemorySyncStore::new());
+
+        store_a.insert_test_qso("DEFAULT", sample_qso("EXCHANGE_1"));
+        store_b.insert_test_qso("DEFAULT", sample_qso("EXCHANGE_2"));
+
+        let (host_events_tx, _) = std::sync::mpsc::channel();
+        let mut host = SyncHost::bind_with_store(
+            "127.0.0.1:0".parse().unwrap(),
+            "HOST".to_string(),
+            "secret".to_string(),
+            Some("DEFAULT".to_string()),
+            Some(store_a.clone()),
+            host_events_tx,
+        )
+        .await
+        .unwrap();
+
+        let (peer_events_tx, _) = std::sync::mpsc::channel();
+        let mut peer = SyncPeer::start_with_store(
+            host.local_addr(),
+            "PEER".to_string(),
+            "secret".to_string(),
+            Some("DEFAULT".to_string()),
+            Some(store_b.clone()),
+            peer_events_tx,
+        );
+
+        for _ in 0..100 {
+            if store_a.count("DEFAULT") == 2 && store_b.count("DEFAULT") == 2 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(30)).await;
+        }
+        assert_eq!(store_a.count("DEFAULT"), 2);
+        assert_eq!(store_b.count("DEFAULT"), 2);
+
+        peer.stop();
+        host.stop();
+
+        // Second run: reconnect with identical stores
+        let (host_events_tx2, host_events_rx2) = std::sync::mpsc::channel();
+        let mut host2 = SyncHost::bind_with_store(
+            "127.0.0.1:0".parse().unwrap(),
+            "HOST".to_string(),
+            "secret".to_string(),
+            Some("DEFAULT".to_string()),
+            Some(store_a.clone()),
+            host_events_tx2,
+        )
+        .await
+        .unwrap();
+
+        let (peer_events_tx2, peer_events_rx2) = std::sync::mpsc::channel();
+        let mut peer2 = SyncPeer::start_with_store(
+            host2.local_addr(),
+            "PEER".to_string(),
+            "secret".to_string(),
+            Some("DEFAULT".to_string()),
+            Some(store_b.clone()),
+            peer_events_tx2,
+        );
+
+        tokio::time::sleep(Duration::from_millis(150)).await;
+
+        assert_eq!(store_a.count("DEFAULT"), 2);
+        assert_eq!(store_b.count("DEFAULT"), 2);
+
+        while let Ok(evt) = host_events_rx2.try_recv() {
+            if let SyncEvent::CatchUpApplied { inserted } = evt {
+                assert_eq!(inserted, 0);
+            }
+        }
+        while let Ok(evt) = peer_events_rx2.try_recv() {
+            if let SyncEvent::CatchUpApplied { inserted } = evt {
+                assert_eq!(inserted, 0);
+            }
+        }
+
+        peer2.stop();
+        host2.stop();
+    }
+
+    #[test]
+    fn catchup_does_not_overwrite_existing_qso() {
+        let store = MemorySyncStore::new();
+
+        let mut q_orig = sample_qso("OVERWRITE_CHECK");
+        q_orig.comment = Some("ORIGINAL_COMMENT".to_string());
+        store.insert_test_qso("DEFAULT", q_orig);
+
+        let mut q_new = sample_qso("OVERWRITE_CHECK");
+        q_new.comment = Some("MODIFIED_COMMENT".to_string());
+
+        let inserted = store.import("DEFAULT", vec![q_new]).unwrap();
+        assert_eq!(inserted, 0, "Duplicate identity must not be inserted");
+
+        let current = store.get_all("DEFAULT");
+        assert_eq!(current.len(), 1);
+        assert_eq!(
+            current[0].comment.as_deref(),
+            Some("ORIGINAL_COMMENT"),
+            "Existing QSO fields must not be overwritten"
+        );
+    }
+
+    #[test]
+    fn catchup_does_not_delete_qso() {
+        let store = MemorySyncStore::new();
+
+        let q1 = sample_qso("CALL_ONE");
+        let q2 = sample_qso("CALL_TWO");
+        store.insert_test_qso("DEFAULT", q1.clone());
+        store.insert_test_qso("DEFAULT", q2.clone());
+
+        let q3 = sample_qso("CALL_THREE");
+        let inserted = store.import("DEFAULT", vec![q3.clone()]).unwrap();
+        assert_eq!(inserted, 1);
+
+        let inv = store.inventory("DEFAULT").unwrap();
+        assert_eq!(inv.len(), 3);
+        assert!(inv.contains(&q1.identity()));
+        assert!(inv.contains(&q2.identity()));
+        assert!(inv.contains(&q3.identity()));
+    }
+
+    #[tokio::test]
+    async fn catchup_only_uses_active_journal() {
+        let store = Arc::new(MemorySyncStore::new());
+        let (events_tx, _) = std::sync::mpsc::channel();
+        let mut handler =
+            CatchUpHandler::new("ACTIVE_JOURNAL".to_string(), store.clone(), events_tx);
+
+        let (sender_tx, mut sender_rx) = tokio::sync::mpsc::channel(10);
+        let sender = SessionSender::from_channel(sender_tx);
+
+        let foreign_id =
+            QsoIdentity::from_fields("FOREIGN_CALL", "20m", "CW", "20261018", "120000");
+        handler
+            .handle_inventory("OTHER_JOURNAL", vec![foreign_id], true, &sender)
+            .unwrap();
+
+        assert!(sender_rx.try_recv().is_err(), "Must ignore other journals");
+        assert!(!handler.is_peer_inventory_complete());
+    }
+
+    #[test]
+    fn store_for_ingestor_roundtrip() {
+        let ingestor = test_ingestor();
+
+        let q1 = sample_qso("SP5TEST");
+        let q2 = sample_qso("SP6TEST");
+
+        let inserted = ingestor
+            .import("DEFAULT", vec![q1.clone(), q2.clone()])
+            .unwrap();
+        assert_eq!(inserted, 2);
+
+        let inv = ingestor.inventory("DEFAULT").unwrap();
+        assert!(inv.contains(&q1.identity()));
+        assert!(inv.contains(&q2.identity()));
+
+        let mut wanted = HashSet::new();
+        wanted.insert(q1.identity());
+        let records = ingestor.records_for("DEFAULT", &wanted).unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].callsign, "SP5TEST");
+    }
+
+    #[test]
+    fn store_import_deduplicates_by_qso_identity() {
+        let ingestor = test_ingestor();
+
+        let q = sample_qso("SP7DUP");
+
+        let inserted_1 = ingestor.import("DEFAULT", vec![q.clone()]).unwrap();
+        assert_eq!(inserted_1, 1);
+
+        let inserted_2 = ingestor.import("DEFAULT", vec![q.clone()]).unwrap();
+        assert_eq!(inserted_2, 0, "Duplicate import must insert 0 records");
+    }
+
+    #[tokio::test]
+    async fn catchup_handles_empty_inventory() {
+        let store_a = Arc::new(MemorySyncStore::new());
+        let store_b = Arc::new(MemorySyncStore::new());
+
+        store_b.insert_test_qso("DEFAULT", sample_qso("EMPTY_TEST_1"));
+        store_b.insert_test_qso("DEFAULT", sample_qso("EMPTY_TEST_2"));
+
+        let (host_tx, _) = std::sync::mpsc::channel();
+        let mut host = SyncHost::bind_with_store(
+            "127.0.0.1:0".parse().unwrap(),
+            "HOST".to_string(),
+            "secret".to_string(),
+            Some("DEFAULT".to_string()),
+            Some(store_a.clone()),
+            host_tx,
+        )
+        .await
+        .unwrap();
+
+        let (peer_tx, _) = std::sync::mpsc::channel();
+        let mut peer = SyncPeer::start_with_store(
+            host.local_addr(),
+            "PEER".to_string(),
+            "secret".to_string(),
+            Some("DEFAULT".to_string()),
+            Some(store_b.clone()),
+            peer_tx,
+        );
+
+        for _ in 0..100 {
+            if store_a.count("DEFAULT") == 2 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(30)).await;
+        }
+
+        assert_eq!(store_a.count("DEFAULT"), 2);
+        assert_eq!(store_b.count("DEFAULT"), 2);
+
+        peer.stop();
+        host.stop();
+    }
+
+    #[test]
+    fn incomplete_inventory_is_not_applied_as_complete() {
+        let store = Arc::new(MemorySyncStore::new());
+        let (events_tx, _) = std::sync::mpsc::channel();
+        let mut handler = CatchUpHandler::new("DEFAULT".to_string(), store, events_tx);
+
+        let (sender_tx, mut sender_rx) = tokio::sync::mpsc::channel(10);
+        let sender = SessionSender::from_channel(sender_tx);
+
+        let id = QsoIdentity::from_fields("CALL_PARTIAL", "20m", "CW", "20261018", "120000");
+
+        handler
+            .handle_inventory("DEFAULT", vec![id], false, &sender)
+            .unwrap();
+
+        assert!(!handler.is_peer_inventory_complete());
+        assert!(
+            sender_rx.try_recv().is_err(),
+            "Must not send Request while inventory is incomplete"
+        );
     }
 }

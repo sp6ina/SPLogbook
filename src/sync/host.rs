@@ -9,6 +9,7 @@ use super::handshake::host_handshake;
 use super::protocol::Message;
 use super::service::{SyncEvent, SyncState, SyncStatus};
 use super::session::{SessionSender, SyncSession};
+use super::store::SyncStore;
 use crate::core::qso::QsoRecord;
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -48,6 +49,18 @@ impl SyncHost {
         secret: String,
         events: std::sync::mpsc::Sender<SyncEvent>,
     ) -> Result<Self, SyncError> {
+        Self::bind_with_store(addr, station, secret, None, None, events).await
+    }
+
+    /// Rozpoczyna nasłuchiwanie z opcjonalnym magazynem i aktywnym dziennikiem do procedury Catch-Up.
+    pub async fn bind_with_store(
+        addr: SocketAddr,
+        station: String,
+        secret: String,
+        journal: Option<String>,
+        store: Option<Arc<dyn SyncStore>>,
+        events: std::sync::mpsc::Sender<SyncEvent>,
+    ) -> Result<Self, SyncError> {
         let listener = TcpListener::bind(addr)
             .await
             .map_err(|e| SyncError::Io(e.to_string()))?;
@@ -67,6 +80,8 @@ impl SyncHost {
             handshake_sem.clone(),
             station,
             secret,
+            journal,
+            store,
             events.clone(),
             stop_rx,
             stop_tx.clone(),
@@ -115,7 +130,12 @@ impl SyncHost {
     /// Retransmituje lokalne QSO Hosta do wszystkich połączonych peerów.
     /// Zwraca liczbę peerów, do których wysłano wiadomość.
     pub fn broadcast_qso(&self, qso: QsoRecord) -> usize {
-        relay_to_peers(&self.peers, &self.events, None, Message::Qso(Box::new(qso)))
+        relay_to_peers(
+            &self.peers,
+            &self.events,
+            None,
+            &Message::Qso(Box::new(qso)),
+        )
     }
 
     /// Zatrzymuje działanie Hosta, rozłącza wszystkich peerów i zamyka gniazdo.
@@ -152,6 +172,8 @@ async fn run_listener_loop(
     handshake_sem: Arc<Semaphore>,
     station: String,
     secret: String,
+    journal: Option<String>,
+    store: Option<Arc<dyn SyncStore>>,
     events: std::sync::mpsc::Sender<SyncEvent>,
     mut stop_rx: watch::Receiver<bool>,
     stop_tx: watch::Sender<bool>,
@@ -189,11 +211,12 @@ async fn run_listener_loop(
         let peer_stop_rx = stop_tx.subscribe();
         let station = station.clone();
         let secret = secret.clone();
+        let peer_journal = journal.clone();
+        let peer_store = store.clone();
 
         tokio::spawn(async move {
-            let permit = match sem.acquire_owned().await {
-                Ok(p) => p,
-                Err(_) => return,
+            let Ok(permit) = sem.acquire_owned().await else {
+                return;
             };
 
             let server_salt = random_salt();
@@ -227,6 +250,8 @@ async fn run_listener_loop(
                 peers.clone(),
                 events.clone(),
                 peer_stop_rx,
+                peer_journal,
+                peer_store,
             ));
 
             let abort_handle = session_handle.abort_handle();
@@ -274,7 +299,18 @@ async fn run_host_peer_session(
     peers: Arc<Mutex<HashMap<u64, PeerEntry>>>,
     events: std::sync::mpsc::Sender<SyncEvent>,
     mut stop_rx: watch::Receiver<bool>,
+    journal: Option<String>,
+    store: Option<Arc<dyn SyncStore>>,
 ) {
+    let mut catchup = match (journal, store) {
+        (Some(j), Some(s)) => {
+            let handler = super::catchup::CatchUpHandler::new(j, s, events.clone());
+            let _ = handler.send_inventory(&session.sender());
+            Some(handler)
+        }
+        _ => None,
+    };
+
     let mut ping_interval = tokio::time::interval(PING_INTERVAL);
     ping_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     ping_interval.tick().await;
@@ -289,7 +325,7 @@ async fn run_host_peer_session(
                     break;
                 }
             }
-            _ = &mut idle_sleep => {
+            () = &mut idle_sleep => {
                 let _ = events.send(SyncEvent::Error(SyncError::Timeout));
                 break;
             }
@@ -304,25 +340,35 @@ async fn run_host_peer_session(
                         idle_sleep.as_mut().reset(tokio::time::Instant::now() + IDLE_TIMEOUT);
                         let _ = session.sender().try_send(Message::Pong);
                     }
-                    Ok(Message::Pong) => {
+                    Ok(Message::Pong | Message::Hello { .. }) => {
                         idle_sleep.as_mut().reset(tokio::time::Instant::now() + IDLE_TIMEOUT);
                     }
                     Ok(Message::Qso(qso)) => {
                         idle_sleep.as_mut().reset(tokio::time::Instant::now() + IDLE_TIMEOUT);
                         let _ = events.send(SyncEvent::IncomingQso(qso.clone()));
                         // Echo-free relay: przekazanie do pozostałych peerów oprócz nadawcy!
-                        relay_to_peers(&peers, &events, Some(peer_id), Message::Qso(qso));
+                        relay_to_peers(&peers, &events, Some(peer_id), &Message::Qso(qso));
                     }
                     Ok(Message::Bye) => {
                         break;
                     }
-                    Ok(Message::Hello { .. }) => {
+                    Ok(Message::Inventory { journal, identities, last }) => {
                         idle_sleep.as_mut().reset(tokio::time::Instant::now() + IDLE_TIMEOUT);
+                        if let Some(ref mut c) = catchup {
+                            let _ = c.handle_inventory(&journal, identities, last, &session.sender());
+                        }
                     }
-                    Ok(Message::Inventory { .. })
-                    | Ok(Message::Request { .. })
-                    | Ok(Message::Records { .. }) => {
+                    Ok(Message::Request { identities, last }) => {
                         idle_sleep.as_mut().reset(tokio::time::Instant::now() + IDLE_TIMEOUT);
+                        if let Some(ref mut c) = catchup {
+                            let _ = c.handle_request(identities, last, &session.sender());
+                        }
+                    }
+                    Ok(Message::Records { qsos, .. }) => {
+                        idle_sleep.as_mut().reset(tokio::time::Instant::now() + IDLE_TIMEOUT);
+                        if let Some(ref mut c) = catchup {
+                            let _ = c.handle_records(qsos);
+                        }
                     }
                     Err(err) => {
                         let _ = events.send(SyncEvent::Error(err));
@@ -338,7 +384,7 @@ fn relay_to_peers(
     peers: &Arc<Mutex<HashMap<u64, PeerEntry>>>,
     events: &std::sync::mpsc::Sender<SyncEvent>,
     exclude_id: Option<u64>,
-    msg: Message,
+    msg: &Message,
 ) -> usize {
     let mut sent = 0;
     let mut slow_peers = Vec::new();

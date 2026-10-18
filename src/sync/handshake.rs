@@ -30,17 +30,16 @@ pub async fn host_handshake(
 ) -> Result<HandshakeResult, SyncError> {
     // 1. Odbiór ClientHello
     let client_hello_bytes = read_frame(&mut stream).await?;
-    let client_hello: ClientHello = match serde_json::from_slice(&client_hello_bytes) {
-        Ok(h) => h,
-        Err(_) => {
-            let reject = Reject {
-                expected: PROTOCOL_VERSION,
-            };
-            if let Ok(rej_bytes) = serde_json::to_vec(&reject) {
-                let _ = write_frame(&mut stream, &rej_bytes).await;
-            }
-            return Err(SyncError::InvalidMagic);
+    let client_hello: ClientHello = if let Ok(h) = serde_json::from_slice(&client_hello_bytes) {
+        h
+    } else {
+        let reject = Reject {
+            expected: PROTOCOL_VERSION,
+        };
+        if let Ok(rej_bytes) = serde_json::to_vec(&reject) {
+            let _ = write_frame(&mut stream, &rej_bytes).await;
         }
+        return Err(SyncError::InvalidMagic);
     };
 
     if client_hello.magic != MAGIC {
@@ -92,16 +91,15 @@ pub async fn host_handshake(
     );
 
     // 5. Oczekiwanie na pierwszą szyfrowaną wiadomość klienta: Message::Hello
-    match session.recv().await {
-        Ok(Message::Hello { station }) => Ok(HandshakeResult {
+    if let Ok(Message::Hello { station }) = session.recv().await {
+        Ok(HandshakeResult {
             session,
             remote_station: station,
-        }),
-        _ => {
-            // Złe hasło lub uszkodzony pakiet: odczekaj 1 sekundę i rozłącz bez odpowiedzi
-            tokio::time::sleep(Duration::from_secs(1)).await;
-            Err(SyncError::DecryptionFailed)
-        }
+        })
+    } else {
+        // Złe hasło lub uszkodzony pakiet: odczekaj 1 sekundę i rozłącz bez odpowiedzi
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        Err(SyncError::DecryptionFailed)
     }
 }
 
