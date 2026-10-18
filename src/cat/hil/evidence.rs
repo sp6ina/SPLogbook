@@ -148,6 +148,79 @@ pub struct HilReadinessCondition {
     pub details: String,
 }
 
+impl HilReadinessCondition {
+    /// Zwraca symbol powiązanej implementacji w kodzie produkcyjnym.
+    pub fn implementation_symbol(&self) -> &'static str {
+        match self.number {
+            1 => "splogbook::cat::hil::HilReadinessValidator::validate",
+            2 => "splogbook::cat::hil::run_isolated_hardware_dispatcher",
+            3 => "splogbook::cat::hil::HilTestBenchManifest::tested_commit",
+            4 => "splogbook::cat::hil::HilMatrixEntry::rig_id",
+            5 => "splogbook::cat::hil::HilMatrixEntry::firmware_version",
+            6 => "splogbook::cat::hil::HilTransportConfig",
+            7 => "splogbook::cat::backend::CatBackendKind",
+            8 => "splogbook::cat::hil::HilOperatorAttestation::antenna_disconnected",
+            9 => "splogbook::cat::hil::HilRfTermination::DummyLoad",
+            10 => "splogbook::cat::hil::HilRfSafetyConfig::frequency_range_hz",
+            11 => "splogbook::cat::hil::HilDummyLoadSpec::power_rating_watts",
+            12 => "splogbook::cat::hil::HilRfSafetyConfig::max_test_power_watts",
+            13 => "splogbook::cat::hil::HilOperatorAttestation::pa_disconnected_or_locked",
+            14 => "splogbook::cat::hil::HilOperatorAttestation::tuner_bypassed",
+            15 => "splogbook::cat::hil::HilRfSafetyConfig::interlock_engaged",
+            16 => "splogbook::cat::tx_arbiter::TxArbiter::new",
+            17 => "splogbook::cat::routing::ActiveTxTarget",
+            18 => "splogbook::cat::routing::RigRouter::dispatch",
+            19 => "splogbook::cat::hil::HilOperatorAttestation::physical_stop_available",
+            20 => "splogbook::cat::hil::HilOperatorAttestation::operator_acknowledged",
+            21 => "splogbook::cat::hil::HilHardwareSession::init_logging",
+            22 => "splogbook::cat::hil::HilRfSafetyConfig::max_test_duration_ms",
+            23 => "splogbook::cat::hil::HilOperatorAttestation::abort_procedure_documented",
+            24 => "splogbook::cat::hil::HilOperatorAttestation::ptt_consent_granted",
+            25 => "splogbook::cat::hil::HilHardwareSession::verify_remote_safety",
+            26 => "splogbook::cat::hil::HilHardwareSession::verify_data_plane_isolated",
+            27 => "splogbook::cat::backend::RigBackend::probe",
+            28 => "splogbook::cat::hil::HilHardwareSession::confirm_fresh_rx",
+            29 => "splogbook::cat::tx_arbiter::TxArbiter::state",
+            30 => "splogbook::cat::hil::HilOperatorAttestation::personnel_know_stop_procedure",
+            _ => "splogbook::cat::hil::HilReadinessValidator",
+        }
+    }
+
+    /// Zwraca nazwę powiązanego testu offline.
+    pub fn offline_test(&self) -> &'static str {
+        match self.number {
+            1 => "hil_canonical_matrix_has_exactly_30_entries",
+            2 => "hil_assessment_separates_implementation_from_runtime_evidence",
+            3 => "hil_manifest_records_commit",
+            4 => "hil_requires_explicit_rig_id",
+            5 => "hil_manifest_records_firmware",
+            6 => "hil_rejects_missing_transport",
+            7 => "hil_rejects_unknown_backend",
+            8 => "test_08_validator_antenna_termination_fails_ptt_readiness",
+            9 => "hil_requires_dummy_load_confirmation",
+            10 => "hil_frequency_must_fit_dummy_load_range",
+            11 => "hil_power_must_not_exceed_dummy_load_rating",
+            12 => "hil_requires_power_limit",
+            13 | 14 | 15 | 19 => "test_16_validator_stage_7b_full_ready_passes",
+            16 => "hil_canonical_16_requires_tx_arbiter_idle",
+            17 => "hil_canonical_17_requires_exact_active_tx_target",
+            18 => "hil_canonical_18_never_falls_back_to_first_rig",
+            20 => "test_11_validator_missing_operator_consent_blocks",
+            21 => "hil_canonical_21_requires_logging_before_hardware_access",
+            22 => "hil_rejects_zero_or_invalid_deadline",
+            23 => "hil_canonical_23_requires_documented_abort_procedure",
+            24 => "hil_consent_token_alone_cannot_authorize_tx",
+            25 => "hil_canonical_25_rejects_smartlink",
+            26 => "hil_canonical_26_rejects_data_plane",
+            27 => "hil_canonical_27_probe_is_read_only",
+            28 => "hil_canonical_28_requires_fresh_confirmed_rx",
+            29 => "hil_canonical_29_rejects_unknown_state",
+            30 => "hil_canonical_30_requires_personnel_attestation",
+            _ => "hil_all_canonical_requirements_have_individual_results",
+        }
+    }
+}
+
 fn default_coverage_complete() -> HilImplementationCoverage {
     HilImplementationCoverage::Complete
 }
@@ -158,6 +231,10 @@ fn default_status_passed() -> HilReadinessStatus {
 
 fn default_status_blocked() -> HilReadinessStatus {
     HilReadinessStatus::Blocked
+}
+
+fn default_evidence_kind_machine() -> HilReadinessEvidenceKind {
+    HilReadinessEvidenceKind::MachineVerified
 }
 
 /// Rozszerzone wymaganie weryfikacji laboratoryjnej HIL-X (HIL-X01 .. HIL-X15).
@@ -175,6 +252,12 @@ pub struct HilExtendedRequirement {
     pub offline_test_status: HilReadinessStatus,
     /// Status dowodowy w runtime.
     pub runtime_evidence_status: HilReadinessStatus,
+    /// Kategoria dowodu.
+    #[serde(default = "default_evidence_kind_machine")]
+    pub evidence_kind: HilReadinessEvidenceKind,
+    /// Pochodzenie dowodu.
+    #[serde(default)]
+    pub evidence_origin: HilEvidenceOrigin,
     /// Szczegóły diagnostyczne.
     pub details: String,
 }
@@ -274,8 +357,8 @@ impl HilReadinessReport {
                 implementation_coverage: x.implementation_coverage,
                 offline_test_status: x.offline_test_status,
                 runtime_evidence_status: x.runtime_evidence_status,
-                evidence_kind: HilReadinessEvidenceKind::MachineVerified,
-                evidence_origin: HilEvidenceOrigin::SyntheticOfflineFixture,
+                evidence_kind: x.evidence_kind,
+                evidence_origin: x.evidence_origin,
                 diagnostic: x.details.clone(),
             });
         }

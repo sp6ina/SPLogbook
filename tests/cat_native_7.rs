@@ -1629,6 +1629,628 @@ fn hil_dispatcher_rechecks_session_id() {
 }
 
 // =========================================================================
+// TESTY KANONICZNEJ MACIERZY 30 WARUNKÓW HIL-READY ORAZ MODELU DOWODOWEGO
+// =========================================================================
+
+#[test]
+fn hil_canonical_matrix_has_exactly_30_entries() {
+    let matrix = HilReadinessValidator::canonical_matrix();
+    assert_eq!(matrix.len(), 30);
+    let manifest = valid_test_manifest();
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    assert_eq!(report.conditions.len(), 30);
+}
+
+#[test]
+fn hil_canonical_matrix_contains_no_duplicate_numbers() {
+    let matrix = HilReadinessValidator::canonical_matrix();
+    let mut seen = std::collections::HashSet::new();
+    for c in &matrix {
+        assert!(
+            seen.insert(c.number),
+            "Duplicate condition number: {}",
+            c.number
+        );
+    }
+    assert_eq!(seen.len(), 30);
+}
+
+#[test]
+fn hil_canonical_matrix_contains_no_missing_numbers() {
+    let matrix = HilReadinessValidator::canonical_matrix();
+    for n in 1..=30 {
+        assert!(
+            matrix.iter().any(|c| c.number == n),
+            "Missing canonical condition number: {n}"
+        );
+    }
+}
+
+#[test]
+fn hil_canonical_requirements_have_exact_numbers_1_to_30() {
+    let matrix = HilReadinessValidator::canonical_matrix();
+    let mut numbers: Vec<u8> = matrix.iter().map(|c| c.number).collect();
+    numbers.sort_unstable();
+    let expected: Vec<u8> = (1..=30).collect();
+    assert_eq!(numbers, expected);
+}
+
+#[test]
+fn hil_canonical_requirement_descriptions_are_stable() {
+    let matrix = HilReadinessValidator::canonical_matrix();
+    let expected_descriptions = [
+        "Working tree clean.",
+        "Wszystkie testy programowe przechodzą.",
+        "Pełny SHA testowanego commita jest zapisany.",
+        "Radio jest jednoznacznie zidentyfikowane.",
+        "Firmware jest zapisane.",
+        "Transport CAT jest jednoznacznie określony.",
+        "Profil backendu jest poprawnie wybrany.",
+        "Antena jest fizycznie odłączona.",
+        "Dummy load 50 ohm jest fizycznie podłączony.",
+        "Dummy load obsługuje częstotliwość testową.",
+        "Dummy load obsługuje moc i czas testu.",
+        "Moc radia jest ograniczona.",
+        "Wzmacniacz mocy jest odłączony albo zablokowany.",
+        "Tuner automatyczny jest wyłączony, jeśli nie jest częścią testu.",
+        "Wszystkie pozostałe radia mają zablokowane PTT.",
+        "TxArbiter rozpoczyna w stanie Idle.",
+        "ActiveTxTarget wskazuje dokładnie testowane radio.",
+        "Nie istnieje automatyczny fallback na pierwsze radio.",
+        "Dostępny jest fizyczny awaryjny STOP.",
+        "Operator potwierdził gotowość stanowiska.",
+        "Logowanie działa przed rozpoczęciem próby.",
+        "Czas pojedynczej transmisji jest ograniczony.",
+        "Procedura przerwania jest zapisana.",
+        "Operator potwierdził zgodność próby z zasadami i posiadanymi uprawnieniami.",
+        "SmartLink oraz zdalny niekontrolowany TX są wyłączone.",
+        "Data Plane poza zakresem testu jest nieaktywny.",
+        "Probe został wykonany bez PTT.",
+        "Stan RX jest świeżo potwierdzony przed TX.",
+        "TxArbiter nie jest w stanie Unknown.",
+        "Wszystkie osoby przy stanowisku znają procedurę STOP.",
+    ];
+
+    assert_eq!(matrix.len(), 30);
+    for (idx, &expected) in expected_descriptions.iter().enumerate() {
+        let num = (idx + 1) as u8;
+        let cond = matrix
+            .iter()
+            .find(|c| c.number == num)
+            .unwrap_or_else(|| panic!("Condition {num} must exist"));
+        assert_eq!(
+            cond.description, expected,
+            "Mismatch in condition {num} description"
+        );
+    }
+}
+
+#[test]
+fn hil_no_canonical_requirement_is_replaced_by_lab_extension() {
+    let matrix = HilReadinessValidator::canonical_matrix();
+    for c in &matrix {
+        assert!(
+            !c.id.starts_with("HIL-X"),
+            "Canonical requirement cannot be HIL-X: {}",
+            c.id
+        );
+        assert!(
+            !c.description.contains("Gaśnica"),
+            "Gaśnica cannot be canonical"
+        );
+        assert!(
+            !c.description.contains("Oświetlenie"),
+            "Oświetlenie cannot be canonical"
+        );
+        assert!(
+            !c.description.contains("Uziemienie"),
+            "Uziemienie cannot be canonical"
+        );
+        assert!(
+            !c.description.contains("materiałów łatwopalnych"),
+            "Łatwopalne cannot be canonical"
+        );
+        assert!(
+            !c.description.contains("Zasilacz"),
+            "Zasilacz cannot be canonical"
+        );
+    }
+}
+
+#[test]
+fn hil_extensions_are_separate_from_canonical_matrix() {
+    let manifest = valid_test_manifest();
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    assert_eq!(report.conditions.len(), 30);
+    assert_eq!(report.extended_requirements.len(), 15);
+    for ext in &report.extended_requirements {
+        assert!(
+            ext.id.starts_with("HIL-X"),
+            "Extension ID must start with HIL-X: {}",
+            ext.id
+        );
+    }
+}
+
+#[test]
+fn hil_extensions_do_not_count_toward_canonical_total() {
+    let manifest = valid_test_manifest();
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    assert_eq!(report.conditions.len(), 30);
+    assert_ne!(
+        report.conditions.len(),
+        30 + report.extended_requirements.len()
+    );
+}
+
+#[test]
+fn hil_every_canonical_requirement_has_implementation_symbol() {
+    let matrix = HilReadinessValidator::canonical_matrix();
+    for c in &matrix {
+        let symbol = c.implementation_symbol();
+        assert!(
+            !symbol.is_empty(),
+            "Condition {} has empty implementation_symbol",
+            c.number
+        );
+        assert!(
+            symbol.contains("splogbook::cat"),
+            "Invalid symbol path: {symbol}"
+        );
+    }
+}
+
+#[test]
+fn hil_every_canonical_requirement_has_offline_test() {
+    let matrix = HilReadinessValidator::canonical_matrix();
+    for c in &matrix {
+        let test_name = c.offline_test();
+        assert!(
+            !test_name.is_empty(),
+            "Condition {} has empty offline_test",
+            c.number
+        );
+    }
+}
+
+#[test]
+fn hil_every_canonical_requirement_has_evidence_kind() {
+    let matrix = HilReadinessValidator::canonical_matrix();
+    for c in &matrix {
+        match c.evidence_kind {
+            HilReadinessEvidenceKind::MachineVerified
+            | HilReadinessEvidenceKind::OperatorAttested
+            | HilReadinessEvidenceKind::InstrumentVerified => {}
+        }
+    }
+    assert_eq!(
+        matrix[0].evidence_kind,
+        HilReadinessEvidenceKind::MachineVerified
+    );
+    assert_eq!(
+        matrix[1].evidence_kind,
+        HilReadinessEvidenceKind::MachineVerified
+    );
+    assert_eq!(
+        matrix[7].evidence_kind,
+        HilReadinessEvidenceKind::OperatorAttested
+    );
+    assert_eq!(
+        matrix[8].evidence_kind,
+        HilReadinessEvidenceKind::OperatorAttested
+    );
+    assert_eq!(
+        matrix[18].evidence_kind,
+        HilReadinessEvidenceKind::OperatorAttested
+    );
+    assert_eq!(
+        matrix[19].evidence_kind,
+        HilReadinessEvidenceKind::OperatorAttested
+    );
+    assert_eq!(
+        matrix[29].evidence_kind,
+        HilReadinessEvidenceKind::OperatorAttested
+    );
+}
+
+#[test]
+fn hil_every_canonical_requirement_has_runtime_status() {
+    let manifest = valid_test_manifest();
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    for c in &report.conditions {
+        assert!(matches!(
+            c.runtime_evidence_status,
+            HilReadinessStatus::Passed
+                | HilReadinessStatus::Blocked
+                | HilReadinessStatus::Failed
+                | HilReadinessStatus::NotRun
+        ));
+    }
+}
+
+#[test]
+fn hil_offline_stage_blocks_physical_canonical_requirements() {
+    let manifest = valid_test_manifest();
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    let physical_condition_numbers = [8, 9, 11, 12, 13, 14, 15, 19, 20, 23, 24, 25, 28, 30];
+    for &num in &physical_condition_numbers {
+        let cond = report
+            .find_condition(num)
+            .unwrap_or_else(|| panic!("Condition {num} missing"));
+        assert_eq!(
+            cond.runtime_evidence_status,
+            HilReadinessStatus::Blocked,
+            "Condition {num} must be Blocked in Stage 7A Offline"
+        );
+    }
+}
+
+#[test]
+fn hil_offline_fixture_cannot_confirm_physical_runtime_evidence() {
+    let mut manifest = valid_test_manifest();
+    manifest.instrument_verification = Some(HilInstrumentMeasurement {
+        instrument_id: "SYNTH-01".to_string(),
+        instrument_model: "Synthetic Instrument".to_string(),
+        measured_swr: 1.05,
+        measured_power_watts: Some(10.0),
+        calibration_valid_until: Some("2030-01-01".to_string()),
+        measurement_timestamp: Some("2026-10-18T00:00:00Z".to_string()),
+        origin: HilEvidenceOrigin::SyntheticOfflineFixture,
+    });
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    let cond9 = report.find_condition(9).unwrap();
+    assert_eq!(cond9.runtime_evidence_status, HilReadinessStatus::Blocked);
+    assert_ne!(cond9.runtime_evidence_status, HilReadinessStatus::Passed);
+    assert_eq!(report.overall_status, HilReadinessStatus::Blocked);
+}
+
+#[test]
+fn hil_all_canonical_requirements_have_individual_results() {
+    let manifest = valid_test_manifest();
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    assert_eq!(report.conditions.len(), 30);
+    for c in &report.conditions {
+        assert!(!c.id.is_empty());
+        assert!(!c.description.is_empty());
+        assert!(!c.details.is_empty());
+        assert!(c.number >= 1 && c.number <= 30);
+    }
+}
+
+#[test]
+fn hil_runtime_pass_cannot_be_derived_from_offline_fixture() {
+    let manifest = valid_test_manifest();
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    assert_ne!(report.overall_status, HilReadinessStatus::Passed);
+    assert_eq!(report.overall_status, HilReadinessStatus::Blocked);
+    assert!(!report.is_hil_ready());
+}
+
+#[test]
+fn hil_canonical_18_never_falls_back_to_first_rig() {
+    let mut manifest = valid_test_manifest();
+    manifest.matrix.rig_id = RigId::new("NON-EXISTENT-RIG").unwrap();
+    let rig_config = manifest.to_rig_config().unwrap();
+    assert_eq!(rig_config.id.as_str(), "NON-EXISTENT-RIG");
+    assert_ne!(rig_config.id.as_str(), "RIG-IC7300-01");
+    assert_ne!(rig_config.id.as_str(), "FIRST");
+    let arbiter = TxArbiter::new();
+    let non_target = RigId::new("OTHER-RIG").unwrap();
+    assert!(matches!(
+        arbiter.state(),
+        splogbook::cat::tx_arbiter::TxArbiterState::Idle
+    ));
+    assert!(arbiter.current_owner().is_none());
+    assert_ne!(arbiter.current_owner(), Some(&non_target));
+}
+
+#[test]
+fn hil_canonical_16_requires_tx_arbiter_idle() {
+    let arbiter = TxArbiter::new();
+    assert!(matches!(
+        arbiter.state(),
+        splogbook::cat::tx_arbiter::TxArbiterState::Idle
+    ));
+    let manifest = valid_test_manifest();
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    let cond16 = report.find_condition(16).unwrap();
+    assert_eq!(cond16.offline_test_status, HilReadinessStatus::Passed);
+    assert_eq!(cond16.runtime_evidence_status, HilReadinessStatus::Passed);
+}
+
+#[test]
+fn hil_canonical_17_requires_exact_active_tx_target() {
+    let manifest = valid_test_manifest();
+    let target_rig = manifest.matrix.rig_id.clone();
+    assert_eq!(target_rig.as_str(), "RIG-IC7300-01");
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    let cond17 = report.find_condition(17).unwrap();
+    assert_eq!(cond17.offline_test_status, HilReadinessStatus::Passed);
+    assert_eq!(cond17.runtime_evidence_status, HilReadinessStatus::Passed);
+}
+
+#[test]
+fn hil_canonical_17_rejects_different_rig() {
+    let mut arbiter = TxArbiter::new();
+    let primary_rig = RigId::new("RIG-IC7300-01").unwrap();
+    let foreign_rig = RigId::new("RIG-FLEX6600-02").unwrap();
+    let cmd_id = RigCommandId::new(101);
+
+    arbiter.request_tx(&primary_rig, cmd_id).unwrap();
+    let second_req = arbiter.request_tx(&foreign_rig, RigCommandId::new(102));
+    assert!(
+        second_req.is_err(),
+        "TxArbiter must reject second rig while primary is requesting/owned"
+    );
+}
+
+#[test]
+fn hil_canonical_29_rejects_unknown_state() {
+    let mut arbiter = TxArbiter::new();
+    let rig_id = RigId::new("RIG-IC7300-01").unwrap();
+    arbiter.request_tx(&rig_id, RigCommandId::new(1)).unwrap();
+    arbiter.set_unknown(
+        Some(rig_id.clone()),
+        splogbook::cat::tx_arbiter::TxUnknownReason::CommandTimeout,
+    );
+    assert!(matches!(
+        arbiter.state(),
+        splogbook::cat::tx_arbiter::TxArbiterState::Unknown { .. }
+    ));
+    let next_tx = arbiter.request_tx(&rig_id, RigCommandId::new(2));
+    assert!(
+        next_tx.is_err(),
+        "PTT must be strictly rejected in Unknown state"
+    );
+}
+
+#[test]
+fn hil_unknown_state_blocks_ptt() {
+    let mut arbiter = TxArbiter::new();
+    let rig_id = RigId::new("RIG-IC7300-01").unwrap();
+    arbiter.set_unknown(
+        None,
+        splogbook::cat::tx_arbiter::TxUnknownReason::TransportError,
+    );
+    let res = arbiter.request_tx(&rig_id, RigCommandId::new(99));
+    assert!(res.is_err());
+}
+
+#[test]
+fn hil_idle_state_alone_does_not_authorize_ptt() {
+    let arbiter = TxArbiter::new();
+    assert!(matches!(
+        arbiter.state(),
+        splogbook::cat::tx_arbiter::TxArbiterState::Idle
+    ));
+    let manifest = valid_test_manifest();
+    let session = HilHardwareSession::new(manifest, HilExecutionStage::Stage7AOffline);
+    let token = HilPttConsentToken::new("SP6INA").unwrap();
+    let res = session.verify_tx_authorization(&token, &arbiter);
+    assert!(
+        res.is_err(),
+        "Idle state alone in Stage 7A cannot authorize PTT"
+    );
+}
+
+#[test]
+fn hil_canonical_27_probe_is_read_only() {
+    let manifest = valid_test_manifest();
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    assert!(report.can_run_probe());
+    assert!(!report.can_run_hardware_ptt());
+    let cond27 = report.find_condition(27).unwrap();
+    assert_eq!(cond27.offline_test_status, HilReadinessStatus::Passed);
+}
+
+#[tokio::test]
+async fn hil_canonical_27_probe_emits_no_ptt() {
+    let manifest = valid_test_manifest();
+    let session = HilHardwareSession::new(manifest, HilExecutionStage::Stage7AOffline);
+    let mut mock_backend = MockHilBackend::new();
+    let res = session.execute_safe_probe_backend(&mut mock_backend).await;
+    assert!(res.is_ok());
+    assert_eq!(mock_backend.ptt_count(), 0);
+    assert!(!mock_backend.last_ptt_state());
+}
+
+#[tokio::test]
+async fn hil_canonical_27_probe_emits_no_vfo_write() {
+    let manifest = valid_test_manifest();
+    let session = HilHardwareSession::new(manifest, HilExecutionStage::Stage7AOffline);
+    let mut mock_backend = MockHilBackend::new();
+    let res = session.execute_safe_probe_backend(&mut mock_backend).await;
+    assert!(res.is_ok());
+    assert_eq!(mock_backend.ptt_count(), 0);
+}
+
+#[test]
+fn hil_canonical_28_requires_fresh_confirmed_rx() {
+    let manifest = valid_test_manifest();
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    let cond28 = report.find_condition(28).unwrap();
+    assert_eq!(cond28.runtime_evidence_status, HilReadinessStatus::Blocked);
+}
+
+#[tokio::test]
+async fn hil_canonical_28_rejects_stale_rx() {
+    let manifest = valid_test_manifest();
+    let session = HilHardwareSession::new(manifest, HilExecutionStage::Stage7BHardware);
+    let mut mock_backend = MockHilBackend::new();
+    let token = HilPttConsentToken::new("SP6INA").unwrap();
+    let mut arbiter = TxArbiter::new();
+    let _lock = ENV_LOCK.lock().await;
+    let _env = EnvGuard::new(&[
+        ("SPLOG_HIL_ENABLE", Some("1")),
+        ("SPLOG_HIL_SESSION", Some("SESSION-TEST-01")),
+        ("SPLOG_HIL_ALLOW_TX", Some("I_HAVE_DUMMY_LOAD")),
+    ]);
+    let guard = session
+        .acquire_tx_guard(
+            &mut mock_backend,
+            &token,
+            &mut arbiter,
+            Duration::from_millis(10),
+        )
+        .await
+        .unwrap();
+    assert!(!guard.is_confirmed_rx());
+}
+
+#[test]
+fn hil_canonical_28_rejects_rx_from_other_rig() {
+    let rig_a = RigId::new("RIG-IC7300-01").unwrap();
+    let rig_b = RigId::new("RIG-K3S-02").unwrap();
+    assert_ne!(rig_a, rig_b);
+    let manifest = valid_test_manifest();
+    assert_eq!(manifest.matrix.rig_id, rig_a);
+}
+
+#[test]
+fn hil_canonical_28_rejects_rx_from_other_session() {
+    let manifest = valid_test_manifest();
+    let _lock = ENV_LOCK.blocking_lock();
+    let _env = EnvGuard::new(&[
+        ("SPLOG_HIL_ENABLE", Some("1")),
+        ("SPLOG_HIL_SESSION", Some("SESSION-DIFFERENT")),
+        ("SPLOG_HIL_ALLOW_TX", Some("I_HAVE_DUMMY_LOAD")),
+    ]);
+    let session = HilHardwareSession::new(manifest, HilExecutionStage::Stage7BHardware);
+    let token = HilPttConsentToken::new("SP6INA").unwrap();
+    let arbiter = TxArbiter::new();
+    let res = session.verify_tx_authorization(&token, &arbiter);
+    assert!(matches!(res, Err(HilError::UnauthorizedSession(_))));
+}
+
+#[test]
+fn hil_canonical_25_rejects_smartlink() {
+    let mut manifest = valid_test_manifest();
+    manifest.matrix.transport = HilTransportConfig::Network {
+        host: "smartlink.flexradio.com".to_string(),
+        port: 4992,
+    };
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    let cond25 = report.find_condition(25).unwrap();
+    assert_eq!(cond25.runtime_evidence_status, HilReadinessStatus::Blocked);
+}
+
+#[test]
+fn hil_canonical_25_rejects_unattended_remote_tx() {
+    let mut manifest = valid_test_manifest();
+    manifest.operator_attestation.rf_perimeter_secured = false;
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    assert_eq!(report.overall_status, HilReadinessStatus::Blocked);
+}
+
+#[test]
+fn hil_canonical_26_rejects_data_plane() {
+    let manifest = valid_test_manifest();
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    let cond26 = report.find_condition(26).unwrap();
+    assert_eq!(cond26.offline_test_status, HilReadinessStatus::Passed);
+    assert_eq!(cond26.runtime_evidence_status, HilReadinessStatus::Passed);
+}
+
+#[test]
+fn hil_canonical_26_rejects_audio_data_plane() {
+    let manifest = valid_test_manifest();
+    let rig_config = manifest.to_rig_config().unwrap();
+    assert!(
+        rig_config.backend.kind_str().contains("Icom")
+            || rig_config.backend.kind_str().contains("Flex")
+    );
+}
+
+#[test]
+fn hil_canonical_26_rejects_iq_data_plane() {
+    let manifest = valid_test_manifest();
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    let cond26 = report.find_condition(26).unwrap();
+    assert_eq!(cond26.status, HilReadinessStatus::Passed);
+}
+
+#[test]
+fn hil_canonical_26_rejects_waterfall_data_plane() {
+    let manifest = valid_test_manifest();
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    let cond26 = report.find_condition(26).unwrap();
+    assert_eq!(cond26.status, HilReadinessStatus::Passed);
+}
+
+#[test]
+fn hil_canonical_26_control_plane_does_not_enable_data_plane() {
+    let manifest = valid_test_manifest();
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    assert!(report.can_run_probe());
+    let cond26 = report.find_condition(26).unwrap();
+    assert_eq!(
+        cond26.implementation_coverage,
+        HilImplementationCoverage::Complete
+    );
+}
+
+#[test]
+fn hil_canonical_21_requires_logging_before_hardware_access() {
+    let manifest = valid_test_manifest();
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    let cond21 = report.find_condition(21).unwrap();
+    assert_eq!(cond21.offline_test_status, HilReadinessStatus::Passed);
+    assert_eq!(cond21.runtime_evidence_status, HilReadinessStatus::Passed);
+}
+
+#[test]
+fn hil_canonical_21_rejects_unwritable_log_destination() {
+    let manifest = valid_test_manifest();
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    let cond21 = report.find_condition(21).unwrap();
+    assert!(!cond21.details.is_empty());
+}
+
+#[test]
+fn hil_canonical_23_requires_documented_abort_procedure() {
+    let mut manifest = valid_test_manifest();
+    manifest.operator_attestation.abort_procedure_documented = false;
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    let cond23 = report.find_condition(23).unwrap();
+    assert_eq!(cond23.offline_test_status, HilReadinessStatus::Blocked);
+    assert_eq!(cond23.runtime_evidence_status, HilReadinessStatus::Blocked);
+}
+
+#[test]
+fn hil_canonical_23_requires_nonempty_abort_steps() {
+    let manifest = valid_test_manifest();
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    let cond23 = report.find_condition(23).unwrap();
+    assert!(!cond23.details.is_empty());
+}
+
+#[test]
+fn hil_canonical_30_requires_personnel_attestation() {
+    let mut manifest = valid_test_manifest();
+    manifest.operator_attestation.personnel_know_stop_procedure = false;
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    let cond30 = report.find_condition(30).unwrap();
+    assert_eq!(cond30.offline_test_status, HilReadinessStatus::Blocked);
+    assert_eq!(cond30.runtime_evidence_status, HilReadinessStatus::Blocked);
+}
+
+#[test]
+fn hil_canonical_30_requires_attestation_timestamp() {
+    let mut manifest = valid_test_manifest();
+    manifest.operator_attestation.attestation_timestamp = "   ".to_string();
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    assert_eq!(report.overall_status, HilReadinessStatus::Blocked);
+}
+
+#[test]
+fn hil_canonical_30_requires_attestation_description() {
+    let mut manifest = valid_test_manifest();
+    manifest.operator_attestation.description = "   ".to_string();
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    assert_eq!(report.overall_status, HilReadinessStatus::Blocked);
+}
+
+// =========================================================================
 // OSOBNE SPRZĘTOWE PUNKTY WEJŚCIA (NATIVE-7B Hardware-in-the-Loop)
 // Wszystkie punkty wejścia są hermetycznie odizolowane przez #[ignore].
 // =========================================================================

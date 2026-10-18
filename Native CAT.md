@@ -554,8 +554,6 @@ Pochodzenie dowodu określa `HilEvidenceOrigin`:
 ```rust
 pub enum HilEvidenceOrigin {
     PhysicalMeasurement,
-    InstrumentInterface,
-    OperatorDeclaration,
     SyntheticOfflineFixture,
 }
 ```
@@ -687,7 +685,7 @@ W falach NATIVE-0 do NATIVE-6A interfejs GUI nie ulega modyfikacji runtime, co g
 | **NATIVE-6** | Fala nadrzędna: Multi-Radio Execution Core, fabryka backendów, migracja i integracja UI | Fala nadrzędna podzielona formalnie na NATIVE-6A i NATIVE-6B (decyzja AD-NATIVE-6-SPLIT). Brak osobnych kryteriów wykonawczych. |
 | **NATIVE-6A** | Multi-Radio Execution Core, RigHub i bezpieczny arbitraż TX | Zaimplementowanie bezgłowej, produkcyjnej warstwy wykonawczej (RigService, RigHub, TxArbiter, routing, bounded queues, lifecycle, shutdown) bez zmian w GUI. [zrealizowano] |
 | **NATIVE-6B** | Fabryka backendów, migracja konfiguracji i UI | Podłączenie istniejących backendów i warstwy wykonawczej do GUI (`cat_settings.rs`), dynamiczne panele konfiguracji, fabryka backendów, walidacja i18n, migracja `AppConfig`. [zrealizowano] |
-| **NATIVE-7A** | Funkcjonalny harness HIL, walidator HIL-READY i audyt | Kompletna domena HIL (`src/cat/hil/`), parser manifestu, walidator gotowości laboratoryjnej (30 warunków HIL-READY), zestaw rozszerzony HIL-X, 91 testów offline, synchronizacja podręcznika i audyt ARCH-CAT. [zrealizowano] |
+| **NATIVE-7A** | Funkcjonalny harness HIL, walidator HIL-READY i audyt | Kompletna domena HIL (`src/cat/hil/`), parser manifestu, walidator gotowości laboratoryjnej (30 warunków HIL-READY), zestaw rozszerzony HIL-X, 135 testów offline, synchronizacja podręcznika i audyt ARCH-CAT. [zrealizowano] |
 | **NATIVE-7B** | Kontrolowane wykonanie na fizycznym sprzęcie | Uruchomienie testów na rzeczywistym transceiverze wyłącznie po spełnieniu HIL-READY i zgodzie operatora; w środowisku bez fizycznego radia bramka posiada status BLOCKED, a 10 przypadków sprzętowych status NOT RUN. [gotowość procedur, oczekiwanie na fizyczne stanowisko] |
 
 ### 24.1. Łańcuch zależności fal realizacyjnych
@@ -998,7 +996,7 @@ NATIVE-0 -> NATIVE-1 -> NATIVE-2 -> NATIVE-3 -> NATIVE-4 -> NATIVE-5 (5A-5E) -> 
   - [x] Nienaruszalna zasada pojedynczego załączenia PTT (Zero Retry Invariant).
   - [x] Bezpieczny token autoryzacji PTT przez operatora (`HilPttConsentToken`) oraz wieloskładnikowa weryfikacja sesji (`HilHardwareSession::verify_tx_authorization`).
   - [x] Jawny i bezpieczny model zwolnienia nadawania ze strażnikiem RAII `HilTxGuard` (jawne `release_and_confirm_rx()` jako jedyna ścieżka do `ConfirmedRx`; w razie niekontrolowanego porzucenia Drop oznacza sesję jako `FailedOrUnknown` bez blokującego I/O, bez tworzenia runtime Tokio i bez fałszowania przejścia do RX).
-  - [x] 91 deterministycznych testów integracyjnych offline w `tests/cat_native_7.rs` (wszystkie passed).
+  - [x] 135 deterministycznych testów integracyjnych offline w `tests/cat_native_7.rs` (wszystkie passed).
   - [x] 10 hermetycznie odizolowanych punktów wejścia do testów fizycznych (`hil_hardware_*`, `#[ignore = "hardware-in-the-loop"]`).
   - [x] Przykładowy kanoniczny manifest stanowiska `tests/hil/ic7300_lab_bench.json` (sklasyfikowany jako `SyntheticOfflineFixture`).
   - [x] Pełna synchronizacja `Refaktoryzacje.md`, `Native CAT.md`, `src/gui/user_manual.rs` i `README.md`.
@@ -1008,8 +1006,8 @@ NATIVE-0 -> NATIVE-1 -> NATIVE-2 -> NATIVE-3 -> NATIVE-4 -> NATIVE-5 (5A-5E) -> 
 
 ### Końcowy werdykt programu NATIVE-CAT:
 
-1. **NATIVE-CAT SOFTWARE**: **PASSED** (8 backendów, RigHub, TxArbiter, CatRuntime, CatStationConfig, migracja v0->v1 z rollbackiem, FormVariantCache, 1167 testów programowych passed).
-2. **NATIVE-7A OFFLINE**: **PASSED** (kompletny harness HIL, walidator 30 warunków HIL-READY, zestaw rozszerzony HIL-X, 91 testów offline passed, 0 ostrzeżeń).
+1. **NATIVE-CAT SOFTWARE**: **PASSED** (8 backendów, RigHub, TxArbiter, CatRuntime, CatStationConfig, migracja v0->v1 z rollbackiem, FormVariantCache, 1211 testów programowych passed).
+2. **NATIVE-7A OFFLINE**: **PASSED** (kompletny harness HIL, walidator 30 warunków HIL-READY, zestaw rozszerzony HIL-X, 135 testów offline passed, 0 ostrzeżeń).
 3. **NATIVE-7B HARDWARE**: **BLOCKED** (brak fizycznego stanowiska laboratoryjnego i sztucznego obciążenia 50 Ω w środowisku CI/dev).
 4. **HARDWARE TEST CASES**: **NOT RUN** (10 izolowanych przypadków sprzętowych w stanie NotRun z powodu blokady bramki HIL-READY).
 5. **HARDWARE VALIDATION**: **INCOMPLETE** (stanowisko oczekuje na fizyczne podłączenie aparatury).
