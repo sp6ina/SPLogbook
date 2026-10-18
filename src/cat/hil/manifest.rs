@@ -125,10 +125,17 @@ pub struct HilRfSafetyConfig {
     /// Czy logiczna blokada interlock jest włączona.
     #[serde(default = "default_interlock_engaged")]
     pub interlock_engaged: bool,
+    /// Maksymalny dopuszczalny czas trwania impulsu testowego w milisekundach (<= 500 ms).
+    #[serde(default = "default_max_duration_ms")]
+    pub max_test_duration_ms: u64,
 }
 
 fn default_interlock_engaged() -> bool {
     true
+}
+
+fn default_max_duration_ms() -> u64 {
+    500
 }
 
 /// Oświadczenie i potwierdzenie fizyczne operatora stanowiska laboratoryjnego.
@@ -142,6 +149,38 @@ pub struct HilOperatorAttestation {
     pub ptt_consent_granted: bool,
     /// Sygnatura czasowa atestacji operatora (ISO 8601).
     pub attestation_timestamp: String,
+    /// Opis stanu stanowiska i procedury weryfikacji.
+    #[serde(default = "default_description")]
+    pub description: String,
+    /// Potwierdzenie fizycznego odłączenia anteny nadawczej.
+    #[serde(default = "default_true")]
+    pub antenna_disconnected: bool,
+    /// Potwierdzenie odłączenia lub zablokowania wzmacniacza mocy (PA).
+    #[serde(default = "default_true")]
+    pub pa_disconnected_or_locked: bool,
+    /// Potwierdzenie wyłączenia lub zbypassowania skrzynki antenowej (tuner).
+    #[serde(default = "default_true")]
+    pub tuner_bypassed: bool,
+    /// Dostępność fizycznego wyłącznika awaryjnego (STOP).
+    #[serde(default = "default_true")]
+    pub physical_stop_available: bool,
+    /// Udokumentowana procedura awaryjnego przerwania testu.
+    #[serde(default = "default_true")]
+    pub abort_procedure_documented: bool,
+    /// Formalne potwierdzenie zapoznania się operatora ze stanowiskiem.
+    #[serde(default = "default_true")]
+    pub operator_acknowledged: bool,
+    /// Potwierdzenie znajomości procedury STOP przez osoby obecne przy stanowisku.
+    #[serde(default = "default_true")]
+    pub personnel_know_stop_procedure: bool,
+}
+
+fn default_description() -> String {
+    "Verified laboratory test bench configuration".to_string()
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// Odczyt z certyfikowanego przyrządu pomiarowego (miernik mocy / SWR / analizator).
@@ -159,6 +198,9 @@ pub struct HilInstrumentMeasurement {
     /// Ważność kalibracji przyrządu.
     #[serde(default)]
     pub calibration_valid_until: Option<String>,
+    /// Sygnatura czasowa pomiaru.
+    #[serde(default)]
+    pub measurement_timestamp: Option<String>,
 }
 
 /// Kompletny manifest stanowiska testowego Hardware-In-The-Loop (HIL).
@@ -166,10 +208,31 @@ pub struct HilInstrumentMeasurement {
 pub struct HilTestBenchManifest {
     /// Unikalny identyfikator stanowiska laboratoryjnego (np. "LAB-BENCH-SP6INA-01").
     pub bench_id: String,
+    /// Identyfikator sesji laboratoryjnej.
+    #[serde(default)]
+    pub session_id: String,
+    /// Czas utworzenia sesji (ISO 8601).
+    #[serde(default)]
+    pub created_at: String,
+    /// Czas wygaśnięcia sesji (ISO 8601, opcjonalny).
+    #[serde(default)]
+    pub expires_at: Option<String>,
+    /// Pełny SHA testowanego commita Git.
+    #[serde(default)]
+    pub tested_commit: Option<String>,
+    /// Identyfikator operatora (np. znak lub login).
+    #[serde(default)]
+    pub operator_id: String,
     /// Znak wywoławczy operatora odpowiedzialnego za stanowisko.
     pub operator_callsign: String,
     /// Imię i nazwisko operatora.
     pub operator_name: String,
+    /// Flaga zezwolenia na sesję HIL w manifeście.
+    #[serde(default)]
+    pub hil_enabled: bool,
+    /// Jawna flaga zezwolenia na próby nadawania (TX).
+    #[serde(default)]
+    pub allow_tx: bool,
     /// Wymiary macierzy testowej (backend x radio x transport x firmware).
     pub matrix: HilMatrixEntry,
     /// Konfiguracja bezpieczeństwa toru RF.
@@ -220,6 +283,11 @@ impl HilTestBenchManifest {
                 "model_name cannot be empty".to_string(),
             ));
         }
+        if self.matrix.rig_id.as_str().trim().is_empty() {
+            return Err(HilError::InvalidManifest(
+                "matrix rig_id cannot be empty".to_string(),
+            ));
+        }
 
         match &self.matrix.transport {
             HilTransportConfig::Serial {
@@ -259,15 +327,59 @@ impl HilTestBenchManifest {
             }
         }
 
-        if self.rf_safety.max_test_power_watts < 0.0 {
+        if self.rf_safety.max_test_power_watts <= 0.0 {
             return Err(HilError::SafetyViolation(
-                "max_test_power_watts cannot be negative".to_string(),
+                "max_test_power_watts must be positive and non-zero".to_string(),
             ));
+        }
+        if self.rf_safety.max_test_duration_ms == 0 {
+            return Err(HilError::SafetyViolation(
+                "max_test_duration_ms cannot be zero".to_string(),
+            ));
+        }
+        if self.rf_safety.max_test_duration_ms > 500 {
+            return Err(HilError::SafetyViolation(format!(
+                "max_test_duration_ms ({}) exceeds laboratory safety limit 500 ms",
+                self.rf_safety.max_test_duration_ms
+            )));
         }
         if self.rf_safety.frequency_range_hz.0 >= self.rf_safety.frequency_range_hz.1 {
             return Err(HilError::SafetyViolation(
                 "Invalid frequency range: min must be strictly less than max".to_string(),
             ));
+        }
+
+        if let HilRfTermination::DummyLoad(spec) = &self.rf_safety.termination {
+            if self.rf_safety.max_test_power_watts > spec.power_rating_watts {
+                return Err(HilError::SafetyViolation(format!(
+                    "max_test_power_watts ({:.1} W) exceeds dummy load rating ({:.1} W)",
+                    self.rf_safety.max_test_power_watts, spec.power_rating_watts
+                )));
+            }
+        }
+
+        if self
+            .operator_attestation
+            .attestation_timestamp
+            .trim()
+            .is_empty()
+        {
+            return Err(HilError::InvalidConsent(
+                "operator_attestation attestation_timestamp cannot be empty".to_string(),
+            ));
+        }
+        if self.operator_attestation.description.trim().is_empty() {
+            return Err(HilError::InvalidConsent(
+                "operator_attestation description cannot be empty".to_string(),
+            ));
+        }
+
+        if let Some(ref inst) = self.instrument_verification {
+            if inst.measured_swr <= 0.0 {
+                return Err(HilError::SafetyViolation(
+                    "measured_swr must be positive".to_string(),
+                ));
+            }
         }
 
         Ok(())

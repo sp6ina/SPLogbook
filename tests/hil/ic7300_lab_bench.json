@@ -1,7 +1,14 @@
 {
   "bench_id": "SP6INA-LAB-BENCH-01",
+  "session_id": "SESSION-SP6INA-LAB-01",
+  "created_at": "2026-10-18T09:30:00Z",
+  "expires_at": "2026-10-18T23:59:59Z",
+  "tested_commit": "2de969a6b1db36de4f517c3addc23af8bbf34e8d",
+  "operator_id": "SP6INA",
   "operator_callsign": "SP6INA",
   "operator_name": "Mariusz Woźniak",
+  "hil_enabled": true,
+  "allow_tx": true,
   "matrix": {
     "backend_kind": "icom_ci_v",
     "rig_id": "RIG-IC7300-BENCH1",
@@ -30,19 +37,29 @@
       14000000,
       14350000
     ],
-    "interlock_engaged": true
+    "interlock_engaged": true,
+    "max_test_duration_ms": 500
   },
   "operator_attestation": {
     "dummy_load_physically_connected": true,
     "rf_perimeter_secured": true,
     "ptt_consent_granted": true,
-    "attestation_timestamp": "2026-10-17T20:56:06Z"
+    "attestation_timestamp": "2026-10-17T20:56:06Z",
+    "description": "Verified laboratory test bench configuration",
+    "antenna_disconnected": true,
+    "pa_disconnected_or_locked": true,
+    "tuner_bypassed": true,
+    "physical_stop_available": true,
+    "abort_procedure_documented": true,
+    "operator_acknowledged": true,
+    "personnel_know_stop_procedure": true
   },
   "instrument_verification": {
     "instrument_id": "BIRD-43-LAB1",
     "instrument_model": "Bird Model 43 Thruline",
     "measured_swr": 1.05,
     "measured_power_watts": 9.8,
-    "calibration_valid_until": "2027-12-31"
+    "calibration_valid_until": "2027-12-31",
+    "measurement_timestamp": "2026-10-17T20:55:00Z"
   }
 }

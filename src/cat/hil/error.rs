@@ -18,6 +18,20 @@ pub enum HilError {
     InvalidConsent(String),
     /// Naruszenie zasad bezpieczeństwa radiowego (np. próba nadawania na antenie).
     SafetyViolation(String),
+    /// Próba autoryzacji sesji nie powiodła się z powodu niespełnienia wymaganych składników.
+    UnauthorizedSession(String),
+    /// Sesja laboratoryjna wygasła lub jej czas ważności minął.
+    SessionExpired(String),
+    /// Błąd strażnika nadawania ([`HilTxGuard`]).
+    TxGuardError(String),
+    /// Arbiter nadawania jest zajęty lub w stanie uniemożliwiającym próbę.
+    TxArbiterBusy(String),
+    /// Brak świeżo potwierdzonego stanu odbioru (ConfirmedRx).
+    MissingConfirmedRx(String),
+    /// Błąd podczas zwalniania nadajnika (release).
+    ReleaseError(String),
+    /// Przekroczono limit czasu operacji, stan przeszedł do Unknown.
+    TimeoutToUnknown(String),
     /// Błąd operacji na backendzie radiowym.
     BackendError(String),
     /// Błąd fabryki backendów podczas tworzenia instancji.
@@ -38,6 +52,13 @@ impl fmt::Display for HilError {
             Self::InvalidTransport(msg) => write!(f, "Invalid transport configuration: {msg}"),
             Self::InvalidConsent(msg) => write!(f, "Invalid operator consent: {msg}"),
             Self::SafetyViolation(msg) => write!(f, "RF safety violation: {msg}"),
+            Self::UnauthorizedSession(msg) => write!(f, "HIL session unauthorized: {msg}"),
+            Self::SessionExpired(msg) => write!(f, "HIL session expired: {msg}"),
+            Self::TxGuardError(msg) => write!(f, "HIL TX guard error: {msg}"),
+            Self::TxArbiterBusy(msg) => write!(f, "TxArbiter busy or in invalid state: {msg}"),
+            Self::MissingConfirmedRx(msg) => write!(f, "Missing fresh confirmed RX: {msg}"),
+            Self::ReleaseError(msg) => write!(f, "HIL release error: {msg}"),
+            Self::TimeoutToUnknown(msg) => write!(f, "Operation timed out entering Unknown: {msg}"),
             Self::BackendError(msg) => write!(f, "CAT backend error during HIL operation: {msg}"),
             Self::FactoryError(msg) => write!(f, "Backend factory error: {msg}"),
             Self::IoError(msg) => write!(f, "I/O error during HIL operation: {msg}"),

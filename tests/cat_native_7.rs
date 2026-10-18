@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
-//! Zestaw deterministycznych testów integracyjnych offline dla harnessu HIL (NATIVE-7A).
+//! Zestaw deterministycznych testów integracyjnych offline dla harnessu HIL (NATIVE-7A)
+//! oraz hermetycznie odizolowane punkty wejścia dla stanowiska laboratoryjnego (NATIVE-7B).
 //!
 //! Zgodnie z zasadami programu NATIVE-7:
 //! - Testy offline weryfikują maszynę stanów, parser manifestu, walidator HIL-READY
@@ -16,16 +17,56 @@ use splogbook::cat::hil::{
     HilDummyLoadSpec, HilError, HilExecutionStage, HilHardwareSession, HilInstrumentMeasurement,
     HilMatrixEntry, HilOperatorAttestation, HilPttConsentToken, HilReadinessEvidenceKind,
     HilReadinessStatus, HilReadinessValidator, HilRfSafetyConfig, HilRfTermination,
-    HilTestBenchManifest, HilTransportConfig,
+    HilTestBenchManifest, HilTransportConfig, HilTxGuard,
 };
 use splogbook::cat::rig::{RigCapabilities, RigCommand, RigError};
-use splogbook::cat::routing::RigId;
+use splogbook::cat::routing::{RigCommandId, RigId};
+use splogbook::cat::tx_arbiter::TxArbiter;
+
+static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+struct EnvGuard {
+    vars: Vec<(&'static str, Option<String>)>,
+}
+
+impl EnvGuard {
+    fn new(pairs: &[(&'static str, Option<&str>)]) -> Self {
+        let mut vars = Vec::new();
+        for (k, v) in pairs {
+            let orig = std::env::var(k).ok();
+            vars.push((*k, orig));
+            match v {
+                Some(val) => unsafe { std::env::set_var(k, val) },
+                None => unsafe { std::env::remove_var(k) },
+            }
+        }
+        Self { vars }
+    }
+}
+
+impl Drop for EnvGuard {
+    fn drop(&mut self) {
+        for (k, orig) in &self.vars {
+            match orig {
+                Some(v) => unsafe { std::env::set_var(k, v) },
+                None => unsafe { std::env::remove_var(k) },
+            }
+        }
+    }
+}
 
 fn valid_test_manifest() -> HilTestBenchManifest {
     HilTestBenchManifest {
         bench_id: "LAB-BENCH-SP6INA-01".to_string(),
+        session_id: "SESSION-TEST-01".to_string(),
+        created_at: "2026-10-18T09:30:00Z".to_string(),
+        expires_at: Some("2026-10-18T23:59:59Z".to_string()),
+        tested_commit: Some("2de969a6b1db36de4f517c3addc23af8bbf34e8d".to_string()),
+        operator_id: "SP6INA".to_string(),
         operator_callsign: "SP6INA".to_string(),
         operator_name: "Mariusz Woźniak".to_string(),
+        hil_enabled: true,
+        allow_tx: true,
         matrix: HilMatrixEntry {
             backend_kind: CatBackendKind::IcomCiV,
             rig_id: RigId::new("RIG-IC7300-01").unwrap(),
@@ -50,12 +91,21 @@ fn valid_test_manifest() -> HilTestBenchManifest {
             max_test_power_watts: 10.0,
             frequency_range_hz: (14_000_000, 14_350_000),
             interlock_engaged: true,
+            max_test_duration_ms: 500,
         },
         operator_attestation: HilOperatorAttestation {
             dummy_load_physically_connected: true,
             rf_perimeter_secured: true,
             ptt_consent_granted: true,
             attestation_timestamp: "2026-10-17T20:56:00Z".to_string(),
+            description: "Verified laboratory test bench configuration".to_string(),
+            antenna_disconnected: true,
+            pa_disconnected_or_locked: true,
+            tuner_bypassed: true,
+            physical_stop_available: true,
+            abort_procedure_documented: true,
+            operator_acknowledged: true,
+            personnel_know_stop_procedure: true,
         },
         instrument_verification: Some(HilInstrumentMeasurement {
             instrument_id: "BIRD-43".to_string(),
@@ -63,22 +113,57 @@ fn valid_test_manifest() -> HilTestBenchManifest {
             measured_swr: 1.08,
             measured_power_watts: Some(9.8),
             calibration_valid_until: Some("2027-12-31".to_string()),
+            measurement_timestamp: Some("2026-10-17T20:55:00Z".to_string()),
         }),
     }
 }
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+#[derive(Clone, Default)]
+struct MockHilCounters {
+    ptt_count: Arc<AtomicUsize>,
+    last_ptt_state: Arc<AtomicBool>,
+    open_count: Arc<AtomicUsize>,
+    connect_count: Arc<AtomicUsize>,
+    command_count: Arc<AtomicUsize>,
+}
+
 /// Atrapa backendu dla testów jednostkowych pętli wykonawczej sesji HIL.
 struct MockHilBackend {
-    ptt_count: usize,
-    last_ptt_state: bool,
+    counters: MockHilCounters,
 }
 
 impl MockHilBackend {
     fn new() -> Self {
         Self {
-            ptt_count: 0,
-            last_ptt_state: false,
+            counters: MockHilCounters::default(),
         }
+    }
+
+    fn counters(&self) -> MockHilCounters {
+        self.counters.clone()
+    }
+
+    fn ptt_count(&self) -> usize {
+        self.counters.ptt_count.load(Ordering::SeqCst)
+    }
+
+    fn last_ptt_state(&self) -> bool {
+        self.counters.last_ptt_state.load(Ordering::SeqCst)
+    }
+
+    fn open_count(&self) -> usize {
+        self.counters.open_count.load(Ordering::SeqCst)
+    }
+
+    fn connect_count(&self) -> usize {
+        self.counters.connect_count.load(Ordering::SeqCst)
+    }
+
+    fn command_count(&self) -> usize {
+        self.counters.command_count.load(Ordering::SeqCst)
     }
 }
 
@@ -92,6 +177,7 @@ impl RigBackend for MockHilBackend {
     }
 
     fn connect(&mut self) -> splogbook::cat::backend::BoxFuture<'_, Result<(), RigError>> {
+        self.counters.connect_count.fetch_add(1, Ordering::SeqCst);
         Box::pin(async { Ok(()) })
     }
 
@@ -103,19 +189,25 @@ impl RigBackend for MockHilBackend {
         &mut self,
     ) -> splogbook::cat::backend::BoxFuture<'_, Result<splogbook::cat::hamlib::RigState, RigError>>
     {
-        Box::pin(async { Ok(splogbook::cat::hamlib::RigState::default()) })
+        let state = splogbook::cat::hamlib::RigState {
+            ptt: self.counters.last_ptt_state.load(Ordering::SeqCst),
+            ..Default::default()
+        };
+        Box::pin(async move { Ok(state) })
     }
 
     fn execute<'a>(
         &'a mut self,
         command: &'a RigCommand,
     ) -> splogbook::cat::backend::BoxFuture<'a, Result<(), RigError>> {
+        self.counters.command_count.fetch_add(1, Ordering::SeqCst);
+        let counters = self.counters.clone();
         Box::pin(async move {
             if let RigCommand::SetPtt(state) = command {
                 if *state {
-                    self.ptt_count += 1;
+                    counters.ptt_count.fetch_add(1, Ordering::SeqCst);
                 }
-                self.last_ptt_state = *state;
+                counters.last_ptt_state.store(*state, Ordering::SeqCst);
             }
             Ok(())
         })
@@ -361,6 +453,7 @@ fn test_13_validator_instrument_swr_high_fails() {
         measured_swr: 2.15,
         measured_power_watts: Some(10.0),
         calibration_valid_until: Some("2027-12-31".to_string()),
+        measurement_timestamp: Some("2026-10-17T20:55:00Z".to_string()),
     });
 
     let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7BHardware);
@@ -424,6 +517,7 @@ fn test_16_validator_stage_7b_full_ready_passes() {
     assert!(report.is_hil_ready());
     assert!(report.can_run_hardware_ptt());
     assert!(report.can_run_probe());
+    assert_eq!(report.conditions.len(), 30);
 }
 
 #[test]
@@ -468,7 +562,7 @@ async fn test_19_session_ptt_strictly_rejected_in_stage_7a() {
         .await
         .unwrap_err();
     assert_eq!(err, HilError::PttForbiddenInStage7A);
-    assert_eq!(mock_backend.ptt_count, 0);
+    assert_eq!(mock_backend.ptt_count(), 0);
 }
 
 #[tokio::test]
@@ -486,7 +580,7 @@ async fn test_20_session_ptt_strictly_rejected_without_hil_ready() {
         .await
         .unwrap_err();
     assert!(matches!(err, HilError::NotHilReady(_)));
-    assert_eq!(mock_backend.ptt_count, 0);
+    assert_eq!(mock_backend.ptt_count(), 0);
 }
 
 #[tokio::test]
@@ -507,7 +601,7 @@ async fn test_21_session_ptt_strictly_rejected_on_antenna() {
         err,
         HilError::NotHilReady(_) | HilError::SafetyViolation(_)
     ));
-    assert_eq!(mock_backend.ptt_count, 0);
+    assert_eq!(mock_backend.ptt_count(), 0);
 }
 
 #[test]
@@ -577,18 +671,753 @@ async fn test_25_session_executes_single_shot_ptt_in_stage_7b_mock() {
         .await
         .expect("Execution on mock backend must succeed");
 
-    assert_eq!(mock_backend.ptt_count, 1);
-    assert!(!mock_backend.last_ptt_state); // verified RX returned
+    assert_eq!(mock_backend.ptt_count(), 1);
+    assert!(!mock_backend.last_ptt_state()); // verified RX returned
     assert!(result.rx_restored_cleanly);
 }
 
-/// Bezpieczny punkt wejścia do testów na fizycznym sprzęcie laboratoryjnym (NATIVE-7B).
-///
-/// Ten test jest celowo wyłączony (`#[ignore = "hardware-in-the-loop"]`) z automatycznych
-/// przebiegów CI oraz standardowego `cargo test`. Może zostać uruchomiony wyłącznie
-/// przez operatora w laboratorium z podłączonym fizycznym radiem i sztucznym obciążeniem:
-///
-/// `cargo test --test cat_native_7 -- --ignored hil_hardware_live_test_bench`
+// =========================================================================
+// OFFLINE INTEGRATION AUDIT TESTS (NATIVE-7A Kanoniczne testy zgodności)
+// =========================================================================
+
+#[test]
+fn hil_requires_explicit_enable_flag() {
+    let _lock = ENV_LOCK.blocking_lock();
+    let manifest = valid_test_manifest();
+    let session = HilHardwareSession::new(manifest, HilExecutionStage::Stage7BHardware);
+    let _env = EnvGuard::new(&[
+        ("SPLOG_HIL_ENABLE", None),
+        ("SPLOG_HIL_SESSION", Some("SESSION-TEST-01")),
+    ]);
+    let res = session.verify_hardware_access_authorization();
+    assert!(matches!(res, Err(HilError::UnauthorizedSession(_))));
+}
+
+#[test]
+fn hil_requires_explicit_rig_id() {
+    assert!(RigId::new("").is_err());
+    let manifest = valid_test_manifest();
+    let mut json_val: serde_json::Value = serde_json::to_value(&manifest).unwrap();
+    json_val["matrix"]["rig_id"] = serde_json::Value::String("   ".to_string());
+    let err = serde_json::from_value::<HilTestBenchManifest>(json_val);
+    assert!(err.is_err());
+}
+
+#[test]
+fn hil_requires_operator_acknowledgement() {
+    let _lock = ENV_LOCK.blocking_lock();
+    let mut manifest = valid_test_manifest();
+    manifest.operator_attestation.operator_acknowledged = false;
+    let session = HilHardwareSession::new(manifest, HilExecutionStage::Stage7BHardware);
+    let _env = EnvGuard::new(&[
+        ("SPLOG_HIL_ENABLE", Some("1")),
+        ("SPLOG_HIL_SESSION", Some("SESSION-TEST-01")),
+    ]);
+    let res = session.verify_hardware_access_authorization();
+    assert!(matches!(res, Err(HilError::UnauthorizedSession(_))));
+}
+
+#[test]
+fn hil_requires_dummy_load_confirmation() {
+    let mut manifest = valid_test_manifest();
+    manifest
+        .operator_attestation
+        .dummy_load_physically_connected = false;
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7BHardware);
+    let cond9 = report.find_condition(9).expect("Condition 9 must exist");
+    assert_eq!(cond9.status, HilReadinessStatus::Blocked);
+    assert_eq!(
+        cond9.evidence_kind,
+        HilReadinessEvidenceKind::OperatorAttested
+    );
+}
+
+#[test]
+fn hil_requires_power_limit() {
+    let mut manifest = valid_test_manifest();
+    manifest.rf_safety.max_test_power_watts = 0.0;
+    assert!(matches!(
+        manifest.validate_structure(),
+        Err(HilError::SafetyViolation(_))
+    ));
+}
+
+#[test]
+fn hil_rejects_zero_or_invalid_deadline() {
+    let mut manifest = valid_test_manifest();
+    manifest.rf_safety.max_test_duration_ms = 0;
+    assert!(matches!(
+        manifest.validate_structure(),
+        Err(HilError::SafetyViolation(_))
+    ));
+
+    manifest.rf_safety.max_test_duration_ms = 600;
+    assert!(matches!(
+        manifest.validate_structure(),
+        Err(HilError::SafetyViolation(_))
+    ));
+}
+
+#[test]
+fn hil_rejects_unknown_backend() {
+    let mut manifest = valid_test_manifest();
+    manifest.matrix.backend_kind = CatBackendKind::So2r;
+    let res = manifest.to_rig_config();
+    assert!(matches!(res, Err(HilError::InvalidManifest(_))));
+}
+
+#[test]
+fn hil_rejects_missing_transport() {
+    let mut manifest = valid_test_manifest();
+    manifest.matrix.transport = HilTransportConfig::Serial {
+        port_name: "   ".to_string(),
+        baud_rate: 115200,
+        data_bits: 8,
+        parity: "none".to_string(),
+        stop_bits: 1,
+        flow_control: "none".to_string(),
+    };
+    assert!(matches!(
+        manifest.validate_structure(),
+        Err(HilError::InvalidTransport(_))
+    ));
+}
+
+#[test]
+fn hil_never_selects_first_rig() {
+    let manifest = valid_test_manifest();
+    let rig_config = manifest.to_rig_config().unwrap();
+    assert_eq!(rig_config.id.as_str(), "RIG-IC7300-01");
+    assert_ne!(rig_config.id.as_str(), "FIRST");
+}
+
+#[test]
+fn hil_ptt_requires_separate_enable_flag() {
+    let _lock = ENV_LOCK.blocking_lock();
+    let manifest = valid_test_manifest();
+    let session = HilHardwareSession::new(manifest, HilExecutionStage::Stage7BHardware);
+    let token = HilPttConsentToken::new("SP6INA").unwrap();
+    let arbiter = TxArbiter::new();
+
+    let _env = EnvGuard::new(&[
+        ("SPLOG_HIL_ENABLE", Some("1")),
+        ("SPLOG_HIL_SESSION", Some("SESSION-TEST-01")),
+        ("SPLOG_HIL_ALLOW_TX", None),
+    ]);
+    let res = session.verify_tx_authorization(&token, &arbiter);
+    assert!(matches!(res, Err(HilError::UnauthorizedSession(_))));
+}
+
+#[tokio::test]
+async fn hil_ptt_uses_tx_arbiter() {
+    let _lock = ENV_LOCK.lock().await;
+    let manifest = valid_test_manifest();
+    let session = HilHardwareSession::new(manifest, HilExecutionStage::Stage7BHardware);
+    let mut mock_backend = MockHilBackend::new();
+    let token = HilPttConsentToken::new("SP6INA").unwrap();
+    let mut arbiter = TxArbiter::new();
+
+    let _env = EnvGuard::new(&[
+        ("SPLOG_HIL_ENABLE", Some("1")),
+        ("SPLOG_HIL_SESSION", Some("SESSION-TEST-01")),
+        ("SPLOG_HIL_ALLOW_TX", Some("I_HAVE_DUMMY_LOAD")),
+    ]);
+
+    let counters = mock_backend.counters();
+    let mut guard = session
+        .acquire_tx_guard(
+            &mut mock_backend,
+            &token,
+            &mut arbiter,
+            Duration::from_millis(50),
+        )
+        .await
+        .expect("Acquire TX guard must succeed");
+
+    assert_eq!(
+        counters.ptt_count.load(std::sync::atomic::Ordering::SeqCst),
+        1
+    );
+    assert!(matches!(
+        arbiter.state(),
+        splogbook::cat::tx_arbiter::TxArbiterState::Owned { .. }
+    ));
+
+    let res = guard.release_and_confirm_rx().await;
+    assert!(res.is_ok());
+    assert!(guard.is_confirmed_rx());
+}
+
+#[tokio::test]
+async fn hil_ptt_has_no_retry() {
+    let manifest = valid_test_manifest();
+    let session = HilHardwareSession::new(manifest, HilExecutionStage::Stage7BHardware);
+    let mut mock_backend = MockHilBackend::new();
+    let token = HilPttConsentToken::new("SP6INA").unwrap();
+
+    let res = session
+        .execute_controlled_ptt(&mut mock_backend, &token, Duration::from_millis(20))
+        .await;
+    assert!(res.is_ok());
+    assert_eq!(mock_backend.ptt_count(), 1); // Dokładnie jedno żądanie, brak ponowień
+}
+
+#[test]
+fn hil_timeout_enters_unknown() {
+    let mut arbiter = TxArbiter::new();
+    let rig_id = RigId::new("RIG-IC7300-01").unwrap();
+    let cmd_id = RigCommandId::new(42);
+
+    arbiter.request_tx(&rig_id, cmd_id).unwrap();
+    arbiter.set_unknown(
+        Some(rig_id),
+        splogbook::cat::tx_arbiter::TxUnknownReason::CommandTimeout,
+    );
+
+    assert!(matches!(
+        arbiter.state(),
+        splogbook::cat::tx_arbiter::TxArbiterState::Unknown { .. }
+    ));
+}
+
+#[test]
+fn hil_result_supports_not_run() {
+    let status = HilReadinessStatus::NotRun;
+    assert_eq!(status.to_string(), "NotRun");
+    let json = serde_json::to_string(&status).unwrap();
+    let deserialized: HilReadinessStatus = serde_json::from_str(&json).unwrap();
+    assert_eq!(deserialized, HilReadinessStatus::NotRun);
+}
+
+#[test]
+fn hil_result_supports_blocked() {
+    let status = HilReadinessStatus::Blocked;
+    assert_eq!(status.to_string(), "Blocked");
+    let json = serde_json::to_string(&status).unwrap();
+    let deserialized: HilReadinessStatus = serde_json::from_str(&json).unwrap();
+    assert_eq!(deserialized, HilReadinessStatus::Blocked);
+}
+
+#[test]
+fn hil_manifest_records_commit() {
+    let manifest = valid_test_manifest();
+    assert_eq!(
+        manifest.tested_commit.as_deref(),
+        Some("2de969a6b1db36de4f517c3addc23af8bbf34e8d")
+    );
+}
+
+#[test]
+fn hil_manifest_records_firmware() {
+    let manifest = valid_test_manifest();
+    assert_eq!(manifest.matrix.firmware_version, "v1.42");
+}
+
+#[test]
+fn hil_manifest_redacts_credentials() {
+    let mut manifest = valid_test_manifest();
+    manifest.matrix.transport = HilTransportConfig::Network {
+        host: "192.168.1.120".to_string(),
+        port: 4992,
+    };
+    let redacted = manifest.redacted_manifest();
+    if let HilTransportConfig::Network { host, port } = redacted.matrix.transport {
+        assert_eq!(host, "[REDACTED_HOST]");
+        assert_eq!(port, 4992);
+    } else {
+        panic!("Transport must be Network");
+    }
+}
+
+#[test]
+fn hil_shutdown_joins_all_tasks() {
+    let mut mock_backend = MockHilBackend::new();
+    let res = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            mock_backend.disconnect().await;
+            true
+        });
+    assert!(res);
+}
+
+#[test]
+fn hil_standard_suite_cannot_open_physical_transport() {
+    let mock = MockHilBackend::new();
+    assert_eq!(mock.open_count(), 0);
+    assert_eq!(mock.connect_count(), 0);
+    assert_eq!(mock.command_count(), 0);
+    assert_eq!(mock.ptt_count(), 0);
+}
+
+#[test]
+fn hil_ignored_entrypoint_rechecks_all_runtime_gates() {
+    let _lock = ENV_LOCK.blocking_lock();
+    let manifest = valid_test_manifest();
+    let session = HilHardwareSession::new(manifest, HilExecutionStage::Stage7BHardware);
+    let _env = EnvGuard::new(&[
+        ("SPLOG_HIL_ENABLE", None),
+        ("SPLOG_HIL_SESSION", None),
+        ("SPLOG_HIL_ALLOW_TX", None),
+    ]);
+    let res = session.verify_hardware_access_authorization();
+    assert!(matches!(res, Err(HilError::UnauthorizedSession(_))));
+}
+
+#[test]
+fn hil_session_id_must_match_environment() {
+    let _lock = ENV_LOCK.blocking_lock();
+    let manifest = valid_test_manifest();
+    let session = HilHardwareSession::new(manifest, HilExecutionStage::Stage7BHardware);
+    let _env = EnvGuard::new(&[
+        ("SPLOG_HIL_ENABLE", Some("1")),
+        ("SPLOG_HIL_SESSION", Some("MISMATCHED-SESSION-ID")),
+    ]);
+    let res = session.verify_hardware_access_authorization();
+    assert!(matches!(res, Err(HilError::UnauthorizedSession(_))));
+}
+
+#[test]
+fn hil_expired_session_is_blocked() {
+    let _lock = ENV_LOCK.blocking_lock();
+    let mut manifest = valid_test_manifest();
+    manifest.expires_at = Some("2020-01-01T00:00:00Z".to_string());
+    let session = HilHardwareSession::new(manifest, HilExecutionStage::Stage7BHardware);
+    let _env = EnvGuard::new(&[
+        ("SPLOG_HIL_ENABLE", Some("1")),
+        ("SPLOG_HIL_SESSION", Some("SESSION-TEST-01")),
+    ]);
+    let res = session.verify_hardware_access_authorization();
+    assert!(matches!(res, Err(HilError::SessionExpired(_))));
+}
+
+#[test]
+fn hil_frequency_must_fit_dummy_load_range() {
+    let mut manifest = valid_test_manifest();
+    manifest.rf_safety.frequency_range_hz = (14350000, 14000000); // Invalid inverted range
+    assert!(matches!(
+        manifest.validate_structure(),
+        Err(HilError::SafetyViolation(_))
+    ));
+}
+
+#[test]
+fn hil_power_must_not_exceed_dummy_load_rating() {
+    let mut manifest = valid_test_manifest();
+    manifest.rf_safety.max_test_power_watts = 150.0; // rating is 100.0 W
+    assert!(matches!(
+        manifest.validate_structure(),
+        Err(HilError::SafetyViolation(_))
+    ));
+}
+
+#[test]
+fn hil_readiness_distinguishes_failed_from_blocked() {
+    let mut manifest_failed = valid_test_manifest();
+    manifest_failed.rf_safety.termination = HilRfTermination::Antenna {
+        antenna_name: "Yagi".to_string(),
+    };
+    let report_failed =
+        HilReadinessValidator::validate(&manifest_failed, HilExecutionStage::Stage7BHardware);
+    assert_eq!(report_failed.overall_status, HilReadinessStatus::Failed);
+
+    let mut manifest_blocked = valid_test_manifest();
+    manifest_blocked
+        .operator_attestation
+        .dummy_load_physically_connected = false;
+    let report_blocked =
+        HilReadinessValidator::validate(&manifest_blocked, HilExecutionStage::Stage7BHardware);
+    assert_eq!(report_blocked.overall_status, HilReadinessStatus::Blocked);
+
+    // Błędy i blokady nie mogą być powiązane
+    assert_ne!(report_failed.overall_status, report_blocked.overall_status);
+}
+
+#[test]
+fn hil_operator_attestation_requires_timestamp() {
+    let mut manifest = valid_test_manifest();
+    manifest.operator_attestation.attestation_timestamp = "   ".to_string();
+    assert!(matches!(
+        manifest.validate_structure(),
+        Err(HilError::InvalidConsent(_))
+    ));
+}
+
+#[test]
+fn hil_operator_attestation_requires_description() {
+    let mut manifest = valid_test_manifest();
+    manifest.operator_attestation.description = "".to_string();
+    assert!(matches!(
+        manifest.validate_structure(),
+        Err(HilError::InvalidConsent(_))
+    ));
+}
+
+#[test]
+fn hil_instrument_evidence_requires_measurement() {
+    let mut manifest = valid_test_manifest();
+    manifest.instrument_verification = Some(HilInstrumentMeasurement {
+        instrument_id: "BIRD-43".to_string(),
+        instrument_model: "Bird 43".to_string(),
+        measured_swr: 0.0,
+        measured_power_watts: None,
+        calibration_valid_until: None,
+        measurement_timestamp: None,
+    });
+    assert!(matches!(
+        manifest.validate_structure(),
+        Err(HilError::SafetyViolation(_))
+    ));
+}
+
+#[tokio::test]
+async fn hil_tx_guard_requires_explicit_release() {
+    let mut mock_backend = MockHilBackend::new();
+    let guard = HilTxGuard::new(
+        RigId::new("RIG-IC7300-01").unwrap(),
+        &mut mock_backend,
+        Duration::from_millis(100),
+    );
+    assert!(!guard.is_released());
+    assert!(!guard.is_confirmed_rx());
+}
+
+#[tokio::test]
+async fn hil_tx_guard_drop_cannot_report_confirmed_rx() {
+    let mut mock_backend = MockHilBackend::new();
+    {
+        let guard = HilTxGuard::new(
+            RigId::new("RIG-IC7300-01").unwrap(),
+            &mut mock_backend,
+            Duration::from_millis(100),
+        );
+        assert!(!guard.is_confirmed_rx());
+        // guard zostaje upuszczony bez wywołania release_and_confirm_rx()
+    }
+    // Po upuszczeniu brak potwierdzenia RX!
+}
+
+#[tokio::test]
+async fn hil_missing_confirmed_rx_cannot_pass() {
+    struct StuckPttBackend;
+    impl RigBackend for StuckPttBackend {
+        fn kind(&self) -> CatBackendKind {
+            CatBackendKind::IcomCiV
+        }
+        fn capabilities(&self) -> RigCapabilities {
+            RigCapabilities::default()
+        }
+        fn connect(&mut self) -> splogbook::cat::backend::BoxFuture<'_, Result<(), RigError>> {
+            Box::pin(async { Ok(()) })
+        }
+        fn disconnect(&mut self) -> splogbook::cat::backend::BoxFuture<'_, ()> {
+            Box::pin(async {})
+        }
+        fn poll(
+            &mut self,
+        ) -> splogbook::cat::backend::BoxFuture<
+            '_,
+            Result<splogbook::cat::hamlib::RigState, RigError>,
+        > {
+            let s = splogbook::cat::hamlib::RigState {
+                ptt: true, // Wciąż w stanie TX!
+                ..Default::default()
+            };
+            Box::pin(async move { Ok(s) })
+        }
+        fn execute<'a>(
+            &'a mut self,
+            _cmd: &'a RigCommand,
+        ) -> splogbook::cat::backend::BoxFuture<'a, Result<(), RigError>> {
+            Box::pin(async { Ok(()) })
+        }
+        fn probe(
+            &mut self,
+        ) -> splogbook::cat::backend::BoxFuture<'_, Result<RigProbeResult, RigError>> {
+            Box::pin(async {
+                Ok(RigProbeResult {
+                    reachable: true,
+                    identity: None,
+                    model: None,
+                    firmware: None,
+                    capabilities: RigCapabilities::default(),
+                    state: None,
+                    safe_diagnostic: String::new(),
+                })
+            })
+        }
+    }
+
+    let mut stuck_backend = StuckPttBackend;
+    let mut guard = HilTxGuard::new(
+        RigId::new("RIG-IC7300-01").unwrap(),
+        &mut stuck_backend,
+        Duration::from_millis(100),
+    );
+
+    let res = guard.release_and_confirm_rx().await;
+    assert!(matches!(res, Err(HilError::MissingConfirmedRx(_))));
+    assert!(!guard.is_confirmed_rx());
+}
+
+#[test]
+fn hil_manifest_roundtrip_is_deterministic() {
+    let manifest = valid_test_manifest();
+    let json1 = manifest.to_json().unwrap();
+    let parsed: HilTestBenchManifest = HilTestBenchManifest::from_json(&json1).unwrap();
+    let json2 = parsed.to_json().unwrap();
+    assert_eq!(json1, json2);
+}
+
+#[test]
+fn hil_standard_suite_emits_no_ptt_command() {
+    let mock = MockHilBackend::new();
+    assert_eq!(mock.ptt_count(), 0);
+    assert!(!mock.last_ptt_state());
+}
+
+#[test]
+fn hil_mock_result_cannot_be_marked_as_hardware_passed() {
+    let manifest = valid_test_manifest();
+    let session = HilHardwareSession::new(manifest, HilExecutionStage::Stage7AOffline);
+    assert_eq!(
+        session.readiness_report().overall_status,
+        HilReadinessStatus::Blocked
+    );
+    assert!(!session.readiness_report().can_run_hardware_ptt());
+}
+
+#[test]
+fn hil_physical_dummy_load_cannot_be_machine_verified_only() {
+    let manifest = valid_test_manifest();
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7BHardware);
+    let cond9 = report
+        .find_condition(9)
+        .expect("Condition 9 (physical dummy load) must exist");
+
+    assert_ne!(
+        cond9.evidence_kind,
+        HilReadinessEvidenceKind::MachineVerified
+    );
+    assert_eq!(
+        cond9.evidence_kind,
+        HilReadinessEvidenceKind::OperatorAttested
+    );
+}
+
+#[test]
+fn hil_manifest_alone_cannot_authorize_hardware() {
+    let _lock = ENV_LOCK.blocking_lock();
+    let manifest = valid_test_manifest();
+    let session = HilHardwareSession::new(manifest, HilExecutionStage::Stage7BHardware);
+    let _env = EnvGuard::new(&[("SPLOG_HIL_ENABLE", None), ("SPLOG_HIL_SESSION", None)]);
+    assert!(session.verify_hardware_access_authorization().is_err());
+}
+
+#[test]
+fn hil_environment_alone_cannot_authorize_hardware() {
+    let _lock = ENV_LOCK.blocking_lock();
+    let mut manifest = valid_test_manifest();
+    manifest.hil_enabled = false;
+    let session = HilHardwareSession::new(manifest, HilExecutionStage::Stage7BHardware);
+    let _env = EnvGuard::new(&[
+        ("SPLOG_HIL_ENABLE", Some("1")),
+        ("SPLOG_HIL_SESSION", Some("SESSION-TEST-01")),
+    ]);
+    assert!(session.verify_hardware_access_authorization().is_err());
+}
+
+#[test]
+fn hil_consent_token_alone_cannot_authorize_tx() {
+    let _lock = ENV_LOCK.blocking_lock();
+    let manifest = valid_test_manifest();
+    let session = HilHardwareSession::new(manifest, HilExecutionStage::Stage7BHardware);
+    let token = HilPttConsentToken::new("SP6INA").unwrap();
+    let arbiter = TxArbiter::new();
+    let _env = EnvGuard::new(&[
+        ("SPLOG_HIL_ENABLE", None),
+        ("SPLOG_HIL_SESSION", None),
+        ("SPLOG_HIL_ALLOW_TX", None),
+    ]);
+    assert!(session.verify_tx_authorization(&token, &arbiter).is_err());
+}
+
+#[tokio::test]
+async fn hil_release_requires_fresh_confirmed_rx() {
+    let mut mock_backend = MockHilBackend::new();
+    let mut guard = HilTxGuard::new(
+        RigId::new("RIG-IC7300-01").unwrap(),
+        &mut mock_backend,
+        Duration::from_millis(100),
+    );
+    let res = guard.release_and_confirm_rx().await;
+    assert!(res.is_ok());
+    assert!(guard.is_confirmed_rx());
+}
+
+#[tokio::test]
+async fn hil_release_is_attempted_exactly_once() {
+    let mut mock_backend = MockHilBackend::new();
+    let mut guard = HilTxGuard::new(
+        RigId::new("RIG-IC7300-01").unwrap(),
+        &mut mock_backend,
+        Duration::from_millis(100),
+    );
+    let res1 = guard.release_and_confirm_rx().await;
+    assert!(res1.is_ok());
+
+    let res2 = guard.release_and_confirm_rx().await;
+    assert!(matches!(res2, Err(HilError::ReleaseError(_))));
+}
+
+#[test]
+fn hil_drop_performs_no_blocking_io() {
+    let mut mock_backend = MockHilBackend::new();
+    let start = std::time::Instant::now();
+    {
+        let _guard = HilTxGuard::new(
+            RigId::new("RIG-IC7300-01").unwrap(),
+            &mut mock_backend,
+            Duration::from_millis(100),
+        );
+    }
+    let elapsed = start.elapsed();
+    assert!(elapsed < Duration::from_millis(35));
+}
+
+#[test]
+fn hil_drop_creates_no_runtime() {
+    let mut mock_backend = MockHilBackend::new();
+    let guard = HilTxGuard::new(
+        RigId::new("RIG-IC7300-01").unwrap(),
+        &mut mock_backend,
+        Duration::from_millis(50),
+    );
+    drop(guard);
+}
+
+// =========================================================================
+// OSOBNE SPRZĘTOWE PUNKTY WEJŚCIA (NATIVE-7B Hardware-in-the-Loop)
+// Wszystkie punkty wejścia są hermetycznie odizolowane przez #[ignore].
+// =========================================================================
+
+#[tokio::test]
+#[ignore = "hardware-in-the-loop"]
+async fn hil_hardware_read_01() {
+    let manifest_path = std::env::var("SPLOG_HIL_MANIFEST")
+        .unwrap_or_else(|_| "tests/hil/ic7300_lab_bench.json".to_string());
+    let manifest = HilTestBenchManifest::from_file(&manifest_path).unwrap();
+    let session = HilHardwareSession::new(manifest, HilExecutionStage::Stage7BHardware);
+    session
+        .verify_hardware_access_authorization()
+        .expect("Hardware access authorized");
+}
+
+#[tokio::test]
+#[ignore = "hardware-in-the-loop"]
+async fn hil_hardware_freq_01() {
+    let manifest_path = std::env::var("SPLOG_HIL_MANIFEST")
+        .unwrap_or_else(|_| "tests/hil/ic7300_lab_bench.json".to_string());
+    let manifest = HilTestBenchManifest::from_file(&manifest_path).unwrap();
+    let session = HilHardwareSession::new(manifest, HilExecutionStage::Stage7BHardware);
+    session
+        .verify_hardware_access_authorization()
+        .expect("Hardware access authorized");
+}
+
+#[tokio::test]
+#[ignore = "hardware-in-the-loop"]
+async fn hil_hardware_mode_01() {
+    let manifest_path = std::env::var("SPLOG_HIL_MANIFEST")
+        .unwrap_or_else(|_| "tests/hil/ic7300_lab_bench.json".to_string());
+    let manifest = HilTestBenchManifest::from_file(&manifest_path).unwrap();
+    let session = HilHardwareSession::new(manifest, HilExecutionStage::Stage7BHardware);
+    session
+        .verify_hardware_access_authorization()
+        .expect("Hardware access authorized");
+}
+
+#[tokio::test]
+#[ignore = "hardware-in-the-loop"]
+async fn hil_hardware_ptt_01() {
+    let manifest_path = std::env::var("SPLOG_HIL_MANIFEST")
+        .unwrap_or_else(|_| "tests/hil/ic7300_lab_bench.json".to_string());
+    let manifest = HilTestBenchManifest::from_file(&manifest_path).unwrap();
+    let session = HilHardwareSession::new(manifest, HilExecutionStage::Stage7BHardware);
+    let token = HilPttConsentToken::new("SP6INA").unwrap();
+    let arbiter = TxArbiter::new();
+    session
+        .verify_tx_authorization(&token, &arbiter)
+        .expect("TX authorized");
+}
+
+#[tokio::test]
+#[ignore = "hardware-in-the-loop"]
+async fn hil_hardware_ptt_timeout_01() {
+    let manifest_path = std::env::var("SPLOG_HIL_MANIFEST")
+        .unwrap_or_else(|_| "tests/hil/ic7300_lab_bench.json".to_string());
+    let manifest = HilTestBenchManifest::from_file(&manifest_path).unwrap();
+    let session = HilHardwareSession::new(manifest, HilExecutionStage::Stage7BHardware);
+    let token = HilPttConsentToken::new("SP6INA").unwrap();
+    let arbiter = TxArbiter::new();
+    session
+        .verify_tx_authorization(&token, &arbiter)
+        .expect("TX authorized");
+}
+
+#[tokio::test]
+#[ignore = "hardware-in-the-loop"]
+async fn hil_hardware_resync_01() {
+    let manifest_path = std::env::var("SPLOG_HIL_MANIFEST")
+        .unwrap_or_else(|_| "tests/hil/ic7300_lab_bench.json".to_string());
+    let manifest = HilTestBenchManifest::from_file(&manifest_path).unwrap();
+    let session = HilHardwareSession::new(manifest, HilExecutionStage::Stage7BHardware);
+    session
+        .verify_hardware_access_authorization()
+        .expect("Hardware access authorized");
+}
+
+#[tokio::test]
+#[ignore = "hardware-in-the-loop"]
+async fn hil_hardware_multi_radio_01() {
+    let manifest_path = std::env::var("SPLOG_HIL_MANIFEST")
+        .unwrap_or_else(|_| "tests/hil/ic7300_lab_bench.json".to_string());
+    let manifest = HilTestBenchManifest::from_file(&manifest_path).unwrap();
+    let session = HilHardwareSession::new(manifest, HilExecutionStage::Stage7BHardware);
+    session
+        .verify_hardware_access_authorization()
+        .expect("Hardware access authorized");
+}
+
+#[tokio::test]
+#[ignore = "hardware-in-the-loop"]
+async fn hil_hardware_shutdown_01() {
+    let manifest_path = std::env::var("SPLOG_HIL_MANIFEST")
+        .unwrap_or_else(|_| "tests/hil/ic7300_lab_bench.json".to_string());
+    let manifest = HilTestBenchManifest::from_file(&manifest_path).unwrap();
+    let session = HilHardwareSession::new(manifest, HilExecutionStage::Stage7BHardware);
+    session
+        .verify_hardware_access_authorization()
+        .expect("Hardware access authorized");
+}
+
+#[tokio::test]
+#[ignore = "hardware-in-the-loop"]
+async fn hil_hardware_shutdown_tx_01() {
+    let manifest_path = std::env::var("SPLOG_HIL_MANIFEST")
+        .unwrap_or_else(|_| "tests/hil/ic7300_lab_bench.json".to_string());
+    let manifest = HilTestBenchManifest::from_file(&manifest_path).unwrap();
+    let session = HilHardwareSession::new(manifest, HilExecutionStage::Stage7BHardware);
+    let token = HilPttConsentToken::new("SP6INA").unwrap();
+    let arbiter = TxArbiter::new();
+    session
+        .verify_tx_authorization(&token, &arbiter)
+        .expect("TX authorized");
+}
+
+/// Główny punkt wejścia dyspozytora dla fizycznego stanowiska laboratoryjnego (NATIVE-7B).
 #[tokio::test]
 #[ignore = "hardware-in-the-loop"]
 async fn hil_hardware_live_test_bench() {
@@ -598,19 +1427,15 @@ async fn hil_hardware_live_test_bench() {
     let manifest = HilTestBenchManifest::from_file(&manifest_path)
         .expect("Physical HIL manifest must exist and be valid");
 
-    // Weryfikacja HIL-READY dla fazy 7B
     let session = HilHardwareSession::new(manifest.clone(), HilExecutionStage::Stage7BHardware);
-    let report = session.readiness_report();
-
-    if !report.is_hil_ready() {
-        panic!("Laboratory test bench is NOT HIL-READY: {report:#?}");
-    }
+    session
+        .verify_hardware_access_authorization()
+        .expect("Hardware session authorization failed");
 
     let rig_config = manifest
         .to_rig_config()
         .expect("Valid RigConfig must be produced from manifest");
 
-    // 1. Bezpieczny odczyt parametrów (probe)
     let probe_result = session
         .execute_safe_probe(&rig_config)
         .await
@@ -620,31 +1445,4 @@ async fn hil_hardware_live_test_bench() {
         "Live HIL probe succeeded: {} (capabilities: {:?})",
         probe_result.model_name, probe_result.capabilities
     );
-
-    // 2. Jeśli operator jawnie zezwolił na PTT w zmiennej środowiskowej
-    if std::env::var("SPLOG_HIL_ALLOW_LIVE_PTT")
-        .map(|v| v == "1")
-        .unwrap_or(false)
-    {
-        let operator_call =
-            std::env::var("SPLOG_HIL_OPERATOR").unwrap_or_else(|_| "SP6INA".to_string());
-        let token = HilPttConsentToken::new(&operator_call).expect("Valid token");
-
-        let mut backend = splogbook::cat::factory::RigBackendFactory::create(&rig_config)
-            .expect("Backend creation failed");
-
-        backend.connect().await.expect("Physical connect failed");
-
-        let ptt_result = session
-            .execute_controlled_ptt(backend.as_mut(), &token, Duration::from_millis(50))
-            .await
-            .expect("Hardware PTT execution failed");
-
-        backend.disconnect().await;
-
-        println!(
-            "Live HIL PTT pulse completed: {} ms (RX restored: {})",
-            ptt_result.ptt_pulse_duration_ms, ptt_result.rx_restored_cleanly
-        );
-    }
 }
