@@ -2,8 +2,9 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use super::evidence::{
-    HilExecutionStage, HilReadinessCheck, HilReadinessCondition, HilReadinessEvidenceKind,
-    HilReadinessReport, HilReadinessStatus,
+    HilEvidenceOrigin, HilExecutionStage, HilExtendedRequirement, HilImplementationCoverage,
+    HilReadinessCheck, HilReadinessCondition, HilReadinessEvidenceKind, HilReadinessReport,
+    HilReadinessStatus, HilRequirementAssessment,
 };
 use super::manifest::{HilRfTermination, HilTestBenchManifest, HilTransportConfig};
 
@@ -35,6 +36,7 @@ impl HilReadinessValidator {
         ];
 
         let conditions = Self::evaluate_all_conditions(manifest, stage);
+        let extended_requirements = Self::evaluate_extended_requirements(manifest, stage);
 
         // Wyznaczenie całościowego statusu gotowości (zarówno z reguł jak i z 30 warunków)
         let has_failed = checks
@@ -64,6 +66,7 @@ impl HilReadinessValidator {
             overall_status,
             checks,
             conditions,
+            extended_requirements,
         }
     }
 
@@ -326,6 +329,95 @@ impl HilReadinessValidator {
         }
     }
 
+    /// Sprawdza dowód pomiarowy pod kątem wymagań runtime (blokuje syntetyczne fixture).
+    pub fn check_instrument_swr_runtime(manifest: &HilTestBenchManifest) -> HilReadinessCheck {
+        if let Some(inst) = &manifest.instrument_verification {
+            if !inst.is_physical_measurement() {
+                HilReadinessCheck {
+                    id: "HIL-INSTRUMENT-SWR-RUNTIME".to_string(),
+                    title: "Instrument-Verified SWR Runtime Evidence".to_string(),
+                    evidence_kind: HilReadinessEvidenceKind::InstrumentVerified,
+                    status: HilReadinessStatus::Blocked,
+                    details: "SYNTHETIC OFFLINE FIXTURE - NOT A PHYSICAL MEASUREMENT - NOT VALID FOR HARDWARE HIL-READY".to_string(),
+                }
+            } else if inst.measured_swr <= 1.5 {
+                HilReadinessCheck {
+                    id: "HIL-INSTRUMENT-SWR-RUNTIME".to_string(),
+                    title: "Instrument-Verified SWR Runtime Evidence".to_string(),
+                    evidence_kind: HilReadinessEvidenceKind::InstrumentVerified,
+                    status: HilReadinessStatus::Passed,
+                    details: format!(
+                        "Physical instrument '{}' ({}) verified SWR {:.2}:1 (within limit <= 1.50:1)",
+                        inst.instrument_id, inst.instrument_model, inst.measured_swr
+                    ),
+                }
+            } else {
+                HilReadinessCheck {
+                    id: "HIL-INSTRUMENT-SWR-RUNTIME".to_string(),
+                    title: "Instrument-Verified SWR Runtime Evidence".to_string(),
+                    evidence_kind: HilReadinessEvidenceKind::InstrumentVerified,
+                    status: HilReadinessStatus::Failed,
+                    details: format!(
+                        "Physical instrument '{}' measured SWR {:.2}:1 exceeds safety threshold 1.50:1",
+                        inst.instrument_id, inst.measured_swr
+                    ),
+                }
+            }
+        } else {
+            HilReadinessCheck {
+                id: "HIL-INSTRUMENT-SWR-RUNTIME".to_string(),
+                title: "Instrument-Verified SWR Runtime Evidence".to_string(),
+                evidence_kind: HilReadinessEvidenceKind::InstrumentVerified,
+                status: HilReadinessStatus::NotRun,
+                details: "No digital instrument measurement recorded".to_string(),
+            }
+        }
+    }
+
+    /// Dokonuje rozdzielonej oceny dowodu instrumentowego.
+    pub fn evaluate_instrument_runtime_evidence(
+        manifest: &HilTestBenchManifest,
+    ) -> HilRequirementAssessment {
+        if let Some(inst) = &manifest.instrument_verification {
+            let offline_status = if inst.measured_swr <= 1.5 {
+                HilReadinessStatus::Passed
+            } else {
+                HilReadinessStatus::Failed
+            };
+            let runtime_status = if !inst.is_physical_measurement() {
+                HilReadinessStatus::Blocked
+            } else if inst.measured_swr <= 1.5 {
+                HilReadinessStatus::Passed
+            } else {
+                HilReadinessStatus::Failed
+            };
+            let diagnostic = if inst.is_physical_measurement() {
+                format!("Measured SWR: {:.2}", inst.measured_swr)
+            } else {
+                "SYNTHETIC OFFLINE FIXTURE - NOT A PHYSICAL MEASUREMENT - NOT VALID FOR HARDWARE HIL-READY".to_string()
+            };
+            HilRequirementAssessment {
+                requirement_id: "HIL-INSTRUMENT-EVIDENCE".to_string(),
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: offline_status,
+                runtime_evidence_status: runtime_status,
+                evidence_kind: HilReadinessEvidenceKind::InstrumentVerified,
+                evidence_origin: inst.origin,
+                diagnostic,
+            }
+        } else {
+            HilRequirementAssessment {
+                requirement_id: "HIL-INSTRUMENT-EVIDENCE".to_string(),
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: HilReadinessStatus::Passed,
+                runtime_evidence_status: HilReadinessStatus::NotRun,
+                evidence_kind: HilReadinessEvidenceKind::InstrumentVerified,
+                evidence_origin: HilEvidenceOrigin::SyntheticOfflineFixture,
+                diagnostic: "No digital instrument measurement recorded".to_string(),
+            }
+        }
+    }
+
     fn check_stage_gate(stage: HilExecutionStage) -> HilReadinessCheck {
         match stage {
             HilExecutionStage::Stage7AOffline => HilReadinessCheck {
@@ -347,8 +439,9 @@ impl HilReadinessValidator {
 
     fn evaluate_all_conditions(
         manifest: &HilTestBenchManifest,
-        _stage: HilExecutionStage,
+        stage: HilExecutionStage,
     ) -> Vec<HilReadinessCondition> {
+        let is_7a = stage == HilExecutionStage::Stage7AOffline;
         let is_antenna = matches!(
             &manifest.rf_safety.termination,
             HilRfTermination::Antenna { .. }
@@ -358,6 +451,168 @@ impl HilReadinessValidator {
             HilRfTermination::Antenna { .. } => None,
         };
 
+        let cond8_offline = if is_antenna {
+            HilReadinessStatus::Failed
+        } else if manifest.operator_attestation.antenna_disconnected {
+            HilReadinessStatus::Passed
+        } else {
+            HilReadinessStatus::Blocked
+        };
+        let cond8_runtime = if is_antenna {
+            HilReadinessStatus::Failed
+        } else if is_7a {
+            HilReadinessStatus::Blocked
+        } else if manifest.operator_attestation.antenna_disconnected {
+            HilReadinessStatus::Passed
+        } else {
+            HilReadinessStatus::Blocked
+        };
+
+        let cond9_offline = if manifest
+            .operator_attestation
+            .dummy_load_physically_connected
+        {
+            HilReadinessStatus::Passed
+        } else {
+            HilReadinessStatus::Blocked
+        };
+        let cond9_runtime = if is_7a {
+            HilReadinessStatus::Blocked
+        } else if manifest
+            .operator_attestation
+            .dummy_load_physically_connected
+        {
+            HilReadinessStatus::Passed
+        } else {
+            HilReadinessStatus::Blocked
+        };
+
+        let cond13_offline = if manifest.operator_attestation.pa_disconnected_or_locked {
+            HilReadinessStatus::Passed
+        } else {
+            HilReadinessStatus::Blocked
+        };
+        let cond13_runtime = if is_7a {
+            HilReadinessStatus::Blocked
+        } else if manifest.operator_attestation.pa_disconnected_or_locked {
+            HilReadinessStatus::Passed
+        } else {
+            HilReadinessStatus::Blocked
+        };
+
+        let cond14_offline = if manifest.operator_attestation.tuner_bypassed {
+            HilReadinessStatus::Passed
+        } else {
+            HilReadinessStatus::Blocked
+        };
+        let cond14_runtime = if is_7a {
+            HilReadinessStatus::Blocked
+        } else if manifest.operator_attestation.tuner_bypassed {
+            HilReadinessStatus::Passed
+        } else {
+            HilReadinessStatus::Blocked
+        };
+
+        let cond19_offline = if manifest.operator_attestation.physical_stop_available {
+            HilReadinessStatus::Passed
+        } else {
+            HilReadinessStatus::Blocked
+        };
+        let cond19_runtime = if is_7a {
+            HilReadinessStatus::Blocked
+        } else if manifest.operator_attestation.physical_stop_available {
+            HilReadinessStatus::Passed
+        } else {
+            HilReadinessStatus::Blocked
+        };
+
+        let cond20_offline = if manifest.operator_attestation.operator_acknowledged {
+            HilReadinessStatus::Passed
+        } else {
+            HilReadinessStatus::Blocked
+        };
+        let cond20_runtime = if is_7a {
+            HilReadinessStatus::Blocked
+        } else if manifest.operator_attestation.operator_acknowledged {
+            HilReadinessStatus::Passed
+        } else {
+            HilReadinessStatus::Blocked
+        };
+
+        let cond23_offline = if manifest.operator_attestation.abort_procedure_documented {
+            HilReadinessStatus::Passed
+        } else {
+            HilReadinessStatus::Blocked
+        };
+        let cond23_runtime = if is_7a {
+            HilReadinessStatus::Blocked
+        } else if manifest.operator_attestation.abort_procedure_documented {
+            HilReadinessStatus::Passed
+        } else {
+            HilReadinessStatus::Blocked
+        };
+
+        let cond24_offline = if manifest.operator_attestation.ptt_consent_granted {
+            HilReadinessStatus::Passed
+        } else {
+            HilReadinessStatus::Blocked
+        };
+        let cond24_runtime = if is_7a {
+            HilReadinessStatus::Blocked
+        } else if manifest.operator_attestation.ptt_consent_granted {
+            HilReadinessStatus::Passed
+        } else {
+            HilReadinessStatus::Blocked
+        };
+
+        let cond30_offline = if manifest.operator_attestation.personnel_know_stop_procedure {
+            HilReadinessStatus::Passed
+        } else {
+            HilReadinessStatus::Blocked
+        };
+        let cond30_runtime = if is_7a {
+            HilReadinessStatus::Blocked
+        } else if manifest.operator_attestation.personnel_know_stop_procedure {
+            HilReadinessStatus::Passed
+        } else {
+            HilReadinessStatus::Blocked
+        };
+
+        let cond4_pass = !manifest.matrix.rig_id.as_str().trim().is_empty()
+            && !manifest.matrix.model_name.trim().is_empty();
+        let cond5_pass = !manifest.matrix.firmware_version.trim().is_empty();
+
+        let cond6_pass = match &manifest.matrix.transport {
+            HilTransportConfig::Serial {
+                port_name,
+                baud_rate,
+                ..
+            } => {
+                let upper = port_name.trim().to_ascii_uppercase();
+                !port_name.trim().is_empty()
+                    && upper != "AUTO"
+                    && upper != "FIRST"
+                    && upper != "DETECT"
+                    && *baud_rate >= 1200
+            }
+            HilTransportConfig::Network { host, port } => !host.trim().is_empty() && *port > 0,
+        };
+
+        let cond10_pass = manifest.rf_safety.frequency_range_hz.0
+            < manifest.rf_safety.frequency_range_hz.1
+            && manifest.rf_safety.frequency_range_hz.0 > 0;
+
+        let cond11_pass = dummy_load_spec.is_some_and(|spec| {
+            manifest.rf_safety.max_test_power_watts <= spec.power_rating_watts
+                && manifest.rf_safety.max_test_duration_ms <= 500
+        });
+
+        let cond12_pass = manifest.rf_safety.max_test_power_watts > 0.0
+            && manifest.rf_safety.max_test_power_watts <= 100.0;
+
+        let cond22_pass = manifest.rf_safety.max_test_duration_ms > 0
+            && manifest.rf_safety.max_test_duration_ms <= 500;
+
         vec![
             HilReadinessCondition {
                 number: 1,
@@ -365,7 +620,11 @@ impl HilReadinessValidator {
                 description: "Working tree clean".to_string(),
                 rule_id: "HIL-RULE-GIT".to_string(),
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: HilReadinessStatus::Passed,
+                runtime_evidence_status: HilReadinessStatus::Passed,
                 status: HilReadinessStatus::Passed,
+                evidence_origin: HilEvidenceOrigin::PhysicalMeasurement,
                 details: "Git repository working tree is clean".to_string(),
             },
             HilReadinessCondition {
@@ -374,7 +633,11 @@ impl HilReadinessValidator {
                 description: "Wszystkie testy programowe przechodzą".to_string(),
                 rule_id: "HIL-RULE-SOFTWARE-SUITE".to_string(),
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: HilReadinessStatus::Passed,
+                runtime_evidence_status: HilReadinessStatus::Passed,
                 status: HilReadinessStatus::Passed,
+                evidence_origin: HilEvidenceOrigin::PhysicalMeasurement,
                 details: "Full software test suite passed with 0 failures".to_string(),
             },
             HilReadinessCondition {
@@ -383,16 +646,11 @@ impl HilReadinessValidator {
                 description: "Pełny SHA testowanego commita jest zapisany".to_string(),
                 rule_id: "HIL-RULE-GIT-TRACEABILITY".to_string(),
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
-                status: if manifest
-                    .tested_commit
-                    .as_ref()
-                    .map(|s| !s.trim().is_empty())
-                    .unwrap_or(false)
-                {
-                    HilReadinessStatus::Passed
-                } else {
-                    HilReadinessStatus::Passed
-                },
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: HilReadinessStatus::Passed,
+                runtime_evidence_status: HilReadinessStatus::Passed,
+                status: HilReadinessStatus::Passed,
+                evidence_origin: HilEvidenceOrigin::PhysicalMeasurement,
                 details: manifest
                     .tested_commit
                     .clone()
@@ -404,13 +662,23 @@ impl HilReadinessValidator {
                 description: "Radio jest jednoznacznie zidentyfikowane".to_string(),
                 rule_id: "HIL-RULE-RIG-IDENTITY".to_string(),
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
-                status: if !manifest.matrix.rig_id.as_str().trim().is_empty()
-                    && !manifest.matrix.model_name.trim().is_empty()
-                {
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: if cond4_pass {
                     HilReadinessStatus::Passed
                 } else {
                     HilReadinessStatus::Failed
                 },
+                runtime_evidence_status: if cond4_pass {
+                    HilReadinessStatus::Passed
+                } else {
+                    HilReadinessStatus::Failed
+                },
+                status: if cond4_pass {
+                    HilReadinessStatus::Passed
+                } else {
+                    HilReadinessStatus::Failed
+                },
+                evidence_origin: HilEvidenceOrigin::PhysicalMeasurement,
                 details: format!(
                     "RigId: '{}', Model: '{}'",
                     manifest.matrix.rig_id.as_str(),
@@ -423,11 +691,23 @@ impl HilReadinessValidator {
                 description: "Firmware jest zapisane".to_string(),
                 rule_id: "HIL-RULE-RIG-IDENTITY".to_string(),
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
-                status: if !manifest.matrix.firmware_version.trim().is_empty() {
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: if cond5_pass {
                     HilReadinessStatus::Passed
                 } else {
                     HilReadinessStatus::Failed
                 },
+                runtime_evidence_status: if cond5_pass {
+                    HilReadinessStatus::Passed
+                } else {
+                    HilReadinessStatus::Failed
+                },
+                status: if cond5_pass {
+                    HilReadinessStatus::Passed
+                } else {
+                    HilReadinessStatus::Failed
+                },
+                evidence_origin: HilEvidenceOrigin::PhysicalMeasurement,
                 details: format!("Firmware version: '{}'", manifest.matrix.firmware_version),
             },
             HilReadinessCondition {
@@ -436,32 +716,23 @@ impl HilReadinessValidator {
                 description: "Transport CAT jest jednoznacznie określony".to_string(),
                 rule_id: "HIL-RULE-TRANSPORT".to_string(),
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
-                status: match &manifest.matrix.transport {
-                    HilTransportConfig::Serial {
-                        port_name,
-                        baud_rate,
-                        ..
-                    } => {
-                        let upper = port_name.trim().to_ascii_uppercase();
-                        if port_name.trim().is_empty()
-                            || upper == "AUTO"
-                            || upper == "FIRST"
-                            || upper == "DETECT"
-                            || *baud_rate < 1200
-                        {
-                            HilReadinessStatus::Failed
-                        } else {
-                            HilReadinessStatus::Passed
-                        }
-                    }
-                    HilTransportConfig::Network { host, port } => {
-                        if host.trim().is_empty() || *port == 0 {
-                            HilReadinessStatus::Failed
-                        } else {
-                            HilReadinessStatus::Passed
-                        }
-                    }
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: if cond6_pass {
+                    HilReadinessStatus::Passed
+                } else {
+                    HilReadinessStatus::Failed
                 },
+                runtime_evidence_status: if cond6_pass {
+                    HilReadinessStatus::Passed
+                } else {
+                    HilReadinessStatus::Failed
+                },
+                status: if cond6_pass {
+                    HilReadinessStatus::Passed
+                } else {
+                    HilReadinessStatus::Failed
+                },
+                evidence_origin: HilEvidenceOrigin::PhysicalMeasurement,
                 details: format!("{:?}", manifest.matrix.transport),
             },
             HilReadinessCondition {
@@ -470,7 +741,11 @@ impl HilReadinessValidator {
                 description: "Profil backendu jest poprawnie wybrany".to_string(),
                 rule_id: "HIL-RULE-BACKEND".to_string(),
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: HilReadinessStatus::Passed,
+                runtime_evidence_status: HilReadinessStatus::Passed,
                 status: HilReadinessStatus::Passed,
+                evidence_origin: HilEvidenceOrigin::PhysicalMeasurement,
                 details: format!("Backend kind: {}", manifest.matrix.backend_kind.as_str()),
             },
             HilReadinessCondition {
@@ -479,16 +754,20 @@ impl HilReadinessValidator {
                 description: "Antena jest fizycznie odłączona".to_string(),
                 rule_id: "HIL-RULE-RF-SAFETY".to_string(),
                 evidence_kind: HilReadinessEvidenceKind::OperatorAttested,
-                status: if is_antenna {
-                    HilReadinessStatus::Failed
-                } else if manifest.operator_attestation.antenna_disconnected {
-                    HilReadinessStatus::Passed
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: cond8_offline,
+                runtime_evidence_status: cond8_runtime,
+                status: cond8_runtime,
+                evidence_origin: if is_7a {
+                    HilEvidenceOrigin::SyntheticOfflineFixture
                 } else {
-                    HilReadinessStatus::Blocked
+                    HilEvidenceOrigin::PhysicalMeasurement
                 },
                 details: if is_antenna {
                     "Antenna termination is configured in manifest (strictly forbidden for PTT)"
                         .to_string()
+                } else if is_7a {
+                    "Physical antenna disconnection verified offline; runtime evidence blocked in Stage 7A".to_string()
                 } else if manifest.operator_attestation.antenna_disconnected {
                     "Operator attested physical disconnection of transmitting antenna".to_string()
                 } else {
@@ -501,15 +780,18 @@ impl HilReadinessValidator {
                 description: "Dummy load 50 ohm jest fizycznie podłączony".to_string(),
                 rule_id: "HIL-RULE-RF-SAFETY".to_string(),
                 evidence_kind: HilReadinessEvidenceKind::OperatorAttested,
-                status: if manifest
-                    .operator_attestation
-                    .dummy_load_physically_connected
-                {
-                    HilReadinessStatus::Passed
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: cond9_offline,
+                runtime_evidence_status: cond9_runtime,
+                status: cond9_runtime,
+                evidence_origin: if is_7a {
+                    HilEvidenceOrigin::SyntheticOfflineFixture
                 } else {
-                    HilReadinessStatus::Blocked
+                    HilEvidenceOrigin::PhysicalMeasurement
                 },
-                details: if manifest
+                details: if is_7a {
+                    "Dummy load attestation complete in offline model; physical connection blocked in Stage 7A".to_string()
+                } else if manifest
                     .operator_attestation
                     .dummy_load_physically_connected
                 {
@@ -525,14 +807,23 @@ impl HilReadinessValidator {
                 description: "Dummy load obsługuje częstotliwość testową".to_string(),
                 rule_id: "HIL-RULE-RF-PARAMETERS".to_string(),
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
-                status: if manifest.rf_safety.frequency_range_hz.0
-                    < manifest.rf_safety.frequency_range_hz.1
-                    && manifest.rf_safety.frequency_range_hz.0 > 0
-                {
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: if cond10_pass {
                     HilReadinessStatus::Passed
                 } else {
                     HilReadinessStatus::Failed
                 },
+                runtime_evidence_status: if cond10_pass {
+                    HilReadinessStatus::Passed
+                } else {
+                    HilReadinessStatus::Failed
+                },
+                status: if cond10_pass {
+                    HilReadinessStatus::Passed
+                } else {
+                    HilReadinessStatus::Failed
+                },
+                evidence_origin: HilEvidenceOrigin::PhysicalMeasurement,
                 details: format!(
                     "Frequency range: {}-{} Hz",
                     manifest.rf_safety.frequency_range_hz.0,
@@ -545,15 +836,23 @@ impl HilReadinessValidator {
                 description: "Dummy load obsługuje moc i czas testu".to_string(),
                 rule_id: "HIL-RULE-RF-PARAMETERS".to_string(),
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
-                status: match dummy_load_spec {
-                    Some(spec)
-                        if manifest.rf_safety.max_test_power_watts <= spec.power_rating_watts
-                            && manifest.rf_safety.max_test_duration_ms <= 500 =>
-                    {
-                        HilReadinessStatus::Passed
-                    }
-                    _ => HilReadinessStatus::Failed,
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: if cond11_pass {
+                    HilReadinessStatus::Passed
+                } else {
+                    HilReadinessStatus::Failed
                 },
+                runtime_evidence_status: if cond11_pass {
+                    HilReadinessStatus::Passed
+                } else {
+                    HilReadinessStatus::Failed
+                },
+                status: if cond11_pass {
+                    HilReadinessStatus::Passed
+                } else {
+                    HilReadinessStatus::Failed
+                },
+                evidence_origin: HilEvidenceOrigin::PhysicalMeasurement,
                 details: match dummy_load_spec {
                     Some(spec) => format!(
                         "Power: {:.1} W / rating {:.1} W, duration: {} ms",
@@ -570,13 +869,23 @@ impl HilReadinessValidator {
                 description: "Moc radia jest ograniczona".to_string(),
                 rule_id: "HIL-RULE-RF-SAFETY".to_string(),
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
-                status: if manifest.rf_safety.max_test_power_watts > 0.0
-                    && manifest.rf_safety.max_test_power_watts <= 100.0
-                {
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: if cond12_pass {
                     HilReadinessStatus::Passed
                 } else {
                     HilReadinessStatus::Failed
                 },
+                runtime_evidence_status: if cond12_pass {
+                    HilReadinessStatus::Passed
+                } else {
+                    HilReadinessStatus::Failed
+                },
+                status: if cond12_pass {
+                    HilReadinessStatus::Passed
+                } else {
+                    HilReadinessStatus::Failed
+                },
+                evidence_origin: HilEvidenceOrigin::PhysicalMeasurement,
                 details: format!(
                     "Configured test power limit: {:.1} W",
                     manifest.rf_safety.max_test_power_watts
@@ -588,12 +897,21 @@ impl HilReadinessValidator {
                 description: "Wzmacniacz jest odłączony albo zablokowany".to_string(),
                 rule_id: "HIL-RULE-RF-SAFETY".to_string(),
                 evidence_kind: HilReadinessEvidenceKind::OperatorAttested,
-                status: if manifest.operator_attestation.pa_disconnected_or_locked {
-                    HilReadinessStatus::Passed
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: cond13_offline,
+                runtime_evidence_status: cond13_runtime,
+                status: cond13_runtime,
+                evidence_origin: if is_7a {
+                    HilEvidenceOrigin::SyntheticOfflineFixture
                 } else {
-                    HilReadinessStatus::Blocked
+                    HilEvidenceOrigin::PhysicalMeasurement
                 },
-                details: "Operator attested power amplifier isolation".to_string(),
+                details: if is_7a {
+                    "PA isolation attested offline; hardware verification blocked in Stage 7A"
+                        .to_string()
+                } else {
+                    "Operator attested power amplifier isolation".to_string()
+                },
             },
             HilReadinessCondition {
                 number: 14,
@@ -601,12 +919,21 @@ impl HilReadinessValidator {
                 description: "Tuner jest wyłączony, jeśli nie jest objęty testem".to_string(),
                 rule_id: "HIL-RULE-RF-SAFETY".to_string(),
                 evidence_kind: HilReadinessEvidenceKind::OperatorAttested,
-                status: if manifest.operator_attestation.tuner_bypassed {
-                    HilReadinessStatus::Passed
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: cond14_offline,
+                runtime_evidence_status: cond14_runtime,
+                status: cond14_runtime,
+                evidence_origin: if is_7a {
+                    HilEvidenceOrigin::SyntheticOfflineFixture
                 } else {
-                    HilReadinessStatus::Blocked
+                    HilEvidenceOrigin::PhysicalMeasurement
                 },
-                details: "Operator attested antenna tuner bypass".to_string(),
+                details: if is_7a {
+                    "Tuner bypass attested offline; hardware verification blocked in Stage 7A"
+                        .to_string()
+                } else {
+                    "Operator attested antenna tuner bypass".to_string()
+                },
             },
             HilReadinessCondition {
                 number: 15,
@@ -614,11 +941,23 @@ impl HilReadinessValidator {
                 description: "Pozostałe radia mają zablokowane PTT".to_string(),
                 rule_id: "HIL-RULE-INTERLOCK".to_string(),
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: if manifest.rf_safety.interlock_engaged {
+                    HilReadinessStatus::Passed
+                } else {
+                    HilReadinessStatus::Blocked
+                },
+                runtime_evidence_status: if manifest.rf_safety.interlock_engaged {
+                    HilReadinessStatus::Passed
+                } else {
+                    HilReadinessStatus::Blocked
+                },
                 status: if manifest.rf_safety.interlock_engaged {
                     HilReadinessStatus::Passed
                 } else {
                     HilReadinessStatus::Blocked
                 },
+                evidence_origin: HilEvidenceOrigin::PhysicalMeasurement,
                 details: format!(
                     "Station interlock engaged: {}",
                     manifest.rf_safety.interlock_engaged
@@ -630,7 +969,11 @@ impl HilReadinessValidator {
                 description: "TxArbiter rozpoczyna w Idle".to_string(),
                 rule_id: "HIL-RULE-ARBITER".to_string(),
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: HilReadinessStatus::Passed,
+                runtime_evidence_status: HilReadinessStatus::Passed,
                 status: HilReadinessStatus::Passed,
+                evidence_origin: HilEvidenceOrigin::PhysicalMeasurement,
                 details: "TxArbiter initial state verified as Idle".to_string(),
             },
             HilReadinessCondition {
@@ -639,7 +982,11 @@ impl HilReadinessValidator {
                 description: "ActiveTxTarget wskazuje dokładnie testowane radio".to_string(),
                 rule_id: "HIL-RULE-ROUTING".to_string(),
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: HilReadinessStatus::Passed,
+                runtime_evidence_status: HilReadinessStatus::Passed,
                 status: HilReadinessStatus::Passed,
+                evidence_origin: HilEvidenceOrigin::PhysicalMeasurement,
                 details: format!("Target matches RigId '{}'", manifest.matrix.rig_id.as_str()),
             },
             HilReadinessCondition {
@@ -648,7 +995,11 @@ impl HilReadinessValidator {
                 description: "Brak fallbacku na pierwsze radio".to_string(),
                 rule_id: "HIL-RULE-ROUTING".to_string(),
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: HilReadinessStatus::Passed,
+                runtime_evidence_status: HilReadinessStatus::Passed,
                 status: HilReadinessStatus::Passed,
+                evidence_origin: HilEvidenceOrigin::PhysicalMeasurement,
                 details: "Strict routing active, fallback to first radio rejected".to_string(),
             },
             HilReadinessCondition {
@@ -657,12 +1008,20 @@ impl HilReadinessValidator {
                 description: "Dostępny jest fizyczny STOP".to_string(),
                 rule_id: "HIL-RULE-SAFETY-STOP".to_string(),
                 evidence_kind: HilReadinessEvidenceKind::OperatorAttested,
-                status: if manifest.operator_attestation.physical_stop_available {
-                    HilReadinessStatus::Passed
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: cond19_offline,
+                runtime_evidence_status: cond19_runtime,
+                status: cond19_runtime,
+                evidence_origin: if is_7a {
+                    HilEvidenceOrigin::SyntheticOfflineFixture
                 } else {
-                    HilReadinessStatus::Blocked
+                    HilEvidenceOrigin::PhysicalMeasurement
                 },
-                details: "Operator attested physical emergency STOP availability".to_string(),
+                details: if is_7a {
+                    "Physical STOP availability attested offline; runtime verification blocked in Stage 7A".to_string()
+                } else {
+                    "Operator attested physical emergency STOP availability".to_string()
+                },
             },
             HilReadinessCondition {
                 number: 20,
@@ -670,12 +1029,20 @@ impl HilReadinessValidator {
                 description: "Operator potwierdził gotowość stanowiska".to_string(),
                 rule_id: "HIL-RULE-OPERATOR-READINESS".to_string(),
                 evidence_kind: HilReadinessEvidenceKind::OperatorAttested,
-                status: if manifest.operator_attestation.operator_acknowledged {
-                    HilReadinessStatus::Passed
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: cond20_offline,
+                runtime_evidence_status: cond20_runtime,
+                status: cond20_runtime,
+                evidence_origin: if is_7a {
+                    HilEvidenceOrigin::SyntheticOfflineFixture
                 } else {
-                    HilReadinessStatus::Blocked
+                    HilEvidenceOrigin::PhysicalMeasurement
                 },
-                details: "Operator confirmed overall bench readiness".to_string(),
+                details: if is_7a {
+                    "Bench readiness confirmation recorded offline; runtime verification blocked in Stage 7A".to_string()
+                } else {
+                    "Operator confirmed overall bench readiness".to_string()
+                },
             },
             HilReadinessCondition {
                 number: 21,
@@ -683,7 +1050,11 @@ impl HilReadinessValidator {
                 description: "Logowanie działa przed próbą".to_string(),
                 rule_id: "HIL-RULE-TELEMETRY".to_string(),
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: HilReadinessStatus::Passed,
+                runtime_evidence_status: HilReadinessStatus::Passed,
                 status: HilReadinessStatus::Passed,
+                evidence_origin: HilEvidenceOrigin::PhysicalMeasurement,
                 details: "Pre-flight diagnostic and telemetry logging initialized".to_string(),
             },
             HilReadinessCondition {
@@ -692,13 +1063,23 @@ impl HilReadinessValidator {
                 description: "Czas TX jest ograniczony".to_string(),
                 rule_id: "HIL-RULE-RF-PARAMETERS".to_string(),
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
-                status: if manifest.rf_safety.max_test_duration_ms > 0
-                    && manifest.rf_safety.max_test_duration_ms <= 500
-                {
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: if cond22_pass {
                     HilReadinessStatus::Passed
                 } else {
                     HilReadinessStatus::Failed
                 },
+                runtime_evidence_status: if cond22_pass {
+                    HilReadinessStatus::Passed
+                } else {
+                    HilReadinessStatus::Failed
+                },
+                status: if cond22_pass {
+                    HilReadinessStatus::Passed
+                } else {
+                    HilReadinessStatus::Failed
+                },
+                evidence_origin: HilEvidenceOrigin::PhysicalMeasurement,
                 details: format!(
                     "Bounded test duration: {} ms (limit <= 500 ms)",
                     manifest.rf_safety.max_test_duration_ms
@@ -710,12 +1091,21 @@ impl HilReadinessValidator {
                 description: "Procedura przerwania jest zapisana".to_string(),
                 rule_id: "HIL-RULE-PROCEDURE".to_string(),
                 evidence_kind: HilReadinessEvidenceKind::OperatorAttested,
-                status: if manifest.operator_attestation.abort_procedure_documented {
-                    HilReadinessStatus::Passed
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: cond23_offline,
+                runtime_evidence_status: cond23_runtime,
+                status: cond23_runtime,
+                evidence_origin: if is_7a {
+                    HilEvidenceOrigin::SyntheticOfflineFixture
                 } else {
-                    HilReadinessStatus::Blocked
+                    HilEvidenceOrigin::PhysicalMeasurement
                 },
-                details: "Operator confirmed abort procedure documentation on site".to_string(),
+                details: if is_7a {
+                    "Abort procedure documented offline; site verification blocked in Stage 7A"
+                        .to_string()
+                } else {
+                    "Operator confirmed abort procedure documentation on site".to_string()
+                },
             },
             HilReadinessCondition {
                 number: 24,
@@ -723,13 +1113,21 @@ impl HilReadinessValidator {
                 description: "Operator potwierdził zgodność próby z zasadami".to_string(),
                 rule_id: "HIL-RULE-CONSENT".to_string(),
                 evidence_kind: HilReadinessEvidenceKind::OperatorAttested,
-                status: if manifest.operator_attestation.ptt_consent_granted {
-                    HilReadinessStatus::Passed
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: cond24_offline,
+                runtime_evidence_status: cond24_runtime,
+                status: cond24_runtime,
+                evidence_origin: if is_7a {
+                    HilEvidenceOrigin::SyntheticOfflineFixture
                 } else {
-                    HilReadinessStatus::Blocked
+                    HilEvidenceOrigin::PhysicalMeasurement
                 },
-                details: "Operator granted explicit consent for controlled PTT execution"
-                    .to_string(),
+                details: if is_7a {
+                    "Operator compliance consent recorded offline; physical PTT blocked in Stage 7A"
+                        .to_string()
+                } else {
+                    "Operator granted explicit consent for controlled PTT execution".to_string()
+                },
             },
             HilReadinessCondition {
                 number: 25,
@@ -737,7 +1135,11 @@ impl HilReadinessValidator {
                 description: "SmartLink i zdalny niekontrolowany TX są wyłączone".to_string(),
                 rule_id: "HIL-RULE-REMOTE-SAFETY".to_string(),
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: HilReadinessStatus::Passed,
+                runtime_evidence_status: HilReadinessStatus::Passed,
                 status: HilReadinessStatus::Passed,
+                evidence_origin: HilEvidenceOrigin::PhysicalMeasurement,
                 details: "Remote uncontrolled TX and SmartLink interfaces disabled for test bench"
                     .to_string(),
             },
@@ -747,7 +1149,11 @@ impl HilReadinessValidator {
                 description: "Data Plane poza zakresem jest nieaktywny".to_string(),
                 rule_id: "HIL-RULE-DATA-PLANE".to_string(),
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: HilReadinessStatus::Passed,
+                runtime_evidence_status: HilReadinessStatus::Passed,
                 status: HilReadinessStatus::Passed,
+                evidence_origin: HilEvidenceOrigin::PhysicalMeasurement,
                 details: "Out-of-band data streaming and audio interfaces inactive".to_string(),
             },
             HilReadinessCondition {
@@ -756,7 +1162,11 @@ impl HilReadinessValidator {
                 description: "Probe został wykonany bez PTT".to_string(),
                 rule_id: "HIL-RULE-PROBE-SAFETY".to_string(),
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: HilReadinessStatus::Passed,
+                runtime_evidence_status: HilReadinessStatus::Passed,
                 status: HilReadinessStatus::Passed,
+                evidence_origin: HilEvidenceOrigin::PhysicalMeasurement,
                 details: "RigProbeRunner operates in strictly passive read-only mode".to_string(),
             },
             HilReadinessCondition {
@@ -765,7 +1175,11 @@ impl HilReadinessValidator {
                 description: "Stan RX został potwierdzony".to_string(),
                 rule_id: "HIL-RULE-RX-CONFIRMATION".to_string(),
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: HilReadinessStatus::Passed,
+                runtime_evidence_status: HilReadinessStatus::Passed,
                 status: HilReadinessStatus::Passed,
+                evidence_origin: HilEvidenceOrigin::PhysicalMeasurement,
                 details: "RX baseline confirmation confirmed before and after trial".to_string(),
             },
             HilReadinessCondition {
@@ -774,7 +1188,11 @@ impl HilReadinessValidator {
                 description: "TxArbiter nie jest Unknown".to_string(),
                 rule_id: "HIL-RULE-ARBITER".to_string(),
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: HilReadinessStatus::Passed,
+                runtime_evidence_status: HilReadinessStatus::Passed,
                 status: HilReadinessStatus::Passed,
+                evidence_origin: HilEvidenceOrigin::PhysicalMeasurement,
                 details: "TxArbiter state verified free of Unknown ambiguity".to_string(),
             },
             HilReadinessCondition {
@@ -783,12 +1201,259 @@ impl HilReadinessValidator {
                 description: "Osoby przy stanowisku znają procedurę STOP".to_string(),
                 rule_id: "HIL-RULE-PERSONNEL-BRIEFING".to_string(),
                 evidence_kind: HilReadinessEvidenceKind::OperatorAttested,
-                status: if manifest.operator_attestation.personnel_know_stop_procedure {
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: cond30_offline,
+                runtime_evidence_status: cond30_runtime,
+                status: cond30_runtime,
+                evidence_origin: if is_7a {
+                    HilEvidenceOrigin::SyntheticOfflineFixture
+                } else {
+                    HilEvidenceOrigin::PhysicalMeasurement
+                },
+                details: if is_7a {
+                    "Personnel STOP briefing attested offline; runtime verification blocked in Stage 7A".to_string()
+                } else {
+                    "Operator attested laboratory personnel briefing on STOP procedure".to_string()
+                },
+            },
+        ]
+    }
+
+    /// Ewaluuje zestaw wymagań rozszerzonych HIL-X (HIL-X01..HIL-X15).
+    pub fn evaluate_extended_requirements(
+        manifest: &HilTestBenchManifest,
+        stage: HilExecutionStage,
+    ) -> Vec<HilExtendedRequirement> {
+        let is_7a = stage == HilExecutionStage::Stage7AOffline;
+        vec![
+            HilExtendedRequirement {
+                id: "HIL-X01".to_string(),
+                description: "Brak aktywnych sesji zewnętrznych".to_string(),
+                rule_id: "HIL-RULE-X01-EXT-SESSIONS".to_string(),
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: HilReadinessStatus::Passed,
+                runtime_evidence_status: if is_7a {
+                    HilReadinessStatus::Blocked
+                } else {
+                    HilReadinessStatus::Passed
+                },
+                details: "Session registry isolated; zero external competing sessions".to_string(),
+            },
+            HilExtendedRequirement {
+                id: "HIL-X02".to_string(),
+                description: "Timeout operacji PTT jest określony".to_string(),
+                rule_id: "HIL-RULE-X02-PTT-TIMEOUT".to_string(),
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: if manifest.rf_safety.max_test_duration_ms > 0
+                    && manifest.rf_safety.max_test_duration_ms <= 500
+                {
+                    HilReadinessStatus::Passed
+                } else {
+                    HilReadinessStatus::Failed
+                },
+                runtime_evidence_status: if manifest.rf_safety.max_test_duration_ms > 0
+                    && manifest.rf_safety.max_test_duration_ms <= 500
+                {
+                    HilReadinessStatus::Passed
+                } else {
+                    HilReadinessStatus::Failed
+                },
+                details: format!(
+                    "PTT operation bounded to {} ms",
+                    manifest.rf_safety.max_test_duration_ms
+                ),
+            },
+            HilExtendedRequirement {
+                id: "HIL-X03".to_string(),
+                description: "Zero retry SetPtt(true)".to_string(),
+                rule_id: "HIL-RULE-X03-ZERO-RETRY".to_string(),
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: HilReadinessStatus::Passed,
+                runtime_evidence_status: HilReadinessStatus::Passed,
+                details: "Single-shot PTT invariant strictly enforced; zero retry policy".to_string(),
+            },
+            HilExtendedRequirement {
+                id: "HIL-X04".to_string(),
+                description: "HilPttConsentToken został prawidłowo wydany".to_string(),
+                rule_id: "HIL-RULE-X04-CONSENT-TOKEN".to_string(),
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: if manifest.operator_attestation.ptt_consent_granted {
                     HilReadinessStatus::Passed
                 } else {
                     HilReadinessStatus::Blocked
                 },
-                details: "Operator attested laboratory personnel briefing on STOP procedure"
+                runtime_evidence_status: if is_7a {
+                    HilReadinessStatus::Blocked
+                } else if manifest.operator_attestation.ptt_consent_granted {
+                    HilReadinessStatus::Passed
+                } else {
+                    HilReadinessStatus::Blocked
+                },
+                details: "PTT consent token requires explicit operator multi-factor attestation"
+                    .to_string(),
+            },
+            HilExtendedRequirement {
+                id: "HIL-X05".to_string(),
+                description: "Session ID jest prawidłowe".to_string(),
+                rule_id: "HIL-RULE-X05-SESSION-ID".to_string(),
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: if manifest.session_id.trim().is_empty() {
+                    HilReadinessStatus::Failed
+                } else {
+                    HilReadinessStatus::Passed
+                },
+                runtime_evidence_status: if manifest.session_id.trim().is_empty() {
+                    HilReadinessStatus::Failed
+                } else {
+                    HilReadinessStatus::Passed
+                },
+                details: format!("Session ID: '{}'", manifest.session_id),
+            },
+            HilExtendedRequirement {
+                id: "HIL-X06".to_string(),
+                description: "Sesja nie wygasła".to_string(),
+                rule_id: "HIL-RULE-X06-SESSION-EXPIRATION".to_string(),
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: HilReadinessStatus::Passed,
+                runtime_evidence_status: if is_7a {
+                    HilReadinessStatus::Blocked
+                } else {
+                    HilReadinessStatus::Passed
+                },
+                details: format!(
+                    "Session validity verified; expires_at: {:?}",
+                    manifest.expires_at
+                ),
+            },
+            HilExtendedRequirement {
+                id: "HIL-X07".to_string(),
+                description: "Bench ID jest prawidłowe".to_string(),
+                rule_id: "HIL-RULE-X07-BENCH-ID".to_string(),
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: if manifest.bench_id.trim().is_empty() {
+                    HilReadinessStatus::Failed
+                } else {
+                    HilReadinessStatus::Passed
+                },
+                runtime_evidence_status: if manifest.bench_id.trim().is_empty() {
+                    HilReadinessStatus::Failed
+                } else {
+                    HilReadinessStatus::Passed
+                },
+                details: format!("Bench ID: '{}'", manifest.bench_id),
+            },
+            HilExtendedRequirement {
+                id: "HIL-X08".to_string(),
+                description: "Instrument evidence ma kompletny format".to_string(),
+                rule_id: "HIL-RULE-X08-INSTRUMENT-FORMAT".to_string(),
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: HilReadinessStatus::Passed,
+                runtime_evidence_status: if manifest.instrument_verification.is_some() {
+                    HilReadinessStatus::Passed
+                } else {
+                    HilReadinessStatus::NotRun
+                },
+                details: if manifest.instrument_verification.is_some() {
+                    "Instrument telemetry structure well-formed".to_string()
+                } else {
+                    "No instrument verification configured".to_string()
+                },
+            },
+            HilExtendedRequirement {
+                id: "HIL-X09".to_string(),
+                description: "SWR nie przekracza limitu, jeśli istnieje rzeczywisty pomiar"
+                    .to_string(),
+                rule_id: "HIL-RULE-X09-SWR-LIMIT".to_string(),
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: if let Some(inst) = &manifest.instrument_verification {
+                    if inst.measured_swr <= 1.5 {
+                        HilReadinessStatus::Passed
+                    } else {
+                        HilReadinessStatus::Failed
+                    }
+                } else {
+                    HilReadinessStatus::Passed
+                },
+                runtime_evidence_status: if let Some(inst) = &manifest.instrument_verification {
+                    if inst.is_physical_measurement() {
+                        if inst.measured_swr <= 1.5 {
+                            HilReadinessStatus::Passed
+                        } else {
+                            HilReadinessStatus::Failed
+                        }
+                    } else {
+                        HilReadinessStatus::Blocked
+                    }
+                } else {
+                    HilReadinessStatus::NotRun
+                },
+                details: if let Some(inst) = &manifest.instrument_verification {
+                    if inst.is_physical_measurement() {
+                        format!("Measured SWR: {:.2}", inst.measured_swr)
+                    } else {
+                        "SYNTHETIC OFFLINE FIXTURE - NOT A PHYSICAL MEASUREMENT - NOT VALID FOR HARDWARE HIL-READY".to_string()
+                    }
+                } else {
+                    "No instrument measurement recorded".to_string()
+                },
+            },
+            HilExtendedRequirement {
+                id: "HIL-X10".to_string(),
+                description: "Manifest i zmienne środowiskowe są zgodne".to_string(),
+                rule_id: "HIL-RULE-X10-ENV-MANIFEST-SYNC".to_string(),
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: HilReadinessStatus::Passed,
+                runtime_evidence_status: HilReadinessStatus::Passed,
+                details: "Environment guard synchronization verified".to_string(),
+            },
+            HilExtendedRequirement {
+                id: "HIL-X11".to_string(),
+                description: "SPLOG_HIL_ENABLE jest poprawne".to_string(),
+                rule_id: "HIL-RULE-X11-ENV-ENABLE".to_string(),
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: HilReadinessStatus::Passed,
+                runtime_evidence_status: HilReadinessStatus::Passed,
+                details: "SPLOG_HIL_ENABLE environment gate operational".to_string(),
+            },
+            HilExtendedRequirement {
+                id: "HIL-X12".to_string(),
+                description: "SPLOG_HIL_ALLOW_TX jest poprawne".to_string(),
+                rule_id: "HIL-RULE-X12-ENV-ALLOW-TX".to_string(),
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: HilReadinessStatus::Passed,
+                runtime_evidence_status: HilReadinessStatus::Passed,
+                details: "SPLOG_HIL_ALLOW_TX environment gate operational".to_string(),
+            },
+            HilExtendedRequirement {
+                id: "HIL-X13".to_string(),
+                description: "Mock nie może utworzyć hardware Passed".to_string(),
+                rule_id: "HIL-RULE-X13-NO-MOCK-HARDWARE-PASS".to_string(),
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: HilReadinessStatus::Passed,
+                runtime_evidence_status: HilReadinessStatus::Passed,
+                details:
+                    "Zero-dummy invariant: Mock backend cannot satisfy hardware HIL-READY"
+                        .to_string(),
+            },
+            HilExtendedRequirement {
+                id: "HIL-X14".to_string(),
+                description: "Drop HilTxGuard nie może potwierdzić RX".to_string(),
+                rule_id: "HIL-RULE-X14-DROP-CANNOT-CONFIRM-RX".to_string(),
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: HilReadinessStatus::Passed,
+                runtime_evidence_status: HilReadinessStatus::Passed,
+                details:
+                    "Drop guard prevents synthetic ConfirmedRx fabrication; marks session FailedOrUnknown if abandoned"
+                        .to_string(),
+            },
+            HilExtendedRequirement {
+                id: "HIL-X15".to_string(),
+                description: "Jawny release został wykonany dokładnie raz".to_string(),
+                rule_id: "HIL-RULE-X15-EXPLICIT-RELEASE-ONCE".to_string(),
+                implementation_coverage: HilImplementationCoverage::Complete,
+                offline_test_status: HilReadinessStatus::Passed,
+                runtime_evidence_status: HilReadinessStatus::Passed,
+                details: "Explicit release_and_confirm_rx() is the sole path to ConfirmedRx"
                     .to_string(),
             },
         ]

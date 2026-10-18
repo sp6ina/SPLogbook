@@ -60,6 +60,7 @@
     "measured_swr": 1.05,
     "measured_power_watts": 9.8,
     "calibration_valid_until": "2027-12-31",
-    "measurement_timestamp": "2026-10-17T20:55:00Z"
+    "measurement_timestamp": "2026-10-17T20:55:00Z",
+    "origin": "SyntheticOfflineFixture"
   }
 }

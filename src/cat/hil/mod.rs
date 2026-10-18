@@ -18,14 +18,17 @@ pub mod validator;
 
 pub use error::HilError;
 pub use evidence::{
-    HilExecutionStage, HilReadinessCheck, HilReadinessCondition, HilReadinessEvidenceKind,
-    HilReadinessReport, HilReadinessStatus,
+    HilEvidenceOrigin, HilExecutionStage, HilExtendedRequirement, HilImplementationCoverage,
+    HilReadinessCheck, HilReadinessCondition, HilReadinessEvidenceKind, HilReadinessReport,
+    HilReadinessStatus, HilRequirementAssessment,
 };
 pub use manifest::{
     HilDummyLoadSpec, HilInstrumentMeasurement, HilMatrixEntry, HilOperatorAttestation,
     HilRfSafetyConfig, HilRfTermination, HilTestBenchManifest, HilTransportConfig,
 };
 pub use session::{
-    HilHardwareSession, HilProbeResult, HilPttConsentToken, HilPttExecutionResult, HilTxGuard,
+    HilDispatcherCase, HilDispatcherReport, HilHardwareSession, HilProbeResult, HilPttConsentToken,
+    HilPttExecutionResult, HilSessionState, HilTxGuard, run_isolated_hardware_dispatcher,
+    run_isolated_hardware_test,
 };
 pub use validator::HilReadinessValidator;

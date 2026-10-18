@@ -46,6 +46,66 @@ impl fmt::Display for HilReadinessStatus {
     }
 }
 
+/// Pokrycie implementacyjne wymagania w kodzie produkcyjnym.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum HilImplementationCoverage {
+    /// Wymaganie jest w pełni zaimplementowane w kodzie i pokryte testami offline.
+    Complete,
+    /// Wymaganie jest częściowo zaimplementowane.
+    Partial,
+    /// Wymaganie nie posiada jeszcze implementacji.
+    Missing,
+}
+
+impl fmt::Display for HilImplementationCoverage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Complete => write!(f, "Complete"),
+            Self::Partial => write!(f, "Partial"),
+            Self::Missing => write!(f, "Missing"),
+        }
+    }
+}
+
+/// Pochodzenie dowodu pomiarowego (fizyczny pomiar vs syntetyczny fixture testowy).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum HilEvidenceOrigin {
+    /// Rzeczywisty pomiar laboratoryjny wykonany na fizycznym sprzęcie podczas aktywnej sesji.
+    PhysicalMeasurement,
+    /// Deterministyczny fixture testowy używany wyłącznie do testów offline (SYNTHETIC OFFLINE FIXTURE).
+    /// Nie stanowi fizycznego pomiaru i nie jest ważny dla uzyskania sprzętowego statusu HIL-READY.
+    #[default]
+    SyntheticOfflineFixture,
+}
+
+impl fmt::Display for HilEvidenceOrigin {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::PhysicalMeasurement => write!(f, "PhysicalMeasurement"),
+            Self::SyntheticOfflineFixture => write!(f, "SyntheticOfflineFixture"),
+        }
+    }
+}
+
+/// Ocena spełnienia wymagania z precyzyjnym rozdzieleniem osi implementacyjnej od runtime.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HilRequirementAssessment {
+    /// Identyfikator wymagania (np. "HIL-COND-01", "HIL-X01").
+    pub requirement_id: String,
+    /// Pokrycie implementacyjne w kodzie produkcyjnym.
+    pub implementation_coverage: HilImplementationCoverage,
+    /// Wynik deterministycznego testu offline weryfikującego logikę reguły.
+    pub offline_test_status: HilReadinessStatus,
+    /// Rzeczywisty status dowodowy w runtime (np. Blocked przy braku fizycznego sprzętu).
+    pub runtime_evidence_status: HilReadinessStatus,
+    /// Kategoria dowodu.
+    pub evidence_kind: HilReadinessEvidenceKind,
+    /// Pochodzenie dowodu.
+    pub evidence_origin: HilEvidenceOrigin,
+    /// Opis diagnostyczny.
+    pub diagnostic: String,
+}
+
 /// Faza wykonawcza programu NATIVE-7.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum HilExecutionStage {
@@ -70,9 +130,52 @@ pub struct HilReadinessCondition {
     pub rule_id: String,
     /// Kategoria dowodu (MachineVerified, OperatorAttested, InstrumentVerified).
     pub evidence_kind: HilReadinessEvidenceKind,
-    /// Wynik walidacji warunku (Passed, Failed, Blocked, NotRun).
+    /// Pokrycie implementacyjne w kodzie produkcyjnym.
+    #[serde(default = "default_coverage_complete")]
+    pub implementation_coverage: HilImplementationCoverage,
+    /// Wynik testu offline.
+    #[serde(default = "default_status_passed")]
+    pub offline_test_status: HilReadinessStatus,
+    /// Rzeczywisty status dowodowy w runtime.
+    #[serde(default = "default_status_blocked")]
+    pub runtime_evidence_status: HilReadinessStatus,
+    /// Status bieżący (zgodny z runtime_evidence_status).
     pub status: HilReadinessStatus,
+    /// Pochodzenie dowodu.
+    #[serde(default)]
+    pub evidence_origin: HilEvidenceOrigin,
     /// Szczegółowe informacje weryfikacyjne lub przyczyna blokady/błędu.
+    pub details: String,
+}
+
+fn default_coverage_complete() -> HilImplementationCoverage {
+    HilImplementationCoverage::Complete
+}
+
+fn default_status_passed() -> HilReadinessStatus {
+    HilReadinessStatus::Passed
+}
+
+fn default_status_blocked() -> HilReadinessStatus {
+    HilReadinessStatus::Blocked
+}
+
+/// Rozszerzone wymaganie weryfikacji laboratoryjnej HIL-X (HIL-X01 .. HIL-X15).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HilExtendedRequirement {
+    /// Identyfikator wymagania (np. "HIL-X01").
+    pub id: String,
+    /// Opis wymagania.
+    pub description: String,
+    /// Identyfikator powiązanej reguły walidatora.
+    pub rule_id: String,
+    /// Pokrycie implementacyjne.
+    pub implementation_coverage: HilImplementationCoverage,
+    /// Wynik testu offline.
+    pub offline_test_status: HilReadinessStatus,
+    /// Status dowodowy w runtime.
+    pub runtime_evidence_status: HilReadinessStatus,
+    /// Szczegóły diagnostyczne.
     pub details: String,
 }
 
@@ -105,6 +208,9 @@ pub struct HilReadinessReport {
     /// Kompletna macierz 30 kanonicznych warunków HIL-READY.
     #[serde(default)]
     pub conditions: Vec<HilReadinessCondition>,
+    /// Zestaw rozszerzonych wymagań laboratoryjnych HIL-X (HIL-X01..HIL-X15).
+    #[serde(default)]
+    pub extended_requirements: Vec<HilExtendedRequirement>,
 }
 
 impl HilReadinessReport {
@@ -141,5 +247,38 @@ impl HilReadinessReport {
     /// Wyszukuje kanoniczny warunek gotowości po numerze (1..30).
     pub fn find_condition(&self, number: u8) -> Option<&HilReadinessCondition> {
         self.conditions.iter().find(|c| c.number == number)
+    }
+
+    /// Wyszukuje wymaganie rozszerzone po jego identyfikatorze (np. "HIL-X01").
+    pub fn find_extended_requirement(&self, id: &str) -> Option<&HilExtendedRequirement> {
+        self.extended_requirements.iter().find(|r| r.id == id)
+    }
+
+    /// Generuje precyzyjną listę ocen wymagań rozdzielającą oś implementacji od runtime.
+    pub fn assessments(&self) -> Vec<HilRequirementAssessment> {
+        let mut list = Vec::new();
+        for c in &self.conditions {
+            list.push(HilRequirementAssessment {
+                requirement_id: c.id.clone(),
+                implementation_coverage: c.implementation_coverage,
+                offline_test_status: c.offline_test_status,
+                runtime_evidence_status: c.runtime_evidence_status,
+                evidence_kind: c.evidence_kind,
+                evidence_origin: c.evidence_origin,
+                diagnostic: c.details.clone(),
+            });
+        }
+        for x in &self.extended_requirements {
+            list.push(HilRequirementAssessment {
+                requirement_id: x.id.clone(),
+                implementation_coverage: x.implementation_coverage,
+                offline_test_status: x.offline_test_status,
+                runtime_evidence_status: x.runtime_evidence_status,
+                evidence_kind: HilReadinessEvidenceKind::MachineVerified,
+                evidence_origin: HilEvidenceOrigin::SyntheticOfflineFixture,
+                diagnostic: x.details.clone(),
+            });
+        }
+        list
     }
 }

@@ -1,16 +1,38 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::{Duration, Instant};
 
+use serde::{Deserialize, Serialize};
+
 use super::error::HilError;
-use super::evidence::{HilExecutionStage, HilReadinessReport};
+use super::evidence::{HilExecutionStage, HilReadinessReport, HilReadinessStatus};
 use super::manifest::{HilRfTermination, HilTestBenchManifest};
 use super::validator::HilReadinessValidator;
 use crate::cat::backend::RigBackend;
 use crate::cat::config::RigConfig;
 use crate::cat::probe::RigProbeRunner;
 use crate::cat::rig::{RigCapabilities, RigCommand};
+
+pub const SESSION_STATE_READY: u8 = 0;
+pub const SESSION_STATE_ACTIVE_TX: u8 = 1;
+pub const SESSION_STATE_COMPLETED_CLEANLY: u8 = 2;
+pub const SESSION_STATE_FAILED_OR_UNKNOWN: u8 = 3;
+
+/// Stan bezpieczeństwa sesji wykonawczej HIL.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum HilSessionState {
+    /// Sesja jest zainicjalizowana i gotowa do kontrolowanych prób.
+    Ready,
+    /// Sesja posiada aktywnego strażnika TX (nadawanie w toku).
+    ActiveTx,
+    /// Próba TX została poprawnie i bezpiecznie zakończona (potwierdzony powrót do RX).
+    CompletedCleanly,
+    /// Stan nieznany lub awaryjny (np. strażnik TX został porzucony bez wykonania jawnego release).
+    FailedOrUnknown,
+}
 
 /// Bezpieczny token jawnej zgody operatora na wykonanie nadawania (PTT).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -88,6 +110,7 @@ pub struct HilTxGuard<'a> {
     released: bool,
     confirmed_rx: bool,
     attempted_release: bool,
+    session_state: Option<Arc<AtomicU8>>,
 }
 
 impl<'a> HilTxGuard<'a> {
@@ -104,7 +127,51 @@ impl<'a> HilTxGuard<'a> {
             released: false,
             confirmed_rx: false,
             attempted_release: false,
+            session_state: None,
         }
+    }
+
+    /// Tworzy nowego strażnika TX powiązanego ze stanem sesji wykonawczej.
+    pub fn new_with_state(
+        rig_id: crate::cat::routing::RigId,
+        backend: &'a mut dyn RigBackend,
+        timeout: Duration,
+        session_state: Arc<AtomicU8>,
+    ) -> Self {
+        session_state.store(SESSION_STATE_ACTIVE_TX, Ordering::SeqCst);
+        Self {
+            rig_id,
+            backend,
+            deadline: Instant::now() + timeout,
+            released: false,
+            confirmed_rx: false,
+            attempted_release: false,
+            session_state: Some(session_state),
+        }
+    }
+
+    /// Zwraca aktualny stan powiązanej sesji wykonawczej.
+    pub fn session_state(&self) -> HilSessionState {
+        if let Some(state) = &self.session_state {
+            match state.load(Ordering::SeqCst) {
+                SESSION_STATE_READY => HilSessionState::Ready,
+                SESSION_STATE_ACTIVE_TX => HilSessionState::ActiveTx,
+                SESSION_STATE_COMPLETED_CLEANLY => HilSessionState::CompletedCleanly,
+                _ => HilSessionState::FailedOrUnknown,
+            }
+        } else if self.released && self.confirmed_rx {
+            HilSessionState::CompletedCleanly
+        } else if !self.released {
+            HilSessionState::ActiveTx
+        } else {
+            HilSessionState::FailedOrUnknown
+        }
+    }
+
+    /// Podłącza uchwyt stanu sesji pod strażnika TX.
+    pub fn set_session_state_handle(&mut self, state: Arc<AtomicU8>) {
+        state.store(SESSION_STATE_ACTIVE_TX, Ordering::SeqCst);
+        self.session_state = Some(state);
     }
 
     /// Zwraca identyfikator zabezpieczanego radia.
@@ -133,17 +200,37 @@ impl<'a> HilTxGuard<'a> {
 
         if Instant::now() > self.deadline {
             let _ = self.backend.execute(&RigCommand::SetPtt(false)).await;
+            if let Some(st) = &self.session_state {
+                st.store(SESSION_STATE_FAILED_OR_UNKNOWN, Ordering::SeqCst);
+            }
             return Err(HilError::TimeoutToUnknown(
                 "TX pulse deadline exceeded prior to release confirmation".to_string(),
             ));
         }
 
         // Dokładnie jedna próba wysłania SetPtt(false)
-        self.backend.execute(&RigCommand::SetPtt(false)).await?;
+        if let Err(e) = self.backend.execute(&RigCommand::SetPtt(false)).await {
+            if let Some(st) = &self.session_state {
+                st.store(SESSION_STATE_FAILED_OR_UNKNOWN, Ordering::SeqCst);
+            }
+            return Err(e.into());
+        }
 
         // Weryfikacja stanu odbiornika (świeży odczyt stanu radia)
-        let state = self.backend.poll().await?;
+        let state = match self.backend.poll().await {
+            Ok(s) => s,
+            Err(e) => {
+                if let Some(st) = &self.session_state {
+                    st.store(SESSION_STATE_FAILED_OR_UNKNOWN, Ordering::SeqCst);
+                }
+                return Err(e.into());
+            }
+        };
+
         if state.ptt {
+            if let Some(st) = &self.session_state {
+                st.store(SESSION_STATE_FAILED_OR_UNKNOWN, Ordering::SeqCst);
+            }
             return Err(HilError::MissingConfirmedRx(
                 "Radio reports PTT is still active after release command".to_string(),
             ));
@@ -151,6 +238,9 @@ impl<'a> HilTxGuard<'a> {
 
         self.released = true;
         self.confirmed_rx = true;
+        if let Some(st) = &self.session_state {
+            st.store(SESSION_STATE_COMPLETED_CLEANLY, Ordering::SeqCst);
+        }
 
         Ok(HilPttExecutionResult {
             ptt_pulse_duration_ms: 0,
@@ -167,6 +257,9 @@ impl Drop for HilTxGuard<'_> {
             // Zakaz tworzenia nowego runtime Tokio!
             // Zakaz blokującego I/O!
             self.confirmed_rx = false;
+            if let Some(state) = &self.session_state {
+                state.store(SESSION_STATE_FAILED_OR_UNKNOWN, Ordering::SeqCst);
+            }
         }
     }
 }
@@ -183,6 +276,7 @@ pub struct HilHardwareSession {
     manifest: HilTestBenchManifest,
     stage: HilExecutionStage,
     readiness_report: HilReadinessReport,
+    session_state: Arc<AtomicU8>,
 }
 
 impl HilHardwareSession {
@@ -193,7 +287,23 @@ impl HilHardwareSession {
             manifest,
             stage,
             readiness_report,
+            session_state: Arc::new(AtomicU8::new(SESSION_STATE_READY)),
         }
+    }
+
+    /// Zwraca aktualny stan bezpieczeństwa sesji.
+    pub fn session_state(&self) -> HilSessionState {
+        match self.session_state.load(Ordering::SeqCst) {
+            SESSION_STATE_READY => HilSessionState::Ready,
+            SESSION_STATE_ACTIVE_TX => HilSessionState::ActiveTx,
+            SESSION_STATE_COMPLETED_CLEANLY => HilSessionState::CompletedCleanly,
+            _ => HilSessionState::FailedOrUnknown,
+        }
+    }
+
+    /// Zwraca uchwyt do atomowego licznika stanu sesji.
+    pub fn session_state_handle(&self) -> Arc<AtomicU8> {
+        self.session_state.clone()
     }
 
     /// Zwraca referencję do manifestu stanowiska.
@@ -249,15 +359,14 @@ impl HilHardwareSession {
             ));
         }
 
-        if let Some(exp_str) = &self.manifest.expires_at {
-            if let Ok(exp_time) = chrono::DateTime::parse_from_rfc3339(exp_str) {
-                if chrono::Utc::now() > exp_time {
-                    return Err(HilError::SessionExpired(format!(
-                        "HIL session '{}' expired at {}",
-                        self.manifest.session_id, exp_str
-                    )));
-                }
-            }
+        if let Some(exp_str) = &self.manifest.expires_at
+            && let Ok(exp_time) = chrono::DateTime::parse_from_rfc3339(exp_str)
+            && chrono::Utc::now() > exp_time
+        {
+            return Err(HilError::SessionExpired(format!(
+                "HIL session '{}' expired at {}",
+                self.manifest.session_id, exp_str
+            )));
         }
 
         let env_session = std::env::var("SPLOG_HIL_SESSION").map_err(|_| {
@@ -437,10 +546,11 @@ impl HilHardwareSession {
             Duration::from_millis(self.manifest.rf_safety.max_test_duration_ms),
         );
 
-        Ok(HilTxGuard::new(
+        Ok(HilTxGuard::new_with_state(
             self.manifest.matrix.rig_id.clone(),
             backend,
             bounded_duration,
+            self.session_state.clone(),
         ))
     }
 
@@ -499,5 +609,155 @@ impl HilHardwareSession {
             rx_restored_cleanly: true,
             timestamp_iso: chrono::Utc::now().to_rfc3339(),
         })
+    }
+}
+
+/// Pojedynczy przypadek testowy w dyspozytorze stanowiska laboratoryjnego.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HilDispatcherCase {
+    /// Nazwa przypadku testowego (np. "hil_hardware_live_test_bench").
+    pub name: String,
+    /// Status wykonania przypadku (NotRun, Blocked, Failed, Passed).
+    pub status: HilReadinessStatus,
+    /// Przyczyna lub uzasadnienie statusu.
+    pub reason: String,
+}
+
+/// Raport wykonawczy dyspozytora izolowanych testów sprzętowych HIL.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HilDispatcherReport {
+    /// Identyfikator sesji laboratoryjnej.
+    pub session_id: String,
+    /// Zbiorczy status dyspozytora.
+    pub overall_status: HilReadinessStatus,
+    /// Wyniki poszczególnych 10 przypadków testowych.
+    pub cases: Vec<HilDispatcherCase>,
+    /// Czy podczas dyspozycji otwarto jakikolwiek fizyczny transport sprzętowy.
+    pub transport_opened: bool,
+    /// Czy wyemitowano jakikolwiek fizyczny sygnał PTT.
+    pub ptt_emitted: bool,
+}
+
+/// Dyspozytor hermetycznie odizolowanych testów sprzętowych HIL ([`run_isolated_hardware_test`]).
+pub fn run_isolated_hardware_test(
+    manifest: &HilTestBenchManifest,
+    stage: HilExecutionStage,
+) -> HilDispatcherReport {
+    run_isolated_hardware_dispatcher(manifest, stage)
+}
+
+/// Rzeczywista implementacja dyspozytora sprzętowego HIL.
+pub fn run_isolated_hardware_dispatcher(
+    manifest: &HilTestBenchManifest,
+    stage: HilExecutionStage,
+) -> HilDispatcherReport {
+    let case_names = [
+        "hil_hardware_live_test_bench",
+        "hil_hardware_read_01",
+        "hil_hardware_freq_01",
+        "hil_hardware_mode_01",
+        "hil_hardware_ptt_01",
+        "hil_hardware_ptt_timeout_01",
+        "hil_hardware_resync_01",
+        "hil_hardware_multi_radio_01",
+        "hil_hardware_shutdown_01",
+        "hil_hardware_shutdown_tx_01",
+    ];
+
+    // Sprawdzenie integralności manifestu
+    if let Err(e) = manifest.validate_structure() {
+        let cases = case_names
+            .iter()
+            .map(|name| HilDispatcherCase {
+                name: (*name).to_string(),
+                status: HilReadinessStatus::Failed,
+                reason: format!("Manifest structure invalid: {e}"),
+            })
+            .collect();
+        return HilDispatcherReport {
+            session_id: manifest.session_id.clone(),
+            overall_status: HilReadinessStatus::Failed,
+            cases,
+            transport_opened: false,
+            ptt_emitted: false,
+        };
+    }
+
+    // Sprawdzenie identyfikatora sesji
+    if manifest.session_id.trim().is_empty() {
+        let cases = case_names
+            .iter()
+            .map(|name| HilDispatcherCase {
+                name: (*name).to_string(),
+                status: HilReadinessStatus::Failed,
+                reason: "Manifest session_id is empty".to_string(),
+            })
+            .collect();
+        return HilDispatcherReport {
+            session_id: manifest.session_id.clone(),
+            overall_status: HilReadinessStatus::Failed,
+            cases,
+            transport_opened: false,
+            ptt_emitted: false,
+        };
+    }
+
+    // Sprawdzenie wygaśnięcia sesji
+    if let Some(exp_str) = &manifest.expires_at
+        && let Ok(exp_time) = chrono::DateTime::parse_from_rfc3339(exp_str)
+        && chrono::Utc::now() > exp_time
+    {
+        let cases = case_names
+            .iter()
+            .map(|name| HilDispatcherCase {
+                name: (*name).to_string(),
+                status: HilReadinessStatus::Failed,
+                reason: format!(
+                    "HIL session '{}' expired at {}",
+                    manifest.session_id, exp_str
+                ),
+            })
+            .collect();
+        return HilDispatcherReport {
+            session_id: manifest.session_id.clone(),
+            overall_status: HilReadinessStatus::Failed,
+            cases,
+            transport_opened: false,
+            ptt_emitted: false,
+        };
+    }
+
+    // Ewaluacja gotowości HIL-READY
+    let report = HilReadinessValidator::validate(manifest, stage);
+
+    let is_blocked = stage == HilExecutionStage::Stage7AOffline
+        || report.overall_status == HilReadinessStatus::Blocked
+        || report.overall_status == HilReadinessStatus::Failed;
+
+    let cases = case_names
+        .iter()
+        .map(|name| HilDispatcherCase {
+            name: (*name).to_string(),
+            status: HilReadinessStatus::NotRun,
+            reason: if is_blocked {
+                "HIL-READY runtime evidence blocked because no physical transceiver and validated dummy load were available.".to_string()
+            } else {
+                "Hardware case queued".to_string()
+            },
+        })
+        .collect();
+
+    let overall_status = if report.overall_status == HilReadinessStatus::Failed {
+        HilReadinessStatus::Failed
+    } else {
+        HilReadinessStatus::Blocked
+    };
+
+    HilDispatcherReport {
+        session_id: manifest.session_id.clone(),
+        overall_status,
+        cases,
+        transport_opened: false,
+        ptt_emitted: false,
     }
 }

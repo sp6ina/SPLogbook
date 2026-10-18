@@ -6,6 +6,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use super::error::HilError;
+use super::evidence::HilEvidenceOrigin;
 use crate::cat::backend::CatBackendKind;
 use crate::cat::config::{
     ElecraftConfig, ElecraftTransportConfig, FlexRadioConfig, FlexRadioConnectionConfig,
@@ -201,6 +202,16 @@ pub struct HilInstrumentMeasurement {
     /// Sygnatura czasowa pomiaru.
     #[serde(default)]
     pub measurement_timestamp: Option<String>,
+    /// Pochodzenie dowodu pomiarowego (fizyczny pomiar vs syntetyczny fixture testowy).
+    #[serde(default)]
+    pub origin: HilEvidenceOrigin,
+}
+
+impl HilInstrumentMeasurement {
+    /// Czy pomiar pochodzi z rzeczywistego fizycznego przyrządu laboratoryjnego.
+    pub fn is_physical_measurement(&self) -> bool {
+        self.origin == HilEvidenceOrigin::PhysicalMeasurement
+    }
 }
 
 /// Kompletny manifest stanowiska testowego Hardware-In-The-Loop (HIL).
@@ -349,13 +360,13 @@ impl HilTestBenchManifest {
             ));
         }
 
-        if let HilRfTermination::DummyLoad(spec) = &self.rf_safety.termination {
-            if self.rf_safety.max_test_power_watts > spec.power_rating_watts {
-                return Err(HilError::SafetyViolation(format!(
-                    "max_test_power_watts ({:.1} W) exceeds dummy load rating ({:.1} W)",
-                    self.rf_safety.max_test_power_watts, spec.power_rating_watts
-                )));
-            }
+        if let HilRfTermination::DummyLoad(spec) = &self.rf_safety.termination
+            && self.rf_safety.max_test_power_watts > spec.power_rating_watts
+        {
+            return Err(HilError::SafetyViolation(format!(
+                "max_test_power_watts ({:.1} W) exceeds dummy load rating ({:.1} W)",
+                self.rf_safety.max_test_power_watts, spec.power_rating_watts
+            )));
         }
 
         if self
@@ -374,12 +385,12 @@ impl HilTestBenchManifest {
             ));
         }
 
-        if let Some(ref inst) = self.instrument_verification {
-            if inst.measured_swr <= 0.0 {
-                return Err(HilError::SafetyViolation(
-                    "measured_swr must be positive".to_string(),
-                ));
-            }
+        if let Some(ref inst) = self.instrument_verification
+            && inst.measured_swr <= 0.0
+        {
+            return Err(HilError::SafetyViolation(
+                "measured_swr must be positive".to_string(),
+            ));
         }
 
         Ok(())

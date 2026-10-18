@@ -612,10 +612,10 @@ SPLogbook/
     │   ├── hamlib.rs        # Persistent TCP client for rigctld
     │   ├── hil/             # Hardware-in-the-Loop test harness & RF safety validator
     │   │   ├── error.rs     # HilError typed error domain
-    │   │   ├── evidence.rs  # MachineVerified / OperatorAttested / InstrumentVerified
+    │   │   ├── evidence.rs  # ImplementationCoverage, EvidenceOrigin, 30 canonical conditions & HIL-X
     │   │   ├── manifest.rs  # HilTestBenchManifest, matrix entry, RF safety specs
-    │   │   ├── session.rs   # HilHardwareSession, HilPttConsentToken
-    │   │   └── validator.rs # HilReadinessValidator (RF safety & config checks)
+    │   │   ├── session.rs   # HilHardwareSession, HilTxGuard (explicit release, drop safety), dispatcher
+    │   │   └── validator.rs # HilReadinessValidator (RF safety, canonical conditions 1..30 & HIL-X)
     │   ├── hub.rs           # RigHub: multi-radio routing (Radio1/Radio2), JoinHandles
     │   ├── native/          # Direct asynchronous protocol implementations
     │   │   ├── elecraft/    # Elecraft K2/K3/KX2/KX3/K4 direct protocol & K4 TCP
