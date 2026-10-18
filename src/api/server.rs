@@ -791,6 +791,7 @@ async fn post_qso(
             IngestError::Invalid(issue) => {
                 (StatusCode::BAD_REQUEST, issue.msg().text(Language::Pl))
             }
+            IngestError::Duplicate => (StatusCode::CONFLICT, err.msg().text(Language::Pl)),
             IngestError::Storage(error) => {
                 eprintln!("[REST API] Błąd zapisu QSO do bazy danych: {error}");
                 (

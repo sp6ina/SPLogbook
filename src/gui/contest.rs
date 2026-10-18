@@ -585,6 +585,12 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         std::time::Instant::now(),
                     ));
                 }
+                Err(IngestError::Duplicate) => {
+                    app.status_toast = Some((
+                        Msg::new(key::MSG_QSO_DUPLICATE).text(app.current_language),
+                        std::time::Instant::now(),
+                    ));
+                }
                 Err(IngestError::EmptyCallsign) => {
                     app.status_toast = Some((
                         format!(

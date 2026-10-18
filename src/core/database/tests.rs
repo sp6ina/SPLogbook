@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use super::*;
-use crate::core::qso::QsoRecord;
+use crate::core::qso::{QsoIdentity, QsoRecord};
 
 #[test]
 fn test_insert_and_find_qso() {
@@ -1327,4 +1327,31 @@ fn existing_identities_matches_record_identity() {
     assert_eq!(identities.len(), 2);
     assert!(identities.contains(&q1.identity()));
     assert!(identities.contains(&q2.identity()));
+}
+
+#[test]
+fn has_identity_matches_minute_resolution() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    let q = make_test_qso_literal("SP6INA", "2026-09-28", "12:30:15");
+    db.insert_qso(&q).unwrap();
+
+    let query_id = QsoIdentity::from_fields("sp6ina", "20m", "cw", "20260928", "123045");
+    assert!(db.has_identity("DEFAULT", &query_id).unwrap());
+}
+
+#[test]
+fn has_identity_rejects_different_identity() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    let q = make_test_qso_literal("SP6INA", "2026-09-28", "12:30:15");
+    db.insert_qso(&q).unwrap();
+
+    let diff_call = QsoIdentity::from_fields("W1AW", "20m", "cw", "20260928", "123015");
+    let diff_time = QsoIdentity::from_fields("SP6INA", "20m", "cw", "20260928", "123115");
+    let diff_band = QsoIdentity::from_fields("SP6INA", "40m", "cw", "20260928", "123015");
+    let diff_journal = QsoIdentity::from_fields("SP6INA", "20m", "cw", "20260928", "123015");
+
+    assert!(!db.has_identity("DEFAULT", &diff_call).unwrap());
+    assert!(!db.has_identity("DEFAULT", &diff_time).unwrap());
+    assert!(!db.has_identity("DEFAULT", &diff_band).unwrap());
+    assert!(!db.has_identity("OTHER", &diff_journal).unwrap());
 }

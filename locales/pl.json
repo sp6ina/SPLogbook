@@ -415,6 +415,7 @@
   "msg.export_success": "Eksport do pliku ADIF zakończony sukcesem",
   "msg.import_success": "Import pliku ADIF zakończony sukcesem",
   "msg.qso_deleted": "Łączność została bezpowrotnie usunięta",
+  "msg.qso_duplicate": "Łączność już istnieje w logu",
   "msg.qso_not_saved": "Nie zapisano łączności: {reason}",
   "msg.qso_save_failed": "Błąd zapisu łączności do bazy danych: {error}",
   "msg.qso_saved": "Zapisano łączność z: {callsign} ({band}, {mode})",

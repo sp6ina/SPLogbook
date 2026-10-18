@@ -26,6 +26,7 @@ pub use self::origin::{IngestPolicy, PostEffects, QsoOrigin, ValidationMode};
 pub enum IngestError {
     EmptyCallsign,
     Invalid(QsoIssue),
+    Duplicate,
     Storage(rusqlite::Error),
 }
 
@@ -35,6 +36,7 @@ impl IngestError {
         match self {
             Self::EmptyCallsign => Msg::new(key::QSO_ISSUE_EMPTY_CALLSIGN),
             Self::Invalid(issue) => issue.msg(),
+            Self::Duplicate => Msg::new(key::MSG_QSO_DUPLICATE),
             Self::Storage(error) => Msg::new(key::MSG_QSO_SAVE_FAILED).arg("error", error),
         }
     }
@@ -49,7 +51,7 @@ impl std::fmt::Display for IngestError {
 impl std::error::Error for IngestError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::EmptyCallsign => None,
+            Self::EmptyCallsign | Self::Duplicate => None,
             Self::Invalid(issue) => Some(issue),
             Self::Storage(error) => Some(error),
         }
@@ -106,11 +108,12 @@ impl QsoIngestor {
     /// 3. Wzbogacenie DXCC/kraju/kontynentu/stref z `PrefixMatcher`, wyłącznie gdy `qso.dxcc.is_none()`.
     /// 4. Walidacja twarda (`Reject`) lub doradcza (`Advisory`) według polityki źródła.
     /// 5. Wyznaczenie ostrzeżeń miękkich (`warnings()`).
-    /// 6. Zapis rekordu w `LogDatabase` i nadanie `qso.id`.
-    /// 7. Publikacja zdarzenia `AppEvent::QsoLogged` na `EventBus`.
-    /// 8. Rejestracja rekordu w `AwardsEngine`.
-    /// 9. Dodanie znaku wywoławczego do `ScpEngine`.
-    /// 10. Zwrócenie `IngestOutcome` z flagami `PostEffects` wynikającymi z polityki źródła.
+    /// 6. Opcjonalne pomijanie duplikatów według tożsamości `QsoIdentity` (`skip_duplicates`).
+    /// 7. Zapis rekordu w `LogDatabase` i nadanie `qso.id`.
+    /// 8. Publikacja zdarzenia `AppEvent::QsoLogged` na `EventBus`.
+    /// 9. Rejestracja rekordu w `AwardsEngine`.
+    /// 10. Dodanie znaku wywoławczego do `ScpEngine`.
+    /// 11. Zwrócenie `IngestOutcome` z flagami `PostEffects` wynikającymi z polityki źródła.
     pub fn ingest(
         &self,
         mut qso: QsoRecord,
@@ -138,6 +141,19 @@ impl QsoIngestor {
         };
 
         let warnings = qso.warnings();
+
+        if policy.skip_duplicates {
+            let journal_id = qso.journal_id.as_deref().unwrap_or("DEFAULT");
+            let identity = qso.identity();
+            let has_dup = {
+                let db = self.db.lock().unwrap_or_else(PoisonError::into_inner);
+                db.has_identity(journal_id, &identity)
+                    .map_err(IngestError::Storage)?
+            };
+            if has_dup {
+                return Err(IngestError::Duplicate);
+            }
+        }
 
         {
             let db = self.db.lock().unwrap_or_else(PoisonError::into_inner);
@@ -1266,5 +1282,66 @@ mod tests {
         assert_eq!(stored.qso_date, "20261013");
         assert_eq!(stored.time_on, "142536");
         assert_eq!(stored.time_off, Some("143000".to_string()));
+    }
+
+    #[test]
+    fn ingest_skips_duplicate_for_lan_peer_only() {
+        let fixture = TestFixture::new();
+        let qso = sample_valid_qso("SP6INA");
+        let res1 = fixture.ingestor.ingest(qso.clone(), QsoOrigin::LanPeer);
+        assert!(res1.is_ok(), "first LAN QSO must be accepted");
+
+        let res2 = fixture.ingestor.ingest(qso, QsoOrigin::LanPeer);
+        assert!(
+            matches!(res2, Err(IngestError::Duplicate)),
+            "second LAN QSO must be rejected as duplicate"
+        );
+        assert_eq!(fixture.count_qsos(), 1);
+    }
+
+    #[test]
+    fn ingest_allows_same_identity_for_non_lan_origins_according_to_existing_policy() {
+        let origins = [
+            QsoOrigin::Form,
+            QsoOrigin::Contest,
+            QsoOrigin::WsjtX,
+            QsoOrigin::Js8Call,
+            QsoOrigin::RestApi,
+        ];
+        for origin in origins {
+            let fixture = TestFixture::new();
+            let qso = sample_valid_qso("SP6INA");
+            let res1 = fixture.ingestor.ingest(qso.clone(), origin);
+            assert!(res1.is_ok(), "first ingest failed for {origin:?}");
+            let res2 = fixture.ingestor.ingest(qso, origin);
+            assert!(
+                res2.is_ok(),
+                "duplicate ingest must be allowed for {origin:?}"
+            );
+            assert_eq!(
+                fixture.count_qsos(),
+                2,
+                "expected 2 records in database for {origin:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn duplicate_lan_qso_produces_no_post_effects() {
+        let mut fixture = TestFixture::new();
+        let qso = sample_valid_qso("SP6INA");
+        let res1 = fixture.ingestor.ingest(qso.clone(), QsoOrigin::LanPeer);
+        assert!(res1.is_ok());
+
+        // Odczytaj zdarzenie pierwszego zapisu
+        assert!(fixture.events_rx.try_recv().is_ok());
+
+        // Próba ponownego zapisu duplikatu z sieci LAN
+        let res2 = fixture.ingestor.ingest(qso, QsoOrigin::LanPeer);
+        assert!(matches!(res2, Err(IngestError::Duplicate)));
+
+        // Upewnij się, że nie wyemitowano żadnego nowego zdarzenia
+        assert!(fixture.events_rx.try_recv().is_err());
+        assert_eq!(fixture.count_qsos(), 1);
     }
 }

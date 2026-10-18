@@ -40,6 +40,7 @@ pub struct PostEffects {
 pub struct IngestPolicy {
     pub validation: ValidationMode,
     pub effects: PostEffects,
+    pub skip_duplicates: bool,
 }
 
 impl QsoOrigin {
@@ -57,6 +58,7 @@ impl QsoOrigin {
                     alert_sound: true,
                     propagation_observation: true,
                 },
+                skip_duplicates: false,
             },
             Self::Contest => IngestPolicy {
                 validation: ValidationMode::Reject,
@@ -69,6 +71,7 @@ impl QsoOrigin {
                     alert_sound: false,
                     propagation_observation: false,
                 },
+                skip_duplicates: false,
             },
             Self::WsjtX | Self::Js8Call => IngestPolicy {
                 validation: ValidationMode::Advisory,
@@ -81,6 +84,7 @@ impl QsoOrigin {
                     alert_sound: false,
                     propagation_observation: false,
                 },
+                skip_duplicates: false,
             },
             Self::LanPeer => IngestPolicy {
                 validation: ValidationMode::Advisory,
@@ -93,6 +97,7 @@ impl QsoOrigin {
                     alert_sound: false,
                     propagation_observation: false,
                 },
+                skip_duplicates: true,
             },
             Self::RestApi => IngestPolicy {
                 validation: ValidationMode::Reject,
@@ -105,6 +110,7 @@ impl QsoOrigin {
                     alert_sound: false,
                     propagation_observation: false,
                 },
+                skip_duplicates: false,
             },
         }
     }
@@ -130,6 +136,7 @@ mod tests {
                         alert_sound: true,
                         propagation_observation: true,
                     },
+                    skip_duplicates: false,
                 },
             ),
             (
@@ -145,6 +152,7 @@ mod tests {
                         alert_sound: false,
                         propagation_observation: false,
                     },
+                    skip_duplicates: false,
                 },
             ),
             (
@@ -160,6 +168,7 @@ mod tests {
                         alert_sound: false,
                         propagation_observation: false,
                     },
+                    skip_duplicates: false,
                 },
             ),
             (
@@ -175,6 +184,7 @@ mod tests {
                         alert_sound: false,
                         propagation_observation: false,
                     },
+                    skip_duplicates: false,
                 },
             ),
             (
@@ -190,6 +200,7 @@ mod tests {
                         alert_sound: false,
                         propagation_observation: false,
                     },
+                    skip_duplicates: true,
                 },
             ),
             (
@@ -205,6 +216,7 @@ mod tests {
                         alert_sound: false,
                         propagation_observation: false,
                     },
+                    skip_duplicates: false,
                 },
             ),
         ];
@@ -244,6 +256,10 @@ mod tests {
             assert_eq!(
                 actual.effects.propagation_observation, expected.effects.propagation_observation,
                 "mismatch on propagation_observation for {origin:?}"
+            );
+            assert_eq!(
+                actual.skip_duplicates, expected.skip_duplicates,
+                "mismatch on skip_duplicates for {origin:?}"
             );
             assert_eq!(
                 actual, expected,

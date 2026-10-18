@@ -415,6 +415,7 @@
   "msg.export_success": "ADIF export completed successfully",
   "msg.import_success": "ADIF import completed successfully",
   "msg.qso_deleted": "QSO deleted permanently",
+  "msg.qso_duplicate": "QSO already exists in the logbook",
   "msg.qso_not_saved": "QSO not saved: {reason}",
   "msg.qso_save_failed": "Database QSO save error: {error}",
   "msg.qso_saved": "QSO saved with: {callsign} ({band}, {mode})",

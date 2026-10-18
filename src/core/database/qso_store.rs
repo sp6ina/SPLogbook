@@ -196,6 +196,30 @@ impl LogDatabase {
         rows.collect()
     }
 
+    /// Sprawdza, czy w danym dzienniku istnieje już rekord o podanej tożsamości `QsoIdentity`.
+    /// Ogranicza kandydatów przez UPPER(callsign), a ostateczne porównanie wykonuje przez
+    /// `QsoIdentity` w Rust z zachowaniem minutowej rozdzielczości czasu.
+    pub fn has_identity(&self, journal_id: &str, identity: &QsoIdentity) -> Result<bool> {
+        let mut stmt = self.conn.prepare(
+            "SELECT callsign, band, mode, qso_date, time_on \
+             FROM qso_records \
+             WHERE journal_id = ?1 AND UPPER(callsign) = ?2",
+        )?;
+        let mut rows = stmt.query(params![journal_id, identity.callsign])?;
+        while let Some(row) = rows.next()? {
+            let callsign: String = row.get(0)?;
+            let band: String = row.get(1)?;
+            let mode: String = row.get(2)?;
+            let qso_date: String = row.get(3)?;
+            let time_on: String = row.get(4)?;
+            let candidate = QsoIdentity::from_fields(&callsign, &band, &mode, &qso_date, &time_on);
+            if &candidate == identity {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     /// Pobiera wszystkie łączności z logu (np. do eksportu całego dziennika)
     pub fn get_all_qsos(&self) -> Result<Vec<QsoRecord>> {
         let sql = format!(

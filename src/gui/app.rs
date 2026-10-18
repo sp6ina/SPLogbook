@@ -2136,6 +2136,9 @@ impl SpLogApp {
                     IngestError::Invalid(issue) => Msg::new(key::MSG_QSO_NOT_SAVED)
                         .arg("reason", issue.msg().text(self.current_language))
                         .text(self.current_language),
+                    IngestError::Duplicate => {
+                        Msg::new(key::MSG_QSO_DUPLICATE).text(self.current_language)
+                    }
                     IngestError::Storage(err) => {
                         format!("Błąd zapisu łączności do bazy danych: {err}")
                     }
