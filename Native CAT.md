@@ -509,9 +509,9 @@ Program HIL został podzielony na dwie niezależne bramki jakościowe:
 1. **NATIVE-7A (Harness programowy, walidacja offline i procedury)**:
    - Działająca domena harnessu HIL (`src/cat/hil/`),
    - Parser i walidator manifestu laboratoryjnego (`HilTestBenchManifest`),
-   - Walidator gotowości laboratoryjnej (`HilReadinessValidator`) odwzorowujący wszystkie 30 warunków HIL-READY,
-   - Ścisła kategoryzacja dowodów (`HilReadinessEvidenceKind`) i statusów (`HilReadinessStatus`),
-   - Zestaw 91 deterministycznych testów integracyjnych offline (`tests/cat_native_7.rs`),
+   - Walidator gotowości laboratoryjnej (`HilReadinessValidator`) odwzorowujący wszystkie 30 nienaruszalnych warunków HIL-READY oraz 22 wymagania rozszerzone `HIL-X01`..`HIL-X22`,
+   - Ścisła kategoryzacja dowodów (`HilReadinessEvidenceKind`), pochodzenia (`HilEvidenceOrigin` — 8 wariantów), kontekstów wykonania (`HilExecutionContext`) i statusów (`HilReadinessStatus`),
+   - Zestaw 279 deterministycznych testów integracyjnych offline (`tests/cat_native_7.rs`),
    - 10 hermetycznie odizolowanych punktów wejścia do testów fizycznych z blokadą w CI (`#[ignore = "hardware-in-the-loop"]`),
    - Dokumentacja procedur laboratoryjnych i synchronizacja dokumentów projektu.
    - **Bramka NATIVE-7A jest w pełni zrealizowana i niezależna od dostępności fizycznego radia.**
@@ -539,46 +539,97 @@ Gdzie:
 
 ### 18.3. Rozdzielenie ImplementationCoverage, RuntimeEvidenceStatus oraz pochodzenia dowodów
 
-Ocena gotowości laboratoryjnej opiera się na dwóch ortogonalnych osiach:
+Ocena gotowości laboratoryjnej opiera się na wieloosiowym modelu dowodowym (`HilRequirementAssessment`):
 1. **Pokrycie implementacyjne (`HilImplementationCoverage`)**:
    - `Complete`: Logika sprawdzająca dany warunek jest w 100% zaimplementowana w kodzie produkcyjnym.
    - `Partial`: Warunek zaimplementowany częściowo.
    - `Missing`: Brak implementacji weryfikatora.
-2. **Status dowodu w czasie wykonania (`HilReadinessStatus` / `runtime_evidence_status`)**:
-   - `Passed`: Warunek zweryfikowany pozytywnie w bieżącym środowisku.
-   - `Failed`: Wykryto niezgodność krytyczną (np. próba nadawania na antenie, brak pliku manifestu).
-   - `Blocked`: Brak fizycznego sprzętu, brak przyrządu lub dostarczono fixture syntetyczną zamiast fizycznego pomiaru.
-   - `NotRun`: Sprawdzenie nieuruchomione (np. test sprzętowy przed zaliczeniem bramki HIL-READY).
+2. **Konteksty wykonania (`HilExecutionContext`)**:
+   - `OfflineModel`: Ewaluacja modelu, manifestu, stanu repozytorium i reguł konfiguracyjnych.
+   - `SimulatedRuntime`: Wykonanie na `MockHilBackend`, duplex streams i lokalnych aktorach Tokio.
+   - `PhysicalRuntime`: Rzeczywiste wykonanie na fizycznym transceiverze i sztucznym obciążeniu 50 Ω.
+3. **Statusy w poszczególnych osiach (`HilReadinessStatus`)**:
+   - `Passed`: Warunek zweryfikowany pozytywnie w danej osi.
+   - `Failed`: Wykryto niezgodność krytyczną (np. próba nadawania na antenie, rozbieżność SHA commita, niepoprawny profil backendu).
+   - `Blocked`: Brak fizycznego sprzętu, brak przyrządu lub brak potwierdzenia fizycznego na danym etapie.
+   - `NotRun`: Sprawdzenie nieuruchomione lub niebędące przedmiotem danej osi (np. czysto repozytoryjne warunki 1–3 w `PhysicalRuntime`).
 
-Pochodzenie dowodu określa `HilEvidenceOrigin`:
+Pochodzenie dowodu określa 8-wariantowy `HilEvidenceOrigin`:
 ```rust
 pub enum HilEvidenceOrigin {
-    PhysicalMeasurement,
+    RepositoryMeasurement,
+    SoftwareBaselineArtifact,
+    ConfigurationArtifact,
     SyntheticOfflineFixture,
+    MockRuntime,
+    OperatorDeclaration,
+    InstrumentInterface,
+    PhysicalMeasurement,
 }
 ```
 
 Zasady dowodowe:
-- **Warunki kanoniczne 1–30**: Dokładnie 30 kanonicznych warunków HIL-READY zdefiniowanych w specyfikacji bazowej.
-- **Wymagania rozszerzone HIL-X (HIL-X01 do HIL-X15)**: Dodatkowe rygory (np. rygor odrzucania mocków na bramce sprzętowej, rygory semantyki Drop) wydzielono do osobnej struktury `HilExtendedRequirement`.
-- **Klasyfikacja fixture laboratoryjnych**: Przykładowe pliki manifestów i odczytów (np. `tests/hil/ic7300_lab_bench.json`) są jawnie sklasyfikowane jako `SyntheticOfflineFixture`.
-- **Rygor anty-atrapowy dla pomiarów**: Odczyty o pochodzeniu `SyntheticOfflineFixture` podlegają regule `SYNTHETIC OFFLINE FIXTURE - NOT A PHYSICAL MEASUREMENT - NOT VALID FOR HARDWARE HIL-READY`. Umożliwiają testy logiki offline (`offline_test_status: Passed`), lecz w runtime zwracają bezwzględnie `runtime_evidence_status: Blocked` i nie pozwalają na zaliczenie fizycznej bramki HIL-READY.
+- **Warunki kanoniczne 1–30**: Dokładnie 30 nienaruszalnych warunków HIL-READY zdefiniowanych w specyfikacji bazowej (`CANONICAL_HIL_READY_IDS` i `CANONICAL_HIL_READY_DESCRIPTIONS`). Żaden warunek kanoniczny nie może zostać zastąpiony inną regułą.
+- **Wymagania rozszerzone HIL-X (`HIL-X01` do `HIL-X22`)**: Dodatkowe rygory laboratoryjne i programowe (w tym reguły wydzielone z dawnych podmian warunków 3, 7, 15, 18, 19, 20, 24 i 25 jako `HIL-X16`..`HIL-X22`) są przechowywane w osobnej kolekcji `HilExtendedRequirement` i nie zajmują slotów 1–30.
+- **Prawdziwe pochodzenie dowodów**: Warunki 1 i 3 mają pochodzenie `RepositoryMeasurement`, warunek 2 (oraz `HIL-X16`) ma pochodzenie `SoftwareBaselineArtifact`, warunki konfiguracyjne (4–7, 10–12, 21, 22, 25 i `HIL-X17`) mają pochodzenie `ConfigurationArtifact`, warunki operatorskie (8, 9, 13, 14, 19, 20, 23, 24, 30 oraz `HIL-X18`, `HIL-X21`, `HIL-X22`) mają pochodzenie `OperatorDeclaration`, a warunki maszyny stanów runtime (15–18, 26–29 oraz `HIL-X19`, `HIL-X20`) w fazie 7A mają pochodzenie `MockRuntime`.
+- **Rygor anty-atrapowy dla pomiarów**: Odczyty o pochodzeniu `SyntheticOfflineFixture` podlegają regule `SYNTHETIC OFFLINE FIXTURE - NOT A PHYSICAL MEASUREMENT - NOT VALID FOR HARDWARE HIL-READY`.
 
 Każdy sprawdzany warunek HIL-READY posiada dokładnie jedną nienaruszalną kategorię dowodu:
 ```rust
 pub enum HilReadinessEvidenceKind {
-    /// Warunek potwierdzony automatycznie przez kod na podstawie repozytorium,
-    /// konfiguracji, snapshotu, runtime lub obsługiwanego instrumentu cyfrowego.
     MachineVerified,
-    /// Warunek fizyczny potwierdzony ręcznie przez operatora, którego aplikacja
-    /// nie może samodzielnie zmierzyć (np. fizyczne dokręcenie sztucznego obciążenia).
     OperatorAttested,
-    /// Warunek potwierdzony przez jawnie wskazany przyrząd pomiarowy i zapisany odczyt.
     InstrumentVerified,
 }
 ```
 
-Deklaracja operatora nie może być traktowana jako automatyczny pomiar cyfrowy, a dane z syntetycznej fixture nie zastępują manualnego ani fizycznego pomiaru w.cz.
+#### Kanoniczna macierz 30 warunków HIL-READY (`1..=30`):
+
+| Nr | Kanoniczny ID | Kanoniczny opis | Kategoria | Pochodzenie (7A) | Kontekst (7A) | OfflineModel | SimulatedRuntime | PhysicalRuntime | Symbol implementacyjny | Test behawioralny |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | `HIL-COND-01-WORKING-TREE-CLEAN` | Working tree clean. | `MachineVerified` | `RepositoryMeasurement` | `OfflineModel` | `Passed` | `NotRun` | `NotRun` | `HilTestBenchManifest::working_tree_clean` | `hil_canonical_01_working_tree_clean` |
+| 2 | `HIL-COND-02-SOFTWARE-TESTS-PASS` | Wszystkie testy programowe przechodzą. | `MachineVerified` | `SoftwareBaselineArtifact` | `OfflineModel` | `Passed` | `NotRun` | `NotRun` | `HilSoftwareBaselineEvidence::is_verified` | `hil_software_baseline_evidence_validates_all_suites` |
+| 3 | `HIL-COND-03-TESTED-COMMIT-RECORDED` | Pełny SHA testowanego commita jest zapisany. | `MachineVerified` | `RepositoryMeasurement` | `OfflineModel` | `Passed` | `NotRun` | `NotRun` | `HilTestBenchManifest::tested_commit_sha` | `hil_manifest_records_commit` |
+| 4 | `HIL-COND-04-RIG-IDENTIFIED` | Radio jest jednoznacznie zidentyfikowane. | `MachineVerified` | `ConfigurationArtifact` | `OfflineModel` | `Passed` | `NotRun` | `Blocked` | `HilMatrixEntry::rig_id` | `hil_requires_explicit_rig_id` |
+| 5 | `HIL-COND-05-FIRMWARE-RECORDED` | Firmware jest zapisane. | `MachineVerified` | `ConfigurationArtifact` | `OfflineModel` | `Passed` | `NotRun` | `Blocked` | `HilMatrixEntry::firmware_version` | `hil_manifest_records_firmware` |
+| 6 | `HIL-COND-06-TRANSPORT-SPECIFIED` | Transport CAT jest jednoznacznie określony. | `MachineVerified` | `ConfigurationArtifact` | `OfflineModel` | `Passed` | `NotRun` | `Blocked` | `HilTransportConfig::validate` | `hil_rejects_missing_transport` |
+| 7 | `HIL-COND-07-BACKEND-PROFILE-VALID` | Profil backendu jest poprawnie wybrany. | `MachineVerified` | `ConfigurationArtifact` | `OfflineModel` | `Passed` | `NotRun` | `Blocked` | `HilReadinessValidator::validate_backend_profile` | `hil_canonical_07_matches_backend_profile` |
+| 8 | `HIL-COND-08-ANTENNA-DISCONNECTED` | Antena jest fizycznie odłączona. | `OperatorAttested` | `OperatorDeclaration` | `OfflineModel` | `Passed` | `NotRun` | `Blocked` | `HilOperatorAttestation::antenna_physically_disconnected` | `hil_blocks_ptt_when_antenna_connected` |
+| 9 | `HIL-COND-09-DUMMY-LOAD-50OHM` | Dummy load 50 ohm jest fizycznie podłączony. | `OperatorAttested` | `OperatorDeclaration` | `OfflineModel` | `Passed` | `NotRun` | `Blocked` | `HilOperatorAttestation::dummy_load_50ohm_connected` | `hil_requires_dummy_load_confirmation` |
+| 10 | `HIL-COND-10-DUMMY-LOAD-FREQUENCY` | Dummy load obsługuje częstotliwość testową. | `MachineVerified` | `ConfigurationArtifact` | `OfflineModel` | `Passed` | `NotRun` | `Blocked` | `HilDummyLoadSpec::supports_frequency` | `hil_frequency_must_fit_dummy_load_range` |
+| 11 | `HIL-COND-11-DUMMY-LOAD-POWER-TIME` | Dummy load obsługuje moc i czas testu. | `MachineVerified` | `ConfigurationArtifact` | `OfflineModel` | `Passed` | `NotRun` | `Blocked` | `HilDummyLoadSpec::supports_power_and_duration` | `hil_power_must_not_exceed_dummy_load_rating` |
+| 12 | `HIL-COND-12-RIG-POWER-LIMITED` | Moc radia jest ograniczona. | `MachineVerified` | `ConfigurationArtifact` | `OfflineModel` | `Passed` | `NotRun` | `Blocked` | `HilRfSafetyConfig::max_test_power_watts` | `hil_requires_power_limit` |
+| 13 | `HIL-COND-13-PA-DISCONNECTED-OR-LOCKED` | Wzmacniacz mocy jest odłączony albo zablokowany. | `OperatorAttested` | `OperatorDeclaration` | `OfflineModel` | `Passed` | `NotRun` | `Blocked` | `HilOperatorAttestation::pa_disconnected_or_inhibited` | `hil_canonical_13_pa_disconnected_or_locked` |
+| 14 | `HIL-COND-14-TUNER-DISABLED` | Tuner automatyczny jest wyłączony, jeśli nie jest częścią testu. | `OperatorAttested` | `OperatorDeclaration` | `OfflineModel` | `Passed` | `NotRun` | `Blocked` | `HilOperatorAttestation::auto_tuner_disabled` | `hil_canonical_14_tuner_disabled` |
+| 15 | `HIL-COND-15-OTHER-RIGS-PTT-LOCKED` | Wszystkie pozostałe radia mają zablokowane PTT. | `MachineVerified` | `MockRuntime` | `SimulatedRuntime` | `Passed` | `Passed` | `Blocked` | `TxArbiter::request_tx` | `hil_canonical_15_blocks_ptt_for_other_radios` |
+| 16 | `HIL-COND-16-TX-ARBITER-IDLE` | TxArbiter rozpoczyna w stanie Idle. | `MachineVerified` | `MockRuntime` | `SimulatedRuntime` | `Passed` | `Passed` | `Blocked` | `TxArbiter::state` | `hil_ptt_uses_tx_arbiter` |
+| 17 | `HIL-COND-17-ACTIVE-TX-TARGET-EXACT` | ActiveTxTarget wskazuje dokładnie testowane radio. | `MachineVerified` | `MockRuntime` | `SimulatedRuntime` | `Passed` | `Passed` | `Blocked` | `RigHub::set_active_tx` | `hil_canonical_17_active_tx_target_exact` |
+| 18 | `HIL-COND-18-NO-FIRST-RIG-FALLBACK` | Nie istnieje automatyczny fallback na pierwsze radio. | `MachineVerified` | `MockRuntime` | `SimulatedRuntime` | `Passed` | `Passed` | `Blocked` | `RigHub::send_command` | `hil_never_selects_first_rig` |
+| 19 | `HIL-COND-19-PHYSICAL-EMERGENCY-STOP` | Dostępny jest fizyczny awaryjny STOP. | `OperatorAttested` | `OperatorDeclaration` | `OfflineModel` | `Passed` | `NotRun` | `Blocked` | `HilOperatorAttestation::emergency_stop_accessible` | `hil_canonical_19_requires_physical_emergency_stop` |
+| 20 | `HIL-COND-20-OPERATOR-BENCH-READY` | Operator potwierdził gotowość stanowiska. | `OperatorAttested` | `OperatorDeclaration` | `OfflineModel` | `Passed` | `NotRun` | `Blocked` | `HilOperatorAttestation::bench_readiness_confirmed` | `hil_canonical_20_requires_operator_bench_readiness_attestation` |
+| 21 | `HIL-COND-21-LOGGING-ACTIVE` | Logowanie działa przed rozpoczęciem próby. | `MachineVerified` | `ConfigurationArtifact` | `OfflineModel` | `Passed` | `NotRun` | `Blocked` | `HilTestBenchManifest::logging_active_before_trial` | `hil_canonical_21_logging_active` |
+| 22 | `HIL-COND-22-MAX-TX-DURATION-BOUNDED` | Czas pojedynczej transmisji jest ograniczony. | `MachineVerified` | `ConfigurationArtifact` | `OfflineModel` | `Passed` | `NotRun` | `Blocked` | `HilRfSafetyConfig::max_single_tx_duration_ms` | `hil_rejects_zero_or_invalid_deadline` |
+| 23 | `HIL-COND-23-ABORT-PROCEDURE-RECORDED` | Procedura przerwania jest zapisana. | `OperatorAttested` | `OperatorDeclaration` | `OfflineModel` | `Passed` | `NotRun` | `Blocked` | `HilAbortProcedure::is_complete` | `hil_abort_procedure_is_recorded_and_complete` |
+| 24 | `HIL-COND-24-RULES-AND-PRIVILEGES-ATTESTED` | Operator potwierdził zgodność próby z zasadami i posiadanymi uprawnieniami. | `OperatorAttested` | `OperatorDeclaration` | `OfflineModel` | `Passed` | `NotRun` | `Blocked` | `HilOperatorAttestation::rules_and_privileges_confirmed` | `hil_canonical_24_requires_rules_and_privileges_attestation` |
+| 25 | `HIL-COND-25-REMOTE-UNCONTROLLED-TX-DISABLED` | SmartLink oraz zdalny niekontrolowany TX są wyłączone. | `MachineVerified` | `ConfigurationArtifact` | `OfflineModel` | `Passed` | `NotRun` | `Blocked` | `HilReadinessValidator::validate_remote_tx_safety` | `hil_canonical_25_blocks_smartlink_and_remote_uncontrolled_tx` |
+| 26 | `HIL-COND-26-OUT-OF-SCOPE-DATA-PLANE-INACTIVE` | Data Plane poza zakresem testu jest nieaktywny. | `MachineVerified` | `MockRuntime` | `SimulatedRuntime` | `Passed` | `Passed` | `Blocked` | `HilTestBenchManifest::data_plane_disabled` | `hil_canonical_26_data_plane_inactive` |
+| 27 | `HIL-COND-27-PROBE-WITHOUT-PTT` | Probe został wykonany bez PTT. | `MachineVerified` | `MockRuntime` | `SimulatedRuntime` | `Passed` | `Passed` | `Blocked` | `HilHardwareSession::execute_safe_probe` | `test_17_session_probe_allowed_in_stage_7a_when_transport_valid` |
+| 28 | `HIL-COND-28-FRESH-CONFIRMED-RX-BEFORE-TX` | Stan RX jest świeżo potwierdzony przed TX. | `MachineVerified` | `MockRuntime` | `SimulatedRuntime` | `Passed` | `Passed` | `Blocked` | `HilHardwareSession::acquire_tx_guard` | `hil_missing_confirmed_rx_cannot_pass` |
+| 29 | `HIL-COND-29-TX-ARBITER-NOT-UNKNOWN` | TxArbiter nie jest w stanie Unknown. | `MachineVerified` | `MockRuntime` | `SimulatedRuntime` | `Passed` | `Passed` | `Blocked` | `TxArbiterState::Unknown` | `hil_unknown_state_blocks_ptt` |
+| 30 | `HIL-COND-30-PERSONNEL-KNOW-STOP-PROCEDURE` | Wszystkie osoby przy stanowisku znają procedurę STOP. | `OperatorAttested` | `OperatorDeclaration` | `OfflineModel` | `Passed` | `NotRun` | `Blocked` | `HilOperatorAttestation::all_personnel_briefed_on_stop` | `hil_operator_acknowledges_abort_procedure` |
+
+#### Rozszerzone wymagania laboratoryjne i programowe `HIL-X01`..`HIL-X22`:
+
+| ID | Rule ID | Opis | Kontekst | Pochodzenie | Test |
+|---|---|---|---|---|---|
+| `HIL-X01..HIL-X15` | `HIL-RULE-X01..X15` | Rozszerzone reguły walidacji przyrządów, SWR, kalibracji, separacji fixture i sesji laboratoryjnej. | `OfflineModel` | `SyntheticOfflineFixture` | `hil_extensions_are_separate_from_canonical_matrix` |
+| `HIL-X16-BUILD-CHECK-CLIPPY-CLEAN` | `HIL-RULE-X16-BUILD-CLIPPY` | Build, check i Clippy zakończone kodem 0. | `OfflineModel` | `SoftwareBaselineArtifact` | `hil_extended_x16_build_check_clippy_clean` |
+| `HIL-X17-NO-AUTO-PORT-SELECTION` | `HIL-RULE-X17-NO-AUTO-PORT` | Zakaz automatycznego zgadywania portu lub radia. | `OfflineModel` | `ConfigurationArtifact` | `hil_extended_x17_rejects_auto_port_selection` |
+| `HIL-X18-RF-PERIMETER-SECURED` | `HIL-RULE-X18-RF-PERIMETER` | Strefa bezpieczeństwa RF została zabezpieczona. | `OfflineModel` | `OperatorDeclaration` | `hil_extended_x18_requires_rf_perimeter_secured` |
+| `HIL-X19-PTT-ZERO-RETRY` | `HIL-RULE-X19-PTT-ZERO-RETRY` | Brak retry dla `SetPtt(true)`. | `SimulatedRuntime` | `MockRuntime` | `hil_extended_x19_enforces_zero_retry_for_set_ptt_true` |
+| `HIL-X20-TX-GUARD-EXPLICIT-RELEASE` | `HIL-RULE-X20-TX-GUARD-EXPLICIT-RELEASE` | `HilTxGuard` wymaga jawnego `release_and_confirm_rx()`. | `SimulatedRuntime` | `MockRuntime` | `hil_extended_x20_tx_guard_requires_explicit_release` |
+| `HIL-X21-OPERATOR-PRESENT` | `HIL-RULE-X21-OPERATOR-PRESENT` | Operator jest fizycznie obecny przy stanowisku. | `OfflineModel` | `OperatorDeclaration` | `hil_extended_x21_requires_operator_physical_presence` |
+| `HIL-X22-SUPERVISED-TRIAL-ONLY` | `HIL-RULE-X22-SUPERVISED-TRIAL` | Zakaz nienadzorowanego TX. | `OfflineModel` | `OperatorDeclaration` | `hil_extended_x22_rejects_unsupervised_trial` |
 
 ### 18.4. Nadrzędne reguły bezpieczeństwa w.cz. (RF Safety) i semantyka HilTxGuard
 
@@ -685,7 +736,7 @@ W falach NATIVE-0 do NATIVE-6A interfejs GUI nie ulega modyfikacji runtime, co g
 | **NATIVE-6** | Fala nadrzędna: Multi-Radio Execution Core, fabryka backendów, migracja i integracja UI | Fala nadrzędna podzielona formalnie na NATIVE-6A i NATIVE-6B (decyzja AD-NATIVE-6-SPLIT). Brak osobnych kryteriów wykonawczych. |
 | **NATIVE-6A** | Multi-Radio Execution Core, RigHub i bezpieczny arbitraż TX | Zaimplementowanie bezgłowej, produkcyjnej warstwy wykonawczej (RigService, RigHub, TxArbiter, routing, bounded queues, lifecycle, shutdown) bez zmian w GUI. [zrealizowano] |
 | **NATIVE-6B** | Fabryka backendów, migracja konfiguracji i UI | Podłączenie istniejących backendów i warstwy wykonawczej do GUI (`cat_settings.rs`), dynamiczne panele konfiguracji, fabryka backendów, walidacja i18n, migracja `AppConfig`. [zrealizowano] |
-| **NATIVE-7A** | Funkcjonalny harness HIL, walidator HIL-READY i audyt | Kompletna domena HIL (`src/cat/hil/`), parser manifestu, walidator gotowości laboratoryjnej (30 warunków HIL-READY), zestaw rozszerzony HIL-X, 135 testów offline, synchronizacja podręcznika i audyt ARCH-CAT. [zrealizowano] |
+| **NATIVE-7A** | Funkcjonalny harness HIL, walidator HIL-READY i audyt | Kompletna domena HIL (`src/cat/hil/`), parser manifestu, walidator gotowości laboratoryjnej (30 nienaruszalnych warunków HIL-READY), zestaw rozszerzony `HIL-X01`..`HIL-X22`, 279 testów offline, synchronizacja podręcznika i audyt ARCH-CAT. [zrealizowano] |
 | **NATIVE-7B** | Kontrolowane wykonanie na fizycznym sprzęcie | Uruchomienie testów na rzeczywistym transceiverze wyłącznie po spełnieniu HIL-READY i zgodzie operatora; w środowisku bez fizycznego radia bramka posiada status BLOCKED, a 10 przypadków sprzętowych status NOT RUN. [gotowość procedur, oczekiwanie na fizyczne stanowisko] |
 
 ### 24.1. Łańcuch zależności fal realizacyjnych
@@ -992,23 +1043,26 @@ NATIVE-0 -> NATIVE-1 -> NATIVE-2 -> NATIVE-3 -> NATIVE-4 -> NATIVE-5 (5A-5E) -> 
     - `OfflineModel`: ewaluacja statyczna, poprawność parsowania manifestu, reguły konfiguracyjne i niezmienniki domenowe,
     - `SimulatedRuntime`: weryfikacja na mockach, duplex streams i symulowanych aktorach Tokio bez dostępu do fizycznych portów,
     - `PhysicalRuntime`: wyłącznie rzeczywista aparatura laboratoryjna, fizyczny port szeregowy/sieciowy, potwierdzona telemetria i atestowane sztuczne obciążenie.
-  - [x] Ścisła klasyfikacja pochodzenia dowodów (`HilEvidenceOrigin`):
-    - `SyntheticOfflineFixture`: pliki manifestu JSON, przykładowe fixture testowe,
-    - `MockRuntime`: mocki backendów i symulatory duplex streams,
-    - `PhysicalMeasurement`: zweryfikowane przyrządy pomiarowe z ważną kalibracją i znacznikiem czasu,
+  - [x] Ścisła klasyfikacja pochodzenia dowodów (`HilEvidenceOrigin` — 8 wariantów):
+    - `RepositoryMeasurement`: stan czystości drzewa roboczego i pełny 40-znakowy SHA testowanego commita,
+    - `SoftwareBaselineArtifact`: artefakt weryfikacji testów programowych, `cargo check` i `cargo clippy`,
+    - `ConfigurationArtifact`: deterministycznie zwalidowane wpisy konfiguracji radia, profilu, transportu i limitów mocy/czasu,
+    - `SyntheticOfflineFixture`: przykładowe fixture laboratoryjne dla rozszerzeń `HIL-X01`..`HIL-X15`,
+    - `MockRuntime`: weryfikacja maszyny stanów na `MockHilBackend`, duplex streams i lokalnych aktorach Tokio,
+    - `OperatorDeclaration`: oświadczenia i atestacje bezpieczeństwa podpisane przez operatora,
     - `InstrumentInterface`: odczyt z interfejsu przyrządu (wymaga potwierdzenia fizycznego),
-    - `OperatorDeclaration`: oświadczenia i atestacje bezpieczeństwa podpisane przez operatora.
+    - `PhysicalMeasurement`: zweryfikowane przyrządy pomiarowe z ważną kalibracją i znacznikiem czasu w fizycznej sesji.
   - [x] Nadrzędna zasada dowodowa: wynik testu jednostkowego/integracyjnego, mock, fixture ani manifest przykładowy nie są fizycznymi dowodami runtime. Poprawność maszyny stanów nie zastępuje fizycznej sesji sprzętowej.
-  - [x] Rozdzielenie Warunku 2 (Software baseline) na weryfikację maszynową (`HilReadinessEvidenceKind::MachineVerified`) oraz bazę dowodową `HilSoftwareBaselineEvidence` (`splogbook::cat::hil::HilSoftwareBaselineEvidence`), weryfikującą 40-znakowy hash commitu Git, czysty wynik kompilacji, brak błędów Clippy i sukces testów regresyjnych.
-  - [x] Rozdzielenie Warunku 23 (Awaryjne zatrzymanie) na procedurę (`HilAbortProcedure`, `MachineVerified`, sprawdzającą integralność kroków odcięcia PTT i zasilania) oraz oświadczenie operatora (`OperatorAttested`, potwierdzenie znajomości procedury).
-  - [x] Kanoniczna macierz 30 warunków HIL-READY bez zmian, z przypisanym unikalnym symbolem implementacyjnym i testem behawioralnym dla każdego warunku.
-  - [x] Wydzielenie zestawu wymagań rozszerzonych i laboratoryjnych HIL-X (HIL-X01..HIL-X15), hermetycznie odseparowanych od kanonicznej 30-elementowej macierzy.
+  - [x] Rozdzielenie Warunku 2 (Software baseline) na weryfikację maszynową (`HilReadinessEvidenceKind::MachineVerified`) oraz bazę dowodową `HilSoftwareBaselineEvidence` (`splogbook::cat::hil::HilSoftwareBaselineEvidence`) o pochodzeniu `SoftwareBaselineArtifact`, weryfikującą 40-znakowy hash commitu Git, czysty wynik kompilacji, brak błędów Clippy i sukces testów regresyjnych.
+  - [x] Rozdzielenie Warunku 23 (Awaryjne zatrzymanie) na procedurę (`HilAbortProcedure`, sprawdzającą integralność kroków odcięcia PTT i zasilania) oraz oświadczenie operatora (`OperatorAttested`, `OperatorDeclaration`, potwierdzenie zapisania procedury przerwania).
+  - [x] Kanoniczna macierz 30 nienaruszalnych warunków HIL-READY (`CANONICAL_HIL_READY_IDS`, `CANONICAL_HIL_READY_DESCRIPTIONS`) z przypisanym unikalnym symbolem implementacyjnym i unikalnym testem behawioralnym dla każdego warunku 1–30.
+  - [x] Wydzielenie zestawu wymagań rozszerzonych i laboratoryjnych `HIL-X01`..`HIL-X22` (w tym `HIL-X16`..`HIL-X22` przeniesionych z warunków 3, 7, 15, 18, 19, 20, 24 i 25), hermetycznie odseparowanych od kanonicznej 30-elementowej macierzy.
   - [x] Bezwzględna blokada fizycznego PTT w fazie NATIVE-7A (`HilError::PttForbiddenInStage7A`).
   - [x] Bezwzględny wymóg sztucznego obciążenia 50 Ω oraz blokada PTT na antenie (`HilError::SafetyViolation`).
   - [x] Nienaruszalna zasada pojedynczego załączenia PTT (Zero Retry Invariant).
   - [x] Bezpieczny token autoryzacji PTT przez operatora (`HilPttConsentToken`) oraz wieloskładnikowa weryfikacja sesji (`HilHardwareSession::verify_tx_authorization`).
   - [x] Jawny i bezpieczny model zwolnienia nadawania ze strażnikiem RAII `HilTxGuard` (jawne `release_and_confirm_rx()` jako jedyna ścieżka do `ConfirmedRx`; w razie niekontrolowanego porzucenia Drop oznacza sesję jako `FailedOrUnknown` bez blokującego I/O, bez tworzenia runtime Tokio i bez fałszowania przejścia do RX).
-  - [x] 186 deterministycznych testów integracyjnych offline w `tests/cat_native_7.rs` (wszystkie passed).
+  - [x] 279 deterministycznych testów integracyjnych offline w `tests/cat_native_7.rs` (wszystkie passed).
   - [x] 10 hermetycznie odizolowanych punktów wejścia do testów fizycznych (`hil_hardware_*`, `#[ignore = "hardware-in-the-loop"]`).
   - [x] Przykładowy kanoniczny manifest stanowiska `tests/hil/ic7300_lab_bench.json` (sklasyfikowany jako `SyntheticOfflineFixture`).
   - [x] Pełna synchronizacja `Refaktoryzacje.md`, `Native CAT.md`, `src/gui/user_manual.rs` i `README.md`.
@@ -1018,8 +1072,8 @@ NATIVE-0 -> NATIVE-1 -> NATIVE-2 -> NATIVE-3 -> NATIVE-4 -> NATIVE-5 (5A-5E) -> 
 
 ### Końcowy werdykt programu NATIVE-CAT:
 
-1. **NATIVE-CAT SOFTWARE**: **PASSED** (8 backendów, RigHub, TxArbiter, CatRuntime, CatStationConfig, migracja v0->v1 z rollbackiem, FormVariantCache, 1262 testów programowych passed w całym projekcie).
-2. **NATIVE-7A OFFLINE**: **PASSED** (kompletny harness HIL, wieloosiowy model dowodowy, walidator 30 kanonicznych warunków HIL-READY, zestaw rozszerzony HIL-X, 186 testów offline passed, 0 ostrzeżeń).
+1. **NATIVE-CAT SOFTWARE**: **PASSED** (8 backendów, RigHub, TxArbiter, CatRuntime, CatStationConfig, migracja v0->v1 z rollbackiem, FormVariantCache, 1355 testów programowych passed w całym projekcie).
+2. **NATIVE-7A OFFLINE**: **PASSED** (kompletny harness HIL, wieloosiowy model dowodowy, walidator 30 nienaruszalnych kanonicznych warunków HIL-READY, zestaw rozszerzony `HIL-X01`..`HIL-X22`, 279 testów offline passed, 0 ostrzeżeń).
 3. **NATIVE-7B HARDWARE**: **BLOCKED** (brak fizycznego stanowiska laboratoryjnego i sztucznego obciążenia 50 Ω w środowisku CI/dev).
 4. **HARDWARE TEST CASES**: **NOT RUN** (10 izolowanych przypadków sprzętowych w stanie NotRun z powodu blokady bramki HIL-READY).
 5. **HARDWARE VALIDATION**: **INCOMPLETE** (stanowisko oczekuje na fizyczne podłączenie aparatury).

@@ -129,6 +129,21 @@ pub struct HilRfSafetyConfig {
     /// Maksymalny dopuszczalny czas trwania impulsu testowego w milisekundach (<= 500 ms).
     #[serde(default = "default_max_duration_ms")]
     pub max_test_duration_ms: u64,
+    /// Potwierdzenie wyłączenia SmartLink dla prób HIL (Warunek 25).
+    #[serde(default = "default_true")]
+    pub smartlink_disabled: bool,
+    /// Potwierdzenie wyłączenia zdalnego, nienadzorowanego TX (Warunek 25).
+    #[serde(default = "default_true")]
+    pub unattended_remote_tx_disabled: bool,
+    /// Potwierdzenie, że ewentualny endpoint sieciowy jest lokalny lub w pełni kontrolowany (Warunek 25).
+    #[serde(default = "default_true")]
+    pub remote_endpoint_is_local_or_controlled: bool,
+    /// Potwierdzenie posiadania natychmiastowej fizycznej kontroli zatrzymania nadajnika (Warunek 25).
+    #[serde(default = "default_true")]
+    pub operator_has_immediate_stop_control: bool,
+    /// Potwierdzenie wyłączenia strumieni Data Plane (Audio, DAX, IQ, panadapter, waterfall) poza zakresem testu (Warunek 26).
+    #[serde(default = "default_true")]
+    pub out_of_band_data_plane_disabled: bool,
 }
 
 fn default_interlock_engaged() -> bool {
@@ -171,6 +186,30 @@ pub struct HilOperatorAttestation {
     /// Formalne potwierdzenie zapoznania się operatora ze stanowiskiem.
     #[serde(default = "default_true")]
     pub operator_acknowledged: bool,
+    /// Jawne potwierdzenie gotowości stanowiska laboratoryjnego przez operatora (Warunek 20).
+    #[serde(default = "default_true")]
+    pub bench_readiness_confirmed: bool,
+    /// Potwierdzenie fizycznej obecności operatora przy stanowisku (HIL-X21).
+    #[serde(default = "default_true")]
+    pub operator_present: bool,
+    /// Potwierdzenie prowadzenia próby pod bezpośrednim nadzorem operatora (HIL-X22).
+    #[serde(default = "default_true")]
+    pub supervised_trial_confirmed: bool,
+    /// Potwierdzenie zgodności próby z regulaminem i zasadami laboratorium (Warunek 24).
+    #[serde(default = "default_true")]
+    pub rules_compliance_attested: bool,
+    /// Potwierdzenie posiadania wymaganych uprawnień operatorskich (Warunek 24).
+    #[serde(default = "default_true")]
+    pub operator_privileges_attested: bool,
+    /// Potwierdzenie dopuszczalności pasma częstotliwości (Warunek 24).
+    #[serde(default = "default_true")]
+    pub allowed_band_attested: bool,
+    /// Potwierdzenie dopuszczalności rodzaju emisji / modulacji (Warunek 24).
+    #[serde(default = "default_true")]
+    pub allowed_mode_attested: bool,
+    /// Potwierdzenie braku nieautoryzowanej emisji radiowej (Warunek 24).
+    #[serde(default = "default_true")]
+    pub no_unauthorized_emission_attested: bool,
     /// Potwierdzenie znajomości procedury STOP przez osoby obecne przy stanowisku.
     #[serde(default = "default_true")]
     pub personnel_know_stop_procedure: bool,
@@ -271,6 +310,15 @@ pub struct HilTestBenchManifest {
     /// Pełny SHA testowanego commita Git.
     #[serde(default)]
     pub tested_commit: Option<String>,
+    /// Opcjonalny oczekiwany pełny SHA commita do weryfikacji zgodności (Warunek 3).
+    #[serde(default)]
+    pub expected_commit: Option<String>,
+    /// Potwierdzenie czystego drzewa roboczego Git (Warunek 1).
+    #[serde(default = "default_true")]
+    pub working_tree_clean: bool,
+    /// Potwierdzenie przejścia wszystkich testów programowych (Warunek 2).
+    #[serde(default = "default_true")]
+    pub software_tests_passed: bool,
     /// Identyfikator operatora (np. znak lub login).
     #[serde(default)]
     pub operator_id: String,

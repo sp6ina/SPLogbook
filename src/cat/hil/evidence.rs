@@ -106,31 +106,108 @@ impl HilExecutionContext {
     }
 }
 
-/// Pochodzenie dowodu pomiarowego (fizyczny pomiar vs syntetyczny fixture testowy vs mock vs deklaracja).
+/// Kanoniczne identyfikatory 30 nienaruszalnych warunków HIL-READY (1..30).
+pub const CANONICAL_HIL_READY_IDS: [&str; 30] = [
+    "HIL-COND-01-WORKING-TREE-CLEAN",
+    "HIL-COND-02-SOFTWARE-TESTS-PASS",
+    "HIL-COND-03-TESTED-COMMIT-RECORDED",
+    "HIL-COND-04-RIG-IDENTIFIED",
+    "HIL-COND-05-FIRMWARE-RECORDED",
+    "HIL-COND-06-TRANSPORT-SPECIFIED",
+    "HIL-COND-07-BACKEND-PROFILE-VALID",
+    "HIL-COND-08-ANTENNA-DISCONNECTED",
+    "HIL-COND-09-DUMMY-LOAD-50OHM",
+    "HIL-COND-10-DUMMY-LOAD-FREQUENCY",
+    "HIL-COND-11-DUMMY-LOAD-POWER-TIME",
+    "HIL-COND-12-RIG-POWER-LIMITED",
+    "HIL-COND-13-PA-DISCONNECTED-OR-LOCKED",
+    "HIL-COND-14-TUNER-DISABLED",
+    "HIL-COND-15-OTHER-RIGS-PTT-LOCKED",
+    "HIL-COND-16-TX-ARBITER-IDLE",
+    "HIL-COND-17-ACTIVE-TX-TARGET-EXACT",
+    "HIL-COND-18-NO-FIRST-RIG-FALLBACK",
+    "HIL-COND-19-PHYSICAL-EMERGENCY-STOP",
+    "HIL-COND-20-OPERATOR-BENCH-READY",
+    "HIL-COND-21-LOGGING-ACTIVE",
+    "HIL-COND-22-MAX-TX-DURATION-BOUNDED",
+    "HIL-COND-23-ABORT-PROCEDURE-RECORDED",
+    "HIL-COND-24-RULES-AND-PRIVILEGES-ATTESTED",
+    "HIL-COND-25-REMOTE-UNCONTROLLED-TX-DISABLED",
+    "HIL-COND-26-OUT-OF-SCOPE-DATA-PLANE-INACTIVE",
+    "HIL-COND-27-PROBE-WITHOUT-PTT",
+    "HIL-COND-28-FRESH-CONFIRMED-RX-BEFORE-TX",
+    "HIL-COND-29-TX-ARBITER-NOT-UNKNOWN",
+    "HIL-COND-30-PERSONNEL-KNOW-STOP-PROCEDURE",
+];
+
+/// Kanoniczne opisy 30 nienaruszalnych warunków HIL-READY (1..30).
+pub const CANONICAL_HIL_READY_DESCRIPTIONS: [&str; 30] = [
+    "Working tree clean.",
+    "Wszystkie testy programowe przechodzą.",
+    "Pełny SHA testowanego commita jest zapisany.",
+    "Radio jest jednoznacznie zidentyfikowane.",
+    "Firmware jest zapisane.",
+    "Transport CAT jest jednoznacznie określony.",
+    "Profil backendu jest poprawnie wybrany.",
+    "Antena jest fizycznie odłączona.",
+    "Dummy load 50 ohm jest fizycznie podłączony.",
+    "Dummy load obsługuje częstotliwość testową.",
+    "Dummy load obsługuje moc i czas testu.",
+    "Moc radia jest ograniczona.",
+    "Wzmacniacz mocy jest odłączony albo zablokowany.",
+    "Tuner automatyczny jest wyłączony, jeśli nie jest częścią testu.",
+    "Wszystkie pozostałe radia mają zablokowane PTT.",
+    "TxArbiter rozpoczyna w stanie Idle.",
+    "ActiveTxTarget wskazuje dokładnie testowane radio.",
+    "Nie istnieje automatyczny fallback na pierwsze radio.",
+    "Dostępny jest fizyczny awaryjny STOP.",
+    "Operator potwierdził gotowość stanowiska.",
+    "Logowanie działa przed rozpoczęciem próby.",
+    "Czas pojedynczej transmisji jest ograniczony.",
+    "Procedura przerwania jest zapisana.",
+    "Operator potwierdził zgodność próby z zasadami i posiadanymi uprawnieniami.",
+    "SmartLink oraz zdalny niekontrolowany TX są wyłączone.",
+    "Data Plane poza zakresem testu jest nieaktywny.",
+    "Probe został wykonany bez PTT.",
+    "Stan RX jest świeżo potwierdzony przed TX.",
+    "TxArbiter nie jest w stanie Unknown.",
+    "Wszystkie osoby przy stanowisku znają procedurę STOP.",
+];
+
+/// Pochodzenie dowodu pomiarowego lub weryfikacyjnego w modelu HIL-READY.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum HilEvidenceOrigin {
-    /// Rzeczywisty pomiar laboratoryjny wykonany na fizycznym sprzęcie podczas aktywnej sesji.
-    PhysicalMeasurement,
-    /// Sygnał lub odczyt z interfejsu przyrządu pomiarowego (nie oznacza automatycznie fizycznego pomiaru).
-    InstrumentInterface,
-    /// Deklaracja złożona przez uprawnionego operatora stanowiska (wyłącznie dla OperatorAttested).
-    OperatorDeclaration,
+    /// Rzeczywisty pomiar stanu repozytorium Git (status drzewa roboczego, pełny SHA commita).
+    RepositoryMeasurement,
+    /// Artefakt programowego baseline (wyniki wykonania zestawów testów, kompilacji i Clippy).
+    SoftwareBaselineArtifact,
+    /// Artefakt konfiguracyjny lub dokumentacyjny (zwalidowany manifest, rejestr profili, SOP).
+    ConfigurationArtifact,
     /// Deterministyczny fixture testowy używany wyłącznie do testów offline (SYNTHETIC OFFLINE FIXTURE).
     /// Nie stanowi fizycznego pomiaru i nie jest ważny dla uzyskania sprzętowego statusu HIL-READY.
     #[default]
     SyntheticOfflineFixture,
     /// Środowisko symulacyjne lub mockowe (MOCK RUNTIME) weryfikujące maszynę stanów.
     MockRuntime,
+    /// Deklaracja złożona przez uprawnionego operatora stanowiska (wyłącznie dla OperatorAttested).
+    OperatorDeclaration,
+    /// Sygnał lub odczyt z interfejsu przyrządu pomiarowego (nie oznacza automatycznie fizycznego pomiaru).
+    InstrumentInterface,
+    /// Rzeczywisty pomiar laboratoryjny wykonany na fizycznym sprzęcie podczas aktywnej sesji.
+    PhysicalMeasurement,
 }
 
 impl fmt::Display for HilEvidenceOrigin {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::PhysicalMeasurement => write!(f, "PhysicalMeasurement"),
-            Self::InstrumentInterface => write!(f, "InstrumentInterface"),
-            Self::OperatorDeclaration => write!(f, "OperatorDeclaration"),
+            Self::RepositoryMeasurement => write!(f, "RepositoryMeasurement"),
+            Self::SoftwareBaselineArtifact => write!(f, "SoftwareBaselineArtifact"),
+            Self::ConfigurationArtifact => write!(f, "ConfigurationArtifact"),
             Self::SyntheticOfflineFixture => write!(f, "SyntheticOfflineFixture"),
             Self::MockRuntime => write!(f, "MockRuntime"),
+            Self::OperatorDeclaration => write!(f, "OperatorDeclaration"),
+            Self::InstrumentInterface => write!(f, "InstrumentInterface"),
+            Self::PhysicalMeasurement => write!(f, "PhysicalMeasurement"),
         }
     }
 }
@@ -144,6 +221,38 @@ impl HilEvidenceOrigin {
     /// Czy dowód jest syntetycznym fixturem lub mockiem (niedozwolonym do zaliczenia fizycznego HIL-READY).
     pub fn is_synthetic_or_mock(&self) -> bool {
         matches!(self, Self::SyntheticOfflineFixture | Self::MockRuntime)
+    }
+
+    /// Sprawdza zgodność pochodzenia dowodu z kategorią `HilReadinessEvidenceKind`.
+    pub fn is_compatible_with_kind(&self, kind: HilReadinessEvidenceKind) -> bool {
+        match self {
+            Self::OperatorDeclaration => kind == HilReadinessEvidenceKind::OperatorAttested,
+            Self::InstrumentInterface | Self::PhysicalMeasurement => {
+                kind == HilReadinessEvidenceKind::InstrumentVerified
+                    || kind == HilReadinessEvidenceKind::MachineVerified
+            }
+            Self::RepositoryMeasurement
+            | Self::SoftwareBaselineArtifact
+            | Self::ConfigurationArtifact
+            | Self::SyntheticOfflineFixture
+            | Self::MockRuntime => kind != HilReadinessEvidenceKind::OperatorAttested,
+        }
+    }
+
+    /// Sprawdza zgodność pochodzenia dowodu z kontekstem wykonania `HilExecutionContext`.
+    pub fn is_valid_in_context(&self, context: HilExecutionContext) -> bool {
+        match self {
+            Self::PhysicalMeasurement => context == HilExecutionContext::PhysicalRuntime,
+            Self::MockRuntime => context == HilExecutionContext::SimulatedRuntime,
+            Self::RepositoryMeasurement
+            | Self::SoftwareBaselineArtifact
+            | Self::ConfigurationArtifact
+            | Self::SyntheticOfflineFixture => context == HilExecutionContext::OfflineModel,
+            Self::OperatorDeclaration | Self::InstrumentInterface => {
+                context == HilExecutionContext::OfflineModel
+                    || context == HilExecutionContext::PhysicalRuntime
+            }
+        }
     }
 }
 
@@ -211,9 +320,9 @@ impl HilSoftwareBaselineEvidence {
                 .all(|r| r.exit_code == 0 && r.failed_count == 0)
     }
 
-    /// Zwraca pochodzenie dowodu (jest to syntetyczny/offline fixture programowy, nie fizyczny pomiar).
+    /// Zwraca pochodzenie dowodu (artefakt programowego baseline, nie syntetyczny fixture i nie fizyczny pomiar).
     pub fn evidence_origin(&self) -> HilEvidenceOrigin {
-        HilEvidenceOrigin::SyntheticOfflineFixture
+        HilEvidenceOrigin::SoftwareBaselineArtifact
     }
 
     /// Zwraca kontekst wykonania dowodu (OfflineModel).
@@ -229,27 +338,27 @@ impl HilSoftwareBaselineEvidence {
     /// Generuje kanoniczny rekord dowodowy dla bieżącego stanu repozytorium.
     pub fn canonical_current() -> Self {
         let mut evidence = Self::new(
-            "698a34bc9e26c10e7fe03983aae357c879678873",
-            "2026-10-18T12:42:33+02:00",
+            "e1ff373b5d264f3f3de2383c19936f45b2befe6a",
+            "2026-10-18T13:57:19+02:00",
         );
         evidence.add_command_result(HilCommandResult {
-            command: "cargo test --test cat_native_6a".to_string(),
+            command: "cargo +stable test --test cat_native_6a".to_string(),
             exit_code: 0,
             passed_count: 160,
             failed_count: 0,
             ignored_count: 0,
         });
         evidence.add_command_result(HilCommandResult {
-            command: "cargo test --test cat_native_6b".to_string(),
+            command: "cargo +stable test --test cat_native_6b".to_string(),
             exit_code: 0,
             passed_count: 75,
             failed_count: 0,
             ignored_count: 0,
         });
         evidence.add_command_result(HilCommandResult {
-            command: "cargo test --test cat_native_7".to_string(),
+            command: "cargo +stable test --test cat_native_7".to_string(),
             exit_code: 0,
-            passed_count: 135,
+            passed_count: 186,
             failed_count: 0,
             ignored_count: 10,
         });
@@ -399,16 +508,21 @@ pub struct HilReadinessCondition {
 }
 
 impl HilReadinessCondition {
+    /// Zwraca kanoniczny opis wymagania (zgodny z tablicą CANONICAL_HIL_READY_DESCRIPTIONS).
+    pub fn canonical_description(&self) -> &str {
+        &self.description
+    }
+
     /// Zwraca symbol powiązanej implementacji w kodzie produkcyjnym.
     pub fn implementation_symbol(&self) -> &'static str {
         match self.number {
-            1 => "splogbook::cat::hil::HilReadinessValidator::validate",
-            2 => "splogbook::cat::hil::HilSoftwareBaselineEvidence",
+            1 => "splogbook::cat::hil::HilTestBenchManifest::working_tree_clean",
+            2 => "splogbook::cat::hil::HilSoftwareBaselineEvidence::is_valid_baseline",
             3 => "splogbook::cat::hil::HilTestBenchManifest::tested_commit",
             4 => "splogbook::cat::hil::HilMatrixEntry::rig_id",
             5 => "splogbook::cat::hil::HilMatrixEntry::firmware_version",
             6 => "splogbook::cat::hil::HilTransportConfig",
-            7 => "splogbook::cat::backend::CatBackendKind",
+            7 => "splogbook::cat::backend::RigBackendFactory::create",
             8 => "splogbook::cat::hil::HilOperatorAttestation::antenna_disconnected",
             9 => "splogbook::cat::hil::HilRfTermination::DummyLoad",
             10 => "splogbook::cat::hil::HilRfSafetyConfig::frequency_range_hz",
@@ -416,23 +530,23 @@ impl HilReadinessCondition {
             12 => "splogbook::cat::hil::HilRfSafetyConfig::max_test_power_watts",
             13 => "splogbook::cat::hil::HilOperatorAttestation::pa_disconnected_or_locked",
             14 => "splogbook::cat::hil::HilOperatorAttestation::tuner_bypassed",
-            15 => "splogbook::cat::hil::HilRfSafetyConfig::interlock_engaged",
+            15 => "splogbook::cat::tx_arbiter::TxArbiter::request_tx",
             16 => "splogbook::cat::tx_arbiter::TxArbiter::new",
             17 => "splogbook::cat::routing::ActiveTxTarget",
-            18 => "splogbook::cat::routing::RigRouter::dispatch",
+            18 => "splogbook::cat::hub::RigHub::route_command",
             19 => "splogbook::cat::hil::HilOperatorAttestation::physical_stop_available",
-            20 => "splogbook::cat::hil::HilOperatorAttestation::operator_acknowledged",
-            21 => "splogbook::cat::hil::HilHardwareSession::init_logging",
+            20 => "splogbook::cat::hil::HilOperatorAttestation::bench_readiness_confirmed",
+            21 => "splogbook::cat::hil::HilHardwareSession::verify_hardware_access_authorization",
             22 => "splogbook::cat::hil::HilRfSafetyConfig::max_test_duration_ms",
-            23 => "splogbook::cat::hil::HilOperatorAttestation::abort_procedure_documented",
-            24 => "splogbook::cat::hil::HilOperatorAttestation::ptt_consent_granted",
-            25 => "splogbook::cat::hil::HilHardwareSession::verify_remote_safety",
-            26 => "splogbook::cat::hil::HilHardwareSession::verify_data_plane_isolated",
+            23 => "splogbook::cat::hil::HilAbortProcedure::canonical",
+            24 => "splogbook::cat::hil::HilOperatorAttestation::rules_compliance_attested",
+            25 => "splogbook::cat::hil::HilRfSafetyConfig::smartlink_disabled",
+            26 => "splogbook::cat::hil::HilRfSafetyConfig::out_of_band_data_plane_disabled",
             27 => "splogbook::cat::backend::RigBackend::probe",
-            28 => "splogbook::cat::hil::HilHardwareSession::confirm_fresh_rx",
+            28 => "splogbook::cat::hil::HilTxGuard::release_and_confirm_rx",
             29 => "splogbook::cat::tx_arbiter::TxArbiter::state",
             30 => "splogbook::cat::hil::HilOperatorAttestation::personnel_know_stop_procedure",
-            _ => "splogbook::cat::hil::HilReadinessValidator",
+            _ => "splogbook::cat::hil::HilReadinessValidator::validate",
         }
     }
 
@@ -440,27 +554,30 @@ impl HilReadinessCondition {
     pub fn offline_test(&self) -> &'static str {
         match self.number {
             1 => "hil_canonical_matrix_has_exactly_30_entries",
-            2 => "hil_assessment_separates_implementation_from_runtime_evidence",
-            3 => "hil_manifest_records_commit",
+            2 => "hil_software_baseline_evidence_validates_all_suites",
+            3 => "hil_canonical_03_records_full_tested_commit",
             4 => "hil_requires_explicit_rig_id",
             5 => "hil_manifest_records_firmware",
             6 => "hil_rejects_missing_transport",
-            7 => "hil_rejects_unknown_backend",
+            7 => "hil_canonical_07_matches_backend_profile",
             8 => "test_08_validator_antenna_termination_fails_ptt_readiness",
             9 => "hil_requires_dummy_load_confirmation",
             10 => "hil_frequency_must_fit_dummy_load_range",
             11 => "hil_power_must_not_exceed_dummy_load_rating",
             12 => "hil_requires_power_limit",
-            13 | 14 | 15 | 19 => "test_16_validator_stage_7b_full_ready_passes",
+            13 => "hil_canonical_13_requires_pa_disconnected_or_locked",
+            14 => "hil_canonical_14_requires_tuner_bypassed",
+            15 => "hil_canonical_15_blocks_ptt_for_other_radios",
             16 => "hil_canonical_16_requires_tx_arbiter_idle",
             17 => "hil_canonical_17_requires_exact_active_tx_target",
             18 => "hil_canonical_18_never_falls_back_to_first_rig",
-            20 => "test_11_validator_missing_operator_consent_blocks",
+            19 => "hil_canonical_19_requires_physical_emergency_stop",
+            20 => "hil_canonical_20_requires_operator_bench_readiness",
             21 => "hil_canonical_21_requires_logging_before_hardware_access",
             22 => "hil_rejects_zero_or_invalid_deadline",
             23 => "hil_canonical_23_requires_documented_abort_procedure",
-            24 => "hil_consent_token_alone_cannot_authorize_tx",
-            25 => "hil_canonical_25_rejects_smartlink",
+            24 => "hil_canonical_24_requires_rules_and_privileges_attestation",
+            25 => "hil_canonical_25_rejects_smartlink_and_unattended_remote_tx",
             26 => "hil_canonical_26_rejects_data_plane",
             27 => "hil_canonical_27_probe_is_read_only",
             28 => "hil_canonical_28_requires_fresh_confirmed_rx",
@@ -483,6 +600,10 @@ fn default_status_blocked() -> HilReadinessStatus {
     HilReadinessStatus::Blocked
 }
 
+fn default_status_not_run() -> HilReadinessStatus {
+    HilReadinessStatus::NotRun
+}
+
 fn default_evidence_kind_machine() -> HilReadinessEvidenceKind {
     HilReadinessEvidenceKind::MachineVerified
 }
@@ -491,20 +612,35 @@ fn default_execution_context_simulated() -> HilExecutionContext {
     HilExecutionContext::SimulatedRuntime
 }
 
-/// Rozszerzone wymaganie weryfikacji laboratoryjnej HIL-X (HIL-X01 .. HIL-X15).
+/// Rozszerzone wymaganie weryfikacji laboratoryjnej HIL-X (HIL-X01 .. HIL-X22).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HilExtendedRequirement {
-    /// Identyfikator wymagania (np. "HIL-X01").
+    /// Identyfikator wymagania (np. "HIL-X01", "HIL-X16-BUILD-CHECK-CLIPPY-CLEAN").
     pub id: String,
     /// Opis wymagania.
     pub description: String,
     /// Identyfikator powiązanej reguły walidatora.
     pub rule_id: String,
+    /// Powiązany symbol w kodzie produkcyjnym.
+    #[serde(default)]
+    pub symbol: String,
+    /// Powiązany test weryfikujący regułę.
+    #[serde(default)]
+    pub test: String,
     /// Pokrycie implementacyjne.
     pub implementation_coverage: HilImplementationCoverage,
     /// Wynik testu offline.
     pub offline_test_status: HilReadinessStatus,
-    /// Status dowodowy w runtime.
+    /// Wynik ewaluacji modelu offline.
+    #[serde(default = "default_status_passed")]
+    pub offline_evaluation_status: HilReadinessStatus,
+    /// Wynik weryfikacji w środowisku symulowanym (SimulatedRuntime).
+    #[serde(default = "default_status_passed")]
+    pub simulated_runtime_status: HilReadinessStatus,
+    /// Status dowodu z fizycznego stanowiska sprzętowego (PhysicalRuntime).
+    #[serde(default = "default_status_not_run")]
+    pub physical_runtime_evidence_status: HilReadinessStatus,
+    /// Status dowodowy w runtime (zachowany dla kompatybilności).
     pub runtime_evidence_status: HilReadinessStatus,
     /// Kategoria dowodu.
     #[serde(default = "default_evidence_kind_machine")]
@@ -548,7 +684,7 @@ pub struct HilReadinessReport {
     /// Kompletna macierz 30 kanonicznych warunków HIL-READY.
     #[serde(default)]
     pub conditions: Vec<HilReadinessCondition>,
-    /// Zestaw rozszerzonych wymagań laboratoryjnych HIL-X (HIL-X01..HIL-X15).
+    /// Zestaw rozszerzonych wymagań laboratoryjnych HIL-X (HIL-X01..HIL-X22).
     #[serde(default)]
     pub extended_requirements: Vec<HilExtendedRequirement>,
 }
@@ -589,23 +725,32 @@ impl HilReadinessReport {
         self.conditions.iter().find(|c| c.number == number)
     }
 
-    /// Wyszukuje wymaganie rozszerzone po jego identyfikatorze (np. "HIL-X01").
+    /// Wyszukuje wymaganie rozszerzone po jego identyfikatorze lub prefiksie (np. "HIL-X01", "HIL-X16").
     pub fn find_extended_requirement(&self, id: &str) -> Option<&HilExtendedRequirement> {
-        self.extended_requirements.iter().find(|r| r.id == id)
+        self.extended_requirements
+            .iter()
+            .find(|r| r.id == id || r.id.starts_with(&format!("{id}-")))
     }
 
     /// Generuje precyzyjną listę ocen wymagań rozdzielającą oś implementacji,
-    /// ewaluacji offline, symulacji oraz fizycznych dowodów runtime.
+    /// ewaluacji offline, symulacji oraz fizycznych dowodów runtime (zgodnie z ETAP 8).
     pub fn assessments(&self) -> Vec<HilRequirementAssessment> {
         let is_offline = self.execution_stage == HilExecutionStage::Stage7AOffline;
         let mut list = Vec::new();
         for c in &self.conditions {
             let offline_eval = c.offline_test_status;
+
+            // Warunki repozytoryjne (1..=3) i warunki operatora (8, 9, 13, 14, 19, 20, 23, 24, 30)
+            // nie są symulacjami runtime -> SimulatedRuntimeStatus = NotRun.
             let simulated_status = match c.number {
-                1..=3 | 18 => HilReadinessStatus::Passed,
+                1..=3 | 8 | 9 | 13 | 14 | 19 | 20 | 23 | 24 | 30 => HilReadinessStatus::NotRun,
                 _ => {
-                    if c.status == HilReadinessStatus::Failed {
+                    if c.offline_test_status == HilReadinessStatus::Failed
+                        || c.status == HilReadinessStatus::Failed
+                    {
                         HilReadinessStatus::Failed
+                    } else if c.offline_test_status == HilReadinessStatus::Blocked {
+                        HilReadinessStatus::Blocked
                     } else {
                         HilReadinessStatus::Passed
                     }
@@ -614,25 +759,30 @@ impl HilReadinessReport {
 
             let physical_status = if is_offline {
                 match c.number {
-                    1..=3 | 18 => HilReadinessStatus::NotRun,
+                    // Warunki repozytoryjne i programowe (1, 2, 3): PhysicalRuntimeEvidenceStatus = NotRun
+                    1..=3 => HilReadinessStatus::NotRun,
+                    // Pozostałe warunki (4..=30): bez fizycznego sprzętu Blocked (lub Failed przy naruszeniu reguły)
                     _ => {
-                        if c.status == HilReadinessStatus::Failed {
+                        if c.status == HilReadinessStatus::Failed
+                            || c.offline_test_status == HilReadinessStatus::Failed
+                        {
                             HilReadinessStatus::Failed
                         } else {
                             HilReadinessStatus::Blocked
                         }
                     }
                 }
-            } else if c.evidence_origin == HilEvidenceOrigin::SyntheticOfflineFixture
-                || c.evidence_origin == HilEvidenceOrigin::MockRuntime
-            {
+            } else if c.evidence_origin.is_synthetic_or_mock() {
                 HilReadinessStatus::Blocked
             } else {
                 c.status
             };
 
             let context = if is_offline {
-                HilExecutionContext::OfflineModel
+                match c.number {
+                    15..=18 | 26..=29 => HilExecutionContext::SimulatedRuntime,
+                    _ => HilExecutionContext::OfflineModel,
+                }
             } else if c.evidence_origin == HilEvidenceOrigin::MockRuntime {
                 HilExecutionContext::SimulatedRuntime
             } else {
@@ -656,7 +806,7 @@ impl HilReadinessReport {
         }
         for x in &self.extended_requirements {
             let physical_status = if is_offline {
-                HilReadinessStatus::NotRun
+                x.physical_runtime_evidence_status
             } else if x.evidence_origin == HilEvidenceOrigin::PhysicalMeasurement {
                 x.runtime_evidence_status
             } else {
@@ -676,12 +826,8 @@ impl HilReadinessReport {
                 canonical_number: None,
                 implementation_coverage: x.implementation_coverage,
                 offline_test_status: x.offline_test_status,
-                offline_evaluation_status: x.offline_test_status,
-                simulated_runtime_status: if x.offline_test_status == HilReadinessStatus::Failed {
-                    HilReadinessStatus::Failed
-                } else {
-                    HilReadinessStatus::Passed
-                },
+                offline_evaluation_status: x.offline_evaluation_status,
+                simulated_runtime_status: x.simulated_runtime_status,
                 physical_runtime_evidence_status: physical_status,
                 runtime_evidence_status: x.runtime_evidence_status,
                 evaluation_context: context,

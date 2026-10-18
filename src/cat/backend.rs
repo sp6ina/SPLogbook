@@ -10,6 +10,7 @@
 use std::future::Future;
 use std::pin::Pin;
 
+pub use crate::cat::factory::{FactoryError, RigBackendFactory};
 use crate::cat::flrig::FlrigClient;
 use crate::cat::hamlib::{HamlibClient, RigState};
 pub use crate::cat::native::elecraft::ElecraftBackend;
