@@ -87,12 +87,33 @@ impl SyncPeer {
         store: Option<Arc<dyn SyncStore>>,
         events: std::sync::mpsc::Sender<SyncEvent>,
     ) -> Self {
+        let journal_holder = journal.map(|j| Arc::new(Mutex::new(j)));
+        Self::start_with_target(
+            host_addr.to_string(),
+            station,
+            secret,
+            journal_holder,
+            store,
+            events,
+        )
+    }
+
+    /// Tworzy i uruchamia węzeł Peer na podstawie docelowego adresu hosta w formacie `host:port`
+    /// oraz współdzielonego uchwytu do aktywnego dziennika.
+    pub fn start_with_target(
+        target: String,
+        station: String,
+        secret: String,
+        journal: Option<Arc<Mutex<String>>>,
+        store: Option<Arc<dyn SyncStore>>,
+        events: std::sync::mpsc::Sender<SyncEvent>,
+    ) -> Self {
         let (stop_tx, stop_rx) = watch::channel(false);
         let current_backoff = Arc::new(Mutex::new(INITIAL_BACKOFF));
         let active_sender = Arc::new(Mutex::new(None));
 
         let runner_handle = tokio::spawn(run_peer_loop(
-            host_addr,
+            target,
             station,
             secret,
             journal,
@@ -157,10 +178,10 @@ impl Drop for SyncPeer {
 }
 
 async fn run_peer_loop(
-    host_addr: SocketAddr,
+    target: String,
     station: String,
     secret: String,
-    journal: Option<String>,
+    journal: Option<Arc<Mutex<String>>>,
     store: Option<Arc<dyn SyncStore>>,
     events: std::sync::mpsc::Sender<SyncEvent>,
     mut stop_rx: watch::Receiver<bool>,
@@ -190,7 +211,7 @@ async fn run_peer_loop(
                 }
                 continue;
             }
-            res = TcpStream::connect(host_addr) => res,
+            res = TcpStream::connect(&target) => res,
         };
 
         match stream_res {
@@ -225,11 +246,12 @@ async fn run_peer_loop(
                         }));
 
                         // Pętla sesji
+                        let active_journal = journal.as_ref().map(|j| j.lock().unwrap().clone());
                         run_peer_session(
                             session,
                             events.clone(),
                             &mut stop_rx,
-                            journal.clone(),
+                            active_journal,
                             store.clone(),
                         )
                         .await;

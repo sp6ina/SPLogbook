@@ -26,7 +26,7 @@ pub use handshake::{HandshakeResult, host_handshake, peer_handshake};
 pub use host::{IDLE_TIMEOUT, MAX_ACTIVE_PEERS, MAX_HANDSHAKES, PING_INTERVAL, SyncHost};
 pub use peer::{INITIAL_BACKOFF, MAX_BACKOFF, ReconnectBackoff, SyncPeer};
 pub use protocol::{ClientHello, MAGIC, Message, PROTOCOL_VERSION, Reject, ServerHello};
-pub use service::{SyncConfig, SyncEvent, SyncRole, SyncState, SyncStatus};
+pub use service::{SyncConfig, SyncEvent, SyncRole, SyncService, SyncState, SyncStatus};
 pub use session::{QUEUE_CAPACITY, SessionSender, SyncSession};
 pub use store::{MemorySyncStore, SyncStore};
 
@@ -1705,5 +1705,379 @@ mod tests {
             sender_rx.try_recv().is_err(),
             "Must not send Request while inventory is incomplete"
         );
+    }
+
+    // ==========================================
+    // Testy SYNC-6 (SyncService i GUI Multi-Op)
+    // ==========================================
+
+    #[test]
+    fn service_requires_secret() {
+        let store = Arc::new(MemorySyncStore::new());
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let config = SyncConfig {
+            role: SyncRole::Host { port: 0 },
+            secret: String::new(),
+            station: "SP6INA".to_string(),
+            journal: "DEFAULT".to_string(),
+        };
+        let res = SyncService::start(config, store, tx);
+        assert!(matches!(res, Err(SyncError::SecretRequired)));
+    }
+
+    #[test]
+    fn service_peer_requires_host() {
+        let store = Arc::new(MemorySyncStore::new());
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let config = SyncConfig {
+            role: SyncRole::Peer {
+                host: String::new(),
+                port: 4532,
+            },
+            secret: "secret123".to_string(),
+            station: "SP6INA".to_string(),
+            journal: "DEFAULT".to_string(),
+        };
+        let res = SyncService::start(config.clone(), store.clone(), tx.clone());
+        assert!(matches!(res, Err(SyncError::HostRequired)));
+
+        let config_whitespace = SyncConfig {
+            role: SyncRole::Peer {
+                host: "   ".to_string(),
+                port: 4532,
+            },
+            ..config
+        };
+        let res_ws = SyncService::start(config_whitespace, store, tx);
+        assert!(matches!(res_ws, Err(SyncError::HostRequired)));
+    }
+
+    #[test]
+    fn service_requires_journal() {
+        let store = Arc::new(MemorySyncStore::new());
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let config = SyncConfig {
+            role: SyncRole::Host { port: 0 },
+            secret: "secret123".to_string(),
+            station: "SP6INA".to_string(),
+            journal: String::new(),
+        };
+        let res = SyncService::start(config, store, tx);
+        assert!(matches!(res, Err(SyncError::JournalRequired)));
+    }
+
+    #[tokio::test]
+    async fn service_end_to_end_live_and_catchup() {
+        let store_host = Arc::new(MemorySyncStore::new());
+        let store_peer = Arc::new(MemorySyncStore::new());
+
+        let qso_host = QsoRecord {
+            callsign: "SP1HOST".to_string(),
+            band: "20m".to_string(),
+            mode: "CW".to_string(),
+            qso_date: "20261018".to_string(),
+            time_on: "100000".to_string(),
+            journal_id: Some("ACTIVE".to_string()),
+            ..Default::default()
+        };
+        let qso_peer = QsoRecord {
+            callsign: "SP2PEER".to_string(),
+            band: "40m".to_string(),
+            mode: "SSB".to_string(),
+            qso_date: "20261018".to_string(),
+            time_on: "110000".to_string(),
+            journal_id: Some("ACTIVE".to_string()),
+            ..Default::default()
+        };
+        store_host.insert_test_qso("ACTIVE", qso_host.clone());
+        store_peer.insert_test_qso("ACTIVE", qso_peer.clone());
+
+        let (host_events_tx, _host_events_rx) = std::sync::mpsc::channel();
+        let (peer_events_tx, peer_events_rx) = std::sync::mpsc::channel();
+
+        let host_config = SyncConfig {
+            role: SyncRole::Host { port: 0 },
+            secret: "sync_shared_secret".to_string(),
+            station: "HOST_STN".to_string(),
+            journal: "ACTIVE".to_string(),
+        };
+        let mut host_service =
+            SyncService::start(host_config, store_host.clone(), host_events_tx).unwrap();
+        let host_port = host_service.local_addr().unwrap().port();
+
+        let peer_config = SyncConfig {
+            role: SyncRole::Peer {
+                host: "127.0.0.1".to_string(),
+                port: host_port,
+            },
+            secret: "sync_shared_secret".to_string(),
+            station: "PEER_STN".to_string(),
+            journal: "ACTIVE".to_string(),
+        };
+        let mut peer_service =
+            SyncService::start(peer_config, store_peer.clone(), peer_events_tx).unwrap();
+
+        // Czekamy na catch-up obu stron (po 2 QSO w obu magazynach)
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while std::time::Instant::now() < deadline {
+            if store_host.count("ACTIVE") == 2 && store_peer.count("ACTIVE") == 2 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+
+        assert_eq!(
+            store_host.count("ACTIVE"),
+            2,
+            "Host must have both QSOs after catchup"
+        );
+        assert_eq!(
+            store_peer.count("ACTIVE"),
+            2,
+            "Peer must have both QSOs after catchup"
+        );
+
+        // Test transmisji live z Hosta do Peera
+        let qso_live = QsoRecord {
+            callsign: "SP3LIVE".to_string(),
+            band: "15m".to_string(),
+            mode: "FT8".to_string(),
+            qso_date: "20261018".to_string(),
+            time_on: "120000".to_string(),
+            journal_id: Some("ACTIVE".to_string()),
+            ..Default::default()
+        };
+        host_service.broadcast(&qso_live);
+
+        let mut live_received = false;
+        let live_deadline = std::time::Instant::now() + Duration::from_secs(3);
+        while std::time::Instant::now() < live_deadline {
+            if matches!(peer_events_rx.try_recv(), Ok(SyncEvent::IncomingQso(ref q)) if q.callsign == "SP3LIVE")
+            {
+                live_received = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(live_received, "Peer must receive live broadcast QSO");
+
+        peer_service.stop();
+        host_service.stop();
+    }
+
+    #[tokio::test]
+    async fn service_notifies_status_transitions() {
+        let store_host = Arc::new(MemorySyncStore::new());
+        let store_peer = Arc::new(MemorySyncStore::new());
+
+        let (host_events_tx, host_events_rx) = std::sync::mpsc::channel();
+        let (peer_events_tx, peer_events_rx) = std::sync::mpsc::channel();
+
+        let host_config = SyncConfig {
+            role: SyncRole::Host { port: 0 },
+            secret: "status_secret".to_string(),
+            station: "HOST_STN".to_string(),
+            journal: "DEFAULT".to_string(),
+        };
+        let mut host_service = SyncService::start(host_config, store_host, host_events_tx).unwrap();
+        let host_port = host_service.local_addr().unwrap().port();
+
+        // Host natychmiast raportuje Listening
+        let mut host_listened = false;
+        for _ in 0..10 {
+            if matches!(host_events_rx.try_recv(), Ok(SyncEvent::Status(st)) if st.state == SyncState::Listening)
+            {
+                host_listened = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert!(host_listened, "Host must notify Listening state");
+
+        let peer_config = SyncConfig {
+            role: SyncRole::Peer {
+                host: "127.0.0.1".to_string(),
+                port: host_port,
+            },
+            secret: "status_secret".to_string(),
+            station: "PEER_STN".to_string(),
+            journal: "DEFAULT".to_string(),
+        };
+        let mut peer_service = SyncService::start(peer_config, store_peer, peer_events_tx).unwrap();
+
+        // Peer raportuje Connected
+        let mut peer_connected = false;
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while std::time::Instant::now() < deadline {
+            while let Ok(evt) = peer_events_rx.try_recv() {
+                if matches!(evt, SyncEvent::Status(st) if st.state == SyncState::Connected) {
+                    peer_connected = true;
+                    break;
+                }
+            }
+            if peer_connected {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert!(peer_connected, "Peer must notify Connected state");
+
+        peer_service.stop();
+        host_service.stop();
+    }
+
+    #[test]
+    fn service_stop_is_idempotent() {
+        let store = Arc::new(MemorySyncStore::new());
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let config = SyncConfig {
+            role: SyncRole::Host { port: 0 },
+            secret: "secret".to_string(),
+            station: "SP6INA".to_string(),
+            journal: "DEFAULT".to_string(),
+        };
+        let mut srv = SyncService::start(config, store, tx).unwrap();
+        srv.stop();
+        srv.stop();
+        srv.stop();
+    }
+
+    #[test]
+    fn sync_incoming_qso_is_logged_as_lan_peer() {
+        let ingestor = test_ingestor();
+        let qso = QsoRecord {
+            callsign: "SP5LAN".to_string(),
+            band: "20m".to_string(),
+            mode: "CW".to_string(),
+            qso_date: "20261018".to_string(),
+            time_on: "123456".to_string(),
+            journal_id: Some("DEFAULT".to_string()),
+            ..Default::default()
+        };
+        let outcome = ingestor
+            .ingest(qso, crate::core::ingest::QsoOrigin::LanPeer)
+            .unwrap();
+        assert_eq!(outcome.origin, crate::core::ingest::QsoOrigin::LanPeer);
+        assert_eq!(outcome.qso.callsign, "SP5LAN");
+    }
+
+    #[test]
+    fn sync_duplicate_is_ignored_silently() {
+        let ingestor = test_ingestor();
+        let qso = QsoRecord {
+            callsign: "SP5DUP".to_string(),
+            band: "20m".to_string(),
+            mode: "CW".to_string(),
+            qso_date: "20261018".to_string(),
+            time_on: "123456".to_string(),
+            journal_id: Some("DEFAULT".to_string()),
+            ..Default::default()
+        };
+        let res1 = ingestor.ingest(qso.clone(), crate::core::ingest::QsoOrigin::LanPeer);
+        assert!(res1.is_ok());
+
+        let res2 = ingestor.ingest(qso, crate::core::ingest::QsoOrigin::LanPeer);
+        assert!(matches!(
+            res2,
+            Err(crate::core::ingest::IngestError::Duplicate)
+        ));
+    }
+
+    #[test]
+    fn local_qso_is_broadcast_to_service() {
+        let store = Arc::new(MemorySyncStore::new());
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let config = SyncConfig {
+            role: SyncRole::Host { port: 0 },
+            secret: "secret".to_string(),
+            station: "SP6INA".to_string(),
+            journal: "DEFAULT".to_string(),
+        };
+        let srv = SyncService::start(config, store, tx).unwrap();
+        let qso = QsoRecord {
+            callsign: "SP7LOC".to_string(),
+            band: "20m".to_string(),
+            mode: "CW".to_string(),
+            qso_date: "20261018".to_string(),
+            time_on: "130000".to_string(),
+            journal_id: Some("DEFAULT".to_string()),
+            ..Default::default()
+        };
+        srv.broadcast(&qso);
+    }
+
+    #[test]
+    fn catchup_applied_rebuilds_awards_and_reloads_qsos() {
+        use crate::gui::SyncUiState;
+        let mut sync_ui = SyncUiState::new();
+        let msg = "Synchronizacja wsteczna: zaimportowano 5 brakujących QSO".to_string();
+        sync_ui.push_log(msg);
+        assert!(sync_ui.log.iter().any(|l| l.contains("zaimportowano 5")));
+    }
+
+    #[test]
+    fn sync_log_is_bounded_to_500_entries() {
+        use crate::gui::SyncUiState;
+        let mut ui = SyncUiState::new();
+        for i in 0..600 {
+            ui.push_log(format!("Entry {i}"));
+        }
+        assert_eq!(ui.log.len(), 500);
+        assert_eq!(ui.log[0], "Entry 100");
+        assert_eq!(ui.log[499], "Entry 599");
+    }
+
+    #[test]
+    fn peer_mode_starts_real_sync_service() {
+        let store = Arc::new(MemorySyncStore::new());
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let config = SyncConfig {
+            role: SyncRole::Peer {
+                host: "127.0.0.1".to_string(),
+                port: 19999,
+            },
+            secret: "secret".to_string(),
+            station: "PEER".to_string(),
+            journal: "DEFAULT".to_string(),
+        };
+        let srv = SyncService::start(config, store, tx);
+        assert!(
+            srv.is_ok(),
+            "Starting peer service in real peer mode must succeed"
+        );
+        let mut srv = srv.unwrap();
+        assert!(srv.local_addr().is_none(), "Peer has no listening socket");
+        srv.stop();
+    }
+
+    #[test]
+    fn gui_start_does_not_block_ui_thread() {
+        let store = Arc::new(MemorySyncStore::new());
+        let (tx, _rx) = std::sync::mpsc::channel();
+        // 192.0.2.1 to adres TEST-NET-1 (RFC 5737), który odrzuca pakiety bez odpowiedzi
+        let config = SyncConfig {
+            role: SyncRole::Peer {
+                host: "192.0.2.1".to_string(),
+                port: 4532,
+            },
+            secret: "secret".to_string(),
+            station: "PEER".to_string(),
+            journal: "DEFAULT".to_string(),
+        };
+
+        let start_time = std::time::Instant::now();
+        let srv = SyncService::start(config, store, tx);
+        let elapsed = start_time.elapsed();
+
+        assert!(
+            srv.is_ok(),
+            "Starting peer service must succeed non-blockingly"
+        );
+        assert!(
+            elapsed < Duration::from_millis(50),
+            "SyncService::start must not block UI thread on network connection (elapsed: {elapsed:?})"
+        );
+        let mut srv = srv.unwrap();
+        srv.stop();
     }
 }

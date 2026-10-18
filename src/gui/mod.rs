@@ -22,6 +22,8 @@ pub mod logbook_table;
 pub mod marketplace;
 pub mod menu;
 pub mod mini_hud;
+pub mod multi_op_window;
+pub use multi_op_window::SyncUiState;
 pub mod online_sync;
 pub mod operator_assistant;
 pub mod photo_viewer;

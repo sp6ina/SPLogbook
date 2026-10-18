@@ -73,6 +73,56 @@ impl SyncHost {
         let handshake_sem = Arc::new(Semaphore::new(MAX_HANDSHAKES));
         let (stop_tx, stop_rx) = watch::channel(false);
 
+        let journal_holder = journal.map(|j| Arc::new(Mutex::new(j)));
+        let listener_handle = tokio::spawn(run_listener_loop(
+            listener,
+            peers.clone(),
+            next_peer_id,
+            handshake_sem.clone(),
+            station,
+            secret,
+            journal_holder,
+            store,
+            events.clone(),
+            stop_rx,
+            stop_tx.clone(),
+        ));
+
+        let _ = events.send(SyncEvent::Status(SyncStatus {
+            state: SyncState::Listening,
+            peers: 0,
+        }));
+
+        Ok(Self {
+            local_addr,
+            peers,
+            handshake_sem,
+            stop_tx,
+            events,
+            listener_handle: Some(listener_handle),
+        })
+    }
+
+    /// Inicjuje i uruchamia Host na podstawie istniejącego gniazda `std::net::TcpListener`.
+    pub fn from_std_listener(
+        std_listener: std::net::TcpListener,
+        station: String,
+        secret: String,
+        journal: Option<Arc<Mutex<String>>>,
+        store: Option<Arc<dyn SyncStore>>,
+        events: std::sync::mpsc::Sender<SyncEvent>,
+    ) -> Result<Self, SyncError> {
+        let listener =
+            TcpListener::from_std(std_listener).map_err(|e| SyncError::Io(e.to_string()))?;
+        let local_addr = listener
+            .local_addr()
+            .map_err(|e| SyncError::Io(e.to_string()))?;
+
+        let peers = Arc::new(Mutex::new(HashMap::new()));
+        let next_peer_id = Arc::new(AtomicU64::new(1));
+        let handshake_sem = Arc::new(Semaphore::new(MAX_HANDSHAKES));
+        let (stop_tx, stop_rx) = watch::channel(false);
+
         let listener_handle = tokio::spawn(run_listener_loop(
             listener,
             peers.clone(),
@@ -172,7 +222,7 @@ async fn run_listener_loop(
     handshake_sem: Arc<Semaphore>,
     station: String,
     secret: String,
-    journal: Option<String>,
+    journal: Option<Arc<Mutex<String>>>,
     store: Option<Arc<dyn SyncStore>>,
     events: std::sync::mpsc::Sender<SyncEvent>,
     mut stop_rx: watch::Receiver<bool>,
@@ -211,7 +261,7 @@ async fn run_listener_loop(
         let peer_stop_rx = stop_tx.subscribe();
         let station = station.clone();
         let secret = secret.clone();
-        let peer_journal = journal.clone();
+        let peer_journal = journal.as_ref().map(|j| j.lock().unwrap().clone());
         let peer_store = store.clone();
 
         tokio::spawn(async move {

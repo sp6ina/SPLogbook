@@ -371,7 +371,8 @@ pub struct SpLogApp {
     pub workspace_profiles: Vec<WorkspaceProfile>,
     pub show_workspace_profiles_window: bool,
 
-    // Multi-Op LAN
+    // Multi-Op LAN (SYNC-6)
+    pub sync_ui: crate::gui::SyncUiState,
     pub lan_sync_port: u16,
     pub lan_sync_auto_start: bool,
     pub lan_sync_server_ip: String,
@@ -1063,6 +1064,7 @@ impl SpLogApp {
 
             workspace_profiles: init.config.workspace_profiles,
             show_workspace_profiles_window: false,
+            sync_ui: crate::gui::SyncUiState::new(),
 
             lan_sync_port: init.config.lan_sync_port,
             lan_sync_auto_start: init.config.lan_sync_auto_start,
@@ -2281,10 +2283,13 @@ impl SpLogApp {
         }
 
         // 6. Rozgłaszanie w sieci lokalnej Multi-Op LAN (broadcast_lan)
-        if effects.broadcast_lan
-            && let Some(ref srv) = self.multi_op_server
-        {
-            srv.broadcast_qso(qso);
+        if effects.broadcast_lan {
+            if let Some(ref srv) = self.sync_ui.service {
+                srv.broadcast(qso);
+            }
+            if let Some(ref srv) = self.multi_op_server {
+                srv.broadcast_qso(qso);
+            }
         }
 
         // 7. Emisja zdarzenia w formacie N1MM Logger+ UDP broadcast (broadcast_n1mm)
@@ -2369,7 +2374,7 @@ impl SpLogApp {
         }
     }
 
-    /// Przetwarza i loguje QSO odebrane z sieci LAN Multi-Op (PIPE-4B.3).
+    /// Przetwarza i loguje QSO odebrane z sieci LAN Multi-Op (PIPE-4B.3, SYNC-6).
     pub fn handle_lan_qso(&mut self, qso: QsoRecord) {
         match self.qso_ingestor.ingest(qso, QsoOrigin::LanPeer) {
             Ok(outcome) => {
@@ -2381,10 +2386,12 @@ impl SpLogApp {
                         issue.msg().text(self.current_language)
                     );
                 }
-                self.multi_op_log.push(format!(
+                let log_entry = format!(
                     "Odebrano z LAN: {} ({} {})",
                     outcome.qso.callsign, outcome.qso.band, outcome.qso.mode
-                ));
+                );
+                self.sync_ui.push_log(log_entry.clone());
+                self.multi_op_log.push(log_entry);
                 if self.multi_op_log.len() > 500 {
                     let excess = self.multi_op_log.len() - 500;
                     self.multi_op_log.drain(0..excess);
@@ -2395,9 +2402,86 @@ impl SpLogApp {
                 ));
                 self.reload_qsos();
             }
+            Err(crate::core::ingest::IngestError::Duplicate) => {
+                // Duplicate jest ignorowany bez ponownego zapisu
+            }
             Err(e) => {
                 log::warn!("Błąd auto-zapisu Multi-Op LAN: {e}");
             }
+        }
+    }
+
+    /// Odpytuje odbiornik zdarzeń podsystemu synchronizacji Multi-Op i przetwarza je (SYNC-6).
+    pub fn poll_sync_events(&mut self) {
+        let mut incoming_qsos = Vec::new();
+        let mut catchup_applied = 0;
+
+        while let Ok(event) = self.sync_ui.events_rx.try_recv() {
+            match event {
+                crate::sync::SyncEvent::Status(status) => {
+                    let peers = status.peers;
+                    let state_str = match status.state {
+                        crate::sync::SyncState::Starting => "Uruchamianie...".to_string(),
+                        crate::sync::SyncState::Listening => {
+                            format!("Nasłuchiwanie (stacje: {peers})")
+                        }
+                        crate::sync::SyncState::Connected => "Połączono".to_string(),
+                        crate::sync::SyncState::Reconnecting => {
+                            "Ponawianie połączenia...".to_string()
+                        }
+                        crate::sync::SyncState::Failed => "Błąd połączenia".to_string(),
+                    };
+                    self.sync_ui.status = state_str.clone();
+                    self.multi_op_status = state_str;
+                    self.multi_op_connected_count = peers;
+                }
+                crate::sync::SyncEvent::IncomingQso(qso) => {
+                    incoming_qsos.push(*qso);
+                }
+                crate::sync::SyncEvent::CatchUpApplied { inserted } => {
+                    if inserted > 0 {
+                        catchup_applied += inserted;
+                        let msg = format!(
+                            "Synchronizacja wsteczna: zaimportowano {inserted} brakujących QSO"
+                        );
+                        self.sync_ui.push_log(msg.clone());
+                        self.multi_op_log.push(msg);
+                    }
+                }
+                crate::sync::SyncEvent::Log(msg) => {
+                    let text = msg.text(self.current_language);
+                    self.sync_ui.push_log(text.clone());
+                    self.multi_op_log.push(text);
+                }
+                crate::sync::SyncEvent::Error(err) => {
+                    let err_msg = err.to_string();
+                    self.sync_ui.push_log(format!("Błąd: {err_msg}"));
+                    self.sync_ui.status = format!("Błąd: {err_msg}");
+                    self.multi_op_status = format!("Błąd: {err_msg}");
+                    self.status_toast =
+                        Some((format!("⚠ Multi-Op: {err_msg}"), std::time::Instant::now()));
+                }
+            }
+        }
+
+        // Stary kanał multi_op_incoming_rx (jeśli aktywny)
+        if let Some(ref mut rx) = self.multi_op_incoming_rx {
+            while let Ok(qso) = rx.try_recv() {
+                incoming_qsos.push(qso);
+            }
+        }
+
+        for qso in incoming_qsos {
+            self.handle_lan_qso(qso);
+        }
+
+        if catchup_applied > 0 {
+            self.rebuild_awards_full();
+            self.reload_qsos();
+            self.status_toast = Some((
+                format!("🌐 Multi-Op LAN: Zaimportowano {catchup_applied} brakujących QSO!"),
+                std::time::Instant::now(),
+            ));
         }
     }
 
@@ -4845,16 +4929,8 @@ impl eframe::App for SpLogApp {
             self.handle_js8call_qso(qso);
         }
 
-        // Odbiór QSO ze stacji w sieci LAN Multi-Op
-        let mut lan_new_qsos = Vec::new();
-        if let Some(ref mut rx) = self.multi_op_incoming_rx {
-            while let Ok(qso) = rx.try_recv() {
-                lan_new_qsos.push(qso);
-            }
-        }
-        for qso in lan_new_qsos {
-            self.handle_lan_qso(qso);
-        }
+        // Odbiór zdarzeń i QSO ze stacji w sieci synchronizacji Multi-Op (SYNC-6)
+        self.poll_sync_events();
 
         // Zastosowanie wybranego motywu kolorystycznego (patrz gui::theme::ThemePreset).
         // Zachowujemy `dark_theme` zsynchronizowany z jasnością aktywnego presetu,
@@ -5237,7 +5313,7 @@ impl eframe::App for SpLogApp {
         render_column_settings(self, ctx);
         render_statistics_window(self, ctx);
         crate::gui::cluster_panel::render_add_cluster_dialog(self, ctx);
-        crate::gui::contest::render_multi_op_window(self, ctx);
+        crate::gui::multi_op_window::render_multi_op_window(self, ctx);
         crate::gui::find_duplicates::render_find_duplicates_window(self, ctx);
         crate::gui::station_profiles::render_station_profiles_window(self, ctx);
         render_voice_keyer_window(self, ctx);
