@@ -7,14 +7,20 @@ pub mod crypto;
 pub mod error;
 pub mod frame;
 pub mod handshake;
+pub mod host;
+pub mod peer;
 pub mod protocol;
+pub mod service;
 pub mod session;
 
 pub use crypto::*;
 pub use error::SyncError;
 pub use frame::{MAX_FRAME_BYTES, decode_length, encode_length, read_frame, write_frame};
 pub use handshake::{HandshakeResult, host_handshake, peer_handshake};
+pub use host::{IDLE_TIMEOUT, MAX_ACTIVE_PEERS, MAX_HANDSHAKES, PING_INTERVAL, SyncHost};
+pub use peer::{INITIAL_BACKOFF, MAX_BACKOFF, ReconnectBackoff, SyncPeer};
 pub use protocol::{ClientHello, MAGIC, Message, PROTOCOL_VERSION, Reject, ServerHello};
+pub use service::{SyncConfig, SyncEvent, SyncRole, SyncState, SyncStatus};
 pub use session::{QUEUE_CAPACITY, SessionSender, SyncSession};
 
 #[cfg(test)]
@@ -22,6 +28,7 @@ mod tests {
     use super::*;
     use crate::core::qso::QsoRecord;
     use std::io::Cursor;
+    use std::time::Duration;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     fn sample_qso(call: &str) -> QsoRecord {
@@ -622,5 +629,558 @@ mod tests {
             !found_payload,
             "plaintext QSO payload must never appear on the wire"
         );
+    }
+
+    #[tokio::test]
+    async fn qso_from_peer_reaches_other_peer_and_host_but_not_sender() {
+        let (host_tx, host_rx) = std::sync::mpsc::channel();
+        let mut host = SyncHost::bind(
+            "127.0.0.1:0".parse().unwrap(),
+            "HOST_STATION".to_string(),
+            "shared_secret".to_string(),
+            host_tx,
+        )
+        .await
+        .unwrap();
+        let host_addr = host.local_addr();
+
+        let (p1_tx, p1_rx) = std::sync::mpsc::channel();
+        let mut peer1 = SyncPeer::start(
+            host_addr,
+            "PEER1_STATION".to_string(),
+            "shared_secret".to_string(),
+            p1_tx,
+        );
+
+        let (p2_tx, p2_rx) = std::sync::mpsc::channel();
+        let mut peer2 = SyncPeer::start(
+            host_addr,
+            "PEER2_STATION".to_string(),
+            "shared_secret".to_string(),
+            p2_tx,
+        );
+
+        for _ in 0..100 {
+            if host.connected_peers() == 2 && peer1.is_connected() && peer2.is_connected() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert_eq!(host.connected_peers(), 2);
+
+        let qso = sample_qso("PEER1_QSO");
+        peer1.broadcast_qso(qso).unwrap();
+
+        let mut host_got_qso = false;
+        for _ in 0..100 {
+            while let Ok(evt) = host_rx.try_recv() {
+                if matches!(evt, SyncEvent::IncomingQso(q) if q.callsign == "PEER1_QSO") {
+                    host_got_qso = true;
+                }
+            }
+            if host_got_qso {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert!(host_got_qso, "Host must receive QSO from Peer 1");
+
+        let mut peer2_got_qso = false;
+        for _ in 0..100 {
+            while let Ok(evt) = p2_rx.try_recv() {
+                if matches!(evt, SyncEvent::IncomingQso(q) if q.callsign == "PEER1_QSO") {
+                    peer2_got_qso = true;
+                }
+            }
+            if peer2_got_qso {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert!(peer2_got_qso, "Peer 2 must receive relayed QSO from Peer 1");
+
+        let mut peer1_got_qso = false;
+        while let Ok(evt) = p1_rx.try_recv() {
+            if matches!(evt, SyncEvent::IncomingQso(q) if q.callsign == "PEER1_QSO") {
+                peer1_got_qso = true;
+            }
+        }
+        assert!(
+            !peer1_got_qso,
+            "Peer 1 must NOT receive its own QSO back (echo-free)"
+        );
+
+        peer1.stop();
+        peer2.stop();
+        host.stop();
+    }
+
+    #[tokio::test]
+    async fn host_local_qso_reaches_all_peers() {
+        let (host_tx, _) = std::sync::mpsc::channel();
+        let mut host = SyncHost::bind(
+            "127.0.0.1:0".parse().unwrap(),
+            "HOST_STATION".to_string(),
+            "shared_secret".to_string(),
+            host_tx,
+        )
+        .await
+        .unwrap();
+        let host_addr = host.local_addr();
+
+        let (p1_tx, p1_rx) = std::sync::mpsc::channel();
+        let mut peer1 = SyncPeer::start(
+            host_addr,
+            "PEER1_STATION".to_string(),
+            "shared_secret".to_string(),
+            p1_tx,
+        );
+
+        let (p2_tx, p2_rx) = std::sync::mpsc::channel();
+        let mut peer2 = SyncPeer::start(
+            host_addr,
+            "PEER2_STATION".to_string(),
+            "shared_secret".to_string(),
+            p2_tx,
+        );
+
+        for _ in 0..100 {
+            if host.connected_peers() == 2 && peer1.is_connected() && peer2.is_connected() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert_eq!(host.connected_peers(), 2);
+
+        let qso = sample_qso("HOST_LOCAL_QSO");
+        host.broadcast_qso(qso);
+
+        let mut p1_got = false;
+        let mut p2_got = false;
+        for _ in 0..100 {
+            while let Ok(evt) = p1_rx.try_recv() {
+                if matches!(evt, SyncEvent::IncomingQso(q) if q.callsign == "HOST_LOCAL_QSO") {
+                    p1_got = true;
+                }
+            }
+            while let Ok(evt) = p2_rx.try_recv() {
+                if matches!(evt, SyncEvent::IncomingQso(q) if q.callsign == "HOST_LOCAL_QSO") {
+                    p2_got = true;
+                }
+            }
+            if p1_got && p2_got {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+
+        assert!(p1_got, "Peer 1 must receive host local QSO");
+        assert!(p2_got, "Peer 2 must receive host local QSO");
+
+        peer1.stop();
+        peer2.stop();
+        host.stop();
+    }
+
+    #[tokio::test]
+    async fn qso_is_not_echoed_to_sender() {
+        let (host_tx, _) = std::sync::mpsc::channel();
+        let mut host = SyncHost::bind(
+            "127.0.0.1:0".parse().unwrap(),
+            "HOST_STATION".to_string(),
+            "shared_secret".to_string(),
+            host_tx,
+        )
+        .await
+        .unwrap();
+        let host_addr = host.local_addr();
+
+        let (p1_tx, p1_rx) = std::sync::mpsc::channel();
+        let mut peer1 = SyncPeer::start(
+            host_addr,
+            "PEER1_STATION".to_string(),
+            "shared_secret".to_string(),
+            p1_tx,
+        );
+
+        for _ in 0..100 {
+            if host.connected_peers() == 1 && peer1.is_connected() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert_eq!(host.connected_peers(), 1);
+
+        peer1.broadcast_qso(sample_qso("NO_ECHO_CALL")).unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let mut echoed = false;
+        while let Ok(evt) = p1_rx.try_recv() {
+            if matches!(evt, SyncEvent::IncomingQso(q) if q.callsign == "NO_ECHO_CALL") {
+                echoed = true;
+            }
+        }
+        assert!(!echoed, "Sender must not receive echo of its own QSO");
+
+        peer1.stop();
+        host.stop();
+    }
+
+    #[tokio::test]
+    async fn client_limit_is_enforced() {
+        let (host_tx, host_rx) = std::sync::mpsc::channel();
+        let mut host = SyncHost::bind(
+            "127.0.0.1:0".parse().unwrap(),
+            "HOST_STATION".to_string(),
+            "shared_secret".to_string(),
+            host_tx,
+        )
+        .await
+        .unwrap();
+        let host_addr = host.local_addr();
+
+        let mut peers = Vec::new();
+        for i in 0..MAX_ACTIVE_PEERS {
+            let (tx, _) = std::sync::mpsc::channel();
+            let p = SyncPeer::start(
+                host_addr,
+                format!("PEER_{i}"),
+                "shared_secret".to_string(),
+                tx,
+            );
+            peers.push(p);
+        }
+
+        for _ in 0..200 {
+            if host.connected_peers() == MAX_ACTIVE_PEERS {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert_eq!(host.connected_peers(), MAX_ACTIVE_PEERS);
+
+        let s33 = tokio::net::TcpStream::connect(host_addr).await.unwrap();
+        let p33_res = peer_handshake(s33, "PEER_33", "shared_secret").await;
+
+        let mut limit_reported = false;
+        while let Ok(evt) = host_rx.try_recv() {
+            if let SyncEvent::Error(SyncError::ClientLimitReached) = evt {
+                limit_reported = true;
+            }
+        }
+
+        assert!(
+            p33_res.is_err() || limit_reported,
+            "33rd peer connection must be rejected or reported as limit reached"
+        );
+        assert_eq!(host.connected_peers(), MAX_ACTIVE_PEERS);
+
+        for mut p in peers {
+            p.stop();
+        }
+        host.stop();
+    }
+
+    #[tokio::test]
+    async fn handshake_parallelism_is_limited() {
+        let (host_tx, _) = std::sync::mpsc::channel();
+        let mut host = SyncHost::bind(
+            "127.0.0.1:0".parse().unwrap(),
+            "HOST_STATION".to_string(),
+            "shared_secret".to_string(),
+            host_tx,
+        )
+        .await
+        .unwrap();
+        let host_addr = host.local_addr();
+
+        assert_eq!(host.available_handshake_permits(), MAX_HANDSHAKES);
+
+        let mut streams = Vec::new();
+        for _ in 0..MAX_HANDSHAKES {
+            let s = tokio::net::TcpStream::connect(host_addr).await.unwrap();
+            streams.push(s);
+        }
+
+        for _ in 0..50 {
+            if host.available_handshake_permits() == 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert_eq!(host.available_handshake_permits(), 0);
+
+        let s6 = tokio::net::TcpStream::connect(host_addr).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert_eq!(host.available_handshake_permits(), 0);
+
+        drop(streams.pop());
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        drop(streams);
+        drop(s6);
+        host.stop();
+    }
+
+    #[tokio::test]
+    async fn idle_peer_is_dropped_after_timeout() {
+        let (host_tx, host_rx) = std::sync::mpsc::channel();
+        let mut host = SyncHost::bind(
+            "127.0.0.1:0".parse().unwrap(),
+            "HOST_STATION".to_string(),
+            "shared_secret".to_string(),
+            host_tx,
+        )
+        .await
+        .unwrap();
+        let host_addr = host.local_addr();
+
+        let s = tokio::net::TcpStream::connect(host_addr).await.unwrap();
+        let handshake_res = peer_handshake(s, "SILENT_PEER", "shared_secret")
+            .await
+            .unwrap();
+
+        for _ in 0..100 {
+            if host.connected_peers() == 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert_eq!(host.connected_peers(), 1);
+
+        tokio::time::pause();
+        tokio::time::advance(Duration::from_secs(46)).await;
+
+        for _ in 0..100 {
+            if host.connected_peers() == 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+
+        assert_eq!(host.connected_peers(), 0);
+
+        let mut timeout_reported = false;
+        while let Ok(evt) = host_rx.try_recv() {
+            if let SyncEvent::Error(SyncError::Timeout) = evt {
+                timeout_reported = true;
+            }
+        }
+        assert!(
+            timeout_reported,
+            "Timeout error must be reported for idle peer"
+        );
+
+        drop(handshake_res);
+        host.stop();
+    }
+
+    #[tokio::test]
+    async fn slow_peer_is_dropped_explicitly() {
+        let (host_tx, host_rx) = std::sync::mpsc::channel();
+        let mut host = SyncHost::bind(
+            "127.0.0.1:0".parse().unwrap(),
+            "HOST_STATION".to_string(),
+            "shared_secret".to_string(),
+            host_tx,
+        )
+        .await
+        .unwrap();
+        let host_addr = host.local_addr();
+
+        let s = tokio::net::TcpStream::connect(host_addr).await.unwrap();
+        let handshake_res = peer_handshake(s, "SLOW_PEER", "shared_secret")
+            .await
+            .unwrap();
+
+        for _ in 0..50 {
+            if host.connected_peers() == 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert_eq!(host.connected_peers(), 1);
+
+        for i in 0..300 {
+            host.broadcast_qso(sample_qso(&format!("SLOW_{i}")));
+        }
+
+        for _ in 0..50 {
+            if host.connected_peers() == 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert_eq!(host.connected_peers(), 0);
+
+        let mut queue_full_found = false;
+        while let Ok(evt) = host_rx.try_recv() {
+            if let SyncEvent::Error(SyncError::QueueFull) = evt {
+                queue_full_found = true;
+            }
+        }
+        assert!(
+            queue_full_found,
+            "QueueFull error must be reported when dropping slow peer"
+        );
+
+        drop(handshake_res);
+        host.stop();
+    }
+
+    #[tokio::test]
+    async fn queue_overflow_is_reported() {
+        let (host_tx, host_rx) = std::sync::mpsc::channel();
+        let mut host = SyncHost::bind(
+            "127.0.0.1:0".parse().unwrap(),
+            "HOST_STATION".to_string(),
+            "shared_secret".to_string(),
+            host_tx,
+        )
+        .await
+        .unwrap();
+        let host_addr = host.local_addr();
+
+        let s = tokio::net::TcpStream::connect(host_addr).await.unwrap();
+        let handshake_res = peer_handshake(s, "SLOW_PEER_2", "shared_secret")
+            .await
+            .unwrap();
+
+        for _ in 0..50 {
+            if host.connected_peers() == 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+
+        for i in 0..300 {
+            host.broadcast_qso(sample_qso(&format!("OVERFLOW_{i}")));
+        }
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let mut reported = false;
+        while let Ok(evt) = host_rx.try_recv() {
+            if let SyncEvent::Error(SyncError::QueueFull) = evt {
+                reported = true;
+            }
+        }
+        assert!(
+            reported,
+            "SyncError::QueueFull must be reported on overflow"
+        );
+
+        drop(handshake_res);
+        host.stop();
+    }
+
+    #[test]
+    fn peer_reconnects_with_backoff() {
+        let mut backoff = ReconnectBackoff::new();
+        assert_eq!(backoff.current(), Duration::from_secs(2));
+
+        assert_eq!(backoff.fail(), Duration::from_secs(2));
+        assert_eq!(backoff.current(), Duration::from_secs(4));
+
+        assert_eq!(backoff.fail(), Duration::from_secs(4));
+        assert_eq!(backoff.current(), Duration::from_secs(8));
+
+        assert_eq!(backoff.fail(), Duration::from_secs(8));
+        assert_eq!(backoff.current(), Duration::from_secs(16));
+
+        assert_eq!(backoff.fail(), Duration::from_secs(16));
+        assert_eq!(backoff.current(), Duration::from_secs(30));
+
+        assert_eq!(backoff.fail(), Duration::from_secs(30));
+        assert_eq!(backoff.current(), Duration::from_secs(30));
+
+        assert_eq!(backoff.fail(), Duration::from_secs(30));
+        assert_eq!(backoff.current(), Duration::from_secs(30));
+    }
+
+    #[test]
+    fn successful_connection_resets_backoff() {
+        let mut backoff = ReconnectBackoff::new();
+        backoff.fail();
+        backoff.fail();
+        backoff.fail();
+        assert_eq!(backoff.current(), Duration::from_secs(16));
+
+        backoff.reset();
+        assert_eq!(backoff.current(), Duration::from_secs(2));
+
+        assert_eq!(backoff.fail(), Duration::from_secs(2));
+        assert_eq!(backoff.current(), Duration::from_secs(4));
+    }
+
+    #[tokio::test]
+    async fn stop_cancels_reconnect_loop() {
+        let (tx, _) = std::sync::mpsc::channel();
+        let mut peer = SyncPeer::start(
+            "127.0.0.1:59999".parse().unwrap(),
+            "PEER_STOP".to_string(),
+            "secret".to_string(),
+            tx,
+        );
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(!peer.is_connected());
+
+        peer.stop();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(!peer.is_connected());
+    }
+
+    #[tokio::test]
+    async fn host_shutdown_closes_all_sessions() {
+        let (host_tx, _) = std::sync::mpsc::channel();
+        let mut host = SyncHost::bind(
+            "127.0.0.1:0".parse().unwrap(),
+            "HOST_STATION".to_string(),
+            "shared_secret".to_string(),
+            host_tx,
+        )
+        .await
+        .unwrap();
+        let host_addr = host.local_addr();
+
+        let (p1_tx, _) = std::sync::mpsc::channel();
+        let mut peer1 = SyncPeer::start(
+            host_addr,
+            "PEER1".to_string(),
+            "shared_secret".to_string(),
+            p1_tx,
+        );
+
+        let (p2_tx, _) = std::sync::mpsc::channel();
+        let mut peer2 = SyncPeer::start(
+            host_addr,
+            "PEER2".to_string(),
+            "shared_secret".to_string(),
+            p2_tx,
+        );
+
+        for _ in 0..100 {
+            if host.connected_peers() == 2 && peer1.is_connected() && peer2.is_connected() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert_eq!(host.connected_peers(), 2);
+
+        host.stop();
+        assert_eq!(host.connected_peers(), 0);
+
+        for _ in 0..100 {
+            if !peer1.is_connected() && !peer2.is_connected() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert!(!peer1.is_connected());
+        assert!(!peer2.is_connected());
+
+        peer1.stop();
+        peer2.stop();
     }
 }
