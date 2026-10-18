@@ -6,18 +6,23 @@
 pub mod crypto;
 pub mod error;
 pub mod frame;
+pub mod handshake;
 pub mod protocol;
+pub mod session;
 
 pub use crypto::*;
 pub use error::SyncError;
 pub use frame::{MAX_FRAME_BYTES, decode_length, encode_length, read_frame, write_frame};
+pub use handshake::{HandshakeResult, host_handshake, peer_handshake};
 pub use protocol::{ClientHello, MAGIC, Message, PROTOCOL_VERSION, Reject, ServerHello};
+pub use session::{QUEUE_CAPACITY, SessionSender, SyncSession};
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::core::qso::QsoRecord;
     use std::io::Cursor;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     fn sample_qso(call: &str) -> QsoRecord {
         let mut q = QsoRecord::new(call, "20m", "CW");
@@ -121,18 +126,13 @@ mod tests {
         let key = derive_key("secret", &[6u8; SALT_LEN]).unwrap();
         let sid = [20u8; 32];
 
-        // Odbiorca utrzymuje oczekiwany licznik wiadomości
-        let mut expected_counter: u64 = 0;
-
         let aad_msg0 = build_aad(&sid, DIRECTION_PEER_TO_HOST, 0);
         let frame0 = encrypt_payload(&key, &aad_msg0, b"first-message").unwrap();
 
-        // Pierwsza wiadomość odszyfrowana pomyślnie
         let dec0 = decrypt_payload(&key, &aad_msg0, &frame0).unwrap();
         assert_eq!(dec0, b"first-message");
-        expected_counter += 1; // oczekiwany licznik to 1
+        let expected_counter = 1u64;
 
-        // Próba ponownego przesłania (replay) wiadomości z licznikiem 0
         let replay_aad = build_aad(&sid, DIRECTION_PEER_TO_HOST, expected_counter);
         let replay_res = decrypt_payload(&key, &replay_aad, &frame0);
         assert!(
@@ -154,7 +154,6 @@ mod tests {
         let key = derive_key("secret", &[8u8; SALT_LEN]).unwrap();
         let aad = build_aad(&[0u8; 32], 0, 0);
 
-        // Ramka krótsza niż NONCE_LEN (24) + Poly1305 tag (16) = 40 B
         let short_frame = vec![0u8; 20];
         let res = decrypt_payload(&key, &aad, &short_frame);
         assert!(matches!(res, Err(SyncError::FrameTruncated)));
@@ -245,5 +244,383 @@ mod tests {
         let mut cursor = Cursor::new(buf);
         let read = read_frame(&mut cursor).await.unwrap();
         assert_eq!(read, payload);
+    }
+
+    #[tokio::test]
+    async fn handshake_succeeds_with_same_secret() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let salt = random_salt();
+        let host_key = derive_key("ham-secret-123", &salt).unwrap();
+
+        let host_fut = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            host_handshake(stream, "SP6INA-HOST", &salt, &host_key).await
+        });
+
+        let peer_stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let peer_res = peer_handshake(peer_stream, "SP6INA-PEER", "ham-secret-123")
+            .await
+            .unwrap();
+        let host_res = host_fut.await.unwrap().unwrap();
+
+        assert_eq!(peer_res.remote_station, "SP6INA-HOST");
+        assert_eq!(host_res.remote_station, "SP6INA-PEER");
+    }
+
+    #[tokio::test]
+    async fn handshake_fails_with_wrong_secret_without_reply() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let salt = random_salt();
+        let host_key = derive_key("correct-secret", &salt).unwrap();
+
+        let host_fut = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            host_handshake(stream, "SP6INA-HOST", &salt, &host_key).await
+        });
+
+        let peer_stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let mut peer_res = peer_handshake(peer_stream, "SP6INA-PEER", "wrong-secret")
+            .await
+            .unwrap();
+
+        let host_res = host_fut.await.unwrap();
+        assert!(matches!(host_res, Err(SyncError::DecryptionFailed)));
+
+        let peer_recv = peer_res.session.recv().await;
+        assert!(matches!(peer_recv, Err(SyncError::ConnectionClosed)));
+    }
+
+    #[tokio::test]
+    async fn handshake_rejects_protocol_mismatch_with_expected_version() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let salt = random_salt();
+        let host_key = derive_key("secret", &salt).unwrap();
+
+        let host_fut = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            host_handshake(stream, "SP6INA-HOST", &salt, &host_key).await
+        });
+
+        let mut client_stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let bad_hello = ClientHello {
+            magic: MAGIC.to_string(),
+            protocol: 99,
+            station: "TEST".to_string(),
+            client_nonce: random_nonce_16(),
+        };
+        let bad_bytes = serde_json::to_vec(&bad_hello).unwrap();
+        write_frame(&mut client_stream, &bad_bytes).await.unwrap();
+
+        let resp_bytes = read_frame(&mut client_stream).await.unwrap();
+        let reject: Reject = serde_json::from_slice(&resp_bytes).unwrap();
+        assert_eq!(reject.expected, PROTOCOL_VERSION);
+
+        let host_res = host_fut.await.unwrap();
+        assert!(matches!(
+            host_res,
+            Err(SyncError::ProtocolMismatch {
+                expected: 2,
+                got: 99
+            })
+        ));
+    }
+
+    #[tokio::test]
+    async fn handshake_rejects_invalid_magic() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let salt = random_salt();
+        let host_key = derive_key("secret", &salt).unwrap();
+
+        let host_fut = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            host_handshake(stream, "SP6INA-HOST", &salt, &host_key).await
+        });
+
+        let mut client_stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let bad_hello = ClientHello {
+            magic: "INVALIDMAGIC".to_string(),
+            protocol: PROTOCOL_VERSION,
+            station: "TEST".to_string(),
+            client_nonce: random_nonce_16(),
+        };
+        let bad_bytes = serde_json::to_vec(&bad_hello).unwrap();
+        write_frame(&mut client_stream, &bad_bytes).await.unwrap();
+
+        let resp_bytes = read_frame(&mut client_stream).await.unwrap();
+        let reject: Reject = serde_json::from_slice(&resp_bytes).unwrap();
+        assert_eq!(reject.expected, PROTOCOL_VERSION);
+
+        let host_res = host_fut.await.unwrap();
+        assert!(matches!(host_res, Err(SyncError::InvalidMagic)));
+    }
+
+    #[tokio::test]
+    async fn session_detects_replayed_frame() {
+        let key = derive_key("secret", &[1u8; SALT_LEN]).unwrap();
+        let sid = [40u8; 32];
+
+        let aad0 = build_aad(&sid, DIRECTION_PEER_TO_HOST, 0);
+        let frame0 = encrypt_payload(&key, &aad0, b"msg0").unwrap();
+
+        // Odbiór ramki 0 z oczekiwanym licznikiem 0
+        let dec0 = decrypt_payload(&key, &aad0, &frame0).unwrap();
+        assert_eq!(dec0, b"msg0");
+
+        // Próba ponownego użycia ramki 0 z nowym licznikiem 1 (replay attack)
+        let aad1 = build_aad(&sid, DIRECTION_PEER_TO_HOST, 1);
+        let res_replay = decrypt_payload(&key, &aad1, &frame0);
+        assert!(matches!(res_replay, Err(SyncError::DecryptionFailed)));
+    }
+
+    #[tokio::test]
+    async fn session_detects_reordered_frames() {
+        let key = derive_key("secret", &[1u8; SALT_LEN]).unwrap();
+        let sid = [44u8; 32];
+
+        let msg0 = Message::Ping.to_json().unwrap();
+        let msg1 = Message::Pong.to_json().unwrap();
+
+        let aad0 = build_aad(&sid, DIRECTION_PEER_TO_HOST, 0);
+        let aad1 = build_aad(&sid, DIRECTION_PEER_TO_HOST, 1);
+
+        let frame0 = encrypt_payload(&key, &aad0, &msg0).unwrap();
+        let frame1 = encrypt_payload(&key, &aad1, &msg1).unwrap();
+
+        // Odbiorca oczekuje licznika 0, ale otrzymuje ramkę 1 (zamiana kolejności)
+        let res_reordered = decrypt_payload(&key, &aad0, &frame1);
+        assert!(matches!(res_reordered, Err(SyncError::DecryptionFailed)));
+
+        // Prawidłowa ramka 0 przechodzi
+        let res_ok = decrypt_payload(&key, &aad0, &frame0).unwrap();
+        assert_eq!(res_ok, msg0);
+    }
+
+    #[tokio::test]
+    async fn session_detects_missing_counter() {
+        let key = derive_key("secret", &[2u8; SALT_LEN]).unwrap();
+        let sid = [45u8; 32];
+
+        let msg2 = Message::Bye.to_json().unwrap();
+        let aad2 = build_aad(&sid, DIRECTION_PEER_TO_HOST, 2);
+        let frame2 = encrypt_payload(&key, &aad2, &msg2).unwrap();
+
+        // Odbiorca oczekuje licznika 1 (pominięto licznik 1, odebrano licznik 2)
+        let aad1 = build_aad(&sid, DIRECTION_PEER_TO_HOST, 1);
+        let res_skipped = decrypt_payload(&key, &aad1, &frame2);
+        assert!(matches!(res_skipped, Err(SyncError::DecryptionFailed)));
+    }
+
+    #[tokio::test]
+    async fn session_parallel_senders_keep_counter_order() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let salt = random_salt();
+        let host_key = derive_key("parallel-secret", &salt).unwrap();
+
+        let total_messages = 3000usize;
+
+        let host_fut = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut host_res = host_handshake(stream, "HOST", &salt, &host_key)
+                .await
+                .unwrap();
+            let mut received = 0usize;
+            while received < total_messages {
+                match host_res.session.recv().await {
+                    Ok(Message::Ping) => received += 1,
+                    Ok(other) => panic!("unexpected message: {other:?}"),
+                    Err(e) => panic!("counter/decryption error after {received} messages: {e}"),
+                }
+            }
+            received
+        });
+
+        let peer_stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let peer_res = peer_handshake(peer_stream, "PEER", "parallel-secret")
+            .await
+            .unwrap();
+        let sender = peer_res.session.sender();
+
+        let mut handles = Vec::new();
+        for _ in 0..3 {
+            let s = sender.clone();
+            handles.push(tokio::spawn(async move {
+                for _ in 0..1000 {
+                    s.send(Message::Ping).await.unwrap();
+                }
+            }));
+        }
+
+        for h in handles {
+            h.await.unwrap();
+        }
+
+        let total_recv = host_fut.await.unwrap();
+        assert_eq!(total_recv, 3000);
+    }
+
+    #[tokio::test]
+    async fn session_writer_is_single_owner() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let salt = random_salt();
+        let host_key = derive_key("owner-secret", &salt).unwrap();
+
+        let host_fut = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut host_res = host_handshake(stream, "HOST", &salt, &host_key)
+                .await
+                .unwrap();
+            for _ in 0..10 {
+                let msg = host_res.session.recv().await.unwrap();
+                assert_eq!(msg, Message::Ping);
+            }
+        });
+
+        let peer_stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let peer_res = peer_handshake(peer_stream, "PEER", "owner-secret")
+            .await
+            .unwrap();
+
+        let s1 = peer_res.session.sender();
+        let s2 = peer_res.session.sender();
+
+        for _ in 0..5 {
+            s1.send(Message::Ping).await.unwrap();
+            s2.send(Message::Ping).await.unwrap();
+        }
+
+        host_fut.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn session_shutdown_sends_or_handles_bye() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let salt = random_salt();
+        let host_key = derive_key("bye-secret", &salt).unwrap();
+
+        let host_fut = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut host_res = host_handshake(stream, "HOST", &salt, &host_key)
+                .await
+                .unwrap();
+            let bye = host_res.session.recv().await.unwrap();
+            assert_eq!(bye, Message::Bye);
+        });
+
+        let peer_stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let mut peer_res = peer_handshake(peer_stream, "PEER", "bye-secret")
+            .await
+            .unwrap();
+
+        peer_res.session.shutdown().await;
+        host_fut.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn secret_and_payload_never_appear_on_the_wire() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let shared_secret = "SECRET_PASSPHRASE_77777";
+        let unique_qso_call = "SECRET_PAYLOAD_MARKER_99999";
+
+        let salt = random_salt();
+        let host_key = derive_key(shared_secret, &salt).unwrap();
+
+        let proxy_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let proxy_addr = proxy_listener.local_addr().unwrap();
+
+        let proxy_fut = tokio::spawn(async move {
+            let (mut client_stream, _) = proxy_listener.accept().await.unwrap();
+            let mut server_stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+
+            let mut wire_bytes = Vec::new();
+
+            let mut c_buf = [0u8; 4096];
+            let mut s_buf = [0u8; 4096];
+
+            loop {
+                tokio::select! {
+                    n = client_stream.read(&mut c_buf) => {
+                        let n = match n {
+                            Ok(0) | Err(_) => break,
+                            Ok(n) => n,
+                        };
+                        wire_bytes.extend_from_slice(&c_buf[..n]);
+                        if server_stream.write_all(&c_buf[..n]).await.is_err() {
+                            break;
+                        }
+                    }
+                    n = server_stream.read(&mut s_buf) => {
+                        let n = match n {
+                            Ok(0) | Err(_) => break,
+                            Ok(n) => n,
+                        };
+                        wire_bytes.extend_from_slice(&s_buf[..n]);
+                        if client_stream.write_all(&s_buf[..n]).await.is_err() {
+                            break;
+                        }
+                    }
+                }
+            }
+            wire_bytes
+        });
+
+        let host_fut = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut host_res = host_handshake(stream, "HOST", &salt, &host_key)
+                .await
+                .unwrap();
+            let qso_msg = host_res.session.recv().await.unwrap();
+            host_res.session.shutdown().await;
+            qso_msg
+        });
+
+        let peer_stream = tokio::net::TcpStream::connect(proxy_addr).await.unwrap();
+        let mut peer_res = peer_handshake(peer_stream, "PEER", shared_secret)
+            .await
+            .unwrap();
+
+        let qso = sample_qso(unique_qso_call);
+        peer_res
+            .session
+            .send(Message::Qso(Box::new(qso)))
+            .await
+            .unwrap();
+        peer_res.session.shutdown().await;
+
+        let host_qso = host_fut.await.unwrap();
+        assert!(matches!(host_qso, Message::Qso(_)));
+
+        let recorded_wire = proxy_fut.await.unwrap();
+
+        let secret_bytes = shared_secret.as_bytes();
+        let payload_bytes = unique_qso_call.as_bytes();
+
+        let found_secret = recorded_wire
+            .windows(secret_bytes.len())
+            .any(|w| w == secret_bytes);
+        let found_payload = recorded_wire
+            .windows(payload_bytes.len())
+            .any(|w| w == payload_bytes);
+
+        assert!(!found_secret, "shared secret must never appear on the wire");
+        assert!(
+            !found_payload,
+            "plaintext QSO payload must never appear on the wire"
+        );
     }
 }
