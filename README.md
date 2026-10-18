@@ -55,7 +55,7 @@ From deep ionospheric modeling (VOACAP-lite HF propagation), automated antenna r
    - [Central Event Bus & Live WebSocket](#20-central-event-bus--live-websocket)
    - [Callbook Aggregation & Offline Cache](#21-callbook-aggregation--offline-cache)
    - [Operator Assistant & Voice Keyer](#22-operator-assistant--voice-keyer)
-   - [Encrypted P2P Log Synchronization](#23-encrypted-p2p-log-synchronization)
+   - [Encrypted Multi-Op LAN/P2P Synchronization (Protocol v2)](#23-encrypted-multi-op-lanp2p-synchronization-protocol-v2)
    - [N1MM Logger+ Compatibility](#24-n1mm-logger-compatibility)
 3. [Keyboard Shortcuts Reference](#-keyboard-shortcuts-reference)
 4. [REST API Documentation](#-rest-api-documentation)
@@ -97,7 +97,7 @@ From deep ionospheric modeling (VOACAP-lite HF propagation), automated antenna r
 | **Plugin Marketplace** | One-click-install add-on catalog (POTA/SOTA helpers, CW macros, contest assistant, rotor assistant, award tracker, DX spot alerts, and more) with SHA256 verification, offline fallback, and update/uninstall support. |
 | **Event Bus** | Central `tokio::sync::broadcast` event bus decoupling modules; the same JSON events drive UI toasts, the WebSocket stream, and Rhai plugins. |
 | **Operator Assistant & Voice Keyer** | Always-on decision bar recommending "what to do now" from propagation/CAT/DX/award goals, plus an SSB **voice keyer** (WAV playback, F1–F8 slots, CQ loop). |
-| **Encrypted P2P Sync** | Direct peer-to-peer log synchronization over LAN/VPN encrypted with **XChaCha20-Poly1305** (Argon2id key derivation) — no cloud required. |
+| **Encrypted Multi-Op Sync** | Unified Host/Peer multi-station synchronization (protocol v2) over LAN/VPN encrypted with **XChaCha20-Poly1305** (Argon2id key derivation), echo-free relay, and bidirectional catch-up. |
 | **N1MM Compatibility** | Emits **N1MM Logger+ UDP broadcast** XML frames so GridTracker, overlay tools, and the N1MM ecosystem integrate out of the box. |
 | **Callbook Aggregation** | Configurable callbook **source priority** (QRZ.com, HamQTH, offline cache) with automatic result merging and a persistent offline **cache** (TTL-based). |
 | **Theming & Accessibility** | Central `theme.rs` palette with presets — **Operator Dark**, **Daylight**, **High-Contrast / colorblind-safe (Okabe-Ito)** — user font scaling and family selection, and a status legend window. |
@@ -400,11 +400,19 @@ Callbook lookups merge results from multiple sources according to a user-configu
 
 ---
 
-### 23. Encrypted P2P Log Synchronization
-For operators who want multi-station or field/backup synchronization without a cloud service, SPLogbook provides a **direct peer-to-peer sync** (`src/sync/p2p.rs`) over TCP:
-- **Encrypted transport:** each frame is sealed with **XChaCha20-Poly1305**, with the symmetric key derived from a shared passphrase via **Argon2id**.
-- **Frame integrity:** length-prefixed frames with a per-message nonce and 64 MB size cap protect against truncation and memory-exhaustion.
-- Works over LAN or VPN, no third-party server involved.
+### 23. Encrypted Multi-Op LAN/P2P Synchronization (Protocol v2)
+SPLogbook provides a unified, secure real-time log synchronization engine (`src/sync/`) designed for multi-operator contest stations and field operations across local LAN or private VPN tunnels:
+- **Host/Peer Topology & Echo-Free Relay:** One station acts as the Host listening on TCP port 7373, while peer stations connect using the Host's IP address/hostname. When a station logs a new QSO, the Host relays it to all other peers without echoing back to the originating station. Ingested `LanPeer` records are never rebroadcast.
+- **Protocol v2 Binary Framing:** Operates on protocol v2 (`MAGIC_V2` = `b"SP2"`). Strict protocol version negotiation ensures only compatible nodes participate. Frames are bounded to 64 KiB with 4-byte length prefixes to protect against memory exhaustion.
+- **Authenticated Encryption (AEAD):** Every payload is encrypted and authenticated using **XChaCha20-Poly1305**. Session keys are derived via **Argon2id** (16-byte random salt, 24-byte nonce) from a shared station secret. Passwords and secrets are never transmitted in plaintext across the network.
+- **Replay & Reorder Defense:** Each frame incorporates a 64-bit monotonic counter, random message UUID, and authenticated additional data (AAD). Frames with duplicate, out-of-order, or invalid counters are strictly rejected.
+- **Bidirectional Inventory Catch-Up:** Upon handshake completion, stations exchange SHA-256 journal inventories and checksums. Missing QSOs are automatically replicated in both directions, ensuring all stations are in sync even after network interruptions. Catch-up operations are strictly idempotent.
+- **Resilient Lifecycle & Reconnect:** Client peers automatically attempt reconnection every 5 seconds if a connection drops. Slow or unresponsive peers are cleanly disconnected to maintain real-time responsiveness on active nodes.
+- **Firewall & Network Configuration:** Uses TCP port `7373` by default. Ensure incoming TCP traffic on this port is allowed in your OS firewall (Windows Defender Firewall, `ufw`, or `iptables`).
+- **Operational Boundaries:**
+  - Sync operates exclusively on the station's **active journal**.
+  - Synchronizes new QSO additions only; QSO edits and deletions are not propagated across peers to avoid silent data overwrites.
+  - Engineered for trusted LAN environments and private VPN tunnels; direct exposure to the public Internet without VPN is not recommended.
 
 ---
 
@@ -654,7 +662,6 @@ SPLogbook/
     │   ├── updater.rs       # Automatic GitHub releases updater
     │   └── wspr.rs          # wspr.live REST API monitor
     ├── cluster/             # Spotting networks
-    │   ├── lan_sync.rs      # Multi-operator LAN synchronization
     │   └── telnet.rs        # Multi-threaded Telnet client for DX Cluster
     ├── core/                # Core business logic & database
     │   ├── adif.rs          # ADIF 3.1.5 parser & exporter (+ ADX XML export)
@@ -761,8 +768,15 @@ SPLogbook/
     │   ├── bridge.rs        # PluginCommand queue + PluginSnapshot state bridge
     │   ├── lookups.rs       # POTA/SOTA REST lookups for plugin actions
     │   └── marketplace.rs   # Plugin catalog, fetch, SHA256-verified install/uninstall
-    ├── sync/                # Encrypted peer-to-peer synchronization
-    │   └── p2p.rs           # XChaCha20-Poly1305 P2P log sync over TCP
+    ├── sync/                # Unified Multi-Op LAN/P2P sync (Protocol v2)
+    │   ├── catchup.rs       # Active journal inventory and bidirectional catch-up
+    │   ├── crypto.rs        # Argon2id key derivation & XChaCha20-Poly1305 AEAD
+    │   ├── frame.rs         # Binary framing, monotonic counters, replay defense
+    │   ├── host.rs          # TCP Host server, peer supervision, echo-free relay
+    │   ├── peer.rs          # TCP Peer client with automatic reconnect
+    │   ├── protocol.rs      # Protocol v2 message types and serialization
+    │   ├── service.rs       # SyncService: Tokio background runtime adapter for GUI
+    │   └── session.rs       # Authenticated encrypted session state machine
     ├── network/             # Network utilities
     │   └── wol.rs           # Wake-on-LAN magic packet sender
     └── media/               # Audio alerts & assets

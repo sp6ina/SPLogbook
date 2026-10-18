@@ -196,11 +196,18 @@ Skróty kombinowane (Ctrl / Cmd):\n\
     },
     ManualSection {
         id: "p2p",
-        title: "15. Szyfrowana synchronizacja P2P (LAN/VPN)",
-        body: "Bezpieczna praca wielostanowiskowa bez pośrednictwa serwerów w chmurze:\n\n\
-- Szyfrowanie end-to-end: Połączenia bezpośrednie między stacjami w sieci lokalnej LAN lub tunelu VPN zabezpieczone są kryptograficznie szyfrem strumieniowym XChaCha20-Poly1305 z wyprowadzaniem klucza za pomocą algorytmu Argon2id.\n\
-- Dwukierunkowa replikacja: Automatyczne wykrywanie brakujących rekordów i bezkolizyjne scalanie dzienników podczas pracy ekspedycyjnej lub zawodów Multi-Operator.\n\
-- Niezależność od internetu: Zapewnia pełną synchronizację logów w warunkach polowych, gdzie dostępny jest wyłącznie lokalny punkt dostępowy Wi-Fi.",
+        title: "15. Szyfrowana synchronizacja Multi-Op (LAN/VPN)",
+        body: "Bezpieczna praca wielostanowiskowa Host/Peer w sieci lokalnej LAN lub tunelu VPN:\n\n\
+- Architektura Host/Peer: Jedna stacja pełni rolę Hosta (nasłuchuje na wybranym porcie TCP, domyślnie 7373), a stacje klienckie łączą się jako Peer, wskazując adres IP lub nazwę Hosta oraz port.\n\
+- Szyfrowanie i uwierzytelnianie: Wszystkie ramki są szyfrowane symetrycznie algorytmem XChaCha20-Poly1305. Klucz sesji wyprowadzany jest z losowego saltu i wspólnego sekretu stacji za pomocą Argon2id. Wspólny sekret nigdy nie jest transmitowany przez sieć.\n\
+- Ochrona przed replay i reorder: Każda ramka zawiera monotoniczny licznik i losowy UUID, co zabezpiecza przed atakami powtórzeniowymi i zmianą kolejności pakietów.\n\
+- Catch-up brakujących łączności: Po nawiązaniu sesji stacje wymieniają inwentarz sum kontrolnych SHA-256 dla aktywnego dziennika i automatycznie dosyłają brakujące QSO w obu kierunkach bez duplikatów.\n\
+- Komunikaty stanu i diagnostyka: Panel Multi-Op prezentuje aktualny stan (Nasłuchiwanie, Połączono, Ponawianie połączenia, Błąd). Błędny sekret powoduje natychmiastowe odrzucenie sesji ('Błędne hasło lub sekret'), a niezgodność protokołu ('Niezgodna wersja protokołu'). W razie przerwania łączności Peer wznawia próby co 5 sekund.\n\
+- Ograniczenia synchronizacji:\n\
+  * Synchronizacja dotyczy wyłącznie aktywnego dziennika.\n\
+  * Synchronizowane są wyłącznie nowe łączności (dodawanie QSO); edycje i usunięcia nie są rozgłaszane.\n\
+  * Protokół zaprojektowano dla sieci zaufanej (LAN lub prywatny VPN). Bezpośrednie wystawianie portu w publicznym Internecie bez VPN nie jest zalecane.\n\
+  * Wymagana jest reguła zezwalająca w zaporze sieciowej (domyślnie TCP 7373).",
     },
     ManualSection {
         id: "os_setup",
@@ -421,11 +428,18 @@ Modifier Shortcuts (Ctrl / Cmd):\n\
     },
     ManualSection {
         id: "p2p",
-        title: "15. Encrypted LAN / P2P Sync",
-        body: "Multi-operator collaboration without relying on external cloud servers:\n\n\
-- End-to-End Encryption: Peer-to-peer synchronization over LAN or VPN secured with XChaCha20-Poly1305 authenticated encryption and Argon2id key derivation.\n\
-- Real-Time Multi-Op TCP Server: Broadcasts newly logged QSOs and live operator band/mode status across all connected operating positions.\n\
-- Field-Ready: Works completely offline over a local Wi-Fi router during Field Day or DXpeditions.",
+        title: "15. Encrypted Multi-Op Sync (LAN/VPN)",
+        body: "Secure multi-station Host/Peer operation over a local LAN or private VPN tunnel:\n\n\
+- Host/Peer Architecture: One station operates as Host (listening on a chosen TCP port, default 7373), while other stations connect as Peers by specifying the Host IP/hostname and port.\n\
+- Authenticated Encryption: All network frames are encrypted with XChaCha20-Poly1305. Session keys are derived via Argon2id from a random salt and shared secret. Passwords are never transmitted in plaintext.\n\
+- Replay and Reorder Protection: Every frame includes a monotonic counter and unique identifier, preventing replay and reordering attacks.\n\
+- Catch-up Inventory Replication: Upon establishing an authenticated session, stations exchange SHA-256 journal inventories and checksums for the active journal, automatically transferring missing QSOs bidirectionally without duplicates.\n\
+- Status Diagnostics & Reconnect: The Multi-Op window displays live connection status (Listening, Connected, Reconnecting, Error). Clear errors indicate bad secrets ('Invalid password or secret') or protocol version mismatches ('Unsupported protocol version'). If network connectivity is lost, Peers automatically attempt reconnection every 5 seconds.\n\
+- Synchronization Boundaries & Limitations:\n\
+  * Sync operates strictly on the active journal.\n\
+  * Only new QSO additions are synchronized; edits and deletions are not propagated across peers.\n\
+  * Designed for trusted local networks (LAN) or secure private VPN tunnels. Direct exposure to the public Internet without VPN is not recommended.\n\
+  * Ensure the firewall permits inbound TCP traffic on the configured port (default 7373).",
     },
     ManualSection {
         id: "os_setup",

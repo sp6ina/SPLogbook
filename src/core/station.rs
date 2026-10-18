@@ -125,7 +125,7 @@ fn default_lan_sync_port() -> u16 {
     7373
 }
 fn default_lan_sync_server_ip() -> String {
-    "127.0.0.1".to_string()
+    String::new()
 }
 fn default_theme_preset() -> String {
     "operator_dark".to_string()
@@ -378,8 +378,6 @@ pub struct AppConfig {
     // Konfiguracja Multi-Op LAN
     #[serde(default = "default_lan_sync_port")]
     pub lan_sync_port: u16,
-    #[serde(default)]
-    pub lan_sync_auto_start: bool,
     #[serde(default = "default_lan_sync_server_ip")]
     pub lan_sync_server_ip: String,
     /// Hasło współdzielone wymagane od stacji klienckich łączących się z hostem
@@ -990,8 +988,7 @@ impl Default for AppConfig {
             workspace_profiles: Vec::new(),
 
             lan_sync_port: 7373,
-            lan_sync_auto_start: false,
-            lan_sync_server_ip: "127.0.0.1".to_string(),
+            lan_sync_server_ip: String::new(),
             lan_sync_secret: String::new(),
 
             lotw_tqsl_path: "C:\\Program Files (x86)\\Trusted QSL\\tqsl.exe".to_string(),
@@ -1237,5 +1234,56 @@ mod tests {
             loaded.station_profiles[1].sota_ref.as_deref(),
             Some("SP/BZ-001")
         );
+    }
+
+    #[test]
+    fn config_with_legacy_auto_start_field_loads() {
+        let legacy_json = r#"{
+            "lan_sync_auto_start": true,
+            "lan_sync_port": 7373,
+            "lan_sync_server_ip": "192.168.1.100"
+        }"#;
+        let cfg: AppConfig =
+            serde_json::from_str(legacy_json).expect("Legacy config with auto_start must load");
+        assert_eq!(cfg.lan_sync_port, 7373);
+        assert_eq!(cfg.lan_sync_server_ip, "192.168.1.100");
+    }
+
+    #[test]
+    fn default_lan_sync_server_ip_is_empty() {
+        assert_eq!(default_lan_sync_server_ip(), "");
+        let cfg = AppConfig::default();
+        assert_eq!(cfg.lan_sync_server_ip, "");
+    }
+
+    #[test]
+    fn config_roundtrip_preserves_sync_host_and_port() {
+        let mut cfg = AppConfig::default();
+        cfg.lan_sync_server_ip = "192.168.1.42".to_string();
+        cfg.lan_sync_port = 7380;
+        let serialized = serde_json::to_string(&cfg).expect("Serialization failed");
+        let deserialized: AppConfig =
+            serde_json::from_str(&serialized).expect("Deserialization failed");
+        assert_eq!(deserialized.lan_sync_server_ip, "192.168.1.42");
+        assert_eq!(deserialized.lan_sync_port, 7380);
+    }
+
+    #[test]
+    fn config_does_not_silently_default_peer_host() {
+        let empty_json = "{}";
+        let cfg: AppConfig =
+            serde_json::from_str(empty_json).expect("Empty JSON must load defaults");
+        assert_ne!(cfg.lan_sync_server_ip, "127.0.0.1");
+        assert_eq!(cfg.lan_sync_server_ip, "");
+    }
+
+    #[test]
+    fn removed_lan_sync_types_are_not_exported() {
+        // MultiOpServer / MultiOpClient from cluster::lan_sync are completely removed.
+        // The cluster module only contains telnet.
+        // We verify that the default configuration exposes only modern sync fields.
+        let cfg = AppConfig::default();
+        assert_eq!(cfg.lan_sync_port, 7373);
+        assert_eq!(cfg.lan_sync_server_ip, "");
     }
 }

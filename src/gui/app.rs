@@ -374,18 +374,9 @@ pub struct SpLogApp {
     // Multi-Op LAN (SYNC-6)
     pub sync_ui: crate::gui::SyncUiState,
     pub lan_sync_port: u16,
-    pub lan_sync_auto_start: bool,
     pub lan_sync_server_ip: String,
     pub lan_sync_secret: String,
     pub show_multi_op_window: bool,
-    pub multi_op_server: Option<std::sync::Arc<crate::cluster::lan_sync::MultiOpServer>>,
-    pub multi_op_incoming_rx:
-        Option<tokio::sync::mpsc::UnboundedReceiver<crate::core::qso::QsoRecord>>,
-    pub multi_op_test_rx: Option<std::sync::mpsc::Receiver<Result<String, String>>>,
-    pub multi_op_is_server: bool,
-    pub multi_op_status: String,
-    pub multi_op_connected_count: usize,
-    pub multi_op_log: Vec<String>,
 
     // LoTW konfiguracja
     pub lotw_tqsl_path: String,
@@ -1067,17 +1058,9 @@ impl SpLogApp {
             sync_ui: crate::gui::SyncUiState::new(),
 
             lan_sync_port: init.config.lan_sync_port,
-            lan_sync_auto_start: init.config.lan_sync_auto_start,
             lan_sync_server_ip: init.config.lan_sync_server_ip,
             lan_sync_secret: init.config.lan_sync_secret,
             show_multi_op_window: false,
-            multi_op_server: None,
-            multi_op_incoming_rx: None,
-            multi_op_test_rx: None,
-            multi_op_is_server: true,
-            multi_op_status: "Serwer wyłączony".to_string(),
-            multi_op_connected_count: 0,
-            multi_op_log: Vec::new(),
 
             lotw_tqsl_path: init.config.lotw_tqsl_path,
             lotw_station_name: init.config.lotw_station_name,
@@ -2287,9 +2270,6 @@ impl SpLogApp {
             if let Some(ref srv) = self.sync_ui.service {
                 srv.broadcast(qso);
             }
-            if let Some(ref srv) = self.multi_op_server {
-                srv.broadcast_qso(qso);
-            }
         }
 
         // 7. Emisja zdarzenia w formacie N1MM Logger+ UDP broadcast (broadcast_n1mm)
@@ -2390,12 +2370,7 @@ impl SpLogApp {
                     "Odebrano z LAN: {} ({} {})",
                     outcome.qso.callsign, outcome.qso.band, outcome.qso.mode
                 );
-                self.sync_ui.push_log(log_entry.clone());
-                self.multi_op_log.push(log_entry);
-                if self.multi_op_log.len() > 500 {
-                    let excess = self.multi_op_log.len() - 500;
-                    self.multi_op_log.drain(0..excess);
-                }
+                self.sync_ui.push_log(log_entry);
                 self.status_toast = Some((
                     format!("🌐 Multi-Op LAN: Dodano QSO z {}!", outcome.qso.callsign),
                     std::time::Instant::now(),
@@ -2431,9 +2406,7 @@ impl SpLogApp {
                         }
                         crate::sync::SyncState::Failed => "Błąd połączenia".to_string(),
                     };
-                    self.sync_ui.status = state_str.clone();
-                    self.multi_op_status = state_str;
-                    self.multi_op_connected_count = peers;
+                    self.sync_ui.status = state_str;
                 }
                 crate::sync::SyncEvent::IncomingQso(qso) => {
                     incoming_qsos.push(*qso);
@@ -2444,30 +2417,20 @@ impl SpLogApp {
                         let msg = format!(
                             "Synchronizacja wsteczna: zaimportowano {inserted} brakujących QSO"
                         );
-                        self.sync_ui.push_log(msg.clone());
-                        self.multi_op_log.push(msg);
+                        self.sync_ui.push_log(msg);
                     }
                 }
                 crate::sync::SyncEvent::Log(msg) => {
                     let text = msg.text(self.current_language);
-                    self.sync_ui.push_log(text.clone());
-                    self.multi_op_log.push(text);
+                    self.sync_ui.push_log(text);
                 }
                 crate::sync::SyncEvent::Error(err) => {
                     let err_msg = err.to_string();
                     self.sync_ui.push_log(format!("Błąd: {err_msg}"));
                     self.sync_ui.status = format!("Błąd: {err_msg}");
-                    self.multi_op_status = format!("Błąd: {err_msg}");
                     self.status_toast =
                         Some((format!("⚠ Multi-Op: {err_msg}"), std::time::Instant::now()));
                 }
-            }
-        }
-
-        // Stary kanał multi_op_incoming_rx (jeśli aktywny)
-        if let Some(ref mut rx) = self.multi_op_incoming_rx {
-            while let Ok(qso) = rx.try_recv() {
-                incoming_qsos.push(qso);
             }
         }
 
@@ -3139,7 +3102,6 @@ impl SpLogApp {
             propagation_history: self.propagation_history.clone(),
 
             lan_sync_port: self.lan_sync_port,
-            lan_sync_auto_start: self.lan_sync_auto_start,
             lan_sync_server_ip: self.lan_sync_server_ip.clone(),
             lan_sync_secret: self.lan_sync_secret.clone(),
 
@@ -4851,23 +4813,6 @@ impl eframe::App for SpLogApp {
             }
         }
 
-        // Odbiór wyniku testu sieci Multi-Op
-        if let Some(rx) = &self.multi_op_test_rx {
-            if let Ok(res) = rx.try_recv() {
-                match res {
-                    Ok(msg) => {
-                        self.multi_op_status = msg.clone();
-                        self.multi_op_log.push(msg);
-                    }
-                    Err(e) => {
-                        self.multi_op_status = e.clone();
-                        self.multi_op_log.push(e);
-                    }
-                }
-                self.multi_op_test_rx = None;
-            }
-        }
-
         // Odbiór pakietów cyfrowych WSJT-X (UDP 2237)
         while let Ok(msg) = self.wsjtx_rx.try_recv() {
             self.wsjtx_packets_count += 1;
@@ -6330,7 +6275,7 @@ mod tests {
         assert_eq!(db_records.len(), 1);
         assert_eq!(db_records[0].callsign, "LANSTN");
         assert_eq!(db_records[0].journal_id.as_deref(), Some("PEER_JOURNAL"));
-        assert!(app.multi_op_log.iter().any(|line| line.contains("LANSTN")));
+        assert!(app.sync_ui.log.iter().any(|line| line.contains("LANSTN")));
 
         let event = event_rx.try_recv().expect("Oczekiwano zdarzenia AppEvent");
         assert!(
