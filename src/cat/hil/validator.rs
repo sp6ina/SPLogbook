@@ -2,9 +2,9 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use super::evidence::{
-    HilEvidenceOrigin, HilExecutionStage, HilExtendedRequirement, HilImplementationCoverage,
-    HilReadinessCheck, HilReadinessCondition, HilReadinessEvidenceKind, HilReadinessReport,
-    HilReadinessStatus, HilRequirementAssessment,
+    HilEvidenceOrigin, HilExecutionContext, HilExecutionStage, HilExtendedRequirement,
+    HilImplementationCoverage, HilReadinessCheck, HilReadinessCondition, HilReadinessEvidenceKind,
+    HilReadinessReport, HilReadinessStatus, HilRequirementAssessment,
 };
 use super::manifest::{HilRfTermination, HilTestBenchManifest, HilTransportConfig};
 
@@ -452,6 +452,11 @@ impl HilReadinessValidator {
             } else {
                 HilReadinessStatus::Failed
             };
+            let context = if inst.is_physical_measurement() {
+                HilExecutionContext::PhysicalRuntime
+            } else {
+                HilExecutionContext::OfflineModel
+            };
             let diagnostic = if inst.is_physical_measurement() {
                 format!("Measured SWR: {:.2}", inst.measured_swr)
             } else {
@@ -459,9 +464,14 @@ impl HilReadinessValidator {
             };
             HilRequirementAssessment {
                 requirement_id: "HIL-INSTRUMENT-EVIDENCE".to_string(),
+                canonical_number: None,
                 implementation_coverage: HilImplementationCoverage::Complete,
                 offline_test_status: offline_status,
+                offline_evaluation_status: offline_status,
+                simulated_runtime_status: offline_status,
+                physical_runtime_evidence_status: runtime_status,
                 runtime_evidence_status: runtime_status,
+                evaluation_context: context,
                 evidence_kind: HilReadinessEvidenceKind::InstrumentVerified,
                 evidence_origin: inst.origin,
                 diagnostic,
@@ -469,9 +479,14 @@ impl HilReadinessValidator {
         } else {
             HilRequirementAssessment {
                 requirement_id: "HIL-INSTRUMENT-EVIDENCE".to_string(),
+                canonical_number: None,
                 implementation_coverage: HilImplementationCoverage::Complete,
                 offline_test_status: HilReadinessStatus::Passed,
+                offline_evaluation_status: HilReadinessStatus::Passed,
+                simulated_runtime_status: HilReadinessStatus::NotRun,
+                physical_runtime_evidence_status: HilReadinessStatus::NotRun,
                 runtime_evidence_status: HilReadinessStatus::NotRun,
+                evaluation_context: HilExecutionContext::OfflineModel,
                 evidence_kind: HilReadinessEvidenceKind::InstrumentVerified,
                 evidence_origin: HilEvidenceOrigin::SyntheticOfflineFixture,
                 diagnostic: "No digital instrument measurement recorded".to_string(),
@@ -1275,6 +1290,11 @@ impl HilReadinessValidator {
         } else {
             HilEvidenceOrigin::PhysicalMeasurement
         };
+        let context = if is_7a {
+            HilExecutionContext::SimulatedRuntime
+        } else {
+            HilExecutionContext::PhysicalRuntime
+        };
         vec![
             HilExtendedRequirement {
                 id: "HIL-X01".to_string(),
@@ -1289,6 +1309,7 @@ impl HilReadinessValidator {
                 },
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
                 evidence_origin: origin,
+                execution_context: context,
                 details: "Session registry isolated; zero external competing sessions".to_string(),
             },
             HilExtendedRequirement {
@@ -1312,6 +1333,7 @@ impl HilReadinessValidator {
                 },
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
                 evidence_origin: origin,
+                execution_context: context,
                 details: format!(
                     "PTT operation bounded to {} ms",
                     manifest.rf_safety.max_test_duration_ms
@@ -1326,6 +1348,7 @@ impl HilReadinessValidator {
                 runtime_evidence_status: HilReadinessStatus::Passed,
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
                 evidence_origin: origin,
+                execution_context: context,
                 details: "Single-shot PTT invariant strictly enforced; zero retry policy".to_string(),
             },
             HilExtendedRequirement {
@@ -1347,6 +1370,7 @@ impl HilReadinessValidator {
                 },
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
                 evidence_origin: origin,
+                execution_context: context,
                 details: "PTT consent token requires explicit operator multi-factor attestation"
                     .to_string(),
             },
@@ -1367,6 +1391,7 @@ impl HilReadinessValidator {
                 },
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
                 evidence_origin: origin,
+                execution_context: context,
                 details: format!("Session ID: '{}'", manifest.session_id),
             },
             HilExtendedRequirement {
@@ -1382,6 +1407,7 @@ impl HilReadinessValidator {
                 },
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
                 evidence_origin: origin,
+                execution_context: context,
                 details: format!(
                     "Session validity verified; expires_at: {:?}",
                     manifest.expires_at
@@ -1404,6 +1430,7 @@ impl HilReadinessValidator {
                 },
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
                 evidence_origin: origin,
+                execution_context: context,
                 details: format!("Bench ID: '{}'", manifest.bench_id),
             },
             HilExtendedRequirement {
@@ -1419,6 +1446,7 @@ impl HilReadinessValidator {
                 },
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
                 evidence_origin: origin,
+                execution_context: context,
                 details: if manifest.instrument_verification.is_some() {
                     "Instrument telemetry structure well-formed".to_string()
                 } else {
@@ -1458,11 +1486,14 @@ impl HilReadinessValidator {
                 } else {
                     HilReadinessEvidenceKind::MachineVerified
                 },
-                evidence_origin: if let Some(inst) = &manifest.instrument_verification {
+                evidence_origin: if is_7a {
+                    HilEvidenceOrigin::SyntheticOfflineFixture
+                } else if let Some(inst) = &manifest.instrument_verification {
                     inst.origin
                 } else {
                     origin
                 },
+                execution_context: context,
                 details: if let Some(inst) = &manifest.instrument_verification {
                     if inst.is_physical_measurement() {
                         format!("Measured SWR: {:.2}", inst.measured_swr)
@@ -1482,6 +1513,7 @@ impl HilReadinessValidator {
                 runtime_evidence_status: HilReadinessStatus::Passed,
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
                 evidence_origin: origin,
+                execution_context: context,
                 details: "Environment guard synchronization verified".to_string(),
             },
             HilExtendedRequirement {
@@ -1493,6 +1525,7 @@ impl HilReadinessValidator {
                 runtime_evidence_status: HilReadinessStatus::Passed,
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
                 evidence_origin: origin,
+                execution_context: context,
                 details: "SPLOG_HIL_ENABLE environment gate operational".to_string(),
             },
             HilExtendedRequirement {
@@ -1504,6 +1537,7 @@ impl HilReadinessValidator {
                 runtime_evidence_status: HilReadinessStatus::Passed,
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
                 evidence_origin: origin,
+                execution_context: context,
                 details: "SPLOG_HIL_ALLOW_TX environment gate operational".to_string(),
             },
             HilExtendedRequirement {
@@ -1515,6 +1549,7 @@ impl HilReadinessValidator {
                 runtime_evidence_status: HilReadinessStatus::Passed,
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
                 evidence_origin: origin,
+                execution_context: context,
                 details:
                     "Zero-dummy invariant: Mock backend cannot satisfy hardware HIL-READY"
                         .to_string(),
@@ -1528,6 +1563,7 @@ impl HilReadinessValidator {
                 runtime_evidence_status: HilReadinessStatus::Passed,
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
                 evidence_origin: origin,
+                execution_context: context,
                 details:
                     "Drop guard prevents synthetic ConfirmedRx fabrication; marks session FailedOrUnknown if abandoned"
                         .to_string(),
@@ -1541,6 +1577,7 @@ impl HilReadinessValidator {
                 runtime_evidence_status: HilReadinessStatus::Passed,
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
                 evidence_origin: origin,
+                execution_context: context,
                 details: "Explicit release_and_confirm_rx() is the sole path to ConfirmedRx"
                     .to_string(),
             },

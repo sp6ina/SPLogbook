@@ -14,11 +14,12 @@ use std::time::Duration;
 
 use splogbook::cat::backend::{CatBackendKind, RigBackend, RigProbeResult};
 use splogbook::cat::hil::{
-    HilDispatcherCase, HilDispatcherReport, HilDummyLoadSpec, HilError, HilEvidenceOrigin,
-    HilExecutionStage, HilExtendedRequirement, HilHardwareSession, HilImplementationCoverage,
-    HilInstrumentMeasurement, HilMatrixEntry, HilOperatorAttestation, HilPttConsentToken,
-    HilReadinessEvidenceKind, HilReadinessStatus, HilReadinessValidator, HilRequirementAssessment,
-    HilRfSafetyConfig, HilRfTermination, HilSessionState, HilTestBenchManifest, HilTransportConfig,
+    HilAbortProcedure, HilCommandResult, HilDispatcherCase, HilDispatcherReport, HilDummyLoadSpec,
+    HilError, HilEvidenceOrigin, HilExecutionContext, HilExecutionStage, HilExtendedRequirement,
+    HilHardwareSession, HilImplementationCoverage, HilInstrumentMeasurement, HilMatrixEntry,
+    HilOperatorAttestation, HilPttConsentToken, HilReadinessEvidenceKind, HilReadinessStatus,
+    HilReadinessValidator, HilRequirementAssessment, HilRfSafetyConfig, HilRfTermination,
+    HilSessionState, HilSoftwareBaselineEvidence, HilTestBenchManifest, HilTransportConfig,
     HilTxGuard, run_isolated_hardware_dispatcher, run_isolated_hardware_test,
 };
 use splogbook::cat::rig::{RigCapabilities, RigCommand, RigError};
@@ -939,18 +940,11 @@ fn hil_manifest_redacts_credentials() {
     }
 }
 
-#[test]
-fn hil_shutdown_joins_all_tasks() {
+#[tokio::test]
+async fn hil_shutdown_joins_all_tasks() {
     let mut mock_backend = MockHilBackend::new();
-    let res = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap()
-        .block_on(async {
-            mock_backend.disconnect().await;
-            true
-        });
-    assert!(res);
+    mock_backend.disconnect().await;
+    assert_eq!(mock_backend.connect_count(), 0);
 }
 
 #[test]
@@ -2396,5 +2390,781 @@ async fn hil_hardware_live_test_bench() {
     println!(
         "Live HIL probe succeeded: {} (capabilities: {:?})",
         probe_result.model_name, probe_result.capabilities
+    );
+}
+
+// =========================================================================
+// NATIVE-7A-EVIDENCE-SEMANTICS-FINAL-GATE: Offline vs Physical Separation Tests
+// =========================================================================
+
+#[test]
+fn hil_execution_contexts_are_distinct() {
+    assert_ne!(
+        HilExecutionContext::OfflineModel,
+        HilExecutionContext::SimulatedRuntime
+    );
+    assert_ne!(
+        HilExecutionContext::OfflineModel,
+        HilExecutionContext::PhysicalRuntime
+    );
+    assert_ne!(
+        HilExecutionContext::SimulatedRuntime,
+        HilExecutionContext::PhysicalRuntime
+    );
+}
+
+#[test]
+fn hil_execution_context_variants_are_distinct() {
+    let offline = HilExecutionContext::OfflineModel;
+    let sim = HilExecutionContext::SimulatedRuntime;
+    let phys = HilExecutionContext::PhysicalRuntime;
+
+    assert!(offline.is_offline());
+    assert!(!offline.is_simulated());
+    assert!(!offline.is_physical());
+
+    assert!(!sim.is_offline());
+    assert!(sim.is_simulated());
+    assert!(!sim.is_physical());
+
+    assert!(!phys.is_offline());
+    assert!(!phys.is_simulated());
+    assert!(phys.is_physical());
+}
+
+#[test]
+fn hil_execution_context_displays_correctly() {
+    assert_eq!(
+        HilExecutionContext::OfflineModel.to_string(),
+        "OfflineModel"
+    );
+    assert_eq!(
+        HilExecutionContext::SimulatedRuntime.to_string(),
+        "SimulatedRuntime"
+    );
+    assert_eq!(
+        HilExecutionContext::PhysicalRuntime.to_string(),
+        "PhysicalRuntime"
+    );
+}
+
+#[test]
+fn hil_offline_model_is_not_physical_runtime() {
+    let offline = HilExecutionContext::OfflineModel;
+    let physical = HilExecutionContext::PhysicalRuntime;
+    assert_ne!(offline, physical);
+    assert!(!offline.is_physical());
+}
+
+#[test]
+fn hil_offline_model_evaluation_cannot_grant_physical_pass() {
+    let manifest = valid_test_manifest();
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    let assessments = report.assessments();
+    for a in &assessments {
+        if a.evaluation_context == HilExecutionContext::OfflineModel {
+            assert_ne!(
+                a.physical_runtime_evidence_status,
+                HilReadinessStatus::Passed,
+                "OfflineModel context for {} must never grant physical Passed",
+                a.requirement_id
+            );
+        }
+    }
+}
+
+#[test]
+fn hil_simulated_runtime_is_not_physical_runtime() {
+    let sim = HilExecutionContext::SimulatedRuntime;
+    let physical = HilExecutionContext::PhysicalRuntime;
+    assert_ne!(sim, physical);
+    assert!(!sim.is_physical());
+}
+
+#[test]
+fn hil_simulated_runtime_cannot_grant_physical_pass() {
+    let manifest = valid_test_manifest();
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    let assessments = report.assessments();
+    for a in &assessments {
+        if a.evaluation_context == HilExecutionContext::SimulatedRuntime {
+            assert_ne!(
+                a.physical_runtime_evidence_status,
+                HilReadinessStatus::Passed,
+                "SimulatedRuntime for {} cannot grant physical Passed",
+                a.requirement_id
+            );
+        }
+    }
+}
+
+#[test]
+fn hil_fixture_cannot_create_physical_runtime_context() {
+    let origin = HilEvidenceOrigin::SyntheticOfflineFixture;
+    assert!(origin.is_synthetic_or_mock());
+    assert!(!origin.is_physical());
+    let meas = HilInstrumentMeasurement {
+        instrument_id: "SWR-DUMMY".to_string(),
+        instrument_model: "Mock-43".to_string(),
+        measured_swr: 1.10,
+        measured_power_watts: Some(10.0),
+        calibration_valid_until: Some("2027-01-01".to_string()),
+        measurement_timestamp: Some("2026-10-18T10:00:00Z".to_string()),
+        origin,
+    };
+    assert!(!meas.is_physical_measurement());
+    assert!(
+        meas.validate_physical_evidence("SESSION-01", HilExecutionContext::PhysicalRuntime)
+            .is_err()
+    );
+}
+
+#[test]
+fn hil_mock_cannot_create_physical_runtime_context() {
+    let origin = HilEvidenceOrigin::MockRuntime;
+    assert!(origin.is_synthetic_or_mock());
+    assert!(!origin.is_physical());
+    let meas = HilInstrumentMeasurement {
+        instrument_id: "SWR-MOCK".to_string(),
+        instrument_model: "Mock-Instrument".to_string(),
+        measured_swr: 1.05,
+        measured_power_watts: Some(5.0),
+        calibration_valid_until: None,
+        measurement_timestamp: Some("2026-10-18T10:00:00Z".to_string()),
+        origin,
+    };
+    assert!(!meas.is_physical_measurement());
+    assert!(
+        meas.validate_physical_evidence("SESSION-01", HilExecutionContext::PhysicalRuntime)
+            .is_err()
+    );
+}
+
+#[test]
+fn hil_physical_runtime_requires_hardware_session() {
+    let manifest = valid_test_manifest();
+    let session_7a = HilHardwareSession::new(manifest, HilExecutionStage::Stage7AOffline);
+    assert_ne!(session_7a.stage(), HilExecutionStage::Stage7BHardware);
+    assert_eq!(
+        session_7a.readiness_report().execution_stage,
+        HilExecutionStage::Stage7AOffline
+    );
+    assert!(!session_7a.readiness_report().can_run_hardware_ptt());
+}
+
+#[test]
+fn hil_physical_runtime_pass_requires_physical_context() {
+    let manifest = valid_test_manifest();
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    let assessments = report.assessments();
+    for a in &assessments {
+        if a.physical_runtime_evidence_status == HilReadinessStatus::Passed {
+            assert_eq!(a.evaluation_context, HilExecutionContext::PhysicalRuntime);
+        }
+    }
+}
+
+#[test]
+fn hil_physical_runtime_pass_requires_physical_evidence() {
+    let manifest = valid_test_manifest();
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    let assessments = report.assessments();
+    for a in &assessments {
+        if a.physical_runtime_evidence_status == HilReadinessStatus::Passed {
+            assert_eq!(a.evidence_origin, HilEvidenceOrigin::PhysicalMeasurement);
+        }
+    }
+}
+
+#[test]
+fn hil_physical_runtime_pass_rejects_synthetic_origin() {
+    let mut manifest = valid_test_manifest();
+    if let Some(inst) = &mut manifest.instrument_verification {
+        inst.origin = HilEvidenceOrigin::SyntheticOfflineFixture;
+    }
+    let assessment = HilReadinessValidator::evaluate_instrument_runtime_evidence(&manifest);
+    assert_eq!(
+        assessment.evidence_origin,
+        HilEvidenceOrigin::SyntheticOfflineFixture
+    );
+    assert_ne!(
+        assessment.physical_runtime_evidence_status,
+        HilReadinessStatus::Passed
+    );
+    assert_eq!(
+        assessment.physical_runtime_evidence_status,
+        HilReadinessStatus::Blocked
+    );
+}
+
+#[test]
+fn hil_physical_runtime_pass_rejects_mock_origin() {
+    let mut manifest = valid_test_manifest();
+    if let Some(inst) = &mut manifest.instrument_verification {
+        inst.origin = HilEvidenceOrigin::MockRuntime;
+    }
+    let assessment = HilReadinessValidator::evaluate_instrument_runtime_evidence(&manifest);
+    assert_eq!(assessment.evidence_origin, HilEvidenceOrigin::MockRuntime);
+    assert_ne!(
+        assessment.physical_runtime_evidence_status,
+        HilReadinessStatus::Passed
+    );
+    assert_eq!(
+        assessment.physical_runtime_evidence_status,
+        HilReadinessStatus::Blocked
+    );
+}
+
+#[test]
+fn hil_physical_runtime_requires_non_synthetic_evidence() {
+    let syn = HilEvidenceOrigin::SyntheticOfflineFixture;
+    let mock = HilEvidenceOrigin::MockRuntime;
+    let phys = HilEvidenceOrigin::PhysicalMeasurement;
+    assert!(syn.is_synthetic_or_mock());
+    assert!(mock.is_synthetic_or_mock());
+    assert!(!phys.is_synthetic_or_mock());
+    assert!(phys.is_physical());
+}
+
+#[test]
+fn hil_assessment_separates_offline_and_physical_runtime() {
+    let manifest = valid_test_manifest();
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    let assessments = report.assessments();
+    let cond9 = assessments
+        .iter()
+        .find(|a| a.canonical_number == Some(9))
+        .unwrap();
+    assert_eq!(cond9.offline_evaluation_status, HilReadinessStatus::Passed);
+    assert_eq!(
+        cond9.physical_runtime_evidence_status,
+        HilReadinessStatus::Blocked
+    );
+}
+
+#[test]
+fn hil_assessment_separates_offline_from_simulated_runtime() {
+    let manifest = valid_test_manifest();
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    let assessments = report.assessments();
+    let cond16 = assessments
+        .iter()
+        .find(|a| a.canonical_number == Some(16))
+        .unwrap();
+    assert_eq!(cond16.offline_evaluation_status, HilReadinessStatus::Passed);
+    assert_eq!(cond16.simulated_runtime_status, HilReadinessStatus::Passed);
+    assert_eq!(
+        cond16.physical_runtime_evidence_status,
+        HilReadinessStatus::Blocked
+    );
+}
+
+#[test]
+fn hil_offline_pass_does_not_set_physical_runtime_passed() {
+    let manifest = valid_test_manifest();
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    let assessments = report.assessments();
+    for a in &assessments {
+        if a.offline_evaluation_status == HilReadinessStatus::Passed {
+            assert_ne!(
+                a.physical_runtime_evidence_status,
+                HilReadinessStatus::Passed,
+                "offline pass on {} must not set physical Passed",
+                a.requirement_id
+            );
+        }
+    }
+}
+
+#[test]
+fn hil_simulated_pass_does_not_set_physical_runtime_passed() {
+    let manifest = valid_test_manifest();
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    let assessments = report.assessments();
+    for a in &assessments {
+        if a.simulated_runtime_status == HilReadinessStatus::Passed {
+            assert_ne!(
+                a.physical_runtime_evidence_status,
+                HilReadinessStatus::Passed,
+                "simulated pass on {} must not set physical Passed",
+                a.requirement_id
+            );
+        }
+    }
+}
+
+#[test]
+fn hil_simulated_pass_cannot_grant_hardware_ptt() {
+    let manifest = valid_test_manifest();
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    assert!(!report.can_run_hardware_ptt());
+}
+
+#[test]
+fn hil_extended_requirement_reports_execution_context() {
+    let manifest = valid_test_manifest();
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    let ext = report.find_extended_requirement("HIL-X01").unwrap();
+    assert_eq!(ext.execution_context, HilExecutionContext::SimulatedRuntime);
+}
+
+#[test]
+fn hil_extended_offline_pass_does_not_imply_physical_pass() {
+    let manifest = valid_test_manifest();
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    let assessments = report.assessments();
+    let ext_x01 = assessments
+        .iter()
+        .find(|a| a.requirement_id == "HIL-X01")
+        .unwrap();
+    assert_eq!(ext_x01.offline_test_status, HilReadinessStatus::Passed);
+    assert_ne!(
+        ext_x01.physical_runtime_evidence_status,
+        HilReadinessStatus::Passed
+    );
+}
+
+#[test]
+fn hil_extended_mock_pass_does_not_imply_physical_pass() {
+    let manifest = valid_test_manifest();
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    let assessments = report.assessments();
+    let ext_x13 = assessments
+        .iter()
+        .find(|a| a.requirement_id == "HIL-X13")
+        .unwrap();
+    assert_eq!(ext_x13.simulated_runtime_status, HilReadinessStatus::Passed);
+    assert_ne!(
+        ext_x13.physical_runtime_evidence_status,
+        HilReadinessStatus::Passed
+    );
+}
+
+#[test]
+fn hil_extended_physical_status_is_not_run_without_hardware() {
+    let manifest = valid_test_manifest();
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    let assessments = report.assessments();
+    for a in &assessments {
+        if a.canonical_number.is_none() {
+            assert_eq!(
+                a.physical_runtime_evidence_status,
+                HilReadinessStatus::NotRun
+            );
+        }
+    }
+}
+
+#[test]
+fn hil_extended_fixture_origin_is_explicit() {
+    let manifest = valid_test_manifest();
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    for ext in &report.extended_requirements {
+        assert_eq!(
+            ext.evidence_origin,
+            HilEvidenceOrigin::SyntheticOfflineFixture
+        );
+    }
+}
+
+#[test]
+fn hil_baseline_evidence_records_full_commit() {
+    let evidence = HilSoftwareBaselineEvidence::canonical_current();
+    assert_eq!(evidence.tested_commit.len(), 40);
+    assert!(
+        evidence
+            .tested_commit
+            .chars()
+            .all(|c| c.is_ascii_hexdigit())
+    );
+    assert!(evidence.is_valid_baseline());
+
+    let mut short = evidence;
+    short.tested_commit = "698a34b".to_string();
+    assert!(!short.is_valid_baseline());
+}
+
+#[test]
+fn hil_baseline_evidence_records_commands() {
+    let evidence = HilSoftwareBaselineEvidence::canonical_current();
+    assert_eq!(evidence.command_results.len(), 3);
+    assert!(
+        evidence
+            .command_results
+            .iter()
+            .any(|c| c.command.contains("cat_native_6a"))
+    );
+    assert!(
+        evidence
+            .command_results
+            .iter()
+            .any(|c| c.command.contains("cat_native_6b"))
+    );
+    assert!(
+        evidence
+            .command_results
+            .iter()
+            .any(|c| c.command.contains("cat_native_7"))
+    );
+}
+
+#[test]
+fn hil_baseline_evidence_rejects_nonzero_exit() {
+    let mut evidence = HilSoftwareBaselineEvidence::canonical_current();
+    evidence.add_command_result(HilCommandResult {
+        command: "cargo test --test failing".to_string(),
+        exit_code: 1,
+        passed_count: 0,
+        failed_count: 1,
+        ignored_count: 0,
+    });
+    assert!(!evidence.all_commands_succeeded);
+    assert!(!evidence.is_valid_baseline());
+}
+
+#[test]
+fn hil_baseline_evidence_rejects_failed_tests() {
+    let mut evidence = HilSoftwareBaselineEvidence::canonical_current();
+    evidence.add_command_result(HilCommandResult {
+        command: "cargo test --test fails".to_string(),
+        exit_code: 0,
+        passed_count: 10,
+        failed_count: 1,
+        ignored_count: 0,
+    });
+    assert!(!evidence.all_commands_succeeded);
+    assert!(evidence.failed_test_count > 0);
+    assert!(!evidence.is_valid_baseline());
+}
+
+#[test]
+fn hil_baseline_evidence_does_not_treat_ignored_hardware_as_failure() {
+    let evidence = HilSoftwareBaselineEvidence::canonical_current();
+    let cat7 = evidence
+        .command_results
+        .iter()
+        .find(|c| c.command.contains("cat_native_7"))
+        .unwrap();
+    assert_eq!(cat7.ignored_count, 10);
+    assert_eq!(cat7.failed_count, 0);
+    assert_eq!(cat7.exit_code, 0);
+    assert!(evidence.is_valid_baseline());
+}
+
+#[test]
+fn hil_baseline_evidence_is_not_physical_runtime_evidence() {
+    let evidence = HilSoftwareBaselineEvidence::canonical_current();
+    assert!(!evidence.is_physical_runtime_evidence());
+    assert_eq!(
+        evidence.execution_context(),
+        HilExecutionContext::OfflineModel
+    );
+    assert_eq!(
+        evidence.evidence_origin(),
+        HilEvidenceOrigin::SyntheticOfflineFixture
+    );
+}
+
+#[test]
+fn hil_abort_procedure_document_exists() {
+    assert!(HilAbortProcedure::exists());
+    let doc = HilAbortProcedure::canonical();
+    assert_eq!(doc.document_id, "HIL-SOP-ABORT-001");
+}
+
+#[test]
+fn hil_abort_procedure_is_nonempty() {
+    let doc = HilAbortProcedure::canonical();
+    assert!(doc.is_nonempty());
+    assert!(!doc.title.is_empty());
+    assert!(!doc.content.is_empty());
+    assert!(!doc.steps.is_empty());
+}
+
+#[test]
+fn hil_abort_procedure_contains_stop_steps() {
+    let doc = HilAbortProcedure::canonical();
+    assert!(doc.contains_stop_steps());
+}
+
+#[test]
+fn hil_abort_procedure_contains_ptt_disconnect() {
+    let doc = HilAbortProcedure::canonical();
+    assert!(doc.contains_ptt_disconnect());
+}
+
+#[test]
+fn hil_abort_procedure_contains_power_disconnect() {
+    let doc = HilAbortProcedure::canonical();
+    assert!(doc.contains_power_disconnect());
+}
+
+#[test]
+fn hil_operator_acknowledges_abort_procedure() {
+    let manifest = valid_test_manifest();
+    assert!(manifest.operator_attestation.abort_procedure_documented);
+    assert!(
+        !manifest
+            .operator_attestation
+            .attestation_timestamp
+            .is_empty()
+    );
+    assert!(!manifest.operator_id.is_empty());
+    assert!(!manifest.operator_attestation.description.is_empty());
+}
+
+#[test]
+fn hil_document_presence_does_not_imply_operator_acknowledgement() {
+    assert!(HilAbortProcedure::canonical().is_nonempty());
+    let mut manifest = valid_test_manifest();
+    manifest.operator_attestation.abort_procedure_documented = false;
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    let cond23 = report.find_condition(23).unwrap();
+    assert_ne!(cond23.status, HilReadinessStatus::Passed);
+    assert_eq!(cond23.status, HilReadinessStatus::Blocked);
+}
+
+#[test]
+fn hil_probe_offline_pass_does_not_imply_physical_probe() {
+    let manifest = valid_test_manifest();
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    assert!(report.can_run_probe());
+    let cond27 = report.find_condition(27).unwrap();
+    assert_eq!(cond27.offline_test_status, HilReadinessStatus::Passed);
+    let assessment = report
+        .assessments()
+        .into_iter()
+        .find(|a| a.canonical_number == Some(27))
+        .unwrap();
+    assert_eq!(
+        assessment.offline_evaluation_status,
+        HilReadinessStatus::Passed
+    );
+    assert_eq!(
+        assessment.physical_runtime_evidence_status,
+        HilReadinessStatus::Blocked
+    );
+}
+
+#[test]
+fn hil_confirmed_rx_mock_does_not_imply_physical_rx() {
+    let origin = HilEvidenceOrigin::MockRuntime;
+    assert_ne!(origin, HilEvidenceOrigin::PhysicalMeasurement);
+    let manifest = valid_test_manifest();
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    let cond28 = report.find_condition(28).unwrap();
+    assert_eq!(cond28.offline_test_status, HilReadinessStatus::Passed);
+    assert_eq!(cond28.runtime_evidence_status, HilReadinessStatus::Blocked);
+}
+
+#[test]
+fn hil_idle_mock_does_not_imply_physical_arbiter_state() {
+    let arbiter = TxArbiter::new();
+    assert_eq!(
+        arbiter.state(),
+        &splogbook::cat::tx_arbiter::TxArbiterState::Idle
+    );
+    let manifest = valid_test_manifest();
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    let assessments = report.assessments();
+    let cond16 = assessments
+        .iter()
+        .find(|a| a.canonical_number == Some(16))
+        .unwrap();
+    assert_eq!(cond16.offline_evaluation_status, HilReadinessStatus::Passed);
+    assert_eq!(
+        cond16.physical_runtime_evidence_status,
+        HilReadinessStatus::Blocked
+    );
+}
+
+#[test]
+fn hil_active_target_config_does_not_imply_physical_session_target() {
+    let manifest = valid_test_manifest();
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    let assessments = report.assessments();
+    let cond17 = assessments
+        .iter()
+        .find(|a| a.canonical_number == Some(17))
+        .unwrap();
+    assert_eq!(cond17.offline_evaluation_status, HilReadinessStatus::Passed);
+    assert_eq!(
+        cond17.physical_runtime_evidence_status,
+        HilReadinessStatus::Blocked
+    );
+}
+
+#[test]
+fn hil_data_plane_config_does_not_imply_physical_connection_state() {
+    let manifest = valid_test_manifest();
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    let assessments = report.assessments();
+    let cond26 = assessments
+        .iter()
+        .find(|a| a.canonical_number == Some(26))
+        .unwrap();
+    assert_eq!(cond26.offline_evaluation_status, HilReadinessStatus::Passed);
+    assert_eq!(
+        cond26.physical_runtime_evidence_status,
+        HilReadinessStatus::Blocked
+    );
+}
+
+#[test]
+fn hil_synthetic_fixture_can_pass_parser_only() {
+    let manifest = valid_test_manifest();
+    assert_eq!(manifest.bench_id, "LAB-BENCH-SP6INA-01");
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    assert_eq!(report.overall_status, HilReadinessStatus::Blocked);
+}
+
+#[test]
+fn hil_mock_runtime_can_pass_state_machine_only() {
+    let origin = HilEvidenceOrigin::MockRuntime;
+    assert!(origin.is_synthetic_or_mock());
+    let arbiter = TxArbiter::new();
+    assert_eq!(
+        arbiter.state(),
+        &splogbook::cat::tx_arbiter::TxArbiterState::Idle
+    );
+}
+
+#[test]
+fn hil_operator_fixture_cannot_pass_physical_runtime() {
+    let manifest = valid_test_manifest();
+    let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
+    let assessments = report.assessments();
+    let cond8 = assessments
+        .iter()
+        .find(|a| a.canonical_number == Some(8))
+        .unwrap();
+    assert_eq!(
+        cond8.physical_runtime_evidence_status,
+        HilReadinessStatus::Blocked
+    );
+}
+
+#[test]
+fn hil_instrument_interface_is_not_automatically_physical_measurement() {
+    let meas = HilInstrumentMeasurement {
+        instrument_id: "RIGEXPERT-AA".to_string(),
+        instrument_model: "AA-55".to_string(),
+        measured_swr: 1.15,
+        measured_power_watts: None,
+        calibration_valid_until: None,
+        measurement_timestamp: None,
+        origin: HilEvidenceOrigin::InstrumentInterface,
+    };
+    assert_eq!(meas.origin, HilEvidenceOrigin::InstrumentInterface);
+    assert!(!meas.is_physical_measurement());
+    assert!(
+        meas.validate_physical_evidence("SESSION-01", HilExecutionContext::PhysicalRuntime)
+            .is_err()
+    );
+}
+
+#[test]
+fn hil_physical_measurement_requires_physical_context() {
+    let meas = HilInstrumentMeasurement {
+        instrument_id: "BIRD-43".to_string(),
+        instrument_model: "Bird 43".to_string(),
+        measured_swr: 1.12,
+        measured_power_watts: Some(10.0),
+        calibration_valid_until: Some("2027-10-18".to_string()),
+        measurement_timestamp: Some("2026-10-18T10:00:00Z".to_string()),
+        origin: HilEvidenceOrigin::PhysicalMeasurement,
+    };
+    assert!(meas.is_physical_measurement());
+    assert!(
+        meas.validate_physical_evidence("SESSION-01", HilExecutionContext::OfflineModel)
+            .is_err()
+    );
+    assert!(
+        meas.validate_physical_evidence("SESSION-01", HilExecutionContext::SimulatedRuntime)
+            .is_err()
+    );
+    assert!(
+        meas.validate_physical_evidence("SESSION-01", HilExecutionContext::PhysicalRuntime)
+            .is_ok()
+    );
+}
+
+#[test]
+fn hil_physical_measurement_requires_session_id() {
+    let meas = HilInstrumentMeasurement {
+        instrument_id: "BIRD-43".to_string(),
+        instrument_model: "Bird 43".to_string(),
+        measured_swr: 1.12,
+        measured_power_watts: Some(10.0),
+        calibration_valid_until: Some("2027-10-18".to_string()),
+        measurement_timestamp: Some("2026-10-18T10:00:00Z".to_string()),
+        origin: HilEvidenceOrigin::PhysicalMeasurement,
+    };
+    assert!(
+        meas.validate_physical_evidence("", HilExecutionContext::PhysicalRuntime)
+            .is_err()
+    );
+    assert!(
+        meas.validate_physical_evidence("   ", HilExecutionContext::PhysicalRuntime)
+            .is_err()
+    );
+    assert!(
+        meas.validate_physical_evidence("SESSION-01", HilExecutionContext::PhysicalRuntime)
+            .is_ok()
+    );
+}
+
+#[test]
+fn hil_physical_measurement_requires_timestamp() {
+    let mut meas = HilInstrumentMeasurement {
+        instrument_id: "BIRD-43".to_string(),
+        instrument_model: "Bird 43".to_string(),
+        measured_swr: 1.12,
+        measured_power_watts: Some(10.0),
+        calibration_valid_until: Some("2027-10-18".to_string()),
+        measurement_timestamp: None,
+        origin: HilEvidenceOrigin::PhysicalMeasurement,
+    };
+    assert!(
+        meas.validate_physical_evidence("SESSION-01", HilExecutionContext::PhysicalRuntime)
+            .is_err()
+    );
+    meas.measurement_timestamp = Some("   ".to_string());
+    assert!(
+        meas.validate_physical_evidence("SESSION-01", HilExecutionContext::PhysicalRuntime)
+            .is_err()
+    );
+    meas.measurement_timestamp = Some("2026-10-18T10:00:00Z".to_string());
+    assert!(
+        meas.validate_physical_evidence("SESSION-01", HilExecutionContext::PhysicalRuntime)
+            .is_ok()
+    );
+}
+
+#[test]
+fn hil_physical_measurement_requires_instrument_identity() {
+    let mut meas = HilInstrumentMeasurement {
+        instrument_id: "".to_string(),
+        instrument_model: "Bird 43".to_string(),
+        measured_swr: 1.12,
+        measured_power_watts: Some(10.0),
+        calibration_valid_until: Some("2027-10-18".to_string()),
+        measurement_timestamp: Some("2026-10-18T10:00:00Z".to_string()),
+        origin: HilEvidenceOrigin::PhysicalMeasurement,
+    };
+    assert!(
+        meas.validate_physical_evidence("SESSION-01", HilExecutionContext::PhysicalRuntime)
+            .is_err()
+    );
+    meas.instrument_id = "BIRD-43".to_string();
+    meas.instrument_model = "".to_string();
+    assert!(
+        meas.validate_physical_evidence("SESSION-01", HilExecutionContext::PhysicalRuntime)
+            .is_err()
+    );
+    meas.instrument_model = "Bird 43".to_string();
+    assert!(
+        meas.validate_physical_evidence("SESSION-01", HilExecutionContext::PhysicalRuntime)
+            .is_ok()
     );
 }

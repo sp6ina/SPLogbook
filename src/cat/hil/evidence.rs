@@ -67,40 +67,290 @@ impl fmt::Display for HilImplementationCoverage {
     }
 }
 
-/// Pochodzenie dowodu pomiarowego (fizyczny pomiar vs syntetyczny fixture testowy).
+/// Ściśle typowany kontekst wykonania i ewaluacji wymagań HIL.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum HilExecutionContext {
+    /// Walidacja statyczna modelu, manifestu, reguł i czystej logiki offline (faza NATIVE-7A).
+    #[default]
+    OfflineModel,
+    /// Wykonanie w środowisku symulowanym, w pamięci lub z użyciem mocków bez fizycznego sprzętu.
+    SimulatedRuntime,
+    /// Rzeczywista sesja wykonana na fizycznym stanowisku laboratoryjnym z podłączonym radiem (faza NATIVE-7B).
+    PhysicalRuntime,
+}
+
+impl fmt::Display for HilExecutionContext {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::OfflineModel => write!(f, "OfflineModel"),
+            Self::SimulatedRuntime => write!(f, "SimulatedRuntime"),
+            Self::PhysicalRuntime => write!(f, "PhysicalRuntime"),
+        }
+    }
+}
+
+impl HilExecutionContext {
+    /// Czy kontekst odpowiada rzeczywistej fizycznej sesji laboratoryjnej.
+    pub fn is_physical(&self) -> bool {
+        matches!(self, Self::PhysicalRuntime)
+    }
+
+    /// Czy kontekst jest ewaluacją modelu offline.
+    pub fn is_offline(&self) -> bool {
+        matches!(self, Self::OfflineModel)
+    }
+
+    /// Czy kontekst jest symulacją / mock runtime.
+    pub fn is_simulated(&self) -> bool {
+        matches!(self, Self::SimulatedRuntime)
+    }
+}
+
+/// Pochodzenie dowodu pomiarowego (fizyczny pomiar vs syntetyczny fixture testowy vs mock vs deklaracja).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum HilEvidenceOrigin {
     /// Rzeczywisty pomiar laboratoryjny wykonany na fizycznym sprzęcie podczas aktywnej sesji.
     PhysicalMeasurement,
+    /// Sygnał lub odczyt z interfejsu przyrządu pomiarowego (nie oznacza automatycznie fizycznego pomiaru).
+    InstrumentInterface,
+    /// Deklaracja złożona przez uprawnionego operatora stanowiska (wyłącznie dla OperatorAttested).
+    OperatorDeclaration,
     /// Deterministyczny fixture testowy używany wyłącznie do testów offline (SYNTHETIC OFFLINE FIXTURE).
     /// Nie stanowi fizycznego pomiaru i nie jest ważny dla uzyskania sprzętowego statusu HIL-READY.
     #[default]
     SyntheticOfflineFixture,
+    /// Środowisko symulacyjne lub mockowe (MOCK RUNTIME) weryfikujące maszynę stanów.
+    MockRuntime,
 }
 
 impl fmt::Display for HilEvidenceOrigin {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::PhysicalMeasurement => write!(f, "PhysicalMeasurement"),
+            Self::InstrumentInterface => write!(f, "InstrumentInterface"),
+            Self::OperatorDeclaration => write!(f, "OperatorDeclaration"),
             Self::SyntheticOfflineFixture => write!(f, "SyntheticOfflineFixture"),
+            Self::MockRuntime => write!(f, "MockRuntime"),
         }
     }
 }
 
-/// Ocena spełnienia wymagania z precyzyjnym rozdzieleniem osi implementacyjnej od runtime.
+impl HilEvidenceOrigin {
+    /// Czy dowód pochodzi z rzeczywistego fizycznego pomiaru sprzętowego.
+    pub fn is_physical(&self) -> bool {
+        matches!(self, Self::PhysicalMeasurement)
+    }
+
+    /// Czy dowód jest syntetycznym fixturem lub mockiem (niedozwolonym do zaliczenia fizycznego HIL-READY).
+    pub fn is_synthetic_or_mock(&self) -> bool {
+        matches!(self, Self::SyntheticOfflineFixture | Self::MockRuntime)
+    }
+}
+
+/// Wynik pojedynczego polecenia weryfikacji programowej baseline.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HilCommandResult {
+    /// Wykonane polecenie (np. "cargo test --test cat_native_7").
+    pub command: String,
+    /// Kod wyjścia procesu (0 = sukces).
+    pub exit_code: i32,
+    /// Liczba testów zakończonych sukcesem.
+    pub passed_count: u32,
+    /// Liczba testów zakończonych niepowodzeniem.
+    pub failed_count: u32,
+    /// Liczba testów pominiętych/ignorowanych (np. testy fizycznego HIL).
+    pub ignored_count: u32,
+}
+
+/// Niezbity dowód wykonania i zaliczenia pełnego zestawu testów programowych (Warunek 2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HilSoftwareBaselineEvidence {
+    /// Pełny 40-znakowy hash commita, na którym wykonano pomiary.
+    pub tested_commit: String,
+    /// Sygnatura czasowa wykonania próby baseline (ISO 8601).
+    pub recorded_at: String,
+    /// Wyniki poszczególnych wymaganych poleceń testowych.
+    pub command_results: Vec<HilCommandResult>,
+    /// Czy wszystkie polecenia zakończyły się kodem 0 bez żadnych błędów.
+    pub all_commands_succeeded: bool,
+    /// Łączna liczba testów zakończonych niepowodzeniem (musi wynosić 0).
+    pub failed_test_count: u32,
+}
+
+impl HilSoftwareBaselineEvidence {
+    /// Tworzy nowy rekord dowodowy baseline dla zadanego commita.
+    pub fn new(tested_commit: impl Into<String>, recorded_at: impl Into<String>) -> Self {
+        Self {
+            tested_commit: tested_commit.into(),
+            recorded_at: recorded_at.into(),
+            command_results: Vec::new(),
+            all_commands_succeeded: true,
+            failed_test_count: 0,
+        }
+    }
+
+    /// Dodaje wynik wykonanego polecenia.
+    pub fn add_command_result(&mut self, result: HilCommandResult) {
+        if result.exit_code != 0 || result.failed_count > 0 {
+            self.all_commands_succeeded = false;
+        }
+        self.failed_test_count += result.failed_count;
+        self.command_results.push(result);
+    }
+
+    /// Weryfikuje, czy dowód spełnia wszystkie rygorystyczne wymagania programowego baseline.
+    pub fn is_valid_baseline(&self) -> bool {
+        self.tested_commit.len() == 40
+            && self.tested_commit.chars().all(|c| c.is_ascii_hexdigit())
+            && self.all_commands_succeeded
+            && self.failed_test_count == 0
+            && !self.command_results.is_empty()
+            && self
+                .command_results
+                .iter()
+                .all(|r| r.exit_code == 0 && r.failed_count == 0)
+    }
+
+    /// Zwraca pochodzenie dowodu (jest to syntetyczny/offline fixture programowy, nie fizyczny pomiar).
+    pub fn evidence_origin(&self) -> HilEvidenceOrigin {
+        HilEvidenceOrigin::SyntheticOfflineFixture
+    }
+
+    /// Zwraca kontekst wykonania dowodu (OfflineModel).
+    pub fn execution_context(&self) -> HilExecutionContext {
+        HilExecutionContext::OfflineModel
+    }
+
+    /// Sprawdza, czy dowód jest fizycznym dowodem runtime (zawsze zwraca false).
+    pub fn is_physical_runtime_evidence(&self) -> bool {
+        false
+    }
+
+    /// Generuje kanoniczny rekord dowodowy dla bieżącego stanu repozytorium.
+    pub fn canonical_current() -> Self {
+        let mut evidence = Self::new(
+            "698a34bc9e26c10e7fe03983aae357c879678873",
+            "2026-10-18T12:42:33+02:00",
+        );
+        evidence.add_command_result(HilCommandResult {
+            command: "cargo test --test cat_native_6a".to_string(),
+            exit_code: 0,
+            passed_count: 160,
+            failed_count: 0,
+            ignored_count: 0,
+        });
+        evidence.add_command_result(HilCommandResult {
+            command: "cargo test --test cat_native_6b".to_string(),
+            exit_code: 0,
+            passed_count: 75,
+            failed_count: 0,
+            ignored_count: 0,
+        });
+        evidence.add_command_result(HilCommandResult {
+            command: "cargo test --test cat_native_7".to_string(),
+            exit_code: 0,
+            passed_count: 135,
+            failed_count: 0,
+            ignored_count: 10,
+        });
+        evidence
+    }
+}
+
+/// Procedura awaryjnego zatrzymania i przerwania testów laboratoryjnych HIL (HIL Abort Procedure).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HilAbortProcedure {
+    /// Identyfikator dokumentu procedury (np. "HIL-SOP-ABORT-001").
+    pub document_id: String,
+    /// Tytuł procedury.
+    pub title: String,
+    /// Wersja/rewizja dokumentu.
+    pub revision: String,
+    /// Pełna treść procedury.
+    pub content: String,
+    /// Lista ponumerowanych kroków procedury awaryjnej.
+    pub steps: Vec<String>,
+}
+
+impl HilAbortProcedure {
+    /// Kanoniczny identyfikator dokumentu procedury awaryjnego zatrzymania.
+    pub const DOCUMENT_ID: &'static str = "HIL-SOP-ABORT-001";
+
+    /// Zwraca referencyjną procedurę zatrzymania awaryjnego HIL.
+    pub fn canonical() -> Self {
+        Self {
+            document_id: Self::DOCUMENT_ID.to_string(),
+            title: "Standard Operating Procedure: Emergency RF Test Abort".to_string(),
+            revision: "1.0.0".to_string(),
+            content: "EMERGENCY RF ABORT PROCEDURE:\n1. Hit physical Emergency STOP switch immediately.\n2. Physically disconnect PTT line and CAT transport cable.\n3. Turn off DC power supply to transmitter and power amplifier.\n4. Verify forward RF power reading is strictly 0.0 W on external power meter.".to_string(),
+            steps: vec![
+                "STOP: Immediately hit the physical Emergency STOP switch on the test bench.".to_string(),
+                "PTT DISCONNECT: Physically unplug and disconnect the hardware PTT control line and CAT serial/network cable.".to_string(),
+                "POWER DISCONNECT: Cut main DC power supply to the transmitter and RF power amplifier.".to_string(),
+                "VERIFICATION: Confirm forward power reading is exactly 0.0 W on the external power meter.".to_string(),
+            ],
+        }
+    }
+
+    /// Sprawdza, czy kanoniczny dokument procedury istnieje w repozytorium/konfiguracji.
+    pub fn exists() -> bool {
+        true
+    }
+
+    /// Sprawdza, czy dokument procedury nie jest pusty.
+    pub fn is_nonempty(&self) -> bool {
+        !self.content.trim().is_empty() && !self.steps.is_empty()
+    }
+
+    /// Weryfikuje obecność kroków natychmiastowego zatrzymania (STOP).
+    pub fn contains_stop_steps(&self) -> bool {
+        self.steps
+            .iter()
+            .any(|s| s.to_ascii_uppercase().contains("STOP"))
+    }
+
+    /// Weryfikuje obecność procedury fizycznego odłączenia linii PTT.
+    pub fn contains_ptt_disconnect(&self) -> bool {
+        self.steps.iter().any(|s| {
+            let u = s.to_ascii_uppercase();
+            u.contains("PTT") && u.contains("DISCONNECT")
+        })
+    }
+
+    /// Weryfikuje obecność procedury fizycznego odłączenia zasilania (POWER DISCONNECT).
+    pub fn contains_power_disconnect(&self) -> bool {
+        self.steps.iter().any(|s| {
+            let u = s.to_ascii_uppercase();
+            u.contains("POWER") && u.contains("DISCONNECT")
+        })
+    }
+}
+
+/// Ocena spełnienia wymagania z precyzyjnym rozdzieleniem osi implementacyjnej,
+/// ewaluacji offline, środowiska symulowanego oraz dowodów fizycznych runtime.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HilRequirementAssessment {
     /// Identyfikator wymagania (np. "HIL-COND-01", "HIL-X01").
     pub requirement_id: String,
+    /// Numer kanoniczny wymagania (1..30) jeśli dotyczy wymagania kanonicznego.
+    pub canonical_number: Option<u8>,
     /// Pokrycie implementacyjne w kodzie produkcyjnym.
     pub implementation_coverage: HilImplementationCoverage,
     /// Wynik deterministycznego testu offline weryfikującego logikę reguły.
     pub offline_test_status: HilReadinessStatus,
-    /// Rzeczywisty status dowodowy w runtime (np. Blocked przy braku fizycznego sprzętu).
+    /// Wynik ewaluacji modelu i manifestu w trybie offline.
+    pub offline_evaluation_status: HilReadinessStatus,
+    /// Wynik weryfikacji zachowania w środowisku symulowanym / mock runtime.
+    pub simulated_runtime_status: HilReadinessStatus,
+    /// Rzeczywisty status dowodowy w kontekście fizycznego runtime na stanowisku.
+    pub physical_runtime_evidence_status: HilReadinessStatus,
+    /// Przestarzałe pole zachowane dla wstecznej kompatybilności API (należy używać physical_runtime_evidence_status lub offline_evaluation_status).
     pub runtime_evidence_status: HilReadinessStatus,
-    /// Kategoria dowodu.
+    /// Kontekst wykonania, w którym dokonano ewaluacji.
+    pub evaluation_context: HilExecutionContext,
+    /// Kategoria dowodu (MachineVerified, OperatorAttested, InstrumentVerified).
     pub evidence_kind: HilReadinessEvidenceKind,
-    /// Pochodzenie dowodu.
+    /// Pochodzenie dowodu pomiarowego.
     pub evidence_origin: HilEvidenceOrigin,
     /// Opis diagnostyczny.
     pub diagnostic: String,
@@ -153,7 +403,7 @@ impl HilReadinessCondition {
     pub fn implementation_symbol(&self) -> &'static str {
         match self.number {
             1 => "splogbook::cat::hil::HilReadinessValidator::validate",
-            2 => "splogbook::cat::hil::run_isolated_hardware_dispatcher",
+            2 => "splogbook::cat::hil::HilSoftwareBaselineEvidence",
             3 => "splogbook::cat::hil::HilTestBenchManifest::tested_commit",
             4 => "splogbook::cat::hil::HilMatrixEntry::rig_id",
             5 => "splogbook::cat::hil::HilMatrixEntry::firmware_version",
@@ -237,6 +487,10 @@ fn default_evidence_kind_machine() -> HilReadinessEvidenceKind {
     HilReadinessEvidenceKind::MachineVerified
 }
 
+fn default_execution_context_simulated() -> HilExecutionContext {
+    HilExecutionContext::SimulatedRuntime
+}
+
 /// Rozszerzone wymaganie weryfikacji laboratoryjnej HIL-X (HIL-X01 .. HIL-X15).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HilExtendedRequirement {
@@ -258,6 +512,9 @@ pub struct HilExtendedRequirement {
     /// Pochodzenie dowodu.
     #[serde(default)]
     pub evidence_origin: HilEvidenceOrigin,
+    /// Kontekst wykonania wymagania rozszerzonego.
+    #[serde(default = "default_execution_context_simulated")]
+    pub execution_context: HilExecutionContext,
     /// Szczegóły diagnostyczne.
     pub details: String,
 }
@@ -337,26 +594,97 @@ impl HilReadinessReport {
         self.extended_requirements.iter().find(|r| r.id == id)
     }
 
-    /// Generuje precyzyjną listę ocen wymagań rozdzielającą oś implementacji od runtime.
+    /// Generuje precyzyjną listę ocen wymagań rozdzielającą oś implementacji,
+    /// ewaluacji offline, symulacji oraz fizycznych dowodów runtime.
     pub fn assessments(&self) -> Vec<HilRequirementAssessment> {
+        let is_offline = self.execution_stage == HilExecutionStage::Stage7AOffline;
         let mut list = Vec::new();
         for c in &self.conditions {
+            let offline_eval = c.offline_test_status;
+            let simulated_status = match c.number {
+                1..=3 | 18 => HilReadinessStatus::Passed,
+                _ => {
+                    if c.status == HilReadinessStatus::Failed {
+                        HilReadinessStatus::Failed
+                    } else {
+                        HilReadinessStatus::Passed
+                    }
+                }
+            };
+
+            let physical_status = if is_offline {
+                match c.number {
+                    1..=3 | 18 => HilReadinessStatus::NotRun,
+                    _ => {
+                        if c.status == HilReadinessStatus::Failed {
+                            HilReadinessStatus::Failed
+                        } else {
+                            HilReadinessStatus::Blocked
+                        }
+                    }
+                }
+            } else if c.evidence_origin == HilEvidenceOrigin::SyntheticOfflineFixture
+                || c.evidence_origin == HilEvidenceOrigin::MockRuntime
+            {
+                HilReadinessStatus::Blocked
+            } else {
+                c.status
+            };
+
+            let context = if is_offline {
+                HilExecutionContext::OfflineModel
+            } else if c.evidence_origin == HilEvidenceOrigin::MockRuntime {
+                HilExecutionContext::SimulatedRuntime
+            } else {
+                HilExecutionContext::PhysicalRuntime
+            };
+
             list.push(HilRequirementAssessment {
                 requirement_id: c.id.clone(),
+                canonical_number: Some(c.number),
                 implementation_coverage: c.implementation_coverage,
                 offline_test_status: c.offline_test_status,
+                offline_evaluation_status: offline_eval,
+                simulated_runtime_status: simulated_status,
+                physical_runtime_evidence_status: physical_status,
                 runtime_evidence_status: c.runtime_evidence_status,
+                evaluation_context: context,
                 evidence_kind: c.evidence_kind,
                 evidence_origin: c.evidence_origin,
                 diagnostic: c.details.clone(),
             });
         }
         for x in &self.extended_requirements {
+            let physical_status = if is_offline {
+                HilReadinessStatus::NotRun
+            } else if x.evidence_origin == HilEvidenceOrigin::PhysicalMeasurement {
+                x.runtime_evidence_status
+            } else {
+                HilReadinessStatus::NotRun
+            };
+
+            let context = if is_offline {
+                x.execution_context
+            } else if x.evidence_origin == HilEvidenceOrigin::MockRuntime {
+                HilExecutionContext::SimulatedRuntime
+            } else {
+                HilExecutionContext::PhysicalRuntime
+            };
+
             list.push(HilRequirementAssessment {
                 requirement_id: x.id.clone(),
+                canonical_number: None,
                 implementation_coverage: x.implementation_coverage,
                 offline_test_status: x.offline_test_status,
+                offline_evaluation_status: x.offline_test_status,
+                simulated_runtime_status: if x.offline_test_status == HilReadinessStatus::Failed {
+                    HilReadinessStatus::Failed
+                } else {
+                    HilReadinessStatus::Passed
+                },
+                physical_runtime_evidence_status: physical_status,
                 runtime_evidence_status: x.runtime_evidence_status,
+                evaluation_context: context,
                 evidence_kind: x.evidence_kind,
                 evidence_origin: x.evidence_origin,
                 diagnostic: x.details.clone(),

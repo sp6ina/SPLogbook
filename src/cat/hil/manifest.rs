@@ -6,7 +6,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use super::error::HilError;
-use super::evidence::HilEvidenceOrigin;
+use super::evidence::{HilEvidenceOrigin, HilExecutionContext};
 use crate::cat::backend::CatBackendKind;
 use crate::cat::config::{
     ElecraftConfig, ElecraftTransportConfig, FlexRadioConfig, FlexRadioConnectionConfig,
@@ -211,6 +211,46 @@ impl HilInstrumentMeasurement {
     /// Czy pomiar pochodzi z rzeczywistego fizycznego przyrządu laboratoryjnego.
     pub fn is_physical_measurement(&self) -> bool {
         self.origin == HilEvidenceOrigin::PhysicalMeasurement
+    }
+
+    /// Weryfikuje, czy odczyt przyrządu stanowi ważny fizyczny dowód runtime.
+    pub fn validate_physical_evidence(
+        &self,
+        session_id: &str,
+        context: HilExecutionContext,
+    ) -> Result<(), HilError> {
+        if context != HilExecutionContext::PhysicalRuntime {
+            return Err(HilError::NotHilReady(
+                "Physical measurement requires PhysicalRuntime context".into(),
+            ));
+        }
+        if !self.is_physical_measurement() {
+            return Err(HilError::NotHilReady(
+                "Evidence origin is not PhysicalMeasurement".into(),
+            ));
+        }
+        if session_id.trim().is_empty() {
+            return Err(HilError::InvalidManifest(
+                "Missing session_id for physical measurement".into(),
+            ));
+        }
+        if self
+            .measurement_timestamp
+            .as_deref()
+            .unwrap_or("")
+            .trim()
+            .is_empty()
+        {
+            return Err(HilError::InvalidManifest(
+                "Missing measurement_timestamp for physical measurement".into(),
+            ));
+        }
+        if self.instrument_id.trim().is_empty() || self.instrument_model.trim().is_empty() {
+            return Err(HilError::InvalidManifest(
+                "Missing instrument identity (instrument_id and instrument_model required)".into(),
+            ));
+        }
+        Ok(())
     }
 }
 

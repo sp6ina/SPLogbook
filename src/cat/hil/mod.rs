@@ -18,9 +18,10 @@ pub mod validator;
 
 pub use error::HilError;
 pub use evidence::{
-    HilEvidenceOrigin, HilExecutionStage, HilExtendedRequirement, HilImplementationCoverage,
-    HilReadinessCheck, HilReadinessCondition, HilReadinessEvidenceKind, HilReadinessReport,
-    HilReadinessStatus, HilRequirementAssessment,
+    HilAbortProcedure, HilCommandResult, HilEvidenceOrigin, HilExecutionContext, HilExecutionStage,
+    HilExtendedRequirement, HilImplementationCoverage, HilReadinessCheck, HilReadinessCondition,
+    HilReadinessEvidenceKind, HilReadinessReport, HilReadinessStatus, HilRequirementAssessment,
+    HilSoftwareBaselineEvidence,
 };
 pub use manifest::{
     HilDummyLoadSpec, HilInstrumentMeasurement, HilMatrixEntry, HilOperatorAttestation,

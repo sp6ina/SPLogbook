@@ -988,15 +988,27 @@ NATIVE-0 -> NATIVE-1 -> NATIVE-2 -> NATIVE-3 -> NATIVE-4 -> NATIVE-5 (5A-5E) -> 
   - [x] pełna walidacja przechodzi (1076 baseline passed).
 - **Bramka NATIVE-7A (Harness programowy, walidacja offline i synchronizacja) — PASSED**:
   - [x] Implementacja silnie typowanej domeny HIL w `src/cat/hil/` (`manifest`, `evidence`, `validator`, `session`, `error`).
-  - [x] Ścisłe rozdzielenie dowodów `HilReadinessEvidenceKind` (`MachineVerified`, `OperatorAttested`, `InstrumentVerified`) oraz statusów `HilReadinessStatus` (`Passed`, `Failed`, `Blocked`, `NotRun`).
-  - [x] Parser manifestu laboratoryjnego `HilTestBenchManifest` z weryfikacją macierzy (backend x radio x transport x firmware), ID sesji i tokenów autoryzacji.
-  - [x] Deterministyczny walidator `HilReadinessValidator` sprawdzający wszystkie 30 kanonicznych warunków HIL-READY i wyznaczający status gotowości.
+  - [x] Wieloosiowy model dowodowy `HilRequirementAssessment` rozdzielający trzy niezależne konteksty wykonania (`HilExecutionContext`):
+    - `OfflineModel`: ewaluacja statyczna, poprawność parsowania manifestu, reguły konfiguracyjne i niezmienniki domenowe,
+    - `SimulatedRuntime`: weryfikacja na mockach, duplex streams i symulowanych aktorach Tokio bez dostępu do fizycznych portów,
+    - `PhysicalRuntime`: wyłącznie rzeczywista aparatura laboratoryjna, fizyczny port szeregowy/sieciowy, potwierdzona telemetria i atestowane sztuczne obciążenie.
+  - [x] Ścisła klasyfikacja pochodzenia dowodów (`HilEvidenceOrigin`):
+    - `SyntheticOfflineFixture`: pliki manifestu JSON, przykładowe fixture testowe,
+    - `MockRuntime`: mocki backendów i symulatory duplex streams,
+    - `PhysicalMeasurement`: zweryfikowane przyrządy pomiarowe z ważną kalibracją i znacznikiem czasu,
+    - `InstrumentInterface`: odczyt z interfejsu przyrządu (wymaga potwierdzenia fizycznego),
+    - `OperatorDeclaration`: oświadczenia i atestacje bezpieczeństwa podpisane przez operatora.
+  - [x] Nadrzędna zasada dowodowa: wynik testu jednostkowego/integracyjnego, mock, fixture ani manifest przykładowy nie są fizycznymi dowodami runtime. Poprawność maszyny stanów nie zastępuje fizycznej sesji sprzętowej.
+  - [x] Rozdzielenie Warunku 2 (Software baseline) na weryfikację maszynową (`HilReadinessEvidenceKind::MachineVerified`) oraz bazę dowodową `HilSoftwareBaselineEvidence` (`splogbook::cat::hil::HilSoftwareBaselineEvidence`), weryfikującą 40-znakowy hash commitu Git, czysty wynik kompilacji, brak błędów Clippy i sukces testów regresyjnych.
+  - [x] Rozdzielenie Warunku 23 (Awaryjne zatrzymanie) na procedurę (`HilAbortProcedure`, `MachineVerified`, sprawdzającą integralność kroków odcięcia PTT i zasilania) oraz oświadczenie operatora (`OperatorAttested`, potwierdzenie znajomości procedury).
+  - [x] Kanoniczna macierz 30 warunków HIL-READY bez zmian, z przypisanym unikalnym symbolem implementacyjnym i testem behawioralnym dla każdego warunku.
+  - [x] Wydzielenie zestawu wymagań rozszerzonych i laboratoryjnych HIL-X (HIL-X01..HIL-X15), hermetycznie odseparowanych od kanonicznej 30-elementowej macierzy.
   - [x] Bezwzględna blokada fizycznego PTT w fazie NATIVE-7A (`HilError::PttForbiddenInStage7A`).
   - [x] Bezwzględny wymóg sztucznego obciążenia 50 Ω oraz blokada PTT na antenie (`HilError::SafetyViolation`).
   - [x] Nienaruszalna zasada pojedynczego załączenia PTT (Zero Retry Invariant).
   - [x] Bezpieczny token autoryzacji PTT przez operatora (`HilPttConsentToken`) oraz wieloskładnikowa weryfikacja sesji (`HilHardwareSession::verify_tx_authorization`).
   - [x] Jawny i bezpieczny model zwolnienia nadawania ze strażnikiem RAII `HilTxGuard` (jawne `release_and_confirm_rx()` jako jedyna ścieżka do `ConfirmedRx`; w razie niekontrolowanego porzucenia Drop oznacza sesję jako `FailedOrUnknown` bez blokującego I/O, bez tworzenia runtime Tokio i bez fałszowania przejścia do RX).
-  - [x] 135 deterministycznych testów integracyjnych offline w `tests/cat_native_7.rs` (wszystkie passed).
+  - [x] 186 deterministycznych testów integracyjnych offline w `tests/cat_native_7.rs` (wszystkie passed).
   - [x] 10 hermetycznie odizolowanych punktów wejścia do testów fizycznych (`hil_hardware_*`, `#[ignore = "hardware-in-the-loop"]`).
   - [x] Przykładowy kanoniczny manifest stanowiska `tests/hil/ic7300_lab_bench.json` (sklasyfikowany jako `SyntheticOfflineFixture`).
   - [x] Pełna synchronizacja `Refaktoryzacje.md`, `Native CAT.md`, `src/gui/user_manual.rs` i `README.md`.
@@ -1006,8 +1018,8 @@ NATIVE-0 -> NATIVE-1 -> NATIVE-2 -> NATIVE-3 -> NATIVE-4 -> NATIVE-5 (5A-5E) -> 
 
 ### Końcowy werdykt programu NATIVE-CAT:
 
-1. **NATIVE-CAT SOFTWARE**: **PASSED** (8 backendów, RigHub, TxArbiter, CatRuntime, CatStationConfig, migracja v0->v1 z rollbackiem, FormVariantCache, 1211 testów programowych passed).
-2. **NATIVE-7A OFFLINE**: **PASSED** (kompletny harness HIL, walidator 30 warunków HIL-READY, zestaw rozszerzony HIL-X, 135 testów offline passed, 0 ostrzeżeń).
+1. **NATIVE-CAT SOFTWARE**: **PASSED** (8 backendów, RigHub, TxArbiter, CatRuntime, CatStationConfig, migracja v0->v1 z rollbackiem, FormVariantCache, 1262 testów programowych passed w całym projekcie).
+2. **NATIVE-7A OFFLINE**: **PASSED** (kompletny harness HIL, wieloosiowy model dowodowy, walidator 30 kanonicznych warunków HIL-READY, zestaw rozszerzony HIL-X, 186 testów offline passed, 0 ostrzeżeń).
 3. **NATIVE-7B HARDWARE**: **BLOCKED** (brak fizycznego stanowiska laboratoryjnego i sztucznego obciążenia 50 Ω w środowisku CI/dev).
 4. **HARDWARE TEST CASES**: **NOT RUN** (10 izolowanych przypadków sprzętowych w stanie NotRun z powodu blokady bramki HIL-READY).
 5. **HARDWARE VALIDATION**: **INCOMPLETE** (stanowisko oczekuje na fizyczne podłączenie aparatury).

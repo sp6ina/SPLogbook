@@ -374,7 +374,7 @@ A modern, asynchronous rig control subsystem powered by the `RigHub` multi-radio
 - **FlexRadio** — native SmartSDR TCP API (v2.0–3.x) with slice/meter subscriptions and automatic UDP discovery (port 4992).
 - **FLRig (XML-RPC)** — cross-platform rig control via FLDigi's companion server.
 - **TCI (WebSocket)** — high-speed Transceiver Control Interface for SDR platforms (SunSDR2, Thetis, ExpertSDR3).
-- **RF Safety & HIL Harness** — `TxArbiter` enforcing single-TX lockout and zero retry on `SetPtt(true)`, safe read-only probe (`ProbeState`), and laboratory Hardware-in-the-Loop harness (`src/cat/hil/`) requiring mandatory 50 Ω dummy load termination.
+- **RF Safety & HIL Harness** — `TxArbiter` enforcing single-TX lockout and zero retry on `SetPtt(true)`, safe read-only probe (`ProbeState`), and laboratory Hardware-in-the-Loop harness (`src/cat/hil/`) requiring mandatory 50 Ω dummy load termination. Features a multi-axis evidence model separating `OfflineModel`, `SimulatedRuntime`, and `PhysicalRuntime` contexts with strict evidence origin classification (`SyntheticOfflineFixture`, `MockRuntime`, `PhysicalMeasurement`, `InstrumentInterface`, `OperatorDeclaration`). Evaluates the 30 canonical HIL-READY conditions plus extended HIL-X requirements. Software baseline is fully verified and **PASSED** (186 deterministic offline tests passed, 1262 total across the suite), while physical runtime execution (NATIVE-7B) remains formally **BLOCKED** pending physical test bench connection.
 
 ---
 
