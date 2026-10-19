@@ -357,20 +357,22 @@ impl SpLogApp {
     }
 
     pub fn render_tile_header_custom(&mut self, tile_id: &str, ui: &mut egui::Ui) {
+        use crate::gui::theme::ThemeExt;
+        let palette = ui.palette();
         let lang = self.current_language;
         match tile_id {
             "vfo" => {
                 if self.vfo_split {
                     ui.label(
                         egui::RichText::new("SPLIT ON")
-                            .color(egui::Color32::from_rgb(239, 68, 68))
+                            .color(palette.danger)
                             .strong()
                             .size(11.0),
                     );
                 } else {
                     ui.label(
                         egui::RichText::new("SPLIT OFF")
-                            .color(egui::Color32::from_rgb(100, 116, 139))
+                            .color(palette.text_subtle)
                             .size(11.0),
                     );
                 }
@@ -380,7 +382,7 @@ impl SpLogApp {
                     if ui
                         .button(
                             egui::RichText::new("● CAT ONLINE")
-                                .color(egui::Color32::from_rgb(34, 197, 94))
+                                .color(palette.success)
                                 .size(11.0)
                                 .strong(),
                         )
@@ -391,7 +393,7 @@ impl SpLogApp {
                 } else if ui
                     .button(
                         egui::RichText::new("○ CAT OFFLINE")
-                            .color(egui::Color32::from_rgb(148, 163, 184))
+                            .color(palette.text_muted)
                             .size(11.0),
                     )
                     .clicked()
@@ -403,7 +405,7 @@ impl SpLogApp {
                 ui.label(
                     egui::RichText::new(format!("({} QSO)", self.recent_qsos.len()))
                         .size(11.0)
-                        .color(egui::Color32::from_rgb(148, 163, 184)),
+                        .color(palette.text_muted),
                 );
                 ui.add(
                     egui::TextEdit::singleline(&mut self.log_search_query)
@@ -422,7 +424,7 @@ impl SpLogApp {
                 if self.cluster_connected {
                     ui.label(
                         egui::RichText::new("● ONLINE")
-                            .color(egui::Color32::from_rgb(34, 197, 94))
+                            .color(palette.success)
                             .size(10.0)
                             .strong(),
                     );
@@ -433,14 +435,14 @@ impl SpLogApp {
                             "● ŁĄCZENIE...",
                             "● CONNECTING...",
                         ))
-                        .color(egui::Color32::from_rgb(250, 204, 21))
+                        .color(palette.warning)
                         .size(10.0)
                         .strong(),
                     );
                 } else {
                     ui.label(
                         egui::RichText::new("○ OFFLINE")
-                            .color(egui::Color32::from_rgb(148, 163, 184))
+                            .color(palette.text_muted)
                             .size(10.0),
                     );
                 }
@@ -448,7 +450,7 @@ impl SpLogApp {
                     .button(
                         egui::RichText::new("📢 Spot")
                             .strong()
-                            .color(egui::Color32::from_rgb(56, 189, 248)),
+                            .color(palette.accent),
                     )
                     .on_hover_text(crate::core::i18n::tr_or(
                         lang,

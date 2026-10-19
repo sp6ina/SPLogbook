@@ -25,13 +25,15 @@ pub fn render_workspace_profiles_window(app: &mut SpLogApp, ctx: &egui::Context)
         .default_size([560.0, 440.0])
         .resizable(true)
         .show(ctx, |ui| {
-            ui.heading(egui::RichText::new("🖥 Profile układu (workspace)").size(15.0).color(egui::Color32::from_rgb(56, 189, 248)));
+            use crate::gui::theme::ThemeExt;
+            let palette = ui.palette();
+            ui.heading(egui::RichText::new("🖥 Profile układu (workspace)").size(15.0).color(palette.accent));
             ui.separator();
-            ui.label(egui::RichText::new("Zapisuj i przywracaj układ paneli (widoczność, kolumna, kolejność, pozycja okien pływających). Przełączaj się jednym kliknięciem między konfiguracjami do logowania, zawodów, pracy cyfrowej itp.").small().color(egui::Color32::GRAY));
+            ui.label(egui::RichText::new("Zapisuj i przywracaj układ paneli (widoczność, kolumna, kolejność, pozycja okien pływających). Przełączaj się jednym kliknięciem między konfiguracjami do logowania, zawodów, pracy cyfrowej itp.").small().color(palette.text_muted));
             ui.add_space(6.0);
 
             // Sekcja: wbudowane presety
-            ui.label(egui::RichText::new("⭐ Wbudowane presety").strong().color(egui::Color32::from_rgb(250, 204, 21)));
+            ui.label(egui::RichText::new("⭐ Wbudowane presety").strong().color(palette.warning));
             egui::ScrollArea::vertical().max_height(120.0).show(ui, |ui| {
                 let mut apply_preset: Option<usize> = None;
                 for (i, preset) in workspace_profile_presets().iter().enumerate() {
@@ -52,7 +54,7 @@ pub fn render_workspace_profiles_window(app: &mut SpLogApp, ctx: &egui::Context)
             ui.separator();
 
             // Sekcja: własne profile
-            ui.label(egui::RichText::new("💾 Własne profile").strong().color(egui::Color32::from_rgb(134, 239, 172)));
+            ui.label(egui::RichText::new("💾 Własne profile").strong().color(palette.success));
 
             // Pole nazwy nowego profilu (przechowywane w pamięci egui)
             let name_id = egui::Id::new("workspace_profile_name_input");
@@ -78,7 +80,7 @@ pub fn render_workspace_profiles_window(app: &mut SpLogApp, ctx: &egui::Context)
 
             ui.add_space(6.0);
             if app.workspace_profiles.is_empty() {
-                ui.label(egui::RichText::new("Brak zapisanych profili. Ustaw układ paneli i kliknij „Zapisz bieżący układ”.").italics().color(egui::Color32::from_rgb(148, 163, 184)));
+                ui.label(egui::RichText::new("Brak zapisanych profili. Ustaw układ paneli i kliknij „Zapisz bieżący układ”.").italics().color(palette.text_muted));
             } else {
                 let rename_idx_id = egui::Id::new("workspace_rename_idx");
                 let rename_text_id = egui::Id::new("workspace_rename_text");
@@ -148,7 +150,7 @@ pub fn render_workspace_profiles_window(app: &mut SpLogApp, ctx: &egui::Context)
                 if ui.button("📥 Importuj z .spws").clicked() {
                     import_profile(app);
                 }
-                ui.label(egui::RichText::new("Profile można udostępniać jako pliki .spws").small().color(egui::Color32::GRAY));
+                ui.label(egui::RichText::new("Profile można udostępniać jako pliki .spws").small().color(palette.text_muted));
             });
         });
     app.show_workspace_profiles_window = open;

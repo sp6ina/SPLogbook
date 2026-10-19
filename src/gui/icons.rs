@@ -8,29 +8,59 @@
 //! zestaw. Nowe ikony dodawaj wyłącznie w tym pliku i odwołuj się do nich
 //! przez stałe (np. `icons::RADIO`), a nie przez wstawianie gołego glifu.
 
-use eframe::egui::{Color32, RichText};
+use crate::gui::theme::Palette;
+use eframe::egui::RichText;
 
-// Paleta semantyczna (spójna z `theme.rs`)
-pub const ACCENT: Color32 = Color32::from_rgb(56, 189, 248); // cyjan — radio/CAT
-pub const SUCCESS: Color32 = Color32::from_rgb(34, 197, 94); // zielony — OK/potwierdzenie
-pub const DANGER: Color32 = Color32::from_rgb(239, 68, 68); // czerwony — błąd/niszczące
-pub const WARN: Color32 = Color32::from_rgb(250, 204, 21); // bursztyn — ostrzeżenie
-pub const INFO: Color32 = Color32::from_rgb(59, 130, 246); // niebieski — informacja
-pub const NEUTRAL: Color32 = Color32::from_rgb(148, 163, 184); // szarość
-pub const HIGHLIGHT: Color32 = Color32::from_rgb(217, 70, 239); // fuksja — wyróżnienie
-pub const GOLD: Color32 = Color32::from_rgb(234, 179, 8); // złoto — nagrody
-pub const VIOLET: Color32 = Color32::from_rgb(216, 180, 254); // fiolet
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IconColor {
+    Accent,
+    Success,
+    Danger,
+    Warn,
+    Info,
+    Neutral,
+    Highlight,
+    Gold,
+    Violet,
+}
 
-// Ikona = glif + kolor semantyczny
+impl IconColor {
+    pub fn resolve(self, palette: &Palette) -> eframe::egui::Color32 {
+        match self {
+            IconColor::Accent => palette.accent,
+            IconColor::Success => palette.success,
+            IconColor::Danger => palette.danger,
+            IconColor::Warn => palette.warning,
+            IconColor::Info => palette.info,
+            IconColor::Neutral => palette.text_muted,
+            IconColor::Highlight => palette.accent_alt,
+            IconColor::Gold => palette.warning,
+            IconColor::Violet => palette.accent_alt,
+        }
+    }
+}
+
+// Paleta semantyczna ikon (spójna z theme::Palette)
+pub const ACCENT: IconColor = IconColor::Accent;
+pub const SUCCESS: IconColor = IconColor::Success;
+pub const DANGER: IconColor = IconColor::Danger;
+pub const WARN: IconColor = IconColor::Warn;
+pub const INFO: IconColor = IconColor::Info;
+pub const NEUTRAL: IconColor = IconColor::Neutral;
+pub const HIGHLIGHT: IconColor = IconColor::Highlight;
+pub const GOLD: IconColor = IconColor::Gold;
+pub const VIOLET: IconColor = IconColor::Violet;
+
+// Ikona = glif + rola semantyczna
 #[derive(Clone, Copy)]
 pub struct Icon {
     pub glyph: &'static str,
-    pub color: Color32,
+    pub color_role: IconColor,
 }
 
 impl Icon {
-    pub const fn new(glyph: &'static str, color: Color32) -> Self {
-        Self { glyph, color }
+    pub const fn new(glyph: &'static str, color_role: IconColor) -> Self {
+        Self { glyph, color_role }
     }
 
     /// Zwraca goły glif (do użycia w `format!`).
@@ -43,16 +73,21 @@ impl Icon {
         format!("{} {}", self.glyph, text.into())
     }
 
-    /// Tekst sformatowany (kolor + rozmiar).
+    /// Tekst sformatowany (rozmiar).
     pub fn rich(self, size: f32) -> RichText {
-        RichText::new(self.glyph).color(self.color).size(size)
+        RichText::new(self.glyph).size(size)
     }
 
-    /// Etykieta sformatowana (glif w kolorze + tekst).
-    pub fn rich_label(self, text: impl Into<String>, size: f32) -> RichText {
-        RichText::new(format!("{} {}", self.glyph, text.into()))
-            .color(self.color)
+    /// Tekst sformatowany z uwzględnieniem aktywnej palety.
+    pub fn rich_colored(self, palette: &Palette, size: f32) -> RichText {
+        RichText::new(self.glyph)
+            .color(self.color_role.resolve(palette))
             .size(size)
+    }
+
+    /// Etykieta sformatowana (glif + tekst).
+    pub fn rich_label(self, text: impl Into<String>, size: f32) -> RichText {
+        RichText::new(format!("{} {}", self.glyph, text.into())).size(size)
     }
 }
 
@@ -212,9 +247,10 @@ mod tests {
 
     #[test]
     fn icon_colors_are_stable() {
-        assert_eq!(SUCCESS, Color32::from_rgb(34, 197, 94));
-        assert_eq!(DANGER, Color32::from_rgb(239, 68, 68));
-        assert_eq!(ACCENT, Color32::from_rgb(56, 189, 248));
+        let p = crate::gui::theme::ThemePreset::OperatorDark.palette();
+        assert_eq!(SUCCESS.resolve(&p), p.success);
+        assert_eq!(DANGER.resolve(&p), p.danger);
+        assert_eq!(ACCENT.resolve(&p), p.accent);
     }
 
     #[test]

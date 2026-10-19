@@ -328,10 +328,12 @@ pub fn render_command_palette(app: &mut SpLogApp, ctx: &egui::Context) {
             egui::ScrollArea::vertical()
                 .max_height(320.0)
                 .show(ui, |ui| {
+                    use crate::gui::theme::ThemeExt;
+                    let palette = ui.palette();
                     if matches.is_empty() {
                         ui.label(
                             egui::RichText::new(tr(key::PALETTE_NO_RESULTS, lang))
-                                .color(egui::Color32::from_rgb(148, 163, 184)),
+                                .color(palette.text_muted),
                         );
                     }
                     for (row, &cmd_idx) in matches.iter().enumerate() {
@@ -340,10 +342,9 @@ pub fn render_command_palette(app: &mut SpLogApp, ctx: &egui::Context) {
                         let text = if selected {
                             egui::RichText::new(format!("▶ {}", cmd.label))
                                 .strong()
-                                .color(egui::Color32::from_rgb(56, 189, 248))
+                                .color(palette.accent)
                         } else {
-                            egui::RichText::new(cmd.label)
-                                .color(egui::Color32::from_rgb(203, 213, 225))
+                            egui::RichText::new(cmd.label).color(palette.text_primary)
                         };
                         if ui
                             .add_sized([f32::INFINITY, 24.0], egui::Button::new(text))
