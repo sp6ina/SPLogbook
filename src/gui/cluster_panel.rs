@@ -68,6 +68,7 @@ pub fn render_cluster_window(app: &mut SpLogApp, ctx: &egui::Context) {
             app.panel_cluster.saved_size,
             |app, ui| {
                 egui::Panel::top("cluster_vp_bar").show(ui, |ui| {
+                    let palette = ui.palette();
                     ui.horizontal(|ui| {
                         if ui
                             .button(format!("↙ {}", tr(key::WINDOW_DOCK, lang)))
@@ -81,7 +82,7 @@ pub fn render_cluster_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             .button(
                                 egui::RichText::new("📢 Spot DX")
                                     .strong()
-                                    .color(egui::Color32::from_rgb(56, 189, 248)),
+                                    .color(palette.accent),
                             )
                             .clicked()
                         {
@@ -92,21 +93,21 @@ pub fn render_cluster_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         if app.cluster_connected {
                             ui.label(
                                 egui::RichText::new(tr(key::CLUSTER_STATUS_ONLINE, lang))
-                                    .color(egui::Color32::from_rgb(34, 197, 94))
+                                    .color(palette.success)
                                     .size(11.0)
                                     .strong(),
                             );
                         } else if app.cluster_connecting {
                             ui.label(
                                 egui::RichText::new(tr(key::CLUSTER_STATUS_CONNECTING, lang))
-                                    .color(egui::Color32::from_rgb(250, 204, 21))
+                                    .color(palette.warning)
                                     .size(11.0)
                                     .strong(),
                             );
                         } else {
                             ui.label(
                                 egui::RichText::new(tr(key::CLUSTER_STATUS_OFFLINE, lang))
-                                    .color(egui::Color32::from_rgb(148, 163, 184))
+                                    .color(palette.text_muted)
                                     .size(11.0),
                             );
                         }
@@ -175,12 +176,13 @@ pub fn render_cluster_window(app: &mut SpLogApp, ctx: &egui::Context) {
     }
 
     let win_res = win.show(ctx, |ui| {
+        let palette = ui.palette();
         ui.horizontal(|ui| {
             if ui
                 .button(
                     egui::RichText::new("📢 Spot DX")
                         .strong()
-                        .color(egui::Color32::from_rgb(56, 189, 248)),
+                        .color(palette.accent),
                 )
                 .clicked()
             {
@@ -191,21 +193,21 @@ pub fn render_cluster_window(app: &mut SpLogApp, ctx: &egui::Context) {
             if app.cluster_connected {
                 ui.label(
                     egui::RichText::new(tr(key::CLUSTER_STATUS_ONLINE, lang))
-                        .color(egui::Color32::from_rgb(34, 197, 94))
+                        .color(palette.success)
                         .size(11.0)
                         .strong(),
                 );
             } else if app.cluster_connecting {
                 ui.label(
                     egui::RichText::new(tr(key::CLUSTER_STATUS_CONNECTING, lang))
-                        .color(egui::Color32::from_rgb(250, 204, 21))
+                        .color(palette.warning)
                         .size(11.0)
                         .strong(),
                 );
             } else {
                 ui.label(
                     egui::RichText::new(tr(key::CLUSTER_STATUS_OFFLINE, lang))
-                        .color(egui::Color32::from_rgb(148, 163, 184))
+                        .color(palette.text_muted)
                         .size(11.0),
                 );
             }
@@ -245,6 +247,7 @@ pub fn render_cluster_window(app: &mut SpLogApp, ctx: &egui::Context) {
 }
 
 pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
+    let palette = ui.palette();
     let lang = app.current_language;
     // 1. Sekcja połączenia: Presety, Serwery użytkownika, Adres, Port i Znak logowania
     ui.horizontal(|ui| {
@@ -277,7 +280,7 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 ui.label(
                     egui::RichText::new(tr(key::CLUSTER_STD_SERVERS, lang))
                         .size(10.0)
-                        .color(egui::Color32::from_rgb(148, 163, 184)),
+                        .color(palette.text_muted),
                 );
                 for (name, host, port) in CLUSTER_PRESETS {
                     let is_sel = app.cluster_host == *host && app.cluster_port == *port;
@@ -294,7 +297,7 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     ui.label(
                         egui::RichText::new(tr(key::CLUSTER_USER_SERVERS, lang))
                             .size(10.0)
-                            .color(egui::Color32::from_rgb(250, 204, 21)),
+                            .color(palette.warning),
                     );
                     for cluster in &app.custom_clusters {
                         let is_sel =
@@ -353,9 +356,9 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .add(
                     egui::Button::new(
                         egui::RichText::new(tr(key::CLUSTER_DISCONNECT, lang))
-                            .color(egui::Color32::WHITE),
+                            .color(palette.selection_text),
                     )
-                    .fill(egui::Color32::from_rgb(239, 68, 68)),
+                    .fill(palette.danger),
                 )
                 .clicked()
             {
@@ -369,10 +372,8 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             };
             if ui
                 .add(
-                    egui::Button::new(
-                        egui::RichText::new(conn_text).color(egui::Color32::from_rgb(15, 23, 42)),
-                    )
-                    .fill(egui::Color32::from_rgb(52, 211, 153)),
+                    egui::Button::new(egui::RichText::new(conn_text).color(palette.selection_text))
+                        .fill(palette.success),
                 )
                 .clicked()
             {
@@ -404,7 +405,7 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.label(
             egui::RichText::new(&app.cluster_status_text)
                 .size(10.0)
-                .color(egui::Color32::from_rgb(148, 163, 184)),
+                .color(palette.text_muted),
         );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui
@@ -565,14 +566,14 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     ui.label(
                         egui::RichText::new(tr(key::CLUSTER_FILTER_TITLE, lang))
                             .strong()
-                            .color(egui::Color32::from_rgb(56, 189, 248)),
+                            .color(palette.accent),
                     );
                     ui.add_space(2.0);
 
                     ui.label(
                         egui::RichText::new(tr(key::CLUSTER_FILTER_SEARCH, lang))
                             .size(10.0)
-                            .color(egui::Color32::from_rgb(148, 163, 184)),
+                            .color(palette.text_muted),
                     );
                     ui.add(
                         egui::TextEdit::singleline(&mut app.cluster_search_query)
@@ -584,7 +585,7 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     ui.label(
                         egui::RichText::new(format!("{}:", tr(key::QSO_BAND, lang)))
                             .size(10.0)
-                            .color(egui::Color32::from_rgb(148, 163, 184)),
+                            .color(palette.text_muted),
                     );
                     egui::ComboBox::from_id_salt("sidebar_band_combo")
                         .selected_text(&app.cluster_filter_band_selection)
@@ -606,7 +607,7 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     ui.label(
                         egui::RichText::new(format!("{}:", tr(key::QSO_MODE, lang)))
                             .size(10.0)
-                            .color(egui::Color32::from_rgb(148, 163, 184)),
+                            .color(palette.text_muted),
                     );
                     egui::ComboBox::from_id_salt("sidebar_mode_combo")
                         .selected_text(&app.cluster_filter_mode_selection)
@@ -625,7 +626,7 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     ui.label(
                         egui::RichText::new(tr(key::CLUSTER_FILTER_SOURCE, lang))
                             .size(10.0)
-                            .color(egui::Color32::from_rgb(148, 163, 184)),
+                            .color(palette.text_muted),
                     );
                     egui::ComboBox::from_id_salt("sidebar_source_combo")
                         .selected_text(&app.cluster_filter_source)
@@ -664,7 +665,7 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                             total_spots
                         ))
                         .size(10.0)
-                        .color(egui::Color32::GRAY),
+                        .color(palette.text_muted),
                     );
 
                     if ui.button(tr(key::CLUSTER_FILTER_CLEAR_BTN, lang)).clicked() {
@@ -725,23 +726,20 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                             }
 
                             ui.label(format!("{:.1} kHz", spot.frequency_khz));
-                            ui.label(
-                                egui::RichText::new(&spot.band)
-                                    .color(egui::Color32::from_rgb(251, 191, 36)),
-                            );
+                            ui.label(egui::RichText::new(&spot.band).color(palette.warning));
 
                             // Kolumna referencji POTA / SOTA
                             if let Some(p) = pota_ref {
                                 ui.label(
                                     egui::RichText::new(format!("🌲 {p}"))
-                                        .color(egui::Color32::from_rgb(34, 197, 94))
+                                        .color(palette.success)
                                         .strong()
                                         .size(11.0),
                                 );
                             } else if let Some(s) = sota_ref {
                                 ui.label(
                                     egui::RichText::new(format!("⛰️ {s}"))
-                                        .color(egui::Color32::from_rgb(250, 204, 21))
+                                        .color(palette.warning)
                                         .strong()
                                         .size(11.0),
                                 );
@@ -749,10 +747,7 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                                 ui.label("-");
                             }
 
-                            ui.label(
-                                egui::RichText::new(&spot.spotter)
-                                    .color(egui::Color32::from_rgb(148, 163, 184)),
-                            );
+                            ui.label(egui::RichText::new(&spot.spotter).color(palette.text_muted));
                             ui.label(egui::RichText::new(&spot.comment).size(11.0));
 
                             // Czas spotu + wiek (minuty/godziny od odebrania)
@@ -768,7 +763,7 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                             ui.label(
                                 egui::RichText::new(format!("{} ({})", spot.time_utc, age_text))
                                     .size(10.0)
-                                    .color(egui::Color32::from_rgb(148, 163, 184)),
+                                    .color(palette.text_muted),
                             );
                             ui.end_row();
                         }
@@ -803,6 +798,7 @@ pub fn render_add_cluster_dialog(app: &mut SpLogApp, ctx: &egui::Context) {
     .default_size([340.0, 160.0])
     .resizable(false)
     .show(ctx, |ui| {
+        let palette = ui.palette();
         ui.vertical(|ui| {
             ui.label(tr(key::CLUSTER_ADD_DIALOG_DESC, lang));
             ui.add_space(4.0);
@@ -832,7 +828,7 @@ pub fn render_add_cluster_dialog(app: &mut SpLogApp, ctx: &egui::Context) {
                     .button(
                         egui::RichText::new(tr(key::CLUSTER_ADD_AND_CONNECT, lang))
                             .strong()
-                            .color(egui::Color32::from_rgb(34, 197, 94)),
+                            .color(palette.success),
                     )
                     .clicked()
                 {

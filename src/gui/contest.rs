@@ -13,6 +13,7 @@ use crate::core::ingest::{IngestError, QsoOrigin};
 use crate::core::qso::QsoRecord;
 use crate::core::station::CustomContest;
 use crate::gui::app::SpLogApp;
+use crate::gui::theme::ThemeExt;
 
 use eframe::egui;
 use std::collections::HashSet;
@@ -252,6 +253,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
         .open(&mut open)
         .default_size([800.0, 600.0])
         .show(ctx, |ui| {
+            let palette = ui.palette();
             ui.vertical(|ui| {
                 ui.horizontal(|ui| {
                     ui.label(tr(key::CONTEST_SELECT, lang));
@@ -279,7 +281,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
                 if unknown_contest_rule {
                     ui.colored_label(
-                        egui::Color32::from_rgb(239, 68, 68),
+                        palette.danger,
                         "⚠ Nieznane reguły kontestu dla wybranej nazwy — wynik NIE jest liczony wg domyślnych reguł. Wybierz kontest z listy lub utwórz regułę niestandardową.",
                     );
                 }
@@ -288,16 +290,16 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
                 ui.columns(3, |cols| {
                     cols[0].group(|ui| {
-                        ui.label(egui::RichText::new(tr(key::CONTEST_CURRENT_RESULTS, lang)).strong().color(egui::Color32::from_rgb(251, 191, 36)));
+                        ui.label(egui::RichText::new(tr(key::CONTEST_CURRENT_RESULTS, lang)).strong().color(palette.warning));
                         ui.label(format!("{} {}", tr(key::CONTEST_QSO_COUNT, lang), app.contest_qsos));
                         ui.label(format!("{} {}", tr(key::CONTEST_QSO_POINTS, lang), app.contest_points));
                         ui.label(format!("{} {}", tr(key::CONTEST_MULTIPLIERS, lang), app.contest_mults));
                         ui.separator();
-                        ui.label(egui::RichText::new(format!("{}: {}", tr(key::CONTEST_FINAL_SCORE, lang), total)).size(16.0).strong().color(egui::Color32::from_rgb(34, 197, 94)));
+                        ui.label(egui::RichText::new(format!("{}: {}", tr(key::CONTEST_FINAL_SCORE, lang), total)).size(16.0).strong().color(palette.success));
                     });
 
                     cols[1].group(|ui| {
-                        ui.label(egui::RichText::new(tr(key::CONTEST_BAND_STATS, lang)).strong().color(egui::Color32::from_rgb(147, 197, 253)));
+                        ui.label(egui::RichText::new(tr(key::CONTEST_BAND_STATS, lang)).strong().color(palette.accent));
                         egui::ScrollArea::vertical().id_salt("band_stats").max_height(80.0).show(ui, |ui| {
                             let mut bands = std::collections::HashMap::new();
                             for qso in &app.recent_qsos {
@@ -312,14 +314,14 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     });
 
                     cols[2].group(|ui| {
-                        ui.label(egui::RichText::new(tr(key::CONTEST_RATE, lang)).strong().color(egui::Color32::from_rgb(56, 189, 248)));
+                        ui.label(egui::RichText::new(tr(key::CONTEST_RATE, lang)).strong().color(palette.accent));
                         ui.label(format!("1m:  {} QSO/h", rate.rate_1m()));
                         ui.label(format!("5m:  {} QSO/h", rate.rate_5m()));
                         ui.label(format!("10m: {} QSO/h", rate.rate_10m()));
                         ui.label(format!("60m: {} QSO/h", rate.rate_60m()));
                         ui.label(
                             egui::RichText::new(format!("{}: {:.0}", tr(key::CONTEST_PROJECTED_1H, lang), projected_1h))
-                                .color(egui::Color32::from_rgb(34, 197, 94)),
+                                .color(palette.success),
                         );
                         ui.label(format!("{} {:03}", tr(key::CONTEST_STX_NR, lang), app.contest_stx));
                     });
@@ -373,13 +375,13 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         };
 
                         if is_dupe && !app.entry_callsign.is_empty() {
-                            ui.visuals_mut().widgets.inactive.bg_stroke = egui::Stroke::new(2.0_f32, egui::Color32::RED);
+                            ui.visuals_mut().widgets.inactive.bg_stroke = egui::Stroke::new(2.0_f32, palette.dupe);
                         }
 
                         ui.add(egui::TextEdit::singleline(&mut app.entry_callsign).desired_width(120.0));
 
                         if is_dupe && !app.entry_callsign.is_empty() {
-                            ui.label(egui::RichText::new("DUPE!").color(egui::Color32::RED).strong());
+                            ui.label(egui::RichText::new("DUPE!").color(palette.dupe).strong());
                         }
 
                         ui.label(tr(key::CONTEST_RCVD_REPORT_EXCHANGE, lang));
@@ -404,13 +406,13 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 Ok(parsed) => {
                                     ui.label(
                                         egui::RichText::new(format!("✓ {}", exchange_summary(&parsed)))
-                                            .color(egui::Color32::from_rgb(34, 197, 94)),
+                                            .color(palette.success),
                                     );
                                 }
                                 Err(e) => {
                                     ui.label(
                                         egui::RichText::new(format!("⚠ {}", e.message))
-                                            .color(egui::Color32::from_rgb(239, 68, 68)),
+                                            .color(palette.danger),
                                     );
                                 }
                             }
@@ -442,9 +444,9 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                             .iter()
                                             .any(|q| q.callsign.eq_ignore_ascii_case(&spot.dx_call));
                                         let call_color = if worked {
-                                            egui::Color32::from_rgb(34, 197, 94)
+                                            palette.qsl_rcvd
                                         } else {
-                                            egui::Color32::from_rgb(56, 189, 248)
+                                            palette.accent
                                         };
                                         ui.label(
                                             egui::RichText::new(format!("{}{}", spot.dx_call, if worked { " ✓" } else { "" }))
@@ -454,10 +456,10 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                         ui.label(
                                             egui::RichText::new(format!("{:.1} kHz", spot.frequency_khz)).monospace(),
                                         );
-                                        ui.label(egui::RichText::new(&spot.band).color(egui::Color32::from_rgb(251, 191, 36)));
+                                        ui.label(egui::RichText::new(&spot.band).color(palette.warning));
                                         ui.label(egui::RichText::new(&spot.comment).size(11.0).weak());
                                         if ui
-                                            .button(egui::RichText::new(tr(key::CONTEST_SPOT_FILL_ENTRY, lang)).color(egui::Color32::from_rgb(34, 197, 94)))
+                                            .button(egui::RichText::new(tr(key::CONTEST_SPOT_FILL_ENTRY, lang)).color(palette.success))
                                             .clicked()
                                         {
                                             tune = Some((spot.dx_call.clone(), spot.frequency_khz, spot.band.clone(), spot.is_ft8));
@@ -631,6 +633,7 @@ pub use super::multi_op_window::render_multi_op_window;
 
 /// Rysuje mini-wykres słupkowy tempa QSO na minutę (ostatnie 60 minut).
 fn render_rate_chart(ui: &mut egui::Ui, rate: &RateStats) {
+    let palette = ui.palette();
     let chart_h = 60.0f32;
     let chart_w = ui.available_width();
     let (resp, painter) =
@@ -649,7 +652,7 @@ fn render_rate_chart(ui: &mut egui::Ui, rate: &RateStats) {
             egui::pos2(x_pos + 0.5, origin.y + chart_h - bar_h),
             egui::vec2((bar_w - 1.0).max(0.5), bar_h),
         );
-        painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(56, 189, 248));
+        painter.rect_filled(rect, 0.0, palette.accent);
     }
     // Linia bazowa i etykiety osi.
     painter.line_segment(
@@ -657,21 +660,21 @@ fn render_rate_chart(ui: &mut egui::Ui, rate: &RateStats) {
             egui::pos2(origin.x, origin.y + chart_h),
             egui::pos2(origin.x + chart_w, origin.y + chart_h),
         ],
-        egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(100, 116, 139)),
+        egui::Stroke::new(1.0_f32, palette.border),
     );
     painter.text(
         egui::pos2(origin.x, origin.y + chart_h + 4.0),
         egui::Align2::LEFT_TOP,
         "-60 min",
         egui::FontId::proportional(9.0),
-        egui::Color32::from_rgb(148, 163, 184),
+        palette.text_muted,
     );
     painter.text(
         egui::pos2(origin.x + chart_w, origin.y + chart_h + 4.0),
         egui::Align2::RIGHT_TOP,
         "now",
         egui::FontId::proportional(9.0),
-        egui::Color32::from_rgb(148, 163, 184),
+        palette.text_muted,
     );
 }
 
@@ -683,13 +686,15 @@ fn render_mult_matrix(ui: &mut egui::Ui, matrix: &MultMatrix, lang: crate::core:
         return;
     }
 
+    let palette = ui.palette();
+
     // Legenda.
     ui.horizontal(|ui| {
-        ui.colored_label(egui::Color32::from_rgb(34, 197, 94), "●");
+        ui.colored_label(palette.success, "●");
         ui.label(tr(key::CONTEST_MULT_WORKED_HERE, lang));
-        ui.colored_label(egui::Color32::from_rgb(251, 191, 36), "◐");
+        ui.colored_label(palette.multiplier, "◐");
         ui.label(tr(key::CONTEST_MULT_WORKED_OTHER, lang));
-        ui.colored_label(egui::Color32::from_rgb(71, 85, 105), "·");
+        ui.colored_label(palette.text_subtle, "·");
         ui.label(tr(key::CONTEST_MULT_NEEDED, lang));
         ui.label(
             egui::RichText::new(format!(
@@ -708,11 +713,7 @@ fn render_mult_matrix(ui: &mut egui::Ui, matrix: &MultMatrix, lang: crate::core:
                 // Nagłówek z etykietami mnożników.
                 ui.label("");
                 for col in &matrix.columns {
-                    ui.label(
-                        egui::RichText::new(col)
-                            .size(8.0)
-                            .color(egui::Color32::from_rgb(148, 163, 184)),
-                    );
+                    ui.label(egui::RichText::new(col).size(8.0).color(palette.text_muted));
                 }
                 ui.end_row();
 
@@ -721,9 +722,9 @@ fn render_mult_matrix(ui: &mut egui::Ui, matrix: &MultMatrix, lang: crate::core:
                     for (c, col) in matrix.columns.iter().enumerate() {
                         let value = matrix.worked[r][c];
                         let (color, glyph) = match value {
-                            2 => (egui::Color32::from_rgb(34, 197, 94), "●"),
-                            1 => (egui::Color32::from_rgb(251, 191, 36), "◐"),
-                            _ => (egui::Color32::from_rgb(71, 85, 105), "·"),
+                            2 => (palette.success, "●"),
+                            1 => (palette.multiplier, "◐"),
+                            _ => (palette.text_subtle, "·"),
                         };
                         ui.colored_label(color, glyph)
                             .on_hover_text(format!("{band} × {col}"));

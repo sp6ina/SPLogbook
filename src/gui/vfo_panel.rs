@@ -3,6 +3,7 @@
 
 use crate::core::i18n::{key, tr};
 use crate::gui::app::SpLogApp;
+use crate::gui::theme::{ColorExt, ThemeExt};
 use eframe::egui;
 
 pub fn render_vfo_window(app: &mut SpLogApp, ctx: &egui::Context) {
@@ -139,16 +140,17 @@ fn render_tuning_digit(
     unit_label: &str,
     app: &mut SpLogApp,
 ) {
+    let palette = ui.palette();
     let text = format!("{digit}");
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(17.0, 36.0), egui::Sense::click());
     let hovered = resp.hovered();
 
     let color = if hovered {
-        egui::Color32::from_rgb(250, 204, 21) // Bright gold
+        palette.warning
     } else if dim {
-        egui::Color32::from_rgb(71, 85, 105) // Dim slate
+        palette.text_subtle
     } else {
-        egui::Color32::from_rgb(56, 189, 248) // Electric cyan
+        palette.accent
     };
 
     if hovered {
@@ -158,13 +160,10 @@ fn render_tuning_digit(
                 egui::pos2(rect.left(), underline_y),
                 egui::pos2(rect.right(), underline_y),
             ],
-            egui::Stroke::new(2.5_f32, egui::Color32::from_rgb(250, 204, 21)),
+            egui::Stroke::new(2.5_f32, palette.warning),
         );
-        ui.painter().rect_filled(
-            rect,
-            2.0,
-            egui::Color32::from_rgba_unmultiplied(250, 204, 21, 35),
-        );
+        ui.painter()
+            .rect_filled(rect, 2.0, palette.warning.alpha(35));
     }
 
     ui.painter().text(
@@ -195,13 +194,14 @@ fn render_tuning_digit(
 }
 
 fn render_tuning_dot(ui: &mut egui::Ui) {
+    let palette = ui.palette();
     let (rect, _) = ui.allocate_exact_size(egui::vec2(6.0, 36.0), egui::Sense::hover());
     let dot_pos = egui::pos2(rect.center().x, rect.bottom() - 8.0);
-    ui.painter()
-        .circle_filled(dot_pos, 2.2, egui::Color32::from_rgb(56, 189, 248));
+    ui.painter().circle_filled(dot_pos, 2.2, palette.accent);
 }
 
 pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
+    let palette = ui.palette();
     let frequency_hz = app.rig_state.frequency_hz;
 
     // Nagłówek konsoli radiowej: Model radia + PTT + Ustawienia
@@ -215,24 +215,24 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         if app.cat_connected {
             ui.label(
                 egui::RichText::new(format!("📻 {rig_badge}"))
-                    .color(egui::Color32::from_rgb(56, 189, 248))
+                    .color(palette.accent)
                     .strong()
                     .size(12.0),
             );
             ui.label(
                 egui::RichText::new("● ONLINE")
-                    .color(egui::Color32::from_rgb(34, 197, 94))
+                    .color(palette.success)
                     .size(10.0),
             );
         } else {
             ui.label(
                 egui::RichText::new(format!("📻 {rig_badge}"))
-                    .color(egui::Color32::from_rgb(148, 163, 184))
+                    .color(palette.text_muted)
                     .size(12.0),
             );
             ui.label(
                 egui::RichText::new("○ OFFLINE")
-                    .color(egui::Color32::from_rgb(239, 68, 68))
+                    .color(palette.danger)
                     .size(10.0),
             );
         }
@@ -241,9 +241,9 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         // Przycisk PTT (nadawanie)
         let ptt_color = if app.ptt_active {
-            egui::Color32::from_rgb(239, 68, 68)
+            palette.tx
         } else {
-            egui::Color32::from_rgb(100, 116, 139)
+            palette.text_subtle
         };
         let ptt_label = if app.ptt_active {
             "🔴 TX ON"
@@ -275,9 +275,9 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         let vfo_a_active = app.rig_state.vfo != "VFOB";
         let color_a = if vfo_a_active {
-            egui::Color32::from_rgb(34, 197, 94)
+            palette.vfo_a
         } else {
-            egui::Color32::GRAY
+            palette.text_muted
         };
         ui.label(egui::RichText::new("VFO A:").strong().color(color_a));
         ui.label(
@@ -291,9 +291,9 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             frequency_hz
         };
         let color_b = if app.vfo_split {
-            egui::Color32::from_rgb(239, 68, 68)
+            palette.split
         } else {
-            egui::Color32::GRAY
+            palette.text_muted
         };
         ui.label(egui::RichText::new("VFO B (TX):").strong().color(color_b));
         ui.label(
@@ -369,7 +369,7 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 egui::RichText::new("MHz")
                     .size(15.0)
                     .monospace()
-                    .color(egui::Color32::from_rgb(148, 163, 184)),
+                    .color(palette.text_muted),
             );
 
             ui.add_space(8.0);
@@ -378,7 +378,7 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ui.label(
                 egui::RichText::new("kHz:")
                     .size(11.0)
-                    .color(egui::Color32::from_rgb(148, 163, 184)),
+                    .color(palette.text_muted),
             );
             let edit_id = egui::Id::new("vfo_freq_khz_input");
             let is_focused = ui.ctx().memory(|m| m.has_focus(edit_id));
@@ -446,7 +446,7 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 egui::RichText::new(tr(key::VFO_BAND_LABEL, app.current_language))
                     .size(11.0)
                     .strong()
-                    .color(egui::Color32::from_rgb(148, 163, 184)),
+                    .color(palette.text_muted),
             );
             let quick_bands = [
                 ("160m", 1_840_000, "LSB"),
@@ -477,7 +477,7 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 egui::RichText::new(tr(key::VFO_FILTERS, app.current_language))
                     .size(10.0)
                     .strong()
-                    .color(egui::Color32::from_rgb(148, 163, 184)),
+                    .color(palette.text_muted),
             );
             if ui
                 .selectable_label(app.vfo_filter_preset == "FIL1", "FIL1 (3k)")
@@ -503,7 +503,7 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 egui::RichText::new("RF:")
                     .size(10.0)
                     .strong()
-                    .color(egui::Color32::from_rgb(148, 163, 184)),
+                    .color(palette.text_muted),
             );
             for pre in &["OFF", "PRE1", "PRE2", "ATT"] {
                 if ui
@@ -524,7 +524,7 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 egui::RichText::new("AGC:")
                     .size(10.0)
                     .strong()
-                    .color(egui::Color32::from_rgb(148, 163, 184)),
+                    .color(palette.text_muted),
             );
             for agc in &["FAST", "MID", "SLOW"] {
                 if ui
@@ -545,13 +545,13 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             egui::RichText::new("S-METER:")
                 .size(11.0)
                 .strong()
-                .color(egui::Color32::from_rgb(148, 163, 184)),
+                .color(palette.text_muted),
         );
         ui.label(
             egui::RichText::new(&app.rig_state.s_meter_unit)
                 .size(12.0)
                 .strong()
-                .color(egui::Color32::from_rgb(250, 204, 21)),
+                .color(palette.warning),
         );
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -565,7 +565,7 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 egui::RichText::new(format!("PWR: {pwr:.0} W | SWR: {swr:.1}"))
                     .size(11.0)
                     .monospace()
-                    .color(egui::Color32::from_rgb(56, 189, 248)),
+                    .color(palette.accent),
             );
         });
     });
@@ -577,14 +577,14 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.allocate_exact_size(egui::vec2(ui.available_width(), 12.0), egui::Sense::hover());
     if ui.is_rect_visible(rect) {
         let painter = ui.painter();
-        painter.rect_filled(rect, 3.0, egui::Color32::from_rgb(15, 23, 42));
+        painter.rect_filled(rect, 3.0, palette.extreme_bg);
         let filled_width = rect.width() * meter_fraction;
         let fill_rect =
             egui::Rect::from_min_size(rect.min, egui::vec2(filled_width, rect.height()));
         let fill_color = if meter_fraction > 0.65 {
-            egui::Color32::from_rgb(239, 68, 68) // Czerwony dla > S9
+            palette.danger // Czerwony dla > S9
         } else {
-            egui::Color32::from_rgb(34, 197, 94) // Zielony dla S1..S9
+            palette.success // Zielony dla S1..S9
         };
         painter.rect_filled(fill_rect, 3.0, fill_color);
     }
@@ -594,7 +594,7 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             egui::RichText::new("S1     S3     S5     S7     S9    +20   +40   +60dB")
                 .size(9.0)
                 .monospace()
-                .color(egui::Color32::from_rgb(100, 116, 139)),
+                .color(palette.text_subtle),
         );
     });
 
@@ -606,16 +606,12 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             egui::RichText::new(format!("🧭 ROTOR: {:.0}°", app.rotor_state.azimuth_deg))
                 .size(13.0)
                 .strong()
-                .color(egui::Color32::from_rgb(251, 191, 36)),
+                .color(palette.warning),
         );
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui
-                .button(
-                    egui::RichText::new("STOP")
-                        .color(egui::Color32::from_rgb(239, 68, 68))
-                        .strong(),
-                )
+                .button(egui::RichText::new("STOP").color(palette.danger).strong())
                 .clicked()
             {
                 app.stop_rotor();

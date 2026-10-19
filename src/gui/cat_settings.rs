@@ -16,6 +16,7 @@ use crate::cat::service::RigServiceState;
 use crate::cat::tx_arbiter::{TxArbiterState, redact_sensitive_info};
 use crate::core::i18n::{key, tr};
 use crate::gui::app::SpLogApp;
+use crate::gui::theme::ThemeExt;
 
 /// Podręczny bufor wariantów konfiguracji backendu w formularzu UI,
 /// zapobiegający utracie niezapisanych danych podczas przełączania typu backendu.
@@ -109,6 +110,7 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
     .min_size([520.0, 480.0])
     .resizable(true)
     .show(ctx, |ui| {
+        let palette = ui.palette();
         egui::ScrollArea::vertical().show(ui, |ui| {
             ui.vertical(|ui| {
                 // Wybór radia oraz kontrola Active RX / Active TX
@@ -204,7 +206,7 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             ui.label(
                                 egui::RichText::new("(50 - 2000 ms, default 250 ms)")
                                     .size(11.0)
-                                    .color(egui::Color32::from_rgb(148, 163, 184)),
+                                    .color(palette.text_muted),
                             );
                         });
                     });
@@ -291,42 +293,36 @@ fn render_lifecycle_status_bar(
     cat_snap: &crate::cat::hub::RigHubSnapshot,
     lang: crate::core::i18n::Language,
 ) {
+    let palette = ui.palette();
     ui.horizontal(|ui| {
         // 1. Stan połączenia i usługi
         let (color, text) = if let Some(svc) = svc_snap {
             match svc.lifecycle {
-                RigServiceState::Ready => (
-                    egui::Color32::from_rgb(34, 197, 94),
-                    tr(key::CAT_SETTINGS_STATE_CONNECTED, lang),
-                ),
+                RigServiceState::Ready => {
+                    (palette.success, tr(key::CAT_SETTINGS_STATE_CONNECTED, lang))
+                }
                 RigServiceState::Connecting => (
-                    egui::Color32::from_rgb(250, 204, 21),
+                    palette.warning,
                     tr(key::CAT_SETTINGS_STATE_CONNECTING, lang),
                 ),
-                RigServiceState::Degraded => (
-                    egui::Color32::from_rgb(251, 146, 60),
-                    tr(key::CAT_SETTINGS_STATE_DEGRADED, lang),
-                ),
-                RigServiceState::Disconnecting => {
-                    (egui::Color32::from_rgb(148, 163, 184), "Disconnecting...")
+                RigServiceState::Degraded => {
+                    (palette.warning, tr(key::CAT_SETTINGS_STATE_DEGRADED, lang))
                 }
-                RigServiceState::Synchronizing => {
-                    (egui::Color32::from_rgb(56, 189, 248), "Synchronizing...")
-                }
-                RigServiceState::Created => (egui::Color32::from_rgb(148, 163, 184), "Created"),
+                RigServiceState::Disconnecting => (palette.text_muted, "Disconnecting..."),
+                RigServiceState::Synchronizing => (palette.accent, "Synchronizing..."),
+                RigServiceState::Created => (palette.text_muted, "Created"),
                 RigServiceState::Disconnected => (
-                    egui::Color32::from_rgb(148, 163, 184),
+                    palette.text_muted,
                     tr(key::CAT_SETTINGS_STATE_DISCONNECTED, lang),
                 ),
-                RigServiceState::Failed => (
-                    egui::Color32::from_rgb(239, 68, 68),
-                    tr(key::CAT_SETTINGS_STATE_FAILED, lang),
-                ),
+                RigServiceState::Failed => {
+                    (palette.danger, tr(key::CAT_SETTINGS_STATE_FAILED, lang))
+                }
             }
         } else if app.cat_connected {
-            (egui::Color32::from_rgb(250, 204, 21), "Registering...")
+            (palette.warning, "Registering...")
         } else {
-            (egui::Color32::from_rgb(148, 163, 184), "—")
+            (palette.text_muted, "—")
         };
 
         ui.colored_label(color, format!("● {text}"));
@@ -345,20 +341,17 @@ fn render_lifecycle_status_bar(
         ui.label(tr(key::CAT_SETTINGS_TX_ARBITER_STATUS, lang));
         match cat_snap.tx_state {
             TxArbiterState::Idle => {
-                ui.colored_label(
-                    egui::Color32::from_rgb(34, 197, 94),
-                    tr(key::CAT_SETTINGS_TX_IDLE, lang),
-                );
+                ui.colored_label(palette.success, tr(key::CAT_SETTINGS_TX_IDLE, lang));
             }
             TxArbiterState::Requesting { .. } => {
-                ui.colored_label(egui::Color32::from_rgb(250, 204, 21), "Requesting...");
+                ui.colored_label(palette.warning, "Requesting...");
             }
             TxArbiterState::Owned { ref rig_id, .. } => {
                 let is_current = rig_id == &rig.id;
                 let color = if is_current {
-                    egui::Color32::from_rgb(239, 68, 68)
+                    palette.tx
                 } else {
-                    egui::Color32::from_rgb(251, 146, 60)
+                    palette.warning
                 };
                 ui.colored_label(
                     color,
@@ -366,17 +359,17 @@ fn render_lifecycle_status_bar(
                 );
             }
             TxArbiterState::Releasing { .. } => {
-                ui.colored_label(egui::Color32::from_rgb(250, 204, 21), "Releasing...");
+                ui.colored_label(palette.warning, "Releasing...");
             }
             TxArbiterState::Unknown { ref reason, .. } => {
                 ui.colored_label(
-                    egui::Color32::from_rgb(239, 68, 68),
+                    palette.danger,
                     format!("⚠ {} ({reason})", tr(key::CAT_SETTINGS_TX_UNKNOWN, lang)),
                 );
                 if ui
                     .button(
                         egui::RichText::new(tr(key::CAT_SETTINGS_TX_RESYNC_BTN, lang))
-                            .color(egui::Color32::from_rgb(250, 204, 21))
+                            .color(palette.warning)
                             .strong(),
                     )
                     .clicked()
@@ -396,11 +389,12 @@ fn render_backend_kind_selector(
     rig: &mut RigConfig,
     lang: crate::core::i18n::Language,
 ) {
+    let palette = ui.palette();
     ui.group(|ui| {
         ui.label(
             egui::RichText::new(tr(key::CAT_SETTINGS_STEP1_TITLE, lang))
                 .strong()
-                .color(egui::Color32::from_rgb(250, 204, 21)),
+                .color(palette.warning),
         );
         ui.add_space(2.0);
 
@@ -437,11 +431,12 @@ fn render_backend_form(
     rig: &mut RigConfig,
     lang: crate::core::i18n::Language,
 ) {
+    let palette = ui.palette();
     ui.group(|ui| {
         ui.label(
             egui::RichText::new(tr(key::CAT_SETTINGS_STEP2_TITLE, lang))
                 .strong()
-                .color(egui::Color32::from_rgb(250, 204, 21)),
+                .color(palette.warning),
         );
         ui.add_space(2.0);
 
@@ -557,15 +552,17 @@ fn render_hamlib_form(
         });
 
     ui.horizontal(|ui| {
+        let palette = ui.palette();
         ui.label(egui::RichText::new(format!("{}:", tr(key::CAT_RIG_MODEL, lang))).strong());
         ui.colored_label(
-            egui::Color32::from_rgb(56, 189, 248),
+            palette.accent,
             format!("{} (ID: {})", app.cat_rig_model, app.cat_rig_id),
         );
     });
 }
 
 fn render_flrig_form(ui: &mut egui::Ui, cfg: &mut FlrigBackendConfig) {
+    let palette = ui.palette();
     ui.horizontal(|ui| {
         ui.label("FLRig Host XML-RPC:");
         ui.add(egui::TextEdit::singleline(&mut cfg.host).desired_width(120.0));
@@ -582,12 +579,13 @@ fn render_flrig_form(ui: &mut egui::Ui, cfg: &mut FlrigBackendConfig) {
         ui.label(
             egui::RichText::new("(default :12345)")
                 .size(11.0)
-                .color(egui::Color32::from_rgb(148, 163, 184)),
+                .color(palette.text_muted),
         );
     });
 }
 
 fn render_tci_form(ui: &mut egui::Ui, cfg: &mut TciBackendConfig) {
+    let palette = ui.palette();
     ui.horizontal(|ui| {
         ui.label("TCI Host WebSocket:");
         ui.add(egui::TextEdit::singleline(&mut cfg.host).desired_width(120.0));
@@ -604,7 +602,7 @@ fn render_tci_form(ui: &mut egui::Ui, cfg: &mut TciBackendConfig) {
         ui.label(
             egui::RichText::new("(default :40001)")
                 .size(11.0)
-                .color(egui::Color32::from_rgb(148, 163, 184)),
+                .color(palette.text_muted),
         );
     });
 }
@@ -934,9 +932,10 @@ fn render_rigctld_supervisor_controls(
         },
     );
 
+    let palette = ui.palette();
     ui.horizontal(|ui| {
         if let Some(ref p) = detected {
-            ui.colored_label(egui::Color32::from_rgb(34, 197, 94), "✔");
+            ui.colored_label(palette.success, "✔");
             ui.label(
                 egui::RichText::new(format!(
                     "{}: {}",
@@ -944,14 +943,14 @@ fn render_rigctld_supervisor_controls(
                     p.display()
                 ))
                 .size(11.0)
-                .color(egui::Color32::from_rgb(148, 163, 184)),
+                .color(palette.text_muted),
             );
         } else {
-            ui.colored_label(egui::Color32::from_rgb(239, 68, 68), "⚠");
+            ui.colored_label(palette.danger, "⚠");
             ui.label(
                 egui::RichText::new(tr(key::CAT_SETTINGS_BINARY_NOT_FOUND, lang))
                     .size(11.0)
-                    .color(egui::Color32::from_rgb(239, 68, 68)),
+                    .color(palette.danger),
             );
         }
     });
@@ -970,14 +969,14 @@ fn render_rigctld_supervisor_controls(
         && let Some(pid) = sup.pid()
     {
         ui.horizontal(|ui| {
-            ui.colored_label(egui::Color32::from_rgb(34, 197, 94), "●");
+            ui.colored_label(palette.success, "●");
             ui.label(
                 egui::RichText::new(format!(
                     "{} (PID: {pid})",
                     tr(key::CAT_SETTINGS_RUNNING_PID, lang)
                 ))
                 .size(11.0)
-                .color(egui::Color32::from_rgb(34, 197, 94)),
+                .color(palette.success),
             );
         });
     }
@@ -1026,21 +1025,20 @@ fn render_probe_section(
                 }
             }
 
+            let palette = ui.palette();
             if app.cat_probe_running {
                 ui.spinner();
-                ui.colored_label(
-                    egui::Color32::from_rgb(250, 204, 21),
-                    tr(key::CAT_SETTINGS_PROBE_RUNNING, lang),
-                );
+                ui.colored_label(palette.warning, tr(key::CAT_SETTINGS_PROBE_RUNNING, lang));
             }
         });
 
+        let palette = ui.palette();
         if let Some(ref probe_res) = app.cat_probe_result {
             ui.add_space(2.0);
             match probe_res {
                 Ok(res) => {
                     ui.colored_label(
-                        egui::Color32::from_rgb(34, 197, 94),
+                        palette.success,
                         format!("✔ {}", tr(key::CAT_SETTINGS_PROBE_SUCCESS, lang)),
                     );
                     ui.horizontal_wrapped(|ui| {
@@ -1064,7 +1062,7 @@ fn render_probe_section(
                 }
                 Err(e) => {
                     ui.colored_label(
-                        egui::Color32::from_rgb(239, 68, 68),
+                        palette.danger,
                         format!(
                             "✖ {}: {}",
                             tr(key::CAT_SETTINGS_PROBE_FAILED, lang),
@@ -1077,7 +1075,7 @@ fn render_probe_section(
 
         if let Some(ref res) = app.cat_test_result {
             ui.add_space(2.0);
-            ui.colored_label(egui::Color32::from_rgb(56, 189, 248), res);
+            ui.colored_label(palette.accent, res);
         }
     });
 }
@@ -1098,11 +1096,12 @@ fn render_capabilities_and_diagnostics(
         })
         .unwrap_or_default();
 
+    let palette = ui.palette();
     ui.group(|ui| {
         ui.label(
             egui::RichText::new(tr(key::CAT_SETTINGS_CAPABILITIES_TITLE, lang))
                 .strong()
-                .color(egui::Color32::from_rgb(56, 189, 248)),
+                .color(palette.accent),
         );
 
         ui.horizontal_wrapped(|ui| {
@@ -1125,7 +1124,7 @@ fn render_capabilities_and_diagnostics(
             ui.label(
                 egui::RichText::new(tr(key::CAT_SETTINGS_DIAGNOSTICS_TITLE, lang))
                     .size(11.0)
-                    .color(egui::Color32::from_rgb(148, 163, 184)),
+                    .color(palette.text_muted),
             );
             ui.horizontal_wrapped(|ui| {
                 ui.label(format!("State generation: {}", svc.state_generation));
@@ -1134,7 +1133,7 @@ fn render_capabilities_and_diagnostics(
                 if let Some(ref err) = svc.last_error {
                     ui.label("|");
                     ui.colored_label(
-                        egui::Color32::from_rgb(239, 68, 68),
+                        palette.danger,
                         format!("Last error: {}", redact_sensitive_info(err)),
                     );
                 }
@@ -1144,16 +1143,11 @@ fn render_capabilities_and_diagnostics(
 }
 
 fn render_cap_badge(ui: &mut egui::Ui, name: &str, active: bool) {
+    let palette = ui.palette();
     let (bg, fg) = if active {
-        (
-            egui::Color32::from_rgb(22, 101, 52),
-            egui::Color32::from_rgb(187, 247, 208),
-        )
+        (palette.success, palette.selection_text)
     } else {
-        (
-            egui::Color32::from_rgb(51, 65, 85),
-            egui::Color32::from_rgb(148, 163, 184),
-        )
+        (palette.subtle_bg, palette.text_muted)
     };
 
     ui.colored_label(
@@ -1169,11 +1163,12 @@ fn render_cat_sharing_section(
     ui: &mut egui::Ui,
     lang: crate::core::i18n::Language,
 ) {
+    let palette = ui.palette();
     ui.group(|ui| {
         ui.label(
             egui::RichText::new(tr(key::CAT_SETTINGS_SHARING_TITLE, lang))
                 .strong()
-                .color(egui::Color32::from_rgb(56, 189, 248)),
+                .color(palette.accent),
         );
         ui.horizontal(|ui| {
             if ui
@@ -1194,7 +1189,7 @@ fn render_cat_sharing_section(
         if app.cat_sharing_active {
             ui.label(
                 egui::RichText::new(format!("● 127.0.0.1:{}", app.cat_sharing_port))
-                    .color(egui::Color32::from_rgb(34, 197, 94))
+                    .color(palette.success)
                     .size(11.0),
             );
         }
@@ -1202,11 +1197,12 @@ fn render_cat_sharing_section(
 }
 
 fn render_rotor_section(app: &mut SpLogApp, ui: &mut egui::Ui, lang: crate::core::i18n::Language) {
+    let palette = ui.palette();
     ui.group(|ui| {
         ui.label(
             egui::RichText::new(tr(key::CAT_SETTINGS_ROTOR_SECTION, lang))
                 .strong()
-                .color(egui::Color32::from_rgb(56, 189, 248)),
+                .color(palette.accent),
         );
         ui.horizontal(|ui| {
             ui.label("Host:");
@@ -1224,7 +1220,7 @@ fn render_rotor_section(app: &mut SpLogApp, ui: &mut egui::Ui, lang: crate::core
         });
 
         if let Some(ref res) = app.rotor_test_result {
-            ui.colored_label(egui::Color32::from_rgb(56, 189, 248), res);
+            ui.colored_label(palette.accent, res);
         }
     });
 }

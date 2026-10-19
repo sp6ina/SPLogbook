@@ -5,6 +5,7 @@
 
 use crate::core::i18n::{key, tr};
 use crate::gui::app::SpLogApp;
+use crate::gui::theme::ThemeExt;
 use crate::sync::{SyncConfig, SyncEvent, SyncRole, SyncService};
 use eframe::egui;
 
@@ -76,11 +77,12 @@ pub fn render_multi_op_window(app: &mut SpLogApp, ctx: &egui::Context) {
         .default_size([520.0, 420.0])
         .resizable(true)
         .show(ctx, |ui| {
+            let palette = ui.palette();
             ui.vertical(|ui| {
                 ui.heading(
                     egui::RichText::new(tr(key::MULTIOP_TITLE, lang))
                         .size(14.0)
-                        .color(egui::Color32::from_rgb(56, 189, 248)),
+                        .color(palette.accent),
                 );
                 ui.label("Umożliwia automatyczną wymianę nowo dodanych QSO pomiędzy stanowiskami w klubie lub w zawodach.");
                 ui.separator();
@@ -137,7 +139,7 @@ pub fn render_multi_op_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 if ui
                                     .button(
                                         egui::RichText::new(tr(key::MULTIOP_STOP_SERVER, lang))
-                                            .color(egui::Color32::from_rgb(239, 68, 68))
+                                            .color(palette.danger)
                                             .strong(),
                                     )
                                     .clicked()
@@ -149,7 +151,7 @@ pub fn render_multi_op_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             } else if ui
                                 .button(
                                     egui::RichText::new(tr(key::MULTIOP_START_SERVER, lang))
-                                        .color(egui::Color32::from_rgb(34, 197, 94))
+                                        .color(palette.success)
                                         .strong(),
                                 )
                                 .clicked()
@@ -221,7 +223,7 @@ pub fn render_multi_op_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 if ui
                                     .button(
                                         egui::RichText::new(tr(key::MULTIOP_DISCONNECT, lang))
-                                            .color(egui::Color32::from_rgb(239, 68, 68))
+                                            .color(palette.danger)
                                             .strong(),
                                     )
                                     .clicked()
@@ -233,7 +235,7 @@ pub fn render_multi_op_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             } else if ui
                                 .button(
                                     egui::RichText::new(tr(key::MULTIOP_CONNECT, lang))
-                                        .color(egui::Color32::from_rgb(34, 197, 94))
+                                        .color(palette.success)
                                         .strong(),
                                 )
                                 .clicked()
@@ -274,7 +276,7 @@ pub fn render_multi_op_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 ui.label(
                     egui::RichText::new(format!("Status: {}", app.sync_ui.status))
                         .strong()
-                        .color(egui::Color32::from_rgb(56, 189, 248)),
+                        .color(palette.accent),
                 );
 
                 ui.separator();

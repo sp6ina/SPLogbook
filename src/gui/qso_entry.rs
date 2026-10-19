@@ -3,6 +3,7 @@
 
 use crate::core::i18n::{key, tr, tr_or};
 use crate::gui::app::SpLogApp;
+use crate::gui::theme::ThemeExt;
 use eframe::egui;
 
 pub fn render_qso_entry_window(app: &mut SpLogApp, ctx: &egui::Context) {
@@ -129,6 +130,7 @@ pub fn render_qso_entry_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
 pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.current_language;
+    let palette = ui.palette();
     // Identyfikatory pól tego panelu, używane do ograniczenia skrótu
     // Enter=Zapisz/Escape=Wyczyść wyłącznie do sytuacji, gdy fokus klawiatury
     // znajduje się faktycznie w tym panelu (a nie np. w Logbooku czy innym oknie).
@@ -148,10 +150,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .size(13.0),
         );
         if is_dupe {
-            ui.colored_label(
-                egui::Color32::from_rgb(239, 68, 68),
-                egui::RichText::new("⚠ DUPE!").strong(),
-            );
+            ui.colored_label(palette.dupe, egui::RichText::new("⚠ DUPE!").strong());
         }
     });
 
@@ -193,13 +192,13 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ui.label(
                 egui::RichText::new("SCP:")
                     .size(11.0)
-                    .color(egui::Color32::from_rgb(148, 163, 184)),
+                    .color(palette.text_muted),
             );
             for call in app.scp_suggestions.clone() {
                 if ui
                     .button(
                         egui::RichText::new(&call)
-                            .color(egui::Color32::from_rgb(56, 189, 248))
+                            .color(palette.accent)
                             .size(11.0)
                             .monospace(),
                     )
@@ -218,13 +217,13 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ui.label(
                 egui::RichText::new(tr_or(lang, "Może chodziło o:", "Did you mean:"))
                     .size(11.0)
-                    .color(egui::Color32::from_rgb(251, 191, 36)),
+                    .color(palette.warning),
             );
             for (call, _dist) in app.callsign_corrections.clone() {
                 if ui
                     .button(
                         egui::RichText::new(&call)
-                            .color(egui::Color32::from_rgb(251, 191, 36))
+                            .color(palette.warning)
                             .size(11.0)
                             .monospace(),
                     )
@@ -241,11 +240,11 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     ui.horizontal_wrapped(|ui| {
         if let Some(ref info) = app.active_prefix_info {
             ui.colored_label(
-                egui::Color32::from_rgb(147, 197, 253),
+                palette.accent,
                 format!("📍 {} ({})", info.country, info.wpx_prefix),
             );
             ui.colored_label(
-                egui::Color32::from_rgb(216, 180, 254),
+                palette.accent_alt,
                 format!(
                     "{}: CQ {} / ITU {}",
                     tr_or(lang, "Strefy", "Zones"),
@@ -256,7 +255,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
             if let Some(ref dist) = app.active_polish_district {
                 ui.colored_label(
-                    egui::Color32::from_rgb(134, 239, 172),
+                    palette.success,
                     format!(
                         "🇵🇱 {} SP{}",
                         tr_or(lang, "Okręg PZK", "PZK District"),
@@ -266,7 +265,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             }
             if app.active_distance_km > 0.0 {
                 ui.colored_label(
-                    egui::Color32::from_rgb(253, 224, 71),
+                    palette.warning,
                     format!(
                         "🧭 {} | {:.0}°",
                         app.active_distance_display(),
@@ -296,11 +295,13 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     if !app.active_clubs.is_empty() {
         ui.horizontal_wrapped(|ui| {
             for club in &app.active_clubs {
-                let col = egui::Color32::from_rgb(
-                    club.badge_color.0,
-                    club.badge_color.1,
-                    club.badge_color.2,
-                );
+                let col = match club.code {
+                    "SP-OTC" => palette.danger,
+                    "SPCWC" => palette.accent,
+                    "CWOPS" => palette.warning,
+                    "FOC" => palette.accent_alt,
+                    _ => palette.info,
+                };
                 let text = match club.number {
                     Some(num) => format!("🎖 {} {}", club.code, num),
                     None => format!("🎖 {}", club.code),
@@ -314,20 +315,31 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     // Prognoza propagacji HF w czasie rzeczywistym
     if let Some(ref prop) = app.active_propagation {
         ui.horizontal_wrapped(|ui| {
-                    let prop_color = match prop.status {
-                        crate::core::propagation::BandOpeningStatus::Open => egui::Color32::from_rgb(34, 197, 94),
-                        crate::core::propagation::BandOpeningStatus::Marginal => egui::Color32::from_rgb(250, 204, 21),
-                        crate::core::propagation::BandOpeningStatus::Closed => egui::Color32::from_rgb(239, 68, 68),
-                    };
-                    let text = format!("📡 {}: {}% REL · {} ({}) · MUF {:.1} MHz",
-                        tr_or(lang, "Propagacja", "Propagation"),
-                        prop.reliability_pct, prop.signal_s_units, prop.layer, prop.muf_mhz);
-                    ui.colored_label(prop_color, egui::RichText::new(text).strong())
-                        .on_hover_text(format!(
-                            "HF VOACAP-lite:\nREL: {}%\nS-Meter: {}\nLayer: {}\nMUF: {:.1} MHz\nLUF: {:.1} MHz\nFOT/OWF: {:.1} MHz\nStatus: {}",
-                            prop.reliability_pct, prop.signal_s_units, prop.layer, prop.muf_mhz, prop.luf_mhz, prop.fot_mhz, prop.status.as_str()
-                        ));
-                });
+            let prop_color = match prop.status {
+                crate::core::propagation::BandOpeningStatus::Open => palette.success,
+                crate::core::propagation::BandOpeningStatus::Marginal => palette.warning,
+                crate::core::propagation::BandOpeningStatus::Closed => palette.danger,
+            };
+            let text = format!(
+                "📡 {}: {}% REL · {} ({}) · MUF {:.1} MHz",
+                tr_or(lang, "Propagacja", "Propagation"),
+                prop.reliability_pct,
+                prop.signal_s_units,
+                prop.layer,
+                prop.muf_mhz
+            );
+            ui.colored_label(prop_color, egui::RichText::new(text).strong())
+                .on_hover_text(format!(
+                    "HF VOACAP-lite:\nREL: {}%\nS-Meter: {}\nLayer: {}\nMUF: {:.1} MHz\nLUF: {:.1} MHz\nFOT/OWF: {:.1} MHz\nStatus: {}",
+                    prop.reliability_pct,
+                    prop.signal_s_units,
+                    prop.layer,
+                    prop.muf_mhz,
+                    prop.luf_mhz,
+                    prop.fot_mhz,
+                    prop.status.as_str()
+                ));
+        });
     }
 
     // Status dyplomowy (ATNO / New Band / Worked B4 / WAZ / WAS / WAC / IOTA / PGA)
@@ -336,56 +348,56 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             if award_st.is_worked_b4 {
                 ui.label(
                     egui::RichText::new("⚠ WORKED BEFORE (B4)")
-                        .color(egui::Color32::from_rgb(251, 146, 60))
+                        .color(palette.warning)
                         .strong(),
                 );
             } else {
                 if award_st.is_new_dxcc {
                     ui.label(
                         egui::RichText::new("⭐ NEW DXCC (ATNO)!")
-                            .color(egui::Color32::from_rgb(250, 204, 21))
+                            .color(palette.multiplier)
                             .strong(),
                     );
                 }
                 if award_st.is_new_band {
                     ui.label(
                         egui::RichText::new("✨ NEW BAND!")
-                            .color(egui::Color32::from_rgb(52, 211, 153))
+                            .color(palette.success)
                             .strong(),
                     );
                 }
                 if award_st.is_new_mode {
                     ui.label(
                         egui::RichText::new("🔹 NEW MODE!")
-                            .color(egui::Color32::from_rgb(56, 189, 248))
+                            .color(palette.accent)
                             .strong(),
                     );
                 }
                 if award_st.is_new_waz {
                     ui.label(
                         egui::RichText::new("🌐 NEW WAZ (ZONE)!")
-                            .color(egui::Color32::from_rgb(168, 85, 247))
+                            .color(palette.accent_alt)
                             .strong(),
                     );
                 }
                 if award_st.is_new_was {
                     ui.label(
                         egui::RichText::new("🇺🇸 NEW STATE (WAS)!")
-                            .color(egui::Color32::from_rgb(244, 63, 94))
+                            .color(palette.series(4))
                             .strong(),
                     );
                 }
                 if award_st.is_new_wac {
                     ui.label(
                         egui::RichText::new("🌍 NEW CONTINENT (WAC)!")
-                            .color(egui::Color32::from_rgb(234, 179, 8))
+                            .color(palette.warning)
                             .strong(),
                     );
                 }
                 if award_st.is_new_iota {
                     ui.label(
                         egui::RichText::new("🏝 NEW IOTA!")
-                            .color(egui::Color32::from_rgb(20, 184, 166))
+                            .color(palette.series(5))
                             .strong(),
                     );
                 }
@@ -396,7 +408,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                             "🇵🇱 NOWA GMINA PGA!",
                             "🇵🇱 NEW PGA MUNICIPALITY!",
                         ))
-                        .color(egui::Color32::from_rgb(34, 197, 94))
+                        .color(palette.success)
                         .strong(),
                     );
                 }
@@ -495,7 +507,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     gmina.name, gmina.powiat
                 ))
                 .small()
-                .color(egui::Color32::from_rgb(134, 239, 172)),
+                .color(palette.success),
             );
         }
     }
@@ -588,10 +600,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
 
         if let Some(ref mgr_rec) = app.active_qsl_manager_record {
-            ui.colored_label(
-                egui::Color32::from_rgb(34, 197, 94),
-                format!("✓ Mgr: {}", mgr_rec.manager),
-            );
+            ui.colored_label(palette.success, format!("✓ Mgr: {}", mgr_rec.manager));
         }
 
         if ui
@@ -611,7 +620,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ui.label(
                 egui::RichText::new(format!("{}:", tr(key::GEO_AZIMUTH, lang)))
                     .small()
-                    .color(egui::Color32::GRAY),
+                    .color(palette.text_muted),
             );
             if ui
                 .button(
@@ -651,7 +660,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             if ui
                 .button(
                     egui::RichText::new("⏹ STOP")
-                        .color(egui::Color32::WHITE)
+                        .color(palette.text_primary)
                         .strong(),
                 )
                 .on_hover_text(tr_or(
@@ -664,11 +673,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 let _ = crate::media::audio_recorder::AudioRecorder::stop_audio();
             }
         } else if ui
-            .button(
-                egui::RichText::new("● REC")
-                    .color(egui::Color32::from_rgb(239, 68, 68))
-                    .strong(),
-            )
+            .button(egui::RichText::new("● REC").color(palette.danger).strong())
             .on_hover_text(tr_or(
                 lang,
                 "Rozpocznij nagrywanie audio łączności (Audio Memo)",
@@ -690,9 +695,9 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             egui::Button::new(
                 egui::RichText::new(format!("💾 {}", tr(key::QSO_SAVE, lang)))
                     .strong()
-                    .color(egui::Color32::from_rgb(15, 23, 42)),
+                    .color(palette.selection_text),
             )
-            .fill(egui::Color32::from_rgb(56, 189, 248)),
+            .fill(palette.accent),
         );
         // Skrót Enter=Zapisz działa tylko, gdy fokus klawiatury jest na jednym z pól
         // tego panelu QSO Entry (a nie np. w Logbooku, DX Clusterze czy innym oknie),
@@ -728,7 +733,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ))
             .strong()
             .size(12.0)
-            .color(egui::Color32::from_rgb(251, 191, 36)),
+            .color(palette.warning),
         );
 
         egui::ScrollArea::vertical()
@@ -742,9 +747,9 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                             let is_dupe =
                                 prev.band == app.entry_band && prev.mode == app.entry_mode;
                             let color = if is_dupe {
-                                egui::Color32::from_rgb(239, 68, 68)
+                                palette.dupe
                             } else {
-                                egui::Color32::from_rgb(148, 163, 184)
+                                palette.text_muted
                             };
 
                             ui.label(egui::RichText::new(&prev.qso_date).color(color).size(11.0));
@@ -760,7 +765,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                                     .size(11.0),
                             );
                             if is_dupe {
-                                ui.colored_label(egui::Color32::from_rgb(239, 68, 68), "DUPE!");
+                                ui.colored_label(palette.dupe, "DUPE!");
                             } else {
                                 ui.label("");
                             }

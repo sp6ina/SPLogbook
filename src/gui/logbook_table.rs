@@ -3,6 +3,7 @@
 
 use crate::core::i18n::{key, tr};
 use crate::gui::app::SpLogApp;
+use crate::gui::theme::ThemeExt;
 use eframe::egui;
 use egui_extras::{Column, TableBuilder};
 
@@ -50,6 +51,7 @@ pub fn render_logbook_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 .hint_text(tr(key::QSO_SEARCH, lang))
                                 .desired_width(200.0),
                         );
+                        let palette = ui.palette();
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             ui.label(
                                 egui::RichText::new(format!(
@@ -58,7 +60,7 @@ pub fn render_logbook_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     app.recent_qsos.len()
                                 ))
                                 .size(11.0)
-                                .color(egui::Color32::from_rgb(148, 163, 184)),
+                                .color(palette.text_muted),
                             );
                         });
                     });
@@ -133,6 +135,7 @@ pub fn render_logbook_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     .hint_text(tr(key::QSO_SEARCH, lang))
                     .desired_width(180.0),
             );
+            let palette = ui.palette();
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.label(
                     egui::RichText::new(format!(
@@ -141,7 +144,7 @@ pub fn render_logbook_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         app.recent_qsos.len()
                     ))
                     .size(11.0)
-                    .color(egui::Color32::from_rgb(148, 163, 184)),
+                    .color(palette.text_muted),
                 );
             });
         });
@@ -309,6 +312,7 @@ fn normalize_digits_stack<const N: usize>(s: &str) -> [u8; N] {
 
 pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.current_language;
+    let palette = ui.palette();
     let query = app.log_search_query.trim().to_uppercase();
 
     // Filtrowanie (wyszukiwarka tekstowa + filtr drill-down ze statystyk) — bez alokacji na stercie dla ASCII
@@ -379,7 +383,7 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     label
                 ))
                 .size(12.0)
-                .color(egui::Color32::from_rgb(56, 189, 248)),
+                .color(palette.accent),
             );
             if ui
                 .small_button("✕")
@@ -457,8 +461,7 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             let count = app.selected_qso_ids.len();
             ui.label(
-                egui::RichText::new(format!("✔ Zaznaczono {count} QSO"))
-                    .color(egui::Color32::from_rgb(34, 197, 94)),
+                egui::RichText::new(format!("✔ Zaznaczono {count} QSO")).color(palette.success),
             );
             if ui
                 .button(format!("🗑 {}", tr(key::QSO_DELETE, lang)))
@@ -618,9 +621,9 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                         }
                         "callsign" => {
                             let call_color = if qso.lotw_qsl_rcvd == "Y" {
-                                egui::Color32::from_rgb(34, 197, 94)
+                                palette.qsl_rcvd
                             } else {
-                                egui::Color32::from_rgb(56, 189, 248)
+                                palette.accent
                             };
                             ui.label(
                                 egui::RichText::new(&qso.callsign)
@@ -632,10 +635,7 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                             ui.label(&qso.band);
                         }
                         "mode" => {
-                            ui.label(
-                                egui::RichText::new(&qso.mode)
-                                    .color(egui::Color32::from_rgb(251, 191, 36)),
-                            );
+                            ui.label(egui::RichText::new(&qso.mode).color(palette.warning));
                         }
                         "rst_s" => {
                             ui.label(&qso.rst_sent);
@@ -652,13 +652,13 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                         "qsl" => {
                             ui.horizontal(|ui| {
                                 if qso.lotw_qsl_rcvd == "Y" {
-                                    ui.colored_label(egui::Color32::from_rgb(34, 197, 94), "L");
+                                    ui.colored_label(palette.qsl_rcvd, "L");
                                 }
                                 if qso.eqsl_qsl_rcvd == "Y" {
-                                    ui.colored_label(egui::Color32::from_rgb(56, 189, 248), "E");
+                                    ui.colored_label(palette.qsl_sent, "E");
                                 }
                                 if qso.qsl_rcvd == "Y" {
-                                    ui.colored_label(egui::Color32::from_rgb(250, 204, 21), "Q");
+                                    ui.colored_label(palette.qsl_queued, "Q");
                                 }
                                 if qso.lotw_qsl_rcvd != "Y"
                                     && qso.eqsl_qsl_rcvd != "Y"
@@ -874,14 +874,15 @@ pub fn render_edit_qso_dialog(app: &mut SpLogApp, ctx: &egui::Context) {
                         );
                     });
                 });
+                let palette = ui.palette();
                 ui.horizontal(|ui| {
                     let save_btn = ui.add(
                         egui::Button::new(
                             egui::RichText::new(format!("💾 {}", tr(key::BTN_SAVE, lang)))
                                 .strong()
-                                .color(egui::Color32::from_rgb(15, 23, 42)),
+                                .color(palette.selection_text),
                         )
-                        .fill(egui::Color32::from_rgb(56, 189, 248)),
+                        .fill(palette.accent),
                     );
                     if save_btn.clicked() {
                         should_save = true;
