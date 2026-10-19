@@ -6,6 +6,7 @@ use crate::core::adif::export_adif;
 use crate::core::database::{AdvancedQsoFilter, LogDatabase};
 use crate::core::i18n::{Language, key, tr};
 use crate::core::qso::QsoRecord;
+use crate::gui::theme::ThemeExt;
 use eframe::egui;
 use std::fs::File;
 use std::io::Write;
@@ -75,6 +76,7 @@ impl AdvancedFilterDialog {
             .resizable(true)
             .default_width(520.0)
             .show(ctx, |ui| {
+                let palette = ui.palette();
                 ui.heading(tr(key::FILTER_CRITERIA_HEADING, lang));
                 ui.separator();
 
@@ -147,7 +149,7 @@ impl AdvancedFilterDialog {
                 ui.separator();
 
                 if let Some(ref msg) = self.status_message {
-                    ui.label(egui::RichText::new(msg).color(egui::Color32::LIGHT_BLUE));
+                    ui.label(egui::RichText::new(msg).color(palette.info));
                 }
 
                 ui.horizontal(|ui| {

@@ -5,6 +5,7 @@
 
 use crate::core::i18n::{key, tr};
 use crate::gui::app::{DrillFilter, QslDrillStatus, SpLogApp};
+use crate::gui::theme::ThemeExt;
 use eframe::egui;
 
 pub fn render_statistics_window(app: &mut SpLogApp, ctx: &egui::Context) {
@@ -24,11 +25,12 @@ pub fn render_statistics_window(app: &mut SpLogApp, ctx: &egui::Context) {
     .min_size([500.0, 400.0])
     .resizable(true)
     .show(ctx, |ui| {
+        let palette = ui.palette();
         ui.horizontal(|ui| {
             ui.heading(
                 egui::RichText::new(tr(key::STATS_CENTER_TITLE, lang))
                     .size(15.0)
-                    .color(egui::Color32::from_rgb(56, 189, 248)),
+                    .color(palette.accent),
             );
         });
         ui.add_space(2.0);
@@ -215,6 +217,7 @@ fn bar_chart_clickable(
         ui.label(empty_text);
         return None;
     }
+    let palette = ui.palette();
     let max_val = data.iter().map(|(_, v)| *v).max().unwrap_or(1).max(1);
     let chart_h = 220.0f32;
     let bar_w = ((ui.available_width() - 60.0) / data.len() as f32).clamp(4.0, 60.0);
@@ -256,7 +259,7 @@ fn bar_chart_clickable(
                     painter.rect_stroke(
                         bar_rect,
                         2.0,
-                        egui::Stroke::new(1.0_f32, egui::Color32::WHITE),
+                        egui::Stroke::new(1.0_f32, palette.text_primary),
                         egui::StrokeKind::Inside,
                     );
                 }
@@ -270,7 +273,7 @@ fn bar_chart_clickable(
                 egui::Align2::CENTER_BOTTOM,
                 format!("{val}"),
                 egui::FontId::proportional(10.0),
-                egui::Color32::WHITE,
+                palette.text_primary,
             );
         }
 
@@ -281,7 +284,7 @@ fn bar_chart_clickable(
             egui::Align2::CENTER_TOP,
             &short_label,
             egui::FontId::proportional(9.0),
-            egui::Color32::from_rgb(148, 163, 184),
+            palette.text_muted,
         );
     }
 
@@ -291,7 +294,7 @@ fn bar_chart_clickable(
             egui::pos2(origin.x + 28.0, origin.y + chart_h),
             egui::pos2(origin.x + total_w, origin.y + chart_h),
         ],
-        egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(100, 116, 139)),
+        egui::Stroke::new(1.0_f32, palette.border_subtle),
     );
 
     clicked
@@ -299,22 +302,18 @@ fn bar_chart_clickable(
 
 fn render_tab_monthly(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.current_language;
+    let palette = ui.palette();
     ui.label(egui::RichText::new(tr(key::STATS_MONTHLY_DIST, lang)).strong());
     ui.label(
         egui::RichText::new(tr(key::STATS_DRILLDOWN_HINT, lang))
             .size(10.5)
-            .color(egui::Color32::from_rgb(148, 163, 184)),
+            .color(palette.text_muted),
     );
     ui.add_space(4.0);
     let data = get_stats_monthly(app);
     let mut clicked: Option<usize> = None;
     egui::ScrollArea::horizontal().show(ui, |ui| {
-        clicked = bar_chart_clickable(
-            ui,
-            &data,
-            egui::Color32::from_rgb(56, 189, 248),
-            tr(key::LOG_NO_RESULTS, lang),
-        );
+        clicked = bar_chart_clickable(ui, &data, palette.series(0), tr(key::LOG_NO_RESULTS, lang));
     });
     if let Some(i) = clicked {
         if let Some((month, _)) = data.get(i) {
@@ -343,20 +342,18 @@ fn render_tab_monthly(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
 fn render_tab_bands(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.current_language;
+    let palette = ui.palette();
     ui.label(egui::RichText::new(tr(key::STATS_BANDS_DIST, lang)).strong());
     ui.label(
         egui::RichText::new(tr(key::STATS_DRILLDOWN_HINT, lang))
             .size(10.5)
-            .color(egui::Color32::from_rgb(148, 163, 184)),
+            .color(palette.text_muted),
     );
     ui.add_space(4.0);
     let data = get_stats_band(app);
-    if let Some(i) = bar_chart_clickable(
-        ui,
-        &data,
-        egui::Color32::from_rgb(251, 191, 36),
-        tr(key::LOG_NO_RESULTS, lang),
-    ) {
+    if let Some(i) =
+        bar_chart_clickable(ui, &data, palette.series(1), tr(key::LOG_NO_RESULTS, lang))
+    {
         if let Some((band, _)) = data.get(i) {
             app.drill_down(DrillFilter::Band(band.clone()));
         }
@@ -372,7 +369,7 @@ fn render_tab_bands(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ui.end_row();
             let total: i64 = data.iter().map(|(_, v)| v).sum::<i64>().max(1);
             for (band, cnt) in &data {
-                ui.colored_label(egui::Color32::from_rgb(251, 191, 36), band);
+                ui.colored_label(palette.series(1), band);
                 ui.label(format!("{cnt}"));
                 ui.label(format!("{:.1}%", *cnt as f64 / total as f64 * 100.0));
                 ui.end_row();
@@ -382,20 +379,18 @@ fn render_tab_bands(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
 fn render_tab_modes(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.current_language;
+    let palette = ui.palette();
     ui.label(egui::RichText::new(tr(key::STATS_MODES_DIST, lang)).strong());
     ui.label(
         egui::RichText::new(tr(key::STATS_DRILLDOWN_HINT, lang))
             .size(10.5)
-            .color(egui::Color32::from_rgb(148, 163, 184)),
+            .color(palette.text_muted),
     );
     ui.add_space(4.0);
     let data = get_stats_mode(app);
-    if let Some(i) = bar_chart_clickable(
-        ui,
-        &data,
-        egui::Color32::from_rgb(34, 197, 94),
-        tr(key::LOG_NO_RESULTS, lang),
-    ) {
+    if let Some(i) =
+        bar_chart_clickable(ui, &data, palette.series(2), tr(key::LOG_NO_RESULTS, lang))
+    {
         if let Some((mode, _)) = data.get(i) {
             app.drill_down(DrillFilter::Mode(mode.clone()));
         }
@@ -411,7 +406,7 @@ fn render_tab_modes(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ui.end_row();
             let total: i64 = data.iter().map(|(_, v)| v).sum::<i64>().max(1);
             for (mode, cnt) in &data {
-                ui.colored_label(egui::Color32::from_rgb(34, 197, 94), mode);
+                ui.colored_label(palette.series(2), mode);
                 ui.label(format!("{cnt}"));
                 ui.label(format!("{:.1}%", *cnt as f64 / total as f64 * 100.0));
                 ui.end_row();
@@ -421,11 +416,12 @@ fn render_tab_modes(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
 fn render_tab_hourly(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.current_language;
+    let palette = ui.palette();
     ui.label(egui::RichText::new(tr(key::STATS_ACTIVITY_HISTOGRAM, lang)).strong());
     ui.label(
         egui::RichText::new(tr(key::STATS_DRILLDOWN_HINT, lang))
             .size(10.5)
-            .color(egui::Color32::from_rgb(148, 163, 184)),
+            .color(palette.text_muted),
     );
     ui.add_space(4.0);
     let raw = get_stats_hourly(app);
@@ -443,12 +439,7 @@ fn render_tab_hourly(app: &mut SpLogApp, ui: &mut egui::Ui) {
     }
     let mut clicked: Option<usize> = None;
     egui::ScrollArea::horizontal().show(ui, |ui| {
-        clicked = bar_chart_clickable(
-            ui,
-            &hours,
-            egui::Color32::from_rgb(147, 197, 253),
-            tr(key::LOG_NO_RESULTS, lang),
-        );
+        clicked = bar_chart_clickable(ui, &hours, palette.series(3), tr(key::LOG_NO_RESULTS, lang));
     });
     if let Some(i) = clicked {
         if i < 24 {
@@ -472,11 +463,12 @@ fn render_tab_hourly(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
 fn render_tab_countries(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.current_language;
+    let palette = ui.palette();
     ui.label(egui::RichText::new(tr(key::STATS_TOP_COUNTRIES_TITLE, lang)).strong());
     ui.label(
         egui::RichText::new(tr(key::STATS_DRILLDOWN_HINT, lang))
             .size(10.5)
-            .color(egui::Color32::from_rgb(148, 163, 184)),
+            .color(palette.text_muted),
     );
     ui.add_space(4.0);
     let data = get_stats_countries(app);
@@ -496,9 +488,7 @@ fn render_tab_countries(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
                 for (rank, (country, cnt)) in data.iter().enumerate() {
                     ui.label(format!("{}.", rank + 1));
-                    let resp = ui.link(
-                        egui::RichText::new(country).color(egui::Color32::from_rgb(56, 189, 248)),
-                    );
+                    let resp = ui.link(egui::RichText::new(country).color(palette.accent));
                     if resp.clicked() {
                         clicked_country = Some(country.clone());
                     }
@@ -509,7 +499,7 @@ fn render_tab_countries(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     ui.add(
                         egui::ProgressBar::new(progress)
                             .desired_width(160.0)
-                            .fill(egui::Color32::from_rgb(56, 189, 248)),
+                            .fill(palette.accent),
                     );
                     ui.end_row();
                 }
@@ -523,12 +513,13 @@ fn render_tab_countries(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
 fn render_tab_qsl(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.current_language;
+    let palette = ui.palette();
     let (total, lotw, eqsl, paper) = get_stats_qsl(app);
     ui.label(egui::RichText::new(tr(key::STATS_QSL_SUMMARY_TITLE, lang)).strong());
     ui.label(
         egui::RichText::new(tr(key::STATS_DRILLDOWN_HINT, lang))
             .size(10.5)
-            .color(egui::Color32::from_rgb(148, 163, 184)),
+            .color(palette.text_muted),
     );
     ui.add_space(8.0);
 
@@ -546,14 +537,14 @@ fn render_tab_qsl(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ui.label(
                 egui::RichText::new(format!("{total}"))
                     .size(18.0)
-                    .color(egui::Color32::WHITE),
+                    .color(palette.text_primary),
             );
             ui.end_row();
 
             ui.label(
                 egui::RichText::new(format!("{}:", tr(key::STATS_LOTW_CONFIRMED_LABEL, lang)))
                     .strong()
-                    .color(egui::Color32::from_rgb(34, 197, 94)),
+                    .color(palette.success),
             );
             ui.label(
                 egui::RichText::new(format!(
@@ -561,14 +552,14 @@ fn render_tab_qsl(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     lotw,
                     lotw as f64 / total as f64 * 100.0
                 ))
-                .color(egui::Color32::from_rgb(34, 197, 94)),
+                .color(palette.success),
             );
             ui.end_row();
 
             ui.label(
                 egui::RichText::new(format!("{}:", tr(key::STATS_EQSL_CONFIRMED_LABEL, lang)))
                     .strong()
-                    .color(egui::Color32::from_rgb(56, 189, 248)),
+                    .color(palette.accent),
             );
             ui.label(
                 egui::RichText::new(format!(
@@ -576,14 +567,14 @@ fn render_tab_qsl(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     eqsl,
                     eqsl as f64 / total as f64 * 100.0
                 ))
-                .color(egui::Color32::from_rgb(56, 189, 248)),
+                .color(palette.accent),
             );
             ui.end_row();
 
             ui.label(
                 egui::RichText::new(format!("{}:", tr(key::STATS_PAPER_QSL_LABEL, lang)))
                     .strong()
-                    .color(egui::Color32::from_rgb(250, 204, 21)),
+                    .color(palette.warning),
             );
             ui.label(
                 egui::RichText::new(format!(
@@ -591,7 +582,7 @@ fn render_tab_qsl(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     paper,
                     paper as f64 / total as f64 * 100.0
                 ))
-                .color(egui::Color32::from_rgb(250, 204, 21)),
+                .color(palette.warning),
             );
             ui.end_row();
 
@@ -599,7 +590,7 @@ fn render_tab_qsl(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ui.label(
                 egui::RichText::new(format!("{}:", tr(key::STATS_UNCONFIRMED_LABEL, lang)))
                     .strong()
-                    .color(egui::Color32::from_rgb(100, 116, 139)),
+                    .color(palette.text_muted),
             );
             ui.label(
                 egui::RichText::new(format!(
@@ -607,7 +598,7 @@ fn render_tab_qsl(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     unconfirmed,
                     unconfirmed as f64 / total as f64 * 100.0
                 ))
-                .color(egui::Color32::from_rgb(100, 116, 139)),
+                .color(palette.text_muted),
             );
             ui.end_row();
         });
@@ -626,12 +617,9 @@ fn render_tab_qsl(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ("Papier".to_string(), paper),
         ("Brak".to_string(), unconfirmed),
     ];
-    if let Some(i) = bar_chart_clickable(
-        ui,
-        &bar_data,
-        egui::Color32::from_rgb(56, 189, 248),
-        tr(key::LOG_NO_RESULTS, lang),
-    ) {
+    if let Some(i) =
+        bar_chart_clickable(ui, &bar_data, palette.accent, tr(key::LOG_NO_RESULTS, lang))
+    {
         let filter = match i {
             0 => QslDrillStatus::Lotw,
             1 => QslDrillStatus::Eqsl,

@@ -5,6 +5,7 @@
 use crate::core::awards::AwardsEngine;
 use crate::core::i18n::{Language, key, tr, tr_or};
 use crate::core::service_db::{IotaRecord, ServiceDatabase};
+use crate::gui::theme::{Palette, ThemeExt};
 use eframe::egui;
 
 /// Status dyplomowy pojedynczej referencji IOTA względem dziennika.
@@ -29,16 +30,18 @@ impl RefStatus {
         }
     }
 
-    fn label(&self, lang: Language) -> egui::RichText {
+    fn label(&self, lang: Language, palette: &Palette) -> egui::RichText {
         match self {
             RefStatus::Confirmed => {
                 egui::RichText::new(tr_or(lang, "✔ Potwierdzone", "✔ Confirmed"))
-                    .color(egui::Color32::from_rgb(56, 189, 248))
+                    .color(palette.accent)
             }
-            RefStatus::Worked => egui::RichText::new(tr_or(lang, "✔ Zaliczona", "✔ Worked"))
-                .color(egui::Color32::from_rgb(34, 197, 94)),
-            RefStatus::Needed => egui::RichText::new(tr_or(lang, "— Potrzebna", "— Needed"))
-                .color(egui::Color32::from_rgb(248, 113, 113)),
+            RefStatus::Worked => {
+                egui::RichText::new(tr_or(lang, "✔ Zaliczona", "✔ Worked")).color(palette.success)
+            }
+            RefStatus::Needed => {
+                egui::RichText::new(tr_or(lang, "— Potrzebna", "— Needed")).color(palette.danger)
+            }
         }
     }
 }
@@ -90,6 +93,7 @@ impl IotaBrowserDialog {
         .resizable(true)
         .default_width(580.0)
         .show(ctx, |ui| {
+            let palette = ui.palette();
             ui.horizontal(|ui| {
                 ui.label(tr_or(
                     lang,
@@ -144,14 +148,13 @@ impl IotaBrowserDialog {
                                 ui.label(
                                     egui::RichText::new(&item.iota)
                                         .strong()
-                                        .color(egui::Color32::from_rgb(56, 189, 248)),
+                                        .color(palette.accent),
                                 );
-                                ui.label(
-                                    egui::RichText::new(&item.prefix)
-                                        .color(egui::Color32::from_rgb(251, 191, 36)),
-                                );
+                                ui.label(egui::RichText::new(&item.prefix).color(palette.warning));
                                 ui.label(&item.name);
-                                ui.label(RefStatus::of_iota(awards, &item.iota).label(lang));
+                                ui.label(
+                                    RefStatus::of_iota(awards, &item.iota).label(lang, &palette),
+                                );
 
                                 if ui
                                     .button(tr_or(lang, "Wybierz", "Select"))
@@ -179,7 +182,7 @@ impl IotaBrowserDialog {
                         "Database contains 1,190 official RSGB IOTA island groups.",
                     ))
                     .small()
-                    .color(egui::Color32::GRAY),
+                    .color(palette.text_muted),
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button(tr(key::BTN_CLOSE, lang)).clicked() {

@@ -10,17 +10,7 @@ use std::path::Path;
 /// Pliki oczekujące na migrację w kolejnych krokach THEME-3 do THEME-7.
 /// Każdy oczyszczony plik jest usuwany z tej listy w commicie danej migracji.
 /// Po ukończeniu THEME-8 lista musi być pusta.
-const PENDING_FILES: &[&str] = &[
-    "src/gui/advanced_filter.rs",
-    "src/gui/awards_matrix.rs",
-    "src/gui/iota_browser.rs",
-    "src/gui/online_sync.rs",
-    "src/gui/qsl_designer.rs",
-    "src/gui/solar_panel.rs",
-    "src/gui/states_browser.rs",
-    "src/gui/statistics.rs",
-    "src/gui/world_map.rs",
-];
+const PENDING_FILES: &[&str] = &["src/gui/qsl_designer.rs", "src/gui/world_map.rs"];
 
 const FORBIDDEN_CONSTRUCTORS: &[&str] = &[
     "Color32::from_rgb",

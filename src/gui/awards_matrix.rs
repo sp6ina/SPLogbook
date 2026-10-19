@@ -4,6 +4,7 @@
 use crate::core::awards::US_STATES;
 use crate::core::i18n::{Language, key, tr, tr_or};
 use crate::gui::app::SpLogApp;
+use crate::gui::theme::ThemeExt;
 use eframe::egui;
 
 /// Okno matrycy dyplomowej (DXCC, WAZ, WAS, WAC, WPX, VUCC, IOTA, SOTA, POTA, PGA)
@@ -26,6 +27,7 @@ pub fn render_awards_matrix_window(app: &mut SpLogApp, ctx: &egui::Context) {
     .min_size([500.0, 360.0])
     .resizable(true)
     .show(ctx, |ui| {
+        let palette = ui.palette();
         ui.vertical(|ui| {
             ui.horizontal(|ui| {
                 ui.heading(
@@ -35,7 +37,7 @@ pub fn render_awards_matrix_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         "SPLogbook Awards Achievement Center",
                     ))
                     .size(15.0)
-                    .color(egui::Color32::from_rgb(56, 189, 248)),
+                    .color(palette.accent),
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     crate::gui::user_manual::help_button(app, ui, "awards");
@@ -114,17 +116,18 @@ pub fn render_awards_matrix_window(app: &mut SpLogApp, ctx: &egui::Context) {
 }
 
 fn render_legend(ui: &mut egui::Ui, lang: Language) {
+    let palette = ui.palette();
     ui.horizontal(|ui| {
         ui.colored_label(
-            egui::Color32::from_rgb(34, 197, 94),
+            palette.success,
             tr_or(lang, "■ Potwierdzone (QSL/LoTW)", "■ Confirmed (QSL/LoTW)"),
         );
         ui.colored_label(
-            egui::Color32::from_rgb(250, 204, 21),
+            palette.warning,
             tr_or(lang, "■ Zrobione (Worked)", "■ Worked"),
         );
         ui.colored_label(
-            egui::Color32::from_rgb(100, 116, 139),
+            palette.text_muted,
             tr_or(lang, "■ Potrzebne (Needed)", "■ Needed"),
         );
     });
@@ -136,6 +139,7 @@ fn render_tab_dxcc(
     awards: &crate::core::awards::AwardsEngine,
     lang: Language,
 ) {
+    let palette = ui.palette();
     let worked_dxcc = awards.worked_dxcc_all.len();
     let conf_dxcc = awards.confirmed_dxcc.len();
     let total_qsos = app.recent_qsos.len();
@@ -150,7 +154,7 @@ fn render_tab_dxcc(
                 ))
                 .strong()
                 .size(12.0)
-                .color(egui::Color32::from_rgb(250, 204, 21)),
+                .color(palette.warning),
             );
             ui.label(format!(
                 "{}: {worked_dxcc} | {}: {conf_dxcc}",
@@ -164,7 +168,7 @@ fn render_tab_dxcc(
                 egui::RichText::new(tr_or(lang, "📊 Pasmo-Kraje", "📊 Band-Countries"))
                     .strong()
                     .size(12.0)
-                    .color(egui::Color32::from_rgb(56, 189, 248)),
+                    .color(palette.accent),
             );
             ui.label(format!(
                 "{}: {} band-slots",
@@ -178,7 +182,7 @@ fn render_tab_dxcc(
                 egui::RichText::new(tr_or(lang, "📋 Łącznie w logu", "📋 Total in log"))
                     .strong()
                     .size(12.0)
-                    .color(egui::Color32::from_rgb(216, 180, 254)),
+                    .color(palette.accent),
             );
             ui.label(format!("{total_qsos} {}", tr_or(lang, "łączności", "QSOs")));
         });
@@ -242,32 +246,18 @@ fn render_tab_dxcc(
                 ui.end_row();
 
                 for (bi, band) in bands.iter().enumerate() {
-                    ui.label(
-                        egui::RichText::new(*band)
-                            .strong()
-                            .color(egui::Color32::from_rgb(56, 189, 248)),
-                    );
+                    ui.label(egui::RichText::new(*band).strong().color(palette.accent));
 
                     for mi in 0..modes.len() {
                         let worked = worked[bi][mi];
                         let confirmed = confirmed[bi][mi];
 
                         if confirmed {
-                            ui.label(
-                                egui::RichText::new("✓ C")
-                                    .color(egui::Color32::from_rgb(34, 197, 94))
-                                    .strong(),
-                            );
+                            ui.label(egui::RichText::new("✓ C").color(palette.success).strong());
                         } else if worked {
-                            ui.label(
-                                egui::RichText::new("● W")
-                                    .color(egui::Color32::from_rgb(250, 204, 21)),
-                            );
+                            ui.label(egui::RichText::new("● W").color(palette.warning));
                         } else {
-                            ui.label(
-                                egui::RichText::new("-")
-                                    .color(egui::Color32::from_rgb(100, 116, 139)),
-                            );
+                            ui.label(egui::RichText::new("-").color(palette.text_muted));
                         }
                     }
 
@@ -275,7 +265,7 @@ fn render_tab_dxcc(
                     ui.label(
                         egui::RichText::new(format!("{band_qsos} QSO"))
                             .size(11.0)
-                            .color(egui::Color32::from_rgb(148, 163, 184)),
+                            .color(palette.text_muted),
                     );
                     ui.end_row();
                 }
@@ -284,6 +274,7 @@ fn render_tab_dxcc(
 }
 
 fn render_tab_waz(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine, lang: Language) {
+    let palette = ui.palette();
     let worked_count = awards.worked_waz.len();
     let conf_count = awards.confirmed_waz.len();
 
@@ -297,7 +288,7 @@ fn render_tab_waz(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine,
                 ))
                 .strong()
                 .size(13.0)
-                .color(egui::Color32::from_rgb(56, 189, 248)),
+                .color(palette.accent),
             );
             ui.label(format!(
                 "{}: {} / 40 | {}: {} / 40 | {}: {}",
@@ -325,11 +316,11 @@ fn render_tab_waz(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine,
                     let is_wrk = awards.worked_waz.contains(&zone);
 
                     let (color, mark) = if is_conf {
-                        (egui::Color32::from_rgb(34, 197, 94), "✓")
+                        (palette.success, "✓")
                     } else if is_wrk {
-                        (egui::Color32::from_rgb(250, 204, 21), "●")
+                        (palette.warning, "●")
                     } else {
-                        (egui::Color32::from_rgb(100, 116, 139), "-")
+                        (palette.text_muted, "-")
                     };
 
                     ui.group(|ui| {
@@ -352,6 +343,7 @@ fn render_tab_waz(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine,
 }
 
 fn render_tab_was(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine, lang: Language) {
+    let palette = ui.palette();
     let worked_count = awards.worked_was.len();
     let conf_count = awards.confirmed_was.len();
 
@@ -365,7 +357,7 @@ fn render_tab_was(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine,
                 ))
                 .strong()
                 .size(13.0)
-                .color(egui::Color32::from_rgb(244, 63, 94)),
+                .color(palette.danger),
             );
             ui.label(format!(
                 "{}: {} / 50 | {}: {} / 50 | {}: {}",
@@ -393,11 +385,11 @@ fn render_tab_was(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine,
                     let is_wrk = awards.worked_was.contains(*st);
 
                     let (color, mark) = if is_conf {
-                        (egui::Color32::from_rgb(34, 197, 94), "✓")
+                        (palette.success, "✓")
                     } else if is_wrk {
-                        (egui::Color32::from_rgb(250, 204, 21), "●")
+                        (palette.warning, "●")
                     } else {
-                        (egui::Color32::from_rgb(100, 116, 139), "-")
+                        (palette.text_muted, "-")
                     };
 
                     ui.group(|ui| {
@@ -416,6 +408,7 @@ fn render_tab_was(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine,
 }
 
 fn render_tab_wac(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine, lang: Language) {
+    let palette = ui.palette();
     let worked_count = awards.worked_wac.len();
     let conf_count = awards.confirmed_wac.len();
 
@@ -429,7 +422,7 @@ fn render_tab_wac(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine,
                 ))
                 .strong()
                 .size(13.0)
-                .color(egui::Color32::from_rgb(234, 179, 8)),
+                .color(palette.warning),
             );
             ui.label(format!(
                 "{}: {worked_count} / 7 | {}: {conf_count} / 7",
@@ -470,24 +463,24 @@ fn render_tab_wac(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine,
                         egui::RichText::new(code)
                             .strong()
                             .size(13.0)
-                            .color(egui::Color32::from_rgb(56, 189, 248)),
+                            .color(palette.accent),
                     );
                     ui.label(name);
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if is_conf {
                             ui.colored_label(
-                                egui::Color32::from_rgb(34, 197, 94),
+                                palette.success,
                                 tr_or(lang, "✓ POTWIERDZONY (Confirmed)", "✓ CONFIRMED"),
                             );
                         } else if is_wrk {
                             ui.colored_label(
-                                egui::Color32::from_rgb(250, 204, 21),
+                                palette.warning,
                                 tr_or(lang, "● ZROBIONY (Worked)", "● WORKED"),
                             );
                         } else {
                             ui.colored_label(
-                                egui::Color32::from_rgb(100, 116, 139),
+                                palette.text_muted,
                                 tr_or(lang, "- POTRZEBNY (Needed)", "- NEEDED"),
                             );
                         }
@@ -505,6 +498,7 @@ fn render_tab_other(
     awards: &crate::core::awards::AwardsEngine,
     lang: Language,
 ) {
+    let palette = ui.palette();
     ui.vertical(|ui| {
         // Podmenu programów dyplomowych
         ui.horizontal_wrapped(|ui| {
@@ -529,32 +523,32 @@ fn render_tab_other(
         let (title, color, details_map) = match *subtab {
             0 => (
                 tr_or(lang, "CQ WPX (Prefiksy)", "CQ WPX (Prefixes)"),
-                egui::Color32::from_rgb(56, 189, 248),
+                palette.accent,
                 &awards.details_wpx,
             ),
             1 => (
                 tr_or(lang, "RSGB IOTA (Wyspy Świata)", "RSGB IOTA (Islands On The Air)"),
-                egui::Color32::from_rgb(20, 184, 166),
+                palette.success,
                 &awards.details_iota,
             ),
             2 => (
                 tr_or(lang, "ARRL VUCC (Kwadraty Maidenhead VHF/UHF)", "ARRL VUCC (Maidenhead Grids VHF/UHF)"),
-                egui::Color32::from_rgb(168, 85, 247),
+                palette.series(2),
                 &awards.details_vucc,
             ),
             3 => (
                 tr_or(lang, "SOTA (Szczyty Górskie)", "SOTA (Summits On The Air)"),
-                egui::Color32::from_rgb(234, 179, 8),
+                palette.warning,
                 &awards.details_sota,
             ),
             4 => (
                 tr_or(lang, "POTA (Parki Krajobrazowe)", "POTA (Parks On The Air)"),
-                egui::Color32::from_rgb(34, 197, 94),
+                palette.series(1),
                 &awards.details_pota,
             ),
             _ => (
                 tr_or(lang, "PGA (Polska Gmina Award)", "PGA (Polish Municipality Award)"),
-                egui::Color32::from_rgb(239, 68, 68),
+                palette.danger,
                 &awards.details_pga,
             ),
         };
@@ -635,7 +629,7 @@ fn render_tab_other(
                             "No QSOs recorded for this award in the current logbook.",
                         ))
                         .size(12.0)
-                        .color(egui::Color32::from_rgb(148, 163, 184)),
+                        .color(palette.text_muted),
                     );
                     ui.label(tr_or(
                         lang,
@@ -650,7 +644,7 @@ fn render_tab_other(
                             "No results matching the search query.",
                         ))
                         .size(12.0)
-                        .color(egui::Color32::from_rgb(251, 146, 60)),
+                        .color(palette.warning),
                     );
                 }
             });
@@ -662,13 +656,13 @@ fn render_tab_other(
                     .min_col_width(60.0)
                     .show(ui, |ui| {
                         // Nagłówek tabeli
-                        ui.label(egui::RichText::new(tr_or(lang, "Kod", "Code")).strong().color(egui::Color32::from_rgb(203, 213, 225)));
-                        ui.label(egui::RichText::new(tr_or(lang, "Łączności", "QSOs")).strong().color(egui::Color32::from_rgb(203, 213, 225)));
-                        ui.label(egui::RichText::new(tr_or(lang, "Ostatni znak", "Last Callsign")).strong().color(egui::Color32::from_rgb(203, 213, 225)));
-                        ui.label(egui::RichText::new(tr_or(lang, "Pasmo", "Band")).strong().color(egui::Color32::from_rgb(203, 213, 225)));
-                        ui.label(egui::RichText::new(tr_or(lang, "Emisja", "Mode")).strong().color(egui::Color32::from_rgb(203, 213, 225)));
-                        ui.label(egui::RichText::new(tr_or(lang, "Data QSO", "QSO Date")).strong().color(egui::Color32::from_rgb(203, 213, 225)));
-                        ui.label(egui::RichText::new("Status").strong().color(egui::Color32::from_rgb(203, 213, 225)));
+                        ui.label(egui::RichText::new(tr_or(lang, "Kod", "Code")).strong().color(palette.text_muted));
+                        ui.label(egui::RichText::new(tr_or(lang, "Łączności", "QSOs")).strong().color(palette.text_muted));
+                        ui.label(egui::RichText::new(tr_or(lang, "Ostatni znak", "Last Callsign")).strong().color(palette.text_muted));
+                        ui.label(egui::RichText::new(tr_or(lang, "Pasmo", "Band")).strong().color(palette.text_muted));
+                        ui.label(egui::RichText::new(tr_or(lang, "Emisja", "Mode")).strong().color(palette.text_muted));
+                        ui.label(egui::RichText::new(tr_or(lang, "Data QSO", "QSO Date")).strong().color(palette.text_muted));
+                        ui.label(egui::RichText::new("Status").strong().color(palette.text_muted));
                         ui.end_row();
 
                         for key in filtered_keys {
@@ -685,12 +679,12 @@ fn render_tab_other(
 
                                 if is_conf {
                                     ui.colored_label(
-                                        egui::Color32::from_rgb(34, 197, 94),
+                                        palette.success,
                                         tr_or(lang, "✓ POTWIERDZONE", "✓ CONFIRMED"),
                                     );
                                 } else {
                                     ui.colored_label(
-                                        egui::Color32::from_rgb(250, 204, 21),
+                                        palette.warning,
                                         tr_or(lang, "● ZROBIONE", "● WORKED"),
                                     );
                                 }
@@ -704,12 +698,13 @@ fn render_tab_other(
 }
 
 fn render_tab_sp_dx(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine, lang: Language) {
+    let palette = ui.palette();
     ui.vertical(|ui| {
         ui.horizontal(|ui| {
             ui.heading(
                 egui::RichText::new("🇵🇱 SP DX Award — Worked Polish Districts")
                     .size(14.0)
-                    .color(egui::Color32::from_rgb(220, 38, 38)),
+                    .color(palette.danger),
             );
         });
 
@@ -719,7 +714,7 @@ fn render_tab_sp_dx(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngin
 
         ui.horizontal(|ui| {
             ui.colored_label(
-                egui::Color32::from_rgb(250, 204, 21),
+                palette.warning,
                 format!(
                     "{}: {worked}/{total}",
                     tr_or(lang, "Pracowane okręgi", "Worked districts")
@@ -727,7 +722,7 @@ fn render_tab_sp_dx(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngin
             );
             ui.separator();
             ui.colored_label(
-                egui::Color32::from_rgb(34, 197, 94),
+                palette.success,
                 format!(
                     "{}: {confirmed}/{total}",
                     tr_or(lang, "Potwierdzone", "Confirmed")
@@ -763,11 +758,11 @@ fn render_tab_sp_dx(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngin
                         let worked = awards.worked_sp_districts.contains(*district);
 
                         let color = if confirmed {
-                            egui::Color32::from_rgb(34, 197, 94)
+                            palette.success
                         } else if worked {
-                            egui::Color32::from_rgb(250, 204, 21)
+                            palette.warning
                         } else {
-                            egui::Color32::from_rgb(100, 116, 139)
+                            palette.text_muted
                         };
 
                         ui.colored_label(color, format!("■ {district}"));
@@ -787,11 +782,12 @@ fn render_tab_sp_dx(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngin
 }
 
 fn render_tab_wae(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine, lang: Language) {
+    let palette = ui.palette();
     ui.vertical(|ui| {
         ui.heading(
             egui::RichText::new("🌍 WAE — Worked All Europe")
                 .size(14.0)
-                .color(egui::Color32::from_rgb(56, 189, 248)),
+                .color(palette.accent),
         );
 
         let worked = awards.worked_wae.len();
@@ -800,12 +796,12 @@ fn render_tab_wae(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine,
 
         ui.horizontal(|ui| {
             ui.colored_label(
-                egui::Color32::from_rgb(250, 204, 21),
+                palette.warning,
                 format!("{}: {worked}/{total}", tr_or(lang, "Pracowane", "Worked")),
             );
             ui.separator();
             ui.colored_label(
-                egui::Color32::from_rgb(34, 197, 94),
+                palette.success,
                 format!(
                     "{}: {confirmed}/{total}",
                     tr_or(lang, "Potwierdzone", "Confirmed")
@@ -817,7 +813,7 @@ fn render_tab_wae(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine,
         ui.add(
             egui::ProgressBar::new(progress)
                 .text(format!("{:.0}%", progress * 100.0))
-                .fill(egui::Color32::from_rgb(56, 189, 248)),
+                .fill(palette.accent),
         );
 
         ui.add_space(4.0);
@@ -834,15 +830,15 @@ fn render_tab_wae(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine,
         ui.separator();
         ui.horizontal(|ui| {
             ui.colored_label(
-                egui::Color32::from_rgb(34, 197, 94),
+                palette.success,
                 tr_or(lang, "■ Potwierdzone", "■ Confirmed"),
             );
             ui.colored_label(
-                egui::Color32::from_rgb(250, 204, 21),
+                palette.warning,
                 tr_or(lang, "■ Pracowane", "■ Worked"),
             );
             ui.colored_label(
-                egui::Color32::from_rgb(100, 116, 139),
+                palette.text_muted,
                 tr_or(lang, "■ Potrzebne", "■ Needed"),
             );
         });

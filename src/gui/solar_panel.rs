@@ -5,6 +5,7 @@ use crate::cloud::solar::BandCondition;
 use crate::core::i18n::{key, tr, tr_or};
 use crate::gui::app::SpLogApp;
 use crate::gui::text_sparkline;
+use crate::gui::theme::ThemeExt;
 use eframe::egui;
 
 pub fn render_solar_window(app: &mut SpLogApp, ctx: &egui::Context) {
@@ -134,13 +135,14 @@ pub fn render_solar_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
 pub fn render_solar_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.current_language;
+    let palette = ui.palette();
 
     // Pasek odświeżania danych solarnych
     ui.horizontal(|ui| {
         ui.label(
             egui::RichText::new("NOAA / HamQTH")
                 .small()
-                .color(egui::Color32::from_rgb(100, 116, 139)),
+                .color(palette.text_muted),
         );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if app.solar_loading {
@@ -158,9 +160,9 @@ pub fn render_solar_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     // Alert o istotnej zmianie propagacji
     if let Some(alert) = app.solar_last_alert.as_ref() {
         let color = if alert.starts_with('⚠') {
-            egui::Color32::from_rgb(250, 204, 21)
+            palette.warning
         } else {
-            egui::Color32::from_rgb(56, 189, 248)
+            palette.accent
         };
         ui.colored_label(color, alert);
     }
@@ -174,16 +176,15 @@ pub fn render_solar_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ui.label(
                 egui::RichText::new("SFI:")
                     .small()
-                    .color(egui::Color32::from_rgb(148, 163, 184)),
+                    .color(palette.text_muted),
             );
             ui.monospace(
-                egui::RichText::new(text_sparkline(&sfi_values, min, max))
-                    .color(egui::Color32::from_rgb(251, 191, 36)),
+                egui::RichText::new(text_sparkline(&sfi_values, min, max)).color(palette.warning),
             );
             ui.label(
                 egui::RichText::new(format!("min {min:.0} / max {max:.0}"))
                     .small()
-                    .color(egui::Color32::from_rgb(148, 163, 184)),
+                    .color(palette.text_muted),
             );
         });
     }
@@ -196,12 +197,12 @@ pub fn render_solar_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 egui::RichText::new(weather.sfi.to_string())
                     .strong()
                     .size(16.0)
-                    .color(egui::Color32::from_rgb(251, 191, 36)),
+                    .color(palette.warning),
             );
             ui.label(
                 egui::RichText::new("SFI")
                     .size(10.0)
-                    .color(egui::Color32::from_rgb(148, 163, 184)),
+                    .color(palette.text_muted),
             );
         });
         cols[1].vertical_centered(|ui| {
@@ -209,21 +210,21 @@ pub fn render_solar_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 egui::RichText::new(weather.ssn.to_string())
                     .strong()
                     .size(16.0)
-                    .color(egui::Color32::from_rgb(251, 191, 36)),
+                    .color(palette.warning),
             );
             ui.label(
                 egui::RichText::new("SSN")
                     .size(10.0)
-                    .color(egui::Color32::from_rgb(148, 163, 184)),
+                    .color(palette.text_muted),
             );
         });
         cols[2].vertical_centered(|ui| {
             let k_color = if weather.k_index <= 2 {
-                egui::Color32::from_rgb(34, 197, 94)
+                palette.success
             } else if weather.k_index <= 4 {
-                egui::Color32::from_rgb(250, 204, 21)
+                palette.warning
             } else {
-                egui::Color32::from_rgb(239, 68, 68)
+                palette.danger
             };
             ui.label(
                 egui::RichText::new(weather.k_index.to_string())
@@ -234,7 +235,7 @@ pub fn render_solar_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ui.label(
                 egui::RichText::new("K-Index")
                     .size(10.0)
-                    .color(egui::Color32::from_rgb(148, 163, 184)),
+                    .color(palette.text_muted),
             );
         });
         cols[3].vertical_centered(|ui| {
@@ -242,12 +243,12 @@ pub fn render_solar_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 egui::RichText::new(weather.a_index.to_string())
                     .strong()
                     .size(16.0)
-                    .color(egui::Color32::from_rgb(147, 197, 253)),
+                    .color(palette.accent),
             );
             ui.label(
                 egui::RichText::new("A-Index")
                     .size(10.0)
-                    .color(egui::Color32::from_rgb(148, 163, 184)),
+                    .color(palette.text_muted),
             );
         });
     });
@@ -256,32 +257,14 @@ pub fn render_solar_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
     ui.horizontal(|ui| {
         let hf_str = match weather.hf_day_condition() {
-            BandCondition::Good => (
-                tr(key::SOLAR_CONDITION_GOOD, lang),
-                egui::Color32::from_rgb(34, 197, 94),
-            ),
-            BandCondition::Fair => (
-                tr(key::SOLAR_CONDITION_FAIR, lang),
-                egui::Color32::from_rgb(250, 204, 21),
-            ),
-            BandCondition::Poor => (
-                tr(key::SOLAR_CONDITION_POOR, lang),
-                egui::Color32::from_rgb(239, 68, 68),
-            ),
+            BandCondition::Good => (tr(key::SOLAR_CONDITION_GOOD, lang), palette.success),
+            BandCondition::Fair => (tr(key::SOLAR_CONDITION_FAIR, lang), palette.warning),
+            BandCondition::Poor => (tr(key::SOLAR_CONDITION_POOR, lang), palette.danger),
         };
         let lf_str = match weather.lf_night_condition() {
-            BandCondition::Good => (
-                tr(key::SOLAR_CONDITION_GOOD, lang),
-                egui::Color32::from_rgb(34, 197, 94),
-            ),
-            BandCondition::Fair => (
-                tr(key::SOLAR_CONDITION_FAIR, lang),
-                egui::Color32::from_rgb(250, 204, 21),
-            ),
-            BandCondition::Poor => (
-                tr(key::SOLAR_CONDITION_POOR, lang),
-                egui::Color32::from_rgb(239, 68, 68),
-            ),
+            BandCondition::Good => (tr(key::SOLAR_CONDITION_GOOD, lang), palette.success),
+            BandCondition::Fair => (tr(key::SOLAR_CONDITION_FAIR, lang), palette.warning),
+            BandCondition::Poor => (tr(key::SOLAR_CONDITION_POOR, lang), palette.danger),
         };
 
         ui.label(format!("{}:", tr(key::SOLAR_HF_DAY, lang)));
@@ -303,7 +286,7 @@ pub fn render_solar_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 "📊 Predicted DX band openings (VOACAP-lite):",
             ))
             .small()
-            .color(egui::Color32::from_rgb(148, 163, 184)),
+            .color(palette.text_muted),
         );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             crate::gui::user_manual::help_button(app, ui, "propagation");
@@ -313,15 +296,9 @@ pub fn render_solar_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     ui.horizontal_wrapped(|ui| {
         for (b_name, forecast) in &forecasts {
             let (st_color, sym) = match forecast.status {
-                crate::core::propagation::BandOpeningStatus::Open => {
-                    (egui::Color32::from_rgb(34, 197, 94), "●")
-                }
-                crate::core::propagation::BandOpeningStatus::Marginal => {
-                    (egui::Color32::from_rgb(250, 204, 21), "◐")
-                }
-                crate::core::propagation::BandOpeningStatus::Closed => {
-                    (egui::Color32::from_rgb(100, 116, 139), "○")
-                }
+                crate::core::propagation::BandOpeningStatus::Open => (palette.success, "●"),
+                crate::core::propagation::BandOpeningStatus::Marginal => (palette.warning, "◐"),
+                crate::core::propagation::BandOpeningStatus::Closed => (palette.text_muted, "○"),
             };
             ui.label(
                 egui::RichText::new(format!("{sym} {b_name}"))

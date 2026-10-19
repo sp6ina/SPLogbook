@@ -4,6 +4,7 @@
 use crate::cloud::lotw::detect_tqsl_path;
 use crate::core::i18n::{key, tr};
 use crate::gui::app::SpLogApp;
+use crate::gui::theme::ThemeExt;
 use eframe::egui;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,10 +46,11 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
         .max_height(max_h)
         .resizable(true)
         .show(ctx, |ui| {
+            let palette = ui.palette();
             ui.vertical(|ui| {
                 // Nagłówek i status
                 ui.horizontal(|ui| {
-                    ui.heading(egui::RichText::new("Centrum Synchronizacji Logów Online & LoTW").size(15.0).color(egui::Color32::from_rgb(56, 189, 248)));
+                    ui.heading(egui::RichText::new("Centrum Synchronizacji Logów Online & LoTW").size(15.0).color(palette.accent));
                 });
                 ui.separator();
 
@@ -76,7 +78,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         match active_tab {
                             SyncTab::Lotw => {
                                 ui.group(|ui| {
-                                    ui.label(egui::RichText::new("🏆 ARRL Logbook of the World (LoTW)").strong().size(13.0).color(egui::Color32::from_rgb(250, 204, 21)));
+                                    ui.label(egui::RichText::new("🏆 ARRL Logbook of the World (LoTW)").strong().size(13.0).color(palette.warning));
                                     ui.separator();
 
                                     ui.horizontal(|ui| {
@@ -177,7 +179,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             }
                             SyncTab::Eqsl => {
                                 ui.group(|ui| {
-                                    ui.label(egui::RichText::new("📨 Serwis eQSL.cc").strong().size(13.0).color(egui::Color32::from_rgb(56, 189, 248)));
+                                    ui.label(egui::RichText::new("📨 Serwis eQSL.cc").strong().size(13.0).color(palette.accent));
                                     ui.separator();
 
                                     ui.horizontal(|ui| {
@@ -251,7 +253,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             }
                             SyncTab::Clublog => {
                                 ui.group(|ui| {
-                                    ui.label(egui::RichText::new("🌐 Club Log (DX Cluster & Super Log)").strong().size(13.0).color(egui::Color32::from_rgb(134, 239, 172)));
+                                    ui.label(egui::RichText::new("🌐 Club Log (DX Cluster & Super Log)").strong().size(13.0).color(palette.success));
                                     ui.separator();
 
                                     ui.horizontal(|ui| {
@@ -299,7 +301,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             }
                             SyncTab::QrzHamqth => {
                                 ui.group(|ui| {
-                                    ui.label(egui::RichText::new("📖 QRZ.COM Callbook & Logbook").strong().size(13.0).color(egui::Color32::from_rgb(251, 146, 60)));
+                                    ui.label(egui::RichText::new("📖 QRZ.COM Callbook & Logbook").strong().size(13.0).color(palette.series(6)));
                                     ui.separator();
 
                                     ui.checkbox(&mut app.qrz_auto_lookup, tr(key::SYNC_AUTO_LOOKUP, lang));
@@ -341,7 +343,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 ui.add_space(6.0);
 
                                 ui.group(|ui| {
-                                    ui.label(egui::RichText::new("🌍 HamQTH (OK1RR Logbook)").strong().size(13.0).color(egui::Color32::from_rgb(147, 197, 253)));
+                                    ui.label(egui::RichText::new("🌍 HamQTH (OK1RR Logbook)").strong().size(13.0).color(palette.series(1)));
                                     ui.separator();
                                     ui.horizontal(|ui| {
                                         ui.label("Login HamQTH:");
@@ -383,7 +385,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 ui.add_space(6.0);
 
                                 ui.group(|ui| {
-                                    ui.label(egui::RichText::new("🔀 Agregacja Callbook").strong().size(13.0).color(egui::Color32::from_rgb(167, 139, 250)));
+                                    ui.label(egui::RichText::new("🔀 Agregacja Callbook").strong().size(13.0).color(palette.series(7)));
                                     ui.separator();
                                     ui.checkbox(&mut app.callbook_cache_enabled, "Cache offline wyników zapytań online");
                                     if app.callbook_cache_enabled {
@@ -421,7 +423,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             }
                             SyncTab::CloudlogHrdlog => {
                                 ui.group(|ui| {
-                                    ui.label(egui::RichText::new("☁ Cloudlog (REST API)").strong().size(13.0).color(egui::Color32::from_rgb(56, 189, 248)));
+                                    ui.label(egui::RichText::new("☁ Cloudlog (REST API)").strong().size(13.0).color(palette.accent));
                                     ui.separator();
                                     ui.horizontal(|ui| {
                                         ui.label("Adres URL serwera:");
@@ -464,7 +466,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 ui.add_space(6.0);
 
                                 ui.group(|ui| {
-                                    ui.label(egui::RichText::new("📻 HRDLog.net").strong().size(13.0).color(egui::Color32::from_rgb(253, 224, 71)));
+                                    ui.label(egui::RichText::new("📻 HRDLog.net").strong().size(13.0).color(palette.warning));
                                     ui.separator();
                                     ui.horizontal(|ui| {
                                         ui.label("Znak stacji:");
@@ -505,12 +507,12 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             }
                             SyncTab::N1mm => {
                                 ui.group(|ui| {
-                                    ui.label(egui::RichText::new("📻 Emisja zdarzeń N1MM Logger+ (UDP Broadcast)").strong().size(13.0).color(egui::Color32::from_rgb(56, 189, 248)));
+                                    ui.label(egui::RichText::new("📻 Emisja zdarzeń N1MM Logger+ (UDP Broadcast)").strong().size(13.0).color(palette.accent));
                                     ui.separator();
                                     if ui.checkbox(&mut app.n1mm_broadcast_enabled, "Włącz emisję zapisanych QSO do narzędzi zgodnych z N1MM (GridTracker, overlay itp.)").changed() {
                                         app.save_station_config();
                                     }
-                                    ui.label(egui::RichText::new("Każde zapisane QSO jest wysyłane jako ramka XML <contactinfo> w formacie N1MM Logger+ UDP broadcast. Pozwala to na podgląd łączności na żywo w GridTracker i innych nakładkach.").small().color(egui::Color32::GRAY));
+                                    ui.label(egui::RichText::new("Każde zapisane QSO jest wysyłane jako ramka XML <contactinfo> w formacie N1MM Logger+ UDP broadcast. Pozwala to na podgląd łączności na żywo w GridTracker i innych nakładkach.").small().color(palette.text_muted));
                                     ui.add_space(6.0);
                                     ui.horizontal(|ui| {
                                         ui.label("Adres nasłuchu:");
@@ -518,7 +520,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                         ui.label("Port:");
                                         ui.add(egui::DragValue::new(&mut app.n1mm_broadcast_port).range(1..=65535));
                                     });
-                                    ui.label(egui::RichText::new(format!("Domyślnie N1MM Logger+ nasłuchuje na 127.0.0.1:{}", crate::digital::n1mm::N1MM_DEFAULT_PORT)).small().color(egui::Color32::GRAY));
+                                    ui.label(egui::RichText::new(format!("Domyślnie N1MM Logger+ nasłuchuje na 127.0.0.1:{}", crate::digital::n1mm::N1MM_DEFAULT_PORT)).small().color(palette.text_muted));
                                     ui.add_space(6.0);
                                     if ui.button("💾 Zapisz ustawienia").clicked() {
                                         app.save_station_config();
@@ -528,7 +530,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             }
                             SyncTab::Databases => {
                                 ui.group(|ui| {
-                                    ui.label(egui::RichText::new("🔄 Aktualizacja Baz Danych z Sieci (cty.dat, SCP, LoTW Users)").strong().size(13.0).color(egui::Color32::from_rgb(134, 239, 172)));
+                                    ui.label(egui::RichText::new("🔄 Aktualizacja Baz Danych z Sieci (cty.dat, SCP, LoTW Users)").strong().size(13.0).color(palette.success));
                                     ui.separator();
                                     ui.label("Pobiera najnowsze pliki z country-files.com, supercheckpartial.com i arrl.org:");
                                     ui.add_space(4.0);
@@ -540,7 +542,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             }
                             SyncTab::Fldigi => {
                                 ui.group(|ui| {
-                                    ui.label(egui::RichText::new("💻 Integracja z FLDigi (Cyfra XML-RPC)").strong().size(13.0).color(egui::Color32::from_rgb(56, 189, 248)));
+                                    ui.label(egui::RichText::new("💻 Integracja z FLDigi (Cyfra XML-RPC)").strong().size(13.0).color(palette.accent));
                                     ui.separator();
                                     ui.checkbox(&mut app.fldigi_enabled, "Włącz integrację z FLDigi (odpytywanie częstotliwości i logu)");
                                     ui.horizontal(|ui| {
@@ -573,16 +575,16 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                         app.fldigi_test_result = Some(format!("Wysłano zapytanie do FLDigi na {}:{}", app.fldigi_host, app.fldigi_port));
                                     }
                                     if let Some(ref res) = app.fldigi_test_result {
-                                        ui.colored_label(egui::Color32::from_rgb(56, 189, 248), res);
+                                        ui.colored_label(palette.accent, res);
                                     }
                                 });
                             }
                             SyncTab::PskReporter => {
                                 ui.group(|ui| {
-                                    ui.label(egui::RichText::new("📡 PSK Reporter (pskreporter.info)").strong().size(13.0).color(egui::Color32::from_rgb(250, 204, 21)));
+                                    ui.label(egui::RichText::new("📡 PSK Reporter (pskreporter.info)").strong().size(13.0).color(palette.warning));
                                     ui.separator();
                                     ui.checkbox(&mut app.psk_reporter_enabled, "Automatycznie raportuj odbierane stacje do PSK Reporter");
-                                    ui.label(egui::RichText::new("Gdy opcja jest włączona, każde nowo zapisane QSO jest automatycznie raportowane w formacie XML do serwera pskreporter.info z Twoim znakiem i lokatorem.").small().color(egui::Color32::GRAY));
+                                    ui.label(egui::RichText::new("Gdy opcja jest włączona, każde nowo zapisane QSO jest automatycznie raportowane w formacie XML do serwera pskreporter.info z Twoim znakiem i lokatorem.").small().color(palette.text_muted));
                                     ui.add_space(6.0);
                                     ui.label(format!("Znak stacji raportującej: {}", app.my_station.callsign));
                                     ui.label(format!("Lokator stacji: {}", app.my_station.gridsquare));
@@ -595,11 +597,11 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             }
                             SyncTab::Queue => {
                                 ui.group(|ui| {
-                                    ui.label(egui::RichText::new("⏳ Kolejka wysyłki do serwisów online").strong().size(13.0).color(egui::Color32::from_rgb(56, 189, 248)));
+                                    ui.label(egui::RichText::new("⏳ Kolejka wysyłki do serwisów online").strong().size(13.0).color(palette.accent));
                                     ui.separator();
                                     ui.label(egui::RichText::new(
                                         "Zadania (Club Log, QRZ.com, eQSL.cc) są kolejkowane lokalnie i wysyłane w tle z ponawianiem oraz limitem tempa. Kolejka przetrwa zamknięcie programu."
-                                    ).small().color(egui::Color32::GRAY));
+                                    ).small().color(palette.text_muted));
                                     ui.add_space(6.0);
 
                                     let status = app.upload_scheduler.lock().map(|s| s.status_all()).unwrap_or_default();
@@ -608,28 +610,28 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                         .striped(true)
                                         .spacing([12.0, 4.0])
                                         .show(ui, |ui| {
-                                            ui.label(egui::RichText::new("Serwis").strong());
-                                            ui.label(egui::RichText::new("Oczekuje").strong());
-                                            ui.label(egui::RichText::new("Wysyłane").strong());
-                                            ui.label(egui::RichText::new("Wysłane").strong());
-                                            ui.label(egui::RichText::new("Błędy").strong());
-                                            ui.label(egui::RichText::new("Ostatni błąd").strong());
-                                            ui.end_row();
+                                             ui.label(egui::RichText::new("Serwis").strong());
+                                             ui.label(egui::RichText::new("Oczekuje").strong());
+                                             ui.label(egui::RichText::new("Wysyłane").strong());
+                                             ui.label(egui::RichText::new("Wysłane").strong());
+                                             ui.label(egui::RichText::new("Błędy").strong());
+                                             ui.label(egui::RichText::new("Ostatni błąd").strong());
+                                             ui.end_row();
 
-                                            for svc in crate::cloud::scheduler::UploadService::all() {
-                                                let st = status.get(&svc).cloned().unwrap_or_default();
-                                                ui.label(svc.label());
-                                                ui.label(st.pending.to_string());
-                                                ui.label(st.in_flight.to_string());
-                                                ui.label(st.done.to_string());
-                                                ui.colored_label(
-                                                    if st.failed > 0 { egui::Color32::from_rgb(248, 113, 113) } else { egui::Color32::GRAY },
-                                                    st.failed.to_string(),
-                                                );
-                                                ui.label(st.last_error.clone().unwrap_or_else(|| "—".to_string()));
-                                                ui.end_row();
-                                            }
-                                        });
+                                             for svc in crate::cloud::scheduler::UploadService::all() {
+                                                 let st = status.get(&svc).cloned().unwrap_or_default();
+                                                 ui.label(svc.label());
+                                                 ui.label(st.pending.to_string());
+                                                 ui.label(st.in_flight.to_string());
+                                                 ui.label(st.done.to_string());
+                                                 ui.colored_label(
+                                                     if st.failed > 0 { palette.danger } else { palette.text_muted },
+                                                     st.failed.to_string(),
+                                                 );
+                                                 ui.label(st.last_error.clone().unwrap_or_else(|| "—".to_string()));
+                                                 ui.end_row();
+                                             }
+                                         });
 
                                     ui.add_space(6.0);
                                     ui.horizontal(|ui| {
@@ -671,7 +673,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                         .stick_to_bottom(true)
                                         .show(ui, |ui| {
                                             if app.online_sync_logs.is_empty() {
-                                                ui.label(egui::RichText::new("Brak operacji. Wybierz synchronizację powyżej.").italics().color(egui::Color32::from_rgb(148, 163, 184)));
+                                                ui.label(egui::RichText::new("Brak operacji. Wybierz synchronizację powyżej.").italics().color(palette.text_muted));
                                             } else {
                                                 for log_entry in &app.online_sync_logs {
                                                     ui.label(egui::RichText::new(log_entry).size(11.0).monospace());
