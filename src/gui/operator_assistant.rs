@@ -8,6 +8,7 @@
 
 use crate::core::propagation::{BandOpeningStatus, PropagationEngine, PropagationForecast};
 use crate::gui::app::SpLogApp;
+use crate::gui::theme::{Palette, ThemeExt};
 use chrono::{Datelike, Timelike};
 use eframe::egui;
 
@@ -25,11 +26,11 @@ pub struct AssistantRecommendation {
 }
 
 /// Zwraca status pasma jako (ikona, kolor).
-pub fn status_style(status: BandOpeningStatus) -> (&'static str, egui::Color32) {
+pub fn status_style(status: BandOpeningStatus, palette: &Palette) -> (&'static str, egui::Color32) {
     match status {
-        BandOpeningStatus::Open => ("🟢", egui::Color32::from_rgb(34, 197, 94)),
-        BandOpeningStatus::Marginal => ("🟡", egui::Color32::from_rgb(234, 179, 8)),
-        BandOpeningStatus::Closed => ("🔴", egui::Color32::from_rgb(239, 68, 68)),
+        BandOpeningStatus::Open => ("🟢", palette.success),
+        BandOpeningStatus::Marginal => ("🟡", palette.warning),
+        BandOpeningStatus::Closed => ("🔴", palette.danger),
     }
 }
 
@@ -186,11 +187,12 @@ pub fn render_operator_assistant(app: &mut SpLogApp, ctx: &egui::Context) {
         .default_size([460.0, 380.0])
         .resizable(true)
         .show(ctx, |ui| {
+            let palette = ui.palette();
             ui.horizontal(|ui| {
                 let (icon, color) = if app.rig_state.connected {
-                    ("📻", egui::Color32::from_rgb(56, 189, 248))
+                    ("📻", palette.accent)
                 } else {
-                    ("⛔", egui::Color32::from_rgb(148, 163, 184))
+                    ("⛔", palette.text_muted)
                 };
                 ui.label(egui::RichText::new(icon).size(20.0));
                 if app.rig_state.connected {
@@ -228,7 +230,7 @@ pub fn render_operator_assistant(app: &mut SpLogApp, ctx: &egui::Context) {
                 egui::RichText::new(&rec.headline)
                     .size(16.0)
                     .strong()
-                    .color(egui::Color32::from_rgb(56, 189, 248)),
+                    .color(palette.accent),
             );
 
             ui.add_space(6.0);
@@ -237,7 +239,7 @@ pub fn render_operator_assistant(app: &mut SpLogApp, ctx: &egui::Context) {
                 ui.label(
                     egui::RichText::new("Brak pewnie otwartych pasm.")
                         .italics()
-                        .color(egui::Color32::from_rgb(148, 163, 184)),
+                        .color(palette.text_muted),
                 );
             } else {
                 for band in &rec.best_bands {
@@ -252,9 +254,7 @@ pub fn render_operator_assistant(app: &mut SpLogApp, ctx: &egui::Context) {
                 ui.add_space(4.0);
                 ui.label(egui::RichText::new("💡 Wskazówki").strong());
                 for advice in &rec.advice {
-                    ui.label(
-                        egui::RichText::new(advice).color(egui::Color32::from_rgb(250, 204, 21)),
-                    );
+                    ui.label(egui::RichText::new(advice).color(palette.warning));
                 }
             }
 
@@ -275,7 +275,7 @@ pub fn render_operator_assistant(app: &mut SpLogApp, ctx: &egui::Context) {
                             ui.label(egui::RichText::new("S").strong());
                             ui.end_row();
                             for (name, forecast) in &forecasts {
-                                let (icon, color) = status_style(forecast.status);
+                                let (icon, color) = status_style(forecast.status, &palette);
                                 ui.label(egui::RichText::new(*name).strong());
                                 ui.label(
                                     egui::RichText::new(format!(
@@ -297,7 +297,7 @@ pub fn render_operator_assistant(app: &mut SpLogApp, ctx: &egui::Context) {
                 ui.label(
                     egui::RichText::new("🔬 Dlaczego taki wynik? (wytłumaczalność)")
                         .strong()
-                        .color(egui::Color32::from_rgb(134, 239, 172)),
+                        .color(palette.success),
                 );
                 for bullet in e.bullet_points() {
                     ui.label(egui::RichText::new(format!("• {bullet}")).small());

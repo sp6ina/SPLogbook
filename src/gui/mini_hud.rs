@@ -3,6 +3,7 @@
 // Ergonomiczny, kompaktowy pasek/okno operacyjne (Mini HUD) dla stacji SPLogbook
 
 use crate::gui::app::SpLogApp;
+use crate::gui::theme::ThemeExt;
 use eframe::egui;
 
 pub fn render_mini_hud_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
@@ -99,6 +100,7 @@ pub fn render_mini_hud_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
 /// Wspólna treść okna Mini HUD (używana przez wariant okna oraz viewport always-on-top).
 fn render_hud_body(app: &mut SpLogApp, ui: &mut egui::Ui, exit_compact: &mut bool) {
+    let palette = ui.palette();
     ui.vertical(|ui| {
         // 1. Pasek VFO i Strojenia
         ui.horizontal(|ui| {
@@ -108,7 +110,7 @@ fn render_hud_body(app: &mut SpLogApp, ui: &mut egui::Ui, exit_compact: &mut boo
                     .strong()
                     .size(20.0)
                     .monospace()
-                    .color(egui::Color32::from_rgb(34, 197, 94)),
+                    .color(palette.rx),
             );
 
             if ui.button("◀ -1k").on_hover_text("Dostrój -1 kHz").clicked() {
@@ -183,7 +185,7 @@ fn render_hud_body(app: &mut SpLogApp, ui: &mut egui::Ui, exit_compact: &mut boo
                 .button(
                     egui::RichText::new("💾 ZAPISZ")
                         .strong()
-                        .color(egui::Color32::from_rgb(34, 197, 94)),
+                        .color(palette.success),
                 )
                 .clicked()
             {
@@ -212,12 +214,12 @@ fn render_hud_body(app: &mut SpLogApp, ui: &mut egui::Ui, exit_compact: &mut boo
         if let Some(ref info) = app.active_prefix_info {
             ui.horizontal_wrapped(|ui| {
                 ui.colored_label(
-                    egui::Color32::from_rgb(147, 197, 253),
+                    palette.accent,
                     format!("📍 {} ({})", info.country, info.wpx_prefix),
                 );
                 if app.active_distance_km > 0.0 {
                     ui.colored_label(
-                        egui::Color32::from_rgb(253, 224, 71),
+                        palette.warning,
                         format!(
                             "🧭 {} | {:.0}°",
                             app.active_distance_display(),
@@ -255,6 +257,7 @@ fn render_hud_body(app: &mut SpLogApp, ui: &mut egui::Ui, exit_compact: &mut boo
 
 /// Smukły, dokowany pasek operacyjny u dołu okna (wariant "operating bar").
 fn render_operating_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
+    let palette = ui.palette();
     let mut exit_compact = false;
     egui::Panel::bottom("mini_hud_operating_bar").show(ui, |ui| {
         ui.horizontal(|ui| {
@@ -264,7 +267,7 @@ fn render_operating_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     .strong()
                     .size(16.0)
                     .monospace()
-                    .color(egui::Color32::from_rgb(34, 197, 94)),
+                    .color(palette.rx),
             );
 
             ui.separator();
@@ -311,7 +314,7 @@ fn render_operating_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .button(
                     egui::RichText::new("💾 ZAPISZ")
                         .strong()
-                        .color(egui::Color32::from_rgb(34, 197, 94)),
+                        .color(palette.success),
                 )
                 .clicked()
             {

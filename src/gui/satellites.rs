@@ -3,6 +3,7 @@
 
 use crate::core::i18n::{key, tr};
 use crate::gui::app::SpLogApp;
+use crate::gui::theme::ThemeExt;
 use eframe::egui;
 
 pub fn render_satellites_window(app: &mut SpLogApp, ctx: &egui::Context) {
@@ -133,6 +134,7 @@ pub fn render_satellites_window(app: &mut SpLogApp, ctx: &egui::Context) {
 }
 
 pub fn render_satellites_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
+    let palette = ui.palette();
     let lang = app.current_language;
     let mut tune_clicked = false;
     let mut point_rotor_clicked = false;
@@ -163,7 +165,7 @@ pub fn render_satellites_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 ui.label(
                     egui::RichText::new(tr(key::SAT_POSITION, lang))
                         .strong()
-                        .color(egui::Color32::from_rgb(56, 189, 248)),
+                        .color(palette.accent),
                 );
                 ui.label(format!(
                     "{}: {:.1}°",
@@ -191,7 +193,7 @@ pub fn render_satellites_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 ui.label(
                     egui::RichText::new(tr(key::SAT_FREQUENCIES, lang))
                         .strong()
-                        .color(egui::Color32::from_rgb(251, 191, 36)),
+                        .color(palette.warning),
                 );
                 ui.label(format!(
                     "{}: {:.4} MHz",
@@ -253,16 +255,10 @@ pub fn render_satellites_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
             if secs > 0.0 {
                 ui.label(format!("⏱ Następny przelot za {}", format_countdown(secs)));
             } else {
-                ui.label(
-                    egui::RichText::new("● Satelita nad horyzontem")
-                        .color(egui::Color32::from_rgb(34, 197, 94)),
-                );
+                ui.label(egui::RichText::new("● Satelita nad horyzontem").color(palette.success));
             }
         } else {
-            ui.label(
-                egui::RichText::new("Brak przelotów w ciągu 24 h")
-                    .color(egui::Color32::from_rgb(148, 163, 184)),
-            );
+            ui.label(egui::RichText::new("Brak przelotów w ciągu 24 h").color(palette.text_muted));
         }
 
         egui::ScrollArea::vertical()
@@ -298,9 +294,9 @@ pub fn render_satellites_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                                 egui::RichText::new(format!("{:+.2} kHz", pass.aos_doppler_khz))
                                     .small()
                                     .color(if pass.aos_doppler_khz >= 0.0 {
-                                        egui::Color32::from_rgb(34, 197, 94)
+                                        palette.success
                                     } else {
-                                        egui::Color32::from_rgb(239, 68, 68)
+                                        palette.danger
                                     }),
                             );
                             ui.end_row();

@@ -4,6 +4,7 @@
 use crate::core::bandplan::{AMATEUR_BANDS, SegmentMode, get_band_by_freq, get_band_by_name};
 use crate::core::i18n::{key, tr, tr_or};
 use crate::gui::app::SpLogApp;
+use crate::gui::theme::ThemeExt;
 use eframe::egui;
 
 pub fn render_bandmap_window(app: &mut SpLogApp, ctx: &egui::Context) {
@@ -135,6 +136,7 @@ pub fn render_bandmap_window(app: &mut SpLogApp, ctx: &egui::Context) {
 }
 
 pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
+    let palette = ui.palette();
     let lang = app.current_language;
 
     // 1. Pasek sterowania pasmem
@@ -179,7 +181,7 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 (max_freq as f64) / 1_000_000.0
             ))
             .strong()
-            .color(egui::Color32::from_rgb(56, 189, 248)),
+            .color(palette.accent),
         );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.label(
@@ -189,7 +191,7 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     "🔴 ATNO  🟠 New Band  🟢 Worked",
                 ))
                 .size(11.0)
-                .color(egui::Color32::from_rgb(148, 163, 184)),
+                .color(palette.text_muted),
             );
         });
     });
@@ -211,11 +213,11 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
         let painter = ui.painter();
 
         // Tło skali
-        painter.rect_filled(rect, 4.0, egui::Color32::from_rgb(15, 23, 42));
+        painter.rect_filled(rect, 4.0, palette.surface_bg);
         painter.rect_stroke(
             rect,
             4.0,
-            egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(51, 65, 85)),
+            egui::Stroke::new(1.0_f32, palette.border),
             egui::StrokeKind::Inside,
         );
 
@@ -235,11 +237,11 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
             );
 
             let (color, text_color) = match seg.mode {
-                SegmentMode::Cw => (egui::Color32::from_rgb(14, 116, 144), egui::Color32::WHITE),
-                SegmentMode::Data => (egui::Color32::from_rgb(109, 40, 217), egui::Color32::WHITE),
-                SegmentMode::Ssb => (egui::Color32::from_rgb(21, 128, 61), egui::Color32::WHITE),
-                SegmentMode::Fm => (egui::Color32::from_rgb(180, 83, 9), egui::Color32::WHITE),
-                SegmentMode::Beacon => (egui::Color32::from_rgb(161, 98, 7), egui::Color32::WHITE),
+                SegmentMode::Cw => (palette.segments.cw, palette.segments.cw_text),
+                SegmentMode::Data => (palette.segments.data, palette.segments.data_text),
+                SegmentMode::Ssb => (palette.segments.phone, palette.segments.phone_text),
+                SegmentMode::Fm => (palette.segments.fm, palette.segments.fm_text),
+                SegmentMode::Beacon => (palette.segments.beacon, palette.segments.beacon_text),
             };
 
             painter.rect_filled(seg_rect, 2.0, color);
@@ -272,7 +274,7 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     egui::pos2(x_pos, rect.min.y + 26.0),
                     egui::pos2(x_pos, rect.max.y - 18.0),
                 ],
-                egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(51, 65, 85)),
+                egui::Stroke::new(1.0_f32, palette.border_subtle),
             );
 
             painter.text(
@@ -280,7 +282,7 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 egui::Align2::CENTER_CENTER,
                 format!("{:.3}", (tick_hz as f64) / 1_000_000.0),
                 egui::FontId::monospace(9.0),
-                egui::Color32::from_rgb(148, 163, 184),
+                palette.text_muted,
             );
 
             tick_hz += step_hz;
@@ -335,7 +337,7 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     egui::pos2(x_pos, rect.min.y + 24.0),
                     egui::pos2(x_pos, rect.max.y - 20.0),
                 ],
-                egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(250, 204, 21)),
+                egui::Stroke::new(1.5_f32, palette.warning),
             );
 
             // Etykieta znaku
@@ -345,7 +347,7 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 egui::Align2::CENTER_CENTER,
                 call,
                 egui::FontId::proportional(10.0),
-                egui::Color32::from_rgb(254, 240, 138),
+                palette.warning,
             );
         }
 
@@ -358,7 +360,7 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
             // Czerwona linia kursora VFO
             painter.line_segment(
                 [egui::pos2(vfo_x, rect.min.y), egui::pos2(vfo_x, rect.max.y)],
-                egui::Stroke::new(2.5_f32, egui::Color32::from_rgb(239, 68, 68)),
+                egui::Stroke::new(2.5_f32, palette.vfo_a),
             );
 
             // Wskaźnik VFO ze strzałką
@@ -369,7 +371,7 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ];
             painter.add(egui::Shape::convex_polygon(
                 tri_pts,
-                egui::Color32::from_rgb(239, 68, 68),
+                palette.vfo_a,
                 egui::Stroke::NONE,
             ));
         }
@@ -413,7 +415,7 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                             ui.label(
                                 egui::RichText::new(&spot.dx_call)
                                     .strong()
-                                    .color(egui::Color32::from_rgb(56, 189, 248)),
+                                    .color(palette.accent),
                             );
                             ui.label(
                                 egui::RichText::new(format!(
@@ -426,10 +428,7 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                             ui.label(egui::RichText::new(&spot.time_utc).weak());
 
                             if ui
-                                .button(
-                                    egui::RichText::new("QSY 📻")
-                                        .color(egui::Color32::from_rgb(34, 197, 94)),
-                                )
+                                .button(egui::RichText::new("QSY 📻").color(palette.success))
                                 .clicked()
                             {
                                 tune_target = Some((spot_hz, spot.dx_call.clone()));

@@ -6,6 +6,7 @@
 
 use crate::dsp::waterfall::{SampleRing, WaterfallEngine};
 use crate::gui::app::SpLogApp;
+use crate::gui::theme::{ThemeExt, waterfall_color};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use eframe::egui;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -239,7 +240,7 @@ impl WaterfallPanel {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone()
         {
-            ui.colored_label(egui::Color32::from_rgb(239, 68, 68), format!("⚠ {err}"));
+            ui.colored_label(ui.palette().danger, format!("⚠ {err}"));
         }
 
         ui.add_space(4.0);
@@ -269,7 +270,7 @@ impl WaterfallPanel {
             ui.centered_and_justified(|ui| {
                 ui.label(
                     egui::RichText::new("Naciśnij ▶ Start, aby rozpocząć przechwytywanie widma.")
-                        .color(egui::Color32::from_gray(140)),
+                        .color(ui.palette().text_muted),
                 );
             });
         }
@@ -342,7 +343,7 @@ impl WaterfallPanel {
         let desired = egui::vec2(ui.available_width().max(64.0), 120.0);
         let (rect, _) = ui.allocate_exact_size(desired, egui::Sense::hover());
         let painter = ui.painter();
-        painter.rect_filled(rect, 0.0, egui::Color32::from_gray(8));
+        painter.rect_filled(rect, 0.0, ui.palette().extreme_bg);
 
         let count = row.len();
         if count < 2 {
@@ -371,7 +372,7 @@ impl WaterfallPanel {
 
         painter.add(egui::Shape::line(
             points,
-            egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(56, 189, 248)),
+            egui::Stroke::new(1.5_f32, ui.palette().accent),
         ));
     }
 }
@@ -458,41 +459,6 @@ fn icons_play() -> &'static str {
 
 fn icons_stop() -> &'static str {
     "⏹ Stop"
-}
-
-/// Mapuje wartość znormalizowaną (0..1) na kolor waterfallu:
-/// czarny → granat → cyjan → zielony → żółty → czerwony.
-fn waterfall_color(t: f32) -> egui::Color32 {
-    let value = t.clamp(0.0, 1.0);
-    let stops: [(f32, (u8, u8, u8)); 6] = [
-        (0.00, (0, 0, 0)),
-        (0.25, (0, 0, 128)),
-        (0.50, (0, 200, 255)),
-        (0.68, (0, 230, 0)),
-        (0.85, (255, 230, 0)),
-        (1.00, (255, 0, 0)),
-    ];
-    for window in stops.windows(2) {
-        let (t0, c0) = window[0];
-        let (t1, c1) = window[1];
-        if value <= t1 {
-            let frac = if t1 > t0 {
-                (value - t0) / (t1 - t0)
-            } else {
-                0.0
-            };
-            let frac = frac.clamp(0.0, 1.0);
-            let red = lerp_u8(c0.0, c1.0, frac);
-            let green = lerp_u8(c0.1, c1.1, frac);
-            let blue = lerp_u8(c0.2, c1.2, frac);
-            return egui::Color32::from_rgb(red, green, blue);
-        }
-    }
-    egui::Color32::from_rgb(255, 0, 0)
-}
-
-fn lerp_u8(a: u8, b: u8, f: f32) -> u8 {
-    (a as f32 + (b as f32 - a as f32) * f).round() as u8
 }
 
 /// Wyszukuje urządzenie wejściowe po nazwie (lub domyślne) i zwraca je z konfiguracją.

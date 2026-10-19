@@ -12,7 +12,7 @@ use egui::Color32;
 
 pub use contrast::{contrast_ratio, relative_luminance};
 pub use ext::{ColorExt, ThemeExt};
-pub use palette::{BandColors, MapColors, Palette, SegmentColors, ThemePreset};
+pub use palette::{BandColors, MapColors, Palette, SegmentColors, ThemePreset, waterfall_color};
 
 /// Klucz tekstowy aktywnej palety w pamięci podręcznej `egui::Context`.
 pub const PALETTE_ID_STR: &str = "splogbook_theme_palette";

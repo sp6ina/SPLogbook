@@ -13,19 +13,13 @@ use std::path::Path;
 const PENDING_FILES: &[&str] = &[
     "src/gui/advanced_filter.rs",
     "src/gui/awards_matrix.rs",
-    "src/gui/bandmap.rs",
     "src/gui/iota_browser.rs",
-    "src/gui/mini_hud.rs",
     "src/gui/online_sync.rs",
-    "src/gui/operator_assistant.rs",
     "src/gui/qsl_designer.rs",
-    "src/gui/satellites.rs",
     "src/gui/solar_panel.rs",
     "src/gui/states_browser.rs",
     "src/gui/statistics.rs",
-    "src/gui/waterfall_panel.rs",
     "src/gui/world_map.rs",
-    "src/gui/wspr_panel.rs",
 ];
 
 const FORBIDDEN_CONSTRUCTORS: &[&str] = &[

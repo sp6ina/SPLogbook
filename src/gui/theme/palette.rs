@@ -165,6 +165,52 @@ impl Palette {
         };
         series_colors[idx % series_colors.len()]
     }
+
+    /// Mapuje wartość znormalizowaną (0..1) na kolor waterfallu:
+    /// czarny → granat → cyjan → zielony → żółty → czerwony.
+    pub fn waterfall_color(&self, t: f32) -> Color32 {
+        waterfall_color_impl(t)
+    }
+}
+
+/// Mapuje wartość znormalizowaną (0..1) na kolor waterfallu:
+/// czarny → granat → cyjan → zielony → żółty → czerwony.
+pub fn waterfall_color(t: f32) -> Color32 {
+    waterfall_color_impl(t)
+}
+
+fn waterfall_color_impl(t: f32) -> Color32 {
+    let value = t.clamp(0.0, 1.0);
+    let stops: [(f32, (u8, u8, u8)); 6] = [
+        (0.00, (0, 0, 0)),
+        (0.25, (0, 0, 128)),
+        (0.50, (0, 200, 255)),
+        (0.68, (0, 230, 0)),
+        (0.85, (255, 230, 0)),
+        (1.00, (255, 0, 0)),
+    ];
+    for window in stops.windows(2) {
+        let (t0, c0) = window[0];
+        let (t1, c1) = window[1];
+        if value <= t1 {
+            let frac = if t1 > t0 {
+                (value - t0) / (t1 - t0)
+            } else {
+                0.0
+            };
+            let frac = frac.clamp(0.0, 1.0);
+            let red = lerp_u8(c0.0, c1.0, frac);
+            let green = lerp_u8(c0.1, c1.1, frac);
+            let blue = lerp_u8(c0.2, c1.2, frac);
+            return Color32::from_rgb(red, green, blue);
+        }
+    }
+    Color32::from_rgb(255, 0, 0)
+}
+
+#[inline]
+fn lerp_u8(a: u8, b: u8, f: f32) -> u8 {
+    (a as f32 + (b as f32 - a as f32) * f).round() as u8
 }
 
 /// Gotowe, predefiniowane motywy kolorystyczne aplikacji.

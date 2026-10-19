@@ -4,6 +4,7 @@
 use crate::core::i18n::{key, tr};
 use crate::gui::app::SpLogApp;
 use crate::gui::text_sparkline;
+use crate::gui::theme::ThemeExt;
 use eframe::egui;
 
 pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
@@ -19,12 +20,13 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
         .resizable(true)
         .default_size([680.0, 440.0])
         .show(ctx, |ui| {
+            let palette = ui.palette();
             // Nagłówek z przyciskiem odświeżania
             ui.horizontal(|ui| {
                 ui.heading(tr(key::WSPR_TITLE, lang));
                 ui.label(
                     egui::RichText::new("| wspr.live API")
-                        .color(egui::Color32::from_rgb(100, 116, 139))
+                        .color(palette.text_subtle)
                         .small(),
                 );
 
@@ -43,10 +45,7 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
             });
 
             if let Some(ref err) = app.wspr_last_error.clone() {
-                ui.colored_label(
-                    egui::Color32::from_rgb(239, 68, 68),
-                    format!("Błąd pobierania: {err}"),
-                );
+                ui.colored_label(palette.danger, format!("Błąd pobierania: {err}"));
             }
 
             ui.separator();
@@ -58,7 +57,7 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     ui.label(
                         egui::RichText::new(tr(key::WSPR_TREND_SNR, lang))
                             .small()
-                            .color(egui::Color32::from_rgb(148, 163, 184)),
+                            .color(palette.text_muted),
                     );
                     let snrs: Vec<f64> = app.wspr_spots.iter().map(|s| s.snr as f64).collect();
                     if snrs.len() >= 2 {
@@ -66,7 +65,7 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         let max = snrs.iter().copied().fold(f64::NEG_INFINITY, f64::max);
                         ui.monospace(
                             egui::RichText::new(text_sparkline(&snrs, min, max))
-                                .color(egui::Color32::from_rgb(56, 189, 248)),
+                                .color(palette.accent),
                         );
                     }
                 });
@@ -78,11 +77,11 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     ui.add_space(40.0);
                     ui.label(
                         egui::RichText::new(tr(key::WSPR_NO_SPOTS, lang))
-                            .color(egui::Color32::from_rgb(100, 116, 139)),
+                            .color(palette.text_subtle),
                     );
                     ui.label(
                         egui::RichText::new(tr(key::WSPR_REFRESH_HINT, lang))
-                            .color(egui::Color32::from_rgb(100, 116, 139))
+                            .color(palette.text_subtle)
                             .small(),
                     );
                     ui.add_space(40.0);
@@ -122,16 +121,15 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
                                 for spot in &app.wspr_spots {
                                     ui.label(
-                                        egui::RichText::new(&spot.callsign)
-                                            .color(egui::Color32::from_rgb(56, 189, 248)),
+                                        egui::RichText::new(&spot.callsign).color(palette.accent),
                                     );
                                     ui.label(format!("{:.6}", spot.frequency));
                                     let snr_color = if spot.snr >= 0 {
-                                        egui::Color32::from_rgb(34, 197, 94)
+                                        palette.success
                                     } else if spot.snr >= -10 {
-                                        egui::Color32::from_rgb(250, 204, 21)
+                                        palette.warning
                                     } else {
-                                        egui::Color32::from_rgb(239, 68, 68)
+                                        palette.danger
                                     };
                                     ui.label(
                                         egui::RichText::new(format!("{:+}", spot.snr))
@@ -167,7 +165,7 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         app.wspr_spots.len()
                     ))
                     .small()
-                    .color(egui::Color32::from_rgb(100, 116, 139)),
+                    .color(palette.text_subtle),
                 );
             }
         });
