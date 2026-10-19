@@ -264,6 +264,18 @@ impl Drop for HilTxGuard<'_> {
     }
 }
 
+/// Zwraca bieżący czas ewaluacji HIL:
+/// - wartość ze zmiennej środowiskowej `SPLOG_HIL_REFERENCE_TIME` (jeśli ustawiona na poprawny RFC3339),
+/// - lub rzeczywisty czas systemowy [`chrono::Utc::now()`] w produkcji.
+pub fn default_hil_evaluation_time() -> chrono::DateTime<chrono::Utc> {
+    if let Ok(var) = std::env::var("SPLOG_HIL_REFERENCE_TIME")
+        && let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&var)
+    {
+        return dt.with_timezone(&chrono::Utc);
+    }
+    chrono::Utc::now()
+}
+
 /// Bezpieczna sesja wykonawcza stanowiska laboratoryjnego HIL ([`HilHardwareSession`]).
 ///
 /// Gwarantuje:
@@ -277,18 +289,41 @@ pub struct HilHardwareSession {
     stage: HilExecutionStage,
     readiness_report: HilReadinessReport,
     session_state: Arc<AtomicU8>,
+    reference_time: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl HilHardwareSession {
     /// Inicjalizuje nową sesję HIL, przeprowadzając automatyczną ewaluację gotowości.
     pub fn new(manifest: HilTestBenchManifest, stage: HilExecutionStage) -> Self {
+        Self::new_with_reference_time(manifest, stage, None)
+    }
+
+    /// Inicjalizuje nową sesję HIL z jawnym czasem odniesienia dla testów deterministycznych.
+    pub fn new_with_reference_time(
+        manifest: HilTestBenchManifest,
+        stage: HilExecutionStage,
+        reference_time: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Self {
         let readiness_report = HilReadinessValidator::validate(&manifest, stage);
         Self {
             manifest,
             stage,
             readiness_report,
             session_state: Arc::new(AtomicU8::new(SESSION_STATE_READY)),
+            reference_time,
         }
+    }
+
+    /// Przypisuje jawny czas odniesienia (builder).
+    pub fn with_reference_time(mut self, reference_time: chrono::DateTime<chrono::Utc>) -> Self {
+        self.reference_time = Some(reference_time);
+        self
+    }
+
+    /// Zwraca efektywny czas ewaluacji sesji.
+    pub fn evaluated_at(&self) -> chrono::DateTime<chrono::Utc> {
+        self.reference_time
+            .unwrap_or_else(default_hil_evaluation_time)
     }
 
     /// Zwraca aktualny stan bezpieczeństwa sesji.
@@ -333,6 +368,14 @@ impl HilHardwareSession {
     /// 7. `operator_acknowledged: true`.
     /// 8. Statusu HIL-READY `Passed`.
     pub fn verify_hardware_access_authorization(&self) -> Result<(), HilError> {
+        self.verify_hardware_access_authorization_at(self.evaluated_at())
+    }
+
+    /// Weryfikuje wieloskładnikową autoryzację dostępu do fizycznego sprzętu laboratoryjnego względem jawnego czasu.
+    pub fn verify_hardware_access_authorization_at(
+        &self,
+        evaluated_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), HilError> {
         self.manifest.validate_structure()?;
 
         if !self.manifest.hil_enabled {
@@ -361,7 +404,7 @@ impl HilHardwareSession {
 
         if let Some(exp_str) = &self.manifest.expires_at
             && let Ok(exp_time) = chrono::DateTime::parse_from_rfc3339(exp_str)
-            && chrono::Utc::now() > exp_time
+            && evaluated_at >= exp_time
         {
             return Err(HilError::SessionExpired(format!(
                 "HIL session '{}' expired at {}",
@@ -402,7 +445,17 @@ impl HilHardwareSession {
         consent_token: &HilPttConsentToken,
         arbiter: &crate::cat::tx_arbiter::TxArbiter,
     ) -> Result<(), HilError> {
-        self.verify_hardware_access_authorization()?;
+        self.verify_tx_authorization_at(consent_token, arbiter, self.evaluated_at())
+    }
+
+    /// Weryfikuje wieloskładnikową autoryzację fizycznego nadawania (PTT) względem jawnego czasu.
+    pub fn verify_tx_authorization_at(
+        &self,
+        consent_token: &HilPttConsentToken,
+        arbiter: &crate::cat::tx_arbiter::TxArbiter,
+        evaluated_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), HilError> {
+        self.verify_hardware_access_authorization_at(evaluated_at)?;
 
         if !self.manifest.allow_tx {
             return Err(HilError::UnauthorizedSession(
@@ -516,11 +569,30 @@ impl HilHardwareSession {
         arbiter: &mut crate::cat::tx_arbiter::TxArbiter,
         duration: Duration,
     ) -> Result<HilTxGuard<'a>, HilError> {
+        self.acquire_tx_guard_at(
+            backend,
+            consent_token,
+            arbiter,
+            duration,
+            self.evaluated_at(),
+        )
+        .await
+    }
+
+    /// Pobiera strażnika nadawania TX względem jawnego czasu ewaluacji.
+    pub async fn acquire_tx_guard_at<'a>(
+        &'a self,
+        backend: &'a mut dyn RigBackend,
+        consent_token: &HilPttConsentToken,
+        arbiter: &mut crate::cat::tx_arbiter::TxArbiter,
+        duration: Duration,
+        evaluated_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<HilTxGuard<'a>, HilError> {
         if self.stage == HilExecutionStage::Stage7AOffline {
             return Err(HilError::PttForbiddenInStage7A);
         }
 
-        self.verify_tx_authorization(consent_token, arbiter)?;
+        self.verify_tx_authorization_at(consent_token, arbiter, evaluated_at)?;
 
         let cmd_id = crate::cat::routing::RigCommandId::new(1);
         let rig_id = self.manifest.matrix.rig_id.clone();
@@ -651,6 +723,15 @@ pub fn run_isolated_hardware_dispatcher(
     manifest: &HilTestBenchManifest,
     stage: HilExecutionStage,
 ) -> HilDispatcherReport {
+    run_isolated_hardware_dispatcher_at(manifest, stage, default_hil_evaluation_time())
+}
+
+/// Rzeczywista implementacja dyspozytora sprzętowego HIL względem jawnego czasu ewaluacji.
+pub fn run_isolated_hardware_dispatcher_at(
+    manifest: &HilTestBenchManifest,
+    stage: HilExecutionStage,
+    evaluated_at: chrono::DateTime<chrono::Utc>,
+) -> HilDispatcherReport {
     let case_names = [
         "hil_hardware_live_test_bench",
         "hil_hardware_read_01",
@@ -705,7 +786,7 @@ pub fn run_isolated_hardware_dispatcher(
     // Sprawdzenie wygaśnięcia sesji
     if let Some(exp_str) = &manifest.expires_at
         && let Ok(exp_time) = chrono::DateTime::parse_from_rfc3339(exp_str)
-        && chrono::Utc::now() > exp_time
+        && evaluated_at >= exp_time
     {
         let cases = case_names
             .iter()

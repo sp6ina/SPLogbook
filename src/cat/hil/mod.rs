@@ -29,7 +29,8 @@ pub use manifest::{
 };
 pub use session::{
     HilDispatcherCase, HilDispatcherReport, HilHardwareSession, HilProbeResult, HilPttConsentToken,
-    HilPttExecutionResult, HilSessionState, HilTxGuard, run_isolated_hardware_dispatcher,
+    HilPttExecutionResult, HilSessionState, HilTxGuard, default_hil_evaluation_time,
+    run_isolated_hardware_dispatcher, run_isolated_hardware_dispatcher_at,
     run_isolated_hardware_test,
 };
 pub use validator::HilReadinessValidator;

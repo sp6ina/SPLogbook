@@ -31,6 +31,18 @@ use splogbook::cat::tx_arbiter::TxArbiter;
 
 static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
+/// Stały, deterministyczny czas odniesienia dla testów offline NATIVE-7A/7B.
+///
+/// Zgodnie z wymaganiami determinizmu:
+/// issued_at ("2026-10-18T09:30:00Z") < reference_time ("2026-10-18T12:00:00Z") < expires_at ("2026-10-18T23:59:59Z")
+pub const HIL_DETERMINISTIC_REFERENCE_TIME: &str = "2026-10-18T12:00:00Z";
+
+pub fn deterministic_reference_time() -> chrono::DateTime<chrono::Utc> {
+    chrono::DateTime::parse_from_rfc3339(HIL_DETERMINISTIC_REFERENCE_TIME)
+        .expect("Valid RFC3339 reference time")
+        .with_timezone(&chrono::Utc)
+}
+
 struct EnvGuard {
     vars: Vec<(&'static str, Option<String>)>,
 }
@@ -38,6 +50,14 @@ struct EnvGuard {
 impl EnvGuard {
     fn new(pairs: &[(&'static str, Option<&str>)]) -> Self {
         let mut vars = Vec::new();
+        let has_custom_ref_time = pairs.iter().any(|(k, _)| *k == "SPLOG_HIL_REFERENCE_TIME");
+        if !has_custom_ref_time {
+            let orig = std::env::var("SPLOG_HIL_REFERENCE_TIME").ok();
+            vars.push(("SPLOG_HIL_REFERENCE_TIME", orig));
+            unsafe {
+                std::env::set_var("SPLOG_HIL_REFERENCE_TIME", HIL_DETERMINISTIC_REFERENCE_TIME)
+            };
+        }
         for (k, v) in pairs {
             let orig = std::env::var(k).ok();
             vars.push((*k, orig));
@@ -62,6 +82,9 @@ impl Drop for EnvGuard {
 }
 
 fn valid_test_manifest() -> HilTestBenchManifest {
+    if std::env::var("SPLOG_HIL_REFERENCE_TIME").is_err() {
+        unsafe { std::env::set_var("SPLOG_HIL_REFERENCE_TIME", HIL_DETERMINISTIC_REFERENCE_TIME) };
+    }
     HilTestBenchManifest {
         bench_id: "LAB-BENCH-SP6INA-01".to_string(),
         session_id: "SESSION-TEST-01".to_string(),
@@ -1018,7 +1041,8 @@ fn hil_session_id_must_match_environment() {
 fn hil_expired_session_is_blocked() {
     let _lock = ENV_LOCK.blocking_lock();
     let mut manifest = valid_test_manifest();
-    manifest.expires_at = Some("2020-01-01T00:00:00Z".to_string());
+    // issued_at (09:30:00Z) < expires_at (10:00:00Z) < reference_time (12:00:00Z)
+    manifest.expires_at = Some("2026-10-18T10:00:00Z".to_string());
     let session = HilHardwareSession::new(manifest, HilExecutionStage::Stage7BHardware);
     let _env = EnvGuard::new(&[
         ("SPLOG_HIL_ENABLE", Some("1")),
@@ -1026,6 +1050,124 @@ fn hil_expired_session_is_blocked() {
     ]);
     let res = session.verify_hardware_access_authorization();
     assert!(matches!(res, Err(HilError::SessionExpired(_))));
+}
+
+#[test]
+fn hil_session_is_valid_before_expiration() {
+    let _lock = ENV_LOCK.blocking_lock();
+    let manifest = valid_test_manifest();
+    // issued_at: 09:30:00Z, reference_time: 12:00:00Z, expires_at: 23:59:59Z
+    let ref_time = deterministic_reference_time();
+    let session = HilHardwareSession::new_with_reference_time(
+        manifest,
+        HilExecutionStage::Stage7BHardware,
+        Some(ref_time),
+    );
+    let _env = EnvGuard::new(&[
+        ("SPLOG_HIL_ENABLE", Some("1")),
+        ("SPLOG_HIL_SESSION", Some("SESSION-TEST-01")),
+    ]);
+    assert!(session.verify_hardware_access_authorization().is_ok());
+}
+
+#[test]
+fn hil_session_is_expired_after_expiration() {
+    let _lock = ENV_LOCK.blocking_lock();
+    let mut manifest = valid_test_manifest();
+    // issued_at (09:30:00Z) < expires_at (11:00:00Z) < reference_time (12:00:00Z)
+    manifest.expires_at = Some("2026-10-18T11:00:00Z".to_string());
+    let ref_time = deterministic_reference_time();
+    let session = HilHardwareSession::new_with_reference_time(
+        manifest,
+        HilExecutionStage::Stage7BHardware,
+        Some(ref_time),
+    );
+    let _env = EnvGuard::new(&[
+        ("SPLOG_HIL_ENABLE", Some("1")),
+        ("SPLOG_HIL_SESSION", Some("SESSION-TEST-01")),
+    ]);
+    let res = session.verify_hardware_access_authorization();
+    assert!(matches!(res, Err(HilError::SessionExpired(_))));
+}
+
+#[test]
+fn hil_session_is_expired_at_exact_expiration() {
+    let _lock = ENV_LOCK.blocking_lock();
+    let mut manifest = valid_test_manifest();
+    // reference_time == expires_at -> wygasła (semantyka reference_time >= expires_at)
+    manifest.expires_at = Some(HIL_DETERMINISTIC_REFERENCE_TIME.to_string());
+    let ref_time = deterministic_reference_time();
+    let session = HilHardwareSession::new_with_reference_time(
+        manifest,
+        HilExecutionStage::Stage7BHardware,
+        Some(ref_time),
+    );
+    let _env = EnvGuard::new(&[
+        ("SPLOG_HIL_ENABLE", Some("1")),
+        ("SPLOG_HIL_SESSION", Some("SESSION-TEST-01")),
+    ]);
+    let res = session.verify_hardware_access_authorization();
+    assert!(matches!(res, Err(HilError::SessionExpired(_))));
+}
+
+#[test]
+fn hil_session_rejects_expiration_before_issue_time() {
+    let _lock = ENV_LOCK.blocking_lock();
+    let mut manifest = valid_test_manifest();
+    // created_at: 09:30:00Z, expires_at: 08:00:00Z (expires_at < created_at)
+    manifest.expires_at = Some("2026-10-18T08:00:00Z".to_string());
+    assert!(matches!(
+        manifest.validate_structure(),
+        Err(HilError::InvalidManifest(_))
+    ));
+    let session = HilHardwareSession::new(manifest, HilExecutionStage::Stage7BHardware);
+    let _env = EnvGuard::new(&[
+        ("SPLOG_HIL_ENABLE", Some("1")),
+        ("SPLOG_HIL_SESSION", Some("SESSION-TEST-01")),
+    ]);
+    let res = session.verify_hardware_access_authorization();
+    assert!(matches!(res, Err(HilError::InvalidManifest(_))));
+}
+
+#[test]
+fn hil_offline_tests_do_not_depend_on_wall_clock() {
+    let _lock = ENV_LOCK.blocking_lock();
+    let manifest = valid_test_manifest();
+    // Weryfikujemy, że jawnie przekazany czas odniesienia jest w 100% niezależny
+    // od rzeczywistego zegara systemowego (wall-clock).
+    let past_valid_time = chrono::DateTime::parse_from_rfc3339("2026-10-18T10:00:00Z")
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+    let expired_ref_time = chrono::DateTime::parse_from_rfc3339("2026-10-19T00:00:01Z")
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+
+    let session = HilHardwareSession::new(manifest, HilExecutionStage::Stage7BHardware);
+    let _env = EnvGuard::new(&[
+        ("SPLOG_HIL_ENABLE", Some("1")),
+        ("SPLOG_HIL_SESSION", Some("SESSION-TEST-01")),
+    ]);
+
+    assert!(
+        session
+            .verify_hardware_access_authorization_at(past_valid_time)
+            .is_ok()
+    );
+    let res = session.verify_hardware_access_authorization_at(expired_ref_time);
+    assert!(matches!(res, Err(HilError::SessionExpired(_))));
+}
+
+#[test]
+fn hil_stage_7a_fixture_uses_deterministic_reference_time() {
+    let manifest = valid_test_manifest();
+    assert_eq!(manifest.created_at, "2026-10-18T09:30:00Z");
+    assert_eq!(manifest.expires_at.as_deref(), Some("2026-10-18T23:59:59Z"));
+    let created = chrono::DateTime::parse_from_rfc3339(&manifest.created_at).unwrap();
+    let expires =
+        chrono::DateTime::parse_from_rfc3339(manifest.expires_at.as_deref().unwrap()).unwrap();
+    let ref_time = deterministic_reference_time();
+    assert!(created < ref_time, "issued_at < reference_time");
+    assert!(ref_time < expires, "reference_time < expires_at");
 }
 
 #[test]
@@ -1638,7 +1780,8 @@ fn hil_dispatcher_blocked_gate_emits_no_ptt() {
 #[test]
 fn hil_dispatcher_rechecks_expiration() {
     let mut manifest = valid_test_manifest();
-    manifest.expires_at = Some("2020-01-01T00:00:00Z".to_string());
+    // issued_at (09:30:00Z) < expires_at (10:00:00Z) < reference_time (12:00:00Z)
+    manifest.expires_at = Some("2026-10-18T10:00:00Z".to_string());
     let report = run_isolated_hardware_dispatcher(&manifest, HilExecutionStage::Stage7AOffline);
     assert_eq!(report.overall_status, HilReadinessStatus::Failed);
     assert!(report.cases[0].reason.contains("expired"));
