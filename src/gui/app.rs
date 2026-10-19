@@ -46,6 +46,7 @@ use crate::gui::sota_dialog::SotaDialog;
 use crate::gui::states_browser::StatesBrowserDialog;
 use crate::gui::station_ledger::render_station_ledger_window;
 use crate::gui::statistics::render_statistics_window;
+use crate::gui::theme::ThemeExt;
 use crate::gui::vfo_panel::render_vfo_window;
 use crate::gui::voice_keyer::render_voice_keyer_window;
 use crate::gui::waterfall_panel::WaterfallPanel;
@@ -142,6 +143,31 @@ pub struct AppDeps {
     pub scp_engine: std::sync::Arc<std::sync::Mutex<crate::core::scp::ScpEngine>>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpotBadgeKind {
+    NewDxcc,
+    NewBand,
+    Standard,
+}
+
+impl SpotBadgeKind {
+    pub fn suffix(self) -> &'static str {
+        match self {
+            SpotBadgeKind::NewDxcc => " ⭐",
+            SpotBadgeKind::NewBand => " ✨",
+            SpotBadgeKind::Standard => "",
+        }
+    }
+
+    pub fn color(self, palette: &crate::gui::theme::Palette) -> egui::Color32 {
+        match self {
+            SpotBadgeKind::NewDxcc => palette.accent_alt,
+            SpotBadgeKind::NewBand => palette.success,
+            SpotBadgeKind::Standard => palette.accent,
+        }
+    }
+}
+
 pub struct SpLogApp {
     pub shutdown_policy: ShutdownPolicy,
     pub initial_cat_enabled: bool,
@@ -201,7 +227,7 @@ pub struct SpLogApp {
     pub cluster_spots_api: Option<Arc<Mutex<Vec<DxSpot>>>>, // wspoldzielone z REST API
     /// Cache kolorów/odznak spotów klastra (unika przeliczania prefiksu i statusu
     /// nagród w każdej klatce). Czyszczony przy zmianie danych nagród.
-    pub cluster_badge_cache: std::collections::HashMap<String, (egui::Color32, &'static str)>,
+    pub cluster_badge_cache: std::collections::HashMap<String, SpotBadgeKind>,
     pub space_weather: SpaceWeather,
     /// Cache prognoz propagacyjnych panelu słonecznego (VOACAP-lite).
     pub solar_propagation_cache: Option<(
@@ -2600,14 +2626,9 @@ impl SpLogApp {
         self.panel_log.visible = true;
     }
 
-    /// Zwraca kolor i odznakę (⭐ nowe DXCC, ✨ nowe pasmo) dla spotu klastra,
+    /// Zwraca rodzaj odznaki (⭐ nowe DXCC, ✨ nowe pasmo) dla spotu klastra,
     /// korzystając z cache, aby nie przeliczać prefiksu i statusu nagród co klatkę.
-    pub fn cluster_spot_badge(
-        &mut self,
-        dx_call: &str,
-        band: &str,
-        is_ft8: bool,
-    ) -> (egui::Color32, &'static str) {
+    pub fn cluster_spot_badge(&mut self, dx_call: &str, band: &str, is_ft8: bool) -> SpotBadgeKind {
         let key = format!("{dx_call}|{band}|{is_ft8}");
         if let Some(&badge) = self.cluster_badge_cache.get(&key) {
             return badge;
@@ -2630,14 +2651,14 @@ impl SpLogApp {
                 None,
             );
             if st.is_new_dxcc {
-                (egui::Color32::from_rgb(217, 70, 239), " ⭐")
+                SpotBadgeKind::NewDxcc
             } else if st.is_new_band {
-                (egui::Color32::from_rgb(34, 197, 94), " ✨")
+                SpotBadgeKind::NewBand
             } else {
-                (egui::Color32::from_rgb(56, 189, 248), "")
+                SpotBadgeKind::Standard
             }
         } else {
-            (egui::Color32::from_rgb(56, 189, 248), "")
+            SpotBadgeKind::Standard
         };
 
         self.cluster_badge_cache.insert(key, badge);
@@ -4898,13 +4919,14 @@ impl eframe::App for SpLogApp {
         // Dolny pasek statusu stacji
         egui::Panel::bottom("bottom_status_bar").show(ui, |ui| {
             let lang = self.current_language;
+            let palette = ui.palette();
             ui.horizontal(|ui| {
                 let fallback_status = tr(key::STATUS_READY_ALL_ACTIVE, lang);
                 let status_txt = self.status_message.as_deref().unwrap_or(fallback_status);
                 ui.label(
                     egui::RichText::new(status_txt)
                         .size(11.0)
-                        .color(egui::Color32::from_rgb(148, 163, 184)),
+                        .color(palette.text_muted),
                 );
 
                 ui.separator();
@@ -4922,7 +4944,7 @@ impl eframe::App for SpLogApp {
                     egui::RichText::new(op_txt)
                         .size(11.0)
                         .monospace()
-                        .color(egui::Color32::from_rgb(56, 189, 248)),
+                        .color(palette.accent),
                 );
 
                 ui.separator();
@@ -4932,7 +4954,7 @@ impl eframe::App for SpLogApp {
                     egui::RichText::new(rst_txt)
                         .size(11.0)
                         .monospace()
-                        .color(egui::Color32::from_rgb(250, 204, 21)),
+                        .color(palette.warning),
                 );
 
                 ui.separator();
@@ -4944,7 +4966,7 @@ impl eframe::App for SpLogApp {
                 ui.label(
                     egui::RichText::new(prop_txt)
                         .size(11.0)
-                        .color(egui::Color32::from_rgb(52, 211, 153)),
+                        .color(palette.success),
                 );
 
                 ui.separator();
@@ -4958,7 +4980,7 @@ impl eframe::App for SpLogApp {
                 ui.label(
                     egui::RichText::new(journal_str)
                         .size(11.0)
-                        .color(egui::Color32::from_rgb(52, 211, 153)),
+                        .color(palette.success),
                 );
 
                 ui.separator();
@@ -4972,7 +4994,7 @@ impl eframe::App for SpLogApp {
                 ui.label(
                     egui::RichText::new(profile_str)
                         .size(11.0)
-                        .color(egui::Color32::from_rgb(250, 204, 21)),
+                        .color(palette.warning),
                 );
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -4982,7 +5004,7 @@ impl eframe::App for SpLogApp {
                             env!("CARGO_PKG_VERSION")
                         ))
                         .size(10.0)
-                        .color(egui::Color32::from_rgb(100, 116, 139)),
+                        .color(palette.text_subtle),
                     );
                     ui.separator();
 
@@ -4995,7 +5017,7 @@ impl eframe::App for SpLogApp {
                         egui::RichText::new(utc_str)
                             .size(11.0)
                             .monospace()
-                            .color(egui::Color32::from_rgb(56, 189, 248)),
+                            .color(palette.accent),
                     );
                     ui.separator();
 
@@ -5004,13 +5026,13 @@ impl eframe::App for SpLogApp {
                             egui::RichText::new("● CAT")
                                 .size(11.0)
                                 .strong()
-                                .color(egui::Color32::from_rgb(34, 197, 94)),
+                                .color(palette.success),
                         );
                     } else {
                         ui.label(
                             egui::RichText::new("○ CAT")
                                 .size(11.0)
-                                .color(egui::Color32::from_rgb(148, 163, 184)),
+                                .color(palette.text_muted),
                         );
                     }
                     ui.separator();
@@ -5020,19 +5042,19 @@ impl eframe::App for SpLogApp {
                             egui::RichText::new("● CLUSTER")
                                 .size(11.0)
                                 .strong()
-                                .color(egui::Color32::from_rgb(34, 197, 94)),
+                                .color(palette.success),
                         );
                     } else if self.cluster_connecting {
                         ui.label(
                             egui::RichText::new("● CLUSTER")
                                 .size(11.0)
-                                .color(egui::Color32::from_rgb(250, 204, 21)),
+                                .color(palette.warning),
                         );
                     } else {
                         ui.label(
                             egui::RichText::new("○ CLUSTER")
                                 .size(11.0)
-                                .color(egui::Color32::from_rgb(148, 163, 184)),
+                                .color(palette.text_muted),
                         );
                     }
                 });
@@ -5042,6 +5064,7 @@ impl eframe::App for SpLogApp {
         // Główny obszar roboczy - swobodny pulpit stacji SPLogbook (MDI Desktop)
         egui::CentralPanel::default().show(ui, |ui| {
             let lang = self.current_language;
+            let palette = ui.palette();
             if self.compact_hud_mode {
                 ui.vertical_centered(|ui| {
                     ui.add_space(60.0);
@@ -5052,7 +5075,7 @@ impl eframe::App for SpLogApp {
                             "📻 Compact Mode (Mini HUD)",
                         ))
                         .size(22.0)
-                        .color(egui::Color32::from_rgb(56, 189, 248)),
+                        .color(palette.accent),
                     );
                     ui.add_space(8.0);
                     ui.label(
@@ -5069,7 +5092,7 @@ impl eframe::App for SpLogApp {
                             "Możesz swobodnie pracować w innych programach (np. FT8/JTDX/przeglądarka) z minimalistycznym oknem SPLogbook.",
                             "You can work comfortably alongside external applications (FT8/JTDX/browser) with the minimal SPLogbook bar.",
                         ))
-                        .color(egui::Color32::from_rgb(148, 163, 184)),
+                        .color(palette.text_muted),
                     );
                     ui.add_space(16.0);
                     if ui
@@ -5102,7 +5125,7 @@ impl eframe::App for SpLogApp {
                 if total_visible == 0 {
                     ui.vertical_centered(|ui| {
                         ui.add_space(80.0);
-                        ui.heading(egui::RichText::new("📻 SPLogbook Workspace").size(26.0).color(egui::Color32::from_rgb(56, 189, 248)));
+                        ui.heading(egui::RichText::new("📻 SPLogbook Workspace").size(26.0).color(palette.accent));
                         ui.add_space(8.0);
                         ui.label(
                             egui::RichText::new(crate::core::i18n::tr_or(
@@ -5118,7 +5141,7 @@ impl eframe::App for SpLogApp {
                                 "Możesz w każdej chwili przywrócić domyślny układ lub włączyć wybrane moduły z menu 'Widok'.",
                                 "You can restore the default layout at any time or enable individual panels from the 'View' menu.",
                             ))
-                            .color(egui::Color32::from_rgb(148, 163, 184)),
+                            .color(palette.text_muted),
                         );
                         ui.add_space(16.0);
                         if ui
@@ -5197,7 +5220,7 @@ impl eframe::App for SpLogApp {
                                     "SPLogbook • Drag tabs by header • Resize borders • Right-click to split",
                                 ))
                                 .size(11.0)
-                                .color(egui::Color32::from_rgb(100, 116, 139)),
+                                .color(palette.text_subtle),
                             );
                         });
                     });
@@ -5429,18 +5452,16 @@ impl eframe::App for SpLogApp {
                 egui::Area::new(egui::Id::new("status_toast_area"))
                     .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-20.0, -40.0))
                     .show(ctx, |ui| {
+                        let palette = ui.palette();
                         egui::Frame::popup(ui.style())
-                            .fill(egui::Color32::from_rgb(15, 23, 42))
-                            .stroke(egui::Stroke::new(
-                                1.0_f32,
-                                egui::Color32::from_rgb(56, 189, 248),
-                            ))
+                            .fill(palette.surface_bg)
+                            .stroke(egui::Stroke::new(1.0_f32, palette.accent))
                             .inner_margin(egui::Margin::same(10))
                             .show(ui, |ui| {
                                 ui.label(
                                     egui::RichText::new(format!("🔔 {msg}"))
                                         .strong()
-                                        .color(egui::Color32::WHITE),
+                                        .color(palette.text_primary),
                                 );
                             });
                     });
@@ -5458,8 +5479,9 @@ impl eframe::App for SpLogApp {
                 .open(&mut is_open)
                 .default_size([480.0, 340.0])
                 .show(ctx, |ui| {
+                    let palette = ui.palette();
                     ui.vertical_centered(|ui| {
-                        ui.heading(egui::RichText::new("📻 SPLogbook").size(24.0).color(egui::Color32::from_rgb(56, 189, 248)));
+                        ui.heading(egui::RichText::new("📻 SPLogbook").size(24.0).color(palette.accent));
                         ui.label(
                             egui::RichText::new(crate::core::i18n::tr_or(
                                 lang,
@@ -5478,9 +5500,9 @@ impl eframe::App for SpLogApp {
                             ))
                             .size(13.0)
                             .strong()
-                            .color(egui::Color32::from_rgb(250, 204, 21)),
+                            .color(palette.warning),
                         );
-                        ui.label(egui::RichText::new("E-mail: contact@splogbook.org").size(12.0).color(egui::Color32::from_rgb(56, 189, 248)));
+                        ui.label(egui::RichText::new("E-mail: contact@splogbook.org").size(12.0).color(palette.accent));
                         ui.label(crate::core::i18n::tr_or(
                             lang,
                             "Licencja: GNU General Public License v3.0 (GPL-3.0-or-later)",
@@ -5674,13 +5696,14 @@ impl eframe::App for SpLogApp {
                             sections_en
                         };
 
+                        let palette = ui.palette();
                         for (cat_title, rows) in sections {
                             ui.add_space(6.0);
                             ui.heading(
                                 egui::RichText::new(*cat_title)
                                     .size(14.0)
                                     .strong()
-                                    .color(egui::Color32::from_rgb(56, 189, 248)),
+                                    .color(palette.accent),
                             );
                             ui.separator();
                             egui::Grid::new(format!("shortcuts_grid_{cat_title}"))
@@ -5692,7 +5715,7 @@ impl eframe::App for SpLogApp {
                                         ui.monospace(
                                             egui::RichText::new(*key)
                                                 .strong()
-                                                .color(egui::Color32::from_rgb(250, 204, 21)),
+                                                .color(palette.warning),
                                         );
                                         ui.label(*desc);
                                         ui.end_row();
@@ -5714,6 +5737,7 @@ impl eframe::App for SpLogApp {
                 .open(&mut is_open)
                 .default_size([480.0, 420.0])
                 .show(ctx, |ui| {
+                    let palette = ui.palette();
                     egui::ScrollArea::vertical().show(ui, |ui| {
                         ui.label(
                             egui::RichText::new(crate::core::i18n::tr_or(
@@ -5722,27 +5746,27 @@ impl eframe::App for SpLogApp {
                                 "Every status indicator uses both color AND a distinct symbol/shape so it remains accessible for users with color vision deficiency.",
                             ))
                             .italics()
-                            .color(egui::Color32::from_rgb(148, 163, 184)),
+                            .color(palette.text_muted),
                         );
 
                         ui.add_space(8.0);
-                        let rows_pl: &[(egui::Color32, &str, &str, &str)] = &[
-                            (egui::Color32::from_rgb(34, 197, 94), "●", "Zielony", "Połączono / aktywny — DX Cluster połączony, WSJT-X aktywny, QSO zapisane poprawnie."),
-                            (egui::Color32::from_rgb(250, 204, 21), "◐", "Żółty / bursztyn", "Łączenie / ostrzeżenie — trwa łączenie z klastrem, aktywny filtr, status oczekujący."),
-                            (egui::Color32::from_rgb(148, 163, 184), "○", "Szary", "Rozłączono / nieaktywny — klaster rozłączony, moduł wyłączony."),
-                            (egui::Color32::from_rgb(239, 68, 68), "⚠", "Czerwony", "Błąd / akcja niszcząca — błąd operacji, przycisk rozłączenia, usuwanie wpisu."),
-                            (egui::Color32::from_rgb(56, 189, 248), "ℹ", "Niebieski", "Informacja / wartości aktywne — znak OP, nagłówki sekcji, wartości pomiarowe."),
-                            (egui::Color32::from_rgb(52, 211, 153), "✦", "Cyjan / zielony", "Sukces / potwierdzenie — QSO potwierdzone (LoTW/eQSL), potwierdzony zapis."),
+                        let rows_pl = [
+                            (palette.success, "●", "Zielony", "Połączono / aktywny — DX Cluster połączony, WSJT-X aktywny, QSO zapisane poprawnie."),
+                            (palette.warning, "◐", "Żółty / bursztyn", "Łączenie / ostrzeżenie — trwa łączenie z klastrem, aktywny filtr, status oczekujący."),
+                            (palette.text_muted, "○", "Szary", "Rozłączono / nieaktywny — klaster rozłączony, moduł wyłączony."),
+                            (palette.danger, "⚠", "Czerwony", "Błąd / akcja niszcząca — błąd operacji, przycisk rozłączenia, usuwanie wpisu."),
+                            (palette.accent, "ℹ", "Niebieski", "Informacja / wartości aktywne — znak OP, nagłówki sekcji, wartości pomiarowe."),
+                            (palette.accent_alt, "✦", "Cyjan / zielony", "Sukces / potwierdzenie — QSO potwierdzone (LoTW/eQSL), potwierdzony zapis."),
                         ];
-                        let rows_en: &[(egui::Color32, &str, &str, &str)] = &[
-                            (egui::Color32::from_rgb(34, 197, 94), "●", "Green", "Connected / Active — DX Cluster online, WSJT-X active, QSO logged."),
-                            (egui::Color32::from_rgb(250, 204, 21), "◐", "Amber / Yellow", "Connecting / Warning — connecting to cluster, active filter, pending state."),
-                            (egui::Color32::from_rgb(148, 163, 184), "○", "Gray", "Disconnected / Inactive — cluster offline, module disabled."),
-                            (egui::Color32::from_rgb(239, 68, 68), "⚠", "Red", "Error / Destructive action — operation error, disconnect button, delete entry."),
-                            (egui::Color32::from_rgb(56, 189, 248), "ℹ", "Blue", "Information / Active value — operator callsign, section headers, telemetry."),
-                            (egui::Color32::from_rgb(52, 211, 153), "✦", "Emerald / Cyan", "Confirmed / Verified — QSO confirmed via LoTW/eQSL/QSL, verified save."),
+                        let rows_en = [
+                            (palette.success, "●", "Green", "Connected / Active — DX Cluster online, WSJT-X active, QSO logged."),
+                            (palette.warning, "◐", "Amber / Yellow", "Connecting / Warning — connecting to cluster, active filter, pending state."),
+                            (palette.text_muted, "○", "Gray", "Disconnected / Inactive — cluster offline, module disabled."),
+                            (palette.danger, "⚠", "Red", "Error / Destructive action — operation error, disconnect button, delete entry."),
+                            (palette.accent, "ℹ", "Blue", "Information / Active value — operator callsign, section headers, telemetry."),
+                            (palette.accent_alt, "✦", "Emerald / Cyan", "Confirmed / Verified — QSO confirmed via LoTW/eQSL/QSL, verified save."),
                         ];
-                        let rows = if lang == Language::Pl { rows_pl } else { rows_en };
+                        let rows: &[(egui::Color32, &str, &str, &str)] = if lang == Language::Pl { &rows_pl } else { &rows_en };
                         egui::Grid::new("legend_grid")
                             .num_columns(4)
                             .spacing([12.0, 8.0])
@@ -5752,7 +5776,7 @@ impl eframe::App for SpLogApp {
                                     ui.label(egui::RichText::new(*shape).color(*color).size(18.0));
                                     ui.label(egui::RichText::new(*name).strong().color(*color));
                                     ui.label(egui::RichText::new("■").color(*color).size(14.0));
-                                    ui.label(egui::RichText::new(*desc).color(egui::Color32::from_rgb(203, 213, 225)));
+                                    ui.label(egui::RichText::new(*desc).color(palette.text_muted));
                                     ui.end_row();
                                 }
                             });

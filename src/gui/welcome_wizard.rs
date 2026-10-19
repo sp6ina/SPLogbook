@@ -3,6 +3,7 @@
 
 use crate::core::i18n::{Language, key, tr};
 use crate::gui::app::SpLogApp;
+use crate::gui::theme::ThemeExt;
 use eframe::egui;
 
 /// Ekran powitalny / kreator pierwszego uruchomienia.
@@ -34,17 +35,18 @@ pub fn render_welcome_wizard(app: &mut SpLogApp, ctx: &egui::Context) {
         .default_width(680.0)
         .min_size([580.0, 540.0])
         .show(ctx, |ui| {
+            let palette = ui.palette();
             // Nagłówek
             ui.horizontal(|ui| {
                 ui.heading(
                     egui::RichText::new("SPLogbook")
                         .size(24.0)
-                        .color(egui::Color32::from_rgb(56, 189, 248)),
+                        .color(palette.accent),
                 );
                 ui.label(
                     egui::RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
                         .size(13.0)
-                        .color(egui::Color32::from_rgb(100, 116, 139)),
+                        .color(palette.text_subtle),
                 );
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -71,17 +73,17 @@ pub fn render_welcome_wizard(app: &mut SpLogApp, ctx: &egui::Context) {
                     ] {
                         let is_sel = lang == language;
                         let fill = if is_sel {
-                            egui::Color32::from_rgb(30, 64, 100)
+                            palette.selection_bg
                         } else {
-                            egui::Color32::from_rgba_unmultiplied(45, 45, 55, 200)
+                            palette.subtle_bg
                         };
                         let btn = egui::Button::new(
                             egui::RichText::new(format!("{flag} {name}"))
                                 .size(11.0)
                                 .color(if is_sel {
-                                    egui::Color32::WHITE
+                                    palette.selection_text
                                 } else {
-                                    egui::Color32::from_rgb(180, 190, 205)
+                                    palette.text_muted
                                 }),
                         )
                         .fill(fill);
@@ -94,7 +96,7 @@ pub fn render_welcome_wizard(app: &mut SpLogApp, ctx: &egui::Context) {
                     ui.label(
                         egui::RichText::new(format!("{}:", tr(key::MENU_LANGUAGE, lang)))
                             .size(11.0)
-                            .color(egui::Color32::from_rgb(148, 163, 184)),
+                            .color(palette.text_muted),
                     );
                 });
             });
@@ -102,7 +104,7 @@ pub fn render_welcome_wizard(app: &mut SpLogApp, ctx: &egui::Context) {
             ui.label(
                 egui::RichText::new(tr(key::WIZARD_WELCOME, lang))
                     .size(13.0)
-                    .color(egui::Color32::from_rgb(148, 163, 184)),
+                    .color(palette.text_muted),
             );
             ui.add_space(4.0);
             ui.separator();
@@ -176,7 +178,7 @@ pub fn render_welcome_wizard(app: &mut SpLogApp, ctx: &egui::Context) {
                             ))
                             .size(13.0)
                             .strong()
-                            .color(egui::Color32::WHITE),
+                            .color(palette.text_primary),
                         )
                         .clicked()
                     {
@@ -297,7 +299,7 @@ fn render_tab_station(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
     ui.label(
         egui::RichText::new(tr(key::WIZARD_REQUIRED_HINT, lang))
             .small()
-            .color(egui::Color32::from_rgb(148, 163, 184)),
+            .color(ui.palette().text_muted),
     );
 }
 
@@ -377,7 +379,7 @@ fn render_tab_radio(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
                 );
                 ui.label(
                     egui::RichText::new("(port 2237)")
-                        .color(egui::Color32::from_rgb(148, 163, 184))
+                        .color(ui.palette().text_muted)
                         .small(),
                 );
             });
@@ -388,7 +390,7 @@ fn render_tab_radio(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
     ui.label(
         egui::RichText::new(tr(key::WIZARD_CAT_HINT, lang))
             .small()
-            .color(egui::Color32::from_rgb(148, 163, 184)),
+            .color(ui.palette().text_muted),
     );
 }
 
@@ -453,7 +455,7 @@ fn render_tab_services(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
     ui.label(
         egui::RichText::new(tr(key::WIZARD_SERVICES_HINT, lang))
             .small()
-            .color(egui::Color32::from_rgb(148, 163, 184)),
+            .color(ui.palette().text_muted),
     );
 }
 
@@ -475,6 +477,7 @@ fn render_tab_appearance(
     ui.add_space(4.0);
 
     ui.horizontal_wrapped(|ui| {
+        let palette = ui.palette();
         for (language, flag, name) in [
             (Language::Pl, "PL", "Polski"),
             (Language::En, "EN", "English"),
@@ -486,12 +489,20 @@ fn render_tab_appearance(
         ] {
             let selected = lang == language;
             let fill = if selected {
-                egui::Color32::from_rgb(30, 64, 100)
+                palette.selection_bg
             } else {
-                egui::Color32::from_rgba_unmultiplied(40, 40, 40, 200)
+                palette.subtle_bg
             };
-            let btn = egui::Button::new(egui::RichText::new(format!("[{flag}] {name}")).size(12.0))
-                .fill(fill);
+            let btn = egui::Button::new(
+                egui::RichText::new(format!("[{flag}] {name}"))
+                    .size(12.0)
+                    .color(if selected {
+                        palette.selection_text
+                    } else {
+                        palette.text_primary
+                    }),
+            )
+            .fill(fill);
             if ui.add_sized([115.0, 34.0], btn).clicked() {
                 app.current_language = language;
             }
@@ -506,31 +517,30 @@ fn render_tab_appearance(
     ui.label(egui::RichText::new(tr(key::WIZARD_THEME_LABEL, lang)).strong());
     ui.add_space(4.0);
     ui.horizontal(|ui| {
-        if ui
-            .add_sized(
-                [140.0, 30.0],
-                egui::Button::new(egui::RichText::new(tr(key::WIZARD_THEME_DARK, lang)).size(12.0))
-                    .fill(egui::Color32::from_rgb(30, 30, 50)),
+        let palette = ui.palette();
+        for preset in crate::gui::theme::ThemePreset::ALL {
+            let selected = app.theme_preset == preset;
+            let fill = if selected {
+                palette.selection_bg
+            } else {
+                palette.subtle_bg
+            };
+            let text_color = if selected {
+                palette.selection_text
+            } else {
+                palette.text_primary
+            };
+            let btn = egui::Button::new(
+                egui::RichText::new(preset.label(lang))
+                    .size(12.0)
+                    .color(text_color),
             )
-            .clicked()
-        {
-            app.theme_preset = crate::gui::theme::ThemePreset::OperatorDark;
-            crate::gui::theme::ensure_applied(ctx, app.theme_preset, app.font_scale);
-            app.save_station_config();
-        }
-        if ui
-            .add_sized(
-                [140.0, 30.0],
-                egui::Button::new(
-                    egui::RichText::new(tr(key::WIZARD_THEME_LIGHT, lang)).size(12.0),
-                )
-                .fill(egui::Color32::from_rgb(220, 220, 230)),
-            )
-            .clicked()
-        {
-            app.theme_preset = crate::gui::theme::ThemePreset::Daylight;
-            crate::gui::theme::ensure_applied(ctx, app.theme_preset, app.font_scale);
-            app.save_station_config();
+            .fill(fill);
+            if ui.add_sized([140.0, 30.0], btn).clicked() {
+                app.theme_preset = preset;
+                crate::gui::theme::ensure_applied(ctx, app.theme_preset, app.font_scale);
+                app.save_station_config();
+            }
         }
     });
 

@@ -12,7 +12,6 @@ use std::path::Path;
 /// Po ukończeniu THEME-8 lista musi być pusta.
 const PENDING_FILES: &[&str] = &[
     "src/gui/advanced_filter.rs",
-    "src/gui/app.rs",
     "src/gui/astronomy_dialog.rs",
     "src/gui/awards_matrix.rs",
     "src/gui/bandmap.rs",
@@ -49,7 +48,6 @@ const PENDING_FILES: &[&str] = &[
     "src/gui/vfo_panel.rs",
     "src/gui/voice_keyer.rs",
     "src/gui/waterfall_panel.rs",
-    "src/gui/welcome_wizard.rs",
     "src/gui/wol_dialog.rs",
     "src/gui/world_map.rs",
     "src/gui/wspr_panel.rs",

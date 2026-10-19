@@ -4,6 +4,7 @@
 use crate::cluster::telnet::{CLUSTER_PRESETS, DxSpot};
 use crate::core::i18n::{key, tr};
 use crate::gui::app::SpLogApp;
+use crate::gui::theme::ThemeExt;
 use eframe::egui;
 
 /// Wyodrębnia referencję POTA (np. SP-0123) oraz SOTA (np. SP/BZ-001) z komentarza spotu
@@ -696,14 +697,20 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                         ui.end_row();
 
                         for (spot, pota_ref, sota_ref) in &filtered_spots {
-                            let (call_color, badge) =
+                            let badge =
                                 app.cluster_spot_badge(&spot.dx_call, &spot.band, spot.is_ft8);
+                            let palette = ui.palette();
+                            let call_color = badge.color(&palette);
 
                             if ui
                                 .button(
-                                    egui::RichText::new(format!("{}{}", spot.dx_call, badge))
-                                        .strong()
-                                        .color(call_color),
+                                    egui::RichText::new(format!(
+                                        "{}{}",
+                                        spot.dx_call,
+                                        badge.suffix()
+                                    ))
+                                    .strong()
+                                    .color(call_color),
                                 )
                                 .on_hover_text(tr(key::CLUSTER_TUNE_TOOLTIP, lang))
                                 .clicked()
