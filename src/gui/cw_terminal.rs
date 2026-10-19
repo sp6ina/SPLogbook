@@ -3,6 +3,7 @@
 // Interaktywny terminal telegraficzny CW z buforem i obsługą Winkeyera / portu COM
 
 use crate::cat::winkeyer::{CwTerminalBuffer, WinkeyerConfig};
+use crate::gui::theme::ThemeExt;
 use eframe::egui;
 
 pub struct CwTerminalDialog {
@@ -117,26 +118,26 @@ impl CwTerminalDialog {
                 ui.separator();
 
                 // Okno podglądu bufora nadawania (wieloliniowe)
+                let palette = ui.palette();
                 ui.label(egui::RichText::new("Podgląd bufora transmisji:").strong());
                 ui.group(|ui| {
                     ui.horizontal_wrapped(|ui| {
                         if !self.buffer.sent_text.is_empty() {
                             ui.label(
-                                egui::RichText::new(&self.buffer.sent_text)
-                                    .color(egui::Color32::from_rgb(120, 220, 120)),
+                                egui::RichText::new(&self.buffer.sent_text).color(palette.success),
                             );
                         }
                         if !self.buffer.queued_text.is_empty() {
                             ui.label(
                                 egui::RichText::new(&self.buffer.queued_text)
-                                    .color(egui::Color32::from_rgb(255, 200, 50))
+                                    .color(palette.warning)
                                     .strong(),
                             );
                         }
                         if self.buffer.sent_text.is_empty() && self.buffer.queued_text.is_empty() {
                             ui.label(
                                 egui::RichText::new("[Bufor pusty]")
-                                    .color(egui::Color32::GRAY)
+                                    .color(palette.text_muted)
                                     .italics(),
                             );
                         }

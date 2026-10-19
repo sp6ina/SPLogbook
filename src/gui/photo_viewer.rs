@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 // Okno przeglądarki zdjęć stacji (z QRZ.com / HamQTH / bazy lokalnej)
 
+use crate::gui::theme::ThemeExt;
 use eframe::egui;
 
 pub struct PhotoViewerDialog {
@@ -94,7 +95,7 @@ impl PhotoViewerDialog {
                             "Brak powiązanego zdjęcia dla tej stacji w QRZ / HamQTH.",
                         )
                         .italics()
-                        .color(egui::Color32::GRAY),
+                        .color(ui.palette().text_muted),
                     );
                     ui.add_space(20.0);
                     let qrz_link = format!("https://www.qrz.com/db/{}", self.callsign);

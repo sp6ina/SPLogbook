@@ -4,6 +4,7 @@
 
 use crate::core::i18n::{Language, key, tr, tr_or};
 use crate::core::service_db::{QslManagerRecord, ServiceDatabase};
+use crate::gui::theme::ThemeExt;
 use eframe::egui;
 
 pub struct QslManagerDialog {
@@ -72,6 +73,7 @@ impl QslManagerDialog {
         .default_width(650.0)
         .default_height(420.0)
         .show(ctx, |ui| {
+            let palette = ui.palette();
             ui.horizontal(|ui| {
                 ui.label(tr_or(
                     lang,
@@ -135,12 +137,12 @@ impl QslManagerDialog {
                                 ui.label(
                                     egui::RichText::new(&rec.call)
                                         .strong()
-                                        .color(egui::Color32::from_rgb(56, 189, 248)),
+                                        .color(palette.accent),
                                 );
                                 ui.label(
                                     egui::RichText::new(&rec.manager)
                                         .strong()
-                                        .color(egui::Color32::from_rgb(34, 197, 94)),
+                                        .color(palette.success),
                                 );
                                 ui.label(&rec.years);
                                 ui.label(&rec.notes);
@@ -171,7 +173,7 @@ impl QslManagerDialog {
                         "serviceLOG database contains over 29,000 station-to-QSL manager mappings.",
                     ))
                     .small()
-                    .color(egui::Color32::GRAY),
+                    .color(palette.text_muted),
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button(tr(key::BTN_CLOSE, lang)).clicked() {

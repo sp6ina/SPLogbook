@@ -5,6 +5,7 @@
 use crate::cat::rotor::RotorState;
 use crate::core::astronomy::AstronomyEngine;
 use crate::core::geo::locator_to_coordinates;
+use crate::gui::theme::ThemeExt;
 use chrono::Utc;
 use eframe::egui;
 
@@ -60,6 +61,7 @@ impl AstronomyDialog {
             .default_width(520.0)
             .default_height(400.0)
             .show(ctx, |ui| {
+                let palette = ui.palette();
                 ui.horizontal(|ui| {
                     ui.label(
                         egui::RichText::new(format!(
@@ -72,7 +74,7 @@ impl AstronomyDialog {
                             now.format("%H:%M:%S UTC")
                         ))
                         .small()
-                        .color(egui::Color32::GRAY),
+                        .color(palette.text_muted),
                     );
                 });
                 ui.separator();
@@ -82,7 +84,7 @@ impl AstronomyDialog {
                     cols[0].group(|ui| {
                         ui.heading(
                             egui::RichText::new(tr(key::EME_MOON_HEADING, lang))
-                                .color(egui::Color32::from_rgb(186, 230, 253)),
+                                .color(palette.accent),
                         );
                         ui.separator();
                         ui.label(format!(
@@ -119,9 +121,9 @@ impl AstronomyDialog {
                         };
                         ui.label(egui::RichText::new(visible_txt).strong().color(
                             if moon.is_visible {
-                                egui::Color32::from_rgb(34, 197, 94)
+                                palette.success
                             } else {
-                                egui::Color32::GRAY
+                                palette.text_muted
                             },
                         ));
 
@@ -136,7 +138,7 @@ impl AstronomyDialog {
                     cols[1].group(|ui| {
                         ui.heading(
                             egui::RichText::new(tr(key::EME_SUN_HEADING, lang))
-                                .color(egui::Color32::from_rgb(253, 224, 71)),
+                                .color(palette.warning),
                         );
                         ui.separator();
                         ui.label(format!(
@@ -173,9 +175,9 @@ impl AstronomyDialog {
                         };
                         ui.label(egui::RichText::new(visible_txt).strong().color(
                             if sun.is_visible {
-                                egui::Color32::from_rgb(250, 204, 21)
+                                palette.warning
                             } else {
-                                egui::Color32::GRAY
+                                palette.text_muted
                             },
                         ));
 
@@ -194,7 +196,7 @@ impl AstronomyDialog {
                     ui.label(
                         egui::RichText::new(tr(key::EME_PARAMS_HEADING, lang))
                             .strong()
-                            .color(egui::Color32::from_rgb(134, 239, 172)),
+                            .color(palette.success),
                     );
                     ui.separator();
                     ui.label(format!(

@@ -4,6 +4,7 @@
 
 use crate::core::qso::QsoRecord;
 use crate::core::sota_export::SotaExporter;
+use crate::gui::theme::ThemeExt;
 use eframe::egui;
 
 pub struct SotaDialog {
@@ -56,6 +57,7 @@ impl SotaDialog {
             .default_width(480.0)
             .default_height(260.0)
             .show(ctx, |ui| {
+                let palette = ui.palette();
                 ui.label("Eksportuj łączności do oficjalnego formatu bazy danych SOTA (sotadata.org.uk) w formacie CSV V2.");
                 ui.separator();
 
@@ -73,7 +75,7 @@ impl SotaDialog {
 
                 if let Some(ref st) = self.status {
                     ui.add_space(4.0);
-                    ui.label(egui::RichText::new(st).color(egui::Color32::from_rgb(56, 189, 248)).strong());
+                    ui.label(egui::RichText::new(st).color(palette.accent).strong());
                 }
 
                 ui.add_space(10.0);

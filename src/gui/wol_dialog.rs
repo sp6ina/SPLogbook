@@ -3,6 +3,7 @@
 // Okno zdalnego włączania komputera stacji (Wake-on-LAN)
 
 use crate::core::i18n::{Language, key, tr};
+use crate::gui::theme::ThemeExt;
 use crate::network::wol::WolClient;
 use eframe::egui;
 
@@ -48,6 +49,7 @@ impl WolDialog {
             .default_width(450.0)
             .default_height(240.0)
             .show(ctx, |ui| {
+                let palette = ui.palette();
                 ui.label(tr(key::WOL_DESCRIPTION, lang));
                 ui.separator();
 
@@ -69,11 +71,7 @@ impl WolDialog {
 
                 if let Some(ref st) = self.status {
                     ui.add_space(4.0);
-                    ui.label(
-                        egui::RichText::new(st)
-                            .color(egui::Color32::from_rgb(52, 211, 153))
-                            .strong(),
-                    );
+                    ui.label(egui::RichText::new(st).color(palette.success).strong());
                 }
 
                 ui.add_space(10.0);
@@ -81,9 +79,9 @@ impl WolDialog {
                     let btn = egui::Button::new(
                         egui::RichText::new(tr(key::WOL_SEND_BTN, lang))
                             .strong()
-                            .color(egui::Color32::BLACK),
+                            .color(palette.selection_text),
                     )
-                    .fill(egui::Color32::from_rgb(250, 204, 21));
+                    .fill(palette.accent);
 
                     if ui.add(btn).clicked() {
                         let target = format!("{}:{}", self.broadcast_ip, self.port);

@@ -9,6 +9,7 @@
 //! działają w piaskownicy (bez dostępu do systemu plików, sieci i procesów).
 
 use crate::gui::app::SpLogApp;
+use crate::gui::theme::ThemeExt;
 use eframe::egui;
 use std::path::{Path, PathBuf};
 
@@ -73,11 +74,12 @@ pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
         .default_size([680.0, 520.0])
         .resizable(true)
         .show(ctx, |ui| {
+            let palette = ui.palette();
             ui.horizontal(|ui| {
                 ui.heading(
                     egui::RichText::new("🛒 Marketplace pluginów")
                         .size(16.0)
-                        .color(egui::Color32::from_rgb(56, 189, 248)),
+                        .color(palette.accent),
                 );
                 if ui.button("🔄 Odśwież katalog").clicked() {
                     action = Some(Action::Refresh);
@@ -89,7 +91,7 @@ pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
                     "Katalog dodatków z instalacją jednym kliknięciem. Skrypty działają w piaskownicy Rhai — bez dostępu do plików, sieci i procesów.",
                 )
                 .small()
-                .color(egui::Color32::GRAY),
+                .color(palette.text_muted),
             );
             ui.add_space(6.0);
 
@@ -138,7 +140,7 @@ pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
                 });
             } else if let Some(err) = app.marketplace_error.clone() {
                 ui.colored_label(
-                    egui::Color32::from_rgb(248, 113, 113),
+                    palette.danger,
                     format!("Błąd pobierania katalogu: {err}"),
                 );
                 if ui.button("Użyj wbudowanego katalogu offline").clicked() {
@@ -149,12 +151,12 @@ pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
                 ui.label(
                     egui::RichText::new(format!("Dostępnych wtyczek: {}", catalog.len()))
                         .strong()
-                        .color(egui::Color32::from_rgb(134, 239, 172)),
+                        .color(palette.success),
                 );
 
                 if let Some(status) = app.marketplace_status.clone() {
                     ui.colored_label(
-                        egui::Color32::from_rgb(250, 204, 21),
+                        palette.warning,
                         status,
                     );
                 }
@@ -181,7 +183,7 @@ pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
                             ui.label(
                                 egui::RichText::new("Brak wtyczek spełniających kryteria.")
                                     .italics()
-                                    .color(egui::Color32::from_rgb(148, 163, 184)),
+                                    .color(palette.text_muted),
                             );
                         }
                         for entry in filtered {
@@ -233,6 +235,7 @@ fn render_card(
     egui::Frame::group(ui.style())
         .inner_margin(egui::Margin::same(10))
         .show(ui, |ui| {
+            let palette = ui.palette();
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new(&entry.icon).size(22.0));
                 ui.vertical(|ui| {
@@ -241,24 +244,24 @@ fn render_card(
                         ui.label(
                             egui::RichText::new(format!("v{}", entry.version))
                                 .small()
-                                .color(egui::Color32::from_rgb(148, 163, 184)),
+                                .color(palette.text_muted),
                         );
                         ui.label(
                             egui::RichText::new(&entry.category)
                                 .small()
-                                .background_color(egui::Color32::from_rgb(30, 41, 59))
-                                .color(egui::Color32::from_rgb(148, 163, 184)),
+                                .background_color(palette.subtle_bg)
+                                .color(palette.text_muted),
                         );
                     });
                     ui.label(
                         egui::RichText::new(&entry.description)
                             .small()
-                            .color(egui::Color32::from_rgb(203, 213, 225)),
+                            .color(palette.text_primary),
                     );
                     ui.label(
                         egui::RichText::new(format!("Autor: {}", entry.author))
                             .small()
-                            .color(egui::Color32::from_rgb(100, 116, 139)),
+                            .color(palette.text_subtle),
                     );
                 });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -273,10 +276,7 @@ fn render_card(
                                 }
                             }
                             crate::plugins::marketplace::InstallStatus::Installed { .. } => {
-                                ui.colored_label(
-                                    egui::Color32::from_rgb(34, 197, 94),
-                                    "✅ Zainstalowano",
-                                );
+                                ui.colored_label(palette.success, "✅ Zainstalowano");
                                 if ui.small_button("🗑 Odinstaluj").clicked() {
                                     *action = Some(Action::Uninstall(entry.id.clone()));
                                 }
@@ -288,7 +288,7 @@ fn render_card(
                                 ui.label(
                                     egui::RichText::new(format!("{installed} → {latest}"))
                                         .small()
-                                        .color(egui::Color32::from_rgb(250, 204, 21)),
+                                        .color(palette.warning),
                                 );
                                 if ui.button("⬆ Aktualizuj").clicked() {
                                     *action = Some(Action::Install(entry.id.clone()));

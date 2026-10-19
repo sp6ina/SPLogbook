@@ -3,6 +3,7 @@
 // Wbudowany dziennik zmian (changelog) i okno sprawdzania aktualizacji.
 
 use crate::gui::app::SpLogApp;
+use crate::gui::theme::ThemeExt;
 use eframe::egui;
 
 /// Pojedynczy wpis dziennika zmian.
@@ -80,6 +81,7 @@ pub fn render_changelog_window(app: &mut SpLogApp, ctx: &egui::Context) {
         .default_size([520.0, 480.0])
         .resizable(true)
         .show(ctx, |ui| {
+            let palette = ui.palette();
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
@@ -90,18 +92,18 @@ pub fn render_changelog_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     egui::RichText::new(format!("v{}", entry.version))
                                         .size(16.0)
                                         .strong()
-                                        .color(egui::Color32::from_rgb(56, 189, 248)),
+                                        .color(palette.accent),
                                 );
                                 ui.label(
                                     egui::RichText::new(format!("({})", entry.date))
                                         .size(11.0)
-                                        .color(egui::Color32::from_rgb(148, 163, 184)),
+                                        .color(palette.text_muted),
                                 );
                             });
                             ui.add_space(2.0);
                             for item in entry.items {
                                 ui.horizontal(|ui| {
-                                    ui.colored_label(egui::Color32::from_rgb(34, 197, 94), "•");
+                                    ui.colored_label(palette.success, "•");
                                     ui.label(*item);
                                 });
                             }

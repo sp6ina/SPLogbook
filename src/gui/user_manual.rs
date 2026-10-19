@@ -3,6 +3,7 @@
 // Wbudowany podręcznik użytkownika (Instrukcja obsługi).
 
 use crate::gui::app::SpLogApp;
+use crate::gui::theme::{ColorExt, ThemeExt};
 use eframe::egui;
 
 /// Sekcja podręcznika. Treść trzymana w kodzie (offline), gotowa na
@@ -545,15 +546,12 @@ pub fn render_user_manual_window(app: &mut SpLogApp, ctx: &egui::Context) {
         .resizable(true)
         .collapsible(false)
         .show(ctx, |ui| {
+            let palette = ui.palette();
             ui.set_max_width(max_w - 20.0);
 
             // Górny pasek nawigacji i wyszukiwarki
             ui.horizontal(|ui| {
-                ui.label(
-                    egui::RichText::new("🔍")
-                        .size(13.0)
-                        .color(egui::Color32::from_rgb(56, 189, 248)),
-                );
+                ui.label(egui::RichText::new("🔍").size(13.0).color(palette.accent));
                 let hint = crate::core::i18n::tr_or(
                     lang,
                     "Szukaj w podręczniku (np. CAT, WSJT-X, skróty)...",
@@ -587,7 +585,7 @@ pub fn render_user_manual_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     ui.label(
                         egui::RichText::new(format!("{} / {}", new_selected + 1, sections.len()))
                             .size(11.5)
-                            .color(egui::Color32::from_rgb(148, 163, 184)),
+                            .color(palette.text_muted),
                     );
                     let prev_label = crate::core::i18n::tr_or(lang, "◀ Poprzedni", "◀ Prev");
                     if ui
@@ -609,10 +607,10 @@ pub fn render_user_manual_window(app: &mut SpLogApp, ctx: &egui::Context) {
             ui.horizontal(|ui| {
                 // Lewy panel boczny: spis treści w układzie pionowym
                 egui::Frame::NONE
-                    .fill(egui::Color32::from_rgba_unmultiplied(15, 23, 42, 180))
+                    .fill(palette.surface_bg.alpha(180))
                     .corner_radius(6.0)
                     .inner_margin(egui::Margin::same(6))
-                    .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(51, 65, 85)))
+                    .stroke(egui::Stroke::new(1.0, palette.border_subtle))
                     .show(ui, |ui| {
                         ui.set_width(235.0);
                         ui.set_height(body_height);
@@ -634,9 +632,9 @@ pub fn render_user_manual_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                         let text = egui::RichText::new(sec.title)
                                             .size(12.5)
                                             .color(if is_sel {
-                                                egui::Color32::from_rgb(56, 189, 248)
+                                                palette.accent
                                             } else {
-                                                egui::Color32::from_rgb(226, 232, 240)
+                                                palette.text_primary
                                             })
                                             .strong();
                                         let resp = ui.add_sized(
@@ -656,10 +654,10 @@ pub fn render_user_manual_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 // Prawy panel: treść rozdziału z zawijaniem wierszy w układzie pionowym
                 let content_width = (ui.available_width() - 4.0).max(340.0);
                 egui::Frame::NONE
-                    .fill(egui::Color32::from_rgba_unmultiplied(30, 41, 59, 140))
+                    .fill(palette.subtle_bg.alpha(140))
                     .corner_radius(6.0)
                     .inner_margin(egui::Margin::same(12))
-                    .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(51, 65, 85)))
+                    .stroke(egui::Stroke::new(1.0, palette.border_subtle))
                     .show(ui, |ui| {
                         ui.set_width(content_width);
                         ui.set_height(body_height);
@@ -677,7 +675,7 @@ pub fn render_user_manual_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                         egui::RichText::new(sec.title)
                                             .size(17.5)
                                             .strong()
-                                            .color(egui::Color32::from_rgb(56, 189, 248)),
+                                            .color(palette.accent),
                                     );
                                     ui.add_space(4.0);
                                     ui.separator();
@@ -693,9 +691,9 @@ pub fn render_user_manual_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                 ui.horizontal_wrapped(|ui| {
                                                     ui.set_max_width(inner_w);
                                                     ui.label(
-                                                        egui::RichText::new("•").strong().color(
-                                                            egui::Color32::from_rgb(56, 189, 248),
-                                                        ),
+                                                        egui::RichText::new("•")
+                                                            .strong()
+                                                            .color(palette.accent),
                                                     );
                                                     ui.add(
                                                         egui::Label::new(
@@ -708,9 +706,10 @@ pub fn render_user_manual_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                 ui.horizontal_wrapped(|ui| {
                                                     ui.set_max_width(inner_w);
                                                     ui.add_space(12.0);
-                                                    ui.label(egui::RichText::new("◦").color(
-                                                        egui::Color32::from_rgb(52, 211, 153),
-                                                    ));
+                                                    ui.label(
+                                                        egui::RichText::new("◦")
+                                                            .color(palette.success),
+                                                    );
                                                     ui.add(
                                                         egui::Label::new(
                                                             egui::RichText::new(rest).size(12.5),

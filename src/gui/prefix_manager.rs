@@ -4,6 +4,7 @@
 
 use crate::core::i18n::{Language, key, tr, tr_or};
 use crate::core::service_db::{ServiceDatabase, UniqueCallRecord};
+use crate::gui::theme::ThemeExt;
 use eframe::egui;
 
 pub struct PrefixManagerDialog {
@@ -56,6 +57,7 @@ impl PrefixManagerDialog {
             .default_width(700.0)
             .default_height(450.0)
             .show(ctx, |ui| {
+                let palette = ui.palette();
                 ui.horizontal(|ui| {
                     ui.label(tr_or(lang, "Szukaj znaku lub kraju:", "Search callsign or country:"));
                     let edit = ui.add(
@@ -96,7 +98,7 @@ impl PrefixManagerDialog {
                         ui.end_row();
 
                         for rec in &self.results {
-                            ui.label(egui::RichText::new(&rec.call).strong().color(egui::Color32::from_rgb(56, 189, 248)));
+                            ui.label(egui::RichText::new(&rec.call).strong().color(palette.accent));
                             ui.label(format!("{} (DXCC #{})", rec.country, rec.dxcc));
                             ui.label(&rec.arrl_prefix);
                             ui.label(&rec.continent);
@@ -113,7 +115,7 @@ impl PrefixManagerDialog {
                         lang,
                         "Baza zawiera 4 310 unikalnych reguł DXCC dla znaków nieregularnych i ekspedycji.",
                         "Database contains 4,310 unique DXCC rules for irregular callsigns and DXpeditions.",
-                    )).small().color(egui::Color32::GRAY));
+                    )).small().color(palette.text_muted));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button(tr(key::BTN_CLOSE, lang)).clicked() {
                             close_requested = true;

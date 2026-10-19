@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::gui::app::SpLogApp;
+use crate::gui::theme::ThemeExt;
 use eframe::egui;
 
 pub fn render_cw_macros_window(app: &mut SpLogApp, ctx: &egui::Context) {
@@ -19,6 +20,7 @@ pub fn render_cw_macros_window(app: &mut SpLogApp, ctx: &egui::Context) {
         .open(&mut open)
         .default_size([540.0, 400.0])
         .show(ctx, |ui| {
+            let palette = ui.palette();
             ui.vertical(|ui| {
                 ui.horizontal(|ui| {
                     ui.label("Prędkość nadawania (WPM):");
@@ -29,7 +31,7 @@ pub fn render_cw_macros_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 });
 
                 ui.separator();
-                ui.label(egui::RichText::new("KLAWISZE FUNKCYJNE (F1 - F8):").strong().color(egui::Color32::from_rgb(56, 189, 248)));
+                ui.label(egui::RichText::new("KLAWISZE FUNKCYJNE (F1 - F8):").strong().color(palette.accent));
 
                 render_macro_row(ui, "F1 (CQ)", &mut app.cw_macro_f1, &mut macro_to_transmit, &mut config_changed);
                 render_macro_row(ui, "F2 (Raport)", &mut app.cw_macro_f2, &mut macro_to_transmit, &mut config_changed);
@@ -76,7 +78,7 @@ fn render_macro_row(
         let btn = ui.button(
             egui::RichText::new(label)
                 .strong()
-                .color(egui::Color32::from_rgb(251, 191, 36)),
+                .color(ui.palette().warning),
         );
         if btn.clicked() {
             *macro_to_transmit = Some(macro_text.clone());

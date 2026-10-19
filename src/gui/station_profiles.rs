@@ -4,6 +4,7 @@
 use crate::core::i18n::{key, tr};
 use crate::core::station::StationProfile;
 use crate::gui::app::SpLogApp;
+use crate::gui::theme::ThemeExt;
 use eframe::egui;
 
 pub fn render_station_profiles_window(app: &mut SpLogApp, ctx: &egui::Context) {
@@ -38,11 +39,12 @@ pub fn render_station_profiles_window(app: &mut SpLogApp, ctx: &egui::Context) {
     .min_size([520.0, 360.0])
     .resizable(true)
     .show(ctx, |ui| {
+        let palette = ui.palette();
         ui.vertical(|ui| {
             ui.label(
                 egui::RichText::new(tr(key::PROFILES_DESC, lang))
                     .small()
-                    .color(egui::Color32::from_rgb(148, 163, 184)),
+                    .color(palette.text_muted),
             );
             ui.separator();
 
@@ -68,7 +70,7 @@ pub fn render_station_profiles_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                     key::PROFILES_ACTIVE_BADGE,
                                                     lang,
                                                 ))
-                                                .color(egui::Color32::from_rgb(34, 197, 94))
+                                                .color(palette.success)
                                                 .strong()
                                                 .size(10.0),
                                             );
@@ -102,7 +104,7 @@ pub fn render_station_profiles_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                 prof.gridsquare
                                             ))
                                             .size(10.0)
-                                            .color(egui::Color32::GRAY),
+                                            .color(palette.text_muted),
                                         );
                                         ui.with_layout(
                                             egui::Layout::right_to_left(egui::Align::Center),
@@ -162,7 +164,7 @@ pub fn render_station_profiles_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     if ui
                         .button(
                             egui::RichText::new(tr(key::PROFILES_ADD_BTN, lang))
-                                .color(egui::Color32::from_rgb(56, 189, 248))
+                                .color(palette.accent)
                                 .strong(),
                         )
                         .clicked()
@@ -197,7 +199,7 @@ pub fn render_station_profiles_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         ui.label(
                             egui::RichText::new(tr(key::PROFILES_EDIT_HEADER, lang))
                                 .strong()
-                                .color(egui::Color32::from_rgb(56, 189, 248)),
+                                .color(palette.accent),
                         );
                         ui.add_space(4.0);
 
@@ -307,7 +309,7 @@ pub fn render_station_profiles_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 ui.label(
                                     egui::RichText::new(tr(key::PROFILES_AWARDS_SECTION, lang))
                                         .small()
-                                        .color(egui::Color32::from_rgb(250, 204, 21)),
+                                        .color(palette.warning),
                                 );
 
                                 ui.horizontal(|ui| {

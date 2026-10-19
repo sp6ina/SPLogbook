@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 // Okno wysyłania własnego spotu do DX Clustera (Send Telnet Spot)
 
+use crate::gui::theme::ThemeExt;
 use eframe::egui;
 
 #[derive(Debug, Clone)]
@@ -80,6 +81,7 @@ impl SendSpotDialog {
             .resizable(false)
             .default_width(420.0)
             .show(ctx, |ui| {
+                let palette = ui.palette();
                 ui.heading(tr(key::CLUSTER_SPOT_DIALOG_SUB, lang));
                 ui.separator();
 
@@ -116,11 +118,7 @@ impl SendSpotDialog {
 
                 if let Some(ref msg) = self.status_message {
                     ui.add_space(4.0);
-                    ui.label(
-                        egui::RichText::new(msg)
-                            .small()
-                            .color(egui::Color32::from_rgb(52, 211, 153)),
-                    );
+                    ui.label(egui::RichText::new(msg).small().color(palette.success));
                 }
 
                 ui.separator();
@@ -128,9 +126,9 @@ impl SendSpotDialog {
                     let btn = egui::Button::new(
                         egui::RichText::new(tr(key::CLUSTER_SEND_BTN, lang))
                             .strong()
-                            .color(egui::Color32::from_rgb(15, 23, 42)),
+                            .color(palette.selection_text),
                     )
-                    .fill(egui::Color32::from_rgb(56, 189, 248));
+                    .fill(palette.accent);
 
                     if ui.add(btn).clicked() && !self.dx_call.trim().is_empty() {
                         submission = Some(SpotSubmission {

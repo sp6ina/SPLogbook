@@ -4,6 +4,7 @@
 use crate::core::i18n::{Language, key, tr};
 use crate::core::station::{EquipmentCategory, EquipmentItem};
 use crate::gui::app::SpLogApp;
+use crate::gui::theme::ThemeExt;
 use eframe::egui;
 
 fn category_label(cat: &EquipmentCategory, lang: Language) -> &str {
@@ -34,12 +35,13 @@ pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
         .default_size([760.0, 520.0])
         .min_size([650.0, 400.0])
         .show(ctx, |ui| {
+            let palette = ui.palette();
             ui.vertical(|ui| {
                 ui.horizontal(|ui| {
                     ui.label(
                         egui::RichText::new(tr(key::LEDGER_PROFILE_HEADING, lang))
                             .strong()
-                            .color(egui::Color32::from_rgb(56, 189, 248)),
+                            .color(palette.accent),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button(tr(key::LEDGER_SAVE_PROFILE, lang)).clicked() {
@@ -86,7 +88,7 @@ pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     ui.label(
                         egui::RichText::new(tr(key::LEDGER_REGISTERED_EQUIPMENT, lang))
                             .strong()
-                            .color(egui::Color32::from_rgb(251, 191, 36)),
+                            .color(palette.warning),
                     );
                     ui.label(format!(
                         "({} {})",
@@ -135,7 +137,7 @@ pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     ui.label(
                                         egui::RichText::new(&item.model)
                                             .strong()
-                                            .color(egui::Color32::from_rgb(56, 189, 248)),
+                                            .color(palette.accent),
                                     );
                                     ui.label(item.serial_number.as_deref().unwrap_or("-"));
                                     ui.label(item.purchase_date.as_deref().unwrap_or("-"));
@@ -149,10 +151,7 @@ pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                             item_to_edit = Some(item.clone());
                                         }
                                         if ui
-                                            .button(
-                                                egui::RichText::new("🗑")
-                                                    .color(egui::Color32::from_rgb(239, 68, 68)),
-                                            )
+                                            .button(egui::RichText::new("🗑").color(palette.danger))
                                             .clicked()
                                         {
                                             item_to_delete = Some(item.id.clone());
@@ -171,7 +170,7 @@ pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         ui.label(
                             egui::RichText::new(tr(key::LEDGER_EDIT_ITEM, lang))
                                 .strong()
-                                .color(egui::Color32::from_rgb(250, 204, 21)),
+                                .color(palette.warning),
                         );
 
                         egui::Grid::new("edit_form_grid")
@@ -233,7 +232,7 @@ pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 .button(
                                     egui::RichText::new(format!("💾 {}", tr(key::BTN_SAVE, lang)))
                                         .strong()
-                                        .color(egui::Color32::WHITE),
+                                        .color(palette.text_primary),
                                 )
                                 .clicked()
                             {
@@ -249,7 +248,7 @@ pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         ui.label(
                             egui::RichText::new(tr(key::LEDGER_ADD_NEW_TITLE, lang))
                                 .strong()
-                                .color(egui::Color32::from_rgb(34, 197, 94)),
+                                .color(palette.success),
                         );
 
                         egui::Grid::new("add_form_grid")
@@ -302,7 +301,7 @@ pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             .button(
                                 egui::RichText::new(tr(key::LEDGER_ADD_BUTTON, lang))
                                     .strong()
-                                    .color(egui::Color32::from_rgb(34, 197, 94)),
+                                    .color(palette.success),
                             )
                             .clicked()
                             && !app.new_eq_model.trim().is_empty()

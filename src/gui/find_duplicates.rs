@@ -3,6 +3,7 @@
 
 use crate::core::i18n::{key, tr};
 use crate::gui::app::SpLogApp;
+use crate::gui::theme::ThemeExt;
 use eframe::egui;
 
 pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
@@ -26,6 +27,7 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
     .min_size([500.0, 350.0])
     .resizable(true)
     .show(ctx, |ui| {
+        let palette = ui.palette();
         ui.vertical(|ui| {
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new(tr(key::DUPLICATES_CRITERIA, lang)).strong());
@@ -42,7 +44,7 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     if ui
                         .button(
                             egui::RichText::new(tr(key::DUPLICATES_SCAN_BTN, lang))
-                                .color(egui::Color32::from_rgb(56, 189, 248))
+                                .color(palette.accent)
                                 .strong(),
                         )
                         .clicked()
@@ -58,7 +60,7 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 ui.label(
                     egui::RichText::new(tr(key::DUPLICATES_QUICK_SELECT, lang))
                         .size(11.0)
-                        .color(egui::Color32::from_rgb(148, 163, 184)),
+                        .color(palette.text_muted),
                 );
                 if ui.button(tr(key::DUPLICATES_KEEP_OLDEST, lang)).clicked() {
                     app.duplicates_selected_ids.clear();
@@ -118,11 +120,7 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
             if let Some(ref st) = app.duplicates_status {
                 ui.add_space(2.0);
-                ui.label(
-                    egui::RichText::new(st)
-                        .size(11.0)
-                        .color(egui::Color32::from_rgb(250, 204, 21)),
-                );
+                ui.label(egui::RichText::new(st).size(11.0).color(palette.warning));
             }
 
             ui.separator();
@@ -153,12 +151,12 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                             first.mode
                                         ))
                                         .strong()
-                                        .color(egui::Color32::from_rgb(56, 189, 248)),
+                                        .color(palette.accent),
                                     );
                                     ui.label(
                                         egui::RichText::new(format!("({} QSO)", group.len()))
                                             .size(11.0)
-                                            .color(egui::Color32::GRAY),
+                                            .color(palette.text_muted),
                                     );
                                 });
 
@@ -218,9 +216,9 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                     || qso.eqsl_qsl_rcvd == "Y"
                                                     || qso.qsl_rcvd == "Y"
                                                 {
-                                                    egui::Color32::from_rgb(34, 197, 94)
+                                                    palette.success
                                                 } else {
-                                                    egui::Color32::from_rgb(148, 163, 184)
+                                                    palette.text_muted
                                                 };
                                                 ui.label(
                                                     egui::RichText::new(qsl_info)
@@ -265,11 +263,7 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         let btn_text =
                             format!("{} ({})", tr(key::DUPLICATES_DELETE_BTN, lang), sel_count);
                         if ui
-                            .button(
-                                egui::RichText::new(btn_text)
-                                    .color(egui::Color32::from_rgb(239, 68, 68))
-                                    .strong(),
-                            )
+                            .button(egui::RichText::new(btn_text).color(palette.danger).strong())
                             .clicked()
                         {
                             delete_requested = true;

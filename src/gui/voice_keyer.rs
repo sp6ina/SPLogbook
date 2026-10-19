@@ -6,6 +6,7 @@
 
 use crate::core::station::VoiceKeyerMessage;
 use crate::gui::app::SpLogApp;
+use crate::gui::theme::ThemeExt;
 use eframe::egui;
 
 /// Rysuje okno voice keyer'a, jeśli jest otwarte.
@@ -20,11 +21,22 @@ pub fn render_voice_keyer_window(app: &mut SpLogApp, ctx: &egui::Context) {
         .default_size([520.0, 460.0])
         .resizable(true)
         .show(ctx, |ui| {
+            let palette = ui.palette();
             ui.horizontal(|ui| {
-                ui.heading(egui::RichText::new("🎙 Voice Keyer — komunikaty głosowe").size(15.0).color(egui::Color32::from_rgb(56, 189, 248)));
+                ui.heading(
+                    egui::RichText::new("🎙 Voice Keyer — komunikaty głosowe")
+                        .size(15.0)
+                        .color(palette.accent),
+                );
             });
             ui.separator();
-            ui.label(egui::RichText::new("Skonfiguruj zapowiedzi (pliki WAV) i odtwarzaj je na żywo z kluczowaniem PTT przez CAT. Plik WAV możesz nagrać mikrofonem lub wskazać istniejący.").small().color(egui::Color32::GRAY));
+            ui.label(
+                egui::RichText::new(
+                    "Skonfiguruj zapowiedzi (pliki WAV) i odtwarzaj je na żywo z kluczowaniem PTT przez CAT. Plik WAV możesz nagrać mikrofonem lub wskazać istniejący.",
+                )
+                .small()
+                .color(palette.text_muted),
+            );
             ui.add_space(6.0);
 
             if ui.button("➕ Dodaj slot").clicked() {

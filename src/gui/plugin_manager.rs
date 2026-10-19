@@ -6,6 +6,7 @@
 //! przeładowanie oraz podgląd logów i powiadomień generowanych przez pluginy.
 
 use crate::gui::app::SpLogApp;
+use crate::gui::theme::ThemeExt;
 use eframe::egui;
 
 /// Rysuje okno menedżera pluginów, jeśli jest otwarte.
@@ -20,17 +21,18 @@ pub fn render_plugin_manager(app: &mut SpLogApp, ctx: &egui::Context) {
         .default_size([620.0, 480.0])
         .resizable(true)
         .show(ctx, |ui| {
+            let palette = ui.palette();
             ui.heading(
                 egui::RichText::new("🧩 System pluginów użytkownika — Rhai")
                     .size(15.0)
-                    .color(egui::Color32::from_rgb(56, 189, 248)),
+                    .color(palette.accent),
             );
             ui.label(
                 egui::RichText::new(
                     "Bezpieczny, osadzony język Rhai. Skrypty definiują haki: on_startup(), on_qso_logged(call_sign, band, mode, freq_mhz, is_atno) oraz on_band_opened(band). Dostępne funkcje API: log(text), notify(text), qso_count().",
                 )
                 .small()
-                .color(egui::Color32::GRAY),
+                .color(palette.text_muted),
             );
             ui.add_space(6.0);
 
@@ -68,7 +70,7 @@ pub fn render_plugin_manager(app: &mut SpLogApp, ctx: &egui::Context) {
             ui.label(
                 egui::RichText::new("📦 Wykryte skrypty")
                     .strong()
-                    .color(egui::Color32::from_rgb(134, 239, 172)),
+                    .color(palette.success),
             );
 
             let infos = app.plugin_engine.infos().to_vec();
@@ -78,7 +80,7 @@ pub fn render_plugin_manager(app: &mut SpLogApp, ctx: &egui::Context) {
                         "Brak plików .rhai w wybranym katalogu. Utwórz np. plugins/moje_reguly.rhai",
                     )
                     .italics()
-                    .color(egui::Color32::from_rgb(148, 163, 184)),
+                    .color(palette.text_muted),
                 );
             } else {
                 egui::ScrollArea::vertical()
@@ -87,22 +89,22 @@ pub fn render_plugin_manager(app: &mut SpLogApp, ctx: &egui::Context) {
                         for info in infos {
                             ui.horizontal(|ui| {
                                 let (icon, color) = if info.loaded {
-                                    ("✔", egui::Color32::from_rgb(34, 197, 94))
+                                    ("✔", palette.success)
                                 } else {
-                                    ("✖", egui::Color32::from_rgb(239, 68, 68))
+                                    ("✖", palette.danger)
                                 };
                                 ui.label(egui::RichText::new(icon).color(color));
                                 ui.label(egui::RichText::new(&info.name).strong());
                                 ui.label(
                                     egui::RichText::new(&info.path)
                                         .small()
-                                        .color(egui::Color32::GRAY),
+                                        .color(palette.text_muted),
                                 );
                                 if let Some(err) = &info.error {
                                     ui.label(
                                         egui::RichText::new(err)
                                             .small()
-                                            .color(egui::Color32::from_rgb(248, 113, 113)),
+                                            .color(palette.danger),
                                     )
                                     .on_hover_text(err);
                                 }
@@ -116,7 +118,7 @@ pub fn render_plugin_manager(app: &mut SpLogApp, ctx: &egui::Context) {
                 ui.label(
                     egui::RichText::new("📜 Log")
                         .strong()
-                        .color(egui::Color32::from_rgb(250, 204, 21)),
+                        .color(palette.warning),
                 );
                 if ui.small_button("Odśwież").clicked() {
                     let logs = app.plugin_engine.drain_log();
@@ -138,7 +140,7 @@ pub fn render_plugin_manager(app: &mut SpLogApp, ctx: &egui::Context) {
                         ui.label(
                             egui::RichText::new("(brak komunikatów log)")
                                 .italics()
-                                .color(egui::Color32::from_rgb(148, 163, 184)),
+                                .color(palette.text_muted),
                         );
                     } else {
                         for line in &app.plugin_log {

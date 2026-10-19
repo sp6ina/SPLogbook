@@ -4,6 +4,7 @@
 
 use crate::core::database::{Journal, LogDatabase};
 use crate::core::i18n::{Language, key, tr};
+use crate::gui::theme::ThemeExt;
 use eframe::egui;
 
 #[derive(Default)]
@@ -147,11 +148,12 @@ impl JournalManagerDialog {
                                         "{}{}: {}",
                                         badge, journal.station_callsign, journal.name
                                     );
+                                    let palette = ui.palette();
                                     ui.label(egui::RichText::new(header).strong().color(
                                         if is_active {
-                                            egui::Color32::from_rgb(100, 220, 100)
+                                            palette.success
                                         } else {
-                                            egui::Color32::from_rgb(200, 200, 200)
+                                            palette.text_primary
                                         },
                                     ));
 
@@ -220,11 +222,7 @@ impl JournalManagerDialog {
                 }
 
                 if let Some(msg) = &self.status_message {
-                    ui.label(
-                        egui::RichText::new(msg)
-                            .color(egui::Color32::from_rgb(255, 130, 130))
-                            .small(),
-                    );
+                    ui.label(egui::RichText::new(msg).color(ui.palette().danger).small());
                 }
 
                 ui.separator();
