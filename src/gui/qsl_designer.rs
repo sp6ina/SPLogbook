@@ -4,7 +4,22 @@
 
 use crate::core::database::LogDatabase;
 use crate::core::qso::QsoRecord;
+use crate::gui::theme::ThemeExt;
 use eframe::egui;
+
+/// Kolory fizycznego projektu karty i naklejki QSL.
+///
+/// W przeciwieństwie do dynamicznego motywu UI aplikacji, projekt wydruku karty QSL
+/// i naklejek samoprzylepnych operuje na stałych parametrach poligraficznych (RGB/CMYK)
+/// niezależnych od aktualnego profilu ciemnego/jasnego interfejsu.
+pub mod qsl_colors {
+    use eframe::egui::Color32;
+
+    pub const CALLSIGN_HIGHLIGHT: Color32 = Color32::from_rgb(250, 204, 21);
+    pub const CARD_BORDER: Color32 = Color32::from_rgb(100, 116, 139);
+    pub const CARD_BG: Color32 = Color32::WHITE;
+    pub const CARD_TEXT: Color32 = Color32::BLACK;
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LabelSheetFormat {
@@ -116,6 +131,7 @@ impl QslDesignerDialog {
             .resizable(true)
             .default_width(620.0)
             .show(ctx, |ui| {
+                let palette = ui.palette();
                 ui.heading("Kolejka i format naklejek na karty QSL");
                 ui.separator();
 
@@ -204,12 +220,12 @@ impl QslDesignerDialog {
                             "Dopasuj marginesy, aby naklejki idealnie pokrywały pola arkusza.",
                         )
                         .small()
-                        .color(egui::Color32::DARK_GRAY),
+                        .color(palette.text_muted),
                     );
                 });
 
                 if let Some(ref msg) = self.status_message {
-                    ui.label(egui::RichText::new(msg).color(egui::Color32::LIGHT_BLUE));
+                    ui.label(egui::RichText::new(msg).color(palette.accent));
                 }
 
                 ui.separator();
@@ -248,7 +264,7 @@ impl QslDesignerDialog {
                                                     qso.callsign
                                                 ))
                                                 .strong()
-                                                .color(egui::Color32::YELLOW),
+                                                .color(qsl_colors::CALLSIGN_HIGHLIGHT),
                                             );
                                             ui.label(format!(
                                                 "CFM QSO: {} {}",
@@ -268,7 +284,7 @@ impl QslDesignerDialog {
                                         } else {
                                             ui.label(
                                                 egui::RichText::new(format!("[Puste #{}]", i + 1))
-                                                    .color(egui::Color32::DARK_GRAY),
+                                                    .color(palette.text_muted),
                                             );
                                         }
                                     });
