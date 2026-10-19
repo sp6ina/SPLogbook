@@ -4,6 +4,7 @@
 use crate::core::geo::{Coordinates, calculate_solar_position, locator_to_coordinates};
 use crate::core::i18n::{key, tr};
 use crate::gui::app::SpLogApp;
+use crate::gui::theme::{ColorExt, ThemeExt};
 use eframe::egui;
 
 // Kontury kontynentów (Współrzędne geograficzne w stopniach: [Szerokość Lat, Długość Lon])
@@ -391,6 +392,8 @@ pub fn render_world_map_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
 pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.current_language;
+    let palette = ui.palette();
+    let map = palette.map;
     ui.vertical(|ui| {
         // Obliczenie aktualnej pozycji słońca (UTC)
         let now = chrono::Utc::now();
@@ -431,23 +434,17 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 egui::RichText::new("Grayline:")
                     .strong()
                     .size(11.0)
-                    .color(egui::Color32::from_rgb(56, 189, 248)),
+                    .color(palette.accent),
             );
             if my_solar.is_grayline {
                 ui.colored_label(
-                    egui::Color32::from_rgb(34, 197, 94),
+                    palette.success,
                     format!("● {}", tr(key::MAP_MY_IN_GRAYLINE, lang)),
                 );
             } else if my_solar.elevation > 0.0 {
-                ui.colored_label(
-                    egui::Color32::from_rgb(250, 204, 21),
-                    format!("☀ {}", tr(key::MAP_DAY, lang)),
-                );
+                ui.colored_label(palette.warning, format!("☀ {}", tr(key::MAP_DAY, lang)));
             } else {
-                ui.colored_label(
-                    egui::Color32::from_rgb(147, 197, 253),
-                    format!("🌙 {}", tr(key::MAP_NIGHT, lang)),
-                );
+                ui.colored_label(palette.accent, format!("🌙 {}", tr(key::MAP_NIGHT, lang)));
             }
 
             if let Some(dx_c) = dx_coords {
@@ -478,7 +475,7 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 }
                 if dx_solar.is_grayline {
                     ui.colored_label(
-                        egui::Color32::from_rgb(34, 197, 94),
+                        palette.success,
                         format!("● {}", tr(key::MAP_DX_IN_GRAYLINE, lang)),
                     );
                 }
@@ -501,7 +498,7 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     app.cluster_spots.len()
                 ))
                 .size(10.0)
-                .color(egui::Color32::from_rgb(148, 163, 184)),
+                .color(palette.text_muted),
             );
         });
 
@@ -533,7 +530,7 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
 
         // Tło oceanu
-        let ocean_color = egui::Color32::from_rgb(15, 23, 42);
+        let ocean_color = map.ocean;
         painter.rect_filled(rect, 4.0, ocean_color);
 
         // Zoom +/- buttons
@@ -566,8 +563,8 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
         };
 
         // Siatka geograficzna: Równik, Zwrotniki, Koła podbiegunowe, Południki
-        let grid_color = egui::Color32::from_rgba_unmultiplied(255, 255, 255, 18);
-        let axis_color = egui::Color32::from_rgba_unmultiplied(56, 189, 248, 45);
+        let grid_color = map.graticule;
+        let axis_color = map.axis;
 
         // Równik (0°) i Południk zerowy (Greenwich 0°)
         painter.line_segment(
@@ -596,7 +593,7 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
 
         // Subtelne oznaczenia oceanów (Watermarks)
-        let ocean_text_color = egui::Color32::from_rgba_unmultiplied(148, 163, 184, 25);
+        let ocean_text_color = map.ocean_text;
         let font_ocean = egui::FontId::proportional(9.0);
         painter.text(
             project(0.0, -140.0),
@@ -635,8 +632,8 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
         );
 
         // Kolory kontynentów i linii brzegowej
-        let land_fill = egui::Color32::from_rgb(33, 44, 66);
-        let land_stroke = egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(71, 85, 105));
+        let land_fill = map.land;
+        let land_stroke = egui::Stroke::new(1.0_f32, palette.border_subtle);
 
         // Rysowanie realistycznych konturów kontynentów
         let draw_poly = |coords: &[(f64, f64)]| {
@@ -690,7 +687,7 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
 
         // Cieniowanie nocy (półkula zacieniona)
-        let night_overlay_color = egui::Color32::from_rgba_unmultiplied(3, 7, 18, 120);
+        let night_overlay_color = map.night_overlay;
         for i in 0..term_pts.len().saturating_sub(1) {
             let (lat1, lon1) = term_pts[i];
             let (lat2, lon2) = term_pts[i + 1];
@@ -712,14 +709,8 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
 
         // Pas Grayline (złocista poświata zmierzchowa wokół terminatora)
-        let grayline_stroke = egui::Stroke::new(
-            3.0_f32,
-            egui::Color32::from_rgba_unmultiplied(251, 191, 36, 170),
-        );
-        let grayline_outer = egui::Stroke::new(
-            6.0_f32,
-            egui::Color32::from_rgba_unmultiplied(245, 158, 11, 60),
-        );
+        let grayline_stroke = egui::Stroke::new(3.0_f32, map.terminator);
+        let grayline_outer = egui::Stroke::new(6.0_f32, map.terminator.alpha(60));
 
         let screen_term_pts: Vec<egui::Pos2> = term_pts
             .iter()
@@ -736,34 +727,27 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         // Słońce w zenicie (Subsolar point)
         let sun_pos = project(subsolar_lat, subsolar_lon);
-        painter.circle_filled(sun_pos, 7.0, egui::Color32::from_rgb(250, 204, 21));
-        painter.circle_stroke(
-            sun_pos,
-            10.0,
-            egui::Stroke::new(
-                1.5_f32,
-                egui::Color32::from_rgba_unmultiplied(250, 204, 21, 110),
-            ),
-        );
+        painter.circle_filled(sun_pos, 7.0, map.sun);
+        painter.circle_stroke(sun_pos, 10.0, egui::Stroke::new(1.5_f32, map.sun_halo));
         painter.text(
             sun_pos + egui::vec2(0.0, -12.0),
             egui::Align2::CENTER_CENTER,
             "☀",
             egui::FontId::proportional(13.0),
-            egui::Color32::WHITE,
+            palette.text_primary,
         );
 
         // Księżyc (punkt anty-słoneczny na mapie)
         let antisolar_lat = -subsolar_lat;
         let antisolar_lon = ((subsolar_lon + 180.0 + 180.0) % 360.0) - 180.0;
         let moon_pos = project(antisolar_lat, antisolar_lon);
-        painter.circle_filled(moon_pos, 5.0, egui::Color32::from_rgb(203, 213, 225));
+        painter.circle_filled(moon_pos, 5.0, map.moon);
         painter.text(
             moon_pos + egui::vec2(0.0, -10.0),
             egui::Align2::CENTER_CENTER,
             "🌙",
             egui::FontId::proportional(11.0),
-            egui::Color32::WHITE,
+            palette.text_primary,
         );
 
         // Interaktywne spoty DX Cluster nanoszone na żywo na mapę
@@ -774,14 +758,7 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
         for spot in &app.cluster_spots {
             if let Some(info) = app.prefix_matcher.lookup(&spot.dx_call) {
                 let spot_pos = project(info.latitude, info.longitude);
-                let spot_color = match spot.band.as_str() {
-                    "160m" | "80m" => egui::Color32::from_rgb(192, 132, 252),
-                    "40m" => egui::Color32::from_rgb(52, 211, 153),
-                    "30m" | "20m" => egui::Color32::from_rgb(56, 189, 248),
-                    "17m" | "15m" => egui::Color32::from_rgb(250, 204, 21),
-                    "12m" | "10m" => egui::Color32::from_rgb(251, 146, 60),
-                    _ => egui::Color32::from_rgb(244, 63, 94),
-                };
+                let spot_color = palette.band_color(&spot.band);
 
                 // Rysowanie trójkąta (Triangle) dla spotów
                 let triangle = vec![
@@ -792,7 +769,7 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 painter.add(egui::Shape::convex_polygon(
                     triangle,
                     spot_color,
-                    egui::Stroke::new(1.0_f32, egui::Color32::from_rgba_unmultiplied(0, 0, 0, 180)),
+                    egui::Stroke::new(1.0_f32, map.ocean.alpha(180)),
                 ));
 
                 if let Some(hp) = hover_pos {
@@ -802,11 +779,7 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                             spot_pos + egui::vec2(8.0, -16.0),
                             egui::vec2(110.0, 26.0),
                         );
-                        painter.rect_filled(
-                            tip_box,
-                            3.0,
-                            egui::Color32::from_rgba_unmultiplied(15, 23, 42, 235),
-                        );
+                        painter.rect_filled(tip_box, 3.0, map.ocean.alpha(235));
                         painter.rect_stroke(
                             tip_box,
                             3.0,
@@ -846,18 +819,15 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                         let qso_pos = project(c.latitude, c.longitude);
                         let is_lotw = qso.lotw_qsl_rcvd == "Y" || qso.lotw_qsl_rcvd == "V";
                         let color = if is_lotw {
-                            egui::Color32::from_rgb(34, 197, 94) // Green
+                            map.qso_marker_confirmed
                         } else {
-                            egui::Color32::from_rgb(59, 130, 246) // Blue
+                            map.qso_marker
                         };
                         painter.circle_filled(qso_pos, 2.5, color);
                         painter.circle_stroke(
                             qso_pos,
                             3.5,
-                            egui::Stroke::new(
-                                1.0_f32,
-                                egui::Color32::from_rgba_unmultiplied(0, 0, 0, 150),
-                            ),
+                            egui::Stroke::new(1.0_f32, map.ocean.alpha(150)),
                         );
 
                         if let Some(hp) = hover_pos {
@@ -866,11 +836,7 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                                     qso_pos + egui::vec2(6.0, -12.0),
                                     egui::vec2(90.0, 16.0),
                                 );
-                                painter.rect_filled(
-                                    tip_box,
-                                    3.0,
-                                    egui::Color32::from_rgba_unmultiplied(15, 23, 42, 235),
-                                );
+                                painter.rect_filled(tip_box, 3.0, map.ocean.alpha(235));
                                 painter.rect_stroke(
                                     tip_box,
                                     3.0,
@@ -910,14 +876,11 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 let pt = my_pos + egui::vec2(rad.cos() * lobe_len, rad.sin() * lobe_len);
                 lobe_pts.push(pt);
             }
-            let lobe_fill = egui::Color32::from_rgba_unmultiplied(56, 189, 248, 55);
+            let lobe_fill = map.beam_fill;
             painter.add(egui::Shape::convex_polygon(
                 lobe_pts,
                 lobe_fill,
-                egui::Stroke::new(
-                    1.0_f32,
-                    egui::Color32::from_rgba_unmultiplied(56, 189, 248, 140),
-                ),
+                egui::Stroke::new(1.0_f32, map.beam_stroke),
             ));
 
             // Oś główna wiązki (Promieniowanie główne - szmaragdowy kolor)
@@ -929,7 +892,7 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 );
             painter.line_segment(
                 [my_pos, main_tip],
-                egui::Stroke::new(2.0_f32, egui::Color32::from_rgb(52, 211, 153)),
+                egui::Stroke::new(2.0_f32, palette.success),
             );
 
             // Oś mechaniczna (Boom anteny / tył 180° - subtelny szary)
@@ -937,16 +900,16 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
             let boom_tip = my_pos + egui::vec2(boom_rad.cos() * 32.0, boom_rad.sin() * 32.0);
             painter.line_segment(
                 [my_pos, boom_tip],
-                egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(148, 163, 184)),
+                egui::Stroke::new(1.5_f32, palette.text_muted),
             );
         }
 
         // Znacznik stacji własnej (My QTH)
-        painter.circle_filled(my_pos, 6.0, egui::Color32::from_rgb(56, 189, 248));
+        painter.circle_filled(my_pos, 6.0, palette.accent);
         painter.circle_stroke(
             my_pos,
             9.0,
-            egui::Stroke::new(1.5_f32, egui::Color32::WHITE),
+            egui::Stroke::new(1.5_f32, palette.text_primary),
         );
         painter.text(
             my_pos + egui::vec2(10.0, -5.0),
@@ -956,17 +919,17 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 app.my_station.callsign, app.my_station.gridsquare
             ),
             egui::FontId::proportional(10.0),
-            egui::Color32::from_rgb(56, 189, 248),
+            palette.accent,
         );
 
         // Znacznik stacji DX oraz linia ortodromy (Great Circle trajectory - sferyczna interpolacja SLERP)
         if let Some(dx_c) = dx_coords {
             let dx_pos = project(dx_c.latitude, dx_c.longitude);
-            painter.circle_filled(dx_pos, 6.0, egui::Color32::from_rgb(239, 68, 68));
+            painter.circle_filled(dx_pos, 6.0, palette.danger);
             painter.circle_stroke(
                 dx_pos,
                 9.0,
-                egui::Stroke::new(1.5_f32, egui::Color32::WHITE),
+                egui::Stroke::new(1.5_f32, palette.text_primary),
             );
 
             let dx_label = if app.entry_callsign.is_empty() {
@@ -979,7 +942,7 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 egui::Align2::LEFT_CENTER,
                 dx_label,
                 egui::FontId::proportional(10.0),
-                egui::Color32::from_rgb(239, 68, 68),
+                palette.danger,
             );
 
             // Krzywa ortodromy łącząca stację własną ze stacją DX (SLERP na sferze jednostkowej)
@@ -1015,10 +978,8 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 };
                 let pt = project(int_lat, int_lon);
                 if (prev_pt.x - pt.x).abs() < rect.width() * 0.5 {
-                    painter.line_segment(
-                        [prev_pt, pt],
-                        egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(52, 211, 153)),
-                    );
+                    painter
+                        .line_segment([prev_pt, pt], egui::Stroke::new(1.5_f32, palette.success));
                 }
                 prev_pt = pt;
             }
@@ -1030,23 +991,16 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
             let compass_radius = 48.0_f32;
 
             // Tarcza kompasu
-            painter.circle_filled(
-                compass_center,
-                compass_radius,
-                egui::Color32::from_rgba_unmultiplied(15, 23, 42, 220),
-            );
+            painter.circle_filled(compass_center, compass_radius, map.ocean.alpha(220));
             painter.circle_stroke(
                 compass_center,
                 compass_radius,
-                egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(56, 189, 248)),
+                egui::Stroke::new(1.5_f32, map.compass_ring),
             );
             painter.circle_stroke(
                 compass_center,
                 compass_radius * 0.65,
-                egui::Stroke::new(
-                    0.8_f32,
-                    egui::Color32::from_rgba_unmultiplied(255, 255, 255, 25),
-                ),
+                egui::Stroke::new(0.8_f32, map.graticule),
             );
 
             // Główne punkty kardynalne: N, E, S, W
@@ -1056,28 +1010,28 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 egui::Align2::CENTER_CENTER,
                 "N",
                 font_card.clone(),
-                egui::Color32::from_rgb(239, 68, 68),
+                palette.danger,
             );
             painter.text(
                 compass_center + egui::vec2(compass_radius - 10.0, 0.0),
                 egui::Align2::CENTER_CENTER,
                 "E",
                 font_card.clone(),
-                egui::Color32::from_rgb(148, 163, 184),
+                map.compass_text,
             );
             painter.text(
                 compass_center + egui::vec2(0.0, compass_radius - 10.0),
                 egui::Align2::CENTER_CENTER,
                 "S",
                 font_card.clone(),
-                egui::Color32::from_rgb(148, 163, 184),
+                map.compass_text,
             );
             painter.text(
                 compass_center + egui::vec2(-compass_radius + 10.0, 0.0),
                 egui::Align2::CENTER_CENTER,
                 "W",
                 font_card,
-                egui::Color32::from_rgb(148, 163, 184),
+                map.compass_text,
             );
 
             // Wskazówka rotatora (Needle)
@@ -1090,9 +1044,9 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 );
             painter.line_segment(
                 [compass_center, needle_tip],
-                egui::Stroke::new(2.5_f32, egui::Color32::from_rgb(251, 191, 36)),
+                egui::Stroke::new(2.5_f32, palette.warning),
             );
-            painter.circle_filled(compass_center, 4.0, egui::Color32::from_rgb(251, 191, 36));
+            painter.circle_filled(compass_center, 4.0, palette.warning);
 
             // Odczyt cyfrowy w środku tarczy
             painter.text(
@@ -1100,7 +1054,7 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 egui::Align2::CENTER_CENTER,
                 format!("{az:.0}°"),
                 egui::FontId::monospace(10.0),
-                egui::Color32::from_rgb(251, 191, 36),
+                palette.warning,
             );
 
             // Interaktywny klik na tarczy kompasu -> bezpośredni obrót rotatora na kliknięty kąt
