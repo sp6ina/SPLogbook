@@ -33,6 +33,7 @@ pub fn contrast_ratio(c1: Color32, c2: Color32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::gui::theme::ThemePreset;
 
     #[test]
     fn test_black_white_contrast() {
@@ -47,5 +48,119 @@ mod tests {
 
         let self_ratio = contrast_ratio(white, white);
         assert!((self_ratio - 1.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_high_contrast_wcag_compliance() {
+        let p = ThemePreset::HighContrast.palette();
+        // HighContrast: tekst >= 7:1, tokeny semantyczne >= 4.5:1
+        assert!(
+            contrast_ratio(p.text_primary, p.panel_bg) >= 7.0,
+            "text_primary WCAG AAA failed"
+        );
+        assert!(
+            contrast_ratio(p.text_muted, p.panel_bg) >= 7.0,
+            "text_muted WCAG AAA failed"
+        );
+        assert!(
+            contrast_ratio(p.accent, p.panel_bg) >= 4.5,
+            "accent semantic contrast failed"
+        );
+        assert!(
+            contrast_ratio(p.accent_alt, p.panel_bg) >= 4.5,
+            "accent_alt semantic contrast failed"
+        );
+        assert!(
+            contrast_ratio(p.success, p.panel_bg) >= 4.5,
+            "success semantic contrast failed"
+        );
+        assert!(
+            contrast_ratio(p.warning, p.panel_bg) >= 4.5,
+            "warning semantic contrast failed"
+        );
+        assert!(
+            contrast_ratio(p.danger, p.panel_bg) >= 4.5,
+            "danger semantic contrast failed"
+        );
+        assert!(
+            contrast_ratio(p.info, p.panel_bg) >= 4.5,
+            "info semantic contrast failed"
+        );
+    }
+
+    #[test]
+    fn test_daylight_wcag_compliance() {
+        let p = ThemePreset::Daylight.palette();
+        // Daylight: tekst >= 4.5:1, tokeny semantyczne >= 3:1
+        assert!(
+            contrast_ratio(p.text_primary, p.panel_bg) >= 4.5,
+            "Daylight text_primary failed"
+        );
+        assert!(
+            contrast_ratio(p.text_muted, p.panel_bg) >= 4.5,
+            "Daylight text_muted failed"
+        );
+        assert!(
+            contrast_ratio(p.accent, p.panel_bg) >= 3.0,
+            "Daylight accent failed"
+        );
+        assert!(
+            contrast_ratio(p.accent_alt, p.panel_bg) >= 3.0,
+            "Daylight accent_alt failed"
+        );
+        assert!(
+            contrast_ratio(p.success, p.panel_bg) >= 3.0,
+            "Daylight success failed"
+        );
+        assert!(
+            contrast_ratio(p.warning, p.panel_bg) >= 3.0,
+            "Daylight warning failed"
+        );
+        assert!(
+            contrast_ratio(p.danger, p.panel_bg) >= 3.0,
+            "Daylight danger failed"
+        );
+        assert!(
+            contrast_ratio(p.info, p.panel_bg) >= 3.0,
+            "Daylight info failed"
+        );
+    }
+
+    #[test]
+    fn test_operator_dark_wcag_compliance() {
+        let p = ThemePreset::OperatorDark.palette();
+        // OperatorDark: tekst >= 4.5:1, tokeny semantyczne >= 3:1
+        assert!(
+            contrast_ratio(p.text_primary, p.panel_bg) >= 4.5,
+            "OperatorDark text_primary failed"
+        );
+        assert!(
+            contrast_ratio(p.text_muted, p.panel_bg) >= 4.5,
+            "OperatorDark text_muted failed"
+        );
+        assert!(
+            contrast_ratio(p.accent, p.panel_bg) >= 3.0,
+            "OperatorDark accent failed"
+        );
+        assert!(
+            contrast_ratio(p.accent_alt, p.panel_bg) >= 3.0,
+            "OperatorDark accent_alt failed"
+        );
+        assert!(
+            contrast_ratio(p.success, p.panel_bg) >= 3.0,
+            "OperatorDark success failed"
+        );
+        assert!(
+            contrast_ratio(p.warning, p.panel_bg) >= 3.0,
+            "OperatorDark warning failed"
+        );
+        assert!(
+            contrast_ratio(p.danger, p.panel_bg) >= 3.0,
+            "OperatorDark danger failed"
+        );
+        assert!(
+            contrast_ratio(p.info, p.panel_bg) >= 3.0,
+            "OperatorDark info failed"
+        );
     }
 }
