@@ -515,8 +515,7 @@ fn render_tab_appearance(
             .clicked()
         {
             app.theme_preset = crate::gui::theme::ThemePreset::OperatorDark;
-            app.theme_preset.apply(ctx);
-            app.dark_theme = true;
+            crate::gui::theme::ensure_applied(ctx, app.theme_preset, app.font_scale);
             app.save_station_config();
         }
         if ui
@@ -530,8 +529,7 @@ fn render_tab_appearance(
             .clicked()
         {
             app.theme_preset = crate::gui::theme::ThemePreset::Daylight;
-            app.theme_preset.apply(ctx);
-            app.dark_theme = false;
+            crate::gui::theme::ensure_applied(ctx, app.theme_preset, app.font_scale);
             app.save_station_config();
         }
     });

@@ -286,7 +286,6 @@ pub struct SpLogApp {
     pub new_eq_notes: String,
 
     // Motyw i konfiguracja stacji
-    pub dark_theme: bool,
     pub theme_preset: crate::gui::theme::ThemePreset,
     pub font_scale: f32,
     pub font_family: String,
@@ -993,8 +992,15 @@ impl SpLogApp {
             new_eq_sn: String::new(),
             new_eq_notes: String::new(),
 
-            dark_theme: init.config.dark_theme,
-            theme_preset: crate::gui::theme::ThemePreset::from_id(&init.config.theme_preset),
+            theme_preset: if init.config.theme_preset.is_empty() {
+                if !init.config.dark_theme {
+                    crate::gui::theme::ThemePreset::Daylight
+                } else {
+                    crate::gui::theme::ThemePreset::OperatorDark
+                }
+            } else {
+                crate::gui::theme::ThemePreset::from_id(&init.config.theme_preset)
+            },
             font_scale: init.config.font_scale,
             font_family: init.config.font_family.clone(),
             distance_unit: init.config.distance_unit.clone(),
@@ -2524,10 +2530,12 @@ impl SpLogApp {
             .position(|t| t.id() == self.theme_preset.id())
             .unwrap_or(0);
         self.theme_preset = all[(idx + 1) % all.len()];
-        self.dark_theme = self.theme_preset.is_dark();
         self.save_station_config();
         self.status_toast = Some((
-            format!("Zmieniono motyw: {}", self.theme_preset.label_pl()),
+            format!(
+                "Zmieniono motyw: {}",
+                self.theme_preset.label(self.current_language)
+            ),
             std::time::Instant::now(),
         ));
     }
@@ -3054,7 +3062,7 @@ impl SpLogApp {
             is_configured,
             station: self.my_station.clone(),
             equipment: self.equipment_items.clone(),
-            dark_theme: self.dark_theme,
+            dark_theme: self.theme_preset.is_dark(),
             theme_preset: self.theme_preset.id().to_string(),
 
             cat_host: self.cat_host.clone(),
@@ -4877,20 +4885,8 @@ impl eframe::App for SpLogApp {
         // Odbiór zdarzeń i QSO ze stacji w sieci synchronizacji Multi-Op (SYNC-6)
         self.poll_sync_events();
 
-        // Zastosowanie wybranego motywu kolorystycznego (patrz gui::theme::ThemePreset).
-        // Zachowujemy `dark_theme` zsynchronizowany z jasnością aktywnego presetu,
-        // aby ewentualny inny kod odczytujący ten flag nadal działał poprawnie.
-        self.dark_theme = self.theme_preset.is_dark();
-        self.theme_preset.apply(ctx);
-
-        // Skala czcionki / UI (80–150%). Stosowana globalnie jako mnożnik zoom.
-        ctx.set_zoom_factor(self.font_scale.clamp(0.8, 1.5));
-
-        let theme = ctx.theme();
-        ctx.style_mut_of(theme, |s| {
-            s.spacing.window_margin = egui::Margin::symmetric(6, 4);
-            s.spacing.button_padding = egui::vec2(4.0, 2.0);
-        });
+        // Zastosowanie wybranego motywu, stylów i skali UI (apply-on-change przez ensure_applied).
+        crate::gui::theme::ensure_applied(ctx, self.theme_preset, self.font_scale);
 
         // Górny pasek menu systemowego oraz pasek szybkiego dostępu (bez kolizji!)
         egui::Panel::top("top_menu_bar").show(ui, |ui| {
