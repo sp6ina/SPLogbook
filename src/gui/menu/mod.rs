@@ -38,13 +38,15 @@ pub fn render_menu_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
 /// Prawa strona paska menu: wyłącznie znak OP, aktywny profil stacji i zegar UTC
 /// (nie koliduje z lewym menu).
 fn render_right_side(app: &mut SpLogApp, ui: &mut egui::Ui) {
+    use crate::gui::theme::ThemeExt;
+    let palette = ui.palette();
     let lang = app.current_language;
 
     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
         let utc_now = chrono::Utc::now().format("%H:%M:%S UTC").to_string();
         ui.label(
             egui::RichText::new(icons::TIMER.label(utc_now))
-                .color(egui::Color32::from_rgb(148, 163, 184))
+                .color(palette.text_muted)
                 .monospace()
                 .strong(),
         );
@@ -54,7 +56,7 @@ fn render_right_side(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 "OP: {} ({})",
                 app.my_station.callsign, app.my_station.gridsquare
             ))
-            .color(egui::Color32::from_rgb(56, 189, 248))
+            .color(palette.accent)
             .strong(),
         );
         ui.separator();
@@ -66,7 +68,7 @@ fn render_right_side(app: &mut SpLogApp, ui: &mut egui::Ui) {
         if ui
             .button(
                 egui::RichText::new(profile_label)
-                    .color(egui::Color32::from_rgb(250, 204, 21))
+                    .color(palette.warning)
                     .size(11.0),
             )
             .on_hover_text(tr(key::PROFILES_TITLE, lang))
@@ -83,6 +85,8 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let mut show_customize_popup = false;
 
     let toolbar_resp = ui.horizontal_wrapped(|ui| {
+        use crate::gui::theme::ThemeExt;
+        let palette = ui.palette();
         // 1. Aktywny dziennik
         if app.quick_access.show_journal
             && ui
@@ -94,7 +98,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                         app.active_journal.station_callsign
                     )))
                     .strong()
-                    .color(egui::Color32::from_rgb(100, 220, 100)),
+                    .color(palette.success),
                 )
                 .on_hover_text(tr(key::TOOLBAR_JOURNAL_TOOLTIP, lang))
                 .clicked()
@@ -110,7 +114,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ui.label(
                 egui::RichText::new(format!("● WSJT-X ({})", app.wsjtx_packets_count))
                     .small()
-                    .color(egui::Color32::from_rgb(52, 211, 153)),
+                    .color(palette.success),
             );
         }
 
@@ -120,7 +124,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .button(
                     egui::RichText::new(icons::SEARCH.label(tr(key::TOOLBAR_FILTER, lang)))
                         .strong()
-                        .color(egui::Color32::YELLOW),
+                        .color(palette.warning),
                 )
                 .clicked()
         {
@@ -130,18 +134,15 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
         // 4. Status DX Cluster
         if app.quick_access.show_cluster_status {
             let (cl_color, cl_text) = if app.cluster_connected {
-                (
-                    egui::Color32::from_rgb(34, 197, 94),
-                    format!("● Cluster ({})", app.cluster_host),
-                )
+                (palette.success, format!("● Cluster ({})", app.cluster_host))
             } else if app.cluster_connecting {
                 (
-                    egui::Color32::from_rgb(250, 204, 21),
+                    palette.warning,
                     format!("● Cluster: {}", tr(key::TOOLBAR_CLUSTER_CONNECTING, lang)),
                 )
             } else {
                 (
-                    egui::Color32::from_rgb(148, 163, 184),
+                    palette.text_muted,
                     format!("○ Cluster: {}", tr(key::TOOLBAR_CLUSTER_DISCONNECTED, lang)),
                 )
             };
@@ -367,12 +368,14 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
 }
 
 fn render_quick_access_menu(app: &mut SpLogApp, ui: &mut egui::Ui) {
+    use crate::gui::theme::ThemeExt;
+    let palette = ui.palette();
     let lang = app.current_language;
     ui.heading(tr(key::TOOLBAR_VISIBLE_ELEMENTS, lang));
     ui.label(
         egui::RichText::new(tr(key::TOOLBAR_VISIBLE_ELEMENTS_HINT, lang))
             .size(11.0)
-            .color(egui::Color32::from_rgb(148, 163, 184)),
+            .color(palette.text_muted),
     );
     ui.separator();
 

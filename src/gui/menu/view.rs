@@ -8,13 +8,15 @@ use eframe::egui;
 
 /// Menu: Widok (Zarządzanie kafelkami modułów i układem pulpitu)
 pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
+    use crate::gui::theme::ThemeExt;
+    let palette = ui.palette();
     let lang = app.current_language;
 
     ui.menu_button(tr(key::MENU_VIEW, lang), |ui| {
         ui.label(
             egui::RichText::new(tr(key::VIEW_PANELS_TITLE, lang))
                 .strong()
-                .color(egui::Color32::from_rgb(56, 189, 248)),
+                .color(palette.accent),
         );
         ui.separator();
 

@@ -9,6 +9,8 @@ use eframe::egui;
 
 /// Menu: Operacja (radio, DX Cluster, CAT, satelity, contesty, multi-op)
 pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
+    use crate::gui::theme::ThemeExt;
+    let palette = ui.palette();
     let lang = app.current_language;
 
     ui.menu_button(tr(key::MENU_OPERATION, lang), |ui| {
@@ -16,7 +18,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.label(
             egui::RichText::new(icons::CLUSTER.label(tr(key::MENU_DX_CLUSTER, lang)))
                 .strong()
-                .color(egui::Color32::from_rgb(56, 189, 248)),
+                .color(palette.accent),
         );
         ui.separator();
         if app.cluster_connected {
@@ -114,7 +116,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.label(
             egui::RichText::new(tr(key::TOOLS_CAT_CONNECTION, lang))
                 .strong()
-                .color(egui::Color32::from_rgb(56, 189, 248)),
+                .color(palette.accent),
         );
         if ui
             .button(icons::RADIO.label(tr(key::TOOLS_CAT_CONNECTION, lang)))

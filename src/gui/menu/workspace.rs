@@ -12,13 +12,15 @@ use eframe::egui;
 
 /// Menu: Workspace (presety układu + zapisz/zarządzaj).
 pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
+    use crate::gui::theme::ThemeExt;
+    let palette = ui.palette();
     let lang = app.current_language;
 
     ui.menu_button(icons::DESKTOP.label(tr(key::MENU_WORKSPACE, lang)), |ui| {
         ui.label(
             egui::RichText::new(tr(key::WORKSPACE_BUILTIN_PRESETS, lang))
                 .strong()
-                .color(egui::Color32::from_rgb(250, 204, 21)),
+                .color(palette.warning),
         );
         ui.separator();
 
