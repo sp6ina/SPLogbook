@@ -1501,5 +1501,20 @@
   "journal.database_error": "Journal database error: {detail}",
   "adif.read_error": "ADIF data read error: {detail}",
   "callbook.not_found": "Station not found in FCC database.",
-  "callbook.error": "Callbook error: {detail}"
+  "callbook.error": "Callbook error: {detail}",
+  "cloudlog.err_not_configured": "Cloudlog server URL or API key is not configured.",
+  "cloudlog.err_http": "Cloudlog connection error: {detail}",
+  "cloudlog.err_server": "Cloudlog server error [{status}]: {body}",
+  "hamqth.err_not_configured": "HamQTH.com login or password is not configured.",
+  "hamqth.err_http": "HamQTH.com connection error: {detail}",
+  "hamqth.err_server": "HamQTH.com response: {detail}",
+  "hrdlog.err_not_configured": "HRDLog.net callsign or authorization code is not configured.",
+  "hrdlog.err_http": "HRDLog.net connection error: {detail}",
+  "hrdlog.err_server": "HRDLog.net response: {detail}",
+  "psk.err_missing_freq": "Missing QSO frequency — cannot send to PSK Reporter.",
+  "psk.err_http": "PSK Reporter connection error: {detail}",
+  "psk.err_server": "PSK Reporter server returned error: {status}",
+  "wspr.err_invalid_callsign": "Invalid or empty callsign.",
+  "wspr.err_http": "WSPR.live connection error: {detail}",
+  "wspr.err_server": "WSPR.live server returned error: {status}"
 }

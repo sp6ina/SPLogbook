@@ -240,7 +240,16 @@ pub struct SpLogApp {
     pub wspr_loading: bool,
     pub wspr_last_error: Option<String>,
     pub wspr_fetch_slot: Option<
-        std::sync::Arc<std::sync::Mutex<Option<Result<Vec<crate::cloud::wspr::WsprSpot>, String>>>>,
+        std::sync::Arc<
+            std::sync::Mutex<
+                Option<
+                    Result<
+                        Vec<crate::cloud::wspr::WsprSpot>,
+                        crate::cloud::wspr::WsprError,
+                    >,
+                >,
+            >,
+        >,
     >,
 
     // Moduł Satelitów
@@ -4159,7 +4168,7 @@ impl SpLogApp {
                 match result {
                     Ok(_) => sched.mark_success(id, now),
                     Err(e) => {
-                        sched.mark_failure(id, e, now);
+                        sched.mark_failure(id, e.to_string(), now);
                     }
                 }
                 sched.save_to_disk();
@@ -4409,7 +4418,7 @@ impl eframe::App for SpLogApp {
                                 self.wspr_last_error = None;
                             }
                             Err(e) => {
-                                self.wspr_last_error = Some(e);
+                                self.wspr_last_error = Some(e.to_string());
                             }
                         }
                     }

@@ -1,10 +1,53 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
-// Klient serwisu HamQTH (Real-time QSO Upload)
+// Klient HamQTH.com (Realtime ADIF Upload & XML Callbook)
 
+use crate::cloud::qrz::CallbookData;
 use crate::core::adif::export_adif;
+use crate::core::i18n::{key, Msg};
 use crate::core::qso::QsoRecord;
-use crate::core::xml::extract_tag;
+
+#[derive(Debug)]
+pub enum HamQthError {
+    NotConfigured,
+    Http(String),
+    Server(String),
+    LoginFailed(String),
+    SessionCreateFailed,
+    EmptyCallsign,
+    NotFound,
+    UnknownAuthResponse,
+}
+
+impl std::fmt::Display for HamQthError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotConfigured => write!(f, "HamQTH.com username or password is not configured"),
+            Self::Http(detail) => write!(f, "HTTP error: {detail}"),
+            Self::Server(detail) => write!(f, "HamQTH.com response: {detail}"),
+            Self::LoginFailed(detail) => write!(f, "HamQTH login failed: {detail}"),
+            Self::SessionCreateFailed => write!(f, "Failed to create HamQTH session"),
+            Self::EmptyCallsign => write!(f, "Empty callsign"),
+            Self::NotFound => write!(f, "Callsign not found in HamQTH"),
+            Self::UnknownAuthResponse => write!(f, "Unknown HamQTH authorization response"),
+        }
+    }
+}
+
+impl std::error::Error for HamQthError {}
+
+impl HamQthError {
+    pub fn msg(&self) -> Msg {
+        match self {
+            Self::NotConfigured => Msg::new(key::HAMQTH_ERR_NOT_CONFIGURED),
+            Self::Http(detail) => Msg::new(key::HAMQTH_ERR_HTTP).arg("detail", detail),
+            Self::Server(detail) | Self::LoginFailed(detail) => {
+                Msg::new(key::HAMQTH_ERR_SERVER).arg("detail", detail)
+            }
+            _ => Msg::new(key::HAMQTH_ERR_SERVER).arg("detail", self.to_string()),
+        }
+    }
+}
 
 pub struct HamQthClient {
     pub username: String,
@@ -17,9 +60,9 @@ impl HamQthClient {
     }
 
     /// Wysyła łączność do serwisu HamQTH w czasie rzeczywistym
-    pub async fn upload_qso(&self, qso: &QsoRecord) -> Result<String, String> {
+    pub async fn upload_qso(&self, qso: &QsoRecord) -> Result<String, HamQthError> {
         if self.username.is_empty() || self.password.is_empty() {
-            return Err("Brak skonfigurowanego loginu lub hasła do HamQTH.com".to_string());
+            return Err(HamQthError::NotConfigured);
         }
 
         let adif_text = export_adif(std::slice::from_ref(qso), "SPLogbook", &self.username);
@@ -43,12 +86,13 @@ impl HamQthClient {
                         .form(&params)
                         .send()
                         .await
-                        .map_err(|e| format!("Błąd wysyłania do HamQTH.com: {e}"))
+                        .map_err(|e| e.to_string())
                 }
             },
             3,
         )
-        .await?;
+        .await
+        .map_err(HamQthError::Http)?;
 
         let body = resp
             .text()
@@ -58,12 +102,10 @@ impl HamQthClient {
         if body.contains("OK") {
             Ok("Pomyślnie dodano łączność do HamQTH.com".to_string())
         } else {
-            Err(format!("Odpowiedź HamQTH.com: {body}"))
+            Err(HamQthError::Server(body))
         }
     }
 }
-
-use crate::cloud::qrz::CallbookData;
 
 /// Darmowy klient XML Callbook do serwisu HamQTH.com (OK1RR)
 pub struct HamQthXmlClient {
@@ -86,9 +128,9 @@ impl HamQthXmlClient {
     }
 
     /// Logowanie do darmowego API XML HamQTH i pobranie session_id
-    pub async fn login(&mut self) -> Result<String, String> {
+    pub async fn login(&mut self) -> Result<String, HamQthError> {
         if self.username.is_empty() || self.password.is_empty() {
-            return Err("Brak danych logowania do HamQTH".to_string());
+            return Err(HamQthError::NotConfigured);
         }
 
         let resp = self
@@ -97,24 +139,27 @@ impl HamQthXmlClient {
             .query(&[("u", &self.username), ("p", &self.password)])
             .send()
             .await
-            .map_err(|e| e.to_string())?;
-        let xml = resp.text().await.map_err(|e| e.to_string())?;
+            .map_err(|e| HamQthError::Http(e.to_string()))?;
+        let xml = resp
+            .text()
+            .await
+            .map_err(|e| HamQthError::Http(e.to_string()))?;
 
         if let Some(sid) = extract_tag(&xml, "session_id") {
             self.session_id = Some(sid.clone());
             Ok(sid)
         } else if let Some(err) = extract_tag(&xml, "error") {
-            Err(format!("Błąd logowania HamQTH: {err}"))
+            Err(HamQthError::LoginFailed(err))
         } else {
-            Err("Nieznana odpowiedź autoryzacji HamQTH".to_string())
+            Err(HamQthError::UnknownAuthResponse)
         }
     }
 
     /// Pobiera pełne dane korespondenta (w tym zdjęcie profilowe) z bazy HamQTH
-    pub async fn lookup_callsign(&mut self, callsign: &str) -> Result<CallbookData, String> {
+    pub async fn lookup_callsign(&mut self, callsign: &str) -> Result<CallbookData, HamQthError> {
         let clean = callsign.trim().to_uppercase();
         if clean.is_empty() {
-            return Err("Pusty znak".to_string());
+            return Err(HamQthError::EmptyCallsign);
         }
 
         if self.session_id.is_none() {
@@ -124,7 +169,7 @@ impl HamQthXmlClient {
         let sid = self
             .session_id
             .as_ref()
-            .ok_or_else(|| "Nie udało się utworzyć sesji HamQTH".to_string())?;
+            .ok_or(HamQthError::SessionCreateFailed)?;
 
         let resp = self
             .client
@@ -136,8 +181,11 @@ impl HamQthXmlClient {
             ])
             .send()
             .await
-            .map_err(|e| e.to_string())?;
-        let xml = resp.text().await.map_err(|e| e.to_string())?;
+            .map_err(|e| HamQthError::Http(e.to_string()))?;
+        let xml = resp
+            .text()
+            .await
+            .map_err(|e| HamQthError::Http(e.to_string()))?;
 
         // Jeśli sesja wygasła, zaloguj się ponownie
         let is_session_error = extract_tag(&xml, "error")
@@ -150,7 +198,7 @@ impl HamQthXmlClient {
             let sid2 = self
                 .session_id
                 .as_ref()
-                .ok_or_else(|| "Nie udało się utworzyć sesji HamQTH".to_string())?;
+                .ok_or(HamQthError::SessionCreateFailed)?;
             let resp2 = self
                 .client
                 .get("https://www.hamqth.com/xml.php")
@@ -161,17 +209,20 @@ impl HamQthXmlClient {
                 ])
                 .send()
                 .await
-                .map_err(|e| e.to_string())?;
-            let xml2 = resp2.text().await.map_err(|e| e.to_string())?;
+                .map_err(|e| HamQthError::Http(e.to_string()))?;
+            let xml2 = resp2
+                .text()
+                .await
+                .map_err(|e| HamQthError::Http(e.to_string()))?;
             return Self::parse_hamqth_xml(&xml2, &clean);
         }
 
         Self::parse_hamqth_xml(&xml, &clean)
     }
 
-    fn parse_hamqth_xml(xml: &str, query_call: &str) -> Result<CallbookData, String> {
+    fn parse_hamqth_xml(xml: &str, query_call: &str) -> Result<CallbookData, HamQthError> {
         if xml.contains("<error>") {
-            return Err("Nie znaleziono znaku w HamQTH".to_string());
+            return Err(HamQthError::NotFound);
         }
 
         let call = extract_tag(xml, "callsign").unwrap_or_else(|| query_call.to_string());
@@ -196,4 +247,12 @@ impl HamQthXmlClient {
             image_url,
         })
     }
+}
+
+fn extract_tag(xml: &str, tag: &str) -> Option<String> {
+    let open = format!("<{tag}>");
+    let close = format!("</{tag}>");
+    let start = xml.find(&open)? + open.len();
+    let end = xml[start..].find(&close)? + start;
+    Some(xml[start..end].trim().to_string())
 }

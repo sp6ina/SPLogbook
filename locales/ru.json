@@ -1501,5 +1501,20 @@
   "journal.database_error": "Ошибка базы данных журналов: {detail}",
   "adif.read_error": "Ошибка чтения данных ADIF: {detail}",
   "callbook.not_found": "Станция не найдена в базе FCC.",
-  "callbook.error": "Ошибка колбука: {detail}"
+  "callbook.error": "Ошибка колбука: {detail}",
+  "cloudlog.err_not_configured": "Не настроен URL сервера Cloudlog или ключ API.",
+  "cloudlog.err_http": "Ошибка подключения к Cloudlog: {detail}",
+  "cloudlog.err_server": "Ошибка сервера Cloudlog [{status}]: {body}",
+  "hamqth.err_not_configured": "Не настроен логин или пароль для HamQTH.com.",
+  "hamqth.err_http": "Ошибка подключения к HamQTH.com: {detail}",
+  "hamqth.err_server": "Ответ HamQTH.com: {detail}",
+  "hrdlog.err_not_configured": "Не настроен позывной или код авторизации HRDLog.net.",
+  "hrdlog.err_http": "Ошибка подключения к HRDLog.net: {detail}",
+  "hrdlog.err_server": "Ответ HRDLog.net: {detail}",
+  "psk.err_missing_freq": "Отсутствует частота QSO — невозможно отправить в PSK Reporter.",
+  "psk.err_http": "Ошибка подключения к PSK Reporter: {detail}",
+  "psk.err_server": "Сервер PSK Reporter вернул ошибку: {status}",
+  "wspr.err_invalid_callsign": "Неверный или пустой позывной.",
+  "wspr.err_http": "Ошибка подключения к WSPR.live: {detail}",
+  "wspr.err_server": "Сервер WSPR.live вернул ошибку: {status}"
 }

@@ -1501,5 +1501,20 @@
   "journal.database_error": "Protokoll-Datenbankfehler: {detail}",
   "adif.read_error": "ADIF-Datenlesefehler: {detail}",
   "callbook.not_found": "Station nicht in FCC-Datenbank gefunden.",
-  "callbook.error": "Callbook-Fehler: {detail}"
+  "callbook.error": "Callbook-Fehler: {detail}",
+  "cloudlog.err_not_configured": "Cloudlog-Server-URL oder API-Schlüssel nicht konfiguriert.",
+  "cloudlog.err_http": "Cloudlog-Verbindungsfehler: {detail}",
+  "cloudlog.err_server": "Cloudlog-Serverfehler [{status}]: {body}",
+  "hamqth.err_not_configured": "HamQTH.com Benutzername oder Passwort nicht konfiguriert.",
+  "hamqth.err_http": "HamQTH.com Verbindungsfehler: {detail}",
+  "hamqth.err_server": "HamQTH.com-Antwort: {detail}",
+  "hrdlog.err_not_configured": "HRDLog.net Rufzeichen oder Autorisierungscode nicht konfiguriert.",
+  "hrdlog.err_http": "HRDLog.net Verbindungsfehler: {detail}",
+  "hrdlog.err_server": "HRDLog.net-Antwort: {detail}",
+  "psk.err_missing_freq": "Fehlende QSO-Frequenz — Senden an PSK Reporter nicht möglich.",
+  "psk.err_http": "PSK Reporter Verbindungsfehler: {detail}",
+  "psk.err_server": "PSK Reporter-Server meldete Fehler: {status}",
+  "wspr.err_invalid_callsign": "Ungültiges oder leeres Rufzeichen.",
+  "wspr.err_http": "WSPR.live Verbindungsfehler: {detail}",
+  "wspr.err_server": "WSPR.live-Server meldete Fehler: {status}"
 }

@@ -196,7 +196,14 @@ fn fetch_wspr_spots_async(app: &mut SpLogApp, ctx: &egui::Context) {
     // Używamy tokio::spawn bo jesteśmy w środowisku tokio (eframe + runtime)
     // Wynik przekazujemy przez Arc<Mutex<Option<Result>>>
     let result_slot: std::sync::Arc<
-        std::sync::Mutex<Option<Result<Vec<crate::cloud::wspr::WsprSpot>, String>>>,
+        std::sync::Mutex<
+            Option<
+                Result<
+                    Vec<crate::cloud::wspr::WsprSpot>,
+                    crate::cloud::wspr::WsprError,
+                >,
+            >,
+        >,
     > = std::sync::Arc::new(std::sync::Mutex::new(None));
     let slot_clone = result_slot.clone();
 

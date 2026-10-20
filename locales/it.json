@@ -1501,5 +1501,20 @@
   "journal.database_error": "Errore del database dei registri: {detail}",
   "adif.read_error": "Errore durante la lettura dei dati ADIF: {detail}",
   "callbook.not_found": "Stazione non trovata nel database FCC.",
-  "callbook.error": "Errore callbook: {detail}"
+  "callbook.error": "Errore callbook: {detail}",
+  "cloudlog.err_not_configured": "URL del server Cloudlog o chiave API non configurata.",
+  "cloudlog.err_http": "Errore di connessione a Cloudlog: {detail}",
+  "cloudlog.err_server": "Errore del server Cloudlog [{status}]: {body}",
+  "hamqth.err_not_configured": "Nome utente o password di HamQTH.com non configurati.",
+  "hamqth.err_http": "Errore di connessione a HamQTH.com: {detail}",
+  "hamqth.err_server": "Risposta di HamQTH.com: {detail}",
+  "hrdlog.err_not_configured": "Nominativo o codice di autorizzazione HRDLog.net non configurato.",
+  "hrdlog.err_http": "Errore di connessione a HRDLog.net: {detail}",
+  "hrdlog.err_server": "Risposta di HRDLog.net: {detail}",
+  "psk.err_missing_freq": "Frequenza QSO mancante — impossibile inviare a PSK Reporter.",
+  "psk.err_http": "Errore di connessione a PSK Reporter: {detail}",
+  "psk.err_server": "Il server PSK Reporter ha restituito un errore: {status}",
+  "wspr.err_invalid_callsign": "Nominativo non valido o vuoto.",
+  "wspr.err_http": "Errore di connessione a WSPR.live: {detail}",
+  "wspr.err_server": "Il server WSPR.live ha restituito un errore: {status}"
 }

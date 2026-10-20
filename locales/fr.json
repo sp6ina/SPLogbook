@@ -1501,5 +1501,20 @@
   "journal.database_error": "Erreur de base de données de journal: {detail}",
   "adif.read_error": "Erreur de lecture des données ADIF: {detail}",
   "callbook.not_found": "Station non trouvée dans la base FCC.",
-  "callbook.error": "Erreur de callbook: {detail}"
+  "callbook.error": "Erreur de callbook: {detail}",
+  "cloudlog.err_not_configured": "URL du serveur Cloudlog ou clé API non configurée.",
+  "cloudlog.err_http": "Erreur de connexion Cloudlog: {detail}",
+  "cloudlog.err_server": "Erreur du serveur Cloudlog [{status}]: {body}",
+  "hamqth.err_not_configured": "Identifiant ou mot de passe HamQTH.com non configuré.",
+  "hamqth.err_http": "Erreur de connexion HamQTH.com: {detail}",
+  "hamqth.err_server": "Réponse de HamQTH.com: {detail}",
+  "hrdlog.err_not_configured": "Indicatif ou code d'autorisation HRDLog.net non configuré.",
+  "hrdlog.err_http": "Erreur de connexion HRDLog.net: {detail}",
+  "hrdlog.err_server": "Réponse de HRDLog.net: {detail}",
+  "psk.err_missing_freq": "Fréquence QSO manquante — impossible d'envoyer à PSK Reporter.",
+  "psk.err_http": "Erreur de connexion PSK Reporter: {detail}",
+  "psk.err_server": "Le serveur PSK Reporter a renvoyé une erreur: {status}",
+  "wspr.err_invalid_callsign": "Indicatif invalide ou vide.",
+  "wspr.err_http": "Erreur de connexion WSPR.live: {detail}",
+  "wspr.err_server": "Le serveur WSPR.live a renvoyé une erreur: {status}"
 }

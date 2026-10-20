@@ -1,8 +1,40 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
+use crate::core::i18n::{key, Msg};
 use crate::core::qso::QsoRecord;
 use crate::core::xml::escape_xml as escape_xml_attr;
+
+#[derive(Debug)]
+pub enum PskReporterError {
+    MissingFrequency,
+    Http(String),
+    Server(u16),
+}
+
+impl std::fmt::Display for PskReporterError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MissingFrequency => {
+                write!(f, "Missing QSO frequency — cannot send to PSK Reporter")
+            }
+            Self::Http(detail) => write!(f, "HTTP error: {detail}"),
+            Self::Server(status) => write!(f, "Server returned: {status}"),
+        }
+    }
+}
+
+impl std::error::Error for PskReporterError {}
+
+impl PskReporterError {
+    pub fn msg(&self) -> Msg {
+        match self {
+            Self::MissingFrequency => Msg::new(key::PSK_ERR_MISSING_FREQ),
+            Self::Http(detail) => Msg::new(key::PSK_ERR_HTTP).arg("detail", detail),
+            Self::Server(status) => Msg::new(key::PSK_ERR_SERVER).arg("status", *status),
+        }
+    }
+}
 
 pub struct PskReporterClient {
     callsign: String,
@@ -35,7 +67,7 @@ impl PskReporterClient {
         freq_hz: u64,
         mode: &str,
         snr: i32,
-    ) -> Result<(), String> {
+    ) -> Result<(), PskReporterError> {
         let xml = self.build_report_xml(dx_call, freq_hz, mode, snr);
         let resp = crate::core::http::retry_async(
             || {
@@ -51,19 +83,19 @@ impl PskReporterClient {
             },
             3,
         )
-        .await?;
+        .await
+        .map_err(PskReporterError::Http)?;
+
         if resp.status().is_success() {
             Ok(())
         } else {
-            Err(format!("Server returned: {}", resp.status()))
+            Err(PskReporterError::Server(resp.status().as_u16()))
         }
     }
 
-    pub async fn submit_reception_report(&self, qso: &QsoRecord) -> Result<(), String> {
+    pub async fn submit_reception_report(&self, qso: &QsoRecord) -> Result<(), PskReporterError> {
         // Wymagamy podania częstotliwości — nie wysyłamy z domyślną wartością 14 MHz
-        let freq_mhz = qso.freq.ok_or_else(|| {
-            "Brak częstotliwości QSO — nie można wysłać do PSK Reporter".to_string()
-        })?;
+        let freq_mhz = qso.freq.ok_or(PskReporterError::MissingFrequency)?;
         let freq_hz = (freq_mhz * 1_000_000.0) as u64;
         self.submit_spot(&qso.callsign, freq_hz, &qso.mode, 0).await
     }
@@ -74,10 +106,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_build_report_xml_escapes_special_chars() {
+    fn test_psk_reporter_xml_escaping() {
         let client = PskReporterClient::new("SP6INA\"&<>'", "JO81");
-        let xml = client.build_report_xml("DL1ABC<test>", 14_074_000, "FT8", -10);
-        assert!(xml.contains(r#"reporter="SP6INA&quot;&amp;&lt;&gt;&apos;""#));
-        assert!(xml.contains(r#"callsign="DL1ABC&lt;test&gt;""#));
+        let xml = client.build_report_xml("W1AW\"<>&'", 14074000, "FT8", -10);
+
+        assert!(xml.contains("reporter=\"SP6INA&quot;&amp;&lt;&gt;&apos;\""));
+        assert!(xml.contains("callsign=\"W1AW&quot;&lt;&gt;&amp;&apos;\""));
+        assert!(xml.contains("frequency=\"14074000\""));
+        assert!(xml.contains("mode=\"FT8\""));
+        assert!(xml.contains("snr=\"-10\""));
     }
 }

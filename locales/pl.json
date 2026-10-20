@@ -1501,5 +1501,20 @@
   "journal.database_error": "Błąd bazy danych dzienników: {detail}",
   "adif.read_error": "Błąd odczytu danych ADIF: {detail}",
   "callbook.not_found": "Stacja nieznaleziona w bazie FCC.",
-  "callbook.error": "Błąd callbooka: {detail}"
+  "callbook.error": "Błąd callbooka: {detail}",
+  "cloudlog.err_not_configured": "Brak skonfigurowanego adresu serwera Cloudlog lub klucza API.",
+  "cloudlog.err_http": "Błąd połączenia z Cloudlog: {detail}",
+  "cloudlog.err_server": "Błąd serwera Cloudlog [{status}]: {body}",
+  "hamqth.err_not_configured": "Brak skonfigurowanego loginu lub hasła do HamQTH.com.",
+  "hamqth.err_http": "Błąd połączenia z HamQTH.com: {detail}",
+  "hamqth.err_server": "Odpowiedź HamQTH.com: {detail}",
+  "hrdlog.err_not_configured": "Brak skonfigurowanego znaku lub kodu autoryzacyjnego HRDLog.net.",
+  "hrdlog.err_http": "Błąd połączenia z HRDLog.net: {detail}",
+  "hrdlog.err_server": "Odpowiedź HRDLog.net: {detail}",
+  "psk.err_missing_freq": "Brak częstotliwości QSO — nie można wysłać do PSK Reporter.",
+  "psk.err_http": "Błąd połączenia z PSK Reporter: {detail}",
+  "psk.err_server": "Serwer PSK Reporter zwrócił błąd: {status}",
+  "wspr.err_invalid_callsign": "Nieprawidłowy lub pusty znak wywoławczy.",
+  "wspr.err_http": "Błąd połączenia z WSPR.live: {detail}",
+  "wspr.err_server": "Serwer WSPR.live zwrócił błąd: {status}"
 }

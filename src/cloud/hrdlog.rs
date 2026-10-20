@@ -3,7 +3,39 @@
 // Klient serwisu HRDLog.net (XML Upload)
 
 use crate::core::adif::export_adif;
+use crate::core::i18n::{key, Msg};
 use crate::core::qso::QsoRecord;
+
+#[derive(Debug)]
+pub enum HrdlogError {
+    NotConfigured,
+    Http(String),
+    Server(String),
+}
+
+impl std::fmt::Display for HrdlogError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotConfigured => {
+                write!(f, "HRDLog.net callsign or authorization code is not configured")
+            }
+            Self::Http(detail) => write!(f, "HTTP error: {detail}"),
+            Self::Server(detail) => write!(f, "HRDLog.net response: {detail}"),
+        }
+    }
+}
+
+impl std::error::Error for HrdlogError {}
+
+impl HrdlogError {
+    pub fn msg(&self) -> Msg {
+        match self {
+            Self::NotConfigured => Msg::new(key::HRDLOG_ERR_NOT_CONFIGURED),
+            Self::Http(detail) => Msg::new(key::HRDLOG_ERR_HTTP).arg("detail", detail),
+            Self::Server(detail) => Msg::new(key::HRDLOG_ERR_SERVER).arg("detail", detail),
+        }
+    }
+}
 
 pub struct HrdlogClient {
     pub callsign: String,
@@ -19,11 +51,9 @@ impl HrdlogClient {
     }
 
     /// Wysyła łączność do serwisu HRDLog.net
-    pub async fn upload_qso(&self, qso: &QsoRecord) -> Result<String, String> {
+    pub async fn upload_qso(&self, qso: &QsoRecord) -> Result<String, HrdlogError> {
         if self.callsign.is_empty() || self.upload_code.is_empty() {
-            return Err(
-                "Brak skonfigurowanego znaku lub kodu autoryzacyjnego HRDLog.net".to_string(),
-            );
+            return Err(HrdlogError::NotConfigured);
         }
 
         let adif_text = export_adif(std::slice::from_ref(qso), "SPLogbook", &self.callsign);
@@ -47,12 +77,13 @@ impl HrdlogClient {
                         .form(&params)
                         .send()
                         .await
-                        .map_err(|e| format!("Błąd wysyłania do HRDLog.net: {e}"))
+                        .map_err(|e| e.to_string())
                 }
             },
             3,
         )
-        .await?;
+        .await
+        .map_err(HrdlogError::Http)?;
 
         let text = resp
             .text()
@@ -62,7 +93,7 @@ impl HrdlogClient {
         if text.to_lowercase().contains("<insert>ok</insert>") || text.contains("OK") {
             Ok("Pomyślnie dodano łączność do HRDLog.net".to_string())
         } else {
-            Err(format!("Odpowiedź HRDLog.net: {text}"))
+            Err(HrdlogError::Server(text))
         }
     }
 }

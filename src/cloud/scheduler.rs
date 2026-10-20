@@ -363,12 +363,31 @@ pub struct UploadCredentials {
     pub eqsl_password: String,
 }
 
+#[derive(Debug)]
+pub enum UploadExecutionError {
+    ClubLog(String),
+    Qrz(String),
+    Eqsl(String),
+}
+
+impl std::fmt::Display for UploadExecutionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ClubLog(detail) => write!(f, "Club Log upload error: {detail}"),
+            Self::Qrz(detail) => write!(f, "QRZ.com upload error: {detail}"),
+            Self::Eqsl(detail) => write!(f, "eQSL.cc upload error: {detail}"),
+        }
+    }
+}
+
+impl std::error::Error for UploadExecutionError {}
+
 /// Wykonuje właściwą wysyłkę ADIF do wskazanego serwisu.
 pub async fn execute_upload(
     service: UploadService,
     creds: &UploadCredentials,
     adif: &str,
-) -> Result<String, String> {
+) -> Result<String, UploadExecutionError> {
     match service {
         UploadService::ClubLog => {
             let client = crate::cloud::clublog::ClubLogClient::new();
@@ -381,17 +400,20 @@ pub async fn execute_upload(
                     adif,
                 )
                 .await
-                .map_err(|e| e.to_string())
+                .map_err(|e| UploadExecutionError::ClubLog(e.to_string()))
         }
         UploadService::Qrz => {
             crate::cloud::qrz::QrzClient::upload_to_logbook(&creds.qrz_api_key, adif)
                 .await
-                .map_err(|e| e.to_string())
+                .map_err(|e| UploadExecutionError::Qrz(e.to_string()))
         }
         UploadService::Eqsl => {
             let client =
                 crate::cloud::eqsl::EqslClient::new(&creds.eqsl_username, &creds.eqsl_password);
-            client.upload_adif(adif).await.map_err(|e| e.to_string())
+            client
+                .upload_adif(adif)
+                .await
+                .map_err(|e| UploadExecutionError::Eqsl(e.to_string()))
         }
     }
 }

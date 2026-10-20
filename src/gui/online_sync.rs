@@ -373,7 +373,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                     }
                                                 }
                                                 if let Some(e) = last_err {
-                                                    let _ = tx.send((Msg::new(key::SYNC_HAMQTH_PARTIAL_ERROR).arg("ok_count", ok_count).arg("total_count", qsos.len()).arg("err", &e).text(lang), false));
+                                                    let _ = tx.send((Msg::new(key::SYNC_HAMQTH_PARTIAL_ERROR).arg("ok_count", ok_count).arg("total_count", qsos.len()).arg("err", e.to_string()).text(lang), false));
                                                 } else {
                                                     let _ = tx.send((Msg::new(key::SYNC_HAMQTH_SUCCESS).arg("count", ok_count).text(lang), false));
                                                 }
@@ -454,7 +454,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                     }
                                                 }
                                                 if let Some(e) = last_err {
-                                                    let _ = tx.send((Msg::new(key::SYNC_CLOUDLOG_PARTIAL_ERROR).arg("ok_count", ok_count).arg("total_count", qsos.len()).arg("err", &e).text(lang), false));
+                                                    let _ = tx.send((Msg::new(key::SYNC_CLOUDLOG_PARTIAL_ERROR).arg("ok_count", ok_count).arg("total_count", qsos.len()).arg("err", e.to_string()).text(lang), false));
                                                 } else {
                                                     let _ = tx.send((Msg::new(key::SYNC_CLOUDLOG_SUCCESS).arg("count", ok_count).text(lang), false));
                                                 }
@@ -496,7 +496,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                     }
                                                 }
                                                 if let Some(e) = last_err {
-                                                    let _ = tx.send((Msg::new(key::SYNC_HRDLOG_PARTIAL_ERROR).arg("ok_count", ok_count).arg("total_count", qsos.len()).arg("err", &e).text(lang), false));
+                                                    let _ = tx.send((Msg::new(key::SYNC_HRDLOG_PARTIAL_ERROR).arg("ok_count", ok_count).arg("total_count", qsos.len()).arg("err", e.to_string()).text(lang), false));
                                                 } else {
                                                     let _ = tx.send((Msg::new(key::SYNC_HRDLOG_SUCCESS).arg("count", ok_count).text(lang), false));
                                                 }
