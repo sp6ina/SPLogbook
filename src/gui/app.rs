@@ -3993,10 +3993,10 @@ impl SpLogApp {
 
             match outcome {
                 Ok(msg) => {
-                    let _ = tx.send((msg, true));
+                    let _ = tx.send((msg.to_string(), true));
                 }
                 Err(err_msg) => {
-                    let _ = tx.send((err_msg, false));
+                    let _ = tx.send((err_msg.to_string(), false));
                 }
             }
         });
@@ -4024,7 +4024,7 @@ impl SpLogApp {
                         crate::cloud::updater::UpdateCheckOutcome::NewVersion(release)
                     }
                 }
-                Err(e) => crate::cloud::updater::UpdateCheckOutcome::Error(e),
+                Err(e) => crate::cloud::updater::UpdateCheckOutcome::Error(e.to_string()),
             };
             let _ = tx.send(outcome);
         });

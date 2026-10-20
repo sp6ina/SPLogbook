@@ -4,23 +4,119 @@
 
 use std::path::Path;
 
+/// Podsumowanie operacji aktualizacji baz referencyjnych.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DatabaseReport(pub String);
+
+impl std::fmt::Display for DatabaseReport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::ops::Deref for DatabaseReport {
+    type Target = str;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+/// Błąd operacji aktualizatora bazy lub aplikacji.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UpdaterError {
+    Network(String),
+    HttpStatus(String),
+    Io(String),
+    FileTooLarge,
+    InvalidSignature(String),
+    UntrustedKey,
+    ManifestParse(String),
+    KeyMismatch(String),
+    ManifestValidation(String),
+    InvalidVersion(String),
+    VersionTooOld(String),
+    VersionTooNew(String),
+    DowngradeRejected(String),
+    AlreadyUpToDate(String),
+    MissingField(&'static str),
+    NoMatchingAssets,
+    MissingManifest,
+    MissingSignature,
+    InvalidUtf8,
+    ExePath(String),
+    ChecksumMismatch,
+    SafetyGate(String),
+    ZipSlip(String),
+    HealthCheckFailed,
+    UpdateFailed(String),
+    Other(String),
+}
+
+impl UpdaterError {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Network(s)
+            | Self::HttpStatus(s)
+            | Self::Io(s)
+            | Self::InvalidSignature(s)
+            | Self::ManifestParse(s)
+            | Self::KeyMismatch(s)
+            | Self::ManifestValidation(s)
+            | Self::InvalidVersion(s)
+            | Self::VersionTooOld(s)
+            | Self::VersionTooNew(s)
+            | Self::DowngradeRejected(s)
+            | Self::AlreadyUpToDate(s)
+            | Self::ExePath(s)
+            | Self::SafetyGate(s)
+            | Self::ZipSlip(s)
+            | Self::UpdateFailed(s)
+            | Self::Other(s) => s.as_str(),
+            Self::MissingField(s) => s,
+            Self::FileTooLarge => "Plik przekracza dozwolony limit wielkości.",
+            Self::UntrustedKey => "Żaden z zaufanych kluczy nie zweryfikował tego podpisu",
+            Self::NoMatchingAssets => "Manifest nie zawiera plików dla tego wydania zbieżnych z GitHub API.",
+            Self::MissingManifest => "Brak release-manifest.json w wydaniu.",
+            Self::MissingSignature => "Brak podpisu release-manifest.json.sig w wydaniu.",
+            Self::InvalidUtf8 => "Podpis nie jest prawidłowym ciągiem UTF-8",
+            Self::ChecksumMismatch => "Suma kontrolna SHA256 pobranej aktualizacji nie zgadza się z wartością z GitHub.",
+            Self::HealthCheckFailed => "Zaktualizowana aplikacja uległa natychmiastowej awarii (segfault/panic). Przywrócono starszą wersję.",
+        }
+    }
+}
+
+impl std::ops::Deref for UpdaterError {
+    type Target = str;
+    fn deref(&self) -> &Self::Target {
+        self.as_str()
+    }
+}
+
+impl std::fmt::Display for UpdaterError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl std::error::Error for UpdaterError {}
+
 pub struct DatabaseUpdater;
 
 impl DatabaseUpdater {
     /// Pobiera najnowszy plik definicji krajów i prefiksów (cty.dat)
-    pub async fn update_country_file(dest_path: &Path) -> Result<usize, String> {
+    pub async fn update_country_file(dest_path: &Path) -> Result<usize, UpdaterError> {
         let url = "https://www.country-files.com/cty/cty.dat";
         Self::download_file(url, dest_path).await
     }
 
     /// Pobiera najnowszą bazę Super Check Partial (MASTER.SCP)
-    pub async fn update_scp_file(dest_path: &Path) -> Result<usize, String> {
+    pub async fn update_scp_file(dest_path: &Path) -> Result<usize, UpdaterError> {
         let url = "https://www.supercheckpartial.com/MASTER.SCP";
         Self::download_file(url, dest_path).await
     }
 
     /// Pobiera wszystkie bazy referencyjne do wskazanego katalogu
-    pub async fn update_all(dir: &Path) -> Result<(), String> {
+    pub async fn update_all(dir: &Path) -> Result<(), UpdaterError> {
         let _ = Self::update_all_with_report(dir, crate::core::i18n::Language::Pl).await?;
         Ok(())
     }
@@ -30,7 +126,7 @@ impl DatabaseUpdater {
     pub async fn update_all_with_report(
         dir: &Path,
         lang: crate::core::i18n::Language,
-    ) -> Result<String, String> {
+    ) -> Result<DatabaseReport, UpdaterError> {
         let mut ok_parts = Vec::new();
         let mut err_parts = Vec::new();
 
@@ -50,68 +146,65 @@ impl DatabaseUpdater {
         }
 
         if ok_parts.is_empty() {
-            let prefix = crate::core::i18n::tr_or(
+            let prefix = crate::core::i18n::tr(
+                crate::core::i18n::key::UPDATER_DB_UPDATE_FAILED,
                 lang,
-                "❌ Błąd aktualizacji baz online",
-                "❌ Online database update failed",
             );
-            Err(format!("{prefix}: {}", err_parts.join(" | ")))
+            Err(UpdaterError::UpdateFailed(format!("{prefix}: {}", err_parts.join(" | "))))
         } else if err_parts.is_empty() {
-            let prefix = crate::core::i18n::tr_or(
+            let prefix = crate::core::i18n::tr(
+                crate::core::i18n::key::UPDATER_DB_UPDATE_SUCCESS,
                 lang,
-                "✔ Zaktualizowano bazy online",
-                "✔ Online databases updated",
             );
-            Ok(format!("{prefix}: {}", ok_parts.join(", ")))
+            Ok(DatabaseReport(format!("{prefix}: {}", ok_parts.join(", "))))
         } else {
-            let prefix = crate::core::i18n::tr_or(
+            let prefix = crate::core::i18n::tr(
+                crate::core::i18n::key::UPDATER_DB_UPDATE_PARTIAL,
                 lang,
-                "⚠ Częściowa aktualizacja baz",
-                "⚠ Partial database update",
             );
-            Ok(format!(
+            Ok(DatabaseReport(format!(
                 "{prefix}: OK [{}], Err [{}]",
                 ok_parts.join(", "),
                 err_parts.join("; ")
-            ))
+            )))
         }
     }
 
     /// Pobiera listę aktywnych użytkowników LoTW (lotw-user-activity.csv)
-    pub async fn update_lotw_users(dest_path: &Path) -> Result<usize, String> {
+    pub async fn update_lotw_users(dest_path: &Path) -> Result<usize, UpdaterError> {
         let url = "https://lotw.arrl.org/lotw-user-activity.csv";
         Self::download_file(url, dest_path).await
     }
 
-    async fn download_file(url: &str, dest_path: &Path) -> Result<usize, String> {
+    async fn download_file(url: &str, dest_path: &Path) -> Result<usize, UpdaterError> {
         let client = crate::core::http::http_client_with_timeout(30);
 
         let resp = client
             .get(url)
             .send()
             .await
-            .map_err(|e| format!("Błąd pobierania {url}: {e}"))?;
+            .map_err(|e| UpdaterError::Network(format!("Błąd pobierania {url}: {e}")))?;
 
         if !resp.status().is_success() {
-            return Err(format!("Serwer zwrócił status {}: {}", resp.status(), url));
+            return Err(UpdaterError::HttpStatus(format!("Serwer zwrócił status {}: {}", resp.status(), url)));
         }
 
         let bytes = resp
             .bytes()
             .await
-            .map_err(|e| format!("Błąd odczytu danych z {url}: {e}"))?;
+            .map_err(|e| UpdaterError::Network(format!("Błąd odczytu danych z {url}: {e}")))?;
 
         if let Some(parent) = dest_path.parent() {
             if !parent.as_os_str().is_empty() {
                 tokio::fs::create_dir_all(parent)
                     .await
-                    .map_err(|e| format!("Błąd tworzenia katalogu {}: {e}", parent.display()))?;
+                    .map_err(|e| UpdaterError::Io(format!("Błąd tworzenia katalogu {}: {e}", parent.display())))?;
             }
         }
 
         tokio::fs::write(dest_path, &bytes)
             .await
-            .map_err(|e| format!("Błąd zapisu do pliku {}: {e}", dest_path.display()))?;
+            .map_err(|e| UpdaterError::Io(format!("Błąd zapisu do pliku {}: {e}", dest_path.display())))?;
 
         Ok(bytes.len())
     }
@@ -170,20 +263,20 @@ pub const TRUSTED_KEYS: &[TrustedKey] = &[TrustedKey {
 pub fn verify_manifest_signature(
     manifest_bytes: &[u8],
     signature_base64: &str,
-) -> Result<(&'static TrustedKey, ReleaseManifest), String> {
+) -> Result<(&'static TrustedKey, ReleaseManifest), UpdaterError> {
     use base64::{Engine as _, engine::general_purpose::STANDARD};
     use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 
     let sig_bytes = STANDARD
         .decode(signature_base64)
-        .map_err(|e| format!("Błąd dekodowania podpisu Base64: {}", e))?;
+        .map_err(|e| UpdaterError::InvalidSignature(format!("Błąd dekodowania podpisu Base64: {e}")))?;
 
     if sig_bytes.len() != 64 {
-        return Err("Nieprawidłowa długość podpisu Ed25519".into());
+        return Err(UpdaterError::InvalidSignature("Nieprawidłowa długość podpisu Ed25519".into()));
     }
 
     let signature =
-        Signature::from_slice(&sig_bytes).map_err(|e| format!("Błąd ładowania podpisu: {}", e))?;
+        Signature::from_slice(&sig_bytes).map_err(|e| UpdaterError::InvalidSignature(format!("Błąd ładowania podpisu: {e}")))?;
 
     let mut verified_key = None;
     for key in TRUSTED_KEYS.iter().filter(|k| k.active) {
@@ -196,45 +289,44 @@ pub fn verify_manifest_signature(
     }
 
     let key = verified_key
-        .ok_or_else(|| "Żaden z zaufanych kluczy nie zweryfikował tego podpisu".to_string())?;
+        .ok_or(UpdaterError::UntrustedKey)?;
 
     let manifest: ReleaseManifest = serde_json::from_slice(manifest_bytes).map_err(|e| {
-        format!(
-            "Błąd parsowania manifestu JSON po weryfikacji podpisu: {}",
-            e
-        )
+        UpdaterError::ManifestParse(format!(
+            "Błąd parsowania manifestu JSON po weryfikacji podpisu: {e}"
+        ))
     })?;
 
     if manifest.key_id != key.key_id {
-        return Err(format!(
+        return Err(UpdaterError::KeyMismatch(format!(
             "Manifest deklaruje key_id = {}, ale został podpisany kluczem {}",
             manifest.key_id, key.key_id
-        ));
+        )));
     }
 
     manifest.validate()?;
 
     // Walidacja SemVer względem ograniczeń klucza.
     let manifest_ver = semver::Version::parse(&manifest.version)
-        .map_err(|e| format!("Nieprawidłowa wersja w manifeście: {}", e))?;
+        .map_err(|e| UpdaterError::InvalidVersion(format!("Nieprawidłowa wersja w manifeście: {e}")))?;
 
     if let Some(min_v) = key.min_version {
         let min_ver = semver::Version::parse(min_v).unwrap();
         if manifest_ver < min_ver {
-            return Err(format!(
+            return Err(UpdaterError::VersionTooOld(format!(
                 "Wersja {} jest zbyt stara dla tego klucza (min: {})",
                 manifest.version, min_v
-            ));
+            )));
         }
     }
 
     if let Some(max_v) = key.max_version {
         let max_ver = semver::Version::parse(max_v).unwrap();
         if manifest_ver > max_ver {
-            return Err(format!(
+            return Err(UpdaterError::VersionTooNew(format!(
                 "Wersja {} jest zbyt nowa dla tego klucza (max: {})",
                 manifest.version, max_v
-            ));
+            )));
         }
     }
 
@@ -247,23 +339,23 @@ pub fn verify_manifest_signature(
 pub fn verify_downgrade_protection(
     manifest_version: &str,
     current_version: &str,
-) -> Result<(), String> {
+) -> Result<(), UpdaterError> {
     let m_ver = semver::Version::parse(manifest_version)
-        .map_err(|e| format!("Nieprawidłowa wersja w manifeście: {}", e))?;
+        .map_err(|e| UpdaterError::InvalidVersion(format!("Nieprawidłowa wersja w manifeście: {e}")))?;
     let c_ver = semver::Version::parse(current_version)
-        .map_err(|e| format!("Nieprawidłowa bieżąca wersja: {}", e))?;
+        .map_err(|e| UpdaterError::InvalidVersion(format!("Nieprawidłowa bieżąca wersja: {e}")))?;
 
     if m_ver < c_ver {
-        return Err(format!(
+        return Err(UpdaterError::DowngradeRejected(format!(
             "Odmowa downgrade: wersja w manifeście ({}) jest starsza od zainstalowanej ({}).",
             manifest_version, current_version
-        ));
+        )));
     }
     if m_ver == c_ver {
-        return Err(format!(
+        return Err(UpdaterError::AlreadyUpToDate(format!(
             "Zainstalowana jest już ta sama wersja ({}) - aktualizacja odrzucona.",
             current_version
-        ));
+        )));
     }
 
     Ok(())
@@ -283,44 +375,44 @@ pub struct ReleaseManifest {
 }
 
 impl ReleaseManifest {
-    pub fn validate(&self) -> Result<(), String> {
+    pub fn validate(&self) -> Result<(), UpdaterError> {
         if self.manifest_version != 1 {
-            return Err(format!(
+            return Err(UpdaterError::ManifestValidation(format!(
                 "Nieznana wersja manifestu: {}",
                 self.manifest_version
-            ));
+            )));
         }
         if self.product != "SPLogbook" {
-            return Err(format!(
+            return Err(UpdaterError::ManifestValidation(format!(
                 "Oczekiwano product = SPLogbook, otrzymano: {}",
                 self.product
-            ));
+            )));
         }
         if self.commit.len() != 40 || !self.commit.chars().all(|c| c.is_ascii_hexdigit()) {
-            return Err("Nieprawidłowy skrót commit SHA-1".into());
+            return Err(UpdaterError::ManifestValidation("Nieprawidłowy skrót commit SHA-1".into()));
         }
         if self.assets.is_empty() {
-            return Err("Manifest nie zawiera artefaktów".into());
+            return Err(UpdaterError::ManifestValidation("Manifest nie zawiera artefaktów".into()));
         }
 
         let mut names = std::collections::HashSet::new();
         let mut triads = std::collections::HashSet::new();
         for asset in &self.assets {
             if !names.insert(&asset.filename) {
-                return Err(format!("Zduplikowany filename: {}", asset.filename));
+                return Err(UpdaterError::ManifestValidation(format!("Zduplikowany filename: {}", asset.filename)));
             }
             let triad = (&asset.platform, &asset.arch, &asset.package_type);
             if !triads.insert(triad) {
-                return Err(format!(
+                return Err(UpdaterError::ManifestValidation(format!(
                     "Niejednoznaczny pakiet (platform+arch+type): {:?}",
                     triad
-                ));
+                )));
             }
             if asset.sha256.len() != 64 || !asset.sha256.chars().all(|c| c.is_ascii_hexdigit()) {
-                return Err(format!(
+                return Err(UpdaterError::ManifestValidation(format!(
                     "Nieprawidłowy SHA-256 dla pliku {}",
                     asset.filename
-                ));
+                )));
             }
         }
         Ok(())
@@ -339,7 +431,7 @@ pub struct ManifestAsset {
 }
 
 /// Pobiera metadane najnowszego wydania z GitHub API (bez autoryzacji).
-pub async fn latest_release() -> Result<LatestRelease, String> {
+pub async fn latest_release() -> Result<LatestRelease, UpdaterError> {
     let client = crate::core::http::http_client_with_timeout(15);
     let url = "https://api.github.com/repos/sp6ina/SPLogbook/releases/latest";
 
@@ -349,27 +441,27 @@ pub async fn latest_release() -> Result<LatestRelease, String> {
         .header("Accept", "application/vnd.github+json")
         .send()
         .await
-        .map_err(|e| format!("Błąd połączenia z GitHub: {e}"))?;
+        .map_err(|e| UpdaterError::Network(format!("Błąd połączenia z GitHub: {e}")))?;
 
     if !resp.status().is_success() {
-        return Err(format!(
+        return Err(UpdaterError::HttpStatus(format!(
             "GitHub zwrócił status {} (sprawdź połączenie z internetem).",
             resp.status()
-        ));
+        )));
     }
 
     let body = resp
         .text()
         .await
-        .map_err(|e| format!("Błąd odczytu odpowiedzi: {e}"))?;
+        .map_err(|e| UpdaterError::Network(format!("Błąd odczytu odpowiedzi: {e}")))?;
 
     let json: serde_json::Value = serde_json::from_str(&body)
-        .map_err(|e| format!("Błąd parsowania odpowiedzi GitHub: {e}"))?;
+        .map_err(|e| UpdaterError::ManifestParse(format!("Błąd parsowania odpowiedzi GitHub: {e}")))?;
 
     let tag = json
         .get("tag_name")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| "Brak pola tag_name w odpowiedzi z serwera.".to_string())?
+        .ok_or(UpdaterError::MissingField("Brak pola tag_name w odpowiedzi z serwera."))?
         .trim_start_matches('v')
         .to_string();
     let html_url = json
@@ -442,9 +534,7 @@ pub async fn latest_release() -> Result<LatestRelease, String> {
     }
 
     if verified_assets.is_empty() {
-        return Err(
-            "Manifest nie zawiera plików dla tego wydania zbieżnych z GitHub API.".to_string(),
-        );
+        return Err(UpdaterError::NoMatchingAssets);
     }
 
     latest.assets = verified_assets;
@@ -475,7 +565,7 @@ pub fn verify_sha256(data: &[u8], expected: &str) -> bool {
 }
 
 /// Pobiera plik do pamięci (używane dla manifestu i podpisu).
-pub async fn download_to_memory(url: &str, max_size: usize) -> Result<Vec<u8>, String> {
+pub async fn download_to_memory(url: &str, max_size: usize) -> Result<Vec<u8>, UpdaterError> {
     let client = crate::core::http::http_client_with_timeout(30);
 
     let mut resp = client
@@ -483,17 +573,17 @@ pub async fn download_to_memory(url: &str, max_size: usize) -> Result<Vec<u8>, S
         .header("User-Agent", "SPLogbook-update-check")
         .send()
         .await
-        .map_err(|e| format!("Błąd pobierania url: {e}"))?;
+        .map_err(|e| UpdaterError::Network(format!("Błąd pobierania url: {e}")))?;
 
     if !resp.status().is_success() {
-        return Err(format!("Serwer zwrócił status {}.", resp.status()));
+        return Err(UpdaterError::HttpStatus(format!("Serwer zwrócił status {}.", resp.status())));
     }
 
     let mut bytes = Vec::new();
-    while let Some(chunk) = resp.chunk().await.map_err(|e| format!("Błąd chunk: {e}"))? {
+    while let Some(chunk) = resp.chunk().await.map_err(|e| UpdaterError::Network(format!("Błąd chunk: {e}")))? {
         bytes.extend_from_slice(&chunk);
         if bytes.len() > max_size {
-            return Err("Plik przekracza dozwolony limit wielkości.".to_string());
+            return Err(UpdaterError::FileTooLarge);
         }
     }
 
@@ -504,25 +594,25 @@ pub async fn download_to_memory(url: &str, max_size: usize) -> Result<Vec<u8>, S
 pub async fn fetch_and_verify_manifest(
     release: &LatestRelease,
     current_version: &str,
-) -> Result<ReleaseManifest, String> {
+) -> Result<ReleaseManifest, UpdaterError> {
     let manifest_asset = release
         .assets
         .iter()
         .find(|a| a.name == "release-manifest.json")
-        .ok_or_else(|| "Brak release-manifest.json w wydaniu.".to_string())?;
+        .ok_or(UpdaterError::MissingManifest)?;
 
     let sig_asset = release
         .assets
         .iter()
         .find(|a| a.name == "release-manifest.json.sig")
-        .ok_or_else(|| "Brak podpisu release-manifest.json.sig w wydaniu.".to_string())?;
+        .ok_or(UpdaterError::MissingSignature)?;
 
     // Limit 1MB na manifest i podpis (ochrona pamięci)
     let manifest_bytes =
         download_to_memory(&manifest_asset.browser_download_url, 1024 * 1024).await?;
     let sig_bytes = download_to_memory(&sig_asset.browser_download_url, 1024 * 1024).await?;
     let sig_str = String::from_utf8(sig_bytes)
-        .map_err(|_| "Podpis nie jest prawidłowym ciągiem UTF-8".to_string())?;
+        .map_err(|_| UpdaterError::InvalidUtf8)?;
 
     // CRYPTO-ED25519-VERIFY & CRYPTO-MANIFEST-VALIDATE
     let (_, manifest) = verify_manifest_signature(&manifest_bytes, sig_str.trim())?;
@@ -565,7 +655,7 @@ pub fn select_asset_for_platform(assets: &[ReleaseAsset]) -> Option<&ReleaseAsse
 pub async fn download_release_asset(
     asset: &ReleaseAsset,
     dest_path: &Path,
-) -> Result<usize, String> {
+) -> Result<usize, UpdaterError> {
     let client = crate::core::http::http_client_with_timeout(300);
 
     let resp = client
@@ -573,31 +663,31 @@ pub async fn download_release_asset(
         .header("User-Agent", "SPLogbook-update-check")
         .send()
         .await
-        .map_err(|e| format!("Błąd pobierania aktualizacji: {e}"))?;
+        .map_err(|e| UpdaterError::Network(format!("Błąd pobierania aktualizacji: {e}")))?;
 
     if !resp.status().is_success() {
-        return Err(format!(
+        return Err(UpdaterError::HttpStatus(format!(
             "Serwer zwrócił status {} podczas pobierania.",
             resp.status()
-        ));
+        )));
     }
 
     let bytes = resp
         .bytes()
         .await
-        .map_err(|e| format!("Błąd odczytu pobranych danych: {e}"))?;
+        .map_err(|e| UpdaterError::Network(format!("Błąd odczytu pobranych danych: {e}")))?;
 
     if let Some(parent) = dest_path.parent() {
         if !parent.as_os_str().is_empty() {
             tokio::fs::create_dir_all(parent)
                 .await
-                .map_err(|e| format!("Błąd tworzenia katalogu {}: {e}", parent.display()))?;
+                .map_err(|e| UpdaterError::Io(format!("Błąd tworzenia katalogu {}: {e}", parent.display())))?;
         }
     }
 
     tokio::fs::write(dest_path, &bytes)
         .await
-        .map_err(|e| format!("Błąd zapisu pobranego pliku {}: {e}", dest_path.display()))?;
+        .map_err(|e| UpdaterError::Io(format!("Błąd zapisu pobranego pliku {}: {e}", dest_path.display())))?;
 
     Ok(bytes.len())
 }
@@ -607,13 +697,13 @@ pub async fn download_release_asset(
 /// Po wywołaniu (w systemie Windows) aplikacja powinna się zamknąć — proces
 /// PowerShell czeka na zakończenie bieżącego procesu i dopiero wtedy podmienia
 /// plik oraz uruchamia nową wersję.
-pub async fn install_update(asset: &ReleaseAsset) -> Result<(), String> {
+pub async fn install_update(asset: &ReleaseAsset) -> Result<(), UpdaterError> {
     let current =
-        std::env::current_exe().map_err(|e| format!("Nie można ustalić ścieżki programu: {e}"))?;
+        std::env::current_exe().map_err(|e| UpdaterError::ExePath(format!("Nie można ustalić ścieżki programu: {e}")))?;
 
     let parent = current
         .parent()
-        .ok_or_else(|| "Nie można ustalić katalogu programu.".to_string())?;
+        .ok_or_else(|| UpdaterError::ExePath("Nie można ustalić katalogu programu.".to_string()))?;
 
     let tmp_path = parent.join(format!(".SPLogbook_update_{}.tmp", std::process::id()));
 
@@ -627,13 +717,10 @@ pub async fn install_update(asset: &ReleaseAsset) -> Result<(), String> {
     if let Some(expected) = asset.digest.as_deref() {
         let data = tokio::fs::read(&tmp_path)
             .await
-            .map_err(|e| format!("Błąd odczytu pobranego pliku: {e}"))?;
+            .map_err(|e| UpdaterError::Io(format!("Błąd odczytu pobranego pliku: {e}")))?;
         if !verify_sha256(&data, expected) {
             let _ = tokio::fs::remove_file(&tmp_path).await;
-            return Err(
-                "Suma kontrolna SHA256 pobranej aktualizacji nie zgadza się z wartością z GitHub."
-                    .to_string(),
-            );
+            return Err(UpdaterError::ChecksumMismatch);
         }
     }
 
@@ -642,14 +729,14 @@ pub async fn install_update(asset: &ReleaseAsset) -> Result<(), String> {
 }
 
 /// Sprawdza, czy pobierany plik nie jest archiwum, co mogłoby uszkodzić instalację.
-pub fn check_safety_gate(asset: &ReleaseAsset) -> Result<(), String> {
+pub fn check_safety_gate(asset: &ReleaseAsset) -> Result<(), UpdaterError> {
     let name_lower = asset.name.to_lowercase();
 
     #[cfg(target_os = "windows")]
     {
         if name_lower.ends_with(".msi") {
             return Err(
-                "Błąd: Pobrany plik to instalator MSI. Zaktualizuj program ręcznie.".to_string(),
+                UpdaterError::SafetyGate("Błąd: Pobrany plik to instalator MSI. Zaktualizuj program ręcznie.".to_string()),
             );
         }
     }
@@ -657,7 +744,7 @@ pub fn check_safety_gate(asset: &ReleaseAsset) -> Result<(), String> {
     #[cfg(not(target_os = "windows"))]
     {
         if name_lower.ends_with(".deb") || name_lower.ends_with(".rpm") {
-            return Err("Błąd: Pobrany plik to zarządzany pakiet systemowy. Zaktualizuj program używając menedżera pakietów.".to_string());
+            return Err(UpdaterError::SafetyGate("Błąd: Pobrany plik to zarządzany pakiet systemowy. Zaktualizuj program używając menedżera pakietów.".to_string()));
         }
     }
     Ok(())
@@ -665,29 +752,29 @@ pub fn check_safety_gate(asset: &ReleaseAsset) -> Result<(), String> {
 
 /// Podmienia działający plik wykonywalny nową wersją.
 #[cfg(target_os = "windows")]
-fn self_replace(current: &Path, new: &Path) -> Result<(), String> {
+fn self_replace(current: &Path, new: &Path) -> Result<(), UpdaterError> {
     install_via_powershell(current, new)
 }
 
 /// Podmienia działający plik wykonywalny nową wersją (systemy Unix).
 #[cfg(not(target_os = "windows"))]
-fn self_replace(current: &Path, new: &Path) -> Result<(), String> {
+fn self_replace(current: &Path, new: &Path) -> Result<(), UpdaterError> {
     install_via_tar_gz(current, new)
 }
 
 #[cfg(not(target_os = "windows"))]
-fn install_via_tar_gz(current: &Path, new: &Path) -> Result<(), String> {
+fn install_via_tar_gz(current: &Path, new: &Path) -> Result<(), UpdaterError> {
     use std::fs;
 
     let base_dir = current
         .parent()
-        .ok_or_else(|| "Brak katalogu nadrzędnego dla pliku wykonywalnego".to_string())?;
+        .ok_or_else(|| UpdaterError::ExePath("Brak katalogu nadrzędnego dla pliku wykonywalnego".to_string()))?;
 
     // 1. Sprawdzenie praw dostępu (Target Validation)
     let md =
-        fs::metadata(base_dir).map_err(|e| format!("Brak dostępu do katalogu aplikacji: {e}"))?;
+        fs::metadata(base_dir).map_err(|e| UpdaterError::Io(format!("Brak dostępu do katalogu aplikacji: {e}")))?;
     if md.permissions().readonly() {
-        return Err("Katalog aplikacji jest chroniony przed zapisem (np. zainstalowano przez root). Zaktualizuj program używając menedżera pakietów lub jako root.".into());
+        return Err(UpdaterError::Io("Katalog aplikacji jest chroniony przed zapisem (np. zainstalowano przez root). Zaktualizuj program używając menedżera pakietów lub jako root.".into()));
     }
 
     let staging_dir = base_dir.join(".staging");
@@ -700,31 +787,31 @@ fn install_via_tar_gz(current: &Path, new: &Path) -> Result<(), String> {
     let _ = fs::remove_file(&health_ok);
 
     fs::create_dir_all(&staging_dir)
-        .map_err(|e| format!("Nie można utworzyć katalogu tymczasowego: {e}"))?;
+        .map_err(|e| UpdaterError::Io(format!("Nie można utworzyć katalogu tymczasowego: {e}")))?;
     fs::create_dir_all(&rollback_dir)
-        .map_err(|e| format!("Nie można utworzyć katalogu kopii zapasowej: {e}"))?;
+        .map_err(|e| UpdaterError::Io(format!("Nie można utworzyć katalogu kopii zapasowej: {e}")))?;
 
     // 2. Ekstrakcja poza strefą działania (Staging / ZipSlip Protection)
     let tar_gz =
-        fs::File::open(new).map_err(|e| format!("Nie można otworzyć pobranego archiwum: {e}"))?;
+        fs::File::open(new).map_err(|e| UpdaterError::Io(format!("Nie można otworzyć pobranego archiwum: {e}")))?;
     let tar = flate2::read::GzDecoder::new(tar_gz);
     let mut archive = tar::Archive::new(tar);
 
     for file in archive
         .entries()
-        .map_err(|e| format!("Błąd odczytu wpisów w archiwum: {e}"))?
+        .map_err(|e| UpdaterError::Io(format!("Błąd odczytu wpisów w archiwum: {e}")))?
     {
-        let mut file = file.map_err(|e| format!("Błąd wpisu w archiwum: {e}"))?;
+        let mut file = file.map_err(|e| UpdaterError::Io(format!("Błąd wpisu w archiwum: {e}")))?;
         let path = file
             .path()
-            .map_err(|e| format!("Błąd ścieżki w archiwum: {e}"))?;
+            .map_err(|e| UpdaterError::Io(format!("Błąd ścieżki w archiwum: {e}")))?;
 
         let path_str = path.to_string_lossy().into_owned();
         if path_str.contains("..") || path_str.starts_with('/') {
-            return Err(format!(
+            return Err(UpdaterError::ZipSlip(format!(
                 "Archiwum zawiera potencjalnie niebezpieczną ścieżkę (ZipSlip): {}",
                 path_str
-            ));
+            )));
         }
 
         let out_path = staging_dir.join(&path);
@@ -741,12 +828,12 @@ fn install_via_tar_gz(current: &Path, new: &Path) -> Result<(), String> {
         }
 
         file.unpack(&out_path)
-            .map_err(|e| format!("Błąd rozpakowywania pliku {}: {}", path_str, e))?;
+            .map_err(|e| UpdaterError::Io(format!("Błąd rozpakowywania pliku {}: {}", path_str, e)))?;
     }
 
     // 3. Kopia Zapasowa (Rollback)
     for entry in walkdir::WalkDir::new(&staging_dir).min_depth(1) {
-        let entry = entry.map_err(|e| format!("Błąd przeszukiwania plików instalacyjnych: {e}"))?;
+        let entry = entry.map_err(|e| UpdaterError::Io(format!("Błąd przeszukiwania plików instalacyjnych: {e}")))?;
         if entry.file_type().is_file() {
             let rel = entry.path().strip_prefix(&staging_dir).unwrap();
             let orig = base_dir.join(rel);
@@ -756,11 +843,11 @@ fn install_via_tar_gz(current: &Path, new: &Path) -> Result<(), String> {
                     let _ = fs::create_dir_all(p);
                 }
                 fs::copy(&orig, &dest).map_err(|e| {
-                    format!(
+                    UpdaterError::Io(format!(
                         "Nie można utworzyć kopii zapasowej {}: {}",
                         rel.display(),
                         e
-                    )
+                    ))
                 })?;
             }
         }
@@ -768,7 +855,7 @@ fn install_via_tar_gz(current: &Path, new: &Path) -> Result<(), String> {
 
     // 4. Atomowa podmiana - Rename Swap
     for entry in walkdir::WalkDir::new(&staging_dir).min_depth(1) {
-        let entry = entry.map_err(|e| format!("Błąd przeszukiwania plików instalacyjnych: {e}"))?;
+        let entry = entry.map_err(|e| UpdaterError::Io(format!("Błąd przeszukiwania plików instalacyjnych: {e}")))?;
         if entry.file_type().is_file() {
             let rel = entry.path().strip_prefix(&staging_dir).unwrap();
             let orig = base_dir.join(rel);
@@ -776,7 +863,7 @@ fn install_via_tar_gz(current: &Path, new: &Path) -> Result<(), String> {
                 let _ = fs::create_dir_all(p);
             }
             fs::rename(entry.path(), &orig)
-                .map_err(|e| format!("Błąd podmiany pliku {}: {}", rel.display(), e))?;
+                .map_err(|e| UpdaterError::Io(format!("Błąd podmiany pliku {}: {}", rel.display(), e)))?;
         }
     }
 
@@ -784,7 +871,7 @@ fn install_via_tar_gz(current: &Path, new: &Path) -> Result<(), String> {
     let mut child = std::process::Command::new(current)
         .arg("--check-health-startup")
         .spawn()
-        .map_err(|e| format!("Nie można uruchomić zaktualizowanego programu: {}", e))?;
+        .map_err(|e| UpdaterError::Io(format!("Nie można uruchomić zaktualizowanego programu: {}", e)))?;
 
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
     let mut success = false;
@@ -818,14 +905,14 @@ fn install_via_tar_gz(current: &Path, new: &Path) -> Result<(), String> {
             }
         }
         let _ = std::process::Command::new(current).spawn(); // Odpal starą
-        return Err("Zaktualizowana aplikacja uległa natychmiastowej awarii (segfault/panic). Przywrócono starszą wersję.".into());
+        return Err(UpdaterError::HealthCheckFailed);
     }
 }
 
 /// Windows: uruchamia skrypt PowerShell, który czeka na zamknięcie bieżącego
 /// procesu, podmienia plik wykonywalny i uruchamia go ponownie.
 #[cfg(target_os = "windows")]
-fn install_via_powershell(current: &Path, new: &Path) -> Result<(), String> {
+fn install_via_powershell(current: &Path, new: &Path) -> Result<(), UpdaterError> {
     let script_path =
         std::env::temp_dir().join(format!("SPLogbook_update_{}.ps1", std::process::id()));
 
@@ -900,7 +987,7 @@ fn install_via_powershell(current: &Path, new: &Path) -> Result<(), String> {
     );
 
     std::fs::write(&script_path, script)
-        .map_err(|e| format!("Nie można zapisać skryptu aktualizacji: {e}"))?;
+        .map_err(|e| UpdaterError::Io(format!("Nie można zapisać skryptu aktualizacji: {e}")))?;
 
     std::process::Command::new("powershell.exe")
         .args([
@@ -913,7 +1000,7 @@ fn install_via_powershell(current: &Path, new: &Path) -> Result<(), String> {
         ])
         .arg(&script_path)
         .spawn()
-        .map_err(|e| format!("Nie można uruchomić aktualizacji: {e}"))?;
+        .map_err(|e| UpdaterError::Io(format!("Nie można uruchomić aktualizacji: {e}")))?;
 
     Ok(())
 }

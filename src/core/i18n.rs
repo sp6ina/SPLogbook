@@ -37,14 +37,6 @@ pub fn tr(key: Key, lang: Language) -> &'static str {
     }
 }
 
-/// Zwraca tekst polski dla `Language::Pl`, a angielski (uniwersalny międzynarodowy) dla pozostałych języków.
-pub fn tr_or<'a>(lang: Language, pl: &'a str, en: &'a str) -> &'a str {
-    match lang {
-        Language::Pl => pl,
-        _ => en,
-    }
-}
-
 /// Bezpieczna struktura do budowania komunikatów z nazwanymi parametrami `{param}`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Msg {

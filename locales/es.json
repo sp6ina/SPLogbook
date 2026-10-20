@@ -1516,5 +1516,8 @@
   "psk.err_server": "El servidor de PSK Reporter devolvió un error: {status}",
   "wspr.err_invalid_callsign": "Indicativo no válido o vacío.",
   "wspr.err_http": "Error de conexión a WSPR.live: {detail}",
-  "wspr.err_server": "El servidor de WSPR.live devolvió un error: {status}"
+  "wspr.err_server": "El servidor de WSPR.live devolvió un error: {status}",
+  "updater.db_update_failed": "❌ Error al actualizar las bases de datos en línea",
+  "updater.db_update_success": "✔ Bases de datos en línea actualizadas",
+  "updater.db_update_partial": "⚠ Actualización parcial de las bases de datos"
 }

@@ -1516,5 +1516,8 @@
   "psk.err_server": "Serwer PSK Reporter zwrócił błąd: {status}",
   "wspr.err_invalid_callsign": "Nieprawidłowy lub pusty znak wywoławczy.",
   "wspr.err_http": "Błąd połączenia z WSPR.live: {detail}",
-  "wspr.err_server": "Serwer WSPR.live zwrócił błąd: {status}"
+  "wspr.err_server": "Serwer WSPR.live zwrócił błąd: {status}",
+  "updater.db_update_failed": "❌ Błąd aktualizacji baz online",
+  "updater.db_update_success": "✔ Zaktualizowano bazy online",
+  "updater.db_update_partial": "⚠ Częściowa aktualizacja baz"
 }

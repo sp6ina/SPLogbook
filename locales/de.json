@@ -1516,5 +1516,8 @@
   "psk.err_server": "PSK Reporter-Server meldete Fehler: {status}",
   "wspr.err_invalid_callsign": "Ungültiges oder leeres Rufzeichen.",
   "wspr.err_http": "WSPR.live Verbindungsfehler: {detail}",
-  "wspr.err_server": "WSPR.live-Server meldete Fehler: {status}"
+  "wspr.err_server": "WSPR.live-Server meldete Fehler: {status}",
+  "updater.db_update_failed": "❌ Fehler bei der Aktualisierung der Online-Datenbanken",
+  "updater.db_update_success": "✔ Online-Datenbanken aktualisiert",
+  "updater.db_update_partial": "⚠ Teilweise Aktualisierung der Datenbanken"
 }

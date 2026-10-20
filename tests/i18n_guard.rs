@@ -628,9 +628,7 @@ fn test_i18n_pending_files_exist() {
 /// Moduły oczekujące na typowane błędy domenowe w etapie I18N-B3.
 /// Każdy kolejny commit I18N-B3A do I18N-B3E musi zmniejszać tę listę.
 /// W commicie I18N-B6 lista ta zostanie bezwzględnie usunięta.
-const PENDING_MODULES: &[&str] = &[
-    "src/cloud/updater.rs",
-];
+const PENDING_MODULES: &[&str] = &[];
 
 fn check_file_for_string_errors(content: &str) -> Vec<(usize, String)> {
     let mut violations = Vec::new();

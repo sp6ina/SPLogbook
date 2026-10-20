@@ -1516,5 +1516,8 @@
   "psk.err_server": "Сервер PSK Reporter вернул ошибку: {status}",
   "wspr.err_invalid_callsign": "Неверный или пустой позывной.",
   "wspr.err_http": "Ошибка подключения к WSPR.live: {detail}",
-  "wspr.err_server": "Сервер WSPR.live вернул ошибку: {status}"
+  "wspr.err_server": "Сервер WSPR.live вернул ошибку: {status}",
+  "updater.db_update_failed": "❌ Ошибка обновления онлайн-баз данных",
+  "updater.db_update_success": "✔ Онлайн-базы данных обновлены",
+  "updater.db_update_partial": "⚠ Частичное обновление баз данных"
 }

@@ -1516,5 +1516,8 @@
   "psk.err_server": "PSK Reporter server returned error: {status}",
   "wspr.err_invalid_callsign": "Invalid or empty callsign.",
   "wspr.err_http": "WSPR.live connection error: {detail}",
-  "wspr.err_server": "WSPR.live server returned error: {status}"
+  "wspr.err_server": "WSPR.live server returned error: {status}",
+  "updater.db_update_failed": "❌ Online database update failed",
+  "updater.db_update_success": "✔ Online databases updated",
+  "updater.db_update_partial": "⚠ Partial database update"
 }

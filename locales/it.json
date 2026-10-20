@@ -1516,5 +1516,8 @@
   "psk.err_server": "Il server PSK Reporter ha restituito un errore: {status}",
   "wspr.err_invalid_callsign": "Nominativo non valido o vuoto.",
   "wspr.err_http": "Errore di connessione a WSPR.live: {detail}",
-  "wspr.err_server": "Il server WSPR.live ha restituito un errore: {status}"
+  "wspr.err_server": "Il server WSPR.live ha restituito un errore: {status}",
+  "updater.db_update_failed": "❌ Aggiornamento dei database online non riuscito",
+  "updater.db_update_success": "✔ Database online aggiornati",
+  "updater.db_update_partial": "⚠ Aggiornamento parziale dei database"
 }
