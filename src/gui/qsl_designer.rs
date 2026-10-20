@@ -3,6 +3,7 @@
 // Projektant i kolejka drukowania etykiet na karty QSL (Avery A4)
 
 use crate::core::database::LogDatabase;
+use crate::core::i18n::{Language, Msg, key, tr};
 use crate::core::qso::QsoRecord;
 use crate::gui::theme::ThemeExt;
 use eframe::egui;
@@ -66,7 +67,7 @@ impl Default for QslDesignerDialog {
 }
 
 impl QslDesignerDialog {
-    pub fn queue_by_rules(&mut self, db: &LogDatabase) {
+    pub fn queue_by_rules(&mut self, db: &LogDatabase, lang: Language) {
         if let Ok(all) = db.get_all_qsos() {
             let from = self.batch_date_from.trim();
             let to = self.batch_date_to.trim();
@@ -100,43 +101,50 @@ impl QslDesignerDialog {
                 })
                 .take(limit)
                 .collect();
-            self.status_message = Some(format!(
-                "Dodano {} łączności do kolejki druku.",
-                self.queued_qsos.len()
-            ));
+            self.status_message = Some(
+                Msg::new(key::QSL_ADDED_TO_QUEUE)
+                    .arg("count", self.queued_qsos.len())
+                    .text(lang),
+            );
         }
     }
 
     /// Walidacja przed generacją PDF. Zwraca komunikat błędu, jeśli nie można drukować.
-    fn validate(&self, my_callsign: &str) -> Result<(), String> {
+    fn validate(&self, my_callsign: &str, lang: Language) -> Result<(), String> {
         if self.queued_qsos.is_empty() {
-            return Err("Kolejka druku jest pusta. Najpierw dodaj łączności.".to_string());
+            return Err(tr(key::QSL_QUEUE_EMPTY, lang).to_string());
         }
         if my_callsign.trim().is_empty() {
-            return Err("Brak znaku stacji (callsign) do wydruku na etykietach.".to_string());
+            return Err(tr(key::QSL_MISSING_CALLSIGN, lang).to_string());
         }
         Ok(())
     }
 
-    pub fn render(&mut self, ctx: &egui::Context, db: &LogDatabase, my_callsign: &str) {
+    pub fn render(
+        &mut self,
+        ctx: &egui::Context,
+        db: &LogDatabase,
+        my_callsign: &str,
+        lang: Language,
+    ) {
         if !self.is_open {
             return;
         }
 
         let mut open = self.is_open;
         let mut close_requested = false;
-        egui::Window::new("🏷 Projektant i Wydruk Naklejek QSL")
+        egui::Window::new(tr(key::QSL_DESIGNER_WINDOW_TITLE, lang))
             .open(&mut open)
             .collapsible(false)
             .resizable(true)
             .default_width(620.0)
             .show(ctx, |ui| {
                 let palette = ui.palette();
-                ui.heading("Kolejka i format naklejek na karty QSL");
+                ui.heading(tr(key::QSL_DESIGNER_HEADING, lang));
                 ui.separator();
 
                 ui.horizontal(|ui| {
-                    ui.label("Format arkusza samoprzylepnego A4:");
+                    ui.label(tr(key::QSL_SHEET_FORMAT, lang));
                     egui::ComboBox::from_id_salt("sheet_fmt_combo")
                         .selected_text(match self.sheet_format {
                             LabelSheetFormat::Avery3x8 => "Avery 3x8 (24 naklejki, 70x36 mm)",
@@ -169,38 +177,38 @@ impl QslDesignerDialog {
                 });
 
                 ui.horizontal(|ui| {
-                    if ui.button("📥 Dodaj z bazy wg reguł").clicked() {
-                        self.queue_by_rules(db);
+                    if ui.button(tr(key::QSL_ADD_FROM_DB_RULES, lang)).clicked() {
+                        self.queue_by_rules(db, lang);
                     }
-                    if ui.button("🗑 Wyczyść kolejkę").clicked() {
+                    if ui.button(tr(key::QSL_CLEAR_QUEUE, lang)).clicked() {
                         self.queued_qsos.clear();
-                        self.status_message = Some("Wyczyszczono kolejkę druku.".to_string());
+                        self.status_message = Some(tr(key::QSL_QUEUE_CLEARED, lang).to_string());
                     }
                 });
 
                 // Reguły masowego wyboru kart do wydruku
                 ui.separator();
-                ui.collapsing("🎯 Reguły wyboru kart do wydruku", |ui| {
+                ui.collapsing(tr(key::QSL_SELECTION_RULES, lang), |ui| {
                     ui.checkbox(
                         &mut self.only_unprinted,
-                        "Tylko niepotwierdzone (QSL wysłane: N/R)",
+                        tr(key::QSL_ONLY_UNCONFIRMED, lang),
                     );
                     ui.horizontal(|ui| {
-                        ui.label("Pasmo:");
+                        ui.label(tr(key::QSL_BAND_LABEL, lang));
                         ui.text_edit_singleline(&mut self.batch_band);
-                        ui.label("Tryb:");
+                        ui.label(tr(key::QSL_MODE_LABEL, lang));
                         ui.text_edit_singleline(&mut self.batch_mode);
                     });
                     ui.horizontal(|ui| {
-                        ui.label("Data od:");
+                        ui.label(tr(key::QSL_DATE_FROM, lang));
                         ui.text_edit_singleline(&mut self.batch_date_from);
-                        ui.label("do:");
+                        ui.label(tr(key::QSL_DATE_TO, lang));
                         ui.text_edit_singleline(&mut self.batch_date_to);
                     });
                     ui.horizontal(|ui| {
-                        ui.label("Limit:");
+                        ui.label(tr(key::QSL_LIMIT_LABEL, lang));
                         ui.add(egui::DragValue::new(&mut self.batch_limit).range(1..=1000));
-                        ui.label("(0 = domyślnie 48)");
+                        ui.label(tr(key::QSL_DEFAULT_LIMIT_HINT, lang));
                     });
                 });
 
@@ -208,19 +216,17 @@ impl QslDesignerDialog {
                 ui.separator();
                 ui.collapsing("🖨 Kalibracja wydruku (marginesy A4)", |ui| {
                     ui.horizontal(|ui| {
-                        ui.label("Margines lewy (mm):");
+                        ui.label(tr(key::QSL_MARGIN_LEFT, lang));
                         ui.add(egui::Slider::new(&mut self.margin_left_mm, 0.0..=30.0));
                     });
                     ui.horizontal(|ui| {
-                        ui.label("Margines górny (mm):");
+                        ui.label(tr(key::QSL_MARGIN_TOP, lang));
                         ui.add(egui::Slider::new(&mut self.margin_top_mm, 0.0..=30.0));
                     });
                     ui.label(
-                        egui::RichText::new(
-                            "Dopasuj marginesy, aby naklejki idealnie pokrywały pola arkusza.",
-                        )
-                        .small()
-                        .color(palette.text_muted),
+                        egui::RichText::new(tr(key::QSL_MARGINS_HINT, lang))
+                            .small()
+                            .color(palette.text_muted),
                     );
                 });
 
@@ -230,10 +236,11 @@ impl QslDesignerDialog {
 
                 ui.separator();
                 ui.label(
-                    egui::RichText::new(format!(
-                        "Łączności w kolejce druku ({} szt.):",
-                        self.queued_qsos.len()
-                    ))
+                    egui::RichText::new(
+                        Msg::new(key::QSL_QUEUE_COUNT_HEADING)
+                            .arg("count", self.queued_qsos.len())
+                            .text(lang),
+                    )
                     .strong(),
                 );
 
@@ -297,8 +304,8 @@ impl QslDesignerDialog {
 
                 ui.separator();
                 ui.horizontal(|ui| {
-                    if ui.button("📄 Eksport Naklejek do PDF (A4)").clicked() {
-                        if let Err(err) = self.validate(my_callsign) {
+                    if ui.button(tr(key::QSL_EXPORT_PDF_BTN, lang)).clicked() {
+                        if let Err(err) = self.validate(my_callsign, lang) {
                             self.status_message = Some(err);
                             return;
                         }
@@ -401,18 +408,19 @@ impl QslDesignerDialog {
                             let mut warnings = Vec::new();
                             let bytes = doc.save(&PdfSaveOptions::default(), &mut warnings);
                             if std::fs::write(&path, bytes).is_ok() {
-                                self.status_message = Some(format!(
-                                    "Zapisano arkusz naklejek PDF ({} str.): {}",
-                                    doc.pages.len(),
-                                    path.display()
-                                ));
+                                self.status_message = Some(
+                                    Msg::new(key::QSL_PDF_SAVED)
+                                        .arg("pages", doc.pages.len())
+                                        .arg("path", path.display())
+                                        .text(lang),
+                                );
                                 let _ = open::that(&path);
                             }
                         }
                     }
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("Zamknij").clicked() {
+                        if ui.button(tr(key::BTN_CLOSE, lang)).clicked() {
                             close_requested = true;
                         }
                     });

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
-use crate::core::i18n::{key, tr};
+use crate::core::i18n::{Msg, key, tr};
 use crate::gui::app::SpLogApp;
 use crate::gui::theme::{ColorExt, ThemeExt};
 use eframe::egui;
@@ -142,6 +142,7 @@ fn render_tuning_digit(
     app: &mut SpLogApp,
 ) {
     let palette = ui.palette();
+    let lang = app.current_language;
     let text = format!("{digit}");
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(17.0, 36.0), egui::Sense::click());
     let hovered = resp.hovered();
@@ -176,9 +177,11 @@ fn render_tuning_digit(
     );
 
     let resp = resp.on_hover_cursor(egui::CursorIcon::ResizeVertical);
-    resp.clone().on_hover_text(format!(
-        "🎛 Krok strojenia: {unit_label}\n• Kółko myszy w górę: +{unit_label}\n• Kółko myszy w dół: -{unit_label}\n• Lewy klik: +{unit_label}, Prawy klik: -{unit_label}"
-    ));
+    resp.clone().on_hover_text(
+        Msg::new(key::VFO_TUNING_STEP_TOOLTIP)
+            .arg("unit_label", unit_label)
+            .text(lang),
+    );
 
     if hovered {
         let scroll_y = ui.input(|i| i.smooth_scroll_delta.y);
@@ -203,6 +206,7 @@ fn render_tuning_dot(ui: &mut egui::Ui) {
 
 pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let palette = ui.palette();
+    let lang = app.current_language;
     let frequency_hz = app.rig_state.frequency_hz;
 
     // Nagłówek konsoli radiowej: Model radia + PTT + Ustawienia
@@ -253,7 +257,7 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         };
         if ui
             .button(egui::RichText::new(ptt_label).color(ptt_color).strong())
-            .on_hover_text("PTT — Przełącz nadawanie/odbiór [F7] (wymaga CAT)")
+            .on_hover_text(tr(key::VFO_PTT_TOOLTIP, lang))
             .clicked()
         {
             app.toggle_ptt();
@@ -318,7 +322,7 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui
                 .button("⇄ A/B")
-                .on_hover_text("Zamień VFO A i VFO B")
+                .on_hover_text(tr(key::VFO_SWAP_TOOLTIP, lang))
                 .clicked()
             {
                 app.swap_vfo_ab();

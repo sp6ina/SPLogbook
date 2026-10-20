@@ -4,6 +4,7 @@
 //! Okno dialogowe voice keyer'a (SSB) — zarządzanie komunikatami F1..F8,
 //! nagrywanie, podgląd i transmisja z kluczowaniem PTT przez CAT.
 
+use crate::core::i18n::{key, tr};
 use crate::core::station::VoiceKeyerMessage;
 use crate::gui::app::SpLogApp;
 use crate::gui::theme::ThemeExt;
@@ -16,7 +17,8 @@ pub fn render_voice_keyer_window(app: &mut SpLogApp, ctx: &egui::Context) {
     }
 
     let mut open = app.show_voice_keyer_window;
-    egui::Window::new("🎙 Voice Keyer (SSB)")
+    let lang = app.current_language;
+    egui::Window::new(tr(key::VOICE_WINDOW_TITLE, lang))
         .open(&mut open)
         .default_size([520.0, 460.0])
         .resizable(true)
@@ -24,22 +26,20 @@ pub fn render_voice_keyer_window(app: &mut SpLogApp, ctx: &egui::Context) {
             let palette = ui.palette();
             ui.horizontal(|ui| {
                 ui.heading(
-                    egui::RichText::new("🎙 Voice Keyer — komunikaty głosowe")
+                    egui::RichText::new(tr(key::VOICE_HEADING, lang))
                         .size(15.0)
                         .color(palette.accent),
                 );
             });
             ui.separator();
             ui.label(
-                egui::RichText::new(
-                    "Skonfiguruj zapowiedzi (pliki WAV) i odtwarzaj je na żywo z kluczowaniem PTT przez CAT. Plik WAV możesz nagrać mikrofonem lub wskazać istniejący.",
-                )
-                .small()
-                .color(palette.text_muted),
+                egui::RichText::new(tr(key::VOICE_DESCRIPTION, lang))
+                    .small()
+                    .color(palette.text_muted),
             );
             ui.add_space(6.0);
 
-            if ui.button("➕ Dodaj slot").clicked() {
+            if ui.button(tr(key::VOICE_ADD_SLOT, lang)).clicked() {
                 app.voice_keyer_messages.push(VoiceKeyerMessage {
                     label: format!("F{}", app.voice_keyer_messages.len() + 1),
                     ..Default::default()
@@ -61,25 +61,35 @@ pub fn render_voice_keyer_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         ui.group(|ui| {
                             ui.horizontal(|ui| {
                                 let dot = if active { "🔴" } else { "⚪" };
-                                if ui.selectable_label(active, format!("{dot} {}", msg.label)).clicked() {
+                                if ui
+                                    .selectable_label(active, format!("{dot} {}", msg.label))
+                                    .clicked()
+                                {
                                     app.voice_keyer_active = Some(idx);
                                 }
-                                ui.add(egui::TextEdit::singleline(&mut msg.label).desired_width(90.0));
-                                ui.checkbox(&mut msg.enabled, "Wł.");
-                                ui.checkbox(&mut msg.repeat, "Pętla");
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut msg.label).desired_width(90.0),
+                                );
+                                ui.checkbox(&mut msg.enabled, tr(key::VOICE_ENABLED, lang));
+                                ui.checkbox(&mut msg.repeat, tr(key::VOICE_REPEAT, lang));
                                 ui.checkbox(&mut msg.ptt, "PTT");
                             });
                             ui.horizontal(|ui| {
-                                ui.label("Tekst:");
-                                ui.add(egui::TextEdit::singleline(&mut msg.text).desired_width(f32::INFINITY));
+                                ui.label(tr(key::VOICE_TEXT_LABEL, lang));
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut msg.text)
+                                        .desired_width(f32::INFINITY),
+                                );
                             });
                             ui.horizontal(|ui| {
                                 ui.label("WAV:");
                                 let path = msg.wav_path.get_or_insert_with(String::new);
-                                ui.add(egui::TextEdit::singleline(path).desired_width(f32::INFINITY));
+                                ui.add(
+                                    egui::TextEdit::singleline(path).desired_width(f32::INFINITY),
+                                );
                             });
                             ui.horizontal(|ui| {
-                                if ui.button("▶ Podgląd").clicked() {
+                                if ui.button(tr(key::VOICE_PREVIEW, lang)).clicked() {
                                     preview_idx = Some(idx);
                                 }
                                 if ui.button("📻 TX").clicked() {
@@ -87,13 +97,17 @@ pub fn render_voice_keyer_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 }
                                 let recording_here = app.voice_keyer_recording == Some(idx);
                                 if recording_here {
-                                    if ui.button("⏹ Zapisz nagranie").clicked() {
+                                    if ui.button(tr(key::VOICE_SAVE_RECORDING, lang)).clicked() {
                                         rec_idx = Some(idx);
                                     }
-                                } else if ui.button("🎙 Nagraj").clicked() {
+                                } else if ui.button(tr(key::VOICE_RECORD, lang)).clicked() {
                                     rec_idx = Some(idx);
                                 }
-                                if ui.button("🗑").on_hover_text("Usuń slot").clicked() {
+                                if ui
+                                    .button("🗑")
+                                    .on_hover_text(tr(key::VOICE_DELETE_SLOT, lang))
+                                    .clicked()
+                                {
                                     remove_idx = Some(idx);
                                 }
                             });
@@ -101,11 +115,11 @@ pub fn render_voice_keyer_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         ui.add_space(4.0);
                     }
 
-                    if ui.button("⏹ STOP (zatrzymaj pętlę CQ)").clicked() {
+                    if ui.button(tr(key::VOICE_STOP_LOOP, lang)).clicked() {
                         crate::media::voice_keyer::request_stop();
                     }
                     ui.add_space(4.0);
-                    if ui.button("💾 Zapisz ustawienia").clicked() {
+                    if ui.button(tr(key::VOICE_SAVE_SETTINGS, lang)).clicked() {
                         app.save_station_config();
                     }
 
@@ -185,7 +199,7 @@ fn toggle_recording(app: &mut SpLogApp, idx: usize) {
     } else {
         match crate::media::audio_recorder::AudioRecorder::start_recording() {
             Ok(()) => app.voice_keyer_recording = Some(idx),
-            Err(e) => log::warn!("Nie udało się rozpocząć nagrywania: {e}"),
+            Err(e) => log::warn!("Failed to start recording: {e}"),
         }
     }
 }

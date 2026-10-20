@@ -3,6 +3,7 @@
 // Interaktywny terminal telegraficzny CW z buforem i obsługą Winkeyera / portu COM
 
 use crate::cat::winkeyer::{CwTerminalBuffer, WinkeyerConfig};
+use crate::core::i18n::{Msg, key, tr};
 use crate::gui::theme::ThemeExt;
 use eframe::egui;
 
@@ -23,13 +24,18 @@ impl Default for CwTerminalDialog {
             input_text: String::new(),
             config: WinkeyerConfig::default(),
             is_connected: false,
-            status_text: "Gotowy do nadawania. Wpisz tekst i naciśnij Enter.".to_string(),
+            status_text: "Ready to transmit. Type text and press Enter.".to_string(),
         }
     }
 }
 
 impl CwTerminalDialog {
-    pub fn render(&mut self, ctx: &egui::Context, my_callsign: &str) {
+    pub fn render(
+        &mut self,
+        ctx: &egui::Context,
+        my_callsign: &str,
+        lang: crate::core::i18n::Language,
+    ) {
         if !self.is_open {
             return;
         }
@@ -37,19 +43,19 @@ impl CwTerminalDialog {
         // Obsługa klawisza ESC do natychmiastowego przerwania (Abort)
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
             self.buffer.abort();
-            self.status_text = "⚠ Nadawanie przerwane (ESC / Abort)!".to_string();
+            self.status_text = "⚠ Transmission aborted (ESC / Abort)!".to_string();
         }
 
         let mut open = self.is_open;
         let mut close_requested = false;
-        egui::Window::new("📟 Terminal Nadawania CW (Klawiatura)")
+        egui::Window::new(tr(key::CW_TERM_WINDOW_TITLE, lang))
             .open(&mut open)
             .collapsible(false)
             .resizable(true)
             .default_width(600.0)
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label("Prędkość CW:");
+                    ui.label(tr(key::CW_TERM_SPEED, lang));
                     let mut wpm = self.buffer.current_wpm;
                     if ui
                         .add(egui::Slider::new(&mut wpm, 5..=50).text("WPM"))
@@ -60,22 +66,24 @@ impl CwTerminalDialog {
                     }
 
                     ui.separator();
-                    ui.label("Port klucza:");
+                    ui.label(tr(key::CW_TERM_KEY_PORT, lang));
                     ui.text_edit_singleline(&mut self.config.port);
 
                     if ui
                         .button(if self.is_connected {
-                            "Odłącz"
+                            tr(key::CW_TERM_DISCONNECT, lang)
                         } else {
-                            "Połącz"
+                            tr(key::CW_TERM_CONNECT, lang)
                         })
                         .clicked()
                     {
                         self.is_connected = !self.is_connected;
                         self.status_text = if self.is_connected {
-                            format!("Połączono z kluczem na porcie {}", self.config.port)
+                            Msg::new(key::CW_TERM_CONNECTED)
+                                .arg("port", &self.config.port)
+                                .text(lang)
                         } else {
-                            "Rozłączono z portem klucza".to_string()
+                            tr(key::CW_TERM_DISCONNECTED, lang).to_string()
                         };
                     }
                 });
@@ -119,7 +127,7 @@ impl CwTerminalDialog {
 
                 // Okno podglądu bufora nadawania (wieloliniowe)
                 let palette = ui.palette();
-                ui.label(egui::RichText::new("Podgląd bufora transmisji:").strong());
+                ui.label(egui::RichText::new(tr(key::CW_TERM_BUFFER_PREVIEW, lang)).strong());
                 ui.group(|ui| {
                     ui.horizontal_wrapped(|ui| {
                         if !self.buffer.sent_text.is_empty() {
@@ -136,7 +144,7 @@ impl CwTerminalDialog {
                         }
                         if self.buffer.sent_text.is_empty() && self.buffer.queued_text.is_empty() {
                             ui.label(
-                                egui::RichText::new("[Bufor pusty]")
+                                egui::RichText::new(tr(key::CW_TERM_BUFFER_EMPTY, lang))
                                     .color(palette.text_muted)
                                     .italics(),
                             );
@@ -145,7 +153,7 @@ impl CwTerminalDialog {
                 });
 
                 ui.add_space(6.0);
-                ui.label("Pole wpisywania (Enter wysyła do bufora):");
+                ui.label(tr(key::CW_TERM_INPUT_PROMPT, lang));
                 let response = ui.text_edit_singleline(&mut self.input_text);
                 if response.lost_focus()
                     && ctx.input(|i| i.key_pressed(egui::Key::Enter))
@@ -169,10 +177,10 @@ impl CwTerminalDialog {
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new(&self.status_text).small());
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("Wyczyść historię").clicked() {
+                        if ui.button(tr(key::CW_TERM_CLEAR_HISTORY, lang)).clicked() {
                             self.buffer.sent_text.clear();
                         }
-                        if ui.button("Zamknij").clicked() {
+                        if ui.button(tr(key::BTN_CLOSE, lang)).clicked() {
                             close_requested = true;
                         }
                     });

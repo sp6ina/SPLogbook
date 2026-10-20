@@ -8,6 +8,7 @@
 //! użytkownika z weryfikacją SHA256 i przeładowuje silnik Rhai. Wszystkie skrypty
 //! działają w piaskownicy (bez dostępu do systemu plików, sieci i procesów).
 
+use crate::core::i18n::{Msg, key, tr};
 use crate::gui::app::SpLogApp;
 use crate::gui::theme::ThemeExt;
 use eframe::egui;
@@ -49,9 +50,11 @@ pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
             app.marketplace_install_rx = None;
             match result {
                 Ok(()) => {
-                    app.marketplace_status = Some(format!(
-                        "Zainstalowano wtyczkę „{id}” — silnik przeładowany."
-                    ));
+                    app.marketplace_status = Some(
+                        Msg::new(key::MARKET_INSTALLED_SUCCESS)
+                            .arg("id", &id)
+                            .text(app.current_language),
+                    );
                     reload_plugins(app);
                 }
                 Err(e) => app.marketplace_status = Some(e),
@@ -68,8 +71,9 @@ pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
     let catalog = app.marketplace_catalog.clone();
     let mut action: Option<Action> = None;
     let mut open = app.show_marketplace;
+    let lang = app.current_language;
 
-    egui::Window::new("🛒 Marketplace pluginów")
+    egui::Window::new(tr(key::MARKET_WINDOW_TITLE, lang))
         .open(&mut open)
         .default_size([680.0, 520.0])
         .resizable(true)
@@ -77,21 +81,19 @@ pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
             let palette = ui.palette();
             ui.horizontal(|ui| {
                 ui.heading(
-                    egui::RichText::new("🛒 Marketplace pluginów")
+                    egui::RichText::new(tr(key::MARKET_WINDOW_TITLE, lang))
                         .size(16.0)
                         .color(palette.accent),
                 );
-                if ui.button("🔄 Odśwież katalog").clicked() {
+                if ui.button(tr(key::MARKET_REFRESH, lang)).clicked() {
                     action = Some(Action::Refresh);
                 }
             });
 
             ui.label(
-                egui::RichText::new(
-                    "Katalog dodatków z instalacją jednym kliknięciem. Skrypty działają w piaskownicy Rhai — bez dostępu do plików, sieci i procesów.",
-                )
-                .small()
-                .color(palette.text_muted),
+                egui::RichText::new(tr(key::MARKET_DESCRIPTION, lang))
+                    .small()
+                    .color(palette.text_muted),
             );
             ui.add_space(6.0);
 
@@ -100,7 +102,7 @@ pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
                 ui.label("🔍");
                 ui.add(
                     egui::TextEdit::singleline(&mut app.marketplace_search)
-                        .hint_text("Szukaj po nazwie lub opisie…")
+                        .hint_text(tr(key::MARKET_SEARCH_HINT, lang))
                         .desired_width(260.0),
                 );
                 ui.separator();
@@ -109,10 +111,8 @@ pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
                     .marketplace_category
                     .clone()
                     .unwrap_or_else(|| "Wszystkie".to_string());
-                let mut categories: Vec<String> = catalog
-                    .iter()
-                    .map(|e| e.category.clone())
-                    .collect();
+                let mut categories: Vec<String> =
+                    catalog.iter().map(|e| e.category.clone()).collect();
                 categories.sort();
                 categories.dedup();
                 let mut all = vec!["Wszystkie".to_string()];
@@ -136,29 +136,30 @@ pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
             if app.marketplace_loading {
                 ui.horizontal(|ui| {
                     ui.spinner();
-                    ui.label("Pobieranie katalogu…");
+                    ui.label(tr(key::MARKET_FETCHING, lang));
                 });
             } else if let Some(err) = app.marketplace_error.clone() {
                 ui.colored_label(
                     palette.danger,
-                    format!("Błąd pobierania katalogu: {err}"),
+                    Msg::new(key::MARKET_FETCH_ERROR).arg("err", err).text(lang),
                 );
-                if ui.button("Użyj wbudowanego katalogu offline").clicked() {
+                if ui.button(tr(key::MARKET_OFFLINE_FALLBACK, lang)).clicked() {
                     app.marketplace_catalog = crate::plugins::marketplace::bundled_catalog();
                     app.marketplace_error = None;
                 }
             } else {
                 ui.label(
-                    egui::RichText::new(format!("Dostępnych wtyczek: {}", catalog.len()))
-                        .strong()
-                        .color(palette.success),
+                    egui::RichText::new(
+                        Msg::new(key::MARKET_AVAILABLE_COUNT)
+                            .arg("count", catalog.len())
+                            .text(lang),
+                    )
+                    .strong()
+                    .color(palette.success),
                 );
 
                 if let Some(status) = app.marketplace_status.clone() {
-                    ui.colored_label(
-                        palette.warning,
-                        status,
-                    );
+                    ui.colored_label(palette.warning, status);
                 }
                 ui.add_space(4.0);
 
@@ -181,7 +182,7 @@ pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
                     .show(ui, |ui| {
                         if filtered.is_empty() {
                             ui.label(
-                                egui::RichText::new("Brak wtyczek spełniających kryteria.")
+                                egui::RichText::new(tr(key::MARKET_NO_MATCHES, lang))
                                     .italics()
                                     .color(palette.text_muted),
                             );
@@ -209,8 +210,11 @@ pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
                 let dir = PathBuf::from(app.plugins_dir.clone());
                 match crate::plugins::marketplace::uninstall_entry(&dir, entry) {
                     Ok(()) => {
-                        app.marketplace_status =
-                            Some(format!("Odinstalowano wtyczkę „{}”.", entry.name));
+                        app.marketplace_status = Some(
+                            Msg::new(key::MARKET_UNINSTALLED)
+                                .arg("name", &entry.name)
+                                .text(lang),
+                        );
                         reload_plugins(app);
                     }
                     Err(e) => app.marketplace_status = Some(e),
@@ -231,6 +235,7 @@ fn render_card(
 ) {
     let status = crate::plugins::marketplace::install_status(plugins_dir, entry);
     let busy = app.marketplace_busy_id.as_deref() == Some(entry.id.as_str());
+    let lang = app.current_language;
 
     egui::Frame::group(ui.style())
         .inner_margin(egui::Margin::same(10))
@@ -271,13 +276,19 @@ fn render_card(
                     } else {
                         match status {
                             crate::plugins::marketplace::InstallStatus::NotInstalled => {
-                                if ui.button("🔽 Instaluj").clicked() {
+                                if ui.button(tr(key::MARKET_INSTALL_BTN, lang)).clicked() {
                                     *action = Some(Action::Install(entry.id.clone()));
                                 }
                             }
                             crate::plugins::marketplace::InstallStatus::Installed { .. } => {
-                                ui.colored_label(palette.success, "✅ Zainstalowano");
-                                if ui.small_button("🗑 Odinstaluj").clicked() {
+                                ui.colored_label(
+                                    palette.success,
+                                    tr(key::MARKET_INSTALLED_LBL, lang),
+                                );
+                                if ui
+                                    .small_button(tr(key::MARKET_UNINSTALL_BTN, lang))
+                                    .clicked()
+                                {
                                     *action = Some(Action::Uninstall(entry.id.clone()));
                                 }
                             }
@@ -290,7 +301,7 @@ fn render_card(
                                         .small()
                                         .color(palette.warning),
                                 );
-                                if ui.button("⬆ Aktualizuj").clicked() {
+                                if ui.button(tr(key::MARKET_UPDATE_BTN, lang)).clicked() {
                                     *action = Some(Action::Install(entry.id.clone()));
                                 }
                             }

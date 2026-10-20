@@ -4,6 +4,7 @@
 //! Panel widma / waterfallu (SDR) — przechwytywanie dźwięku z wejścia
 //! (np. wyjście audio radia) i rysowanie spektrogramu FFT w czasie rzeczywistym.
 
+use crate::core::i18n::{key, tr};
 use crate::dsp::waterfall::{SampleRing, WaterfallEngine};
 use crate::gui::app::SpLogApp;
 use crate::gui::theme::{ThemeExt, waterfall_color};
@@ -103,14 +104,14 @@ impl WaterfallPanel {
                         *error_slot
                             .lock()
                             .unwrap_or_else(std::sync::PoisonError::into_inner) =
-                            Some(format!("Błąd odtwarzania strumienia: {e}"));
+                            Some(format!("Stream playback error: {e}"));
                     }
                     while thread_running.load(Ordering::Relaxed) {
                         std::thread::sleep(std::time::Duration::from_millis(20));
                     }
                 }
                 Err(e) => {
-                    log::error!("Nie udało się uruchomić przechwytywania audio: {e}");
+                    log::error!("Failed to start audio capture: {e}");
                     *error_slot
                         .lock()
                         .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(e);
@@ -153,7 +154,7 @@ impl WaterfallPanel {
         }
     }
 
-    pub fn render_body(&mut self, ui: &mut egui::Ui) {
+    pub fn render_body(&mut self, ui: &mut egui::Ui, lang: crate::core::i18n::Language) {
         if !self.devices_loaded {
             self.refresh_devices();
         }
@@ -165,14 +166,14 @@ impl WaterfallPanel {
                     self.device_names
                         .get(self.selected_device)
                         .cloned()
-                        .unwrap_or_else(|| "Domyślne urządzenie".to_string()),
+                        .unwrap_or_else(|| tr(key::WATERFALL_DEFAULT_DEVICE, lang).to_string()),
                 )
                 .show_ui(ui, |ui| {
                     for (i, name) in self.device_names.iter().enumerate() {
                         ui.selectable_value(&mut self.selected_device, i, name);
                     }
                     if self.device_names.is_empty() {
-                        ui.label("Brak urządzeń wejściowych.");
+                        ui.label(tr(key::WATERFALL_NO_INPUT_DEVICES, lang));
                     }
                 });
 
@@ -186,7 +187,7 @@ impl WaterfallPanel {
 
             if ui
                 .button("⟳")
-                .on_hover_text("Odśwież listę urządzeń")
+                .on_hover_text(tr(key::WATERFALL_REFRESH_DEVICES, lang))
                 .clicked()
             {
                 self.refresh_devices();
@@ -205,28 +206,28 @@ impl WaterfallPanel {
 
         ui.add_space(4.0);
         ui.horizontal(|ui| {
-            ui.label("Wzmocnienie:");
+            ui.label(tr(key::WATERFALL_GAIN_LABEL, lang));
             if ui
                 .add(egui::Slider::new(&mut self.gain_db, -40.0..=40.0).suffix(" dB"))
                 .changed()
             {
                 self.texture = None;
             }
-            ui.label("Podłoga szumów:");
+            ui.label(tr(key::WATERFALL_NOISE_FLOOR, lang));
             if ui
                 .add(egui::Slider::new(&mut self.floor_db, -160.0..=-40.0).suffix(" dB"))
                 .changed()
             {
                 self.texture = None;
             }
-            ui.label("Nasycenie:");
+            ui.label(tr(key::WATERFALL_SATURATION, lang));
             if ui
                 .add(egui::Slider::new(&mut self.color_scale, 0.1..=3.0))
                 .changed()
             {
                 self.texture = None;
             }
-            if ui.button("Wyczyść").clicked() {
+            if ui.button(tr(key::WATERFALL_CLEAR_BTN, lang)).clicked() {
                 if let Some(e) = self.engine.as_mut() {
                     e.clear();
                 }
@@ -269,7 +270,7 @@ impl WaterfallPanel {
         } else {
             ui.centered_and_justified(|ui| {
                 ui.label(
-                    egui::RichText::new("Naciśnij ▶ Start, aby rozpocząć przechwytywanie widma.")
+                    egui::RichText::new(tr(key::WATERFALL_START_HINT, lang))
                         .color(ui.palette().text_muted),
                 );
             });
@@ -386,7 +387,8 @@ impl Drop for WaterfallPanel {
 
 /// Renderuje zawartość dokowanego kafelka waterfall (wywoływane z `app_layout`).
 pub fn render_waterfall_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
-    app.waterfall_panel.render_body(ui);
+    let lang = app.current_language;
+    app.waterfall_panel.render_body(ui, lang);
 }
 
 /// Renderuje kafelek waterfall jako odpięte, pływające okno widoku
@@ -409,11 +411,12 @@ pub fn render_waterfall_window(app: &mut SpLogApp, ctx: &egui::Context) {
         app.panel_waterfall.saved_pos,
         app.panel_waterfall.saved_size,
         |app, ui| {
+            let lang = app.current_language;
             egui::Panel::top("waterfall_vp_bar").show(ui, |ui| {
                 ui.horizontal(|ui| {
                     if ui
-                        .button("↙ Zadokuj")
-                        .on_hover_text("Zadokuj kafelek")
+                        .button(tr(key::WATERFALL_DOCK_BTN, lang))
+                        .on_hover_text(tr(key::WATERFALL_DOCK_TOOLTIP, lang))
                         .clicked()
                     {
                         dock_back = true;
@@ -421,7 +424,7 @@ pub fn render_waterfall_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 });
             });
             egui::CentralPanel::default().show(ui, |ui| {
-                app.waterfall_panel.render_body(ui);
+                app.waterfall_panel.render_body(ui, lang);
             });
             if ui.ctx().input(|i| i.viewport().close_requested()) {
                 still_open = false;
@@ -468,10 +471,10 @@ fn pick_input_device(
     let host = cpal::default_host();
     let devices: Vec<cpal::Device> = host
         .input_devices()
-        .map_err(|e| format!("Błąd listowania urządzeń wejściowych: {e}"))?
+        .map_err(|e| format!("Failed to list input devices: {e}"))?
         .collect();
     if devices.is_empty() {
-        return Err("Brak urządzeń wejściowych audio.".to_string());
+        return Err("No input devices found.".to_string());
     }
 
     let by_name = name
@@ -481,11 +484,11 @@ fn pick_input_device(
     let device = by_name
         .or_else(|| host.default_input_device())
         .or_else(|| devices.into_iter().next())
-        .ok_or_else(|| "Nie znaleziono urządzenia wejściowego.".to_string())?;
+        .ok_or_else(|| "Input device not found.".to_string())?;
 
     let config = device
         .default_input_config()
-        .map_err(|e| format!("Brak domyślnej konfiguracji wejścia: {e}"))?;
+        .map_err(|e| format!("No default input configuration: {e}"))?;
     Ok((device, config))
 }
 
@@ -506,13 +509,13 @@ fn start_audio_stream(
         cpal::SampleFormat::I8 => build_stream::<i8>(&device, config, channels, ring),
         cpal::SampleFormat::U8 => build_stream::<u8>(&device, config, channels, ring),
         cpal::SampleFormat::I32 => build_stream::<i32>(&device, config, channels, ring),
-        other => Err(format!("Nieobsługiwany format próbek: {other:?}")),
+        other => Err(format!("Unsupported sample format: {other:?}")),
     }
 }
 
 #[allow(clippy::needless_pass_by_value)]
 fn stream_err_fn(err: cpal::Error) {
-    log::error!("Błąd strumienia audio (waterfall): {err}");
+    log::error!("Audio stream error: {err}");
 }
 
 fn build_stream<T>(
@@ -539,5 +542,5 @@ where
             stream_err_fn,
             None,
         )
-        .map_err(|e| format!("Nie udało się zbudować strumienia wejściowego: {e}"))
+        .map_err(|e| format!("Failed to build input stream: {e}"))
 }

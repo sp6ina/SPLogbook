@@ -5314,13 +5314,15 @@ impl eframe::App for SpLogApp {
 
         if self.cw_terminal_dialog.is_open {
             let my_call = self.my_station.callsign.clone();
-            self.cw_terminal_dialog.render(ctx, &my_call);
+            self.cw_terminal_dialog
+                .render(ctx, &my_call, self.current_language);
         }
 
         if self.qsl_designer_dialog.is_open {
             let my_call = self.my_station.callsign.clone();
             if let Ok(db) = self.log_db.lock() {
-                self.qsl_designer_dialog.render(ctx, &db, &my_call);
+                self.qsl_designer_dialog
+                    .render(ctx, &db, &my_call, self.current_language);
             }
         }
         if self.show_wspr_window {

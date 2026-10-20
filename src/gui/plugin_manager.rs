@@ -5,6 +5,7 @@
 //! Umożliwia włączanie/wyłączanie silnika, wybór katalogu skryptów, ich
 //! przeładowanie oraz podgląd logów i powiadomień generowanych przez pluginy.
 
+use crate::core::i18n::{key, tr};
 use crate::gui::app::SpLogApp;
 use crate::gui::theme::ThemeExt;
 use eframe::egui;
@@ -16,23 +17,22 @@ pub fn render_plugin_manager(app: &mut SpLogApp, ctx: &egui::Context) {
     }
 
     let mut open = app.show_plugin_manager;
-    egui::Window::new("🧩 Menedżer pluginów (Rhai)")
+    let lang = app.current_language;
+    egui::Window::new(tr(key::PLUGINS_WINDOW_TITLE, lang))
         .open(&mut open)
         .default_size([620.0, 480.0])
         .resizable(true)
         .show(ctx, |ui| {
             let palette = ui.palette();
             ui.heading(
-                egui::RichText::new("🧩 System pluginów użytkownika — Rhai")
+                egui::RichText::new(tr(key::PLUGINS_HEADING, lang))
                     .size(15.0)
                     .color(palette.accent),
             );
             ui.label(
-                egui::RichText::new(
-                    "Bezpieczny, osadzony język Rhai. Skrypty definiują haki: on_startup(), on_qso_logged(call_sign, band, mode, freq_mhz, is_atno) oraz on_band_opened(band). Dostępne funkcje API: log(text), notify(text), qso_count().",
-                )
-                .small()
-                .color(palette.text_muted),
+                egui::RichText::new(tr(key::PLUGINS_DESCRIPTION, lang))
+                    .small()
+                    .color(palette.text_muted),
             );
             ui.add_space(6.0);
 
@@ -40,19 +40,19 @@ pub fn render_plugin_manager(app: &mut SpLogApp, ctx: &egui::Context) {
 
             ui.horizontal(|ui| {
                 if ui
-                    .checkbox(&mut app.plugins_enabled, "Włączony")
+                    .checkbox(&mut app.plugins_enabled, tr(key::PLUGINS_ENABLED, lang))
                     .changed()
                 {
                     app.plugin_engine.set_enabled(app.plugins_enabled);
                     app.save_station_config();
                 }
-                ui.label("Katalog:");
+                ui.label(tr(key::PLUGINS_DIRECTORY, lang));
                 ui.add(
                     egui::TextEdit::singleline(&mut app.plugins_dir)
                         .hint_text("plugins")
                         .desired_width(240.0),
                 );
-                if ui.button("🔄 Przeładuj").clicked() {
+                if ui.button(tr(key::PLUGINS_RELOAD, lang)).clicked() {
                     reload = true;
                 }
             });
@@ -68,7 +68,7 @@ pub fn render_plugin_manager(app: &mut SpLogApp, ctx: &egui::Context) {
             ui.add_space(4.0);
             ui.separator();
             ui.label(
-                egui::RichText::new("📦 Wykryte skrypty")
+                egui::RichText::new(tr(key::PLUGINS_DETECTED_SCRIPTS, lang))
                     .strong()
                     .color(palette.success),
             );
@@ -76,11 +76,9 @@ pub fn render_plugin_manager(app: &mut SpLogApp, ctx: &egui::Context) {
             let infos = app.plugin_engine.infos().to_vec();
             if infos.is_empty() {
                 ui.label(
-                    egui::RichText::new(
-                        "Brak plików .rhai w wybranym katalogu. Utwórz np. plugins/moje_reguly.rhai",
-                    )
-                    .italics()
-                    .color(palette.text_muted),
+                    egui::RichText::new(tr(key::PLUGINS_NO_SCRIPTS, lang))
+                        .italics()
+                        .color(palette.text_muted),
                 );
             } else {
                 egui::ScrollArea::vertical()
@@ -102,9 +100,7 @@ pub fn render_plugin_manager(app: &mut SpLogApp, ctx: &egui::Context) {
                                 );
                                 if let Some(err) = &info.error {
                                     ui.label(
-                                        egui::RichText::new(err)
-                                            .small()
-                                            .color(palette.danger),
+                                        egui::RichText::new(err).small().color(palette.danger),
                                     )
                                     .on_hover_text(err);
                                 }
@@ -116,11 +112,11 @@ pub fn render_plugin_manager(app: &mut SpLogApp, ctx: &egui::Context) {
             ui.separator();
             ui.horizontal(|ui| {
                 ui.label(
-                    egui::RichText::new("📜 Log")
+                    egui::RichText::new(tr(key::PLUGINS_LOG_HEADING, lang))
                         .strong()
                         .color(palette.warning),
                 );
-                if ui.small_button("Odśwież").clicked() {
+                if ui.small_button(tr(key::PLUGINS_REFRESH, lang)).clicked() {
                     let logs = app.plugin_engine.drain_log();
                     app.plugin_log.extend(logs);
                     if app.plugin_log.len() > 200 {
@@ -128,7 +124,7 @@ pub fn render_plugin_manager(app: &mut SpLogApp, ctx: &egui::Context) {
                         app.plugin_log.drain(0..overflow);
                     }
                 }
-                if ui.small_button("Wyczyść").clicked() {
+                if ui.small_button(tr(key::PLUGINS_CLEAR, lang)).clicked() {
                     app.plugin_log.clear();
                 }
             });
@@ -138,7 +134,7 @@ pub fn render_plugin_manager(app: &mut SpLogApp, ctx: &egui::Context) {
                 .show(ui, |ui| {
                     if app.plugin_log.is_empty() {
                         ui.label(
-                            egui::RichText::new("(brak komunikatów log)")
+                            egui::RichText::new(tr(key::PLUGINS_NO_LOGS, lang))
                                 .italics()
                                 .color(palette.text_muted),
                         );
