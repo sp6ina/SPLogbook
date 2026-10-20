@@ -5,6 +5,7 @@
 //! Umożliwia zapisywanie i przywracanie widoczności / pozycji / rozmiarów
 //! paneli głównego okna oraz wybór wbudowanych presetów.
 
+use crate::core::i18n::{Msg, key, tr};
 use crate::core::station::{
     ClusterFilter, WorkspaceFile, WorkspaceProfile, workspace_profile_presets,
 };
@@ -18,61 +19,102 @@ pub fn render_workspace_profiles_window(app: &mut SpLogApp, ctx: &egui::Context)
     if !app.show_workspace_profiles_window {
         return;
     }
+    let lang = app.current_language;
 
     let mut open = app.show_workspace_profiles_window;
-    egui::Window::new("🖥 Profile układu operatorskiego")
+    egui::Window::new(tr(key::WS_PROFILES_WINDOW_TITLE, lang))
         .open(&mut open)
         .default_size([560.0, 440.0])
         .resizable(true)
         .show(ctx, |ui| {
             use crate::gui::theme::ThemeExt;
             let palette = ui.palette();
-            ui.heading(egui::RichText::new("🖥 Profile układu (workspace)").size(15.0).color(palette.accent));
+            ui.heading(
+                egui::RichText::new(tr(key::WS_PROFILES_HEADING, lang))
+                    .size(15.0)
+                    .color(palette.accent),
+            );
             ui.separator();
-            ui.label(egui::RichText::new("Zapisuj i przywracaj układ paneli (widoczność, kolumna, kolejność, pozycja okien pływających). Przełączaj się jednym kliknięciem między konfiguracjami do logowania, zawodów, pracy cyfrowej itp.").small().color(palette.text_muted));
+            ui.label(
+                egui::RichText::new(tr(key::WS_PROFILES_DESCRIPTION, lang))
+                    .small()
+                    .color(palette.text_muted),
+            );
             ui.add_space(6.0);
 
             // Sekcja: wbudowane presety
-            ui.label(egui::RichText::new("⭐ Wbudowane presety").strong().color(palette.warning));
-            egui::ScrollArea::vertical().max_height(120.0).show(ui, |ui| {
-                let mut apply_preset: Option<usize> = None;
-                for (i, preset) in workspace_profile_presets().iter().enumerate() {
-                    ui.horizontal(|ui| {
-                        ui.label(format!("• {}", preset.name));
-                        if ui.button("Zastosuj").clicked() {
-                            apply_preset = Some(i);
-                        }
-                    });
-                }
-                if let Some(i) = apply_preset {
-                    if let Some(preset) = workspace_profile_presets().into_iter().nth(i) {
-                        apply_profile(app, &preset);
-                        app.status_toast = Some((format!("Zastosowano preset: {}", preset.name), std::time::Instant::now()));
+            ui.label(
+                egui::RichText::new(tr(key::WS_PROFILES_BUILTIN_PRESETS, lang))
+                    .strong()
+                    .color(palette.warning),
+            );
+            egui::ScrollArea::vertical()
+                .max_height(120.0)
+                .show(ui, |ui| {
+                    let mut apply_preset: Option<usize> = None;
+                    for (i, preset) in workspace_profile_presets().iter().enumerate() {
+                        ui.horizontal(|ui| {
+                            ui.label(format!("• {}", preset.name));
+                            if ui.button(tr(key::WS_PROFILES_APPLY, lang)).clicked() {
+                                apply_preset = Some(i);
+                            }
+                        });
                     }
-                }
-            });
+                    if let Some(i) = apply_preset {
+                        if let Some(preset) = workspace_profile_presets().into_iter().nth(i) {
+                            apply_profile(app, &preset);
+                            app.status_toast = Some((
+                                format!("Zastosowano preset: {}", preset.name),
+                                std::time::Instant::now(),
+                            ));
+                        }
+                    }
+                });
             ui.separator();
 
             // Sekcja: własne profile
-            ui.label(egui::RichText::new("💾 Własne profile").strong().color(palette.success));
+            ui.label(
+                egui::RichText::new(tr(key::WS_PROFILES_CUSTOM_PROFILES, lang))
+                    .strong()
+                    .color(palette.success),
+            );
 
             // Pole nazwy nowego profilu (przechowywane w pamięci egui)
             let name_id = egui::Id::new("workspace_profile_name_input");
-            let mut new_name = ctx.data_mut(|d| d.get_temp::<String>(name_id)).unwrap_or_default();
+            let mut new_name = ctx
+                .data_mut(|d| d.get_temp::<String>(name_id))
+                .unwrap_or_default();
             ui.horizontal(|ui| {
-                ui.label("Nazwa:");
-                ui.add(egui::TextEdit::singleline(&mut new_name).hint_text("np. DX-pileup 20m").desired_width(220.0));
+                ui.label(tr(key::WS_PROFILES_NAME_LABEL, lang));
+                ui.add(
+                    egui::TextEdit::singleline(&mut new_name)
+                        .hint_text("np. DX-pileup 20m")
+                        .desired_width(220.0),
+                );
                 let can_save = !new_name.trim().is_empty();
-                if ui.add_enabled(can_save, egui::Button::new("💾 Zapisz bieżący układ")).clicked() {
+                if ui
+                    .add_enabled(
+                        can_save,
+                        egui::Button::new(tr(key::WS_PROFILES_SAVE_CURRENT_LAYOUT, lang)),
+                    )
+                    .clicked()
+                {
                     let profile = capture_profile(app, new_name.trim());
                     // Nadpisanie istniejącego profilu o tej samej nazwie
-                    if let Some(existing) = app.workspace_profiles.iter_mut().find(|p| p.name == profile.name) {
+                    if let Some(existing) = app
+                        .workspace_profiles
+                        .iter_mut()
+                        .find(|p| p.name == profile.name)
+                    {
                         *existing = profile.clone();
                     } else {
                         app.workspace_profiles.push(profile.clone());
                     }
                     app.save_station_config();
-                    app.status_toast = Some((format!("Zapisano profil: {}", profile.name), std::time::Instant::now()));
+                    app.status_toast = Some((
+                        format!("Zapisano profil: {}", profile.name),
+                        std::time::Instant::now(),
+                    ));
                     new_name.clear();
                 }
             });
@@ -80,66 +122,96 @@ pub fn render_workspace_profiles_window(app: &mut SpLogApp, ctx: &egui::Context)
 
             ui.add_space(6.0);
             if app.workspace_profiles.is_empty() {
-                ui.label(egui::RichText::new("Brak zapisanych profili. Ustaw układ paneli i kliknij „Zapisz bieżący układ”.").italics().color(palette.text_muted));
+                ui.label(
+                    egui::RichText::new(tr(key::WS_PROFILES_NO_PROFILES, lang))
+                        .italics()
+                        .color(palette.text_muted),
+                );
             } else {
                 let rename_idx_id = egui::Id::new("workspace_rename_idx");
                 let rename_text_id = egui::Id::new("workspace_rename_text");
-                let mut renaming: Option<usize> = ctx.data_mut(|d| d.get_temp(rename_idx_id)).flatten();
-                let mut rename_text = ctx.data_mut(|d| d.get_temp::<String>(rename_text_id)).unwrap_or_default();
+                let mut renaming: Option<usize> =
+                    ctx.data_mut(|d| d.get_temp(rename_idx_id)).flatten();
+                let mut rename_text = ctx
+                    .data_mut(|d| d.get_temp::<String>(rename_text_id))
+                    .unwrap_or_default();
 
-                egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
-                    let mut apply_idx: Option<usize> = None;
-                    let mut delete_idx: Option<usize> = None;
-                    let mut export_idx: Option<usize> = None;
-                    let mut commit_rename: Option<usize> = None;
-                    for (idx, profile) in app.workspace_profiles.iter().enumerate() {
-                        ui.horizontal(|ui| {
-                            if renaming == Some(idx) {
-                                ui.add(egui::TextEdit::singleline(&mut rename_text).desired_width(200.0));
-                                if ui.button("OK").clicked() && !rename_text.trim().is_empty() {
-                                    commit_rename = Some(idx);
+                egui::ScrollArea::vertical()
+                    .max_height(220.0)
+                    .show(ui, |ui| {
+                        let mut apply_idx: Option<usize> = None;
+                        let mut delete_idx: Option<usize> = None;
+                        let mut export_idx: Option<usize> = None;
+                        let mut commit_rename: Option<usize> = None;
+                        for (idx, profile) in app.workspace_profiles.iter().enumerate() {
+                            ui.horizontal(|ui| {
+                                if renaming == Some(idx) {
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut rename_text)
+                                            .desired_width(200.0),
+                                    );
+                                    if ui.button("OK").clicked() && !rename_text.trim().is_empty() {
+                                        commit_rename = Some(idx);
+                                    }
+                                    if ui.button("✖").clicked() {
+                                        renaming = None;
+                                    }
+                                } else {
+                                    ui.label(format!("• {}", profile.name));
+                                    if ui.button(tr(key::WS_PROFILES_APPLY, lang)).clicked() {
+                                        apply_idx = Some(idx);
+                                    }
+                                    if ui
+                                        .button("✏")
+                                        .on_hover_text(tr(key::WS_PROFILES_RENAME_HINT, lang))
+                                        .clicked()
+                                    {
+                                        renaming = Some(idx);
+                                        rename_text.clone_from(&profile.name);
+                                    }
+                                    if ui
+                                        .button("⤓")
+                                        .on_hover_text(tr(key::WS_PROFILES_EXPORT_HINT, lang))
+                                        .clicked()
+                                    {
+                                        export_idx = Some(idx);
+                                    }
+                                    if ui
+                                        .button("🗑")
+                                        .on_hover_text(tr(key::WS_PROFILES_DELETE_HINT, lang))
+                                        .clicked()
+                                    {
+                                        delete_idx = Some(idx);
+                                    }
                                 }
-                                if ui.button("✖").clicked() {
-                                    renaming = None;
-                                }
-                            } else {
-                                ui.label(format!("• {}", profile.name));
-                                if ui.button("Zastosuj").clicked() {
-                                    apply_idx = Some(idx);
-                                }
-                                if ui.button("✏").on_hover_text("Zmień nazwę").clicked() {
-                                    renaming = Some(idx);
-                                    rename_text.clone_from(&profile.name);
-                                }
-                                if ui.button("⤓").on_hover_text("Eksportuj do pliku .spws").clicked() {
-                                    export_idx = Some(idx);
-                                }
-                                if ui.button("🗑").on_hover_text("Usuń profil").clicked() {
-                                    delete_idx = Some(idx);
-                                }
-                            }
-                        });
-                    }
-                    if let Some(idx) = apply_idx {
-                        let profile = app.workspace_profiles[idx].clone();
-                        apply_profile(app, &profile);
-                        app.status_toast = Some((format!("Zastosowano profil: {}", profile.name), std::time::Instant::now()));
-                    }
-                    if let Some(idx) = commit_rename {
-                        app.workspace_profiles[idx].name = rename_text.trim().to_string();
-                        app.workspace_profiles[idx].ensure_id();
-                        app.save_station_config();
-                        app.status_toast = Some(("Zmieniono nazwę profilu".to_string(), std::time::Instant::now()));
-                        renaming = None;
-                    }
-                    if let Some(idx) = delete_idx {
-                        app.workspace_profiles.remove(idx);
-                        app.save_station_config();
-                    }
-                    if let Some(idx) = export_idx {
-                        export_profile(app, &app.workspace_profiles[idx].clone());
-                    }
-                });
+                            });
+                        }
+                        if let Some(idx) = apply_idx {
+                            let profile = app.workspace_profiles[idx].clone();
+                            apply_profile(app, &profile);
+                            app.status_toast = Some((
+                                format!("Zastosowano profil: {}", profile.name),
+                                std::time::Instant::now(),
+                            ));
+                        }
+                        if let Some(idx) = commit_rename {
+                            app.workspace_profiles[idx].name = rename_text.trim().to_string();
+                            app.workspace_profiles[idx].ensure_id();
+                            app.save_station_config();
+                            app.status_toast = Some((
+                                tr(key::WS_PROFILES_RENAMED_TOAST, lang).to_string(),
+                                std::time::Instant::now(),
+                            ));
+                            renaming = None;
+                        }
+                        if let Some(idx) = delete_idx {
+                            app.workspace_profiles.remove(idx);
+                            app.save_station_config();
+                        }
+                        if let Some(idx) = export_idx {
+                            export_profile(app, &app.workspace_profiles[idx].clone());
+                        }
+                    });
 
                 ctx.data_mut(|d| d.insert_temp(rename_idx_id, renaming));
                 ctx.data_mut(|d| d.insert_temp(rename_text_id, rename_text));
@@ -147,10 +219,14 @@ pub fn render_workspace_profiles_window(app: &mut SpLogApp, ctx: &egui::Context)
 
             ui.add_space(4.0);
             ui.horizontal(|ui| {
-                if ui.button("📥 Importuj z .spws").clicked() {
+                if ui.button(tr(key::WS_PROFILES_IMPORT_BTN, lang)).clicked() {
                     import_profile(app);
                 }
-                ui.label(egui::RichText::new("Profile można udostępniać jako pliki .spws").small().color(palette.text_muted));
+                ui.label(
+                    egui::RichText::new(tr(key::WS_PROFILES_SHARE_NOTE, lang))
+                        .small()
+                        .color(palette.text_muted),
+                );
             });
         });
     app.show_workspace_profiles_window = open;
@@ -158,6 +234,7 @@ pub fn render_workspace_profiles_window(app: &mut SpLogApp, ctx: &egui::Context)
 
 /// Eksportuje pojedynczy profil do pliku `*.spws` (JSON z polem wersji).
 fn export_profile(app: &mut SpLogApp, profile: &WorkspaceProfile) {
+    let lang = app.current_language;
     let file_name = format!("{}.spws", profile.id);
     if let Some(path) = rfd::FileDialog::new()
         .add_filter("SPLogbook Workspace", &["spws"])
@@ -177,13 +254,19 @@ fn export_profile(app: &mut SpLogApp, profile: &WorkspaceProfile) {
                     ));
                 }
                 Err(e) => {
-                    app.status_toast =
-                        Some((format!("Błąd zapisu: {e}"), std::time::Instant::now()));
+                    app.status_toast = Some((
+                        Msg::new(key::WS_PROFILES_ERR_SAVE).arg("err", e).text(lang),
+                        std::time::Instant::now(),
+                    ));
                 }
             },
             Err(e) => {
-                app.status_toast =
-                    Some((format!("Błąd serializacji: {e}"), std::time::Instant::now()));
+                app.status_toast = Some((
+                    Msg::new(key::WS_PROFILES_ERR_SERIALIZE)
+                        .arg("err", e)
+                        .text(lang),
+                    std::time::Instant::now(),
+                ));
             }
         }
     }
@@ -191,6 +274,7 @@ fn export_profile(app: &mut SpLogApp, profile: &WorkspaceProfile) {
 
 /// Importuje profil z pliku `*.spws`.
 fn import_profile(app: &mut SpLogApp) {
+    let lang = app.current_language;
     if let Some(path) = rfd::FileDialog::new()
         .add_filter("SPLogbook Workspace", &["spws"])
         .pick_file()
@@ -200,11 +284,10 @@ fn import_profile(app: &mut SpLogApp) {
                 Ok(file) => {
                     if file.version > WorkspaceFile::CURRENT_VERSION {
                         app.status_toast = Some((
-                            format!(
-                                "Nieobsługiwana wersja pliku (v{}): {}",
-                                file.version,
-                                path.display()
-                            ),
+                            Msg::new(key::WS_PROFILES_ERR_UNSUPPORTED_VERSION)
+                                .arg("ver", file.version)
+                                .arg("path", path.display())
+                                .text(lang),
                             std::time::Instant::now(),
                         ));
                         return;
@@ -227,14 +310,16 @@ fn import_profile(app: &mut SpLogApp) {
                 }
                 Err(e) => {
                     app.status_toast = Some((
-                        format!("Nieprawidłowy plik .spws: {e}"),
+                        Msg::new(key::WS_PROFILES_ERR_INVALID_FILE)
+                            .arg("err", e)
+                            .text(lang),
                         std::time::Instant::now(),
                     ));
                 }
             },
             Err(e) => {
                 app.status_toast = Some((
-                    format!("Błąd odczytu pliku: {e}"),
+                    Msg::new(key::WS_PROFILES_ERR_READ).arg("err", e).text(lang),
                     std::time::Instant::now(),
                 ));
             }

@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 // Ergonomiczny, kompaktowy pasek/okno operacyjne (Mini HUD) dla stacji SPLogbook
 
+use crate::core::i18n::{key, tr};
 use crate::gui::app::SpLogApp;
 use crate::gui::theme::ThemeExt;
 use eframe::egui;
@@ -11,6 +12,7 @@ pub fn render_mini_hud_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
         return;
     }
     let ctx = ui.ctx().clone();
+    let lang = app.current_language;
 
     // Wariant "pasek operacyjny" dokowany do dolnej krawędzi okna.
     if app.hud_operating_bar {
@@ -24,7 +26,7 @@ pub fn render_mini_hud_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
         let mut exit_compact = false;
         let mut captured_geo: Option<([f32; 2], [f32; 2])> = None;
         let mut builder = egui::ViewportBuilder::default()
-            .with_title("📻 SPLogbook Mini HUD")
+            .with_title(tr(key::HUD_WINDOW_TITLE, lang))
             .with_decorations(false)
             .with_always_on_top()
             .with_inner_size(app.hud_saved_size.unwrap_or([460.0, 260.0]));
@@ -70,7 +72,7 @@ pub fn render_mini_hud_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
     // Domyślny wariant: swobodne, skalowalne okno wewnątrz pulpitu.
     let mut exit_compact = false;
     let mut win = egui::Window::new(
-        egui::RichText::new("📻 SPLogbook Mini HUD")
+        egui::RichText::new(tr(key::HUD_WINDOW_TITLE, lang))
             .strong()
             .size(12.0),
     )
@@ -100,6 +102,7 @@ pub fn render_mini_hud_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
 /// Wspólna treść okna Mini HUD (używana przez wariant okna oraz viewport always-on-top).
 fn render_hud_body(app: &mut SpLogApp, ui: &mut egui::Ui, exit_compact: &mut bool) {
+    let lang = app.current_language;
     let palette = ui.palette();
     ui.vertical(|ui| {
         // 1. Pasek VFO i Strojenia
@@ -113,11 +116,19 @@ fn render_hud_body(app: &mut SpLogApp, ui: &mut egui::Ui, exit_compact: &mut boo
                     .color(palette.rx),
             );
 
-            if ui.button("◀ -1k").on_hover_text("Dostrój -1 kHz").clicked() {
+            if ui
+                .button("◀ -1k")
+                .on_hover_text(tr(key::HUD_TUNE_DOWN_HINT, lang))
+                .clicked()
+            {
                 let new_freq = app.rig_state.frequency_hz.saturating_sub(1000);
                 app.set_vfo_frequency(new_freq);
             }
-            if ui.button("▶ +1k").on_hover_text("Dostrój +1 kHz").clicked() {
+            if ui
+                .button("▶ +1k")
+                .on_hover_text(tr(key::HUD_TUNE_UP_HINT, lang))
+                .clicked()
+            {
                 let new_freq = app.rig_state.frequency_hz.saturating_add(1000);
                 app.set_vfo_frequency(new_freq);
             }
@@ -145,8 +156,8 @@ fn render_hud_body(app: &mut SpLogApp, ui: &mut egui::Ui, exit_compact: &mut boo
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui
-                    .button(egui::RichText::new("🗗 Pełny pulpit").strong())
-                    .on_hover_text("Powróć do pełnego pulpitu roboczego SPLogbook")
+                    .button(egui::RichText::new(tr(key::HUD_FULL_DESKTOP, lang)).strong())
+                    .on_hover_text(tr(key::HUD_FULL_DESKTOP_HINT, lang))
                     .clicked()
                 {
                     *exit_compact = true;
@@ -162,7 +173,7 @@ fn render_hud_body(app: &mut SpLogApp, ui: &mut egui::Ui, exit_compact: &mut boo
                 egui::TextEdit::singleline(&mut app.entry_callsign)
                     .font(egui::TextStyle::Heading)
                     .desired_width(130.0)
-                    .hint_text("ZNAK DX"),
+                    .hint_text(tr(key::HUD_DX_CALL_HINT, lang)),
             );
             if call_edit.changed() {
                 app.entry_callsign = app.entry_callsign.to_uppercase();
@@ -171,7 +182,7 @@ fn render_hud_body(app: &mut SpLogApp, ui: &mut egui::Ui, exit_compact: &mut boo
 
             if ui
                 .button(egui::RichText::new("🔍").strong())
-                .on_hover_text("Pobierz dane z Callbook / HamQTH / QRZ")
+                .on_hover_text(tr(key::HUD_LOOKUP_HINT, lang))
                 .clicked()
             {
                 app.lookup_active_callsign_online();
@@ -183,7 +194,7 @@ fn render_hud_body(app: &mut SpLogApp, ui: &mut egui::Ui, exit_compact: &mut boo
 
             if ui
                 .button(
-                    egui::RichText::new("💾 ZAPISZ")
+                    egui::RichText::new(tr(key::HUD_SAVE_QSO, lang))
                         .strong()
                         .color(palette.success),
                 )
@@ -195,7 +206,7 @@ fn render_hud_body(app: &mut SpLogApp, ui: &mut egui::Ui, exit_compact: &mut boo
 
         // 3. Dodatkowe dane korespondenta: Imię, QTH, Grid
         ui.horizontal(|ui| {
-            ui.label("Imię:");
+            ui.label(tr(key::HUD_NAME_LABEL, lang));
             ui.add(egui::TextEdit::singleline(&mut app.entry_name).desired_width(85.0));
 
             ui.label("QTH:");
@@ -236,14 +247,14 @@ fn render_hud_body(app: &mut SpLogApp, ui: &mut egui::Ui, exit_compact: &mut boo
         ui.horizontal(|ui| {
             let mut changed = false;
             if ui
-                .checkbox(&mut app.hud_operating_bar, "📏 Pasek operacyjny")
+                .checkbox(&mut app.hud_operating_bar, tr(key::HUD_OPERATING_BAR, lang))
                 .changed()
             {
                 changed = true;
             }
             if ui
-                .checkbox(&mut app.hud_always_on_top, "📌 Zawsze na wierzchu")
-                .on_hover_text("Otwórz Mini HUD jako zawsze-widoczne okno systemowe")
+                .checkbox(&mut app.hud_always_on_top, tr(key::HUD_ALWAYS_ON_TOP, lang))
+                .on_hover_text(tr(key::HUD_ALWAYS_ON_TOP_HINT, lang))
                 .changed()
             {
                 changed = true;
@@ -257,6 +268,7 @@ fn render_hud_body(app: &mut SpLogApp, ui: &mut egui::Ui, exit_compact: &mut boo
 
 /// Smukły, dokowany pasek operacyjny u dołu okna (wariant "operating bar").
 fn render_operating_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
+    let lang = app.current_language;
     let palette = ui.palette();
     let mut exit_compact = false;
     egui::Panel::bottom("mini_hud_operating_bar").show(ui, |ui| {
@@ -299,7 +311,7 @@ fn render_operating_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 egui::TextEdit::singleline(&mut app.entry_callsign)
                     .font(egui::TextStyle::Heading)
                     .desired_width(120.0)
-                    .hint_text("ZNAK DX"),
+                    .hint_text(tr(key::HUD_DX_CALL_HINT, lang)),
             );
             if call_edit.changed() {
                 app.entry_callsign = app.entry_callsign.to_uppercase();
@@ -312,7 +324,7 @@ fn render_operating_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
             if ui
                 .button(
-                    egui::RichText::new("💾 ZAPISZ")
+                    egui::RichText::new(tr(key::HUD_SAVE_QSO, lang))
                         .strong()
                         .color(palette.success),
                 )
@@ -323,15 +335,15 @@ fn render_operating_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui
-                    .button("🗗 Pełny pulpit")
-                    .on_hover_text("Powróć do pełnego pulpitu roboczego SPLogbook")
+                    .button(tr(key::HUD_FULL_DESKTOP, lang))
+                    .on_hover_text(tr(key::HUD_FULL_DESKTOP_HINT, lang))
                     .clicked()
                 {
                     exit_compact = true;
                 }
                 if ui
-                    .button("🪟 Okno HUD")
-                    .on_hover_text("Przełącz na pływające okno Mini HUD")
+                    .button(tr(key::HUD_WINDOW_MODE, lang))
+                    .on_hover_text(tr(key::HUD_WINDOW_MODE_HINT, lang))
                     .clicked()
                 {
                     app.hud_operating_bar = false;

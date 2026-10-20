@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Wozniak (SP6INA)
 
-use crate::core::i18n::{Language, key, tr};
+use crate::core::i18n::{Language, Msg, key, tr};
 use crate::gui::app::SpLogApp;
 use crate::gui::theme::ThemeExt;
 use eframe::egui;
@@ -185,10 +185,11 @@ pub fn render_welcome_wizard(app: &mut SpLogApp, ctx: &egui::Context) {
                         app.show_welcome_wizard = false;
                         app.save_station_config();
                         close_wizard = true;
-                        app.status_message = Some(format!(
-                            "Stacja {} skonfigurowana. Miłej pracy!",
-                            app.my_station.callsign
-                        ));
+                        app.status_message = Some(
+                            Msg::new(key::WELCOME_STATION_CONFIGURED_TOAST)
+                                .arg("call", &app.my_station.callsign)
+                                .text(lang),
+                        );
                     }
                 });
             });
@@ -426,7 +427,7 @@ fn render_tab_services(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
             ui.label(egui::RichText::new("QRZ.com XML API:").strong());
             ui.add(
                 egui::TextEdit::singleline(&mut app.qrz_api_key)
-                    .hint_text("Klucz API XML ze strony QRZ.com")
+                    .hint_text(tr(key::WELCOME_QRZ_API_KEY_HINT, lang))
                     .desired_width(260.0),
             );
             ui.end_row();

@@ -3,7 +3,7 @@
 
 //! Okno synchronizacji pracy wielostanowiskowej Multi-Op LAN (`src/gui/multi_op_window.rs`).
 
-use crate::core::i18n::{key, tr};
+use crate::core::i18n::{Msg, key, tr};
 use crate::gui::app::SpLogApp;
 use crate::gui::theme::ThemeExt;
 use crate::sync::{SyncConfig, SyncEvent, SyncRole, SyncService};
@@ -32,7 +32,7 @@ impl SyncUiState {
         Self {
             show: false,
             is_host: true,
-            status: "Wyłączony".to_string(),
+            status: "Off".to_string(),
             log: Vec::new(),
             service: None,
             events_tx,
@@ -84,19 +84,27 @@ pub fn render_multi_op_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         .size(14.0)
                         .color(palette.accent),
                 );
-                ui.label("Umożliwia automatyczną wymianę nowo dodanych QSO pomiędzy stanowiskami w klubie lub w zawodach.");
+                ui.label(tr(key::MULTIOP_DESCRIPTION, lang));
                 ui.separator();
 
                 ui.horizontal(|ui| {
-                    ui.selectable_value(&mut app.sync_ui.is_host, true, tr(key::MULTIOP_ROLE_HOST, lang));
-                    ui.selectable_value(&mut app.sync_ui.is_host, false, tr(key::MULTIOP_ROLE_CLIENT, lang));
+                    ui.selectable_value(
+                        &mut app.sync_ui.is_host,
+                        true,
+                        tr(key::MULTIOP_ROLE_HOST, lang),
+                    );
+                    ui.selectable_value(
+                        &mut app.sync_ui.is_host,
+                        false,
+                        tr(key::MULTIOP_ROLE_CLIENT, lang),
+                    );
                 });
 
                 ui.add_space(4.0);
 
                 if app.sync_ui.is_host {
                     ui.group(|ui| {
-                        ui.label(egui::RichText::new("Konfiguracja Hosta:").strong());
+                        ui.label(egui::RichText::new(tr(key::MULTIOP_HOST_CONFIG, lang)).strong());
                         ui.horizontal(|ui| {
                             ui.label(tr(key::MULTIOP_PORT, lang));
                             let mut port_str = app.lan_sync_port.to_string();
@@ -122,14 +130,18 @@ pub fn render_multi_op_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             {
                                 app.lan_sync_secret = secret_display;
                             }
-                            if ui.button("🎲").on_hover_text(tr(key::MULTIOP_GENERATE_SECRET, lang)).clicked() {
+                            if ui
+                                .button("🎲")
+                                .on_hover_text(tr(key::MULTIOP_GENERATE_SECRET, lang))
+                                .clicked()
+                            {
                                 app.lan_sync_secret =
                                     crate::api::server::generate_api_key()[..12].to_string();
                                 app.save_station_config();
                             }
                         });
                         ui.label(
-                            egui::RichText::new("⚠ Podaj to samo hasło na stacji klienckiej. Hasło jest wymagane — serwer nie wystartuje bez niego.")
+                            egui::RichText::new(tr(key::MULTIOP_PASSWORD_REQUIRED_WARNING, lang))
                                 .size(11.0)
                                 .italics(),
                         );
@@ -145,8 +157,10 @@ pub fn render_multi_op_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     .clicked()
                                 {
                                     app.sync_ui.stop();
-                                    app.sync_ui.status = "Serwer zatrzymany".to_string();
-                                    app.sync_ui.push_log("Zatrzymano serwer Multi-Op LAN.");
+                                    app.sync_ui.status =
+                                        tr(key::MULTIOP_SERVER_STOPPED_STATUS, lang).to_string();
+                                    app.sync_ui
+                                        .push_log(tr(key::MULTIOP_LOG_SERVER_STOPPED, lang));
                                 }
                             } else if ui
                                 .button(
@@ -173,13 +187,26 @@ pub fn render_multi_op_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 ) {
                                     Ok(srv) => {
                                         app.sync_ui.service = Some(srv);
-                                        app.sync_ui.status = format!("Serwer nasłuchuje na porcie {}", app.lan_sync_port);
-                                        app.sync_ui.push_log(format!("Uruchomiono serwer Multi-Op LAN na porcie {}", app.lan_sync_port));
+                                        app.sync_ui.status =
+                                            Msg::new(key::MULTIOP_SERVER_LISTENING)
+                                                .arg("port", app.lan_sync_port)
+                                                .text(lang);
+                                        app.sync_ui.push_log(
+                                            Msg::new(key::MULTIOP_LOG_SERVER_STARTED)
+                                                .arg("port", app.lan_sync_port)
+                                                .text(lang),
+                                        );
                                     }
                                     Err(err) => {
                                         let err_str = err.to_string();
-                                        app.sync_ui.status = format!("Błąd: {err_str}");
-                                        app.sync_ui.push_log(format!("Odmowa uruchomienia serwera: {err_str}"));
+                                        app.sync_ui.status = Msg::new(key::MULTIOP_ERROR_PREFIX)
+                                            .arg("err", &err_str)
+                                            .text(lang);
+                                        app.sync_ui.push_log(
+                                            Msg::new(key::MULTIOP_SERVER_START_ERROR_LOG)
+                                                .arg("err", &err_str)
+                                                .text(lang),
+                                        );
                                     }
                                 }
                             }
@@ -187,7 +214,9 @@ pub fn render_multi_op_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     });
                 } else {
                     ui.group(|ui| {
-                        ui.label(egui::RichText::new("Połączenie ze stacją główną:").strong());
+                        ui.label(
+                            egui::RichText::new(tr(key::MULTIOP_CONNECT_TO_HOST, lang)).strong(),
+                        );
                         ui.horizontal(|ui| {
                             ui.label(tr(key::MULTIOP_HOST_IP, lang));
                             ui.add(
@@ -229,8 +258,10 @@ pub fn render_multi_op_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     .clicked()
                                 {
                                     app.sync_ui.stop();
-                                    app.sync_ui.status = "Rozłączono ze stacją główną".to_string();
-                                    app.sync_ui.push_log("Rozłączono ze stacją główną.");
+                                    app.sync_ui.status =
+                                        tr(key::MULTIOP_DISCONNECTED_STATUS, lang).to_string();
+                                    app.sync_ui
+                                        .push_log(tr(key::MULTIOP_DISCONNECTED_STATUS, lang));
                                 }
                             } else if ui
                                 .button(
@@ -258,13 +289,28 @@ pub fn render_multi_op_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 ) {
                                     Ok(srv) => {
                                         app.sync_ui.service = Some(srv);
-                                        app.sync_ui.status = format!("Łączenie z {}:{}...", app.lan_sync_server_ip, app.lan_sync_port);
-                                        app.sync_ui.push_log(format!("Uruchomiono klienta Multi-Op: {}:{}", app.lan_sync_server_ip, app.lan_sync_port));
+                                        app.sync_ui.status =
+                                            Msg::new(key::MULTIOP_CONNECTING_STATUS)
+                                                .arg("host", &app.lan_sync_server_ip)
+                                                .arg("port", app.lan_sync_port)
+                                                .text(lang);
+                                        app.sync_ui.push_log(
+                                            Msg::new(key::MULTIOP_CLIENT_STARTED_LOG)
+                                                .arg("host", &app.lan_sync_server_ip)
+                                                .arg("port", app.lan_sync_port)
+                                                .text(lang),
+                                        );
                                     }
                                     Err(err) => {
                                         let err_str = err.to_string();
-                                        app.sync_ui.status = format!("Błąd: {err_str}");
-                                        app.sync_ui.push_log(format!("Błąd uruchomienia klienta: {err_str}"));
+                                        app.sync_ui.status = Msg::new(key::MULTIOP_ERROR_PREFIX)
+                                            .arg("err", &err_str)
+                                            .text(lang);
+                                        app.sync_ui.push_log(
+                                            Msg::new(key::MULTIOP_CLIENT_START_ERROR_LOG)
+                                                .arg("err", &err_str)
+                                                .text(lang),
+                                        );
                                     }
                                 }
                             }
@@ -281,19 +327,24 @@ pub fn render_multi_op_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
                 ui.separator();
                 ui.label(egui::RichText::new(tr(key::MULTIOP_LOG_TITLE, lang)).strong());
-                egui::ScrollArea::vertical().max_height(140.0).show(ui, |ui| {
-                    if app.sync_ui.log.is_empty() {
-                        ui.label("Brak zdarzeń w sieci Multi-Op.");
-                    } else {
-                        for entry in app.sync_ui.log.iter().rev() {
-                            ui.label(egui::RichText::new(entry).size(11.0).monospace());
+                egui::ScrollArea::vertical()
+                    .max_height(140.0)
+                    .show(ui, |ui| {
+                        if app.sync_ui.log.is_empty() {
+                            ui.label(tr(key::MULTIOP_NO_EVENTS, lang));
+                        } else {
+                            for entry in app.sync_ui.log.iter().rev() {
+                                ui.label(egui::RichText::new(entry).size(11.0).monospace());
+                            }
                         }
-                    }
-                });
+                    });
 
                 ui.separator();
                 ui.horizontal(|ui| {
-                    if ui.button(egui::RichText::new(tr(key::BTN_SAVE, lang)).strong()).clicked() {
+                    if ui
+                        .button(egui::RichText::new(tr(key::BTN_SAVE, lang)).strong())
+                        .clicked()
+                    {
                         app.save_station_config();
                         close_req = true;
                     }

@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::cloud::lotw::detect_tqsl_path;
-use crate::core::i18n::{key, tr};
+use crate::core::i18n::{Msg, key, tr};
 use crate::gui::app::SpLogApp;
 use crate::gui::theme::ThemeExt;
 use eframe::egui;
@@ -50,7 +50,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
             ui.vertical(|ui| {
                 // Nagłówek i status
                 ui.horizontal(|ui| {
-                    ui.heading(egui::RichText::new("Centrum Synchronizacji Logów Online & LoTW").size(15.0).color(palette.accent));
+                    ui.heading(egui::RichText::new(tr(key::SYNC_WINDOW_TITLE, lang)).size(15.0).color(palette.accent));
                 });
                 ui.separator();
 
@@ -64,9 +64,9 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     ui.selectable_value(&mut active_tab, SyncTab::Fldigi, "💻 FLDigi");
                     ui.selectable_value(&mut active_tab, SyncTab::PskReporter, "📡 PSK Reporter");
                     ui.selectable_value(&mut active_tab, SyncTab::N1mm, "📻 N1MM Broadcast");
-                    ui.selectable_value(&mut active_tab, SyncTab::Databases, "🔄 Bazy");
-                    ui.selectable_value(&mut active_tab, SyncTab::Queue, "⏳ Kolejka wysyłki");
-                    ui.selectable_value(&mut active_tab, SyncTab::Logs, format!("📋 Logi ({})", app.online_sync_logs.len()));
+                    ui.selectable_value(&mut active_tab, SyncTab::Databases, tr(key::SYNC_TAB_DATABASES, lang));
+                    ui.selectable_value(&mut active_tab, SyncTab::Queue, tr(key::SYNC_TAB_QUEUE, lang));
+                    ui.selectable_value(&mut active_tab, SyncTab::Logs, Msg::new(key::SYNC_TAB_LOGS).arg("count", app.online_sync_logs.len()).text(lang));
                 });
                 ui.separator();
 
@@ -78,32 +78,32 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         match active_tab {
                             SyncTab::Lotw => {
                                 ui.group(|ui| {
-                                    ui.label(egui::RichText::new("🏆 ARRL Logbook of the World (LoTW)").strong().size(13.0).color(palette.warning));
+                                    ui.label(egui::RichText::new(tr(key::SYNC_TAB_LOTW, lang)).strong().size(13.0).color(palette.warning));
                                     ui.separator();
 
                                     ui.horizontal(|ui| {
-                                        ui.label("Ścieżka do tqsl.exe:");
+                                        ui.label(tr(key::SYNC_TQSL_PATH, lang));
                                         ui.add(egui::TextEdit::singleline(&mut app.lotw_tqsl_path).desired_width(260.0));
-                                        if ui.button("🔍 Wykryj").clicked() {
+                                        if ui.button(tr(key::SYNC_DETECT_BTN, lang)).clicked() {
                                             if let Some(detected) = detect_tqsl_path() {
                                                 app.lotw_tqsl_path = detected.to_string_lossy().to_string();
                                                 app.online_sync_logs.push(format!("Wykryto TQSL w: {}", app.lotw_tqsl_path));
                                             } else {
-                                                app.online_sync_logs.push("Nie wykryto TQSL w domyślnych ścieżkach Program Files.".to_string());
+                                                app.online_sync_logs.push(tr(key::SYNC_TQSL_NOT_FOUND, lang).to_string());
                                             }
                                         }
                                     });
 
                                     ui.horizontal(|ui| {
-                                        ui.label("Nazwa lokalizacji (TQSL Station Location):");
+                                        ui.label(tr(key::SYNC_STATION_LOCATION, lang));
                                         ui.add(egui::TextEdit::singleline(&mut app.lotw_station_name).desired_width(180.0));
                                     });
 
                                     ui.horizontal(|ui| {
-                                        ui.label("Login LoTW:");
+                                        ui.label(tr(key::SYNC_LOTW_LOGIN, lang));
                                         ui.add(egui::TextEdit::singleline(&mut app.lotw_username).desired_width(120.0));
                                         ui.add_space(10.0);
-                                        ui.label("Hasło:");
+                                        ui.label(tr(key::SYNC_PASSWORD, lang));
                                         ui.add(egui::TextEdit::singleline(&mut app.lotw_password).password(true).desired_width(120.0));
                                     });
 
@@ -120,16 +120,16 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                             let tqsl_path = app.lotw_tqsl_path.clone();
                                             let station_loc = app.lotw_station_name.clone();
                                             let tx = app.sync_log_tx.clone();
-                                            app.online_sync_logs.push(format!("[LoTW] Podpisywanie i wysyłanie {qso_count} łączności przez TQSL..."));
-                                            app.status_message = Some("Podpisywanie i wysyłka do LoTW w toku...".to_string());
+                                            app.online_sync_logs.push(Msg::new(key::SYNC_LOTW_SIGNING_LOG).arg("count", qso_count).text(lang));
+                                            app.status_message = Some(tr(key::SYNC_LOTW_IN_PROGRESS, lang).to_string());
 
                                             tokio::spawn(async move {
                                                 match crate::cloud::lotw::export_and_sign_tqsl_async(&tqsl_path, &station_loc, &adif).await {
                                                     Ok(msg) => {
-                                                        let _ = tx.send((format!("[LoTW SUKCES] Wyeksportowano i podpisano {qso_count} łączności: {msg}"), false));
+                                                        let _ = tx.send((Msg::new(key::SYNC_LOTW_SUCCESS).arg("count", qso_count).arg("msg", &msg).text(lang), false));
                                                     }
                                                     Err(e) => {
-                                                        let _ = tx.send((format!("[LoTW BŁĄD] {e}"), false));
+                                                        let _ = tx.send((Msg::new(key::SYNC_LOTW_ERROR).arg("err", &e).text(lang), false));
                                                     }
                                                 }
                                             });
@@ -137,14 +137,14 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
                                         if ui.button(egui::RichText::new(format!("📥 {}", tr(key::SYNC_LOTW_DOWNLOAD, lang)))).clicked() {
                                             if app.lotw_username.is_empty() || app.lotw_password.is_empty() {
-                                                app.online_sync_logs.push("[LoTW] Błąd: Brak loginu lub hasła do LoTW.".to_string());
+                                                app.online_sync_logs.push(tr(key::SYNC_LOTW_MISSING_CREDS, lang).to_string());
                                             } else {
                                                 let tx = app.sync_log_tx.clone();
                                                 let user = app.lotw_username.clone();
                                                 let pass = app.lotw_password.clone();
                                                 let log_db = app.log_db.clone();
                                                 tokio::spawn(async move {
-                                                    let _ = tx.send(("[LoTW] Pobieranie raportu potwierdzeń z serwera ARRL LoTW...".to_string(), false));
+                                                    let _ = tx.send((tr(key::SYNC_LOTW_DOWNLOADING, lang).to_string(), false));
                                                     let report_res = crate::cloud::lotw::download_lotw_report(&user, &pass, None)
                                                         .await
                                                         .map_err(|e| e.to_string());
@@ -165,10 +165,10 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                             })
                                                             .await
                                                             .unwrap_or((0, 0));
-                                                            let _ = tx.send((format!("[LoTW SUKCES] Odebrano {count} potwierdzeń, zaktualizowano w bazie: {updated}"), true));
+                                                            let _ = tx.send((Msg::new(key::SYNC_LOTW_DOWNLOAD_SUCCESS).arg("count", count).arg("updated", updated).text(lang), true));
                                                         }
                                                         Err(e) => {
-                                                            let _ = tx.send((format!("[LoTW BŁĄD] {e}"), false));
+                                                            let _ = tx.send((Msg::new(key::SYNC_LOTW_ERROR).arg("err", &e).text(lang), false));
                                                         }
                                                     }
                                                 });
@@ -179,14 +179,14 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             }
                             SyncTab::Eqsl => {
                                 ui.group(|ui| {
-                                    ui.label(egui::RichText::new("📨 Serwis eQSL.cc").strong().size(13.0).color(palette.accent));
+                                    ui.label(egui::RichText::new(tr(key::SYNC_TAB_EQSL, lang)).strong().size(13.0).color(palette.accent));
                                     ui.separator();
 
                                     ui.horizontal(|ui| {
-                                        ui.label("Użytkownik eQSL:");
+                                        ui.label(tr(key::SYNC_EQSL_USER, lang));
                                         ui.add(egui::TextEdit::singleline(&mut app.eqsl_username).desired_width(120.0));
                                         ui.add_space(10.0);
-                                        ui.label("Hasło eQSL:");
+                                        ui.label(tr(key::SYNC_EQSL_PASSWORD, lang));
                                         ui.add(egui::TextEdit::singleline(&mut app.eqsl_password).password(true).desired_width(120.0));
                                     });
 
@@ -194,7 +194,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     ui.horizontal(|ui| {
                                         if ui.button(format!("📤 {}", tr(key::SYNC_EQSL_UPLOAD, lang))).clicked() {
                                             if app.eqsl_username.is_empty() || app.eqsl_password.is_empty() {
-                                                app.online_sync_logs.push("[eQSL] Błąd: Brak loginu lub hasła do eQSL.cc.".to_string());
+                                                app.online_sync_logs.push(tr(key::SYNC_EQSL_MISSING_CREDS, lang).to_string());
                                             } else {
                                                 let tx = app.sync_log_tx.clone();
                                                 let user = app.eqsl_username.clone();
@@ -203,17 +203,17 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                 let adif = crate::core::adif::export_adif(&qsos, "SPLogbook", &app.my_station.callsign);
                                                 tokio::spawn(async move {
                                                     let client = crate::cloud::eqsl::EqslClient::new(user, pass);
-                                                    let _ = tx.send((format!("[eQSL] Wysyłanie pakietu {} łączności do eQSL.cc...", qsos.len()), false));
+                                                    let _ = tx.send((Msg::new(key::SYNC_EQSL_SENDING).arg("count", qsos.len()).text(lang), false));
                                                     match client.upload_adif(&adif).await {
                                                         Ok(msg) => { let _ = tx.send((format!("[eQSL SUKCES] {msg}"), false)); }
-                                                        Err(e) => { let _ = tx.send((format!("[eQSL BŁĄD] {e}"), false)); }
+                                                        Err(e) => { let _ = tx.send((Msg::new(key::SYNC_EQSL_ERROR).arg("err", &e).text(lang), false)); }
                                                     }
                                                 });
                                             }
                                         }
                                         if ui.button(format!("📥 {}", tr(key::SYNC_EQSL_DOWNLOAD, lang))).clicked() {
                                             if app.eqsl_username.is_empty() || app.eqsl_password.is_empty() {
-                                                app.online_sync_logs.push("[eQSL] Błąd: Brak loginu lub hasła do eQSL.cc.".to_string());
+                                                app.online_sync_logs.push(tr(key::SYNC_EQSL_MISSING_CREDS, lang).to_string());
                                             } else {
                                                 let tx = app.sync_log_tx.clone();
                                                 let user = app.eqsl_username.clone();
@@ -239,10 +239,10 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                             })
                                                             .await
                                                             .unwrap_or((0, 0));
-                                                            let _ = tx.send((format!("[eQSL SUKCES] Pobrano {count} potwierdzeń, zaktualizowano w bazie: {updated}"), true));
+                                                            let _ = tx.send((Msg::new(key::SYNC_EQSL_DOWNLOAD_SUCCESS).arg("count", count).arg("updated", updated).text(lang), true));
                                                         }
                                                         Err(e) => {
-                                                            let _ = tx.send((format!("[eQSL BŁĄD] {e}"), false));
+                                                            let _ = tx.send((Msg::new(key::SYNC_EQSL_ERROR).arg("err", &e).text(lang), false));
                                                         }
                                                     }
                                                 });
@@ -253,11 +253,11 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             }
                             SyncTab::Clublog => {
                                 ui.group(|ui| {
-                                    ui.label(egui::RichText::new("🌐 Club Log (DX Cluster & Super Log)").strong().size(13.0).color(palette.success));
+                                    ui.label(egui::RichText::new(tr(key::SYNC_TAB_CLUBLOG, lang)).strong().size(13.0).color(palette.success));
                                     ui.separator();
 
                                     ui.horizontal(|ui| {
-                                        ui.label("Znak stacji:");
+                                        ui.label(tr(key::SYNC_CALLSIGN, lang));
                                         ui.add(egui::TextEdit::singleline(&mut app.clublog_callsign).desired_width(100.0));
                                         ui.add_space(10.0);
                                         ui.label("Email:");
@@ -265,20 +265,20 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     });
 
                                     ui.horizontal(|ui| {
-                                        ui.label("Hasło:");
+                                        ui.label(tr(key::SYNC_PASSWORD, lang));
                                         ui.add(egui::TextEdit::singleline(&mut app.clublog_password).password(true).desired_width(120.0));
                                         ui.add_space(10.0);
-                                        ui.label("API Key (opcjonalny):");
+                                        ui.label(tr(key::SYNC_API_KEY_OPTIONAL, lang));
                                         ui.add(egui::TextEdit::singleline(&mut app.clublog_api_key).desired_width(140.0));
                                     });
 
                                     ui.add_space(4.0);
-                                    ui.checkbox(&mut app.live_auto_upload_clublog, "Automatycznie wysyłaj każde nowo dodane QSO w czasie rzeczywistym");
+                                    ui.checkbox(&mut app.live_auto_upload_clublog, tr(key::SYNC_LIVE_AUTO_UPLOAD_CLUBLOG, lang));
 
                                     ui.add_space(6.0);
                                     if ui.button(format!("📤 {}", tr(key::SYNC_CLUBLOG_UPLOAD, lang))).clicked() {
                                         if app.clublog_callsign.is_empty() || app.clublog_password.is_empty() {
-                                            app.online_sync_logs.push("[Club Log] Błąd: Brak znaku lub hasła do Club Log.".to_string());
+                                            app.online_sync_logs.push(tr(key::SYNC_CLUBLOG_MISSING_CREDS, lang).to_string());
                                         } else {
                                             let tx = app.sync_log_tx.clone();
                                             let call = app.clublog_callsign.clone();
@@ -289,10 +289,10 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                             let adif = crate::core::adif::export_adif(&qsos, "SPLogbook", &app.my_station.callsign);
                                             tokio::spawn(async move {
                                                 let client = crate::cloud::clublog::ClubLogClient::new();
-                                                let _ = tx.send((format!("[Club Log] Wysyłanie dziennika ADIF ({} łączności)...", qsos.len()), false));
+                                                let _ = tx.send((Msg::new(key::SYNC_CLUBLOG_SENDING).arg("count", qsos.len()).text(lang), false));
                                                 match client.upload_adif(&call, &email, &pass, &api, &adif).await {
                                                     Ok(msg) => { let _ = tx.send((format!("[Club Log SUKCES] {msg}"), false)); }
-                                                    Err(e) => { let _ = tx.send((format!("[Club Log BŁĄD] {e}"), false)); }
+                                                    Err(e) => { let _ = tx.send((Msg::new(key::SYNC_CLUBLOG_ERROR).arg("err", &e).text(lang), false)); }
                                                 }
                                             });
                                         }
@@ -301,39 +301,39 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             }
                             SyncTab::QrzHamqth => {
                                 ui.group(|ui| {
-                                    ui.label(egui::RichText::new("📖 QRZ.COM Callbook & Logbook").strong().size(13.0).color(palette.series(6)));
+                                    ui.label(egui::RichText::new(tr(key::SYNC_TAB_QRZ, lang)).strong().size(13.0).color(palette.series(6)));
                                     ui.separator();
 
                                     ui.checkbox(&mut app.qrz_auto_lookup, tr(key::SYNC_AUTO_LOOKUP, lang));
-                                    ui.checkbox(&mut app.live_auto_upload_qrz, "Automatycznie przesyłaj łączności do logbooka QRZ.com");
+                                    ui.checkbox(&mut app.live_auto_upload_qrz, tr(key::SYNC_LIVE_AUTO_UPLOAD_QRZ, lang));
 
                                     ui.horizontal(|ui| {
-                                        ui.label("Login QRZ.com:");
+                                        ui.label(tr(key::SYNC_QRZ_LOGIN, lang));
                                         ui.add(egui::TextEdit::singleline(&mut app.qrz_username).desired_width(120.0));
                                         ui.add_space(10.0);
-                                        ui.label("Hasło QRZ.com:");
+                                        ui.label(tr(key::SYNC_QRZ_PASSWORD, lang));
                                         ui.add(egui::TextEdit::singleline(&mut app.qrz_password).password(true).desired_width(120.0));
                                     });
 
                                     ui.horizontal(|ui| {
-                                        ui.label("Klucz API Logbooka QRZ:");
+                                        ui.label(tr(key::SYNC_QRZ_API_KEY, lang));
                                         ui.add(egui::TextEdit::singleline(&mut app.qrz_api_key).desired_width(220.0));
                                     });
 
                                     ui.add_space(4.0);
                                     if ui.button(format!("📤 {}", tr(key::SYNC_QRZ_UPLOAD, lang))).clicked() {
                                         if app.qrz_api_key.is_empty() {
-                                            app.online_sync_logs.push("[QRZ.com] Błąd: Brak klucza API logbooka QRZ.".to_string());
+                                            app.online_sync_logs.push(tr(key::SYNC_QRZ_MISSING_API_KEY, lang).to_string());
                                         } else {
                                             let tx = app.sync_log_tx.clone();
                                             let api = app.qrz_api_key.clone();
                                             let qsos = if let Ok(db) = app.log_db.lock() { db.get_recent_qsos(1000).unwrap_or_default() } else { vec![] };
                                             let adif = crate::core::adif::export_adif(&qsos, "SPLogbook", &app.my_station.callsign);
                                             tokio::spawn(async move {
-                                                let _ = tx.send((format!("[QRZ.com] Wysyłanie dziennika ({} łączności)...", qsos.len()), false));
+                                                let _ = tx.send((Msg::new(key::SYNC_QRZ_SENDING).arg("count", qsos.len()).text(lang), false));
                                                 match crate::cloud::qrz::QrzClient::upload_to_logbook(&api, &adif).await {
                                                     Ok(msg) => { let _ = tx.send((format!("[QRZ.com SUKCES] {msg}"), false)); }
-                                                    Err(e) => { let _ = tx.send((format!("[QRZ.com BŁĄD] {e}"), false)); }
+                                                    Err(e) => { let _ = tx.send((Msg::new(key::SYNC_QRZ_ERROR).arg("err", &e).text(lang), false)); }
                                                 }
                                             });
                                         }
@@ -343,27 +343,27 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 ui.add_space(6.0);
 
                                 ui.group(|ui| {
-                                    ui.label(egui::RichText::new("🌍 HamQTH (OK1RR Logbook)").strong().size(13.0).color(palette.series(1)));
+                                    ui.label(egui::RichText::new(tr(key::SYNC_TAB_HAMQTH, lang)).strong().size(13.0).color(palette.series(1)));
                                     ui.separator();
                                     ui.horizontal(|ui| {
-                                        ui.label("Login HamQTH:");
+                                        ui.label(tr(key::SYNC_HAMQTH_LOGIN, lang));
                                         ui.add(egui::TextEdit::singleline(&mut app.hamqth_username).desired_width(120.0));
                                         ui.add_space(10.0);
-                                        ui.label("Hasło HamQTH:");
+                                        ui.label(tr(key::SYNC_HAMQTH_PASSWORD, lang));
                                         ui.add(egui::TextEdit::singleline(&mut app.hamqth_password).password(true).desired_width(120.0));
                                     });
-                                    if ui.button("📤 Wyślij łączności do HamQTH").clicked() {
+                                    if ui.button(tr(key::SYNC_HAMQTH_UPLOAD_BTN, lang)).clicked() {
                                         if app.hamqth_username.is_empty() || app.hamqth_password.is_empty() {
-                                            app.online_sync_logs.push("[HamQTH] Błąd: Brak loginu lub hasła do HamQTH.com.".to_string());
+                                            app.online_sync_logs.push(tr(key::SYNC_HAMQTH_MISSING_CREDS, lang).to_string());
                                         } else {
                                             let tx = app.sync_log_tx.clone();
                                             let user = app.hamqth_username.clone();
                                             let pass = app.hamqth_password.clone();
                                             let qsos = if let Ok(db) = app.log_db.lock() { db.get_recent_qsos(100).unwrap_or_default() } else { vec![] };
-                                            app.status_message = Some("Wysyłka do HamQTH w toku...".to_string());
+                                            app.status_message = Some(tr(key::SYNC_HAMQTH_IN_PROGRESS, lang).to_string());
+                                            app.online_sync_logs.push(Msg::new(key::SYNC_HAMQTH_SENDING).arg("count", qsos.len()).text(lang));
                                             tokio::spawn(async move {
                                                 let client = crate::cloud::hamqth::HamQthClient::new(user, pass);
-                                                let _ = tx.send((format!("[HamQTH] Wysyłanie {} łączności do HamQTH.com...", qsos.len()), false));
                                                 let mut ok_count = 0usize;
                                                 let mut last_err = None;
                                                 for qso in &qsos {
@@ -373,9 +373,9 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                     }
                                                 }
                                                 if let Some(e) = last_err {
-                                                    let _ = tx.send((format!("[HamQTH] Wysłano {ok_count}/{}, ostatni błąd: {e}", qsos.len()), false));
+                                                    let _ = tx.send((Msg::new(key::SYNC_HAMQTH_PARTIAL_ERROR).arg("ok_count", ok_count).arg("total_count", qsos.len()).arg("err", &e).text(lang), false));
                                                 } else {
-                                                    let _ = tx.send((format!("[HamQTH SUKCES] Wysłano {ok_count} łączności."), false));
+                                                    let _ = tx.send((Msg::new(key::SYNC_HAMQTH_SUCCESS).arg("count", ok_count).text(lang), false));
                                                 }
                                             });
                                         }
@@ -385,17 +385,17 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 ui.add_space(6.0);
 
                                 ui.group(|ui| {
-                                    ui.label(egui::RichText::new("🔀 Agregacja Callbook").strong().size(13.0).color(palette.series(7)));
+                                    ui.label(egui::RichText::new(tr(key::SYNC_TAB_CALLBOOK_AGG, lang)).strong().size(13.0).color(palette.series(7)));
                                     ui.separator();
-                                    ui.checkbox(&mut app.callbook_cache_enabled, "Cache offline wyników zapytań online");
+                                    ui.checkbox(&mut app.callbook_cache_enabled, tr(key::SYNC_CACHE_ENABLE, lang));
                                     if app.callbook_cache_enabled {
                                         ui.horizontal(|ui| {
-                                            ui.label("Ważność cache (dni):");
+                                            ui.label(tr(key::SYNC_CACHE_TTL_DAYS, lang));
                                             ui.add(egui::DragValue::new(&mut app.callbook_cache_ttl_days).range(1..=365).speed(0.1));
                                         });
                                     }
                                     ui.add_space(4.0);
-                                    ui.label("Kolejność źródeł (góra = najwyższy priorytet):");
+                                    ui.label(tr(key::SYNC_SOURCE_PRIORITY, lang));
                                     let mut move_up: Option<usize> = None;
                                     let mut move_down: Option<usize> = None;
                                     let len = app.callbook_priority.len();
@@ -416,35 +416,35 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     if let Some(i) = move_down {
                                         app.callbook_priority.swap(i, i + 1);
                                     }
-                                    if ui.button("↺ Przywróć domyślną kolejność").clicked() {
+                                    if ui.button(tr(key::SYNC_RESET_PRIORITY_BTN, lang)).clicked() {
                                         app.callbook_priority = crate::core::callbook::default_callbook_priority();
                                     }
                                 });
                             }
                             SyncTab::CloudlogHrdlog => {
                                 ui.group(|ui| {
-                                    ui.label(egui::RichText::new("☁ Cloudlog (REST API)").strong().size(13.0).color(palette.accent));
+                                    ui.label(egui::RichText::new(tr(key::SYNC_TAB_CLOUDLOG, lang)).strong().size(13.0).color(palette.accent));
                                     ui.separator();
                                     ui.horizontal(|ui| {
-                                        ui.label("Adres URL serwera:");
+                                        ui.label(tr(key::SYNC_SERVER_URL, lang));
                                         ui.add(egui::TextEdit::singleline(&mut app.cloudlog_url).desired_width(220.0).hint_text("https://cloudlog.twojadomena.pl"));
                                     });
                                     ui.horizontal(|ui| {
-                                        ui.label("Klucz API Cloudlog:");
+                                        ui.label(tr(key::SYNC_CLOUDLOG_API_KEY, lang));
                                         ui.add(egui::TextEdit::singleline(&mut app.cloudlog_api_key).password(true).desired_width(220.0));
                                     });
-                                    if ui.button("📤 Wyślij łączności do Cloudlog").clicked() {
+                                    if ui.button(tr(key::SYNC_CLOUDLOG_UPLOAD_BTN, lang)).clicked() {
                                         if app.cloudlog_url.trim().is_empty() || app.cloudlog_api_key.trim().is_empty() {
-                                            app.online_sync_logs.push("[Cloudlog] Błąd: Brak adresu URL lub klucza API Cloudlog.".to_string());
+                                            app.online_sync_logs.push(tr(key::SYNC_CLOUDLOG_MISSING_CREDS, lang).to_string());
                                         } else {
                                             let tx = app.sync_log_tx.clone();
                                             let url = app.cloudlog_url.clone();
                                             let api_key = app.cloudlog_api_key.clone();
                                             let qsos = if let Ok(db) = app.log_db.lock() { db.get_recent_qsos(100).unwrap_or_default() } else { vec![] };
-                                            app.status_message = Some("Wysyłka do Cloudlog w toku...".to_string());
+                                            app.status_message = Some(tr(key::SYNC_CLOUDLOG_IN_PROGRESS, lang).to_string());
+                                            app.online_sync_logs.push(Msg::new(key::SYNC_CLOUDLOG_SENDING).arg("count", qsos.len()).text(lang));
                                             tokio::spawn(async move {
                                                 let client = crate::cloud::cloudlog::CloudlogClient::new(&url, api_key, "1".to_string());
-                                                let _ = tx.send((format!("[Cloudlog] Wysyłanie {} łączności do Cloudlog REST API...", qsos.len()), false));
                                                 let mut ok_count = 0usize;
                                                 let mut last_err = None;
                                                 for qso in &qsos {
@@ -454,9 +454,9 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                     }
                                                 }
                                                 if let Some(e) = last_err {
-                                                    let _ = tx.send((format!("[Cloudlog] Wysłano {ok_count}/{}, ostatni błąd: {e}", qsos.len()), false));
+                                                    let _ = tx.send((Msg::new(key::SYNC_CLOUDLOG_PARTIAL_ERROR).arg("ok_count", ok_count).arg("total_count", qsos.len()).arg("err", &e).text(lang), false));
                                                 } else {
-                                                    let _ = tx.send((format!("[Cloudlog SUKCES] Wysłano {ok_count} łączności."), false));
+                                                    let _ = tx.send((Msg::new(key::SYNC_CLOUDLOG_SUCCESS).arg("count", ok_count).text(lang), false));
                                                 }
                                             });
                                         }
@@ -466,27 +466,27 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 ui.add_space(6.0);
 
                                 ui.group(|ui| {
-                                    ui.label(egui::RichText::new("📻 HRDLog.net").strong().size(13.0).color(palette.warning));
+                                    ui.label(egui::RichText::new(tr(key::SYNC_TAB_HRDLOG, lang)).strong().size(13.0).color(palette.warning));
                                     ui.separator();
                                     ui.horizontal(|ui| {
-                                        ui.label("Znak stacji:");
+                                        ui.label(tr(key::SYNC_CALLSIGN, lang));
                                         ui.add(egui::TextEdit::singleline(&mut app.hrdlog_username).desired_width(100.0));
                                         ui.add_space(10.0);
                                         ui.label("Upload Code:");
                                         ui.add(egui::TextEdit::singleline(&mut app.hrdlog_upload_code).password(true).desired_width(120.0));
                                     });
-                                    if ui.button("📤 Wyślij łączności do HRDLog.net").clicked() {
+                                    if ui.button(tr(key::SYNC_HRDLOG_UPLOAD_BTN, lang)).clicked() {
                                         if app.hrdlog_username.trim().is_empty() || app.hrdlog_upload_code.trim().is_empty() {
-                                            app.online_sync_logs.push("[HRDLog] Błąd: Brak znaku lub Upload Code do HRDLog.net.".to_string());
+                                            app.online_sync_logs.push(tr(key::SYNC_HRDLOG_MISSING_CREDS, lang).to_string());
                                         } else {
                                             let tx = app.sync_log_tx.clone();
                                             let call = app.hrdlog_username.clone();
                                             let code = app.hrdlog_upload_code.clone();
                                             let qsos = if let Ok(db) = app.log_db.lock() { db.get_recent_qsos(100).unwrap_or_default() } else { vec![] };
-                                            app.status_message = Some("Wysyłka do HRDLog.net w toku...".to_string());
+                                            app.status_message = Some(tr(key::SYNC_HRDLOG_IN_PROGRESS, lang).to_string());
+                                            app.online_sync_logs.push(Msg::new(key::SYNC_HRDLOG_SENDING).arg("count", qsos.len()).text(lang));
                                             tokio::spawn(async move {
                                                 let client = crate::cloud::hrdlog::HrdlogClient::new(call, code);
-                                                let _ = tx.send((format!("[HRDLog] Wysyłanie {} łączności do HRDLog.net...", qsos.len()), false));
                                                 let mut ok_count = 0usize;
                                                 let mut last_err = None;
                                                 for qso in &qsos {
@@ -496,9 +496,9 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                     }
                                                 }
                                                 if let Some(e) = last_err {
-                                                    let _ = tx.send((format!("[HRDLog] Wysłano {ok_count}/{}, ostatni błąd: {e}", qsos.len()), false));
+                                                    let _ = tx.send((Msg::new(key::SYNC_HRDLOG_PARTIAL_ERROR).arg("ok_count", ok_count).arg("total_count", qsos.len()).arg("err", &e).text(lang), false));
                                                 } else {
-                                                    let _ = tx.send((format!("[HRDLog SUKCES] Wysłano {ok_count} łączności."), false));
+                                                    let _ = tx.send((Msg::new(key::SYNC_HRDLOG_SUCCESS).arg("count", ok_count).text(lang), false));
                                                 }
                                             });
                                         }
@@ -507,22 +507,22 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             }
                             SyncTab::N1mm => {
                                 ui.group(|ui| {
-                                    ui.label(egui::RichText::new("📻 Emisja zdarzeń N1MM Logger+ (UDP Broadcast)").strong().size(13.0).color(palette.accent));
+                                    ui.label(egui::RichText::new(tr(key::SYNC_TAB_N1MM, lang)).strong().size(13.0).color(palette.accent));
                                     ui.separator();
-                                    if ui.checkbox(&mut app.n1mm_broadcast_enabled, "Włącz emisję zapisanych QSO do narzędzi zgodnych z N1MM (GridTracker, overlay itp.)").changed() {
+                                    if ui.checkbox(&mut app.n1mm_broadcast_enabled, tr(key::SYNC_N1MM_ENABLE, lang)).changed() {
                                         app.save_station_config();
                                     }
-                                    ui.label(egui::RichText::new("Każde zapisane QSO jest wysyłane jako ramka XML <contactinfo> w formacie N1MM Logger+ UDP broadcast. Pozwala to na podgląd łączności na żywo w GridTracker i innych nakładkach.").small().color(palette.text_muted));
+                                    ui.label(egui::RichText::new(tr(key::SYNC_N1MM_DESCRIPTION, lang)).small().color(palette.text_muted));
                                     ui.add_space(6.0);
                                     ui.horizontal(|ui| {
-                                        ui.label("Adres nasłuchu:");
+                                        ui.label(tr(key::SYNC_LISTEN_ADDRESS, lang));
                                         ui.add(egui::TextEdit::singleline(&mut app.n1mm_broadcast_host).desired_width(140.0));
                                         ui.label("Port:");
                                         ui.add(egui::DragValue::new(&mut app.n1mm_broadcast_port).range(1..=65535));
                                     });
-                                    ui.label(egui::RichText::new(format!("Domyślnie N1MM Logger+ nasłuchuje na 127.0.0.1:{}", crate::digital::n1mm::N1MM_DEFAULT_PORT)).small().color(palette.text_muted));
+                        ui.label(egui::RichText::new(Msg::new(key::SYNC_N1MM_DEFAULT_HINT).arg("port", crate::digital::n1mm::N1MM_DEFAULT_PORT).text(lang)).small().color(palette.text_muted));
                                     ui.add_space(6.0);
-                                    if ui.button("💾 Zapisz ustawienia").clicked() {
+                                    if ui.button(tr(key::SYNC_SAVE_SETTINGS_BTN, lang)).clicked() {
                                         app.save_station_config();
                                         app.online_sync_logs.push("Zapisano ustawienia emisji N1MM UDP broadcast.".to_string());
                                     }
@@ -530,21 +530,21 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             }
                             SyncTab::Databases => {
                                 ui.group(|ui| {
-                                    ui.label(egui::RichText::new("🔄 Aktualizacja Baz Danych z Sieci (cty.dat, SCP, LoTW Users)").strong().size(13.0).color(palette.success));
+                                    ui.label(egui::RichText::new(tr(key::SYNC_TAB_REFERENCE_DATA, lang)).strong().size(13.0).color(palette.success));
                                     ui.separator();
-                                    ui.label("Pobiera najnowsze pliki z country-files.com, supercheckpartial.com i arrl.org:");
+                                    ui.label(tr(key::SYNC_REF_DATA_DESC, lang));
                                     ui.add_space(4.0);
-                                    if ui.button(egui::RichText::new("⬇ Aktualizuj bazy referencyjne online").strong()).clicked() {
+                                    if ui.button(egui::RichText::new(tr(key::SYNC_REF_DATA_UPDATE_BTN, lang)).strong()).clicked() {
                                         app.trigger_database_update();
-                                        app.online_sync_logs.push("Uruchomiono pobieranie cty.dat, MASTER.SCP oraz bazy aktywności LoTW...".to_string());
+                                        app.online_sync_logs.push(tr(key::SYNC_REF_DATA_STARTED, lang).to_string());
                                     }
                                 });
                             }
                             SyncTab::Fldigi => {
                                 ui.group(|ui| {
-                                    ui.label(egui::RichText::new("💻 Integracja z FLDigi (Cyfra XML-RPC)").strong().size(13.0).color(palette.accent));
+                                    ui.label(egui::RichText::new(tr(key::SYNC_TAB_FLDIGI, lang)).strong().size(13.0).color(palette.accent));
                                     ui.separator();
-                                    ui.checkbox(&mut app.fldigi_enabled, "Włącz integrację z FLDigi (odpytywanie częstotliwości i logu)");
+                                    ui.checkbox(&mut app.fldigi_enabled, tr(key::SYNC_FLDIGI_ENABLE, lang));
                                     ui.horizontal(|ui| {
                                         ui.label("Host FLDigi XML-RPC:");
                                         ui.add(egui::TextEdit::singleline(&mut app.fldigi_host).desired_width(120.0));
@@ -558,21 +558,21 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                         }
                                     });
                                     ui.add_space(6.0);
-                                    if ui.button("⚡ Test Połączenia XML-RPC z FLDigi").clicked() {
+                                    if ui.button(tr(key::SYNC_FLDIGI_TEST_BTN, lang)).clicked() {
                                         let host = app.fldigi_host.clone();
                                         let port = app.fldigi_port;
                                         tokio::spawn(async move {
                                             let client = crate::digital::fldigi::FldigiClient::new(&host, port);
                                             match client.get_version().await {
                                                 Ok(v) => {
-                                                    log::info!("FLDigi połączono: {v}");
+                                                    log::info!("FLDigi connected: {v}");
                                                 }
                                                 Err(e) => {
-                                                    log::warn!("FLDigi błąd: {e}");
+                                                    log::warn!("FLDigi error: {e}");
                                                 }
                                             }
                                         });
-                                        app.fldigi_test_result = Some(format!("Wysłano zapytanie do FLDigi na {}:{}", app.fldigi_host, app.fldigi_port));
+                    app.fldigi_test_result = Some(Msg::new(key::SYNC_FLDIGI_QUERY_SENT).arg("host", &app.fldigi_host).arg("port", app.fldigi_port).text(lang));
                                     }
                                     if let Some(ref res) = app.fldigi_test_result {
                                         ui.colored_label(palette.accent, res);
@@ -581,15 +581,15 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             }
                             SyncTab::PskReporter => {
                                 ui.group(|ui| {
-                                    ui.label(egui::RichText::new("📡 PSK Reporter (pskreporter.info)").strong().size(13.0).color(palette.warning));
+                                    ui.label(egui::RichText::new(tr(key::SYNC_TAB_PSK_REPORTER, lang)).strong().size(13.0).color(palette.warning));
                                     ui.separator();
-                                    ui.checkbox(&mut app.psk_reporter_enabled, "Automatycznie raportuj odbierane stacje do PSK Reporter");
-                                    ui.label(egui::RichText::new("Gdy opcja jest włączona, każde nowo zapisane QSO jest automatycznie raportowane w formacie XML do serwera pskreporter.info z Twoim znakiem i lokatorem.").small().color(palette.text_muted));
+                                    ui.checkbox(&mut app.psk_reporter_enabled, tr(key::SYNC_PSK_REPORTER_ENABLE, lang));
+                                    ui.label(egui::RichText::new(tr(key::SYNC_PSK_REPORTER_DESC, lang)).small().color(palette.text_muted));
                                     ui.add_space(6.0);
-                                    ui.label(format!("Znak stacji raportującej: {}", app.my_station.callsign));
+                                    ui.label(Msg::new(key::SYNC_REPORTING_STATION_CALL).arg("call", &app.my_station.callsign).text(lang));
                                     ui.label(format!("Lokator stacji: {}", app.my_station.gridsquare));
                                     ui.add_space(6.0);
-                                    if ui.button("🔗 Otwórz Mapę PSK Reporter w Przeglądarce").clicked() {
+                                    if ui.button(tr(key::SYNC_OPEN_PSK_MAP_BTN, lang)).clicked() {
                                         let url = format!("https://pskreporter.info/pskmap.html?callsign={}", app.my_station.callsign);
                                         let _ = open::that(url);
                                     }
@@ -597,10 +597,10 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             }
                             SyncTab::Queue => {
                                 ui.group(|ui| {
-                                    ui.label(egui::RichText::new("⏳ Kolejka wysyłki do serwisów online").strong().size(13.0).color(palette.accent));
+                                    ui.label(egui::RichText::new(tr(key::SYNC_QUEUE_HEADING, lang)).strong().size(13.0).color(palette.accent));
                                     ui.separator();
                                     ui.label(egui::RichText::new(
-                                        "Zadania (Club Log, QRZ.com, eQSL.cc) są kolejkowane lokalnie i wysyłane w tle z ponawianiem oraz limitem tempa. Kolejka przetrwa zamknięcie programu."
+                                        tr(key::SYNC_QUEUE_DESCRIPTION, lang)
                                     ).small().color(palette.text_muted));
                                     ui.add_space(6.0);
 
@@ -610,12 +610,12 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                         .striped(true)
                                         .spacing([12.0, 4.0])
                                         .show(ui, |ui| {
-                                             ui.label(egui::RichText::new("Serwis").strong());
-                                             ui.label(egui::RichText::new("Oczekuje").strong());
-                                             ui.label(egui::RichText::new("Wysyłane").strong());
-                                             ui.label(egui::RichText::new("Wysłane").strong());
-                                             ui.label(egui::RichText::new("Błędy").strong());
-                                             ui.label(egui::RichText::new("Ostatni błąd").strong());
+                                             ui.label(egui::RichText::new(tr(key::SYNC_QUEUE_COL_SERVICE, lang)).strong());
+                                             ui.label(egui::RichText::new(tr(key::SYNC_QUEUE_STATUS_PENDING, lang)).strong());
+                                             ui.label(egui::RichText::new(tr(key::SYNC_QUEUE_STATUS_SENDING, lang)).strong());
+                                             ui.label(egui::RichText::new(tr(key::SYNC_QUEUE_STATUS_SENT, lang)).strong());
+                                             ui.label(egui::RichText::new(tr(key::SYNC_QUEUE_STATUS_ERRORS, lang)).strong());
+                                             ui.label(egui::RichText::new(tr(key::SYNC_QUEUE_COL_LAST_ERROR, lang)).strong());
                                              ui.end_row();
 
                                              for svc in crate::cloud::scheduler::UploadService::all() {
@@ -635,7 +635,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
                                     ui.add_space(6.0);
                                     ui.horizontal(|ui| {
-                                        if ui.button("🔁 Ponów nieudane").clicked() {
+                                        if ui.button(tr(key::SYNC_RETRY_FAILED_BTN, lang)).clicked() {
                                             let now = crate::cloud::scheduler::now_unix();
                                             let retry_count = app.upload_scheduler.lock().map_or(0, |mut s| {
                                                 let retried = s.retry_failed(now);
@@ -643,17 +643,17 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                 retried
                                             });
                                             if retry_count > 0 {
-                                                app.online_sync_logs.push(format!("Ponowiono {retry_count} nieudanych zadań wysyłki."));
+                        app.online_sync_logs.push(Msg::new(key::SYNC_RETRIED_TOAST).arg("count", retry_count).text(lang));
                                             }
                                         }
-                                        if ui.button("🧹 Wyczyść wysłane").clicked() {
+                                        if ui.button(tr(key::SYNC_CLEAR_SENT_BTN, lang)).clicked() {
                                             let purged_count = app.upload_scheduler.lock().map_or(0, |mut s| {
                                                 let purged = s.purge_done();
                                                 s.save_to_disk();
                                                 purged
                                             });
                                             if purged_count > 0 {
-                                                app.online_sync_logs.push(format!("Usunięto {purged_count} zakończonych zadań z kolejki."));
+                        app.online_sync_logs.push(Msg::new(key::SYNC_PURGED_TOAST).arg("count", purged_count).text(lang));
                                             }
                                         }
                                     });
@@ -661,8 +661,8 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             }
                             SyncTab::Logs => {
                                 ui.horizontal(|ui| {
-                                    ui.label(egui::RichText::new("📋 Dziennik zdarzeń synchronizacji:").strong());
-                                    if ui.button("Wyczyść logi").clicked() {
+                                    ui.label(egui::RichText::new(tr(key::SYNC_LOG_TITLE, lang)).strong());
+                                    if ui.button(tr(key::SYNC_CLEAR_LOGS_BTN, lang)).clicked() {
                                         app.online_sync_logs.clear();
                                     }
                                 });
@@ -673,7 +673,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                         .stick_to_bottom(true)
                                         .show(ui, |ui| {
                                             if app.online_sync_logs.is_empty() {
-                                                ui.label(egui::RichText::new("Brak operacji. Wybierz synchronizację powyżej.").italics().color(palette.text_muted));
+                                                ui.label(egui::RichText::new(tr(key::SYNC_NO_OPERATION_IDLE, lang)).italics().color(palette.text_muted));
                                             } else {
                                                 for log_entry in &app.online_sync_logs {
                                                     ui.label(egui::RichText::new(log_entry).size(11.0).monospace());

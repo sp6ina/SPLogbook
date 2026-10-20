@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 // Wbudowany dziennik zmian (changelog) i okno sprawdzania aktualizacji.
 
+use crate::core::i18n::{Key, key, tr};
 use crate::gui::app::SpLogApp;
 use crate::gui::theme::ThemeExt;
 use eframe::egui;
@@ -10,63 +11,60 @@ use eframe::egui;
 pub struct ChangeLogEntry {
     pub version: &'static str,
     pub date: &'static str,
-    pub items: &'static [&'static str],
+    pub items: &'static [Key],
 }
 
-/// Historia wydań SPLogbook — trzymana w kodzie, aby była dostępna offline
-/// i nie wymagała przebudowy dla drobnych poprawek tekstu.
+/// Historia wydań SPLogbook — trzymana w kodzie jako klucze i18n,
+/// dzięki czemu jest w 100% zlokalizowana w każdym języku.
 pub const CHANGELOG: &[ChangeLogEntry] = &[
     ChangeLogEntry {
         version: "1.1",
         date: "2026",
         items: &[
-            "Dodano pełną obsługę języka włoskiego (Italiano).",
-            "Nowy, wysoce zoptymalizowany silnik i18n oparty na plikach JSON w locales/ (o ~65% szybsza kompilacja).",
-            "Natywny bezpośredni protokół CAT Kenwood / Elecraft / Yaesu (komendy FA, FB, MD, TX, SM, FT).",
-            "Pełna zgodność ze standardem ADIF 3 w UTF-8 (długość pól liczona w bajtach) dla LoTW/TQSL i ClubLog.",
-            "Precyzyjne wyliczanie pozycji Słońca i Szarej Linii z Równaniem Czasu (Equation of Time).",
-            "Poprawione dekodowanie znaczników czasu UTC z pakietów binarnych UDP WSJT-X / JTDX.",
-            "Rozszerzenie pasma 160m (od 1800 kHz) oraz dodanie pasm mikrofalowych 13cm/3cm dla satelity QO-100.",
-            "Poprawa logiki DUPE dla łączności Mixed oraz punktacji mnożników per-band w zawodach.",
-            "Inicjalizacja env_logger oraz optymalizacja pętli UI dla kolejki Cloud Auto-Upload.",
+            key::CHANGELOG_V1_1_0,
+            key::CHANGELOG_V1_1_1,
+            key::CHANGELOG_V1_1_2,
+            key::CHANGELOG_V1_1_3,
+            key::CHANGELOG_V1_1_4,
+            key::CHANGELOG_V1_1_5,
+            key::CHANGELOG_V1_1_6,
+            key::CHANGELOG_V1_1_7,
+            key::CHANGELOG_V1_1_8,
         ],
     },
     ChangeLogEntry {
         version: "1.0.3",
         date: "2026",
         items: &[
-            "Dodano wyszukiwarkę poleceń (Command Palette) pod Ctrl+Shift+P.",
-            "Przeprojektowano motywy kolorystyczne z paletą przyjazną dla daltonistów (Okabe-Ito).",
-            "Dodano pasek operacyjny, Mini HUD i wybór jednostek odległości (km/mile/NM).",
-            "Reorganizacja menu, skalowanie czcionek, legenda statusów i czytelne komunikaty błędów.",
-            "Cache prefiksów DXCC i wyników propagacji dla płynniejszego działania.",
+            key::CHANGELOG_V1_0_3_0,
+            key::CHANGELOG_V1_0_3_1,
+            key::CHANGELOG_V1_0_3_2,
+            key::CHANGELOG_V1_0_3_3,
+            key::CHANGELOG_V1_0_3_4,
         ],
     },
     ChangeLogEntry {
         version: "1.0.2",
         date: "2025",
         items: &[
-            "Współdzielony klient HTTP z ponawianiem i backoffem przy błędach sieci.",
-            "Walidacja obliczeń propagacji (VOACAP-lite) i integralności dziennika.",
-            "Raportowanie błędów importu/eksportu ADIF w interfejsie.",
+            key::CHANGELOG_V1_0_2_0,
+            key::CHANGELOG_V1_0_2_1,
+            key::CHANGELOG_V1_0_2_2,
         ],
     },
     ChangeLogEntry {
         version: "1.0.1",
         date: "2025",
         items: &[
-            "Naprawiono błędy krytyczne (P0) związane ze stabilnością i utratą danych.",
-            "Przechowywanie poświadczeń w systemowym magazynie (keyring) zamiast w pliku konfiguracji.",
-            "Stabilny, chronologiczny numer QSO niezależny od sortowania i filtrowania.",
+            key::CHANGELOG_V1_0_1_0,
+            key::CHANGELOG_V1_0_1_1,
+            key::CHANGELOG_V1_0_1_2,
         ],
     },
     ChangeLogEntry {
         version: "1.0.0",
         date: "2025",
-        items: &[
-            "Pierwsze wydanie SPLogbook — nowoczesny dziennik krótkofalarski.",
-            "Integracja z Hamlib, TCI, WSJT-X, QRZ, HamQTH, eQSL, LoTW i Club Log.",
-        ],
+        items: &[key::CHANGELOG_V1_0_0_0, key::CHANGELOG_V1_0_0_1],
     },
 ];
 
@@ -76,7 +74,8 @@ pub fn render_changelog_window(app: &mut SpLogApp, ctx: &egui::Context) {
         return;
     }
     let mut is_open = app.show_changelog_window;
-    egui::Window::new("📜 Dziennik zmian (Changelog)")
+    let lang = app.current_language;
+    egui::Window::new(tr(key::CHANGELOG_WINDOW_TITLE, lang))
         .open(&mut is_open)
         .default_size([520.0, 480.0])
         .resizable(true)
@@ -104,7 +103,7 @@ pub fn render_changelog_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             for item in entry.items {
                                 ui.horizontal(|ui| {
                                     ui.colored_label(palette.success, "•");
-                                    ui.label(*item);
+                                    ui.label(tr(*item, lang));
                                 });
                             }
                         });
@@ -123,13 +122,14 @@ pub fn render_update_check_window(app: &mut SpLogApp, ctx: &egui::Context) {
     let mut is_open = app.show_update_window;
     let mut close_requested = false;
     let mut do_install = false;
-    egui::Window::new("🔄 Sprawdź aktualizacje")
+    let lang = app.current_language;
+    egui::Window::new(tr(key::UPDATE_WINDOW_TITLE, lang))
         .open(&mut is_open)
         .default_size([520.0, 340.0])
         .resizable(true)
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.label("Zainstalowana wersja:");
+                ui.label(tr(key::UPDATE_INSTALLED_VERSION, lang));
                 ui.monospace(env!("CARGO_PKG_VERSION"));
             });
 
@@ -137,9 +137,7 @@ pub fn render_update_check_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
             match &app.update_check_status {
                 None => {
-                    ui.label(
-                        "Kliknij „Sprawdź teraz”, aby porównać z najnowszym wydaniem na GitHub.",
-                    );
+                    ui.label(tr(key::UPDATE_PROMPT, lang));
                 }
                 Some(status) => {
                     ui.label(egui::RichText::new(status).size(13.0));
@@ -163,19 +161,19 @@ pub fn render_update_check_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                if ui.button("🔍 Sprawdź teraz").clicked() {
+                if ui.button(tr(key::UPDATE_CHECK_NOW, lang)).clicked() {
                     app.trigger_update_check();
                 }
                 if app.update_available.is_some()
-                    && ui.button("⬇️ Zainstaluj i uruchom ponownie").clicked()
+                    && ui.button(tr(key::UPDATE_INSTALL_RESTART, lang)).clicked()
                 {
                     do_install = true;
                 }
-                if ui.button("🌐 Otwórz stronę wydań").clicked() {
+                if ui.button(tr(key::UPDATE_RELEASES_PAGE, lang)).clicked() {
                     let _ = open::that("https://github.com/sp6ina/SPLogbook/releases");
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("Zamknij").clicked() {
+                    if ui.button(tr(key::BTN_CLOSE, lang)).clicked() {
                         close_requested = true;
                     }
                 });
