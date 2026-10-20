@@ -3264,9 +3264,10 @@ impl SpLogApp {
         self.cluster_cmd_tx = Some(cmd_tx);
         self.cluster_connecting = true;
         self.cluster_connected = false;
-        let connecting_label =
-            crate::core::i18n::tr_or(self.current_language, "Łączenie z", "Connecting to");
-        self.cluster_status_text = format!("{connecting_label} {host}:{port}...");
+        self.cluster_status_text = Msg::new(key::CLUSTER_CONNECTING_TO)
+            .arg("host", &host)
+            .arg("port", port)
+            .text(self.current_language);
 
         tokio::spawn(async move {
             crate::cluster::telnet::DxClusterClient::run_with_events_and_commands(
@@ -3289,12 +3290,7 @@ impl SpLogApp {
         self.cluster_cmd_tx = None;
         self.cluster_connected = false;
         self.cluster_connecting = false;
-        self.cluster_status_text = crate::core::i18n::tr_or(
-            self.current_language,
-            "Rozłączono z klastrem DX.",
-            "Disconnected from DX Cluster.",
-        )
-        .to_string();
+        self.cluster_status_text = tr(key::CLUSTER_DISCONNECTED, self.current_language).to_string();
     }
 
     pub fn cat_backend_kind(&self) -> crate::cat::backend::CatBackendKind {
@@ -3839,12 +3835,7 @@ impl SpLogApp {
             }
         });
 
-        let start_msg = crate::core::i18n::tr_or(
-            lang,
-            "⏳ Pobieranie aktualizacji baz online (cty.dat, MASTER.SCP, LoTW)...",
-            "⏳ Downloading online database updates (cty.dat, MASTER.SCP, LoTW)...",
-        )
-        .to_string();
+        let start_msg = tr(key::UPDATER_DOWNLOADING_DATABASES, lang).to_string();
         self.status_message = Some(start_msg.clone());
         self.status_toast = Some((start_msg, std::time::Instant::now()));
     }
@@ -5069,41 +5060,22 @@ impl eframe::App for SpLogApp {
                 ui.vertical_centered(|ui| {
                     ui.add_space(60.0);
                     ui.heading(
-                        egui::RichText::new(crate::core::i18n::tr_or(
-                            lang,
-                            "📻 Tryb Kompaktowy (Mini HUD)",
-                            "📻 Compact Mode (Mini HUD)",
-                        ))
-                        .size(22.0)
-                        .color(palette.accent),
+                        egui::RichText::new(tr(key::APP_COMPACT_HUD_HEADING, lang))
+                            .size(22.0)
+                            .color(palette.accent),
                     );
                     ui.add_space(8.0);
+                    ui.label(egui::RichText::new(tr(key::APP_COMPACT_HUD_DESC1, lang)).size(14.0));
                     ui.label(
-                        egui::RichText::new(crate::core::i18n::tr_or(
-                            lang,
-                            "Kompaktowe okno operacyjne VFO + QSO jest aktywne na pulpicie.",
-                            "Compact VFO + QSO operating bar is active on the desktop.",
-                        ))
-                        .size(14.0),
-                    );
-                    ui.label(
-                        egui::RichText::new(crate::core::i18n::tr_or(
-                            lang,
-                            "Możesz swobodnie pracować w innych programach (np. FT8/JTDX/przeglądarka) z minimalistycznym oknem SPLogbook.",
-                            "You can work comfortably alongside external applications (FT8/JTDX/browser) with the minimal SPLogbook bar.",
-                        ))
-                        .color(palette.text_muted),
+                        egui::RichText::new(tr(key::APP_COMPACT_HUD_DESC2, lang))
+                            .color(palette.text_muted),
                     );
                     ui.add_space(16.0);
                     if ui
                         .button(
-                            egui::RichText::new(crate::core::i18n::tr_or(
-                                lang,
-                                "🗗 Powrót do pełnego pulpitu roboczego",
-                                "🗗 Return to Full Workspace",
-                            ))
-                            .size(14.0)
-                            .strong(),
+                            egui::RichText::new(tr(key::APP_COMPACT_HUD_RETURN, lang))
+                                .size(14.0)
+                                .strong(),
                         )
                         .clicked()
                     {
@@ -5125,34 +5097,25 @@ impl eframe::App for SpLogApp {
                 if total_visible == 0 {
                     ui.vertical_centered(|ui| {
                         ui.add_space(80.0);
-                        ui.heading(egui::RichText::new("📻 SPLogbook Workspace").size(26.0).color(palette.accent));
+                        ui.heading(
+                            egui::RichText::new("📻 SPLogbook Workspace")
+                                .size(26.0)
+                                .color(palette.accent),
+                        );
                         ui.add_space(8.0);
                         ui.label(
-                            egui::RichText::new(crate::core::i18n::tr_or(
-                                lang,
-                                "Wszystkie kafelki modułów są obecnie zamknięte.",
-                                "All workspace panels are currently hidden.",
-                            ))
-                            .size(14.0),
+                            egui::RichText::new(tr(key::APP_EMPTY_TILES_TITLE, lang)).size(14.0),
                         );
                         ui.label(
-                            egui::RichText::new(crate::core::i18n::tr_or(
-                                lang,
-                                "Możesz w każdej chwili przywrócić domyślny układ lub włączyć wybrane moduły z menu 'Widok'.",
-                                "You can restore the default layout at any time or enable individual panels from the 'View' menu.",
-                            ))
-                            .color(palette.text_muted),
+                            egui::RichText::new(tr(key::APP_EMPTY_TILES_DESC, lang))
+                                .color(palette.text_muted),
                         );
                         ui.add_space(16.0);
                         if ui
                             .button(
-                                egui::RichText::new(crate::core::i18n::tr_or(
-                                    lang,
-                                    "🔄 Przywróć optymalny układ kafelków",
-                                    "🔄 Restore Optimal Workspace Layout",
-                                ))
-                                .size(15.0)
-                                .strong(),
+                                egui::RichText::new(tr(key::APP_EMPTY_TILES_RESTORE_BTN, lang))
+                                    .size(15.0)
+                                    .strong(),
                             )
                             .clicked()
                         {
@@ -5167,7 +5130,8 @@ impl eframe::App for SpLogApp {
                     // Tymczasowo wyjmij `dock_state`, aby uniknąć konfliktu pożyczek:
                     // `DockArea` potrzebuje `&mut dock_state`, a `TabViewer` (self)
                     // potrzebuje `&mut self`. Po renderze przywracamy stan.
-                    let mut dock_state = std::mem::replace(&mut self.dock_state, DockState::new(vec![]));
+                    let mut dock_state =
+                        std::mem::replace(&mut self.dock_state, DockState::new(vec![]));
                     DockArea::new(&mut dock_state)
                         .style(Style::from_egui(ui.style().as_ref()))
                         .show_add_buttons(false)
@@ -5196,31 +5160,19 @@ impl eframe::App for SpLogApp {
                         ui.horizontal(|ui| {
                             if ui
                                 .button(
-                                    egui::RichText::new(crate::core::i18n::tr_or(
-                                        lang,
-                                        "🔄 Przywróć optymalny układ",
-                                        "🔄 Reset Layout",
-                                    ))
-                                    .size(11.0),
+                                    egui::RichText::new(tr(key::APP_RESTORE_LAYOUT_BTN, lang))
+                                        .size(11.0),
                                 )
-                                .on_hover_text(crate::core::i18n::tr_or(
-                                    lang,
-                                    "Ustawia domyślne, ergonomiczne rozmieszczenie wszystkich otwartych kafelków",
-                                    "Restores default ergonomic arrangement of all workspace panels",
-                                ))
+                                .on_hover_text(tr(key::APP_RESTORE_LAYOUT_TOOLTIP, lang))
                                 .clicked()
                             {
                                 self.reset_panel_layout();
                                 self.save_station_config();
                             }
                             ui.label(
-                                egui::RichText::new(crate::core::i18n::tr_or(
-                                    lang,
-                                    "SPLogbook • Przeciągaj karty za nagłówek • Zmieniaj rozmiar za krawędzie • Podział prawym przyciskiem",
-                                    "SPLogbook • Drag tabs by header • Resize borders • Right-click to split",
-                                ))
-                                .size(11.0)
-                                .color(palette.text_subtle),
+                                egui::RichText::new(tr(key::APP_DOCK_HINT, lang))
+                                    .size(11.0)
+                                    .color(palette.text_subtle),
                             );
                         });
                     });
@@ -5481,76 +5433,67 @@ impl eframe::App for SpLogApp {
                 .show(ctx, |ui| {
                     let palette = ui.palette();
                     ui.vertical_centered(|ui| {
-                        ui.heading(egui::RichText::new("📻 SPLogbook").size(24.0).color(palette.accent));
+                        ui.heading(
+                            egui::RichText::new("📻 SPLogbook")
+                                .size(24.0)
+                                .color(palette.accent),
+                        );
                         ui.label(
-                            egui::RichText::new(crate::core::i18n::tr_or(
-                                lang,
-                                "Zaawansowany Dziennik Krótkofalarski",
-                                "Advanced Amateur Radio Logbook & Station Suite",
-                            ))
-                            .size(14.0)
-                            .strong(),
+                            egui::RichText::new(tr(key::APP_ABOUT_SUBTITLE, lang))
+                                .size(14.0)
+                                .strong(),
                         );
                         ui.add_space(8.0);
                         ui.label(
-                            egui::RichText::new(crate::core::i18n::tr_or(
-                                lang,
-                                "Autor: Mariusz Woźniak (SP6INA)",
-                                "Author: Mariusz Woźniak (SP6INA)",
-                            ))
-                            .size(13.0)
-                            .strong()
-                            .color(palette.warning),
+                            egui::RichText::new(tr(key::APP_ABOUT_AUTHOR, lang))
+                                .size(13.0)
+                                .strong()
+                                .color(palette.warning),
                         );
-                        ui.label(egui::RichText::new("E-mail: contact@splogbook.org").size(12.0).color(palette.accent));
-                        ui.label(crate::core::i18n::tr_or(
-                            lang,
-                            "Licencja: GNU General Public License v3.0 (GPL-3.0-or-later)",
-                            "License: GNU General Public License v3.0 (GPL-3.0-or-later)",
-                        ));
+                        ui.label(
+                            egui::RichText::new("E-mail: contact@splogbook.org")
+                                .size(12.0)
+                                .color(palette.accent),
+                        );
+                        ui.label(tr(key::APP_LICENSE, lang));
                         ui.add_space(12.0);
-                        ui.label(crate::core::i18n::tr_or(
-                            lang,
-                            "Natywna, nowoczesna aplikacja okienkowa dla stacji krótkofalarskich.",
-                            "Native, high-performance desktop application for amateur radio stations.",
-                        ));
-                        ui.label(crate::core::i18n::tr_or(
-                            lang,
-                            "Pełna integracja z Hamlib 4.7+, TCI, rotctld, WSJT-X, NOAA, QRZ, HamQTH, eQSL, LoTW i Club Log.",
-                            "Full integration with Hamlib 4.7+, TCI, rotctld, WSJT-X, NOAA, QRZ, HamQTH, eQSL, LoTW, and Club Log.",
-                        ));
+                        ui.label(tr(key::APP_ABOUT_DESC1, lang));
+                        ui.label(tr(key::APP_ABOUT_DESC2, lang));
                         ui.add_space(10.0);
-                        let diag_label = crate::core::i18n::tr_or(lang, "🩺 Diagnostyka", "🩺 Diagnostics");
+                        let diag_label = tr(key::APP_ABOUT_DIAGNOSTICS, lang);
                         egui::CollapsingHeader::new(diag_label).show(ui, |ui| {
                             ui.horizontal(|ui| {
-                                ui.label(crate::core::i18n::tr_or(lang, "Wersja:", "Version:"));
+                                ui.label(tr(key::APP_DIAG_VERSION, lang));
                                 ui.monospace(env!("CARGO_PKG_VERSION"));
                             });
                             ui.horizontal(|ui| {
-                                ui.label(crate::core::i18n::tr_or(lang, "Platforma:", "Platform:"));
+                                ui.label(tr(key::APP_DIAG_PLATFORM, lang));
                                 ui.monospace(std::env::consts::OS);
                             });
                             ui.horizontal(|ui| {
-                                ui.label(crate::core::i18n::tr_or(lang, "Architektura:", "Architecture:"));
+                                ui.label(tr(key::APP_DIAG_ARCH, lang));
                                 ui.monospace(std::env::consts::ARCH);
                             });
                             ui.horizontal(|ui| {
-                                ui.label(crate::core::i18n::tr_or(lang, "Motyw:", "Theme:"));
+                                ui.label(tr(key::APP_DIAG_THEME, lang));
                                 ui.monospace(self.theme_preset.id());
                             });
                             ui.horizontal(|ui| {
-                                ui.label(crate::core::i18n::tr_or(lang, "Katalog danych:", "Data directory:"));
-                                ui.monospace(self.config_file_path.parent().map(|p| p.display().to_string()).unwrap_or_default());
+                                ui.label(tr(key::APP_DIAG_DATA_DIR, lang));
+                                ui.monospace(
+                                    self.config_file_path
+                                        .parent()
+                                        .map(|p| p.display().to_string())
+                                        .unwrap_or_default(),
+                                );
                             });
-                            let copy_diag = crate::core::i18n::tr_or(
-                                lang,
-                                "📋 Kopiuj dane diagnostyczne",
-                                "📋 Copy Diagnostic Info",
-                            );
+                            let copy_diag = tr(key::APP_DIAG_COPY_BTN, lang);
                             if ui.button(copy_diag).clicked() {
                                 let info = format!(
                                     "SPLogbook {} | OS: {} {} | Theme: {} | Config: {}",
-                                    env!("CARGO_PKG_VERSION"), std::env::consts::OS, std::env::consts::ARCH,
+                                    env!("CARGO_PKG_VERSION"),
+                                    std::env::consts::OS,
+                                    std::env::consts::ARCH,
                                     self.theme_preset.id(),
                                     self.config_file_path.display()
                                 );
@@ -5740,13 +5683,9 @@ impl eframe::App for SpLogApp {
                     let palette = ui.palette();
                     egui::ScrollArea::vertical().show(ui, |ui| {
                         ui.label(
-                            egui::RichText::new(crate::core::i18n::tr_or(
-                                lang,
-                                "Każdy status jest oznaczony kolorem ORAZ symbolem/kształtem, aby był czytelny także dla osób z zaburzeniami widzenia barw.",
-                                "Every status indicator uses both color AND a distinct symbol/shape so it remains accessible for users with color vision deficiency.",
-                            ))
-                            .italics()
-                            .color(palette.text_muted),
+                            egui::RichText::new(tr(key::APP_COLORBLIND_NOTE, lang))
+                                .italics()
+                                .color(palette.text_muted),
                         );
 
                         ui.add_space(8.0);

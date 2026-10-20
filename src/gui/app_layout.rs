@@ -347,11 +347,7 @@ impl SpLogApp {
             "solar" => icons::SOLAR.label(tr(key::SOLAR_TITLE, lang)),
             "satellites" => icons::SATELLITE.label(tr(key::SAT_TITLE, lang)),
             "world_map" => icons::WORLD_MAP.label(tr(key::MAP_WORLD_TITLE, lang)),
-            "waterfall" => icons::SIGNAL_UP.label(crate::core::i18n::tr_or(
-                lang,
-                "WIDMO / WATERFALL (SDR)",
-                "SPECTRUM / WATERFALL (SDR)",
-            )),
+            "waterfall" => icons::SIGNAL_UP.label(tr(key::VIEW_PANEL_WATERFALL, lang)),
             _ => tile_id.to_string(),
         }
     }
@@ -430,14 +426,10 @@ impl SpLogApp {
                     );
                 } else if self.cluster_connecting {
                     ui.label(
-                        egui::RichText::new(crate::core::i18n::tr_or(
-                            lang,
-                            "● ŁĄCZENIE...",
-                            "● CONNECTING...",
-                        ))
-                        .color(palette.warning)
-                        .size(10.0)
-                        .strong(),
+                        egui::RichText::new(tr(key::CLUSTER_STATUS_CONNECTING, lang))
+                            .color(palette.warning)
+                            .size(10.0)
+                            .strong(),
                     );
                 } else {
                     ui.label(
@@ -452,11 +444,7 @@ impl SpLogApp {
                             .strong()
                             .color(palette.accent),
                     )
-                    .on_hover_text(crate::core::i18n::tr_or(
-                        lang,
-                        "Wyślij spot DX do klastra Telnet",
-                        "Send DX spot to Telnet cluster",
-                    ))
+                    .on_hover_text(tr(key::CLUSTER_SEND_SPOT_TOOLTIP, lang))
                     .clicked()
                 {
                     let freq_khz = self.rig_state.frequency_hz as f64 / 1000.0;
