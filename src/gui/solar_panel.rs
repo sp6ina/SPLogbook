@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::cloud::solar::BandCondition;
-use crate::core::i18n::{key, tr, tr_or};
+use crate::core::i18n::{key, tr};
 use crate::gui::app::SpLogApp;
 use crate::gui::text_sparkline;
 use crate::gui::theme::ThemeExt;
@@ -147,10 +147,10 @@ pub fn render_solar_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if app.solar_loading {
                 ui.spinner();
-                ui.label(tr_or(lang, "Pobieranie...", "Fetching..."));
+                ui.label(tr(key::SOLAR_FETCHING, lang));
             } else {
                 let ctx = ui.ctx().clone();
-                if ui.button(tr_or(lang, "🔄 Odśwież", "🔄 Refresh")).clicked() {
+                if ui.button(tr(key::SOLAR_BTN_REFRESH, lang)).clicked() {
                     app.refresh_solar_weather(&ctx);
                 }
             }
@@ -280,13 +280,9 @@ pub fn render_solar_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     ui.separator();
     ui.horizontal(|ui| {
         ui.label(
-            egui::RichText::new(tr_or(
-                lang,
-                "📊 Przewidywane otwarcie pasm DX (VOACAP-lite):",
-                "📊 Predicted DX band openings (VOACAP-lite):",
-            ))
-            .small()
-            .color(palette.text_muted),
+            egui::RichText::new(tr(key::SOLAR_PREDICTED_OPENINGS, lang))
+                .small()
+                .color(palette.text_muted),
         );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             crate::gui::user_manual::help_button(app, ui, "propagation");

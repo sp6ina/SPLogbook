@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::cluster::telnet::{CLUSTER_PRESETS, DxSpot};
-use crate::core::i18n::{key, tr};
+use crate::core::i18n::{Msg, key, tr};
 use crate::gui::app::SpLogApp;
 use crate::gui::theme::ThemeExt;
 use eframe::egui;
@@ -426,9 +426,9 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     // Pasek narzędziowy: Przełącznik bocznego panelu filtrów, Alerty, Czyszczenie
     ui.horizontal(|ui| {
         let filter_btn_text = if app.cluster_show_filter_sidebar {
-            crate::core::i18n::tr_or(lang, "◀ Ukryj Filtry", "◀ Hide Filters")
+            tr(key::CLUSTER_HIDE_FILTERS, lang)
         } else {
-            crate::core::i18n::tr_or(lang, "🔍 Panel Filtrów", "🔍 Filter Panel")
+            tr(key::CLUSTER_SHOW_FILTERS, lang)
         };
         if ui
             .selectable_label(app.cluster_show_filter_sidebar, filter_btn_text)
@@ -446,15 +446,11 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             } else {
                 "🔕 Alert OFF"
             })
-            .on_hover_text(format!(
-                "{} (K-index ≥ {}).",
-                crate::core::i18n::tr_or(
-                    lang,
-                    "Alert przy nowym DXCC/IOTA",
-                    "Audio alert on new DXCC/IOTA"
-                ),
-                app.band_alert_k_index_threshold
-            ))
+            .on_hover_text(
+                Msg::new(key::CLUSTER_ALERT_TOOLTIP)
+                    .arg("threshold", app.band_alert_k_index_threshold)
+                    .text(lang),
+            )
             .clicked()
         {
             app.band_alert_enabled = !app.band_alert_enabled;

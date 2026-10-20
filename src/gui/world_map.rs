@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::core::geo::{Coordinates, calculate_solar_position, locator_to_coordinates};
-use crate::core::i18n::{key, tr};
+use crate::core::i18n::{Msg, key, tr};
 use crate::gui::app::SpLogApp;
 use crate::gui::theme::{ColorExt, ThemeExt};
 use eframe::egui;
@@ -450,25 +450,23 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
             if let Some(dx_c) = dx_coords {
                 let dx_solar = calculate_solar_position(dx_c, day_of_year, utc_hour_f64);
                 ui.separator();
-                let az_label = crate::core::i18n::tr_or(lang, "Azymut", "Azimuth");
-                let rot_label = crate::core::i18n::tr_or(lang, "Obróć", "Rotate");
                 ui.label(
-                    egui::RichText::new(format!(
-                        "DX: {} | {}: {:.0}°",
-                        app.active_distance_display(),
-                        az_label,
-                        app.active_bearing_deg
-                    ))
+                    egui::RichText::new(
+                        Msg::new(key::MAP_DX_AZIMUTH)
+                            .arg("dist", app.active_distance_display())
+                            .arg("bearing", format!("{:.0}", app.active_bearing_deg))
+                            .text(lang),
+                    )
                     .strong()
                     .size(11.0),
                 );
                 if ui
-                    .small_button(format!("🔄 {rot_label} ({:.0}°)", app.active_bearing_deg))
-                    .on_hover_text(crate::core::i18n::tr_or(
-                        lang,
-                        "Ustawia rotor antenowy na azymut korespondenta przez rotctld",
-                        "Turns antenna rotator to correspondent's azimuth via rotctld",
-                    ))
+                    .small_button(
+                        Msg::new(key::QSO_ROTATE_BEARING)
+                            .arg("bearing", format!("{:.0}", app.active_bearing_deg))
+                            .text(lang),
+                    )
+                    .on_hover_text(tr(key::MAP_ROTOR_TOOLTIP, lang))
                     .clicked()
                 {
                     app.rotate_antenna_to(app.active_bearing_deg as f32);

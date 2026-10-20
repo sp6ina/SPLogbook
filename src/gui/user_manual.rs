@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 // Wbudowany podręcznik użytkownika (Instrukcja obsługi).
 
+use crate::core::i18n::{key, tr};
 use crate::gui::app::SpLogApp;
 use crate::gui::theme::{ColorExt, ThemeExt};
 use eframe::egui;
@@ -488,11 +489,7 @@ fn active_sections(lang: crate::core::i18n::Language) -> &'static [ManualSection
 
 /// Kontekstowa ikona pomocy „?” — otwiera podręcznik na wskazanej sekcji.
 pub fn help_button(app: &mut SpLogApp, ui: &mut egui::Ui, section: &'static str) {
-    let tip = crate::core::i18n::tr_or(
-        app.current_language,
-        "Pomoc — otwórz podręcznik na tej sekcji",
-        "Help — open User Manual at this section",
-    );
+    let tip = tr(key::MANUAL_HELP_BUTTON_TOOLTIP, app.current_language);
     if ui.small_button("?").on_hover_text(tip).clicked() {
         app.show_user_manual = true;
         app.manual_section = Some(section.to_string());
@@ -527,11 +524,7 @@ pub fn render_user_manual_window(app: &mut SpLogApp, ctx: &egui::Context) {
     let default_w = 860.0_f32.min(max_w);
     let default_h = 560.0_f32.min(max_h);
 
-    let win_title = crate::core::i18n::tr_or(
-        lang,
-        "📖 Instrukcja obsługi i podręcznik użytkownika",
-        "📖 User Manual & Operator Guide",
-    );
+    let win_title = tr(key::MANUAL_WINDOW_TITLE, lang);
 
     let search_id = egui::Id::new("user_manual_search_filter");
     let mut search_query: String = ctx.data_mut(|d| d.get_temp(search_id).unwrap_or_default());
@@ -552,11 +545,7 @@ pub fn render_user_manual_window(app: &mut SpLogApp, ctx: &egui::Context) {
             // Górny pasek nawigacji i wyszukiwarki
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new("🔍").size(13.0).color(palette.accent));
-                let hint = crate::core::i18n::tr_or(
-                    lang,
-                    "Szukaj w podręczniku (np. CAT, WSJT-X, skróty)...",
-                    "Search manual (e.g. CAT, WSJT-X, shortcuts)...",
-                );
+                let hint = tr(key::MANUAL_SEARCH_HINT, lang);
                 ui.add(
                     egui::TextEdit::singleline(&mut search_query)
                         .hint_text(hint)
@@ -565,14 +554,14 @@ pub fn render_user_manual_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 if !search_query.is_empty()
                     && ui
                         .small_button("✕")
-                        .on_hover_text(crate::core::i18n::tr_or(lang, "Wyczyść", "Clear"))
+                        .on_hover_text(tr(key::BTN_CLEAR, lang))
                         .clicked()
                 {
                     search_query.clear();
                 }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let next_label = crate::core::i18n::tr_or(lang, "Następny ▶", "Next ▶");
+                    let next_label = tr(key::MANUAL_BTN_NEXT, lang);
                     if ui
                         .add_enabled(
                             new_selected + 1 < sections.len(),
@@ -587,7 +576,7 @@ pub fn render_user_manual_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             .size(11.5)
                             .color(palette.text_muted),
                     );
-                    let prev_label = crate::core::i18n::tr_or(lang, "◀ Poprzedni", "◀ Prev");
+                    let prev_label = tr(key::MANUAL_BTN_PREV, lang);
                     if ui
                         .add_enabled(new_selected > 0, egui::Button::new(prev_label))
                         .clicked()
@@ -737,16 +726,8 @@ pub fn render_user_manual_window(app: &mut SpLogApp, ctx: &egui::Context) {
             ui.add_space(6.0);
             ui.separator();
             ui.horizontal(|ui| {
-                let open_dir_label = crate::core::i18n::tr_or(
-                    lang,
-                    "📁 Otwórz katalog danych programu",
-                    "📁 Open Data Directory",
-                );
-                let open_dir_tip = crate::core::i18n::tr_or(
-                    lang,
-                    "Otwiera folder z bazą danych i plikami konfiguracyjnymi",
-                    "Opens folder containing database and station configuration files",
-                );
+                let open_dir_label = tr(key::MANUAL_BTN_OPEN_DATA_DIR, lang);
+                let open_dir_tip = tr(key::MANUAL_OPEN_DATA_DIR_TOOLTIP, lang);
                 if ui
                     .button(open_dir_label)
                     .on_hover_text(open_dir_tip)
@@ -756,17 +737,12 @@ pub fn render_user_manual_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         let _ = open::that(parent);
                     }
                 }
-                let issue_label = crate::core::i18n::tr_or(
-                    lang,
-                    "🌐 Zgłoś uwagę lub błąd na GitHubie",
-                    "🌐 Report Issue on GitHub",
-                );
+                let issue_label = tr(key::MANUAL_BTN_REPORT_ISSUE, lang);
                 if ui.button(issue_label).clicked() {
                     let _ = open::that("https://github.com/sp6ina/SPLogbook/issues/new");
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let close_label =
-                        crate::core::i18n::tr_or(lang, "Zamknij (Esc)", "Close (Esc)");
+                    let close_label = tr(key::MANUAL_BTN_CLOSE_ESC, lang);
                     if ui.button(close_label).clicked() {
                         close_requested = true;
                     }

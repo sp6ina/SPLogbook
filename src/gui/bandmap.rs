@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::core::bandplan::{AMATEUR_BANDS, SegmentMode, get_band_by_freq, get_band_by_name};
-use crate::core::i18n::{key, tr, tr_or};
+use crate::core::i18n::{key, tr};
 use crate::gui::app::SpLogApp;
 use crate::gui::theme::ThemeExt;
 use eframe::egui;
@@ -185,13 +185,9 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
         );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.label(
-                egui::RichText::new(tr_or(
-                    lang,
-                    "🔴 ATNO  🟠 Nowe Pasmo  🟢 Zaliczony",
-                    "🔴 ATNO  🟠 New Band  🟢 Worked",
-                ))
-                .size(11.0)
-                .color(palette.text_muted),
+                egui::RichText::new(tr(key::BANDMAP_LEGEND_STATUS, lang))
+                    .size(11.0)
+                    .color(palette.text_muted),
             );
         });
     });
@@ -383,14 +379,7 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
     // 5. Lista aktywnych stacji na wybranym paśmie z funkcją natychmiastowego QSY
     ui.add_space(8.0);
-    ui.label(
-        egui::RichText::new(tr_or(
-            lang,
-            "🎯 Aktywne stacje na paśmie (Kliknij, aby nastroić VFO):",
-            "🎯 Active stations on band (Click to tune VFO):",
-        ))
-        .strong(),
-    );
+    ui.label(egui::RichText::new(tr(key::BANDMAP_ACTIVE_STATIONS_HEADING, lang)).strong());
 
     let mut tune_target: Option<(u64, String)> = None;
 
@@ -406,7 +395,7 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     ui.label(egui::RichText::new(tr(key::CLUSTER_FREQ, lang)).strong());
                     ui.label(egui::RichText::new(tr(key::CLUSTER_COMMENT, lang)).strong());
                     ui.label(egui::RichText::new(tr(key::CLUSTER_TIME, lang)).strong());
-                    ui.label(egui::RichText::new(tr_or(lang, "Dostrój", "Tune")).strong());
+                    ui.label(egui::RichText::new(tr(key::BANDMAP_COL_TUNE, lang)).strong());
                     ui.end_row();
 
                     for spot in &app.cluster_spots {
