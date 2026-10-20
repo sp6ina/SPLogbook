@@ -7,11 +7,6 @@
 use std::fs;
 use std::path::Path;
 
-/// Pliki oczekujące na migrację w kolejnych krokach THEME-3 do THEME-7.
-/// Każdy oczyszczony plik jest usuwany z tej listy w commicie danej migracji.
-/// Po ukończeniu THEME-8 lista musi być pusta.
-const PENDING_FILES: &[&str] = &[];
-
 const FORBIDDEN_CONSTRUCTORS: &[&str] = &[
     "Color32::from_rgb",
     "Color32::from_rgba",
@@ -66,12 +61,6 @@ fn test_theme_guard_no_forbidden_colors() {
     for file_path in &files {
         // Dozwolony katalog centralnego motywu
         if file_path.contains("/theme/") || file_path.ends_with("/theme.rs") {
-            continue;
-        }
-
-        // Pliki oczekujące na migrację w kolejnych fazach
-        let rel_path = file_path.trim_start_matches("./");
-        if PENDING_FILES.contains(&rel_path) {
             continue;
         }
 
@@ -144,17 +133,6 @@ fn test_theme_guard_no_forbidden_colors() {
         panic!(
             "Znaleziono {} naruszeń centralnej palety kolorów! Skonwertuj użycia na tokeny z ctx.palette() lub ui.palette().",
             violations.len()
-        );
-    }
-}
-
-#[test]
-fn test_theme_guard_pending_files_exist() {
-    for pending in PENDING_FILES {
-        let p = Path::new(pending);
-        assert!(
-            p.exists(),
-            "Plik na liście PENDING_FILES nie istnieje: {pending}"
         );
     }
 }

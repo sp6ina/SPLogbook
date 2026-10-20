@@ -110,4 +110,4 @@ Plik `tests/theme_guard.rs` implementuje statyczny audyt kodu w ramach zestawu t
 4. Weryfikuje zakaz nazwanych stałych (`Color32::WHITE`, `Color32::BLACK`, `Color32::RED` itp.).
 5. Weryfikuje zakaz lokalnych stałych `const LIGHT_*` i `const DARK_*`.
 6. Dopuszcza strukturalny moduł `mod qsl_colors` wewnątrz `qsl_designer.rs`.
-7. Wymusza pustą listę `PENDING_FILES` — każda próba wprowadzenia surowego koloru poza modułem motywu zakończy się błędem kompilacji i asercją testu `test_theme_guard_no_forbidden_colors`.
+7. Bezwarunkowo skanuje wszystkie pliki `src/gui/` bez listy pominięć — każda próba wprowadzenia surowego koloru poza modułem motywu zakończy się błędem kompilacji i asercją testu `test_theme_guard_no_forbidden_colors`.
