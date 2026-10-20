@@ -763,3 +763,218 @@ fn test_i18n_pending_modules_exist() {
         );
     }
 }
+
+/// Dopuszczalne wyjątki dla tekstów identycznych między językiem angielskim a pozostałymi.
+/// Ograniczone do maksymalnie 40 pozycji, wyłącznie dla nazw własnych, skrótów technicznych i jednostek.
+const IDENTICAL_ALLOWED: &[(&str, &str)] = &[
+    ("app.author", "Nazwisko autora programu i znak krótkofalarski"),
+    ("app.name", "Nazwa własna programu komputerowego"),
+    ("awards.tab_dxcc", "Międzynarodowa nazwa własna dyplomu DX Century Club"),
+    ("awards.total_qsos_count", "Zmienna z uniwersalnym skrótem łączności krótkofalarskiej"),
+    ("cat_settings.backend_flrig", "Nazwa oprogramowania zewnętrznego i protokołu XML-RPC"),
+    ("cat_settings.backend_hamlib", "Nazwa biblioteki zewnętrznej i demona rigctld"),
+    ("cat_settings.backend_tci", "Nazwa protokołu sieciowego i linii urządzeń SDR"),
+    ("cat_settings.cap_rit", "Uniwersalne międzynarodowe skróty radiowe RIT/XIT"),
+    ("cmd.psk_reporter", "Nazwa własna globalnego serwisu PSK Reporter"),
+    ("cw.macro_f1_label", "Klawisz funkcyjny i międzynarodowe wywołanie ogólne CQ"),
+    ("cw.macro_f3_label", "Klawisz funkcyjny i międzynarodowe telegraficzne kody pożegnalne TU/73"),
+    ("hud.window_title", "Nazwa programu i skrót techniczny Head-Up Display"),
+    ("statusbar.utc", "Uniwersalny standard czasu koordynowanego UTC"),
+    ("sync.tab_cloudlog", "Nazwa własna usługi Cloudlog i protokół REST API"),
+    ("sync.tab_clublog", "Nazwa własna serwisu Club Log i terminologia klastra"),
+    ("sync.tab_hamqth", "Nazwa własna serwisu HamQTH i znak założyciela OK1RR"),
+    ("sync.tab_hrdlog", "Nazwa domenowa serwisu HRDLog.net"),
+    ("sync.tab_lotw", "Nazwa własna usługi ARRL Logbook of the World"),
+    ("sync.tab_psk_reporter", "Nazwa własna serwisu PSK Reporter i adres URL"),
+    ("sync.tab_qrz", "Nazwa własna i domena internetowa serwisu QRZ.COM"),
+    ("tab.vfo", "Międzynarodowe skróty radiotechniczne VFO / CAT"),
+    ("toolbar.lotw", "Międzynarodowy skrót usługi Logbook of the World"),
+    ("toolbar.vfo", "Uniwersalny skrót Variable Frequency Oscillator"),
+    ("wspr.col_snr", "Naukowe oznaczenie stosunku sygnału do szumu SNR i jednostka decybeli dB"),
+];
+
+#[test]
+fn identical_allowed_is_bounded() {
+    assert!(
+        IDENTICAL_ALLOWED.len() <= 40,
+        "IDENTICAL_ALLOWED przekracza dopuszczalny limit 40 pozycji: {}",
+        IDENTICAL_ALLOWED.len()
+    );
+}
+
+#[test]
+fn identical_allowed_entries_are_used() {
+    let locales_dir = Path::new("locales");
+    let en_path = locales_dir.join("en.json");
+    let en_content = fs::read_to_string(&en_path).unwrap();
+    let en_json: serde_json::Value = serde_json::from_str(&en_content).unwrap();
+    let en_map = en_json.as_object().unwrap();
+
+    let mut non_en_maps = Vec::new();
+    for &lang in &["de", "fr", "es", "it", "ru"] {
+        let p = locales_dir.join(format!("{lang}.json"));
+        let c = fs::read_to_string(&p).unwrap();
+        let j: serde_json::Value = serde_json::from_str(&c).unwrap();
+        non_en_maps.push((lang, j.as_object().unwrap().clone()));
+    }
+
+    for &(key, reason) in IDENTICAL_ALLOWED {
+        assert!(
+            !reason.trim().is_empty(),
+            "Wpis '{key}' w IDENTICAL_ALLOWED musi posiadać uzasadnienie"
+        );
+        let en_val = en_map.get(key).unwrap_or_else(|| {
+            panic!("Wpis '{key}' z IDENTICAL_ALLOWED nie istnieje w en.json");
+        });
+
+        let mut matches_any = false;
+        for (_lang, map) in &non_en_maps {
+            if let Some(val) = map.get(key) {
+                if val == en_val {
+                    matches_any = true;
+                    break;
+                }
+            }
+        }
+        assert!(
+            matches_any,
+            "Wpis '{key}' w IDENTICAL_ALLOWED nie jest identyczny z EN w żadnym z języków nieangielskich"
+        );
+    }
+}
+
+#[test]
+fn translations_are_not_english_copies() {
+    let locales_dir = Path::new("locales");
+    let en_path = locales_dir.join("en.json");
+    let en_content = fs::read_to_string(&en_path).unwrap();
+    let en_json: serde_json::Value = serde_json::from_str(&en_content).unwrap();
+    let en_map = en_json.as_object().unwrap();
+
+    let allowed_keys: BTreeSet<&str> = IDENTICAL_ALLOWED.iter().map(|(k, _)| *k).collect();
+
+    let mut violations = Vec::new();
+
+    for &lang in &["de", "fr", "es", "it", "ru"] {
+        let p = locales_dir.join(format!("{lang}.json"));
+        let c = fs::read_to_string(&p).unwrap();
+        let j: serde_json::Value = serde_json::from_str(&c).unwrap();
+        let map = j.as_object().unwrap();
+
+        for (k, en_val) in en_map {
+            if allowed_keys.contains(k.as_str()) {
+                continue;
+            }
+            if let Some(val) = map.get(k) {
+                if val == en_val {
+                    violations.push((lang, k.clone(), val.as_str().unwrap().to_string()));
+                }
+            }
+        }
+    }
+
+    if !violations.is_empty() {
+        let mut msg = format!(
+            "Wykryto {} nieprzetłumaczonych kopii języka angielskiego poza IDENTICAL_ALLOWED:\n",
+            violations.len()
+        );
+        for (lang, k, val) in violations {
+            msg.push_str(&format!("  [{lang}] '{k}' == {val:?}\n"));
+        }
+        panic!("{msg}");
+    }
+}
+
+#[test]
+fn all_locales_have_identical_parameter_sets() {
+    let locales_dir = Path::new("locales");
+    let ref_path = locales_dir.join("pl.json");
+    let ref_content = fs::read_to_string(&ref_path).unwrap();
+    let ref_json: serde_json::Value = serde_json::from_str(&ref_content).unwrap();
+    let ref_map = ref_json.as_object().unwrap();
+
+    for &lang in &LANGUAGES {
+        if lang == "pl" {
+            continue;
+        }
+        let p = locales_dir.join(format!("{lang}.json"));
+        let c = fs::read_to_string(&p).unwrap();
+        let j: serde_json::Value = serde_json::from_str(&c).unwrap();
+        let map = j.as_object().unwrap();
+
+        for (k, pl_val) in ref_map {
+            let pl_text = pl_val.as_str().unwrap();
+            let pl_params = extract_params("pl.json", k, pl_text);
+
+            let other_val = map.get(k).unwrap_or_else(|| {
+                panic!("Brak klucza '{k}' w {lang}.json");
+            });
+            let other_text = other_val.as_str().unwrap();
+            let other_params = extract_params(&format!("{lang}.json"), k, other_text);
+
+            assert_eq!(
+                pl_params, other_params,
+                "Rozbieżność parametrów dla klucza '{k}' między pl ({pl_params:?}) a {lang} ({other_params:?})"
+            );
+        }
+    }
+}
+
+#[test]
+fn catalog_has_no_dead_keys() {
+    let locales_dir = Path::new("locales");
+    let pl_path = locales_dir.join("pl.json");
+    let pl_content = fs::read_to_string(&pl_path).unwrap();
+    let pl_json: serde_json::Value = serde_json::from_str(&pl_content).unwrap();
+    let pl_map = pl_json.as_object().unwrap();
+
+    let mut code_files = Vec::new();
+    collect_rs_files(Path::new("src"), &mut code_files);
+    collect_rs_files(Path::new("tests"), &mut code_files);
+
+    let mut combined_sources = String::new();
+    for f in &code_files {
+        if let Ok(c) = fs::read_to_string(f) {
+            combined_sources.push_str(&c);
+            combined_sources.push('\n');
+        }
+    }
+    if let Ok(c) = fs::read_to_string("build.rs") {
+        combined_sources.push_str(&c);
+        combined_sources.push('\n');
+    }
+    if let Ok(c) = fs::read_to_string("README.md") {
+        combined_sources.push_str(&c);
+        combined_sources.push('\n');
+    }
+    if let Ok(c) = fs::read_to_string("locales/README.md") {
+        combined_sources.push_str(&c);
+        combined_sources.push('\n');
+    }
+
+    let mut dead_keys = Vec::new();
+
+    for key in pl_map.keys() {
+        let const_ident = key.replace('.', "_").to_uppercase();
+        let key_literal = format!("\"{key}\"");
+        let const_pattern = format!("::{const_ident}");
+        let const_pattern2 = format!("key::{const_ident}");
+
+        let found = combined_sources.contains(&key_literal)
+            || combined_sources.contains(&const_pattern)
+            || combined_sources.contains(&const_pattern2)
+            || combined_sources.contains(&const_ident);
+
+        if !found {
+            dead_keys.push(key.clone());
+        }
+    }
+
+    if !dead_keys.is_empty() {
+        panic!(
+            "Wykryto {} martwych kluczy w katalogu lokalizacji:\n{:#?}",
+            dead_keys.len(),
+            dead_keys
+        );
+    }
+}
