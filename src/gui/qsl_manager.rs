@@ -116,7 +116,10 @@ impl QslManagerDialog {
                                     egui::RichText::new(tr(key::QSL_MGR_COL_CALLSIGN, lang))
                                         .strong(),
                                 );
-                                ui.label(egui::RichText::new("QSL Manager (Via)").strong());
+                                ui.label(
+                                    egui::RichText::new(tr(key::QSL_MGR_COL_MANAGER, lang))
+                                        .strong(),
+                                );
                                 ui.label(
                                     egui::RichText::new(tr(key::QSL_MGR_COL_PERIOD, lang)).strong(),
                                 );

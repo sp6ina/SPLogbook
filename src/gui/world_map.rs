@@ -431,7 +431,7 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
         // Pasek statusu propagacji i Grayline
         ui.horizontal_wrapped(|ui| {
             ui.label(
-                egui::RichText::new("Grayline:")
+                egui::RichText::new(format!("{}:", tr(key::GEO_GRAYLINE, lang)))
                     .strong()
                     .size(11.0)
                     .color(palette.accent),

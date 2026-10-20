@@ -721,15 +721,15 @@ fn render_tab_sp_dx(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngin
             "SP1", "SP2", "SP3", "SP4", "SP5", "SP6", "SP7", "SP8", "SP9",
         ];
         let district_names = [
-            "Zachodniopomorskie/Lubuskie",
-            "Kujawsko-Pomorskie/Pomorskie",
-            "Wielkopolskie",
-            "Łódzkie",
-            "Mazowieckie",
-            "Dolnośląskie/Opolskie",
-            "Świętokrzyskie/Małopolskie",
-            "Podkarpackie/Lubelskie",
-            "Podlaskie/Warmińsko-Mazurskie",
+            tr(key::AWARDS_DISTRICT_SP1, lang),
+            tr(key::AWARDS_DISTRICT_SP2, lang),
+            tr(key::AWARDS_DISTRICT_SP3, lang),
+            tr(key::AWARDS_DISTRICT_SP4, lang),
+            tr(key::AWARDS_DISTRICT_SP5, lang),
+            tr(key::AWARDS_DISTRICT_SP6, lang),
+            tr(key::AWARDS_DISTRICT_SP7, lang),
+            tr(key::AWARDS_DISTRICT_SP8, lang),
+            tr(key::AWARDS_DISTRICT_SP9, lang),
         ];
 
         egui::ScrollArea::vertical().show(ui, |ui| {

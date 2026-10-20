@@ -123,7 +123,9 @@ impl StatesBrowserDialog {
                                 ui.label(
                                     egui::RichText::new(tr(key::STATES_COL_COUNTRY, lang)).strong(),
                                 );
-                                ui.label(egui::RichText::new("Status").strong());
+                                ui.label(
+                                    egui::RichText::new(tr(key::AWARDS_COL_STATUS, lang)).strong(),
+                                );
                                 ui.label(
                                     egui::RichText::new(tr(key::STATES_COL_ACTION, lang)).strong(),
                                 );

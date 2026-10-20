@@ -91,9 +91,10 @@ impl PhotoViewerDialog {
                 } else {
                     ui.add_space(30.0);
                     ui.label(
-                        egui::RichText::new(
-                            "Brak powiązanego zdjęcia dla tej stacji w QRZ / HamQTH.",
-                        )
+                        egui::RichText::new(crate::core::i18n::tr(
+                            crate::core::i18n::key::PHOTO_NO_PHOTO_FOUND,
+                            lang,
+                        ))
                         .italics()
                         .color(ui.palette().text_muted),
                     );

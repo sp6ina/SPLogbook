@@ -173,3 +173,333 @@ fn catalog_languages_have_identical_keys() {
         }
     }
 }
+
+/// Pliki oczekujące na migrację twardo zakodowanych tekstów w etapie I18N-B2.
+/// Każdy kolejny commit I18N-B2A do I18N-B2E musi zmniejszać tę listę.
+/// W commicie I18N-B6 lista ta zostanie bezwzględnie usunięta.
+const PENDING_FILES: &[&str] = &[
+    "src/gui/advanced_filter.rs",
+    "src/gui/app.rs",
+    "src/gui/app_export.rs",
+    "src/gui/app_layout.rs",
+    "src/gui/cat_settings.rs",
+    "src/gui/changelog.rs",
+    "src/gui/cluster_panel.rs",
+    "src/gui/command_palette.rs",
+    "src/gui/contest.rs",
+    "src/gui/cw_macros.rs",
+    "src/gui/cw_terminal.rs",
+    "src/gui/find_duplicates.rs",
+    "src/gui/logbook_table.rs",
+    "src/gui/marketplace.rs",
+    "src/gui/mini_hud.rs",
+    "src/gui/mod.rs",
+    "src/gui/multi_op_window.rs",
+    "src/gui/online_sync.rs",
+    "src/gui/operator_assistant.rs",
+    "src/gui/plugin_manager.rs",
+    "src/gui/qsl_designer.rs",
+    "src/gui/qso_entry.rs",
+    "src/gui/satellites.rs",
+    "src/gui/sota_dialog.rs",
+    "src/gui/station_ledger.rs",
+    "src/gui/station_profiles.rs",
+    "src/gui/statistics.rs",
+    "src/gui/user_manual.rs",
+    "src/gui/vfo_panel.rs",
+    "src/gui/voice_keyer.rs",
+    "src/gui/waterfall_panel.rs",
+    "src/gui/welcome_wizard.rs",
+    "src/gui/workspace_profiles.rs",
+    "src/gui/wspr_panel.rs",
+];
+
+const ALLOWED_EXACT_TOKENS: &[&str] = &[
+    "",
+    " ",
+    "-",
+    "+",
+    "...",
+    "?",
+    "✓",
+    "●",
+    "○",
+    "■",
+    "▶",
+    "◀",
+    "✕",
+    "|",
+    "·",
+    "CW",
+    "SSB",
+    "AM",
+    "FM",
+    "RTTY",
+    "FT8",
+    "FT4",
+    "PSK31",
+    "JT65",
+    "JT9",
+    "Q65",
+    "MSK144",
+    "160m",
+    "80m",
+    "60m",
+    "40m",
+    "30m",
+    "20m",
+    "17m",
+    "15m",
+    "12m",
+    "10m",
+    "6m",
+    "4m",
+    "2m",
+    "70cm",
+    "23cm",
+    "ONLINE",
+    "OFFLINE",
+    "SPLIT ON",
+    "SPLIT OFF",
+    "TX",
+    "RX",
+    "VFO A",
+    "VFO B",
+    "MAIN",
+    "SUB",
+    "QSY 📻",
+    "🗑",
+    "NOAA / HamQTH",
+    "K-Index",
+    "A-Index",
+    "✓ C",
+    "● W",
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+    "0",
+    "A",
+    "B",
+    "C",
+    "D",
+    "E",
+    "F",
+    "G",
+    "H",
+    "I",
+    "J",
+    "K",
+    "L",
+    "M",
+    "N",
+    "O",
+    "P",
+    "Q",
+    "R",
+    "S",
+    "T",
+    "U",
+    "V",
+    "W",
+    "X",
+    "Y",
+    "Z",
+    "SP",
+    "US",
+    "VE",
+    "DL",
+    "G",
+    "JA",
+    "VK",
+];
+
+const POLISH_DIACRITICS: &[char] = &[
+    'ą', 'ć', 'ę', 'ł', 'ń', 'ó', 'ś', 'ź', 'ż', 'Ą', 'Ć', 'Ę', 'Ł', 'Ń', 'Ó', 'Ś', 'Ź', 'Ż',
+];
+
+fn is_allowed_ui_literal(s: &str) -> bool {
+    let trimmed = s.trim();
+    if ALLOWED_EXACT_TOKENS.contains(&trimmed) {
+        return true;
+    }
+    // Czyste znaki interpunkcyjne / formaty / liczby / symbole niealfabetyczne
+    if trimmed.chars().all(|c| {
+        c.is_ascii_digit() || c.is_ascii_punctuation() || c.is_whitespace() || !c.is_alphabetic()
+    }) {
+        return true;
+    }
+    // Krótkie kody / formaty wielkimi literami
+    if trimmed.len() <= 4
+        && trimmed
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c.is_ascii_punctuation())
+    {
+        return true;
+    }
+    false
+}
+
+fn collect_rs_files(dir: &Path, files: &mut Vec<std::path::PathBuf>) {
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                collect_rs_files(&path, files);
+            } else if path.extension().and_then(|e| e.to_str()) == Some("rs") {
+                files.push(path);
+            }
+        }
+    }
+}
+
+fn check_file_for_hardcoded_text(
+    _path_str: &str,
+    content: &str,
+) -> Vec<(usize, &'static str, String)> {
+    let mut violations = Vec::new();
+    let mut in_test = false;
+
+    let widget_prefixes = [
+        ".label(",
+        ".heading(",
+        ".button(",
+        ".small_button(",
+        ".on_hover_text(",
+        ".hint_text(",
+        ".checkbox(",
+        ".colored_label(",
+        "Button::new(",
+        "RichText::new(",
+        "Window::new(",
+    ];
+
+    for (line_idx, line) in content.lines().enumerate() {
+        let line_no = line_idx + 1;
+        let trimmed = line.trim();
+
+        if trimmed.starts_with("//") || trimmed.starts_with("/*") || trimmed.starts_with('*') {
+            continue;
+        }
+
+        if trimmed.contains("#[cfg(test)]") || trimmed.contains("mod tests {") {
+            in_test = true;
+        }
+        if in_test {
+            continue;
+        }
+
+        // 1. Sprawdź obecność polskich znaków w literałach stringowych
+        let mut rest = trimmed;
+        while let Some(start) = rest.find('"') {
+            let after_quote = &rest[start + 1..];
+            let mut end_idx = None;
+            let mut escaped = false;
+            for (idx, ch) in after_quote.char_indices() {
+                if escaped {
+                    escaped = false;
+                } else if ch == '\\' {
+                    escaped = true;
+                } else if ch == '"' {
+                    end_idx = Some(idx);
+                    break;
+                }
+            }
+            let Some(end) = end_idx else {
+                break;
+            };
+            let lit = &after_quote[..end];
+            if lit.chars().any(|c| POLISH_DIACRITICS.contains(&c)) {
+                violations.push((
+                    line_no,
+                    "Polski znak w literale stringowym",
+                    lit.to_string(),
+                ));
+                break;
+            }
+            rest = &after_quote[end + 1..];
+        }
+
+        // 2. Sprawdź niezlokalizowane wywołania metod widżetowych egui
+        for prefix in &widget_prefixes {
+            if let Some(pos) = line.find(prefix) {
+                let call_tail = &line[pos + prefix.len()..];
+                if let Some(q_start) = call_tail.find('"') {
+                    // upewnij się, że cudzysłów jest w argumentach tego wywołania
+                    let between = call_tail[..q_start].trim();
+                    if between.is_empty() || between.ends_with(',') {
+                        let after_quote = &call_tail[q_start + 1..];
+                        if let Some(q_end) = after_quote.find('"') {
+                            let lit = &after_quote[..q_end];
+                            if !is_allowed_ui_literal(lit) {
+                                violations.push((
+                                    line_no,
+                                    "Niezlokalizowany literał w wywołaniu widżetu",
+                                    lit.to_string(),
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    violations
+}
+
+#[test]
+fn gui_has_no_hardcoded_text() {
+    let gui_dir = Path::new("src/gui");
+    assert!(gui_dir.is_dir(), "Katalog src/gui/ nie istnieje");
+
+    let mut files = Vec::new();
+    collect_rs_files(gui_dir, &mut files);
+    files.sort();
+
+    let mut total_violations = Vec::new();
+
+    for file_path in &files {
+        let rel_path = file_path.to_string_lossy().replace('\\', "/");
+        if PENDING_FILES.contains(&rel_path.as_str()) {
+            continue;
+        }
+
+        let content = fs::read_to_string(file_path).unwrap_or_else(|e| {
+            panic!("Nie można odczytać pliku {rel_path}: {e}");
+        });
+
+        let viols = check_file_for_hardcoded_text(&rel_path, &content);
+        if !viols.is_empty() {
+            total_violations.push((rel_path, viols));
+        }
+    }
+
+    if !total_violations.is_empty() {
+        let mut msg =
+            String::from("Wykryto niezlokalizowane teksty UI w plikach poza PENDING_FILES:\n");
+        for (f, vs) in total_violations {
+            msg.push_str(&format!("Plik: {f}\n"));
+            for (line, desc, lit) in vs {
+                msg.push_str(&format!("  L{line}: {desc} -> {lit:?}\n"));
+            }
+        }
+        panic!("{msg}");
+    }
+}
+
+#[test]
+fn test_i18n_pending_files_exist() {
+    for pending in PENDING_FILES {
+        let p = Path::new(pending);
+        assert!(
+            p.exists(),
+            "Plik na liście PENDING_FILES nie istnieje: {pending}"
+        );
+    }
+}

@@ -986,5 +986,17 @@
   "solar.btn_refresh": "🔄 Обновить",
   "solar.predicted_openings": "📊 Прогнозируемое открытие диапазонов DX (VOACAP-lite):",
   "map.dx_azimuth": "DX: {dist} | Азимут: {bearing}°",
-  "map.rotor_tooltip": "Поворачивает поворотное устройство антенны на азимут корреспондента через rotctld"
+  "map.rotor_tooltip": "Поворачивает поворотное устройство антенны на азимут корреспондента через rotctld",
+  "awards.district_sp1": "Zachodniopomorskie/Lubuskie",
+  "awards.district_sp2": "Kujawsko-Pomorskie/Pomorskie",
+  "awards.district_sp3": "Wielkopolskie",
+  "awards.district_sp4": "Лодзинское",
+  "awards.district_sp5": "Мазовецкое",
+  "awards.district_sp6": "Нижнесилезское/Опольское",
+  "awards.district_sp7": "Свентокшиское/Малопольское",
+  "awards.district_sp8": "Подкарпатское/Люблинское",
+  "awards.district_sp9": "Подляское/Варминьско-Мазурское",
+  "qsl_mgr.col_manager": "QSL-менеджер (Via)",
+  "wol.mac_hint": "например AA:BB:CC:DD:EE:FF",
+  "photo.no_photo_found": "Фото для этой станции не найдено в QRZ / HamQTH."
 }

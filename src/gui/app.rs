@@ -3239,6 +3239,28 @@ impl SpLogApp {
         self.status_toast = Some((msg, std::time::Instant::now()));
     }
 
+    /// Zlokalizowane zgłoszenie informacji/statusu (UI toast + log info).
+    pub fn say(&mut self, msg: Msg) {
+        let text = msg.text(self.current_language);
+        log::info!("{text}");
+        self.status_message = Some(text.clone());
+        self.status_toast = Some((text, std::time::Instant::now()));
+    }
+
+    /// Zlokalizowane zgłoszenie ostrzeżenia (UI toast + log warn).
+    pub fn warn(&mut self, msg: Msg) {
+        let text = msg.text(self.current_language);
+        log::warn!("{text}");
+        self.status_toast = Some((text, std::time::Instant::now()));
+    }
+
+    /// Zlokalizowane zgłoszenie błędu (UI toast + log error).
+    pub fn fail(&mut self, msg: Msg) {
+        let text = msg.text(self.current_language);
+        log::error!("{text}");
+        self.status_toast = Some((text, std::time::Instant::now()));
+    }
+
     pub fn connect_dx_cluster(&mut self) {
         self.disconnect_dx_cluster();
 

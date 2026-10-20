@@ -57,7 +57,7 @@ impl WolDialog {
                     ui.label(tr(key::WOL_MAC_LABEL, lang));
                     ui.add(
                         egui::TextEdit::singleline(&mut self.mac_address)
-                            .hint_text("np. AA:BB:CC:DD:EE:FF")
+                            .hint_text(tr(key::WOL_MAC_HINT, lang))
                             .desired_width(180.0),
                     );
                 });

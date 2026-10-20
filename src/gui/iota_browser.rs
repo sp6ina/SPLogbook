@@ -128,7 +128,9 @@ impl IotaBrowserDialog {
                                     egui::RichText::new(tr(key::IOTA_COL_GROUP_NAME, lang))
                                         .strong(),
                                 );
-                                ui.label(egui::RichText::new("Status").strong());
+                                ui.label(
+                                    egui::RichText::new(tr(key::AWARDS_COL_STATUS, lang)).strong(),
+                                );
                                 ui.label(
                                     egui::RichText::new(tr(key::IOTA_COL_ACTION, lang)).strong(),
                                 );
