@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::core::awards::US_STATES;
-use crate::core::i18n::{Language, key, tr, tr_or};
+use crate::core::i18n::{Language, Msg, key, tr};
 use crate::gui::app::SpLogApp;
 use crate::gui::theme::ThemeExt;
 use eframe::egui;
@@ -31,13 +31,9 @@ pub fn render_awards_matrix_window(app: &mut SpLogApp, ctx: &egui::Context) {
         ui.vertical(|ui| {
             ui.horizontal(|ui| {
                 ui.heading(
-                    egui::RichText::new(tr_or(
-                        lang,
-                        "Centrum Osiągnięć Dyplomowych SPLogbook",
-                        "SPLogbook Awards Achievement Center",
-                    ))
-                    .size(15.0)
-                    .color(palette.accent),
+                    egui::RichText::new(tr(key::AWARDS_ACHIEVEMENT_CENTER, lang))
+                        .size(15.0)
+                        .color(palette.accent),
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     crate::gui::user_manual::help_button(app, ui, "awards");
@@ -48,33 +44,25 @@ pub fn render_awards_matrix_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
             // Zakładki dyplomów
             ui.horizontal(|ui| {
-                ui.selectable_value(&mut app.awards_matrix_tab, 0, "🌍 DXCC");
                 ui.selectable_value(
                     &mut app.awards_matrix_tab,
-                    1,
-                    tr_or(lang, "🌐 WAZ (Strefy CQ)", "🌐 WAZ (CQ Zones)"),
+                    0,
+                    tr(key::AWARDS_TAB_DXCC, lang),
                 );
-                ui.selectable_value(
-                    &mut app.awards_matrix_tab,
-                    2,
-                    tr_or(lang, "🇺🇸 WAS (Stany USA)", "🇺🇸 WAS (US States)"),
-                );
-                ui.selectable_value(
-                    &mut app.awards_matrix_tab,
-                    3,
-                    tr_or(lang, "🌍 WAC (Kontynenty)", "🌍 WAC (Continents)"),
-                );
+                ui.selectable_value(&mut app.awards_matrix_tab, 1, tr(key::AWARDS_TAB_WAZ, lang));
+                ui.selectable_value(&mut app.awards_matrix_tab, 2, tr(key::AWARDS_TAB_WAS, lang));
+                ui.selectable_value(&mut app.awards_matrix_tab, 3, tr(key::AWARDS_TAB_WAC, lang));
                 ui.selectable_value(
                     &mut app.awards_matrix_tab,
                     4,
-                    tr_or(
-                        lang,
-                        "🏆 Inne (WPX/IOTA/VUCC/PGA)",
-                        "🏆 Other (WPX/IOTA/VUCC/PGA)",
-                    ),
+                    tr(key::AWARDS_TAB_OTHER, lang),
                 );
-                ui.selectable_value(&mut app.awards_matrix_tab, 5, "🇵🇱 SP DX Award");
-                ui.selectable_value(&mut app.awards_matrix_tab, 6, "🌍 WAE (Europe)");
+                ui.selectable_value(
+                    &mut app.awards_matrix_tab,
+                    5,
+                    tr(key::AWARDS_TAB_SP_DX, lang),
+                );
+                ui.selectable_value(&mut app.awards_matrix_tab, 6, tr(key::AWARDS_TAB_WAE, lang));
             });
 
             ui.separator();
@@ -118,18 +106,9 @@ pub fn render_awards_matrix_window(app: &mut SpLogApp, ctx: &egui::Context) {
 fn render_legend(ui: &mut egui::Ui, lang: Language) {
     let palette = ui.palette();
     ui.horizontal(|ui| {
-        ui.colored_label(
-            palette.success,
-            tr_or(lang, "■ Potwierdzone (QSL/LoTW)", "■ Confirmed (QSL/LoTW)"),
-        );
-        ui.colored_label(
-            palette.warning,
-            tr_or(lang, "■ Zrobione (Worked)", "■ Worked"),
-        );
-        ui.colored_label(
-            palette.text_muted,
-            tr_or(lang, "■ Potrzebne (Needed)", "■ Needed"),
-        );
+        ui.colored_label(palette.success, tr(key::AWARDS_LEGEND_CONFIRMED_QSL, lang));
+        ui.colored_label(palette.warning, tr(key::AWARDS_LEGEND_WORKED, lang));
+        ui.colored_label(palette.text_muted, tr(key::AWARDS_LEGEND_NEEDED, lang));
     });
 }
 
@@ -147,44 +126,47 @@ fn render_tab_dxcc(
     ui.horizontal(|ui| {
         ui.group(|ui| {
             ui.label(
-                egui::RichText::new(tr_or(
-                    lang,
-                    "🌍 Wszystkie podmioty DXCC",
-                    "🌍 All DXCC Entities",
-                ))
-                .strong()
-                .size(12.0)
-                .color(palette.warning),
+                egui::RichText::new(tr(key::AWARDS_DXCC_ALL_ENTITIES, lang))
+                    .strong()
+                    .size(12.0)
+                    .color(palette.warning),
             );
-            ui.label(format!(
-                "{}: {worked_dxcc} | {}: {conf_dxcc}",
-                tr_or(lang, "Zrobione", "Worked"),
-                tr_or(lang, "Potwierdzone", "Confirmed")
-            ));
+            ui.label(
+                Msg::new(key::AWARDS_DXCC_SUMMARY)
+                    .arg("worked", worked_dxcc)
+                    .arg("confirmed", conf_dxcc)
+                    .text(lang),
+            );
         });
 
         ui.group(|ui| {
             ui.label(
-                egui::RichText::new(tr_or(lang, "📊 Pasmo-Kraje", "📊 Band-Countries"))
+                egui::RichText::new(tr(key::AWARDS_BAND_COUNTRIES, lang))
                     .strong()
                     .size(12.0)
                     .color(palette.accent),
             );
             ui.label(format!(
-                "{}: {} band-slots",
-                tr_or(lang, "Sloty", "Slots"),
-                awards.worked_dxcc_band.len()
+                "{}: {}",
+                tr(key::AWARDS_SLOTS_LABEL, lang),
+                Msg::new(key::AWARDS_BAND_SLOTS_COUNT)
+                    .arg("count", awards.worked_dxcc_band.len())
+                    .text(lang)
             ));
         });
 
         ui.group(|ui| {
             ui.label(
-                egui::RichText::new(tr_or(lang, "📋 Łącznie w logu", "📋 Total in log"))
+                egui::RichText::new(tr(key::AWARDS_TOTAL_IN_LOG, lang))
                     .strong()
                     .size(12.0)
                     .color(palette.accent),
             );
-            ui.label(format!("{total_qsos} {}", tr_or(lang, "łączności", "QSOs")));
+            ui.label(
+                Msg::new(key::AWARDS_TOTAL_QSOS_COUNT)
+                    .arg("count", total_qsos)
+                    .text(lang),
+            );
         });
     });
 
@@ -238,11 +220,11 @@ fn render_tab_dxcc(
             .striped(true)
             .spacing([18.0, 6.0])
             .show(ui, |ui| {
-                ui.label(egui::RichText::new(tr_or(lang, "Pasmo", "Band")).strong());
+                ui.label(egui::RichText::new(tr(key::AWARDS_COL_BAND, lang)).strong());
                 for mode in modes {
                     ui.label(egui::RichText::new(*mode).strong());
                 }
-                ui.label(egui::RichText::new(tr_or(lang, "Łączności", "QSOs")).strong());
+                ui.label(egui::RichText::new(tr(key::AWARDS_COL_QSOS, lang)).strong());
                 ui.end_row();
 
                 for (bi, band) in bands.iter().enumerate() {
@@ -281,24 +263,18 @@ fn render_tab_waz(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine,
     ui.horizontal(|ui| {
         ui.group(|ui| {
             ui.label(
-                egui::RichText::new(tr_or(
-                    lang,
-                    "🌐 WAZ (Worked All Zones - 40 Stref CQ)",
-                    "🌐 WAZ (Worked All Zones - 40 CQ Zones)",
-                ))
-                .strong()
-                .size(13.0)
-                .color(palette.accent),
+                egui::RichText::new(tr(key::AWARDS_WAZ_TITLE, lang))
+                    .strong()
+                    .size(13.0)
+                    .color(palette.accent),
             );
-            ui.label(format!(
-                "{}: {} / 40 | {}: {} / 40 | {}: {}",
-                tr_or(lang, "Zrobione", "Worked"),
-                worked_count,
-                tr_or(lang, "Potwierdzone", "Confirmed"),
-                conf_count,
-                tr_or(lang, "Potrzebne", "Needed"),
-                40 - worked_count
-            ));
+            ui.label(
+                Msg::new(key::AWARDS_WAZ_SUMMARY)
+                    .arg("worked", worked_count)
+                    .arg("confirmed", conf_count)
+                    .arg("needed", 40 - worked_count)
+                    .text(lang),
+            );
         });
     });
 
@@ -350,24 +326,18 @@ fn render_tab_was(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine,
     ui.horizontal(|ui| {
         ui.group(|ui| {
             ui.label(
-                egui::RichText::new(tr_or(
-                    lang,
-                    "🇺🇸 WAS (Worked All States - 50 Stanów USA)",
-                    "🇺🇸 WAS (Worked All States - 50 US States)",
-                ))
-                .strong()
-                .size(13.0)
-                .color(palette.danger),
+                egui::RichText::new(tr(key::AWARDS_WAS_TITLE, lang))
+                    .strong()
+                    .size(13.0)
+                    .color(palette.danger),
             );
-            ui.label(format!(
-                "{}: {} / 50 | {}: {} / 50 | {}: {}",
-                tr_or(lang, "Zrobione", "Worked"),
-                worked_count,
-                tr_or(lang, "Potwierdzone", "Confirmed"),
-                conf_count,
-                tr_or(lang, "Potrzebne", "Needed"),
-                50 - worked_count
-            ));
+            ui.label(
+                Msg::new(key::AWARDS_WAS_SUMMARY)
+                    .arg("worked", worked_count)
+                    .arg("confirmed", conf_count)
+                    .arg("needed", 50 - worked_count)
+                    .text(lang),
+            );
         });
     });
 
@@ -415,20 +385,17 @@ fn render_tab_wac(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine,
     ui.horizontal(|ui| {
         ui.group(|ui| {
             ui.label(
-                egui::RichText::new(tr_or(
-                    lang,
-                    "🌍 WAC (Worked All Continents - 7 Kontynentów)",
-                    "🌍 WAC (Worked All Continents - 7 Continents)",
-                ))
-                .strong()
-                .size(13.0)
-                .color(palette.warning),
+                egui::RichText::new(tr(key::AWARDS_WAC_TITLE, lang))
+                    .strong()
+                    .size(13.0)
+                    .color(palette.warning),
             );
-            ui.label(format!(
-                "{}: {worked_count} / 7 | {}: {conf_count} / 7",
-                tr_or(lang, "Zrobione", "Worked"),
-                tr_or(lang, "Potwierdzone", "Confirmed")
-            ));
+            ui.label(
+                Msg::new(key::AWARDS_WAC_SUMMARY)
+                    .arg("worked", worked_count)
+                    .arg("confirmed", conf_count)
+                    .text(lang),
+            );
         });
     });
 
@@ -437,19 +404,13 @@ fn render_tab_wac(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine,
     ui.add_space(8.0);
 
     let names = [
-        ("AF", tr_or(lang, "Afryka (Africa)", "Africa")),
-        ("AN", tr_or(lang, "Antarktyda (Antarctica)", "Antarctica")),
-        ("AS", tr_or(lang, "Azja (Asia)", "Asia")),
-        ("EU", tr_or(lang, "Europa (Europe)", "Europe")),
-        (
-            "NA",
-            tr_or(lang, "Ameryka Północna (North America)", "North America"),
-        ),
-        ("OC", "Oceania"),
-        (
-            "SA",
-            tr_or(lang, "Ameryka Południowa (South America)", "South America"),
-        ),
+        ("AF", tr(key::AWARDS_CONTINENT_AF, lang)),
+        ("AN", tr(key::AWARDS_CONTINENT_AN, lang)),
+        ("AS", tr(key::AWARDS_CONTINENT_AS, lang)),
+        ("EU", tr(key::AWARDS_CONTINENT_EU, lang)),
+        ("NA", tr(key::AWARDS_CONTINENT_NA, lang)),
+        ("OC", tr(key::AWARDS_CONTINENT_OC, lang)),
+        ("SA", tr(key::AWARDS_CONTINENT_SA, lang)),
     ];
 
     ui.vertical(|ui| {
@@ -471,17 +432,14 @@ fn render_tab_wac(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine,
                         if is_conf {
                             ui.colored_label(
                                 palette.success,
-                                tr_or(lang, "✓ POTWIERDZONY (Confirmed)", "✓ CONFIRMED"),
+                                tr(key::AWARDS_BADGE_CONFIRMED, lang),
                             );
                         } else if is_wrk {
-                            ui.colored_label(
-                                palette.warning,
-                                tr_or(lang, "● ZROBIONY (Worked)", "● WORKED"),
-                            );
+                            ui.colored_label(palette.warning, tr(key::AWARDS_BADGE_WORKED, lang));
                         } else {
                             ui.colored_label(
                                 palette.text_muted,
-                                tr_or(lang, "- POTRZEBNY (Needed)", "- NEEDED"),
+                                tr(key::AWARDS_BADGE_NEEDED, lang),
                             );
                         }
                     });
@@ -522,32 +480,32 @@ fn render_tab_other(
         // Wybór aktualnego źródła danych
         let (title, color, details_map) = match *subtab {
             0 => (
-                tr_or(lang, "CQ WPX (Prefiksy)", "CQ WPX (Prefixes)"),
+                tr(key::AWARDS_OTHER_WPX, lang),
                 palette.accent,
                 &awards.details_wpx,
             ),
             1 => (
-                tr_or(lang, "RSGB IOTA (Wyspy Świata)", "RSGB IOTA (Islands On The Air)"),
+                tr(key::AWARDS_OTHER_IOTA, lang),
                 palette.success,
                 &awards.details_iota,
             ),
             2 => (
-                tr_or(lang, "ARRL VUCC (Kwadraty Maidenhead VHF/UHF)", "ARRL VUCC (Maidenhead Grids VHF/UHF)"),
+                tr(key::AWARDS_OTHER_VUCC, lang),
                 palette.series(2),
                 &awards.details_vucc,
             ),
             3 => (
-                tr_or(lang, "SOTA (Szczyty Górskie)", "SOTA (Summits On The Air)"),
+                tr(key::AWARDS_OTHER_SOTA, lang),
                 palette.warning,
                 &awards.details_sota,
             ),
             4 => (
-                tr_or(lang, "POTA (Parki Krajobrazowe)", "POTA (Parks On The Air)"),
+                tr(key::AWARDS_OTHER_POTA, lang),
                 palette.series(1),
                 &awards.details_pota,
             ),
             _ => (
-                tr_or(lang, "PGA (Polska Gmina Award)", "PGA (Polish Municipality Award)"),
+                tr(key::AWARDS_OTHER_PGA, lang),
                 palette.danger,
                 &awards.details_pga,
             ),
@@ -568,21 +526,18 @@ fn render_tab_other(
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new(title).strong().size(13.0).color(color));
             ui.separator();
-            ui.label(format!(
-                "{}: {total_entities} | {}: {total_confirmed} | {}: {total_qsos}",
-                tr_or(lang, "Zrobione", "Worked"),
-                tr_or(lang, "Potwierdzone", "Confirmed"),
-                tr_or(lang, "Łącznie łączności", "Total QSOs")
-            ));
+            ui.label(
+                Msg::new(key::AWARDS_OTHER_SUMMARY)
+                    .arg("worked", total_entities)
+                    .arg("confirmed", total_confirmed)
+                    .arg("total", total_qsos)
+                    .text(lang),
+            );
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add(
                     egui::TextEdit::singleline(search_query)
-                        .hint_text(tr_or(
-                            lang,
-                            "🔍 Szukaj kodu, znaku, pasma...",
-                            "🔍 Search code, callsign, band...",
-                        ))
+                        .hint_text(tr(key::AWARDS_SEARCH_HINT, lang))
                         .desired_width(180.0),
                 );
             });
@@ -623,76 +578,105 @@ fn render_tab_other(
             ui.vertical_centered(|ui| {
                 if total_entities == 0 {
                     ui.label(
-                        egui::RichText::new(tr_or(
-                            lang,
-                            "Brak zarejestrowanych łączności dla tego dyplomu w bieżącym dzienniku.",
-                            "No QSOs recorded for this award in the current logbook.",
-                        ))
-                        .size(12.0)
-                        .color(palette.text_muted),
+                        egui::RichText::new(tr(key::AWARDS_EMPTY_AWARD_QSOS, lang))
+                            .size(12.0)
+                            .color(palette.text_muted),
                     );
-                    ui.label(tr_or(
-                        lang,
-                        "Wprowadź QSO z odpowiednim polem (lokator, IOTA, PGA, SOTA) aby śledzić postępy!",
-                        "Log a QSO with the appropriate field (grid, IOTA, PGA, SOTA) to track progress!",
-                    ));
+                    ui.label(tr(key::AWARDS_EMPTY_AWARD_HINT, lang));
                 } else {
                     ui.label(
-                        egui::RichText::new(tr_or(
-                            lang,
-                            "Brak wyników odpowiadających wpisanej frazie wyszukiwania.",
-                            "No results matching the search query.",
-                        ))
-                        .size(12.0)
-                        .color(palette.warning),
+                        egui::RichText::new(tr(key::AWARDS_NO_SEARCH_RESULTS, lang))
+                            .size(12.0)
+                            .color(palette.warning),
                     );
                 }
             });
         } else {
-            egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
-                egui::Grid::new("awards_other_detail_grid")
-                    .striped(true)
-                    .spacing([12.0, 6.0])
-                    .min_col_width(60.0)
-                    .show(ui, |ui| {
-                        // Nagłówek tabeli
-                        ui.label(egui::RichText::new(tr_or(lang, "Kod", "Code")).strong().color(palette.text_muted));
-                        ui.label(egui::RichText::new(tr_or(lang, "Łączności", "QSOs")).strong().color(palette.text_muted));
-                        ui.label(egui::RichText::new(tr_or(lang, "Ostatni znak", "Last Callsign")).strong().color(palette.text_muted));
-                        ui.label(egui::RichText::new(tr_or(lang, "Pasmo", "Band")).strong().color(palette.text_muted));
-                        ui.label(egui::RichText::new(tr_or(lang, "Emisja", "Mode")).strong().color(palette.text_muted));
-                        ui.label(egui::RichText::new(tr_or(lang, "Data QSO", "QSO Date")).strong().color(palette.text_muted));
-                        ui.label(egui::RichText::new("Status").strong().color(palette.text_muted));
-                        ui.end_row();
+            egui::ScrollArea::vertical()
+                .max_height(360.0)
+                .show(ui, |ui| {
+                    egui::Grid::new("awards_other_detail_grid")
+                        .striped(true)
+                        .spacing([12.0, 6.0])
+                        .min_col_width(60.0)
+                        .show(ui, |ui| {
+                            // Nagłówek tabeli
+                            ui.label(
+                                egui::RichText::new(tr(key::AWARDS_COL_CODE, lang))
+                                    .strong()
+                                    .color(palette.text_muted),
+                            );
+                            ui.label(
+                                egui::RichText::new(tr(key::AWARDS_COL_QSOS, lang))
+                                    .strong()
+                                    .color(palette.text_muted),
+                            );
+                            ui.label(
+                                egui::RichText::new(tr(key::AWARDS_COL_LAST_CALLSIGN, lang))
+                                    .strong()
+                                    .color(palette.text_muted),
+                            );
+                            ui.label(
+                                egui::RichText::new(tr(key::AWARDS_COL_BAND, lang))
+                                    .strong()
+                                    .color(palette.text_muted),
+                            );
+                            ui.label(
+                                egui::RichText::new(tr(key::AWARDS_COL_MODE, lang))
+                                    .strong()
+                                    .color(palette.text_muted),
+                            );
+                            ui.label(
+                                egui::RichText::new(tr(key::AWARDS_COL_QSO_DATE, lang))
+                                    .strong()
+                                    .color(palette.text_muted),
+                            );
+                            ui.label(
+                                egui::RichText::new(tr(key::AWARDS_COL_STATUS, lang))
+                                    .strong()
+                                    .color(palette.text_muted),
+                            );
+                            ui.end_row();
 
-                        for key in filtered_keys {
-                            if let Some(qsos) = details_map.get(key) {
-                                let Some(last_qso) = qsos.last() else { continue };
-                                let is_conf = qsos.iter().any(|q| q.is_confirmed);
+                            for key in filtered_keys {
+                                if let Some(qsos) = details_map.get(key) {
+                                    let Some(last_qso) = qsos.last() else {
+                                        continue;
+                                    };
+                                    let is_conf = qsos.iter().any(|q| q.is_confirmed);
 
-                                ui.label(egui::RichText::new(key.as_str()).monospace().strong().color(color));
-                                ui.label(format!("{} QSO", qsos.len()));
-                                ui.label(egui::RichText::new(&last_qso.callsign).monospace().strong());
-                                ui.label(&last_qso.band);
-                                ui.label(&last_qso.mode);
-                                ui.label(&last_qso.qso_date);
-
-                                if is_conf {
-                                    ui.colored_label(
-                                        palette.success,
-                                        tr_or(lang, "✓ POTWIERDZONE", "✓ CONFIRMED"),
+                                    ui.label(
+                                        egui::RichText::new(key.as_str())
+                                            .monospace()
+                                            .strong()
+                                            .color(color),
                                     );
-                                } else {
-                                    ui.colored_label(
-                                        palette.warning,
-                                        tr_or(lang, "● ZROBIONE", "● WORKED"),
+                                    ui.label(format!("{} QSO", qsos.len()));
+                                    ui.label(
+                                        egui::RichText::new(&last_qso.callsign)
+                                            .monospace()
+                                            .strong(),
                                     );
+                                    ui.label(&last_qso.band);
+                                    ui.label(&last_qso.mode);
+                                    ui.label(&last_qso.qso_date);
+
+                                    if is_conf {
+                                        ui.colored_label(
+                                            palette.success,
+                                            tr(key::AWARDS_STATUS_CONFIRMED, lang),
+                                        );
+                                    } else {
+                                        ui.colored_label(
+                                            palette.warning,
+                                            tr(key::AWARDS_STATUS_WORKED, lang),
+                                        );
+                                    }
+                                    ui.end_row();
                                 }
-                                ui.end_row();
                             }
-                        }
-                    });
-            });
+                        });
+                });
         }
     });
 }
@@ -702,7 +686,7 @@ fn render_tab_sp_dx(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngin
     ui.vertical(|ui| {
         ui.horizontal(|ui| {
             ui.heading(
-                egui::RichText::new("🇵🇱 SP DX Award — Worked Polish Districts")
+                egui::RichText::new(tr(key::AWARDS_SP_DX_TITLE, lang))
                     .size(14.0)
                     .color(palette.danger),
             );
@@ -715,18 +699,18 @@ fn render_tab_sp_dx(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngin
         ui.horizontal(|ui| {
             ui.colored_label(
                 palette.warning,
-                format!(
-                    "{}: {worked}/{total}",
-                    tr_or(lang, "Pracowane okręgi", "Worked districts")
-                ),
+                Msg::new(key::AWARDS_SP_DX_DISTRICT_WORKED)
+                    .arg("worked", worked)
+                    .arg("total", total)
+                    .text(lang),
             );
             ui.separator();
             ui.colored_label(
                 palette.success,
-                format!(
-                    "{}: {confirmed}/{total}",
-                    tr_or(lang, "Potwierdzone", "Confirmed")
-                ),
+                Msg::new(key::AWARDS_SP_DX_DISTRICT_CONFIRMED)
+                    .arg("confirmed", confirmed)
+                    .arg("total", total)
+                    .text(lang),
             );
         });
 
@@ -768,11 +752,11 @@ fn render_tab_sp_dx(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngin
                         ui.colored_label(color, format!("■ {district}"));
                         ui.label(district_names[i]);
                         if confirmed {
-                            ui.label(tr_or(lang, "✅ Potwierdzone", "✅ Confirmed"));
+                            ui.label(tr(key::AWARDS_SP_DX_CONFIRMED_ICON, lang));
                         } else if worked {
-                            ui.label(tr_or(lang, "☑ Pracowane", "☑ Worked"));
+                            ui.label(tr(key::AWARDS_SP_DX_WORKED_ICON, lang));
                         } else {
-                            ui.label(tr_or(lang, "○ Potrzebne", "○ Needed"));
+                            ui.label(tr(key::AWARDS_SP_DX_NEEDED_ICON, lang));
                         }
                         ui.end_row();
                     }
@@ -785,7 +769,7 @@ fn render_tab_wae(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine,
     let palette = ui.palette();
     ui.vertical(|ui| {
         ui.heading(
-            egui::RichText::new("🌍 WAE — Worked All Europe")
+            egui::RichText::new(tr(key::AWARDS_WAE_TITLE, lang))
                 .size(14.0)
                 .color(palette.accent),
         );
@@ -797,15 +781,18 @@ fn render_tab_wae(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine,
         ui.horizontal(|ui| {
             ui.colored_label(
                 palette.warning,
-                format!("{}: {worked}/{total}", tr_or(lang, "Pracowane", "Worked")),
+                Msg::new(key::AWARDS_WAE_STATUS_WORKED)
+                    .arg("worked", worked)
+                    .arg("total", total)
+                    .text(lang),
             );
             ui.separator();
             ui.colored_label(
                 palette.success,
-                format!(
-                    "{}: {confirmed}/{total}",
-                    tr_or(lang, "Potwierdzone", "Confirmed")
-                ),
+                Msg::new(key::AWARDS_WAE_STATUS_CONFIRMED)
+                    .arg("confirmed", confirmed)
+                    .arg("total", total)
+                    .text(lang),
             );
         });
 
@@ -818,38 +805,21 @@ fn render_tab_wae(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine,
 
         ui.add_space(4.0);
         ui.label(
-            egui::RichText::new(tr_or(
-                lang,
-                "WAE Award wymaga przeprowadzenia łączności ze stacjami ze wszystkich europejskich enklaw DXCC.",
-                "WAE Award requires working stations from all European DXCC & WAE entities.",
-            ))
-            .weak()
-            .size(11.0),
+            egui::RichText::new(tr(key::AWARDS_WAE_DESCRIPTION, lang))
+                .weak()
+                .size(11.0),
         );
 
         ui.separator();
         ui.horizontal(|ui| {
-            ui.colored_label(
-                palette.success,
-                tr_or(lang, "■ Potwierdzone", "■ Confirmed"),
-            );
-            ui.colored_label(
-                palette.warning,
-                tr_or(lang, "■ Pracowane", "■ Worked"),
-            );
-            ui.colored_label(
-                palette.text_muted,
-                tr_or(lang, "■ Potrzebne", "■ Needed"),
-            );
+            ui.colored_label(palette.success, tr(key::AWARDS_WAE_LEGEND_CONFIRMED, lang));
+            ui.colored_label(palette.warning, tr(key::AWARDS_WAE_LEGEND_WORKED, lang));
+            ui.colored_label(palette.text_muted, tr(key::AWARDS_WAE_LEGEND_NEEDED, lang));
         });
-        ui.label(format!(
-            "{}: {}",
-            tr_or(
-                lang,
-                "Potrzeba jeszcze europejskich enklaw DXCC",
-                "Remaining European DXCC/WAE entities needed"
-            ),
-            total.saturating_sub(worked)
-        ));
+        ui.label(
+            Msg::new(key::AWARDS_WAE_REMAINING_NEEDED)
+                .arg("remaining", total.saturating_sub(worked))
+                .text(lang),
+        );
     });
 }
