@@ -1,8 +1,8 @@
 # Przewodnik Tłumacza SPLogbook (locales/)
 
-Niniejszy katalog zawiera pliki lokalizacyjne interfejsu użytkownika aplikacji SPLogbook.
+Niniejszy katalog zawiera kompletne pliki lokalizacyjne interfejsu użytkownika oraz podręcznika użytkownika aplikacji SPLogbook.
 
-## 1. Obsługiwane pliki językowe
+## 1. Obsługiwane języki
 
 Wspieranych jest dokładnie siedem języków:
 - `pl.json` — Język polski (język źródłowy/referencyjny)
@@ -13,17 +13,32 @@ Wspieranych jest dokładnie siedem języków:
 - `it.json` — Włoski (Italiano)
 - `ru.json` — Rosyjski (Русский)
 
-## 2. Format plików
+Te same 7 języków posiada pełne wersje w podkatalogu `locales/manual/`.
 
-- Wszystkie pliki mają **płaski format JSON** (obiekt mapujący klucz na wartość: `string -> string`).
-- Kodowanie plików: **UTF-8**.
-- Sortowanie kluczy: leksykograficzne (alfabetyczne).
+## 2. Format plików katalogu głównego (`locales/*.json`)
 
-## 3. Format i wzorzec klucza
-
-- Format klucza to dwu- lub wieloczłonowa ścieżka domenowa: `obszar.nazwa` (np. `qso.callsign`, `btn.clear`, `msg.qso_saved`).
+- Płaski format JSON: mapa klucz-wartość (`string -> string`).
+- Kodowanie: **UTF-8**.
+- Sortowanie kluczy: leksykograficzne.
 - Dozwolony wzorzec klucza: `^[a-z0-9_]+(\.[a-z0-9_]+)+$`.
 - Klucze muszą być unikalne po przekształceniu na stałą w Rust (`replace('.', '_').to_uppercase()`).
+
+## 3. Podręcznik użytkownika (`locales/manual/*.json`)
+
+Katalog `locales/manual/` zawiera zlokalizowane rozdziały wbudowanego podręcznika:
+- Każdy plik jest tablicą obiektów o strukturze:
+  ```json
+  [
+    {
+      "id": "start",
+      "title": "1. Pierwsze kroki",
+      "body": "Treść rozdziału..."
+    }
+  ]
+  ```
+- Wszystkie 7 plików musi posiadać dokładnie identyczny zestaw identyfikatorów `id` w identycznej kolejności.
+- Pola `id`, `title` oraz `body` nie mogą być puste.
+- Listy punktowane formatowane są za pomocą `- ` oraz `* `.
 
 ## 4. Nazwane parametry i nawiasy klamrowe
 
@@ -31,34 +46,48 @@ Wspieranych jest dokładnie siedem języków:
 - **Wymóg identycznego zbioru parametrów**: Wartości tego samego klucza we wszystkich 7 językach muszą zawierać dokładnie ten sam zestaw nazwanych parametrów.
 - **Zakaz pustych wartości**: Każdy klucz w każdym języku musi mieć niepustą wartość tekstową.
 - **Zakaz niezbalansowanych lub dowolnych nawiasów**: Nawiasy klamrowe `{` i `}` mogą występować wyłącznie jako poprawne placeholdery parametrów `{nazwa}`.
-- **Brak mechanizmu liczby mnogiej**: Program nie obsługuje pluralizacji zależnej od języka. Komunikaty należy formułować neutralnie gramatycznie, np. `Znaleziono: {count}`.
+- **Brak mechanizmu liczby mnogiej**: Komunikaty należy formułować neutralnie gramatycznie, np. `Znaleziono: {count}`.
 
-## 5. Skróty radiowe i terminologia
+## 5. Skróty radiowe i terminologia techniczna
 
 - Powszechnie przyjęte skróty krótkofalarskie i radiowe zachowują swoją standardową postać techniczną we wszystkich językach (np. `QSO`, `DXCC`, `CW`, `SSB`, `FT8`, `RST`, `SWR`, `CAT`, `VFO`, `PTT`, `RIT`, `XIT`, `IOTA`, `SOTA`, `POTA`).
+- Tłumaczenia nie mogą być kopiami języka angielskiego poza ściśle ograniczoną i uzasadnioną listą `IDENTICAL_ALLOWED` (maks. 40 pozycji, wyłącznie nazwy własne i skróty techniczne).
 
-## 6. Typowany katalog czasu kompilacji
+## 6. Typowany katalog czasu kompilacji (`build.rs`)
 
 Katalog tłumaczeń nie jest parsowany w czasie działania aplikacji (`runtime`).
-Generator `build.rs` podczas kompilacji weryfikuje kompletność i spójność wszystkich siedmiu plików JSON oraz generuje typowane stałe `key::*` i tablice tekstów zapewniające dostęp $O(1)$ bez alokacji.
+Generator `build.rs` podczas kompilacji:
+1. Weryfikuje kompletność, format kluczy i spójność parametrów we wszystkich 7 plikach.
+2. Weryfikuje strukturę, identyfikatory i kolejność sekcji w `locales/manual/`.
+3. Generuje typowane stałe `key::*` typu `Key`, tablice tekstów oraz typed accessor podręcznika `manual(lang: Language) -> &'static [ManualSection]`, gwarantujące dostęp $O(1)$ bez alokacji.
 
-## 7. Dodawanie nowego klucza
+## 7. Typowane komunikaty i błędy domenowe
 
-Aby dodać nowe tłumaczenie:
-1. Dodaj nowy klucz `obszar.nazwa` do **wszystkich siedmiu plików JSON** (`pl.json`, `en.json`, `de.json`, `fr.json`, `es.json`, `it.json`, `ru.json`).
-2. Podaj naturalne, poprawne tłumaczenie dla każdego z języków (nie kopiuj angielskich tekstów do innych języków, jeżeli istnieje naturalny odpowiednik).
-3. Jeżeli komunikat przyjmuje parametry, użyj identycznych nazw `{parametr}` we wszystkich 7 plikach.
-4. Skompiluj projekt — `build.rs` automatycznie utworzy stałą `crate::core::i18n::key::OBSZAR_NAZWA`.
+- Do formatowania komunikatów z parametrami służy bezpieczna struktura `Msg`:
+  ```rust
+  Msg::new(key::MSG_QSO_SAVED)
+      .arg("callsign", "SP6INA")
+      .arg("band", "20m")
+      .arg("mode", "CW")
+      .text(lang)
+  ```
+- Wszystkie moduły domenowe (core, cloud, cat, sync, digital, api) zwracają silnie typowane enumy błędów implementujące `.msg() -> Msg`.
+- **Kontrakt REST API**: Błędy zwracane przez interfejs REST API są lokalizowane w języku polskim (`Language::Pl`) jako stabilna referencja dla integracji lokalnych.
 
-## 8. Weryfikacja poprawności
+## 8. Weryfikacja strażnicza (Automated Guards)
 
-Przed zatwierdzeniem zmian wykonaj:
+Zgodność systemu lokalizacji jest bezwarunkowo egzekwowana przez zestaw 15 testów strażniczych w `tests/i18n_guard.rs`:
 ```bash
-cargo +stable check --all-targets --all-features
-cargo +stable test --all-targets --all-features
+cargo test --test i18n_guard -j 2
 ```
-
-## 9. Plany na kolejne fazy
-
-W bieżącej fazie (ARCH-I18N faza A) wdrożono typowany katalog, generator kompilacji oraz mechanizm sparametryzowanych komunikatów `Msg`.
-Faza B (ARCH-I18N faza B) obejmie audyt jakościowy istniejących tłumaczeń, usunięcie historycznych martwych kluczy oraz lokalizację podręcznika użytkownika.
+Testy weryfikują:
+- Równość zbiorów kluczy między językami (`catalog_languages_have_identical_keys`)
+- Identyczność zestawów parametrów (`all_locales_have_identical_parameter_sets`)
+- Całkowity brak martwych kluczy w kodzie (`catalog_has_no_dead_keys`)
+- Brak nieprzetłumaczonych kopii angielskich poza `IDENTICAL_ALLOWED` (`translations_are_not_english_copies`)
+- Ograniczenie i pełne wykorzystanie `IDENTICAL_ALLOWED` (`identical_allowed_is_bounded`, `identical_allowed_entries_are_used`)
+- Całkowity brak twardo zakodowanych tekstów w `src/gui/` (`gui_has_no_hardcoded_text`)
+- Całkowity brak błędów typu `Result<..., String>` w domenach (`no_string_errors_in_domain`)
+- Spójność, kolejność i niepustość podręcznika (`manual_languages_have_identical_section_ids`, `manual_languages_have_identical_order`, `manual_has_no_empty_titles_or_bodies`, `manual_returns_every_language`, `user_manual_renderer_has_no_embedded_translatable_sections`)
+- Brak jakichkolwiek zapadek/białych list (`guards_have_no_pending_whitelists`)
+- Podstawianie wszystkich parametrów przez komunikaty błędów (`domain_errors_substitute_all_parameters`)

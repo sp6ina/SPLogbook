@@ -378,13 +378,21 @@ impl std::fmt::Display for MarketplaceError {
             Self::InvalidFilename(name) => write!(f, "Invalid plugin filename: {name}"),
             Self::DisallowedPath(path) => write!(f, "Disallowed plugin path: {path}"),
             Self::MissingDownloadUrl => write!(f, "Missing download URL for plugin"),
-            Self::MissingSha256 => write!(f, "Plugin has no SHA256 checksum - installation refused"),
+            Self::MissingSha256 => {
+                write!(f, "Plugin has no SHA256 checksum - installation refused")
+            }
             Self::Sha256Mismatch => write!(f, "Plugin SHA256 checksum mismatch"),
             Self::CreateDirectory(e) => write!(f, "Failed to create plugins directory: {e}"),
-            Self::WriteScript { path, detail } => write!(f, "Failed to write script {path}: {detail}"),
+            Self::WriteScript { path, detail } => {
+                write!(f, "Failed to write script {path}: {detail}")
+            }
             Self::SerializeManifest(e) => write!(f, "Failed to serialize manifest: {e}"),
-            Self::WriteManifest { path, detail } => write!(f, "Failed to write manifest {path}: {detail}"),
-            Self::RemoveScript { path, detail } => write!(f, "Failed to remove script {path}: {detail}"),
+            Self::WriteManifest { path, detail } => {
+                write!(f, "Failed to write manifest {path}: {detail}")
+            }
+            Self::RemoveScript { path, detail } => {
+                write!(f, "Failed to remove script {path}: {detail}")
+            }
         }
     }
 }
@@ -512,7 +520,10 @@ async fn obtain_source(entry: &PluginCatalogEntry) -> Result<Vec<u8>, Marketplac
 
     // Zdalna zawartość musi mieć obowiązkową sumę kontrolną — bez niej nie
     // instalujemy, aby nie dopuścić do wykonania niezweryfikowanego kodu.
-    let expected = entry.sha256.as_deref().ok_or(MarketplaceError::MissingSha256)?;
+    let expected = entry
+        .sha256
+        .as_deref()
+        .ok_or(MarketplaceError::MissingSha256)?;
     if !crate::cloud::updater::verify_sha256(&bytes, expected) {
         return Err(MarketplaceError::Sha256Mismatch);
     }
@@ -532,7 +543,10 @@ pub async fn install_entry(
 
     let sha256 = crate::cloud::updater::sha256_hex(&bytes);
     // Obowiązkowa weryfikacja sumy kontrolnej — wtyczki bez skrótu nie są instalowane.
-    let expected = entry.sha256.as_deref().ok_or(MarketplaceError::MissingSha256)?;
+    let expected = entry
+        .sha256
+        .as_deref()
+        .ok_or(MarketplaceError::MissingSha256)?;
     if !crate::cloud::updater::verify_sha256(&bytes, expected) {
         return Err(MarketplaceError::Sha256Mismatch);
     }
@@ -566,7 +580,10 @@ pub async fn install_entry(
 }
 
 /// Odinstalowuje wtyczkę (usuwa skrypt i manifest boczny).
-pub fn uninstall_entry(plugins_dir: &Path, entry: &PluginCatalogEntry) -> Result<(), MarketplaceError> {
+pub fn uninstall_entry(
+    plugins_dir: &Path,
+    entry: &PluginCatalogEntry,
+) -> Result<(), MarketplaceError> {
     validate_safe_filename(&entry.id)?;
     validate_safe_filename(&entry.file)?;
 

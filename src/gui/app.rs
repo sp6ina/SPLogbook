@@ -242,12 +242,7 @@ pub struct SpLogApp {
     pub wspr_fetch_slot: Option<
         std::sync::Arc<
             std::sync::Mutex<
-                Option<
-                    Result<
-                        Vec<crate::cloud::wspr::WsprSpot>,
-                        crate::cloud::wspr::WsprError,
-                    >,
-                >,
+                Option<Result<Vec<crate::cloud::wspr::WsprSpot>, crate::cloud::wspr::WsprError>>,
             >,
         >,
     >,
@@ -273,8 +268,11 @@ pub struct SpLogApp {
     // Historia warunków solarnych (dla wykresu + alertu)
     pub solar_history: Vec<SpaceWeather>,
     pub solar_loading: bool,
-    pub solar_fetch_slot:
-        Option<std::sync::Arc<std::sync::Mutex<Option<Result<SpaceWeather, crate::cloud::solar::SpaceWeatherError>>>>>,
+    pub solar_fetch_slot: Option<
+        std::sync::Arc<
+            std::sync::Mutex<Option<Result<SpaceWeather, crate::cloud::solar::SpaceWeatherError>>>,
+        >,
+    >,
     pub solar_last_alert: Option<String>,
 
     // Jednostki odległości w monitorze WSPR
@@ -2939,7 +2937,11 @@ impl SpLogApp {
         if let Some(qso) = self.redo_stack.pop_front() {
             let callsign = qso.callsign.clone();
             let Some(id) = qso.id else {
-                self.report_error(format!("Redo: brak identyfikatora rekordu dla: {callsign}"));
+                self.report_error(
+                    Msg::new(key::MSG_QSO_REDO_NO_ID)
+                        .arg("callsign", &callsign)
+                        .text(self.current_language),
+                );
                 return;
             };
             let result = {
@@ -2973,10 +2975,11 @@ impl SpLogApp {
         let mut warnings_toast: Option<String> = None;
         if let Some(ref qso) = self.editing_qso {
             if let Err(e) = qso.validate() {
-                self.report_error(format!(
-                    "Nie zapisano zmian: {}",
-                    e.msg().text(self.current_language)
-                ));
+                self.report_error(
+                    Msg::new(key::MSG_QSO_CHANGES_NOT_SAVED)
+                        .arg("reason", e.msg().text(self.current_language))
+                        .text(self.current_language),
+                );
                 return;
             }
             let warnings = qso.warnings();

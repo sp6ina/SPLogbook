@@ -3,7 +3,7 @@
 // Klient Cloudlog API (Cloudlog REST API JSON)
 
 use crate::core::adif::export_adif;
-use crate::core::i18n::{key, Msg};
+use crate::core::i18n::{Msg, key};
 use crate::core::qso::QsoRecord;
 use serde_json::json;
 
@@ -31,9 +31,9 @@ impl CloudlogError {
         match self {
             Self::NotConfigured => Msg::new(key::CLOUDLOG_ERR_NOT_CONFIGURED),
             Self::Http(detail) => Msg::new(key::CLOUDLOG_ERR_HTTP).arg("detail", detail),
-            Self::Server { status, body } => {
-                Msg::new(key::CLOUDLOG_ERR_SERVER).arg("status", *status).arg("body", body)
-            }
+            Self::Server { status, body } => Msg::new(key::CLOUDLOG_ERR_SERVER)
+                .arg("status", *status)
+                .arg("body", body),
         }
     }
 }

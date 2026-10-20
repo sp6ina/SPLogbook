@@ -11,8 +11,14 @@ use serde::Deserialize;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LookupError {
     Http(String),
-    HttpStatus { service: &'static str, status: u16 },
-    JsonParse { service: &'static str, detail: String },
+    HttpStatus {
+        service: &'static str,
+        status: u16,
+    },
+    JsonParse {
+        service: &'static str,
+        detail: String,
+    },
 }
 
 impl std::fmt::Display for LookupError {
@@ -87,13 +93,10 @@ pub async fn lookup_pota(reference: &str) -> Result<PotaInfo, LookupError> {
         });
     }
 
-    let data: PotaResponse = resp
-        .json()
-        .await
-        .map_err(|e| LookupError::JsonParse {
-            service: "POTA",
-            detail: e.to_string(),
-        })?;
+    let data: PotaResponse = resp.json().await.map_err(|e| LookupError::JsonParse {
+        service: "POTA",
+        detail: e.to_string(),
+    })?;
     Ok(PotaInfo {
         reference: if data.reference.is_empty() {
             clean
@@ -129,13 +132,10 @@ pub async fn lookup_sota(reference: &str) -> Result<SotaInfo, LookupError> {
         });
     }
 
-    let data: SotaResponse = resp
-        .json()
-        .await
-        .map_err(|e| LookupError::JsonParse {
-            service: "SOTA",
-            detail: e.to_string(),
-        })?;
+    let data: SotaResponse = resp.json().await.map_err(|e| LookupError::JsonParse {
+        service: "SOTA",
+        detail: e.to_string(),
+    })?;
     Ok(SotaInfo {
         reference: clean,
         name: data.name,

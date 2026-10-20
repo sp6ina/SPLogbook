@@ -170,19 +170,13 @@ fn generate_i18n_catalog() {
     }
 
     let ref_manual_sections = &manual_catalog[reference_lang];
-    let ref_ids: Vec<&str> = ref_manual_sections
-        .iter()
-        .map(|s| s.id.as_str())
-        .collect();
+    let ref_ids: Vec<&str> = ref_manual_sections.iter().map(|s| s.id.as_str()).collect();
 
     for &lang in &LANGUAGES {
         if lang == reference_lang {
             continue;
         }
-        let current_ids: Vec<&str> = manual_catalog[lang]
-            .iter()
-            .map(|s| s.id.as_str())
-            .collect();
+        let current_ids: Vec<&str> = manual_catalog[lang].iter().map(|s| s.id.as_str()).collect();
         if current_ids != ref_ids {
             panic!(
                 "Manual sections mismatch in '{lang}.json': expected order {ref_ids:?}, got {current_ids:?}"
@@ -226,7 +220,9 @@ fn generate_i18n_catalog() {
     }
 
     // 5. Kod generatora podręcznika użytkownika
-    out.push_str("/// Struktura sekcji podręcznika użytkownika generowana z katalogu locales/manual\n");
+    out.push_str(
+        "/// Struktura sekcji podręcznika użytkownika generowana z katalogu locales/manual\n",
+    );
     out.push_str("#[derive(Clone, Copy, Debug, PartialEq, Eq)]\n");
     out.push_str("pub struct ManualSection {\n");
     out.push_str("    pub id: &'static str,\n");

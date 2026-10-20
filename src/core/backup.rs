@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use rusqlite::{Connection, backup::Backup};
 
-use crate::core::i18n::{key, Msg};
+use crate::core::i18n::{Msg, key};
 
 #[derive(Debug)]
 pub enum BackupError {
@@ -58,8 +58,7 @@ impl BackupManager {
             return Err(BackupError::SourceNotFound);
         }
 
-        fs::create_dir_all(backup_dir)
-            .map_err(|e| BackupError::CreateDir(e.to_string()))?;
+        fs::create_dir_all(backup_dir).map_err(|e| BackupError::CreateDir(e.to_string()))?;
 
         let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S%.3f").to_string();
         let file_stem = source_db_path
@@ -89,8 +88,7 @@ impl BackupManager {
             })?;
         }
 
-        fs::rename(&tmp_path, &dest_path)
-            .map_err(|e| BackupError::Finalize(e.to_string()))?;
+        fs::rename(&tmp_path, &dest_path).map_err(|e| BackupError::Finalize(e.to_string()))?;
 
         Self::prune_old_backups(backup_dir, ".db", 10).ok();
 
@@ -99,18 +97,15 @@ impl BackupManager {
 
     /// Wykonuje kopię zapasową w formacie ADIF
     pub fn backup_adif(adif_content: &str, backup_dir: &Path) -> Result<PathBuf, BackupError> {
-        fs::create_dir_all(backup_dir)
-            .map_err(|e| BackupError::CreateDir(e.to_string()))?;
+        fs::create_dir_all(backup_dir).map_err(|e| BackupError::CreateDir(e.to_string()))?;
 
         let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S%.3f").to_string();
         let dest_filename = format!("SPLogbook_backup_{timestamp}.adi");
         let dest_path = backup_dir.join(&dest_filename);
         let tmp_path = backup_dir.join(format!(".{dest_filename}.tmp"));
 
-        fs::write(&tmp_path, adif_content)
-            .map_err(|e| BackupError::WriteAdif(e.to_string()))?;
-        fs::rename(&tmp_path, &dest_path)
-            .map_err(|e| BackupError::Finalize(e.to_string()))?;
+        fs::write(&tmp_path, adif_content).map_err(|e| BackupError::WriteAdif(e.to_string()))?;
+        fs::rename(&tmp_path, &dest_path).map_err(|e| BackupError::Finalize(e.to_string()))?;
         Self::prune_old_backups(backup_dir, ".adi", 10).ok();
 
         Ok(dest_path)

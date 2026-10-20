@@ -1381,5 +1381,7 @@
   "wspr.err_server": "El servidor de WSPR.live devolvió un error: {status}",
   "updater.db_update_failed": "❌ Error al actualizar las bases de datos en línea",
   "updater.db_update_success": "✔ Bases de datos en línea actualizadas",
-  "updater.db_update_partial": "⚠ Actualización parcial de las bases de datos"
+  "updater.db_update_partial": "⚠ Actualización parcial de las bases de datos",
+  "msg.qso_redo_no_id": "Redo: falta el identificador de registro para: {callsign}",
+  "msg.qso_changes_not_saved": "Cambios no guardados: {reason}"
 }

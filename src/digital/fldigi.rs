@@ -128,7 +128,11 @@ impl FldigiClient {
     }
 
     /// Wysyła surowe wywołanie metody XML-RPC do FLDIGI
-    async fn call_xmlrpc(&self, method_name: &str, params_xml: &str) -> Result<String, FldigiError> {
+    async fn call_xmlrpc(
+        &self,
+        method_name: &str,
+        params_xml: &str,
+    ) -> Result<String, FldigiError> {
         let body = format!(
             r#"<?xml version="1.0"?><methodCall><methodName>{method_name}</methodName><params>{params_xml}</params></methodCall>"#
         );
@@ -213,10 +217,7 @@ mod tests {
         assert_eq!(freq, "14070000.0");
 
         let xml_int = r#"<?xml version="1.0"?><methodResponse><params><param><value><i4>599</i4></value></param></params></methodResponse>"#;
-        assert_eq!(
-            FldigiClient::parse_xmlrpc_value(xml_int).unwrap(),
-            "599"
-        );
+        assert_eq!(FldigiClient::parse_xmlrpc_value(xml_int).unwrap(), "599");
 
         let xml_escaped = r#"<?xml version="1.0"?><methodResponse><params><param><value><string>SP6INA &amp; Friends</string></value></param></params></methodResponse>"#;
         assert_eq!(

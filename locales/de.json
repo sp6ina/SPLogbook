@@ -1381,5 +1381,7 @@
   "wspr.err_server": "WSPR.live-Server meldete Fehler: {status}",
   "updater.db_update_failed": "❌ Fehler bei der Aktualisierung der Online-Datenbanken",
   "updater.db_update_success": "✔ Online-Datenbanken aktualisiert",
-  "updater.db_update_partial": "⚠ Teilweise Aktualisierung der Datenbanken"
+  "updater.db_update_partial": "⚠ Teilweise Aktualisierung der Datenbanken",
+  "msg.qso_redo_no_id": "Redo: Fehlende Datensatz-ID für: {callsign}",
+  "msg.qso_changes_not_saved": "Änderungen nicht gespeichert: {reason}"
 }

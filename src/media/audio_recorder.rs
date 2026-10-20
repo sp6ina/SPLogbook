@@ -93,8 +93,8 @@ impl AudioRecorder {
 
         #[cfg(not(target_os = "windows"))]
         {
-            let temp_file = std::env::temp_dir()
-                .join(format!("splog_rec_{}.wav", std::process::id()));
+            let temp_file =
+                std::env::temp_dir().join(format!("splog_rec_{}.wav", std::process::id()));
             let child = std::process::Command::new("arecord")
                 .args(["-f", "cd", "-t", "wav"])
                 .arg(&temp_file)
@@ -167,8 +167,9 @@ impl AudioRecorder {
             if let Ok(mut guard) = LINUX_TEMP_FILE.lock() {
                 if let Some(temp) = guard.take() {
                     if temp.exists() {
-                        std::fs::copy(&temp, output_path)
-                            .map_err(|e| AudioRecorderError::Io(format!("Błąd zapisu pliku WAV: {e}")))?;
+                        std::fs::copy(&temp, output_path).map_err(|e| {
+                            AudioRecorderError::Io(format!("Błąd zapisu pliku WAV: {e}"))
+                        })?;
                         let _ = std::fs::remove_file(temp);
                     }
                 }
@@ -205,7 +206,11 @@ impl AudioRecorder {
                 .arg(&path)
                 .spawn()
                 .or_else(|_| std::process::Command::new("pw-play").arg(&path).spawn())
-                .map_err(|e| AudioRecorderError::Io(format!("Nie udało się uruchomić odtwarzacza audio: {e}")))?;
+                .map_err(|e| {
+                    AudioRecorderError::Io(format!(
+                        "Nie udało się uruchomić odtwarzacza audio: {e}"
+                    ))
+                })?;
             if let Ok(mut guard) = LINUX_PLAY_CHILD.lock() {
                 *guard = Some(child);
             }

@@ -1381,5 +1381,7 @@
   "wspr.err_server": "WSPR.live server returned error: {status}",
   "updater.db_update_failed": "❌ Online database update failed",
   "updater.db_update_success": "✔ Online databases updated",
-  "updater.db_update_partial": "⚠ Partial database update"
+  "updater.db_update_partial": "⚠ Partial database update",
+  "msg.qso_redo_no_id": "Redo: missing record ID for: {callsign}",
+  "msg.qso_changes_not_saved": "Changes not saved: {reason}"
 }

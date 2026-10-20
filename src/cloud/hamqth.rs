@@ -4,7 +4,7 @@
 
 use crate::cloud::qrz::CallbookData;
 use crate::core::adif::export_adif;
-use crate::core::i18n::{key, Msg};
+use crate::core::i18n::{Msg, key};
 use crate::core::qso::QsoRecord;
 
 #[derive(Debug)]

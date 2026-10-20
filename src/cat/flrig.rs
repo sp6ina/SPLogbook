@@ -410,10 +410,9 @@ impl FlrigClient {
                 detail: "empty response from FLRig".to_string(),
             });
         }
-        parse_response(&String::from_utf8_lossy(&data))
-            .map_err(|detail| RigError::Protocol {
-                detail: detail.to_string(),
-            })
+        parse_response(&String::from_utf8_lossy(&data)).map_err(|detail| RigError::Protocol {
+            detail: detail.to_string(),
+        })
     }
 
     pub async fn get_vfo_typed(&self) -> Result<u64, RigError> {

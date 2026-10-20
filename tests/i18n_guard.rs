@@ -174,11 +174,6 @@ fn catalog_languages_have_identical_keys() {
     }
 }
 
-/// Pliki oczekujące na migrację twardo zakodowanych tekstów w etapie I18N-B2.
-/// Każdy kolejny commit I18N-B2A do I18N-B2E musi zmniejszać tę listę.
-/// W commicie I18N-B6 lista ta zostanie bezwzględnie usunięta.
-const PENDING_FILES: &[&str] = &[];
-
 const ALLOWED_EXACT_TOKENS: &[&str] = &[
     "",
     " ",
@@ -586,9 +581,6 @@ fn gui_has_no_hardcoded_text() {
 
     for file_path in &files {
         let rel_path = file_path.to_string_lossy().replace('\\', "/");
-        if PENDING_FILES.contains(&rel_path.as_str()) {
-            continue;
-        }
 
         let content = fs::read_to_string(file_path).unwrap_or_else(|e| {
             panic!("Nie można odczytać pliku {rel_path}: {e}");
@@ -601,8 +593,7 @@ fn gui_has_no_hardcoded_text() {
     }
 
     if !total_violations.is_empty() {
-        let mut msg =
-            String::from("Wykryto niezlokalizowane teksty UI w plikach poza PENDING_FILES:\n");
+        let mut msg = String::from("Wykryto niezlokalizowane teksty UI w plikach src/gui:\n");
         for (f, vs) in total_violations {
             msg.push_str(&format!("Plik: {f}\n"));
             for (line, desc, lit) in vs {
@@ -612,23 +603,6 @@ fn gui_has_no_hardcoded_text() {
         panic!("{msg}");
     }
 }
-
-#[test]
-fn test_i18n_pending_files_exist() {
-    for pending in PENDING_FILES {
-        let p = Path::new(pending);
-        assert!(
-            p.exists(),
-            "Plik na liście PENDING_FILES nie istnieje: {pending}"
-        );
-    }
-}
-
-
-/// Moduły oczekujące na typowane błędy domenowe w etapie I18N-B3.
-/// Każdy kolejny commit I18N-B3A do I18N-B3E musi zmniejszać tę listę.
-/// W commicie I18N-B6 lista ta zostanie bezwzględnie usunięta.
-const PENDING_MODULES: &[&str] = &[];
 
 fn check_file_for_string_errors(content: &str) -> Vec<(usize, String)> {
     let mut violations = Vec::new();
@@ -705,8 +679,7 @@ fn no_string_errors_in_domain() {
     collect_rs_files(src_dir, &mut files);
     files.sort();
 
-    let mut clean_in_pending = Vec::new();
-    let mut unlisted_with_errors = Vec::new();
+    let mut violations_found = Vec::new();
 
     for file_path in &files {
         let rel_path = file_path.to_string_lossy().replace('\\', "/");
@@ -714,83 +687,118 @@ fn no_string_errors_in_domain() {
             continue;
         }
 
-        let is_pending = PENDING_MODULES.contains(&rel_path.as_str());
-
         let content = fs::read_to_string(file_path).unwrap_or_else(|e| {
             panic!("Nie można odczytać pliku {rel_path}: {e}");
         });
 
         let viols = check_file_for_string_errors(&content);
-
-        if is_pending {
-            if viols.is_empty() {
-                clean_in_pending.push(rel_path);
-            }
-        } else if !viols.is_empty() {
-            unlisted_with_errors.push((rel_path, viols));
+        if !viols.is_empty() {
+            violations_found.push((rel_path, viols));
         }
     }
 
-    let mut failure_msg = String::new();
-
-    if !clean_in_pending.is_empty() {
-        failure_msg.push_str("Czyste moduły muszą zostać usunięte z PENDING_MODULES w tym samym commicie:\n");
-        for m in clean_in_pending {
-            failure_msg.push_str(&format!("  - {m}\n"));
-        }
-    }
-
-    if !unlisted_with_errors.is_empty() {
-        failure_msg.push_str("Wykryto Result<..., String> w modułach poza PENDING_MODULES:\n");
-        for (m, viols) in unlisted_with_errors {
+    if !violations_found.is_empty() {
+        let mut failure_msg = String::from("Wykryto Result<..., String> w modułach domenowych:\n");
+        for (m, viols) in violations_found {
             failure_msg.push_str(&format!("Plik: {m}\n"));
             for (line, txt) in viols {
                 failure_msg.push_str(&format!("  L{line}: {txt}\n"));
             }
         }
-    }
-
-    assert!(failure_msg.is_empty(), "{failure_msg}");
-}
-
-#[test]
-fn test_i18n_pending_modules_exist() {
-    for pending in PENDING_MODULES {
-        let p = Path::new(pending);
-        assert!(
-            p.exists(),
-            "Plik na liście PENDING_MODULES nie istnieje: {pending}"
-        );
+        panic!("{failure_msg}");
     }
 }
 
 /// Dopuszczalne wyjątki dla tekstów identycznych między językiem angielskim a pozostałymi.
 /// Ograniczone do maksymalnie 40 pozycji, wyłącznie dla nazw własnych, skrótów technicznych i jednostek.
 const IDENTICAL_ALLOWED: &[(&str, &str)] = &[
-    ("app.author", "Nazwisko autora programu i znak krótkofalarski"),
+    (
+        "app.author",
+        "Nazwisko autora programu i znak krótkofalarski",
+    ),
     ("app.name", "Nazwa własna programu komputerowego"),
-    ("awards.tab_dxcc", "Międzynarodowa nazwa własna dyplomu DX Century Club"),
-    ("awards.total_qsos_count", "Zmienna z uniwersalnym skrótem łączności krótkofalarskiej"),
-    ("cat_settings.backend_flrig", "Nazwa oprogramowania zewnętrznego i protokołu XML-RPC"),
-    ("cat_settings.backend_hamlib", "Nazwa biblioteki zewnętrznej i demona rigctld"),
-    ("cat_settings.backend_tci", "Nazwa protokołu sieciowego i linii urządzeń SDR"),
-    ("cat_settings.cap_rit", "Uniwersalne międzynarodowe skróty radiowe RIT/XIT"),
-    ("cmd.psk_reporter", "Nazwa własna globalnego serwisu PSK Reporter"),
-    ("cw.macro_f1_label", "Klawisz funkcyjny i międzynarodowe wywołanie ogólne CQ"),
-    ("cw.macro_f3_label", "Klawisz funkcyjny i międzynarodowe telegraficzne kody pożegnalne TU/73"),
-    ("hud.window_title", "Nazwa programu i skrót techniczny Head-Up Display"),
-    ("statusbar.utc", "Uniwersalny standard czasu koordynowanego UTC"),
-    ("sync.tab_cloudlog", "Nazwa własna usługi Cloudlog i protokół REST API"),
-    ("sync.tab_clublog", "Nazwa własna serwisu Club Log i terminologia klastra"),
-    ("sync.tab_hamqth", "Nazwa własna serwisu HamQTH i znak założyciela OK1RR"),
+    (
+        "awards.tab_dxcc",
+        "Międzynarodowa nazwa własna dyplomu DX Century Club",
+    ),
+    (
+        "awards.total_qsos_count",
+        "Zmienna z uniwersalnym skrótem łączności krótkofalarskiej",
+    ),
+    (
+        "cat_settings.backend_flrig",
+        "Nazwa oprogramowania zewnętrznego i protokołu XML-RPC",
+    ),
+    (
+        "cat_settings.backend_hamlib",
+        "Nazwa biblioteki zewnętrznej i demona rigctld",
+    ),
+    (
+        "cat_settings.backend_tci",
+        "Nazwa protokołu sieciowego i linii urządzeń SDR",
+    ),
+    (
+        "cat_settings.cap_rit",
+        "Uniwersalne międzynarodowe skróty radiowe RIT/XIT",
+    ),
+    (
+        "cmd.psk_reporter",
+        "Nazwa własna globalnego serwisu PSK Reporter",
+    ),
+    (
+        "cw.macro_f1_label",
+        "Klawisz funkcyjny i międzynarodowe wywołanie ogólne CQ",
+    ),
+    (
+        "cw.macro_f3_label",
+        "Klawisz funkcyjny i międzynarodowe telegraficzne kody pożegnalne TU/73",
+    ),
+    (
+        "hud.window_title",
+        "Nazwa programu i skrót techniczny Head-Up Display",
+    ),
+    (
+        "statusbar.utc",
+        "Uniwersalny standard czasu koordynowanego UTC",
+    ),
+    (
+        "sync.tab_cloudlog",
+        "Nazwa własna usługi Cloudlog i protokół REST API",
+    ),
+    (
+        "sync.tab_clublog",
+        "Nazwa własna serwisu Club Log i terminologia klastra",
+    ),
+    (
+        "sync.tab_hamqth",
+        "Nazwa własna serwisu HamQTH i znak założyciela OK1RR",
+    ),
     ("sync.tab_hrdlog", "Nazwa domenowa serwisu HRDLog.net"),
-    ("sync.tab_lotw", "Nazwa własna usługi ARRL Logbook of the World"),
-    ("sync.tab_psk_reporter", "Nazwa własna serwisu PSK Reporter i adres URL"),
-    ("sync.tab_qrz", "Nazwa własna i domena internetowa serwisu QRZ.COM"),
+    (
+        "sync.tab_lotw",
+        "Nazwa własna usługi ARRL Logbook of the World",
+    ),
+    (
+        "sync.tab_psk_reporter",
+        "Nazwa własna serwisu PSK Reporter i adres URL",
+    ),
+    (
+        "sync.tab_qrz",
+        "Nazwa własna i domena internetowa serwisu QRZ.COM",
+    ),
     ("tab.vfo", "Międzynarodowe skróty radiotechniczne VFO / CAT"),
-    ("toolbar.lotw", "Międzynarodowy skrót usługi Logbook of the World"),
-    ("toolbar.vfo", "Uniwersalny skrót Variable Frequency Oscillator"),
-    ("wspr.col_snr", "Naukowe oznaczenie stosunku sygnału do szumu SNR i jednostka decybeli dB"),
+    (
+        "toolbar.lotw",
+        "Międzynarodowy skrót usługi Logbook of the World",
+    ),
+    (
+        "toolbar.vfo",
+        "Uniwersalny skrót Variable Frequency Oscillator",
+    ),
+    (
+        "wspr.col_snr",
+        "Naukowe oznaczenie stosunku sygnału do szumu SNR i jednostka decybeli dB",
+    ),
 ];
 
 #[test]
@@ -829,11 +837,9 @@ fn identical_allowed_entries_are_used() {
 
         let mut matches_any = false;
         for (_lang, map) in &non_en_maps {
-            if let Some(val) = map.get(key) {
-                if val == en_val {
-                    matches_any = true;
-                    break;
-                }
+            if map.get(key) == Some(en_val) {
+                matches_any = true;
+                break;
             }
         }
         assert!(
@@ -865,10 +871,8 @@ fn translations_are_not_english_copies() {
             if allowed_keys.contains(k.as_str()) {
                 continue;
             }
-            if let Some(val) = map.get(k) {
-                if val == en_val {
-                    violations.push((lang, k.clone(), val.as_str().unwrap().to_string()));
-                }
+            if map.get(k) == Some(en_val) {
+                violations.push((lang, k.clone(), en_val.as_str().unwrap().to_string()));
             }
         }
     }
@@ -984,8 +988,8 @@ fn manual_languages_have_identical_section_ids() {
     let mut ids_per_lang: BTreeMap<&'static str, BTreeSet<String>> = BTreeMap::new();
     for &lang in &LANGUAGES {
         let path = format!("locales/manual/{lang}.json");
-        let content = fs::read_to_string(&path)
-            .unwrap_or_else(|e| panic!("Failed to read {path}: {e}"));
+        let content =
+            fs::read_to_string(&path).unwrap_or_else(|e| panic!("Failed to read {path}: {e}"));
         let list: Vec<serde_json::Value> = serde_json::from_str(&content)
             .unwrap_or_else(|e| panic!("File '{path}' is not valid JSON: {e}"));
         let ids: BTreeSet<String> = list
@@ -1016,8 +1020,8 @@ fn manual_languages_have_identical_order() {
     let mut order_per_lang: BTreeMap<&'static str, Vec<String>> = BTreeMap::new();
     for &lang in &LANGUAGES {
         let path = format!("locales/manual/{lang}.json");
-        let content = fs::read_to_string(&path)
-            .unwrap_or_else(|e| panic!("Failed to read {path}: {e}"));
+        let content =
+            fs::read_to_string(&path).unwrap_or_else(|e| panic!("Failed to read {path}: {e}"));
         let list: Vec<serde_json::Value> = serde_json::from_str(&content)
             .unwrap_or_else(|e| panic!("File '{path}' is not valid JSON: {e}"));
         let ids: Vec<String> = list
@@ -1046,8 +1050,8 @@ fn manual_languages_have_identical_order() {
 fn manual_has_no_empty_titles_or_bodies() {
     for &lang in &LANGUAGES {
         let path = format!("locales/manual/{lang}.json");
-        let content = fs::read_to_string(&path)
-            .unwrap_or_else(|e| panic!("Failed to read {path}: {e}"));
+        let content =
+            fs::read_to_string(&path).unwrap_or_else(|e| panic!("Failed to read {path}: {e}"));
         let list: Vec<serde_json::Value> = serde_json::from_str(&content)
             .unwrap_or_else(|e| panic!("File '{path}' is not valid JSON: {e}"));
         for (idx, sec) in list.iter().enumerate() {
@@ -1070,7 +1074,7 @@ fn manual_has_no_empty_titles_or_bodies() {
 
 #[test]
 fn manual_returns_every_language() {
-    use splogbook::core::i18n::{manual, Language};
+    use splogbook::core::i18n::{Language, manual};
 
     for lang in Language::ALL {
         let sections = manual(lang);
@@ -1122,4 +1126,64 @@ fn user_manual_renderer_has_no_embedded_translatable_sections() {
     );
 }
 
+#[test]
+fn guards_have_no_pending_whitelists() {
+    let content =
+        fs::read_to_string("tests/i18n_guard.rs").expect("Failed to read tests/i18n_guard.rs");
+    let p_files = concat!("PENDING_", "FILES");
+    let p_mods = concat!("PENDING_", "MODULES");
+    assert!(
+        !content.contains(p_files),
+        "tests/i18n_guard.rs must not contain any pending whitelist constant or check"
+    );
+    assert!(
+        !content.contains(p_mods),
+        "tests/i18n_guard.rs must not contain any pending whitelist constant or check"
+    );
+}
 
+#[test]
+fn domain_errors_substitute_all_parameters() {
+    use splogbook::core::i18n::Language;
+
+    let sample_messages = vec![
+        splogbook::cat::rig::RigError::NotConnected.msg(),
+        splogbook::cat::rig::RigError::Connect {
+            endpoint: "127.0.0.1".into(),
+            detail: "connection refused".into(),
+        }
+        .msg(),
+        splogbook::cloud::cloudlog::CloudlogError::NotConfigured.msg(),
+        splogbook::cloud::cloudlog::CloudlogError::Http("connection reset".into()).msg(),
+        splogbook::cloud::hamqth::HamQthError::NotConfigured.msg(),
+        splogbook::cloud::hrdlog::HrdlogError::NotConfigured.msg(),
+        splogbook::cloud::psk_reporter::PskReporterError::MissingFrequency.msg(),
+        splogbook::cloud::wspr::WsprError::InvalidCallsign.msg(),
+        splogbook::core::adif::AdifError::Read("unexpected EOF".into()).msg(),
+        splogbook::core::backup::BackupError::SourceNotFound.msg(),
+        splogbook::core::callbook::CallbookError::NotFound.msg(),
+        splogbook::core::database::journals::JournalError::CannotDeleteDefault.msg(),
+        splogbook::core::ingest::IngestError::EmptyCallsign.msg(),
+        splogbook::core::qso::QsoIssue::EmptyCallsign.msg(),
+        splogbook::core::qso::QsoWarning::Iota("EU-140".into()).msg(),
+        splogbook::core::sota_export::SotaExportError::InvalidDate {
+            callsign: "SP6INA".into(),
+        }
+        .msg(),
+        splogbook::sync::error::SyncError::SecretRequired.msg(),
+    ];
+
+    for lang in Language::ALL {
+        for msg in &sample_messages {
+            let rendered = msg.text(lang);
+            assert!(
+                !rendered.contains('{') && !rendered.contains('}'),
+                "Unsubstituted placeholder in message for {lang:?}: {rendered}"
+            );
+            assert!(
+                !rendered.trim().is_empty(),
+                "Empty rendered message for {lang:?}"
+            );
+        }
+    }
+}

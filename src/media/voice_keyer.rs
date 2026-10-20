@@ -48,8 +48,8 @@ pub fn play_wav_file(path: &str) -> Result<(), VoiceKeyerError> {
     STOP_PLAYBACK.store(false, Ordering::SeqCst);
 
     let file = File::open(path).map_err(|e| VoiceKeyerError::OpenFile(e.to_string()))?;
-    let source = Decoder::new(BufReader::new(file))
-        .map_err(|e| VoiceKeyerError::Decode(e.to_string()))?;
+    let source =
+        Decoder::new(BufReader::new(file)).map_err(|e| VoiceKeyerError::Decode(e.to_string()))?;
     let sink = DeviceSinkBuilder::open_default_sink()
         .map_err(|e| VoiceKeyerError::OpenSink(e.to_string()))?;
     let player = Player::connect_new(sink.mixer());

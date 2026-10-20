@@ -338,7 +338,13 @@ SPLogbook provides full multi-language support across all menus, toolbars, setti
 - 🇮🇹 **Italiano** (IT)
 - 🇷🇺 **Русский** (RU)
 
-All localization dictionaries are organized as clean JSON files inside `locales/` (`pl.json`, `en.json`, `de.json`, `fr.json`, `es.json`, `it.json`, `ru.json`) and baked directly into the binary at compile time via `include_str!` into zero-overhead static hash maps. This architecture enables community members to easily submit new language translations without touching Rust source code while speeding up project compilation times.
+All localization dictionaries are organized as clean JSON files inside `locales/` (`pl.json`, `en.json`, `de.json`, `fr.json`, `es.json`, `it.json`, `ru.json`) and `locales/manual/` (localized user manual chapters). The system uses an advanced compile-time architecture:
+- **Zero-Allocation Typed Catalog:** Built at compile time via `build.rs` into type-safe `Key` constants and static string lookup tables with guaranteed $O(1)$ constant-time lookup without runtime JSON parsing or string allocation.
+- **Parametric Messages (`Msg`):** Safe `{parameter}` placeholder substitution via `Msg::new(key::...).arg("name", value).text(lang)`, with compile-time and test-time validation enforcing identical parameter sets across all 7 languages.
+- **Typed Domain Errors:** Domain services (Core, CAT, Cloud, Sync, Digital, API) return typed error enums implementing `.msg() -> Msg` for structured, localized presentation.
+- **Localized User Manual:** Complete 17-section built-in operator manual in all 7 languages loaded via typed `manual(lang: Language) -> &'static [ManualSection]`.
+- **REST API Contract:** The local REST API returns domain validation error messages in Polish (`Language::Pl`) as its stable reference language.
+- **Automated Guard Suite:** Continuous integration enforcement via `tests/i18n_guard.rs` (15 automated guards verifying key parity, parameter parity, dead key elimination, no English copy-pastes, zero hardcoded UI strings, and zero untyped `String` errors in domain logic).
 
 ---
 
@@ -595,12 +601,13 @@ SPLogbook/
 │   └── workflows/
 │       └── build-and-release.yml # Multi-platform CI/CD (Ubuntu + Windows)
 ├── Cargo.toml               # Project manifest, dependencies, release profile (LTO, strip)
-├── build.rs                 # Windows resource compilation (application icon, metadata)
+├── build.rs                 # i18n typed catalog code generator & Windows resource compiler
 ├── Bin/
 │   └── Windows/
 │       └── SPLogbook.exe    # Deployed 64-bit standalone release binary
 ├── databases/               # Reference databases (CTY.DAT, callbooks, PGA, clubs)
 ├── locales/                 # JSON translation dictionaries (pl, en, de, fr, es, it, ru)
+│   └── manual/              # Localized user manual chapters (7 languages)
 ├── assets/                  # Graphical icons, desktop shortcut, and portable launcher
 │   ├── icon.ico / icon.png  # Application branding icons
 │   ├── splogbook.desktop    # Freedesktop Linux application launcher

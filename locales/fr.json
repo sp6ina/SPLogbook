@@ -1381,5 +1381,7 @@
   "wspr.err_server": "Le serveur WSPR.live a renvoyé une erreur: {status}",
   "updater.db_update_failed": "❌ Échec de la mise à jour des bases de données en ligne",
   "updater.db_update_success": "✔ Bases de données en ligne mises à jour",
-  "updater.db_update_partial": "⚠ Mise à jour partielle des bases de données"
+  "updater.db_update_partial": "⚠ Mise à jour partielle des bases de données",
+  "msg.qso_redo_no_id": "Redo : identifiant d'enregistrement manquant pour : {callsign}",
+  "msg.qso_changes_not_saved": "Modifications non enregistrées : {reason}"
 }

@@ -86,15 +86,15 @@ impl WolClient {
         let packet = Self::build_magic_packet(&mac);
 
         let dest = target_broadcast.unwrap_or("255.255.255.255:9");
-        let dest_addr: SocketAddr = dest
-            .parse()
-            .map_err(|e| WolError::InvalidBroadcastAddress {
-                address: dest.to_string(),
-                detail: format!("{e}"),
-            })?;
+        let dest_addr: SocketAddr =
+            dest.parse()
+                .map_err(|e| WolError::InvalidBroadcastAddress {
+                    address: dest.to_string(),
+                    detail: format!("{e}"),
+                })?;
 
-        let socket = UdpSocket::bind("0.0.0.0:0")
-            .map_err(|e| WolError::SocketBind(e.to_string()))?;
+        let socket =
+            UdpSocket::bind("0.0.0.0:0").map_err(|e| WolError::SocketBind(e.to_string()))?;
         socket
             .set_broadcast(true)
             .map_err(|e| WolError::SetBroadcast(e.to_string()))?;

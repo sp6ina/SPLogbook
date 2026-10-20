@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 // Dedykowany eksport łączności do oficjalnego formatu SOTA V2 CSV (Summits on the Air)
 
-use crate::core::i18n::{key, Msg};
+use crate::core::i18n::{Msg, key};
 use crate::core::qso::QsoRecord;
 use std::fmt::Write as _;
 
@@ -42,10 +42,14 @@ pub fn export_sota_csv(
     for q in qsos {
         let clean_my_call = my_call.trim().to_uppercase();
         let clean_my_sota = my_sota.trim().to_uppercase();
-        let date_formatted = format_sota_date(&q.qso_date)
-            .map_err(|_| SotaExportError::InvalidDate { callsign: q.callsign.clone() })?;
-        let time_formatted = format_sota_time(&q.time_on)
-            .map_err(|_| SotaExportError::InvalidTime { callsign: q.callsign.clone() })?;
+        let date_formatted =
+            format_sota_date(&q.qso_date).map_err(|_| SotaExportError::InvalidDate {
+                callsign: q.callsign.clone(),
+            })?;
+        let time_formatted =
+            format_sota_time(&q.time_on).map_err(|_| SotaExportError::InvalidTime {
+                callsign: q.callsign.clone(),
+            })?;
         let band_formatted = format_sota_band(&q.band);
         let mode_formatted = q.mode.trim().to_uppercase();
         let his_call = q.callsign.trim().to_uppercase();

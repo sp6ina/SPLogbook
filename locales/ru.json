@@ -1381,5 +1381,7 @@
   "wspr.err_server": "Сервер WSPR.live вернул ошибку: {status}",
   "updater.db_update_failed": "❌ Ошибка обновления онлайн-баз данных",
   "updater.db_update_success": "✔ Онлайн-базы данных обновлены",
-  "updater.db_update_partial": "⚠ Частичное обновление баз данных"
+  "updater.db_update_partial": "⚠ Частичное обновление баз данных",
+  "msg.qso_redo_no_id": "Redo: отсутствует идентификатор записи для: {callsign}",
+  "msg.qso_changes_not_saved": "Изменения не сохранены: {reason}"
 }

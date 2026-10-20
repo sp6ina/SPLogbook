@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use super::LogDatabase;
-use crate::core::i18n::{key, Msg};
+use crate::core::i18n::{Msg, key};
 use rusqlite::{Result, params};
 use serde::{Deserialize, Serialize};
 
@@ -19,7 +19,10 @@ impl std::fmt::Display for JournalError {
         match self {
             Self::CannotDeleteDefault => write!(f, "Cannot delete default journal."),
             Self::CannotDeleteActive => {
-                write!(f, "Cannot delete active journal. Switch active journal first.")
+                write!(
+                    f,
+                    "Cannot delete active journal. Switch active journal first."
+                )
             }
             Self::NotFound(id) => write!(f, "Journal '{id}' does not exist."),
             Self::Sql(detail) => write!(f, "Database error: {detail}"),

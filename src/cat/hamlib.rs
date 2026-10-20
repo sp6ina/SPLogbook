@@ -279,12 +279,13 @@ impl crate::cat::backend::CatBackend for HamlibClient {
 
     async fn poll_state(&mut self) -> Result<RigState, RigError> {
         let addr = format!("{}:{}", self.host, self.port);
-        let stream = connect_timeout(&self.host, self.port)
-            .await
-            .map_err(|e| RigError::Connect {
-                endpoint: addr,
-                detail: e.to_string(),
-            })?;
+        let stream =
+            connect_timeout(&self.host, self.port)
+                .await
+                .map_err(|e| RigError::Connect {
+                    endpoint: addr,
+                    detail: e.to_string(),
+                })?;
         let (reader, mut writer) = stream.into_split();
         let mut buf_reader = BufReader::new(reader);
         let mut state = RigState {

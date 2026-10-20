@@ -3,7 +3,7 @@
 
 use crate::cloud::hamqth::HamQthXmlClient;
 use crate::cloud::qrz::{CallbookData, QrzClient};
-use crate::core::i18n::{key, Msg};
+use crate::core::i18n::{Msg, key};
 use rusqlite::{Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;

@@ -1381,5 +1381,7 @@
   "wspr.err_server": "Serwer WSPR.live zwrócił błąd: {status}",
   "updater.db_update_failed": "❌ Błąd aktualizacji baz online",
   "updater.db_update_success": "✔ Zaktualizowano bazy online",
-  "updater.db_update_partial": "⚠ Częściowa aktualizacja baz"
+  "updater.db_update_partial": "⚠ Częściowa aktualizacja baz",
+  "msg.qso_redo_no_id": "Redo: brak identyfikatora rekordu dla: {callsign}",
+  "msg.qso_changes_not_saved": "Nie zapisano zmian: {reason}"
 }

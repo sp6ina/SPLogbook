@@ -535,7 +535,9 @@ fn start_audio_stream(
         cpal::SampleFormat::I8 => build_stream::<i8>(&device, config, channels, ring),
         cpal::SampleFormat::U8 => build_stream::<u8>(&device, config, channels, ring),
         cpal::SampleFormat::I32 => build_stream::<i32>(&device, config, channels, ring),
-        other => Err(WaterfallAudioError::UnsupportedSampleFormat(format!("{other:?}"))),
+        other => Err(WaterfallAudioError::UnsupportedSampleFormat(format!(
+            "{other:?}"
+        ))),
     }
 }
 

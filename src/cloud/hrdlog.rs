@@ -3,7 +3,7 @@
 // Klient serwisu HRDLog.net (XML Upload)
 
 use crate::core::adif::export_adif;
-use crate::core::i18n::{key, Msg};
+use crate::core::i18n::{Msg, key};
 use crate::core::qso::QsoRecord;
 
 #[derive(Debug)]
@@ -17,7 +17,10 @@ impl std::fmt::Display for HrdlogError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NotConfigured => {
-                write!(f, "HRDLog.net callsign or authorization code is not configured")
+                write!(
+                    f,
+                    "HRDLog.net callsign or authorization code is not configured"
+                )
             }
             Self::Http(detail) => write!(f, "HTTP error: {detail}"),
             Self::Server(detail) => write!(f, "HRDLog.net response: {detail}"),

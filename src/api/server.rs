@@ -773,6 +773,8 @@ fn normalize_and_enrich_qso(
     Ok(())
 }
 
+/// Kontrakt lokalizacji REST API: Błędy domenowe i komunikaty walidacji zwracane
+/// są w języku polskim (`Language::Pl`) jako stabilna referencja dla integracji lokalnych.
 async fn post_qso(
     State(state): State<ApiState>,
     Json(qso): Json<QsoRecord>,

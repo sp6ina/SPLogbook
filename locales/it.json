@@ -1381,5 +1381,7 @@
   "wspr.err_server": "Il server WSPR.live ha restituito un errore: {status}",
   "updater.db_update_failed": "❌ Aggiornamento dei database online non riuscito",
   "updater.db_update_success": "✔ Database online aggiornati",
-  "updater.db_update_partial": "⚠ Aggiornamento parziale dei database"
+  "updater.db_update_partial": "⚠ Aggiornamento parziale dei database",
+  "msg.qso_redo_no_id": "Redo: identificatore di record mancante per: {callsign}",
+  "msg.qso_changes_not_saved": "Modifiche non salvate: {reason}"
 }

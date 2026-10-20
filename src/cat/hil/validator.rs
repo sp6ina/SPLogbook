@@ -37,23 +37,40 @@ impl std::fmt::Display for HilProfileValidationError {
             Self::EmptyModelName => write!(f, "Model name is empty"),
             Self::InvalidModelProfile(m) => write!(f, "Unknown or invalid model profile: '{m}'"),
             Self::So2rNotDirectBackend => {
-                write!(f, "SO2R is a dual-radio coordinator layer, not a direct radio backend")
+                write!(
+                    f,
+                    "SO2R is a dual-radio coordinator layer, not a direct radio backend"
+                )
             }
             Self::UnknownProfile { model, backend } => {
-                write!(f, "Unknown radio profile '{model}' for {} backend", backend.label())
+                write!(
+                    f,
+                    "Unknown radio profile '{model}' for {} backend",
+                    backend.label()
+                )
             }
             Self::VendorMismatch {
                 model_id,
                 actual,
                 expected,
             } => {
-                write!(f, "Profile '{model_id}' belongs to vendor {actual:?}, expected {expected:?}")
+                write!(
+                    f,
+                    "Profile '{model_id}' belongs to vendor {actual:?}, expected {expected:?}"
+                )
             }
             Self::FlexRadioRequiresNetworkTransport => {
-                write!(f, "FlexRadio SmartSDR profile requires Network transport, not Serial")
+                write!(
+                    f,
+                    "FlexRadio SmartSDR profile requires Network transport, not Serial"
+                )
             }
             Self::BackendRequiresNetworkTransport(kind) => {
-                write!(f, "Backend '{}' requires Network transport configuration", kind.as_str())
+                write!(
+                    f,
+                    "Backend '{}' requires Network transport configuration",
+                    kind.as_str()
+                )
             }
         }
     }
@@ -584,14 +601,18 @@ impl HilReadinessValidator {
 
     /// Weryfikuje zgodność wybranego backendu z profilem modelu i producentem (Warunek 7).
     /// Nie sprawdza portu, baud rate ani session_id; nigdy nie wykonuje fallbacku na Hamlib.
-    pub fn validate_backend_profile(manifest: &HilTestBenchManifest) -> Result<(), HilProfileValidationError> {
+    pub fn validate_backend_profile(
+        manifest: &HilTestBenchManifest,
+    ) -> Result<(), HilProfileValidationError> {
         let model = manifest.matrix.model_name.trim();
         if model.is_empty() {
             return Err(HilProfileValidationError::EmptyModelName);
         }
         let upper_model = model.to_ascii_uppercase();
         if upper_model.contains("UNKNOWN") || upper_model.contains("INVALID") {
-            return Err(HilProfileValidationError::InvalidModelProfile(model.to_string()));
+            return Err(HilProfileValidationError::InvalidModelProfile(
+                model.to_string(),
+            ));
         }
 
         match manifest.matrix.backend_kind {
