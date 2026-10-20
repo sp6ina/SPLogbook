@@ -3,7 +3,7 @@
 
 //! Moduł statystyk i wykresów QSO — wykresy pasmo/emisja/godzina/miesiąc/QSL
 
-use crate::core::i18n::{key, tr};
+use crate::core::i18n::{Msg, key, tr};
 use crate::gui::app::{DrillFilter, QslDrillStatus, SpLogApp};
 use crate::gui::theme::ThemeExt;
 use eframe::egui;
@@ -128,14 +128,15 @@ fn get_cached_stats(app: &mut SpLogApp) -> StatsCacheData {
         }
     }
 
+    let lang = app.current_language;
     let data = match app.log_db.lock() {
         Ok(db) => {
             let band = db.stats_qso_per_band().unwrap_or_else(|e| {
-                app.status_message = Some(format!("Błąd odczytu statystyk (pasma): {e}"));
+                app.status_message = Some(Msg::new(key::STATS_ERR_BANDS).arg("err", &e).text(lang));
                 vec![]
             });
             let mode = db.stats_qso_per_mode().unwrap_or_else(|e| {
-                app.status_message = Some(format!("Błąd odczytu statystyk (emisje): {e}"));
+                app.status_message = Some(Msg::new(key::STATS_ERR_MODES).arg("err", &e).text(lang));
                 vec![]
             });
             let monthly = match db.stats_qso_per_month() {
@@ -144,20 +145,22 @@ fn get_cached_stats(app: &mut SpLogApp) -> StatsCacheData {
                     v
                 }
                 Err(e) => {
-                    app.status_message = Some(format!("Błąd odczytu statystyk (miesiące): {e}"));
+                    app.status_message =
+                        Some(Msg::new(key::STATS_ERR_MONTHS).arg("err", &e).text(lang));
                     vec![]
                 }
             };
             let hourly = db.stats_activity_by_hour().unwrap_or_else(|e| {
-                app.status_message = Some(format!("Błąd odczytu statystyk (godziny): {e}"));
+                app.status_message = Some(Msg::new(key::STATS_ERR_HOURS).arg("err", &e).text(lang));
                 vec![]
             });
             let countries = db.stats_top_countries(15).unwrap_or_else(|e| {
-                app.status_message = Some(format!("Błąd odczytu statystyk (kraje): {e}"));
+                app.status_message =
+                    Some(Msg::new(key::STATS_ERR_COUNTRIES).arg("err", &e).text(lang));
                 vec![]
             });
             let qsl = db.stats_qsl_summary().unwrap_or_else(|e| {
-                app.status_message = Some(format!("Błąd odczytu statystyk (QSL): {e}"));
+                app.status_message = Some(Msg::new(key::STATS_ERR_QSL).arg("err", &e).text(lang));
                 (0, 0, 0, 0)
             });
             StatsCacheData {
@@ -170,7 +173,7 @@ fn get_cached_stats(app: &mut SpLogApp) -> StatsCacheData {
             }
         }
         Err(e) => {
-            app.status_message = Some(format!("Nie można otworzyć dziennika: {e}"));
+            app.status_message = Some(Msg::new(key::STATS_ERR_OPEN_LOG).arg("err", &e).text(lang));
             StatsCacheData::default()
         }
     };

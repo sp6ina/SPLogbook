@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
-use crate::core::i18n::{key, tr};
+use crate::core::i18n::{Msg, key, tr};
 use crate::gui::app::SpLogApp;
 use crate::gui::theme::ThemeExt;
 use eframe::egui;
@@ -106,6 +106,7 @@ pub fn render_satellites_window(app: &mut SpLogApp, ctx: &egui::Context) {
             res.response.rect,
             &mut app.panel_satellites.floating,
             true,
+            app.current_language,
         );
         if app.panel_satellites.floating {
             app.save_station_config();
@@ -245,7 +246,7 @@ pub fn render_satellites_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         // Najbliższe przeloty + Doppler
         ui.label(
-            egui::RichText::new("🕒 Najbliższe przeloty (24 h)")
+            egui::RichText::new(tr(key::SAT_UPCOMING_PASSES, lang))
                 .strong()
                 .size(11.0),
         );
@@ -253,12 +254,20 @@ pub fn render_satellites_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
         if let Some(np) = crate::core::satellite::next_pass(&app.sat_passes, now) {
             let secs = np.aos_unix - now;
             if secs > 0.0 {
-                ui.label(format!("⏱ Następny przelot za {}", format_countdown(secs)));
+                ui.label(
+                    Msg::new(key::SAT_NEXT_PASS_IN)
+                        .arg("countdown", format_countdown(secs))
+                        .text(lang),
+                );
             } else {
-                ui.label(egui::RichText::new("● Satelita nad horyzontem").color(palette.success));
+                ui.label(
+                    egui::RichText::new(tr(key::SAT_ABOVE_HORIZON, lang)).color(palette.success),
+                );
             }
         } else {
-            ui.label(egui::RichText::new("Brak przelotów w ciągu 24 h").color(palette.text_muted));
+            ui.label(
+                egui::RichText::new(tr(key::SAT_NO_PASSES_24H, lang)).color(palette.text_muted),
+            );
         }
 
         egui::ScrollArea::vertical()
@@ -271,9 +280,21 @@ pub fn render_satellites_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     .striped(true)
                     .show(ui, |ui| {
                         ui.label(egui::RichText::new("AOS").strong().small());
-                        ui.label(egui::RichText::new("Max el.").strong().small());
-                        ui.label(egui::RichText::new("Azymut").strong().small());
-                        ui.label(egui::RichText::new("Doppler AOS").strong().small());
+                        ui.label(
+                            egui::RichText::new(tr(key::SAT_COL_MAX_EL, lang))
+                                .strong()
+                                .small(),
+                        );
+                        ui.label(
+                            egui::RichText::new(tr(key::WSPR_COL_AZIMUTH, lang))
+                                .strong()
+                                .small(),
+                        );
+                        ui.label(
+                            egui::RichText::new(tr(key::SAT_COL_DOPPLER_AOS, lang))
+                                .strong()
+                                .small(),
+                        );
                         ui.end_row();
 
                         for pass in app.sat_passes.iter().take(8) {

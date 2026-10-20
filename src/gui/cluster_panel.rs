@@ -224,6 +224,7 @@ pub fn render_cluster_window(app: &mut SpLogApp, ctx: &egui::Context) {
             res.response.rect,
             &mut app.panel_cluster.floating,
             true,
+            app.current_language,
         );
         if app.panel_cluster.floating {
             app.save_station_config();

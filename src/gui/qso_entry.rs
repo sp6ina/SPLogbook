@@ -102,6 +102,7 @@ pub fn render_qso_entry_window(app: &mut SpLogApp, ctx: &egui::Context) {
             res.response.rect,
             &mut app.panel_qso.floating,
             true,
+            app.current_language,
         );
         if app.panel_qso.floating {
             app.save_station_config();

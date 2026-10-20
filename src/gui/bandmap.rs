@@ -109,6 +109,7 @@ pub fn render_bandmap_window(app: &mut SpLogApp, ctx: &egui::Context) {
             res.response.rect,
             &mut app.panel_bandmap.floating,
             true,
+            app.current_language,
         );
         if app.panel_bandmap.floating {
             app.save_station_config();

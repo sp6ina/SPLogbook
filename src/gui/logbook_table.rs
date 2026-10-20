@@ -159,6 +159,7 @@ pub fn render_logbook_window(app: &mut SpLogApp, ctx: &egui::Context) {
             res.response.rect,
             &mut app.panel_log.floating,
             true,
+            app.current_language,
         );
         if app.panel_log.floating {
             app.save_station_config();

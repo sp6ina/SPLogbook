@@ -107,6 +107,7 @@ pub fn render_solar_window(app: &mut SpLogApp, ctx: &egui::Context) {
             res.response.rect,
             &mut app.panel_solar.floating,
             true,
+            app.current_language,
         );
         if app.panel_solar.floating {
             app.save_station_config();

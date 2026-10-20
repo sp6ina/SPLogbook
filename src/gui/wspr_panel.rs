@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Wozniak (SP6INA)
 
-use crate::core::i18n::{key, tr};
+use crate::core::i18n::{Msg, key, tr};
 use crate::gui::app::SpLogApp;
 use crate::gui::text_sparkline;
 use crate::gui::theme::ThemeExt;
@@ -33,19 +33,26 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if app.wspr_loading {
                         ui.spinner();
-                        ui.label("Pobieranie...");
+                        ui.label(tr(key::WSPR_FETCHING, lang));
                     } else {
                         let refresh_btn = ui.button(tr(key::WSPR_REFRESH, lang));
                         if refresh_btn.clicked() {
                             fetch_wspr_spots_async(app, ctx);
                         }
                     }
-                    ui.label(format!("Stacja: {}", app.my_station.callsign));
+                    ui.label(format!(
+                        "{}: {}",
+                        tr(key::WIZARD_TAB_STATION, lang),
+                        app.my_station.callsign
+                    ));
                 });
             });
 
             if let Some(ref err) = app.wspr_last_error.clone() {
-                ui.colored_label(palette.danger, format!("Błąd pobierania: {err}"));
+                ui.colored_label(
+                    palette.danger,
+                    Msg::new(key::WSPR_FETCH_ERROR).arg("err", err).text(lang),
+                );
             }
 
             ui.separator();
@@ -53,7 +60,7 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
             // Kontrolki: jednostki odległości + trend SNR
             if !app.wspr_spots.is_empty() {
                 ui.horizontal(|ui| {
-                    ui.checkbox(&mut app.wspr_distance_miles, "Odległość w milach");
+                    ui.checkbox(&mut app.wspr_distance_miles, tr(key::WSPR_DIST_MILES, lang));
                     ui.label(
                         egui::RichText::new(tr(key::WSPR_TREND_SNR, lang))
                             .small()
@@ -160,10 +167,11 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     });
                 ui.add_space(4.0);
                 ui.label(
-                    egui::RichText::new(format!(
-                        "Łącznie {} spotów z wspr.live",
-                        app.wspr_spots.len()
-                    ))
+                    egui::RichText::new(
+                        Msg::new(key::WSPR_TOTAL_SPOTS_COUNT)
+                            .arg("count", app.wspr_spots.len())
+                            .text(lang),
+                    )
                     .small()
                     .color(palette.text_subtle),
                 );

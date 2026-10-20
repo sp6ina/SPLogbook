@@ -4,7 +4,7 @@
 
 use crate::core::adif::export_adif;
 use crate::core::database::{AdvancedQsoFilter, LogDatabase};
-use crate::core::i18n::{Language, key, tr};
+use crate::core::i18n::{Language, Msg, key, tr};
 use crate::core::qso::QsoRecord;
 use crate::gui::theme::ThemeExt;
 use eframe::egui;
@@ -161,10 +161,11 @@ impl AdvancedFilterDialog {
                         if let Ok(qsos) = db.search_qsos_advanced(&filter) {
                             self.filtered_count = qsos.len();
                             self.is_filtered_active = true;
-                            self.status_message = Some(format!(
-                                "Znaleziono {} łączności spełniających kryteria.",
-                                self.filtered_count
-                            ));
+                            self.status_message = Some(
+                                Msg::new(key::FILTER_MATCHES_FOUND)
+                                    .arg("count", self.filtered_count)
+                                    .text(lang),
+                            );
                             on_filter_applied(qsos);
                         }
                     }
@@ -182,8 +183,7 @@ impl AdvancedFilterDialog {
                         self.qsl_rcvd_only = false;
                         self.call_query.clear();
                         self.is_filtered_active = false;
-                        self.status_message =
-                            Some("Filtry zresetowane - wyświetlanie pełnego logu.".to_string());
+                        self.status_message = Some(tr(key::FILTER_RESET_MSG, lang).to_string());
                         on_filter_cleared();
                     }
 
@@ -195,7 +195,7 @@ impl AdvancedFilterDialog {
                         if let Ok(qsos) = db.search_qsos_advanced(&filter) {
                             if qsos.is_empty() {
                                 self.status_message =
-                                    Some("Brak łączności do wyeksportowania!".to_string());
+                                    Some(tr(key::FILTER_NO_QSOS_TO_EXPORT, lang).to_string());
                             } else if let Some(path) = rfd::FileDialog::new()
                                 .add_filter("ADIF Log Files", &["adi", "adif"])
                                 .set_file_name("SPLogbook-filtered.adi")
@@ -209,10 +209,11 @@ impl AdvancedFilterDialog {
                                 let content = export_adif(&qsos, "SPLogbook", author_call);
                                 if let Ok(mut f) = File::create(&path) {
                                     let _ = f.write_all(content.as_bytes());
-                                    self.status_message = Some(format!(
-                                        "Pomyślnie wyeksportowano do: {}",
-                                        path.display()
-                                    ));
+                                    self.status_message = Some(
+                                        Msg::new(key::FILTER_EXPORT_SUCCESS)
+                                            .arg("path", path.display().to_string())
+                                            .text(lang),
+                                    );
                                 }
                             }
                         }

@@ -367,6 +367,7 @@ pub fn render_world_map_window(app: &mut SpLogApp, ctx: &egui::Context) {
             res.response.rect,
             &mut app.panel_world_map.floating,
             true,
+            app.current_language,
         );
         if app.panel_world_map.floating {
             app.save_station_config();

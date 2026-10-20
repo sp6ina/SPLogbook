@@ -106,6 +106,7 @@ pub fn render_vfo_window(app: &mut SpLogApp, ctx: &egui::Context) {
             res.response.rect,
             &mut app.panel_vfo.floating,
             true,
+            app.current_language,
         );
         if app.panel_vfo.floating {
             app.save_station_config();

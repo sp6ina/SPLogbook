@@ -63,6 +63,7 @@ pub fn render_titlebar_popout_button_if(
     window_rect: eframe::egui::Rect,
     popout_target: &mut bool,
     show: bool,
+    lang: crate::core::i18n::Language,
 ) {
     if !show {
         return;
@@ -87,7 +88,10 @@ pub fn render_titlebar_popout_button_if(
                 eframe::egui::Button::new(eframe::egui::RichText::new("↗").size(11.0).strong());
             if ui
                 .add(btn)
-                .on_hover_text("Otwórz w osobnym oknie systemu Windows (np. na drugi monitor)")
+                .on_hover_text(crate::core::i18n::tr(
+                    crate::core::i18n::key::GUI_POPOUT_TOOLTIP,
+                    lang,
+                ))
                 .clicked()
             {
                 *popout_target = true;

@@ -271,27 +271,27 @@ pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 ui.label(format!("{}:", tr(key::LEDGER_COL_MANUFACTURER, lang)));
                                 ui.add(
                                     egui::TextEdit::singleline(&mut app.new_eq_mfr)
-                                        .hint_text("np. Icom, Yaesu, Kenwood"),
+                                        .hint_text(tr(key::LEDGER_HINT_MAKE, lang)),
                                 );
                                 ui.end_row();
 
                                 ui.label(format!("{}:", tr(key::LEDGER_COL_MODEL, lang)));
                                 ui.add(
                                     egui::TextEdit::singleline(&mut app.new_eq_model)
-                                        .hint_text("np. IC-7610, FT-891"),
+                                        .hint_text(tr(key::LEDGER_HINT_MODEL, lang)),
                                 );
 
                                 ui.label(format!("{}:", tr(key::LEDGER_COL_SERIAL, lang)));
                                 ui.add(
                                     egui::TextEdit::singleline(&mut app.new_eq_sn)
-                                        .hint_text("opcjonalnie"),
+                                        .hint_text(tr(key::LEDGER_HINT_OPTIONAL, lang)),
                                 );
                                 ui.end_row();
 
                                 ui.label(format!("{}:", tr(key::LEDGER_COL_NOTES, lang)));
                                 ui.add(
                                     egui::TextEdit::singleline(&mut app.new_eq_notes)
-                                        .hint_text("np. moc 100W, pasma KF/6m"),
+                                        .hint_text(tr(key::LEDGER_HINT_NOTES, lang)),
                                 );
                                 ui.end_row();
                             });
