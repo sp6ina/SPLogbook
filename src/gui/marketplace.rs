@@ -38,7 +38,7 @@ pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
                     app.marketplace_catalog = entries;
                     app.marketplace_error = None;
                 }
-                Err(e) => app.marketplace_error = Some(e),
+                Err(e) => app.marketplace_error = Some(e.to_string()),
             }
         }
     }
@@ -57,7 +57,7 @@ pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
                     );
                     reload_plugins(app);
                 }
-                Err(e) => app.marketplace_status = Some(e),
+                Err(e) => app.marketplace_status = Some(e.to_string()),
             }
         }
     }
@@ -217,7 +217,7 @@ pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
                         );
                         reload_plugins(app);
                     }
-                    Err(e) => app.marketplace_status = Some(e),
+                    Err(e) => app.marketplace_status = Some(e.to_string()),
                 }
             }
         }

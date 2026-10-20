@@ -349,14 +349,56 @@ fn on_rig_state(freq_mhz, mode, connected) {
     ]
 }
 
+/// Błędy operacji na repozytorium wtyczek (Marketplace).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MarketplaceError {
+    ParseCatalog(String),
+    FetchCatalog(String),
+    HttpStatus(u16),
+    ReadResponseBody(String),
+    InvalidFilename(String),
+    DisallowedPath(String),
+    MissingDownloadUrl,
+    MissingSha256,
+    Sha256Mismatch,
+    CreateDirectory(String),
+    WriteScript { path: String, detail: String },
+    SerializeManifest(String),
+    WriteManifest { path: String, detail: String },
+    RemoveScript { path: String, detail: String },
+}
+
+impl std::fmt::Display for MarketplaceError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ParseCatalog(e) => write!(f, "Failed to parse catalog: {e}"),
+            Self::FetchCatalog(e) => write!(f, "Failed to fetch catalog: {e}"),
+            Self::HttpStatus(status) => write!(f, "Catalog server returned status {status}"),
+            Self::ReadResponseBody(e) => write!(f, "Failed to read response body: {e}"),
+            Self::InvalidFilename(name) => write!(f, "Invalid plugin filename: {name}"),
+            Self::DisallowedPath(path) => write!(f, "Disallowed plugin path: {path}"),
+            Self::MissingDownloadUrl => write!(f, "Missing download URL for plugin"),
+            Self::MissingSha256 => write!(f, "Plugin has no SHA256 checksum - installation refused"),
+            Self::Sha256Mismatch => write!(f, "Plugin SHA256 checksum mismatch"),
+            Self::CreateDirectory(e) => write!(f, "Failed to create plugins directory: {e}"),
+            Self::WriteScript { path, detail } => write!(f, "Failed to write script {path}: {detail}"),
+            Self::SerializeManifest(e) => write!(f, "Failed to serialize manifest: {e}"),
+            Self::WriteManifest { path, detail } => write!(f, "Failed to write manifest {path}: {detail}"),
+            Self::RemoveScript { path, detail } => write!(f, "Failed to remove script {path}: {detail}"),
+        }
+    }
+}
+
+impl std::error::Error for MarketplaceError {}
+
 /// Parsuje katalog ze zdalnego JSON (format zgodny z [`PluginCatalogEntry`]).
-pub fn parse_catalog(json: &str) -> Result<Vec<PluginCatalogEntry>, String> {
+pub fn parse_catalog(json: &str) -> Result<Vec<PluginCatalogEntry>, MarketplaceError> {
     serde_json::from_str::<Vec<PluginCatalogEntry>>(json)
-        .map_err(|e| format!("Błąd parsowania katalogu: {e}"))
+        .map_err(|e| MarketplaceError::ParseCatalog(e.to_string()))
 }
 
 /// Pobiera katalog: najpierw zdalny, a przy błędzie zwraca wbudowany zapasowy.
-pub async fn fetch_catalog() -> Result<Vec<PluginCatalogEntry>, String> {
+pub async fn fetch_catalog() -> Result<Vec<PluginCatalogEntry>, MarketplaceError> {
     match fetch_remote_catalog().await {
         Ok(entries) if !entries.is_empty() => Ok(entries),
         _ => Ok(bundled_catalog()),
@@ -364,37 +406,40 @@ pub async fn fetch_catalog() -> Result<Vec<PluginCatalogEntry>, String> {
 }
 
 /// Pobiera i parsuje zdalny katalog (bez fallbacku).
-async fn fetch_remote_catalog() -> Result<Vec<PluginCatalogEntry>, String> {
+async fn fetch_remote_catalog() -> Result<Vec<PluginCatalogEntry>, MarketplaceError> {
     let client = crate::core::http::http_client_with_timeout(15);
     let resp = client
         .get(REMOTE_CATALOG_URL)
         .header("User-Agent", crate::core::http::USER_AGENT)
         .send()
         .await
-        .map_err(|e| format!("Błąd pobierania katalogu: {e}"))?;
+        .map_err(|e| MarketplaceError::FetchCatalog(e.to_string()))?;
 
     if !resp.status().is_success() {
-        return Err(format!("Serwer zwrócił status {}", resp.status()));
+        return Err(MarketplaceError::HttpStatus(resp.status().as_u16()));
     }
 
-    let body = resp.text().await.map_err(|e| e.to_string())?;
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| MarketplaceError::ReadResponseBody(e.to_string()))?;
     parse_catalog(&body)
 }
 
 /// Waliduje nazwę pliku/identyfikator pod kątem prób wyjścia poza katalog (`Path Traversal`).
-fn validate_safe_filename(name: &str) -> Result<(), String> {
+fn validate_safe_filename(name: &str) -> Result<(), MarketplaceError> {
     if name.trim().is_empty()
         || name.contains("..")
         || name.contains('/')
         || name.contains('\\')
         || name.contains(':')
     {
-        return Err(format!("Nieprawidłowa nazwa pliku wtyczki: {name}"));
+        return Err(MarketplaceError::InvalidFilename(name.to_string()));
     }
     let mut components = Path::new(name).components();
     match (components.next(), components.next()) {
         (Some(std::path::Component::Normal(_)), None) => Ok(()),
-        _ => Err(format!("Niedozwolona ścieżka wtyczki: {name}")),
+        _ => Err(MarketplaceError::DisallowedPath(name.to_string())),
     }
 }
 
@@ -438,13 +483,13 @@ pub fn install_status(plugins_dir: &Path, entry: &PluginCatalogEntry) -> Install
 }
 
 /// Pobiera (lub bierze wbudowane) źródło wtyczki i weryfikuje SHA256.
-async fn obtain_source(entry: &PluginCatalogEntry) -> Result<Vec<u8>, String> {
+async fn obtain_source(entry: &PluginCatalogEntry) -> Result<Vec<u8>, MarketplaceError> {
     if let Some(source) = &entry.source {
         return Ok(source.as_bytes().to_vec());
     }
 
     if entry.download_url.is_empty() {
-        return Err("Brak adresu pobrania dla wtyczki.".to_string());
+        return Err(MarketplaceError::MissingDownloadUrl);
     }
 
     let client = crate::core::http::http_client_with_timeout(60);
@@ -453,21 +498,23 @@ async fn obtain_source(entry: &PluginCatalogEntry) -> Result<Vec<u8>, String> {
         .header("User-Agent", crate::core::http::USER_AGENT)
         .send()
         .await
-        .map_err(|e| format!("Błąd pobierania wtyczki: {e}"))?;
+        .map_err(|e| MarketplaceError::FetchCatalog(e.to_string()))?;
 
     if !resp.status().is_success() {
-        return Err(format!("Serwer zwrócił status {}", resp.status()));
+        return Err(MarketplaceError::HttpStatus(resp.status().as_u16()));
     }
 
-    let bytes = resp.bytes().await.map_err(|e| e.to_string())?.to_vec();
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| MarketplaceError::ReadResponseBody(e.to_string()))?
+        .to_vec();
 
     // Zdalna zawartość musi mieć obowiązkową sumę kontrolną — bez niej nie
     // instalujemy, aby nie dopuścić do wykonania niezweryfikowanego kodu.
-    let expected = entry.sha256.as_deref().ok_or_else(|| {
-        "Wtyczka nie zawiera sumy kontrolnej SHA256 — odmowa instalacji.".to_string()
-    })?;
+    let expected = entry.sha256.as_deref().ok_or(MarketplaceError::MissingSha256)?;
     if !crate::cloud::updater::verify_sha256(&bytes, expected) {
-        return Err("Suma kontrolna SHA256 pobranej wtyczki nie zgadza się.".to_string());
+        return Err(MarketplaceError::Sha256Mismatch);
     }
 
     Ok(bytes)
@@ -477,7 +524,7 @@ async fn obtain_source(entry: &PluginCatalogEntry) -> Result<Vec<u8>, String> {
 pub async fn install_entry(
     entry: &PluginCatalogEntry,
     plugins_dir: &Path,
-) -> Result<PathBuf, String> {
+) -> Result<PathBuf, MarketplaceError> {
     validate_safe_filename(&entry.id)?;
     validate_safe_filename(&entry.file)?;
 
@@ -485,22 +532,22 @@ pub async fn install_entry(
 
     let sha256 = crate::cloud::updater::sha256_hex(&bytes);
     // Obowiązkowa weryfikacja sumy kontrolnej — wtyczki bez skrótu nie są instalowane.
-    let expected = entry.sha256.as_deref().ok_or_else(|| {
-        "Wtyczka nie zawiera sumy kontrolnej SHA256 — odmowa instalacji.".to_string()
-    })?;
+    let expected = entry.sha256.as_deref().ok_or(MarketplaceError::MissingSha256)?;
     if !crate::cloud::updater::verify_sha256(&bytes, expected) {
-        return Err("Suma kontrolna SHA256 wtyczki nie zgadza się.".to_string());
+        return Err(MarketplaceError::Sha256Mismatch);
     }
 
     if let Some(parent) = plugins_dir.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
     std::fs::create_dir_all(plugins_dir)
-        .map_err(|e| format!("Nie można utworzyć katalogu pluginów: {e}"))?;
+        .map_err(|e| MarketplaceError::CreateDirectory(e.to_string()))?;
 
     let script = script_path(plugins_dir, entry);
-    std::fs::write(&script, &bytes)
-        .map_err(|e| format!("Błąd zapisu skryptu {}: {e}", script.display()))?;
+    std::fs::write(&script, &bytes).map_err(|e| MarketplaceError::WriteScript {
+        path: script.display().to_string(),
+        detail: e.to_string(),
+    })?;
 
     let manifest = InstalledManifest {
         id: entry.id.clone(),
@@ -508,22 +555,27 @@ pub async fn install_entry(
         sha256: Some(sha256),
     };
     let manifest_json = serde_json::to_string_pretty(&manifest)
-        .map_err(|e| format!("Błąd serializacji manifestu: {e}"))?;
-    std::fs::write(manifest_path(plugins_dir, &entry.id), manifest_json)
-        .map_err(|e| format!("Błąd zapisu manifestu: {e}"))?;
+        .map_err(|e| MarketplaceError::SerializeManifest(e.to_string()))?;
+    let m_path = manifest_path(plugins_dir, &entry.id);
+    std::fs::write(&m_path, manifest_json).map_err(|e| MarketplaceError::WriteManifest {
+        path: m_path.display().to_string(),
+        detail: e.to_string(),
+    })?;
 
     Ok(script)
 }
 
 /// Odinstalowuje wtyczkę (usuwa skrypt i manifest boczny).
-pub fn uninstall_entry(plugins_dir: &Path, entry: &PluginCatalogEntry) -> Result<(), String> {
+pub fn uninstall_entry(plugins_dir: &Path, entry: &PluginCatalogEntry) -> Result<(), MarketplaceError> {
     validate_safe_filename(&entry.id)?;
     validate_safe_filename(&entry.file)?;
 
     let script = script_path(plugins_dir, entry);
     if script.exists() {
-        std::fs::remove_file(&script)
-            .map_err(|e| format!("Błąd usuwania skryptu {}: {e}", script.display()))?;
+        std::fs::remove_file(&script).map_err(|e| MarketplaceError::RemoveScript {
+            path: script.display().to_string(),
+            detail: e.to_string(),
+        })?;
     }
     let manifest = manifest_path(plugins_dir, &entry.id);
     if manifest.exists() {
@@ -638,7 +690,7 @@ mod tests {
             res.is_err(),
             "instalacja bez sumy kontrolnej musi zostać odrzucona"
         );
-        assert!(res.unwrap_err().contains("SHA256"));
+        assert!(matches!(res.unwrap_err(), MarketplaceError::MissingSha256));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

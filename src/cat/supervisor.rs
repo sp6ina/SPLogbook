@@ -5,6 +5,45 @@ use log::{error, info, warn};
 use std::path::PathBuf;
 use std::process::{Child, Command};
 
+/// Błędy nadzorcy procesu demona `rigctld`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SupervisorError {
+    MissingSerialPort,
+    ProcessExited {
+        status: String,
+        serial_port: String,
+        baud_rate: u32,
+    },
+    SpawnFailed {
+        binary: String,
+        detail: String,
+    },
+}
+
+impl std::fmt::Display for SupervisorError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MissingSerialPort => write!(
+                f,
+                "Select a serial port (e.g. COM3 / /dev/ttyUSB0) for the chosen radio model."
+            ),
+            Self::ProcessExited {
+                status,
+                serial_port,
+                baud_rate,
+            } => write!(
+                f,
+                "rigctld terminated (code: {status}) - verify serial port '{serial_port}' ({baud_rate} bps) and ensure radio is powered on."
+            ),
+            Self::SpawnFailed { binary, detail } => {
+                write!(f, "Failed to start rigctld ({binary}): {detail}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for SupervisorError {}
+
 #[derive(Debug)]
 pub struct RigctldSupervisor {
     child: Option<Child>,
@@ -166,7 +205,7 @@ impl RigctldSupervisor {
     }
 
     /// Uruchamia proces rigctld w tle
-    pub fn start(&mut self) -> Result<(), String> {
+    pub fn start(&mut self) -> Result<(), SupervisorError> {
         self.stop();
 
         let default_bin = if cfg!(target_os = "windows") {
@@ -216,10 +255,7 @@ impl RigctldSupervisor {
 
             cmd.arg("-r").arg(arg_port);
         } else if self.rig_id > 6 {
-            return Err(
-                "Wybierz port szeregowy (np. COM3 / /dev/ttyUSB0) dla wybranego modelu radia."
-                    .to_string(),
-            );
+            return Err(SupervisorError::MissingSerialPort);
         }
 
         if self.baud_rate > 0 && self.rig_id > 6 {
@@ -279,10 +315,11 @@ impl RigctldSupervisor {
             Ok(mut child) => {
                 std::thread::sleep(std::time::Duration::from_millis(90));
                 if let Ok(Some(status)) = child.try_wait() {
-                    return Err(format!(
-                        "rigctld zakończył działanie (kod: {status}) — sprawdź port '{}' ({} bps) oraz czy radio jest włączone.",
-                        self.serial_port, self.baud_rate
-                    ));
+                    return Err(SupervisorError::ProcessExited {
+                        status: status.to_string(),
+                        serial_port: self.serial_port.clone(),
+                        baud_rate: self.baud_rate,
+                    });
                 }
                 info!(
                     "Pomyślnie uruchomiono natywny proces rigctld (PID: {})",
@@ -292,12 +329,12 @@ impl RigctldSupervisor {
                 Ok(())
             }
             Err(e) => {
-                let err_msg = format!(
-                    "Nie udało się uruchomić rigctld ({}): {e}",
-                    binary.display()
-                );
-                error!("{err_msg}");
-                Err(err_msg)
+                let err = SupervisorError::SpawnFailed {
+                    binary: binary.display().to_string(),
+                    detail: e.to_string(),
+                };
+                error!("{err}");
+                Err(err)
             }
         }
     }

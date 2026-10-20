@@ -66,6 +66,33 @@ impl Default for QslDesignerDialog {
     }
 }
 
+/// Błędy walidacji projektu kart QSL.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QslValidationError {
+    QueueEmpty,
+    MissingCallsign,
+}
+
+impl QslValidationError {
+    pub fn msg(&self) -> Msg {
+        match self {
+            Self::QueueEmpty => Msg::new(key::QSL_QUEUE_EMPTY),
+            Self::MissingCallsign => Msg::new(key::QSL_MISSING_CALLSIGN),
+        }
+    }
+}
+
+impl std::fmt::Display for QslValidationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::QueueEmpty => write!(f, "QSO queue is empty"),
+            Self::MissingCallsign => write!(f, "Station callsign is missing"),
+        }
+    }
+}
+
+impl std::error::Error for QslValidationError {}
+
 impl QslDesignerDialog {
     pub fn queue_by_rules(&mut self, db: &LogDatabase, lang: Language) {
         if let Ok(all) = db.get_all_qsos() {
@@ -109,13 +136,13 @@ impl QslDesignerDialog {
         }
     }
 
-    /// Walidacja przed generacją PDF. Zwraca komunikat błędu, jeśli nie można drukować.
-    fn validate(&self, my_callsign: &str, lang: Language) -> Result<(), String> {
+    /// Walidacja przed generacją PDF. Zwraca błąd, jeśli nie można drukować.
+    fn validate(&self, my_callsign: &str) -> Result<(), QslValidationError> {
         if self.queued_qsos.is_empty() {
-            return Err(tr(key::QSL_QUEUE_EMPTY, lang).to_string());
+            return Err(QslValidationError::QueueEmpty);
         }
         if my_callsign.trim().is_empty() {
-            return Err(tr(key::QSL_MISSING_CALLSIGN, lang).to_string());
+            return Err(QslValidationError::MissingCallsign);
         }
         Ok(())
     }
@@ -305,8 +332,8 @@ impl QslDesignerDialog {
                 ui.separator();
                 ui.horizontal(|ui| {
                     if ui.button(tr(key::QSL_EXPORT_PDF_BTN, lang)).clicked() {
-                        if let Err(err) = self.validate(my_callsign, lang) {
-                            self.status_message = Some(err);
+                        if let Err(err) = self.validate(my_callsign) {
+                            self.status_message = Some(err.msg().text(lang));
                             return;
                         }
                         if let Some(path) = rfd::FileDialog::new()

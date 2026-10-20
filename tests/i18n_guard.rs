@@ -629,20 +629,7 @@ fn test_i18n_pending_files_exist() {
 /// Każdy kolejny commit I18N-B3A do I18N-B3E musi zmniejszać tę listę.
 /// W commicie I18N-B6 lista ta zostanie bezwzględnie usunięta.
 const PENDING_MODULES: &[&str] = &[
-    "src/cat/backend.rs",
-    "src/cat/flrig.rs",
-    "src/cat/hamlib.rs",
-    "src/cat/hil/validator.rs",
-    "src/cat/supervisor.rs",
     "src/cloud/updater.rs",
-    "src/gui/app.rs",
-    "src/gui/cat_settings.rs",
-    "src/gui/qsl_designer.rs",
-    "src/gui/waterfall_panel.rs",
-    "src/network/wol.rs",
-    "src/plugins/lookups.rs",
-    "src/plugins/marketplace.rs",
-    "src/plugins/mod.rs",
 ];
 
 fn check_file_for_string_errors(content: &str) -> Vec<(usize, String)> {

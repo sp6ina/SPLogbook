@@ -114,7 +114,7 @@ impl WaterfallPanel {
                     log::error!("Failed to start audio capture: {e}");
                     *error_slot
                         .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(e);
+                        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(e.to_string());
                 }
             }
         });
@@ -464,17 +464,43 @@ fn icons_stop() -> &'static str {
     "⏹ Stop"
 }
 
+/// Błędy podsystemu audio wodospadu (Waterfall).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WaterfallAudioError {
+    ListDevices(String),
+    NoDevicesFound,
+    DeviceNotFound,
+    DefaultConfig(String),
+    UnsupportedSampleFormat(String),
+    BuildStream(String),
+}
+
+impl std::fmt::Display for WaterfallAudioError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ListDevices(e) => write!(f, "Failed to list input devices: {e}"),
+            Self::NoDevicesFound => write!(f, "No input devices found."),
+            Self::DeviceNotFound => write!(f, "Input device not found."),
+            Self::DefaultConfig(e) => write!(f, "No default input configuration: {e}"),
+            Self::UnsupportedSampleFormat(fmt) => write!(f, "Unsupported sample format: {fmt}"),
+            Self::BuildStream(e) => write!(f, "Failed to build input stream: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for WaterfallAudioError {}
+
 /// Wyszukuje urządzenie wejściowe po nazwie (lub domyślne) i zwraca je z konfiguracją.
 fn pick_input_device(
     name: Option<&str>,
-) -> Result<(cpal::Device, cpal::SupportedStreamConfig), String> {
+) -> Result<(cpal::Device, cpal::SupportedStreamConfig), WaterfallAudioError> {
     let host = cpal::default_host();
     let devices: Vec<cpal::Device> = host
         .input_devices()
-        .map_err(|e| format!("Failed to list input devices: {e}"))?
+        .map_err(|e| WaterfallAudioError::ListDevices(e.to_string()))?
         .collect();
     if devices.is_empty() {
-        return Err("No input devices found.".to_string());
+        return Err(WaterfallAudioError::NoDevicesFound);
     }
 
     let by_name = name
@@ -484,11 +510,11 @@ fn pick_input_device(
     let device = by_name
         .or_else(|| host.default_input_device())
         .or_else(|| devices.into_iter().next())
-        .ok_or_else(|| "Input device not found.".to_string())?;
+        .ok_or(WaterfallAudioError::DeviceNotFound)?;
 
     let config = device
         .default_input_config()
-        .map_err(|e| format!("No default input configuration: {e}"))?;
+        .map_err(|e| WaterfallAudioError::DefaultConfig(e.to_string()))?;
     Ok((device, config))
 }
 
@@ -496,7 +522,7 @@ fn pick_input_device(
 fn start_audio_stream(
     device_name: Option<&str>,
     ring: Arc<SampleRing>,
-) -> Result<cpal::Stream, String> {
+) -> Result<cpal::Stream, WaterfallAudioError> {
     let (device, supported) = pick_input_device(device_name)?;
     let sample_format = supported.sample_format();
     let channels = supported.channels() as usize;
@@ -509,7 +535,7 @@ fn start_audio_stream(
         cpal::SampleFormat::I8 => build_stream::<i8>(&device, config, channels, ring),
         cpal::SampleFormat::U8 => build_stream::<u8>(&device, config, channels, ring),
         cpal::SampleFormat::I32 => build_stream::<i32>(&device, config, channels, ring),
-        other => Err(format!("Unsupported sample format: {other:?}")),
+        other => Err(WaterfallAudioError::UnsupportedSampleFormat(format!("{other:?}"))),
     }
 }
 
@@ -523,7 +549,7 @@ fn build_stream<T>(
     config: cpal::StreamConfig,
     channels: usize,
     ring: Arc<SampleRing>,
-) -> Result<cpal::Stream, String>
+) -> Result<cpal::Stream, WaterfallAudioError>
 where
     T: cpal::Sample<Float = f32> + cpal::SizedSample,
 {
@@ -542,5 +568,5 @@ where
             stream_err_fn,
             None,
         )
-        .map_err(|e| format!("Failed to build input stream: {e}"))
+        .map_err(|e| WaterfallAudioError::BuildStream(e.to_string()))
 }

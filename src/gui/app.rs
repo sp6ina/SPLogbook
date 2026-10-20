@@ -274,7 +274,7 @@ pub struct SpLogApp {
     pub solar_history: Vec<SpaceWeather>,
     pub solar_loading: bool,
     pub solar_fetch_slot:
-        Option<std::sync::Arc<std::sync::Mutex<Option<Result<SpaceWeather, String>>>>>,
+        Option<std::sync::Arc<std::sync::Mutex<Option<Result<SpaceWeather, crate::cloud::solar::SpaceWeatherError>>>>>,
     pub solar_last_alert: Option<String>,
 
     // Jednostki odległości w monitorze WSPR
@@ -649,10 +649,18 @@ pub struct SpLogApp {
     pub marketplace_status: Option<String>,
     pub marketplace_fetch_rx: Option<
         std::sync::mpsc::Receiver<
-            Result<Vec<crate::plugins::marketplace::PluginCatalogEntry>, String>,
+            Result<
+                Vec<crate::plugins::marketplace::PluginCatalogEntry>,
+                crate::plugins::marketplace::MarketplaceError,
+            >,
         >,
     >,
-    pub marketplace_install_rx: Option<std::sync::mpsc::Receiver<(String, Result<(), String>)>>,
+    pub marketplace_install_rx: Option<
+        std::sync::mpsc::Receiver<(
+            String,
+            Result<(), crate::plugins::marketplace::MarketplaceError>,
+        )>,
+    >,
     plugin_lookup_rx: Option<std::sync::mpsc::Receiver<crate::plugins::bridge::PluginLookupResult>>,
 
     // Zintegrowany pasek asystenta operatora
@@ -686,12 +694,16 @@ pub struct SpLogApp {
     pub cat_runtime: crate::cat::runtime::CatRuntime,
     /// Kanał odbioru wyników asynchronicznego probe CAT wraz z numerem generacji.
     pub cat_probe_rx: Option<
-        std::sync::mpsc::Receiver<(u64, Result<crate::cat::backend::RigProbeResult, String>)>,
+        std::sync::mpsc::Receiver<(
+            u64,
+            Result<crate::cat::backend::RigProbeResult, crate::cat::rig::RigError>,
+        )>,
     >,
     /// Flaga trwającego testu probe CAT.
     pub cat_probe_running: bool,
     /// Ostatni wynik testu probe CAT.
-    pub cat_probe_result: Option<Result<crate::cat::backend::RigProbeResult, String>>,
+    pub cat_probe_result:
+        Option<Result<crate::cat::backend::RigProbeResult, crate::cat::rig::RigError>>,
     /// Asynchroniczny stan probe CAT skorelowany z generacją formularza.
     pub cat_probe_state: crate::cat::probe::ProbeState,
     /// Bieżąca generacja formularza CAT probe.
@@ -2044,7 +2056,7 @@ impl SpLogApp {
                     name: info.name,
                     active: info.active,
                 },
-                Err(e) => crate::plugins::bridge::PluginLookupResult::Error(e),
+                Err(e) => crate::plugins::bridge::PluginLookupResult::Error(e.to_string()),
             };
             let _ = tx.send(result);
         });
@@ -2066,7 +2078,7 @@ impl SpLogApp {
                     name: info.name,
                     points: info.points,
                 },
-                Err(e) => crate::plugins::bridge::PluginLookupResult::Error(e),
+                Err(e) => crate::plugins::bridge::PluginLookupResult::Error(e.to_string()),
             };
             let _ = tx.send(result);
         });
@@ -2836,7 +2848,7 @@ impl SpLogApp {
                     first_err = Some(
                         Msg::new(key::MSG_QSO_DELETE_ERROR_ID)
                             .arg("id", id)
-                            .arg("err", &e)
+                            .arg("err", &e.to_string())
                             .text(self.current_language),
                     );
                 }
@@ -2906,7 +2918,7 @@ impl SpLogApp {
                 Err(e) => {
                     self.report_error(
                         Msg::new(key::MSG_QSO_RESTORE_ERROR)
-                            .arg("err", &e)
+                            .arg("err", &e.to_string())
                             .text(self.current_language),
                     );
                     return;
@@ -2991,7 +3003,7 @@ impl SpLogApp {
                     self.report_error(
                         Msg::new(key::MSG_QSO_UPDATE_ERROR_ID)
                             .arg("id", id)
-                            .arg("err", &e)
+                            .arg("err", &e.to_string())
                             .text(self.current_language),
                     );
                     return;
@@ -3446,7 +3458,7 @@ impl SpLogApp {
                 Err(e) => {
                     self.cat_test_result = Some(
                         Msg::new(key::CAT_RIGCTLD_ERROR)
-                            .arg("err", &e)
+                            .arg("err", &e.to_string())
                             .text(self.current_language),
                     );
                 }
@@ -3750,7 +3762,7 @@ impl SpLogApp {
                     self.status_message = Some(
                         Msg::new(key::FILE_READ_ERROR)
                             .arg("path", path.display().to_string())
-                            .arg("err", &e)
+                            .arg("err", &e.to_string())
                             .text(self.current_language),
                     );
                 }
@@ -3775,7 +3787,7 @@ impl SpLogApp {
                     Err(e) => {
                         self.status_message = Some(
                             Msg::new(key::EXPORT_ERR_READ_LOG)
-                                .arg("err", &e)
+                                .arg("err", &e.to_string())
                                 .text(self.current_language),
                         );
                         return;
@@ -3798,7 +3810,7 @@ impl SpLogApp {
                     self.status_message = Some(
                         Msg::new(key::FILE_WRITE_ERROR)
                             .arg("path", path.display().to_string())
-                            .arg("err", &e)
+                            .arg("err", &e.to_string())
                             .text(self.current_language),
                     );
                 }
@@ -3823,7 +3835,7 @@ impl SpLogApp {
                     Err(e) => {
                         self.status_message = Some(
                             Msg::new(key::EXPORT_ERR_READ_LOG)
-                                .arg("err", &e)
+                                .arg("err", &e.to_string())
                                 .text(self.current_language),
                         );
                         return;
@@ -3845,7 +3857,7 @@ impl SpLogApp {
                     self.status_message = Some(
                         Msg::new(key::FILE_WRITE_ERROR)
                             .arg("path", path.display().to_string())
-                            .arg("err", &e)
+                            .arg("err", &e.to_string())
                             .text(self.current_language),
                     );
                 }
@@ -3865,7 +3877,7 @@ impl SpLogApp {
                     Err(e) => {
                         self.status_message = Some(
                             Msg::new(key::EXPORT_ERR_READ_LOG)
-                                .arg("err", &e)
+                                .arg("err", &e.to_string())
                                 .text(self.current_language),
                         );
                         return;
@@ -3913,7 +3925,7 @@ impl SpLogApp {
                     self.status_message = Some(
                         Msg::new(key::FILE_WRITE_ERROR)
                             .arg("path", path.display().to_string())
-                            .arg("err", &e)
+                            .arg("err", &e.to_string())
                             .text(self.current_language),
                     );
                 }
@@ -4233,16 +4245,16 @@ impl SpLogApp {
         }
         self.solar_loading = true;
 
-        let slot: std::sync::Arc<std::sync::Mutex<Option<Result<SpaceWeather, String>>>> =
-            std::sync::Arc::new(std::sync::Mutex::new(None));
+        let slot: std::sync::Arc<
+            std::sync::Mutex<Option<Result<SpaceWeather, crate::cloud::solar::SpaceWeatherError>>>,
+        > = std::sync::Arc::new(std::sync::Mutex::new(None));
         let slot_clone = slot.clone();
         let ctx_clone = ctx.clone();
 
         tokio::spawn(async move {
             let result = crate::cloud::solar::SpaceWeatherClient::new()
                 .fetch_hamqth_solar()
-                .await
-                .map_err(|e| e.to_string());
+                .await;
             *slot_clone
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(result);
@@ -4267,7 +4279,7 @@ impl SpLogApp {
                         Err(e) => {
                             self.solar_last_alert = Some(
                                 Msg::new(key::SOLAR_FETCH_ERROR)
-                                    .arg("err", &e)
+                                    .arg("err", &e.to_string())
                                     .text(self.current_language),
                             );
                         }
@@ -4635,7 +4647,7 @@ impl eframe::App for SpLogApp {
                     crate::cloud::updater::UpdateCheckOutcome::Error(e) => {
                         self.update_check_status = Some(
                             Msg::new(key::UPDATER_CHECK_ERROR)
-                                .arg("err", &e)
+                                .arg("err", &e.to_string())
                                 .text(self.current_language),
                         );
                     }
@@ -4677,7 +4689,7 @@ impl eframe::App for SpLogApp {
                         self.cat_connected = false;
                         self.cat_test_result = Some(
                             Msg::new(key::CAT_START_ERROR)
-                                .arg("err", &e)
+                                .arg("err", &e.to_string())
                                 .text(self.current_language),
                         );
                     }
@@ -4700,7 +4712,7 @@ impl eframe::App for SpLogApp {
                         Err(e) => {
                             self.cat_probe_state = crate::cat::probe::ProbeState::Failed {
                                 generation: probe_gen,
-                                error: e.clone(),
+                                error: e.to_string(),
                             };
                         }
                     }

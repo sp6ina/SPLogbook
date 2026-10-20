@@ -266,19 +266,25 @@ impl crate::cat::backend::CatBackend for HamlibClient {
         crate::cat::backend::CatBackendKind::Hamlib
     }
 
-    async fn connect(&mut self) -> Result<(), String> {
+    async fn connect(&mut self) -> Result<(), RigError> {
         let addr = format!("{}:{}", self.host, self.port);
         connect_timeout(&self.host, self.port)
             .await
             .map(|_| ())
-            .map_err(|e| format!("Brak połączenia z rigctld {addr}: {e}"))
+            .map_err(|e| RigError::Connect {
+                endpoint: addr,
+                detail: e.to_string(),
+            })
     }
 
-    async fn poll_state(&mut self) -> Result<RigState, String> {
+    async fn poll_state(&mut self) -> Result<RigState, RigError> {
         let addr = format!("{}:{}", self.host, self.port);
         let stream = connect_timeout(&self.host, self.port)
             .await
-            .map_err(|e| format!("Brak połączenia z rigctld {addr}: {e}"))?;
+            .map_err(|e| RigError::Connect {
+                endpoint: addr,
+                detail: e.to_string(),
+            })?;
         let (reader, mut writer) = stream.into_split();
         let mut buf_reader = BufReader::new(reader);
         let mut state = RigState {
@@ -288,14 +294,18 @@ impl crate::cat::backend::CatBackend for HamlibClient {
 
         // Częstotliwość ('f')
         if write_cmd(&mut writer, b"f\n").await.is_err() {
-            return Err("rigctld: brak odpowiedzi (częstotliwość)".to_string());
+            return Err(RigError::Protocol {
+                detail: "rigctld: brak odpowiedzi (częstotliwość)".to_string(),
+            });
         }
         let mut line = String::new();
         if read_line_timeout(&mut buf_reader, &mut line).await.is_err()
             || line.is_empty()
             || line.len() > MAX_LINE_LEN
         {
-            return Err("rigctld: brak odpowiedzi (częstotliwość)".to_string());
+            return Err(RigError::Protocol {
+                detail: "rigctld: brak odpowiedzi (częstotliwość)".to_string(),
+            });
         }
         if let Ok(freq) = line.trim().parse::<u64>() {
             state.frequency_hz = freq;
@@ -303,7 +313,9 @@ impl crate::cat::backend::CatBackend for HamlibClient {
 
         // Emisja i szerokość filtru ('m')
         if write_cmd(&mut writer, b"m\n").await.is_err() {
-            return Err("rigctld: brak odpowiedzi (emisja)".to_string());
+            return Err(RigError::Protocol {
+                detail: "rigctld: brak odpowiedzi (emisja)".to_string(),
+            });
         }
         if read_line_timeout(&mut buf_reader, &mut line).await.is_ok() {
             let trimmed_mode = line.trim();
@@ -320,52 +332,84 @@ impl crate::cat::backend::CatBackend for HamlibClient {
         Ok(state)
     }
 
-    async fn set_frequency(&self, freq_hz: u64) -> Result<(), String> {
+    async fn set_frequency(&self, freq_hz: u64) -> Result<(), RigError> {
+        let addr = format!("{}:{}", self.host, self.port);
         HamlibClient::set_frequency(&self.host, self.port, freq_hz)
             .await
-            .map_err(|e| e.to_string())
+            .map_err(|e| RigError::Connect {
+                endpoint: addr,
+                detail: e.to_string(),
+            })
     }
 
-    async fn set_mode(&self, mode: &str, passband_hz: u32) -> Result<(), String> {
+    async fn set_mode(&self, mode: &str, passband_hz: u32) -> Result<(), RigError> {
+        let addr = format!("{}:{}", self.host, self.port);
         HamlibClient::set_mode(&self.host, self.port, mode, passband_hz)
             .await
-            .map_err(|e| e.to_string())
+            .map_err(|e| RigError::Connect {
+                endpoint: addr,
+                detail: e.to_string(),
+            })
     }
 
-    async fn set_split(&self, enabled: bool, tx_vfo: &str) -> Result<(), String> {
+    async fn set_split(&self, enabled: bool, tx_vfo: &str) -> Result<(), RigError> {
+        let addr = format!("{}:{}", self.host, self.port);
         HamlibClient::set_split(&self.host, self.port, enabled, tx_vfo)
             .await
-            .map_err(|e| e.to_string())
+            .map_err(|e| RigError::Connect {
+                endpoint: addr,
+                detail: e.to_string(),
+            })
     }
 
-    async fn set_ptt(&self, ptt: bool) -> Result<(), String> {
+    async fn set_ptt(&self, ptt: bool) -> Result<(), RigError> {
+        let addr = format!("{}:{}", self.host, self.port);
         HamlibClient::set_ptt(&self.host, self.port, ptt)
             .await
-            .map_err(|e| e.to_string())
+            .map_err(|e| RigError::Connect {
+                endpoint: addr,
+                detail: e.to_string(),
+            })
     }
 
-    async fn set_vfo(&self, vfo: &str) -> Result<(), String> {
+    async fn set_vfo(&self, vfo: &str) -> Result<(), RigError> {
+        let addr = format!("{}:{}", self.host, self.port);
         HamlibClient::set_vfo(&self.host, self.port, vfo)
             .await
-            .map_err(|e| e.to_string())
+            .map_err(|e| RigError::Connect {
+                endpoint: addr,
+                detail: e.to_string(),
+            })
     }
 
-    async fn set_rit(&self, rit_hz: i32) -> Result<(), String> {
+    async fn set_rit(&self, rit_hz: i32) -> Result<(), RigError> {
+        let addr = format!("{}:{}", self.host, self.port);
         HamlibClient::set_rit(&self.host, self.port, rit_hz)
             .await
-            .map_err(|e| e.to_string())
+            .map_err(|e| RigError::Connect {
+                endpoint: addr,
+                detail: e.to_string(),
+            })
     }
 
-    async fn set_xit(&self, xit_hz: i32) -> Result<(), String> {
+    async fn set_xit(&self, xit_hz: i32) -> Result<(), RigError> {
+        let addr = format!("{}:{}", self.host, self.port);
         HamlibClient::set_xit(&self.host, self.port, xit_hz)
             .await
-            .map_err(|e| e.to_string())
+            .map_err(|e| RigError::Connect {
+                endpoint: addr,
+                detail: e.to_string(),
+            })
     }
 
-    async fn set_power(&self, watts: f32) -> Result<(), String> {
+    async fn set_power(&self, watts: f32) -> Result<(), RigError> {
+        let addr = format!("{}:{}", self.host, self.port);
         HamlibClient::set_power(&self.host, self.port, watts)
             .await
-            .map_err(|e| e.to_string())
+            .map_err(|e| RigError::Connect {
+                endpoint: addr,
+                detail: e.to_string(),
+            })
     }
 }
 

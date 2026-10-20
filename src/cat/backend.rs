@@ -217,12 +217,11 @@ impl CatBackendKind {
     ];
 }
 
-fn not_implemented(kind: CatBackendKind, op: &str) -> String {
-    format!(
-        "{}: operacja „{}” nie jest jeszcze zaimplementowana",
-        kind.label(),
-        op
-    )
+fn not_implemented(kind: CatBackendKind, op: &'static str) -> RigError {
+    RigError::Unsupported {
+        backend: kind,
+        command: op,
+    }
 }
 
 /// Wspólny interfejs wszystkich backendów CAT.
@@ -244,58 +243,61 @@ pub trait CatBackend: Send + Sync {
     }
 
     /// Nawiązuje / weryfikuje połączenie z radiem.
-    async fn connect(&mut self) -> Result<(), String> {
+    async fn connect(&mut self) -> Result<(), RigError> {
         Ok(())
     }
 
     /// Odczytuje pełny stan radia (częstotliwość, emisja, S-meter, PTT itd.).
-    async fn poll_state(&mut self) -> Result<RigState, String> {
+    async fn poll_state(&mut self) -> Result<RigState, RigError> {
         Err(not_implemented(self.kind(), "poll_state"))
     }
 
     /// Przestawia częstotliwość VFO (w Hz).
-    async fn set_frequency(&self, _freq_hz: u64) -> Result<(), String> {
+    async fn set_frequency(&self, _freq_hz: u64) -> Result<(), RigError> {
         Err(not_implemented(self.kind(), "set_frequency"))
     }
 
     /// Przestawia emisję oraz szerokość filtru (Hz).
-    async fn set_mode(&self, _mode: &str, _passband_hz: u32) -> Result<(), String> {
+    async fn set_mode(&self, _mode: &str, _passband_hz: u32) -> Result<(), RigError> {
         Err(not_implemented(self.kind(), "set_mode"))
     }
 
     /// Włącza/wyłącza tryb Split.
-    async fn set_split(&self, _enabled: bool, _tx_vfo: &str) -> Result<(), String> {
+    async fn set_split(&self, _enabled: bool, _tx_vfo: &str) -> Result<(), RigError> {
         Err(not_implemented(self.kind(), "set_split"))
     }
 
     /// Załącza/wyłącza PTT (nadawanie).
-    async fn set_ptt(&self, _ptt: bool) -> Result<(), String> {
+    async fn set_ptt(&self, _ptt: bool) -> Result<(), RigError> {
         Err(not_implemented(self.kind(), "set_ptt"))
     }
 
     /// Wybiera aktywny VFO (np. "VFOA", "VFOB", "Main", "Sub").
-    async fn set_vfo(&self, _vfo: &str) -> Result<(), String> {
+    async fn set_vfo(&self, _vfo: &str) -> Result<(), RigError> {
         Err(not_implemented(self.kind(), "set_vfo"))
     }
 
     /// Ustawia przesunięcie RIT (Hz, może być ujemne).
-    async fn set_rit(&self, _rit_hz: i32) -> Result<(), String> {
+    async fn set_rit(&self, _rit_hz: i32) -> Result<(), RigError> {
         Err(not_implemented(self.kind(), "set_rit"))
     }
 
     /// Ustawia przesunięcie XIT (Hz, może być ujemne).
-    async fn set_xit(&self, _xit_hz: i32) -> Result<(), String> {
+    async fn set_xit(&self, _xit_hz: i32) -> Result<(), RigError> {
         Err(not_implemented(self.kind(), "set_xit"))
     }
 
     /// Ustawia moc wyjściową (W).
-    async fn set_power(&self, _watts: f32) -> Result<(), String> {
+    async fn set_power(&self, _watts: f32) -> Result<(), RigError> {
         Err(not_implemented(self.kind(), "set_power"))
     }
 }
 
-fn unsupported_backend(kind: CatBackendKind) -> String {
-    format!("backend {} nie jest jeszcze zaimplementowany", kind.label())
+fn unsupported_backend(kind: CatBackendKind) -> RigError {
+    RigError::Unsupported {
+        backend: kind,
+        command: "connect",
+    }
 }
 
 /// Dyspozytor backendu CAT — wybiera konkretną implementację na podstawie
@@ -329,7 +331,7 @@ impl CatBackend for CatController {
         }
     }
 
-    async fn connect(&mut self) -> Result<(), String> {
+    async fn connect(&mut self) -> Result<(), RigError> {
         match self {
             Self::Hamlib(c) => c.connect().await,
             Self::Flrig(c) => c.connect().await,
@@ -337,7 +339,7 @@ impl CatBackend for CatController {
         }
     }
 
-    async fn poll_state(&mut self) -> Result<RigState, String> {
+    async fn poll_state(&mut self) -> Result<RigState, RigError> {
         match self {
             Self::Hamlib(c) => c.poll_state().await,
             Self::Flrig(c) => c.poll_state().await,
@@ -345,7 +347,7 @@ impl CatBackend for CatController {
         }
     }
 
-    async fn set_frequency(&self, freq_hz: u64) -> Result<(), String> {
+    async fn set_frequency(&self, freq_hz: u64) -> Result<(), RigError> {
         match self {
             Self::Hamlib(c) => c.set_frequency(freq_hz).await,
             Self::Flrig(c) => c.set_frequency(freq_hz).await,
@@ -353,7 +355,7 @@ impl CatBackend for CatController {
         }
     }
 
-    async fn set_mode(&self, mode: &str, passband_hz: u32) -> Result<(), String> {
+    async fn set_mode(&self, mode: &str, passband_hz: u32) -> Result<(), RigError> {
         match self {
             Self::Hamlib(c) => c.set_mode(mode, passband_hz).await,
             Self::Flrig(c) => CatBackend::set_mode(c, mode, passband_hz).await,
@@ -361,7 +363,7 @@ impl CatBackend for CatController {
         }
     }
 
-    async fn set_split(&self, enabled: bool, tx_vfo: &str) -> Result<(), String> {
+    async fn set_split(&self, enabled: bool, tx_vfo: &str) -> Result<(), RigError> {
         match self {
             Self::Hamlib(c) => c.set_split(enabled, tx_vfo).await,
             Self::Flrig(c) => c.set_split(enabled, tx_vfo).await,
@@ -369,7 +371,7 @@ impl CatBackend for CatController {
         }
     }
 
-    async fn set_ptt(&self, ptt: bool) -> Result<(), String> {
+    async fn set_ptt(&self, ptt: bool) -> Result<(), RigError> {
         match self {
             Self::Hamlib(c) => c.set_ptt(ptt).await,
             Self::Flrig(c) => c.set_ptt(ptt).await,
@@ -377,7 +379,7 @@ impl CatBackend for CatController {
         }
     }
 
-    async fn set_vfo(&self, vfo: &str) -> Result<(), String> {
+    async fn set_vfo(&self, vfo: &str) -> Result<(), RigError> {
         match self {
             Self::Hamlib(c) => c.set_vfo(vfo).await,
             Self::Flrig(c) => CatBackend::set_vfo(c, vfo).await,
@@ -385,7 +387,7 @@ impl CatBackend for CatController {
         }
     }
 
-    async fn set_rit(&self, rit_hz: i32) -> Result<(), String> {
+    async fn set_rit(&self, rit_hz: i32) -> Result<(), RigError> {
         match self {
             Self::Hamlib(c) => c.set_rit(rit_hz).await,
             Self::Flrig(c) => c.set_rit(rit_hz).await,
@@ -393,7 +395,7 @@ impl CatBackend for CatController {
         }
     }
 
-    async fn set_xit(&self, xit_hz: i32) -> Result<(), String> {
+    async fn set_xit(&self, xit_hz: i32) -> Result<(), RigError> {
         match self {
             Self::Hamlib(c) => c.set_xit(xit_hz).await,
             Self::Flrig(c) => c.set_xit(xit_hz).await,
@@ -401,7 +403,7 @@ impl CatBackend for CatController {
         }
     }
 
-    async fn set_power(&self, watts: f32) -> Result<(), String> {
+    async fn set_power(&self, watts: f32) -> Result<(), RigError> {
         match self {
             Self::Hamlib(c) => c.set_power(watts).await,
             Self::Flrig(c) => c.set_power(watts).await,

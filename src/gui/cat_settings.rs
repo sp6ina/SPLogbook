@@ -1019,7 +1019,7 @@ fn render_probe_section(
 
                     let handle = tokio::spawn(async move {
                         let res = RigProbeRunner::probe(&rig_copy).await;
-                        let _ = tx.send((current_gen, res.map_err(|e| e.to_string())));
+                        let _ = tx.send((current_gen, res));
                     });
                     app.cat_probe_task = Some(handle);
                 }
@@ -1066,7 +1066,7 @@ fn render_probe_section(
                         format!(
                             "✖ {}: {}",
                             tr(key::CAT_SETTINGS_PROBE_FAILED, lang),
-                            redact_sensitive_info(e)
+                            redact_sensitive_info(&e.to_string())
                         ),
                     );
                 }
@@ -1084,7 +1084,7 @@ fn render_probe_section(
 fn render_capabilities_and_diagnostics(
     ui: &mut egui::Ui,
     svc_snap: Option<&crate::cat::service::RigServiceSnapshot>,
-    probe_res: Option<&Result<crate::cat::backend::RigProbeResult, String>>,
+    probe_res: Option<&Result<crate::cat::backend::RigProbeResult, crate::cat::rig::RigError>>,
     lang: crate::core::i18n::Language,
 ) {
     let caps = svc_snap

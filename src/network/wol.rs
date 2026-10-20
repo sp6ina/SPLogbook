@@ -4,11 +4,41 @@
 
 use std::net::{SocketAddr, UdpSocket};
 
+/// Błędy podsystemu Wake-on-LAN (WOL).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WolError {
+    InvalidMacFormat(String),
+    ParseByte { byte: String, detail: String },
+    InvalidBroadcastAddress { address: String, detail: String },
+    SocketBind(String),
+    SetBroadcast(String),
+    SendPacket(String),
+}
+
+impl std::fmt::Display for WolError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidMacFormat(mac) => write!(f, "Invalid MAC address format: {mac}"),
+            Self::ParseByte { byte, detail } => {
+                write!(f, "Failed to parse MAC byte '{byte}': {detail}")
+            }
+            Self::InvalidBroadcastAddress { address, detail } => {
+                write!(f, "Invalid broadcast address '{address}': {detail}")
+            }
+            Self::SocketBind(detail) => write!(f, "Failed to bind UDP socket: {detail}"),
+            Self::SetBroadcast(detail) => write!(f, "Failed to set broadcast flag: {detail}"),
+            Self::SendPacket(detail) => write!(f, "Failed to send WOL packet: {detail}"),
+        }
+    }
+}
+
+impl std::error::Error for WolError {}
+
 pub struct WolClient;
 
 impl WolClient {
     /// Parsuje adres MAC z ciągów znaków: "AA:BB:CC:DD:EE:FF", "AA-BB-CC-DD-EE-FF" lub "AABBCCDDEEFF"
-    pub fn parse_mac(mac_str: &str) -> Result<[u8; 6], String> {
+    pub fn parse_mac(mac_str: &str) -> Result<[u8; 6], WolError> {
         let trimmed = mac_str.trim();
 
         let is_contiguous_12 =
@@ -23,15 +53,17 @@ impl WolClient {
         };
 
         if !is_contiguous_12 && !is_separated_pairs(':') && !is_separated_pairs('-') {
-            return Err(format!("Nieprawidłowy format adresu MAC: {mac_str}"));
+            return Err(WolError::InvalidMacFormat(mac_str.to_string()));
         }
 
         let clean: String = trimmed.chars().filter(char::is_ascii_hexdigit).collect();
         let mut mac = [0u8; 6];
         for i in 0..6 {
             let byte_str = &clean[i * 2..i * 2 + 2];
-            mac[i] = u8::from_str_radix(byte_str, 16)
-                .map_err(|e| format!("Błąd parsowania bajtu MAC {byte_str}: {e}"))?;
+            mac[i] = u8::from_str_radix(byte_str, 16).map_err(|e| WolError::ParseByte {
+                byte: byte_str.to_string(),
+                detail: e.to_string(),
+            })?;
         }
 
         Ok(mac)
@@ -49,24 +81,27 @@ impl WolClient {
     }
 
     /// Wysyła pakiet Wake-on-LAN na wskazany adres rozgłoszeniowy (np. "255.255.255.255:9")
-    pub fn send_wol(mac_str: &str, target_broadcast: Option<&str>) -> Result<(), String> {
+    pub fn send_wol(mac_str: &str, target_broadcast: Option<&str>) -> Result<(), WolError> {
         let mac = Self::parse_mac(mac_str)?;
         let packet = Self::build_magic_packet(&mac);
 
         let dest = target_broadcast.unwrap_or("255.255.255.255:9");
         let dest_addr: SocketAddr = dest
             .parse()
-            .map_err(|e| format!("Nieprawidłowy adres rozgłoszeniowy {dest}: {e}"))?;
+            .map_err(|e| WolError::InvalidBroadcastAddress {
+                address: dest.to_string(),
+                detail: format!("{e}"),
+            })?;
 
         let socket = UdpSocket::bind("0.0.0.0:0")
-            .map_err(|e| format!("Błąd bindowania gniazda UDP: {e}"))?;
+            .map_err(|e| WolError::SocketBind(e.to_string()))?;
         socket
             .set_broadcast(true)
-            .map_err(|e| format!("Błąd ustawiania flagi broadcast: {e}"))?;
+            .map_err(|e| WolError::SetBroadcast(e.to_string()))?;
 
         socket
             .send_to(&packet, dest_addr)
-            .map_err(|e| format!("Błąd wysyłania pakietu WOL: {e}"))?;
+            .map_err(|e| WolError::SendPacket(e.to_string()))?;
 
         Ok(())
     }
@@ -99,7 +134,7 @@ mod tests {
             WolClient::parse_mac("  aabbccddeeff  ").unwrap(),
             [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]
         );
-        assert!(WolClient::parse_mac("AA:BB-CC:DD-EE:FF").is_err());
+        assert!(WolClient::parse_mac("AA:BB-CC:DD-EE-FF").is_err());
         assert!(WolClient::parse_mac("A:BB:CC:DD:EE:FFF").is_err());
         assert!(WolClient::parse_mac("random text 001122334455 here").is_err());
     }

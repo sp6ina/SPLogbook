@@ -7,6 +7,30 @@
 
 use serde::Deserialize;
 
+/// Błędy zapytań do zewnętrznych serwisów referencyjnych (POTA / SOTA).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LookupError {
+    Http(String),
+    HttpStatus { service: &'static str, status: u16 },
+    JsonParse { service: &'static str, detail: String },
+}
+
+impl std::fmt::Display for LookupError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Http(e) => write!(f, "HTTP request error: {e}"),
+            Self::HttpStatus { service, status } => {
+                write!(f, "{service} server returned status {status}")
+            }
+            Self::JsonParse { service, detail } => {
+                write!(f, "Failed to parse {service} response: {detail}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for LookupError {}
+
 /// Informacja o parku POTA.
 #[derive(Debug, Clone, Default)]
 pub struct PotaInfo {
@@ -42,7 +66,7 @@ struct SotaResponse {
 }
 
 /// Pobiera dane parku POTA z `api.pota.app/park/{reference}`.
-pub async fn lookup_pota(reference: &str) -> Result<PotaInfo, String> {
+pub async fn lookup_pota(reference: &str) -> Result<PotaInfo, LookupError> {
     let clean: String = reference
         .chars()
         .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
@@ -54,13 +78,22 @@ pub async fn lookup_pota(reference: &str) -> Result<PotaInfo, String> {
         .header("User-Agent", crate::core::http::USER_AGENT)
         .send()
         .await
-        .map_err(|e| format!("Błąd zapytania POTA: {e}"))?;
+        .map_err(|e| LookupError::Http(e.to_string()))?;
 
     if !resp.status().is_success() {
-        return Err(format!("Serwer POTA zwrócił status {}", resp.status()));
+        return Err(LookupError::HttpStatus {
+            service: "POTA",
+            status: resp.status().as_u16(),
+        });
     }
 
-    let data: PotaResponse = resp.json().await.map_err(|e| format!("POTA JSON: {e}"))?;
+    let data: PotaResponse = resp
+        .json()
+        .await
+        .map_err(|e| LookupError::JsonParse {
+            service: "POTA",
+            detail: e.to_string(),
+        })?;
     Ok(PotaInfo {
         reference: if data.reference.is_empty() {
             clean
@@ -73,7 +106,7 @@ pub async fn lookup_pota(reference: &str) -> Result<PotaInfo, String> {
 }
 
 /// Pobiera dane szczytu SOTA z `api2.sota.org.uk/api/summits/{reference}`.
-pub async fn lookup_sota(reference: &str) -> Result<SotaInfo, String> {
+pub async fn lookup_sota(reference: &str) -> Result<SotaInfo, LookupError> {
     // Referencje SOTA zawierają ukośnik (np. SP/BZ-001). Filtrujemy do dozwolonych
     // znaków (alfanumeryczne, '/' i '-'), by uniknąć wstrzyknięcia znaków do URL.
     let clean: String = reference
@@ -87,13 +120,22 @@ pub async fn lookup_sota(reference: &str) -> Result<SotaInfo, String> {
         .header("User-Agent", crate::core::http::USER_AGENT)
         .send()
         .await
-        .map_err(|e| format!("Błąd zapytania SOTA: {e}"))?;
+        .map_err(|e| LookupError::Http(e.to_string()))?;
 
     if !resp.status().is_success() {
-        return Err(format!("Serwer SOTA zwrócił status {}", resp.status()));
+        return Err(LookupError::HttpStatus {
+            service: "SOTA",
+            status: resp.status().as_u16(),
+        });
     }
 
-    let data: SotaResponse = resp.json().await.map_err(|e| format!("SOTA JSON: {e}"))?;
+    let data: SotaResponse = resp
+        .json()
+        .await
+        .map_err(|e| LookupError::JsonParse {
+            service: "SOTA",
+            detail: e.to_string(),
+        })?;
     Ok(SotaInfo {
         reference: clean,
         name: data.name,

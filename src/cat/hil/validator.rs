@@ -12,6 +12,55 @@ use crate::cat::backend::CatBackendKind;
 use crate::cat::native::profile::RigVendor;
 use crate::cat::native::registry::find_profile_by_model;
 
+/// Błędy walidacji profilu backendu w testach HIL.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HilProfileValidationError {
+    EmptyModelName,
+    InvalidModelProfile(String),
+    So2rNotDirectBackend,
+    UnknownProfile {
+        model: String,
+        backend: CatBackendKind,
+    },
+    VendorMismatch {
+        model_id: String,
+        actual: RigVendor,
+        expected: RigVendor,
+    },
+    FlexRadioRequiresNetworkTransport,
+    BackendRequiresNetworkTransport(CatBackendKind),
+}
+
+impl std::fmt::Display for HilProfileValidationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::EmptyModelName => write!(f, "Model name is empty"),
+            Self::InvalidModelProfile(m) => write!(f, "Unknown or invalid model profile: '{m}'"),
+            Self::So2rNotDirectBackend => {
+                write!(f, "SO2R is a dual-radio coordinator layer, not a direct radio backend")
+            }
+            Self::UnknownProfile { model, backend } => {
+                write!(f, "Unknown radio profile '{model}' for {} backend", backend.label())
+            }
+            Self::VendorMismatch {
+                model_id,
+                actual,
+                expected,
+            } => {
+                write!(f, "Profile '{model_id}' belongs to vendor {actual:?}, expected {expected:?}")
+            }
+            Self::FlexRadioRequiresNetworkTransport => {
+                write!(f, "FlexRadio SmartSDR profile requires Network transport, not Serial")
+            }
+            Self::BackendRequiresNetworkTransport(kind) => {
+                write!(f, "Backend '{}' requires Network transport configuration", kind.as_str())
+            }
+        }
+    }
+}
+
+impl std::error::Error for HilProfileValidationError {}
+
 /// Walidator gotowości laboratoryjnej Hardware-In-The-Loop ([`HilReadinessValidator`]).
 ///
 /// Implementuje rygorystyczne reguły bezpieczeństwa w.cz., sprawdzając każdy warunek
@@ -535,93 +584,108 @@ impl HilReadinessValidator {
 
     /// Weryfikuje zgodność wybranego backendu z profilem modelu i producentem (Warunek 7).
     /// Nie sprawdza portu, baud rate ani session_id; nigdy nie wykonuje fallbacku na Hamlib.
-    pub fn validate_backend_profile(manifest: &HilTestBenchManifest) -> Result<(), String> {
+    pub fn validate_backend_profile(manifest: &HilTestBenchManifest) -> Result<(), HilProfileValidationError> {
         let model = manifest.matrix.model_name.trim();
         if model.is_empty() {
-            return Err("Model name is empty".to_string());
+            return Err(HilProfileValidationError::EmptyModelName);
         }
         let upper_model = model.to_ascii_uppercase();
         if upper_model.contains("UNKNOWN") || upper_model.contains("INVALID") {
-            return Err(format!("Unknown or invalid model profile: '{model}'"));
+            return Err(HilProfileValidationError::InvalidModelProfile(model.to_string()));
         }
 
         match manifest.matrix.backend_kind {
-            CatBackendKind::So2r => Err(
-                "SO2R is a dual-radio coordinator layer, not a direct radio backend".to_string(),
-            ),
+            CatBackendKind::So2r => Err(HilProfileValidationError::So2rNotDirectBackend),
             CatBackendKind::IcomCiV => {
                 let profile = find_profile_by_model(model).ok_or_else(|| {
-                    format!("Unknown radio profile '{model}' for Icom CI-V backend")
+                    HilProfileValidationError::UnknownProfile {
+                        model: model.to_string(),
+                        backend: CatBackendKind::IcomCiV,
+                    }
                 })?;
                 if profile.vendor != RigVendor::Icom {
-                    return Err(format!(
-                        "Profile '{}' belongs to vendor {:?}, expected Icom",
-                        profile.model_id, profile.vendor
-                    ));
+                    return Err(HilProfileValidationError::VendorMismatch {
+                        model_id: profile.model_id.to_string(),
+                        actual: profile.vendor,
+                        expected: RigVendor::Icom,
+                    });
                 }
                 Ok(())
             }
             CatBackendKind::Kenwood => {
                 let profile = find_profile_by_model(model).ok_or_else(|| {
-                    format!("Unknown radio profile '{model}' for Kenwood backend")
+                    HilProfileValidationError::UnknownProfile {
+                        model: model.to_string(),
+                        backend: CatBackendKind::Kenwood,
+                    }
                 })?;
                 if profile.vendor != RigVendor::Kenwood {
-                    return Err(format!(
-                        "Profile '{}' belongs to vendor {:?}, expected Kenwood",
-                        profile.model_id, profile.vendor
-                    ));
+                    return Err(HilProfileValidationError::VendorMismatch {
+                        model_id: profile.model_id.to_string(),
+                        actual: profile.vendor,
+                        expected: RigVendor::Kenwood,
+                    });
                 }
                 Ok(())
             }
             CatBackendKind::Yaesu => {
-                let profile = find_profile_by_model(model)
-                    .ok_or_else(|| format!("Unknown radio profile '{model}' for Yaesu backend"))?;
+                let profile = find_profile_by_model(model).ok_or_else(|| {
+                    HilProfileValidationError::UnknownProfile {
+                        model: model.to_string(),
+                        backend: CatBackendKind::Yaesu,
+                    }
+                })?;
                 if profile.vendor != RigVendor::Yaesu {
-                    return Err(format!(
-                        "Profile '{}' belongs to vendor {:?}, expected Yaesu",
-                        profile.model_id, profile.vendor
-                    ));
+                    return Err(HilProfileValidationError::VendorMismatch {
+                        model_id: profile.model_id.to_string(),
+                        actual: profile.vendor,
+                        expected: RigVendor::Yaesu,
+                    });
                 }
                 Ok(())
             }
             CatBackendKind::Elecraft => {
                 let profile = find_profile_by_model(model).ok_or_else(|| {
-                    format!("Unknown radio profile '{model}' for Elecraft backend")
+                    HilProfileValidationError::UnknownProfile {
+                        model: model.to_string(),
+                        backend: CatBackendKind::Elecraft,
+                    }
                 })?;
                 if profile.vendor != RigVendor::Elecraft {
-                    return Err(format!(
-                        "Profile '{}' belongs to vendor {:?}, expected Elecraft",
-                        profile.model_id, profile.vendor
-                    ));
+                    return Err(HilProfileValidationError::VendorMismatch {
+                        model_id: profile.model_id.to_string(),
+                        actual: profile.vendor,
+                        expected: RigVendor::Elecraft,
+                    });
                 }
                 Ok(())
             }
             CatBackendKind::FlexRadio => {
                 if matches!(manifest.matrix.transport, HilTransportConfig::Serial { .. }) {
-                    return Err(
-                        "FlexRadio SmartSDR profile requires Network transport, not Serial"
-                            .to_string(),
-                    );
+                    return Err(HilProfileValidationError::FlexRadioRequiresNetworkTransport);
                 }
                 if upper_model == "FLEX-GENERIC" {
                     return Ok(());
                 }
                 let profile = find_profile_by_model(model).ok_or_else(|| {
-                    format!("Unknown radio profile '{model}' for FlexRadio backend")
+                    HilProfileValidationError::UnknownProfile {
+                        model: model.to_string(),
+                        backend: CatBackendKind::FlexRadio,
+                    }
                 })?;
                 if profile.vendor != RigVendor::FlexRadio {
-                    return Err(format!(
-                        "Profile '{}' belongs to vendor {:?}, expected FlexRadio",
-                        profile.model_id, profile.vendor
-                    ));
+                    return Err(HilProfileValidationError::VendorMismatch {
+                        model_id: profile.model_id.to_string(),
+                        actual: profile.vendor,
+                        expected: RigVendor::FlexRadio,
+                    });
                 }
                 Ok(())
             }
             CatBackendKind::Hamlib | CatBackendKind::Flrig | CatBackendKind::Tci => {
                 if matches!(manifest.matrix.transport, HilTransportConfig::Serial { .. }) {
-                    return Err(format!(
-                        "Backend '{}' requires Network transport configuration",
-                        manifest.matrix.backend_kind.as_str()
+                    return Err(HilProfileValidationError::BackendRequiresNetworkTransport(
+                        manifest.matrix.backend_kind,
                     ));
                 }
                 Ok(())
@@ -1134,7 +1198,7 @@ impl HilReadinessValidator {
                         manifest.matrix.backend_kind.as_str(),
                         manifest.matrix.model_name
                     ),
-                    Err(err) => err,
+                    Err(err) => err.to_string(),
                 },
             },
             HilReadinessCondition {

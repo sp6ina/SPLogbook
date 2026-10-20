@@ -87,6 +87,24 @@ pub struct QsoHookContext {
     pub is_atno: bool,
 }
 
+/// Błędy ewaluacji skryptów pluginów Rhai.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PluginEvalError {
+    Compile(String),
+    Execution(String),
+}
+
+impl std::fmt::Display for PluginEvalError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Compile(e) => write!(f, "Script compilation error: {e}"),
+            Self::Execution(e) => write!(f, "Script execution error: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for PluginEvalError {}
+
 impl PluginEngine {
     /// Tworzy pusty silnik z zarejestrowanym bezpiecznym API.
     pub fn new() -> Self {
@@ -405,9 +423,14 @@ impl PluginEngine {
     }
 
     /// Kompiluje i uruchamia skrypt wprost z kodu źródłowego (testy / podgląd).
-    pub fn eval(&mut self, source: &str) -> Result<(), String> {
-        let ast = self.engine.compile(source).map_err(|e| e.to_string())?;
-        self.engine.run_ast(&ast).map_err(|e| e.to_string())?;
+    pub fn eval(&mut self, source: &str) -> Result<(), PluginEvalError> {
+        let ast = self
+            .engine
+            .compile(source)
+            .map_err(|e| PluginEvalError::Compile(e.to_string()))?;
+        self.engine
+            .run_ast(&ast)
+            .map_err(|e| PluginEvalError::Execution(e.to_string()))?;
         Ok(())
     }
 

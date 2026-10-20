@@ -143,9 +143,29 @@ pub struct XmlRpcFault {
     pub message: String,
 }
 
+/// Błędy parsowania odpowiedzi XML-RPC.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum XmlRpcParseError {
+    Xml(String),
+    Fault { code: i64, message: String },
+    NoValue,
+}
+
+impl std::fmt::Display for XmlRpcParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Xml(e) => write!(f, "XML parse error: {e}"),
+            Self::Fault { code, message } => write!(f, "Fault {code}: {message}"),
+            Self::NoValue => write!(f, "Empty XML-RPC response (missing <value>)"),
+        }
+    }
+}
+
+impl std::error::Error for XmlRpcParseError {}
+
 /// Parsuje dokument XML-RPC (methodResponse) i zwraca pierwszą wartość
 /// lub błąd `<fault>`. Obsługuje zarówno surowe XML, jak i odpowiedzi z nagłówkami HTTP.
-pub fn parse_response(xml: &str) -> Result<XmlRpcValue, String> {
+pub fn parse_response(xml: &str) -> Result<XmlRpcValue, XmlRpcParseError> {
     let trimmed_input = xml.trim_start();
     let body = if trimmed_input.starts_with("HTTP/") {
         if let Some(idx) = trimmed_input.find("\r\n\r\n") {
@@ -251,16 +271,19 @@ pub fn parse_response(xml: &str) -> Result<XmlRpcValue, String> {
                 }
             }
             Ok(Event::Eof) => break,
-            Err(e) => return Err(format!("Błąd parsowania XML-RPC: {e}")),
+            Err(e) => return Err(XmlRpcParseError::Xml(e.to_string())),
             _ => {}
         }
         buf.clear();
     }
 
     if saw_fault || fault_code != 0 || !fault_msg.is_empty() {
-        return Err(format!("Fault {fault_code}: {fault_msg}"));
+        return Err(XmlRpcParseError::Fault {
+            code: fault_code,
+            message: fault_msg,
+        });
     }
-    value.ok_or_else(|| "Pusta odpowiedź XML-RPC (brak <value>)".to_string())
+    value.ok_or(XmlRpcParseError::NoValue)
 }
 
 /// Odczytuje do końca bieżącego elementu i zwraca jego treść tekstową.
@@ -388,7 +411,9 @@ impl FlrigClient {
             });
         }
         parse_response(&String::from_utf8_lossy(&data))
-            .map_err(|detail| RigError::Protocol { detail })
+            .map_err(|detail| RigError::Protocol {
+                detail: detail.to_string(),
+            })
     }
 
     pub async fn get_vfo_typed(&self) -> Result<u64, RigError> {
@@ -456,40 +481,37 @@ impl FlrigClient {
     }
 
     /// Częstotliwość aktywnego VFO w Hz.
-    pub async fn get_vfo(&self) -> Result<u64, String> {
-        self.get_vfo_typed().await.map_err(|e| e.to_string())
+    pub async fn get_vfo(&self) -> Result<u64, RigError> {
+        self.get_vfo_typed().await
     }
 
     /// Alias dla `get_vfo`.
-    pub async fn get_frequency(&self) -> Result<u64, String> {
+    pub async fn get_frequency(&self) -> Result<u64, RigError> {
         self.get_vfo().await
     }
 
-    pub async fn set_vfo(&self, hz: u64) -> Result<(), String> {
-        self.set_vfo_typed(hz).await.map_err(|e| e.to_string())
+    pub async fn set_vfo(&self, hz: u64) -> Result<(), RigError> {
+        self.set_vfo_typed(hz).await
     }
 
-    pub async fn get_mode(&self) -> Result<String, String> {
-        self.get_mode_typed().await.map_err(|e| e.to_string())
+    pub async fn get_mode(&self) -> Result<String, RigError> {
+        self.get_mode_typed().await
     }
 
-    pub async fn set_mode(&self, mode: &str) -> Result<(), String> {
-        self.set_mode_typed(mode).await.map_err(|e| e.to_string())
+    pub async fn set_mode(&self, mode: &str) -> Result<(), RigError> {
+        self.set_mode_typed(mode).await
     }
 
-    pub async fn get_ptt(&self) -> Result<bool, String> {
-        self.get_ptt_typed().await.map_err(|e| e.to_string())
+    pub async fn get_ptt(&self) -> Result<bool, RigError> {
+        self.get_ptt_typed().await
     }
 
-    pub async fn set_ptt(&self, ptt: bool) -> Result<(), String> {
-        self.set_ptt_typed(ptt).await.map_err(|e| e.to_string())
+    pub async fn set_ptt(&self, ptt: bool) -> Result<(), RigError> {
+        self.set_ptt_typed(ptt).await
     }
 
-    pub async fn get_smeter(&self) -> Result<f64, String> {
-        self.get_smeter_typed()
-            .await
-            .map(|v| v as f64)
-            .map_err(|e| e.to_string())
+    pub async fn get_smeter(&self) -> Result<f64, RigError> {
+        self.get_smeter_typed().await.map(|v| v as f64)
     }
 }
 
@@ -500,15 +522,12 @@ impl crate::cat::backend::CatBackend for FlrigClient {
         crate::cat::backend::CatBackendKind::Flrig
     }
 
-    async fn connect(&mut self) -> Result<(), String> {
+    async fn connect(&mut self) -> Result<(), RigError> {
         // Weryfikacja łączności przez odczyt aktywnego VFO.
-        self.get_vfo()
-            .await
-            .map(|_| ())
-            .map_err(|e| format!("Brak połączenia z FLRig: {e}"))
+        self.get_vfo().await.map(|_| ())
     }
 
-    async fn poll_state(&mut self) -> Result<crate::cat::hamlib::RigState, String> {
+    async fn poll_state(&mut self) -> Result<crate::cat::hamlib::RigState, RigError> {
         let freq = self.get_vfo().await?;
         let mode = self.get_mode().await?;
         let smeter = self.get_smeter().await.unwrap_or(-100.0) as f32;
@@ -524,15 +543,15 @@ impl crate::cat::backend::CatBackend for FlrigClient {
         })
     }
 
-    async fn set_frequency(&self, freq_hz: u64) -> Result<(), String> {
+    async fn set_frequency(&self, freq_hz: u64) -> Result<(), RigError> {
         FlrigClient::set_vfo(self, freq_hz).await
     }
 
-    async fn set_mode(&self, mode: &str, _passband_hz: u32) -> Result<(), String> {
+    async fn set_mode(&self, mode: &str, _passband_hz: u32) -> Result<(), RigError> {
         FlrigClient::set_mode(self, mode).await
     }
 
-    async fn set_ptt(&self, ptt: bool) -> Result<(), String> {
+    async fn set_ptt(&self, ptt: bool) -> Result<(), RigError> {
         FlrigClient::set_ptt(self, ptt).await
     }
 }
@@ -747,6 +766,7 @@ mod tests {
         assert!(
             parse_response(xml)
                 .unwrap_err()
+                .to_string()
                 .contains("Too many parameters")
         );
     }

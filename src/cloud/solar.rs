@@ -70,6 +70,24 @@ impl SpaceWeather {
     }
 }
 
+/// Błędy pobierania danych o pogodzie kosmicznej (SpaceWeather).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SpaceWeatherError {
+    Http(String),
+    Network(String),
+}
+
+impl std::fmt::Display for SpaceWeatherError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Http(e) => write!(f, "HTTP request error: {e}"),
+            Self::Network(e) => write!(f, "Network response error: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for SpaceWeatherError {}
+
 /// Klient pobierania danych solarnych z NOAA Space Weather Prediction Center
 pub struct SpaceWeatherClient {
     client: Client,
@@ -88,11 +106,18 @@ impl SpaceWeatherClient {
     }
 
     /// Pobiera najnowszy raport solarny z HamQTH XML
-    pub async fn fetch_hamqth_solar(
-        &self,
-    ) -> Result<SpaceWeather, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn fetch_hamqth_solar(&self) -> Result<SpaceWeather, SpaceWeatherError> {
         let url = "https://www.hamqth.com/xml.php?solar=1";
-        let xml = self.client.get(url).send().await?.text().await?;
+        let resp = self
+            .client
+            .get(url)
+            .send()
+            .await
+            .map_err(|e| SpaceWeatherError::Http(e.to_string()))?;
+        let xml = resp
+            .text()
+            .await
+            .map_err(|e| SpaceWeatherError::Network(e.to_string()))?;
 
         let sfi = extract_tag(&xml, "solarflux")
             .and_then(|v| v.parse().ok())
