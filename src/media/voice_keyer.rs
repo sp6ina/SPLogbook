@@ -11,6 +11,25 @@ use std::io::BufReader;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+#[derive(Debug)]
+pub enum VoiceKeyerError {
+    OpenFile(String),
+    Decode(String),
+    OpenSink(String),
+}
+
+impl std::fmt::Display for VoiceKeyerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::OpenFile(detail) => write!(f, "Cannot open WAV file: {detail}"),
+            Self::Decode(detail) => write!(f, "Unsupported audio format: {detail}"),
+            Self::OpenSink(detail) => write!(f, "No audio output device: {detail}"),
+        }
+    }
+}
+
+impl std::error::Error for VoiceKeyerError {}
+
 /// Globalna flaga zatrzymania odtwarzania w pętli (np. CQ loop).
 static STOP_PLAYBACK: AtomicBool = AtomicBool::new(false);
 static PLAYBACK_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -21,18 +40,18 @@ pub fn request_stop() {
 }
 
 /// Odtwarza plik WAV do domyślnego urządzenia wyjściowego (blokujące, przerywalne przez `request_stop`).
-pub fn play_wav_file(path: &str) -> Result<(), String> {
+pub fn play_wav_file(path: &str) -> Result<(), VoiceKeyerError> {
     request_stop();
     let _guard = PLAYBACK_LOCK
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     STOP_PLAYBACK.store(false, Ordering::SeqCst);
 
-    let file = File::open(path).map_err(|e| format!("Nie można otworzyć pliku: {e}"))?;
+    let file = File::open(path).map_err(|e| VoiceKeyerError::OpenFile(e.to_string()))?;
     let source = Decoder::new(BufReader::new(file))
-        .map_err(|e| format!("Nieobsługiwany format audio: {e}"))?;
+        .map_err(|e| VoiceKeyerError::Decode(e.to_string()))?;
     let sink = DeviceSinkBuilder::open_default_sink()
-        .map_err(|e| format!("Brak urządzenia audio: {e}"))?;
+        .map_err(|e| VoiceKeyerError::OpenSink(e.to_string()))?;
     let player = Player::connect_new(sink.mixer());
     player.append(source);
     wait_until_done_or_stopped(&player);
@@ -41,7 +60,7 @@ pub fn play_wav_file(path: &str) -> Result<(), String> {
 
 /// Odtwarza komunikat voice keyer'a. Gdy plik WAV nie jest ustawiony,
 /// generuje krótki sygnał testowy (sine 800 Hz).
-pub fn play_message(msg: &VoiceKeyerMessage) -> Result<(), String> {
+pub fn play_message(msg: &VoiceKeyerMessage) -> Result<(), VoiceKeyerError> {
     request_stop();
     let _guard = PLAYBACK_LOCK
         .lock()
@@ -49,7 +68,7 @@ pub fn play_message(msg: &VoiceKeyerMessage) -> Result<(), String> {
     STOP_PLAYBACK.store(false, Ordering::SeqCst);
 
     let sink = DeviceSinkBuilder::open_default_sink()
-        .map_err(|e| format!("Brak urządzenia audio: {e}"))?;
+        .map_err(|e| VoiceKeyerError::OpenSink(e.to_string()))?;
     let player = Player::connect_new(sink.mixer());
 
     let wav_path = msg
@@ -59,9 +78,9 @@ pub fn play_message(msg: &VoiceKeyerMessage) -> Result<(), String> {
         .map(std::string::ToString::to_string);
 
     if let Some(path) = wav_path {
-        let file = File::open(&path).map_err(|e| format!("Nie można otworzyć pliku: {e}"))?;
+        let file = File::open(&path).map_err(|e| VoiceKeyerError::OpenFile(e.to_string()))?;
         let source = Decoder::new(BufReader::new(file))
-            .map_err(|e| format!("Nieobsługiwany format audio: {e}"))?;
+            .map_err(|e| VoiceKeyerError::Decode(e.to_string()))?;
         if msg.repeat {
             player.append(source.repeat_infinite());
             wait_for_stop(&player);

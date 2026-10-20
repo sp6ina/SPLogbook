@@ -7,6 +7,27 @@ use log::info;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
+#[derive(Debug)]
+pub enum AudioRecorderError {
+    InvalidMciCommand,
+    MciError(u32),
+    NotRecording,
+    Io(String),
+}
+
+impl std::fmt::Display for AudioRecorderError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidMciCommand => write!(f, "Invalid characters in MCI command"),
+            Self::MciError(code) => write!(f, "MCI error code: {code}"),
+            Self::NotRecording => write!(f, "Recording was not active"),
+            Self::Io(detail) => write!(f, "Audio recorder I/O error: {detail}"),
+        }
+    }
+}
+
+impl std::error::Error for AudioRecorderError {}
+
 static IS_RECORDING: AtomicBool = AtomicBool::new(false);
 static IS_PLAYING: AtomicBool = AtomicBool::new(false);
 
@@ -33,10 +54,10 @@ pub struct AudioRecorder;
 impl AudioRecorder {
     /// Wysyła komendę MCI (UTF-16) do podsystemu Windows Multimedia
     #[cfg(target_os = "windows")]
-    fn send_mci_cmd(cmd: &str) -> Result<(), String> {
+    fn send_mci_cmd(cmd: &str) -> Result<(), AudioRecorderError> {
         use std::os::windows::ffi::OsStrExt;
         if cmd.contains('\0') {
-            return Err("Nieprawidłowy ciąg znaków dla MCI".to_string());
+            return Err(AudioRecorderError::InvalidMciCommand);
         }
         let wide: Vec<u16> = std::ffi::OsStr::new(cmd)
             .encode_wide()
@@ -46,12 +67,12 @@ impl AudioRecorder {
         if res == 0 {
             Ok(())
         } else {
-            Err(format!("MCI error code: {res}"))
+            Err(AudioRecorderError::MciError(res))
         }
     }
 
     /// Rozpoczyna nagrywanie audio z karty dźwiękowej
-    pub fn start_recording() -> Result<(), String> {
+    pub fn start_recording() -> Result<(), AudioRecorderError> {
         if IS_RECORDING.load(Ordering::SeqCst) {
             return Ok(());
         }
@@ -73,12 +94,9 @@ impl AudioRecorder {
         #[cfg(not(target_os = "windows"))]
         {
             let temp_file = std::env::temp_dir()
-                .join(format!("splog_rec_{}.wav", chrono::Utc::now().timestamp()));
+                .join(format!("splog_rec_{}.wav", std::process::id()));
             let child = std::process::Command::new("arecord")
-                .arg("-f")
-                .arg("cd")
-                .arg("-t")
-                .arg("wav")
+                .args(["-f", "cd", "-t", "wav"])
                 .arg(&temp_file)
                 .spawn()
                 .or_else(|_| {
@@ -100,19 +118,20 @@ impl AudioRecorder {
                 }
                 Err(e) => {
                     log::warn!(
-                        "Nie udało się uruchomić nagrywania arecord/pw-record: {}",
-                        e
+                        "Brak 'arecord' lub 'pw-record' w systemie Linux. Nagrywanie niedostępne: {e}"
                     );
-                    Err(format!("Nie udało się uruchomić nagrywania: {e}"))
+                    Err(AudioRecorderError::Io(format!(
+                        "Nie udało się uruchomić nagrywania: {e}"
+                    )))
                 }
             }
         }
     }
 
     /// Zatrzymuje nagrywanie i zapisuje do pliku WAV
-    pub fn stop_and_save(output_path: &Path) -> Result<PathBuf, String> {
+    pub fn stop_and_save(output_path: &Path) -> Result<PathBuf, AudioRecorderError> {
         if !IS_RECORDING.load(Ordering::SeqCst) {
-            return Err("Nagrywanie nie było aktywne".to_string());
+            return Err(AudioRecorderError::NotRecording);
         }
 
         if let Some(parent) = output_path.parent() {
@@ -149,7 +168,7 @@ impl AudioRecorder {
                 if let Some(temp) = guard.take() {
                     if temp.exists() {
                         std::fs::copy(&temp, output_path)
-                            .map_err(|e| format!("Błąd zapisu pliku WAV: {e}"))?;
+                            .map_err(|e| AudioRecorderError::Io(format!("Błąd zapisu pliku WAV: {e}")))?;
                         let _ = std::fs::remove_file(temp);
                     }
                 }
@@ -163,7 +182,7 @@ impl AudioRecorder {
     }
 
     /// Odtwarza plik audio łączności
-    pub fn play_audio(file_path: &Path) -> Result<(), String> {
+    pub fn play_audio(file_path: &Path) -> Result<(), AudioRecorderError> {
         Self::stop_audio().ok();
 
         #[cfg(target_os = "windows")]
@@ -186,7 +205,7 @@ impl AudioRecorder {
                 .arg(&path)
                 .spawn()
                 .or_else(|_| std::process::Command::new("pw-play").arg(&path).spawn())
-                .map_err(|e| format!("Nie udało się uruchomić odtwarzacza audio: {e}"))?;
+                .map_err(|e| AudioRecorderError::Io(format!("Nie udało się uruchomić odtwarzacza audio: {e}")))?;
             if let Ok(mut guard) = LINUX_PLAY_CHILD.lock() {
                 *guard = Some(child);
             }
@@ -196,7 +215,7 @@ impl AudioRecorder {
     }
 
     /// Zatrzymuje aktualnie odtwarzany plik
-    pub fn stop_audio() -> Result<(), String> {
+    pub fn stop_audio() -> Result<(), AudioRecorderError> {
         #[cfg(target_os = "windows")]
         {
             Self::send_mci_cmd("stop splog_play").ok();
@@ -217,12 +236,10 @@ impl AudioRecorder {
         Ok(())
     }
 
-    /// Sprawdza czy nagrywanie jest aktywne
     pub fn is_recording() -> bool {
         IS_RECORDING.load(Ordering::SeqCst)
     }
 
-    /// Sprawdza czy odtwarzanie jest aktywne
     pub fn is_playing() -> bool {
         IS_PLAYING.load(Ordering::SeqCst)
     }

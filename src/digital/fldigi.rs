@@ -4,6 +4,25 @@
 
 use crate::core::xml::unescape_xml as unescape_xml_entities;
 
+#[derive(Debug)]
+pub enum FldigiError {
+    Http(String),
+    RpcFault,
+    Parse(String),
+}
+
+impl std::fmt::Display for FldigiError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Http(detail) => write!(f, "FLDIGI XML-RPC error: {detail}"),
+            Self::RpcFault => write!(f, "FLDIGI returned RPC Fault"),
+            Self::Parse(detail) => write!(f, "FLDIGI parse error: {detail}"),
+        }
+    }
+}
+
+impl std::error::Error for FldigiError {}
+
 #[derive(Debug, Clone)]
 pub struct FldigiClient {
     pub endpoint: String,
@@ -31,30 +50,32 @@ impl FldigiClient {
     }
 
     /// Sprawdza czy FLDIGI jest uruchomiony i zwraca wersję programu
-    pub async fn get_version(&self) -> Result<String, String> {
+    pub async fn get_version(&self) -> Result<String, FldigiError> {
         self.call_xmlrpc("fldigi.version", "").await
     }
 
     /// Pobiera bieżącą częstotliwość odbiornika/nadajnika z FLDIGI (w Hz)
-    pub async fn get_frequency(&self) -> Result<f64, String> {
+    pub async fn get_frequency(&self) -> Result<f64, FldigiError> {
         let resp = self.call_xmlrpc("main.get_frequency", "").await?;
-        resp.trim().parse::<f64>().map_err(|e| e.to_string())
+        resp.trim()
+            .parse::<f64>()
+            .map_err(|e| FldigiError::Parse(e.to_string()))
     }
 
     /// Ustawia częstotliwość w FLDIGI (w Hz)
-    pub async fn set_frequency(&self, freq_hz: f64) -> Result<(), String> {
+    pub async fn set_frequency(&self, freq_hz: f64) -> Result<(), FldigiError> {
         let param = format!("<param><value><double>{freq_hz}</double></value></param>");
         self.call_xmlrpc("main.set_frequency", &param).await?;
         Ok(())
     }
 
     /// Pobiera aktywną modulację (PSK31, RTTY, Olivia itd.)
-    pub async fn get_mode(&self) -> Result<String, String> {
+    pub async fn get_mode(&self) -> Result<String, FldigiError> {
         self.call_xmlrpc("modem.get_name", "").await
     }
 
     /// Pobiera aktualnie wprowadzane dane łączności z okna logu FLDIGI
-    pub async fn get_qso_data(&self) -> Result<FldigiQsoState, String> {
+    pub async fn get_qso_data(&self) -> Result<FldigiQsoState, FldigiError> {
         let freq_hz = self.get_frequency().await?;
         let mode = self.get_mode().await.unwrap_or_default();
         let call = self
@@ -95,19 +116,19 @@ impl FldigiClient {
     }
 
     /// Przełącza FLDIGI w tryb nadawania TX
-    pub async fn tx(&self) -> Result<(), String> {
+    pub async fn tx(&self) -> Result<(), FldigiError> {
         self.call_xmlrpc("main.tx", "").await?;
         Ok(())
     }
 
     /// Przełącza FLDIGI w tryb odbioru RX
-    pub async fn rx(&self) -> Result<(), String> {
+    pub async fn rx(&self) -> Result<(), FldigiError> {
         self.call_xmlrpc("main.rx", "").await?;
         Ok(())
     }
 
     /// Wysyła surowe wywołanie metody XML-RPC do FLDIGI
-    async fn call_xmlrpc(&self, method_name: &str, params_xml: &str) -> Result<String, String> {
+    async fn call_xmlrpc(&self, method_name: &str, params_xml: &str) -> Result<String, FldigiError> {
         let body = format!(
             r#"<?xml version="1.0"?><methodCall><methodName>{method_name}</methodName><params>{params_xml}</params></methodCall>"#
         );
@@ -119,20 +140,20 @@ impl FldigiClient {
             .body(body)
             .send()
             .await
-            .map_err(|e| format!("Błąd połączenia z FLDIGI XML-RPC: {e}"))?;
+            .map_err(|e| FldigiError::Http(e.to_string()))?;
 
         let xml = resp
             .text()
             .await
-            .map_err(|e| format!("Błąd odczytu odpowiedzi FLDIGI: {e}"))?;
+            .map_err(|e| FldigiError::Http(e.to_string()))?;
 
         Self::parse_xmlrpc_value(&xml)
     }
 
     /// Ekstrahuje zawartość z tagów <value><string>...</string></value>, <double>, <i4>, <int>
-    pub fn parse_xmlrpc_value(xml: &str) -> Result<String, String> {
+    pub fn parse_xmlrpc_value(xml: &str) -> Result<String, FldigiError> {
         if xml.contains("<fault>") {
-            return Err("FLDIGI zgłosiło błąd RPC Fault".to_string());
+            return Err(FldigiError::RpcFault);
         }
 
         // Szukaj <string>...</string>
@@ -182,25 +203,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_xmlrpc_parser() {
-        let xml_str = r#"<?xml version="1.0"?><methodResponse><params><param><value><string>BPSK31</string></value></param></params></methodResponse>"#;
+    fn test_fldigi_xmlrpc_parser() {
+        let xml_str = r#"<?xml version="1.0"?><methodResponse><params><param><value><string>4.1.20</string></value></param></params></methodResponse>"#;
         let val = FldigiClient::parse_xmlrpc_value(xml_str).unwrap();
-        assert_eq!(val, "BPSK31");
+        assert_eq!(val, "4.1.20");
 
-        let xml_double = r#"<?xml version="1.0"?><methodResponse><params><param><value><double>14070000</double></value></param></params></methodResponse>"#;
+        let xml_double = r#"<?xml version="1.0"?><methodResponse><params><param><value><double>14070000.0</double></value></param></params></methodResponse>"#;
         let freq = FldigiClient::parse_xmlrpc_value(xml_double).unwrap();
-        assert_eq!(freq, "14070000");
+        assert_eq!(freq, "14070000.0");
 
-        let xml_int = r#"<?xml version="1.0"?><methodResponse><params><param><value><int>14074000</int></value></param></params></methodResponse>"#;
+        let xml_int = r#"<?xml version="1.0"?><methodResponse><params><param><value><i4>599</i4></value></param></params></methodResponse>"#;
         assert_eq!(
             FldigiClient::parse_xmlrpc_value(xml_int).unwrap(),
-            "14074000"
+            "599"
         );
 
-        let xml_escaped = r#"<?xml version="1.0"?><methodResponse><params><param><value><string>A &amp; B &lt;C&gt;</string></value></param></params></methodResponse>"#;
+        let xml_escaped = r#"<?xml version="1.0"?><methodResponse><params><param><value><string>SP6INA &amp; Friends</string></value></param></params></methodResponse>"#;
         assert_eq!(
             FldigiClient::parse_xmlrpc_value(xml_escaped).unwrap(),
-            "A & B <C>"
+            "SP6INA & Friends"
         );
     }
 }
