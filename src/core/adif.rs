@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
+use crate::core::i18n::{key, Msg};
 use crate::core::qso::QsoRecord;
 use crate::core::xml::escape_xml as xml_escape;
 use std::collections::HashMap;
@@ -8,6 +9,46 @@ use std::io::{BufRead, Write};
 
 /// Wspierana wersja specyfikacji ADIF.
 pub const ADIF_VERSION: &str = "3.1.8";
+
+#[derive(Debug)]
+pub enum AdifError {
+    Read(String),
+}
+
+impl std::fmt::Display for AdifError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Read(detail) => write!(f, "ADIF read error: {detail}"),
+        }
+    }
+}
+
+impl std::error::Error for AdifError {}
+
+impl AdifError {
+    pub fn msg(&self) -> Msg {
+        match self {
+            Self::Read(detail) => Msg::new(key::ADIF_READ_ERROR).arg("detail", detail),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum AdifRecordError {
+    MissingCall,
+    UnresolvableBand,
+}
+
+impl std::fmt::Display for AdifRecordError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MissingCall => write!(f, "brak wymaganego pola CALL."),
+            Self::UnresolvableBand => write!(f, "brak pola BAND ani rozpoznawalnej FREQ."),
+        }
+    }
+}
+
+impl std::error::Error for AdifRecordError {}
 
 /// Parser i generator formatu ADIF.
 pub struct AdifEngine;
@@ -35,11 +76,13 @@ impl AdifEngine {
     }
 
     /// Parsuje strumień ADIF i zwraca rekordy wraz z raportem błędów.
-    pub fn parse_reader_with_report<R: BufRead>(mut reader: R) -> Result<AdifImportResult, String> {
+    pub fn parse_reader_with_report<R: BufRead>(
+        mut reader: R,
+    ) -> Result<AdifImportResult, AdifError> {
         let mut content = String::new();
         reader
             .read_to_string(&mut content)
-            .map_err(|e| format!("Błąd odczytu danych ADIF: {e}"))?;
+            .map_err(|e| AdifError::Read(e.to_string()))?;
 
         // Pomiń nagłówek (do znacznika <EOH>) bez alokacji kopii całego pliku
         let body = if let Some(end_pos) = find_tag_end_ci(content.as_bytes(), 0, b"<EOH>") {
@@ -348,10 +391,10 @@ impl AdifEngine {
     ///
     /// Zwraca `Err` z komunikatem odrzucenia, gdy brakuje wymaganego pola CALL
     /// lub gdy nie da się ustalić pasma (brak BAND i rozpoznawalnej FREQ).
-    fn fields_to_qso(fields: &mut HashMap<String, String>) -> Result<QsoRecord, String> {
+    fn fields_to_qso(fields: &mut HashMap<String, String>) -> Result<QsoRecord, AdifRecordError> {
         let call = match fields.remove("CALL") {
             Some(c) if !c.is_empty() => c,
-            _ => return Err("brak wymaganego pola CALL.".to_string()),
+            _ => return Err(AdifRecordError::MissingCall),
         };
 
         let parsed_freq: Option<f64> = fields.get("FREQ").and_then(|f| f.parse().ok());
@@ -368,7 +411,7 @@ impl AdifEngine {
                     })
                     .map(|b| b.name.to_string())
             })
-            .ok_or_else(|| "brak pola BAND ani rozpoznawalnej FREQ.".to_string())?;
+            .ok_or(AdifRecordError::UnresolvableBand)?;
         // MODE → APP_LoTW_MODE → puste (rekord bez emisji).
         let mode = fields
             .get("MODE")
@@ -703,7 +746,7 @@ pub fn parse_adif_with_report(content: &str) -> AdifImportResult {
             qsos: Vec::new(),
             imported: 0,
             rejected: 0,
-            errors: vec![e],
+            errors: vec![e.to_string()],
         },
     )
 }

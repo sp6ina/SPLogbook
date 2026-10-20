@@ -8,6 +8,39 @@ use std::time::Duration;
 
 use rusqlite::{Connection, backup::Backup};
 
+use crate::core::i18n::{key, Msg};
+
+#[derive(Debug)]
+pub enum BackupError {
+    SourceNotFound,
+    CreateDir(String),
+    SqliteBackup(String),
+    CopyFallback(String),
+    Finalize(String),
+    WriteAdif(String),
+}
+
+impl std::fmt::Display for BackupError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SourceNotFound => write!(f, "Source database file does not exist"),
+            Self::CreateDir(detail) => write!(f, "Failed to create backup directory: {detail}"),
+            Self::SqliteBackup(detail) => write!(f, "SQLite backup failed: {detail}"),
+            Self::CopyFallback(detail) => write!(f, "Backup copy failed: {detail}"),
+            Self::Finalize(detail) => write!(f, "Failed to finalize backup: {detail}"),
+            Self::WriteAdif(detail) => write!(f, "Failed to write ADIF backup: {detail}"),
+        }
+    }
+}
+
+impl std::error::Error for BackupError {}
+
+impl BackupError {
+    pub fn msg(&self) -> Msg {
+        Msg::new(key::BACKUP_CREATE_ERROR).arg("err", self.to_string())
+    }
+}
+
 pub struct BackupManager;
 
 impl BackupManager {
@@ -17,13 +50,16 @@ impl BackupManager {
     /// API `Backup` SQLite, które wykonuje online-backup i daje spójny snapshot
     /// nawet przy współbieżnych zapisach. Nazwa pliku ma precyzję do milisekund,
     /// aby kolejne kopie w tej samej sekundzie nie nadpisywały się nawzajem.
-    pub fn backup_database(source_db_path: &Path, backup_dir: &Path) -> Result<PathBuf, String> {
+    pub fn backup_database(
+        source_db_path: &Path,
+        backup_dir: &Path,
+    ) -> Result<PathBuf, BackupError> {
         if !source_db_path.exists() {
-            return Err("Plik bazy źródłowej nie istnieje".to_string());
+            return Err(BackupError::SourceNotFound);
         }
 
         fs::create_dir_all(backup_dir)
-            .map_err(|e| format!("Błąd tworzenia katalogu kopii: {e}"))?;
+            .map_err(|e| BackupError::CreateDir(e.to_string()))?;
 
         let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S%.3f").to_string();
         let file_stem = source_db_path
@@ -49,12 +85,12 @@ impl BackupManager {
         if let Err(e) = sqlite_ok {
             let _ = fs::remove_file(&tmp_path);
             fs::copy(source_db_path, &tmp_path).map_err(|copy_err| {
-                format!("Błąd wykonywania kopii zapasowej ({e}): {copy_err}")
+                BackupError::CopyFallback(format!("SQLite backup error ({e}): {copy_err}"))
             })?;
         }
 
         fs::rename(&tmp_path, &dest_path)
-            .map_err(|e| format!("Błąd finalizacji kopii zapasowej: {e}"))?;
+            .map_err(|e| BackupError::Finalize(e.to_string()))?;
 
         Self::prune_old_backups(backup_dir, ".db", 10).ok();
 
@@ -62,18 +98,19 @@ impl BackupManager {
     }
 
     /// Wykonuje kopię zapasową w formacie ADIF
-    pub fn backup_adif(adif_content: &str, backup_dir: &Path) -> Result<PathBuf, String> {
+    pub fn backup_adif(adif_content: &str, backup_dir: &Path) -> Result<PathBuf, BackupError> {
         fs::create_dir_all(backup_dir)
-            .map_err(|e| format!("Błąd tworzenia katalogu kopii: {e}"))?;
+            .map_err(|e| BackupError::CreateDir(e.to_string()))?;
 
         let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S%.3f").to_string();
         let dest_filename = format!("SPLogbook_backup_{timestamp}.adi");
         let dest_path = backup_dir.join(&dest_filename);
         let tmp_path = backup_dir.join(format!(".{dest_filename}.tmp"));
 
-        fs::write(&tmp_path, adif_content).map_err(|e| format!("Błąd zapisu pliku ADIF: {e}"))?;
+        fs::write(&tmp_path, adif_content)
+            .map_err(|e| BackupError::WriteAdif(e.to_string()))?;
         fs::rename(&tmp_path, &dest_path)
-            .map_err(|e| format!("Błąd finalizacji kopii ADIF: {e}"))?;
+            .map_err(|e| BackupError::Finalize(e.to_string()))?;
         Self::prune_old_backups(backup_dir, ".adi", 10).ok();
 
         Ok(dest_path)

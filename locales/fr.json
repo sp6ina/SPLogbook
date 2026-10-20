@@ -1494,5 +1494,12 @@
   "updater.installing_restart": "Installation de la mise à jour — l'application va redémarrer automatiquement.",
   "cat.started_success": "Sous-système CAT démarré avec succès.",
   "cat.start_error": "Erreur de démarrage CAT : {err}",
-  "cluster.spot_sent": "Spot DX envoyé pour {call} ({freq} kHz)"
+  "cluster.spot_sent": "Spot DX envoyé pour {call} ({freq} kHz)",
+  "journal.cannot_delete_default": "Impossible de supprimer le journal par défaut.",
+  "journal.cannot_delete_active": "Impossible de supprimer le journal actif. Changez d'abord de journal.",
+  "journal.not_found": "Le journal '{id}' n'existe pas.",
+  "journal.database_error": "Erreur de base de données de journal: {detail}",
+  "adif.read_error": "Erreur de lecture des données ADIF: {detail}",
+  "callbook.not_found": "Station non trouvée dans la base FCC.",
+  "callbook.error": "Erreur de callbook: {detail}"
 }

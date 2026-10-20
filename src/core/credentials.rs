@@ -8,9 +8,11 @@ use serde::{Deserialize, Serialize};
 
 use super::station::AppConfig;
 
+pub(crate) type SecretValue = String;
+
 pub(crate) trait CredentialStore {
     fn put(&self, path: &Path, id: &str, value: &str) -> io::Result<()>;
-    fn get(&self, path: &Path, id: &str) -> io::Result<String>;
+    fn get(&self, path: &Path, id: &str) -> io::Result<SecretValue>;
     fn remove(&self, path: &Path, id: &str) -> io::Result<()>;
 }
 
@@ -62,7 +64,7 @@ mod tests {
                 .insert(id.to_string(), value.to_string());
             Ok(())
         }
-        fn get(&self, _path: &Path, id: &str) -> io::Result<String> {
+        fn get(&self, _path: &Path, id: &str) -> io::Result<SecretValue> {
             self.items
                 .lock()
                 .unwrap()
@@ -228,7 +230,7 @@ impl CredentialStore for SystemCredentialStore {
         Ok(())
     }
 
-    fn get(&self, path: &Path, id: &str) -> io::Result<String> {
+    fn get(&self, path: &Path, id: &str) -> io::Result<SecretValue> {
         match Self::entry(path, id)?.get_password() {
             Ok(secret) => Ok(secret),
             Err(primary_err) => {

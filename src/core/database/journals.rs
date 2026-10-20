@@ -2,8 +2,43 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use super::LogDatabase;
+use crate::core::i18n::{key, Msg};
 use rusqlite::{Result, params};
 use serde::{Deserialize, Serialize};
+
+#[derive(Debug)]
+pub enum JournalError {
+    CannotDeleteDefault,
+    CannotDeleteActive,
+    NotFound(String),
+    Sql(String),
+}
+
+impl std::fmt::Display for JournalError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::CannotDeleteDefault => write!(f, "Cannot delete default journal."),
+            Self::CannotDeleteActive => {
+                write!(f, "Cannot delete active journal. Switch active journal first.")
+            }
+            Self::NotFound(id) => write!(f, "Journal '{id}' does not exist."),
+            Self::Sql(detail) => write!(f, "Database error: {detail}"),
+        }
+    }
+}
+
+impl std::error::Error for JournalError {}
+
+impl JournalError {
+    pub fn msg(&self) -> Msg {
+        match self {
+            Self::CannotDeleteDefault => Msg::new(key::JOURNAL_CANNOT_DELETE_DEFAULT),
+            Self::CannotDeleteActive => Msg::new(key::JOURNAL_CANNOT_DELETE_ACTIVE),
+            Self::NotFound(id) => Msg::new(key::JOURNAL_NOT_FOUND).arg("id", id),
+            Self::Sql(detail) => Msg::new(key::JOURNAL_DATABASE_ERROR).arg("detail", detail),
+        }
+    }
+}
 
 /// Reprezentacja profilu / dziennika łączności (Wielodziennikowość)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -94,9 +129,9 @@ impl LogDatabase {
     /// Blokuje usunięcie dziennika `DEFAULT` oraz aktywnego (domyślnego) profilu;
     /// osierocone QSO są przepinane do `DEFAULT` w tej samej transakcji, więc baza
     /// nigdy nie zostaje z rekordami wskazującymi na nieistniejący dziennik.
-    pub fn delete_journal(&self, id: &str) -> Result<(), String> {
+    pub fn delete_journal(&self, id: &str) -> Result<(), JournalError> {
         if id == "DEFAULT" {
-            return Err("Nie można usunąć dziennika domyślnego.".to_string());
+            return Err(JournalError::CannotDeleteDefault);
         }
 
         let is_active: bool = self
@@ -106,27 +141,24 @@ impl LogDatabase {
                 params![id],
                 |row| row.get::<_, i32>(0),
             )
-            .map_err(|e| e.to_string())?
+            .map_err(|e| JournalError::Sql(e.to_string()))?
             != 0;
         if is_active {
-            return Err(
-                "Nie można usunąć aktywnego dziennika. Najpierw przełącz aktywny dziennik."
-                    .to_string(),
-            );
+            return Err(JournalError::CannotDeleteActive);
         }
 
         let tx = self
             .conn
             .unchecked_transaction()
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| JournalError::Sql(e.to_string()))?;
         tx.execute(
             "UPDATE qso_records SET journal_id = 'DEFAULT' WHERE journal_id = ?1",
             params![id],
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| JournalError::Sql(e.to_string()))?;
         tx.execute("DELETE FROM journals WHERE id = ?1", params![id])
-            .map_err(|e| e.to_string())?;
-        tx.commit().map_err(|e| e.to_string())?;
+            .map_err(|e| JournalError::Sql(e.to_string()))?;
+        tx.commit().map_err(|e| JournalError::Sql(e.to_string()))?;
         Ok(())
     }
 
@@ -154,29 +186,29 @@ impl LogDatabase {
     /// Ustawia wybrany dziennik jako domyślny (aktywny). Waliduje istnienie
     /// dziennika i przełącza atomowo, aby nigdy nie zostawić bazy bez aktywnego
     /// dziennika.
-    pub fn set_active_journal(&self, id: &str) -> Result<(), String> {
+    pub fn set_active_journal(&self, id: &str) -> Result<(), JournalError> {
         let exists: bool = self
             .conn
             .prepare("SELECT 1 FROM journals WHERE id = ?1")
-            .map_err(|e| e.to_string())?
+            .map_err(|e| JournalError::Sql(e.to_string()))?
             .exists(params![id])
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| JournalError::Sql(e.to_string()))?;
         if !exists {
-            return Err(format!("Dziennik „{id}” nie istnieje."));
+            return Err(JournalError::NotFound(id.to_string()));
         }
 
         let tx = self
             .conn
             .unchecked_transaction()
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| JournalError::Sql(e.to_string()))?;
         tx.execute("UPDATE journals SET is_default = 0", [])
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| JournalError::Sql(e.to_string()))?;
         tx.execute(
             "UPDATE journals SET is_default = 1 WHERE id = ?1",
             params![id],
         )
-        .map_err(|e| e.to_string())?;
-        tx.commit().map_err(|e| e.to_string())?;
+        .map_err(|e| JournalError::Sql(e.to_string()))?;
+        tx.commit().map_err(|e| JournalError::Sql(e.to_string()))?;
         Ok(())
     }
 }

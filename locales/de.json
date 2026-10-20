@@ -1494,5 +1494,12 @@
   "updater.installing_restart": "Update wird installiert — die Anwendung startet automatisch neu.",
   "cat.started_success": "CAT-Subsystem erfolgreich gestartet.",
   "cat.start_error": "CAT-Startfehler: {err}",
-  "cluster.spot_sent": "DX-Spot für {call} gesendet ({freq} kHz)"
+  "cluster.spot_sent": "DX-Spot für {call} gesendet ({freq} kHz)",
+  "journal.cannot_delete_default": "Standardprotokoll kann nicht gelöscht werden.",
+  "journal.cannot_delete_active": "Aktives Protokoll kann nicht gelöscht werden. Bitte zuerst wechseln.",
+  "journal.not_found": "Protokoll '{id}' existiert nicht.",
+  "journal.database_error": "Protokoll-Datenbankfehler: {detail}",
+  "adif.read_error": "ADIF-Datenlesefehler: {detail}",
+  "callbook.not_found": "Station nicht in FCC-Datenbank gefunden.",
+  "callbook.error": "Callbook-Fehler: {detail}"
 }

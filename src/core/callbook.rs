@@ -3,11 +3,42 @@
 
 use crate::cloud::hamqth::HamQthXmlClient;
 use crate::cloud::qrz::{CallbookData, QrzClient};
+use crate::core::i18n::{key, Msg};
 use rusqlite::{Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+#[derive(Debug)]
+pub enum CallbookError {
+    Http(String),
+    Json(String),
+    NotFound,
+}
+
+impl std::fmt::Display for CallbookError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Http(detail) => write!(f, "HTTP request failed: {detail}"),
+            Self::Json(detail) => write!(f, "JSON parse failed: {detail}"),
+            Self::NotFound => write!(f, "Station not found in FCC database"),
+        }
+    }
+}
+
+impl std::error::Error for CallbookError {}
+
+impl CallbookError {
+    pub fn msg(&self) -> Msg {
+        match self {
+            Self::NotFound => Msg::new(key::CALLBOOK_NOT_FOUND),
+            Self::Http(detail) | Self::Json(detail) => {
+                Msg::new(key::CALLBOOK_ERROR).arg("detail", detail)
+            }
+        }
+    }
+}
 
 /// Źródło danych callbook używane w agregacji z priorytetami.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -306,17 +337,24 @@ pub fn extract_base_call(call: &str) -> &str {
 }
 
 /// Klient darmowego API callook.info (stacje USA z bazy FCC)
-pub async fn lookup_callook_info(callsign: &str) -> Result<CallbookData, String> {
+pub async fn lookup_callook_info(callsign: &str) -> Result<CallbookData, CallbookError> {
     let clean = callsign.trim().to_uppercase();
     let url = format!("https://callook.info/{clean}/json");
 
     let client = crate::core::http::http_client_with_timeout(6);
 
-    let resp = client.get(&url).send().await.map_err(|e| e.to_string())?;
-    let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| CallbookError::Http(e.to_string()))?;
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| CallbookError::Json(e.to_string()))?;
 
     if json.get("status").and_then(|v| v.as_str()) != Some("VALID") {
-        return Err("Stacja nieznaleziona w FCC".to_string());
+        return Err(CallbookError::NotFound);
     }
 
     let raw_name = json.get("name").and_then(|v| v.as_str()).unwrap_or("");

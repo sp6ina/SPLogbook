@@ -1494,5 +1494,12 @@
   "updater.installing_restart": "Installing update — the application will restart automatically.",
   "cat.started_success": "CAT subsystem started successfully.",
   "cat.start_error": "CAT start error: {err}",
-  "cluster.spot_sent": "DX spot sent for {call} ({freq} kHz)"
+  "cluster.spot_sent": "DX spot sent for {call} ({freq} kHz)",
+  "journal.cannot_delete_default": "Cannot delete default journal.",
+  "journal.cannot_delete_active": "Cannot delete active journal. Switch active journal first.",
+  "journal.not_found": "Journal '{id}' does not exist.",
+  "journal.database_error": "Journal database error: {detail}",
+  "adif.read_error": "ADIF data read error: {detail}",
+  "callbook.not_found": "Station not found in FCC database.",
+  "callbook.error": "Callbook error: {detail}"
 }

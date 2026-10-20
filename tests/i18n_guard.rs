@@ -623,3 +623,168 @@ fn test_i18n_pending_files_exist() {
         );
     }
 }
+
+
+/// Moduły oczekujące na typowane błędy domenowe w etapie I18N-B3.
+/// Każdy kolejny commit I18N-B3A do I18N-B3E musi zmniejszać tę listę.
+/// W commicie I18N-B6 lista ta zostanie bezwzględnie usunięta.
+const PENDING_MODULES: &[&str] = &[
+    "src/cat/backend.rs",
+    "src/cat/flrig.rs",
+    "src/cat/hamlib.rs",
+    "src/cat/hil/validator.rs",
+    "src/cat/supervisor.rs",
+    "src/cloud/cloudlog.rs",
+    "src/cloud/hamqth.rs",
+    "src/cloud/hrdlog.rs",
+    "src/cloud/psk_reporter.rs",
+    "src/cloud/scheduler.rs",
+    "src/cloud/updater.rs",
+    "src/cloud/wspr.rs",
+    "src/digital/fldigi.rs",
+    "src/gui/app.rs",
+    "src/gui/cat_settings.rs",
+    "src/gui/qsl_designer.rs",
+    "src/gui/waterfall_panel.rs",
+    "src/gui/wspr_panel.rs",
+    "src/media/audio_recorder.rs",
+    "src/media/voice_keyer.rs",
+    "src/network/wol.rs",
+    "src/plugins/lookups.rs",
+    "src/plugins/marketplace.rs",
+    "src/plugins/mod.rs",
+];
+
+fn check_file_for_string_errors(content: &str) -> Vec<(usize, String)> {
+    let mut violations = Vec::new();
+    let mut in_test = false;
+
+    for (line_idx, line) in content.lines().enumerate() {
+        let line_no = line_idx + 1;
+        let trimmed = line.trim();
+
+        if trimmed.starts_with("//") || trimmed.starts_with("/*") || trimmed.starts_with('*') {
+            continue;
+        }
+
+        if trimmed.contains("#[cfg(test)]") || trimmed.contains("mod tests {") {
+            in_test = true;
+        }
+        if in_test {
+            continue;
+        }
+
+        let mut idx = 0;
+        while let Some(pos) = line[idx..].find("Result<") {
+            let actual_pos = idx + pos;
+            let sub = &line[actual_pos + 7..];
+            let mut depth_angle = 1;
+            let mut depth_paren = 0;
+            let mut depth_bracket = 0;
+            let mut err_type = String::new();
+            let mut found_comma = false;
+
+            for ch in sub.chars() {
+                match ch {
+                    '<' => depth_angle += 1,
+                    '>' => {
+                        depth_angle -= 1;
+                        if depth_angle == 0 {
+                            break;
+                        }
+                    }
+                    '(' => depth_paren += 1,
+                    ')' => depth_paren -= 1,
+                    '[' => depth_bracket += 1,
+                    ']' => depth_bracket += 1,
+                    ',' if depth_angle == 1 && depth_paren == 0 && depth_bracket == 0 => {
+                        found_comma = true;
+                        continue;
+                    }
+                    _ => {}
+                }
+
+                if found_comma {
+                    err_type.push(ch);
+                }
+            }
+
+            let err = err_type.trim();
+            if err == "String" || err == "std::string::String" {
+                violations.push((line_no, line.trim().to_string()));
+            }
+
+            idx = actual_pos + 7;
+        }
+    }
+
+    violations
+}
+
+#[test]
+fn no_string_errors_in_domain() {
+    let src_dir = Path::new("src");
+    assert!(src_dir.is_dir(), "Katalog src/ nie istnieje");
+
+    let mut files = Vec::new();
+    collect_rs_files(src_dir, &mut files);
+    files.sort();
+
+    let mut clean_in_pending = Vec::new();
+    let mut unlisted_with_errors = Vec::new();
+
+    for file_path in &files {
+        let rel_path = file_path.to_string_lossy().replace('\\', "/");
+        if rel_path.starts_with("src/bin/") {
+            continue;
+        }
+
+        let is_pending = PENDING_MODULES.contains(&rel_path.as_str());
+
+        let content = fs::read_to_string(file_path).unwrap_or_else(|e| {
+            panic!("Nie można odczytać pliku {rel_path}: {e}");
+        });
+
+        let viols = check_file_for_string_errors(&content);
+
+        if is_pending {
+            if viols.is_empty() {
+                clean_in_pending.push(rel_path);
+            }
+        } else if !viols.is_empty() {
+            unlisted_with_errors.push((rel_path, viols));
+        }
+    }
+
+    let mut failure_msg = String::new();
+
+    if !clean_in_pending.is_empty() {
+        failure_msg.push_str("Czyste moduły muszą zostać usunięte z PENDING_MODULES w tym samym commicie:\n");
+        for m in clean_in_pending {
+            failure_msg.push_str(&format!("  - {m}\n"));
+        }
+    }
+
+    if !unlisted_with_errors.is_empty() {
+        failure_msg.push_str("Wykryto Result<..., String> w modułach poza PENDING_MODULES:\n");
+        for (m, viols) in unlisted_with_errors {
+            failure_msg.push_str(&format!("Plik: {m}\n"));
+            for (line, txt) in viols {
+                failure_msg.push_str(&format!("  L{line}: {txt}\n"));
+            }
+        }
+    }
+
+    assert!(failure_msg.is_empty(), "{failure_msg}");
+}
+
+#[test]
+fn test_i18n_pending_modules_exist() {
+    for pending in PENDING_MODULES {
+        let p = Path::new(pending);
+        assert!(
+            p.exists(),
+            "Plik na liście PENDING_MODULES nie istnieje: {pending}"
+        );
+    }
+}

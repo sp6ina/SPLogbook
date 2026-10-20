@@ -149,8 +149,7 @@ impl SotaDialog {
                                 }
                             }
                             Err(e) => {
-                                self.status =
-                                    Some(Msg::new(key::SOTA_ERR_EXPORT).arg("err", &e).text(lang));
+                                self.status = Some(e.msg().text(lang));
                             }
                         }
                     }

@@ -1494,5 +1494,12 @@
   "updater.installing_restart": "Установка обновления — приложение будет перезапущено автоматически.",
   "cat.started_success": "Подсистема CAT успешно запущена.",
   "cat.start_error": "Ошибка запуска CAT: {err}",
-  "cluster.spot_sent": "DX-спот отправлен для {call} ({freq} кГц)"
+  "cluster.spot_sent": "DX-спот отправлен для {call} ({freq} кГц)",
+  "journal.cannot_delete_default": "Нельзя удалить журнал по умолчанию.",
+  "journal.cannot_delete_active": "Нельзя удалить активный журнал. Сначала переключите активный журнал.",
+  "journal.not_found": "Журнал «{id}» не существует.",
+  "journal.database_error": "Ошибка базы данных журналов: {detail}",
+  "adif.read_error": "Ошибка чтения данных ADIF: {detail}",
+  "callbook.not_found": "Станция не найдена в базе FCC.",
+  "callbook.error": "Ошибка колбука: {detail}"
 }

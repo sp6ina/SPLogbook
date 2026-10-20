@@ -3936,19 +3936,10 @@ impl SpLogApp {
                     .file_name()
                     .unwrap_or_default()
                     .to_string_lossy();
-                self.status_toast = Some((
-                    Msg::new(key::BACKUP_CREATED_TOAST)
-                        .arg("name", &name)
-                        .text(self.current_language),
-                    std::time::Instant::now(),
-                ));
+                self.say(Msg::new(key::BACKUP_CREATED_TOAST).arg("name", &name));
             }
             Err(e) => {
-                self.report_error(
-                    Msg::new(key::BACKUP_CREATE_ERROR)
-                        .arg("err", &e)
-                        .text(self.current_language),
-                );
+                self.fail(e.msg());
             }
         }
     }

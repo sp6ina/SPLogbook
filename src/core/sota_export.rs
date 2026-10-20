@@ -2,22 +2,50 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 // Dedykowany eksport łączności do oficjalnego formatu SOTA V2 CSV (Summits on the Air)
 
+use crate::core::i18n::{key, Msg};
 use crate::core::qso::QsoRecord;
 use std::fmt::Write as _;
+
+#[derive(Debug)]
+pub enum SotaExportError {
+    InvalidDate { callsign: String },
+    InvalidTime { callsign: String },
+}
+
+impl std::fmt::Display for SotaExportError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidDate { callsign } => write!(f, "Invalid date in QSO with {callsign}"),
+            Self::InvalidTime { callsign } => write!(f, "Invalid time in QSO with {callsign}"),
+        }
+    }
+}
+
+impl std::error::Error for SotaExportError {}
+
+impl SotaExportError {
+    pub fn msg(&self) -> Msg {
+        Msg::new(key::SOTA_ERR_EXPORT).arg("err", self.to_string())
+    }
+}
 
 /// Eksportuje wektor łączności do oficjalnego formatu SOTA Database V2 CSV
 /// Specyfikacja formatu:
 /// V2,[MyCall],[MySOTA],[Date:DD/MM/YY],[Time:HH:MM],[Band:e.g. 14MHz],[Mode],[HisCall],[HisSOTA],[Notes]
-pub fn export_sota_csv(qsos: &[QsoRecord], my_call: &str, my_sota: &str) -> Result<String, String> {
+pub fn export_sota_csv(
+    qsos: &[QsoRecord],
+    my_call: &str,
+    my_sota: &str,
+) -> Result<String, SotaExportError> {
     let mut out = String::new();
 
     for q in qsos {
         let clean_my_call = my_call.trim().to_uppercase();
         let clean_my_sota = my_sota.trim().to_uppercase();
         let date_formatted = format_sota_date(&q.qso_date)
-            .map_err(|_| format!("Nieprawidłowa data w łączności z {}", q.callsign))?;
+            .map_err(|_| SotaExportError::InvalidDate { callsign: q.callsign.clone() })?;
         let time_formatted = format_sota_time(&q.time_on)
-            .map_err(|_| format!("Nieprawidłowy czas w łączności z {}", q.callsign))?;
+            .map_err(|_| SotaExportError::InvalidTime { callsign: q.callsign.clone() })?;
         let band_formatted = format_sota_band(&q.band);
         let mode_formatted = q.mode.trim().to_uppercase();
         let his_call = q.callsign.trim().to_uppercase();
@@ -98,7 +126,7 @@ impl SotaExporter {
         qsos: &[QsoRecord],
         my_call: &str,
         my_sota: &str,
-    ) -> Result<String, String> {
+    ) -> Result<String, SotaExportError> {
         export_sota_csv(qsos, my_call, my_sota)
     }
 }

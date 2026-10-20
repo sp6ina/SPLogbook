@@ -1494,5 +1494,12 @@
   "updater.installing_restart": "Installazione aggiornamento in corso — l'applicazione si riavvierà automaticamente.",
   "cat.started_success": "Sottosistema CAT avviato con successo.",
   "cat.start_error": "Errore avvio CAT: {err}",
-  "cluster.spot_sent": "Spot DX inviato per {call} ({freq} kHz)"
+  "cluster.spot_sent": "Spot DX inviato per {call} ({freq} kHz)",
+  "journal.cannot_delete_default": "Impossibile eliminare il registro predefinito.",
+  "journal.cannot_delete_active": "Impossibile eliminare il registro attivo. Cambiare prima registro.",
+  "journal.not_found": "Il registro '{id}' non esiste.",
+  "journal.database_error": "Errore del database dei registri: {detail}",
+  "adif.read_error": "Errore durante la lettura dei dati ADIF: {detail}",
+  "callbook.not_found": "Stazione non trovata nel database FCC.",
+  "callbook.error": "Errore callbook: {detail}"
 }

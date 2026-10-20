@@ -1494,5 +1494,12 @@
   "updater.installing_restart": "Trwa instalowanie aktualizacji — aplikacja zostanie zamknięta i uruchomiona ponownie.",
   "cat.started_success": "CAT uruchomiony pomyślnie.",
   "cat.start_error": "Błąd uruchomienia CAT: {err}",
-  "cluster.spot_sent": "Wysłano spot dla {call} ({freq} kHz)"
+  "cluster.spot_sent": "Wysłano spot dla {call} ({freq} kHz)",
+  "journal.cannot_delete_default": "Nie można usunąć dziennika domyślnego.",
+  "journal.cannot_delete_active": "Nie można usunąć aktywnego dziennika. Najpierw przełącz aktywny dziennik.",
+  "journal.not_found": "Dziennik „{id}” nie istnieje.",
+  "journal.database_error": "Błąd bazy danych dzienników: {detail}",
+  "adif.read_error": "Błąd odczytu danych ADIF: {detail}",
+  "callbook.not_found": "Stacja nieznaleziona w bazie FCC.",
+  "callbook.error": "Błąd callbooka: {detail}"
 }

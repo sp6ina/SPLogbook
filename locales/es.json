@@ -1494,5 +1494,12 @@
   "updater.installing_restart": "Instalando actualización — la aplicación se reiniciará automáticamente.",
   "cat.started_success": "Subsistema CAT iniciado con éxito.",
   "cat.start_error": "Error de inicio de CAT: {err}",
-  "cluster.spot_sent": "Spot DX enviado para {call} ({freq} kHz)"
+  "cluster.spot_sent": "Spot DX enviado para {call} ({freq} kHz)",
+  "journal.cannot_delete_default": "No se puede eliminar el libro de guardia predeterminado.",
+  "journal.cannot_delete_active": "No se puede eliminar el libro de guardia activo. Cambie primero.",
+  "journal.not_found": "El libro de guardia '{id}' no existe.",
+  "journal.database_error": "Error de base de datos de libro de guardia: {detail}",
+  "adif.read_error": "Error al leer datos ADIF: {detail}",
+  "callbook.not_found": "Estación no encontrada en la base de datos de FCC.",
+  "callbook.error": "Error de callbook: {detail}"
 }

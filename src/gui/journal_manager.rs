@@ -3,7 +3,7 @@
 // Wielodziennikowość - Okno zarządzania profilami dzienników łączności
 
 use crate::core::database::{Journal, LogDatabase};
-use crate::core::i18n::{Language, key, tr};
+use crate::core::i18n::{Msg, Language, key, tr};
 use crate::gui::theme::ThemeExt;
 use eframe::egui;
 
@@ -20,7 +20,7 @@ pub struct JournalManagerDialog {
     pub new_journal_pga: String,
     pub new_journal_desc: String,
     pub show_create_form: bool,
-    pub status_message: Option<String>,
+    pub status_message: Option<Msg>,
 }
 
 impl JournalManagerDialog {
@@ -171,7 +171,7 @@ impl JournalManagerDialog {
                                                             switched_journal =
                                                                 Some(journal.clone());
                                                         }
-                                                        Err(e) => self.status_message = Some(e),
+                                                        Err(e) => self.status_message = Some(e.msg()),
                                                     }
                                                 }
                                                 if !journal.id.eq_ignore_ascii_case("default")
@@ -188,7 +188,7 @@ impl JournalManagerDialog {
                                                             self.status_message = None;
                                                             reload_needed = true;
                                                         }
-                                                        Err(e) => self.status_message = Some(e),
+                                                        Err(e) => self.status_message = Some(e.msg()),
                                                     }
                                                 }
                                             }
@@ -222,7 +222,7 @@ impl JournalManagerDialog {
                 }
 
                 if let Some(msg) = &self.status_message {
-                    ui.label(egui::RichText::new(msg).color(ui.palette().danger).small());
+                    ui.label(egui::RichText::new(msg.text(lang)).color(ui.palette().danger).small());
                 }
 
                 ui.separator();
