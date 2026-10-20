@@ -3,7 +3,7 @@
 // Przeglądarka i wyszukiwarka grup wysp IOTA (Islands on the Air) z bazy serviceLOG.db
 
 use crate::core::awards::AwardsEngine;
-use crate::core::i18n::{Language, key, tr, tr_or};
+use crate::core::i18n::{Language, Msg, key, tr};
 use crate::core::service_db::{IotaRecord, ServiceDatabase};
 use crate::gui::theme::{Palette, ThemeExt};
 use eframe::egui;
@@ -33,14 +33,13 @@ impl RefStatus {
     fn label(&self, lang: Language, palette: &Palette) -> egui::RichText {
         match self {
             RefStatus::Confirmed => {
-                egui::RichText::new(tr_or(lang, "✔ Potwierdzone", "✔ Confirmed"))
-                    .color(palette.accent)
+                egui::RichText::new(tr(key::IOTA_STATUS_CONFIRMED, lang)).color(palette.accent)
             }
             RefStatus::Worked => {
-                egui::RichText::new(tr_or(lang, "✔ Zaliczona", "✔ Worked")).color(palette.success)
+                egui::RichText::new(tr(key::IOTA_STATUS_WORKED, lang)).color(palette.success)
             }
             RefStatus::Needed => {
-                egui::RichText::new(tr_or(lang, "— Potrzebna", "— Needed")).color(palette.danger)
+                egui::RichText::new(tr(key::IOTA_STATUS_NEEDED, lang)).color(palette.danger)
             }
         }
     }
@@ -83,114 +82,100 @@ impl IotaBrowserDialog {
         let mut close_requested = false;
         let mut chosen = None;
 
-        egui::Window::new(tr_or(
-            lang,
-            "🏝 Przeglądarka Wysp Świata IOTA (Islands On The Air)",
-            "🏝 IOTA Browser (Islands On The Air)",
-        ))
-        .open(&mut open)
-        .collapsible(false)
-        .resizable(true)
-        .default_width(580.0)
-        .show(ctx, |ui| {
-            let palette = ui.palette();
-            ui.horizontal(|ui| {
-                ui.label(tr_or(
-                    lang,
-                    "Szukaj IOTA (kod np. EU-001 lub nazwa wyspy):",
-                    "Search IOTA (code e.g. EU-001 or island name):",
-                ));
-                let resp =
-                    ui.add(egui::TextEdit::singleline(&mut self.search_query).desired_width(200.0));
-                if resp.changed() || !self.loaded_initial {
-                    self.reload(sdb);
-                }
-                if ui.button(tr(key::BTN_CLEAR, lang)).clicked() {
-                    self.search_query.clear();
-                    self.reload(sdb);
-                }
-            });
-
-            ui.separator();
-
-            ui.label(format!(
-                "{} ({}) - serviceLOG:",
-                tr_or(lang, "Wyniki", "Results"),
-                self.results.len()
-            ));
-
-            egui::ScrollArea::vertical()
-                .max_height(350.0)
-                .show(ui, |ui| {
-                    egui::Grid::new("iota_results_grid")
-                        .striped(true)
-                        .spacing([15.0, 6.0])
-                        .show(ui, |ui| {
-                            ui.label(
-                                egui::RichText::new(tr_or(lang, "IOTA Kod", "IOTA Code")).strong(),
-                            );
-                            ui.label(
-                                egui::RichText::new(tr_or(lang, "Prefiks", "Prefix")).strong(),
-                            );
-                            ui.label(
-                                egui::RichText::new(tr_or(
-                                    lang,
-                                    "Nazwa grupy wysp",
-                                    "Island Group Name",
-                                ))
-                                .strong(),
-                            );
-                            ui.label(egui::RichText::new("Status").strong());
-                            ui.label(egui::RichText::new(tr_or(lang, "Akcja", "Action")).strong());
-                            ui.end_row();
-
-                            for item in &self.results {
-                                ui.label(
-                                    egui::RichText::new(&item.iota)
-                                        .strong()
-                                        .color(palette.accent),
-                                );
-                                ui.label(egui::RichText::new(&item.prefix).color(palette.warning));
-                                ui.label(&item.name);
-                                ui.label(
-                                    RefStatus::of_iota(awards, &item.iota).label(lang, &palette),
-                                );
-
-                                if ui
-                                    .button(tr_or(lang, "Wybierz", "Select"))
-                                    .on_hover_text(tr_or(
-                                        lang,
-                                        "Użyj tej referencji IOTA",
-                                        "Use this IOTA reference",
-                                    ))
-                                    .clicked()
-                                {
-                                    chosen = Some(item.iota.clone());
-                                    close_requested = true;
-                                }
-                                ui.end_row();
-                            }
-                        });
-                });
-
-            ui.separator();
-            ui.horizontal(|ui| {
-                ui.label(
-                    egui::RichText::new(tr_or(
-                        lang,
-                        "Baza zawiera 1 190 oficjalnych grup wysp programu RSGB IOTA.",
-                        "Database contains 1,190 official RSGB IOTA island groups.",
-                    ))
-                    .small()
-                    .color(palette.text_muted),
-                );
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button(tr(key::BTN_CLOSE, lang)).clicked() {
-                        close_requested = true;
+        egui::Window::new(tr(key::IOTA_BROWSER_TITLE, lang))
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(true)
+            .default_width(580.0)
+            .show(ctx, |ui| {
+                let palette = ui.palette();
+                ui.horizontal(|ui| {
+                    ui.label(tr(key::IOTA_SEARCH_LABEL, lang));
+                    let resp = ui.add(
+                        egui::TextEdit::singleline(&mut self.search_query).desired_width(200.0),
+                    );
+                    if resp.changed() || !self.loaded_initial {
+                        self.reload(sdb);
+                    }
+                    if ui.button(tr(key::BTN_CLEAR, lang)).clicked() {
+                        self.search_query.clear();
+                        self.reload(sdb);
                     }
                 });
+
+                ui.separator();
+
+                ui.label(
+                    Msg::new(key::IOTA_RESULTS_COUNT)
+                        .arg("count", self.results.len())
+                        .text(lang),
+                );
+
+                egui::ScrollArea::vertical()
+                    .max_height(350.0)
+                    .show(ui, |ui| {
+                        egui::Grid::new("iota_results_grid")
+                            .striped(true)
+                            .spacing([15.0, 6.0])
+                            .show(ui, |ui| {
+                                ui.label(
+                                    egui::RichText::new(tr(key::IOTA_COL_CODE, lang)).strong(),
+                                );
+                                ui.label(
+                                    egui::RichText::new(tr(key::IOTA_COL_PREFIX, lang)).strong(),
+                                );
+                                ui.label(
+                                    egui::RichText::new(tr(key::IOTA_COL_GROUP_NAME, lang))
+                                        .strong(),
+                                );
+                                ui.label(egui::RichText::new("Status").strong());
+                                ui.label(
+                                    egui::RichText::new(tr(key::IOTA_COL_ACTION, lang)).strong(),
+                                );
+                                ui.end_row();
+
+                                for item in &self.results {
+                                    ui.label(
+                                        egui::RichText::new(&item.iota)
+                                            .strong()
+                                            .color(palette.accent),
+                                    );
+                                    ui.label(
+                                        egui::RichText::new(&item.prefix).color(palette.warning),
+                                    );
+                                    ui.label(&item.name);
+                                    ui.label(
+                                        RefStatus::of_iota(awards, &item.iota)
+                                            .label(lang, &palette),
+                                    );
+
+                                    if ui
+                                        .button(tr(key::IOTA_BTN_SELECT, lang))
+                                        .on_hover_text(tr(key::IOTA_SELECT_TOOLTIP, lang))
+                                        .clicked()
+                                    {
+                                        chosen = Some(item.iota.clone());
+                                        close_requested = true;
+                                    }
+                                    ui.end_row();
+                                }
+                            });
+                    });
+
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(tr(key::IOTA_DB_INFO, lang))
+                            .small()
+                            .color(palette.text_muted),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button(tr(key::BTN_CLOSE, lang)).clicked() {
+                            close_requested = true;
+                        }
+                    });
+                });
             });
-        });
 
         if close_requested || !open {
             self.is_open = false;

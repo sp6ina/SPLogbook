@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
-use crate::core::i18n::{key, tr, tr_or};
+use crate::core::i18n::{Msg, key, tr};
 use crate::gui::app::SpLogApp;
 use crate::gui::theme::ThemeExt;
 use eframe::egui;
@@ -174,11 +174,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         if ui
             .button(egui::RichText::new("🔍 QRZ").strong())
-            .on_hover_text(tr_or(
-                lang,
-                "Pobierz dane z bazy QRZ.com / Callbook",
-                "Lookup callsign in QRZ.com / Callbook",
-            ))
+            .on_hover_text(tr(key::QSO_FETCH_QRZ_TOOLTIP, lang))
             .clicked()
         {
             app.lookup_active_callsign_online();
@@ -215,7 +211,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     if !app.callsign_corrections.is_empty() {
         ui.horizontal_wrapped(|ui| {
             ui.label(
-                egui::RichText::new(tr_or(lang, "Może chodziło o:", "Did you mean:"))
+                egui::RichText::new(tr(key::QSO_DID_YOU_MEAN, lang))
                     .size(11.0)
                     .color(palette.warning),
             );
@@ -245,22 +241,18 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             );
             ui.colored_label(
                 palette.accent_alt,
-                format!(
-                    "{}: CQ {} / ITU {}",
-                    tr_or(lang, "Strefy", "Zones"),
-                    info.cqz,
-                    info.ituz
-                ),
+                Msg::new(key::QSO_ZONES_CQ_ITU)
+                    .arg("cqz", info.cqz)
+                    .arg("ituz", info.ituz)
+                    .text(lang),
             );
 
             if let Some(ref dist) = app.active_polish_district {
                 ui.colored_label(
                     palette.success,
-                    format!(
-                        "🇵🇱 {} SP{}",
-                        tr_or(lang, "Okręg PZK", "PZK District"),
-                        dist.district
-                    ),
+                    Msg::new(key::QSO_PZK_DISTRICT_LABEL)
+                        .arg("district", dist.district)
+                        .text(lang),
                 );
             }
             if app.active_distance_km > 0.0 {
@@ -273,16 +265,12 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     ),
                 );
                 if ui
-                    .small_button(format!(
-                        "🔄 {} ({:.0}°)",
-                        tr_or(lang, "Obróć", "Rotate"),
-                        app.active_bearing_deg
-                    ))
-                    .on_hover_text(tr_or(
-                        lang,
-                        "Ustawia rotor antenowy na azymut korespondenta (Hamlib rotctld)",
-                        "Turn antenna rotor to station azimuth (Hamlib rotctld)",
-                    ))
+                    .small_button(
+                        Msg::new(key::QSO_ROTATE_BEARING)
+                            .arg("bearing", format!("{:.0}", app.active_bearing_deg))
+                            .text(lang),
+                    )
+                    .on_hover_text(tr(key::QSO_ROTOR_TOOLTIP, lang))
                     .clicked()
                 {
                     app.rotate_antenna_to(app.active_bearing_deg as f32);
@@ -320,14 +308,12 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 crate::core::propagation::BandOpeningStatus::Marginal => palette.warning,
                 crate::core::propagation::BandOpeningStatus::Closed => palette.danger,
             };
-            let text = format!(
-                "📡 {}: {}% REL · {} ({}) · MUF {:.1} MHz",
-                tr_or(lang, "Propagacja", "Propagation"),
-                prop.reliability_pct,
-                prop.signal_s_units,
-                prop.layer,
-                prop.muf_mhz
-            );
+            let text = Msg::new(key::QSO_PROPAGATION_SUMMARY)
+                .arg("rel", prop.reliability_pct)
+                .arg("signal", &prop.signal_s_units)
+                .arg("layer", &prop.layer)
+                .arg("muf", format!("{:.1}", prop.muf_mhz))
+                .text(lang);
             ui.colored_label(prop_color, egui::RichText::new(text).strong())
                 .on_hover_text(format!(
                     "HF VOACAP-lite:\nREL: {}%\nS-Meter: {}\nLayer: {}\nMUF: {:.1} MHz\nLUF: {:.1} MHz\nFOT/OWF: {:.1} MHz\nStatus: {}",
@@ -403,13 +389,9 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 }
                 if award_st.is_new_pga {
                     ui.label(
-                        egui::RichText::new(tr_or(
-                            lang,
-                            "🇵🇱 NOWA GMINA PGA!",
-                            "🇵🇱 NEW PGA MUNICIPALITY!",
-                        ))
-                        .color(palette.success)
-                        .strong(),
+                        egui::RichText::new(tr(key::QSO_NEW_PGA_GMINA, lang))
+                            .color(palette.success)
+                            .strong(),
                     );
                 }
             }
@@ -525,11 +507,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
         if ui
             .button("🔍")
-            .on_hover_text(tr_or(
-                lang,
-                "Przeglądaj bazę wysp IOTA",
-                "Browse IOTA island database",
-            ))
+            .on_hover_text(tr(key::QSO_BROWSE_IOTA_TOOLTIP, lang))
             .clicked()
         {
             app.iota_dialog.open();
@@ -548,11 +526,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
         if ui
             .button("🔍")
-            .on_hover_text(tr_or(
-                lang,
-                "Przeglądaj stany US/VE i okręgi",
-                "Browse US/VE states and subdivisions",
-            ))
+            .on_hover_text(tr(key::QSO_BROWSE_STATES_TOOLTIP, lang))
             .clicked()
         {
             app.states_dialog.open();
@@ -587,11 +561,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
         if ui
             .button("🔍")
-            .on_hover_text(tr_or(
-                lang,
-                "Szukaj managera w bazie 29k",
-                "Search QSL manager in 29k database",
-            ))
+            .on_hover_text(tr(key::QSO_SEARCH_MANAGER_TOOLTIP, lang))
             .clicked()
         {
             let call = app.entry_callsign.clone();
@@ -604,8 +574,8 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
 
         if ui
-            .button(tr_or(lang, "📷 Foto", "📷 Photo"))
-            .on_hover_text(tr_or(lang, "Pokaż zdjęcie stacji", "Show station photo"))
+            .button(tr(key::QSO_BTN_PHOTO, lang))
+            .on_hover_text(tr(key::QSO_SHOW_PHOTO_TOOLTIP, lang))
             .clicked()
         {
             let call = app.entry_callsign.clone();
@@ -663,22 +633,14 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                         .color(palette.text_primary)
                         .strong(),
                 )
-                .on_hover_text(tr_or(
-                    lang,
-                    "Zatrzymaj nagrywanie audio",
-                    "Stop audio recording",
-                ))
+                .on_hover_text(tr(key::QSO_STOP_RECORDING_TOOLTIP, lang))
                 .clicked()
             {
                 let _ = crate::media::audio_recorder::AudioRecorder::stop_audio();
             }
         } else if ui
             .button(egui::RichText::new("● REC").color(palette.danger).strong())
-            .on_hover_text(tr_or(
-                lang,
-                "Rozpocznij nagrywanie audio łączności (Audio Memo)",
-                "Start recording QSO audio memo",
-            ))
+            .on_hover_text(tr(key::QSO_START_RECORDING_TOOLTIP, lang))
             .clicked()
         {
             let _ = crate::media::audio_recorder::AudioRecorder::start_recording();
