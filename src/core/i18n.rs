@@ -240,4 +240,15 @@ mod tests {
         assert_eq!(format!("{msg}"), msg.text(Language::En));
         assert_eq!(format!("{msg}"), "QSO not saved: duplicate callsign");
     }
+
+    #[test]
+    fn manual_returns_sections_for_all_languages() {
+        for lang in Language::ALL {
+            let sections = manual(lang);
+            assert_eq!(sections.len(), 17);
+            assert_eq!(sections[0].id, "start");
+            assert!(!sections[0].title.is_empty());
+            assert!(!sections[0].body.is_empty());
+        }
+    }
 }

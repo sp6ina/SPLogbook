@@ -978,3 +978,148 @@ fn catalog_has_no_dead_keys() {
         );
     }
 }
+
+#[test]
+fn manual_languages_have_identical_section_ids() {
+    let mut ids_per_lang: BTreeMap<&'static str, BTreeSet<String>> = BTreeMap::new();
+    for &lang in &LANGUAGES {
+        let path = format!("locales/manual/{lang}.json");
+        let content = fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("Failed to read {path}: {e}"));
+        let list: Vec<serde_json::Value> = serde_json::from_str(&content)
+            .unwrap_or_else(|e| panic!("File '{path}' is not valid JSON: {e}"));
+        let ids: BTreeSet<String> = list
+            .into_iter()
+            .enumerate()
+            .map(|(idx, val)| {
+                val.get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_else(|| panic!("File '{path}', section #{idx}: missing id"))
+                    .to_string()
+            })
+            .collect();
+        ids_per_lang.insert(lang, ids);
+    }
+
+    let ref_ids = &ids_per_lang["pl"];
+    assert!(!ref_ids.is_empty(), "Reference manual must not be empty");
+    for &lang in &LANGUAGES {
+        assert_eq!(
+            &ids_per_lang[lang], ref_ids,
+            "Manual section IDs in '{lang}' differ from 'pl'"
+        );
+    }
+}
+
+#[test]
+fn manual_languages_have_identical_order() {
+    let mut order_per_lang: BTreeMap<&'static str, Vec<String>> = BTreeMap::new();
+    for &lang in &LANGUAGES {
+        let path = format!("locales/manual/{lang}.json");
+        let content = fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("Failed to read {path}: {e}"));
+        let list: Vec<serde_json::Value> = serde_json::from_str(&content)
+            .unwrap_or_else(|e| panic!("File '{path}' is not valid JSON: {e}"));
+        let ids: Vec<String> = list
+            .into_iter()
+            .enumerate()
+            .map(|(idx, val)| {
+                val.get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_else(|| panic!("File '{path}', section #{idx}: missing id"))
+                    .to_string()
+            })
+            .collect();
+        order_per_lang.insert(lang, ids);
+    }
+
+    let ref_order = &order_per_lang["pl"];
+    for &lang in &LANGUAGES {
+        assert_eq!(
+            &order_per_lang[lang], ref_order,
+            "Manual section order in '{lang}' differs from 'pl'"
+        );
+    }
+}
+
+#[test]
+fn manual_has_no_empty_titles_or_bodies() {
+    for &lang in &LANGUAGES {
+        let path = format!("locales/manual/{lang}.json");
+        let content = fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("Failed to read {path}: {e}"));
+        let list: Vec<serde_json::Value> = serde_json::from_str(&content)
+            .unwrap_or_else(|e| panic!("File '{path}' is not valid JSON: {e}"));
+        for (idx, sec) in list.iter().enumerate() {
+            let id = sec.get("id").and_then(|v| v.as_str()).unwrap_or("");
+            let title = sec.get("title").and_then(|v| v.as_str()).unwrap_or("");
+            let body = sec.get("body").and_then(|v| v.as_str()).unwrap_or("");
+
+            assert!(!id.trim().is_empty(), "Empty id in {path} section #{idx}");
+            assert!(
+                !title.trim().is_empty(),
+                "Empty title in {path} section '{id}'"
+            );
+            assert!(
+                !body.trim().is_empty(),
+                "Empty body in {path} section '{id}'"
+            );
+        }
+    }
+}
+
+#[test]
+fn manual_returns_every_language() {
+    use splogbook::core::i18n::{manual, Language};
+
+    for lang in Language::ALL {
+        let sections = manual(lang);
+        assert_eq!(
+            sections.len(),
+            17,
+            "manual({:?}) should return exactly 17 sections",
+            lang
+        );
+        for sec in sections {
+            assert!(
+                !sec.id.trim().is_empty(),
+                "manual({:?}) section id must not be empty",
+                lang
+            );
+            assert!(
+                !sec.title.trim().is_empty(),
+                "manual({:?}) section title must not be empty",
+                lang
+            );
+            assert!(
+                !sec.body.trim().is_empty(),
+                "manual({:?}) section body must not be empty",
+                lang
+            );
+        }
+    }
+}
+
+#[test]
+fn user_manual_renderer_has_no_embedded_translatable_sections() {
+    let content = fs::read_to_string("src/gui/user_manual.rs")
+        .expect("Failed to read src/gui/user_manual.rs");
+    assert!(
+        !content.contains("MANUAL_SECTIONS"),
+        "src/gui/user_manual.rs must not define MANUAL_SECTIONS static array"
+    );
+    assert!(
+        !content.contains("MANUAL_SECTIONS_EN"),
+        "src/gui/user_manual.rs must not define MANUAL_SECTIONS_EN static array"
+    );
+    assert!(
+        !content.contains("Pierwsze kroki"),
+        "src/gui/user_manual.rs must not contain hardcoded manual section text"
+    );
+    assert!(
+        !content.contains("Getting Started"),
+        "src/gui/user_manual.rs must not contain hardcoded manual section text"
+    );
+}
+
+
