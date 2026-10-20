@@ -47,7 +47,7 @@ Rdzeń wieloradiowy i bezpieczeństwo RF:\n\
     },
     ManualSection {
         id: "logging",
-        title: "3. Logowanie łączności i baza SQLite",
+        title: "3. Logowanie QSO i baza SQLite",
         body: "Sercem SPLogbook jest silnik bazy danych oparty na SQLite działający w trybie WAL (Write-Ahead Logging):\n\n\
 - Niezawodność i bezpieczeństwo danych: Tryb WAL z synchronicznością NORMAL i transakcjami chroni log przed uszkodzeniem nawet przy nagłym zaniku zasilania. Baza tworzy automatyczne, rotacyjne kopie zapasowe (do 10 rewizji wstecz).\n\
 - Indeksy wydajnościowe: 10 wyspecjalizowanych indeksów gwarantuje natychmiastowe wyszukiwanie i filtrowanie nawet przy bazach liczących setki tysięcy QSO.\n\
@@ -58,7 +58,7 @@ Rdzeń wieloradiowy i bezpieczeństwo RF:\n\
     },
     ManualSection {
         id: "shortcuts",
-        title: "4. Skróty klawiszowe i ergonomia",
+        title: "4. Skroty klawiszowe i ergonomia",
         body: "SPLogbook został zaprojektowany z myślą o szybkiej obsłudze bez konieczności sięgania po myszkę:\n\n\
 Klawisze funkcyjne (Główne):\n\
 - F1 — Okno pomocy i pełnej ściągawki skrótów klawiszowych\n\
@@ -127,7 +127,7 @@ Skróty kombinowane (Ctrl / Cmd):\n\
     },
     ManualSection {
         id: "satellites",
-        title: "8. Śledzenie satelitów i Doppler CAT",
+        title: "8. Sledzenie satelitow i Doppler CAT",
         body: "Moduł satelitarny dedykowany jest miłośnikom łączności przez satelity LEO oraz transponder geostacjonarny QO-100:\n\n\
 - Propagator orbitalny SGP4/SDP4: Wykorzystuje dwuliniowe elementy orbitalne NORAD (TLE) z możliwością automatycznej aktualizacji przez internet.\n\
 - Parametry orbity na żywo: Wylicza azymut, elewację, odległość skośną (Slant Range), prędkość radialną oraz footprint satelity.\n\
@@ -150,7 +150,7 @@ Skróty kombinowane (Ctrl / Cmd):\n\
     },
     ManualSection {
         id: "contest",
-        title: "10. Zawody krótkofalarskie (Contest Engine)",
+        title: "10. Zawody krotkofalarskie (Contest Engine)",
         body: "Moduł zawodów zapewnia maksymalną szybkość pracy i zgodność z regulaminami międzynarodowymi:\n\n\
 - Obsługiwane zawody: SP DX Contest, CQ World Wide DX (CQ WW), CQ WPX Contest, ARRL International DX, IARU HF World Championship oraz zawody krajowe VHF/UHF.\n\
 - Analizator raportów (Exchange Parser): Rozpoznaje ciągi znaków wpisane w jednym polu (np. '599 001 WR' lub '599 15') i automatycznie przypisuje je do raportu RST, numeru seryjnego, strefy CQ/ITU lub województwa.\n\
@@ -189,7 +189,7 @@ Skróty kombinowane (Ctrl / Cmd):\n\
     },
     ManualSection {
         id: "plugins",
-        title: "14. Wtyczki użytkownika (Rhai) i Marketplace",
+        title: "14. Wtyczki uzytkownika (Rhai) i Marketplace",
         body: "Możliwość rozszerzania funkcjonalności programu za pomocą bezpiecznych skryptów:\n\n\
 - Piaskownica skryptowa Rhai: Użytkownicy mogą pisać własne wtyczki w plikach .rhai bez konieczności rekompilacji programu. Skrypty są domyślnie izolowane od systemu plików i sieci.\n\
 - Zdarzenia i hooki cyklu życia: on_startup(), on_qso_logged(call, band, mode, freq, is_atno), on_dx_spot(spotter, call, freq, comment), on_rig_state(freq, mode, connected) oraz on_band_opened(band).\n\
@@ -234,7 +234,7 @@ Microsoft Windows (10 / 11 64-bit):\n\
     },
     ManualSection {
         id: "troubleshooting",
-        title: "17. Rozwiązywanie problemów (Troubleshooting FAQ)",
+        title: "17. Rozwiazywanie problemow (Troubleshooting FAQ)",
         body: "Odpowiedzi na najczęściej spotykane pytania techniczne:\n\n\
 P: Transceiver nie łączy się przez CAT (błąd połączenia).\n\
 O: 1. Upewnij się, że żadna inna aplikacja (OmniRig, WSJT-X, N1MM) nie blokuje tego samego portu szeregowego COM/tty.\n\

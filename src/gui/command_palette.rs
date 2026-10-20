@@ -9,49 +9,49 @@ use eframe::egui;
 
 /// Pojedyncza akcja dostępna w palecie poleceń.
 struct Command {
-    label: &'static str,
+    label_key: crate::core::i18n::Key,
     keywords: &'static str,
     run: fn(&mut SpLogApp),
 }
 
 const COMMANDS: &[Command] = &[
     Command {
-        label: "Nowe QSO (wyczyść formularz)",
+        label_key: key::CMD_NEW_QSO,
         keywords: "new qso clear form",
         run: |app| {
             app.wipe_qso_form();
         },
     },
     Command {
-        label: "Wyczyść formularz QSO (Wipe)",
+        label_key: key::CMD_WIPE_QSO,
         keywords: "wipe clear form qso",
         run: |app| {
             app.wipe_qso_form();
         },
     },
     Command {
-        label: "Zapisz QSO",
+        label_key: key::CMD_SAVE_QSO,
         keywords: "save qso log",
         run: |app| {
             app.save_qso();
         },
     },
     Command {
-        label: "Przełącz nadawanie PTT (TX/RX)",
+        label_key: key::CMD_TOGGLE_PTT,
         keywords: "ptt tx rx transmit",
         run: |app| {
             app.toggle_ptt();
         },
     },
     Command {
-        label: "Odśwież dziennik (log)",
+        label_key: key::CMD_REFRESH_LOG,
         keywords: "refresh reload log",
         run: |app| {
             app.reload_qsos();
         },
     },
     Command {
-        label: "Wyślij spot DX do klastra",
+        label_key: key::CMD_SEND_SPOT,
         keywords: "spot send dx cluster",
         run: |app| {
             let freq_khz = (app.rig_state.frequency_hz as f64) / 1000.0;
@@ -60,14 +60,14 @@ const COMMANDS: &[Command] = &[
         },
     },
     Command {
-        label: "Odtwarzacz głosu (Voice Keyer)",
+        label_key: key::CMD_VOICE_KEYER,
         keywords: "voice keyer ssb cq audio",
         run: |app| {
             app.show_voice_keyer_window = true;
         },
     },
     Command {
-        label: "Instrukcja obsługi (Podręcznik)",
+        label_key: key::CMD_MANUAL,
         keywords: "help manual docs instrukcja",
         run: |app| {
             app.show_user_manual = true;
@@ -75,35 +75,35 @@ const COMMANDS: &[Command] = &[
         },
     },
     Command {
-        label: "Połącz z DX Cluster",
+        label_key: key::CMD_CONNECT_CLUSTER,
         keywords: "connect dx cluster telnet",
         run: |app| {
             app.connect_dx_cluster();
         },
     },
     Command {
-        label: "Rozłącz DX Cluster",
+        label_key: key::CMD_DISCONNECT_CLUSTER,
         keywords: "disconnect dx cluster",
         run: |app| {
             app.disconnect_dx_cluster();
         },
     },
     Command {
-        label: "Macierz nagród (Awards)",
+        label_key: key::CMD_AWARDS_MATRIX,
         keywords: "awards dxcc waz was matrix",
         run: |app| {
             app.show_awards_matrix_window = true;
         },
     },
     Command {
-        label: "Statystyki",
+        label_key: key::CMD_STATISTICS,
         keywords: "statistics stats charts",
         run: |app| {
             app.show_statistics_window = true;
         },
     },
     Command {
-        label: "Mapa świata",
+        label_key: key::CMD_WORLD_MAP,
         keywords: "world map",
         run: |app| {
             app.panel_world_map.visible = true;
@@ -111,14 +111,14 @@ const COMMANDS: &[Command] = &[
         },
     },
     Command {
-        label: "Widmo / Waterfall (SDR)",
+        label_key: key::CMD_WATERFALL,
         keywords: "waterfall spectrum sdr fft",
         run: |app| {
             app.panel_waterfall.visible = true;
         },
     },
     Command {
-        label: "Satelity",
+        label_key: key::CMD_SATELLITES,
         keywords: "satellite pass",
         run: |app| {
             app.panel_satellites.visible = true;
@@ -126,7 +126,7 @@ const COMMANDS: &[Command] = &[
         },
     },
     Command {
-        label: "Panel słoneczny / propagacja",
+        label_key: key::CMD_SOLAR_PANEL,
         keywords: "solar propagation sfi",
         run: |app| {
             app.panel_solar.visible = true;
@@ -134,7 +134,7 @@ const COMMANDS: &[Command] = &[
         },
     },
     Command {
-        label: "Bandmapa (panorama pasma)",
+        label_key: key::CMD_BANDMAP,
         keywords: "bandmap spots",
         run: |app| {
             app.panel_bandmap.visible = true;
@@ -142,7 +142,7 @@ const COMMANDS: &[Command] = &[
         },
     },
     Command {
-        label: "Klaster DX",
+        label_key: key::CMD_CLUSTER,
         keywords: "cluster dx spots",
         run: |app| {
             app.panel_cluster.visible = true;
@@ -150,7 +150,7 @@ const COMMANDS: &[Command] = &[
         },
     },
     Command {
-        label: "Panel VFO / radio",
+        label_key: key::CMD_VFO,
         keywords: "vfo radio cat",
         run: |app| {
             app.panel_vfo.visible = true;
@@ -158,119 +158,119 @@ const COMMANDS: &[Command] = &[
         },
     },
     Command {
-        label: "Formularz QSO",
+        label_key: key::CMD_QSO_ENTRY,
         keywords: "qso entry form",
         run: |app| {
             app.panel_qso.visible = true;
         },
     },
     Command {
-        label: "Tabela logbooka",
+        label_key: key::CMD_LOGBOOK,
         keywords: "logbook table log",
         run: |app| {
             app.panel_log.visible = true;
         },
     },
     Command {
-        label: "Moduł kontestowy",
+        label_key: key::CMD_CONTEST_MODULE,
         keywords: "contest cabrillo",
         run: |app| {
             app.show_contest_window = true;
         },
     },
     Command {
-        label: "Terminal / makra CW",
+        label_key: key::CMD_CW_TERMINAL,
         keywords: "cw terminal macros keyer",
         run: |app| {
             app.show_cw_window = true;
         },
     },
     Command {
-        label: "Synchronizacja online",
+        label_key: key::CMD_ONLINE_SYNC,
         keywords: "online sync lotw eqsl clublog",
         run: |app| {
             app.show_online_sync_window = true;
         },
     },
     Command {
-        label: "Projektant naklejek QSL",
+        label_key: key::CMD_QSL_DESIGNER,
         keywords: "qsl label designer print",
         run: |app| {
             app.qsl_designer_dialog.is_open = true;
         },
     },
     Command {
-        label: "Znajdź duplikaty",
+        label_key: key::CMD_FIND_DUPLICATES,
         keywords: "duplicates find",
         run: |app| {
             app.show_find_duplicates_window = true;
         },
     },
     Command {
-        label: "Profile stacji",
+        label_key: key::CMD_STATION_PROFILES,
         keywords: "station profiles",
         run: |app| {
             app.show_station_profiles_window = true;
         },
     },
     Command {
-        label: "Ustawienia kolumn logbooka",
+        label_key: key::CMD_COLUMN_SETTINGS,
         keywords: "columns logbook",
         run: |app| {
             app.show_column_settings = true;
         },
     },
     Command {
-        label: "Filtr zaawansowany",
+        label_key: key::CMD_ADVANCED_FILTER,
         keywords: "advanced filter",
         run: |app| {
             app.advanced_filter_dialog.is_open = true;
         },
     },
     Command {
-        label: "Multi-op / log sieciowy",
+        label_key: key::CMD_MULTI_OP,
         keywords: "multi op network",
         run: |app| {
             app.show_multi_op_window = true;
         },
     },
     Command {
-        label: "PSK Reporter",
+        label_key: key::CMD_PSK_REPORTER,
         keywords: "psk reporter spots",
         run: |app| {
             app.show_pskreporter_window = true;
         },
     },
     Command {
-        label: "Monitor WSPR",
+        label_key: key::CMD_WSPR_MONITOR,
         keywords: "wspr monitor",
         run: |app| {
             app.show_wspr_window = true;
         },
     },
     Command {
-        label: "O programie",
+        label_key: key::CMD_ABOUT,
         keywords: "about",
         run: |app| {
             app.show_about_window = true;
         },
     },
     Command {
-        label: "Skróty klawiszowe",
+        label_key: key::CMD_SHORTCUTS,
         keywords: "shortcuts keyboard",
         run: |app| {
             app.show_shortcuts_window = true;
         },
     },
     Command {
-        label: "Legenda kolorów",
+        label_key: key::CMD_COLOR_LEGEND,
         keywords: "legend colors",
         run: |app| {
             app.show_legend_window = true;
         },
     },
     Command {
-        label: "Kreator konfiguracji",
+        label_key: key::CMD_WIZARD,
         keywords: "wizard setup",
         run: |app| {
             app.show_welcome_wizard = true;
@@ -278,7 +278,7 @@ const COMMANDS: &[Command] = &[
         },
     },
     Command {
-        label: "Przełącz motyw kolorystyczny",
+        label_key: key::CMD_TOGGLE_THEME,
         keywords: "theme cycle colors",
         run: |app| {
             app.cycle_theme();
@@ -317,8 +317,9 @@ pub fn render_command_palette(app: &mut SpLogApp, ctx: &egui::Context) {
             let query = app.command_palette_query.trim().to_lowercase();
             let mut matches: Vec<usize> = Vec::new();
             for (i, cmd) in COMMANDS.iter().enumerate() {
+                let lbl = tr(cmd.label_key, lang);
                 if query.is_empty()
-                    || cmd.label.to_lowercase().contains(&query)
+                    || lbl.to_lowercase().contains(&query)
                     || cmd.keywords.to_lowercase().contains(&query)
                 {
                     matches.push(i);
@@ -338,13 +339,14 @@ pub fn render_command_palette(app: &mut SpLogApp, ctx: &egui::Context) {
                     }
                     for (row, &cmd_idx) in matches.iter().enumerate() {
                         let cmd = &COMMANDS[cmd_idx];
+                        let lbl = tr(cmd.label_key, lang);
                         let selected = row == app.command_palette_selected;
                         let text = if selected {
-                            egui::RichText::new(format!("▶ {}", cmd.label))
+                            egui::RichText::new(format!("▶ {}", lbl))
                                 .strong()
                                 .color(palette.accent)
                         } else {
-                            egui::RichText::new(cmd.label).color(palette.text_primary)
+                            egui::RichText::new(lbl).color(palette.text_primary)
                         };
                         if ui
                             .add_sized([f32::INFINITY, 24.0], egui::Button::new(text))

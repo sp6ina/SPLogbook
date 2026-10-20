@@ -3,6 +3,7 @@
 
 // Eksport logu (Cabrillo, PDF, GPX).
 use super::*;
+use crate::core::i18n::{Msg, key, tr};
 
 impl SpLogApp {
     pub fn export_cabrillo(&mut self) {
@@ -13,19 +14,27 @@ impl SpLogApp {
                 self.my_station.callsign,
                 self.contest_name.replace(' ', "_")
             ))
-            .set_title("Zapisz dziennik zawodów Cabrillo 3.0")
+            .set_title(tr(key::EXPORT_CABRILLO_SAVE_TITLE, self.current_language))
             .save_file()
         {
             let qsos = match self.log_db.lock() {
                 Ok(db) => match db.get_recent_qsos_for_journal(&self.active_journal.id, 10000) {
                     Ok(list) => list,
                     Err(e) => {
-                        self.status_message = Some(format!("Błąd odczytu dziennika: {e}"));
+                        self.status_message = Some(
+                            Msg::new(key::EXPORT_ERR_READ_LOG)
+                                .arg("err", &e)
+                                .text(self.current_language),
+                        );
                         return;
                     }
                 },
                 Err(e) => {
-                    self.status_message = Some(format!("Nie można otworzyć dziennika: {e}"));
+                    self.status_message = Some(
+                        Msg::new(key::EXPORT_ERR_OPEN_LOG)
+                            .arg("err", &e)
+                            .text(self.current_language),
+                    );
                     return;
                 }
             };
@@ -104,20 +113,30 @@ impl SpLogApp {
 
             match std::fs::write(&path, out) {
                 Ok(()) => {
-                    self.status_message = Some(format!(
-                        "Plik zawodów zapisany pomyślnie: {}",
-                        path.display()
-                    ));
+                    self.status_message = Some(
+                        Msg::new(key::EXPORT_CABRILLO_SUCCESS)
+                            .arg("path", path.display().to_string())
+                            .text(self.current_language),
+                    );
                     self.status_toast = Some((
-                        format!(
-                            "Zapisano Cabrillo 3.0: {}",
-                            path.file_name().unwrap_or_default().to_string_lossy()
-                        ),
+                        Msg::new(key::EXPORT_CABRILLO_TOAST)
+                            .arg(
+                                "file",
+                                path.file_name()
+                                    .unwrap_or_default()
+                                    .to_string_lossy()
+                                    .to_string(),
+                            )
+                            .text(self.current_language),
                         std::time::Instant::now(),
                     ));
                 }
                 Err(e) => {
-                    self.status_message = Some(format!("Błąd zapisu pliku Cabrillo: {e}"));
+                    self.status_message = Some(
+                        Msg::new(key::EXPORT_ERR_SAVE_CABRILLO)
+                            .arg("err", &e)
+                            .text(self.current_language),
+                    );
                 }
             }
         }
@@ -166,12 +185,20 @@ impl SpLogApp {
                 Ok(db) => match db.get_recent_qsos_for_journal(&self.active_journal.id, 10000) {
                     Ok(list) => list,
                     Err(e) => {
-                        self.status_message = Some(format!("Błąd odczytu dziennika: {e}"));
+                        self.status_message = Some(
+                            Msg::new(key::EXPORT_ERR_READ_LOG)
+                                .arg("err", &e)
+                                .text(self.current_language),
+                        );
                         return;
                     }
                 },
                 Err(e) => {
-                    self.status_message = Some(format!("Nie można otworzyć dziennika: {e}"));
+                    self.status_message = Some(
+                        Msg::new(key::EXPORT_ERR_OPEN_LOG)
+                            .arg("err", &e)
+                            .text(self.current_language),
+                    );
                     return;
                 }
             };
@@ -314,7 +341,11 @@ impl SpLogApp {
                     let _ = open::that(&path);
                 }
                 Err(e) => {
-                    self.status_message = Some(format!("Błąd zapisu pliku PDF: {e}"));
+                    self.status_message = Some(
+                        Msg::new(key::EXPORT_ERR_SAVE_PDF)
+                            .arg("err", &e)
+                            .text(self.current_language),
+                    );
                 }
             }
         }
@@ -341,12 +372,20 @@ impl SpLogApp {
                 Ok(db) => match db.get_recent_qsos_for_journal(&self.active_journal.id, 10000) {
                     Ok(list) => list,
                     Err(e) => {
-                        self.status_message = Some(format!("Błąd odczytu dziennika: {e}"));
+                        self.status_message = Some(
+                            Msg::new(key::EXPORT_ERR_READ_LOG)
+                                .arg("err", &e)
+                                .text(self.current_language),
+                        );
                         return;
                     }
                 },
                 Err(e) => {
-                    self.status_message = Some(format!("Nie można otworzyć dziennika: {e}"));
+                    self.status_message = Some(
+                        Msg::new(key::EXPORT_ERR_OPEN_LOG)
+                            .arg("err", &e)
+                            .text(self.current_language),
+                    );
                     return;
                 }
             };
@@ -373,7 +412,11 @@ impl SpLogApp {
             let file = match std::fs::File::create(&path) {
                 Ok(file) => file,
                 Err(e) => {
-                    self.status_message = Some(format!("Błąd tworzenia pliku GPX: {e}"));
+                    self.status_message = Some(
+                        Msg::new(key::EXPORT_ERR_CREATE_GPX)
+                            .arg("err", &e)
+                            .text(self.current_language),
+                    );
                     return;
                 }
             };
@@ -387,7 +430,11 @@ impl SpLogApp {
                     let _ = open::that(&path);
                 }
                 Err(e) => {
-                    self.status_message = Some(format!("Błąd zapisu pliku GPX: {e}"));
+                    self.status_message = Some(
+                        Msg::new(key::EXPORT_ERR_SAVE_GPX)
+                            .arg("err", &e)
+                            .text(self.current_language),
+                    );
                 }
             }
         }

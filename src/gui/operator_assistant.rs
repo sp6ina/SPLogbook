@@ -6,6 +6,7 @@
 //! klastra DX i celów dyplomowych. Funkcja `recommend` jest czysta i testowana
 //! niezależnie od GUI.
 
+use crate::core::i18n::{Language, Msg, key, tr};
 use crate::core::propagation::{BandOpeningStatus, PropagationEngine, PropagationForecast};
 use crate::gui::app::SpLogApp;
 use crate::gui::theme::{Palette, ThemeExt};
@@ -40,6 +41,7 @@ pub fn recommend(
     forecasts: &[(&'static str, PropagationForecast)],
     current_band: &str,
     k_index: u32,
+    lang: Language,
 ) -> AssistantRecommendation {
     let mut ordered: Vec<(&'static str, PropagationForecast)> = forecasts.to_vec();
     // Sortuj: Otwarte → Trudne → Zamknięte, a w ramach statusu po niezawodności.
@@ -73,43 +75,46 @@ pub fn recommend(
 
     let current_band_status = match &current {
         Some(f) => format!("{} — {}%", f.status.as_str(), f.reliability_pct),
-        None => "brak danych".to_string(),
+        None => tr(key::ASSISTANT_NO_DATA, lang).to_string(),
     };
 
     let headline = match (&current, best_bands.first()) {
-        (Some(f), _) if f.status == BandOpeningStatus::Open => {
-            format!(
-                "📡 Pasmo {current_band} otwarte ({}%) — pracuj teraz!",
-                f.reliability_pct
-            )
-        }
-        (_, Some(best)) => {
-            format!("📡 Przełącz na {best} — najlepsze warunki")
-        }
+        (Some(f), _) if f.status == BandOpeningStatus::Open => Msg::new(key::ASSISTANT_BAND_OPEN)
+            .arg("band", current_band)
+            .arg("pct", f.reliability_pct)
+            .text(lang),
+        (_, Some(best)) => Msg::new(key::ASSISTANT_SWITCH_TO_BEST)
+            .arg("best", best)
+            .text(lang),
         (Some(f), _) if f.status == BandOpeningStatus::Marginal => {
-            format!(
-                "⚠️ {current_band} trudne ({}%) — rozważ 20m/40m",
-                f.reliability_pct
-            )
+            Msg::new(key::ASSISTANT_BAND_DIFFICULT)
+                .arg("band", current_band)
+                .arg("pct", f.reliability_pct)
+                .text(lang)
         }
-        _ => "🌑 Wszystkie pasma zamknięte — obserwuj MUF i poczekaj".to_string(),
+        _ => tr(key::ASSISTANT_ALL_BANDS_CLOSED, lang).to_string(),
     };
 
     let mut advice = Vec::new();
     if k_index >= 6 {
-        advice.push(format!(
-            "🌪️ Indeks K={k_index}: silna burza geomagnetyczna — duża absorpcja polarna i zaniki."
-        ));
+        advice.push(
+            Msg::new(key::ASSISTANT_K_INDEX_SEVERE)
+                .arg("k_index", k_index)
+                .text(lang),
+        );
     } else if k_index >= 4 {
-        advice.push(format!(
-            "⚡ Indeks K={k_index}: podwyższony — sygnały mogą być niestabilne."
-        ));
+        advice.push(
+            Msg::new(key::ASSISTANT_K_INDEX_ELEVATED)
+                .arg("k_index", k_index)
+                .text(lang),
+        );
     }
     if current.map_or(0, |f| f.reliability_pct) < 30 && !best_bands.is_empty() {
-        advice.push(format!(
-            "Aktualne pasmo słabe — najlepsze teraz: {}.",
-            best_bands.join(", ")
-        ));
+        advice.push(
+            Msg::new(key::ASSISTANT_CURRENT_BAND_WEAK)
+                .arg("best", best_bands.join(", "))
+                .text(lang),
+        );
     }
 
     AssistantRecommendation {
@@ -149,7 +154,8 @@ pub fn render_operator_assistant(app: &mut SpLogApp, ctx: &egui::Context) {
     let forecasts = app.solar_band_forecasts();
     let k_index = app.space_weather.k_index;
     let band = current_band(app);
-    let rec = recommend(&forecasts, &band, k_index);
+    let lang = app.current_language;
+    let rec = recommend(&forecasts, &band, k_index, lang);
 
     // Wytłumaczalność aktualnego pasma (rzeczywista trasa jeśli znany lokator).
     let explanation: Option<crate::core::propagation::PropagationExplanation> = {
@@ -182,7 +188,7 @@ pub fn render_operator_assistant(app: &mut SpLogApp, ctx: &egui::Context) {
     };
 
     let mut open = app.show_operator_assistant;
-    egui::Window::new("🎛️ Asystent operatora")
+    egui::Window::new(tr(key::ASSISTANT_WINDOW_TITLE, lang))
         .open(&mut open)
         .default_size([460.0, 380.0])
         .resizable(true)
@@ -208,15 +214,22 @@ pub fn render_operator_assistant(app: &mut SpLogApp, ctx: &egui::Context) {
                     );
                 } else {
                     ui.label(
-                        egui::RichText::new(format!("{band} (CAT rozłączone)"))
-                            .strong()
-                            .size(15.0)
-                            .color(color),
+                        egui::RichText::new(
+                            Msg::new(key::ASSISTANT_BAND_CAT_DISCONNECTED)
+                                .arg("band", &band)
+                                .text(lang),
+                        )
+                        .strong()
+                        .size(15.0)
+                        .color(color),
                     );
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
-                        .checkbox(&mut app.operator_assistant_enabled, "Zawsze widoczny")
+                        .checkbox(
+                            &mut app.operator_assistant_enabled,
+                            tr(key::ASSISTANT_ALWAYS_VISIBLE, lang),
+                        )
                         .changed()
                     {
                         app.save_station_config();
@@ -234,10 +247,10 @@ pub fn render_operator_assistant(app: &mut SpLogApp, ctx: &egui::Context) {
             );
 
             ui.add_space(6.0);
-            ui.label(egui::RichText::new("🏆 Najlepsze pasma teraz").strong());
+            ui.label(egui::RichText::new(tr(key::ASSISTANT_BEST_BANDS_NOW, lang)).strong());
             if rec.best_bands.is_empty() {
                 ui.label(
-                    egui::RichText::new("Brak pewnie otwartych pasm.")
+                    egui::RichText::new(tr(key::ASSISTANT_NO_BANDS_OPEN, lang))
                         .italics()
                         .color(palette.text_muted),
                 );
@@ -248,11 +261,15 @@ pub fn render_operator_assistant(app: &mut SpLogApp, ctx: &egui::Context) {
             }
 
             ui.add_space(4.0);
-            ui.label(format!("📶 Aktualne pasmo: {}", rec.current_band_status));
+            ui.label(format!(
+                "{}: {}",
+                tr(key::ASSISTANT_CURRENT_BAND_LBL, lang),
+                rec.current_band_status
+            ));
 
             if !rec.advice.is_empty() {
                 ui.add_space(4.0);
-                ui.label(egui::RichText::new("💡 Wskazówki").strong());
+                ui.label(egui::RichText::new(tr(key::ASSISTANT_HINTS, lang)).strong());
                 for advice in &rec.advice {
                     ui.label(egui::RichText::new(advice).color(palette.warning));
                 }
@@ -261,7 +278,7 @@ pub fn render_operator_assistant(app: &mut SpLogApp, ctx: &egui::Context) {
             // Prognozy wszystkich pasm (zwarta tabela).
             ui.add_space(8.0);
             ui.separator();
-            ui.label(egui::RichText::new("📊 Prognozy pasm").strong());
+            ui.label(egui::RichText::new(tr(key::ASSISTANT_BAND_FORECASTS, lang)).strong());
             egui::ScrollArea::vertical()
                 .max_height(140.0)
                 .show(ui, |ui| {
@@ -269,7 +286,9 @@ pub fn render_operator_assistant(app: &mut SpLogApp, ctx: &egui::Context) {
                         .num_columns(4)
                         .spacing([16.0, 2.0])
                         .show(ui, |ui| {
-                            ui.label(egui::RichText::new("Pasmo").strong());
+                            ui.label(
+                                egui::RichText::new(tr(key::ASSISTANT_COL_BAND, lang)).strong(),
+                            );
                             ui.label(egui::RichText::new("Status").strong());
                             ui.label(egui::RichText::new("Rel.").strong());
                             ui.label(egui::RichText::new("S").strong());
@@ -295,7 +314,7 @@ pub fn render_operator_assistant(app: &mut SpLogApp, ctx: &egui::Context) {
                 ui.add_space(6.0);
                 ui.separator();
                 ui.label(
-                    egui::RichText::new("🔬 Dlaczego taki wynik? (wytłumaczalność)")
+                    egui::RichText::new(tr(key::ASSISTANT_EXPLAINABILITY, lang))
                         .strong()
                         .color(palette.success),
                 );
@@ -332,7 +351,7 @@ mod tests {
             ("20m", fc(BandOpeningStatus::Open, 85)),
             ("40m", fc(BandOpeningStatus::Closed, 5)),
         ];
-        let r = recommend(&forecasts, "20m", 1);
+        let r = recommend(&forecasts, "20m", 1, Language::Pl);
         assert!(r.headline.contains("20m otwarte"));
         assert!(r.best_bands.iter().any(|b| b.starts_with("20m")));
     }
@@ -343,7 +362,7 @@ mod tests {
             ("10m", fc(BandOpeningStatus::Closed, 5)),
             ("40m", fc(BandOpeningStatus::Open, 70)),
         ];
-        let r = recommend(&forecasts, "10m", 1);
+        let r = recommend(&forecasts, "10m", 1, Language::Pl);
         assert!(r.headline.contains("Przełącz na 40m"));
         assert!(r.advice.iter().any(|a| a.contains("Aktualne pasmo słabe")));
     }
@@ -351,14 +370,14 @@ mod tests {
     #[test]
     fn warns_on_geomagnetic_storm() {
         let forecasts = vec![("20m", fc(BandOpeningStatus::Marginal, 40))];
-        let r = recommend(&forecasts, "20m", 6);
+        let r = recommend(&forecasts, "20m", 6, Language::Pl);
         assert!(r.advice.iter().any(|a| a.contains("silna burza")));
     }
 
     #[test]
     fn all_closed_fallback() {
         let forecasts = vec![("6m", fc(BandOpeningStatus::Closed, 0))];
-        let r = recommend(&forecasts, "6m", 2);
+        let r = recommend(&forecasts, "6m", 2, Language::Pl);
         assert!(r.headline.contains("Wszystkie pasma zamknięte"));
         assert!(r.best_bands.is_empty());
     }

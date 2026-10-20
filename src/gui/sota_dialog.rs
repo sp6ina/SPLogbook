@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 // Okno eksportu łączności do oficjalnego formatu SOTA CSV V2
 
+use crate::core::i18n::{Msg, key, tr};
 use crate::core::qso::QsoRecord;
 use crate::core::sota_export::SotaExporter;
 use crate::gui::theme::ThemeExt;
@@ -52,26 +53,35 @@ impl SotaDialog {
         let mut open = self.is_open;
         let mut close_requested = false;
 
-        egui::Window::new("🏔 Eksport Łączności SOTA (Summits on the Air V2 CSV)")
+        egui::Window::new(tr(key::SOTA_WINDOW_TITLE, lang))
             .open(&mut open)
             .default_width(480.0)
             .default_height(260.0)
             .show(ctx, |ui| {
                 let palette = ui.palette();
-                ui.label("Eksportuj łączności do oficjalnego formatu bazy danych SOTA (sotadata.org.uk) w formacie CSV V2.");
+                ui.label(tr(key::SOTA_DESCRIPTION, lang));
                 ui.separator();
 
                 ui.horizontal(|ui| {
-                    ui.label("Twój znak aktywatora:");
-                    ui.add(egui::TextEdit::singleline(&mut self.activator_call).desired_width(120.0));
+                    ui.label(tr(key::SOTA_ACTIVATOR_CALLSIGN, lang));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.activator_call).desired_width(120.0),
+                    );
                 });
 
                 ui.horizontal(|ui| {
-                    ui.label("Referencja szczytu (My Summit):");
-                    ui.add(egui::TextEdit::singleline(&mut self.summit_ref).hint_text("np. SP/BZ-001, OE/TI-001").desired_width(140.0));
+                    ui.label(tr(key::SOTA_SUMMIT_REF, lang));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.summit_ref)
+                            .hint_text("np. SP/BZ-001, OE/TI-001")
+                            .desired_width(140.0),
+                    );
                 });
 
-                ui.checkbox(&mut self.filter_today_only, "Eksportuj tylko łączności z dzisiejszego dnia");
+                ui.checkbox(
+                    &mut self.filter_today_only,
+                    tr(key::SOTA_FILTER_TODAY_ONLY, lang),
+                );
 
                 if let Some(ref st) = self.status {
                     ui.add_space(4.0);
@@ -80,39 +90,78 @@ impl SotaDialog {
 
                 ui.add_space(10.0);
                 ui.horizontal(|ui| {
-                    if ui.button(egui::RichText::new(format!("💾 {}", crate::core::i18n::tr(crate::core::i18n::key::SOTA_EXPORT_CSV, lang))).strong()).clicked() {
+                    if ui
+                        .button(
+                            egui::RichText::new(format!(
+                                "💾 {}",
+                                crate::core::i18n::tr(
+                                    crate::core::i18n::key::SOTA_EXPORT_CSV,
+                                    lang
+                                )
+                            ))
+                            .strong(),
+                        )
+                        .clicked()
+                    {
                         let filtered: Vec<_> = if self.filter_today_only {
                             let today = chrono::Utc::now().format("%Y%m%d").to_string();
                             let today_dash = chrono::Utc::now().format("%Y-%m-%d").to_string();
-                            qsos.iter().filter(|q| q.qso_date == today || q.qso_date == today_dash).cloned().collect()
+                            qsos.iter()
+                                .filter(|q| q.qso_date == today || q.qso_date == today_dash)
+                                .cloned()
+                                .collect()
                         } else {
                             qsos.to_vec()
                         };
 
-                        match SotaExporter::export_csv_v2(&filtered, &self.activator_call, &self.summit_ref) {
+                        match SotaExporter::export_csv_v2(
+                            &filtered,
+                            &self.activator_call,
+                            &self.summit_ref,
+                        ) {
                             Ok(csv_content) => {
                                 if let Some(path) = rfd::FileDialog::new()
-                                    .set_file_name(format!("SOTA_{}_{}.csv", self.activator_call, self.summit_ref.replace('/', "_")))
+                                    .set_file_name(format!(
+                                        "SOTA_{}_{}.csv",
+                                        self.activator_call,
+                                        self.summit_ref.replace('/', "_")
+                                    ))
                                     .add_filter("SOTA CSV File", &["csv"])
                                     .save_file()
                                 {
                                     match std::fs::write(&path, csv_content) {
                                         Ok(()) => {
-                                            self.status = Some(format!("Zapisano {} łączności w: {}", filtered.len(), path.display()));
+                                            self.status = Some(
+                                                Msg::new(key::SOTA_SAVED_QSOS)
+                                                    .arg("count", filtered.len())
+                                                    .arg("path", path.display().to_string())
+                                                    .text(lang),
+                                            );
                                         }
                                         Err(e) => {
-                                            self.status = Some(format!("Błąd zapisu pliku: {e}"));
+                                            self.status = Some(
+                                                Msg::new(key::SOTA_ERR_SAVE_FILE)
+                                                    .arg("err", &e)
+                                                    .text(lang),
+                                            );
                                         }
                                     }
                                 }
                             }
                             Err(e) => {
-                                self.status = Some(format!("Błąd eksportu: {e}"));
+                                self.status =
+                                    Some(Msg::new(key::SOTA_ERR_EXPORT).arg("err", &e).text(lang));
                             }
                         }
                     }
 
-                    if ui.button(crate::core::i18n::tr(crate::core::i18n::key::BTN_CLOSE, lang)).clicked() {
+                    if ui
+                        .button(crate::core::i18n::tr(
+                            crate::core::i18n::key::BTN_CLOSE,
+                            lang,
+                        ))
+                        .clicked()
+                    {
                         close_requested = true;
                     }
                 });

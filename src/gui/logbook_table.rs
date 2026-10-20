@@ -472,7 +472,7 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             }
             if ui
                 .button("✕")
-                .on_hover_text("Wyczyść zaznaczenie")
+                .on_hover_text(tr(key::LOG_CLEAR_SELECTION, lang))
                 .clicked()
             {
                 app.selected_qso_ids.clear();
@@ -956,20 +956,28 @@ pub fn render_column_settings(app: &mut SpLogApp, ctx: &egui::Context) {
                 });
 
             ui.separator();
-            ui.label(egui::RichText::new("Presety kolumn").strong());
+            ui.label(egui::RichText::new(tr(key::LOG_COLUMN_PRESETS, lang)).strong());
             ui.horizontal(|ui| {
                 ui.text_edit_singleline(&mut app.column_preset_name);
-                if ui.button("💾 Zapisz").clicked() {
+                if ui.button(tr(key::LOG_SAVE_PRESET_BTN, lang)).clicked() {
                     save_preset = true;
                 }
             });
             for (i, preset) in app.logbook_column_presets.iter().enumerate() {
                 ui.horizontal(|ui| {
-                    if ui.button("↩").on_hover_text("Wczytaj preset").clicked() {
+                    if ui
+                        .button("↩")
+                        .on_hover_text(tr(key::LOG_LOAD_PRESET, lang))
+                        .clicked()
+                    {
                         load_preset = Some(i);
                     }
                     ui.label(&preset.name);
-                    if ui.small_button("🗑").on_hover_text("Usuń preset").clicked() {
+                    if ui
+                        .small_button("🗑")
+                        .on_hover_text(tr(key::LOG_DELETE_PRESET, lang))
+                        .clicked()
+                    {
                         delete_preset = Some(i);
                     }
                 });

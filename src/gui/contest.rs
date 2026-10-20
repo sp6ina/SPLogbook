@@ -261,12 +261,20 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         .selected_text(&app.contest_name)
                         .show_ui(ui, |ui| {
                             for rule in RULES {
-                                ui.selectable_value(&mut app.contest_name, rule.name.to_string(), rule.name);
+                                ui.selectable_value(
+                                    &mut app.contest_name,
+                                    rule.name.to_string(),
+                                    rule.name,
+                                );
                             }
                             if !app.custom_contests.is_empty() {
                                 ui.separator();
                                 for contest in &app.custom_contests {
-                                    ui.selectable_value(&mut app.contest_name, contest.name.clone(), contest.name.clone());
+                                    ui.selectable_value(
+                                        &mut app.contest_name,
+                                        contest.name.clone(),
+                                        contest.name.clone(),
+                                    );
                                 }
                             }
                         });
@@ -280,50 +288,96 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 });
 
                 if unknown_contest_rule {
-                    ui.colored_label(
-                        palette.danger,
-                        "⚠ Nieznane reguły kontestu dla wybranej nazwy — wynik NIE jest liczony wg domyślnych reguł. Wybierz kontest z listy lub utwórz regułę niestandardową.",
-                    );
+                    ui.colored_label(palette.danger, tr(key::CONTEST_UNKNOWN_RULES_WARNING, lang));
                 }
 
                 ui.separator();
 
                 ui.columns(3, |cols| {
                     cols[0].group(|ui| {
-                        ui.label(egui::RichText::new(tr(key::CONTEST_CURRENT_RESULTS, lang)).strong().color(palette.warning));
-                        ui.label(format!("{} {}", tr(key::CONTEST_QSO_COUNT, lang), app.contest_qsos));
-                        ui.label(format!("{} {}", tr(key::CONTEST_QSO_POINTS, lang), app.contest_points));
-                        ui.label(format!("{} {}", tr(key::CONTEST_MULTIPLIERS, lang), app.contest_mults));
+                        ui.label(
+                            egui::RichText::new(tr(key::CONTEST_CURRENT_RESULTS, lang))
+                                .strong()
+                                .color(palette.warning),
+                        );
+                        ui.label(format!(
+                            "{} {}",
+                            tr(key::CONTEST_QSO_COUNT, lang),
+                            app.contest_qsos
+                        ));
+                        ui.label(format!(
+                            "{} {}",
+                            tr(key::CONTEST_QSO_POINTS, lang),
+                            app.contest_points
+                        ));
+                        ui.label(format!(
+                            "{} {}",
+                            tr(key::CONTEST_MULTIPLIERS, lang),
+                            app.contest_mults
+                        ));
                         ui.separator();
-                        ui.label(egui::RichText::new(format!("{}: {}", tr(key::CONTEST_FINAL_SCORE, lang), total)).size(16.0).strong().color(palette.success));
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "{}: {}",
+                                tr(key::CONTEST_FINAL_SCORE, lang),
+                                total
+                            ))
+                            .size(16.0)
+                            .strong()
+                            .color(palette.success),
+                        );
                     });
 
                     cols[1].group(|ui| {
-                        ui.label(egui::RichText::new(tr(key::CONTEST_BAND_STATS, lang)).strong().color(palette.accent));
-                        egui::ScrollArea::vertical().id_salt("band_stats").max_height(80.0).show(ui, |ui| {
-                            let mut bands = std::collections::HashMap::new();
-                            for qso in &app.recent_qsos {
-                                *bands.entry(qso.band.clone()).or_insert(0) += 1;
-                            }
-                            let mut band_vec: Vec<_> = bands.into_iter().collect();
-                            band_vec.sort_by_key(|a| std::cmp::Reverse(a.1));
-                            for (band, count) in band_vec {
-                                ui.label(format!("{} {}: {} QSOs", tr(key::CONTEST_BAND_HEADER, lang), band, count));
-                            }
-                        });
+                        ui.label(
+                            egui::RichText::new(tr(key::CONTEST_BAND_STATS, lang))
+                                .strong()
+                                .color(palette.accent),
+                        );
+                        egui::ScrollArea::vertical()
+                            .id_salt("band_stats")
+                            .max_height(80.0)
+                            .show(ui, |ui| {
+                                let mut bands = std::collections::HashMap::new();
+                                for qso in &app.recent_qsos {
+                                    *bands.entry(qso.band.clone()).or_insert(0) += 1;
+                                }
+                                let mut band_vec: Vec<_> = bands.into_iter().collect();
+                                band_vec.sort_by_key(|a| std::cmp::Reverse(a.1));
+                                for (band, count) in band_vec {
+                                    ui.label(format!(
+                                        "{} {}: {} QSOs",
+                                        tr(key::CONTEST_BAND_HEADER, lang),
+                                        band,
+                                        count
+                                    ));
+                                }
+                            });
                     });
 
                     cols[2].group(|ui| {
-                        ui.label(egui::RichText::new(tr(key::CONTEST_RATE, lang)).strong().color(palette.accent));
+                        ui.label(
+                            egui::RichText::new(tr(key::CONTEST_RATE, lang))
+                                .strong()
+                                .color(palette.accent),
+                        );
                         ui.label(format!("1m:  {} QSO/h", rate.rate_1m()));
                         ui.label(format!("5m:  {} QSO/h", rate.rate_5m()));
                         ui.label(format!("10m: {} QSO/h", rate.rate_10m()));
                         ui.label(format!("60m: {} QSO/h", rate.rate_60m()));
                         ui.label(
-                            egui::RichText::new(format!("{}: {:.0}", tr(key::CONTEST_PROJECTED_1H, lang), projected_1h))
-                                .color(palette.success),
+                            egui::RichText::new(format!(
+                                "{}: {:.0}",
+                                tr(key::CONTEST_PROJECTED_1H, lang),
+                                projected_1h
+                            ))
+                            .color(palette.success),
                         );
-                        ui.label(format!("{} {:03}", tr(key::CONTEST_STX_NR, lang), app.contest_stx));
+                        ui.label(format!(
+                            "{} {:03}",
+                            tr(key::CONTEST_STX_NR, lang),
+                            app.contest_stx
+                        ));
                     });
                 });
 
@@ -338,11 +392,15 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     });
 
                 if mult_kind != MultKind::None && !rule_bands.is_empty() {
-                    egui::CollapsingHeader::new(format!("{} ({})", tr(key::CONTEST_MULT_MATRIX, lang), mult_kind.as_str()))
-                        .default_open(false)
-                        .show(ui, |ui| {
-                            render_mult_matrix(ui, &mult_matrix, lang);
-                        });
+                    egui::CollapsingHeader::new(format!(
+                        "{} ({})",
+                        tr(key::CONTEST_MULT_MATRIX, lang),
+                        mult_kind.as_str()
+                    ))
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        render_mult_matrix(ui, &mult_matrix, lang);
+                    });
                 }
 
                 // QSO ENTRY FORM
@@ -363,7 +421,9 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 q.callsign.eq_ignore_ascii_case(&dummy_qso.callsign)
                                     && q.band.eq_ignore_ascii_case(&dummy_qso.band)
                             })
-                        } else if let Some(rule_idx) = RULES.iter().position(|r| r.name == app.contest_name) {
+                        } else if let Some(rule_idx) =
+                            RULES.iter().position(|r| r.name == app.contest_name)
+                        {
                             detect_duplicate(&RULES[rule_idx], &dummy_qso, &app.recent_qsos)
                         } else {
                             // Nieznane reguły kontestu: prosta kontrola duplikatu wg znaku+pasma
@@ -375,17 +435,24 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         };
 
                         if is_dupe && !app.entry_callsign.is_empty() {
-                            ui.visuals_mut().widgets.inactive.bg_stroke = egui::Stroke::new(2.0_f32, palette.dupe);
+                            ui.visuals_mut().widgets.inactive.bg_stroke =
+                                egui::Stroke::new(2.0_f32, palette.dupe);
                         }
 
-                        ui.add(egui::TextEdit::singleline(&mut app.entry_callsign).desired_width(120.0));
+                        ui.add(
+                            egui::TextEdit::singleline(&mut app.entry_callsign)
+                                .desired_width(120.0),
+                        );
 
                         if is_dupe && !app.entry_callsign.is_empty() {
                             ui.label(egui::RichText::new("DUPE!").color(palette.dupe).strong());
                         }
 
                         ui.label(tr(key::CONTEST_RCVD_REPORT_EXCHANGE, lang));
-                        ui.add(egui::TextEdit::singleline(&mut app.entry_exchange).desired_width(200.0));
+                        ui.add(
+                            egui::TextEdit::singleline(&mut app.entry_exchange)
+                                .desired_width(200.0),
+                        );
 
                         if ui.button(tr(key::CONTEST_SAVE_QSO, lang)).clicked() {
                             save_clicked = true;
@@ -405,8 +472,11 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             match parse_exchange(fields, &app.entry_exchange) {
                                 Ok(parsed) => {
                                     ui.label(
-                                        egui::RichText::new(format!("✓ {}", exchange_summary(&parsed)))
-                                            .color(palette.success),
+                                        egui::RichText::new(format!(
+                                            "✓ {}",
+                                            exchange_summary(&parsed)
+                                        ))
+                                        .color(palette.success),
                                     );
                                 }
                                 Err(e) => {
@@ -425,49 +495,86 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     .default_open(false)
                     .show(ui, |ui| {
                         let mut tune: Option<(String, f64, String, bool)> = None;
-                        egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
-                            egui::Grid::new("contest_spot_grid")
-                                .striped(true)
-                                .num_columns(5)
-                                .spacing([10.0, 3.0])
-                                .show(ui, |ui| {
-                                    ui.label(egui::RichText::new(tr(key::CLUSTER_DX, lang)).strong());
-                                    ui.label(egui::RichText::new(tr(key::CLUSTER_FREQ, lang)).strong());
-                                    ui.label(egui::RichText::new(tr(key::QSO_BAND, lang)).strong());
-                                    ui.label(egui::RichText::new(tr(key::CLUSTER_COMMENT, lang)).strong());
-                                    ui.label("");
-                                    ui.end_row();
-
-                                    for spot in &app.cluster_spots {
-                                        let worked = app
-                                            .recent_qsos
-                                            .iter()
-                                            .any(|q| q.callsign.eq_ignore_ascii_case(&spot.dx_call));
-                                        let call_color = if worked {
-                                            palette.qsl_rcvd
-                                        } else {
-                                            palette.accent
-                                        };
+                        egui::ScrollArea::vertical()
+                            .max_height(180.0)
+                            .show(ui, |ui| {
+                                egui::Grid::new("contest_spot_grid")
+                                    .striped(true)
+                                    .num_columns(5)
+                                    .spacing([10.0, 3.0])
+                                    .show(ui, |ui| {
                                         ui.label(
-                                            egui::RichText::new(format!("{}{}", spot.dx_call, if worked { " ✓" } else { "" }))
+                                            egui::RichText::new(tr(key::CLUSTER_DX, lang)).strong(),
+                                        );
+                                        ui.label(
+                                            egui::RichText::new(tr(key::CLUSTER_FREQ, lang))
+                                                .strong(),
+                                        );
+                                        ui.label(
+                                            egui::RichText::new(tr(key::QSO_BAND, lang)).strong(),
+                                        );
+                                        ui.label(
+                                            egui::RichText::new(tr(key::CLUSTER_COMMENT, lang))
+                                                .strong(),
+                                        );
+                                        ui.label("");
+                                        ui.end_row();
+
+                                        for spot in &app.cluster_spots {
+                                            let worked = app.recent_qsos.iter().any(|q| {
+                                                q.callsign.eq_ignore_ascii_case(&spot.dx_call)
+                                            });
+                                            let call_color = if worked {
+                                                palette.qsl_rcvd
+                                            } else {
+                                                palette.accent
+                                            };
+                                            ui.label(
+                                                egui::RichText::new(format!(
+                                                    "{}{}",
+                                                    spot.dx_call,
+                                                    if worked { " ✓" } else { "" }
+                                                ))
                                                 .strong()
                                                 .color(call_color),
-                                        );
-                                        ui.label(
-                                            egui::RichText::new(format!("{:.1} kHz", spot.frequency_khz)).monospace(),
-                                        );
-                                        ui.label(egui::RichText::new(&spot.band).color(palette.warning));
-                                        ui.label(egui::RichText::new(&spot.comment).size(11.0).weak());
-                                        if ui
-                                            .button(egui::RichText::new(tr(key::CONTEST_SPOT_FILL_ENTRY, lang)).color(palette.success))
-                                            .clicked()
-                                        {
-                                            tune = Some((spot.dx_call.clone(), spot.frequency_khz, spot.band.clone(), spot.is_ft8));
+                                            );
+                                            ui.label(
+                                                egui::RichText::new(format!(
+                                                    "{:.1} kHz",
+                                                    spot.frequency_khz
+                                                ))
+                                                .monospace(),
+                                            );
+                                            ui.label(
+                                                egui::RichText::new(&spot.band)
+                                                    .color(palette.warning),
+                                            );
+                                            ui.label(
+                                                egui::RichText::new(&spot.comment)
+                                                    .size(11.0)
+                                                    .weak(),
+                                            );
+                                            if ui
+                                                .button(
+                                                    egui::RichText::new(tr(
+                                                        key::CONTEST_SPOT_FILL_ENTRY,
+                                                        lang,
+                                                    ))
+                                                    .color(palette.success),
+                                                )
+                                                .clicked()
+                                            {
+                                                tune = Some((
+                                                    spot.dx_call.clone(),
+                                                    spot.frequency_khz,
+                                                    spot.band.clone(),
+                                                    spot.is_ft8,
+                                                ));
+                                            }
+                                            ui.end_row();
                                         }
-                                        ui.end_row();
-                                    }
-                                });
-                        });
+                                    });
+                            });
 
                         if let Some((call, freq_khz, band, is_ft8)) = tune {
                             spot_fill_target = Some((call, freq_khz, band, is_ft8));
@@ -543,7 +650,9 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 Err(e) => {
                     exchange_ok = false;
                     app.status_toast = Some((
-                        format!("Błąd wymiany: {}", e.message),
+                        Msg::new(key::CONTEST_EXCHANGE_ERROR)
+                            .arg("err", &e.message)
+                            .text(lang),
                         std::time::Instant::now(),
                     ));
                 }
@@ -561,16 +670,21 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             .iter()
                             .map(|w| w.msg().text(app.current_language))
                             .collect();
-                        app.report_warning(format!("Ostrzeżenia: {}", warning_texts.join("; ")));
+                        app.report_warning(
+                            Msg::new(key::CONTEST_WARNINGS)
+                                .arg("warnings", warning_texts.join("; "))
+                                .text(lang),
+                        );
                     }
                     app.invalidate_cluster_badges();
                     app.apply_post_effects(&outcome);
                     app.contest_stx += 1;
                     app.status_toast = Some((
-                        format!(
-                            "Zapisano QSO zawodów: {} ({}, {})",
-                            outcome.qso.callsign, outcome.qso.band, outcome.qso.mode
-                        ),
+                        Msg::new(key::CONTEST_QSO_SAVED)
+                            .arg("call", &outcome.qso.callsign)
+                            .arg("rst", &outcome.qso.band)
+                            .arg("exch", &outcome.qso.mode)
+                            .text(lang),
                         std::time::Instant::now(),
                     ));
                     app.entry_callsign.clear();
@@ -580,31 +694,31 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 }
                 Err(IngestError::Invalid(reason)) => {
                     app.status_toast = Some((
-                        format!(
-                            "Błąd walidacji QSO kontestowego: {}",
-                            reason.msg().text(app.current_language)
-                        ),
+                        Msg::new(key::CONTEST_VALIDATION_ERROR)
+                            .arg("err", reason.msg().text(lang))
+                            .text(lang),
                         std::time::Instant::now(),
                     ));
                 }
                 Err(IngestError::Duplicate) => {
                     app.status_toast = Some((
-                        Msg::new(key::MSG_QSO_DUPLICATE).text(app.current_language),
+                        Msg::new(key::MSG_QSO_DUPLICATE).text(lang),
                         std::time::Instant::now(),
                     ));
                 }
                 Err(IngestError::EmptyCallsign) => {
                     app.status_toast = Some((
-                        format!(
-                            "Błąd walidacji QSO kontestowego: {}",
-                            Msg::new(key::QSO_ISSUE_EMPTY_CALLSIGN).text(app.current_language)
-                        ),
+                        Msg::new(key::CONTEST_VALIDATION_ERROR)
+                            .arg("err", Msg::new(key::QSO_ISSUE_EMPTY_CALLSIGN).text(lang))
+                            .text(lang),
                         std::time::Instant::now(),
                     ));
                 }
                 Err(IngestError::Storage(error)) => {
                     app.status_toast = Some((
-                        format!("Błąd zapisu QSO kontestowego: {error}"),
+                        Msg::new(key::CONTEST_SAVE_ERROR)
+                            .arg("err", error)
+                            .text(lang),
                         std::time::Instant::now(),
                     ));
                 }
