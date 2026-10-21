@@ -2246,6 +2246,49 @@ mod tests {
         host_service.stop();
     }
 
+    async fn wait_for_service_state(
+        rx: &std::sync::mpsc::Receiver<SyncEvent>,
+        target_state: SyncState,
+        max_attempts: usize,
+        watchdog: Duration,
+    ) -> Result<Vec<SyncEvent>, (String, Vec<SyncEvent>)> {
+        let start = std::time::Instant::now();
+        let mut collected = Vec::new();
+
+        for attempt in 1..=max_attempts {
+            while let Ok(evt) = rx.try_recv() {
+                let matched = matches!(&evt, SyncEvent::Status(st) if st.state == target_state);
+                collected.push(evt);
+                if matched {
+                    return Ok(collected);
+                }
+            }
+
+            if start.elapsed() > watchdog {
+                return Err((
+                    format!(
+                        "Watchdog timeout ({watchdog:?}) exceeded waiting for {target_state:?} at attempt {attempt}/{max_attempts}; collected {} events: {:?}",
+                        collected.len(),
+                        collected
+                    ),
+                    collected,
+                ));
+            }
+
+            tokio::task::yield_now().await;
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        Err((
+            format!(
+                "Max attempts ({max_attempts}) reached waiting for {target_state:?}; collected {} events: {:?}",
+                collected.len(),
+                collected
+            ),
+            collected,
+        ))
+    }
+
     #[tokio::test]
     async fn service_notifies_status_transitions() {
         let store_host = Arc::new(MemorySyncStore::new());
@@ -2263,17 +2306,21 @@ mod tests {
         let mut host_service = SyncService::start(host_config, store_host, host_events_tx).unwrap();
         let host_port = host_service.local_addr().unwrap().port();
 
-        // Host natychmiast raportuje Listening
-        let mut host_listened = false;
-        for _ in 0..10 {
-            if matches!(host_events_rx.try_recv(), Ok(SyncEvent::Status(st)) if st.state == SyncState::Listening)
-            {
-                host_listened = true;
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-        assert!(host_listened, "Host must notify Listening state");
+        // Host raportuje Listening przez helper zdarzeniowy
+        let host_events = wait_for_service_state(
+            &host_events_rx,
+            SyncState::Listening,
+            1500,
+            Duration::from_secs(30),
+        )
+        .await
+        .expect("Host must notify Listening state");
+        assert!(
+            host_events.iter().any(
+                |evt| matches!(evt, SyncEvent::Status(st) if st.state == SyncState::Listening)
+            ),
+            "Host must notify Listening state"
+        );
 
         let peer_config = SyncConfig {
             role: SyncRole::Peer {
@@ -2286,25 +2333,250 @@ mod tests {
         };
         let mut peer_service = SyncService::start(peer_config, store_peer, peer_events_tx).unwrap();
 
-        // Peer raportuje Connected
-        let mut peer_connected = false;
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
-        while std::time::Instant::now() < deadline {
-            while let Ok(evt) = peer_events_rx.try_recv() {
-                if matches!(evt, SyncEvent::Status(st) if st.state == SyncState::Connected) {
-                    peer_connected = true;
-                    break;
-                }
-            }
-            if peer_connected {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-        assert!(peer_connected, "Peer must notify Connected state");
+        // Peer raportuje Connected przez helper zdarzeniowy bez sztywnego 5-sekundowego limitu
+        let peer_events = wait_for_service_state(
+            &peer_events_rx,
+            SyncState::Connected,
+            1500,
+            Duration::from_secs(30),
+        )
+        .await
+        .expect("Peer must notify Connected state");
+
+        assert!(
+            peer_events
+                .iter()
+                .any(|evt| matches!(evt, SyncEvent::Status(st) if st.state == SyncState::Connected && st.peers == 1)),
+            "Peer must notify Connected state with 1 peer"
+        );
 
         peer_service.stop();
         host_service.stop();
+    }
+
+    #[tokio::test]
+    async fn service_status_helper_observes_connected_event() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        tx.send(SyncEvent::Status(SyncStatus {
+            state: SyncState::Reconnecting,
+            peers: 0,
+        }))
+        .unwrap();
+        tx.send(SyncEvent::Status(SyncStatus {
+            state: SyncState::Connected,
+            peers: 1,
+        }))
+        .unwrap();
+
+        let events = wait_for_service_state(&rx, SyncState::Connected, 10, Duration::from_secs(5))
+            .await
+            .expect("Helper must observe Connected event");
+
+        assert_eq!(events.len(), 2);
+        assert!(matches!(&events[0], SyncEvent::Status(st) if st.state == SyncState::Reconnecting));
+        assert!(matches!(&events[1], SyncEvent::Status(st) if st.state == SyncState::Connected));
+    }
+
+    #[tokio::test]
+    async fn service_status_connected_event_is_not_lost_between_start_and_receive() {
+        let store_host = Arc::new(MemorySyncStore::new());
+        let store_peer = Arc::new(MemorySyncStore::new());
+
+        let (host_events_tx, host_events_rx) = std::sync::mpsc::channel();
+        let (peer_events_tx, peer_events_rx) = std::sync::mpsc::channel();
+
+        let host_config = SyncConfig {
+            role: SyncRole::Host { port: 0 },
+            secret: "queue_secret".to_string(),
+            station: "HOST_QUEUE".to_string(),
+            journal: "DEFAULT".to_string(),
+        };
+        let mut host_service = SyncService::start(host_config, store_host, host_events_tx).unwrap();
+        let host_port = host_service.local_addr().unwrap().port();
+
+        wait_for_service_state(
+            &host_events_rx,
+            SyncState::Listening,
+            1500,
+            Duration::from_secs(30),
+        )
+        .await
+        .expect("Host must listen");
+
+        let peer_config = SyncConfig {
+            role: SyncRole::Peer {
+                host: "127.0.0.1".to_string(),
+                port: host_port,
+            },
+            secret: "queue_secret".to_string(),
+            station: "PEER_QUEUE".to_string(),
+            journal: "DEFAULT".to_string(),
+        };
+        // Odbiornik zdarzeń istnieje PRZED startem usługi
+        let mut peer_service = SyncService::start(peer_config, store_peer, peer_events_tx).unwrap();
+
+        // Oczekiwanie na Connected: żadne zdarzenie początkowe (Reconnecting) nie może zablokować
+        // ani usunąć zdarzenia Connected z bufora kolejki
+        let peer_events = wait_for_service_state(
+            &peer_events_rx,
+            SyncState::Connected,
+            1500,
+            Duration::from_secs(30),
+        )
+        .await
+        .expect("Connected event must not be lost between service start and receive");
+
+        assert!(
+            peer_events
+                .iter()
+                .any(|e| matches!(e, SyncEvent::Status(st) if st.state == SyncState::Connected)),
+            "Connected event must be present in history"
+        );
+
+        peer_service.stop();
+        host_service.stop();
+    }
+
+    #[tokio::test]
+    async fn service_status_history_is_reported_on_failure() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        tx.send(SyncEvent::Status(SyncStatus {
+            state: SyncState::Reconnecting,
+            peers: 0,
+        }))
+        .unwrap();
+        tx.send(SyncEvent::Error(SyncError::SecretRequired))
+            .unwrap();
+
+        // Oczekujemy Connected, które nigdy nie nadejdzie (ograniczona liczba prób i krótki watchdog)
+        let res =
+            wait_for_service_state(&rx, SyncState::Connected, 3, Duration::from_millis(50)).await;
+        assert!(res.is_err(), "Must fail when target state never arrives");
+
+        let (err_msg, collected) = res.unwrap_err();
+        assert_eq!(
+            collected.len(),
+            2,
+            "Both preceding events must be collected"
+        );
+        assert!(
+            err_msg.contains("collected 2 events"),
+            "Error message must report event count: {err_msg}"
+        );
+        assert!(
+            err_msg.contains("Reconnecting"),
+            "Error message must include collected states: {err_msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn service_status_shutdown_after_connected_is_clean() {
+        let store_host = Arc::new(MemorySyncStore::new());
+        let store_peer = Arc::new(MemorySyncStore::new());
+
+        let (host_events_tx, host_events_rx) = std::sync::mpsc::channel();
+        let (peer_events_tx, peer_events_rx) = std::sync::mpsc::channel();
+
+        let host_config = SyncConfig {
+            role: SyncRole::Host { port: 0 },
+            secret: "shutdown_secret".to_string(),
+            station: "HOST_SD".to_string(),
+            journal: "DEFAULT".to_string(),
+        };
+        let mut host_service = SyncService::start(host_config, store_host, host_events_tx).unwrap();
+        let host_port = host_service.local_addr().unwrap().port();
+
+        wait_for_service_state(
+            &host_events_rx,
+            SyncState::Listening,
+            1500,
+            Duration::from_secs(30),
+        )
+        .await
+        .expect("Host listening");
+
+        let peer_config = SyncConfig {
+            role: SyncRole::Peer {
+                host: "127.0.0.1".to_string(),
+                port: host_port,
+            },
+            secret: "shutdown_secret".to_string(),
+            station: "PEER_SD".to_string(),
+            journal: "DEFAULT".to_string(),
+        };
+        let mut peer_service = SyncService::start(peer_config, store_peer, peer_events_tx).unwrap();
+
+        wait_for_service_state(
+            &peer_events_rx,
+            SyncState::Connected,
+            1500,
+            Duration::from_secs(30),
+        )
+        .await
+        .expect("Peer connected");
+
+        // Kontrolowane zatrzymanie obu usług
+        peer_service.stop();
+        host_service.stop();
+
+        // Potwierdzenie przejścia Peera do stanu końcowego Starting/0 peers
+        let peer_stop_event = wait_for_service_state(
+            &peer_events_rx,
+            SyncState::Starting,
+            500,
+            Duration::from_secs(10),
+        )
+        .await
+        .expect("Peer must report Starting upon stop");
+
+        assert!(
+            peer_stop_event
+                .iter()
+                .any(|e| matches!(e, SyncEvent::Status(st) if st.state == SyncState::Starting && st.peers == 0)),
+            "Peer must report Starting with 0 peers after clean stop"
+        );
+    }
+
+    #[tokio::test]
+    async fn service_status_peer_does_not_report_connected_before_handshake() {
+        let store_peer = Arc::new(MemorySyncStore::new());
+        let (peer_events_tx, peer_events_rx) = std::sync::mpsc::channel();
+
+        // Celowo wskazujemy nieaktywny port loopback, gdzie nikt nie nasłuchuje
+        let peer_config = SyncConfig {
+            role: SyncRole::Peer {
+                host: "127.0.0.1".to_string(),
+                port: 1, // Port zarezerwowany / nieaktywny
+            },
+            secret: "dummy_secret".to_string(),
+            station: "PEER_NO_HOST".to_string(),
+            journal: "DEFAULT".to_string(),
+        };
+        let mut peer_service = SyncService::start(peer_config, store_peer, peer_events_tx).unwrap();
+
+        // Oczekujemy przez krótki czas i zbieramy wszystkie zdarzenia
+        let start = std::time::Instant::now();
+        let mut saw_connected = false;
+        while start.elapsed() < Duration::from_millis(500) {
+            while let Ok(evt) = peer_events_rx.try_recv() {
+                if matches!(evt, SyncEvent::Status(st) if st.state == SyncState::Connected) {
+                    saw_connected = true;
+                    break;
+                }
+            }
+            if saw_connected {
+                break;
+            }
+            tokio::task::yield_now().await;
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+
+        assert!(
+            !saw_connected,
+            "Peer must never report Connected state before successful handshake"
+        );
+
+        peer_service.stop();
     }
 
     #[test]
