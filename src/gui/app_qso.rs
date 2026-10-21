@@ -481,7 +481,7 @@ impl SpLogApp {
     /// Czyści formularz QSO i natychmiast przenosi kursor/fokus na pole znaku (Wipe).
     pub fn wipe_qso_form(&mut self) {
         self.clear_qso_form();
-        self.panel_qso.visible = true;
+        self.views.panel_qso.visible = true;
         self.focus_callsign_requested = true;
     }
 
@@ -544,7 +544,7 @@ impl SpLogApp {
 
     /// Pokazuje panel logu i ustawia go jako aktywną zakładkę w swojej kolumnie.
     pub fn focus_logbook(&mut self) {
-        self.panel_log.visible = true;
+        self.views.panel_log.visible = true;
     }
 
     pub fn rebuild_awards_full(&mut self) {

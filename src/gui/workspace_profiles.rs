@@ -333,15 +333,15 @@ fn capture_profile(app: &SpLogApp, name: &str) -> WorkspaceProfile {
         id: String::new(),
         name: name.to_string(),
         description: String::new(),
-        panel_vfo: app.panel_vfo.clone(),
-        panel_qso: app.panel_qso.clone(),
-        panel_log: app.panel_log.clone(),
-        panel_cluster: app.panel_cluster.clone(),
-        panel_solar: app.panel_solar.clone(),
-        panel_bandmap: app.panel_bandmap.clone(),
-        panel_satellites: app.panel_satellites.clone(),
-        panel_world_map: app.panel_world_map.clone(),
-        panel_waterfall: app.panel_waterfall.clone(),
+        panel_vfo: app.views.panel_vfo.clone(),
+        panel_qso: app.views.panel_qso.clone(),
+        panel_log: app.views.panel_log.clone(),
+        panel_cluster: app.views.panel_cluster.clone(),
+        panel_solar: app.views.panel_solar.clone(),
+        panel_bandmap: app.views.panel_bandmap.clone(),
+        panel_satellites: app.views.panel_satellites.clone(),
+        panel_world_map: app.views.panel_world_map.clone(),
+        panel_waterfall: app.views.panel_waterfall.clone(),
         theme_preset: Some(app.theme_preset.id().to_string()),
         enabled_plugins: Vec::new(),
         cat_profile: None,
@@ -373,15 +373,15 @@ pub(crate) fn apply_profile(app: &mut SpLogApp, p: &WorkspaceProfile) {
         app.cluster_filter_pota_sota_only = f.pota_sota_only;
     }
 
-    app.panel_vfo = p.panel_vfo.clone();
-    app.panel_qso = p.panel_qso.clone();
-    app.panel_log = p.panel_log.clone();
-    app.panel_cluster = p.panel_cluster.clone();
-    app.panel_solar = p.panel_solar.clone();
-    app.panel_bandmap = p.panel_bandmap.clone();
-    app.panel_satellites = p.panel_satellites.clone();
-    app.panel_world_map = p.panel_world_map.clone();
-    app.panel_waterfall = p.panel_waterfall.clone();
+    app.views.panel_vfo = p.panel_vfo.clone();
+    app.views.panel_qso = p.panel_qso.clone();
+    app.views.panel_log = p.panel_log.clone();
+    app.views.panel_cluster = p.panel_cluster.clone();
+    app.views.panel_solar = p.panel_solar.clone();
+    app.views.panel_bandmap = p.panel_bandmap.clone();
+    app.views.panel_satellites = p.panel_satellites.clone();
+    app.views.panel_world_map = p.panel_world_map.clone();
+    app.views.panel_waterfall = p.panel_waterfall.clone();
 
     // Synchronizacja okien pływających (popout) dla paneli z obsługą ↗.
     app.show_bandmap_window = p.panel_bandmap.visible && p.panel_bandmap.floating;

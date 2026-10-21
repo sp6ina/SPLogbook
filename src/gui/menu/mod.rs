@@ -169,7 +169,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .on_hover_text(tr(key::TOOLBAR_VFO_TOOLTIP, lang))
                 .clicked()
         {
-            app.panel_vfo.visible = !app.panel_vfo.visible;
+            app.views.panel_vfo.visible = !app.views.panel_vfo.visible;
             app.save_station_config();
         }
 
@@ -179,7 +179,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .on_hover_text(tr(key::TOOLBAR_QSO_TOOLTIP, lang))
                 .clicked()
         {
-            app.panel_qso.visible = !app.panel_qso.visible;
+            app.views.panel_qso.visible = !app.views.panel_qso.visible;
             app.save_station_config();
         }
 
@@ -189,7 +189,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .on_hover_text(tr(key::TOOLBAR_LOG_TOOLTIP, lang))
                 .clicked()
         {
-            app.panel_log.visible = !app.panel_log.visible;
+            app.views.panel_log.visible = !app.views.panel_log.visible;
             app.save_station_config();
         }
 
@@ -208,7 +208,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .on_hover_text(tr(key::TOOLBAR_CLUSTER_TOOLTIP, lang))
                 .clicked()
         {
-            app.panel_cluster.visible = !app.panel_cluster.visible;
+            app.views.panel_cluster.visible = !app.views.panel_cluster.visible;
             app.save_station_config();
         }
 
@@ -218,8 +218,8 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .on_hover_text(tr(key::TOOLBAR_BANDMAP_TOOLTIP, lang))
                 .clicked()
         {
-            app.panel_bandmap.visible = !app.panel_bandmap.visible;
-            app.show_bandmap_window = app.panel_bandmap.visible;
+            app.views.panel_bandmap.visible = !app.views.panel_bandmap.visible;
+            app.show_bandmap_window = app.views.panel_bandmap.visible;
             app.save_station_config();
         }
 
@@ -229,7 +229,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .on_hover_text(tr(key::TOOLBAR_SOLAR_TOOLTIP, lang))
                 .clicked()
         {
-            app.panel_solar.visible = !app.panel_solar.visible;
+            app.views.panel_solar.visible = !app.views.panel_solar.visible;
             app.save_station_config();
         }
 
@@ -248,8 +248,8 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .on_hover_text(tr(key::TOOLBAR_MAP_TOOLTIP, lang))
                 .clicked()
         {
-            app.panel_world_map.visible = !app.panel_world_map.visible;
-            app.world_map.show_window = app.panel_world_map.visible;
+            app.views.panel_world_map.visible = !app.views.panel_world_map.visible;
+            app.world_map.show_window = app.views.panel_world_map.visible;
             app.save_station_config();
         }
 
@@ -277,8 +277,8 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .on_hover_text(tr(key::TOOLBAR_SATELLITES_TOOLTIP, lang))
                 .clicked()
         {
-            app.panel_satellites.visible = !app.panel_satellites.visible;
-            app.satellites.show_window = app.panel_satellites.visible;
+            app.views.panel_satellites.visible = !app.views.panel_satellites.visible;
+            app.satellites.show_window = app.views.panel_satellites.visible;
             app.save_station_config();
         }
 

@@ -29,8 +29,8 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .button(icons::WORLD_MAP.label(tr(key::TOOLS_WORLD_MAP, lang)))
             .clicked()
         {
-            app.panel_world_map.visible = true;
-            app.panel_world_map.floating = true;
+            app.views.panel_world_map.visible = true;
+            app.views.panel_world_map.floating = true;
             app.world_map.show_window = true;
             ui.close();
         }
@@ -59,8 +59,8 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .button(icons::SIGNAL_UP.label(tr(key::TOOLS_WATERFALL, lang)))
             .clicked()
         {
-            app.panel_waterfall.visible = true;
-            app.panel_waterfall.floating = false;
+            app.views.panel_waterfall.visible = true;
+            app.views.panel_waterfall.floating = false;
             app.save_station_config();
             ui.close();
         }

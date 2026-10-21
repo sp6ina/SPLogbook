@@ -395,7 +395,7 @@ pub fn render_waterfall_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
 /// (wzorzec zgodny z `world_map`). Wywoływane z `app.rs`, gdy
 /// `panel_waterfall.floating` jest włączone.
 pub fn render_waterfall_window(app: &mut SpLogApp, ctx: &egui::Context) {
-    if !app.panel_waterfall.visible || !app.panel_waterfall.floating {
+    if !app.views.panel_waterfall.visible || !app.views.panel_waterfall.floating {
         return;
     }
 
@@ -408,8 +408,8 @@ pub fn render_waterfall_window(app: &mut SpLogApp, ctx: &egui::Context) {
         "Widmo / Waterfall (SDR) - SPLogbook".to_string(),
         [720.0, 480.0],
         [480.0, 320.0],
-        app.panel_waterfall.saved_pos,
-        app.panel_waterfall.saved_size,
+        app.views.panel_waterfall.saved_pos,
+        app.views.panel_waterfall.saved_size,
         |app, ui| {
             let lang = app.current_language;
             egui::Panel::top("waterfall_vp_bar").show(ui, |ui| {
@@ -433,11 +433,11 @@ pub fn render_waterfall_window(app: &mut SpLogApp, ctx: &egui::Context) {
     );
 
     if let Some((pos, size)) = captured_geo {
-        if app.panel_waterfall.saved_pos != Some(pos)
-            || app.panel_waterfall.saved_size != Some(size)
+        if app.views.panel_waterfall.saved_pos != Some(pos)
+            || app.views.panel_waterfall.saved_size != Some(size)
         {
-            app.panel_waterfall.saved_pos = Some(pos);
-            app.panel_waterfall.saved_size = Some(size);
+            app.views.panel_waterfall.saved_pos = Some(pos);
+            app.views.panel_waterfall.saved_size = Some(size);
             if !ctx.input(|i| i.pointer.any_down()) {
                 app.save_station_config();
             }
@@ -445,13 +445,13 @@ pub fn render_waterfall_window(app: &mut SpLogApp, ctx: &egui::Context) {
     }
 
     if dock_back {
-        app.panel_waterfall.floating = false;
+        app.views.panel_waterfall.floating = false;
         app.save_station_config();
     }
 
     if !still_open {
-        app.panel_waterfall.visible = false;
-        app.panel_waterfall.floating = false;
+        app.views.panel_waterfall.visible = false;
+        app.views.panel_waterfall.floating = false;
         app.save_station_config();
     }
 }

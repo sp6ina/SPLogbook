@@ -408,15 +408,7 @@ pub struct SpLogApp {
     pub left_column_width: f32,
     pub right_column_width: f32,
     pub dragging_tile: Option<String>,
-    pub panel_vfo: ViewPanelConfig,
-    pub panel_qso: ViewPanelConfig,
-    pub panel_log: ViewPanelConfig,
-    pub panel_cluster: ViewPanelConfig,
-    pub panel_solar: ViewPanelConfig,
-    pub panel_bandmap: ViewPanelConfig,
-    pub panel_satellites: ViewPanelConfig,
-    pub panel_world_map: ViewPanelConfig,
-    pub panel_waterfall: ViewPanelConfig,
+    pub views: crate::gui::state::ViewsState,
 
     /// Tryb zakładek w kolumnach dokowanego układu (zapis w konfiguracji).
     pub tabbed_columns: bool,
@@ -743,6 +735,7 @@ impl SpLogApp {
         );
 
         let current_language = Language::from_code(&init.config.current_language);
+        let views = crate::gui::state::ViewsState::from_config(&init.config);
         let mut app = Self {
             shutdown_policy: init.shutdown_policy,
             initial_cat_enabled: init.config.cat_enabled,
@@ -1047,15 +1040,7 @@ impl SpLogApp {
             right_column_width: init.config.right_column_width,
             dragging_tile: None,
 
-            panel_vfo: init.config.panel_vfo,
-            panel_qso: init.config.panel_qso,
-            panel_log: init.config.panel_log,
-            panel_cluster: init.config.panel_cluster,
-            panel_solar: init.config.panel_solar,
-            panel_bandmap: init.config.panel_bandmap.clone(),
-            panel_satellites: init.config.panel_satellites.clone(),
-            panel_world_map: init.config.panel_world_map.clone(),
-            panel_waterfall: init.config.panel_waterfall.clone(),
+            views,
 
             // Sortowanie i paginacja logu
             log_sort_column: 0,
@@ -1406,15 +1391,7 @@ impl eframe::App for SpLogApp {
                     }
                 });
             } else {
-                let total_visible = (self.panel_vfo.visible as usize)
-                    + (self.panel_qso.visible as usize)
-                    + (self.panel_log.visible as usize)
-                    + (self.panel_cluster.visible as usize)
-                    + (self.panel_bandmap.visible as usize)
-                    + (self.panel_solar.visible as usize)
-                    + (self.panel_satellites.visible as usize)
-                    + (self.panel_world_map.visible as usize)
-                    + (self.panel_waterfall.visible as usize);
+                let total_visible = self.views.visible_count();
 
                 if total_visible == 0 {
                     ui.vertical_centered(|ui| {
@@ -1509,31 +1486,31 @@ impl eframe::App for SpLogApp {
             // Pływające okna modułów (pop-out windows) — renderowane tylko wtedy,
             // gdy panel jest „odpięty” (floating). Kafelki zadokowane rysuje
             // układ kolumnowy w CentralPanel poniżej.
-            if self.panel_qso.floating {
+            if self.views.panel_qso.floating {
                 render_qso_entry_window(self, ctx);
             }
-            if self.panel_vfo.floating {
+            if self.views.panel_vfo.floating {
                 render_vfo_window(self, ctx);
             }
-            if self.panel_log.floating {
+            if self.views.panel_log.floating {
                 render_logbook_window(self, ctx);
             }
-            if self.panel_cluster.floating {
+            if self.views.panel_cluster.floating {
                 render_cluster_window(self, ctx);
             }
-            if self.panel_solar.floating {
+            if self.views.panel_solar.floating {
                 render_solar_window(self, ctx);
             }
-            if self.panel_bandmap.floating {
+            if self.views.panel_bandmap.floating {
                 render_bandmap_window(self, ctx);
             }
-            if self.panel_satellites.floating {
+            if self.views.panel_satellites.floating {
                 render_satellites_window(self, ctx);
             }
-            if self.panel_world_map.floating {
+            if self.views.panel_world_map.floating {
                 render_world_map_window(self, ctx);
             }
-            if self.panel_waterfall.floating {
+            if self.views.panel_waterfall.floating {
                 crate::gui::waterfall_panel::render_waterfall_window(self, ctx);
             }
         }

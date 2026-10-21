@@ -23,15 +23,15 @@ impl SpLogApp {
 
     pub fn panel_config(&self, id: &str) -> &ViewPanelConfig {
         match id {
-            "qso" => &self.panel_qso,
-            "log" => &self.panel_log,
-            "cluster" => &self.panel_cluster,
-            "bandmap" => &self.panel_bandmap,
-            "solar" => &self.panel_solar,
-            "satellites" => &self.panel_satellites,
-            "world_map" => &self.panel_world_map,
-            "waterfall" => &self.panel_waterfall,
-            _ => &self.panel_vfo,
+            "qso" => &self.views.panel_qso,
+            "log" => &self.views.panel_log,
+            "cluster" => &self.views.panel_cluster,
+            "bandmap" => &self.views.panel_bandmap,
+            "solar" => &self.views.panel_solar,
+            "satellites" => &self.views.panel_satellites,
+            "world_map" => &self.views.panel_world_map,
+            "waterfall" => &self.views.panel_waterfall,
+            _ => &self.views.panel_vfo,
         }
     }
 
@@ -202,7 +202,7 @@ impl SpLogApp {
         self.left_column_width = 350.0;
         self.right_column_width = 360.0;
 
-        self.panel_vfo = ViewPanelConfig {
+        self.views.panel_vfo = ViewPanelConfig {
             visible: true,
             floating: false,
             column: 0,
@@ -210,7 +210,7 @@ impl SpLogApp {
             saved_pos: None,
             saved_size: None,
         };
-        self.panel_qso = ViewPanelConfig {
+        self.views.panel_qso = ViewPanelConfig {
             visible: true,
             floating: false,
             column: 0,
@@ -218,7 +218,7 @@ impl SpLogApp {
             saved_pos: None,
             saved_size: None,
         };
-        self.panel_log = ViewPanelConfig {
+        self.views.panel_log = ViewPanelConfig {
             visible: true,
             floating: false,
             column: 1,
@@ -226,7 +226,7 @@ impl SpLogApp {
             saved_pos: None,
             saved_size: None,
         };
-        self.panel_cluster = ViewPanelConfig {
+        self.views.panel_cluster = ViewPanelConfig {
             visible: true,
             floating: false,
             column: 1,
@@ -234,7 +234,7 @@ impl SpLogApp {
             saved_pos: None,
             saved_size: None,
         };
-        self.panel_bandmap = ViewPanelConfig {
+        self.views.panel_bandmap = ViewPanelConfig {
             visible: true,
             floating: false,
             column: 0,
@@ -242,7 +242,7 @@ impl SpLogApp {
             saved_pos: None,
             saved_size: None,
         };
-        self.panel_solar = ViewPanelConfig {
+        self.views.panel_solar = ViewPanelConfig {
             visible: true,
             floating: false,
             column: 2,
@@ -250,7 +250,7 @@ impl SpLogApp {
             saved_pos: None,
             saved_size: None,
         };
-        self.panel_satellites = ViewPanelConfig {
+        self.views.panel_satellites = ViewPanelConfig {
             visible: false,
             floating: false,
             column: 2,
@@ -258,7 +258,7 @@ impl SpLogApp {
             saved_pos: None,
             saved_size: None,
         };
-        self.panel_world_map = ViewPanelConfig {
+        self.views.panel_world_map = ViewPanelConfig {
             visible: false,
             floating: false,
             column: 2,
@@ -266,7 +266,7 @@ impl SpLogApp {
             saved_pos: None,
             saved_size: None,
         };
-        self.panel_waterfall = ViewPanelConfig {
+        self.views.panel_waterfall = ViewPanelConfig {
             visible: false,
             floating: false,
             column: 2,
@@ -286,25 +286,25 @@ impl SpLogApp {
 
     pub fn popout_tile(&mut self, tile_id: &str) {
         match tile_id {
-            "vfo" => self.panel_vfo.floating = true,
-            "qso" => self.panel_qso.floating = true,
-            "log" => self.panel_log.floating = true,
-            "cluster" => self.panel_cluster.floating = true,
+            "vfo" => self.views.panel_vfo.floating = true,
+            "qso" => self.views.panel_qso.floating = true,
+            "log" => self.views.panel_log.floating = true,
+            "cluster" => self.views.panel_cluster.floating = true,
             "bandmap" => {
-                self.panel_bandmap.floating = true;
+                self.views.panel_bandmap.floating = true;
                 self.show_bandmap_window = true;
             }
-            "solar" => self.panel_solar.floating = true,
+            "solar" => self.views.panel_solar.floating = true,
             "satellites" => {
-                self.panel_satellites.floating = true;
+                self.views.panel_satellites.floating = true;
                 self.satellites.show_window = true;
             }
             "world_map" => {
-                self.panel_world_map.floating = true;
+                self.views.panel_world_map.floating = true;
                 self.world_map.show_window = true;
             }
             "waterfall" => {
-                self.panel_waterfall.floating = true;
+                self.views.panel_waterfall.floating = true;
             }
             _ => {}
         }
@@ -312,25 +312,25 @@ impl SpLogApp {
 
     pub fn close_tile(&mut self, tile_id: &str) {
         match tile_id {
-            "vfo" => self.panel_vfo.visible = false,
-            "qso" => self.panel_qso.visible = false,
-            "log" => self.panel_log.visible = false,
-            "cluster" => self.panel_cluster.visible = false,
+            "vfo" => self.views.panel_vfo.visible = false,
+            "qso" => self.views.panel_qso.visible = false,
+            "log" => self.views.panel_log.visible = false,
+            "cluster" => self.views.panel_cluster.visible = false,
             "bandmap" => {
-                self.panel_bandmap.visible = false;
+                self.views.panel_bandmap.visible = false;
                 self.show_bandmap_window = false;
             }
-            "solar" => self.panel_solar.visible = false,
+            "solar" => self.views.panel_solar.visible = false,
             "satellites" => {
-                self.panel_satellites.visible = false;
+                self.views.panel_satellites.visible = false;
                 self.satellites.show_window = false;
             }
             "world_map" => {
-                self.panel_world_map.visible = false;
+                self.views.panel_world_map.visible = false;
                 self.world_map.show_window = false;
             }
             "waterfall" => {
-                self.panel_waterfall.visible = false;
+                self.views.panel_waterfall.visible = false;
             }
             _ => {}
         }

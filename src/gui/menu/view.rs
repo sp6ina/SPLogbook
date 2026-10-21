@@ -24,7 +24,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         if ui
             .checkbox(
-                &mut app.panel_vfo.visible,
+                &mut app.views.panel_vfo.visible,
                 icons::RADIO.label(tr(key::VIEW_PANEL_VFO, lang)),
             )
             .changed()
@@ -33,7 +33,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
         if ui
             .checkbox(
-                &mut app.panel_qso.visible,
+                &mut app.views.panel_qso.visible,
                 icons::NEW_QSO.label(tr(key::VIEW_PANEL_QSO, lang)),
             )
             .changed()
@@ -42,7 +42,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
         if ui
             .checkbox(
-                &mut app.panel_log.visible,
+                &mut app.views.panel_log.visible,
                 icons::LOGBOOK.label(tr(key::VIEW_PANEL_LOG, lang)),
             )
             .changed()
@@ -51,7 +51,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
         if ui
             .checkbox(
-                &mut app.panel_cluster.visible,
+                &mut app.views.panel_cluster.visible,
                 icons::CLUSTER.label(tr(key::VIEW_PANEL_CLUSTER, lang)),
             )
             .changed()
@@ -60,17 +60,17 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
         if ui
             .checkbox(
-                &mut app.panel_bandmap.visible,
+                &mut app.views.panel_bandmap.visible,
                 icons::BANDMAP.label(tr(key::VIEW_PANEL_BANDMAP, lang)),
             )
             .changed()
         {
-            app.show_bandmap_window = app.panel_bandmap.visible;
+            app.show_bandmap_window = app.views.panel_bandmap.visible;
             changed = true;
         }
         if ui
             .checkbox(
-                &mut app.panel_solar.visible,
+                &mut app.views.panel_solar.visible,
                 icons::SOLAR.label(tr(key::VIEW_PANEL_SOLAR, lang)),
             )
             .changed()
@@ -79,27 +79,27 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
         if ui
             .checkbox(
-                &mut app.panel_satellites.visible,
+                &mut app.views.panel_satellites.visible,
                 icons::SATELLITE.label(tr(key::VIEW_PANEL_SATELLITES, lang)),
             )
             .changed()
         {
-            app.satellites.show_window = app.panel_satellites.visible;
+            app.satellites.show_window = app.views.panel_satellites.visible;
             changed = true;
         }
         if ui
             .checkbox(
-                &mut app.panel_world_map.visible,
+                &mut app.views.panel_world_map.visible,
                 icons::WORLD_MAP.label(tr(key::VIEW_PANEL_WORLD_MAP, lang)),
             )
             .changed()
         {
-            app.world_map.show_window = app.panel_world_map.visible;
+            app.world_map.show_window = app.views.panel_world_map.visible;
             changed = true;
         }
         if ui
             .checkbox(
-                &mut app.panel_waterfall.visible,
+                &mut app.views.panel_waterfall.visible,
                 icons::SIGNAL_UP.label(tr(key::VIEW_PANEL_WATERFALL, lang)),
             )
             .changed()

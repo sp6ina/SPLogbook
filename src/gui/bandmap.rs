@@ -8,13 +8,13 @@ use crate::gui::theme::ThemeExt;
 use eframe::egui;
 
 pub fn render_bandmap_window(app: &mut SpLogApp, ctx: &egui::Context) {
-    if !app.panel_bandmap.visible {
+    if !app.views.panel_bandmap.visible {
         return;
     }
 
     let lang = app.current_language;
 
-    if app.panel_bandmap.floating {
+    if app.views.panel_bandmap.floating {
         let mut still_open = true;
         let mut dock_back = false;
         let ((), captured_geo) = app.show_floating_viewport(
@@ -23,8 +23,8 @@ pub fn render_bandmap_window(app: &mut SpLogApp, ctx: &egui::Context) {
             format!("📶 {} - SPLogbook", tr(key::BANDMAP_TITLE, lang)),
             [380.0, 360.0],
             [280.0, 220.0],
-            app.panel_bandmap.saved_pos,
-            app.panel_bandmap.saved_size,
+            app.views.panel_bandmap.saved_pos,
+            app.views.panel_bandmap.saved_size,
             |app, ui| {
                 egui::Panel::top("bandmap_vp_bar").show(ui, |ui| {
                     ui.horizontal(|ui| {
@@ -48,27 +48,27 @@ pub fn render_bandmap_window(app: &mut SpLogApp, ctx: &egui::Context) {
         );
 
         if let Some((pos, size)) = captured_geo {
-            if app.panel_bandmap.saved_pos != Some(pos)
-                || app.panel_bandmap.saved_size != Some(size)
+            if app.views.panel_bandmap.saved_pos != Some(pos)
+                || app.views.panel_bandmap.saved_size != Some(size)
             {
-                app.panel_bandmap.saved_pos = Some(pos);
-                app.panel_bandmap.saved_size = Some(size);
+                app.views.panel_bandmap.saved_pos = Some(pos);
+                app.views.panel_bandmap.saved_size = Some(size);
                 app.save_station_config();
             }
         }
         if dock_back {
-            app.panel_bandmap.floating = false;
+            app.views.panel_bandmap.floating = false;
             app.save_station_config();
         }
         if !still_open {
-            app.panel_bandmap.visible = false;
-            app.panel_bandmap.floating = false;
+            app.views.panel_bandmap.visible = false;
+            app.views.panel_bandmap.floating = false;
             app.save_station_config();
         }
         return;
     }
 
-    let mut open = app.panel_bandmap.visible;
+    let mut open = app.views.panel_bandmap.visible;
     let screen = ctx.content_rect();
     let right_w = 360.0_f32.min((screen.width() - 500.0).max(200.0));
     let mid_w = (screen.width() - 488.0 - right_w - 20.0).max(380.0);
@@ -90,8 +90,8 @@ pub fn render_bandmap_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
     if app.reset_layout_requested {
         win = win.current_pos(default_pos).default_size(default_size);
-    } else if let Some(pos) = app.panel_bandmap.saved_pos {
-        let sz = app.panel_bandmap.saved_size.unwrap_or(default_size);
+    } else if let Some(pos) = app.views.panel_bandmap.saved_pos {
+        let sz = app.views.panel_bandmap.saved_size.unwrap_or(default_size);
         win = win.current_pos(pos).default_size(sz);
     } else {
         win = win.default_pos(default_pos).default_size(default_size);
@@ -107,22 +107,22 @@ pub fn render_bandmap_window(app: &mut SpLogApp, ctx: &egui::Context) {
             "bandmap_popout_btn",
             res.response.layer_id,
             res.response.rect,
-            &mut app.panel_bandmap.floating,
+            &mut app.views.panel_bandmap.floating,
             true,
             app.current_language,
         );
-        if app.panel_bandmap.floating {
+        if app.views.panel_bandmap.floating {
             app.save_station_config();
         }
         if res.response.dragged() || res.response.drag_stopped() {
             let rect = res.response.rect;
             let new_pos = [rect.min.x, rect.min.y];
             let new_size = [rect.width(), rect.height()];
-            if app.panel_bandmap.saved_pos != Some(new_pos)
-                || app.panel_bandmap.saved_size != Some(new_size)
+            if app.views.panel_bandmap.saved_pos != Some(new_pos)
+                || app.views.panel_bandmap.saved_size != Some(new_size)
             {
-                app.panel_bandmap.saved_pos = Some(new_pos);
-                app.panel_bandmap.saved_size = Some(new_size);
+                app.views.panel_bandmap.saved_pos = Some(new_pos);
+                app.views.panel_bandmap.saved_size = Some(new_size);
             }
             if res.response.drag_stopped() {
                 app.save_station_config();
@@ -131,7 +131,7 @@ pub fn render_bandmap_window(app: &mut SpLogApp, ctx: &egui::Context) {
     }
 
     if !open {
-        app.panel_bandmap.visible = false;
+        app.views.panel_bandmap.visible = false;
         app.save_station_config();
     }
 }

@@ -178,8 +178,8 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .button(icons::SATELLITE.label(tr(key::TOOLS_SATELLITES, lang)))
             .clicked()
         {
-            app.panel_satellites.visible = true;
-            app.panel_satellites.floating = true;
+            app.views.panel_satellites.visible = true;
+            app.views.panel_satellites.floating = true;
             app.satellites.show_window = true;
             ui.close();
         }

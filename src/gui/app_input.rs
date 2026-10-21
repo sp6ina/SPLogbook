@@ -141,15 +141,15 @@ impl SpLogApp {
                 self.wipe_qso_form();
             }
             if toggle_cluster {
-                self.panel_cluster.visible = true;
+                self.views.panel_cluster.visible = true;
                 self.show_cluster_panel = true;
             }
             if toggle_bandmap {
-                self.panel_bandmap.visible = true;
+                self.views.panel_bandmap.visible = true;
                 self.show_bandmap_window = true;
             }
             if toggle_map {
-                self.panel_world_map.visible = true;
+                self.views.panel_world_map.visible = true;
                 self.world_map.show_window = true;
             }
             if toggle_cw {
@@ -168,7 +168,7 @@ impl SpLogApp {
                 self.cycle_theme();
             }
             if focus_log_ctrl_l {
-                self.panel_log.visible = true;
+                self.views.panel_log.visible = true;
             }
         }
     }

@@ -106,7 +106,7 @@ const COMMANDS: &[Command] = &[
         label_key: key::CMD_WORLD_MAP,
         keywords: "world map",
         run: |app| {
-            app.panel_world_map.visible = true;
+            app.views.panel_world_map.visible = true;
             app.world_map.show_window = true;
         },
     },
@@ -114,14 +114,14 @@ const COMMANDS: &[Command] = &[
         label_key: key::CMD_WATERFALL,
         keywords: "waterfall spectrum sdr fft",
         run: |app| {
-            app.panel_waterfall.visible = true;
+            app.views.panel_waterfall.visible = true;
         },
     },
     Command {
         label_key: key::CMD_SATELLITES,
         keywords: "satellite pass",
         run: |app| {
-            app.panel_satellites.visible = true;
+            app.views.panel_satellites.visible = true;
             app.satellites.show_window = true;
         },
     },
@@ -129,7 +129,7 @@ const COMMANDS: &[Command] = &[
         label_key: key::CMD_SOLAR_PANEL,
         keywords: "solar propagation sfi",
         run: |app| {
-            app.panel_solar.visible = true;
+            app.views.panel_solar.visible = true;
             app.solar.show_panel = true;
         },
     },
@@ -137,7 +137,7 @@ const COMMANDS: &[Command] = &[
         label_key: key::CMD_BANDMAP,
         keywords: "bandmap spots",
         run: |app| {
-            app.panel_bandmap.visible = true;
+            app.views.panel_bandmap.visible = true;
             app.show_bandmap_window = true;
         },
     },
@@ -145,7 +145,7 @@ const COMMANDS: &[Command] = &[
         label_key: key::CMD_CLUSTER,
         keywords: "cluster dx spots",
         run: |app| {
-            app.panel_cluster.visible = true;
+            app.views.panel_cluster.visible = true;
             app.show_cluster_panel = true;
         },
     },
@@ -153,7 +153,7 @@ const COMMANDS: &[Command] = &[
         label_key: key::CMD_VFO,
         keywords: "vfo radio cat",
         run: |app| {
-            app.panel_vfo.visible = true;
+            app.views.panel_vfo.visible = true;
             app.show_vfo_panel = true;
         },
     },
@@ -161,14 +161,14 @@ const COMMANDS: &[Command] = &[
         label_key: key::CMD_QSO_ENTRY,
         keywords: "qso entry form",
         run: |app| {
-            app.panel_qso.visible = true;
+            app.views.panel_qso.visible = true;
         },
     },
     Command {
         label_key: key::CMD_LOGBOOK,
         keywords: "logbook table log",
         run: |app| {
-            app.panel_log.visible = true;
+            app.views.panel_log.visible = true;
         },
     },
     Command {
