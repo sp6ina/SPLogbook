@@ -12,19 +12,19 @@ impl SpLogApp {
     ) -> Vec<(&'static str, crate::core::propagation::PropagationForecast)> {
         use chrono::{Datelike, Timelike};
 
-        let sfi = if self.space_weather.sfi > 0 {
-            self.space_weather.sfi
+        let sfi = if self.solar.space_weather.sfi > 0 {
+            self.solar.space_weather.sfi
         } else {
             140
         };
-        let k_index = self.space_weather.k_index;
+        let k_index = self.solar.space_weather.k_index;
         let now = chrono::Utc::now();
         let hour = now.hour();
         let minute = now.minute();
         let doy = now.ordinal();
         let key = (sfi, k_index, hour, minute, doy);
 
-        if let Some((cached_key, cached)) = &self.solar_propagation_cache {
+        if let Some((cached_key, cached)) = &self.solar.propagation_cache {
             if *cached_key == key {
                 return cached.clone();
             }
@@ -57,7 +57,7 @@ impl SpLogApp {
         let mut newly_opened: Vec<&'static str> = Vec::new();
         for (name, fc) in &forecasts {
             let band = *name;
-            self.propagation_history.record_forecast(
+            self.solar.propagation_history.record_forecast(
                 band,
                 utc_h,
                 sfi,
@@ -65,18 +65,19 @@ impl SpLogApp {
                 fc.reliability_pct,
                 fc.status,
             );
-            if let Some(prev) = self.previous_band_status.get(band).copied() {
+            if let Some(prev) = self.solar.previous_band_status.get(band).copied() {
                 let was_open = prev == crate::core::propagation::BandOpeningStatus::Open;
                 let is_open = fc.status == crate::core::propagation::BandOpeningStatus::Open;
                 if !was_open && is_open {
                     newly_opened.push(band);
                 }
             }
-            self.previous_band_status
+            self.solar
+                .previous_band_status
                 .insert(band.to_string(), fc.status);
         }
 
-        if !newly_opened.is_empty() && self.band_alert_enabled {
+        if !newly_opened.is_empty() && self.solar.band_alert_enabled {
             let names = newly_opened.join(", ");
             crate::media::sounds::play_band_opened_alert();
             self.status_toast = Some((
@@ -88,7 +89,7 @@ impl SpLogApp {
             }
         }
 
-        self.solar_propagation_cache = Some((key, forecasts.clone()));
+        self.solar.propagation_cache = Some((key, forecasts.clone()));
         forecasts
     }
 
@@ -142,10 +143,10 @@ impl SpLogApp {
 
     /// Uruchamia asynchroniczne pobranie warunków solarnych (HamQTH).
     pub fn refresh_solar_weather(&mut self, ctx: &egui::Context) {
-        if self.solar_loading {
+        if self.solar.loading {
             return;
         }
-        self.solar_loading = true;
+        self.solar.loading = true;
 
         let slot: std::sync::Arc<
             std::sync::Mutex<Option<Result<SpaceWeather, crate::cloud::solar::SpaceWeatherError>>>,
@@ -163,23 +164,23 @@ impl SpLogApp {
             ctx_clone.request_repaint();
         });
 
-        self.solar_fetch_slot = Some(slot);
+        self.solar.fetch_slot = Some(slot);
     }
 
     /// Odbiera wynik asynchronicznego pobrania warunków solarnych.
     pub fn poll_solar_fetch(&mut self) {
-        if !self.solar_loading {
+        if !self.solar.loading {
             return;
         }
-        if let Some(ref slot) = self.solar_fetch_slot.clone() {
+        if let Some(ref slot) = self.solar.fetch_slot.clone() {
             if let Ok(mut guard) = slot.try_lock() {
                 if let Some(result) = guard.take() {
-                    self.solar_loading = false;
-                    self.solar_fetch_slot = None;
+                    self.solar.loading = false;
+                    self.solar.fetch_slot = None;
                     match result {
                         Ok(weather) => self.record_solar_sample(weather),
                         Err(e) => {
-                            self.solar_last_alert = Some(
+                            self.solar.last_alert = Some(
                                 Msg::new(key::SOLAR_FETCH_ERROR)
                                     .arg("err", &e.to_string())
                                     .text(self.current_language),
@@ -193,27 +194,27 @@ impl SpLogApp {
 
     /// Zapisuje próbkę warunków solarnych do historii i wykrywa istotne zmiany.
     pub fn record_solar_sample(&mut self, weather: SpaceWeather) {
-        if let Some(prev) = self.solar_history.last() {
+        if let Some(prev) = self.solar.history.last() {
             let k_delta = weather.k_index as i64 - prev.k_index as i64;
             let sfi_delta = weather.sfi as i64 - prev.sfi as i64;
             if k_delta.abs() >= 2 {
-                self.solar_last_alert = Some(
+                self.solar.last_alert = Some(
                     Msg::new(key::SOLAR_K_INDEX_ALERT)
                         .arg("prev", prev.k_index)
                         .arg("curr", weather.k_index)
                         .text(self.current_language),
                 );
             } else if sfi_delta.abs() >= 20 {
-                self.solar_last_alert =
+                self.solar.last_alert =
                     Some(format!("ℹ Zmiana SFI: {} → {}", prev.sfi, weather.sfi));
             } else {
-                self.solar_last_alert = None;
+                self.solar.last_alert = None;
             }
         }
 
-        self.space_weather = weather.clone();
+        self.solar.space_weather = weather.clone();
 
-        let differs = match self.solar_history.last() {
+        let differs = match self.solar.history.last() {
             Some(p) => {
                 p.sfi != weather.sfi
                     || p.ssn != weather.ssn
@@ -223,9 +224,9 @@ impl SpLogApp {
             None => true,
         };
         if differs {
-            self.solar_history.push(weather);
-            if self.solar_history.len() > 96 {
-                self.solar_history.remove(0);
+            self.solar.history.push(weather);
+            if self.solar.history.len() > 96 {
+                self.solar.history.remove(0);
             }
         }
     }

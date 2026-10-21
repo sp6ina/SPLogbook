@@ -60,7 +60,7 @@ impl SpLogApp {
 
                 let prop_txt = format!(
                     "🌞 SFI {} | K {}",
-                    self.space_weather.sfi, self.space_weather.k_index
+                    self.solar.space_weather.sfi, self.solar.space_weather.k_index
                 );
                 ui.label(
                     egui::RichText::new(prop_txt)

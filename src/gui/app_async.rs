@@ -370,7 +370,7 @@ impl SpLogApp {
                                     false
                                 };
 
-                            if is_atno && self.band_alert_enabled {
+                            if is_atno && self.solar.band_alert_enabled {
                                 crate::media::sounds::play_new_dxcc_alert();
                                 self.status_toast = Some((
                                     format!(

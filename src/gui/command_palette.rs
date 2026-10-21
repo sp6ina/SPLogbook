@@ -130,7 +130,7 @@ const COMMANDS: &[Command] = &[
         keywords: "solar propagation sfi",
         run: |app| {
             app.panel_solar.visible = true;
-            app.show_solar_panel = true;
+            app.solar.show_panel = true;
         },
     },
     Command {

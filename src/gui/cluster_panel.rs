@@ -442,19 +442,19 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         // Alert dźwiękowy dla nowych DXCC
         ui.separator();
         if ui
-            .button(if app.band_alert_enabled {
+            .button(if app.solar.band_alert_enabled {
                 "🔔 Alert ON"
             } else {
                 "🔕 Alert OFF"
             })
             .on_hover_text(
                 Msg::new(key::CLUSTER_ALERT_TOOLTIP)
-                    .arg("threshold", app.band_alert_k_index_threshold)
+                    .arg("threshold", app.solar.band_alert_k_index_threshold)
                     .text(lang),
             )
             .clicked()
         {
-            app.band_alert_enabled = !app.band_alert_enabled;
+            app.solar.band_alert_enabled = !app.solar.band_alert_enabled;
         }
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

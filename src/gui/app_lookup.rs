@@ -57,12 +57,12 @@ impl SpLogApp {
                 let now = chrono::Utc::now();
                 let utc_hour = now.hour() as f64 + (now.minute() as f64) / 60.0;
                 let day_of_year = now.ordinal();
-                let sfi = if self.space_weather.sfi > 0 {
-                    self.space_weather.sfi
+                let sfi = if self.solar.space_weather.sfi > 0 {
+                    self.solar.space_weather.sfi
                 } else {
                     140
                 };
-                let k_index = self.space_weather.k_index;
+                let k_index = self.solar.space_weather.k_index;
                 let freq_mhz = crate::core::propagation::band_to_center_mhz(&self.entry_band)
                     .unwrap_or(14.175);
                 self.active_propagation =
@@ -227,12 +227,12 @@ impl SpLogApp {
                 let now = chrono::Utc::now();
                 let utc_hour = now.hour() as f64 + (now.minute() as f64) / 60.0;
                 let day_of_year = now.ordinal();
-                let sfi = if self.space_weather.sfi > 0 {
-                    self.space_weather.sfi
+                let sfi = if self.solar.space_weather.sfi > 0 {
+                    self.solar.space_weather.sfi
                 } else {
                     140
                 };
-                let k_index = self.space_weather.k_index;
+                let k_index = self.solar.space_weather.k_index;
                 let freq_mhz = crate::core::propagation::band_to_center_mhz(&self.entry_band)
                     .unwrap_or(14.175);
                 self.active_propagation =

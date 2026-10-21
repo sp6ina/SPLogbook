@@ -3,7 +3,6 @@
 
 use crate::cat::hamlib::RigState;
 use crate::cat::rotor::RotorState;
-use crate::cloud::solar::SpaceWeather;
 use crate::cluster::telnet::ClusterEvent;
 use crate::cluster::telnet::DxSpot;
 use crate::core::awards::{AwardsEngine, PolishDistrictInfo, QsoAwardStatus};
@@ -161,28 +160,14 @@ pub struct SpLogApp {
     /// Cache kolorów/odznak spotów klastra (unika przeliczania prefiksu i statusu
     /// nagród w każdej klatce). Czyszczony przy zmianie danych nagród.
     pub cluster_badge_cache: std::collections::HashMap<String, SpotBadgeKind>,
-    pub space_weather: SpaceWeather,
-    /// Cache prognoz propagacyjnych panelu słonecznego (VOACAP-lite).
-    pub solar_propagation_cache: Option<(
-        (u32, u32, u32, u32, u32),
-        Vec<(&'static str, crate::core::propagation::PropagationForecast)>,
-    )>,
-
     // WSPR Monitor
     pub wspr: crate::gui::state::WsprState,
 
     // Moduł Satelitów
     pub satellites: crate::gui::state::SatelliteState,
 
-    // Historia warunków solarnych (dla wykresu + alertu)
-    pub solar_history: Vec<SpaceWeather>,
-    pub solar_loading: bool,
-    pub solar_fetch_slot: Option<
-        std::sync::Arc<
-            std::sync::Mutex<Option<Result<SpaceWeather, crate::cloud::solar::SpaceWeatherError>>>,
-        >,
-    >,
-    pub solar_last_alert: Option<String>,
+    // Moduł Pogody Kosmicznej i Propagacji Słonecznej
+    pub solar: crate::gui::state::SolarState,
 
     // Moduł Zawodów
     pub show_contest_window: bool,
@@ -240,7 +225,6 @@ pub struct SpLogApp {
     pub pending_restart: bool,
     pub show_vfo_panel: bool,
     pub show_cluster_panel: bool,
-    pub show_solar_panel: bool,
 
     // CAT / Hamlib konfiguracja
     pub cat_host: String,
@@ -504,10 +488,6 @@ pub struct SpLogApp {
     pub rest_api_key: String,
     pub api_reload_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
 
-    // Band opening alerts (K-index threshold)
-    pub band_alert_k_index_threshold: u8,
-    pub band_alert_enabled: bool,
-
     // System pluginów użytkownika (Rhai)
     pub plugins_enabled: bool,
     pub plugins_dir: String,
@@ -523,13 +503,6 @@ pub struct SpLogApp {
     // Zintegrowany pasek asystenta operatora
     pub operator_assistant_enabled: bool,
     pub show_operator_assistant: bool,
-    pub show_propagation_explain: bool,
-
-    // Historia i weryfikacja dokładności prognoz propagacyjnych
-    pub propagation_history: crate::core::propagation_history::PropagationHistory,
-    /// Poprzednie statusy otwarcia pasm (do wykrywania przejść otwarcia/zamknięcia).
-    pub previous_band_status:
-        std::collections::HashMap<String, crate::core::propagation::BandOpeningStatus>,
 
     // PTT control
     pub ptt_active: bool,
@@ -823,17 +796,13 @@ impl SpLogApp {
             cluster_spots: sample_spots,
             cluster_spots_api: None,
             cluster_badge_cache: std::collections::HashMap::new(),
-            space_weather: SpaceWeather::default(),
-            solar_propagation_cache: None,
-
             wspr: crate::gui::state::WsprState::default(),
 
             satellites: crate::gui::state::SatelliteState::default(),
 
-            solar_history: vec![SpaceWeather::default()],
-            solar_loading: false,
-            solar_fetch_slot: None,
-            solar_last_alert: None,
+            solar: crate::gui::state::SolarState::with_propagation_history(
+                init.config.propagation_history,
+            ),
 
             show_contest_window: false,
             contest_name: "SP DX Contest".to_string(),
@@ -881,7 +850,6 @@ impl SpLogApp {
             command_palette_selected: 0,
             show_vfo_panel: true,
             show_cluster_panel: true,
-            show_solar_panel: true,
 
             cat_host: init.config.cat_host,
             cat_port: init.config.cat_port,
@@ -1122,10 +1090,6 @@ impl SpLogApp {
             rest_api_key: init.config.rest_api_key.clone(),
             api_reload_flag: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
 
-            // Band opening alerts
-            band_alert_k_index_threshold: 4,
-            band_alert_enabled: true,
-
             // System pluginów użytkownika (Rhai)
             plugins_enabled: init.config.plugins_enabled,
             plugins_dir: init.config.plugins_dir.clone(),
@@ -1140,11 +1104,6 @@ impl SpLogApp {
             // Zintegrowany pasek asystenta operatora
             operator_assistant_enabled: init.config.operator_assistant_enabled,
             show_operator_assistant: init.config.operator_assistant_enabled,
-            show_propagation_explain: false,
-
-            // Historia i weryfikacja prognoz propagacyjnych
-            propagation_history: init.config.propagation_history.clone(),
-            previous_band_status: std::collections::HashMap::new(),
 
             // PTT
             ptt_active: false,
@@ -2332,7 +2291,7 @@ mod tests {
         let qso = QsoRecord::new("SP1TEST", "20m", "CW");
         let mut effects = crate::core::ingest::PostEffects::default();
 
-        app.propagation_history.record_forecast(
+        app.solar.propagation_history.record_forecast(
             "20m",
             12.0,
             120,
@@ -2340,8 +2299,8 @@ mod tests {
             85,
             crate::core::propagation::BandOpeningStatus::Open,
         );
-        assert_eq!(app.propagation_history.records.len(), 1);
-        assert!(app.propagation_history.records[0].observed.is_none());
+        assert_eq!(app.solar.propagation_history.records.len(), 1);
+        assert!(app.solar.propagation_history.records[0].observed.is_none());
 
         let outcome = IngestOutcome {
             origin: QsoOrigin::Form,
@@ -2353,7 +2312,7 @@ mod tests {
 
         // Bez flag - obserwacja nie jest zapisana
         app.apply_post_effects(&outcome);
-        assert!(app.propagation_history.records[0].observed.is_none());
+        assert!(app.solar.propagation_history.records[0].observed.is_none());
 
         // Włączona flaga propagation_observation
         effects.propagation_observation = true;
@@ -2366,7 +2325,7 @@ mod tests {
         };
         app.apply_post_effects(&outcome_with_prop);
         assert_eq!(
-            app.propagation_history.records[0].observed,
+            app.solar.propagation_history.records[0].observed,
             Some(crate::core::propagation_history::ObservedOutcome::ConfirmedOpen)
         );
     }

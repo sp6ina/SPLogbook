@@ -152,15 +152,15 @@ pub fn render_operator_assistant(app: &mut SpLogApp, ctx: &egui::Context) {
     }
 
     let forecasts = app.solar_band_forecasts();
-    let k_index = app.space_weather.k_index;
+    let k_index = app.solar.space_weather.k_index;
     let band = current_band(app);
     let lang = app.current_language;
     let rec = recommend(&forecasts, &band, k_index, lang);
 
     // Wytłumaczalność aktualnego pasma (rzeczywista trasa jeśli znany lokator).
     let explanation: Option<crate::core::propagation::PropagationExplanation> = {
-        let sfi = if app.space_weather.sfi > 0 {
-            app.space_weather.sfi
+        let sfi = if app.solar.space_weather.sfi > 0 {
+            app.solar.space_weather.sfi
         } else {
             140
         };

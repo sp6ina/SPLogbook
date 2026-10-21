@@ -146,7 +146,7 @@ pub fn render_solar_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .color(palette.text_muted),
         );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if app.solar_loading {
+            if app.solar.loading {
                 ui.spinner();
                 ui.label(tr(key::SOLAR_FETCHING, lang));
             } else {
@@ -159,7 +159,7 @@ pub fn render_solar_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     });
 
     // Alert o istotnej zmianie propagacji
-    if let Some(alert) = app.solar_last_alert.as_ref() {
+    if let Some(alert) = app.solar.last_alert.as_ref() {
         let color = if alert.starts_with('⚠') {
             palette.warning
         } else {
@@ -169,7 +169,7 @@ pub fn render_solar_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     }
 
     // Historia SFI (sparkline)
-    let sfi_values: Vec<f64> = app.solar_history.iter().map(|w| w.sfi as f64).collect();
+    let sfi_values: Vec<f64> = app.solar.history.iter().map(|w| w.sfi as f64).collect();
     if sfi_values.len() >= 2 {
         let min = sfi_values.iter().copied().fold(f64::INFINITY, f64::min);
         let max = sfi_values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
@@ -190,7 +190,7 @@ pub fn render_solar_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         });
     }
 
-    let weather = app.space_weather.clone();
+    let weather = app.solar.space_weather.clone();
 
     ui.columns(4, |cols| {
         cols[0].vertical_centered(|ui| {

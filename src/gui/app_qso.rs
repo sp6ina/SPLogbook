@@ -144,7 +144,7 @@ impl SpLogApp {
         let effects = &outcome.effects;
 
         // 1. Dźwięki i alerty (alert_sound)
-        if effects.alert_sound && self.band_alert_enabled {
+        if effects.alert_sound && self.solar.band_alert_enabled {
             if let Some(status) = &self.active_award_status {
                 if status.is_new_dxcc {
                     crate::media::sounds::play_new_dxcc_alert();
@@ -162,7 +162,7 @@ impl SpLogApp {
 
         // 2. Weryfikacja prognozy propagacyjnej (propagation_observation)
         if effects.propagation_observation {
-            self.propagation_history.record_observation(
+            self.solar.propagation_history.record_observation(
                 &qso.band,
                 crate::core::propagation_history::ObservedOutcome::ConfirmedOpen,
             );

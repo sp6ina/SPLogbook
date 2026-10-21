@@ -6,6 +6,7 @@ pub mod duplicates;
 pub mod ledger;
 pub mod marketplace;
 pub mod satellite;
+pub mod solar;
 pub mod voice_keyer;
 pub mod wspr;
 
@@ -14,5 +15,6 @@ pub use duplicates::DuplicatesState;
 pub use ledger::EquipmentLedgerState;
 pub use marketplace::MarketplaceState;
 pub use satellite::SatelliteState;
+pub use solar::{SolarFetchSlot, SolarState};
 pub use voice_keyer::VoiceKeyerState;
 pub use wspr::{WsprFetchSlot, WsprState};

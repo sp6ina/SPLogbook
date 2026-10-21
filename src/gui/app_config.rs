@@ -78,7 +78,7 @@ impl SpLogApp {
             plugins_enabled: self.plugins_enabled,
             plugins_dir: self.plugins_dir.clone(),
             operator_assistant_enabled: self.operator_assistant_enabled,
-            propagation_history: self.propagation_history.clone(),
+            propagation_history: self.solar.propagation_history.clone(),
 
             lan_sync_port: self.lan_sync_port,
             lan_sync_server_ip: self.lan_sync_server_ip.clone(),
