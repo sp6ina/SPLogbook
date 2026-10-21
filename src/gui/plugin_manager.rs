@@ -12,11 +12,11 @@ use eframe::egui;
 
 /// Rysuje okno menedżera pluginów, jeśli jest otwarte.
 pub fn render_plugin_manager(app: &mut SpLogApp, ctx: &egui::Context) {
-    if !app.show_plugin_manager {
+    if !app.plugins_ui.show_manager {
         return;
     }
 
-    let mut open = app.show_plugin_manager;
+    let mut open = app.plugins_ui.show_manager;
     let lang = app.current_language;
     egui::Window::new(tr(key::PLUGINS_WINDOW_TITLE, lang))
         .open(&mut open)
@@ -118,33 +118,33 @@ pub fn render_plugin_manager(app: &mut SpLogApp, ctx: &egui::Context) {
                 );
                 if ui.small_button(tr(key::PLUGINS_REFRESH, lang)).clicked() {
                     let logs = app.plugin_engine.drain_log();
-                    app.plugin_log.extend(logs);
-                    if app.plugin_log.len() > 200 {
-                        let overflow = app.plugin_log.len() - 200;
-                        app.plugin_log.drain(0..overflow);
+                    app.plugins_ui.log.extend(logs);
+                    if app.plugins_ui.log.len() > 200 {
+                        let overflow = app.plugins_ui.log.len() - 200;
+                        app.plugins_ui.log.drain(0..overflow);
                     }
                 }
                 if ui.small_button(tr(key::PLUGINS_CLEAR, lang)).clicked() {
-                    app.plugin_log.clear();
+                    app.plugins_ui.log.clear();
                 }
             });
 
             egui::ScrollArea::vertical()
                 .max_height(120.0)
                 .show(ui, |ui| {
-                    if app.plugin_log.is_empty() {
+                    if app.plugins_ui.log.is_empty() {
                         ui.label(
                             egui::RichText::new(tr(key::PLUGINS_NO_LOGS, lang))
                                 .italics()
                                 .color(palette.text_muted),
                         );
                     } else {
-                        for line in &app.plugin_log {
+                        for line in &app.plugins_ui.log {
                             ui.label(egui::RichText::new(line).monospace().small());
                         }
                     }
                 });
         });
 
-    app.show_plugin_manager = open;
+    app.plugins_ui.show_manager = open;
 }

@@ -483,14 +483,11 @@ pub struct SpLogApp {
     // System pluginów użytkownika (Rhai)
     pub plugins_enabled: bool,
     pub plugins_dir: String,
-    pub show_plugin_manager: bool,
     pub plugin_engine: crate::plugins::PluginEngine,
-    pub plugin_log: Vec<String>,
-    pub plugin_notifications: Vec<String>,
+    pub plugins_ui: crate::gui::state::PluginUiState,
 
     // Marketplace pluginów (katalog + instalacja jednym kliknięciem)
     pub marketplace: crate::gui::state::MarketplaceState,
-    plugin_lookup_rx: Option<std::sync::mpsc::Receiver<crate::plugins::bridge::PluginLookupResult>>,
 
     // Zintegrowany pasek asystenta operatora
     pub operator_assistant_enabled: bool,
@@ -1073,13 +1070,10 @@ impl SpLogApp {
             // System pluginów użytkownika (Rhai)
             plugins_enabled: init.config.plugins_enabled,
             plugins_dir: init.config.plugins_dir.clone(),
-            show_plugin_manager: false,
             plugin_engine: crate::plugins::PluginEngine::new(),
-            plugin_log: Vec::new(),
-            plugin_notifications: Vec::new(),
+            plugins_ui: crate::gui::state::PluginUiState::default(),
 
             marketplace: crate::gui::state::MarketplaceState::default(),
-            plugin_lookup_rx: None,
 
             // Zintegrowany pasek asystenta operatora
             operator_assistant_enabled: init.config.operator_assistant_enabled,

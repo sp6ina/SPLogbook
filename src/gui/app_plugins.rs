@@ -79,7 +79,7 @@ impl SpLogApp {
     /// odpowiadające haki (`on_pota_info` / `on_sota_info`).
     pub fn poll_plugin_lookup(&mut self) {
         let mut result = None;
-        if let Some(rx) = &self.plugin_lookup_rx {
+        if let Some(rx) = &self.plugins_ui.lookup_rx {
             if let Ok(r) = rx.try_recv() {
                 result = Some(r);
             }

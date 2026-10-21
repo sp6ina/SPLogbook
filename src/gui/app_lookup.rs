@@ -321,7 +321,7 @@ impl SpLogApp {
             return;
         }
         let (tx, rx) = std::sync::mpsc::channel();
-        self.plugin_lookup_rx = Some(rx);
+        self.plugins_ui.lookup_rx = Some(rx);
         let reference = reference.clone();
         tokio::spawn(async move {
             let result = match crate::plugins::lookups::lookup_pota(&reference).await {
@@ -343,7 +343,7 @@ impl SpLogApp {
             return;
         }
         let (tx, rx) = std::sync::mpsc::channel();
-        self.plugin_lookup_rx = Some(rx);
+        self.plugins_ui.lookup_rx = Some(rx);
         let reference = reference.clone();
         tokio::spawn(async move {
             let result = match crate::plugins::lookups::lookup_sota(&reference).await {
