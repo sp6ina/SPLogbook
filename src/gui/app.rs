@@ -58,70 +58,7 @@ use egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
 use std::fmt::Write as _;
 use std::sync::{Arc, Mutex};
 
-/// Filtr „drill-down”: kliknięcie słupka/wiersza w statystykach przenosi do
-/// listy QSO spełniających kryterium. Przechowywany na `SpLogApp` i stosowany
-/// w tabeli logu (obok wyszukiwarki tekstowej).
-#[derive(Clone, Debug, PartialEq)]
-pub enum DrillFilter {
-    Band(String),
-    Mode(String),
-    Country(String),
-    Month(String), // "YYYY-MM"
-    Hour(u32),     // 0..=23
-    Qsl(QslDrillStatus),
-}
-
-/// Kategoria statusu QSL używana w drill-down z zakładki QSL statystyk.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum QslDrillStatus {
-    Lotw,
-    Eqsl,
-    Paper,
-    None,
-}
-
-impl DrillFilter {
-    /// Czy dany rekord QSO spełnia filtr drill-down.
-    pub fn matches(&self, q: &QsoRecord) -> bool {
-        match self {
-            DrillFilter::Band(b) => q.band.eq_ignore_ascii_case(b),
-            DrillFilter::Mode(m) => q.mode.eq_ignore_ascii_case(m),
-            DrillFilter::Country(c) => q.country.as_deref().unwrap_or("").eq_ignore_ascii_case(c),
-            DrillFilter::Month(m) => {
-                // Akceptuje zarówno "YYYY-MM-DD", jak i "YYYYMMDD".
-                q.qso_date.replace('-', "").starts_with(&m.replace('-', ""))
-            }
-            DrillFilter::Hour(h) => {
-                // Pierwsze dwie cyfry czasu to godzina (dla "HH:MM:SS" i "HHMMSS").
-                let hh = format!("{h:02}");
-                q.time_on.chars().take(2).collect::<String>() == hh
-            }
-            DrillFilter::Qsl(st) => match st {
-                QslDrillStatus::Lotw => q.lotw_qsl_rcvd == "Y",
-                QslDrillStatus::Eqsl => q.eqsl_qsl_rcvd == "Y",
-                QslDrillStatus::Paper => q.qsl_rcvd == "Y",
-                QslDrillStatus::None => {
-                    q.lotw_qsl_rcvd != "Y" && q.eqsl_qsl_rcvd != "Y" && q.qsl_rcvd != "Y"
-                }
-            },
-        }
-    }
-
-    /// Krótka, czytelna etykieta aktywnego filtra (dla paska w tabeli logu).
-    pub fn label(&self) -> String {
-        match self {
-            DrillFilter::Band(b) => format!("📻 {b}"),
-            DrillFilter::Mode(m) => format!("📡 {m}"),
-            DrillFilter::Country(c) => format!("🌍 {c}"),
-            DrillFilter::Month(m) => format!("📅 {m}"),
-            DrillFilter::Hour(h) => format!("⏰ {h:02}:00"),
-            DrillFilter::Qsl(QslDrillStatus::Lotw) => "📬 LoTW".to_string(),
-            DrillFilter::Qsl(QslDrillStatus::Eqsl) => "📬 eQSL".to_string(),
-            DrillFilter::Qsl(QslDrillStatus::Paper) => "📬 QSL".to_string(),
-            DrillFilter::Qsl(QslDrillStatus::None) => "📬 Brak".to_string(),
-        }
-    }
-}
+pub use crate::gui::drill_filter::{DrillFilter, QslDrillStatus};
 
 /// Główny stan aplikacji natywnego pulpitu SPLogbook
 #[derive(Clone, Copy, Debug, PartialEq)]
