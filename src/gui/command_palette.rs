@@ -203,7 +203,7 @@ const COMMANDS: &[Command] = &[
         label_key: key::CMD_FIND_DUPLICATES,
         keywords: "duplicates find",
         run: |app| {
-            app.show_find_duplicates_window = true;
+            app.duplicates.show_window = true;
         },
     },
     Command {

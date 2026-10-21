@@ -7,12 +7,12 @@ use crate::gui::theme::ThemeExt;
 use eframe::egui;
 
 pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
-    if !app.show_find_duplicates_window {
+    if !app.duplicates.show_window {
         return;
     }
 
     let lang = app.current_language;
-    let mut is_open = app.show_find_duplicates_window;
+    let mut is_open = app.duplicates.show_window;
     let mut close_requested = false;
     let mut scan_requested = false;
     let mut delete_requested = false;
@@ -33,7 +33,7 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 ui.label(egui::RichText::new(tr(key::DUPLICATES_CRITERIA, lang)).strong());
                 if ui
                     .checkbox(
-                        &mut app.duplicates_match_date,
+                        &mut app.duplicates.match_date,
                         tr(key::DUPLICATES_SAME_DAY, lang),
                     )
                     .changed()
@@ -63,23 +63,23 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         .color(palette.text_muted),
                 );
                 if ui.button(tr(key::DUPLICATES_KEEP_OLDEST, lang)).clicked() {
-                    app.duplicates_selected_ids.clear();
-                    for group in &app.duplicates_groups {
+                    app.duplicates.selected_ids.clear();
+                    for group in &app.duplicates.groups {
                         for qso in group.iter().skip(1) {
                             if let Some(id) = qso.id {
-                                app.duplicates_selected_ids.insert(id);
+                                app.duplicates.selected_ids.insert(id);
                             }
                         }
                     }
                 }
 
                 if ui.button(tr(key::DUPLICATES_KEEP_NEWEST, lang)).clicked() {
-                    app.duplicates_selected_ids.clear();
-                    for group in &app.duplicates_groups {
+                    app.duplicates.selected_ids.clear();
+                    for group in &app.duplicates.groups {
                         let count = group.len();
                         for qso in group.iter().take(count.saturating_sub(1)) {
                             if let Some(id) = qso.id {
-                                app.duplicates_selected_ids.insert(id);
+                                app.duplicates.selected_ids.insert(id);
                             }
                         }
                     }
@@ -89,8 +89,8 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     .button(tr(key::DUPLICATES_KEEP_CONFIRMED, lang))
                     .clicked()
                 {
-                    app.duplicates_selected_ids.clear();
-                    for group in &app.duplicates_groups {
+                    app.duplicates.selected_ids.clear();
+                    for group in &app.duplicates.groups {
                         let has_confirmed = group.iter().any(|q| {
                             q.lotw_qsl_rcvd == "Y"
                                 || q.lotw_qsl_rcvd == "V"
@@ -105,7 +105,7 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     || qso.qsl_rcvd == "Y";
                                 if !is_conf {
                                     if let Some(id) = qso.id {
-                                        app.duplicates_selected_ids.insert(id);
+                                        app.duplicates.selected_ids.insert(id);
                                     }
                                 }
                             }
@@ -114,18 +114,18 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 }
 
                 if ui.button(tr(key::DUPLICATES_CLEAR_SEL, lang)).clicked() {
-                    app.duplicates_selected_ids.clear();
+                    app.duplicates.selected_ids.clear();
                 }
             });
 
-            if let Some(ref st) = app.duplicates_status {
+            if let Some(ref st) = app.duplicates.status {
                 ui.add_space(2.0);
                 ui.label(egui::RichText::new(st).size(11.0).color(palette.warning));
             }
 
             ui.separator();
 
-            if app.duplicates_groups.is_empty() {
+            if app.duplicates.groups.is_empty() {
                 ui.vertical_centered(|ui| {
                     ui.add_space(30.0);
                     ui.label(egui::RichText::new("✨").size(24.0));
@@ -135,7 +135,7 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     .auto_shrink([false, false])
                     .max_height(340.0)
                     .show(ui, |ui| {
-                        for (grp_idx, group) in app.duplicates_groups.iter().enumerate() {
+                        for (grp_idx, group) in app.duplicates.groups.iter().enumerate() {
                             if group.is_empty() {
                                 continue;
                             }
@@ -190,12 +190,12 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                         for qso in group {
                                             if let Some(id) = qso.id {
                                                 let mut checked =
-                                                    app.duplicates_selected_ids.contains(&id);
+                                                    app.duplicates.selected_ids.contains(&id);
                                                 if ui.checkbox(&mut checked, "").changed() {
                                                     if checked {
-                                                        app.duplicates_selected_ids.insert(id);
+                                                        app.duplicates.selected_ids.insert(id);
                                                     } else {
-                                                        app.duplicates_selected_ids.remove(&id);
+                                                        app.duplicates.selected_ids.remove(&id);
                                                     }
                                                 }
                                                 ui.label(format!("#{id}"));
@@ -244,7 +244,7 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
             ui.separator();
 
             ui.horizontal(|ui| {
-                let sel_count = app.duplicates_selected_ids.len();
+                let sel_count = app.duplicates.selected_ids.len();
                 ui.label(
                     egui::RichText::new(format!(
                         "{} {}",
@@ -277,48 +277,48 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
     if close_requested {
         is_open = false;
     }
-    app.show_find_duplicates_window = is_open;
+    app.duplicates.show_window = is_open;
 
     if scan_requested {
         let db = app
             .log_db
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        match db.find_duplicate_qsos(app.duplicates_match_date) {
+        match db.find_duplicate_qsos(app.duplicates.match_date) {
             Ok(groups) => {
                 let total_dups: usize = groups.iter().map(std::vec::Vec::len).sum();
-                app.duplicates_status = Some(format!(
+                app.duplicates.status = Some(format!(
                     "Found {} duplicate groups (total {} records)",
                     groups.len(),
                     total_dups
                 ));
-                app.duplicates_groups = groups;
-                app.duplicates_selected_ids.clear();
+                app.duplicates.groups = groups;
+                app.duplicates.selected_ids.clear();
             }
             Err(e) => {
-                app.duplicates_status = Some(e.to_string());
+                app.duplicates.status = Some(e.to_string());
             }
         }
     }
 
     if delete_requested {
-        let ids: Vec<i64> = app.duplicates_selected_ids.iter().copied().collect();
+        let ids: Vec<i64> = app.duplicates.selected_ids.iter().copied().collect();
         let db = app
             .log_db
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         match db.delete_multiple_qsos(&ids) {
             Ok(deleted) => {
-                app.duplicates_status = Some(format!("Deleted {deleted} duplicates"));
-                app.duplicates_selected_ids.clear();
-                if let Ok(groups) = db.find_duplicate_qsos(app.duplicates_match_date) {
-                    app.duplicates_groups = groups;
+                app.duplicates.status = Some(format!("Deleted {deleted} duplicates"));
+                app.duplicates.selected_ids.clear();
+                if let Ok(groups) = db.find_duplicate_qsos(app.duplicates.match_date) {
+                    app.duplicates.groups = groups;
                 }
                 drop(db);
                 app.reload_qsos();
             }
             Err(e) => {
-                app.duplicates_status = Some(e.to_string());
+                app.duplicates.status = Some(e.to_string());
             }
         }
     }

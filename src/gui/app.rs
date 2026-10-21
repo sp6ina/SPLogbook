@@ -677,11 +677,7 @@ pub struct SpLogApp {
     pub cluster_filter_pota_sota_only: bool,
 
     // Wyszukiwanie i usuwanie duplikatów w logu
-    pub show_find_duplicates_window: bool,
-    pub duplicates_match_date: bool,
-    pub duplicates_groups: Vec<Vec<crate::core::qso::QsoRecord>>,
-    pub duplicates_selected_ids: std::collections::HashSet<i64>,
-    pub duplicates_status: Option<String>,
+    pub duplicates: crate::gui::state::DuplicatesState,
 
     // Profile stacji roboczej (Wieloprofilowość)
     pub show_station_profiles_window: bool,
@@ -1337,11 +1333,7 @@ impl SpLogApp {
             cluster_filter_pota_sota_only: false,
 
             // Wyszukiwanie duplikatów
-            show_find_duplicates_window: false,
-            duplicates_match_date: false,
-            duplicates_groups: Vec::new(),
-            duplicates_selected_ids: std::collections::HashSet::new(),
-            duplicates_status: None,
+            duplicates: crate::gui::state::DuplicatesState::default(),
 
             // Profile stacji roboczej
             show_station_profiles_window: false,
