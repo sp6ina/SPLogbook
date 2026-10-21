@@ -513,7 +513,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .on_hover_text(tr(key::QSO_BROWSE_IOTA_TOOLTIP, lang))
             .clicked()
         {
-            app.iota_dialog.open();
+            app.gui.dialogs.iota_dialog.open();
         }
 
         ui.add_space(4.0);
@@ -532,7 +532,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .on_hover_text(tr(key::QSO_BROWSE_STATES_TOOLTIP, lang))
             .clicked()
         {
-            app.states_dialog.open();
+            app.gui.dialogs.states_dialog.open();
         }
 
         ui.add_space(4.0);
@@ -569,7 +569,10 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         {
             let call = app.entry_callsign.clone();
             let sdb = app.service_db.clone();
-            app.qsl_manager_dialog.open_for_call(&call, &sdb);
+            app.gui
+                .dialogs
+                .qsl_manager_dialog
+                .open_for_call(&call, &sdb);
         }
 
         if let Some(ref mgr_rec) = app.active_qsl_manager_record {
@@ -582,7 +585,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .clicked()
         {
             let call = app.entry_callsign.clone();
-            app.photo_viewer_dialog.open(&call, None);
+            app.gui.dialogs.photo_viewer_dialog.open(&call, None);
         }
         entry_field_ids.push(mgr_resp.id);
     });

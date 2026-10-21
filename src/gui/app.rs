@@ -15,38 +15,27 @@ use crate::core::qso::QsoRecord;
 use crate::core::scp::ScpEngine;
 use crate::core::service_db::{QslManagerRecord, ServiceDatabase};
 use crate::core::station::{AppConfig, StationProfile, ViewPanelConfig, WorkspaceProfile};
-use crate::gui::astronomy_dialog::AstronomyDialog;
 use crate::gui::awards_matrix::render_awards_matrix_window;
 use crate::gui::bandmap::render_bandmap_window;
 use crate::gui::cat_settings::render_cat_settings_window;
 use crate::gui::cluster_panel::render_cluster_window;
 use crate::gui::contest::{render_contest_window, render_custom_contest_editor};
-use crate::gui::csv_export_dialog::CsvExportDialog;
 use crate::gui::cw_macros::render_cw_macros_window;
 use crate::gui::icons;
-use crate::gui::iota_browser::IotaBrowserDialog;
 use crate::gui::logbook_table::{
     render_column_settings, render_edit_qso_dialog, render_logbook_window,
 };
 use crate::gui::menu::{render_main_toolbar, render_menu_bar};
 use crate::gui::online_sync::render_online_sync_window;
-use crate::gui::photo_viewer::PhotoViewerDialog;
-use crate::gui::prefix_manager::PrefixManagerDialog;
-use crate::gui::qsl_manager::QslManagerDialog;
 use crate::gui::qso_entry::render_qso_entry_window;
 use crate::gui::satellites::render_satellites_window;
-use crate::gui::send_spot::SendSpotDialog;
 use crate::gui::solar_panel::render_solar_window;
-use crate::gui::sota_dialog::SotaDialog;
-use crate::gui::states_browser::StatesBrowserDialog;
 use crate::gui::station_ledger::render_station_ledger_window;
 use crate::gui::statistics::render_statistics_window;
 use crate::gui::theme::ThemeExt;
 use crate::gui::vfo_panel::render_vfo_window;
 use crate::gui::voice_keyer::render_voice_keyer_window;
-use crate::gui::waterfall_panel::WaterfallPanel;
 use crate::gui::welcome_wizard::render_welcome_wizard;
-use crate::gui::wol_dialog::WolDialog;
 use crate::gui::world_map::render_world_map_window;
 use eframe::egui;
 use egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
@@ -310,11 +299,8 @@ pub struct SpLogApp {
     pub cat_custom_rigctld_path: String,
     pub rigctld_supervisor: Option<crate::cat::supervisor::RigctldSupervisor>,
 
-    // Wielodziennikowość i dialogi pomocnicze
-    pub journal_dialog: crate::gui::journal_manager::JournalManagerDialog,
-    pub advanced_filter_dialog: crate::gui::advanced_filter::AdvancedFilterDialog,
-    pub cw_terminal_dialog: crate::gui::cw_terminal::CwTerminalDialog,
-    pub qsl_designer_dialog: crate::gui::qsl_designer::QslDesignerDialog,
+    // Stan GUI (dialogi, chrome, widoki)
+    pub gui: crate::gui::state::GuiState,
     pub active_journal: crate::core::database::Journal,
 
     // WSJT-X nasłuch UDP w tle
@@ -342,21 +328,10 @@ pub struct SpLogApp {
 
     // SPLogbook
     pub service_db: Arc<ServiceDatabase>,
-    pub send_spot_dialog: SendSpotDialog,
     pub show_column_settings: bool,
     pub logbook_columns: Vec<crate::core::station::LogColumn>,
     pub logbook_column_presets: Vec<crate::core::station::ColumnPreset>,
     pub column_preset_name: String,
-    pub iota_dialog: IotaBrowserDialog,
-    pub states_dialog: StatesBrowserDialog,
-    pub qsl_manager_dialog: QslManagerDialog,
-    pub photo_viewer_dialog: PhotoViewerDialog,
-    pub prefix_manager_dialog: PrefixManagerDialog,
-    pub astronomy_dialog: AstronomyDialog,
-    pub wol_dialog: WolDialog,
-    pub sota_dialog: SotaDialog,
-    pub csv_export_dialog: CsvExportDialog,
-    pub waterfall_panel: WaterfallPanel,
 
     // CAT Channels
     pub cat_state_tx: std::sync::mpsc::Sender<crate::cat::hamlib::RigState>,
@@ -898,10 +873,7 @@ impl SpLogApp {
             cat_custom_rigctld_path: init.config.cat_custom_rigctld_path,
             rigctld_supervisor: None,
 
-            journal_dialog: crate::gui::journal_manager::JournalManagerDialog::default(),
-            advanced_filter_dialog: crate::gui::advanced_filter::AdvancedFilterDialog::default(),
-            cw_terminal_dialog: crate::gui::cw_terminal::CwTerminalDialog::default(),
-            qsl_designer_dialog: crate::gui::qsl_designer::QslDesignerDialog::default(),
+            gui: crate::gui::state::GuiState::default(),
             active_journal,
 
             wsjtx_tx,
@@ -928,7 +900,6 @@ impl SpLogApp {
             sync_log_rx,
 
             service_db: Arc::new(ServiceDatabase::open()),
-            send_spot_dialog: SendSpotDialog::new(),
             show_column_settings: false,
             updates: crate::gui::state::UpdateState::default(),
             show_user_manual: false,
@@ -937,16 +908,6 @@ impl SpLogApp {
             logbook_columns: init.config.logbook_columns.clone(),
             logbook_column_presets: init.config.logbook_column_presets.clone(),
             column_preset_name: String::new(),
-            iota_dialog: IotaBrowserDialog::new(),
-            states_dialog: StatesBrowserDialog::new(),
-            qsl_manager_dialog: QslManagerDialog::new(),
-            photo_viewer_dialog: PhotoViewerDialog::new(),
-            prefix_manager_dialog: PrefixManagerDialog::new(),
-            astronomy_dialog: AstronomyDialog::new(),
-            wol_dialog: WolDialog::new(),
-            sota_dialog: SotaDialog::new(),
-            csv_export_dialog: CsvExportDialog::new(),
-            waterfall_panel: WaterfallPanel::new(),
 
             compact_hud_mode: init.config.compact_hud_mode,
             tabbed_columns: init.config.tabbed_columns,
@@ -1499,13 +1460,16 @@ impl eframe::App for SpLogApp {
         crate::gui::marketplace::render_marketplace(self, ctx);
 
         // Okna dialogowe i narzędzia pomocnicze
-        if self.journal_dialog.is_open {
+        if self.gui.dialogs.journal_dialog.is_open {
             let mut switched_journal = None;
             let lang = self.current_language;
             if let Ok(db) = self.log_db.lock() {
-                self.journal_dialog.render(ctx, &db, lang, &mut |j| {
-                    switched_journal = Some(j.clone());
-                });
+                self.gui
+                    .dialogs
+                    .journal_dialog
+                    .render(ctx, &db, lang, &mut |j| {
+                        switched_journal = Some(j.clone());
+                    });
             }
             if let Some(j) = switched_journal {
                 self.active_journal = j.clone();
@@ -1527,14 +1491,14 @@ impl eframe::App for SpLogApp {
             }
         }
 
-        if self.advanced_filter_dialog.is_open {
+        if self.gui.dialogs.advanced_filter_dialog.is_open {
             let mut filter_results = None;
             let mut clear_filter = false;
             let journal_id = self.active_journal.id.clone();
             let my_call = self.my_station.callsign.clone();
             let lang = self.current_language;
             if let Ok(db) = self.log_db.lock() {
-                self.advanced_filter_dialog.render(
+                self.gui.dialogs.advanced_filter_dialog.render(
                     ctx,
                     &db,
                     Some(&journal_id),
@@ -1552,17 +1516,23 @@ impl eframe::App for SpLogApp {
             }
         }
 
-        if self.cw_terminal_dialog.is_open {
+        if self.gui.dialogs.cw_terminal_dialog.is_open {
             let my_call = self.my_station.callsign.clone();
-            self.cw_terminal_dialog
+            self.gui
+                .dialogs
+                .cw_terminal_dialog
                 .render(ctx, &my_call, self.current_language);
         }
 
-        if self.qsl_designer_dialog.is_open {
+        if self.gui.dialogs.qsl_designer_dialog.is_open {
             let my_call = self.my_station.callsign.clone();
             if let Ok(db) = self.log_db.lock() {
-                self.qsl_designer_dialog
-                    .render(ctx, &db, &my_call, self.current_language);
+                self.gui.dialogs.qsl_designer_dialog.render(
+                    ctx,
+                    &db,
+                    &my_call,
+                    self.current_language,
+                );
             }
         }
         if self.wspr.show_window {
@@ -1570,20 +1540,31 @@ impl eframe::App for SpLogApp {
         }
 
         // 1. Zdalne wybudzanie stacji Wake-on-LAN (WOL)
-        self.wol_dialog.show(ctx, self.current_language);
+        self.gui.dialogs.wol_dialog.show(ctx, self.current_language);
 
         // 2. Położenie Księżyca i Słońca (EME / Kalkulator astronomiczny)
         let my_grid = self.my_station.gridsquare.clone();
-        self.astronomy_dialog
-            .show(ctx, &my_grid, &mut self.rotor_state, self.current_language);
+        self.gui.dialogs.astronomy_dialog.show(
+            ctx,
+            &my_grid,
+            &mut self.rotor_state,
+            self.current_language,
+        );
 
         // 3. Moduł SOTA / POTA
-        self.sota_dialog
+        self.gui
+            .dialogs
+            .sota_dialog
             .show(ctx, &self.recent_qsos, self.current_language);
 
         // 3b. Konfigurowalny eksport CSV
-        if self.csv_export_dialog.is_open {
-            if let Some(req) = self.csv_export_dialog.render(ctx, self.current_language) {
+        if self.gui.dialogs.csv_export_dialog.is_open {
+            if let Some(req) = self
+                .gui
+                .dialogs
+                .csv_export_dialog
+                .render(ctx, self.current_language)
+            {
                 self.perform_csv_export(&req);
             }
         }
@@ -1594,42 +1575,54 @@ impl eframe::App for SpLogApp {
                 .awards_engine
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if let Some(iota) =
-                self.iota_dialog
-                    .show(ctx, &self.service_db, &awards, self.current_language)
-            {
+            if let Some(iota) = self.gui.dialogs.iota_dialog.show(
+                ctx,
+                &self.service_db,
+                &awards,
+                self.current_language,
+            ) {
                 self.entry_iota = iota;
             }
 
             // 5. Przeglądarka stanów USA (WAS)
-            if let Some(state) =
-                self.states_dialog
-                    .show(ctx, &self.service_db, &awards, self.current_language)
-            {
+            if let Some(state) = self.gui.dialogs.states_dialog.show(
+                ctx,
+                &self.service_db,
+                &awards,
+                self.current_language,
+            ) {
                 self.entry_state = state;
             }
         }
 
         // 6. Baza menedżerów QSL
         if let Some(qslm) =
-            self.qsl_manager_dialog
+            self.gui
+                .dialogs
+                .qsl_manager_dialog
                 .show(ctx, &self.service_db, self.current_language)
         {
             self.entry_qsl_manager = qslm;
         }
 
         // 7. Przeglądarka fotografii i kart QSL korespondenta
-        self.photo_viewer_dialog.show(ctx, self.current_language);
+        self.gui
+            .dialogs
+            .photo_viewer_dialog
+            .show(ctx, self.current_language);
 
         // 8. Menedżer prefiksów DXCC
-        self.prefix_manager_dialog
+        self.gui
+            .dialogs
+            .prefix_manager_dialog
             .show(ctx, &self.service_db, self.current_language);
 
         // 9. Formularz wysyłania własnego spotu do DX Cluster
-        if let Some(sub) =
-            self.send_spot_dialog
-                .show(ctx, &self.my_station.callsign, self.current_language)
-        {
+        if let Some(sub) = self.gui.dialogs.send_spot_dialog.show(
+            ctx,
+            &self.my_station.callsign,
+            self.current_language,
+        ) {
             if let Some(ref tx) = self.cluster_cmd_tx {
                 let telnet_cmd = format!(
                     "DX {:.1} {} {}\r\n",

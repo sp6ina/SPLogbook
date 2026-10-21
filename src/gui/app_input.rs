@@ -108,7 +108,9 @@ impl SpLogApp {
         }
         if send_spot_f6 {
             let freq_khz = (self.rig_state.frequency_hz as f64) / 1000.0;
-            self.send_spot_dialog
+            self.gui
+                .dialogs
+                .send_spot_dialog
                 .open_with(&self.entry_callsign, freq_khz);
         }
         if toggle_ptt_f7 {
@@ -135,7 +137,7 @@ impl SpLogApp {
 
         if !wants_text {
             if focus_filter {
-                self.advanced_filter_dialog.is_open = true;
+                self.gui.dialogs.advanced_filter_dialog.is_open = true;
             }
             if new_qso || wipe_qso_ctrl_w {
                 self.wipe_qso_form();
@@ -159,7 +161,7 @@ impl SpLogApp {
                 self.show_station_profiles_window = !self.show_station_profiles_window;
             }
             if export_csv {
-                self.csv_export_dialog.open();
+                self.gui.dialogs.csv_export_dialog.open();
             }
             if import_adif {
                 self.trigger_import_adif();

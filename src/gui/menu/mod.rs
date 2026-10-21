@@ -104,9 +104,9 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .clicked()
         {
             if let Ok(db) = app.log_db.lock() {
-                app.journal_dialog.reload(&db);
+                app.gui.dialogs.journal_dialog.reload(&db);
             }
-            app.journal_dialog.is_open = true;
+            app.gui.dialogs.journal_dialog.is_open = true;
         }
 
         // 2. Sygnalizator WSJT-X
@@ -119,7 +119,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
 
         // 3. Sygnalizator aktywnego filtra
-        if app.advanced_filter_dialog.is_filtered_active
+        if app.gui.dialogs.advanced_filter_dialog.is_filtered_active
             && ui
                 .button(
                     egui::RichText::new(icons::SEARCH.label(tr(key::TOOLBAR_FILTER, lang)))
@@ -128,7 +128,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 )
                 .clicked()
         {
-            app.advanced_filter_dialog.is_open = true;
+            app.gui.dialogs.advanced_filter_dialog.is_open = true;
         }
 
         // 4. Status DX Cluster
@@ -268,7 +268,8 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .on_hover_text(tr(key::TOOLBAR_CW_TOOLTIP, lang))
                 .clicked()
         {
-            app.cw_terminal_dialog.is_open = !app.cw_terminal_dialog.is_open;
+            app.gui.dialogs.cw_terminal_dialog.is_open =
+                !app.gui.dialogs.cw_terminal_dialog.is_open;
         }
 
         if app.quick_access.show_satellites
@@ -306,7 +307,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .on_hover_text(tr(key::TOOLBAR_EME_TOOLTIP, lang))
                 .clicked()
         {
-            app.astronomy_dialog.open();
+            app.gui.dialogs.astronomy_dialog.open();
         }
 
         if app.quick_access.show_wol
@@ -315,7 +316,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .on_hover_text(tr(key::TOOLBAR_WOL_TOOLTIP, lang))
                 .clicked()
         {
-            app.wol_dialog.open();
+            app.gui.dialogs.wol_dialog.open();
         }
 
         if app.quick_access.show_theme {

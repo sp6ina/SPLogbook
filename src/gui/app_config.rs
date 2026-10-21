@@ -114,9 +114,9 @@ impl SpLogApp {
             callbook_cache_enabled: self.callbook_cache_enabled,
             callbook_cache_ttl_days: self.callbook_cache_ttl_days,
 
-            wol_mac: self.wol_dialog.mac_address.clone(),
-            wol_ip: self.wol_dialog.broadcast_ip.clone(),
-            wol_port: self.wol_dialog.port,
+            wol_mac: self.gui.dialogs.wol_dialog.mac_address.clone(),
+            wol_ip: self.gui.dialogs.wol_dialog.broadcast_ip.clone(),
+            wol_port: self.gui.dialogs.wol_dialog.port,
 
             current_language: self.current_language.code().to_string(),
             compact_hud_mode: self.compact_hud_mode,

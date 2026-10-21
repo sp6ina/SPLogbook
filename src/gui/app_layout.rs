@@ -448,7 +448,9 @@ impl SpLogApp {
                     .clicked()
                 {
                     let freq_khz = self.rig_state.frequency_hz as f64 / 1000.0;
-                    self.send_spot_dialog
+                    self.gui
+                        .dialogs
+                        .send_spot_dialog
                         .open_with(&self.entry_callsign, freq_khz);
                 }
             }

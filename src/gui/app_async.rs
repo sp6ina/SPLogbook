@@ -455,7 +455,7 @@ impl SpLogApp {
                     }
                 }
                 if let Some(img) = data.image_url {
-                    self.photo_viewer_dialog.photo_url = Some(img);
+                    self.gui.dialogs.photo_viewer_dialog.photo_url = Some(img);
                 }
                 self.status_message = Some(format!(
                     "Pobrano dane Callbook dla: {} ({})",

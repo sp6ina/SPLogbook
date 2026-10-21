@@ -142,7 +142,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .button(icons::BADGE.label(tr(key::TOOLS_QSL_DESIGNER, lang)))
             .clicked()
         {
-            app.qsl_designer_dialog.is_open = true;
+            app.gui.dialogs.qsl_designer_dialog.is_open = true;
             ui.close();
         }
     });

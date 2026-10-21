@@ -46,7 +46,9 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .clicked()
         {
             let freq_khz = app.rig_state.frequency_hz as f64 / 1000.0;
-            app.send_spot_dialog
+            app.gui
+                .dialogs
+                .send_spot_dialog
                 .open_with(&app.entry_callsign, freq_khz);
             ui.close();
         }
@@ -129,7 +131,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .button(icons::CW_TERMINAL.label(tr(key::TOOLS_CW_TERMINAL, lang)))
             .clicked()
         {
-            app.cw_terminal_dialog.is_open = true;
+            app.gui.dialogs.cw_terminal_dialog.is_open = true;
             ui.close();
         }
         if ui

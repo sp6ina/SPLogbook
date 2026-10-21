@@ -87,7 +87,9 @@ pub fn render_cluster_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             .clicked()
                         {
                             let freq_khz = app.rig_state.frequency_hz as f64 / 1000.0;
-                            app.send_spot_dialog
+                            app.gui
+                                .dialogs
+                                .send_spot_dialog
                                 .open_with(&app.entry_callsign, freq_khz);
                         }
                         if app.cluster_connected {
@@ -187,7 +189,9 @@ pub fn render_cluster_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 .clicked()
             {
                 let freq_khz = app.rig_state.frequency_hz as f64 / 1000.0;
-                app.send_spot_dialog
+                app.gui
+                    .dialogs
+                    .send_spot_dialog
                     .open_with(&app.entry_callsign, freq_khz);
             }
             if app.cluster_connected {

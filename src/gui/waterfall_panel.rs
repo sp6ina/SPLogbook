@@ -388,7 +388,7 @@ impl Drop for WaterfallPanel {
 /// Renderuje zawartość dokowanego kafelka waterfall (wywoływane z `app_layout`).
 pub fn render_waterfall_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.current_language;
-    app.waterfall_panel.render_body(ui, lang);
+    app.gui.dialogs.waterfall_panel.render_body(ui, lang);
 }
 
 /// Renderuje kafelek waterfall jako odpięte, pływające okno widoku
@@ -424,7 +424,7 @@ pub fn render_waterfall_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 });
             });
             egui::CentralPanel::default().show(ui, |ui| {
-                app.waterfall_panel.render_body(ui, lang);
+                app.gui.dialogs.waterfall_panel.render_body(ui, lang);
             });
             if ui.ctx().input(|i| i.viewport().close_requested()) {
                 still_open = false;

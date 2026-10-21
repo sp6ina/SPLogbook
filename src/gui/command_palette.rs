@@ -55,7 +55,9 @@ const COMMANDS: &[Command] = &[
         keywords: "spot send dx cluster",
         run: |app| {
             let freq_khz = (app.rig_state.frequency_hz as f64) / 1000.0;
-            app.send_spot_dialog
+            app.gui
+                .dialogs
+                .send_spot_dialog
                 .open_with(&app.entry_callsign, freq_khz);
         },
     },
@@ -196,7 +198,7 @@ const COMMANDS: &[Command] = &[
         label_key: key::CMD_QSL_DESIGNER,
         keywords: "qsl label designer print",
         run: |app| {
-            app.qsl_designer_dialog.is_open = true;
+            app.gui.dialogs.qsl_designer_dialog.is_open = true;
         },
     },
     Command {
@@ -224,7 +226,7 @@ const COMMANDS: &[Command] = &[
         label_key: key::CMD_ADVANCED_FILTER,
         keywords: "advanced filter",
         run: |app| {
-            app.advanced_filter_dialog.is_open = true;
+            app.gui.dialogs.advanced_filter_dialog.is_open = true;
         },
     },
     Command {

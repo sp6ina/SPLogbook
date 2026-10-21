@@ -2,7 +2,9 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 pub mod cw;
+pub mod dialogs;
 pub mod duplicates;
+pub mod gui;
 pub mod ledger;
 pub mod marketplace;
 pub mod online_sync;
@@ -16,7 +18,9 @@ pub mod world_map;
 pub mod wspr;
 
 pub use cw::CwMacroState;
+pub use dialogs::DialogState;
 pub use duplicates::DuplicatesState;
+pub use gui::GuiState;
 pub use ledger::EquipmentLedgerState;
 pub use marketplace::MarketplaceState;
 pub use online_sync::OnlineSyncUiState;

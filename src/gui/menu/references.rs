@@ -15,28 +15,28 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .button(icons::IOTA.label(tr(key::REF_IOTA_DB, lang)))
             .clicked()
         {
-            app.iota_dialog.open();
+            app.gui.dialogs.iota_dialog.open();
             ui.close();
         }
         if ui
             .button(icons::WORLD_MAP.label(tr(key::REF_STATES_DB, lang)))
             .clicked()
         {
-            app.states_dialog.open();
+            app.gui.dialogs.states_dialog.open();
             ui.close();
         }
         if ui
             .button(icons::LOGBOOK.label(tr(key::REF_QSL_MANAGERS, lang)))
             .clicked()
         {
-            app.qsl_manager_dialog.open();
+            app.gui.dialogs.qsl_manager_dialog.open();
             ui.close();
         }
         if ui
             .button(icons::GLOBE.label(tr(key::REF_PREFIX_MANAGER, lang)))
             .clicked()
         {
-            app.prefix_manager_dialog.open();
+            app.gui.dialogs.prefix_manager_dialog.open();
             ui.close();
         }
         ui.separator();
@@ -44,14 +44,14 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .button(icons::MOON.label(tr(key::REF_MOON_SUN, lang)))
             .clicked()
         {
-            app.astronomy_dialog.open();
+            app.gui.dialogs.astronomy_dialog.open();
             ui.close();
         }
         if ui
             .button(icons::LIGHTNING.label(tr(key::REF_WOL, lang)))
             .clicked()
         {
-            app.wol_dialog.open();
+            app.gui.dialogs.wol_dialog.open();
             ui.close();
         }
         if ui

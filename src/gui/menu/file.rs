@@ -16,23 +16,23 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .clicked()
         {
             if let Ok(db) = app.log_db.lock() {
-                app.journal_dialog.reload(&db);
+                app.gui.dialogs.journal_dialog.reload(&db);
             }
-            app.journal_dialog.is_open = true;
+            app.gui.dialogs.journal_dialog.is_open = true;
             ui.close();
         }
         if ui
             .button(icons::SEARCH.label(tr(key::MENU_ADVANCED_FILTER, lang)))
             .clicked()
         {
-            app.advanced_filter_dialog.is_open = true;
+            app.gui.dialogs.advanced_filter_dialog.is_open = true;
             ui.close();
         }
         if ui
             .button(icons::BADGE.label(tr(key::MENU_QSL_PRINT, lang)))
             .clicked()
         {
-            app.qsl_designer_dialog.is_open = true;
+            app.gui.dialogs.qsl_designer_dialog.is_open = true;
             ui.close();
         }
         if ui
@@ -70,7 +70,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ui.close();
         }
         if ui.button(tr(key::MENU_EXPORT_CSV, lang)).clicked() {
-            app.csv_export_dialog.open();
+            app.gui.dialogs.csv_export_dialog.open();
             ui.close();
         }
         if ui
@@ -78,7 +78,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .clicked()
         {
             let call = app.my_station.callsign.clone();
-            app.sota_dialog.open(&call);
+            app.gui.dialogs.sota_dialog.open(&call);
             ui.close();
         }
         if ui
