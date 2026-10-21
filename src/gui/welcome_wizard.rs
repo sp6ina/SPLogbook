@@ -436,9 +436,14 @@ fn render_tab_services(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
             ui.label(egui::RichText::new("Club Log:").strong());
             ui.horizontal(|ui| {
                 ui.label("Email:");
-                ui.add(egui::TextEdit::singleline(&mut app.clublog_email).desired_width(150.0));
+                ui.add(
+                    egui::TextEdit::singleline(&mut app.online.clublog_email).desired_width(150.0),
+                );
                 ui.label("API:");
-                ui.add(egui::TextEdit::singleline(&mut app.clublog_api_key).desired_width(100.0));
+                ui.add(
+                    egui::TextEdit::singleline(&mut app.online.clublog_api_key)
+                        .desired_width(100.0),
+                );
             });
             ui.end_row();
 

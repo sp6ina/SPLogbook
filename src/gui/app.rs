@@ -279,17 +279,7 @@ pub struct SpLogApp {
     pub qrz_api_key: String,
     pub qrz_auto_lookup: bool,
 
-    // eQSL & Club Log
-    pub eqsl_username: String,
-    pub eqsl_password: String,
-    pub clublog_callsign: String,
-    pub clublog_email: String,
-    pub clublog_password: String,
-    pub clublog_api_key: String,
-
-    // Synchronizacja Online
-    pub show_online_sync_window: bool,
-    pub online_sync_logs: Vec<String>,
+    pub online: crate::gui::state::OnlineSyncUiState,
 
     // Edycja QSO i historia Worked Before
     pub editing_qso: Option<QsoRecord>,
@@ -725,6 +715,7 @@ impl SpLogApp {
 
         let current_language = Language::from_code(&init.config.current_language);
         let views = crate::gui::state::ViewsState::from_config(&init.config);
+        let online = crate::gui::state::OnlineSyncUiState::from_config(&init.config);
         let mut app = Self {
             shutdown_policy: init.shutdown_policy,
             initial_cat_enabled: init.config.cat_enabled,
@@ -880,16 +871,7 @@ impl SpLogApp {
             qrz_api_key: init.config.qrz_api_key,
             qrz_auto_lookup: init.config.qrz_auto_lookup,
 
-            eqsl_username: init.config.eqsl_username,
-            eqsl_password: init.config.eqsl_password,
-
-            clublog_callsign: init.config.clublog_callsign,
-            clublog_email: init.config.clublog_email,
-            clublog_password: init.config.clublog_password,
-            clublog_api_key: init.config.clublog_api_key,
-
-            show_online_sync_window: false,
-            online_sync_logs: Vec::new(),
+            online,
 
             editing_qso: None,
             past_qsos_for_active_call: Vec::new(),

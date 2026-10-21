@@ -189,7 +189,7 @@ const COMMANDS: &[Command] = &[
         label_key: key::CMD_ONLINE_SYNC,
         keywords: "online sync lotw eqsl clublog",
         run: |app| {
-            app.show_online_sync_window = true;
+            app.online.show_online_sync_window = true;
         },
     },
     Command {

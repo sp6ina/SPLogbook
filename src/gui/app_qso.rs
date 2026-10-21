@@ -188,8 +188,8 @@ impl SpLogApp {
         if effects.enqueue_uploads {
             // Automatyczny przesył na żywo do Club Log — przez wspólną kolejkę wysyłki
             if self.live_auto_upload_clublog
-                && !self.clublog_callsign.is_empty()
-                && !self.clublog_password.is_empty()
+                && !self.online.clublog_callsign.is_empty()
+                && !self.online.clublog_password.is_empty()
             {
                 let adif_record = crate::core::adif::export_adif(
                     std::slice::from_ref(qso),

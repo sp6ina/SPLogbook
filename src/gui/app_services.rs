@@ -213,13 +213,13 @@ impl SpLogApp {
         self.last_upload_poll_secs = now;
 
         let creds = crate::cloud::scheduler::UploadCredentials {
-            clublog_callsign: self.clublog_callsign.clone(),
-            clublog_email: self.clublog_email.clone(),
-            clublog_password: self.clublog_password.clone(),
-            clublog_api_key: self.clublog_api_key.clone(),
+            clublog_callsign: self.online.clublog_callsign.clone(),
+            clublog_email: self.online.clublog_email.clone(),
+            clublog_password: self.online.clublog_password.clone(),
+            clublog_api_key: self.online.clublog_api_key.clone(),
             qrz_api_key: self.qrz_api_key.clone(),
-            eqsl_username: self.eqsl_username.clone(),
-            eqsl_password: self.eqsl_password.clone(),
+            eqsl_username: self.online.eqsl_username.clone(),
+            eqsl_password: self.online.eqsl_password.clone(),
         };
 
         // Pobierz gotowe zadania (maks. jedno na serwis, z uwzględnieniem rate-limit).

@@ -239,7 +239,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .on_hover_text(tr(key::TOOLBAR_SYNC_TOOLTIP, lang))
                 .clicked()
         {
-            app.show_online_sync_window = !app.show_online_sync_window;
+            app.online.show_online_sync_window = !app.online.show_online_sync_window;
         }
 
         if app.quick_access.show_map

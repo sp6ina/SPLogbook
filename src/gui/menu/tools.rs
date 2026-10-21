@@ -22,7 +22,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .button(icons::GLOBE.label(tr(key::TOOLS_ONLINE_SYNC, lang)))
             .clicked()
         {
-            app.show_online_sync_window = true;
+            app.online.show_online_sync_window = true;
             ui.close();
         }
         if ui

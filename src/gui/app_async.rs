@@ -472,10 +472,10 @@ impl SpLogApp {
     /// Odbiór asynchronicznych komunikatów z synchronizacji online (LoTW, eQSL, Club Log, QRZ, Aktualizacje baz)
     pub fn poll_online_sync_logs(&mut self) {
         while let Ok((msg, rebuild_awards)) = self.sync_log_rx.try_recv() {
-            self.online_sync_logs.push(msg.clone());
-            if self.online_sync_logs.len() > 500 {
-                let excess = self.online_sync_logs.len() - 500;
-                self.online_sync_logs.drain(0..excess);
+            self.online.online_sync_logs.push(msg.clone());
+            if self.online.online_sync_logs.len() > 500 {
+                let excess = self.online.online_sync_logs.len() - 500;
+                self.online.online_sync_logs.drain(0..excess);
             }
             self.status_message = Some(msg.clone());
             self.status_toast = Some((msg, std::time::Instant::now()));
@@ -589,8 +589,8 @@ mod tests {
             .sync_log_tx
             .send(("Synchronized 5 QSOs".to_string(), false));
         app.poll_online_sync_logs();
-        assert_eq!(app.online_sync_logs.len(), 1);
-        assert_eq!(app.online_sync_logs[0], "Synchronized 5 QSOs");
+        assert_eq!(app.online.online_sync_logs.len(), 1);
+        assert_eq!(app.online.online_sync_logs[0], "Synchronized 5 QSOs");
         assert_eq!(app.status_message.as_deref(), Some("Synchronized 5 QSOs"));
     }
 
