@@ -573,28 +573,7 @@ pub struct SpLogApp {
     pub plugin_notifications: Vec<String>,
 
     // Marketplace pluginów (katalog + instalacja jednym kliknięciem)
-    pub show_marketplace: bool,
-    pub marketplace_catalog: Vec<crate::plugins::marketplace::PluginCatalogEntry>,
-    pub marketplace_loading: bool,
-    pub marketplace_error: Option<String>,
-    pub marketplace_search: String,
-    pub marketplace_category: Option<String>,
-    pub marketplace_busy_id: Option<String>,
-    pub marketplace_status: Option<String>,
-    pub marketplace_fetch_rx: Option<
-        std::sync::mpsc::Receiver<
-            Result<
-                Vec<crate::plugins::marketplace::PluginCatalogEntry>,
-                crate::plugins::marketplace::MarketplaceError,
-            >,
-        >,
-    >,
-    pub marketplace_install_rx: Option<
-        std::sync::mpsc::Receiver<(
-            String,
-            Result<(), crate::plugins::marketplace::MarketplaceError>,
-        )>,
-    >,
+    pub marketplace: crate::gui::state::MarketplaceState,
     plugin_lookup_rx: Option<std::sync::mpsc::Receiver<crate::plugins::bridge::PluginLookupResult>>,
 
     // Zintegrowany pasek asystenta operatora
@@ -1256,16 +1235,7 @@ impl SpLogApp {
             plugin_log: Vec::new(),
             plugin_notifications: Vec::new(),
 
-            show_marketplace: false,
-            marketplace_catalog: Vec::new(),
-            marketplace_loading: false,
-            marketplace_error: None,
-            marketplace_search: String::new(),
-            marketplace_category: None,
-            marketplace_busy_id: None,
-            marketplace_status: None,
-            marketplace_fetch_rx: None,
-            marketplace_install_rx: None,
+            marketplace: crate::gui::state::MarketplaceState::default(),
             plugin_lookup_rx: None,
 
             // Zintegrowany pasek asystenta operatora

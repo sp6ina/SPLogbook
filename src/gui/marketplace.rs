@@ -24,53 +24,53 @@ enum Action {
 /// Rysuje okno marketplace, jeśli jest otwarte. Obsługuje pobieranie katalogu
 /// oraz instalację/odinstalowanie wtyczek w tle.
 pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
-    if !app.show_marketplace {
+    if !app.marketplace.show_window {
         return;
     }
 
     // Odbiór wyników asynchronicznego pobierania katalogu
-    if let Some(rx) = &app.marketplace_fetch_rx {
+    if let Some(rx) = &app.marketplace.fetch_rx {
         if let Ok(result) = rx.try_recv() {
-            app.marketplace_loading = false;
-            app.marketplace_fetch_rx = None;
+            app.marketplace.loading = false;
+            app.marketplace.fetch_rx = None;
             match result {
                 Ok(entries) => {
-                    app.marketplace_catalog = entries;
-                    app.marketplace_error = None;
+                    app.marketplace.catalog = entries;
+                    app.marketplace.error = None;
                 }
-                Err(e) => app.marketplace_error = Some(e.to_string()),
+                Err(e) => app.marketplace.error = Some(e.to_string()),
             }
         }
     }
 
     // Odbiór wyniku asynchronicznej instalacji
-    if let Some(rx) = &app.marketplace_install_rx {
+    if let Some(rx) = &app.marketplace.install_rx {
         if let Ok((id, result)) = rx.try_recv() {
-            app.marketplace_busy_id = None;
-            app.marketplace_install_rx = None;
+            app.marketplace.busy_id = None;
+            app.marketplace.install_rx = None;
             match result {
                 Ok(()) => {
-                    app.marketplace_status = Some(
+                    app.marketplace.status = Some(
                         Msg::new(key::MARKET_INSTALLED_SUCCESS)
                             .arg("id", &id)
                             .text(app.current_language),
                     );
                     reload_plugins(app);
                 }
-                Err(e) => app.marketplace_status = Some(e.to_string()),
+                Err(e) => app.marketplace.status = Some(e.to_string()),
             }
         }
     }
 
     // Pierwsze otwarcie: pobierz katalog, jeśli jeszcze go nie ma.
-    if app.marketplace_catalog.is_empty() && !app.marketplace_loading {
+    if app.marketplace.catalog.is_empty() && !app.marketplace.loading {
         start_fetch(app);
     }
 
     let plugins_dir = PathBuf::from(app.plugins_dir.clone());
-    let catalog = app.marketplace_catalog.clone();
+    let catalog = app.marketplace.catalog.clone();
     let mut action: Option<Action> = None;
-    let mut open = app.show_marketplace;
+    let mut open = app.marketplace.show_window;
     let lang = app.current_language;
 
     egui::Window::new(tr(key::MARKET_WINDOW_TITLE, lang))
@@ -101,14 +101,15 @@ pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
             ui.horizontal(|ui| {
                 ui.label("🔍");
                 ui.add(
-                    egui::TextEdit::singleline(&mut app.marketplace_search)
+                    egui::TextEdit::singleline(&mut app.marketplace.search)
                         .hint_text(tr(key::MARKET_SEARCH_HINT, lang))
                         .desired_width(260.0),
                 );
                 ui.separator();
 
                 let mut selected = app
-                    .marketplace_category
+                    .marketplace
+                    .category
                     .clone()
                     .unwrap_or_else(|| "Wszystkie".to_string());
                 let mut categories: Vec<String> =
@@ -125,7 +126,7 @@ pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
                             ui.selectable_value(&mut selected, cat.clone(), cat.as_str());
                         }
                     });
-                app.marketplace_category = if selected == "Wszystkie" {
+                app.marketplace.category = if selected == "Wszystkie" {
                     None
                 } else {
                     Some(selected)
@@ -133,19 +134,19 @@ pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
             });
             ui.add_space(4.0);
 
-            if app.marketplace_loading {
+            if app.marketplace.loading {
                 ui.horizontal(|ui| {
                     ui.spinner();
                     ui.label(tr(key::MARKET_FETCHING, lang));
                 });
-            } else if let Some(err) = app.marketplace_error.clone() {
+            } else if let Some(err) = app.marketplace.error.clone() {
                 ui.colored_label(
                     palette.danger,
                     Msg::new(key::MARKET_FETCH_ERROR).arg("err", err).text(lang),
                 );
                 if ui.button(tr(key::MARKET_OFFLINE_FALLBACK, lang)).clicked() {
-                    app.marketplace_catalog = crate::plugins::marketplace::bundled_catalog();
-                    app.marketplace_error = None;
+                    app.marketplace.catalog = crate::plugins::marketplace::bundled_catalog();
+                    app.marketplace.error = None;
                 }
             } else {
                 ui.label(
@@ -158,17 +159,18 @@ pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
                     .color(palette.success),
                 );
 
-                if let Some(status) = app.marketplace_status.clone() {
+                if let Some(status) = app.marketplace.status.clone() {
                     ui.colored_label(palette.warning, status);
                 }
                 ui.add_space(4.0);
 
-                let query = app.marketplace_search.to_lowercase();
+                let query = app.marketplace.search.to_lowercase();
                 let filtered: Vec<&crate::plugins::marketplace::PluginCatalogEntry> = catalog
                     .iter()
                     .filter(|e| {
                         let matches_cat = app
-                            .marketplace_category
+                            .marketplace
+                            .category
                             .as_ref()
                             .is_none_or(|c| &e.category == c);
                         let hay = format!("{} {} {}", e.name, e.id, e.description).to_lowercase();
@@ -195,7 +197,7 @@ pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
             }
         });
 
-    app.show_marketplace = open;
+    app.marketplace.show_window = open;
 
     // Wykonanie akcji po zamknięciu pętli UI
     match action {
@@ -210,14 +212,14 @@ pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
                 let dir = PathBuf::from(app.plugins_dir.clone());
                 match crate::plugins::marketplace::uninstall_entry(&dir, entry) {
                     Ok(()) => {
-                        app.marketplace_status = Some(
+                        app.marketplace.status = Some(
                             Msg::new(key::MARKET_UNINSTALLED)
                                 .arg("name", &entry.name)
                                 .text(lang),
                         );
                         reload_plugins(app);
                     }
-                    Err(e) => app.marketplace_status = Some(e.to_string()),
+                    Err(e) => app.marketplace.status = Some(e.to_string()),
                 }
             }
         }
@@ -234,7 +236,7 @@ fn render_card(
     action: &mut Option<Action>,
 ) {
     let status = crate::plugins::marketplace::install_status(plugins_dir, entry);
-    let busy = app.marketplace_busy_id.as_deref() == Some(entry.id.as_str());
+    let busy = app.marketplace.busy_id.as_deref() == Some(entry.id.as_str());
     let lang = app.current_language;
 
     egui::Frame::group(ui.style())
@@ -314,13 +316,13 @@ fn render_card(
 
 /// Rozpoczyna pobieranie katalogu w tle.
 fn start_fetch(app: &mut SpLogApp) {
-    if app.marketplace_loading {
+    if app.marketplace.loading {
         return;
     }
-    app.marketplace_loading = true;
-    app.marketplace_error = None;
+    app.marketplace.loading = true;
+    app.marketplace.error = None;
     let (tx, rx) = std::sync::mpsc::channel();
-    app.marketplace_fetch_rx = Some(rx);
+    app.marketplace.fetch_rx = Some(rx);
     tokio::spawn(async move {
         let result = crate::plugins::marketplace::fetch_catalog().await;
         let _ = tx.send(result);
@@ -329,14 +331,14 @@ fn start_fetch(app: &mut SpLogApp) {
 
 /// Rozpoczyna instalację wtyczki w tle.
 fn start_install(app: &mut SpLogApp, entry: crate::plugins::marketplace::PluginCatalogEntry) {
-    if app.marketplace_busy_id.is_some() {
+    if app.marketplace.busy_id.is_some() {
         return;
     }
-    app.marketplace_busy_id = Some(entry.id.clone());
-    app.marketplace_status = Some(format!("Instalowanie „{}”…", entry.name));
+    app.marketplace.busy_id = Some(entry.id.clone());
+    app.marketplace.status = Some(format!("Instalowanie „{}”…", entry.name));
     let dir = PathBuf::from(app.plugins_dir.clone());
     let (tx, rx) = std::sync::mpsc::channel();
-    app.marketplace_install_rx = Some(rx);
+    app.marketplace.install_rx = Some(rx);
     tokio::spawn(async move {
         let result = crate::plugins::marketplace::install_entry(&entry, &dir)
             .await

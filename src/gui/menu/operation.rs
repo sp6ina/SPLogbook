@@ -171,7 +171,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .button(icons::STORE.label(tr(key::MENU_PLUGIN_MARKETPLACE, lang)))
             .clicked()
         {
-            app.show_marketplace = true;
+            app.marketplace.show_window = true;
             ui.close();
         }
         if ui
