@@ -308,7 +308,7 @@ pub struct SpLogApp {
     pub qrz_lookup_rx: std::sync::mpsc::Receiver<crate::cloud::qrz::CallbookData>,
 
     // Okna modułów
-    pub show_world_map_window: bool,
+    pub world_map: crate::gui::state::WorldMapState,
     pub show_awards_matrix_window: bool,
     pub awards_matrix_tab: usize,
     pub awards_other_subtab: usize,
@@ -557,11 +557,6 @@ pub struct SpLogApp {
     pub vfo_preamp_att: String,
     pub vfo_nb_nr: bool,
     pub vfo_agc_speed: String,
-
-    // Kompas antenowy i wiązka na mapie (Beam Lobe)
-    pub map_show_beam_lobe: bool,
-    pub map_show_compass: bool,
-    pub map_beamwidth_deg: f32,
 
     // Boczny panel filtrów klastra i POTA/SOTA
     pub cluster_show_filter_sidebar: bool,
@@ -920,7 +915,7 @@ impl SpLogApp {
             qrz_lookup_tx,
             qrz_lookup_rx,
 
-            show_world_map_window: false,
+            world_map: crate::gui::state::WorldMapState::default(),
             show_awards_matrix_window: false,
             awards_matrix_tab: 0,
             awards_other_subtab: 0,
@@ -1145,11 +1140,6 @@ impl SpLogApp {
             vfo_preamp_att: "OFF".to_string(),
             vfo_nb_nr: false,
             vfo_agc_speed: "MID".to_string(),
-
-            // Kompas antenowy i wiązka na mapie
-            map_show_beam_lobe: true,
-            map_show_compass: true,
-            map_beamwidth_deg: 50.0,
 
             // Boczny panel filtrów klastra
             cluster_show_filter_sidebar: false,

@@ -249,7 +249,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .clicked()
         {
             app.panel_world_map.visible = !app.panel_world_map.visible;
-            app.show_world_map_window = app.panel_world_map.visible;
+            app.world_map.show_window = app.panel_world_map.visible;
             app.save_station_config();
         }
 

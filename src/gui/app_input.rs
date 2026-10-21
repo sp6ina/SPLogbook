@@ -150,7 +150,7 @@ impl SpLogApp {
             }
             if toggle_map {
                 self.panel_world_map.visible = true;
-                self.show_world_map_window = true;
+                self.world_map.show_window = true;
             }
             if toggle_cw {
                 self.cw.show_window = !self.cw.show_window;

@@ -94,7 +94,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             )
             .changed()
         {
-            app.show_world_map_window = app.panel_world_map.visible;
+            app.world_map.show_window = app.panel_world_map.visible;
             changed = true;
         }
         if ui

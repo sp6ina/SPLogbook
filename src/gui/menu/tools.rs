@@ -31,7 +31,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         {
             app.panel_world_map.visible = true;
             app.panel_world_map.floating = true;
-            app.show_world_map_window = true;
+            app.world_map.show_window = true;
             ui.close();
         }
         if ui

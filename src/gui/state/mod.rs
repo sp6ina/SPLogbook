@@ -8,6 +8,7 @@ pub mod marketplace;
 pub mod satellite;
 pub mod solar;
 pub mod voice_keyer;
+pub mod world_map;
 pub mod wspr;
 
 pub use cw::CwMacroState;
@@ -17,4 +18,5 @@ pub use marketplace::MarketplaceState;
 pub use satellite::SatelliteState;
 pub use solar::{SolarFetchSlot, SolarState};
 pub use voice_keyer::VoiceKeyerState;
+pub use world_map::WorldMapState;
 pub use wspr::{WsprFetchSlot, WsprState};

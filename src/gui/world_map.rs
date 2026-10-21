@@ -386,7 +386,7 @@ pub fn render_world_map_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
     if !is_open {
         app.panel_world_map.visible = false;
-        app.show_world_map_window = false;
+        app.world_map.show_window = false;
         app.save_station_config();
     }
 }
@@ -482,11 +482,11 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
             ui.separator();
             ui.checkbox(
-                &mut app.map_show_beam_lobe,
+                &mut app.world_map.show_beam_lobe,
                 format!("📡 {}", tr(key::MAP_BEAM_LOBE, lang)),
             );
             ui.checkbox(
-                &mut app.map_show_compass,
+                &mut app.world_map.show_compass,
                 format!("🧭 {}", tr(key::MAP_COMPASS, lang)),
             );
             ui.separator();
@@ -860,9 +860,9 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
         let my_pos = project(my_coords.latitude, my_coords.longitude);
 
         // Rysowanie wiązki promieniowania anteny (Beam Lobe) oraz mechanicznego boomu
-        if app.map_show_beam_lobe {
+        if app.world_map.show_beam_lobe {
             let az = app.rotor_state.azimuth_deg;
-            let half_beam = (app.map_beamwidth_deg * 0.5).clamp(10.0, 60.0);
+            let half_beam = (app.world_map.beamwidth_deg * 0.5).clamp(10.0, 60.0);
             let lobe_len = 65.0_f32;
 
             // Rysowanie wachlarza wiązki (Polygon)
@@ -985,7 +985,7 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
 
         // Widżet Róży Kompasu Azymutalnego (Azimuthal Compass Rose Overlay)
-        if app.map_show_compass {
+        if app.world_map.show_compass {
             let compass_center = rect.right_top() + egui::vec2(-65.0, 65.0);
             let compass_radius = 48.0_f32;
 

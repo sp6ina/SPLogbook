@@ -107,7 +107,7 @@ const COMMANDS: &[Command] = &[
         keywords: "world map",
         run: |app| {
             app.panel_world_map.visible = true;
-            app.show_world_map_window = true;
+            app.world_map.show_window = true;
         },
     },
     Command {

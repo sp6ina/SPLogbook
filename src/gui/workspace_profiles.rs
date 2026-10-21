@@ -386,7 +386,7 @@ pub(crate) fn apply_profile(app: &mut SpLogApp, p: &WorkspaceProfile) {
     // Synchronizacja okien pływających (popout) dla paneli z obsługą ↗.
     app.show_bandmap_window = p.panel_bandmap.visible && p.panel_bandmap.floating;
     app.satellites.show_window = p.panel_satellites.visible && p.panel_satellites.floating;
-    app.show_world_map_window = p.panel_world_map.visible && p.panel_world_map.floating;
+    app.world_map.show_window = p.panel_world_map.visible && p.panel_world_map.floating;
 
     // Odtwórz układ dokowania. Preferuj zapisany układ egui_dock (drzewo
     // podziałów, karty, powierzchnie okien); w przeciwnym razie odbuduj

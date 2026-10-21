@@ -277,7 +277,7 @@ impl SpLogApp {
 
         self.show_bandmap_window = false;
         self.satellites.show_window = false;
-        self.show_world_map_window = false;
+        self.world_map.show_window = false;
         self.reset_layout_requested = true;
         // Natychmiast odtwórz dokowany układ z domyślnej konfiguracji paneli.
         self.rebuild_dock_state_from_panels();
@@ -301,7 +301,7 @@ impl SpLogApp {
             }
             "world_map" => {
                 self.panel_world_map.floating = true;
-                self.show_world_map_window = true;
+                self.world_map.show_window = true;
             }
             "waterfall" => {
                 self.panel_waterfall.floating = true;
@@ -327,7 +327,7 @@ impl SpLogApp {
             }
             "world_map" => {
                 self.panel_world_map.visible = false;
-                self.show_world_map_window = false;
+                self.world_map.show_window = false;
             }
             "waterfall" => {
                 self.panel_waterfall.visible = false;
