@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::core::i18n::{key, tr};
@@ -71,22 +71,22 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 ui.label(tr(key::TOOLS_REST_API_HINT, lang));
                 if ui
                     .checkbox(
-                        &mut app.rest_api_enabled,
+                        &mut app.runtime.rest_api_enabled,
                         tr(key::TOOLS_REST_API_ENABLE, lang),
                     )
                     .changed()
                 {
                     app.save_station_config();
-                    if app.rest_api_enabled {
+                    if app.runtime.rest_api_enabled {
                         app.start_rest_api_server();
                     }
                 }
                 ui.label(format!(
                     "{} http://127.0.0.1:{}/api/v1/",
                     tr(key::TOOLS_REST_API_URL, lang),
-                    app.rest_api_port
+                    app.runtime.rest_api_port
                 ));
-                if app.rest_api_enabled {
+                if app.runtime.rest_api_enabled {
                     let key = app.ensure_rest_api_key();
                     ui.separator();
                     ui.label(icons::WARNING.label(tr(key::TOOLS_REST_API_HEADER, lang)));
@@ -117,7 +117,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 {
                     let _ = open::that(format!(
                         "http://127.0.0.1:{}/api/v1/status",
-                        app.rest_api_port
+                        app.runtime.rest_api_port
                     ));
                     ui.close();
                 }
@@ -127,7 +127,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 {
                     let _ = open::that(format!(
                         "http://127.0.0.1:{}/api/v1/endpoints",
-                        app.rest_api_port
+                        app.runtime.rest_api_port
                     ));
                     ui.close();
                 }

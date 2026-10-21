@@ -240,7 +240,7 @@ const COMMANDS: &[Command] = &[
         label_key: key::CMD_PSK_REPORTER,
         keywords: "psk reporter spots",
         run: |app| {
-            app.show_pskreporter_window = true;
+            app.digital.show_pskreporter_window = true;
         },
     },
     Command {

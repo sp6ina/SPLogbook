@@ -572,9 +572,9 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                 }
                                             }
                                         });
-                    app.fldigi_test_result = Some(Msg::new(key::SYNC_FLDIGI_QUERY_SENT).arg("host", &app.fldigi_host).arg("port", app.fldigi_port).text(lang));
+                    app.digital.fldigi_test_result = Some(Msg::new(key::SYNC_FLDIGI_QUERY_SENT).arg("host", &app.fldigi_host).arg("port", app.fldigi_port).text(lang));
                                     }
-                                    if let Some(ref res) = app.fldigi_test_result {
+                                    if let Some(ref res) = app.digital.fldigi_test_result {
                                         ui.colored_label(palette.accent, res);
                                     }
                                 });

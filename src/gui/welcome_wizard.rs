@@ -375,7 +375,7 @@ fn render_tab_radio(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
             ui.label(egui::RichText::new("JS8Call:").strong());
             ui.horizontal(|ui| {
                 ui.checkbox(
-                    &mut app.js8call_enabled,
+                    &mut app.digital.js8call_enabled,
                     tr(key::WIZARD_ENABLE_JS8CALL, lang),
                 );
                 ui.label(
@@ -450,9 +450,12 @@ fn render_tab_services(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
             // REST API
             ui.label(egui::RichText::new("Lokalny REST API:").strong());
             ui.horizontal(|ui| {
-                ui.checkbox(&mut app.rest_api_enabled, tr(key::WIZARD_ENABLE_HTTP, lang));
+                ui.checkbox(
+                    &mut app.runtime.rest_api_enabled,
+                    tr(key::WIZARD_ENABLE_HTTP, lang),
+                );
                 ui.label("Port:");
-                ui.add(egui::DragValue::new(&mut app.rest_api_port).range(1024..=65535));
+                ui.add(egui::DragValue::new(&mut app.runtime.rest_api_port).range(1024..=65535));
             });
             ui.end_row();
         });

@@ -44,11 +44,7 @@ use std::sync::{Arc, Mutex};
 pub use crate::gui::drill_filter::{DrillFilter, QslDrillStatus};
 
 /// Główny stan aplikacji natywnego pulpitu SPLogbook
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum ShutdownPolicy {
-    None,
-    Backup,
-}
+pub use crate::gui::state::ShutdownPolicy;
 
 pub struct AppInit {
     pub config: AppConfig,
@@ -89,10 +85,10 @@ impl SpotBadgeKind {
 }
 
 pub struct SpLogApp {
-    pub shutdown_policy: ShutdownPolicy,
-    pub initial_cat_enabled: bool,
     pub paths: crate::gui::state::AppPaths,
     pub services: crate::gui::state::AppServices,
+    pub runtime: crate::gui::state::AppRuntime,
+    pub digital: crate::gui::state::DigitalModesState,
 
     // Konfiguracja stacji i lokalizacja
     pub my_station: StationProfile,
@@ -138,7 +134,6 @@ pub struct SpLogApp {
 
     // DX Cluster i pogoda kosmiczna
     pub cluster_spots: Vec<DxSpot>,
-    pub cluster_spots_api: Option<Arc<Mutex<Vec<DxSpot>>>>, // wspoldzielone z REST API
     /// Cache kolorów/odznak spotów klastra (unika przeliczania prefiksu i statusu
     /// nagród w każdej klatce). Czyszczony przy zmianie danych nagród.
     pub cluster_badge_cache: std::collections::HashMap<String, SpotBadgeKind>,
@@ -209,7 +204,6 @@ pub struct SpLogApp {
     pub fldigi_enabled: bool,
     pub fldigi_host: String,
     pub fldigi_port: u16,
-    pub fldigi_test_result: Option<String>,
 
     // PSK Reporter
     pub psk_reporter_enabled: bool,
@@ -279,24 +273,9 @@ pub struct SpLogApp {
     pub gui: crate::gui::state::GuiState,
     pub active_journal: crate::core::database::Journal,
 
-    // WSJT-X nasłuch UDP w tle
-    pub wsjtx_tx: std::sync::mpsc::Sender<crate::digital::wsjtx::WsjtxMessage>,
-    pub wsjtx_rx: std::sync::mpsc::Receiver<crate::digital::wsjtx::WsjtxMessage>,
-    pub wsjtx_packets_count: u64,
-    pub wsjtx_last_call: Option<String>,
-
-    // JS8Call integracja przez TCP API (port 2237)
-    pub js8call_enabled: bool,
-    pub js8call_host: String,
-    pub js8call_port: u16,
-    pub js8call_state: crate::digital::js8call::Js8CallState,
-    pub js8call_state_rx: Option<std::sync::mpsc::Receiver<crate::digital::js8call::Js8CallState>>,
-    pub js8call_qso_rx: Option<std::sync::mpsc::Receiver<crate::core::qso::QsoRecord>>,
-
     // Alerty, Live Auto-Upload i Toast
     pub live_auto_upload_clublog: bool,
     pub live_auto_upload_qrz: bool,
-    pub last_upload_poll_secs: u64,
     pub sync_log_tx: std::sync::mpsc::Sender<(String, bool)>,
     pub sync_log_rx: std::sync::mpsc::Receiver<(String, bool)>,
 
@@ -398,14 +377,8 @@ pub struct SpLogApp {
     // LoTW Users lookup cache (callsign -> uses_lotw)
     pub lotw_users_cache: std::collections::HashMap<String, bool>,
 
-    // PSK Reporter / WSPR monitoring
-    pub show_pskreporter_window: bool,
-
-    // REST API server flag
-    pub rest_api_enabled: bool,
-    pub rest_api_port: u16,
+    // REST API key
     pub rest_api_key: String,
-    pub api_reload_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
 
     // System pluginów użytkownika (Rhai)
     pub plugins_enabled: bool,
@@ -582,8 +555,6 @@ impl SpLogApp {
             init.config.cluster_port = 8000;
         }
 
-        let (wsjtx_tx, wsjtx_rx) = std::sync::mpsc::channel();
-
         let sample_spots = Vec::new();
 
         let rig = RigState {
@@ -687,11 +658,14 @@ impl SpLogApp {
             crate::plugins::PluginEngine::new(),
             qso_ingestor,
         );
+        let runtime =
+            crate::gui::state::AppRuntime::new(init.shutdown_policy, init.config.cat_enabled);
+        let digital = crate::gui::state::DigitalModesState::new();
         let mut app = Self {
-            shutdown_policy: init.shutdown_policy,
-            initial_cat_enabled: init.config.cat_enabled,
             paths,
             services,
+            runtime,
+            digital,
             my_station: init.config.station.clone(),
 
             entry_callsign: String::new(),
@@ -727,7 +701,6 @@ impl SpLogApp {
             log_drill_filter: None,
 
             cluster_spots: sample_spots,
-            cluster_spots_api: None,
             cluster_badge_cache: std::collections::HashMap::new(),
             wspr: crate::gui::state::WsprState::default(),
 
@@ -784,7 +757,6 @@ impl SpLogApp {
             fldigi_enabled: init.config.fldigi_enabled,
             fldigi_host: init.config.fldigi_host,
             fldigi_port: init.config.fldigi_port,
-            fldigi_test_result: None,
 
             psk_reporter_enabled: init.config.psk_reporter_enabled,
 
@@ -844,22 +816,8 @@ impl SpLogApp {
             gui,
             active_journal,
 
-            wsjtx_tx,
-            wsjtx_rx,
-            wsjtx_packets_count: 0,
-            wsjtx_last_call: None,
-
-            // JS8Call — domyślnie wyłączony, bez aktywnych kanałów
-            js8call_enabled: false,
-            js8call_host: "127.0.0.1".to_string(),
-            js8call_port: 2442,
-            js8call_state: crate::digital::js8call::Js8CallState::default(),
-            js8call_state_rx: None,
-            js8call_qso_rx: None,
-
             live_auto_upload_clublog: init.config.live_auto_upload_clublog,
             live_auto_upload_qrz: init.config.live_auto_upload_qrz,
-            last_upload_poll_secs: 0,
             sync_log_tx,
             sync_log_rx,
 
@@ -944,14 +902,8 @@ impl SpLogApp {
             // LoTW Users cache
             lotw_users_cache: std::collections::HashMap::new(),
 
-            // PSK Reporter / WSPR
-            show_pskreporter_window: false,
-
             // REST API
-            rest_api_enabled: false,
-            rest_api_port: 8080,
             rest_api_key: init.config.rest_api_key.clone(),
-            api_reload_flag: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
 
             // System pluginów użytkownika (Rhai)
             plugins_enabled: init.config.plugins_enabled,
@@ -1102,7 +1054,7 @@ impl SpLogApp {
     }
 
     pub fn start_background(&mut self) {
-        let ws_tx = self.wsjtx_tx.clone();
+        let ws_tx = self.digital.wsjtx_tx.clone();
         tokio::spawn(async move {
             let receiver = crate::digital::wsjtx::WsjtxReceiver::new(2237);
             let (tokio_tx, mut tokio_rx) = tokio::sync::mpsc::channel(100);
@@ -1125,7 +1077,7 @@ impl SpLogApp {
             self.services.plugin_engine.run_startup();
         }
 
-        if self.initial_cat_enabled {
+        if self.runtime.initial_cat_enabled {
             self.start_cat_service();
         }
 
@@ -1133,7 +1085,7 @@ impl SpLogApp {
             self.toggle_cat_proxy_server();
         }
 
-        if self.rest_api_enabled {
+        if self.runtime.rest_api_enabled {
             self.start_rest_api_server();
         }
 
@@ -1640,7 +1592,7 @@ impl eframe::App for SpLogApp {
 
 impl Drop for SpLogApp {
     fn drop(&mut self) {
-        if self.shutdown_policy == ShutdownPolicy::None {
+        if self.runtime.shutdown_policy == ShutdownPolicy::None {
             return;
         }
 

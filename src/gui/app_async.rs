@@ -49,7 +49,7 @@ impl SpLogApp {
 
     /// Synchronizuj cluster_spots z wątkiem REST API (gdy zmieni się rozmiar lub najnowszy spot)
     pub fn sync_cluster_spots_api(&mut self) {
-        if let Some(ref api_slot) = self.cluster_spots_api.clone() {
+        if let Some(ref api_slot) = self.runtime.cluster_spots_api.clone() {
             if let Ok(mut guard) = api_slot.try_lock() {
                 let changed = guard.len() != self.cluster_spots.len()
                     || guard
@@ -237,13 +237,14 @@ impl SpLogApp {
 
     /// Synchronizuj stan radia do współdzielonego stanu serwera proxy oraz REST API
     pub fn sync_cat_shared_state_and_api(&mut self) {
-        if self.cat_sharing_enabled || self.rest_api_enabled {
+        if self.cat_sharing_enabled || self.runtime.rest_api_enabled {
             if let Ok(mut shared) = self.cat_shared_state.write() {
                 *shared = self.rig_state.clone();
             }
         }
 
         if self
+            .runtime
             .api_reload_flag
             .swap(false, std::sync::atomic::Ordering::AcqRel)
         {
@@ -494,8 +495,8 @@ impl SpLogApp {
 
     /// Odbiór pakietów cyfrowych WSJT-X (UDP 2237)
     pub fn poll_wsjtx(&mut self) {
-        while let Ok(msg) = self.wsjtx_rx.try_recv() {
-            self.wsjtx_packets_count += 1;
+        while let Ok(msg) = self.digital.wsjtx_rx.try_recv() {
+            self.digital.wsjtx_packets_count += 1;
             match msg {
                 crate::digital::wsjtx::WsjtxMessage::Status {
                     dial_freq,
@@ -504,7 +505,7 @@ impl SpLogApp {
                     ..
                 } => {
                     if !dx_call.is_empty() {
-                        self.wsjtx_last_call = Some(dx_call);
+                        self.digital.wsjtx_last_call = Some(dx_call);
                     }
                     if dial_freq > 0 {
                         self.rig_state.frequency_hz = dial_freq;
@@ -526,9 +527,11 @@ impl SpLogApp {
 
     /// Odbiór aktualizacji stanu i zalogowanych QSO z modułu JS8Call przez TCP API
     pub fn poll_js8call(&mut self) {
-        if let Some(ref rx) = self.js8call_state_rx {
+        if let Some(ref rx) = self.digital.js8call_state_rx {
             while let Ok(state) = rx.try_recv() {
-                if state.dial_freq_hz > 0 && state.dial_freq_hz != self.js8call_state.dial_freq_hz {
+                if state.dial_freq_hz > 0
+                    && state.dial_freq_hz != self.digital.js8call_state.dial_freq_hz
+                {
                     self.rig_state.frequency_hz = state.dial_freq_hz;
                     if let Some(band_def) =
                         crate::core::bandplan::get_band_by_freq(state.dial_freq_hz)
@@ -539,12 +542,12 @@ impl SpLogApp {
                 if state.connected && self.entry_mode != "JS8" {
                     self.entry_mode = "JS8".to_string();
                 }
-                self.js8call_state = state;
+                self.digital.js8call_state = state;
             }
         }
 
         let mut js8_new_qsos = Vec::new();
-        if let Some(ref rx) = self.js8call_qso_rx {
+        if let Some(ref rx) = self.digital.js8call_qso_rx {
             while let Ok(qso) = rx.try_recv() {
                 js8_new_qsos.push(qso);
             }
@@ -589,7 +592,7 @@ mod tests {
         let mut app = build_test_app();
         let ctx = egui::Context::default();
         app.poll_main_async_events(&ctx);
-        assert_eq!(app.wsjtx_packets_count, 0);
+        assert_eq!(app.digital.wsjtx_packets_count, 0);
     }
 
     #[test]
@@ -611,11 +614,12 @@ mod tests {
     fn test_poll_wsjtx_increments_packets() {
         let mut app = build_test_app();
         let _ = app
+            .digital
             .wsjtx_tx
             .send(crate::digital::wsjtx::WsjtxMessage::Heartbeat {
                 id: "WSJT-X".to_string(),
             });
         app.poll_wsjtx();
-        assert_eq!(app.wsjtx_packets_count, 1);
+        assert_eq!(app.digital.wsjtx_packets_count, 1);
     }
 }

@@ -21,10 +21,10 @@ impl SpLogApp {
     pub fn start_rest_api_server(&mut self) {
         let db = self.services.log_db.clone();
         let cs = self.my_station.callsign.clone();
-        let port = self.rest_api_port;
+        let port = self.runtime.rest_api_port;
         let key = self.ensure_rest_api_key();
         let spots_for_api = Arc::new(Mutex::new(self.cluster_spots.clone()));
-        self.cluster_spots_api = Some(spots_for_api.clone());
+        self.runtime.cluster_spots_api = Some(spots_for_api.clone());
         if let Ok(mut shared_rig) = self.cat_shared_state.write() {
             *shared_rig = self.rig_state.clone();
         }
@@ -39,7 +39,7 @@ impl SpLogApp {
             self.services.prefix_matcher.clone(),
             self.cat_shared_state.clone(),
             self.services.awards_engine.clone(),
-            self.api_reload_flag.clone(),
+            self.runtime.api_reload_flag.clone(),
         )
         .with_ingestor(self.services.ingestor.clone());
         tokio::spawn(async move {
@@ -214,10 +214,10 @@ impl SpLogApp {
 
         let now = crate::cloud::scheduler::now_unix();
         // Ogranicz sprawdzanie kolejki do maksymalnie raz na 5 sekund (redukcja rywalizacji o Mutex w pętli 60Hz UI)
-        if now < self.last_upload_poll_secs + 5 {
+        if now < self.runtime.last_upload_poll_secs + 5 {
             return;
         }
-        self.last_upload_poll_secs = now;
+        self.runtime.last_upload_poll_secs = now;
 
         let creds = crate::cloud::scheduler::UploadCredentials {
             clublog_callsign: self.online.clublog_callsign.clone(),

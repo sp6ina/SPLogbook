@@ -112,7 +112,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
         // 2. Sygnalizator WSJT-X
         if app.quick_access.show_wsjtx {
             ui.label(
-                egui::RichText::new(format!("● WSJT-X ({})", app.wsjtx_packets_count))
+                egui::RichText::new(format!("● WSJT-X ({})", app.digital.wsjtx_packets_count))
                     .small()
                     .color(palette.success),
             );
