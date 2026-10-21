@@ -479,7 +479,7 @@ impl SpLogApp {
 
     /// Odbiór asynchronicznych komunikatów z synchronizacji online (LoTW, eQSL, Club Log, QRZ, Aktualizacje baz)
     pub fn poll_online_sync_logs(&mut self) {
-        while let Ok((msg, rebuild_awards)) = self.sync_log_rx.try_recv() {
+        while let Ok((msg, rebuild_awards)) = self.online.sync_log_rx.try_recv() {
             self.online.online_sync_logs.push(msg.clone());
             if self.online.online_sync_logs.len() > 500 {
                 let excess = self.online.online_sync_logs.len() - 500;
@@ -599,6 +599,7 @@ mod tests {
     fn test_poll_online_sync_logs_receives_messages() {
         let mut app = build_test_app();
         let _ = app
+            .online
             .sync_log_tx
             .send(("Synchronized 5 QSOs".to_string(), false));
         app.poll_online_sync_logs();

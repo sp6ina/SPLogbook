@@ -188,9 +188,9 @@ impl SpLogApp {
         // 4. Kolejka uploadów chmurowych (enqueue_uploads)
         if effects.enqueue_uploads {
             // Automatyczny przesył na żywo do Club Log — przez wspólną kolejkę wysyłki
-            if self.live_auto_upload_clublog
-                && !self.online.clublog_callsign.is_empty()
-                && !self.online.clublog_password.is_empty()
+            if self.config.live_auto_upload_clublog
+                && !self.config.clublog_callsign.is_empty()
+                && !self.config.clublog_password.is_empty()
             {
                 let adif_record = crate::core::adif::export_adif(
                     std::slice::from_ref(qso),
@@ -212,7 +212,7 @@ impl SpLogApp {
             }
 
             // Automatyczny przesył na żywo do logbooka QRZ.com — przez wspólną kolejkę wysyłki
-            if self.live_auto_upload_qrz && !self.qrz_api_key.is_empty() {
+            if self.config.live_auto_upload_qrz && !self.config.qrz_api_key.is_empty() {
                 let adif_record = crate::core::adif::export_adif(
                     std::slice::from_ref(qso),
                     "SPLogbook",

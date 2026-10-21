@@ -8,11 +8,11 @@ impl SpLogApp {
     /// w nagłówku `X-Api-Key`, aby zapobiec dostępowi z dowolnej strony/skryptu
     /// działającego lokalnie (serwer nasłuchuje na 127.0.0.1, ale CORS jest otwarty).
     pub fn ensure_rest_api_key(&mut self) -> String {
-        if self.rest_api_key.is_empty() {
-            self.rest_api_key = crate::api::server::generate_api_key();
+        if self.config.rest_api_key.is_empty() {
+            self.config.rest_api_key = crate::api::server::generate_api_key();
             self.save_station_config();
         }
-        self.rest_api_key.clone()
+        self.config.rest_api_key.clone()
     }
 
     /// Uruchamia wbudowany serwer REST API w osobnym zadaniu tokio, wykorzystując
@@ -113,7 +113,7 @@ impl SpLogApp {
                 .map(|p| p.join("databases"))
                 .unwrap_or_else(|| std::path::PathBuf::from("databases"))
         };
-        let tx = self.sync_log_tx.clone();
+        let tx = self.online.sync_log_tx.clone();
         let scp = self.services.scp_engine.clone();
 
         tokio::spawn(async move {
@@ -220,13 +220,13 @@ impl SpLogApp {
         self.runtime.last_upload_poll_secs = now;
 
         let creds = crate::cloud::scheduler::UploadCredentials {
-            clublog_callsign: self.online.clublog_callsign.clone(),
-            clublog_email: self.online.clublog_email.clone(),
-            clublog_password: self.online.clublog_password.clone(),
-            clublog_api_key: self.online.clublog_api_key.clone(),
-            qrz_api_key: self.qrz_api_key.clone(),
-            eqsl_username: self.online.eqsl_username.clone(),
-            eqsl_password: self.online.eqsl_password.clone(),
+            clublog_callsign: self.config.clublog_callsign.clone(),
+            clublog_email: self.config.clublog_email.clone(),
+            clublog_password: self.config.clublog_password.clone(),
+            clublog_api_key: self.config.clublog_api_key.clone(),
+            qrz_api_key: self.config.qrz_api_key.clone(),
+            eqsl_username: self.config.eqsl_username.clone(),
+            eqsl_password: self.config.eqsl_password.clone(),
         };
 
         // Pobierz gotowe zadania (maks. jedno na serwis, z uwzględnieniem rate-limit).

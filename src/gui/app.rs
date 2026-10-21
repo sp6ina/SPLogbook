@@ -85,6 +85,7 @@ impl SpotBadgeKind {
 }
 
 pub struct SpLogApp {
+    pub config: AppConfig,
     pub paths: crate::gui::state::AppPaths,
     pub services: crate::gui::state::AppServices,
     pub runtime: crate::gui::state::AppRuntime,
@@ -227,18 +228,6 @@ pub struct SpLogApp {
     pub lan_sync_secret: String,
     pub show_multi_op_window: bool,
 
-    // LoTW konfiguracja
-    pub lotw_tqsl_path: String,
-    pub lotw_station_name: String,
-    pub lotw_username: String,
-    pub lotw_password: String,
-
-    // QRZ / Callbook
-    pub qrz_username: String,
-    pub qrz_password: String,
-    pub qrz_api_key: String,
-    pub qrz_auto_lookup: bool,
-
     pub online: crate::gui::state::OnlineSyncUiState,
 
     // Edycja QSO i historia Worked Before
@@ -255,9 +244,6 @@ pub struct SpLogApp {
     pub awards_matrix_tab: usize,
     pub awards_other_subtab: usize,
     pub awards_other_search: String,
-    pub callbook_priority: Vec<crate::core::callbook::CallbookSource>,
-    pub callbook_cache_enabled: bool,
-    pub callbook_cache_ttl_days: u32,
     pub quick_access: crate::core::station::QuickAccessConfig,
     pub show_quick_access_customizer: bool,
 
@@ -272,12 +258,6 @@ pub struct SpLogApp {
     // Stan GUI (dialogi, chrome, widoki)
     pub gui: crate::gui::state::GuiState,
     pub active_journal: crate::core::database::Journal,
-
-    // Alerty, Live Auto-Upload i Toast
-    pub live_auto_upload_clublog: bool,
-    pub live_auto_upload_qrz: bool,
-    pub sync_log_tx: std::sync::mpsc::Sender<(String, bool)>,
-    pub sync_log_rx: std::sync::mpsc::Receiver<(String, bool)>,
 
     // SPLogbook
     pub show_column_settings: bool,
@@ -338,14 +318,6 @@ pub struct SpLogApp {
     pub entry_qsl_manager: String,
     pub active_qsl_manager_record: Option<QslManagerRecord>,
 
-    // Cloudlog, HRDLog, HamQTH
-    pub cloudlog_url: String,
-    pub cloudlog_api_key: String,
-    pub hrdlog_username: String,
-    pub hrdlog_upload_code: String,
-    pub hamqth_username: String,
-    pub hamqth_password: String,
-
     // Sortowanie i paginacja tabeli logu
     pub log_sort_column: u8, // 0=data, 1=znak, 2=pasmo, 3=emisja, 4=kraj, 5..=13 pozostałe kolumny
     pub log_sort_asc: bool,
@@ -364,9 +336,6 @@ pub struct SpLogApp {
 
     // LoTW Users lookup cache (callsign -> uses_lotw)
     pub lotw_users_cache: std::collections::HashMap<String, bool>,
-
-    // REST API key
-    pub rest_api_key: String,
 
     // System pluginów użytkownika (Rhai)
     pub plugins_enabled: bool,
@@ -561,7 +530,6 @@ impl SpLogApp {
         };
 
         let (qrz_lookup_tx, qrz_lookup_rx) = std::sync::mpsc::channel();
-        let (sync_log_tx, sync_log_rx) = std::sync::mpsc::channel();
 
         let exe_dir = std::env::current_exe()
             .ok()
@@ -598,7 +566,6 @@ impl SpLogApp {
             None
         };
         let callbook_cache_ttl_days = init.config.callbook_cache_ttl_days;
-        let callbook_priority = init.config.callbook_priority.clone();
 
         let local_callbook = std::sync::Arc::new(
             crate::core::callbook::LocalCallbook::new(cb_path, srv_path)
@@ -627,7 +594,7 @@ impl SpLogApp {
             workspace: crate::gui::state::DockWorkspace::default(),
         };
         let views = crate::gui::state::ViewsState::from_config(&init.config);
-        let online = crate::gui::state::OnlineSyncUiState::from_config(&init.config);
+        let online = crate::gui::state::OnlineSyncUiState::new();
         let paths = crate::gui::state::AppPaths::new(
             init.config_file_path,
             init.active_db_path,
@@ -650,7 +617,9 @@ impl SpLogApp {
         let runtime =
             crate::gui::state::AppRuntime::new(init.shutdown_policy, init.config.cat_enabled);
         let digital = crate::gui::state::DigitalModesState::new();
+        let config = init.config.clone();
         let mut app = Self {
+            config,
             paths,
             services,
             runtime,
@@ -766,16 +735,6 @@ impl SpLogApp {
             lan_sync_secret: init.config.lan_sync_secret,
             show_multi_op_window: false,
 
-            lotw_tqsl_path: init.config.lotw_tqsl_path,
-            lotw_station_name: init.config.lotw_station_name,
-            lotw_username: init.config.lotw_username,
-            lotw_password: init.config.lotw_password,
-
-            qrz_username: init.config.qrz_username,
-            qrz_password: init.config.qrz_password,
-            qrz_api_key: init.config.qrz_api_key,
-            qrz_auto_lookup: init.config.qrz_auto_lookup,
-
             online,
 
             editing_qso: None,
@@ -789,9 +748,6 @@ impl SpLogApp {
             awards_matrix_tab: 0,
             awards_other_subtab: 0,
             awards_other_search: String::new(),
-            callbook_priority,
-            callbook_cache_enabled: init.config.callbook_cache_enabled,
-            callbook_cache_ttl_days,
             quick_access: init.config.quick_access,
             show_quick_access_customizer: false,
 
@@ -804,11 +760,6 @@ impl SpLogApp {
 
             gui,
             active_journal,
-
-            live_auto_upload_clublog: init.config.live_auto_upload_clublog,
-            live_auto_upload_qrz: init.config.live_auto_upload_qrz,
-            sync_log_tx,
-            sync_log_rx,
 
             show_column_settings: false,
             updates: crate::gui::state::UpdateState::default(),
@@ -832,13 +783,6 @@ impl SpLogApp {
             entry_pota: String::new(),
             entry_qsl_manager: String::new(),
             active_qsl_manager_record: None,
-
-            cloudlog_url: init.config.cloudlog_url,
-            cloudlog_api_key: init.config.cloudlog_api_key,
-            hrdlog_username: init.config.hrdlog_username,
-            hrdlog_upload_code: init.config.hrdlog_upload_code,
-            hamqth_username: init.config.hamqth_username,
-            hamqth_password: init.config.hamqth_password,
 
             cat_state_tx,
             cat_state_rx,
@@ -885,9 +829,6 @@ impl SpLogApp {
 
             // LoTW Users cache
             lotw_users_cache: std::collections::HashMap::new(),
-
-            // REST API
-            rest_api_key: init.config.rest_api_key.clone(),
 
             // System pluginów użytkownika (Rhai)
             plugins_enabled: init.config.plugins_enabled,

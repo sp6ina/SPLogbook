@@ -3,31 +3,32 @@
 
 //! Online synchronization UI state (LoTW, eQSL, Club Log, etc.).
 
-/// State for the online synchronization window and credentials.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+use std::sync::mpsc;
+
+/// State for the online synchronization window and log channel.
+#[derive(Debug)]
 pub struct OnlineSyncUiState {
     pub show_online_sync_window: bool,
     pub online_sync_logs: Vec<String>,
-    pub clublog_callsign: String,
-    pub clublog_email: String,
-    pub clublog_password: String,
-    pub clublog_api_key: String,
-    pub eqsl_username: String,
-    pub eqsl_password: String,
+    pub sync_log_tx: mpsc::Sender<(String, bool)>,
+    pub sync_log_rx: mpsc::Receiver<(String, bool)>,
 }
 
 impl OnlineSyncUiState {
-    pub fn from_config(config: &crate::core::station::AppConfig) -> Self {
+    pub fn new() -> Self {
+        let (sync_log_tx, sync_log_rx) = mpsc::channel();
         Self {
             show_online_sync_window: false,
             online_sync_logs: Vec::new(),
-            clublog_callsign: config.clublog_callsign.clone(),
-            clublog_email: config.clublog_email.clone(),
-            clublog_password: config.clublog_password.clone(),
-            clublog_api_key: config.clublog_api_key.clone(),
-            eqsl_username: config.eqsl_username.clone(),
-            eqsl_password: config.eqsl_password.clone(),
+            sync_log_tx,
+            sync_log_rx,
         }
+    }
+}
+
+impl Default for OnlineSyncUiState {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -40,11 +41,6 @@ mod tests {
         let state = OnlineSyncUiState::default();
         assert!(!state.show_online_sync_window);
         assert!(state.online_sync_logs.is_empty());
-        assert!(state.clublog_callsign.is_empty());
-        assert!(state.clublog_email.is_empty());
-        assert!(state.clublog_password.is_empty());
-        assert!(state.clublog_api_key.is_empty());
-        assert!(state.eqsl_username.is_empty());
-        assert!(state.eqsl_password.is_empty());
+        assert!(state.sync_log_rx.try_recv().is_err());
     }
 }

@@ -83,11 +83,11 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
                                     ui.horizontal(|ui| {
                                         ui.label(tr(key::SYNC_TQSL_PATH, lang));
-                                        ui.add(egui::TextEdit::singleline(&mut app.lotw_tqsl_path).desired_width(260.0));
+                                        ui.add(egui::TextEdit::singleline(&mut app.config.lotw_tqsl_path).desired_width(260.0));
                                         if ui.button(tr(key::SYNC_DETECT_BTN, lang)).clicked() {
                                             if let Some(detected) = detect_tqsl_path() {
-                                                app.lotw_tqsl_path = detected.to_string_lossy().to_string();
-                                                app.online.online_sync_logs.push(format!("Wykryto TQSL w: {}", app.lotw_tqsl_path));
+                                                app.config.lotw_tqsl_path = detected.to_string_lossy().to_string();
+                                                app.online.online_sync_logs.push(format!("Wykryto TQSL w: {}", app.config.lotw_tqsl_path));
                                             } else {
                                                 app.online.online_sync_logs.push(tr(key::SYNC_TQSL_NOT_FOUND, lang).to_string());
                                             }
@@ -96,15 +96,15 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
                                     ui.horizontal(|ui| {
                                         ui.label(tr(key::SYNC_STATION_LOCATION, lang));
-                                        ui.add(egui::TextEdit::singleline(&mut app.lotw_station_name).desired_width(180.0));
+                                        ui.add(egui::TextEdit::singleline(&mut app.config.lotw_station_name).desired_width(180.0));
                                     });
 
                                     ui.horizontal(|ui| {
                                         ui.label(tr(key::SYNC_LOTW_LOGIN, lang));
-                                        ui.add(egui::TextEdit::singleline(&mut app.lotw_username).desired_width(120.0));
+                                        ui.add(egui::TextEdit::singleline(&mut app.config.lotw_username).desired_width(120.0));
                                         ui.add_space(10.0);
                                         ui.label(tr(key::SYNC_PASSWORD, lang));
-                                        ui.add(egui::TextEdit::singleline(&mut app.lotw_password).password(true).desired_width(120.0));
+                                        ui.add(egui::TextEdit::singleline(&mut app.config.lotw_password).password(true).desired_width(120.0));
                                     });
 
                                     ui.add_space(6.0);
@@ -117,9 +117,9 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                             };
                                             let qso_count = qsos.len();
                                             let adif = crate::core::adif::export_adif(&qsos, "SPLogbook", &app.my_station.callsign);
-                                            let tqsl_path = app.lotw_tqsl_path.clone();
-                                            let station_loc = app.lotw_station_name.clone();
-                                            let tx = app.sync_log_tx.clone();
+                                            let tqsl_path = app.config.lotw_tqsl_path.clone();
+                                            let station_loc = app.config.lotw_station_name.clone();
+                                            let tx = app.online.sync_log_tx.clone();
                                             app.online.online_sync_logs.push(Msg::new(key::SYNC_LOTW_SIGNING_LOG).arg("count", qso_count).text(lang));
                                             app.gui.chrome.status_message = Some(tr(key::SYNC_LOTW_IN_PROGRESS, lang).to_string());
 
@@ -136,12 +136,12 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                         }
 
                                         if ui.button(egui::RichText::new(format!("📥 {}", tr(key::SYNC_LOTW_DOWNLOAD, lang)))).clicked() {
-                                            if app.lotw_username.is_empty() || app.lotw_password.is_empty() {
+                                            if app.config.lotw_username.is_empty() || app.config.lotw_password.is_empty() {
                                                 app.online.online_sync_logs.push(tr(key::SYNC_LOTW_MISSING_CREDS, lang).to_string());
                                             } else {
-                                                let tx = app.sync_log_tx.clone();
-                                                let user = app.lotw_username.clone();
-                                                let pass = app.lotw_password.clone();
+                                                let tx = app.online.sync_log_tx.clone();
+                                                let user = app.config.lotw_username.clone();
+                                                let pass = app.config.lotw_password.clone();
                                                 let log_db = app.services.log_db.clone();
                                                 tokio::spawn(async move {
                                                     let _ = tx.send((tr(key::SYNC_LOTW_DOWNLOADING, lang).to_string(), false));
@@ -184,21 +184,21 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
                                     ui.horizontal(|ui| {
                                         ui.label(tr(key::SYNC_EQSL_USER, lang));
-                                        ui.add(egui::TextEdit::singleline(&mut app.online.eqsl_username).desired_width(120.0));
+                                        ui.add(egui::TextEdit::singleline(&mut app.config.eqsl_username).desired_width(120.0));
                                         ui.add_space(10.0);
                                         ui.label(tr(key::SYNC_EQSL_PASSWORD, lang));
-                                        ui.add(egui::TextEdit::singleline(&mut app.online.eqsl_password).password(true).desired_width(120.0));
+                                        ui.add(egui::TextEdit::singleline(&mut app.config.eqsl_password).password(true).desired_width(120.0));
                                     });
 
                                     ui.add_space(6.0);
                                     ui.horizontal(|ui| {
                                         if ui.button(format!("📤 {}", tr(key::SYNC_EQSL_UPLOAD, lang))).clicked() {
-                                            if app.online.eqsl_username.is_empty() || app.online.eqsl_password.is_empty() {
+                                            if app.config.eqsl_username.is_empty() || app.config.eqsl_password.is_empty() {
                                                 app.online.online_sync_logs.push(tr(key::SYNC_EQSL_MISSING_CREDS, lang).to_string());
                                             } else {
-                                                let tx = app.sync_log_tx.clone();
-                                                let user = app.online.eqsl_username.clone();
-                                                let pass = app.online.eqsl_password.clone();
+                                                let tx = app.online.sync_log_tx.clone();
+                                                let user = app.config.eqsl_username.clone();
+                                                let pass = app.config.eqsl_password.clone();
                                                 let qsos = if let Ok(db) = app.services.log_db.lock() { db.get_recent_qsos(1000).unwrap_or_default() } else { vec![] };
                                                 let adif = crate::core::adif::export_adif(&qsos, "SPLogbook", &app.my_station.callsign);
                                                 tokio::spawn(async move {
@@ -212,12 +212,12 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                             }
                                         }
                                         if ui.button(format!("📥 {}", tr(key::SYNC_EQSL_DOWNLOAD, lang))).clicked() {
-                                            if app.online.eqsl_username.is_empty() || app.online.eqsl_password.is_empty() {
+                                            if app.config.eqsl_username.is_empty() || app.config.eqsl_password.is_empty() {
                                                 app.online.online_sync_logs.push(tr(key::SYNC_EQSL_MISSING_CREDS, lang).to_string());
                                             } else {
-                                                let tx = app.sync_log_tx.clone();
-                                                let user = app.online.eqsl_username.clone();
-                                                let pass = app.online.eqsl_password.clone();
+                                                let tx = app.online.sync_log_tx.clone();
+                                                let user = app.config.eqsl_username.clone();
+                                                let pass = app.config.eqsl_password.clone();
                                                 let log_db = app.services.log_db.clone();
                                                 tokio::spawn(async move {
                                                     let client = crate::cloud::eqsl::EqslClient::new(user, pass);
@@ -258,33 +258,33 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
                                     ui.horizontal(|ui| {
                                         ui.label(tr(key::SYNC_CALLSIGN, lang));
-                                        ui.add(egui::TextEdit::singleline(&mut app.online.clublog_callsign).desired_width(100.0));
+                                        ui.add(egui::TextEdit::singleline(&mut app.config.clublog_callsign).desired_width(100.0));
                                         ui.add_space(10.0);
                                         ui.label("Email:");
-                                        ui.add(egui::TextEdit::singleline(&mut app.online.clublog_email).desired_width(160.0));
+                                        ui.add(egui::TextEdit::singleline(&mut app.config.clublog_email).desired_width(160.0));
                                     });
 
                                     ui.horizontal(|ui| {
                                         ui.label(tr(key::SYNC_PASSWORD, lang));
-                                        ui.add(egui::TextEdit::singleline(&mut app.online.clublog_password).password(true).desired_width(120.0));
+                                        ui.add(egui::TextEdit::singleline(&mut app.config.clublog_password).password(true).desired_width(120.0));
                                         ui.add_space(10.0);
                                         ui.label(tr(key::SYNC_API_KEY_OPTIONAL, lang));
-                                        ui.add(egui::TextEdit::singleline(&mut app.online.clublog_api_key).desired_width(140.0));
+                                        ui.add(egui::TextEdit::singleline(&mut app.config.clublog_api_key).desired_width(140.0));
                                     });
 
                                     ui.add_space(4.0);
-                                    ui.checkbox(&mut app.live_auto_upload_clublog, tr(key::SYNC_LIVE_AUTO_UPLOAD_CLUBLOG, lang));
+                                    ui.checkbox(&mut app.config.live_auto_upload_clublog, tr(key::SYNC_LIVE_AUTO_UPLOAD_CLUBLOG, lang));
 
                                     ui.add_space(6.0);
                                     if ui.button(format!("📤 {}", tr(key::SYNC_CLUBLOG_UPLOAD, lang))).clicked() {
-                                        if app.online.clublog_callsign.is_empty() || app.online.clublog_password.is_empty() {
+                                        if app.config.clublog_callsign.is_empty() || app.config.clublog_password.is_empty() {
                                             app.online.online_sync_logs.push(tr(key::SYNC_CLUBLOG_MISSING_CREDS, lang).to_string());
                                         } else {
-                                            let tx = app.sync_log_tx.clone();
-                                            let call = app.online.clublog_callsign.clone();
-                                            let email = app.online.clublog_email.clone();
-                                            let pass = app.online.clublog_password.clone();
-                                            let api = app.online.clublog_api_key.clone();
+                                            let tx = app.online.sync_log_tx.clone();
+                                            let call = app.config.clublog_callsign.clone();
+                                            let email = app.config.clublog_email.clone();
+                                            let pass = app.config.clublog_password.clone();
+                                            let api = app.config.clublog_api_key.clone();
                                             let qsos = if let Ok(db) = app.services.log_db.lock() { db.get_recent_qsos(5000).unwrap_or_default() } else { vec![] };
                                             let adif = crate::core::adif::export_adif(&qsos, "SPLogbook", &app.my_station.callsign);
                                             tokio::spawn(async move {
@@ -304,29 +304,29 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     ui.label(egui::RichText::new(tr(key::SYNC_TAB_QRZ, lang)).strong().size(13.0).color(palette.series(6)));
                                     ui.separator();
 
-                                    ui.checkbox(&mut app.qrz_auto_lookup, tr(key::SYNC_AUTO_LOOKUP, lang));
-                                    ui.checkbox(&mut app.live_auto_upload_qrz, tr(key::SYNC_LIVE_AUTO_UPLOAD_QRZ, lang));
+                                    ui.checkbox(&mut app.config.qrz_auto_lookup, tr(key::SYNC_AUTO_LOOKUP, lang));
+                                    ui.checkbox(&mut app.config.live_auto_upload_qrz, tr(key::SYNC_LIVE_AUTO_UPLOAD_QRZ, lang));
 
                                     ui.horizontal(|ui| {
                                         ui.label(tr(key::SYNC_QRZ_LOGIN, lang));
-                                        ui.add(egui::TextEdit::singleline(&mut app.qrz_username).desired_width(120.0));
+                                        ui.add(egui::TextEdit::singleline(&mut app.config.qrz_username).desired_width(120.0));
                                         ui.add_space(10.0);
                                         ui.label(tr(key::SYNC_QRZ_PASSWORD, lang));
-                                        ui.add(egui::TextEdit::singleline(&mut app.qrz_password).password(true).desired_width(120.0));
+                                        ui.add(egui::TextEdit::singleline(&mut app.config.qrz_password).password(true).desired_width(120.0));
                                     });
 
                                     ui.horizontal(|ui| {
                                         ui.label(tr(key::SYNC_QRZ_API_KEY, lang));
-                                        ui.add(egui::TextEdit::singleline(&mut app.qrz_api_key).desired_width(220.0));
+                                        ui.add(egui::TextEdit::singleline(&mut app.config.qrz_api_key).desired_width(220.0));
                                     });
 
                                     ui.add_space(4.0);
                                     if ui.button(format!("📤 {}", tr(key::SYNC_QRZ_UPLOAD, lang))).clicked() {
-                                        if app.qrz_api_key.is_empty() {
+                                        if app.config.qrz_api_key.is_empty() {
                                             app.online.online_sync_logs.push(tr(key::SYNC_QRZ_MISSING_API_KEY, lang).to_string());
                                         } else {
-                                            let tx = app.sync_log_tx.clone();
-                                            let api = app.qrz_api_key.clone();
+                                            let tx = app.online.sync_log_tx.clone();
+                                            let api = app.config.qrz_api_key.clone();
                                             let qsos = if let Ok(db) = app.services.log_db.lock() { db.get_recent_qsos(1000).unwrap_or_default() } else { vec![] };
                                             let adif = crate::core::adif::export_adif(&qsos, "SPLogbook", &app.my_station.callsign);
                                             tokio::spawn(async move {
@@ -347,18 +347,18 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     ui.separator();
                                     ui.horizontal(|ui| {
                                         ui.label(tr(key::SYNC_HAMQTH_LOGIN, lang));
-                                        ui.add(egui::TextEdit::singleline(&mut app.hamqth_username).desired_width(120.0));
+                                        ui.add(egui::TextEdit::singleline(&mut app.config.hamqth_username).desired_width(120.0));
                                         ui.add_space(10.0);
                                         ui.label(tr(key::SYNC_HAMQTH_PASSWORD, lang));
-                                        ui.add(egui::TextEdit::singleline(&mut app.hamqth_password).password(true).desired_width(120.0));
+                                        ui.add(egui::TextEdit::singleline(&mut app.config.hamqth_password).password(true).desired_width(120.0));
                                     });
                                     if ui.button(tr(key::SYNC_HAMQTH_UPLOAD_BTN, lang)).clicked() {
-                                        if app.hamqth_username.is_empty() || app.hamqth_password.is_empty() {
+                                        if app.config.hamqth_username.is_empty() || app.config.hamqth_password.is_empty() {
                                             app.online.online_sync_logs.push(tr(key::SYNC_HAMQTH_MISSING_CREDS, lang).to_string());
                                         } else {
-                                            let tx = app.sync_log_tx.clone();
-                                            let user = app.hamqth_username.clone();
-                                            let pass = app.hamqth_password.clone();
+                                            let tx = app.online.sync_log_tx.clone();
+                                            let user = app.config.hamqth_username.clone();
+                                            let pass = app.config.hamqth_password.clone();
                                             let qsos = if let Ok(db) = app.services.log_db.lock() { db.get_recent_qsos(100).unwrap_or_default() } else { vec![] };
                                             app.gui.chrome.status_message = Some(tr(key::SYNC_HAMQTH_IN_PROGRESS, lang).to_string());
                                             app.online.online_sync_logs.push(Msg::new(key::SYNC_HAMQTH_SENDING).arg("count", qsos.len()).text(lang));
@@ -387,19 +387,19 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 ui.group(|ui| {
                                     ui.label(egui::RichText::new(tr(key::SYNC_TAB_CALLBOOK_AGG, lang)).strong().size(13.0).color(palette.series(7)));
                                     ui.separator();
-                                    ui.checkbox(&mut app.callbook_cache_enabled, tr(key::SYNC_CACHE_ENABLE, lang));
-                                    if app.callbook_cache_enabled {
+                                    ui.checkbox(&mut app.config.callbook_cache_enabled, tr(key::SYNC_CACHE_ENABLE, lang));
+                                    if app.config.callbook_cache_enabled {
                                         ui.horizontal(|ui| {
                                             ui.label(tr(key::SYNC_CACHE_TTL_DAYS, lang));
-                                            ui.add(egui::DragValue::new(&mut app.callbook_cache_ttl_days).range(1..=365).speed(0.1));
+                                            ui.add(egui::DragValue::new(&mut app.config.callbook_cache_ttl_days).range(1..=365).speed(0.1));
                                         });
                                     }
                                     ui.add_space(4.0);
                                     ui.label(tr(key::SYNC_SOURCE_PRIORITY, lang));
                                     let mut move_up: Option<usize> = None;
                                     let mut move_down: Option<usize> = None;
-                                    let len = app.callbook_priority.len();
-                                    for (i, src) in app.callbook_priority.iter().enumerate() {
+                                    let len = app.config.callbook_priority.len();
+                                    for (i, src) in app.config.callbook_priority.iter().enumerate() {
                                         ui.horizontal(|ui| {
                                             ui.label(format!("{}. {}", i + 1, src.label()));
                                             if i > 0 && ui.small_button("▲").clicked() {
@@ -411,13 +411,13 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                         });
                                     }
                                     if let Some(i) = move_up {
-                                        app.callbook_priority.swap(i, i - 1);
+                                        app.config.callbook_priority.swap(i, i - 1);
                                     }
                                     if let Some(i) = move_down {
-                                        app.callbook_priority.swap(i, i + 1);
+                                        app.config.callbook_priority.swap(i, i + 1);
                                     }
                                     if ui.button(tr(key::SYNC_RESET_PRIORITY_BTN, lang)).clicked() {
-                                        app.callbook_priority = crate::core::callbook::default_callbook_priority();
+                                        app.config.callbook_priority = crate::core::callbook::default_callbook_priority();
                                     }
                                 });
                             }
@@ -427,19 +427,19 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     ui.separator();
                                     ui.horizontal(|ui| {
                                         ui.label(tr(key::SYNC_SERVER_URL, lang));
-                                        ui.add(egui::TextEdit::singleline(&mut app.cloudlog_url).desired_width(220.0).hint_text("https://cloudlog.twojadomena.pl"));
+                                        ui.add(egui::TextEdit::singleline(&mut app.config.cloudlog_url).desired_width(220.0).hint_text("https://cloudlog.twojadomena.pl"));
                                     });
                                     ui.horizontal(|ui| {
                                         ui.label(tr(key::SYNC_CLOUDLOG_API_KEY, lang));
-                                        ui.add(egui::TextEdit::singleline(&mut app.cloudlog_api_key).password(true).desired_width(220.0));
+                                        ui.add(egui::TextEdit::singleline(&mut app.config.cloudlog_api_key).password(true).desired_width(220.0));
                                     });
                                     if ui.button(tr(key::SYNC_CLOUDLOG_UPLOAD_BTN, lang)).clicked() {
-                                        if app.cloudlog_url.trim().is_empty() || app.cloudlog_api_key.trim().is_empty() {
+                                        if app.config.cloudlog_url.trim().is_empty() || app.config.cloudlog_api_key.trim().is_empty() {
                                             app.online.online_sync_logs.push(tr(key::SYNC_CLOUDLOG_MISSING_CREDS, lang).to_string());
                                         } else {
-                                            let tx = app.sync_log_tx.clone();
-                                            let url = app.cloudlog_url.clone();
-                                            let api_key = app.cloudlog_api_key.clone();
+                                            let tx = app.online.sync_log_tx.clone();
+                                            let url = app.config.cloudlog_url.clone();
+                                            let api_key = app.config.cloudlog_api_key.clone();
                                             let qsos = if let Ok(db) = app.services.log_db.lock() { db.get_recent_qsos(100).unwrap_or_default() } else { vec![] };
                                             app.gui.chrome.status_message = Some(tr(key::SYNC_CLOUDLOG_IN_PROGRESS, lang).to_string());
                                             app.online.online_sync_logs.push(Msg::new(key::SYNC_CLOUDLOG_SENDING).arg("count", qsos.len()).text(lang));
@@ -470,18 +470,18 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     ui.separator();
                                     ui.horizontal(|ui| {
                                         ui.label(tr(key::SYNC_CALLSIGN, lang));
-                                        ui.add(egui::TextEdit::singleline(&mut app.hrdlog_username).desired_width(100.0));
+                                        ui.add(egui::TextEdit::singleline(&mut app.config.hrdlog_username).desired_width(100.0));
                                         ui.add_space(10.0);
                                         ui.label("Upload Code:");
-                                        ui.add(egui::TextEdit::singleline(&mut app.hrdlog_upload_code).password(true).desired_width(120.0));
+                                        ui.add(egui::TextEdit::singleline(&mut app.config.hrdlog_upload_code).password(true).desired_width(120.0));
                                     });
                                     if ui.button(tr(key::SYNC_HRDLOG_UPLOAD_BTN, lang)).clicked() {
-                                        if app.hrdlog_username.trim().is_empty() || app.hrdlog_upload_code.trim().is_empty() {
+                                        if app.config.hrdlog_username.trim().is_empty() || app.config.hrdlog_upload_code.trim().is_empty() {
                                             app.online.online_sync_logs.push(tr(key::SYNC_HRDLOG_MISSING_CREDS, lang).to_string());
                                         } else {
-                                            let tx = app.sync_log_tx.clone();
-                                            let call = app.hrdlog_username.clone();
-                                            let code = app.hrdlog_upload_code.clone();
+                                            let tx = app.online.sync_log_tx.clone();
+                                            let call = app.config.hrdlog_username.clone();
+                                            let code = app.config.hrdlog_upload_code.clone();
                                             let qsos = if let Ok(db) = app.services.log_db.lock() { db.get_recent_qsos(100).unwrap_or_default() } else { vec![] };
                                             app.gui.chrome.status_message = Some(tr(key::SYNC_HRDLOG_IN_PROGRESS, lang).to_string());
                                             app.online.online_sync_logs.push(Msg::new(key::SYNC_HRDLOG_SENDING).arg("count", qsos.len()).text(lang));

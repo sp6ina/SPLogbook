@@ -106,7 +106,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
                             .on_hover_text(tr(key::TOOLS_REST_API_REGEN_KEY, lang))
                             .clicked()
                         {
-                            app.rest_api_key = crate::api::server::generate_api_key();
+                            app.config.rest_api_key = crate::api::server::generate_api_key();
                             app.save_station_config();
                         }
                     });

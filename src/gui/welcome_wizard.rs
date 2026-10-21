@@ -410,13 +410,13 @@ fn render_tab_services(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
             ui.horizontal(|ui| {
                 ui.label("Login:");
                 ui.add(
-                    egui::TextEdit::singleline(&mut app.lotw_username)
+                    egui::TextEdit::singleline(&mut app.config.lotw_username)
                         .hint_text("callsign LoTW")
                         .desired_width(100.0),
                 );
                 ui.label("Haslo:");
                 ui.add(
-                    egui::TextEdit::singleline(&mut app.lotw_password)
+                    egui::TextEdit::singleline(&mut app.config.lotw_password)
                         .password(true)
                         .desired_width(100.0),
                 );
@@ -426,7 +426,7 @@ fn render_tab_services(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
             // QRZ.com
             ui.label(egui::RichText::new("QRZ.com XML API:").strong());
             ui.add(
-                egui::TextEdit::singleline(&mut app.qrz_api_key)
+                egui::TextEdit::singleline(&mut app.config.qrz_api_key)
                     .hint_text(tr(key::WELCOME_QRZ_API_KEY_HINT, lang))
                     .desired_width(260.0),
             );
@@ -437,11 +437,11 @@ fn render_tab_services(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
             ui.horizontal(|ui| {
                 ui.label("Email:");
                 ui.add(
-                    egui::TextEdit::singleline(&mut app.online.clublog_email).desired_width(150.0),
+                    egui::TextEdit::singleline(&mut app.config.clublog_email).desired_width(150.0),
                 );
                 ui.label("API:");
                 ui.add(
-                    egui::TextEdit::singleline(&mut app.online.clublog_api_key)
+                    egui::TextEdit::singleline(&mut app.config.clublog_api_key)
                         .desired_width(100.0),
                 );
             });

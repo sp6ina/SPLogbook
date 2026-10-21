@@ -198,7 +198,7 @@ impl SpLogApp {
 
         // 7. Jeśli włączono automatyczne pobieranie z serwisów online (HamQTH / Callook / QRZ)
         //    i znak ma min. 3 znaki — opóźnij o 600 ms (debounce), aby nie spamować zapytań przy szybkim pisaniu.
-        if self.qrz_auto_lookup && clean.len() >= 3 {
+        if self.config.qrz_auto_lookup && clean.len() >= 3 {
             self.lookup_debounce_until =
                 Some(std::time::Instant::now() + std::time::Duration::from_millis(600));
         }
@@ -210,7 +210,7 @@ impl SpLogApp {
             if std::time::Instant::now() >= deadline {
                 self.lookup_debounce_until = None;
                 let clean = self.entry_callsign.trim().to_uppercase();
-                if self.qrz_auto_lookup && clean.len() >= 3 {
+                if self.config.qrz_auto_lookup && clean.len() >= 3 {
                     self.lookup_active_callsign_online();
                 }
             }
@@ -280,11 +280,11 @@ impl SpLogApp {
         }
 
         let lc = self.services.local_callbook.clone();
-        let hamqth_u = self.hamqth_username.clone();
-        let hamqth_p = self.hamqth_password.clone();
-        let qrz_u = self.qrz_username.clone();
-        let qrz_p = self.qrz_password.clone();
-        let priority = self.callbook_priority.clone();
+        let hamqth_u = self.config.hamqth_username.clone();
+        let hamqth_p = self.config.hamqth_password.clone();
+        let qrz_u = self.config.qrz_username.clone();
+        let qrz_p = self.config.qrz_password.clone();
+        let priority = self.config.callbook_priority.clone();
         let tx = self.qrz_lookup_tx.clone();
 
         tokio::spawn(async move {

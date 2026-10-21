@@ -25,150 +25,122 @@ impl SpLogApp {
     }
 
     /// Tworzy zaktualizowaną strukturę [`AppConfig`] odzwierciedlającą bieżący stan aplikacji.
-    pub fn build_app_config(&self) -> AppConfig {
+    pub fn snapshot_config(&self) -> AppConfig {
         let is_configured = if self.gui.chrome.show_welcome_wizard {
             false
         } else {
             !self.my_station.callsign.is_empty() && self.my_station.callsign != "N0CALL"
         };
-        AppConfig {
-            secret_store_id: self.paths.secret_store_id.clone(),
-            is_configured,
-            station: self.my_station.clone(),
-            equipment: self.ledger.items.clone(),
-            dark_theme: self.gui.appearance.theme_preset.is_dark(),
-            theme_preset: self.gui.appearance.theme_preset.id().to_string(),
+        let mut cfg = self.config.clone();
+        cfg.secret_store_id = self.paths.secret_store_id.clone();
+        cfg.is_configured = is_configured;
+        cfg.station = self.my_station.clone();
+        cfg.equipment = self.ledger.items.clone();
+        cfg.dark_theme = self.gui.appearance.theme_preset.is_dark();
+        cfg.theme_preset = self.gui.appearance.theme_preset.id().to_string();
 
-            cat_host: self.cat_host.clone(),
-            cat_port: self.cat_port,
-            cat_enabled: self.cat_connected,
-            cat_poll_rate_ms: self.cat_poll_rate_ms,
-            cat_rig_model: self.cat_rig_model.clone(),
-            cat_serial_port: self.cat_serial_port.clone(),
-            cat_baud_rate: self.cat_baud_rate,
-            cat_rig_id: self.cat_rig_id,
-            cat_auto_start_rigctld: self.cat_auto_start_rigctld,
-            cat_hamlib_source: self.cat_hamlib_source.clone(),
-            cat_custom_rigctld_path: self.cat_custom_rigctld_path.clone(),
+        cfg.cat_host = self.cat_host.clone();
+        cfg.cat_port = self.cat_port;
+        cfg.cat_enabled = self.cat_connected;
+        cfg.cat_poll_rate_ms = self.cat_poll_rate_ms;
+        cfg.cat_rig_model = self.cat_rig_model.clone();
+        cfg.cat_serial_port = self.cat_serial_port.clone();
+        cfg.cat_baud_rate = self.cat_baud_rate;
+        cfg.cat_rig_id = self.cat_rig_id;
+        cfg.cat_auto_start_rigctld = self.cat_auto_start_rigctld;
+        cfg.cat_hamlib_source = self.cat_hamlib_source.clone();
+        cfg.cat_custom_rigctld_path = self.cat_custom_rigctld_path.clone();
 
-            station_profiles: self.station_profiles.clone(),
-            active_profile_id: self.active_profile_id.clone(),
-            cat_sharing_enabled: self.cat_sharing_enabled,
-            cat_sharing_port: self.cat_sharing_port,
+        cfg.station_profiles = self.station_profiles.clone();
+        cfg.active_profile_id = self.active_profile_id.clone();
+        cfg.cat_sharing_enabled = self.cat_sharing_enabled;
+        cfg.cat_sharing_port = self.cat_sharing_port;
 
-            rotor_host: self.rotor_host.clone(),
-            rotor_port: self.rotor_port,
+        cfg.rotor_host = self.rotor_host.clone();
+        cfg.rotor_port = self.rotor_port;
 
-            cat_backend: self.cat_backend.clone(),
-            tci_host: self.tci_host.clone(),
-            tci_port: self.tci_port,
-            cat_station: self.cat_station.clone(),
+        cfg.cat_backend = self.cat_backend.clone();
+        cfg.tci_host = self.tci_host.clone();
+        cfg.tci_port = self.tci_port;
+        cfg.cat_station = self.cat_station.clone();
 
-            fldigi_enabled: self.fldigi_enabled,
-            fldigi_host: self.fldigi_host.clone(),
-            fldigi_port: self.fldigi_port,
+        cfg.fldigi_enabled = self.fldigi_enabled;
+        cfg.fldigi_host = self.fldigi_host.clone();
+        cfg.fldigi_port = self.fldigi_port;
 
-            psk_reporter_enabled: self.psk_reporter_enabled,
+        cfg.psk_reporter_enabled = self.psk_reporter_enabled;
 
-            n1mm_broadcast_enabled: self.n1mm_broadcast_enabled,
-            n1mm_broadcast_host: self.n1mm_broadcast_host.clone(),
-            n1mm_broadcast_port: self.n1mm_broadcast_port,
+        cfg.n1mm_broadcast_enabled = self.n1mm_broadcast_enabled;
+        cfg.n1mm_broadcast_host = self.n1mm_broadcast_host.clone();
+        cfg.n1mm_broadcast_port = self.n1mm_broadcast_port;
 
-            voice_keyer_messages: self.voice_keyer.messages.clone(),
+        cfg.voice_keyer_messages = self.voice_keyer.messages.clone();
 
-            workspace_profiles: self.workspace_profiles.clone(),
+        cfg.workspace_profiles = self.workspace_profiles.clone();
 
-            plugins_enabled: self.plugins_enabled,
-            plugins_dir: self.plugins_dir.clone(),
-            operator_assistant_enabled: self.operator_assistant_enabled,
-            propagation_history: self.solar.propagation_history.clone(),
+        cfg.plugins_enabled = self.plugins_enabled;
+        cfg.plugins_dir = self.plugins_dir.clone();
+        cfg.operator_assistant_enabled = self.operator_assistant_enabled;
+        cfg.propagation_history = self.solar.propagation_history.clone();
 
-            lan_sync_port: self.lan_sync_port,
-            lan_sync_server_ip: self.lan_sync_server_ip.clone(),
-            lan_sync_secret: self.lan_sync_secret.clone(),
+        cfg.lan_sync_port = self.lan_sync_port;
+        cfg.lan_sync_server_ip = self.lan_sync_server_ip.clone();
+        cfg.lan_sync_secret = self.lan_sync_secret.clone();
 
-            lotw_tqsl_path: self.lotw_tqsl_path.clone(),
-            lotw_station_name: self.lotw_station_name.clone(),
-            lotw_username: self.lotw_username.clone(),
-            lotw_password: self.lotw_password.clone(),
+        cfg.wol_mac = self.gui.dialogs.wol_dialog.mac_address.clone();
+        cfg.wol_ip = self.gui.dialogs.wol_dialog.broadcast_ip.clone();
+        cfg.wol_port = self.gui.dialogs.wol_dialog.port;
 
-            qrz_username: self.qrz_username.clone(),
-            qrz_password: self.qrz_password.clone(),
-            qrz_api_key: self.qrz_api_key.clone(),
-            qrz_auto_lookup: self.qrz_auto_lookup,
+        cfg.current_language = self.gui.appearance.language.code().to_string();
+        cfg.compact_hud_mode = self.compact_hud_mode;
+        cfg.tabbed_columns = self.tabbed_columns;
+        cfg.dock_layout = self.serialize_dock_layout();
+        cfg.font_scale = self.font_scale;
+        cfg.font_family = self.font_family.clone();
+        cfg.distance_unit = self.distance_unit.clone();
+        cfg.hud_always_on_top = self.hud_always_on_top;
+        cfg.hud_saved_pos = self.hud_saved_pos;
+        cfg.hud_saved_size = self.hud_saved_size;
+        cfg.hud_operating_bar = self.hud_operating_bar;
+        cfg.main_window_pos = self.main_window_pos;
+        cfg.main_window_size = self.main_window_size;
+        cfg.main_window_maximized = self.main_window_maximized;
 
-            eqsl_username: self.online.eqsl_username.clone(),
-            eqsl_password: self.online.eqsl_password.clone(),
+        cfg.cluster_host = self.cluster_host.clone();
+        cfg.cluster_port = self.cluster_port;
+        cfg.cluster_callsign = self.cluster_callsign.clone();
+        cfg.cluster_auto_connect = self.cluster_auto_connect;
+        cfg.cluster_filter_current_band = self.cluster_filter_current_band;
+        cfg.cluster_hide_ft8 = self.cluster_hide_ft8;
+        cfg.cluster_hide_skimmers = self.cluster_hide_skimmers;
+        cfg.custom_clusters = self.custom_clusters.clone();
+        cfg.quick_access = self.quick_access.clone();
 
-            clublog_callsign: self.online.clublog_callsign.clone(),
-            clublog_email: self.online.clublog_email.clone(),
-            clublog_password: self.online.clublog_password.clone(),
-            clublog_api_key: self.online.clublog_api_key.clone(),
+        cfg.left_column_width = self.left_column_width;
+        cfg.right_column_width = self.right_column_width;
 
-            cloudlog_url: self.cloudlog_url.clone(),
-            cloudlog_api_key: self.cloudlog_api_key.clone(),
-            rest_api_key: self.rest_api_key.clone(),
-            hrdlog_username: self.hrdlog_username.clone(),
-            hrdlog_upload_code: self.hrdlog_upload_code.clone(),
-            hamqth_username: self.hamqth_username.clone(),
-            hamqth_password: self.hamqth_password.clone(),
+        cfg.panel_vfo = self.views.panel_vfo.clone();
+        cfg.panel_qso = self.views.panel_qso.clone();
+        cfg.panel_log = self.views.panel_log.clone();
+        cfg.panel_cluster = self.views.panel_cluster.clone();
+        cfg.panel_solar = self.views.panel_solar.clone();
+        cfg.panel_bandmap = self.views.panel_bandmap.clone();
+        cfg.panel_satellites = self.views.panel_satellites.clone();
+        cfg.panel_world_map = self.views.panel_world_map.clone();
+        cfg.panel_waterfall = self.views.panel_waterfall.clone();
+        cfg.logbook_columns = self.logbook_columns.clone();
+        cfg.logbook_column_presets = self.logbook_column_presets.clone();
+        cfg.custom_contests = self.custom_contests.clone();
+        cfg
+    }
 
-            callbook_priority: self.callbook_priority.clone(),
-            callbook_cache_enabled: self.callbook_cache_enabled,
-            callbook_cache_ttl_days: self.callbook_cache_ttl_days,
-
-            wol_mac: self.gui.dialogs.wol_dialog.mac_address.clone(),
-            wol_ip: self.gui.dialogs.wol_dialog.broadcast_ip.clone(),
-            wol_port: self.gui.dialogs.wol_dialog.port,
-
-            current_language: self.gui.appearance.language.code().to_string(),
-            compact_hud_mode: self.compact_hud_mode,
-            tabbed_columns: self.tabbed_columns,
-            dock_layout: self.serialize_dock_layout(),
-            font_scale: self.font_scale,
-            font_family: self.font_family.clone(),
-            distance_unit: self.distance_unit.clone(),
-            hud_always_on_top: self.hud_always_on_top,
-            hud_saved_pos: self.hud_saved_pos,
-            hud_saved_size: self.hud_saved_size,
-            hud_operating_bar: self.hud_operating_bar,
-            main_window_pos: self.main_window_pos,
-            main_window_size: self.main_window_size,
-            main_window_maximized: self.main_window_maximized,
-
-            live_auto_upload_clublog: self.live_auto_upload_clublog,
-            live_auto_upload_qrz: self.live_auto_upload_qrz,
-
-            cluster_host: self.cluster_host.clone(),
-            cluster_port: self.cluster_port,
-            cluster_callsign: self.cluster_callsign.clone(),
-            cluster_auto_connect: self.cluster_auto_connect,
-            cluster_filter_current_band: self.cluster_filter_current_band,
-            cluster_hide_ft8: self.cluster_hide_ft8,
-            cluster_hide_skimmers: self.cluster_hide_skimmers,
-            custom_clusters: self.custom_clusters.clone(),
-            quick_access: self.quick_access.clone(),
-
-            left_column_width: self.left_column_width,
-            right_column_width: self.right_column_width,
-
-            panel_vfo: self.views.panel_vfo.clone(),
-            panel_qso: self.views.panel_qso.clone(),
-            panel_log: self.views.panel_log.clone(),
-            panel_cluster: self.views.panel_cluster.clone(),
-            panel_solar: self.views.panel_solar.clone(),
-            panel_bandmap: self.views.panel_bandmap.clone(),
-            panel_satellites: self.views.panel_satellites.clone(),
-            panel_world_map: self.views.panel_world_map.clone(),
-            panel_waterfall: self.views.panel_waterfall.clone(),
-            logbook_columns: self.logbook_columns.clone(),
-            logbook_column_presets: self.logbook_column_presets.clone(),
-            custom_contests: self.custom_contests.clone(),
-        }
+    /// Tworzy zaktualizowaną strukturę [`AppConfig`] odzwierciedlającą bieżący stan aplikacji.
+    pub fn build_app_config(&self) -> AppConfig {
+        self.snapshot_config()
     }
 
     pub fn save_station_config(&mut self) {
-        let mut cfg = self.build_app_config();
+        let mut cfg = self.snapshot_config();
         if let Err(e) = cfg.save_to_file(&self.paths.config_file_path) {
             self.report_error(
                 Msg::new(key::CONFIG_SAVE_ERROR)
@@ -176,7 +148,8 @@ impl SpLogApp {
                     .text(self.gui.appearance.language),
             );
         } else {
-            self.paths.secret_store_id = cfg.secret_store_id;
+            self.paths.secret_store_id.clone_from(&cfg.secret_store_id);
+            self.config = cfg;
         }
     }
 
