@@ -94,14 +94,14 @@ impl SpLogApp {
     }
 
     pub fn tune_satellite_frequencies(&mut self) {
-        let freq_hz = (self.sat_downlink_mhz * 1_000_000.0) as u64;
+        let freq_hz = (self.satellites.downlink_mhz * 1_000_000.0) as u64;
         if freq_hz > 0 {
             self.set_vfo_frequency(freq_hz);
         }
     }
 
     pub fn point_rotor_to_satellite(&mut self) {
-        self.rotate_antenna_to_el(self.sat_azimuth, self.sat_elevation);
+        self.rotate_antenna_to_el(self.satellites.azimuth, self.satellites.elevation);
     }
 
     pub fn cat_backend_kind(&self) -> crate::cat::backend::CatBackendKind {

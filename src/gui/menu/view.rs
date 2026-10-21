@@ -84,7 +84,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             )
             .changed()
         {
-            app.show_satellites_window = app.panel_satellites.visible;
+            app.satellites.show_window = app.panel_satellites.visible;
             changed = true;
         }
         if ui

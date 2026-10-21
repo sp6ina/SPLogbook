@@ -180,7 +180,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         {
             app.panel_satellites.visible = true;
             app.panel_satellites.floating = true;
-            app.show_satellites_window = true;
+            app.satellites.show_window = true;
             ui.close();
         }
         if ui

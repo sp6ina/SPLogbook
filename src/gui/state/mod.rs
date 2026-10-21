@@ -3,6 +3,8 @@
 
 pub mod duplicates;
 pub mod marketplace;
+pub mod satellite;
 
 pub use duplicates::DuplicatesState;
 pub use marketplace::MarketplaceState;
+pub use satellite::SatelliteState;

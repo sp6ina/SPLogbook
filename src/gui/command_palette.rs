@@ -122,7 +122,7 @@ const COMMANDS: &[Command] = &[
         keywords: "satellite pass",
         run: |app| {
             app.panel_satellites.visible = true;
-            app.show_satellites_window = true;
+            app.satellites.show_window = true;
         },
     },
     Command {

@@ -278,7 +278,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .clicked()
         {
             app.panel_satellites.visible = !app.panel_satellites.visible;
-            app.show_satellites_window = app.panel_satellites.visible;
+            app.satellites.show_window = app.panel_satellites.visible;
             app.save_station_config();
         }
 

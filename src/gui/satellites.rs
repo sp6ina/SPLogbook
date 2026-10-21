@@ -129,7 +129,7 @@ pub fn render_satellites_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
     if !open {
         app.panel_satellites.visible = false;
-        app.show_satellites_window = false;
+        app.satellites.show_window = false;
         app.save_station_config();
     }
 }
@@ -143,7 +143,7 @@ pub fn render_satellites_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.label(tr(key::SAT_SELECT, lang));
             egui::ComboBox::from_id_salt("sat_select")
-                .selected_text(&app.selected_satellite)
+                .selected_text(&app.satellites.selected_satellite)
                 .show_ui(ui, |ui| {
                     for sat in &[
                         "ISS (ZARYA)",
@@ -154,7 +154,11 @@ pub fn render_satellites_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                         "CAS-4A",
                         "JO-97 (JY1Sat)",
                     ] {
-                        ui.selectable_value(&mut app.selected_satellite, sat.to_string(), *sat);
+                        ui.selectable_value(
+                            &mut app.satellites.selected_satellite,
+                            sat.to_string(),
+                            *sat,
+                        );
                     }
                 });
         });
@@ -171,22 +175,22 @@ pub fn render_satellites_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 ui.label(format!(
                     "{}: {:.1}°",
                     tr(key::SAT_AZIMUTH, lang),
-                    app.sat_azimuth
+                    app.satellites.azimuth
                 ));
                 ui.label(format!(
                     "{}: {:.1}°",
                     tr(key::SAT_ELEVATION, lang),
-                    app.sat_elevation
+                    app.satellites.elevation
                 ));
                 ui.label(format!(
                     "{}: {:.0} km",
                     tr(key::SAT_SLANT_RANGE, lang),
-                    app.sat_range_km
+                    app.satellites.range_km
                 ));
                 ui.label(format!(
                     "{}: {:.0} km",
                     tr(key::SAT_ALTITUDE, lang),
-                    app.sat_altitude_km
+                    app.satellites.altitude_km
                 ));
             });
 
@@ -199,16 +203,22 @@ pub fn render_satellites_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 ui.label(format!(
                     "{}: {:.4} MHz",
                     tr(key::SAT_DOWNLINK, lang),
-                    app.sat_downlink_mhz
+                    app.satellites.downlink_mhz
                 ));
-                ui.label(format!("Doppler RX: {:+.2} kHz", app.sat_rx_doppler_khz));
+                ui.label(format!(
+                    "Doppler RX: {:+.2} kHz",
+                    app.satellites.rx_doppler_khz
+                ));
                 ui.separator();
                 ui.label(format!(
                     "{}: {:.4} MHz",
                     tr(key::SAT_UPLINK, lang),
-                    app.sat_uplink_mhz
+                    app.satellites.uplink_mhz
                 ));
-                ui.label(format!("Doppler TX: {:+.2} kHz", app.sat_tx_doppler_khz));
+                ui.label(format!(
+                    "Doppler TX: {:+.2} kHz",
+                    app.satellites.tx_doppler_khz
+                ));
             });
         });
 
@@ -216,11 +226,11 @@ pub fn render_satellites_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         ui.horizontal(|ui| {
             ui.checkbox(
-                &mut app.sat_auto_track_rotator,
+                &mut app.satellites.auto_track_rotator,
                 tr(key::SAT_AUTO_ROTOR, lang),
             );
             ui.checkbox(
-                &mut app.sat_auto_tune_radio,
+                &mut app.satellites.auto_tune_radio,
                 tr(key::SAT_AUTO_DOPPLER, lang),
             );
         });
@@ -251,7 +261,7 @@ pub fn render_satellites_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .size(11.0),
         );
         let now = crate::cloud::scheduler::now_unix() as f64;
-        if let Some(np) = crate::core::satellite::next_pass(&app.sat_passes, now) {
+        if let Some(np) = crate::core::satellite::next_pass(&app.satellites.passes, now) {
             let secs = np.aos_unix - now;
             if secs > 0.0 {
                 ui.label(
@@ -297,7 +307,7 @@ pub fn render_satellites_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                         );
                         ui.end_row();
 
-                        for pass in app.sat_passes.iter().take(8) {
+                        for pass in app.satellites.passes.iter().take(8) {
                             ui.label(
                                 egui::RichText::new(format_local_time(pass.aos_unix))
                                     .small()

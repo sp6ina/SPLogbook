@@ -97,19 +97,22 @@ impl SpLogApp {
     pub fn refresh_satellite_tracking(&mut self) {
         let now = crate::cloud::scheduler::now_unix() as f64;
         let minute = (now / 60.0) as u64;
-        if self.sat_passes_sat == self.selected_satellite
-            && self.sat_passes_grid == self.my_station.gridsquare
-            && self.sat_passes_minute == minute
-        {
+        if !self.satellites.needs_refresh(
+            &self.satellites.selected_satellite,
+            &self.my_station.gridsquare,
+            minute,
+        ) {
             return;
         }
-        self.sat_passes_sat.clone_from(&self.selected_satellite);
-        self.sat_passes_grid.clone_from(&self.my_station.gridsquare);
-        self.sat_passes_minute = minute;
+        self.satellites.mark_refreshed(
+            &self.satellites.selected_satellite.clone(),
+            &self.my_station.gridsquare,
+            minute,
+        );
 
         let def = crate::core::satellite::default_satellites()
             .into_iter()
-            .find(|d| d.name == self.selected_satellite);
+            .find(|d| d.name == self.satellites.selected_satellite);
 
         let coords = locator_to_coordinates(&self.my_station.gridsquare)
             .unwrap_or(crate::core::geo::Coordinates::new(52.2297, 21.0122));
@@ -119,19 +122,21 @@ impl SpLogApp {
         };
 
         if let Some(def) = def {
-            self.sat_passes = crate::core::satellite::predict_passes(&def, &obs, now, 10.0, 24.0);
-            self.sat_azimuth = crate::core::satellite::azimuth_deg(&def, &obs, now) as f32;
-            self.sat_elevation = crate::core::satellite::elevation_deg(&def, &obs, now) as f32;
-            self.sat_range_km = crate::core::satellite::range_km(&def, &obs, now) as f32;
-            self.sat_altitude_km = def.altitude_km as f32;
-            self.sat_downlink_mhz = def.downlink_mhz;
-            self.sat_uplink_mhz = def.uplink_mhz;
-            self.sat_rx_doppler_khz =
+            self.satellites.passes =
+                crate::core::satellite::predict_passes(&def, &obs, now, 10.0, 24.0);
+            self.satellites.azimuth = crate::core::satellite::azimuth_deg(&def, &obs, now) as f32;
+            self.satellites.elevation =
+                crate::core::satellite::elevation_deg(&def, &obs, now) as f32;
+            self.satellites.range_km = crate::core::satellite::range_km(&def, &obs, now) as f32;
+            self.satellites.altitude_km = def.altitude_km as f32;
+            self.satellites.downlink_mhz = def.downlink_mhz;
+            self.satellites.uplink_mhz = def.uplink_mhz;
+            self.satellites.rx_doppler_khz =
                 crate::core::satellite::doppler_khz(&def, &obs, now, def.downlink_mhz) as f32;
-            self.sat_tx_doppler_khz =
+            self.satellites.tx_doppler_khz =
                 crate::core::satellite::doppler_khz(&def, &obs, now, def.uplink_mhz) as f32;
         } else {
-            self.sat_passes.clear();
+            self.satellites.passes.clear();
         }
     }
 

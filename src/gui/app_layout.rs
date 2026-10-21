@@ -276,7 +276,7 @@ impl SpLogApp {
         };
 
         self.show_bandmap_window = false;
-        self.show_satellites_window = false;
+        self.satellites.show_window = false;
         self.show_world_map_window = false;
         self.reset_layout_requested = true;
         // Natychmiast odtwórz dokowany układ z domyślnej konfiguracji paneli.
@@ -297,7 +297,7 @@ impl SpLogApp {
             "solar" => self.panel_solar.floating = true,
             "satellites" => {
                 self.panel_satellites.floating = true;
-                self.show_satellites_window = true;
+                self.satellites.show_window = true;
             }
             "world_map" => {
                 self.panel_world_map.floating = true;
@@ -323,7 +323,7 @@ impl SpLogApp {
             "solar" => self.panel_solar.visible = false,
             "satellites" => {
                 self.panel_satellites.visible = false;
-                self.show_satellites_window = false;
+                self.satellites.show_window = false;
             }
             "world_map" => {
                 self.panel_world_map.visible = false;
