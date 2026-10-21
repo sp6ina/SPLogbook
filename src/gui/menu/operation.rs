@@ -143,7 +143,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .button(icons::VOICE_KEYER.label(tr(key::MENU_VOICE_KEYER, lang)))
             .clicked()
         {
-            app.show_voice_keyer_window = true;
+            app.voice_keyer.show_window = true;
             ui.close();
         }
         if ui

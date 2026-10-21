@@ -115,7 +115,7 @@ impl SpLogApp {
             self.toggle_ptt();
         }
         if voice_keyer_f8 {
-            self.show_voice_keyer_window = !self.show_voice_keyer_window;
+            self.voice_keyer.show_window = !self.voice_keyer.show_window;
         }
         if toggle_fullscreen_f11 {
             self.is_fullscreen = !self.is_fullscreen;

@@ -71,7 +71,7 @@ impl SpLogApp {
             n1mm_broadcast_host: self.n1mm_broadcast_host.clone(),
             n1mm_broadcast_port: self.n1mm_broadcast_port,
 
-            voice_keyer_messages: self.voice_keyer_messages.clone(),
+            voice_keyer_messages: self.voice_keyer.messages.clone(),
 
             workspace_profiles: self.workspace_profiles.clone(),
 

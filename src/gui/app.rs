@@ -15,9 +15,7 @@ use crate::core::prefix::{PrefixInfo, PrefixMatcher};
 use crate::core::qso::QsoRecord;
 use crate::core::scp::ScpEngine;
 use crate::core::service_db::{QslManagerRecord, ServiceDatabase};
-use crate::core::station::{
-    AppConfig, StationProfile, ViewPanelConfig, VoiceKeyerMessage, WorkspaceProfile,
-};
+use crate::core::station::{AppConfig, StationProfile, ViewPanelConfig, WorkspaceProfile};
 use crate::gui::astronomy_dialog::AstronomyDialog;
 use crate::gui::awards_matrix::render_awards_matrix_window;
 use crate::gui::bandmap::render_bandmap_window;
@@ -292,10 +290,7 @@ pub struct SpLogApp {
     pub n1mm_broadcast_port: u16,
 
     // Voice keyer (SSB)
-    pub voice_keyer_messages: Vec<VoiceKeyerMessage>,
-    pub voice_keyer_active: Option<usize>,
-    pub voice_keyer_recording: Option<usize>,
-    pub show_voice_keyer_window: bool,
+    pub voice_keyer: crate::gui::state::VoiceKeyerState,
 
     // Profile układu operatorskiego (workspace)
     pub workspace_profiles: Vec<WorkspaceProfile>,
@@ -935,10 +930,9 @@ impl SpLogApp {
             n1mm_broadcast_host: init.config.n1mm_broadcast_host,
             n1mm_broadcast_port: init.config.n1mm_broadcast_port,
 
-            voice_keyer_messages: init.config.voice_keyer_messages,
-            voice_keyer_active: None,
-            voice_keyer_recording: None,
-            show_voice_keyer_window: false,
+            voice_keyer: crate::gui::state::VoiceKeyerState::with_messages(
+                init.config.voice_keyer_messages,
+            ),
 
             workspace_profiles: init.config.workspace_profiles,
             show_workspace_profiles_window: false,

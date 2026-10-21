@@ -63,7 +63,7 @@ const COMMANDS: &[Command] = &[
         label_key: key::CMD_VOICE_KEYER,
         keywords: "voice keyer ssb cq audio",
         run: |app| {
-            app.show_voice_keyer_window = true;
+            app.voice_keyer.show_window = true;
         },
     },
     Command {

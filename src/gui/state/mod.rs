@@ -6,9 +6,11 @@ pub mod duplicates;
 pub mod ledger;
 pub mod marketplace;
 pub mod satellite;
+pub mod voice_keyer;
 
 pub use cw::CwMacroState;
 pub use duplicates::DuplicatesState;
 pub use ledger::EquipmentLedgerState;
 pub use marketplace::MarketplaceState;
 pub use satellite::SatelliteState;
+pub use voice_keyer::VoiceKeyerState;

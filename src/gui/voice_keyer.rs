@@ -12,11 +12,11 @@ use eframe::egui;
 
 /// Rysuje okno voice keyer'a, jeśli jest otwarte.
 pub fn render_voice_keyer_window(app: &mut SpLogApp, ctx: &egui::Context) {
-    if !app.show_voice_keyer_window {
+    if !app.voice_keyer.show_window {
         return;
     }
 
-    let mut open = app.show_voice_keyer_window;
+    let mut open = app.voice_keyer.show_window;
     let lang = app.current_language;
     egui::Window::new(tr(key::VOICE_WINDOW_TITLE, lang))
         .open(&mut open)
@@ -40,8 +40,8 @@ pub fn render_voice_keyer_window(app: &mut SpLogApp, ctx: &egui::Context) {
             ui.add_space(6.0);
 
             if ui.button(tr(key::VOICE_ADD_SLOT, lang)).clicked() {
-                app.voice_keyer_messages.push(VoiceKeyerMessage {
-                    label: format!("F{}", app.voice_keyer_messages.len() + 1),
+                app.voice_keyer.messages.push(VoiceKeyerMessage {
+                    label: format!("F{}", app.voice_keyer.messages.len() + 1),
                     ..Default::default()
                 });
                 app.save_station_config();
@@ -56,8 +56,8 @@ pub fn render_voice_keyer_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     let mut preview_idx: Option<usize> = None;
                     let mut rec_idx: Option<usize> = None;
 
-                    for (idx, msg) in app.voice_keyer_messages.iter_mut().enumerate() {
-                        let active = app.voice_keyer_active == Some(idx);
+                    for (idx, msg) in app.voice_keyer.messages.iter_mut().enumerate() {
+                        let active = app.voice_keyer.active == Some(idx);
                         ui.group(|ui| {
                             ui.horizontal(|ui| {
                                 let dot = if active { "🔴" } else { "⚪" };
@@ -65,7 +65,7 @@ pub fn render_voice_keyer_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     .selectable_label(active, format!("{dot} {}", msg.label))
                                     .clicked()
                                 {
-                                    app.voice_keyer_active = Some(idx);
+                                    app.voice_keyer.active = Some(idx);
                                 }
                                 ui.add(
                                     egui::TextEdit::singleline(&mut msg.label).desired_width(90.0),
@@ -95,7 +95,7 @@ pub fn render_voice_keyer_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 if ui.button("📻 TX").clicked() {
                                     tx_idx = Some(idx);
                                 }
-                                let recording_here = app.voice_keyer_recording == Some(idx);
+                                let recording_here = app.voice_keyer.recording == Some(idx);
                                 if recording_here {
                                     if ui.button(tr(key::VOICE_SAVE_RECORDING, lang)).clicked() {
                                         rec_idx = Some(idx);
@@ -125,31 +125,31 @@ pub fn render_voice_keyer_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
                     // Przetwarzanie akcji po pętli (unikamy jednoczesnego pożyczania)
                     if let Some(idx) = preview_idx
-                        && let Some(m) = app.voice_keyer_messages.get(idx).cloned()
+                        && let Some(m) = app.voice_keyer.messages.get(idx).cloned()
                     {
                         std::thread::spawn(move || {
                             let _ = crate::media::voice_keyer::play_message(&m);
                         });
                     }
                     if let Some(idx) = tx_idx
-                        && let Some(m) = app.voice_keyer_messages.get(idx).cloned()
+                        && let Some(m) = app.voice_keyer.messages.get(idx).cloned()
                     {
-                        app.voice_keyer_active = Some(idx);
+                        app.voice_keyer.active = Some(idx);
                         transmit_message(&m, app);
                     }
                     if let Some(idx) = rec_idx {
                         toggle_recording(app, idx);
                     }
                     if let Some(idx) = remove_idx
-                        && idx < app.voice_keyer_messages.len()
+                        && idx < app.voice_keyer.messages.len()
                     {
-                        app.voice_keyer_messages.remove(idx);
-                        app.voice_keyer_active = None;
+                        app.voice_keyer.messages.remove(idx);
+                        app.voice_keyer.active = None;
                         app.save_station_config();
                     }
                 });
         });
-    app.show_voice_keyer_window = open;
+    app.voice_keyer.show_window = open;
 }
 
 /// Kluczuje PTT (jeśli włączone i CAT połączony), odtwarza komunikat, zwalnia PTT.
@@ -183,22 +183,22 @@ fn transmit_message(msg: &VoiceKeyerMessage, app: &SpLogApp) {
 
 /// Rozpoczyna lub kończy nagrywanie slotu do pliku recordings/voice_keyer/fN.wav.
 fn toggle_recording(app: &mut SpLogApp, idx: usize) {
-    if app.voice_keyer_recording == Some(idx) {
+    if app.voice_keyer.recording == Some(idx) {
         let rec_dir = std::path::Path::new("recordings").join("voice_keyer");
         if let Some(parent) = rec_dir.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
         let path = rec_dir.join(format!("f{}.wav", idx + 1));
         if let Ok(saved) = crate::media::audio_recorder::AudioRecorder::stop_and_save(&path) {
-            if let Some(msg) = app.voice_keyer_messages.get_mut(idx) {
+            if let Some(msg) = app.voice_keyer.messages.get_mut(idx) {
                 msg.wav_path = Some(saved.to_string_lossy().to_string());
             }
             app.save_station_config();
         }
-        app.voice_keyer_recording = None;
+        app.voice_keyer.recording = None;
     } else {
         match crate::media::audio_recorder::AudioRecorder::start_recording() {
-            Ok(()) => app.voice_keyer_recording = Some(idx),
+            Ok(()) => app.voice_keyer.recording = Some(idx),
             Err(e) => log::warn!("Failed to start recording: {e}"),
         }
     }
