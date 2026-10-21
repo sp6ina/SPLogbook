@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+﻿// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::cloud::solar::BandCondition;
@@ -13,7 +13,7 @@ pub fn render_solar_window(app: &mut SpLogApp, ctx: &egui::Context) {
         return;
     }
 
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
 
     if app.views.panel_solar.floating {
         let mut still_open = true;
@@ -109,7 +109,7 @@ pub fn render_solar_window(app: &mut SpLogApp, ctx: &egui::Context) {
             res.response.rect,
             &mut app.views.panel_solar.floating,
             true,
-            app.current_language,
+            app.gui.appearance.language,
         );
         if app.views.panel_solar.floating {
             app.save_station_config();
@@ -137,7 +137,7 @@ pub fn render_solar_window(app: &mut SpLogApp, ctx: &egui::Context) {
 }
 
 pub fn render_solar_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
     let palette = ui.palette();
 
     // Pasek odświeżania danych solarnych

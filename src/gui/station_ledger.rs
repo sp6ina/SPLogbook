@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+﻿// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::core::i18n::{Language, key, tr};
@@ -24,7 +24,7 @@ pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
         return;
     }
 
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
     let mut open = app.ledger.show_window;
     let mut close_req = false;
     let mut item_to_delete: Option<String> = None;
@@ -46,7 +46,7 @@ pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button(tr(key::LEDGER_SAVE_PROFILE, lang)).clicked() {
                             app.save_station_config();
-                            app.status_message =
+                            app.gui.chrome.status_message =
                                 Some(tr(key::LEDGER_PROFILE_SAVED, lang).to_string());
                         }
                     });

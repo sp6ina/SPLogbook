@@ -85,11 +85,11 @@ impl SpLogApp {
             self.show_statistics_window = true;
         }
         if open_shortcuts_f1 {
-            self.show_shortcuts_window = !self.show_shortcuts_window;
+            self.gui.chrome.show_shortcuts_window = !self.gui.chrome.show_shortcuts_window;
         }
         if open_manual_f12 || open_manual_ctrl_h {
-            self.show_user_manual = !self.show_user_manual;
-            self.manual_section = None;
+            self.gui.chrome.show_user_manual = !self.gui.chrome.show_user_manual;
+            self.gui.chrome.manual_section = None;
         }
         if save_qso_f2 {
             self.save_qso();
@@ -120,16 +120,18 @@ impl SpLogApp {
             self.voice_keyer.show_window = !self.voice_keyer.show_window;
         }
         if toggle_fullscreen_f11 {
-            self.is_fullscreen = !self.is_fullscreen;
-            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(self.is_fullscreen));
+            self.gui.appearance.is_fullscreen = !self.gui.appearance.is_fullscreen;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(
+                self.gui.appearance.is_fullscreen,
+            ));
         }
         if save_now {
             self.save_station_config();
         }
         if open_palette {
-            self.show_command_palette = !self.show_command_palette;
-            self.command_palette_query.clear();
-            self.command_palette_selected = 0;
+            self.gui.chrome.show_command_palette = !self.gui.chrome.show_command_palette;
+            self.gui.chrome.command_palette_query.clear();
+            self.gui.chrome.command_palette_selected = 0;
         }
         if quit_app_ctrl_q {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);

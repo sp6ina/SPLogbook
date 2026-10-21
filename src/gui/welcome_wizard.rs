@@ -9,10 +9,10 @@ use eframe::egui;
 /// Ekran powitalny / kreator pierwszego uruchomienia.
 /// Wzorowany na: Log4OM, HamRadioDeluxe, QLog.
 pub fn render_welcome_wizard(app: &mut SpLogApp, ctx: &egui::Context) {
-    if !app.show_welcome_wizard {
+    if !app.gui.chrome.show_welcome_wizard {
         return;
     }
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
     let mut close_wizard = false;
 
     // Obsługa zamknięcia klawiszem Escape
@@ -89,7 +89,7 @@ pub fn render_welcome_wizard(app: &mut SpLogApp, ctx: &egui::Context) {
                         .fill(fill);
 
                         if ui.add(btn).clicked() {
-                            app.current_language = language;
+                            app.gui.appearance.language = language;
                         }
                     }
 
@@ -113,22 +113,22 @@ pub fn render_welcome_wizard(app: &mut SpLogApp, ctx: &egui::Context) {
             // Zakladki kreatora (jak Log4OM)
             ui.horizontal(|ui| {
                 ui.selectable_value(
-                    &mut app.wizard_tab,
+                    &mut app.gui.chrome.wizard_tab,
                     0,
                     format!("1. {}", tr(key::WIZARD_TAB_STATION, lang)),
                 );
                 ui.selectable_value(
-                    &mut app.wizard_tab,
+                    &mut app.gui.chrome.wizard_tab,
                     1,
                     format!("2. {}", tr(key::WIZARD_TAB_RADIO, lang)),
                 );
                 ui.selectable_value(
-                    &mut app.wizard_tab,
+                    &mut app.gui.chrome.wizard_tab,
                     2,
                     format!("3. {}", tr(key::WIZARD_TAB_SERVICES, lang)),
                 );
                 ui.selectable_value(
-                    &mut app.wizard_tab,
+                    &mut app.gui.chrome.wizard_tab,
                     3,
                     format!("4. {}", tr(key::WIZARD_TAB_APPEARANCE, lang)),
                 );
@@ -136,7 +136,7 @@ pub fn render_welcome_wizard(app: &mut SpLogApp, ctx: &egui::Context) {
             ui.separator();
             ui.add_space(6.0);
 
-            match app.wizard_tab {
+            match app.gui.chrome.wizard_tab {
                 0 => render_tab_station(app, ui, lang),
                 1 => render_tab_radio(app, ui, lang),
                 2 => render_tab_services(app, ui, lang),
@@ -149,21 +149,21 @@ pub fn render_welcome_wizard(app: &mut SpLogApp, ctx: &egui::Context) {
 
             // Przyciski nawigacji
             ui.horizontal(|ui| {
-                if app.wizard_tab > 0
+                if app.gui.chrome.wizard_tab > 0
                     && ui
                         .button(format!("< {}", tr(key::BTN_BACK, lang)))
                         .clicked()
                 {
-                    app.wizard_tab -= 1;
+                    app.gui.chrome.wizard_tab -= 1;
                 }
-                if app.wizard_tab < 3
+                if app.gui.chrome.wizard_tab < 3
                     && ui
                         .button(
                             egui::RichText::new(format!("{} >", tr(key::BTN_NEXT, lang))).strong(),
                         )
                         .clicked()
                 {
-                    app.wizard_tab += 1;
+                    app.gui.chrome.wizard_tab += 1;
                 }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -182,10 +182,10 @@ pub fn render_welcome_wizard(app: &mut SpLogApp, ctx: &egui::Context) {
                         )
                         .clicked()
                     {
-                        app.show_welcome_wizard = false;
+                        app.gui.chrome.show_welcome_wizard = false;
                         app.save_station_config();
                         close_wizard = true;
-                        app.status_message = Some(
+                        app.gui.chrome.status_message = Some(
                             Msg::new(key::WELCOME_STATION_CONFIGURED_TOAST)
                                 .arg("call", &app.my_station.callsign)
                                 .text(lang),
@@ -196,7 +196,7 @@ pub fn render_welcome_wizard(app: &mut SpLogApp, ctx: &egui::Context) {
         });
 
     if close_wizard {
-        app.show_welcome_wizard = false;
+        app.gui.chrome.show_welcome_wizard = false;
     }
 }
 
@@ -510,7 +510,7 @@ fn render_tab_appearance(
             )
             .fill(fill);
             if ui.add_sized([115.0, 34.0], btn).clicked() {
-                app.current_language = language;
+                app.gui.appearance.language = language;
             }
         }
     });
@@ -525,7 +525,7 @@ fn render_tab_appearance(
     ui.horizontal(|ui| {
         let palette = ui.palette();
         for preset in crate::gui::theme::ThemePreset::ALL {
-            let selected = app.theme_preset == preset;
+            let selected = app.gui.appearance.theme_preset == preset;
             let fill = if selected {
                 palette.selection_bg
             } else {
@@ -543,8 +543,12 @@ fn render_tab_appearance(
             )
             .fill(fill);
             if ui.add_sized([140.0, 30.0], btn).clicked() {
-                app.theme_preset = preset;
-                crate::gui::theme::ensure_applied(ctx, app.theme_preset, app.font_scale);
+                app.gui.appearance.theme_preset = preset;
+                crate::gui::theme::ensure_applied(
+                    ctx,
+                    app.gui.appearance.theme_preset,
+                    app.font_scale,
+                );
                 app.save_station_config();
             }
         }

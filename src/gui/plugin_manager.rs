@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+﻿// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 //! Okno menedżera pluginów użytkownika (Rhai).
@@ -17,7 +17,7 @@ pub fn render_plugin_manager(app: &mut SpLogApp, ctx: &egui::Context) {
     }
 
     let mut open = app.plugins_ui.show_manager;
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
     egui::Window::new(tr(key::PLUGINS_WINDOW_TITLE, lang))
         .open(&mut open)
         .default_size([620.0, 480.0])

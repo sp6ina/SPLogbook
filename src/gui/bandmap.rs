@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+﻿// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::core::bandplan::{AMATEUR_BANDS, SegmentMode, get_band_by_freq, get_band_by_name};
@@ -12,7 +12,7 @@ pub fn render_bandmap_window(app: &mut SpLogApp, ctx: &egui::Context) {
         return;
     }
 
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
 
     if app.views.panel_bandmap.floating {
         let mut still_open = true;
@@ -28,7 +28,7 @@ pub fn render_bandmap_window(app: &mut SpLogApp, ctx: &egui::Context) {
             |app, ui| {
                 egui::Panel::top("bandmap_vp_bar").show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        let lang = app.current_language;
+                        let lang = app.gui.appearance.language;
                         if ui
                             .button(format!("↙ {}", tr(key::WINDOW_DOCK, lang)))
                             .on_hover_text(tr(key::WINDOW_DOCK_TOOLTIP, lang))
@@ -109,7 +109,7 @@ pub fn render_bandmap_window(app: &mut SpLogApp, ctx: &egui::Context) {
             res.response.rect,
             &mut app.views.panel_bandmap.floating,
             true,
-            app.current_language,
+            app.gui.appearance.language,
         );
         if app.views.panel_bandmap.floating {
             app.save_station_config();
@@ -138,7 +138,7 @@ pub fn render_bandmap_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
 pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let palette = ui.palette();
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
 
     // 1. Pasek sterowania pasmem
     ui.horizontal(|ui| {

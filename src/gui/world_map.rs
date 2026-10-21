@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+﻿// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::core::geo::{Coordinates, calculate_solar_position, locator_to_coordinates};
@@ -260,7 +260,7 @@ pub fn render_world_map_window(app: &mut SpLogApp, ctx: &egui::Context) {
         return;
     }
 
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
 
     // Obsługa Multi-Viewport (niezależne okno OS)
     if app.views.panel_world_map.floating {
@@ -367,7 +367,7 @@ pub fn render_world_map_window(app: &mut SpLogApp, ctx: &egui::Context) {
             res.response.rect,
             &mut app.views.panel_world_map.floating,
             true,
-            app.current_language,
+            app.gui.appearance.language,
         );
         if app.views.panel_world_map.floating {
             app.save_station_config();
@@ -392,7 +392,7 @@ pub fn render_world_map_window(app: &mut SpLogApp, ctx: &egui::Context) {
 }
 
 pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
     let palette = ui.palette();
     let map = palette.map;
     ui.vertical(|ui| {

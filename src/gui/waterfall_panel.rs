@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+﻿// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 //! Panel widma / waterfallu (SDR) — przechwytywanie dźwięku z wejścia
@@ -387,7 +387,7 @@ impl Drop for WaterfallPanel {
 
 /// Renderuje zawartość dokowanego kafelka waterfall (wywoływane z `app_layout`).
 pub fn render_waterfall_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
     app.gui.dialogs.waterfall_panel.render_body(ui, lang);
 }
 
@@ -411,7 +411,7 @@ pub fn render_waterfall_window(app: &mut SpLogApp, ctx: &egui::Context) {
         app.views.panel_waterfall.saved_pos,
         app.views.panel_waterfall.saved_size,
         |app, ui| {
-            let lang = app.current_language;
+            let lang = app.gui.appearance.language;
             egui::Panel::top("waterfall_vp_bar").show(ui, |ui| {
                 ui.horizontal(|ui| {
                     if ui

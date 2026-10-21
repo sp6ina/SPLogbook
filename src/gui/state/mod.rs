@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
+pub mod appearance;
+pub mod chrome;
 pub mod cw;
 pub mod dialogs;
 pub mod duplicates;
@@ -17,6 +19,8 @@ pub mod voice_keyer;
 pub mod world_map;
 pub mod wspr;
 
+pub use appearance::AppearanceState;
+pub use chrome::ChromeState;
 pub use cw::CwMacroState;
 pub use dialogs::DialogState;
 pub use duplicates::DuplicatesState;

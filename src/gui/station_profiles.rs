@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+﻿// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::core::i18n::{key, tr};
@@ -12,7 +12,7 @@ pub fn render_station_profiles_window(app: &mut SpLogApp, ctx: &egui::Context) {
         return;
     }
 
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
     let mut is_open = app.show_station_profiles_window;
     let mut close_requested = false;
     let mut need_save = false;

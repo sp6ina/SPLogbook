@@ -96,19 +96,19 @@ impl SpLogApp {
             Err(e) => {
                 let msg = match e {
                     IngestError::EmptyCallsign => {
-                        Msg::new(key::QSO_ISSUE_EMPTY_CALLSIGN).text(self.current_language)
+                        Msg::new(key::QSO_ISSUE_EMPTY_CALLSIGN).text(self.gui.appearance.language)
                     }
                     IngestError::Invalid(issue) => Msg::new(key::MSG_QSO_NOT_SAVED)
-                        .arg("reason", issue.msg().text(self.current_language))
-                        .text(self.current_language),
+                        .arg("reason", issue.msg().text(self.gui.appearance.language))
+                        .text(self.gui.appearance.language),
                     IngestError::Duplicate => {
-                        Msg::new(key::MSG_QSO_DUPLICATE).text(self.current_language)
+                        Msg::new(key::MSG_QSO_DUPLICATE).text(self.gui.appearance.language)
                     }
                     IngestError::Storage(err) => Msg::new(key::MSG_QSO_SAVE_FAILED)
                         .arg("error", err)
-                        .text(self.current_language),
+                        .text(self.gui.appearance.language),
                 };
-                self.status_toast = Some((msg, std::time::Instant::now()));
+                self.gui.chrome.status_toast = Some((msg, std::time::Instant::now()));
                 return;
             }
         };
@@ -120,17 +120,17 @@ impl SpLogApp {
             .arg("callsign", &outcome.qso.callsign)
             .arg("band", &outcome.qso.band)
             .arg("mode", &outcome.qso.mode)
-            .text(self.current_language);
+            .text(self.gui.appearance.language);
         if !outcome.warnings.is_empty() {
             success_msg.push_str("\n⚠ ");
             let warning_texts: Vec<String> = outcome
                 .warnings
                 .iter()
-                .map(|w| w.msg().text(self.current_language))
+                .map(|w| w.msg().text(self.gui.appearance.language))
                 .collect();
             success_msg.push_str(&warning_texts.join("; "));
         }
-        self.status_toast = Some((success_msg, std::time::Instant::now()));
+        self.gui.chrome.status_toast = Some((success_msg, std::time::Instant::now()));
 
         self.clear_qso_form();
         self.reload_qsos();
@@ -285,10 +285,10 @@ impl SpLogApp {
                 if let Some(ref issue) = outcome.advisory_issue {
                     log::warn!(
                         "WSJT-X QSO advisory issue: {}",
-                        issue.msg().text(self.current_language)
+                        issue.msg().text(self.gui.appearance.language)
                     );
                 }
-                self.status_toast = Some((
+                self.gui.chrome.status_toast = Some((
                     format!(
                         "WSJT-X: Automatycznie dodano QSO z {}!",
                         outcome.qso.callsign
@@ -301,7 +301,7 @@ impl SpLogApp {
                 self.report_error(
                     Msg::new(key::WSJTX_AUTO_SAVE_ERROR)
                         .arg("e", &e)
-                        .text(self.current_language),
+                        .text(self.gui.appearance.language),
                 );
             }
         }
@@ -318,10 +318,10 @@ impl SpLogApp {
                 if let Some(ref issue) = outcome.advisory_issue {
                     log::warn!(
                         "JS8Call QSO advisory issue: {}",
-                        issue.msg().text(self.current_language)
+                        issue.msg().text(self.gui.appearance.language)
                     );
                 }
-                self.status_toast = Some((
+                self.gui.chrome.status_toast = Some((
                     format!(
                         "JS8Call: Automatycznie dodano QSO z {}!",
                         outcome.qso.callsign
@@ -331,10 +331,10 @@ impl SpLogApp {
                 self.reload_qsos();
             }
             Err(e) => {
-                self.status_toast = Some((
+                self.gui.chrome.status_toast = Some((
                     Msg::new(key::JS8CALL_AUTO_SAVE_ERROR)
                         .arg("e", &e)
-                        .text(self.current_language),
+                        .text(self.gui.appearance.language),
                     std::time::Instant::now(),
                 ));
             }
@@ -350,7 +350,7 @@ impl SpLogApp {
                 if let Some(ref issue) = outcome.advisory_issue {
                     log::warn!(
                         "Multi-Op LAN QSO advisory issue: {}",
-                        issue.msg().text(self.current_language)
+                        issue.msg().text(self.gui.appearance.language)
                     );
                 }
                 let log_entry = format!(
@@ -358,7 +358,7 @@ impl SpLogApp {
                     outcome.qso.callsign, outcome.qso.band, outcome.qso.mode
                 );
                 self.sync_ui.push_log(log_entry);
-                self.status_toast = Some((
+                self.gui.chrome.status_toast = Some((
                     format!("🌐 Multi-Op LAN: Dodano QSO z {}!", outcome.qso.callsign),
                     std::time::Instant::now(),
                 ));
@@ -387,16 +387,20 @@ impl SpLogApp {
                         crate::sync::SyncState::Listening => {
                             Msg::new(key::MULTI_OP_STATUS_LISTENING)
                                 .arg("peers", peers)
-                                .text(self.current_language)
+                                .text(self.gui.appearance.language)
                         }
                         crate::sync::SyncState::Connected => {
-                            tr(key::MULTI_OP_STATUS_CONNECTED, self.current_language).to_string()
+                            tr(key::MULTI_OP_STATUS_CONNECTED, self.gui.appearance.language)
+                                .to_string()
                         }
-                        crate::sync::SyncState::Reconnecting => {
-                            tr(key::MULTI_OP_STATUS_RECONNECTING, self.current_language).to_string()
-                        }
+                        crate::sync::SyncState::Reconnecting => tr(
+                            key::MULTI_OP_STATUS_RECONNECTING,
+                            self.gui.appearance.language,
+                        )
+                        .to_string(),
                         crate::sync::SyncState::Failed => {
-                            tr(key::MULTI_OP_STATUS_FAILED, self.current_language).to_string()
+                            tr(key::MULTI_OP_STATUS_FAILED, self.gui.appearance.language)
+                                .to_string()
                         }
                     };
                     self.sync_ui.status = state_str;
@@ -409,19 +413,19 @@ impl SpLogApp {
                         catchup_applied += inserted;
                         let msg = Msg::new(key::MULTI_OP_BACKWARD_SYNC)
                             .arg("inserted", inserted)
-                            .text(self.current_language);
+                            .text(self.gui.appearance.language);
                         self.sync_ui.push_log(msg);
                     }
                 }
                 crate::sync::SyncEvent::Log(msg) => {
-                    let text = msg.text(self.current_language);
+                    let text = msg.text(self.gui.appearance.language);
                     self.sync_ui.push_log(text);
                 }
                 crate::sync::SyncEvent::Error(err) => {
                     let err_msg = err.to_string();
                     self.sync_ui.push_log(format!("Error: {err_msg}"));
                     self.sync_ui.status = format!("Error: {err_msg}");
-                    self.status_toast =
+                    self.gui.chrome.status_toast =
                         Some((format!("⚠ Multi-Op: {err_msg}"), std::time::Instant::now()));
                 }
             }
@@ -434,10 +438,10 @@ impl SpLogApp {
         if catchup_applied > 0 {
             self.rebuild_awards_full();
             self.reload_qsos();
-            self.status_toast = Some((
+            self.gui.chrome.status_toast = Some((
                 Msg::new(key::MULTI_OP_CATCHUP_TOAST)
                     .arg("count", catchup_applied)
-                    .text(self.current_language),
+                    .text(self.gui.appearance.language),
                 std::time::Instant::now(),
             ));
         }
@@ -508,10 +512,10 @@ impl SpLogApp {
                 Err(error) => {
                     log::error!("Failed to calculate QSO serial numbers: {error}");
                     self.qso_numbers.clear();
-                    self.status_toast = Some((
+                    self.gui.chrome.status_toast = Some((
                         Msg::new(key::QSO_SERIAL_ERROR)
                             .arg("err", &error)
-                            .text(self.current_language),
+                            .text(self.gui.appearance.language),
                         std::time::Instant::now(),
                     ));
                 }
@@ -594,7 +598,7 @@ impl SpLogApp {
                         Msg::new(key::MSG_QSO_DELETE_ERROR_ID)
                             .arg("id", id)
                             .arg("err", &e.to_string())
-                            .text(self.current_language),
+                            .text(self.gui.appearance.language),
                     );
                 }
             }
@@ -602,10 +606,10 @@ impl SpLogApp {
         if let Some(msg) = first_err {
             self.report_error(msg);
         } else {
-            self.status_message = Some(
+            self.gui.chrome.status_message = Some(
                 Msg::new(key::MSG_QSO_DELETED_MULTIPLE)
                     .arg("count", ids.len())
-                    .text(self.current_language),
+                    .text(self.gui.appearance.language),
             );
         }
         self.rebuild_awards_full();
@@ -625,16 +629,16 @@ impl SpLogApp {
                 Msg::new(key::MSG_QSO_DELETE_ERROR_ID)
                     .arg("id", id)
                     .arg("err", &e)
-                    .text(self.current_language),
+                    .text(self.gui.appearance.language),
             );
             return;
         }
         self.rebuild_awards_full();
         self.reload_qsos();
-        self.status_message = Some(
+        self.gui.chrome.status_message = Some(
             Msg::new(key::MSG_QSO_DELETED_ID)
                 .arg("id", id)
-                .text(self.current_language),
+                .text(self.gui.appearance.language),
         );
     }
 
@@ -664,17 +668,17 @@ impl SpLogApp {
                     self.report_error(
                         Msg::new(key::MSG_QSO_RESTORE_ERROR)
                             .arg("err", &e.to_string())
-                            .text(self.current_language),
+                            .text(self.gui.appearance.language),
                     );
                     return;
                 }
             }
             self.rebuild_awards_full();
             self.reload_qsos();
-            self.status_message = Some(
+            self.gui.chrome.status_message = Some(
                 Msg::new(key::MSG_QSO_RESTORED_CALL)
                     .arg("call", &callsign)
-                    .text(self.current_language),
+                    .text(self.gui.appearance.language),
             );
         }
     }
@@ -687,7 +691,7 @@ impl SpLogApp {
                 self.report_error(
                     Msg::new(key::MSG_QSO_REDO_NO_ID)
                         .arg("callsign", &callsign)
-                        .text(self.current_language),
+                        .text(self.gui.appearance.language),
                 );
                 return;
             };
@@ -703,17 +707,17 @@ impl SpLogApp {
                     Msg::new(key::MSG_QSO_REDO_DELETE_ERROR)
                         .arg("id", id)
                         .arg("err", &e)
-                        .text(self.current_language),
+                        .text(self.gui.appearance.language),
                 );
                 return;
             }
             self.undo_stack.push_front(qso);
             self.rebuild_awards_full();
             self.reload_qsos();
-            self.status_message = Some(
+            self.gui.chrome.status_message = Some(
                 Msg::new(key::MSG_QSO_REDO_DELETED_CALL)
                     .arg("call", &callsign)
-                    .text(self.current_language),
+                    .text(self.gui.appearance.language),
             );
         }
     }
@@ -724,8 +728,8 @@ impl SpLogApp {
             if let Err(e) = qso.validate() {
                 self.report_error(
                     Msg::new(key::MSG_QSO_CHANGES_NOT_SAVED)
-                        .arg("reason", e.msg().text(self.current_language))
-                        .text(self.current_language),
+                        .arg("reason", e.msg().text(self.gui.appearance.language))
+                        .text(self.gui.appearance.language),
                 );
                 return;
             }
@@ -733,11 +737,11 @@ impl SpLogApp {
             if !warnings.is_empty() {
                 let warning_texts: Vec<String> = warnings
                     .iter()
-                    .map(|w| w.msg().text(self.current_language))
+                    .map(|w| w.msg().text(self.gui.appearance.language))
                     .collect();
                 warnings_toast = Some(format!(
                     "{}: {}",
-                    tr(key::LOG_WARNINGS_LABEL, self.current_language),
+                    tr(key::LOG_WARNINGS_LABEL, self.gui.appearance.language),
                     warning_texts.join("; ")
                 ));
             }
@@ -754,14 +758,14 @@ impl SpLogApp {
                         Msg::new(key::MSG_QSO_UPDATE_ERROR_ID)
                             .arg("id", id)
                             .arg("err", &e.to_string())
-                            .text(self.current_language),
+                            .text(self.gui.appearance.language),
                     );
                     return;
                 }
-                self.status_message = Some(
+                self.gui.chrome.status_message = Some(
                     Msg::new(key::MSG_QSO_UPDATED_CALL)
                         .arg("call", &qso.callsign)
-                        .text(self.current_language),
+                        .text(self.gui.appearance.language),
                 );
             }
         }

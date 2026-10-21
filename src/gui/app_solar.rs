@@ -1,4 +1,4 @@
-use super::SpLogApp;
+﻿use super::SpLogApp;
 use crate::cloud::solar::SpaceWeather;
 use crate::core::geo::locator_to_coordinates;
 use crate::core::i18n::{Msg, key};
@@ -80,7 +80,7 @@ impl SpLogApp {
         if !newly_opened.is_empty() && self.solar.band_alert_enabled {
             let names = newly_opened.join(", ");
             crate::media::sounds::play_band_opened_alert();
-            self.status_toast = Some((
+            self.gui.chrome.status_toast = Some((
                 format!("📡 Otwarcie pasma: {names}"),
                 std::time::Instant::now(),
             ));
@@ -183,7 +183,7 @@ impl SpLogApp {
                             self.solar.last_alert = Some(
                                 Msg::new(key::SOLAR_FETCH_ERROR)
                                     .arg("err", &e.to_string())
-                                    .text(self.current_language),
+                                    .text(self.gui.appearance.language),
                             );
                         }
                     }
@@ -202,7 +202,7 @@ impl SpLogApp {
                     Msg::new(key::SOLAR_K_INDEX_ALERT)
                         .arg("prev", prev.k_index)
                         .arg("curr", weather.k_index)
-                        .text(self.current_language),
+                        .text(self.gui.appearance.language),
                 );
             } else if sfi_delta.abs() >= 20 {
                 self.solar.last_alert =

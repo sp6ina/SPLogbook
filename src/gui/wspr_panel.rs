@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+﻿// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Wozniak (SP6INA)
 
 use crate::core::i18n::{Msg, key, tr};
@@ -11,7 +11,7 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
     if !app.wspr.show_window {
         return;
     }
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
     let mut open = app.wspr.show_window;
 
     egui::Window::new(tr(key::WSPR_TITLE, lang))

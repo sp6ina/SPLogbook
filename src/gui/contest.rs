@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+﻿// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::core::contest_rules::{RULES, calculate_score, detect_duplicate};
@@ -23,7 +23,7 @@ pub fn render_custom_contest_editor(app: &mut SpLogApp, ctx: &egui::Context) {
     if !open {
         return;
     }
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
 
     egui::Window::new(tr(key::CONTEST_CUSTOM_EDITOR_TITLE, lang))
         .open(&mut open)
@@ -130,7 +130,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
     if !app.show_contest_window {
         return;
     }
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
 
     let mut open = app.show_contest_window;
     let mut close_req = false;
@@ -615,10 +615,10 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
             } else if !prev.rst_rcvd.is_empty() {
                 app.entry_exchange = prev.rst_rcvd.clone();
             }
-            app.status_toast = Some((
+            app.gui.chrome.status_toast = Some((
                 format!(
                     "{}: {}",
-                    tr(key::CONTEST_WORKED_BEFORE, app.current_language),
+                    tr(key::CONTEST_WORKED_BEFORE, app.gui.appearance.language),
                     call
                 ),
                 std::time::Instant::now(),
@@ -649,7 +649,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 Ok(parsed) => apply_to_qso(&parsed, &mut new_qso),
                 Err(e) => {
                     exchange_ok = false;
-                    app.status_toast = Some((
+                    app.gui.chrome.status_toast = Some((
                         Msg::new(key::CONTEST_EXCHANGE_ERROR)
                             .arg("err", &e.message)
                             .text(lang),
@@ -668,7 +668,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         let warning_texts: Vec<String> = outcome
                             .warnings
                             .iter()
-                            .map(|w| w.msg().text(app.current_language))
+                            .map(|w| w.msg().text(app.gui.appearance.language))
                             .collect();
                         app.report_warning(
                             Msg::new(key::CONTEST_WARNINGS)
@@ -679,7 +679,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     app.invalidate_cluster_badges();
                     app.apply_post_effects(&outcome);
                     app.contest_stx += 1;
-                    app.status_toast = Some((
+                    app.gui.chrome.status_toast = Some((
                         Msg::new(key::CONTEST_QSO_SAVED)
                             .arg("call", &outcome.qso.callsign)
                             .arg("rst", &outcome.qso.band)
@@ -693,7 +693,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     app.reload_qsos();
                 }
                 Err(IngestError::Invalid(reason)) => {
-                    app.status_toast = Some((
+                    app.gui.chrome.status_toast = Some((
                         Msg::new(key::CONTEST_VALIDATION_ERROR)
                             .arg("err", reason.msg().text(lang))
                             .text(lang),
@@ -701,13 +701,13 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     ));
                 }
                 Err(IngestError::Duplicate) => {
-                    app.status_toast = Some((
+                    app.gui.chrome.status_toast = Some((
                         Msg::new(key::MSG_QSO_DUPLICATE).text(lang),
                         std::time::Instant::now(),
                     ));
                 }
                 Err(IngestError::EmptyCallsign) => {
-                    app.status_toast = Some((
+                    app.gui.chrome.status_toast = Some((
                         Msg::new(key::CONTEST_VALIDATION_ERROR)
                             .arg("err", Msg::new(key::QSO_ISSUE_EMPTY_CALLSIGN).text(lang))
                             .text(lang),
@@ -715,7 +715,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     ));
                 }
                 Err(IngestError::Storage(error)) => {
-                    app.status_toast = Some((
+                    app.gui.chrome.status_toast = Some((
                         Msg::new(key::CONTEST_SAVE_ERROR)
                             .arg("err", error)
                             .text(lang),

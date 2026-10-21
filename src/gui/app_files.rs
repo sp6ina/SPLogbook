@@ -26,27 +26,27 @@ impl SpLogApp {
                 let mut msg = Msg::new(key::IMPORT_SUCCESS_SOURCE)
                     .arg("count", inserted)
                     .arg("source", &source_name)
-                    .text(self.current_language);
+                    .text(self.gui.appearance.language);
                 let mut details: Vec<String> = Vec::new();
                 if rejected > 0 {
                     details.push(
                         Msg::new(key::IMPORT_REJECTED_DAMAGED)
                             .arg("count", rejected)
-                            .text(self.current_language),
+                            .text(self.gui.appearance.language),
                     );
                 }
                 if import_report.rejected_invalid > 0 {
                     details.push(
                         Msg::new(key::IMPORT_REJECTED_VALIDATION)
                             .arg("count", import_report.rejected_invalid)
-                            .text(self.current_language),
+                            .text(self.gui.appearance.language),
                     );
                 }
                 if import_report.skipped_duplicates > 0 {
                     details.push(
                         Msg::new(key::IMPORT_SKIPPED_DUPLICATES)
                             .arg("count", import_report.skipped_duplicates)
-                            .text(self.current_language),
+                            .text(self.gui.appearance.language),
                     );
                 }
                 if !details.is_empty() {
@@ -58,13 +58,15 @@ impl SpLogApp {
                     }
                 }
                 if let Some(issue) = import_report.first_issue {
-                    let reason = issue.msg().text(self.current_language);
-                    let first_err_prefix =
-                        tr(key::IMPORT_FIRST_VALIDATION_ERROR, self.current_language);
+                    let reason = issue.msg().text(self.gui.appearance.language);
+                    let first_err_prefix = tr(
+                        key::IMPORT_FIRST_VALIDATION_ERROR,
+                        self.gui.appearance.language,
+                    );
                     let _ = write!(msg, " | {first_err_prefix}: {reason}");
                 }
-                self.status_message = Some(msg);
-                self.status_toast = Some((
+                self.gui.chrome.status_message = Some(msg);
+                self.gui.chrome.status_toast = Some((
                     format!("Zaimportowano {inserted} QSO"),
                     std::time::Instant::now(),
                 ));
@@ -72,8 +74,8 @@ impl SpLogApp {
             Err(e) => {
                 let err_text = Msg::new(key::IMPORT_DB_SAVE_ERROR)
                     .arg("err", &e)
-                    .text(self.current_language);
-                self.status_message = Some(err_text.clone());
+                    .text(self.gui.appearance.language);
+                self.gui.chrome.status_message = Some(err_text.clone());
                 self.report_error(err_text);
             }
         }
@@ -91,11 +93,11 @@ impl SpLogApp {
                     self.import_adif_content(&content, &path.display().to_string());
                 }
                 Err(e) => {
-                    self.status_message = Some(
+                    self.gui.chrome.status_message = Some(
                         Msg::new(key::FILE_READ_ERROR)
                             .arg("path", path.display().to_string())
                             .arg("err", &e.to_string())
-                            .text(self.current_language),
+                            .text(self.gui.appearance.language),
                     );
                 }
             }
@@ -117,10 +119,10 @@ impl SpLogApp {
                 match db.get_recent_qsos(100_000) {
                     Ok(list) => list,
                     Err(e) => {
-                        self.status_message = Some(
+                        self.gui.chrome.status_message = Some(
                             Msg::new(key::EXPORT_ERR_READ_LOG)
                                 .arg("err", &e.to_string())
-                                .text(self.current_language),
+                                .text(self.gui.appearance.language),
                         );
                         return;
                     }
@@ -131,19 +133,19 @@ impl SpLogApp {
                 crate::core::adif::export_adif(&qsos, "SPLogbook", &self.my_station.callsign);
             match std::fs::write(&path, adif_text) {
                 Ok(()) => {
-                    self.status_message = Some(
+                    self.gui.chrome.status_message = Some(
                         Msg::new(key::EXPORT_SUCCESS)
                             .arg("count", count)
                             .arg("path", path.display().to_string())
-                            .text(self.current_language),
+                            .text(self.gui.appearance.language),
                     );
                 }
                 Err(e) => {
-                    self.status_message = Some(
+                    self.gui.chrome.status_message = Some(
                         Msg::new(key::FILE_WRITE_ERROR)
                             .arg("path", path.display().to_string())
                             .arg("err", &e.to_string())
-                            .text(self.current_language),
+                            .text(self.gui.appearance.language),
                     );
                 }
             }
@@ -165,10 +167,10 @@ impl SpLogApp {
                 match db.get_recent_qsos(100_000) {
                     Ok(list) => list,
                     Err(e) => {
-                        self.status_message = Some(
+                        self.gui.chrome.status_message = Some(
                             Msg::new(key::EXPORT_ERR_READ_LOG)
                                 .arg("err", &e.to_string())
-                                .text(self.current_language),
+                                .text(self.gui.appearance.language),
                         );
                         return;
                     }
@@ -178,19 +180,19 @@ impl SpLogApp {
             let adx_text = crate::core::adif::export_adx(&qsos);
             match std::fs::write(&path, adx_text) {
                 Ok(()) => {
-                    self.status_message = Some(
+                    self.gui.chrome.status_message = Some(
                         Msg::new(key::EXPORT_SUCCESS)
                             .arg("count", count)
                             .arg("path", path.display().to_string())
-                            .text(self.current_language),
+                            .text(self.gui.appearance.language),
                     );
                 }
                 Err(e) => {
-                    self.status_message = Some(
+                    self.gui.chrome.status_message = Some(
                         Msg::new(key::FILE_WRITE_ERROR)
                             .arg("path", path.display().to_string())
                             .arg("err", &e.to_string())
-                            .text(self.current_language),
+                            .text(self.gui.appearance.language),
                     );
                 }
             }
@@ -207,10 +209,10 @@ impl SpLogApp {
                 match db.get_recent_qsos(100_000) {
                     Ok(list) => list,
                     Err(e) => {
-                        self.status_message = Some(
+                        self.gui.chrome.status_message = Some(
                             Msg::new(key::EXPORT_ERR_READ_LOG)
                                 .arg("err", &e.to_string())
-                                .text(self.current_language),
+                                .text(self.gui.appearance.language),
                         );
                         return;
                     }
@@ -226,8 +228,8 @@ impl SpLogApp {
         };
 
         if qsos.is_empty() {
-            self.status_message =
-                Some(tr(key::EXPORT_NO_QSOS_IN_RANGE, self.current_language).to_string());
+            self.gui.chrome.status_message =
+                Some(tr(key::EXPORT_NO_QSOS_IN_RANGE, self.gui.appearance.language).to_string());
             return;
         }
 
@@ -246,19 +248,19 @@ impl SpLogApp {
             );
             match std::fs::write(&path, csv_text) {
                 Ok(()) => {
-                    self.status_message = Some(
+                    self.gui.chrome.status_message = Some(
                         Msg::new(key::EXPORT_SUCCESS)
                             .arg("count", qsos.len())
                             .arg("path", path.display().to_string())
-                            .text(self.current_language),
+                            .text(self.gui.appearance.language),
                     );
                 }
                 Err(e) => {
-                    self.status_message = Some(
+                    self.gui.chrome.status_message = Some(
                         Msg::new(key::FILE_WRITE_ERROR)
                             .arg("path", path.display().to_string())
                             .arg("err", &e.to_string())
-                            .text(self.current_language),
+                            .text(self.gui.appearance.language),
                     );
                 }
             }

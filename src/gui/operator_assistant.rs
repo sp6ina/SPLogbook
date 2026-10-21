@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+﻿// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 //! Asystent operatora — zawsze dostępny pasek decyzyjny, który podpowiada
@@ -154,7 +154,7 @@ pub fn render_operator_assistant(app: &mut SpLogApp, ctx: &egui::Context) {
     let forecasts = app.solar_band_forecasts();
     let k_index = app.solar.space_weather.k_index;
     let band = current_band(app);
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
     let rec = recommend(&forecasts, &band, k_index, lang);
 
     // Wytłumaczalność aktualnego pasma (rzeczywista trasa jeśli znany lokator).

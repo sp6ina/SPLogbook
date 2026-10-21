@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+﻿// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::cluster::telnet::{CLUSTER_PRESETS, DxSpot};
@@ -52,7 +52,7 @@ pub fn render_cluster_window(app: &mut SpLogApp, ctx: &egui::Context) {
         return;
     }
 
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
 
     // Obsługa okna w trybie Multi-Viewport (niezależne okno OS dla wielu monitorów)
     if app.views.panel_cluster.floating {
@@ -228,7 +228,7 @@ pub fn render_cluster_window(app: &mut SpLogApp, ctx: &egui::Context) {
             res.response.rect,
             &mut app.views.panel_cluster.floating,
             true,
-            app.current_language,
+            app.gui.appearance.language,
         );
         if app.views.panel_cluster.floating {
             app.save_station_config();
@@ -253,7 +253,7 @@ pub fn render_cluster_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
 pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let palette = ui.palette();
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
     // 1. Sekcja połączenia: Presety, Serwery użytkownika, Adres, Port i Znak logowania
     ui.horizontal(|ui| {
         ui.label(tr(key::CLUSTER_SERVER_LABEL, lang));
@@ -788,7 +788,7 @@ pub fn render_add_cluster_dialog(app: &mut SpLogApp, ctx: &egui::Context) {
         return;
     }
 
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
     let mut is_open = app.show_add_cluster_dialog;
     egui::Window::new(
         egui::RichText::new(tr(key::CLUSTER_ADD_DIALOG_TITLE, lang))

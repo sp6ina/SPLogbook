@@ -273,7 +273,7 @@ impl SpLogApp {
             if let Some(mgr) = cb_data.qsl_manager.clone() {
                 self.entry_qsl_manager = mgr;
             }
-            self.status_message = Some(format!("Znaleziono w bazie Callbook: {call}"));
+            self.gui.chrome.status_message = Some(format!("Znaleziono w bazie Callbook: {call}"));
         }
 
         let lc = self.local_callbook.clone();
@@ -365,7 +365,8 @@ impl SpLogApp {
         let freq_hz = (freq_khz * 1000.0) as u64;
         self.set_vfo_frequency(freq_hz);
         self.on_callsign_changed();
-        self.status_message = Some(format!("Auto-tune → {dx_call} na {freq_khz:.1} kHz"));
+        self.gui.chrome.status_message =
+            Some(format!("Auto-tune → {dx_call} na {freq_khz:.1} kHz"));
     }
 
     /// Zwraca rodzaj odznaki (⭐ nowe DXCC, ✨ nowe pasmo) dla spotu klastra,

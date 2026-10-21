@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+﻿// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::core::i18n::{Language, key, tr};
@@ -9,7 +9,7 @@ use eframe::egui;
 
 /// Menu: Ustawienia (język, motyw, skalowanie czcionki)
 pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
 
     ui.menu_button(tr(key::MENU_SETTINGS, lang), |ui| {
         // Język interfejsu
@@ -40,7 +40,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     )
                     .clicked()
                 {
-                    app.current_language = language;
+                    app.gui.appearance.language = language;
                     app.save_station_config();
                     ui.close();
                 }
@@ -50,13 +50,13 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         // Motyw kolorystyczny
         ui.menu_button(icons::THEME.label(tr(key::THEME_MENU, lang)), |ui| {
             for preset in ThemePreset::ALL {
-                let selected = app.theme_preset == preset;
+                let selected = app.gui.appearance.theme_preset == preset;
                 if ui
                     .selectable_label(selected, preset.label(lang))
                     .on_hover_text(preset.description(lang))
                     .clicked()
                 {
-                    app.theme_preset = preset;
+                    app.gui.appearance.theme_preset = preset;
                     app.save_station_config();
                     ui.close();
                 }

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+﻿// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 // Układ dokowania i kafelki.
@@ -337,7 +337,7 @@ impl SpLogApp {
     }
 
     pub fn tile_title(&self, tile_id: &str) -> String {
-        let lang = self.current_language;
+        let lang = self.gui.appearance.language;
         match tile_id {
             "vfo" => icons::RADIO.label("TRANSCEIVER VFO"),
             "qso" => icons::NEW_QSO.label(tr(key::TAB_NEW_QSO, lang)),
@@ -355,7 +355,7 @@ impl SpLogApp {
     pub fn render_tile_header_custom(&mut self, tile_id: &str, ui: &mut egui::Ui) {
         use crate::gui::theme::ThemeExt;
         let palette = ui.palette();
-        let lang = self.current_language;
+        let lang = self.gui.appearance.language;
         match tile_id {
             "vfo" => {
                 if self.vfo_split {

@@ -103,7 +103,8 @@ impl SpLogApp {
                         .run_on_sota_info(&reference, &name, points);
                 }
                 crate::plugins::bridge::PluginLookupResult::Error(msg) => {
-                    self.status_toast = Some((format!("Plugin: {msg}"), std::time::Instant::now()));
+                    self.gui.chrome.status_toast =
+                        Some((format!("Plugin: {msg}"), std::time::Instant::now()));
                 }
             }
         }
@@ -122,10 +123,10 @@ impl SpLogApp {
                         let path = text.trim().to_string();
                         let _ = crate::media::voice_keyer::play_wav_file(&path);
                     } else {
-                        self.status_toast = Some((
+                        self.gui.chrome.status_toast = Some((
                             Msg::new(key::PLUGIN_VOICE_ANNOUNCEMENT)
                                 .arg("text", &text)
-                                .text(self.current_language),
+                                .text(self.gui.appearance.language),
                             std::time::Instant::now(),
                         ));
                     }
@@ -156,7 +157,7 @@ impl SpLogApp {
                     self.trigger_sota_lookup(&reference);
                 }
                 crate::plugins::bridge::PluginCommand::Notify { message } => {
-                    self.status_toast = Some((message, std::time::Instant::now()));
+                    self.gui.chrome.status_toast = Some((message, std::time::Instant::now()));
                 }
             }
         }
@@ -180,7 +181,7 @@ impl SpLogApp {
             received_at: chrono::Utc::now().timestamp(),
         };
         self.cluster_spots.insert(0, spot);
-        self.status_toast = Some((
+        self.gui.chrome.status_toast = Some((
             format!("Spot (plugin): {dx_call} na {freq_khz:.1} kHz"),
             std::time::Instant::now(),
         ));
@@ -195,10 +196,10 @@ impl SpLogApp {
             "qso_saved" | "saved" => crate::media::sounds::play_qso_saved_alert(),
             "band_opened" | "band" => crate::media::sounds::play_band_opened_alert(),
             _ => {
-                self.status_toast = Some((
+                self.gui.chrome.status_toast = Some((
                     Msg::new(key::PLUGIN_UNKNOWN_SOUND)
                         .arg("name", &name)
-                        .text(self.current_language),
+                        .text(self.gui.appearance.language),
                     std::time::Instant::now(),
                 ));
             }
@@ -213,6 +214,7 @@ impl SpLogApp {
             .replace("%HISCALL%", &self.entry_callsign)
             .replace("%RST%", &self.entry_rst_sent)
             .replace("%SERIAL%", &format!("{:03}", self.contest_stx));
-        self.status_message = Some(format!("Nadawanie CW ({} WPM): {}", self.cw.wpm, resolved));
+        self.gui.chrome.status_message =
+            Some(format!("Nadawanie CW ({} WPM): {}", self.cw.wpm, resolved));
     }
 }

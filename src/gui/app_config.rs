@@ -8,14 +8,17 @@ impl SpLogApp {
         let all = crate::gui::theme::ThemePreset::ALL;
         let idx = all
             .iter()
-            .position(|t| t.id() == self.theme_preset.id())
+            .position(|t| t.id() == self.gui.appearance.theme_preset.id())
             .unwrap_or(0);
-        self.theme_preset = all[(idx + 1) % all.len()];
+        self.gui.appearance.theme_preset = all[(idx + 1) % all.len()];
         self.save_station_config();
-        self.status_toast = Some((
+        self.gui.chrome.status_toast = Some((
             format!(
                 "Zmieniono motyw: {}",
-                self.theme_preset.label(self.current_language)
+                self.gui
+                    .appearance
+                    .theme_preset
+                    .label(self.gui.appearance.language)
             ),
             std::time::Instant::now(),
         ));
@@ -23,7 +26,7 @@ impl SpLogApp {
 
     /// Tworzy zaktualizowaną strukturę [`AppConfig`] odzwierciedlającą bieżący stan aplikacji.
     pub fn build_app_config(&self) -> AppConfig {
-        let is_configured = if self.show_welcome_wizard {
+        let is_configured = if self.gui.chrome.show_welcome_wizard {
             false
         } else {
             !self.my_station.callsign.is_empty() && self.my_station.callsign != "N0CALL"
@@ -33,8 +36,8 @@ impl SpLogApp {
             is_configured,
             station: self.my_station.clone(),
             equipment: self.ledger.items.clone(),
-            dark_theme: self.theme_preset.is_dark(),
-            theme_preset: self.theme_preset.id().to_string(),
+            dark_theme: self.gui.appearance.theme_preset.is_dark(),
+            theme_preset: self.gui.appearance.theme_preset.id().to_string(),
 
             cat_host: self.cat_host.clone(),
             cat_port: self.cat_port,
@@ -118,7 +121,7 @@ impl SpLogApp {
             wol_ip: self.gui.dialogs.wol_dialog.broadcast_ip.clone(),
             wol_port: self.gui.dialogs.wol_dialog.port,
 
-            current_language: self.current_language.code().to_string(),
+            current_language: self.gui.appearance.language.code().to_string(),
             compact_hud_mode: self.compact_hud_mode,
             tabbed_columns: self.tabbed_columns,
             dock_layout: self.serialize_dock_layout(),
@@ -170,7 +173,7 @@ impl SpLogApp {
             self.report_error(
                 Msg::new(key::CONFIG_SAVE_ERROR)
                     .arg("err", &e)
-                    .text(self.current_language),
+                    .text(self.gui.appearance.language),
             );
         } else {
             self.secret_store_id = cfg.secret_store_id;
@@ -181,36 +184,36 @@ impl SpLogApp {
     pub fn report_error(&mut self, msg: impl Into<String>) {
         let msg = msg.into();
         log::error!("{msg}");
-        self.status_toast = Some((msg, std::time::Instant::now()));
+        self.gui.chrome.status_toast = Some((msg, std::time::Instant::now()));
     }
 
     /// Scentralizowane zgłaszanie ostrzeżeń (log warning + pływające powiadomienie).
     pub fn report_warning(&mut self, msg: impl Into<String>) {
         let msg = msg.into();
         log::warn!("{msg}");
-        self.status_toast = Some((msg, std::time::Instant::now()));
+        self.gui.chrome.status_toast = Some((msg, std::time::Instant::now()));
     }
 
     /// Zlokalizowane zgłoszenie informacji/statusu (UI toast + log info).
     pub fn say(&mut self, msg: Msg) {
-        let text = msg.text(self.current_language);
+        let text = msg.text(self.gui.appearance.language);
         log::info!("{text}");
-        self.status_message = Some(text.clone());
-        self.status_toast = Some((text, std::time::Instant::now()));
+        self.gui.chrome.status_message = Some(text.clone());
+        self.gui.chrome.status_toast = Some((text, std::time::Instant::now()));
     }
 
     /// Zlokalizowane zgłoszenie ostrzeżenia (UI toast + log warn).
     pub fn warn(&mut self, msg: Msg) {
-        let text = msg.text(self.current_language);
+        let text = msg.text(self.gui.appearance.language);
         log::warn!("{text}");
-        self.status_toast = Some((text, std::time::Instant::now()));
+        self.gui.chrome.status_toast = Some((text, std::time::Instant::now()));
     }
 
     /// Zlokalizowane zgłoszenie błędu (UI toast + log error).
     pub fn fail(&mut self, msg: Msg) {
-        let text = msg.text(self.current_language);
+        let text = msg.text(self.gui.appearance.language);
         log::error!("{text}");
-        self.status_toast = Some((text, std::time::Instant::now()));
+        self.gui.chrome.status_toast = Some((text, std::time::Instant::now()));
     }
 
     pub fn add_new_equipment(&mut self) {
@@ -247,7 +250,8 @@ impl SpLogApp {
         self.ledger.new_sn.clear();
         self.ledger.new_notes.clear();
         self.save_station_config();
-        self.status_message = Some(tr(key::EQ_ADDED, self.current_language).to_string());
+        self.gui.chrome.status_message =
+            Some(tr(key::EQ_ADDED, self.gui.appearance.language).to_string());
     }
 
     pub fn save_edited_equipment(&mut self, id: &str) {
@@ -273,7 +277,8 @@ impl SpLogApp {
         }
         self.ledger.editing_id = None;
         self.save_station_config();
-        self.status_message = Some(tr(key::EQ_UPDATED, self.current_language).to_string());
+        self.gui.chrome.status_message =
+            Some(tr(key::EQ_UPDATED, self.gui.appearance.language).to_string());
     }
 
     pub fn delete_equipment_item(&mut self, id: &str) {
@@ -282,7 +287,8 @@ impl SpLogApp {
             self.ledger.editing_id = None;
         }
         self.save_station_config();
-        self.status_message = Some(tr(key::EQ_DELETED, self.current_language).to_string());
+        self.gui.chrome.status_message =
+            Some(tr(key::EQ_DELETED, self.gui.appearance.language).to_string());
     }
 
     pub fn activate_station_profile(&mut self, profile_id: &str) {
@@ -302,10 +308,10 @@ impl SpLogApp {
             } else {
                 &prof.name
             };
-            self.status_toast = Some((
+            self.gui.chrome.status_toast = Some((
                 Msg::new(key::PROFILE_SWITCHED_STATION)
                     .arg("name", prof_name)
-                    .text(self.current_language),
+                    .text(self.gui.appearance.language),
                 std::time::Instant::now(),
             ));
         }

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+﻿// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 //! Okno „Marketplace pluginów”: katalog dodatków z instalacją jednym kliknięciem.
@@ -53,7 +53,7 @@ pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
                     app.marketplace.status = Some(
                         Msg::new(key::MARKET_INSTALLED_SUCCESS)
                             .arg("id", &id)
-                            .text(app.current_language),
+                            .text(app.gui.appearance.language),
                     );
                     reload_plugins(app);
                 }
@@ -71,7 +71,7 @@ pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
     let catalog = app.marketplace.catalog.clone();
     let mut action: Option<Action> = None;
     let mut open = app.marketplace.show_window;
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
 
     egui::Window::new(tr(key::MARKET_WINDOW_TITLE, lang))
         .open(&mut open)
@@ -237,7 +237,7 @@ fn render_card(
 ) {
     let status = crate::plugins::marketplace::install_status(plugins_dir, entry);
     let busy = app.marketplace.busy_id.as_deref() == Some(entry.id.as_str());
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
 
     egui::Frame::group(ui.style())
         .inner_margin(egui::Margin::same(10))

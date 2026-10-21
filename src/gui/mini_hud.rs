@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+﻿// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 // Ergonomiczny, kompaktowy pasek/okno operacyjne (Mini HUD) dla stacji SPLogbook
 
@@ -12,7 +12,7 @@ pub fn render_mini_hud_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
         return;
     }
     let ctx = ui.ctx().clone();
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
 
     // Wariant "pasek operacyjny" dokowany do dolnej krawędzi okna.
     if app.hud_operating_bar {
@@ -102,7 +102,7 @@ pub fn render_mini_hud_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
 /// Wspólna treść okna Mini HUD (używana przez wariant okna oraz viewport always-on-top).
 fn render_hud_body(app: &mut SpLogApp, ui: &mut egui::Ui, exit_compact: &mut bool) {
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
     let palette = ui.palette();
     ui.vertical(|ui| {
         // 1. Pasek VFO i Strojenia
@@ -268,7 +268,7 @@ fn render_hud_body(app: &mut SpLogApp, ui: &mut egui::Ui, exit_compact: &mut boo
 
 /// Smukły, dokowany pasek operacyjny u dołu okna (wariant "operating bar").
 fn render_operating_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
     let palette = ui.palette();
     let mut exit_compact = false;
     egui::Panel::bottom("mini_hud_operating_bar").show(ui, |ui| {

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+﻿// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::core::i18n::{Msg, key, tr};
@@ -11,7 +11,7 @@ pub fn render_qso_entry_window(app: &mut SpLogApp, ctx: &egui::Context) {
         return;
     }
 
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
 
     if app.views.panel_qso.floating {
         let mut still_open = true;
@@ -27,7 +27,7 @@ pub fn render_qso_entry_window(app: &mut SpLogApp, ctx: &egui::Context) {
             |app, ui| {
                 egui::Panel::top("qso_vp_bar").show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        let lang = app.current_language;
+                        let lang = app.gui.appearance.language;
                         if ui
                             .button(format!("↙ {}", tr(key::WINDOW_DOCK, lang)))
                             .on_hover_text(tr(key::WINDOW_DOCK_TOOLTIP, lang))
@@ -104,7 +104,7 @@ pub fn render_qso_entry_window(app: &mut SpLogApp, ctx: &egui::Context) {
             res.response.rect,
             &mut app.views.panel_qso.floating,
             true,
-            app.current_language,
+            app.gui.appearance.language,
         );
         if app.views.panel_qso.floating {
             app.save_station_config();
@@ -132,7 +132,7 @@ pub fn render_qso_entry_window(app: &mut SpLogApp, ctx: &egui::Context) {
 }
 
 pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
     let palette = ui.palette();
     // Identyfikatory pól tego panelu, używane do ograniczenia skrótu
     // Enter=Zapisz/Escape=Wyczyść wyłącznie do sytuacji, gdy fokus klawiatury

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+﻿// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::core::i18n::{key, tr};
@@ -16,7 +16,7 @@ pub fn render_cw_macros_window(app: &mut SpLogApp, ctx: &egui::Context) {
     let mut macro_to_transmit: Option<String> = None;
 
     let mut config_changed = false;
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
 
     egui::Window::new(tr(key::CW_MACROS_TITLE, lang))
         .open(&mut open)

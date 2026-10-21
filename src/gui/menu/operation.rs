@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+﻿// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::cluster::telnet::CLUSTER_PRESETS;
@@ -11,7 +11,7 @@ use eframe::egui;
 pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
     use crate::gui::theme::ThemeExt;
     let palette = ui.palette();
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
 
     ui.menu_button(tr(key::MENU_OPERATION, lang), |ui| {
         // Sekcja DX Cluster

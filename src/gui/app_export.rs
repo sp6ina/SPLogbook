@@ -14,26 +14,29 @@ impl SpLogApp {
                 self.my_station.callsign,
                 self.contest_name.replace(' ', "_")
             ))
-            .set_title(tr(key::EXPORT_CABRILLO_SAVE_TITLE, self.current_language))
+            .set_title(tr(
+                key::EXPORT_CABRILLO_SAVE_TITLE,
+                self.gui.appearance.language,
+            ))
             .save_file()
         {
             let qsos = match self.log_db.lock() {
                 Ok(db) => match db.get_recent_qsos_for_journal(&self.active_journal.id, 10000) {
                     Ok(list) => list,
                     Err(e) => {
-                        self.status_message = Some(
+                        self.gui.chrome.status_message = Some(
                             Msg::new(key::EXPORT_ERR_READ_LOG)
                                 .arg("err", &e)
-                                .text(self.current_language),
+                                .text(self.gui.appearance.language),
                         );
                         return;
                     }
                 },
                 Err(e) => {
-                    self.status_message = Some(
+                    self.gui.chrome.status_message = Some(
                         Msg::new(key::EXPORT_ERR_OPEN_LOG)
                             .arg("err", &e)
-                            .text(self.current_language),
+                            .text(self.gui.appearance.language),
                     );
                     return;
                 }
@@ -113,12 +116,12 @@ impl SpLogApp {
 
             match std::fs::write(&path, out) {
                 Ok(()) => {
-                    self.status_message = Some(
+                    self.gui.chrome.status_message = Some(
                         Msg::new(key::EXPORT_CABRILLO_SUCCESS)
                             .arg("path", path.display().to_string())
-                            .text(self.current_language),
+                            .text(self.gui.appearance.language),
                     );
-                    self.status_toast = Some((
+                    self.gui.chrome.status_toast = Some((
                         Msg::new(key::EXPORT_CABRILLO_TOAST)
                             .arg(
                                 "file",
@@ -127,15 +130,15 @@ impl SpLogApp {
                                     .to_string_lossy()
                                     .to_string(),
                             )
-                            .text(self.current_language),
+                            .text(self.gui.appearance.language),
                         std::time::Instant::now(),
                     ));
                 }
                 Err(e) => {
-                    self.status_message = Some(
+                    self.gui.chrome.status_message = Some(
                         Msg::new(key::EXPORT_ERR_SAVE_CABRILLO)
                             .arg("err", &e)
-                            .text(self.current_language),
+                            .text(self.gui.appearance.language),
                     );
                 }
             }
@@ -185,19 +188,19 @@ impl SpLogApp {
                 Ok(db) => match db.get_recent_qsos_for_journal(&self.active_journal.id, 10000) {
                     Ok(list) => list,
                     Err(e) => {
-                        self.status_message = Some(
+                        self.gui.chrome.status_message = Some(
                             Msg::new(key::EXPORT_ERR_READ_LOG)
                                 .arg("err", &e)
-                                .text(self.current_language),
+                                .text(self.gui.appearance.language),
                         );
                         return;
                     }
                 },
                 Err(e) => {
-                    self.status_message = Some(
+                    self.gui.chrome.status_message = Some(
                         Msg::new(key::EXPORT_ERR_OPEN_LOG)
                             .arg("err", &e)
-                            .text(self.current_language),
+                            .text(self.gui.appearance.language),
                     );
                     return;
                 }
@@ -334,17 +337,17 @@ impl SpLogApp {
             match std::fs::write(&path, bytes) {
                 Ok(()) => {
                     let filename = path.file_name().unwrap_or_default().to_string_lossy();
-                    self.status_toast = Some((
+                    self.gui.chrome.status_toast = Some((
                         format!("Wyeksportowano {row_count} QSO do PDF: {filename}"),
                         std::time::Instant::now(),
                     ));
                     let _ = open::that(&path);
                 }
                 Err(e) => {
-                    self.status_message = Some(
+                    self.gui.chrome.status_message = Some(
                         Msg::new(key::EXPORT_ERR_SAVE_PDF)
                             .arg("err", &e)
-                            .text(self.current_language),
+                            .text(self.gui.appearance.language),
                     );
                 }
             }
@@ -372,19 +375,19 @@ impl SpLogApp {
                 Ok(db) => match db.get_recent_qsos_for_journal(&self.active_journal.id, 10000) {
                     Ok(list) => list,
                     Err(e) => {
-                        self.status_message = Some(
+                        self.gui.chrome.status_message = Some(
                             Msg::new(key::EXPORT_ERR_READ_LOG)
                                 .arg("err", &e)
-                                .text(self.current_language),
+                                .text(self.gui.appearance.language),
                         );
                         return;
                     }
                 },
                 Err(e) => {
-                    self.status_message = Some(
+                    self.gui.chrome.status_message = Some(
                         Msg::new(key::EXPORT_ERR_OPEN_LOG)
                             .arg("err", &e)
-                            .text(self.current_language),
+                            .text(self.gui.appearance.language),
                     );
                     return;
                 }
@@ -412,10 +415,10 @@ impl SpLogApp {
             let file = match std::fs::File::create(&path) {
                 Ok(file) => file,
                 Err(e) => {
-                    self.status_message = Some(
+                    self.gui.chrome.status_message = Some(
                         Msg::new(key::EXPORT_ERR_CREATE_GPX)
                             .arg("err", &e)
-                            .text(self.current_language),
+                            .text(self.gui.appearance.language),
                     );
                     return;
                 }
@@ -423,17 +426,17 @@ impl SpLogApp {
             match gpx::write(&gpx, file) {
                 Ok(()) => {
                     let filename = path.file_name().unwrap_or_default().to_string_lossy();
-                    self.status_toast = Some((
+                    self.gui.chrome.status_toast = Some((
                         format!("Wyeksportowano {row_count} QSO do GPX: {filename}"),
                         std::time::Instant::now(),
                     ));
                     let _ = open::that(&path);
                 }
                 Err(e) => {
-                    self.status_message = Some(
+                    self.gui.chrome.status_message = Some(
                         Msg::new(key::EXPORT_ERR_SAVE_GPX)
                             .arg("err", &e)
-                            .text(self.current_language),
+                            .text(self.gui.appearance.language),
                     );
                 }
             }

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+﻿// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::core::i18n::{key, tr};
@@ -8,7 +8,7 @@ use eframe::egui;
 
 /// Menu: Plik
 pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
 
     ui.menu_button(tr(key::MENU_FILE, lang), |ui| {
         if ui
@@ -47,7 +47,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .button(icons::STAR.label(tr(key::WIZARD_SETUP_STATION, lang)))
             .clicked()
         {
-            app.show_welcome_wizard = true;
+            app.gui.chrome.show_welcome_wizard = true;
             ui.close();
         }
         if ui

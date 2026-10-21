@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+﻿// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 //! Okno dialogowe voice keyer'a (SSB) — zarządzanie komunikatami F1..F8,
@@ -17,7 +17,7 @@ pub fn render_voice_keyer_window(app: &mut SpLogApp, ctx: &egui::Context) {
     }
 
     let mut open = app.voice_keyer.show_window;
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
     egui::Window::new(tr(key::VOICE_WINDOW_TITLE, lang))
         .open(&mut open)
         .default_size([520.0, 460.0])

@@ -72,8 +72,8 @@ const COMMANDS: &[Command] = &[
         label_key: key::CMD_MANUAL,
         keywords: "help manual docs instrukcja",
         run: |app| {
-            app.show_user_manual = true;
-            app.manual_section = None;
+            app.gui.chrome.show_user_manual = true;
+            app.gui.chrome.manual_section = None;
         },
     },
     Command {
@@ -254,29 +254,29 @@ const COMMANDS: &[Command] = &[
         label_key: key::CMD_ABOUT,
         keywords: "about",
         run: |app| {
-            app.show_about_window = true;
+            app.gui.chrome.show_about_window = true;
         },
     },
     Command {
         label_key: key::CMD_SHORTCUTS,
         keywords: "shortcuts keyboard",
         run: |app| {
-            app.show_shortcuts_window = true;
+            app.gui.chrome.show_shortcuts_window = true;
         },
     },
     Command {
         label_key: key::CMD_COLOR_LEGEND,
         keywords: "legend colors",
         run: |app| {
-            app.show_legend_window = true;
+            app.gui.chrome.show_legend_window = true;
         },
     },
     Command {
         label_key: key::CMD_WIZARD,
         keywords: "wizard setup",
         run: |app| {
-            app.show_welcome_wizard = true;
-            app.wizard_tab = 0;
+            app.gui.chrome.show_welcome_wizard = true;
+            app.gui.chrome.wizard_tab = 0;
         },
     },
     Command {
@@ -290,12 +290,12 @@ const COMMANDS: &[Command] = &[
 
 /// Renderuje okno palety poleceń. Wywoływane co klatkę z `app.update()`.
 pub fn render_command_palette(app: &mut SpLogApp, ctx: &egui::Context) {
-    if !app.show_command_palette {
+    if !app.gui.chrome.show_command_palette {
         return;
     }
 
-    let lang = app.current_language;
-    let mut open = app.show_command_palette;
+    let lang = app.gui.appearance.language;
+    let mut open = app.gui.chrome.show_command_palette;
     let mut run_idx: Option<usize> = None;
 
     egui::Window::new(egui::RichText::new(format!("🔎 {}", tr(key::PALETTE_TITLE, lang))).strong())
@@ -306,17 +306,17 @@ pub fn render_command_palette(app: &mut SpLogApp, ctx: &egui::Context) {
         .default_width(460.0)
         .show(ctx, |ui| {
             let resp = ui.add(
-                egui::TextEdit::singleline(&mut app.command_palette_query)
+                egui::TextEdit::singleline(&mut app.gui.chrome.command_palette_query)
                     .hint_text(tr(key::PALETTE_SEARCH_HINT, lang))
                     .desired_width(f32::INFINITY),
             );
             if resp.changed() {
-                app.command_palette_selected = 0;
+                app.gui.chrome.command_palette_selected = 0;
             }
 
             ui.separator();
 
-            let query = app.command_palette_query.trim().to_lowercase();
+            let query = app.gui.chrome.command_palette_query.trim().to_lowercase();
             let mut matches: Vec<usize> = Vec::new();
             for (i, cmd) in COMMANDS.iter().enumerate() {
                 let lbl = tr(cmd.label_key, lang);
@@ -342,7 +342,7 @@ pub fn render_command_palette(app: &mut SpLogApp, ctx: &egui::Context) {
                     for (row, &cmd_idx) in matches.iter().enumerate() {
                         let cmd = &COMMANDS[cmd_idx];
                         let lbl = tr(cmd.label_key, lang);
-                        let selected = row == app.command_palette_selected;
+                        let selected = row == app.gui.chrome.command_palette_selected;
                         let text = if selected {
                             egui::RichText::new(format!("▶ {}", lbl))
                                 .strong()
@@ -360,29 +360,32 @@ pub fn render_command_palette(app: &mut SpLogApp, ctx: &egui::Context) {
                 });
 
             // Nawigacja strzałkami i zatwierdzenie Enterem
-            if app.command_palette_selected >= matches.len() {
-                app.command_palette_selected = matches.len().saturating_sub(1);
+            if app.gui.chrome.command_palette_selected >= matches.len() {
+                app.gui.chrome.command_palette_selected = matches.len().saturating_sub(1);
             }
             let down = ui.input(|i| i.key_pressed(egui::Key::ArrowDown));
             let up = ui.input(|i| i.key_pressed(egui::Key::ArrowUp));
             let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
             if down && !matches.is_empty() {
-                app.command_palette_selected =
-                    (app.command_palette_selected + 1).min(matches.len() - 1);
+                app.gui.chrome.command_palette_selected =
+                    (app.gui.chrome.command_palette_selected + 1).min(matches.len() - 1);
             }
             if up && !matches.is_empty() {
-                app.command_palette_selected = app.command_palette_selected.saturating_sub(1);
+                app.gui.chrome.command_palette_selected =
+                    app.gui.chrome.command_palette_selected.saturating_sub(1);
             }
             if enter && !matches.is_empty() {
-                run_idx = matches.get(app.command_palette_selected).copied();
+                run_idx = matches
+                    .get(app.gui.chrome.command_palette_selected)
+                    .copied();
             }
         });
 
     if let Some(idx) = run_idx {
         (COMMANDS[idx].run)(app);
-        app.show_command_palette = false;
-        app.command_palette_query.clear();
+        app.gui.chrome.show_command_palette = false;
+        app.gui.chrome.command_palette_query.clear();
     }
 
-    app.show_command_palette = open;
+    app.gui.chrome.show_command_palette = open;
 }

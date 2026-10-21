@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+﻿// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::core::i18n::{Msg, key, tr};
@@ -10,7 +10,7 @@ pub fn render_satellites_window(app: &mut SpLogApp, ctx: &egui::Context) {
     if !app.views.panel_satellites.visible {
         return;
     }
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
 
     if app.views.panel_satellites.floating {
         let mut still_open = true;
@@ -110,7 +110,7 @@ pub fn render_satellites_window(app: &mut SpLogApp, ctx: &egui::Context) {
             res.response.rect,
             &mut app.views.panel_satellites.floating,
             true,
-            app.current_language,
+            app.gui.appearance.language,
         );
         if app.views.panel_satellites.floating {
             app.save_station_config();
@@ -140,7 +140,7 @@ pub fn render_satellites_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
 pub fn render_satellites_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let palette = ui.palette();
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
     let mut tune_clicked = false;
     let mut point_rotor_clicked = false;
     ui.vertical(|ui| {

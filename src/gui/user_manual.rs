@@ -10,10 +10,10 @@ use eframe::egui;
 
 /// Kontekstowa ikona pomocy „?” — otwiera podręcznik na wskazanej sekcji.
 pub fn help_button(app: &mut SpLogApp, ui: &mut egui::Ui, section: &'static str) {
-    let tip = tr(key::MANUAL_HELP_BUTTON_TOOLTIP, app.current_language);
+    let tip = tr(key::MANUAL_HELP_BUTTON_TOOLTIP, app.gui.appearance.language);
     if ui.small_button("?").on_hover_text(tip).clicked() {
-        app.show_user_manual = true;
-        app.manual_section = Some(section.to_string());
+        app.gui.chrome.show_user_manual = true;
+        app.gui.chrome.manual_section = Some(section.to_string());
     }
 }
 
@@ -23,17 +23,20 @@ fn section_by_id(sections: &[ManualSection], id: &str) -> usize {
 
 /// Okno „Instrukcja obsługi” — panel boczny z sekcjami + przewijana, czytelnie sformatowana treść.
 pub fn render_user_manual_window(app: &mut SpLogApp, ctx: &egui::Context) {
-    if !app.show_user_manual {
+    if !app.gui.chrome.show_user_manual {
         return;
     }
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
     let sections = manual(lang);
-    let mut is_open = app.show_user_manual;
+    let mut is_open = app.gui.chrome.show_user_manual;
 
-    let selected = if let Some(section) = app.manual_section.take() {
+    let selected = if let Some(section) = app.gui.chrome.manual_section.take() {
         section_by_id(sections, &section)
     } else {
-        app.manual_selected.min(sections.len().saturating_sub(1))
+        app.gui
+            .chrome
+            .manual_selected
+            .min(sections.len().saturating_sub(1))
     };
 
     let mut new_selected = selected;
@@ -272,6 +275,6 @@ pub fn render_user_manual_window(app: &mut SpLogApp, ctx: &egui::Context) {
         });
 
     ctx.data_mut(|d| d.insert_temp(search_id, search_query));
-    app.manual_selected = new_selected;
-    app.show_user_manual = is_open && !close_requested;
+    app.gui.chrome.manual_selected = new_selected;
+    app.gui.chrome.show_user_manual = is_open && !close_requested;
 }

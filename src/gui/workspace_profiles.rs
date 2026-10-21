@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+﻿// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 //! Okno zarządzania profilami układu operatorskiego (workspace).
@@ -19,7 +19,7 @@ pub fn render_workspace_profiles_window(app: &mut SpLogApp, ctx: &egui::Context)
     if !app.show_workspace_profiles_window {
         return;
     }
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
 
     let mut open = app.show_workspace_profiles_window;
     egui::Window::new(tr(key::WS_PROFILES_WINDOW_TITLE, lang))
@@ -63,7 +63,7 @@ pub fn render_workspace_profiles_window(app: &mut SpLogApp, ctx: &egui::Context)
                     if let Some(i) = apply_preset {
                         if let Some(preset) = workspace_profile_presets().into_iter().nth(i) {
                             apply_profile(app, &preset);
-                            app.status_toast = Some((
+                            app.gui.chrome.status_toast = Some((
                                 format!("Zastosowano preset: {}", preset.name),
                                 std::time::Instant::now(),
                             ));
@@ -111,7 +111,7 @@ pub fn render_workspace_profiles_window(app: &mut SpLogApp, ctx: &egui::Context)
                         app.workspace_profiles.push(profile.clone());
                     }
                     app.save_station_config();
-                    app.status_toast = Some((
+                    app.gui.chrome.status_toast = Some((
                         format!("Zapisano profil: {}", profile.name),
                         std::time::Instant::now(),
                     ));
@@ -189,7 +189,7 @@ pub fn render_workspace_profiles_window(app: &mut SpLogApp, ctx: &egui::Context)
                         if let Some(idx) = apply_idx {
                             let profile = app.workspace_profiles[idx].clone();
                             apply_profile(app, &profile);
-                            app.status_toast = Some((
+                            app.gui.chrome.status_toast = Some((
                                 format!("Zastosowano profil: {}", profile.name),
                                 std::time::Instant::now(),
                             ));
@@ -198,7 +198,7 @@ pub fn render_workspace_profiles_window(app: &mut SpLogApp, ctx: &egui::Context)
                             app.workspace_profiles[idx].name = rename_text.trim().to_string();
                             app.workspace_profiles[idx].ensure_id();
                             app.save_station_config();
-                            app.status_toast = Some((
+                            app.gui.chrome.status_toast = Some((
                                 tr(key::WS_PROFILES_RENAMED_TOAST, lang).to_string(),
                                 std::time::Instant::now(),
                             ));
@@ -234,7 +234,7 @@ pub fn render_workspace_profiles_window(app: &mut SpLogApp, ctx: &egui::Context)
 
 /// Eksportuje pojedynczy profil do pliku `*.spws` (JSON z polem wersji).
 fn export_profile(app: &mut SpLogApp, profile: &WorkspaceProfile) {
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
     let file_name = format!("{}.spws", profile.id);
     if let Some(path) = rfd::FileDialog::new()
         .add_filter("SPLogbook Workspace", &["spws"])
@@ -248,20 +248,20 @@ fn export_profile(app: &mut SpLogApp, profile: &WorkspaceProfile) {
         match serde_json::to_string_pretty(&file) {
             Ok(json) => match std::fs::write(&path, json) {
                 Ok(()) => {
-                    app.status_toast = Some((
+                    app.gui.chrome.status_toast = Some((
                         format!("Wyeksportowano: {}", path.display()),
                         std::time::Instant::now(),
                     ));
                 }
                 Err(e) => {
-                    app.status_toast = Some((
+                    app.gui.chrome.status_toast = Some((
                         Msg::new(key::WS_PROFILES_ERR_SAVE).arg("err", e).text(lang),
                         std::time::Instant::now(),
                     ));
                 }
             },
             Err(e) => {
-                app.status_toast = Some((
+                app.gui.chrome.status_toast = Some((
                     Msg::new(key::WS_PROFILES_ERR_SERIALIZE)
                         .arg("err", e)
                         .text(lang),
@@ -274,7 +274,7 @@ fn export_profile(app: &mut SpLogApp, profile: &WorkspaceProfile) {
 
 /// Importuje profil z pliku `*.spws`.
 fn import_profile(app: &mut SpLogApp) {
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
     if let Some(path) = rfd::FileDialog::new()
         .add_filter("SPLogbook Workspace", &["spws"])
         .pick_file()
@@ -283,7 +283,7 @@ fn import_profile(app: &mut SpLogApp) {
             Ok(text) => match serde_json::from_str::<WorkspaceFile>(&text) {
                 Ok(file) => {
                     if file.version > WorkspaceFile::CURRENT_VERSION {
-                        app.status_toast = Some((
+                        app.gui.chrome.status_toast = Some((
                             Msg::new(key::WS_PROFILES_ERR_UNSUPPORTED_VERSION)
                                 .arg("ver", file.version)
                                 .arg("path", path.display())
@@ -303,13 +303,13 @@ fn import_profile(app: &mut SpLogApp) {
                         app.workspace_profiles.push(ws.clone());
                     }
                     app.save_station_config();
-                    app.status_toast = Some((
+                    app.gui.chrome.status_toast = Some((
                         format!("Zaimportowano profil: {}", ws.name),
                         std::time::Instant::now(),
                     ));
                 }
                 Err(e) => {
-                    app.status_toast = Some((
+                    app.gui.chrome.status_toast = Some((
                         Msg::new(key::WS_PROFILES_ERR_INVALID_FILE)
                             .arg("err", e)
                             .text(lang),
@@ -318,7 +318,7 @@ fn import_profile(app: &mut SpLogApp) {
                 }
             },
             Err(e) => {
-                app.status_toast = Some((
+                app.gui.chrome.status_toast = Some((
                     Msg::new(key::WS_PROFILES_ERR_READ).arg("err", e).text(lang),
                     std::time::Instant::now(),
                 ));
@@ -342,7 +342,7 @@ fn capture_profile(app: &SpLogApp, name: &str) -> WorkspaceProfile {
         panel_satellites: app.views.panel_satellites.clone(),
         panel_world_map: app.views.panel_world_map.clone(),
         panel_waterfall: app.views.panel_waterfall.clone(),
-        theme_preset: Some(app.theme_preset.id().to_string()),
+        theme_preset: Some(app.gui.appearance.theme_preset.id().to_string()),
         enabled_plugins: Vec::new(),
         cat_profile: None,
         cw_profile: None,
@@ -362,7 +362,7 @@ fn capture_profile(app: &SpLogApp, name: &str) -> WorkspaceProfile {
 pub(crate) fn apply_profile(app: &mut SpLogApp, p: &WorkspaceProfile) {
     // Motyw kolorystyczny przypisany do profilu (jeśli określony).
     if let Some(theme_id) = &p.theme_preset {
-        app.theme_preset = ThemePreset::from_id(theme_id);
+        app.gui.appearance.theme_preset = ThemePreset::from_id(theme_id);
     }
 
     // Filtr spotów DX Cluster przypisany do profilu (jeśli zapisany).

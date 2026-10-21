@@ -17,11 +17,16 @@ impl SpLogApp {
 
         // Dolny pasek statusu stacji
         egui::Panel::bottom("bottom_status_bar").show(ui, |ui| {
-            let lang = self.current_language;
+            let lang = self.gui.appearance.language;
             let palette = ui.palette();
             ui.horizontal(|ui| {
                 let fallback_status = tr(key::STATUS_READY_ALL_ACTIVE, lang);
-                let status_txt = self.status_message.as_deref().unwrap_or(fallback_status);
+                let status_txt = self
+                    .gui
+                    .chrome
+                    .status_message
+                    .as_deref()
+                    .unwrap_or(fallback_status);
                 ui.label(
                     egui::RichText::new(status_txt)
                         .size(11.0)
@@ -163,7 +168,7 @@ impl SpLogApp {
 
     pub fn render_chrome_overlays(&mut self, ctx: &egui::Context) {
         // Pływające powiadomienia Toast
-        if let Some((ref msg, time)) = self.status_toast {
+        if let Some((ref msg, time)) = self.gui.chrome.status_toast {
             if time.elapsed().as_secs() < 5 {
                 egui::Area::new(egui::Id::new("status_toast_area"))
                     .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-20.0, -40.0))
@@ -182,14 +187,14 @@ impl SpLogApp {
                             });
                     });
             } else {
-                self.status_toast = None;
+                self.gui.chrome.status_toast = None;
             }
         }
 
         // Okno "O programie SPLogbook"
-        if self.show_about_window {
-            let lang = self.current_language;
-            let mut is_open = self.show_about_window;
+        if self.gui.chrome.show_about_window {
+            let lang = self.gui.appearance.language;
+            let mut is_open = self.gui.chrome.show_about_window;
             let mut close_req = false;
             egui::Window::new(tr(key::TAB_ABOUT, lang))
                 .open(&mut is_open)
@@ -240,7 +245,7 @@ impl SpLogApp {
                             });
                             ui.horizontal(|ui| {
                                 ui.label(tr(key::APP_DIAG_THEME, lang));
-                                ui.monospace(self.theme_preset.id());
+                                ui.monospace(self.gui.appearance.theme_preset.id());
                             });
                             ui.horizontal(|ui| {
                                 ui.label(tr(key::APP_DIAG_DATA_DIR, lang));
@@ -258,7 +263,7 @@ impl SpLogApp {
                                     env!("CARGO_PKG_VERSION"),
                                     std::env::consts::OS,
                                     std::env::consts::ARCH,
-                                    self.theme_preset.id(),
+                                    self.gui.appearance.theme_preset.id(),
                                     self.config_file_path.display()
                                 );
                                 ui.ctx().copy_text(info);
@@ -271,7 +276,7 @@ impl SpLogApp {
                     });
                 });
             if close_req || !is_open {
-                self.show_about_window = false;
+                self.gui.chrome.show_about_window = false;
             }
         }
 
@@ -283,9 +288,9 @@ impl SpLogApp {
         crate::gui::changelog::render_update_check_window(self, ctx);
         crate::gui::user_manual::render_user_manual_window(self, ctx);
 
-        if self.show_shortcuts_window {
-            let lang = self.current_language;
-            let mut is_open = self.show_shortcuts_window;
+        if self.gui.chrome.show_shortcuts_window {
+            let lang = self.gui.appearance.language;
+            let mut is_open = self.gui.chrome.show_shortcuts_window;
             egui::Window::new(format!("⌨ {}", tr(key::HELP_SHORTCUTS_TITLE, lang)))
                 .open(&mut is_open)
                 .default_size([600.0, 520.0])
@@ -367,14 +372,14 @@ impl SpLogApp {
                     });
                 });
             if !is_open {
-                self.show_shortcuts_window = false;
+                self.gui.chrome.show_shortcuts_window = false;
             }
         }
 
         // Legenda kolorów i statusów (niezależna od samego koloru — symbole + tekst)
-        if self.show_legend_window {
-            let lang = self.current_language;
-            let mut is_open = self.show_legend_window;
+        if self.gui.chrome.show_legend_window {
+            let lang = self.gui.appearance.language;
+            let mut is_open = self.gui.chrome.show_legend_window;
             egui::Window::new(tr(key::LEGEND_TITLE, lang))
                 .open(&mut is_open)
                 .default_size([480.0, 420.0])
@@ -442,7 +447,7 @@ impl SpLogApp {
                     });
                 });
             if !is_open {
-                self.show_legend_window = false;
+                self.gui.chrome.show_legend_window = false;
             }
         }
     }

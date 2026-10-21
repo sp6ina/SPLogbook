@@ -70,7 +70,7 @@ impl SpLogApp {
         self.cluster_status_text = Msg::new(key::CLUSTER_CONNECTING_TO)
             .arg("host", &host)
             .arg("port", port)
-            .text(self.current_language);
+            .text(self.gui.appearance.language);
 
         tokio::spawn(async move {
             crate::cluster::telnet::DxClusterClient::run_with_events_and_commands(
@@ -93,11 +93,12 @@ impl SpLogApp {
         self.cluster_cmd_tx = None;
         self.cluster_connected = false;
         self.cluster_connecting = false;
-        self.cluster_status_text = tr(key::CLUSTER_DISCONNECTED, self.current_language).to_string();
+        self.cluster_status_text =
+            tr(key::CLUSTER_DISCONNECTED, self.gui.appearance.language).to_string();
     }
 
     pub fn trigger_database_update(&mut self) {
-        let lang = self.current_language;
+        let lang = self.gui.appearance.language;
         let db_dir = if std::path::Path::new("databases").is_dir() {
             std::path::PathBuf::from("databases")
         } else {
@@ -133,8 +134,8 @@ impl SpLogApp {
         });
 
         let start_msg = tr(key::UPDATER_DOWNLOADING_DATABASES, lang).to_string();
-        self.status_message = Some(start_msg.clone());
-        self.status_toast = Some((start_msg, std::time::Instant::now()));
+        self.gui.chrome.status_message = Some(start_msg.clone());
+        self.gui.chrome.status_toast = Some((start_msg, std::time::Instant::now()));
     }
 
     /// Sprawdza najnowsze wydanie na GitHub w tle i zapisuje wynik do odbiornika.
@@ -188,7 +189,7 @@ impl SpLogApp {
 
         let (tx, rx) = std::sync::mpsc::channel::<String>();
         self.updates.update_install_rx = Some(rx);
-        let lang = self.current_language;
+        let lang = self.gui.appearance.language;
         tokio::spawn(async move {
             let msg = match crate::cloud::updater::install_update(&asset).await {
                 Ok(()) => tr(key::UPDATER_DOWNLOADED_RESTART, lang).to_string(),

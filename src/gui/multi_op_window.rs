@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+﻿// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 //! Okno synchronizacji pracy wielostanowiskowej Multi-Op LAN (`src/gui/multi_op_window.rs`).
@@ -70,7 +70,7 @@ pub fn render_multi_op_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
     let mut is_open = app.sync_ui.show;
     let mut close_req = false;
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
 
     egui::Window::new(tr(key::MULTIOP_TITLE, lang))
         .open(&mut is_open)

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+﻿// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::core::i18n::{key, tr};
@@ -8,7 +8,7 @@ use eframe::egui;
 
 /// Menu: Pomoc
 pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
 
     ui.menu_button(tr(key::MENU_HELP, lang), |ui| {
         if ui
@@ -18,9 +18,9 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             )
             .clicked()
         {
-            app.show_command_palette = true;
-            app.command_palette_query.clear();
-            app.command_palette_selected = 0;
+            app.gui.chrome.show_command_palette = true;
+            app.gui.chrome.command_palette_query.clear();
+            app.gui.chrome.command_palette_selected = 0;
             ui.close();
         }
         ui.separator();
@@ -31,8 +31,8 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             )
             .clicked()
         {
-            app.show_user_manual = true;
-            app.manual_section = None;
+            app.gui.chrome.show_user_manual = true;
+            app.gui.chrome.manual_section = None;
             ui.close();
         }
         if ui
@@ -42,30 +42,30 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             )
             .clicked()
         {
-            app.show_shortcuts_window = true;
+            app.gui.chrome.show_shortcuts_window = true;
             ui.close();
         }
         if ui
             .button(icons::SETTINGS.label(tr(key::HELP_OS_SETUP, lang)))
             .clicked()
         {
-            app.show_user_manual = true;
-            app.manual_section = Some("os_setup".to_string());
+            app.gui.chrome.show_user_manual = true;
+            app.gui.chrome.manual_section = Some("os_setup".to_string());
             ui.close();
         }
         if ui
             .button(icons::INFO_ICON.label(tr(key::HELP_TROUBLESHOOTING, lang)))
             .clicked()
         {
-            app.show_user_manual = true;
-            app.manual_section = Some("troubleshooting".to_string());
+            app.gui.chrome.show_user_manual = true;
+            app.gui.chrome.manual_section = Some("troubleshooting".to_string());
             ui.close();
         }
         if ui
             .button(icons::THEME.label(tr(key::HELP_LEGEND, lang)))
             .clicked()
         {
-            app.show_legend_window = true;
+            app.gui.chrome.show_legend_window = true;
             ui.close();
         }
         ui.separator();
@@ -96,8 +96,8 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .button(icons::WIZARD.label(tr(key::HELP_RERUN_WIZARD, lang)))
             .clicked()
         {
-            app.show_welcome_wizard = true;
-            app.wizard_tab = 0;
+            app.gui.chrome.show_welcome_wizard = true;
+            app.gui.chrome.wizard_tab = 0;
             ui.close();
         }
         ui.separator();
@@ -114,7 +114,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
         ui.separator();
         if ui.button(tr(key::TAB_ABOUT, lang)).clicked() {
-            app.show_about_window = true;
+            app.gui.chrome.show_about_window = true;
             ui.close();
         }
     });

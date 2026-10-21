@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+﻿// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::cloud::lotw::detect_tqsl_path;
@@ -28,7 +28,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
         return;
     }
 
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
     let mut is_open = app.online.show_online_sync_window;
     let mut close_req = false;
 
@@ -121,7 +121,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                             let station_loc = app.lotw_station_name.clone();
                                             let tx = app.sync_log_tx.clone();
                                             app.online.online_sync_logs.push(Msg::new(key::SYNC_LOTW_SIGNING_LOG).arg("count", qso_count).text(lang));
-                                            app.status_message = Some(tr(key::SYNC_LOTW_IN_PROGRESS, lang).to_string());
+                                            app.gui.chrome.status_message = Some(tr(key::SYNC_LOTW_IN_PROGRESS, lang).to_string());
 
                                             tokio::spawn(async move {
                                                 match crate::cloud::lotw::export_and_sign_tqsl_async(&tqsl_path, &station_loc, &adif).await {
@@ -360,7 +360,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                             let user = app.hamqth_username.clone();
                                             let pass = app.hamqth_password.clone();
                                             let qsos = if let Ok(db) = app.log_db.lock() { db.get_recent_qsos(100).unwrap_or_default() } else { vec![] };
-                                            app.status_message = Some(tr(key::SYNC_HAMQTH_IN_PROGRESS, lang).to_string());
+                                            app.gui.chrome.status_message = Some(tr(key::SYNC_HAMQTH_IN_PROGRESS, lang).to_string());
                                             app.online.online_sync_logs.push(Msg::new(key::SYNC_HAMQTH_SENDING).arg("count", qsos.len()).text(lang));
                                             tokio::spawn(async move {
                                                 let client = crate::cloud::hamqth::HamQthClient::new(user, pass);
@@ -441,7 +441,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                             let url = app.cloudlog_url.clone();
                                             let api_key = app.cloudlog_api_key.clone();
                                             let qsos = if let Ok(db) = app.log_db.lock() { db.get_recent_qsos(100).unwrap_or_default() } else { vec![] };
-                                            app.status_message = Some(tr(key::SYNC_CLOUDLOG_IN_PROGRESS, lang).to_string());
+                                            app.gui.chrome.status_message = Some(tr(key::SYNC_CLOUDLOG_IN_PROGRESS, lang).to_string());
                                             app.online.online_sync_logs.push(Msg::new(key::SYNC_CLOUDLOG_SENDING).arg("count", qsos.len()).text(lang));
                                             tokio::spawn(async move {
                                                 let client = crate::cloud::cloudlog::CloudlogClient::new(&url, api_key, "1".to_string());
@@ -483,7 +483,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                             let call = app.hrdlog_username.clone();
                                             let code = app.hrdlog_upload_code.clone();
                                             let qsos = if let Ok(db) = app.log_db.lock() { db.get_recent_qsos(100).unwrap_or_default() } else { vec![] };
-                                            app.status_message = Some(tr(key::SYNC_HRDLOG_IN_PROGRESS, lang).to_string());
+                                            app.gui.chrome.status_message = Some(tr(key::SYNC_HRDLOG_IN_PROGRESS, lang).to_string());
                                             app.online.online_sync_logs.push(Msg::new(key::SYNC_HRDLOG_SENDING).arg("count", qsos.len()).text(lang));
                                             tokio::spawn(async move {
                                                 let client = crate::cloud::hrdlog::HrdlogClient::new(call, code);

@@ -89,7 +89,7 @@ impl SpLogApp {
                         self.updates.update_check_status = Some(
                             Msg::new(key::UPDATER_LATEST_VERSION)
                                 .arg("local", local)
-                                .text(self.current_language),
+                                .text(self.gui.appearance.language),
                         );
                     }
                     crate::cloud::updater::UpdateCheckOutcome::NewVersion(release) => {
@@ -97,7 +97,7 @@ impl SpLogApp {
                             Msg::new(key::UPDATER_NEW_VERSION_AVAILABLE)
                                 .arg("new", &release.tag)
                                 .arg("local", env!("CARGO_PKG_VERSION"))
-                                .text(self.current_language),
+                                .text(self.gui.appearance.language),
                         );
                         self.updates.update_available = Some(release);
                     }
@@ -105,7 +105,7 @@ impl SpLogApp {
                         self.updates.update_check_status = Some(
                             Msg::new(key::UPDATER_CHECK_ERROR)
                                 .arg("err", &e.to_string())
-                                .text(self.current_language),
+                                .text(self.gui.appearance.language),
                         );
                     }
                 }
@@ -126,8 +126,13 @@ impl SpLogApp {
         }
 
         if self.updates.pending_restart {
-            self.updates.update_install_status =
-                Some(tr(key::UPDATER_INSTALLING_RESTART, self.current_language).to_string());
+            self.updates.update_install_status = Some(
+                tr(
+                    key::UPDATER_INSTALLING_RESTART,
+                    self.gui.appearance.language,
+                )
+                .to_string(),
+            );
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
     }
@@ -140,15 +145,16 @@ impl SpLogApp {
                     Ok(rt) => {
                         self.cat_runtime = rt;
                         self.cat_connected = true;
-                        self.cat_test_result =
-                            Some(tr(key::CAT_STARTED_SUCCESS, self.current_language).to_string());
+                        self.cat_test_result = Some(
+                            tr(key::CAT_STARTED_SUCCESS, self.gui.appearance.language).to_string(),
+                        );
                     }
                     Err(e) => {
                         self.cat_connected = false;
                         self.cat_test_result = Some(
                             Msg::new(key::CAT_START_ERROR)
                                 .arg("err", &e.to_string())
-                                .text(self.current_language),
+                                .text(self.gui.appearance.language),
                         );
                     }
                 }
@@ -326,7 +332,7 @@ impl SpLogApp {
                         self.cluster_connected = true;
                         self.cluster_connecting = false;
                         self.cluster_status_text.clone_from(&msg);
-                        self.status_toast = Some((msg, std::time::Instant::now()));
+                        self.gui.chrome.status_toast = Some((msg, std::time::Instant::now()));
                         self.event_bus
                             .publish(crate::core::events::AppEvent::ClusterStatus {
                                 connected: true,
@@ -372,7 +378,7 @@ impl SpLogApp {
 
                             if is_atno && self.solar.band_alert_enabled {
                                 crate::media::sounds::play_new_dxcc_alert();
-                                self.status_toast = Some((
+                                self.gui.chrome.status_toast = Some((
                                     format!(
                                         "⭐ ATNO DXCC: {} na pasmie {} ({:.1} kHz)!",
                                         spot.dx_call, spot.band, spot.frequency_khz
@@ -457,11 +463,11 @@ impl SpLogApp {
                 if let Some(img) = data.image_url {
                     self.gui.dialogs.photo_viewer_dialog.photo_url = Some(img);
                 }
-                self.status_message = Some(format!(
+                self.gui.chrome.status_message = Some(format!(
                     "Pobrano dane Callbook dla: {} ({})",
                     data.callsign, self.entry_name
                 ));
-                self.status_toast = Some((
+                self.gui.chrome.status_toast = Some((
                     format!("Pobrano dane korespondenta {}!", data.callsign),
                     std::time::Instant::now(),
                 ));
@@ -477,8 +483,8 @@ impl SpLogApp {
                 let excess = self.online.online_sync_logs.len() - 500;
                 self.online.online_sync_logs.drain(0..excess);
             }
-            self.status_message = Some(msg.clone());
-            self.status_toast = Some((msg, std::time::Instant::now()));
+            self.gui.chrome.status_message = Some(msg.clone());
+            self.gui.chrome.status_toast = Some((msg, std::time::Instant::now()));
             if rebuild_awards {
                 self.rebuild_awards_full();
             }
@@ -591,7 +597,10 @@ mod tests {
         app.poll_online_sync_logs();
         assert_eq!(app.online.online_sync_logs.len(), 1);
         assert_eq!(app.online.online_sync_logs[0], "Synchronized 5 QSOs");
-        assert_eq!(app.status_message.as_deref(), Some("Synchronized 5 QSOs"));
+        assert_eq!(
+            app.gui.chrome.status_message.as_deref(),
+            Some("Synchronized 5 QSOs")
+        );
     }
 
     #[test]

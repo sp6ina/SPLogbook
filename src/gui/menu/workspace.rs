@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+﻿// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 //! Menu „Workspace" — szybkie przełączanie profili układu operatorskiego.
@@ -14,7 +14,7 @@ use eframe::egui;
 pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
     use crate::gui::theme::ThemeExt;
     let palette = ui.palette();
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
 
     ui.menu_button(icons::DESKTOP.label(tr(key::MENU_WORKSPACE, lang)), |ui| {
         ui.label(
@@ -33,7 +33,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             }
             if resp.clicked() {
                 apply_profile(app, &preset);
-                app.status_toast = Some((
+                app.gui.chrome.status_toast = Some((
                     format!("{}: {name}", tr(key::WORKSPACE_PRESET_APPLIED, lang)),
                     std::time::Instant::now(),
                 ));

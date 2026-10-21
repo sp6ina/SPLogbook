@@ -12,7 +12,7 @@ pub fn render_statistics_window(app: &mut SpLogApp, ctx: &egui::Context) {
     if !app.show_statistics_window {
         return;
     }
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
     let mut is_open = app.show_statistics_window;
 
     egui::Window::new(
@@ -128,15 +128,17 @@ fn get_cached_stats(app: &mut SpLogApp) -> StatsCacheData {
         }
     }
 
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
     let data = match app.log_db.lock() {
         Ok(db) => {
             let band = db.stats_qso_per_band().unwrap_or_else(|e| {
-                app.status_message = Some(Msg::new(key::STATS_ERR_BANDS).arg("err", &e).text(lang));
+                app.gui.chrome.status_message =
+                    Some(Msg::new(key::STATS_ERR_BANDS).arg("err", &e).text(lang));
                 vec![]
             });
             let mode = db.stats_qso_per_mode().unwrap_or_else(|e| {
-                app.status_message = Some(Msg::new(key::STATS_ERR_MODES).arg("err", &e).text(lang));
+                app.gui.chrome.status_message =
+                    Some(Msg::new(key::STATS_ERR_MODES).arg("err", &e).text(lang));
                 vec![]
             });
             let monthly = match db.stats_qso_per_month() {
@@ -145,22 +147,24 @@ fn get_cached_stats(app: &mut SpLogApp) -> StatsCacheData {
                     v
                 }
                 Err(e) => {
-                    app.status_message =
+                    app.gui.chrome.status_message =
                         Some(Msg::new(key::STATS_ERR_MONTHS).arg("err", &e).text(lang));
                     vec![]
                 }
             };
             let hourly = db.stats_activity_by_hour().unwrap_or_else(|e| {
-                app.status_message = Some(Msg::new(key::STATS_ERR_HOURS).arg("err", &e).text(lang));
+                app.gui.chrome.status_message =
+                    Some(Msg::new(key::STATS_ERR_HOURS).arg("err", &e).text(lang));
                 vec![]
             });
             let countries = db.stats_top_countries(15).unwrap_or_else(|e| {
-                app.status_message =
+                app.gui.chrome.status_message =
                     Some(Msg::new(key::STATS_ERR_COUNTRIES).arg("err", &e).text(lang));
                 vec![]
             });
             let qsl = db.stats_qsl_summary().unwrap_or_else(|e| {
-                app.status_message = Some(Msg::new(key::STATS_ERR_QSL).arg("err", &e).text(lang));
+                app.gui.chrome.status_message =
+                    Some(Msg::new(key::STATS_ERR_QSL).arg("err", &e).text(lang));
                 (0, 0, 0, 0)
             });
             StatsCacheData {
@@ -173,7 +177,8 @@ fn get_cached_stats(app: &mut SpLogApp) -> StatsCacheData {
             }
         }
         Err(e) => {
-            app.status_message = Some(Msg::new(key::STATS_ERR_OPEN_LOG).arg("err", &e).text(lang));
+            app.gui.chrome.status_message =
+                Some(Msg::new(key::STATS_ERR_OPEN_LOG).arg("err", &e).text(lang));
             StatsCacheData::default()
         }
     };
@@ -304,7 +309,7 @@ fn bar_chart_clickable(
 }
 
 fn render_tab_monthly(app: &mut SpLogApp, ui: &mut egui::Ui) {
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
     let palette = ui.palette();
     ui.label(egui::RichText::new(tr(key::STATS_MONTHLY_DIST, lang)).strong());
     ui.label(
@@ -344,7 +349,7 @@ fn render_tab_monthly(app: &mut SpLogApp, ui: &mut egui::Ui) {
 }
 
 fn render_tab_bands(app: &mut SpLogApp, ui: &mut egui::Ui) {
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
     let palette = ui.palette();
     ui.label(egui::RichText::new(tr(key::STATS_BANDS_DIST, lang)).strong());
     ui.label(
@@ -381,7 +386,7 @@ fn render_tab_bands(app: &mut SpLogApp, ui: &mut egui::Ui) {
 }
 
 fn render_tab_modes(app: &mut SpLogApp, ui: &mut egui::Ui) {
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
     let palette = ui.palette();
     ui.label(egui::RichText::new(tr(key::STATS_MODES_DIST, lang)).strong());
     ui.label(
@@ -418,7 +423,7 @@ fn render_tab_modes(app: &mut SpLogApp, ui: &mut egui::Ui) {
 }
 
 fn render_tab_hourly(app: &mut SpLogApp, ui: &mut egui::Ui) {
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
     let palette = ui.palette();
     ui.label(egui::RichText::new(tr(key::STATS_ACTIVITY_HISTOGRAM, lang)).strong());
     ui.label(
@@ -465,7 +470,7 @@ fn render_tab_hourly(app: &mut SpLogApp, ui: &mut egui::Ui) {
 }
 
 fn render_tab_countries(app: &mut SpLogApp, ui: &mut egui::Ui) {
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
     let palette = ui.palette();
     ui.label(egui::RichText::new(tr(key::STATS_TOP_COUNTRIES_TITLE, lang)).strong());
     ui.label(
@@ -515,7 +520,7 @@ fn render_tab_countries(app: &mut SpLogApp, ui: &mut egui::Ui) {
 }
 
 fn render_tab_qsl(app: &mut SpLogApp, ui: &mut egui::Ui) {
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
     let palette = ui.palette();
     let (total, lotw, eqsl, paper) = get_stats_qsl(app);
     ui.label(egui::RichText::new(tr(key::STATS_QSL_SUMMARY_TITLE, lang)).strong());

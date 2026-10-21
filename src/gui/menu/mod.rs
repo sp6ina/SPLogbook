@@ -40,7 +40,7 @@ pub fn render_menu_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
 fn render_right_side(app: &mut SpLogApp, ui: &mut egui::Ui) {
     use crate::gui::theme::ThemeExt;
     let palette = ui.palette();
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
 
     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
         let utc_now = chrono::Utc::now().format("%H:%M:%S UTC").to_string();
@@ -81,7 +81,7 @@ fn render_right_side(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
 /// Drugi rząd paska narzędziowego z automatycznym zawijaniem (horizontal_wrapped) i pełną personalizacją (PPM / ikona zębatki)
 pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
     let mut show_customize_popup = false;
 
     let toolbar_resp = ui.horizontal_wrapped(|ui| {
@@ -320,15 +320,18 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
 
         if app.quick_access.show_theme {
-            let theme_btn_text = icons::THEME.label(app.theme_preset.label(lang));
+            let theme_btn_text = icons::THEME.label(app.gui.appearance.theme_preset.label(lang));
             if ui
                 .button(theme_btn_text)
                 .on_hover_text(tr(key::TOOLBAR_THEME_CYCLE_HINT, lang))
                 .clicked()
             {
                 let all = crate::gui::theme::ThemePreset::ALL;
-                let idx = all.iter().position(|p| *p == app.theme_preset).unwrap_or(0);
-                app.theme_preset = all[(idx + 1) % all.len()];
+                let idx = all
+                    .iter()
+                    .position(|p| *p == app.gui.appearance.theme_preset)
+                    .unwrap_or(0);
+                app.gui.appearance.theme_preset = all[(idx + 1) % all.len()];
                 app.save_station_config();
             }
         }
@@ -371,7 +374,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
 fn render_quick_access_menu(app: &mut SpLogApp, ui: &mut egui::Ui) {
     use crate::gui::theme::ThemeExt;
     let palette = ui.palette();
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
     ui.heading(tr(key::TOOLBAR_VISIBLE_ELEMENTS, lang));
     ui.label(
         egui::RichText::new(tr(key::TOOLBAR_VISIBLE_ELEMENTS_HINT, lang))

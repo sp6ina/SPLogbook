@@ -8,7 +8,7 @@ use crate::cluster::telnet::DxSpot;
 use crate::core::awards::{AwardsEngine, PolishDistrictInfo, QsoAwardStatus};
 use crate::core::backup::BackupManager;
 use crate::core::database::{Journal, LogDatabase};
-use crate::core::i18n::{Language, Msg, key, tr};
+use crate::core::i18n::{Msg, key, tr};
 use crate::core::ingest::{IngestError, IngestOutcome, QsoOrigin};
 use crate::core::prefix::{PrefixInfo, PrefixMatcher};
 use crate::core::qso::QsoRecord;
@@ -101,8 +101,6 @@ pub struct SpLogApp {
 
     // Konfiguracja stacji i lokalizacja
     pub my_station: StationProfile,
-    pub current_language: Language,
-    pub status_message: Option<String>,
 
     // Stany formularza wprowadzania QSO
     pub entry_callsign: String,
@@ -177,16 +175,12 @@ pub struct SpLogApp {
     pub ledger: crate::gui::state::EquipmentLedgerState,
 
     // Motyw i konfiguracja stacji
-    pub theme_preset: crate::gui::theme::ThemePreset,
     pub font_scale: f32,
     pub font_family: String,
     pub distance_unit: String,
-    pub show_welcome_wizard: bool,
-    pub wizard_tab: u8,
     pub config_file_path: std::path::PathBuf,
     pub secret_store_id: String,
     pub active_db_path: std::path::PathBuf,
-    pub is_fullscreen: bool,
 
     // Wizualna Panorama Pasma (Band Map)
     pub show_bandmap_window: bool,
@@ -194,16 +188,7 @@ pub struct SpLogApp {
     pub bandmap_auto_track: bool,
 
     // Okna dialogowe
-    pub show_about_window: bool,
-    pub show_shortcuts_window: bool,
-    pub show_legend_window: bool,
-    pub show_command_palette: bool,
-    pub command_palette_query: String,
-    pub command_palette_selected: usize,
     pub updates: crate::gui::state::UpdateState,
-    pub show_user_manual: bool,
-    pub manual_section: Option<String>,
-    pub manual_selected: usize,
     pub show_vfo_panel: bool,
     pub show_cluster_panel: bool,
 
@@ -322,7 +307,6 @@ pub struct SpLogApp {
     pub live_auto_upload_qrz: bool,
     pub upload_scheduler: Arc<Mutex<crate::cloud::scheduler::UploadScheduler>>,
     pub last_upload_poll_secs: u64,
-    pub status_toast: Option<(String, std::time::Instant)>,
     pub sync_log_tx: std::sync::mpsc::Sender<(String, bool)>,
     pub sync_log_rx: std::sync::mpsc::Receiver<(String, bool)>,
 
@@ -632,7 +616,6 @@ impl SpLogApp {
             ..Default::default()
         };
 
-        let show_wizard = !init.config.is_configured;
         let (qrz_lookup_tx, qrz_lookup_rx) = std::sync::mpsc::channel();
         let (sync_log_tx, sync_log_rx) = std::sync::mpsc::channel();
 
@@ -688,7 +671,16 @@ impl SpLogApp {
             event_bus.clone(),
         );
 
-        let current_language = Language::from_code(&init.config.current_language);
+        let appearance = crate::gui::state::AppearanceState::from_config(&init.config);
+        let lang = appearance.language;
+        let show_wizard = !init.config.is_configured && init.config.station.callsign.is_empty();
+        let mut chrome = crate::gui::state::ChromeState::default();
+        chrome.show_welcome_wizard = show_wizard;
+        let gui = crate::gui::state::GuiState {
+            chrome,
+            appearance,
+            dialogs: crate::gui::state::DialogState::default(),
+        };
         let views = crate::gui::state::ViewsState::from_config(&init.config);
         let online = crate::gui::state::OnlineSyncUiState::from_config(&init.config);
         let mut app = Self {
@@ -700,9 +692,6 @@ impl SpLogApp {
             awards_engine,
             qso_ingestor,
             my_station: init.config.station.clone(),
-            // Wczytanie zapisanego języka z konfiguracji stacji
-            current_language,
-            status_message: None,
 
             entry_callsign: String::new(),
             callsign_corrections: Vec::new(),
@@ -762,35 +751,17 @@ impl SpLogApp {
 
             ledger: crate::gui::state::EquipmentLedgerState::with_items(init.config.equipment),
 
-            theme_preset: if init.config.theme_preset.is_empty() {
-                if !init.config.dark_theme {
-                    crate::gui::theme::ThemePreset::Daylight
-                } else {
-                    crate::gui::theme::ThemePreset::OperatorDark
-                }
-            } else {
-                crate::gui::theme::ThemePreset::from_id(&init.config.theme_preset)
-            },
             font_scale: init.config.font_scale,
             font_family: init.config.font_family.clone(),
             distance_unit: init.config.distance_unit.clone(),
-            show_welcome_wizard: show_wizard,
-            wizard_tab: 0,
             config_file_path: init.config_file_path,
             secret_store_id: init.config.secret_store_id.clone(),
             active_db_path: init.active_db_path,
-            is_fullscreen: false,
 
             show_bandmap_window: false,
             bandmap_selected_band: "20m".to_string(),
             bandmap_auto_track: true,
 
-            show_about_window: false,
-            show_shortcuts_window: false,
-            show_legend_window: false,
-            show_command_palette: false,
-            command_palette_query: String::new(),
-            command_palette_selected: 0,
             show_vfo_panel: true,
             show_cluster_panel: true,
 
@@ -873,7 +844,7 @@ impl SpLogApp {
             cat_custom_rigctld_path: init.config.cat_custom_rigctld_path,
             rigctld_supervisor: None,
 
-            gui: crate::gui::state::GuiState::default(),
+            gui,
             active_journal,
 
             wsjtx_tx,
@@ -895,16 +866,12 @@ impl SpLogApp {
                 crate::cloud::scheduler::UploadScheduler::load_from_disk(),
             )),
             last_upload_poll_secs: 0,
-            status_toast: None,
             sync_log_tx,
             sync_log_rx,
 
             service_db: Arc::new(ServiceDatabase::open()),
             show_column_settings: false,
             updates: crate::gui::state::UpdateState::default(),
-            show_user_manual: false,
-            manual_section: None,
-            manual_selected: 0,
             logbook_columns: init.config.logbook_columns.clone(),
             logbook_column_presets: init.config.logbook_column_presets.clone(),
             column_preset_name: String::new(),
@@ -947,7 +914,7 @@ impl SpLogApp {
             cluster_auto_connect: init.config.cluster_auto_connect,
             cluster_connected: false,
             cluster_connecting: false,
-            cluster_status_text: tr(key::CLUSTER_DISCONNECTED, current_language).to_string(),
+            cluster_status_text: tr(key::CLUSTER_DISCONNECTED, lang).to_string(),
             cluster_filter_current_band: init.config.cluster_filter_current_band,
             cluster_hide_ft8: init.config.cluster_hide_ft8,
             cluster_hide_skimmers: init.config.cluster_hide_skimmers,
@@ -1210,7 +1177,7 @@ impl TabViewer for SpLogApp {
 
                     // Przyciski odpinania i ukrywania (wyrównane do prawej)
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let lang = self.current_language;
+                        let lang = self.gui.appearance.language;
                         if ui
                             .button("✕")
                             .on_hover_text(tr(key::WINDOW_HIDE_TOOLTIP, lang))
@@ -1276,14 +1243,14 @@ impl eframe::App for SpLogApp {
         self.poll_main_async_events(ctx);
 
         // Zastosowanie wybranego motywu, stylów i skali UI (apply-on-change przez ensure_applied).
-        crate::gui::theme::ensure_applied(ctx, self.theme_preset, self.font_scale);
+        crate::gui::theme::ensure_applied(ctx, self.gui.appearance.theme_preset, self.font_scale);
 
         // Faza Chrome: paski menu i statusu stacji
         self.render_chrome_bars(ui);
 
         // Główny obszar roboczy - swobodny pulpit stacji SPLogbook (MDI Desktop)
         egui::CentralPanel::default().show(ui, |ui| {
-            let lang = self.current_language;
+            let lang = self.gui.appearance.language;
             let palette = ui.palette();
             if self.compact_hud_mode {
                 ui.vertical_centered(|ui| {
@@ -1462,7 +1429,7 @@ impl eframe::App for SpLogApp {
         // Okna dialogowe i narzędzia pomocnicze
         if self.gui.dialogs.journal_dialog.is_open {
             let mut switched_journal = None;
-            let lang = self.current_language;
+            let lang = self.gui.appearance.language;
             if let Ok(db) = self.log_db.lock() {
                 self.gui
                     .dialogs
@@ -1482,10 +1449,10 @@ impl eframe::App for SpLogApp {
                     Some(j.my_pga.clone())
                 };
                 self.reload_qsos();
-                self.status_toast = Some((
+                self.gui.chrome.status_toast = Some((
                     Msg::new(key::PROFILE_SWITCHED_JOURNAL)
                         .arg("name", &j.name)
-                        .text(self.current_language),
+                        .text(self.gui.appearance.language),
                     std::time::Instant::now(),
                 ));
             }
@@ -1496,7 +1463,7 @@ impl eframe::App for SpLogApp {
             let mut clear_filter = false;
             let journal_id = self.active_journal.id.clone();
             let my_call = self.my_station.callsign.clone();
-            let lang = self.current_language;
+            let lang = self.gui.appearance.language;
             if let Ok(db) = self.log_db.lock() {
                 self.gui.dialogs.advanced_filter_dialog.render(
                     ctx,
@@ -1521,7 +1488,7 @@ impl eframe::App for SpLogApp {
             self.gui
                 .dialogs
                 .cw_terminal_dialog
-                .render(ctx, &my_call, self.current_language);
+                .render(ctx, &my_call, self.gui.appearance.language);
         }
 
         if self.gui.dialogs.qsl_designer_dialog.is_open {
@@ -1531,7 +1498,7 @@ impl eframe::App for SpLogApp {
                     ctx,
                     &db,
                     &my_call,
-                    self.current_language,
+                    self.gui.appearance.language,
                 );
             }
         }
@@ -1540,7 +1507,10 @@ impl eframe::App for SpLogApp {
         }
 
         // 1. Zdalne wybudzanie stacji Wake-on-LAN (WOL)
-        self.gui.dialogs.wol_dialog.show(ctx, self.current_language);
+        self.gui
+            .dialogs
+            .wol_dialog
+            .show(ctx, self.gui.appearance.language);
 
         // 2. Położenie Księżyca i Słońca (EME / Kalkulator astronomiczny)
         let my_grid = self.my_station.gridsquare.clone();
@@ -1548,14 +1518,14 @@ impl eframe::App for SpLogApp {
             ctx,
             &my_grid,
             &mut self.rotor_state,
-            self.current_language,
+            self.gui.appearance.language,
         );
 
         // 3. Moduł SOTA / POTA
         self.gui
             .dialogs
             .sota_dialog
-            .show(ctx, &self.recent_qsos, self.current_language);
+            .show(ctx, &self.recent_qsos, self.gui.appearance.language);
 
         // 3b. Konfigurowalny eksport CSV
         if self.gui.dialogs.csv_export_dialog.is_open {
@@ -1563,7 +1533,7 @@ impl eframe::App for SpLogApp {
                 .gui
                 .dialogs
                 .csv_export_dialog
-                .render(ctx, self.current_language)
+                .render(ctx, self.gui.appearance.language)
             {
                 self.perform_csv_export(&req);
             }
@@ -1579,7 +1549,7 @@ impl eframe::App for SpLogApp {
                 ctx,
                 &self.service_db,
                 &awards,
-                self.current_language,
+                self.gui.appearance.language,
             ) {
                 self.entry_iota = iota;
             }
@@ -1589,19 +1559,18 @@ impl eframe::App for SpLogApp {
                 ctx,
                 &self.service_db,
                 &awards,
-                self.current_language,
+                self.gui.appearance.language,
             ) {
                 self.entry_state = state;
             }
         }
 
         // 6. Baza menedżerów QSL
-        if let Some(qslm) =
-            self.gui
-                .dialogs
-                .qsl_manager_dialog
-                .show(ctx, &self.service_db, self.current_language)
-        {
+        if let Some(qslm) = self.gui.dialogs.qsl_manager_dialog.show(
+            ctx,
+            &self.service_db,
+            self.gui.appearance.language,
+        ) {
             self.entry_qsl_manager = qslm;
         }
 
@@ -1609,19 +1578,20 @@ impl eframe::App for SpLogApp {
         self.gui
             .dialogs
             .photo_viewer_dialog
-            .show(ctx, self.current_language);
+            .show(ctx, self.gui.appearance.language);
 
         // 8. Menedżer prefiksów DXCC
-        self.gui
-            .dialogs
-            .prefix_manager_dialog
-            .show(ctx, &self.service_db, self.current_language);
+        self.gui.dialogs.prefix_manager_dialog.show(
+            ctx,
+            &self.service_db,
+            self.gui.appearance.language,
+        );
 
         // 9. Formularz wysyłania własnego spotu do DX Cluster
         if let Some(sub) = self.gui.dialogs.send_spot_dialog.show(
             ctx,
             &self.my_station.callsign,
-            self.current_language,
+            self.gui.appearance.language,
         ) {
             if let Some(ref tx) = self.cluster_cmd_tx {
                 let telnet_cmd = format!(
@@ -1650,8 +1620,8 @@ impl eframe::App for SpLogApp {
             let toast_msg = Msg::new(key::CLUSTER_SPOT_SENT)
                 .arg("call", &sub.dx_call)
                 .arg("freq", format!("{:.1}", sub.freq_khz))
-                .text(self.current_language);
-            self.status_toast = Some((toast_msg, std::time::Instant::now()));
+                .text(self.gui.appearance.language);
+            self.gui.chrome.status_toast = Some((toast_msg, std::time::Instant::now()));
         }
 
         // Faza Chrome: toasty, okno o programie, paleta, manual, skróty, legenda
@@ -1882,7 +1852,9 @@ mod tests {
         assert_eq!(app.recent_qsos.len(), 2);
         assert_eq!(app.qso_numbers.len(), 2);
         assert!(
-            app.status_message
+            app.gui
+                .chrome
+                .status_message
                 .as_ref()
                 .unwrap()
                 .contains("Zaimportowano 2")
@@ -1921,13 +1893,17 @@ mod tests {
         assert_eq!(app.recent_qsos.len(), 2);
         assert_eq!(app.qso_numbers.len(), 2);
         assert!(
-            app.status_message
+            app.gui
+                .chrome
+                .status_message
                 .as_ref()
                 .unwrap()
                 .contains("Zaimportowano 0")
         );
         assert!(
-            app.status_message
+            app.gui
+                .chrome
+                .status_message
                 .as_ref()
                 .unwrap()
                 .contains("duplikatów pominiętych")
@@ -2015,7 +1991,7 @@ mod tests {
         assert!(event_rx.try_recv().is_err());
 
         // Toast z błędem
-        assert!(app.status_toast.is_some());
+        assert!(app.gui.chrome.status_toast.is_some());
     }
 
     #[test]

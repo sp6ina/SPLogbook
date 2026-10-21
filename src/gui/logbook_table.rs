@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+﻿// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Wozniak (SP6INA)
 
 use crate::core::i18n::{key, tr};
@@ -11,7 +11,7 @@ pub fn render_logbook_window(app: &mut SpLogApp, ctx: &egui::Context) {
     if !app.views.panel_log.visible {
         return;
     }
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
     if app.views.panel_log.floating {
         let mut still_open = true;
         let mut dock_back = false;
@@ -161,7 +161,7 @@ pub fn render_logbook_window(app: &mut SpLogApp, ctx: &egui::Context) {
             res.response.rect,
             &mut app.views.panel_log.floating,
             true,
-            app.current_language,
+            app.gui.appearance.language,
         );
         if app.views.panel_log.floating {
             app.save_station_config();
@@ -314,7 +314,7 @@ fn normalize_digits_stack<const N: usize>(s: &str) -> [u8; N] {
 }
 
 pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
     let palette = ui.palette();
     let query = app.log_search_query.trim().to_uppercase();
 
@@ -745,7 +745,7 @@ pub fn render_edit_qso_dialog(app: &mut SpLogApp, ctx: &egui::Context) {
     if app.editing_qso.is_none() {
         return;
     }
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
     let mut is_open = true;
     let mut should_save = false;
     let mut should_cancel = false;
@@ -910,7 +910,7 @@ pub fn render_column_settings(app: &mut SpLogApp, ctx: &egui::Context) {
     if !is_open {
         return;
     }
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
 
     let mut save = false;
     let mut reset = false;

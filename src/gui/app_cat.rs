@@ -11,12 +11,12 @@ impl SpLogApp {
             let _ =
                 crate::cat::rotor::RotorClient::set_position(&host, port, azimuth_deg, 0.0).await;
         });
-        self.status_toast = Some((
+        self.gui.chrome.status_toast = Some((
             Msg::new(key::ROTOR_CMD_SENT_AZ)
                 .arg("az", format!("{azimuth_deg:.0}"))
                 .arg("host", &self.rotor_host)
                 .arg("port", self.rotor_port)
-                .text(self.current_language),
+                .text(self.gui.appearance.language),
             std::time::Instant::now(),
         ));
     }
@@ -36,11 +36,11 @@ impl SpLogApp {
             )
             .await;
         });
-        self.status_toast = Some((
+        self.gui.chrome.status_toast = Some((
             Msg::new(key::ROTOR_CMD_SENT_AZ_EL)
                 .arg("az", format!("{azimuth_deg:.0}"))
                 .arg("el", format!("{elevation_deg:.0}"))
-                .text(self.current_language),
+                .text(self.gui.appearance.language),
             std::time::Instant::now(),
         ));
     }
@@ -154,7 +154,7 @@ impl SpLogApp {
                     self.cat_test_result = Some(
                         Msg::new(key::CAT_RIGCTLD_ERROR)
                             .arg("err", &e.to_string())
-                            .text(self.current_language),
+                            .text(self.gui.appearance.language),
                     );
                 }
             }
@@ -173,8 +173,13 @@ impl SpLogApp {
             let _ = tx.send(res);
         });
 
-        self.cat_test_result =
-            Some(tr(key::CAT_RUNTIME_INIT_IN_PROGRESS, self.current_language).to_string());
+        self.cat_test_result = Some(
+            tr(
+                key::CAT_RUNTIME_INIT_IN_PROGRESS,
+                self.gui.appearance.language,
+            )
+            .to_string(),
+        );
     }
 
     pub fn stop_cat_service(&mut self) {
@@ -192,7 +197,7 @@ impl SpLogApp {
             sup.stop();
         }
         self.cat_test_result =
-            Some(tr(key::CAT_STOPPED_RIGCTLD, self.current_language).to_string());
+            Some(tr(key::CAT_STOPPED_RIGCTLD, self.gui.appearance.language).to_string());
     }
 
     pub fn set_vfo_frequency(&mut self, freq_hz: u64) {
@@ -201,7 +206,7 @@ impl SpLogApp {
             self.entry_band = band_def.name.to_string();
         }
         self.cat_runtime.set_frequency(freq_hz);
-        self.status_message = Some(format!(
+        self.gui.chrome.status_message = Some(format!(
             "VFO dostrojone do: {:.3} kHz",
             (freq_hz as f64) / 1000.0
         ));
@@ -218,7 +223,7 @@ impl SpLogApp {
         self.entry_mode = mode.to_string();
         self.cat_runtime
             .set_mode(mode.to_string(), self.rig_state.passband_hz);
-        self.status_message = Some(format!("Emisja zmieniona na: {mode}"));
+        self.gui.chrome.status_message = Some(format!("Emisja zmieniona na: {mode}"));
     }
 
     pub fn set_vfo_split(&mut self, enabled: bool) {
@@ -226,14 +231,14 @@ impl SpLogApp {
         self.rig_state.split_enabled = enabled;
         self.cat_runtime.set_split(enabled, "VFOB".to_string());
         let split_status = if enabled {
-            tr(key::CAT_SPLIT_ENABLED_VFO_B, self.current_language)
+            tr(key::CAT_SPLIT_ENABLED_VFO_B, self.gui.appearance.language)
         } else {
-            tr(key::CAT_SPLIT_DISABLED, self.current_language)
+            tr(key::CAT_SPLIT_DISABLED, self.gui.appearance.language)
         };
-        self.status_message = Some(
+        self.gui.chrome.status_message = Some(
             Msg::new(key::CAT_SPLIT_MODE_MSG)
                 .arg("status", split_status)
-                .text(self.current_language),
+                .text(self.gui.appearance.language),
         );
     }
 
@@ -245,10 +250,10 @@ impl SpLogApp {
         };
         self.rig_state.vfo = next_vfo.to_string();
         self.cat_runtime.set_vfo(next_vfo.to_string());
-        self.status_message = Some(
+        self.gui.chrome.status_message = Some(
             Msg::new(key::CAT_VFO_SWITCHED)
                 .arg("vfo", next_vfo)
-                .text(self.current_language),
+                .text(self.gui.appearance.language),
         );
     }
 
@@ -257,7 +262,7 @@ impl SpLogApp {
         self.rig_state.passband_hz = passband_hz;
         self.cat_runtime
             .set_mode(self.rig_state.mode.clone(), passband_hz);
-        self.status_message = Some(format!("Filtr IF: {preset} ({passband_hz} Hz)"));
+        self.gui.chrome.status_message = Some(format!("Filtr IF: {preset} ({passband_hz} Hz)"));
     }
 
     /// Aktualizuje bieżący stan radia i PTT na podstawie telemetrii z warstwy CAT.

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+﻿// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 // Wbudowany dziennik zmian (changelog) i okno sprawdzania aktualizacji.
 
@@ -74,7 +74,7 @@ pub fn render_changelog_window(app: &mut SpLogApp, ctx: &egui::Context) {
         return;
     }
     let mut is_open = app.updates.show_changelog_window;
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
     egui::Window::new(tr(key::CHANGELOG_WINDOW_TITLE, lang))
         .open(&mut is_open)
         .default_size([520.0, 480.0])
@@ -122,7 +122,7 @@ pub fn render_update_check_window(app: &mut SpLogApp, ctx: &egui::Context) {
     let mut is_open = app.updates.show_update_window;
     let mut close_requested = false;
     let mut do_install = false;
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
     egui::Window::new(tr(key::UPDATE_WINDOW_TITLE, lang))
         .open(&mut is_open)
         .default_size([520.0, 340.0])

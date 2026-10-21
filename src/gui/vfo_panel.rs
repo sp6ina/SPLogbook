@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+﻿// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::core::i18n::{Msg, key, tr};
@@ -19,7 +19,7 @@ pub fn render_vfo_window(app: &mut SpLogApp, ctx: &egui::Context) {
             egui::ViewportId::from_hash_of("vfo_viewport"),
             format!(
                 "📻 {} - SPLogbook",
-                tr(key::VIEW_PANEL_VFO, app.current_language)
+                tr(key::VIEW_PANEL_VFO, app.gui.appearance.language)
             ),
             [520.0, 320.0],
             [400.0, 240.0],
@@ -28,7 +28,7 @@ pub fn render_vfo_window(app: &mut SpLogApp, ctx: &egui::Context) {
             |app, ui| {
                 egui::Panel::top("vfo_vp_bar").show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        let lang = app.current_language;
+                        let lang = app.gui.appearance.language;
                         if ui
                             .button(format!("↙ {}", tr(key::WINDOW_DOCK, lang)))
                             .on_hover_text(tr(key::WINDOW_DOCK_TOOLTIP, lang))
@@ -76,7 +76,7 @@ pub fn render_vfo_window(app: &mut SpLogApp, ctx: &egui::Context) {
     let mut win = egui::Window::new(
         egui::RichText::new(format!(
             "   📻 {}",
-            tr(key::VIEW_PANEL_VFO, app.current_language)
+            tr(key::VIEW_PANEL_VFO, app.gui.appearance.language)
         ))
         .size(12.0)
         .strong(),
@@ -108,7 +108,7 @@ pub fn render_vfo_window(app: &mut SpLogApp, ctx: &egui::Context) {
             res.response.rect,
             &mut app.views.panel_vfo.floating,
             true,
-            app.current_language,
+            app.gui.appearance.language,
         );
         if app.views.panel_vfo.floating {
             app.save_station_config();
@@ -144,7 +144,7 @@ fn render_tuning_digit(
     app: &mut SpLogApp,
 ) {
     let palette = ui.palette();
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
     let text = format!("{digit}");
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(17.0, 36.0), egui::Sense::click());
     let hovered = resp.hovered();
@@ -208,7 +208,7 @@ fn render_tuning_dot(ui: &mut egui::Ui) {
 
 pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let palette = ui.palette();
-    let lang = app.current_language;
+    let lang = app.gui.appearance.language;
     let frequency_hz = app.rig_state.frequency_hz;
 
     // Nagłówek konsoli radiowej: Model radia + PTT + Ustawienia
@@ -268,7 +268,7 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui
                 .button("⚙")
-                .on_hover_text(tr(key::CAT_SETTINGS_TOOLTIP, app.current_language))
+                .on_hover_text(tr(key::CAT_SETTINGS_TOOLTIP, app.gui.appearance.language))
                 .clicked()
             {
                 app.show_cat_settings_window = true;
@@ -450,7 +450,7 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         // Szybki wybór pasm KF/VHF
         ui.horizontal_wrapped(|ui| {
             ui.label(
-                egui::RichText::new(tr(key::VFO_BAND_LABEL, app.current_language))
+                egui::RichText::new(tr(key::VFO_BAND_LABEL, app.gui.appearance.language))
                     .size(11.0)
                     .strong()
                     .color(palette.text_muted),
@@ -481,7 +481,7 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         // Pasek DSP / Filtrów / AGC
         ui.horizontal(|ui| {
             ui.label(
-                egui::RichText::new(tr(key::VFO_FILTERS, app.current_language))
+                egui::RichText::new(tr(key::VFO_FILTERS, app.gui.appearance.language))
                     .size(10.0)
                     .strong()
                     .color(palette.text_muted),
