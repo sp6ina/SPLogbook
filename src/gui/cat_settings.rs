@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use eframe::egui;
@@ -71,15 +71,15 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
     let mut close_req = false;
 
     // 1. Upewnij się, że cat_station istnieje i zawiera co najmniej jeden wpis
-    if app.cat_station.is_none() {
+    if app.config.cat_station.is_none() {
         let mut temp_cfg = app.build_app_config();
         let _ = crate::cat::config::migrate_legacy_cat_config(&mut temp_cfg);
-        app.cat_station = temp_cfg.cat_station;
+        app.config.cat_station = temp_cfg.cat_station;
     }
-    if app.cat_station.is_none() {
-        app.cat_station = Some(CatStationConfig::default());
+    if app.config.cat_station.is_none() {
+        app.config.cat_station = Some(CatStationConfig::default());
     }
-    let mut station_cfg = app.cat_station.take().unwrap_or_default();
+    let mut station_cfg = app.config.cat_station.take().unwrap_or_default();
     if station_cfg.rigs.is_empty() {
         let default_id = RigId::new("rig-1").unwrap_or_else(|_| RigId::hub());
         station_cfg.rigs.push(RigConfig {
@@ -253,7 +253,7 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         } else {
                             // Synchronizacja legacy pól w app dla kompatybilności wstecznej
                             sync_legacy_fields_from_rig(app, &station_cfg.rigs[current_idx]);
-                            if app.cat_connected || app.cat_auto_start_rigctld {
+                            if app.cat_connected || app.config.cat_auto_start_rigctld {
                                 app.start_cat_service();
                             }
                             close_req = true;
@@ -276,10 +276,10 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
             app.cat_probe_state = crate::cat::probe::ProbeState::Cancelled;
         }
         app.show_cat_settings_window = false;
-        app.cat_station = Some(station_cfg);
+        app.config.cat_station = Some(station_cfg);
         app.save_station_config();
     } else {
-        app.cat_station = Some(station_cfg);
+        app.config.cat_station = Some(station_cfg);
         app.show_cat_settings_window = true;
     }
 }
@@ -417,7 +417,7 @@ fn render_backend_kind_selector(
                 if ui.selectable_label(is_sel, label).clicked() && !is_sel {
                     app.cat_form_cache.save(&rig.backend);
                     rig.backend = app.cat_form_cache.restore_or_default(tag);
-                    app.cat_backend = tag.to_string();
+                    app.config.cat_backend = tag.to_string();
                 }
             }
         });
@@ -483,7 +483,7 @@ fn render_hamlib_form(
             .clicked()
         {
             app.cat_conn_type = "serial".to_string();
-            app.cat_auto_start_rigctld = true;
+            app.config.cat_auto_start_rigctld = true;
         }
         if ui
             .selectable_label(!is_serial, tr(key::CAT_SETTINGS_CONN_TCP, lang))
@@ -511,17 +511,22 @@ fn render_hamlib_form(
             }
         });
     } else {
-        render_serial_port_selector(ui, &mut app.cat_serial_port, &mut app.cat_baud_rate, lang);
+        render_serial_port_selector(
+            ui,
+            &mut app.config.cat_serial_port,
+            &mut app.config.cat_baud_rate,
+            lang,
+        );
 
         ui.horizontal(|ui| {
             ui.checkbox(
-                &mut app.cat_auto_start_rigctld,
+                &mut app.config.cat_auto_start_rigctld,
                 tr(key::CAT_SETTINGS_AUTO_START_RIGCTLD, lang),
             )
             .on_hover_text(tr(key::CAT_SETTINGS_AUTO_START_RIGCTLD_TOOLTIP, lang));
         });
 
-        if app.cat_auto_start_rigctld {
+        if app.config.cat_auto_start_rigctld {
             render_rigctld_supervisor_controls(app, ui, lang);
         }
     }
@@ -541,12 +546,12 @@ fn render_hamlib_form(
         .max_height(80.0)
         .show(ui, |ui| {
             for m in filtered_rigs {
-                let is_selected = app.cat_rig_id == m.rig_id;
+                let is_selected = app.config.cat_rig_id == m.rig_id;
                 let label_text = format!("[ID {:4}] {:15} - {:20}", m.rig_id, m.mfg, m.model);
                 if ui.selectable_label(is_selected, label_text).clicked() {
-                    app.cat_rig_id = m.rig_id;
-                    app.cat_rig_model = format!("{} {}", m.mfg, m.model);
-                    app.cat_baud_rate = m.default_baud;
+                    app.config.cat_rig_id = m.rig_id;
+                    app.config.cat_rig_model = format!("{} {}", m.mfg, m.model);
+                    app.config.cat_baud_rate = m.default_baud;
                 }
             }
         });
@@ -556,7 +561,10 @@ fn render_hamlib_form(
         ui.label(egui::RichText::new(format!("{}:", tr(key::CAT_RIG_MODEL, lang))).strong());
         ui.colored_label(
             palette.accent,
-            format!("{} (ID: {})", app.cat_rig_model, app.cat_rig_id),
+            format!(
+                "{} (ID: {})",
+                app.config.cat_rig_model, app.config.cat_rig_id
+            ),
         );
     });
 }
@@ -912,23 +920,23 @@ fn render_rigctld_supervisor_controls(
             egui::RichText::new(format!("{}:", tr(key::CAT_SETTINGS_HAMLIB_SOURCE, lang))).strong(),
         );
         ui.selectable_value(
-            &mut app.cat_hamlib_source,
+            &mut app.config.cat_hamlib_source,
             "bundled".to_string(),
             tr(key::CAT_SETTINGS_HAMLIB_SOURCE_BUNDLED, lang),
         );
         ui.selectable_value(
-            &mut app.cat_hamlib_source,
+            &mut app.config.cat_hamlib_source,
             "system".to_string(),
             tr(key::CAT_SETTINGS_HAMLIB_SOURCE_SYSTEM, lang),
         );
     });
 
     let detected = crate::cat::supervisor::RigctldSupervisor::find_rigctld_binary(
-        &app.cat_hamlib_source,
-        if app.cat_custom_rigctld_path.is_empty() {
+        &app.config.cat_hamlib_source,
+        if app.config.cat_custom_rigctld_path.is_empty() {
             None
         } else {
-            Some(&app.cat_custom_rigctld_path)
+            Some(&app.config.cat_custom_rigctld_path)
         },
     );
 
@@ -958,7 +966,7 @@ fn render_rigctld_supervisor_controls(
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(tr(key::CAT_SETTINGS_CUSTOM_PATH_LABEL, lang)).size(11.0));
         ui.add(
-            egui::TextEdit::singleline(&mut app.cat_custom_rigctld_path)
+            egui::TextEdit::singleline(&mut app.config.cat_custom_rigctld_path)
                 .desired_width(220.0)
                 .hint_text(tr(key::CAT_SETTINGS_CUSTOM_PATH_HINT, lang)),
         );
@@ -1173,7 +1181,7 @@ fn render_cat_sharing_section(
         ui.horizontal(|ui| {
             if ui
                 .checkbox(
-                    &mut app.cat_sharing_enabled,
+                    &mut app.config.cat_sharing_enabled,
                     tr(key::CAT_SETTINGS_SHARING_ENABLE, lang),
                 )
                 .changed()
@@ -1183,12 +1191,12 @@ fn render_cat_sharing_section(
             }
             ui.add_space(10.0);
             ui.label(tr(key::CAT_SETTINGS_SERVER_PORT, lang));
-            ui.add(egui::DragValue::new(&mut app.cat_sharing_port).range(1024..=65535));
+            ui.add(egui::DragValue::new(&mut app.config.cat_sharing_port).range(1024..=65535));
         });
 
         if app.cat_sharing_active {
             ui.label(
-                egui::RichText::new(format!("● 127.0.0.1:{}", app.cat_sharing_port))
+                egui::RichText::new(format!("● 127.0.0.1:{}", app.config.cat_sharing_port))
                     .color(palette.success)
                     .size(11.0),
             );
@@ -1206,16 +1214,16 @@ fn render_rotor_section(app: &mut SpLogApp, ui: &mut egui::Ui, lang: crate::core
         );
         ui.horizontal(|ui| {
             ui.label("Host:");
-            ui.add(egui::TextEdit::singleline(&mut app.rotor_host).desired_width(110.0));
+            ui.add(egui::TextEdit::singleline(&mut app.config.rotor_host).desired_width(110.0));
             ui.add_space(10.0);
             ui.label("Port TCP:");
-            let mut port_str = app.rotor_port.to_string();
+            let mut port_str = app.config.rotor_port.to_string();
             if ui
                 .add(egui::TextEdit::singleline(&mut port_str).desired_width(60.0))
                 .changed()
                 && let Ok(p) = port_str.trim().parse::<u16>()
             {
-                app.rotor_port = p;
+                app.config.rotor_port = p;
             }
         });
 
@@ -1226,60 +1234,60 @@ fn render_rotor_section(app: &mut SpLogApp, ui: &mut egui::Ui, lang: crate::core
 }
 
 fn sync_legacy_fields_from_rig(app: &mut SpLogApp, rig: &RigConfig) {
-    app.cat_poll_rate_ms = rig.poll_interval_ms;
-    app.cat_backend = rig.backend.kind_str().to_string();
+    app.config.cat_poll_rate_ms = rig.poll_interval_ms;
+    app.config.cat_backend = rig.backend.kind_str().to_string();
 
     match &rig.backend {
         RigBackendConfig::Hamlib(cfg) => {
-            app.cat_host.clone_from(&cfg.host);
-            app.cat_port = cfg.port;
+            app.config.cat_host.clone_from(&cfg.host);
+            app.config.cat_port = cfg.port;
         }
         RigBackendConfig::Flrig(cfg) => {
-            app.cat_host.clone_from(&cfg.host);
-            app.cat_port = cfg.port;
+            app.config.cat_host.clone_from(&cfg.host);
+            app.config.cat_port = cfg.port;
         }
         RigBackendConfig::Tci(cfg) => {
-            app.tci_host.clone_from(&cfg.host);
-            app.tci_port = cfg.port;
+            app.config.tci_host.clone_from(&cfg.host);
+            app.config.tci_port = cfg.port;
         }
         RigBackendConfig::Icom(cfg) => {
-            app.cat_serial_port.clone_from(&cfg.port_name);
-            app.cat_baud_rate = cfg.baud_rate;
+            app.config.cat_serial_port.clone_from(&cfg.port_name);
+            app.config.cat_baud_rate = cfg.baud_rate;
         }
         RigBackendConfig::Kenwood(cfg) => match &cfg.transport {
             KenwoodTransportConfig::Serial {
                 port_name,
                 baud_rate,
             } => {
-                app.cat_serial_port.clone_from(port_name);
-                app.cat_baud_rate = *baud_rate;
+                app.config.cat_serial_port.clone_from(port_name);
+                app.config.cat_baud_rate = *baud_rate;
             }
             KenwoodTransportConfig::Lan { host, port } => {
-                app.cat_host.clone_from(host);
-                app.cat_port = *port;
+                app.config.cat_host.clone_from(host);
+                app.config.cat_port = *port;
             }
         },
         RigBackendConfig::Yaesu(cfg) => {
-            app.cat_serial_port.clone_from(&cfg.port_name);
-            app.cat_baud_rate = cfg.baud_rate;
+            app.config.cat_serial_port.clone_from(&cfg.port_name);
+            app.config.cat_baud_rate = cfg.baud_rate;
         }
         RigBackendConfig::Elecraft(cfg) => match &cfg.transport {
             ElecraftTransportConfig::Serial {
                 port_name,
                 baud_rate,
             } => {
-                app.cat_serial_port.clone_from(port_name);
-                app.cat_baud_rate = *baud_rate;
+                app.config.cat_serial_port.clone_from(port_name);
+                app.config.cat_baud_rate = *baud_rate;
             }
             ElecraftTransportConfig::Tcp { host, port } => {
-                app.cat_host.clone_from(host);
-                app.cat_port = *port;
+                app.config.cat_host.clone_from(host);
+                app.config.cat_port = *port;
             }
         },
         RigBackendConfig::FlexRadio(cfg) => {
             if let FlexRadioConnectionConfig::Manual { host, port } = &cfg.connection {
-                app.cat_host.clone_from(host);
-                app.cat_port = *port;
+                app.config.cat_host.clone_from(host);
+                app.config.cat_port = *port;
             }
         }
     }

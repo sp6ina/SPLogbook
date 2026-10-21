@@ -5,8 +5,8 @@ impl SpLogApp {
     /// Obraca antenę na podany azymut przez protokół rotctld (Hamlib)
     pub fn rotate_antenna_to(&mut self, azimuth_deg: f32) {
         self.rotor_state.azimuth_deg = azimuth_deg;
-        let host = self.rotor_host.clone();
-        let port = self.rotor_port;
+        let host = self.config.rotor_host.clone();
+        let port = self.config.rotor_port;
         tokio::spawn(async move {
             let _ =
                 crate::cat::rotor::RotorClient::set_position(&host, port, azimuth_deg, 0.0).await;
@@ -14,8 +14,8 @@ impl SpLogApp {
         self.gui.chrome.status_toast = Some((
             Msg::new(key::ROTOR_CMD_SENT_AZ)
                 .arg("az", format!("{azimuth_deg:.0}"))
-                .arg("host", &self.rotor_host)
-                .arg("port", self.rotor_port)
+                .arg("host", &self.config.rotor_host)
+                .arg("port", self.config.rotor_port)
                 .text(self.gui.appearance.language),
             std::time::Instant::now(),
         ));
@@ -25,8 +25,8 @@ impl SpLogApp {
     pub fn rotate_antenna_to_el(&mut self, azimuth_deg: f32, elevation_deg: f32) {
         self.rotor_state.azimuth_deg = azimuth_deg;
         self.rotor_state.elevation_deg = elevation_deg;
-        let host = self.rotor_host.clone();
-        let port = self.rotor_port;
+        let host = self.config.rotor_host.clone();
+        let port = self.config.rotor_port;
         tokio::spawn(async move {
             let _ = crate::cat::rotor::RotorClient::set_position(
                 &host,
@@ -73,8 +73,8 @@ impl SpLogApp {
 
     pub fn stop_rotor(&mut self) {
         self.rotor_state.moving = false;
-        let host = self.rotor_host.clone();
-        let port = self.rotor_port;
+        let host = self.config.rotor_host.clone();
+        let port = self.config.rotor_port;
         tokio::spawn(async move {
             let _ = crate::cat::rotor::RotorClient::stop(&host, port).await;
         });
@@ -105,7 +105,7 @@ impl SpLogApp {
     }
 
     pub fn cat_backend_kind(&self) -> crate::cat::backend::CatBackendKind {
-        crate::cat::backend::CatBackendKind::from_str(&self.cat_backend)
+        crate::cat::backend::CatBackendKind::from_str(&self.config.cat_backend)
     }
 
     pub fn start_cat_service(&mut self) {
@@ -117,37 +117,37 @@ impl SpLogApp {
         }
 
         // 1. Upewnij się, że stacja CAT jest zainicjalizowana i zsynchronizowana
-        if self.cat_station.is_none() {
+        if self.config.cat_station.is_none() {
             let mut temp_cfg = self.build_app_config();
             let _ = crate::cat::config::migrate_legacy_cat_config(&mut temp_cfg);
-            self.cat_station = temp_cfg.cat_station;
+            self.config.cat_station = temp_cfg.cat_station;
         }
 
-        let station_cfg = match self.cat_station.clone() {
+        let station_cfg = match self.config.cat_station.clone() {
             Some(cfg) => cfg,
             None => {
                 let default_cfg = crate::cat::config::CatStationConfig::default();
-                self.cat_station = Some(default_cfg.clone());
+                self.config.cat_station = Some(default_cfg.clone());
                 default_cfg
             }
         };
 
         // 2. Jeśli radio to Hamlib serial i ma włączony auto-start rigctld:
-        if self.cat_auto_start_rigctld {
+        if self.config.cat_auto_start_rigctld {
             let mut sup = crate::cat::supervisor::RigctldSupervisor::new(
-                self.cat_port,
-                self.cat_rig_id,
-                &self.cat_serial_port,
-                self.cat_baud_rate,
-                &self.cat_hamlib_source,
-                &self.cat_custom_rigctld_path,
+                self.config.cat_port,
+                self.config.cat_rig_id,
+                &self.config.cat_serial_port,
+                self.config.cat_baud_rate,
+                &self.config.cat_hamlib_source,
+                &self.config.cat_custom_rigctld_path,
             );
             match sup.start() {
                 Ok(()) => {
                     self.rigctld_supervisor = Some(sup);
                     self.cat_test_result = Some(format!(
                         "Uruchomiono rigctld w tle dla {}!",
-                        self.cat_rig_model
+                        self.config.cat_rig_model
                     ));
                 }
                 Err(e) => {
@@ -305,12 +305,12 @@ impl SpLogApp {
     }
 
     pub fn toggle_cat_proxy_server(&mut self) {
-        if self.cat_sharing_enabled {
+        if self.config.cat_sharing_enabled {
             if let Some(srv) = self.cat_proxy_server.take() {
                 srv.stop();
             }
             let (srv, rx) = crate::cat::server::HamlibProxyServer::new(
-                self.cat_sharing_port,
+                self.config.cat_sharing_port,
                 self.cat_shared_state.clone(),
             );
             let srv_arc = std::sync::Arc::new(srv);

@@ -235,7 +235,7 @@ impl SpLogApp {
 
         // 5. Automatyczne raportowanie do PSK Reporter (psk_report)
         if effects.psk_report
-            && self.psk_reporter_enabled
+            && self.config.psk_reporter_enabled
             && !self.my_station.callsign.is_empty()
             && !self.my_station.gridsquare.is_empty()
         {
@@ -257,9 +257,9 @@ impl SpLogApp {
         }
 
         // 7. Emisja zdarzenia w formacie N1MM Logger+ UDP broadcast (broadcast_n1mm)
-        if effects.broadcast_n1mm && self.n1mm_broadcast_enabled {
-            let host = self.n1mm_broadcast_host.clone();
-            let port = self.n1mm_broadcast_port;
+        if effects.broadcast_n1mm && self.config.n1mm_broadcast_enabled {
+            let host = self.config.n1mm_broadcast_host.clone();
+            let port = self.config.n1mm_broadcast_port;
             let my_call = self.my_station.callsign.clone();
             let xml = crate::digital::n1mm::contactinfo_xml(qso, &my_call, 1);
             tokio::spawn(async move {

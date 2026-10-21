@@ -213,10 +213,10 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
     // Nagłówek konsoli radiowej: Model radia + PTT + Ustawienia
     ui.horizontal(|ui| {
-        let rig_badge = if app.cat_rig_model.is_empty() {
+        let rig_badge = if app.config.cat_rig_model.is_empty() {
             "Manual Transceiver".to_string()
         } else {
-            app.cat_rig_model.clone()
+            app.config.cat_rig_model.clone()
         };
 
         if app.cat_connected {

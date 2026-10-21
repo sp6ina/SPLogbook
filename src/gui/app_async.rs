@@ -237,7 +237,7 @@ impl SpLogApp {
 
     /// Synchronizuj stan radia do współdzielonego stanu serwera proxy oraz REST API
     pub fn sync_cat_shared_state_and_api(&mut self) {
-        if self.cat_sharing_enabled || self.runtime.rest_api_enabled {
+        if self.config.cat_sharing_enabled || self.runtime.rest_api_enabled {
             if let Ok(mut shared) = self.cat_shared_state.write() {
                 *shared = self.rig_state.clone();
             }

@@ -363,12 +363,12 @@ fn render_tab_radio(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
             ui.horizontal(|ui| {
                 ui.label("Host:");
                 ui.add(
-                    egui::TextEdit::singleline(&mut app.cat_host)
+                    egui::TextEdit::singleline(&mut app.config.cat_host)
                         .hint_text("127.0.0.1")
                         .desired_width(120.0),
                 );
                 ui.label("Port:");
-                ui.add(egui::DragValue::new(&mut app.cat_port).range(1..=65535));
+                ui.add(egui::DragValue::new(&mut app.config.cat_port).range(1..=65535));
             });
             ui.end_row();
 

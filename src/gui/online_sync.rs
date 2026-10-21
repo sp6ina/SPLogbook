@@ -509,16 +509,16 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 ui.group(|ui| {
                                     ui.label(egui::RichText::new(tr(key::SYNC_TAB_N1MM, lang)).strong().size(13.0).color(palette.accent));
                                     ui.separator();
-                                    if ui.checkbox(&mut app.n1mm_broadcast_enabled, tr(key::SYNC_N1MM_ENABLE, lang)).changed() {
+                                    if ui.checkbox(&mut app.config.n1mm_broadcast_enabled, tr(key::SYNC_N1MM_ENABLE, lang)).changed() {
                                         app.save_station_config();
                                     }
                                     ui.label(egui::RichText::new(tr(key::SYNC_N1MM_DESCRIPTION, lang)).small().color(palette.text_muted));
                                     ui.add_space(6.0);
                                     ui.horizontal(|ui| {
                                         ui.label(tr(key::SYNC_LISTEN_ADDRESS, lang));
-                                        ui.add(egui::TextEdit::singleline(&mut app.n1mm_broadcast_host).desired_width(140.0));
+                                        ui.add(egui::TextEdit::singleline(&mut app.config.n1mm_broadcast_host).desired_width(140.0));
                                         ui.label("Port:");
-                                        ui.add(egui::DragValue::new(&mut app.n1mm_broadcast_port).range(1..=65535));
+                                        ui.add(egui::DragValue::new(&mut app.config.n1mm_broadcast_port).range(1..=65535));
                                     });
                         ui.label(egui::RichText::new(Msg::new(key::SYNC_N1MM_DEFAULT_HINT).arg("port", crate::digital::n1mm::N1MM_DEFAULT_PORT).text(lang)).small().color(palette.text_muted));
                                     ui.add_space(6.0);
@@ -544,23 +544,23 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 ui.group(|ui| {
                                     ui.label(egui::RichText::new(tr(key::SYNC_TAB_FLDIGI, lang)).strong().size(13.0).color(palette.accent));
                                     ui.separator();
-                                    ui.checkbox(&mut app.fldigi_enabled, tr(key::SYNC_FLDIGI_ENABLE, lang));
+                                    ui.checkbox(&mut app.config.fldigi_enabled, tr(key::SYNC_FLDIGI_ENABLE, lang));
                                     ui.horizontal(|ui| {
                                         ui.label("Host FLDigi XML-RPC:");
-                                        ui.add(egui::TextEdit::singleline(&mut app.fldigi_host).desired_width(120.0));
+                                        ui.add(egui::TextEdit::singleline(&mut app.config.fldigi_host).desired_width(120.0));
                                         ui.add_space(10.0);
                                         ui.label("Port XML-RPC:");
-                                        let mut port_str = app.fldigi_port.to_string();
+                                        let mut port_str = app.config.fldigi_port.to_string();
                                         if ui.add(egui::TextEdit::singleline(&mut port_str).desired_width(60.0)).changed() {
                                             if let Ok(p) = port_str.trim().parse::<u16>() {
-                                                app.fldigi_port = p;
+                                                app.config.fldigi_port = p;
                                             }
                                         }
                                     });
                                     ui.add_space(6.0);
                                     if ui.button(tr(key::SYNC_FLDIGI_TEST_BTN, lang)).clicked() {
-                                        let host = app.fldigi_host.clone();
-                                        let port = app.fldigi_port;
+                                        let host = app.config.fldigi_host.clone();
+                                        let port = app.config.fldigi_port;
                                         tokio::spawn(async move {
                                             let client = crate::digital::fldigi::FldigiClient::new(&host, port);
                                             match client.get_version().await {
@@ -572,7 +572,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                 }
                                             }
                                         });
-                    app.digital.fldigi_test_result = Some(Msg::new(key::SYNC_FLDIGI_QUERY_SENT).arg("host", &app.fldigi_host).arg("port", app.fldigi_port).text(lang));
+                    app.digital.fldigi_test_result = Some(Msg::new(key::SYNC_FLDIGI_QUERY_SENT).arg("host", &app.config.fldigi_host).arg("port", app.config.fldigi_port).text(lang));
                                     }
                                     if let Some(ref res) = app.digital.fldigi_test_result {
                                         ui.colored_label(palette.accent, res);
@@ -583,7 +583,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 ui.group(|ui| {
                                     ui.label(egui::RichText::new(tr(key::SYNC_TAB_PSK_REPORTER, lang)).strong().size(13.0).color(palette.warning));
                                     ui.separator();
-                                    ui.checkbox(&mut app.psk_reporter_enabled, tr(key::SYNC_PSK_REPORTER_ENABLE, lang));
+                                    ui.checkbox(&mut app.config.psk_reporter_enabled, tr(key::SYNC_PSK_REPORTER_ENABLE, lang));
                                     ui.label(egui::RichText::new(tr(key::SYNC_PSK_REPORTER_DESC, lang)).small().color(palette.text_muted));
                                     ui.add_space(6.0);
                                     ui.label(Msg::new(key::SYNC_REPORTING_STATION_CALL).arg("call", &app.my_station.callsign).text(lang));

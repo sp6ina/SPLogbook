@@ -38,41 +38,10 @@ impl SpLogApp {
         cfg.equipment = self.ledger.items.clone();
         cfg.dark_theme = self.gui.appearance.theme_preset.is_dark();
         cfg.theme_preset = self.gui.appearance.theme_preset.id().to_string();
-
-        cfg.cat_host = self.cat_host.clone();
-        cfg.cat_port = self.cat_port;
         cfg.cat_enabled = self.cat_connected;
-        cfg.cat_poll_rate_ms = self.cat_poll_rate_ms;
-        cfg.cat_rig_model = self.cat_rig_model.clone();
-        cfg.cat_serial_port = self.cat_serial_port.clone();
-        cfg.cat_baud_rate = self.cat_baud_rate;
-        cfg.cat_rig_id = self.cat_rig_id;
-        cfg.cat_auto_start_rigctld = self.cat_auto_start_rigctld;
-        cfg.cat_hamlib_source = self.cat_hamlib_source.clone();
-        cfg.cat_custom_rigctld_path = self.cat_custom_rigctld_path.clone();
 
         cfg.station_profiles = self.station_profiles.clone();
         cfg.active_profile_id = self.active_profile_id.clone();
-        cfg.cat_sharing_enabled = self.cat_sharing_enabled;
-        cfg.cat_sharing_port = self.cat_sharing_port;
-
-        cfg.rotor_host = self.rotor_host.clone();
-        cfg.rotor_port = self.rotor_port;
-
-        cfg.cat_backend = self.cat_backend.clone();
-        cfg.tci_host = self.tci_host.clone();
-        cfg.tci_port = self.tci_port;
-        cfg.cat_station = self.cat_station.clone();
-
-        cfg.fldigi_enabled = self.fldigi_enabled;
-        cfg.fldigi_host = self.fldigi_host.clone();
-        cfg.fldigi_port = self.fldigi_port;
-
-        cfg.psk_reporter_enabled = self.psk_reporter_enabled;
-
-        cfg.n1mm_broadcast_enabled = self.n1mm_broadcast_enabled;
-        cfg.n1mm_broadcast_host = self.n1mm_broadcast_host.clone();
-        cfg.n1mm_broadcast_port = self.n1mm_broadcast_port;
 
         cfg.voice_keyer_messages = self.voice_keyer.messages.clone();
 
@@ -82,10 +51,6 @@ impl SpLogApp {
         cfg.plugins_dir = self.plugins_dir.clone();
         cfg.operator_assistant_enabled = self.operator_assistant_enabled;
         cfg.propagation_history = self.solar.propagation_history.clone();
-
-        cfg.lan_sync_port = self.lan_sync_port;
-        cfg.lan_sync_server_ip = self.lan_sync_server_ip.clone();
-        cfg.lan_sync_secret = self.lan_sync_secret.clone();
 
         cfg.wol_mac = self.gui.dialogs.wol_dialog.mac_address.clone();
         cfg.wol_ip = self.gui.dialogs.wol_dialog.broadcast_ip.clone();

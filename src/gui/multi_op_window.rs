@@ -107,19 +107,19 @@ pub fn render_multi_op_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         ui.label(egui::RichText::new(tr(key::MULTIOP_HOST_CONFIG, lang)).strong());
                         ui.horizontal(|ui| {
                             ui.label(tr(key::MULTIOP_PORT, lang));
-                            let mut port_str = app.lan_sync_port.to_string();
+                            let mut port_str = app.config.lan_sync_port.to_string();
                             if ui
                                 .add(egui::TextEdit::singleline(&mut port_str).desired_width(70.0))
                                 .changed()
                                 && let Ok(p) = port_str.trim().parse::<u16>()
                             {
-                                app.lan_sync_port = p;
+                                app.config.lan_sync_port = p;
                             }
                         });
 
                         ui.horizontal(|ui| {
                             ui.label(tr(key::MULTIOP_SECRET, lang));
-                            let mut secret_display = app.lan_sync_secret.clone();
+                            let mut secret_display = app.config.lan_sync_secret.clone();
                             if ui
                                 .add(
                                     egui::TextEdit::singleline(&mut secret_display)
@@ -128,14 +128,14 @@ pub fn render_multi_op_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 )
                                 .changed()
                             {
-                                app.lan_sync_secret = secret_display;
+                                app.config.lan_sync_secret = secret_display;
                             }
                             if ui
                                 .button("🎲")
                                 .on_hover_text(tr(key::MULTIOP_GENERATE_SECRET, lang))
                                 .clicked()
                             {
-                                app.lan_sync_secret =
+                                app.config.lan_sync_secret =
                                     crate::api::server::generate_api_key()[..12].to_string();
                                 app.save_station_config();
                             }
@@ -173,9 +173,9 @@ pub fn render_multi_op_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 let journal = app.active_journal.id.clone();
                                 let config = SyncConfig {
                                     role: SyncRole::Host {
-                                        port: app.lan_sync_port,
+                                        port: app.config.lan_sync_port,
                                     },
-                                    secret: app.lan_sync_secret.clone(),
+                                    secret: app.config.lan_sync_secret.clone(),
                                     station: app.my_station.callsign.clone(),
                                     journal,
                                 };
@@ -189,11 +189,11 @@ pub fn render_multi_op_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                         app.sync_ui.service = Some(srv);
                                         app.sync_ui.status =
                                             Msg::new(key::MULTIOP_SERVER_LISTENING)
-                                                .arg("port", app.lan_sync_port)
+                                                .arg("port", app.config.lan_sync_port)
                                                 .text(lang);
                                         app.sync_ui.push_log(
                                             Msg::new(key::MULTIOP_LOG_SERVER_STARTED)
-                                                .arg("port", app.lan_sync_port)
+                                                .arg("port", app.config.lan_sync_port)
                                                 .text(lang),
                                         );
                                     }
@@ -220,22 +220,22 @@ pub fn render_multi_op_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         ui.horizontal(|ui| {
                             ui.label(tr(key::MULTIOP_HOST_IP, lang));
                             ui.add(
-                                egui::TextEdit::singleline(&mut app.lan_sync_server_ip)
+                                egui::TextEdit::singleline(&mut app.config.lan_sync_server_ip)
                                     .desired_width(120.0),
                             );
                             ui.label(tr(key::MULTIOP_PORT, lang));
-                            let mut port_str = app.lan_sync_port.to_string();
+                            let mut port_str = app.config.lan_sync_port.to_string();
                             if ui
                                 .add(egui::TextEdit::singleline(&mut port_str).desired_width(60.0))
                                 .changed()
                                 && let Ok(p) = port_str.trim().parse::<u16>()
                             {
-                                app.lan_sync_port = p;
+                                app.config.lan_sync_port = p;
                             }
                         });
                         ui.horizontal(|ui| {
                             ui.label(tr(key::MULTIOP_SECRET, lang));
-                            let mut secret_display = app.lan_sync_secret.clone();
+                            let mut secret_display = app.config.lan_sync_secret.clone();
                             if ui
                                 .add(
                                     egui::TextEdit::singleline(&mut secret_display)
@@ -243,7 +243,7 @@ pub fn render_multi_op_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 )
                                 .changed()
                             {
-                                app.lan_sync_secret = secret_display;
+                                app.config.lan_sync_secret = secret_display;
                             }
                         });
 
@@ -274,10 +274,10 @@ pub fn render_multi_op_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 let journal = app.active_journal.id.clone();
                                 let config = SyncConfig {
                                     role: SyncRole::Peer {
-                                        host: app.lan_sync_server_ip.clone(),
-                                        port: app.lan_sync_port,
+                                        host: app.config.lan_sync_server_ip.clone(),
+                                        port: app.config.lan_sync_port,
                                     },
-                                    secret: app.lan_sync_secret.clone(),
+                                    secret: app.config.lan_sync_secret.clone(),
                                     station: app.my_station.callsign.clone(),
                                     journal,
                                 };
@@ -291,13 +291,13 @@ pub fn render_multi_op_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                         app.sync_ui.service = Some(srv);
                                         app.sync_ui.status =
                                             Msg::new(key::MULTIOP_CONNECTING_STATUS)
-                                                .arg("host", &app.lan_sync_server_ip)
-                                                .arg("port", app.lan_sync_port)
+                                                .arg("host", &app.config.lan_sync_server_ip)
+                                                .arg("port", app.config.lan_sync_port)
                                                 .text(lang);
                                         app.sync_ui.push_log(
                                             Msg::new(key::MULTIOP_CLIENT_STARTED_LOG)
-                                                .arg("host", &app.lan_sync_server_ip)
-                                                .arg("port", app.lan_sync_port)
+                                                .arg("host", &app.config.lan_sync_server_ip)
+                                                .arg("port", app.config.lan_sync_port)
                                                 .text(lang),
                                         );
                                     }

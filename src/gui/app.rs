@@ -181,38 +181,14 @@ pub struct SpLogApp {
     pub show_cluster_panel: bool,
 
     // CAT / Hamlib konfiguracja
-    pub cat_host: String,
-    pub cat_port: u16,
-    pub cat_poll_rate_ms: u64,
-    pub cat_rig_model: String,
-    pub cat_serial_port: String,
-    pub cat_baud_rate: u32,
     pub cat_test_result: Option<String>,
     pub show_cat_settings_window: bool,
 
     // Rotor konfiguracja
-    pub rotor_host: String,
-    pub rotor_port: u16,
     pub rotor_test_result: Option<String>,
 
     // TCI konfiguracja
-    pub cat_backend: String,
-    pub tci_host: String,
-    pub tci_port: u16,
     pub tci_test_result: Option<String>,
-
-    // FLDigi konfiguracja
-    pub fldigi_enabled: bool,
-    pub fldigi_host: String,
-    pub fldigi_port: u16,
-
-    // PSK Reporter
-    pub psk_reporter_enabled: bool,
-
-    // N1MM Logger+ UDP broadcast
-    pub n1mm_broadcast_enabled: bool,
-    pub n1mm_broadcast_host: String,
-    pub n1mm_broadcast_port: u16,
 
     // Voice keyer (SSB)
     pub voice_keyer: crate::gui::state::VoiceKeyerState,
@@ -223,9 +199,6 @@ pub struct SpLogApp {
 
     // Multi-Op LAN (SYNC-6)
     pub sync_ui: crate::gui::SyncUiState,
-    pub lan_sync_port: u16,
-    pub lan_sync_server_ip: String,
-    pub lan_sync_secret: String,
     pub show_multi_op_window: bool,
 
     pub online: crate::gui::state::OnlineSyncUiState,
@@ -248,11 +221,7 @@ pub struct SpLogApp {
     pub show_quick_access_customizer: bool,
 
     // Hamlib i rigctld
-    pub cat_rig_id: u32,
     pub cat_model_search: String,
-    pub cat_auto_start_rigctld: bool,
-    pub cat_hamlib_source: String,
-    pub cat_custom_rigctld_path: String,
     pub rigctld_supervisor: Option<crate::cat::supervisor::RigctldSupervisor>,
 
     // Stan GUI (dialogi, chrome, widoki)
@@ -355,16 +324,12 @@ pub struct SpLogApp {
     // Dwuetapowy CAT i udostępnianie (CAT Sharing dla WSJT-X / JTDX / FLDigi)
     pub cat_mfg_selected: String,
     pub cat_conn_type: String,
-    pub cat_sharing_enabled: bool,
-    pub cat_sharing_port: u16,
     pub cat_sharing_active: bool,
     pub cat_shared_state: std::sync::Arc<std::sync::RwLock<crate::cat::hamlib::RigState>>,
     pub cat_proxy_server: Option<std::sync::Arc<crate::cat::server::HamlibProxyServer>>,
     pub cat_proxy_rx:
         Option<tokio::sync::broadcast::Receiver<crate::cat::server::RigServerCommand>>,
     pub cat_poll_abort: Option<tokio::task::AbortHandle>,
-    /// Nowoczesna konfiguracja wieloradiowa CAT (NATIVE-6B).
-    pub cat_station: Option<crate::cat::config::CatStationConfig>,
     /// Centralny komponent aplikacyjny zarządzający węzłem RigHub i sesjami RigService.
     pub cat_runtime: crate::cat::runtime::CatRuntime,
     /// Kanał odbioru wyników asynchronicznego probe CAT wraz z numerem generacji.
@@ -694,33 +659,12 @@ impl SpLogApp {
             show_vfo_panel: true,
             show_cluster_panel: true,
 
-            cat_host: init.config.cat_host,
-            cat_port: init.config.cat_port,
-            cat_poll_rate_ms: init.config.cat_poll_rate_ms,
-            cat_rig_model: init.config.cat_rig_model,
-            cat_serial_port: init.config.cat_serial_port.clone(),
-            cat_baud_rate: init.config.cat_baud_rate,
             cat_test_result: None,
             show_cat_settings_window: false,
 
-            rotor_host: init.config.rotor_host,
-            rotor_port: init.config.rotor_port,
             rotor_test_result: None,
 
-            cat_backend: init.config.cat_backend.clone(),
-            tci_host: init.config.tci_host,
-            tci_port: init.config.tci_port,
             tci_test_result: None,
-
-            fldigi_enabled: init.config.fldigi_enabled,
-            fldigi_host: init.config.fldigi_host,
-            fldigi_port: init.config.fldigi_port,
-
-            psk_reporter_enabled: init.config.psk_reporter_enabled,
-
-            n1mm_broadcast_enabled: init.config.n1mm_broadcast_enabled,
-            n1mm_broadcast_host: init.config.n1mm_broadcast_host,
-            n1mm_broadcast_port: init.config.n1mm_broadcast_port,
 
             voice_keyer: crate::gui::state::VoiceKeyerState::with_messages(
                 init.config.voice_keyer_messages,
@@ -730,9 +674,6 @@ impl SpLogApp {
             show_workspace_profiles_window: false,
             sync_ui: crate::gui::SyncUiState::new(),
 
-            lan_sync_port: init.config.lan_sync_port,
-            lan_sync_server_ip: init.config.lan_sync_server_ip,
-            lan_sync_secret: init.config.lan_sync_secret,
             show_multi_op_window: false,
 
             online,
@@ -751,11 +692,7 @@ impl SpLogApp {
             quick_access: init.config.quick_access,
             show_quick_access_customizer: false,
 
-            cat_rig_id: init.config.cat_rig_id,
             cat_model_search: String::new(),
-            cat_auto_start_rigctld: init.config.cat_auto_start_rigctld,
-            cat_hamlib_source: init.config.cat_hamlib_source,
-            cat_custom_rigctld_path: init.config.cat_custom_rigctld_path,
             rigctld_supervisor: None,
 
             gui,
@@ -854,8 +791,6 @@ impl SpLogApp {
             } else {
                 "tcp".to_string()
             },
-            cat_sharing_enabled: init.config.cat_sharing_enabled,
-            cat_sharing_port: init.config.cat_sharing_port,
             cat_sharing_active: false,
             cat_shared_state: std::sync::Arc::new(std::sync::RwLock::new(
                 crate::cat::hamlib::RigState::default(),
@@ -863,7 +798,6 @@ impl SpLogApp {
             cat_proxy_server: None,
             cat_proxy_rx: None,
             cat_poll_abort,
-            cat_station: init.config.cat_station.clone(),
             cat_runtime: crate::cat::runtime::CatRuntime::new(),
             cat_probe_rx: None,
             cat_probe_running: false,
@@ -1006,7 +940,7 @@ impl SpLogApp {
             self.start_cat_service();
         }
 
-        if self.cat_sharing_enabled {
+        if self.config.cat_sharing_enabled {
             self.toggle_cat_proxy_server();
         }
 
