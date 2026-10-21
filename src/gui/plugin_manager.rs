@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 //! Okno menedżera pluginów użytkownika (Rhai).
@@ -43,7 +43,7 @@ pub fn render_plugin_manager(app: &mut SpLogApp, ctx: &egui::Context) {
                     .checkbox(&mut app.plugins_enabled, tr(key::PLUGINS_ENABLED, lang))
                     .changed()
                 {
-                    app.plugin_engine.set_enabled(app.plugins_enabled);
+                    app.services.plugin_engine.set_enabled(app.plugins_enabled);
                     app.save_station_config();
                 }
                 ui.label(tr(key::PLUGINS_DIRECTORY, lang));
@@ -59,9 +59,9 @@ pub fn render_plugin_manager(app: &mut SpLogApp, ctx: &egui::Context) {
 
             if reload {
                 let dir = std::path::PathBuf::from(app.plugins_dir.clone());
-                app.plugin_engine.set_enabled(app.plugins_enabled);
-                app.plugin_engine.load_dir(&dir);
-                app.plugin_engine.run_startup();
+                app.services.plugin_engine.set_enabled(app.plugins_enabled);
+                app.services.plugin_engine.load_dir(&dir);
+                app.services.plugin_engine.run_startup();
                 app.save_station_config();
             }
 
@@ -73,7 +73,7 @@ pub fn render_plugin_manager(app: &mut SpLogApp, ctx: &egui::Context) {
                     .color(palette.success),
             );
 
-            let infos = app.plugin_engine.infos().to_vec();
+            let infos = app.services.plugin_engine.infos().to_vec();
             if infos.is_empty() {
                 ui.label(
                     egui::RichText::new(tr(key::PLUGINS_NO_SCRIPTS, lang))
@@ -117,7 +117,7 @@ pub fn render_plugin_manager(app: &mut SpLogApp, ctx: &egui::Context) {
                         .color(palette.warning),
                 );
                 if ui.small_button(tr(key::PLUGINS_REFRESH, lang)).clicked() {
-                    let logs = app.plugin_engine.drain_log();
+                    let logs = app.services.plugin_engine.drain_log();
                     app.plugins_ui.log.extend(logs);
                     if app.plugins_ui.log.len() > 200 {
                         let overflow = app.plugins_ui.log.len() - 200;

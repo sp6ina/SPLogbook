@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::core::i18n::{key, tr};
@@ -281,6 +281,7 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
     if scan_requested {
         let db = app
+            .services
             .log_db
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -304,6 +305,7 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
     if delete_requested {
         let ids: Vec<i64> = app.duplicates.selected_ids.iter().copied().collect();
         let db = app
+            .services
             .log_db
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);

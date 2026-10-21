@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::core::contest_rules::{RULES, calculate_score, detect_duplicate};
@@ -173,6 +173,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
         .unwrap_or_default();
 
     let my_dxcc: u32 = app
+        .services
         .prefix_matcher
         .lookup(&app.my_station.callsign)
         .and_then(|m| if m.dxcc > 0 { Some(m.dxcc) } else { None })
@@ -662,7 +663,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
         }
 
         if exchange_ok {
-            match app.qso_ingestor.ingest(new_qso, QsoOrigin::Contest) {
+            match app.services.ingestor.ingest(new_qso, QsoOrigin::Contest) {
                 Ok(outcome) => {
                     if !outcome.warnings.is_empty() {
                         let warning_texts: Vec<String> = outcome

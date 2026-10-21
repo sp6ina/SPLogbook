@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::core::geo::{Coordinates, calculate_solar_position, locator_to_coordinates};
@@ -755,7 +755,7 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
         let mut tune_target = None;
 
         for spot in &app.cluster_spots {
-            if let Some(info) = app.prefix_matcher.lookup(&spot.dx_call) {
+            if let Some(info) = app.services.prefix_matcher.lookup(&spot.dx_call) {
                 let spot_pos = project(info.latitude, info.longitude);
                 let spot_color = palette.band_color(&spot.band);
 

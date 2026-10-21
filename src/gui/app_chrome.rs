@@ -250,7 +250,8 @@ impl SpLogApp {
                             ui.horizontal(|ui| {
                                 ui.label(tr(key::APP_DIAG_DATA_DIR, lang));
                                 ui.monospace(
-                                    self.config_file_path
+                                    self.paths
+                                        .config_file_path
                                         .parent()
                                         .map(|p| p.display().to_string())
                                         .unwrap_or_default(),
@@ -264,7 +265,7 @@ impl SpLogApp {
                                     std::env::consts::OS,
                                     std::env::consts::ARCH,
                                     self.gui.appearance.theme_preset.id(),
-                                    self.config_file_path.display()
+                                    self.paths.config_file_path.display()
                                 );
                                 ui.ctx().copy_text(info);
                             }

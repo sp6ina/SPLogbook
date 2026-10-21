@@ -103,7 +103,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .on_hover_text(tr(key::TOOLBAR_JOURNAL_TOOLTIP, lang))
                 .clicked()
         {
-            if let Ok(db) = app.log_db.lock() {
+            if let Ok(db) = app.services.log_db.lock() {
                 app.gui.dialogs.journal_dialog.reload(&db);
             }
             app.gui.dialogs.journal_dialog.is_open = true;

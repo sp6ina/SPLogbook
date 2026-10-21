@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::core::i18n::{key, tr};
@@ -73,7 +73,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .button(icons::FOLDER.label(tr(key::HELP_OPEN_DATA_DIR, lang)))
             .clicked()
         {
-            if let Some(parent) = app.config_file_path.parent() {
+            if let Some(parent) = app.paths.config_file_path.parent() {
                 let _ = open::that(parent);
             }
             ui.close();

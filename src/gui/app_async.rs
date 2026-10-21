@@ -333,19 +333,17 @@ impl SpLogApp {
                         self.cluster_connecting = false;
                         self.cluster_status_text.clone_from(&msg);
                         self.gui.chrome.status_toast = Some((msg, std::time::Instant::now()));
-                        self.event_bus
-                            .publish(crate::core::events::AppEvent::ClusterStatus {
-                                connected: true,
-                            });
+                        self.services.event_bus.publish(
+                            crate::core::events::AppEvent::ClusterStatus { connected: true },
+                        );
                     }
                     ClusterEvent::Disconnected(msg) => {
                         self.cluster_connected = false;
                         self.cluster_connecting = false;
                         self.cluster_status_text = msg;
-                        self.event_bus
-                            .publish(crate::core::events::AppEvent::ClusterStatus {
-                                connected: false,
-                            });
+                        self.services.event_bus.publish(
+                            crate::core::events::AppEvent::ClusterStatus { connected: false },
+                        );
                     }
                     ClusterEvent::Spot(spot) => {
                         let is_duplicate = self.cluster_spots.iter().take(30).any(|s| {
@@ -354,27 +352,29 @@ impl SpLogApp {
                                 && (s.frequency_khz - spot.frequency_khz).abs() < 2.0
                         });
                         if !is_duplicate {
-                            let is_atno =
-                                if let Some(info) = self.prefix_matcher.lookup(&spot.dx_call) {
-                                    let awards = self
-                                        .awards_engine
-                                        .lock()
-                                        .unwrap_or_else(std::sync::PoisonError::into_inner);
-                                    let st = awards.check_status_full(
-                                        &spot.dx_call,
-                                        &spot.band,
-                                        if spot.is_ft8 { "FT8" } else { "CW" },
-                                        Some(info.dxcc),
-                                        None,
-                                        Some(info.cqz),
-                                        None,
-                                        Some(&info.continent),
-                                        None,
-                                    );
-                                    st.is_new_dxcc
-                                } else {
-                                    false
-                                };
+                            let is_atno = if let Some(info) =
+                                self.services.prefix_matcher.lookup(&spot.dx_call)
+                            {
+                                let awards = self
+                                    .services
+                                    .awards_engine
+                                    .lock()
+                                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                                let st = awards.check_status_full(
+                                    &spot.dx_call,
+                                    &spot.band,
+                                    if spot.is_ft8 { "FT8" } else { "CW" },
+                                    Some(info.dxcc),
+                                    None,
+                                    Some(info.cqz),
+                                    None,
+                                    Some(&info.continent),
+                                    None,
+                                );
+                                st.is_new_dxcc
+                            } else {
+                                false
+                            };
 
                             if is_atno && self.solar.band_alert_enabled {
                                 crate::media::sounds::play_new_dxcc_alert();
@@ -387,8 +387,8 @@ impl SpLogApp {
                                 ));
                             }
 
-                            self.event_bus
-                                .publish(crate::core::events::AppEvent::DxSpot {
+                            self.services.event_bus.publish(
+                                crate::core::events::AppEvent::DxSpot {
                                     spotter: spot.spotter.clone(),
                                     dx_call: spot.dx_call.clone(),
                                     frequency_khz: spot.frequency_khz,
@@ -397,10 +397,11 @@ impl SpLogApp {
                                     time_utc: spot.time_utc.clone(),
                                     is_ft8: spot.is_ft8,
                                     is_skimmer: spot.is_skimmer,
-                                });
+                                },
+                            );
                             self.cluster_spots.insert(0, spot.clone());
                             // Hook pluginów Rhai na nowy spot DX.
-                            self.plugin_engine.run_on_dx_spot(
+                            self.services.plugin_engine.run_on_dx_spot(
                                 &spot.spotter,
                                 &spot.dx_call,
                                 spot.frequency_khz,
@@ -557,6 +558,9 @@ impl SpLogApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::database::LogDatabase;
+    use crate::core::prefix::PrefixMatcher;
+    use crate::core::scp::ScpEngine;
 
     fn build_test_app() -> SpLogApp {
         let deps = AppDeps {

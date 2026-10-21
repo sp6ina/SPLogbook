@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 //! Okno zarządzania profilami układu operatorskiego (workspace).
@@ -409,5 +409,5 @@ pub(crate) fn apply_profile(app: &mut SpLogApp, p: &WorkspaceProfile) {
     app.save_station_config();
 
     // Powiadom wtyczki Rhai o zmianie profilu układu.
-    app.plugin_engine.run_on_workspace_changed(&p.name);
+    app.services.plugin_engine.run_on_workspace_changed(&p.name);
 }

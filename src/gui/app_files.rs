@@ -18,7 +18,7 @@ impl SpLogApp {
             enrich: true,
         };
 
-        match self.qso_ingestor.import_batch(parsed, &options) {
+        match self.services.ingestor.import_batch(parsed, &options) {
             Ok(import_report) => {
                 self.reload_qsos();
                 self.invalidate_cluster_badges();
@@ -113,6 +113,7 @@ impl SpLogApp {
         {
             let qsos = {
                 let db = self
+                    .services
                     .log_db
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -161,6 +162,7 @@ impl SpLogApp {
         {
             let qsos = {
                 let db = self
+                    .services
                     .log_db
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -203,6 +205,7 @@ impl SpLogApp {
         let qsos: Vec<QsoRecord> = match req.scope {
             CsvExportScope::All => {
                 let db = self
+                    .services
                     .log_db
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -268,15 +271,16 @@ impl SpLogApp {
     }
 
     pub fn run_manual_backup(&mut self) {
-        let backup_dir = self.active_db_path.parent().map_or_else(
+        let backup_dir = self.paths.active_db_path.parent().map_or_else(
             || std::path::PathBuf::from("backups"),
             |p| p.join("backups"),
         );
         let _ = std::fs::create_dir_all(&backup_dir);
-        let backup_res = BackupManager::backup_database(&self.active_db_path, &backup_dir);
+        let backup_res = BackupManager::backup_database(&self.paths.active_db_path, &backup_dir);
 
         let qsos = {
             let db = self
+                .services
                 .log_db
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);

@@ -281,7 +281,8 @@ impl SpLogApp {
         self.ptt_active = is_tx;
 
         if changed {
-            self.event_bus
+            self.services
+                .event_bus
                 .publish(crate::core::events::AppEvent::RigState {
                     frequency_hz: st.frequency_hz,
                     mode: st.mode.clone(),
@@ -295,7 +296,7 @@ impl SpLogApp {
                     self.entry_mode = st.mode.clone();
                 }
             }
-            self.plugin_engine.run_on_rig_state(
+            self.services.plugin_engine.run_on_rig_state(
                 st.frequency_hz as f64 / 1_000_000.0,
                 &st.mode,
                 st.connected,
@@ -317,7 +318,7 @@ impl SpLogApp {
             self.cat_proxy_rx = Some(rx);
             self.cat_sharing_active = true;
 
-            let events = self.event_bus.clone();
+            let events = self.services.event_bus.clone();
             tokio::spawn(async move {
                 if let Err(e) = srv_arc.run().await {
                     log::error!("Hamlib proxy server error: {e}");

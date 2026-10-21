@@ -20,7 +20,7 @@ impl SpLogApp {
             ))
             .save_file()
         {
-            let qsos = match self.log_db.lock() {
+            let qsos = match self.services.log_db.lock() {
                 Ok(db) => match db.get_recent_qsos_for_journal(&self.active_journal.id, 10000) {
                     Ok(list) => list,
                     Err(e) => {
@@ -184,7 +184,7 @@ impl SpLogApp {
                 ]
             }
 
-            let qsos = match self.log_db.lock() {
+            let qsos = match self.services.log_db.lock() {
                 Ok(db) => match db.get_recent_qsos_for_journal(&self.active_journal.id, 10000) {
                     Ok(list) => list,
                     Err(e) => {
@@ -371,7 +371,7 @@ impl SpLogApp {
                     .map(|c| (c.latitude, c.longitude))
             }
 
-            let qsos = match self.log_db.lock() {
+            let qsos = match self.services.log_db.lock() {
                 Ok(db) => match db.get_recent_qsos_for_journal(&self.active_journal.id, 10000) {
                     Ok(list) => list,
                     Err(e) => {

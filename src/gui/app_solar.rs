@@ -1,4 +1,4 @@
-﻿use super::SpLogApp;
+use super::SpLogApp;
 use crate::cloud::solar::SpaceWeather;
 use crate::core::geo::locator_to_coordinates;
 use crate::core::i18n::{Msg, key};
@@ -85,7 +85,7 @@ impl SpLogApp {
                 std::time::Instant::now(),
             ));
             for band in newly_opened {
-                self.plugin_engine.run_on_band_opened(band);
+                self.services.plugin_engine.run_on_band_opened(band);
             }
         }
 

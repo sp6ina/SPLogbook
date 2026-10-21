@@ -19,7 +19,7 @@ impl SpLogApp {
     /// bieżący stan aplikacji (baza, znak wywoławczy, port, klucz API, spoty klastra,
     /// prefiksy DXCC, stan radia CAT i silnik dyplomowy).
     pub fn start_rest_api_server(&mut self) {
-        let db = self.log_db.clone();
+        let db = self.services.log_db.clone();
         let cs = self.my_station.callsign.clone();
         let port = self.rest_api_port;
         let key = self.ensure_rest_api_key();
@@ -28,15 +28,20 @@ impl SpLogApp {
         if let Ok(mut shared_rig) = self.cat_shared_state.write() {
             *shared_rig = self.rig_state.clone();
         }
-        let state =
-            crate::api::server::ApiState::new(db, cs, spots_for_api, key, self.event_bus.clone())
-                .with_station_context(
-                    self.prefix_matcher.clone(),
-                    self.cat_shared_state.clone(),
-                    self.awards_engine.clone(),
-                    self.api_reload_flag.clone(),
-                )
-                .with_ingestor(self.qso_ingestor.clone());
+        let state = crate::api::server::ApiState::new(
+            db,
+            cs,
+            spots_for_api,
+            key,
+            self.services.event_bus.clone(),
+        )
+        .with_station_context(
+            self.services.prefix_matcher.clone(),
+            self.cat_shared_state.clone(),
+            self.services.awards_engine.clone(),
+            self.api_reload_flag.clone(),
+        )
+        .with_ingestor(self.services.ingestor.clone());
         tokio::spawn(async move {
             crate::api::server::start_api_server_with_state(state, port).await;
         });
@@ -102,13 +107,14 @@ impl SpLogApp {
         let db_dir = if std::path::Path::new("databases").is_dir() {
             std::path::PathBuf::from("databases")
         } else {
-            self.active_db_path
+            self.paths
+                .active_db_path
                 .parent()
                 .map(|p| p.join("databases"))
                 .unwrap_or_else(|| std::path::PathBuf::from("databases"))
         };
         let tx = self.sync_log_tx.clone();
-        let scp = self.scp_engine.clone();
+        let scp = self.services.scp_engine.clone();
 
         tokio::spawn(async move {
             let outcome =
@@ -226,6 +232,7 @@ impl SpLogApp {
         // Pobierz gotowe zadania (maks. jedno na serwis, z uwzględnieniem rate-limit).
         let ready: Vec<(u64, UploadService, String)> = {
             let mut sched = self
+                .services
                 .upload_scheduler
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -243,7 +250,7 @@ impl SpLogApp {
             return;
         }
 
-        let sched = self.upload_scheduler.clone();
+        let sched = self.services.upload_scheduler.clone();
         tokio::spawn(async move {
             for (id, service, adif) in ready {
                 let result = crate::cloud::scheduler::execute_upload(service, &creds, &adif).await;

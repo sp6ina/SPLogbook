@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 //! Okno „Marketplace pluginów”: katalog dodatków z instalacją jednym kliknięciem.
@@ -350,8 +350,8 @@ fn start_install(app: &mut SpLogApp, entry: crate::plugins::marketplace::PluginC
 /// Przeładowuje silnik pluginów po zmianie zestawu skryptów.
 fn reload_plugins(app: &mut SpLogApp) {
     let dir = PathBuf::from(app.plugins_dir.clone());
-    app.plugin_engine.set_enabled(app.plugins_enabled);
-    app.plugin_engine.load_dir(&dir);
-    app.plugin_engine.run_startup();
+    app.services.plugin_engine.set_enabled(app.plugins_enabled);
+    app.services.plugin_engine.load_dir(&dir);
+    app.services.plugin_engine.run_startup();
     app.save_station_config();
 }

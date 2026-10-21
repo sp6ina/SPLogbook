@@ -32,7 +32,7 @@ impl SpLogApp {
             !self.my_station.callsign.is_empty() && self.my_station.callsign != "N0CALL"
         };
         AppConfig {
-            secret_store_id: self.secret_store_id.clone(),
+            secret_store_id: self.paths.secret_store_id.clone(),
             is_configured,
             station: self.my_station.clone(),
             equipment: self.ledger.items.clone(),
@@ -169,14 +169,14 @@ impl SpLogApp {
 
     pub fn save_station_config(&mut self) {
         let mut cfg = self.build_app_config();
-        if let Err(e) = cfg.save_to_file(&self.config_file_path) {
+        if let Err(e) = cfg.save_to_file(&self.paths.config_file_path) {
             self.report_error(
                 Msg::new(key::CONFIG_SAVE_ERROR)
                     .arg("err", &e)
                     .text(self.gui.appearance.language),
             );
         } else {
-            self.secret_store_id = cfg.secret_store_id;
+            self.paths.secret_store_id = cfg.secret_store_id;
         }
     }
 

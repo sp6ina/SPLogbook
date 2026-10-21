@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 //! Okno synchronizacji pracy wielostanowiskowej Multi-Op LAN (`src/gui/multi_op_window.rs`).
@@ -182,7 +182,7 @@ pub fn render_multi_op_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
                                 match SyncService::start(
                                     config,
-                                    std::sync::Arc::new(app.qso_ingestor.clone()),
+                                    std::sync::Arc::new(app.services.ingestor.clone()),
                                     app.sync_ui.events_tx.clone(),
                                 ) {
                                     Ok(srv) => {
@@ -284,7 +284,7 @@ pub fn render_multi_op_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
                                 match SyncService::start(
                                     config,
-                                    std::sync::Arc::new(app.qso_ingestor.clone()),
+                                    std::sync::Arc::new(app.services.ingestor.clone()),
                                     app.sync_ui.events_tx.clone(),
                                 ) {
                                     Ok(srv) => {

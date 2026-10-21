@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::core::awards::US_STATES;
@@ -68,6 +68,7 @@ pub fn render_awards_matrix_window(app: &mut SpLogApp, ctx: &egui::Context) {
             ui.separator();
 
             let awards = app
+                .services
                 .awards_engine
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);

@@ -79,7 +79,7 @@ impl SpLogApp {
 
         // Sprawdzenie czy nagrywano audio łączności (Audio Memo) — zapis obok aktywnej bazy danych
         if crate::media::audio_recorder::AudioRecorder::is_recording() {
-            let rec_dir = self.active_db_path.parent().map_or_else(
+            let rec_dir = self.paths.active_db_path.parent().map_or_else(
                 || std::path::PathBuf::from("recordings"),
                 |p| p.join("recordings"),
             );
@@ -91,7 +91,7 @@ impl SpLogApp {
             }
         }
 
-        let outcome = match self.qso_ingestor.ingest(qso, QsoOrigin::Form) {
+        let outcome = match self.services.ingestor.ingest(qso, QsoOrigin::Form) {
             Ok(outcome) => outcome,
             Err(e) => {
                 let msg = match e {
@@ -171,7 +171,8 @@ impl SpLogApp {
         // 3. Hook pluginów użytkownika (plugin_hook)
         if effects.plugin_hook {
             self.refresh_plugin_snapshot();
-            self.plugin_engine
+            self.services
+                .plugin_engine
                 .run_on_qso_logged(&crate::plugins::QsoHookContext {
                     callsign: qso.callsign.clone(),
                     band: qso.band.clone(),
@@ -198,6 +199,7 @@ impl SpLogApp {
                 );
                 let now = crate::cloud::scheduler::now_unix();
                 let mut sched = self
+                    .services
                     .upload_scheduler
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -218,6 +220,7 @@ impl SpLogApp {
                 );
                 let now = crate::cloud::scheduler::now_unix();
                 let mut sched = self
+                    .services
                     .upload_scheduler
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -278,7 +281,7 @@ impl SpLogApp {
         }
         qso.journal_id = Some(self.active_journal.id.clone());
 
-        match self.qso_ingestor.ingest(qso, QsoOrigin::WsjtX) {
+        match self.services.ingestor.ingest(qso, QsoOrigin::WsjtX) {
             Ok(outcome) => {
                 self.invalidate_cluster_badges();
                 self.apply_post_effects(&outcome);
@@ -311,7 +314,7 @@ impl SpLogApp {
     pub fn handle_js8call_qso(&mut self, mut qso: QsoRecord) {
         qso.journal_id = Some(self.active_journal.id.clone());
 
-        match self.qso_ingestor.ingest(qso, QsoOrigin::Js8Call) {
+        match self.services.ingestor.ingest(qso, QsoOrigin::Js8Call) {
             Ok(outcome) => {
                 self.invalidate_cluster_badges();
                 self.apply_post_effects(&outcome);
@@ -343,7 +346,7 @@ impl SpLogApp {
 
     /// Przetwarza i loguje QSO odebrane z sieci LAN Multi-Op (PIPE-4B.3, SYNC-6).
     pub fn handle_lan_qso(&mut self, qso: QsoRecord) {
-        match self.qso_ingestor.ingest(qso, QsoOrigin::LanPeer) {
+        match self.services.ingestor.ingest(qso, QsoOrigin::LanPeer) {
             Ok(outcome) => {
                 self.invalidate_cluster_badges();
                 self.apply_post_effects(&outcome);
@@ -494,7 +497,7 @@ impl SpLogApp {
         // Gdy dziennik jest większy niż bufor, ładujemy całość — w przeciwnym
         // razie sortowanie, filtrowanie i eksport zakresu „Filtered" operowałyby
         // na niepełnych danych.
-        if let Ok(db) = self.log_db.lock() {
+        if let Ok(db) = self.services.log_db.lock() {
             let total = db
                 .count_qsos_for_journal(&self.active_journal.id)
                 .unwrap_or(0);
@@ -553,7 +556,7 @@ impl SpLogApp {
 
     pub fn rebuild_awards_full(&mut self) {
         let active_id = self.active_journal.id.clone();
-        let journal_qsos = if let Ok(db) = self.log_db.lock() {
+        let journal_qsos = if let Ok(db) = self.services.log_db.lock() {
             db.get_all_qsos().ok().map(|all_qsos| {
                 all_qsos
                     .into_iter()
@@ -569,7 +572,7 @@ impl SpLogApp {
             None
         };
         if let Some(qsos) = journal_qsos {
-            if let Ok(mut awards) = self.awards_engine.lock() {
+            if let Ok(mut awards) = self.services.awards_engine.lock() {
                 awards.rebuild_from_qsos(&qsos);
             }
         }
@@ -587,6 +590,7 @@ impl SpLogApp {
         for id in &ids {
             let result = {
                 let db = self
+                    .services
                     .log_db
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -619,6 +623,7 @@ impl SpLogApp {
     pub fn delete_qso_by_id(&mut self, id: i64) {
         let result = {
             let db = self
+                .services
                 .log_db
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -651,6 +656,7 @@ impl SpLogApp {
             let restored = qso.clone();
             let result = {
                 let db = self
+                    .services
                     .log_db
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -697,6 +703,7 @@ impl SpLogApp {
             };
             let result = {
                 let db = self
+                    .services
                     .log_db
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -748,6 +755,7 @@ impl SpLogApp {
             if let Some(id) = qso.id {
                 let result = {
                     let db = self
+                        .services
                         .log_db
                         .lock()
                         .unwrap_or_else(std::sync::PoisonError::into_inner);

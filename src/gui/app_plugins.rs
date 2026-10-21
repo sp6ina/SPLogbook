@@ -7,6 +7,7 @@ impl SpLogApp {
     pub fn refresh_plugin_snapshot(&mut self) {
         let awards = {
             let guard = self
+                .services
                 .awards_engine
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -60,7 +61,8 @@ impl SpLogApp {
             is_new_pga: award.is_some_and(|s| s.is_new_pga),
         };
 
-        self.plugin_engine
+        self.services
+            .plugin_engine
             .set_snapshot(crate::plugins::bridge::PluginSnapshot {
                 rig_freq_mhz: self.rig_state.frequency_hz as f64 / 1_000_000.0,
                 rig_mode: self.rig_state.mode.clone(),
@@ -91,7 +93,8 @@ impl SpLogApp {
                     name,
                     active,
                 } => {
-                    self.plugin_engine
+                    self.services
+                        .plugin_engine
                         .run_on_pota_info(&reference, &name, active);
                 }
                 crate::plugins::bridge::PluginLookupResult::Sota {
@@ -99,7 +102,8 @@ impl SpLogApp {
                     name,
                     points,
                 } => {
-                    self.plugin_engine
+                    self.services
+                        .plugin_engine
                         .run_on_sota_info(&reference, &name, points);
                 }
                 crate::plugins::bridge::PluginLookupResult::Error(msg) => {
@@ -112,7 +116,7 @@ impl SpLogApp {
 
     /// Wykonuje polecenia zakolejkowane przez pluginy Rhai.
     pub fn process_plugin_commands(&mut self) {
-        let commands = self.plugin_engine.drain_commands();
+        let commands = self.services.plugin_engine.drain_commands();
         for cmd in commands {
             match cmd {
                 crate::plugins::bridge::PluginCommand::SendCw { text } => {

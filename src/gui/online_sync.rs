@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::cloud::lotw::detect_tqsl_path;
@@ -110,7 +110,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     ui.add_space(6.0);
                                     ui.horizontal(|ui| {
                                         if ui.button(egui::RichText::new(format!("📤 {}", tr(key::SYNC_LOTW_TQSL, lang))).strong()).clicked() {
-                                            let qsos = if let Ok(db) = app.log_db.lock() {
+                                            let qsos = if let Ok(db) = app.services.log_db.lock() {
                                                 db.get_recent_qsos(1000).unwrap_or_default()
                                             } else {
                                                 vec![]
@@ -142,7 +142,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                 let tx = app.sync_log_tx.clone();
                                                 let user = app.lotw_username.clone();
                                                 let pass = app.lotw_password.clone();
-                                                let log_db = app.log_db.clone();
+                                                let log_db = app.services.log_db.clone();
                                                 tokio::spawn(async move {
                                                     let _ = tx.send((tr(key::SYNC_LOTW_DOWNLOADING, lang).to_string(), false));
                                                     let report_res = crate::cloud::lotw::download_lotw_report(&user, &pass, None)
@@ -199,7 +199,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                 let tx = app.sync_log_tx.clone();
                                                 let user = app.online.eqsl_username.clone();
                                                 let pass = app.online.eqsl_password.clone();
-                                                let qsos = if let Ok(db) = app.log_db.lock() { db.get_recent_qsos(1000).unwrap_or_default() } else { vec![] };
+                                                let qsos = if let Ok(db) = app.services.log_db.lock() { db.get_recent_qsos(1000).unwrap_or_default() } else { vec![] };
                                                 let adif = crate::core::adif::export_adif(&qsos, "SPLogbook", &app.my_station.callsign);
                                                 tokio::spawn(async move {
                                                     let client = crate::cloud::eqsl::EqslClient::new(user, pass);
@@ -218,7 +218,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                 let tx = app.sync_log_tx.clone();
                                                 let user = app.online.eqsl_username.clone();
                                                 let pass = app.online.eqsl_password.clone();
-                                                let log_db = app.log_db.clone();
+                                                let log_db = app.services.log_db.clone();
                                                 tokio::spawn(async move {
                                                     let client = crate::cloud::eqsl::EqslClient::new(user, pass);
                                                     let _ = tx.send(("[eQSL] Pobieranie skrzynki odbiorczej (Inbox ADIF)...".to_string(), false));
@@ -285,7 +285,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                             let email = app.online.clublog_email.clone();
                                             let pass = app.online.clublog_password.clone();
                                             let api = app.online.clublog_api_key.clone();
-                                            let qsos = if let Ok(db) = app.log_db.lock() { db.get_recent_qsos(5000).unwrap_or_default() } else { vec![] };
+                                            let qsos = if let Ok(db) = app.services.log_db.lock() { db.get_recent_qsos(5000).unwrap_or_default() } else { vec![] };
                                             let adif = crate::core::adif::export_adif(&qsos, "SPLogbook", &app.my_station.callsign);
                                             tokio::spawn(async move {
                                                 let client = crate::cloud::clublog::ClubLogClient::new();
@@ -327,7 +327,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                         } else {
                                             let tx = app.sync_log_tx.clone();
                                             let api = app.qrz_api_key.clone();
-                                            let qsos = if let Ok(db) = app.log_db.lock() { db.get_recent_qsos(1000).unwrap_or_default() } else { vec![] };
+                                            let qsos = if let Ok(db) = app.services.log_db.lock() { db.get_recent_qsos(1000).unwrap_or_default() } else { vec![] };
                                             let adif = crate::core::adif::export_adif(&qsos, "SPLogbook", &app.my_station.callsign);
                                             tokio::spawn(async move {
                                                 let _ = tx.send((Msg::new(key::SYNC_QRZ_SENDING).arg("count", qsos.len()).text(lang), false));
@@ -359,7 +359,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                             let tx = app.sync_log_tx.clone();
                                             let user = app.hamqth_username.clone();
                                             let pass = app.hamqth_password.clone();
-                                            let qsos = if let Ok(db) = app.log_db.lock() { db.get_recent_qsos(100).unwrap_or_default() } else { vec![] };
+                                            let qsos = if let Ok(db) = app.services.log_db.lock() { db.get_recent_qsos(100).unwrap_or_default() } else { vec![] };
                                             app.gui.chrome.status_message = Some(tr(key::SYNC_HAMQTH_IN_PROGRESS, lang).to_string());
                                             app.online.online_sync_logs.push(Msg::new(key::SYNC_HAMQTH_SENDING).arg("count", qsos.len()).text(lang));
                                             tokio::spawn(async move {
@@ -440,7 +440,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                             let tx = app.sync_log_tx.clone();
                                             let url = app.cloudlog_url.clone();
                                             let api_key = app.cloudlog_api_key.clone();
-                                            let qsos = if let Ok(db) = app.log_db.lock() { db.get_recent_qsos(100).unwrap_or_default() } else { vec![] };
+                                            let qsos = if let Ok(db) = app.services.log_db.lock() { db.get_recent_qsos(100).unwrap_or_default() } else { vec![] };
                                             app.gui.chrome.status_message = Some(tr(key::SYNC_CLOUDLOG_IN_PROGRESS, lang).to_string());
                                             app.online.online_sync_logs.push(Msg::new(key::SYNC_CLOUDLOG_SENDING).arg("count", qsos.len()).text(lang));
                                             tokio::spawn(async move {
@@ -482,7 +482,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                             let tx = app.sync_log_tx.clone();
                                             let call = app.hrdlog_username.clone();
                                             let code = app.hrdlog_upload_code.clone();
-                                            let qsos = if let Ok(db) = app.log_db.lock() { db.get_recent_qsos(100).unwrap_or_default() } else { vec![] };
+                                            let qsos = if let Ok(db) = app.services.log_db.lock() { db.get_recent_qsos(100).unwrap_or_default() } else { vec![] };
                                             app.gui.chrome.status_message = Some(tr(key::SYNC_HRDLOG_IN_PROGRESS, lang).to_string());
                                             app.online.online_sync_logs.push(Msg::new(key::SYNC_HRDLOG_SENDING).arg("count", qsos.len()).text(lang));
                                             tokio::spawn(async move {
@@ -604,7 +604,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     ).small().color(palette.text_muted));
                                     ui.add_space(6.0);
 
-                                    let status = app.upload_scheduler.lock().map(|s| s.status_all()).unwrap_or_default();
+                                    let status = app.services.upload_scheduler.lock().map(|s| s.status_all()).unwrap_or_default();
                                     egui::Grid::new("upload_queue_grid")
                                         .num_columns(6)
                                         .striped(true)
@@ -637,7 +637,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     ui.horizontal(|ui| {
                                         if ui.button(tr(key::SYNC_RETRY_FAILED_BTN, lang)).clicked() {
                                             let now = crate::cloud::scheduler::now_unix();
-                                            let retry_count = app.upload_scheduler.lock().map_or(0, |mut s| {
+                                            let retry_count = app.services.upload_scheduler.lock().map_or(0, |mut s| {
                                                 let retried = s.retry_failed(now);
                                                 s.save_to_disk();
                                                 retried
@@ -647,7 +647,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                             }
                                         }
                                         if ui.button(tr(key::SYNC_CLEAR_SENT_BTN, lang)).clicked() {
-                                            let purged_count = app.upload_scheduler.lock().map_or(0, |mut s| {
+                                            let purged_count = app.services.upload_scheduler.lock().map_or(0, |mut s| {
                                                 let purged = s.purge_done();
                                                 s.save_to_disk();
                                                 purged

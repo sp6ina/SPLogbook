@@ -27,6 +27,7 @@ impl SpLogApp {
         // 1. Podpowiedzi SCP
         {
             let scp = self
+                .services
                 .scp_engine
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -36,6 +37,7 @@ impl SpLogApp {
         // 1b. Lokalna korekta rozmyta (fuzzy) błędnie wpisanego/odebranego znaku
         {
             let scp = self
+                .services
                 .scp_engine
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -48,7 +50,7 @@ impl SpLogApp {
         self.active_clubs = crate::core::clubs::ClubRegistry::check(&clean);
 
         // 3. Rozpoznanie DXCC, stref i estymacja propagacji
-        if let Some(info) = self.prefix_matcher.lookup(&clean) {
+        if let Some(info) = self.services.prefix_matcher.lookup(&clean) {
             let dx_coords = crate::core::geo::Coordinates::new(info.latitude, info.longitude);
             if let Ok(my_coords) = locator_to_coordinates(&self.my_station.gridsquare) {
                 self.active_distance_km = calculate_distance_km(my_coords, dx_coords);
@@ -80,6 +82,7 @@ impl SpLogApp {
             self.active_polish_district = AwardsEngine::get_polish_district(&clean);
 
             let awards = self
+                .services
                 .awards_engine
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -107,7 +110,7 @@ impl SpLogApp {
         }
 
         // 3. Sprawdzenie poprzednich łączności z tą stacją w lokalnej bazie SQLite
-        let prevs_opt = if let Ok(db) = self.log_db.lock() {
+        let prevs_opt = if let Ok(db) = self.services.log_db.lock() {
             db.find_previous_qsos(&clean).ok()
         } else {
             None
@@ -141,7 +144,7 @@ impl SpLogApp {
         }
 
         // 4. Baza managerów QSL (serviceLOG)
-        if let Some(mgr_rec) = self.service_db.find_manager(&clean) {
+        if let Some(mgr_rec) = self.services.service_db.find_manager(&clean) {
             if self.entry_qsl_manager.is_empty() {
                 self.entry_qsl_manager.clone_from(&mgr_rec.manager);
             }
@@ -151,7 +154,7 @@ impl SpLogApp {
         }
 
         // 5. Baza UniqueCalls
-        if let Some(uniq) = self.service_db.find_unique_call(&clean) {
+        if let Some(uniq) = self.services.service_db.find_unique_call(&clean) {
             if let Some(ref mut pfx) = self.active_prefix_info {
                 pfx.country = uniq.country;
                 pfx.dxcc = uniq.dxcc;
@@ -163,7 +166,7 @@ impl SpLogApp {
 
         // 6. Baza Callbook (databases/callbook.db - 52k rekordów)
         if clean.len() >= 3 {
-            if let Some(cb_data) = self.local_callbook.lookup(&clean) {
+            if let Some(cb_data) = self.services.local_callbook.lookup(&clean) {
                 if let Some(n) = cb_data.name {
                     if self.entry_name.is_empty() {
                         self.entry_name = n;
@@ -256,7 +259,7 @@ impl SpLogApp {
         }
 
         // Natychmiastowe sprawdzenie lokalnej bazy (callbook.db + serviceLOG.db)
-        if let Some(cb_data) = self.local_callbook.lookup(&call) {
+        if let Some(cb_data) = self.services.local_callbook.lookup(&call) {
             if let Some(n) = cb_data.name.clone() {
                 self.entry_name = n;
             }
@@ -276,7 +279,7 @@ impl SpLogApp {
             self.gui.chrome.status_message = Some(format!("Znaleziono w bazie Callbook: {call}"));
         }
 
-        let lc = self.local_callbook.clone();
+        let lc = self.services.local_callbook.clone();
         let hamqth_u = self.hamqth_username.clone();
         let hamqth_p = self.hamqth_password.clone();
         let qrz_u = self.qrz_username.clone();
@@ -377,8 +380,9 @@ impl SpLogApp {
             return badge;
         }
 
-        let badge = if let Some(info) = self.prefix_matcher.lookup(dx_call) {
+        let badge = if let Some(info) = self.services.prefix_matcher.lookup(dx_call) {
             let awards = self
+                .services
                 .awards_engine
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);

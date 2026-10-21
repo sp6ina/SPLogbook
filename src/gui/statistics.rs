@@ -129,7 +129,7 @@ fn get_cached_stats(app: &mut SpLogApp) -> StatsCacheData {
     }
 
     let lang = app.gui.appearance.language;
-    let data = match app.log_db.lock() {
+    let data = match app.services.log_db.lock() {
         Ok(db) => {
             let band = db.stats_qso_per_band().unwrap_or_else(|e| {
                 app.gui.chrome.status_message =

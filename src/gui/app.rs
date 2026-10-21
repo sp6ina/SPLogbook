@@ -7,12 +7,11 @@ use crate::cluster::telnet::ClusterEvent;
 use crate::cluster::telnet::DxSpot;
 use crate::core::awards::{AwardsEngine, PolishDistrictInfo, QsoAwardStatus};
 use crate::core::backup::BackupManager;
-use crate::core::database::{Journal, LogDatabase};
+use crate::core::database::Journal;
 use crate::core::i18n::{Msg, key, tr};
 use crate::core::ingest::{IngestError, IngestOutcome, QsoOrigin};
-use crate::core::prefix::{PrefixInfo, PrefixMatcher};
+use crate::core::prefix::PrefixInfo;
 use crate::core::qso::QsoRecord;
-use crate::core::scp::ScpEngine;
 use crate::core::service_db::{QslManagerRecord, ServiceDatabase};
 use crate::core::station::{AppConfig, StationProfile, ViewPanelConfig, WorkspaceProfile};
 use crate::gui::awards_matrix::render_awards_matrix_window;
@@ -92,12 +91,8 @@ impl SpotBadgeKind {
 pub struct SpLogApp {
     pub shutdown_policy: ShutdownPolicy,
     pub initial_cat_enabled: bool,
-    // Podsystemy bazodanowe i analityczne
-    pub log_db: Arc<Mutex<LogDatabase>>,
-    pub prefix_matcher: Arc<PrefixMatcher>,
-    pub scp_engine: Arc<Mutex<ScpEngine>>,
-    pub awards_engine: Arc<Mutex<AwardsEngine>>,
-    pub qso_ingestor: crate::core::ingest::QsoIngestor,
+    pub paths: crate::gui::state::AppPaths,
+    pub services: crate::gui::state::AppServices,
 
     // Konfiguracja stacji i lokalizacja
     pub my_station: StationProfile,
@@ -178,9 +173,6 @@ pub struct SpLogApp {
     pub font_scale: f32,
     pub font_family: String,
     pub distance_unit: String,
-    pub config_file_path: std::path::PathBuf,
-    pub secret_store_id: String,
-    pub active_db_path: std::path::PathBuf,
 
     // Wizualna Panorama Pasma (Band Map)
     pub show_bandmap_window: bool,
@@ -269,7 +261,6 @@ pub struct SpLogApp {
     pub awards_matrix_tab: usize,
     pub awards_other_subtab: usize,
     pub awards_other_search: String,
-    pub local_callbook: std::sync::Arc<crate::core::callbook::LocalCallbook>,
     pub callbook_priority: Vec<crate::core::callbook::CallbookSource>,
     pub callbook_cache_enabled: bool,
     pub callbook_cache_ttl_days: u32,
@@ -305,13 +296,11 @@ pub struct SpLogApp {
     // Alerty, Live Auto-Upload i Toast
     pub live_auto_upload_clublog: bool,
     pub live_auto_upload_qrz: bool,
-    pub upload_scheduler: Arc<Mutex<crate::cloud::scheduler::UploadScheduler>>,
     pub last_upload_poll_secs: u64,
     pub sync_log_tx: std::sync::mpsc::Sender<(String, bool)>,
     pub sync_log_rx: std::sync::mpsc::Receiver<(String, bool)>,
 
     // SPLogbook
-    pub service_db: Arc<ServiceDatabase>,
     pub show_column_settings: bool,
     pub logbook_columns: Vec<crate::core::station::LogColumn>,
     pub logbook_column_presets: Vec<crate::core::station::ColumnPreset>,
@@ -320,9 +309,6 @@ pub struct SpLogApp {
     // CAT Channels
     pub cat_state_tx: std::sync::mpsc::Sender<crate::cat::hamlib::RigState>,
     pub cat_state_rx: std::sync::mpsc::Receiver<crate::cat::hamlib::RigState>,
-
-    /// Centralna magistrala zdarzeń aplikacji (QSO, spoty, CAT, chmura).
-    pub event_bus: crate::core::events::EventBus,
 
     // DX Cluster Telnet & Filtry
     pub cluster_host: String,
@@ -424,7 +410,6 @@ pub struct SpLogApp {
     // System pluginów użytkownika (Rhai)
     pub plugins_enabled: bool,
     pub plugins_dir: String,
-    pub plugin_engine: crate::plugins::PluginEngine,
     pub plugins_ui: crate::gui::state::PluginUiState,
 
     // Marketplace pluginów (katalog + instalacja jednym kliknięciem)
@@ -683,14 +668,30 @@ impl SpLogApp {
         };
         let views = crate::gui::state::ViewsState::from_config(&init.config);
         let online = crate::gui::state::OnlineSyncUiState::from_config(&init.config);
+        let paths = crate::gui::state::AppPaths::new(
+            init.config_file_path,
+            init.active_db_path,
+            init.config.secret_store_id.clone(),
+        );
+        let services = crate::gui::state::AppServices::new(
+            deps.log_db,
+            deps.prefix_matcher,
+            deps.scp_engine,
+            awards_engine,
+            Arc::new(ServiceDatabase::open()),
+            local_callbook,
+            Arc::new(Mutex::new(
+                crate::cloud::scheduler::UploadScheduler::load_from_disk(),
+            )),
+            event_bus,
+            crate::plugins::PluginEngine::new(),
+            qso_ingestor,
+        );
         let mut app = Self {
             shutdown_policy: init.shutdown_policy,
             initial_cat_enabled: init.config.cat_enabled,
-            log_db: deps.log_db,
-            prefix_matcher: deps.prefix_matcher,
-            scp_engine: deps.scp_engine,
-            awards_engine,
-            qso_ingestor,
+            paths,
+            services,
             my_station: init.config.station.clone(),
 
             entry_callsign: String::new(),
@@ -754,9 +755,6 @@ impl SpLogApp {
             font_scale: init.config.font_scale,
             font_family: init.config.font_family.clone(),
             distance_unit: init.config.distance_unit.clone(),
-            config_file_path: init.config_file_path,
-            secret_store_id: init.config.secret_store_id.clone(),
-            active_db_path: init.active_db_path,
 
             show_bandmap_window: false,
             bandmap_selected_band: "20m".to_string(),
@@ -830,7 +828,6 @@ impl SpLogApp {
             awards_matrix_tab: 0,
             awards_other_subtab: 0,
             awards_other_search: String::new(),
-            local_callbook,
             callbook_priority,
             callbook_cache_enabled: init.config.callbook_cache_enabled,
             callbook_cache_ttl_days,
@@ -862,14 +859,10 @@ impl SpLogApp {
 
             live_auto_upload_clublog: init.config.live_auto_upload_clublog,
             live_auto_upload_qrz: init.config.live_auto_upload_qrz,
-            upload_scheduler: Arc::new(Mutex::new(
-                crate::cloud::scheduler::UploadScheduler::load_from_disk(),
-            )),
             last_upload_poll_secs: 0,
             sync_log_tx,
             sync_log_rx,
 
-            service_db: Arc::new(ServiceDatabase::open()),
             show_column_settings: false,
             updates: crate::gui::state::UpdateState::default(),
             logbook_columns: init.config.logbook_columns.clone(),
@@ -905,8 +898,6 @@ impl SpLogApp {
 
             cat_state_tx,
             cat_state_rx,
-
-            event_bus,
 
             cluster_host: init.config.cluster_host,
             cluster_port: init.config.cluster_port,
@@ -965,7 +956,6 @@ impl SpLogApp {
             // System pluginów użytkownika (Rhai)
             plugins_enabled: init.config.plugins_enabled,
             plugins_dir: init.config.plugins_dir.clone(),
-            plugin_engine: crate::plugins::PluginEngine::new(),
             plugins_ui: crate::gui::state::PluginUiState::default(),
 
             marketplace: crate::gui::state::MarketplaceState::default(),
@@ -1126,11 +1116,13 @@ impl SpLogApp {
         // Wczytanie pluginów użytkownika (Rhai) z katalogu i uruchomienie on_startup().
         {
             let dir = std::path::PathBuf::from(&self.plugins_dir);
-            self.plugin_engine.set_enabled(self.plugins_enabled);
-            self.plugin_engine.load_dir(&dir);
+            self.services
+                .plugin_engine
+                .set_enabled(self.plugins_enabled);
+            self.services.plugin_engine.load_dir(&dir);
             let total = self.qso_numbers.len() as i64;
-            self.plugin_engine.set_qso_count(total);
-            self.plugin_engine.run_startup();
+            self.services.plugin_engine.set_qso_count(total);
+            self.services.plugin_engine.run_startup();
         }
 
         if self.initial_cat_enabled {
@@ -1430,7 +1422,7 @@ impl eframe::App for SpLogApp {
         if self.gui.dialogs.journal_dialog.is_open {
             let mut switched_journal = None;
             let lang = self.gui.appearance.language;
-            if let Ok(db) = self.log_db.lock() {
+            if let Ok(db) = self.services.log_db.lock() {
                 self.gui
                     .dialogs
                     .journal_dialog
@@ -1464,7 +1456,7 @@ impl eframe::App for SpLogApp {
             let journal_id = self.active_journal.id.clone();
             let my_call = self.my_station.callsign.clone();
             let lang = self.gui.appearance.language;
-            if let Ok(db) = self.log_db.lock() {
+            if let Ok(db) = self.services.log_db.lock() {
                 self.gui.dialogs.advanced_filter_dialog.render(
                     ctx,
                     &db,
@@ -1493,7 +1485,7 @@ impl eframe::App for SpLogApp {
 
         if self.gui.dialogs.qsl_designer_dialog.is_open {
             let my_call = self.my_station.callsign.clone();
-            if let Ok(db) = self.log_db.lock() {
+            if let Ok(db) = self.services.log_db.lock() {
                 self.gui.dialogs.qsl_designer_dialog.render(
                     ctx,
                     &db,
@@ -1542,12 +1534,13 @@ impl eframe::App for SpLogApp {
         // 4. Przeglądarka wysp IOTA
         {
             let awards = self
+                .services
                 .awards_engine
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             if let Some(iota) = self.gui.dialogs.iota_dialog.show(
                 ctx,
-                &self.service_db,
+                &self.services.service_db,
                 &awards,
                 self.gui.appearance.language,
             ) {
@@ -1557,7 +1550,7 @@ impl eframe::App for SpLogApp {
             // 5. Przeglądarka stanów USA (WAS)
             if let Some(state) = self.gui.dialogs.states_dialog.show(
                 ctx,
-                &self.service_db,
+                &self.services.service_db,
                 &awards,
                 self.gui.appearance.language,
             ) {
@@ -1568,7 +1561,7 @@ impl eframe::App for SpLogApp {
         // 6. Baza menedżerów QSL
         if let Some(qslm) = self.gui.dialogs.qsl_manager_dialog.show(
             ctx,
-            &self.service_db,
+            &self.services.service_db,
             self.gui.appearance.language,
         ) {
             self.entry_qsl_manager = qslm;
@@ -1583,7 +1576,7 @@ impl eframe::App for SpLogApp {
         // 8. Menedżer prefiksów DXCC
         self.gui.dialogs.prefix_manager_dialog.show(
             ctx,
-            &self.service_db,
+            &self.services.service_db,
             self.gui.appearance.language,
         );
 
@@ -1652,14 +1645,16 @@ impl Drop for SpLogApp {
         }
 
         let backup_dir = self
+            .paths
             .active_db_path
             .parent()
             .unwrap_or_else(|| std::path::Path::new("."))
             .join("backups");
         let _ = std::fs::create_dir_all(&backup_dir);
-        let _ = BackupManager::backup_database(&self.active_db_path, &backup_dir);
+        let _ = BackupManager::backup_database(&self.paths.active_db_path, &backup_dir);
 
         let db = self
+            .services
             .log_db
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -1871,7 +1866,7 @@ mod tests {
 
         // Weryfikacja aktualizacji AwardsEngine
         {
-            let awards_guard = app.awards_engine.lock().unwrap();
+            let awards_guard = app.services.awards_engine.lock().unwrap();
             assert!(
                 awards_guard
                     .worked_calls
@@ -1920,7 +1915,7 @@ mod tests {
             shutdown_policy: ShutdownPolicy::None,
         };
         let mut app = SpLogApp::for_tests(init, deps);
-        let mut event_rx = app.event_bus.subscribe();
+        let mut event_rx = app.services.event_bus.subscribe();
 
         app.entry_callsign = "SP6INA".to_string();
         app.entry_band = "20m".to_string();
@@ -1943,11 +1938,11 @@ mod tests {
 
         // 3. Awards i SCP zaktualizowane
         {
-            let awards = app.awards_engine.lock().unwrap();
+            let awards = app.services.awards_engine.lock().unwrap();
             assert!(awards.worked_calls.iter().any(|(c, _, _)| c == "SP6INA"));
         }
         {
-            let scp = app.scp_engine.lock().unwrap();
+            let scp = app.services.scp_engine.lock().unwrap();
             assert!(scp.search("SP6INA", 5).contains(&"SP6INA".to_string()));
         }
 
@@ -1972,7 +1967,7 @@ mod tests {
             shutdown_policy: ShutdownPolicy::None,
         };
         let mut app = SpLogApp::for_tests(init, deps);
-        let mut event_rx = app.event_bus.subscribe();
+        let mut event_rx = app.services.event_bus.subscribe();
 
         // Błąd walidacji: niedozwolony znak w znaku wywoławczym (QsoIssue::CallsignChars)
         app.entry_callsign = "SP6INA@".to_string();
@@ -2004,7 +1999,7 @@ mod tests {
             shutdown_policy: ShutdownPolicy::None,
         };
         let mut app = SpLogApp::for_tests(init, deps);
-        let mut event_rx = app.event_bus.subscribe();
+        let mut event_rx = app.services.event_bus.subscribe();
         let initial_stx = app.contest_stx;
 
         let mut new_qso = QsoRecord::new("SN0HQ", "40m", "CW");
@@ -2012,7 +2007,8 @@ mod tests {
         new_qso.journal_id = Some(app.active_journal.id.clone());
 
         let outcome = app
-            .qso_ingestor
+            .services
+            .ingestor
             .ingest(new_qso, QsoOrigin::Contest)
             .unwrap();
         app.apply_post_effects(&outcome);
@@ -2045,7 +2041,7 @@ mod tests {
         let mut bad_qso = QsoRecord::new("SN0HQ", "", "CW");
         bad_qso.freq = None;
 
-        let res = app.qso_ingestor.ingest(bad_qso, QsoOrigin::Contest);
+        let res = app.services.ingestor.ingest(bad_qso, QsoOrigin::Contest);
         assert!(matches!(res, Err(IngestError::Invalid(_))));
         assert_eq!(app.contest_stx, initial_stx);
     }
@@ -2060,7 +2056,7 @@ mod tests {
             shutdown_policy: ShutdownPolicy::None,
         };
         let mut app = SpLogApp::for_tests(init, deps);
-        let mut event_rx = app.event_bus.subscribe();
+        let mut event_rx = app.services.event_bus.subscribe();
 
         let mut qso = QsoRecord::new("K1ABC", "20m", "FT8");
         qso.cqz = Some(99); // advisory issue
@@ -2076,11 +2072,11 @@ mod tests {
         assert_ne!(stored.time_on, "");
 
         {
-            let awards = app.awards_engine.lock().unwrap();
+            let awards = app.services.awards_engine.lock().unwrap();
             assert!(awards.worked_calls.iter().any(|(c, _, _)| c == "K1ABC"));
         }
         {
-            let scp = app.scp_engine.lock().unwrap();
+            let scp = app.services.scp_engine.lock().unwrap();
             assert!(scp.search("K1ABC", 5).contains(&"K1ABC".to_string()));
         }
 
@@ -2101,7 +2097,7 @@ mod tests {
             shutdown_policy: ShutdownPolicy::None,
         };
         let mut app = SpLogApp::for_tests(init, deps);
-        let mut event_rx = app.event_bus.subscribe();
+        let mut event_rx = app.services.event_bus.subscribe();
 
         let qso1 = QsoRecord::new("JS8ONE", "40m", "JS8");
         let qso2 = QsoRecord::new("", "40m", "JS8"); // pusty znak - błąd
@@ -2134,7 +2130,7 @@ mod tests {
             shutdown_policy: ShutdownPolicy::None,
         };
         let mut app = SpLogApp::for_tests(init, deps);
-        let mut event_rx = app.event_bus.subscribe();
+        let mut event_rx = app.services.event_bus.subscribe();
 
         assert!(
             !QsoOrigin::LanPeer.policy().effects.broadcast_lan,
@@ -2142,7 +2138,7 @@ mod tests {
         );
 
         {
-            let db = app.log_db.lock().unwrap();
+            let db = app.services.log_db.lock().unwrap();
             let j = Journal {
                 id: "PEER_JOURNAL".to_string(),
                 name: "Peer Journal".to_string(),
@@ -2157,6 +2153,7 @@ mod tests {
         app.handle_lan_qso(qso);
 
         let db_records = app
+            .services
             .log_db
             .lock()
             .unwrap()
