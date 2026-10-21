@@ -944,7 +944,40 @@ mod tests {
         host.stop();
     }
 
-    #[tokio::test]
+    async fn wait_for_host_event_matching<F>(
+        rx: &std::sync::mpsc::Receiver<SyncEvent>,
+        mut predicate: F,
+        desc: &str,
+        max_iterations: usize,
+    ) -> Result<Vec<SyncEvent>, (String, Vec<SyncEvent>)>
+    where
+        F: FnMut(&SyncEvent) -> bool,
+    {
+        let mut collected = Vec::new();
+        for _ in 0..max_iterations {
+            while let Ok(evt) = rx.try_recv() {
+                let matched = predicate(&evt);
+                collected.push(evt);
+                if matched {
+                    return Ok(collected);
+                }
+            }
+            tokio::task::yield_now().await;
+            tokio::time::advance(Duration::from_millis(1)).await;
+        }
+        Err((
+            format!(
+                "Exceeded {} iterations waiting for {}; collected {} events: {:?}",
+                max_iterations,
+                desc,
+                collected.len(),
+                collected
+            ),
+            collected,
+        ))
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn idle_peer_is_dropped_after_timeout() {
         let (host_tx, host_rx) = std::sync::mpsc::channel();
         let mut host = SyncHost::bind(
@@ -962,30 +995,45 @@ mod tests {
             .await
             .unwrap();
 
-        for _ in 0..100 {
-            if host.connected_peers() == 1 {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
+        let _ = wait_for_host_event_matching(
+            &host_rx,
+            |evt| matches!(evt, SyncEvent::Status(st) if st.peers == 1),
+            "SyncStatus { peers: 1, .. }",
+            200,
+        )
+        .await
+        .expect("Peer must be registered with peers == 1");
         assert_eq!(host.connected_peers(), 1);
 
-        tokio::time::pause();
-        tokio::time::advance(Duration::from_secs(46)).await;
-
-        for _ in 0..100 {
-            if host.connected_peers() == 0 {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
+        // Upewnij się, że zadanie sesji peera (run_host_peer_session) rozpoczęło bieg
+        // i zarejestrowało timer bezczynności (idle_sleep) w bieżącym czasie wirtualnym.
+        for _ in 0..10 {
+            tokio::task::yield_now().await;
         }
+
+        tokio::time::advance(IDLE_TIMEOUT + Duration::from_millis(1)).await;
+
+        tokio::task::yield_now().await;
+
+        let events_cleanup = wait_for_host_event_matching(
+            &host_rx,
+            |evt| matches!(evt, SyncEvent::Status(st) if st.peers == 0),
+            "SyncStatus { peers: 0, .. }",
+            200,
+        )
+        .await
+        .expect("Cleanup must emit SyncStatus with peers == 0");
 
         assert_eq!(host.connected_peers(), 0);
 
-        let mut timeout_reported = false;
-        while let Ok(evt) = host_rx.try_recv() {
-            if let SyncEvent::Error(SyncError::Timeout) = evt {
-                timeout_reported = true;
+        let mut timeout_reported = events_cleanup
+            .iter()
+            .any(|evt| matches!(evt, SyncEvent::Error(SyncError::Timeout)));
+        if !timeout_reported {
+            while let Ok(evt) = host_rx.try_recv() {
+                if let SyncEvent::Error(SyncError::Timeout) = evt {
+                    timeout_reported = true;
+                }
             }
         }
         assert!(
@@ -995,6 +1043,339 @@ mod tests {
 
         drop(handshake_res);
         host.stop();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn idle_peer_cleanup_event_follows_map_removal() {
+        let (host_tx, host_rx) = std::sync::mpsc::channel();
+        let mut host = SyncHost::bind(
+            "127.0.0.1:0".parse().unwrap(),
+            "HOST_STATION".to_string(),
+            "shared_secret".to_string(),
+            host_tx,
+        )
+        .await
+        .unwrap();
+
+        let s = tokio::net::TcpStream::connect(host.local_addr())
+            .await
+            .unwrap();
+        let handshake_res = peer_handshake(s, "SILENT_PEER", "shared_secret")
+            .await
+            .unwrap();
+
+        let _ = wait_for_host_event_matching(
+            &host_rx,
+            |evt| matches!(evt, SyncEvent::Status(st) if st.peers == 1),
+            "SyncStatus { peers: 1, .. }",
+            200,
+        )
+        .await
+        .expect("Peer connected");
+        assert_eq!(host.connected_peers(), 1);
+
+        // Upewnij się, że zadanie sesji peera (run_host_peer_session) rozpoczęło bieg
+        // i zarejestrowało timer bezczynności (idle_sleep) w bieżącym czasie wirtualnym.
+        for _ in 0..10 {
+            tokio::task::yield_now().await;
+        }
+
+        tokio::time::advance(IDLE_TIMEOUT + Duration::from_millis(1)).await;
+
+        let mut peer_count_at_status_zero = None;
+        let mut timeout_seen_before_or_at_status = false;
+
+        for _ in 0..200 {
+            while let Ok(evt) = host_rx.try_recv() {
+                if matches!(evt, SyncEvent::Error(SyncError::Timeout)) {
+                    timeout_seen_before_or_at_status = true;
+                }
+                if matches!(evt, SyncEvent::Status(ref st) if st.peers == 0) {
+                    peer_count_at_status_zero = Some(host.connected_peers());
+                    break;
+                }
+            }
+            if peer_count_at_status_zero.is_some() {
+                break;
+            }
+            tokio::task::yield_now().await;
+            tokio::time::advance(Duration::from_millis(1)).await;
+        }
+
+        assert_eq!(
+            peer_count_at_status_zero,
+            Some(0),
+            "peer removed from map -> Status(peers == 0) published: connected_peers() must be 0 at Status(peers == 0)"
+        );
+        assert!(
+            timeout_seen_before_or_at_status,
+            "SyncError::Timeout must precede or accompany Status(peers == 0)"
+        );
+
+        drop(handshake_res);
+        host.stop();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn idle_peer_timeout_uses_virtual_time() {
+        let wall_start = std::time::Instant::now();
+        let virt_start = tokio::time::Instant::now();
+
+        let (host_tx, host_rx) = std::sync::mpsc::channel();
+        let mut host = SyncHost::bind(
+            "127.0.0.1:0".parse().unwrap(),
+            "HOST_STATION".to_string(),
+            "shared_secret".to_string(),
+            host_tx,
+        )
+        .await
+        .unwrap();
+
+        let s = tokio::net::TcpStream::connect(host.local_addr())
+            .await
+            .unwrap();
+        let handshake_res = peer_handshake(s, "SILENT_PEER", "shared_secret")
+            .await
+            .unwrap();
+
+        let _ = wait_for_host_event_matching(
+            &host_rx,
+            |evt| matches!(evt, SyncEvent::Status(st) if st.peers == 1),
+            "SyncStatus { peers: 1, .. }",
+            200,
+        )
+        .await
+        .expect("Peer connected");
+
+        for _ in 0..10 {
+            tokio::task::yield_now().await;
+        }
+
+        tokio::time::advance(IDLE_TIMEOUT + Duration::from_millis(1)).await;
+
+        let _ = wait_for_host_event_matching(
+            &host_rx,
+            |evt| matches!(evt, SyncEvent::Status(st) if st.peers == 0),
+            "SyncStatus { peers: 0, .. }",
+            200,
+        )
+        .await
+        .expect("Cleanup event");
+
+        assert_eq!(host.connected_peers(), 0);
+
+        let virt_elapsed = tokio::time::Instant::now().duration_since(virt_start);
+        let wall_elapsed = wall_start.elapsed();
+
+        assert!(
+            virt_elapsed >= IDLE_TIMEOUT,
+            "Virtual time must have advanced past IDLE_TIMEOUT (45s)"
+        );
+        assert!(
+            wall_elapsed < Duration::from_secs(5),
+            "Wall clock time must remain negligible (< 5s), actual: {wall_elapsed:?}",
+        );
+
+        drop(handshake_res);
+        host.stop();
+    }
+
+    #[test]
+    fn idle_peer_timeout_test_has_no_wall_clock_sleep() {
+        let src = include_str!("mod.rs");
+        let start_marker = "async fn idle_peer_is_dropped_after_timeout()";
+        let test_fn = src
+            .split(start_marker)
+            .nth(1)
+            .expect("idle_peer_is_dropped_after_timeout function must exist in mod.rs");
+        let body = test_fn
+            .split("#[tokio::test")
+            .next()
+            .expect("test body must end before next test");
+        assert!(
+            !body.contains("std::thread::sleep"),
+            "idle_peer_is_dropped_after_timeout must not use std::thread::sleep"
+        );
+        assert!(
+            !body.contains("tokio::time::sleep"),
+            "idle_peer_is_dropped_after_timeout must not use tokio::time::sleep"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn idle_peer_active_peer_is_not_dropped_before_idle_timeout() {
+        let (host_tx, host_rx) = std::sync::mpsc::channel();
+        let mut host = SyncHost::bind(
+            "127.0.0.1:0".parse().unwrap(),
+            "HOST_STATION".to_string(),
+            "shared_secret".to_string(),
+            host_tx,
+        )
+        .await
+        .unwrap();
+
+        let s = tokio::net::TcpStream::connect(host.local_addr())
+            .await
+            .unwrap();
+        let handshake_res = peer_handshake(s, "SILENT_PEER", "shared_secret")
+            .await
+            .unwrap();
+
+        let _ = wait_for_host_event_matching(
+            &host_rx,
+            |evt| matches!(evt, SyncEvent::Status(st) if st.peers == 1),
+            "SyncStatus { peers: 1, .. }",
+            200,
+        )
+        .await
+        .expect("Peer connected");
+
+        for _ in 0..10 {
+            tokio::task::yield_now().await;
+        }
+
+        tokio::time::advance(Duration::from_secs(40)).await;
+        for _ in 0..10 {
+            tokio::task::yield_now().await;
+        }
+
+        assert_eq!(host.connected_peers(), 1);
+        while let Ok(evt) = host_rx.try_recv() {
+            if let SyncEvent::Error(SyncError::Timeout) = evt {
+                panic!("Timeout error occurred prematurely before 45s");
+            }
+            if let SyncEvent::Status(st) = evt {
+                assert_eq!(st.peers, 1, "Peer count must remain 1 before timeout");
+            }
+        }
+
+        tokio::time::advance(Duration::from_millis(5001)).await;
+        let _ = wait_for_host_event_matching(
+            &host_rx,
+            |evt| matches!(evt, SyncEvent::Status(st) if st.peers == 0),
+            "SyncStatus { peers: 0, .. }",
+            200,
+        )
+        .await
+        .expect("Cleanup event after IDLE_TIMEOUT");
+
+        assert_eq!(host.connected_peers(), 0);
+
+        drop(handshake_res);
+        host.stop();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn idle_peer_count_reaches_zero_after_timeout_cleanup() {
+        let (host_tx, host_rx) = std::sync::mpsc::channel();
+        let mut host = SyncHost::bind(
+            "127.0.0.1:0".parse().unwrap(),
+            "HOST_STATION".to_string(),
+            "shared_secret".to_string(),
+            host_tx,
+        )
+        .await
+        .unwrap();
+
+        let s = tokio::net::TcpStream::connect(host.local_addr())
+            .await
+            .unwrap();
+        let handshake_res = peer_handshake(s, "SILENT_PEER", "shared_secret")
+            .await
+            .unwrap();
+
+        let _ = wait_for_host_event_matching(
+            &host_rx,
+            |evt| matches!(evt, SyncEvent::Status(st) if st.peers == 1),
+            "SyncStatus { peers: 1, .. }",
+            200,
+        )
+        .await
+        .expect("Peer connected");
+
+        assert_eq!(host.connected_peers(), 1);
+        assert_eq!(host.peer_stations(), vec!["SILENT_PEER"]);
+
+        for _ in 0..10 {
+            tokio::task::yield_now().await;
+        }
+
+        tokio::time::advance(IDLE_TIMEOUT + Duration::from_millis(1)).await;
+
+        let _ = wait_for_host_event_matching(
+            &host_rx,
+            |evt| matches!(evt, SyncEvent::Status(st) if st.peers == 0),
+            "SyncStatus { peers: 0, .. }",
+            200,
+        )
+        .await
+        .expect("Cleanup event");
+
+        assert_eq!(host.connected_peers(), 0);
+        assert_eq!(host.peer_stations(), Vec::<String>::new());
+
+        drop(handshake_res);
+        host.stop();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn idle_peer_host_shutdown_after_idle_cleanup_is_clean() {
+        let (host_tx, host_rx) = std::sync::mpsc::channel();
+        let mut host = SyncHost::bind(
+            "127.0.0.1:0".parse().unwrap(),
+            "HOST_STATION".to_string(),
+            "shared_secret".to_string(),
+            host_tx,
+        )
+        .await
+        .unwrap();
+
+        let s = tokio::net::TcpStream::connect(host.local_addr())
+            .await
+            .unwrap();
+        let handshake_res = peer_handshake(s, "SILENT_PEER", "shared_secret")
+            .await
+            .unwrap();
+
+        let _ = wait_for_host_event_matching(
+            &host_rx,
+            |evt| matches!(evt, SyncEvent::Status(st) if st.peers == 1),
+            "SyncStatus { peers: 1, .. }",
+            200,
+        )
+        .await
+        .expect("Peer connected");
+
+        for _ in 0..10 {
+            tokio::task::yield_now().await;
+        }
+
+        tokio::time::advance(IDLE_TIMEOUT + Duration::from_millis(1)).await;
+
+        let _ = wait_for_host_event_matching(
+            &host_rx,
+            |evt| matches!(evt, SyncEvent::Status(st) if st.peers == 0),
+            "SyncStatus { peers: 0, .. }",
+            200,
+        )
+        .await
+        .expect("Cleanup event");
+
+        drop(handshake_res);
+        host.stop();
+
+        let mut starting_seen = false;
+        while let Ok(evt) = host_rx.try_recv() {
+            if matches!(evt, SyncEvent::Status(st) if st.state == SyncState::Starting && st.peers == 0)
+            {
+                starting_seen = true;
+            }
+        }
+        assert!(
+            starting_seen,
+            "Host stop must transition to SyncState::Starting with 0 peers"
+        );
+        assert_eq!(host.connected_peers(), 0);
     }
 
     #[tokio::test]
