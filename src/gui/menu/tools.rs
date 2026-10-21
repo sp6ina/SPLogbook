@@ -135,7 +135,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         );
         ui.separator();
         if ui.button(tr(key::STATION_EQUIPMENT, lang)).clicked() {
-            app.show_ledger_window = true;
+            app.ledger.show_window = true;
             ui.close();
         }
         if ui

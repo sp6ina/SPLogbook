@@ -16,8 +16,7 @@ use crate::core::qso::QsoRecord;
 use crate::core::scp::ScpEngine;
 use crate::core::service_db::{QslManagerRecord, ServiceDatabase};
 use crate::core::station::{
-    AppConfig, EquipmentCategory, EquipmentItem, StationProfile, ViewPanelConfig,
-    VoiceKeyerMessage, WorkspaceProfile,
+    AppConfig, StationProfile, ViewPanelConfig, VoiceKeyerMessage, WorkspaceProfile,
 };
 use crate::gui::astronomy_dialog::AstronomyDialog;
 use crate::gui::awards_matrix::render_awards_matrix_window;
@@ -215,20 +214,7 @@ pub struct SpLogApp {
     pub cw: crate::gui::state::CwMacroState,
 
     // Księga sprzętowa i CRUD
-    pub show_ledger_window: bool,
-    pub equipment_items: Vec<EquipmentItem>,
-    pub new_eq_model: String,
-    pub editing_equipment_id: Option<String>,
-    pub edit_eq_cat: EquipmentCategory,
-    pub edit_eq_mfr: String,
-    pub edit_eq_model: String,
-    pub edit_eq_sn: String,
-    pub edit_eq_date: String,
-    pub edit_eq_notes: String,
-    pub new_eq_cat: EquipmentCategory,
-    pub new_eq_mfr: String,
-    pub new_eq_sn: String,
-    pub new_eq_notes: String,
+    pub ledger: crate::gui::state::EquipmentLedgerState,
 
     // Motyw i konfiguracja stacji
     pub theme_preset: crate::gui::theme::ThemePreset,
@@ -734,7 +720,6 @@ impl SpLogApp {
         let (wsjtx_tx, wsjtx_rx) = std::sync::mpsc::channel();
 
         let sample_spots = Vec::new();
-        let equipment_items = init.config.equipment;
 
         let rig = RigState {
             frequency_hz: 14_025_000,
@@ -886,20 +871,7 @@ impl SpLogApp {
 
             cw: crate::gui::state::CwMacroState::default(),
 
-            show_ledger_window: false,
-            equipment_items,
-            new_eq_model: String::new(),
-            editing_equipment_id: None,
-            edit_eq_cat: EquipmentCategory::Transceiver,
-            edit_eq_mfr: String::new(),
-            edit_eq_model: String::new(),
-            edit_eq_sn: String::new(),
-            edit_eq_date: String::new(),
-            edit_eq_notes: String::new(),
-            new_eq_cat: EquipmentCategory::Transceiver,
-            new_eq_mfr: String::new(),
-            new_eq_sn: String::new(),
-            new_eq_notes: String::new(),
+            ledger: crate::gui::state::EquipmentLedgerState::with_items(init.config.equipment),
 
             theme_preset: if init.config.theme_preset.is_empty() {
                 if !init.config.dark_theme {

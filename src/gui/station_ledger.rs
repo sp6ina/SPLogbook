@@ -20,12 +20,12 @@ fn category_label(cat: &EquipmentCategory, lang: Language) -> &str {
 }
 
 pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
-    if !app.show_ledger_window {
+    if !app.ledger.show_window {
         return;
     }
 
     let lang = app.current_language;
-    let mut open = app.show_ledger_window;
+    let mut open = app.ledger.show_window;
     let mut close_req = false;
     let mut item_to_delete: Option<String> = None;
     let mut item_to_edit: Option<EquipmentItem> = None;
@@ -93,7 +93,7 @@ pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     ui.label(format!(
                         "({} {})",
                         tr(key::LEDGER_TOTAL_ITEMS, lang),
-                        app.equipment_items.len()
+                        app.ledger.items.len()
                     ));
                 });
 
@@ -130,7 +130,7 @@ pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 );
                                 ui.end_row();
 
-                                for item in &app.equipment_items {
+                                for item in &app.ledger.items {
                                     let cat_name = category_label(&item.category, lang);
                                     ui.label(cat_name);
                                     ui.label(&item.manufacturer);
@@ -165,7 +165,7 @@ pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 ui.separator();
 
                 // Formularz dodawania lub edycji sprzętu
-                if let Some(ref edit_id) = app.editing_equipment_id.clone() {
+                if let Some(ref edit_id) = app.ledger.editing_id.clone() {
                     ui.group(|ui| {
                         ui.label(
                             egui::RichText::new(tr(key::LEDGER_EDIT_ITEM, lang))
@@ -179,11 +179,11 @@ pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             .show(ui, |ui| {
                                 ui.label(format!("{}:", tr(key::LEDGER_COL_CATEGORY, lang)));
                                 egui::ComboBox::from_id_salt("edit_eq_cat")
-                                    .selected_text(category_label(&app.edit_eq_cat, lang))
+                                    .selected_text(category_label(&app.ledger.edit_cat, lang))
                                     .show_ui(ui, |ui| {
                                         for cat in EquipmentCategory::all() {
                                             ui.selectable_value(
-                                                &mut app.edit_eq_cat,
+                                                &mut app.ledger.edit_cat,
                                                 *cat,
                                                 category_label(cat, lang),
                                             );
@@ -193,35 +193,35 @@ pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
                                 ui.label(format!("{}:", tr(key::LEDGER_COL_MANUFACTURER, lang)));
                                 ui.add(
-                                    egui::TextEdit::singleline(&mut app.edit_eq_mfr)
+                                    egui::TextEdit::singleline(&mut app.ledger.edit_mfr)
                                         .desired_width(220.0),
                                 );
                                 ui.end_row();
 
                                 ui.label(format!("{}:", tr(key::LEDGER_COL_MODEL, lang)));
                                 ui.add(
-                                    egui::TextEdit::singleline(&mut app.edit_eq_model)
+                                    egui::TextEdit::singleline(&mut app.ledger.edit_model)
                                         .desired_width(220.0),
                                 );
                                 ui.end_row();
 
                                 ui.label(format!("{}:", tr(key::LEDGER_COL_SERIAL, lang)));
                                 ui.add(
-                                    egui::TextEdit::singleline(&mut app.edit_eq_sn)
+                                    egui::TextEdit::singleline(&mut app.ledger.edit_sn)
                                         .desired_width(220.0),
                                 );
                                 ui.end_row();
 
                                 ui.label(format!("{}:", tr(key::LEDGER_COL_PURCHASE_DATE, lang)));
                                 ui.add(
-                                    egui::TextEdit::singleline(&mut app.edit_eq_date)
+                                    egui::TextEdit::singleline(&mut app.ledger.edit_date)
                                         .desired_width(220.0),
                                 );
                                 ui.end_row();
 
                                 ui.label(format!("{}:", tr(key::LEDGER_COL_NOTES, lang)));
                                 ui.add(
-                                    egui::TextEdit::singleline(&mut app.edit_eq_notes)
+                                    egui::TextEdit::singleline(&mut app.ledger.edit_notes)
                                         .desired_width(320.0),
                                 );
                                 ui.end_row();
@@ -239,7 +239,7 @@ pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 app.save_edited_equipment(edit_id);
                             }
                             if ui.button(tr(key::BTN_CANCEL, lang)).clicked() {
-                                app.editing_equipment_id = None;
+                                app.ledger.editing_id = None;
                             }
                         });
                     });
@@ -257,11 +257,11 @@ pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             .show(ui, |ui| {
                                 ui.label(format!("{}:", tr(key::LEDGER_COL_CATEGORY, lang)));
                                 egui::ComboBox::from_id_salt("new_eq_cat")
-                                    .selected_text(category_label(&app.new_eq_cat, lang))
+                                    .selected_text(category_label(&app.ledger.new_cat, lang))
                                     .show_ui(ui, |ui| {
                                         for cat in EquipmentCategory::all() {
                                             ui.selectable_value(
-                                                &mut app.new_eq_cat,
+                                                &mut app.ledger.new_cat,
                                                 *cat,
                                                 category_label(cat, lang),
                                             );
@@ -270,27 +270,27 @@ pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
                                 ui.label(format!("{}:", tr(key::LEDGER_COL_MANUFACTURER, lang)));
                                 ui.add(
-                                    egui::TextEdit::singleline(&mut app.new_eq_mfr)
+                                    egui::TextEdit::singleline(&mut app.ledger.new_mfr)
                                         .hint_text(tr(key::LEDGER_HINT_MAKE, lang)),
                                 );
                                 ui.end_row();
 
                                 ui.label(format!("{}:", tr(key::LEDGER_COL_MODEL, lang)));
                                 ui.add(
-                                    egui::TextEdit::singleline(&mut app.new_eq_model)
+                                    egui::TextEdit::singleline(&mut app.ledger.new_model)
                                         .hint_text(tr(key::LEDGER_HINT_MODEL, lang)),
                                 );
 
                                 ui.label(format!("{}:", tr(key::LEDGER_COL_SERIAL, lang)));
                                 ui.add(
-                                    egui::TextEdit::singleline(&mut app.new_eq_sn)
+                                    egui::TextEdit::singleline(&mut app.ledger.new_sn)
                                         .hint_text(tr(key::LEDGER_HINT_OPTIONAL, lang)),
                                 );
                                 ui.end_row();
 
                                 ui.label(format!("{}:", tr(key::LEDGER_COL_NOTES, lang)));
                                 ui.add(
-                                    egui::TextEdit::singleline(&mut app.new_eq_notes)
+                                    egui::TextEdit::singleline(&mut app.ledger.new_notes)
                                         .hint_text(tr(key::LEDGER_HINT_NOTES, lang)),
                                 );
                                 ui.end_row();
@@ -304,7 +304,7 @@ pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     .color(palette.success),
                             )
                             .clicked()
-                            && !app.new_eq_model.trim().is_empty()
+                            && !app.ledger.new_model.trim().is_empty()
                         {
                             app.add_new_equipment();
                         }
@@ -322,19 +322,19 @@ pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
     if close_req {
         open = false;
     }
-    app.show_ledger_window = open;
+    app.ledger.show_window = open;
 
     if let Some(id) = item_to_delete {
         app.delete_equipment_item(&id);
     }
 
     if let Some(item) = item_to_edit {
-        app.editing_equipment_id = Some(item.id.clone());
-        app.edit_eq_cat = item.category;
-        app.edit_eq_mfr = item.manufacturer;
-        app.edit_eq_model = item.model;
-        app.edit_eq_sn = item.serial_number.unwrap_or_default();
-        app.edit_eq_date = item.purchase_date.unwrap_or_default();
-        app.edit_eq_notes = item.notes.unwrap_or_default();
+        app.ledger.editing_id = Some(item.id.clone());
+        app.ledger.edit_cat = item.category;
+        app.ledger.edit_mfr = item.manufacturer;
+        app.ledger.edit_model = item.model;
+        app.ledger.edit_sn = item.serial_number.unwrap_or_default();
+        app.ledger.edit_date = item.purchase_date.unwrap_or_default();
+        app.ledger.edit_notes = item.notes.unwrap_or_default();
     }
 }

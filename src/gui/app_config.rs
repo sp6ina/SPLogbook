@@ -32,7 +32,7 @@ impl SpLogApp {
             secret_store_id: self.secret_store_id.clone(),
             is_configured,
             station: self.my_station.clone(),
-            equipment: self.equipment_items.clone(),
+            equipment: self.ledger.items.clone(),
             dark_theme: self.theme_preset.is_dark(),
             theme_preset: self.theme_preset.id().to_string(),
 
@@ -215,70 +215,71 @@ impl SpLogApp {
 
     pub fn add_new_equipment(&mut self) {
         let next_num = self
-            .equipment_items
+            .ledger
+            .items
             .iter()
             .filter_map(|e| {
                 e.id.strip_prefix("eq-")
                     .and_then(|s| s.parse::<usize>().ok())
             })
             .max()
-            .unwrap_or(self.equipment_items.len())
+            .unwrap_or(self.ledger.items.len())
             + 1;
         let item = EquipmentItem {
             id: format!("eq-{next_num}"),
-            category: self.new_eq_cat,
-            manufacturer: self.new_eq_mfr.trim().to_string(),
-            model: self.new_eq_model.trim().to_string(),
-            serial_number: if self.new_eq_sn.trim().is_empty() {
+            category: self.ledger.new_cat,
+            manufacturer: self.ledger.new_mfr.trim().to_string(),
+            model: self.ledger.new_model.trim().to_string(),
+            serial_number: if self.ledger.new_sn.trim().is_empty() {
                 None
             } else {
-                Some(self.new_eq_sn.trim().to_string())
+                Some(self.ledger.new_sn.trim().to_string())
             },
             purchase_date: Some(chrono::Utc::now().format("%Y-%m-%d").to_string()),
-            notes: if self.new_eq_notes.trim().is_empty() {
+            notes: if self.ledger.new_notes.trim().is_empty() {
                 None
             } else {
-                Some(self.new_eq_notes.trim().to_string())
+                Some(self.ledger.new_notes.trim().to_string())
             },
         };
-        self.equipment_items.push(item);
-        self.new_eq_model.clear();
-        self.new_eq_sn.clear();
-        self.new_eq_notes.clear();
+        self.ledger.items.push(item);
+        self.ledger.new_model.clear();
+        self.ledger.new_sn.clear();
+        self.ledger.new_notes.clear();
         self.save_station_config();
         self.status_message = Some(tr(key::EQ_ADDED, self.current_language).to_string());
     }
 
     pub fn save_edited_equipment(&mut self, id: &str) {
-        if let Some(item) = self.equipment_items.iter_mut().find(|i| i.id == id) {
-            item.category = self.edit_eq_cat;
-            item.manufacturer = self.edit_eq_mfr.trim().to_string();
-            item.model = self.edit_eq_model.trim().to_string();
-            item.serial_number = if self.edit_eq_sn.trim().is_empty() {
+        if let Some(item) = self.ledger.items.iter_mut().find(|i| i.id == id) {
+            item.category = self.ledger.edit_cat;
+            item.manufacturer = self.ledger.edit_mfr.trim().to_string();
+            item.model = self.ledger.edit_model.trim().to_string();
+            item.serial_number = if self.ledger.edit_sn.trim().is_empty() {
                 None
             } else {
-                Some(self.edit_eq_sn.trim().to_string())
+                Some(self.ledger.edit_sn.trim().to_string())
             };
-            item.purchase_date = if self.edit_eq_date.trim().is_empty() {
+            item.purchase_date = if self.ledger.edit_date.trim().is_empty() {
                 None
             } else {
-                Some(self.edit_eq_date.trim().to_string())
+                Some(self.ledger.edit_date.trim().to_string())
             };
-            item.notes = if self.edit_eq_notes.trim().is_empty() {
+            item.notes = if self.ledger.edit_notes.trim().is_empty() {
                 None
             } else {
-                Some(self.edit_eq_notes.trim().to_string())
+                Some(self.ledger.edit_notes.trim().to_string())
             };
         }
-        self.editing_equipment_id = None;
+        self.ledger.editing_id = None;
         self.save_station_config();
         self.status_message = Some(tr(key::EQ_UPDATED, self.current_language).to_string());
     }
 
     pub fn delete_equipment_item(&mut self, id: &str) {
-        self.equipment_items.retain(|i| i.id != id);
-        if self.editing_equipment_id.as_deref() == Some(id) {
-            self.editing_equipment_id = None;
+        self.ledger.items.retain(|i| i.id != id);
+        if self.ledger.editing_id.as_deref() == Some(id) {
+            self.ledger.editing_id = None;
         }
         self.save_station_config();
         self.status_message = Some(tr(key::EQ_DELETED, self.current_language).to_string());

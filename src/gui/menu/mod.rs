@@ -297,7 +297,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .on_hover_text(tr(key::TOOLBAR_EQUIPMENT_TOOLTIP, lang))
                 .clicked()
         {
-            app.show_ledger_window = !app.show_ledger_window;
+            app.ledger.show_window = !app.ledger.show_window;
         }
 
         if app.quick_access.show_eme
