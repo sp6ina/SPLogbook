@@ -52,7 +52,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .button(icons::CLUSTER.label(tr(key::TOOLS_WSPR_MONITOR, lang)))
             .clicked()
         {
-            app.show_wspr_window = true;
+            app.wspr.show_window = true;
             ui.close();
         }
         if ui

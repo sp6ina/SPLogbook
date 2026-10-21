@@ -7,6 +7,7 @@ pub mod ledger;
 pub mod marketplace;
 pub mod satellite;
 pub mod voice_keyer;
+pub mod wspr;
 
 pub use cw::CwMacroState;
 pub use duplicates::DuplicatesState;
@@ -14,3 +15,4 @@ pub use ledger::EquipmentLedgerState;
 pub use marketplace::MarketplaceState;
 pub use satellite::SatelliteState;
 pub use voice_keyer::VoiceKeyerState;
+pub use wspr::{WsprFetchSlot, WsprState};

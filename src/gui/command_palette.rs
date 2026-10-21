@@ -245,7 +245,7 @@ const COMMANDS: &[Command] = &[
         label_key: key::CMD_WSPR_MONITOR,
         keywords: "wspr monitor",
         run: |app| {
-            app.show_wspr_window = true;
+            app.wspr.show_window = true;
         },
     },
     Command {

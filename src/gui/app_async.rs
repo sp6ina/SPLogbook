@@ -26,19 +26,19 @@ impl SpLogApp {
 
     /// WSPR: sprawdź czy pobieranie zakończyło się
     pub fn poll_wspr_results(&mut self) {
-        if self.wspr_loading {
-            if let Some(ref slot) = self.wspr_fetch_slot.clone() {
+        if self.wspr.loading {
+            if let Some(ref slot) = self.wspr.fetch_slot.clone() {
                 if let Ok(mut guard) = slot.try_lock() {
                     if let Some(result) = guard.take() {
-                        self.wspr_loading = false;
-                        self.wspr_fetch_slot = None;
+                        self.wspr.loading = false;
+                        self.wspr.fetch_slot = None;
                         match result {
                             Ok(spots) => {
-                                self.wspr_spots = spots;
-                                self.wspr_last_error = None;
+                                self.wspr.spots = spots;
+                                self.wspr.last_error = None;
                             }
                             Err(e) => {
-                                self.wspr_last_error = Some(e.to_string());
+                                self.wspr.last_error = Some(e.to_string());
                             }
                         }
                     }
@@ -571,7 +571,7 @@ mod tests {
     fn test_poll_early_async_events_without_network() {
         let mut app = build_test_app();
         app.poll_early_async_events();
-        assert!(!app.wspr_loading);
+        assert!(!app.wspr.loading);
     }
 
     #[test]

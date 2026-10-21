@@ -8,11 +8,11 @@ use crate::gui::theme::ThemeExt;
 use eframe::egui;
 
 pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
-    if !app.show_wspr_window {
+    if !app.wspr.show_window {
         return;
     }
     let lang = app.current_language;
-    let mut open = app.show_wspr_window;
+    let mut open = app.wspr.show_window;
 
     egui::Window::new(tr(key::WSPR_TITLE, lang))
         .id(egui::Id::new("splogbook_wspr_window"))
@@ -31,7 +31,7 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 );
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if app.wspr_loading {
+                    if app.wspr.loading {
                         ui.spinner();
                         ui.label(tr(key::WSPR_FETCHING, lang));
                     } else {
@@ -48,7 +48,7 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 });
             });
 
-            if let Some(ref err) = app.wspr_last_error.clone() {
+            if let Some(ref err) = app.wspr.last_error.clone() {
                 ui.colored_label(
                     palette.danger,
                     Msg::new(key::WSPR_FETCH_ERROR).arg("err", err).text(lang),
@@ -58,15 +58,15 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
             ui.separator();
 
             // Kontrolki: jednostki odległości + trend SNR
-            if !app.wspr_spots.is_empty() {
+            if !app.wspr.spots.is_empty() {
                 ui.horizontal(|ui| {
-                    ui.checkbox(&mut app.wspr_distance_miles, tr(key::WSPR_DIST_MILES, lang));
+                    ui.checkbox(&mut app.wspr.distance_miles, tr(key::WSPR_DIST_MILES, lang));
                     ui.label(
                         egui::RichText::new(tr(key::WSPR_TREND_SNR, lang))
                             .small()
                             .color(palette.text_muted),
                     );
-                    let snrs: Vec<f64> = app.wspr_spots.iter().map(|s| s.snr as f64).collect();
+                    let snrs: Vec<f64> = app.wspr.spots.iter().map(|s| s.snr as f64).collect();
                     if snrs.len() >= 2 {
                         let min = snrs.iter().copied().fold(f64::INFINITY, f64::min);
                         let max = snrs.iter().copied().fold(f64::NEG_INFINITY, f64::max);
@@ -79,7 +79,7 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
             }
 
             // Tabela spotów
-            if app.wspr_spots.is_empty() {
+            if app.wspr.spots.is_empty() {
                 ui.vertical_centered(|ui| {
                     ui.add_space(40.0);
                     ui.label(
@@ -126,7 +126,7 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 )
                                 .ok();
 
-                                for spot in &app.wspr_spots {
+                                for spot in &app.wspr.spots {
                                     ui.label(
                                         egui::RichText::new(&spot.callsign).color(palette.accent),
                                     );
@@ -151,7 +151,7 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     if let (Some(m), Some(s)) = (my_coords, spot_coords) {
                                         let km = crate::core::geo::calculate_distance_km(m, s);
                                         let az = crate::core::geo::calculate_bearing_deg(m, s);
-                                        if app.wspr_distance_miles {
+                                        if app.wspr.distance_miles {
                                             ui.label(format!("{:.0} mi", km * 0.621_371));
                                         } else {
                                             ui.label(format!("{km:.0} km"));
@@ -169,7 +169,7 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 ui.label(
                     egui::RichText::new(
                         Msg::new(key::WSPR_TOTAL_SPOTS_COUNT)
-                            .arg("count", app.wspr_spots.len())
+                            .arg("count", app.wspr.spots.len())
                             .text(lang),
                     )
                     .small()
@@ -178,17 +178,17 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
             }
         });
 
-    app.show_wspr_window = open;
+    app.wspr.show_window = open;
 }
 
 /// Uruchamia asynchroniczne pobieranie spotów WSPR w tle Tokio.
-/// Wynik zapisuje do app.wspr_spots przez kanał.
+/// Wynik zapisuje do app.wspr.spots przez kanał.
 fn fetch_wspr_spots_async(app: &mut SpLogApp, ctx: &egui::Context) {
-    if app.wspr_loading {
+    if app.wspr.loading {
         return;
     }
-    app.wspr_loading = true;
-    app.wspr_last_error = None;
+    app.wspr.loading = true;
+    app.wspr.last_error = None;
 
     let callsign = app.my_station.callsign.clone();
     let ctx_clone = ctx.clone();
@@ -211,5 +211,5 @@ fn fetch_wspr_spots_async(app: &mut SpLogApp, ctx: &egui::Context) {
     });
 
     // Zapisujemy Arc w app żeby móc odczytać w następnej klatce
-    app.wspr_fetch_slot = Some(result_slot);
+    app.wspr.fetch_slot = Some(result_slot);
 }

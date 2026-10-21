@@ -169,16 +169,7 @@ pub struct SpLogApp {
     )>,
 
     // WSPR Monitor
-    pub wspr_spots: Vec<crate::cloud::wspr::WsprSpot>,
-    pub wspr_loading: bool,
-    pub wspr_last_error: Option<String>,
-    pub wspr_fetch_slot: Option<
-        std::sync::Arc<
-            std::sync::Mutex<
-                Option<Result<Vec<crate::cloud::wspr::WsprSpot>, crate::cloud::wspr::WsprError>>,
-            >,
-        >,
-    >,
+    pub wspr: crate::gui::state::WsprState,
 
     // Moduł Satelitów
     pub satellites: crate::gui::state::SatelliteState,
@@ -192,9 +183,6 @@ pub struct SpLogApp {
         >,
     >,
     pub solar_last_alert: Option<String>,
-
-    // Jednostki odległości w monitorze WSPR
-    pub wspr_distance_miles: bool,
 
     // Moduł Zawodów
     pub show_contest_window: bool,
@@ -509,7 +497,6 @@ pub struct SpLogApp {
 
     // PSK Reporter / WSPR monitoring
     pub show_pskreporter_window: bool,
-    pub show_wspr_window: bool,
 
     // REST API server flag
     pub rest_api_enabled: bool,
@@ -839,10 +826,7 @@ impl SpLogApp {
             space_weather: SpaceWeather::default(),
             solar_propagation_cache: None,
 
-            wspr_spots: Vec::new(),
-            wspr_loading: false,
-            wspr_last_error: None,
-            wspr_fetch_slot: None,
+            wspr: crate::gui::state::WsprState::default(),
 
             satellites: crate::gui::state::SatelliteState::default(),
 
@@ -850,8 +834,6 @@ impl SpLogApp {
             solar_loading: false,
             solar_fetch_slot: None,
             solar_last_alert: None,
-
-            wspr_distance_miles: false,
 
             show_contest_window: false,
             contest_name: "SP DX Contest".to_string(),
@@ -1133,7 +1115,6 @@ impl SpLogApp {
 
             // PSK Reporter / WSPR
             show_pskreporter_window: false,
-            show_wspr_window: false,
 
             // REST API
             rest_api_enabled: false,
@@ -1697,7 +1678,7 @@ impl eframe::App for SpLogApp {
                     .render(ctx, &db, &my_call, self.current_language);
             }
         }
-        if self.show_wspr_window {
+        if self.wspr.show_window {
             crate::gui::wspr_panel::render_wspr_window(self, ctx);
         }
 
