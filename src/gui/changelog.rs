@@ -70,10 +70,10 @@ pub const CHANGELOG: &[ChangeLogEntry] = &[
 
 /// Okno „Dziennik zmian” pokazujące różnice wersji wprost w aplikacji.
 pub fn render_changelog_window(app: &mut SpLogApp, ctx: &egui::Context) {
-    if !app.show_changelog_window {
+    if !app.updates.show_changelog_window {
         return;
     }
-    let mut is_open = app.show_changelog_window;
+    let mut is_open = app.updates.show_changelog_window;
     let lang = app.current_language;
     egui::Window::new(tr(key::CHANGELOG_WINDOW_TITLE, lang))
         .open(&mut is_open)
@@ -111,15 +111,15 @@ pub fn render_changelog_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     }
                 });
         });
-    app.show_changelog_window = is_open;
+    app.updates.show_changelog_window = is_open;
 }
 
 /// Okno „Sprawdź aktualizacje” — porównuje wersję lokalną z najnowszym wydaniem GitHub.
 pub fn render_update_check_window(app: &mut SpLogApp, ctx: &egui::Context) {
-    if !app.show_update_window {
+    if !app.updates.show_update_window {
         return;
     }
-    let mut is_open = app.show_update_window;
+    let mut is_open = app.updates.show_update_window;
     let mut close_requested = false;
     let mut do_install = false;
     let lang = app.current_language;
@@ -135,7 +135,7 @@ pub fn render_update_check_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
             ui.separator();
 
-            match &app.update_check_status {
+            match &app.updates.update_check_status {
                 None => {
                     ui.label(tr(key::UPDATE_PROMPT, lang));
                 }
@@ -144,7 +144,7 @@ pub fn render_update_check_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 }
             }
 
-            if let Some(release) = &app.update_available {
+            if let Some(release) = &app.updates.update_available {
                 ui.add_space(6.0);
                 egui::ScrollArea::vertical()
                     .id_salt("update_release_body")
@@ -154,7 +154,7 @@ pub fn render_update_check_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     });
             }
 
-            if let Some(inst) = &app.update_install_status {
+            if let Some(inst) = &app.updates.update_install_status {
                 ui.add_space(6.0);
                 ui.label(egui::RichText::new(inst).size(13.0));
             }
@@ -164,7 +164,7 @@ pub fn render_update_check_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 if ui.button(tr(key::UPDATE_CHECK_NOW, lang)).clicked() {
                     app.trigger_update_check();
                 }
-                if app.update_available.is_some()
+                if app.updates.update_available.is_some()
                     && ui.button(tr(key::UPDATE_INSTALL_RESTART, lang)).clicked()
                 {
                     do_install = true;
@@ -182,5 +182,5 @@ pub fn render_update_check_window(app: &mut SpLogApp, ctx: &egui::Context) {
     if do_install {
         app.trigger_update_install();
     }
-    app.show_update_window = is_open && !close_requested;
+    app.updates.show_update_window = is_open && !close_requested;
 }

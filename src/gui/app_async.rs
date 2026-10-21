@@ -82,51 +82,51 @@ impl SpLogApp {
 
     /// Wynik sprawdzania i instalowania aktualizacji
     pub fn poll_update_outcomes(&mut self, ctx: &egui::Context) {
-        if let Some(rx) = &self.update_check_rx {
+        if let Some(rx) = &self.updates.update_check_rx {
             if let Ok(outcome) = rx.try_recv() {
                 match outcome {
                     crate::cloud::updater::UpdateCheckOutcome::UpToDate { local } => {
-                        self.update_check_status = Some(
+                        self.updates.update_check_status = Some(
                             Msg::new(key::UPDATER_LATEST_VERSION)
                                 .arg("local", local)
                                 .text(self.current_language),
                         );
                     }
                     crate::cloud::updater::UpdateCheckOutcome::NewVersion(release) => {
-                        self.update_check_status = Some(
+                        self.updates.update_check_status = Some(
                             Msg::new(key::UPDATER_NEW_VERSION_AVAILABLE)
                                 .arg("new", &release.tag)
                                 .arg("local", env!("CARGO_PKG_VERSION"))
                                 .text(self.current_language),
                         );
-                        self.update_available = Some(release);
+                        self.updates.update_available = Some(release);
                     }
                     crate::cloud::updater::UpdateCheckOutcome::Error(e) => {
-                        self.update_check_status = Some(
+                        self.updates.update_check_status = Some(
                             Msg::new(key::UPDATER_CHECK_ERROR)
                                 .arg("err", &e.to_string())
                                 .text(self.current_language),
                         );
                     }
                 }
-                self.update_check_rx = None;
+                self.updates.update_check_rx = None;
             }
         }
 
-        if let Some(rx) = &self.update_install_rx {
+        if let Some(rx) = &self.updates.update_install_rx {
             if let Ok(msg) = rx.try_recv() {
                 let installed_ok = msg.starts_with("✅");
-                self.update_install_status = Some(msg);
-                self.update_install_rx = None;
+                self.updates.update_install_status = Some(msg);
+                self.updates.update_install_rx = None;
                 if installed_ok {
                     // Skrypt podmiany czeka na zakończenie tego procesu — zamknij aplikację.
-                    self.pending_restart = true;
+                    self.updates.pending_restart = true;
                 }
             }
         }
 
-        if self.pending_restart {
-            self.update_install_status =
+        if self.updates.pending_restart {
+            self.updates.update_install_status =
                 Some(tr(key::UPDATER_INSTALLING_RESTART, self.current_language).to_string());
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }

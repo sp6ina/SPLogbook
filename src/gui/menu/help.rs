@@ -82,14 +82,14 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .button(icons::CHANGELOG.label(tr(key::HELP_CHANGELOG, lang)))
             .clicked()
         {
-            app.show_changelog_window = true;
+            app.updates.show_changelog_window = true;
             ui.close();
         }
         if ui
             .button(icons::UPDATE.label(tr(key::HELP_CHECK_UPDATES, lang)))
             .clicked()
         {
-            app.show_update_window = true;
+            app.updates.show_update_window = true;
             ui.close();
         }
         if ui

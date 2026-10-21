@@ -139,10 +139,11 @@ impl SpLogApp {
 
     /// Sprawdza najnowsze wydanie na GitHub w tle i zapisuje wynik do odbiornika.
     pub fn trigger_update_check(&mut self) {
-        self.update_check_status = Some("Sprawdzanie najnowszej wersji na GitHub…".to_string());
-        self.update_available = None;
+        self.updates.update_check_status =
+            Some("Sprawdzanie najnowszej wersji na GitHub…".to_string());
+        self.updates.update_available = None;
         let (tx, rx) = std::sync::mpsc::channel::<crate::cloud::updater::UpdateCheckOutcome>();
-        self.update_check_rx = Some(rx);
+        self.updates.update_check_rx = Some(rx);
         tokio::spawn(async move {
             let outcome = match crate::cloud::updater::latest_release().await {
                 Ok(release) => {
@@ -163,18 +164,18 @@ impl SpLogApp {
 
     /// Pobiera i instaluje dostępną aktualizację w tle (self-replace + restart).
     pub fn trigger_update_install(&mut self) {
-        let Some(release) = self.update_available.clone() else {
+        let Some(release) = self.updates.update_available.clone() else {
             return;
         };
         let Some(asset) =
             crate::cloud::updater::select_asset_for_platform(&release.assets).cloned()
         else {
-            self.update_install_status =
+            self.updates.update_install_status =
                 Some("❌ Wydanie nie zawiera pliku instalacyjnego dla tego systemu.".to_string());
             return;
         };
 
-        self.update_install_status = Some(format!(
+        self.updates.update_install_status = Some(format!(
             "Pobieranie aktualizacji do v{} ({}: {})…",
             release.tag,
             asset.name,
@@ -186,7 +187,7 @@ impl SpLogApp {
         ));
 
         let (tx, rx) = std::sync::mpsc::channel::<String>();
-        self.update_install_rx = Some(rx);
+        self.updates.update_install_rx = Some(rx);
         let lang = self.current_language;
         tokio::spawn(async move {
             let msg = match crate::cloud::updater::install_update(&asset).await {
