@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::cloud::solar::BandCondition;
@@ -88,7 +88,7 @@ pub fn render_solar_window(app: &mut SpLogApp, ctx: &egui::Context) {
     .collapsible(true)
     .constrain_to(screen);
 
-    if app.reset_layout_requested {
+    if app.gui.workspace.reset_layout_requested {
         win = win.current_pos(default_pos).default_size(default_size);
     } else if let Some(pos) = app.views.panel_solar.saved_pos {
         let sz = app.views.panel_solar.saved_size.unwrap_or(default_size);

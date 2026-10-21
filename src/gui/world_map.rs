@@ -335,7 +335,7 @@ pub fn render_world_map_window(app: &mut SpLogApp, ctx: &egui::Context) {
     .collapsible(true)
     .constrain_to(screen);
 
-    if app.reset_layout_requested {
+    if app.gui.workspace.reset_layout_requested {
         win = win.current_pos(default_pos).default_size(default_size);
     } else if let Some(pos) = app.views.panel_world_map.saved_pos {
         let raw_sz = app.views.panel_world_map.saved_size.unwrap_or(default_size);

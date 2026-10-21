@@ -37,7 +37,7 @@ use crate::gui::voice_keyer::render_voice_keyer_window;
 use crate::gui::welcome_wizard::render_welcome_wizard;
 use crate::gui::world_map::render_world_map_window;
 use eframe::egui;
-use egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
+use egui_dock::{DockArea, DockState, Style, TabViewer};
 use std::fmt::Write as _;
 use std::sync::{Arc, Mutex};
 
@@ -310,24 +310,12 @@ pub struct SpLogApp {
     pub cluster_cmd_tx: Option<tokio::sync::mpsc::UnboundedSender<String>>,
 
     // Modułowy układ kafelków i okien pływających
-    pub reset_layout_requested: bool,
     pub left_column_width: f32,
     pub right_column_width: f32,
-    pub dragging_tile: Option<String>,
     pub views: crate::gui::state::ViewsState,
 
     /// Tryb zakładek w kolumnach dokowanego układu (zapis w konfiguracji).
     pub tabbed_columns: bool,
-    /// Indeks aktywnej zakładki w każdej z trzech kolumn (stan sesji).
-    pub active_tab: [usize; 3],
-
-    /// Rzeczywisty układ dokowania paneli (egui_dock): podziały, grupy
-    /// zakładek i aktywne karty. Uzupełniany/synchronizowany z konfiguracją
-    /// paneli przy każdej klatce.
-    pub dock_state: DockState<String>,
-    /// Ostatnio zapisany (lub zbudowany) układ dokowania — używany do
-    /// wykrywania zmian i unikania zbędnych zapisów konfiguracji.
-    pub last_saved_dock_layout: Option<serde_json::Value>,
 
     // Tryb kompaktowy (Mini HUD)
     pub compact_hud_mode: bool,
@@ -636,6 +624,7 @@ impl SpLogApp {
             chrome,
             appearance,
             dialogs: crate::gui::state::DialogState::default(),
+            workspace: crate::gui::state::DockWorkspace::default(),
         };
         let views = crate::gui::state::ViewsState::from_config(&init.config);
         let online = crate::gui::state::OnlineSyncUiState::from_config(&init.config);
@@ -829,9 +818,6 @@ impl SpLogApp {
 
             compact_hud_mode: init.config.compact_hud_mode,
             tabbed_columns: init.config.tabbed_columns,
-            active_tab: [0; 3],
-            dock_state: DockState::new(vec![]),
-            last_saved_dock_layout: None,
             hud_always_on_top: init.config.hud_always_on_top,
             hud_saved_pos: init.config.hud_saved_pos,
             hud_saved_size: init.config.hud_saved_size,
@@ -876,10 +862,8 @@ impl SpLogApp {
             cluster_stop_tx: None,
             cluster_cmd_tx: None,
 
-            reset_layout_requested: false,
             left_column_width: init.config.left_column_width,
             right_column_width: init.config.right_column_width,
-            dragging_tile: None,
 
             views,
 
@@ -1262,15 +1246,17 @@ impl eframe::App for SpLogApp {
                     // Tymczasowo wyjmij `dock_state`, aby uniknąć konfliktu pożyczek:
                     // `DockArea` potrzebuje `&mut dock_state`, a `TabViewer` (self)
                     // potrzebuje `&mut self`. Po renderze przywracamy stan.
-                    let mut dock_state =
-                        std::mem::replace(&mut self.dock_state, DockState::new(vec![]));
+                    let mut dock_state = std::mem::replace(
+                        &mut self.gui.workspace.dock_state,
+                        DockState::new(vec![]),
+                    );
                     DockArea::new(&mut dock_state)
                         .style(Style::from_egui(ui.style().as_ref()))
                         .show_add_buttons(false)
                         .show_add_popup(false)
                         .show_close_buttons(false)
                         .show_inside(ui, self);
-                    self.dock_state = dock_state;
+                    self.gui.workspace.dock_state = dock_state;
 
                     // Zastosuj zmiany widoczności/odpięcia wykonane przyciskami nagłówka.
                     self.sync_dock_state();
@@ -1278,10 +1264,10 @@ impl eframe::App for SpLogApp {
                     // Persystuj układ dokowania tylko po puszczeniu przycisku myszy (lub przy pierwszym zapisie),
                     // aby uniknąć alokacji drzewa JSON w każdej klatce (60 FPS).
                     let pointer_released = ui.ctx().input(|i| i.pointer.any_released());
-                    if pointer_released || self.last_saved_dock_layout.is_none() {
+                    if pointer_released || self.gui.workspace.last_saved_dock_layout.is_none() {
                         let current = self.serialize_dock_layout();
-                        if current != self.last_saved_dock_layout {
-                            self.last_saved_dock_layout = current;
+                        if current != self.gui.workspace.last_saved_dock_layout {
+                            self.gui.workspace.last_saved_dock_layout = current;
                             self.save_station_config();
                         }
                     }
@@ -1573,7 +1559,7 @@ impl eframe::App for SpLogApp {
         self.render_chrome_overlays(ctx);
 
         // Resetowanie flagi po narysowaniu i spzycjonowaniu okien w danej klatce
-        self.reset_layout_requested = false;
+        self.gui.workspace.reset_layout_requested = false;
 
         // Płynne odświeżanie zegara UTC, stanu radia CAT oraz spotów sieciowych bez obciążania procesora (4 Hz)
         ctx.request_repaint_after(std::time::Duration::from_millis(250));

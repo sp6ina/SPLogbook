@@ -20,6 +20,7 @@ pub mod solar;
 pub mod updates;
 pub mod views;
 pub mod voice_keyer;
+pub mod workspace;
 pub mod world_map;
 pub mod wspr;
 
@@ -42,5 +43,6 @@ pub use solar::{SolarFetchSlot, SolarState};
 pub use updates::UpdateState;
 pub use views::ViewsState;
 pub use voice_keyer::VoiceKeyerState;
+pub use workspace::DockWorkspace;
 pub use world_map::WorldMapState;
 pub use wspr::{WsprFetchSlot, WsprState};

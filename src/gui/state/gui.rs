@@ -6,6 +6,7 @@
 use super::appearance::AppearanceState;
 use super::chrome::ChromeState;
 use super::dialogs::DialogState;
+use super::workspace::DockWorkspace;
 
 /// Composite state representing the entire graphical interface.
 #[derive(Default)]
@@ -13,6 +14,7 @@ pub struct GuiState {
     pub chrome: ChromeState,
     pub appearance: AppearanceState,
     pub dialogs: DialogState,
+    pub workspace: DockWorkspace,
 }
 
 #[cfg(test)]

@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Wozniak (SP6INA)
 
 use crate::core::i18n::{key, tr};
@@ -113,7 +113,7 @@ pub fn render_logbook_window(app: &mut SpLogApp, ctx: &egui::Context) {
     .resizable(true)
     .collapsible(true)
     .constrain_to(screen);
-    if app.reset_layout_requested {
+    if app.gui.workspace.reset_layout_requested {
         win = win.current_pos(default_pos).default_size(default_size);
     } else if let Some(pos) = app.views.panel_log.saved_pos {
         let sz = app.views.panel_log.saved_size.unwrap_or(default_size);

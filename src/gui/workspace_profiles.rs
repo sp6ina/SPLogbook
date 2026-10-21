@@ -393,7 +393,7 @@ pub(crate) fn apply_profile(app: &mut SpLogApp, p: &WorkspaceProfile) {
     // z pól column/order, aby zmiany kolumn/kolejności miały skutek.
     if let Some(json) = &p.dock_layout {
         if let Ok(state) = serde_json::from_value::<DockState<String>>(json.clone()) {
-            app.dock_state = state;
+            app.gui.workspace.dock_state = state;
         } else {
             app.rebuild_dock_state_from_panels();
         }
@@ -402,10 +402,10 @@ pub(crate) fn apply_profile(app: &mut SpLogApp, p: &WorkspaceProfile) {
     }
     // Uzgodnij widoczność/odpięcie paneli z odtworzonym układem.
     app.sync_dock_state();
-    app.last_saved_dock_layout = app.serialize_dock_layout();
+    app.gui.workspace.last_saved_dock_layout = app.serialize_dock_layout();
 
     // Wymuś ponowny rozkład okien pływających.
-    app.reset_layout_requested = true;
+    app.gui.workspace.reset_layout_requested = true;
     app.save_station_config();
 
     // Powiadom wtyczki Rhai o zmianie profilu układu.

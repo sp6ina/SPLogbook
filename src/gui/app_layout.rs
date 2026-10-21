@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 // Układ dokowania i kafelki.
@@ -8,120 +8,36 @@ impl SpLogApp {
     /// Kolejność paneli (identyfikatorów kafelków) używana przy budowaniu
     /// układu dokowania oraz przy synchronizacji widoczności.
     pub fn all_tile_ids() -> [&'static str; 9] {
-        [
-            "vfo",
-            "qso",
-            "log",
-            "cluster",
-            "bandmap",
-            "solar",
-            "satellites",
-            "world_map",
-            "waterfall",
-        ]
+        crate::gui::state::DockWorkspace::all_tile_ids()
     }
 
     pub fn panel_config(&self, id: &str) -> &ViewPanelConfig {
-        match id {
-            "qso" => &self.views.panel_qso,
-            "log" => &self.views.panel_log,
-            "cluster" => &self.views.panel_cluster,
-            "bandmap" => &self.views.panel_bandmap,
-            "solar" => &self.views.panel_solar,
-            "satellites" => &self.views.panel_satellites,
-            "world_map" => &self.views.panel_world_map,
-            "waterfall" => &self.views.panel_waterfall,
-            _ => &self.views.panel_vfo,
-        }
+        crate::gui::state::DockWorkspace::panel_config(&self.views, id)
     }
 
     /// Buduje początkowy `DockState` z konfiguracji. Preferuje zapisany układ
     /// (`dock_layout`); w przeciwnym razie odtwarza układ kolumnowy
     /// na podstawie pól `column`/`order` poszczególnych paneli.
     pub fn build_dock_state(&mut self, dock_layout: Option<&serde_json::Value>) {
-        // 1. Spróbuj wczytać zapisany układ egui_dock.
-        if let Some(json) = dock_layout {
-            if let Ok(state) = serde_json::from_value::<DockState<String>>(json.clone()) {
-                self.dock_state = state;
-                self.sync_dock_state();
-                self.last_saved_dock_layout = self.serialize_dock_layout();
-                return;
-            }
-        }
-
-        // 2. Brak zapisanego układu — zbuduj z kolumn paneli.
-        self.rebuild_dock_state_from_panels();
-        self.last_saved_dock_layout = self.serialize_dock_layout();
+        self.gui.workspace.build(dock_layout, &self.views);
     }
 
     /// Odtwarza dokowany układ z pól `column`/`order` paneli (3 kolumny
     /// ułożone poziomo). Używane przy pierwszym uruchomieniu i po resecie.
     pub fn rebuild_dock_state_from_panels(&mut self) {
-        let mut columns: [Vec<String>; 3] = [Vec::new(), Vec::new(), Vec::new()];
-        for id in Self::all_tile_ids() {
-            let (visible, floating, column) = {
-                let cfg = self.panel_config(id);
-                (cfg.visible, cfg.floating, cfg.column.clamp(0, 2))
-            };
-            if visible && !floating {
-                columns[column].push(id.to_string());
-            }
-        }
-        for col in &mut columns {
-            col.sort_by_key(|id| self.panel_config(id).order);
-        }
-
-        // Pierwsza niepusta kolumna staje się korzeniem drzewa.
-        let first = if !columns[0].is_empty() {
-            0
-        } else if !columns[1].is_empty() {
-            1
-        } else {
-            2
-        };
-
-        self.dock_state = DockState::new(columns[first].clone());
-
-        // Dołóż pozostałe kolumny jako podziały po prawej stronie ostatniego liścia.
-        let mut rightmost = NodeIndex::root();
-        for col_items in columns.iter().skip(first + 1) {
-            if col_items.is_empty() {
-                continue;
-            }
-            let [_, new_node] =
-                self.dock_state
-                    .main_surface_mut()
-                    .split_right(rightmost, 0.5, col_items.clone());
-            rightmost = new_node;
-        }
+        self.gui.workspace.rebuild_from_views(&self.views);
     }
 
     /// Uzgadnia zawartość `dock_state` ze stanem konfiguracji paneli:
     /// usuwa karty paneli ukrytych/odpiętych i dodaje brakujące karty paneli
     /// widocznych i zadokowanych.
     pub fn sync_dock_state(&mut self) {
-        for id in Self::all_tile_ids() {
-            let (visible, floating) = {
-                let cfg = self.panel_config(id);
-                (cfg.visible, cfg.floating)
-            };
-            let should_be_docked = visible && !floating;
-            let slot = self.dock_state.find_tab(&id.to_string());
-            match (should_be_docked, slot) {
-                (false, Some(s)) => {
-                    self.dock_state.remove_tab(s);
-                }
-                (true, None) => {
-                    self.dock_state.push_to_first_leaf(id.to_string());
-                }
-                _ => {}
-            }
-        }
+        self.gui.workspace.sync_with_views(&self.views);
     }
 
     /// Serializuje bieżący układ dokowania do surowego JSON (do zapisu w konfiguracji).
     pub fn serialize_dock_layout(&self) -> Option<serde_json::Value> {
-        serde_json::to_value(&self.dock_state).ok()
+        self.gui.workspace.serialize_layout()
     }
 
     /// Renders a floating panel body inside a native multi-viewport OS window.
@@ -278,10 +194,10 @@ impl SpLogApp {
         self.show_bandmap_window = false;
         self.satellites.show_window = false;
         self.world_map.show_window = false;
-        self.reset_layout_requested = true;
+        self.gui.workspace.reset_layout_requested = true;
         // Natychmiast odtwórz dokowany układ z domyślnej konfiguracji paneli.
         self.rebuild_dock_state_from_panels();
-        self.last_saved_dock_layout = self.serialize_dock_layout();
+        self.gui.workspace.last_saved_dock_layout = self.serialize_dock_layout();
     }
 
     pub fn popout_tile(&mut self, tile_id: &str) {

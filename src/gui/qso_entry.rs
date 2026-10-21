@@ -83,7 +83,7 @@ pub fn render_qso_entry_window(app: &mut SpLogApp, ctx: &egui::Context) {
     .collapsible(true)
     .constrain_to(screen);
 
-    if app.reset_layout_requested {
+    if app.gui.workspace.reset_layout_requested {
         win = win.current_pos(default_pos).default_size(default_size);
     } else if let Some(pos) = app.views.panel_qso.saved_pos {
         let sz = app.views.panel_qso.saved_size.unwrap_or(default_size);
