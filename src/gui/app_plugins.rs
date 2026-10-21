@@ -213,6 +213,6 @@ impl SpLogApp {
             .replace("%HISCALL%", &self.entry_callsign)
             .replace("%RST%", &self.entry_rst_sent)
             .replace("%SERIAL%", &format!("{:03}", self.contest_stx));
-        self.status_message = Some(format!("Nadawanie CW ({} WPM): {}", self.cw_wpm, resolved));
+        self.status_message = Some(format!("Nadawanie CW ({} WPM): {}", self.cw.wpm, resolved));
     }
 }

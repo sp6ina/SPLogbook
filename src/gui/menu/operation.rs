@@ -136,7 +136,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .button(icons::CW_KEYER.label(tr(key::TOOLS_CW_MACROS, lang)))
             .clicked()
         {
-            app.show_cw_window = true;
+            app.cw.show_window = true;
             ui.close();
         }
         if ui

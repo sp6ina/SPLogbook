@@ -182,7 +182,7 @@ const COMMANDS: &[Command] = &[
         label_key: key::CMD_CW_TERMINAL,
         keywords: "cw terminal macros keyer",
         run: |app| {
-            app.show_cw_window = true;
+            app.cw.show_window = true;
         },
     },
     Command {

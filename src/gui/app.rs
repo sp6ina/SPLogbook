@@ -212,16 +212,7 @@ pub struct SpLogApp {
     pub custom_contests: Vec<crate::core::station::CustomContest>,
 
     // Makra Telegraficzne CW
-    pub show_cw_window: bool,
-    pub cw_wpm: u32,
-    pub cw_macro_f1: String,
-    pub cw_macro_f2: String,
-    pub cw_macro_f3: String,
-    pub cw_macro_f4: String,
-    pub cw_macro_f5: String,
-    pub cw_macro_f6: String,
-    pub cw_macro_f7: String,
-    pub cw_macro_f8: String,
+    pub cw: crate::gui::state::CwMacroState,
 
     // Księga sprzętowa i CRUD
     pub show_ledger_window: bool,
@@ -893,16 +884,7 @@ impl SpLogApp {
             custom_contest_draft: crate::core::station::CustomContest::default(),
             custom_contests: init.config.custom_contests.clone(),
 
-            show_cw_window: false,
-            cw_wpm: 28,
-            cw_macro_f1: "CQ TEST %MYCALL% %MYCALL% TEST".to_string(),
-            cw_macro_f2: "%HISCALL% 5NN %SERIAL%".to_string(),
-            cw_macro_f3: "TU %MYCALL% TEST".to_string(),
-            cw_macro_f4: "%MYCALL%".to_string(),
-            cw_macro_f5: "%HISCALL%".to_string(),
-            cw_macro_f6: "QTH %MYQTH% LOC %MYLOC%".to_string(),
-            cw_macro_f7: "%SERIAL%".to_string(),
-            cw_macro_f8: "?".to_string(),
+            cw: crate::gui::state::CwMacroState::default(),
 
             show_ledger_window: false,
             equipment_items,

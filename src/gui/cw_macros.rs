@@ -7,11 +7,11 @@ use crate::gui::theme::ThemeExt;
 use eframe::egui;
 
 pub fn render_cw_macros_window(app: &mut SpLogApp, ctx: &egui::Context) {
-    if !app.show_cw_window {
+    if !app.cw.show_window {
         return;
     }
 
-    let mut open = app.show_cw_window;
+    let mut open = app.cw.show_window;
     let mut close_req = false;
     let mut macro_to_transmit: Option<String> = None;
 
@@ -26,7 +26,7 @@ pub fn render_cw_macros_window(app: &mut SpLogApp, ctx: &egui::Context) {
             ui.vertical(|ui| {
                 ui.horizontal(|ui| {
                     ui.label(tr(key::CW_SPEED_LABEL, lang));
-                    let s_resp = ui.add(egui::Slider::new(&mut app.cw_wpm, 10..=50).text("WPM"));
+                    let s_resp = ui.add(egui::Slider::new(&mut app.cw.wpm, 10..=50).text("WPM"));
                     if s_resp.drag_stopped() || (s_resp.changed() && !s_resp.dragged()) {
                         config_changed = true;
                     }
@@ -42,56 +42,56 @@ pub fn render_cw_macros_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 render_macro_row(
                     ui,
                     tr(key::CW_MACRO_F1_LABEL, lang),
-                    &mut app.cw_macro_f1,
+                    &mut app.cw.macro_f1,
                     &mut macro_to_transmit,
                     &mut config_changed,
                 );
                 render_macro_row(
                     ui,
                     tr(key::CW_MACRO_F2_LABEL, lang),
-                    &mut app.cw_macro_f2,
+                    &mut app.cw.macro_f2,
                     &mut macro_to_transmit,
                     &mut config_changed,
                 );
                 render_macro_row(
                     ui,
                     tr(key::CW_MACRO_F3_LABEL, lang),
-                    &mut app.cw_macro_f3,
+                    &mut app.cw.macro_f3,
                     &mut macro_to_transmit,
                     &mut config_changed,
                 );
                 render_macro_row(
                     ui,
                     tr(key::CW_MACRO_F4_LABEL, lang),
-                    &mut app.cw_macro_f4,
+                    &mut app.cw.macro_f4,
                     &mut macro_to_transmit,
                     &mut config_changed,
                 );
                 render_macro_row(
                     ui,
                     tr(key::CW_MACRO_F5_LABEL, lang),
-                    &mut app.cw_macro_f5,
+                    &mut app.cw.macro_f5,
                     &mut macro_to_transmit,
                     &mut config_changed,
                 );
                 render_macro_row(
                     ui,
                     tr(key::CW_MACRO_F6_LABEL, lang),
-                    &mut app.cw_macro_f6,
+                    &mut app.cw.macro_f6,
                     &mut macro_to_transmit,
                     &mut config_changed,
                 );
                 render_macro_row(
                     ui,
                     tr(key::CW_MACRO_F7_LABEL, lang),
-                    &mut app.cw_macro_f7,
+                    &mut app.cw.macro_f7,
                     &mut macro_to_transmit,
                     &mut config_changed,
                 );
                 render_macro_row(
                     ui,
                     tr(key::CW_MACRO_F8_LABEL, lang),
-                    &mut app.cw_macro_f8,
+                    &mut app.cw.macro_f8,
                     &mut macro_to_transmit,
                     &mut config_changed,
                 );
@@ -114,7 +114,7 @@ pub fn render_cw_macros_window(app: &mut SpLogApp, ctx: &egui::Context) {
     if close_req {
         open = false;
     }
-    app.show_cw_window = open;
+    app.cw.show_window = open;
 
     if let Some(text) = macro_to_transmit {
         app.transmit_cw_macro(&text);

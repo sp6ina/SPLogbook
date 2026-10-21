@@ -153,7 +153,7 @@ impl SpLogApp {
                 self.show_world_map_window = true;
             }
             if toggle_cw {
-                self.show_cw_window = !self.show_cw_window;
+                self.cw.show_window = !self.cw.show_window;
             }
             if open_profiles {
                 self.show_station_profiles_window = !self.show_station_profiles_window;
