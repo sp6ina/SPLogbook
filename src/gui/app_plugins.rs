@@ -24,33 +24,35 @@ impl SpLogApp {
             }
         };
 
-        let award = self.active_award_status.as_ref();
+        let award = self.entry.active_award_status.as_ref();
         let last_qso = crate::plugins::bridge::QsoSnapshot {
-            callsign: self.entry_callsign.clone(),
-            band: self.entry_band.clone(),
-            mode: self.entry_mode.clone(),
+            callsign: self.entry.callsign.clone(),
+            band: self.entry.band.clone(),
+            mode: self.entry.mode.clone(),
             freq_mhz: self.rig_state.frequency_hz as f64 / 1_000_000.0,
-            name: self.entry_name.clone(),
-            qth: self.entry_qth.clone(),
-            gridsquare: self.entry_grid.clone(),
+            name: self.entry.name.clone(),
+            qth: self.entry.qth.clone(),
+            gridsquare: self.entry.grid.clone(),
             country: self
+                .entry
                 .active_prefix_info
                 .as_ref()
                 .map(|i| i.country.clone())
                 .unwrap_or_default(),
             dxcc: self
+                .entry
                 .active_prefix_info
                 .as_ref()
                 .map(|i| i.dxcc.to_string())
                 .unwrap_or_default(),
-            sota_ref: self.entry_sota.clone(),
-            pota_ref: self.entry_pota.clone(),
-            pga_ref: self.entry_pga.clone(),
-            iota: self.entry_iota.clone(),
-            state: self.entry_state.clone(),
-            rst_sent: self.entry_rst_sent.clone(),
-            rst_rcvd: self.entry_rst_rcvd.clone(),
-            comment: self.entry_comment.clone(),
+            sota_ref: self.entry.sota.clone(),
+            pota_ref: self.entry.pota.clone(),
+            pga_ref: self.entry.pga.clone(),
+            iota: self.entry.iota.clone(),
+            state: self.entry.state.clone(),
+            rst_sent: self.entry.rst_sent.clone(),
+            rst_rcvd: self.entry.rst_rcvd.clone(),
+            comment: self.entry.comment.clone(),
             is_atno: award.is_some_and(|s| s.is_new_dxcc),
             is_new_band: award.is_some_and(|s| s.is_new_band),
             is_new_mode: award.is_some_and(|s| s.is_new_mode),
@@ -66,12 +68,12 @@ impl SpLogApp {
             .set_snapshot(crate::plugins::bridge::PluginSnapshot {
                 rig_freq_mhz: self.rig_state.frequency_hz as f64 / 1_000_000.0,
                 rig_mode: self.rig_state.mode.clone(),
-                rig_band: self.entry_band.clone(),
+                rig_band: self.entry.band.clone(),
                 rig_connected: self.rig_state.connected,
                 rotor_azimuth_deg: self.rotor_state.azimuth_deg,
                 rotor_elevation_deg: self.rotor_state.elevation_deg,
                 my_call: self.config.station.callsign.clone(),
-                qso_count: self.qso_numbers.len() as i64,
+                qso_count: self.log_view.qso_numbers.len() as i64,
                 awards,
                 last_qso,
             });
@@ -215,8 +217,8 @@ impl SpLogApp {
             .replace("%MYCALL%", &self.config.station.callsign)
             .replace("%MYQTH%", &self.config.station.city)
             .replace("%MYLOC%", &self.config.station.gridsquare)
-            .replace("%HISCALL%", &self.entry_callsign)
-            .replace("%RST%", &self.entry_rst_sent)
+            .replace("%HISCALL%", &self.entry.callsign)
+            .replace("%RST%", &self.entry.rst_sent)
             .replace("%SERIAL%", &format!("{:03}", self.contest_stx));
         self.gui.chrome.status_message =
             Some(format!("Nadawanie CW ({} WPM): {}", self.cw.wpm, resolved));

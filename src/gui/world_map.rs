@@ -407,10 +407,11 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .unwrap_or(Coordinates::new(51.1079, 17.0385));
 
         // Współrzędne stacji DX
-        let dx_coords = if app.entry_grid.len() >= 4 {
-            locator_to_coordinates(&app.entry_grid).ok()
+        let dx_coords = if app.entry.grid.len() >= 4 {
+            locator_to_coordinates(&app.entry.grid).ok()
         } else {
-            app.active_prefix_info
+            app.entry
+                .active_prefix_info
                 .as_ref()
                 .map(|info| Coordinates::new(info.latitude, info.longitude))
         };
@@ -455,7 +456,7 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     egui::RichText::new(
                         Msg::new(key::MAP_DX_AZIMUTH)
                             .arg("dist", app.active_distance_display())
-                            .arg("bearing", format!("{:.0}", app.active_bearing_deg))
+                            .arg("bearing", format!("{:.0}", app.entry.active_bearing_deg))
                             .text(lang),
                     )
                     .strong()
@@ -464,13 +465,13 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 if ui
                     .small_button(
                         Msg::new(key::QSO_ROTATE_BEARING)
-                            .arg("bearing", format!("{:.0}", app.active_bearing_deg))
+                            .arg("bearing", format!("{:.0}", app.entry.active_bearing_deg))
                             .text(lang),
                     )
                     .on_hover_text(tr(key::MAP_ROTOR_TOOLTIP, lang))
                     .clicked()
                 {
-                    app.rotate_antenna_to(app.active_bearing_deg as f32);
+                    app.rotate_antenna_to(app.entry.active_bearing_deg as f32);
                 }
                 if dx_solar.is_grayline {
                     ui.colored_label(
@@ -811,7 +812,7 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
 
         // QSO Markers
-        for qso in &app.recent_qsos {
+        for qso in &app.log_view.recent_qsos {
             if let Some(grid) = &qso.gridsquare {
                 if grid.len() >= 4 {
                     if let Ok(c) = locator_to_coordinates(grid) {
@@ -931,10 +932,10 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 egui::Stroke::new(1.5_f32, palette.text_primary),
             );
 
-            let dx_label = if app.entry_callsign.is_empty() {
+            let dx_label = if app.entry.callsign.is_empty() {
                 "DX".to_string()
             } else {
-                app.entry_callsign.clone()
+                app.entry.callsign.clone()
             };
             painter.text(
                 dx_pos + egui::vec2(10.0, -5.0),

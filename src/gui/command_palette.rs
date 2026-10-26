@@ -58,7 +58,7 @@ const COMMANDS: &[Command] = &[
             app.gui
                 .dialogs
                 .send_spot_dialog
-                .open_with(&app.entry_callsign, freq_khz);
+                .open_with(&app.entry.callsign, freq_khz);
         },
     },
     Command {
@@ -101,7 +101,7 @@ const COMMANDS: &[Command] = &[
         label_key: key::CMD_STATISTICS,
         keywords: "statistics stats charts",
         run: |app| {
-            app.show_statistics_window = true;
+            app.log_view.show_statistics_window = true;
         },
     },
     Command {

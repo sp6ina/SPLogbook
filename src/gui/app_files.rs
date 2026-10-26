@@ -221,11 +221,14 @@ impl SpLogApp {
                     }
                 }
             }
-            CsvExportScope::Filtered => self.recent_qsos.clone(),
+            CsvExportScope::Filtered => self.log_view.recent_qsos.clone(),
             CsvExportScope::Selected => self
+                .log_view
                 .recent_qsos
                 .iter()
-                .filter(|q| q.id.is_some_and(|id| self.selected_qso_ids.contains(&id)))
+                .filter(|q| {
+                    q.id.is_some_and(|id| self.log_view.selected_qso_ids.contains(&id))
+                })
                 .cloned()
                 .collect(),
         };

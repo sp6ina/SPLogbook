@@ -431,7 +431,7 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
     if let Some((freq_hz, call)) = tune_target {
         app.set_vfo_frequency(freq_hz);
-        app.entry_callsign = call;
+        app.entry.callsign = call;
         app.on_callsign_changed();
     }
 }

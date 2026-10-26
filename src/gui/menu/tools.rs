@@ -45,7 +45,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .button(icons::STATS.label(tr(key::TOOLS_STATISTICS, lang)))
             .clicked()
         {
-            app.show_statistics_window = true;
+            app.log_view.show_statistics_window = true;
             ui.close();
         }
         if ui

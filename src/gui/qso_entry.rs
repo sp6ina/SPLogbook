@@ -139,11 +139,12 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     // znajduje się faktycznie w tym panelu (a nie np. w Logbooku czy innym oknie).
     let mut entry_field_ids: Vec<egui::Id> = Vec::new();
 
-    let is_dupe = !app.entry_callsign.is_empty()
+    let is_dupe = !app.entry.callsign.is_empty()
         && app
+            .entry
             .past_qsos_for_active_call
             .iter()
-            .any(|q| q.band == app.entry_band && q.mode == app.entry_mode);
+            .any(|q| q.band == app.entry.band && q.mode == app.entry.mode);
 
     // Znak korespondenta & natychmiastowe wykrywanie duplikatów
     ui.horizontal(|ui| {
@@ -159,19 +160,19 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
     ui.horizontal(|ui| {
         let call_response = ui.add(
-            egui::TextEdit::singleline(&mut app.entry_callsign)
+            egui::TextEdit::singleline(&mut app.entry.callsign)
                 .font(egui::TextStyle::Heading)
                 .hint_text("W1AW, SP6INA, DL1ABC")
                 .desired_width(ui.available_width() - 85.0),
         );
 
-        if app.focus_callsign_requested {
+        if app.entry.focus_callsign_requested {
             call_response.request_focus();
-            app.focus_callsign_requested = false;
+            app.entry.focus_callsign_requested = false;
         }
 
         if call_response.changed() {
-            app.entry_callsign = app.entry_callsign.to_uppercase();
+            app.entry.callsign = app.entry.callsign.to_uppercase();
             app.on_callsign_changed();
         }
 
@@ -186,14 +187,14 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     });
 
     // Podpowiedzi Super Check Partial (SCP)
-    if !app.scp_suggestions.is_empty() {
+    if !app.entry.scp_suggestions.is_empty() {
         ui.horizontal_wrapped(|ui| {
             ui.label(
                 egui::RichText::new("SCP:")
                     .size(11.0)
                     .color(palette.text_muted),
             );
-            for call in app.scp_suggestions.clone() {
+            for call in app.entry.scp_suggestions.clone() {
                 if ui
                     .button(
                         egui::RichText::new(&call)
@@ -203,7 +204,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     )
                     .clicked()
                 {
-                    app.entry_callsign = call;
+                    app.entry.callsign = call;
                     app.on_callsign_changed();
                 }
             }
@@ -211,14 +212,14 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     }
 
     // Lokalna korekta rozmyta (fuzzy) — propozycje poprawy błędnie wpisanego znaku
-    if !app.callsign_corrections.is_empty() {
+    if !app.entry.callsign_corrections.is_empty() {
         ui.horizontal_wrapped(|ui| {
             ui.label(
                 egui::RichText::new(tr(key::QSO_DID_YOU_MEAN, lang))
                     .size(11.0)
                     .color(palette.warning),
             );
-            for (call, _dist) in app.callsign_corrections.clone() {
+            for (call, _dist) in app.entry.callsign_corrections.clone() {
                 if ui
                     .button(
                         egui::RichText::new(&call)
@@ -228,7 +229,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     )
                     .clicked()
                 {
-                    app.entry_callsign = call;
+                    app.entry.callsign = call;
                     app.on_callsign_changed();
                 }
             }
@@ -237,7 +238,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
     // Badges informacji o kraju DXCC, prefiksie WPX i dyplomach
     ui.horizontal_wrapped(|ui| {
-        if let Some(ref info) = app.active_prefix_info {
+        if let Some(ref info) = app.entry.active_prefix_info {
             ui.colored_label(
                 palette.accent,
                 format!("📍 {} ({})", info.country, info.wpx_prefix),
@@ -250,7 +251,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     .text(lang),
             );
 
-            if let Some(ref dist) = app.active_polish_district {
+            if let Some(ref dist) = app.entry.active_polish_district {
                 ui.colored_label(
                     palette.success,
                     Msg::new(key::QSO_PZK_DISTRICT_LABEL)
@@ -258,34 +259,34 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                         .text(lang),
                 );
             }
-            if app.active_distance_km > 0.0 {
+            if app.entry.active_distance_km > 0.0 {
                 ui.colored_label(
                     palette.warning,
                     format!(
                         "🧭 {} | {:.0}°",
                         app.active_distance_display(),
-                        app.active_bearing_deg
+                        app.entry.active_bearing_deg
                     ),
                 );
                 if ui
                     .small_button(
                         Msg::new(key::QSO_ROTATE_BEARING)
-                            .arg("bearing", format!("{:.0}", app.active_bearing_deg))
+                            .arg("bearing", format!("{:.0}", app.entry.active_bearing_deg))
                             .text(lang),
                     )
                     .on_hover_text(tr(key::QSO_ROTOR_TOOLTIP, lang))
                     .clicked()
                 {
-                    app.rotate_antenna_to(app.active_bearing_deg as f32);
+                    app.rotate_antenna_to(app.entry.active_bearing_deg as f32);
                 }
             }
         }
     });
 
     // Kluby krótkofalarskie (SP-OTC, PGA, SKCC, CWOPS, FOC)
-    if !app.active_clubs.is_empty() {
+    if !app.entry.active_clubs.is_empty() {
         ui.horizontal_wrapped(|ui| {
-            for club in &app.active_clubs {
+            for club in &app.entry.active_clubs {
                 let col = match club.code {
                     "SP-OTC" => palette.danger,
                     "SPCWC" => palette.accent,
@@ -304,7 +305,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     }
 
     // Prognoza propagacji HF w czasie rzeczywistym
-    if let Some(ref prop) = app.active_propagation {
+    if let Some(ref prop) = app.entry.active_propagation {
         ui.horizontal_wrapped(|ui| {
             let prop_color = match prop.status {
                 crate::core::propagation::BandOpeningStatus::Open => palette.success,
@@ -332,7 +333,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     }
 
     // Status dyplomowy (ATNO / New Band / Worked B4 / WAZ / WAS / WAC / IOTA / PGA)
-    if let Some(ref award_st) = app.active_award_status {
+    if let Some(ref award_st) = app.entry.active_award_status {
         ui.horizontal_wrapped(|ui| {
             if award_st.is_worked_b4 {
                 ui.label(
@@ -407,13 +408,13 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         ui.label(tr(key::QSO_BAND, lang));
         egui::ComboBox::from_id_salt("qso_band")
-            .selected_text(&app.entry_band)
+            .selected_text(&app.entry.band)
             .show_ui(ui, |ui| {
                 for band in &[
                     "160m", "80m", "60m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m",
                     "4m", "2m", "70cm", "23cm",
                 ] {
-                    ui.selectable_value(&mut app.entry_band, band.to_string(), *band);
+                    ui.selectable_value(&mut app.entry.band, band.to_string(), *band);
                 }
             });
 
@@ -421,10 +422,10 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         ui.label(tr(key::QSO_MODE, lang));
         egui::ComboBox::from_id_salt("qso_mode")
-            .selected_text(&app.entry_mode)
+            .selected_text(&app.entry.mode)
             .show_ui(ui, |ui| {
                 for mode in &["CW", "SSB", "FT8", "FT4", "RTTY", "PSK31", "AM", "FM"] {
-                    ui.selectable_value(&mut app.entry_mode, mode.to_string(), *mode);
+                    ui.selectable_value(&mut app.entry.mode, mode.to_string(), *mode);
                 }
             });
     });
@@ -433,13 +434,13 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         ui.label(tr(key::QSO_RST_SENT, lang));
         let rst_sent_resp =
-            ui.add(egui::TextEdit::singleline(&mut app.entry_rst_sent).desired_width(60.0));
+            ui.add(egui::TextEdit::singleline(&mut app.entry.rst_sent).desired_width(60.0));
 
         ui.add_space(10.0);
 
         ui.label(tr(key::QSO_RST_RCVD, lang));
         let rst_rcvd_resp =
-            ui.add(egui::TextEdit::singleline(&mut app.entry_rst_rcvd).desired_width(60.0));
+            ui.add(egui::TextEdit::singleline(&mut app.entry.rst_rcvd).desired_width(60.0));
         entry_field_ids.push(rst_sent_resp.id);
         entry_field_ids.push(rst_rcvd_resp.id);
     });
@@ -448,15 +449,15 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         ui.label(tr(key::QSO_NAME, lang));
         let name_resp =
-            ui.add(egui::TextEdit::singleline(&mut app.entry_name).desired_width(120.0));
+            ui.add(egui::TextEdit::singleline(&mut app.entry.name).desired_width(120.0));
         entry_field_ids.push(name_resp.id);
 
         ui.add_space(10.0);
 
         ui.label(tr(key::QSO_LOCATOR, lang));
-        let loc_resp = ui.add(egui::TextEdit::singleline(&mut app.entry_grid).desired_width(80.0));
+        let loc_resp = ui.add(egui::TextEdit::singleline(&mut app.entry.grid).desired_width(80.0));
         if loc_resp.changed() {
-            app.entry_grid = app.entry_grid.to_uppercase();
+            app.entry.grid = app.entry.grid.to_uppercase();
             app.recalculate_distance_from_grid();
         }
         entry_field_ids.push(loc_resp.id);
@@ -465,27 +466,27 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     // 5. Miejscowość (QTH) & Gmina PGA
     ui.horizontal(|ui| {
         ui.label(tr(key::QSO_QTH, lang));
-        let qth_resp = ui.add(egui::TextEdit::singleline(&mut app.entry_qth).desired_width(120.0));
-        if qth_resp.changed() && app.entry_pga.is_empty() {
-            if let Some(gmina) = crate::core::pga::suggest_pga_for_qth(&app.entry_qth) {
-                app.entry_pga = gmina.code.to_string();
+        let qth_resp = ui.add(egui::TextEdit::singleline(&mut app.entry.qth).desired_width(120.0));
+        if qth_resp.changed() && app.entry.pga.is_empty() {
+            if let Some(gmina) = crate::core::pga::suggest_pga_for_qth(&app.entry.qth) {
+                app.entry.pga = gmina.code.to_string();
             }
         }
 
         ui.add_space(8.0);
 
         ui.label(tr(key::QSO_PGA, lang));
-        let pga_resp = ui.add(egui::TextEdit::singleline(&mut app.entry_pga).desired_width(65.0));
+        let pga_resp = ui.add(egui::TextEdit::singleline(&mut app.entry.pga).desired_width(65.0));
         if pga_resp.changed() {
-            app.entry_pga = app.entry_pga.to_uppercase();
+            app.entry.pga = app.entry.pga.to_uppercase();
         }
         entry_field_ids.push(qth_resp.id);
         entry_field_ids.push(pga_resp.id);
     });
 
     // Podgląd nazwy gminy PGA jeśli kod jest wpisany
-    if !app.entry_pga.is_empty() {
-        if let Some(gmina) = crate::core::pga::find_by_code(&app.entry_pga) {
+    if !app.entry.pga.is_empty() {
+        if let Some(gmina) = crate::core::pga::find_by_code(&app.entry.pga) {
             ui.label(
                 egui::RichText::new(format!(
                     "🇵🇱 Gmina: {} (powiat {})",
@@ -501,12 +502,12 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         ui.label(format!("🏝 {}:", tr(key::QSO_IOTA, lang)));
         let iota_resp = ui.add(
-            egui::TextEdit::singleline(&mut app.entry_iota)
+            egui::TextEdit::singleline(&mut app.entry.iota)
                 .desired_width(65.0)
                 .hint_text("EU-001"),
         );
         if iota_resp.changed() {
-            app.entry_iota = app.entry_iota.to_uppercase();
+            app.entry.iota = app.entry.iota.to_uppercase();
         }
         if ui
             .button("🔍")
@@ -520,12 +521,12 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         ui.label(format!("🗺 {}:", tr(key::QSO_STATE, lang)));
         let st_resp = ui.add(
-            egui::TextEdit::singleline(&mut app.entry_state)
+            egui::TextEdit::singleline(&mut app.entry.state)
                 .desired_width(45.0)
                 .hint_text("CA"),
         );
         if st_resp.changed() {
-            app.entry_state = app.entry_state.to_uppercase();
+            app.entry.state = app.entry.state.to_uppercase();
         }
         if ui
             .button("🔍")
@@ -539,12 +540,12 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         ui.label(format!("🏔 {}:", tr(key::QSO_SOTA, lang)));
         let sota_resp = ui.add(
-            egui::TextEdit::singleline(&mut app.entry_sota)
+            egui::TextEdit::singleline(&mut app.entry.sota)
                 .desired_width(75.0)
                 .hint_text("SP/BZ-001"),
         );
         if sota_resp.changed() {
-            app.entry_sota = app.entry_sota.to_uppercase();
+            app.entry.sota = app.entry.sota.to_uppercase();
         }
         entry_field_ids.push(iota_resp.id);
         entry_field_ids.push(st_resp.id);
@@ -555,19 +556,19 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         ui.label(format!("📋 {}:", tr(key::QSO_QSL_VIA, lang)));
         let mgr_resp = ui.add(
-            egui::TextEdit::singleline(&mut app.entry_qsl_manager)
+            egui::TextEdit::singleline(&mut app.entry.qsl_manager)
                 .desired_width(80.0)
                 .hint_text("Manager"),
         );
         if mgr_resp.changed() {
-            app.entry_qsl_manager = app.entry_qsl_manager.to_uppercase();
+            app.entry.qsl_manager = app.entry.qsl_manager.to_uppercase();
         }
         if ui
             .button("🔍")
             .on_hover_text(tr(key::QSO_SEARCH_MANAGER_TOOLTIP, lang))
             .clicked()
         {
-            let call = app.entry_callsign.clone();
+            let call = app.entry.callsign.clone();
             let sdb = app.services.service_db.clone();
             app.gui
                 .dialogs
@@ -575,7 +576,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .open_for_call(&call, &sdb);
         }
 
-        if let Some(ref mgr_rec) = app.active_qsl_manager_record {
+        if let Some(ref mgr_rec) = app.entry.active_qsl_manager_record {
             ui.colored_label(palette.success, format!("✓ Mgr: {}", mgr_rec.manager));
         }
 
@@ -584,14 +585,14 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .on_hover_text(tr(key::QSO_SHOW_PHOTO_TOOLTIP, lang))
             .clicked()
         {
-            let call = app.entry_callsign.clone();
+            let call = app.entry.callsign.clone();
             app.gui.dialogs.photo_viewer_dialog.open(&call, None);
         }
         entry_field_ids.push(mgr_resp.id);
     });
 
     // Szybkie sterowanie rotatorem antenowym (SP / LP)
-    if app.active_bearing_deg >= 0.0 && app.active_distance_km > 0.0 {
+    if app.entry.active_bearing_deg >= 0.0 && app.entry.active_distance_km > 0.0 {
         ui.horizontal(|ui| {
             ui.label(
                 egui::RichText::new(format!("{}:", tr(key::GEO_AZIMUTH, lang)))
@@ -600,7 +601,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             );
             if ui
                 .button(
-                    egui::RichText::new(format!("🧭 SP ({:.0}°)", app.active_bearing_deg))
+                    egui::RichText::new(format!("🧭 SP ({:.0}°)", app.entry.active_bearing_deg))
                         .small()
                         .strong(),
                 )
@@ -612,7 +613,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .button(
                     egui::RichText::new(format!(
                         "🔄 LP ({:.0}°)",
-                        (app.active_bearing_deg + 180.0) % 360.0
+                        (app.entry.active_bearing_deg + 180.0) % 360.0
                     ))
                     .small(),
                 )
@@ -627,7 +628,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         ui.label(tr(key::QSO_COMMENT, lang));
         let comment_resp = ui.add(
-            egui::TextEdit::singleline(&mut app.entry_comment)
+            egui::TextEdit::singleline(&mut app.entry.comment)
                 .desired_width(ui.available_width() - 85.0),
         );
 
@@ -673,7 +674,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         let any_field_focused = ui.memory(|m| entry_field_ids.iter().any(|id| m.has_focus(*id)));
         let enter_pressed = ui.input(|i| i.key_pressed(egui::Key::Enter));
         if save_btn.clicked()
-            || (any_field_focused && enter_pressed && !app.entry_callsign.is_empty())
+            || (any_field_focused && enter_pressed && !app.entry.callsign.is_empty())
         {
             app.save_qso();
         }
@@ -690,14 +691,14 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     });
 
     // 8. Sekcja Poprzednich Łączności (Worked Before / B4) z wpisywaną stacją
-    if !app.past_qsos_for_active_call.is_empty() {
+    if !app.entry.past_qsos_for_active_call.is_empty() {
         ui.add_space(8.0);
         ui.separator();
         ui.label(
             egui::RichText::new(format!(
                 "📜 {} ({})",
                 tr(key::QSO_WORKED_BEFORE, lang),
-                app.past_qsos_for_active_call.len()
+                app.entry.past_qsos_for_active_call.len()
             ))
             .strong()
             .size(12.0)
@@ -711,9 +712,9 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     .striped(true)
                     .spacing([12.0, 4.0])
                     .show(ui, |ui| {
-                        for prev in &app.past_qsos_for_active_call {
+                        for prev in &app.entry.past_qsos_for_active_call {
                             let is_dupe =
-                                prev.band == app.entry_band && prev.mode == app.entry_mode;
+                                prev.band == app.entry.band && prev.mode == app.entry.mode;
                             let color = if is_dupe {
                                 palette.dupe
                             } else {

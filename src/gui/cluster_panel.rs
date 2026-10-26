@@ -90,7 +90,7 @@ pub fn render_cluster_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             app.gui
                                 .dialogs
                                 .send_spot_dialog
-                                .open_with(&app.entry_callsign, freq_khz);
+                                .open_with(&app.entry.callsign, freq_khz);
                         }
                         if app.cluster_connected {
                             ui.label(
@@ -192,7 +192,7 @@ pub fn render_cluster_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 app.gui
                     .dialogs
                     .send_spot_dialog
-                    .open_with(&app.entry_callsign, freq_khz);
+                    .open_with(&app.entry.callsign, freq_khz);
             }
             if app.cluster_connected {
                 ui.label(
@@ -476,7 +476,7 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
     ui.separator();
 
-    let current_band = app.entry_band.clone();
+    let current_band = app.entry.band.clone();
     let search_q = app.cluster_search_query.trim().to_uppercase();
     let filter_band_sel = app.cluster_filter_band_selection.clone();
     let filter_mode_sel = app.cluster_filter_mode_selection.clone();
@@ -777,10 +777,10 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     if let Some((dx_call, freq_khz, band, pota, sota)) = tune_target {
         app.tune_to_spot(&dx_call, freq_khz, &band);
         if let Some(p) = pota {
-            app.entry_pota = p;
+            app.entry.pota = p;
         }
         if let Some(s) = sota {
-            app.entry_sota = s;
+            app.entry.sota = s;
         }
     }
 }

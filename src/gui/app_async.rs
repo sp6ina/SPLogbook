@@ -435,31 +435,31 @@ impl SpLogApp {
     /// Odbiór asynchronicznych danych korespondenta z Callbook / HamQTH / Callook / QRZ
     pub fn poll_qrz_lookup(&mut self) {
         while let Ok(data) = self.qrz_lookup_rx.try_recv() {
-            if data.callsign == self.entry_callsign.trim().to_uppercase() {
+            if data.callsign == self.entry.callsign.trim().to_uppercase() {
                 if let Some(n) = data.name {
-                    if self.entry_name.is_empty() || self.entry_name != n {
-                        self.entry_name = n;
+                    if self.entry.name.is_empty() || self.entry.name != n {
+                        self.entry.name = n;
                     }
                 }
                 if let Some(q) = data.qth {
-                    if self.entry_qth.is_empty() || self.entry_qth != q {
-                        self.entry_qth = q;
+                    if self.entry.qth.is_empty() || self.entry.qth != q {
+                        self.entry.qth = q;
                     }
                 }
                 if let Some(g) = data.gridsquare {
-                    if self.entry_grid.is_empty() || self.entry_grid != g {
-                        self.entry_grid = g;
+                    if self.entry.grid.is_empty() || self.entry.grid != g {
+                        self.entry.grid = g;
                         self.recalculate_distance_from_grid();
                     }
                 }
                 if let Some(st) = data.state {
-                    if self.entry_state.is_empty() || self.entry_state != st {
-                        self.entry_state = st;
+                    if self.entry.state.is_empty() || self.entry.state != st {
+                        self.entry.state = st;
                     }
                 }
                 if let Some(mgr) = data.qsl_manager {
-                    if self.entry_qsl_manager.is_empty() || self.entry_qsl_manager != mgr {
-                        self.entry_qsl_manager = mgr;
+                    if self.entry.qsl_manager.is_empty() || self.entry.qsl_manager != mgr {
+                        self.entry.qsl_manager = mgr;
                     }
                 }
                 if let Some(img) = data.image_url {
@@ -467,7 +467,7 @@ impl SpLogApp {
                 }
                 self.gui.chrome.status_message = Some(format!(
                     "Pobrano dane Callbook dla: {} ({})",
-                    data.callsign, self.entry_name
+                    data.callsign, self.entry.name
                 ));
                 self.gui.chrome.status_toast = Some((
                     format!("Pobrano dane korespondenta {}!", data.callsign),
@@ -510,11 +510,11 @@ impl SpLogApp {
                     if dial_freq > 0 {
                         self.rig_state.frequency_hz = dial_freq;
                         if let Some(band_def) = crate::core::bandplan::get_band_by_freq(dial_freq) {
-                            self.entry_band = band_def.name.to_string();
+                            self.entry.band = band_def.name.to_string();
                         }
                     }
                     if !mode.is_empty() {
-                        self.entry_mode = mode;
+                        self.entry.mode = mode;
                     }
                 }
                 crate::digital::wsjtx::WsjtxMessage::QsoLogged(qso) => {
@@ -536,11 +536,11 @@ impl SpLogApp {
                     if let Some(band_def) =
                         crate::core::bandplan::get_band_by_freq(state.dial_freq_hz)
                     {
-                        self.entry_band = band_def.name.to_string();
+                        self.entry.band = band_def.name.to_string();
                     }
                 }
-                if state.connected && self.entry_mode != "JS8" {
-                    self.entry_mode = "JS8".to_string();
+                if state.connected && self.entry.mode != "JS8" {
+                    self.entry.mode = "JS8".to_string();
                 }
                 self.digital.js8call_state = state;
             }

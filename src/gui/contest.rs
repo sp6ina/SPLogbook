@@ -188,7 +188,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
         let contest = &app.config.custom_contests[idx];
         let mut points = 0;
         let mut multipliers = HashSet::new();
-        for qso in &app.recent_qsos {
+        for qso in &app.log_view.recent_qsos {
             points += contest.points_per_qso;
             if let Some(d) = qso.dxcc {
                 multipliers.insert(d.to_string());
@@ -202,7 +202,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
         (points, mult_count, points * mult_count)
     } else if let Some(rule_idx) = RULES.iter().position(|r| r.name == app.contest_name) {
         let active_rule = &RULES[rule_idx];
-        calculate_score(active_rule, &app.recent_qsos, my_dxcc, my_cqzone)
+        calculate_score(active_rule, &app.log_view.recent_qsos, my_dxcc, my_cqzone)
     } else {
         // Nieznana/nieistniejąca nazwa kontestu (np. reguła usunięta w nowszej wersji) -
         // NIE zgadujemy wyniku wg pierwszej reguły z listy, tylko jawnie sygnalizujemy błąd.
@@ -212,7 +212,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
     app.contest_points = pts;
     app.contest_mults = mults;
-    app.contest_qsos = app.recent_qsos.len() as u32;
+    app.contest_qsos = app.log_view.recent_qsos.len() as u32;
 
     // Rodzaj mnożnika i pasma dla macierzy mnożników.
     let (mult_kind, rule_bands): (MultKind, Vec<String>) = if let Some(idx) = custom_idx {
@@ -237,11 +237,11 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as i64;
-    let rate = compute_rate(&app.recent_qsos, now_secs);
+    let rate = compute_rate(&app.log_view.recent_qsos, now_secs);
 
     let mult_matrix = if mult_kind != MultKind::None && !rule_bands.is_empty() {
         let band_refs: Vec<&str> = rule_bands.iter().map(std::string::String::as_str).collect();
-        compute_mult_matrix(mult_kind, &band_refs, &app.recent_qsos)
+        compute_mult_matrix(mult_kind, &band_refs, &app.log_view.recent_qsos)
     } else {
         MultMatrix::default()
     };
@@ -346,7 +346,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             .max_height(80.0)
                             .show(ui, |ui| {
                                 let mut bands = std::collections::HashMap::new();
-                                for qso in &app.recent_qsos {
+                                for qso in &app.log_view.recent_qsos {
                                     *bands.entry(qso.band.clone()).or_insert(0) += 1;
                                 }
                                 let mut band_vec: Vec<_> = bands.into_iter().collect();
@@ -417,47 +417,51 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         ui.label(format!("{}:", tr(key::QSO_CALLSIGN, lang)));
 
                         let dummy_qso = QsoRecord {
-                            callsign: app.entry_callsign.clone(),
-                            band: app.entry_band.clone(),
-                            mode: app.entry_mode.clone(),
+                            callsign: app.entry.callsign.clone(),
+                            band: app.entry.band.clone(),
+                            mode: app.entry.mode.clone(),
                             ..Default::default()
                         };
 
                         let is_dupe = if is_custom {
-                            app.recent_qsos.iter().any(|q| {
+                            app.log_view.recent_qsos.iter().any(|q| {
                                 q.callsign.eq_ignore_ascii_case(&dummy_qso.callsign)
                                     && q.band.eq_ignore_ascii_case(&dummy_qso.band)
                             })
                         } else if let Some(rule_idx) =
                             RULES.iter().position(|r| r.name == app.contest_name)
                         {
-                            detect_duplicate(&RULES[rule_idx], &dummy_qso, &app.recent_qsos)
+                            detect_duplicate(
+                                &RULES[rule_idx],
+                                &dummy_qso,
+                                &app.log_view.recent_qsos,
+                            )
                         } else {
                             // Nieznane reguły kontestu: prosta kontrola duplikatu wg znaku+pasma
                             // zamiast cichego zastosowania reguł innego (pierwszego) kontestu.
-                            app.recent_qsos.iter().any(|q| {
+                            app.log_view.recent_qsos.iter().any(|q| {
                                 q.callsign.eq_ignore_ascii_case(&dummy_qso.callsign)
                                     && q.band.eq_ignore_ascii_case(&dummy_qso.band)
                             })
                         };
 
-                        if is_dupe && !app.entry_callsign.is_empty() {
+                        if is_dupe && !app.entry.callsign.is_empty() {
                             ui.visuals_mut().widgets.inactive.bg_stroke =
                                 egui::Stroke::new(2.0_f32, palette.dupe);
                         }
 
                         ui.add(
-                            egui::TextEdit::singleline(&mut app.entry_callsign)
+                            egui::TextEdit::singleline(&mut app.entry.callsign)
                                 .desired_width(120.0),
                         );
 
-                        if is_dupe && !app.entry_callsign.is_empty() {
+                        if is_dupe && !app.entry.callsign.is_empty() {
                             ui.label(egui::RichText::new("DUPE!").color(palette.dupe).strong());
                         }
 
                         ui.label(tr(key::CONTEST_RCVD_REPORT_EXCHANGE, lang));
                         ui.add(
-                            egui::TextEdit::singleline(&mut app.entry_exchange)
+                            egui::TextEdit::singleline(&mut app.entry.exchange)
                                 .desired_width(200.0),
                         );
 
@@ -474,9 +478,9 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         );
                     }
                     // Podgląd / walidacja parsowania na żywo.
-                    if !app.entry_exchange.trim().is_empty() {
+                    if !app.entry.exchange.trim().is_empty() {
                         if let Some(fields) = &exchange_fields {
-                            match parse_exchange(fields, &app.entry_exchange) {
+                            match parse_exchange(fields, &app.entry.exchange) {
                                 Ok(parsed) => {
                                     ui.label(
                                         egui::RichText::new(format!(
@@ -528,7 +532,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                         ui.end_row();
 
                                         for spot in &app.cluster_spots {
-                                            let worked = app.recent_qsos.iter().any(|q| {
+                                            let worked = app.log_view.recent_qsos.iter().any(|q| {
                                                 q.callsign.eq_ignore_ascii_case(&spot.dx_call)
                                             });
                                             let call_color = if worked {
@@ -608,19 +612,20 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
     if let Some((call, freq_khz, band, is_ft8)) = spot_fill_target {
         app.tune_to_spot(&call, freq_khz, &band);
         if is_ft8 {
-            app.entry_mode = "FT8".to_string();
+            app.entry.mode = "FT8".to_string();
         }
         // Uzupełnij wymianę z wcześniejszego QSO z tą stacją (jeśli istnieje).
         if let Some(prev) = app
+            .log_view
             .recent_qsos
             .iter()
             .rev()
             .find(|q| q.callsign.eq_ignore_ascii_case(&call))
         {
             if let Some(srx) = &prev.srx_string {
-                app.entry_exchange = srx.clone();
+                app.entry.exchange = srx.clone();
             } else if !prev.rst_rcvd.is_empty() {
-                app.entry_exchange = prev.rst_rcvd.clone();
+                app.entry.exchange = prev.rst_rcvd.clone();
             }
             app.gui.chrome.status_toast = Some((
                 format!(
@@ -633,8 +638,8 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
         }
     }
 
-    if save_clicked && !app.entry_callsign.is_empty() {
-        let mut new_qso = QsoRecord::new(&app.entry_callsign, &app.entry_band, &app.entry_mode);
+    if save_clicked && !app.entry.callsign.is_empty() {
+        let mut new_qso = QsoRecord::new(&app.entry.callsign, &app.entry.band, &app.entry.mode);
         new_qso.stx = Some(app.contest_stx);
         new_qso.journal_id = Some(app.active_journal.id.clone());
         if !app.config.station.gridsquare.trim().is_empty() {
@@ -647,10 +652,10 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
         // zachowaj dawny tryb "sam RST" w polu `entry_rst_rcvd`.
         let mut exchange_ok = true;
         if let Some(fields) = &exchange_fields {
-            let exchange_text = if app.entry_exchange.trim().is_empty() {
-                app.entry_rst_rcvd.clone()
+            let exchange_text = if app.entry.exchange.trim().is_empty() {
+                app.entry.rst_rcvd.clone()
             } else {
-                app.entry_exchange.clone()
+                app.entry.exchange.clone()
             };
             match parse_exchange(fields, &exchange_text) {
                 Ok(parsed) => apply_to_qso(&parsed, &mut new_qso),
@@ -665,7 +670,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 }
             }
         } else {
-            new_qso.rst_rcvd.clone_from(&app.entry_rst_rcvd);
+            new_qso.rst_rcvd.clone_from(&app.entry.rst_rcvd);
         }
 
         if exchange_ok {
@@ -694,9 +699,9 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             .text(lang),
                         std::time::Instant::now(),
                     ));
-                    app.entry_callsign.clear();
-                    app.entry_rst_rcvd.clear();
-                    app.entry_exchange.clear();
+                    app.entry.callsign.clear();
+                    app.entry.rst_rcvd.clear();
+                    app.entry.exchange.clear();
                     app.reload_qsos();
                 }
                 Err(IngestError::Invalid(reason)) => {

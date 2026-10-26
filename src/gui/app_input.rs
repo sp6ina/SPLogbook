@@ -82,7 +82,7 @@ impl SpLogApp {
             self.perform_redo();
         }
         if open_stats {
-            self.show_statistics_window = true;
+            self.log_view.show_statistics_window = true;
         }
         if open_shortcuts_f1 {
             self.gui.chrome.show_shortcuts_window = !self.gui.chrome.show_shortcuts_window;
@@ -98,7 +98,7 @@ impl SpLogApp {
             self.wipe_qso_form();
         }
         if lookup_qrz_f4 {
-            let clean = self.entry_callsign.trim().to_uppercase();
+            let clean = self.entry.callsign.trim().to_uppercase();
             if clean.len() >= 3 {
                 self.lookup_active_callsign_online();
             }
@@ -111,7 +111,7 @@ impl SpLogApp {
             self.gui
                 .dialogs
                 .send_spot_dialog
-                .open_with(&self.entry_callsign, freq_khz);
+                .open_with(&self.entry.callsign, freq_khz);
         }
         if toggle_ptt_f7 {
             self.toggle_ptt();

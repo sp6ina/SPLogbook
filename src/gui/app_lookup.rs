@@ -9,18 +9,18 @@ impl SpLogApp {
     /// Aktualizuje podpowiedzi SCP, rozpoznanie DXCC, azymut i dystans po wpisaniu znaku
     pub fn on_callsign_changed(&mut self) {
         use chrono::{Datelike, Timelike};
-        let clean = self.entry_callsign.trim().to_uppercase();
+        let clean = self.entry.callsign.trim().to_uppercase();
         if clean.is_empty() {
-            self.scp_suggestions.clear();
-            self.callsign_corrections.clear();
-            self.active_prefix_info = None;
-            self.active_polish_district = None;
-            self.active_award_status = None;
-            self.active_distance_km = 0.0;
-            self.active_bearing_deg = 0.0;
-            self.active_propagation = None;
-            self.active_clubs.clear();
-            self.past_qsos_for_active_call.clear();
+            self.entry.scp_suggestions.clear();
+            self.entry.callsign_corrections.clear();
+            self.entry.active_prefix_info = None;
+            self.entry.active_polish_district = None;
+            self.entry.active_award_status = None;
+            self.entry.active_distance_km = 0.0;
+            self.entry.active_bearing_deg = 0.0;
+            self.entry.active_propagation = None;
+            self.entry.active_clubs.clear();
+            self.entry.past_qsos_for_active_call.clear();
             return;
         }
 
@@ -31,7 +31,7 @@ impl SpLogApp {
                 .scp_engine
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            self.scp_suggestions = scp.search(&clean, 6);
+            self.entry.scp_suggestions = scp.search(&clean, 6);
         }
 
         // 1b. Lokalna korekta rozmyta (fuzzy) błędnie wpisanego/odebranego znaku
@@ -42,19 +42,19 @@ impl SpLogApp {
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             let candidates = scp.candidates();
-            self.callsign_corrections =
+            self.entry.callsign_corrections =
                 crate::core::callsign_correction::suggest_corrections(&clean, &candidates, 2, 4);
         }
 
         // 2. Kluby krótkofalarskie (SP-OTC, PGA, SKCC, CWOPS, FOC)
-        self.active_clubs = crate::core::clubs::ClubRegistry::check(&clean);
+        self.entry.active_clubs = crate::core::clubs::ClubRegistry::check(&clean);
 
         // 3. Rozpoznanie DXCC, stref i estymacja propagacji
         if let Some(info) = self.services.prefix_matcher.lookup(&clean) {
             let dx_coords = crate::core::geo::Coordinates::new(info.latitude, info.longitude);
             if let Ok(my_coords) = locator_to_coordinates(&self.config.station.gridsquare) {
-                self.active_distance_km = calculate_distance_km(my_coords, dx_coords);
-                self.active_bearing_deg = calculate_bearing_deg(my_coords, dx_coords);
+                self.entry.active_distance_km = calculate_distance_km(my_coords, dx_coords);
+                self.entry.active_bearing_deg = calculate_bearing_deg(my_coords, dx_coords);
 
                 let now = chrono::Utc::now();
                 let utc_hour = now.hour() as f64 + (now.minute() as f64) / 60.0;
@@ -65,9 +65,9 @@ impl SpLogApp {
                     140
                 };
                 let k_index = self.solar.space_weather.k_index;
-                let freq_mhz = crate::core::propagation::band_to_center_mhz(&self.entry_band)
+                let freq_mhz = crate::core::propagation::band_to_center_mhz(&self.entry.band)
                     .unwrap_or(14.175);
-                self.active_propagation =
+                self.entry.active_propagation =
                     Some(crate::core::propagation::PropagationEngine::calculate(
                         my_coords,
                         dx_coords,
@@ -79,34 +79,34 @@ impl SpLogApp {
                     ));
             }
 
-            self.active_polish_district = AwardsEngine::get_polish_district(&clean);
+            self.entry.active_polish_district = AwardsEngine::get_polish_district(&clean);
 
             let awards = self
                 .services
                 .awards_engine
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            self.active_award_status = Some(awards.check_status_full(
+            self.entry.active_award_status = Some(awards.check_status_full(
                 &clean,
-                &self.entry_band,
-                &self.entry_mode,
+                &self.entry.band,
+                &self.entry.mode,
                 Some(info.dxcc),
                 self.config.station.pga_gmina.as_deref(),
                 Some(info.cqz),
-                if self.entry_state.trim().is_empty() {
+                if self.entry.state.trim().is_empty() {
                     None
                 } else {
-                    Some(self.entry_state.trim())
+                    Some(self.entry.state.trim())
                 },
                 Some(&info.continent),
-                if self.entry_iota.trim().is_empty() {
+                if self.entry.iota.trim().is_empty() {
                     None
                 } else {
-                    Some(self.entry_iota.trim())
+                    Some(self.entry.iota.trim())
                 },
             ));
 
-            self.active_prefix_info = Some(info);
+            self.entry.active_prefix_info = Some(info);
         }
 
         // 3. Sprawdzenie poprzednich łączności z tą stacją w lokalnej bazie SQLite
@@ -118,44 +118,44 @@ impl SpLogApp {
 
         if let Some(prevs) = prevs_opt {
             if let Some(last) = prevs.first() {
-                if self.entry_name.is_empty() {
+                if self.entry.name.is_empty() {
                     if let Some(ref n) = last.name {
-                        self.entry_name = n.clone();
+                        self.entry.name = n.clone();
                     }
                 }
-                if self.entry_qth.is_empty() {
+                if self.entry.qth.is_empty() {
                     if let Some(ref q) = last.qth {
-                        self.entry_qth = q.clone();
+                        self.entry.qth = q.clone();
                     }
                 }
-                if self.entry_grid.is_empty() {
+                if self.entry.grid.is_empty() {
                     if let Some(ref g) = last.gridsquare {
-                        self.entry_grid = g.clone();
+                        self.entry.grid = g.clone();
                         self.recalculate_distance_from_grid();
                     }
                 }
-                if self.entry_pga.is_empty() {
+                if self.entry.pga.is_empty() {
                     if let Some(ref p) = last.pga_ref {
-                        self.entry_pga = p.clone();
+                        self.entry.pga = p.clone();
                     }
                 }
             }
-            self.past_qsos_for_active_call = prevs;
+            self.entry.past_qsos_for_active_call = prevs;
         }
 
         // 4. Baza managerów QSL (serviceLOG)
         if let Some(mgr_rec) = self.services.service_db.find_manager(&clean) {
-            if self.entry_qsl_manager.is_empty() {
-                self.entry_qsl_manager.clone_from(&mgr_rec.manager);
+            if self.entry.qsl_manager.is_empty() {
+                self.entry.qsl_manager.clone_from(&mgr_rec.manager);
             }
-            self.active_qsl_manager_record = Some(mgr_rec);
+            self.entry.active_qsl_manager_record = Some(mgr_rec);
         } else {
-            self.active_qsl_manager_record = None;
+            self.entry.active_qsl_manager_record = None;
         }
 
         // 5. Baza UniqueCalls
         if let Some(uniq) = self.services.service_db.find_unique_call(&clean) {
-            if let Some(ref mut pfx) = self.active_prefix_info {
+            if let Some(ref mut pfx) = self.entry.active_prefix_info {
                 pfx.country = uniq.country;
                 pfx.dxcc = uniq.dxcc;
                 pfx.continent = uniq.continent;
@@ -168,29 +168,29 @@ impl SpLogApp {
         if clean.len() >= 3 {
             if let Some(cb_data) = self.services.local_callbook.lookup(&clean) {
                 if let Some(n) = cb_data.name {
-                    if self.entry_name.is_empty() {
-                        self.entry_name = n;
+                    if self.entry.name.is_empty() {
+                        self.entry.name = n;
                     }
                 }
                 if let Some(q) = cb_data.qth {
-                    if self.entry_qth.is_empty() {
-                        self.entry_qth = q;
+                    if self.entry.qth.is_empty() {
+                        self.entry.qth = q;
                     }
                 }
                 if let Some(g) = cb_data.gridsquare {
-                    if self.entry_grid.is_empty() {
-                        self.entry_grid = g;
+                    if self.entry.grid.is_empty() {
+                        self.entry.grid = g;
                         self.recalculate_distance_from_grid();
                     }
                 }
                 if let Some(s) = cb_data.state {
-                    if self.entry_state.is_empty() {
-                        self.entry_state = s;
+                    if self.entry.state.is_empty() {
+                        self.entry.state = s;
                     }
                 }
                 if let Some(mgr) = cb_data.qsl_manager {
-                    if self.entry_qsl_manager.is_empty() {
-                        self.entry_qsl_manager = mgr;
+                    if self.entry.qsl_manager.is_empty() {
+                        self.entry.qsl_manager = mgr;
                     }
                 }
             }
@@ -199,17 +199,17 @@ impl SpLogApp {
         // 7. Jeśli włączono automatyczne pobieranie z serwisów online (HamQTH / Callook / QRZ)
         //    i znak ma min. 3 znaki — opóźnij o 600 ms (debounce), aby nie spamować zapytań przy szybkim pisaniu.
         if self.config.qrz_auto_lookup && clean.len() >= 3 {
-            self.lookup_debounce_until =
+            self.entry.lookup_debounce_until =
                 Some(std::time::Instant::now() + std::time::Duration::from_millis(600));
         }
     }
 
     /// Wywołuje automatyczny lookup online po upływie debounce'a (wołane co klatkę w update()).
     pub fn process_debounced_lookup(&mut self) {
-        if let Some(deadline) = self.lookup_debounce_until {
+        if let Some(deadline) = self.entry.lookup_debounce_until {
             if std::time::Instant::now() >= deadline {
-                self.lookup_debounce_until = None;
-                let clean = self.entry_callsign.trim().to_uppercase();
+                self.entry.lookup_debounce_until = None;
+                let clean = self.entry.callsign.trim().to_uppercase();
                 if self.config.qrz_auto_lookup && clean.len() >= 3 {
                     self.lookup_active_callsign_online();
                 }
@@ -219,13 +219,13 @@ impl SpLogApp {
 
     pub fn recalculate_distance_from_grid(&mut self) {
         use chrono::{Datelike, Timelike};
-        if self.entry_grid.len() >= 4 {
+        if self.entry.grid.len() >= 4 {
             if let (Ok(p1), Ok(p2)) = (
                 locator_to_coordinates(&self.config.station.gridsquare),
-                locator_to_coordinates(&self.entry_grid),
+                locator_to_coordinates(&self.entry.grid),
             ) {
-                self.active_distance_km = calculate_distance_km(p1, p2);
-                self.active_bearing_deg = calculate_bearing_deg(p1, p2);
+                self.entry.active_distance_km = calculate_distance_km(p1, p2);
+                self.entry.active_bearing_deg = calculate_bearing_deg(p1, p2);
 
                 let now = chrono::Utc::now();
                 let utc_hour = now.hour() as f64 + (now.minute() as f64) / 60.0;
@@ -236,9 +236,9 @@ impl SpLogApp {
                     140
                 };
                 let k_index = self.solar.space_weather.k_index;
-                let freq_mhz = crate::core::propagation::band_to_center_mhz(&self.entry_band)
+                let freq_mhz = crate::core::propagation::band_to_center_mhz(&self.entry.band)
                     .unwrap_or(14.175);
-                self.active_propagation =
+                self.entry.active_propagation =
                     Some(crate::core::propagation::PropagationEngine::calculate(
                         p1,
                         p2,
@@ -253,7 +253,7 @@ impl SpLogApp {
     }
 
     pub fn lookup_active_callsign_online(&mut self) {
-        let call = self.entry_callsign.trim().to_uppercase();
+        let call = self.entry.callsign.trim().to_uppercase();
         if call.is_empty() {
             return;
         }
@@ -261,20 +261,20 @@ impl SpLogApp {
         // Natychmiastowe sprawdzenie lokalnej bazy (callbook.db + serviceLOG.db)
         if let Some(cb_data) = self.services.local_callbook.lookup(&call) {
             if let Some(n) = cb_data.name.clone() {
-                self.entry_name = n;
+                self.entry.name = n;
             }
             if let Some(q) = cb_data.qth.clone() {
-                self.entry_qth = q;
+                self.entry.qth = q;
             }
             if let Some(g) = cb_data.gridsquare.clone() {
-                self.entry_grid = g;
+                self.entry.grid = g;
                 self.recalculate_distance_from_grid();
             }
             if let Some(s) = cb_data.state.clone() {
-                self.entry_state = s;
+                self.entry.state = s;
             }
             if let Some(mgr) = cb_data.qsl_manager.clone() {
-                self.entry_qsl_manager = mgr;
+                self.entry.qsl_manager = mgr;
             }
             self.gui.chrome.status_message = Some(format!("Znaleziono w bazie Callbook: {call}"));
         }
@@ -301,18 +301,18 @@ impl SpLogApp {
     /// Ustawia pole formularza QSO na podstawie nazwy (akcja `set_qso_field`).
     pub(crate) fn apply_qso_field(&mut self, field: &str, value: &str) {
         match field.to_lowercase().as_str() {
-            "callsign" => self.entry_callsign = value.to_string(),
-            "name" => self.entry_name = value.to_string(),
-            "qth" => self.entry_qth = value.to_string(),
-            "gridsquare" | "grid" => self.entry_grid = value.to_string(),
-            "rst_sent" => self.entry_rst_sent = value.to_string(),
-            "rst_rcvd" => self.entry_rst_rcvd = value.to_string(),
-            "comment" => self.entry_comment = value.to_string(),
-            "sota_ref" | "sota" => self.entry_sota = value.to_string(),
-            "pota_ref" | "pota" => self.entry_pota = value.to_string(),
-            "pga_ref" | "pga" => self.entry_pga = value.to_string(),
-            "iota" => self.entry_iota = value.to_string(),
-            "state" => self.entry_state = value.to_string(),
+            "callsign" => self.entry.callsign = value.to_string(),
+            "name" => self.entry.name = value.to_string(),
+            "qth" => self.entry.qth = value.to_string(),
+            "gridsquare" | "grid" => self.entry.grid = value.to_string(),
+            "rst_sent" => self.entry.rst_sent = value.to_string(),
+            "rst_rcvd" => self.entry.rst_rcvd = value.to_string(),
+            "comment" => self.entry.comment = value.to_string(),
+            "sota_ref" | "sota" => self.entry.sota = value.to_string(),
+            "pota_ref" | "pota" => self.entry.pota = value.to_string(),
+            "pga_ref" | "pga" => self.entry.pga = value.to_string(),
+            "iota" => self.entry.iota = value.to_string(),
+            "state" => self.entry.state = value.to_string(),
             _ => {}
         }
     }
@@ -363,8 +363,8 @@ impl SpLogApp {
 
     pub fn tune_to_spot(&mut self, dx_call: &str, freq_khz: f64, band: &str) {
         // Ustaw znak, pasmo i częstotliwość lokalnie
-        self.entry_callsign = dx_call.to_string();
-        self.entry_band = band.to_string();
+        self.entry.callsign = dx_call.to_string();
+        self.entry.band = band.to_string();
         let freq_hz = (freq_khz * 1000.0) as u64;
         self.set_vfo_frequency(freq_hz);
         self.on_callsign_changed();

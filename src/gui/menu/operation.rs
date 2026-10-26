@@ -49,7 +49,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             app.gui
                 .dialogs
                 .send_spot_dialog
-                .open_with(&app.entry_callsign, freq_khz);
+                .open_with(&app.entry.callsign, freq_khz);
             ui.close();
         }
 

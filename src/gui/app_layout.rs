@@ -315,12 +315,12 @@ impl SpLogApp {
             }
             "log" => {
                 ui.label(
-                    egui::RichText::new(format!("({} QSO)", self.recent_qsos.len()))
+                    egui::RichText::new(format!("({} QSO)", self.log_view.recent_qsos.len()))
                         .size(11.0)
                         .color(palette.text_muted),
                 );
                 ui.add(
-                    egui::TextEdit::singleline(&mut self.log_search_query)
+                    egui::TextEdit::singleline(&mut self.log_view.search_query)
                         .hint_text(tr(key::QSO_SEARCH, lang))
                         .desired_width(110.0),
                 );
@@ -367,7 +367,7 @@ impl SpLogApp {
                     self.gui
                         .dialogs
                         .send_spot_dialog
-                        .open_with(&self.entry_callsign, freq_khz);
+                        .open_with(&self.entry.callsign, freq_khz);
                 }
             }
             _ => {}

@@ -122,7 +122,7 @@ fn render_tab_dxcc(
     let palette = ui.palette();
     let worked_dxcc = awards.worked_dxcc_all.len();
     let conf_dxcc = awards.confirmed_dxcc.len();
-    let total_qsos = app.recent_qsos.len();
+    let total_qsos = app.log_view.recent_qsos.len();
 
     ui.horizontal(|ui| {
         ui.group(|ui| {
@@ -186,7 +186,7 @@ fn render_tab_dxcc(
     let mut confirmed = vec![[false; 4]; bands.len()];
     let mut band_counts = vec![0usize; bands.len()];
 
-    for q in &app.recent_qsos {
+    for q in &app.log_view.recent_qsos {
         let Some(bi) = bands.iter().position(|b| *b == q.band) else {
             continue;
         };

@@ -21,7 +21,7 @@ pub fn render_logbook_window(app: &mut SpLogApp, ctx: &egui::Context) {
             format!(
                 "📋 {} ({} QSO) - SPLogbook",
                 tr(key::TAB_LOGBOOK, lang),
-                app.recent_qsos.len()
+                app.log_view.recent_qsos.len()
             ),
             [900.0, 560.0],
             [500.0, 280.0],
@@ -47,7 +47,7 @@ pub fn render_logbook_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             app.show_column_settings = true;
                         }
                         ui.add(
-                            egui::TextEdit::singleline(&mut app.log_search_query)
+                            egui::TextEdit::singleline(&mut app.log_view.search_query)
                                 .hint_text(tr(key::QSO_SEARCH, lang))
                                 .desired_width(200.0),
                         );
@@ -57,7 +57,7 @@ pub fn render_logbook_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 egui::RichText::new(format!(
                                     "{}: {} QSO",
                                     tr(key::LOG_TOTAL_QSOS, lang),
-                                    app.recent_qsos.len()
+                                    app.log_view.recent_qsos.len()
                                 ))
                                 .size(11.0)
                                 .color(palette.text_muted),
@@ -103,7 +103,7 @@ pub fn render_logbook_window(app: &mut SpLogApp, ctx: &egui::Context) {
         egui::RichText::new(format!(
             "   📋 {} ({} QSO)",
             tr(key::TAB_LOGBOOK, lang),
-            app.recent_qsos.len()
+            app.log_view.recent_qsos.len()
         ))
         .size(12.0)
         .strong(),
@@ -133,7 +133,7 @@ pub fn render_logbook_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 app.show_column_settings = true;
             }
             ui.add(
-                egui::TextEdit::singleline(&mut app.log_search_query)
+                egui::TextEdit::singleline(&mut app.log_view.search_query)
                     .hint_text(tr(key::QSO_SEARCH, lang))
                     .desired_width(180.0),
             );
@@ -143,7 +143,7 @@ pub fn render_logbook_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     egui::RichText::new(format!(
                         "{}: {} QSO",
                         tr(key::LOG_TOTAL_QSOS, lang),
-                        app.recent_qsos.len()
+                        app.log_view.recent_qsos.len()
                     ))
                     .size(11.0)
                     .color(palette.text_muted),
@@ -316,13 +316,13 @@ fn normalize_digits_stack<const N: usize>(s: &str) -> [u8; N] {
 pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.gui.appearance.language;
     let palette = ui.palette();
-    let query = app.log_search_query.trim().to_uppercase();
+    let query = app.log_view.search_query.trim().to_uppercase();
 
     // Filtrowanie (wyszukiwarka tekstowa + filtr drill-down ze statystyk) — bez alokacji na stercie dla ASCII
-    let drill = app.log_drill_filter.clone();
-    let mut sorted_indices: Vec<usize> = (0..app.recent_qsos.len())
+    let drill = app.log_view.drill_filter.clone();
+    let mut sorted_indices: Vec<usize> = (0..app.log_view.recent_qsos.len())
         .filter(|&i| {
-            let qso = &app.recent_qsos[i];
+            let qso = &app.log_view.recent_qsos[i];
             if let Some(ref d) = drill {
                 if !d.matches(qso) {
                     return false;
@@ -343,11 +343,11 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         .collect();
 
     // Sortowanie (bezalokacyjne klucze na stosie dla daty i czasu)
-    let sc = app.log_sort_column;
-    let sa = app.log_sort_asc;
+    let sc = app.log_view.sort_column;
+    let sa = app.log_view.sort_asc;
     sorted_indices.sort_by(|&a, &b| {
-        let qa = &app.recent_qsos[a];
-        let qb = &app.recent_qsos[b];
+        let qa = &app.log_view.recent_qsos[a];
+        let qb = &app.log_view.recent_qsos[b];
         let ord = match sc {
             1 => qa.callsign.cmp(&qb.callsign),
             2 => qa.band.cmp(&qb.band),
@@ -375,7 +375,7 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let total = sorted_indices.len();
 
     // Aktywny filtr drill-down ze statystyk — widoczny pasek z przyciskiem czyszczenia
-    if let Some(ref d) = app.log_drill_filter {
+    if let Some(ref d) = app.log_view.drill_filter {
         let label = d.label();
         let mut clear = false;
         ui.horizontal(|ui| {
@@ -412,46 +412,52 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 size.to_string()
             };
             if ui
-                .selectable_label(app.log_page_size == size, &lbl)
+                .selectable_label(app.log_view.page_size == size, &lbl)
                 .clicked()
             {
-                app.log_page_size = size;
-                app.log_page = 0;
+                app.log_view.page_size = size;
+                app.log_view.page = 0;
             }
         }
         ui.separator();
-        let (start, end) = page_range(app.log_page, app.log_page_size, total);
+        let (start, end) = page_range(app.log_view.page, app.log_view.page_size, total);
         if total > 0 {
             ui.label(format!("{}-{} / {}", start + 1, end, total));
         } else {
             ui.label(tr(key::LOG_NO_RESULTS, lang));
         }
-        if app.log_page_size > 0 {
-            let pages = (total + app.log_page_size - 1) / app.log_page_size.max(1);
+        if app.log_view.page_size > 0 {
+            let pages = (total + app.log_view.page_size - 1) / app.log_view.page_size.max(1);
             if ui
-                .add_enabled(app.log_page > 0, egui::Button::new("◀"))
+                .add_enabled(app.log_view.page > 0, egui::Button::new("◀"))
                 .clicked()
             {
-                app.log_page = app.log_page.saturating_sub(1);
+                app.log_view.page = app.log_view.page.saturating_sub(1);
             }
-            ui.label(format!("{}/{}", app.log_page + 1, pages.max(1)));
+            ui.label(format!("{}/{}", app.log_view.page + 1, pages.max(1)));
             if ui
                 .add_enabled(end < total, egui::Button::new("▶"))
                 .clicked()
             {
-                app.log_page += 1;
+                app.log_view.page += 1;
             }
         }
         ui.separator();
         if ui
-            .add_enabled(!app.undo_stack.is_empty(), egui::Button::new("↩ Undo"))
+            .add_enabled(
+                !app.log_view.undo_stack.is_empty(),
+                egui::Button::new("↩ Undo"),
+            )
             .on_hover_text(tr(key::LOG_UNDO_TOOLTIP, lang))
             .clicked()
         {
             app.perform_undo();
         }
         if ui
-            .add_enabled(!app.redo_stack.is_empty(), egui::Button::new("↪ Redo"))
+            .add_enabled(
+                !app.log_view.redo_stack.is_empty(),
+                egui::Button::new("↪ Redo"),
+            )
             .clicked()
         {
             app.perform_redo();
@@ -460,9 +466,9 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     ui.separator();
 
     // Pasek operacji masowych (widoczny, gdy cokolwiek zaznaczono)
-    if !app.selected_qso_ids.is_empty() {
+    if !app.log_view.selected_qso_ids.is_empty() {
         ui.horizontal(|ui| {
-            let count = app.selected_qso_ids.len();
+            let count = app.log_view.selected_qso_ids.len();
             ui.label(
                 egui::RichText::new(format!("✔ Zaznaczono {count} QSO")).color(palette.success),
             );
@@ -477,20 +483,20 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .on_hover_text(tr(key::LOG_CLEAR_SELECTION, lang))
                 .clicked()
             {
-                app.selected_qso_ids.clear();
+                app.log_view.selected_qso_ids.clear();
             }
         });
         ui.separator();
     }
 
     // Wyznacz zakres strony
-    let (page_start, page_end) = page_range(app.log_page, app.log_page_size, total);
+    let (page_start, page_end) = page_range(app.log_view.page, app.log_view.page_size, total);
     let page_indices = &sorted_indices[page_start..page_end];
 
     let mut qso_to_edit: Option<crate::core::qso::QsoRecord> = None;
     let mut qso_id_to_delete: Option<(i64, crate::core::qso::QsoRecord)> = None;
-    let mut new_sc = app.log_sort_column;
-    let mut new_sa = app.log_sort_asc;
+    let mut new_sc = app.log_view.sort_column;
+    let mut new_sa = app.log_view.sort_asc;
 
     // Snapshot widocznych kolumn (id, wyświetlana etykieta, szerokość)
     let visible_cols: Vec<(String, String, f32)> = app
@@ -510,10 +516,12 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     // Identyfikatory QSO na bieżącej stronie (do zaznaczania zbiorowego)
     let page_ids: Vec<i64> = page_indices
         .iter()
-        .filter_map(|&i| app.recent_qsos[i].id)
+        .filter_map(|&i| app.log_view.recent_qsos[i].id)
         .collect();
-    let all_selected =
-        !page_ids.is_empty() && page_ids.iter().all(|id| app.selected_qso_ids.contains(id));
+    let all_selected = !page_ids.is_empty()
+        && page_ids
+            .iter()
+            .all(|id| app.log_view.selected_qso_ids.contains(id));
     let mut select_all = all_selected;
 
     let row_height = 22.0;
@@ -561,7 +569,7 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         .body(|body| {
             body.rows(row_height, page_indices.len(), |mut row| {
                 let idx = page_indices[row.index()];
-                let qso = app.recent_qsos[idx].clone();
+                let qso = app.log_view.recent_qsos[idx].clone();
                 let qso_id = qso.id;
 
                 row.col(|ui| {
@@ -594,14 +602,14 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
                 row.col(|ui| {
                     if let Some(id) = qso_id {
-                        let mut checked = app.selected_qso_ids.contains(&id);
+                        let mut checked = app.log_view.selected_qso_ids.contains(&id);
                         if ui.checkbox(&mut checked, "").changed() {
                             if checked {
-                                if !app.selected_qso_ids.contains(&id) {
-                                    app.selected_qso_ids.push(id);
+                                if !app.log_view.selected_qso_ids.contains(&id) {
+                                    app.log_view.selected_qso_ids.push(id);
                                 }
                             } else {
-                                app.selected_qso_ids.retain(|x| *x != id);
+                                app.log_view.selected_qso_ids.retain(|x| *x != id);
                             }
                         }
                     }
@@ -613,7 +621,7 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                         "nr" => {
                             ui.label(
                                 qso.id
-                                    .and_then(|id| app.qso_numbers.get(&id).copied())
+                                    .and_then(|id| app.log_view.qso_numbers.get(&id).copied())
                                     .map_or_else(|| "—".to_string(), |number| number.to_string()),
                             );
                         }
@@ -703,31 +711,33 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         });
 
     // Zastosuj nowe sortowanie
-    app.log_sort_column = new_sc;
-    app.log_sort_asc = new_sa;
+    app.log_view.sort_column = new_sc;
+    app.log_view.sort_asc = new_sa;
 
     // Zastosuj przełączenie zaznaczenia całej strony
     if select_all != all_selected {
         if select_all {
             for id in &page_ids {
-                if !app.selected_qso_ids.contains(id) {
-                    app.selected_qso_ids.push(*id);
+                if !app.log_view.selected_qso_ids.contains(id) {
+                    app.log_view.selected_qso_ids.push(*id);
                 }
             }
         } else {
-            app.selected_qso_ids.retain(|id| !page_ids.contains(id));
+            app.log_view
+                .selected_qso_ids
+                .retain(|id| !page_ids.contains(id));
         }
     }
 
     if let Some(qso) = qso_to_edit {
-        app.editing_qso = Some(qso);
+        app.log_view.editing_qso = Some(qso);
     }
     if let Some((id, backup)) = qso_id_to_delete {
-        if app.undo_stack.len() >= 20 {
-            app.undo_stack.pop_back();
+        if app.log_view.undo_stack.len() >= 20 {
+            app.log_view.undo_stack.pop_back();
         }
-        app.undo_stack.push_front(backup);
-        app.redo_stack.clear();
+        app.log_view.undo_stack.push_front(backup);
+        app.log_view.redo_stack.clear();
         app.delete_qso_by_id(id);
     }
 }
@@ -743,7 +753,7 @@ fn page_range(page: usize, page_size: usize, total: usize) -> (usize, usize) {
 
 /// Okno dialogowe edycji rekordu QSO
 pub fn render_edit_qso_dialog(app: &mut SpLogApp, ctx: &egui::Context) {
-    if app.editing_qso.is_none() {
+    if app.log_view.editing_qso.is_none() {
         return;
     }
     let lang = app.gui.appearance.language;
@@ -751,7 +761,7 @@ pub fn render_edit_qso_dialog(app: &mut SpLogApp, ctx: &egui::Context) {
     let mut should_save = false;
     let mut should_cancel = false;
 
-    if let Some(ref mut qso) = app.editing_qso {
+    if let Some(ref mut qso) = app.log_view.editing_qso {
         egui::Window::new(format!(
             "✏ {} - {}",
             tr(key::QSO_EDIT_TITLE, lang),
@@ -900,7 +910,7 @@ pub fn render_edit_qso_dialog(app: &mut SpLogApp, ctx: &egui::Context) {
     }
 
     if !is_open || should_cancel {
-        app.editing_qso = None;
+        app.log_view.editing_qso = None;
     } else if should_save {
         app.save_edited_qso();
     }

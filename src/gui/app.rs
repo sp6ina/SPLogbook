@@ -5,14 +5,13 @@ use crate::cat::hamlib::RigState;
 use crate::cat::rotor::RotorState;
 use crate::cluster::telnet::ClusterEvent;
 use crate::cluster::telnet::DxSpot;
-use crate::core::awards::{AwardsEngine, PolishDistrictInfo, QsoAwardStatus};
+use crate::core::awards::AwardsEngine;
 use crate::core::backup::BackupManager;
 use crate::core::database::Journal;
 use crate::core::i18n::{Msg, key, tr};
 use crate::core::ingest::{IngestError, IngestOutcome, QsoOrigin};
-use crate::core::prefix::PrefixInfo;
 use crate::core::qso::QsoRecord;
-use crate::core::service_db::{QslManagerRecord, ServiceDatabase};
+use crate::core::service_db::ServiceDatabase;
 use crate::core::station::{AppConfig, ViewPanelConfig};
 use crate::gui::awards_matrix::render_awards_matrix_window;
 use crate::gui::bandmap::render_bandmap_window;
@@ -90,45 +89,14 @@ pub struct SpLogApp {
     pub services: crate::gui::state::AppServices,
     pub runtime: crate::gui::state::AppRuntime,
     pub digital: crate::gui::state::DigitalModesState,
-
-    // Stany formularza wprowadzania QSO
-    pub entry_callsign: String,
-    pub entry_band: String,
-    pub entry_mode: String,
-    pub entry_rst_sent: String,
-    pub entry_rst_rcvd: String,
-    /// Pełna wymiana kontestowa (np. "599 001" lub "599 15 1234").
-    pub entry_exchange: String,
-    pub entry_name: String,
-    pub entry_qth: String,
-    pub entry_grid: String,
-    pub entry_pga: String,
-    pub entry_comment: String,
-
-    // Dynamicznie wyliczane dane dla wpisanego znaku
-    pub scp_suggestions: Vec<String>,
-    /// Lokalne, rozmyte poprawki znaku (fuzzy matching) — `(znak, odległość)`.
-    pub callsign_corrections: Vec<(String, usize)>,
-    pub active_prefix_info: Option<PrefixInfo>,
-    pub active_polish_district: Option<PolishDistrictInfo>,
-    pub active_award_status: Option<QsoAwardStatus>,
-    pub active_distance_km: f64,
-    pub active_bearing_deg: f64,
-    pub active_propagation: Option<crate::core::propagation::PropagationForecast>,
-    pub active_clubs: Vec<crate::core::clubs::ClubAffiliation>,
+    pub entry: crate::gui::state::QsoEntryState,
+    pub log_view: crate::gui::state::LogViewState,
 
     // Stan transceivera CAT, S-Metra i rotora
     pub rig_state: RigState,
     pub rotor_state: RotorState,
     pub cat_connected: bool,
     pub vfo_split: bool,
-
-    // Tabela ostatnich łączności i wyszukiwarka
-    pub recent_qsos: Vec<QsoRecord>,
-    pub qso_numbers: std::collections::HashMap<i64, usize>,
-    pub log_search_query: String,
-    /// Aktywny filtr drill-down ze statystyk (kliknięty słupek/wiersz).
-    pub log_drill_filter: Option<DrillFilter>,
 
     // DX Cluster i pogoda kosmiczna
     pub cluster_spots: Vec<DxSpot>,
@@ -193,10 +161,6 @@ pub struct SpLogApp {
 
     pub online: crate::gui::state::OnlineSyncUiState,
 
-    // Edycja QSO i historia Worked Before
-    pub editing_qso: Option<QsoRecord>,
-    pub past_qsos_for_active_call: Vec<QsoRecord>,
-
     // Kanał asynchroniczny QRZ
     pub qrz_lookup_tx: std::sync::mpsc::Sender<crate::cloud::qrz::CallbookData>,
     pub qrz_lookup_rx: std::sync::mpsc::Receiver<crate::cloud::qrz::CallbookData>,
@@ -239,33 +203,6 @@ pub struct SpLogApp {
 
     // Modułowy układ kafelków i okien pływających
     pub views: crate::gui::state::ViewsState,
-
-    // Pola dodatkowe formularza QSO
-    pub entry_iota: String,
-    pub entry_state: String,
-    pub entry_sota: String,
-    pub entry_pota: String,
-    pub entry_qsl_manager: String,
-    pub active_qsl_manager_record: Option<QslManagerRecord>,
-
-    // Sortowanie i paginacja tabeli logu
-    pub log_sort_column: u8, // 0=data, 1=znak, 2=pasmo, 3=emisja, 4=kraj, 5..=13 pozostałe kolumny
-    pub log_sort_asc: bool,
-    pub log_page: usize,
-    pub log_page_size: usize,       // 25, 50, 100, 0=wszystkie
-    pub selected_qso_ids: Vec<i64>, // Zaznaczenie wielokrotne w logbooku (bulk delete)
-    pub confirm_bulk_delete: bool,
-
-    // Moduł statystyk
-    pub show_statistics_window: bool,
-    pub stats_tab: usize,
-
-    // Bufor Undo/Redo (ostatnie 20 operacji na logu)
-    pub undo_stack: std::collections::VecDeque<crate::core::qso::QsoRecord>,
-    pub redo_stack: std::collections::VecDeque<crate::core::qso::QsoRecord>,
-
-    // LoTW Users lookup cache (callsign -> uses_lotw)
-    pub lotw_users_cache: std::collections::HashMap<String, bool>,
 
     // System pluginów użytkownika (Rhai)
     pub plugins_ui: crate::gui::state::PluginUiState,
@@ -340,11 +277,6 @@ pub struct SpLogApp {
 
     // Profile stacji roboczej (Wieloprofilowość)
     pub show_station_profiles_window: bool,
-
-    pub focus_callsign_requested: bool,
-
-    // Debounce automatycznego pobierania danych z Callbook/QRZ po wpisaniu znaku
-    pub lookup_debounce_until: Option<std::time::Instant>,
 }
 
 /// Zwraca ścieżkę do pliku czcionki dla wybranej rodziny (o ile istnieje w systemie).
@@ -555,38 +487,17 @@ impl SpLogApp {
             services,
             runtime,
             digital,
-
-            entry_callsign: String::new(),
-            callsign_corrections: Vec::new(),
-            entry_band: "20m".to_string(),
-            entry_mode: "CW".to_string(),
-            entry_rst_sent: "599".to_string(),
-            entry_rst_rcvd: "599".to_string(),
-            entry_exchange: String::new(),
-            entry_name: String::new(),
-            entry_qth: String::new(),
-            entry_grid: String::new(),
-            entry_pga: String::new(),
-            entry_comment: String::new(),
-
-            scp_suggestions: Vec::new(),
-            active_prefix_info: None,
-            active_polish_district: None,
-            active_award_status: None,
-            active_distance_km: 0.0,
-            active_bearing_deg: 0.0,
-            active_propagation: None,
-            active_clubs: Vec::new(),
+            entry: crate::gui::state::QsoEntryState::new(&init.config),
+            log_view: crate::gui::state::LogViewState {
+                recent_qsos,
+                qso_numbers,
+                ..Default::default()
+            },
 
             rig_state: rig,
             rotor_state: rotor,
             cat_connected: false,
             vfo_split: false,
-
-            recent_qsos,
-            qso_numbers,
-            log_search_query: String::new(),
-            log_drill_filter: None,
 
             cluster_spots: sample_spots,
             cluster_badge_cache: std::collections::HashMap::new(),
@@ -635,9 +546,6 @@ impl SpLogApp {
 
             online,
 
-            editing_qso: None,
-            past_qsos_for_active_call: Vec::new(),
-
             qrz_lookup_tx,
             qrz_lookup_rx,
 
@@ -658,13 +566,6 @@ impl SpLogApp {
             updates: crate::gui::state::UpdateState::default(),
             column_preset_name: String::new(),
 
-            entry_iota: String::new(),
-            entry_state: String::new(),
-            entry_sota: String::new(),
-            entry_pota: String::new(),
-            entry_qsl_manager: String::new(),
-            active_qsl_manager_record: None,
-
             cat_state_tx,
             cat_state_rx,
 
@@ -680,25 +581,6 @@ impl SpLogApp {
             cluster_cmd_tx: None,
 
             views,
-
-            // Sortowanie i paginacja logu
-            log_sort_column: 0,
-            log_sort_asc: false,
-            log_page: 0,
-            log_page_size: 50,
-            selected_qso_ids: Vec::new(),
-            confirm_bulk_delete: false,
-
-            // Statystyki
-            show_statistics_window: false,
-            stats_tab: 0,
-
-            // Undo/Redo
-            undo_stack: std::collections::VecDeque::new(),
-            redo_stack: std::collections::VecDeque::new(),
-
-            // LoTW Users cache
-            lotw_users_cache: std::collections::HashMap::new(),
 
             // System pluginów użytkownika (Rhai)
             plugins_ui: crate::gui::state::PluginUiState::default(),
@@ -760,8 +642,6 @@ impl SpLogApp {
 
             // Profile stacji roboczej
             show_station_profiles_window: false,
-            focus_callsign_requested: false,
-            lookup_debounce_until: None,
         };
 
         app.rebuild_awards_full();
@@ -848,7 +728,7 @@ impl SpLogApp {
                 .plugin_engine
                 .set_enabled(self.config.plugins_enabled);
             self.services.plugin_engine.load_dir(&dir);
-            let total = self.qso_numbers.len() as i64;
+            let total = self.log_view.qso_numbers.len() as i64;
             self.services.plugin_engine.set_qso_count(total);
             self.services.plugin_engine.run_startup();
         }
@@ -1202,7 +1082,7 @@ impl eframe::App for SpLogApp {
                 );
             }
             if let Some(filtered) = filter_results {
-                self.recent_qsos = filtered;
+                self.log_view.recent_qsos = filtered;
             }
             if clear_filter {
                 self.reload_qsos();
@@ -1248,10 +1128,11 @@ impl eframe::App for SpLogApp {
         );
 
         // 3. Moduł SOTA / POTA
-        self.gui
-            .dialogs
-            .sota_dialog
-            .show(ctx, &self.recent_qsos, self.gui.appearance.language);
+        self.gui.dialogs.sota_dialog.show(
+            ctx,
+            &self.log_view.recent_qsos,
+            self.gui.appearance.language,
+        );
 
         // 3b. Konfigurowalny eksport CSV
         if self.gui.dialogs.csv_export_dialog.is_open {
@@ -1278,7 +1159,7 @@ impl eframe::App for SpLogApp {
                 &awards,
                 self.gui.appearance.language,
             ) {
-                self.entry_iota = iota;
+                self.entry.iota = iota;
             }
 
             // 5. Przeglądarka stanów USA (WAS)
@@ -1288,7 +1169,7 @@ impl eframe::App for SpLogApp {
                 &awards,
                 self.gui.appearance.language,
             ) {
-                self.entry_state = state;
+                self.entry.state = state;
             }
         }
 
@@ -1298,7 +1179,7 @@ impl eframe::App for SpLogApp {
             &self.services.service_db,
             self.gui.appearance.language,
         ) {
-            self.entry_qsl_manager = qslm;
+            self.entry.qsl_manager = qslm;
         }
 
         // 7. Przeglądarka fotografii i kart QSL korespondenta
@@ -1439,10 +1320,47 @@ mod tests {
     use crate::core::station::AppConfig;
     use std::sync::{Arc, Mutex};
 
+    fn test_prefix_matcher() -> PrefixMatcher {
+        let uri = format!(
+            "file:prefix_test_{}?mode=memory&cache=shared",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let flags = rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE
+            | rusqlite::OpenFlags::SQLITE_OPEN_CREATE
+            | rusqlite::OpenFlags::SQLITE_OPEN_URI;
+        if let Ok(conn) = rusqlite::Connection::open_with_flags(&uri, flags) {
+            let _ = conn.execute_batch(
+                "CREATE TABLE UniqueCalls (
+                    Callsign TEXT, Country TEXT, ARRLPrefix TEXT, DXCC TEXT, Continent TEXT,
+                    CQZone INTEGER, ITUZone INTEGER, Latitude TEXT, Longitude TEXT, Enable TEXT
+                );
+                CREATE TABLE CountryDataEx (
+                    Country TEXT, ARRLPrefix TEXT, DXCC INTEGER, Continent TEXT,
+                    CQZone INTEGER, ITUZone INTEGER, Latitude TEXT, Longitude TEXT,
+                    PrefixList TEXT, EndDate TEXT
+                );
+                CREATE TABLE Province (
+                    Country TEXT, ARRLPrefix TEXT, DXCC TEXT, Continent TEXT,
+                    CQZone INTEGER, ITUZone INTEGER, Latitude TEXT, Longitude TEXT,
+                    PrefixList TEXT, Comment TEXT, EndDate TEXT
+                );
+                INSERT INTO UniqueCalls VALUES
+                    ('SP6INA', 'Poland', 'SP', '269', 'EU', 15, 28, '51.1N', '17.0E', '1');",
+            );
+            if let Ok(m) = PrefixMatcher::load_from_db(&uri) {
+                return m;
+            }
+        }
+        PrefixMatcher::empty()
+    }
+
     fn test_deps() -> AppDeps {
         AppDeps {
             log_db: Arc::new(Mutex::new(LogDatabase::open_in_memory().unwrap())),
-            prefix_matcher: Arc::new(PrefixMatcher::empty()),
+            prefix_matcher: Arc::new(test_prefix_matcher()),
             scp_engine: Arc::new(Mutex::new(ScpEngine::new())),
         }
     }
@@ -1485,10 +1403,10 @@ mod tests {
         let app = SpLogApp::for_tests(init, deps);
         assert_eq!(app.active_journal.name, "Test");
         assert_eq!(app.active_journal.id, "test-id");
-        assert_eq!(app.qso_numbers.len(), 2);
-        assert_eq!(app.qso_numbers.get(&first_id), Some(&1));
-        assert_eq!(app.qso_numbers.get(&second_id), Some(&2));
-        assert_eq!(app.recent_qsos.len(), 2);
+        assert_eq!(app.log_view.qso_numbers.len(), 2);
+        assert_eq!(app.log_view.qso_numbers.get(&first_id), Some(&1));
+        assert_eq!(app.log_view.qso_numbers.get(&second_id), Some(&2));
+        assert_eq!(app.log_view.recent_qsos.len(), 2);
     }
 
     #[test]
@@ -1578,8 +1496,8 @@ mod tests {
         // 1. Pierwszy poprawny import
         app.import_adif_content(adif, "test_file.adi");
 
-        assert_eq!(app.recent_qsos.len(), 2);
-        assert_eq!(app.qso_numbers.len(), 2);
+        assert_eq!(app.log_view.recent_qsos.len(), 2);
+        assert_eq!(app.log_view.qso_numbers.len(), 2);
         assert!(
             app.gui
                 .chrome
@@ -1619,8 +1537,8 @@ mod tests {
         app.import_adif_content(adif, "test_file.adi");
 
         // Liczba rekordów nie wzrosła
-        assert_eq!(app.recent_qsos.len(), 2);
-        assert_eq!(app.qso_numbers.len(), 2);
+        assert_eq!(app.log_view.recent_qsos.len(), 2);
+        assert_eq!(app.log_view.qso_numbers.len(), 2);
         assert!(
             app.gui
                 .chrome
@@ -1651,22 +1569,22 @@ mod tests {
         let mut app = SpLogApp::for_tests(init, deps);
         let mut event_rx = app.services.event_bus.subscribe();
 
-        app.entry_callsign = "SP6INA".to_string();
-        app.entry_band = "20m".to_string();
-        app.entry_mode = "CW".to_string();
-        app.entry_rst_sent = "599".to_string();
-        app.entry_rst_rcvd = "599".to_string();
+        app.entry.callsign = "SP6INA".to_string();
+        app.entry.band = "20m".to_string();
+        app.entry.mode = "CW".to_string();
+        app.entry.rst_sent = "599".to_string();
+        app.entry.rst_rcvd = "599".to_string();
 
         app.save_qso();
 
         // 1. Formularz wyczyszczony
-        assert_eq!(app.entry_callsign, "");
+        assert_eq!(app.entry.callsign, "");
 
         // 2. Rekord zapisany w bazie z aktywnym journal_id
-        assert_eq!(app.recent_qsos.len(), 1);
-        assert_eq!(app.recent_qsos[0].callsign, "SP6INA");
+        assert_eq!(app.log_view.recent_qsos.len(), 1);
+        assert_eq!(app.log_view.recent_qsos[0].callsign, "SP6INA");
         assert_eq!(
-            app.recent_qsos[0].journal_id,
+            app.log_view.recent_qsos[0].journal_id,
             Some(app.active_journal.id.clone())
         );
 
@@ -1704,17 +1622,17 @@ mod tests {
         let mut event_rx = app.services.event_bus.subscribe();
 
         // Błąd walidacji: niedozwolony znak w znaku wywoławczym (QsoIssue::CallsignChars)
-        app.entry_callsign = "SP6INA@".to_string();
-        app.entry_band = "20m".to_string();
-        app.entry_mode = "CW".to_string();
+        app.entry.callsign = "SP6INA@".to_string();
+        app.entry.band = "20m".to_string();
+        app.entry.mode = "CW".to_string();
 
         app.save_qso();
 
         // Formularz NIE został wyczyszczony
-        assert_eq!(app.entry_callsign, "SP6INA@");
+        assert_eq!(app.entry.callsign, "SP6INA@");
 
         // Brak rekordu w bazie
-        assert_eq!(app.recent_qsos.len(), 0);
+        assert_eq!(app.log_view.recent_qsos.len(), 0);
 
         // Brak zdarzeń
         assert!(event_rx.try_recv().is_err());
@@ -1750,8 +1668,8 @@ mod tests {
         app.reload_qsos();
 
         assert_eq!(app.contest_stx, initial_stx + 1);
-        assert_eq!(app.recent_qsos.len(), 1);
-        assert_eq!(app.recent_qsos[0].callsign, "SN0HQ");
+        assert_eq!(app.log_view.recent_qsos.len(), 1);
+        assert_eq!(app.log_view.recent_qsos[0].callsign, "SN0HQ");
 
         let event = event_rx.try_recv().expect("Oczekiwano zdarzenia AppEvent");
         assert!(
@@ -1799,8 +1717,8 @@ mod tests {
 
         app.handle_wsjtx_qso(qso);
 
-        assert_eq!(app.recent_qsos.len(), 1);
-        let stored = &app.recent_qsos[0];
+        assert_eq!(app.log_view.recent_qsos.len(), 1);
+        let stored = &app.log_view.recent_qsos[0];
         assert_eq!(stored.callsign, "K1ABC");
         assert_ne!(stored.qso_date, "");
         assert_ne!(stored.time_on, "");
@@ -1841,9 +1759,19 @@ mod tests {
         app.handle_js8call_qso(qso2);
         app.handle_js8call_qso(qso3);
 
-        assert_eq!(app.recent_qsos.len(), 2);
-        assert!(app.recent_qsos.iter().any(|q| q.callsign == "JS8ONE"));
-        assert!(app.recent_qsos.iter().any(|q| q.callsign == "JS8TWO"));
+        assert_eq!(app.log_view.recent_qsos.len(), 2);
+        assert!(
+            app.log_view
+                .recent_qsos
+                .iter()
+                .any(|q| q.callsign == "JS8ONE")
+        );
+        assert!(
+            app.log_view
+                .recent_qsos
+                .iter()
+                .any(|q| q.callsign == "JS8TWO")
+        );
 
         let mut events_count = 0;
         while let Ok(event) = event_rx.try_recv() {
@@ -1956,5 +1884,94 @@ mod tests {
             app.solar.propagation_history.records[0].observed,
             Some(crate::core::propagation_history::ObservedOutcome::ConfirmedOpen)
         );
+    }
+
+    #[test]
+    fn clear_qso_form_resets_all_entry_fields() {
+        let deps = test_deps();
+        let init = AppInit {
+            config: AppConfig::default(),
+            config_file_path: std::path::PathBuf::from("config.json"),
+            active_db_path: std::path::PathBuf::from("db.sqlite"),
+            shutdown_policy: ShutdownPolicy::None,
+        };
+        let mut app = SpLogApp::for_tests(init, deps);
+
+        app.entry.callsign = "SP6INA".to_string();
+        app.entry.rst_sent = "599".to_string();
+        app.entry.rst_rcvd = "599".to_string();
+        app.entry.name = "Mariusz".to_string();
+        app.entry.qth = "Wroclaw".to_string();
+        app.entry.grid = "JO81".to_string();
+        app.entry.comment = "Test comment".to_string();
+        app.entry.focus_callsign_requested = false;
+
+        app.clear_qso_form();
+
+        assert_eq!(app.entry.callsign, "");
+        assert_eq!(app.entry.name, "");
+        assert_eq!(app.entry.qth, "");
+        assert_eq!(app.entry.grid, "");
+        assert_eq!(app.entry.comment, "");
+        assert!(app.entry.focus_callsign_requested);
+    }
+
+    #[test]
+    fn on_callsign_changed_fills_prefix_and_previous_qso_data() {
+        let deps = test_deps();
+        let init = AppInit {
+            config: AppConfig::default(),
+            config_file_path: std::path::PathBuf::from("config.json"),
+            active_db_path: std::path::PathBuf::from("db.sqlite"),
+            shutdown_policy: ShutdownPolicy::None,
+        };
+        let mut app = SpLogApp::for_tests(init, deps);
+
+        let mut qso = QsoRecord::new("SP6INA", "20m", "SSB");
+        qso.name = Some("Mariusz".to_string());
+        qso.qth = Some("Wroclaw".to_string());
+        qso.gridsquare = Some("JO81".to_string());
+        qso.journal_id = Some(app.active_journal.id.clone());
+        app.services
+            .log_db
+            .lock()
+            .unwrap()
+            .insert_qso(&qso)
+            .unwrap();
+
+        app.entry.callsign = "SP6INA".to_string();
+        app.on_callsign_changed();
+
+        assert!(app.entry.active_prefix_info.is_some());
+        assert_eq!(app.entry.name, "Mariusz");
+        assert_eq!(app.entry.qth, "Wroclaw");
+        assert_eq!(app.entry.grid, "JO81");
+        assert_eq!(app.entry.past_qsos_for_active_call.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn debounce_fires_after_600ms() {
+        let deps = test_deps();
+        let init = AppInit {
+            config: AppConfig::default(),
+            config_file_path: std::path::PathBuf::from("config.json"),
+            active_db_path: std::path::PathBuf::from("db.sqlite"),
+            shutdown_policy: ShutdownPolicy::None,
+        };
+        let mut app = SpLogApp::for_tests(init, deps);
+
+        app.config.qrz_auto_lookup = true;
+        app.entry.callsign = "SP6".to_string();
+        app.on_callsign_changed();
+
+        assert!(app.entry.lookup_debounce_until.is_some());
+
+        // Simulate deadline passed
+        app.entry.lookup_debounce_until =
+            Some(std::time::Instant::now() - std::time::Duration::from_millis(10));
+
+        app.process_debounced_lookup();
+
+        assert!(app.entry.lookup_debounce_until.is_none());
     }
 }

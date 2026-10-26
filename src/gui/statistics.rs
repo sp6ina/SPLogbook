@@ -9,11 +9,11 @@ use crate::gui::theme::ThemeExt;
 use eframe::egui;
 
 pub fn render_statistics_window(app: &mut SpLogApp, ctx: &egui::Context) {
-    if !app.show_statistics_window {
+    if !app.log_view.show_statistics_window {
         return;
     }
     let lang = app.gui.appearance.language;
-    let mut is_open = app.show_statistics_window;
+    let mut is_open = app.log_view.show_statistics_window;
 
     egui::Window::new(
         egui::RichText::new(format!("📊 {}", tr(key::STATS_WINDOW_TITLE, lang)))
@@ -38,39 +38,39 @@ pub fn render_statistics_window(app: &mut SpLogApp, ctx: &egui::Context) {
         // Zakładki statystyk
         ui.horizontal(|ui| {
             ui.selectable_value(
-                &mut app.stats_tab,
+                &mut app.log_view.stats_tab,
                 0,
                 format!("📅 {}", tr(key::STATS_TAB_MONTHLY, lang)),
             );
             ui.selectable_value(
-                &mut app.stats_tab,
+                &mut app.log_view.stats_tab,
                 1,
                 format!("📻 {}", tr(key::STATS_TAB_BANDS, lang)),
             );
             ui.selectable_value(
-                &mut app.stats_tab,
+                &mut app.log_view.stats_tab,
                 2,
                 format!("📡 {}", tr(key::STATS_TAB_MODES, lang)),
             );
             ui.selectable_value(
-                &mut app.stats_tab,
+                &mut app.log_view.stats_tab,
                 3,
                 format!("⏰ {}", tr(key::STATS_TAB_HOURLY, lang)),
             );
             ui.selectable_value(
-                &mut app.stats_tab,
+                &mut app.log_view.stats_tab,
                 4,
                 format!("🌍 {}", tr(key::STATS_TAB_COUNTRIES, lang)),
             );
             ui.selectable_value(
-                &mut app.stats_tab,
+                &mut app.log_view.stats_tab,
                 5,
                 format!("📬 {}", tr(key::STATS_TAB_QSL, lang)),
             );
         });
         ui.separator();
 
-        match app.stats_tab {
+        match app.log_view.stats_tab {
             0 => render_tab_monthly(app, ui),
             1 => render_tab_bands(app, ui),
             2 => render_tab_modes(app, ui),
@@ -80,7 +80,7 @@ pub fn render_statistics_window(app: &mut SpLogApp, ctx: &egui::Context) {
         }
     });
 
-    app.show_statistics_window = is_open;
+    app.log_view.show_statistics_window = is_open;
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -107,15 +107,16 @@ static STATS_CACHE: std::sync::OnceLock<std::sync::Mutex<Option<(StatsCacheKey, 
 
 fn get_cached_stats(app: &mut SpLogApp) -> StatsCacheData {
     let confirmed_sample = app
+        .log_view
         .recent_qsos
         .iter()
         .filter(|q| q.lotw_qsl_rcvd == "Y" || q.eqsl_qsl_rcvd == "Y" || q.qsl_rcvd == "Y")
         .count();
     let key = StatsCacheKey {
         journal_id: app.active_journal.id.clone(),
-        qso_count: app.qso_numbers.len(),
-        recent_len: app.recent_qsos.len(),
-        first_id: app.recent_qsos.first().and_then(|q| q.id),
+        qso_count: app.log_view.qso_numbers.len(),
+        recent_len: app.log_view.recent_qsos.len(),
+        first_id: app.log_view.recent_qsos.first().and_then(|q| q.id),
         confirmed_sample,
     };
 

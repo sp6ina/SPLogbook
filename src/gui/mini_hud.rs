@@ -134,23 +134,23 @@ fn render_hud_body(app: &mut SpLogApp, ui: &mut egui::Ui, exit_compact: &mut boo
             }
 
             egui::ComboBox::from_id_salt("hud_band")
-                .selected_text(&app.entry_band)
+                .selected_text(&app.entry.band)
                 .width(55.0)
                 .show_ui(ui, |ui| {
                     for band in &[
                         "160m", "80m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m", "2m",
                         "70cm",
                     ] {
-                        ui.selectable_value(&mut app.entry_band, band.to_string(), *band);
+                        ui.selectable_value(&mut app.entry.band, band.to_string(), *band);
                     }
                 });
 
             egui::ComboBox::from_id_salt("hud_mode")
-                .selected_text(&app.entry_mode)
+                .selected_text(&app.entry.mode)
                 .width(50.0)
                 .show_ui(ui, |ui| {
                     for mode in &["CW", "SSB", "FT8", "FT4", "RTTY", "AM", "FM"] {
-                        ui.selectable_value(&mut app.entry_mode, mode.to_string(), *mode);
+                        ui.selectable_value(&mut app.entry.mode, mode.to_string(), *mode);
                     }
                 });
 
@@ -170,13 +170,13 @@ fn render_hud_body(app: &mut SpLogApp, ui: &mut egui::Ui, exit_compact: &mut boo
         // 2. Wprowadzanie QSO: Znak + RST
         ui.horizontal(|ui| {
             let call_edit = ui.add(
-                egui::TextEdit::singleline(&mut app.entry_callsign)
+                egui::TextEdit::singleline(&mut app.entry.callsign)
                     .font(egui::TextStyle::Heading)
                     .desired_width(130.0)
                     .hint_text(tr(key::HUD_DX_CALL_HINT, lang)),
             );
             if call_edit.changed() {
-                app.entry_callsign = app.entry_callsign.to_uppercase();
+                app.entry.callsign = app.entry.callsign.to_uppercase();
                 app.on_callsign_changed();
             }
 
@@ -189,8 +189,8 @@ fn render_hud_body(app: &mut SpLogApp, ui: &mut egui::Ui, exit_compact: &mut boo
             }
 
             ui.label("RST:");
-            ui.add(egui::TextEdit::singleline(&mut app.entry_rst_sent).desired_width(38.0));
-            ui.add(egui::TextEdit::singleline(&mut app.entry_rst_rcvd).desired_width(38.0));
+            ui.add(egui::TextEdit::singleline(&mut app.entry.rst_sent).desired_width(38.0));
+            ui.add(egui::TextEdit::singleline(&mut app.entry.rst_rcvd).desired_width(38.0));
 
             if ui
                 .button(
@@ -207,34 +207,34 @@ fn render_hud_body(app: &mut SpLogApp, ui: &mut egui::Ui, exit_compact: &mut boo
         // 3. Dodatkowe dane korespondenta: Imię, QTH, Grid
         ui.horizontal(|ui| {
             ui.label(tr(key::HUD_NAME_LABEL, lang));
-            ui.add(egui::TextEdit::singleline(&mut app.entry_name).desired_width(85.0));
+            ui.add(egui::TextEdit::singleline(&mut app.entry.name).desired_width(85.0));
 
             ui.label("QTH:");
-            ui.add(egui::TextEdit::singleline(&mut app.entry_qth).desired_width(90.0));
+            ui.add(egui::TextEdit::singleline(&mut app.entry.qth).desired_width(90.0));
 
             ui.label("Grid:");
             let grid_edit =
-                ui.add(egui::TextEdit::singleline(&mut app.entry_grid).desired_width(60.0));
+                ui.add(egui::TextEdit::singleline(&mut app.entry.grid).desired_width(60.0));
             if grid_edit.changed() {
-                app.entry_grid = app.entry_grid.to_uppercase();
+                app.entry.grid = app.entry.grid.to_uppercase();
                 app.recalculate_distance_from_grid();
             }
         });
 
         // 4. Etykiety DXCC i azymutu
-        if let Some(ref info) = app.active_prefix_info {
+        if let Some(ref info) = app.entry.active_prefix_info {
             ui.horizontal_wrapped(|ui| {
                 ui.colored_label(
                     palette.accent,
                     format!("📍 {} ({})", info.country, info.wpx_prefix),
                 );
-                if app.active_distance_km > 0.0 {
+                if app.entry.active_distance_km > 0.0 {
                     ui.colored_label(
                         palette.warning,
                         format!(
                             "🧭 {} | {:.0}°",
                             app.active_distance_display(),
-                            app.active_bearing_deg
+                            app.entry.active_bearing_deg
                         ),
                     );
                 }
@@ -291,42 +291,42 @@ fn render_operating_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ui.separator();
 
             egui::ComboBox::from_id_salt("opbar_band")
-                .selected_text(&app.entry_band)
+                .selected_text(&app.entry.band)
                 .width(52.0)
                 .show_ui(ui, |ui| {
                     for band in &[
                         "160m", "80m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m", "2m",
                         "70cm",
                     ] {
-                        ui.selectable_value(&mut app.entry_band, band.to_string(), *band);
+                        ui.selectable_value(&mut app.entry.band, band.to_string(), *band);
                     }
                 });
 
             egui::ComboBox::from_id_salt("opbar_mode")
-                .selected_text(&app.entry_mode)
+                .selected_text(&app.entry.mode)
                 .width(48.0)
                 .show_ui(ui, |ui| {
                     for mode in &["CW", "SSB", "FT8", "FT4", "RTTY", "AM", "FM"] {
-                        ui.selectable_value(&mut app.entry_mode, mode.to_string(), *mode);
+                        ui.selectable_value(&mut app.entry.mode, mode.to_string(), *mode);
                     }
                 });
 
             ui.separator();
 
             let call_edit = ui.add(
-                egui::TextEdit::singleline(&mut app.entry_callsign)
+                egui::TextEdit::singleline(&mut app.entry.callsign)
                     .font(egui::TextStyle::Heading)
                     .desired_width(120.0)
                     .hint_text(tr(key::HUD_DX_CALL_HINT, lang)),
             );
             if call_edit.changed() {
-                app.entry_callsign = app.entry_callsign.to_uppercase();
+                app.entry.callsign = app.entry.callsign.to_uppercase();
                 app.on_callsign_changed();
             }
 
             ui.label("RST:");
-            ui.add(egui::TextEdit::singleline(&mut app.entry_rst_sent).desired_width(34.0));
-            ui.add(egui::TextEdit::singleline(&mut app.entry_rst_rcvd).desired_width(34.0));
+            ui.add(egui::TextEdit::singleline(&mut app.entry.rst_sent).desired_width(34.0));
+            ui.add(egui::TextEdit::singleline(&mut app.entry.rst_rcvd).desired_width(34.0));
 
             if ui
                 .button(

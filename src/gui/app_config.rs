@@ -198,8 +198,8 @@ impl SpLogApp {
         {
             self.config.active_profile_id.clone_from(&prof.id);
             self.config.station = prof.clone();
-            self.entry_pota = prof.pota_ref.clone().unwrap_or_default();
-            self.entry_sota = prof.sota_ref.clone().unwrap_or_default();
+            self.entry.pota = prof.pota_ref.clone().unwrap_or_default();
+            self.entry.sota = prof.sota_ref.clone().unwrap_or_default();
             self.save_station_config();
             let prof_name = if prof.name.is_empty() {
                 &prof.callsign

@@ -81,14 +81,14 @@ impl SpLogApp {
     }
 
     pub fn turn_rotor_short_path(&mut self) {
-        if self.active_bearing_deg >= 0.0 {
-            self.rotate_antenna_to(self.active_bearing_deg as f32);
+        if self.entry.active_bearing_deg >= 0.0 {
+            self.rotate_antenna_to(self.entry.active_bearing_deg as f32);
         }
     }
 
     pub fn turn_rotor_long_path(&mut self) {
-        if self.active_bearing_deg >= 0.0 {
-            let lp = ((self.active_bearing_deg + 180.0) % 360.0) as f32;
+        if self.entry.active_bearing_deg >= 0.0 {
+            let lp = ((self.entry.active_bearing_deg + 180.0) % 360.0) as f32;
             self.rotate_antenna_to(lp);
         }
     }
@@ -203,7 +203,7 @@ impl SpLogApp {
     pub fn set_vfo_frequency(&mut self, freq_hz: u64) {
         self.rig_state.frequency_hz = freq_hz;
         if let Some(band_def) = crate::core::bandplan::get_band_by_freq(freq_hz) {
-            self.entry_band = band_def.name.to_string();
+            self.entry.band = band_def.name.to_string();
         }
         self.cat_runtime.set_frequency(freq_hz);
         self.gui.chrome.status_message = Some(format!(
@@ -220,7 +220,7 @@ impl SpLogApp {
 
     pub fn set_vfo_mode(&mut self, mode: &str) {
         self.rig_state.mode = mode.to_string();
-        self.entry_mode = mode.to_string();
+        self.entry.mode = mode.to_string();
         self.cat_runtime
             .set_mode(mode.to_string(), self.rig_state.passband_hz);
         self.gui.chrome.status_message = Some(format!("Emisja zmieniona na: {mode}"));
@@ -290,10 +290,10 @@ impl SpLogApp {
                 });
             if st.frequency_hz > 0 {
                 if let Some(band_def) = crate::core::bandplan::get_band_by_freq(st.frequency_hz) {
-                    self.entry_band = band_def.name.to_string();
+                    self.entry.band = band_def.name.to_string();
                 }
                 if !st.mode.is_empty() {
-                    self.entry_mode = st.mode.clone();
+                    self.entry.mode = st.mode.clone();
                 }
             }
             self.services.plugin_engine.run_on_rig_state(

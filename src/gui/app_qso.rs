@@ -5,7 +5,7 @@ use super::*;
 
 impl SpLogApp {
     pub fn save_qso(&mut self) {
-        if self.entry_callsign.trim().is_empty() {
+        if self.entry.callsign.trim().is_empty() {
             return;
         }
 
@@ -13,7 +13,7 @@ impl SpLogApp {
         let date_str = now.format("%Y%m%d").to_string();
         let time_str = now.format("%H%M").to_string();
 
-        let mut qso = QsoRecord::new(&self.entry_callsign, &self.entry_band, &self.entry_mode);
+        let mut qso = QsoRecord::new(&self.entry.callsign, &self.entry.band, &self.entry.mode);
         qso.journal_id = Some(self.active_journal.id.clone());
         if !self.config.station.gridsquare.trim().is_empty() {
             qso.my_gridsquare = Some(self.config.station.gridsquare.clone());
@@ -23,57 +23,57 @@ impl SpLogApp {
         }
         qso.qso_date.clone_from(&date_str);
         qso.time_on.clone_from(&time_str);
-        qso.rst_sent = self.entry_rst_sent.clone();
-        qso.rst_rcvd = self.entry_rst_rcvd.clone();
-        qso.name = if self.entry_name.is_empty() {
+        qso.rst_sent = self.entry.rst_sent.clone();
+        qso.rst_rcvd = self.entry.rst_rcvd.clone();
+        qso.name = if self.entry.name.is_empty() {
             None
         } else {
-            Some(self.entry_name.clone())
+            Some(self.entry.name.clone())
         };
-        qso.qth = if self.entry_qth.is_empty() {
+        qso.qth = if self.entry.qth.is_empty() {
             None
         } else {
-            Some(self.entry_qth.clone())
+            Some(self.entry.qth.clone())
         };
-        qso.gridsquare = if self.entry_grid.is_empty() {
+        qso.gridsquare = if self.entry.grid.is_empty() {
             None
         } else {
-            Some(self.entry_grid.clone())
+            Some(self.entry.grid.clone())
         };
-        qso.pga_ref = if self.entry_pga.is_empty() {
+        qso.pga_ref = if self.entry.pga.is_empty() {
             None
         } else {
-            Some(self.entry_pga.clone())
+            Some(self.entry.pga.clone())
         };
-        qso.comment = if self.entry_comment.is_empty() {
+        qso.comment = if self.entry.comment.is_empty() {
             None
         } else {
-            Some(self.entry_comment.clone())
+            Some(self.entry.comment.clone())
         };
-        qso.iota = if self.entry_iota.is_empty() {
+        qso.iota = if self.entry.iota.is_empty() {
             None
         } else {
-            Some(self.entry_iota.clone())
+            Some(self.entry.iota.clone())
         };
-        qso.state = if self.entry_state.is_empty() {
+        qso.state = if self.entry.state.is_empty() {
             None
         } else {
-            Some(self.entry_state.clone())
+            Some(self.entry.state.clone())
         };
-        qso.sota_ref = if self.entry_sota.is_empty() {
+        qso.sota_ref = if self.entry.sota.is_empty() {
             None
         } else {
-            Some(self.entry_sota.clone())
+            Some(self.entry.sota.clone())
         };
-        qso.pota_ref = if self.entry_pota.is_empty() {
+        qso.pota_ref = if self.entry.pota.is_empty() {
             None
         } else {
-            Some(self.entry_pota.clone())
+            Some(self.entry.pota.clone())
         };
-        qso.qsl_via = if self.entry_qsl_manager.is_empty() {
+        qso.qsl_via = if self.entry.qsl_manager.is_empty() {
             None
         } else {
-            Some(self.entry_qsl_manager.clone())
+            Some(self.entry.qsl_manager.clone())
         };
         qso.qsl_manager = qso.qsl_via.clone();
 
@@ -83,7 +83,7 @@ impl SpLogApp {
                 || std::path::PathBuf::from("recordings"),
                 |p| p.join("recordings"),
             );
-            let clean_call = self.entry_callsign.trim().to_uppercase().replace('/', "_");
+            let clean_call = self.entry.callsign.trim().to_uppercase().replace('/', "_");
             let filename = format!("QSO_{clean_call}_{date_str}_{time_str}.wav");
             let path = rec_dir.join(filename);
             if let Ok(saved) = crate::media::audio_recorder::AudioRecorder::stop_and_save(&path) {
@@ -145,7 +145,7 @@ impl SpLogApp {
 
         // 1. Dźwięki i alerty (alert_sound)
         if effects.alert_sound && self.solar.band_alert_enabled {
-            if let Some(status) = &self.active_award_status {
+            if let Some(status) = &self.entry.active_award_status {
                 if status.is_new_dxcc {
                     crate::media::sounds::play_new_dxcc_alert();
                 } else if status.is_new_iota {
@@ -179,6 +179,7 @@ impl SpLogApp {
                     mode: qso.mode.clone(),
                     freq_mhz: qso.freq.unwrap_or(0.0),
                     is_atno: self
+                        .entry
                         .active_award_status
                         .as_ref()
                         .is_some_and(|s| s.is_new_dxcc),
@@ -451,33 +452,12 @@ impl SpLogApp {
     }
 
     pub fn clear_qso_form(&mut self) {
-        self.entry_callsign.clear();
-        self.entry_name.clear();
-        self.entry_qth.clear();
-        self.entry_grid.clear();
-        self.entry_pga.clear();
-        self.entry_comment.clear();
-        self.entry_iota.clear();
-        self.entry_state.clear();
-        self.entry_sota.clear();
-        self.entry_pota.clear();
-        self.entry_qsl_manager.clear();
-        self.active_qsl_manager_record = None;
-        self.scp_suggestions.clear();
-        self.active_prefix_info = None;
-        self.active_polish_district = None;
-        self.active_award_status = None;
-        self.active_distance_km = 0.0;
-        self.active_bearing_deg = 0.0;
-        self.active_propagation = None;
-        self.active_clubs.clear();
-        self.past_qsos_for_active_call.clear();
-        self.focus_callsign_requested = true;
+        self.entry.clear();
     }
 
     /// Zwraca odległość do korespondenta sformatowaną wg wybranej jednostki (km/mi/nmi).
     pub fn active_distance_display(&self) -> String {
-        let km = self.active_distance_km;
+        let km = self.entry.active_distance_km;
         match self.config.distance_unit.as_str() {
             "mi" => format!("{:.0} mi", km * 0.621_371),
             "nmi" => format!("{:.0} NM", km * 0.539_957),
@@ -489,7 +469,7 @@ impl SpLogApp {
     pub fn wipe_qso_form(&mut self) {
         self.clear_qso_form();
         self.views.panel_qso.visible = true;
-        self.focus_callsign_requested = true;
+        self.entry.focus_callsign_requested = true;
     }
 
     pub fn reload_qsos(&mut self) {
@@ -501,20 +481,20 @@ impl SpLogApp {
             let total = db
                 .count_qsos_for_journal(&self.active_journal.id)
                 .unwrap_or(0);
-            let requested = if self.log_page_size == 0 {
+            let requested = if self.log_view.page_size == 0 {
                 10000
             } else {
-                (self.log_page_size * 20).max(500)
+                (self.log_view.page_size * 20).max(500)
             };
             let limit = requested.max(total);
-            self.recent_qsos = db
+            self.log_view.recent_qsos = db
                 .get_recent_qsos_for_journal(&self.active_journal.id, limit)
                 .unwrap_or_default();
             match db.qso_numbers_for_journal(&self.active_journal.id) {
-                Ok(numbers) => self.qso_numbers = numbers,
+                Ok(numbers) => self.log_view.qso_numbers = numbers,
                 Err(error) => {
                     log::error!("Failed to calculate QSO serial numbers: {error}");
-                    self.qso_numbers.clear();
+                    self.log_view.qso_numbers.clear();
                     self.gui.chrome.status_toast = Some((
                         Msg::new(key::QSO_SERIAL_ERROR)
                             .arg("err", &error)
@@ -525,11 +505,11 @@ impl SpLogApp {
             }
         }
         // Zresetuj stronę jeśli wyszła poza zakres
-        if self.log_page_size > 0 {
-            let pages =
-                (self.recent_qsos.len() + self.log_page_size - 1) / self.log_page_size.max(1);
-            if self.log_page >= pages && pages > 0 {
-                self.log_page = pages - 1;
+        if self.log_view.page_size > 0 {
+            let pages = (self.log_view.recent_qsos.len() + self.log_view.page_size - 1)
+                / self.log_view.page_size.max(1);
+            if self.log_view.page >= pages && pages > 0 {
+                self.log_view.page = pages - 1;
             }
         }
     }
@@ -537,16 +517,16 @@ impl SpLogApp {
     /// Ustawia filtr drill-down i przenosi widok do tabeli logu, aby pokazać
     /// listę QSO pasujących do klikniętej pozycji w statystykach.
     pub fn drill_down(&mut self, filter: DrillFilter) {
-        self.log_drill_filter = Some(filter);
-        self.log_search_query.clear();
-        self.log_page = 0;
+        self.log_view.drill_filter = Some(filter);
+        self.log_view.search_query.clear();
+        self.log_view.page = 0;
         self.focus_logbook();
     }
 
     /// Czyści aktywny filtr drill-down (wraca do pełnego widoku logu).
     pub fn clear_drill_down(&mut self) {
-        self.log_drill_filter = None;
-        self.log_page = 0;
+        self.log_view.drill_filter = None;
+        self.log_view.page = 0;
     }
 
     /// Pokazuje panel logu i ustawia go jako aktywną zakładkę w swojej kolumnie.
@@ -582,7 +562,7 @@ impl SpLogApp {
     }
 
     pub fn delete_selected_qso(&mut self) {
-        let ids: Vec<i64> = std::mem::take(&mut self.selected_qso_ids);
+        let ids: Vec<i64> = std::mem::take(&mut self.log_view.selected_qso_ids);
         if ids.is_empty() {
             return;
         }
@@ -649,7 +629,7 @@ impl SpLogApp {
 
     /// Cofa ostatnie usunięte QSO (Undo)
     pub fn perform_undo(&mut self) {
-        if let Some(qso) = self.undo_stack.pop_front() {
+        if let Some(qso) = self.log_view.undo_stack.pop_front() {
             let callsign = qso.callsign.clone();
             // Zachowujemy oryginalny identyfikator rekordu (o ile istniał), aby
             // przywrócona łączność zachowała tożsamość dla redo i referencji.
@@ -668,7 +648,7 @@ impl SpLogApp {
                     // aby Redo usuwał dokładnie ten rekord, a nie dopasowany po znaku/dacie.
                     let mut redo_entry = restored;
                     redo_entry.id = Some(id);
-                    self.redo_stack.push_front(redo_entry);
+                    self.log_view.redo_stack.push_front(redo_entry);
                 }
                 Err(e) => {
                     self.report_error(
@@ -691,7 +671,7 @@ impl SpLogApp {
 
     /// Ponawia cofnięte QSO (Redo — usuwa ponownie)
     pub fn perform_redo(&mut self) {
-        if let Some(qso) = self.redo_stack.pop_front() {
+        if let Some(qso) = self.log_view.redo_stack.pop_front() {
             let callsign = qso.callsign.clone();
             let Some(id) = qso.id else {
                 self.report_error(
@@ -718,7 +698,7 @@ impl SpLogApp {
                 );
                 return;
             }
-            self.undo_stack.push_front(qso);
+            self.log_view.undo_stack.push_front(qso);
             self.rebuild_awards_full();
             self.reload_qsos();
             self.gui.chrome.status_message = Some(
@@ -731,7 +711,7 @@ impl SpLogApp {
 
     pub fn save_edited_qso(&mut self) {
         let mut warnings_toast: Option<String> = None;
-        if let Some(ref qso) = self.editing_qso {
+        if let Some(ref qso) = self.log_view.editing_qso {
             if let Err(e) = qso.validate() {
                 self.report_error(
                     Msg::new(key::MSG_QSO_CHANGES_NOT_SAVED)
@@ -780,7 +760,7 @@ impl SpLogApp {
         if let Some(msg) = warnings_toast {
             self.report_warning(msg);
         }
-        self.editing_qso = None;
+        self.log_view.editing_qso = None;
         self.rebuild_awards_full();
     }
 }

@@ -39,7 +39,7 @@ impl SpLogApp {
                 let freq_mhz = self.rig_state.frequency_hz as f64 / 1_000_000.0;
                 let mut op_txt = format!(
                     "📻 {:.3} MHz | {} | {}",
-                    freq_mhz, self.entry_band, self.entry_mode
+                    freq_mhz, self.entry.band, self.entry.mode
                 );
                 if self.vfo_split {
                     op_txt.push_str(" | SPLIT");
@@ -53,7 +53,7 @@ impl SpLogApp {
 
                 ui.separator();
 
-                let rst_txt = format!("RST {} / {}", self.entry_rst_sent, self.entry_rst_rcvd);
+                let rst_txt = format!("RST {} / {}", self.entry.rst_sent, self.entry.rst_rcvd);
                 ui.label(
                     egui::RichText::new(rst_txt)
                         .size(11.0)
@@ -79,7 +79,7 @@ impl SpLogApp {
                     "📁 {}: {} ({} QSO)",
                     tr(key::STATUSBAR_LOG, lang),
                     self.active_journal.name,
-                    self.recent_qsos.len()
+                    self.log_view.recent_qsos.len()
                 );
                 ui.label(
                     egui::RichText::new(journal_str)

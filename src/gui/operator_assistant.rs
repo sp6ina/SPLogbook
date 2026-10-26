@@ -127,8 +127,8 @@ pub fn recommend(
 
 /// Wyznacza aktualne pasmo na podstawie częstotliwości radia (CAT) lub pola formularza.
 fn current_band(app: &SpLogApp) -> String {
-    if !app.entry_band.trim().is_empty() {
-        return app.entry_band.trim().to_string();
+    if !app.entry.band.trim().is_empty() {
+        return app.entry.band.trim().to_string();
     }
     let mhz = app.rig_state.frequency_hz as f64 / 1_000_000.0;
     if mhz > 0.5 {
@@ -167,7 +167,7 @@ pub fn render_operator_assistant(app: &mut SpLogApp, ctx: &egui::Context) {
         let now = chrono::Utc::now();
         let utc_h = now.hour() as f64 + (now.minute() as f64) / 60.0;
         let doy = now.ordinal();
-        if app.entry_grid.is_empty() {
+        if app.entry.grid.is_empty() {
             let sp = crate::core::geo::Coordinates::new(51.1, 17.0);
             let dx = crate::core::geo::Coordinates::new(40.7, -74.0);
             let freq = crate::core::propagation::band_to_center_mhz(&band).unwrap_or(14.175);
@@ -175,7 +175,7 @@ pub fn render_operator_assistant(app: &mut SpLogApp, ctx: &egui::Context) {
         } else {
             PropagationEngine::forecast_explain(
                 &app.config.station.gridsquare,
-                &app.entry_grid,
+                &app.entry.grid,
                 &band,
                 sfi,
                 k_index as u8,
