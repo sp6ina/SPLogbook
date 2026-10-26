@@ -238,6 +238,67 @@ pub fn compute_mult_matrix(kind: MultKind, bands: &[&str], qsos: &[QsoRecord]) -
     }
 }
 
+/// Podsumowanie punktacji zawodów (Scoreboard).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Scoreboard {
+    pub qsos: u32,
+    pub points: u32,
+    pub mults: u32,
+    pub total: u32,
+}
+
+/// Oblicza czyste podsumowanie punktacji kontestu (Scoreboard) na podstawie nazwy zawodów,
+/// listy reguł niestandardowych, rekordów QSO oraz własnego DXCC i CQ Zone.
+pub fn compute_scoreboard(
+    contest_name: &str,
+    custom_contests: &[crate::core::station::CustomContest],
+    qsos: &[QsoRecord],
+    my_dxcc: u32,
+    my_cqzone: u8,
+) -> Scoreboard {
+    if let Some(contest) = custom_contests.iter().find(|c| c.name == contest_name) {
+        let mut points = 0;
+        let mut multipliers = std::collections::HashSet::new();
+        for qso in qsos {
+            points += contest.points_per_qso;
+            if let Some(d) = qso.dxcc {
+                multipliers.insert(d.to_string());
+            } else if let Some(z) = qso.cqz {
+                multipliers.insert(z.to_string());
+            } else if !qso.rst_rcvd.is_empty() {
+                multipliers.insert(qso.rst_rcvd.clone());
+            }
+        }
+        let mult_count = multipliers.len() as u32;
+        Scoreboard {
+            qsos: qsos.len() as u32,
+            points,
+            mults: mult_count,
+            total: points * mult_count,
+        }
+    } else if let Some(rule_idx) = crate::core::contest_rules::RULES
+        .iter()
+        .position(|r| r.name == contest_name)
+    {
+        let active_rule = &crate::core::contest_rules::RULES[rule_idx];
+        let (points, mults, total) =
+            crate::core::contest_rules::calculate_score(active_rule, qsos, my_dxcc, my_cqzone);
+        Scoreboard {
+            qsos: qsos.len() as u32,
+            points,
+            mults,
+            total,
+        }
+    } else {
+        Scoreboard {
+            qsos: 0,
+            points: 0,
+            mults: 0,
+            total: 0,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -321,5 +382,85 @@ mod tests {
         assert!(m.columns.contains(&"15".to_string()));
         // 39 stref nigdy niezaliczonych
         assert_eq!(m.needed_count(), 39);
+    }
+
+    #[test]
+    fn scoreboard_matches_calculate_score_for_known_rule() {
+        let qsos = vec![
+            qso(
+                "SP1ABC",
+                "20m",
+                "2026-04-04",
+                "12:00:00",
+                Some(269),
+                Some(15),
+            ),
+            qso(
+                "DL1XYZ",
+                "20m",
+                "2026-04-04",
+                "12:05:00",
+                Some(230),
+                Some(14),
+            ),
+        ];
+        let rule_idx = crate::core::contest_rules::RULES
+            .iter()
+            .position(|r| r.name == "SP DX Contest")
+            .unwrap();
+        let rule = &crate::core::contest_rules::RULES[rule_idx];
+        let (calc_pts, calc_mults, calc_total) =
+            crate::core::contest_rules::calculate_score(rule, &qsos, 269, 15);
+
+        let sb = compute_scoreboard("SP DX Contest", &[], &qsos, 269, 15);
+        assert_eq!(sb.qsos, qsos.len() as u32);
+        assert_eq!(sb.points, calc_pts);
+        assert_eq!(sb.mults, calc_mults);
+        assert_eq!(sb.total, calc_total);
+    }
+
+    #[test]
+    fn scoreboard_custom_contest() {
+        let mut qso1 = qso("SP1ABC", "20m", "2026-04-04", "12:00:00", Some(269), None);
+        qso1.rst_rcvd = "599001".to_string();
+        let mut qso2 = qso("DL1XYZ", "20m", "2026-04-04", "12:05:00", Some(230), None);
+        qso2.rst_rcvd = "599002".to_string();
+        let qsos = vec![qso1, qso2];
+
+        let custom = crate::core::station::CustomContest {
+            name: "My Custom Contest".to_string(),
+            exchange_format: "RST+SERIAL".to_string(),
+            points_per_qso: 5,
+            bands: vec!["20m".to_string()],
+            description: "Custom test".to_string(),
+        };
+
+        let sb = compute_scoreboard("My Custom Contest", &[custom], &qsos, 269, 15);
+        assert_eq!(sb.qsos, 2);
+        assert_eq!(sb.points, 10);
+        assert_eq!(sb.mults, 2);
+        assert_eq!(sb.total, 20);
+    }
+
+    #[test]
+    fn scoreboard_unknown_rule_is_zero() {
+        let qsos = vec![qso(
+            "SP1ABC",
+            "20m",
+            "2026-04-04",
+            "12:00:00",
+            Some(269),
+            Some(15),
+        )];
+        let sb = compute_scoreboard("Unknown Contest XYZ", &[], &qsos, 269, 15);
+        assert_eq!(
+            sb,
+            Scoreboard {
+                qsos: 0,
+                points: 0,
+                mults: 0,
+                total: 0
+            }
+        );
     }
 }

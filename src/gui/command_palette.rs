@@ -177,7 +177,7 @@ const COMMANDS: &[Command] = &[
         label_key: key::CMD_CONTEST_MODULE,
         keywords: "contest cabrillo",
         run: |app| {
-            app.show_contest_window = true;
+            app.contest.show_window = true;
         },
     },
     Command {

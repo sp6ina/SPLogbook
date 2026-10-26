@@ -12,7 +12,7 @@ impl SpLogApp {
             .set_file_name(format!(
                 "{}_{}.cbr",
                 self.config.station.callsign,
-                self.contest_name.replace(' ', "_")
+                self.contest.name.replace(' ', "_")
             ))
             .set_title(tr(
                 key::EXPORT_CABRILLO_SAVE_TITLE,
@@ -42,77 +42,32 @@ impl SpLogApp {
                 }
             };
 
-            let mut out = String::new();
-            out.push_str("START-OF-LOG: 3.0\n");
-            let _ = writeln!(out, "CONTEST: {}", self.contest_name);
-            let _ = writeln!(out, "CALLSIGN: {}", self.config.station.callsign);
-            out.push_str("CATEGORY-OPERATOR: SINGLE-OP\n");
-            out.push_str("CATEGORY-TRANSMITTER: ONE\n");
-            out.push_str("CATEGORY-POWER: HIGH\n");
-            out.push_str("CATEGORY-BAND: ALL\n");
-            out.push_str("CATEGORY-MODE: MIXED\n");
-            out.push_str("CATEGORY-STATION: FIXED\n");
-            let total_score = self.contest_points * self.contest_mults.max(1);
-            let _ = writeln!(out, "CLAIMED-SCORE: {total_score}");
-            let _ = writeln!(out, "OPERATORS: {}", self.config.station.callsign);
-            let _ = writeln!(out, "NAME: {}", self.config.station.operator);
-            let _ = writeln!(
-                out,
-                "ADDRESS: {}, {}",
-                self.config.station.city, self.config.station.country
+            let my_dxcc: u32 = self
+                .services
+                .prefix_matcher
+                .lookup(&self.config.station.callsign)
+                .and_then(|m| if m.dxcc > 0 { Some(m.dxcc) } else { None })
+                .unwrap_or(269);
+            let my_cqzone = self.config.station.cq_zone as u8;
+
+            let scoreboard = crate::core::contest_stats::compute_scoreboard(
+                &self.contest.name,
+                &self.config.custom_contests,
+                &qsos,
+                my_dxcc,
+                my_cqzone,
             );
-            out.push_str("SOAPBOX: Created with SPLogbook by SP6INA (GPLv3)\n");
 
-            for (idx, qso) in qsos.iter().rev().enumerate() {
-                let freq_khz = qso.freq.map_or_else(
-                    || match qso.band.as_str() {
-                        "160m" => 1840,
-                        "80m" => 3700,
-                        "40m" => 7100,
-                        "20m" => 14200,
-                        "15m" => 21200,
-                        "10m" => 28500,
-                        _ => 14000,
-                    },
-                    |f| (f * 1000.0) as u64,
-                );
-                let date_str = if qso.qso_date.len() == 8 && qso.qso_date.is_ascii() {
-                    format!(
-                        "{}-{}-{}",
-                        &qso.qso_date[0..4],
-                        &qso.qso_date[4..6],
-                        &qso.qso_date[6..8]
-                    )
-                } else {
-                    chrono::Utc::now().format("%Y-%m-%d").to_string()
-                };
-                let time_str = if qso.time_on.len() >= 4 && qso.time_on.is_ascii() {
-                    qso.time_on[0..4].to_string()
-                } else {
-                    chrono::Utc::now().format("%H%M").to_string()
-                };
-
-                let my_rst = if qso.mode == "CW" { "599" } else { "59" };
-                let his_rst = &qso.rst_rcvd;
-                let my_serial = idx + 1;
-                let his_serial = qso.srx.unwrap_or(1);
-
-                let _ = writeln!(
-                    out,
-                    "QSO: {:5} {:2} {} {} {:10} {:3} {:03} {:10} {:3} {:03}",
-                    freq_khz,
-                    if qso.mode == "CW" { "CW" } else { "PH" },
-                    date_str,
-                    time_str,
-                    self.config.station.callsign,
-                    my_rst,
-                    my_serial,
-                    qso.callsign,
-                    his_rst,
-                    his_serial
-                );
-            }
-            out.push_str("END-OF-LOG:\n");
+            let input = crate::core::cabrillo::CabrilloInput {
+                contest_name: &self.contest.name,
+                callsign: &self.config.station.callsign,
+                operator: &self.config.station.operator,
+                city: &self.config.station.city,
+                country: &self.config.station.country,
+                claimed_score: scoreboard.total,
+                qsos: &qsos,
+            };
+            let out = crate::core::cabrillo::build(&input);
 
             match std::fs::write(&path, out) {
                 Ok(()) => {

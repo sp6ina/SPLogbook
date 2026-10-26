@@ -292,7 +292,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .on_hover_text(tr(key::TOOLBAR_CONTEST_TOOLTIP, lang))
                 .clicked()
         {
-            app.show_contest_window = !app.show_contest_window;
+            app.contest.show_window = !app.contest.show_window;
         }
 
         if app.config.quick_access.show_equipment

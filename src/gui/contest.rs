@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
-use crate::core::contest_rules::{RULES, calculate_score, detect_duplicate};
+use crate::core::contest_rules::{RULES, detect_duplicate};
 use crate::core::contest_stats::{
     MultKind, MultMatrix, RateStats, compute_mult_matrix, compute_rate,
 };
@@ -16,10 +16,9 @@ use crate::gui::app::SpLogApp;
 use crate::gui::theme::ThemeExt;
 
 use eframe::egui;
-use std::collections::HashSet;
 
 pub fn render_custom_contest_editor(app: &mut SpLogApp, ctx: &egui::Context) {
-    let mut open = app.show_custom_contest_editor;
+    let mut open = app.contest.show_custom_editor;
     if !open {
         return;
     }
@@ -36,8 +35,8 @@ pub fn render_custom_contest_editor(app: &mut SpLogApp, ctx: &egui::Context) {
                         ui.horizontal(|ui| {
                             ui.label(&contest.name);
                             if ui.button(tr(key::BTN_EDIT, lang)).clicked() {
-                                app.custom_contest_edit_idx = Some(i);
-                                app.custom_contest_draft = contest.clone();
+                                app.contest.custom_edit_idx = Some(i);
+                                app.contest.custom_draft = contest.clone();
                             }
                             if ui.button(tr(key::BTN_DELETE, lang)).clicked() {
                                 to_delete = Some(i);
@@ -46,9 +45,9 @@ pub fn render_custom_contest_editor(app: &mut SpLogApp, ctx: &egui::Context) {
                     }
                     if let Some(i) = to_delete {
                         app.config.custom_contests.remove(i);
-                        if app.custom_contest_edit_idx == Some(i) {
-                            app.custom_contest_edit_idx = None;
-                            app.custom_contest_draft = CustomContest::default();
+                        if app.contest.custom_edit_idx == Some(i) {
+                            app.contest.custom_edit_idx = None;
+                            app.contest.custom_draft = CustomContest::default();
                         }
                         app.save_station_config();
                     }
@@ -56,15 +55,15 @@ pub fn render_custom_contest_editor(app: &mut SpLogApp, ctx: &egui::Context) {
                         .button(tr(key::CONTEST_NEW_CUSTOM_CONTEST, lang))
                         .clicked()
                     {
-                        app.custom_contest_edit_idx = None;
-                        app.custom_contest_draft = CustomContest::default();
+                        app.contest.custom_edit_idx = None;
+                        app.contest.custom_draft = CustomContest::default();
                     }
                 });
 
                 ui.separator();
 
                 ui.vertical(|ui| {
-                    ui.heading(if app.custom_contest_edit_idx.is_some() {
+                    ui.heading(if app.contest.custom_edit_idx.is_some() {
                         tr(key::CONTEST_EDITING, lang)
                     } else {
                         tr(key::CONTEST_NEW, lang)
@@ -72,16 +71,16 @@ pub fn render_custom_contest_editor(app: &mut SpLogApp, ctx: &egui::Context) {
 
                     ui.horizontal(|ui| {
                         ui.label(tr(key::CONTEST_NAME_LABEL, lang));
-                        ui.text_edit_singleline(&mut app.custom_contest_draft.name);
+                        ui.text_edit_singleline(&mut app.contest.custom_draft.name);
                     });
                     ui.horizontal(|ui| {
                         ui.label(tr(key::CONTEST_EXCHANGE_LABEL, lang));
-                        ui.text_edit_singleline(&mut app.custom_contest_draft.exchange_format);
+                        ui.text_edit_singleline(&mut app.contest.custom_draft.exchange_format);
                     });
 
                     ui.label(tr(key::CONTEST_POINTS_PER_QSO_LABEL, lang));
                     ui.add(egui::Slider::new(
-                        &mut app.custom_contest_draft.points_per_qso,
+                        &mut app.contest.custom_draft.points_per_qso,
                         1..=20,
                     ));
 
@@ -93,48 +92,48 @@ pub fn render_custom_contest_editor(app: &mut SpLogApp, ctx: &egui::Context) {
                     ui.horizontal_wrapped(|ui| {
                         for band in all_bands {
                             let mut has_band =
-                                app.custom_contest_draft.bands.contains(&band.to_string());
+                                app.contest.custom_draft.bands.contains(&band.to_string());
                             if ui.checkbox(&mut has_band, band).changed() {
                                 if has_band {
-                                    app.custom_contest_draft.bands.push(band.to_string());
+                                    app.contest.custom_draft.bands.push(band.to_string());
                                 } else {
-                                    app.custom_contest_draft.bands.retain(|x| x != band);
+                                    app.contest.custom_draft.bands.retain(|x| x != band);
                                 }
                             }
                         }
                     });
 
                     ui.label(tr(key::CONTEST_DESCRIPTION_LABEL, lang));
-                    ui.text_edit_multiline(&mut app.custom_contest_draft.description);
+                    ui.text_edit_multiline(&mut app.contest.custom_draft.description);
 
                     if ui.button(tr(key::BTN_SAVE, lang)).clicked()
-                        && !app.custom_contest_draft.name.is_empty()
+                        && !app.contest.custom_draft.name.is_empty()
                     {
-                        if let Some(i) = app.custom_contest_edit_idx {
-                            app.config.custom_contests[i] = app.custom_contest_draft.clone();
+                        if let Some(i) = app.contest.custom_edit_idx {
+                            app.config.custom_contests[i] = app.contest.custom_draft.clone();
                         } else {
                             app.config
                                 .custom_contests
-                                .push(app.custom_contest_draft.clone());
+                                .push(app.contest.custom_draft.clone());
                         }
-                        app.custom_contest_edit_idx = None;
-                        app.custom_contest_draft = CustomContest::default();
+                        app.contest.custom_edit_idx = None;
+                        app.contest.custom_draft = CustomContest::default();
                         app.save_station_config();
                     }
                 });
             });
         });
 
-    app.show_custom_contest_editor = open;
+    app.contest.show_custom_editor = open;
 }
 
 pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
-    if !app.show_contest_window {
+    if !app.contest.show_window {
         return;
     }
     let lang = app.gui.appearance.language;
 
-    let mut open = app.show_contest_window;
+    let mut open = app.contest.show_window;
     let mut close_req = false;
     let mut export_clicked = false;
     let mut reset_clicked = false;
@@ -148,7 +147,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
         .config
         .custom_contests
         .iter()
-        .position(|c| c.name == app.contest_name)
+        .position(|c| c.name == app.contest.name)
     {
         is_custom = true;
         custom_idx = Some(idx);
@@ -162,7 +161,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
     } else {
         RULES
             .iter()
-            .position(|r| r.name == app.contest_name)
+            .position(|r| r.name == app.contest.name)
             .map(|rule_idx| RULES[rule_idx].exchange_fields.to_vec())
     };
     let exchange_hint = exchange_fields
@@ -183,36 +182,18 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
         .unwrap_or(269);
     let my_cqzone = app.config.station.cq_zone as u8;
 
-    let mut unknown_contest_rule = false;
-    let (pts, mults, total) = if let Some(idx) = custom_idx {
-        let contest = &app.config.custom_contests[idx];
-        let mut points = 0;
-        let mut multipliers = HashSet::new();
-        for qso in &app.log_view.recent_qsos {
-            points += contest.points_per_qso;
-            if let Some(d) = qso.dxcc {
-                multipliers.insert(d.to_string());
-            } else if let Some(z) = qso.cqz {
-                multipliers.insert(z.to_string());
-            } else if !qso.rst_rcvd.is_empty() {
-                multipliers.insert(qso.rst_rcvd.clone());
-            }
-        }
-        let mult_count = multipliers.len() as u32;
-        (points, mult_count, points * mult_count)
-    } else if let Some(rule_idx) = RULES.iter().position(|r| r.name == app.contest_name) {
-        let active_rule = &RULES[rule_idx];
-        calculate_score(active_rule, &app.log_view.recent_qsos, my_dxcc, my_cqzone)
-    } else {
-        // Nieznana/nieistniejąca nazwa kontestu (np. reguła usunięta w nowszej wersji) -
-        // NIE zgadujemy wyniku wg pierwszej reguły z listy, tylko jawnie sygnalizujemy błąd.
-        unknown_contest_rule = true;
-        (0, 0, 0)
-    };
+    let scoreboard = crate::core::contest_stats::compute_scoreboard(
+        &app.contest.name,
+        &app.config.custom_contests,
+        &app.log_view.recent_qsos,
+        my_dxcc,
+        my_cqzone,
+    );
+    let unknown_contest_rule = !is_custom && !RULES.iter().any(|r| r.name == app.contest.name);
 
-    app.contest_points = pts;
-    app.contest_mults = mults;
-    app.contest_qsos = app.log_view.recent_qsos.len() as u32;
+    let pts = scoreboard.points;
+    let mults = scoreboard.mults;
+    let total = scoreboard.total;
 
     // Rodzaj mnożnika i pasma dla macierzy mnożników.
     let (mult_kind, rule_bands): (MultKind, Vec<String>) = if let Some(idx) = custom_idx {
@@ -220,7 +201,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
             MultKind::Dxcc,
             app.config.custom_contests[idx].bands.clone(),
         )
-    } else if let Some(rule_idx) = RULES.iter().position(|r| r.name == app.contest_name) {
+    } else if let Some(rule_idx) = RULES.iter().position(|r| r.name == app.contest.name) {
         (
             RULES[rule_idx].mult_kind,
             RULES[rule_idx]
@@ -247,8 +228,8 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
     };
 
     // Prognoza wyniku: obecny wynik + tempo z ostatniej godziny × średnia punktów × mnożniki.
-    let avg_points_per_qso = if app.contest_qsos > 0 {
-        pts as f64 / app.contest_qsos as f64
+    let avg_points_per_qso = if scoreboard.qsos > 0 {
+        pts as f64 / scoreboard.qsos as f64
     } else {
         0.0
     };
@@ -265,11 +246,11 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 ui.horizontal(|ui| {
                     ui.label(tr(key::CONTEST_SELECT, lang));
                     egui::ComboBox::from_id_salt("contest_type")
-                        .selected_text(&app.contest_name)
+                        .selected_text(&app.contest.name)
                         .show_ui(ui, |ui| {
                             for rule in RULES {
                                 ui.selectable_value(
-                                    &mut app.contest_name,
+                                    &mut app.contest.name,
                                     rule.name.to_string(),
                                     rule.name,
                                 );
@@ -278,7 +259,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 ui.separator();
                                 for contest in &app.config.custom_contests {
                                     ui.selectable_value(
-                                        &mut app.contest_name,
+                                        &mut app.contest.name,
                                         contest.name.clone(),
                                         contest.name.clone(),
                                     );
@@ -287,7 +268,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         });
 
                     if ui.button(tr(key::CONTEST_ADD_CUSTOM, lang)).clicked() {
-                        app.show_custom_contest_editor = true;
+                        app.contest.show_custom_editor = true;
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         crate::gui::user_manual::help_button(app, ui, "contest");
@@ -310,24 +291,24 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         ui.label(format!(
                             "{} {}",
                             tr(key::CONTEST_QSO_COUNT, lang),
-                            app.contest_qsos
+                            scoreboard.qsos
                         ));
                         ui.label(format!(
                             "{} {}",
                             tr(key::CONTEST_QSO_POINTS, lang),
-                            app.contest_points
+                            scoreboard.points
                         ));
                         ui.label(format!(
                             "{} {}",
                             tr(key::CONTEST_MULTIPLIERS, lang),
-                            app.contest_mults
+                            scoreboard.mults
                         ));
                         ui.separator();
                         ui.label(
                             egui::RichText::new(format!(
                                 "{}: {}",
                                 tr(key::CONTEST_FINAL_SCORE, lang),
-                                total
+                                scoreboard.total
                             ))
                             .size(16.0)
                             .strong()
@@ -383,7 +364,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         ui.label(format!(
                             "{} {:03}",
                             tr(key::CONTEST_STX_NR, lang),
-                            app.contest_stx
+                            app.contest.stx
                         ));
                     });
                 });
@@ -429,7 +410,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     && q.band.eq_ignore_ascii_case(&dummy_qso.band)
                             })
                         } else if let Some(rule_idx) =
-                            RULES.iter().position(|r| r.name == app.contest_name)
+                            RULES.iter().position(|r| r.name == app.contest.name)
                         {
                             detect_duplicate(
                                 &RULES[rule_idx],
@@ -640,7 +621,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
     if save_clicked && !app.entry.callsign.is_empty() {
         let mut new_qso = QsoRecord::new(&app.entry.callsign, &app.entry.band, &app.entry.mode);
-        new_qso.stx = Some(app.contest_stx);
+        new_qso.stx = Some(app.contest.stx);
         new_qso.journal_id = Some(app.active_journal.id.clone());
         if !app.config.station.gridsquare.trim().is_empty() {
             new_qso.my_gridsquare = Some(app.config.station.gridsquare.clone());
@@ -690,7 +671,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     }
                     app.invalidate_cluster_badges();
                     app.apply_post_effects(&outcome);
-                    app.contest_stx += 1;
+                    app.contest.stx += 1;
                     app.gui.chrome.status_toast = Some((
                         Msg::new(key::CONTEST_QSO_SAVED)
                             .arg("call", &outcome.qso.callsign)
@@ -741,16 +722,13 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
     if close_req {
         open = false;
     }
-    app.show_contest_window = open;
+    app.contest.show_window = open;
 
     if export_clicked {
         app.export_cabrillo();
     }
     if reset_clicked {
-        app.contest_stx = 1;
-        app.contest_qsos = 0;
-        app.contest_points = 0;
-        app.contest_mults = 0;
+        app.contest.stx = 1;
     }
 }
 

@@ -533,7 +533,7 @@ pub struct AppConfig {
     pub custom_contests: Vec<CustomContest>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
 pub struct CustomContest {
     pub name: String,
     pub exchange_format: String,

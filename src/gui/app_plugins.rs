@@ -219,7 +219,7 @@ impl SpLogApp {
             .replace("%MYLOC%", &self.config.station.gridsquare)
             .replace("%HISCALL%", &self.entry.callsign)
             .replace("%RST%", &self.entry.rst_sent)
-            .replace("%SERIAL%", &format!("{:03}", self.contest_stx));
+            .replace("%SERIAL%", &format!("{:03}", self.contest.stx));
         self.gui.chrome.status_message =
             Some(format!("Nadawanie CW ({} WPM): {}", self.cw.wpm, resolved));
     }

@@ -35,7 +35,6 @@ use crate::gui::welcome_wizard::render_welcome_wizard;
 use crate::gui::world_map::render_world_map_window;
 use eframe::egui;
 use egui_dock::{DockArea, DockState, Style, TabViewer};
-use std::fmt::Write as _;
 use std::sync::{Arc, Mutex};
 
 pub use crate::gui::drill_filter::{DrillFilter, QslDrillStatus};
@@ -56,7 +55,9 @@ pub struct AppDeps {
     pub scp_engine: std::sync::Arc<std::sync::Mutex<crate::core::scp::ScpEngine>>,
 }
 
-pub use crate::gui::state::{CatConnection, CatState, ClusterState, SpotBadgeKind, VfoState};
+pub use crate::gui::state::{
+    CatConnection, CatState, ClusterState, ContestState, SpotBadgeKind, VfoState,
+};
 
 pub struct SpLogApp {
     pub config: AppConfig,
@@ -82,15 +83,7 @@ pub struct SpLogApp {
     pub solar: crate::gui::state::SolarState,
 
     // Moduł Zawodów
-    pub show_contest_window: bool,
-    pub contest_name: String,
-    pub contest_stx: u32,
-    pub contest_qsos: u32,
-    pub contest_points: u32,
-    pub contest_mults: u32,
-    pub show_custom_contest_editor: bool,
-    pub custom_contest_edit_idx: Option<usize>,
-    pub custom_contest_draft: crate::core::station::CustomContest,
+    pub contest: crate::gui::state::ContestState,
 
     // Makra Telegraficzne CW
     pub cw: crate::gui::state::CwMacroState,
@@ -407,15 +400,7 @@ impl SpLogApp {
                 init.config.propagation_history,
             ),
 
-            show_contest_window: false,
-            contest_name: "SP DX Contest".to_string(),
-            contest_stx: 1,
-            contest_qsos: 0,
-            contest_points: 0,
-            contest_mults: 0,
-            show_custom_contest_editor: false,
-            custom_contest_edit_idx: None,
-            custom_contest_draft: crate::core::station::CustomContest::default(),
+            contest: crate::gui::state::ContestState::default(),
 
             cw: crate::gui::state::CwMacroState::default(),
 
@@ -1482,10 +1467,10 @@ mod tests {
         };
         let mut app = SpLogApp::for_tests(init, deps);
         let mut event_rx = app.services.event_bus.subscribe();
-        let initial_stx = app.contest_stx;
+        let initial_stx = app.contest.stx;
 
         let mut new_qso = QsoRecord::new("SN0HQ", "40m", "CW");
-        new_qso.stx = Some(app.contest_stx);
+        new_qso.stx = Some(app.contest.stx);
         new_qso.journal_id = Some(app.active_journal.id.clone());
 
         let outcome = app
@@ -1494,10 +1479,10 @@ mod tests {
             .ingest(new_qso, QsoOrigin::Contest)
             .unwrap();
         app.apply_post_effects(&outcome);
-        app.contest_stx += 1;
+        app.contest.stx += 1;
         app.reload_qsos();
 
-        assert_eq!(app.contest_stx, initial_stx + 1);
+        assert_eq!(app.contest.stx, initial_stx + 1);
         assert_eq!(app.log_view.recent_qsos.len(), 1);
         assert_eq!(app.log_view.recent_qsos[0].callsign, "SN0HQ");
 
@@ -1518,14 +1503,47 @@ mod tests {
             shutdown_policy: ShutdownPolicy::None,
         };
         let app = SpLogApp::for_tests(init, deps);
-        let initial_stx = app.contest_stx;
+        let initial_stx = app.contest.stx;
 
         let mut bad_qso = QsoRecord::new("SN0HQ", "", "CW");
         bad_qso.freq = None;
 
         let res = app.services.ingestor.ingest(bad_qso, QsoOrigin::Contest);
         assert!(matches!(res, Err(IngestError::Invalid(_))));
-        assert_eq!(app.contest_stx, initial_stx);
+        assert_eq!(app.contest.stx, initial_stx);
+    }
+
+    #[test]
+    fn contest_stx_increments_only_on_contest_save() {
+        let deps = test_deps();
+        let init = AppInit {
+            config: AppConfig::default(),
+            config_file_path: std::path::PathBuf::from("config.json"),
+            active_db_path: std::path::PathBuf::from("db.sqlite"),
+            shutdown_policy: ShutdownPolicy::None,
+        };
+        let mut app = SpLogApp::for_tests(init, deps);
+        let initial_stx = app.contest.stx;
+
+        // Normalny zapis QSO nie zmienia contest.stx
+        app.entry.callsign = "SP1ABC".to_string();
+        app.entry.band = "20m".to_string();
+        app.entry.mode = "SSB".to_string();
+        app.save_qso();
+        assert_eq!(app.contest.stx, initial_stx);
+
+        // Zapis w trybie zawodów inkrementuje contest.stx
+        let mut contest_qso = QsoRecord::new("DL1XYZ", "20m", "CW");
+        contest_qso.stx = Some(app.contest.stx);
+        contest_qso.journal_id = Some(app.active_journal.id.clone());
+        let outcome = app
+            .services
+            .ingestor
+            .ingest(contest_qso, QsoOrigin::Contest)
+            .unwrap();
+        app.apply_post_effects(&outcome);
+        app.contest.stx += 1;
+        assert_eq!(app.contest.stx, initial_stx + 1);
     }
 
     #[test]

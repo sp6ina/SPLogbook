@@ -6,6 +6,7 @@ pub mod astronomy;
 pub mod awards;
 pub mod backup;
 pub mod bandplan;
+pub mod cabrillo;
 pub mod callbook;
 pub mod callsign_correction;
 pub mod clubs;

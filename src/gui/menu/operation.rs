@@ -192,7 +192,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .button(icons::FLAG.label(tr(key::TOOLS_CONTEST_MODULE, lang)))
             .clicked()
         {
-            app.show_contest_window = true;
+            app.contest.show_window = true;
             ui.close();
         }
         if ui
