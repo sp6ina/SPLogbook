@@ -10,9 +10,9 @@
   <img src="https://img.shields.io/badge/GUI-egui_%2F_eframe-blueviolet.svg" alt="egui">
   <img src="https://img.shields.io/badge/License-GPLv3-blue.svg" alt="License">
   <img src="https://img.shields.io/badge/Platform-Windows_%7C_GNU%2FLinux-blue.svg" alt="Platform">
-  <img src="https://img.shields.io/badge/Version-1.1-emerald.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Version-1.2.0-emerald.svg" alt="Version">
   <a href="https://github.com/sp6ina/SPLogbook/actions"><img src="https://github.com/sp6ina/SPLogbook/actions/workflows/build-and-release.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/Tests-234%2F234_Passed-brightgreen.svg" alt="Tests">
+  <img src="https://img.shields.io/badge/Tests-1519%2F1519_Passed-brightgreen.svg" alt="Tests">
   <img src="https://img.shields.io/badge/i18n-7_Languages-cyan.svg" alt="i18n">
   <a href="https://buycoffee.to/sp6ina"><img src="https://img.shields.io/badge/☕_Buy_Me_a_Coffee-buycoffee.to%2Fsp6ina-FFDD00?style=flat&logoColor=black" alt="Buy Me a Coffee"></a>
 </p>
@@ -381,7 +381,7 @@ A modern, asynchronous rig control subsystem powered by the `RigHub` multi-radio
 - **FlexRadio** — native SmartSDR TCP API (v2.0–3.x) with slice/meter subscriptions and automatic UDP discovery (port 4992).
 - **FLRig (XML-RPC)** — cross-platform rig control via FLDigi's companion server.
 - **TCI (WebSocket)** — high-speed Transceiver Control Interface for SDR platforms (SunSDR2, Thetis, ExpertSDR3).
-- **RF Safety & HIL Harness** — `TxArbiter` enforcing single-TX lockout and zero retry on `SetPtt(true)`, safe read-only probe (`ProbeState`), and laboratory Hardware-in-the-Loop harness (`src/cat/hil/`) requiring mandatory 50 Ω dummy load termination. Features a multi-axis evidence model separating `OfflineModel`, `SimulatedRuntime`, and `PhysicalRuntime` contexts with strict 8-variant evidence origin classification (`RepositoryMeasurement`, `SoftwareBaselineArtifact`, `ConfigurationArtifact`, `SyntheticOfflineFixture`, `MockRuntime`, `OperatorDeclaration`, `InstrumentInterface`, `PhysicalMeasurement`). Evaluates the 30 immutable canonical HIL-READY conditions plus 22 extended `HIL-X01`..`HIL-X22` requirements. Software baseline is fully verified and **PASSED** (279 deterministic offline HIL tests passed, 1355 total across the suite), while physical runtime execution (NATIVE-7B) remains formally **BLOCKED** pending physical test bench connection.
+- **RF Safety & HIL Harness** — `TxArbiter` enforcing single-TX lockout and zero retry on `SetPtt(true)`, safe read-only probe (`ProbeState`), and laboratory Hardware-in-the-Loop harness (`src/cat/hil/`) requiring mandatory 50 Ω dummy load termination. Features a multi-axis evidence model separating `OfflineModel`, `SimulatedRuntime`, and `PhysicalRuntime` contexts with strict 8-variant evidence origin classification (`RepositoryMeasurement`, `SoftwareBaselineArtifact`, `ConfigurationArtifact`, `SyntheticOfflineFixture`, `MockRuntime`, `OperatorDeclaration`, `InstrumentInterface`, `PhysicalMeasurement`). Evaluates the 30 immutable canonical HIL-READY conditions plus 22 extended `HIL-X01`..`HIL-X22` requirements. Software baseline is fully verified and **PASSED** (285 deterministic offline HIL tests passed, 1519 total across the suite), while physical runtime execution (NATIVE-7B) remains formally **BLOCKED** pending physical test bench connection.
 
 ---
 
@@ -479,7 +479,7 @@ curl -X GET http://127.0.0.1:8080/api/v1/status
 **Response:**
 ```json
 {
-  "version": "1.1.0",
+  "version": "1.2.0",
   "adif_version": "3.1.7",
   "callsign": "SP6INA",
   "total_qsos": 14250,
@@ -558,7 +558,7 @@ Pre-compiled release packages are available directly from the [Releases](https:/
 
 ## 🛠️ Building from Source
 
-Ensure you have the Rust toolchain (version $\ge 1.80$) installed.
+Ensure you have the Rust toolchain (version $\ge 1.99.0$) installed.
 
 ### On Windows
 ```powershell
@@ -566,7 +566,7 @@ Ensure you have the Rust toolchain (version $\ge 1.80$) installed.
 git clone https://github.com/sp6ina/SPLogbook.git
 cd SPLogbook
 
-# 2. Run automated unit tests (231 tests)
+# 2. Run automated test suite (1519 tests)
 cargo test
 
 # 3. Build optimized release binary with Link-Time Optimization (LTO)
@@ -672,11 +672,12 @@ SPLogbook/
     ├── cluster/             # Spotting networks
     │   └── telnet.rs        # Multi-threaded Telnet client for DX Cluster
     ├── core/                # Core business logic & database
-    │   ├── adif.rs          # ADIF 3.1.5 parser & exporter (+ ADX XML export)
+    │   ├── adif.rs          # ADIF 3.1.7 parser & exporter (+ ADX XML export)
     │   ├── astronomy.rs     # Solar & lunar ephemeris, solar zenith calculation
     │   ├── awards.rs        # Awards tracking engine (DXCC, WAZ, WAS, PGA, etc.)
     │   ├── backup.rs        # Database rolling backup manager (10 revisions)
     │   ├── bandplan.rs      # IARU Region 1/2/3 band plans
+    │   ├── cabrillo.rs      # Pure Cabrillo 3.0 contest log builder
     │   ├── callbook.rs      # Callbook aggregation (source priority + offline cache)
     │   ├── callsign_correction.rs # Callsign typo correction & suggestions
     │   ├── clubs.rs         # Specialty ham radio clubs directory (SP-OTC, SKCC, etc.)
@@ -785,6 +786,7 @@ SPLogbook/
     │   ├── logbook_table.rs # Paginated QSO log table with sorting
     │   ├── menu/            # Reorganized top menu (File/Edit/View/Operation/References/Tools/Settings/Help)
     │   ├── mini_hud.rs      # Compact desktop VFO HUD
+    │   ├── multi_op_window.rs # Unified Multi-Op LAN synchronization window
     │   ├── online_sync.rs   # Cloud synchronization manager dialog
     │   ├── operator_assistant.rs # Live "what to do now" recommendation bar
     │   ├── photo_viewer.rs  # QSL and station photo viewer
@@ -803,7 +805,7 @@ SPLogbook/
     │   ├── user_manual.rs   # In-app user manual with contextual help links
     │   ├── station_profiles.rs# Workstation multi-profiles (Home, /P, SOTA, Contest)
     │   ├── statistics.rs    # Visual analytics & charts dashboard (click-to-drill-down)
-    │   ├── theme.rs         # Central theme & palette system
+    │   ├── theme/           # Semantic color palette & WCAG AA presets (OperatorDark, Daylight, HighContrast)
     │   ├── vfo_panel.rs     # Primary transceiver VFO & PTT panel
     │   ├── voice_keyer.rs   # SSB voice keyer window (WAV, F1–F8)
     │   ├── waterfall_panel.rs # SDR waterfall & FFT spectrum panel (dockable tile)
