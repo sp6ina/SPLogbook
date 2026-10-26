@@ -100,14 +100,14 @@ impl SpLogApp {
         let minute = (now / 60.0) as u64;
         if !self.satellites.needs_refresh(
             &self.satellites.selected_satellite,
-            &self.my_station.gridsquare,
+            &self.config.station.gridsquare,
             minute,
         ) {
             return;
         }
         self.satellites.mark_refreshed(
             &self.satellites.selected_satellite.clone(),
-            &self.my_station.gridsquare,
+            &self.config.station.gridsquare,
             minute,
         );
 
@@ -115,7 +115,7 @@ impl SpLogApp {
             .into_iter()
             .find(|d| d.name == self.satellites.selected_satellite);
 
-        let coords = locator_to_coordinates(&self.my_station.gridsquare)
+        let coords = locator_to_coordinates(&self.config.station.gridsquare)
             .unwrap_or(crate::core::geo::Coordinates::new(52.2297, 21.0122));
         let obs = crate::core::satellite::Observer {
             lat_deg: coords.latitude,

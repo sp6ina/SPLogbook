@@ -494,6 +494,7 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
     // Snapshot widocznych kolumn (id, wyświetlana etykieta, szerokość)
     let visible_cols: Vec<(String, String, f32)> = app
+        .config
         .logbook_columns
         .iter()
         .filter(|c| c.visible)
@@ -932,7 +933,7 @@ pub fn render_column_settings(app: &mut SpLogApp, ctx: &egui::Context) {
                     let mut move_up = None;
                     let mut move_down = None;
 
-                    for (i, col) in app.logbook_columns.iter_mut().enumerate() {
+                    for (i, col) in app.config.logbook_columns.iter_mut().enumerate() {
                         let display_lbl = col_display_name(&col.id, &col.label, lang);
                         ui.horizontal(|ui| {
                             if ui.button("⬆").clicked() {
@@ -947,12 +948,12 @@ pub fn render_column_settings(app: &mut SpLogApp, ctx: &egui::Context) {
 
                     if let Some(i) = move_up {
                         if i > 0 {
-                            app.logbook_columns.swap(i, i - 1);
+                            app.config.logbook_columns.swap(i, i - 1);
                         }
                     }
                     if let Some(i) = move_down {
-                        if i + 1 < app.logbook_columns.len() {
-                            app.logbook_columns.swap(i, i + 1);
+                        if i + 1 < app.config.logbook_columns.len() {
+                            app.config.logbook_columns.swap(i, i + 1);
                         }
                     }
                 });
@@ -965,7 +966,7 @@ pub fn render_column_settings(app: &mut SpLogApp, ctx: &egui::Context) {
                     save_preset = true;
                 }
             });
-            for (i, preset) in app.logbook_column_presets.iter().enumerate() {
+            for (i, preset) in app.config.logbook_column_presets.iter().enumerate() {
                 ui.horizontal(|ui| {
                     if ui
                         .button("↩")
@@ -1000,7 +1001,7 @@ pub fn render_column_settings(app: &mut SpLogApp, ctx: &egui::Context) {
         });
 
     if reset {
-        app.logbook_columns = crate::core::station::default_logbook_columns();
+        app.config.logbook_columns = crate::core::station::default_logbook_columns();
         app.save_station_config();
     } else if save || !is_open {
         app.show_column_settings = false;
@@ -1012,25 +1013,25 @@ pub fn render_column_settings(app: &mut SpLogApp, ctx: &egui::Context) {
         if !name.is_empty() {
             let preset = crate::core::station::ColumnPreset {
                 name: name.clone(),
-                columns: app.logbook_columns.clone(),
+                columns: app.config.logbook_columns.clone(),
             };
-            app.logbook_column_presets.retain(|p| p.name != name);
-            app.logbook_column_presets.push(preset);
+            app.config.logbook_column_presets.retain(|p| p.name != name);
+            app.config.logbook_column_presets.push(preset);
             app.column_preset_name.clear();
             app.save_station_config();
         }
     }
 
     if let Some(i) = load_preset {
-        if let Some(preset) = app.logbook_column_presets.get(i) {
-            app.logbook_columns = preset.columns.clone();
+        if let Some(preset) = app.config.logbook_column_presets.get(i) {
+            app.config.logbook_columns = preset.columns.clone();
             app.save_station_config();
         }
     }
 
     if let Some(i) = delete_preset {
-        if i < app.logbook_column_presets.len() {
-            app.logbook_column_presets.remove(i);
+        if i < app.config.logbook_column_presets.len() {
+            app.config.logbook_column_presets.remove(i);
             app.save_station_config();
         }
     }

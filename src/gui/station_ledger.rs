@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::core::i18n::{Language, key, tr};
@@ -55,31 +55,33 @@ pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 ui.horizontal(|ui| {
                     ui.label(format!("{}:", tr(key::QSO_CALLSIGN, lang)));
                     let call_resp = ui.add(
-                        egui::TextEdit::singleline(&mut app.my_station.callsign)
+                        egui::TextEdit::singleline(&mut app.config.station.callsign)
                             .desired_width(80.0),
                     );
                     if call_resp.changed() {
-                        app.my_station.callsign = app.my_station.callsign.to_uppercase();
+                        app.config.station.callsign = app.config.station.callsign.to_uppercase();
                     }
 
                     ui.label(format!("{}:", tr(key::STATION_OPERATOR, lang)));
                     ui.add(
-                        egui::TextEdit::singleline(&mut app.my_station.operator)
+                        egui::TextEdit::singleline(&mut app.config.station.operator)
                             .desired_width(120.0),
                     );
 
                     ui.label(format!("{}:", tr(key::GEO_LOCATOR, lang)));
                     let loc_resp = ui.add(
-                        egui::TextEdit::singleline(&mut app.my_station.gridsquare)
+                        egui::TextEdit::singleline(&mut app.config.station.gridsquare)
                             .desired_width(65.0),
                     );
                     if loc_resp.changed() {
-                        app.my_station.gridsquare = app.my_station.gridsquare.to_uppercase();
+                        app.config.station.gridsquare =
+                            app.config.station.gridsquare.to_uppercase();
                     }
 
                     ui.label("QTH:");
                     ui.add(
-                        egui::TextEdit::singleline(&mut app.my_station.city).desired_width(100.0),
+                        egui::TextEdit::singleline(&mut app.config.station.city)
+                            .desired_width(100.0),
                     );
                 });
 
@@ -93,7 +95,7 @@ pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     ui.label(format!(
                         "({} {})",
                         tr(key::LEDGER_TOTAL_ITEMS, lang),
-                        app.ledger.items.len()
+                        app.config.equipment.len()
                     ));
                 });
 
@@ -130,7 +132,7 @@ pub fn render_station_ledger_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 );
                                 ui.end_row();
 
-                                for item in &app.ledger.items {
+                                for item in &app.config.equipment {
                                     let cat_name = category_label(&item.category, lang);
                                     ui.label(cat_name);
                                     ui.label(&item.manufacturer);

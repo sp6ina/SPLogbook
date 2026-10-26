@@ -54,16 +54,16 @@ fn render_right_side(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.label(
             egui::RichText::new(format!(
                 "OP: {} ({})",
-                app.my_station.callsign, app.my_station.gridsquare
+                app.config.station.callsign, app.config.station.gridsquare
             ))
             .color(palette.accent)
             .strong(),
         );
         ui.separator();
-        let profile_label = if app.my_station.name.is_empty() {
-            icons::BADGE.label(&app.my_station.callsign)
+        let profile_label = if app.config.station.name.is_empty() {
+            icons::BADGE.label(&app.config.station.callsign)
         } else {
-            icons::BADGE.label(&app.my_station.name)
+            icons::BADGE.label(&app.config.station.name)
         };
         if ui
             .button(
@@ -88,7 +88,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
         use crate::gui::theme::ThemeExt;
         let palette = ui.palette();
         // 1. Aktywny dziennik
-        if app.quick_access.show_journal
+        if app.config.quick_access.show_journal
             && ui
                 .button(
                     egui::RichText::new(icons::FOLDER.label(format!(
@@ -110,7 +110,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
 
         // 2. Sygnalizator WSJT-X
-        if app.quick_access.show_wsjtx {
+        if app.config.quick_access.show_wsjtx {
             ui.label(
                 egui::RichText::new(format!("● WSJT-X ({})", app.digital.wsjtx_packets_count))
                     .small()
@@ -132,9 +132,12 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
 
         // 4. Status DX Cluster
-        if app.quick_access.show_cluster_status {
+        if app.config.quick_access.show_cluster_status {
             let (cl_color, cl_text) = if app.cluster_connected {
-                (palette.success, format!("● Cluster ({})", app.cluster_host))
+                (
+                    palette.success,
+                    format!("● Cluster ({})", app.config.cluster_host),
+                )
             } else if app.cluster_connecting {
                 (
                     palette.warning,
@@ -163,7 +166,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.separator();
 
         // 5. Szybkie przyciski modułów
-        if app.quick_access.show_vfo
+        if app.config.quick_access.show_vfo
             && ui
                 .button(icons::RADIO.label(tr(key::TOOLBAR_VFO, lang)))
                 .on_hover_text(tr(key::TOOLBAR_VFO_TOOLTIP, lang))
@@ -173,7 +176,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
             app.save_station_config();
         }
 
-        if app.quick_access.show_qso
+        if app.config.quick_access.show_qso
             && ui
                 .button(icons::NEW_QSO.label(tr(key::TOOLBAR_QSO, lang)))
                 .on_hover_text(tr(key::TOOLBAR_QSO_TOOLTIP, lang))
@@ -183,7 +186,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
             app.save_station_config();
         }
 
-        if app.quick_access.show_log
+        if app.config.quick_access.show_log
             && ui
                 .button(icons::LOGBOOK.label(tr(key::TOOLBAR_LOG, lang)))
                 .on_hover_text(tr(key::TOOLBAR_LOG_TOOLTIP, lang))
@@ -193,7 +196,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
             app.save_station_config();
         }
 
-        if app.quick_access.show_cat
+        if app.config.quick_access.show_cat
             && ui
                 .button(icons::RADIO.label(tr(key::TOOLBAR_CAT, lang)))
                 .on_hover_text(tr(key::TOOLBAR_CAT_TOOLTIP, lang))
@@ -202,7 +205,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
             app.show_cat_settings_window = !app.show_cat_settings_window;
         }
 
-        if app.quick_access.show_cluster
+        if app.config.quick_access.show_cluster
             && ui
                 .button(icons::CLUSTER.label(tr(key::TOOLBAR_CLUSTER, lang)))
                 .on_hover_text(tr(key::TOOLBAR_CLUSTER_TOOLTIP, lang))
@@ -212,7 +215,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
             app.save_station_config();
         }
 
-        if app.quick_access.show_bandmap
+        if app.config.quick_access.show_bandmap
             && ui
                 .button(icons::BANDMAP.label(tr(key::TOOLBAR_BANDMAP, lang)))
                 .on_hover_text(tr(key::TOOLBAR_BANDMAP_TOOLTIP, lang))
@@ -223,7 +226,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
             app.save_station_config();
         }
 
-        if app.quick_access.show_solar
+        if app.config.quick_access.show_solar
             && ui
                 .button(icons::SOLAR.label(tr(key::TOOLBAR_SOLAR, lang)))
                 .on_hover_text(tr(key::TOOLBAR_SOLAR_TOOLTIP, lang))
@@ -233,7 +236,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
             app.save_station_config();
         }
 
-        if app.quick_access.show_lotw
+        if app.config.quick_access.show_lotw
             && ui
                 .button(icons::GLOBE.label(tr(key::TOOLBAR_LOTW, lang)))
                 .on_hover_text(tr(key::TOOLBAR_SYNC_TOOLTIP, lang))
@@ -242,7 +245,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
             app.online.show_online_sync_window = !app.online.show_online_sync_window;
         }
 
-        if app.quick_access.show_map
+        if app.config.quick_access.show_map
             && ui
                 .button(icons::WORLD_MAP.label(tr(key::TOOLBAR_MAP, lang)))
                 .on_hover_text(tr(key::TOOLBAR_MAP_TOOLTIP, lang))
@@ -253,7 +256,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
             app.save_station_config();
         }
 
-        if app.quick_access.show_awards
+        if app.config.quick_access.show_awards
             && ui
                 .button(icons::AWARDS.label(tr(key::TOOLBAR_AWARDS, lang)))
                 .on_hover_text(tr(key::TOOLBAR_AWARDS_TOOLTIP, lang))
@@ -262,7 +265,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
             app.show_awards_matrix_window = !app.show_awards_matrix_window;
         }
 
-        if app.quick_access.show_cw
+        if app.config.quick_access.show_cw
             && ui
                 .button(icons::CW_TERMINAL.label(tr(key::TOOLBAR_CW, lang)))
                 .on_hover_text(tr(key::TOOLBAR_CW_TOOLTIP, lang))
@@ -272,7 +275,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 !app.gui.dialogs.cw_terminal_dialog.is_open;
         }
 
-        if app.quick_access.show_satellites
+        if app.config.quick_access.show_satellites
             && ui
                 .button(icons::SATELLITE.label(tr(key::TOOLBAR_SATELLITES, lang)))
                 .on_hover_text(tr(key::TOOLBAR_SATELLITES_TOOLTIP, lang))
@@ -283,7 +286,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
             app.save_station_config();
         }
 
-        if app.quick_access.show_contest
+        if app.config.quick_access.show_contest
             && ui
                 .button(icons::FLAG.label(tr(key::TOOLBAR_CONTEST, lang)))
                 .on_hover_text(tr(key::TOOLBAR_CONTEST_TOOLTIP, lang))
@@ -292,7 +295,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
             app.show_contest_window = !app.show_contest_window;
         }
 
-        if app.quick_access.show_equipment
+        if app.config.quick_access.show_equipment
             && ui
                 .button(icons::PACKAGE.label(tr(key::TOOLBAR_EQUIPMENT, lang)))
                 .on_hover_text(tr(key::TOOLBAR_EQUIPMENT_TOOLTIP, lang))
@@ -301,7 +304,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
             app.ledger.show_window = !app.ledger.show_window;
         }
 
-        if app.quick_access.show_eme
+        if app.config.quick_access.show_eme
             && ui
                 .button(icons::MOON.label("EME"))
                 .on_hover_text(tr(key::TOOLBAR_EME_TOOLTIP, lang))
@@ -310,7 +313,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
             app.gui.dialogs.astronomy_dialog.open();
         }
 
-        if app.quick_access.show_wol
+        if app.config.quick_access.show_wol
             && ui
                 .button(icons::LIGHTNING.label("WOL"))
                 .on_hover_text(tr(key::TOOLBAR_WOL_TOOLTIP, lang))
@@ -319,7 +322,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
             app.gui.dialogs.wol_dialog.open();
         }
 
-        if app.quick_access.show_theme {
+        if app.config.quick_access.show_theme {
             let theme_btn_text = icons::THEME.label(app.gui.appearance.theme_preset.label(lang));
             if ui
                 .button(theme_btn_text)
@@ -390,13 +393,13 @@ fn render_quick_access_menu(app: &mut SpLogApp, ui: &mut egui::Ui) {
         .show(ui, |ui| {
             changed |= ui
                 .checkbox(
-                    &mut app.quick_access.show_journal,
+                    &mut app.config.quick_access.show_journal,
                     icons::FOLDER.label(tr(key::TOOLBAR_JOURNAL, lang)),
                 )
                 .changed();
             changed |= ui
                 .checkbox(
-                    &mut app.quick_access.show_wsjtx,
+                    &mut app.config.quick_access.show_wsjtx,
                     format!("● {}", tr(key::TOOLBAR_WSJTX_STATUS, lang)),
                 )
                 .changed();
@@ -404,13 +407,13 @@ fn render_quick_access_menu(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
             changed |= ui
                 .checkbox(
-                    &mut app.quick_access.show_cluster_status,
+                    &mut app.config.quick_access.show_cluster_status,
                     icons::CLUSTER.label(tr(key::TOOLBAR_CLUSTER_STATUS, lang)),
                 )
                 .changed();
             changed |= ui
                 .checkbox(
-                    &mut app.quick_access.show_vfo,
+                    &mut app.config.quick_access.show_vfo,
                     icons::RADIO.label(tr(key::TOOLBAR_VFO, lang)),
                 )
                 .changed();
@@ -418,13 +421,13 @@ fn render_quick_access_menu(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
             changed |= ui
                 .checkbox(
-                    &mut app.quick_access.show_qso,
+                    &mut app.config.quick_access.show_qso,
                     icons::NEW_QSO.label(tr(key::TOOLBAR_QSO, lang)),
                 )
                 .changed();
             changed |= ui
                 .checkbox(
-                    &mut app.quick_access.show_log,
+                    &mut app.config.quick_access.show_log,
                     icons::LOGBOOK.label(tr(key::TOOLBAR_LOG, lang)),
                 )
                 .changed();
@@ -432,13 +435,13 @@ fn render_quick_access_menu(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
             changed |= ui
                 .checkbox(
-                    &mut app.quick_access.show_cat,
+                    &mut app.config.quick_access.show_cat,
                     icons::RADIO.label(tr(key::TOOLBAR_CAT, lang)),
                 )
                 .changed();
             changed |= ui
                 .checkbox(
-                    &mut app.quick_access.show_cluster,
+                    &mut app.config.quick_access.show_cluster,
                     icons::CLUSTER.label(tr(key::TOOLBAR_CLUSTER, lang)),
                 )
                 .changed();
@@ -446,13 +449,13 @@ fn render_quick_access_menu(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
             changed |= ui
                 .checkbox(
-                    &mut app.quick_access.show_bandmap,
+                    &mut app.config.quick_access.show_bandmap,
                     icons::BANDMAP.label(tr(key::TOOLBAR_BANDMAP, lang)),
                 )
                 .changed();
             changed |= ui
                 .checkbox(
-                    &mut app.quick_access.show_solar,
+                    &mut app.config.quick_access.show_solar,
                     icons::SOLAR.label(tr(key::TOOLBAR_SOLAR, lang)),
                 )
                 .changed();
@@ -460,13 +463,13 @@ fn render_quick_access_menu(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
             changed |= ui
                 .checkbox(
-                    &mut app.quick_access.show_lotw,
+                    &mut app.config.quick_access.show_lotw,
                     icons::GLOBE.label(tr(key::TOOLBAR_LOTW, lang)),
                 )
                 .changed();
             changed |= ui
                 .checkbox(
-                    &mut app.quick_access.show_map,
+                    &mut app.config.quick_access.show_map,
                     icons::WORLD_MAP.label(tr(key::TOOLBAR_MAP, lang)),
                 )
                 .changed();
@@ -474,13 +477,13 @@ fn render_quick_access_menu(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
             changed |= ui
                 .checkbox(
-                    &mut app.quick_access.show_awards,
+                    &mut app.config.quick_access.show_awards,
                     icons::AWARDS.label(tr(key::TOOLBAR_AWARDS, lang)),
                 )
                 .changed();
             changed |= ui
                 .checkbox(
-                    &mut app.quick_access.show_cw,
+                    &mut app.config.quick_access.show_cw,
                     icons::CW_TERMINAL.label(tr(key::TOOLBAR_CW, lang)),
                 )
                 .changed();
@@ -488,13 +491,13 @@ fn render_quick_access_menu(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
             changed |= ui
                 .checkbox(
-                    &mut app.quick_access.show_satellites,
+                    &mut app.config.quick_access.show_satellites,
                     icons::SATELLITE.label(tr(key::TOOLBAR_SATELLITES, lang)),
                 )
                 .changed();
             changed |= ui
                 .checkbox(
-                    &mut app.quick_access.show_contest,
+                    &mut app.config.quick_access.show_contest,
                     icons::FLAG.label(tr(key::TOOLBAR_CONTEST, lang)),
                 )
                 .changed();
@@ -502,24 +505,27 @@ fn render_quick_access_menu(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
             changed |= ui
                 .checkbox(
-                    &mut app.quick_access.show_equipment,
+                    &mut app.config.quick_access.show_equipment,
                     icons::PACKAGE.label(tr(key::TOOLBAR_EQUIPMENT, lang)),
                 )
                 .changed();
             changed |= ui
-                .checkbox(&mut app.quick_access.show_eme, icons::MOON.label("EME"))
+                .checkbox(
+                    &mut app.config.quick_access.show_eme,
+                    icons::MOON.label("EME"),
+                )
                 .changed();
             ui.end_row();
 
             changed |= ui
                 .checkbox(
-                    &mut app.quick_access.show_wol,
+                    &mut app.config.quick_access.show_wol,
                     icons::LIGHTNING.label("WOL"),
                 )
                 .changed();
             changed |= ui
                 .checkbox(
-                    &mut app.quick_access.show_theme,
+                    &mut app.config.quick_access.show_theme,
                     format!(
                         "{}/{} {}",
                         icons::MOON.as_str(),
@@ -534,30 +540,30 @@ fn render_quick_access_menu(app: &mut SpLogApp, ui: &mut egui::Ui) {
     ui.separator();
     ui.horizontal(|ui| {
         if ui.button(tr(key::TOOLBAR_RESTORE_DEFAULTS, lang)).clicked() {
-            app.quick_access = crate::core::station::QuickAccessConfig::default();
+            app.config.quick_access = crate::core::station::QuickAccessConfig::default();
             changed = true;
         }
         if ui.button(tr(key::TOOLBAR_MINIMAL_TOOLBAR, lang)).clicked() {
-            app.quick_access.show_journal = true;
-            app.quick_access.show_wsjtx = true;
-            app.quick_access.show_cluster_status = true;
-            app.quick_access.show_vfo = true;
-            app.quick_access.show_qso = true;
-            app.quick_access.show_log = true;
-            app.quick_access.show_cat = false;
-            app.quick_access.show_cluster = false;
-            app.quick_access.show_bandmap = false;
-            app.quick_access.show_solar = false;
-            app.quick_access.show_lotw = false;
-            app.quick_access.show_map = false;
-            app.quick_access.show_awards = false;
-            app.quick_access.show_cw = false;
-            app.quick_access.show_satellites = false;
-            app.quick_access.show_contest = false;
-            app.quick_access.show_equipment = false;
-            app.quick_access.show_eme = false;
-            app.quick_access.show_wol = false;
-            app.quick_access.show_theme = true;
+            app.config.quick_access.show_journal = true;
+            app.config.quick_access.show_wsjtx = true;
+            app.config.quick_access.show_cluster_status = true;
+            app.config.quick_access.show_vfo = true;
+            app.config.quick_access.show_qso = true;
+            app.config.quick_access.show_log = true;
+            app.config.quick_access.show_cat = false;
+            app.config.quick_access.show_cluster = false;
+            app.config.quick_access.show_bandmap = false;
+            app.config.quick_access.show_solar = false;
+            app.config.quick_access.show_lotw = false;
+            app.config.quick_access.show_map = false;
+            app.config.quick_access.show_awards = false;
+            app.config.quick_access.show_cw = false;
+            app.config.quick_access.show_satellites = false;
+            app.config.quick_access.show_contest = false;
+            app.config.quick_access.show_equipment = false;
+            app.config.quick_access.show_eme = false;
+            app.config.quick_access.show_wol = false;
+            app.config.quick_access.show_theme = true;
             changed = true;
         }
     });

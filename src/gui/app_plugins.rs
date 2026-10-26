@@ -70,7 +70,7 @@ impl SpLogApp {
                 rig_connected: self.rig_state.connected,
                 rotor_azimuth_deg: self.rotor_state.azimuth_deg,
                 rotor_elevation_deg: self.rotor_state.elevation_deg,
-                my_call: self.my_station.callsign.clone(),
+                my_call: self.config.station.callsign.clone(),
                 qso_count: self.qso_numbers.len() as i64,
                 awards,
                 last_qso,
@@ -176,7 +176,7 @@ impl SpLogApp {
         let spot = crate::cluster::telnet::DxSpot {
             frequency_khz: freq_khz,
             dx_call: dx_call.to_string(),
-            spotter: self.my_station.callsign.clone(),
+            spotter: self.config.station.callsign.clone(),
             comment: comment.to_string(),
             time_utc: chrono::Utc::now().format("%H%M").to_string(),
             band: band_str,
@@ -212,9 +212,9 @@ impl SpLogApp {
 
     pub fn transmit_cw_macro(&mut self, text: &str) {
         let resolved = text
-            .replace("%MYCALL%", &self.my_station.callsign)
-            .replace("%MYQTH%", &self.my_station.city)
-            .replace("%MYLOC%", &self.my_station.gridsquare)
+            .replace("%MYCALL%", &self.config.station.callsign)
+            .replace("%MYQTH%", &self.config.station.city)
+            .replace("%MYLOC%", &self.config.station.gridsquare)
             .replace("%HISCALL%", &self.entry_callsign)
             .replace("%RST%", &self.entry_rst_sent)
             .replace("%SERIAL%", &format!("{:03}", self.contest_stx));

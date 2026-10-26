@@ -77,7 +77,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .button(icons::SOTA_MOUNTAIN.label(tr(key::MENU_EXPORT_SOTA, lang)))
             .clicked()
         {
-            let call = app.my_station.callsign.clone();
+            let call = app.config.station.callsign.clone();
             app.gui.dialogs.sota_dialog.open(&call);
             ui.close();
         }

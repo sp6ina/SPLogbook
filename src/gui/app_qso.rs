@@ -15,8 +15,8 @@ impl SpLogApp {
 
         let mut qso = QsoRecord::new(&self.entry_callsign, &self.entry_band, &self.entry_mode);
         qso.journal_id = Some(self.active_journal.id.clone());
-        if !self.my_station.gridsquare.trim().is_empty() {
-            qso.my_gridsquare = Some(self.my_station.gridsquare.clone());
+        if !self.config.station.gridsquare.trim().is_empty() {
+            qso.my_gridsquare = Some(self.config.station.gridsquare.clone());
         }
         if self.rig_state.frequency_hz > 0 {
             qso.freq = Some(self.rig_state.frequency_hz as f64 / 1_000_000.0);
@@ -195,7 +195,7 @@ impl SpLogApp {
                 let adif_record = crate::core::adif::export_adif(
                     std::slice::from_ref(qso),
                     "SPLogbook",
-                    &self.my_station.callsign,
+                    &self.config.station.callsign,
                 );
                 let now = crate::cloud::scheduler::now_unix();
                 let mut sched = self
@@ -216,7 +216,7 @@ impl SpLogApp {
                 let adif_record = crate::core::adif::export_adif(
                     std::slice::from_ref(qso),
                     "SPLogbook",
-                    &self.my_station.callsign,
+                    &self.config.station.callsign,
                 );
                 let now = crate::cloud::scheduler::now_unix();
                 let mut sched = self
@@ -236,12 +236,12 @@ impl SpLogApp {
         // 5. Automatyczne raportowanie do PSK Reporter (psk_report)
         if effects.psk_report
             && self.config.psk_reporter_enabled
-            && !self.my_station.callsign.is_empty()
-            && !self.my_station.gridsquare.is_empty()
+            && !self.config.station.callsign.is_empty()
+            && !self.config.station.gridsquare.is_empty()
         {
             let client = crate::cloud::psk_reporter::PskReporterClient::new(
-                &self.my_station.callsign,
-                &self.my_station.gridsquare,
+                &self.config.station.callsign,
+                &self.config.station.gridsquare,
             );
             let qso_clone = qso.clone();
             tokio::spawn(async move {
@@ -260,7 +260,7 @@ impl SpLogApp {
         if effects.broadcast_n1mm && self.config.n1mm_broadcast_enabled {
             let host = self.config.n1mm_broadcast_host.clone();
             let port = self.config.n1mm_broadcast_port;
-            let my_call = self.my_station.callsign.clone();
+            let my_call = self.config.station.callsign.clone();
             let xml = crate::digital::n1mm::contactinfo_xml(qso, &my_call, 1);
             tokio::spawn(async move {
                 if let Err(e) = crate::digital::n1mm::send_broadcast(&host, port, &xml).await {

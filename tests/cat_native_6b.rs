@@ -1079,11 +1079,11 @@ fn gui_switching_radio_switches_telemetry_cleanly() {
         backend: RigBackendConfig::Flrig(FlrigConfig::default()),
     };
     station.rigs = vec![r1, r2];
-    app.cat_station = Some(station);
+    app.config.cat_station = Some(station);
 
     app.cat_selected_rig_idx = 0;
     assert_eq!(
-        app.cat_station.as_ref().unwrap().rigs[app.cat_selected_rig_idx]
+        app.config.cat_station.as_ref().unwrap().rigs[app.cat_selected_rig_idx]
             .id
             .as_str(),
         "radio-1"
@@ -1091,7 +1091,7 @@ fn gui_switching_radio_switches_telemetry_cleanly() {
 
     app.cat_selected_rig_idx = 1;
     assert_eq!(
-        app.cat_station.as_ref().unwrap().rigs[app.cat_selected_rig_idx]
+        app.config.cat_station.as_ref().unwrap().rigs[app.cat_selected_rig_idx]
             .id
             .as_str(),
         "radio-2"

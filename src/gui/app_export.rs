@@ -11,7 +11,7 @@ impl SpLogApp {
             .add_filter("Pliki Cabrillo (*.cbr, *.log)", &["cbr", "log"])
             .set_file_name(format!(
                 "{}_{}.cbr",
-                self.my_station.callsign,
+                self.config.station.callsign,
                 self.contest_name.replace(' ', "_")
             ))
             .set_title(tr(
@@ -45,7 +45,7 @@ impl SpLogApp {
             let mut out = String::new();
             out.push_str("START-OF-LOG: 3.0\n");
             let _ = writeln!(out, "CONTEST: {}", self.contest_name);
-            let _ = writeln!(out, "CALLSIGN: {}", self.my_station.callsign);
+            let _ = writeln!(out, "CALLSIGN: {}", self.config.station.callsign);
             out.push_str("CATEGORY-OPERATOR: SINGLE-OP\n");
             out.push_str("CATEGORY-TRANSMITTER: ONE\n");
             out.push_str("CATEGORY-POWER: HIGH\n");
@@ -54,12 +54,12 @@ impl SpLogApp {
             out.push_str("CATEGORY-STATION: FIXED\n");
             let total_score = self.contest_points * self.contest_mults.max(1);
             let _ = writeln!(out, "CLAIMED-SCORE: {total_score}");
-            let _ = writeln!(out, "OPERATORS: {}", self.my_station.callsign);
-            let _ = writeln!(out, "NAME: {}", self.my_station.operator);
+            let _ = writeln!(out, "OPERATORS: {}", self.config.station.callsign);
+            let _ = writeln!(out, "NAME: {}", self.config.station.operator);
             let _ = writeln!(
                 out,
                 "ADDRESS: {}, {}",
-                self.my_station.city, self.my_station.country
+                self.config.station.city, self.config.station.country
             );
             out.push_str("SOAPBOX: Created with SPLogbook by SP6INA (GPLv3)\n");
 
@@ -104,7 +104,7 @@ impl SpLogApp {
                     if qso.mode == "CW" { "CW" } else { "PH" },
                     date_str,
                     time_str,
-                    self.my_station.callsign,
+                    self.config.station.callsign,
                     my_rst,
                     my_serial,
                     qso.callsign,
@@ -217,7 +217,7 @@ impl SpLogApp {
             let mut ops: Vec<Op> = Vec::new();
             ops.extend(text_ops("SPLogbook Log", 24.0, 10.0, 280.0, true));
             ops.extend(text_ops(
-                format!("Operator: {}", self.my_station.callsign),
+                format!("Operator: {}", self.config.station.callsign),
                 12.0,
                 10.0,
                 270.0,

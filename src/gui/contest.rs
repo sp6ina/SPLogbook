@@ -32,7 +32,7 @@ pub fn render_custom_contest_editor(app: &mut SpLogApp, ctx: &egui::Context) {
                 ui.vertical(|ui| {
                     ui.heading(tr(key::CONTEST_YOUR_CONTESTS, lang));
                     let mut to_delete = None;
-                    for (i, contest) in app.custom_contests.iter().enumerate() {
+                    for (i, contest) in app.config.custom_contests.iter().enumerate() {
                         ui.horizontal(|ui| {
                             ui.label(&contest.name);
                             if ui.button(tr(key::BTN_EDIT, lang)).clicked() {
@@ -45,7 +45,7 @@ pub fn render_custom_contest_editor(app: &mut SpLogApp, ctx: &egui::Context) {
                         });
                     }
                     if let Some(i) = to_delete {
-                        app.custom_contests.remove(i);
+                        app.config.custom_contests.remove(i);
                         if app.custom_contest_edit_idx == Some(i) {
                             app.custom_contest_edit_idx = None;
                             app.custom_contest_draft = CustomContest::default();
@@ -111,9 +111,11 @@ pub fn render_custom_contest_editor(app: &mut SpLogApp, ctx: &egui::Context) {
                         && !app.custom_contest_draft.name.is_empty()
                     {
                         if let Some(i) = app.custom_contest_edit_idx {
-                            app.custom_contests[i] = app.custom_contest_draft.clone();
+                            app.config.custom_contests[i] = app.custom_contest_draft.clone();
                         } else {
-                            app.custom_contests.push(app.custom_contest_draft.clone());
+                            app.config
+                                .custom_contests
+                                .push(app.custom_contest_draft.clone());
                         }
                         app.custom_contest_edit_idx = None;
                         app.custom_contest_draft = CustomContest::default();
@@ -143,6 +145,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
     let mut is_custom = false;
     let mut custom_idx = None;
     if let Some(idx) = app
+        .config
         .custom_contests
         .iter()
         .position(|c| c.name == app.contest_name)
@@ -154,7 +157,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
     // Uporządkowane pola wymiany dla aktualnie wybranego kontestu.
     let exchange_fields: Option<Vec<ExchangeField>> = if let Some(idx) = custom_idx {
         Some(fields_from_format_string(
-            &app.custom_contests[idx].exchange_format,
+            &app.config.custom_contests[idx].exchange_format,
         ))
     } else {
         RULES
@@ -175,14 +178,14 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
     let my_dxcc: u32 = app
         .services
         .prefix_matcher
-        .lookup(&app.my_station.callsign)
+        .lookup(&app.config.station.callsign)
         .and_then(|m| if m.dxcc > 0 { Some(m.dxcc) } else { None })
         .unwrap_or(269);
-    let my_cqzone = app.my_station.cq_zone as u8;
+    let my_cqzone = app.config.station.cq_zone as u8;
 
     let mut unknown_contest_rule = false;
     let (pts, mults, total) = if let Some(idx) = custom_idx {
-        let contest = &app.custom_contests[idx];
+        let contest = &app.config.custom_contests[idx];
         let mut points = 0;
         let mut multipliers = HashSet::new();
         for qso in &app.recent_qsos {
@@ -213,7 +216,10 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
     // Rodzaj mnożnika i pasma dla macierzy mnożników.
     let (mult_kind, rule_bands): (MultKind, Vec<String>) = if let Some(idx) = custom_idx {
-        (MultKind::Dxcc, app.custom_contests[idx].bands.clone())
+        (
+            MultKind::Dxcc,
+            app.config.custom_contests[idx].bands.clone(),
+        )
     } else if let Some(rule_idx) = RULES.iter().position(|r| r.name == app.contest_name) {
         (
             RULES[rule_idx].mult_kind,
@@ -268,9 +274,9 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     rule.name,
                                 );
                             }
-                            if !app.custom_contests.is_empty() {
+                            if !app.config.custom_contests.is_empty() {
                                 ui.separator();
-                                for contest in &app.custom_contests {
+                                for contest in &app.config.custom_contests {
                                     ui.selectable_value(
                                         &mut app.contest_name,
                                         contest.name.clone(),
@@ -631,8 +637,8 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
         let mut new_qso = QsoRecord::new(&app.entry_callsign, &app.entry_band, &app.entry_mode);
         new_qso.stx = Some(app.contest_stx);
         new_qso.journal_id = Some(app.active_journal.id.clone());
-        if !app.my_station.gridsquare.trim().is_empty() {
-            new_qso.my_gridsquare = Some(app.my_station.gridsquare.clone());
+        if !app.config.station.gridsquare.trim().is_empty() {
+            new_qso.my_gridsquare = Some(app.config.station.gridsquare.clone());
         }
         if app.rig_state.frequency_hz > 0 {
             new_qso.freq = Some(app.rig_state.frequency_hz as f64 / 1_000_000.0);

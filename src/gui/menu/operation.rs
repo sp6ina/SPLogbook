@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::cluster::telnet::CLUSTER_PRESETS;
@@ -56,10 +56,10 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.separator();
         ui.label(egui::RichText::new(tr(key::CLUSTER_QUICK_SERVER, lang)).strong());
         for (name, host, port) in CLUSTER_PRESETS {
-            let is_current = app.cluster_host == *host && app.cluster_port == *port;
+            let is_current = app.config.cluster_host == *host && app.config.cluster_port == *port;
             if ui.selectable_label(is_current, *name).clicked() {
-                app.cluster_host = host.to_string();
-                app.cluster_port = *port;
+                app.config.cluster_host = host.to_string();
+                app.config.cluster_port = *port;
                 app.save_station_config();
                 if app.cluster_connected {
                     app.connect_dx_cluster();
@@ -72,7 +72,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.label(egui::RichText::new(tr(key::CLUSTER_FILTERS_OPTIONS, lang)).strong());
         if ui
             .checkbox(
-                &mut app.cluster_auto_connect,
+                &mut app.config.cluster_auto_connect,
                 tr(key::CLUSTER_AUTO_CONNECT_STARTUP, lang),
             )
             .changed()
@@ -81,7 +81,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
         if ui
             .checkbox(
-                &mut app.cluster_filter_current_band,
+                &mut app.config.cluster_filter_current_band,
                 tr(key::CLUSTER_FILTER_VFO_BAND, lang),
             )
             .changed()
@@ -89,14 +89,17 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             app.save_station_config();
         }
         if ui
-            .checkbox(&mut app.cluster_hide_ft8, tr(key::CLUSTER_HIDE_FT8, lang))
+            .checkbox(
+                &mut app.config.cluster_hide_ft8,
+                tr(key::CLUSTER_HIDE_FT8, lang),
+            )
             .changed()
         {
             app.save_station_config();
         }
         if ui
             .checkbox(
-                &mut app.cluster_hide_skimmers,
+                &mut app.config.cluster_hide_skimmers,
                 tr(key::CLUSTER_HIDE_SKIMMERS, lang),
             )
             .changed()

@@ -403,7 +403,7 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
             + now.format("%M").to_string().parse::<f64>().unwrap_or(0.0) / 60.0;
 
         // Współrzędne mojej stacji
-        let my_coords = locator_to_coordinates(&app.my_station.gridsquare)
+        let my_coords = locator_to_coordinates(&app.config.station.gridsquare)
             .unwrap_or(Coordinates::new(51.1079, 17.0385));
 
         // Współrzędne stacji DX
@@ -915,7 +915,7 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
             egui::Align2::LEFT_CENTER,
             format!(
                 "{} ({})",
-                app.my_station.callsign, app.my_station.gridsquare
+                app.config.station.callsign, app.config.station.gridsquare
             ),
             egui::FontId::proportional(10.0),
             palette.accent,

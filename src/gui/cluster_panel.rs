@@ -262,13 +262,13 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         let mut custom_idx = None;
 
         for (name, host, port) in CLUSTER_PRESETS {
-            if app.cluster_host == *host && app.cluster_port == *port {
+            if app.config.cluster_host == *host && app.config.cluster_port == *port {
                 selected_preset_name = name.to_string();
                 break;
             }
         }
-        for (i, cluster) in app.custom_clusters.iter().enumerate() {
-            if app.cluster_host == cluster.host && app.cluster_port == cluster.port {
+        for (i, cluster) in app.config.custom_clusters.iter().enumerate() {
+            if app.config.cluster_host == cluster.host && app.config.cluster_port == cluster.port {
                 selected_preset_name = format!("⭐ {}", cluster.name);
                 is_custom = true;
                 custom_idx = Some(i);
@@ -288,25 +288,26 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                         .color(palette.text_muted),
                 );
                 for (name, host, port) in CLUSTER_PRESETS {
-                    let is_sel = app.cluster_host == *host && app.cluster_port == *port;
+                    let is_sel =
+                        app.config.cluster_host == *host && app.config.cluster_port == *port;
                     if ui.selectable_label(is_sel, *name).clicked() {
-                        app.cluster_host = host.to_string();
-                        app.cluster_port = *port;
+                        app.config.cluster_host = host.to_string();
+                        app.config.cluster_port = *port;
                         app.save_station_config();
                     }
                 }
 
                 let mut sel_custom = None;
-                if !app.custom_clusters.is_empty() {
+                if !app.config.custom_clusters.is_empty() {
                     ui.separator();
                     ui.label(
                         egui::RichText::new(tr(key::CLUSTER_USER_SERVERS, lang))
                             .size(10.0)
                             .color(palette.warning),
                     );
-                    for cluster in &app.custom_clusters {
-                        let is_sel =
-                            app.cluster_host == cluster.host && app.cluster_port == cluster.port;
+                    for cluster in &app.config.custom_clusters {
+                        let is_sel = app.config.cluster_host == cluster.host
+                            && app.config.cluster_port == cluster.port;
                         if ui
                             .selectable_label(is_sel, format!("⭐ {}", cluster.name))
                             .clicked()
@@ -317,8 +318,8 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 }
 
                 if let Some((h, p)) = sel_custom {
-                    app.cluster_host = h;
-                    app.cluster_port = p;
+                    app.config.cluster_host = h;
+                    app.config.cluster_port = p;
                     app.save_station_config();
                 }
 
@@ -350,7 +351,7 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     .on_hover_text(tr(key::CLUSTER_DELETE_SERVER_TOOLTIP, lang))
                     .clicked()
                 {
-                    app.custom_clusters.remove(idx);
+                    app.config.custom_clusters.remove(idx);
                     app.save_station_config();
                 }
             }
@@ -390,13 +391,14 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     // Wiersz parametrów: Host, Port, Login
     ui.horizontal(|ui| {
         ui.label("Host:");
-        let h_resp = ui.add(egui::TextEdit::singleline(&mut app.cluster_host).desired_width(120.0));
+        let h_resp =
+            ui.add(egui::TextEdit::singleline(&mut app.config.cluster_host).desired_width(120.0));
         ui.label("Port:");
-        let p_resp = ui.add(egui::DragValue::new(&mut app.cluster_port).range(1..=65535));
+        let p_resp = ui.add(egui::DragValue::new(&mut app.config.cluster_port).range(1..=65535));
         ui.label(format!("{}:", tr(key::QSO_CALLSIGN, lang)));
         let c_resp = ui.add(
-            egui::TextEdit::singleline(&mut app.cluster_callsign)
-                .hint_text(&app.my_station.callsign)
+            egui::TextEdit::singleline(&mut app.config.cluster_callsign)
+                .hint_text(&app.config.station.callsign)
                 .desired_width(70.0),
         );
 
@@ -415,7 +417,7 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui
                 .checkbox(
-                    &mut app.cluster_auto_connect,
+                    &mut app.config.cluster_auto_connect,
                     tr(key::CLUSTER_AUTO_CONNECT_STARTUP, lang),
                 )
                 .on_hover_text(tr(key::CLUSTER_AUTO_CONNECT_TOOLTIP, lang))
@@ -841,14 +843,15 @@ pub fn render_add_cluster_dialog(app: &mut SpLogApp, ctx: &egui::Context) {
                     let host = app.new_cluster_host.trim().to_string();
                     let port = app.new_cluster_port;
                     if !host.is_empty() {
-                        app.custom_clusters
-                            .push(crate::core::station::CustomClusterServer {
+                        app.config.custom_clusters.push(
+                            crate::core::station::CustomClusterServer {
                                 name,
                                 host: host.clone(),
                                 port,
-                            });
-                        app.cluster_host = host;
-                        app.cluster_port = port;
+                            },
+                        );
+                        app.config.cluster_host = host;
+                        app.config.cluster_port = port;
                         app.save_station_config();
                         app.connect_dx_cluster();
                         app.show_add_cluster_dialog = false;
@@ -864,14 +867,15 @@ pub fn render_add_cluster_dialog(app: &mut SpLogApp, ctx: &egui::Context) {
                     let host = app.new_cluster_host.trim().to_string();
                     let port = app.new_cluster_port;
                     if !host.is_empty() {
-                        app.custom_clusters
-                            .push(crate::core::station::CustomClusterServer {
+                        app.config.custom_clusters.push(
+                            crate::core::station::CustomClusterServer {
                                 name,
                                 host: host.clone(),
                                 port,
-                            });
-                        app.cluster_host = host;
-                        app.cluster_port = port;
+                            },
+                        );
+                        app.config.cluster_host = host;
+                        app.config.cluster_port = port;
                         app.save_station_config();
                         app.show_add_cluster_dialog = false;
                     }

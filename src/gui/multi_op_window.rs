@@ -176,7 +176,7 @@ pub fn render_multi_op_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                         port: app.config.lan_sync_port,
                                     },
                                     secret: app.config.lan_sync_secret.clone(),
-                                    station: app.my_station.callsign.clone(),
+                                    station: app.config.station.callsign.clone(),
                                     journal,
                                 };
 
@@ -278,7 +278,7 @@ pub fn render_multi_op_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                         port: app.config.lan_sync_port,
                                     },
                                     secret: app.config.lan_sync_secret.clone(),
-                                    station: app.my_station.callsign.clone(),
+                                    station: app.config.station.callsign.clone(),
                                     journal,
                                 };
 

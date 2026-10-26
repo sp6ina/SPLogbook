@@ -187,7 +187,7 @@ pub fn render_welcome_wizard(app: &mut SpLogApp, ctx: &egui::Context) {
                         close_wizard = true;
                         app.gui.chrome.status_message = Some(
                             Msg::new(key::WELCOME_STATION_CONFIGURED_TOAST)
-                                .arg("call", &app.my_station.callsign)
+                                .arg("call", &app.config.station.callsign)
                                 .text(lang),
                         );
                     }
@@ -210,19 +210,19 @@ fn render_tab_station(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
             // Znak wywoławczy
             ui.label(egui::RichText::new(format!("(*) {}:", tr(key::QSO_CALLSIGN, lang))).strong());
             let call = ui.add(
-                egui::TextEdit::singleline(&mut app.my_station.callsign)
+                egui::TextEdit::singleline(&mut app.config.station.callsign)
                     .hint_text("np. SP6INA, W1AW, DL1ABC")
                     .desired_width(260.0),
             );
             if call.changed() {
-                app.my_station.callsign = app.my_station.callsign.to_uppercase();
+                app.config.station.callsign = app.config.station.callsign.to_uppercase();
             }
             ui.end_row();
 
             // Operator
             ui.label(egui::RichText::new(format!("{}:", tr(key::STATION_OPERATOR, lang))).strong());
             ui.add(
-                egui::TextEdit::singleline(&mut app.my_station.operator)
+                egui::TextEdit::singleline(&mut app.config.station.operator)
                     .hint_text("np. Jan Kowalski")
                     .desired_width(260.0),
             );
@@ -231,19 +231,19 @@ fn render_tab_station(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
             // Lokator Maidenhead
             ui.label(egui::RichText::new(format!("(*) {}:", tr(key::GEO_LOCATOR, lang))).strong());
             let loc = ui.add(
-                egui::TextEdit::singleline(&mut app.my_station.gridsquare)
+                egui::TextEdit::singleline(&mut app.config.station.gridsquare)
                     .hint_text("np. JO81WA, KO02AA")
                     .desired_width(260.0),
             );
             if loc.changed() {
-                app.my_station.gridsquare = app.my_station.gridsquare.to_uppercase();
+                app.config.station.gridsquare = app.config.station.gridsquare.to_uppercase();
             }
             ui.end_row();
 
             // QTH
             ui.label(egui::RichText::new("QTH:").strong());
             ui.add(
-                egui::TextEdit::singleline(&mut app.my_station.city)
+                egui::TextEdit::singleline(&mut app.config.station.city)
                     .hint_text("np. Wroclaw, Krakow")
                     .desired_width(260.0),
             );
@@ -252,7 +252,7 @@ fn render_tab_station(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
             // Kraj / DXCC
             ui.label(egui::RichText::new(format!("{}:", tr(key::GEO_DXCC, lang))).strong());
             ui.add(
-                egui::TextEdit::singleline(&mut app.my_station.country)
+                egui::TextEdit::singleline(&mut app.config.station.country)
                     .hint_text("np. Poland, Germany")
                     .desired_width(260.0),
             );
@@ -260,7 +260,7 @@ fn render_tab_station(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
 
             // Gmina PGA
             ui.label(egui::RichText::new(format!("{}:", tr(key::QSO_PGA, lang))).strong());
-            let mut pga = app.my_station.pga_gmina.clone().unwrap_or_default();
+            let mut pga = app.config.station.pga_gmina.clone().unwrap_or_default();
             if ui
                 .add(
                     egui::TextEdit::singleline(&mut pga)
@@ -270,7 +270,7 @@ fn render_tab_station(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
                 .changed()
             {
                 let pga_upper = pga.to_uppercase();
-                app.my_station.pga_gmina = if pga_upper.trim().is_empty() {
+                app.config.station.pga_gmina = if pga_upper.trim().is_empty() {
                     None
                 } else {
                     Some(pga_upper)
@@ -289,9 +289,9 @@ fn render_tab_station(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
             );
             ui.horizontal(|ui| {
                 ui.label("CQ:");
-                ui.add(egui::DragValue::new(&mut app.my_station.cq_zone).range(1..=40));
+                ui.add(egui::DragValue::new(&mut app.config.station.cq_zone).range(1..=40));
                 ui.label("ITU:");
-                ui.add(egui::DragValue::new(&mut app.my_station.itu_zone).range(1..=90));
+                ui.add(egui::DragValue::new(&mut app.config.station.itu_zone).range(1..=90));
             });
             ui.end_row();
         });
@@ -314,7 +314,7 @@ fn render_tab_radio(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
             ui.label(
                 egui::RichText::new(format!("{}:", tr(key::WIZARD_TRANSCEIVER, lang))).strong(),
             );
-            let mut rig = app.my_station.default_rig.clone().unwrap_or_default();
+            let mut rig = app.config.station.default_rig.clone().unwrap_or_default();
             if ui
                 .add(
                     egui::TextEdit::singleline(&mut rig)
@@ -323,7 +323,7 @@ fn render_tab_radio(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
                 )
                 .changed()
             {
-                app.my_station.default_rig = if rig.trim().is_empty() {
+                app.config.station.default_rig = if rig.trim().is_empty() {
                     None
                 } else {
                     Some(rig)
@@ -332,7 +332,12 @@ fn render_tab_radio(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
             ui.end_row();
 
             ui.label(egui::RichText::new(format!("{}:", tr(key::WIZARD_ANTENNA, lang))).strong());
-            let mut ant = app.my_station.default_antenna.clone().unwrap_or_default();
+            let mut ant = app
+                .config
+                .station
+                .default_antenna
+                .clone()
+                .unwrap_or_default();
             if ui
                 .add(
                     egui::TextEdit::singleline(&mut ant)
@@ -341,7 +346,7 @@ fn render_tab_radio(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
                 )
                 .changed()
             {
-                app.my_station.default_antenna = if ant.trim().is_empty() {
+                app.config.station.default_antenna = if ant.trim().is_empty() {
                     None
                 } else {
                     Some(ant)
@@ -352,7 +357,7 @@ fn render_tab_radio(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
             ui.label(egui::RichText::new(format!("{}:", tr(key::WIZARD_TX_POWER, lang))).strong());
             ui.horizontal(|ui| {
                 ui.add(
-                    egui::DragValue::new(&mut app.my_station.power_watts)
+                    egui::DragValue::new(&mut app.config.station.power_watts)
                         .range(1..=1500)
                         .suffix(" W"),
                 );
@@ -565,7 +570,7 @@ fn render_tab_appearance(
     ui.label(egui::RichText::new(tr(key::WIZARD_QUICK_ACCESS_LABEL, lang)).strong());
     ui.add_space(4.0);
     ui.horizontal_wrapped(|ui| {
-        let qa = &mut app.quick_access;
+        let qa = &mut app.config.quick_access;
         ui.checkbox(&mut qa.show_vfo, tr(key::TAB_VFO, lang));
         ui.checkbox(&mut qa.show_log, tr(key::TAB_LOGBOOK, lang));
         ui.checkbox(&mut qa.show_cluster, tr(key::TAB_DX_CLUSTER, lang));

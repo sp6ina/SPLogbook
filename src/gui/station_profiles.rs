@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::core::i18n::{key, tr};
@@ -17,16 +17,16 @@ pub fn render_station_profiles_window(app: &mut SpLogApp, ctx: &egui::Context) {
     let mut close_requested = false;
     let mut need_save = false;
 
-    if app.station_profiles.is_empty() {
-        let mut def = app.my_station.clone();
+    if app.config.station_profiles.is_empty() {
+        let mut def = app.config.station.clone();
         if def.id.is_empty() {
             def.id = "default".to_string();
         }
         if def.name.is_empty() {
             def.name = tr(key::PROFILES_NEW_DEFAULT_NAME, lang).to_string();
         }
-        app.station_profiles.push(def);
-        app.active_profile_id = "default".to_string();
+        app.config.station_profiles.push(def);
+        app.config.active_profile_id = "default".to_string();
     }
 
     egui::Window::new(
@@ -60,8 +60,8 @@ pub fn render_station_profiles_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     egui::ScrollArea::vertical()
                         .max_height(260.0)
                         .show(ui, |ui| {
-                            for (idx, prof) in app.station_profiles.iter().enumerate() {
-                                let is_active = app.active_profile_id == prof.id;
+                            for (idx, prof) in app.config.station_profiles.iter().enumerate() {
+                                let is_active = app.config.active_profile_id == prof.id;
                                 ui.group(|ui| {
                                     ui.horizontal(|ui| {
                                         if is_active {
@@ -109,7 +109,7 @@ pub fn render_station_profiles_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                         ui.with_layout(
                                             egui::Layout::right_to_left(egui::Align::Center),
                                             |ui| {
-                                                if app.station_profiles.len() > 1
+                                                if app.config.station_profiles.len() > 1
                                                     && ui
                                                         .small_button("🗑")
                                                         .on_hover_text(tr(
@@ -143,10 +143,11 @@ pub fn render_station_profiles_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     }
 
                     if let Some(idx) = delete_idx {
-                        let was_active = app.station_profiles[idx].id == app.active_profile_id;
-                        app.station_profiles.remove(idx);
-                        if was_active && !app.station_profiles.is_empty() {
-                            let next_id = app.station_profiles[0].id.clone();
+                        let was_active =
+                            app.config.station_profiles[idx].id == app.config.active_profile_id;
+                        app.config.station_profiles.remove(idx);
+                        if was_active && !app.config.station_profiles.is_empty() {
+                            let next_id = app.config.station_profiles[0].id.clone();
                             app.activate_station_profile(&next_id);
                         }
                         need_save = true;
@@ -156,7 +157,7 @@ pub fn render_station_profiles_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         let new_id = format!("prof-{}", chrono::Utc::now().timestamp_millis());
                         to_clone.id = new_id;
                         to_clone.name = format!("{} (2)", to_clone.name);
-                        app.station_profiles.push(to_clone);
+                        app.config.station_profiles.push(to_clone);
                         need_save = true;
                     }
 
@@ -173,13 +174,13 @@ pub fn render_station_profiles_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         let new_prof = StationProfile {
                             id: new_id,
                             name: tr(key::PROFILES_NEW_DEFAULT_NAME, lang).to_string(),
-                            callsign: app.my_station.callsign.clone(),
-                            operator: app.my_station.operator.clone(),
-                            gridsquare: app.my_station.gridsquare.clone(),
-                            city: app.my_station.city.clone(),
-                            country: app.my_station.country.clone(),
-                            itu_zone: app.my_station.itu_zone,
-                            cq_zone: app.my_station.cq_zone,
+                            callsign: app.config.station.callsign.clone(),
+                            operator: app.config.station.operator.clone(),
+                            gridsquare: app.config.station.gridsquare.clone(),
+                            city: app.config.station.city.clone(),
+                            country: app.config.station.country.clone(),
+                            itu_zone: app.config.station.itu_zone,
+                            cq_zone: app.config.station.cq_zone,
                             pga_gmina: None,
                             sota_ref: None,
                             pota_ref: None,
@@ -187,14 +188,18 @@ pub fn render_station_profiles_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             default_rig: None,
                             default_antenna: None,
                         };
-                        app.station_profiles.push(new_prof);
+                        app.config.station_profiles.push(new_prof);
                         need_save = true;
                     }
                 });
 
                 cols[1].group(|ui| {
-                    let active_id = app.active_profile_id.clone();
-                    if let Some(prof) = app.station_profiles.iter_mut().find(|p| p.id == active_id)
+                    let active_id = app.config.active_profile_id.clone();
+                    if let Some(prof) = app
+                        .config
+                        .station_profiles
+                        .iter_mut()
+                        .find(|p| p.id == active_id)
                     {
                         ui.label(
                             egui::RichText::new(tr(key::PROFILES_EDIT_HEADER, lang))
@@ -396,9 +401,14 @@ pub fn render_station_profiles_window(app: &mut SpLogApp, ctx: &egui::Context) {
     app.show_station_profiles_window = is_open;
 
     if need_save {
-        let active_id = app.active_profile_id.clone();
-        if let Some(prof) = app.station_profiles.iter().find(|p| p.id == active_id) {
-            app.my_station = prof.clone();
+        let active_id = app.config.active_profile_id.clone();
+        if let Some(prof) = app
+            .config
+            .station_profiles
+            .iter()
+            .find(|p| p.id == active_id)
+        {
+            app.config.station = prof.clone();
         }
         app.save_station_config();
     }

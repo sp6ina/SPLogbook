@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 //! Asystent operatora — zawsze dostępny pasek decyzyjny, który podpowiada
@@ -174,7 +174,7 @@ pub fn render_operator_assistant(app: &mut SpLogApp, ctx: &egui::Context) {
             Some(PropagationEngine::explain(sp, dx, freq, sfi, k_index as u8, utc_h, doy).1)
         } else {
             PropagationEngine::forecast_explain(
-                &app.my_station.gridsquare,
+                &app.config.station.gridsquare,
                 &app.entry_grid,
                 &band,
                 sfi,

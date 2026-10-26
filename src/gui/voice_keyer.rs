@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 //! Okno dialogowe voice keyer'a (SSB) — zarządzanie komunikatami F1..F8,
@@ -40,8 +40,8 @@ pub fn render_voice_keyer_window(app: &mut SpLogApp, ctx: &egui::Context) {
             ui.add_space(6.0);
 
             if ui.button(tr(key::VOICE_ADD_SLOT, lang)).clicked() {
-                app.voice_keyer.messages.push(VoiceKeyerMessage {
-                    label: format!("F{}", app.voice_keyer.messages.len() + 1),
+                app.config.voice_keyer_messages.push(VoiceKeyerMessage {
+                    label: format!("F{}", app.config.voice_keyer_messages.len() + 1),
                     ..Default::default()
                 });
                 app.save_station_config();
@@ -56,7 +56,7 @@ pub fn render_voice_keyer_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     let mut preview_idx: Option<usize> = None;
                     let mut rec_idx: Option<usize> = None;
 
-                    for (idx, msg) in app.voice_keyer.messages.iter_mut().enumerate() {
+                    for (idx, msg) in app.config.voice_keyer_messages.iter_mut().enumerate() {
                         let active = app.voice_keyer.active == Some(idx);
                         ui.group(|ui| {
                             ui.horizontal(|ui| {
@@ -125,14 +125,14 @@ pub fn render_voice_keyer_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
                     // Przetwarzanie akcji po pętli (unikamy jednoczesnego pożyczania)
                     if let Some(idx) = preview_idx
-                        && let Some(m) = app.voice_keyer.messages.get(idx).cloned()
+                        && let Some(m) = app.config.voice_keyer_messages.get(idx).cloned()
                     {
                         std::thread::spawn(move || {
                             let _ = crate::media::voice_keyer::play_message(&m);
                         });
                     }
                     if let Some(idx) = tx_idx
-                        && let Some(m) = app.voice_keyer.messages.get(idx).cloned()
+                        && let Some(m) = app.config.voice_keyer_messages.get(idx).cloned()
                     {
                         app.voice_keyer.active = Some(idx);
                         transmit_message(&m, app);
@@ -141,9 +141,9 @@ pub fn render_voice_keyer_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         toggle_recording(app, idx);
                     }
                     if let Some(idx) = remove_idx
-                        && idx < app.voice_keyer.messages.len()
+                        && idx < app.config.voice_keyer_messages.len()
                     {
-                        app.voice_keyer.messages.remove(idx);
+                        app.config.voice_keyer_messages.remove(idx);
                         app.voice_keyer.active = None;
                         app.save_station_config();
                     }
@@ -190,7 +190,7 @@ fn toggle_recording(app: &mut SpLogApp, idx: usize) {
         }
         let path = rec_dir.join(format!("f{}.wav", idx + 1));
         if let Ok(saved) = crate::media::audio_recorder::AudioRecorder::stop_and_save(&path) {
-            if let Some(msg) = app.voice_keyer.messages.get_mut(idx) {
+            if let Some(msg) = app.config.voice_keyer_messages.get_mut(idx) {
                 msg.wav_path = Some(saved.to_string_lossy().to_string());
             }
             app.save_station_config();

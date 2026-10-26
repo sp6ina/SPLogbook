@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Wozniak (SP6INA)
 
 use crate::core::i18n::{Msg, key, tr};
@@ -43,7 +43,7 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     ui.label(format!(
                         "{}: {}",
                         tr(key::WIZARD_TAB_STATION, lang),
-                        app.my_station.callsign
+                        app.config.station.callsign
                     ));
                 });
             });
@@ -122,7 +122,7 @@ pub fn render_wspr_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 ui.end_row();
 
                                 let my_coords = crate::core::geo::locator_to_coordinates(
-                                    &app.my_station.gridsquare,
+                                    &app.config.station.gridsquare,
                                 )
                                 .ok();
 
@@ -190,7 +190,7 @@ fn fetch_wspr_spots_async(app: &mut SpLogApp, ctx: &egui::Context) {
     app.wspr.loading = true;
     app.wspr.last_error = None;
 
-    let callsign = app.my_station.callsign.clone();
+    let callsign = app.config.station.callsign.clone();
     let ctx_clone = ctx.clone();
 
     // Używamy tokio::spawn bo jesteśmy w środowisku tokio (eframe + runtime)

@@ -116,7 +116,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                 vec![]
                                             };
                                             let qso_count = qsos.len();
-                                            let adif = crate::core::adif::export_adif(&qsos, "SPLogbook", &app.my_station.callsign);
+                                            let adif = crate::core::adif::export_adif(&qsos, "SPLogbook", &app.config.station.callsign);
                                             let tqsl_path = app.config.lotw_tqsl_path.clone();
                                             let station_loc = app.config.lotw_station_name.clone();
                                             let tx = app.online.sync_log_tx.clone();
@@ -200,7 +200,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                 let user = app.config.eqsl_username.clone();
                                                 let pass = app.config.eqsl_password.clone();
                                                 let qsos = if let Ok(db) = app.services.log_db.lock() { db.get_recent_qsos(1000).unwrap_or_default() } else { vec![] };
-                                                let adif = crate::core::adif::export_adif(&qsos, "SPLogbook", &app.my_station.callsign);
+                                                let adif = crate::core::adif::export_adif(&qsos, "SPLogbook", &app.config.station.callsign);
                                                 tokio::spawn(async move {
                                                     let client = crate::cloud::eqsl::EqslClient::new(user, pass);
                                                     let _ = tx.send((Msg::new(key::SYNC_EQSL_SENDING).arg("count", qsos.len()).text(lang), false));
@@ -286,7 +286,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                             let pass = app.config.clublog_password.clone();
                                             let api = app.config.clublog_api_key.clone();
                                             let qsos = if let Ok(db) = app.services.log_db.lock() { db.get_recent_qsos(5000).unwrap_or_default() } else { vec![] };
-                                            let adif = crate::core::adif::export_adif(&qsos, "SPLogbook", &app.my_station.callsign);
+                                            let adif = crate::core::adif::export_adif(&qsos, "SPLogbook", &app.config.station.callsign);
                                             tokio::spawn(async move {
                                                 let client = crate::cloud::clublog::ClubLogClient::new();
                                                 let _ = tx.send((Msg::new(key::SYNC_CLUBLOG_SENDING).arg("count", qsos.len()).text(lang), false));
@@ -328,7 +328,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                             let tx = app.online.sync_log_tx.clone();
                                             let api = app.config.qrz_api_key.clone();
                                             let qsos = if let Ok(db) = app.services.log_db.lock() { db.get_recent_qsos(1000).unwrap_or_default() } else { vec![] };
-                                            let adif = crate::core::adif::export_adif(&qsos, "SPLogbook", &app.my_station.callsign);
+                                            let adif = crate::core::adif::export_adif(&qsos, "SPLogbook", &app.config.station.callsign);
                                             tokio::spawn(async move {
                                                 let _ = tx.send((Msg::new(key::SYNC_QRZ_SENDING).arg("count", qsos.len()).text(lang), false));
                                                 match crate::cloud::qrz::QrzClient::upload_to_logbook(&api, &adif).await {
@@ -586,11 +586,11 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     ui.checkbox(&mut app.config.psk_reporter_enabled, tr(key::SYNC_PSK_REPORTER_ENABLE, lang));
                                     ui.label(egui::RichText::new(tr(key::SYNC_PSK_REPORTER_DESC, lang)).small().color(palette.text_muted));
                                     ui.add_space(6.0);
-                                    ui.label(Msg::new(key::SYNC_REPORTING_STATION_CALL).arg("call", &app.my_station.callsign).text(lang));
-                                    ui.label(format!("Lokator stacji: {}", app.my_station.gridsquare));
+                                    ui.label(Msg::new(key::SYNC_REPORTING_STATION_CALL).arg("call", &app.config.station.callsign).text(lang));
+                                    ui.label(format!("Lokator stacji: {}", app.config.station.gridsquare));
                                     ui.add_space(6.0);
                                     if ui.button(tr(key::SYNC_OPEN_PSK_MAP_BTN, lang)).clicked() {
-                                        let url = format!("https://pskreporter.info/pskmap.html?callsign={}", app.my_station.callsign);
+                                        let url = format!("https://pskreporter.info/pskmap.html?callsign={}", app.config.station.callsign);
                                         let _ = open::that(url);
                                     }
                                 });

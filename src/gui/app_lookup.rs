@@ -52,7 +52,7 @@ impl SpLogApp {
         // 3. Rozpoznanie DXCC, stref i estymacja propagacji
         if let Some(info) = self.services.prefix_matcher.lookup(&clean) {
             let dx_coords = crate::core::geo::Coordinates::new(info.latitude, info.longitude);
-            if let Ok(my_coords) = locator_to_coordinates(&self.my_station.gridsquare) {
+            if let Ok(my_coords) = locator_to_coordinates(&self.config.station.gridsquare) {
                 self.active_distance_km = calculate_distance_km(my_coords, dx_coords);
                 self.active_bearing_deg = calculate_bearing_deg(my_coords, dx_coords);
 
@@ -91,7 +91,7 @@ impl SpLogApp {
                 &self.entry_band,
                 &self.entry_mode,
                 Some(info.dxcc),
-                self.my_station.pga_gmina.as_deref(),
+                self.config.station.pga_gmina.as_deref(),
                 Some(info.cqz),
                 if self.entry_state.trim().is_empty() {
                     None
@@ -221,7 +221,7 @@ impl SpLogApp {
         use chrono::{Datelike, Timelike};
         if self.entry_grid.len() >= 4 {
             if let (Ok(p1), Ok(p2)) = (
-                locator_to_coordinates(&self.my_station.gridsquare),
+                locator_to_coordinates(&self.config.station.gridsquare),
                 locator_to_coordinates(&self.entry_grid),
             ) {
                 self.active_distance_km = calculate_distance_km(p1, p2);

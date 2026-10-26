@@ -131,7 +131,7 @@ impl SpLogApp {
             };
             let count = qsos.len();
             let adif_text =
-                crate::core::adif::export_adif(&qsos, "SPLogbook", &self.my_station.callsign);
+                crate::core::adif::export_adif(&qsos, "SPLogbook", &self.config.station.callsign);
             match std::fs::write(&path, adif_text) {
                 Ok(()) => {
                     self.gui.chrome.status_message = Some(
@@ -286,7 +286,8 @@ impl SpLogApp {
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             db.get_recent_qsos(10000).unwrap_or_default()
         };
-        let adif = crate::core::adif::export_adif(&qsos, "SPLogbook", &self.my_station.callsign);
+        let adif =
+            crate::core::adif::export_adif(&qsos, "SPLogbook", &self.config.station.callsign);
         let _ = BackupManager::backup_adif(&adif, &backup_dir);
 
         match backup_res {

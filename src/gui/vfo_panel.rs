@@ -563,7 +563,7 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let pwr = if app.ptt_active {
-                app.my_station.power_watts as f32
+                app.config.station.power_watts as f32
             } else {
                 0.0
             };

@@ -20,7 +20,7 @@ impl SpLogApp {
     /// prefiksy DXCC, stan radia CAT i silnik dyplomowy).
     pub fn start_rest_api_server(&mut self) {
         let db = self.services.log_db.clone();
-        let cs = self.my_station.callsign.clone();
+        let cs = self.config.station.callsign.clone();
         let port = self.runtime.rest_api_port;
         let key = self.ensure_rest_api_key();
         let spots_for_api = Arc::new(Mutex::new(self.cluster_spots.clone()));
@@ -50,17 +50,17 @@ impl SpLogApp {
     pub fn connect_dx_cluster(&mut self) {
         self.disconnect_dx_cluster();
 
-        if crate::cluster::telnet::is_dead_legacy_cluster_host(&self.cluster_host) {
-            self.cluster_host = "dxcluster.pl".to_string();
-            self.cluster_port = 8000;
+        if crate::cluster::telnet::is_dead_legacy_cluster_host(&self.config.cluster_host) {
+            self.config.cluster_host = "dxcluster.pl".to_string();
+            self.config.cluster_port = 8000;
         }
 
-        let host = self.cluster_host.clone();
-        let port = self.cluster_port;
-        let call = if self.cluster_callsign.trim().is_empty() {
-            self.my_station.callsign.clone()
+        let host = self.config.cluster_host.clone();
+        let port = self.config.cluster_port;
+        let call = if self.config.cluster_callsign.trim().is_empty() {
+            self.config.station.callsign.clone()
         } else {
-            self.cluster_callsign.trim().to_uppercase()
+            self.config.cluster_callsign.trim().to_uppercase()
         };
 
         let (event_tx, event_rx) = std::sync::mpsc::channel();

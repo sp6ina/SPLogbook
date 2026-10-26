@@ -13,7 +13,7 @@ use crate::core::ingest::{IngestError, IngestOutcome, QsoOrigin};
 use crate::core::prefix::PrefixInfo;
 use crate::core::qso::QsoRecord;
 use crate::core::service_db::{QslManagerRecord, ServiceDatabase};
-use crate::core::station::{AppConfig, StationProfile, ViewPanelConfig, WorkspaceProfile};
+use crate::core::station::{AppConfig, ViewPanelConfig};
 use crate::gui::awards_matrix::render_awards_matrix_window;
 use crate::gui::bandmap::render_bandmap_window;
 use crate::gui::cat_settings::render_cat_settings_window;
@@ -91,9 +91,6 @@ pub struct SpLogApp {
     pub runtime: crate::gui::state::AppRuntime,
     pub digital: crate::gui::state::DigitalModesState,
 
-    // Konfiguracja stacji i lokalizacja
-    pub my_station: StationProfile,
-
     // Stany formularza wprowadzania QSO
     pub entry_callsign: String,
     pub entry_band: String,
@@ -157,7 +154,6 @@ pub struct SpLogApp {
     pub show_custom_contest_editor: bool,
     pub custom_contest_edit_idx: Option<usize>,
     pub custom_contest_draft: crate::core::station::CustomContest,
-    pub custom_contests: Vec<crate::core::station::CustomContest>,
 
     // Makra Telegraficzne CW
     pub cw: crate::gui::state::CwMacroState,
@@ -194,7 +190,6 @@ pub struct SpLogApp {
     pub voice_keyer: crate::gui::state::VoiceKeyerState,
 
     // Profile układu operatorskiego (workspace)
-    pub workspace_profiles: Vec<WorkspaceProfile>,
     pub show_workspace_profiles_window: bool,
 
     // Multi-Op LAN (SYNC-6)
@@ -217,7 +212,6 @@ pub struct SpLogApp {
     pub awards_matrix_tab: usize,
     pub awards_other_subtab: usize,
     pub awards_other_search: String,
-    pub quick_access: crate::core::station::QuickAccessConfig,
     pub show_quick_access_customizer: bool,
 
     // Hamlib i rigctld
@@ -230,8 +224,6 @@ pub struct SpLogApp {
 
     // SPLogbook
     pub show_column_settings: bool,
-    pub logbook_columns: Vec<crate::core::station::LogColumn>,
-    pub logbook_column_presets: Vec<crate::core::station::ColumnPreset>,
     pub column_preset_name: String,
 
     // CAT Channels
@@ -239,17 +231,9 @@ pub struct SpLogApp {
     pub cat_state_rx: std::sync::mpsc::Receiver<crate::cat::hamlib::RigState>,
 
     // DX Cluster Telnet & Filtry
-    pub cluster_host: String,
-    pub cluster_port: u16,
-    pub cluster_callsign: String,
-    pub cluster_auto_connect: bool,
     pub cluster_connected: bool,
     pub cluster_connecting: bool,
     pub cluster_status_text: String,
-    pub cluster_filter_current_band: bool,
-    pub cluster_hide_ft8: bool,
-    pub cluster_hide_skimmers: bool,
-    pub custom_clusters: Vec<crate::core::station::CustomClusterServer>,
     pub show_add_cluster_dialog: bool,
     pub new_cluster_name: String,
     pub new_cluster_host: String,
@@ -382,8 +366,6 @@ pub struct SpLogApp {
 
     // Profile stacji roboczej (Wieloprofilowość)
     pub show_station_profiles_window: bool,
-    pub station_profiles: Vec<crate::core::station::StationProfile>,
-    pub active_profile_id: String,
 
     pub focus_callsign_requested: bool,
 
@@ -582,6 +564,16 @@ impl SpLogApp {
         let runtime =
             crate::gui::state::AppRuntime::new(init.shutdown_policy, init.config.cat_enabled);
         let digital = crate::gui::state::DigitalModesState::new();
+        if init.config.station_profiles.is_empty() {
+            let mut def = init.config.station.clone();
+            if def.id.is_empty() {
+                def.id = "default".to_string();
+            }
+            if def.name.is_empty() {
+                def.name = "Main (Home QTH)".to_string();
+            }
+            init.config.station_profiles = vec![def];
+        }
         let config = init.config.clone();
         let mut app = Self {
             config,
@@ -589,7 +581,6 @@ impl SpLogApp {
             services,
             runtime,
             digital,
-            my_station: init.config.station.clone(),
 
             entry_callsign: String::new(),
             callsign_corrections: Vec::new(),
@@ -642,11 +633,10 @@ impl SpLogApp {
             show_custom_contest_editor: false,
             custom_contest_edit_idx: None,
             custom_contest_draft: crate::core::station::CustomContest::default(),
-            custom_contests: init.config.custom_contests.clone(),
 
             cw: crate::gui::state::CwMacroState::default(),
 
-            ledger: crate::gui::state::EquipmentLedgerState::with_items(init.config.equipment),
+            ledger: crate::gui::state::EquipmentLedgerState::default(),
 
             font_scale: init.config.font_scale,
             font_family: init.config.font_family.clone(),
@@ -666,11 +656,8 @@ impl SpLogApp {
 
             tci_test_result: None,
 
-            voice_keyer: crate::gui::state::VoiceKeyerState::with_messages(
-                init.config.voice_keyer_messages,
-            ),
+            voice_keyer: crate::gui::state::VoiceKeyerState::default(),
 
-            workspace_profiles: init.config.workspace_profiles,
             show_workspace_profiles_window: false,
             sync_ui: crate::gui::SyncUiState::new(),
 
@@ -689,7 +676,6 @@ impl SpLogApp {
             awards_matrix_tab: 0,
             awards_other_subtab: 0,
             awards_other_search: String::new(),
-            quick_access: init.config.quick_access,
             show_quick_access_customizer: false,
 
             cat_model_search: String::new(),
@@ -700,8 +686,6 @@ impl SpLogApp {
 
             show_column_settings: false,
             updates: crate::gui::state::UpdateState::default(),
-            logbook_columns: init.config.logbook_columns.clone(),
-            logbook_column_presets: init.config.logbook_column_presets.clone(),
             column_preset_name: String::new(),
 
             compact_hud_mode: init.config.compact_hud_mode,
@@ -724,17 +708,9 @@ impl SpLogApp {
             cat_state_tx,
             cat_state_rx,
 
-            cluster_host: init.config.cluster_host,
-            cluster_port: init.config.cluster_port,
-            cluster_callsign: init.config.cluster_callsign,
-            cluster_auto_connect: init.config.cluster_auto_connect,
             cluster_connected: false,
             cluster_connecting: false,
             cluster_status_text: tr(key::CLUSTER_DISCONNECTED, lang).to_string(),
-            cluster_filter_current_band: init.config.cluster_filter_current_band,
-            cluster_hide_ft8: init.config.cluster_hide_ft8,
-            cluster_hide_skimmers: init.config.cluster_hide_skimmers,
-            custom_clusters: init.config.custom_clusters,
             show_add_cluster_dialog: false,
             new_cluster_name: String::new(),
             new_cluster_host: String::new(),
@@ -830,19 +806,6 @@ impl SpLogApp {
 
             // Profile stacji roboczej
             show_station_profiles_window: false,
-            station_profiles: if init.config.station_profiles.is_empty() {
-                let mut def = init.config.station.clone();
-                if def.id.is_empty() {
-                    def.id = "default".to_string();
-                }
-                if def.name.is_empty() {
-                    def.name = "Main (Home QTH)".to_string();
-                }
-                vec![def]
-            } else {
-                init.config.station_profiles.clone()
-            },
-            active_profile_id: init.config.active_profile_id.clone(),
             focus_callsign_requested: false,
             lookup_debounce_until: None,
         };
@@ -948,7 +911,7 @@ impl SpLogApp {
             self.start_rest_api_server();
         }
 
-        if self.cluster_auto_connect {
+        if self.config.cluster_auto_connect {
             self.connect_dx_cluster();
         }
     }
@@ -1245,10 +1208,10 @@ impl eframe::App for SpLogApp {
             }
             if let Some(j) = switched_journal {
                 self.active_journal = j.clone();
-                self.my_station.callsign.clone_from(&j.station_callsign);
-                self.my_station.operator.clone_from(&j.operator);
-                self.my_station.gridsquare.clone_from(&j.my_gridsquare);
-                self.my_station.pga_gmina = if j.my_pga.is_empty() {
+                self.config.station.callsign.clone_from(&j.station_callsign);
+                self.config.station.operator.clone_from(&j.operator);
+                self.config.station.gridsquare.clone_from(&j.my_gridsquare);
+                self.config.station.pga_gmina = if j.my_pga.is_empty() {
                     None
                 } else {
                     Some(j.my_pga.clone())
@@ -1267,7 +1230,7 @@ impl eframe::App for SpLogApp {
             let mut filter_results = None;
             let mut clear_filter = false;
             let journal_id = self.active_journal.id.clone();
-            let my_call = self.my_station.callsign.clone();
+            let my_call = self.config.station.callsign.clone();
             let lang = self.gui.appearance.language;
             if let Ok(db) = self.services.log_db.lock() {
                 self.gui.dialogs.advanced_filter_dialog.render(
@@ -1289,7 +1252,7 @@ impl eframe::App for SpLogApp {
         }
 
         if self.gui.dialogs.cw_terminal_dialog.is_open {
-            let my_call = self.my_station.callsign.clone();
+            let my_call = self.config.station.callsign.clone();
             self.gui
                 .dialogs
                 .cw_terminal_dialog
@@ -1297,7 +1260,7 @@ impl eframe::App for SpLogApp {
         }
 
         if self.gui.dialogs.qsl_designer_dialog.is_open {
-            let my_call = self.my_station.callsign.clone();
+            let my_call = self.config.station.callsign.clone();
             if let Ok(db) = self.services.log_db.lock() {
                 self.gui.dialogs.qsl_designer_dialog.render(
                     ctx,
@@ -1318,7 +1281,7 @@ impl eframe::App for SpLogApp {
             .show(ctx, self.gui.appearance.language);
 
         // 2. Położenie Księżyca i Słońca (EME / Kalkulator astronomiczny)
-        let my_grid = self.my_station.gridsquare.clone();
+        let my_grid = self.config.station.gridsquare.clone();
         self.gui.dialogs.astronomy_dialog.show(
             ctx,
             &my_grid,
@@ -1396,7 +1359,7 @@ impl eframe::App for SpLogApp {
         // 9. Formularz wysyłania własnego spotu do DX Cluster
         if let Some(sub) = self.gui.dialogs.send_spot_dialog.show(
             ctx,
-            &self.my_station.callsign,
+            &self.config.station.callsign,
             self.gui.appearance.language,
         ) {
             if let Some(ref tx) = self.cluster_cmd_tx {
@@ -1414,7 +1377,7 @@ impl eframe::App for SpLogApp {
             let spot = crate::cluster::telnet::DxSpot {
                 frequency_khz: sub.freq_khz,
                 dx_call: sub.dx_call.clone(),
-                spotter: self.my_station.callsign.clone(),
+                spotter: self.config.station.callsign.clone(),
                 comment: sub.comment.clone(),
                 time_utc: chrono::Utc::now().format("%H%M").to_string(),
                 band: band_str,
@@ -1473,7 +1436,7 @@ impl Drop for SpLogApp {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Ok(qsos) = db.get_recent_qsos(5000) {
             let adif =
-                crate::core::adif::export_adif(&qsos, "SPLogbook", &self.my_station.callsign);
+                crate::core::adif::export_adif(&qsos, "SPLogbook", &self.config.station.callsign);
             let _ = BackupManager::backup_adif(&adif, &backup_dir);
         }
     }

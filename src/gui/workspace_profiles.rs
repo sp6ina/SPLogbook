@@ -102,13 +102,14 @@ pub fn render_workspace_profiles_window(app: &mut SpLogApp, ctx: &egui::Context)
                     let profile = capture_profile(app, new_name.trim());
                     // Nadpisanie istniejącego profilu o tej samej nazwie
                     if let Some(existing) = app
+                        .config
                         .workspace_profiles
                         .iter_mut()
                         .find(|p| p.name == profile.name)
                     {
                         *existing = profile.clone();
                     } else {
-                        app.workspace_profiles.push(profile.clone());
+                        app.config.workspace_profiles.push(profile.clone());
                     }
                     app.save_station_config();
                     app.gui.chrome.status_toast = Some((
@@ -121,7 +122,7 @@ pub fn render_workspace_profiles_window(app: &mut SpLogApp, ctx: &egui::Context)
             ctx.data_mut(|d| d.insert_temp(name_id, new_name.clone()));
 
             ui.add_space(6.0);
-            if app.workspace_profiles.is_empty() {
+            if app.config.workspace_profiles.is_empty() {
                 ui.label(
                     egui::RichText::new(tr(key::WS_PROFILES_NO_PROFILES, lang))
                         .italics()
@@ -143,7 +144,7 @@ pub fn render_workspace_profiles_window(app: &mut SpLogApp, ctx: &egui::Context)
                         let mut delete_idx: Option<usize> = None;
                         let mut export_idx: Option<usize> = None;
                         let mut commit_rename: Option<usize> = None;
-                        for (idx, profile) in app.workspace_profiles.iter().enumerate() {
+                        for (idx, profile) in app.config.workspace_profiles.iter().enumerate() {
                             ui.horizontal(|ui| {
                                 if renaming == Some(idx) {
                                     ui.add(
@@ -187,7 +188,7 @@ pub fn render_workspace_profiles_window(app: &mut SpLogApp, ctx: &egui::Context)
                             });
                         }
                         if let Some(idx) = apply_idx {
-                            let profile = app.workspace_profiles[idx].clone();
+                            let profile = app.config.workspace_profiles[idx].clone();
                             apply_profile(app, &profile);
                             app.gui.chrome.status_toast = Some((
                                 format!("Zastosowano profil: {}", profile.name),
@@ -195,8 +196,9 @@ pub fn render_workspace_profiles_window(app: &mut SpLogApp, ctx: &egui::Context)
                             ));
                         }
                         if let Some(idx) = commit_rename {
-                            app.workspace_profiles[idx].name = rename_text.trim().to_string();
-                            app.workspace_profiles[idx].ensure_id();
+                            app.config.workspace_profiles[idx].name =
+                                rename_text.trim().to_string();
+                            app.config.workspace_profiles[idx].ensure_id();
                             app.save_station_config();
                             app.gui.chrome.status_toast = Some((
                                 tr(key::WS_PROFILES_RENAMED_TOAST, lang).to_string(),
@@ -205,11 +207,11 @@ pub fn render_workspace_profiles_window(app: &mut SpLogApp, ctx: &egui::Context)
                             renaming = None;
                         }
                         if let Some(idx) = delete_idx {
-                            app.workspace_profiles.remove(idx);
+                            app.config.workspace_profiles.remove(idx);
                             app.save_station_config();
                         }
                         if let Some(idx) = export_idx {
-                            export_profile(app, &app.workspace_profiles[idx].clone());
+                            export_profile(app, &app.config.workspace_profiles[idx].clone());
                         }
                     });
 
@@ -295,12 +297,15 @@ fn import_profile(app: &mut SpLogApp) {
                     let mut ws = file.workspace;
                     ws.ensure_id();
                     // Nadpisz profil o tym samym id lub dodaj nowy.
-                    if let Some(existing) =
-                        app.workspace_profiles.iter_mut().find(|p| p.id == ws.id)
+                    if let Some(existing) = app
+                        .config
+                        .workspace_profiles
+                        .iter_mut()
+                        .find(|p| p.id == ws.id)
                     {
                         *existing = ws.clone();
                     } else {
-                        app.workspace_profiles.push(ws.clone());
+                        app.config.workspace_profiles.push(ws.clone());
                     }
                     app.save_station_config();
                     app.gui.chrome.status_toast = Some((

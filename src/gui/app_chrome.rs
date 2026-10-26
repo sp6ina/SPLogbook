@@ -89,10 +89,10 @@ impl SpLogApp {
 
                 ui.separator();
 
-                let prof_name = if self.my_station.name.is_empty() {
-                    &self.my_station.callsign
+                let prof_name = if self.config.station.name.is_empty() {
+                    &self.config.station.callsign
                 } else {
-                    &self.my_station.name
+                    &self.config.station.name
                 };
                 let profile_str = format!("🏷 {}: {}", tr(key::STATUSBAR_PROFILE, lang), prof_name);
                 ui.label(

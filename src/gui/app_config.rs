@@ -29,23 +29,14 @@ impl SpLogApp {
         let is_configured = if self.gui.chrome.show_welcome_wizard {
             false
         } else {
-            !self.my_station.callsign.is_empty() && self.my_station.callsign != "N0CALL"
+            !self.config.station.callsign.is_empty() && self.config.station.callsign != "N0CALL"
         };
         let mut cfg = self.config.clone();
         cfg.secret_store_id = self.paths.secret_store_id.clone();
         cfg.is_configured = is_configured;
-        cfg.station = self.my_station.clone();
-        cfg.equipment = self.ledger.items.clone();
         cfg.dark_theme = self.gui.appearance.theme_preset.is_dark();
         cfg.theme_preset = self.gui.appearance.theme_preset.id().to_string();
         cfg.cat_enabled = self.cat_connected;
-
-        cfg.station_profiles = self.station_profiles.clone();
-        cfg.active_profile_id = self.active_profile_id.clone();
-
-        cfg.voice_keyer_messages = self.voice_keyer.messages.clone();
-
-        cfg.workspace_profiles = self.workspace_profiles.clone();
 
         cfg.plugins_enabled = self.plugins_enabled;
         cfg.plugins_dir = self.plugins_dir.clone();
@@ -71,16 +62,6 @@ impl SpLogApp {
         cfg.main_window_size = self.main_window_size;
         cfg.main_window_maximized = self.main_window_maximized;
 
-        cfg.cluster_host = self.cluster_host.clone();
-        cfg.cluster_port = self.cluster_port;
-        cfg.cluster_callsign = self.cluster_callsign.clone();
-        cfg.cluster_auto_connect = self.cluster_auto_connect;
-        cfg.cluster_filter_current_band = self.cluster_filter_current_band;
-        cfg.cluster_hide_ft8 = self.cluster_hide_ft8;
-        cfg.cluster_hide_skimmers = self.cluster_hide_skimmers;
-        cfg.custom_clusters = self.custom_clusters.clone();
-        cfg.quick_access = self.quick_access.clone();
-
         cfg.left_column_width = self.left_column_width;
         cfg.right_column_width = self.right_column_width;
 
@@ -93,9 +74,6 @@ impl SpLogApp {
         cfg.panel_satellites = self.views.panel_satellites.clone();
         cfg.panel_world_map = self.views.panel_world_map.clone();
         cfg.panel_waterfall = self.views.panel_waterfall.clone();
-        cfg.logbook_columns = self.logbook_columns.clone();
-        cfg.logbook_column_presets = self.logbook_column_presets.clone();
-        cfg.custom_contests = self.custom_contests.clone();
         cfg
     }
 
@@ -156,15 +134,15 @@ impl SpLogApp {
 
     pub fn add_new_equipment(&mut self) {
         let next_num = self
-            .ledger
-            .items
+            .config
+            .equipment
             .iter()
             .filter_map(|e| {
                 e.id.strip_prefix("eq-")
                     .and_then(|s| s.parse::<usize>().ok())
             })
             .max()
-            .unwrap_or(self.ledger.items.len())
+            .unwrap_or(self.config.equipment.len())
             + 1;
         let item = EquipmentItem {
             id: format!("eq-{next_num}"),
@@ -183,7 +161,7 @@ impl SpLogApp {
                 Some(self.ledger.new_notes.trim().to_string())
             },
         };
-        self.ledger.items.push(item);
+        self.config.equipment.push(item);
         self.ledger.new_model.clear();
         self.ledger.new_sn.clear();
         self.ledger.new_notes.clear();
@@ -193,7 +171,7 @@ impl SpLogApp {
     }
 
     pub fn save_edited_equipment(&mut self, id: &str) {
-        if let Some(item) = self.ledger.items.iter_mut().find(|i| i.id == id) {
+        if let Some(item) = self.config.equipment.iter_mut().find(|i| i.id == id) {
             item.category = self.ledger.edit_cat;
             item.manufacturer = self.ledger.edit_mfr.trim().to_string();
             item.model = self.ledger.edit_model.trim().to_string();
@@ -220,7 +198,7 @@ impl SpLogApp {
     }
 
     pub fn delete_equipment_item(&mut self, id: &str) {
-        self.ledger.items.retain(|i| i.id != id);
+        self.config.equipment.retain(|i| i.id != id);
         if self.ledger.editing_id.as_deref() == Some(id) {
             self.ledger.editing_id = None;
         }
@@ -231,13 +209,14 @@ impl SpLogApp {
 
     pub fn activate_station_profile(&mut self, profile_id: &str) {
         if let Some(prof) = self
+            .config
             .station_profiles
             .iter()
             .find(|p| p.id == profile_id)
             .cloned()
         {
-            self.active_profile_id.clone_from(&prof.id);
-            self.my_station = prof.clone();
+            self.config.active_profile_id.clone_from(&prof.id);
+            self.config.station = prof.clone();
             self.entry_pota = prof.pota_ref.clone().unwrap_or_default();
             self.entry_sota = prof.sota_ref.clone().unwrap_or_default();
             self.save_station_config();

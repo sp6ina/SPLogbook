@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
-use crate::core::station::{EquipmentCategory, EquipmentItem};
+use crate::core::station::EquipmentCategory;
 
 /// Stan księgi sprzętowej stacji oraz formularzy dodawania/edycji sprzętu.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EquipmentLedgerState {
     pub show_window: bool,
-    pub items: Vec<EquipmentItem>,
     pub new_model: String,
     pub editing_id: Option<String>,
     pub edit_cat: EquipmentCategory,
@@ -26,7 +25,6 @@ impl Default for EquipmentLedgerState {
     fn default() -> Self {
         Self {
             show_window: false,
-            items: Vec::new(),
             new_model: String::new(),
             editing_id: None,
             edit_cat: EquipmentCategory::Transceiver,
@@ -47,13 +45,6 @@ impl EquipmentLedgerState {
     pub fn new() -> Self {
         Self::default()
     }
-
-    pub fn with_items(items: Vec<EquipmentItem>) -> Self {
-        Self {
-            items,
-            ..Self::default()
-        }
-    }
 }
 
 #[cfg(test)]
@@ -64,7 +55,6 @@ mod tests {
     fn default_matches_initial_values() {
         let state = EquipmentLedgerState::default();
         assert!(!state.show_window);
-        assert!(state.items.is_empty());
         assert_eq!(state.new_model, "");
         assert_eq!(state.editing_id, None);
         assert_eq!(state.edit_cat, EquipmentCategory::Transceiver);
