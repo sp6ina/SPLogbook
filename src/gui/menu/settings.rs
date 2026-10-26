@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::core::i18n::{Language, key, tr};
@@ -67,19 +67,19 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         // Skala czcionki / UI
         ui.label(egui::RichText::new(tr(key::SETTINGS_FONT_SCALE, lang)).strong());
-        let mut scale = app.font_scale;
+        let mut scale = app.config.font_scale;
         if ui
             .add(egui::Slider::new(&mut scale, 0.8..=1.5).step_by(0.05))
             .changed()
         {
-            app.font_scale = scale;
+            app.config.font_scale = scale;
             app.save_station_config();
         }
-        ui.label(format!("{:.0}%", app.font_scale * 100.0));
+        ui.label(format!("{:.0}%", app.config.font_scale * 100.0));
 
         // Rodzina czcionek (zmiana wymaga ponownego uruchomienia)
         ui.label(egui::RichText::new(tr(key::SETTINGS_FONT_FAMILY, lang)).strong());
-        let mut selected_family = app.font_family.clone();
+        let mut selected_family = app.config.font_family.clone();
         let families = [
             "",
             "Segoe UI",
@@ -106,7 +106,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
                         .selectable_value(&mut selected_family, family.to_string(), label)
                         .changed()
                     {
-                        app.font_family.clone_from(&selected_family);
+                        app.config.font_family.clone_from(&selected_family);
                         app.save_station_config();
                     }
                 }
@@ -114,7 +114,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         // Jednostka odległości używana w całym interfejsie (DX, azymut, mapa)
         ui.label(egui::RichText::new(tr(key::SETTINGS_DISTANCE_UNIT, lang)).strong());
-        let mut selected_unit = app.distance_unit.clone();
+        let mut selected_unit = app.config.distance_unit.clone();
         let unit_label = |u: &str| -> &str {
             match u {
                 "mi" => tr(key::SETTINGS_UNIT_MI, lang),
@@ -130,7 +130,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
                         .selectable_value(&mut selected_unit, unit.to_string(), unit_label(unit))
                         .changed()
                     {
-                        app.distance_unit.clone_from(&selected_unit);
+                        app.config.distance_unit.clone_from(&selected_unit);
                         app.save_station_config();
                     }
                 }

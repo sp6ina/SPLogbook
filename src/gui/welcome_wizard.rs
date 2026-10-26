@@ -555,7 +555,7 @@ fn render_tab_appearance(
                 crate::gui::theme::ensure_applied(
                     ctx,
                     app.gui.appearance.theme_preset,
-                    app.font_scale,
+                    app.config.font_scale,
                 );
                 app.save_station_config();
             }

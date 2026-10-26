@@ -227,7 +227,7 @@ pub fn render_operator_assistant(app: &mut SpLogApp, ctx: &egui::Context) {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
                         .checkbox(
-                            &mut app.operator_assistant_enabled,
+                            &mut app.config.operator_assistant_enabled,
                             tr(key::ASSISTANT_ALWAYS_VISIBLE, lang),
                         )
                         .changed()

@@ -67,7 +67,7 @@ pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
         start_fetch(app);
     }
 
-    let plugins_dir = PathBuf::from(app.plugins_dir.clone());
+    let plugins_dir = PathBuf::from(app.config.plugins_dir.clone());
     let catalog = app.marketplace.catalog.clone();
     let mut action: Option<Action> = None;
     let mut open = app.marketplace.show_window;
@@ -209,7 +209,7 @@ pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
         }
         Some(Action::Uninstall(id)) => {
             if let Some(entry) = catalog.iter().find(|e| e.id == id) {
-                let dir = PathBuf::from(app.plugins_dir.clone());
+                let dir = PathBuf::from(app.config.plugins_dir.clone());
                 match crate::plugins::marketplace::uninstall_entry(&dir, entry) {
                     Ok(()) => {
                         app.marketplace.status = Some(
@@ -336,7 +336,7 @@ fn start_install(app: &mut SpLogApp, entry: crate::plugins::marketplace::PluginC
     }
     app.marketplace.busy_id = Some(entry.id.clone());
     app.marketplace.status = Some(format!("Instalowanie „{}”…", entry.name));
-    let dir = PathBuf::from(app.plugins_dir.clone());
+    let dir = PathBuf::from(app.config.plugins_dir.clone());
     let (tx, rx) = std::sync::mpsc::channel();
     app.marketplace.install_rx = Some(rx);
     tokio::spawn(async move {
@@ -349,8 +349,10 @@ fn start_install(app: &mut SpLogApp, entry: crate::plugins::marketplace::PluginC
 
 /// Przeładowuje silnik pluginów po zmianie zestawu skryptów.
 fn reload_plugins(app: &mut SpLogApp) {
-    let dir = PathBuf::from(app.plugins_dir.clone());
-    app.services.plugin_engine.set_enabled(app.plugins_enabled);
+    let dir = PathBuf::from(app.config.plugins_dir.clone());
+    app.services
+        .plugin_engine
+        .set_enabled(app.config.plugins_enabled);
     app.services.plugin_engine.load_dir(&dir);
     app.services.plugin_engine.run_startup();
     app.save_station_config();

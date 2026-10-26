@@ -161,11 +161,6 @@ pub struct SpLogApp {
     // Księga sprzętowa i CRUD
     pub ledger: crate::gui::state::EquipmentLedgerState,
 
-    // Motyw i konfiguracja stacji
-    pub font_scale: f32,
-    pub font_family: String,
-    pub distance_unit: String,
-
     // Wizualna Panorama Pasma (Band Map)
     pub show_bandmap_window: bool,
     pub bandmap_selected_band: String,
@@ -243,25 +238,7 @@ pub struct SpLogApp {
     pub cluster_cmd_tx: Option<tokio::sync::mpsc::UnboundedSender<String>>,
 
     // Modułowy układ kafelków i okien pływających
-    pub left_column_width: f32,
-    pub right_column_width: f32,
     pub views: crate::gui::state::ViewsState,
-
-    /// Tryb zakładek w kolumnach dokowanego układu (zapis w konfiguracji).
-    pub tabbed_columns: bool,
-
-    // Tryb kompaktowy (Mini HUD)
-    pub compact_hud_mode: bool,
-    pub hud_always_on_top: bool,
-    pub hud_saved_pos: Option<[f32; 2]>,
-    pub hud_saved_size: Option<[f32; 2]>,
-    pub hud_operating_bar: bool,
-
-    // Geometria okna głównego — odczytana z ekranu w trakcie działania
-    // (zapisywana przy wyjściu w AppConfig::main_window_*).
-    pub main_window_pos: Option<[f32; 2]>,
-    pub main_window_size: Option<[f32; 2]>,
-    pub main_window_maximized: bool,
 
     // Pola dodatkowe formularza QSO
     pub entry_iota: String,
@@ -291,15 +268,12 @@ pub struct SpLogApp {
     pub lotw_users_cache: std::collections::HashMap<String, bool>,
 
     // System pluginów użytkownika (Rhai)
-    pub plugins_enabled: bool,
-    pub plugins_dir: String,
     pub plugins_ui: crate::gui::state::PluginUiState,
 
     // Marketplace pluginów (katalog + instalacja jednym kliknięciem)
     pub marketplace: crate::gui::state::MarketplaceState,
 
     // Zintegrowany pasek asystenta operatora
-    pub operator_assistant_enabled: bool,
     pub show_operator_assistant: bool,
 
     // PTT control
@@ -638,10 +612,6 @@ impl SpLogApp {
 
             ledger: crate::gui::state::EquipmentLedgerState::default(),
 
-            font_scale: init.config.font_scale,
-            font_family: init.config.font_family.clone(),
-            distance_unit: init.config.distance_unit.clone(),
-
             show_bandmap_window: false,
             bandmap_selected_band: "20m".to_string(),
             bandmap_auto_track: true,
@@ -688,16 +658,6 @@ impl SpLogApp {
             updates: crate::gui::state::UpdateState::default(),
             column_preset_name: String::new(),
 
-            compact_hud_mode: init.config.compact_hud_mode,
-            tabbed_columns: init.config.tabbed_columns,
-            hud_always_on_top: init.config.hud_always_on_top,
-            hud_saved_pos: init.config.hud_saved_pos,
-            hud_saved_size: init.config.hud_saved_size,
-            hud_operating_bar: init.config.hud_operating_bar,
-            main_window_pos: init.config.main_window_pos,
-            main_window_size: init.config.main_window_size,
-            main_window_maximized: init.config.main_window_maximized,
-
             entry_iota: String::new(),
             entry_state: String::new(),
             entry_sota: String::new(),
@@ -718,9 +678,6 @@ impl SpLogApp {
             cluster_event_rx: None,
             cluster_stop_tx: None,
             cluster_cmd_tx: None,
-
-            left_column_width: init.config.left_column_width,
-            right_column_width: init.config.right_column_width,
 
             views,
 
@@ -744,14 +701,11 @@ impl SpLogApp {
             lotw_users_cache: std::collections::HashMap::new(),
 
             // System pluginów użytkownika (Rhai)
-            plugins_enabled: init.config.plugins_enabled,
-            plugins_dir: init.config.plugins_dir.clone(),
             plugins_ui: crate::gui::state::PluginUiState::default(),
 
             marketplace: crate::gui::state::MarketplaceState::default(),
 
             // Zintegrowany pasek asystenta operatora
-            operator_assistant_enabled: init.config.operator_assistant_enabled,
             show_operator_assistant: init.config.operator_assistant_enabled,
 
             // PTT
@@ -850,8 +804,8 @@ impl SpLogApp {
         }
 
         // Wybrana przez użytkownika rodzina czcionek (zmiana wymaga ponownego uruchomienia).
-        if !self.font_family.is_empty() {
-            if let Some(path) = resolve_font_path(&self.font_family) {
+        if !self.config.font_family.is_empty() {
+            if let Some(path) = resolve_font_path(&self.config.font_family) {
                 if let Ok(bytes) = std::fs::read(&path) {
                     font_defs.font_data.insert(
                         "custom_ui_font".to_owned(),
@@ -861,7 +815,7 @@ impl SpLogApp {
                     {
                         prop.insert(0, "custom_ui_font".to_owned());
                     }
-                    let mono_family = self.font_family == "Consolas";
+                    let mono_family = self.config.font_family == "Consolas";
                     if mono_family {
                         if let Some(mono) = font_defs.families.get_mut(&egui::FontFamily::Monospace)
                         {
@@ -889,10 +843,10 @@ impl SpLogApp {
         });
         // Wczytanie pluginów użytkownika (Rhai) z katalogu i uruchomienie on_startup().
         {
-            let dir = std::path::PathBuf::from(&self.plugins_dir);
+            let dir = std::path::PathBuf::from(&self.config.plugins_dir);
             self.services
                 .plugin_engine
-                .set_enabled(self.plugins_enabled);
+                .set_enabled(self.config.plugins_enabled);
             self.services.plugin_engine.load_dir(&dir);
             let total = self.qso_numbers.len() as i64;
             self.services.plugin_engine.set_qso_count(total);
@@ -989,12 +943,12 @@ impl eframe::App for SpLogApp {
             (pos, size, vp.maximized.unwrap_or(false))
         });
         if let Some(pos) = win_pos {
-            self.main_window_pos = Some(pos);
+            self.config.main_window_pos = Some(pos);
         }
         if let Some(size) = win_size {
-            self.main_window_size = Some(size);
+            self.config.main_window_size = Some(size);
         }
-        self.main_window_maximized = win_max;
+        self.config.main_window_maximized = win_max;
 
         // Wczesna faza asynchroniczna: wtyczki, WSPR, API, upload scheduler, satelity i solar
         self.poll_early_async_events();
@@ -1009,7 +963,11 @@ impl eframe::App for SpLogApp {
         self.poll_main_async_events(ctx);
 
         // Zastosowanie wybranego motywu, stylów i skali UI (apply-on-change przez ensure_applied).
-        crate::gui::theme::ensure_applied(ctx, self.gui.appearance.theme_preset, self.font_scale);
+        crate::gui::theme::ensure_applied(
+            ctx,
+            self.gui.appearance.theme_preset,
+            self.config.font_scale,
+        );
 
         // Faza Chrome: paski menu i statusu stacji
         self.render_chrome_bars(ui);
@@ -1018,7 +976,7 @@ impl eframe::App for SpLogApp {
         egui::CentralPanel::default().show(ui, |ui| {
             let lang = self.gui.appearance.language;
             let palette = ui.palette();
-            if self.compact_hud_mode {
+            if self.config.compact_hud_mode {
                 ui.vertical_centered(|ui| {
                     ui.add_space(60.0);
                     ui.heading(
@@ -1041,7 +999,7 @@ impl eframe::App for SpLogApp {
                         )
                         .clicked()
                     {
-                        self.compact_hud_mode = false;
+                        self.config.compact_hud_mode = false;
                         self.save_station_config();
                     }
                 });
@@ -1137,7 +1095,7 @@ impl eframe::App for SpLogApp {
         });
 
         // W zależności od trybu: Mini HUD (tryb kompaktowy) lub pełny pulpit roboczy
-        if self.compact_hud_mode {
+        if self.config.compact_hud_mode {
             crate::gui::mini_hud::render_mini_hud_bar(self, ui);
         } else {
             // Pływające okna modułów (pop-out windows) — renderowane tylko wtedy,

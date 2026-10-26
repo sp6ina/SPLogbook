@@ -115,8 +115,8 @@ impl SpLogApp {
 
     pub fn reset_panel_layout(&mut self) {
         use crate::core::station::ViewPanelConfig;
-        self.left_column_width = 350.0;
-        self.right_column_width = 360.0;
+        self.config.left_column_width = 350.0;
+        self.config.right_column_width = 360.0;
 
         self.views.panel_vfo = ViewPanelConfig {
             visible: true,

@@ -10,7 +10,7 @@ impl SpLogApp {
     /// Wczesna faza asynchroniczna: wtyczki, WSPR, synchronizacja API, upload scheduler, satelity i solar.
     pub fn poll_early_async_events(&mut self) {
         // Plugin Rhai: odśwież migawkę stanu, wykonaj polecenia i odbierz wyniki zapytań
-        if self.plugins_enabled {
+        if self.config.plugins_enabled {
             self.refresh_plugin_snapshot();
             self.process_plugin_commands();
             self.poll_plugin_lookup();

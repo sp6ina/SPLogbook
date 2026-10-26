@@ -478,7 +478,7 @@ impl SpLogApp {
     /// Zwraca odległość do korespondenta sformatowaną wg wybranej jednostki (km/mi/nmi).
     pub fn active_distance_display(&self) -> String {
         let km = self.active_distance_km;
-        match self.distance_unit.as_str() {
+        match self.config.distance_unit.as_str() {
             "mi" => format!("{:.0} mi", km * 0.621_371),
             "nmi" => format!("{:.0} NM", km * 0.539_957),
             _ => format!("{km:.0} km"),

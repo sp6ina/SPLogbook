@@ -37,10 +37,6 @@ impl SpLogApp {
         cfg.dark_theme = self.gui.appearance.theme_preset.is_dark();
         cfg.theme_preset = self.gui.appearance.theme_preset.id().to_string();
         cfg.cat_enabled = self.cat_connected;
-
-        cfg.plugins_enabled = self.plugins_enabled;
-        cfg.plugins_dir = self.plugins_dir.clone();
-        cfg.operator_assistant_enabled = self.operator_assistant_enabled;
         cfg.propagation_history = self.solar.propagation_history.clone();
 
         cfg.wol_mac = self.gui.dialogs.wol_dialog.mac_address.clone();
@@ -48,22 +44,7 @@ impl SpLogApp {
         cfg.wol_port = self.gui.dialogs.wol_dialog.port;
 
         cfg.current_language = self.gui.appearance.language.code().to_string();
-        cfg.compact_hud_mode = self.compact_hud_mode;
-        cfg.tabbed_columns = self.tabbed_columns;
         cfg.dock_layout = self.serialize_dock_layout();
-        cfg.font_scale = self.font_scale;
-        cfg.font_family = self.font_family.clone();
-        cfg.distance_unit = self.distance_unit.clone();
-        cfg.hud_always_on_top = self.hud_always_on_top;
-        cfg.hud_saved_pos = self.hud_saved_pos;
-        cfg.hud_saved_size = self.hud_saved_size;
-        cfg.hud_operating_bar = self.hud_operating_bar;
-        cfg.main_window_pos = self.main_window_pos;
-        cfg.main_window_size = self.main_window_size;
-        cfg.main_window_maximized = self.main_window_maximized;
-
-        cfg.left_column_width = self.left_column_width;
-        cfg.right_column_width = self.right_column_width;
 
         cfg.panel_vfo = self.views.panel_vfo.clone();
         cfg.panel_qso = self.views.panel_qso.clone();
@@ -232,5 +213,134 @@ impl SpLogApp {
                 std::time::Instant::now(),
             ));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::database::LogDatabase;
+    use crate::core::i18n::Language;
+    use crate::core::prefix::PrefixMatcher;
+    use crate::core::scp::ScpEngine;
+    use crate::gui::app::{AppDeps, AppInit, ShutdownPolicy, SpLogApp};
+    use crate::gui::theme::ThemePreset;
+    use std::sync::{Arc, Mutex};
+
+    fn build_test_app(config_file: std::path::PathBuf) -> SpLogApp {
+        let deps = AppDeps {
+            log_db: Arc::new(Mutex::new(LogDatabase::open_in_memory().unwrap())),
+            prefix_matcher: Arc::new(PrefixMatcher::empty()),
+            scp_engine: Arc::new(Mutex::new(ScpEngine::new())),
+        };
+        let init = AppInit {
+            config: AppConfig::default(),
+            config_file_path: config_file,
+            active_db_path: std::path::PathBuf::from(":memory:"),
+            shutdown_policy: ShutdownPolicy::None,
+        };
+        SpLogApp::for_tests(init, deps)
+    }
+
+    #[test]
+    fn snapshot_config_roundtrips_through_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let cfg_path = temp.path().join("station_config.json");
+        let mut app = build_test_app(cfg_path.clone());
+
+        app.config.station.callsign = "SP6TEST".to_string();
+        app.config.font_scale = 1.15;
+        app.config.distance_unit = "nmi".to_string();
+        app.save_station_config();
+
+        let loaded = AppConfig::load_from_file(&cfg_path).unwrap();
+        let snapshot = app.snapshot_config();
+
+        assert_eq!(loaded.station.callsign, "SP6TEST");
+        assert_eq!(loaded.font_scale, snapshot.font_scale);
+        assert_eq!(loaded.distance_unit, snapshot.distance_unit);
+        assert_eq!(loaded.station.callsign, snapshot.station.callsign);
+    }
+
+    #[test]
+    fn snapshot_config_overrides_derived_fields() {
+        let temp = tempfile::tempdir().unwrap();
+        let cfg_path = temp.path().join("station_config.json");
+        let mut app = build_test_app(cfg_path);
+
+        // is_configured derived field
+        app.gui.chrome.show_welcome_wizard = false;
+        app.config.station.callsign = "SP6TEST".to_string();
+        assert!(app.snapshot_config().is_configured);
+
+        app.gui.chrome.show_welcome_wizard = true;
+        assert!(!app.snapshot_config().is_configured);
+
+        app.gui.chrome.show_welcome_wizard = false;
+        app.config.station.callsign = "N0CALL".to_string();
+        assert!(!app.snapshot_config().is_configured);
+
+        // theme & dark_theme derived fields
+        app.gui.appearance.theme_preset = ThemePreset::Daylight;
+        let snap_daylight = app.snapshot_config();
+        assert_eq!(snap_daylight.theme_preset, "daylight");
+        assert!(!snap_daylight.dark_theme);
+
+        app.gui.appearance.theme_preset = ThemePreset::OperatorDark;
+        let snap_dark = app.snapshot_config();
+        assert_eq!(snap_dark.theme_preset, "operator_dark");
+        assert!(snap_dark.dark_theme);
+
+        // language derived field
+        app.gui.appearance.language = Language::En;
+        assert_eq!(app.snapshot_config().current_language, "en");
+
+        // CAT enabled derived field
+        app.cat_connected = true;
+        assert!(app.snapshot_config().cat_enabled);
+        app.cat_connected = false;
+        assert!(!app.snapshot_config().cat_enabled);
+
+        // WOL derived fields
+        app.gui.dialogs.wol_dialog.mac_address = "AA:BB:CC:DD:EE:FF".to_string();
+        app.gui.dialogs.wol_dialog.broadcast_ip = "192.168.1.255".to_string();
+        app.gui.dialogs.wol_dialog.port = 9;
+        let snap_wol = app.snapshot_config();
+        assert_eq!(snap_wol.wol_mac, "AA:BB:CC:DD:EE:FF");
+        assert_eq!(snap_wol.wol_ip, "192.168.1.255");
+        assert_eq!(snap_wol.wol_port, 9);
+
+        // secret_store_id derived field
+        app.paths.secret_store_id = "test-store-123".to_string();
+        assert_eq!(app.snapshot_config().secret_store_id, "test-store-123");
+    }
+
+    #[test]
+    fn legacy_config_file_loads() {
+        let temp = tempfile::tempdir().unwrap();
+        let cfg_path = temp.path().join("legacy_station_config.json");
+        let legacy_json = r#"{
+            "station": {
+                "id": "default",
+                "name": "Main",
+                "callsign": "SP1LEGACY",
+                "operator": "Jan",
+                "gridsquare": "JO73GO",
+                "city": "Szczecin",
+                "country": "Poland",
+                "itu_zone": 28,
+                "cq_zone": 14,
+                "power_watts": 100
+            },
+            "font_scale": 1.2,
+            "lan_sync_auto_start": true
+        }"#;
+        std::fs::write(&cfg_path, legacy_json).unwrap();
+
+        let loaded = AppConfig::load_without_secrets(&cfg_path).unwrap();
+        assert_eq!(loaded.station.callsign, "SP1LEGACY");
+        assert_eq!(loaded.station.operator, "Jan");
+        assert_eq!(loaded.station.gridsquare, "JO73GO");
+        assert!((loaded.font_scale - 1.2).abs() < 1e-4);
     }
 }

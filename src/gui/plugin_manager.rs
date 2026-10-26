@@ -40,15 +40,20 @@ pub fn render_plugin_manager(app: &mut SpLogApp, ctx: &egui::Context) {
 
             ui.horizontal(|ui| {
                 if ui
-                    .checkbox(&mut app.plugins_enabled, tr(key::PLUGINS_ENABLED, lang))
+                    .checkbox(
+                        &mut app.config.plugins_enabled,
+                        tr(key::PLUGINS_ENABLED, lang),
+                    )
                     .changed()
                 {
-                    app.services.plugin_engine.set_enabled(app.plugins_enabled);
+                    app.services
+                        .plugin_engine
+                        .set_enabled(app.config.plugins_enabled);
                     app.save_station_config();
                 }
                 ui.label(tr(key::PLUGINS_DIRECTORY, lang));
                 ui.add(
-                    egui::TextEdit::singleline(&mut app.plugins_dir)
+                    egui::TextEdit::singleline(&mut app.config.plugins_dir)
                         .hint_text("plugins")
                         .desired_width(240.0),
                 );
@@ -58,8 +63,10 @@ pub fn render_plugin_manager(app: &mut SpLogApp, ctx: &egui::Context) {
             });
 
             if reload {
-                let dir = std::path::PathBuf::from(app.plugins_dir.clone());
-                app.services.plugin_engine.set_enabled(app.plugins_enabled);
+                let dir = std::path::PathBuf::from(app.config.plugins_dir.clone());
+                app.services
+                    .plugin_engine
+                    .set_enabled(app.config.plugins_enabled);
                 app.services.plugin_engine.load_dir(&dir);
                 app.services.plugin_engine.run_startup();
                 app.save_station_config();

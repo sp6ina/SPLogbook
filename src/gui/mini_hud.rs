@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 // Ergonomiczny, kompaktowy pasek/okno operacyjne (Mini HUD) dla stacji SPLogbook
 
@@ -8,20 +8,20 @@ use crate::gui::theme::ThemeExt;
 use eframe::egui;
 
 pub fn render_mini_hud_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
-    if !app.compact_hud_mode {
+    if !app.config.compact_hud_mode {
         return;
     }
     let ctx = ui.ctx().clone();
     let lang = app.gui.appearance.language;
 
     // Wariant "pasek operacyjny" dokowany do dolnej krawędzi okna.
-    if app.hud_operating_bar {
+    if app.config.hud_operating_bar {
         render_operating_bar(app, ui);
         return;
     }
 
     // Wariant "zawsze na wierzchu" — osobny, niezależny viewport systemowy.
-    if app.hud_always_on_top {
+    if app.config.hud_always_on_top {
         let mut still_open = true;
         let mut exit_compact = false;
         let mut captured_geo: Option<([f32; 2], [f32; 2])> = None;
@@ -29,8 +29,8 @@ pub fn render_mini_hud_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .with_title(tr(key::HUD_WINDOW_TITLE, lang))
             .with_decorations(false)
             .with_always_on_top()
-            .with_inner_size(app.hud_saved_size.unwrap_or([460.0, 260.0]));
-        if let Some([x, y]) = app.hud_saved_pos {
+            .with_inner_size(app.config.hud_saved_size.unwrap_or([460.0, 260.0]));
+        if let Some([x, y]) = app.config.hud_saved_pos {
             builder = builder.with_position(egui::pos2(x, y));
         }
         ctx.show_viewport_immediate(
@@ -51,19 +51,19 @@ pub fn render_mini_hud_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
             },
         );
         if let Some((pos, size)) = captured_geo {
-            if app.hud_saved_pos != Some(pos) || app.hud_saved_size != Some(size) {
-                app.hud_saved_pos = Some(pos);
-                app.hud_saved_size = Some(size);
+            if app.config.hud_saved_pos != Some(pos) || app.config.hud_saved_size != Some(size) {
+                app.config.hud_saved_pos = Some(pos);
+                app.config.hud_saved_size = Some(size);
                 app.save_station_config();
             }
         }
         if exit_compact {
-            app.compact_hud_mode = false;
-            app.hud_always_on_top = false;
+            app.config.compact_hud_mode = false;
+            app.config.hud_always_on_top = false;
             app.save_station_config();
         }
         if !still_open {
-            app.hud_always_on_top = false;
+            app.config.hud_always_on_top = false;
             app.save_station_config();
         }
         return;
@@ -78,9 +78,9 @@ pub fn render_mini_hud_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
     )
     .collapsible(false)
     .resizable(true)
-    .default_width(app.hud_saved_size.map_or(460.0, |s| s[0]))
-    .default_height(app.hud_saved_size.map_or(260.0, |s| s[1]));
-    if let Some(pos) = app.hud_saved_pos {
+    .default_width(app.config.hud_saved_size.map_or(460.0, |s| s[0]))
+    .default_height(app.config.hud_saved_size.map_or(260.0, |s| s[1]));
+    if let Some(pos) = app.config.hud_saved_pos {
         win = win.default_pos(pos);
     }
 
@@ -90,12 +90,12 @@ pub fn render_mini_hud_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
     if let Some(inner) = resp {
         let rect = inner.response.rect;
-        app.hud_saved_pos = Some([rect.min.x, rect.min.y]);
-        app.hud_saved_size = Some([rect.width(), rect.height()]);
+        app.config.hud_saved_pos = Some([rect.min.x, rect.min.y]);
+        app.config.hud_saved_size = Some([rect.width(), rect.height()]);
     }
 
     if exit_compact {
-        app.compact_hud_mode = false;
+        app.config.compact_hud_mode = false;
         app.save_station_config();
     }
 }
@@ -247,13 +247,19 @@ fn render_hud_body(app: &mut SpLogApp, ui: &mut egui::Ui, exit_compact: &mut boo
         ui.horizontal(|ui| {
             let mut changed = false;
             if ui
-                .checkbox(&mut app.hud_operating_bar, tr(key::HUD_OPERATING_BAR, lang))
+                .checkbox(
+                    &mut app.config.hud_operating_bar,
+                    tr(key::HUD_OPERATING_BAR, lang),
+                )
                 .changed()
             {
                 changed = true;
             }
             if ui
-                .checkbox(&mut app.hud_always_on_top, tr(key::HUD_ALWAYS_ON_TOP, lang))
+                .checkbox(
+                    &mut app.config.hud_always_on_top,
+                    tr(key::HUD_ALWAYS_ON_TOP, lang),
+                )
                 .on_hover_text(tr(key::HUD_ALWAYS_ON_TOP_HINT, lang))
                 .changed()
             {
@@ -346,7 +352,7 @@ fn render_operating_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     .on_hover_text(tr(key::HUD_WINDOW_MODE_HINT, lang))
                     .clicked()
                 {
-                    app.hud_operating_bar = false;
+                    app.config.hud_operating_bar = false;
                     app.save_station_config();
                 }
             });
@@ -354,7 +360,7 @@ fn render_operating_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
     });
 
     if exit_compact {
-        app.compact_hud_mode = false;
+        app.config.compact_hud_mode = false;
         app.save_station_config();
     }
 }
