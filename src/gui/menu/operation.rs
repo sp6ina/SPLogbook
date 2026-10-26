@@ -21,7 +21,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .color(palette.accent),
         );
         ui.separator();
-        if app.cluster_connected {
+        if app.cluster.connected {
             if ui
                 .button(icons::DOT_RED.label(tr(key::CLUSTER_DISCONNECT_BTN, lang)))
                 .clicked()
@@ -30,7 +30,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 ui.close();
             }
         } else {
-            let txt = if app.cluster_connecting {
+            let txt = if app.cluster.connecting {
                 format!("● {}", tr(key::CLUSTER_CONNECTING_BTN, lang))
             } else {
                 format!("● {}", tr(key::CLUSTER_CONNECT_BTN, lang))
@@ -45,7 +45,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .button(icons::SPOT.label(tr(key::CLUSTER_ANNOUNCE_SPOT, lang)))
             .clicked()
         {
-            let freq_khz = app.rig_state.frequency_hz as f64 / 1000.0;
+            let freq_khz = app.cat.rig_state.frequency_hz as f64 / 1000.0;
             app.gui
                 .dialogs
                 .send_spot_dialog
@@ -61,7 +61,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 app.config.cluster_host = host.to_string();
                 app.config.cluster_port = *port;
                 app.save_station_config();
-                if app.cluster_connected {
+                if app.cluster.connected {
                     app.connect_dx_cluster();
                 }
                 ui.close();
@@ -112,7 +112,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .button(icons::DELETE.label(tr(key::CLUSTER_CLEAR_SPOTS, lang)))
             .clicked()
         {
-            app.cluster_spots.clear();
+            app.cluster.spots.clear();
             ui.close();
         }
 

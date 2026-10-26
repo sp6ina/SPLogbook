@@ -18,8 +18,8 @@ impl SpLogApp {
         if !self.config.station.gridsquare.trim().is_empty() {
             qso.my_gridsquare = Some(self.config.station.gridsquare.clone());
         }
-        if self.rig_state.frequency_hz > 0 {
-            qso.freq = Some(self.rig_state.frequency_hz as f64 / 1_000_000.0);
+        if self.cat.rig_state.frequency_hz > 0 {
+            qso.freq = Some(self.cat.rig_state.frequency_hz as f64 / 1_000_000.0);
         }
         qso.qso_date.clone_from(&date_str);
         qso.time_on.clone_from(&time_str);

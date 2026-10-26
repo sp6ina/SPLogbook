@@ -376,7 +376,7 @@ impl SpLogApp {
     /// korzystając z cache, aby nie przeliczać prefiksu i statusu nagród co klatkę.
     pub fn cluster_spot_badge(&mut self, dx_call: &str, band: &str, is_ft8: bool) -> SpotBadgeKind {
         let key = format!("{dx_call}|{band}|{is_ft8}");
-        if let Some(&badge) = self.cluster_badge_cache.get(&key) {
+        if let Some(&badge) = self.cluster.badge_cache.get(&key) {
             return badge;
         }
 
@@ -408,12 +408,12 @@ impl SpLogApp {
             SpotBadgeKind::Standard
         };
 
-        self.cluster_badge_cache.insert(key, badge);
+        self.cluster.badge_cache.insert(key, badge);
         badge
     }
 
     /// Czyści cache odznak spotów klastra po zmianie stanu nagród (nowe/usunięte QSO).
     pub fn invalidate_cluster_badges(&mut self) {
-        self.cluster_badge_cache.clear();
+        self.cluster.badge_cache.clear();
     }
 }

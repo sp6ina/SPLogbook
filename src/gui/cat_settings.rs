@@ -16,6 +16,7 @@ use crate::cat::service::RigServiceState;
 use crate::cat::tx_arbiter::{TxArbiterState, redact_sensitive_info};
 use crate::core::i18n::{key, tr};
 use crate::gui::app::SpLogApp;
+use crate::gui::state::CatConnection;
 use crate::gui::theme::ThemeExt;
 
 /// Podręczny bufor wariantów konfiguracji backendu w formularzu UI,
@@ -93,10 +94,10 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
         station_cfg.active_rx = Some(RigTargetConfig::rig_only(default_id));
     }
 
-    let current_idx = app.cat_selected_rig_idx.min(station_cfg.rigs.len() - 1);
+    let current_idx = app.cat.selected_rig_idx.min(station_cfg.rigs.len() - 1);
 
     // Snapshot z CatRuntime dla stanu cyklu życia i telemetrii
-    let cat_snap = app.cat_runtime.snapshot();
+    let cat_snap = app.cat.runtime.snapshot();
     let selected_rig_id = station_cfg.rigs[current_idx].id.clone();
     let svc_snap = cat_snap.rigs.get(&selected_rig_id).cloned();
 
@@ -125,7 +126,7 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 &r.display_name
                             };
                             if ui.selectable_label(is_selected, display_label).clicked() {
-                                app.cat_selected_rig_idx = idx;
+                                app.cat.selected_rig_idx = idx;
                             }
                         }
                     });
@@ -223,7 +224,7 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 render_capabilities_and_diagnostics(
                     ui,
                     svc_snap.as_ref(),
-                    app.cat_probe_result.as_ref(),
+                    app.cat.probe_result.as_ref(),
                     lang,
                 );
 
@@ -246,14 +247,14 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         .clicked()
                     {
                         if let Err(e) = station_cfg.validate() {
-                            app.cat_test_result = Some(format!(
+                            app.cat.test_result = Some(format!(
                                 "{}: {e}",
                                 tr(key::CAT_SETTINGS_VALIDATION_FAILED, lang)
                             ));
                         } else {
                             // Synchronizacja legacy pól w app dla kompatybilności wstecznej
                             sync_legacy_fields_from_rig(app, &station_cfg.rigs[current_idx]);
-                            if app.cat_connected || app.config.cat_auto_start_rigctld {
+                            if app.cat.connected || app.config.cat_auto_start_rigctld {
                                 app.start_cat_service();
                             }
                             close_req = true;
@@ -268,12 +269,12 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
     });
 
     if !is_open || close_req {
-        if let Some(jh) = app.cat_probe_task.take() {
+        if let Some(jh) = app.cat.probe_task.take() {
             jh.abort();
         }
-        if app.cat_probe_running {
-            app.cat_probe_running = false;
-            app.cat_probe_state = crate::cat::probe::ProbeState::Cancelled;
+        if app.cat.probe_running {
+            app.cat.probe_running = false;
+            app.cat.probe_state = crate::cat::probe::ProbeState::Cancelled;
         }
         app.show_cat_settings_window = false;
         app.config.cat_station = Some(station_cfg);
@@ -319,7 +320,7 @@ fn render_lifecycle_status_bar(
                     (palette.danger, tr(key::CAT_SETTINGS_STATE_FAILED, lang))
                 }
             }
-        } else if app.cat_connected {
+        } else if app.cat.connected {
             (palette.warning, "Registering...")
         } else {
             (palette.text_muted, "—")
@@ -327,7 +328,7 @@ fn render_lifecycle_status_bar(
 
         ui.colored_label(color, format!("● {text}"));
 
-        if app.cat_connected {
+        if app.cat.connected {
             if ui.button(tr(key::CAT_DISCONNECT_RADIO, lang)).clicked() {
                 app.stop_cat_service();
             }
@@ -374,7 +375,8 @@ fn render_lifecycle_status_bar(
                     )
                     .clicked()
                 {
-                    app.cat_runtime
+                    app.cat
+                        .runtime
                         .resync_tx(rig.id.clone(), std::time::Duration::from_millis(1500));
                 }
             }
@@ -415,8 +417,8 @@ fn render_backend_kind_selector(
             for (tag, label) in backends {
                 let is_sel = current_kind == tag;
                 if ui.selectable_label(is_sel, label).clicked() && !is_sel {
-                    app.cat_form_cache.save(&rig.backend);
-                    rig.backend = app.cat_form_cache.restore_or_default(tag);
+                    app.cat.form_cache.save(&rig.backend);
+                    rig.backend = app.cat.form_cache.restore_or_default(tag);
                     app.config.cat_backend = tag.to_string();
                 }
             }
@@ -477,25 +479,25 @@ fn render_hamlib_form(
 ) {
     ui.horizontal(|ui| {
         ui.label(tr(key::CAT_SETTINGS_CONN_TYPE, lang));
-        let is_serial = app.cat_conn_type == "serial";
+        let is_serial = app.cat.conn_type == CatConnection::Serial;
         if ui
             .selectable_label(is_serial, tr(key::CAT_SETTINGS_CONN_SERIAL, lang))
             .clicked()
         {
-            app.cat_conn_type = "serial".to_string();
+            app.cat.conn_type = CatConnection::Serial;
             app.config.cat_auto_start_rigctld = true;
         }
         if ui
             .selectable_label(!is_serial, tr(key::CAT_SETTINGS_CONN_TCP, lang))
             .clicked()
         {
-            app.cat_conn_type = "tcp".to_string();
+            app.cat.conn_type = CatConnection::Tcp;
         }
     });
 
     ui.separator();
 
-    if app.cat_conn_type == "tcp" {
+    if app.cat.conn_type == CatConnection::Tcp {
         ui.horizontal(|ui| {
             ui.label("Host TCP:");
             ui.add(egui::TextEdit::singleline(&mut cfg.host).desired_width(120.0));
@@ -536,12 +538,12 @@ fn render_hamlib_form(
     ui.horizontal(|ui| {
         ui.label(tr(key::CAT_SETTINGS_SEARCH_MODEL, lang));
         ui.add(
-            egui::TextEdit::singleline(&mut app.cat_model_search)
+            egui::TextEdit::singleline(&mut app.cat.model_search)
                 .hint_text("7300, FT-891, TS-590, G90, K4"),
         );
     });
 
-    let filtered_rigs = search_rig_models_by_mfg("", &app.cat_model_search);
+    let filtered_rigs = search_rig_models_by_mfg("", &app.cat.model_search);
     egui::ScrollArea::vertical()
         .max_height(80.0)
         .show(ui, |ui| {
@@ -972,7 +974,7 @@ fn render_rigctld_supervisor_controls(
         );
     });
 
-    if let Some(ref mut sup) = app.rigctld_supervisor
+    if let Some(ref mut sup) = app.cat.rigctld_supervisor
         && sup.is_running()
         && let Some(pid) = sup.pid()
     {
@@ -1000,48 +1002,48 @@ fn render_probe_section(
     ui.group(|ui| {
         ui.horizontal(|ui| {
             let btn = ui.add_enabled(
-                !app.cat_probe_running,
+                !app.cat.probe_running,
                 egui::Button::new(tr(key::CAT_SETTINGS_PROBE_BTN, lang)),
             );
             if btn.clicked() {
                 if let Err(e) = rig.validate() {
-                    app.cat_test_result = Some(format!(
+                    app.cat.test_result = Some(format!(
                         "{}: {e}",
                         tr(key::CAT_SETTINGS_VALIDATION_FAILED, lang)
                     ));
-                    app.cat_probe_state = crate::cat::probe::ProbeState::Failed {
-                        generation: app.cat_probe_generation,
+                    app.cat.probe_state = crate::cat::probe::ProbeState::Failed {
+                        generation: app.cat.probe_generation,
                         error: e.to_string(),
                     };
                 } else {
-                    app.cat_probe_generation += 1;
-                    let current_gen = app.cat_probe_generation;
-                    app.cat_probe_state = crate::cat::probe::ProbeState::Running {
+                    app.cat.probe_generation += 1;
+                    let current_gen = app.cat.probe_generation;
+                    app.cat.probe_state = crate::cat::probe::ProbeState::Running {
                         generation: current_gen,
                     };
                     let (tx, rx) = std::sync::mpsc::channel();
-                    app.cat_probe_rx = Some(rx);
-                    app.cat_probe_running = true;
-                    app.cat_probe_result = None;
+                    app.cat.probe_rx = Some(rx);
+                    app.cat.probe_running = true;
+                    app.cat.probe_result = None;
                     let rig_copy = rig.clone();
 
                     let handle = tokio::spawn(async move {
                         let res = RigProbeRunner::probe(&rig_copy).await;
                         let _ = tx.send((current_gen, res));
                     });
-                    app.cat_probe_task = Some(handle);
+                    app.cat.probe_task = Some(handle);
                 }
             }
 
             let palette = ui.palette();
-            if app.cat_probe_running {
+            if app.cat.probe_running {
                 ui.spinner();
                 ui.colored_label(palette.warning, tr(key::CAT_SETTINGS_PROBE_RUNNING, lang));
             }
         });
 
         let palette = ui.palette();
-        if let Some(ref probe_res) = app.cat_probe_result {
+        if let Some(ref probe_res) = app.cat.probe_result {
             ui.add_space(2.0);
             match probe_res {
                 Ok(res) => {
@@ -1081,7 +1083,7 @@ fn render_probe_section(
             }
         }
 
-        if let Some(ref res) = app.cat_test_result {
+        if let Some(ref res) = app.cat.test_result {
             ui.add_space(2.0);
             ui.colored_label(palette.accent, res);
         }
@@ -1194,7 +1196,7 @@ fn render_cat_sharing_section(
             ui.add(egui::DragValue::new(&mut app.config.cat_sharing_port).range(1024..=65535));
         });
 
-        if app.cat_sharing_active {
+        if app.cat.sharing_active {
             ui.label(
                 egui::RichText::new(format!("● 127.0.0.1:{}", app.config.cat_sharing_port))
                     .color(palette.success)
@@ -1227,7 +1229,7 @@ fn render_rotor_section(app: &mut SpLogApp, ui: &mut egui::Ui, lang: crate::core
             }
         });
 
-        if let Some(ref res) = app.rotor_test_result {
+        if let Some(ref res) = app.cat.rotor_test_result {
             ui.colored_label(palette.accent, res);
         }
     });

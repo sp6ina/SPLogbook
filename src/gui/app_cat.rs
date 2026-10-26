@@ -4,7 +4,7 @@ use crate::core::i18n::{Msg, key, tr};
 impl SpLogApp {
     /// Obraca antenę na podany azymut przez protokół rotctld (Hamlib)
     pub fn rotate_antenna_to(&mut self, azimuth_deg: f32) {
-        self.rotor_state.azimuth_deg = azimuth_deg;
+        self.cat.rotor_state.azimuth_deg = azimuth_deg;
         let host = self.config.rotor_host.clone();
         let port = self.config.rotor_port;
         tokio::spawn(async move {
@@ -23,8 +23,8 @@ impl SpLogApp {
 
     /// Obraca antenę na zadany azymut i elewację (akcja pluginu `rotate`).
     pub fn rotate_antenna_to_el(&mut self, azimuth_deg: f32, elevation_deg: f32) {
-        self.rotor_state.azimuth_deg = azimuth_deg;
-        self.rotor_state.elevation_deg = elevation_deg;
+        self.cat.rotor_state.azimuth_deg = azimuth_deg;
+        self.cat.rotor_state.elevation_deg = elevation_deg;
         let host = self.config.rotor_host.clone();
         let port = self.config.rotor_port;
         tokio::spawn(async move {
@@ -47,7 +47,7 @@ impl SpLogApp {
 
     /// Przełącza stan nadawania PTT (TX/RX) z pełną weryfikacją w TxArbiter.
     pub fn toggle_ptt(&mut self) {
-        let snap = self.cat_runtime.snapshot();
+        let snap = self.cat.runtime.snapshot();
         let tx_rig = snap
             .active_tx
             .as_ref()
@@ -62,17 +62,19 @@ impl SpLogApp {
                 _ => false,
             };
             if is_transmitting {
-                self.cat_runtime
+                self.cat
+                    .runtime
                     .release_tx(rig_id, std::time::Duration::from_millis(1500));
             } else {
-                self.cat_runtime
+                self.cat
+                    .runtime
                     .request_tx(rig_id, std::time::Duration::from_millis(1500));
             }
         }
     }
 
     pub fn stop_rotor(&mut self) {
-        self.rotor_state.moving = false;
+        self.cat.rotor_state.moving = false;
         let host = self.config.rotor_host.clone();
         let port = self.config.rotor_port;
         tokio::spawn(async move {
@@ -109,10 +111,10 @@ impl SpLogApp {
     }
 
     pub fn start_cat_service(&mut self) {
-        if let Some(handle) = self.cat_poll_abort.take() {
+        if let Some(handle) = self.cat.poll_abort.take() {
             handle.abort();
         }
-        if let Some(mut sup) = self.rigctld_supervisor.take() {
+        if let Some(mut sup) = self.cat.rigctld_supervisor.take() {
             sup.stop();
         }
 
@@ -144,14 +146,14 @@ impl SpLogApp {
             );
             match sup.start() {
                 Ok(()) => {
-                    self.rigctld_supervisor = Some(sup);
-                    self.cat_test_result = Some(format!(
+                    self.cat.rigctld_supervisor = Some(sup);
+                    self.cat.test_result = Some(format!(
                         "Uruchomiono rigctld w tle dla {}!",
                         self.config.cat_rig_model
                     ));
                 }
                 Err(e) => {
-                    self.cat_test_result = Some(
+                    self.cat.test_result = Some(
                         Msg::new(key::CAT_RIGCTLD_ERROR)
                             .arg("err", &e.to_string())
                             .text(self.gui.appearance.language),
@@ -161,9 +163,9 @@ impl SpLogApp {
         }
 
         // 3. Asynchroniczne uruchomienie CatRuntime przez warstwę Tokio
-        let mut old_rt = self.cat_runtime.clone();
+        let mut old_rt = self.cat.runtime.clone();
         let (tx, rx) = std::sync::mpsc::channel();
-        self.cat_start_rx = Some(rx);
+        self.cat.start_rx = Some(rx);
 
         tokio::spawn(async move {
             let _ = old_rt
@@ -173,7 +175,7 @@ impl SpLogApp {
             let _ = tx.send(res);
         });
 
-        self.cat_test_result = Some(
+        self.cat.test_result = Some(
             tr(
                 key::CAT_RUNTIME_INIT_IN_PROGRESS,
                 self.gui.appearance.language,
@@ -183,29 +185,29 @@ impl SpLogApp {
     }
 
     pub fn stop_cat_service(&mut self) {
-        if let Some(handle) = self.cat_poll_abort.take() {
+        if let Some(handle) = self.cat.poll_abort.take() {
             handle.abort();
         }
-        self.cat_start_rx = None;
-        let mut rt = self.cat_runtime.clone();
+        self.cat.start_rx = None;
+        let mut rt = self.cat.runtime.clone();
         tokio::spawn(async move {
             let _ = rt.shutdown(std::time::Duration::from_millis(1500)).await;
         });
-        self.cat_connected = false;
-        self.rig_state.connected = false;
-        if let Some(mut sup) = self.rigctld_supervisor.take() {
+        self.cat.connected = false;
+        self.cat.rig_state.connected = false;
+        if let Some(mut sup) = self.cat.rigctld_supervisor.take() {
             sup.stop();
         }
-        self.cat_test_result =
+        self.cat.test_result =
             Some(tr(key::CAT_STOPPED_RIGCTLD, self.gui.appearance.language).to_string());
     }
 
     pub fn set_vfo_frequency(&mut self, freq_hz: u64) {
-        self.rig_state.frequency_hz = freq_hz;
+        self.cat.rig_state.frequency_hz = freq_hz;
         if let Some(band_def) = crate::core::bandplan::get_band_by_freq(freq_hz) {
             self.entry.band = band_def.name.to_string();
         }
-        self.cat_runtime.set_frequency(freq_hz);
+        self.cat.runtime.set_frequency(freq_hz);
         self.gui.chrome.status_message = Some(format!(
             "VFO dostrojone do: {:.3} kHz",
             (freq_hz as f64) / 1000.0
@@ -213,23 +215,24 @@ impl SpLogApp {
     }
 
     pub fn step_vfo(&mut self, step_hz: i64) {
-        let current = self.rig_state.frequency_hz as i64;
+        let current = self.cat.rig_state.frequency_hz as i64;
         let next = (current + step_hz).max(100_000) as u64;
         self.set_vfo_frequency(next);
     }
 
     pub fn set_vfo_mode(&mut self, mode: &str) {
-        self.rig_state.mode = mode.to_string();
+        self.cat.rig_state.mode = mode.to_string();
         self.entry.mode = mode.to_string();
-        self.cat_runtime
-            .set_mode(mode.to_string(), self.rig_state.passband_hz);
+        self.cat
+            .runtime
+            .set_mode(mode.to_string(), self.cat.rig_state.passband_hz);
         self.gui.chrome.status_message = Some(format!("Emisja zmieniona na: {mode}"));
     }
 
     pub fn set_vfo_split(&mut self, enabled: bool) {
-        self.vfo_split = enabled;
-        self.rig_state.split_enabled = enabled;
-        self.cat_runtime.set_split(enabled, "VFOB".to_string());
+        self.cat.vfo_split = enabled;
+        self.cat.rig_state.split_enabled = enabled;
+        self.cat.runtime.set_split(enabled, "VFOB".to_string());
         let split_status = if enabled {
             tr(key::CAT_SPLIT_ENABLED_VFO_B, self.gui.appearance.language)
         } else {
@@ -243,13 +246,13 @@ impl SpLogApp {
     }
 
     pub fn swap_vfo_ab(&mut self) {
-        let next_vfo = if self.rig_state.vfo == "VFOA" {
+        let next_vfo = if self.cat.rig_state.vfo == "VFOA" {
             "VFOB"
         } else {
             "VFOA"
         };
-        self.rig_state.vfo = next_vfo.to_string();
-        self.cat_runtime.set_vfo(next_vfo.to_string());
+        self.cat.rig_state.vfo = next_vfo.to_string();
+        self.cat.runtime.set_vfo(next_vfo.to_string());
         self.gui.chrome.status_message = Some(
             Msg::new(key::CAT_VFO_SWITCHED)
                 .arg("vfo", next_vfo)
@@ -258,10 +261,11 @@ impl SpLogApp {
     }
 
     pub fn set_vfo_filter(&mut self, preset: &str, passband_hz: u32) {
-        self.vfo_filter_preset = preset.to_string();
-        self.rig_state.passband_hz = passband_hz;
-        self.cat_runtime
-            .set_mode(self.rig_state.mode.clone(), passband_hz);
+        self.cat.vfo.filter_preset = preset.to_string();
+        self.cat.rig_state.passband_hz = passband_hz;
+        self.cat
+            .runtime
+            .set_mode(self.cat.rig_state.mode.clone(), passband_hz);
         self.gui.chrome.status_message = Some(format!("Filtr IF: {preset} ({passband_hz} Hz)"));
     }
 
@@ -271,14 +275,14 @@ impl SpLogApp {
         st: crate::cat::hamlib::RigState,
         is_tx: bool,
     ) {
-        let changed = st.frequency_hz != self.rig_state.frequency_hz
-            || st.mode != self.rig_state.mode
-            || st.connected != self.cat_connected
-            || is_tx != self.ptt_active;
+        let changed = st.frequency_hz != self.cat.rig_state.frequency_hz
+            || st.mode != self.cat.rig_state.mode
+            || st.connected != self.cat.connected
+            || is_tx != self.cat.ptt_active;
 
-        self.cat_connected = st.connected;
-        self.rig_state = st.clone();
-        self.ptt_active = is_tx;
+        self.cat.connected = st.connected;
+        self.cat.rig_state = st.clone();
+        self.cat.ptt_active = is_tx;
 
         if changed {
             self.services
@@ -306,17 +310,17 @@ impl SpLogApp {
 
     pub fn toggle_cat_proxy_server(&mut self) {
         if self.config.cat_sharing_enabled {
-            if let Some(srv) = self.cat_proxy_server.take() {
+            if let Some(srv) = self.cat.proxy_server.take() {
                 srv.stop();
             }
             let (srv, rx) = crate::cat::server::HamlibProxyServer::new(
                 self.config.cat_sharing_port,
-                self.cat_shared_state.clone(),
+                self.cat.shared_state.clone(),
             );
             let srv_arc = std::sync::Arc::new(srv);
-            self.cat_proxy_server = Some(srv_arc.clone());
-            self.cat_proxy_rx = Some(rx);
-            self.cat_sharing_active = true;
+            self.cat.proxy_server = Some(srv_arc.clone());
+            self.cat.proxy_rx = Some(rx);
+            self.cat.sharing_active = true;
 
             let events = self.services.event_bus.clone();
             tokio::spawn(async move {
@@ -329,11 +333,11 @@ impl SpLogApp {
                 }
             });
         } else {
-            if let Some(srv) = self.cat_proxy_server.take() {
+            if let Some(srv) = self.cat.proxy_server.take() {
                 srv.stop();
             }
-            self.cat_proxy_rx = None;
-            self.cat_sharing_active = false;
+            self.cat.proxy_rx = None;
+            self.cat.sharing_active = false;
         }
     }
 }

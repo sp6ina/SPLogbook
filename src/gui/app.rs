@@ -3,8 +3,6 @@
 
 use crate::cat::hamlib::RigState;
 use crate::cat::rotor::RotorState;
-use crate::cluster::telnet::ClusterEvent;
-use crate::cluster::telnet::DxSpot;
 use crate::core::awards::AwardsEngine;
 use crate::core::backup::BackupManager;
 use crate::core::database::Journal;
@@ -58,30 +56,7 @@ pub struct AppDeps {
     pub scp_engine: std::sync::Arc<std::sync::Mutex<crate::core::scp::ScpEngine>>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SpotBadgeKind {
-    NewDxcc,
-    NewBand,
-    Standard,
-}
-
-impl SpotBadgeKind {
-    pub fn suffix(self) -> &'static str {
-        match self {
-            SpotBadgeKind::NewDxcc => " ⭐",
-            SpotBadgeKind::NewBand => " ✨",
-            SpotBadgeKind::Standard => "",
-        }
-    }
-
-    pub fn color(self, palette: &crate::gui::theme::Palette) -> egui::Color32 {
-        match self {
-            SpotBadgeKind::NewDxcc => palette.accent_alt,
-            SpotBadgeKind::NewBand => palette.success,
-            SpotBadgeKind::Standard => palette.accent,
-        }
-    }
-}
+pub use crate::gui::state::{CatConnection, CatState, ClusterState, SpotBadgeKind, VfoState};
 
 pub struct SpLogApp {
     pub config: AppConfig,
@@ -92,17 +67,11 @@ pub struct SpLogApp {
     pub entry: crate::gui::state::QsoEntryState,
     pub log_view: crate::gui::state::LogViewState,
 
-    // Stan transceivera CAT, S-Metra i rotora
-    pub rig_state: RigState,
-    pub rotor_state: RotorState,
-    pub cat_connected: bool,
-    pub vfo_split: bool,
+    // Stan transceivera CAT, S-Metra, rotora i VFO
+    pub cat: crate::gui::state::CatState,
 
-    // DX Cluster i pogoda kosmiczna
-    pub cluster_spots: Vec<DxSpot>,
-    /// Cache kolorów/odznak spotów klastra (unika przeliczania prefiksu i statusu
-    /// nagród w każdej klatce). Czyszczony przy zmianie danych nagród.
-    pub cluster_badge_cache: std::collections::HashMap<String, SpotBadgeKind>,
+    // DX Cluster Telnet i filtry
+    pub cluster: crate::gui::state::ClusterState,
     // WSPR Monitor
     pub wspr: crate::gui::state::WsprState,
 
@@ -140,14 +109,7 @@ pub struct SpLogApp {
     pub show_cluster_panel: bool,
 
     // CAT / Hamlib konfiguracja
-    pub cat_test_result: Option<String>,
     pub show_cat_settings_window: bool,
-
-    // Rotor konfiguracja
-    pub rotor_test_result: Option<String>,
-
-    // TCI konfiguracja
-    pub tci_test_result: Option<String>,
 
     // Voice keyer (SSB)
     pub voice_keyer: crate::gui::state::VoiceKeyerState,
@@ -173,10 +135,6 @@ pub struct SpLogApp {
     pub awards_other_search: String,
     pub show_quick_access_customizer: bool,
 
-    // Hamlib i rigctld
-    pub cat_model_search: String,
-    pub rigctld_supervisor: Option<crate::cat::supervisor::RigctldSupervisor>,
-
     // Stan GUI (dialogi, chrome, widoki)
     pub gui: crate::gui::state::GuiState,
     pub active_journal: crate::core::database::Journal,
@@ -184,22 +142,6 @@ pub struct SpLogApp {
     // SPLogbook
     pub show_column_settings: bool,
     pub column_preset_name: String,
-
-    // CAT Channels
-    pub cat_state_tx: std::sync::mpsc::Sender<crate::cat::hamlib::RigState>,
-    pub cat_state_rx: std::sync::mpsc::Receiver<crate::cat::hamlib::RigState>,
-
-    // DX Cluster Telnet & Filtry
-    pub cluster_connected: bool,
-    pub cluster_connecting: bool,
-    pub cluster_status_text: String,
-    pub show_add_cluster_dialog: bool,
-    pub new_cluster_name: String,
-    pub new_cluster_host: String,
-    pub new_cluster_port: u16,
-    pub cluster_event_rx: Option<std::sync::mpsc::Receiver<ClusterEvent>>,
-    pub cluster_stop_tx: Option<tokio::sync::watch::Sender<bool>>,
-    pub cluster_cmd_tx: Option<tokio::sync::mpsc::UnboundedSender<String>>,
 
     // Modułowy układ kafelków i okien pływających
     pub views: crate::gui::state::ViewsState,
@@ -212,65 +154,6 @@ pub struct SpLogApp {
 
     // Zintegrowany pasek asystenta operatora
     pub show_operator_assistant: bool,
-
-    // PTT control
-    pub ptt_active: bool,
-
-    // Dwuetapowy CAT i udostępnianie (CAT Sharing dla WSJT-X / JTDX / FLDigi)
-    pub cat_mfg_selected: String,
-    pub cat_conn_type: String,
-    pub cat_sharing_active: bool,
-    pub cat_shared_state: std::sync::Arc<std::sync::RwLock<crate::cat::hamlib::RigState>>,
-    pub cat_proxy_server: Option<std::sync::Arc<crate::cat::server::HamlibProxyServer>>,
-    pub cat_proxy_rx:
-        Option<tokio::sync::broadcast::Receiver<crate::cat::server::RigServerCommand>>,
-    pub cat_poll_abort: Option<tokio::task::AbortHandle>,
-    /// Centralny komponent aplikacyjny zarządzający węzłem RigHub i sesjami RigService.
-    pub cat_runtime: crate::cat::runtime::CatRuntime,
-    /// Kanał odbioru wyników asynchronicznego probe CAT wraz z numerem generacji.
-    pub cat_probe_rx: Option<
-        std::sync::mpsc::Receiver<(
-            u64,
-            Result<crate::cat::backend::RigProbeResult, crate::cat::rig::RigError>,
-        )>,
-    >,
-    /// Flaga trwającego testu probe CAT.
-    pub cat_probe_running: bool,
-    /// Ostatni wynik testu probe CAT.
-    pub cat_probe_result:
-        Option<Result<crate::cat::backend::RigProbeResult, crate::cat::rig::RigError>>,
-    /// Asynchroniczny stan probe CAT skorelowany z generacją formularza.
-    pub cat_probe_state: crate::cat::probe::ProbeState,
-    /// Bieżąca generacja formularza CAT probe.
-    pub cat_probe_generation: u64,
-    /// Aktywny task asynchronicznego probe CAT.
-    pub cat_probe_task: Option<tokio::task::JoinHandle<()>>,
-    /// Kanał odbioru asynchronicznie uruchamianego CatRuntime.
-    pub cat_start_rx: Option<
-        std::sync::mpsc::Receiver<
-            Result<crate::cat::runtime::CatRuntime, crate::cat::runtime::CatRuntimeError>,
-        >,
-    >,
-    /// Indeks aktualnie edytowanego radia w oknie ustawień CAT.
-    pub cat_selected_rig_idx: usize,
-    /// Pamięć podręczna formularza konfiguracji backendów w UI.
-    pub cat_form_cache: crate::gui::cat_settings::FormVariantCache,
-
-    // VFO Konsola radiowa & DSP
-    pub vfo_split_offset_khz: f64,
-    pub vfo_filter_preset: String,
-    pub vfo_preamp_att: String,
-    pub vfo_nb_nr: bool,
-    pub vfo_agc_speed: String,
-
-    // Boczny panel filtrów klastra i POTA/SOTA
-    pub cluster_show_filter_sidebar: bool,
-    pub cluster_search_query: String,
-    pub cluster_filter_band_selection: String,
-    pub cluster_filter_mode_selection: String,
-    pub cluster_filter_status: String,
-    pub cluster_filter_source: String,
-    pub cluster_filter_pota_sota_only: bool,
 
     // Wyszukiwanie i usuwanie duplikatów w logu
     pub duplicates: crate::gui::state::DuplicatesState,
@@ -355,10 +238,6 @@ impl SpLogApp {
                 });
             (journal, qsos, numbers)
         };
-
-        let (cat_state_tx, cat_state_rx) = std::sync::mpsc::channel();
-
-        let cat_poll_abort = None;
 
         if crate::cluster::telnet::is_dead_legacy_cluster_host(&init.config.cluster_host) {
             init.config.cluster_host = "dxcluster.pl".to_string();
@@ -494,13 +373,32 @@ impl SpLogApp {
                 ..Default::default()
             },
 
-            rig_state: rig,
-            rotor_state: rotor,
-            cat_connected: false,
-            vfo_split: false,
+            cat: crate::gui::state::CatState {
+                rig_state: rig,
+                rotor_state: rotor,
+                conn_type: if init.config.cat_auto_start_rigctld
+                    || !init.config.cat_serial_port.is_empty()
+                {
+                    crate::gui::state::CatConnection::Serial
+                } else {
+                    crate::gui::state::CatConnection::Tcp
+                },
+                mfg_selected: "Wszystkie".to_string(),
+                vfo: crate::gui::state::VfoState {
+                    split_offset_khz: 1.0,
+                    filter_preset: "FIL2".to_string(),
+                    preamp_att: "OFF".to_string(),
+                    nb_nr: false,
+                    agc_speed: "MID".to_string(),
+                },
+                ..Default::default()
+            },
 
-            cluster_spots: sample_spots,
-            cluster_badge_cache: std::collections::HashMap::new(),
+            cluster: crate::gui::state::ClusterState {
+                spots: sample_spots,
+                status_text: tr(key::CLUSTER_DISCONNECTED, lang).to_string(),
+                ..Default::default()
+            },
             wspr: crate::gui::state::WsprState::default(),
 
             satellites: crate::gui::state::SatelliteState::default(),
@@ -530,12 +428,7 @@ impl SpLogApp {
             show_vfo_panel: true,
             show_cluster_panel: true,
 
-            cat_test_result: None,
             show_cat_settings_window: false,
-
-            rotor_test_result: None,
-
-            tci_test_result: None,
 
             voice_keyer: crate::gui::state::VoiceKeyerState::default(),
 
@@ -556,29 +449,12 @@ impl SpLogApp {
             awards_other_search: String::new(),
             show_quick_access_customizer: false,
 
-            cat_model_search: String::new(),
-            rigctld_supervisor: None,
-
             gui,
             active_journal,
 
             show_column_settings: false,
             updates: crate::gui::state::UpdateState::default(),
             column_preset_name: String::new(),
-
-            cat_state_tx,
-            cat_state_rx,
-
-            cluster_connected: false,
-            cluster_connecting: false,
-            cluster_status_text: tr(key::CLUSTER_DISCONNECTED, lang).to_string(),
-            show_add_cluster_dialog: false,
-            new_cluster_name: String::new(),
-            new_cluster_host: String::new(),
-            new_cluster_port: 7300,
-            cluster_event_rx: None,
-            cluster_stop_tx: None,
-            cluster_cmd_tx: None,
 
             views,
 
@@ -589,53 +465,6 @@ impl SpLogApp {
 
             // Zintegrowany pasek asystenta operatora
             show_operator_assistant: init.config.operator_assistant_enabled,
-
-            // PTT
-            ptt_active: false,
-
-            // Dwuetapowy CAT i udostępnianie (CAT Sharing)
-            cat_mfg_selected: "Wszystkie".to_string(),
-            cat_conn_type: if init.config.cat_backend == "tci" {
-                "tci".to_string()
-            } else if init.config.cat_auto_start_rigctld || !init.config.cat_serial_port.is_empty()
-            {
-                "serial".to_string()
-            } else {
-                "tcp".to_string()
-            },
-            cat_sharing_active: false,
-            cat_shared_state: std::sync::Arc::new(std::sync::RwLock::new(
-                crate::cat::hamlib::RigState::default(),
-            )),
-            cat_proxy_server: None,
-            cat_proxy_rx: None,
-            cat_poll_abort,
-            cat_runtime: crate::cat::runtime::CatRuntime::new(),
-            cat_probe_rx: None,
-            cat_probe_running: false,
-            cat_probe_result: None,
-            cat_probe_state: crate::cat::probe::ProbeState::Idle,
-            cat_probe_generation: 0,
-            cat_probe_task: None,
-            cat_start_rx: None,
-            cat_selected_rig_idx: 0,
-            cat_form_cache: crate::gui::cat_settings::FormVariantCache::default(),
-
-            // VFO Konsola radiowa & DSP
-            vfo_split_offset_khz: 1.0,
-            vfo_filter_preset: "FIL2".to_string(),
-            vfo_preamp_att: "OFF".to_string(),
-            vfo_nb_nr: false,
-            vfo_agc_speed: "MID".to_string(),
-
-            // Boczny panel filtrów klastra
-            cluster_show_filter_sidebar: false,
-            cluster_search_query: String::new(),
-            cluster_filter_band_selection: "ALL".to_string(),
-            cluster_filter_mode_selection: "ALL".to_string(),
-            cluster_filter_status: "ALL".to_string(),
-            cluster_filter_source: "ALL".to_string(),
-            cluster_filter_pota_sota_only: false,
 
             // Wyszukiwanie duplikatów
             duplicates: crate::gui::state::DuplicatesState::default(),
@@ -1123,7 +952,7 @@ impl eframe::App for SpLogApp {
         self.gui.dialogs.astronomy_dialog.show(
             ctx,
             &my_grid,
-            &mut self.rotor_state,
+            &mut self.cat.rotor_state,
             self.gui.appearance.language,
         );
 
@@ -1201,7 +1030,7 @@ impl eframe::App for SpLogApp {
             &self.config.station.callsign,
             self.gui.appearance.language,
         ) {
-            if let Some(ref tx) = self.cluster_cmd_tx {
+            if let Some(ref tx) = self.cluster.cmd_tx {
                 let telnet_cmd = format!(
                     "DX {:.1} {} {}\r\n",
                     sub.freq_khz,
@@ -1224,7 +1053,7 @@ impl eframe::App for SpLogApp {
                 is_skimmer: false,
                 received_at: chrono::Utc::now().timestamp(),
             };
-            self.cluster_spots.insert(0, spot);
+            self.cluster.spots.insert(0, spot);
             let toast_msg = Msg::new(key::CLUSTER_SPOT_SENT)
                 .arg("call", &sub.dx_call)
                 .arg("freq", format!("{:.1}", sub.freq_khz))
@@ -1243,9 +1072,10 @@ impl eframe::App for SpLogApp {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        self.cat_runtime
+        self.cat
+            .runtime
             .shutdown_blocking(std::time::Duration::from_millis(1500));
-        if let Some(mut sup) = self.rigctld_supervisor.take() {
+        if let Some(mut sup) = self.cat.rigctld_supervisor.take() {
             sup.stop();
         }
         // Zapisanie geometrii okna głównego (i pozostałej konfiguracji) przy zamknięciu aplikacji.

@@ -154,17 +154,17 @@ pub fn render_voice_keyer_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
 /// Kluczuje PTT (jeśli włączone i CAT połączony), odtwarza komunikat, zwalnia PTT.
 fn transmit_message(msg: &VoiceKeyerMessage, app: &SpLogApp) {
-    let connected = app.cat_connected;
-    let was_already_transmitting = app.rig_state.ptt || app.ptt_active;
+    let connected = app.cat.connected;
+    let was_already_transmitting = app.cat.rig_state.ptt || app.cat.ptt_active;
     let key_ptt = msg.ptt && connected && !was_already_transmitting;
 
-    let snap = app.cat_runtime.snapshot();
+    let snap = app.cat.runtime.snapshot();
     let tx_rig = snap
         .active_tx
         .as_ref()
         .map(|t| t.rig_id.clone())
         .or_else(|| snap.active_rx.as_ref().map(|r| r.rig_id.clone()));
-    let rt = app.cat_runtime.clone();
+    let rt = app.cat.runtime.clone();
 
     let msg_clone = msg.clone();
     tokio::spawn(async move {

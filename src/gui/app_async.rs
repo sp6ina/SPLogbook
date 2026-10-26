@@ -51,16 +51,17 @@ impl SpLogApp {
     pub fn sync_cluster_spots_api(&mut self) {
         if let Some(ref api_slot) = self.runtime.cluster_spots_api.clone() {
             if let Ok(mut guard) = api_slot.try_lock() {
-                let changed = guard.len() != self.cluster_spots.len()
+                let changed = guard.len() != self.cluster.spots.len()
                     || guard
                         .first()
                         .map(|s| (&s.dx_call, &s.time_utc, s.received_at))
                         != self
-                            .cluster_spots
+                            .cluster
+                            .spots
                             .first()
                             .map(|s| (&s.dx_call, &s.time_utc, s.received_at));
                 if changed {
-                    (*guard).clone_from(&self.cluster_spots);
+                    (*guard).clone_from(&self.cluster.spots);
                 }
             }
         }
@@ -139,19 +140,19 @@ impl SpLogApp {
 
     /// Odbiór asynchronicznego wyniku uruchomienia CatRuntime, testu probe oraz telemetrii
     pub fn poll_cat_outcomes(&mut self) {
-        if let Some(ref rx) = self.cat_start_rx {
+        if let Some(ref rx) = self.cat.start_rx {
             if let Ok(res) = rx.try_recv() {
                 match res {
                     Ok(rt) => {
-                        self.cat_runtime = rt;
-                        self.cat_connected = true;
-                        self.cat_test_result = Some(
+                        self.cat.runtime = rt;
+                        self.cat.connected = true;
+                        self.cat.test_result = Some(
                             tr(key::CAT_STARTED_SUCCESS, self.gui.appearance.language).to_string(),
                         );
                     }
                     Err(e) => {
-                        self.cat_connected = false;
-                        self.cat_test_result = Some(
+                        self.cat.connected = false;
+                        self.cat.test_result = Some(
                             Msg::new(key::CAT_START_ERROR)
                                 .arg("err", &e.to_string())
                                 .text(self.gui.appearance.language),
@@ -161,31 +162,31 @@ impl SpLogApp {
             }
         }
 
-        if let Some(ref rx) = self.cat_probe_rx {
+        if let Some(ref rx) = self.cat.probe_rx {
             if let Ok((probe_gen, res)) = rx.try_recv() {
-                if probe_gen == self.cat_probe_generation {
-                    self.cat_probe_running = false;
+                if probe_gen == self.cat.probe_generation {
+                    self.cat.probe_running = false;
                     match &res {
                         Ok(r) => {
-                            self.cat_probe_state = crate::cat::probe::ProbeState::Succeeded {
+                            self.cat.probe_state = crate::cat::probe::ProbeState::Succeeded {
                                 generation: probe_gen,
                                 result: r.clone(),
                             };
                         }
                         Err(e) => {
-                            self.cat_probe_state = crate::cat::probe::ProbeState::Failed {
+                            self.cat.probe_state = crate::cat::probe::ProbeState::Failed {
                                 generation: probe_gen,
                                 error: e.to_string(),
                             };
                         }
                     }
-                    self.cat_probe_result = Some(res);
-                    self.cat_probe_task = None;
+                    self.cat.probe_result = Some(res);
+                    self.cat.probe_task = None;
                 }
             }
         }
 
-        let cat_snap = self.cat_runtime.snapshot();
+        let cat_snap = self.cat.runtime.snapshot();
         let mut active_state_found = false;
 
         if let Some(ref rx_target) = cat_snap.active_rx {
@@ -229,8 +230,8 @@ impl SpLogApp {
             }
         }
 
-        while let Ok(st) = self.cat_state_rx.try_recv() {
-            let ptt = self.ptt_active;
+        while let Ok(st) = self.cat.state_rx.try_recv() {
+            let ptt = self.cat.ptt_active;
             self.update_cat_state_from_telemetry(st, ptt);
         }
     }
@@ -238,8 +239,8 @@ impl SpLogApp {
     /// Synchronizuj stan radia do współdzielonego stanu serwera proxy oraz REST API
     pub fn sync_cat_shared_state_and_api(&mut self) {
         if self.config.cat_sharing_enabled || self.runtime.rest_api_enabled {
-            if let Ok(mut shared) = self.cat_shared_state.write() {
-                *shared = self.rig_state.clone();
+            if let Ok(mut shared) = self.cat.shared_state.write() {
+                *shared = self.cat.rig_state.clone();
             }
         }
 
@@ -256,7 +257,7 @@ impl SpLogApp {
     /// Odbiór poleceń z serwera Hamlib proxy (wzorzec zbierz, potem zastosuj)
     pub fn poll_cat_proxy_commands(&mut self) {
         let mut proxy_cmds = Vec::new();
-        if let Some(ref mut rx) = self.cat_proxy_rx {
+        if let Some(ref mut rx) = self.cat.proxy_rx {
             while let Ok(cmd) = rx.try_recv() {
                 proxy_cmds.push(cmd);
             }
@@ -267,15 +268,16 @@ impl SpLogApp {
                     self.set_vfo_frequency(freq);
                 }
                 crate::cat::server::RigServerCommand::SetSplitFrequency(freq) => {
-                    self.rig_state.tx_frequency_hz = Some(freq);
-                    self.cat_runtime
+                    self.cat.rig_state.tx_frequency_hz = Some(freq);
+                    self.cat
+                        .runtime
                         .execute_cmd(crate::cat::rig::RigCommand::SetSplitFrequency(freq));
                 }
                 crate::cat::server::RigServerCommand::SetMode(mode) => {
                     self.set_vfo_mode(&mode);
                 }
                 crate::cat::server::RigServerCommand::SetPtt(ptt) => {
-                    let snap = self.cat_runtime.snapshot();
+                    let snap = self.cat.runtime.snapshot();
                     let tx_rig = snap
                         .active_tx
                         .as_ref()
@@ -283,41 +285,47 @@ impl SpLogApp {
                         .or_else(|| snap.active_rx.as_ref().map(|r| r.rig_id.clone()));
                     if let Some(rig_id) = tx_rig {
                         if ptt {
-                            self.cat_runtime
+                            self.cat
+                                .runtime
                                 .request_tx(rig_id, std::time::Duration::from_millis(1500));
                         } else {
-                            self.cat_runtime
+                            self.cat
+                                .runtime
                                 .release_tx(rig_id, std::time::Duration::from_millis(1500));
                         }
                     }
                 }
                 crate::cat::server::RigServerCommand::SetVfo(vfo) => {
-                    self.rig_state.vfo.clone_from(&vfo);
-                    self.cat_runtime.set_vfo(vfo);
+                    self.cat.rig_state.vfo.clone_from(&vfo);
+                    self.cat.runtime.set_vfo(vfo);
                 }
                 crate::cat::server::RigServerCommand::SetSplit { enabled, tx_vfo } => {
-                    self.vfo_split = enabled;
-                    self.rig_state.split_enabled = enabled;
-                    self.cat_runtime.set_split(enabled, tx_vfo);
+                    self.cat.vfo_split = enabled;
+                    self.cat.rig_state.split_enabled = enabled;
+                    self.cat.runtime.set_split(enabled, tx_vfo);
                 }
                 crate::cat::server::RigServerCommand::SetRit(rit) => {
-                    self.rig_state.rit_hz = rit;
-                    self.cat_runtime
+                    self.cat.rig_state.rit_hz = rit;
+                    self.cat
+                        .runtime
                         .execute_cmd(crate::cat::rig::RigCommand::SetRit(rit));
                 }
                 crate::cat::server::RigServerCommand::SetXit(xit) => {
-                    self.rig_state.xit_hz = xit;
-                    self.cat_runtime
+                    self.cat.rig_state.xit_hz = xit;
+                    self.cat
+                        .runtime
                         .execute_cmd(crate::cat::rig::RigCommand::SetXit(xit));
                 }
                 crate::cat::server::RigServerCommand::SetPower(watts) => {
-                    self.rig_state.rf_power_watts = watts;
-                    self.cat_runtime
+                    self.cat.rig_state.rf_power_watts = watts;
+                    self.cat
+                        .runtime
                         .execute_cmd(crate::cat::rig::RigCommand::SetPower(watts));
                 }
                 crate::cat::server::RigServerCommand::SetPassband(pb) => {
-                    self.rig_state.passband_hz = pb;
-                    self.cat_runtime
+                    self.cat.rig_state.passband_hz = pb;
+                    self.cat
+                        .runtime
                         .execute_cmd(crate::cat::rig::RigCommand::SetPassband(pb));
                 }
             }
@@ -326,28 +334,28 @@ impl SpLogApp {
 
     /// Odbiór zdarzeń i spotów z klastra DX Telnet
     pub fn poll_cluster_events(&mut self) {
-        if let Some(ref rx) = self.cluster_event_rx {
+        if let Some(ref rx) = self.cluster.event_rx {
             while let Ok(evt) = rx.try_recv() {
                 match evt {
                     ClusterEvent::Connected(msg) => {
-                        self.cluster_connected = true;
-                        self.cluster_connecting = false;
-                        self.cluster_status_text.clone_from(&msg);
+                        self.cluster.connected = true;
+                        self.cluster.connecting = false;
+                        self.cluster.status_text.clone_from(&msg);
                         self.gui.chrome.status_toast = Some((msg, std::time::Instant::now()));
                         self.services.event_bus.publish(
                             crate::core::events::AppEvent::ClusterStatus { connected: true },
                         );
                     }
                     ClusterEvent::Disconnected(msg) => {
-                        self.cluster_connected = false;
-                        self.cluster_connecting = false;
-                        self.cluster_status_text = msg;
+                        self.cluster.connected = false;
+                        self.cluster.connecting = false;
+                        self.cluster.status_text = msg;
                         self.services.event_bus.publish(
                             crate::core::events::AppEvent::ClusterStatus { connected: false },
                         );
                     }
                     ClusterEvent::Spot(spot) => {
-                        let is_duplicate = self.cluster_spots.iter().take(30).any(|s| {
+                        let is_duplicate = self.cluster.spots.iter().take(30).any(|s| {
                             s.dx_call == spot.dx_call
                                 && s.band == spot.band
                                 && (s.frequency_khz - spot.frequency_khz).abs() < 2.0
@@ -400,7 +408,7 @@ impl SpLogApp {
                                     is_skimmer: spot.is_skimmer,
                                 },
                             );
-                            self.cluster_spots.insert(0, spot.clone());
+                            self.cluster.spots.insert(0, spot.clone());
                             // Hook pluginów Rhai na nowy spot DX.
                             self.services.plugin_engine.run_on_dx_spot(
                                 &spot.spotter,
@@ -420,15 +428,17 @@ impl SpLogApp {
         let now_ts = chrono::Utc::now().timestamp();
         let spot_max_age_secs: i64 = 60 * 60;
         if self
-            .cluster_spots
+            .cluster
+            .spots
             .iter()
             .any(|s| now_ts - s.received_at > spot_max_age_secs)
         {
-            self.cluster_spots
+            self.cluster
+                .spots
                 .retain(|s| now_ts - s.received_at <= spot_max_age_secs);
         }
-        if self.cluster_spots.len() > 200 {
-            self.cluster_spots.truncate(200);
+        if self.cluster.spots.len() > 200 {
+            self.cluster.spots.truncate(200);
         }
     }
 
@@ -508,7 +518,7 @@ impl SpLogApp {
                         self.digital.wsjtx_last_call = Some(dx_call);
                     }
                     if dial_freq > 0 {
-                        self.rig_state.frequency_hz = dial_freq;
+                        self.cat.rig_state.frequency_hz = dial_freq;
                         if let Some(band_def) = crate::core::bandplan::get_band_by_freq(dial_freq) {
                             self.entry.band = band_def.name.to_string();
                         }
@@ -532,7 +542,7 @@ impl SpLogApp {
                 if state.dial_freq_hz > 0
                     && state.dial_freq_hz != self.digital.js8call_state.dial_freq_hz
                 {
-                    self.rig_state.frequency_hz = state.dial_freq_hz;
+                    self.cat.rig_state.frequency_hz = state.dial_freq_hz;
                     if let Some(band_def) =
                         crate::core::bandplan::get_band_by_freq(state.dial_freq_hz)
                     {

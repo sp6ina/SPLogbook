@@ -130,7 +130,7 @@ fn current_band(app: &SpLogApp) -> String {
     if !app.entry.band.trim().is_empty() {
         return app.entry.band.trim().to_string();
     }
-    let mhz = app.rig_state.frequency_hz as f64 / 1_000_000.0;
+    let mhz = app.cat.rig_state.frequency_hz as f64 / 1_000_000.0;
     if mhz > 0.5 {
         return crate::core::propagation::HF_BANDS
             .iter()
@@ -195,18 +195,18 @@ pub fn render_operator_assistant(app: &mut SpLogApp, ctx: &egui::Context) {
         .show(ctx, |ui| {
             let palette = ui.palette();
             ui.horizontal(|ui| {
-                let (icon, color) = if app.rig_state.connected {
+                let (icon, color) = if app.cat.rig_state.connected {
                     ("📻", palette.accent)
                 } else {
                     ("⛔", palette.text_muted)
                 };
                 ui.label(egui::RichText::new(icon).size(20.0));
-                if app.rig_state.connected {
-                    let mhz = app.rig_state.frequency_hz as f64 / 1_000_000.0;
+                if app.cat.rig_state.connected {
+                    let mhz = app.cat.rig_state.frequency_hz as f64 / 1_000_000.0;
                     ui.label(
                         egui::RichText::new(format!(
                             "{:.3} MHz · {} · {}",
-                            mhz, app.rig_state.mode, band
+                            mhz, app.cat.rig_state.mode, band
                         ))
                         .strong()
                         .size(15.0)

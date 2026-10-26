@@ -107,7 +107,7 @@ impl SpLogApp {
             self.reload_qsos();
         }
         if send_spot_f6 {
-            let freq_khz = (self.rig_state.frequency_hz as f64) / 1000.0;
+            let freq_khz = (self.cat.rig_state.frequency_hz as f64) / 1000.0;
             self.gui
                 .dialogs
                 .send_spot_dialog

@@ -23,10 +23,10 @@ impl SpLogApp {
         let cs = self.config.station.callsign.clone();
         let port = self.runtime.rest_api_port;
         let key = self.ensure_rest_api_key();
-        let spots_for_api = Arc::new(Mutex::new(self.cluster_spots.clone()));
+        let spots_for_api = Arc::new(Mutex::new(self.cluster.spots.clone()));
         self.runtime.cluster_spots_api = Some(spots_for_api.clone());
-        if let Ok(mut shared_rig) = self.cat_shared_state.write() {
-            *shared_rig = self.rig_state.clone();
+        if let Ok(mut shared_rig) = self.cat.shared_state.write() {
+            *shared_rig = self.cat.rig_state.clone();
         }
         let state = crate::api::server::ApiState::new(
             db,
@@ -37,7 +37,7 @@ impl SpLogApp {
         )
         .with_station_context(
             self.services.prefix_matcher.clone(),
-            self.cat_shared_state.clone(),
+            self.cat.shared_state.clone(),
             self.services.awards_engine.clone(),
             self.runtime.api_reload_flag.clone(),
         )
@@ -67,12 +67,12 @@ impl SpLogApp {
         let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
         let (cmd_tx, cmd_rx) = tokio::sync::mpsc::unbounded_channel();
 
-        self.cluster_event_rx = Some(event_rx);
-        self.cluster_stop_tx = Some(stop_tx);
-        self.cluster_cmd_tx = Some(cmd_tx);
-        self.cluster_connecting = true;
-        self.cluster_connected = false;
-        self.cluster_status_text = Msg::new(key::CLUSTER_CONNECTING_TO)
+        self.cluster.event_rx = Some(event_rx);
+        self.cluster.stop_tx = Some(stop_tx);
+        self.cluster.cmd_tx = Some(cmd_tx);
+        self.cluster.connecting = true;
+        self.cluster.connected = false;
+        self.cluster.status_text = Msg::new(key::CLUSTER_CONNECTING_TO)
             .arg("host", &host)
             .arg("port", port)
             .text(self.gui.appearance.language);
@@ -91,14 +91,14 @@ impl SpLogApp {
     }
 
     pub fn disconnect_dx_cluster(&mut self) {
-        if let Some(stop_tx) = self.cluster_stop_tx.take() {
+        if let Some(stop_tx) = self.cluster.stop_tx.take() {
             let _ = stop_tx.send(true);
         }
-        self.cluster_event_rx = None;
-        self.cluster_cmd_tx = None;
-        self.cluster_connected = false;
-        self.cluster_connecting = false;
-        self.cluster_status_text =
+        self.cluster.event_rx = None;
+        self.cluster.cmd_tx = None;
+        self.cluster.connected = false;
+        self.cluster.connecting = false;
+        self.cluster.status_text =
             tr(key::CLUSTER_DISCONNECTED, self.gui.appearance.language).to_string();
     }
 

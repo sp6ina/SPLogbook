@@ -352,10 +352,10 @@ fn capture_profile(app: &SpLogApp, name: &str) -> WorkspaceProfile {
         cat_profile: None,
         cw_profile: None,
         cluster_filter: Some(ClusterFilter {
-            band: app.cluster_filter_band_selection.clone(),
-            mode: app.cluster_filter_mode_selection.clone(),
-            source: app.cluster_filter_source.clone(),
-            pota_sota_only: app.cluster_filter_pota_sota_only,
+            band: app.cluster.filter_band_selection.clone(),
+            mode: app.cluster.filter_mode_selection.clone(),
+            source: app.cluster.filter_source.clone(),
+            pota_sota_only: app.cluster.filter_pota_sota_only,
         }),
         dock_layout: app.serialize_dock_layout(),
     };
@@ -372,10 +372,10 @@ pub(crate) fn apply_profile(app: &mut SpLogApp, p: &WorkspaceProfile) {
 
     // Filtr spotów DX Cluster przypisany do profilu (jeśli zapisany).
     if let Some(f) = &p.cluster_filter {
-        app.cluster_filter_band_selection.clone_from(&f.band);
-        app.cluster_filter_mode_selection.clone_from(&f.mode);
-        app.cluster_filter_source.clone_from(&f.source);
-        app.cluster_filter_pota_sota_only = f.pota_sota_only;
+        app.cluster.filter_band_selection.clone_from(&f.band);
+        app.cluster.filter_mode_selection.clone_from(&f.mode);
+        app.cluster.filter_source.clone_from(&f.source);
+        app.cluster.filter_pota_sota_only = f.pota_sota_only;
     }
 
     app.views.panel_vfo = p.panel_vfo.clone();

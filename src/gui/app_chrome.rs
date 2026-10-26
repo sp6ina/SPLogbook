@@ -36,12 +36,12 @@ impl SpLogApp {
                 ui.separator();
 
                 // Pasek operacyjny: częstotliwość, pasmo, tryb, split i RST
-                let freq_mhz = self.rig_state.frequency_hz as f64 / 1_000_000.0;
+                let freq_mhz = self.cat.rig_state.frequency_hz as f64 / 1_000_000.0;
                 let mut op_txt = format!(
                     "📻 {:.3} MHz | {} | {}",
                     freq_mhz, self.entry.band, self.entry.mode
                 );
-                if self.vfo_split {
+                if self.cat.vfo_split {
                     op_txt.push_str(" | SPLIT");
                 }
                 ui.label(
@@ -125,7 +125,7 @@ impl SpLogApp {
                     );
                     ui.separator();
 
-                    if self.cat_connected {
+                    if self.cat.connected {
                         ui.label(
                             egui::RichText::new("● CAT")
                                 .size(11.0)
@@ -141,14 +141,14 @@ impl SpLogApp {
                     }
                     ui.separator();
 
-                    if self.cluster_connected {
+                    if self.cluster.connected {
                         ui.label(
                             egui::RichText::new("● CLUSTER")
                                 .size(11.0)
                                 .strong()
                                 .color(palette.success),
                         );
-                    } else if self.cluster_connecting {
+                    } else if self.cluster.connecting {
                         ui.label(
                             egui::RichText::new("● CLUSTER")
                                 .size(11.0)

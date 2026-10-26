@@ -36,7 +36,7 @@ impl SpLogApp {
         cfg.is_configured = is_configured;
         cfg.dark_theme = self.gui.appearance.theme_preset.is_dark();
         cfg.theme_preset = self.gui.appearance.theme_preset.id().to_string();
-        cfg.cat_enabled = self.cat_connected;
+        cfg.cat_enabled = self.cat.connected;
         cfg.propagation_history = self.solar.propagation_history.clone();
 
         cfg.wol_mac = self.gui.dialogs.wol_dialog.mac_address.clone();
@@ -296,9 +296,9 @@ mod tests {
         assert_eq!(app.snapshot_config().current_language, "en");
 
         // CAT enabled derived field
-        app.cat_connected = true;
+        app.cat.connected = true;
         assert!(app.snapshot_config().cat_enabled);
-        app.cat_connected = false;
+        app.cat.connected = false;
         assert!(!app.snapshot_config().cat_enabled);
 
         // WOL derived fields

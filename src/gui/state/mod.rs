@@ -2,7 +2,9 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 pub mod appearance;
+pub mod cat;
 pub mod chrome;
+pub mod cluster;
 pub mod cw;
 pub mod dialogs;
 pub mod digital;
@@ -19,6 +21,7 @@ pub mod runtime;
 pub mod satellite;
 pub mod services;
 pub mod solar;
+pub mod sync_ui;
 pub mod updates;
 pub mod views;
 pub mod voice_keyer;
@@ -27,7 +30,9 @@ pub mod world_map;
 pub mod wspr;
 
 pub use appearance::AppearanceState;
+pub use cat::{CatConnection, CatState, VfoState};
 pub use chrome::ChromeState;
+pub use cluster::{ClusterState, SpotBadgeKind};
 pub use cw::CwMacroState;
 pub use dialogs::DialogState;
 pub use digital::DigitalModesState;
@@ -44,6 +49,7 @@ pub use runtime::{AppRuntime, ShutdownPolicy};
 pub use satellite::SatelliteState;
 pub use services::AppServices;
 pub use solar::{SolarFetchSlot, SolarState};
+pub use sync_ui::SyncUiState;
 pub use updates::UpdateState;
 pub use views::ViewsState;
 pub use voice_keyer::VoiceKeyerState;

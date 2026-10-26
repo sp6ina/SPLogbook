@@ -274,7 +274,7 @@ impl SpLogApp {
         let lang = self.gui.appearance.language;
         match tile_id {
             "vfo" => {
-                if self.vfo_split {
+                if self.cat.vfo_split {
                     ui.label(
                         egui::RichText::new("SPLIT ON")
                             .color(palette.danger)
@@ -290,7 +290,7 @@ impl SpLogApp {
                 }
             }
             "qso" => {
-                if self.cat_connected {
+                if self.cat.connected {
                     if ui
                         .button(
                             egui::RichText::new("● CAT ONLINE")
@@ -333,14 +333,14 @@ impl SpLogApp {
                 }
             }
             "cluster" => {
-                if self.cluster_connected {
+                if self.cluster.connected {
                     ui.label(
                         egui::RichText::new("● ONLINE")
                             .color(palette.success)
                             .size(10.0)
                             .strong(),
                     );
-                } else if self.cluster_connecting {
+                } else if self.cluster.connecting {
                     ui.label(
                         egui::RichText::new(tr(key::CLUSTER_STATUS_CONNECTING, lang))
                             .color(palette.warning)
@@ -363,7 +363,7 @@ impl SpLogApp {
                     .on_hover_text(tr(key::CLUSTER_SEND_SPOT_TOOLTIP, lang))
                     .clicked()
                 {
-                    let freq_khz = self.rig_state.frequency_hz as f64 / 1000.0;
+                    let freq_khz = self.cat.rig_state.frequency_hz as f64 / 1000.0;
                     self.gui
                         .dialogs
                         .send_spot_dialog

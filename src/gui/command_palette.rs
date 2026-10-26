@@ -54,7 +54,7 @@ const COMMANDS: &[Command] = &[
         label_key: key::CMD_SEND_SPOT,
         keywords: "spot send dx cluster",
         run: |app| {
-            let freq_khz = (app.rig_state.frequency_hz as f64) / 1000.0;
+            let freq_khz = (app.cat.rig_state.frequency_hz as f64) / 1000.0;
             app.gui
                 .dialogs
                 .send_spot_dialog

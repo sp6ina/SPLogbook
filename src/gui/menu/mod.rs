@@ -133,12 +133,12 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         // 4. Status DX Cluster
         if app.config.quick_access.show_cluster_status {
-            let (cl_color, cl_text) = if app.cluster_connected {
+            let (cl_color, cl_text) = if app.cluster.connected {
                 (
                     palette.success,
                     format!("● Cluster ({})", app.config.cluster_host),
                 )
-            } else if app.cluster_connecting {
+            } else if app.cluster.connecting {
                 (
                     palette.warning,
                     format!("● Cluster: {}", tr(key::TOOLBAR_CLUSTER_CONNECTING, lang)),
@@ -155,7 +155,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .on_hover_text(tr(key::TOOLBAR_CLUSTER_TOGGLE_TOOLTIP, lang))
                 .clicked()
             {
-                if app.cluster_connected {
+                if app.cluster.connected {
                     app.disconnect_dx_cluster();
                 } else {
                     app.connect_dx_cluster();

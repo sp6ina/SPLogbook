@@ -29,7 +29,7 @@ impl SpLogApp {
             callsign: self.entry.callsign.clone(),
             band: self.entry.band.clone(),
             mode: self.entry.mode.clone(),
-            freq_mhz: self.rig_state.frequency_hz as f64 / 1_000_000.0,
+            freq_mhz: self.cat.rig_state.frequency_hz as f64 / 1_000_000.0,
             name: self.entry.name.clone(),
             qth: self.entry.qth.clone(),
             gridsquare: self.entry.grid.clone(),
@@ -66,12 +66,12 @@ impl SpLogApp {
         self.services
             .plugin_engine
             .set_snapshot(crate::plugins::bridge::PluginSnapshot {
-                rig_freq_mhz: self.rig_state.frequency_hz as f64 / 1_000_000.0,
-                rig_mode: self.rig_state.mode.clone(),
+                rig_freq_mhz: self.cat.rig_state.frequency_hz as f64 / 1_000_000.0,
+                rig_mode: self.cat.rig_state.mode.clone(),
                 rig_band: self.entry.band.clone(),
-                rig_connected: self.rig_state.connected,
-                rotor_azimuth_deg: self.rotor_state.azimuth_deg,
-                rotor_elevation_deg: self.rotor_state.elevation_deg,
+                rig_connected: self.cat.rig_state.connected,
+                rotor_azimuth_deg: self.cat.rotor_state.azimuth_deg,
+                rotor_elevation_deg: self.cat.rotor_state.elevation_deg,
                 my_call: self.config.station.callsign.clone(),
                 qso_count: self.log_view.qso_numbers.len() as i64,
                 awards,
@@ -186,7 +186,7 @@ impl SpLogApp {
             is_skimmer: false,
             received_at: chrono::Utc::now().timestamp(),
         };
-        self.cluster_spots.insert(0, spot);
+        self.cluster.spots.insert(0, spot);
         self.gui.chrome.status_toast = Some((
             format!("Spot (plugin): {dx_call} na {freq_khz:.1} kHz"),
             std::time::Instant::now(),

@@ -149,7 +149,7 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.separator();
 
         if app.bandmap_auto_track {
-            if let Some(current_band) = get_band_by_freq(app.rig_state.frequency_hz) {
+            if let Some(current_band) = get_band_by_freq(app.cat.rig_state.frequency_hz) {
                 app.bandmap_selected_band = current_band.name.to_string();
             }
         }
@@ -286,7 +286,7 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
 
         // 3. Stacje z DX Cluster na skali
-        let spots = app.cluster_spots.clone();
+        let spots = app.cluster.spots.clone();
 
         // Zebranie spotów w paśmie i posortowanie wg częstotliwości,
         // a następnie rozłożenie etykiet w "liniach", aby się nie nakładały.
@@ -349,7 +349,7 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
 
         // 4. Kursor aktualnej częstotliwości VFO
-        let vfo_hz = app.rig_state.frequency_hz;
+        let vfo_hz = app.cat.rig_state.frequency_hz;
         if vfo_hz >= min_freq && vfo_hz <= max_freq {
             let vfo_frac = ((vfo_hz - min_freq) as f32 / freq_span).clamp(0.0, 1.0);
             let vfo_x = rect.min.x + vfo_frac * rect.width();
@@ -399,7 +399,7 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     ui.label(egui::RichText::new(tr(key::BANDMAP_COL_TUNE, lang)).strong());
                     ui.end_row();
 
-                    for spot in &app.cluster_spots {
+                    for spot in &app.cluster.spots {
                         let spot_hz = (spot.frequency_khz * 1000.0).round() as u64;
                         if spot_hz >= min_freq && spot_hz <= max_freq {
                             ui.label(

@@ -107,7 +107,7 @@ fn render_hud_body(app: &mut SpLogApp, ui: &mut egui::Ui, exit_compact: &mut boo
     ui.vertical(|ui| {
         // 1. Pasek VFO i Strojenia
         ui.horizontal(|ui| {
-            let freq_mhz = app.rig_state.frequency_hz as f64 / 1_000_000.0;
+            let freq_mhz = app.cat.rig_state.frequency_hz as f64 / 1_000_000.0;
             ui.label(
                 egui::RichText::new(format!("{freq_mhz:.3} MHz"))
                     .strong()
@@ -121,7 +121,7 @@ fn render_hud_body(app: &mut SpLogApp, ui: &mut egui::Ui, exit_compact: &mut boo
                 .on_hover_text(tr(key::HUD_TUNE_DOWN_HINT, lang))
                 .clicked()
             {
-                let new_freq = app.rig_state.frequency_hz.saturating_sub(1000);
+                let new_freq = app.cat.rig_state.frequency_hz.saturating_sub(1000);
                 app.set_vfo_frequency(new_freq);
             }
             if ui
@@ -129,7 +129,7 @@ fn render_hud_body(app: &mut SpLogApp, ui: &mut egui::Ui, exit_compact: &mut boo
                 .on_hover_text(tr(key::HUD_TUNE_UP_HINT, lang))
                 .clicked()
             {
-                let new_freq = app.rig_state.frequency_hz.saturating_add(1000);
+                let new_freq = app.cat.rig_state.frequency_hz.saturating_add(1000);
                 app.set_vfo_frequency(new_freq);
             }
 
@@ -279,7 +279,7 @@ fn render_operating_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let mut exit_compact = false;
     egui::Panel::bottom("mini_hud_operating_bar").show(ui, |ui| {
         ui.horizontal(|ui| {
-            let freq_mhz = app.rig_state.frequency_hz as f64 / 1_000_000.0;
+            let freq_mhz = app.cat.rig_state.frequency_hz as f64 / 1_000_000.0;
             ui.label(
                 egui::RichText::new(format!("{freq_mhz:.3} MHz"))
                     .strong()

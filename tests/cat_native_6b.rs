@@ -1081,17 +1081,17 @@ fn gui_switching_radio_switches_telemetry_cleanly() {
     station.rigs = vec![r1, r2];
     app.config.cat_station = Some(station);
 
-    app.cat_selected_rig_idx = 0;
+    app.cat.selected_rig_idx = 0;
     assert_eq!(
-        app.config.cat_station.as_ref().unwrap().rigs[app.cat_selected_rig_idx]
+        app.config.cat_station.as_ref().unwrap().rigs[app.cat.selected_rig_idx]
             .id
             .as_str(),
         "radio-1"
     );
 
-    app.cat_selected_rig_idx = 1;
+    app.cat.selected_rig_idx = 1;
     assert_eq!(
-        app.config.cat_station.as_ref().unwrap().rigs[app.cat_selected_rig_idx]
+        app.config.cat_station.as_ref().unwrap().rigs[app.cat.selected_rig_idx]
             .id
             .as_str(),
         "radio-2"
@@ -1189,16 +1189,16 @@ fn ui_missing_snapshot_is_not_disconnected() {
 #[test]
 fn gui_probe_generation_cancellation_on_window_close() {
     let mut app = create_test_app();
-    app.cat_probe_running = true;
-    app.cat_probe_generation = 5;
-    app.cat_probe_state = ProbeState::Running { generation: 5 };
+    app.cat.probe_running = true;
+    app.cat.probe_generation = 5;
+    app.cat.probe_state = ProbeState::Running { generation: 5 };
 
     // Symulacja zamknięcia okna
-    if app.cat_probe_running {
-        app.cat_probe_running = false;
-        app.cat_probe_state = ProbeState::Cancelled;
+    if app.cat.probe_running {
+        app.cat.probe_running = false;
+        app.cat.probe_state = ProbeState::Cancelled;
     }
-    assert_eq!(app.cat_probe_state, ProbeState::Cancelled);
+    assert_eq!(app.cat.probe_state, ProbeState::Cancelled);
 }
 
 #[test]
@@ -1276,13 +1276,14 @@ fn ui_diagnostics_redacts_secrets() {
 #[test]
 fn app_start_cat_service_respects_configured_rigs() {
     let app = create_test_app();
-    assert!(!app.cat_connected);
+    assert!(!app.cat.connected);
 }
 
 #[test]
 fn app_shutdown_blocking_terminates_cleanly() {
     let mut app = create_test_app();
-    app.cat_runtime
+    app.cat
+        .runtime
         .shutdown_blocking(Duration::from_millis(200));
 }
 

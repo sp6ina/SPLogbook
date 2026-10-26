@@ -531,7 +531,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                         ui.label("");
                                         ui.end_row();
 
-                                        for spot in &app.cluster_spots {
+                                        for spot in &app.cluster.spots {
                                             let worked = app.log_view.recent_qsos.iter().any(|q| {
                                                 q.callsign.eq_ignore_ascii_case(&spot.dx_call)
                                             });
@@ -645,8 +645,8 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
         if !app.config.station.gridsquare.trim().is_empty() {
             new_qso.my_gridsquare = Some(app.config.station.gridsquare.clone());
         }
-        if app.rig_state.frequency_hz > 0 {
-            new_qso.freq = Some(app.rig_state.frequency_hz as f64 / 1_000_000.0);
+        if app.cat.rig_state.frequency_hz > 0 {
+            new_qso.freq = Some(app.cat.rig_state.frequency_hz as f64 / 1_000_000.0);
         }
         // Parsuj wymianę, jeśli kontest ma zdefiniowane pola; w przeciwnym razie
         // zachowaj dawny tryb "sam RST" w polu `entry_rst_rcvd`.

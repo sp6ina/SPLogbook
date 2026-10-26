@@ -209,7 +209,7 @@ fn render_tuning_dot(ui: &mut egui::Ui) {
 pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let palette = ui.palette();
     let lang = app.gui.appearance.language;
-    let frequency_hz = app.rig_state.frequency_hz;
+    let frequency_hz = app.cat.rig_state.frequency_hz;
 
     // Nagłówek konsoli radiowej: Model radia + PTT + Ustawienia
     ui.horizontal(|ui| {
@@ -219,7 +219,7 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             app.config.cat_rig_model.clone()
         };
 
-        if app.cat_connected {
+        if app.cat.connected {
             ui.label(
                 egui::RichText::new(format!("📻 {rig_badge}"))
                     .color(palette.accent)
@@ -247,12 +247,12 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.separator();
 
         // Przycisk PTT (nadawanie)
-        let ptt_color = if app.ptt_active {
+        let ptt_color = if app.cat.ptt_active {
             palette.tx
         } else {
             palette.text_subtle
         };
-        let ptt_label = if app.ptt_active {
+        let ptt_label = if app.cat.ptt_active {
             "🔴 TX ON"
         } else {
             "⚫ RX"
@@ -280,7 +280,7 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
     // Twin VFO / Split Status
     ui.horizontal(|ui| {
-        let vfo_a_active = app.rig_state.vfo != "VFOB";
+        let vfo_a_active = app.cat.rig_state.vfo != "VFOB";
         let color_a = if vfo_a_active {
             palette.vfo_a
         } else {
@@ -292,12 +292,12 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         );
 
         ui.separator();
-        let split_freq = if app.vfo_split {
-            frequency_hz + (app.vfo_split_offset_khz * 1000.0) as u64
+        let split_freq = if app.cat.vfo_split {
+            frequency_hz + (app.cat.vfo.split_offset_khz * 1000.0) as u64
         } else {
             frequency_hz
         };
-        let color_b = if app.vfo_split {
+        let color_b = if app.cat.vfo_split {
             palette.split
         } else {
             palette.text_muted
@@ -307,17 +307,17 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             egui::RichText::new(format!("{:.3} MHz", (split_freq as f64) / 1_000_000.0)).strong(),
         );
 
-        if ui.selectable_label(app.vfo_split, "SPLIT").clicked() {
-            let enabled = !app.vfo_split;
+        if ui.selectable_label(app.cat.vfo_split, "SPLIT").clicked() {
+            let enabled = !app.cat.vfo_split;
             app.set_vfo_split(enabled);
         }
 
-        if app.vfo_split {
+        if app.cat.vfo_split {
             if ui.button("+1k").clicked() {
-                app.vfo_split_offset_khz = 1.0;
+                app.cat.vfo.split_offset_khz = 1.0;
             }
             if ui.button("+5k").clicked() {
-                app.vfo_split_offset_khz = 5.0;
+                app.cat.vfo.split_offset_khz = 5.0;
             }
         }
 
@@ -440,7 +440,7 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
             ui.separator();
             for mode in &["CW", "LSB", "USB", "FT8", "FT4", "RTTY", "AM", "FM"] {
-                let is_sel = app.rig_state.mode == *mode;
+                let is_sel = app.cat.rig_state.mode == *mode;
                 if ui.selectable_label(is_sel, *mode).clicked() {
                     app.set_vfo_mode(mode);
                 }
@@ -487,19 +487,19 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     .color(palette.text_muted),
             );
             if ui
-                .selectable_label(app.vfo_filter_preset == "FIL1", "FIL1 (3k)")
+                .selectable_label(app.cat.vfo.filter_preset == "FIL1", "FIL1 (3k)")
                 .clicked()
             {
                 app.set_vfo_filter("FIL1", 3000);
             }
             if ui
-                .selectable_label(app.vfo_filter_preset == "FIL2", "FIL2 (2.4k)")
+                .selectable_label(app.cat.vfo.filter_preset == "FIL2", "FIL2 (2.4k)")
                 .clicked()
             {
                 app.set_vfo_filter("FIL2", 2400);
             }
             if ui
-                .selectable_label(app.vfo_filter_preset == "FIL3", "FIL3 (500Hz)")
+                .selectable_label(app.cat.vfo.filter_preset == "FIL3", "FIL3 (500Hz)")
                 .clicked()
             {
                 app.set_vfo_filter("FIL3", 500);
@@ -514,16 +514,16 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             );
             for pre in &["OFF", "PRE1", "PRE2", "ATT"] {
                 if ui
-                    .selectable_label(app.vfo_preamp_att == *pre, *pre)
+                    .selectable_label(app.cat.vfo.preamp_att == *pre, *pre)
                     .clicked()
                 {
-                    app.vfo_preamp_att = pre.to_string();
+                    app.cat.vfo.preamp_att = pre.to_string();
                 }
             }
 
             ui.separator();
-            if ui.selectable_label(app.vfo_nb_nr, "NB/NR").clicked() {
-                app.vfo_nb_nr = !app.vfo_nb_nr;
+            if ui.selectable_label(app.cat.vfo.nb_nr, "NB/NR").clicked() {
+                app.cat.vfo.nb_nr = !app.cat.vfo.nb_nr;
             }
 
             ui.separator();
@@ -535,10 +535,10 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             );
             for agc in &["FAST", "MID", "SLOW"] {
                 if ui
-                    .selectable_label(app.vfo_agc_speed == *agc, *agc)
+                    .selectable_label(app.cat.vfo.agc_speed == *agc, *agc)
                     .clicked()
                 {
-                    app.vfo_agc_speed = agc.to_string();
+                    app.cat.vfo.agc_speed = agc.to_string();
                 }
             }
         });
@@ -555,19 +555,19 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .color(palette.text_muted),
         );
         ui.label(
-            egui::RichText::new(&app.rig_state.s_meter_unit)
+            egui::RichText::new(&app.cat.rig_state.s_meter_unit)
                 .size(12.0)
                 .strong()
                 .color(palette.warning),
         );
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let pwr = if app.ptt_active {
+            let pwr = if app.cat.ptt_active {
                 app.config.station.power_watts as f32
             } else {
                 0.0
             };
-            let swr = if app.ptt_active { 1.2 } else { 1.0 };
+            let swr = if app.cat.ptt_active { 1.2 } else { 1.0 };
             ui.label(
                 egui::RichText::new(format!("PWR: {pwr:.0} W | SWR: {swr:.1}"))
                     .size(11.0)
@@ -577,7 +577,7 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         });
     });
 
-    let raw_db = app.rig_state.s_meter_dbm;
+    let raw_db = app.cat.rig_state.s_meter_dbm;
     let meter_fraction = ((raw_db + 54.0) / 114.0).clamp(0.0, 1.0);
 
     let (rect, _response) =
@@ -610,7 +610,7 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     // Sterownik Rotora Anteny
     ui.horizontal(|ui| {
         ui.label(
-            egui::RichText::new(format!("🧭 ROTOR: {:.0}°", app.rotor_state.azimuth_deg))
+            egui::RichText::new(format!("🧭 ROTOR: {:.0}°", app.cat.rotor_state.azimuth_deg))
                 .size(13.0)
                 .strong()
                 .color(palette.warning),

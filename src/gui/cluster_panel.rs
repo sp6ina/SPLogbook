@@ -86,20 +86,20 @@ pub fn render_cluster_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             )
                             .clicked()
                         {
-                            let freq_khz = app.rig_state.frequency_hz as f64 / 1000.0;
+                            let freq_khz = app.cat.rig_state.frequency_hz as f64 / 1000.0;
                             app.gui
                                 .dialogs
                                 .send_spot_dialog
                                 .open_with(&app.entry.callsign, freq_khz);
                         }
-                        if app.cluster_connected {
+                        if app.cluster.connected {
                             ui.label(
                                 egui::RichText::new(tr(key::CLUSTER_STATUS_ONLINE, lang))
                                     .color(palette.success)
                                     .size(11.0)
                                     .strong(),
                             );
-                        } else if app.cluster_connecting {
+                        } else if app.cluster.connecting {
                             ui.label(
                                 egui::RichText::new(tr(key::CLUSTER_STATUS_CONNECTING, lang))
                                     .color(palette.warning)
@@ -188,20 +188,20 @@ pub fn render_cluster_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 )
                 .clicked()
             {
-                let freq_khz = app.rig_state.frequency_hz as f64 / 1000.0;
+                let freq_khz = app.cat.rig_state.frequency_hz as f64 / 1000.0;
                 app.gui
                     .dialogs
                     .send_spot_dialog
                     .open_with(&app.entry.callsign, freq_khz);
             }
-            if app.cluster_connected {
+            if app.cluster.connected {
                 ui.label(
                     egui::RichText::new(tr(key::CLUSTER_STATUS_ONLINE, lang))
                         .color(palette.success)
                         .size(11.0)
                         .strong(),
                 );
-            } else if app.cluster_connecting {
+            } else if app.cluster.connecting {
                 ui.label(
                     egui::RichText::new(tr(key::CLUSTER_STATUS_CONNECTING, lang))
                         .color(palette.warning)
@@ -333,7 +333,7 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             });
 
         if open_add_dialog {
-            app.show_add_cluster_dialog = true;
+            app.cluster.show_add_cluster_dialog = true;
         }
 
         if ui
@@ -341,7 +341,7 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .on_hover_text(tr(key::CLUSTER_ADD_SERVER_TOOLTIP, lang))
             .clicked()
         {
-            app.show_add_cluster_dialog = true;
+            app.cluster.show_add_cluster_dialog = true;
         }
 
         if is_custom {
@@ -357,7 +357,7 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             }
         }
 
-        if app.cluster_connected {
+        if app.cluster.connected {
             if ui
                 .add(
                     egui::Button::new(
@@ -371,7 +371,7 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 app.disconnect_dx_cluster();
             }
         } else {
-            let conn_text = if app.cluster_connecting {
+            let conn_text = if app.cluster.connecting {
                 tr(key::TOOLBAR_CLUSTER_CONNECTING, lang)
             } else {
                 tr(key::CLUSTER_CONNECT, lang)
@@ -410,7 +410,7 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     // Pasek statusu klastra
     ui.horizontal(|ui| {
         ui.label(
-            egui::RichText::new(&app.cluster_status_text)
+            egui::RichText::new(&app.cluster.status_text)
                 .size(10.0)
                 .color(palette.text_muted),
         );
@@ -432,16 +432,16 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
     // Pasek narzędziowy: Przełącznik bocznego panelu filtrów, Alerty, Czyszczenie
     ui.horizontal(|ui| {
-        let filter_btn_text = if app.cluster_show_filter_sidebar {
+        let filter_btn_text = if app.cluster.show_filter_sidebar {
             tr(key::CLUSTER_HIDE_FILTERS, lang)
         } else {
             tr(key::CLUSTER_SHOW_FILTERS, lang)
         };
         if ui
-            .selectable_label(app.cluster_show_filter_sidebar, filter_btn_text)
+            .selectable_label(app.cluster.show_filter_sidebar, filter_btn_text)
             .clicked()
         {
-            app.cluster_show_filter_sidebar = !app.cluster_show_filter_sidebar;
+            app.cluster.show_filter_sidebar = !app.cluster.show_filter_sidebar;
             app.save_station_config();
         }
 
@@ -469,7 +469,7 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .on_hover_text(tr(key::CLUSTER_CLEAR_SPOTS_TOOLTIP, lang))
                 .clicked()
             {
-                app.cluster_spots.clear();
+                app.cluster.spots.clear();
             }
         });
     });
@@ -477,16 +477,16 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     ui.separator();
 
     let current_band = app.entry.band.clone();
-    let search_q = app.cluster_search_query.trim().to_uppercase();
-    let filter_band_sel = app.cluster_filter_band_selection.clone();
-    let filter_mode_sel = app.cluster_filter_mode_selection.clone();
-    let filter_source_sel = app.cluster_filter_source.clone();
-    let filter_pota_only = app.cluster_filter_pota_sota_only;
+    let search_q = app.cluster.search_query.trim().to_uppercase();
+    let filter_band_sel = app.cluster.filter_band_selection.clone();
+    let filter_mode_sel = app.cluster.filter_mode_selection.clone();
+    let filter_source_sel = app.cluster.filter_source.clone();
+    let filter_pota_only = app.cluster.filter_pota_sota_only;
 
     // Pojedynczy przebieg: tanie filtry najpierw, parsowanie POTA/SOTA tylko raz na spot.
     let mut filtered_spots: Vec<(DxSpot, Option<String>, Option<String>)> =
-        Vec::with_capacity(app.cluster_spots.len());
-    for spot in &app.cluster_spots {
+        Vec::with_capacity(app.cluster.spots.len());
+    for spot in &app.cluster.spots {
         if filter_band_sel == "VFO" {
             if spot.band != current_band {
                 continue;
@@ -556,13 +556,13 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         filtered_spots.push((spot.clone(), pota, sota));
     }
 
-    let total_spots = app.cluster_spots.len();
+    let total_spots = app.cluster.spots.len();
     let shown_spots = filtered_spots.len();
     let mut tune_target: Option<(String, f64, String, Option<String>, Option<String>)> = None;
 
     ui.horizontal(|ui| {
         // Boczny panel filtrów
-        if app.cluster_show_filter_sidebar {
+        if app.cluster.show_filter_sidebar {
             ui.group(|ui| {
                 ui.set_width(170.0);
                 ui.vertical(|ui| {
@@ -579,7 +579,7 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                             .color(palette.text_muted),
                     );
                     ui.add(
-                        egui::TextEdit::singleline(&mut app.cluster_search_query)
+                        egui::TextEdit::singleline(&mut app.cluster.search_query)
                             .hint_text("SP, W1, POTA")
                             .desired_width(155.0),
                     );
@@ -591,7 +591,7 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                             .color(palette.text_muted),
                     );
                     egui::ComboBox::from_id_salt("sidebar_band_combo")
-                        .selected_text(&app.cluster_filter_band_selection)
+                        .selected_text(&app.cluster.filter_band_selection)
                         .width(155.0)
                         .show_ui(ui, |ui| {
                             for band in &[
@@ -599,7 +599,7 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                                 "12m", "10m", "6m", "2m", "70cm",
                             ] {
                                 ui.selectable_value(
-                                    &mut app.cluster_filter_band_selection,
+                                    &mut app.cluster.filter_band_selection,
                                     band.to_string(),
                                     *band,
                                 );
@@ -613,12 +613,12 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                             .color(palette.text_muted),
                     );
                     egui::ComboBox::from_id_salt("sidebar_mode_combo")
-                        .selected_text(&app.cluster_filter_mode_selection)
+                        .selected_text(&app.cluster.filter_mode_selection)
                         .width(155.0)
                         .show_ui(ui, |ui| {
                             for mode in &["ALL", "CW", "SSB", "DIGI"] {
                                 ui.selectable_value(
-                                    &mut app.cluster_filter_mode_selection,
+                                    &mut app.cluster.filter_mode_selection,
                                     mode.to_string(),
                                     *mode,
                                 );
@@ -632,21 +632,21 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                             .color(palette.text_muted),
                     );
                     egui::ComboBox::from_id_salt("sidebar_source_combo")
-                        .selected_text(&app.cluster_filter_source)
+                        .selected_text(&app.cluster.filter_source)
                         .width(155.0)
                         .show_ui(ui, |ui| {
                             ui.selectable_value(
-                                &mut app.cluster_filter_source,
+                                &mut app.cluster.filter_source,
                                 "ALL".to_string(),
                                 tr(key::CLUSTER_FILTER_SOURCE_ALL, lang),
                             );
                             ui.selectable_value(
-                                &mut app.cluster_filter_source,
+                                &mut app.cluster.filter_source,
                                 "HUMAN".to_string(),
                                 tr(key::CLUSTER_FILTER_SOURCE_HUMAN, lang),
                             );
                             ui.selectable_value(
-                                &mut app.cluster_filter_source,
+                                &mut app.cluster.filter_source,
                                 "RBN".to_string(),
                                 tr(key::CLUSTER_FILTER_SOURCE_SKIMMER, lang),
                             );
@@ -655,7 +655,7 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     ui.add_space(6.0);
                     ui.separator();
                     ui.checkbox(
-                        &mut app.cluster_filter_pota_sota_only,
+                        &mut app.cluster.filter_pota_sota_only,
                         tr(key::CLUSTER_FILTER_POTA_SOTA_ONLY, lang),
                     );
 
@@ -672,11 +672,11 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     );
 
                     if ui.button(tr(key::CLUSTER_FILTER_CLEAR_BTN, lang)).clicked() {
-                        app.cluster_search_query.clear();
-                        app.cluster_filter_band_selection = "ALL".to_string();
-                        app.cluster_filter_mode_selection = "ALL".to_string();
-                        app.cluster_filter_source = "ALL".to_string();
-                        app.cluster_filter_pota_sota_only = false;
+                        app.cluster.search_query.clear();
+                        app.cluster.filter_band_selection = "ALL".to_string();
+                        app.cluster.filter_mode_selection = "ALL".to_string();
+                        app.cluster.filter_source = "ALL".to_string();
+                        app.cluster.filter_pota_sota_only = false;
                     }
                 });
             });
@@ -786,12 +786,12 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
 }
 
 pub fn render_add_cluster_dialog(app: &mut SpLogApp, ctx: &egui::Context) {
-    if !app.show_add_cluster_dialog {
+    if !app.cluster.show_add_cluster_dialog {
         return;
     }
 
     let lang = app.gui.appearance.language;
-    let mut is_open = app.show_add_cluster_dialog;
+    let mut is_open = app.cluster.show_add_cluster_dialog;
     egui::Window::new(
         egui::RichText::new(tr(key::CLUSTER_ADD_DIALOG_TITLE, lang))
             .size(12.0)
@@ -809,20 +809,20 @@ pub fn render_add_cluster_dialog(app: &mut SpLogApp, ctx: &egui::Context) {
             ui.horizontal(|ui| {
                 ui.label(tr(key::CLUSTER_ADD_NAME, lang));
                 ui.add(
-                    egui::TextEdit::singleline(&mut app.new_cluster_name)
+                    egui::TextEdit::singleline(&mut app.cluster.new_cluster_name)
                         .hint_text("np. SP7PKI DX Spider"),
                 );
             });
             ui.horizontal(|ui| {
                 ui.label(tr(key::CLUSTER_ADD_HOST, lang));
                 ui.add(
-                    egui::TextEdit::singleline(&mut app.new_cluster_host)
+                    egui::TextEdit::singleline(&mut app.cluster.new_cluster_host)
                         .hint_text("np. dxc.sp7pki.pl"),
                 );
             });
             ui.horizontal(|ui| {
                 ui.label(tr(key::CLUSTER_ADD_PORT, lang));
-                ui.add(egui::DragValue::new(&mut app.new_cluster_port).range(1..=65535));
+                ui.add(egui::DragValue::new(&mut app.cluster.new_cluster_port).range(1..=65535));
             });
 
             ui.add_space(8.0);
@@ -835,13 +835,13 @@ pub fn render_add_cluster_dialog(app: &mut SpLogApp, ctx: &egui::Context) {
                     )
                     .clicked()
                 {
-                    let name = if app.new_cluster_name.trim().is_empty() {
-                        app.new_cluster_host.clone()
+                    let name = if app.cluster.new_cluster_name.trim().is_empty() {
+                        app.cluster.new_cluster_host.clone()
                     } else {
-                        app.new_cluster_name.clone()
+                        app.cluster.new_cluster_name.clone()
                     };
-                    let host = app.new_cluster_host.trim().to_string();
-                    let port = app.new_cluster_port;
+                    let host = app.cluster.new_cluster_host.trim().to_string();
+                    let port = app.cluster.new_cluster_port;
                     if !host.is_empty() {
                         app.config.custom_clusters.push(
                             crate::core::station::CustomClusterServer {
@@ -854,18 +854,18 @@ pub fn render_add_cluster_dialog(app: &mut SpLogApp, ctx: &egui::Context) {
                         app.config.cluster_port = port;
                         app.save_station_config();
                         app.connect_dx_cluster();
-                        app.show_add_cluster_dialog = false;
+                        app.cluster.show_add_cluster_dialog = false;
                     }
                 }
 
                 if ui.button(tr(key::BTN_ADD, lang)).clicked() {
-                    let name = if app.new_cluster_name.trim().is_empty() {
-                        app.new_cluster_host.clone()
+                    let name = if app.cluster.new_cluster_name.trim().is_empty() {
+                        app.cluster.new_cluster_host.clone()
                     } else {
-                        app.new_cluster_name.clone()
+                        app.cluster.new_cluster_name.clone()
                     };
-                    let host = app.new_cluster_host.trim().to_string();
-                    let port = app.new_cluster_port;
+                    let host = app.cluster.new_cluster_host.trim().to_string();
+                    let port = app.cluster.new_cluster_port;
                     if !host.is_empty() {
                         app.config.custom_clusters.push(
                             crate::core::station::CustomClusterServer {
@@ -877,18 +877,18 @@ pub fn render_add_cluster_dialog(app: &mut SpLogApp, ctx: &egui::Context) {
                         app.config.cluster_host = host;
                         app.config.cluster_port = port;
                         app.save_station_config();
-                        app.show_add_cluster_dialog = false;
+                        app.cluster.show_add_cluster_dialog = false;
                     }
                 }
 
                 if ui.button(tr(key::BTN_CANCEL, lang)).clicked() {
-                    app.show_add_cluster_dialog = false;
+                    app.cluster.show_add_cluster_dialog = false;
                 }
             });
         });
     });
 
-    app.show_add_cluster_dialog = is_open;
+    app.cluster.show_add_cluster_dialog = is_open;
 }
 
 #[cfg(test)]

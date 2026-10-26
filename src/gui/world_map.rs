@@ -495,7 +495,7 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 egui::RichText::new(format!(
                     "{}: {}",
                     tr(key::MAP_SPOTS_ON_MAP, lang),
-                    app.cluster_spots.len()
+                    app.cluster.spots.len()
                 ))
                 .size(10.0)
                 .color(palette.text_muted),
@@ -755,7 +755,7 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
         let clicked = response.clicked();
         let mut tune_target = None;
 
-        for spot in &app.cluster_spots {
+        for spot in &app.cluster.spots {
             if let Some(info) = app.services.prefix_matcher.lookup(&spot.dx_call) {
                 let spot_pos = project(info.latitude, info.longitude);
                 let spot_color = palette.band_color(&spot.band);
@@ -862,7 +862,7 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         // Rysowanie wiązki promieniowania anteny (Beam Lobe) oraz mechanicznego boomu
         if app.world_map.show_beam_lobe {
-            let az = app.rotor_state.azimuth_deg;
+            let az = app.cat.rotor_state.azimuth_deg;
             let half_beam = (app.world_map.beamwidth_deg * 0.5).clamp(10.0, 60.0);
             let lobe_len = 65.0_f32;
 
@@ -1035,7 +1035,7 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
             );
 
             // Wskazówka rotatora (Needle)
-            let az = app.rotor_state.azimuth_deg;
+            let az = app.cat.rotor_state.azimuth_deg;
             let needle_rad = (az - 90.0).to_radians();
             let needle_tip = compass_center
                 + egui::vec2(
