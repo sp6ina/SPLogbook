@@ -15,6 +15,7 @@ pub mod csv_export_dialog;
 pub mod cw_macros;
 pub mod cw_terminal;
 pub mod drill_filter;
+pub use app::SpLogApp;
 pub use drill_filter::{DrillFilter, QslDrillStatus};
 pub mod find_duplicates;
 pub mod icons;

@@ -191,7 +191,7 @@ impl SpLogApp {
             saved_size: None,
         };
 
-        self.show_bandmap_window = false;
+        self.gui.windows.show_bandmap_window = false;
         self.satellites.show_window = false;
         self.world_map.show_window = false;
         self.gui.workspace.reset_layout_requested = true;
@@ -208,7 +208,7 @@ impl SpLogApp {
             "cluster" => self.views.panel_cluster.floating = true,
             "bandmap" => {
                 self.views.panel_bandmap.floating = true;
-                self.show_bandmap_window = true;
+                self.gui.windows.show_bandmap_window = true;
             }
             "solar" => self.views.panel_solar.floating = true,
             "satellites" => {
@@ -234,7 +234,7 @@ impl SpLogApp {
             "cluster" => self.views.panel_cluster.visible = false,
             "bandmap" => {
                 self.views.panel_bandmap.visible = false;
-                self.show_bandmap_window = false;
+                self.gui.windows.show_bandmap_window = false;
             }
             "solar" => self.views.panel_solar.visible = false,
             "satellites" => {
@@ -300,7 +300,7 @@ impl SpLogApp {
                         )
                         .clicked()
                     {
-                        self.show_cat_settings_window = true;
+                        self.gui.windows.show_cat_settings_window = true;
                     }
                 } else if ui
                     .button(
@@ -310,7 +310,7 @@ impl SpLogApp {
                     )
                     .clicked()
                 {
-                    self.show_cat_settings_window = true;
+                    self.gui.windows.show_cat_settings_window = true;
                 }
             }
             "log" => {
@@ -386,6 +386,405 @@ impl SpLogApp {
             "world_map" => crate::gui::world_map::render_world_map_content(self, ui),
             "waterfall" => crate::gui::waterfall_panel::render_waterfall_body(self, ui),
             _ => {}
+        }
+    }
+
+    /// Śledzenie geometrii okna głównego (zapisywane przy wyjściu — obsługa multi-monitor)
+    pub fn track_window_geometry(&mut self, ctx: &egui::Context) {
+        let (win_pos, win_size, win_max) = ctx.input(|i| {
+            let vp = i.viewport();
+            let pos = vp.outer_rect.map(|r| [r.min.x, r.min.y]);
+            let size = vp.outer_rect.map(|r| [r.width(), r.height()]);
+            (pos, size, vp.maximized.unwrap_or(false))
+        });
+        if let Some(pos) = win_pos {
+            self.config.main_window_pos = Some(pos);
+        }
+        if let Some(size) = win_size {
+            self.config.main_window_size = Some(size);
+        }
+        self.config.main_window_maximized = win_max;
+    }
+
+    /// Główny obszar roboczy — swobodny pulpit stacji SPLogbook (MDI Desktop)
+    pub fn render_central_workspace(&mut self, ui: &mut egui::Ui) {
+        egui::CentralPanel::default().show(ui, |ui| {
+            let lang = self.gui.appearance.language;
+            let palette = ui.palette();
+            if self.config.compact_hud_mode {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(60.0);
+                    ui.heading(
+                        egui::RichText::new(tr(key::APP_COMPACT_HUD_HEADING, lang))
+                            .size(22.0)
+                            .color(palette.accent),
+                    );
+                    ui.add_space(8.0);
+                    ui.label(egui::RichText::new(tr(key::APP_COMPACT_HUD_DESC1, lang)).size(14.0));
+                    ui.label(
+                        egui::RichText::new(tr(key::APP_COMPACT_HUD_DESC2, lang))
+                            .color(palette.text_muted),
+                    );
+                    ui.add_space(16.0);
+                    if ui
+                        .button(
+                            egui::RichText::new(tr(key::APP_COMPACT_HUD_RETURN, lang))
+                                .size(14.0)
+                                .strong(),
+                        )
+                        .clicked()
+                    {
+                        self.config.compact_hud_mode = false;
+                        self.save_station_config();
+                    }
+                });
+            } else {
+                let total_visible = self.views.visible_count();
+
+                if total_visible == 0 {
+                    ui.vertical_centered(|ui| {
+                        ui.add_space(80.0);
+                        ui.heading(
+                            egui::RichText::new("📻 SPLogbook Workspace")
+                                .size(26.0)
+                                .color(palette.accent),
+                        );
+                        ui.add_space(8.0);
+                        ui.label(
+                            egui::RichText::new(tr(key::APP_EMPTY_TILES_TITLE, lang)).size(14.0),
+                        );
+                        ui.label(
+                            egui::RichText::new(tr(key::APP_EMPTY_TILES_DESC, lang))
+                                .color(palette.text_muted),
+                        );
+                        ui.add_space(16.0);
+                        if ui
+                            .button(
+                                egui::RichText::new(tr(key::APP_EMPTY_TILES_RESTORE_BTN, lang))
+                                    .size(15.0)
+                                    .strong(),
+                            )
+                            .clicked()
+                        {
+                            self.reset_panel_layout();
+                            self.save_station_config();
+                        }
+                    });
+                } else {
+                    // Uzgodnij `dock_state` z konfiguracją paneli (widoczność/odpięcie).
+                    self.sync_dock_state();
+
+                    // Tymczasowo wyjmij `dock_state`, aby uniknąć konfliktu pożyczek:
+                    // `DockArea` potrzebuje `&mut dock_state`, a `TabViewer` (self)
+                    // potrzebuje `&mut self`. Po renderze przywracamy stan.
+                    let mut dock_state = std::mem::replace(
+                        &mut self.gui.workspace.dock_state,
+                        DockState::new(vec![]),
+                    );
+                    DockArea::new(&mut dock_state)
+                        .style(Style::from_egui(ui.style().as_ref()))
+                        .show_add_buttons(false)
+                        .show_add_popup(false)
+                        .show_close_buttons(false)
+                        .show_inside(ui, self);
+                    self.gui.workspace.dock_state = dock_state;
+
+                    // Zastosuj zmiany widoczności/odpięcia wykonane przyciskami nagłówka.
+                    self.sync_dock_state();
+
+                    // Persystuj układ dokowania tylko po puszczeniu przycisku myszy (lub przy pierwszym zapisie),
+                    // aby uniknąć alokacji drzewa JSON w każdej klatce (60 FPS).
+                    let pointer_released = ui.ctx().input(|i| i.pointer.any_released());
+                    if pointer_released || self.gui.workspace.last_saved_dock_layout.is_none() {
+                        let current = self.serialize_dock_layout();
+                        if current != self.gui.workspace.last_saved_dock_layout {
+                            self.gui.workspace.last_saved_dock_layout = current;
+                            self.save_station_config();
+                        }
+                    }
+
+                    // Dyskretny pasek pomocy i szybkiego resetowania układu na dole pulpitu
+                    ui.with_layout(egui::Layout::bottom_up(egui::Align::RIGHT), |ui| {
+                        ui.add_space(6.0);
+                        ui.horizontal(|ui| {
+                            if ui
+                                .button(
+                                    egui::RichText::new(tr(key::APP_RESTORE_LAYOUT_BTN, lang))
+                                        .size(11.0),
+                                )
+                                .on_hover_text(tr(key::APP_RESTORE_LAYOUT_TOOLTIP, lang))
+                                .clicked()
+                            {
+                                self.reset_panel_layout();
+                                self.save_station_config();
+                            }
+                            ui.label(
+                                egui::RichText::new(tr(key::APP_DOCK_HINT, lang))
+                                    .size(11.0)
+                                    .color(palette.text_subtle),
+                            );
+                        });
+                    });
+                }
+            }
+        });
+    }
+
+    /// Pływające okna modułów (pop-out windows) — renderowane tylko wtedy,
+    /// gdy panel jest „odpięty” (floating).
+    pub fn render_floating_module_windows(&mut self, ctx: &egui::Context) {
+        if self.views.panel_qso.floating {
+            render_qso_entry_window(self, ctx);
+        }
+        if self.views.panel_vfo.floating {
+            render_vfo_window(self, ctx);
+        }
+        if self.views.panel_log.floating {
+            render_logbook_window(self, ctx);
+        }
+        if self.views.panel_cluster.floating {
+            render_cluster_window(self, ctx);
+        }
+        if self.views.panel_solar.floating {
+            render_solar_window(self, ctx);
+        }
+        if self.views.panel_bandmap.floating {
+            render_bandmap_window(self, ctx);
+        }
+        if self.views.panel_satellites.floating {
+            render_satellites_window(self, ctx);
+        }
+        if self.views.panel_world_map.floating {
+            render_world_map_window(self, ctx);
+        }
+        if self.views.panel_waterfall.floating {
+            crate::gui::waterfall_panel::render_waterfall_window(self, ctx);
+        }
+    }
+
+    /// Pozostałe okna modułów zaawansowanych
+    pub fn render_advanced_module_windows(&mut self, ctx: &egui::Context) {
+        render_contest_window(self, ctx);
+        render_custom_contest_editor(self, ctx);
+        render_cw_macros_window(self, ctx);
+        render_station_ledger_window(self, ctx);
+        render_welcome_wizard(self, ctx);
+        render_cat_settings_window(self, ctx);
+        render_online_sync_window(self, ctx);
+        render_awards_matrix_window(self, ctx);
+        render_edit_qso_dialog(self, ctx);
+        render_column_settings(self, ctx);
+        render_statistics_window(self, ctx);
+        crate::gui::cluster_panel::render_add_cluster_dialog(self, ctx);
+        crate::gui::multi_op_window::render_multi_op_window(self, ctx);
+        crate::gui::find_duplicates::render_find_duplicates_window(self, ctx);
+        crate::gui::station_profiles::render_station_profiles_window(self, ctx);
+        render_voice_keyer_window(self, ctx);
+        crate::gui::workspace_profiles::render_workspace_profiles_window(self, ctx);
+        crate::gui::operator_assistant::render_operator_assistant(self, ctx);
+        crate::gui::plugin_manager::render_plugin_manager(self, ctx);
+        crate::gui::marketplace::render_marketplace(self, ctx);
+    }
+
+    /// Okna dialogowe i narzędzia pomocnicze
+    pub fn render_dialogs(&mut self, ctx: &egui::Context) {
+        if self.gui.dialogs.journal_dialog.is_open {
+            let mut switched_journal = None;
+            let lang = self.gui.appearance.language;
+            if let Ok(db) = self.services.log_db.lock() {
+                self.gui
+                    .dialogs
+                    .journal_dialog
+                    .render(ctx, &db, lang, &mut |j| {
+                        switched_journal = Some(j.clone());
+                    });
+            }
+            if let Some(j) = switched_journal {
+                self.active_journal = j.clone();
+                self.config.station.callsign.clone_from(&j.station_callsign);
+                self.config.station.operator.clone_from(&j.operator);
+                self.config.station.gridsquare.clone_from(&j.my_gridsquare);
+                self.config.station.pga_gmina = if j.my_pga.is_empty() {
+                    None
+                } else {
+                    Some(j.my_pga.clone())
+                };
+                self.reload_qsos();
+                self.gui.chrome.status_toast = Some((
+                    Msg::new(key::PROFILE_SWITCHED_JOURNAL)
+                        .arg("name", &j.name)
+                        .text(self.gui.appearance.language),
+                    std::time::Instant::now(),
+                ));
+            }
+        }
+
+        if self.gui.dialogs.advanced_filter_dialog.is_open {
+            let mut filter_results = None;
+            let mut clear_filter = false;
+            let journal_id = self.active_journal.id.clone();
+            let my_call = self.config.station.callsign.clone();
+            let lang = self.gui.appearance.language;
+            if let Ok(db) = self.services.log_db.lock() {
+                self.gui.dialogs.advanced_filter_dialog.render(
+                    ctx,
+                    &db,
+                    Some(&journal_id),
+                    &my_call,
+                    lang,
+                    &mut |res| filter_results = Some(res),
+                    &mut || clear_filter = true,
+                );
+            }
+            if let Some(filtered) = filter_results {
+                self.log_view.recent_qsos = filtered;
+            }
+            if clear_filter {
+                self.reload_qsos();
+            }
+        }
+
+        if self.gui.dialogs.cw_terminal_dialog.is_open {
+            let my_call = self.config.station.callsign.clone();
+            self.gui
+                .dialogs
+                .cw_terminal_dialog
+                .render(ctx, &my_call, self.gui.appearance.language);
+        }
+
+        if self.gui.dialogs.qsl_designer_dialog.is_open {
+            let my_call = self.config.station.callsign.clone();
+            if let Ok(db) = self.services.log_db.lock() {
+                self.gui.dialogs.qsl_designer_dialog.render(
+                    ctx,
+                    &db,
+                    &my_call,
+                    self.gui.appearance.language,
+                );
+            }
+        }
+        if self.wspr.show_window {
+            crate::gui::wspr_panel::render_wspr_window(self, ctx);
+        }
+
+        // 1. Zdalne wybudzanie stacji Wake-on-LAN (WOL)
+        self.gui
+            .dialogs
+            .wol_dialog
+            .show(ctx, self.gui.appearance.language);
+
+        // 2. Położenie Księżyca i Słońca (EME / Kalkulator astronomiczny)
+        let my_grid = self.config.station.gridsquare.clone();
+        self.gui.dialogs.astronomy_dialog.show(
+            ctx,
+            &my_grid,
+            &mut self.cat.rotor_state,
+            self.gui.appearance.language,
+        );
+
+        // 3. Moduł SOTA / POTA
+        self.gui.dialogs.sota_dialog.show(
+            ctx,
+            &self.log_view.recent_qsos,
+            self.gui.appearance.language,
+        );
+
+        // 3b. Konfigurowalny eksport CSV
+        if self.gui.dialogs.csv_export_dialog.is_open {
+            if let Some(req) = self
+                .gui
+                .dialogs
+                .csv_export_dialog
+                .render(ctx, self.gui.appearance.language)
+            {
+                self.perform_csv_export(&req);
+            }
+        }
+
+        // 4. Przeglądarka wysp IOTA
+        {
+            let awards = self
+                .services
+                .awards_engine
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if let Some(iota) = self.gui.dialogs.iota_dialog.show(
+                ctx,
+                &self.services.service_db,
+                &awards,
+                self.gui.appearance.language,
+            ) {
+                self.entry.iota = iota;
+            }
+
+            // 5. Przeglądarka stanów USA (WAS)
+            if let Some(state) = self.gui.dialogs.states_dialog.show(
+                ctx,
+                &self.services.service_db,
+                &awards,
+                self.gui.appearance.language,
+            ) {
+                self.entry.state = state;
+            }
+        }
+
+        // 6. Baza menedżerów QSL
+        if let Some(qslm) = self.gui.dialogs.qsl_manager_dialog.show(
+            ctx,
+            &self.services.service_db,
+            self.gui.appearance.language,
+        ) {
+            self.entry.qsl_manager = qslm;
+        }
+
+        // 7. Przeglądarka fotografii i kart QSL korespondenta
+        self.gui
+            .dialogs
+            .photo_viewer_dialog
+            .show(ctx, self.gui.appearance.language);
+
+        // 8. Menedżer prefiksów DXCC
+        self.gui.dialogs.prefix_manager_dialog.show(
+            ctx,
+            &self.services.service_db,
+            self.gui.appearance.language,
+        );
+
+        // 9. Formularz wysyłania własnego spotu do DX Cluster
+        if let Some(sub) = self.gui.dialogs.send_spot_dialog.show(
+            ctx,
+            &self.config.station.callsign,
+            self.gui.appearance.language,
+        ) {
+            if let Some(ref tx) = self.cluster.cmd_tx {
+                let telnet_cmd = format!(
+                    "DX {:.1} {} {}\r\n",
+                    sub.freq_khz,
+                    sub.dx_call.trim().to_uppercase(),
+                    sub.comment.trim()
+                );
+                let _ = tx.send(telnet_cmd);
+            }
+            let band_str = crate::core::bandplan::get_band_by_freq((sub.freq_khz * 1000.0) as u64)
+                .map_or_else(|| "HF".to_string(), |b| b.name.to_string());
+            let is_ft8 = sub.comment.to_uppercase().contains("FT8");
+            let spot = crate::cluster::telnet::DxSpot {
+                frequency_khz: sub.freq_khz,
+                dx_call: sub.dx_call.clone(),
+                spotter: self.config.station.callsign.clone(),
+                comment: sub.comment.clone(),
+                time_utc: chrono::Utc::now().format("%H%M").to_string(),
+                band: band_str,
+                is_ft8,
+                is_skimmer: false,
+                received_at: chrono::Utc::now().timestamp(),
+            };
+            self.cluster.spots.insert(0, spot);
+            let toast_msg = Msg::new(key::CLUSTER_SPOT_SENT)
+                .arg("call", &sub.dx_call)
+                .arg("freq", format!("{:.1}", sub.freq_khz))
+                .text(self.gui.appearance.language);
+            self.gui.chrome.status_toast = Some((toast_msg, std::time::Instant::now()));
         }
     }
 }

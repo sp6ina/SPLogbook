@@ -285,7 +285,7 @@ impl SpLogApp {
         let qrz_u = self.config.qrz_username.clone();
         let qrz_p = self.config.qrz_password.clone();
         let priority = self.config.callbook_priority.clone();
-        let tx = self.qrz_lookup_tx.clone();
+        let tx = self.runtime.qrz_lookup_tx.clone();
 
         tokio::spawn(async move {
             if let Some(data) = crate::core::callbook::fetch_callsign_data(

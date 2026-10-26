@@ -38,7 +38,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .button(icons::AWARDS.label(tr(key::TOOLS_AWARDS_MATRIX, lang)))
             .clicked()
         {
-            app.show_awards_matrix_window = true;
+            app.gui.windows.show_awards_matrix_window = true;
             ui.close();
         }
         if ui

@@ -44,7 +44,7 @@ pub fn render_logbook_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             .button(format!("⚙ {}", tr(key::COLUMNS_TITLE, lang)))
                             .clicked()
                         {
-                            app.show_column_settings = true;
+                            app.gui.windows.show_column_settings = true;
                         }
                         ui.add(
                             egui::TextEdit::singleline(&mut app.log_view.search_query)
@@ -130,7 +130,7 @@ pub fn render_logbook_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 .button(format!("⚙ {}", tr(key::COLUMNS_TITLE, lang)))
                 .clicked()
             {
-                app.show_column_settings = true;
+                app.gui.windows.show_column_settings = true;
             }
             ui.add(
                 egui::TextEdit::singleline(&mut app.log_view.search_query)
@@ -917,7 +917,7 @@ pub fn render_edit_qso_dialog(app: &mut SpLogApp, ctx: &egui::Context) {
 }
 
 pub fn render_column_settings(app: &mut SpLogApp, ctx: &egui::Context) {
-    let mut is_open = app.show_column_settings;
+    let mut is_open = app.gui.windows.show_column_settings;
     if !is_open {
         return;
     }
@@ -971,7 +971,7 @@ pub fn render_column_settings(app: &mut SpLogApp, ctx: &egui::Context) {
             ui.separator();
             ui.label(egui::RichText::new(tr(key::LOG_COLUMN_PRESETS, lang)).strong());
             ui.horizontal(|ui| {
-                ui.text_edit_singleline(&mut app.column_preset_name);
+                ui.text_edit_singleline(&mut app.gui.windows.column_preset_name);
                 if ui.button(tr(key::LOG_SAVE_PRESET_BTN, lang)).clicked() {
                     save_preset = true;
                 }
@@ -1002,7 +1002,7 @@ pub fn render_column_settings(app: &mut SpLogApp, ctx: &egui::Context) {
                     save = true;
                 }
                 if ui.button(tr(key::BTN_CLOSE, lang)).clicked() {
-                    app.show_column_settings = false;
+                    app.gui.windows.show_column_settings = false;
                 }
                 if ui.button(tr(key::TOOLBAR_RESTORE_DEFAULTS, lang)).clicked() {
                     reset = true;
@@ -1014,12 +1014,12 @@ pub fn render_column_settings(app: &mut SpLogApp, ctx: &egui::Context) {
         app.config.logbook_columns = crate::core::station::default_logbook_columns();
         app.save_station_config();
     } else if save || !is_open {
-        app.show_column_settings = false;
+        app.gui.windows.show_column_settings = false;
         app.save_station_config();
     }
 
     if save_preset {
-        let name = app.column_preset_name.trim().to_string();
+        let name = app.gui.windows.column_preset_name.trim().to_string();
         if !name.is_empty() {
             let preset = crate::core::station::ColumnPreset {
                 name: name.clone(),
@@ -1027,7 +1027,7 @@ pub fn render_column_settings(app: &mut SpLogApp, ctx: &egui::Context) {
             };
             app.config.logbook_column_presets.retain(|p| p.name != name);
             app.config.logbook_column_presets.push(preset);
-            app.column_preset_name.clear();
+            app.gui.windows.column_preset_name.clear();
             app.save_station_config();
         }
     }

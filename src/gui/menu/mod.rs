@@ -74,7 +74,7 @@ fn render_right_side(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .on_hover_text(tr(key::PROFILES_TITLE, lang))
             .clicked()
         {
-            app.show_station_profiles_window = true;
+            app.gui.windows.show_station_profiles_window = true;
         }
     });
 }
@@ -202,7 +202,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .on_hover_text(tr(key::TOOLBAR_CAT_TOOLTIP, lang))
                 .clicked()
         {
-            app.show_cat_settings_window = !app.show_cat_settings_window;
+            app.gui.windows.show_cat_settings_window = !app.gui.windows.show_cat_settings_window;
         }
 
         if app.config.quick_access.show_cluster
@@ -222,7 +222,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .clicked()
         {
             app.views.panel_bandmap.visible = !app.views.panel_bandmap.visible;
-            app.show_bandmap_window = app.views.panel_bandmap.visible;
+            app.gui.windows.show_bandmap_window = app.views.panel_bandmap.visible;
             app.save_station_config();
         }
 
@@ -262,7 +262,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .on_hover_text(tr(key::TOOLBAR_AWARDS_TOOLTIP, lang))
                 .clicked()
         {
-            app.show_awards_matrix_window = !app.show_awards_matrix_window;
+            app.gui.windows.show_awards_matrix_window = !app.gui.windows.show_awards_matrix_window;
         }
 
         if app.config.quick_access.show_cw
@@ -355,10 +355,10 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
     });
 
     if show_customize_popup {
-        app.show_quick_access_customizer = true;
+        app.gui.windows.show_quick_access_customizer = true;
     }
 
-    if app.show_quick_access_customizer {
+    if app.gui.windows.show_quick_access_customizer {
         let mut open = true;
         egui::Window::new(icons::SETTINGS.label(tr(key::TOOLBAR_CUSTOMIZE_TITLE, lang)))
             .open(&mut open)
@@ -369,7 +369,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 render_quick_access_menu(app, ui);
             });
         if !open {
-            app.show_quick_access_customizer = false;
+            app.gui.windows.show_quick_access_customizer = false;
         }
     }
 }

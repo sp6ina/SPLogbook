@@ -8,12 +8,12 @@ use crate::gui::theme::ThemeExt;
 use eframe::egui;
 
 pub fn render_station_profiles_window(app: &mut SpLogApp, ctx: &egui::Context) {
-    if !app.show_station_profiles_window {
+    if !app.gui.windows.show_station_profiles_window {
         return;
     }
 
     let lang = app.gui.appearance.language;
-    let mut is_open = app.show_station_profiles_window;
+    let mut is_open = app.gui.windows.show_station_profiles_window;
     let mut close_requested = false;
     let mut need_save = false;
 
@@ -398,7 +398,7 @@ pub fn render_station_profiles_window(app: &mut SpLogApp, ctx: &egui::Context) {
     if close_requested {
         is_open = false;
     }
-    app.show_station_profiles_window = is_open;
+    app.gui.windows.show_station_profiles_window = is_open;
 
     if need_save {
         let active_id = app.config.active_profile_id.clone();

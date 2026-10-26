@@ -147,7 +147,7 @@ fn current_band(app: &SpLogApp) -> String {
 
 /// Rysuje okno asystenta operatora, jeśli jest włączone.
 pub fn render_operator_assistant(app: &mut SpLogApp, ctx: &egui::Context) {
-    if !app.show_operator_assistant {
+    if !app.gui.windows.show_operator_assistant {
         return;
     }
 
@@ -187,7 +187,7 @@ pub fn render_operator_assistant(app: &mut SpLogApp, ctx: &egui::Context) {
         }
     };
 
-    let mut open = app.show_operator_assistant;
+    let mut open = app.gui.windows.show_operator_assistant;
     egui::Window::new(tr(key::ASSISTANT_WINDOW_TITLE, lang))
         .open(&mut open)
         .default_size([460.0, 380.0])
@@ -324,7 +324,7 @@ pub fn render_operator_assistant(app: &mut SpLogApp, ctx: &egui::Context) {
             }
         });
 
-    app.show_operator_assistant = open;
+    app.gui.windows.show_operator_assistant = open;
 }
 
 #[cfg(test)]

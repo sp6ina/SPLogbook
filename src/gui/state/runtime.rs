@@ -25,6 +25,8 @@ pub struct AppRuntime {
     pub api_reload_flag: Arc<AtomicBool>,
     pub cluster_spots_api: Option<Arc<Mutex<Vec<DxSpot>>>>,
     pub last_upload_poll_secs: u64,
+    pub qrz_lookup_tx: std::sync::mpsc::Sender<crate::cloud::qrz::CallbookData>,
+    pub qrz_lookup_rx: std::sync::mpsc::Receiver<crate::cloud::qrz::CallbookData>,
 }
 
 impl Default for AppRuntime {
@@ -35,6 +37,7 @@ impl Default for AppRuntime {
 
 impl AppRuntime {
     pub fn new(shutdown_policy: ShutdownPolicy, initial_cat_enabled: bool) -> Self {
+        let (qrz_lookup_tx, qrz_lookup_rx) = std::sync::mpsc::channel();
         Self {
             shutdown_policy,
             initial_cat_enabled,
@@ -43,6 +46,8 @@ impl AppRuntime {
             api_reload_flag: Arc::new(AtomicBool::new(false)),
             cluster_spots_api: None,
             last_upload_poll_secs: 0,
+            qrz_lookup_tx,
+            qrz_lookup_rx,
         }
     }
 }
@@ -62,5 +67,6 @@ mod tests {
         assert!(!rt.api_reload_flag.load(Ordering::Relaxed));
         assert!(rt.cluster_spots_api.is_none());
         assert_eq!(rt.last_upload_poll_secs, 0);
+        assert!(rt.qrz_lookup_rx.try_recv().is_err());
     }
 }

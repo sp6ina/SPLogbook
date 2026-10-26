@@ -94,7 +94,7 @@ const COMMANDS: &[Command] = &[
         label_key: key::CMD_AWARDS_MATRIX,
         keywords: "awards dxcc waz was matrix",
         run: |app| {
-            app.show_awards_matrix_window = true;
+            app.gui.windows.show_awards_matrix_window = true;
         },
     },
     Command {
@@ -140,7 +140,7 @@ const COMMANDS: &[Command] = &[
         keywords: "bandmap spots",
         run: |app| {
             app.views.panel_bandmap.visible = true;
-            app.show_bandmap_window = true;
+            app.gui.windows.show_bandmap_window = true;
         },
     },
     Command {
@@ -148,7 +148,7 @@ const COMMANDS: &[Command] = &[
         keywords: "cluster dx spots",
         run: |app| {
             app.views.panel_cluster.visible = true;
-            app.show_cluster_panel = true;
+            app.gui.windows.show_cluster_panel = true;
         },
     },
     Command {
@@ -156,7 +156,7 @@ const COMMANDS: &[Command] = &[
         keywords: "vfo radio cat",
         run: |app| {
             app.views.panel_vfo.visible = true;
-            app.show_vfo_panel = true;
+            app.gui.windows.show_vfo_panel = true;
         },
     },
     Command {
@@ -212,14 +212,14 @@ const COMMANDS: &[Command] = &[
         label_key: key::CMD_STATION_PROFILES,
         keywords: "station profiles",
         run: |app| {
-            app.show_station_profiles_window = true;
+            app.gui.windows.show_station_profiles_window = true;
         },
     },
     Command {
         label_key: key::CMD_COLUMN_SETTINGS,
         keywords: "columns logbook",
         run: |app| {
-            app.show_column_settings = true;
+            app.gui.windows.show_column_settings = true;
         },
     },
     Command {
@@ -233,7 +233,7 @@ const COMMANDS: &[Command] = &[
         label_key: key::CMD_MULTI_OP,
         keywords: "multi op network",
         run: |app| {
-            app.show_multi_op_window = true;
+            app.gui.windows.show_multi_op_window = true;
         },
     },
     Command {

@@ -65,7 +65,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             )
             .changed()
         {
-            app.show_bandmap_window = app.views.panel_bandmap.visible;
+            app.gui.windows.show_bandmap_window = app.views.panel_bandmap.visible;
             changed = true;
         }
         if ui
@@ -125,7 +125,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
         ui.separator();
         ui.checkbox(
-            &mut app.show_awards_matrix_window,
+            &mut app.gui.windows.show_awards_matrix_window,
             icons::AWARDS.label(tr(key::VIEW_AWARDS_MATRIX, lang)),
         );
         if ui

@@ -308,5 +308,5 @@ pub fn render_multi_op_window(app: &mut SpLogApp, ctx: &egui::Context) {
         is_open = false;
     }
     app.sync_ui.show = is_open;
-    app.show_multi_op_window = is_open;
+    app.gui.windows.show_multi_op_window = is_open;
 }

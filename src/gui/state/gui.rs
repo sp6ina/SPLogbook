@@ -6,6 +6,7 @@
 use super::appearance::AppearanceState;
 use super::chrome::ChromeState;
 use super::dialogs::DialogState;
+use super::windows::WindowState;
 use super::workspace::DockWorkspace;
 
 /// Composite state representing the entire graphical interface.
@@ -15,6 +16,7 @@ pub struct GuiState {
     pub appearance: AppearanceState,
     pub dialogs: DialogState,
     pub workspace: DockWorkspace,
+    pub windows: WindowState,
 }
 
 #[cfg(test)]
@@ -31,5 +33,7 @@ mod tests {
             gui.appearance.theme_preset,
             crate::gui::theme::ThemePreset::OperatorDark
         );
+        assert!(!gui.windows.show_bandmap_window);
+        assert!(gui.windows.show_vfo_panel);
     }
 }

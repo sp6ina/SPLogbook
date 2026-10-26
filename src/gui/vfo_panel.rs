@@ -271,7 +271,7 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .on_hover_text(tr(key::CAT_SETTINGS_TOOLTIP, app.gui.appearance.language))
                 .clicked()
             {
-                app.show_cat_settings_window = true;
+                app.gui.windows.show_cat_settings_window = true;
             }
         });
     });
@@ -473,7 +473,7 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 if ui.button(egui::RichText::new(b_name).size(10.0)).clicked() {
                     app.set_vfo_frequency(b_freq);
                     app.set_vfo_mode(b_mode);
-                    app.bandmap_selected_band = b_name.to_string();
+                    app.gui.windows.bandmap_selected_band = b_name.to_string();
                 }
             }
         });

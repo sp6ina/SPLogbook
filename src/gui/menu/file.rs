@@ -39,7 +39,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .button(icons::BADGE.label(tr(key::MENU_STATION_PROFILES, lang)))
             .clicked()
         {
-            app.show_station_profiles_window = true;
+            app.gui.windows.show_station_profiles_window = true;
             ui.close();
         }
         ui.separator();

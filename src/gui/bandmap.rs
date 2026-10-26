@@ -143,29 +143,29 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
     // 1. Pasek sterowania pasmem
     ui.horizontal(|ui| {
         ui.checkbox(
-            &mut app.bandmap_auto_track,
+            &mut app.gui.windows.bandmap_auto_track,
             tr(key::BANDMAP_AUTO_TRACK, lang),
         );
         ui.separator();
 
-        if app.bandmap_auto_track {
+        if app.gui.windows.bandmap_auto_track {
             if let Some(current_band) = get_band_by_freq(app.cat.rig_state.frequency_hz) {
-                app.bandmap_selected_band = current_band.name.to_string();
+                app.gui.windows.bandmap_selected_band = current_band.name.to_string();
             }
         }
 
         ui.label(format!("{}:", tr(key::QSO_BAND, lang)));
         for band in AMATEUR_BANDS {
-            let is_selected = app.bandmap_selected_band == band.name;
+            let is_selected = app.gui.windows.bandmap_selected_band == band.name;
             if ui.selectable_label(is_selected, band.name).clicked() {
-                app.bandmap_selected_band = band.name.to_string();
-                app.bandmap_auto_track = false;
+                app.gui.windows.bandmap_selected_band = band.name.to_string();
+                app.gui.windows.bandmap_auto_track = false;
             }
         }
     });
 
     let current_band_def =
-        get_band_by_name(&app.bandmap_selected_band).unwrap_or(&AMATEUR_BANDS[5]); // Domyślnie 20m
+        get_band_by_name(&app.gui.windows.bandmap_selected_band).unwrap_or(&AMATEUR_BANDS[5]); // Domyślnie 20m
 
     let min_freq = current_band_def.min_freq_hz;
     let max_freq = current_band_def.max_freq_hz;

@@ -146,11 +146,11 @@ impl SpLogApp {
             }
             if toggle_cluster {
                 self.views.panel_cluster.visible = true;
-                self.show_cluster_panel = true;
+                self.gui.windows.show_cluster_panel = true;
             }
             if toggle_bandmap {
                 self.views.panel_bandmap.visible = true;
-                self.show_bandmap_window = true;
+                self.gui.windows.show_bandmap_window = true;
             }
             if toggle_map {
                 self.views.panel_world_map.visible = true;
@@ -160,7 +160,8 @@ impl SpLogApp {
                 self.cw.show_window = !self.cw.show_window;
             }
             if open_profiles {
-                self.show_station_profiles_window = !self.show_station_profiles_window;
+                self.gui.windows.show_station_profiles_window =
+                    !self.gui.windows.show_station_profiles_window;
             }
             if export_csv {
                 self.gui.dialogs.csv_export_dialog.open();

@@ -127,7 +127,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .button(icons::RADIO.label(tr(key::TOOLS_CAT_CONNECTION, lang)))
             .clicked()
         {
-            app.show_cat_settings_window = true;
+            app.gui.windows.show_cat_settings_window = true;
             ui.close();
         }
         if ui
@@ -155,14 +155,14 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .button(icons::DESKTOP.label(tr(key::MENU_WORKSPACE_PROFILES, lang)))
             .clicked()
         {
-            app.show_workspace_profiles_window = true;
+            app.gui.windows.show_workspace_profiles_window = true;
             ui.close();
         }
         if ui
             .button(icons::AI_ASSISTANT.label(tr(key::MENU_OPERATOR_ASSISTANT, lang)))
             .clicked()
         {
-            app.show_operator_assistant = true;
+            app.gui.windows.show_operator_assistant = true;
             ui.close();
         }
         if ui
@@ -199,7 +199,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .button(icons::GLOBE.label(tr(key::TOOLS_MULTI_OP, lang)))
             .clicked()
         {
-            app.show_multi_op_window = true;
+            app.gui.windows.show_multi_op_window = true;
             ui.close();
         }
     });

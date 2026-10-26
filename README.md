@@ -248,6 +248,7 @@ SPLogbook features a self-contained ionospheric HF propagation engine (`src/core
 - **Live Scoring, Rate Meter & Multiplier Matrix:** Displays current score, multiplier breakdown, band-by-band QSO counts, a rolling operating rate (QSO/h) with rate history, and a **per-band multiplier matrix** highlighting needed multipliers.
 - **Dupe Checking:** Immediate visual warning (red highlight and bold "DUPE!" tag) when entering an already-worked station on the current band/mode.
 - **Cabrillo 3.0 & ADX Export:** Generates fully compliant Cabrillo log files formatted according to official contest sponsor specifications, plus **ADX (XML ADIF 3.1.5)** export.
+- **Deterministic Scoreboard & Cabrillo Alignment (FC-APP-1):** In Wave 8, mutable counters were replaced with a pure derived `compute_scoreboard()` over active journal QSOs. Cabrillo 3.0 export (`core::cabrillo::build`) automatically computes claimed score directly from this scoreboard, guaranteeing that `CLAIMED-SCORE` is strictly equal to the on-screen contest score regardless of whether the contest window is open.
 
 ---
 
@@ -721,10 +722,51 @@ SPLogbook/
     │   ├── n1mm.rs          # N1MM Logger+ UDP broadcast emitter
     │   └── wsjtx.rs         # WSJT-X / JTDX binary UDP frame decoder
     ├── gui/                 # Immediate-mode egui user interface
-    │   ├── advanced_filter.rs# Multi-criteria logbook search & filter
-    │   ├── app.rs           # Main application state, event loops, hotkeys
-    │   ├── app_export.rs    # Log export (Cabrillo, ADX, PDF, GPX)
-    │   ├── app_layout.rs    # egui_dock layout, docking & panel management
+    │   ├── app.rs           # SpLogApp orchestrator: decoupled lifecycle (build, start_background, for_tests)
+    │   ├── app_async.rs     # Async event loops and background poll dispatchers
+    │   ├── app_cat.rs       # Transceiver CAT & rotator commands dispatch
+    │   ├── app_chrome.rs    # Menus, toolbars, status bar, and chrome overlays
+    │   ├── app_config.rs    # AppConfig Single Source of Truth (SSOT), snapshot_config, save_station_config
+    │   ├── app_export.rs    # ADIF, ADX, Cabrillo, and CSV export builders
+    │   ├── app_files.rs     # Dialog helpers, file path resolution, and exports
+    │   ├── app_input.rs     # Keyboard shortcuts, input routing, and command palette
+    │   ├── app_layout.rs    # egui_dock central workspace, docking, floating viewports & module window orchestration
+    │   ├── app_lookup.rs    # Debounced callbook and cloud QRZ lookup
+    │   ├── app_plugins.rs   # Rhai user plugin engine integration & event handlers
+    │   ├── app_qso.rs       # QSO form handling, edit, deletion, reload, and ingest dispatch
+    │   ├── app_services.rs  # Background services initialization and supervision
+    │   ├── app_solar.rs     # Solar propagation and band opening calculations
+    │   ├── app_tests.rs     # Architectural invariants guard and GUI test suite
+    │   ├── state/           # Decoupled state domain structures (no SpLogApp knowledge, zero I/O)
+    │   │   ├── appearance.rs# Theme preset, language, and font settings
+    │   │   ├── cat.rs       # CatState (30 fields), VfoState, CatConnection
+    │   │   ├── chrome.rs    # ChromeState: toolbar and modal visibility flags
+    │   │   ├── cluster.rs   # ClusterState (19 fields): spots, filters, telnet state
+    │   │   ├── contest.rs   # ContestState (6 fields): active rule, serial, custom drafts
+    │   │   ├── cw.rs        # CwMacroState: macro definitions and window visibility
+    │   │   ├── dialogs.rs   # DialogState: modal dialog containers
+    │   │   ├── digital.rs   # DigitalModesState: WSJT-X, JS8Call, FLDigi channels
+    │   │   ├── duplicates.rs# DuplicatesState: dupe detector settings
+    │   │   ├── entry.rs     # QsoEntryState (29 fields): primary form fields and validation
+    │   │   ├── gui.rs       # GuiState: aggregate composition of chrome, dialogs, workspace, windows
+    │   │   ├── ledger.rs    # EquipmentLedgerState: equipment inventory CRUD
+    │   │   ├── log_view.rs  # LogViewState: recent QSOs, search filter, column configuration
+    │   │   ├── marketplace.rs # MarketplaceState: catalog and package metadata
+    │   │   ├── online_sync.rs# OnlineSyncUiState: LotW, eQSL, QRZ sync state
+    │   │   ├── paths.rs     # AppPaths: config, database, and secrets storage paths
+    │   │   ├── plugins_ui.rs# PluginUiState: plugin manager UI state
+    │   │   ├── runtime.rs   # AppRuntime: runtime flags, QRZ channels, and shutdown policies
+    │   │   ├── satellite.rs # SatelliteState: pass tracking and Doppler state
+    │   │   ├── services.rs  # AppServices: shared thread-safe database and engine handles
+    │   │   ├── solar.rs     # SolarState: space weather history and forecast cache
+    │   │   ├── sync_ui.rs   # SyncUiState: Multi-Op LAN UI status and log
+    │   │   ├── updates.rs   # UpdateState: updater state machine and check timestamps
+    │   │   ├── views.rs     # ViewsState: panel visibility, floating flags, dock layout
+    │   │   ├── voice_keyer.rs # VoiceKeyerState: WAV slot playback state
+    │   │   ├── windows.rs   # WindowState (17 fields): floating module window visibility flags
+    │   │   ├── workspace.rs # DockWorkspace: egui_dock tree state and layout persistence
+    │   │   ├── world_map.rs # WorldMapState: map projection and grey line flags
+    │   │   └── wspr.rs      # WsprState: WSPR spots and monitor parameters
     │   ├── astronomy_dialog.rs # Celestial ephemeris modal
     │   ├── awards_matrix.rs # Interactive award matrix viewer
     │   ├── bandmap.rs       # Visual graphical band map with fading spots
@@ -854,10 +896,10 @@ Every contribution is a huge motivation to continue adding new features, optimiz
 SPLogbook is licensed under the **GNU General Public License v3.0 (GPLv3)**. See the [LICENSE](LICENSE) file for details.
 
 ### Author & Maintainer
-**Mariusz Woźniak (SP6INA)**  
-- E-mail: [contact@splogbook.org](mailto:contact@splogbook.org)  
-- QRZ Profile: [SP6INA on QRZ.com](https://www.qrz.com/db/SP6INA)  
-- GitHub: [@sp6ina](https://github.com/sp6ina)  
-- ☕ Support & Donate: [buycoffee.to/sp6ina](https://buycoffee.to/sp6ina)  
+**Mariusz Woźniak (SP6INA)**<br>
+- E-mail: [contact@splogbook.org](mailto:contact@splogbook.org)
+- QRZ Profile: [SP6INA on QRZ.com](https://www.qrz.com/db/SP6INA)
+- GitHub: [@sp6ina](https://github.com/sp6ina)
+- ☕ Support & Donate: [buycoffee.to/sp6ina](https://buycoffee.to/sp6ina)
 
 *Vy 73 & Good DX!* 📻

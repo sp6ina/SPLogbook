@@ -63,12 +63,12 @@ impl FormVariantCache {
 }
 
 pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
-    if !app.show_cat_settings_window {
+    if !app.gui.windows.show_cat_settings_window {
         return;
     }
 
     let lang = app.gui.appearance.language;
-    let mut is_open = app.show_cat_settings_window;
+    let mut is_open = app.gui.windows.show_cat_settings_window;
     let mut close_req = false;
 
     // 1. Upewnij się, że cat_station istnieje i zawiera co najmniej jeden wpis
@@ -276,12 +276,12 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
             app.cat.probe_running = false;
             app.cat.probe_state = crate::cat::probe::ProbeState::Cancelled;
         }
-        app.show_cat_settings_window = false;
+        app.gui.windows.show_cat_settings_window = false;
         app.config.cat_station = Some(station_cfg);
         app.save_station_config();
     } else {
         app.config.cat_station = Some(station_cfg);
-        app.show_cat_settings_window = true;
+        app.gui.windows.show_cat_settings_window = true;
     }
 }
 

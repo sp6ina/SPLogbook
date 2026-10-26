@@ -16,12 +16,12 @@ use egui_dock::DockState;
 
 /// Rysuje okno profili układu, jeśli jest otwarte.
 pub fn render_workspace_profiles_window(app: &mut SpLogApp, ctx: &egui::Context) {
-    if !app.show_workspace_profiles_window {
+    if !app.gui.windows.show_workspace_profiles_window {
         return;
     }
     let lang = app.gui.appearance.language;
 
-    let mut open = app.show_workspace_profiles_window;
+    let mut open = app.gui.windows.show_workspace_profiles_window;
     egui::Window::new(tr(key::WS_PROFILES_WINDOW_TITLE, lang))
         .open(&mut open)
         .default_size([560.0, 440.0])
@@ -231,7 +231,7 @@ pub fn render_workspace_profiles_window(app: &mut SpLogApp, ctx: &egui::Context)
                 );
             });
         });
-    app.show_workspace_profiles_window = open;
+    app.gui.windows.show_workspace_profiles_window = open;
 }
 
 /// Eksportuje pojedynczy profil do pliku `*.spws` (JSON z polem wersji).
@@ -389,7 +389,7 @@ pub(crate) fn apply_profile(app: &mut SpLogApp, p: &WorkspaceProfile) {
     app.views.panel_waterfall = p.panel_waterfall.clone();
 
     // Synchronizacja okien pływających (popout) dla paneli z obsługą ↗.
-    app.show_bandmap_window = p.panel_bandmap.visible && p.panel_bandmap.floating;
+    app.gui.windows.show_bandmap_window = p.panel_bandmap.visible && p.panel_bandmap.floating;
     app.satellites.show_window = p.panel_satellites.visible && p.panel_satellites.floating;
     app.world_map.show_window = p.panel_world_map.visible && p.panel_world_map.floating;
 

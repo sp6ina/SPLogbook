@@ -444,7 +444,7 @@ impl SpLogApp {
 
     /// Odbiór asynchronicznych danych korespondenta z Callbook / HamQTH / Callook / QRZ
     pub fn poll_qrz_lookup(&mut self) {
-        while let Ok(data) = self.qrz_lookup_rx.try_recv() {
+        while let Ok(data) = self.runtime.qrz_lookup_rx.try_recv() {
             if data.callsign == self.entry.callsign.trim().to_uppercase() {
                 if let Some(n) = data.name {
                     if self.entry.name.is_empty() || self.entry.name != n {
