@@ -38,21 +38,31 @@
 - **Kategoria:** `SEC`
 - **Poziom krytyczności:** `BLOCKER`
 - **Poziom pewności:** `CONFIRMED`
-- **Moduł / obszar:** `src/scratch.rs`, `src/cloud/updater.rs`
-- **Lokalizacja:** [`src/scratch.rs:1-10`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/scratch.rs#L1-L10), [`src/cloud/updater.rs:257-266`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cloud/updater.rs#L257-L266) (`TRUSTED_KEYS`)
+- **Status po Etapie 1A (SEC-001):**
+  - **REMEDIATED_IN_TREE:** materiał został usunięty z aktualnego drzewa (`git rm src/scratch.rs`);
+  - **REGRESSION_GUARDED:** testy (`tests/security_guard.rs`) i CI (`.github/workflows/ci.yml`) blokują ponowne dodanie;
+  - **HISTORY_EXPOSURE:** OWNER_DECISION_REQUIRED (skompromitowany materiał obecny w historii commitów od `80533e2` i tagu `v1.2.0`; ewentualne czyszczenie przez git-filter-repo wymaga decyzji właściciela);
+  - **PRODUCTION_KEY_ROTATION:** BLOCKED_EXTERNAL_SECRET (wymaga wygenerowania nowego klucza poza repozytorium i wprowadzenia do GitHub Secrets przez właściciela);
+  - **HISTORICAL_RELEASE_AUDIT:** OPEN (wymaga weryfikacji integralności dotychczasowych manifestów i wydań);
+  - **AUTO_UPDATE_RELEASE_READINESS:** BLOCKED (auto-updater pozostaje fail-closed z 0 aktywnymi kluczami do czasu ukończenia rotacji).
+- **Moduł / obszar:** `src/scratch.rs`, `src/cloud/updater.rs`, `tests/security_guard.rs`, `.github/workflows/ci.yml`, `docs/SECURITY_KEY_ROTATION.md`
+- **Lokalizacja:** [`src/cloud/updater.rs:257-300`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cloud/updater.rs#L257-L300) (`TRUSTED_KEYS`, `REVOKED_KEY_IDS`, `REVOKED_PUBLIC_KEYS`), [`tests/security_guard.rs`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/tests/security_guard.rs), [`docs/SECURITY_KEY_ROTATION.md`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/docs/SECURITY_KEY_ROTATION.md)
 - **Dowód z kodu / Git:**
-  - W śledzonym pliku `src/scratch.rs:4-5`: `let secret = [1u8; 32]; let signing_key = SigningKey::from_bytes(&secret);` generuje klucz publiczny `[109, 72, 1, 34, 95, 195, 132, 176, 98, 155, 207, 206, 145, 98, 159, 8, 110, 233, 90, 236, 84, 127, 179, 166, 231, 137, 166, 233, 148, 250, 211, 7]`.
-  - Dokładnie ta tablica 32 bajtów została wpisana w commicie `54db3e0` jako jedyny aktywny klucz produkcyjny `key_id: "splogbook-release-2026-01"` w `src/cloud/updater.rs:260-264`.
-- **Opis problemu:** Mechanizm kryptograficznej weryfikacji aktualizacji (W8) używa klucza publicznego wyprowadzonego z trywialnego ziarna `[1u8; 32]`, które znajduje się publicznie w repozytorium Git.
-- **Scenariusz wystąpienia:** Dowolny atakujący (MITM, przejęcie DNS, podstawiony serwer lub przejęte konto wydawnicze) może wygenerować prawidłowy podpis `release-manifest.json.sig` dla złośliwej binarki przy użyciu `splogbook_signer` i klucza `0101...01`.
-- **Wpływ:** Całkowite unieważnienie ochrony kryptograficznej Ed25519 w auto-updaterze — możliwość zdalnego wykonania kodu (RCE) podczas aktualizacji.
-- **Rozwiązanie minimalne:** Usunąć `src/scratch.rs`, wygenerować nową parę kluczy Ed25519 poza repozytorium (`splogbook-release-2026-02`), umieścić w `TRUSTED_KEYS` wyłącznie nowy klucz publiczny, a klucz prywatny zapisać w GitHub Actions Secrets (`RELEASE_SIGNING_KEY`).
-- **Rozwiązanie docelowe:** Rotacja klucza z listą odwołań (`REVOKED_KEY_IDS: &["splogbook-release-2026-01"]`) oraz test strażniczy sprawdzający, że żaden klucz w `TRUSTED_KEYS` nie pochodzi z trywialnych ziaren (`[0u8; 32]`, `[1u8; 32]`, `[42u8; 32]`).
-- **Ryzyko wdrożenia zmiany:** Niskie (wymaga podpisania kolejnego wydania nowym kluczem).
+  - W commicie `80533e2` wprowadzono śledzone pliki kluczy `.signer_priv.key`, `.test.key`, `klucz.key` oraz `src/scratch.rs`. Plik `klucz.key` odpowiadał historycznemu publicznemu kluczowi `[203, 142, 210, 212...]`.
+  - W commicie `54db3e0` podmieniono klucz publiczny na `[109, 72, 1, 34...]` z zachowaniem identyfikatora `splogbook-release-2026-01`, bez mechanizmu wycofania starego klucza.
+  - Plik `src/scratch.rs` zawierał jawny kod wyliczający klucz ze stałego ziarna `[1u8; 32]`.
+- **Opis problemu:** Ujawnienie materiału kryptograficznego w repozytorium unieważnia kryptograficzne zaufanie do wydań podpisywanych historycznymi kluczami.
+- **Scenariusz wystąpienia:** Atakujący posiadający skompromitowany klucz prywatny mógłby spreparować podpisany manifest dla złośliwego pliku aktualizacji.
+- **Wpływ:** Całkowite unieważnienie ochrony kryptograficznej Ed25519 w auto-updaterze przed wdrożeniem mechanizmu revocation.
+- **Wdrożone rozwiązanie (Etap 1A):** Usunięto `src/scratch.rs` z drzewa, zaktualizowano `.gitignore`, dodano listę `REVOKED_KEY_IDS` i `REVOKED_PUBLIC_KEYS` w `src/cloud/updater.rs`, wprowadzono stan fail-closed (`active: false`), dodano testy regresyjne `tests/security_guard.rs`, dodano krok weryfikacji w CI oraz udokumentowano procedurę w `docs/SECURITY_KEY_ROTATION.md`.
+- **Wymagane działanie właściciela (Etap 1B):** Ręczne wygenerowanie nowego klucza Ed25519 poza repozytorium, umieszczenie klucza prywatnego w GitHub Secrets (`RELEASE_SIGNING_KEY`) oraz dostarczenie klucza publicznego do wdrożenia w `TRUSTED_KEYS`.
+- **Ryzyko wdrożenia zmiany:** Niskie (updater fail-closed do czasu dostarczenia nowego klucza).
 - **Złożoność wdrożenia:** `S`
 - **Zależności od innych zmian:** Powiązane z `REL-001` i `CI-001`.
-- **Wymagany test regresyjny:** `updater_trusted_keys_reject_known_test_and_trivial_seeds` w `src/cloud/updater.rs`.
-- **Kryterium akceptacji:** Brak `src/scratch.rs` w drzewie roboczym, klucz `splogbook-release-2026-01` wycofany, nowy klucz publiczny w `TRUSTED_KEYS`.
+- **Wdrożone testy regresyjne:**
+  - `updater_trusted_keys_reject_known_test_and_trivial_seeds` w `tests/security_guard.rs`
+  - `repository_contains_no_tracked_private_key_material` w `tests/security_guard.rs`
+- **Kryterium akceptacji Etapu 1A:** Spełnione — brak `src/scratch.rs`, brak śledzonych kluczy prywatnych, klucz `splogbook-release-2026-01` odwołany, testy przechodzą pomyślnie, status udokumentowany.
 
 ---
 

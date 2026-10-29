@@ -1,4 +1,0 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2026 Mariusz Woźniak (SP6INA)
-
-use ed25519_dalek::{SigningKey}; fn main() { let secret = [1u8; 32]; let signing_key = SigningKey::from_bytes(&secret); let pub_key = signing_key.verifying_key(); println!("{:?}", pub_key.to_bytes()); }
