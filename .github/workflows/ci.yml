@@ -20,6 +20,22 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Verify repository contains no tracked secrets or private keys (SEC-001)
+        run: |
+          FORBIDDEN_FILES=$(git ls-files | grep -E '(^|/)(scratch\.rs|\.signer_priv\.key|klucz\.key|\.test\.key|.*\.p12|.*\.pfx)$' || true)
+          if [ -n "$FORBIDDEN_FILES" ]; then
+            echo "::error::Tracked private key or forbidden secret file detected in repository:"
+            echo "$FORBIDDEN_FILES"
+            exit 1
+          fi
+          PEM_FILES=$(git ls-files '*.pem' || true)
+          for f in $PEM_FILES; do
+            if grep -q "PRIVATE KEY" "$f" 2>/dev/null; then
+              echo "::error::Tracked private key detected in PEM file: $f"
+              exit 1
+            fi
+          done
+
       - name: Install system dependencies
         run: |
           sudo apt-get update

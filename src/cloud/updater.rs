@@ -260,10 +260,48 @@ pub const TRUSTED_KEYS: &[TrustedKey] = &[TrustedKey {
         109, 72, 1, 34, 95, 195, 132, 176, 98, 155, 207, 206, 145, 98, 159, 8, 110, 233, 90, 236,
         84, 127, 179, 166, 231, 137, 166, 233, 148, 250, 211, 7,
     ],
-    active: true,
+    active: false, // Odwołany po incydencie SEC-001 (fail-closed do czasu rotacji: BLOCKED_EXTERNAL_SECRET)
     min_version: Some("1.1.0"),
     max_version: None,
 }];
+
+/// Odwołane identyfikatory kluczy wydań (SEC-001).
+pub const REVOKED_KEY_IDS: &[&str] = &["splogbook-release-2026-01"];
+
+/// Odwołane publiczne klucze Ed25519 (klucze kompromitowane i testowe).
+/// Przechowuje wyłącznie materiał publiczny – brak jakichkolwiek prywatnych seedów.
+pub const REVOKED_PUBLIC_KEYS: &[[u8; 32]] = &[
+    // Historyczny klucz produkcyjny z klucz.key (ujawniony w historii Git)
+    [
+        203, 142, 210, 212, 105, 105, 108, 227, 134, 187, 21, 218, 130, 171, 206, 34, 2, 8, 28,
+        215, 25, 30, 29, 155, 176, 60, 221, 202, 31, 156, 241, 112,
+    ],
+    // Klucz publiczny wygenerowany z trywialnego ziarna [1u8; 32] w scratch.rs
+    [
+        138, 136, 227, 221, 116, 9, 241, 149, 253, 82, 219, 45, 60, 186, 93, 114, 202, 103, 9, 191,
+        29, 148, 18, 27, 243, 116, 136, 1, 180, 15, 111, 92,
+    ],
+    // Klucz publiczny z trywialnego ziarna [0u8; 32]
+    [
+        59, 106, 39, 188, 206, 182, 164, 45, 98, 163, 168, 208, 42, 111, 13, 115, 101, 50, 21, 119,
+        29, 226, 67, 166, 58, 192, 72, 161, 139, 89, 218, 41,
+    ],
+    // Klucz publiczny z ujawnionego w historii .signer_priv.key
+    [
+        108, 158, 236, 247, 76, 222, 170, 89, 37, 224, 25, 98, 49, 197, 84, 95, 229, 153, 255, 45,
+        92, 247, 208, 87, 166, 39, 218, 8, 107, 160, 254, 195,
+    ],
+    // Klucz publiczny z ujawnionego w historii .test.key
+    [
+        76, 56, 230, 100, 206, 128, 193, 15, 142, 145, 133, 231, 186, 236, 103, 150, 75, 250, 53,
+        202, 116, 66, 202, 2, 76, 13, 10, 95, 13, 242, 138, 126,
+    ],
+];
+
+/// Sprawdza, czy dany key_id lub klucz publiczny znajduje się na liście odwołanych (SEC-001).
+pub fn is_key_revoked(key_id: &str, public_key: &[u8; 32]) -> bool {
+    REVOKED_KEY_IDS.contains(&key_id) || REVOKED_PUBLIC_KEYS.contains(public_key)
+}
 
 /// Weryfikuje podpis na podstawie surowych bajtów manifestu.
 /// Sprawdza po kolei klucze. Zwraca dopasowany klucz i sparsowany manifest.
@@ -287,8 +325,21 @@ pub fn verify_manifest_signature(
     let signature = Signature::from_slice(&sig_bytes)
         .map_err(|e| UpdaterError::InvalidSignature(format!("Błąd ładowania podpisu: {e}")))?;
 
+    // Sprawdzenie czy podpis pasuje do któregokolwiek z odwołanych kluczy publicznych.
+    // Odrzucamy manifest natychmiast bez fallbacku (SEC-001).
+    for revoked_pk in REVOKED_PUBLIC_KEYS {
+        if let Ok(revoked_key) = VerifyingKey::from_bytes(revoked_pk)
+            && revoked_key.verify(manifest_bytes, &signature).is_ok()
+        {
+            return Err(UpdaterError::UntrustedKey);
+        }
+    }
+
     let mut verified_key = None;
     for key in TRUSTED_KEYS.iter().filter(|k| k.active) {
+        if is_key_revoked(key.key_id, &key.public_key) {
+            continue;
+        }
         if let Ok(verifying_key) = VerifyingKey::from_bytes(&key.public_key) {
             if verifying_key.verify(manifest_bytes, &signature).is_ok() {
                 verified_key = Some(key);
@@ -304,6 +355,10 @@ pub fn verify_manifest_signature(
             "Błąd parsowania manifestu JSON po weryfikacji podpisu: {e}"
         ))
     })?;
+
+    if is_key_revoked(&manifest.key_id, &key.public_key) {
+        return Err(UpdaterError::UntrustedKey);
+    }
 
     if manifest.key_id != key.key_id {
         return Err(UpdaterError::KeyMismatch(format!(

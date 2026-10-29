@@ -37,8 +37,16 @@ mailmap.txt
 # Local working documents (kept out of the repository)
 PLAN.md
 
-# Private signing keys (never commit)
+# Private signing keys and certificates (never commit - SEC-001)
 *.key
+*.pem
+*.p12
+*.pfx
+.signer_priv.key
+.test.key
+klucz.key
+src/scratch.rs
+scratch.rs
 
 # Audit/scratch scripts and reports (kept local only)
 *.py
