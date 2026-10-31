@@ -24,6 +24,7 @@ pub const MAX_ACTIVE_PEERS: usize = 32;
 pub const MAX_HANDSHAKES: usize = 5;
 pub const PING_INTERVAL: Duration = Duration::from_secs(15);
 pub const IDLE_TIMEOUT: Duration = Duration::from_secs(45);
+pub const HOST_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 
 struct PeerEntry {
     station: String,
@@ -277,14 +278,22 @@ async fn run_listener_loop(
                     return;
                 }
             };
-            let handshake_result =
-                match host_handshake(stream, &station, &server_salt, &server_key).await {
-                    Ok(res) => res,
-                    Err(err) => {
-                        let _ = events.send(SyncEvent::Error(err));
-                        return;
-                    }
-                };
+            let handshake_result = match tokio::time::timeout(
+                HOST_HANDSHAKE_TIMEOUT,
+                host_handshake(stream, &station, &server_salt, &server_key),
+            )
+            .await
+            {
+                Ok(Ok(res)) => res,
+                Ok(Err(err)) => {
+                    let _ = events.send(SyncEvent::Error(err));
+                    return;
+                }
+                Err(_) => {
+                    let _ = events.send(SyncEvent::Error(SyncError::Timeout));
+                    return;
+                }
+            };
 
             drop(permit);
 
