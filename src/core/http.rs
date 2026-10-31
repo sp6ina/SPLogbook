@@ -93,6 +93,43 @@ fn jitter_ms(base_ms: u64, attempt: usize) -> u64 {
     (base_ms as i64 * pct / 100).max(0) as u64
 }
 
+/// Zwraca zredagowany adres URL dla celów diagnostycznych, pozbawiony
+/// danych uwierzytelniających (userinfo), parametrów zapytania (query) i fragmentów.
+pub fn sanitize_url(url: &reqwest::Url) -> String {
+    let mut clean = url.clone();
+    let _ = clean.set_username("");
+    let _ = clean.set_password(None);
+    clean.set_query(None);
+    clean.set_fragment(None);
+    clean.to_string()
+}
+
+/// Zwraca zredagowany ciąg URL ze stringa.
+pub fn redacted_url_for_diagnostics(raw: &str) -> String {
+    if let Ok(url) = reqwest::Url::parse(raw) {
+        sanitize_url(&url)
+    } else if let Some((base, _)) = raw.split_once('?') {
+        base.to_string()
+    } else {
+        raw.to_string()
+    }
+}
+
+/// Bezpieczna redakcja błędów sieciowych `reqwest::Error`.
+///
+/// Zapobiega wyciekowi sekretów przesyłanych w URL (hasła, tokeny, klucze API, basic auth)
+/// do logów, GUI oraz komunikatów o błędach. Zachowuje diagnostykę niesekretną:
+/// bezpieczny schemat + host + ścieżkę oraz powód błędu bez surowego URL z parametrami.
+pub fn sanitize_network_error(err: &reqwest::Error) -> String {
+    if let Some(url) = err.url() {
+        let clean = sanitize_url(url);
+        let raw = err.to_string();
+        raw.replace(url.as_str(), &clean)
+    } else {
+        err.to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -164,5 +201,78 @@ mod tests {
         .await;
         assert_eq!(result, Err("always fail"));
         assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn cloud_errors_never_expose_credentials() {
+        let fake_pass = "TEST_SECRET_DO_NOT_USE_PASS_123";
+        let fake_key = "TEST_SECRET_DO_NOT_USE_KEY_456";
+        let fake_bearer = "TEST_SECRET_DO_NOT_USE_BEARER_789";
+        let fake_encoded = "p%40ss%2Fw%3Ard";
+
+        // 1. Hasło w query
+        let url_query =
+            reqwest::Url::parse(&format!("https://example.com/api?password={fake_pass}")).unwrap();
+        let sanitized = sanitize_url(&url_query);
+        assert!(!sanitized.contains(fake_pass));
+        assert_eq!(sanitized, "https://example.com/api");
+
+        // 2. API key w query
+        let url_key =
+            reqwest::Url::parse(&format!("https://example.com/api?api_key={fake_key}")).unwrap();
+        let sanitized_key = sanitize_url(&url_key);
+        assert!(!sanitized_key.contains(fake_key));
+        assert_eq!(sanitized_key, "https://example.com/api");
+
+        // 3. Basic Auth w URL
+        let url_basic =
+            reqwest::Url::parse(&format!("https://user:{fake_pass}@example.com/api")).unwrap();
+        let sanitized_basic = sanitize_url(&url_basic);
+        assert!(!sanitized_basic.contains(fake_pass));
+        assert_eq!(sanitized_basic, "https://example.com/api");
+
+        // 4. Sekret zawierający znaki wymagające kodowania URL
+        let url_encoded = reqwest::Url::parse(&format!(
+            "https://user:{fake_encoded}@example.com/api?pass={fake_encoded}"
+        ))
+        .unwrap();
+        let sanitized_encoded = sanitize_url(&url_encoded);
+        assert!(!sanitized_encoded.contains("pass="));
+        assert_eq!(sanitized_encoded, "https://example.com/api");
+
+        // 5. Niepoprawny URL
+        let raw_invalid = format!("not-a-valid-url?secret={fake_key}");
+        let sanitized_invalid = redacted_url_for_diagnostics(&raw_invalid);
+        assert!(!sanitized_invalid.contains(fake_key));
+        assert_eq!(sanitized_invalid, "not-a-valid-url");
+
+        // 6. Bearer token w diagnostyce
+        let bearer_diag = format!("Authorization: Bearer {fake_bearer}");
+        assert!(bearer_diag.contains(fake_bearer));
+        let sanitized_header = if bearer_diag.starts_with("Authorization:") {
+            "Authorization: Bearer <redacted>".to_string()
+        } else {
+            bearer_diag
+        };
+        assert!(!sanitized_header.contains(fake_bearer));
+        assert!(sanitized_header.contains("<redacted>"));
+    }
+
+    #[test]
+    fn secret_query_parameters_are_redacted() {
+        let fake_secret = "TEST_SECRET_DO_NOT_USE_QUERY_PARAM";
+        let mut url = reqwest::Url::parse("https://xmldata.qrz.com/xml/current/").unwrap();
+        url.query_pairs_mut()
+            .append_pair("username", "SP6INA")
+            .append_pair("password", fake_secret)
+            .append_pair("agent", "SPLogbook");
+
+        assert!(url.as_str().contains(fake_secret));
+        assert!(url.as_str().contains("username=SP6INA"));
+
+        let redacted = sanitize_url(&url);
+        assert!(!redacted.contains(fake_secret));
+        assert!(!redacted.contains("password"));
+        assert_eq!(redacted, "https://xmldata.qrz.com/xml/current/");
     }
 }

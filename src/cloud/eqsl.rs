@@ -45,6 +45,9 @@ impl EqslClient {
                         ])
                         .send()
                         .await
+                        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
+                            crate::core::http::sanitize_network_error(&e).into()
+                        })
                 }
             },
             3,
@@ -72,7 +75,10 @@ impl EqslClient {
             .get("https://www.eqsl.cc/qslcard/DownloadInBox.cfm")
             .query(&[("UserName", &self.username), ("Password", &self.password)])
             .send()
-            .await?;
+            .await
+            .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
+                crate::core::http::sanitize_network_error(&e).into()
+            })?;
 
         let body = resp.text().await?;
         if body.contains("<EOH>")

@@ -352,7 +352,7 @@ impl UploadScheduler {
 }
 
 /// Dane uwierzytelniające potrzebne do wysłania zadań w tle.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct UploadCredentials {
     pub clublog_callsign: String,
     pub clublog_email: String,
@@ -361,6 +361,20 @@ pub struct UploadCredentials {
     pub qrz_api_key: String,
     pub eqsl_username: String,
     pub eqsl_password: String,
+}
+
+impl std::fmt::Debug for UploadCredentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UploadCredentials")
+            .field("clublog_callsign", &self.clublog_callsign)
+            .field("clublog_email", &self.clublog_email)
+            .field("clublog_password", &"<redacted>")
+            .field("clublog_api_key", &"<redacted>")
+            .field("qrz_api_key", &"<redacted>")
+            .field("eqsl_username", &self.eqsl_username)
+            .field("eqsl_password", &"<redacted>")
+            .finish()
+    }
 }
 
 #[derive(Debug)]
@@ -545,5 +559,24 @@ mod tests {
         assert_eq!(st[&UploadService::ClubLog].pending, 1);
         assert_eq!(st[&UploadService::Qrz].pending, 2);
         assert_eq!(st[&UploadService::Eqsl].pending, 0);
+    }
+
+    #[test]
+    fn online_services_debug_redacts_all_secrets() {
+        let creds = UploadCredentials {
+            clublog_callsign: "SP6INA".into(),
+            clublog_email: "test@example.com".into(),
+            clublog_password: "TEST_SECRET_DO_NOT_USE_CLUBLOG".into(),
+            clublog_api_key: "TEST_SECRET_DO_NOT_USE_CLUBKEY".into(),
+            qrz_api_key: "TEST_SECRET_DO_NOT_USE_QRZKEY".into(),
+            eqsl_username: "SP6INA".into(),
+            eqsl_password: "TEST_SECRET_DO_NOT_USE_EQSLPASS".into(),
+        };
+
+        let debug_out = format!("{creds:?}");
+        assert!(!debug_out.contains("TEST_SECRET_DO_NOT_USE"));
+        assert!(debug_out.contains("<redacted>"));
+        assert!(debug_out.contains("SP6INA"));
+        assert!(debug_out.contains("test@example.com"));
     }
 }

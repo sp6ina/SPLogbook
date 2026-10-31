@@ -65,7 +65,9 @@ impl ClubLogClient {
                         .multipart(form)
                         .send()
                         .await
-                        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })
+                        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
+                            crate::core::http::sanitize_network_error(&e).into()
+                        })
                 }
             },
             3,

@@ -15,12 +15,23 @@ pub enum SyncRole {
 }
 
 /// Konfiguracja usługi synchronizacji.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct SyncConfig {
     pub role: SyncRole,
     pub secret: String,
     pub station: String,
     pub journal: String,
+}
+
+impl std::fmt::Debug for SyncConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SyncConfig")
+            .field("role", &self.role)
+            .field("secret", &"<redacted>")
+            .field("station", &self.station)
+            .field("journal", &self.journal)
+            .finish()
+    }
 }
 
 /// Stan maszyny stanów synchronizacji.
@@ -185,5 +196,29 @@ impl SyncService {
 impl Drop for SyncService {
     fn drop(&mut self) {
         self.stop();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn runtime_services_debug_redacts_all_secrets() {
+        let cfg = SyncConfig {
+            role: SyncRole::Peer {
+                host: "127.0.0.1".into(),
+                port: 7373,
+            },
+            secret: "TEST_SECRET_DO_NOT_USE_SYNC".into(),
+            station: "SP6INA".into(),
+            journal: "DEFAULT".into(),
+        };
+
+        let debug_out = format!("{cfg:?}");
+        assert!(!debug_out.contains("TEST_SECRET_DO_NOT_USE_SYNC"));
+        assert!(debug_out.contains("<redacted>"));
+        assert!(debug_out.contains("SP6INA"));
+        assert!(debug_out.contains("DEFAULT"));
     }
 }
