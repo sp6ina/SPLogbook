@@ -245,6 +245,7 @@ pub enum UpdateCheckOutcome {
 }
 
 /// Zaufany klucz publiczny wbudowany w aplikację.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrustedKey {
     pub key_id: &'static str,
     pub public_key: [u8; 32],
@@ -254,16 +255,28 @@ pub struct TrustedKey {
 }
 
 /// Zaufane klucze publiczne (hardcoded).
-pub const TRUSTED_KEYS: &[TrustedKey] = &[TrustedKey {
-    key_id: "splogbook-release-2026-01",
-    public_key: [
-        109, 72, 1, 34, 95, 195, 132, 176, 98, 155, 207, 206, 145, 98, 159, 8, 110, 233, 90, 236,
-        84, 127, 179, 166, 231, 137, 166, 233, 148, 250, 211, 7,
-    ],
-    active: false, // Odwołany po incydencie SEC-001 (fail-closed do czasu rotacji: BLOCKED_EXTERNAL_SECRET)
-    min_version: Some("1.1.0"),
-    max_version: None,
-}];
+pub const TRUSTED_KEYS: &[TrustedKey] = &[
+    TrustedKey {
+        key_id: "splogbook-release-2026-02",
+        public_key: [
+            120, 98, 36, 60, 5, 44, 3, 94, 176, 193, 128, 250, 134, 246, 151, 173, 48, 52, 175, 70,
+            250, 58, 209, 168, 53, 6, 216, 212, 62, 225, 232, 68,
+        ],
+        active: true,
+        min_version: Some("1.2.0"),
+        max_version: None,
+    },
+    TrustedKey {
+        key_id: "splogbook-release-2026-01",
+        public_key: [
+            109, 72, 1, 34, 95, 195, 132, 176, 98, 155, 207, 206, 145, 98, 159, 8, 110, 233, 90,
+            236, 84, 127, 179, 166, 231, 137, 166, 233, 148, 250, 211, 7,
+        ],
+        active: false, // Odwołany po incydencie SEC-001 (fail-closed do czasu rotacji)
+        min_version: Some("1.1.0"),
+        max_version: None,
+    },
+];
 
 /// Odwołane identyfikatory kluczy wydań (SEC-001).
 pub const REVOKED_KEY_IDS: &[&str] = &["splogbook-release-2026-01"];
@@ -298,17 +311,29 @@ pub const REVOKED_PUBLIC_KEYS: &[[u8; 32]] = &[
     ],
 ];
 
-/// Sprawdza, czy dany key_id lub klucz publiczny znajduje się na liście odwołanych (SEC-001).
-pub fn is_key_revoked(key_id: &str, public_key: &[u8; 32]) -> bool {
-    REVOKED_KEY_IDS.contains(&key_id) || REVOKED_PUBLIC_KEYS.contains(public_key)
+/// Sprawdza, czy dany key_id lub klucz publiczny znajduje się na liście odwołanych względem podanych list.
+pub fn is_key_revoked_with_lists(
+    key_id: &str,
+    public_key: &[u8; 32],
+    revoked_key_ids: &[&str],
+    revoked_public_keys: &[[u8; 32]],
+) -> bool {
+    revoked_key_ids.contains(&key_id) || revoked_public_keys.contains(public_key)
 }
 
-/// Weryfikuje podpis na podstawie surowych bajtów manifestu.
-/// Sprawdza po kolei klucze. Zwraca dopasowany klucz i sparsowany manifest.
-pub fn verify_manifest_signature(
+/// Sprawdza, czy dany key_id lub klucz publiczny znajduje się na liście odwołanych (SEC-001).
+pub fn is_key_revoked(key_id: &str, public_key: &[u8; 32]) -> bool {
+    is_key_revoked_with_lists(key_id, public_key, REVOKED_KEY_IDS, REVOKED_PUBLIC_KEYS)
+}
+
+/// Weryfikuje podpis na podstawie surowych bajtów manifestu z użyciem przekazanych kluczy i list odwołań.
+pub fn verify_manifest_signature_with_keys<'a>(
     manifest_bytes: &[u8],
     signature_base64: &str,
-) -> Result<(&'static TrustedKey, ReleaseManifest), UpdaterError> {
+    trusted_keys: &'a [TrustedKey],
+    revoked_key_ids: &[&str],
+    revoked_public_keys: &[[u8; 32]],
+) -> Result<(&'a TrustedKey, ReleaseManifest), UpdaterError> {
     use base64::{Engine as _, engine::general_purpose::STANDARD};
     use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 
@@ -327,7 +352,7 @@ pub fn verify_manifest_signature(
 
     // Sprawdzenie czy podpis pasuje do któregokolwiek z odwołanych kluczy publicznych.
     // Odrzucamy manifest natychmiast bez fallbacku (SEC-001).
-    for revoked_pk in REVOKED_PUBLIC_KEYS {
+    for revoked_pk in revoked_public_keys {
         if let Ok(revoked_key) = VerifyingKey::from_bytes(revoked_pk)
             && revoked_key.verify(manifest_bytes, &signature).is_ok()
         {
@@ -336,8 +361,13 @@ pub fn verify_manifest_signature(
     }
 
     let mut verified_key = None;
-    for key in TRUSTED_KEYS.iter().filter(|k| k.active) {
-        if is_key_revoked(key.key_id, &key.public_key) {
+    for key in trusted_keys.iter().filter(|k| k.active) {
+        if is_key_revoked_with_lists(
+            key.key_id,
+            &key.public_key,
+            revoked_key_ids,
+            revoked_public_keys,
+        ) {
             continue;
         }
         if let Ok(verifying_key) = VerifyingKey::from_bytes(&key.public_key) {
@@ -356,7 +386,12 @@ pub fn verify_manifest_signature(
         ))
     })?;
 
-    if is_key_revoked(&manifest.key_id, &key.public_key) {
+    if is_key_revoked_with_lists(
+        &manifest.key_id,
+        &key.public_key,
+        revoked_key_ids,
+        revoked_public_keys,
+    ) {
         return Err(UpdaterError::UntrustedKey);
     }
 
@@ -395,6 +430,21 @@ pub fn verify_manifest_signature(
     }
 
     Ok((key, manifest))
+}
+
+/// Weryfikuje podpis na podstawie surowych bajtów manifestu.
+/// Sprawdza po kolei klucze. Zwraca dopasowany klucz i sparsowany manifest.
+pub fn verify_manifest_signature(
+    manifest_bytes: &[u8],
+    signature_base64: &str,
+) -> Result<(&'static TrustedKey, ReleaseManifest), UpdaterError> {
+    verify_manifest_signature_with_keys(
+        manifest_bytes,
+        signature_base64,
+        TRUSTED_KEYS,
+        REVOKED_KEY_IDS,
+        REVOKED_PUBLIC_KEYS,
+    )
 }
 
 /// Weryfikuje czy manifest wnosi nowszą wersję w stosunku do aktualnie uruchomionej.

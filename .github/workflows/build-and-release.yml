@@ -204,10 +204,12 @@ jobs:
 
       - name: Create and sign Release Manifest
         env:
-          SIGNER_PRIVATE_KEY: ${{ secrets.SIGNER_PRIVATE_KEY }}
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
         run: |
-          # Write private key to temp file from Base64 secret
-          echo "$SIGNER_PRIVATE_KEY" | base64 -d > priv.key
+          # Write private key to temp file from Base64 secret with restricted permissions
+          umask 077
+          echo "$RELEASE_SIGNING_KEY" | base64 -d > priv.key
+          chmod 600 priv.key
           
           # Compute hashes
           SHA_LINUX=$(./target/release/splogbook-signer hash SPLogbook-Linux-x86_64/SPLogbook-Linux-x86_64.tar.gz | awk '{print $2}')
@@ -224,7 +226,7 @@ jobs:
           cat > release-manifest.json <<EOF
           {
             "manifest_version": 1,
-            "key_id": "splogbook-release-2026-01",
+            "key_id": "splogbook-release-2026-02",
             "product": "SPLogbook",
             "version": "$VERSION",
             "channel": "stable",
