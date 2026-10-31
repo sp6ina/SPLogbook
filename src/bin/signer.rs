@@ -10,6 +10,9 @@ fn print_usage() {
     println!("  keygen <out_priv.key>             - Generuje nową parę kluczy Ed25519");
     println!("  sign <priv.key> <manifest.json>   - Podpisuje manifest i tworzy manifest.json.sig");
     println!(
+        "  fingerprint <priv.key>            - Oblicza fingerprint SHA-256 klucza publicznego"
+    );
+    println!(
         "  hash <plik>                       - Oblicza SHA-256 dla pliku (do wklejenia w manifest)"
     );
 }
@@ -35,6 +38,12 @@ fn main() -> Result<(), String> {
             }
             sign(&args[2], &args[3])?;
         }
+        "fingerprint" => {
+            if args.len() < 3 {
+                return Err("Brakujący argument <priv.key>".to_string());
+            }
+            show_fingerprint(&args[2])?;
+        }
         "hash" => {
             if args.len() < 3 {
                 return Err("Brakujący argument <plik>".to_string());
@@ -48,6 +57,19 @@ fn main() -> Result<(), String> {
     }
 
     Ok(())
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    let result = hasher.finalize();
+    let mut hex = String::with_capacity(64);
+    use std::fmt::Write;
+    for b in result {
+        let _ = write!(hex, "{:02x}", b);
+    }
+    hex
 }
 
 fn keygen(out_path: &str) -> Result<(), String> {
@@ -67,8 +89,32 @@ fn keygen(out_path: &str) -> Result<(), String> {
     println!("========================================");
     println!("Twój nowy kod zaufanego klucza publicznego (Rust array):");
     println!("{:?}", public_bytes);
+    println!(
+        "Fingerprint SHA-256 (public key): {}",
+        sha256_hex(&public_bytes)
+    );
     println!("Wklej powyższą tablicę do `TRUSTED_KEYS` w `src/cloud/updater.rs`.");
 
+    Ok(())
+}
+
+fn show_fingerprint(priv_key_path: &str) -> Result<(), String> {
+    use ed25519_dalek::SigningKey;
+
+    let secret_bytes =
+        fs::read(priv_key_path).map_err(|e| format!("Błąd odczytu pliku klucza: {}", e))?;
+    if secret_bytes.len() != 32 {
+        return Err("Plik klucza prywatnego musi mieć dokładnie 32 bajty.".to_string());
+    }
+
+    let secret_arr: [u8; 32] = secret_bytes.try_into().map_err(|_| {
+        "Błąd konwersji klucza prywatnego: nieprawidłowa długość tablicy.".to_string()
+    })?;
+    let signing_key = SigningKey::from_bytes(&secret_arr);
+    let public_bytes = signing_key.verifying_key().to_bytes();
+
+    println!("Public key: {:?}", public_bytes);
+    println!("Fingerprint SHA-256: {}", sha256_hex(&public_bytes));
     Ok(())
 }
 
@@ -82,7 +128,9 @@ fn sign(priv_key_path: &str, manifest_path: &str) -> Result<(), String> {
         return Err("Plik klucza prywatnego musi mieć dokładnie 32 bajty.".to_string());
     }
 
-    let secret_arr: [u8; 32] = secret_bytes.try_into().unwrap();
+    let secret_arr: [u8; 32] = secret_bytes.try_into().map_err(|_| {
+        "Błąd konwersji klucza prywatnego: nieprawidłowa długość tablicy.".to_string()
+    })?;
     let signing_key = SigningKey::from_bytes(&secret_arr);
 
     let manifest_bytes =

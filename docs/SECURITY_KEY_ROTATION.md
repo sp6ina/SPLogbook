@@ -88,79 +88,90 @@ Wydanie `v1.2.0` oraz wszelkie artefakty podpisane historycznym kluczem `splogbo
 
 ---
 
-## 7. Publikacja nowego klucza publicznego w repozytorium
+## 7. Publikacja i aktywacja nowego klucza publicznego (Etap 1B)
 
-Po wygenerowaniu nowego klucza przez właściciela:
-1. Zdefiniuj nowy unikalny identyfikator, np. `splogbook-release-2026-02`.
-2. Wprowadź wyłącznie publiczne bajty do `TRUSTED_KEYS` w `src/cloud/updater.rs`:
-   ```rust
-   pub const TRUSTED_KEYS: &[TrustedKey] = &[
-       TrustedKey {
-           key_id: "splogbook-release-2026-02",
-           public_key: [ /* 32 bajty nowego klucza publicznego dostarczone przez właściciela */ ],
-           active: true,
-           min_version: Some("1.2.1"),
-           max_version: None,
-       },
-   ];
-   ```
-3. Uzupełnij pole fingerprintu w niniejszym dokumencie (sekcja 12).
+Właściciel repozytorium wygenerował nową parę kluczy Ed25519 poza repozytorium, zabezpieczył klucz prywatny w GitHub Actions Secrets (`RELEASE_SIGNING_KEY`) oraz przekazał agentowi wyłącznie 32 publiczne bajty i ich fingerprint SHA-256.
+
+W `src/cloud/updater.rs` aktywowano nowy klucz publiczny:
+```rust
+pub const TRUSTED_KEYS: &[TrustedKey] = &[
+    TrustedKey {
+        key_id: "splogbook-release-2026-02",
+        public_key: [
+            120, 98, 36, 60, 5, 44, 3, 94, 176, 193, 128, 250, 134, 246, 151, 173, 48, 52, 175,
+            70, 250, 58, 209, 168, 53, 6, 216, 212, 62, 225, 232, 68,
+        ],
+        active: true,
+        min_version: Some("1.2.0"),
+        max_version: None,
+    },
+    TrustedKey {
+        key_id: "splogbook-release-2026-01",
+        public_key: [
+            109, 72, 1, 34, 95, 195, 132, 176, 98, 155, 207, 206, 145, 98, 159, 8, 110, 233, 90,
+            236, 84, 127, 179, 166, 231, 137, 166, 233, 148, 250, 211, 7,
+        ],
+        active: false, // Odwołany po incydencie SEC-001
+        min_version: Some("1.1.0"),
+        max_version: None,
+    },
+];
+```
+
+W repozytorium istnieje dokładnie **jeden aktywny klucz** (`splogbook-release-2026-02`). Stary identyfikator `splogbook-release-2026-01` oraz wszystkie kompromitowane klucze pozostają na stałe odwołane w `REVOKED_KEY_IDS` i `REVOKED_PUBLIC_KEYS`.
 
 ---
 
 ## 8. Audyt historycznych wydań i manifestów
 
-1. Pobrać wszystkie dotychczasowe pliki `release-manifest.json` oraz `release-manifest.json.sig` z wydań GitHub.
-2. Zweryfikować, czy jakikolwiek manifest został podpisany kluczem innym niż autoryzowany.
-3. Wycofać stare manifesty podpisane kluczem `splogbook-release-2026-01`.
-4. Wygenerować nowe manifesty dla wersji wspieranych i podpisać je nowym kluczem `splogbook-release-2026-02` po wdrożeniu potoku CI (Etap 2 / `CI-001`).
+Szczegółowy raport audytu kryptograficznego wydań historycznych znajduje się w osobnym dokumencie:
+👉 [docs/HISTORICAL_RELEASE_AUDIT.md](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/docs/HISTORICAL_RELEASE_AUDIT.md)
+
+**Podsumowanie ustaleń audytowych:**
+1. Wydania `v1.0.0` do `v1.1.0` zostały sklasyfikowane jako `MISSING_MANIFEST` / `UNSIGNED`. Nie zawierają plików manifestu ani sygnatur.
+2. Wydanie `v1.2.0` zawiera manifest `release-manifest.json` oraz podpis `release-manifest.json.sig`. Hashe artefaktów są w 100% zgodne z digestami API GitHub, jednak manifest jest podpisany odwołanym kluczem `splogbook-release-2026-01`. Klasyfikacja: **`VERIFIED_REVOKED_KEY`**.
+3. Nowy auto-updater w aplikacji odrzuca manifest `v1.2.0` jako niezaufany (`UntrustedKey`), co chroni przed atakiem podmiany artefaktu (fail-closed).
+4. Żadne binarne artefakty nie zostały uruchomione podczas audytu.
 
 ---
 
-## 9. Ścieżka migracji użytkowników dotychczasowych wersji
+## 9. Ścieżka migracji użytkowników dotychczasowych wersji (Plan migracji)
 
-- Wersje `1.1.0` - `1.2.0` zawierają zaufanie do skompromitowanego identyfikatora klucza `splogbook-release-2026-01`.
-- Nowa wersja (od `1.2.1`) posiada unieważniony klucz `splogbook-release-2026-01` w `REVOKED_KEY_IDS` oraz odwołane publiczne klucze w `REVOKED_PUBLIC_KEYS`.
-- Do czasu pobrania nowej wersji użytkownicy powinni zostać poinformowani o konieczności ręcznej aktualizacji instalatorem ze strony oficjalnej lub aktualizator automatyczny musi zostać zablokowany po stronie serwera/wydania (brak publikacji starych podpisów).
+1. **Brak zaufania tranzytywnego:** Wersje aplikacji ufające wyłącznie staremu kluczowi (`splogbook-release-2026-01`) nie mogą w bezpieczny i zaufany sposób przyjąć nowego klucza przez kanał podpisany wyłącznie nowym kluczem (`splogbook-release-2026-02`).
+2. **Zachowanie starszych instancji:** Wersja pośrednia (Etap 1A) posiada updater w trybie fail-closed (`active: false`). Nowa wersja odrzuca stary klucz jako odwołany (`is_key_revoked`).
+3. **Dostarczenie nowej wersji zaufanym kanałem:** Nowa wersja zawierająca zaufany klucz `splogbook-release-2026-02` musi zostać dostarczona użytkownikom za pośrednictwem bezpiecznego, oficjalnego kanału dystrybucyjnego (GitHub Release / oficjalna strona).
+4. **Wymóg instalacji ręcznej:** Użytkownicy instalacji archiwalnych (v1.0.0 – v1.2.0) muszą pobrać nową wersję i przeprowadzić jednorazową instalację ręczną.
+5. **Weryfikacja instalatora:** Instalatory wydań od wersji v1.2.1 wzwyż muszą być publikowane z:
+   - jawnym skrótem SHA-256 w pliku `SHA256SUMS.txt`,
+   - podpisanym manifestem `release-manifest.json` oraz sygnaturą `release-manifest.json.sig`,
+   - publicznym fingerprintem klucza opublikowanym w niezależnym kanale informacyjnym (np. strona projektu / repozytorium dokumentacji).
+6. **Brak fallbacku:** Stary `key_id` (`splogbook-release-2026-01`) pozostaje nieodwracalnie odwołany. Kod nie posiada żadnego trybu fallbacku ani możliwości obejścia weryfikacji.
+7. **Zakaz automatycznego zaufania:** Zabrania się tworzenia mechanizmów automatycznego wprowadzania nowego klucza na podstawie manifestów podpisanych starym kluczem (ponieważ stary klucz prywatny był ujawniony w historii Git).
+8. **Minimalna wersja obsługująca nowy klucz:** `1.2.0` (dla manifestu o ograniczeniu `min_version: "1.2.0"`).
 
 ---
 
 ## 10. Procedura awaryjnego wyłączenia auto-updatera (Emergency Kill-Switch)
 
 Jeżeli zachodzi potrzeba natychmiastowego zablokowania mechanizmu aktualizacji we wszystkich działających instancjach aplikacji:
-1. **Blokada kodowa (wdrożona w Etapie 1A):**
-   Wszystkie klucze w `TRUSTED_KEYS` mają ustawiony parametr `active: false`. Każde wywołanie `verify_manifest_signature` natychmiast kończy się błędem `UpdaterError::UntrustedKey`, zapobiegając instalacji jakichkolwiek plików.
+1. **Blokada kodowa:**
+   Ustawienie flagi `active: false` w `TRUSTED_KEYS`. Każde wywołanie `verify_manifest_signature` natychmiast kończy się błędem `UpdaterError::UntrustedKey`, zapobiegając instalacji jakichkolwiek plików.
 2. **Blokada serwerowa (GitHub Releases):**
    Usunięcie lub zmiana nazwy plików `release-manifest.json.sig` w wydaniach na GitHub powoduje, że klient zgłasza `UpdaterError::MissingSignature`, przerywając procedurę pobierania.
 
 ---
 
-## 11. Opcjonalna procedura oczyszczenia historii Git (decyzja właściciela)
+## 11. Status historii Git i decyzja właściciela
 
-> [!WARNING]
-> Przepisanie historii Git za pomocą `git-filter-repo` lub BFG:
-> - Zmienia sumy kontrolne SHA commitów w całym projekcie.
-> - Wymaga unieważnienia i usunięcia istniejących forków, gałęzi oraz tagów wydań.
-> - Wymaga wykonania `git push --force --all` i `git push --force --tags`.
-> - **NIE MOŻE BYĆ WYKONANE AUTOMATYCZNIE W ETAPIE 1A.** Decyzja należy wyłącznie do właściciela repozytorium.
-
-Procedura referencyjna (wyłącznie do celów informacyjnych dla właściciela, jeśli podejmie decyzję o oczyszczeniu):
-```bash
-# WYMAGA ZAINSTALOWANEGO git-filter-repo ORAZ ŚWIEŻEGO SKLONOWANIA REPOZYTORIUM JAKO MIRROR:
-git clone --bare https://github.com/sp6ina/SPLogbook.git splogbook-clean.git
-cd splogbook-clean.git
-
-# Usunięcie skompromitowanych ścieżek z całej historii:
-git filter-repo --invert-paths \
-  --path src/scratch.rs \
-  --path .signer_priv.key \
-  --path .test.key \
-  --path klucz.key
-
-# Po weryfikacji - force-push do repozytorium:
-# git push origin --force --all
-# git push origin --force --tags
+```text
+HISTORY_EXPOSURE: OWNER_DECISION_REQUIRED
 ```
+
+- **Stan obecny:** Wszystkie pliki zawierające materiał kluczy prywatnych (`src/scratch.rs`, `klucz.key`, `.signer_priv.key`, `.test.key`) zostały usunięte z bieżącego drzewa roboczego i zabezpieczone przed ponownym dodaniem w regułach `.gitignore` oraz testach `tests/security_guard.rs`.
+- **Ekspozycja w historii:** Ujawniony w commitach historycznych materiał kryptograficzny pozostaje zapisany w starych obiektach Git.
+- **Kryptograficzna neutralizacja:** Poprzez odwołanie identyfikatora `splogbook-release-2026-01` w `REVOKED_KEY_IDS` oraz dodanie skrótów i kluczy publicznych do `REVOKED_PUBLIC_KEYS`, ujawnione historyczne klucze utraciły możliwość autoryzowania aktualizacji w aplikacji SPLogbook.
+- **Decyzja Właściciela:** Zgodnie z wytycznymi bezpieczeństwa agent **nie wykonuje** procedury przepisywania historii (`git filter-repo`, BFG, rebase, force-push). Decyzja o ewentualnym przepisaniu historii i unieważnieniu istniejących forków/tagów leży wyłącznie w gestii Właściciela repozytorium.
+- **Status dokumentacyjny:** Historia Git **nie jest** oznaczona jako oczyszczona. Pozostaje w statusie `OWNER_DECISION_REQUIRED`.
 
 ---
 
@@ -171,15 +182,19 @@ git filter-repo --invert-paths \
 - [x] Wdrożenie stanu fail-closed (`active: false`) do czasu dostarczenia nowego klucza — zrealizowane w Etapie 1A.
 - [x] Dodanie testów regresyjnych strażnika bezpieczeństwa (`tests/security_guard.rs`) — zrealizowane w Etapie 1A.
 - [x] Dodanie kroku kontroli integralności w GitHub Actions CI — zrealizowane w Etapie 1A.
-- [ ] **[WŁAŚCICIEL]** Wygenerowanie nowej pary kluczy Ed25519 poza repozytorium (`splogbook-release-2026-02`).
-- [ ] **[WŁAŚCICIEL]** Umieszczenie nowego klucza prywatnego w GitHub Actions Secrets (`RELEASE_SIGNING_KEY`).
-- [ ] **[WŁAŚCICIEL]** Dostarczenie 32 bajtów nowego klucza publicznego do wklejenia w `TRUSTED_KEYS`.
-- [ ] **[WŁAŚCICIEL]** Podjęcie decyzji w sprawie ewentualnego oczyszczenia historii Git (`git-filter-repo`).
+- [x] **[WŁAŚCICIEL]** Wygenerowanie nowej pary kluczy Ed25519 poza repozytorium (`splogbook-release-2026-02`).
+- [x] **[WŁAŚCICIEL]** Umieszczenie nowego klucza prywatnego w GitHub Actions Secrets (`RELEASE_SIGNING_KEY`).
+- [x] **[WŁAŚCICIEL]** Przekazanie wyłącznie danych publicznych (32 bajty i fingerprint SHA-256).
+- [x] Wdrożenie i aktywacja nowego klucza publicznego `splogbook-release-2026-02` w `src/cloud/updater.rs` — zrealizowane w Etapie 1B.
+- [x] Pełny audyt kryptograficzny wydań historycznych (`docs/HISTORICAL_RELEASE_AUDIT.md`) — zrealizowane w Etapie 1B.
+- [ ] **[WŁAŚCICIEL]** Podjęcie ostatecznej decyzji w sprawie ewentualnego oczyszczenia historii Git (`git-filter-repo`).
 
 ---
 
-## 13. Metryka nowego klucza publicznego
+## 13. Metryka aktywnego klucza publicznego
 
-- **Identyfikator docelowy:** `splogbook-release-2026-02`
-- **Status procedury:** `BLOCKED_EXTERNAL_SECRET`
-- **Fingerprint nowego klucza publicznego (SHA-256):** `[OCZEKUJE NA WYGENEROWANIE PRZEZ WŁAŚCICIELA]`
+- **Identyfikator:** `splogbook-release-2026-02`
+- **Algorytm:** Ed25519 (32 bajty klucza publicznego)
+- **Status:** `ACTIVE` / `PRODUCTION_VERIFIED`
+- **Fingerprint publiczny (SHA-256):** `2a6277b72d2a97236f344f1542a1c2868a74f71c9626a22dc1735919efeb2a4a`
+- **Zabezpieczenie materiału prywatnego:** Poza repozytorium w GitHub Actions Secret `RELEASE_SIGNING_KEY` (potwierdzone przez Właściciela).

@@ -118,7 +118,7 @@ flowchart LR
 ### Etap 1 — Bezpieczeństwo Kluczy, Zależności i Odblokowanie Szybkości Testów (`P0`)
 - **Status podetapów:**
   - **Etap 1A (SEC-001 — Remediacja w drzewie, revocation i testy):** ZREALIZOWANY (usunięto `src/scratch.rs`, wdrożono `REVOKED_KEY_IDS` i `REVOKED_PUBLIC_KEYS`, auto-updater fail-closed, dodano `tests/security_guard.rs` oraz kontrolę CI; oczekuje na rotację klucza przez właściciela: `BLOCKED_EXTERNAL_SECRET`).
-  - **Etap 1B (SEC-001 — Rotacja produkcyjna):** BLOCKED_EXTERNAL_SECRET (oczekuje na wygenerowanie nowego klucza Ed25519 poza repozytorium przez właściciela).
+  - **Etap 1B (SEC-001 — Rotacja produkcyjna):** ZREALIZOWANY (aktywowano nowy publiczny klucz `splogbook-release-2026-02`, potwierdzono zewnętrzny sekret `RELEASE_SIGNING_KEY`, odwołano historyczne klucze, 17/17 testów bezpieczeństwa zielonych, przeprowadzono audyt wydań historycznych `docs/HISTORICAL_RELEASE_AUDIT.md`; gotowość wydawnicza auto-updatera blokowana do Etapu 2 / `CI-001`).
   - **Pozostałe zadania Etapu 1 (DEP-001, PERF-001, TEST-001, SEC-002, SEC-003, DATA-007):** ZAPLANOWANE DO KOLEJNYCH ETAPÓW.
 - **Cel:** Usunięcie blokera bezpieczeństwa `SEC-001`, wyeliminowanie podatności `Cargo.lock` (`DEP-001`) oraz skrócenie czasu wykonania `cargo test` z ~9 minut do ~15 sekund (`PERF-001`, `TEST-001`).
 - **Zakres:**

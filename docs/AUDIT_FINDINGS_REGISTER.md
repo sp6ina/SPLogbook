@@ -38,13 +38,16 @@
 - **Kategoria:** `SEC`
 - **Poziom krytyczności:** `BLOCKER`
 - **Poziom pewności:** `CONFIRMED`
-- **Status po Etapie 1A (SEC-001):**
-  - **REMEDIATED_IN_TREE:** materiał został usunięty z aktualnego drzewa (`git rm src/scratch.rs`);
-  - **REGRESSION_GUARDED:** testy (`tests/security_guard.rs`) i CI (`.github/workflows/ci.yml`) blokują ponowne dodanie;
-  - **HISTORY_EXPOSURE:** OWNER_DECISION_REQUIRED (skompromitowany materiał obecny w historii commitów od `80533e2` i tagu `v1.2.0`; ewentualne czyszczenie przez git-filter-repo wymaga decyzji właściciela);
-  - **PRODUCTION_KEY_ROTATION:** BLOCKED_EXTERNAL_SECRET (wymaga wygenerowania nowego klucza poza repozytorium i wprowadzenia do GitHub Secrets przez właściciela);
-  - **HISTORICAL_RELEASE_AUDIT:** OPEN (wymaga weryfikacji integralności dotychczasowych manifestów i wydań);
-  - **AUTO_UPDATE_RELEASE_READINESS:** BLOCKED (auto-updater pozostaje fail-closed z 0 aktywnymi kluczami do czasu ukończenia rotacji).
+- **Status po Etapie 1B (SEC-001):**
+  - **REMEDIATED_IN_TREE:** FIXED (materiał prywatny usunięty z drzewa roboczego, brak śledzonych plików kluczy);
+  - **REGRESSION_GUARDED:** FIXED (pakiet 17 testów regresyjnych `tests/security_guard.rs` oraz CI `.github/workflows/ci.yml` wymuszają fail-closed i brak prywatnego materiału);
+  - **LEGACY_KEYS_REVOKED:** FIXED (`splogbook-release-2026-01` oraz 5 odwołanych kluczy publicznych na stałe w `REVOKED_KEY_IDS` i `REVOKED_PUBLIC_KEYS`);
+  - **NEW_PUBLIC_KEY_ACTIVE:** FIXED (aktywny dokładnie jeden klucz `splogbook-release-2026-02`, fingerprint SHA-256: `2a6277b72d2a97236f344f1542a1c2868a74f71c9626a22dc1735919efeb2a4a`);
+  - **PRODUCTION_SECRET_STORED_EXTERNALLY:** OWNER_CONFIRMED (klucz prywatny wygenerowany poza repozytorium i skonfigurowany w GitHub Actions Secret `RELEASE_SIGNING_KEY`);
+  - **HISTORY_EXPOSURE:** OWNER_DECISION_REQUIRED (materiały historyczne zneutralizowane kryptograficznie w aplikacji; ewentualne przepisywanie historii Git `git-filter-repo` pozostaje do wyłącznej decyzji Właściciela);
+  - **HISTORICAL_RELEASE_AUDIT:** COMPLETED (przeprowadzono audyt wszystkich wydań: v1.2.0 sklasyfikowane jako `VERIFIED_REVOKED_KEY`, v1.0.0-v1.1.0 jako `MISSING_MANIFEST` / `UNSIGNED`; pełny raport: `docs/HISTORICAL_RELEASE_AUDIT.md`);
+  - **AUTO_UPDATE_RELEASE_READINESS:** BLOCKED_BY_REL-001_CI-001 (auto-updater poprawnie weryfikuje podpisy w kodzie, publikacja wydań z podpisem oczekuje na wdrożenie Etapu 2);
+  - **SEC-001_OVERALL:** MITIGATED (kod, testy, klucze i audyt domknięte; ekspozycja historii oczekuje na decyzję Właściciela).
 - **Moduł / obszar:** `src/scratch.rs`, `src/cloud/updater.rs`, `tests/security_guard.rs`, `.github/workflows/ci.yml`, `docs/SECURITY_KEY_ROTATION.md`
 - **Lokalizacja:** [`src/cloud/updater.rs:257-300`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cloud/updater.rs#L257-L300) (`TRUSTED_KEYS`, `REVOKED_KEY_IDS`, `REVOKED_PUBLIC_KEYS`), [`tests/security_guard.rs`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/tests/security_guard.rs), [`docs/SECURITY_KEY_ROTATION.md`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/docs/SECURITY_KEY_ROTATION.md)
 - **Dowód z kodu / Git:**
