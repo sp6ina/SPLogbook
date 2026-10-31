@@ -4,7 +4,7 @@
 use axum::{
     Json, Router,
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
-    extract::{Path, Query, State},
+    extract::{ConnectInfo, Path, Query, State},
     http::{HeaderValue, Method, StatusCode, header},
     middleware,
     response::{IntoResponse, Response},
@@ -12,6 +12,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
@@ -358,6 +359,12 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 /// Zapobiega to odczytowi/zapisowi dziennika przez dowolną stronę WWW lub proces
 /// lokalny, który mógłby wykorzystać otwarte CORS (`*`) do wysyłania żądań do
 /// localhost (atak typu "localhost drive-by" / DNS rebinding).
+/// Wymaga poprawnego nagłówka `X-Api-Key` lub `Authorization: Bearer` dla wszystkich żądań
+/// poza publicznymi `/api/v1/status`, `/api/v1/endpoints` i preflightem CORS (OPTIONS).
+/// Dla połączeń WebSocket (`/api/v1/ws`) dopuszcza również parametr zapytania `?api_key=...`.
+/// W przypadku pustego klucza API (SEC-004):
+/// - operacje mutujące są dozwolone WYŁĄCZNIE dla klientów loopback bez obcego Originu/cross-site,
+/// - żądania od klientów zdalnych lub z obcym nagłówkiem Origin są odrzucane ze statusem 403 Forbidden.
 async fn auth_middleware(
     State(state): State<ApiState>,
     req: axum::extract::Request,
@@ -369,7 +376,17 @@ async fn auth_middleware(
     }
 
     let header_key = req.headers().get("x-api-key").and_then(|v| v.to_str().ok());
-    let query_key = if header_key.is_none() && path == "/api/v1/ws" {
+
+    let bearer_key = req
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|auth| {
+            auth.strip_prefix("Bearer ")
+                .or_else(|| auth.strip_prefix("bearer "))
+        });
+
+    let query_key = if header_key.is_none() && bearer_key.is_none() && path == "/api/v1/ws" {
         req.uri().query().and_then(|q| {
             q.split('&').find_map(|pair| {
                 let (k, v) = pair.split_once('=')?;
@@ -380,19 +397,56 @@ async fn auth_middleware(
         None
     };
 
-    let provided = header_key.or(query_key);
-    match provided {
-        Some(key)
-            if !state.api_key.is_empty()
-                && constant_time_eq(key.as_bytes(), state.api_key.as_bytes()) =>
-        {
+    let provided = header_key.or(bearer_key).or(query_key);
+
+    if !state.api_key.trim().is_empty() {
+        match provided {
+            Some(key) if constant_time_eq(key.as_bytes(), state.api_key.as_bytes()) => {
+                Ok(next.run(req).await)
+            }
+            _ => Err(StatusCode::UNAUTHORIZED),
+        }
+    } else {
+        let is_mutation = matches!(
+            *req.method(),
+            Method::POST | Method::PUT | Method::PATCH | Method::DELETE
+        );
+
+        if is_mutation {
+            if let Some(origin) = req.headers().get(header::ORIGIN) {
+                if loopback_origin_header(origin).is_none() {
+                    return Err(StatusCode::FORBIDDEN);
+                }
+            }
+
+            if let Some(site) = req
+                .headers()
+                .get("sec-fetch-site")
+                .and_then(|v| v.to_str().ok())
+            {
+                if site.eq_ignore_ascii_case("cross-site") {
+                    return Err(StatusCode::FORBIDDEN);
+                }
+            }
+
+            if let Some(connect_info) = req.extensions().get::<ConnectInfo<SocketAddr>>() {
+                if !connect_info.ip().is_loopback() {
+                    return Err(StatusCode::FORBIDDEN);
+                }
+            }
+
+            Ok(next.run(req).await)
+        } else {
+            if let Some(connect_info) = req.extensions().get::<ConnectInfo<SocketAddr>>() {
+                if !connect_info.ip().is_loopback() {
+                    return Err(StatusCode::FORBIDDEN);
+                }
+            }
             Ok(next.run(req).await)
         }
-        _ => Err(StatusCode::UNAUTHORIZED),
     }
 }
 
-/// Buduje kompletny router Axum dla REST & WebSocket API v1.
 pub fn build_api_router(state: ApiState) -> Router {
     Router::new()
         .route("/api/v1/status", get(get_status))
@@ -434,16 +488,59 @@ pub async fn start_api_server(
     start_api_server_with_state(state, port).await;
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ServerBindError {
+    PublicBindWithoutAuthentication,
+    InvalidAddress(String),
+}
+
+impl std::fmt::Display for ServerBindError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::PublicBindWithoutAuthentication => {
+                write!(
+                    f,
+                    "Odmowa uruchomienia serwera REST na adresie publicznym bez skonfigurowanego klucza API (SEC-004)"
+                )
+            }
+            Self::InvalidAddress(e) => write!(f, "Niepoprawny adres serwera REST: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for ServerBindError {}
+
+/// Waliduje politykę wiązania interfejsu sieciowego: zabrania uruchamiania serwera
+/// na adresie niebędącym pętlą zwrotną (loopback) bez skonfigurowanego klucza API (SEC-004).
+pub fn validate_bind_policy(ip: &IpAddr, api_key: &str) -> Result<(), ServerBindError> {
+    if !ip.is_loopback() && api_key.trim().is_empty() {
+        return Err(ServerBindError::PublicBindWithoutAuthentication);
+    }
+    Ok(())
+}
+
 pub async fn start_api_server_with_state(state: ApiState, port: u16) {
+    let bind_addr = format!("127.0.0.1:{port}");
+    let socket_addr: SocketAddr = match bind_addr.parse() {
+        Ok(addr) => addr,
+        Err(e) => {
+            eprintln!("[REST API] Błąd adresu {bind_addr}: {e}");
+            return;
+        }
+    };
+
+    if let Err(e) = validate_bind_policy(&socket_addr.ip(), &state.api_key) {
+        eprintln!("[REST API] Odmowa uruchomienia serwera: {e}");
+        return;
+    }
+
     let app = build_api_router(state);
 
-    let bind_addr = format!("127.0.0.1:{port}");
     let listener = match tokio::net::TcpListener::bind(&bind_addr).await {
         Ok(l) => l,
         Err(e) => {
             eprintln!(
-                "[REST API] Nie można uruchomić serwera na {bind_addr}: {e}. \
-                Zmień port w menu Narzędzia -> REST API lub zwolnij port."
+                "[REST API] Nie można uruchomić serwera na {bind_addr}: {e}.                 Zmień port w menu Narzędzia -> REST API lub zwolnij port."
             );
             return;
         }
@@ -452,7 +549,12 @@ pub async fn start_api_server_with_state(state: ApiState, port: u16) {
     eprintln!(
         "[REST API] Wymagany nagłówek uwierzytelniający X-Api-Key (patrz Narzędzia -> REST API)."
     );
-    if let Err(e) = axum::serve(listener, app).await {
+    if let Err(e) = axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    {
         eprintln!("[REST API] Błąd serwera: {e}");
     }
 }
@@ -2096,5 +2198,291 @@ mod tests {
         assert_eq!(created.continent, Some("EU".to_string()));
         assert_eq!(created.cqz, Some(15));
         assert_eq!(created.ituz, Some(28));
+    }
+
+    #[tokio::test]
+    async fn rest_mutations_require_token_when_configured() {
+        let mut state = test_api_state();
+        state.api_key = "TEST_SECRET_DO_NOT_USE_REST_1".to_string();
+        let app = build_api_router(state);
+
+        let sample_qso = serde_json::json!({
+            "callsign": "SP1TEST",
+            "band": "20m",
+            "mode": "CW",
+            "qso_date": "20261020",
+            "time_on": "120000"
+        });
+
+        // 1. Bez tokena -> 401 UNAUTHORIZED
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("/api/v1/qsos")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(sample_qso.to_string()))
+            .unwrap();
+        let resp = call_router(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+        // 2. Z błędnym tokenem -> 401 UNAUTHORIZED
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("/api/v1/qsos")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header("x-api-key", "WRONG_TOKEN")
+            .body(Body::from(sample_qso.to_string()))
+            .unwrap();
+        let resp = call_router(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+        // 3. Z poprawnym tokenem -> 201 CREATED
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("/api/v1/qsos")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header("x-api-key", "TEST_SECRET_DO_NOT_USE_REST_1")
+            .body(Body::from(sample_qso.to_string()))
+            .unwrap();
+        let resp = call_router(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::CREATED);
+    }
+
+    #[tokio::test]
+    async fn rest_mutations_reject_remote_clients_when_token_is_empty() {
+        let mut state = test_api_state();
+        state.api_key = String::new();
+        let app = build_api_router(state);
+
+        let sample_qso = serde_json::json!({
+            "callsign": "SP2TEST",
+            "band": "40m",
+            "mode": "SSB",
+            "qso_date": "20261020",
+            "time_on": "120500"
+        });
+
+        let mut req = Request::builder()
+            .method(Method::POST)
+            .uri("/api/v1/qsos")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(sample_qso.to_string()))
+            .unwrap();
+        req.extensions_mut().insert(ConnectInfo(
+            "192.168.1.50:50123".parse::<SocketAddr>().unwrap(),
+        ));
+
+        let resp = call_router(&app, req).await;
+        assert_eq!(
+            resp.status(),
+            StatusCode::FORBIDDEN,
+            "Mutacja od zdalnego klienta bez tokena musi zostać odrzucona (403 Forbidden)"
+        );
+    }
+
+    #[tokio::test]
+    async fn rest_mutations_allow_loopback_client_under_local_only_policy() {
+        let mut state = test_api_state();
+        state.api_key = String::new();
+        let app = build_api_router(state);
+
+        let sample_qso = serde_json::json!({
+            "callsign": "SP3TEST",
+            "band": "15m",
+            "mode": "CW",
+            "qso_date": "20261020",
+            "time_on": "121000"
+        });
+
+        let mut req = Request::builder()
+            .method(Method::POST)
+            .uri("/api/v1/qsos")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(sample_qso.to_string()))
+            .unwrap();
+        req.extensions_mut().insert(ConnectInfo(
+            "127.0.0.1:50123".parse::<SocketAddr>().unwrap(),
+        ));
+
+        let resp = call_router(&app, req).await;
+        assert_eq!(
+            resp.status(),
+            StatusCode::CREATED,
+            "Mutacja od klienta loopback bez tokena w trybie local-only musi być dozwolona"
+        );
+    }
+
+    #[tokio::test]
+    async fn rest_import_rejects_untrusted_browser_origin_without_token() {
+        let mut state = test_api_state();
+        state.api_key = String::new();
+        let app = build_api_router(state);
+
+        let adif_body =
+            "<CALL:5>SP4TEST<BAND:3>20M<MODE:2>CW<QSO_DATE:8>20261020<TIME_ON:6>121500<EOR>";
+
+        // 1. Z obcym nagłówkiem Origin
+        let mut req = Request::builder()
+            .method(Method::POST)
+            .uri("/api/v1/adif/import")
+            .header(header::CONTENT_TYPE, "text/plain")
+            .header(header::ORIGIN, "http://attacker-site.example.com")
+            .body(Body::from(adif_body))
+            .unwrap();
+        req.extensions_mut().insert(ConnectInfo(
+            "127.0.0.1:50123".parse::<SocketAddr>().unwrap(),
+        ));
+
+        let resp = call_router(&app, req).await;
+        assert_eq!(
+            resp.status(),
+            StatusCode::FORBIDDEN,
+            "Import ADIF z obcym Origin bez tokena musi być zablokowany (403 Forbidden)"
+        );
+
+        // 2. Z nagłówkiem Sec-Fetch-Site: cross-site
+        let mut req = Request::builder()
+            .method(Method::POST)
+            .uri("/api/v1/adif/import")
+            .header(header::CONTENT_TYPE, "text/plain")
+            .header("sec-fetch-site", "cross-site")
+            .body(Body::from(adif_body))
+            .unwrap();
+        req.extensions_mut().insert(ConnectInfo(
+            "127.0.0.1:50123".parse::<SocketAddr>().unwrap(),
+        ));
+
+        let resp = call_router(&app, req).await;
+        assert_eq!(
+            resp.status(),
+            StatusCode::FORBIDDEN,
+            "Import ADIF z Sec-Fetch-Site: cross-site musi być zablokowany (403 Forbidden)"
+        );
+    }
+
+    #[tokio::test]
+    async fn rest_read_only_endpoint_preserves_existing_contract() {
+        let mut state = test_api_state();
+        state.api_key = "TEST_SECRET_DO_NOT_USE_REST_READ".to_string();
+        let app = build_api_router(state);
+
+        // 1. Publiczne endpointy bez klucza
+        let resp = call_router(
+            &app,
+            Request::builder()
+                .uri("/api/v1/status")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let resp = call_router(
+            &app,
+            Request::builder()
+                .uri("/api/v1/endpoints")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // 2. Chroniony endpoint bez klucza -> 401 UNAUTHORIZED
+        let resp = call_router(
+            &app,
+            Request::builder()
+                .uri("/api/v1/qsos")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+        // 3. Chroniony endpoint z poprawnym nagłówkiem Authorization: Bearer
+        let resp = call_router(
+            &app,
+            Request::builder()
+                .uri("/api/v1/qsos")
+                .header(
+                    header::AUTHORIZATION,
+                    "Bearer TEST_SECRET_DO_NOT_USE_REST_READ",
+                )
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn rest_never_logs_or_returns_api_token() {
+        let secret = "TEST_SECRET_DO_NOT_USE_NEVER_LEAK";
+        let mut state = test_api_state();
+        state.api_key = secret.to_string();
+        let app = build_api_router(state);
+
+        let resp = call_router(
+            &app,
+            Request::builder()
+                .uri("/api/v1/status")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let body_str = String::from_utf8_lossy(&bytes);
+        assert!(
+            !body_str.contains(secret),
+            "Klucz API nie może być ujawniony w /status"
+        );
+
+        let resp = call_router(
+            &app,
+            Request::builder()
+                .uri("/api/v1/endpoints")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let body_str = String::from_utf8_lossy(&bytes);
+        assert!(
+            !body_str.contains(secret),
+            "Klucz API nie może być ujawniony w /endpoints"
+        );
+    }
+
+    #[test]
+    fn rest_server_refuses_public_bind_without_authentication() {
+        let public_v4: IpAddr = "0.0.0.0".parse().unwrap();
+        assert_eq!(
+            validate_bind_policy(&public_v4, ""),
+            Err(ServerBindError::PublicBindWithoutAuthentication)
+        );
+
+        let lan_v4: IpAddr = "192.168.1.100".parse().unwrap();
+        assert_eq!(
+            validate_bind_policy(&lan_v4, "   "),
+            Err(ServerBindError::PublicBindWithoutAuthentication)
+        );
+
+        let public_v6: IpAddr = "::".parse().unwrap();
+        assert_eq!(
+            validate_bind_policy(&public_v6, ""),
+            Err(ServerBindError::PublicBindWithoutAuthentication)
+        );
+
+        let loopback_v4: IpAddr = "127.0.0.1".parse().unwrap();
+        assert!(validate_bind_policy(&loopback_v4, "").is_ok());
+
+        let loopback_v6: IpAddr = "::1".parse().unwrap();
+        assert!(validate_bind_policy(&loopback_v6, "").is_ok());
+
+        assert!(validate_bind_policy(&lan_v4, "TEST_SECRET_DO_NOT_USE_VALID_KEY").is_ok());
     }
 }
