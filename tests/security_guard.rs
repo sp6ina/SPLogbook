@@ -842,3 +842,40 @@ fn configuration_debug_never_leaks_secrets() {
         "AppConfig nie może posiadać automatycznego derive(Debug)"
     );
 }
+
+#[test]
+fn security_guard_bind_policy_and_handshake_timeout() {
+    use splogbook::api::server::{ServerBindError, validate_bind_policy};
+    use splogbook::sync::HOST_HANDSHAKE_TIMEOUT;
+
+    // SEC-003: Strażnik limitu czasu handshake'u Hosta synchronizacji
+    assert!(
+        HOST_HANDSHAKE_TIMEOUT <= std::time::Duration::from_secs(15),
+        "HOST_HANDSHAKE_TIMEOUT musi być ograniczony do maksymalnie 15 sekund (SEC-003)"
+    );
+    assert!(
+        HOST_HANDSHAKE_TIMEOUT >= std::time::Duration::from_secs(5),
+        "HOST_HANDSHAKE_TIMEOUT nie może być krótszy niż 5 sekund"
+    );
+
+    // SEC-004: Strażnik polityki wiązania serwera REST
+    let public_ip: std::net::IpAddr = "0.0.0.0".parse().unwrap();
+    assert_eq!(
+        validate_bind_policy(&public_ip, ""),
+        Err(ServerBindError::PublicBindWithoutAuthentication)
+    );
+
+    let lan_ip: std::net::IpAddr = "192.168.1.1".parse().unwrap();
+    assert_eq!(
+        validate_bind_policy(&lan_ip, ""),
+        Err(ServerBindError::PublicBindWithoutAuthentication)
+    );
+
+    let loopback_v4: std::net::IpAddr = "127.0.0.1".parse().unwrap();
+    assert!(validate_bind_policy(&loopback_v4, "").is_ok());
+
+    let loopback_v6: std::net::IpAddr = "::1".parse().unwrap();
+    assert!(validate_bind_policy(&loopback_v6, "").is_ok());
+
+    assert!(validate_bind_policy(&lan_ip, "TEST_SECRET_DO_NOT_USE_GUARD").is_ok());
+}
