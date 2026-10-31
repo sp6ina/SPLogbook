@@ -23,7 +23,9 @@ pub use crypto::*;
 pub use error::SyncError;
 pub use frame::{MAX_FRAME_BYTES, decode_length, encode_length, read_frame, write_frame};
 pub use handshake::{HandshakeResult, host_handshake, peer_handshake};
-pub use host::{IDLE_TIMEOUT, MAX_ACTIVE_PEERS, MAX_HANDSHAKES, PING_INTERVAL, SyncHost};
+pub use host::{
+    HOST_HANDSHAKE_TIMEOUT, IDLE_TIMEOUT, MAX_ACTIVE_PEERS, MAX_HANDSHAKES, PING_INTERVAL, SyncHost,
+};
 pub use peer::{INITIAL_BACKOFF, MAX_BACKOFF, ReconnectBackoff, SyncPeer};
 pub use protocol::{ClientHello, MAGIC, Message, PROTOCOL_VERSION, Reject, ServerHello};
 pub use service::{SyncConfig, SyncEvent, SyncRole, SyncService, SyncState, SyncStatus};
@@ -975,6 +977,185 @@ mod tests {
             ),
             collected,
         ))
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn sync_host_handshake_timeout_releases_slot() {
+        tokio::time::resume();
+        let (host_tx, host_rx) = std::sync::mpsc::channel();
+        let mut host = SyncHost::bind(
+            "127.0.0.1:0".parse().unwrap(),
+            "HOST_STATION".to_string(),
+            "TEST_SECRET_DO_NOT_USE_123".to_string(),
+            host_tx,
+        )
+        .await
+        .unwrap();
+        let host_addr = host.local_addr();
+
+        assert_eq!(host.available_handshake_permits(), MAX_HANDSHAKES);
+
+        let mut streams = Vec::new();
+        for _ in 0..MAX_HANDSHAKES {
+            let s = tokio::net::TcpStream::connect(host_addr).await.unwrap();
+            streams.push(s);
+        }
+
+        for _ in 0..50 {
+            if host.available_handshake_permits() == 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert_eq!(host.available_handshake_permits(), 0);
+
+        tokio::time::pause();
+        tokio::time::advance(HOST_HANDSHAKE_TIMEOUT + Duration::from_millis(100)).await;
+        tokio::time::resume();
+
+        for _ in 0..50 {
+            if host.available_handshake_permits() == MAX_HANDSHAKES {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert_eq!(
+            host.available_handshake_permits(),
+            MAX_HANDSHAKES,
+            "Wszystkie sloty semafora handshake musza zostac zwolnione po timeout"
+        );
+
+        let mut timeout_count = 0;
+        while let Ok(evt) = host_rx.try_recv() {
+            if matches!(evt, SyncEvent::Error(SyncError::Timeout)) {
+                timeout_count += 1;
+            }
+        }
+        assert_eq!(
+            timeout_count, MAX_HANDSHAKES,
+            "Kazdy zablokowany handshake musi zaraportowac blad Timeout"
+        );
+
+        let legitimate_stream = tokio::net::TcpStream::connect(host_addr).await.unwrap();
+        let peer_res = peer_handshake(
+            legitimate_stream,
+            "LEGIT_PEER",
+            "TEST_SECRET_DO_NOT_USE_123",
+        )
+        .await;
+        assert!(
+            peer_res.is_ok(),
+            "Nowe polaczenie po timeout musi przejsc handshake"
+        );
+
+        drop(streams);
+        host.stop();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn sync_partial_handshake_times_out() {
+        tokio::time::resume();
+        let (host_tx, host_rx) = std::sync::mpsc::channel();
+        let mut host = SyncHost::bind(
+            "127.0.0.1:0".parse().unwrap(),
+            "HOST_STATION".to_string(),
+            "TEST_SECRET_DO_NOT_USE_456".to_string(),
+            host_tx,
+        )
+        .await
+        .unwrap();
+        let host_addr = host.local_addr();
+
+        let mut stream = tokio::net::TcpStream::connect(host_addr).await.unwrap();
+        stream.write_all(b"SP").await.unwrap();
+        stream.flush().await.unwrap();
+
+        for _ in 0..50 {
+            if host.available_handshake_permits() < MAX_HANDSHAKES {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert_eq!(host.available_handshake_permits(), MAX_HANDSHAKES - 1);
+
+        tokio::time::pause();
+        tokio::time::advance(HOST_HANDSHAKE_TIMEOUT + Duration::from_millis(100)).await;
+        tokio::time::resume();
+
+        for _ in 0..50 {
+            if host.available_handshake_permits() == MAX_HANDSHAKES {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert_eq!(
+            host.available_handshake_permits(),
+            MAX_HANDSHAKES,
+            "Slot semafora musi zostac zwolniony po timeoucie czesciowego handshake'u"
+        );
+
+        let mut timeout_seen = false;
+        while let Ok(evt) = host_rx.try_recv() {
+            if matches!(evt, SyncEvent::Error(SyncError::Timeout)) {
+                timeout_seen = true;
+            }
+        }
+        assert!(
+            timeout_seen,
+            "Czesciowy handshake musi zglosic SyncError::Timeout"
+        );
+
+        let mut buf = [0u8; 16];
+        let n = stream.read(&mut buf).await.unwrap_or(0);
+        assert_eq!(
+            n, 0,
+            "Gniazdo klienta musi zostac zamkniete po timeoucie (EOF)"
+        );
+
+        host.stop();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn sync_successful_handshake_is_not_rejected_by_timeout() {
+        let (host_tx, host_rx) = std::sync::mpsc::channel();
+        let mut host = SyncHost::bind(
+            "127.0.0.1:0".parse().unwrap(),
+            "HOST_STATION".to_string(),
+            "TEST_SECRET_DO_NOT_USE_789".to_string(),
+            host_tx,
+        )
+        .await
+        .unwrap();
+        let host_addr = host.local_addr();
+
+        let stream = tokio::net::TcpStream::connect(host_addr).await.unwrap();
+        let peer_res = peer_handshake(stream, "FAST_PEER", "TEST_SECRET_DO_NOT_USE_789").await;
+        assert!(
+            peer_res.is_ok(),
+            "Szybki handshake musi zakonczyc sie sukcesem"
+        );
+
+        let _ = wait_for_host_event_matching(
+            &host_rx,
+            |evt| matches!(evt, SyncEvent::Status(st) if st.peers == 1),
+            "SyncStatus { peers: 1, .. }",
+            200,
+        )
+        .await
+        .expect("Peer musi zostac zarejestrowany");
+
+        assert_eq!(host.connected_peers(), 1);
+        assert_eq!(host.available_handshake_permits(), MAX_HANDSHAKES);
+
+        while let Ok(evt) = host_rx.try_recv() {
+            assert!(
+                !matches!(evt, SyncEvent::Error(SyncError::Timeout)),
+                "Poprawny handshake nie moze wygenerowac SyncError::Timeout"
+            );
+        }
+
+        drop(peer_res);
+        host.stop();
     }
 
     #[tokio::test(start_paused = true)]
