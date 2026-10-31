@@ -102,6 +102,12 @@
 - **Kategoria:** `SEC`
 - **Poziom krytyczności:** `MEDIUM`
 - **Poziom pewności:** `CONFIRMED`
+- **Status po Etapie 1C:** **FIXED** (Commit `6c4a30f`)
+  - Usunięto automatyczne `#[derive(Debug)]` ze struktur konfiguracyjnych zawierających sekrety (`AppConfig`, `UploadCredentials`, `SyncConfig`).
+  - Wdrożono bezpieczną ręczną implementację `std::fmt::Debug` maskującą wszystkie 11 pól sekretnych stałym literałem `"<redacted>"`.
+  - Wprowadzono w `src/core/http.rs` procedury `sanitize_url`, `redacted_url_for_diagnostics` oraz `sanitize_network_error`.
+  - Wdrożono redakcję wrażliwych parametrów URL i oczyszczanie błędów sieciowych we wszystkich klientach chmurowych (`lotw.rs`, `eqsl.rs`, `hamqth.rs`, `qrz.rs`, `cloudlog.rs`, `hrdlog.rs`, `clublog.rs`).
+  - Dodano testy regresyjne: `app_config_debug_redacts_all_secrets`, `online_services_debug_redacts_all_secrets`, `runtime_services_debug_redacts_all_secrets`, `cloud_errors_never_expose_credentials`, `secret_query_parameters_are_redacted`, `configuration_debug_never_leaks_secrets`.
 - **Moduł / obszar:** `src/core/station.rs`, `src/cloud/lotw.rs`, `src/cloud/eqsl.rs`, `src/cloud/hamqth.rs`, `src/cloud/qrz.rs`
 - **Lokalizacja:** [`src/core/station.rs:276, 387-435`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/core/station.rs#L276-L435), [`src/cloud/lotw.rs:174`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cloud/lotw.rs#L174), [`src/cloud/eqsl.rs:72`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cloud/eqsl.rs#L72), [`src/cloud/hamqth.rs:138`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cloud/hamqth.rs#L138), [`src/cloud/qrz.rs:48`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cloud/qrz.rs#L48)
 - **Dowód z kodu:**
@@ -126,6 +132,11 @@
 - **Kategoria:** `SEC`
 - **Poziom krytyczności:** `MEDIUM`
 - **Poziom pewności:** `CONFIRMED`
+- **Status po Etapie 1C:** **FIXED** (Commit `4f3f3d5`)
+  - Zdefiniowano `pub const HOST_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);` w `src/sync/host.rs` i wyeksportowano w `src/sync/mod.rs`.
+  - Opakowano wywołanie `host_handshake` w pętli nasłuchu `run_listener_loop` za pomocą `tokio::time::timeout`.
+  - Po upłynięciu timeoutu emitowane jest zdarzenie `SyncEvent::Error(SyncError::Timeout)`, a zadanie asynchroniczne kończy bieg, gwarantując zwolnienie slotu semafora `handshake_sem` (RAII permit drop) oraz natychmiastowe zamknięcie gniazda TCP.
+  - Dodano testy regresyjne: `sync_host_handshake_timeout_releases_slot`, `sync_partial_handshake_times_out`, `sync_successful_handshake_is_not_rejected_by_timeout`, `security_guard_bind_policy_and_handshake_timeout`.
 - **Moduł / obszar:** `src/sync/host.rs`
 - **Lokalizacja:** [`src/sync/host.rs:78-115`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/sync/host.rs#L78-L115)
 - **Dowód z kodu:** W `SyncHost::bind_with_store` (`src/sync/host.rs:88-100`) po pobraniu permitu z `handshake_sem` (`MAX_HANDSHAKES = 5`) wywoływane jest `host_handshake(stream, ...).await` **bez `tokio::time::timeout`**.
@@ -148,6 +159,13 @@
 - **Kategoria:** `SEC`
 - **Poziom krytyczności:** `MEDIUM`
 - **Poziom pewności:** `CONFIRMED`
+- **Status po Etapie 1C:** **FIXED** (Commit `205a39f`)
+  - Wprowadzono typ `ServerBindError` oraz procedurę `validate_bind_policy(ip: &IpAddr, api_key: &str) -> Result<(), ServerBindError>` w `src/api/server.rs`, uniemożliwiającą uruchomienie serwera na interfejsie publicznym (`!ip.is_loopback()`) bez skonfigurowanego klucza API.
+  - W `start_api_server_with_state` podłączono weryfikację polityki wiązania oraz skonfigurowano `app.into_make_service_with_connect_info::<SocketAddr>()`.
+  - W `auth_middleware` rozszerzono ekstrakcję tokena o `Authorization: Bearer <token>` oraz `x-api-key`, z weryfikacją w stałym czasie (`constant_time_eq`).
+  - Gdy klucz API jest pusty, operacje mutujące (`POST`, `PUT`, `PATCH`, `DELETE`) są rygorystycznie chronione: odrzucają (403 Forbidden) żądania od klientów zdalnych (`!ip.is_loopback()`), z obcym nagłówkiem `Origin` lub z `Sec-Fetch-Site: cross-site`, dopuszczając mutacje wyłącznie dla zaufanych lokalnych procesów loopback pod polityką local-only.
+  - Zachowano kontrakt dla publicznych endpointów odczytu (`/api/v1/status`, `/api/v1/endpoints`).
+  - Dodano testy regresyjne: `rest_mutations_require_token_when_configured`, `rest_mutations_reject_remote_clients_when_token_is_empty`, `rest_mutations_allow_loopback_client_under_local_only_policy`, `rest_import_rejects_untrusted_browser_origin_without_token`, `rest_read_only_endpoint_preserves_existing_contract`, `rest_never_logs_or_returns_api_token`, `rest_server_refuses_public_bind_without_authentication`, `security_guard_bind_policy_and_handshake_timeout`.
 - **Moduł / obszar:** `src/sync/service.rs`, `src/api/server.rs`
 - **Lokalizacja:** [`src/sync/service.rs:144`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/sync/service.rs#L144), [`src/api/server.rs:347-370`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/api/server.rs#L347-L370)
 - **Dowód z kodu:**
