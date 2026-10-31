@@ -80,7 +80,7 @@ impl HrdlogClient {
                         .form(&params)
                         .send()
                         .await
-                        .map_err(|e| e.to_string())
+                        .map_err(|e| crate::core::http::sanitize_network_error(&e))
                 }
             },
             3,

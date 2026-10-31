@@ -273,7 +273,7 @@ pub fn default_voice_keyer_messages() -> Vec<VoiceKeyerMessage> {
     ]
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
     /// Opaque identifier of the current keychain entry, never the secret itself.
@@ -531,6 +531,128 @@ pub struct AppConfig {
 
     #[serde(default)]
     pub custom_contests: Vec<CustomContest>,
+}
+
+impl std::fmt::Debug for AppConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AppConfig")
+            .field("secret_store_id", &self.secret_store_id)
+            .field("is_configured", &self.is_configured)
+            .field("station", &self.station)
+            .field("equipment", &self.equipment)
+            .field("dark_theme", &self.dark_theme)
+            .field("theme_preset", &self.theme_preset)
+            .field("cat_host", &self.cat_host)
+            .field("cat_port", &self.cat_port)
+            .field("cat_enabled", &self.cat_enabled)
+            .field("cat_poll_rate_ms", &self.cat_poll_rate_ms)
+            .field("cat_rig_model", &self.cat_rig_model)
+            .field("cat_serial_port", &self.cat_serial_port)
+            .field("cat_baud_rate", &self.cat_baud_rate)
+            .field("cat_rig_id", &self.cat_rig_id)
+            .field("cat_auto_start_rigctld", &self.cat_auto_start_rigctld)
+            .field("cat_hamlib_source", &self.cat_hamlib_source)
+            .field("cat_custom_rigctld_path", &self.cat_custom_rigctld_path)
+            .field("station_profiles", &self.station_profiles)
+            .field("active_profile_id", &self.active_profile_id)
+            .field("cat_sharing_enabled", &self.cat_sharing_enabled)
+            .field("cat_sharing_port", &self.cat_sharing_port)
+            .field("rotor_host", &self.rotor_host)
+            .field("rotor_port", &self.rotor_port)
+            .field("cat_backend", &self.cat_backend)
+            .field("tci_host", &self.tci_host)
+            .field("tci_port", &self.tci_port)
+            .field("cat_station", &self.cat_station)
+            .field("fldigi_enabled", &self.fldigi_enabled)
+            .field("fldigi_host", &self.fldigi_host)
+            .field("fldigi_port", &self.fldigi_port)
+            .field("psk_reporter_enabled", &self.psk_reporter_enabled)
+            .field("n1mm_broadcast_enabled", &self.n1mm_broadcast_enabled)
+            .field("n1mm_broadcast_host", &self.n1mm_broadcast_host)
+            .field("n1mm_broadcast_port", &self.n1mm_broadcast_port)
+            .field("voice_keyer_messages", &self.voice_keyer_messages)
+            .field("workspace_profiles", &self.workspace_profiles)
+            .field("plugins_enabled", &self.plugins_enabled)
+            .field("plugins_dir", &self.plugins_dir)
+            .field(
+                "operator_assistant_enabled",
+                &self.operator_assistant_enabled,
+            )
+            .field("propagation_history", &self.propagation_history)
+            .field("lan_sync_port", &self.lan_sync_port)
+            .field("lan_sync_server_ip", &self.lan_sync_server_ip)
+            .field("lan_sync_secret", &"<redacted>")
+            .field("lotw_tqsl_path", &self.lotw_tqsl_path)
+            .field("lotw_station_name", &self.lotw_station_name)
+            .field("lotw_username", &self.lotw_username)
+            .field("lotw_password", &"<redacted>")
+            .field("qrz_username", &self.qrz_username)
+            .field("qrz_password", &"<redacted>")
+            .field("qrz_api_key", &"<redacted>")
+            .field("qrz_auto_lookup", &self.qrz_auto_lookup)
+            .field("eqsl_username", &self.eqsl_username)
+            .field("eqsl_password", &"<redacted>")
+            .field("clublog_callsign", &self.clublog_callsign)
+            .field("clublog_email", &self.clublog_email)
+            .field("clublog_password", &"<redacted>")
+            .field("clublog_api_key", &"<redacted>")
+            .field("cloudlog_url", &self.cloudlog_url)
+            .field("cloudlog_api_key", &"<redacted>")
+            .field("rest_api_key", &"<redacted>")
+            .field("hrdlog_username", &self.hrdlog_username)
+            .field("hrdlog_upload_code", &"<redacted>")
+            .field("hamqth_username", &self.hamqth_username)
+            .field("hamqth_password", &"<redacted>")
+            .field("callbook_priority", &self.callbook_priority)
+            .field("callbook_cache_enabled", &self.callbook_cache_enabled)
+            .field("callbook_cache_ttl_days", &self.callbook_cache_ttl_days)
+            .field("wol_mac", &self.wol_mac)
+            .field("wol_ip", &self.wol_ip)
+            .field("wol_port", &self.wol_port)
+            .field("current_language", &self.current_language)
+            .field("compact_hud_mode", &self.compact_hud_mode)
+            .field("font_scale", &self.font_scale)
+            .field("font_family", &self.font_family)
+            .field("distance_unit", &self.distance_unit)
+            .field("hud_always_on_top", &self.hud_always_on_top)
+            .field("hud_saved_pos", &self.hud_saved_pos)
+            .field("hud_saved_size", &self.hud_saved_size)
+            .field("hud_operating_bar", &self.hud_operating_bar)
+            .field("main_window_pos", &self.main_window_pos)
+            .field("main_window_size", &self.main_window_size)
+            .field("main_window_maximized", &self.main_window_maximized)
+            .field("live_auto_upload_clublog", &self.live_auto_upload_clublog)
+            .field("live_auto_upload_qrz", &self.live_auto_upload_qrz)
+            .field("cluster_host", &self.cluster_host)
+            .field("cluster_port", &self.cluster_port)
+            .field("cluster_callsign", &self.cluster_callsign)
+            .field("cluster_auto_connect", &self.cluster_auto_connect)
+            .field(
+                "cluster_filter_current_band",
+                &self.cluster_filter_current_band,
+            )
+            .field("cluster_hide_ft8", &self.cluster_hide_ft8)
+            .field("cluster_hide_skimmers", &self.cluster_hide_skimmers)
+            .field("custom_clusters", &self.custom_clusters)
+            .field("quick_access", &self.quick_access)
+            .field("left_column_width", &self.left_column_width)
+            .field("right_column_width", &self.right_column_width)
+            .field("panel_vfo", &self.panel_vfo)
+            .field("panel_qso", &self.panel_qso)
+            .field("panel_log", &self.panel_log)
+            .field("panel_cluster", &self.panel_cluster)
+            .field("panel_bandmap", &self.panel_bandmap)
+            .field("panel_solar", &self.panel_solar)
+            .field("panel_satellites", &self.panel_satellites)
+            .field("panel_world_map", &self.panel_world_map)
+            .field("panel_waterfall", &self.panel_waterfall)
+            .field("tabbed_columns", &self.tabbed_columns)
+            .field("dock_layout", &self.dock_layout)
+            .field("logbook_columns", &self.logbook_columns)
+            .field("logbook_column_presets", &self.logbook_column_presets)
+            .field("custom_contests", &self.custom_contests)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
@@ -1285,5 +1407,33 @@ mod tests {
         let cfg = AppConfig::default();
         assert_eq!(cfg.lan_sync_port, 7373);
         assert_eq!(cfg.lan_sync_server_ip, "");
+    }
+
+    #[test]
+    fn app_config_debug_redacts_all_secrets() {
+        let mut cfg = AppConfig::default();
+        cfg.lan_sync_secret = "TEST_SECRET_DO_NOT_USE_LAN_1".into();
+        cfg.lotw_password = "TEST_SECRET_DO_NOT_USE_LOTW_2".into();
+        cfg.qrz_password = "TEST_SECRET_DO_NOT_USE_QRZ_3".into();
+        cfg.qrz_api_key = "TEST_SECRET_DO_NOT_USE_QRZKEY_4".into();
+        cfg.eqsl_password = "TEST_SECRET_DO_NOT_USE_EQSL_5".into();
+        cfg.clublog_password = "TEST_SECRET_DO_NOT_USE_CLUBLOG_6".into();
+        cfg.clublog_api_key = "TEST_SECRET_DO_NOT_USE_CLUBKEY_7".into();
+        cfg.cloudlog_api_key = "TEST_SECRET_DO_NOT_USE_CLOUDLOG_8".into();
+        cfg.rest_api_key = "TEST_SECRET_DO_NOT_USE_REST_9".into();
+        cfg.hrdlog_upload_code = "TEST_SECRET_DO_NOT_USE_HRD_10".into();
+        cfg.hamqth_password = "TEST_SECRET_DO_NOT_USE_HAMQTH_11".into();
+
+        let debug_out = format!("{cfg:?}");
+
+        for _ in 1..=11 {
+            assert!(
+                !debug_out.contains("TEST_SECRET_DO_NOT_USE"),
+                "Secret must never appear in Debug output"
+            );
+        }
+        assert!(debug_out.contains("<redacted>"));
+        assert!(debug_out.contains("is_configured"));
+        assert!(debug_out.contains("cat_host"));
     }
 }

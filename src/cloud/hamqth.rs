@@ -86,7 +86,7 @@ impl HamQthClient {
                         .form(&params)
                         .send()
                         .await
-                        .map_err(|e| e.to_string())
+                        .map_err(|e| crate::core::http::sanitize_network_error(&e))
                 }
             },
             3,
@@ -139,7 +139,7 @@ impl HamQthXmlClient {
             .query(&[("u", &self.username), ("p", &self.password)])
             .send()
             .await
-            .map_err(|e| HamQthError::Http(e.to_string()))?;
+            .map_err(|e| HamQthError::Http(crate::core::http::sanitize_network_error(&e)))?;
         let xml = resp
             .text()
             .await
@@ -181,7 +181,7 @@ impl HamQthXmlClient {
             ])
             .send()
             .await
-            .map_err(|e| HamQthError::Http(e.to_string()))?;
+            .map_err(|e| HamQthError::Http(crate::core::http::sanitize_network_error(&e)))?;
         let xml = resp
             .text()
             .await

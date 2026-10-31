@@ -52,7 +52,10 @@ impl QrzClient {
                 ("agent", &"SPLogbook".to_string()),
             ])
             .send()
-            .await?
+            .await
+            .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
+                crate::core::http::sanitize_network_error(&e).into()
+            })?
             .text()
             .await?;
 
@@ -84,7 +87,10 @@ impl QrzClient {
             .get("https://xmldata.qrz.com/xml/current/")
             .query(&[("s", key), ("callsign", &callsign.to_string())])
             .send()
-            .await?
+            .await
+            .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
+                crate::core::http::sanitize_network_error(&e).into()
+            })?
             .text()
             .await?;
 
@@ -100,7 +106,10 @@ impl QrzClient {
                 .get("https://xmldata.qrz.com/xml/current/")
                 .query(&[("s", new_key), ("callsign", &callsign.to_string())])
                 .send()
-                .await?
+                .await
+                .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
+                    crate::core::http::sanitize_network_error(&e).into()
+                })?
                 .text()
                 .await?;
             return Self::parse_qrz_response(&retry_resp, callsign);
@@ -171,6 +180,9 @@ impl QrzClient {
                         ])
                         .send()
                         .await
+                        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
+                            crate::core::http::sanitize_network_error(&e).into()
+                        })
                 }
             },
             3,

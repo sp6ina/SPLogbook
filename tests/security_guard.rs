@@ -781,3 +781,64 @@ fn repository_contains_no_tracked_private_key_material() {
         }
     }
 }
+
+#[test]
+fn configuration_debug_never_leaks_secrets() {
+    use splogbook::cloud::scheduler::UploadCredentials;
+    use splogbook::core::station::AppConfig;
+    use splogbook::sync::service::{SyncConfig, SyncRole};
+
+    // 1. AppConfig
+    let mut cfg = AppConfig::default();
+    cfg.lan_sync_secret = "TEST_SECRET_GUARD_1".into();
+    cfg.lotw_password = "TEST_SECRET_GUARD_2".into();
+    cfg.qrz_password = "TEST_SECRET_GUARD_3".into();
+    cfg.qrz_api_key = "TEST_SECRET_GUARD_4".into();
+    cfg.eqsl_password = "TEST_SECRET_GUARD_5".into();
+    cfg.clublog_password = "TEST_SECRET_GUARD_6".into();
+    cfg.clublog_api_key = "TEST_SECRET_GUARD_7".into();
+    cfg.cloudlog_api_key = "TEST_SECRET_GUARD_8".into();
+    cfg.rest_api_key = "TEST_SECRET_GUARD_9".into();
+    cfg.hrdlog_upload_code = "TEST_SECRET_GUARD_10".into();
+    cfg.hamqth_password = "TEST_SECRET_GUARD_11".into();
+
+    let debug_cfg = format!("{cfg:?}");
+    assert!(!debug_cfg.contains("TEST_SECRET_GUARD"));
+    assert!(debug_cfg.contains("<redacted>"));
+
+    // 2. UploadCredentials
+    let creds = UploadCredentials {
+        clublog_callsign: "SP6INA".into(),
+        clublog_email: "test@example.com".into(),
+        clublog_password: "TEST_SECRET_GUARD_12".into(),
+        clublog_api_key: "TEST_SECRET_GUARD_13".into(),
+        qrz_api_key: "TEST_SECRET_GUARD_14".into(),
+        eqsl_username: "SP6INA".into(),
+        eqsl_password: "TEST_SECRET_GUARD_15".into(),
+    };
+    let debug_creds = format!("{creds:?}");
+    assert!(!debug_creds.contains("TEST_SECRET_GUARD"));
+    assert!(debug_creds.contains("<redacted>"));
+
+    // 3. SyncConfig
+    let sync_cfg = SyncConfig {
+        role: SyncRole::Peer {
+            host: "127.0.0.1".into(),
+            port: 7373,
+        },
+        secret: "TEST_SECRET_GUARD_16".into(),
+        station: "SP6INA".into(),
+        journal: "DEFAULT".into(),
+    };
+    let debug_sync = format!("{sync_cfg:?}");
+    assert!(!debug_sync.contains("TEST_SECRET_GUARD"));
+    assert!(debug_sync.contains("<redacted>"));
+
+    // 4. Strażnik braku automatycznego derive(Debug) na AppConfig
+    let station_rs = std::fs::read_to_string("src/core/station.rs").expect("read station.rs");
+    assert!(
+        !station_rs.contains("#[derive(Debug, Clone, Serialize, Deserialize)]\r\n#[serde(default)]\r\npub struct AppConfig")
+        && !station_rs.contains("#[derive(Debug, Clone, Serialize, Deserialize)]\n#[serde(default)]\npub struct AppConfig"),
+        "AppConfig nie może posiadać automatycznego derive(Debug)"
+    );
+}

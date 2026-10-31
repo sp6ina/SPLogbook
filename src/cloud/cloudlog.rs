@@ -85,7 +85,7 @@ impl CloudlogClient {
                         .json(&payload)
                         .send()
                         .await
-                        .map_err(|e| format!("{endpoint}: {e}"))
+                        .map_err(|e| crate::core::http::sanitize_network_error(&e))
                 }
             },
             3,

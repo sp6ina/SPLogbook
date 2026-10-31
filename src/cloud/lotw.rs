@@ -177,6 +177,9 @@ pub async fn download_lotw_report(
                     .query(&query)
                     .send()
                     .await
+                    .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
+                        crate::core::http::sanitize_network_error(&e).into()
+                    })
             }
         },
         3,
