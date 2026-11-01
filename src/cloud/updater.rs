@@ -951,8 +951,203 @@ pub fn extract_tar_gz_safe(
     Ok(entry_count)
 }
 
+/// Weryfikuje strukturę archiwum ZIP w systemie plików (nagłówki EOCD, Central Directory oraz Local File Headers)
+/// pod kątem ataków Zip Slip, odwołań ParentDir, ścieżek bezwzględnych, prefiksów dysku, UNC, symlinków
+/// oraz limitów rozmiaru/liczby wpisów, ZANIM jakikolwiek plik zostanie rozpakowany na dysk.
+pub fn validate_zip_archive(
+    zip_path: &Path,
+    limits: &ArchiveLimits,
+) -> Result<usize, UpdaterError> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = std::fs::File::open(zip_path)
+        .map_err(|e| UpdaterError::Io(format!("Nie można otworzyć archiwum ZIP: {e}")))?;
+    let file_len = file
+        .metadata()
+        .map_err(|e| UpdaterError::Io(format!("Nie można pobrać metadanych ZIP: {e}")))?
+        .len();
+
+    if file_len < 22 {
+        return Err(UpdaterError::UnsafeArchivePath(
+            "Archiwum ZIP jest za małe".into(),
+        ));
+    }
+
+    // 1. Znalezienie EOCD (End of Central Directory)
+    let scan_len = std::cmp::min(file_len, 22 + 65535) as usize;
+    file.seek(SeekFrom::End(-(scan_len as i64)))
+        .map_err(|e| UpdaterError::Io(format!("Błąd pozycjonowania w ZIP: {e}")))?;
+
+    let mut buf = vec![0u8; scan_len];
+    file.read_exact(&mut buf)
+        .map_err(|e| UpdaterError::Io(format!("Błąd odczytu końcówki ZIP: {e}")))?;
+
+    let mut eocd_pos = None;
+    for i in (0..=scan_len - 22).rev() {
+        if buf[i..i + 4] == [0x50, 0x4b, 0x05, 0x06] {
+            eocd_pos = Some(i);
+            break;
+        }
+    }
+
+    let eocd_pos = eocd_pos.ok_or_else(|| {
+        UpdaterError::UnsafeArchivePath("Nie znaleziono rekordu EOCD w archiwum ZIP".into())
+    })?;
+
+    let num_entries = u16::from_le_bytes([buf[eocd_pos + 10], buf[eocd_pos + 11]]) as usize;
+    let cd_size = u32::from_le_bytes([
+        buf[eocd_pos + 12],
+        buf[eocd_pos + 13],
+        buf[eocd_pos + 14],
+        buf[eocd_pos + 15],
+    ]) as u64;
+    let cd_offset = u32::from_le_bytes([
+        buf[eocd_pos + 16],
+        buf[eocd_pos + 17],
+        buf[eocd_pos + 18],
+        buf[eocd_pos + 19],
+    ]) as u64;
+
+    if num_entries > limits.max_entries {
+        return Err(UpdaterError::ArchiveLimitExceeded(format!(
+            "Liczba wpisów w ZIP ({num_entries}) przekracza limit ({})",
+            limits.max_entries
+        )));
+    }
+
+    if cd_offset + cd_size > file_len {
+        return Err(UpdaterError::UnsafeArchivePath(
+            "Central Directory wykracza poza rozmiar pliku ZIP".into(),
+        ));
+    }
+
+    // 2. Odczyt i weryfikacja Central Directory
+    file.seek(SeekFrom::Start(cd_offset))
+        .map_err(|e| UpdaterError::Io(format!("Błąd skoku do Central Directory: {e}")))?;
+
+    let mut cd_buf = vec![0u8; cd_size as usize];
+    file.read_exact(&mut cd_buf)
+        .map_err(|e| UpdaterError::Io(format!("Błąd odczytu Central Directory: {e}")))?;
+
+    let mut offset = 0;
+    let mut total_uncompressed_size: u64 = 0;
+
+    for _ in 0..num_entries {
+        if offset + 46 > cd_buf.len() {
+            return Err(UpdaterError::UnsafeArchivePath(
+                "Niekompletny nagłówek Central Directory w ZIP".into(),
+            ));
+        }
+
+        if cd_buf[offset..offset + 4] != [0x50, 0x4b, 0x01, 0x02] {
+            return Err(UpdaterError::UnsafeArchivePath(
+                "Nieprawidłowa sygnatura Central Directory w ZIP".into(),
+            ));
+        }
+
+        let uncompressed_size = u32::from_le_bytes([
+            cd_buf[offset + 24],
+            cd_buf[offset + 25],
+            cd_buf[offset + 26],
+            cd_buf[offset + 27],
+        ]) as u64;
+
+        let name_len = u16::from_le_bytes([cd_buf[offset + 28], cd_buf[offset + 29]]) as usize;
+        let extra_len = u16::from_le_bytes([cd_buf[offset + 30], cd_buf[offset + 31]]) as usize;
+        let comment_len = u16::from_le_bytes([cd_buf[offset + 32], cd_buf[offset + 33]]) as usize;
+        let external_attr = u32::from_le_bytes([
+            cd_buf[offset + 38],
+            cd_buf[offset + 39],
+            cd_buf[offset + 40],
+            cd_buf[offset + 41],
+        ]);
+
+        if offset + 46 + name_len + extra_len + comment_len > cd_buf.len() {
+            return Err(UpdaterError::UnsafeArchivePath(
+                "Wpis Central Directory przekracza bufor".into(),
+            ));
+        }
+
+        let name_bytes = &cd_buf[offset + 46..offset + 46 + name_len];
+        let name_str = String::from_utf8_lossy(name_bytes);
+
+        // Odrzucenie symlinków: Unix mode S_IFLNK (0o120000)
+        let unix_mode = (external_attr >> 16) & 0o170000;
+        if unix_mode == 0o120000 {
+            return Err(UpdaterError::UnsafeArchivePath(format!(
+                "Wykryto symlink w archiwum ZIP: {name_str}"
+            )));
+        }
+        // Odrzucenie punktów reparse Windows: FILE_ATTRIBUTE_REPARSE_POINT (0x400)
+        if (external_attr & 0x0000_0400) != 0 {
+            return Err(UpdaterError::UnsafeArchivePath(format!(
+                "Wykryto punkt reparse w archiwum ZIP: {name_str}"
+            )));
+        }
+
+        // Walidacja ścieżki
+        validate_archive_relative_path(Path::new(&*name_str))?;
+
+        if uncompressed_size > limits.max_single_size {
+            return Err(UpdaterError::ArchiveLimitExceeded(format!(
+                "Rozmiar pliku {name_str} ({uncompressed_size}) przekracza limit ({})",
+                limits.max_single_size
+            )));
+        }
+
+        total_uncompressed_size += uncompressed_size;
+        if total_uncompressed_size > limits.max_total_size {
+            return Err(UpdaterError::ArchiveLimitExceeded(format!(
+                "Łączny rozmiar archiwum ({total_uncompressed_size}) przekracza limit ({})",
+                limits.max_total_size
+            )));
+        }
+
+        offset += 46 + name_len + extra_len + comment_len;
+    }
+
+    // 3. Sprawdzenie nagłówków lokalnych (Local File Headers)
+    file.seek(SeekFrom::Start(0))
+        .map_err(|e| UpdaterError::Io(format!("Błąd skoku do początku pliku ZIP: {e}")))?;
+
+    let mut local_count = 0;
+    while local_count < num_entries {
+        let mut local_hdr = [0u8; 30];
+        if file.read_exact(&mut local_hdr).is_err() {
+            break;
+        }
+        if local_hdr[0..4] != [0x50, 0x4b, 0x03, 0x04] {
+            break;
+        }
+
+        let l_comp_size =
+            u32::from_le_bytes([local_hdr[18], local_hdr[19], local_hdr[20], local_hdr[21]]) as u64;
+        let l_name_len = u16::from_le_bytes([local_hdr[26], local_hdr[27]]) as usize;
+        let l_extra_len = u16::from_le_bytes([local_hdr[28], local_hdr[29]]) as usize;
+
+        let mut name_buf = vec![0u8; l_name_len];
+        file.read_exact(&mut name_buf).map_err(|e| {
+            UpdaterError::Io(format!(
+                "Błąd odczytu nazwy pliku w lokalnym nagłówku ZIP: {e}"
+            ))
+        })?;
+        let local_name = String::from_utf8_lossy(&name_buf);
+        validate_archive_relative_path(Path::new(&*local_name))?;
+
+        file.seek(SeekFrom::Current(
+            (l_extra_len as i64) + (l_comp_size as i64),
+        ))
+        .map_err(|e| UpdaterError::Io(format!("Błąd przewijania danych pliku w ZIP: {e}")))?;
+
+        local_count += 1;
+    }
+
+    Ok(num_entries)
+}
+
 /// Bezpieczna ekstrakcja archiwum `.zip` w systemie Windows z użyciem `powershell.exe`
 /// i cmdleta `Expand-Archive`. Parametry przekazywane są jako oddzielne tokeny procesu (bez interpolacji shell).
+/// Przed wywołaniem Expand-Archive archiwum jest weryfikowane w Rust (validate_zip_archive),
+/// a po dekompresji sprawdzana jest poprawność zawartości w staging.
 #[cfg(target_os = "windows")]
 pub fn extract_zip_safe_windows(
     zip_path: &Path,
@@ -968,10 +1163,19 @@ pub fn extract_zip_safe_windows(
         ));
     }
 
-    if !staging_dir.exists() {
-        fs::create_dir_all(staging_dir)
-            .map_err(|e| UpdaterError::Io(format!("Nie można utworzyć katalogu staging: {e}")))?;
+    // 1. Walidacja zawartości ZIP w Rust PRZED wywołaniem Expand-Archive lub tworzeniem katalogu staging
+    let entry_count = validate_zip_archive(zip_path, limits)?;
+
+    // 2. Przygotowanie czystego katalogu staging
+    if staging_dir.exists() {
+        if staging_dir.is_symlink() {
+            let _ = fs::remove_file(staging_dir);
+        } else {
+            let _ = fs::remove_dir_all(staging_dir);
+        }
     }
+    fs::create_dir_all(staging_dir)
+        .map_err(|e| UpdaterError::Io(format!("Nie można utworzyć katalogu staging: {e}")))?;
 
     let zip_str = zip_path
         .to_str()
@@ -1002,20 +1206,21 @@ pub fn extract_zip_safe_windows(
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
+        let _ = fs::remove_dir_all(staging_dir);
         return Err(UpdaterError::Io(format!(
             "Błąd rozpakowywania Expand-Archive: {}",
             stderr.trim()
         )));
     }
 
-    let mut entry_count = 0;
+    let mut actual_count = 0;
     let mut total_size: u64 = 0;
 
     for entry in walkdir::WalkDir::new(staging_dir).min_depth(1) {
         let entry =
             entry.map_err(|e| UpdaterError::Io(format!("Błąd przeszukiwania staging: {e}")))?;
-        entry_count += 1;
-        if entry_count > limits.max_entries {
+        actual_count += 1;
+        if actual_count > limits.max_entries {
             let _ = fs::remove_dir_all(staging_dir);
             return Err(UpdaterError::ArchiveLimitExceeded(format!(
                 "Rozpakowane archiwum przekracza limit wpisów (max: {})",
@@ -1027,6 +1232,14 @@ pub fn extract_zip_safe_windows(
             let _ = fs::remove_dir_all(staging_dir);
             return Err(UpdaterError::UnsafeArchivePath(
                 "Wykryto symlink lub punkt reparse w rozpakowanym archiwum".into(),
+            ));
+        }
+
+        let p = entry.path();
+        if !p.starts_with(staging_dir) {
+            let _ = fs::remove_dir_all(staging_dir);
+            return Err(UpdaterError::UnsafeArchivePath(
+                "Plik w staging wykracza poza katalog staging".into(),
             ));
         }
 
@@ -1845,34 +2058,39 @@ fn install_via_tar_gz(current: &Path, new: &Path) -> Result<(), UpdaterError> {
 /// procesu, podmienia plik wykonywalny i uruchamia go ponownie.
 #[cfg(target_os = "windows")]
 fn install_via_powershell(current: &Path, new: &Path) -> Result<(), UpdaterError> {
+    let base_dir = current.parent().ok_or_else(|| {
+        UpdaterError::ExePath("Brak katalogu nadrzędnego dla pliku wykonywalnego".to_string())
+    })?;
+
+    let staging = base_dir.join(".staging");
+    let rollback = base_dir.join(".rollback");
+    let health_ok = base_dir.join(".health_ok");
+
+    let _ = std::fs::remove_dir_all(&staging);
+    let _ = std::fs::remove_dir_all(&rollback);
+    let _ = std::fs::remove_file(&health_ok);
+
+    // 1. Bezpieczna dekompresja i weryfikacja ZIP w Rust przed uruchomieniem skryptu podmiany
+    let limits = ArchiveLimits::default();
+    extract_zip_safe_windows(new, &staging, &limits)?;
+    let _ = flatten_single_root_directory(&staging)?;
+    validate_staging_layout(&staging, "SPLogbook.exe")?;
+
     let script_path =
         std::env::temp_dir().join(format!("SPLogbook_update_{}.ps1", std::process::id()));
 
     let exe = current.to_string_lossy().replace('\'', "''");
-    let new_s = new.to_string_lossy().replace('\'', "''");
     let pid = std::process::id();
 
     let script = format!(
         "$ErrorActionPreference = 'Stop'\n\
          $exe = '{exe}'\n\
-         $new = '{new_s}'\n\
          $pidToWait = {pid}\n\
          \n\
          $baseDir = Split-Path -Path $exe -Parent\n\
          $staging = Join-Path $baseDir '.staging'\n\
          $rollback = Join-Path $baseDir '.rollback'\n\
          $healthOk = Join-Path $baseDir '.health_ok'\n\
-         \n\
-         if (Test-Path $staging) {{ Remove-Item -Recurse -Force $staging }}\n\
-         New-Item -ItemType Directory -Force -Path $staging | Out-Null\n\
-         Expand-Archive -LiteralPath $new -DestinationPath $staging -Force\n\
-         \n\
-         $items = Get-ChildItem -LiteralPath $staging\n\
-         if ($items.Count -eq 1 -and $items[0].PSIsContainer) {{\n\
-             $sub = $items[0].FullName\n\
-             Get-ChildItem -LiteralPath $sub | Move-Item -Destination $staging -Force\n\
-             Remove-Item -LiteralPath $sub -Force\n\
-         }}\n\
          \n\
          if (Test-Path $rollback) {{ Remove-Item -Recurse -Force $rollback }}\n\
          New-Item -ItemType Directory -Force -Path $rollback | Out-Null\n\
@@ -2289,6 +2507,178 @@ mod tests {
             let res = extract_zip_safe_windows(non_zip, &temp_dest, &limits);
             assert!(matches!(res, Err(UpdaterError::SafetyGate(_))));
         }
+    }
+
+    #[cfg(test)]
+    fn create_test_zip(entries: &[(&str, &[u8], u32)]) -> Vec<u8> {
+        let mut zip_bytes = Vec::new();
+        let mut cd_bytes = Vec::new();
+
+        for (name, data, external_attr) in entries {
+            let local_offset = zip_bytes.len() as u32;
+            let name_bytes = name.as_bytes();
+            let crc = crc32_simple(data);
+
+            // Local header (30 bytes + name + data)
+            zip_bytes.extend_from_slice(&[0x50, 0x4b, 0x03, 0x04]);
+            zip_bytes.extend_from_slice(&20u16.to_le_bytes()); // version needed
+            zip_bytes.extend_from_slice(&0u16.to_le_bytes()); // flags
+            zip_bytes.extend_from_slice(&0u16.to_le_bytes()); // compression (0 = stored)
+            zip_bytes.extend_from_slice(&0u16.to_le_bytes()); // mod time
+            zip_bytes.extend_from_slice(&0u16.to_le_bytes()); // mod date
+            zip_bytes.extend_from_slice(&crc.to_le_bytes()); // crc32
+            zip_bytes.extend_from_slice(&(data.len() as u32).to_le_bytes()); // comp size
+            zip_bytes.extend_from_slice(&(data.len() as u32).to_le_bytes()); // uncomp size
+            zip_bytes.extend_from_slice(&(name_bytes.len() as u16).to_le_bytes());
+            zip_bytes.extend_from_slice(&0u16.to_le_bytes()); // extra len
+            zip_bytes.extend_from_slice(name_bytes);
+            zip_bytes.extend_from_slice(data);
+
+            // Central directory header (46 bytes + name)
+            cd_bytes.extend_from_slice(&[0x50, 0x4b, 0x01, 0x02]);
+            cd_bytes.extend_from_slice(&0x0314u16.to_le_bytes()); // version made by (Unix 3.0)
+            cd_bytes.extend_from_slice(&20u16.to_le_bytes()); // version needed
+            cd_bytes.extend_from_slice(&0u16.to_le_bytes()); // flags
+            cd_bytes.extend_from_slice(&0u16.to_le_bytes()); // compression
+            cd_bytes.extend_from_slice(&0u16.to_le_bytes()); // mod time
+            cd_bytes.extend_from_slice(&0u16.to_le_bytes()); // mod date
+            cd_bytes.extend_from_slice(&crc.to_le_bytes()); // crc32
+            cd_bytes.extend_from_slice(&(data.len() as u32).to_le_bytes());
+            cd_bytes.extend_from_slice(&(data.len() as u32).to_le_bytes());
+            cd_bytes.extend_from_slice(&(name_bytes.len() as u16).to_le_bytes());
+            cd_bytes.extend_from_slice(&0u16.to_le_bytes()); // extra len
+            cd_bytes.extend_from_slice(&0u16.to_le_bytes()); // comment len
+            cd_bytes.extend_from_slice(&0u16.to_le_bytes()); // disk num
+            cd_bytes.extend_from_slice(&0u16.to_le_bytes()); // internal attr
+            cd_bytes.extend_from_slice(&external_attr.to_le_bytes()); // external attr
+            cd_bytes.extend_from_slice(&local_offset.to_le_bytes());
+            cd_bytes.extend_from_slice(name_bytes);
+        }
+
+        let cd_offset = zip_bytes.len() as u32;
+        let cd_size = cd_bytes.len() as u32;
+        zip_bytes.extend_from_slice(&cd_bytes);
+
+        // EOCD (22 bytes)
+        zip_bytes.extend_from_slice(&[0x50, 0x4b, 0x05, 0x06]);
+        zip_bytes.extend_from_slice(&0u16.to_le_bytes()); // disk num
+        zip_bytes.extend_from_slice(&0u16.to_le_bytes()); // cd disk
+        zip_bytes.extend_from_slice(&(entries.len() as u16).to_le_bytes()); // entries this disk
+        zip_bytes.extend_from_slice(&(entries.len() as u16).to_le_bytes()); // total entries
+        zip_bytes.extend_from_slice(&cd_size.to_le_bytes());
+        zip_bytes.extend_from_slice(&cd_offset.to_le_bytes());
+        zip_bytes.extend_from_slice(&0u16.to_le_bytes()); // comment len
+
+        zip_bytes
+    }
+
+    #[cfg(test)]
+    fn crc32_simple(data: &[u8]) -> u32 {
+        let mut crc = !0u32;
+        for &b in data {
+            crc ^= u32::from(b);
+            for _ in 0..8 {
+                crc = (crc >> 1) ^ (0xEDB8_8320 & (!((crc & 1).wrapping_sub(1))));
+            }
+        }
+        !crc
+    }
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn windows_production_zip_path_rejects_parent_traversal() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("test_zip_trav_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let staging = temp_dir.join("staging");
+        let outside_file = temp_dir.join("outside.txt");
+
+        let zip_bytes = create_test_zip(&[("..\\outside.txt", b"MALICIOUS", 0)]);
+        let zip_path = temp_dir.join("malicious.zip");
+        std::fs::write(&zip_path, zip_bytes).unwrap();
+
+        let limits = ArchiveLimits::default();
+        let res = extract_zip_safe_windows(&zip_path, &staging, &limits);
+
+        assert!(matches!(res, Err(UpdaterError::UnsafeArchivePath(_))));
+        assert!(!outside_file.exists(), "outside.txt nie może powstać");
+        assert!(!staging.exists() || std::fs::read_dir(&staging).unwrap().next().is_none());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn windows_production_zip_path_rejects_absolute_path() {
+        let temp_dir = std::env::temp_dir().join(format!("test_zip_abs_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let staging = temp_dir.join("staging");
+
+        let zip_bytes = create_test_zip(&[("/outside.txt", b"ABSOLUTE", 0)]);
+        let zip_path = temp_dir.join("malicious_abs.zip");
+        std::fs::write(&zip_path, zip_bytes).unwrap();
+
+        let limits = ArchiveLimits::default();
+        let res = extract_zip_safe_windows(&zip_path, &staging, &limits);
+        assert!(matches!(res, Err(UpdaterError::UnsafeArchivePath(_))));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn windows_production_zip_path_rejects_drive_prefix() {
+        let temp_dir = std::env::temp_dir().join(format!("test_zip_drv_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let staging = temp_dir.join("staging");
+
+        let zip_bytes = create_test_zip(&[("C:\\evil.txt", b"DRIVE", 0)]);
+        let zip_path = temp_dir.join("malicious_drv.zip");
+        std::fs::write(&zip_path, zip_bytes).unwrap();
+
+        let limits = ArchiveLimits::default();
+        let res = extract_zip_safe_windows(&zip_path, &staging, &limits);
+        assert!(matches!(res, Err(UpdaterError::UnsafeArchivePath(_))));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn windows_production_zip_path_rejects_unc_path() {
+        let temp_dir = std::env::temp_dir().join(format!("test_zip_unc_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let staging = temp_dir.join("staging");
+
+        let zip_bytes = create_test_zip(&[(r"\\server\share\evil.txt", b"UNC", 0)]);
+        let zip_path = temp_dir.join("malicious_unc.zip");
+        std::fs::write(&zip_path, zip_bytes).unwrap();
+
+        let limits = ArchiveLimits::default();
+        let res = extract_zip_safe_windows(&zip_path, &staging, &limits);
+        assert!(matches!(res, Err(UpdaterError::UnsafeArchivePath(_))));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn windows_production_zip_path_does_not_follow_staging_symlink() {
+        let temp_dir = std::env::temp_dir().join(format!("test_zip_sym_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let staging = temp_dir.join("staging");
+
+        // Unix symlink mode: S_IFLNK (0o120755) w górnych 16 bitach
+        let symlink_attr = (0o120755u32) << 16;
+        let zip_bytes = create_test_zip(&[("symlink_entry", b"target_path", symlink_attr)]);
+        let zip_path = temp_dir.join("symlink.zip");
+        std::fs::write(&zip_path, zip_bytes).unwrap();
+
+        let limits = ArchiveLimits::default();
+        let res = extract_zip_safe_windows(&zip_path, &staging, &limits);
+        assert!(matches!(res, Err(UpdaterError::UnsafeArchivePath(_))));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 
     #[test]
