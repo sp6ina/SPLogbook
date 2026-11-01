@@ -25,18 +25,103 @@ pub const MAX_CHUNK_BYTES: usize = 1024 * 1024; // 1 MiB
 pub const MAX_RECORD_BYTES: usize = 6 * 1024 * 1024; // 6 MiB
 
 #[cfg(test)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OperationCounts {
+    pub item_serializations: usize,
+    pub empty_envelope_serializations: usize,
+    pub final_chunk_serializations: usize,
+    pub frame_encodings: usize,
+    pub frame_encryptions: usize,
+    pub validation_serializations: usize,
+}
+
+#[cfg(test)]
 thread_local! {
-    pub static SERIALIZATION_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    pub static OP_COUNTS: std::cell::Cell<OperationCounts> = const {
+        std::cell::Cell::new(OperationCounts {
+            item_serializations: 0,
+            empty_envelope_serializations: 0,
+            final_chunk_serializations: 0,
+            frame_encodings: 0,
+            frame_encryptions: 0,
+            validation_serializations: 0,
+        })
+    };
+}
+
+#[cfg(test)]
+pub fn reset_operation_counts() {
+    OP_COUNTS.with(|c| c.set(OperationCounts::default()));
+}
+
+#[cfg(test)]
+pub fn get_operation_counts() -> OperationCounts {
+    OP_COUNTS.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+pub fn inc_item_serialization() {
+    OP_COUNTS.with(|c| {
+        let mut v = c.get();
+        v.item_serializations += 1;
+        c.set(v);
+    });
+}
+
+#[cfg(test)]
+pub fn inc_empty_envelope_serialization() {
+    OP_COUNTS.with(|c| {
+        let mut v = c.get();
+        v.empty_envelope_serializations += 1;
+        c.set(v);
+    });
+}
+
+#[cfg(test)]
+pub fn inc_final_chunk_serialization() {
+    OP_COUNTS.with(|c| {
+        let mut v = c.get();
+        v.final_chunk_serializations += 1;
+        c.set(v);
+    });
+}
+
+#[cfg(test)]
+pub fn inc_frame_encoding() {
+    OP_COUNTS.with(|c| {
+        let mut v = c.get();
+        v.frame_encodings += 1;
+        c.set(v);
+    });
+}
+
+#[cfg(test)]
+pub fn inc_frame_encryption() {
+    OP_COUNTS.with(|c| {
+        let mut v = c.get();
+        v.frame_encryptions += 1;
+        c.set(v);
+    });
+}
+
+#[cfg(test)]
+pub fn inc_validation_serialization() {
+    OP_COUNTS.with(|c| {
+        let mut v = c.get();
+        v.validation_serializations += 1;
+        c.set(v);
+    });
 }
 
 #[cfg(test)]
 pub fn reset_serialization_count() {
-    SERIALIZATION_COUNT.with(|c| c.set(0));
+    reset_operation_counts();
 }
 
 #[cfg(test)]
 pub fn get_serialization_count() -> usize {
-    SERIALIZATION_COUNT.with(std::cell::Cell::get)
+    let counts = get_operation_counts();
+    counts.item_serializations + counts.empty_envelope_serializations
 }
 
 /// Dzieli listę tożsamości `QsoIdentity` na porcje `Message::Inventory` o rozmiarze <= 1 MiB JSON.
@@ -56,7 +141,7 @@ pub fn chunk_inventory(journal: &str, identities: &[QsoIdentity]) -> Vec<Message
     };
     let empty_size = {
         #[cfg(test)]
-        SERIALIZATION_COUNT.with(|c| c.set(c.get() + 1));
+        inc_empty_envelope_serialization();
         serde_json::to_vec(&empty_msg).map_or(0, |v| v.len())
     };
 
@@ -67,7 +152,7 @@ pub fn chunk_inventory(journal: &str, identities: &[QsoIdentity]) -> Vec<Message
     for id in identities {
         let id_size = {
             #[cfg(test)]
-            SERIALIZATION_COUNT.with(|c| c.set(c.get() + 1));
+            inc_item_serialization();
             serde_json::to_vec(id).map_or(0, |v| v.len())
         };
 
@@ -132,7 +217,7 @@ pub fn chunk_requests(identities: &[QsoIdentity]) -> Vec<Message> {
     };
     let empty_size = {
         #[cfg(test)]
-        SERIALIZATION_COUNT.with(|c| c.set(c.get() + 1));
+        inc_empty_envelope_serialization();
         serde_json::to_vec(&empty_msg).map_or(0, |v| v.len())
     };
 
@@ -143,7 +228,7 @@ pub fn chunk_requests(identities: &[QsoIdentity]) -> Vec<Message> {
     for id in identities {
         let id_size = {
             #[cfg(test)]
-            SERIALIZATION_COUNT.with(|c| c.set(c.get() + 1));
+            inc_item_serialization();
             serde_json::to_vec(id).map_or(0, |v| v.len())
         };
 
@@ -209,7 +294,7 @@ pub fn chunk_records(
     };
     let empty_size = {
         #[cfg(test)]
-        SERIALIZATION_COUNT.with(|c| c.set(c.get() + 1));
+        inc_empty_envelope_serialization();
         serde_json::to_vec(&empty_msg).map_or(0, |v| v.len())
     };
 
@@ -220,7 +305,7 @@ pub fn chunk_records(
     for rec in records {
         let rec_size = {
             #[cfg(test)]
-            SERIALIZATION_COUNT.with(|c| c.set(c.get() + 1));
+            inc_item_serialization();
             serde_json::to_vec(rec).map_or(0, |v| v.len())
         };
 

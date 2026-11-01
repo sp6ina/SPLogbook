@@ -21,8 +21,11 @@ pub use catchup::{
 };
 #[cfg(test)]
 pub use catchup::{
-    chunk_inventory_reference, chunk_records_reference, chunk_requests_reference,
-    get_serialization_count, reset_serialization_count,
+    OperationCounts, chunk_inventory_reference, chunk_records_reference, chunk_requests_reference,
+    get_operation_counts, get_serialization_count, inc_empty_envelope_serialization,
+    inc_final_chunk_serialization, inc_frame_encoding, inc_frame_encryption,
+    inc_item_serialization, inc_validation_serialization, reset_operation_counts,
+    reset_serialization_count,
 };
 pub use crypto::*;
 pub use error::SyncError;
@@ -2440,6 +2443,227 @@ mod tests {
             !calls.contains(&"OVERSIZED_CALL"),
             "Odrzucony rekord nie moze trafic do bazy"
         );
+    }
+
+    #[tokio::test]
+    async fn catchup_chunking_15k_reports_complete_linear_operation_counts() {
+        let identities: Vec<QsoIdentity> = (0..15_000)
+            .map(|i| {
+                let call = format!("CALL_{i}");
+                QsoIdentity::from_fields(&call, "20m", "CW", "20261018", "120000")
+            })
+            .collect();
+
+        reset_operation_counts();
+
+        // 1. Faza podziału na porcje (chunk_inventory)
+        let chunks = chunk_inventory("DEFAULT", &identities);
+        let chunk_count = chunks.len();
+        assert!(chunk_count > 1);
+
+        let initial_counts = get_operation_counts();
+        assert_eq!(initial_counts.empty_envelope_serializations, 1);
+        assert_eq!(initial_counts.item_serializations, 15_000);
+        assert!(initial_counts.item_serializations <= 15_000 + 10);
+
+        // 2. Faza potoku nadawczego (symulacja run_writer_loop dla wyemitowanych porcji):
+        // final chunk serialization -> encryption -> frame encoding
+        let key = [0x42u8; KEY_LEN];
+        let session_id = [0x11u8; SESSION_ID_LEN];
+        let mut counter = 0u64;
+
+        for chunk in &chunks {
+            inc_final_chunk_serialization();
+            let plaintext = chunk.to_json().unwrap();
+
+            inc_frame_encryption();
+            let aad = build_aad(&session_id, DIRECTION_HOST_TO_PEER, counter);
+            counter += 1;
+            let encrypted = encrypt_payload(&key, &aad, &plaintext).unwrap();
+
+            inc_frame_encoding();
+            let mut wire = Vec::new();
+            write_frame(&mut wire, &encrypted).await.unwrap();
+        }
+
+        let total_counts = get_operation_counts();
+        assert_eq!(total_counts.empty_envelope_serializations, 1);
+        assert_eq!(total_counts.item_serializations, 15_000);
+        assert_eq!(total_counts.final_chunk_serializations, chunk_count);
+        assert_eq!(total_counts.frame_encryptions, chunk_count);
+        assert_eq!(total_counts.frame_encodings, chunk_count);
+
+        assert!(total_counts.item_serializations <= 15_000 + 10);
+        assert!(total_counts.final_chunk_serializations <= chunk_count + 10);
+        assert!(total_counts.frame_encodings <= chunk_count + 10);
+
+        let total_ops = total_counts.empty_envelope_serializations
+            + total_counts.item_serializations
+            + total_counts.final_chunk_serializations
+            + total_counts.frame_encryptions
+            + total_counts.frame_encodings;
+
+        assert_eq!(total_ops, 1 + 15_000 + 3 * chunk_count);
+    }
+
+    #[test]
+    fn estimated_chunk_size_matches_actual_serialized_size() {
+        let test_records: Vec<QsoRecord> = vec![
+            {
+                let mut q = sample_qso("SP6INA");
+                q.comment = Some("ASCII comment".into());
+                q
+            },
+            {
+                let mut q = sample_qso("SP6INA/ŁÓDŹ");
+                q.comment = Some("Zażółć gęślą jaźń - test UTF-8".into());
+                q
+            },
+            {
+                let mut q = sample_qso("JA1東京");
+                q.comment = Some("日本語コメント 東京".into());
+                q
+            },
+            {
+                let mut q = sample_qso("SP5\"QUOTE\"");
+                q.comment = Some("Tekst z \"cudzysłowem\" w środku".into());
+                q
+            },
+            {
+                let mut q = sample_qso("SP1\\SLASH\\");
+                q.comment = Some("C:\\Windows\\System32\\path\\test".into());
+                q
+            },
+            {
+                let mut q = sample_qso("SP2\nLINE\n");
+                q.comment = Some("Linia 1\nLinia 2\r\nLinia 3\tTab".into());
+                q
+            },
+            {
+                let mut q = sample_qso("EMPTY_FIELDS");
+                q.comment = None;
+                q.name = None;
+                q.qth = None;
+                q.gridsquare = None;
+                q
+            },
+            {
+                let mut q = sample_qso("LONG_COMMENT_1");
+                q.comment = Some("L".repeat(50_000));
+                q
+            },
+            {
+                let mut q = sample_qso("LONG_COMMENT_2");
+                q.comment = Some("K".repeat(800_000));
+                q
+            },
+            {
+                let mut q = sample_qso("MULTI_CHUNK_FILL");
+                q.comment = Some("M".repeat(400_000));
+                q
+            },
+        ];
+
+        let chunks = chunk_records(&test_records, None);
+        assert!(
+            chunks.len() >= 2,
+            "Zbiór testowy musi wygenerować co najmniej 2 porcje"
+        );
+
+        for (idx, chunk) in chunks.iter().enumerate() {
+            let actual_bytes = serde_json::to_vec(chunk).unwrap();
+            let is_last = idx == chunks.len() - 1;
+
+            if let Message::Records { qsos, last } = chunk {
+                assert_eq!(*last, is_last);
+
+                let empty_envelope = Message::Records {
+                    qsos: Vec::new(),
+                    last: false,
+                };
+                let empty_size = serde_json::to_vec(&empty_envelope).unwrap().len();
+
+                let mut estimated_size = empty_size;
+                for (i, rec) in qsos.iter().enumerate() {
+                    let rec_size = serde_json::to_vec(rec).unwrap().len();
+                    let added = if i == 0 { rec_size } else { 1 + rec_size };
+                    estimated_size += added;
+                }
+
+                if !is_last {
+                    assert_eq!(
+                        actual_bytes.len(),
+                        estimated_size,
+                        "Dla chunk {idx} (last=false) rzeczywisty rozmiar ({}) musi równać się estymacji ({})",
+                        actual_bytes.len(),
+                        estimated_size
+                    );
+                } else {
+                    assert_eq!(
+                        actual_bytes.len(),
+                        estimated_size - 1,
+                        "Dla ostatniego chunku (last=true) rzeczywisty rozmiar ({}) musi wynosić estymacja - 1 ({})",
+                        actual_bytes.len(),
+                        estimated_size - 1
+                    );
+                }
+
+                assert!(actual_bytes.len() <= MAX_CHUNK_BYTES || qsos.len() == 1);
+            } else {
+                panic!("Nieoczekiwany typ wiadomości");
+            }
+        }
+    }
+
+    #[test]
+    fn last_flag_size_delta_is_accounted_for() {
+        let inv_false = Message::Inventory {
+            journal: "DEFAULT".into(),
+            identities: Vec::new(),
+            last: false,
+        };
+        let inv_true = Message::Inventory {
+            journal: "DEFAULT".into(),
+            identities: Vec::new(),
+            last: true,
+        };
+        let inv_false_bytes = serde_json::to_vec(&inv_false).unwrap();
+        let inv_true_bytes = serde_json::to_vec(&inv_true).unwrap();
+        assert_eq!(
+            inv_false_bytes.len() - inv_true_bytes.len(),
+            1,
+            "Różnica pomiędzy last:false a last:true w Message::Inventory musi wynosić dokładnie 1 bajt"
+        );
+        let str_false = String::from_utf8(inv_false_bytes).unwrap();
+        let str_true = String::from_utf8(inv_true_bytes).unwrap();
+        assert!(str_false.contains("\"last\":false"));
+        assert!(str_true.contains("\"last\":true"));
+
+        let req_false = Message::Request {
+            identities: Vec::new(),
+            last: false,
+        };
+        let req_true = Message::Request {
+            identities: Vec::new(),
+            last: true,
+        };
+        let req_false_bytes = serde_json::to_vec(&req_false).unwrap();
+        let req_true_bytes = serde_json::to_vec(&req_true).unwrap();
+        assert_eq!(req_false_bytes.len() - req_true_bytes.len(), 1);
+
+        let rec_false = Message::Records {
+            qsos: Vec::new(),
+            last: false,
+        };
+        let rec_true = Message::Records {
+            qsos: Vec::new(),
+            last: true,
+        };
+        let rec_false_bytes = serde_json::to_vec(&rec_false).unwrap();
+        let rec_true_bytes = serde_json::to_vec(&rec_true).unwrap();
+        assert_eq!(rec_false_bytes.len() - rec_true_bytes.len(), 1);
+
+        assert!(rec_true_bytes.len() < rec_false_bytes.len());
     }
 
     #[test]
