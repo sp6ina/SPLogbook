@@ -948,24 +948,190 @@ fn release_workflow_requires_manifest_signature_and_checksums() {
     );
 }
 
+struct ApprovedAction {
+    repository: &'static str,
+    tag: &'static str,
+    sha: &'static str,
+    runs_using: &'static str,
+}
+
+const APPROVED_ACTIONS: &[ApprovedAction] = &[
+    ApprovedAction {
+        repository: "actions/checkout",
+        tag: "v7.0.1",
+        sha: "3d3c42e5aac5ba805825da76410c181273ba90b1",
+        runs_using: "node24",
+    },
+    ApprovedAction {
+        repository: "dtolnay/rust-toolchain",
+        tag: "v1",
+        sha: "683b588c487a69d01f6c6ddf40f036ff682cc2c8",
+        runs_using: "composite",
+    },
+    ApprovedAction {
+        repository: "actions/upload-artifact",
+        tag: "v7.0.2",
+        sha: "cf430e030ddbb5b0abf93d22962f4752f3646cd9",
+        runs_using: "node24",
+    },
+    ApprovedAction {
+        repository: "actions/download-artifact",
+        tag: "v8.0.2",
+        sha: "9000827ccba6bdab643e8b6fd33ac0654aef8333",
+        runs_using: "node24",
+    },
+    ApprovedAction {
+        repository: "softprops/action-gh-release",
+        tag: "v3.0.3",
+        sha: "efb35369e0ad2afab669f228072c1b0d510eae64",
+        runs_using: "node24",
+    },
+];
+
 #[test]
 fn release_workflow_actions_are_pinned_by_policy() {
-    let workflow = fs::read_to_string(".github/workflows/build-and-release.yml")
-        .expect("Nie można odczytać workflow");
-    for line in workflow.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with("uses:") {
-            let action = trimmed.trim_start_matches("uses:").trim();
-            assert!(
-                action.contains('@'),
-                "Akcja GitHub Action musi być przypięta do wersji: {action}"
-            );
-            assert!(
-                !action.ends_with("@master") && !action.ends_with("@main"),
-                "Akcja nie może odwoływać się do niestabilnych gałęzi @master / @main: {action}"
-            );
+    let workflow_files = [
+        ".github/workflows/build-and-release.yml",
+        ".github/workflows/ci.yml",
+    ];
+
+    for file_path in &workflow_files {
+        let content = fs::read_to_string(file_path)
+            .unwrap_or_else(|e| panic!("Nie mozna odczytac {file_path}: {e}"));
+
+        assert!(
+            !content.contains("ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION"),
+            "{file_path} nie moze uzywac obejscia ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION"
+        );
+        assert!(
+            !content.contains("FORCE_JAVASCRIPT_ACTIONS_TO_NODE24"),
+            "{file_path} nie moze uzywac obejscia FORCE_JAVASCRIPT_ACTIONS_TO_NODE24"
+        );
+
+        for (line_no, line) in content.lines().enumerate() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("uses:") {
+                let uses_spec = trimmed.trim_start_matches("uses:").trim();
+                let mut parts = uses_spec.splitn(2, '#');
+                let action_ref = parts.next().unwrap().trim();
+                let comment = parts.next().map(str::trim).unwrap_or_else(|| {
+                    panic!("Linia {line_no} w {file_path} musi zawierac komentarz z wersja: {line}")
+                });
+
+                let (repo, sha) = action_ref
+                    .split_once('@')
+                    .unwrap_or_else(|| panic!("Linia {line_no} w {file_path} brak '@': {line}"));
+
+                assert_eq!(
+                    sha.len(),
+                    40,
+                    "Linia {line_no} w {file_path}: Akcja musi byc przypieta do pelnego 40-znakowego SHA: {sha}"
+                );
+                assert!(
+                    sha.chars()
+                        .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+                    "Linia {line_no} w {file_path}: SHA musi skladac sie wylacznie z malych cyfr/liter hex: {sha}"
+                );
+
+                assert!(
+                    !action_ref.ends_with("@master")
+                        && !action_ref.ends_with("@main")
+                        && !action_ref.ends_with("@latest")
+                        && !action_ref.ends_with("@stable")
+                        && !action_ref.contains("@v"),
+                    "Linia {line_no} w {file_path}: Akcja nie moze odwolywac sie do plywajacych galezi/tagow: {action_ref}"
+                );
+
+                let approved = APPROVED_ACTIONS
+                    .iter()
+                    .find(|a| a.repository == repo)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "Nieznane lub nieautoryzowane repozytorium akcji: {repo} w {file_path}"
+                        )
+                    });
+
+                assert_eq!(
+                    sha, approved.sha,
+                    "Linia {line_no} w {file_path}: Nieprawidlowy SHA dla {repo}"
+                );
+                assert_eq!(
+                    comment, approved.tag,
+                    "Linia {line_no} w {file_path}: Komentarz wersji '{comment}' nie odpowiada zatwierdzonemu tagowi '{}' dla {repo}",
+                    approved.tag
+                );
+            }
         }
     }
+}
+
+#[test]
+fn release_workflow_uses_latest_approved_stable_actions() {
+    assert_eq!(APPROVED_ACTIONS.len(), 5);
+    for approved in APPROVED_ACTIONS {
+        assert_eq!(approved.sha.len(), 40);
+        assert!(approved.tag.starts_with('v'));
+        assert!(
+            approved.runs_using == "node24" || approved.runs_using == "composite",
+            "Zatwierdzona akcja {} musi uzywac node24 lub composite, otrzymano: {}",
+            approved.repository,
+            approved.runs_using
+        );
+    }
+
+    let workflow = fs::read_to_string(".github/workflows/build-and-release.yml")
+        .expect("Nie mozna odczytac build-and-release.yml");
+    for approved in APPROVED_ACTIONS {
+        assert!(
+            workflow.contains(approved.sha),
+            "Workflow build-and-release.yml musi zawierac zatwierdzony SHA dla {}: {}",
+            approved.repository,
+            approved.sha
+        );
+    }
+}
+
+#[test]
+fn release_workflow_has_no_node20_actions() {
+    let workflow_files = [
+        ".github/workflows/build-and-release.yml",
+        ".github/workflows/ci.yml",
+    ];
+
+    for file_path in &workflow_files {
+        let content = fs::read_to_string(file_path).expect("Nie mozna odczytac workflow");
+        assert!(
+            !content.contains("node20"),
+            "{file_path} nie moze zawierac 'node20'"
+        );
+        assert!(
+            !content.contains("@v4"),
+            "{file_path} nie moze zawierac przestarzalego tagu @v4 (opartego na node20)"
+        );
+        assert!(
+            !content.contains("@v2"),
+            "{file_path} nie moze zawierac przestarzalego tagu @v2 (opartego na node20)"
+        );
+    }
+}
+
+#[test]
+fn release_workflow_verifies_signing_key_fingerprint() {
+    let workflow = fs::read_to_string(".github/workflows/build-and-release.yml")
+        .expect("Nie mozna odczytac build-and-release.yml");
+
+    assert!(
+        workflow.contains("2a6277b72d2a97236f344f1542a1c2868a74f71c9626a22dc1735919efeb2a4a"),
+        "Workflow musi weryfikowac oczekiwany fingerprint zaufanego klucza publicznego"
+    );
+    assert!(
+        workflow.contains("splogbook-release-2026-02"),
+        "Workflow musi uzywac aktywnego identyfikatora splogbook-release-2026-02"
+    );
+    assert!(
+        workflow.contains("trap 'rm -f priv.key dry_run.key"),
+        "Workflow musi usuwac klucze prywatne przez trap EXIT"
+    );
 }
 
 #[test]
