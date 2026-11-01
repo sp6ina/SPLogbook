@@ -13,7 +13,15 @@ use crate::core::qso::{QsoIdentity, QsoRecord};
 use std::collections::HashSet;
 use std::sync::Arc;
 
+/// Docelowy maksymalny rozmiar porcji wiadomości w formacie JSON: 1 MiB (1 048 576 B).
+/// Steruje grupowaniem wielu elementów (identyfikatorów QSO lub standardowych rekordów) w pojedynczą wiadomość.
 pub const MAX_CHUNK_BYTES: usize = 1024 * 1024; // 1 MiB
+
+/// Bezwzględny maksymalny dopuszczalny rozmiar pojedynczego rekordu QSO w formacie JSON: 6 MiB (6 291 456 B).
+/// Rekord o rozmiarze powyżej 1 MiB i do 6 MiB jest legalnie przesyłany jako dedykowany, pojedynczy chunk
+/// (\SINGLE_RECORD_EXCEPTION_IS_VALID\), ponieważ wraz z narzutem ramkowania (77-78 B) mieści się z dużym
+/// zapasem w twardym limicie transportowym \MAX_FRAME_BYTES\ (8 MiB).
+/// Rekordy przekraczające ten limit są odrzucane ze statusem \RecordTooLarge\ bez przerywania sesji.
 pub const MAX_RECORD_BYTES: usize = 6 * 1024 * 1024; // 6 MiB
 
 #[cfg(test)]

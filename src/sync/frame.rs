@@ -9,6 +9,18 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 /// Maksymalny dopuszczalny rozmiar pojedynczej ramki: 8 MiB.
 pub const MAX_FRAME_BYTES: usize = 8 * 1024 * 1024;
 
+/// Całkowity stały narzut transportowy i kryptograficzny (44 bajty):
+/// - 24 B nonce (XChaCha20)
+/// - 16 B tag uwierzytelniający (Poly1305)
+/// - 4 B prefiks długości ramki TCP (big-endian u32)
+pub const FRAME_OVERHEAD_BYTES: usize = 24 + 16 + 4;
+
+/// Zwraca szacowany rozmiar zakodowanej i zaszyfrowanej ramki transportowej na podstawie długości plaintextu JSON.
+#[must_use]
+pub fn encoded_frame_size(plaintext_len: usize) -> usize {
+    plaintext_len.saturating_add(FRAME_OVERHEAD_BYTES)
+}
+
 /// Koduje długość ramki do 4 bajtów big-endian.
 pub fn encode_length(len: usize) -> [u8; 4] {
     (len as u32).to_be_bytes()
