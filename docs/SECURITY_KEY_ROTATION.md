@@ -218,12 +218,14 @@ Po wdrożeniu Etapu 2 klucz `splogbook-release-2026-02` został w pełni zintegr
 
 ## 8. Potwierdzenie Weryfikacji Bezpieczeństwa Potoku Wydawniczego (Etap 2 Final Gate)
 
-W ramach końcowej bramki Etapu 2 przeprowadzono pełny natywny przebieg GitHub Actions w trybie dry-run (Run ID: `41312118501` na commit `0f56ada` gałęzi `main`).
+W ramach końcowej bramki Etapu 2 przeprowadzono pełny natywny przebieg GitHub Actions w trybie dry-run (Run ID: `41317314042` na commit `75ef965` gałęzi `main`) z pełną weryfikacją ścieżki produkcyjnego klucza `RELEASE_SIGNING_KEY` oraz migracją wszystkich GitHub Actions do Node 24 runtime.
 
 Potwierdzono:
-1. Potok obsługuje bezpieczny tryb `dry_run: true` bez wycieku ani konieczności użycia klucza produkcyjnego (wykorzystano bezpieczny `EPHEMERAL_TEST_KEY` generowany w locie pod `umask 077` i natychmiast usuwany po teście podpisu i weryfikacji).
-2. Krok publikacji wydania `Create GitHub Release` został pominięty (**SKIPPED**).
-3. Żaden tag wydania ani GitHub Release nie został utworzony.
-4. Narzędzie `splogbook-signer` weryfikuje podpis manifestu podkomendą `verify` (zwracając kod 0 dla poprawnego podpisu i kod != 0 przy niepoprawnym).
-5. Wszystkie pobrane artefakty przeszły niezależną weryfikację skrótów SHA-256 oraz brak obecności jakichkolwiek kluczy prywatnych.
-6. Status potoku wydawniczego: **RELEASE_PIPELINE_READY**.
+1. Potok odczytał produkcyjny sekret podpisywania `RELEASE_SIGNING_KEY` pod `umask 077`, prawami `600` do pliku `priv.key`, obliczył fingerprint SHA-256 klucza publicznego przez `splogbook-signer fingerprint`, potwierdził pełną zgodność z zakotwiczonym zaufanym kluczem `splogbook-release-2026-02` (fingerprint `2a6277b72d2a97236f344f1542a1c2868a74f71c9626a22dc1735919efeb2a4a`), podpisał manifest i zweryfikował sygnaturę produkcyjnym weryfikatorem updatera.
+2. Usunięto materiał klucza prywatnego pułapką `trap 'rm -f priv.key' EXIT` i zweryfikowano brak obecności jakichkolwiek plików klucza prywatnego w stagingu ani w opublikowanych artefaktach (`PRODUCTION_SECRET_PATH: DRY_RUN_VERIFIED`).
+3. Wszystkie użyte akcje GitHub Actions zostały zmigrowane do najnowszych stabilnych wydań na Node 24 runtime i przypięte 40-znakowymi commit SHA (`actions/checkout@v7.0.1`, `dtolnay/rust-toolchain@v1`, `actions/upload-artifact@v7.0.2`, `actions/download-artifact@v8.0.2`, `softprops/action-gh-release@v3.0.3`), eliminując w 100% ostrzeżenia o przestarzałym Node 20.
+4. Krok publikacji wydania `Create GitHub Release` został pominięty (**SKIPPED**).
+5. Żaden tag wydania ani GitHub Release nie został utworzony.
+6. Narzędzie `splogbook-signer` weryfikuje podpis manifestu podkomendą `verify` (zwracając kod 0 dla poprawnego podpisu i kod != 0 przy niepoprawnym).
+7. Wszystkie pobrane artefakty przeszły niezależną weryfikację skrótów SHA-256 oraz brak obecności jakichkolwiek kluczy prywatnych.
+8. Status potoku wydawniczego: **RELEASE_PIPELINE_READY**.
