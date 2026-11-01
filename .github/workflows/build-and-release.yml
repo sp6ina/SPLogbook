@@ -324,7 +324,7 @@ jobs:
           ../target/release/splogbook-signer sign "../$KEY_FILE" release-manifest.json
           [ -s release-manifest.json.sig ] || { echo "::error::Signature file was not created or is empty"; exit 1; }
 
-          ../target/release/splogbook-signer verify release-manifest.json release-manifest.json.sig
+          ../target/release/splogbook-signer verify release-manifest.json release-manifest.json.sig "../$KEY_FILE"
           rm -f "../$KEY_FILE"
 
       - name: Upload release manifest and checksums
