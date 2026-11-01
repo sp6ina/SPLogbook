@@ -206,7 +206,6 @@ impl LogDatabase {
     pub fn qso_numbers_for_journal(&self, journal_id: &str) -> Result<HashMap<i64, usize>> {
         let mut stmt = self.conn.prepare(&format!(
             "SELECT id, ROW_NUMBER() OVER (ORDER BY {ORDER_CHRONO_ASC}) \
-
              FROM qso_records WHERE journal_id = ?1"
         ))?;
 
@@ -250,9 +249,7 @@ impl LogDatabase {
     pub fn get_distinct_callsigns(&self, limit: usize) -> Result<DistinctCallsigns> {
         let mut stmt = self.conn.prepare(
             "SELECT DISTINCT UPPER(callsign) FROM qso_records \
-
              WHERE callsign IS NOT NULL AND TRIM(callsign) <> '' \
-
              ORDER BY callsign LIMIT ?1",
         )?;
 
@@ -276,7 +273,6 @@ impl LogDatabase {
     pub fn existing_identities(&self, journal_id: &str) -> Result<HashSet<QsoIdentity>> {
         let mut stmt = self.conn.prepare(
             "SELECT callsign, band, mode, qso_date, time_on \
-
              FROM qso_records WHERE journal_id = ?1",
         )?;
 
@@ -308,9 +304,7 @@ impl LogDatabase {
     pub fn has_identity(&self, journal_id: &str, identity: &QsoIdentity) -> Result<bool> {
         let mut stmt = self.conn.prepare(
             "SELECT callsign, band, mode, qso_date, time_on \
-
              FROM qso_records \
-
              WHERE journal_id = ?1 AND UPPER(callsign) = ?2",
         )?;
 
