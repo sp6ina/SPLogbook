@@ -16,8 +16,269 @@ use std::sync::Arc;
 pub const MAX_CHUNK_BYTES: usize = 1024 * 1024; // 1 MiB
 pub const MAX_RECORD_BYTES: usize = 6 * 1024 * 1024; // 6 MiB
 
+#[cfg(test)]
+thread_local! {
+    pub static SERIALIZATION_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+pub fn reset_serialization_count() {
+    SERIALIZATION_COUNT.with(|c| c.set(0));
+}
+
+#[cfg(test)]
+pub fn get_serialization_count() -> usize {
+    SERIALIZATION_COUNT.with(std::cell::Cell::get)
+}
+
 /// Dzieli listę tożsamości `QsoIdentity` na porcje `Message::Inventory` o rozmiarze <= 1 MiB JSON.
 pub fn chunk_inventory(journal: &str, identities: &[QsoIdentity]) -> Vec<Message> {
+    if identities.is_empty() {
+        return vec![Message::Inventory {
+            journal: journal.to_string(),
+            identities: Vec::new(),
+            last: true,
+        }];
+    }
+
+    let empty_msg = Message::Inventory {
+        journal: journal.to_string(),
+        identities: Vec::new(),
+        last: false,
+    };
+    let empty_size = {
+        #[cfg(test)]
+        SERIALIZATION_COUNT.with(|c| c.set(c.get() + 1));
+        serde_json::to_vec(&empty_msg).map_or(0, |v| v.len())
+    };
+
+    let mut chunks = Vec::new();
+    let mut current = Vec::new();
+    let mut current_size = empty_size;
+
+    for id in identities {
+        let id_size = {
+            #[cfg(test)]
+            SERIALIZATION_COUNT.with(|c| c.set(c.get() + 1));
+            serde_json::to_vec(id).map_or(0, |v| v.len())
+        };
+
+        let added_size = if current.is_empty() {
+            id_size
+        } else {
+            1 + id_size
+        };
+
+        if !current.is_empty() && current_size + added_size > MAX_CHUNK_BYTES {
+            chunks.push(Message::Inventory {
+                journal: journal.to_string(),
+                identities: std::mem::take(&mut current),
+                last: false,
+            });
+            current_size = empty_size;
+        }
+
+        let added_size = if current.is_empty() {
+            id_size
+        } else {
+            1 + id_size
+        };
+        current.push(id.clone());
+        current_size += added_size;
+
+        if current_size > MAX_CHUNK_BYTES {
+            chunks.push(Message::Inventory {
+                journal: journal.to_string(),
+                identities: std::mem::take(&mut current),
+                last: false,
+            });
+            current_size = empty_size;
+        }
+    }
+
+    if !current.is_empty() {
+        chunks.push(Message::Inventory {
+            journal: journal.to_string(),
+            identities: current,
+            last: true,
+        });
+    } else if let Some(Message::Inventory { last, .. }) = chunks.last_mut() {
+        *last = true;
+    }
+
+    chunks
+}
+
+/// Dzieli listę tożsamości `QsoIdentity` na porcje `Message::Request` o rozmiarze <= 1 MiB JSON.
+pub fn chunk_requests(identities: &[QsoIdentity]) -> Vec<Message> {
+    if identities.is_empty() {
+        return vec![Message::Request {
+            identities: Vec::new(),
+            last: true,
+        }];
+    }
+
+    let empty_msg = Message::Request {
+        identities: Vec::new(),
+        last: false,
+    };
+    let empty_size = {
+        #[cfg(test)]
+        SERIALIZATION_COUNT.with(|c| c.set(c.get() + 1));
+        serde_json::to_vec(&empty_msg).map_or(0, |v| v.len())
+    };
+
+    let mut chunks = Vec::new();
+    let mut current = Vec::new();
+    let mut current_size = empty_size;
+
+    for id in identities {
+        let id_size = {
+            #[cfg(test)]
+            SERIALIZATION_COUNT.with(|c| c.set(c.get() + 1));
+            serde_json::to_vec(id).map_or(0, |v| v.len())
+        };
+
+        let added_size = if current.is_empty() {
+            id_size
+        } else {
+            1 + id_size
+        };
+
+        if !current.is_empty() && current_size + added_size > MAX_CHUNK_BYTES {
+            chunks.push(Message::Request {
+                identities: std::mem::take(&mut current),
+                last: false,
+            });
+            current_size = empty_size;
+        }
+
+        let added_size = if current.is_empty() {
+            id_size
+        } else {
+            1 + id_size
+        };
+        current.push(id.clone());
+        current_size += added_size;
+
+        if current_size > MAX_CHUNK_BYTES {
+            chunks.push(Message::Request {
+                identities: std::mem::take(&mut current),
+                last: false,
+            });
+            current_size = empty_size;
+        }
+    }
+
+    if !current.is_empty() {
+        chunks.push(Message::Request {
+            identities: current,
+            last: true,
+        });
+    } else if let Some(Message::Request { last, .. }) = chunks.last_mut() {
+        *last = true;
+    }
+
+    chunks
+}
+
+/// Dzieli listę rekordów `QsoRecord` na porcje `Message::Records` o rozmiarze <= 1 MiB JSON.
+/// Rekordy przekraczające limit 6 MiB są pomijane i generują błąd/log bez przerywania synchronizacji.
+pub fn chunk_records(
+    records: &[QsoRecord],
+    events: Option<&std::sync::mpsc::Sender<SyncEvent>>,
+) -> Vec<Message> {
+    if records.is_empty() {
+        return vec![Message::Records {
+            qsos: Vec::new(),
+            last: true,
+        }];
+    }
+
+    let empty_msg = Message::Records {
+        qsos: Vec::new(),
+        last: false,
+    };
+    let empty_size = {
+        #[cfg(test)]
+        SERIALIZATION_COUNT.with(|c| c.set(c.get() + 1));
+        serde_json::to_vec(&empty_msg).map_or(0, |v| v.len())
+    };
+
+    let mut chunks = Vec::new();
+    let mut current = Vec::new();
+    let mut current_size = empty_size;
+
+    for rec in records {
+        let rec_size = {
+            #[cfg(test)]
+            SERIALIZATION_COUNT.with(|c| c.set(c.get() + 1));
+            serde_json::to_vec(rec).map_or(0, |v| v.len())
+        };
+
+        if rec_size > MAX_RECORD_BYTES {
+            if let Some(tx) = events {
+                let _ = tx.send(SyncEvent::Error(SyncError::RecordTooLarge {
+                    size: rec_size,
+                    limit: MAX_RECORD_BYTES,
+                }));
+                let _ = tx.send(SyncEvent::Log(Msg::new(
+                    key::MULTIOP_ERROR_RECORD_TOO_LARGE,
+                )));
+            }
+            continue;
+        }
+
+        let added_size = if current.is_empty() {
+            rec_size
+        } else {
+            1 + rec_size
+        };
+
+        if !current.is_empty() && current_size + added_size > MAX_CHUNK_BYTES {
+            chunks.push(Message::Records {
+                qsos: std::mem::take(&mut current),
+                last: false,
+            });
+            current_size = empty_size;
+        }
+
+        let added_size = if current.is_empty() {
+            rec_size
+        } else {
+            1 + rec_size
+        };
+        current.push(rec.clone());
+        current_size += added_size;
+
+        if current_size > MAX_CHUNK_BYTES {
+            chunks.push(Message::Records {
+                qsos: std::mem::take(&mut current),
+                last: false,
+            });
+            current_size = empty_size;
+        }
+    }
+
+    if !current.is_empty() {
+        chunks.push(Message::Records {
+            qsos: current,
+            last: true,
+        });
+    } else if let Some(Message::Records { last, .. }) = chunks.last_mut() {
+        *last = true;
+    } else {
+        chunks.push(Message::Records {
+            qsos: Vec::new(),
+            last: true,
+        });
+    }
+
+    chunks
+}
+
+#[cfg(test)]
+pub fn chunk_inventory_reference(journal: &str, identities: &[QsoIdentity]) -> Vec<Message> {
     if identities.is_empty() {
         return vec![Message::Inventory {
             journal: journal.to_string(),
@@ -62,8 +323,8 @@ pub fn chunk_inventory(journal: &str, identities: &[QsoIdentity]) -> Vec<Message
     chunks
 }
 
-/// Dzieli listę tożsamości `QsoIdentity` na porcje `Message::Request` o rozmiarze <= 1 MiB JSON.
-pub fn chunk_requests(identities: &[QsoIdentity]) -> Vec<Message> {
+#[cfg(test)]
+pub fn chunk_requests_reference(identities: &[QsoIdentity]) -> Vec<Message> {
     if identities.is_empty() {
         return vec![Message::Request {
             identities: Vec::new(),
@@ -104,9 +365,8 @@ pub fn chunk_requests(identities: &[QsoIdentity]) -> Vec<Message> {
     chunks
 }
 
-/// Dzieli listę rekordów `QsoRecord` na porcje `Message::Records` o rozmiarze <= 1 MiB JSON.
-/// Rekordy przekraczające limit 6 MiB są pomijane i generują błąd/log bez przerywania synchronizacji.
-pub fn chunk_records(
+#[cfg(test)]
+pub fn chunk_records_reference(
     records: &[QsoRecord],
     events: Option<&std::sync::mpsc::Sender<SyncEvent>>,
 ) -> Vec<Message> {
