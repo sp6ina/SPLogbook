@@ -2470,15 +2470,12 @@ mod tests {
         // final chunk serialization -> encryption -> frame encoding
         let key = [0x42u8; KEY_LEN];
         let session_id = [0x11u8; SESSION_ID_LEN];
-        let mut counter = 0u64;
-
-        for chunk in &chunks {
+        for (counter, chunk) in chunks.iter().enumerate() {
             inc_final_chunk_serialization();
             let plaintext = chunk.to_json().unwrap();
 
             inc_frame_encryption();
-            let aad = build_aad(&session_id, DIRECTION_HOST_TO_PEER, counter);
-            counter += 1;
+            let aad = build_aad(&session_id, DIRECTION_HOST_TO_PEER, counter as u64);
             let encrypted = encrypt_payload(&key, &aad, &plaintext).unwrap();
 
             inc_frame_encoding();
@@ -2590,21 +2587,21 @@ mod tests {
                     estimated_size += added;
                 }
 
-                if !is_last {
-                    assert_eq!(
-                        actual_bytes.len(),
-                        estimated_size,
-                        "Dla chunk {idx} (last=false) rzeczywisty rozmiar ({}) musi równać się estymacji ({})",
-                        actual_bytes.len(),
-                        estimated_size
-                    );
-                } else {
+                if is_last {
                     assert_eq!(
                         actual_bytes.len(),
                         estimated_size - 1,
                         "Dla ostatniego chunku (last=true) rzeczywisty rozmiar ({}) musi wynosić estymacja - 1 ({})",
                         actual_bytes.len(),
                         estimated_size - 1
+                    );
+                } else {
+                    assert_eq!(
+                        actual_bytes.len(),
+                        estimated_size,
+                        "Dla chunk {idx} (last=false) rzeczywisty rozmiar ({}) musi równać się estymacji ({})",
+                        actual_bytes.len(),
+                        estimated_size
                     );
                 }
 
