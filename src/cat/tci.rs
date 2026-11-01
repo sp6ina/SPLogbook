@@ -23,7 +23,7 @@ use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
 
-use crate::cat::backend::{BoxFuture, CatBackendKind, RigBackend};
+use crate::cat::backend::{BoxFuture, CatBackendKind, RigBackend, RigProbeResult};
 use crate::cat::rig::{RigCapabilities, RigCommand, RigError, RigState};
 
 type WsStream =
@@ -1038,7 +1038,7 @@ impl TciBackend {
             match next_msg {
                 tokio_tungstenite::tungstenite::Message::Text(text) => {
                     let instructions = TciCodec::decode_frame(&text)?;
-                    if instructions.iter().any(|m| *m == TciMessage::Ready) {
+                    if instructions.contains(&TciMessage::Ready) {
                         let _ = tokio::time::timeout(
                             Duration::from_millis(200),
                             stream.send(tokio_tungstenite::tungstenite::Message::Close(None)),
@@ -1052,7 +1052,6 @@ impl TciBackend {
                         .send(tokio_tungstenite::tungstenite::Message::Pong(payload))
                         .await;
                 }
-                tokio_tungstenite::tungstenite::Message::Pong(_) => {}
                 tokio_tungstenite::tungstenite::Message::Close(_) => {
                     return Err(RigError::Protocol {
                         detail: "received Close frame before 'ready;' during probe".to_string(),
@@ -1063,7 +1062,8 @@ impl TciBackend {
                         detail: "unexpected binary frame during probe".to_string(),
                     });
                 }
-                tokio_tungstenite::tungstenite::Message::Frame(_) => {}
+                tokio_tungstenite::tungstenite::Message::Pong(_)
+                | tokio_tungstenite::tungstenite::Message::Frame(_) => {}
             }
         }
     }
@@ -1104,6 +1104,24 @@ impl RigBackend for TciBackend {
 
     fn disconnect(&mut self) -> BoxFuture<'_, ()> {
         Box::pin(self.disconnect_internal())
+    }
+
+    fn probe(&mut self) -> BoxFuture<'_, Result<RigProbeResult, RigError>> {
+        Box::pin(async move {
+            Self::probe(&self.host, self.port).await?;
+            Ok(RigProbeResult {
+                reachable: true,
+                identity: Some(format!("TCI ({}:{})", self.host, self.port)),
+                model: None,
+                firmware: None,
+                capabilities: self.capabilities(),
+                state: None,
+                safe_diagnostic: format!(
+                    "Połączenie z TCI ({}:{}) powiodło się",
+                    self.host, self.port
+                ),
+            })
+        })
     }
 }
 

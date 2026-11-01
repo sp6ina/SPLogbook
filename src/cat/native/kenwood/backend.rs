@@ -12,7 +12,7 @@
 
 use std::time::Duration;
 
-use crate::cat::backend::{BoxFuture, CatBackendKind, RigBackend};
+use crate::cat::backend::{BoxFuture, CatBackendKind, RigBackend, RigProbeResult};
 use crate::cat::native::kenwood::codec::{KenwoodCat, KenwoodCodec, KenwoodFrame, KenwoodIfInfo};
 use crate::cat::native::kenwood::lan::{AsyncReaderWriter, KenwoodLanConfig, KenwoodLanTransport};
 use crate::cat::native::profile::RigModelProfile;
@@ -538,6 +538,73 @@ impl RigBackend for KenwoodBackend {
 
             self.ai_active = false;
             self.state.connected = false;
+        })
+    }
+
+    fn probe(&mut self) -> BoxFuture<'_, Result<RigProbeResult, RigError>> {
+        Box::pin(async move {
+            let was_connected = self.transport.is_some();
+            if !was_connected {
+                let endpoint = self.endpoint_name();
+                if let Some(mock) = self.mock_stream.take() {
+                    let framed = AsyncFramedTransport::from_stream(
+                        mock,
+                        1024,
+                        Duration::from_millis(1000),
+                        Duration::from_millis(1000),
+                    );
+                    self.transport = Some(framed);
+                } else if let Some(ref lan_cfg) = self.lan_config {
+                    let lan = KenwoodLanTransport::connect(lan_cfg).await?;
+                    self.transport = Some(lan.into_framed());
+                } else if let Some(ref serial_cfg) = self.serial_config {
+                    let stream = open_serial_stream(serial_cfg)
+                        .map_err(|e| e.to_rig_error(CatBackendKind::Kenwood, &endpoint))?;
+                    let framed = AsyncFramedTransport::from_stream(
+                        Box::new(stream) as Box<dyn AsyncReaderWriter>,
+                        serial_cfg.max_buffer_size,
+                        serial_cfg.read_timeout,
+                        serial_cfg.write_timeout,
+                    );
+                    self.transport = Some(framed);
+                } else {
+                    return Err(RigError::Connect {
+                        endpoint,
+                        detail: "missing transport configuration".to_string(),
+                    });
+                }
+            }
+
+            // Bezpieczny odczyt FA; lub IF; — bez AI2! Bez PTT!
+            let probe_res = self
+                .roundtrip_command(KenwoodCat::read_freq_cmd(false), "FA")
+                .await;
+            if probe_res.is_err() {
+                let _ = self
+                    .roundtrip_command(KenwoodCat::read_if_cmd(), "IF")
+                    .await?;
+            }
+
+            let mut state = self.state.clone();
+            state.connected = true;
+            state.ptt = false;
+
+            if !was_connected {
+                self.disconnect().await;
+            }
+
+            Ok(RigProbeResult {
+                reachable: true,
+                identity: Some(format!("Kenwood ({})", self.profile.name)),
+                model: Some(self.profile.name.to_string()),
+                firmware: None,
+                capabilities: self.capabilities(),
+                state: Some(state),
+                safe_diagnostic: format!(
+                    "Połączenie z Kenwood ({}) powiodło się",
+                    self.profile.name
+                ),
+            })
         })
     }
 }

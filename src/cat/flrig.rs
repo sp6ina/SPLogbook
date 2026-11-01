@@ -9,7 +9,7 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-use crate::cat::backend::{BoxFuture, CatBackendKind, RigBackend};
+use crate::cat::backend::{BoxFuture, CatBackendKind, RigBackend, RigProbeResult};
 use crate::cat::hamlib::HamlibClient;
 use crate::cat::rig::{RigCapabilities, RigCommand, RigError, RigState};
 
@@ -696,6 +696,31 @@ impl RigBackend for FlrigBackend {
     fn disconnect(&mut self) -> BoxFuture<'_, ()> {
         self.disconnect_internal();
         Box::pin(std::future::ready(()))
+    }
+
+    fn probe(&mut self) -> BoxFuture<'_, Result<RigProbeResult, RigError>> {
+        Box::pin(async move {
+            let vfo = self.client.get_vfo_typed().await?;
+            let mode = self.client.get_mode_typed().await.unwrap_or_default();
+            let mut state = RigState::default();
+            state.frequency_hz = vfo;
+            state.mode = mode;
+            state.connected = true;
+            state.ptt = false;
+
+            Ok(RigProbeResult {
+                reachable: true,
+                identity: Some(format!("FLRIG ({})", self.client.endpoint())),
+                model: None,
+                firmware: None,
+                capabilities: self.capabilities(),
+                state: Some(state),
+                safe_diagnostic: format!(
+                    "Połączenie z FLRIG ({}) powiodło się",
+                    self.client.endpoint()
+                ),
+            })
+        })
     }
 }
 

@@ -12,7 +12,7 @@
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use crate::cat::backend::{BoxFuture, CatBackendKind, RigBackend};
+use crate::cat::backend::{BoxFuture, CatBackendKind, RigBackend, RigProbeResult};
 use crate::cat::native::icom::codec::{
     CI_V_CONTROLLER, CI_V_NAK, IcomCiVCodec, IcomCiVFrame, command, subcommand,
 };
@@ -111,7 +111,7 @@ impl IcomCiVBackend {
     }
 
     /// Bezpieczny odczyt parametrów bez zmiany stanu i bez PTT (Probe).
-    pub async fn probe(&mut self) -> Result<RigState, RigError> {
+    pub async fn probe_internal(&mut self) -> Result<RigState, RigError> {
         let was_connected = self.transport.is_some();
         if !was_connected {
             self.connect().await?;
@@ -140,6 +140,7 @@ impl IcomCiVBackend {
         }
 
         self.state.connected = true;
+        self.state.ptt = false;
         let probed_state = self.state.clone();
 
         if !was_connected {
@@ -147,6 +148,11 @@ impl IcomCiVBackend {
         }
 
         Ok(probed_state)
+    }
+
+    /// Pomocnicza metoda inherentna delegująca do probe_internal.
+    pub async fn probe(&mut self) -> Result<RigState, RigError> {
+        self.probe_internal().await
     }
 
     /// Wykonuje rozszerzone polecenie natywne.
@@ -635,6 +641,28 @@ impl RigBackend for IcomCiVBackend {
                 transport.close().await;
             }
             self.state.connected = false;
+        })
+    }
+
+    fn probe(&mut self) -> BoxFuture<'_, Result<RigProbeResult, RigError>> {
+        Box::pin(async move {
+            let was_connected = self.transport.is_some();
+            let state = self.probe_internal().await?;
+            if !was_connected {
+                self.disconnect().await;
+            }
+            Ok(RigProbeResult {
+                reachable: true,
+                identity: Some(format!("Icom CI-V (0x{:02X})", self.radio_address)),
+                model: Some(self.profile.name.to_string()),
+                firmware: None,
+                capabilities: self.capabilities(),
+                state: Some(state),
+                safe_diagnostic: format!(
+                    "Połączenie z Icom CI-V ({}) powiodło się",
+                    self.profile.name
+                ),
+            })
         })
     }
 }
