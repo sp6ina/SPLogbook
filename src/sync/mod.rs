@@ -88,8 +88,42 @@ mod tests {
     }
 
     #[test]
+    fn production_argon2_parameters_remain_unchanged() {
+        assert_eq!(
+            ARGON2_M_COST_KIB,
+            19 * 1024,
+            "Argon2 memory cost must remain 19 MiB"
+        );
+        assert_eq!(
+            ARGON2_T_COST, 2,
+            "Argon2 time cost iterations must remain 2"
+        );
+        assert_eq!(ARGON2_P_COST, 1, "Argon2 parallelism degree must remain 1");
+        assert_eq!(KEY_LEN, 32, "Output key length must remain 32 bytes");
+        assert_eq!(SALT_LEN, 16, "Salt length must remain 16 bytes");
+
+        let secret = "ham-secret-key";
+        let salt = [42u8; SALT_LEN];
+        let key =
+            derive_key(secret, &salt).expect("derive_key with production params must succeed");
+        assert_eq!(key.len(), KEY_LEN);
+
+        let key2 = derive_key(secret, &salt).unwrap();
+        assert_eq!(key, key2);
+
+        assert!(matches!(
+            derive_key("", &salt),
+            Err(SyncError::SecretRequired)
+        ));
+        assert!(matches!(
+            derive_key("   ", &salt),
+            Err(SyncError::SecretRequired)
+        ));
+    }
+
+    #[test]
     fn tampered_frame_is_rejected() {
-        let key = derive_key("test-secret", &[7u8; SALT_LEN]).unwrap();
+        let key = [7u8; KEY_LEN];
         let aad = build_aad(&[1u8; 32], DIRECTION_PEER_TO_HOST, 0);
         let mut frame = encrypt_payload(&key, &aad, b"payload-data").unwrap();
 
@@ -102,8 +136,8 @@ mod tests {
 
     #[test]
     fn wrong_key_is_rejected() {
-        let k1 = derive_key("secret-1", &[9u8; SALT_LEN]).unwrap();
-        let k2 = derive_key("secret-2", &[9u8; SALT_LEN]).unwrap();
+        let k1 = [9u8; KEY_LEN];
+        let k2 = [10u8; KEY_LEN];
         let aad = build_aad(&[2u8; 32], DIRECTION_PEER_TO_HOST, 0);
 
         let frame = encrypt_payload(&k1, &aad, b"payload").unwrap();
@@ -122,7 +156,7 @@ mod tests {
 
     #[test]
     fn aad_mismatch_is_rejected() {
-        let key = derive_key("secret", &[3u8; SALT_LEN]).unwrap();
+        let key = [3u8; KEY_LEN];
         let sid1 = [11u8; 32];
         let sid2 = [22u8; 32];
         let aad1 = build_aad(&sid1, DIRECTION_PEER_TO_HOST, 0);
@@ -135,7 +169,7 @@ mod tests {
 
     #[test]
     fn direction_mismatch_is_rejected() {
-        let key = derive_key("secret", &[4u8; SALT_LEN]).unwrap();
+        let key = [4u8; KEY_LEN];
         let sid = [15u8; 32];
         let aad_peer = build_aad(&sid, DIRECTION_PEER_TO_HOST, 1);
         let aad_host = build_aad(&sid, DIRECTION_HOST_TO_PEER, 1);
@@ -147,7 +181,7 @@ mod tests {
 
     #[test]
     fn counter_mismatch_is_rejected() {
-        let key = derive_key("secret", &[5u8; SALT_LEN]).unwrap();
+        let key = [5u8; KEY_LEN];
         let sid = [18u8; 32];
         let aad_0 = build_aad(&sid, DIRECTION_PEER_TO_HOST, 0);
         let aad_1 = build_aad(&sid, DIRECTION_PEER_TO_HOST, 1);
@@ -159,7 +193,7 @@ mod tests {
 
     #[test]
     fn counter_replay_is_rejected() {
-        let key = derive_key("secret", &[6u8; SALT_LEN]).unwrap();
+        let key = [6u8; KEY_LEN];
         let sid = [20u8; 32];
 
         let aad_msg0 = build_aad(&sid, DIRECTION_PEER_TO_HOST, 0);
@@ -187,7 +221,7 @@ mod tests {
 
     #[test]
     fn truncated_frame_is_rejected() {
-        let key = derive_key("secret", &[8u8; SALT_LEN]).unwrap();
+        let key = [8u8; KEY_LEN];
         let aad = build_aad(&[0u8; 32], 0, 0);
 
         let short_frame = vec![0u8; 20];
@@ -252,8 +286,7 @@ mod tests {
 
     #[test]
     fn qso_payload_is_not_present_in_ciphertext() {
-        let salt = random_salt();
-        let key = derive_key("ham-secret", &salt).unwrap();
+        let key = [0x55u8; KEY_LEN];
         let sid = compute_session_id(&random_nonce_16(), &random_nonce_16());
         let aad = build_aad(&sid, DIRECTION_HOST_TO_PEER, 0);
 
@@ -336,7 +369,7 @@ mod tests {
         let addr = listener.local_addr().unwrap();
 
         let salt = random_salt();
-        let host_key = derive_key("secret", &salt).unwrap();
+        let host_key = [42u8; KEY_LEN];
 
         let host_fut = tokio::spawn(async move {
             let (stream, _) = listener.accept().await.unwrap();
@@ -373,7 +406,7 @@ mod tests {
         let addr = listener.local_addr().unwrap();
 
         let salt = random_salt();
-        let host_key = derive_key("secret", &salt).unwrap();
+        let host_key = [42u8; KEY_LEN];
 
         let host_fut = tokio::spawn(async move {
             let (stream, _) = listener.accept().await.unwrap();
@@ -400,7 +433,7 @@ mod tests {
 
     #[tokio::test]
     async fn session_detects_replayed_frame() {
-        let key = derive_key("secret", &[1u8; SALT_LEN]).unwrap();
+        let key = [1u8; KEY_LEN];
         let sid = [40u8; 32];
 
         let aad0 = build_aad(&sid, DIRECTION_PEER_TO_HOST, 0);
@@ -418,7 +451,7 @@ mod tests {
 
     #[tokio::test]
     async fn session_detects_reordered_frames() {
-        let key = derive_key("secret", &[1u8; SALT_LEN]).unwrap();
+        let key = [1u8; KEY_LEN];
         let sid = [44u8; 32];
 
         let msg0 = Message::Ping.to_json().unwrap();
@@ -441,7 +474,7 @@ mod tests {
 
     #[tokio::test]
     async fn session_detects_missing_counter() {
-        let key = derive_key("secret", &[2u8; SALT_LEN]).unwrap();
+        let key = [2u8; KEY_LEN];
         let sid = [45u8; 32];
 
         let msg2 = Message::Bye.to_json().unwrap();
