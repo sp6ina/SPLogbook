@@ -28,6 +28,11 @@ pub enum UpdaterError {
     HttpStatus(String),
     Io(String),
     FileTooLarge,
+    ManifestTooLarge,
+    SignatureTooLarge,
+    ArtifactTooLarge,
+    HashMismatch,
+    SizeMismatch,
     InvalidSignature(String),
     UntrustedKey,
     ManifestParse(String),
@@ -40,6 +45,13 @@ pub enum UpdaterError {
     AlreadyUpToDate(String),
     MissingField(&'static str),
     NoMatchingAssets,
+    UnsupportedPlatform(String),
+    AmbiguousArtifact(String),
+    UnsafeArchivePath(String),
+    ArchiveLimitExceeded(String),
+    InvalidStagingLayout(String),
+    InstallFailed(String),
+    RollbackFailed(String),
     MissingManifest,
     MissingSignature,
     InvalidUtf8,
@@ -72,8 +84,26 @@ impl UpdaterError {
             | Self::ZipSlip(s)
             | Self::UpdateFailed(s)
             | Self::Other(s) => s.as_str(),
+            Self::UnsupportedPlatform(s)
+            | Self::AmbiguousArtifact(s)
+            | Self::UnsafeArchivePath(s)
+            | Self::ArchiveLimitExceeded(s)
+            | Self::InvalidStagingLayout(s)
+            | Self::InstallFailed(s)
+            | Self::RollbackFailed(s) => s.as_str(),
             Self::MissingField(s) => s,
             Self::FileTooLarge => "Plik przekracza dozwolony limit wielkości.",
+            Self::ManifestTooLarge => "Manifest przekracza dozwolony limit wielkości (1 MB).",
+            Self::SignatureTooLarge => {
+                "Podpis manifestu przekracza dozwolony limit wielkości (1 MB)."
+            }
+            Self::ArtifactTooLarge => "Pobrany artefakt przekracza dozwolony limit wielkości.",
+            Self::HashMismatch => {
+                "Suma kontrolna SHA256 pobranej aktualizacji nie zgadza się z wartością w manifeście."
+            }
+            Self::SizeMismatch => {
+                "Rozmiar pobranego pliku nie zgadza się z wartością w manifeście."
+            }
             Self::UntrustedKey => "Żaden z zaufanych kluczy nie zweryfikował tego podpisu",
             Self::NoMatchingAssets => {
                 "Manifest nie zawiera plików dla tego wydania zbieżnych z GitHub API."
@@ -541,6 +571,640 @@ impl ReleaseManifest {
     }
 }
 
+/// Maksymalny dozwolony rozmiar manifestu wydania w bajtach (1 MB).
+pub const MAX_MANIFEST_SIZE: usize = 1024 * 1024;
+/// Maksymalny dozwolony rozmiar podpisu Ed25519 w bajtach (1 MB).
+pub const MAX_SIGNATURE_SIZE: usize = 1024 * 1024;
+/// Maksymalny dozwolony rozmiar pobieranego artefaktu w bajtach (250 MB).
+pub const MAX_ARTIFACT_DOWNLOAD_SIZE: u64 = 250 * 1024 * 1024;
+
+/// Limity bezpieczeństwa dekompresji archiwów wydań (ochrona przed Archive Bomb / Zip Slip).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ArchiveLimits {
+    pub max_entries: usize,
+    pub max_total_size: u64,
+    pub max_single_size: u64,
+}
+
+impl Default for ArchiveLimits {
+    fn default() -> Self {
+        Self {
+            max_entries: 5_000,
+            max_total_size: 300 * 1024 * 1024,  // 300 MB
+            max_single_size: 150 * 1024 * 1024, // 150 MB
+        }
+    }
+}
+
+/// Weryfikuje i normalizuje ścieżkę wpisu archiwum, zapobiegając atakom typu path traversal,
+/// odwołaniom do katalogów nadrzędnych, ścieżkom absolutnym, prefiksom dysków oraz urządzeniom.
+pub fn validate_archive_relative_path(raw_path: &Path) -> Result<std::path::PathBuf, UpdaterError> {
+    let path_str = raw_path.to_string_lossy();
+    if path_str.trim().is_empty() {
+        return Err(UpdaterError::UnsafeArchivePath(
+            "Pusta ścieżka wpisu w archiwum".into(),
+        ));
+    }
+    if path_str.contains('\0') {
+        return Err(UpdaterError::UnsafeArchivePath(
+            "Ścieżka zawiera bajt zerowy".into(),
+        ));
+    }
+
+    if path_str.starts_with('/') || path_str.starts_with('\\') {
+        return Err(UpdaterError::UnsafeArchivePath(
+            "Ścieżka absolutna jest zabroniona".into(),
+        ));
+    }
+    if path_str.len() >= 2 {
+        let first_two = &path_str.as_bytes()[0..2];
+        if (first_two[0].is_ascii_alphabetic() && first_two[1] == b':')
+            || (first_two[0] == b'\\' && first_two[1] == b'\\')
+            || (first_two[0] == b'/' && first_two[1] == b'/')
+        {
+            return Err(UpdaterError::UnsafeArchivePath(
+                "Prefiks dysku lub ścieżka UNC są zabronione".into(),
+            ));
+        }
+    }
+
+    let mut normalized = std::path::PathBuf::new();
+    for comp in raw_path.components() {
+        match comp {
+            std::path::Component::Prefix(_) => {
+                return Err(UpdaterError::UnsafeArchivePath(
+                    "Prefiks dysku lub UNC w ścieżce".into(),
+                ));
+            }
+            std::path::Component::RootDir => {
+                return Err(UpdaterError::UnsafeArchivePath(
+                    "Ścieżka absolutna w archiwum".into(),
+                ));
+            }
+            std::path::Component::ParentDir => {
+                return Err(UpdaterError::UnsafeArchivePath(
+                    "Ścieżka zawiera ParentDir (..)".into(),
+                ));
+            }
+            std::path::Component::CurDir => continue,
+            std::path::Component::Normal(c) => {
+                let s = c.to_string_lossy();
+                if s.contains(':') || s.starts_with('\\') || s.contains('/') || s.contains('\\') {
+                    return Err(UpdaterError::UnsafeArchivePath(
+                        "Niedozwolone znaki w komponencie ścieżki".into(),
+                    ));
+                }
+                let base_name = s.split('.').next().unwrap_or(&s);
+                let upper = base_name.to_ascii_uppercase();
+                let reserved = [
+                    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6",
+                    "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7",
+                    "LPT8", "LPT9",
+                ];
+                if reserved.contains(&upper.as_str()) {
+                    return Err(UpdaterError::UnsafeArchivePath(format!(
+                        "Zarezerwowana nazwa urządzenia w ścieżce: {s}"
+                    )));
+                }
+                normalized.push(c);
+            }
+        }
+    }
+
+    if normalized.as_os_str().is_empty() {
+        return Err(UpdaterError::UnsafeArchivePath(
+            "Znormalizowana ścieżka jest pusta".into(),
+        ));
+    }
+
+    Ok(normalized)
+}
+
+/// Spłaszcza strukturę archiwum, jeżeli zawiera dokładnie jeden wspólny katalog główny.
+/// Zachowuje zawartość bez zmian, jeśli na poziomie głównym znajduje się więcej niż jeden wpis
+/// lub jeśli jedynym wpisem jest zwykły plik.
+pub fn flatten_single_root_directory(staging_dir: &Path) -> Result<bool, UpdaterError> {
+    let entries = std::fs::read_dir(staging_dir).map_err(|e| {
+        UpdaterError::Io(format!(
+            "Błąd odczytu katalogu staging {}: {e}",
+            staging_dir.display()
+        ))
+    })?;
+
+    let mut items = Vec::new();
+    for entry in entries {
+        let entry =
+            entry.map_err(|e| UpdaterError::Io(format!("Błąd odczytu wpisu w staging: {e}")))?;
+        items.push(entry);
+    }
+
+    if items.len() != 1 {
+        return Ok(false);
+    }
+
+    let single_item = &items[0];
+    let file_type = single_item
+        .file_type()
+        .map_err(|e| UpdaterError::Io(format!("Błąd odczytu typu pliku wpisu staging: {e}")))?;
+
+    if !file_type.is_dir() {
+        return Ok(false);
+    }
+
+    let sub_dir = single_item.path();
+
+    let sub_entries = std::fs::read_dir(&sub_dir).map_err(|e| {
+        UpdaterError::Io(format!(
+            "Błąd odczytu podkatalogu {}: {e}",
+            sub_dir.display()
+        ))
+    })?;
+
+    let mut sub_items = Vec::new();
+    for sub in sub_entries {
+        let sub =
+            sub.map_err(|e| UpdaterError::Io(format!("Błąd odczytu wpisu w podkatalogu: {e}")))?;
+        sub_items.push(sub.path());
+    }
+
+    for item in sub_items {
+        let file_name = match item.file_name() {
+            Some(n) => n,
+            None => continue,
+        };
+        let target = staging_dir.join(file_name);
+        std::fs::rename(&item, &target).map_err(|e| {
+            UpdaterError::Io(format!(
+                "Błąd spłaszczania: nie można przenieść {} do {}: {e}",
+                item.display(),
+                target.display()
+            ))
+        })?;
+    }
+
+    std::fs::remove_dir(&sub_dir).map_err(|e| {
+        UpdaterError::Io(format!(
+            "Błąd usuwania opróżnionego katalogu {}: {e}",
+            sub_dir.display()
+        ))
+    })?;
+
+    Ok(true)
+}
+
+/// Bezpieczna ekstrakcja archiwum `.tar.gz` z restrykcyjną weryfikacją ścieżek,
+/// odrzucaniem symlinków/hardlinków, limitami wielkości i zachowaniem uprawnień wykonywania.
+pub fn extract_tar_gz_safe(
+    tar_gz_path: &Path,
+    staging_dir: &Path,
+    limits: &ArchiveLimits,
+) -> Result<usize, UpdaterError> {
+    use std::fs;
+    use std::io::Read;
+
+    if !staging_dir.exists() {
+        fs::create_dir_all(staging_dir)
+            .map_err(|e| UpdaterError::Io(format!("Nie można utworzyć katalogu staging: {e}")))?;
+    }
+
+    let file = fs::File::open(tar_gz_path).map_err(|e| {
+        UpdaterError::Io(format!(
+            "Nie można otworzyć archiwum {}: {e}",
+            tar_gz_path.display()
+        ))
+    })?;
+
+    let gz = flate2::read::GzDecoder::new(file);
+    let mut archive = tar::Archive::new(gz);
+
+    let mut entry_count: usize = 0;
+    let mut total_unpacked_size: u64 = 0;
+    let mut seen_paths = std::collections::HashSet::new();
+
+    let entries = archive
+        .entries()
+        .map_err(|e| UpdaterError::Io(format!("Błąd odczytu wpisów w archiwum: {e}")))?;
+
+    for entry in entries {
+        let mut entry =
+            entry.map_err(|e| UpdaterError::Io(format!("Uszkodzony wpis w archiwum: {e}")))?;
+
+        entry_count += 1;
+        if entry_count > limits.max_entries {
+            return Err(UpdaterError::ArchiveLimitExceeded(format!(
+                "Przekroczono limit wpisów w archiwum (max: {})",
+                limits.max_entries
+            )));
+        }
+
+        let entry_type = entry.header().entry_type();
+        if entry_type == tar::EntryType::Symlink {
+            return Err(UpdaterError::UnsafeArchivePath(
+                "Wpisy typu symlink są zabronione w archiwum".into(),
+            ));
+        }
+        if entry_type == tar::EntryType::Link {
+            return Err(UpdaterError::UnsafeArchivePath(
+                "Wpisy typu hardlink są zabronione w archiwum".into(),
+            ));
+        }
+        if entry_type != tar::EntryType::Regular && entry_type != tar::EntryType::Directory {
+            return Err(UpdaterError::UnsafeArchivePath(format!(
+                "Niedozwolony specjalny typ wpisu w archiwum: {entry_type:?}"
+            )));
+        }
+
+        let raw_path = entry.path().map_err(|e| {
+            UpdaterError::UnsafeArchivePath(format!("Nieprawidłowa ścieżka wpisu: {e}"))
+        })?;
+
+        let rel_path = validate_archive_relative_path(&raw_path)?;
+
+        if !seen_paths.insert(rel_path.clone()) {
+            return Err(UpdaterError::ArchiveLimitExceeded(format!(
+                "Zduplikowana ścieżka w archiwum: {}",
+                rel_path.display()
+            )));
+        }
+
+        let dest_path = staging_dir.join(&rel_path);
+
+        if !dest_path.starts_with(staging_dir) {
+            return Err(UpdaterError::UnsafeArchivePath(format!(
+                "Ścieżka wychodzi poza katalog staging: {}",
+                dest_path.display()
+            )));
+        }
+
+        let mut current_ancestor = dest_path.parent();
+        while let Some(ancestor) = current_ancestor {
+            if ancestor == staging_dir {
+                break;
+            }
+            if ancestor.is_symlink() {
+                return Err(UpdaterError::UnsafeArchivePath(format!(
+                    "Ścieżka nadrzędna {} jest symlinkiem",
+                    ancestor.display()
+                )));
+            }
+            current_ancestor = ancestor.parent();
+        }
+
+        if entry_type == tar::EntryType::Directory {
+            if dest_path.is_file() {
+                return Err(UpdaterError::ArchiveLimitExceeded(format!(
+                    "Kolizja plik/katalog dla ścieżki: {}",
+                    dest_path.display()
+                )));
+            }
+            fs::create_dir_all(&dest_path).map_err(|e| {
+                UpdaterError::Io(format!(
+                    "Błąd tworzenia katalogu {}: {e}",
+                    dest_path.display()
+                ))
+            })?;
+            continue;
+        }
+
+        if dest_path.is_dir() {
+            return Err(UpdaterError::ArchiveLimitExceeded(format!(
+                "Kolizja katalog/plik dla ścieżki: {}",
+                dest_path.display()
+            )));
+        }
+
+        if let Some(p) = dest_path.parent() {
+            fs::create_dir_all(p).map_err(|e| {
+                UpdaterError::Io(format!(
+                    "Błąd tworzenia katalogu nadrzędnego {}: {e}",
+                    p.display()
+                ))
+            })?;
+        }
+
+        let header_size = entry.header().size().unwrap_or(0);
+        if header_size > limits.max_single_size {
+            return Err(UpdaterError::ArchiveLimitExceeded(format!(
+                "Rozmiar pliku {} przekracza dopuszczalny limit ({} > {})",
+                rel_path.display(),
+                header_size,
+                limits.max_single_size
+            )));
+        }
+
+        let mut out_file = fs::File::create(&dest_path).map_err(|e| {
+            UpdaterError::Io(format!(
+                "Błąd tworzenia pliku wyjściowego {}: {e}",
+                dest_path.display()
+            ))
+        })?;
+
+        let mut file_size: u64 = 0;
+        let mut buffer = [0u8; 64 * 1024];
+        loop {
+            let read_bytes = entry.read(&mut buffer).map_err(|e| {
+                UpdaterError::Io(format!("Błąd odczytu wpisu {}: {e}", rel_path.display()))
+            })?;
+            if read_bytes == 0 {
+                break;
+            }
+            file_size += read_bytes as u64;
+            total_unpacked_size += read_bytes as u64;
+
+            if file_size > limits.max_single_size {
+                drop(out_file);
+                let _ = fs::remove_file(&dest_path);
+                return Err(UpdaterError::ArchiveLimitExceeded(format!(
+                    "Rozmiar pliku {} przekroczył limit {}",
+                    rel_path.display(),
+                    limits.max_single_size
+                )));
+            }
+            if total_unpacked_size > limits.max_total_size {
+                drop(out_file);
+                let _ = fs::remove_file(&dest_path);
+                return Err(UpdaterError::ArchiveLimitExceeded(format!(
+                    "Łączny rozmiar danych archiwum przekroczył limit {}",
+                    limits.max_total_size
+                )));
+            }
+
+            use std::io::Write as _;
+            out_file.write_all(&buffer[..read_bytes]).map_err(|e| {
+                UpdaterError::Io(format!("Błąd zapisu pliku {}: {e}", dest_path.display()))
+            })?;
+        }
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let raw_mode = entry.header().mode().unwrap_or(0o644);
+            let safe_mode = if (raw_mode & 0o111) != 0 {
+                0o755
+            } else {
+                0o644
+            };
+            let _ = fs::set_permissions(&dest_path, fs::Permissions::from_mode(safe_mode));
+        }
+    }
+
+    Ok(entry_count)
+}
+
+/// Bezpieczna ekstrakcja archiwum `.zip` w systemie Windows z użyciem `powershell.exe`
+/// i cmdleta `Expand-Archive`. Parametry przekazywane są jako oddzielne tokeny procesu (bez interpolacji shell).
+#[cfg(target_os = "windows")]
+pub fn extract_zip_safe_windows(
+    zip_path: &Path,
+    staging_dir: &Path,
+    limits: &ArchiveLimits,
+) -> Result<usize, UpdaterError> {
+    use std::fs;
+
+    let ext = zip_path.extension().and_then(|s| s.to_str()).unwrap_or("");
+    if !ext.eq_ignore_ascii_case("zip") {
+        return Err(UpdaterError::SafetyGate(
+            "Archiwum Windows musi posiadać rozszerzenie .zip dla Expand-Archive".into(),
+        ));
+    }
+
+    if !staging_dir.exists() {
+        fs::create_dir_all(staging_dir)
+            .map_err(|e| UpdaterError::Io(format!("Nie można utworzyć katalogu staging: {e}")))?;
+    }
+
+    let zip_str = zip_path
+        .to_str()
+        .ok_or_else(|| UpdaterError::UnsafeArchivePath("Nieprawidłowa ścieżka zip".into()))?;
+    let dest_str = staging_dir
+        .to_str()
+        .ok_or_else(|| UpdaterError::UnsafeArchivePath("Nieprawidłowa ścieżka staging".into()))?;
+
+    let output = std::process::Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            "param($z, $d) Expand-Archive -LiteralPath $z -DestinationPath $d -Force",
+            "-z",
+            zip_str,
+            "-d",
+            dest_str,
+        ])
+        .output()
+        .map_err(|e| {
+            UpdaterError::Io(format!(
+                "Nie udało się uruchomić powershell dla Expand-Archive: {e}"
+            ))
+        })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(UpdaterError::Io(format!(
+            "Błąd rozpakowywania Expand-Archive: {}",
+            stderr.trim()
+        )));
+    }
+
+    let mut entry_count = 0;
+    let mut total_size: u64 = 0;
+
+    for entry in walkdir::WalkDir::new(staging_dir).min_depth(1) {
+        let entry =
+            entry.map_err(|e| UpdaterError::Io(format!("Błąd przeszukiwania staging: {e}")))?;
+        entry_count += 1;
+        if entry_count > limits.max_entries {
+            let _ = fs::remove_dir_all(staging_dir);
+            return Err(UpdaterError::ArchiveLimitExceeded(format!(
+                "Rozpakowane archiwum przekracza limit wpisów (max: {})",
+                limits.max_entries
+            )));
+        }
+
+        if entry.path_is_symlink() {
+            let _ = fs::remove_dir_all(staging_dir);
+            return Err(UpdaterError::UnsafeArchivePath(
+                "Wykryto symlink lub punkt reparse w rozpakowanym archiwum".into(),
+            ));
+        }
+
+        if entry.file_type().is_file() {
+            let len = entry.metadata().map(|m| m.len()).unwrap_or(0);
+            if len > limits.max_single_size {
+                let _ = fs::remove_dir_all(staging_dir);
+                return Err(UpdaterError::ArchiveLimitExceeded(format!(
+                    "Rozmiar pliku {} przekracza limit {}",
+                    entry.path().display(),
+                    limits.max_single_size
+                )));
+            }
+            total_size += len;
+            if total_size > limits.max_total_size {
+                let _ = fs::remove_dir_all(staging_dir);
+                return Err(UpdaterError::ArchiveLimitExceeded(format!(
+                    "Łączny rozmiar danych archiwum przekracza limit {}",
+                    limits.max_total_size
+                )));
+            }
+        }
+    }
+
+    Ok(entry_count)
+}
+
+/// Waliduje kompletność i poprawność układu katalogu staging przed przystąpieniem do zamiany plików.
+pub fn validate_staging_layout(
+    staging_dir: &Path,
+    expected_executable_name: &str,
+) -> Result<(), UpdaterError> {
+    if !staging_dir.exists() || !staging_dir.is_dir() {
+        return Err(UpdaterError::InvalidStagingLayout(format!(
+            "Katalog staging nie istnieje: {}",
+            staging_dir.display()
+        )));
+    }
+
+    let exe_path = staging_dir.join(expected_executable_name);
+    if !exe_path.exists() {
+        return Err(UpdaterError::InvalidStagingLayout(format!(
+            "Brak wymaganego pliku wykonywalnego '{}' w staging layout",
+            expected_executable_name
+        )));
+    }
+
+    let meta = exe_path.symlink_metadata().map_err(|e| {
+        UpdaterError::InvalidStagingLayout(format!(
+            "Błąd odczytu metadanych pliku wykonywalnego: {e}"
+        ))
+    })?;
+
+    if meta.file_type().is_symlink() {
+        return Err(UpdaterError::InvalidStagingLayout(
+            "Plik wykonywalny w staging nie może być symlinkiem".into(),
+        ));
+    }
+
+    if !meta.is_file() {
+        return Err(UpdaterError::InvalidStagingLayout(
+            "Plik wykonywalny w staging musi być zwykłym plikiem".into(),
+        ));
+    }
+
+    if meta.len() == 0 {
+        return Err(UpdaterError::InvalidStagingLayout(
+            "Plik wykonywalny w staging ma rozmiar 0 bajtów".into(),
+        ));
+    }
+
+    for entry in walkdir::WalkDir::new(staging_dir).min_depth(1) {
+        if let Ok(entry) = entry {
+            let name = entry.file_name().to_string_lossy();
+            if name.ends_with(".key") || name == "priv.key" {
+                return Err(UpdaterError::InvalidStagingLayout(format!(
+                    "Niedozwolony plik klucza prywatnego w staging: {name}"
+                )));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Dobiera artefakt manifestu na podstawie jawnych pól platformy i architektury.
+/// Odrzuca nieznane systemy, architektury, niejednoznaczne pakiety oraz nazwy zawierające komponenty ścieżki.
+pub fn select_manifest_asset<'a>(
+    assets: &'a [ManifestAsset],
+    platform: &str,
+    arch: &str,
+) -> Result<&'a ManifestAsset, UpdaterError> {
+    let allowed_platforms = ["windows", "linux", "macos"];
+    if !allowed_platforms.contains(&platform) {
+        return Err(UpdaterError::UnsupportedPlatform(format!(
+            "Nieznana platforma: {platform}"
+        )));
+    }
+
+    let allowed_arch = ["x86_64"];
+    if !allowed_arch.contains(&arch) {
+        return Err(UpdaterError::UnsupportedPlatform(format!(
+            "Nieznana architektura: {arch}"
+        )));
+    }
+
+    let mut matches = Vec::new();
+    for asset in assets {
+        if asset.platform.eq_ignore_ascii_case(platform) && asset.arch.eq_ignore_ascii_case(arch) {
+            matches.push(asset);
+        }
+    }
+
+    if matches.is_empty() {
+        return Err(UpdaterError::UnsupportedPlatform(format!(
+            "Brak pasującego artefaktu dla platformy {platform} i architektury {arch}"
+        )));
+    }
+
+    if matches.len() > 1 {
+        return Err(UpdaterError::AmbiguousArtifact(format!(
+            "Niejednoznaczne dopasowanie: znaleziono {} artefaktów dla {platform}-{arch}",
+            matches.len()
+        )));
+    }
+
+    let selected = matches[0];
+    let fn_str = &selected.filename;
+    if fn_str.trim().is_empty()
+        || fn_str == "."
+        || fn_str == ".."
+        || fn_str.contains('/')
+        || fn_str.contains('\\')
+    {
+        return Err(UpdaterError::UnsafeArchivePath(format!(
+            "Nazwa artefaktu '{fn_str}' zawiera niedozwolone komponenty ścieżki"
+        )));
+    }
+
+    Ok(selected)
+}
+
+/// Dobiera artefakt manifestu dla bieżącej platformy operacyjnej i architektury.
+pub fn select_current_platform_manifest_asset<'a>(
+    assets: &'a [ManifestAsset],
+) -> Result<&'a ManifestAsset, UpdaterError> {
+    #[cfg(target_os = "windows")]
+    let platform = "windows";
+    #[cfg(target_os = "linux")]
+    let platform = "linux";
+    #[cfg(target_os = "macos")]
+    let platform = "macos";
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+    let platform = "unknown";
+
+    #[cfg(target_arch = "x86_64")]
+    let arch = "x86_64";
+    #[cfg(not(target_arch = "x86_64"))]
+    let arch = "unknown";
+
+    select_manifest_asset(assets, platform, arch)
+}
+
+/// Weryfikuje integralność artefaktu względem oczekiwanego rozmiaru i sumy kontrolnej SHA-256.
+pub fn verify_artifact_integrity(
+    data: &[u8],
+    expected_size: u64,
+    expected_sha256: &str,
+) -> Result<(), UpdaterError> {
+    if expected_size > 0 && data.len() as u64 != expected_size {
+        return Err(UpdaterError::SizeMismatch);
+    }
+    if !verify_sha256(data, expected_sha256) {
+        return Err(UpdaterError::HashMismatch);
+    }
+    Ok(())
+}
+
 /// Pojedynczy zasób zdefiniowany w manifeście.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ManifestAsset {
@@ -762,11 +1426,11 @@ pub fn select_asset_for_platform(assets: &[ReleaseAsset]) -> Option<&ReleaseAsse
     }
 
     #[cfg(target_os = "windows")]
-    let preferred: &[&str] = &[".exe", ".zip", ".msi"];
+    let preferred: &[&str] = &[".zip", ".exe", ".msi"];
     #[cfg(target_os = "macos")]
     let preferred: &[&str] = &[".dmg", ".zip", ".tar.gz"];
     #[cfg(target_os = "linux")]
-    let preferred: &[&str] = &[".appimage", ".deb", ".tar.gz"];
+    let preferred: &[&str] = &[".tar.gz", ".appimage", ".deb"];
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     let preferred: &[&str] = &[];
 
@@ -839,7 +1503,10 @@ pub async fn install_update(asset: &ReleaseAsset) -> Result<(), UpdaterError> {
         .parent()
         .ok_or_else(|| UpdaterError::ExePath("Nie można ustalić katalogu programu.".to_string()))?;
 
-    let tmp_path = parent.join(format!(".SPLogbook_update_{}.tmp", std::process::id()));
+    #[cfg(target_os = "windows")]
+    let tmp_path = parent.join(format!(".SPLogbook_update_{}.zip", std::process::id()));
+    #[cfg(not(target_os = "windows"))]
+    let tmp_path = parent.join(format!(".SPLogbook_update_{}.tar.gz", std::process::id()));
 
     // Zabezpieczenie przed uszkodzeniem instalacji
     check_safety_gate(asset)?;
@@ -926,46 +1593,10 @@ fn install_via_tar_gz(current: &Path, new: &Path) -> Result<(), UpdaterError> {
         UpdaterError::Io(format!("Nie można utworzyć katalogu kopii zapasowej: {e}"))
     })?;
 
-    // 2. Ekstrakcja poza strefą działania (Staging / ZipSlip Protection)
-    let tar_gz = fs::File::open(new)
-        .map_err(|e| UpdaterError::Io(format!("Nie można otworzyć pobranego archiwum: {e}")))?;
-    let tar = flate2::read::GzDecoder::new(tar_gz);
-    let mut archive = tar::Archive::new(tar);
-
-    for file in archive
-        .entries()
-        .map_err(|e| UpdaterError::Io(format!("Błąd odczytu wpisów w archiwum: {e}")))?
-    {
-        let mut file = file.map_err(|e| UpdaterError::Io(format!("Błąd wpisu w archiwum: {e}")))?;
-        let path = file
-            .path()
-            .map_err(|e| UpdaterError::Io(format!("Błąd ścieżki w archiwum: {e}")))?;
-
-        let path_str = path.to_string_lossy().into_owned();
-        if path_str.contains("..") || path_str.starts_with('/') {
-            return Err(UpdaterError::ZipSlip(format!(
-                "Archiwum zawiera potencjalnie niebezpieczną ścieżkę (ZipSlip): {}",
-                path_str
-            )));
-        }
-
-        let out_path = staging_dir.join(&path);
-
-        // Zignoruj wpisy niewspierane
-        if file.header().entry_type() != tar::EntryType::Regular
-            && file.header().entry_type() != tar::EntryType::Directory
-        {
-            continue;
-        }
-
-        if let Some(p) = out_path.parent() {
-            let _ = fs::create_dir_all(p);
-        }
-
-        file.unpack(&out_path).map_err(|e| {
-            UpdaterError::Io(format!("Błąd rozpakowywania pliku {}: {}", path_str, e))
-        })?;
-    }
+    // 2. Ekstrakcja poza strefą działania z pełną ochroną (extract_tar_gz_safe) i spłaszczaniem pojedynczego katalogu
+    let limits = ArchiveLimits::default();
+    extract_tar_gz_safe(new, &staging_dir, &limits)?;
+    let _ = flatten_single_root_directory(&staging_dir)?;
 
     // 3. Kopia Zapasowa (Rollback)
     for entry in walkdir::WalkDir::new(&staging_dir).min_depth(1) {
@@ -1080,6 +1711,13 @@ fn install_via_powershell(current: &Path, new: &Path) -> Result<(), UpdaterError
          if (Test-Path $staging) {{ Remove-Item -Recurse -Force $staging }}\n\
          New-Item -ItemType Directory -Force -Path $staging | Out-Null\n\
          Expand-Archive -LiteralPath $new -DestinationPath $staging -Force\n\
+         \n\
+         $items = Get-ChildItem -LiteralPath $staging\n\
+         if ($items.Count -eq 1 -and $items[0].PSIsContainer) {{\n\
+             $sub = $items[0].FullName\n\
+             Get-ChildItem -LiteralPath $sub | Move-Item -Destination $staging -Force\n\
+             Remove-Item -LiteralPath $sub -Force\n\
+         }}\n\
          \n\
          if (Test-Path $rollback) {{ Remove-Item -Recurse -Force $rollback }}\n\
          New-Item -ItemType Directory -Force -Path $rollback | Out-Null\n\
@@ -1207,7 +1845,7 @@ mod tests {
         #[cfg(target_os = "windows")]
         assert_eq!(
             select_asset_for_platform(&assets).unwrap().name,
-            "SPLogbook-1.0.4-win64.exe"
+            "SPLogbook-1.0.4-win64.zip"
         );
         #[cfg(target_os = "linux")]
         assert_eq!(
@@ -1349,5 +1987,636 @@ mod tests {
                     || e.contains("Błąd")
             );
         }
+    }
+
+    fn create_test_tar_gz(entries: &[(&str, &[u8], tar::EntryType, u32)]) -> Vec<u8> {
+        use flate2::Compression;
+        use flate2::write::GzEncoder;
+        use tar::{Builder, Header};
+
+        let mut enc = GzEncoder::new(Vec::new(), Compression::default());
+        {
+            let mut builder = Builder::new(&mut enc);
+            for &(path, data, entry_type, mode) in entries {
+                let mut header = Header::new_gnu();
+                if header.set_path(path).is_err() {
+                    let bytes = path.as_bytes();
+                    let name_field = &mut header.as_mut_bytes()[..100];
+                    let len = bytes.len().min(99);
+                    name_field[..len].copy_from_slice(&bytes[..len]);
+                    name_field[len] = 0;
+                }
+                header.set_size(data.len() as u64);
+                header.set_mode(mode);
+                header.set_entry_type(entry_type);
+                header.set_cksum();
+                builder.append(&header, data).unwrap();
+            }
+            builder.finish().unwrap();
+        }
+        enc.finish().unwrap()
+    }
+
+    fn create_test_tar_gz_with_link(name: &str, target: &str, is_symlink: bool) -> Vec<u8> {
+        use flate2::Compression;
+        use flate2::write::GzEncoder;
+        use tar::{Builder, Header};
+
+        let mut enc = GzEncoder::new(Vec::new(), Compression::default());
+        {
+            let mut builder = Builder::new(&mut enc);
+            let mut header = Header::new_gnu();
+            header.set_path(name).unwrap();
+            header.set_link_name(target).unwrap();
+            header.set_size(0);
+            header.set_mode(0o777);
+            header.set_entry_type(if is_symlink {
+                tar::EntryType::Symlink
+            } else {
+                tar::EntryType::Link
+            });
+            header.set_cksum();
+            builder.append(&header, &[][..]).unwrap();
+            builder.finish().unwrap();
+        }
+        enc.finish().unwrap()
+    }
+
+    #[test]
+    fn updater_rejects_ambiguous_platform_artifacts() {
+        let assets = vec![
+            ManifestAsset {
+                platform: "windows".into(),
+                arch: "x86_64".into(),
+                package_type: "zip".into(),
+                filename: "SPLogbook-Windows-x64-1.zip".into(),
+                size: 1000,
+                sha256: "0000000000000000000000000000000000000000000000000000000000000001".into(),
+            },
+            ManifestAsset {
+                platform: "windows".into(),
+                arch: "x86_64".into(),
+                package_type: "zip".into(),
+                filename: "SPLogbook-Windows-x64-2.zip".into(),
+                size: 1000,
+                sha256: "0000000000000000000000000000000000000000000000000000000000000002".into(),
+            },
+        ];
+        let res = select_manifest_asset(&assets, "windows", "x86_64");
+        assert!(matches!(res, Err(UpdaterError::AmbiguousArtifact(_))));
+    }
+
+    #[test]
+    fn updater_rejects_unknown_platform() {
+        let assets = vec![ManifestAsset {
+            platform: "windows".into(),
+            arch: "x86_64".into(),
+            package_type: "zip".into(),
+            filename: "SPLogbook-Windows-x64.zip".into(),
+            size: 1000,
+            sha256: "0000000000000000000000000000000000000000000000000000000000000001".into(),
+        }];
+        let res_os = select_manifest_asset(&assets, "solaris", "x86_64");
+        assert!(matches!(res_os, Err(UpdaterError::UnsupportedPlatform(_))));
+
+        let res_arch = select_manifest_asset(&assets, "windows", "mips");
+        assert!(matches!(
+            res_arch,
+            Err(UpdaterError::UnsupportedPlatform(_))
+        ));
+    }
+
+    #[test]
+    fn updater_rejects_artifact_filename_with_path_components() {
+        let mut asset = ManifestAsset {
+            platform: "windows".into(),
+            arch: "x86_64".into(),
+            package_type: "zip".into(),
+            filename: "../evil.zip".into(),
+            size: 1000,
+            sha256: "0000000000000000000000000000000000000000000000000000000000000001".into(),
+        };
+        assert!(matches!(
+            select_manifest_asset(&[asset.clone()], "windows", "x86_64"),
+            Err(UpdaterError::UnsafeArchivePath(_))
+        ));
+
+        asset.filename = "sub/evil.zip".into();
+        assert!(matches!(
+            select_manifest_asset(&[asset.clone()], "windows", "x86_64"),
+            Err(UpdaterError::UnsafeArchivePath(_))
+        ));
+
+        asset.filename = "sub\\evil.zip".into();
+        assert!(matches!(
+            select_manifest_asset(&[asset.clone()], "windows", "x86_64"),
+            Err(UpdaterError::UnsafeArchivePath(_))
+        ));
+
+        asset.filename = "".into();
+        assert!(matches!(
+            select_manifest_asset(&[asset.clone()], "windows", "x86_64"),
+            Err(UpdaterError::UnsafeArchivePath(_))
+        ));
+    }
+
+    #[test]
+    fn updater_uses_zip_extension_for_windows_archive() {
+        let win_tmp = Path::new(".SPLogbook_update_123.zip");
+        assert_eq!(win_tmp.extension().and_then(|s| s.to_str()), Some("zip"));
+
+        let non_zip = Path::new(".SPLogbook_update_123.tmp");
+        #[cfg(target_os = "windows")]
+        {
+            let temp_dest =
+                std::env::temp_dir().join(format!("test_win_zip_{}", rand::random::<u64>()));
+            let limits = ArchiveLimits::default();
+            let res = extract_zip_safe_windows(non_zip, &temp_dest, &limits);
+            assert!(matches!(res, Err(UpdaterError::SafetyGate(_))));
+        }
+    }
+
+    #[test]
+    fn updater_install_flattens_single_root_directory_on_linux() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("test_flat_linux_{}", rand::random::<u64>()));
+        let staging = temp_dir.join("staging");
+        std::fs::create_dir_all(&staging).unwrap();
+
+        let tar_bytes = create_test_tar_gz(&[
+            (
+                "SPLogbook-Linux-x86_64/",
+                &[],
+                tar::EntryType::Directory,
+                0o755,
+            ),
+            (
+                "SPLogbook-Linux-x86_64/splogbook",
+                b"ELF binary",
+                tar::EntryType::Regular,
+                0o755,
+            ),
+            (
+                "SPLogbook-Linux-x86_64/databases/serviceLOG.db",
+                b"SQLite",
+                tar::EntryType::Regular,
+                0o644,
+            ),
+        ]);
+        let tar_file = temp_dir.join("archive.tar.gz");
+        std::fs::write(&tar_file, tar_bytes).unwrap();
+
+        let limits = ArchiveLimits::default();
+        let extracted = extract_tar_gz_safe(&tar_file, &staging, &limits);
+        assert!(extracted.is_ok());
+
+        let flattened = flatten_single_root_directory(&staging);
+        assert!(flattened.is_ok());
+        assert!(flattened.unwrap());
+
+        assert!(staging.join("splogbook").is_file());
+        assert!(staging.join("databases/serviceLOG.db").is_file());
+        assert!(!staging.join("SPLogbook-Linux-x86_64").exists());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn updater_install_flattens_single_root_directory_and_uses_zip_on_windows() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("test_flat_win_{}", rand::random::<u64>()));
+        let staging = temp_dir.join("staging");
+        let sub = staging.join("SPLogbook-Windows-x64");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(sub.join("SPLogbook.exe"), b"MZ").unwrap();
+        std::fs::write(sub.join("README.md"), b"Docs").unwrap();
+
+        let flattened = flatten_single_root_directory(&staging).unwrap();
+        assert!(flattened);
+
+        assert!(staging.join("SPLogbook.exe").is_file());
+        assert!(staging.join("README.md").is_file());
+        assert!(!staging.join("SPLogbook-Windows-x64").exists());
+
+        let win_zip = Path::new("artifact.download.zip");
+        assert_eq!(win_zip.extension().and_then(|s| s.to_str()), Some("zip"));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn windows_staging_paths_are_passed_without_shell_interpolation() {
+        let zip_path = Path::new("C:\\temp\\path with spaces\\artifact.zip");
+        let dest_path = Path::new("C:\\temp\\staging directory\\out");
+        let args = [
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            "param($z, $d) Expand-Archive -LiteralPath $z -DestinationPath $d -Force",
+            "-z",
+            zip_path.to_str().unwrap(),
+            "-d",
+            dest_path.to_str().unwrap(),
+        ];
+        assert_eq!(args[6], "-z");
+        assert_eq!(args[7], "C:\\temp\\path with spaces\\artifact.zip");
+        assert_eq!(args[8], "-d");
+        assert_eq!(args[9], "C:\\temp\\staging directory\\out");
+        assert!(!args[5].contains("path with spaces"));
+    }
+
+    #[test]
+    fn archive_rejects_parent_traversal() {
+        let temp_dir = std::env::temp_dir().join(format!("test_trav_{}", rand::random::<u64>()));
+        let staging = temp_dir.join("staging");
+        std::fs::create_dir_all(&staging).unwrap();
+
+        let tar_bytes =
+            create_test_tar_gz(&[("../escaped.txt", b"evil", tar::EntryType::Regular, 0o644)]);
+        let tar_file = temp_dir.join("trav.tar.gz");
+        std::fs::write(&tar_file, tar_bytes).unwrap();
+
+        let limits = ArchiveLimits::default();
+        let res = extract_tar_gz_safe(&tar_file, &staging, &limits);
+        assert!(matches!(res, Err(UpdaterError::UnsafeArchivePath(_))));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn archive_rejects_absolute_paths() {
+        let temp_dir = std::env::temp_dir().join(format!("test_abs_{}", rand::random::<u64>()));
+        let staging = temp_dir.join("staging");
+        std::fs::create_dir_all(&staging).unwrap();
+
+        let tar_bytes =
+            create_test_tar_gz(&[("/abs/file.txt", b"evil", tar::EntryType::Regular, 0o644)]);
+        let tar_file = temp_dir.join("abs.tar.gz");
+        std::fs::write(&tar_file, tar_bytes).unwrap();
+
+        let limits = ArchiveLimits::default();
+        let res = extract_tar_gz_safe(&tar_file, &staging, &limits);
+        assert!(matches!(res, Err(UpdaterError::UnsafeArchivePath(_))));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn archive_rejects_windows_drive_prefix() {
+        assert!(matches!(
+            validate_archive_relative_path(Path::new("C:/evil.txt")),
+            Err(UpdaterError::UnsafeArchivePath(_))
+        ));
+        assert!(matches!(
+            validate_archive_relative_path(Path::new("D:\\evil.txt")),
+            Err(UpdaterError::UnsafeArchivePath(_))
+        ));
+    }
+
+    #[test]
+    fn archive_rejects_unc_paths() {
+        assert!(matches!(
+            validate_archive_relative_path(Path::new("//server/share/file.txt")),
+            Err(UpdaterError::UnsafeArchivePath(_))
+        ));
+        assert!(matches!(
+            validate_archive_relative_path(Path::new("\\\\server\\share\\file.txt")),
+            Err(UpdaterError::UnsafeArchivePath(_))
+        ));
+    }
+
+    #[test]
+    fn archive_rejects_mixed_separator_traversal() {
+        let temp_dir = std::env::temp_dir().join(format!("test_mixed_{}", rand::random::<u64>()));
+        let staging = temp_dir.join("staging");
+        std::fs::create_dir_all(&staging).unwrap();
+
+        let tar_bytes = create_test_tar_gz(&[(
+            "sub/../../escaped.txt",
+            b"evil",
+            tar::EntryType::Regular,
+            0o644,
+        )]);
+        let tar_file = temp_dir.join("mixed.tar.gz");
+        std::fs::write(&tar_file, tar_bytes).unwrap();
+
+        let limits = ArchiveLimits::default();
+        let res = extract_tar_gz_safe(&tar_file, &staging, &limits);
+        assert!(matches!(res, Err(UpdaterError::UnsafeArchivePath(_))));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn archive_never_writes_outside_staging() {
+        let temp_dir = std::env::temp_dir().join(format!("test_jail_{}", rand::random::<u64>()));
+        let staging = temp_dir.join("staging");
+        let canary_dir = temp_dir.join("canary");
+        std::fs::create_dir_all(&staging).unwrap();
+        std::fs::create_dir_all(&canary_dir).unwrap();
+
+        let canary_file = canary_dir.join("canary.txt");
+        std::fs::write(&canary_file, b"untouched original").unwrap();
+
+        let tar_bytes = create_test_tar_gz(&[(
+            "../canary/canary.txt",
+            b"overwritten evil",
+            tar::EntryType::Regular,
+            0o644,
+        )]);
+        let tar_file = temp_dir.join("jail.tar.gz");
+        std::fs::write(&tar_file, tar_bytes).unwrap();
+
+        let limits = ArchiveLimits::default();
+        let res = extract_tar_gz_safe(&tar_file, &staging, &limits);
+        assert!(res.is_err());
+
+        // Assert canary remains untouched
+        assert_eq!(std::fs::read(&canary_file).unwrap(), b"untouched original");
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn archive_rejects_symlink_entries() {
+        let temp_dir = std::env::temp_dir().join(format!("test_sym_{}", rand::random::<u64>()));
+        let staging = temp_dir.join("staging");
+        std::fs::create_dir_all(&staging).unwrap();
+
+        let tar_bytes = create_test_tar_gz_with_link("symlink_entry", "../evil", true);
+        let tar_file = temp_dir.join("sym.tar.gz");
+        std::fs::write(&tar_file, tar_bytes).unwrap();
+
+        let limits = ArchiveLimits::default();
+        let res = extract_tar_gz_safe(&tar_file, &staging, &limits);
+        assert!(matches!(res, Err(UpdaterError::UnsafeArchivePath(_))));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn archive_rejects_hardlink_entries() {
+        let temp_dir = std::env::temp_dir().join(format!("test_hard_{}", rand::random::<u64>()));
+        let staging = temp_dir.join("staging");
+        std::fs::create_dir_all(&staging).unwrap();
+
+        let tar_bytes = create_test_tar_gz_with_link("hardlink_entry", "target", false);
+        let tar_file = temp_dir.join("hard.tar.gz");
+        std::fs::write(&tar_file, tar_bytes).unwrap();
+
+        let limits = ArchiveLimits::default();
+        let res = extract_tar_gz_safe(&tar_file, &staging, &limits);
+        assert!(matches!(res, Err(UpdaterError::UnsafeArchivePath(_))));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn archive_does_not_follow_existing_staging_symlink() {
+        let temp_dir = std::env::temp_dir().join(format!("test_fol_sym_{}", rand::random::<u64>()));
+        let staging = temp_dir.join("staging");
+        std::fs::create_dir_all(&staging).unwrap();
+
+        #[cfg(unix)]
+        {
+            let external = temp_dir.join("external");
+            std::fs::create_dir_all(&external).unwrap();
+            let sym = staging.join("link_dir");
+            std::os::unix::fs::symlink(&external, &sym).unwrap();
+
+            let tar_bytes = create_test_tar_gz(&[(
+                "link_dir/file.txt",
+                b"evil",
+                tar::EntryType::Regular,
+                0o644,
+            )]);
+            let tar_file = temp_dir.join("folsym.tar.gz");
+            std::fs::write(&tar_file, tar_bytes).unwrap();
+
+            let limits = ArchiveLimits::default();
+            let res = extract_tar_gz_safe(&tar_file, &staging, &limits);
+            assert!(matches!(res, Err(UpdaterError::UnsafeArchivePath(_))));
+        }
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn archive_rejects_too_many_entries() {
+        let temp_dir = std::env::temp_dir().join(format!("test_entries_{}", rand::random::<u64>()));
+        let staging = temp_dir.join("staging");
+        std::fs::create_dir_all(&staging).unwrap();
+
+        let tar_bytes = create_test_tar_gz(&[
+            ("f1.txt", b"1", tar::EntryType::Regular, 0o644),
+            ("f2.txt", b"2", tar::EntryType::Regular, 0o644),
+            ("f3.txt", b"3", tar::EntryType::Regular, 0o644),
+        ]);
+        let tar_file = temp_dir.join("too_many.tar.gz");
+        std::fs::write(&tar_file, tar_bytes).unwrap();
+
+        let limits = ArchiveLimits {
+            max_entries: 2,
+            max_total_size: 1000,
+            max_single_size: 1000,
+        };
+        let res = extract_tar_gz_safe(&tar_file, &staging, &limits);
+        assert!(matches!(res, Err(UpdaterError::ArchiveLimitExceeded(_))));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn archive_rejects_extracted_size_over_limit() {
+        let temp_dir = std::env::temp_dir().join(format!("test_size_{}", rand::random::<u64>()));
+        let staging = temp_dir.join("staging");
+        std::fs::create_dir_all(&staging).unwrap();
+
+        let data = [b'A'; 500];
+        let tar_bytes = create_test_tar_gz(&[
+            ("f1.txt", &data, tar::EntryType::Regular, 0o644),
+            ("f2.txt", &data, tar::EntryType::Regular, 0o644),
+        ]);
+        let tar_file = temp_dir.join("large.tar.gz");
+        std::fs::write(&tar_file, tar_bytes).unwrap();
+
+        let limits = ArchiveLimits {
+            max_entries: 10,
+            max_total_size: 600, // Total 1000 > 600
+            max_single_size: 600,
+        };
+        let res = extract_tar_gz_safe(&tar_file, &staging, &limits);
+        assert!(matches!(res, Err(UpdaterError::ArchiveLimitExceeded(_))));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn archive_rejects_duplicate_output_paths() {
+        let temp_dir = std::env::temp_dir().join(format!("test_dup_{}", rand::random::<u64>()));
+        let staging = temp_dir.join("staging");
+        std::fs::create_dir_all(&staging).unwrap();
+
+        let tar_bytes = create_test_tar_gz(&[
+            ("dup.txt", b"first", tar::EntryType::Regular, 0o644),
+            ("dup.txt", b"second", tar::EntryType::Regular, 0o644),
+        ]);
+        let tar_file = temp_dir.join("dup.tar.gz");
+        std::fs::write(&tar_file, tar_bytes).unwrap();
+
+        let limits = ArchiveLimits::default();
+        let res = extract_tar_gz_safe(&tar_file, &staging, &limits);
+        assert!(matches!(res, Err(UpdaterError::ArchiveLimitExceeded(_))));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn archive_rejects_file_directory_collision() {
+        let temp_dir = std::env::temp_dir().join(format!("test_col_{}", rand::random::<u64>()));
+        let staging = temp_dir.join("staging");
+        std::fs::create_dir_all(&staging).unwrap();
+
+        let tar_bytes = create_test_tar_gz(&[
+            ("conflict", b"file content", tar::EntryType::Regular, 0o644),
+            (
+                "conflict/subfile.txt",
+                b"sub content",
+                tar::EntryType::Regular,
+                0o644,
+            ),
+        ]);
+        let tar_file = temp_dir.join("col.tar.gz");
+        std::fs::write(&tar_file, tar_bytes).unwrap();
+
+        let limits = ArchiveLimits::default();
+        let res = extract_tar_gz_safe(&tar_file, &staging, &limits);
+        assert!(matches!(
+            res,
+            Err(UpdaterError::ArchiveLimitExceeded(_) | UpdaterError::Io(_))
+        ));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn archive_rejects_special_file_entries() {
+        let temp_dir = std::env::temp_dir().join(format!("test_spec_{}", rand::random::<u64>()));
+        let staging = temp_dir.join("staging");
+        std::fs::create_dir_all(&staging).unwrap();
+
+        let tar_bytes = create_test_tar_gz(&[("special_fifo", &[], tar::EntryType::Fifo, 0o644)]);
+        let tar_file = temp_dir.join("spec.tar.gz");
+        std::fs::write(&tar_file, tar_bytes).unwrap();
+
+        let limits = ArchiveLimits::default();
+        let res = extract_tar_gz_safe(&tar_file, &staging, &limits);
+        assert!(matches!(res, Err(UpdaterError::UnsafeArchivePath(_))));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn linux_install_preserves_executable_bit_without_privileged_modes() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp_dir = std::env::temp_dir().join(format!("test_perm_{}", rand::random::<u64>()));
+        let staging = temp_dir.join("staging");
+        std::fs::create_dir_all(&staging).unwrap();
+
+        let tar_bytes = create_test_tar_gz(&[
+            ("bin/splogbook", b"ELF", tar::EntryType::Regular, 0o6755),
+            (
+                "databases/serviceLOG.db",
+                b"DB",
+                tar::EntryType::Regular,
+                0o666,
+            ),
+        ]);
+        let tar_file = temp_dir.join("perm.tar.gz");
+        std::fs::write(&tar_file, tar_bytes).unwrap();
+
+        let limits = ArchiveLimits::default();
+        extract_tar_gz_safe(&tar_file, &staging, &limits).unwrap();
+
+        let bin_meta = std::fs::metadata(staging.join("bin/splogbook")).unwrap();
+        let bin_mode = bin_meta.permissions().mode();
+        assert_eq!(bin_mode & 0o777, 0o755);
+        assert_eq!(
+            bin_mode & 0o7000,
+            0,
+            "Setuid/setgid/sticky must be stripped"
+        );
+
+        let db_meta = std::fs::metadata(staging.join("databases/serviceLOG.db")).unwrap();
+        let db_mode = db_meta.permissions().mode();
+        assert_eq!(db_mode & 0o777, 0o644);
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn updater_rejects_incomplete_staging_layout() {
+        let temp_dir = std::env::temp_dir().join(format!("test_incompl_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        // 1. Missing executable
+        let res = validate_staging_layout(&temp_dir, "SPLogbook.exe");
+        assert!(matches!(res, Err(UpdaterError::InvalidStagingLayout(_))));
+
+        // 2. Executable has 0 bytes
+        let exe = temp_dir.join("SPLogbook.exe");
+        std::fs::write(&exe, b"").unwrap();
+        let res_zero = validate_staging_layout(&temp_dir, "SPLogbook.exe");
+        assert!(matches!(
+            res_zero,
+            Err(UpdaterError::InvalidStagingLayout(_))
+        ));
+
+        // 3. Executable is directory
+        let _ = std::fs::remove_file(&exe);
+        std::fs::create_dir(&exe).unwrap();
+        let res_dir = validate_staging_layout(&temp_dir, "SPLogbook.exe");
+        assert!(matches!(
+            res_dir,
+            Err(UpdaterError::InvalidStagingLayout(_))
+        ));
+        let _ = std::fs::remove_dir(&exe);
+
+        // 4. Executable valid
+        std::fs::write(&exe, b"MZ valid").unwrap();
+        assert!(validate_staging_layout(&temp_dir, "SPLogbook.exe").is_ok());
+
+        // 5. Private key file in staging rejected
+        std::fs::write(temp_dir.join("priv.key"), b"forbidden private key").unwrap();
+        let res_priv = validate_staging_layout(&temp_dir, "SPLogbook.exe");
+        assert!(matches!(
+            res_priv,
+            Err(UpdaterError::InvalidStagingLayout(_))
+        ));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn updater_rejects_hash_mismatch() {
+        let data = b"some downloaded release data";
+        let bad_hash = "0000000000000000000000000000000000000000000000000000000000000000";
+        let res = verify_artifact_integrity(data, data.len() as u64, bad_hash);
+        assert_eq!(res, Err(UpdaterError::HashMismatch));
+    }
+
+    #[test]
+    fn updater_rejects_size_mismatch() {
+        let data = b"some downloaded release data";
+        let real_hash = sha256_hex(data);
+        let res = verify_artifact_integrity(data, 999_999, &real_hash);
+        assert_eq!(res, Err(UpdaterError::SizeMismatch));
+
+        let res_ok = verify_artifact_integrity(data, data.len() as u64, &real_hash);
+        assert!(res_ok.is_ok());
     }
 }
