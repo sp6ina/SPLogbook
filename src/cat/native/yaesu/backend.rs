@@ -14,7 +14,7 @@
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use crate::cat::backend::{BoxFuture, CatBackendKind, RigBackend};
+use crate::cat::backend::{BoxFuture, CatBackendKind, RigBackend, RigProbeResult};
 use crate::cat::native::profile::RigModelProfile;
 use crate::cat::native::transport::{AsyncFramedTransport, SerialConfig, open_serial_stream};
 use crate::cat::native::yaesu::codec::{YaesuAsciiCodec, YaesuCat, YaesuFrame, YaesuIfInfo};
@@ -139,7 +139,7 @@ impl YaesuBackend {
     /// Probe jest operacją ściśle tylko do odczytu (read-only): wysyła wyłącznie zapytania
     /// diagnostyczne (np. FA;) i pod żadnym pozorem nie wysyła komend modyfikujących
     /// konfigurację transceivera (np. AI1;, TX1;).
-    pub async fn probe(&mut self) -> Result<RigState, RigError> {
+    pub async fn probe_internal(&mut self) -> Result<RigState, RigError> {
         self.ensure_transport()?;
 
         if let Some(t) = self.transport.as_mut() {
@@ -152,8 +152,14 @@ impl YaesuBackend {
         if let Some((_, hz)) = YaesuCat::parse_freq_resp(&probe_frame.raw) {
             self.state.frequency_hz = hz;
         }
+        self.state.ptt = false;
 
         Ok(self.state.clone())
+    }
+
+    /// Pomocnicza metoda inherentna delegująca do probe_internal.
+    pub async fn probe(&mut self) -> Result<RigState, RigError> {
+        self.probe_internal().await
     }
 
     /// Przetwarza zdekodowaną ramkę Yaesu i aktualizuje lokalny stan radia.
@@ -689,6 +695,25 @@ impl RigBackend for YaesuBackend {
             }
 
             self.state.connected = false;
+        })
+    }
+
+    fn probe(&mut self) -> BoxFuture<'_, Result<RigProbeResult, RigError>> {
+        Box::pin(async move {
+            let was_connected = self.transport.is_some();
+            let state = self.probe_internal().await?;
+            if !was_connected {
+                self.disconnect().await;
+            }
+            Ok(RigProbeResult {
+                reachable: true,
+                identity: Some(format!("Yaesu ({})", self.profile.name)),
+                model: Some(self.profile.name.to_string()),
+                firmware: None,
+                capabilities: self.capabilities(),
+                state: Some(state),
+                safe_diagnostic: format!("Połączenie z Yaesu ({}) powiodło się", self.profile.name),
+            })
         })
     }
 }

@@ -15,7 +15,7 @@
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use crate::cat::backend::{BoxFuture, CatBackendKind, RigBackend};
+use crate::cat::backend::{BoxFuture, CatBackendKind, RigBackend, RigProbeResult};
 use crate::cat::native::elecraft::codec::{ElecraftCat, ElecraftCodec, ElecraftMessage};
 use crate::cat::native::elecraft::k4_tcp::{ElecraftTcpConfig, open_k4_tcp_stream};
 use crate::cat::native::elecraft::models::{ElecraftModelProfile, ElecraftProtocolFamily};
@@ -453,7 +453,7 @@ impl ElecraftBackend {
     }
 
     /// Sonda read-only weryfikująca obecność i tożsamość transceivera bez wysyłania komend PTT/TX ani zapisu menu.
-    pub async fn probe(&mut self) -> Result<RigState, RigError> {
+    pub async fn probe_internal(&mut self) -> Result<RigState, RigError> {
         self.open_transport().await?;
 
         // 1. Wyślij wyłącznie odczyt tożsamości (ID;)
@@ -471,9 +471,16 @@ impl ElecraftBackend {
         let _ = self.query_and_await_response("FA;", "FA").await?;
         let _ = self.query_and_await_response("MD;", "MD").await?;
 
-        let probed_state = self.state.clone();
+        let mut probed_state = self.state.clone();
+        probed_state.connected = true;
+        probed_state.ptt = false;
         self.disconnect().await;
         Ok(probed_state)
+    }
+
+    /// Pomocnicza metoda inherentna delegująca do probe_internal.
+    pub async fn probe(&mut self) -> Result<RigState, RigError> {
+        self.probe_internal().await
     }
 }
 
@@ -788,6 +795,24 @@ impl RigBackend for ElecraftBackend {
             self.confirmed_ptt = false;
             self.subreceiver_detected = None;
             self.state.connected = false;
+        })
+    }
+
+    fn probe(&mut self) -> BoxFuture<'_, Result<RigProbeResult, RigError>> {
+        Box::pin(async move {
+            let state = self.probe_internal().await?;
+            Ok(RigProbeResult {
+                reachable: true,
+                identity: Some(format!("Elecraft ({})", self.profile.name)),
+                model: Some(self.profile.name.to_string()),
+                firmware: None,
+                capabilities: self.capabilities(),
+                state: Some(state),
+                safe_diagnostic: format!(
+                    "Połączenie z Elecraft ({}) powiodło się",
+                    self.profile.name
+                ),
+            })
         })
     }
 }

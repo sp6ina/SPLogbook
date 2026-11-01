@@ -56,25 +56,13 @@ pub trait RigBackend: Send {
 
     /// Bezpieczne, wyłącznie odczytowe próbkowanie transceivera (read-only probe).
     ///
-    /// Domyślna implementacja wykonuje bezpieczną sekwencję connect -> poll -> disconnect,
-    /// gwarantując brak emisji jakichkolwiek rozkazów PTT lub mutujących nastawy radia.
+    /// Domyślna implementacja zwraca bezpieczny błąd [`RigError::Unsupported`],
+    /// uniemożliwiając wykonanie jakichkolwiek niejawnych lub mutujących operacji (CAT-002 / CAT-003).
     fn probe(&mut self) -> BoxFuture<'_, Result<RigProbeResult, RigError>> {
-        Box::pin(async move {
-            self.connect().await?;
-            let state = self.poll().await.ok();
-            let caps = self.capabilities();
-            let kind = self.kind();
-            self.disconnect().await;
-            Ok(RigProbeResult {
-                reachable: true,
-                identity: Some(kind.label().to_string()),
-                model: None,
-                firmware: None,
-                capabilities: caps,
-                state,
-                safe_diagnostic: format!("Połączenie z {} powiodło się", kind.label()),
-            })
-        })
+        Box::pin(std::future::ready(Err(RigError::Unsupported {
+            backend: self.kind(),
+            command: "probe",
+        })))
     }
 }
 

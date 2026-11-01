@@ -9,7 +9,7 @@ use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::sync::broadcast;
 use tokio::time::sleep;
 
-use crate::cat::backend::{BoxFuture, CatBackendKind, RigBackend};
+use crate::cat::backend::{BoxFuture, CatBackendKind, RigBackend, RigProbeResult};
 use crate::cat::rig::{RigCapabilities, RigCommand, RigError};
 
 const DAEMON: &str = "rigctld";
@@ -745,6 +745,49 @@ impl RigBackend for HamlibBackend {
 
     fn disconnect(&mut self) -> BoxFuture<'_, ()> {
         Box::pin(self.disconnect_internal())
+    }
+
+    fn probe(&mut self) -> BoxFuture<'_, Result<RigProbeResult, RigError>> {
+        Box::pin(async move {
+            let was_connected = self.is_connected();
+            if !was_connected {
+                self.connect_internal().await?;
+            }
+
+            // Bezpieczny odczyt VFO/częstotliwości (strictly read-only)
+            self.write_cmd_internal("f\n").await?;
+            let freq_line = self.read_line_internal().await?;
+            let mut state = RigState::default();
+            if let Ok(hz) = freq_line.trim().parse::<u64>() {
+                state.frequency_hz = hz;
+            }
+
+            // Opcjonalny odczyt emisji (strictly read-only)
+            let _ = self.write_cmd_internal("m\n").await;
+            if let Ok(mode_line) = self.read_line_internal().await {
+                let trimmed = mode_line.trim();
+                if !trimmed.starts_with("RPRT") && !trimmed.is_empty() {
+                    state.mode = trimmed.to_string();
+                }
+            }
+
+            state.connected = true;
+            state.ptt = false;
+
+            if !was_connected {
+                self.disconnect_internal().await;
+            }
+
+            Ok(RigProbeResult {
+                reachable: true,
+                identity: Some(format!("Hamlib rigctld ({})", self.endpoint)),
+                model: None,
+                firmware: None,
+                capabilities: self.capabilities(),
+                state: Some(state),
+                safe_diagnostic: format!("Połączenie z Hamlib ({}) powiodło się", self.endpoint),
+            })
+        })
     }
 }
 

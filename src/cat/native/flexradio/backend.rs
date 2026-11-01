@@ -14,7 +14,7 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::time::Duration;
 
-use crate::cat::backend::{BoxFuture, CatBackendKind, RigBackend};
+use crate::cat::backend::{BoxFuture, CatBackendKind, RigBackend, RigProbeResult};
 use crate::cat::native::NativeRigEvent;
 use crate::cat::native::profile::RigModelProfile;
 use crate::cat::rig::{RigCapabilities, RigCommand, RigError, RigState};
@@ -1164,6 +1164,38 @@ impl RigBackend for FlexRadioBackend {
             self.last_state.connected = false;
             self.tx_telemetry_enabled = false;
             self.registered_clients.clear();
+        })
+    }
+
+    fn probe(&mut self) -> BoxFuture<'_, Result<RigProbeResult, RigError>> {
+        Box::pin(async move {
+            let endpoint = format!("{}:{}", self.config.host, self.config.port);
+            let mut conn = FlexRadioConnection::connect(self.config.clone())
+                .await
+                .map_err(|e| e.to_rig_error(&endpoint))?;
+
+            let (ver, handle) = conn
+                .perform_handshake()
+                .await
+                .map_err(|e| e.to_rig_error(&endpoint))?;
+
+            self.protocol_version = Some(ver.clone());
+            self.client_handle = Some(handle.clone());
+
+            conn.disconnect().await;
+            let model = Some(self.profile.name.to_string());
+            Ok(RigProbeResult {
+                reachable: true,
+                identity: Some(format!("FlexRadio SmartSDR (Handle: {handle})")),
+                model,
+                firmware: Some(ver),
+                capabilities: self.capabilities(),
+                state: None,
+                safe_diagnostic: format!(
+                    "Połączenie z FlexRadio ({}:{}) powiodło się",
+                    self.config.host, self.config.port
+                ),
+            })
         })
     }
 }

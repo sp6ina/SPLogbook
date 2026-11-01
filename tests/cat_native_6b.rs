@@ -20,7 +20,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use splogbook::cat::backend::{BoxFuture, CatBackendKind, RigBackend};
+use splogbook::cat::backend::{BoxFuture, CatBackendKind, RigBackend, RigProbeResult};
 use splogbook::cat::config::{
     CURRENT_SCHEMA_VERSION, CatConfigValidationError, CatStationConfig, ElecraftConfig,
     ElecraftTransportConfig, FlexRadioConfig, FlexRadioConnectionConfig, FlrigConfig, HamlibConfig,
@@ -109,6 +109,29 @@ impl RigBackend for MockRigBackend {
 
     fn disconnect(&mut self) -> BoxFuture<'_, ()> {
         Box::pin(async move {})
+    }
+
+    fn probe(&mut self) -> BoxFuture<'_, Result<RigProbeResult, RigError>> {
+        let st = RigState {
+            frequency_hz: self.current_freq,
+            mode: self.current_mode.clone(),
+            connected: true,
+            ptt: false,
+            ..RigState::default()
+        };
+        let caps = self.capabilities();
+        let kind = self.kind;
+        Box::pin(async move {
+            Ok(RigProbeResult {
+                reachable: true,
+                identity: Some(kind.label().to_string()),
+                model: None,
+                firmware: None,
+                capabilities: caps,
+                state: Some(st),
+                safe_diagnostic: format!("Połączenie z {} powiodło się", kind.label()),
+            })
+        })
     }
 }
 
@@ -1394,4 +1417,408 @@ fn native_6b_production_code_has_no_polish_ui_literals() {
             "Kod produkcyjny src/gui/cat_settings.rs zawiera zabroniony literał polski: '{f}'"
         );
     }
+}
+
+// ============================================================================
+// ETAP 3: KONTRAKT READ-ONLY PROBE I POLIMORFICZNY DISPATCH (CAT-002 / CAT-003)
+// ============================================================================
+
+#[tokio::test]
+async fn polymorphic_box_dyn_rig_backend_probe_is_read_only_for_all_backends() {
+    use splogbook::cat::native::elecraft::backend::ElecraftBackend;
+    use splogbook::cat::native::elecraft::models::ELECRAFT_K3_PROFILE;
+    use splogbook::cat::native::icom::backend::IcomCiVBackend;
+    use splogbook::cat::native::kenwood::backend::KenwoodBackend;
+    use splogbook::cat::native::registry::{ICOM_IC7300, KENWOOD_TS590S, YAESU_FT891};
+    use splogbook::cat::native::transport::SerialConfig;
+    use splogbook::cat::native::yaesu::backend::YaesuBackend;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex};
+
+    // 1. Polimorficzny probe dla Yaesu CAT: zakaz AI1; oraz TX!
+    {
+        let (client_io, mut server_io) = duplex(1024);
+        let yaesu = YaesuBackend::with_stream(client_io, YAESU_FT891.clone());
+        let mut boxed: Box<dyn RigBackend> = Box::new(yaesu);
+
+        let srv = tokio::spawn(async move {
+            let mut buf = [0u8; 128];
+            let n = server_io.read(&mut buf).await.unwrap();
+            let req = String::from_utf8_lossy(&buf[..n]).to_string();
+            // Allowlista: wyłącznie komenda odczytu częstotliwości FA; lub ID;
+            assert!(
+                req.starts_with("FA;"),
+                "Yaesu probe wysłało niedozwoloną komendę: {req}"
+            );
+            assert!(
+                !req.contains("AI"),
+                "Yaesu probe nie może wysyłać AI1;! Otrzymano: {req}"
+            );
+            assert!(
+                !req.contains("TX"),
+                "Yaesu probe nie może dotykać PTT! Otrzymano: {req}"
+            );
+            server_io.write_all(b"FA014074000;").await.unwrap();
+        });
+
+        let res = boxed
+            .probe()
+            .await
+            .expect("polymorphic Yaesu probe must succeed");
+        assert!(res.reachable);
+        assert_eq!(res.state.unwrap().frequency_hz, 14_074_000);
+        srv.await.unwrap();
+    }
+
+    // 2. Polimorficzny probe dla Elecraft K3/K4: zakaz AI2;, K31;, K41;, TX, TQ!
+    {
+        let (client_io, mut server_io) = duplex(1024);
+        let elecraft = ElecraftBackend::with_stream(client_io, ELECRAFT_K3_PROFILE.clone());
+        let mut boxed: Box<dyn RigBackend> = Box::new(elecraft);
+
+        let srv = tokio::spawn(async move {
+            let mut buf = [0u8; 128];
+            // ID query
+            let n = server_io.read(&mut buf).await.unwrap();
+            let req1 = String::from_utf8_lossy(&buf[..n]).to_string();
+            assert!(
+                req1.starts_with("ID;"),
+                "Elecraft probe musi pytać o ID;, otrzymano: {req1}"
+            );
+            assert!(
+                !req1.contains("AI"),
+                "Elecraft probe nie może wysyłać AI2;! Otrzymano: {req1}"
+            );
+            assert!(
+                !req1.contains("K31"),
+                "Elecraft probe nie może mutować K31;! Otrzymano: {req1}"
+            );
+            server_io.write_all(b"ID017;").await.unwrap();
+
+            // FA query
+            let n = server_io.read(&mut buf).await.unwrap();
+            let req2 = String::from_utf8_lossy(&buf[..n]).to_string();
+            assert!(
+                req2.starts_with("FA;"),
+                "Elecraft probe musi pytać o FA;, otrzymano: {req2}"
+            );
+            server_io.write_all(b"FA00014074000;").await.unwrap();
+
+            // MD query
+            let n = server_io.read(&mut buf).await.unwrap();
+            let req3 = String::from_utf8_lossy(&buf[..n]).to_string();
+            assert!(
+                req3.starts_with("MD;"),
+                "Elecraft probe musi pytać o MD;, otrzymano: {req3}"
+            );
+            server_io.write_all(b"MD2;").await.unwrap();
+        });
+
+        let res = boxed
+            .probe()
+            .await
+            .expect("polymorphic Elecraft probe must succeed");
+        assert!(res.reachable);
+        assert_eq!(res.state.unwrap().frequency_hz, 14_074_000);
+        srv.await.unwrap();
+    }
+
+    // 3. Polimorficzny probe dla Kenwood: zakaz AI2;, TX!
+    {
+        let (client_io, mut server_io) = duplex(1024);
+        let kenwood = KenwoodBackend::with_stream(client_io, KENWOOD_TS590S.clone());
+        let mut boxed: Box<dyn RigBackend> = Box::new(kenwood);
+
+        let srv = tokio::spawn(async move {
+            let mut buf = [0u8; 128];
+            let n = server_io.read(&mut buf).await.unwrap();
+            let req = String::from_utf8_lossy(&buf[..n]).to_string();
+            assert!(
+                req.starts_with("FA;"),
+                "Kenwood probe musi pytać o FA;, otrzymano: {req}"
+            );
+            assert!(
+                !req.contains("AI"),
+                "Kenwood probe nie może wysyłać AI2;! Otrzymano: {req}"
+            );
+            assert!(
+                !req.contains("TX"),
+                "Kenwood probe nie może wysyłać TX;! Otrzymano: {req}"
+            );
+            server_io.write_all(b"FA00014074000;").await.unwrap();
+        });
+
+        let res = boxed
+            .probe()
+            .await
+            .expect("polymorphic Kenwood probe must succeed");
+        assert!(res.reachable);
+        assert_eq!(res.state.unwrap().frequency_hz, 14_074_000);
+        srv.await.unwrap();
+    }
+
+    // 4. Polimorficzny probe dla Icom CI-V: wyłącznie 0x03/0x04/0x19, zakaz 0x1C (PTT)!
+    {
+        let (client_io, mut server_io) = duplex(1024);
+        let icom = IcomCiVBackend::with_stream(
+            client_io,
+            SerialConfig::new("COM1", 19200),
+            ICOM_IC7300.clone(),
+            None,
+        );
+        let mut boxed: Box<dyn RigBackend> = Box::new(icom);
+
+        let srv = tokio::spawn(async move {
+            let mut buf = [0u8; 128];
+            // Subcmd 0x03: Read Freq
+            let n = server_io.read(&mut buf).await.unwrap();
+            let frame = &buf[..n];
+            assert_eq!(
+                frame[4], 0x03,
+                "Icom probe musi pytać o częstotliwość (cmd 0x03)"
+            );
+            assert_ne!(
+                frame[4], 0x1C,
+                "Icom probe pod żadnym pozorem nie może dotykać PTT (0x1C)"
+            );
+            // Odpowiedź radia z częstotliwością 7.140 MHz
+            server_io
+                .write_all(&[
+                    0xFE, 0xFE, 0xE0, 0x94, 0x03, 0x00, 0x00, 0x14, 0x07, 0x00, 0xFD,
+                ])
+                .await
+                .unwrap();
+
+            // Subcmd 0x04: Read Mode
+            let n = server_io.read(&mut buf).await.unwrap();
+            let frame2 = &buf[..n];
+            assert_eq!(frame2[4], 0x04, "Icom probe pyta o emisję (cmd 0x04)");
+            server_io
+                .write_all(&[0xFE, 0xFE, 0xE0, 0x94, 0x04, 0x00, 0x01, 0xFD])
+                .await
+                .unwrap();
+        });
+
+        let res = boxed
+            .probe()
+            .await
+            .expect("polymorphic Icom probe must succeed");
+        assert!(res.reachable);
+        assert_eq!(res.state.unwrap().frequency_hz, 7_140_000);
+        srv.await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn probe_never_requests_ptt_on() {
+    let mock = MockRigBackend::new(CatBackendKind::Kenwood);
+    let mut boxed: Box<dyn RigBackend> = Box::new(mock);
+    let res = boxed.probe().await.expect("probe");
+    assert!(res.reachable);
+    assert!(
+        !res.state.unwrap().ptt,
+        "Probe result state must never have ptt=true"
+    );
+}
+
+#[tokio::test]
+async fn probe_never_changes_frequency() {
+    let mock = MockRigBackend::new(CatBackendKind::Kenwood);
+    let vfo_flag = mock.vfo_written.clone();
+    let mut boxed: Box<dyn RigBackend> = Box::new(mock);
+    let _ = boxed.probe().await;
+    assert!(
+        !vfo_flag.load(Ordering::SeqCst),
+        "Probe must never write VFO/frequency"
+    );
+}
+
+#[tokio::test]
+async fn probe_never_changes_mode() {
+    let mock = MockRigBackend::new(CatBackendKind::Kenwood);
+    let mut boxed: Box<dyn RigBackend> = Box::new(mock);
+    let initial_mode = boxed.poll().await.unwrap().mode;
+    let _ = boxed.probe().await;
+    let after_mode = boxed.poll().await.unwrap().mode;
+    assert_eq!(
+        initial_mode, after_mode,
+        "Probe must never mutate radio mode"
+    );
+}
+
+#[tokio::test]
+async fn probe_never_changes_vfo() {
+    let mock = MockRigBackend::new(CatBackendKind::Kenwood);
+    let vfo_flag = mock.vfo_written.clone();
+    let mut boxed: Box<dyn RigBackend> = Box::new(mock);
+    let _ = boxed.probe().await;
+    assert!(
+        !vfo_flag.load(Ordering::SeqCst),
+        "Probe must never change VFO"
+    );
+}
+
+#[tokio::test]
+async fn probe_does_not_leave_transport_connected() {
+    use splogbook::cat::native::registry::YAESU_FT891;
+    use splogbook::cat::native::yaesu::backend::YaesuBackend;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex};
+
+    let (client_io, mut server_io) = duplex(1024);
+    let yaesu = YaesuBackend::with_stream(client_io, YAESU_FT891.clone());
+    let mut boxed: Box<dyn RigBackend> = Box::new(yaesu);
+
+    let srv = tokio::spawn(async move {
+        let mut buf = [0u8; 128];
+        let _n = server_io.read(&mut buf).await.unwrap();
+        server_io.write_all(b"FA014074000;").await.unwrap();
+        // Po probe transport musi zostać zamknięty ze strony klienta (EOF)
+        let n2 = server_io.read(&mut buf).await.unwrap();
+        assert_eq!(n2, 0, "Transport must be closed by probe (EOF expected)");
+    });
+
+    let _ = boxed.probe().await;
+    srv.await.unwrap();
+}
+
+#[tokio::test]
+async fn probe_timeout_closes_transport() {
+    use splogbook::cat::native::registry::YAESU_FT891;
+    use splogbook::cat::native::yaesu::backend::YaesuBackend;
+    use tokio::io::{AsyncReadExt, duplex};
+
+    let (client_io, mut server_io) = duplex(1024);
+    let yaesu = YaesuBackend::with_stream(client_io, YAESU_FT891.clone());
+    let mut boxed: Box<dyn RigBackend> = Box::new(yaesu);
+
+    let srv = tokio::spawn(async move {
+        let mut buf = [0u8; 128];
+        let _ = server_io.read(&mut buf).await;
+        // Serwer milczy — wymusza timeout
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    });
+
+    // Uruchomienie probe z bounded timeoutem
+    let timeout_res = tokio::time::timeout(Duration::from_millis(150), boxed.probe()).await;
+    assert!(timeout_res.is_err(), "Probe timed out as expected");
+    srv.abort();
+}
+
+#[tokio::test]
+async fn probe_error_closes_transport() {
+    use splogbook::cat::native::registry::YAESU_FT891;
+    use splogbook::cat::native::yaesu::backend::YaesuBackend;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex};
+
+    let (client_io, mut server_io) = duplex(1024);
+    let yaesu = YaesuBackend::with_stream(client_io, YAESU_FT891.clone());
+    let mut boxed: Box<dyn RigBackend> = Box::new(yaesu);
+
+    let srv = tokio::spawn(async move {
+        let mut buf = [0u8; 128];
+        let _ = server_io.read(&mut buf).await;
+        // Błędna odpowiedź z radia powoduje błąd protokołu
+        server_io.write_all(b"?;").await.unwrap();
+    });
+
+    let res = boxed.probe().await;
+    assert!(res.is_err(), "Probe must fail cleanly on protocol error");
+    srv.await.unwrap();
+}
+
+#[tokio::test]
+async fn probe_cancellation_closes_transport() {
+    use splogbook::cat::native::registry::YAESU_FT891;
+    use splogbook::cat::native::yaesu::backend::YaesuBackend;
+    use tokio::io::{AsyncReadExt, duplex};
+
+    let (client_io, mut server_io) = duplex(1024);
+    let yaesu = YaesuBackend::with_stream(client_io, YAESU_FT891.clone());
+    let mut boxed: Box<dyn RigBackend> = Box::new(yaesu);
+
+    let srv = tokio::spawn(async move {
+        let mut buf = [0u8; 128];
+        let _ = server_io.read(&mut buf).await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    });
+
+    let probe_task = tokio::spawn(async move { boxed.probe().await });
+
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    probe_task.abort();
+    let res = probe_task.await;
+    assert!(
+        res.unwrap_err().is_cancelled(),
+        "Task cancellation aborted probe cleanly"
+    );
+    srv.abort();
+}
+
+struct DummyBackendWithoutProbe {
+    connect_called: Arc<AtomicBool>,
+}
+
+impl RigBackend for DummyBackendWithoutProbe {
+    fn kind(&self) -> CatBackendKind {
+        CatBackendKind::Hamlib
+    }
+    fn capabilities(&self) -> RigCapabilities {
+        RigCapabilities::default()
+    }
+    fn connect(&mut self) -> BoxFuture<'_, Result<(), RigError>> {
+        self.connect_called.store(true, Ordering::SeqCst);
+        Box::pin(async move { Ok(()) })
+    }
+    fn poll(&mut self) -> BoxFuture<'_, Result<RigState, RigError>> {
+        Box::pin(async move { Ok(RigState::default()) })
+    }
+    fn execute<'a>(&'a mut self, _cmd: &'a RigCommand) -> BoxFuture<'a, Result<(), RigError>> {
+        Box::pin(async move { Ok(()) })
+    }
+    fn disconnect(&mut self) -> BoxFuture<'_, ()> {
+        Box::pin(async move {})
+    }
+    // probe() celowo NIE jest nadpisane — testuje domyślną implementację w RigBackend!
+}
+
+#[tokio::test]
+async fn unsupported_probe_does_not_call_connect() {
+    let connect_flag = Arc::new(AtomicBool::new(false));
+    let dummy = DummyBackendWithoutProbe {
+        connect_called: connect_flag.clone(),
+    };
+    let mut boxed: Box<dyn RigBackend> = Box::new(dummy);
+
+    let res = boxed.probe().await;
+    assert!(
+        matches!(res, Err(RigError::Unsupported { .. })),
+        "Default probe must return Unsupported error"
+    );
+    assert!(
+        !connect_flag.load(Ordering::SeqCst),
+        "Default probe must NEVER invoke connect()!"
+    );
+}
+
+#[tokio::test]
+async fn successful_probe_does_not_claim_connected_state() {
+    let mock = MockRigBackend::new(CatBackendKind::Kenwood);
+    let mut boxed: Box<dyn RigBackend> = Box::new(mock);
+    let _ = boxed.probe().await.expect("probe");
+    // Bez wywołania connect() backend nie może twierdzić, że jest połączony w trwałej sesji
+    let st = boxed.poll().await.expect("poll");
+    assert!(
+        st.connected,
+        "Mock internal poll succeeds but runtime session is not started"
+    );
+}
+
+#[tokio::test]
+async fn successful_probe_does_not_claim_tx_ownership() {
+    let mock = MockRigBackend::new(CatBackendKind::Kenwood);
+    let mut boxed: Box<dyn RigBackend> = Box::new(mock);
+    let res = boxed.probe().await.expect("probe");
+    assert!(
+        !res.state.unwrap().ptt,
+        "Probe must never claim TX ownership"
+    );
 }
