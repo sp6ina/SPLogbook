@@ -639,6 +639,17 @@
 - **Kategoria:** `CAT`
 - **Poziom krytyczności:** `CRITICAL`
 - **Poziom pewności:** `CONFIRMED`
+- **Status remediacji:** **FIXED / VERIFIED_STAGE_3**
+- **Data wdrożenia i weryfikacji:** 2026-11-01
+- **Commity:**
+  - `31ab74e`: `fix(cat): require confirmed PTT ownership for TCI (CAT-003)`
+  - `ce73b8c`: `fix(cat): require confirmed PTT ownership for FlexRadio (CAT-005)`
+- **Wdrożone rozwiązanie (Etap 3):**
+  1. W `TciBackend::execute_set_ptt` wprowadzono drain bufora wejściowego przed wysłaniem komendy, pętlę asynchronicznego oczekiwania na ramkę `TciMessage::Trx` (do `command_timeout`), awaryjny timeout z wysłaniem `trx:0,false;`, filtr `discard_late_tx` zapobiegający nieautoryzowanemu wejściu w TX po spóźnionym pakiecie oraz best-effort powrót do RX w `Drop`.
+  2. W `FlexRadioBackend::execute_set_ptt_true` / `execute_set_ptt_false` wprowadzono drain bufora, śledzenie `interlock_received_after_xmit`, wymóg nadejścia zarówno odpowiedzi `R<seq>|0|` jak i dopasowanego stanu `interlock state=TRANSMITTING` (dla PTT ON) lub stanu nie-TRANSMITTING (dla PTT OFF), natychmiastowe awaryjne `xmit 0` w razie timeoutu lub odrzucenia, `discard_late_tx` oraz best-effort `Drop`.
+- **Zweryfikowane testy regresyjne:**
+  - 10 testów symulacyjnych TCI w `src/cat/tci.rs` (wszystkie 29 testów TCI PASSED).
+  - 11 testów symulacyjnych FlexRadio w `src/cat/native/flexradio/backend.rs` (wszystkie 234 testy FlexRadio PASSED).
 - **Moduł / obszar:** `src/cat/tci.rs`, `src/cat/native/flexradio/backend.rs`, `src/cat/service.rs`, `src/cat/hub.rs`
 - **Lokalizacja:** [`src/cat/tci.rs:537, 808-827, 908-913`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cat/tci.rs#L808-L913), [`src/cat/native/flexradio/backend.rs:415-428, 1028-1068`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cat/native/flexradio/backend.rs#L415-L1068), [`src/cat/service.rs:514-526`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cat/service.rs#L514-L526), [`src/cat/hub.rs:662-692`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cat/hub.rs#L662-L692)
 - **Dowód z kodu:**
@@ -663,6 +674,16 @@
 - **Kategoria:** `CAT`
 - **Poziom krytyczności:** `CRITICAL`
 - **Poziom pewności:** `CONFIRMED`
+- **Status remediacji:** **FIXED / VERIFIED_STAGE_3**
+- **Data wdrożenia i weryfikacji:** 2026-11-01
+- **Commit:**
+  - `3e907aa`: `fix(cat): make backend probing strictly read-only (CAT-002)`
+- **Wdrożone rozwiązanie (Etap 3):**
+  1. Usunięto domyślną mutującą implementację `RigBackend::probe` z `src/cat/backend.rs`, która wywoływała `connect()`. Kompilator wymusza teraz jawną implementację `probe()` na każdym backendzie.
+  2. Zaimplementowano bezpieczny, ściśle niemutujący `probe()` w `impl RigBackend` dla wszystkich 8 backendów (`FlrigBackend`, `HamlibBackend`, `TciBackend`, `ElecraftBackend`, `FlexRadioBackend`, `IcomCiVBackend`, `KenwoodBackend`, `YaesuBackend`).
+  3. Żaden backend podczas sondowania nie inicjalizuje pełnej sesji ze zmianą konfiguracji radia ani nie wysyła komend mutujących (`AI1;`, `AI2;`, subskrypcji slices/panadapterów, ani PTT).
+- **Zweryfikowane testy regresyjne:**
+  - 12 kontraktowych testów read-only probe w `tests/cat_native_6b.rs` (wszystkie 87 testów w pliku PASSED).
 - **Moduł / obszar:** `src/cat/backend.rs`, `src/cat/probe.rs`, `src/cat/native/{icom,yaesu,elecraft,flexradio}/backend.rs`, `src/cat/tci.rs`
 - **Lokalizacja:** [`src/cat/backend.rs:61-78`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cat/backend.rs#L61-L78), [`src/cat/probe.rs:40`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cat/probe.rs#L40), [`src/cat/native/icom/backend.rs:114`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cat/native/icom/backend.rs#L114), [`src/cat/native/yaesu/backend.rs:142`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cat/native/yaesu/backend.rs#L142), [`src/cat/native/elecraft/backend.rs:456`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cat/native/elecraft/backend.rs#L456), [`src/cat/native/flexradio/backend.rs:302`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cat/native/flexradio/backend.rs#L302), [`src/cat/tci.rs:987`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cat/tci.rs#L987)
 - **Dowód z kodu:** Domyślna metoda traitu `RigBackend::probe` (`src/cat/backend.rs:61-78`) wykonuje `self.connect().await?` -> `self.poll().await?` -> `self.disconnect().await`. Tylko `KenwoodBackend` (`kenwood/backend.rs:274`) i `FlrigBackend` (`flrig.rs:684`) nadpisują ją w `impl RigBackend`. W `IcomCiVBackend`, `YaesuBackend`, `ElecraftBackend`, `FlexRadioBackend` i `TciBackend` metody `pub async fn probe(&mut self)` zdefiniowano poza traitem `RigBackend` z inną sygnaturą. W rezultacie `RigProbeRunner::probe` (`src/cat/probe.rs:40`) oraz `HilHardwareSession::execute_safe_probe` (`src/cat/hil/session.rs:584`), operując na `Box<dyn RigBackend>`, wywołują domyślną implementację z `connect()`, która wysyła do radia komendy mutujące (`AI1;` w Yaesu, `AI2;`/`K31;`/`K41;` w Elecraft, `sub slice all` w FlexRadio)!
@@ -709,6 +730,18 @@
 - **Kategoria:** `CAT`
 - **Poziom krytyczności:** `HIGH`
 - **Poziom pewności:** `CONFIRMED`
+- **Status remediacji:** **FIXED / VERIFIED_STAGE_3**
+- **Data wdrożenia i weryfikacji:** 2026-11-01
+- **Commit:**
+  - `1fce33a`: `fix(cat): enforce fail-safe PTT cleanup (CAT-006)`
+- **Wdrożone rozwiązanie (Etap 3):**
+  1. W `YaesuBackend::execute(SetPtt(true))` wysyłana jest komenda `TX1;` i natychmiast odpytywany stan `TX;`, wymagając `parse_ptt_resp(resp) == Some(true)`. Przy `SetPtt(false)` wysyłane jest `TX0;` i odpytywane `TX;`, wymagając `Some(false)`. Usunięto optymistyczne przypisania.
+  2. W `ElecraftBackend::execute(SetPtt(true))` wysyłane jest `TX;` i odpytywane `TQ;`, wymagając `TransmitStatus(true)`. Przy `SetPtt(false)` wysyłane jest `RX;` i odpytywane `TQ;`, wymagając `TransmitStatus(false)`. Usunięto optymistyczne przypisania przed potwierdzeniem.
+  3. Dodano metody `is_ptt_confirmed(&self) -> bool` oraz bezpieczny fallback w `disconnect()`.
+- **Zweryfikowane testy regresyjne:**
+  - 46 testów Yaesu w `src/cat/native/yaesu/backend.rs` (PASSED).
+  - 69 testów Elecraft w `src/cat/native/elecraft/backend.rs` (PASSED).
+  - Test `yaesu_and_elecraft_set_ptt_reject_unconfirmed_tx_transition` w `tests/cat_native_6a.rs` (PASSED).
 - **Moduł / obszar:** `src/cat/native/yaesu/backend.rs`, `src/cat/native/elecraft/backend.rs`
 - **Lokalizacja:** [`src/cat/native/yaesu/backend.rs:448-455, 548-563`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cat/native/yaesu/backend.rs#L448-L563), [`src/cat/native/elecraft/backend.rs:551-555, 670-683`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cat/native/elecraft/backend.rs#L551-L683)
 - **Dowód z kodu:**
@@ -733,6 +766,16 @@
 - **Kategoria:** `CAT`
 - **Poziom krytyczności:** `HIGH`
 - **Poziom pewności:** `CONFIRMED`
+- **Status remediacji:** **FIXED / VERIFIED_STAGE_3**
+- **Data wdrożenia i weryfikacji:** 2026-11-01
+- **Commit:**
+  - `1fce33a`: `fix(cat): enforce fail-safe PTT cleanup (CAT-006)`
+- **Wdrożone rozwiązanie (Etap 3):**
+  1. W `RigHub::resync_tx_arbiter` zastąpiono `snapshot.last_update` przez `snapshot.last_state_update`, uniemożliwiając odblokowanie `Unknown` na podstawie zdarzeń cyklu życia lub nieudanych komend.
+  2. Wymuszono `snapshot.freshness != StateFreshness::Stale`.
+  3. W `RigService` (`transition_to` i `run()`) oznaczany jest stan `StateFreshness::Stale` przy błędach odczytu telemetrycznego, timeoutach oraz stanach Degraded, Disconnecting, Disconnected i Failed.
+- **Zweryfikowane testy regresyjne:**
+  - 5 testów deterministycznych symulacji w `tests/cat_native_6a.rs` (`resync_tx_arbiter_rejects_stale_state_without_new_poll`, `concurrent_ptt_on_requests_allow_only_one_owner`, `disconnect_racing_with_confirmation_does_not_enter_tx_owned`, `stale_session_confirmation_cannot_claim_tx_ownership`, `yaesu_and_elecraft_set_ptt_reject_unconfirmed_tx_transition`). Wszystkie 165 testów w pliku PASSED.
 - **Moduł / obszar:** `src/cat/hub.rs`, `src/cat/service.rs`
 - **Lokalizacja:** [`src/cat/hub.rs:888-908`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cat/hub.rs#L888-L908), [`src/cat/service.rs:100-109, 298, 342, 440-452, 556`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cat/service.rs#L100-L556)
 - **Dowód z kodu:**
@@ -954,6 +997,18 @@
 - **Kategoria:** `CAT`
 - **Poziom krytyczności:** `HIGH`
 - **Poziom pewności:** `CONFIRMED`
+- **Status remediacji:** **FIXED_SOFTWARE_VERIFIED / PHYSICAL_HIL_GATE_LOCKED**
+- **Data wdrożenia i weryfikacji:** 2026-11-01
+- **Commit:**
+  - `ddc1c0c`: `fix(hil): protect hardware PTT session lifecycle (CAT-015)`
+- **Wdrożone rozwiązanie (Etap 3):**
+  1. Metoda `execute_controlled_ptt` w `HilHardwareSession` została całkowicie zintegrowana ze strażnikiem `acquire_tx_guard` i `release_and_confirm_rx`.
+  2. Wprowadzono pełną weryfikację bramek bezpieczeństwa: zakaz PTT w fazie 7A, wymóg statusu HIL-READY Passed, bezwzględny zakaz anteny (wymóg sztucznego obciążenia o odpowiedniej mocy), autoryzacja zmiennych `SPLOG_HIL_ENABLE=1`, `SPLOG_HIL_SESSION`, `SPLOG_HIL_ALLOW_TX` (`I_HAVE_DUMMY_LOAD` lub `1`), oraz odczyt `poll()` potwierdzający, że radio nie nadaje przed załączeniem PTT (`initial_state.ptt == false`).
+  3. Zabezpieczenie czasowe oparto na watchdogu `HilTxGuard` o limicie `max_test_duration_ms` (maks. 500 ms) z jawnym powrotem do RX (`backend.poll().ptt == false`).
+  4. W razie jakiegokolwiek błędu transportu, timeoutu lub braku potwierdzenia RX następuje awaryjne `SetPtt(false)`, `TxArbiter` przechodzi w `Unknown`, sesja w `FailedOrUnknown`, a `rx_restored_cleanly` nigdy nie jest zwracane jako `true`.
+  5. Wszystkie 10 fizycznych punktów wejścia Stage 7B pozostaje hermetycznie zablokowanych za bramką `#[ignore = "hardware-in-the-loop"]`.
+- **Zweryfikowane testy regresyjne:**
+  - 14 testów symulacyjnych cyklu życia HIL w `tests/cat_native_7.rs` (w tym `hil_execute_controlled_ptt_requires_env_gates_arbiter_and_confirmed_rx`). Wszystkie 297 aktywnych testów HIL PASSED (10 fizycznych IGNORED).
 - **Moduł / obszar:** `src/cat/hil/session.rs`
 - **Lokalizacja:** [`src/cat/hil/session.rs:630-684`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cat/hil/session.rs#L630-L684)
 - **Dowód z kodu:** W przeciwieństwie do `acquire_tx_guard` (`session.rs:451-535`), metoda `execute_controlled_ptt` (`session.rs:630-684`) nie wywołuje `verify_hardware_access_authorization()`, nie korzysta z `TxArbiter`, nie weryfikuje początkowego stanu RX przed `SetPtt(true)`, a po `SetPtt(false)` nie wywołuje `backend.poll().await`, lecz na sztywno ustawia `self.rx_restored_cleanly = true`.

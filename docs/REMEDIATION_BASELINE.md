@@ -143,3 +143,26 @@ W pliku `src/core/database/qso_store.rs`:
   - Nowy algorytm utrzymuje w live heap wyłącznie dane wejściowe i aktualny chunk.
   - Szczyt pamięci rezydentnej (peak RSS) nie został bezpośrednio zmierzony.
 - **Ryzyko resztkowe:** **NISKIE** (status ZEROWE sprostowany zgodnie z metodyką inżynierską).
+
+
+---
+
+## 10. Pomiary i weryfikacja po Etapie 3 (CAT-002, CAT-003, CAT-005, CAT-006, CAT-015)
+
+- **Stan gałęzi po Etapie 3:**
+  - Aktywna gałąź: `repair/full-system-remediation` (zsynchronizowana z `main` i `origin/main` przez fast-forward).
+  - Wszystkie commity Etapu 3:
+    1. `3e907aa`: `fix(cat): make backend probing strictly read-only (CAT-002)`
+    2. `31ab74e`: `fix(cat): require confirmed PTT ownership for TCI (CAT-003)`
+    3. `ce73b8c`: `fix(cat): require confirmed PTT ownership for FlexRadio (CAT-005)`
+    4. `1fce33a`: `fix(cat): enforce fail-safe PTT cleanup (CAT-006)`
+    5. `ddc1c0c`: `fix(hil): protect hardware PTT session lifecycle (CAT-015)`
+- **Zabezpieczenie Cargo:**
+  - `Cargo.toml`: `d8e3acd8f0c7b3307b3733c6c4a9a6cc57cb17c4` (nienaruszone)
+  - `Cargo.lock`: `c569097f3ef69c66ec59b74c29c1eb29efce69ae` (nienaruszone)
+  - Nowe zależności: 0 (zakaz ściśle dotrzymany).
+- **Wyniki testów domeny CAT i HIL:**
+  - `tests/cat_native_6a.rs`: 165 testów PASSED (w tym 5 nowych deterministycznych testów synchronizacji i wyścigów PTT).
+  - `tests/cat_native_6b.rs`: 87 testów PASSED (w tym 12 nowych testów kontraktowych read-only probe dla 8 backendów).
+  - `tests/cat_native_7.rs`: 297 testów PASSED, 10 ignored (w tym 14 nowych testów cyklu życia sesji HIL i potwierdzeń powrotu do RX).
+  - Wszystkie 10 fizycznych testów sprzętowych NATIVE-7B pozostaje odizolowanych za `#[ignore = "hardware-in-the-loop"]` (bramka fizycznego nadawania zamknięta).

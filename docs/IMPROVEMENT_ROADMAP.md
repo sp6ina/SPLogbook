@@ -150,16 +150,26 @@ flowchart LR
 ---
 
 ### Etap 3 — Bezpieczeństwo RF, Polimorficzny Read-Only Probe i Potwierdzenia PTT w CAT (`P0`)
+- **Status:** **ZAKOŃCZONY / ZWERYFIKOWANY (VERIFIED)**
+- **Data wdrożenia:** 2026-11-01
 - **Cel:** Usunięcie wszystkich luk bezpieczeństwa `TxArbiter`, wyścigów PTT i mutującego sondowania (`CAT-002`, `CAT-003`, `CAT-005`, `CAT-006`, `CAT-015`).
-- **Zakres:**
-  - Przeniesienie metod `probe()` do `impl RigBackend` w `IcomCiVBackend`, `YaesuBackend`, `ElecraftBackend`, `FlexRadioBackend` i `TciBackend` oraz usunięcie domyślnej metody `RigBackend::probe` wywołującej `connect()` (`CAT-003`).
-  - Oczekiwanie na potwierdzenie `trx:0,<ptt>;` w `TciBackend::execute(SetPtt)` oraz `interlock state=TRANSMITTING`/`READY` w `FlexRadioBackend::execute(SetPtt)` (`CAT-002`).
-  - Wymuszenie odpytania `TX;` w `YaesuBackend::execute(SetPtt)` oraz `TQ;` w `ElecraftBackend::execute(SetPtt)` i `poll()` (`CAT-005`).
-  - Użycie `snapshot.last_state_update` i `StateFreshness::Stale` w `RigHub::resync_tx_arbiter` i `RigService::run_loop` (`CAT-006`).
-  - Przepisanie `HilHardwareSession::execute_controlled_ptt` na `acquire_tx_guard` + `release_and_confirm_rx` (`CAT-015`).
+- **Commity:**
+  - `3e907aa`: `fix(cat): make backend probing strictly read-only (CAT-002)`
+  - `31ab74e`: `fix(cat): require confirmed PTT ownership for TCI (CAT-003)`
+  - `ce73b8c`: `fix(cat): require confirmed PTT ownership for FlexRadio (CAT-005)`
+  - `1fce33a`: `fix(cat): enforce fail-safe PTT cleanup (CAT-006)`
+  - `ddc1c0c`: `fix(hil): protect hardware PTT session lifecycle (CAT-015)`
+- **Zakres wdrożony:**
+  - Usunięcie domyślnej mutującej metody `probe()` z `RigBackend` i wdrożenie jawnych, read-only implementacji we wszystkich 8 backendach (`CAT-003`).
+  - Oczekiwanie na asynchroniczne potwierdzenie ramki `TciMessage::Trx` w TCI oraz `interlock state=TRANSMITTING`/nie-TRANSMITTING w FlexRadio z drainem, timeoutem i guardem `discard_late_tx` (`CAT-002`).
+  - Wymuszenie odpytania `TX;` w Yaesu oraz `TQ;` w Elecraft z usunięciem optymistycznego przypisania stanu TX (`CAT-005`).
+  - Zastąpienie `snapshot.last_update` przez `snapshot.last_state_update` i walidacja `freshness != Stale` w `RigHub::resync_tx_arbiter` oraz oznaczanie `Stale` w `RigService` (`CAT-006`).
+  - Przepisanie `HilHardwareSession::execute_controlled_ptt` na pełną ścieżkę bezpieczeństwa z autoryzacją środowiska, sprawdzeniem początkowego RX, strażnikiem `acquire_tx_guard` i potwierdzeniem `release_and_confirm_rx` (`CAT-015`).
 - **Pliki i moduły:** `src/cat/backend.rs`, `src/cat/service.rs`, `src/cat/hub.rs`, `src/cat/tci.rs`, `src/cat/native/{icom,yaesu,elecraft,flexradio}/backend.rs`, `src/cat/hil/session.rs`.
-- **Ryzyka:** Średnie (wymaga precyzyjnej obsługi timeoutów w mockach testowych).
-- **Kryteria ukończenia:** Wszystkie testy w `tests/cat_native_6a.rs`, `6b.rs`, `7.rs` oraz nowe testy regresyjne przechodzą.
+- **Wyniki weryfikacji:**
+  - `tests/cat_native_6a.rs`: 165 passed, 0 failed.
+  - `tests/cat_native_6b.rs`: 87 passed, 0 failed.
+  - `tests/cat_native_7.rs`: 297 passed, 0 failed, 10 ignored (bramka sprzętowa bezpiecznie zamknięta).
 
 ---
 
