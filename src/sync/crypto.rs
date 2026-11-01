@@ -18,13 +18,22 @@ pub const AAD_LEN: usize = 41; // 32 B session_id + 1 B direction + 8 B counter
 pub const DIRECTION_PEER_TO_HOST: u8 = 0;
 pub const DIRECTION_HOST_TO_PEER: u8 = 1;
 
+pub const ARGON2_M_COST_KIB: u32 = 19 * 1024; // 19 MiB RAM
+pub const ARGON2_T_COST: u32 = 2; // 2 iteracje
+pub const ARGON2_P_COST: u32 = 1; // 1 wątek równoległości
+
 /// Wyprowadza 32-bajtowy klucz symetryczny za pomocą Argon2id (19 MiB RAM, t=2, p=1).
 pub fn derive_key(secret: &str, salt: &[u8; SALT_LEN]) -> Result<[u8; KEY_LEN], SyncError> {
     if secret.trim().is_empty() {
         return Err(SyncError::SecretRequired);
     }
 
-    let params = match Params::new(19 * 1024, 2, 1, Some(KEY_LEN)) {
+    let params = match Params::new(
+        ARGON2_M_COST_KIB,
+        ARGON2_T_COST,
+        ARGON2_P_COST,
+        Some(KEY_LEN),
+    ) {
         Ok(p) => p,
         Err(e) => return Err(SyncError::KeyDerivationFailed(e.to_string())),
     };
