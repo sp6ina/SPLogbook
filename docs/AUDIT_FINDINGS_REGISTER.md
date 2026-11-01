@@ -1130,27 +1130,36 @@
 
 ### `PERF-001` — Kwadratowy algorytm $O(N^2)$ klonowania i serializacji JSON w `src/sync/catchup.rs` (`chunk_inventory`, `chunk_requests`, `chunk_records`)
 - **ID:** `PERF-001`
+- **Status:** `FIXED` (Etap 1D-B, commit `7106677`)
 - **Tytuł:** Kwadratowa złożoność $O(N^2)$ w `chunk_inventory`, `chunk_requests` i `chunk_records` serializująca całe wektory JSON w każdej iteracji pętli
 - **Kategoria:** `PERF`
 - **Poziom krytyczności:** `CRITICAL`
 - **Poziom pewności:** `CONFIRMED`
 - **Moduł / obszar:** `src/sync/catchup.rs`
-- **Lokalizacja:** [`src/sync/catchup.rs:32-50, 77-94, 123-153`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/sync/catchup.rs#L32-L153)
-- **Dowód z kodu i testów:**
-  - W `chunk_inventory` (`src/sync/catchup.rs:32-50`) dla każdego elementu `id` z `identities` wykonywane jest:
-    `current.push(id.clone()); let msg = Message::Inventory { journal: journal.to_string(), identities: current.clone(), last: false }; if serde_json::to_vec(&msg).map_or(0, |v| v.len()) > MAX_CHUNK_BYTES { ... }`
-  - Identyczny wzorzec $O(N^2)$ występuje w `chunk_requests` (`catchup.rs:77-94`) oraz `chunk_records` (`catchup.rs:138-152`).
-  - Dla 15 000 elementów funkcja klonuje i serializuje do JSON narastający wektor 15 000 razy (łącznie ~68,5 miliona serializacji obiektów `QsoIdentity`, czyli ~6 GiB wygenerowanego JSON-a dla jednego wywołania!), przez co 3 testy jednostkowe `each_*_chunk_is_at_most_one_mib` wykonywały się przez **ponad 500 sekund**!
-- **Opis problemu:** Przy połączeniu stacji w sieci LAN Sync z dziennikiem liczącym kilkanaście tysięcy łączności procedura Catch-Up zamraża wątek na kilkadziesiąt sekund lub kilka minut, alokując gigabajty pamięci tymczasowej.
-- **Scenariusz wystąpienia:** Połączenie Peer <-> Host w LAN Sync dla dziennika z $\ge 5000$ QSO oraz każde uruchomienie `cargo test`.
-- **Wpływ:** Drastyczne spowolnienie synchronizacji Catch-Up w LAN Sync oraz wydłużenie czasu wykonania `cargo test` z ~15 sekund do ~9 minut!
-- **Rozwiązanie minimalne:** Zliczać rozmiar bieżącej porcji przyrostowo w $O(N)$: serializować pojedynczy element `let item_len = serde_json::to_vec(id).map_or(0, |v| v.len());` i dodawać `item_len + 1` (przecinek) do `current_bytes` (z narzutem nagłówka koperty JSON ~64 B), wykonując pełną konstrukcję `Message` wyłącznie przy zamknięciu porcji 1 MiB.
-- **Rozwiązanie docelowe:** Liniowy algorytm $O(N)$ z akumulatorem bajtów i opcjonalną weryfikacją końcową porcji.
-- **Ryzyko wdrożenia zmiany:** Bardzo niskie.
-- **Złożoność wdrożenia:** `S`
-- **Zależności od innych zmian:** Brak.
-- **Wymagany test regresyjny:** `each_inventory_chunk_is_at_most_one_mib_completes_under_200ms`.
-- **Kryterium akceptacji:** Czas wykonania `each_inventory_chunk_is_at_most_one_mib`, `each_request_chunk_is_at_most_one_mib` i `each_records_chunk_is_at_most_one_mib` spada z >500 s do <0,2 s przy zachowaniu limitu $\le 1\text{ MiB}$ na każdy chunk.
+- **Lokalizacja:** [`src/sync/catchup.rs:32-260`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/sync/catchup.rs#L32-L260)
+- **Implementacja przed:**
+  - W `chunk_inventory`, `chunk_requests` i `chunk_records` dla każdego elementu wejściowego klonowano rosnący wektor `current` i serializowano całą wiadomość `serde_json::to_vec(&msg)` w celu sprawdzenia przekroczenia `MAX_CHUNK_BYTES`.
+  - Złożoność: $O(N^2)$ alokacji, klonów i serializacji. Dla $N=15\,000$ elementów wykonywano $>112\,500\,000$ serializacji obiektów. Czas wykonania 15 000 elementów wynosił ~254–257 sekund.
+- **Implementacja po:**
+  - Zastąpiono algorytm rozwiązaniem ściśle liniowym $O(N)$: każdy element serializowany jest dokładnie jeden raz w celu zmierzenia jego długości bajtowej w JSON.
+  - Narzut koperty pustej wiadomości oraz separatorów przecinkowych (`1 + item_len`) wyliczany jest przyrostowo co do bajta bez żadnego wielokrotnego serializowania rosnących wektorów.
+  - Przy osiągnięciu granicy `MAX_CHUNK_BYTES` bufor `current` jest przenoszony (`std::mem::take`) do chunku i zerowany w $O(1)$.
+  - Pojedyncze rekordy $\le 6\text{ MiB}$ i $>1\text{ MiB}$ są emitowane w pojedynczym osobnym chunku, a rekordy $>6\text{ MiB}$ są odrzucane z `SyncError::RecordTooLarge` (zachowanie 100% zgodne z kontraktem).
+  - Liczba serializacji dla $N$ elementów: dokładnie $N + 1$ (1 dla nagłówka pustego + $N$ dla elementów).
+- **Wyniki pomiarów (przed -> po, 3 próby):**
+  - `chunk_inventory` $N=1\,000$: $2458,97\text{ ms} \rightarrow 3,84\text{ ms}$ (min $3,62$, med $3,84$, max $5,59\text{ ms}$; poprawa **640x**, $99,84\%$)
+  - `chunk_inventory` $N=5\,000$: $52\,496,79\text{ ms} \rightarrow 20,78\text{ ms}$ (min $18,38$, med $20,78$, max $24,02\text{ ms}$; poprawa **2526x**, $99,96\%$)
+  - `chunk_inventory` $N=15\,000$: $254\,090,00\text{ ms} \rightarrow 63,41\text{ ms}$ (min $58,22$, med $63,41$, max $69,29\text{ ms}$; poprawa **4007x**, $99,975\%$, cel $<200\text{ ms}$ w pełni osiągnięty)
+  - `chunk_requests` $N=15\,000$: $256\,840,00\text{ ms} \rightarrow 62,21\text{ ms}$ (min $56,46$, med $62,21$, max $77,21\text{ ms}$; poprawa **4129x**)
+  - `chunk_records` $N=3\,000$: $45\,214,06\text{ ms} \rightarrow 152,66\text{ ms}$ (min $131,23$, med $152,66$, max $185,83\text{ ms}$; poprawa **296x**)
+  - `chunk_records` $N=15\,000$: $\sim 1100\text{ s (szac.)} \rightarrow 662,82\text{ ms}$ (min $636,53$, med $662,82$, max $688,86\text{ ms}$)
+- **Weryfikacja testowa:**
+  - `chunk_inventory_preserves_order_and_size_limit`, `chunk_requests_preserves_order_and_size_limit`, `chunk_records_preserves_order_and_size_limit` (kompletność danych, kolejność, brak duplikatów, znaki UTF-8, znaki wymagające ucieczki JSON `\"`, `\\`, `\n`).
+  - `chunk_inventory_handles_exact_boundary`, `chunk_requests_handles_exact_boundary`, `chunk_records_handles_exact_boundary` (przypadki graniczne rozmiaru ramki).
+  - `optimized_*_chunking_matches_reference_for_small_inputs` (porównanie wyników z implementacją referencyjną).
+  - `catchup_chunking_15k_identities_has_linear_serialization_count` (deterministyczny licznik serializacji $\le N + 10$).
+  - `catchup_chunking_scaling_ratio_is_near_linear` (stosunek skalowania $4\text{k}/2\text{k} < 2,5$, brak $O(N^2)$).
+- **Ryzyko resztkowe:** Zerowe. Format protokołu, semantyka catch-up, kolejność i limity ramki są w 100% zachowane. Commit: `7106677`.
 
 ---
 
@@ -1256,27 +1265,32 @@
 
 ### `TEST-001` — Czas wykonania zestawu testów jednostkowych wynosi ~532 sekundy (~9 minut) w profilu debug z powodu 4 testów w `src/sync/mod.rs`
 - **ID:** `TEST-001`
-- **Tytuł:** Ekstremalnie wolne wykonanie `cargo test` (532 s) spowodowane przez $O(N^2)$ w `catchup.rs` i 33 wywołania Argon2id w `client_limit_is_enforced`
+- **Status:** `FIXED` (Etap 1D-B, commity `7106677` i `d4cd4d2`)
+- **Tytuł:** Ekstremalnie wolne wykonanie `cargo test` spowodowane przez $O(N^2)$ w `catchup.rs` oraz incydentalne wywołania Argon2id w testach framing/session
 - **Kategoria:** `TEST`
 - **Poziom krytyczności:** `HIGH`
 - **Poziom pewności:** `CONFIRMED`
 - **Moduł / obszar:** `src/sync/mod.rs`, `src/sync/catchup.rs`, `src/sync/crypto.rs`
-- **Lokalizacja:** [`src/sync/mod.rs:851-904, 1650-1741`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/sync/mod.rs#L851-L1741), [`src/sync/crypto.rs:34-46`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/sync/crypto.rs#L34-L46)
-- **Dowód z narzędzi:** Podczas audytu wykonanie `splogbook` unit tests (983 testy) zajęło **532,05 s**, z czego 979 testów zakończyło się w ~15 sekund, a 4 testy (`sync::tests::client_limit_is_enforced`, `each_inventory_chunk_is_at_most_one_mib`, `each_request_chunk_is_at_most_one_mib`, `each_records_chunk_is_at_most_one_mib`) przekroczyły próg 60 sekund i trwały ponad 8,5 minuty.
-- **Opis problemu:**
-  1. Trzy testy `each_*_chunk_is_at_most_one_mib` cierpią na kwadratowy algorytm $O(N^2)$ w `src/sync/catchup.rs` (`PERF-001`).
-  2. Test `client_limit_is_enforced` tworzy 33 klientów wykonujących w pętli `peer_handshake` -> `derive_key` z produkcyjnymi parametrami Argon2id (`64 MiB`, 3 iteracje) bez optymalizacji kompilatora (`opt-level = 0`).
-- **Scenariusz wystąpienia:** Każde uruchomienie `cargo test` lokalnie lub w CI.
-- **Wpływ:** Poważne spowolnienie cyklu deweloperskiego i CI/CD.
-- **Rozwiązanie minimalne:**
-  1. Naprawić algorytm $O(N)$ w `src/sync/catchup.rs` (`PERF-001`).
-  2. Dodać w `Cargo.toml` sekcję `[profile.dev.package.argon2] opt-level = 3` oraz `[profile.dev.package.chacha20poly1305] opt-level = 3` (standardowa praktyka w Rust dla kryptografii w testach, przyspieszająca Argon2id ~20-krotnie bez osłabiania parametrów bezpieczeństwa!).
-- **Rozwiązanie docelowe:** Optymalizacja `catchup.rs` + `opt-level = 3` dla crate'ów kryptograficznych w profilu `dev`/`test`.
-- **Ryzyko wdrożenia zmiany:** Zerowe.
-- **Złożoność wdrożenia:** `S`
-- **Zależności od innych zmian:** `PERF-001`.
-- **Wymagany test regresyjny:** Pomiar czasu `cargo test --lib` (< 20 s).
-- **Kryterium akceptacji:** Pełny zestaw 983 testów jednostkowych wykonuje się w czasie poniżej 25 sekund.
+- **Lokalizacja:** [`src/sync/mod.rs`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/sync/mod.rs), [`src/sync/crypto.rs:21-40`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/sync/crypto.rs#L21-L40), [`src/sync/catchup.rs`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/sync/catchup.rs)
+- **Implementacja przed:**
+  - `cargo test --lib` trwał **353,36 s** (wcześniej w audycie 532 s).
+  - `cargo test sync:: --lib` trwał **354,30 s** na 86 testach (99,8% czasu całego pakietu).
+  - Koszt wynikał z dwóch źródeł:
+    1. ALGORITHM: 3 testy chunkowania `each_*_chunk_is_at_most_one_mib` z algorytmem $O(N^2)$ trwające łącznie ponad 557 sekund CPU (254 s + 257 s + 46 s).
+    2. CRYPTO_INCIDENTAL: 13 testów weryfikujących wyłącznie ramkowanie, szyfrowanie pakietów XChaCha20Poly1305, sygnatury AAD i numery sekwencyjne (tampering, replay, missing counter, reorder, wire inspection), które niepotrzebnie wywoływały produkcyjny `derive_key` (Argon2id, m=19 MiB, t=2) jedynie po to, by uzyskać losowy 32-bajtowy klucz symetryczny.
+- **Implementacja po:**
+  - Wdrożono algorytm liniowy $O(N)$ dla procedury Catch-Up (PERF-001, commit `7106677`), redukując czas testów chunkowania z 557 sekund do 0,57 sekundy (>1800x szybciej).
+  - Zastąpiono zbędne, incydentalne wywołania `derive_key` w 13 testach jednostkowych statycznymi kluczami testowymi `[u8; KEY_LEN]`.
+  - Zachowano bez zmian produkcyjne parametry kryptograficzne Argon2id: `ARGON2_M_COST_KIB = 19 * 1024` (19 MiB RAM), `ARGON2_T_COST = 2`, `ARGON2_P_COST = 1`, `KEY_LEN = 32`, `SALT_LEN = 16`.
+  - Dodano test strażnika nienaruszalności parametrów produkcyjnych: `production_argon2_parameters_remain_unchanged`.
+  - Wszystkie testy kryptografii i uwierzytelniania peera/hosta (`key_derivation_is_deterministic`, `different_salt_yields_different_key`, `handshake_succeeds_with_same_secret`, `handshake_fails_with_wrong_secret_without_reply`, `service_end_to_end_live_and_catchup`, `sync_successful_handshake_is_not_rejected_by_timeout`) nadal wykonują pełny proces z rzeczywistym Argon2id.
+- **Pomiary czasu przed i po:**
+  - `cargo test sync:: --lib`: $354,30\text{ s} \rightarrow 35,70\text{ s}$ (skrócenie o **318,6 sekundy**, **10x szybciej**, 98 testów passed).
+  - `cargo test --lib`: $353,36\text{ s} \rightarrow 37,05\text{ s}$ (skrócenie o **316,3 sekundy**, **9,5x szybciej**, 1010 testów passed).
+  - `each_inventory_chunk_is_at_most_one_mib`: $254,09\text{ s} \rightarrow 0,14\text{ s}$ (**1814x szybciej**).
+  - `each_request_chunk_is_at_most_one_mib`: $256,84\text{ s} \rightarrow 0,14\text{ s}$ (**1834x szybciej**).
+  - `each_records_chunk_is_at_most_one_mib`: $45,85\text{ s} \rightarrow 0,29\text{ s}$ (**158x szybciej**).
+- **Ryzyko resztkowe:** Zerowe. Brak jakiegokolwiek osłabienia kryptografii, 100% testów zielonych. Commit: `d4cd4d2`.
 
 ---
 

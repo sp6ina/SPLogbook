@@ -97,3 +97,20 @@ Wynik polecenia `cargo audit`:
 
 W pliku `src/core/database/qso_store.rs`:
 - 6 ostrzeżeń kompilatora: `multiple lines skipped by escaped newline` (linie 310, 312 itp.) – znalezisko **DATA-007** potwierdzone.
+
+---
+
+## 8. Pomiary po Etapie 1D-B (PERF-001, TEST-001)
+
+- Czas wykonania `cargo +stable test sync:: --lib`: **35.70 s** (poprzednio 354.30 s bazowo, w audycie 1293.83 s – przyspieszenie **10x** względem bazy).
+- Czas wykonania `cargo +stable test --lib`: **37.05 s** (poprzednio 353.36 s bazowo, w audycie 532.05 s – przyspieszenie **9.5x** względem bazy).
+- Testy chunkowania 15 000 elementów:
+  - `sync::tests::each_inventory_chunk_is_at_most_one_mib`: **0.14 s** (poprzednio 254.09 s).
+  - `sync::tests::each_request_chunk_is_at_most_one_mib`: **0.14 s** (poprzednio 256.84 s).
+  - `sync::tests::each_records_chunk_is_at_most_one_mib`: **0.29 s** (poprzednio 45.85 s).
+- Pomiary celowane (3 serie pomiarowe, mediana):
+  - `chunk_inventory` $N=15\,000$: **63.41 ms** (min 58.22 ms, max 69.29 ms, cel <200 ms spełniony z dużym marginesem).
+  - `chunk_requests` $N=15\,000$: **62.21 ms** (min 56.46 ms, max 77.21 ms).
+  - `chunk_records` $N=3\,000$: **152.66 ms** (min 131.23 ms, max 185.83 ms).
+- Liczba operacji serializacji: ściśle liniowa $N + 1$ (potwierdzona testem deterministycznym `catchup_chunking_15k_identities_has_linear_serialization_count`).
+- Parametry produkcyjne Argon2id: nienaruszone (19 MiB RAM, 2 iteracje, 1 wątek), zabezpieczone testem `production_argon2_parameters_remain_unchanged`.
