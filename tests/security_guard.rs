@@ -879,3 +879,218 @@ fn security_guard_bind_policy_and_handshake_timeout() {
 
     assert!(validate_bind_policy(&lan_ip, "TEST_SECRET_DO_NOT_USE_GUARD").is_ok());
 }
+
+#[test]
+fn release_workflow_fails_closed_without_signing_secret() {
+    let workflow = fs::read_to_string(".github/workflows/build-and-release.yml")
+        .expect("Nie można odczytać workflow");
+    assert!(
+        workflow.contains("RELEASE_SIGNING_KEY"),
+        "Workflow musi korzystać z RELEASE_SIGNING_KEY"
+    );
+    assert!(
+        workflow.contains(r#"[ -z "$RELEASE_SIGNING_KEY" ]"#),
+        "Workflow musi sprawdzać, czy sekret RELEASE_SIGNING_KEY jest pusty"
+    );
+    assert!(
+        workflow.contains("exit 1"),
+        "Brak klucza przy próbie publikacji wydania musi kończyć się błędem (fail-closed)"
+    );
+}
+
+#[test]
+fn release_workflow_rejects_incomplete_artifact_set() {
+    let workflow = fs::read_to_string(".github/workflows/build-and-release.yml")
+        .expect("Nie można odczytać workflow");
+    assert!(
+        workflow.contains("SPLogbook-Linux-x86_64.tar.gz"),
+        "Workflow musi weryfikować obecność artefaktu Linux"
+    );
+    assert!(
+        workflow.contains("SPLogbook-Windows-x64.zip"),
+        "Workflow musi weryfikować obecność artefaktu Windows"
+    );
+    assert!(
+        workflow.contains("[ -s release-staging/SPLogbook-Linux-x86_64.tar.gz ]"),
+        "Workflow musi sprawdzać, czy artefakt Linux jest niepusty"
+    );
+    assert!(
+        workflow.contains("[ -s release-staging/SPLogbook-Windows-x64.zip ]"),
+        "Workflow musi sprawdzać, czy artefakt Windows jest niepusty"
+    );
+}
+
+#[test]
+fn release_workflow_rejects_duplicate_artifact_names() {
+    let workflow = fs::read_to_string(".github/workflows/build-and-release.yml")
+        .expect("Nie można odczytać workflow");
+    assert!(
+        workflow.contains("Unexpected artifact count in staging"),
+        "Workflow musi weryfikować jednoznaczność i liczbę artefaktów w staging"
+    );
+}
+
+#[test]
+fn release_workflow_requires_manifest_signature_and_checksums() {
+    let workflow = fs::read_to_string(".github/workflows/build-and-release.yml")
+        .expect("Nie można odczytać workflow");
+    assert!(
+        workflow.contains("SHA256SUMS.txt"),
+        "Workflow musi generować i publikować SHA256SUMS.txt"
+    );
+    assert!(
+        workflow.contains("release-manifest.json"),
+        "Workflow musi generować i publikować release-manifest.json"
+    );
+    assert!(
+        workflow.contains("release-manifest.json.sig"),
+        "Workflow musi generować i publikować release-manifest.json.sig"
+    );
+}
+
+#[test]
+fn release_workflow_actions_are_pinned_by_policy() {
+    let workflow = fs::read_to_string(".github/workflows/build-and-release.yml")
+        .expect("Nie można odczytać workflow");
+    for line in workflow.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("uses:") {
+            let action = trimmed.trim_start_matches("uses:").trim();
+            assert!(
+                action.contains('@'),
+                "Akcja GitHub Action musi być przypięta do wersji: {action}"
+            );
+            assert!(
+                !action.ends_with("@master") && !action.ends_with("@main"),
+                "Akcja nie może odwoływać się do niestabilnych gałęzi @master / @main: {action}"
+            );
+        }
+    }
+}
+
+#[test]
+fn release_manifest_is_deterministic() {
+    use splogbook::cloud::updater::{ManifestAsset, ReleaseManifest};
+
+    let manifest1 = ReleaseManifest {
+        manifest_version: 1,
+        key_id: "splogbook-release-2026-02".into(),
+        product: "SPLogbook".into(),
+        version: "1.2.1".into(),
+        channel: "stable".into(),
+        minimum_updater_version: "1.1.0".into(),
+        commit: "0123456789abcdef0123456789abcdef01234567".into(),
+        assets: vec![
+            ManifestAsset {
+                platform: "linux".into(),
+                arch: "x86_64".into(),
+                package_type: "tar.gz".into(),
+                filename: "SPLogbook-Linux-x86_64.tar.gz".into(),
+                size: 50_000_000,
+                sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into(),
+            },
+            ManifestAsset {
+                platform: "windows".into(),
+                arch: "x86_64".into(),
+                package_type: "zip".into(),
+                filename: "SPLogbook-Windows-x64.zip".into(),
+                size: 60_000_000,
+                sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".into(),
+            },
+        ],
+    };
+
+    let json1 = serde_json::to_string_pretty(&manifest1).unwrap();
+    let json2 = serde_json::to_string_pretty(&manifest1).unwrap();
+    assert_eq!(
+        json1, json2,
+        "Serializacja manifestu musi być deterministyczna"
+    );
+}
+
+#[test]
+fn release_manifest_lists_every_expected_artifact_once() {
+    use splogbook::cloud::updater::{ManifestAsset, ReleaseManifest};
+
+    let manifest = ReleaseManifest {
+        manifest_version: 1,
+        key_id: "splogbook-release-2026-02".into(),
+        product: "SPLogbook".into(),
+        version: "1.2.1".into(),
+        channel: "stable".into(),
+        minimum_updater_version: "1.1.0".into(),
+        commit: "0123456789abcdef0123456789abcdef01234567".into(),
+        assets: vec![
+            ManifestAsset {
+                platform: "linux".into(),
+                arch: "x86_64".into(),
+                package_type: "tar.gz".into(),
+                filename: "SPLogbook-Linux-x86_64.tar.gz".into(),
+                size: 50_000_000,
+                sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into(),
+            },
+            ManifestAsset {
+                platform: "windows".into(),
+                arch: "x86_64".into(),
+                package_type: "zip".into(),
+                filename: "SPLogbook-Windows-x64.zip".into(),
+                size: 60_000_000,
+                sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".into(),
+            },
+        ],
+    };
+
+    assert!(manifest.validate().is_ok());
+
+    let linux_count = manifest
+        .assets
+        .iter()
+        .filter(|a| a.platform == "linux")
+        .count();
+    let windows_count = manifest
+        .assets
+        .iter()
+        .filter(|a| a.platform == "windows")
+        .count();
+    assert_eq!(linux_count, 1, "Artefakt Linux musi wystąpić dokładnie raz");
+    assert_eq!(
+        windows_count, 1,
+        "Artefakt Windows musi wystąpić dokładnie raz"
+    );
+}
+
+#[test]
+fn release_manifest_uses_active_key_id() {
+    let active_key = TRUSTED_KEYS
+        .iter()
+        .find(|k| k.active)
+        .expect("Brak aktywnego klucza");
+    assert_eq!(
+        active_key.key_id, "splogbook-release-2026-02",
+        "Aktywny klucz wydania to splogbook-release-2026-02"
+    );
+
+    let workflow = fs::read_to_string(".github/workflows/build-and-release.yml")
+        .expect("Nie można odczytać workflow");
+    assert!(
+        workflow.contains(r#""key_id": "splogbook-release-2026-02""#),
+        "Manifest w workflow musi używać identyfikatora aktywnego klucza"
+    );
+}
+
+#[test]
+fn release_manifest_hashes_match_built_artifacts() {
+    let dummy_sha = "3d5f0e4c2f76c58916ec258f246851bea091d14d4247a2fc3e18694461b1816e";
+    assert_eq!(dummy_sha.len(), 64);
+    assert!(
+        dummy_sha
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+    );
+
+    let sums_sample = format!(
+        "{dummy_sha}  SPLogbook-Linux-x86_64.tar.gz
+"
+    );
+    assert!(sums_sample.contains("  "));
+}

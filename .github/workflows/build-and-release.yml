@@ -8,9 +8,15 @@ on:
   pull_request:
     branches: [ main ]
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run validation (do not publish GitHub Release)'
+        required: false
+        default: true
+        type: boolean
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build-linux:
@@ -168,8 +174,10 @@ jobs:
   publish-release:
     name: Publish Release Assets
     needs: [build-linux, build-windows]
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -202,27 +210,69 @@ jobs:
       - name: Build splogbook-signer
         run: cargo build --release --bin splogbook-signer
 
-      - name: Create and sign Release Manifest
+      - name: Stage and verify release artifacts completeness
+        run: |
+          set -euo pipefail
+          mkdir -p release-staging
+
+          cp SPLogbook-Linux-x86_64/SPLogbook-Linux-x86_64.tar.gz release-staging/
+          cp SPLogbook-Windows-x64/SPLogbook-Windows-x64.zip release-staging/
+
+          [ -s release-staging/SPLogbook-Linux-x86_64.tar.gz ] || { echo "::error::Missing or empty Linux artifact"; exit 1; }
+          [ -s release-staging/SPLogbook-Windows-x64.zip ] || { echo "::error::Missing or empty Windows artifact"; exit 1; }
+
+          COUNT=$(find release-staging -maxdepth 1 -type f | wc -l)
+          [ "$COUNT" -eq 2 ] || { echo "::error::Unexpected artifact count in staging: $COUNT"; exit 1; }
+
+      - name: Generate SHA256SUMS.txt
+        run: |
+          set -euo pipefail
+          cd release-staging
+          sha256sum SPLogbook-Linux-x86_64.tar.gz SPLogbook-Windows-x64.zip > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          sha256sum -c SHA256SUMS.txt
+
+      - name: Create, sign and verify Release Manifest
         env:
           RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+          IS_DRY_RUN: ${{ github.event.inputs.dry_run == 'true' || (github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run != 'false') }}
         run: |
-          # Write private key to temp file from Base64 secret with restricted permissions
-          umask 077
-          echo "$RELEASE_SIGNING_KEY" | base64 -d > priv.key
-          chmod 600 priv.key
-          
-          # Compute hashes
-          SHA_LINUX=$(./target/release/splogbook-signer hash SPLogbook-Linux-x86_64/SPLogbook-Linux-x86_64.tar.gz | awk '{print $2}')
-          SIZE_LINUX=$(stat -c%s SPLogbook-Linux-x86_64/SPLogbook-Linux-x86_64.tar.gz)
-          SHA_WIN=$(./target/release/splogbook-signer hash SPLogbook-Windows-x64/SPLogbook-Windows-x64.zip | awk '{print $2}')
-          SIZE_WIN=$(stat -c%s SPLogbook-Windows-x64/SPLogbook-Windows-x64.zip)
+          set -euo pipefail
 
-          VERSION=${GITHUB_REF#refs/tags/v}
-          
-          # Git commit hash must be exactly 40 chars
+          if [ -z "$RELEASE_SIGNING_KEY" ]; then
+            if [ "$IS_DRY_RUN" = "true" ]; then
+              printf '::warning::Signing secret is not configured; generating ephemeral dry-run key for pipeline validation\n'
+              ./target/release/splogbook-signer keygen dry_run.key
+              trap 'rm -f dry_run.key priv.key' EXIT
+              KEY_FILE="dry_run.key"
+            else
+              printf '::error::Release signing key secret is missing or empty. Publication cannot proceed without signature.\n'
+              exit 1
+            fi
+          else
+            umask 077
+            echo "$RELEASE_SIGNING_KEY" | base64 -d > priv.key
+            chmod 600 priv.key
+            trap 'rm -f priv.key' EXIT
+            KEY_FILE="priv.key"
+          fi
+
+          cd release-staging
+
+          SHA_LINUX=$(sha256sum SPLogbook-Linux-x86_64.tar.gz | awk '{print $1}')
+          SIZE_LINUX=$(stat -c%s SPLogbook-Linux-x86_64.tar.gz)
+          SHA_WIN=$(sha256sum SPLogbook-Windows-x64.zip | awk '{print $1}')
+          SIZE_WIN=$(stat -c%s SPLogbook-Windows-x64.zip)
+
+          if [[ "${GITHUB_REF}" =~ ^refs/tags/v ]]; then
+            VERSION=${GITHUB_REF#refs/tags/v}
+          else
+            VERSION=$(grep '^version = ' ../Cargo.toml | head -1 | cut -d'"' -f2)
+          fi
+
           COMMIT_SHA=$(git rev-parse HEAD)
+          [ ${#COMMIT_SHA} -eq 40 ] || { echo "::error::Invalid commit SHA length: ${#COMMIT_SHA}"; exit 1; }
 
-          # Generate release-manifest.json
           cat > release-manifest.json <<EOF
           {
             "manifest_version": 1,
@@ -253,20 +303,22 @@ jobs:
           }
           EOF
 
-          # Sign manifest
-          ./target/release/splogbook-signer sign priv.key release-manifest.json
-          
-          # Clean up private key
-          rm -f priv.key
+          ../target/release/splogbook-signer sign "../$KEY_FILE" release-manifest.json
+          [ -s release-manifest.json.sig ] || { echo "::error::Signature file was not created or is empty"; exit 1; }
+
+          ../target/release/splogbook-signer verify release-manifest.json release-manifest.json.sig
+          rm -f "../$KEY_FILE"
 
       - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v') && github.event.inputs.dry_run != 'true'
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            SPLogbook-Linux-x86_64/SPLogbook-Linux-x86_64.tar.gz
-            SPLogbook-Windows-x64/SPLogbook-Windows-x64.zip
-            release-manifest.json
-            release-manifest.json.sig
+            release-staging/SPLogbook-Linux-x86_64.tar.gz
+            release-staging/SPLogbook-Windows-x64.zip
+            release-staging/SHA256SUMS.txt
+            release-staging/release-manifest.json
+            release-staging/release-manifest.json.sig
           generate_release_notes: true
           draft: false
           prerelease: false
