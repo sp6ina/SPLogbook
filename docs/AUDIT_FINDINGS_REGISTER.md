@@ -349,16 +349,25 @@
 - **Kategoria:** `DATA`
 - **Poziom krytyczności:** `MEDIUM`
 - **Poziom pewności:** `CONFIRMED`
+- **Status remediacji:** `FIXED` (w zakresie 6 ostrzeżeń leksera SQL; wykorzystanie tabeli `upload_queue` przeniesione do kategorii E / Nice-to-Have jako ulepszenie przyrostowej kolejki retry)
+- **Data wdrożenia:** 2026-11-01
+- **Commit:** `5e61a78` (`fix(database): clean multiline SQL literals (DATA-007)`)
 - **Moduł / obszar:** `src/core/database/schema.rs`, `src/core/database/qso_store.rs`
 - **Lokalizacja:** [`src/core/database/schema.rs:76-86`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/core/database/schema.rs#L76-L86), [`src/core/database/qso_store.rs:208, 252, 254, 278, 310, 312`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/core/database/qso_store.rs#L208-L315)
 - **Dowód z kodu:**
   1. Tabela `upload_queue` jest tworzona w `schema.rs:76-86`, ale w całym repozytorium nie ma ani jednego zapytania `INSERT`, `SELECT` ani `DELETE` odwołującego się do `upload_queue`.
-  2. `cargo check` i `cargo test` emitują 6 ostrzeżeń kompilatora w `src/core/database/qso_store.rs` (linie 208, 252, 254, 278, 310, 312) z powodu pustych linii po znaku kontynuacji `\` w literałach SQL.
+  2. `cargo check` i `cargo test` emitowały 6 ostrzeżeń kompilatora w `src/core/database/qso_store.rs` (linie 208, 252, 254, 278, 310, 312) z powodu pustych linii po znaku kontynuacji `\` w literałach SQL.
 - **Opis problemu:** Szum kompilacyjny i niepodłączona tabela kolejki wysyłek chmurowych.
 - **Scenariusz wystąpienia:** Każda kompilacja projektu (`cargo check`, `cargo test`, `cargo clippy`).
 - **Wpływ:** Zaciemnienie wyjścia kompilatora przez 6 ostrzeżeń leksera; brak trwałej kolejki retry dla nieudanych wysyłek QSL do chmury.
 - **Rozwiązanie minimalne:** Usunąć puste linie po `\` w literałach SQL w `src/core/database/qso_store.rs`.
 - **Rozwiązanie docelowe:** Podłączyć `upload_queue` do automatycznego ponawiania wysyłek Cloudlog/ClubLog/QRZ lub udokumentować tabelę jako zarezerwowaną pod przyszłą kolejkę offline.
+- **Wynik remediacji:**
+  - Usunięto 6 pustych linii po znaku kontynuacji `\` w literałach SQL w `qso_numbers_for_journal`, `get_distinct_callsigns`, `existing_identities`, `has_identity` w `src/core/database/qso_store.rs`.
+  - Semantyka i tokeny SQL: w 100% identyczne (brak modyfikacji słów kluczowych SQL, tabel, kolumn, klauzul WHERE, JOIN, ORDER BY, LIMIT ani liczby/kolejności parametrów `?1`, `?2`).
+  - Ostrzeżenia kompilatora: 0 wyników dla `multiple lines skipped by escaped newline` w `cargo check --workspace --all-targets --all-features`.
+  - Wyniki Clippy: spadek liczby ostrzeżeń w `splogbook` (lib) z 345 do 339 (dokładnie o 6) oraz w `splogbook` (lib test) z 422 do 416 (dokładnie o 6).
+  - Testy regresyjne: 30/30 testów `core::database` i 35/35 testów `core::ingest` zielonych; formatowanie `cargo fmt --all -- --check` zgodne.
 - **Ryzyko wdrożenia zmiany:** Zerowe.
 - **Złożoność wdrożenia:** `S`
 - **Zależności od innych zmian:** Brak.
@@ -1346,22 +1355,46 @@
 - **Kategoria:** `DEP`
 - **Poziom krytyczności:** `HIGH`
 - **Poziom pewności:** `CONFIRMED`
+- **Status remediacji:** `FIXED`
+- **Data wdrożenia:** 2026-11-01T08:41:47+01:00 (UTC: 2026-11-01T07:41:47Z)
+- **Commit:** `335ced5` (`chore(deps): update vulnerable dependencies (DEP-001)`)
 - **Moduł / obszar:** `Cargo.lock`, `Cargo.toml`
 - **Lokalizacja:** [`Cargo.lock`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/Cargo.lock)
-- **Dowód z narzędzi (`cargo audit`):**
-  1. `ctutils 0.4.2`: `RUSTSEC-2026-0385` (Non-Constant-Time Execution in `CtAssignSlice` — naprawione w `>=0.4.3`).
-  2. `rustls 0.23.45`: `RUSTSEC-2026-0346`, `RUSTSEC-2026-0347`, `RUSTSEC-2026-0348`, `RUSTSEC-2026-0349` (4 biuletyny bezpieczeństwa — naprawione w `>=0.23.50`).
-  3. `rustls-webpki 0.103.15`: `RUSTSEC-2026-0382` (naprawione w `>=0.103.16`).
-  4. `webpki-root-certs 1.0.9`: `RUSTSEC-2026-0383` (nieprawidłowe zakotwiczenia zaufania — naprawione w `>=1.0.10`).
-  5. `tokio 1.53.1`: `RUSTSEC-2026-0386` (unsound: `NamedPipeClient::ready` can trigger UB when signaling readiness for both read and write).
-  6. Wycofane (yanked) wersje w `Cargo.lock`: `clipboard-win 5.4.1`, `yoke-derive 0.8.3`.
-- **Opis problemu:** Przestarzałe wersje pośrednich zależności kryptograficznych i sieciowych w `Cargo.lock`.
-- **Scenariusz wystąpienia:** Połączenia HTTPS (`reqwest` z `rustls`) oraz działanie runtime'u `tokio` na Windows.
-- **Wpływ:** Podatności weryfikacji certyfikatów TLS i potencjalne UB w `tokio` na Windows.
-- **Rozwiązanie minimalne:** Wykonać `cargo update -p rustls -p rustls-webpki -p webpki-root-certs -p ctutils -p tokio -p clipboard-win -p yoke-derive`.
-- **Rozwiązanie docelowe:** Regularna aktualizacja `Cargo.lock` weryfikowana przez `cargo audit` w CI.
-- **Ryzyko wdrożenia zmiany:** Bardzo niskie (aktualizacje wersji patch/minor w obrębie tych samych gałęzi SemVer).
-- **Złożoność wdrożenia:** `S`
-- **Zależności od innych zmian:** Brak.
-- **Wymagany test regresyjny:** `cargo audit` zwracające `0 vulnerabilities found`.
-- **Kryterium akceptacji:** `cargo audit` nie zgłasza żadnych podatności `RUSTSEC-*` ani ostrzeżeń `unsound`.
+- **Baza RustSec:** oficjalne repozytorium `https://github.com/RustSec/advisory-db.git`, commit `2295466c4e9df26647fd67d8fa1c705ac2fc7f81` (Fri Oct 30 12:12:39 2026 +0100).
+- **Bramka chronologii RustSec:** `ENVIRONMENT_DATE_AFTER_REFERENCE` (czas środowiska wykonawczego 2026-11-01 jest późniejszy niż data odniesienia 2026-10-12; wszystkie advisory `RUSTSEC-2026-*` zostały opublikowane w bazie między 2026-10-13 a 2026-10-24 przed badaniem).
+- **Stan przed aktualizacją (`b0d1b24`):**
+  1. `ctutils 0.4.2`: `RUSTSEC-2026-0385` (vulnerability, data: 2026-10-23, commit bazy `f7b2f6b`, patched: `>= 0.4.4`).
+  2. `rustls 0.23.45`: `RUSTSEC-2026-0346`, `RUSTSEC-2026-0347`, `RUSTSEC-2026-0348`, `RUSTSEC-2026-0349` (4 vulnerabilities, data: 2026-10-14, commit bazy `caee11f`, patched: `>= 0.23.46`).
+  3. `rustls-webpki 0.103.15`: `RUSTSEC-2026-0382` (vulnerability, data: 2026-10-20, commit bazy `e6f94f3`, patched: `>= 0.103.16`).
+  4. `webpki-root-certs 1.0.9`: `RUSTSEC-2026-0383` (vulnerability, data: 2026-10-19, commit bazy `4b587f0`, patched: `>= 1.0.10`).
+  5. `tokio 1.53.1`: `RUSTSEC-2026-0386` (unsound, data: 2026-10-13, commit bazy `84d943a`, patched: `>= 1.53.3`).
+  6. Wycofane pakiety (`yanked`): `clipboard-win 5.4.1`, `yoke-derive 0.8.3`.
+  - Łącznie: 7 vulnerabilities, 9 warnings (1 unsound, 2 yanked, 6 unmaintained).
+- **Wykonana selektywna aktualizacja (`Cargo.lock`):**
+  - Grupa 1 (ctutils): `ctutils` 0.4.2 -> 0.4.7
+  - Grupa 2 (TLS): `rustls` 0.23.45 -> 0.23.46, `rustls-webpki` 0.103.15 -> 0.103.16, `webpki-root-certs` 1.0.9 -> 1.0.11
+  - Grupa 3 (Tokio): `tokio` 1.53.1 -> 1.53.3
+  - Grupa 4 (Yanked): `clipboard-win` 5.4.1 -> 5.4.3, `yoke-derive` 0.8.3 -> 0.8.4
+  - Zależności pośrednie dostosowane przez solver Cargo: `windows-sys` 0.60.2 / 0.52.0, `getrandom` 0.3.4 (dla tempfile).
+  - Brak modyfikacji `Cargo.toml`, brak podniesienia MSRV, brak zmian major, brak zmian cech (`features`).
+- **Stan po aktualizacji (`335ced5`):**
+  - Vulnerabilities: 0
+  - Unsound: 0
+  - Yanked: 0
+  - Nowe advisory: 0
+  - Unmaintained warnings: 6 (wszystkie sklasyfikowane i udokumentowane).
+- **Klasyfikacja i ścieżki pakietów unmaintained (`OPEN_UNMAINTAINED_TRANSITIVE`):**
+  1. `bincode 1.3.3` (`RUSTSEC-2025-0141`): `splogbook` -> `printpdf 0.12.8` -> `azul-layout 0.0.16` -> `hyphenation 0.8.4` -> `bincode 1.3.3`.
+  2. `paste 1.0.15` (`RUSTSEC-2024-0436`): `splogbook` -> `egui_dock 0.21.1` -> `paste 1.0.15`.
+  3. `smartstring 1.0.1` (`RUSTSEC-2026-0249`): `splogbook` -> `rhai 1.26.1` -> `smartstring 1.0.1`.
+  4. `zbus_names 4.3.4` (`RUSTSEC-2026-0371`): `splogbook` -> `keyring 4.2.0` -> `zbus-secret-service-keyring-store 1.0.1` -> `secret-service 5.2.0` -> `zbus 5.19.0` -> `zbus_names 4.3.4`.
+  5. `zvariant 5.15.0` (`RUSTSEC-2026-0370`): `splogbook` -> `keyring 4.2.0` -> `zbus-secret-service-keyring-store 1.0.1` -> `secret-service 5.2.0` -> `zbus 5.19.0` -> `zvariant 5.15.0`.
+  6. `zvariant_derive 5.15.0` (`RUSTSEC-2026-0372`): `splogbook` -> `keyring 4.2.0` -> `zbus-secret-service-keyring-store 1.0.1` -> `secret-service 5.2.0` -> `zbus 5.19.0` -> `zvariant_derive 5.15.0`.
+  - **Ryzyko resztkowe:** Żaden z pakietów nie posiada otwartej luki CVE ani błędu bezpieczeństwa; są to pakiety tranzytywne archiwizowane przez autorów. Ich migracja wymaga przejścia nadrzędnych bibliotek na nowsze API (np. zbus 6.0, compact_str) w kolejnych etapach refaktoryzacyjnych.
+- **Wyniki testów regresyjnych:**
+  - Kryptografia: testy `core::crypto`, `sync::crypto`, `cloud::updater`, `splogbook-signer` oraz 19/19 testów `tests/security_guard.rs` zielone.
+  - Komunikacja sieciowa i TLS: testy modułów `cloud::`, `core::http`, `api::server`, `sync::` zielone.
+  - Runtime Tokio i SEC-003: 3 dedykowane testy timeoutu LAN Sync (`sync_host_handshake_timeout_releases_slot`, `sync_partial_handshake_times_out`, `sync_successful_handshake_is_not_rejected_by_timeout`) wykonane po 3 razy (3/3 sukcesów, 0 opóźnień wall-clock, deterministyczny czas wirtualny Tokio).
+  - Target Windows MSVC: `cargo check --workspace --all-targets --all-features --target x86_64-pc-windows-msvc` zakończony sukcesem (kod 0).
+  - Clippy: zero nowych ostrzeżeń we wszystkich celach (`--lib`, `--lib --tests`, `--bin SPLogbook`, `--bin splogbook-signer`).
+- **Kryterium akceptacji:** `cargo audit` zgłasza dokładnie 0 podatności `vulnerability`, 0 `unsound`, 0 `yanked`.

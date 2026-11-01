@@ -28,7 +28,7 @@
    - wywołanie `rebuild_awards_full()` przy przełączeniu dziennika oraz izolacja `active_journal.id` w statystykach i eksporcie chmurowym;
    - usunięcie niebezpiecznego fallbacku `fs::copy` na bazie WAL w `backup.rs`.
 8. **Naprawa eksportera Cabrillo 3.0 i punktacji SP DX Contest / CQ WW / WPX (`FUNC-001`, `FUNC-002`)**.
-9. **Aktualizacja zależności w `Cargo.lock` eliminująca 7 biuletynów `RUSTSEC-2026-*` (`DEP-001`)**.
+9. **Aktualizacja zależności w `Cargo.lock` eliminująca 7 biuletynów `RUSTSEC-2026-*` (`DEP-001`)** — **ZREALIZOWANY** (commit `335ced5`).
 
 ---
 
@@ -40,7 +40,7 @@
 3. **Uzupełnienie `SpLogApp::snapshot_config()` o brakujące sekcje (`cw`, `runtime`, `solar`, `satellites`, `theme_preset`, `show_operator_assistant`) (`FUNC-005`, `GUI-002`)**.
 4. **Naprawa przycisku STOP nagrywania audio (`stop_recording()` w `qso_entry.rs:646`), podglądu zdjęcia QSL (`qso_entry.rs:589`), przycisków rotatora EME (`astronomy_dialog.rs:233`) i początkowego stanu S-metra `S0` (`FUNC-004`, `GUI-003`)**.
 5. **Redakcja sekretów w `Debug for AppConfig` i `without_url()` dla błędów `reqwest` oraz timeout 10 s na `host_handshake` w LAN Sync (`SEC-002`, `SEC-003`)**.
-6. **Usunięcie 6 ostrzeżeń leksera w `src/core/database/qso_store.rs` (`DATA-007`)**.
+6. **Usunięcie 6 ostrzeżeń leksera w `src/core/database/qso_store.rs` (`DATA-007`)** — **ZREALIZOWANY** (commit `5e61a78`).
 
 ---
 
@@ -120,7 +120,8 @@ flowchart LR
   - **Etap 1A (SEC-001 — Remediacja w drzewie, revocation i testy):** ZREALIZOWANY (usunięto `src/scratch.rs`, wdrożono `REVOKED_KEY_IDS` i `REVOKED_PUBLIC_KEYS`, auto-updater fail-closed, dodano `tests/security_guard.rs` oraz kontrolę CI; oczekuje na rotację klucza przez właściciela: `BLOCKED_EXTERNAL_SECRET`).
   - **Etap 1B (SEC-001 — Rotacja produkcyjna):** ZREALIZOWANY (aktywowano nowy publiczny klucz `splogbook-release-2026-02`, potwierdzono zewnętrzny sekret `RELEASE_SIGNING_KEY`, odwołano historyczne klucze, 17/17 testów bezpieczeństwa zielonych, przeprowadzono audyt wydań historycznych `docs/HISTORICAL_RELEASE_AUDIT.md`; gotowość wydawnicza auto-updatera blokowana do Etapu 2 / `CI-001`).
   - **Etap 1C (Ochrona sekretów i powierzchni sieciowej — SEC-002, SEC-003, SEC-004):** ZREALIZOWANY (SEC-002: redakcja 11 pól konfiguracji w Debug, redakcja haseł/tokenów z URL i błędów chmurowych; SEC-003: 10s timeout na host_handshake i gwarantowane zwalnianie slotu semafora; SEC-004: polityka wiązania portu validate_bind_policy i blokada mutacji REST bez tokenu dla klientów zdalnych oraz obcych Origin/Sec-Fetch-Site; 19/19 testów security_guard, 7 testów REST i 3 testy handshake timeout zielone).
-  - **Pozostałe zadania Etapu 1 (DEP-001, PERF-001, TEST-001, DATA-007):** ZAPLANOWANE DO KOLEJNYCH PODETAPÓW.
+  - **Etap 1D-A (DEP-001, DATA-007):** ZREALIZOWANY (DEP-001: selektywna aktualizacja 7 pakietów w `Cargo.lock`, eliminacja 7 vulnerabilities, 1 unsound i 2 wycofanych pakietów yanked, cargo audit = 0 podatności, wyjaśnienie chronologii RustSec w klasie ENVIRONMENT_DATE_AFTER_REFERENCE, zielone testy SEC-003 3/3 i targetu Windows MSVC, commit `335ced5`; DATA-007: usunięcie 6 pustych linii po backslashach SQL w `src/core/database/qso_store.rs` bez modyfikacji semantyki SQL, 0 ostrzeżeń kompilatora, 30/30 testów bazy zielonych, spadek clippy --lib do 339, commit `5e61a78`).
+  - **Pozostałe zadania Etapu 1 (PERF-001, TEST-001 — Etap 1D-B):** ZAPLANOWANE DO KOLEJNEGO PODETAPU (zastąpienie algorytmu $O(N^2)$ w `src/sync/catchup.rs` algorytmem $O(N)$ oraz dodanie `[profile.dev.package.argon2] opt-level = 3` w `Cargo.toml`).
 - **Cel:** Usunięcie blokera bezpieczeństwa `SEC-001`, wyeliminowanie podatności `Cargo.lock` (`DEP-001`) oraz skrócenie czasu wykonania `cargo test` z ~9 minut do ~15 sekund (`PERF-001`, `TEST-001`).
 - **Zakres:**
   - Usunięcie `src/scratch.rs`, rotacja klucza Ed25519 w `src/cloud/updater.rs:257-266` (`SEC-001`).
