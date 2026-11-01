@@ -518,6 +518,7 @@ pub struct TciBackend {
     xit_enabled: bool,
     xit_offset: i32,
     pending_messages: VecDeque<TciMessage>,
+    discard_late_tx: bool,
 }
 
 impl TciBackend {
@@ -550,6 +551,7 @@ impl TciBackend {
             xit_enabled: false,
             xit_offset: 0,
             pending_messages: VecDeque::new(),
+            discard_late_tx: false,
         }
     }
 
@@ -604,6 +606,13 @@ impl TciBackend {
             } => {
                 if *receiver != self.trx {
                     return;
+                }
+                if *transmitting {
+                    if self.discard_late_tx {
+                        return;
+                    }
+                } else {
+                    self.discard_late_tx = false;
                 }
                 self.state.ptt = *transmitting;
             }
@@ -772,6 +781,15 @@ impl TciBackend {
 
     async fn disconnect_internal(&mut self) {
         if let Some(mut stream) = self.ws_stream.take() {
+            if self.state.ptt {
+                let _ = tokio::time::timeout(
+                    Duration::from_millis(200),
+                    stream.send(tokio_tungstenite::tungstenite::Message::Text(
+                        format!("trx:{},false;", self.trx).into(),
+                    )),
+                )
+                .await;
+            }
             let _ = tokio::time::timeout(
                 Duration::from_millis(200),
                 stream.send(tokio_tungstenite::tungstenite::Message::Close(None)),
@@ -780,6 +798,8 @@ impl TciBackend {
         }
         self.handshake_completed = false;
         self.state.connected = false;
+        self.state.ptt = false;
+        self.discard_late_tx = false;
         self.pending_messages.clear();
     }
 
@@ -878,6 +898,195 @@ impl TciBackend {
         }
     }
 
+    async fn execute_set_ptt(&mut self, target: bool) -> Result<(), RigError> {
+        let mut stream = match self.ws_stream.take() {
+            Some(s) => s,
+            None => return Err(RigError::NotConnected),
+        };
+
+        while let Some(msg) = self.pending_messages.pop_front() {
+            match msg {
+                TciMessage::Trx { receiver, .. } if receiver == self.trx => {}
+                other => self.apply_message(&other),
+            }
+        }
+
+        while let Ok(Some(Ok(msg))) =
+            tokio::time::timeout(Duration::from_millis(5), stream.next()).await
+        {
+            match msg {
+                tokio_tungstenite::tungstenite::Message::Text(text) => {
+                    if let Ok(instructions) = TciCodec::decode_frame(&text) {
+                        for instr in instructions {
+                            match instr {
+                                TciMessage::Trx { receiver, .. } if receiver == self.trx => {}
+                                other => self.apply_message(&other),
+                            }
+                        }
+                    }
+                }
+                tokio_tungstenite::tungstenite::Message::Ping(payload) => {
+                    let _ = stream
+                        .send(tokio_tungstenite::tungstenite::Message::Pong(payload))
+                        .await;
+                }
+                tokio_tungstenite::tungstenite::Message::Close(_) => {
+                    self.ws_stream = None;
+                    self.handshake_completed = false;
+                    self.state.connected = false;
+                    self.state.ptt = false;
+                    return Err(RigError::Protocol {
+                        detail: "received Close frame before sending PTT command".to_string(),
+                    });
+                }
+                _ => {}
+            }
+        }
+
+        let frame_text = format!("trx:{},{target};", self.trx);
+        let send_fut = stream.send(tokio_tungstenite::tungstenite::Message::Text(
+            frame_text.into(),
+        ));
+        if (tokio::time::timeout(self.send_timeout, send_fut).await).is_err() {
+            self.ws_stream = None;
+            self.handshake_completed = false;
+            self.state.connected = false;
+            self.state.ptt = false;
+            return Err(RigError::Timeout {
+                endpoint: self.endpoint.clone(),
+                operation: "execute_set_ptt_send",
+            });
+        }
+
+        let deadline = tokio::time::Instant::now() + self.send_timeout;
+        let mut confirmed = false;
+
+        while tokio::time::Instant::now() < deadline {
+            let time_left = deadline.saturating_duration_since(tokio::time::Instant::now());
+            let next_fut = stream.next();
+            let next_item = match tokio::time::timeout(time_left, next_fut).await {
+                Ok(Some(Ok(m))) => m,
+                Ok(Some(Err(e))) => {
+                    self.ws_stream = None;
+                    self.handshake_completed = false;
+                    self.state.connected = false;
+                    self.state.ptt = false;
+                    return Err(RigError::Connect {
+                        endpoint: self.endpoint.clone(),
+                        detail: e.to_string(),
+                    });
+                }
+                Ok(None) => {
+                    self.ws_stream = None;
+                    self.handshake_completed = false;
+                    self.state.connected = false;
+                    self.state.ptt = false;
+                    return Err(RigError::Connect {
+                        endpoint: self.endpoint.clone(),
+                        detail: "WebSocket stream closed during PTT confirmation".to_string(),
+                    });
+                }
+                Err(_) => {
+                    break;
+                }
+            };
+
+            match next_item {
+                tokio_tungstenite::tungstenite::Message::Text(text) => {
+                    let instructions = match TciCodec::decode_frame(&text) {
+                        Ok(ins) => ins,
+                        Err(e) => {
+                            self.ws_stream = Some(stream);
+                            return Err(e);
+                        }
+                    };
+                    for instr in instructions {
+                        match instr {
+                            TciMessage::Trx {
+                                receiver,
+                                transmitting,
+                            } => {
+                                if receiver == self.trx {
+                                    if transmitting == target {
+                                        self.state.ptt = transmitting;
+                                        confirmed = true;
+                                    } else {
+                                        self.state.ptt = transmitting;
+                                        self.ws_stream = Some(stream);
+                                        return Err(RigError::Protocol {
+                                            detail: format!(
+                                                "TCI server rejected PTT transition to {target}"
+                                            ),
+                                        });
+                                    }
+                                } else {
+                                    self.pending_messages.push_back(TciMessage::Trx {
+                                        receiver,
+                                        transmitting,
+                                    });
+                                }
+                            }
+                            other => {
+                                self.apply_message(&other);
+                            }
+                        }
+                    }
+                    if confirmed {
+                        break;
+                    }
+                }
+                tokio_tungstenite::tungstenite::Message::Ping(payload) => {
+                    let _ = stream
+                        .send(tokio_tungstenite::tungstenite::Message::Pong(payload))
+                        .await;
+                }
+                tokio_tungstenite::tungstenite::Message::Close(_) => {
+                    self.ws_stream = None;
+                    self.handshake_completed = false;
+                    self.state.connected = false;
+                    self.state.ptt = false;
+                    return Err(RigError::Protocol {
+                        detail: "received Close frame during PTT confirmation".to_string(),
+                    });
+                }
+                tokio_tungstenite::tungstenite::Message::Binary(_) => {
+                    self.ws_stream = None;
+                    self.handshake_completed = false;
+                    self.state.connected = false;
+                    self.state.ptt = false;
+                    return Err(RigError::Protocol {
+                        detail: "unexpected binary frame during PTT confirmation".to_string(),
+                    });
+                }
+                tokio_tungstenite::tungstenite::Message::Pong(_)
+                | tokio_tungstenite::tungstenite::Message::Frame(_) => {}
+            }
+        }
+
+        if confirmed {
+            self.ws_stream = Some(stream);
+            return Ok(());
+        }
+
+        if target {
+            let abort_frame = format!("trx:{},false;", self.trx);
+            let _ = tokio::time::timeout(
+                Duration::from_millis(200),
+                stream.send(tokio_tungstenite::tungstenite::Message::Text(
+                    abort_frame.into(),
+                )),
+            )
+            .await;
+            self.discard_late_tx = true;
+        }
+        self.state.ptt = false;
+        self.ws_stream = Some(stream);
+        Err(RigError::Timeout {
+            endpoint: self.endpoint.clone(),
+            operation: "set_ptt_confirmation",
+        })
+    }
+
     async fn execute_cmd(&mut self, command: &RigCommand) -> Result<(), RigError> {
         if !self.is_connected() || self.ws_stream.is_none() {
             return Err(RigError::NotConnected);
@@ -895,6 +1104,9 @@ impl TciBackend {
         }
 
         let frame_text = match command {
+            RigCommand::SetPtt(target_ptt) => {
+                return self.execute_set_ptt(*target_ptt).await;
+            }
             RigCommand::SetFrequency(hz) => {
                 format!("vfo:{},{},{hz};", self.trx, self.active_vfo)
             }
@@ -904,9 +1116,6 @@ impl TciBackend {
             RigCommand::SetMode { mode, .. } => {
                 let tci_mode = TciCodec::mode_to_tci(mode);
                 format!("modulation:{},{tci_mode};", self.trx)
-            }
-            RigCommand::SetPtt(ptt) => {
-                format!("trx:{},{ptt};", self.trx)
             }
             RigCommand::SetSplit { enabled, .. } => {
                 format!("split_enable:{},{enabled};", self.trx)
@@ -1064,6 +1273,28 @@ impl TciBackend {
                 }
                 tokio_tungstenite::tungstenite::Message::Pong(_)
                 | tokio_tungstenite::tungstenite::Message::Frame(_) => {}
+            }
+        }
+    }
+}
+
+impl Drop for TciBackend {
+    fn drop(&mut self) {
+        if self.state.ptt {
+            self.state.ptt = false;
+            if let Some(mut stream) = self.ws_stream.take() {
+                let trx = self.trx;
+                if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                    handle.spawn(async move {
+                        let _ = tokio::time::timeout(
+                            Duration::from_millis(200),
+                            stream.send(tokio_tungstenite::tungstenite::Message::Text(
+                                format!("trx:{trx},false;").into(),
+                            )),
+                        )
+                        .await;
+                    });
+                }
             }
         }
     }
@@ -1346,7 +1577,12 @@ mod tests {
             let mut received = Vec::new();
             while let Some(Ok(msg)) = ws.next().await {
                 if let Message::Text(text) = msg {
-                    received.push(text);
+                    received.push(text.clone());
+                    if text == "trx:0,true;" {
+                        ws.send(Message::Text("trx:0,true;".into()))
+                            .await
+                            .expect("send trx confirm");
+                    }
                     if received.len() == 11 {
                         break;
                     }
@@ -1705,5 +1941,310 @@ mod tests {
 
         backend.disconnect().await;
         server_handle.await.expect("server completed");
+    }
+
+    #[tokio::test]
+    async fn tci_ptt_on_requires_remote_confirmation() {
+        let (port, server_handle) = spawn_mock_tci_server(|mut ws| async move {
+            ws.send(Message::Text("ready;".into()))
+                .await
+                .expect("send ready");
+            if let Some(Ok(Message::Text(cmd))) = ws.next().await {
+                assert_eq!(cmd, "trx:0,true;");
+                ws.send(Message::Text("trx:0,true;".into()))
+                    .await
+                    .expect("confirm ptt on");
+            }
+            let _ = ws.next().await;
+        })
+        .await;
+
+        let mut backend = TciBackend::with_timeout("127.0.0.1", port, Duration::from_millis(300));
+        backend.connect().await.expect("connect");
+        backend
+            .execute(&RigCommand::SetPtt(true))
+            .await
+            .expect("ptt on confirmed");
+        let state = backend.poll().await.expect("poll");
+        assert!(state.ptt);
+        backend.disconnect().await;
+        server_handle.await.expect("server completed");
+    }
+
+    #[tokio::test]
+    async fn tci_ptt_on_timeout_never_enters_tx_owned() {
+        let (port, server_handle) = spawn_mock_tci_server(|mut ws| async move {
+            ws.send(Message::Text("ready;".into()))
+                .await
+                .expect("send ready");
+            if let Some(Ok(Message::Text(cmd))) = ws.next().await {
+                assert_eq!(cmd, "trx:0,true;");
+            }
+            if let Some(Ok(Message::Text(abort_cmd))) = ws.next().await {
+                assert_eq!(abort_cmd, "trx:0,false;");
+            }
+            let _ = ws.next().await;
+        })
+        .await;
+
+        let mut backend = TciBackend::with_timeout("127.0.0.1", port, Duration::from_millis(150));
+        backend.connect().await.expect("connect");
+        let res = backend.execute(&RigCommand::SetPtt(true)).await;
+        assert!(matches!(res, Err(RigError::Timeout { .. })));
+        let state = backend.poll().await.expect("poll");
+        assert!(!state.ptt);
+        backend.disconnect().await;
+        server_handle.await.expect("server completed");
+    }
+
+    #[tokio::test]
+    async fn tci_ptt_on_rejection_never_enters_tx_owned() {
+        let (port, server_handle) = spawn_mock_tci_server(|mut ws| async move {
+            ws.send(Message::Text("ready;".into()))
+                .await
+                .expect("send ready");
+            if let Some(Ok(Message::Text(cmd))) = ws.next().await {
+                assert_eq!(cmd, "trx:0,true;");
+                ws.send(Message::Text("trx:0,false;".into()))
+                    .await
+                    .expect("send rejection");
+            }
+            let _ = ws.next().await;
+        })
+        .await;
+
+        let mut backend = TciBackend::with_timeout("127.0.0.1", port, Duration::from_millis(300));
+        backend.connect().await.expect("connect");
+        let res = backend.execute(&RigCommand::SetPtt(true)).await;
+        assert!(matches!(res, Err(RigError::Protocol { .. })));
+        let state = backend.poll().await.expect("poll");
+        assert!(!state.ptt);
+        backend.disconnect().await;
+        server_handle.await.expect("server completed");
+    }
+
+    #[tokio::test]
+    async fn tci_ptt_confirmation_for_wrong_vfo_is_ignored() {
+        let (port, server_handle) = spawn_mock_tci_server(|mut ws| async move {
+            ws.send(Message::Text("ready;".into()))
+                .await
+                .expect("send ready");
+            if let Some(Ok(Message::Text(cmd))) = ws.next().await {
+                assert_eq!(cmd, "trx:0,true;");
+                ws.send(Message::Text("trx:1,true;".into()))
+                    .await
+                    .expect("send wrong receiver confirmation");
+            }
+            if let Some(Ok(Message::Text(abort_cmd))) = ws.next().await {
+                assert_eq!(abort_cmd, "trx:0,false;");
+            }
+            let _ = ws.next().await;
+        })
+        .await;
+
+        let mut backend = TciBackend::with_timeout("127.0.0.1", port, Duration::from_millis(150));
+        backend.connect().await.expect("connect");
+        let res = backend.execute(&RigCommand::SetPtt(true)).await;
+        assert!(matches!(res, Err(RigError::Timeout { .. })));
+        let state = backend.poll().await.expect("poll");
+        assert!(!state.ptt);
+        backend.disconnect().await;
+        server_handle.await.expect("server completed");
+    }
+
+    #[tokio::test]
+    async fn tci_stale_tx_event_does_not_confirm_new_request() {
+        let (port, server_handle) = spawn_mock_tci_server(|mut ws| async move {
+            ws.send(Message::Text("ready;".into()))
+                .await
+                .expect("send ready");
+            ws.send(Message::Text("trx:0,true;".into()))
+                .await
+                .expect("send stale trx");
+            if let Some(Ok(Message::Text(cmd))) = ws.next().await {
+                assert_eq!(cmd, "trx:0,true;");
+            }
+            if let Some(Ok(Message::Text(abort_cmd))) = ws.next().await {
+                assert_eq!(abort_cmd, "trx:0,false;");
+            }
+            let _ = ws.next().await;
+        })
+        .await;
+
+        let mut backend = TciBackend::with_timeout("127.0.0.1", port, Duration::from_millis(150));
+        backend.connect().await.expect("connect");
+        let res = backend.execute(&RigCommand::SetPtt(true)).await;
+        assert!(matches!(res, Err(RigError::Timeout { .. })));
+        let state = backend.poll().await.expect("poll");
+        assert!(!state.ptt);
+        backend.disconnect().await;
+        server_handle.await.expect("server completed");
+    }
+
+    #[tokio::test]
+    async fn tci_late_tx_confirmation_after_timeout_is_ignored() {
+        let (port, server_handle) = spawn_mock_tci_server(|mut ws| async move {
+            ws.send(Message::Text("ready;".into()))
+                .await
+                .expect("send ready");
+            if let Some(Ok(Message::Text(cmd))) = ws.next().await {
+                assert_eq!(cmd, "trx:0,true;");
+            }
+            if let Some(Ok(Message::Text(abort_cmd))) = ws.next().await {
+                assert_eq!(abort_cmd, "trx:0,false;");
+                ws.send(Message::Text("trx:0,true;".into()))
+                    .await
+                    .expect("send late trx");
+            }
+            let _ = ws.next().await;
+        })
+        .await;
+
+        let mut backend = TciBackend::with_timeout("127.0.0.1", port, Duration::from_millis(150));
+        backend.connect().await.expect("connect");
+        let res = backend.execute(&RigCommand::SetPtt(true)).await;
+        assert!(matches!(res, Err(RigError::Timeout { .. })));
+        let state = backend.poll().await.expect("poll");
+        assert!(!state.ptt);
+        backend.disconnect().await;
+        server_handle.await.expect("server completed");
+    }
+
+    #[tokio::test]
+    async fn tci_disconnect_during_tx_confirmation_fails_safe() {
+        let (port, server_handle) = spawn_mock_tci_server(|mut ws| async move {
+            ws.send(Message::Text("ready;".into()))
+                .await
+                .expect("send ready");
+            if let Some(Ok(Message::Text(cmd))) = ws.next().await {
+                assert_eq!(cmd, "trx:0,true;");
+                let _ = ws.close(None).await;
+            }
+        })
+        .await;
+
+        let mut backend = TciBackend::with_timeout("127.0.0.1", port, Duration::from_millis(300));
+        backend.connect().await.expect("connect");
+        let res = backend.execute(&RigCommand::SetPtt(true)).await;
+        assert!(res.is_err());
+        assert!(!backend.is_connected());
+        assert_eq!(backend.poll().await, Err(RigError::NotConnected));
+        server_handle.await.expect("server completed");
+    }
+
+    #[tokio::test]
+    async fn tci_ptt_off_requires_remote_confirmation() {
+        let (port, server_handle) = spawn_mock_tci_server(|mut ws| async move {
+            ws.send(Message::Text("ready;".into()))
+                .await
+                .expect("send ready");
+            if let Some(Ok(Message::Text(cmd))) = ws.next().await {
+                assert_eq!(cmd, "trx:0,true;");
+                ws.send(Message::Text("trx:0,true;".into()))
+                    .await
+                    .expect("confirm ptt on");
+            }
+            if let Some(Ok(Message::Text(cmd))) = ws.next().await {
+                assert_eq!(cmd, "trx:0,false;");
+                ws.send(Message::Text("trx:0,false;".into()))
+                    .await
+                    .expect("confirm ptt off");
+            }
+            let _ = ws.next().await;
+        })
+        .await;
+
+        let mut backend = TciBackend::with_timeout("127.0.0.1", port, Duration::from_millis(300));
+        backend.connect().await.expect("connect");
+        backend
+            .execute(&RigCommand::SetPtt(true))
+            .await
+            .expect("ptt on");
+        assert!(backend.poll().await.expect("poll").ptt);
+
+        backend
+            .execute(&RigCommand::SetPtt(false))
+            .await
+            .expect("ptt off");
+        assert!(!backend.poll().await.expect("poll").ptt);
+        backend.disconnect().await;
+        server_handle.await.expect("server completed");
+    }
+
+    #[tokio::test]
+    async fn tci_drop_sends_best_effort_ptt_off() {
+        let (port, server_handle) = spawn_mock_tci_server(|mut ws| async move {
+            ws.send(Message::Text("ready;".into()))
+                .await
+                .expect("send ready");
+            if let Some(Ok(Message::Text(cmd))) = ws.next().await {
+                assert_eq!(cmd, "trx:0,true;");
+                ws.send(Message::Text("trx:0,true;".into()))
+                    .await
+                    .expect("confirm ptt on");
+            }
+            if let Some(Ok(Message::Text(drop_cmd))) = ws.next().await {
+                assert_eq!(drop_cmd, "trx:0,false;");
+            }
+        })
+        .await;
+
+        let mut backend = TciBackend::with_timeout("127.0.0.1", port, Duration::from_millis(300));
+        backend.connect().await.expect("connect");
+        backend
+            .execute(&RigCommand::SetPtt(true))
+            .await
+            .expect("ptt on");
+        assert!(backend.poll().await.expect("poll").ptt);
+        drop(backend);
+        server_handle.await.expect("server completed");
+    }
+
+    #[tokio::test]
+    async fn tci_reconnect_starts_without_tx_ownership() {
+        let (port, server_handle) = spawn_mock_tci_server(|mut ws| async move {
+            ws.send(Message::Text("ready;".into()))
+                .await
+                .expect("send ready");
+            if let Some(Ok(Message::Text(cmd))) = ws.next().await {
+                assert_eq!(cmd, "trx:0,true;");
+                ws.send(Message::Text("trx:0,true;".into()))
+                    .await
+                    .expect("confirm ptt on");
+            }
+            while let Some(Ok(msg)) = ws.next().await {
+                if matches!(msg, Message::Close(_)) {
+                    break;
+                }
+            }
+        })
+        .await;
+
+        let mut backend = TciBackend::with_timeout("127.0.0.1", port, Duration::from_millis(300));
+        backend.connect().await.expect("connect");
+        backend
+            .execute(&RigCommand::SetPtt(true))
+            .await
+            .expect("ptt on");
+        assert!(backend.poll().await.expect("poll").ptt);
+
+        backend.disconnect().await;
+        assert!(!backend.state.ptt);
+        server_handle.await.expect("first session completed");
+
+        let (port2, server_handle2) = spawn_mock_tci_server(|mut ws| async move {
+            ws.send(Message::Text("ready;".into()))
+                .await
+                .expect("send ready 2");
+            let _ = ws.next().await;
+        })
+        .await;
+
+        let mut backend2 = TciBackend::with_timeout("127.0.0.1", port2, Duration::from_millis(300));
+        backend2.connect().await.expect("connect 2");
+        assert!(backend2.is_connected());
+        assert!(!backend2.poll().await.expect("poll").ptt);
+        backend2.disconnect().await;
+        server_handle2.await.expect("second session completed");
     }
 }
