@@ -1361,25 +1361,40 @@
 - **Kategoria:** `CI`
 - **Poziom krytyczności:** `HIGH`
 - **Poziom pewności:** `CONFIRMED`
-- **Status remediacji:** **FIXED / VERIFIED_CI_DRY_RUN**
+- **Status remediacji:** **FIXED / PRODUCTION_DRY_RUN_VERIFIED**
 - **Data wdrożenia i weryfikacji:** 2026-11-01
 - **Commity:**
   - `16892e8`: `ci(release): generate signed manifest and complete checksums (CI-001)`
   - `7125c66`: `ci(release): make native dry-run verification fail-closed (CI-001)`
   - `0f56ada`: `fix(ci): implement manifest signature verification in splogbook-signer (CI-001)`
-- **Weryfikacja rzeczywistego potoku CI dry-run (Run ID: `41312118501`, ref: `main`, commit: `0f56ada`):**
-  - **Job Build Windows x64 (`124864486955`):** SUCCESS (28m30s)
-  - **Job Build Linux x86_64 (`124864487116`):** SUCCESS (18m52s)
-  - **Job Publish Release Assets (`124871354148`):** SUCCESS (6m01s)
-  - **Krok Create, sign and verify Release Manifest:** SUCCESS (podpisano i zweryfikowano manifest narzędziem `splogbook-signer verify`)
+  - `75ef965`: `ci(actions): migrate workflows to latest stable action runtimes`
+- **Migracja GitHub Actions i eliminacja ostrzeżeń Node.js 20:**
+  - `actions/checkout`: z `@v4` (node20) na `@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1` (`runs.using: node24`)
+  - `dtolnay/rust-toolchain`: z `@stable` na `@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1` (`runs.using: composite`)
+  - `actions/upload-artifact`: z `@v4` (node20) na `@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2` (`runs.using: node24`, `if-no-files-found: error`)
+  - `actions/download-artifact`: z `@v4` (node20) na `@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2` (`runs.using: node24`)
+  - `softprops/action-gh-release`: z `@v2` (node20) na `@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3` (`runs.using: node24`)
+  - Liczba akcji Node.js 20: 0
+  - Ostrzeżenia `Node.js 20 is deprecated`: 0
+  - Ostrzeżenia `being forced to run on Node.js 24`: 0
+  - Własne skrypty Node.js: `WORKFLOW_NODE_NOT_REQUIRED` (brak zbędnego `setup-node`)
+- **Weryfikacja rzeczywistego potoku CI dry-run z produkcyjną ścieżką klucza (Run ID: `41317314042`, ref: `main`, commit: `75ef965`):**
+  - **Job Build Windows x64 (`124880000444`):** SUCCESS (28m32s)
+  - **Job Build Linux x86_64 (`124880000306`):** SUCCESS (18m34s)
+  - **Job Publish Release Assets (`124887050942`):** SUCCESS (8m23s)
+  - **Krok Create, sign and verify Release Manifest:** SUCCESS
+    - Odczytano sekret podpisywania pod `umask 077` do `priv.key` (`600`)
+    - Porównano fingerprint SHA-256 klucza publicznego przez `splogbook-signer fingerprint`: `2a6277b72d2a97236f344f1542a1c2868a74f71c9626a22dc1735919efeb2a4a` (100% zgodny z zakotwiczonym zaufanym kluczem `splogbook-release-2026-02`)
+    - Podpisano manifest `release-manifest.json` do `release-manifest.json.sig`
+    - Zweryfikowano podpis produkcyjnym weryfikatorem updatera (`splogbook-signer verify`)
+    - Usunięto materiał klucza prywatnego (`trap 'rm -f priv.key' EXIT`) i potwierdzono brak wycieku do stagingu
   - **Krok Create GitHub Release:** SKIPPED (potwierdzono pominięcie publikacji w trybie dry-run)
   - **Utworzenie git tag:** BRAK (potwierdzone `git tag -l`)
   - **Utworzenie GitHub Release:** BRAK (potwierdzone `gh release list`)
-  - **Klucz użyty w dry-run:** `EPHEMERAL_TEST_KEY` (wygenerowany bezpiecznie pod `umask 077` i usunięty pułapką `trap`)
-  - **Niezależna walidacja pobranych artefaktów (pobrane przez `gh run download 41312118501`):**
-    - Integralność SHA-256 (`SHA256SUMS.txt`): zgodna co do bitu z `SPLogbook-Linux-x86_64.tar.gz` (`41cf207e...`) i `SPLogbook-Windows-x64.zip` (`6059c150...`).
-    - Manifest `release-manifest.json`: zgodność commit SHA (`0f56adad...`), wersji (`1.2.0`), identyfikatora klucza (`splogbook-release-2026-02`), rozmiarów i sum SHA-256.
-    - Sygnatura Ed25519 `release-manifest.json.sig`: zweryfikowana pomyślnie.
+  - **Niezależna walidacja pobranych artefaktów (pobrane przez `gh run download 41317314042`):**
+    - Integralność SHA-256 (`SHA256SUMS.txt`): zgodna co do bitu z `SPLogbook-Linux-x86_64.tar.gz` (`fa8bc562716055e34c588d47de486cb3bd235ddcef64ddfc49714af8e9d6394e`) i `SPLogbook-Windows-x64.zip` (`690aca91ee5c9ce8d24863ab8158b4e6e6aacd8f429224e4b55d670f3392c15e`).
+    - Manifest `release-manifest.json`: zgodność commit SHA (`75ef9651...`), wersji (`1.2.0`), identyfikatora klucza (`splogbook-release-2026-02`), rozmiarów i sum SHA-256.
+    - Sygnatura Ed25519 `release-manifest.json.sig`: zweryfikowana pomyślnie produkcyjnym kluczem.
     - Ochrona sekretów: potwierdzono brak obecności jakichkolwiek kluczy prywatnych ani poświadczeń w archiwach.
   - **Status gotowości potoku wydawniczego:** **RELEASE_PIPELINE_READY**
 - **Moduł / obszar:** `.github/workflows/build-and-release.yml`, `src/bin/signer.rs`, `tests/security_guard.rs`, `docs/RELEASE_SECURITY.md`

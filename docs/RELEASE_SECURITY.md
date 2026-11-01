@@ -301,22 +301,29 @@ Po wdrożeniu Etapu 2 (REL-001 + CI-001):
 
 W ramach końcowej bramki weryfikacyjnej Etapu 2 przeprowadzono rzeczywisty, pełny i natywny przebieg potoku wydawniczego na GitHub Actions:
 
-- **Identyfikator przebiegu (Run ID):** `41312118501`
-- **Gałąź i commit:** `main` (`0f56adad90884166debe71245ee7bd5e6441de59`)
+- **Identyfikator przebiegu (Run ID):** `41317314042` (poprzedni bieg referencyjny: `41312118501`)
+- **Gałąź i commit:** `main` (`75ef9651123bdb66ffd6e2c254554b8799ab756f`)
 - **Zdarzenie i parametry:** `workflow_dispatch` z `dry_run: true`
+- **Migracja GitHub Actions do Node 24 runtime:**
+  - `actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1` (`runs.using: node24`)
+  - `dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1` (`runs.using: composite`)
+  - `actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2` (`runs.using: node24`, `if-no-files-found: error`)
+  - `actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2` (`runs.using: node24`)
+  - `softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3` (`runs.using: node24`)
+  - Całkowity brak ostrzeżeń o deprecacji Node 20 oraz wymuszeniu Node 24.
 - **Wyniki poszczególnych zadań:**
-  - `Build Windows x64` (`124864486955`): **SUCCESS** (28m 30s) — wykonano natywne testy jednostkowe i testy bezpieczeństwa `windows_production_zip_path_*`, skompilowano binarkę w profilu release, spakowano archiwum ZIP i przesłano artefakt.
-  - `Build Linux x86_64` (`124864487116`): **SUCCESS** (18m 52s) — wykonano natywne testy na runnerze Ubuntu, zbudowano Hamlib 4.7.2, skompilowano binarkę release, spakowano `.tar.gz` i przesłano artefakt.
-  - `Publish Release Assets` (`124871354148`): **SUCCESS** (6m 01s) — pobrano artefakty Windows i Linux, zbudowano `splogbook-signer`, wygenerowano `SHA256SUMS.txt`, wygenerowano i podpisano `release-manifest.json`, zweryfikowano podpis (`splogbook-signer verify`), przesłano kompletny zestaw artefaktów manifestu.
+  - `Build Windows x64` (`124880000444`): **SUCCESS** (28m 32s) — runner version 2.338.2, wykonano natywne testy jednostkowe i testy bezpieczeństwa `windows_production_zip_path_*`, skompilowano binarkę w profilu release, spakowano archiwum ZIP i przesłano artefakt.
+  - `Build Linux x86_64` (`124880000306`): **SUCCESS** (18m 34s) — runner version 2.338.2, wykonano natywne testy na runnerze Ubuntu, zbudowano Hamlib 4.7.2, skompilowano binarkę release, spakowano `.tar.gz` i przesłano artefakt.
+  - `Publish Release Assets` (`124887050942`): **SUCCESS** (8m 23s) — pobrano artefakty Windows i Linux, zbudowano `splogbook-signer`, wygenerowano `SHA256SUMS.txt`, odczytano produkcyjny sekret `RELEASE_SIGNING_KEY`, zweryfikowano fingerprint SHA-256 (`2a6277b72d2a97236f344f1542a1c2868a74f71c9626a22dc1735919efeb2a4a`), wygenerowano i podpisano `release-manifest.json`, zweryfikowano podpis produkcyjnym weryfikatorem updatera (`splogbook-signer verify`), usunięto materiał klucza i przesłano kompletny zestaw artefaktów manifestu.
 - **Krok Create GitHub Release:** **SKIPPED** (zgodnie z kontraktem fail-safe dla trybu dry-run).
 - **Weryfikacja braku publikacji:**
   - Utworzenie git tag: **BRAK** (potwierdzone przez `git tag -l`).
   - Utworzenie GitHub Release: **BRAK** (potwierdzone przez `gh release list`).
-- **Rodzaj klucza w dry-run:** `EPHEMERAL_TEST_KEY` (wygenerowany bezpiecznie pod umask 077 i usunięty przez pułapkę trap po zweryfikowaniu podpisu).
-- **Niezależna walidacja pobranych artefaktów (`gh run download 41312118501`):**
-  - Plik `SPLogbook-Linux-x86_64.tar.gz` (20 581 322 B): SHA-256 `41cf207ed111a565a9ec62bb718c5770be5136f96d90dd1be94ff836acf3569f` (w 100% zgodny z `SHA256SUMS.txt` i `release-manifest.json`).
-  - Plik `SPLogbook-Windows-x64.zip` (20 871 479 B): SHA-256 `6059c150c3158357c009832f9282f9fe23025b2be6063bcd4955b0ff8147d776` (w 100% zgodny z `SHA256SUMS.txt` i `release-manifest.json`).
-  - Plik `release-manifest.json`: poprawny format JSON, wersja `1.2.0`, commit `0f56ada...`, key_id `splogbook-release-2026-02`.
-  - Plik `release-manifest.json.sig`: zweryfikowany pomyślnie narzędziem `splogbook-signer verify` oraz biblioteką kryptograficzną Ed25519.
+- **Rodzaj klucza w dry-run:** `PRODUCTION_KEY` (`RELEASE_SIGNING_KEY`, zweryfikowany zaufany fingerprint `2a6277b7...`, usunięty przez trap EXIT po podpisaniu).
+- **Niezależna walidacja pobranych artefaktów (`gh run download 41317314042`):**
+  - Plik `SPLogbook-Linux-x86_64.tar.gz` (20 581 313 B): SHA-256 `fa8bc562716055e34c588d47de486cb3bd235ddcef64ddfc49714af8e9d6394e` (w 100% zgodny z `SHA256SUMS.txt` i `release-manifest.json`).
+  - Plik `SPLogbook-Windows-x64.zip` (20 871 479 B): SHA-256 `690aca91ee5c9ce8d24863ab8158b4e6e6aacd8f429224e4b55d670f3392c15e` (w 100% zgodny z `SHA256SUMS.txt` i `release-manifest.json`).
+  - Plik `release-manifest.json`: poprawny format JSON, wersja `1.2.0`, commit `75ef9651...`, key_id `splogbook-release-2026-02`.
+  - Plik `release-manifest.json.sig`: zweryfikowany pomyślnie narzędziem `splogbook-signer verify` oraz zaufanym kluczem produkcyjnym.
   - Czystość artefaktów: brak jakichkolwiek kluczy prywatnych ani poświadczeń.
 - **Ostateczny status potoku:** **RELEASE_PIPELINE_READY**.
