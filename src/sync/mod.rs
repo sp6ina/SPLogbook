@@ -19,6 +19,11 @@ pub use catchup::{
     CatchUpHandler, MAX_CHUNK_BYTES, MAX_RECORD_BYTES, chunk_inventory, chunk_records,
     chunk_requests,
 };
+#[cfg(test)]
+pub use catchup::{
+    chunk_inventory_reference, chunk_records_reference, chunk_requests_reference,
+    get_serialization_count, reset_serialization_count,
+};
 pub use crypto::*;
 pub use error::SyncError;
 pub use frame::{MAX_FRAME_BYTES, decode_length, encode_length, read_frame, write_frame};
@@ -1962,6 +1967,379 @@ mod tests {
             }
         }
         assert!(error_reported, "RecordTooLarge error must be reported");
+    }
+
+    #[test]
+    fn chunk_inventory_preserves_order_and_size_limit() {
+        let empty_chunks = chunk_inventory("DEFAULT", &[]);
+        assert_eq!(empty_chunks.len(), 1);
+        if let Message::Inventory {
+            identities, last, ..
+        } = &empty_chunks[0]
+        {
+            assert_eq!(identities.as_slice(), []);
+            assert!(*last);
+        }
+
+        let one_id = vec![QsoIdentity::from_fields(
+            "SP6INA", "20m", "CW", "20261018", "120000",
+        )];
+        let one_chunks = chunk_inventory("DEFAULT", &one_id);
+        assert_eq!(one_chunks.len(), 1);
+        if let Message::Inventory {
+            identities, last, ..
+        } = &one_chunks[0]
+        {
+            assert_eq!(identities.as_slice(), one_id.as_slice());
+            assert!(*last);
+        }
+
+        let special_ids: Vec<QsoIdentity> = vec![
+            QsoIdentity::from_fields("SP6INA/ŁÓDŹ", "20m", "CW", "20261018", "120000"),
+            QsoIdentity::from_fields("SP5\"QUOTE\"", "40m", "SSB", "20261018", "120100"),
+            QsoIdentity::from_fields("SP1\\SLASH\\", "80m", "RTTY", "20261018", "120200"),
+            QsoIdentity::from_fields("SP2\nLINE\n", "15m", "FT8", "20261018", "120300"),
+            QsoIdentity::from_fields("JA1東京", "10m", "CW", "20261018", "120400"),
+        ];
+        let special_chunks = chunk_inventory("DEFAULT", &special_ids);
+        assert_eq!(special_chunks.len(), 1);
+        let bytes = serde_json::to_vec(&special_chunks[0]).unwrap();
+        assert!(bytes.len() <= MAX_CHUNK_BYTES);
+        let deserialized: Message = serde_json::from_slice(&bytes).unwrap();
+        if let Message::Inventory { identities, .. } = deserialized {
+            assert_eq!(identities, special_ids);
+        } else {
+            panic!("Wrong message type");
+        }
+
+        let many_ids: Vec<QsoIdentity> = (0..20_000)
+            .map(|i| {
+                let call = format!("ORDER_TEST_CALL_{i}");
+                QsoIdentity::from_fields(&call, "20m", "CW", "20261018", "120000")
+            })
+            .collect();
+        let chunks = chunk_inventory("DEFAULT", &many_ids);
+        assert!(chunks.len() > 1);
+
+        let mut reconstructed = Vec::new();
+        for (idx, chunk) in chunks.iter().enumerate() {
+            let bytes = serde_json::to_vec(chunk).unwrap();
+            assert!(bytes.len() <= MAX_CHUNK_BYTES);
+            let des: Message = serde_json::from_slice(&bytes).unwrap();
+            if let Message::Inventory {
+                identities, last, ..
+            } = des
+            {
+                if idx == chunks.len() - 1 {
+                    assert!(last);
+                } else {
+                    assert!(!last);
+                }
+                reconstructed.extend(identities);
+            }
+        }
+        assert_eq!(reconstructed.len(), many_ids.len());
+        assert_eq!(
+            reconstructed, many_ids,
+            "Kolejność i unikalność muszą być identyczne"
+        );
+    }
+
+    #[test]
+    fn chunk_requests_preserves_order_and_size_limit() {
+        let empty_chunks = chunk_requests(&[]);
+        assert_eq!(empty_chunks.len(), 1);
+        if let Message::Request { identities, last } = &empty_chunks[0] {
+            assert_eq!(identities.as_slice(), []);
+            assert!(*last);
+        }
+
+        let special_ids: Vec<QsoIdentity> = vec![
+            QsoIdentity::from_fields("SP6INA/ŁÓDŹ", "20m", "CW", "20261018", "120000"),
+            QsoIdentity::from_fields("SP5\"QUOTE\"", "40m", "SSB", "20261018", "120100"),
+            QsoIdentity::from_fields("SP1\\SLASH\\", "80m", "RTTY", "20261018", "120200"),
+            QsoIdentity::from_fields("SP2\nLINE\n", "15m", "FT8", "20261018", "120300"),
+        ];
+        let special_chunks = chunk_requests(&special_ids);
+        assert_eq!(special_chunks.len(), 1);
+        let bytes = serde_json::to_vec(&special_chunks[0]).unwrap();
+        assert!(bytes.len() <= MAX_CHUNK_BYTES);
+        let des: Message = serde_json::from_slice(&bytes).unwrap();
+        if let Message::Request { identities, .. } = des {
+            assert_eq!(identities, special_ids);
+        }
+
+        let many_ids: Vec<QsoIdentity> = (0..20_000)
+            .map(|i| {
+                let call = format!("REQ_ORDER_TEST_{i}");
+                QsoIdentity::from_fields(&call, "40m", "SSB", "20261018", "130000")
+            })
+            .collect();
+        let chunks = chunk_requests(&many_ids);
+        assert!(chunks.len() > 1);
+
+        let mut reconstructed = Vec::new();
+        for (idx, chunk) in chunks.iter().enumerate() {
+            let bytes = serde_json::to_vec(chunk).unwrap();
+            assert!(bytes.len() <= MAX_CHUNK_BYTES);
+            let des: Message = serde_json::from_slice(&bytes).unwrap();
+            if let Message::Request { identities, last } = des {
+                if idx == chunks.len() - 1 {
+                    assert!(last);
+                } else {
+                    assert!(!last);
+                }
+                reconstructed.extend(identities);
+            }
+        }
+        assert_eq!(reconstructed.len(), many_ids.len());
+        assert_eq!(reconstructed, many_ids);
+    }
+
+    #[test]
+    fn chunk_records_preserves_order_and_size_limit() {
+        let empty_chunks = chunk_records(&[], None);
+        assert_eq!(empty_chunks.len(), 1);
+        if let Message::Records { qsos, last } = &empty_chunks[0] {
+            assert_eq!(qsos.as_slice(), []);
+            assert!(*last);
+        }
+
+        let mut rec1 = sample_qso("SP6INA");
+        rec1.comment = Some("Zażółć gęślą jaźń\nLine2\t\"quoted\"\\backslash".to_string());
+        let mut rec2 = sample_qso("SP5KAB");
+        rec2.comment = Some("Kolejny rekord testowy".to_string());
+        let records = vec![rec1.clone(), rec2.clone()];
+
+        let chunks = chunk_records(&records, None);
+        assert_eq!(chunks.len(), 1);
+        let bytes = serde_json::to_vec(&chunks[0]).unwrap();
+        assert!(bytes.len() <= MAX_CHUNK_BYTES);
+        let des: Message = serde_json::from_slice(&bytes).unwrap();
+        if let Message::Records { qsos, .. } = des {
+            assert_eq!(qsos.len(), 2);
+            assert_eq!(qsos[0].comment, rec1.comment);
+            assert_eq!(qsos[1].comment, rec2.comment);
+        }
+
+        let many_records: Vec<QsoRecord> = (0..4_000)
+            .map(|i| {
+                let mut q = sample_qso(&format!("REC_ORD_{i}"));
+                q.comment = Some("C".repeat(400));
+                q
+            })
+            .collect();
+        let chunks = chunk_records(&many_records, None);
+        assert!(chunks.len() > 1);
+
+        let mut reconstructed = Vec::new();
+        for (idx, chunk) in chunks.iter().enumerate() {
+            let bytes = serde_json::to_vec(chunk).unwrap();
+            assert!(bytes.len() <= MAX_CHUNK_BYTES);
+            let des: Message = serde_json::from_slice(&bytes).unwrap();
+            if let Message::Records { qsos, last } = des {
+                if idx == chunks.len() - 1 {
+                    assert!(last);
+                } else {
+                    assert!(!last);
+                }
+                reconstructed.extend(qsos);
+            }
+        }
+        assert_eq!(reconstructed.len(), many_records.len());
+        assert_eq!(reconstructed, many_records);
+    }
+
+    #[test]
+    fn chunk_inventory_handles_exact_boundary() {
+        let empty_msg = Message::Inventory {
+            journal: "DEFAULT".to_string(),
+            identities: Vec::new(),
+            last: false,
+        };
+        let empty_len = serde_json::to_vec(&empty_msg).unwrap().len();
+
+        let id_fit = QsoIdentity::from_fields("SP6INA", "20m", "CW", "20261018", "120000");
+        let id_fit_len = serde_json::to_vec(&id_fit).unwrap().len();
+        assert!(empty_len + id_fit_len <= MAX_CHUNK_BYTES);
+
+        let chunks = chunk_inventory("DEFAULT", &[id_fit]);
+        assert_eq!(chunks.len(), 1);
+        let bytes = serde_json::to_vec(&chunks[0]).unwrap();
+        assert!(bytes.len() <= MAX_CHUNK_BYTES);
+    }
+
+    #[test]
+    fn chunk_requests_handles_exact_boundary() {
+        let empty_msg = Message::Request {
+            identities: Vec::new(),
+            last: false,
+        };
+        let empty_len = serde_json::to_vec(&empty_msg).unwrap().len();
+
+        let id_fit = QsoIdentity::from_fields("SP6INA", "20m", "CW", "20261018", "120000");
+        let id_fit_len = serde_json::to_vec(&id_fit).unwrap().len();
+        assert!(empty_len + id_fit_len <= MAX_CHUNK_BYTES);
+
+        let chunks = chunk_requests(&[id_fit]);
+        assert_eq!(chunks.len(), 1);
+        let bytes = serde_json::to_vec(&chunks[0]).unwrap();
+        assert!(bytes.len() <= MAX_CHUNK_BYTES);
+    }
+
+    #[test]
+    fn chunk_records_handles_exact_boundary() {
+        let (tx, _rx) = std::sync::mpsc::channel();
+
+        let mut rec_under = sample_qso("UNDER_LIMIT");
+        rec_under.comment = Some("U".repeat(5_900_000));
+        let size_under = serde_json::to_vec(&rec_under).unwrap().len();
+        assert!(size_under <= MAX_RECORD_BYTES);
+
+        let chunks = chunk_records(&[rec_under], Some(&tx));
+        assert_eq!(chunks.len(), 1);
+        if let Message::Records { qsos, last } = &chunks[0] {
+            assert_eq!(qsos.len(), 1);
+            assert_eq!(qsos[0].callsign, "UNDER_LIMIT");
+            assert!(*last);
+        }
+
+        let mut rec_over = sample_qso("OVER_LIMIT");
+        rec_over.comment = Some("O".repeat(MAX_RECORD_BYTES + 1024));
+        let chunks_over = chunk_records(&[rec_over], Some(&tx));
+        assert_eq!(chunks_over.len(), 1);
+        if let Message::Records { qsos, last } = &chunks_over[0] {
+            assert_eq!(qsos.as_slice(), []);
+            assert!(*last);
+        }
+    }
+
+    #[test]
+    fn catchup_chunking_15k_identities_has_linear_serialization_count() {
+        let identities: Vec<QsoIdentity> = (0..15_000)
+            .map(|i| {
+                let call = format!("CALL_{i}");
+                QsoIdentity::from_fields(&call, "20m", "CW", "20261018", "120000")
+            })
+            .collect();
+
+        reset_serialization_count();
+        let chunks_inv = chunk_inventory("DEFAULT", &identities);
+        let count_inv = get_serialization_count();
+        assert!(chunks_inv.len() > 1);
+        assert!(
+            count_inv <= 15_000 + 10,
+            "Liczba serializacji ({count_inv}) musi być liniowa <= N+10"
+        );
+
+        reset_serialization_count();
+        let chunks_req = chunk_requests(&identities);
+        let count_req = get_serialization_count();
+        assert!(chunks_req.len() > 1);
+        assert!(
+            count_req <= 15_000 + 10,
+            "Liczba serializacji ({count_req}) musi być liniowa <= N+10"
+        );
+    }
+
+    #[test]
+    fn catchup_chunking_scaling_ratio_is_near_linear() {
+        let sizes = [2_000, 4_000, 8_000, 15_000];
+        let mut ser_counts = Vec::new();
+
+        for &n in &sizes {
+            let identities: Vec<QsoIdentity> = (0..n)
+                .map(|i| {
+                    let call = format!("SCALE_CALL_{i}");
+                    QsoIdentity::from_fields(&call, "20m", "CW", "20261018", "120000")
+                })
+                .collect();
+
+            reset_serialization_count();
+            let start = std::time::Instant::now();
+            let chunks = chunk_inventory("DEFAULT", &identities);
+            let elapsed = start.elapsed();
+            let count = get_serialization_count();
+            assert_ne!(chunks.len(), 0);
+            ser_counts.push(count);
+
+            if n == 15_000 {
+                assert!(
+                    elapsed < Duration::from_millis(2000),
+                    "Czas dla 15k elementów ({elapsed:?}) przekracza limit bezpieczeństwa 2000ms"
+                );
+            }
+        }
+
+        let ratio_4k_2k = (ser_counts[1] as f64) / (ser_counts[0] as f64);
+        assert!(
+            ratio_4k_2k < 2.5,
+            "Stosunek serializacji 4k/2k ({ratio_4k_2k}) wskazuje nieliniowość (musi być < 2.5)"
+        );
+
+        let ratio_8k_4k = (ser_counts[2] as f64) / (ser_counts[1] as f64);
+        assert!(
+            ratio_8k_4k < 2.5,
+            "Stosunek serializacji 8k/4k ({ratio_8k_4k}) wskazuje nieliniowość (musi być < 2.5)"
+        );
+    }
+
+    #[test]
+    fn optimized_inventory_chunking_matches_reference_for_small_inputs() {
+        for n in [0, 1, 2, 5, 20, 50, 100] {
+            let identities: Vec<QsoIdentity> = (0..n)
+                .map(|i| {
+                    let call = format!("REF_TEST_CALL_{i}");
+                    QsoIdentity::from_fields(&call, "20m", "CW", "20261018", "120000")
+                })
+                .collect();
+
+            let opt = chunk_inventory("DEFAULT", &identities);
+            let reference = chunk_inventory_reference("DEFAULT", &identities);
+            assert_eq!(
+                opt, reference,
+                "Zoptymalizowany podział dla N={n} nie zgadza się z referencyjnym"
+            );
+        }
+    }
+
+    #[test]
+    fn optimized_requests_chunking_matches_reference_for_small_inputs() {
+        for n in [0, 1, 2, 5, 20, 50, 100] {
+            let identities: Vec<QsoIdentity> = (0..n)
+                .map(|i| {
+                    let call = format!("REF_REQ_CALL_{i}");
+                    QsoIdentity::from_fields(&call, "40m", "SSB", "20261018", "130000")
+                })
+                .collect();
+
+            let opt = chunk_requests(&identities);
+            let reference = chunk_requests_reference(&identities);
+            assert_eq!(
+                opt, reference,
+                "Zoptymalizowany podział requests dla N={n} nie zgadza się z referencyjnym"
+            );
+        }
+    }
+
+    #[test]
+    fn optimized_records_chunking_matches_reference_for_small_inputs() {
+        for n in [0, 1, 2, 5, 20, 50] {
+            let records: Vec<QsoRecord> = (0..n)
+                .map(|i| {
+                    let mut q = sample_qso(&format!("REF_REC_{i}"));
+                    q.comment = Some("Ref comment".repeat(i + 1));
+                    q
+                })
+                .collect();
+
+            let opt = chunk_records(&records, None);
+            let reference = chunk_records_reference(&records, None);
+            assert_eq!(
+                opt, reference,
+                "Zoptymalizowany podział records dla N={n} nie zgadza się z referencyjnym"
+            );
+        }
     }
 
     #[tokio::test]
