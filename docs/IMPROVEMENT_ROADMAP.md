@@ -137,14 +137,15 @@ flowchart LR
 
 ### Etap 2 — Naprawa Auto-Updatera i Potoku Wydawniczego GitHub Actions (`P0`) — ZREALIZOWANY (REL-001, CI-001)
 - **Cel:** Zapewnienie działających, kryptograficznie podpisanych aktualizacji na Windows i Linux (`REL-001`, `CI-001`).
-- **Status remediacji:** `FIXED` (2026-11-01, commity `9ac1e5b`, `cdcb955`, `16892e8`)
+- **Status remediacji:** **FIXED / VERIFIED_NATIVE_CI / RELEASE_PIPELINE_READY** (2026-11-01, commity `9ac1e5b`, `cdcb955`, `16892e8`, `9557db8`, `3ebd8ac`, `7125c66`, `0f56ada`)
+- **Zweryfikowany przebieg GitHub Actions dry-run:** Run ID `41312118501` (ref `main`, commit `0f56ada`, 100% zielony: Windows 28m30s, Linux 18m52s, Signing 6m01s; Create Release: SKIPPED; tagi: brak; wydanie: brak; niezależna walidacja pobranych artefaktów: potwierdzona).
 - **Zrealizowany zakres:**
   - `REL-001` (Auto-updater): Wymuszono dobór `.zip` na Windows i `.tar.gz` na Linux; plik tymczasowy na Windows pobierany jako `.SPLogbook_update_{pid}.zip`; bezpieczna ekstrakcja `extract_tar_gz_safe` i `extract_zip_safe_windows` z ochroną przed path traversal (`validate_archive_relative_path`), odrzucaniem symlinków/hardlinków i limitami `ArchiveLimits`; spłaszczanie pojedynczego katalogu głównego (`flatten_single_root_directory`); atomowa podmiana instalacji z automatycznym backupem i natychmiastowym rollbackiem przy błędzie (`apply_atomic_installation_with_options`); wymuszenie masek `0o755`/`0o644` bez bitów setuid/setgid/sticky.
   - `CI-001` (Workflow release): Ograniczenie uprawnień do `contents: read` (z wyjątkiem publish-release); obsługa `dry_run` w `workflow_dispatch`; wymuszenie fail-closed przy braku `RELEASE_SIGNING_KEY`; kontrola kompletności i jednoznaczności archiwów; generowanie i autoweryfikacja `SHA256SUMS.txt`; deterministyczny manifest `release-manifest.json` podpisany kluczem `splogbook-release-2026-02`; weryfikacja sygnatury przed publikacją; blokada publikacji niepodpisanego wydania.
   - Dokumentacja: Dodano kompleksowy dokument architektury bezpieczeństwa `docs/RELEASE_SECURITY.md`.
 - **Pliki i moduły:** `src/cloud/updater.rs`, `src/bin/signer.rs`, `.github/workflows/build-and-release.yml`, `tests/security_guard.rs`, `docs/RELEASE_SECURITY.md`.
-- **Testy regresyjne:** 14 testów bezpieczeństwa archiwów + 25 testów auto-updatera w `updater.rs` + 28 testów strażnika bezpieczeństwa w `tests/security_guard.rs` (wszystkie zielone).
-- **Stan gotowości wydawniczej:** `RELEASE_PIPELINE_READY`.
+- **Testy regresyjne:** 57 testów auto-updatera i bezpieczeństwa archiwów w `updater.rs` + 29 testów strażnika bezpieczeństwa w `tests/security_guard.rs` (wszystkie zielone).
+- **Stan gotowości wydawniczej:** `RELEASE_PIPELINE_READY` (potwierdzony po natywnym i zielonym przebiegu GitHub Actions dry-run `41312118501`).
 
 ---
 

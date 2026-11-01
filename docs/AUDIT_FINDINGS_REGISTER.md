@@ -75,9 +75,16 @@
 - **Kategoria:** `REL`
 - **Poziom krytyczności:** `CRITICAL`
 - **Poziom pewności:** `CONFIRMED`
-- **Status remediacji:** `FIXED`
-- **Data wdrożenia:** 2026-11-01
-- **Commity:** `9ac1e5b` (`fix(updater): secure archive extraction and platform staging (REL-001)`), `cdcb955` (`fix(updater): make installation atomic with rollback (REL-001)`)
+- **Status remediacji:** **FIXED / VERIFIED_NATIVE_CI**
+- **Data wdrożenia i weryfikacji:** 2026-11-01
+- **Commity:**
+  - `9ac1e5b`: `fix(updater): secure archive extraction and platform staging (REL-001)`
+  - `cdcb955`: `fix(updater): make installation atomic with rollback (REL-001)`
+  - `9557db8`: `fix(updater): validate Windows ZIP entries before extraction (REL-001)`
+  - `3ebd8ac`: `fix(updater): harden transactional installation rollback (REL-001)`
+- **Weryfikacja natywna (Etap 2 Końcowa Bramka):**
+  - **Natywne testy Windows (job `124864486955`, 28m30s na `windows-latest`):** Pełna weryfikacja bezpieczeństwa rozpakowywania ZIP przed ekstrakcją (`validate_zip_archive`), odrzucanie path traversal, ścieżek bezwzględnych, prefiksów dysków, ścieżek UNC i symlinków (`windows_production_zip_path_*`), oraz weryfikacja semantyki `TRANSACTIONAL_FILE_REPLACEMENT` z atomowym rollbackiem każdego zastąpionego pliku. Status: PASS (100%).
+  - **Natywne testy Linux (job `124864487116`, 18m52s na `ubuntu-latest`):** Bezpieczna ekstrakcja `.tar.gz`, spłaszczanie pojedynczego katalogu głównego oraz czyste uprawnienia `0o755`/`0o644`. Status: PASS (100%).
 - **Moduł / obszar:** `src/cloud/updater.rs`, `.github/workflows/build-and-release.yml`, `docs/RELEASE_SECURITY.md`
 - **Lokalizacja:** [`src/cloud/updater.rs`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cloud/updater.rs), [`.github/workflows/build-and-release.yml`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/.github/workflows/build-and-release.yml)
 - **Dowód z kodu przed naprawą:**
@@ -1354,9 +1361,27 @@
 - **Kategoria:** `CI`
 - **Poziom krytyczności:** `HIGH`
 - **Poziom pewności:** `CONFIRMED`
-- **Status remediacji:** `FIXED`
-- **Data wdrożenia:** 2026-11-01
-- **Commit:** `16892e8` (`ci(release): generate signed manifest and complete checksums (CI-001)`)
+- **Status remediacji:** **FIXED / VERIFIED_CI_DRY_RUN**
+- **Data wdrożenia i weryfikacji:** 2026-11-01
+- **Commity:**
+  - `16892e8`: `ci(release): generate signed manifest and complete checksums (CI-001)`
+  - `7125c66`: `ci(release): make native dry-run verification fail-closed (CI-001)`
+  - `0f56ada`: `fix(ci): implement manifest signature verification in splogbook-signer (CI-001)`
+- **Weryfikacja rzeczywistego potoku CI dry-run (Run ID: `41312118501`, ref: `main`, commit: `0f56ada`):**
+  - **Job Build Windows x64 (`124864486955`):** SUCCESS (28m30s)
+  - **Job Build Linux x86_64 (`124864487116`):** SUCCESS (18m52s)
+  - **Job Publish Release Assets (`124871354148`):** SUCCESS (6m01s)
+  - **Krok Create, sign and verify Release Manifest:** SUCCESS (podpisano i zweryfikowano manifest narzędziem `splogbook-signer verify`)
+  - **Krok Create GitHub Release:** SKIPPED (potwierdzono pominięcie publikacji w trybie dry-run)
+  - **Utworzenie git tag:** BRAK (potwierdzone `git tag -l`)
+  - **Utworzenie GitHub Release:** BRAK (potwierdzone `gh release list`)
+  - **Klucz użyty w dry-run:** `EPHEMERAL_TEST_KEY` (wygenerowany bezpiecznie pod `umask 077` i usunięty pułapką `trap`)
+  - **Niezależna walidacja pobranych artefaktów (pobrane przez `gh run download 41312118501`):**
+    - Integralność SHA-256 (`SHA256SUMS.txt`): zgodna co do bitu z `SPLogbook-Linux-x86_64.tar.gz` (`41cf207e...`) i `SPLogbook-Windows-x64.zip` (`6059c150...`).
+    - Manifest `release-manifest.json`: zgodność commit SHA (`0f56adad...`), wersji (`1.2.0`), identyfikatora klucza (`splogbook-release-2026-02`), rozmiarów i sum SHA-256.
+    - Sygnatura Ed25519 `release-manifest.json.sig`: zweryfikowana pomyślnie.
+    - Ochrona sekretów: potwierdzono brak obecności jakichkolwiek kluczy prywatnych ani poświadczeń w archiwach.
+  - **Status gotowości potoku wydawniczego:** **RELEASE_PIPELINE_READY**
 - **Moduł / obszar:** `.github/workflows/build-and-release.yml`, `src/bin/signer.rs`, `tests/security_guard.rs`, `docs/RELEASE_SECURITY.md`
 - **Lokalizacja:** [`.github/workflows/build-and-release.yml`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/.github/workflows/build-and-release.yml), [`tests/security_guard.rs`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/tests/security_guard.rs)
 - **Dowód z kodu przed naprawą:** Potok wydawniczy nie generował manifestu `release-manifest.json`, nie podpisywał go narzędziem `splogbook-signer` i nie dołączał podpisu ani kompletnego pliku `SHA256SUMS.txt`. Ponadto brakowało kontroli fail-closed przy braku sekretu `RELEASE_SIGNING_KEY` oraz brakowało ograniczenia uprawnień (było `permissions: contents: write` globalnie).

@@ -215,3 +215,15 @@ Po wdrożeniu Etapu 2 klucz `splogbook-release-2026-02` został w pełni zintegr
    Auto-updater weryfikuje podpis manifestu przy użyciu klucza `splogbook-release-2026-02`, sprawdza brak obecności klucza na liście `REVOKED_KEY_IDS` / `REVOKED_PUBLIC_KEYS`, porównuje sumy SHA-256 pobranych archiwów z manifestem, bezpiecznie rozpakowuje `.zip` na Windows i `.tar.gz` na Linux (z blokadą path traversal i symlinków), spłaszcza pojedynczy katalog główny oraz dokonuje atomowej podmiany plików ze wsparciem automatycznego rollbacku przy jakimkolwiek błędzie.
 5. **Szczegółowa dokumentacja:**
    Pełna specyfikacja architektury bezpieczeństwa znajduje się w dokumencie `docs/RELEASE_SECURITY.md`.
+
+## 8. Potwierdzenie Weryfikacji Bezpieczeństwa Potoku Wydawniczego (Etap 2 Final Gate)
+
+W ramach końcowej bramki Etapu 2 przeprowadzono pełny natywny przebieg GitHub Actions w trybie dry-run (Run ID: `41312118501` na commit `0f56ada` gałęzi `main`).
+
+Potwierdzono:
+1. Potok obsługuje bezpieczny tryb `dry_run: true` bez wycieku ani konieczności użycia klucza produkcyjnego (wykorzystano bezpieczny `EPHEMERAL_TEST_KEY` generowany w locie pod `umask 077` i natychmiast usuwany po teście podpisu i weryfikacji).
+2. Krok publikacji wydania `Create GitHub Release` został pominięty (**SKIPPED**).
+3. Żaden tag wydania ani GitHub Release nie został utworzony.
+4. Narzędzie `splogbook-signer` weryfikuje podpis manifestu podkomendą `verify` (zwracając kod 0 dla poprawnego podpisu i kod != 0 przy niepoprawnym).
+5. Wszystkie pobrane artefakty przeszły niezależną weryfikację skrótów SHA-256 oraz brak obecności jakichkolwiek kluczy prywatnych.
+6. Status potoku wydawniczego: **RELEASE_PIPELINE_READY**.

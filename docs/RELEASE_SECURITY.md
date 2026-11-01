@@ -296,3 +296,27 @@ Po wdrożeniu Etapu 2 (REL-001 + CI-001):
 - Wyeliminowano ryzyko publikacji niepodpisanego wydania (fail-closed).
 - Wszystkie testy jednostkowe, integracyjne i testy strażników bezpieczeństwa przechodzą na zielono.
 - Stan wydawniczy SPLogbook: **`RELEASE_PIPELINE_READY`**.
+
+## 8. Potwierdzenie Weryfikacji Potoku w Trybie Dry-Run (Etap 2 Final Gate)
+
+W ramach końcowej bramki weryfikacyjnej Etapu 2 przeprowadzono rzeczywisty, pełny i natywny przebieg potoku wydawniczego na GitHub Actions:
+
+- **Identyfikator przebiegu (Run ID):** `41312118501`
+- **Gałąź i commit:** `main` (`0f56adad90884166debe71245ee7bd5e6441de59`)
+- **Zdarzenie i parametry:** `workflow_dispatch` z `dry_run: true`
+- **Wyniki poszczególnych zadań:**
+  - `Build Windows x64` (`124864486955`): **SUCCESS** (28m 30s) — wykonano natywne testy jednostkowe i testy bezpieczeństwa `windows_production_zip_path_*`, skompilowano binarkę w profilu release, spakowano archiwum ZIP i przesłano artefakt.
+  - `Build Linux x86_64` (`124864487116`): **SUCCESS** (18m 52s) — wykonano natywne testy na runnerze Ubuntu, zbudowano Hamlib 4.7.2, skompilowano binarkę release, spakowano `.tar.gz` i przesłano artefakt.
+  - `Publish Release Assets` (`124871354148`): **SUCCESS** (6m 01s) — pobrano artefakty Windows i Linux, zbudowano `splogbook-signer`, wygenerowano `SHA256SUMS.txt`, wygenerowano i podpisano `release-manifest.json`, zweryfikowano podpis (`splogbook-signer verify`), przesłano kompletny zestaw artefaktów manifestu.
+- **Krok Create GitHub Release:** **SKIPPED** (zgodnie z kontraktem fail-safe dla trybu dry-run).
+- **Weryfikacja braku publikacji:**
+  - Utworzenie git tag: **BRAK** (potwierdzone przez `git tag -l`).
+  - Utworzenie GitHub Release: **BRAK** (potwierdzone przez `gh release list`).
+- **Rodzaj klucza w dry-run:** `EPHEMERAL_TEST_KEY` (wygenerowany bezpiecznie pod umask 077 i usunięty przez pułapkę trap po zweryfikowaniu podpisu).
+- **Niezależna walidacja pobranych artefaktów (`gh run download 41312118501`):**
+  - Plik `SPLogbook-Linux-x86_64.tar.gz` (20 581 322 B): SHA-256 `41cf207ed111a565a9ec62bb718c5770be5136f96d90dd1be94ff836acf3569f` (w 100% zgodny z `SHA256SUMS.txt` i `release-manifest.json`).
+  - Plik `SPLogbook-Windows-x64.zip` (20 871 479 B): SHA-256 `6059c150c3158357c009832f9282f9fe23025b2be6063bcd4955b0ff8147d776` (w 100% zgodny z `SHA256SUMS.txt` i `release-manifest.json`).
+  - Plik `release-manifest.json`: poprawny format JSON, wersja `1.2.0`, commit `0f56ada...`, key_id `splogbook-release-2026-02`.
+  - Plik `release-manifest.json.sig`: zweryfikowany pomyślnie narzędziem `splogbook-signer verify` oraz biblioteką kryptograficzną Ed25519.
+  - Czystość artefaktów: brak jakichkolwiek kluczy prywatnych ani poświadczeń.
+- **Ostateczny status potoku:** **RELEASE_PIPELINE_READY**.
