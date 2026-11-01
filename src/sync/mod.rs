@@ -26,7 +26,10 @@ pub use catchup::{
 };
 pub use crypto::*;
 pub use error::SyncError;
-pub use frame::{MAX_FRAME_BYTES, decode_length, encode_length, read_frame, write_frame};
+pub use frame::{
+    FRAME_OVERHEAD_BYTES, MAX_FRAME_BYTES, decode_length, encode_length, encoded_frame_size,
+    read_frame, write_frame,
+};
 pub use handshake::{HandshakeResult, host_handshake, peer_handshake};
 pub use host::{
     HOST_HANDSHAKE_TIMEOUT, IDLE_TIMEOUT, MAX_ACTIVE_PEERS, MAX_HANDSHAKES, PING_INTERVAL, SyncHost,
@@ -2245,6 +2248,242 @@ mod tests {
             assert_eq!(qsos.as_slice(), []);
             assert!(*last);
         }
+    }
+
+    #[tokio::test]
+    async fn single_large_record_roundtrips_through_production_frame_codec() {
+        let key = [0x5Au8; KEY_LEN];
+        let session_id = [0x33u8; SESSION_ID_LEN];
+        let send_dir = DIRECTION_HOST_TO_PEER;
+        let counter = 42u64;
+        let aad = build_aad(&session_id, send_dir, counter);
+
+        let cases = [
+            ("1MIB_PLUS_1", 1024 * 1024 + 1),
+            ("APPROX_2MIB", 2 * 1024 * 1024),
+            ("APPROX_5_9MIB", 5_900_000),
+            ("NEAR_MAX_RECORD", MAX_RECORD_BYTES - 500),
+        ];
+
+        for (call, target_size) in cases {
+            let mut rec = sample_qso(call);
+            rec.comment = None;
+            let base_len = serde_json::to_vec(&rec).unwrap().len();
+            let pad_len = target_size.saturating_sub(base_len + 15);
+            rec.comment = Some("P".repeat(pad_len));
+
+            let rec_size = serde_json::to_vec(&rec).unwrap().len();
+            assert!(
+                rec_size <= MAX_RECORD_BYTES,
+                "Rekord testowy {call} ({rec_size} B) nie moze przekraczac MAX_RECORD_BYTES"
+            );
+
+            let chunks = chunk_records(&[rec.clone()], None);
+            assert_eq!(
+                chunks.len(),
+                1,
+                "Rekord {call} musi trafic do pojedynczego dedykowanego chunku"
+            );
+
+            let chunk = &chunks[0];
+            if let Message::Records { qsos, last } = chunk {
+                assert_eq!(qsos.len(), 1);
+                assert_eq!(qsos[0].callsign, call);
+                assert!(*last);
+            } else {
+                panic!("Oczekiwano Message::Records");
+            }
+
+            let plaintext = chunk.to_json().unwrap();
+            assert_eq!(
+                plaintext.len(),
+                encoded_frame_size(plaintext.len()) - FRAME_OVERHEAD_BYTES
+            );
+
+            let encrypted = encrypt_payload(&key, &aad, &plaintext).unwrap();
+            assert!(
+                encrypted.len() <= MAX_FRAME_BYTES,
+                "Zaszyfrowana ramka ({}) musi miescic sie w MAX_FRAME_BYTES ({})",
+                encrypted.len(),
+                MAX_FRAME_BYTES
+            );
+
+            let mut wire_buffer = Vec::new();
+            write_frame(&mut wire_buffer, &encrypted).await.unwrap();
+            assert_eq!(wire_buffer.len(), 4 + encrypted.len());
+            assert_eq!(wire_buffer.len(), encoded_frame_size(plaintext.len()));
+
+            let mut cursor = std::io::Cursor::new(wire_buffer);
+            let decoded_frame = read_frame(&mut cursor).await.unwrap();
+            assert_eq!(decoded_frame, encrypted);
+
+            let decrypted_plaintext = decrypt_payload(&key, &aad, &decoded_frame).unwrap();
+            assert_eq!(decrypted_plaintext, plaintext);
+
+            let roundtripped_msg = Message::from_json(&decrypted_plaintext).unwrap();
+            if let Message::Records { qsos, last } = roundtripped_msg {
+                assert_eq!(qsos.len(), 1);
+                assert_eq!(
+                    qsos[0], rec,
+                    "Zdeserializowany rekord musi byc identyczny z wejsciowym"
+                );
+                assert!(last);
+            } else {
+                panic!("Zdeserializowano zly wariant Message");
+            }
+        }
+
+        let mut rec_over = sample_qso("OVER_MAX_RECORD");
+        rec_over.comment = Some("O".repeat(MAX_RECORD_BYTES + 1024));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let chunks_over = chunk_records(&[rec_over], Some(&tx));
+        assert_eq!(chunks_over.len(), 1);
+        if let Message::Records { qsos, .. } = &chunks_over[0] {
+            assert!(
+                qsos.is_empty(),
+                "Oversized rekord nie moze zostac wyemitowany"
+            );
+        }
+        let evt = rx.try_recv().unwrap();
+        match evt {
+            SyncEvent::Error(SyncError::RecordTooLarge { size, limit }) => {
+                assert!(size > MAX_RECORD_BYTES);
+                assert_eq!(limit, MAX_RECORD_BYTES);
+            }
+            other => panic!("Oczekiwano bledu RecordTooLarge, otrzymano: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn frame_decoder_rejects_length_above_transport_limit() {
+        let oversize_len = MAX_FRAME_BYTES + 1;
+        let mut wire = Vec::new();
+        wire.extend_from_slice(&encode_length(oversize_len));
+        wire.extend_from_slice(&[0xAA; 32]);
+
+        let mut cursor = std::io::Cursor::new(wire);
+        let err = read_frame(&mut cursor).await.unwrap_err();
+        match err {
+            SyncError::FrameTooLarge { size, limit } => {
+                assert_eq!(size, MAX_FRAME_BYTES + 1);
+                assert_eq!(limit, MAX_FRAME_BYTES);
+            }
+            other => panic!("Oczekiwano FrameTooLarge, otrzymano: {other:?}"),
+        }
+        assert_eq!(cursor.position(), 4);
+    }
+
+    #[tokio::test]
+    async fn frame_decoder_rejects_length_overflow() {
+        let mut wire = Vec::new();
+        wire.extend_from_slice(&[0xFF, 0xFF, 0xFF, 0xFF]);
+        wire.extend_from_slice(&[0xBB; 32]);
+
+        let mut cursor = std::io::Cursor::new(wire);
+        let err = read_frame(&mut cursor).await.unwrap_err();
+        match err {
+            SyncError::FrameTooLarge { size, limit } => {
+                assert_eq!(size, u32::MAX as usize);
+                assert_eq!(limit, MAX_FRAME_BYTES);
+            }
+            other => panic!("Oczekiwano FrameTooLarge, otrzymano: {other:?}"),
+        }
+        assert_eq!(cursor.position(), 4);
+    }
+
+    #[tokio::test]
+    async fn large_record_rejection_has_no_partial_side_effects() {
+        let store = Arc::new(MemorySyncStore::new());
+        let (tx, rx) = std::sync::mpsc::channel();
+
+        let rec_ok_1 = sample_qso("VALID_CALL_1");
+        let mut rec_oversized = sample_qso("OVERSIZED_CALL");
+        rec_oversized.comment = Some("X".repeat(MAX_RECORD_BYTES + 1024));
+        let rec_ok_2 = sample_qso("VALID_CALL_2");
+
+        let input_records = vec![rec_ok_1.clone(), rec_oversized.clone(), rec_ok_2.clone()];
+        let chunks = chunk_records(&input_records, Some(&tx));
+
+        let mut error_seen = false;
+        while let Ok(evt) = rx.try_recv() {
+            if let SyncEvent::Error(SyncError::RecordTooLarge { .. }) = evt {
+                error_seen = true;
+            }
+        }
+        assert!(
+            error_seen,
+            "Zdarzenie RecordTooLarge musi zostac wyemitowane"
+        );
+
+        let mut handler = CatchUpHandler::new("DEFAULT".to_string(), store.clone(), tx);
+        for chunk in chunks {
+            if let Message::Records { qsos, .. } = chunk {
+                let _ = handler.handle_records(qsos);
+            }
+        }
+
+        let inv = store.inventory("DEFAULT").unwrap();
+        assert_eq!(inv.len(), 2);
+        assert!(inv.contains(&rec_ok_1.identity()));
+        assert!(inv.contains(&rec_ok_2.identity()));
+        assert!(
+            !inv.contains(&rec_oversized.identity()),
+            "Odrzucony rekord nie moze trafic do inwentarza"
+        );
+
+        let imported = store.records_for("DEFAULT", &inv).unwrap();
+        let calls: Vec<&str> = imported.iter().map(|q| q.callsign.as_str()).collect();
+        assert_eq!(calls.len(), 2);
+        assert!(calls.contains(&"VALID_CALL_1"));
+        assert!(calls.contains(&"VALID_CALL_2"));
+        assert!(
+            !calls.contains(&"OVERSIZED_CALL"),
+            "Odrzucony rekord nie moze trafic do bazy"
+        );
+    }
+
+    #[test]
+    fn oversized_record_rejection_does_not_claim_full_catchup_success() {
+        let store = Arc::new(MemorySyncStore::new());
+        let (tx, rx) = std::sync::mpsc::channel();
+
+        let rec_ok = sample_qso("OK_CALL");
+        let mut rec_bad = sample_qso("BAD_CALL");
+        rec_bad.comment = Some("B".repeat(MAX_RECORD_BYTES + 2048));
+
+        let chunks = chunk_records(&[rec_ok.clone(), rec_bad], Some(&tx));
+
+        let mut error_reported = false;
+        while let Ok(evt) = rx.try_recv() {
+            if let SyncEvent::Error(SyncError::RecordTooLarge { size, limit }) = evt {
+                assert!(size > MAX_RECORD_BYTES);
+                assert_eq!(limit, MAX_RECORD_BYTES);
+                error_reported = true;
+            }
+        }
+        assert!(error_reported);
+
+        let mut handler = CatchUpHandler::new("DEFAULT".to_string(), store, tx);
+        let mut total_applied = 0;
+        for chunk in chunks {
+            if let Message::Records { qsos, .. } = chunk {
+                total_applied += handler.handle_records(qsos).unwrap();
+            }
+        }
+
+        assert_eq!(
+            total_applied, 1,
+            "Sukces importu moze dotyczyc wylacznie poprawnych rekordow"
+        );
+
+        let mut applied_events = 0;
+        while let Ok(evt) = rx.try_recv() {
+            if let SyncEvent::CatchUpApplied { inserted } = evt {
+                assert_eq!(inserted, 1);
+                applied_events += 1;
+            }
+        }
+        assert_eq!(applied_events, 1);
     }
 
     #[test]
