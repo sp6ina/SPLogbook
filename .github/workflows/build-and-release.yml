@@ -50,8 +50,16 @@ jobs:
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Run unit tests
+      - name: Run unit and security tests
         run: |
+          cargo +stable fmt --all -- --check
+          cargo +stable check --workspace --all-targets --all-features
+          cargo +stable test cloud::updater
+          cargo +stable test archive_
+          cargo +stable test updater_install_flattens_single_root_directory_on_linux
+          cargo +stable test updater_rolls_back_when_linux_rename_fails
+          cargo +stable test updater_install_sets_clean_permissions_on_unix
+          cargo +stable test --test security_guard
           xvfb-run --auto-servernum cargo test -- --nocapture 2>&1 | tee test_output.log || {
             ERR_MSG=$(tail -n 30 test_output.log | tr '\n' ' ')
             echo "::error file=src/lib.rs,line=1::Tests failed: $ERR_MSG"
@@ -134,8 +142,18 @@ jobs:
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Run unit tests
-        run: cargo test --verbose
+      - name: Run unit and security tests
+        shell: pwsh
+        run: |
+          cargo +stable fmt --all -- --check
+          cargo +stable check --workspace --all-targets --all-features
+          cargo +stable test cloud::updater
+          cargo +stable test windows_production_zip_path
+          cargo +stable test updater_uses_zip_extension_for_windows_archive
+          cargo +stable test updater_rolls_back_when_windows_replace_fails
+          cargo +stable test updater_install_flattens_single_root_directory_and_uses_zip_on_windows
+          cargo +stable test --test security_guard
+          cargo test --verbose
 
       - name: Compile release binary
         run: cargo build --release
@@ -308,6 +326,15 @@ jobs:
 
           ../target/release/splogbook-signer verify release-manifest.json release-manifest.json.sig
           rm -f "../$KEY_FILE"
+
+      - name: Upload release manifest and checksums
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-manifest-and-checksums
+          path: |
+            release-staging/SHA256SUMS.txt
+            release-staging/release-manifest.json
+            release-staging/release-manifest.json.sig
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v') && github.event.inputs.dry_run != 'true'
