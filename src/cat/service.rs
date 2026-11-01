@@ -297,6 +297,15 @@ impl RigService {
             .map(crate::cat::tx_arbiter::redact_sensitive_info);
         self.snapshot.last_update = Some(tokio::time::Instant::now());
 
+        if (next == RigServiceState::Degraded
+            || next == RigServiceState::Disconnecting
+            || next == RigServiceState::Disconnected
+            || next == RigServiceState::Failed)
+            && self.snapshot.state.is_some()
+        {
+            self.snapshot.freshness = StateFreshness::Stale;
+        }
+
         let hub_event = match next {
             RigServiceState::Created => return Ok(()),
             RigServiceState::Connecting => RigHubEvent::RigConnecting,
@@ -439,12 +448,22 @@ impl RigService {
                             }
                             Ok(Err(e)) => {
                                 log::debug!("[{}] Błąd pollingu stanu: {e}", self.rig_id);
+                                if self.snapshot.state.is_some() {
+                                    self.snapshot.freshness = StateFreshness::Stale;
+                                    self.snapshot.last_update = Some(tokio::time::Instant::now());
+                                    let _ = self.snapshot_tx.send(self.snapshot.clone());
+                                }
                                 if self.snapshot.lifecycle == RigServiceState::Ready {
                                     self.set_lifecycle(RigServiceState::Degraded, Some(e.to_string()));
                                 }
                             }
                             Err(_) => {
                                 log::debug!("[{}] Timeout pollingu stanu", self.rig_id);
+                                if self.snapshot.state.is_some() {
+                                    self.snapshot.freshness = StateFreshness::Stale;
+                                    self.snapshot.last_update = Some(tokio::time::Instant::now());
+                                    let _ = self.snapshot_tx.send(self.snapshot.clone());
+                                }
                                 if self.snapshot.lifecycle == RigServiceState::Ready {
                                     self.set_lifecycle(RigServiceState::Degraded, Some("Timeout pollingu".to_string()));
                                 }

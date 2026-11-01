@@ -86,6 +86,11 @@ impl YaesuBackend {
         self.ai_active
     }
 
+    /// Zwraca informację, czy stan nadawania (PTT) został potwierdzony przez transceiver.
+    pub fn is_ptt_confirmed(&self) -> bool {
+        self.confirmed_ptt
+    }
+
     /// Zwraca ostatnio odczytaną surową wartość S-metra (000..255).
     /// Odczyt pochodzi bezpośrednio z transceivera (komenda SM0;) i nie jest
     /// poddawany arbitralnemu mapowaniu do nieoficjalnych progów S-jednostek ani dBm.
@@ -511,12 +516,13 @@ impl RigBackend for YaesuBackend {
     fn execute<'a>(&'a mut self, command: &'a RigCommand) -> BoxFuture<'a, Result<(), RigError>> {
         Box::pin(async move {
             let endpoint = self.endpoint_name();
-            let Some(transport) = self.transport.as_mut() else {
+            if self.transport.is_none() {
                 return Err(RigError::NotConnected);
-            };
+            }
 
             match command {
                 RigCommand::SetFrequency(hz) => {
+                    let transport = self.transport.as_mut().ok_or(RigError::NotConnected)?;
                     let cmd =
                         YaesuCat::format_freq_checked(false, *hz, self.profile.frequency_digits())
                             .ok_or_else(|| RigError::Protocol {
@@ -535,6 +541,7 @@ impl RigBackend for YaesuBackend {
                     Ok(())
                 }
                 RigCommand::SetMode { mode, .. } => {
+                    let transport = self.transport.as_mut().ok_or(RigError::NotConnected)?;
                     let Some(cmd) = YaesuCat::set_mode_for_model(self.profile.model_id, mode)
                     else {
                         return Err(RigError::Unsupported {
@@ -557,30 +564,62 @@ impl RigBackend for YaesuBackend {
                     let cmd = YaesuCat::set_ptt(true);
                     let encoded = self.codec.encode_command(cmd);
 
+                    let Some(transport) = self.transport.as_mut() else {
+                        return Err(RigError::NotConnected);
+                    };
+
                     if let Err(e) = transport.write_all(&encoded).await {
                         return Err(e.to_rig_error(CatBackendKind::Yaesu, &endpoint));
                     }
 
-                    // Odbierz potwierdzenie z radia
-                    self.confirmed_ptt = true;
-                    self.state.ptt = true;
-                    let _ = self.drain_incoming().await;
-                    Ok(())
+                    // Wymóg potwierdzenia sprzętowego (CAT-006): odpytanie TX; o rzeczywisty stan
+                    let f = self.roundtrip_command(YaesuCat::read_ptt(), "TX").await?;
+                    if let Some(true) = YaesuCat::parse_ptt_resp(&f.raw) {
+                        self.confirmed_ptt = true;
+                        self.state.ptt = true;
+                        Ok(())
+                    } else {
+                        self.confirmed_ptt = false;
+                        self.state.ptt = false;
+                        Err(RigError::Protocol {
+                            detail: format!(
+                                "Yaesu radio did not confirm TX transition (got '{}')",
+                                f.raw
+                            ),
+                        })
+                    }
                 }
                 RigCommand::SetPtt(false) => {
                     let cmd = YaesuCat::set_ptt(false);
                     let encoded = self.codec.encode_command(cmd);
 
+                    let Some(transport) = self.transport.as_mut() else {
+                        return Err(RigError::NotConnected);
+                    };
+
                     if let Err(e) = transport.write_all(&encoded).await {
                         return Err(e.to_rig_error(CatBackendKind::Yaesu, &endpoint));
                     }
 
-                    self.confirmed_ptt = false;
-                    self.state.ptt = false;
-                    let _ = self.drain_incoming().await;
-                    Ok(())
+                    // Wymóg potwierdzenia sprzętowego (CAT-006): odpytanie TX; o powrót do RX
+                    let f = self.roundtrip_command(YaesuCat::read_ptt(), "TX").await?;
+                    if let Some(false) = YaesuCat::parse_ptt_resp(&f.raw) {
+                        self.confirmed_ptt = false;
+                        self.state.ptt = false;
+                        Ok(())
+                    } else {
+                        self.confirmed_ptt = false;
+                        self.state.ptt = false;
+                        Err(RigError::Protocol {
+                            detail: format!(
+                                "Yaesu radio did not confirm RX transition (got '{}')",
+                                f.raw
+                            ),
+                        })
+                    }
                 }
                 RigCommand::SetSplit { enabled, .. } => {
+                    let transport = self.transport.as_mut().ok_or(RigError::NotConnected)?;
                     let cmd = YaesuCat::set_split(*enabled);
                     let encoded = self.codec.encode_command(cmd);
                     transport
@@ -592,6 +631,7 @@ impl RigBackend for YaesuBackend {
                     Ok(())
                 }
                 RigCommand::SetSplitFrequency(hz) => {
+                    let transport = self.transport.as_mut().ok_or(RigError::NotConnected)?;
                     let cmd =
                         YaesuCat::format_freq_checked(true, *hz, self.profile.frequency_digits())
                             .ok_or_else(|| RigError::Protocol {
@@ -614,6 +654,7 @@ impl RigBackend for YaesuBackend {
                     command: "SetPassband",
                 }),
                 RigCommand::SetVfo(vfo) => {
+                    let transport = self.transport.as_mut().ok_or(RigError::NotConnected)?;
                     let is_b = vfo.to_ascii_uppercase().contains('B');
                     let cmd = if is_b { "VS1;" } else { "VS0;" };
                     let encoded = self.codec.encode_command(cmd);
@@ -626,6 +667,7 @@ impl RigBackend for YaesuBackend {
                     Ok(())
                 }
                 RigCommand::SetRit(hz) => {
+                    let transport = self.transport.as_mut().ok_or(RigError::NotConnected)?;
                     let cmd = if *hz == 0 { "RT0;" } else { "RT1;" };
                     let encoded = self.codec.encode_command(cmd);
                     transport
@@ -637,6 +679,7 @@ impl RigBackend for YaesuBackend {
                     Ok(())
                 }
                 RigCommand::SetXit(hz) => {
+                    let transport = self.transport.as_mut().ok_or(RigError::NotConnected)?;
                     let cmd = if *hz == 0 { "XT0;" } else { "XT1;" };
                     let encoded = self.codec.encode_command(cmd);
                     transport
@@ -887,6 +930,8 @@ mod tests {
 
             // SetPtt(true)
             assert_eq!(read_frame(&mut server_io).await, "TX1;");
+            assert_eq!(read_frame(&mut server_io).await, "TX;");
+            server_io.write_all(b"TX1;").await.unwrap();
 
             // Podczas disconnect, ponieważ PTT było confirmed true, backend wysyła TX0;
             assert_eq!(read_frame(&mut server_io).await, "TX0;");
@@ -1088,6 +1133,8 @@ mod tests {
             assert_eq!(read_frame(&mut server_io).await, "AI1;");
 
             assert_eq!(read_frame(&mut server_io).await, "TX1;");
+            assert_eq!(read_frame(&mut server_io).await, "TX;");
+            server_io.write_all(b"TX1;").await.unwrap();
 
             // Rozłączenie przy potwierdzonym PTT: najpierw TX0;, potem AI0;
             assert_eq!(read_frame(&mut server_io).await, "TX0;");
@@ -1119,6 +1166,8 @@ mod tests {
             server_io.write_all(b"FA014074000;").await.unwrap();
             assert_eq!(read_frame(&mut server_io).await, "AI1;");
             assert_eq!(read_frame(&mut server_io).await, "TX1;");
+            assert_eq!(read_frame(&mut server_io).await, "TX;");
+            server_io.write_all(b"TX1;").await.unwrap();
             // Symulacja zablokowania odpowiedzi ze strony transceivera
             tokio::time::sleep(Duration::from_millis(600)).await;
         });
@@ -1172,6 +1221,8 @@ mod tests {
 
             // SetPtt(true)
             assert_eq!(read_frame(&mut server_io).await, "TX1;");
+            assert_eq!(read_frame(&mut server_io).await, "TX;");
+            server_io.write_all(b"TX1;").await.unwrap();
 
             // Disconnect próbuje jednorazowo wysłać TX0;
             assert_eq!(read_frame(&mut server_io).await, "TX0;");

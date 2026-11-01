@@ -901,9 +901,9 @@ impl RigHub {
             )));
         }
 
-        let update_time = snapshot.last_update.ok_or_else(|| {
+        let update_time = snapshot.last_state_update.ok_or_else(|| {
             RigHubError::TxArbiter(TxArbiterError::ResyncFailed(
-                "brak znacznika czasu aktualizacji telemetrii".to_string(),
+                "brak znacznika czasu aktualizacji telemetrii stanu".to_string(),
             ))
         })?;
 
