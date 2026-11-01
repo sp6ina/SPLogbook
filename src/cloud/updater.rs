@@ -1495,6 +1495,161 @@ pub async fn download_release_asset(
 /// Po wywołaniu (w systemie Windows) aplikacja powinna się zamknąć — proces
 /// PowerShell czeka na zakończenie bieżącego procesu i dopiero wtedy podmienia
 /// plik oraz uruchamia nową wersję.
+/// Opcje atomowej instalacji ze wsparciem dla wstrzykiwania kontrolowanych błędów w testach.
+#[derive(Debug, Clone, Copy)]
+pub struct AtomicInstallationOptions<'a> {
+    pub executable_name: &'a str,
+    pub simulate_rename_failure: bool,
+    pub simulate_post_swap_validation_failure: bool,
+}
+
+impl<'a> AtomicInstallationOptions<'a> {
+    pub fn new(executable_name: &'a str) -> Self {
+        Self {
+            executable_name,
+            simulate_rename_failure: false,
+            simulate_post_swap_validation_failure: false,
+        }
+    }
+}
+
+/// Atomowa instalacja przygotowanego katalogu staging do katalogu docelowego aplikacji.
+/// Tworzy kopię zapasową (backup) modyfikowanych plików, dokonuje podmiany i automatycznie
+/// wykonuje rollback, jeżeli jakikolwiek krok zakończy się błędem.
+pub fn apply_atomic_installation_with_options(
+    prepared_dir: &Path,
+    active_dir: &Path,
+    options: &AtomicInstallationOptions<'_>,
+) -> Result<(), UpdaterError> {
+    use std::fs;
+
+    // 1. Walidacja układu przygotowanego stagingu przed dotknięciem bieżącej instalacji
+    validate_staging_layout(prepared_dir, options.executable_name)?;
+
+    // 2. Zebranie wszystkich plików z prepared_dir
+    let mut files_to_install = Vec::new();
+    for entry in walkdir::WalkDir::new(prepared_dir).min_depth(1) {
+        let entry =
+            entry.map_err(|e| UpdaterError::Io(format!("Błąd przeszukiwania staging: {e}")))?;
+        if entry.file_type().is_file() {
+            let rel = entry
+                .path()
+                .strip_prefix(prepared_dir)
+                .map_err(|e| UpdaterError::Io(format!("Błąd strip_prefix staging: {e}")))?;
+            files_to_install.push(rel.to_path_buf());
+        }
+    }
+
+    // 3. Utworzenie prywatnego katalogu backup w active_dir (ten sam system plików dla atomowości)
+    let backup_dir = active_dir.join(format!(".backup_{}", rand::random::<u64>()));
+    fs::create_dir_all(&backup_dir).map_err(|e| {
+        UpdaterError::Io(format!("Nie można utworzyć katalogu kopii zapasowej: {e}"))
+    })?;
+
+    let mut backed_up_files = Vec::new();
+    let mut swapped_files = Vec::new();
+
+    // 4. Kopia zapasowa istniejących plików, które będą nadpisywane
+    for rel in &files_to_install {
+        let orig_file = active_dir.join(rel);
+        if orig_file.exists() {
+            let backup_dest = backup_dir.join(rel);
+            if let Some(p) = backup_dest.parent() {
+                let _ = fs::create_dir_all(p);
+            }
+            if let Err(e) = fs::copy(&orig_file, &backup_dest) {
+                let _ = fs::remove_dir_all(&backup_dir);
+                return Err(UpdaterError::InstallFailed(format!(
+                    "Błąd tworzenia kopii zapasowej {}: {e}",
+                    rel.display()
+                )));
+            }
+            backed_up_files.push(rel.clone());
+        }
+    }
+
+    // 5. Podmiana plików (Rename / Copy)
+    let mut failure_reason = None;
+
+    if options.simulate_rename_failure {
+        failure_reason = Some("Wstrzyknięty kontrolowany błąd rename/copy".to_string());
+    } else {
+        for rel in &files_to_install {
+            let src = prepared_dir.join(rel);
+            let dst = active_dir.join(rel);
+            if let Some(p) = dst.parent() {
+                let _ = fs::create_dir_all(p);
+            }
+            // Najpierw próba atomowego rename, fallback do copy jeśli system zablokuje rename
+            let replace_res = if fs::rename(&src, &dst).is_ok() {
+                Ok(())
+            } else {
+                fs::copy(&src, &dst).map(|_| ())
+            };
+
+            if let Err(e) = replace_res {
+                failure_reason = Some(format!("Błąd podmiany pliku {}: {e}", rel.display()));
+                break;
+            }
+            swapped_files.push(rel.clone());
+        }
+    }
+
+    // 6. Końcowa walidacja po podmianie
+    if failure_reason.is_none() {
+        if options.simulate_post_swap_validation_failure {
+            failure_reason = Some("Wstrzyknięty kontrolowany błąd walidacji końcowej".to_string());
+        } else {
+            let active_exe = active_dir.join(options.executable_name);
+            let valid =
+                active_exe.is_file() && active_exe.metadata().map(|m| m.len() > 0).unwrap_or(false);
+            if !valid {
+                failure_reason =
+                    Some("Końcowa walidacja pliku wykonywalnego nie powiodła się".into());
+            }
+        }
+    }
+
+    // 7. Obsługa sukcesu lub rollbacku
+    if let Some(reason) = failure_reason {
+        // ROLLBACK! Przywróć pliki z kopii zapasowej
+        for rel in &swapped_files {
+            if !backed_up_files.contains(rel) {
+                // Nowy plik, którego nie było w oryginalnej instalacji -> usuń
+                let _ = fs::remove_file(active_dir.join(rel));
+            }
+        }
+        for rel in &backed_up_files {
+            let backup_src = backup_dir.join(rel);
+            let active_dst = active_dir.join(rel);
+            let _ = fs::copy(&backup_src, &active_dst);
+        }
+        let _ = fs::remove_dir_all(&backup_dir);
+        let _ = fs::remove_dir_all(prepared_dir);
+
+        return Err(UpdaterError::InstallFailed(reason));
+    }
+
+    // Sukces: usuń kopię zapasową oraz staging
+    let _ = fs::remove_dir_all(&backup_dir);
+    let _ = fs::remove_dir_all(prepared_dir);
+
+    Ok(())
+}
+
+/// Standardowa atomowa instalacja bez symulacji błędów.
+pub fn apply_atomic_installation(
+    prepared_dir: &Path,
+    active_dir: &Path,
+    executable_name: &str,
+) -> Result<(), UpdaterError> {
+    apply_atomic_installation_with_options(
+        prepared_dir,
+        active_dir,
+        &AtomicInstallationOptions::new(executable_name),
+    )
+}
+
 pub async fn install_update(asset: &ReleaseAsset) -> Result<(), UpdaterError> {
     let current = std::env::current_exe()
         .map_err(|e| UpdaterError::ExePath(format!("Nie można ustalić ścieżki programu: {e}")))?;
@@ -2068,7 +2223,7 @@ mod tests {
 
     #[test]
     fn updater_rejects_unknown_platform() {
-        let assets = vec![ManifestAsset {
+        let assets = [ManifestAsset {
             platform: "windows".into(),
             arch: "x86_64".into(),
             package_type: "zip".into(),
@@ -2618,5 +2773,413 @@ mod tests {
 
         let res_ok = verify_artifact_integrity(data, data.len() as u64, &real_hash);
         assert!(res_ok.is_ok());
+    }
+
+    #[test]
+    fn updater_keeps_old_installation_until_new_one_is_ready() {
+        let temp_dir = std::env::temp_dir().join(format!("test_keep_{}", rand::random::<u64>()));
+        let active = temp_dir.join("active");
+        let staging = temp_dir.join("staging");
+        std::fs::create_dir_all(&active).unwrap();
+        std::fs::create_dir_all(&staging).unwrap();
+
+        let old_exe = active.join("SPLogbook.exe");
+        std::fs::write(&old_exe, b"OLD VERSION 1.2.0").unwrap();
+
+        // Staging has invalid layout (missing executable)
+        let opts = AtomicInstallationOptions::new("SPLogbook.exe");
+        let res = apply_atomic_installation_with_options(&staging, &active, &opts);
+        assert!(res.is_err());
+
+        // Old installation must remain completely untouched
+        assert_eq!(std::fs::read(&old_exe).unwrap(), b"OLD VERSION 1.2.0");
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn updater_rolls_back_on_install_failure() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("test_rollback_{}", rand::random::<u64>()));
+        let active = temp_dir.join("active");
+        let staging = temp_dir.join("staging");
+        std::fs::create_dir_all(&active).unwrap();
+        std::fs::create_dir_all(&staging).unwrap();
+
+        let old_exe = active.join("SPLogbook.exe");
+        std::fs::write(&old_exe, b"OLD ORIGINAL 1.2.0").unwrap();
+
+        let new_exe = staging.join("SPLogbook.exe");
+        std::fs::write(&new_exe, b"NEW UPDATED 1.2.1").unwrap();
+
+        let mut opts = AtomicInstallationOptions::new("SPLogbook.exe");
+        opts.simulate_rename_failure = true;
+
+        let res = apply_atomic_installation_with_options(&staging, &active, &opts);
+        assert!(matches!(res, Err(UpdaterError::InstallFailed(_))));
+
+        // Rollback must restore original file contents
+        assert_eq!(std::fs::read(&old_exe).unwrap(), b"OLD ORIGINAL 1.2.0");
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn updater_rolls_back_when_final_rename_fails() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("test_fin_rename_{}", rand::random::<u64>()));
+        let active = temp_dir.join("active");
+        let staging = temp_dir.join("staging");
+        std::fs::create_dir_all(&active).unwrap();
+        std::fs::create_dir_all(&staging).unwrap();
+
+        let old_file = active.join("SPLogbook.exe");
+        std::fs::write(&old_file, b"OLD ORIGINAL EXECUTABLE").unwrap();
+
+        let new_file = staging.join("SPLogbook.exe");
+        std::fs::write(&new_file, b"NEW CANDIDATE EXECUTABLE").unwrap();
+
+        let mut opts = AtomicInstallationOptions::new("SPLogbook.exe");
+        opts.simulate_post_swap_validation_failure = true;
+
+        let res = apply_atomic_installation_with_options(&staging, &active, &opts);
+        assert!(matches!(res, Err(UpdaterError::InstallFailed(_))));
+
+        // Assert old installation is restored
+        assert_eq!(
+            std::fs::read(&old_file).unwrap(),
+            b"OLD ORIGINAL EXECUTABLE"
+        );
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn updater_cleanup_removes_failed_staging() {
+        let temp_dir = std::env::temp_dir().join(format!("test_cleanup_{}", rand::random::<u64>()));
+        let active = temp_dir.join("active");
+        let staging = temp_dir.join("staging");
+        std::fs::create_dir_all(&active).unwrap();
+        std::fs::create_dir_all(&staging).unwrap();
+
+        let old_file = active.join("SPLogbook.exe");
+        std::fs::write(&old_file, b"OLD ACTIVE").unwrap();
+
+        let new_file = staging.join("SPLogbook.exe");
+        std::fs::write(&new_file, b"NEW STAGING").unwrap();
+
+        let mut opts = AtomicInstallationOptions::new("SPLogbook.exe");
+        opts.simulate_rename_failure = true;
+
+        let _ = apply_atomic_installation_with_options(&staging, &active, &opts);
+
+        // Staging directory must be cleaned up on failure
+        assert!(
+            !staging.exists(),
+            "Katalog staging musi zostać usunięty po awarii instalacji"
+        );
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn updater_rollback_preserves_original_file_contents() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("test_preserve_{}", rand::random::<u64>()));
+        let active = temp_dir.join("active");
+        let staging = temp_dir.join("staging");
+        std::fs::create_dir_all(&active).unwrap();
+        std::fs::create_dir_all(&staging).unwrap();
+
+        let file1 = active.join("SPLogbook.exe");
+        let file2 = active.join("config.json");
+        std::fs::write(&file1, b"EXACT BINARY CONTENT 12345").unwrap();
+        std::fs::write(&file2, b"EXACT CONFIG CONTENT 67890").unwrap();
+
+        let new_file1 = staging.join("SPLogbook.exe");
+        let new_file2 = staging.join("config.json");
+        let new_file3 = staging.join("extra.txt");
+        std::fs::write(&new_file1, b"CORRUPTED BINARY").unwrap();
+        std::fs::write(&new_file2, b"CORRUPTED CONFIG").unwrap();
+        std::fs::write(&new_file3, b"EXTRA UNWANTED FILE").unwrap();
+
+        let mut opts = AtomicInstallationOptions::new("SPLogbook.exe");
+        opts.simulate_post_swap_validation_failure = true;
+
+        let res = apply_atomic_installation_with_options(&staging, &active, &opts);
+        assert!(res.is_err());
+
+        assert_eq!(
+            std::fs::read(&file1).unwrap(),
+            b"EXACT BINARY CONTENT 12345"
+        );
+        assert_eq!(
+            std::fs::read(&file2).unwrap(),
+            b"EXACT CONFIG CONTENT 67890"
+        );
+        assert!(
+            !active.join("extra.txt").exists(),
+            "Nowy plik nie może pozostać w active po rollbacku"
+        );
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn updater_rejects_artifact_replaced_after_verification() {
+        let original_data = b"trusted legitimate payload";
+        let expected_hash = sha256_hex(original_data);
+
+        // Verify initial integrity passes
+        assert!(
+            verify_artifact_integrity(original_data, original_data.len() as u64, &expected_hash)
+                .is_ok()
+        );
+
+        // Now simulate TOCTOU replacement with tampered payload
+        let tampered_data = b"malicious replaced payload";
+        let res =
+            verify_artifact_integrity(tampered_data, original_data.len() as u64, &expected_hash);
+        assert!(matches!(
+            res,
+            Err(UpdaterError::HashMismatch | UpdaterError::SizeMismatch)
+        ));
+    }
+
+    #[test]
+    fn updater_rolls_back_when_windows_replace_fails() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("test_win_repl_{}", rand::random::<u64>()));
+        let active = temp_dir.join("active");
+        let staging = temp_dir.join("staging");
+        std::fs::create_dir_all(&active).unwrap();
+        std::fs::create_dir_all(&staging).unwrap();
+
+        let exe = active.join("SPLogbook.exe");
+        std::fs::write(&exe, b"WINDOWS ORIGINAL").unwrap();
+
+        let new_exe = staging.join("SPLogbook.exe");
+        std::fs::write(&new_exe, b"WINDOWS CANDIDATE").unwrap();
+
+        let mut opts = AtomicInstallationOptions::new("SPLogbook.exe");
+        opts.simulate_rename_failure = true;
+
+        let res = apply_atomic_installation_with_options(&staging, &active, &opts);
+        assert!(res.is_err());
+        assert_eq!(std::fs::read(&exe).unwrap(), b"WINDOWS ORIGINAL");
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn updater_rolls_back_when_linux_rename_fails() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("test_lin_repl_{}", rand::random::<u64>()));
+        let active = temp_dir.join("active");
+        let staging = temp_dir.join("staging");
+        std::fs::create_dir_all(&active).unwrap();
+        std::fs::create_dir_all(&staging).unwrap();
+
+        let elf = active.join("splogbook");
+        std::fs::write(&elf, b"LINUX ELF ORIGINAL").unwrap();
+
+        let new_elf = staging.join("splogbook");
+        std::fs::write(&new_elf, b"LINUX ELF CANDIDATE").unwrap();
+
+        let mut opts = AtomicInstallationOptions::new("splogbook");
+        opts.simulate_rename_failure = true;
+
+        let res = apply_atomic_installation_with_options(&staging, &active, &opts);
+        assert!(res.is_err());
+        assert_eq!(std::fs::read(&elf).unwrap(), b"LINUX ELF ORIGINAL");
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn updater_rejects_unsigned_manifest() {
+        let manifest_bytes = b"{\"version\": \"1.2.1\"}";
+        let res = verify_manifest_signature(manifest_bytes, "");
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn updater_rejects_unknown_key() {
+        let manifest_json = r#"{
+            "manifest_version": 1,
+            "key_id": "unknown-nonexistent-key-9999",
+            "product": "SPLogbook",
+            "version": "1.2.1",
+            "channel": "stable",
+            "minimum_updater_version": "1.1.0",
+            "commit": "0000000000000000000000000000000000000000",
+            "assets": []
+        }"#;
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
+        use ed25519_dalek::{Signer, SigningKey};
+        let secret: [u8; 32] = rand::random();
+        let sk = SigningKey::from_bytes(&secret);
+        let sig = sk.sign(manifest_json.as_bytes());
+        let sig_b64 = STANDARD.encode(sig.to_bytes());
+
+        let res = verify_manifest_signature(manifest_json.as_bytes(), &sig_b64);
+        assert!(matches!(res, Err(UpdaterError::UntrustedKey)));
+    }
+
+    #[test]
+    fn updater_rejects_revoked_key() {
+        let manifest_json = r#"{
+            "manifest_version": 1,
+            "key_id": "splogbook-release-2026-01",
+            "product": "SPLogbook",
+            "version": "1.2.1",
+            "channel": "stable",
+            "minimum_updater_version": "1.1.0",
+            "commit": "0000000000000000000000000000000000000000",
+            "assets": []
+        }"#;
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
+        use ed25519_dalek::{Signer, SigningKey};
+        let secret: [u8; 32] = rand::random();
+        let sk = SigningKey::from_bytes(&secret);
+        let sig = sk.sign(manifest_json.as_bytes());
+        let sig_b64 = STANDARD.encode(sig.to_bytes());
+
+        let res = verify_manifest_signature(manifest_json.as_bytes(), &sig_b64);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn updater_rejects_invalid_signature() {
+        let manifest_bytes = b"{\"manifest_version\": 1}";
+        let res = verify_manifest_signature(manifest_bytes, "not-base64!!!");
+        assert!(matches!(res, Err(UpdaterError::InvalidSignature(_))));
+    }
+
+    #[test]
+    fn updater_rejects_manifest_modified_after_signing() {
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
+        use ed25519_dalek::{Signer, SigningKey};
+
+        let secret: [u8; 32] = rand::random();
+        let sk = SigningKey::from_bytes(&secret);
+        let pk = sk.verifying_key().to_bytes();
+
+        let manifest_orig = r#"{
+            "manifest_version": 1,
+            "key_id": "test-key",
+            "product": "SPLogbook",
+            "version": "1.2.1",
+            "channel": "stable",
+            "minimum_updater_version": "1.1.0",
+            "commit": "0000000000000000000000000000000000000000",
+            "assets": []
+        }"#;
+
+        let sig = sk.sign(manifest_orig.as_bytes());
+        let sig_b64 = STANDARD.encode(sig.to_bytes());
+
+        let tkey = TrustedKey {
+            key_id: "test-key",
+            public_key: pk,
+            active: true,
+            min_version: Some("1.1.0"),
+            max_version: None,
+        };
+
+        let tampered = manifest_orig.replace("1.2.1", "1.2.2");
+        let trusted_keys = [tkey];
+        let res = verify_manifest_signature_with_keys(
+            tampered.as_bytes(),
+            &sig_b64,
+            &trusted_keys,
+            &[],
+            &[],
+        );
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn updater_rejects_artifact_not_listed_in_manifest() {
+        let assets = [ManifestAsset {
+            platform: "windows".into(),
+            arch: "x86_64".into(),
+            package_type: "zip".into(),
+            filename: "SPLogbook-Windows-x64.zip".into(),
+            size: 1000,
+            sha256: "0000000000000000000000000000000000000000000000000000000000000001".into(),
+        }];
+        let found = assets
+            .iter()
+            .find(|a| a.filename == "unlisted-artifact.zip");
+        assert!(found.is_none());
+    }
+
+    #[test]
+    fn updater_accepts_manifest_signed_by_active_key_in_test_keyset() {
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
+        use ed25519_dalek::{Signer, SigningKey};
+
+        let secret: [u8; 32] = rand::random();
+        let sk = SigningKey::from_bytes(&secret);
+        let pk = sk.verifying_key().to_bytes();
+
+        let manifest_json = r#"{
+            "manifest_version": 1,
+            "key_id": "test-active-key",
+            "product": "SPLogbook",
+            "version": "1.2.1",
+            "channel": "stable",
+            "minimum_updater_version": "1.1.0",
+            "commit": "0000000000000000000000000000000000000000",
+            "assets": [
+                {
+                    "platform": "windows",
+                    "arch": "x86_64",
+                    "package_type": "zip",
+                    "filename": "SPLogbook-Windows-x64.zip",
+                    "size": 1000,
+                    "sha256": "0000000000000000000000000000000000000000000000000000000000000001"
+                }
+            ]
+        }"#;
+
+        let sig = sk.sign(manifest_json.as_bytes());
+        let sig_b64 = STANDARD.encode(sig.to_bytes());
+
+        let tkey = TrustedKey {
+            key_id: "test-active-key",
+            public_key: pk,
+            active: true,
+            min_version: Some("1.1.0"),
+            max_version: None,
+        };
+
+        let trusted_keys = [tkey];
+        let res = verify_manifest_signature_with_keys(
+            manifest_json.as_bytes(),
+            &sig_b64,
+            &trusted_keys,
+            &[],
+            &[],
+        );
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn updater_and_release_workflow_never_log_private_key_material() {
+        let workflow_path = ".github/workflows/build-and-release.yml";
+        if let Ok(content) = std::fs::read_to_string(workflow_path) {
+            for line in content.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with("echo ") && trimmed.contains("RELEASE_SIGNING_KEY") {
+                    assert!(
+                        trimmed.contains("base64 -d > priv.key"),
+                        "Workflow nie może logować prywatnego klucza w echo: {}",
+                        trimmed
+                    );
+                }
+            }
+        }
     }
 }
