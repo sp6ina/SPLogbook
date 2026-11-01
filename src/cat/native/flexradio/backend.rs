@@ -184,6 +184,8 @@ pub struct FlexRadioBackend {
     registered_clients: BTreeSet<String>,
     events: VecDeque<NativeRigEvent>,
     last_state: RigState,
+    discard_late_tx: bool,
+    interlock_received_after_xmit: bool,
 }
 
 impl FlexRadioBackend {
@@ -217,6 +219,8 @@ impl FlexRadioBackend {
             registered_clients: BTreeSet::new(),
             events: VecDeque::new(),
             last_state: RigState::default(),
+            discard_late_tx: false,
+            interlock_received_after_xmit: false,
         }
     }
 
@@ -350,6 +354,220 @@ impl FlexRadioBackend {
 
     /// Oczekuje na odpowiedź o zadanym numerze sekwencyjnym,
     /// przetwarzając w międzyczasie inne nadeszłe komunikaty i statusy.
+    async fn drain_incoming_unprocessed(&mut self) -> Result<(), FlexProtocolError> {
+        loop {
+            let messages = {
+                let Some(conn) = self.connection.as_mut() else {
+                    return Ok(());
+                };
+                match tokio::time::timeout(Duration::from_millis(5), conn.read_messages()).await {
+                    Ok(Ok(msgs)) => msgs,
+                    _ => break,
+                }
+            };
+            self.process_inbound_messages(messages);
+        }
+        Ok(())
+    }
+
+    async fn execute_set_ptt_true(&mut self, endpoint: &str) -> Result<(), RigError> {
+        let _ = self.drain_incoming_unprocessed().await;
+
+        self.ptt_request_pending = true;
+        self.xmit_command_responded = false;
+        self.interlock_received_after_xmit = false;
+
+        let seq = match self.send_command_tracked("xmit 1").await {
+            Ok(s) => s,
+            Err(e) => {
+                self.confirmed_ptt_state = FlexConfirmedPttState::Unknown;
+                self.ptt_initiated_by_this_session = false;
+                self.ptt_request_pending = false;
+                return Err(e.to_rig_error(endpoint));
+            }
+        };
+        self.last_xmit_seq = Some(seq);
+
+        let timeout = self.config.write_timeout;
+        let start = tokio::time::Instant::now();
+
+        while start.elapsed() < timeout {
+            let remaining = timeout.saturating_sub(start.elapsed());
+            if remaining.is_zero() {
+                break;
+            }
+
+            let messages = {
+                let Some(conn) = self.connection.as_mut() else {
+                    self.confirmed_ptt_state = FlexConfirmedPttState::Unknown;
+                    self.ptt_initiated_by_this_session = false;
+                    self.ptt_request_pending = false;
+                    return Err(RigError::NotConnected);
+                };
+                match tokio::time::timeout(remaining, conn.read_messages()).await {
+                    Ok(Ok(m)) => m,
+                    Ok(Err(e)) => {
+                        self.confirmed_ptt_state = FlexConfirmedPttState::Unknown;
+                        self.ptt_initiated_by_this_session = false;
+                        self.ptt_request_pending = false;
+                        return Err(e.to_rig_error(endpoint));
+                    }
+                    Err(_) => break,
+                }
+            };
+
+            for msg in messages {
+                match msg {
+                    FlexInboundMessage::Response(resp) => {
+                        self.pending_registry.complete(resp.seq);
+                        if resp.seq == seq {
+                            if resp.is_success() {
+                                self.xmit_command_responded = true;
+                                self.recompute_ptt_state();
+                            } else {
+                                self.confirmed_ptt_state = FlexConfirmedPttState::Unknown;
+                                self.ptt_initiated_by_this_session = false;
+                                self.ptt_request_pending = false;
+                                return Err(RigError::Protocol {
+                                    detail: format!(
+                                        "xmit 1 rejected with code {}: {}",
+                                        resp.code, resp.message
+                                    ),
+                                });
+                            }
+                        }
+                    }
+                    FlexInboundMessage::Status(status) => {
+                        if status.object_class == "interlock" {
+                            self.interlock_received_after_xmit = true;
+                            if let Some(reason) = status.properties.get("reason")
+                                && !reason.is_empty()
+                                && reason != "NONE"
+                            {
+                                self.confirmed_ptt_state = FlexConfirmedPttState::Unknown;
+                                self.ptt_initiated_by_this_session = false;
+                                self.ptt_request_pending = false;
+                                let _ = self.send_command_tracked("xmit 0").await;
+                                return Err(RigError::Protocol {
+                                    detail: format!(
+                                        "FlexRadio interlock rejected TX: reason={reason}"
+                                    ),
+                                });
+                            }
+                            if let Some(st) = status.properties.get("state")
+                                && (st == "INTERLOCK_TIMEOUT" || st == "INTERLOCK_ERROR")
+                            {
+                                self.confirmed_ptt_state = FlexConfirmedPttState::Unknown;
+                                self.ptt_initiated_by_this_session = false;
+                                self.ptt_request_pending = false;
+                                let _ = self.send_command_tracked("xmit 0").await;
+                                return Err(RigError::Protocol {
+                                    detail: format!("FlexRadio interlock state error: state={st}"),
+                                });
+                            }
+                        }
+                        self.process_status_message(&status);
+                    }
+                    FlexInboundMessage::Message(_)
+                    | FlexInboundMessage::Unknown(_)
+                    | FlexInboundMessage::Version(_)
+                    | FlexInboundMessage::Handle(_) => {}
+                }
+            }
+
+            if self.xmit_command_responded && self.is_ptt_confirmed() {
+                return Ok(());
+            }
+        }
+
+        self.confirmed_ptt_state = FlexConfirmedPttState::Unknown;
+        self.ptt_initiated_by_this_session = false;
+        self.ptt_request_pending = false;
+        self.discard_late_tx = true;
+
+        if let Some(conn) = self.connection.as_mut() {
+            let cmd = FlexCommand::new(self.seq_allocator.next_seq(), "xmit 0");
+            let _ = tokio::time::timeout(Duration::from_millis(300), conn.send_command(&cmd)).await;
+        }
+
+        Err(RigError::Timeout {
+            endpoint: endpoint.to_string(),
+            operation: "set_ptt_true_confirmation",
+        })
+    }
+
+    async fn execute_set_ptt_false(&mut self, endpoint: &str) -> Result<(), RigError> {
+        self.ptt_request_pending = false;
+        self.xmit_command_responded = false;
+
+        let seq = self
+            .send_command_tracked("xmit 0")
+            .await
+            .map_err(|e| e.to_rig_error(endpoint))?;
+
+        let timeout = self.config.write_timeout;
+        let start = tokio::time::Instant::now();
+        let mut ack_received = false;
+
+        while start.elapsed() < timeout {
+            let remaining = timeout.saturating_sub(start.elapsed());
+            if remaining.is_zero() {
+                break;
+            }
+
+            let messages = {
+                let Some(conn) = self.connection.as_mut() else {
+                    self.confirmed_ptt_state = FlexConfirmedPttState::Unknown;
+                    self.ptt_initiated_by_this_session = false;
+                    return Err(RigError::NotConnected);
+                };
+                match tokio::time::timeout(remaining, conn.read_messages()).await {
+                    Ok(Ok(m)) => m,
+                    Ok(Err(e)) => {
+                        self.confirmed_ptt_state = FlexConfirmedPttState::Unknown;
+                        self.ptt_initiated_by_this_session = false;
+                        return Err(e.to_rig_error(endpoint));
+                    }
+                    Err(_) => break,
+                }
+            };
+
+            for msg in messages {
+                match msg {
+                    FlexInboundMessage::Response(resp) => {
+                        self.pending_registry.complete(resp.seq);
+                        if resp.seq == seq {
+                            ack_received = true;
+                        }
+                    }
+                    FlexInboundMessage::Status(status) => {
+                        self.process_status_message(&status);
+                    }
+                    FlexInboundMessage::Message(_)
+                    | FlexInboundMessage::Unknown(_)
+                    | FlexInboundMessage::Version(_)
+                    | FlexInboundMessage::Handle(_) => {}
+                }
+            }
+
+            if ack_received
+                && (self.interlock_state == "READY" || self.interlock_state == "RECEIVE")
+            {
+                self.confirmed_ptt_state = FlexConfirmedPttState::Rx;
+                self.ptt_initiated_by_this_session = false;
+                self.discard_late_tx = false;
+                return Ok(());
+            }
+        }
+
+        self.confirmed_ptt_state = FlexConfirmedPttState::Unknown;
+        self.ptt_initiated_by_this_session = false;
+        Err(RigError::Timeout {
+            endpoint: endpoint.to_string(),
+            operation: "set_ptt_false_confirmation",
+        })
+    }
+
     pub async fn wait_for_response(
         &mut self,
         seq: u32,
@@ -419,7 +637,12 @@ impl FlexRadioBackend {
                 _ => false,
             };
 
-            if matches_client && self.ptt_request_pending && self.xmit_command_responded {
+            if matches_client
+                && self.ptt_request_pending
+                && self.xmit_command_responded
+                && self.interlock_received_after_xmit
+                && !self.discard_late_tx
+            {
                 self.ptt_initiated_by_this_session = true;
                 self.confirmed_ptt_state = FlexConfirmedPttState::Tx;
             } else {
@@ -427,9 +650,8 @@ impl FlexRadioBackend {
                 self.confirmed_ptt_state = FlexConfirmedPttState::Unknown;
             }
         } else if self.interlock_state == "READY" || self.interlock_state == "RECEIVE" {
+            self.discard_late_tx = false;
             if self.ptt_request_pending {
-                // Lokalne żądanie PTT (xmit 1) jest w toku i oczekuje na potwierdzenie przejścia w TX przez radio.
-                // Nie raportujemy przedwcześnie potwierdzonego RX ani nie czyścimy żądania.
                 self.confirmed_ptt_state = FlexConfirmedPttState::Unknown;
                 self.ptt_initiated_by_this_session = false;
             } else {
@@ -491,6 +713,9 @@ impl FlexRadioBackend {
                 }
             }
             "interlock" => {
+                if self.ptt_request_pending {
+                    self.interlock_received_after_xmit = true;
+                }
                 if let Some(state) = status.properties.get("state") {
                     self.interlock_state = state.to_ascii_uppercase();
                 }
@@ -609,6 +834,31 @@ impl FlexRadioBackend {
     /// Odbiera oczekujące zdarzenia natywne.
     pub fn drain_events(&mut self) -> Vec<NativeRigEvent> {
         self.events.drain(..).collect()
+    }
+}
+
+impl Drop for FlexRadioBackend {
+    fn drop(&mut self) {
+        if self.ptt_initiated_by_this_session
+            && self.confirmed_ptt_state == FlexConfirmedPttState::Tx
+        {
+            self.ptt_initiated_by_this_session = false;
+            self.confirmed_ptt_state = FlexConfirmedPttState::Unknown;
+            if let Some(mut conn) = self.connection.take() {
+                let seq = self.seq_allocator.next_seq();
+                if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                    handle.spawn(async move {
+                        let cmd = FlexCommand::new(seq, "xmit 0");
+                        let _ = tokio::time::timeout(
+                            Duration::from_millis(300),
+                            conn.send_command(&cmd),
+                        )
+                        .await;
+                        conn.disconnect().await;
+                    });
+                }
+            }
+        }
     }
 }
 
@@ -1026,56 +1276,10 @@ impl RigBackend for FlexRadioBackend {
                     }
                 }
                 RigCommand::SetPtt(true) => {
-                    // Bezpieczeństwo PTT: pojedyncze wysłanie polecenia xmit 1 bez ponawiania (no retry)
-                    self.ptt_request_pending = true;
-                    self.xmit_command_responded = false;
-
-                    let seq = match self.send_command_tracked("xmit 1").await {
-                        Ok(s) => s,
-                        Err(e) => {
-                            self.confirmed_ptt_state = FlexConfirmedPttState::Unknown;
-                            self.ptt_initiated_by_this_session = false;
-                            self.ptt_request_pending = false;
-                            return Err(e.to_rig_error(&endpoint));
-                        }
-                    };
-                    self.last_xmit_seq = Some(seq);
-
-                    match self.wait_for_response(seq, self.config.write_timeout).await {
-                        Ok(resp) => {
-                            if resp.is_success() {
-                                self.xmit_command_responded = true;
-                                self.recompute_ptt_state();
-                            } else {
-                                self.confirmed_ptt_state = FlexConfirmedPttState::Unknown;
-                                self.ptt_initiated_by_this_session = false;
-                                self.ptt_request_pending = false;
-                                return Err(RigError::Protocol {
-                                    detail: format!(
-                                        "xmit 1 rejected with code {}: {}",
-                                        resp.code, resp.message
-                                    ),
-                                });
-                            }
-                        }
-                        Err(e) => {
-                            self.confirmed_ptt_state = FlexConfirmedPttState::Unknown;
-                            self.ptt_initiated_by_this_session = false;
-                            self.ptt_request_pending = false;
-                            return Err(e.to_rig_error(&endpoint));
-                        }
-                    }
+                    self.execute_set_ptt_true(&endpoint).await?;
                 }
                 RigCommand::SetPtt(false) => {
-                    self.ptt_request_pending = false;
-                    self.xmit_command_responded = false;
-
-                    let seq = self
-                        .send_command_tracked("xmit 0")
-                        .await
-                        .map_err(|e| e.to_rig_error(&endpoint))?;
-
-                    let _ = self.wait_for_response(seq, self.config.write_timeout).await;
+                    self.execute_set_ptt_false(&endpoint).await?;
                 }
                 RigCommand::SetPower(watts) => {
                     let power = watts.round().clamp(0.0, 100.0) as u32;
@@ -1147,6 +1351,8 @@ impl RigBackend for FlexRadioBackend {
             self.confirmed_ptt_state = FlexConfirmedPttState::Unknown;
             self.ptt_request_pending = false;
             self.xmit_command_responded = false;
+            self.discard_late_tx = false;
+            self.interlock_received_after_xmit = false;
             self.last_xmit_seq = None;
 
             // Anulowanie oczekujących poleceń przed zamknięciem gniazda
@@ -1664,6 +1870,7 @@ mod tests {
         // Symulacja żądania z tej sesji i potwierdzenia dla naszego client_handle
         backend.ptt_request_pending = true;
         backend.xmit_command_responded = true;
+        backend.interlock_received_after_xmit = true;
         let mut status_tx_owned = super::super::protocol::FlexStatus {
             client_handle: None,
             object_class: "interlock".to_string(),
@@ -4167,5 +4374,609 @@ mod tests {
                 spec.name, spec.api_version
             );
         }
+    }
+
+    #[tokio::test]
+    async fn flex_ptt_on_requires_transmit_status_confirmation() {
+        let (listener, port) = setup_mock_flex_radio().await;
+        let recorded = Arc::new(Mutex::new(Vec::<String>::new()));
+        let server = spawn_standard_mock_radio(listener, recorded.clone()).await;
+
+        let config = FlexRadioConfig {
+            host: "127.0.0.1".to_string(),
+            port,
+            write_timeout: Duration::from_millis(500),
+            ..Default::default()
+        };
+
+        let mut backend = FlexRadioBackend::new(config, Some("FLEX-6600"));
+        backend.connect().await.expect("connect");
+
+        backend
+            .execute(&RigCommand::SetPtt(true))
+            .await
+            .expect("ptt true confirmed");
+        assert!(backend.is_ptt_confirmed());
+        assert!(backend.is_tx_confirmed());
+
+        backend.disconnect().await;
+        server.await.expect("server join");
+    }
+
+    #[tokio::test]
+    async fn flex_command_ack_is_not_tx_confirmation() {
+        let (listener, port) = setup_mock_flex_radio().await;
+        let recorded = Arc::new(Mutex::new(Vec::<String>::new()));
+
+        let recorded_clone = recorded.clone();
+        let server = tokio::spawn(async move {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                return;
+            };
+            let _ = socket.write_all(b"V3.7.4\nH0123ABCD\n").await;
+            let mut buf = [0u8; 1024];
+            let mut pending = String::new();
+
+            while let Ok(n) = socket.read(&mut buf).await {
+                if n == 0 {
+                    break;
+                }
+                pending.push_str(&String::from_utf8_lossy(&buf[..n]));
+                while let Some(pos) = pending.find('\n') {
+                    let line = pending[..pos].trim().to_string();
+                    pending = pending[pos + 1..].to_string();
+                    if line.is_empty() {
+                        continue;
+                    }
+                    recorded_clone.lock().await.push(line.clone());
+                    if let Some((seq_str, cmd)) =
+                        line.strip_prefix('C').and_then(|r| r.split_once('|'))
+                    {
+                        let seq: u32 = seq_str.parse().unwrap_or(0);
+                        if cmd == "info" {
+                            let _ = socket
+                                .write_all(
+                                    format!("R{seq}|0|model=FLEX-6600 chassis_serial=1234-5678-9012-3456 slice=4\n")
+                                        .as_bytes(),
+                                )
+                                .await;
+                        } else if cmd.contains("xmit 1") {
+                            // Only send command ACK, NO interlock status!
+                            let _ = socket.write_all(format!("R{seq}|0|\n").as_bytes()).await;
+                        } else if cmd.contains("xmit 0") {
+                            let _ = socket.write_all(format!("R{seq}|0|\n").as_bytes()).await;
+                        } else {
+                            let _ = socket.write_all(format!("R{seq}|0|\n").as_bytes()).await;
+                        }
+                    }
+                }
+            }
+        });
+
+        let config = FlexRadioConfig {
+            host: "127.0.0.1".to_string(),
+            port,
+            write_timeout: Duration::from_millis(150),
+            ..Default::default()
+        };
+
+        let mut backend = FlexRadioBackend::new(config, Some("FLEX-6600"));
+        backend.connect().await.expect("connect");
+
+        let res = backend.execute(&RigCommand::SetPtt(true)).await;
+        assert!(matches!(res, Err(RigError::Timeout { .. })));
+        assert!(!backend.is_ptt_confirmed());
+        assert!(!backend.is_tx_confirmed());
+
+        backend.disconnect().await;
+        server.await.expect("server join");
+
+        let cmds = recorded.lock().await;
+        assert!(cmds.iter().any(|c| c.contains("xmit 0")));
+    }
+
+    #[tokio::test]
+    async fn flex_interlock_rejection_never_enters_tx_owned() {
+        let (listener, port) = setup_mock_flex_radio().await;
+
+        let server = tokio::spawn(async move {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                return;
+            };
+            let _ = socket.write_all(b"V3.7.4\nH0123ABCD\n").await;
+            let mut buf = [0u8; 1024];
+            let mut pending = String::new();
+
+            while let Ok(n) = socket.read(&mut buf).await {
+                if n == 0 {
+                    break;
+                }
+                pending.push_str(&String::from_utf8_lossy(&buf[..n]));
+                while let Some(pos) = pending.find('\n') {
+                    let line = pending[..pos].trim().to_string();
+                    pending = pending[pos + 1..].to_string();
+                    if line.is_empty() {
+                        continue;
+                    }
+                    if let Some((seq_str, cmd)) =
+                        line.strip_prefix('C').and_then(|r| r.split_once('|'))
+                    {
+                        let seq: u32 = seq_str.parse().unwrap_or(0);
+                        if cmd == "info" {
+                            let _ = socket
+                                .write_all(
+                                    format!("R{seq}|0|model=FLEX-6600 chassis_serial=1234-5678-9012-3456 slice=4\n")
+                                        .as_bytes(),
+                                )
+                                .await;
+                        } else if cmd.contains("xmit 1") {
+                            // Interlock reports rejection reason
+                            let _ = socket
+                                .write_all(
+                                    format!("R{seq}|0|\nS0123ABCD|interlock state=READY reason=PA_TEMP\n")
+                                        .as_bytes(),
+                                )
+                                .await;
+                        } else {
+                            let _ = socket.write_all(format!("R{seq}|0|\n").as_bytes()).await;
+                        }
+                    }
+                }
+            }
+        });
+
+        let config = FlexRadioConfig {
+            host: "127.0.0.1".to_string(),
+            port,
+            write_timeout: Duration::from_millis(300),
+            ..Default::default()
+        };
+
+        let mut backend = FlexRadioBackend::new(config, Some("FLEX-6600"));
+        backend.connect().await.expect("connect");
+
+        let res = backend.execute(&RigCommand::SetPtt(true)).await;
+        assert!(matches!(res, Err(RigError::Protocol { .. })));
+        assert!(!backend.is_ptt_confirmed());
+
+        backend.disconnect().await;
+        server.await.expect("server join");
+    }
+
+    #[tokio::test]
+    async fn flex_ptt_timeout_never_enters_tx_owned() {
+        let (listener, port) = setup_mock_flex_radio().await;
+
+        let server = tokio::spawn(async move {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                return;
+            };
+            let _ = socket.write_all(b"V3.7.4\nH0123ABCD\n").await;
+            let mut buf = [0u8; 1024];
+            let mut pending = String::new();
+
+            while let Ok(n) = socket.read(&mut buf).await {
+                if n == 0 {
+                    break;
+                }
+                pending.push_str(&String::from_utf8_lossy(&buf[..n]));
+                while let Some(pos) = pending.find('\n') {
+                    let line = pending[..pos].trim().to_string();
+                    pending = pending[pos + 1..].to_string();
+                    if line.is_empty() {
+                        continue;
+                    }
+                    if let Some((seq_str, cmd)) =
+                        line.strip_prefix('C').and_then(|r| r.split_once('|'))
+                    {
+                        let seq: u32 = seq_str.parse().unwrap_or(0);
+                        if cmd == "info" {
+                            let _ = socket
+                                .write_all(
+                                    format!("R{seq}|0|model=FLEX-6600 chassis_serial=1234-5678-9012-3456 slice=4\n")
+                                        .as_bytes(),
+                                )
+                                .await;
+                        } else if cmd.starts_with("sub ") {
+                            let _ = socket.write_all(format!("R{seq}|0|\n").as_bytes()).await;
+                        }
+                        // For xmit 1, never respond!
+                    }
+                }
+            }
+        });
+
+        let config = FlexRadioConfig {
+            host: "127.0.0.1".to_string(),
+            port,
+            write_timeout: Duration::from_millis(150),
+            ..Default::default()
+        };
+
+        let mut backend = FlexRadioBackend::new(config, Some("FLEX-6600"));
+        backend.connect().await.expect("connect");
+
+        let res = backend.execute(&RigCommand::SetPtt(true)).await;
+        assert!(matches!(res, Err(RigError::Timeout { .. })));
+        assert!(!backend.is_ptt_confirmed());
+        assert!(!backend.is_tx_confirmed());
+
+        backend.disconnect().await;
+        server.await.expect("server join");
+    }
+
+    #[tokio::test]
+    async fn flex_stale_status_does_not_confirm_new_request() {
+        let (listener, port) = setup_mock_flex_radio().await;
+
+        let server = tokio::spawn(async move {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                return;
+            };
+            let _ = socket.write_all(b"V3.7.4\nH0123ABCD\n").await;
+            let mut buf = [0u8; 1024];
+            let mut pending = String::new();
+
+            while let Ok(n) = socket.read(&mut buf).await {
+                if n == 0 {
+                    break;
+                }
+                pending.push_str(&String::from_utf8_lossy(&buf[..n]));
+                while let Some(pos) = pending.find('\n') {
+                    let line = pending[..pos].trim().to_string();
+                    pending = pending[pos + 1..].to_string();
+                    if line.is_empty() {
+                        continue;
+                    }
+                    if let Some((seq_str, cmd)) =
+                        line.strip_prefix('C').and_then(|r| r.split_once('|'))
+                    {
+                        let seq: u32 = seq_str.parse().unwrap_or(0);
+                        if cmd == "info" {
+                            // Send info response and unsolicited transmitting status
+                            let _ = socket
+                                .write_all(
+                                    format!("R{seq}|0|model=FLEX-6600 chassis_serial=1234-5678-9012-3456 slice=4\nS0123ABCD|interlock state=TRANSMITTING tx_client_handle=0x0123ABCD\n")
+                                        .as_bytes(),
+                                )
+                                .await;
+                        } else if cmd.contains("xmit 1") {
+                            // Only send command ACK, no new status
+                            let _ = socket.write_all(format!("R{seq}|0|\n").as_bytes()).await;
+                        } else {
+                            let _ = socket.write_all(format!("R{seq}|0|\n").as_bytes()).await;
+                        }
+                    }
+                }
+            }
+        });
+
+        let config = FlexRadioConfig {
+            host: "127.0.0.1".to_string(),
+            port,
+            write_timeout: Duration::from_millis(150),
+            ..Default::default()
+        };
+
+        let mut backend = FlexRadioBackend::new(config, Some("FLEX-6600"));
+        backend.connect().await.expect("connect");
+
+        let res = backend.execute(&RigCommand::SetPtt(true)).await;
+        assert!(matches!(res, Err(RigError::Timeout { .. })));
+        assert!(!backend.is_ptt_confirmed());
+
+        backend.disconnect().await;
+        server.await.expect("server join");
+    }
+
+    #[tokio::test]
+    async fn flex_wrong_radio_status_is_ignored() {
+        let (listener, port) = setup_mock_flex_radio().await;
+
+        let server = tokio::spawn(async move {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                return;
+            };
+            let _ = socket.write_all(b"V3.7.4\nH0123ABCD\n").await;
+            let mut buf = [0u8; 1024];
+            let mut pending = String::new();
+
+            while let Ok(n) = socket.read(&mut buf).await {
+                if n == 0 {
+                    break;
+                }
+                pending.push_str(&String::from_utf8_lossy(&buf[..n]));
+                while let Some(pos) = pending.find('\n') {
+                    let line = pending[..pos].trim().to_string();
+                    pending = pending[pos + 1..].to_string();
+                    if line.is_empty() {
+                        continue;
+                    }
+                    if let Some((seq_str, cmd)) =
+                        line.strip_prefix('C').and_then(|r| r.split_once('|'))
+                    {
+                        let seq: u32 = seq_str.parse().unwrap_or(0);
+                        if cmd == "info" {
+                            let _ = socket
+                                .write_all(
+                                    format!("R{seq}|0|model=FLEX-6600 chassis_serial=1234-5678-9012-3456 slice=4\n")
+                                        .as_bytes(),
+                                )
+                                .await;
+                        } else if cmd.contains("xmit 1") {
+                            // Status for wrong client handle
+                            let _ = socket
+                                .write_all(
+                                    format!("R{seq}|0|\nS0123ABCD|interlock state=TRANSMITTING tx_client_handle=0x99999999\n")
+                                        .as_bytes(),
+                                )
+                                .await;
+                        } else {
+                            let _ = socket.write_all(format!("R{seq}|0|\n").as_bytes()).await;
+                        }
+                    }
+                }
+            }
+        });
+
+        let config = FlexRadioConfig {
+            host: "127.0.0.1".to_string(),
+            port,
+            write_timeout: Duration::from_millis(150),
+            ..Default::default()
+        };
+
+        let mut backend = FlexRadioBackend::new(config, Some("FLEX-6600"));
+        backend.connect().await.expect("connect");
+
+        let res = backend.execute(&RigCommand::SetPtt(true)).await;
+        assert!(matches!(res, Err(RigError::Timeout { .. })));
+        assert!(!backend.is_ptt_confirmed());
+
+        backend.disconnect().await;
+        server.await.expect("server join");
+    }
+
+    #[tokio::test]
+    async fn flex_late_confirmation_after_timeout_is_ignored() {
+        let (listener, port) = setup_mock_flex_radio().await;
+
+        let server = tokio::spawn(async move {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                return;
+            };
+            let _ = socket.write_all(b"V3.7.4\nH0123ABCD\n").await;
+            let mut buf = [0u8; 1024];
+            let mut pending = String::new();
+
+            while let Ok(n) = socket.read(&mut buf).await {
+                if n == 0 {
+                    break;
+                }
+                pending.push_str(&String::from_utf8_lossy(&buf[..n]));
+                while let Some(pos) = pending.find('\n') {
+                    let line = pending[..pos].trim().to_string();
+                    pending = pending[pos + 1..].to_string();
+                    if line.is_empty() {
+                        continue;
+                    }
+                    if let Some((seq_str, cmd)) =
+                        line.strip_prefix('C').and_then(|r| r.split_once('|'))
+                    {
+                        let seq: u32 = seq_str.parse().unwrap_or(0);
+                        if cmd == "info" {
+                            let _ = socket
+                                .write_all(
+                                    format!("R{seq}|0|model=FLEX-6600 chassis_serial=1234-5678-9012-3456 slice=4\n")
+                                        .as_bytes(),
+                                )
+                                .await;
+                        } else if cmd.contains("xmit 1") {
+                            // Delay response until after client timeout
+                            tokio::time::sleep(Duration::from_millis(250)).await;
+                            let _ = socket
+                                .write_all(
+                                    format!("R{seq}|0|\nS0123ABCD|interlock state=TRANSMITTING tx_client_handle=0x0123ABCD\n")
+                                        .as_bytes(),
+                                )
+                                .await;
+                        } else {
+                            let _ = socket.write_all(format!("R{seq}|0|\n").as_bytes()).await;
+                        }
+                    }
+                }
+            }
+        });
+
+        let config = FlexRadioConfig {
+            host: "127.0.0.1".to_string(),
+            port,
+            write_timeout: Duration::from_millis(100),
+            ..Default::default()
+        };
+
+        let mut backend = FlexRadioBackend::new(config, Some("FLEX-6600"));
+        backend.connect().await.expect("connect");
+
+        let res = backend.execute(&RigCommand::SetPtt(true)).await;
+        assert!(matches!(res, Err(RigError::Timeout { .. })));
+
+        // Wait for late message and poll
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let _ = backend.poll().await;
+        assert!(!backend.is_ptt_confirmed());
+
+        backend.disconnect().await;
+        server.await.expect("server join");
+    }
+
+    #[tokio::test]
+    async fn flex_disconnect_during_confirmation_fails_safe() {
+        let (listener, port) = setup_mock_flex_radio().await;
+
+        let server = tokio::spawn(async move {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                return;
+            };
+            let _ = socket.write_all(b"V3.7.4\nH0123ABCD\n").await;
+            let mut buf = [0u8; 1024];
+            let mut pending = String::new();
+
+            while let Ok(n) = socket.read(&mut buf).await {
+                if n == 0 {
+                    break;
+                }
+                pending.push_str(&String::from_utf8_lossy(&buf[..n]));
+                while let Some(pos) = pending.find('\n') {
+                    let line = pending[..pos].trim().to_string();
+                    pending = pending[pos + 1..].to_string();
+                    if line.is_empty() {
+                        continue;
+                    }
+                    if let Some((seq_str, cmd)) =
+                        line.strip_prefix('C').and_then(|r| r.split_once('|'))
+                    {
+                        let seq: u32 = seq_str.parse().unwrap_or(0);
+                        if cmd == "info" {
+                            let _ = socket
+                                .write_all(
+                                    format!("R{seq}|0|model=FLEX-6600 chassis_serial=1234-5678-9012-3456 slice=4\n")
+                                        .as_bytes(),
+                                )
+                                .await;
+                        } else if cmd.starts_with("sub ") {
+                            let _ = socket.write_all(format!("R{seq}|0|\n").as_bytes()).await;
+                        } else if cmd.contains("xmit 1") {
+                            // Abruptly close socket
+                            return;
+                        }
+                    }
+                }
+            }
+        });
+
+        let config = FlexRadioConfig {
+            host: "127.0.0.1".to_string(),
+            port,
+            write_timeout: Duration::from_millis(300),
+            ..Default::default()
+        };
+
+        let mut backend = FlexRadioBackend::new(config, Some("FLEX-6600"));
+        backend.connect().await.expect("connect");
+
+        let res = backend.execute(&RigCommand::SetPtt(true)).await;
+        assert!(res.is_err());
+        assert!(!backend.is_ptt_confirmed());
+
+        backend.disconnect().await;
+        server.await.expect("server join");
+    }
+
+    #[tokio::test]
+    async fn flex_ptt_off_requires_status_confirmation() {
+        let (listener, port) = setup_mock_flex_radio().await;
+        let recorded = Arc::new(Mutex::new(Vec::<String>::new()));
+        let server = spawn_standard_mock_radio(listener, recorded.clone()).await;
+
+        let config = FlexRadioConfig {
+            host: "127.0.0.1".to_string(),
+            port,
+            write_timeout: Duration::from_millis(300),
+            ..Default::default()
+        };
+
+        let mut backend = FlexRadioBackend::new(config, Some("FLEX-6600"));
+        backend.connect().await.expect("connect");
+
+        backend
+            .execute(&RigCommand::SetPtt(true))
+            .await
+            .expect("ptt on");
+        assert!(backend.is_ptt_confirmed());
+
+        backend
+            .execute(&RigCommand::SetPtt(false))
+            .await
+            .expect("ptt off");
+        assert!(!backend.is_ptt_confirmed());
+        assert!(backend.is_rx_confirmed());
+
+        backend.disconnect().await;
+        server.await.expect("server join");
+    }
+
+    #[tokio::test]
+    async fn flex_drop_attempts_best_effort_ptt_off() {
+        let (listener, port) = setup_mock_flex_radio().await;
+        let recorded = Arc::new(Mutex::new(Vec::<String>::new()));
+        let server = spawn_standard_mock_radio(listener, recorded.clone()).await;
+
+        let config = FlexRadioConfig {
+            host: "127.0.0.1".to_string(),
+            port,
+            write_timeout: Duration::from_millis(300),
+            ..Default::default()
+        };
+
+        let mut backend = FlexRadioBackend::new(config, Some("FLEX-6600"));
+        backend.connect().await.expect("connect");
+
+        backend
+            .execute(&RigCommand::SetPtt(true))
+            .await
+            .expect("ptt on");
+        assert!(backend.is_ptt_confirmed());
+
+        drop(backend);
+        server.await.expect("server join");
+
+        let cmds = recorded.lock().await;
+        assert!(cmds.iter().any(|c| c.contains("xmit 0")));
+    }
+
+    #[tokio::test]
+    async fn flex_reconnect_clears_tx_ownership() {
+        let (listener, port) = setup_mock_flex_radio().await;
+        let recorded = Arc::new(Mutex::new(Vec::<String>::new()));
+        let server = spawn_standard_mock_radio(listener, recorded.clone()).await;
+
+        let config = FlexRadioConfig {
+            host: "127.0.0.1".to_string(),
+            port,
+            write_timeout: Duration::from_millis(300),
+            ..Default::default()
+        };
+
+        let mut backend = FlexRadioBackend::new(config.clone(), Some("FLEX-6600"));
+        backend.connect().await.expect("connect");
+
+        backend
+            .execute(&RigCommand::SetPtt(true))
+            .await
+            .expect("ptt on");
+        assert!(backend.is_ptt_confirmed());
+
+        backend.disconnect().await;
+        assert!(!backend.is_ptt_confirmed());
+        server.await.expect("first session join");
+
+        let (listener2, port2) = setup_mock_flex_radio().await;
+        let recorded2 = Arc::new(Mutex::new(Vec::<String>::new()));
+        let server2 = spawn_standard_mock_radio(listener2, recorded2.clone()).await;
+
+        let mut backend2 = FlexRadioBackend::new(
+            FlexRadioConfig {
+                port: port2,
+                ..config
+            },
+            Some("FLEX-6600"),
+        );
+        backend2.connect().await.expect("connect 2");
+        assert!(!backend2.is_ptt_confirmed());
+        assert!(!backend2.is_tx_confirmed());
+
+        backend2.disconnect().await;
+        server2.await.expect("second session join");
     }
 }
