@@ -3859,3 +3859,288 @@ async fn shutdown_clears_all_pending_ids() {
     hub.shutdown(Duration::from_millis(500)).await.unwrap();
     assert_eq!(hub.pending_command_count(), 0);
 }
+
+// ============================================================================
+// CAT-006: Rygory bezpieczeństwa RF i integralności stanu PTT
+// ============================================================================
+
+#[tokio::test]
+async fn resync_tx_arbiter_rejects_stale_state_without_new_poll() {
+    let mut hub = RigHub::new();
+    let rig_id = RigId::new("RIG_TEST_STALE").unwrap();
+    let shared = MockBackendState::default();
+    let backend = Box::new(MockRigBackend::new(CatBackendKind::Kenwood, shared.clone()));
+
+    let (service, mut handle) =
+        RigService::spawn(rig_id.clone(), backend, Duration::from_millis(20));
+    let jh = tokio::spawn(service.run());
+    handle.attach_join_handle(jh);
+    hub.register_service(handle).unwrap();
+
+    let state = RigState {
+        connected: true,
+        ptt: false,
+        ..Default::default()
+    };
+    *shared.rig_state.lock().unwrap() = state;
+
+    let mut ready = false;
+    for _ in 0..20 {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        if let Some(snap) = hub.snapshot().rigs.get(&rig_id)
+            && snap.lifecycle == RigServiceState::Ready
+            && snap.last_state_update.is_some()
+        {
+            ready = true;
+            break;
+        }
+    }
+    assert!(ready, "service should reach Ready state");
+
+    // Wymuś przejście arbitra w stan Unknown
+    hub.tx_arbiter_mut().set_unknown(
+        Some(rig_id.clone()),
+        TxUnknownReason::BackendError("symulacja błędu transportu".to_string()),
+    );
+    assert!(hub.tx_arbiter().is_unknown());
+
+    // Próba resync z telemetrią sprzed Unknown (lub bez nowo potwierdzonego odpytania stanu):
+    // Z uwagi na CAT-006, resync_tx_arbiter weryfikuje snapshot.last_state_update > unknown_since
+    let res = hub
+        .resync_tx_arbiter(&rig_id, Duration::from_millis(500))
+        .await;
+    assert!(
+        res.is_err(),
+        "resync z telemetrią sprzed wejścia w Unknown musi być odrzucony"
+    );
+    assert!(hub.tx_arbiter().is_unknown());
+
+    // Symulacja nadejścia nowej, świeżej telemetrii stanu po czasie przejścia w Unknown
+    let mut resynced = false;
+    for _ in 0..30 {
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        if hub
+            .resync_tx_arbiter(&rig_id, Duration::from_millis(500))
+            .await
+            .is_ok()
+        {
+            resynced = true;
+            break;
+        }
+    }
+    assert!(
+        resynced,
+        "resync ze świeżym odpytaniem stanu musi się powieść"
+    );
+    assert_eq!(*hub.tx_arbiter().state(), TxArbiterState::Idle);
+
+    hub.shutdown(Duration::from_millis(500)).await.unwrap();
+}
+
+#[tokio::test]
+async fn concurrent_ptt_on_requests_allow_only_one_owner() {
+    let arbiter = Arc::new(tokio::sync::Mutex::new(TxArbiter::new()));
+    let rig1 = RigId::new("RIG_CONC_1").unwrap();
+    let rig2 = RigId::new("RIG_CONC_2").unwrap();
+    let cmd1 = RigCommandId::new(201);
+    let cmd2 = RigCommandId::new(202);
+
+    let a1 = Arc::clone(&arbiter);
+    let r1 = rig1.clone();
+    let a2 = Arc::clone(&arbiter);
+    let r2 = rig2.clone();
+
+    let h1 = tokio::spawn(async move {
+        let mut arb = a1.lock().await;
+        arb.request_tx(&r1, cmd1).map(|_| r1)
+    });
+
+    let h2 = tokio::spawn(async move {
+        let mut arb = a2.lock().await;
+        arb.request_tx(&r2, cmd2).map(|_| r2)
+    });
+
+    let (res1, res2) = tokio::join!(h1, h2);
+    let out1 = res1.unwrap();
+    let out2 = res2.unwrap();
+
+    let success_count = [out1.is_ok(), out2.is_ok()]
+        .into_iter()
+        .filter(|&x| x)
+        .count();
+    let failure_count = [out1.is_err(), out2.is_err()]
+        .into_iter()
+        .filter(|&x| x)
+        .count();
+
+    assert_eq!(
+        success_count, 1,
+        "dokładnie jedno żądanie PTT ON może uzyskać zezwolenie"
+    );
+    assert_eq!(
+        failure_count, 1,
+        "drugie równoległe żądanie musi zostać natychmiast odrzucone"
+    );
+}
+
+#[tokio::test]
+async fn disconnect_racing_with_confirmation_does_not_enter_tx_owned() {
+    let mut arbiter = TxArbiter::new();
+    let rig = RigId::new("RIG_RACE").unwrap();
+    let cmd_id = RigCommandId::new(301);
+
+    // 1. Żądanie PTT ON rozpoczyna fazę Requesting
+    arbiter.request_tx(&rig, cmd_id).expect("request succeeds");
+    assert_eq!(
+        *arbiter.state(),
+        TxArbiterState::Requesting {
+            rig_id: rig.clone(),
+            command_id: cmd_id,
+        }
+    );
+
+    // 2. W trakcie oczekiwania na sprzęt następuje nagłe rozłączenie / awaria sesji
+    arbiter.handle_session_failure(&rig, "połączenie przerwane podczas żądania");
+    assert!(arbiter.is_unknown());
+
+    // 3. Spóźnione potwierdzenie od backendu próbuje zatwierdzić stan nadawania
+    let confirm_res = arbiter.confirm_tx(&rig, cmd_id);
+    assert!(
+        confirm_res.is_err(),
+        "spóźnione potwierdzenie po rozłączeniu musi zostać odrzucone"
+    );
+    assert!(!arbiter.is_owned_by(&rig));
+    assert!(
+        arbiter.is_unknown(),
+        "arbiter musi pozostać w bezpiecznym stanie Unknown"
+    );
+}
+
+#[tokio::test]
+async fn stale_session_confirmation_cannot_claim_tx_ownership() {
+    let mut arbiter = TxArbiter::new();
+    let rig = RigId::new("RIG_STALE_GEN").unwrap();
+    let cmd1 = RigCommandId::new(401);
+    let cmd2 = RigCommandId::new(402);
+
+    // Rozpocznij pierwsze żądanie i anuluj je (powrót do Idle)
+    arbiter.request_tx(&rig, cmd1).unwrap();
+    arbiter.reject_request(&rig, cmd1).unwrap();
+    assert_eq!(*arbiter.state(), TxArbiterState::Idle);
+
+    // Rozpocznij drugie niezależne żądanie (z nowym command_id)
+    arbiter.request_tx(&rig, cmd2).unwrap();
+    assert_eq!(
+        *arbiter.state(),
+        TxArbiterState::Requesting {
+            rig_id: rig.clone(),
+            command_id: cmd2,
+        }
+    );
+
+    // Próba zatwierdzenia przy użyciu przestarzałego identyfikatora polecenia (cmd1)
+    let res = arbiter.confirm_tx(&rig, cmd1);
+    assert!(
+        res.is_err(),
+        "potwierdzenie ze starej generacji/polecenia musi zostać odrzucone"
+    );
+    assert!(!arbiter.is_owned_by(&rig));
+    assert_eq!(
+        *arbiter.state(),
+        TxArbiterState::Requesting {
+            rig_id: rig.clone(),
+            command_id: cmd2,
+        }
+    );
+}
+
+#[tokio::test]
+async fn yaesu_and_elecraft_set_ptt_reject_unconfirmed_tx_transition() {
+    use splogbook::cat::native::elecraft::ElecraftBackend;
+    use splogbook::cat::native::elecraft::models::ELECRAFT_K3_PROFILE;
+    use splogbook::cat::native::registry::YAESU_FT891;
+    use splogbook::cat::native::yaesu::YaesuBackend;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex};
+
+    async fn read_cmd_until_semi<R: AsyncReadExt + Unpin>(reader: &mut R) -> String {
+        let mut cmd = String::new();
+        let mut b = [0u8; 1];
+        while let Ok(1) = reader.read(&mut b).await {
+            cmd.push(b[0] as char);
+            if b[0] == b';' {
+                break;
+            }
+        }
+        cmd
+    }
+
+    // 1. Yaesu: symulator odrzuca przejście na TX (odpowiada TX0; na zapytanie TX;)
+    {
+        let (client_io, mut server_io) = duplex(1024);
+        let mut yaesu = YaesuBackend::with_stream(client_io, YAESU_FT891.clone());
+
+        let server_jh = tokio::spawn(async move {
+            assert_eq!(read_cmd_until_semi(&mut server_io).await, "FA;");
+            server_io.write_all(b"FA014074000;").await.unwrap();
+            assert_eq!(read_cmd_until_semi(&mut server_io).await, "AI1;");
+
+            // SetPtt(true): komenda TX1;, a następnie zapytanie TX;
+            assert_eq!(read_cmd_until_semi(&mut server_io).await, "TX1;");
+            assert_eq!(read_cmd_until_semi(&mut server_io).await, "TX;");
+
+            // Odpowiedź odmowna/brak potwierdzenia TX (radio wciąż w RX):
+            server_io.write_all(b"TX0;").await.unwrap();
+        });
+
+        yaesu.connect().await.unwrap();
+        let res = yaesu.execute(&RigCommand::SetPtt(true)).await;
+        assert!(
+            res.is_err(),
+            "Yaesu SetPtt(true) musi zwrócić błąd gdy radio nie potwierdzi TX"
+        );
+        assert!(!yaesu.current_state().ptt);
+        assert!(!yaesu.is_ptt_confirmed());
+
+        server_jh.await.unwrap();
+    }
+
+    // 2. Elecraft: symulator odrzuca przejście na TX (odpowiada TQ0; na zapytanie TQ;)
+    {
+        let (client_io, mut server_io) = duplex(1024);
+        let mut elecraft = ElecraftBackend::with_stream(client_io, ELECRAFT_K3_PROFILE.clone());
+
+        let server_jh = tokio::spawn(async move {
+            assert_eq!(read_cmd_until_semi(&mut server_io).await, "ID;");
+            server_io.write_all(b"ID017;").await.unwrap();
+            assert_eq!(read_cmd_until_semi(&mut server_io).await, "FA;");
+            server_io
+                .write_all(b"FA00014074000;FB00007074000;")
+                .await
+                .unwrap();
+            assert_eq!(read_cmd_until_semi(&mut server_io).await, "MD;");
+            server_io.write_all(b"MD2;").await.unwrap();
+            assert_eq!(read_cmd_until_semi(&mut server_io).await, "OM;");
+            server_io.write_all(b"OMAP1S;").await.unwrap();
+            assert_eq!(read_cmd_until_semi(&mut server_io).await, "AI2;");
+            server_io.write_all(b"AI2;").await.unwrap();
+
+            // SetPtt(true): komenda TX; oraz zapytanie TQ;
+            assert_eq!(read_cmd_until_semi(&mut server_io).await, "TX;");
+            assert_eq!(read_cmd_until_semi(&mut server_io).await, "TQ;");
+
+            // Odpowiedź odmowna: radio wciąż raportuje stan RX (TQ0;)
+            server_io.write_all(b"TQ0;").await.unwrap();
+        });
+
+        elecraft.connect().await.unwrap();
+        let res = elecraft.execute(&RigCommand::SetPtt(true)).await;
+        assert!(
+            res.is_err(),
+            "Elecraft SetPtt(true) musi zwrócić błąd gdy TQ; zwróci TQ0;"
+        );
+        assert!(!elecraft.current_state().ptt);
+        assert!(!elecraft.is_ptt_confirmed());
+
+        server_jh.await.unwrap();
+    }
+}

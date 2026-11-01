@@ -144,6 +144,11 @@ impl ElecraftBackend {
         self.session_active
     }
 
+    /// Zwraca informację, czy stan nadawania (PTT) został potwierdzony przez transceiver.
+    pub fn is_ptt_confirmed(&self) -> bool {
+        self.confirmed_ptt
+    }
+
     /// Zwraca ostatnio odczytaną surową wartość S-metra (słupki LCD).
     pub fn raw_smeter(&self) -> Option<u16> {
         self.raw_smeter
@@ -678,16 +683,37 @@ impl RigBackend for ElecraftBackend {
                         // Krytyczny rygor PTT: SetPtt(true) NIE JEST PONAWIANE w razie błędu/timeoutu
                         let cmd = ElecraftCat::set_ptt(true);
                         self.send_command_raw(cmd).await?;
-                        self.confirmed_ptt = true;
-                        self.state.ptt = true;
+                        // Wymóg potwierdzenia sprzętowego (CAT-006): zapytanie TQ;
+                        let reply = self.query_and_await_response("TQ;", "TQ").await?;
+                        if let ElecraftMessage::TransmitStatus(true) = reply {
+                            self.confirmed_ptt = true;
+                            self.state.ptt = true;
+                            Ok(())
+                        } else {
+                            self.confirmed_ptt = false;
+                            self.state.ptt = false;
+                            Err(RigError::Protocol {
+                                detail: "Elecraft radio did not confirm TX transition".to_string(),
+                            })
+                        }
                     } else {
                         // SetPtt(false): jednorazowa próba wyłączenia nadawania
                         let cmd = ElecraftCat::set_ptt(false);
                         self.send_command_raw(cmd).await?;
-                        self.confirmed_ptt = false;
-                        self.state.ptt = false;
+                        // Wymóg potwierdzenia sprzętowego (CAT-006): zapytanie TQ; o powrót do RX
+                        let reply = self.query_and_await_response("TQ;", "TQ").await?;
+                        if let ElecraftMessage::TransmitStatus(false) = reply {
+                            self.confirmed_ptt = false;
+                            self.state.ptt = false;
+                            Ok(())
+                        } else {
+                            self.confirmed_ptt = false;
+                            self.state.ptt = false;
+                            Err(RigError::Protocol {
+                                detail: "Elecraft radio did not confirm RX transition".to_string(),
+                            })
+                        }
                     }
-                    Ok(())
                 }
                 RigCommand::SetVfo(vfo) => {
                     if !self.profile.capabilities.vfo {
@@ -822,6 +848,18 @@ mod tests {
     use super::*;
     use crate::cat::native::elecraft::models::{ELECRAFT_K3_PROFILE, ELECRAFT_KX2_PROFILE};
     use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex};
+
+    async fn read_command<R: tokio::io::AsyncReadExt + Unpin>(reader: &mut R) -> String {
+        let mut cmd = String::new();
+        let mut buf = [0u8; 1];
+        while let Ok(1) = reader.read(&mut buf).await {
+            cmd.push(buf[0] as char);
+            if buf[0] == b';' {
+                break;
+            }
+        }
+        cmd
+    }
 
     #[tokio::test]
     async fn elecraft_backend_connects_read_only_first() {
@@ -1095,28 +1133,33 @@ mod tests {
         let mut backend = ElecraftBackend::with_stream(client, ELECRAFT_K3_PROFILE.clone());
 
         let server_jh = tokio::spawn(async move {
-            let mut buf = [0u8; 128];
-            let _ = server.read(&mut buf).await.unwrap();
+            assert_eq!(read_command(&mut server).await, "ID;");
             server.write_all(b"ID017;").await.unwrap();
-            let _ = server.read(&mut buf).await.unwrap();
+
+            assert_eq!(read_command(&mut server).await, "FA;");
             server
-                .write_all(b"FA00014074000;FB00007074000;MD2;OMAP1S;")
+                .write_all(b"FA00014074000;FB00007074000;")
                 .await
                 .unwrap();
-            let _ = server.read(&mut buf).await.unwrap();
+
+            assert_eq!(read_command(&mut server).await, "MD;");
+            server.write_all(b"MD2;").await.unwrap();
+
+            assert_eq!(read_command(&mut server).await, "OM;");
+            server.write_all(b"OMAP1S;").await.unwrap();
+
+            assert_eq!(read_command(&mut server).await, "AI2;");
             server.write_all(b"AI2;").await.unwrap();
 
-            // Odbierz TX; oraz RX;
-            let mut read_str = String::new();
-            while !read_str.contains("RX;") {
-                let n = server.read(&mut buf).await.unwrap();
-                if n == 0 {
-                    break;
-                }
-                read_str.push_str(std::str::from_utf8(&buf[..n]).unwrap());
-            }
-            assert!(read_str.contains("TX;"));
-            assert!(read_str.contains("RX;"));
+            // SetPtt(true): komenda TX; oraz zapytanie TQ;
+            assert_eq!(read_command(&mut server).await, "TX;");
+            assert_eq!(read_command(&mut server).await, "TQ;");
+            server.write_all(b"TQ1;").await.unwrap();
+
+            // SetPtt(false): komenda RX; oraz zapytanie TQ;
+            assert_eq!(read_command(&mut server).await, "RX;");
+            assert_eq!(read_command(&mut server).await, "TQ;");
+            server.write_all(b"TQ0;").await.unwrap();
         });
 
         backend.connect().await.unwrap();
@@ -1392,28 +1435,32 @@ mod tests {
         let mut backend = ElecraftBackend::with_stream(client, ELECRAFT_K3_PROFILE.clone());
 
         let server_jh = tokio::spawn(async move {
-            let mut buf = [0u8; 128];
-            let _ = server.read(&mut buf).await.unwrap();
+            assert_eq!(read_command(&mut server).await, "ID;");
             server.write_all(b"ID017;").await.unwrap();
-            let _ = server.read(&mut buf).await.unwrap();
+
+            assert_eq!(read_command(&mut server).await, "FA;");
             server
-                .write_all(b"FA00014074000;FB00007074000;MD2;OMAP1S;")
+                .write_all(b"FA00014074000;FB00007074000;")
                 .await
                 .unwrap();
-            let _ = server.read(&mut buf).await.unwrap();
+
+            assert_eq!(read_command(&mut server).await, "MD;");
+            server.write_all(b"MD2;").await.unwrap();
+
+            assert_eq!(read_command(&mut server).await, "OM;");
+            server.write_all(b"OMAP1S;").await.unwrap();
+
+            assert_eq!(read_command(&mut server).await, "AI2;");
             server.write_all(b"AI2;").await.unwrap();
 
-            // SetPtt(true) oraz rozłączenie z confirmed_ptt == true wysyła RX;
-            let mut s = String::new();
-            while !s.contains("RX;") {
-                let n = server.read(&mut buf).await.unwrap();
-                if n == 0 {
-                    break;
-                }
-                s.push_str(std::str::from_utf8(&buf[..n]).unwrap());
-            }
-            assert!(s.contains("TX;"));
-            assert!(s.contains("RX;"));
+            // SetPtt(true)
+            assert_eq!(read_command(&mut server).await, "TX;");
+            assert_eq!(read_command(&mut server).await, "TQ;");
+            server.write_all(b"TQ1;").await.unwrap();
+
+            // Disconnect sends RX; and AI0;
+            assert_eq!(read_command(&mut server).await, "RX;");
+            assert_eq!(read_command(&mut server).await, "AI0;");
         });
 
         backend.connect().await.unwrap();
