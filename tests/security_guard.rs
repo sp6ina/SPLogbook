@@ -1094,3 +1094,104 @@ fn release_manifest_hashes_match_built_artifacts() {
     );
     assert!(sums_sample.contains("  "));
 }
+
+#[test]
+fn signer_verify_accepts_valid_signature_with_explicit_key() {
+    let signer_bin = env!("CARGO_BIN_EXE_splogbook-signer");
+    let temp_dir =
+        std::env::temp_dir().join(format!("splog_signer_verify_{}", rand::random::<u64>()));
+    fs::create_dir_all(&temp_dir).unwrap();
+
+    let priv_key_path = temp_dir.join("test_verify.key");
+    let manifest_path = temp_dir.join("release-manifest.json");
+    let sig_path = temp_dir.join("release-manifest.json.sig");
+
+    let keygen_out = Command::new(signer_bin)
+        .args(["keygen", priv_key_path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(keygen_out.status.success());
+
+    let manifest_content = r#"{
+        "manifest_version": 1,
+        "key_id": "signer-verify-test-key",
+        "product": "SPLogbook",
+        "version": "1.2.0",
+        "channel": "stable",
+        "minimum_updater_version": "1.1.0",
+        "commit": "0123456789abcdef0123456789abcdef01234567",
+        "assets": []
+    }"#;
+    fs::write(&manifest_path, manifest_content).unwrap();
+
+    let sign_out = Command::new(signer_bin)
+        .args([
+            "sign",
+            priv_key_path.to_str().unwrap(),
+            manifest_path.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(sign_out.status.success());
+    assert!(sig_path.exists());
+
+    // 1. Poprawna weryfikacja z jawnym kluczem
+    let verify_out = Command::new(signer_bin)
+        .args([
+            "verify",
+            manifest_path.to_str().unwrap(),
+            sig_path.to_str().unwrap(),
+            priv_key_path.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        verify_out.status.success(),
+        "Poprawny podpis musi zostać zweryfikowany kodem 0: {}",
+        String::from_utf8_lossy(&verify_out.stderr)
+    );
+
+    // 2. Modyfikacja manifestu powoduje błąd weryfikacji (kod != 0)
+    let tampered_manifest_path = temp_dir.join("tampered-manifest.json");
+    fs::write(
+        &tampered_manifest_path,
+        manifest_content.replace("1.2.0", "1.2.1"),
+    )
+    .unwrap();
+    let tampered_out = Command::new(signer_bin)
+        .args([
+            "verify",
+            tampered_manifest_path.to_str().unwrap(),
+            sig_path.to_str().unwrap(),
+            priv_key_path.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        !tampered_out.status.success(),
+        "Zmodyfikowany manifest musi zostać odrzucony błędem"
+    );
+
+    // 3. Uszkodzony plik podpisu powoduje błąd weryfikacji (kod != 0)
+    let bad_sig_path = temp_dir.join("bad.sig");
+    fs::write(
+        &bad_sig_path,
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+    )
+    .unwrap();
+    let bad_sig_out = Command::new(signer_bin)
+        .args([
+            "verify",
+            manifest_path.to_str().unwrap(),
+            bad_sig_path.to_str().unwrap(),
+            priv_key_path.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        !bad_sig_out.status.success(),
+        "Uszkodzony podpis musi zostać odrzucony błędem"
+    );
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
