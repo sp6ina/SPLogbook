@@ -726,10 +726,16 @@ fn test_24_hil_matrix_dimensions_correctly_identified() {
 
 #[tokio::test]
 async fn test_25_session_executes_single_shot_ptt_in_stage_7b_mock() {
+    let _lock = ENV_LOCK.lock().await;
     let manifest = valid_test_manifest();
     let session = HilHardwareSession::new(manifest, HilExecutionStage::Stage7BHardware);
     let mut mock_backend = MockHilBackend::new();
     let token = HilPttConsentToken::new("SP6INA").unwrap();
+    let _env = EnvGuard::new(&[
+        ("SPLOG_HIL_ENABLE", Some("1")),
+        ("SPLOG_HIL_SESSION", Some("SESSION-TEST-01")),
+        ("SPLOG_HIL_ALLOW_TX", Some("I_HAVE_DUMMY_LOAD")),
+    ]);
 
     let result = session
         .execute_controlled_ptt(&mut mock_backend, &token, Duration::from_millis(50))
@@ -915,10 +921,16 @@ async fn hil_ptt_uses_tx_arbiter() {
 
 #[tokio::test]
 async fn hil_ptt_has_no_retry() {
+    let _lock = ENV_LOCK.lock().await;
     let manifest = valid_test_manifest();
     let session = HilHardwareSession::new(manifest, HilExecutionStage::Stage7BHardware);
     let mut mock_backend = MockHilBackend::new();
     let token = HilPttConsentToken::new("SP6INA").unwrap();
+    let _env = EnvGuard::new(&[
+        ("SPLOG_HIL_ENABLE", Some("1")),
+        ("SPLOG_HIL_SESSION", Some("SESSION-TEST-01")),
+        ("SPLOG_HIL_ALLOW_TX", Some("I_HAVE_DUMMY_LOAD")),
+    ]);
 
     let res = session
         .execute_controlled_ptt(&mut mock_backend, &token, Duration::from_millis(20))
@@ -5276,4 +5288,281 @@ async fn hil_dispatcher_never_falls_back_to_first_rig_on_missing_target() {
         .await;
     assert!(res.is_err());
     assert_eq!(counters1.ptt_count.load(Ordering::SeqCst), 0);
+}
+
+// =========================================================================
+// CAT-015: HIL SESSION LIFECYCLE AND PTT CONFIRMATION TESTS
+// =========================================================================
+
+#[tokio::test]
+async fn hil_execute_controlled_ptt_requires_env_gates_arbiter_and_confirmed_rx() {
+    let _lock = ENV_LOCK.lock().await;
+    let manifest = valid_test_manifest();
+    let session = HilHardwareSession::new(manifest.clone(), HilExecutionStage::Stage7BHardware);
+    let mut mock_backend = MockHilBackend::new();
+    let token = HilPttConsentToken::new("SP6INA").unwrap();
+
+    // 1. Missing SPLOG_HIL_ALLOW_TX rejects execution
+    {
+        let _env = EnvGuard::new(&[
+            ("SPLOG_HIL_ENABLE", Some("1")),
+            ("SPLOG_HIL_SESSION", Some("SESSION-TEST-01")),
+            ("SPLOG_HIL_ALLOW_TX", None),
+        ]);
+        let res = session
+            .execute_controlled_ptt(&mut mock_backend, &token, Duration::from_millis(20))
+            .await;
+        assert!(matches!(res, Err(HilError::UnauthorizedSession(_))));
+        assert_eq!(mock_backend.ptt_count(), 0);
+    }
+
+    // 2. Radio already transmitting prior to PTT test is strictly rejected
+    {
+        let _env = EnvGuard::new(&[
+            ("SPLOG_HIL_ENABLE", Some("1")),
+            ("SPLOG_HIL_SESSION", Some("SESSION-TEST-01")),
+            ("SPLOG_HIL_ALLOW_TX", Some("I_HAVE_DUMMY_LOAD")),
+        ]);
+        mock_backend
+            .counters()
+            .stick_ptt_on
+            .store(true, Ordering::SeqCst);
+        let res = session
+            .execute_controlled_ptt(&mut mock_backend, &token, Duration::from_millis(20))
+            .await;
+        assert!(matches!(res, Err(HilError::MissingConfirmedRx(_))));
+        assert_eq!(mock_backend.ptt_count(), 0);
+        mock_backend
+            .counters()
+            .stick_ptt_on
+            .store(false, Ordering::SeqCst);
+    }
+
+    // 3. Clean execution restores RX cleanly
+    {
+        let _env = EnvGuard::new(&[
+            ("SPLOG_HIL_ENABLE", Some("1")),
+            ("SPLOG_HIL_SESSION", Some("SESSION-TEST-01")),
+            ("SPLOG_HIL_ALLOW_TX", Some("I_HAVE_DUMMY_LOAD")),
+        ]);
+        let res = session
+            .execute_controlled_ptt(&mut mock_backend, &token, Duration::from_millis(20))
+            .await;
+        assert!(res.is_ok());
+        let outcome = res.unwrap();
+        assert!(outcome.rx_restored_cleanly);
+        assert_eq!(mock_backend.ptt_count(), 1);
+        assert!(!mock_backend.last_ptt_state());
+    }
+}
+
+#[test]
+fn hil_session_starts_disarmed() {
+    let manifest = valid_test_manifest();
+    let session = HilHardwareSession::new(manifest, HilExecutionStage::Stage7BHardware);
+    assert_eq!(session.session_state(), HilSessionState::Ready);
+}
+
+#[test]
+fn hil_session_rejects_ptt_without_explicit_arming() {
+    let _lock = ENV_LOCK.blocking_lock();
+    let manifest = valid_test_manifest();
+    let session = HilHardwareSession::new(manifest, HilExecutionStage::Stage7BHardware);
+    let _env = EnvGuard::new(&[
+        ("SPLOG_HIL_ENABLE", Some("0")),
+        ("SPLOG_HIL_SESSION", Some("SESSION-TEST-01")),
+    ]);
+    let res = session.verify_hardware_access_authorization();
+    assert!(matches!(res, Err(HilError::UnauthorizedSession(_))));
+}
+
+#[test]
+fn hil_session_arming_expires() {
+    let _lock = ENV_LOCK.blocking_lock();
+    let mut manifest = valid_test_manifest();
+    manifest.expires_at = Some("2026-10-18T10:00:00Z".to_string());
+    let session = HilHardwareSession::new(manifest, HilExecutionStage::Stage7BHardware);
+    let _env = EnvGuard::new(&[
+        ("SPLOG_HIL_ENABLE", Some("1")),
+        ("SPLOG_HIL_SESSION", Some("SESSION-TEST-01")),
+    ]);
+    let evaluated_at = chrono::DateTime::parse_from_rfc3339("2026-10-18T10:05:00Z")
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+    let res = session.verify_hardware_access_authorization_at(evaluated_at);
+    assert!(matches!(res, Err(HilError::SessionExpired(_))));
+}
+
+#[tokio::test]
+async fn hil_session_enters_owned_only_after_confirmation() {
+    let _lock = ENV_LOCK.lock().await;
+    let manifest = valid_test_manifest();
+    let session = HilHardwareSession::new(manifest, HilExecutionStage::Stage7BHardware);
+    let mut mock_backend = MockHilBackend::new();
+    let token = HilPttConsentToken::new("SP6INA").unwrap();
+    let mut arbiter = TxArbiter::new();
+
+    let _env = EnvGuard::new(&[
+        ("SPLOG_HIL_ENABLE", Some("1")),
+        ("SPLOG_HIL_SESSION", Some("SESSION-TEST-01")),
+        ("SPLOG_HIL_ALLOW_TX", Some("I_HAVE_DUMMY_LOAD")),
+    ]);
+
+    assert!(arbiter.is_idle());
+    let mut guard = session
+        .acquire_tx_guard(
+            &mut mock_backend,
+            &token,
+            &mut arbiter,
+            Duration::from_millis(50),
+        )
+        .await
+        .expect("Acquire TX guard must succeed");
+
+    assert!(matches!(
+        arbiter.state(),
+        splogbook::cat::tx_arbiter::TxArbiterState::Owned { .. }
+    ));
+    let res = guard.release_and_confirm_rx().await;
+    assert!(res.is_ok());
+    assert!(guard.is_confirmed_rx());
+}
+
+#[tokio::test]
+async fn hil_session_timeout_attempts_tx_off() {
+    let mut mock_backend = MockHilBackend::new();
+    let state = std::sync::Arc::new(std::sync::atomic::AtomicU8::new(0));
+    let mut guard = HilTxGuard::new_with_state(
+        RigId::new("RIG-IC7300-01").unwrap(),
+        &mut mock_backend,
+        Duration::from_millis(10),
+        state.clone(),
+    );
+
+    tokio::time::sleep(Duration::from_millis(25)).await;
+    let res = guard.release_and_confirm_rx().await;
+    assert!(matches!(res, Err(HilError::TimeoutToUnknown(_))));
+    assert_eq!(state.load(Ordering::SeqCst), 3 /* FailedOrUnknown */);
+}
+
+#[tokio::test]
+async fn hil_session_drop_attempts_tx_off_once() {
+    let mut mock_backend = MockHilBackend::new();
+    let state = std::sync::Arc::new(std::sync::atomic::AtomicU8::new(0));
+    {
+        let guard = HilTxGuard::new_with_state(
+            RigId::new("RIG-IC7300-01").unwrap(),
+            &mut mock_backend,
+            Duration::from_millis(100),
+            state.clone(),
+        );
+        assert!(!guard.is_released());
+        // Guard is dropped without release_and_confirm_rx
+    }
+    assert_eq!(state.load(Ordering::SeqCst), 3 /* FailedOrUnknown */);
+}
+
+#[tokio::test]
+async fn hil_session_cleanup_is_idempotent() {
+    let mut mock_backend = MockHilBackend::new();
+    let mut guard = HilTxGuard::new(
+        RigId::new("RIG-IC7300-01").unwrap(),
+        &mut mock_backend,
+        Duration::from_millis(100),
+    );
+
+    let res1 = guard.release_and_confirm_rx().await;
+    assert!(res1.is_ok());
+    let res2 = guard.release_and_confirm_rx().await;
+    assert!(matches!(res2, Err(HilError::ReleaseError(_))));
+}
+
+#[tokio::test]
+async fn hil_session_disconnect_clears_local_tx_ownership() {
+    let mut arbiter = TxArbiter::new();
+    let rig_id = RigId::new("RIG-IC7300-01").unwrap();
+    let cmd_id = RigCommandId::new(1);
+
+    arbiter.request_tx(&rig_id, cmd_id).unwrap();
+    arbiter.confirm_tx(&rig_id, cmd_id).unwrap();
+    assert!(matches!(
+        arbiter.state(),
+        splogbook::cat::tx_arbiter::TxArbiterState::Owned { .. }
+    ));
+
+    arbiter.resync_to_idle();
+    assert!(arbiter.is_idle());
+}
+
+#[tokio::test]
+async fn hil_session_ptt_off_failure_is_reported() {
+    let mut mock_backend = MockHilBackend::new();
+    mock_backend
+        .counters()
+        .stick_ptt_on
+        .store(true, Ordering::SeqCst);
+    let state = std::sync::Arc::new(std::sync::atomic::AtomicU8::new(0));
+    let mut guard = HilTxGuard::new_with_state(
+        RigId::new("RIG-IC7300-01").unwrap(),
+        &mut mock_backend,
+        Duration::from_millis(100),
+        state.clone(),
+    );
+
+    let res = guard.release_and_confirm_rx().await;
+    assert!(matches!(res, Err(HilError::MissingConfirmedRx(_))));
+    assert_eq!(state.load(Ordering::SeqCst), 3 /* FailedOrUnknown */);
+}
+
+#[tokio::test]
+async fn hil_session_does_not_claim_success_without_tx_off_confirmation() {
+    let mut mock_backend = MockHilBackend::new();
+    mock_backend
+        .counters()
+        .stick_ptt_on
+        .store(true, Ordering::SeqCst);
+    let state = std::sync::Arc::new(std::sync::atomic::AtomicU8::new(0));
+    let mut guard = HilTxGuard::new_with_state(
+        RigId::new("RIG-IC7300-01").unwrap(),
+        &mut mock_backend,
+        Duration::from_millis(50),
+        state,
+    );
+
+    let res = guard.release_and_confirm_rx().await;
+    assert!(!guard.is_confirmed_rx());
+    assert!(res.is_err());
+}
+
+#[tokio::test]
+async fn hil_session_controlled_ptt_with_busy_arbiter_is_rejected() {
+    let _lock = ENV_LOCK.lock().await;
+    let manifest = valid_test_manifest();
+    let session = HilHardwareSession::new(manifest, HilExecutionStage::Stage7BHardware);
+    let mut mock_backend = MockHilBackend::new();
+    let token = HilPttConsentToken::new("SP6INA").unwrap();
+    let mut arbiter = TxArbiter::new();
+    let other_rig = RigId::new("RIG-K3S-02").unwrap();
+    let cmd_id = RigCommandId::new(42);
+
+    arbiter.request_tx(&other_rig, cmd_id).unwrap();
+    arbiter.confirm_tx(&other_rig, cmd_id).unwrap();
+
+    let _env = EnvGuard::new(&[
+        ("SPLOG_HIL_ENABLE", Some("1")),
+        ("SPLOG_HIL_SESSION", Some("SESSION-TEST-01")),
+        ("SPLOG_HIL_ALLOW_TX", Some("I_HAVE_DUMMY_LOAD")),
+    ]);
+
+    let res = session
+        .execute_controlled_ptt_with_arbiter(
+            &mut mock_backend,
+            &token,
+            &mut arbiter,
+            Duration::from_millis(20),
+        )
+        .await;
+
+    assert!(matches!(res, Err(HilError::TxArbiterBusy(_))));
+    assert_eq!(mock_backend.ptt_count(), 0);
 }

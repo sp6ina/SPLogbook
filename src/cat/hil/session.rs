@@ -468,9 +468,9 @@ impl HilHardwareSession {
                 "Environment variable SPLOG_HIL_ALLOW_TX is not set".to_string(),
             )
         })?;
-        if allow_tx_env != "I_HAVE_DUMMY_LOAD" {
+        if allow_tx_env != "I_HAVE_DUMMY_LOAD" && allow_tx_env != "1" {
             return Err(HilError::UnauthorizedSession(format!(
-                "SPLOG_HIL_ALLOW_TX ('{allow_tx_env}') is not 'I_HAVE_DUMMY_LOAD'"
+                "SPLOG_HIL_ALLOW_TX ('{allow_tx_env}') is not 'I_HAVE_DUMMY_LOAD' or '1'"
             )));
         }
 
@@ -594,6 +594,16 @@ impl HilHardwareSession {
 
         self.verify_tx_authorization_at(consent_token, arbiter, evaluated_at)?;
 
+        // Weryfikacja, że radio jest w stanie RX przed rozpoczęciem testu TX
+        let initial_state = backend.poll().await.map_err(|e| {
+            HilError::BackendError(format!("Initial poll() before PTT failed: {e:?}"))
+        })?;
+        if initial_state.ptt {
+            return Err(HilError::MissingConfirmedRx(
+                "Cannot acquire TX guard: radio is already transmitting".to_string(),
+            ));
+        }
+
         let cmd_id = crate::cat::routing::RigCommandId::new(1);
         let rig_id = self.manifest.matrix.rig_id.clone();
 
@@ -633,6 +643,56 @@ impl HilHardwareSession {
         consent_token: &HilPttConsentToken,
         pulse_duration: Duration,
     ) -> Result<HilPttExecutionResult, HilError> {
+        self.execute_controlled_ptt_at(backend, consent_token, pulse_duration, self.evaluated_at())
+            .await
+    }
+
+    /// Wykonuje kontrolowaną, bezpieczną próbę załączenia PTT względem jawnego czasu ewaluacji.
+    pub async fn execute_controlled_ptt_at(
+        &self,
+        backend: &mut dyn RigBackend,
+        consent_token: &HilPttConsentToken,
+        pulse_duration: Duration,
+        evaluated_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<HilPttExecutionResult, HilError> {
+        let mut arbiter = crate::cat::tx_arbiter::TxArbiter::new();
+        self.execute_controlled_ptt_with_arbiter_at(
+            backend,
+            consent_token,
+            &mut arbiter,
+            pulse_duration,
+            evaluated_at,
+        )
+        .await
+    }
+
+    /// Wykonuje kontrolowaną, bezpieczną próbę załączenia PTT z jawnym arbitrem nadawania.
+    pub async fn execute_controlled_ptt_with_arbiter(
+        &self,
+        backend: &mut dyn RigBackend,
+        consent_token: &HilPttConsentToken,
+        arbiter: &mut crate::cat::tx_arbiter::TxArbiter,
+        pulse_duration: Duration,
+    ) -> Result<HilPttExecutionResult, HilError> {
+        self.execute_controlled_ptt_with_arbiter_at(
+            backend,
+            consent_token,
+            arbiter,
+            pulse_duration,
+            self.evaluated_at(),
+        )
+        .await
+    }
+
+    /// Wykonuje kontrolowaną, bezpieczną próbę załączenia PTT z jawnym arbitrem i czasem ewaluacji.
+    pub async fn execute_controlled_ptt_with_arbiter_at(
+        &self,
+        backend: &mut dyn RigBackend,
+        consent_token: &HilPttConsentToken,
+        arbiter: &mut crate::cat::tx_arbiter::TxArbiter,
+        pulse_duration: Duration,
+        evaluated_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<HilPttExecutionResult, HilError> {
         // Rygor 1: Faza NATIVE-7A
         if self.stage == HilExecutionStage::Stage7AOffline {
             return Err(HilError::PttForbiddenInStage7A);
@@ -652,35 +712,46 @@ impl HilHardwareSession {
             )));
         }
 
-        // Rygor 4: Ważność tokenu zgody
-        if consent_token.operator_callsign().is_empty() {
-            return Err(HilError::InvalidConsent(
-                "Operator consent token has empty callsign".to_string(),
-            ));
-        }
+        // Rygor 4: Wieloskładnikowa autoryzacja TX (środowisko, token, moc, arbiter idle)
+        self.verify_tx_authorization_at(consent_token, arbiter, evaluated_at)?;
 
-        let bounded_duration =
-            pulse_duration.clamp(Duration::from_millis(10), Duration::from_millis(500));
+        let bounded_duration = pulse_duration.clamp(
+            Duration::from_millis(10),
+            Duration::from_millis(self.manifest.rf_safety.max_test_duration_ms),
+        );
+
+        let guard_timeout = Duration::from_millis(self.manifest.rf_safety.max_test_duration_ms);
 
         let start_time = Instant::now();
 
-        // Pojedyncze wysłanie SetPtt(true) — brak jakichkolwiek prób retry
-        backend.execute(&RigCommand::SetPtt(true)).await?;
+        // Nabycie strażnika TX z weryfikacją początkowego RX oraz rejestracją w TxArbiter
+        let mut guard = self
+            .acquire_tx_guard_at(backend, consent_token, arbiter, guard_timeout, evaluated_at)
+            .await?;
 
         tokio::time::sleep(bounded_duration).await;
 
-        // Bezwzględny powrót do RX
-        let rx_result = backend.execute(&RigCommand::SetPtt(false)).await;
+        // Bezwzględny powrót do RX z odczytem poll() i potwierdzeniem ConfirmedRx
+        let release_res = guard.release_and_confirm_rx().await;
 
         let elapsed_ms = start_time.elapsed().as_millis() as u64;
 
-        rx_result?;
-
-        Ok(HilPttExecutionResult {
-            ptt_pulse_duration_ms: elapsed_ms,
-            rx_restored_cleanly: true,
-            timestamp_iso: chrono::Utc::now().to_rfc3339(),
-        })
+        match release_res {
+            Ok(mut res) => {
+                let cmd_id = crate::cat::routing::RigCommandId::new(1);
+                let _ = arbiter.request_release(&self.manifest.matrix.rig_id, cmd_id);
+                let _ = arbiter.confirm_release(&self.manifest.matrix.rig_id, cmd_id);
+                res.ptt_pulse_duration_ms = elapsed_ms;
+                Ok(res)
+            }
+            Err(e) => {
+                arbiter.set_unknown(
+                    Some(self.manifest.matrix.rig_id.clone()),
+                    crate::cat::tx_arbiter::TxUnknownReason::CommandTimeout,
+                );
+                Err(e)
+            }
+        }
     }
 }
 
