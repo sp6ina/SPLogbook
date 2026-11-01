@@ -1143,9 +1143,22 @@
 - **Implementacja po:**
   - Zastąpiono algorytm rozwiązaniem ściśle liniowym $O(N)$: każdy element serializowany jest dokładnie jeden raz w celu zmierzenia jego długości bajtowej w JSON.
   - Narzut koperty pustej wiadomości oraz separatorów przecinkowych (`1 + item_len`) wyliczany jest przyrostowo co do bajta bez żadnego wielokrotnego serializowania rosnących wektorów.
-  - Przy osiągnięciu granicy `MAX_CHUNK_BYTES` bufor `current` jest przenoszony (`std::mem::take`) do chunku i zerowany w $O(1)$.
-  - Pojedyncze rekordy $\le 6\text{ MiB}$ i $>1\text{ MiB}$ są emitowane w pojedynczym osobnym chunku, a rekordy $>6\text{ MiB}$ są odrzucane z `SyncError::RecordTooLarge` (zachowanie 100% zgodne z kontraktem).
-  - Liczba serializacji dla $N$ elementów: dokładnie $N + 1$ (1 dla nagłówka pustego + $N$ dla elementów).
+  - Przy osiągnięciu granicy `MAX_CHUNK_BYTES` (1 MiB) bufor `current` jest przenoszony (`std::mem::take`) do chunku i zerowany w $O(1)$.
+  - **Kontrakt limitów protokołu i SINGLE_RECORD_EXCEPTION_IS_VALID:**
+    - `MAX_CHUNK_BYTES` (1 MiB, `src/sync/catchup.rs:18`): docelowy limit grupowania wielu rekordów lub identyfikatorów w pojedynczy `Message`.
+    - `MAX_RECORD_BYTES` (6 MiB, `src/sync/catchup.rs:25`): twardy limit pojedynczego rekordu QSO w JSON.
+    - `MAX_FRAME_BYTES` (8 MiB, `src/sync/frame.rs:10`): bezwzględny limit transportowy ramkowania TCP (`write_frame`, `decode_length`).
+    - Pojedyncze rekordy w przedziale $>1\text{ MiB}$ i $\le 6\text{ MiB}$ są legalnie emitowane w pojedynczym dedykowanym chunku `Message::Records` (`SINGLE_RECORD_EXCEPTION_IS_VALID`).
+    - Narzut ramkowania transportowego wynosi 44 B (`FRAME_OVERHEAD_BYTES`: 24 B nonce + 16 B Poly1305 tag + 4 B nagłówek długości), a koperty JSON 33–34 B (łącznie 77–78 B). Rekord 6 MiB zajmuje na łączu $\le 6\,291\,534\text{ B} \ll 8\text{ MiB}$ (zapas $>2{,}09\text{ MiB}$).
+    - Rekordy $>6\text{ MiB}$ są bezpiecznie pomijane przez nadawcę (`continue;`), emitując zdarzenie błędu `SyncEvent::Error(SyncError::RecordTooLarge)` oraz log `MULTIOP_ERROR_RECORD_TOO_LARGE` bez przerywania sesji, bez skażenia bazy i bez ujawniania danych QSO.
+    - Odbiorca waliduje 4-bajtowy prefiks długości w `decode_length` przed zaalokowaniem bufora ramki, zabezpieczając stertę przed nieograniczoną alokacją przy złośliwych deklaracjach peera.
+  - **Liczba operacji liniowych:**
+    - `empty_envelope_serializations`: 1,
+    - `item_serializations`: $N$,
+    - `final_chunk_serializations`: $C$ (liczba wyemitowanych chunków),
+    - `frame_encryptions`: $C$,
+    - `frame_encodings`: $C$,
+    - Łączna liczba operacji: $1 + N + 3C = O(N)$.
 - **Wyniki pomiarów (przed -> po, 3 próby):**
   - `chunk_inventory` $N=1\,000$: $2458,97\text{ ms} \rightarrow 3,84\text{ ms}$ (min $3,62$, med $3,84$, max $5,59\text{ ms}$; poprawa **640x**, $99,84\%$)
   - `chunk_inventory` $N=5\,000$: $52\,496,79\text{ ms} \rightarrow 20,78\text{ ms}$ (min $18,38$, med $20,78$, max $24,02\text{ ms}$; poprawa **2526x**, $99,96\%$)
@@ -1159,7 +1172,23 @@
   - `optimized_*_chunking_matches_reference_for_small_inputs` (porównanie wyników z implementacją referencyjną).
   - `catchup_chunking_15k_identities_has_linear_serialization_count` (deterministyczny licznik serializacji $\le N + 10$).
   - `catchup_chunking_scaling_ratio_is_near_linear` (stosunek skalowania $4\text{k}/2\text{k} < 2,5$, brak $O(N^2)$).
-- **Ryzyko resztkowe:** Zerowe. Format protokołu, semantyka catch-up, kolejność i limity ramki są w 100% zachowane. Commit: `7106677`.
+  - `single_large_record_roundtrips_through_production_frame_codec` (pełny roundtrip rekordu 1–6 MiB przez produkcyjny frame codec, krypto i serializację bez naruszenia limitu transportowego).
+  - `frame_decoder_rejects_length_above_transport_limit` oraz `frame_decoder_rejects_length_overflow` (odrzucenie deklaracji długości > 8 MiB i `u32::MAX` bez alokacji bufora).
+  - `large_record_rejection_has_no_partial_side_effects` (odrzucenie rekordu > 6 MiB bez częściowego skażenia bazy).
+  - `oversized_record_rejection_does_not_claim_full_catchup_success` (brak fałszywego sukcesu synchronizacji przy pominiętym rekordzie).
+  - `catchup_chunking_15k_reports_complete_linear_operation_counts` (pełny rozkład liczników operacji $1 + N + 3C$).
+  - `estimated_chunk_size_matches_actual_serialized_size` (dokładność estymacji co do bajta dla UTF-8, znaków specjalnych i komentarzy).
+  - `last_flag_size_delta_is_accounted_for` (sprawdzenie 1-bajtowej delty `"last":false` vs `"last":true` i konserwatywności estymacji).
+- **Pamięć i alokacje (sprostowanie po audycie):**
+  - Poprzedni algorytm generował ponad 6 GiB skumulowanego wolumenu alokacji tymczasowych (total allocated temporary bytes over execution) dla $N=15\,000$ elementów wskutek klonowania wektorów i wielokrotnej serializacji.
+  - Nowy algorytm utrzymuje w pamięci żywej (live heap) wyłącznie wektor wejściowy i bieżący chunk.
+  - Szczyt pamięci fizycznej procesu (peak RSS) nie został bezpośrednio zmierzony w teście.
+- **Ryzyko resztkowe:** Niskie (`LOW`).
+  - Wyniki pomiarów czasowych zależą od parametrów sprzętowych procesora i systemu operacyjnego.
+  - Szczegółowe instrumentation liczników działa wyłącznie pod `#[cfg(test)]`.
+  - Peak RSS nie został zmierzony bezpośrednio.
+  - Duże pojedyncze rekordy (1–6 MiB) wymagają monitorowania pasma LAN przy łączach o ograniczonej przepustowości.
+  - Kompatybilność wire formatu została potwierdzona testami end-to-end, ale nie z heterogenicznymi historycznymi klientami na żywej sieci.
 
 ---
 

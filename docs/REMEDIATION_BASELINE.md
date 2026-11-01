@@ -114,3 +114,32 @@ W pliku `src/core/database/qso_store.rs`:
   - `chunk_records` $N=3\,000$: **152.66 ms** (min 131.23 ms, max 185.83 ms).
 - Liczba operacji serializacji: ściśle liniowa $N + 1$ (potwierdzona testem deterministycznym `catchup_chunking_15k_identities_has_linear_serialization_count`).
 - Parametry produkcyjne Argon2id: nienaruszone (19 MiB RAM, 2 iteracje, 1 wątek), zabezpieczone testem `production_argon2_parameters_remain_unchanged`.
+
+---
+
+## 9. Pomiary i weryfikacja bramki naprawczej PERF-001
+
+- **Kontrakt limitów protokołu synchronizacji:**
+  - `MAX_CHUNK_BYTES`: **1 MiB** (`1 048 576 B`, `src/sync/catchup.rs:18`) – docelowy limit grupowania wielu rekordów / identyfikatorów.
+  - `MAX_RECORD_BYTES`: **6 MiB** (`6 291 456 B`, `src/sync/catchup.rs:25`) – twardy limit pojedynczego rekordu QSO w JSON.
+  - `MAX_FRAME_BYTES`: **8 MiB** (`8 388 608 B`, `src/sync/frame.rs:10`) – twardy limit warstwy ramkowania TCP (`write_frame`, `decode_length`).
+  - `FRAME_OVERHEAD_BYTES`: **44 B** (`24 B` nonce + `16 B` Poly1305 tag + `4 B` prefiks długości big-endian).
+  - Narzut koperty JSON `Message::Records`: **33 B** (`last: true`) lub **34 B** (`last: false`).
+  - Całkowity narzut transportowy z kopertą: **77–78 B**.
+- **Weryfikacja dużych rekordów (SINGLE_RECORD_EXCEPTION_IS_VALID):**
+  - Rekordy w przedziale $>1\text{ MiB}$ i $\le 6\text{ MiB}$ są emitowane w osobnym dedykowanym chunku `Message::Records` z 1 rekordem.
+  - Maksymalny rozmiar zaszyfrowanej ramki dla rekordu 6 MiB: $\le 6\,291\,534\text{ B}$, z zapasem $>2{,}09\text{ MiB}$ poniżej limitu transportowego `MAX_FRAME_BYTES` (8 MiB).
+  - Roundtrip end-to-end potwierdzony testem `single_large_record_roundtrips_through_production_frame_codec` (dla 1 MiB+1, 2 MiB, 5.9 MiB, MAX_RECORD_BYTES - 500 B).
+  - Rekordy $>6\text{ MiB}$ są odrzucane przez nadawcę (`RecordTooLarge`) bez przerywania sesji i bez skażenia bazy (`large_record_rejection_has_no_partial_side_effects`, `oversized_record_rejection_does_not_claim_full_catchup_success`).
+- **Zabezpieczenie dekodera ramki:**
+  - `decode_length` weryfikuje długość przed zaalokowaniem bufora sterty.
+  - Testy `frame_decoder_rejects_length_above_transport_limit` oraz `frame_decoder_rejects_length_overflow` potwierdzają natychmiastowe odrzucenie ramki na 4. bajcie bez alokacji.
+- **Pełne liczenie operacji:**
+  - Test `catchup_chunking_15k_reports_complete_linear_operation_counts`: $1$ empty envelope + $15\,000$ item serializations + $3 \times C$ (final chunk, encryption, frame encoding) = ściśle liniowy potok $O(N)$.
+  - Test `estimated_chunk_size_matches_actual_serialized_size`: rzeczywisty rozmiar równy estymacji co do bajta dla `last: false` oraz estymacja - 1 B dla `last: true`.
+  - Test `last_flag_size_delta_is_accounted_for`: 1-bajtowa delta `"last":false` vs `"last":true` w pełni uwzględniona w konserwatywnym oszacowaniu.
+- **Pamięć i alokacje:**
+  - Skumulowany wolumen alokacji tymczasowych poprzedniego algorytmu wynosił $>6\text{ GiB}$ dla $N=15\,000$.
+  - Nowy algorytm utrzymuje w live heap wyłącznie dane wejściowe i aktualny chunk.
+  - Szczyt pamięci rezydentnej (peak RSS) nie został bezpośrednio zmierzony.
+- **Ryzyko resztkowe:** **NISKIE** (status ZEROWE sprostowany zgodnie z metodyką inżynierską).
