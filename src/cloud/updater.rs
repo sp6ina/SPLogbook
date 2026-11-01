@@ -1726,9 +1726,16 @@ impl<'a> AtomicInstallationOptions<'a> {
     }
 }
 
-/// Atomowa instalacja przygotowanego katalogu staging do katalogu docelowego aplikacji.
-/// Tworzy kopię zapasową (backup) modyfikowanych plików, dokonuje podmiany i automatycznie
-/// wykonuje rollback, jeżeli jakikolwiek krok zakończy się błędem.
+/// Transakcyjna instalacja przygotowanego katalogu staging do katalogu docelowego aplikacji
+/// z mechanizmem kopii zapasowej i automatycznego rollbacku (transactional installation with rollback).
+///
+/// UWAGA DOTYCZĄCA SEMANTYKI:
+/// Model instalacji to TRANSACTIONAL_FILE_REPLACEMENT (nie jest to DIRECTORY_ATOMIC_SWAP
+/// na poziomie pojedynczego wywołania jądra systemu plików, ponieważ systemy operacyjne, zwłaszcza Windows,
+/// blokują podmianę całego drzewa katalogów przy uruchomionych procesach i wieloplikowych instalacjach).
+/// Pliki są wymieniane sekwencyjnie. W trakcie operacji istnieje krótkie okno stanu mieszanego,
+/// dlatego aplikacja docelowa pozostaje zatrzymana i nie jest uruchamiana przed finalnym zatwierdzeniem.
+/// W razie błędu następuje automatyczny rollback każdego podmienionego pliku z katalogu kopii zapasowej.
 pub fn apply_atomic_installation_with_options(
     prepared_dir: &Path,
     active_dir: &Path,
@@ -1861,6 +1868,24 @@ pub fn apply_atomic_installation(
         active_dir,
         &AtomicInstallationOptions::new(executable_name),
     )
+}
+
+/// Alias dla `apply_atomic_installation_with_options` odzwierciedlający semantykę transakcyjną.
+pub fn apply_transactional_installation_with_options(
+    prepared_dir: &Path,
+    active_dir: &Path,
+    options: &AtomicInstallationOptions<'_>,
+) -> Result<(), UpdaterError> {
+    apply_atomic_installation_with_options(prepared_dir, active_dir, options)
+}
+
+/// Alias dla `apply_atomic_installation` odzwierciedlający semantykę transakcyjną.
+pub fn apply_transactional_installation(
+    prepared_dir: &Path,
+    active_dir: &Path,
+    executable_name: &str,
+) -> Result<(), UpdaterError> {
+    apply_atomic_installation(prepared_dir, active_dir, executable_name)
 }
 
 pub async fn install_update(asset: &ReleaseAsset) -> Result<(), UpdaterError> {
@@ -3163,6 +3188,129 @@ mod tests {
 
         let res_ok = verify_artifact_integrity(data, data.len() as u64, &real_hash);
         assert!(res_ok.is_ok());
+    }
+
+    #[test]
+    fn installation_never_removes_old_version_before_staging_validation() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("test_never_rm_{}", rand::random::<u64>()));
+        let active = temp_dir.join("active");
+        let staging = temp_dir.join("staging");
+        std::fs::create_dir_all(&active).unwrap();
+        std::fs::create_dir_all(&staging).unwrap();
+
+        let old_exe = active.join("SPLogbook.exe");
+        std::fs::write(&old_exe, b"OLD CANONICAL VERSION 1.2.0").unwrap();
+
+        // Staging has invalid layout (missing executable)
+        let opts = AtomicInstallationOptions::new("SPLogbook.exe");
+        let res = apply_atomic_installation_with_options(&staging, &active, &opts);
+        assert!(res.is_err());
+
+        // Old installation must remain completely untouched
+        assert_eq!(
+            std::fs::read(&old_exe).unwrap(),
+            b"OLD CANONICAL VERSION 1.2.0"
+        );
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn transactional_installation_rolls_back_every_replaced_file() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("test_tx_rollback_{}", rand::random::<u64>()));
+        let active = temp_dir.join("active");
+        let staging = temp_dir.join("staging");
+        std::fs::create_dir_all(&active).unwrap();
+        std::fs::create_dir_all(&staging).unwrap();
+
+        let file1 = active.join("file1.bin");
+        let file2 = active.join("config.json");
+        std::fs::write(&file1, b"ORIGINAL FILE 1").unwrap();
+        std::fs::write(&file2, b"ORIGINAL FILE 2").unwrap();
+
+        let new_exe = staging.join("SPLogbook.exe");
+        let new_file1 = staging.join("file1.bin");
+        let new_file2 = staging.join("config.json");
+        std::fs::write(&new_exe, b"EXE CANDIDATE").unwrap();
+        std::fs::write(&new_file1, b"REPLACED FILE 1").unwrap();
+        std::fs::write(&new_file2, b"REPLACED FILE 2").unwrap();
+
+        let mut opts = AtomicInstallationOptions::new("SPLogbook.exe");
+        opts.simulate_rename_failure = true;
+
+        let res = apply_atomic_installation_with_options(&staging, &active, &opts);
+        assert!(matches!(res, Err(UpdaterError::InstallFailed(_))));
+
+        // Every replaced file must be rolled back to original content
+        assert_eq!(std::fs::read(&file1).unwrap(), b"ORIGINAL FILE 1");
+        assert_eq!(std::fs::read(&file2).unwrap(), b"ORIGINAL FILE 2");
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn interrupted_installation_does_not_claim_success() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("test_interrupt_{}", rand::random::<u64>()));
+        let active = temp_dir.join("active");
+        let staging = temp_dir.join("staging");
+        std::fs::create_dir_all(&active).unwrap();
+        std::fs::create_dir_all(&staging).unwrap();
+
+        let exe = active.join("SPLogbook.exe");
+        std::fs::write(&exe, b"EXE ACTIVE").unwrap();
+        let new_exe = staging.join("SPLogbook.exe");
+        std::fs::write(&new_exe, b"EXE STAGED").unwrap();
+
+        let mut opts = AtomicInstallationOptions::new("SPLogbook.exe");
+        opts.simulate_post_swap_validation_failure = true;
+
+        let res = apply_atomic_installation_with_options(&staging, &active, &opts);
+        assert!(res.is_err(), "Interrupted installation must return Err");
+        assert!(matches!(res, Err(UpdaterError::InstallFailed(_))));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn installation_cleanup_does_not_remove_valid_backup_before_commit() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("test_clean_bkp_{}", rand::random::<u64>()));
+        let active = temp_dir.join("active");
+        let staging = temp_dir.join("staging");
+        std::fs::create_dir_all(&active).unwrap();
+        std::fs::create_dir_all(&staging).unwrap();
+
+        let exe = active.join("SPLogbook.exe");
+        std::fs::write(&exe, b"ORIGINAL EXE").unwrap();
+        let new_exe = staging.join("SPLogbook.exe");
+        std::fs::write(&new_exe, b"NEW EXE").unwrap();
+
+        let opts = AtomicInstallationOptions::new("SPLogbook.exe");
+        let res = apply_atomic_installation_with_options(&staging, &active, &opts);
+        assert!(res.is_ok());
+
+        assert_eq!(std::fs::read(&exe).unwrap(), b"NEW EXE");
+        assert!(!staging.exists());
+
+        let remaining_backups = std::fs::read_dir(&active)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .any(|e| e.file_name().to_string_lossy().starts_with(".backup_"));
+        assert!(
+            !remaining_backups,
+            "Katalog kopii zapasowej jest usuwany dopiero po poprawnym zatwierdzeniu"
+        );
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn updater_install_sets_clean_permissions_on_unix() {
+        linux_install_preserves_executable_bit_without_privileged_modes();
     }
 
     #[test]
