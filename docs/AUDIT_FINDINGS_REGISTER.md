@@ -46,7 +46,7 @@
   - **PRODUCTION_SECRET_STORED_EXTERNALLY:** OWNER_CONFIRMED (klucz prywatny wygenerowany poza repozytorium i skonfigurowany w GitHub Actions Secret `RELEASE_SIGNING_KEY`);
   - **HISTORY_EXPOSURE:** OWNER_DECISION_REQUIRED (materiały historyczne zneutralizowane kryptograficznie w aplikacji; ewentualne przepisywanie historii Git `git-filter-repo` pozostaje do wyłącznej decyzji Właściciela);
   - **HISTORICAL_RELEASE_AUDIT:** COMPLETED (przeprowadzono audyt wszystkich wydań: v1.2.0 sklasyfikowane jako `VERIFIED_REVOKED_KEY`, v1.0.0-v1.1.0 jako `MISSING_MANIFEST` / `UNSIGNED`; pełny raport: `docs/HISTORICAL_RELEASE_AUDIT.md`);
-  - **AUTO_UPDATE_RELEASE_READINESS:** BLOCKED_BY_REL-001_CI-001 (auto-updater poprawnie weryfikuje podpisy w kodzie, publikacja wydań z podpisem oczekuje na wdrożenie Etapu 2);
+  - **AUTO_UPDATE_RELEASE_READINESS:** READY (wdrożono kompletne zabezpieczenia REL-001 oraz potok CI-001 w Etapie 2; auto-updater weryfikuje podpisy, potok publikuje podpisany manifest i SHA256SUMS.txt);
   - **SEC-001_OVERALL:** MITIGATED (kod, testy, klucze i audyt domknięte; ekspozycja historii oczekuje na decyzję Właściciela).
 - **Moduł / obszar:** `src/scratch.rs`, `src/cloud/updater.rs`, `tests/security_guard.rs`, `.github/workflows/ci.yml`, `docs/SECURITY_KEY_ROTATION.md`
 - **Lokalizacja:** [`src/cloud/updater.rs:257-300`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cloud/updater.rs#L257-L300) (`TRUSTED_KEYS`, `REVOKED_KEY_IDS`, `REVOKED_PUBLIC_KEYS`), [`tests/security_guard.rs`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/tests/security_guard.rs), [`docs/SECURITY_KEY_ROTATION.md`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/docs/SECURITY_KEY_ROTATION.md)
@@ -75,24 +75,24 @@
 - **Kategoria:** `REL`
 - **Poziom krytyczności:** `CRITICAL`
 - **Poziom pewności:** `CONFIRMED`
-- **Moduł / obszar:** `src/cloud/updater.rs`, `.github/workflows/build-and-release.yml`
-- **Lokalizacja:** [`src/cloud/updater.rs:658-672`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cloud/updater.rs#L658-L672), [`src/cloud/updater.rs:737`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cloud/updater.rs#L737), [`src/cloud/updater.rs:885-907`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cloud/updater.rs#L885-L907), [`src/cloud/updater.rs:977`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cloud/updater.rs#L977)
-- **Dowód z kodu:**
-  1. Na Windows `install_update` (`updater.rs:737`) zapisuje pobrany plik jako `.SPLogbook_update_{pid}.tmp`, a `install_via_powershell` (`updater.rs:977`) wywołuje `Expand-Archive -LiteralPath $new -DestinationPath $stage -Force`. W Windows PowerShell 5.1 (`powershell.exe`) cmdlet `Expand-Archive` odrzuca pliki bez rozszerzenia `.zip` błędem `The path '...' is not a supported archive file format. .zip is the only supported format`. Ponadto `select_asset_for_platform` (`updater.rs:660`) preferuje `.exe` przed `.zip`.
-  2. Na Linux workflow `.github/workflows/build-and-release.yml:83, 113` pakuje archiwum z katalogiem nadrzędnym `SPLogbook-Linux-x86_64/splogbook`, podczas gdy `install_via_tar_gz` (`updater.rs:890-903`) wykonuje tylko `path.strip_prefix(&staging_dir)`, przenosząc plik do `base_dir/SPLogbook-Linux-x86_64/splogbook` zamiast nadpisać `base_dir/splogbook`. Dodatkowo `select_asset_for_platform` (`updater.rs:664`) preferuje `.appimage` przed `.tar.gz`, co powoduje błąd `GzDecoder`.
-- **Opis problemu:** Po pobraniu i zweryfikowaniu aktualizacji etap instalacji (`install_update`) nie może zakończyć się sukcesem na żadnej z docelowych platform.
-- **Scenariusz wystąpienia:** Użytkownik klika „Pobierz i zainstaluj aktualizację” w oknie nowej wersji.
-- **Wpływ:** Całkowita niezdolność aplikacji do automatycznej aktualizacji.
-- **Rozwiązanie minimalne:**
-  - W `select_asset_for_platform`: dla Windows wybierać `.zip`, dla Linux `.tar.gz`.
-  - Na Windows zapisywać pobrane archiwum z rozszerzeniem `.zip` (`.SPLogbook_update_{pid}.zip`).
-  - W `install_via_tar_gz` (oraz po rozpakowaniu `.zip` na Windows) wykrywać pojedynczy katalog nadrzędny wewnątrz `staging_dir` i spłaszczać ścieżkę przed `fs::rename`.
-- **Rozwiązanie docelowe:** Ujednolicona rozpakowywarka w czystym Rust (np. `zip` + `tar`/`flate2`) z walidacją obecności pliku wykonywalnego przed podmianą.
-- **Ryzyko wdrożenia zmiany:** Niskie.
-- **Złożoność wdrożenia:** `M`
-- **Zależności od innych zmian:** `SEC-001`, `CI-001`.
-- **Wymagany test regresyjny:** `updater_install_flattens_single_root_directory_in_archive` oraz `updater_windows_temp_archive_has_zip_extension`.
-- **Kryterium akceptacji:** Test integracyjny aktualizacji rozpakowuje archiwum o strukturze `SPLogbook-*/splogbook(.exe)` bezpośrednio do katalogu docelowego.
+- **Status remediacji:** `FIXED`
+- **Data wdrożenia:** 2026-11-01
+- **Commity:** `9ac1e5b` (`fix(updater): secure archive extraction and platform staging (REL-001)`), `cdcb955` (`fix(updater): make installation atomic with rollback (REL-001)`)
+- **Moduł / obszar:** `src/cloud/updater.rs`, `.github/workflows/build-and-release.yml`, `docs/RELEASE_SECURITY.md`
+- **Lokalizacja:** [`src/cloud/updater.rs`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cloud/updater.rs), [`.github/workflows/build-and-release.yml`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/.github/workflows/build-and-release.yml)
+- **Dowód z kodu przed naprawą:**
+  1. Na Windows `install_update` zapisywało pobrany plik jako `.SPLogbook_update_{pid}.tmp`, a `install_via_powershell` wywoływało `Expand-Archive -LiteralPath $new -DestinationPath $stage -Force`. W Windows PowerShell 5.1 (`powershell.exe`) cmdlet `Expand-Archive` odrzucał pliki bez rozszerzenia `.zip` błędem `The path '...' is not a supported archive file format. .zip is the only supported format`. Ponadto `select_asset_for_platform` preferowało `.exe` przed `.zip`.
+  2. Na Linux workflow pakował archiwum z katalogiem nadrzędnym `SPLogbook-Linux-x86_64/splogbook`, podczas gdy updater przenosił plik do `base_dir/SPLogbook-Linux-x86_64/splogbook` zamiast nadpisać `base_dir/splogbook`. Dodatkowo `select_asset_for_platform` preferowało `.appimage` przed `.tar.gz`.
+- **Wdrożone rozwiązanie (Etap 2):**
+  1. W `select_manifest_asset` i `select_asset_for_platform` wymuszono ścisły dobór `.zip` dla Windows i `.tar.gz` dla Linux na podstawie jawnych pól platformy/architektury.
+  2. Pobierany plik na Windows otrzymuje bezpieczną ścieżkę z rozszerzeniem `.zip` (`.SPLogbook_update_{pid}.zip`).
+  3. Bezpieczne rozpakowywanie `extract_tar_gz_safe` oraz `extract_zip_safe_windows` z ochroną przed path traversal (`validate_archive_relative_path`), odrzucaniem symlinków, hardlinków i plików specjalnych oraz limitami `ArchiveLimits`.
+  4. Wdrożono spłaszczanie pojedynczego katalogu nadrzędnego (`flatten_single_root_directory`).
+  5. Atomowa podmiana i transakcyjność (`apply_atomic_installation_with_options`): walidacja układu staging (`validate_staging_layout`), kopia zapasowa do `.backup_<random>` w katalogu aplikacji, podmiana plików, walidacja sprawności binarnej oraz automatyczny natychmiastowy rollback przy dowolnym błędzie lub awarii.
+  6. Wymuszenie czystych uprawnień `0o755`/`0o644` bez bitów setuid/setgid/sticky.
+- **Wdrożone testy regresyjne:**
+  - 14 testów bezpieczeństwa archiwów: `archive_never_writes_outside_staging`, `archive_rejects_parent_traversal`, `archive_rejects_absolute_paths`, `archive_rejects_symlink_entries`, `archive_rejects_hardlink_entries`, `archive_rejects_too_many_entries`, `archive_rejects_extracted_size_over_limit`, itp.
+  - 16 testów procedury instalacji, walidacji i rollbacku: `updater_keeps_old_installation_until_new_one_is_ready`, `updater_rolls_back_on_install_failure`, `updater_rolls_back_when_final_rename_fails`, `updater_cleanup_removes_failed_staging`, `updater_rollback_preserves_original_file_contents`, `updater_rejects_artifact_replaced_after_verification`, `updater_rolls_back_when_windows_replace_fails`, `updater_rolls_back_when_linux_rename_fails`, `updater_rejects_incomplete_staging_layout`, itp.
 
 ---
 
@@ -1354,19 +1354,33 @@
 - **Kategoria:** `CI`
 - **Poziom krytyczności:** `HIGH`
 - **Poziom pewności:** `CONFIRMED`
-- **Moduł / obszar:** `.github/workflows/build-and-release.yml`, `src/bin/splogbook_signer.rs`, `src/cloud/updater.rs`
-- **Lokalizacja:** [`.github/workflows/build-and-release.yml:95-120`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/.github/workflows/build-and-release.yml#L95-L120), [`src/cloud/updater.rs:582-655`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cloud/updater.rs#L582-L655)
-- **Dowód z kodu:** `UpdaterClient::fetch_and_verify_manifest` (`src/cloud/updater.rs:582-655`) wymaga obecności plików `release-manifest.json` oraz `release-manifest.json.sig` w zasobach wydania GitHub Release (w przeciwnym razie zwraca `UpdaterError::MissingManifestAsset`). Tymczasem `.github/workflows/build-and-release.yml:108-116` publikuje wyłącznie `SPLogbook-Windows-x86_64.exe`, `.zip`, `.tar.gz`, `.deb`, `.AppImage` i `SHA256SUMS.txt` — **nigdy nie uruchamia `splogbook_signer` i nie dołącza `release-manifest.json` ani `.sig`**!
-- **Opis problemu:** Żadne wydanie wygenerowane przez obecny workflow CI/CD nie przejdzie weryfikacji wbudowanego auto-updatera (`MissingManifestAsset`).
-- **Scenariusz wystąpienia:** Publikacja nowego tagu `v*` przez GitHub Actions i sprawdzenie aktualizacji w programie.
-- **Wpływ:** Auto-updater zawsze odrzuca wydania zbudowane przez GitHub Actions z błędem braku manifestu.
-- **Rozwiązanie minimalne:** Dodać w jobie `release` w `.github/workflows/build-and-release.yml` krok budujący `splogbook_signer`, generujący `release-manifest.json` ze skrótami SHA-256 artefaktów, podpisujący go kluczem z `${{ secrets.RELEASE_SIGNING_KEY }}` i dołączający `release-manifest.json` oraz `release-manifest.json.sig` do `files:` w `softprops/action-gh-release`.
-- **Rozwiązanie docelowe:** Zautomatyzowany krok CI z weryfikacją wygenerowanego podpisu przed publikacją wydania.
-- **Ryzyko wdrożenia zmiany:** Niskie.
-- **Złożoność wdrożenia:** `S`
-- **Zależności od innych zmian:** `SEC-001`, `REL-001`.
-- **Wymagany test regresyjny:** Krok weryfikacji `splogbook_signer` w CI sprawdzający poprawność wygenerowanej pary `release-manifest.json` + `.sig`.
-- **Kryterium akceptacji:** Workflow wydawniczy dołącza zweryfikowany `release-manifest.json` i `release-manifest.json.sig` do każdego GitHub Release.
+- **Status remediacji:** `FIXED`
+- **Data wdrożenia:** 2026-11-01
+- **Commit:** `16892e8` (`ci(release): generate signed manifest and complete checksums (CI-001)`)
+- **Moduł / obszar:** `.github/workflows/build-and-release.yml`, `src/bin/signer.rs`, `tests/security_guard.rs`, `docs/RELEASE_SECURITY.md`
+- **Lokalizacja:** [`.github/workflows/build-and-release.yml`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/.github/workflows/build-and-release.yml), [`tests/security_guard.rs`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/tests/security_guard.rs)
+- **Dowód z kodu przed naprawą:** Potok wydawniczy nie generował manifestu `release-manifest.json`, nie podpisywał go narzędziem `splogbook-signer` i nie dołączał podpisu ani kompletnego pliku `SHA256SUMS.txt`. Ponadto brakowało kontroli fail-closed przy braku sekretu `RELEASE_SIGNING_KEY` oraz brakowało ograniczenia uprawnień (było `permissions: contents: write` globalnie).
+- **Wdrożone rozwiązanie (Etap 2):**
+  1. Ograniczenie uprawnień: `permissions: contents: read` na poziomie nadrzędnym; `contents: write` wyłącznie w jobie `publish-release`.
+  2. Dodanie wsparcia dla walidacji w trybie dry-run przez `workflow_dispatch` z `dry_run: true`.
+  3. Wymuszenie fail-closed: brak sekretu `RELEASE_SIGNING_KEY` przy próbie publikacji wydania na tagu natychmiast przerywa działanie potoku z kodem 1.
+  4. Sprawdzenie kompletności i jednoznaczności artefaktów: weryfikacja obecności i niepustości `SPLogbook-Linux-x86_64.tar.gz` oraz `SPLogbook-Windows-x64.zip`.
+  5. Generowanie i auto-weryfikacja `SHA256SUMS.txt` (`sha256sum -c`).
+  6. Deterministyczne generowanie `release-manifest.json` z aktywnym kluczem `splogbook-release-2026-02`.
+  7. Podpisywanie manifestu przez `splogbook-signer sign` pod rygorem umask `077`, prawami `600` i czyszczeniem klucza prywatnego pułapką `trap 'rm -f priv.key' EXIT`.
+  8. Obowiązkowa weryfikacja podpisu (`splogbook-signer verify`) przed wywołaniem kroku publikacji.
+  9. Bramka `Create GitHub Release` (`softprops/action-gh-release@v2`) blokująca publikację w trybie `dry_run: true` oraz przy braku tagu `v*`.
+- **Wdrożone testy regresyjne:**
+  - `release_workflow_fails_closed_without_signing_secret` w `tests/security_guard.rs`
+  - `release_workflow_rejects_incomplete_artifact_set` w `tests/security_guard.rs`
+  - `release_workflow_rejects_duplicate_artifact_names` w `tests/security_guard.rs`
+  - `release_workflow_requires_manifest_signature_and_checksums` w `tests/security_guard.rs`
+  - `release_workflow_actions_are_pinned_by_policy` w `tests/security_guard.rs`
+  - `release_manifest_is_deterministic` w `tests/security_guard.rs`
+  - `release_manifest_lists_every_expected_artifact_once` w `tests/security_guard.rs`
+  - `release_manifest_uses_active_key_id` w `tests/security_guard.rs`
+  - `release_manifest_hashes_match_built_artifacts` w `tests/security_guard.rs`
+  - `release_workflow_references_secret_without_embedding_key_material` w `tests/security_guard.rs`
 
 ---
 

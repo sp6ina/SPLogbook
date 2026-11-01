@@ -198,3 +198,20 @@ HISTORY_EXPOSURE: OWNER_DECISION_REQUIRED
 - **Status:** `ACTIVE` / `PRODUCTION_VERIFIED`
 - **Fingerprint publiczny (SHA-256):** `2a6277b72d2a97236f344f1542a1c2868a74f71c9626a22dc1735919efeb2a4a`
 - **Zabezpieczenie materiału prywatnego:** Poza repozytorium w GitHub Actions Secret `RELEASE_SIGNING_KEY` (potwierdzone przez Właściciela).
+
+---
+
+## 14. Integracja z Potokiem Wydawniczym (Etap 2 — REL-001 + CI-001)
+
+Po wdrożeniu Etapu 2 klucz `splogbook-release-2026-02` został w pełni zintegrowany z potokiem wydawniczym `.github/workflows/build-and-release.yml` oraz auto-updaterem w `src/cloud/updater.rs`:
+
+1. **Podpisywanie wydań w GitHub Actions:**
+   Job `publish-release` pobiera materiał prywatny z sekretu `RELEASE_SIGNING_KEY`, zapisuje pod umask `077` i prawami `600` do pliku `priv.key`, generuje deterministyczny manifest `release-manifest.json` z identyfikatorem `splogbook-release-2026-02`, podpisuje go narzędziem `splogbook-signer sign priv.key release-manifest.json` i natychmiast usuwa klucz prywatny za pośrednictwem powłokowej pułapki `trap 'rm -f priv.key' EXIT`.
+2. **Weryfikacja podpisu przed publikacją:**
+   Potok weryfikuje poprawność sygnatury poleceniem `splogbook-signer verify release-manifest.json release-manifest.json.sig` przed uruchomieniem kroku publikacji na GitHub Releases.
+3. **Zabezpieczenie Fail-Closed:**
+   Próba opublikowania wydania oficjalnego (tag `v*`) bez skonfigurowanego sekretu `RELEASE_SIGNING_KEY` kończy się natychmiastowym przerwaniem potoku z kodem błędu 1. Publikacja niepodpisanego wydania jest technicznie niemożliwa.
+4. **Weryfikacja w Auto-Updaterze:**
+   Auto-updater weryfikuje podpis manifestu przy użyciu klucza `splogbook-release-2026-02`, sprawdza brak obecności klucza na liście `REVOKED_KEY_IDS` / `REVOKED_PUBLIC_KEYS`, porównuje sumy SHA-256 pobranych archiwów z manifestem, bezpiecznie rozpakowuje `.zip` na Windows i `.tar.gz` na Linux (z blokadą path traversal i symlinków), spłaszcza pojedynczy katalog główny oraz dokonuje atomowej podmiany plików ze wsparciem automatycznego rollbacku przy jakimkolwiek błędzie.
+5. **Szczegółowa dokumentacja:**
+   Pełna specyfikacja architektury bezpieczeństwa znajduje się w dokumencie `docs/RELEASE_SECURITY.md`.
