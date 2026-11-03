@@ -230,7 +230,7 @@ mod tests {
 
     #[test]
     fn test_parse_lotw_adif() {
-        let adif = "<CALL:6>SP6INA<BAND:3>20M<MODE:2>CW<QSO_DATE:8>20260920<APP_LOTW_QSL:1>Y<APP_LOTW_RXQSL:8>20260920<EOR>";
+        let adif = "<CALL:6>SP6INA<BAND:3>20M<MODE:2>CW<QSO_DATE:8>20260920<TIME_ON:6>120000<APP_LOTW_QSL:1>Y<APP_LOTW_RXQSL:8>20260920<EOR>";
         let confs = parse_lotw_confirmations(adif);
         assert_eq!(confs.len(), 1);
         assert_eq!(confs[0].callsign, "SP6INA");
