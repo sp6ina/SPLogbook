@@ -365,13 +365,62 @@ impl QsoRecord {
 
     /// Zwraca znormalizowaną tożsamość QSO (`QsoIdentity`).
     pub fn identity(&self) -> QsoIdentity {
-        QsoIdentity::from_fields(
-            &self.callsign,
-            &self.band,
-            &self.mode,
-            &self.qso_date,
-            &self.time_on,
-        )
+        QsoIdentity::from_qso(self)
+    }
+}
+
+/// Poziom precyzji znacznika czasu łączności (TIME_ON).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum QsoTimePrecision {
+    Minute,
+    Second,
+}
+
+/// Normalizuje parę (MODE, SUBMODE) do postaci kanonicznej dla tożsamości QSO.
+///
+/// Zasady:
+/// - FT8/FT4/Q65/WSPR/MSK144: kanonicznie MODE = emisja cyfrowa, SUBMODE = None
+///   (niezależnie od tego, czy źródło zapisało MODE=MFSK + SUBMODE=FT8, czy MODE=FT8).
+/// - USB/LSB: kanonicznie MODE = "SSB", SUBMODE = Some("USB" / "LSB").
+/// - CW-R/CWR/CW-REV/CW-L: transceivery i formaty CAT dla CW reverse normalizują się do MODE = "CW", SUBMODE = None.
+/// - PCW: MODE = "CW", SUBMODE = Some("PCW").
+/// - PSK31/BPSK31: MODE = "PSK", SUBMODE = Some("PSK31").
+pub fn normalize_mode_and_submode(mode: &str, submode: Option<&str>) -> (String, Option<String>) {
+    let m = mode.trim().to_uppercase();
+    let s = submode.and_then(|sub| {
+        let trimmed = sub.trim().to_uppercase();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
+    });
+
+    if m == "CW-R" || m == "CWR" || m == "CW-REV" || m == "CW-L" {
+        return ("CW".to_string(), s);
+    }
+    if m == "USB" {
+        return ("SSB".to_string(), Some("USB".to_string()));
+    }
+    if m == "LSB" {
+        return ("SSB".to_string(), Some("LSB".to_string()));
+    }
+    if m == "PCW" {
+        return ("CW".to_string(), Some("PCW".to_string()));
+    }
+    if m == "PSK31" || m == "BPSK31" {
+        return ("PSK".to_string(), Some("PSK31".to_string()));
+    }
+    if matches!(m.as_str(), "FT8" | "FT4" | "Q65" | "WSPR" | "MSK144") {
+        return (m, None);
+    }
+
+    if let Some((norm_mode, norm_sub)) =
+        crate::core::adif::AdifEngine::normalize_mode_submode(&m, s.as_deref())
+    {
+        (norm_mode.to_string(), norm_sub.map(str::to_string))
+    } else {
+        (m, s)
     }
 }
 
@@ -380,16 +429,57 @@ impl QsoRecord {
 pub struct QsoIdentity {
     pub callsign: String,
     pub band: String,
+    pub freq_hz: Option<u64>,
     pub mode: String,
+    pub submode: Option<String>,
     pub date: String,
+    pub time: String,
     pub minute: String,
+    pub precision: Option<QsoTimePrecision>,
 }
 
 impl QsoIdentity {
+    /// Tworzy tożsamość QSO na podstawie podstawowych pól (zgodność wsteczna).
     pub fn from_fields(callsign: &str, band: &str, mode: &str, date: &str, time: &str) -> Self {
+        Self::from_detailed_fields(callsign, band, None, mode, None, date, time)
+    }
+
+    /// Tworzy tożsamość QSO ze wszystkich istotnych pól kontaktu:
+    /// znak, pasmo, częstotliwość (opcjonalnie w MHz), emisja, subemisja, data i czas.
+    pub fn from_detailed_fields(
+        callsign: &str,
+        band: &str,
+        freq: Option<f64>,
+        mode: &str,
+        submode: Option<&str>,
+        date: &str,
+        time: &str,
+    ) -> Self {
         let callsign = callsign.trim().to_uppercase();
-        let band = band.trim().to_uppercase();
-        let mode = mode.trim().to_uppercase();
+        let (mode, submode) = normalize_mode_and_submode(mode, submode);
+
+        let freq_hz = freq.and_then(|f| {
+            if f.is_finite() && f > 0.0 {
+                Some((f * 1_000_000.0).round() as u64)
+            } else {
+                None
+            }
+        });
+
+        let band_trimmed = band.trim().to_uppercase();
+        let band = if band_trimmed.is_empty() {
+            if let Some(hz) = freq_hz {
+                if let Some(b) = crate::core::bandplan::get_band_by_freq(hz) {
+                    b.name.to_uppercase()
+                } else {
+                    String::new()
+                }
+            } else {
+                String::new()
+            }
+        } else {
+            band_trimmed
+        };
 
         let date_digits: String = date.chars().filter(char::is_ascii_digit).collect();
         let date = if date_digits.len() >= 8 {
@@ -399,19 +489,50 @@ impl QsoIdentity {
         };
 
         let time_digits: String = time.chars().filter(char::is_ascii_digit).collect();
-        let minute = if time_digits.len() >= 4 {
-            time_digits[..4].to_string()
+        let (time, minute, precision) = if time_digits.len() >= 6 {
+            (
+                time_digits[..6].to_string(),
+                time_digits[..4].to_string(),
+                Some(QsoTimePrecision::Second),
+            )
+        } else if time_digits.len() == 4 || time_digits.len() == 5 {
+            (
+                time_digits[..4].to_string(),
+                time_digits[..4].to_string(),
+                Some(QsoTimePrecision::Minute),
+            )
         } else {
-            format!("?{}", time.trim())
+            (
+                format!("?{}", time.trim()),
+                format!("?{}", time.trim()),
+                None,
+            )
         };
 
         Self {
             callsign,
             band,
+            freq_hz,
             mode,
+            submode,
             date,
+            time,
             minute,
+            precision,
         }
+    }
+
+    /// Tworzy kanoniczną tożsamość QSO bezpośrednio z rekordu `QsoRecord`.
+    pub fn from_qso(qso: &QsoRecord) -> Self {
+        Self::from_detailed_fields(
+            &qso.callsign,
+            &qso.band,
+            qso.freq,
+            &qso.mode,
+            qso.submode.as_deref(),
+            &qso.qso_date,
+            &qso.time_on,
+        )
     }
 
     /// Czy tożsamość posiada komplet wymaganych pól (nie zawiera braków ani znaków zapytania).
@@ -421,28 +542,52 @@ impl QsoIdentity {
             && !self.mode.is_empty()
             && self.date.len() == 8
             && !self.date.starts_with('?')
-            && self.minute.len() == 4
-            && !self.minute.starts_with('?')
+            && self.precision.is_some()
+            && !self.time.starts_with('?')
     }
 
-    /// Zwraca kanoniczny klucz tekstowy dla unikalnego indeksu SQLite lub `None`,
+    /// Zwraca kanoniczny klucz tekstowy w formacie v2 dla unikalnego indeksu SQLite lub `None`,
     /// gdy tożsamość jest niekompletna.
     pub fn canonical_key(&self) -> Option<String> {
-        if self.is_complete() {
-            Some(self.to_string())
-        } else {
-            None
+        if !self.is_complete() {
+            return None;
         }
+        let time_tag = match self.precision {
+            Some(QsoTimePrecision::Second) => format!("S{}", self.time),
+            Some(QsoTimePrecision::Minute) => format!("M{}", self.time),
+            None => return None,
+        };
+        let freq_str = self.freq_hz.map(|f| f.to_string()).unwrap_or_default();
+        let submode_str = self.submode.as_deref().unwrap_or_default();
+
+        Some(format!(
+            "v2|{}|{}|{}|{}|{}|{}|{}",
+            self.callsign, self.band, freq_str, self.mode, submode_str, self.date, time_tag
+        ))
+    }
+
+    /// Sprawdza, czy klucz tożsamości jest w formacie v2.
+    pub fn is_v2_key(key: &str) -> bool {
+        key.starts_with("v2|")
     }
 }
 
 impl std::fmt::Display for QsoIdentity {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}|{}|{}|{}|{}",
-            self.callsign, self.band, self.mode, self.date, self.minute
-        )
+        if let Some(key) = self.canonical_key() {
+            write!(f, "{key}")
+        } else {
+            let freq_str = self
+                .freq_hz
+                .map(|freq| freq.to_string())
+                .unwrap_or_default();
+            let submode_str = self.submode.as_deref().unwrap_or_default();
+            write!(
+                f,
+                "v2|{}|{}|{}|{}|{}|{}|?",
+                self.callsign, self.band, freq_str, self.mode, submode_str, self.date
+            )
+        }
     }
 }
 

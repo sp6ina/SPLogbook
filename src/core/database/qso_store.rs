@@ -31,7 +31,6 @@ impl LogDatabase {
     }
 
     /// Wstawia nowy rekord QSO do bazy i zwraca nadane ID
-
     pub fn insert_qso(&self, qso: &QsoRecord) -> Result<i64> {
         let stored = for_storage(qso);
         let data_params = bind_params(&stored);
@@ -47,11 +46,8 @@ impl LogDatabase {
     }
 
     /// Przywraca usunięte QSO zachowując jego oryginalny identyfikator.
-
     /// Używane przez Undo, aby redo oraz ewentualne referencje zachowały
-
     /// tożsamość rekordu zamiast tworzyć nowe ID.
-
     pub fn restore_qso(&self, qso: &QsoRecord) -> Result<i64> {
         let Some(id) = qso.id else {
             return self.insert_qso(qso);
@@ -265,23 +261,27 @@ impl LogDatabase {
 
     pub fn existing_identities(&self, journal_id: &str) -> Result<HashSet<QsoIdentity>> {
         let mut stmt = self.conn.prepare(
-            "SELECT callsign, band, mode, qso_date, time_on \
+            "SELECT callsign, band, mode, submode, qso_date, time_on, freq \
              FROM qso_records WHERE journal_id = ?1",
         )?;
 
         let rows = stmt.query_map(params![journal_id], |row| {
             let callsign: String = row.get(0)?;
-
             let band: String = row.get(1)?;
-
             let mode: String = row.get(2)?;
+            let submode: Option<String> = row.get(3)?;
+            let qso_date: String = row.get(4)?;
+            let time_on: String = row.get(5)?;
+            let freq: Option<f64> = row.get(6)?;
 
-            let qso_date: String = row.get(3)?;
-
-            let time_on: String = row.get(4)?;
-
-            Ok(QsoIdentity::from_fields(
-                &callsign, &band, &mode, &qso_date, &time_on,
+            Ok(QsoIdentity::from_detailed_fields(
+                &callsign,
+                &band,
+                freq,
+                &mode,
+                submode.as_deref(),
+                &qso_date,
+                &time_on,
             ))
         })?;
 
@@ -292,7 +292,7 @@ impl LogDatabase {
 
     /// Ogranicza kandydatów przez UPPER(callsign), a ostateczne porównanie wykonuje przez
 
-    /// `QsoIdentity` w Rust z zachowaniem minutowej rozdzielczości czasu.
+    /// `QsoIdentity` w Rust z zachowaniem precyzji sekund, częstotliwości i subemisji.
 
     pub fn has_identity(&self, journal_id: &str, identity: &QsoIdentity) -> Result<bool> {
         let Some(canonical_key) = identity.canonical_key() else {
