@@ -444,6 +444,44 @@ impl KenwoodCat {
             (dbm, format!("S9+{over_db}dB"))
         }
     }
+
+    /// Tworzy komendę ustawienia mocy RF (`PCxxx;`, 0..200 W).
+    pub fn set_power_cmd(watts: f32) -> String {
+        let val = (watts.clamp(0.0, 200.0).round() as u32).min(999);
+        format!("PC{:03};", val)
+    }
+
+    /// Tworzy komendę odczytu mocy RF (`PC;`).
+    pub fn read_power_cmd() -> &'static str {
+        "PC;"
+    }
+
+    /// Parsuje odpowiedź na odczyt mocy RF (`PCxxx;`).
+    pub fn parse_power_resp(resp: &str) -> Option<f32> {
+        let trimmed = resp.trim().trim_end_matches(';');
+        let val_str = trimmed.strip_prefix("PC")?;
+        val_str.parse::<f32>().ok()
+    }
+
+    /// Tworzy komendę włączenia/wyłączenia RIT (`RT1;` / `RT0;`).
+    pub fn set_rit_cmd(enable: bool) -> &'static str {
+        if enable { "RT1;" } else { "RT0;" }
+    }
+
+    /// Tworzy komendę odczytu statusu RIT (`RT;`).
+    pub fn read_rit_cmd() -> &'static str {
+        "RT;"
+    }
+
+    /// Tworzy komendę włączenia/wyłączenia XIT (`XT1;` / `XT0;`).
+    pub fn set_xit_cmd(enable: bool) -> &'static str {
+        if enable { "XT1;" } else { "XT0;" }
+    }
+
+    /// Tworzy komendę odczytu statusu XIT (`XT;`).
+    pub fn read_xit_cmd() -> &'static str {
+        "XT;"
+    }
 }
 
 #[cfg(test)]

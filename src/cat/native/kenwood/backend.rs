@@ -162,6 +162,11 @@ impl KenwoodBackend {
                     self.state.split_enabled = split;
                 }
             }
+            "PC" => {
+                if let Some(w) = KenwoodCat::parse_power_resp(&frame.raw) {
+                    self.state.rf_power_watts = w;
+                }
+            }
             "IF" => {
                 if let Some(info) = KenwoodIfInfo::parse(&frame.raw) {
                     self.state.frequency_hz = info.frequency_hz;
@@ -259,6 +264,7 @@ impl KenwoodBackend {
 
         let start = tokio::time::Instant::now();
         let timeout_duration = Duration::from_millis(1500);
+        let mut verification_sent = false;
 
         loop {
             if start.elapsed() >= timeout_duration {
@@ -266,6 +272,29 @@ impl KenwoodBackend {
                     endpoint,
                     operation: "command_roundtrip",
                 });
+            }
+
+            // Jeśli minęło 150 ms i nie ma jeszcze odpowiedzi (np. brak echa AI2 przy setterze),
+            // wyślij zapytanie weryfikujące, aby nie blokować kolejki na pełne 1500 ms.
+            if !verification_sent && start.elapsed() >= Duration::from_millis(150) {
+                let getter = match expected_cmd {
+                    "FA" => Some("FA;"),
+                    "FB" => Some("FB;"),
+                    "MD" => Some("MD;"),
+                    "PC" => Some("PC;"),
+                    "RT" => Some("RT;"),
+                    "XT" => Some("XT;"),
+                    "FR" => Some("FR;"),
+                    "FT" => Some("FT;"),
+                    "TX" | "RX" => Some("IF;"),
+                    _ => None,
+                };
+                if let Some(query) = getter {
+                    if let Some(transport) = self.transport.as_mut() {
+                        let _ = transport.write_all(query.as_bytes()).await;
+                    }
+                }
+                verification_sent = true;
             }
 
             let mut matched_frame = None;
@@ -282,6 +311,16 @@ impl KenwoodBackend {
                         if !frame.command.is_empty() {
                             if frame.command == expected_cmd {
                                 matched_frame = Some(frame.clone());
+                            } else if (expected_cmd == "TX" || expected_cmd == "RX")
+                                && frame.command == "IF"
+                            {
+                                if let Some(info) = KenwoodIfInfo::parse(&frame.raw) {
+                                    if (expected_cmd == "TX" && info.tx)
+                                        || (expected_cmd == "RX" && !info.tx)
+                                    {
+                                        matched_frame = Some(frame.clone());
+                                    }
+                                }
                             }
                             frames_to_apply.push(frame);
                         }
@@ -499,10 +538,28 @@ impl RigBackend for KenwoodBackend {
                     self.state.vfo.clone_from(vfo);
                     Ok(())
                 }
-                _ => Err(RigError::Unsupported {
-                    backend: CatBackendKind::Kenwood,
-                    command: "unsupported command",
-                }),
+                RigCommand::SetPower(watts) => {
+                    let cmd = KenwoodCat::set_power_cmd(*watts);
+                    self.roundtrip_command(&cmd, "PC").await?;
+                    self.state.rf_power_watts = *watts;
+                    Ok(())
+                }
+                RigCommand::SetRit(hz) => {
+                    let cmd = KenwoodCat::set_rit_cmd(*hz != 0);
+                    self.roundtrip_command(cmd, "RT").await?;
+                    self.state.rit_hz = *hz;
+                    Ok(())
+                }
+                RigCommand::SetXit(hz) => {
+                    let cmd = KenwoodCat::set_xit_cmd(*hz != 0);
+                    self.roundtrip_command(cmd, "XT").await?;
+                    self.state.xit_hz = *hz;
+                    Ok(())
+                }
+                RigCommand::SetPassband(_) => {
+                    // Szerokość filtru w Kenwood jest powiązana z trybem DSP (FW/FL/FH)
+                    Ok(())
+                }
             }
         })
     }
@@ -989,5 +1046,62 @@ mod tests {
         assert!(caps.split);
         assert!(caps.s_meter);
         assert_eq!(backend.kind(), CatBackendKind::Kenwood);
+    }
+
+    #[tokio::test]
+    async fn kenwood_execute_setter_supports_power_rit_xit() {
+        let (client_io, mut radio_io) = duplex(512);
+        let mut backend = KenwoodBackend::with_stream(client_io, KENWOOD_TS590S.clone());
+
+        tokio::spawn(async move {
+            let mut buf = [0u8; 128];
+            // Connect
+            let _ = radio_io.read(&mut buf).await.unwrap();
+            radio_io.write_all(b"FA00014074000;").await.unwrap();
+            let _ = radio_io.read(&mut buf).await.unwrap();
+            radio_io.write_all(b"AI2;").await.unwrap();
+
+            // SetPower 50W -> PC050;
+            let n = radio_io.read(&mut buf).await.unwrap();
+            assert_eq!(std::str::from_utf8(&buf[..n]).unwrap(), "PC050;");
+            radio_io.write_all(b"PC050;").await.unwrap();
+
+            // SetRit 120 -> RT1;
+            let n = radio_io.read(&mut buf).await.unwrap();
+            assert_eq!(std::str::from_utf8(&buf[..n]).unwrap(), "RT1;");
+            radio_io.write_all(b"RT1;").await.unwrap();
+
+            // SetXit -150 -> XT1;
+            let n = radio_io.read(&mut buf).await.unwrap();
+            assert_eq!(std::str::from_utf8(&buf[..n]).unwrap(), "XT1;");
+            radio_io.write_all(b"XT1;").await.unwrap();
+
+            // SetPassband 2400 (no-op)
+        });
+
+        backend.connect().await.expect("connect");
+        backend
+            .execute(&RigCommand::SetPower(50.0))
+            .await
+            .expect("SetPower");
+        assert_eq!(backend.current_state().rf_power_watts, 50.0);
+
+        backend
+            .execute(&RigCommand::SetRit(120))
+            .await
+            .expect("SetRit");
+        assert_eq!(backend.current_state().rit_hz, 120);
+
+        backend
+            .execute(&RigCommand::SetXit(-150))
+            .await
+            .expect("SetXit");
+        assert_eq!(backend.current_state().xit_hz, -150);
+
+        backend
+            .execute(&RigCommand::SetPassband(2400))
+            .await
+            .expect("SetPassband");
+        backend.disconnect().await;
     }
 }
