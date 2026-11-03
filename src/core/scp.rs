@@ -89,6 +89,11 @@ impl ScpEngine {
     pub fn is_empty(&self) -> bool {
         self.callsigns.is_empty()
     }
+
+    /// Czyści bazę znaków (wykorzystywane przy pełnej odbudowie stanu pochodnego z SQLite).
+    pub fn clear(&mut self) {
+        self.callsigns.clear();
+    }
 }
 
 #[cfg(test)]
