@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Wozniak (SP6INA)
 
-use crate::core::i18n::{key, tr};
+use crate::core::i18n::{Msg, key, tr};
 use crate::gui::app::SpLogApp;
 use crate::gui::theme::ThemeExt;
 use eframe::egui;
@@ -745,10 +745,17 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .collapsible(false)
             .resizable(false)
             .show(&ctx, |ui| {
-                ui.label(format!("Czy na pewno chcesz usunąć {count} zaznaczonych łączności? Operację można cofnąć (Undo)."));
+                ui.label(
+                    Msg::new(key::MSG_QSO_DELETED_MULTIPLE)
+                        .arg("count", count)
+                        .text(lang),
+                );
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    if ui.button(format!("🗑 {}", tr(key::QSO_DELETE, lang))).clicked() {
+                    if ui
+                        .button(format!("🗑 {}", tr(key::QSO_DELETE, lang)))
+                        .clicked()
+                    {
                         app.log_view.confirm_bulk_delete = false;
                         app.delete_selected_qso();
                     }
