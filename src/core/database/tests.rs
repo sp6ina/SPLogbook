@@ -22,7 +22,7 @@ fn test_insert_and_find_qso() {
 fn schema_migrations_record_versions_and_are_idempotent() {
     let mut db = LogDatabase::open_in_memory().unwrap();
     // Wszystkie kroki migracji zostaĹ‚y zarejestrowane.
-    assert_eq!(db.current_schema_version().unwrap(), 6);
+    assert_eq!(db.current_schema_version().unwrap(), 7);
 
     // Kolumny z migracji 2 istniejÄ… i ponowna inicjalizacja nie psuje schematu.
     let col_count: i64 = db
@@ -47,7 +47,7 @@ fn schema_migrations_record_versions_and_are_idempotent() {
     assert_eq!(idx_count, 2);
 
     db.init_schema().unwrap();
-    assert_eq!(db.current_schema_version().unwrap(), 6);
+    assert_eq!(db.current_schema_version().unwrap(), 7);
 }
 
 #[test]
@@ -1119,7 +1119,7 @@ fn migration_from_v1_preserves_rows() {
     }
 
     let db = LogDatabase::open(&db_path).unwrap();
-    assert_eq!(db.current_schema_version().unwrap(), 6);
+    assert_eq!(db.current_schema_version().unwrap(), 7);
 
     let qsos = db.get_all_qsos().unwrap();
     assert_eq!(qsos.len(), 1);
@@ -1142,7 +1142,7 @@ fn validate_schema_rejects_future_version() {
                 version INTEGER NOT NULL,
                 applied_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
-            INSERT INTO schema_version (version) VALUES (7);",
+            INSERT INTO schema_version (version) VALUES (8);",
         )
         .unwrap();
     }
@@ -1932,7 +1932,7 @@ fn migrated_schema_contains_same_identity_unique_constraint() {
     }
 
     let db = LogDatabase::open(&db_path).unwrap();
-    assert_eq!(db.current_schema_version().unwrap(), 6);
+    assert_eq!(db.current_schema_version().unwrap(), 7);
 
     let count: i64 = db.conn.query_row(
         "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_qso_identity_unique' AND sql LIKE '%UNIQUE%'",
@@ -2089,7 +2089,7 @@ fn migration_can_be_retried_after_manual_resolution() {
 
     // 3. Ponowna prĂłba migracji koĹ„czy siÄ™ sukcesem
     let db = LogDatabase::open(&db_path).unwrap();
-    assert_eq!(db.current_schema_version().unwrap(), 6);
+    assert_eq!(db.current_schema_version().unwrap(), 7);
     assert_eq!(db.count_all().unwrap(), 2);
 }
 
@@ -2660,4 +2660,104 @@ fn identity_survives_serialization_roundtrip() {
     let deserialized: QsoIdentity = serde_json::from_str(&json).unwrap();
     assert_eq!(id, deserialized);
     assert_eq!(id.canonical_key(), deserialized.canonical_key());
+}
+
+#[test]
+fn migration_7_upgrades_v1_keys_to_v2_keys_and_preserves_distinct_seconds() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("v6_to_v7.db");
+
+    // Tworzymy baze na wersji 6 ze starym kluczem v1 i dwoma lacznosciami w tej samej minucie
+    {
+        let conn = Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "PRAGMA foreign_keys=ON;
+             CREATE TABLE schema_version (version INTEGER NOT NULL, applied_at TEXT DEFAULT (datetime('now')));
+             INSERT INTO schema_version (version) VALUES (1), (2), (3), (4), (5), (6);",
+        ).unwrap();
+        LogDatabase::migration_1_base_schema(&conn).unwrap();
+        LogDatabase::migration_2_add_columns(&conn).unwrap();
+        conn.execute_batch(
+            "ALTER TABLE qso_records ADD COLUMN identity_key TEXT;
+             INSERT INTO qso_records (callsign, band, mode, submode, qso_date, time_on, freq, rst_sent, rst_rcvd, journal_id, identity_key)              VALUES ('SP6INA', '20m', 'CW', NULL, '20261018', '120010', 14.025, '599', '599', 'DEFAULT', 'SP6INA|20M|CW|20261018|1200');
+             INSERT INTO qso_records (callsign, band, mode, submode, qso_date, time_on, freq, rst_sent, rst_rcvd, journal_id, identity_key)              VALUES ('SP6INA', '20m', 'CW', NULL, '20261018', '120045', 14.025, '599', '599', 'DEFAULT', 'SP6INA|20M|CW|20261018|1200');",
+        ).unwrap();
+    }
+
+    // Otwarcie bazy wykonuje migracje 7
+    let db = LogDatabase::open(&db_path).unwrap();
+    assert_eq!(db.current_schema_version().unwrap(), 7);
+    assert_eq!(db.count_all().unwrap(), 2);
+
+    let conn = Connection::open(&db_path).unwrap();
+    let keys: Vec<String> = conn
+        .prepare("SELECT identity_key FROM qso_records ORDER BY time_on")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect();
+
+    assert_eq!(keys.len(), 2);
+    assert_eq!(keys[0], "v2|SP6INA|20M|14025000|CW||20261018|S120010");
+    assert_eq!(keys[1], "v2|SP6INA|20M|14025000|CW||20261018|S120045");
+}
+
+#[test]
+fn migration_7_conflict_rolls_back_without_data_loss_and_preserves_v6() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("v7_conflict.db");
+
+    // Baza na wersji 6 z dwoma identycznymi rekordami pod v2
+    {
+        let conn = Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "PRAGMA foreign_keys=ON;
+             CREATE TABLE schema_version (version INTEGER NOT NULL, applied_at TEXT DEFAULT (datetime('now')));
+             INSERT INTO schema_version (version) VALUES (1), (2), (3), (4), (5), (6);",
+        ).unwrap();
+        LogDatabase::migration_1_base_schema(&conn).unwrap();
+        LogDatabase::migration_2_add_columns(&conn).unwrap();
+        conn.execute_batch(
+            "ALTER TABLE qso_records ADD COLUMN identity_key TEXT;
+             INSERT INTO qso_records (callsign, band, mode, qso_date, time_on, freq, rst_sent, rst_rcvd, journal_id)              VALUES ('SP6INA', '20m', 'CW', '20261018', '120000', 14.025, '599', '599', 'DEFAULT');
+             INSERT INTO qso_records (callsign, band, mode, qso_date, time_on, freq, rst_sent, rst_rcvd, journal_id)              VALUES ('SP6INA', '20m', 'CW', '20261018', '120000', 14.025, '599', '599', 'DEFAULT');",
+        ).unwrap();
+    }
+
+    // 1. Otwarcie zawodzi z powodu konfliktu w migracji 7
+    let res = LogDatabase::open(&db_path);
+    assert!(
+        res.is_err(),
+        "migracja 7 musi zwrocic blad po wykryciu duplikatow"
+    );
+
+    // 2. Po rollback: wersja schematu to nadal 6, oba rekordy zachowane
+    let conn = Connection::open(&db_path).unwrap();
+    let version: i64 = conn
+        .query_row("SELECT MAX(version) FROM schema_version", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(
+        version, 6,
+        "schema_version nie moze wzrosnac po wycofanej migracji 7"
+    );
+
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM qso_records", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(
+        count, 2,
+        "zaden rekord nie moze zostac usuniety ani scalony"
+    );
+
+    // 3. Rozstrzygniecie reczne konfliktu i ponowna proba migracji
+    conn.execute(
+        "UPDATE qso_records SET time_on = '120030' WHERE id = (SELECT MAX(id) FROM qso_records)",
+        [],
+    )
+    .unwrap();
+
+    let db = LogDatabase::open(&db_path).unwrap();
+    assert_eq!(db.current_schema_version().unwrap(), 7);
+    assert_eq!(db.count_all().unwrap(), 2);
 }
