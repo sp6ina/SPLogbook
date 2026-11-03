@@ -48,6 +48,10 @@ pub enum IcomCodecError {
     TruncatedFrame,
     FrameTooLong { len: usize, max: usize },
     InvalidBcd { byte: u8 },
+    InvalidBcdLength { len: usize },
+    FrequencyOutOfRange { hz: u64, byte_count: usize },
+    LevelOutOfRange { val: u16 },
+    ArithmeticOverflow,
     UnexpectedEndOfData,
     NakReceived,
     InvalidMode(String),
@@ -64,6 +68,15 @@ impl std::fmt::Display for IcomCodecError {
             Self::InvalidBcd { byte } => {
                 write!(f, "invalid BCD byte in CI-V data: 0x{byte:02X}")
             }
+            Self::InvalidBcdLength { len } => write!(f, "invalid BCD buffer length: {len}"),
+            Self::FrequencyOutOfRange { hz, byte_count } => {
+                write!(
+                    f,
+                    "frequency {hz} Hz out of range for {byte_count}-byte BCD representation"
+                )
+            }
+            Self::LevelOutOfRange { val } => write!(f, "level {val} out of range (max 255)"),
+            Self::ArithmeticOverflow => write!(f, "arithmetic overflow during BCD decoding"),
             Self::UnexpectedEndOfData => write!(f, "unexpected end of CI-V data"),
             Self::NakReceived => write!(f, "radio rejected command (CI-V NAK 0xFA)"),
             Self::InvalidMode(m) => write!(f, "unsupported radio mode: '{m}'"),
@@ -281,7 +294,10 @@ impl IcomCiVCodec {
     }
 
     /// Koduje częstotliwość w Hz do formatu BCD little-endian (domyślnie 5 bajtów / 10 cyfr).
-    pub fn encode_frequency_bcd(hz: u64, byte_count: usize) -> Vec<u8> {
+    pub fn encode_frequency_bcd(hz: u64, byte_count: usize) -> Result<Vec<u8>, IcomCodecError> {
+        if byte_count == 0 {
+            return Err(IcomCodecError::InvalidBcdLength { len: 0 });
+        }
         let mut out = vec![0u8; byte_count];
         let mut rem = hz;
         for byte in out.iter_mut().take(byte_count) {
@@ -291,22 +307,83 @@ impl IcomCiVCodec {
             rem /= 10;
             *byte = (tens << 4) | ones;
         }
-        out
+        if rem > 0 {
+            return Err(IcomCodecError::FrequencyOutOfRange { hz, byte_count });
+        }
+        Ok(out)
     }
 
-    /// Dekoduje częstotliwość z formatu BCD little-endian z rygorystyczną walidacją cyfr.
+    /// Koduje 2-bajtowy poziom Big-Endian BCD (0000..0255) dla komend poziomu i mocy Icom CI-V.
+    pub fn encode_level_bcd_be(val: u16) -> Result<[u8; 2], IcomCodecError> {
+        if val > 255 {
+            return Err(IcomCodecError::LevelOutOfRange { val });
+        }
+        let hundreds = (val / 100) as u8;
+        let rem = val % 100;
+        let tens = (rem / 10) as u8;
+        let ones = (rem % 10) as u8;
+        Ok([hundreds, (tens << 4) | ones])
+    }
+
+    /// Dekoduje 2-bajtowy poziom Big-Endian BCD (0000..0255) dla S-metra i mocy Icom CI-V.
+    pub fn decode_level_bcd_be(data: &[u8]) -> Result<u16, IcomCodecError> {
+        if data.is_empty() {
+            return Err(IcomCodecError::UnexpectedEndOfData);
+        }
+        if data.len() < 2 {
+            let b0 = data[0];
+            let ones = b0 & 0x0F;
+            let tens = (b0 >> 4) & 0x0F;
+            if ones > 9 || tens > 9 {
+                return Err(IcomCodecError::InvalidBcd { byte: b0 });
+            }
+            return Ok((tens * 10 + ones) as u16);
+        }
+        let b0 = data[0];
+        let b1 = data[1];
+        let thousands = (b0 >> 4) & 0x0F;
+        let hundreds = b0 & 0x0F;
+        let tens = (b1 >> 4) & 0x0F;
+        let ones = b1 & 0x0F;
+        if thousands > 9 || hundreds > 9 {
+            return Err(IcomCodecError::InvalidBcd { byte: b0 });
+        }
+        if tens > 9 || ones > 9 {
+            return Err(IcomCodecError::InvalidBcd { byte: b1 });
+        }
+        let raw = (thousands as u16) * 1000
+            + (hundreds as u16) * 100
+            + (tens as u16) * 10
+            + (ones as u16);
+        Ok(raw)
+    }
+
+    /// Dekoduje częstotliwość z formatu BCD little-endian z rygorystyczną walidacją cyfr
+    /// i arytmetyką checked zapobiegającą overflow.
     pub fn decode_frequency_bcd(data: &[u8]) -> Result<u64, IcomCodecError> {
+        if data.is_empty() {
+            return Err(IcomCodecError::UnexpectedEndOfData);
+        }
         let mut hz = 0u64;
         let mut mult = 1u64;
-        for &byte in data {
+        for (idx, &byte) in data.iter().enumerate() {
             let ones = (byte & 0x0F) as u64;
             let tens = ((byte >> 4) & 0x0F) as u64;
             if ones > 9 || tens > 9 {
                 return Err(IcomCodecError::InvalidBcd { byte });
             }
             let pair = tens * 10 + ones;
-            hz = hz.saturating_add(pair.saturating_mul(mult));
-            mult = mult.saturating_mul(100);
+            let term = pair
+                .checked_mul(mult)
+                .ok_or(IcomCodecError::ArithmeticOverflow)?;
+            hz = hz
+                .checked_add(term)
+                .ok_or(IcomCodecError::ArithmeticOverflow)?;
+            if idx + 1 < data.len() {
+                mult = mult
+                    .checked_mul(100)
+                    .ok_or(IcomCodecError::ArithmeticOverflow)?;
+            }
         }
         Ok(hz)
     }
@@ -348,14 +425,7 @@ impl IcomCiVCodec {
         if data.is_empty() {
             return (-100.0, "S1".to_string());
         }
-        let raw = if data.len() >= 2 {
-            let tens = ((data[0] >> 4) & 0x0F) * 10 + (data[0] & 0x0F);
-            let hundreds = ((data[1] >> 4) & 0x0F) * 10 + (data[1] & 0x0F);
-            (hundreds as u16) * 100 + (tens as u16)
-        } else {
-            let tens = ((data[0] >> 4) & 0x0F) * 10 + (data[0] & 0x0F);
-            tens as u16
-        };
+        let raw = Self::decode_level_bcd_be(data).unwrap_or(0);
 
         // Standard Icom CI-V:
         // 0000 = S0
@@ -377,14 +447,7 @@ impl IcomCiVCodec {
         if data.is_empty() {
             return 0.0;
         }
-        let raw = if data.len() >= 2 {
-            let tens = ((data[0] >> 4) & 0x0F) * 10 + (data[0] & 0x0F);
-            let hundreds = ((data[1] >> 4) & 0x0F) * 10 + (data[1] & 0x0F);
-            (hundreds as u16) * 100 + (tens as u16)
-        } else {
-            let tens = ((data[0] >> 4) & 0x0F) * 10 + (data[0] & 0x0F);
-            tens as u16
-        };
+        let raw = Self::decode_level_bcd_be(data).unwrap_or(0);
 
         let ratio = (raw as f32 / 255.0).clamp(0.0, 1.0);
         (ratio * max_power_watts).round()
@@ -430,10 +493,21 @@ impl CiV {
     }
 
     pub fn encode_frequency(hz: u64) -> [u8; 5] {
-        let vec = IcomCiVCodec::encode_frequency_bcd(hz, 5);
+        match IcomCiVCodec::encode_frequency_bcd(hz, 5) {
+            Ok(vec) => {
+                let mut arr = [0u8; 5];
+                arr.copy_from_slice(&vec[..5]);
+                arr
+            }
+            Err(_) => [0u8; 5],
+        }
+    }
+
+    pub fn try_encode_frequency(hz: u64) -> Result<[u8; 5], IcomCodecError> {
+        let vec = IcomCiVCodec::encode_frequency_bcd(hz, 5)?;
         let mut arr = [0u8; 5];
         arr.copy_from_slice(&vec[..5]);
-        arr
+        Ok(arr)
     }
 
     pub fn decode_frequency(data: &[u8]) -> u64 {
@@ -639,7 +713,7 @@ mod tests {
             432_100_000,
             1_296_200_000,
         ] {
-            let bcd = IcomCiVCodec::encode_frequency_bcd(hz, 5);
+            let bcd = IcomCiVCodec::encode_frequency_bcd(hz, 5).unwrap();
             let decoded = IcomCiVCodec::decode_frequency_bcd(&bcd).unwrap();
             assert_eq!(decoded, hz, "failed for {hz}");
         }
@@ -707,11 +781,126 @@ mod tests {
     }
 
     #[test]
-    fn frequency_overflow_wraps_to_10_digits() {
+    fn civ_frequency_bcd_roundtrips_valid_values() {
+        let test_values = [
+            0u64,
+            1,
+            9,
+            10,
+            100,
+            1_000,
+            1_800_000,
+            3_500_000,
+            7_000_000,
+            14_000_000,
+            14_074_000,
+            21_000_000,
+            28_000_000,
+            50_000_000,
+            145_500_000,
+            433_500_000,
+            1_296_000_000,
+            9_999_999_999,
+        ];
+        for &hz in &test_values {
+            let enc = IcomCiVCodec::encode_frequency_bcd(hz, 5).expect("encode failed");
+            assert_eq!(enc.len(), 5);
+            let dec = IcomCiVCodec::decode_frequency_bcd(&enc).expect("decode failed");
+            assert_eq!(dec, hz, "roundtrip mismatch for {hz}");
+        }
+    }
+
+    #[test]
+    fn civ_frequency_bcd_preserves_zero_digits() {
+        let hz = 10_000_005u64;
+        let enc = IcomCiVCodec::encode_frequency_bcd(hz, 5).expect("encode");
+        assert_eq!(enc, vec![0x05, 0x00, 0x00, 0x10, 0x00]);
+        let dec = IcomCiVCodec::decode_frequency_bcd(&enc).expect("decode");
+        assert_eq!(dec, hz);
+
+        let zero_enc = IcomCiVCodec::encode_frequency_bcd(0, 5).expect("encode zero");
+        assert_eq!(zero_enc, vec![0x00, 0x00, 0x00, 0x00, 0x00]);
+        assert_eq!(IcomCiVCodec::decode_frequency_bcd(&zero_enc).unwrap(), 0);
+    }
+
+    #[test]
+    fn civ_frequency_bcd_rejects_invalid_nibbles() {
+        for invalid_byte in [0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0xA0, 0xB5, 0xFA, 0xFF] {
+            let buf = [0x00, 0x00, invalid_byte, 0x00, 0x00];
+            let res = IcomCiVCodec::decode_frequency_bcd(&buf);
+            assert!(
+                matches!(res, Err(IcomCodecError::InvalidBcd { byte }) if byte == invalid_byte),
+                "expected rejection for byte 0x{invalid_byte:02X}"
+            );
+        }
+    }
+
+    #[test]
+    fn civ_frequency_bcd_rejects_too_large_value() {
+        let too_large = 10_000_000_000u64;
+        let res = IcomCiVCodec::encode_frequency_bcd(too_large, 5);
         assert_eq!(
-            CiV::decode_frequency(&CiV::encode_frequency(99_999_999_999)),
-            9_999_999_999
+            res,
+            Err(IcomCodecError::FrequencyOutOfRange {
+                hz: too_large,
+                byte_count: 5,
+            })
         );
+    }
+
+    #[test]
+    fn civ_frequency_bcd_rejects_wrong_length() {
+        let res = IcomCiVCodec::encode_frequency_bcd(14_000_000, 0);
+        assert_eq!(res, Err(IcomCodecError::InvalidBcdLength { len: 0 }));
+
+        let dec_res = IcomCiVCodec::decode_frequency_bcd(&[]);
+        assert_eq!(dec_res, Err(IcomCodecError::UnexpectedEndOfData));
+    }
+
+    #[test]
+    fn civ_frequency_bcd_never_silently_truncates() {
+        assert!(IcomCiVCodec::encode_frequency_bcd(10_000, 2).is_err());
+        assert_eq!(
+            IcomCiVCodec::encode_frequency_bcd(9_999, 2).unwrap(),
+            vec![0x99, 0x99]
+        );
+        assert!(IcomCiVCodec::encode_frequency_bcd(10_000_000, 3).is_err());
+    }
+
+    #[test]
+    fn civ_frequency_bcd_checked_arithmetic_rejects_overflow() {
+        let huge_buf = [0x99; 12];
+        let res = IcomCiVCodec::decode_frequency_bcd(&huge_buf);
+        assert_eq!(res, Err(IcomCodecError::ArithmeticOverflow));
+    }
+
+    #[test]
+    fn icom_civ_level_and_meter_bcd_encoding_is_big_endian_0000_to_0255() {
+        let enc_120 = IcomCiVCodec::encode_level_bcd_be(120).unwrap();
+        assert_eq!(enc_120, [0x01, 0x20]);
+        let dec_120 = IcomCiVCodec::decode_level_bcd_be(&enc_120).unwrap();
+        assert_eq!(dec_120, 120);
+
+        let enc_255 = IcomCiVCodec::encode_level_bcd_be(255).unwrap();
+        assert_eq!(enc_255, [0x02, 0x55]);
+        let dec_255 = IcomCiVCodec::decode_level_bcd_be(&enc_255).unwrap();
+        assert_eq!(dec_255, 255);
+
+        let enc_0 = IcomCiVCodec::encode_level_bcd_be(0).unwrap();
+        assert_eq!(enc_0, [0x00, 0x00]);
+        assert_eq!(IcomCiVCodec::decode_level_bcd_be(&enc_0).unwrap(), 0);
+
+        assert_eq!(
+            IcomCiVCodec::encode_level_bcd_be(256),
+            Err(IcomCodecError::LevelOutOfRange { val: 256 })
+        );
+
+        let (dbm_s9, unit_s9) = IcomCiVCodec::decode_smeter(&[0x01, 0x20]);
+        assert_eq!(unit_s9, "S9");
+        assert!((dbm_s9 - (-73.0)).abs() < 1.0);
+
+        let pwr_100w = IcomCiVCodec::decode_power_watts(&[0x02, 0x55], 100.0);
+        assert_eq!(pwr_100w, 100.0);
     }
 
     #[test]
