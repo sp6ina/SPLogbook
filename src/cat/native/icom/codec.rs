@@ -30,6 +30,7 @@ pub mod command {
     pub const SET_PTT: u8 = 0x1C;
     pub const READ_PTT: u8 = 0x1C;
     pub const RIT_XIT: u8 = 0x21;
+    pub const SPLIT_FREQ: u8 = 0x25;
 }
 
 /// Podkomendy CI-V.
@@ -38,7 +39,9 @@ pub mod subcommand {
     pub const METER_SMETER: u8 = 0x02;
     pub const LEVEL_RF_POWER: u8 = 0x0A;
     pub const RIT_FREQ: u8 = 0x00;
-    pub const XIT_FREQ: u8 = 0x01;
+    pub const RIT_ON_OFF: u8 = 0x01;
+    pub const XIT_ON_OFF: u8 = 0x02;
+    pub const SPLIT_FREQ_SUB: u8 = 0x01;
 }
 
 /// Błędy dekodera i kodera CI-V.
@@ -150,6 +153,21 @@ impl IcomCiVFrame {
         self.to == CI_V_BROADCAST
     }
 
+    /// Czy ramka jest echem komendy wysłanej przez nasz kontroler.
+    pub fn is_echo_of(&self, controller: u8, radio: u8) -> bool {
+        self.to == radio && self.from == controller
+    }
+
+    /// Czy ramka pochodzi z naszego radia i jest skierowana do naszego kontrolera.
+    pub fn is_response_to(&self, controller: u8, radio: u8) -> bool {
+        self.to == controller && self.from == radio
+    }
+
+    /// Czy ramka jest skierowana do innego urządzenia na magistrali CI-V.
+    pub fn is_for_other_device(&self, controller: u8) -> bool {
+        self.to != controller && !self.is_broadcast()
+    }
+
     /// Serializuje ramkę do bajtów CI-V z preambułą `FE FE` i terminatorem `FD`.
     pub fn encode(&self) -> Vec<u8> {
         let mut out = Vec::with_capacity(7 + self.data.len());
@@ -237,9 +255,9 @@ impl IcomCiVCodec {
                 let frame_bytes: Vec<u8> = buffer.drain(..frame_len).collect();
 
                 // Parsuj strukturę ramki: FE FE <to> <from> <cmd> ... FD
-                // Minimalna długość: FE FE TO FROM CMD FD = 6 bajtów
-                // Wyjątek: niektóre radia wysyłają echo lub ACK/NAK
-                if frame_bytes.len() < 5 {
+                // Minimalna poprawna długość ramki Icom CI-V to 6 bajtów:
+                // FE FE TO FROM CMD FD. Ramki krótsze niż 6 bajtów są obcięte lub wadliwe.
+                if frame_bytes.len() < 6 {
                     continue;
                 }
 
@@ -262,7 +280,8 @@ impl IcomCiVCodec {
                     command::LEVEL_SET
                     | command::READ_METER
                     | command::SET_PTT
-                    | command::RIT_XIT => {
+                    | command::RIT_XIT
+                    | command::SPLIT_FREQ => {
                         if payload.is_empty() {
                             (None, Vec::new())
                         } else {
@@ -451,6 +470,31 @@ impl IcomCiVCodec {
 
         let ratio = (raw as f32 / 255.0).clamp(0.0, 1.0);
         (ratio * max_power_watts).round()
+    }
+
+    /// Koduje offset częstotliwości RIT/XIT w formacie Icom CI-V (komenda 0x21 subkomenda 0x00).
+    ///
+    /// Format: 2 bajty BCD (little-endian: 1Hz/10Hz, 100Hz/1000Hz) oraz 1 bajt znaku
+    /// (0x00 = dodatni, 0x01 = ujemny). Dopuszczalny zakres: -9999..=9999 Hz.
+    pub fn encode_rit_offset(hz: i32) -> Result<[u8; 3], IcomCodecError> {
+        let is_negative = hz < 0;
+        let abs_val = hz.unsigned_abs();
+        if abs_val > 9999 {
+            return Err(IcomCodecError::LevelOutOfRange {
+                val: abs_val.min(u16::MAX as u32) as u16,
+            });
+        }
+
+        let d0 = (abs_val % 10) as u8;
+        let d1 = ((abs_val / 10) % 10) as u8;
+        let d2 = ((abs_val / 100) % 10) as u8;
+        let d3 = ((abs_val / 1000) % 10) as u8;
+
+        let b0 = d0 | (d1 << 4);
+        let b1 = d2 | (d3 << 4);
+        let sign = if is_negative { 0x01 } else { 0x00 };
+
+        Ok([b0, b1, sign])
     }
 }
 
@@ -917,5 +961,92 @@ mod tests {
     #[test]
     fn suffix_normalization() {
         assert_eq!(CiV::default_address("IC-7300MK2"), 0x94);
+    }
+
+    #[test]
+    fn icom_civ_encode_rit_offset() {
+        assert_eq!(
+            IcomCiVCodec::encode_rit_offset(0).unwrap(),
+            [0x00, 0x00, 0x00]
+        );
+        assert_eq!(
+            IcomCiVCodec::encode_rit_offset(120).unwrap(),
+            [0x20, 0x01, 0x00]
+        );
+        assert_eq!(
+            IcomCiVCodec::encode_rit_offset(-150).unwrap(),
+            [0x50, 0x01, 0x01]
+        );
+        assert_eq!(
+            IcomCiVCodec::encode_rit_offset(9999).unwrap(),
+            [0x99, 0x99, 0x00]
+        );
+        assert_eq!(
+            IcomCiVCodec::encode_rit_offset(-9999).unwrap(),
+            [0x99, 0x99, 0x01]
+        );
+        assert!(IcomCiVCodec::encode_rit_offset(10000).is_err());
+        assert!(IcomCiVCodec::encode_rit_offset(-10000).is_err());
+    }
+
+    #[test]
+    fn icom_civ_extract_frame_rejects_truncated_and_accepts_valid() {
+        let codec = IcomCiVCodec::new(0xE0, 0x94);
+
+        // Ramka ucięta < 6 bajtów: FE FE 94 E0 FD
+        let mut buf_short = vec![0xFE, 0xFE, 0x94, 0xE0, 0xFD];
+        let res = codec.extract_frame(&mut buf_short).unwrap();
+        assert!(res.is_none());
+
+        // Prawidłowa ramka ACK: FE FE E0 94 FB FD (6 bajtów)
+        let mut buf_ack = vec![0xFE, 0xFE, 0xE0, 0x94, 0xFB, 0xFD];
+        let ack_frame = codec.extract_frame(&mut buf_ack).unwrap().unwrap();
+        assert!(ack_frame.is_ack());
+        assert_eq!(ack_frame.to, 0xE0);
+        assert_eq!(ack_frame.from, 0x94);
+
+        // Prawidłowa ramka NAK: FE FE E0 94 FA FD (6 bajtów)
+        let mut buf_nak = vec![0xFE, 0xFE, 0xE0, 0x94, 0xFA, 0xFD];
+        let nak_frame = codec.extract_frame(&mut buf_nak).unwrap().unwrap();
+        assert!(nak_frame.is_nak());
+
+        // Śmieci przed ramką
+        let mut buf_noise = vec![0x00, 0xAA, 0xFF, 0xFE, 0xFE, 0xE0, 0x94, 0xFB, 0xFD];
+        let frame_after_noise = codec.extract_frame(&mut buf_noise).unwrap().unwrap();
+        assert!(frame_after_noise.is_ack());
+        assert!(buf_noise.is_empty());
+
+        // Dwie ramki sklejone w jednym buforze
+        let mut buf_two = vec![
+            0xFE, 0xFE, 0xE0, 0x94, 0xFB, 0xFD, 0xFE, 0xFE, 0xE0, 0x94, 0x03, 0x00, 0x40, 0x07,
+            0x14, 0x00, 0xFD,
+        ];
+        let f1 = codec.extract_frame(&mut buf_two).unwrap().unwrap();
+        assert!(f1.is_ack());
+        let f2 = codec.extract_frame(&mut buf_two).unwrap().unwrap();
+        assert_eq!(f2.command, 0x03);
+        assert!(buf_two.is_empty());
+    }
+
+    #[test]
+    fn icom_civ_frame_helpers_detect_echo_and_address_mismatch() {
+        let controller = 0xE0;
+        let radio = 0x94;
+
+        // Echo wysłanej komendy: to=0x94, from=0xE0
+        let echo_frame = IcomCiVFrame::new(radio, controller, 0x03, None, vec![]);
+        assert!(echo_frame.is_echo_of(controller, radio));
+        assert!(!echo_frame.is_response_to(controller, radio));
+
+        // Odpowiedź radia: to=0xE0, from=0x94
+        let resp_frame = IcomCiVFrame::new(controller, radio, 0x03, None, vec![0x00, 0x40]);
+        assert!(resp_frame.is_response_to(controller, radio));
+        assert!(!resp_frame.is_echo_of(controller, radio));
+        assert!(!resp_frame.is_for_other_device(controller));
+
+        // Ramka do innego urządzenia na magistrali: to=0x88, from=0x94
+        let other_frame = IcomCiVFrame::new(0x88, radio, 0x03, None, vec![]);
+        assert!(other_frame.is_for_other_device(controller));
+        assert!(!other_frame.is_response_to(controller, radio));
     }
 }
