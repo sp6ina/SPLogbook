@@ -228,6 +228,7 @@ impl LogDatabase {
             (4, Self::migration_4_indexes),
             (5, Self::migration_5_identity_index),
             (6, Self::migration_6_identity_unique),
+            (7, Self::migration_7_refined_qso_identity),
         ];
 
         for (version, migrate) in migrations {
@@ -249,7 +250,7 @@ impl LogDatabase {
     /// `schema_version`, brak kluczowych tabel lub kolumn, zamiast pozwolić
     /// aplikacji działać na uszkodzonej bazie.
     pub(super) fn validate_schema(&self) -> Result<()> {
-        const KNOWN_MAX_VERSION: i64 = 6;
+        const KNOWN_MAX_VERSION: i64 = 7;
 
         let version = self.current_schema_version()?;
         if version > KNOWN_MAX_VERSION {
@@ -312,7 +313,7 @@ impl LogDatabase {
     }
 
     /// Wersja 2: kolumny dodane w kolejnych wydaniach (z kontrolą istnienia).
-    fn migration_2_add_columns(conn: &Connection) -> rusqlite::Result<()> {
+    pub(super) fn migration_2_add_columns(conn: &Connection) -> rusqlite::Result<()> {
         Self::add_column_if_missing(conn, "qso_records", "journal_id", "TEXT DEFAULT 'DEFAULT'")?;
         Self::add_column_if_missing(conn, "qso_records", "my_pota_ref", "TEXT")?;
         Self::add_column_if_missing(conn, "qso_records", "my_sota_ref", "TEXT")?;
@@ -450,6 +451,80 @@ impl LogDatabase {
         // 3. Utwórz unikalny indeks bazodanowy i usuń stary indeks pomocniczy
         conn.execute_batch(
             "DROP INDEX IF EXISTS idx_qso_identity;
+             CREATE UNIQUE INDEX IF NOT EXISTS idx_qso_identity_unique
+             ON qso_records(journal_id, identity_key);",
+        )?;
+
+        Ok(())
+    }
+
+    /// Wersja 7: precyzyjna tożsamość QSO v2 (DATA-003).
+    /// Aktualizuje wszystkie klucze tożsamości do formatu v2:
+    /// `v2|{CALL}|{BAND}|{FREQ_HZ}|{MODE}|{SUBMODE}|{DATE}|{TIME_TAG}`
+    /// z uwzględnieniem sekund (Second vs Minute), częstotliwości w Hz oraz normalizacji SUBMODE.
+    /// Rekordy niepełne otrzymują identity_key = NULL (MODEL B).
+    /// Przed odtworzeniem indeksu UNIQUE migracja wykonuje audyt wykrywający rzeczywiste duplikaty.
+    /// W razie wykrycia konfliktu migracja NIE usuwa ani nie scala rekordów, lecz zwraca błąd,
+    /// co powoduje wycofanie transakcji (ROLLBACK) i zachowanie schema_version bez zmian.
+    fn migration_7_refined_qso_identity(conn: &Connection) -> rusqlite::Result<()> {
+        Self::add_column_if_missing(conn, "qso_records", "identity_key", "TEXT")?;
+
+        // 1. Przelicz kanoniczny identity_key (v2) dla wszystkich rekordów w bazie danych
+        let mut update_stmt =
+            conn.prepare_cached("UPDATE qso_records SET identity_key = ?1 WHERE id = ?2")?;
+        let mut select_stmt = conn.prepare(
+            "SELECT id, callsign, band, mode, submode, qso_date, time_on, freq FROM qso_records",
+        )?;
+        let rows = select_stmt.query_map([], |row| {
+            let id: i64 = row.get(0)?;
+            let callsign: String = row.get(1)?;
+            let band: String = row.get(2)?;
+            let mode: String = row.get(3)?;
+            let submode: Option<String> = row.get(4)?;
+            let qso_date: String = row.get(5)?;
+            let time_on: String = row.get(6)?;
+            let freq: Option<f64> = row.get(7)?;
+            Ok((id, callsign, band, mode, submode, qso_date, time_on, freq))
+        })?;
+
+        for r in rows {
+            let (id, callsign, band, mode, submode, qso_date, time_on, freq) = r?;
+            let identity = crate::core::qso::QsoIdentity::from_detailed_fields(
+                &callsign,
+                &band,
+                freq,
+                &mode,
+                submode.as_deref(),
+                &qso_date,
+                &time_on,
+            );
+            let key = identity.canonical_key();
+            update_stmt.execute(rusqlite::params![key, id])?;
+        }
+
+        // 2. Audyt istniejących duplikatów w formacie v2
+        let mut check_stmt = conn.prepare(
+            "SELECT journal_id, identity_key, COUNT(*) as cnt              FROM qso_records              WHERE identity_key IS NOT NULL              GROUP BY journal_id, identity_key              HAVING cnt > 1",
+        )?;
+        let duplicate_exists = check_stmt.exists([])?;
+        if duplicate_exists {
+            error!(
+                "Wykryto nierozstrzygnięte duplikaty tożsamości QSO w bazie danych.                  Migracja v7 przerwana — baza wymaga ręcznego rozstrzygnięcia konfliktów."
+            );
+            return Err(rusqlite::Error::FromSqlConversionFailure(
+                0,
+                rusqlite::types::Type::Text,
+                Box::new(std::io::Error::new(
+                    std::io::ErrorKind::AlreadyExists,
+                    "Nierozstrzygnięte duplikaty tożsamości QSO uniemożliwiają utworzenie indeksu UNIQUE (v2)",
+                )),
+            ));
+        }
+
+        // 3. Utwórz unikalny indeks bazodanowy
+        conn.execute_batch(
+            "DROP INDEX IF EXISTS idx_qso_identity;
+             DROP INDEX IF EXISTS idx_qso_identity_unique;
              CREATE UNIQUE INDEX IF NOT EXISTS idx_qso_identity_unique
              ON qso_records(journal_id, identity_key);",
         )?;
