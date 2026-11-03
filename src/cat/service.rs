@@ -2341,6 +2341,7 @@ mod tests {
         );
         let connect_gen = service.session_generation;
         service.bump_session_generation();
+        service.set_lifecycle(RigServiceState::Disconnecting, None);
         service.set_lifecycle(RigServiceState::Disconnected, None);
         let res = SessionOperationResult::new(connect_gen, Ok(()));
         assert!(!service.apply_connect_result(res));
@@ -2560,6 +2561,7 @@ mod tests {
         );
         let poll_gen = service.session_generation;
         service.bump_session_generation();
+        service.set_lifecycle(RigServiceState::Disconnecting, None);
         service.set_lifecycle(RigServiceState::Disconnected, None);
 
         let res = SessionOperationResult::new(poll_gen, Ok(RigState::default()));
@@ -2983,10 +2985,12 @@ mod tests {
             Box::new(MockTestBackend::new(MockShared::default())),
             Duration::from_millis(50),
         );
+        assert_eq!(service.snapshot.session_generation, 1);
         service.session_generation = 3;
         let old_poll = SessionOperationResult::new(2, Ok(RigState::default()));
         assert!(!service.apply_poll_result(old_poll));
-        assert_eq!(service.snapshot.session_generation, 3);
+        // Snapshot zachowuje pierwotna generacje i nie jest publikowany
+        assert_eq!(service.snapshot.session_generation, 1);
     }
 
     #[test]
