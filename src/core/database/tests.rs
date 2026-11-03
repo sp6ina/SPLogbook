@@ -1918,6 +1918,154 @@ fn migrated_schema_contains_same_identity_unique_constraint() {
 }
 
 #[test]
+fn migration_conflict_rolls_back_without_data_loss() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("migration_conflict.db");
+
+    // Tworzymy bazÄ™ na wersji 5 z syntetycznym duplikatem
+    {
+        let conn = Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "PRAGMA foreign_keys=ON;
+             CREATE TABLE schema_version (version INTEGER NOT NULL, applied_at TEXT DEFAULT (datetime('now')));
+             INSERT INTO schema_version (version) VALUES (1);",
+        ).unwrap();
+        LogDatabase::migration_1_base_schema(&conn).unwrap();
+        conn.execute_batch(
+            "UPDATE schema_version SET version = 5;
+             INSERT INTO qso_records (callsign, band, mode, qso_date, time_on, rst_sent, rst_rcvd, journal_id) \
+             VALUES ('SP6INA', '20m', 'CW', '20261018', '120000', '599', '599', 'DEFAULT');
+             INSERT INTO qso_records (callsign, band, mode, qso_date, time_on, rst_sent, rst_rcvd, journal_id) \
+             VALUES ('SP6INA', '20m', 'CW', '20261018', '120000', '599', '599', 'DEFAULT');",
+        ).unwrap();
+    }
+
+    // Otwarcie bazy prĂłbuje uruchomiÄ‡ migracjÄ™ 6
+    let res = LogDatabase::open(&db_path);
+    assert!(
+        res.is_err(),
+        "migracja musi zakoĹ„czyÄ‡ siÄ™ bĹ‚Ä™dem po wykryciu nierozstrzygniÄ™tych duplikatĂłw"
+    );
+
+    // Po wycofaniu migracji: dane sÄ… nienaruszone, wersja nadal 5
+    let conn = Connection::open(&db_path).unwrap();
+    let version: i64 = conn
+        .query_row("SELECT MAX(version) FROM schema_version", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(
+        version, 5,
+        "wersja schematu nie moĹĽe wzrosnÄ…Ä‡ po wycofanej migracji"
+    );
+
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM qso_records", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(
+        count, 2,
+        "ĹĽaden rekord nie moĹĽe zostaÄ‡ usuniÄ™ty ani scalony automatycznie przez migracjÄ™"
+    );
+}
+
+#[test]
+fn migration_conflict_does_not_delete_duplicates() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("no_delete.db");
+
+    {
+        let conn = Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "PRAGMA foreign_keys=ON;
+             CREATE TABLE schema_version (version INTEGER NOT NULL, applied_at TEXT DEFAULT (datetime('now')));
+             INSERT INTO schema_version (version) VALUES (5);",
+        ).unwrap();
+        LogDatabase::migration_1_base_schema(&conn).unwrap();
+        conn.execute_batch(
+            "INSERT INTO qso_records (callsign, band, mode, qso_date, time_on, rst_sent, rst_rcvd, journal_id) \
+             VALUES ('SP1AAA', '40m', 'SSB', '20261018', '140000', '59', '59', 'DEFAULT');
+             INSERT INTO qso_records (callsign, band, mode, qso_date, time_on, rst_sent, rst_rcvd, journal_id) \
+             VALUES ('SP1AAA', '40m', 'SSB', '20261018', '140000', '59', '59', 'DEFAULT');",
+        ).unwrap();
+    }
+
+    let _ = LogDatabase::open(&db_path);
+
+    let conn = Connection::open(&db_path).unwrap();
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM qso_records", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(count, 2, "duplikaty muszÄ… pozostaÄ‡ nienaruszone w bazie");
+}
+
+#[test]
+fn migration_conflict_does_not_advance_schema_version() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("no_advance.db");
+
+    {
+        let conn = Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "PRAGMA foreign_keys=ON;
+             CREATE TABLE schema_version (version INTEGER NOT NULL, applied_at TEXT DEFAULT (datetime('now')));
+             INSERT INTO schema_version (version) VALUES (5);",
+        ).unwrap();
+        LogDatabase::migration_1_base_schema(&conn).unwrap();
+        conn.execute_batch(
+            "INSERT INTO qso_records (callsign, band, mode, qso_date, time_on, rst_sent, rst_rcvd, journal_id) \
+             VALUES ('SP1AAA', '40m', 'SSB', '20261018', '140000', '59', '59', 'DEFAULT');
+             INSERT INTO qso_records (callsign, band, mode, qso_date, time_on, rst_sent, rst_rcvd, journal_id) \
+             VALUES ('SP1AAA', '40m', 'SSB', '20261018', '140000', '59', '59', 'DEFAULT');",
+        ).unwrap();
+    }
+
+    let _ = LogDatabase::open(&db_path);
+
+    let conn = Connection::open(&db_path).unwrap();
+    let version: i64 = conn
+        .query_row("SELECT MAX(version) FROM schema_version", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(version, 5);
+}
+
+#[test]
+fn migration_can_be_retried_after_manual_resolution() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("manual_res.db");
+
+    {
+        let conn = Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "PRAGMA foreign_keys=ON;
+             CREATE TABLE schema_version (version INTEGER NOT NULL, applied_at TEXT DEFAULT (datetime('now')));
+             INSERT INTO schema_version (version) VALUES (5);",
+        ).unwrap();
+        LogDatabase::migration_1_base_schema(&conn).unwrap();
+        conn.execute_batch(
+            "INSERT INTO qso_records (callsign, band, mode, qso_date, time_on, rst_sent, rst_rcvd, journal_id) \
+             VALUES ('SP1AAA', '40m', 'SSB', '20261018', '140000', '59', '59', 'DEFAULT');
+             INSERT INTO qso_records (callsign, band, mode, qso_date, time_on, rst_sent, rst_rcvd, journal_id) \
+             VALUES ('SP1AAA', '40m', 'SSB', '20261018', '140000', '59', '59', 'DEFAULT');",
+        ).unwrap();
+    }
+
+    // 1. Pierwsza prĂłba zawodzi
+    assert!(LogDatabase::open(&db_path).is_err());
+
+    // 2. RÄ™czne rozstrzygniÄ™cie konfliktu przez operatora (zmiana czasu drugiego QSO)
+    {
+        let conn = Connection::open(&db_path).unwrap();
+        conn.execute(
+            "UPDATE qso_records SET time_on = '140500' WHERE id = (SELECT MAX(id) FROM qso_records)",
+            [],
+        ).unwrap();
+    }
+
+    // 3. Ponowna prĂłba migracji koĹ„czy siÄ™ sukcesem
+    let db = LogDatabase::open(&db_path).unwrap();
+    assert_eq!(db.current_schema_version().unwrap(), 6);
+    assert_eq!(db.count_all().unwrap(), 2);
+}
+
+#[test]
 fn fresh_and_migrated_schema_have_equivalent_constraints() {
     let fresh_db = LogDatabase::open_in_memory().unwrap();
     let dir = tempfile::tempdir().unwrap();
