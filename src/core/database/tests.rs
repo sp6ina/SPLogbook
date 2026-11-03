@@ -1266,19 +1266,27 @@ fn qso_identity_ignores_case_and_whitespace() {
     );
     let id2 = crate::core::qso::QsoIdentity::from_fields("SP6INA", "20M", "CW", "20260928", "1230");
     assert_eq!(id1, id2);
-    assert_eq!(id1.to_string(), "SP6INA|20M|CW|20260928|1230");
+    assert_eq!(id1.to_string(), "v2|SP6INA|20M||CW||20260928|M1230");
 }
 
 #[test]
-fn qso_identity_minute_resolution_matches_hhmm_and_hhmmss() {
+fn minute_precision_and_second_precision_follow_explicit_contract() {
     let id_hhmm =
         crate::core::qso::QsoIdentity::from_fields("SP6INA", "20M", "CW", "20260928", "1230");
     let id_hhmmss =
         crate::core::qso::QsoIdentity::from_fields("SP6INA", "20M", "CW", "20260928", "123045");
     let id_colon =
         crate::core::qso::QsoIdentity::from_fields("SP6INA", "20M", "CW", "20260928", "12:30:45");
-    assert_eq!(id_hhmm, id_hhmmss);
-    assert_eq!(id_hhmm, id_colon);
+    assert_ne!(id_hhmm, id_hhmmss);
+    assert_eq!(id_hhmmss, id_colon);
+    assert_eq!(
+        id_hhmm.precision,
+        Some(crate::core::qso::QsoTimePrecision::Minute)
+    );
+    assert_eq!(
+        id_hhmmss.precision,
+        Some(crate::core::qso::QsoTimePrecision::Second)
+    );
 }
 
 #[test]
@@ -1334,13 +1342,32 @@ fn existing_identities_matches_record_identity() {
 }
 
 #[test]
-fn has_identity_matches_minute_resolution() {
+fn has_identity_matches_exact_seconds_and_rejects_different_seconds() {
     let db = LogDatabase::open_in_memory().unwrap();
     let q = make_test_qso_literal("SP6INA", "2026-09-28", "12:30:15");
     db.insert_qso(&q).unwrap();
 
-    let query_id = QsoIdentity::from_fields("sp6ina", "20m", "cw", "20260928", "123045");
-    assert!(db.has_identity("DEFAULT", &query_id).unwrap());
+    let query_same_second = QsoIdentity::from_detailed_fields(
+        "sp6ina",
+        "20m",
+        Some(14.025),
+        "cw",
+        None,
+        "20260928",
+        "123015",
+    );
+    assert!(db.has_identity("DEFAULT", &query_same_second).unwrap());
+
+    let query_diff_second = QsoIdentity::from_detailed_fields(
+        "sp6ina",
+        "20m",
+        Some(14.025),
+        "cw",
+        None,
+        "20260928",
+        "123045",
+    );
+    assert!(!db.has_identity("DEFAULT", &query_diff_second).unwrap());
 }
 
 #[test]
@@ -1442,7 +1469,7 @@ fn duplicate_insert_from_second_connection_is_rejected() {
     let conn2 = rusqlite::Connection::open(&db_path).unwrap();
     let mut stmt = conn2.prepare(
         "INSERT INTO qso_records (callsign, band, mode, qso_date, time_on, rst_sent, rst_rcvd, journal_id, identity_key) \
-         VALUES ('SP6INA', '20m', 'CW', '20261018', '120000', '599', '599', 'DEFAULT', 'SP6INA|20M|CW|20261018|1200')"
+         VALUES ('SP6INA', '20m', 'CW', '20261018', '120000', '599', '599', 'DEFAULT', 'v2|SP6INA|20M|14025000|CW||20261018|S120000')"
     ).unwrap();
 
     let err = stmt.execute([]);
@@ -1474,11 +1501,12 @@ fn duplicate_insert_from_second_repository_instance_is_rejected() {
 fn same_qso_same_identity_key() {
     let id1 =
         crate::core::qso::QsoIdentity::from_fields("SP6INA", "20m", "CW", "2026-10-18", "12:00:00");
-    let id2 = crate::core::qso::QsoIdentity::from_fields("sp6ina", "20M", "cw", "20261018", "1200");
+    let id2 =
+        crate::core::qso::QsoIdentity::from_fields("sp6ina", "20M", "cw", "20261018", "120000");
     assert_eq!(id1.canonical_key(), id2.canonical_key());
     assert_eq!(
         id1.canonical_key(),
-        Some("SP6INA|20M|CW|20261018|1200".to_string())
+        Some("v2|SP6INA|20M||CW||20261018|S120000".to_string())
     );
 }
 
@@ -1518,7 +1546,7 @@ fn same_qso_hhmm_and_hhmmss_follow_contract() {
         crate::core::qso::QsoIdentity::from_fields("SP6INA", "20m", "CW", "20261018", "1200");
     let id_hhmmss =
         crate::core::qso::QsoIdentity::from_fields("SP6INA", "20m", "CW", "20261018", "120045");
-    assert_eq!(id_hhmm.canonical_key(), id_hhmmss.canonical_key());
+    assert_ne!(id_hhmm.canonical_key(), id_hhmmss.canonical_key());
 }
 
 #[test]
@@ -1638,7 +1666,7 @@ fn stable_source_id_has_documented_precedence() {
     // ToĹĽsamoĹ›Ä‡ naturalna jest staĹ‚a i deterministyczna niezaleĹĽnie od lokalnego klucza autoincrement ID
     assert_eq!(
         id.canonical_key(),
-        Some("SP6INA|20M|CW|20261018|1200".to_string())
+        Some("v2|SP6INA|20M|14025000|CW||20261018|S120000".to_string())
     );
 }
 
@@ -1680,7 +1708,7 @@ fn concurrent_identical_insert_from_two_connections_creates_one_qso() {
         let conn = rusqlite::Connection::open(&p1).unwrap();
         conn.execute(
             "INSERT INTO qso_records (callsign, band, mode, qso_date, time_on, rst_sent, rst_rcvd, journal_id, identity_key) \
-             VALUES ('SP6INA', '20m', 'CW', '20261018', '120000', '599', '599', 'DEFAULT', 'SP6INA|20M|CW|20261018|1200')",
+             VALUES ('SP6INA', '20m', 'CW', '20261018', '120000', '599', '599', 'DEFAULT', 'v2|SP6INA|20M|14025000|CW||20261018|S120000')",
             [],
         )
     });
@@ -1689,7 +1717,7 @@ fn concurrent_identical_insert_from_two_connections_creates_one_qso() {
         let conn = rusqlite::Connection::open(&p2).unwrap();
         conn.execute(
             "INSERT INTO qso_records (callsign, band, mode, qso_date, time_on, rst_sent, rst_rcvd, journal_id, identity_key) \
-             VALUES ('SP6INA', '20m', 'CW', '20261018', '120000', '599', '599', 'DEFAULT', 'SP6INA|20M|CW|20261018|1200')",
+             VALUES ('SP6INA', '20m', 'CW', '20261018', '120000', '599', '599', 'DEFAULT', 'v2|SP6INA|20M|14025000|CW||20261018|S120000')",
             [],
         )
     });
@@ -1865,7 +1893,7 @@ fn same_process_mutex_is_not_required_for_database_integrity() {
     // BezpoĹ›redni insert przez conn2 bez mutexu LogDatabase
     let err = conn2.execute(
         "INSERT INTO qso_records (callsign, band, mode, qso_date, time_on, rst_sent, rst_rcvd, journal_id, identity_key) \
-         VALUES ('SP6INA', '20m', 'CW', '20261018', '120000', '599', '599', 'DEFAULT', 'SP6INA|20M|CW|20261018|1200')",
+         VALUES ('SP6INA', '20m', 'CW', '20261018', '120000', '599', '599', 'DEFAULT', 'v2|SP6INA|20M|14025000|CW||20261018|S120000')",
         [],
     );
     assert!(
@@ -2097,4 +2125,539 @@ fn fresh_and_migrated_schema_have_equivalent_constraints() {
 
     assert_eq!(fresh_idx, migrated_idx);
     assert!(fresh_idx.contains("UNIQUE"));
+}
+
+#[test]
+fn same_callsign_same_minute_different_seconds_are_distinct() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    let q1 = make_test_qso_literal("SP6INA", "20261018", "120010");
+    let q2 = make_test_qso_literal("SP6INA", "20261018", "120050");
+    assert_ne!(q1.identity().canonical_key(), q2.identity().canonical_key());
+    let id1 = db.insert_qso(&q1).unwrap();
+    let id2 = db.insert_qso(&q2).unwrap();
+    assert_ne!(id1, id2);
+    assert_eq!(db.count_all().unwrap(), 2);
+}
+
+#[test]
+fn same_callsign_same_minute_different_frequency_are_distinct() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    let mut q1 = make_test_qso_literal("SP6INA", "20261018", "120000");
+    q1.freq = Some(14.010);
+    let mut q2 = make_test_qso_literal("SP6INA", "20261018", "120000");
+    q2.freq = Some(14.050);
+    assert_ne!(q1.identity().canonical_key(), q2.identity().canonical_key());
+    let id1 = db.insert_qso(&q1).unwrap();
+    let id2 = db.insert_qso(&q2).unwrap();
+    assert_ne!(id1, id2);
+    assert_eq!(db.count_all().unwrap(), 2);
+}
+
+#[test]
+fn same_callsign_same_minute_different_submode_follow_contract() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    let mut q1 = make_test_qso_literal("SP6INA", "20261018", "120000");
+    q1.mode = "SSB".to_string();
+    q1.submode = Some("USB".to_string());
+    let mut q2 = make_test_qso_literal("SP6INA", "20261018", "120000");
+    q2.mode = "SSB".to_string();
+    q2.submode = Some("LSB".to_string());
+    assert_ne!(q1.identity().canonical_key(), q2.identity().canonical_key());
+    let id1 = db.insert_qso(&q1).unwrap();
+    let id2 = db.insert_qso(&q2).unwrap();
+    assert_ne!(id1, id2);
+    assert_eq!(db.count_all().unwrap(), 2);
+}
+
+#[test]
+fn same_callsign_same_minute_same_freq_same_mode_same_submode_is_duplicate() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    let mut q1 = make_test_qso_literal("SP6INA", "20261018", "120000");
+    q1.freq = Some(14.025);
+    q1.mode = "CW".to_string();
+    q1.submode = None;
+    let mut q2 = make_test_qso_literal("SP6INA", "20261018", "120000");
+    q2.freq = Some(14.025);
+    q2.mode = "CW".to_string();
+    q2.submode = None;
+    assert_eq!(q1.identity().canonical_key(), q2.identity().canonical_key());
+    db.insert_qso(&q1).unwrap();
+    let res = db.insert_qso(&q2);
+    assert!(
+        res.is_err(),
+        "Identyczne QSO w tej samej minucie musi być odrzucone jako duplikat"
+    );
+    assert_eq!(db.count_all().unwrap(), 1);
+}
+
+#[test]
+fn same_callsign_same_minute_different_journal_is_distinct() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    db.create_journal(&Journal {
+        id: "EXPEDITION".to_string(),
+        name: "Expedition".to_string(),
+        station_callsign: "SP6INA/P".to_string(),
+        operator: String::new(),
+        my_gridsquare: String::new(),
+        my_pga: String::new(),
+        description: String::new(),
+        is_default: false,
+    })
+    .unwrap();
+
+    let mut q1 = make_test_qso_literal("W1AW", "20261018", "120000");
+    q1.journal_id = Some("DEFAULT".to_string());
+    let mut q2 = make_test_qso_literal("W1AW", "20261018", "120000");
+    q2.journal_id = Some("EXPEDITION".to_string());
+
+    let id1 = db.insert_qso(&q1).unwrap();
+    let id2 = db.insert_qso(&q2).unwrap();
+    assert_ne!(id1, id2);
+    assert_eq!(db.count_qsos_for_journal("DEFAULT").unwrap(), 1);
+    assert_eq!(db.count_qsos_for_journal("EXPEDITION").unwrap(), 1);
+}
+
+#[test]
+fn same_callsign_same_minute_different_station_identity_follows_contract() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    db.create_journal(&Journal {
+        id: "CLUB_STATION".to_string(),
+        name: "Club Station".to_string(),
+        station_callsign: "SP6ZDA".to_string(),
+        operator: "SP6INA".to_string(),
+        my_gridsquare: "JO80IT".to_string(),
+        my_pga: String::new(),
+        description: String::new(),
+        is_default: false,
+    })
+    .unwrap();
+
+    let mut q1 = make_test_qso_literal("DL1AAA", "20261018", "120000");
+    q1.journal_id = Some("DEFAULT".to_string());
+    let mut q2 = make_test_qso_literal("DL1AAA", "20261018", "120000");
+    q2.journal_id = Some("CLUB_STATION".to_string());
+
+    let id1 = db.insert_qso(&q1).unwrap();
+    let id2 = db.insert_qso(&q2).unwrap();
+    assert_ne!(id1, id2);
+}
+
+#[test]
+fn ft8_identity_is_stable_across_adif_mode_submode_representation() {
+    let mut q1 = make_test_qso_literal("SP6INA", "20261018", "120000");
+    q1.mode = "FT8".to_string();
+    q1.submode = None;
+
+    let mut q2 = make_test_qso_literal("SP6INA", "20261018", "120000");
+    q2.mode = "MFSK".to_string();
+    q2.submode = Some("FT8".to_string());
+
+    assert_eq!(q1.identity().canonical_key(), q2.identity().canonical_key());
+}
+
+#[test]
+fn different_submodes_same_parent_mode_follow_contract() {
+    let mut q1 = make_test_qso_literal("SP6INA", "20261018", "120000");
+    q1.mode = "MFSK".to_string();
+    q1.submode = Some("JS8".to_string());
+
+    let mut q2 = make_test_qso_literal("SP6INA", "20261018", "120000");
+    q2.mode = "MFSK".to_string();
+    q2.submode = Some("FT2".to_string());
+
+    assert_ne!(q1.identity().canonical_key(), q2.identity().canonical_key());
+}
+
+#[test]
+fn usb_and_ssb_follow_contract() {
+    let mut q1 = make_test_qso_literal("SP6INA", "20261018", "120000");
+    q1.mode = "USB".to_string();
+    q1.submode = None;
+
+    let mut q2 = make_test_qso_literal("SP6INA", "20261018", "120000");
+    q2.mode = "SSB".to_string();
+    q2.submode = Some("USB".to_string());
+
+    let mut q3 = make_test_qso_literal("SP6INA", "20261018", "120000");
+    q3.mode = "SSB".to_string();
+    q3.submode = None;
+
+    assert_eq!(q1.identity().canonical_key(), q2.identity().canonical_key());
+    assert_ne!(q1.identity().canonical_key(), q3.identity().canonical_key());
+}
+
+#[test]
+fn cw_and_cw_r_follow_contract() {
+    let mut q1 = make_test_qso_literal("SP6INA", "20261018", "120000");
+    q1.mode = "CW".to_string();
+
+    let mut q2 = make_test_qso_literal("SP6INA", "20261018", "120000");
+    q2.mode = "CW-R".to_string();
+
+    assert_eq!(q1.identity().canonical_key(), q2.identity().canonical_key());
+}
+
+#[test]
+fn mode_aliases_normalize_deterministically() {
+    let cases = [
+        ("CW-R", None, "CW", None),
+        ("CWR", None, "CW", None),
+        ("USB", None, "SSB", Some("USB")),
+        ("LSB", None, "SSB", Some("LSB")),
+        ("PCW", None, "CW", Some("PCW")),
+        ("BPSK31", None, "PSK", Some("PSK31")),
+        ("MFSK", Some("FT8"), "FT8", None),
+        ("MFSK", Some("FT4"), "FT4", None),
+        ("MFSK", Some("JS8"), "MFSK", Some("JS8")),
+    ];
+
+    for (m, s, expected_m, expected_s) in cases {
+        let (norm_m, norm_s) = crate::core::qso::normalize_mode_and_submode(m, s);
+        assert_eq!(norm_m, expected_m, "mode alias: {m}");
+        assert_eq!(norm_s.as_deref(), expected_s, "submode alias for {m}");
+    }
+}
+
+#[test]
+fn missing_call_has_explicit_identity_behavior() {
+    let id = QsoIdentity::from_fields("", "20m", "CW", "20261018", "120000");
+    assert!(!id.is_complete());
+    assert_eq!(id.canonical_key(), None);
+}
+
+#[test]
+fn missing_date_has_explicit_identity_behavior() {
+    let id = QsoIdentity::from_fields("SP6INA", "20m", "CW", "", "120000");
+    assert!(!id.is_complete());
+    assert_eq!(id.canonical_key(), None);
+}
+
+#[test]
+fn missing_time_has_explicit_identity_behavior() {
+    let id = QsoIdentity::from_fields("SP6INA", "20m", "CW", "20261018", "");
+    assert!(!id.is_complete());
+    assert_eq!(id.canonical_key(), None);
+}
+
+#[test]
+fn missing_band_and_frequency_has_explicit_identity_behavior() {
+    let id =
+        QsoIdentity::from_detailed_fields("SP6INA", "", None, "CW", None, "20261018", "120000");
+    assert!(!id.is_complete());
+    assert_eq!(id.canonical_key(), None);
+}
+
+#[test]
+fn missing_mode_has_explicit_identity_behavior() {
+    let id = QsoIdentity::from_fields("SP6INA", "20m", "", "20261018", "120000");
+    assert!(!id.is_complete());
+    assert_eq!(id.canonical_key(), None);
+}
+
+#[test]
+fn incomplete_identity_records_do_not_share_fake_key() {
+    let id1 = QsoIdentity::from_fields("SP6INA", "20m", "CW", "bad1", "120000");
+    let id2 = QsoIdentity::from_fields("SP6INA", "20m", "CW", "bad2", "120000");
+    assert_eq!(id1.canonical_key(), None);
+    assert_eq!(id2.canonical_key(), None);
+    assert_ne!(id1.to_string(), id2.to_string());
+}
+
+#[test]
+fn incomplete_identity_is_not_reported_as_database_deduplicated() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    let mut q1 = make_test_qso_literal("SP6INA", "20261018", "");
+    q1.time_on = String::new();
+    assert_eq!(q1.identity().canonical_key(), None);
+    assert!(!db.has_identity("DEFAULT", &q1.identity()).unwrap());
+}
+
+#[test]
+fn trusted_source_id_can_supply_identity_if_contract_allows() {
+    let mut q = make_test_qso_literal("SP6INA", "20261018", "120000");
+    q.id = Some(101);
+    assert_eq!(q.id, Some(101));
+    assert!(q.identity().is_complete());
+}
+
+#[test]
+fn reimport_incomplete_record_follows_explicit_contract() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    let mut q1 = make_test_qso_literal("SP6INA", "20261018", "");
+    q1.time_on = String::new();
+    let mut q2 = make_test_qso_literal("SP6INA", "20261018", "");
+    q2.time_on = String::new();
+
+    let id1 = db.insert_qso(&q1).unwrap();
+    let id2 = db.insert_qso(&q2).unwrap();
+    assert_ne!(id1, id2);
+    assert_eq!(db.count_all().unwrap(), 2);
+}
+
+#[test]
+fn multiple_null_identity_keys_follow_documented_contract() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    for i in 0..5 {
+        let mut q = make_test_qso_literal(&format!("CALL{i}"), "20261018", "");
+        q.time_on = String::new();
+        assert_eq!(q.identity().canonical_key(), None);
+        db.insert_qso(&q).unwrap();
+    }
+    assert_eq!(db.count_all().unwrap(), 5);
+}
+
+#[test]
+fn update_recomputes_identity_key() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    let q = make_test_qso_literal("SP6INA", "20261018", "120000");
+    let id = db.insert_qso(&q).unwrap();
+
+    let mut updated = q.clone();
+    updated.callsign = "W1AW".to_string();
+    db.update_qso(id, &updated).unwrap();
+
+    let stored = db.get_qso_by_id(id).unwrap().unwrap();
+    assert_eq!(stored.callsign, "W1AW");
+    assert!(db.has_identity("DEFAULT", &updated.identity()).unwrap());
+    assert!(!db.has_identity("DEFAULT", &q.identity()).unwrap());
+}
+
+#[test]
+fn update_identity_conflict_rolls_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("update_conflict.db");
+    let db = LogDatabase::open(&db_path).unwrap();
+
+    let q1 = make_test_qso_literal("SP6INA", "20261018", "120000");
+    let q2 = make_test_qso_literal("W1AW", "20261018", "120000");
+    let id1 = db.insert_qso(&q1).unwrap();
+    let id2 = db.insert_qso(&q2).unwrap();
+    assert!(id1 > 0);
+
+    let mut conflicting = q2.clone();
+    conflicting.callsign = "SP6INA".to_string();
+    let res = db.update_qso(id2, &conflicting);
+    assert!(
+        res.is_err(),
+        "Konflikt UNIQUE przy UPDATE musi zwrócić błąd"
+    );
+
+    let stored2 = db.get_qso_by_id(id2).unwrap().unwrap();
+    assert_eq!(stored2.callsign, "W1AW");
+    assert_eq!(db.count_all().unwrap(), 2);
+}
+
+#[test]
+fn update_conflict_leaves_original_qso_unchanged() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("conflict_orig.db");
+    let db = LogDatabase::open(&db_path).unwrap();
+
+    let q1 = make_test_qso_literal("SP6INA", "20261018", "120000");
+    let q2 = make_test_qso_literal("W1AW", "20261018", "140000");
+    let id1 = db.insert_qso(&q1).unwrap();
+    let id2 = db.insert_qso(&q2).unwrap();
+
+    let mut bad_edit = q2.clone();
+    bad_edit.callsign = "SP6INA".to_string();
+    bad_edit.time_on = "120000".to_string();
+
+    assert!(db.update_qso(id2, &bad_edit).is_err());
+    let reloaded1 = db.get_qso_by_id(id1).unwrap().unwrap();
+    assert_eq!(reloaded1.callsign, "SP6INA");
+    let reloaded2 = db.get_qso_by_id(id2).unwrap().unwrap();
+    assert_eq!(reloaded2.callsign, "W1AW");
+}
+
+#[test]
+fn update_preserves_record_uuid() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    let q = make_test_qso_literal("SP6INA", "20261018", "120000");
+    let id = db.insert_qso(&q).unwrap();
+
+    let mut edited = q.clone();
+    edited.comment = Some("Updated comment".to_string());
+    db.update_qso(id, &edited).unwrap();
+
+    let stored = db.get_qso_by_id(id).unwrap().unwrap();
+    assert_eq!(stored.id, Some(id));
+    assert_eq!(stored.comment.as_deref(), Some("Updated comment"));
+}
+
+#[test]
+fn update_to_distinct_time_succeeds() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    let q = make_test_qso_literal("SP6INA", "20261018", "120000");
+    let id = db.insert_qso(&q).unwrap();
+
+    let mut edited = q.clone();
+    edited.time_on = "120500".to_string();
+    db.update_qso(id, &edited).unwrap();
+
+    let stored = db.get_qso_by_id(id).unwrap().unwrap();
+    assert_eq!(stored.time_on, "120500");
+}
+
+#[test]
+fn update_from_incomplete_to_complete_identity_enables_dedup() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    let mut q = make_test_qso_literal("SP6INA", "20261018", "");
+    q.time_on = String::new();
+    assert_eq!(q.identity().canonical_key(), None);
+    let id = db.insert_qso(&q).unwrap();
+
+    let mut complete = q.clone();
+    complete.time_on = "120000".to_string();
+    assert!(complete.identity().is_complete());
+    db.update_qso(id, &complete).unwrap();
+
+    assert!(db.has_identity("DEFAULT", &complete.identity()).unwrap());
+}
+
+#[test]
+fn deleted_qso_identity_reuse_follows_contract() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    let q = make_test_qso_literal("SP6INA", "20261018", "120000");
+    let id = db.insert_qso(&q).unwrap();
+    assert!(db.has_identity("DEFAULT", &q.identity()).unwrap());
+
+    db.delete_qso(id).unwrap();
+    assert!(!db.has_identity("DEFAULT", &q.identity()).unwrap());
+
+    let new_id = db.insert_qso(&q).unwrap();
+    assert!(new_id > 0);
+    assert!(db.has_identity("DEFAULT", &q.identity()).unwrap());
+    assert_eq!(db.count_all().unwrap(), 1);
+}
+
+#[test]
+fn identity_is_deterministic() {
+    let id1 = QsoIdentity::from_detailed_fields(
+        "SP6INA",
+        "20M",
+        Some(14.025),
+        "CW",
+        None,
+        "20261018",
+        "120000",
+    );
+    let id2 = QsoIdentity::from_detailed_fields(
+        "SP6INA",
+        "20M",
+        Some(14.025),
+        "CW",
+        None,
+        "20261018",
+        "120000",
+    );
+    assert_eq!(id1.canonical_key(), id2.canonical_key());
+    assert_eq!(
+        id1.canonical_key(),
+        Some("v2|SP6INA|20M|14025000|CW||20261018|S120000".to_string())
+    );
+}
+
+#[test]
+fn identity_is_idempotent_after_normalization() {
+    let id = QsoIdentity::from_detailed_fields(
+        "  sp6ina  ",
+        " 20m ",
+        Some(14.025),
+        " cw-r ",
+        None,
+        " 2026-10-18 ",
+        " 12:00:00 ",
+    );
+    let key1 = id.canonical_key();
+    let key2 = id.canonical_key();
+    assert_eq!(key1, key2);
+    assert_eq!(
+        key1,
+        Some("v2|SP6INA|20M|14025000|CW||20261018|S120000".to_string())
+    );
+}
+
+#[test]
+fn identity_field_order_independent() {
+    let q1 = make_test_qso_literal("SP6INA", "20261018", "120000");
+    let mut q2 = make_test_qso_literal("SP6INA", "20261018", "120000");
+    q2.comment = Some("Different comment".to_string());
+    q2.rst_sent = "579".to_string();
+    assert_eq!(q1.identity().canonical_key(), q2.identity().canonical_key());
+}
+
+#[test]
+fn identity_changes_only_when_identity_fields_change() {
+    let base = make_test_qso_literal("SP6INA", "20261018", "120000");
+    let base_key = base.identity().canonical_key();
+
+    let mut diff_call = base.clone();
+    diff_call.callsign = "W1AW".to_string();
+    assert_ne!(base_key, diff_call.identity().canonical_key());
+
+    let mut diff_band = base.clone();
+    diff_band.band = "40m".to_string();
+    diff_band.freq = Some(7.025);
+    assert_ne!(base_key, diff_band.identity().canonical_key());
+
+    let mut diff_freq = base.clone();
+    diff_freq.freq = Some(14.050);
+    assert_ne!(base_key, diff_freq.identity().canonical_key());
+
+    let mut diff_mode = base.clone();
+    diff_mode.mode = "SSB".to_string();
+    assert_ne!(base_key, diff_mode.identity().canonical_key());
+
+    let mut diff_submode = base.clone();
+    diff_submode.mode = "SSB".to_string();
+    diff_submode.submode = Some("USB".to_string());
+    assert_ne!(base_key, diff_submode.identity().canonical_key());
+
+    let mut diff_date = base.clone();
+    diff_date.qso_date = "20261019".to_string();
+    assert_ne!(base_key, diff_date.identity().canonical_key());
+
+    let mut diff_time = base.clone();
+    diff_time.time_on = "120015".to_string();
+    assert_ne!(base_key, diff_time.identity().canonical_key());
+}
+
+#[test]
+fn non_identity_field_change_does_not_change_dedup_identity() {
+    let mut q = make_test_qso_literal("SP6INA", "20261018", "120000");
+    let key_orig = q.identity().canonical_key();
+
+    q.rst_sent = "559".to_string();
+    assert_eq!(key_orig, q.identity().canonical_key());
+    q.rst_rcvd = "579".to_string();
+    assert_eq!(key_orig, q.identity().canonical_key());
+    q.name = Some("John".to_string());
+    assert_eq!(key_orig, q.identity().canonical_key());
+    q.qth = Some("Warsaw".to_string());
+    assert_eq!(key_orig, q.identity().canonical_key());
+    q.gridsquare = Some("KO02".to_string());
+    assert_eq!(key_orig, q.identity().canonical_key());
+    q.comment = Some("Great QSO".to_string());
+    assert_eq!(key_orig, q.identity().canonical_key());
+    q.qsl_sent = "Y".to_string();
+    assert_eq!(key_orig, q.identity().canonical_key());
+    q.lotw_qsl_sent = "Y".to_string();
+    assert_eq!(key_orig, q.identity().canonical_key());
+}
+
+#[test]
+fn identity_survives_serialization_roundtrip() {
+    let id = QsoIdentity::from_detailed_fields(
+        "SP6INA",
+        "20M",
+        Some(14.025),
+        "SSB",
+        Some("USB"),
+        "20261018",
+        "120015",
+    );
+    let json = serde_json::to_string(&id).unwrap();
+    let deserialized: QsoIdentity = serde_json::from_str(&json).unwrap();
+    assert_eq!(id, deserialized);
+    assert_eq!(id.canonical_key(), deserialized.canonical_key());
 }

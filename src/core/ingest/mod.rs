@@ -152,9 +152,10 @@ impl QsoIngestor {
             if policy.skip_duplicates {
                 let journal_id = qso.journal_id.as_deref().unwrap_or("DEFAULT");
                 let identity = qso.identity();
-                if db
-                    .has_identity(journal_id, &identity)
-                    .map_err(IngestError::Storage)?
+                if identity.is_complete()
+                    && db
+                        .has_identity(journal_id, &identity)
+                        .map_err(IngestError::Storage)?
                 {
                     return Err(IngestError::Duplicate);
                 }
@@ -232,7 +233,15 @@ impl QsoIngestor {
             if existing.is_none() {
                 return Ok(None);
             }
-            db.update_qso(id, &qso).map_err(IngestError::Storage)?;
+            match db.update_qso(id, &qso) {
+                Ok(()) => {}
+                Err(rusqlite::Error::SqliteFailure(err, _))
+                    if err.extended_code == 2067 || err.extended_code == 1555 =>
+                {
+                    return Err(IngestError::Duplicate);
+                }
+                Err(err) => return Err(IngestError::Storage(err)),
+            }
         }
 
         qso.id = Some(id);

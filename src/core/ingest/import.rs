@@ -83,9 +83,11 @@ impl QsoIngestor {
             }
 
             let identity = qso.identity();
-            if !seen_identities.insert(identity) {
-                skipped_duplicates += 1;
-                continue;
+            if identity.is_complete() {
+                if !seen_identities.insert(identity) {
+                    skipped_duplicates += 1;
+                    continue;
+                }
             }
 
             accepted.push(qso);
@@ -154,7 +156,7 @@ mod tests {
         let fixture = TestFixture::new();
 
         let mut qso_hhmm = sample_valid_qso("SP6INA");
-        qso_hhmm.time_on = "1234".to_string();
+        qso_hhmm.time_on = "12:34:56".to_string();
 
         let mut qso_hhmmss = sample_valid_qso("SP6INA");
         qso_hhmmss.time_on = "123456".to_string();
@@ -186,11 +188,11 @@ mod tests {
         let stored = fixture.qsos_for_journal("DEFAULT");
         assert_eq!(stored.len(), 1);
         assert_eq!(stored[0].callsign, "SP6INA");
-        assert_eq!(stored[0].time_on, "1234");
+        assert_eq!(stored[0].time_on, "123456");
 
-        // Wariant duplikatu względem rekordu już znajdującego się w bazie (HHMMSS vs zapisane HHMM).
+        // Wariant duplikatu względem rekordu już znajdującego się w bazie (123456 vs 12:34:56).
         let mut qso_db_dup = sample_valid_qso("SP6INA");
-        qso_db_dup.time_on = "123459".to_string();
+        qso_db_dup.time_on = "123456".to_string();
 
         let second_report = match fixture
             .ingestor
@@ -210,6 +212,29 @@ mod tests {
             }
         );
         assert_eq!(fixture.count_qsos(), 1);
+
+        // Rekord z inną sekundą (12:34:57) NIE jest duplikatem i zostaje pomyślnie wstawiony.
+        let mut qso_diff_sec = sample_valid_qso("SP6INA");
+        qso_diff_sec.time_on = "123457".to_string();
+
+        let third_report = match fixture
+            .ingestor
+            .import_batch(vec![qso_diff_sec], &default_options(false))
+        {
+            Ok(report) => report,
+            Err(e) => panic!("expected third import_batch to succeed, got error: {e}"),
+        };
+
+        assert_eq!(
+            third_report,
+            ImportReport {
+                inserted: 1,
+                rejected_invalid: 0,
+                skipped_duplicates: 0,
+                first_issue: None,
+            }
+        );
+        assert_eq!(fixture.count_qsos(), 2);
     }
 
     #[test]
@@ -414,7 +439,7 @@ mod tests {
         qso_valid_2.freq = Some(7.150);
 
         let mut qso_duplicate = sample_valid_qso("SP6INA");
-        qso_duplicate.time_on = "1200".to_string();
+        qso_duplicate.time_on = "120000".to_string();
 
         let mut qso_invalid = sample_valid_qso("DL1XYZ");
         qso_invalid.band = String::new();
@@ -573,7 +598,7 @@ mod tests {
         qso_ok_1.time_on = "110500".to_string();
 
         let mut qso_dup_1 = sample_valid_qso("sp6ina");
-        qso_dup_1.time_on = "1105".to_string();
+        qso_dup_1.time_on = "110500".to_string();
 
         let mut qso_bad_band = sample_valid_qso("K1ABC");
         qso_bad_band.band = String::new();
@@ -621,7 +646,7 @@ mod tests {
         assert_eq!(fixture.count_qsos(), 1);
 
         let mut qso_dup_in_db = sample_valid_qso("SP6INA");
-        qso_dup_in_db.time_on = "1234".to_string();
+        qso_dup_in_db.time_on = "123400".to_string();
 
         let mut qso_new = sample_valid_qso("K1ABC");
         qso_new.time_on = "130000".to_string();
