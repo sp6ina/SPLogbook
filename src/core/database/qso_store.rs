@@ -154,7 +154,6 @@ impl LogDatabase {
     }
 
     /// Pobiera listę poprzednich łączności z daną stacją (do podglądu w locie)
-
     pub fn find_previous_qsos(&self, callsign: &str) -> Result<Vec<QsoRecord>> {
         let sql = format!(
             "SELECT {} FROM qso_records WHERE callsign = ?1 ORDER BY {ORDER_CHRONO_DESC}",
