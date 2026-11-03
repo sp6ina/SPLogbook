@@ -105,6 +105,14 @@ struct StatsCacheData {
 static STATS_CACHE: std::sync::OnceLock<std::sync::Mutex<Option<(StatsCacheKey, StatsCacheData)>>> =
     std::sync::OnceLock::new();
 
+/// Unieważnia cache statystyk, np. przy zmianie aktywnego dziennika (DATA-005)
+pub fn invalidate_stats_cache() {
+    let cache_mutex = STATS_CACHE.get_or_init(|| std::sync::Mutex::new(None));
+    if let Ok(mut guard) = cache_mutex.lock() {
+        *guard = None;
+    }
+}
+
 fn get_cached_stats(app: &mut SpLogApp) -> StatsCacheData {
     let confirmed_sample = app
         .log_view
@@ -130,19 +138,24 @@ fn get_cached_stats(app: &mut SpLogApp) -> StatsCacheData {
     }
 
     let lang = app.gui.appearance.language;
+    let journal_id = app.active_journal.id.clone();
     let data = match app.services.log_db.lock() {
         Ok(db) => {
-            let band = db.stats_qso_per_band().unwrap_or_else(|e| {
-                app.gui.chrome.status_message =
-                    Some(Msg::new(key::STATS_ERR_BANDS).arg("err", &e).text(lang));
-                vec![]
-            });
-            let mode = db.stats_qso_per_mode().unwrap_or_else(|e| {
-                app.gui.chrome.status_message =
-                    Some(Msg::new(key::STATS_ERR_MODES).arg("err", &e).text(lang));
-                vec![]
-            });
-            let monthly = match db.stats_qso_per_month() {
+            let band = db
+                .stats_qso_per_band_for_journal(&journal_id)
+                .unwrap_or_else(|e| {
+                    app.gui.chrome.status_message =
+                        Some(Msg::new(key::STATS_ERR_BANDS).arg("err", &e).text(lang));
+                    vec![]
+                });
+            let mode = db
+                .stats_qso_per_mode_for_journal(&journal_id)
+                .unwrap_or_else(|e| {
+                    app.gui.chrome.status_message =
+                        Some(Msg::new(key::STATS_ERR_MODES).arg("err", &e).text(lang));
+                    vec![]
+                });
+            let monthly = match db.stats_qso_per_month_for_journal(&journal_id) {
                 Ok(mut v) => {
                     v.reverse();
                     v
@@ -153,21 +166,27 @@ fn get_cached_stats(app: &mut SpLogApp) -> StatsCacheData {
                     vec![]
                 }
             };
-            let hourly = db.stats_activity_by_hour().unwrap_or_else(|e| {
-                app.gui.chrome.status_message =
-                    Some(Msg::new(key::STATS_ERR_HOURS).arg("err", &e).text(lang));
-                vec![]
-            });
-            let countries = db.stats_top_countries(15).unwrap_or_else(|e| {
-                app.gui.chrome.status_message =
-                    Some(Msg::new(key::STATS_ERR_COUNTRIES).arg("err", &e).text(lang));
-                vec![]
-            });
-            let qsl = db.stats_qsl_summary().unwrap_or_else(|e| {
-                app.gui.chrome.status_message =
-                    Some(Msg::new(key::STATS_ERR_QSL).arg("err", &e).text(lang));
-                (0, 0, 0, 0)
-            });
+            let hourly = db
+                .stats_activity_by_hour_for_journal(&journal_id)
+                .unwrap_or_else(|e| {
+                    app.gui.chrome.status_message =
+                        Some(Msg::new(key::STATS_ERR_HOURS).arg("err", &e).text(lang));
+                    vec![]
+                });
+            let countries = db
+                .stats_top_countries_for_journal(&journal_id, 15)
+                .unwrap_or_else(|e| {
+                    app.gui.chrome.status_message =
+                        Some(Msg::new(key::STATS_ERR_COUNTRIES).arg("err", &e).text(lang));
+                    vec![]
+                });
+            let qsl = db
+                .stats_qsl_summary_for_journal(&journal_id)
+                .unwrap_or_else(|e| {
+                    app.gui.chrome.status_message =
+                        Some(Msg::new(key::STATS_ERR_QSL).arg("err", &e).text(lang));
+                    (0, 0, 0, 0)
+                });
             StatsCacheData {
                 band,
                 mode,

@@ -88,6 +88,7 @@ pub fn extract_sp_district(callsign: &str) -> Option<String> {
 
 /// Silnik śledzenia postępu dyplomowego (krajowego i międzynarodowego)
 pub struct AwardsEngine {
+    pub scoped_journal_id: Option<String>,
     pub worked_calls: HashSet<(String, String, String)>,
     pub worked_dxcc_all: HashSet<u32>,
     pub worked_dxcc_band: HashSet<(u32, String)>,
@@ -144,6 +145,7 @@ impl Default for AwardsEngine {
 impl AwardsEngine {
     pub fn new() -> Self {
         Self {
+            scoped_journal_id: None,
             worked_calls: HashSet::new(),
             worked_dxcc_all: HashSet::new(),
             worked_dxcc_band: HashSet::new(),
@@ -175,6 +177,17 @@ impl AwardsEngine {
             details_sota: std::collections::HashMap::new(),
             details_pota: std::collections::HashMap::new(),
             details_pga: std::collections::HashMap::new(),
+        }
+    }
+
+    /// Odbudowuje stan dyplomów wyłącznie dla wskazanego dziennika (DATA-005)
+    pub fn rebuild_for_journal(&mut self, journal_id: &str, qsos: &[QsoRecord]) {
+        *self = Self::new();
+        self.scoped_journal_id = Some(journal_id.to_string());
+        for q in qsos {
+            if q.journal_id.as_deref().unwrap_or("DEFAULT") == journal_id {
+                self.register_qso_record(q);
+            }
         }
     }
 
