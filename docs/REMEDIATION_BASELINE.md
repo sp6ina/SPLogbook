@@ -178,3 +178,42 @@ W pliku `src/core/database/qso_store.rs`:
   - `tests/cat_native_6b.rs`: 87 testów PASSED (w tym 12 nowych testów kontraktowych read-only probe dla 8 backendów).
   - `tests/cat_native_7.rs`: 297 testów PASSED, 10 ignored (w tym 14 nowych testów cyklu życia sesji HIL i potwierdzeń powrotu do RX).
   - Wszystkie 10 fizycznych testów sprzętowych NATIVE-7B pozostaje odizolowanych za `#[ignore = "hardware-in-the-loop"]` (bramka fizycznego nadawania zamknięta).
+
+---
+
+## 5. Status po zakończeniu Etapu 4 (SOFTWARE VERIFIED)
+
+Data sporządzenia: 2026-11-03
+Środowisko: Windows x86_64
+Commit końcowy Etapu 4: `a215cf6` (HEAD / repair/full-system-remediation / main / origin/main)
+
+### Podsumowanie wdrożenia Etapu 4:
+- **Zrealizowany zakres audytowy:**
+  - `CAT-001`: Poprawne kodowanie BCD Little-Endian (częstotliwość) i Big-Endian (poziomy) dla Icom CI-V oraz pętla reconnectu w `RigService`.
+  - `CAT-004`: Walidacja granic ramek CI-V (min 6 B), odrzucanie echa, NAK, broadcastu, innego adresu, obsługa komend split `0x25` i RIT/XIT `0x21`.
+  - `CAT-009`: Odpytywanie komendą `i` w `HamlibBackend::poll_internal` przy włączonym split i aktualizacja częstotliwości TX.
+  - `CAT-010`: Trwały strumień TCP HTTP Keep-Alive w `FlrigClient` oraz obsługa Split, VFO i Power.
+  - `CAT-011`: Poprawne parsowanie i kodowanie parametrów RIT/XIT oraz passband w backendach natywnych.
+  - `CAT-012`: Fallback getter query po 150 ms w `KenwoodBackend` przy braku echa AI, odczyt mocy `PC` i obsługa `SetPower`/`SetRit`/`SetXit`.
+  - `CAT-013`: Oczekiwanie na potwierdzenie `R<seq>|0|` przez `send_and_await_ack` w `FlexRadioBackend` i komenda `slice set tx=1` w `SetSplit`.
+  - `CAT-016`: Dynamiczny lookup domyślnego adresu CI-V z profilu modelu w `HilTestBenchManifest::to_rig_config` oraz `ReconnectPolicy` w `RigService`.
+  - `CAT-017`: Inkrementacja `session_generation` przy próbach reconnectu, ochrona PTT (odrzucanie PTT ON w `Degraded`), brak przywracania `TxOwned` i cykl `StateFreshness::Stale -> Fresh`.
+
+- **Zrealizowane commity Etapu 4:**
+  1. `a5f2a8c`: `docs: align Stage 3 CAT finding mappings and HIL status` (Commit 0 — Bramka dokumentacyjna)
+  2. `95877ce`: `fix(cat): correct Icom CI-V BCD frequency encoding (CAT-001)`
+  3. `cf2a503`: `fix(cat): validate native CI-V frame boundaries (CAT-004)`
+  4. `30b6542`: `fix(cat): harden native CAT response parsing (CAT-009 CAT-010 CAT-011 CAT-012 CAT-013)`
+  5. `4c03d18`: `fix(cat): add cancellable RigService auto-reconnect (CAT-016)`
+  6. `a215cf6`: `fix(cat): isolate reconnect generations and stale events (CAT-017)`
+
+- **Nienaruszone sumy kontrolne Cargo:**
+  - `Cargo.toml`: `d8e3acd8f0c7b3307b3733c6c4a9a6cc57cb17c4`
+  - `Cargo.lock`: `c569097f3ef69c66ec59b74c29c1eb29efce69ae`
+  - Nowe zależności: 0 (bezwzględny zakaz dotrzymany).
+
+- **Bezpieczeństwo RF i HIL:**
+  - Emisja RF: 0.
+  - Wszystkie 10 fizycznych testów HIL pozostaje odizolowanych za `#[ignore = "hardware-in-the-loop"]`.
+  - Status HIL: `NOT EXECUTED — SAFETY GATE CLOSED`.
+  - Status programowy Etapu 4: `SOFTWARE VERIFIED`.

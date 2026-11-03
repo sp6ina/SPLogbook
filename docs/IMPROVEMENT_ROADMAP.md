@@ -182,7 +182,15 @@ flowchart LR
 
 ---
 
-### Etap 4 — Poprawność Protokołów Natywnych CAT i Auto-Reconnect w `RigService` (`P1`)
+### Etap 4 — Poprawność Protokołów Natywnych CAT i Auto-Reconnect w `RigService` (`P1`) [SOFTWARE VERIFIED]
+- **Status:** **SOFTWARE VERIFIED** (2026-11-03)
+- **Fizyczny HIL:** **NOT EXECUTED — SAFETY GATE CLOSED** (10 testów pozostaje odizolowanych za `#[ignore = "hardware-in-the-loop"]`)
+- **Zrealizowane Commity Etapu 4:**
+  - `95877ce`: `fix(cat): correct Icom CI-V BCD frequency encoding (CAT-001)`
+  - `cf2a503`: `fix(cat): validate native CI-V frame boundaries (CAT-004)`
+  - `30b6542`: `fix(cat): harden native CAT response parsing (CAT-009 CAT-010 CAT-011 CAT-012 CAT-013)`
+  - `4c03d18`: `fix(cat): add cancellable RigService auto-reconnect (CAT-016)`
+  - `a215cf6`: `fix(cat): isolate reconnect generations and stale events (CAT-017)`
 - **Cel:** Naprawa błędów protokołowych Icom/Kenwood/FlexRadio/FLRig/Hamlib oraz wprowadzenie automatycznego wznawiania połączenia (`CAT-001`, `CAT-004`, `CAT-009`, `CAT-010`, `CAT-011`, `CAT-012`, `CAT-013`, `CAT-016`, `CAT-017`).
 - **Zakres:**
   - Pętla wykładniczego reconnectu w `RigService::run_loop` (`CAT-001`).
