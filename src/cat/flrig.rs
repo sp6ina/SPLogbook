@@ -303,11 +303,25 @@ fn read_text(reader: &mut Reader<&[u8]>, buf: &mut Vec<u8>) -> Result<String, qu
 }
 
 /// Asynchroniczny klient FLRig. Łączy się po TCP i wymienia komunikaty XML-RPC.
+/// Maksymalny dopuszczalny rozmiar naglowka HTTP w odpowiedzi FLRig (8 KB).
+pub const MAX_FLRIG_HTTP_HEADER_BYTES: usize = 8192;
+
+/// Maksymalny dopuszczalny rozmiar tresci XML-RPC body w odpowiedzi FLRig (64 KB).
+pub const MAX_FLRIG_XMLRPC_BODY_BYTES: usize = 65536;
+
+/// Polaczenie TCP z FLRig z trwalym buforem odbiorczym i unikalna generacja transportu.
+struct FlrigConnection {
+    stream: TcpStream,
+    buf: Vec<u8>,
+    generation: u64,
+}
+
 pub struct FlrigClient {
     host: String,
     port: u16,
     timeout: Duration,
-    stream: tokio::sync::Mutex<Option<TcpStream>>,
+    connection: tokio::sync::Mutex<Option<FlrigConnection>>,
+    generation_counter: std::sync::atomic::AtomicU64,
 }
 
 impl FlrigClient {
@@ -318,7 +332,8 @@ impl FlrigClient {
             host: host.into(),
             port,
             timeout: Self::DEFAULT_TIMEOUT,
-            stream: tokio::sync::Mutex::new(None),
+            connection: tokio::sync::Mutex::new(None),
+            generation_counter: std::sync::atomic::AtomicU64::new(1),
         }
     }
 
@@ -328,13 +343,34 @@ impl FlrigClient {
             host: host.into(),
             port,
             timeout,
-            stream: tokio::sync::Mutex::new(None),
+            connection: tokio::sync::Mutex::new(None),
+            generation_counter: std::sync::atomic::AtomicU64::new(1),
         }
     }
 
+    /// Bezpiecznie zamyka polaczenie i czysci trwaly bufor odbiorczy.
     pub async fn disconnect(&self) {
-        let mut guard = self.stream.lock().await;
+        let mut guard = self.connection.lock().await;
         *guard = None;
+    }
+
+    /// Zwraca numer generacji aktywnego transportu TCP, o ile polaczenie jest otwarte.
+    pub async fn transport_generation(&self) -> Option<u64> {
+        let guard = self.connection.lock().await;
+        guard.as_ref().map(|c| c.generation)
+    }
+
+    /// Zwraca dlugosc nieprzetworzonych bajtow w trwalym buforze odbiorczym.
+    #[cfg(test)]
+    pub(crate) async fn buffer_len(&self) -> usize {
+        let guard = self.connection.lock().await;
+        guard.as_ref().map_or(0, |c| c.buf.len())
+    }
+
+    /// Zwraca informacje czy transport TCP jest aktualnie otwarty.
+    pub async fn is_connected(&self) -> bool {
+        let guard = self.connection.lock().await;
+        guard.is_some()
     }
 
     pub fn host(&self) -> &str {
@@ -348,10 +384,174 @@ impl FlrigClient {
     pub fn endpoint(&self) -> String {
         format!("{}:{}", self.host, self.port)
     }
+    async fn read_framed_response(
+        conn: &mut FlrigConnection,
+        timeout: Duration,
+        endpoint: &str,
+    ) -> Result<(String, bool), RigError> {
+        let (header_end, sep_len) = loop {
+            if let Some(pos) = conn.buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                break (pos, 4);
+            }
+            if let Some(pos) = conn.buf.windows(2).position(|w| w == b"\n\n") {
+                break (pos, 2);
+            }
+            if conn.buf.len() > MAX_FLRIG_HTTP_HEADER_BYTES {
+                return Err(RigError::Protocol {
+                    detail: format!(
+                        "FLRig HTTP header exceeded maximum length of {MAX_FLRIG_HTTP_HEADER_BYTES} bytes"
+                    ),
+                });
+            }
 
-    /// Wysyła żądanie HTTP/1.1 XML-RPC i czyta odpowiedź do znacznika zamykającego `</methodResponse>`.
+            let mut tmp = [0u8; 4096];
+            let n = match tokio::time::timeout(timeout, conn.stream.read(&mut tmp)).await {
+                Ok(Ok(n)) => n,
+                Ok(Err(e)) => {
+                    return Err(RigError::Connect {
+                        endpoint: endpoint.to_string(),
+                        detail: format!("peer read error: {e}"),
+                    });
+                }
+                Err(_) => {
+                    return Err(RigError::Timeout {
+                        endpoint: endpoint.to_string(),
+                        operation: "read_header",
+                    });
+                }
+            };
+
+            if n == 0 {
+                if conn.buf.is_empty() {
+                    return Err(RigError::Connect {
+                        endpoint: endpoint.to_string(),
+                        detail: "peer closed connection before header".to_string(),
+                    });
+                }
+                return Err(RigError::Protocol {
+                    detail: "peer closed connection with truncated HTTP header".to_string(),
+                });
+            }
+
+            conn.buf.extend_from_slice(&tmp[..n]);
+        };
+
+        if header_end > MAX_FLRIG_HTTP_HEADER_BYTES {
+            return Err(RigError::Protocol {
+                detail: format!(
+                    "FLRig HTTP header size {header_end} exceeded maximum length of {MAX_FLRIG_HTTP_HEADER_BYTES} bytes"
+                ),
+            });
+        }
+
+        let header_bytes = &conn.buf[..header_end];
+        let header_str = std::str::from_utf8(header_bytes).map_err(|_| RigError::Protocol {
+            detail: "malformed non-UTF-8 HTTP header from FLRig".to_string(),
+        })?;
+
+        let mut lines = header_str.lines();
+        let status_line = lines.next().ok_or_else(|| RigError::Protocol {
+            detail: "empty HTTP response from FLRig".to_string(),
+        })?;
+        if !status_line.starts_with("HTTP/1.") {
+            return Err(RigError::Protocol {
+                detail: format!("invalid HTTP status line: {status_line}"),
+            });
+        }
+
+        let mut content_length: Option<usize> = None;
+        let mut connection_close = false;
+
+        for line in lines {
+            let lower = line.to_ascii_lowercase();
+            let trimmed = lower.trim();
+            if let Some(val_str) = trimmed.strip_prefix("content-length:") {
+                let val_str = val_str.trim();
+                let val = val_str.parse::<usize>().map_err(|_| RigError::Protocol {
+                    detail: format!("malformed Content-Length: {val_str}"),
+                })?;
+                if let Some(prev) = content_length {
+                    if prev != val {
+                        return Err(RigError::Protocol {
+                            detail: format!(
+                                "conflicting duplicate Content-Length headers: {prev} vs {val}"
+                            ),
+                        });
+                    }
+                } else {
+                    content_length = Some(val);
+                }
+            } else if trimmed.strip_prefix("connection:").is_some() && trimmed.contains("close") {
+                connection_close = true;
+            }
+        }
+
+        let body_len = match content_length {
+            Some(len) => {
+                if len > MAX_FLRIG_XMLRPC_BODY_BYTES {
+                    return Err(RigError::Protocol {
+                        detail: format!(
+                            "FLRig XML-RPC body length {len} exceeds limit of {MAX_FLRIG_XMLRPC_BODY_BYTES} bytes"
+                        ),
+                    });
+                }
+                len
+            }
+            None => {
+                return Err(RigError::Protocol {
+                    detail: "missing Content-Length header in FLRig HTTP response".to_string(),
+                });
+            }
+        };
+
+        let body_start = header_end + sep_len;
+        let total_needed = body_start
+            .checked_add(body_len)
+            .ok_or_else(|| RigError::Protocol {
+                detail: "integer overflow calculating total needed response bytes".to_string(),
+            })?;
+
+        while conn.buf.len() < total_needed {
+            let mut tmp = [0u8; 4096];
+            let n = match tokio::time::timeout(timeout, conn.stream.read(&mut tmp)).await {
+                Ok(Ok(n)) => n,
+                Ok(Err(e)) => {
+                    return Err(RigError::Connect {
+                        endpoint: endpoint.to_string(),
+                        detail: format!("peer read error during body: {e}"),
+                    });
+                }
+                Err(_) => {
+                    return Err(RigError::Timeout {
+                        endpoint: endpoint.to_string(),
+                        operation: "read_body",
+                    });
+                }
+            };
+            if n == 0 {
+                return Err(RigError::Protocol {
+                    detail:
+                        "peer closed connection before completing response body (truncated body)"
+                            .to_string(),
+                });
+            }
+            conn.buf.extend_from_slice(&tmp[..n]);
+        }
+
+        let body_slice = &conn.buf[body_start..total_needed];
+        let body_str = std::str::from_utf8(body_slice)
+            .map_err(|_| RigError::Protocol {
+                detail: "malformed non-UTF-8 XML-RPC body from FLRig".to_string(),
+            })?
+            .to_string();
+
+        conn.buf.drain(..total_needed);
+
+        Ok((body_str, connection_close))
+    }
+
+    /// Wysyla zadanie HTTP/1.1 XML-RPC i czyta odpowiedz z zachowaniem framingu HTTP/1.1 keep-alive.
     pub async fn call(&self, req: &XmlRpcRequest) -> Result<XmlRpcValue, RigError> {
-        const MAX_RESPONSE_BYTES: usize = 64 * 1024;
         let endpoint = self.endpoint();
         let xml = req.to_xml();
         let http_req = format!(
@@ -362,10 +562,10 @@ impl FlrigClient {
             xml
         );
 
-        let mut stream_guard = self.stream.lock().await;
+        let mut conn_guard = self.connection.lock().await;
 
         for attempt in 0..2 {
-            if stream_guard.is_none() {
+            if conn_guard.is_none() {
                 let stream = tokio::time::timeout(self.timeout, TcpStream::connect(&endpoint))
                     .await
                     .map_err(|_| RigError::Timeout {
@@ -376,15 +576,29 @@ impl FlrigClient {
                         endpoint: endpoint.clone(),
                         detail: e.to_string(),
                     })?;
-                *stream_guard = Some(stream);
+                let generation = self
+                    .generation_counter
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                *conn_guard = Some(FlrigConnection {
+                    stream,
+                    buf: Vec::new(),
+                    generation,
+                });
             }
 
-            let stream = stream_guard.as_mut().expect("stream present");
+            let Some(conn) = conn_guard.as_mut() else {
+                return Err(RigError::Connect {
+                    endpoint: endpoint.clone(),
+                    detail: "missing connection after initialization".to_string(),
+                });
+            };
 
-            match tokio::time::timeout(self.timeout, stream.write_all(http_req.as_bytes())).await {
-                Ok(Ok(_)) => {}
+            match tokio::time::timeout(self.timeout, conn.stream.write_all(http_req.as_bytes()))
+                .await
+            {
+                Ok(Ok(())) => {}
                 Ok(Err(_)) => {
-                    *stream_guard = None;
+                    *conn_guard = None;
                     if attempt == 0 {
                         continue;
                     }
@@ -394,7 +608,7 @@ impl FlrigClient {
                     });
                 }
                 Err(_) => {
-                    *stream_guard = None;
+                    *conn_guard = None;
                     return Err(RigError::Timeout {
                         endpoint: endpoint.clone(),
                         operation: "write",
@@ -402,74 +616,34 @@ impl FlrigClient {
                 }
             }
 
-            let stream = stream_guard.as_mut().expect("stream present");
-            let mut data = Vec::new();
-            let mut buf = [0u8; 4096];
-            let mut connection_closed_by_peer = false;
-
-            loop {
-                let bytes_read =
-                    match tokio::time::timeout(self.timeout, stream.read(&mut buf)).await {
-                        Ok(Ok(n)) => n,
-                        Ok(Err(_)) => {
-                            connection_closed_by_peer = true;
-                            break;
-                        }
-                        Err(_) => {
-                            *stream_guard = None;
-                            return Err(RigError::Timeout {
-                                endpoint: endpoint.clone(),
-                                operation: "read",
-                            });
-                        }
-                    };
-                if bytes_read == 0 {
-                    if data.is_empty() {
-                        connection_closed_by_peer = true;
-                    }
-                    break;
-                }
-                data.extend_from_slice(&buf[..bytes_read]);
-                if data.len() > MAX_RESPONSE_BYTES {
-                    return Err(RigError::Protocol {
-                        detail: "response exceeded maximum length of 64 KB".to_string(),
-                    });
-                }
-                let text = String::from_utf8_lossy(&data);
-                if text.contains("</methodResponse>") || text.contains("</methodCall>") {
-                    break;
-                }
-            }
-
-            if connection_closed_by_peer {
-                *stream_guard = None;
-                if attempt == 0 {
-                    continue;
-                }
+            let Some(conn) = conn_guard.as_mut() else {
                 return Err(RigError::Connect {
                     endpoint: endpoint.clone(),
-                    detail: "connection closed by FLRig".to_string(),
+                    detail: "missing connection before read".to_string(),
                 });
-            }
+            };
 
-            if data.is_empty() {
-                *stream_guard = None;
-                if attempt == 0 {
-                    continue;
+            let read_res = Self::read_framed_response(conn, self.timeout, &endpoint).await;
+            match read_res {
+                Ok((body, conn_close)) => {
+                    if conn_close {
+                        *conn_guard = None;
+                    }
+                    return parse_response(&body).map_err(|detail| {
+                        *conn_guard = None;
+                        RigError::Protocol {
+                            detail: detail.to_string(),
+                        }
+                    });
                 }
-                return Err(RigError::Protocol {
-                    detail: "empty response from FLRig".to_string(),
-                });
+                Err(e) => {
+                    *conn_guard = None;
+                    if attempt == 0 && matches!(e, RigError::Connect { .. }) {
+                        continue;
+                    }
+                    return Err(e);
+                }
             }
-
-            let resp_text = String::from_utf8_lossy(&data);
-            if resp_text.to_ascii_lowercase().contains("connection: close") {
-                *stream_guard = None;
-            }
-
-            return parse_response(&resp_text).map_err(|detail| RigError::Protocol {
-                detail: detail.to_string(),
-            });
         }
 
         Err(RigError::Connect {
@@ -1429,6 +1603,729 @@ mod tests {
             .unwrap();
         backend.execute(&RigCommand::SetPower(100.0)).await.unwrap();
         backend.disconnect().await;
+        server_task.await.unwrap();
+    }
+
+    // ==========================================
+    // Testy Framingu HTTP/1.1 Keep-Alive FLRig (CAT-017 KROK 3)
+    // ==========================================
+
+    #[tokio::test]
+    async fn flrig_keep_alive_parses_two_sequential_responses() {
+        let (port, server_task) = run_mock_flrig_server(|listener| async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+
+            let (method1, _) = read_xmlrpc_request(&mut stream).await;
+            assert_eq!(method1, "rig.get_vfo");
+            let xml1 = "<methodResponse><params><param><value><int>14074000</int></value></param></params></methodResponse>";
+            let resp1 = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n{}",
+                xml1.len(),
+                xml1
+            );
+            stream.write_all(resp1.as_bytes()).await.unwrap();
+
+            let (method2, _) = read_xmlrpc_request(&mut stream).await;
+            assert_eq!(method2, "rig.get_mode");
+            let xml2 = "<methodResponse><params><param><value><string>USB</string></value></param></params></methodResponse>";
+            let resp2 = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n{}",
+                xml2.len(),
+                xml2
+            );
+            stream.write_all(resp2.as_bytes()).await.unwrap();
+        })
+        .await;
+
+        let client = FlrigClient::new("127.0.0.1", port);
+        let freq = client.get_vfo_typed().await.unwrap();
+        assert_eq!(freq, 14_074_000);
+
+        let mode = client.get_mode_typed().await.unwrap();
+        assert_eq!(mode, "USB");
+        assert!(client.is_connected().await);
+
+        client.disconnect().await;
+        server_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn flrig_keep_alive_preserves_buffered_second_response() {
+        let (port, server_task) = run_mock_flrig_server(|listener| async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+
+            let (method1, _) = read_xmlrpc_request(&mut stream).await;
+            assert_eq!(method1, "rig.get_vfo");
+
+            let xml1 = "<methodResponse><params><param><value><int>14074000</int></value></param></params></methodResponse>";
+            let resp1 = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n{}",
+                xml1.len(),
+                xml1
+            );
+
+            let xml2 = "<methodResponse><params><param><value><string>CW</string></value></param></params></methodResponse>";
+            let resp2 = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n{}",
+                xml2.len(),
+                xml2
+            );
+
+            // Wysylamy obie odpowiedzi w jednym strumieniu
+            let combined = format!("{resp1}{resp2}");
+            stream.write_all(combined.as_bytes()).await.unwrap();
+        })
+        .await;
+
+        let client = FlrigClient::new("127.0.0.1", port);
+        let freq = client.get_vfo_typed().await.unwrap();
+        assert_eq!(freq, 14_074_000);
+
+        // Druga odpowiedz zostala zachowana w trwalym buforze odbiorczym klienta
+        let mode = client.get_mode_typed().await.unwrap();
+        assert_eq!(mode, "CW");
+
+        client.disconnect().await;
+        server_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn flrig_partial_header_is_reassembled() {
+        let (port, server_task) = run_mock_flrig_server(|listener| async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+            let _ = read_xmlrpc_request(&mut stream).await;
+
+            let xml = "<methodResponse><params><param><value><int>7000000</int></value></param></params></methodResponse>";
+            let part1 = "HTTP/1.1 200 OK\r\n";
+            let part2 = format!("Content-Length: {}\r\n", xml.len());
+            let part3 = format!("Connection: keep-alive\r\n\r\n{xml}");
+
+            stream.write_all(part1.as_bytes()).await.unwrap();
+            tokio::time::sleep(Duration::from_millis(15)).await;
+            stream.write_all(part2.as_bytes()).await.unwrap();
+            tokio::time::sleep(Duration::from_millis(15)).await;
+            stream.write_all(part3.as_bytes()).await.unwrap();
+        })
+        .await;
+
+        let client = FlrigClient::new("127.0.0.1", port);
+        let freq = client.get_vfo_typed().await.unwrap();
+        assert_eq!(freq, 7_000_000);
+
+        client.disconnect().await;
+        server_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn flrig_partial_body_is_reassembled() {
+        let (port, server_task) = run_mock_flrig_server(|listener| async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+            let _ = read_xmlrpc_request(&mut stream).await;
+
+            let xml = "<methodResponse><params><param><value><string>RTTY</string></value></param></params></methodResponse>";
+            let header = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n",
+                xml.len()
+            );
+
+            let body_part1 = &xml[..20];
+            let body_part2 = &xml[20..];
+
+            let first_chunk = format!("{header}{body_part1}");
+            stream.write_all(first_chunk.as_bytes()).await.unwrap();
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            stream.write_all(body_part2.as_bytes()).await.unwrap();
+        })
+        .await;
+
+        let client = FlrigClient::new("127.0.0.1", port);
+        let mode = client.get_mode_typed().await.unwrap();
+        assert_eq!(mode, "RTTY");
+
+        client.disconnect().await;
+        server_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn flrig_content_length_limits_single_response_body() {
+        let (port, server_task) = run_mock_flrig_server(|listener| async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+            let _ = read_xmlrpc_request(&mut stream).await;
+
+            let xml = "<methodResponse><params><param><value><int>14200000</int></value></param></params></methodResponse>";
+            let trailing = "EXTRA_TRAILING_BYTES_NOT_PART_OF_BODY";
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n{}{}",
+                xml.len(),
+                xml,
+                trailing
+            );
+
+            stream.write_all(resp.as_bytes()).await.unwrap();
+        })
+        .await;
+
+        let client = FlrigClient::new("127.0.0.1", port);
+        let freq = client.get_vfo_typed().await.unwrap();
+        assert_eq!(freq, 14_200_000);
+        // Nadmiarowe bajty pozostaja w buforze odbiorczym
+        assert_eq!(client.buffer_len().await, 37);
+
+        client.disconnect().await;
+        server_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn flrig_peer_close_before_header_is_error() {
+        let (port, server_task) = run_mock_flrig_server(|listener| async move {
+            let (mut stream, _) = listener.accept().await.expect("accept 1");
+            let _ = read_xmlrpc_request(&mut stream).await;
+            drop(stream); // zamkniecie przed naglowkiem
+
+            if let Ok((mut stream2, _)) = listener.accept().await {
+                let _ = read_xmlrpc_request(&mut stream2).await;
+                drop(stream2); // proba 2 rowniez zamknieta
+            }
+        })
+        .await;
+
+        let client = FlrigClient::new("127.0.0.1", port);
+        let err = client.get_vfo_typed().await.unwrap_err();
+        assert!(matches!(
+            err,
+            RigError::Connect { .. } | RigError::Protocol { .. }
+        ));
+
+        server_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn flrig_peer_close_mid_body_is_error() {
+        let (port, server_task) = run_mock_flrig_server(|listener| async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+            let _ = read_xmlrpc_request(&mut stream).await;
+
+            let xml_part = "<methodResponse><params>";
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: 500\r\nConnection: keep-alive\r\n\r\n{xml_part}"
+            );
+            stream.write_all(resp.as_bytes()).await.unwrap();
+            drop(stream); // zamkniecie w trakcie czytania body
+        })
+        .await;
+
+        let client = FlrigClient::new("127.0.0.1", port);
+        let err = client.get_vfo_typed().await.unwrap_err();
+        assert!(matches!(err, RigError::Protocol { .. }));
+        if let RigError::Protocol { detail } = err {
+            assert!(detail.contains("truncated") || detail.contains("peer closed"));
+        }
+
+        server_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn flrig_peer_close_after_complete_response_reconnects_cleanly() {
+        let (port, server_task) = run_mock_flrig_server(|listener| async move {
+            // Pierwsze zadanie: kompletna odpowiedz z Connection: close
+            let (mut stream1, _) = listener.accept().await.expect("accept 1");
+            let _ = read_xmlrpc_request(&mut stream1).await;
+            let xml1 = "<methodResponse><params><param><value><int>14074000</int></value></param></params></methodResponse>";
+            let resp1 = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                xml1.len(),
+                xml1
+            );
+            stream1.write_all(resp1.as_bytes()).await.unwrap();
+            drop(stream1);
+
+            // Drugie zadanie: czysty reconnect na nowym polaczeniu
+            let (mut stream2, _) = listener.accept().await.expect("accept 2");
+            let _ = read_xmlrpc_request(&mut stream2).await;
+            let xml2 = "<methodResponse><params><param><value><string>CW</string></value></param></params></methodResponse>";
+            let resp2 = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n{}",
+                xml2.len(),
+                xml2
+            );
+            stream2.write_all(resp2.as_bytes()).await.unwrap();
+        })
+        .await;
+
+        let client = FlrigClient::new("127.0.0.1", port);
+        let freq = client.get_vfo_typed().await.unwrap();
+        assert_eq!(freq, 14_074_000);
+
+        let mode = client.get_mode_typed().await.unwrap();
+        assert_eq!(mode, "CW");
+
+        client.disconnect().await;
+        server_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn flrig_malformed_content_length_is_rejected() {
+        let (port, server_task) = run_mock_flrig_server(|listener| async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+            let _ = read_xmlrpc_request(&mut stream).await;
+            let resp = "HTTP/1.1 200 OK\r\nContent-Length: invalid-number\r\n\r\n<body/>";
+            stream.write_all(resp.as_bytes()).await.unwrap();
+        })
+        .await;
+
+        let client = FlrigClient::new("127.0.0.1", port);
+        let err = client.get_vfo_typed().await.unwrap_err();
+        assert!(matches!(err, RigError::Protocol { .. }));
+        if let RigError::Protocol { detail } = err {
+            assert!(detail.contains("malformed Content-Length"));
+        }
+
+        server_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn flrig_duplicate_conflicting_content_length_is_rejected() {
+        let (port, server_task) = run_mock_flrig_server(|listener| async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+            let _ = read_xmlrpc_request(&mut stream).await;
+            let resp = "HTTP/1.1 200 OK\r\nContent-Length: 50\r\nContent-Length: 60\r\n\r\n<body/>";
+            stream.write_all(resp.as_bytes()).await.unwrap();
+        })
+        .await;
+
+        let client = FlrigClient::new("127.0.0.1", port);
+        let err = client.get_vfo_typed().await.unwrap_err();
+        assert!(matches!(err, RigError::Protocol { .. }));
+        if let RigError::Protocol { detail } = err {
+            assert!(detail.contains("conflicting duplicate Content-Length"));
+        }
+
+        server_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn flrig_first_xml_error_does_not_mix_with_next_response() {
+        let (port, server_task) = run_mock_flrig_server(|listener| async move {
+            // Zadanie 1: odsyla nieprawidlowy XML
+            let (mut stream1, _) = listener.accept().await.expect("accept 1");
+            let _ = read_xmlrpc_request(&mut stream1).await;
+            let invalid_xml = "NOT_VALID_XML<><>";
+            let resp1 = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n{}",
+                invalid_xml.len(),
+                invalid_xml
+            );
+            stream1.write_all(resp1.as_bytes()).await.unwrap();
+
+            // Zadanie 2: przyjmuje nowe polaczenie (gdyz poprzednie zostalo uniewaznione po bledzie protokolu)
+            let (mut stream2, _) = listener.accept().await.expect("accept 2");
+            let _ = read_xmlrpc_request(&mut stream2).await;
+            let valid_xml = "<methodResponse><params><param><value><int>14074000</int></value></param></params></methodResponse>";
+            let resp2 = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n{}",
+                valid_xml.len(),
+                valid_xml
+            );
+            stream2.write_all(resp2.as_bytes()).await.unwrap();
+        })
+        .await;
+
+        let client = FlrigClient::new("127.0.0.1", port);
+        let err1 = client.get_vfo_typed().await.unwrap_err();
+        assert!(matches!(err1, RigError::Protocol { .. }));
+
+        // Po uniewaznieniu skazonego polaczenia, drugie zadanie konczy sie sukcesem
+        let freq = client.get_vfo_typed().await.unwrap();
+        assert_eq!(freq, 14_074_000);
+
+        client.disconnect().await;
+        server_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn flrig_response_for_request_one_is_not_used_for_request_two() {
+        let (port, server_task) = run_mock_flrig_server(|listener| async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+
+            let (method1, _) = read_xmlrpc_request(&mut stream).await;
+            assert_eq!(method1, "rig.get_vfo");
+            let xml1 = "<methodResponse><params><param><value><int>21074000</int></value></param></params></methodResponse>";
+            let resp1 = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n{}",
+                xml1.len(),
+                xml1
+            );
+            stream.write_all(resp1.as_bytes()).await.unwrap();
+
+            let (method2, _) = read_xmlrpc_request(&mut stream).await;
+            assert_eq!(method2, "rig.get_mode");
+            let xml2 = "<methodResponse><params><param><value><string>FM</string></value></param></params></methodResponse>";
+            let resp2 = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n{}",
+                xml2.len(),
+                xml2
+            );
+            stream.write_all(resp2.as_bytes()).await.unwrap();
+        })
+        .await;
+
+        let client = FlrigClient::new("127.0.0.1", port);
+        let vfo = client.get_vfo_typed().await.unwrap();
+        assert_eq!(vfo, 21_074_000);
+
+        let mode = client.get_mode_typed().await.unwrap();
+        assert_eq!(mode, "FM");
+        assert_ne!(mode, "21074000");
+
+        client.disconnect().await;
+        server_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn flrig_reconnect_clears_old_receive_buffer() {
+        let (port, server_task) = run_mock_flrig_server(|listener| async move {
+            // Pierwsze polaczenie: odpowiedz z nadmiarowymi danymi
+            let (mut stream1, _) = listener.accept().await.expect("accept 1");
+            let _ = read_xmlrpc_request(&mut stream1).await;
+            let xml1 = "<methodResponse><params><param><value><int>14074000</int></value></param></params></methodResponse>";
+            let trailing = "BUFFERED_LEFTOVER_BYTES";
+            let resp1 = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n{}{}",
+                xml1.len(),
+                xml1,
+                trailing
+            );
+            stream1.write_all(resp1.as_bytes()).await.unwrap();
+
+            // Drugie polaczenie po reconnect
+            let (mut stream2, _) = listener.accept().await.expect("accept 2");
+            let _ = read_xmlrpc_request(&mut stream2).await;
+            let xml2 = "<methodResponse><params><param><value><int>7000000</int></value></param></params></methodResponse>";
+            let resp2 = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n{}",
+                xml2.len(),
+                xml2
+            );
+            stream2.write_all(resp2.as_bytes()).await.unwrap();
+        })
+        .await;
+
+        let client = FlrigClient::new("127.0.0.1", port);
+        let freq1 = client.get_vfo_typed().await.unwrap();
+        assert_eq!(freq1, 14_074_000);
+        assert_eq!(client.buffer_len().await, 23); // pozostalosci w buforze
+
+        // Jawny disconnect zeruje caly bufor
+        client.disconnect().await;
+        assert_eq!(client.buffer_len().await, 0);
+
+        // Kolejne wywolanie laczy sie na nowo z czystym buforem
+        let freq2 = client.get_vfo_typed().await.unwrap();
+        assert_eq!(freq2, 7_000_000);
+        assert_eq!(client.buffer_len().await, 0);
+
+        client.disconnect().await;
+        server_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn flrig_oversized_header_is_rejected() {
+        let (port, server_task) = run_mock_flrig_server(|listener| async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+            let _ = read_xmlrpc_request(&mut stream).await;
+            let padding = "X".repeat(MAX_FLRIG_HTTP_HEADER_BYTES + 100);
+            let resp = format!("HTTP/1.1 200 OK\r\nX-Padding: {padding}\r\n\r\n<body/>");
+            stream.write_all(resp.as_bytes()).await.unwrap();
+        })
+        .await;
+
+        let client = FlrigClient::new("127.0.0.1", port);
+        let err = client.get_vfo_typed().await.unwrap_err();
+        assert!(matches!(err, RigError::Protocol { .. }));
+        if let RigError::Protocol { detail } = err {
+            assert!(detail.contains("exceeded maximum length"));
+        }
+
+        server_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn flrig_oversized_body_is_rejected() {
+        let (port, server_task) = run_mock_flrig_server(|listener| async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+            let _ = read_xmlrpc_request(&mut stream).await;
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n<body/>",
+                MAX_FLRIG_XMLRPC_BODY_BYTES + 500
+            );
+            stream.write_all(resp.as_bytes()).await.unwrap();
+        })
+        .await;
+
+        let client = FlrigClient::new("127.0.0.1", port);
+        let err = client.get_vfo_typed().await.unwrap_err();
+        assert!(matches!(err, RigError::Protocol { .. }));
+        if let RigError::Protocol { detail } = err {
+            assert!(detail.contains("exceeds limit"));
+        }
+
+        server_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn flrig_exact_header_limit_is_accepted() {
+        let (port, server_task) = run_mock_flrig_server(|listener| async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+            let _ = read_xmlrpc_request(&mut stream).await;
+
+            let xml = "<methodResponse><params><param><value><int>14074000</int></value></param></params></methodResponse>";
+            let base_headers = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: keep-alive\r\n",
+                xml.len()
+            );
+            let prefix = "X-Pad: ";
+            let suffix = "\r\n";
+            let fixed_len = base_headers.len() + prefix.len() + suffix.len();
+            assert!(fixed_len < MAX_FLRIG_HTTP_HEADER_BYTES);
+            let pad_len = MAX_FLRIG_HTTP_HEADER_BYTES - fixed_len;
+            let padding = "A".repeat(pad_len);
+            let exact_header = format!("{base_headers}{prefix}{padding}{suffix}");
+            assert_eq!(exact_header.len(), MAX_FLRIG_HTTP_HEADER_BYTES);
+
+            let resp = format!("{exact_header}\r\n{xml}");
+            stream.write_all(resp.as_bytes()).await.unwrap();
+        })
+        .await;
+
+        let client = FlrigClient::new("127.0.0.1", port);
+        let freq = client.get_vfo_typed().await.unwrap();
+        assert_eq!(freq, 14_074_000);
+
+        client.disconnect().await;
+        server_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn flrig_exact_body_limit_is_accepted() {
+        let (port, server_task) = run_mock_flrig_server(|listener| async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+            let _ = read_xmlrpc_request(&mut stream).await;
+
+            // Tworzymy prawidlowy XML-RPC o lacznej dlugosci MAX_FLRIG_XMLRPC_BODY_BYTES (65536)
+            let prefix = "<methodResponse><params><param><value><string>";
+            let suffix = "</string></value></param></params></methodResponse>";
+            let content_len = MAX_FLRIG_XMLRPC_BODY_BYTES - prefix.len() - suffix.len();
+            let pad_str = "K".repeat(content_len);
+            let xml = format!("{prefix}{pad_str}{suffix}");
+            assert_eq!(xml.len(), MAX_FLRIG_XMLRPC_BODY_BYTES);
+
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n{}",
+                xml.len(),
+                xml
+            );
+            stream.write_all(resp.as_bytes()).await.unwrap();
+        })
+        .await;
+
+        let client = FlrigClient::new("127.0.0.1", port);
+        let res = client
+            .call(&XmlRpcRequest::new("rig.get_mode"))
+            .await
+            .unwrap();
+        assert!(matches!(res, XmlRpcValue::Str(_)));
+
+        client.disconnect().await;
+        server_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn flrig_body_limit_plus_one_is_rejected() {
+        let (port, server_task) = run_mock_flrig_server(|listener| async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+            let _ = read_xmlrpc_request(&mut stream).await;
+
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n<body/>",
+                MAX_FLRIG_XMLRPC_BODY_BYTES + 1
+            );
+            stream.write_all(resp.as_bytes()).await.unwrap();
+        })
+        .await;
+
+        let client = FlrigClient::new("127.0.0.1", port);
+        let err = client
+            .call(&XmlRpcRequest::new("rig.get_mode"))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, RigError::Protocol { .. }));
+        if let RigError::Protocol { detail } = err {
+            assert!(detail.contains("exceeds limit"));
+        }
+
+        server_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn flrig_old_transport_response_is_ignored_after_reconnect() {
+        let (port, server_task) = run_mock_flrig_server(|listener| async move {
+            // Polaczenie 1: akceptacja i opoznienie
+            let (mut stream1, _) = listener.accept().await.expect("accept 1");
+            let _ = read_xmlrpc_request(&mut stream1).await;
+            tokio::time::sleep(Duration::from_millis(60)).await;
+
+            // Polaczenie 2: akceptacja i natychmiastowa odpowiedz
+            let (mut stream2, _) = listener.accept().await.expect("accept 2");
+            let _ = read_xmlrpc_request(&mut stream2).await;
+            let xml2 = "<methodResponse><params><param><value><int>14074000</int></value></param></params></methodResponse>";
+            let resp2 = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n{}",
+                xml2.len(),
+                xml2
+            );
+            stream2.write_all(resp2.as_bytes()).await.unwrap();
+
+            // Teraz wysylamy odpowiedz na stream 1 (powinna zostac zignorowana)
+            let xml1 = "<methodResponse><params><param><value><int>3500000</int></value></param></params></methodResponse>";
+            let resp1 = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n{}",
+                xml1.len(),
+                xml1
+            );
+            let _ = stream1.write_all(resp1.as_bytes()).await;
+        })
+        .await;
+
+        let client = FlrigClient::new("127.0.0.1", port);
+        // Pierwsze wywolanie ma lokalny deadline i zostaje przerwane zanim serwer odpowie
+        let _ = tokio::time::timeout(Duration::from_millis(30), client.get_vfo_typed()).await;
+        let gen1 = client.transport_generation().await;
+
+        // Disconnect wymusza nowa generacje transportu
+        client.disconnect().await;
+
+        // Drugie wywolanie laczy sie na stream 2 z pelnym timeoutem klienta
+        let freq = client.get_vfo_typed().await.unwrap();
+        let gen2 = client.transport_generation().await;
+        assert_eq!(freq, 14_074_000);
+        assert!(gen2 > gen1);
+
+        client.disconnect().await;
+        server_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn flrig_transport_reconnect_does_not_publish_old_body() {
+        let (port, server_task) = run_mock_flrig_server(|listener| async move {
+            let (mut stream1, _) = listener.accept().await.expect("accept 1");
+            let _ = read_xmlrpc_request(&mut stream1).await;
+            let xml1 = "<methodResponse><params><param><value><string>OLD_BODY</string></value></param></params></methodResponse>";
+            let extra = "EXTRA_DATA";
+            let resp1 = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n{}{}",
+                xml1.len(),
+                xml1,
+                extra
+            );
+            stream1.write_all(resp1.as_bytes()).await.unwrap();
+
+            let (mut stream2, _) = listener.accept().await.expect("accept 2");
+            let _ = read_xmlrpc_request(&mut stream2).await;
+            let xml2 = "<methodResponse><params><param><value><string>NEW_BODY</string></value></param></params></methodResponse>";
+            let resp2 = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n{}",
+                xml2.len(),
+                xml2
+            );
+            stream2.write_all(resp2.as_bytes()).await.unwrap();
+        })
+        .await;
+
+        let client = FlrigClient::new("127.0.0.1", port);
+        let mode1 = client.get_mode_typed().await.unwrap();
+        assert_eq!(mode1, "OLD_BODY");
+        assert_eq!(client.buffer_len().await, 10);
+
+        // Reconnect czysci calkowicie stary bufor
+        client.disconnect().await;
+        assert_eq!(client.buffer_len().await, 0);
+
+        let mode2 = client.get_mode_typed().await.unwrap();
+        assert_eq!(mode2, "NEW_BODY");
+        assert_ne!(mode2, "OLD_BODY");
+
+        client.disconnect().await;
+        server_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn flrig_new_transport_starts_with_empty_response_buffer() {
+        let (port, server_task) = run_mock_flrig_server(|listener| async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+            let _ = read_xmlrpc_request(&mut stream).await;
+            let xml = "<methodResponse><params><param><value><int>14074000</int></value></param></params></methodResponse>";
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n{}",
+                xml.len(),
+                xml
+            );
+            stream.write_all(resp.as_bytes()).await.unwrap();
+        })
+        .await;
+
+        let client = FlrigClient::new("127.0.0.1", port);
+        assert_eq!(client.buffer_len().await, 0);
+
+        let freq = client.get_vfo_typed().await.unwrap();
+        assert_eq!(freq, 14_074_000);
+        assert_eq!(client.buffer_len().await, 0);
+
+        client.disconnect().await;
+        assert_eq!(client.buffer_len().await, 0);
+        server_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn flrig_old_transport_close_does_not_close_new_transport() {
+        let (port, server_task) = run_mock_flrig_server(|listener| async move {
+            let (mut stream1, _) = listener.accept().await.expect("accept 1");
+            let _ = read_xmlrpc_request(&mut stream1).await;
+            let xml1 = "<methodResponse><params><param><value><int>14074000</int></value></param></params></methodResponse>";
+            let resp1 = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n{}",
+                xml1.len(),
+                xml1
+            );
+            stream1.write_all(resp1.as_bytes()).await.unwrap();
+
+            let (mut stream2, _) = listener.accept().await.expect("accept 2");
+            let _ = read_xmlrpc_request(&mut stream2).await;
+
+            // Zamkniecie pierwszego polaczenia
+            drop(stream1);
+
+            let xml2 = "<methodResponse><params><param><value><int>7000000</int></value></param></params></methodResponse>";
+            let resp2 = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n{}",
+                xml2.len(),
+                xml2
+            );
+            stream2.write_all(resp2.as_bytes()).await.unwrap();
+        })
+        .await;
+
+        let client = FlrigClient::new("127.0.0.1", port);
+        let freq1 = client.get_vfo_typed().await.unwrap();
+        assert_eq!(freq1, 14_074_000);
+
+        // Rozlaczenie i nowy transport
+        client.disconnect().await;
+
+        let freq2 = client.get_vfo_typed().await.unwrap();
+        assert_eq!(freq2, 7_000_000);
+        assert!(client.is_connected().await);
+
+        client.disconnect().await;
         server_task.await.unwrap();
     }
 }
