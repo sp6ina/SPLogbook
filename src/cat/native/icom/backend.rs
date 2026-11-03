@@ -483,7 +483,10 @@ impl RigBackend for IcomCiVBackend {
 
             match command {
                 RigCommand::SetFrequency(hz) => {
-                    let bcd = IcomCiVCodec::encode_frequency_bcd(*hz, self.profile.frequency_bytes);
+                    let bcd = IcomCiVCodec::encode_frequency_bcd(*hz, self.profile.frequency_bytes)
+                        .map_err(|e| RigError::Protocol {
+                            detail: e.to_string(),
+                        })?;
                     let reply = self
                         .send_query_and_await_reply(
                             command::SET_FREQUENCY,
@@ -497,7 +500,10 @@ impl RigBackend for IcomCiVBackend {
                     }
                 }
                 RigCommand::SetSplitFrequency(hz) => {
-                    let bcd = IcomCiVCodec::encode_frequency_bcd(*hz, self.profile.frequency_bytes);
+                    let bcd = IcomCiVCodec::encode_frequency_bcd(*hz, self.profile.frequency_bytes)
+                        .map_err(|e| RigError::Protocol {
+                            detail: e.to_string(),
+                        })?;
                     let reply = self
                         .send_query_and_await_reply(
                             command::SET_FREQUENCY,
@@ -603,8 +609,12 @@ impl RigBackend for IcomCiVBackend {
                     self.state.xit_hz = *hz;
                 }
                 RigCommand::SetPower(watts) => {
-                    let raw_val = ((watts / 100.0).clamp(0.0, 1.0) * 255.0).round() as u8;
-                    let data = IcomCiVCodec::encode_frequency_bcd(raw_val as u64, 2);
+                    let raw_val = ((watts / 100.0).clamp(0.0, 1.0) * 255.0).round() as u16;
+                    let data = IcomCiVCodec::encode_level_bcd_be(raw_val).map_err(|e| {
+                        RigError::Protocol {
+                            detail: e.to_string(),
+                        }
+                    })?;
                     let reply = self
                         .send_query_and_await_reply(
                             command::LEVEL_SET,
