@@ -127,6 +127,8 @@ pub struct RigServiceSnapshot {
     pub last_state_update: Option<tokio::time::Instant>,
     /// Monotoniczny numer generacji potwierdzonej telemetrii.
     pub state_generation: u64,
+    /// Monotoniczny numer generacji sesji połączenia (inkrementowany przy reconnect).
+    pub session_generation: u64,
     /// Świeżość stanu telemetrii.
     pub freshness: StateFreshness,
     /// Ostatni zarejestrowany błąd diagnostyczny (pozbawiony danych poufnych).
@@ -145,6 +147,7 @@ impl RigServiceSnapshot {
             last_update: None,
             last_state_update: None,
             state_generation: 0,
+            session_generation: 1,
             freshness: StateFreshness::Missing,
             last_error: None,
         }
@@ -281,6 +284,7 @@ pub struct RigService {
     snapshot: RigServiceSnapshot,
     poll_interval: Duration,
     reconnect_policy: ReconnectPolicy,
+    session_generation: u64,
 }
 
 impl RigService {
@@ -320,6 +324,7 @@ impl RigService {
             snapshot: initial_snapshot,
             poll_interval,
             reconnect_policy,
+            session_generation: 1,
         };
 
         let handle = RigServiceHandle {
@@ -368,6 +373,7 @@ impl RigService {
         }
 
         self.snapshot.lifecycle = next;
+        self.snapshot.session_generation = self.session_generation;
         self.snapshot.last_error = error
             .as_deref()
             .map(crate::cat::tx_arbiter::redact_sensitive_info);
@@ -423,6 +429,7 @@ impl RigService {
         self.snapshot.state = Some(state.clone());
         self.snapshot.last_state_update = Some(now);
         self.snapshot.state_generation = self.snapshot.state_generation.wrapping_add(1);
+        self.snapshot.session_generation = self.session_generation;
         self.snapshot.last_update = Some(now);
         self.snapshot.freshness = StateFreshness::Fresh;
         let _ = self.snapshot_tx.send(self.snapshot.clone());
@@ -526,10 +533,13 @@ impl RigService {
                         None => std::future::pending().await,
                     }
                 }, if reconnect_deadline.is_some() => {
+                    self.session_generation = self.session_generation.wrapping_add(1);
+                    self.snapshot.session_generation = self.session_generation;
                     log::info!(
-                        "[{}] Próba auto-reconnectu #{} dla sesji",
+                        "[{}] Próba auto-reconnectu #{} dla sesji (generacja {})",
                         self.rig_id,
-                        reconnect_attempts + 1
+                        reconnect_attempts + 1,
+                        self.session_generation
                     );
 
                     // 1. Zapewnij świeżość Stale w trakcie próby nawiązania połączenia
@@ -685,6 +695,20 @@ impl RigService {
         if self.snapshot.lifecycle != RigServiceState::Ready
             && self.snapshot.lifecycle != RigServiceState::Degraded
         {
+            let _ = req
+                .responder
+                .send(Err(RigServiceError::NotReady(self.snapshot.lifecycle)));
+            return;
+        }
+
+        // 2b. Ochrona PTT: stan Degraded kategorycznie zabrania załączania PTT ON (CAT-017)
+        if self.snapshot.lifecycle == RigServiceState::Degraded
+            && matches!(req.command, RigCommand::SetPtt(true))
+        {
+            log::warn!(
+                "[{}] Odrzucono polecenie SetPtt(true) w stanie Degraded (ochrona przed emisją)",
+                self.rig_id
+            );
             let _ = req
                 .responder
                 .send(Err(RigServiceError::NotReady(self.snapshot.lifecycle)));
@@ -1331,5 +1355,175 @@ mod tests {
             shared.connect_count.load(Ordering::SeqCst),
             connects_at_shutdown
         );
+    }
+
+    #[tokio::test]
+    async fn reconnect_increments_session_generation_and_invalidates_stale_state() {
+        let shared = MockShared::default();
+        let rig_id = RigId::new("RIG-GEN-01").unwrap();
+        let fast_policy = ReconnectPolicy {
+            enabled: true,
+            base_delay: Duration::from_millis(20),
+            max_delay: Duration::from_millis(100),
+            factor: 2,
+            jitter_pct: 0,
+        };
+
+        let (service, mut handle) = RigService::spawn_with_policy(
+            rig_id.clone(),
+            Box::new(MockTestBackend::new(shared.clone())),
+            Duration::from_millis(15),
+            fast_policy,
+        );
+        let jh = tokio::spawn(service.run());
+        handle.attach_join_handle(jh);
+
+        for _ in 0..50 {
+            if handle.snapshot().lifecycle == RigServiceState::Ready {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let snap1 = handle.snapshot();
+        assert_eq!(snap1.session_generation, 1);
+        assert_eq!(snap1.freshness, StateFreshness::Fresh);
+
+        // Wywołaj zerwanie połączenia
+        shared.fail_poll.store(true, Ordering::SeqCst);
+        for _ in 0..50 {
+            if handle.snapshot().lifecycle == RigServiceState::Degraded {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(handle.snapshot().freshness, StateFreshness::Stale);
+
+        // Przywróć backend i odczekaj na powrót do Ready
+        shared.fail_poll.store(false, Ordering::SeqCst);
+        for _ in 0..50 {
+            if handle.snapshot().lifecycle == RigServiceState::Ready {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(15)).await;
+        }
+
+        let snap2 = handle.snapshot();
+        assert_eq!(snap2.lifecycle, RigServiceState::Ready);
+        assert!(snap2.session_generation > snap1.session_generation);
+        assert_eq!(snap2.freshness, StateFreshness::Fresh);
+
+        let _ = handle
+            .shutdown(tokio::time::Instant::now() + Duration::from_millis(500))
+            .await;
+    }
+
+    #[tokio::test]
+    async fn degraded_state_rejects_ptt_on_command() {
+        let shared = MockShared::default();
+        let rig_id = RigId::new("RIG-DEGRADED-PTT").unwrap();
+        let disabled_policy = ReconnectPolicy::disabled();
+
+        let (service, mut handle) = RigService::spawn_with_policy(
+            rig_id.clone(),
+            Box::new(MockTestBackend::new(shared.clone())),
+            Duration::from_millis(15),
+            disabled_policy,
+        );
+        let jh = tokio::spawn(service.run());
+        handle.attach_join_handle(jh);
+
+        for _ in 0..50 {
+            if handle.snapshot().lifecycle == RigServiceState::Ready {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        // Wprowadź w stan Degraded
+        shared.fail_poll.store(true, Ordering::SeqCst);
+        for _ in 0..50 {
+            if handle.snapshot().lifecycle == RigServiceState::Degraded {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(handle.snapshot().lifecycle, RigServiceState::Degraded);
+
+        // Próba załączenia PTT ON musi zostać bezwzględnie odrzucona
+        let ptt_res = handle
+            .execute(
+                crate::cat::routing::RigCommandId::new(1),
+                crate::cat::routing::RigTarget::entire_rig(rig_id.clone()),
+                RigCommand::SetPtt(true),
+                tokio::time::Instant::now() + Duration::from_millis(500),
+            )
+            .await;
+
+        assert!(matches!(
+            ptt_res,
+            Err(RigServiceError::NotReady(RigServiceState::Degraded))
+        ));
+
+        let _ = handle
+            .shutdown(tokio::time::Instant::now() + Duration::from_millis(500))
+            .await;
+    }
+
+    #[tokio::test]
+    async fn reconnect_never_restores_tx_owned_and_sets_ptt_false() {
+        let shared = MockShared::default();
+        let rig_id = RigId::new("RIG-RX-ONLY").unwrap();
+        let fast_policy = ReconnectPolicy {
+            enabled: true,
+            base_delay: Duration::from_millis(20),
+            max_delay: Duration::from_millis(100),
+            factor: 2,
+            jitter_pct: 0,
+        };
+
+        let (service, mut handle) = RigService::spawn_with_policy(
+            rig_id.clone(),
+            Box::new(MockTestBackend::new(shared.clone())),
+            Duration::from_millis(15),
+            fast_policy,
+        );
+        let jh = tokio::spawn(service.run());
+        handle.attach_join_handle(jh);
+
+        for _ in 0..50 {
+            if handle.snapshot().lifecycle == RigServiceState::Ready {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        // Wywołaj zerwanie połączenia
+        shared.fail_poll.store(true, Ordering::SeqCst);
+        for _ in 0..50 {
+            if handle.snapshot().lifecycle == RigServiceState::Degraded {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        // Przywróć backend
+        shared.fail_poll.store(false, Ordering::SeqCst);
+        for _ in 0..50 {
+            if handle.snapshot().lifecycle == RigServiceState::Ready {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(15)).await;
+        }
+
+        // Upewnij się, że po reconnect stan PTT jest bezwzględnie false (RX)
+        let state = handle
+            .snapshot()
+            .state
+            .expect("state present after reconnect");
+        assert!(!state.ptt);
+
+        let _ = handle
+            .shutdown(tokio::time::Instant::now() + Duration::from_millis(500))
+            .await;
     }
 }
