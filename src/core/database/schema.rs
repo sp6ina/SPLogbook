@@ -82,6 +82,7 @@ pub(super) struct QsoSql {
     pub insert: String,
     pub insert_with_id: String,
     pub update: String,
+    pub update_scoped: String,
 }
 
 impl QsoSql {
@@ -112,11 +113,18 @@ impl QsoSql {
             QSO_DATA_COLUMN_COUNT + 1,
             QSO_DATA_COLUMN_COUNT + 2
         );
+        let update_scoped = format!(
+            "UPDATE qso_records SET {update_set}, identity_key = ?{} WHERE id = ?{} AND journal_id = ?{}",
+            QSO_DATA_COLUMN_COUNT + 1,
+            QSO_DATA_COLUMN_COUNT + 2,
+            QSO_DATA_COLUMN_COUNT + 3
+        );
         Self {
             select_columns,
             insert,
             insert_with_id,
             update,
+            update_scoped,
         }
     }
 }

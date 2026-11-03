@@ -566,65 +566,73 @@ impl SpLogApp {
         if ids.is_empty() {
             return;
         }
-        let mut first_err: Option<String> = None;
-        for id in &ids {
-            let result = {
-                let db = self
-                    .services
-                    .log_db
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                db.delete_qso(*id)
-            };
-            if let Err(e) = result {
-                if first_err.is_none() {
-                    first_err = Some(
-                        Msg::new(key::MSG_QSO_DELETE_ERROR_ID)
-                            .arg("id", id)
-                            .arg("err", &e.to_string())
-                            .text(self.gui.appearance.language),
-                    );
-                }
-            }
-        }
-        if let Some(msg) = first_err {
-            self.report_error(msg);
-        } else {
-            self.gui.chrome.status_message = Some(
-                Msg::new(key::MSG_QSO_DELETED_MULTIPLE)
-                    .arg("count", ids.len())
-                    .text(self.gui.appearance.language),
-            );
-        }
-        self.rebuild_awards_full();
-        self.reload_qsos();
-    }
-
-    pub fn delete_qso_by_id(&mut self, id: i64) {
+        let journal_id = self.active_journal.id.clone();
         let result = {
             let db = self
                 .services
                 .log_db
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            db.delete_qso(id)
+            db.delete_multiple_qsos_scoped(&ids, &journal_id)
         };
-        if let Err(e) = result {
-            self.report_error(
-                Msg::new(key::MSG_QSO_DELETE_ERROR_ID)
-                    .arg("id", id)
-                    .arg("err", &e)
-                    .text(self.gui.appearance.language),
-            );
-            return;
+        match result {
+            Ok(count) => {
+                self.gui.chrome.status_message = Some(
+                    Msg::new(key::MSG_QSO_DELETED_MULTIPLE)
+                        .arg("count", count)
+                        .text(self.gui.appearance.language),
+                );
+            }
+            Err(e) => {
+                self.report_error(
+                    Msg::new(key::MSG_QSO_DELETE_ERROR_ID)
+                        .arg("id", ids.first().copied().unwrap_or(0))
+                        .arg("err", &e.to_string())
+                        .text(self.gui.appearance.language),
+                );
+            }
         }
         self.rebuild_awards_full();
         self.reload_qsos();
-        self.gui.chrome.status_message = Some(
-            Msg::new(key::MSG_QSO_DELETED_ID)
-                .arg("id", id)
-                .text(self.gui.appearance.language),
-        );
+    }
+
+    pub fn delete_qso_by_id(&mut self, id: i64) {
+        let journal_id = self.active_journal.id.clone();
+        let result = {
+            let db = self
+                .services
+                .log_db
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            db.delete_qso_scoped(id, &journal_id)
+        };
+        match result {
+            Ok(true) => {
+                self.rebuild_awards_full();
+                self.reload_qsos();
+                self.gui.chrome.status_message = Some(
+                    Msg::new(key::MSG_QSO_DELETED_ID)
+                        .arg("id", id)
+                        .text(self.gui.appearance.language),
+                );
+            }
+            Ok(false) => {
+                self.report_error(
+                    Msg::new(key::MSG_QSO_DELETE_ERROR_ID)
+                        .arg("id", id)
+                        .arg("err", "not found")
+                        .text(self.gui.appearance.language),
+                );
+            }
+            Err(e) => {
+                self.report_error(
+                    Msg::new(key::MSG_QSO_DELETE_ERROR_ID)
+                        .arg("id", id)
+                        .arg("err", &e)
+                        .text(self.gui.appearance.language),
+                );
+            }
+        }
     }
 
     /// Cofa ostatnie usunięte QSO (Undo)
@@ -681,13 +689,14 @@ impl SpLogApp {
                 );
                 return;
             };
+            let journal_id = qso.journal_id.as_deref().unwrap_or(&self.active_journal.id);
             let result = {
                 let db = self
                     .services
                     .log_db
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
-                db.delete_qso(id)
+                db.delete_qso_scoped(id, journal_id)
             };
             if let Err(e) = result {
                 self.report_error(
@@ -727,7 +736,11 @@ impl SpLogApp {
                     warning_texts.join("; ")
                 ));
             }
-            match self.services.ingestor.update_existing(id, qso.clone()) {
+            match self.services.ingestor.update_existing_scoped(
+                id,
+                &self.active_journal.id,
+                qso.clone(),
+            ) {
                 Ok(Some(updated)) => {
                     self.gui.chrome.status_message = Some(
                         Msg::new(key::MSG_QSO_UPDATED_CALL)

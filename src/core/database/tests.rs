@@ -3277,3 +3277,133 @@ fn find_duplicates_is_isolated_to_active_journal() {
     let dups_b = db.find_duplicate_qsos("J_B", false).unwrap();
     assert_eq!(dups_b.len(), 0, "Dziennik J_B nie powinien miec duplikatow");
 }
+
+#[test]
+fn journal_mutation_isolation_update_and_delete() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    db.create_journal(&Journal {
+        id: "J_ONE".to_string(),
+        name: "Journal One".to_string(),
+        station_callsign: "SP6INA".to_string(),
+        operator: String::new(),
+        my_gridsquare: String::new(),
+        my_pga: String::new(),
+        description: String::new(),
+        is_default: false,
+    })
+    .unwrap();
+    db.create_journal(&Journal {
+        id: "J_TWO".to_string(),
+        name: "Journal Two".to_string(),
+        station_callsign: "SP6INA/P".to_string(),
+        operator: String::new(),
+        my_gridsquare: String::new(),
+        my_pga: String::new(),
+        description: String::new(),
+        is_default: false,
+    })
+    .unwrap();
+
+    let mut q1 = QsoRecord::new("W1AW", "20m", "CW");
+    q1.journal_id = Some("J_ONE".to_string());
+    let id1 = db.insert_qso(&q1).unwrap();
+
+    let mut q2 = QsoRecord::new("K1ABC", "40m", "SSB");
+    q2.journal_id = Some("J_TWO".to_string());
+    let id2 = db.insert_qso(&q2).unwrap();
+
+    // 1. Attempt update id1 with J_TWO: must return Ok(false) and not modify
+    let mut edit = q1.clone();
+    edit.rst_sent = "579".to_string();
+    let updated = db.update_qso_scoped(id1, "J_TWO", &edit).unwrap();
+    assert!(!updated, "Cross-journal update must return false");
+    let fetched = db.get_qso_by_id_scoped(id1, "J_ONE").unwrap().unwrap();
+    assert_ne!(fetched.rst_sent, "579");
+
+    // 2. Valid update with J_ONE: must succeed
+    let updated = db.update_qso_scoped(id1, "J_ONE", &edit).unwrap();
+    assert!(updated, "Journal-scoped update must return true");
+    let fetched = db.get_qso_by_id_scoped(id1, "J_ONE").unwrap().unwrap();
+    assert_eq!(fetched.rst_sent, "579");
+
+    // 3. Attempt delete id2 with J_ONE: must return Ok(false) and record persists in J_TWO
+    let deleted = db.delete_qso_scoped(id2, "J_ONE").unwrap();
+    assert!(!deleted, "Cross-journal delete must return false");
+    assert!(db.get_qso_by_id_scoped(id2, "J_TWO").unwrap().is_some());
+
+    // 4. Batch delete with J_ONE on [id1, id2]: must only delete id1
+    let deleted_count = db
+        .delete_multiple_qsos_scoped(&[id1, id2], "J_ONE")
+        .unwrap();
+    assert_eq!(deleted_count, 1);
+    assert!(db.get_qso_by_id_scoped(id1, "J_ONE").unwrap().is_none());
+    assert!(db.get_qso_by_id_scoped(id2, "J_TWO").unwrap().is_some());
+
+    // 5. Delete id2 with J_TWO: succeeds
+    let deleted = db.delete_qso_scoped(id2, "J_TWO").unwrap();
+    assert!(deleted);
+    assert!(db.get_qso_by_id_scoped(id2, "J_TWO").unwrap().is_none());
+}
+
+#[test]
+fn journal_qsl_confirmations_isolation_and_batch() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    db.create_journal(&Journal {
+        id: "J_ALPHA".to_string(),
+        name: "Journal Alpha".to_string(),
+        station_callsign: "SP6INA".to_string(),
+        operator: String::new(),
+        my_gridsquare: String::new(),
+        my_pga: String::new(),
+        description: String::new(),
+        is_default: false,
+    })
+    .unwrap();
+    db.create_journal(&Journal {
+        id: "J_BETA".to_string(),
+        name: "Journal Beta".to_string(),
+        station_callsign: "SP6INA/P".to_string(),
+        operator: String::new(),
+        my_gridsquare: String::new(),
+        my_pga: String::new(),
+        description: String::new(),
+        is_default: false,
+    })
+    .unwrap();
+
+    let mut q_a = QsoRecord::new("W1AW", "20m", "CW");
+    q_a.journal_id = Some("J_ALPHA".to_string());
+    q_a.qso_date = "20261101".to_string();
+    let id_a = db.insert_qso(&q_a).unwrap();
+
+    let mut q_b = QsoRecord::new("W1AW", "20m", "CW");
+    q_b.journal_id = Some("J_BETA".to_string());
+    q_b.qso_date = "20261101".to_string();
+    let id_b = db.insert_qso(&q_b).unwrap();
+
+    // Confirm for J_ALPHA only
+    let updated = db
+        .mark_lotw_confirmed_scoped("J_ALPHA", "W1AW", "20m", "CW", "20261101", "20261102")
+        .unwrap();
+    assert_eq!(updated, 1);
+
+    // J_ALPHA is confirmed, J_BETA is NOT confirmed
+    let rec_a = db.get_qso_by_id_scoped(id_a, "J_ALPHA").unwrap().unwrap();
+    assert_eq!(rec_a.lotw_qsl_rcvd, "Y");
+
+    let rec_b = db.get_qso_by_id_scoped(id_b, "J_BETA").unwrap().unwrap();
+    assert_ne!(rec_b.lotw_qsl_rcvd, "Y");
+
+    // Batch confirm eQSL for J_BETA
+    let conf_qsos = vec![rec_b.clone()];
+    let updated_b = db
+        .mark_eqsl_confirmed_batch_for_journal("J_BETA", &conf_qsos)
+        .unwrap();
+    assert_eq!(updated_b, 1);
+
+    let rec_b_after = db.get_qso_by_id_scoped(id_b, "J_BETA").unwrap().unwrap();
+    assert_eq!(rec_b_after.eqsl_qsl_rcvd, "Y");
+
+    let rec_a_after = db.get_qso_by_id_scoped(id_a, "J_ALPHA").unwrap().unwrap();
+    assert_ne!(rec_a_after.eqsl_qsl_rcvd, "Y");
+}
