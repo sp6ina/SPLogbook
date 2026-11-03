@@ -149,6 +149,18 @@ W pliku `src/core/database/qso_store.rs`:
 
 ## 10. Pomiary i weryfikacja po Etapie 3 (CAT-002, CAT-003, CAT-005, CAT-006, CAT-015)
 
+- **Status Etapu 3:** **SOFTWARE VERIFIED**
+- **Status fizycznego HIL:** **NOT EXECUTED — SAFETY GATE CLOSED** (10 fizycznych testów sprzętowych pozostaje odizolowanych za `#[ignore = "hardware-in-the-loop"]`).
+- **Semantyka zwolnienia PTT:**
+  - `Drop`: inicjuje synchroniczne best-effort wysłanie komendy TX OFF, lecz nie gwarantuje asynchronicznego potwierdzenia powrotu radia do RX.
+  - Jawne zamknięcie sesji (`release_and_confirm_rx` / `disconnect`): wysyła komendę TX OFF i asynchronicznie oczekuje na potwierdzenie stanu RX z transceivera.
+- **Ujednolicone mapowanie znalezisk i commitów (Bramka Dokumentacyjna):**
+  - `CAT-002`: Wyścig potwierdzenia PTT w TCI i FlexRadio -> Commity `31ab74e` *(w msg tag CAT-003)* i `ce73b8c` *(w msg tag CAT-005)*. Status: `FIXED_SOFTWARE_VERIFIED`.
+  - `CAT-003`: Polimorficzny read-only `probe()` dla wszystkich 8 backendów -> Commit `3e907aa` *(w msg tag CAT-002)*. Status: `FIXED_SOFTWARE_VERIFIED`.
+  - `CAT-005`: Wymóg odpytania `TX;`/`TQ;` bez optymizmu w Yaesu i Elecraft -> Commit `1fce33a` *(w msg tag CAT-006)*. Status: `FIXED_SOFTWARE_VERIFIED`.
+  - `CAT-006`: `RigHub::resync_tx_arbiter` (`last_state_update`) i oznaczanie `StateFreshness::Stale` -> Commit `1fce33a`. Status: `FIXED_SOFTWARE_VERIFIED`.
+  - `CAT-015`: Cykl życia sesji HIL i bramki środowiskowe `SPLOG_HIL_*` -> Commit `ddc1c0c`. Status: `FIXED_SOFTWARE_VERIFIED` (fizyczny HIL: NOT EXECUTED — SAFETY GATE CLOSED).
+
 - **Stan gałęzi po Etapie 3:**
   - Aktywna gałąź: `repair/full-system-remediation` (zsynchronizowana z `main` i `origin/main` przez fast-forward).
   - Wszystkie commity Etapu 3:

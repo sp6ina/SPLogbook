@@ -609,6 +609,23 @@
 
 ## 4. Integracje Radiowe, CAT, Protokoły Natywne i HIL (`CAT-*`)
 
+### Ujednolicone mapowanie znalezisk i commitów Etapu 3 (Bramka Dokumentacyjna)
+
+Status Etapu 3: **SOFTWARE VERIFIED**
+Fizyczny HIL: **NOT EXECUTED — SAFETY GATE CLOSED** (10 fizycznych testów sprzętowych pozostaje odizolowanych za `#[ignore = "hardware-in-the-loop"]`).
+
+**Semantyka zwolnienia PTT (Drop vs jawne zamknięcie):**
+- **Drop (destruktor):** Inicjuje synchroniczne best-effort wysłanie komendy TX OFF bez blokowania wątku i bez asynchronicznego oczekiwania na odpowiedź radia. Zapewnia ochronę przed porzuceniem wskaźnika, lecz nie gwarantuje asynchronicznego potwierdzenia powrotu radia do RX.
+- **Jawne zamknięcie sesji (`release_and_confirm_rx` / `disconnect`):** Wysyła komendę TX OFF, drenuje bufor odbiorczy i asynchronicznie oczekuje na sprzętowe potwierdzenie stanu RX (`confirmed_ptt == false` / `poll().ptt == false`).
+
+| Finding ID | Pierwotny opis z rejestru | Zakres rzeczywisty remediacji | Commit w historii | Zmienione pliki | Zweryfikowane testy | Status końcowy | Ryzyko resztkowe |
+|---|---|---|---|---|---|---|---|
+| `CAT-002` | Wyścig potwierdzenia PTT w `TciBackend` i `FlexRadioBackend` powodujący fałszywą blokadę `TxArbiterState::Unknown` | Oczekiwanie na asynchroniczne potwierdzenie ramki `TciMessage::Trx` (TCI) oraz `interlock state=TRANSMITTING`/nie-TRANSMITTING (FlexRadio) z drainem, timeoutem i odrzucaniem późnych pakietów | `31ab74e` *(tagowany w commit msg jako CAT-003)*, `ce73b8c` *(tagowany w commit msg jako CAT-005)* | `src/cat/tci.rs`, `src/cat/native/flexradio/backend.rs` | 29 testów TCI w `src/cat/tci.rs`, 234 testy w `src/cat/native/flexradio/backend.rs` | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
+| `CAT-003` | Brak nadpisania metody traitu `RigBackend::probe` w 5 z 8 backendów (mutujący probe łamie R10 / HIL-COND-27) | Usunięcie domyślnej implementacji `probe()` z `RigBackend` i wdrożenie jawnych, ściśle read-only implementacji dla wszystkich 8 backendów | `3e907aa` *(tagowany w commit msg jako CAT-002)* | `src/cat/backend.rs`, `src/cat/probe.rs`, backendy natywne | 12 testów kontraktowych probe w `tests/cat_native_6b.rs` | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
+| `CAT-005` | Optymistyczne ustawianie `confirmed_ptt = true` bez potwierdzenia z radia w `YaesuBackend` i `ElecraftBackend` | Wymuszenie odpytania `TX;` (Yaesu) i `TQ;` (Elecraft) z usunięciem optymistycznego przypisania stanu TX | `1fce33a` *(tagowany w commit msg jako CAT-006)* | `src/cat/native/yaesu/backend.rs`, `src/cat/native/elecraft/backend.rs` | 46 testów Yaesu, 69 testów Elecraft, test w `tests/cat_native_6a.rs` | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
+| `CAT-006` | Luka w `RigHub::resync_tx_arbiter` (`last_update` zamiast `last_state_update`) oraz martwy wariant `StateFreshness::Stale` | Zastąpienie `snapshot.last_update` przez `snapshot.last_state_update`, walidacja `freshness != Stale`, oznaczanie `Stale` przy błędach/rozłączeniu w `RigService` | `1fce33a` | `src/cat/hub.rs`, `src/cat/service.rs` | 5 testów deterministycznych w `tests/cat_native_6a.rs` | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
+| `CAT-015` | `HilHardwareSession::execute_controlled_ptt` omija bramki `SPLOG_HIL_*`, omija `TxArbiter` i nie potwierdza RX | Integracja ze strażnikiem `acquire_tx_guard`, weryfikacja autoryzacji środowiska, zakaz anteny, wymóg początkowego RX i potwierdzenie `release_and_confirm_rx` | `ddc1c0c` | `src/cat/hil/session.rs` | 14 testów cyklu życia HIL w `tests/cat_native_7.rs` | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
+
 ### `CAT-001` — Całkowity brak automatycznego wznawiania połączenia (`reconnect`) w `RigService::run_loop` po zerwaniu sesji lub błędzie startu
 - **ID:** `CAT-001`
 - **Tytuł:** Brak pętli automatycznego `reconnect` w `RigService::run_loop` w stanie `Degraded` oraz po błędzie początkowego `connect()`
@@ -639,7 +656,7 @@
 - **Kategoria:** `CAT`
 - **Poziom krytyczności:** `CRITICAL`
 - **Poziom pewności:** `CONFIRMED`
-- **Status remediacji:** **FIXED / VERIFIED_STAGE_3**
+- **Status remediacji:** **FIXED_SOFTWARE_VERIFIED**
 - **Data wdrożenia i weryfikacji:** 2026-11-01
 - **Commity:**
   - `31ab74e`: `fix(cat): require confirmed PTT ownership for TCI (CAT-003)`
@@ -674,7 +691,7 @@
 - **Kategoria:** `CAT`
 - **Poziom krytyczności:** `CRITICAL`
 - **Poziom pewności:** `CONFIRMED`
-- **Status remediacji:** **FIXED / VERIFIED_STAGE_3**
+- **Status remediacji:** **FIXED_SOFTWARE_VERIFIED**
 - **Data wdrożenia i weryfikacji:** 2026-11-01
 - **Commit:**
   - `3e907aa`: `fix(cat): make backend probing strictly read-only (CAT-002)`
@@ -730,7 +747,7 @@
 - **Kategoria:** `CAT`
 - **Poziom krytyczności:** `HIGH`
 - **Poziom pewności:** `CONFIRMED`
-- **Status remediacji:** **FIXED / VERIFIED_STAGE_3**
+- **Status remediacji:** **FIXED_SOFTWARE_VERIFIED**
 - **Data wdrożenia i weryfikacji:** 2026-11-01
 - **Commit:**
   - `1fce33a`: `fix(cat): enforce fail-safe PTT cleanup (CAT-006)`
@@ -766,7 +783,7 @@
 - **Kategoria:** `CAT`
 - **Poziom krytyczności:** `HIGH`
 - **Poziom pewności:** `CONFIRMED`
-- **Status remediacji:** **FIXED / VERIFIED_STAGE_3**
+- **Status remediacji:** **FIXED_SOFTWARE_VERIFIED**
 - **Data wdrożenia i weryfikacji:** 2026-11-01
 - **Commit:**
   - `1fce33a`: `fix(cat): enforce fail-safe PTT cleanup (CAT-006)`
@@ -997,7 +1014,7 @@
 - **Kategoria:** `CAT`
 - **Poziom krytyczności:** `HIGH`
 - **Poziom pewności:** `CONFIRMED`
-- **Status remediacji:** **FIXED_SOFTWARE_VERIFIED / PHYSICAL_HIL_GATE_LOCKED**
+- **Status remediacji:** **FIXED_SOFTWARE_VERIFIED / PHYSICAL_HIL_NOT_EXECUTED_SAFETY_GATE_CLOSED**
 - **Data wdrożenia i weryfikacji:** 2026-11-01
 - **Commit:**
   - `ddc1c0c`: `fix(hil): protect hardware PTT session lifecycle (CAT-015)`

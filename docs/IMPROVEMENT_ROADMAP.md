@@ -150,7 +150,7 @@ flowchart LR
 ---
 
 ### Etap 3 — Bezpieczeństwo RF, Polimorficzny Read-Only Probe i Potwierdzenia PTT w CAT (`P0`)
-- **Status:** **ZAKOŃCZONY / ZWERYFIKOWANY (VERIFIED)**
+- **Status:** **SOFTWARE VERIFIED** (Fizyczny HIL: **NOT EXECUTED — SAFETY GATE CLOSED**)
 - **Data wdrożenia:** 2026-11-01
 - **Cel:** Usunięcie wszystkich luk bezpieczeństwa `TxArbiter`, wyścigów PTT i mutującego sondowania (`CAT-002`, `CAT-003`, `CAT-005`, `CAT-006`, `CAT-015`).
 - **Commity:**
@@ -159,6 +159,15 @@ flowchart LR
   - `ce73b8c`: `fix(cat): require confirmed PTT ownership for FlexRadio (CAT-005)`
   - `1fce33a`: `fix(cat): enforce fail-safe PTT cleanup (CAT-006)`
   - `ddc1c0c`: `fix(hil): protect hardware PTT session lifecycle (CAT-015)`
+- **Ujednolicone mapowanie znalezisk i commitów (Bramka Dokumentacyjna):**
+  - `CAT-002`: Wyścig potwierdzenia PTT w `TciBackend` i `FlexRadioBackend` -> Commity `31ab74e` *(w commit msg tag CAT-003)* oraz `ce73b8c` *(w commit msg tag CAT-005)*. Status: `FIXED_SOFTWARE_VERIFIED`.
+  - `CAT-003`: Polimorficzny read-only `probe()` we wszystkich backendach -> Commit `3e907aa` *(w commit msg tag CAT-002)*. Status: `FIXED_SOFTWARE_VERIFIED`.
+  - `CAT-005`: Wymóg odpytania sprzętowego `TX;`/`TQ;` bez optymizmu w Yaesu i Elecraft -> Commit `1fce33a` *(w commit msg tag CAT-006)*. Status: `FIXED_SOFTWARE_VERIFIED`.
+  - `CAT-006`: `resync_tx_arbiter` (`last_state_update`) i oznaczanie `StateFreshness::Stale` -> Commit `1fce33a`. Status: `FIXED_SOFTWARE_VERIFIED`.
+  - `CAT-015`: Cykl życia sesji HIL i bramki środowiskowe `SPLOG_HIL_*` -> Commit `ddc1c0c`. Status: `FIXED_SOFTWARE_VERIFIED` (fizyczny HIL: NOT EXECUTED — SAFETY GATE CLOSED).
+- **Semantyka zwolnienia PTT:**
+  - `Drop`: synchroniczny best-effort TX OFF (nie gwarantuje asynchronicznego potwierdzenia powrotu do RX).
+  - Jawne zamknięcie sesji (`release_and_confirm_rx` / `disconnect`): wysłanie TX OFF i asynchroniczne oczekiwanie na potwierdzenie stanu RX z radia.
 - **Zakres wdrożony:**
   - Usunięcie domyślnej mutującej metody `probe()` z `RigBackend` i wdrożenie jawnych, read-only implementacji we wszystkich 8 backendach (`CAT-003`).
   - Oczekiwanie na asynchroniczne potwierdzenie ramki `TciMessage::Trx` w TCI oraz `interlock state=TRANSMITTING`/nie-TRANSMITTING w FlexRadio z drainem, timeoutem i guardem `discard_late_tx` (`CAT-002`).
