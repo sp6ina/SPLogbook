@@ -84,15 +84,49 @@ impl std::error::Error for AdifRecordError {}
 pub struct AdifEngine;
 
 /// Wynik importu ADIF wraz z pełnym raportem odrzuconych rekordów i błędów.
+/// Tryb interpretacji długości pól w parserze ADIF.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AdifParseMode {
+    /// Tryb ścisły (Strict): długości pól interpretowane są wyłącznie w bajtach UTF-8.
+    /// Rozbieżność granic lub przecięcie wielobajtowego znaku UTF-8 powoduje odrzucenie rekordu.
+    /// Parser nigdy nie przełącza jednostki na liczbę znaków.
+    Strict,
+    /// Tryb kompatybilności (Compatibility): domyślny tryb parsera. Stosuje kanoniczną długość bajtową;
+    /// w razie wykrycia plików pochodzących z zewnętrznych logów stosujących długości znakowe
+    /// stosuje bezpieczny fallback i rejestruje kontrolowane ostrzeżenie.
+    #[default]
+    Compatibility,
+}
+
+/// Ostrzeżenie wyemitowane przez parser w trybie kompatybilności.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdifCompatibilityWarning {
+    /// Indeks rekordu (liczony od 1).
+    pub record_index: usize,
+    /// Nazwa pola, w którym wystąpiła rozbieżność.
+    pub field_name: String,
+    /// Offset bajtowy w tekście rekordu ADIF.
+    pub byte_offset: usize,
+    /// Zadeklarowana długość w tagu.
+    pub declared_length: usize,
+    /// Rzeczywista długość po zastosowaniu fallbacku w bajtach UTF-8.
+    pub resolved_bytes: usize,
+    /// Kategoria ostrzeżenia.
+    pub warning_category: &'static str,
+}
+
+/// Wynik importu ADIF wraz z pełnym raportem odrzuconych rekordów i błędów.
 pub struct AdifImportResult {
     /// Poprawnie sparsowane rekordy QSO.
     pub qsos: Vec<QsoRecord>,
-    /// Liczba pomyślnie zaimportowanych rekordów (równa `qsos.len()`).
+    /// Liczba pomyślnie zaimportowanych rekordów (równa qsos.len()).
     pub imported: usize,
     /// Liczba rekordów odrzuconych (np. brak pola CALL).
     pub rejected: usize,
     /// Czytelne komunikaty o problemach napotkanych podczas parsowania.
     pub errors: Vec<String>,
+    /// Ostrzeżenia trybu kompatybilności.
+    pub compatibility_warnings: Vec<AdifCompatibilityWarning>,
 }
 
 impl AdifEngine {
@@ -106,8 +140,15 @@ impl AdifEngine {
     }
 
     /// Parsuje strumień ADIF i zwraca rekordy wraz z raportem błędów.
-    pub fn parse_reader_with_report<R: BufRead>(
+    /// Parsuje strumień ADIF w trybie kompatybilności i zwraca rekordy wraz z raportem.
+    pub fn parse_reader_with_report<R: BufRead>(reader: R) -> Result<AdifImportResult, AdifError> {
+        Self::parse_reader_with_mode(reader, AdifParseMode::Compatibility)
+    }
+
+    /// Parsuje strumień ADIF w zadanym trybie (Strict lub Compatibility) i zwraca rekordy wraz z raportem.
+    pub fn parse_reader_with_mode<R: BufRead>(
         mut reader: R,
+        mode: AdifParseMode,
     ) -> Result<AdifImportResult, AdifError> {
         let mut content = String::new();
         reader
@@ -117,20 +158,16 @@ impl AdifEngine {
             .map_err(|e| AdifError::Read(e.to_string()))?;
         if content.len() > MAX_ADIF_FILE_SIZE {
             return Err(AdifError::Read(format!(
-                "rozmiar pliku ADIF przekracza dopuszczalny limit {} B",
-                MAX_ADIF_FILE_SIZE
+                "rozmiar pliku ADIF przekracza dopuszczalny limit {MAX_ADIF_FILE_SIZE} B"
             )));
         }
 
         // Pomiń nagłówek (do znacznika <EOH>) bez alokacji kopii całego pliku
         let header_end = find_tag_end_ci(content.as_bytes(), 0, b"<EOH>");
-        if let Some(pos) = header_end {
-            if pos > MAX_ADIF_HEADER_SIZE {
-                return Err(AdifError::Read(format!(
-                    "rozmiar nagłówka ADIF przekracza dopuszczalny limit {} B",
-                    MAX_ADIF_HEADER_SIZE
-                )));
-            }
+        if header_end.is_some_and(|pos| pos > MAX_ADIF_HEADER_SIZE) {
+            return Err(AdifError::Read(format!(
+                "rozmiar nagłówka ADIF przekracza dopuszczalny limit {MAX_ADIF_HEADER_SIZE} B"
+            )));
         }
         let body = if let Some(end_pos) = header_end {
             &content[end_pos..]
@@ -140,6 +177,7 @@ impl AdifEngine {
 
         let mut qsos = Vec::new();
         let mut errors = Vec::new();
+        let mut compatibility_warnings = Vec::new();
         let mut rejected = 0usize;
         let mut record_index = 0usize;
         // Czy bieżący rekord zawiera błąd składni (np. nieprawidłowa długość pola).
@@ -160,15 +198,14 @@ impl AdifEngine {
                 if idx >= bytes.len() {
                     break;
                 }
-                let tag_raw = &bytes[start_tag..idx];
-                idx += 1;
 
-                let tag_str = String::from_utf8_lossy(tag_raw);
+                let tag_str = &body[start_tag..idx];
+                idx += 1; // pomiń '>'
+
                 let tag_upper = tag_str.trim().to_uppercase();
                 if tag_upper == "EOR" {
                     record_index += 1;
                     if record_has_error {
-                        // Rekord z błędem składni jest odrzucany; komunikat już zapisano.
                         rejected += 1;
                     } else {
                         match Self::fields_to_qso(&mut current_fields) {
@@ -238,54 +275,105 @@ impl AdifEngine {
                             continue;
                         }
 
-                        // Wyznaczenie bezpiecznego zakresu wartości:
-                        // 1. Sprawdź, czy długość bajtowa trafia dokładnie w znacznik '<'
-                        // 2. Jeśli nie, lub jeśli cięcie bajtowe przecina wielobajtowy znak UTF-8,
-                        //    sprawdź odczyt 'length' znaków Unicode (DATA-001)
+                        let start_val_idx = idx;
                         let byte_end_candidate = idx.checked_add(length);
-                        let char_slice_info = take_chars_up_to(&body[idx..], length);
 
-                        let chosen_end = if let Some(byte_end) = byte_end_candidate {
-                            if byte_end <= body.len() && body.is_char_boundary(byte_end) {
-                                if body[byte_end..].starts_with('<') || byte_end == body.len() {
-                                    Some(byte_end)
+                        let chosen_end = match mode {
+                            AdifParseMode::Strict => {
+                                // W trybie Strict długość jest ZAWSZE liczbą bajtów UTF-8.
+                                // Cięcie musi być poprawną granicą znaku UTF-8 i mieścić się w buforze.
+                                byte_end_candidate.filter(|&byte_end| {
+                                    byte_end <= body.len() && body.is_char_boundary(byte_end)
+                                })
+                            }
+                            AdifParseMode::Compatibility => {
+                                // W trybie Compatibility:
+                                // 1. Najpierw sprawdzamy kanoniczną długość bajtową:
+                                //    musi być poprawną granicą UTF-8 i po ewentualnych białych znakach
+                                //    trafiać w znacznik '<' lub koniec bufora.
+                                let char_slice_info = take_chars_up_to(&body[idx..], length);
+                                if let Some(byte_end) = byte_end_candidate {
+                                    if byte_end <= body.len() && body.is_char_boundary(byte_end) {
+                                        let remainder = &body[byte_end..];
+                                        let hits_tag = remainder.starts_with('<')
+                                            || remainder.trim_start().starts_with('<')
+                                            || byte_end == body.len();
+                                        if hits_tag {
+                                            Some(byte_end)
+                                        } else if char_slice_info.0 == length {
+                                            let char_end = idx + char_slice_info.1;
+                                            let char_val = &body[idx..char_end.min(body.len())];
+                                            let contains_tag = char_val.contains('<');
+                                            let remainder_char = &body[char_end.min(body.len())..];
+                                            let char_hits_tag = remainder_char.starts_with('<')
+                                                || remainder_char.trim_start().starts_with('<')
+                                                || char_end == body.len();
+
+                                            if char_end <= body.len()
+                                                && !contains_tag
+                                                && char_hits_tag
+                                            {
+                                                compatibility_warnings.push(AdifCompatibilityWarning {
+                                                    record_index: record_index + 1,
+                                                    field_name: field_name.clone(),
+                                                    byte_offset: start_val_idx,
+                                                    declared_length: length,
+                                                    resolved_bytes: char_slice_info.1,
+                                                    warning_category: "character_count_fallback",
+                                                });
+                                                Some(char_end)
+                                            } else {
+                                                None
+                                            }
+                                        } else {
+                                            None
+                                        }
+                                    } else if char_slice_info.0 == length {
+                                        let char_end = idx + char_slice_info.1;
+                                        let char_val = &body[idx..char_end.min(body.len())];
+                                        let contains_tag = char_val.contains('<');
+                                        if char_end <= body.len() && !contains_tag {
+                                            compatibility_warnings.push(AdifCompatibilityWarning {
+                                                record_index: record_index + 1,
+                                                field_name: field_name.clone(),
+                                                byte_offset: start_val_idx,
+                                                declared_length: length,
+                                                resolved_bytes: char_slice_info.1,
+                                                warning_category: "character_count_fallback",
+                                            });
+                                            Some(char_end)
+                                        } else {
+                                            None
+                                        }
+                                    } else {
+                                        None
+                                    }
                                 } else if char_slice_info.0 == length {
                                     let char_end = idx + char_slice_info.1;
-                                    if char_end <= body.len()
-                                        && (body[char_end..].starts_with('<')
-                                            || char_end == body.len())
-                                    {
+                                    let char_val = &body[idx..char_end.min(body.len())];
+                                    let contains_tag = char_val.contains('<');
+                                    if char_end <= body.len() && !contains_tag {
+                                        compatibility_warnings.push(AdifCompatibilityWarning {
+                                            record_index: record_index + 1,
+                                            field_name: field_name.clone(),
+                                            byte_offset: start_val_idx,
+                                            declared_length: length,
+                                            resolved_bytes: char_slice_info.1,
+                                            warning_category: "character_count_fallback",
+                                        });
                                         Some(char_end)
                                     } else {
-                                        Some(byte_end)
+                                        None
                                     }
-                                } else {
-                                    Some(byte_end)
-                                }
-                            } else if char_slice_info.0 == length {
-                                let char_end = idx + char_slice_info.1;
-                                if char_end <= body.len() {
-                                    Some(char_end)
                                 } else {
                                     None
                                 }
-                            } else {
-                                None
                             }
-                        } else if char_slice_info.0 == length {
-                            let char_end = idx + char_slice_info.1;
-                            if char_end <= body.len() {
-                                Some(char_end)
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
                         };
 
                         let Some(end_idx) = chosen_end else {
                             errors.push(format!(
-                                "Rekord {record_index}: pole „{field_name}” deklaruje {length} jednostek, ale dane są ucięte."
+                                "Rekord {record_index}: pole „{field_name}” deklaruje {length} jednostek, ale dane są ucięte lub niepoprawne w UTF-8."
                             ));
                             record_has_error = true;
                             if let Some(next_eor) = find_tag_end_ci(bytes, idx, b"<EOR>") {
@@ -345,6 +433,7 @@ impl AdifEngine {
             qsos,
             rejected,
             errors,
+            compatibility_warnings,
         })
     }
 
@@ -870,17 +959,22 @@ pub fn parse_adif(content: &str) -> Vec<QsoRecord> {
     AdifEngine::parse_reader(std::io::Cursor::new(content.as_bytes()))
 }
 
-pub fn parse_adif_with_report(content: &str) -> AdifImportResult {
-    AdifEngine::parse_reader_with_report(std::io::Cursor::new(content.as_bytes())).unwrap_or_else(
-        |e| AdifImportResult {
+/// Parsuje tekst ADIF w określonym trybie (Strict lub Compatibility) i zwraca pełny raport.
+pub fn parse_adif_with_mode(content: &str, mode: AdifParseMode) -> AdifImportResult {
+    AdifEngine::parse_reader_with_mode(std::io::Cursor::new(content.as_bytes()), mode)
+        .unwrap_or_else(|e| AdifImportResult {
             qsos: Vec::new(),
             imported: 0,
             rejected: 0,
             errors: vec![e.to_string()],
-        },
-    )
+            compatibility_warnings: Vec::new(),
+        })
 }
 
+/// Parsuje tekst ADIF w domyślnym trybie kompatybilności i zwraca pełny raport.
+pub fn parse_adif_with_report(content: &str) -> AdifImportResult {
+    parse_adif_with_mode(content, AdifParseMode::Compatibility)
+}
 pub fn export_adif(qsos: &[QsoRecord], _prog: &str, _call: &str) -> String {
     let mut buffer = Vec::new();
     let _ = AdifEngine::export_to_writer(qsos, &mut buffer);
@@ -1393,5 +1487,123 @@ mod tests {
         let report = parse_adif_with_report(adif);
         assert_eq!(report.rejected, 1);
         assert!(report.errors.iter().any(|e| e.contains("ujemna")));
+    }
+
+    #[test]
+    fn strict_adif_never_switches_length_units() {
+        // Łódź to 4 znaki i 7 bajtów UTF-8 (Ł=2, ó=2, d=1, ź=2).
+        // W trybie Strict deklaracja <NAME:4> czyta DOKŁADNIE 4 bajty ("Łó") i nie przełącza jednostki na znaki.
+        let adif = "<CALL:6>SP6INA<BAND:3>20m<MODE:2>CW<QSO_DATE:8>20261018<TIME_ON:6>120000<NAME:4>Łódź<QTH:6>Kraków<EOR>";
+        let report = parse_adif_with_mode(adif, AdifParseMode::Strict);
+        assert_eq!(report.imported, 1);
+        assert_eq!(report.qsos[0].name.as_deref(), Some("Łó"));
+        assert_eq!(report.compatibility_warnings.len(), 0);
+
+        // Deklaracja 5 bajtów dla "Kraków" przecina dwubajtowy znak 'ó' (offset 5 nie jest char_boundary).
+        // W Strict nie ma silent fallbacku do znaków — rekord z niepoprawnym UTF-8 jest odrzucany z błędem.
+        let adif_cut = "<CALL:6>SP6INA<BAND:3>20m<MODE:2>CW<QSO_DATE:8>20261018<TIME_ON:6>120000<QTH:5>Kraków<EOR>";
+        let report_cut = parse_adif_with_mode(adif_cut, AdifParseMode::Strict);
+        assert_eq!(report_cut.rejected, 1);
+        assert_eq!(report_cut.imported, 0);
+        assert!(report_cut.errors.iter().any(|e| e.contains("UTF-8")));
+    }
+
+    #[test]
+    fn compatibility_adif_reports_character_count_fallback() {
+        // W trybie Compatibility: <NAME:4>Łódź (4 znaki, 7 bajtów) emituje dokładnie 1 ostrzeżenie,
+        // podczas gdy kanoniczne pole <QTH:7>Kraków (7 bajtów) nie generuje ostrzeżenia.
+        let adif = "<CALL:6>SP6INA<BAND:3>20m<MODE:2>CW<QSO_DATE:8>20261018<TIME_ON:6>120000<NAME:4>Łódź<QTH:7>Kraków<EOR>";
+        let report = parse_adif_with_mode(adif, AdifParseMode::Compatibility);
+        assert_eq!(report.imported, 1);
+        assert_eq!(report.qsos[0].name.as_deref(), Some("Łódź"));
+        assert_eq!(report.qsos[0].qth.as_deref(), Some("Kraków"));
+        assert_eq!(report.compatibility_warnings.len(), 1);
+        let warn = &report.compatibility_warnings[0];
+        assert_eq!(warn.field_name, "NAME");
+        assert_eq!(warn.declared_length, 4);
+        assert_eq!(warn.resolved_bytes, 7);
+        assert_eq!(warn.warning_category, "character_count_fallback");
+    }
+
+    #[test]
+    fn compatibility_fallback_cannot_consume_next_field() {
+        // Gdyby fallback znakowy chciał rozszerzyć pole tak, że objąłby znak '<' kolejnego tagu,
+        // musi zostać zablokowany, zapobiegając wchłonięciu sąsiednich pól.
+        let adif = concat!(
+            "<CALL:6>SP6INA<BAND:3>20m<MODE:2>CW<QSO_DATE:8>20261018<TIME_ON:6>120000<COMMENT:20>tekst<NAME:4>Mari<EOR>",
+            "<CALL:6>SP1AAA<BAND:3>20m<MODE:2>CW<QSO_DATE:8>20261018<TIME_ON:6>120000<EOR>"
+        );
+        let report = parse_adif_with_mode(adif, AdifParseMode::Compatibility);
+        assert_eq!(report.rejected, 1);
+        assert_eq!(report.imported, 1);
+        assert_eq!(report.qsos[0].callsign, "SP1AAA");
+    }
+
+    #[test]
+    fn compatibility_fallback_cannot_skip_eor() {
+        // Fallback nie może przekroczyć <EOR> zamykającego rekord ani połknąć kolejnego rekordu.
+        let adif = concat!(
+            "<CALL:6>SP6INA<BAND:3>20m<MODE:2>CW<QSO_DATE:8>20261018<TIME_ON:6>120000<COMMENT:30>tekst<EOR>",
+            "<CALL:6>SP1AAA<BAND:3>20m<MODE:2>CW<QSO_DATE:8>20261018<TIME_ON:6>120000<EOR>"
+        );
+        let report = parse_adif_with_mode(adif, AdifParseMode::Compatibility);
+        // Pierwszy uszkodzony rekord jest odrzucony, ale <EOR> nie został pominięty — drugi rekord importuje się czysto.
+        assert_eq!(report.rejected, 1);
+        assert_eq!(report.imported, 1);
+        assert_eq!(report.qsos[0].callsign, "SP1AAA");
+    }
+
+    #[test]
+    fn ambiguous_adif_length_is_reported() {
+        // Plik z dwoma polami o długości znakowej zamiast bajtowej raportuje dokładnie 2 ostrzeżenia.
+        let adif = "<CALL:6>SP6INA<BAND:3>20m<MODE:2>CW<QSO_DATE:8>20261018<TIME_ON:6>120000<NAME:4>Łódź<QTH:6>Kraków<EOR>";
+        let report = parse_adif_with_report(adif);
+        assert_eq!(report.imported, 1);
+        assert_eq!(report.compatibility_warnings.len(), 2);
+        assert!(
+            report
+                .compatibility_warnings
+                .iter()
+                .any(|w| w.field_name == "NAME")
+        );
+    }
+
+    #[test]
+    fn adif_export_uses_canonical_length_units() {
+        // Eksport musi ZAWSZE używać bajtów UTF-8 zgodnie ze specyfikacją ADIF v3.
+        let mut qso = QsoRecord::new("SP6INA", "20m", "CW");
+        qso.name = Some("Łódź".to_string());
+        qso.qth = Some("Kraków".to_string());
+        let exported = export_adif(&[qso], "SPLogbook", "SP6INA");
+
+        // "Łódź" ma 7 bajtów UTF-8, "Kraków" ma 7 bajtów UTF-8.
+        assert!(
+            exported.contains("<NAME:7>Łódź"),
+            "eksport musi używać bajtów: {exported}"
+        );
+        assert!(
+            exported.contains("<QTH:7>Kraków"),
+            "eksport musi używać bajtów: {exported}"
+        );
+    }
+
+    #[test]
+    fn reimport_of_canonical_export_needs_no_compatibility_warning() {
+        // Prawidłowy eksport kanoniczny zaimportowany ponownie w trybie Compatibility
+        // pasuje dokładnie w granicach bajtowych i ma 0 compatibility warnings!
+        let mut qso = QsoRecord::new("SP6INA", "20m", "CW");
+        qso.name = Some("Łódź".to_string());
+        qso.qth = Some("Kraków".to_string());
+        let exported = export_adif(&[qso], "SPLogbook", "SP6INA");
+
+        let report = parse_adif_with_report(&exported);
+        assert_eq!(report.imported, 1);
+        assert_eq!(report.qsos[0].name.as_deref(), Some("Łódź"));
+        assert_eq!(report.qsos[0].qth.as_deref(), Some("Kraków"));
+        assert_eq!(
+            report.compatibility_warnings.len(),
+            0,
+            "kanoniczny eksport nie może generować żadnych compatibility warnings przy reimporcie!"
+        );
     }
 }
