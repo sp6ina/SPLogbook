@@ -880,31 +880,43 @@ async fn post_qso(
 async fn put_qso_by_id(
     State(state): State<ApiState>,
     Path(id): Path<i64>,
+    Query(query): Query<JournalScopedQuery>,
     Json(qso): Json<QsoRecord>,
 ) -> Result<Json<QsoRecord>, (StatusCode, String)> {
+    let target_journal = with_db(&state, move |db| {
+        Ok(match query.journal_id {
+            Some(j) => j,
+            None => db
+                .get_active_journal()
+                .map(|j| j.id)
+                .unwrap_or_else(|_| "DEFAULT".to_string()),
+        })
+    })
+    .await?;
+
     let ingestor = state.ingestor.clone();
-    let res = tokio::task::spawn_blocking(move || ingestor.update_existing(id, qso))
-        .await
-        .map_err(|e| {
+    let res = tokio::task::spawn_blocking(move || {
+        ingestor.update_existing_scoped(id, &target_journal, qso)
+    })
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Błąd zadania asynchronicznego: {e}"),
+        )
+    })?
+    .map_err(|err| match err {
+        IngestError::EmptyCallsign => (StatusCode::BAD_REQUEST, err.msg().text(Language::Pl)),
+        IngestError::Invalid(issue) => (StatusCode::BAD_REQUEST, issue.msg().text(Language::Pl)),
+        IngestError::Duplicate => (StatusCode::CONFLICT, err.msg().text(Language::Pl)),
+        IngestError::Storage(error) => {
+            eprintln!("[REST API] Błąd aktualizacji QSO: {error}");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Błąd zadania asynchronicznego: {e}"),
+                "Błąd zapisu QSO do bazy danych.".to_string(),
             )
-        })?
-        .map_err(|err| match err {
-            IngestError::EmptyCallsign => (StatusCode::BAD_REQUEST, err.msg().text(Language::Pl)),
-            IngestError::Invalid(issue) => {
-                (StatusCode::BAD_REQUEST, issue.msg().text(Language::Pl))
-            }
-            IngestError::Duplicate => (StatusCode::CONFLICT, err.msg().text(Language::Pl)),
-            IngestError::Storage(error) => {
-                eprintln!("[REST API] Błąd aktualizacji QSO: {error}");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Błąd zapisu QSO do bazy danych.".to_string(),
-                )
-            }
-        })?;
+        }
+    })?;
 
     match res {
         Some(updated) => {
@@ -921,16 +933,20 @@ async fn put_qso_by_id(
 async fn delete_qso_by_id(
     State(state): State<ApiState>,
     Path(id): Path<i64>,
+    Query(query): Query<JournalScopedQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let found = with_db(&state, move |db| {
-        let existing = db.get_qso_by_id(id)?;
-        if existing.is_none() {
-            return Ok(false);
-        }
-        db.delete_qso(id)?;
-        Ok(true)
+        let target_journal = match query.journal_id {
+            Some(j) => j,
+            None => db
+                .get_active_journal()
+                .map(|j| j.id)
+                .unwrap_or_else(|_| "DEFAULT".to_string()),
+        };
+        db.delete_qso_scoped(id, &target_journal)
     })
     .await?;
+
     if !found {
         return Err((
             StatusCode::NOT_FOUND,
@@ -2620,5 +2636,87 @@ mod tests {
         let adif_str = String::from_utf8_lossy(&bytes);
         assert!(adif_str.contains("<CALL:4>W1AW"));
         assert!(!adif_str.contains("<CALL:5>K1ABC"));
+    }
+
+    #[tokio::test]
+    async fn rest_api_put_and_delete_journal_isolation() {
+        use tower::ServiceExt;
+        let state = test_api_state();
+        let app = build_api_router(state.clone());
+
+        // Create secondary journal PORTABLE
+        {
+            let db = state.db.lock().unwrap();
+            db.create_journal(&crate::core::database::Journal {
+                id: "PORTABLE".to_string(),
+                name: "Portable Log".to_string(),
+                station_callsign: "SP6INA/P".to_string(),
+                operator: String::new(),
+                my_gridsquare: String::new(),
+                my_pga: String::new(),
+                description: String::new(),
+                is_default: false,
+            })
+            .unwrap();
+
+            let mut q1 = QsoRecord::new("W1AW", "20m", "CW");
+            q1.journal_id = Some("DEFAULT".to_string());
+            db.insert_qso(&q1).unwrap();
+
+            let mut q2 = QsoRecord::new("K1ABC", "40m", "SSB");
+            q2.journal_id = Some("PORTABLE".to_string());
+            db.insert_qso(&q2).unwrap();
+        }
+
+        // 1. PUT /api/v1/qsos/2 without journal_id (active is DEFAULT): returns 404
+        let update_payload = serde_json::json!({
+            "callsign": "K1ABC",
+            "band": "40m",
+            "mode": "SSB",
+            "qso_date": "20261101",
+            "time_on": "120000",
+            "rst_sent": "59"
+        });
+        let req = Request::builder()
+            .method("PUT")
+            .uri("/api/v1/qsos/2")
+            .header("x-api-key", "secret-key-123")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_vec(&update_payload).unwrap()))
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+
+        // 2. DELETE /api/v1/qsos/2 targeting DEFAULT: returns 404
+        let req = Request::builder()
+            .method("DELETE")
+            .uri("/api/v1/qsos/2?journal_id=DEFAULT")
+            .header("x-api-key", "secret-key-123")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+
+        // Record 2 in PORTABLE still exists
+        {
+            let db = state.db.lock().unwrap();
+            assert!(db.get_qso_by_id_scoped(2, "PORTABLE").unwrap().is_some());
+        }
+
+        // 3. DELETE /api/v1/qsos/2?journal_id=PORTABLE succeeds
+        let req = Request::builder()
+            .method("DELETE")
+            .uri("/api/v1/qsos/2?journal_id=PORTABLE")
+            .header("x-api-key", "secret-key-123")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // Record 2 is now deleted
+        {
+            let db = state.db.lock().unwrap();
+            assert!(db.get_qso_by_id_scoped(2, "PORTABLE").unwrap().is_none());
+        }
     }
 }

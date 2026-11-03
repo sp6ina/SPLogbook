@@ -208,9 +208,18 @@ impl QsoIngestor {
     /// - `Ok(Some(qso))` po pomyślnej aktualizacji,
     /// - `Ok(None)`, jeśli rekord o wskazanym ID nie istnieje w bazie,
     /// - `Err(IngestError)` w przypadku błędów walidacji lub operacji bazodanowych.
-    pub fn update_existing(
+    /// Aktualizuje istniejący rekord QSO w wybranym profilu/dzienniku.
+    ///
+    /// Zapewnia pełną izolację wielodziennikową (DATA-004, DATA-005):
+    /// - Sprawdza czy rekord o wskazanym ID należy do wskazanego journal_id;
+    /// - Utrzymuje spójność journal_id w aktualizowanym rekordzie;
+    /// - Przebudowuje AwardsEngine wyłącznie w kontekście wskazanego dziennika;
+    /// - Aktualizuje ScpEngine;
+    /// - Emituje zdarzenie AppEvent::QsoLogged po zatwierdzeniu.
+    pub fn update_existing_scoped(
         &self,
         id: i64,
+        journal_id: &str,
         mut qso: QsoRecord,
     ) -> Result<Option<QsoRecord>, IngestError> {
         normalize_qso_fields(&mut qso);
@@ -225,16 +234,20 @@ impl QsoIngestor {
             apply_prefix_info(&mut qso, &info);
         }
 
+        qso.journal_id = Some(journal_id.to_string());
         qso.validate().map_err(IngestError::Invalid)?;
 
         {
             let db = self.db.lock().unwrap_or_else(PoisonError::into_inner);
-            let existing = db.get_qso_by_id(id).map_err(IngestError::Storage)?;
+            let existing = db
+                .get_qso_by_id_scoped(id, journal_id)
+                .map_err(IngestError::Storage)?;
             if existing.is_none() {
                 return Ok(None);
             }
-            match db.update_qso(id, &qso) {
-                Ok(()) => {}
+            match db.update_qso_scoped(id, journal_id, &qso) {
+                Ok(true) => {}
+                Ok(false) => return Ok(None),
                 Err(rusqlite::Error::SqliteFailure(err, _))
                     if err.extended_code == 2067 || err.extended_code == 1555 =>
                 {
@@ -249,7 +262,8 @@ impl QsoIngestor {
         {
             let all = {
                 let db = self.db.lock().unwrap_or_else(PoisonError::into_inner);
-                db.get_all_qsos().map_err(IngestError::Storage)?
+                db.get_all_qsos_for_journal(journal_id)
+                    .map_err(IngestError::Storage)?
             };
             let mut awards = self.awards.lock().unwrap_or_else(PoisonError::into_inner);
             awards.rebuild_from_qsos(&all);
@@ -269,6 +283,19 @@ impl QsoIngestor {
         });
 
         Ok(Some(qso))
+    }
+
+    /// Aktualizuje istniejący rekord QSO w domyślnym lub wskazanym w rekordzie dzienniku
+    pub fn update_existing(
+        &self,
+        id: i64,
+        qso: QsoRecord,
+    ) -> Result<Option<QsoRecord>, IngestError> {
+        let journal_id = qso
+            .journal_id
+            .clone()
+            .unwrap_or_else(|| "DEFAULT".to_string());
+        self.update_existing_scoped(id, &journal_id, qso)
     }
 
     /// Odbudowuje stany pochodne (AwardsEngine oraz ScpEngine) bezpośrednio z bazy danych SQLite,

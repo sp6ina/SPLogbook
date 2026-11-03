@@ -133,43 +133,78 @@ impl LogDatabase {
         collect_qsos(&mut stmt, params![journal_id, callsign.to_uppercase()])
     }
 
-    /// Usuwa łączność z bazy po ID
-
-    pub fn delete_qso(&self, id: i64) -> Result<()> {
-        self.conn
-            .execute("DELETE FROM qso_records WHERE id = ?1", params![id])?;
-
-        Ok(())
+    /// Usuwa łączność z bazy po ID z wymuszeniem przynależności do journal_id
+    pub fn delete_qso_scoped(&self, id: i64, journal_id: &str) -> Result<bool> {
+        let rows = self.conn.execute(
+            "DELETE FROM qso_records WHERE id = ?1 AND journal_id = ?2",
+            params![id, journal_id],
+        )?;
+        Ok(rows > 0)
     }
 
-    /// Bezpieczne masowe usuwanie wielu rekordów QSO po ID
-
-    pub fn delete_multiple_qsos(&self, ids: &[i64]) -> Result<usize> {
+    /// Bezpieczne masowe usuwanie wielu rekordów QSO po ID z wymuszeniem przynależności do journal_id
+    pub fn delete_multiple_qsos_scoped(&self, ids: &[i64], journal_id: &str) -> Result<usize> {
         if ids.is_empty() {
             return Ok(0);
         }
 
         let mut count = 0;
-
         let tx = self.conn.unchecked_transaction()?;
-
         {
-            let mut stmt = tx.prepare("DELETE FROM qso_records WHERE id = ?1")?;
-
+            let mut stmt =
+                tx.prepare("DELETE FROM qso_records WHERE id = ?1 AND journal_id = ?2")?;
             for id in ids {
-                stmt.execute(params![id])?;
-
-                count += 1;
+                count += stmt.execute(params![id, journal_id])?;
             }
         }
-
         tx.commit()?;
-
         Ok(count)
     }
 
-    /// Aktualizuje istniejący rekord QSO w bazie po ID
+    /// Usuwa łączność z bazy po ID (domyślny dziennik lub bez sprawdzania)
+    pub fn delete_qso(&self, id: i64) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM qso_records WHERE id = ?1", params![id])?;
+        Ok(())
+    }
 
+    /// Bezpieczne masowe usuwanie wielu rekordów QSO po ID
+    pub fn delete_multiple_qsos(&self, ids: &[i64]) -> Result<usize> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+        let mut count = 0;
+        let tx = self.conn.unchecked_transaction()?;
+        {
+            let mut stmt = tx.prepare("DELETE FROM qso_records WHERE id = ?1")?;
+            for id in ids {
+                count += stmt.execute(params![id])?;
+            }
+        }
+        tx.commit()?;
+        Ok(count)
+    }
+
+    /// Aktualizuje istniejący rekord QSO w bazie po ID pod warunkiem zgodności journal_id
+    pub fn update_qso_scoped(&self, id: i64, journal_id: &str, qso: &QsoRecord) -> Result<bool> {
+        let mut owned = qso.clone();
+        owned.journal_id = Some(journal_id.to_string());
+        let stored = for_storage(&owned);
+        let data_params = bind_params(&stored);
+        let identity_key = qso.identity().canonical_key();
+
+        let mut params: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(QSO_DATA_COLUMN_COUNT + 3);
+        params.extend_from_slice(&data_params);
+        params.push(&identity_key);
+        params.push(&id);
+        params.push(&journal_id);
+
+        let mut stmt = self.conn.prepare_cached(&QSO_SQL.update_scoped)?;
+        let rows = stmt.execute(params.as_slice())?;
+        Ok(rows > 0)
+    }
+
+    /// Aktualizuje istniejący rekord QSO w bazie po ID
     pub fn update_qso(&self, id: i64, qso: &QsoRecord) -> Result<()> {
         let stored = for_storage(qso);
         let data_params = bind_params(&stored);

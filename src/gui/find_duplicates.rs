@@ -304,12 +304,13 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
     if delete_requested {
         let ids: Vec<i64> = app.duplicates.selected_ids.iter().copied().collect();
+        let journal_id = app.active_journal.id.clone();
         let db = app
             .services
             .log_db
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        match db.delete_multiple_qsos(&ids) {
+        match db.delete_multiple_qsos_scoped(&ids, &journal_id) {
             Ok(deleted) => {
                 app.duplicates.status = Some(format!("Deleted {deleted} duplicates"));
                 app.duplicates.selected_ids.clear();
