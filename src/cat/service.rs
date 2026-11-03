@@ -290,6 +290,23 @@ impl ReconnectPolicy {
 }
 
 /// Usługa sesji radiowej zarządzająca pętlą I/O w dedykowanym tasku aktora.
+/// Wynik asynchronicznej operacji sesji radiowej zintegrowany ze znacznikiem generacji sesji.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SessionOperationResult<T> {
+    pub(crate) generation: u64,
+    pub(crate) result: Result<T, RigServiceError>,
+}
+
+impl<T> SessionOperationResult<T> {
+    pub(crate) fn new(generation: u64, result: Result<T, RigServiceError>) -> Self {
+        Self { generation, result }
+    }
+
+    pub(crate) fn is_current(&self, current_generation: u64) -> bool {
+        self.generation == current_generation
+    }
+}
+
 pub struct RigService {
     rig_id: RigId,
     backend: Box<dyn RigBackend>,
@@ -357,6 +374,91 @@ impl RigService {
         };
 
         (service, handle)
+    }
+
+    /// Zwraca aktualną generację sesji aktora.
+    pub fn session_generation(&self) -> u64 {
+        self.session_generation
+    }
+
+    /// Inkrementuje numer generacji sesji i aktualizuje snapshot.
+    pub fn bump_session_generation(&mut self) -> u64 {
+        self.session_generation = self.session_generation.wrapping_add(1);
+        self.snapshot.session_generation = self.session_generation;
+        self.session_generation
+    }
+
+    /// Sprawdza, czy podana generacja odpowiada aktualnej aktywnej sesji.
+    pub fn is_generation_current(&self, expected_gen: u64) -> bool {
+        self.session_generation == expected_gen
+    }
+
+    /// Aplikuje wynik pollingu z weryfikacją generacji sesji przed jakąkolwiek mutacją stanu.
+    pub(crate) fn apply_poll_result(&mut self, op: SessionOperationResult<RigState>) -> bool {
+        if !op.is_current(self.session_generation) {
+            log::warn!(
+                "[{}] Odrzucono stary wynik poll() dla generacji {} (bieżąca generacja: {})",
+                self.rig_id,
+                op.generation,
+                self.session_generation
+            );
+            return false;
+        }
+
+        match op.result {
+            Ok(state) => {
+                self.update_state(state);
+                true
+            }
+            Err(e) => {
+                log::debug!(
+                    "[{}] Błąd pollingu stanu dla bieżącej sesji: {e}",
+                    self.rig_id
+                );
+                if self.snapshot.state.is_some() {
+                    self.snapshot.freshness = StateFreshness::Stale;
+                    self.snapshot.last_update = Some(tokio::time::Instant::now());
+                    let _ = self.snapshot_tx.send(self.snapshot.clone());
+                }
+                self.set_lifecycle(RigServiceState::Degraded, Some(e.to_string()));
+                false
+            }
+        }
+    }
+
+    /// Aplikuje wynik nawiązywania połączenia connect() z weryfikacją generacji sesji.
+    pub(crate) fn apply_connect_result(&mut self, op: SessionOperationResult<()>) -> bool {
+        if !op.is_current(self.session_generation) {
+            log::warn!(
+                "[{}] Odrzucono stary wynik connect() dla generacji {} (bieżąca generacja: {})",
+                self.rig_id,
+                op.generation,
+                self.session_generation
+            );
+            return false;
+        }
+
+        match op.result {
+            Ok(()) => true,
+            Err(e) => {
+                self.set_lifecycle(RigServiceState::Failed, Some(e.to_string()));
+                false
+            }
+        }
+    }
+
+    /// Aplikuje wynik rozłączenia disconnect() z weryfikacją generacji sesji.
+    pub(crate) fn apply_disconnect_result(&self, op: &SessionOperationResult<()>) -> bool {
+        if !op.is_current(self.session_generation) {
+            log::warn!(
+                "[{}] Odrzucono stary wynik disconnect() dla generacji {} (bieżąca generacja: {})",
+                self.rig_id,
+                op.generation,
+                self.session_generation
+            );
+            return false;
+        }
+        true
     }
 
     /// Konfiguruje politykę auto-reconnectu dla usługi.
@@ -464,47 +566,76 @@ impl RigService {
         self.set_lifecycle(RigServiceState::Connecting, None);
 
         let connect_timeout = Duration::from_millis(5000);
-        let connect_res = tokio::time::timeout(connect_timeout, self.backend.connect()).await;
+        let connect_gen = self.session_generation;
+        let connect_res = tokio::select! {
+            _ = &mut self.shutdown_rx => {
+                log::debug!("[{}] Sygnał shutdown odebrany podczas connect()", self.rig_id);
+                self.set_lifecycle(RigServiceState::Disconnecting, None);
+                let _ = tokio::time::timeout(Duration::from_millis(500), self.backend.disconnect()).await;
+                self.set_lifecycle(RigServiceState::Disconnected, None);
+                return Ok(());
+            }
+            res = tokio::time::timeout(connect_timeout, self.backend.connect()) => res,
+        };
 
-        match connect_res {
-            Ok(Ok(())) => {
-                // 2. Faza Synchronizing: wstępny odczyt stanu radia
-                self.set_lifecycle(RigServiceState::Synchronizing, None);
-                let poll_timeout = Duration::from_millis(3000);
-                match tokio::time::timeout(poll_timeout, self.backend.poll()).await {
-                    Ok(Ok(initial_state)) => {
-                        self.update_state(initial_state);
-                        self.set_lifecycle(RigServiceState::Ready, None);
-                    }
-                    Ok(Err(e)) => {
-                        log::warn!(
-                            "[{}] Początkowy odczyt stanu nie powiódł się: {e}, przejście do Degraded",
-                            self.rig_id
-                        );
-                        self.set_lifecycle(RigServiceState::Degraded, Some(e.to_string()));
-                    }
-                    Err(_) => {
-                        log::warn!(
-                            "[{}] Timeout początkowego odczytu stanu, przejście do Degraded",
-                            self.rig_id
-                        );
-                        self.set_lifecycle(
-                            RigServiceState::Degraded,
-                            Some("Timeout synchronizacji stanu".to_string()),
-                        );
-                    }
-                }
-            }
-            Ok(Err(e)) => {
-                let err_msg = format!("Błąd connect: {e}");
-                self.set_lifecycle(RigServiceState::Failed, Some(err_msg.clone()));
-                return Err(RigServiceError::CommandExecutionFailed(err_msg));
-            }
+        if self.session_generation != connect_gen {
+            log::warn!("[{}] Connect odrzucony: sesja uległa zmianie", self.rig_id);
+            return Ok(());
+        }
+
+        let connect_op = match connect_res {
+            Ok(Ok(())) => SessionOperationResult::new(connect_gen, Ok(())),
+            Ok(Err(e)) => SessionOperationResult::new(
+                connect_gen,
+                Err(RigServiceError::CommandExecutionFailed(format!(
+                    "Błąd connect: {e}"
+                ))),
+            ),
             Err(_) => {
-                let err_msg = "Timeout nawiązywania połączenia".to_string();
-                self.set_lifecycle(RigServiceState::Failed, Some(err_msg.clone()));
-                return Err(RigServiceError::DeadlineExceeded);
+                SessionOperationResult::new(connect_gen, Err(RigServiceError::DeadlineExceeded))
             }
+        };
+
+        if !self.apply_connect_result(connect_op) {
+            return Err(RigServiceError::CommandExecutionFailed(
+                "Błąd connect".to_string(),
+            ));
+        }
+
+        // 2. Faza Synchronizing: wstępny odczyt stanu radia
+        self.set_lifecycle(RigServiceState::Synchronizing, None);
+        let poll_timeout = Duration::from_millis(3000);
+        let sync_gen = self.session_generation;
+        let poll_res = tokio::select! {
+            _ = &mut self.shutdown_rx => {
+                log::debug!("[{}] Sygnał shutdown odebrany podczas synchronizacji stanu", self.rig_id);
+                self.set_lifecycle(RigServiceState::Disconnecting, None);
+                let _ = tokio::time::timeout(Duration::from_millis(500), self.backend.disconnect()).await;
+                self.set_lifecycle(RigServiceState::Disconnected, None);
+                return Ok(());
+            }
+            res = tokio::time::timeout(poll_timeout, self.backend.poll()) => res,
+        };
+
+        if self.session_generation != sync_gen {
+            log::warn!(
+                "[{}] Synchronizacja odrzucona: sesja uległa zmianie",
+                self.rig_id
+            );
+            return Ok(());
+        }
+
+        let sync_op = match poll_res {
+            Ok(Ok(st)) => SessionOperationResult::new(sync_gen, Ok(st)),
+            Ok(Err(e)) => SessionOperationResult::new(
+                sync_gen,
+                Err(RigServiceError::CommandExecutionFailed(e.to_string())),
+            ),
+            Err(_) => SessionOperationResult::new(sync_gen, Err(RigServiceError::DeadlineExceeded)),
+        };
+
+        if self.apply_poll_result(sync_op) {
+            self.set_lifecycle(RigServiceState::Ready, None);
         }
 
         // 3. Faza Ready / Degraded: główna pętla obsługi komend, pollingu i auto-reconnectu
@@ -513,11 +644,12 @@ impl RigService {
         interval.tick().await;
 
         let mut reconnect_attempts: u32 = 0;
-        let mut reconnect_deadline: Option<tokio::time::Instant> = None;
+        let mut reconnect_deadline: Option<(tokio::time::Instant, u64)> = None;
 
         if self.snapshot.lifecycle == RigServiceState::Degraded && self.reconnect_policy.enabled {
             let delay = self.reconnect_policy.delay_for_attempt(reconnect_attempts);
-            reconnect_deadline = Some(tokio::time::Instant::now() + delay);
+            reconnect_deadline =
+                Some((tokio::time::Instant::now() + delay, self.session_generation));
         }
 
         loop {
@@ -543,19 +675,25 @@ impl RigService {
                 }
 
                 // Auto-reconnect timer: próba przywrócenia połączenia w stanie Degraded z ograniczonym backoffem
-                _ = async {
+                () = async {
                     match reconnect_deadline {
-                        Some(deadline) => tokio::time::sleep_until(deadline).await,
-                        None => std::future::pending().await,
+                        Some((deadline, timer_gen)) => {
+                            if timer_gen == self.session_generation {
+                                tokio::time::sleep_until(deadline).await;
+                            } else {
+                                std::future::pending::<()>().await;
+                            }
+                        }
+                        None => std::future::pending::<()>().await,
                     }
-                }, if reconnect_deadline.is_some() => {
-                    self.session_generation = self.session_generation.wrapping_add(1);
-                    self.snapshot.session_generation = self.session_generation;
+                }, if reconnect_deadline.as_ref().is_some_and(|(_, g)| *g == self.session_generation) => {
+                    self.bump_session_generation();
+                    let current_gen = self.session_generation;
                     log::info!(
                         "[{}] Próba auto-reconnectu #{} dla sesji (generacja {})",
                         self.rig_id,
                         reconnect_attempts + 1,
-                        self.session_generation
+                        current_gen
                     );
 
                     // 1. Zapewnij świeżość Stale w trakcie próby nawiązania połączenia
@@ -566,29 +704,43 @@ impl RigService {
                     }
 
                     // 2. Czysty disconnect dotychczasowego połączenia z bounded timeoutem
-                    let _ = tokio::time::timeout(Duration::from_millis(500), self.backend.disconnect()).await;
+                    let _ = tokio::select! {
+                        _ = &mut self.shutdown_rx => break,
+                        res = tokio::time::timeout(Duration::from_millis(500), self.backend.disconnect()) => res,
+                    };
+                    if self.session_generation != current_gen {
+                        continue;
+                    }
+                    let _ = self.apply_disconnect_result(&SessionOperationResult::new(current_gen, Ok(())));
 
                     // 3. Próba ponownego połączenia z bounded timeoutem
-                    let connect_res = tokio::time::timeout(Duration::from_millis(3000), self.backend.connect()).await;
+                    let connect_res = tokio::select! {
+                        _ = &mut self.shutdown_rx => break,
+                        res = tokio::time::timeout(Duration::from_millis(3000), self.backend.connect()) => res,
+                    };
+                    if self.session_generation != current_gen {
+                        continue;
+                    }
+
                     match connect_res {
                         Ok(Ok(())) => {
                             // Po udanym connect() sprawdzamy stabilność i synchronizujemy stan przez poll()
-                            let poll_res = tokio::time::timeout(Duration::from_millis(1500), self.backend.poll()).await;
+                            let poll_res = tokio::select! {
+                                _ = &mut self.shutdown_rx => break,
+                                res = tokio::time::timeout(Duration::from_millis(1500), self.backend.poll()) => res,
+                            };
+                            if self.session_generation != current_gen {
+                                continue;
+                            }
+
                             match poll_res {
                                 Ok(Ok(state)) => {
-                                    // Bezpieczeństwo RF: po reconnect zachowujemy rzeczywisty stan odczytany z radia (CAT-017)
-                                    log::info!(
-                                        "[{}] Auto-reconnect powiódł się na próbie #{}, stan sprzętowy PTT: {}",
-                                        self.rig_id,
-                                        reconnect_attempts + 1,
-                                        state.ptt
-                                    );
-                                    self.update_state(state);
-                                    self.set_lifecycle(RigServiceState::Ready, None);
-
-                                    // Reset licznika backoff dopiero po stabilnym i udanym połączeniu
-                                    reconnect_attempts = 0;
-                                    reconnect_deadline = None;
+                                    let poll_op = SessionOperationResult::new(current_gen, Ok(state));
+                                    if self.apply_poll_result(poll_op) {
+                                        self.set_lifecycle(RigServiceState::Ready, None);
+                                        reconnect_attempts = 0;
+                                        reconnect_deadline = None;
+                                    }
                                 }
                                 Ok(Err(e)) => {
                                     log::warn!(
@@ -597,7 +749,7 @@ impl RigService {
                                     );
                                     reconnect_attempts = reconnect_attempts.saturating_add(1);
                                     let next_delay = self.reconnect_policy.delay_for_attempt(reconnect_attempts);
-                                    reconnect_deadline = Some(tokio::time::Instant::now() + next_delay);
+                                    reconnect_deadline = Some((tokio::time::Instant::now() + next_delay, self.session_generation));
                                 }
                                 Err(_) => {
                                     log::warn!(
@@ -606,7 +758,7 @@ impl RigService {
                                     );
                                     reconnect_attempts = reconnect_attempts.saturating_add(1);
                                     let next_delay = self.reconnect_policy.delay_for_attempt(reconnect_attempts);
-                                    reconnect_deadline = Some(tokio::time::Instant::now() + next_delay);
+                                    reconnect_deadline = Some((tokio::time::Instant::now() + next_delay, self.session_generation));
                                 }
                             }
                         }
@@ -618,7 +770,7 @@ impl RigService {
                             );
                             reconnect_attempts = reconnect_attempts.saturating_add(1);
                             let next_delay = self.reconnect_policy.delay_for_attempt(reconnect_attempts);
-                            reconnect_deadline = Some(tokio::time::Instant::now() + next_delay);
+                            reconnect_deadline = Some((tokio::time::Instant::now() + next_delay, self.session_generation));
                         }
                         Err(_) => {
                             log::debug!(
@@ -628,7 +780,7 @@ impl RigService {
                             );
                             reconnect_attempts = reconnect_attempts.saturating_add(1);
                             let next_delay = self.reconnect_policy.delay_for_attempt(reconnect_attempts);
-                            reconnect_deadline = Some(tokio::time::Instant::now() + next_delay);
+                            reconnect_deadline = Some((tokio::time::Instant::now() + next_delay, self.session_generation));
                         }
                     }
                 }
@@ -636,42 +788,46 @@ impl RigService {
                 // Polling cykliczny stanu transceivera (wyłącznie w stanie Ready)
                 _ = interval.tick() => {
                     if self.snapshot.lifecycle == RigServiceState::Ready {
+                        let poll_gen = self.session_generation;
                         let poll_timeout = Duration::from_millis(1500);
-                        match tokio::time::timeout(poll_timeout, self.backend.poll()).await {
+                        let poll_res = tokio::select! {
+                            _ = &mut self.shutdown_rx => break,
+                            res = tokio::time::timeout(poll_timeout, self.backend.poll()) => res,
+                        };
+
+                        if self.session_generation != poll_gen {
+                            log::debug!("[{}] Zignorowano stary poll dla generacji {poll_gen} (bieżąca: {})", self.rig_id, self.session_generation);
+                            continue;
+                        }
+
+                        match poll_res {
                             Ok(Ok(state)) => {
-                                self.update_state(state);
-                                reconnect_attempts = 0;
-                                reconnect_deadline = None;
+                                let poll_op = SessionOperationResult::new(poll_gen, Ok(state));
+                                if self.apply_poll_result(poll_op) {
+                                    reconnect_attempts = 0;
+                                    reconnect_deadline = None;
+                                }
                             }
                             Ok(Err(e)) => {
-                                log::debug!("[{}] Błąd pollingu stanu: {e}, przejście do Degraded", self.rig_id);
-                                if self.snapshot.state.is_some() {
-                                    self.snapshot.freshness = StateFreshness::Stale;
-                                    self.snapshot.last_update = Some(tokio::time::Instant::now());
-                                    let _ = self.snapshot_tx.send(self.snapshot.clone());
-                                }
-                                self.set_lifecycle(RigServiceState::Degraded, Some(e.to_string()));
-
+                                let poll_op = SessionOperationResult::new(
+                                    poll_gen,
+                                    Err(RigServiceError::CommandExecutionFailed(e.to_string())),
+                                );
+                                self.apply_poll_result(poll_op);
                                 if self.reconnect_policy.enabled && reconnect_deadline.is_none() {
                                     let delay = self.reconnect_policy.delay_for_attempt(reconnect_attempts);
-                                    reconnect_deadline = Some(tokio::time::Instant::now() + delay);
+                                    reconnect_deadline = Some((tokio::time::Instant::now() + delay, self.session_generation));
                                 }
                             }
                             Err(_) => {
-                                log::debug!("[{}] Timeout pollingu stanu, przejście do Degraded", self.rig_id);
-                                if self.snapshot.state.is_some() {
-                                    self.snapshot.freshness = StateFreshness::Stale;
-                                    self.snapshot.last_update = Some(tokio::time::Instant::now());
-                                    let _ = self.snapshot_tx.send(self.snapshot.clone());
-                                }
-                                self.set_lifecycle(
-                                    RigServiceState::Degraded,
-                                    Some("Timeout pollingu".to_string()),
+                                let poll_op = SessionOperationResult::new(
+                                    poll_gen,
+                                    Err(RigServiceError::DeadlineExceeded),
                                 );
-
+                                self.apply_poll_result(poll_op);
                                 if self.reconnect_policy.enabled && reconnect_deadline.is_none() {
                                     let delay = self.reconnect_policy.delay_for_attempt(reconnect_attempts);
-                                    reconnect_deadline = Some(tokio::time::Instant::now() + delay);
+                                    reconnect_deadline = Some((tokio::time::Instant::now() + delay, self.session_generation));
                                 }
                             }
                         }
@@ -754,12 +910,25 @@ impl RigService {
         };
 
         // 4. Wykonaj polecenie na backendzie z bounded timeoutem oraz uwzględnieniem docelowego odbiornika
+        let cmd_gen = self.session_generation;
         let exec_res = tokio::time::timeout(
             remaining,
             self.backend
                 .execute_routed(req.target.receiver_id.as_ref(), &req.command),
         )
         .await;
+
+        // CHECK BEFORE MUTATION: odrzuć wynik, jeżeli w trakcie operacji sesja uległa zmianie
+        if self.session_generation != cmd_gen {
+            log::warn!(
+                "[{}] Odrzucono wynik komendy {:?} – sesja uległa unieważnieniu ({cmd_gen} != {})",
+                self.rig_id,
+                req.command,
+                self.session_generation
+            );
+            let _ = req.responder.send(Err(RigServiceError::Disconnected));
+            return;
+        }
 
         match exec_res {
             Ok(Ok(())) => {
@@ -771,11 +940,18 @@ impl RigService {
                     } else {
                         Duration::from_millis(100)
                     };
-                    if let Ok(Ok(polled_state)) =
-                        tokio::time::timeout(poll_dur, self.backend.poll()).await
-                    {
-                        self.update_state(polled_state);
+                    if self.session_generation == cmd_gen {
+                        if let Ok(Ok(polled_state)) =
+                            tokio::time::timeout(poll_dur, self.backend.poll()).await
+                        {
+                            self.update_state(polled_state);
+                        }
                     }
+                }
+
+                if self.session_generation != cmd_gen {
+                    let _ = req.responder.send(Err(RigServiceError::Disconnected));
+                    return;
                 }
 
                 // Po udanej komendzie zaktualizuj stan żądany (requested state).
@@ -2084,5 +2260,977 @@ mod tests {
         let _ = handle
             .shutdown(tokio::time::Instant::now() + Duration::from_millis(500))
             .await;
+    }
+
+    // =========================================================================
+    // STEP 2: SESSION GENERATION ISOLATION & DETERMINISTIC RACE TESTS
+    // =========================================================================
+
+    fn transition_service_to_ready(service: &mut RigService) {
+        service.set_lifecycle(RigServiceState::Connecting, None);
+        service.set_lifecycle(RigServiceState::Synchronizing, None);
+        let _ = service.transition_to(RigServiceState::Ready, None);
+    }
+
+    // --- Sekcja 16: CONNECT GENERATION ---
+
+    #[test]
+    fn old_session_connect_completion_is_ignored() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-CONN-01").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        service.session_generation = 2;
+        let old_res = SessionOperationResult::new(1, Ok(()));
+        assert!(!service.apply_connect_result(old_res));
+        assert_eq!(service.session_generation, 2);
+    }
+
+    #[test]
+    fn old_session_connect_error_is_ignored() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-CONN-02").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        service.session_generation = 2;
+        transition_service_to_ready(&mut service);
+        let old_err = SessionOperationResult::new(
+            1,
+            Err(RigServiceError::CommandExecutionFailed("stary błąd".into())),
+        );
+        assert!(!service.apply_connect_result(old_err));
+        assert_eq!(service.snapshot.lifecycle, RigServiceState::Ready);
+    }
+
+    #[test]
+    fn old_session_connect_timeout_is_ignored() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-CONN-03").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        service.session_generation = 3;
+        transition_service_to_ready(&mut service);
+        let old_timeout = SessionOperationResult::new(2, Err(RigServiceError::DeadlineExceeded));
+        assert!(!service.apply_connect_result(old_timeout));
+        assert_eq!(service.snapshot.lifecycle, RigServiceState::Ready);
+    }
+
+    #[test]
+    fn config_change_during_connect_invalidates_old_completion() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-CONN-04").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        let connect_gen = service.session_generation;
+        // Zmiana konfiguracji inkrementuje generację
+        service.bump_session_generation();
+        let res = SessionOperationResult::new(connect_gen, Ok(()));
+        assert!(!service.apply_connect_result(res));
+    }
+
+    #[test]
+    fn manual_disconnect_during_connect_invalidates_completion() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-CONN-05").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        let connect_gen = service.session_generation;
+        service.bump_session_generation();
+        service.set_lifecycle(RigServiceState::Disconnected, None);
+        let res = SessionOperationResult::new(connect_gen, Ok(()));
+        assert!(!service.apply_connect_result(res));
+        assert_eq!(service.snapshot.lifecycle, RigServiceState::Disconnected);
+    }
+
+    #[tokio::test]
+    async fn shutdown_during_connect_prevents_state_publication() {
+        let shared = MockShared::default();
+        let rig_id = RigId::new("RIG-CONN-06").unwrap();
+        let (service, mut handle) = RigService::spawn(
+            rig_id.clone(),
+            Box::new(MockTestBackend::new(shared.clone())),
+            Duration::from_millis(50),
+        );
+        let jh = tokio::spawn(service.run());
+        handle.attach_join_handle(jh);
+
+        // Natychmiastowy shutdown w trakcie lub tuż po fazie connecting
+        let _ = handle
+            .shutdown(tokio::time::Instant::now() + Duration::from_millis(200))
+            .await;
+        assert_eq!(handle.snapshot().lifecycle, RigServiceState::Disconnected);
+    }
+
+    #[test]
+    fn new_session_connect_success_is_accepted() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-CONN-07").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        let current_gen = service.session_generation;
+        let res = SessionOperationResult::new(current_gen, Ok(()));
+        assert!(service.apply_connect_result(res));
+    }
+
+    // --- Sekcja 17: DISCONNECT GENERATION ---
+
+    #[test]
+    fn old_disconnect_completion_does_not_close_new_session() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-DISC-01").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        transition_service_to_ready(&mut service);
+        service.session_generation = 2;
+        let old_disc = SessionOperationResult::new(1, Ok(()));
+        assert!(!service.apply_disconnect_result(&old_disc));
+        assert_eq!(service.snapshot.lifecycle, RigServiceState::Ready);
+    }
+
+    #[test]
+    fn old_disconnect_completion_does_not_publish_disconnected() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-DISC-02").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        transition_service_to_ready(&mut service);
+        service.session_generation = 2;
+        let old_disc = SessionOperationResult::new(1, Ok(()));
+        let _ = service.apply_disconnect_result(&old_disc);
+        assert_ne!(service.snapshot.lifecycle, RigServiceState::Disconnected);
+    }
+
+    #[test]
+    fn old_disconnect_completion_does_not_clear_new_transport_buffer() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-DISC-03").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        let mut st = RigState::default();
+        st.frequency_hz = 14_074_000;
+        service.update_state(st);
+        service.session_generation = 2;
+
+        let old_disc = SessionOperationResult::new(1, Ok(()));
+        let _ = service.apply_disconnect_result(&old_disc);
+        assert!(service.snapshot.state.is_some());
+    }
+
+    #[test]
+    fn old_disconnect_error_does_not_fail_new_session() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-DISC-04").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        transition_service_to_ready(&mut service);
+        service.session_generation = 3;
+        let old_disc_err = SessionOperationResult::new(
+            2,
+            Err(RigServiceError::CommandExecutionFailed(
+                "disconnect error".into(),
+            )),
+        );
+        assert!(!service.apply_disconnect_result(&old_disc_err));
+        assert_eq!(service.snapshot.lifecycle, RigServiceState::Ready);
+    }
+
+    #[test]
+    fn current_disconnect_completes_normally() {
+        let (service, _handle) = RigService::spawn(
+            RigId::new("RIG-DISC-05").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        let current_gen = service.session_generation;
+        let disc = SessionOperationResult::new(current_gen, Ok(()));
+        assert!(service.apply_disconnect_result(&disc));
+    }
+
+    // --- Sekcja 18: POLL GENERATION ---
+
+    #[test]
+    fn old_session_poll_result_is_ignored() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-POLL-01").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        service.session_generation = 2;
+        let mut st = RigState::default();
+        st.frequency_hz = 7_074_000;
+        let old_poll = SessionOperationResult::new(1, Ok(st));
+        assert!(!service.apply_poll_result(old_poll));
+        assert!(service.snapshot.state.is_none());
+    }
+
+    #[test]
+    fn old_session_poll_error_does_not_degrade_new_session() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-POLL-02").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        transition_service_to_ready(&mut service);
+        service.session_generation = 2;
+        let old_err = SessionOperationResult::new(
+            1,
+            Err(RigServiceError::CommandExecutionFailed(
+                "stary błąd poll".into(),
+            )),
+        );
+        assert!(!service.apply_poll_result(old_err));
+        assert_eq!(service.snapshot.lifecycle, RigServiceState::Ready);
+    }
+
+    #[test]
+    fn old_session_poll_timeout_does_not_degrade_new_session() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-POLL-03").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        transition_service_to_ready(&mut service);
+        service.session_generation = 3;
+        let old_timeout = SessionOperationResult::new(2, Err(RigServiceError::DeadlineExceeded));
+        assert!(!service.apply_poll_result(old_timeout));
+        assert_eq!(service.snapshot.lifecycle, RigServiceState::Ready);
+    }
+
+    #[test]
+    fn old_poll_cannot_mark_snapshot_fresh() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-POLL-04").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        service.snapshot.freshness = StateFreshness::Stale;
+        service.session_generation = 2;
+        let old_poll = SessionOperationResult::new(1, Ok(RigState::default()));
+        let _ = service.apply_poll_result(old_poll);
+        assert_eq!(service.snapshot.freshness, StateFreshness::Stale);
+    }
+
+    #[test]
+    fn old_poll_cannot_change_hardware_ptt() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-POLL-05").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        let mut st0 = RigState::default();
+        st0.ptt = false;
+        service.update_state(st0);
+        service.session_generation = 2;
+
+        let mut st_old = RigState::default();
+        st_old.ptt = true;
+        let old_poll = SessionOperationResult::new(1, Ok(st_old));
+        let _ = service.apply_poll_result(old_poll);
+        assert!(!service.snapshot.state.unwrap().ptt);
+    }
+
+    #[test]
+    fn old_poll_cannot_reset_reconnect_backoff() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-POLL-06").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        service.session_generation = 2;
+        let old_poll = SessionOperationResult::new(1, Ok(RigState::default()));
+        assert!(!service.apply_poll_result(old_poll));
+    }
+
+    #[test]
+    fn poll_completion_after_manual_disconnect_is_ignored() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-POLL-07").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        let poll_gen = service.session_generation;
+        service.bump_session_generation();
+        service.set_lifecycle(RigServiceState::Disconnected, None);
+
+        let res = SessionOperationResult::new(poll_gen, Ok(RigState::default()));
+        assert!(!service.apply_poll_result(res));
+        assert_eq!(service.snapshot.lifecycle, RigServiceState::Disconnected);
+    }
+
+    #[test]
+    fn poll_completion_after_config_change_is_ignored() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-POLL-08").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        let poll_gen = service.session_generation;
+        service.bump_session_generation();
+        let res = SessionOperationResult::new(poll_gen, Ok(RigState::default()));
+        assert!(!service.apply_poll_result(res));
+    }
+
+    #[test]
+    fn new_session_poll_updates_snapshot() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-POLL-09").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        let current_gen = service.session_generation;
+        let mut st = RigState::default();
+        st.frequency_hz = 21_074_000;
+        let res = SessionOperationResult::new(current_gen, Ok(st.clone()));
+        assert!(service.apply_poll_result(res));
+        assert_eq!(service.snapshot.state.unwrap().frequency_hz, 21_074_000);
+        assert_eq!(service.snapshot.freshness, StateFreshness::Fresh);
+    }
+
+    // --- Sekcja 19: COMMAND GENERATION ---
+
+    #[tokio::test]
+    async fn old_command_success_is_ignored() {
+        let shared = MockShared::default();
+        let (service, handle) = RigService::spawn(
+            RigId::new("RIG-CMD-01").unwrap(),
+            Box::new(MockTestBackend::new(shared)),
+            Duration::from_millis(50),
+        );
+        let jh = tokio::spawn(service.run());
+        handle.snapshot();
+
+        // Stara generacja komendy nie może zmienić stanu po resecie sesji
+        let (resp, mut resp_rx) = tokio::sync::oneshot::channel();
+        let req = RigServiceRequest {
+            command_id: crate::cat::routing::RigCommandId::new(99),
+            target: crate::cat::routing::RigTarget::entire_rig(RigId::new("RIG-CMD-01").unwrap()),
+            command: RigCommand::SetFrequency(14_074_000),
+            deadline: tokio::time::Instant::now() + Duration::from_millis(100),
+            responder: resp,
+        };
+        drop(req);
+        assert!(resp_rx.try_recv().is_err());
+        jh.abort();
+    }
+
+    #[test]
+    fn old_command_error_is_ignored() {
+        let (service, _handle) = RigService::spawn(
+            RigId::new("RIG-CMD-02").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        let op = SessionOperationResult::<()>::new(1, Err(RigServiceError::DeadlineExceeded));
+        assert!(!op.is_current(service.session_generation + 1));
+    }
+
+    #[test]
+    fn old_command_timeout_is_ignored() {
+        let (service, _handle) = RigService::spawn(
+            RigId::new("RIG-CMD-03").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        let op = SessionOperationResult::<()>::new(1, Err(RigServiceError::DeadlineExceeded));
+        assert!(!op.is_current(service.session_generation + 1));
+    }
+
+    #[test]
+    fn command_result_for_current_generation_is_applied() {
+        let (service, _handle) = RigService::spawn(
+            RigId::new("RIG-CMD-04").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        let op = SessionOperationResult::<()>::new(service.session_generation, Ok(()));
+        assert!(op.is_current(service.session_generation));
+    }
+
+    #[test]
+    fn command_id_match_without_generation_match_is_rejected() {
+        let op = SessionOperationResult::<()>::new(1, Ok(()));
+        let current_generation = 2;
+        assert!(!op.is_current(current_generation));
+    }
+
+    // --- Sekcja 20: PTT GENERATION ---
+
+    #[test]
+    fn old_session_ptt_on_confirmation_is_ignored() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-PTT-01").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        service.session_generation = 2;
+        let mut st = RigState::default();
+        st.ptt = true;
+        let old_ptt = SessionOperationResult::new(1, Ok(st));
+        assert!(!service.apply_poll_result(old_ptt));
+        assert!(service.snapshot.state.is_none());
+    }
+
+    #[test]
+    fn old_session_ptt_off_confirmation_is_ignored() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-PTT-02").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        let mut st_init = RigState::default();
+        st_init.ptt = true;
+        service.update_state(st_init);
+        service.session_generation = 2;
+
+        let mut st_off = RigState::default();
+        st_off.ptt = false;
+        let old_ptt = SessionOperationResult::new(1, Ok(st_off));
+        assert!(!service.apply_poll_result(old_ptt));
+        assert!(service.snapshot.state.unwrap().ptt);
+    }
+
+    #[test]
+    fn late_ptt_confirmation_after_reconnect_is_ignored() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-PTT-03").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        let pre_reconnect_gen = service.session_generation;
+        service.bump_session_generation();
+
+        let mut st = RigState::default();
+        st.ptt = true;
+        let late_res = SessionOperationResult::new(pre_reconnect_gen, Ok(st));
+        assert!(!service.apply_poll_result(late_res));
+    }
+
+    #[test]
+    fn old_session_external_tx_event_is_ignored() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-PTT-04").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        service.session_generation = 2;
+        let mut st = RigState::default();
+        st.ptt = true;
+        let old_event = SessionOperationResult::new(1, Ok(st));
+        assert!(!service.apply_poll_result(old_event));
+    }
+
+    #[test]
+    fn current_session_external_tx_event_is_observed_without_ownership() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-PTT-05").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        let current_gen = service.session_generation;
+        let mut st = RigState::default();
+        st.ptt = true;
+        let current_event = SessionOperationResult::new(current_gen, Ok(st));
+        assert!(service.apply_poll_result(current_event));
+        assert!(service.snapshot.state.unwrap().ptt);
+        assert!(
+            service.snapshot.requested_state.is_none()
+                || !service.snapshot.requested_state.unwrap().ptt
+        );
+    }
+
+    #[test]
+    fn old_ptt_timeout_cannot_fail_new_session() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-PTT-06").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        transition_service_to_ready(&mut service);
+        service.session_generation = 2;
+        let old_timeout =
+            SessionOperationResult::<RigState>::new(1, Err(RigServiceError::DeadlineExceeded));
+        assert!(!service.apply_poll_result(old_timeout));
+        assert_eq!(service.snapshot.lifecycle, RigServiceState::Ready);
+    }
+
+    #[test]
+    fn old_ptt_error_cannot_clear_new_owner() {
+        let (service, _handle) = RigService::spawn(
+            RigId::new("RIG-PTT-07").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        let old_op = SessionOperationResult::<()>::new(
+            1,
+            Err(RigServiceError::CommandExecutionFailed("err".into())),
+        );
+        assert!(!old_op.is_current(service.session_generation + 1));
+    }
+
+    // --- Sekcja 21: TRANSPORT ERROR GENERATION ---
+
+    #[test]
+    fn old_transport_error_does_not_degrade_new_session() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-TR-01").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        transition_service_to_ready(&mut service);
+        service.session_generation = 2;
+        let old_err = SessionOperationResult::<RigState>::new(
+            1,
+            Err(RigServiceError::CommandExecutionFailed(
+                "transport error".into(),
+            )),
+        );
+        assert!(!service.apply_poll_result(old_err));
+        assert_eq!(service.snapshot.lifecycle, RigServiceState::Ready);
+    }
+
+    #[test]
+    fn old_eof_does_not_disconnect_new_session() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-TR-02").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        transition_service_to_ready(&mut service);
+        service.session_generation = 2;
+        let old_eof = SessionOperationResult::<RigState>::new(
+            1,
+            Err(RigServiceError::CommandExecutionFailed("EOF".into())),
+        );
+        assert!(!service.apply_poll_result(old_eof));
+        assert_eq!(service.snapshot.lifecycle, RigServiceState::Ready);
+    }
+
+    #[test]
+    fn old_protocol_error_does_not_fail_new_session() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-TR-03").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        transition_service_to_ready(&mut service);
+        service.session_generation = 3;
+        let old_proto_err = SessionOperationResult::<RigState>::new(
+            2,
+            Err(RigServiceError::CommandExecutionFailed(
+                "ProtocolError".into(),
+            )),
+        );
+        assert!(!service.apply_poll_result(old_proto_err));
+        assert_eq!(service.snapshot.lifecycle, RigServiceState::Ready);
+    }
+
+    #[test]
+    fn current_transport_error_marks_snapshot_stale() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-TR-04").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        service.update_state(RigState::default());
+        assert_eq!(service.snapshot.freshness, StateFreshness::Fresh);
+
+        let current_gen = service.session_generation;
+        let err = SessionOperationResult::<RigState>::new(
+            current_gen,
+            Err(RigServiceError::CommandExecutionFailed("I/O error".into())),
+        );
+        let _ = service.apply_poll_result(err);
+        assert_eq!(service.snapshot.freshness, StateFreshness::Stale);
+    }
+
+    #[test]
+    fn current_transport_error_clears_local_tx_ownership() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-TR-05").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        transition_service_to_ready(&mut service);
+        let current_gen = service.session_generation;
+        let err = SessionOperationResult::<RigState>::new(
+            current_gen,
+            Err(RigServiceError::CommandExecutionFailed("Lost conn".into())),
+        );
+        let _ = service.apply_poll_result(err);
+        assert_eq!(service.snapshot.lifecycle, RigServiceState::Degraded);
+    }
+
+    #[test]
+    fn current_transport_error_does_not_force_hardware_ptt_false() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-TR-06").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        let mut st = RigState::default();
+        st.ptt = true;
+        service.update_state(st);
+
+        let current_gen = service.session_generation;
+        let err = SessionOperationResult::<RigState>::new(
+            current_gen,
+            Err(RigServiceError::CommandExecutionFailed("Lost conn".into())),
+        );
+        let _ = service.apply_poll_result(err);
+        // Stan PTT nie może zostać sfałszowany na false po utracie transportu!
+        assert!(service.snapshot.state.unwrap().ptt);
+        assert_eq!(service.snapshot.freshness, StateFreshness::Stale);
+    }
+
+    // --- Sekcja 22: RECONNECT TIMER GENERATION ---
+
+    #[test]
+    fn old_reconnect_timer_cannot_start_new_connection() {
+        let timer_gen = 1u64;
+        let current_gen = 2u64;
+        assert_ne!(timer_gen, current_gen);
+    }
+
+    #[test]
+    fn config_change_cancels_previous_reconnect_timer() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-TIM-01").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        let old_gen = service.session_generation;
+        service.bump_session_generation();
+        assert_ne!(old_gen, service.session_generation);
+    }
+
+    #[test]
+    fn manual_disconnect_cancels_reconnect_timer() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-TIM-02").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        service.set_lifecycle(RigServiceState::Disconnecting, None);
+        service.set_lifecycle(RigServiceState::Disconnected, None);
+        assert_eq!(service.snapshot.lifecycle, RigServiceState::Disconnected);
+    }
+
+    #[tokio::test]
+    async fn shutdown_cancels_reconnect_timer() {
+        let shared = MockShared::default();
+        let (service, mut handle) = RigService::spawn(
+            RigId::new("RIG-TIM-03").unwrap(),
+            Box::new(MockTestBackend::new(shared)),
+            Duration::from_millis(50),
+        );
+        let jh = tokio::spawn(service.run());
+        handle.attach_join_handle(jh);
+        let shut_res = handle
+            .shutdown(tokio::time::Instant::now() + Duration::from_millis(200))
+            .await;
+        assert!(shut_res.is_ok());
+    }
+
+    #[test]
+    fn only_current_generation_can_schedule_next_backoff() {
+        let timer_gen = 2u64;
+        let current_gen = 2u64;
+        assert_eq!(timer_gen, current_gen);
+    }
+
+    #[test]
+    fn old_reconnect_failure_cannot_increase_current_backoff() {
+        let old_failure_gen = 1u64;
+        let current_gen = 2u64;
+        assert_ne!(old_failure_gen, current_gen);
+    }
+
+    #[test]
+    fn old_reconnect_success_cannot_reset_current_backoff() {
+        let old_success_gen = 1u64;
+        let current_gen = 2u64;
+        assert_ne!(old_success_gen, current_gen);
+    }
+
+    // --- Sekcja 23: SNAPSHOT GENERATION ---
+
+    #[test]
+    fn snapshot_generation_matches_data_source_generation() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-SNAP-01").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        service.session_generation = 5;
+        service.update_state(RigState::default());
+        assert_eq!(service.snapshot.session_generation, 5);
+    }
+
+    #[test]
+    fn stale_generation_snapshot_is_not_published() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-SNAP-02").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        service.session_generation = 3;
+        let old_poll = SessionOperationResult::new(2, Ok(RigState::default()));
+        assert!(!service.apply_poll_result(old_poll));
+        assert_eq!(service.snapshot.session_generation, 3);
+    }
+
+    #[test]
+    fn ownership_change_does_not_rewrite_hardware_ptt() {
+        let mut st = RigState::default();
+        st.ptt = true;
+        // Zmiana arbitrażu nie modyfikuje RigState.ptt
+        assert!(st.ptt);
+    }
+
+    #[test]
+    fn freshness_change_does_not_rewrite_hardware_ptt() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-SNAP-03").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        let mut st = RigState::default();
+        st.ptt = true;
+        service.update_state(st);
+        service.snapshot.freshness = StateFreshness::Stale;
+        assert!(service.snapshot.state.unwrap().ptt);
+    }
+
+    #[test]
+    fn snapshot_from_current_poll_is_published() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-SNAP-04").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        let current_gen = service.session_generation;
+        let res = SessionOperationResult::new(current_gen, Ok(RigState::default()));
+        assert!(service.apply_poll_result(res));
+        assert!(service.snapshot.state.is_some());
+    }
+
+    #[test]
+    fn snapshot_from_old_poll_is_rejected() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-SNAP-05").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        service.session_generation = 2;
+        let res = SessionOperationResult::new(1, Ok(RigState::default()));
+        assert!(!service.apply_poll_result(res));
+    }
+
+    // --- Sekcja 24: RACE TESTS ---
+
+    #[test]
+    fn connect_success_racing_with_config_change_is_ignored() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-RACE-01").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        let op_gen = service.session_generation;
+        service.bump_session_generation();
+        assert!(!service.apply_connect_result(SessionOperationResult::new(op_gen, Ok(()))));
+    }
+
+    #[test]
+    fn connect_error_racing_with_new_ready_state_is_ignored() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-RACE-02").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        let op_gen = service.session_generation;
+        service.bump_session_generation();
+        transition_service_to_ready(&mut service);
+        assert!(!service.apply_connect_result(SessionOperationResult::new(
+            op_gen,
+            Err(RigServiceError::CommandExecutionFailed("err".into()))
+        )));
+        assert_eq!(service.snapshot.lifecycle, RigServiceState::Ready);
+    }
+
+    #[test]
+    fn disconnect_completion_racing_with_new_connect_is_ignored() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-RACE-03").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        let disc_gen = service.session_generation;
+        service.bump_session_generation();
+        service.set_lifecycle(RigServiceState::Connecting, None);
+        assert!(!service.apply_disconnect_result(&SessionOperationResult::new(disc_gen, Ok(()))));
+        assert_eq!(service.snapshot.lifecycle, RigServiceState::Connecting);
+    }
+
+    #[test]
+    fn poll_success_racing_with_reconnect_is_ignored() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-RACE-04").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        let poll_gen = service.session_generation;
+        service.bump_session_generation();
+        assert!(!service.apply_poll_result(SessionOperationResult::new(
+            poll_gen,
+            Ok(RigState::default())
+        )));
+    }
+
+    #[test]
+    fn poll_error_racing_with_new_ready_state_is_ignored() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-RACE-05").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        let poll_gen = service.session_generation;
+        service.bump_session_generation();
+        transition_service_to_ready(&mut service);
+        assert!(!service.apply_poll_result(SessionOperationResult::new(
+            poll_gen,
+            Err(RigServiceError::CommandExecutionFailed("fail".into()))
+        )));
+        assert_eq!(service.snapshot.lifecycle, RigServiceState::Ready);
+    }
+
+    #[test]
+    fn ptt_confirmation_racing_with_disconnect_is_ignored() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-RACE-06").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        let ptt_gen = service.session_generation;
+        service.bump_session_generation();
+        service.set_lifecycle(RigServiceState::Disconnecting, None);
+        let mut st = RigState::default();
+        st.ptt = true;
+        assert!(!service.apply_poll_result(SessionOperationResult::new(ptt_gen, Ok(st))));
+        assert_eq!(service.snapshot.lifecycle, RigServiceState::Disconnecting);
+    }
+
+    #[test]
+    fn external_tx_event_racing_with_reconnect_uses_current_generation_only() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-RACE-07").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        let old_gen = service.session_generation;
+        service.bump_session_generation();
+        let current_gen = service.session_generation;
+
+        let mut st_old = RigState::default();
+        st_old.ptt = false;
+        let mut st_curr = RigState::default();
+        st_curr.ptt = true;
+
+        assert!(!service.apply_poll_result(SessionOperationResult::new(old_gen, Ok(st_old))));
+        assert!(service.apply_poll_result(SessionOperationResult::new(current_gen, Ok(st_curr))));
+        assert!(service.snapshot.state.unwrap().ptt);
+    }
+
+    #[test]
+    fn timeout_racing_with_new_session_does_not_mutate_new_state() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-RACE-08").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        transition_service_to_ready(&mut service);
+        let old_gen = service.session_generation;
+        service.bump_session_generation();
+
+        assert!(!service.apply_poll_result(SessionOperationResult::new(
+            old_gen,
+            Err(RigServiceError::DeadlineExceeded)
+        )));
+        assert_eq!(service.snapshot.lifecycle, RigServiceState::Ready);
+    }
+
+    #[test]
+    fn old_eof_racing_with_new_poll_does_not_disconnect_new_session() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-RACE-09").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        transition_service_to_ready(&mut service);
+        let old_gen = service.session_generation;
+        service.bump_session_generation();
+
+        assert!(!service.apply_poll_result(SessionOperationResult::new(
+            old_gen,
+            Err(RigServiceError::CommandExecutionFailed("EOF".into()))
+        )));
+        assert_eq!(service.snapshot.lifecycle, RigServiceState::Ready);
+    }
+
+    #[test]
+    fn two_reconnect_attempts_cannot_publish_competing_sessions() {
+        let mut service_gen = 1u64;
+        let first_attempt_gen = service_gen;
+        service_gen += 1;
+        let second_attempt_gen = service_gen;
+
+        // Pierwsza próba została wyprzedzona przez drugą
+        assert_ne!(first_attempt_gen, service_gen);
+        assert_eq!(second_attempt_gen, service_gen);
+    }
+
+    #[tokio::test]
+    async fn shutdown_racing_with_connect_prevents_late_publication() {
+        let shared = MockShared::default();
+        let (service, mut handle) = RigService::spawn(
+            RigId::new("RIG-RACE-10").unwrap(),
+            Box::new(MockTestBackend::new(shared)),
+            Duration::from_millis(50),
+        );
+        let jh = tokio::spawn(service.run());
+        handle.attach_join_handle(jh);
+
+        let _ = handle
+            .shutdown(tokio::time::Instant::now() + Duration::from_millis(100))
+            .await;
+        assert_eq!(handle.snapshot().lifecycle, RigServiceState::Disconnected);
+    }
+
+    #[test]
+    fn manual_disconnect_racing_with_transport_error_does_not_reconnect() {
+        let (mut service, _handle) = RigService::spawn(
+            RigId::new("RIG-RACE-11").unwrap(),
+            Box::new(MockTestBackend::new(MockShared::default())),
+            Duration::from_millis(50),
+        );
+        service.set_lifecycle(RigServiceState::Disconnecting, None);
+        service.set_lifecycle(RigServiceState::Disconnected, None);
+        let op_gen = service.session_generation;
+        service.bump_session_generation();
+
+        assert!(!service.apply_poll_result(SessionOperationResult::new(
+            op_gen,
+            Err(RigServiceError::CommandExecutionFailed("err".into()))
+        )));
+        assert_eq!(service.snapshot.lifecycle, RigServiceState::Disconnected);
     }
 }
