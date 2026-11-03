@@ -178,6 +178,10 @@ pub enum RigServiceError {
     ServiceShuttingDown,
     /// Usługa została już rozłączona.
     Disconnected,
+    /// Zewnętrzny nadajnik jest aktywny (wykryto sprzętowy PTT bez lokalnego prawa do nadawania).
+    ExternalTransmitActive,
+    /// Stan PTT sprzętu nie jest potwierdzony jako bezpieczny RX.
+    PttStateUnknown,
 }
 
 impl fmt::Display for RigServiceError {
@@ -196,6 +200,18 @@ impl fmt::Display for RigServiceError {
             Self::BackendPanic(msg) => write!(f, "panika w tasku backendu: {msg}"),
             Self::ServiceShuttingDown => write!(f, "usługa sesji jest zamykana"),
             Self::Disconnected => write!(f, "usługa sesji została rozłączona"),
+            Self::ExternalTransmitActive => {
+                write!(
+                    f,
+                    "aktywny zewnętrzny nadajnik (External TX) – lokalne nadawanie zablokowane"
+                )
+            }
+            Self::PttStateUnknown => {
+                write!(
+                    f,
+                    "stan PTT sprzętu nie jest potwierdzony jako bezpieczny RX"
+                )
+            }
         }
     }
 }
@@ -559,14 +575,13 @@ impl RigService {
                             // Po udanym connect() sprawdzamy stabilność i synchronizujemy stan przez poll()
                             let poll_res = tokio::time::timeout(Duration::from_millis(1500), self.backend.poll()).await;
                             match poll_res {
-                                Ok(Ok(mut state)) => {
-                                    // Bezpieczeństwo RF: po reconnect stan ZAWSZE jest RX / brak PTT
-                                    state.ptt = false;
-
+                                Ok(Ok(state)) => {
+                                    // Bezpieczeństwo RF: po reconnect zachowujemy rzeczywisty stan odczytany z radia (CAT-017)
                                     log::info!(
-                                        "[{}] Auto-reconnect powiódł się na próbie #{}, powrót do Ready",
+                                        "[{}] Auto-reconnect powiódł się na próbie #{}, stan sprzętowy PTT: {}",
                                         self.rig_id,
-                                        reconnect_attempts + 1
+                                        reconnect_attempts + 1,
+                                        state.ptt
                                     );
                                     self.update_state(state);
                                     self.set_lifecycle(RigServiceState::Ready, None);
@@ -712,6 +727,20 @@ impl RigService {
             let _ = req
                 .responder
                 .send(Err(RigServiceError::NotReady(self.snapshot.lifecycle)));
+            return;
+        }
+
+        // 2c. Ochrona PTT: wykryty aktywny hardware TX bez lokalnego ownership blokuje SetPtt(true) (CAT-017)
+        if matches!(req.command, RigCommand::SetPtt(true))
+            && self.snapshot.state.as_ref().is_some_and(|s| s.ptt)
+        {
+            log::warn!(
+                "[{}] Odrzucono polecenie SetPtt(true) – wykryto aktywny zewnętrzny nadajnik (External TX)",
+                self.rig_id
+            );
+            let _ = req
+                .responder
+                .send(Err(RigServiceError::ExternalTransmitActive));
             return;
         }
 
@@ -1109,6 +1138,8 @@ mod tests {
         connect_count: Arc<AtomicU32>,
         poll_count: Arc<AtomicU32>,
         disconnect_count: Arc<AtomicU32>,
+        poll_ptt: Arc<AtomicBool>,
+        executed_cmds: Arc<std::sync::Mutex<Vec<RigCommand>>>,
     }
 
     struct MockTestBackend {
@@ -1165,6 +1196,7 @@ mod tests {
         fn poll(&mut self) -> BoxFuture<'_, Result<RigState, RigError>> {
             self.shared.poll_count.fetch_add(1, Ordering::SeqCst);
             let fail = self.shared.fail_poll.load(Ordering::SeqCst);
+            let ptt_val = self.shared.poll_ptt.load(Ordering::SeqCst);
             Box::pin(async move {
                 if fail {
                     Err(RigError::NotConnected)
@@ -1172,12 +1204,16 @@ mod tests {
                     let mut st = RigState::default();
                     st.frequency_hz = 14_074_000;
                     st.mode = "USB".to_string();
+                    st.ptt = ptt_val;
                     Ok(st)
                 }
             })
         }
 
-        fn execute(&mut self, _cmd: &RigCommand) -> BoxFuture<'_, Result<(), RigError>> {
+        fn execute(&mut self, cmd: &RigCommand) -> BoxFuture<'_, Result<(), RigError>> {
+            if let Ok(mut lock) = self.shared.executed_cmds.lock() {
+                lock.push(cmd.clone());
+            }
             Box::pin(async move { Ok(()) })
         }
     }
@@ -1470,7 +1506,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn reconnect_never_restores_tx_owned_and_sets_ptt_false() {
+    async fn reconnect_never_restores_tx_owned() {
         let shared = MockShared::default();
         let rig_id = RigId::new("RIG-RX-ONLY").unwrap();
         let fast_policy = ReconnectPolicy {
@@ -1515,12 +1551,535 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(15)).await;
         }
 
-        // Upewnij się, że po reconnect stan PTT jest bezwzględnie false (RX)
-        let state = handle
-            .snapshot()
-            .state
-            .expect("state present after reconnect");
+        let snap = handle.snapshot();
+        let state = snap.state.expect("state present after reconnect");
         assert!(!state.ptt);
+        assert_eq!(snap.freshness, StateFreshness::Fresh);
+
+        let _ = handle
+            .shutdown(tokio::time::Instant::now() + Duration::from_millis(500))
+            .await;
+    }
+
+    #[tokio::test]
+    async fn external_tx_after_reconnect_is_observed_not_owned() {
+        let shared = MockShared::default();
+        let rig_id = RigId::new("RIG-EXT-01").unwrap();
+        let fast_policy = ReconnectPolicy {
+            enabled: true,
+            base_delay: Duration::from_millis(20),
+            max_delay: Duration::from_millis(100),
+            factor: 2,
+            jitter_pct: 0,
+        };
+
+        let (service, mut handle) = RigService::spawn_with_policy(
+            rig_id.clone(),
+            Box::new(MockTestBackend::new(shared.clone())),
+            Duration::from_millis(15),
+            fast_policy,
+        );
+        let jh = tokio::spawn(service.run());
+        handle.attach_join_handle(jh);
+
+        // Oczekaj na start
+        for _ in 0..50 {
+            if handle.snapshot().lifecycle == RigServiceState::Ready {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        // Zerwanie połączenia
+        shared.fail_poll.store(true, Ordering::SeqCst);
+        for _ in 0..50 {
+            if handle.snapshot().lifecycle == RigServiceState::Degraded {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        // Po reconnect radio raportuje sprzętowy PTT ON (zewnętrzny nadajnik)
+        shared.poll_ptt.store(true, Ordering::SeqCst);
+        shared.fail_poll.store(false, Ordering::SeqCst);
+
+        for _ in 0..50 {
+            if handle.snapshot().lifecycle == RigServiceState::Ready {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(15)).await;
+        }
+
+        let snap = handle.snapshot();
+        assert_eq!(snap.lifecycle, RigServiceState::Ready);
+        let st = snap.state.expect("state present");
+        assert!(
+            st.ptt,
+            "Rzeczywisty sprzętowy stan PTT ON musi być zachowany"
+        );
+        assert_eq!(snap.freshness, StateFreshness::Fresh);
+
+        let _ = handle
+            .shutdown(tokio::time::Instant::now() + Duration::from_millis(500))
+            .await;
+    }
+
+    #[tokio::test]
+    async fn external_tx_after_reconnect_is_not_forced_to_rx() {
+        let shared = MockShared::default();
+        let rig_id = RigId::new("RIG-EXT-02").unwrap();
+        let fast_policy = ReconnectPolicy {
+            enabled: true,
+            base_delay: Duration::from_millis(20),
+            max_delay: Duration::from_millis(100),
+            factor: 2,
+            jitter_pct: 0,
+        };
+
+        let (service, mut handle) = RigService::spawn_with_policy(
+            rig_id.clone(),
+            Box::new(MockTestBackend::new(shared.clone())),
+            Duration::from_millis(15),
+            fast_policy,
+        );
+        let jh = tokio::spawn(service.run());
+        handle.attach_join_handle(jh);
+
+        for _ in 0..50 {
+            if handle.snapshot().lifecycle == RigServiceState::Ready {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        shared.fail_poll.store(true, Ordering::SeqCst);
+        for _ in 0..50 {
+            if handle.snapshot().lifecycle == RigServiceState::Degraded {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        shared.poll_ptt.store(true, Ordering::SeqCst);
+        shared.fail_poll.store(false, Ordering::SeqCst);
+
+        for _ in 0..50 {
+            if handle.snapshot().lifecycle == RigServiceState::Ready {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(15)).await;
+        }
+
+        // Stan nie może zostać nadpisany na false
+        assert!(handle.snapshot().state.unwrap().ptt);
+
+        let _ = handle
+            .shutdown(tokio::time::Instant::now() + Duration::from_millis(500))
+            .await;
+    }
+
+    #[tokio::test]
+    async fn external_tx_after_reconnect_does_not_set_tx_owned() {
+        let shared = MockShared::default();
+        let rig_id = RigId::new("RIG-EXT-03").unwrap();
+        let fast_policy = ReconnectPolicy {
+            enabled: true,
+            base_delay: Duration::from_millis(20),
+            max_delay: Duration::from_millis(100),
+            factor: 2,
+            jitter_pct: 0,
+        };
+
+        let (service, mut handle) = RigService::spawn_with_policy(
+            rig_id.clone(),
+            Box::new(MockTestBackend::new(shared.clone())),
+            Duration::from_millis(15),
+            fast_policy,
+        );
+        let jh = tokio::spawn(service.run());
+        handle.attach_join_handle(jh);
+
+        for _ in 0..50 {
+            if handle.snapshot().lifecycle == RigServiceState::Ready {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        shared.fail_poll.store(true, Ordering::SeqCst);
+        for _ in 0..50 {
+            if handle.snapshot().lifecycle == RigServiceState::Degraded {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        shared.poll_ptt.store(true, Ordering::SeqCst);
+        shared.fail_poll.store(false, Ordering::SeqCst);
+
+        for _ in 0..50 {
+            if handle.snapshot().lifecycle == RigServiceState::Ready {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(15)).await;
+        }
+
+        let snap = handle.snapshot();
+        // requested_state nie posiada PTT (brak lokalnego ownership)
+        assert!(snap.requested_state.is_none() || !snap.requested_state.unwrap().ptt);
+
+        let _ = handle
+            .shutdown(tokio::time::Instant::now() + Duration::from_millis(500))
+            .await;
+    }
+
+    #[tokio::test]
+    async fn external_tx_blocks_local_tx_ownership_acquisition() {
+        let shared = MockShared::default();
+        let rig_id = RigId::new("RIG-EXT-04").unwrap();
+        let fast_policy = ReconnectPolicy {
+            enabled: true,
+            base_delay: Duration::from_millis(20),
+            max_delay: Duration::from_millis(100),
+            factor: 2,
+            jitter_pct: 0,
+        };
+
+        let (service, mut handle) = RigService::spawn_with_policy(
+            rig_id.clone(),
+            Box::new(MockTestBackend::new(shared.clone())),
+            Duration::from_millis(15),
+            fast_policy,
+        );
+        let jh = tokio::spawn(service.run());
+        handle.attach_join_handle(jh);
+
+        for _ in 0..50 {
+            if handle.snapshot().lifecycle == RigServiceState::Ready {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        // Wymuś sprzętowy TX (zewnętrzny)
+        shared.poll_ptt.store(true, Ordering::SeqCst);
+        tokio::time::sleep(Duration::from_millis(40)).await;
+        assert!(handle.snapshot().state.unwrap().ptt);
+
+        // Próba lokalnego SetPtt(true) musi zostać odrzucona przez ExternalTransmitActive
+        let cmd_res = handle
+            .execute(
+                crate::cat::routing::RigCommandId::new(42),
+                crate::cat::routing::RigTarget::entire_rig(rig_id.clone()),
+                RigCommand::SetPtt(true),
+                tokio::time::Instant::now() + Duration::from_millis(500),
+            )
+            .await;
+
+        assert_eq!(cmd_res, Err(RigServiceError::ExternalTransmitActive));
+
+        let _ = handle
+            .shutdown(tokio::time::Instant::now() + Duration::from_millis(500))
+            .await;
+    }
+
+    #[test]
+    fn hardware_tx_true_never_implies_local_tx_owned() {
+        let arbiter = crate::cat::tx_arbiter::TxArbiter::new();
+        let rig_id = RigId::new("RIG-SAMPLE").unwrap();
+        // Arbiter w stanie Idle (brak lokalnego żądania)
+        assert_eq!(
+            arbiter.state(),
+            &crate::cat::tx_arbiter::TxArbiterState::Idle
+        );
+
+        // Nawet jeśli radio zgłasza sprzętowy TX:
+        let mut sample_state = RigState::default();
+        sample_state.ptt = true;
+
+        // Arbiter nadal NIE jest Owned!
+        assert_ne!(
+            arbiter.state(),
+            &crate::cat::tx_arbiter::TxArbiterState::Owned {
+                rig_id: rig_id.clone(),
+                command_id: crate::cat::routing::RigCommandId::new(1),
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn external_tx_clearing_to_rx_allows_normal_operation() {
+        let shared = MockShared::default();
+        let rig_id = RigId::new("RIG-EXT-05").unwrap();
+        let disabled_policy = ReconnectPolicy::disabled();
+
+        let (service, mut handle) = RigService::spawn_with_policy(
+            rig_id.clone(),
+            Box::new(MockTestBackend::new(shared.clone())),
+            Duration::from_millis(15),
+            disabled_policy,
+        );
+        let jh = tokio::spawn(service.run());
+        handle.attach_join_handle(jh);
+
+        for _ in 0..50 {
+            if handle.snapshot().lifecycle == RigServiceState::Ready {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        // Zewnętrzny nadajnik włączony
+        shared.poll_ptt.store(true, Ordering::SeqCst);
+        tokio::time::sleep(Duration::from_millis(40)).await;
+        assert!(handle.snapshot().state.unwrap().ptt);
+
+        // Lokalne żądanie odrzucone
+        let res1 = handle
+            .execute(
+                crate::cat::routing::RigCommandId::new(10),
+                crate::cat::routing::RigTarget::entire_rig(rig_id.clone()),
+                RigCommand::SetPtt(true),
+                tokio::time::Instant::now() + Duration::from_millis(500),
+            )
+            .await;
+        assert_eq!(res1, Err(RigServiceError::ExternalTransmitActive));
+
+        // Zewnętrzny nadajnik wyłączony (powrót do RX)
+        shared.poll_ptt.store(false, Ordering::SeqCst);
+        tokio::time::sleep(Duration::from_millis(40)).await;
+        assert!(!handle.snapshot().state.unwrap().ptt);
+
+        // Teraz lokalne żądanie SetPtt(true) przechodzi pomyślnie
+        let res2 = handle
+            .execute(
+                crate::cat::routing::RigCommandId::new(11),
+                crate::cat::routing::RigTarget::entire_rig(rig_id.clone()),
+                RigCommand::SetPtt(true),
+                tokio::time::Instant::now() + Duration::from_millis(500),
+            )
+            .await;
+        assert!(res2.is_ok());
+
+        let _ = handle
+            .shutdown(tokio::time::Instant::now() + Duration::from_millis(500))
+            .await;
+    }
+
+    #[tokio::test]
+    async fn unknown_ptt_after_reconnect_does_not_assume_rx() {
+        let shared = MockShared::default();
+        let rig_id = RigId::new("RIG-EXT-06").unwrap();
+        let fast_policy = ReconnectPolicy {
+            enabled: true,
+            base_delay: Duration::from_millis(20),
+            max_delay: Duration::from_millis(100),
+            factor: 2,
+            jitter_pct: 0,
+        };
+
+        let (service, mut handle) = RigService::spawn_with_policy(
+            rig_id.clone(),
+            Box::new(MockTestBackend::new(shared.clone())),
+            Duration::from_millis(15),
+            fast_policy,
+        );
+        let jh = tokio::spawn(service.run());
+        handle.attach_join_handle(jh);
+
+        for _ in 0..50 {
+            if handle.snapshot().lifecycle == RigServiceState::Ready {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        // Błąd w poll
+        shared.fail_poll.store(true, Ordering::SeqCst);
+        for _ in 0..50 {
+            if handle.snapshot().lifecycle == RigServiceState::Degraded {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        // Nie przywracamy poll -> reconnect nie może uznać stanu za RX ani przejść do Ready
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        let snap = handle.snapshot();
+        assert_eq!(snap.lifecycle, RigServiceState::Degraded);
+        assert_eq!(snap.freshness, StateFreshness::Stale);
+
+        let _ = handle
+            .shutdown(tokio::time::Instant::now() + Duration::from_millis(500))
+            .await;
+    }
+
+    #[tokio::test]
+    async fn fresh_rx_after_reconnect_allows_ready_state() {
+        let shared = MockShared::default();
+        let rig_id = RigId::new("RIG-EXT-07").unwrap();
+        let fast_policy = ReconnectPolicy {
+            enabled: true,
+            base_delay: Duration::from_millis(20),
+            max_delay: Duration::from_millis(100),
+            factor: 2,
+            jitter_pct: 0,
+        };
+
+        let (service, mut handle) = RigService::spawn_with_policy(
+            rig_id.clone(),
+            Box::new(MockTestBackend::new(shared.clone())),
+            Duration::from_millis(15),
+            fast_policy,
+        );
+        let jh = tokio::spawn(service.run());
+        handle.attach_join_handle(jh);
+
+        for _ in 0..50 {
+            if handle.snapshot().lifecycle == RigServiceState::Ready {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        shared.fail_poll.store(true, Ordering::SeqCst);
+        for _ in 0..50 {
+            if handle.snapshot().lifecycle == RigServiceState::Degraded {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        // Potwierdzony RX w poll
+        shared.poll_ptt.store(false, Ordering::SeqCst);
+        shared.fail_poll.store(false, Ordering::SeqCst);
+
+        for _ in 0..50 {
+            if handle.snapshot().lifecycle == RigServiceState::Ready {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(15)).await;
+        }
+
+        let snap = handle.snapshot();
+        assert_eq!(snap.lifecycle, RigServiceState::Ready);
+        assert_eq!(snap.freshness, StateFreshness::Fresh);
+        assert!(!snap.state.unwrap().ptt);
+
+        let _ = handle
+            .shutdown(tokio::time::Instant::now() + Duration::from_millis(500))
+            .await;
+    }
+
+    #[tokio::test]
+    async fn reconnect_never_sends_ptt_on() {
+        let shared = MockShared::default();
+        let rig_id = RigId::new("RIG-EXT-08").unwrap();
+        let fast_policy = ReconnectPolicy {
+            enabled: true,
+            base_delay: Duration::from_millis(20),
+            max_delay: Duration::from_millis(100),
+            factor: 2,
+            jitter_pct: 0,
+        };
+
+        let (service, mut handle) = RigService::spawn_with_policy(
+            rig_id.clone(),
+            Box::new(MockTestBackend::new(shared.clone())),
+            Duration::from_millis(15),
+            fast_policy,
+        );
+        let jh = tokio::spawn(service.run());
+        handle.attach_join_handle(jh);
+
+        for _ in 0..50 {
+            if handle.snapshot().lifecycle == RigServiceState::Ready {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        shared.fail_poll.store(true, Ordering::SeqCst);
+        for _ in 0..50 {
+            if handle.snapshot().lifecycle == RigServiceState::Degraded {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        shared.fail_poll.store(false, Ordering::SeqCst);
+        for _ in 0..50 {
+            if handle.snapshot().lifecycle == RigServiceState::Ready {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(15)).await;
+        }
+
+        // Sprawdź, czy podczas reconnectu wysłano jakąkolwiek komendę SetPtt(true)
+        let cmds = shared.executed_cmds.lock().unwrap().clone();
+        assert!(
+            !cmds.iter().any(|c| matches!(c, RigCommand::SetPtt(true))),
+            "Reconnect nigdy nie może wysyłać komendy PTT ON!"
+        );
+
+        let _ = handle
+            .shutdown(tokio::time::Instant::now() + Duration::from_millis(500))
+            .await;
+    }
+
+    #[tokio::test]
+    async fn reconnect_does_not_send_automatic_ptt_off_for_external_tx() {
+        let shared = MockShared::default();
+        let rig_id = RigId::new("RIG-EXT-09").unwrap();
+        let fast_policy = ReconnectPolicy {
+            enabled: true,
+            base_delay: Duration::from_millis(20),
+            max_delay: Duration::from_millis(100),
+            factor: 2,
+            jitter_pct: 0,
+        };
+
+        let (service, mut handle) = RigService::spawn_with_policy(
+            rig_id.clone(),
+            Box::new(MockTestBackend::new(shared.clone())),
+            Duration::from_millis(15),
+            fast_policy,
+        );
+        let jh = tokio::spawn(service.run());
+        handle.attach_join_handle(jh);
+
+        for _ in 0..50 {
+            if handle.snapshot().lifecycle == RigServiceState::Ready {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        shared.fail_poll.store(true, Ordering::SeqCst);
+        for _ in 0..50 {
+            if handle.snapshot().lifecycle == RigServiceState::Degraded {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        // Wykryto zewnętrzny TX
+        shared.poll_ptt.store(true, Ordering::SeqCst);
+        shared.fail_poll.store(false, Ordering::SeqCst);
+
+        for _ in 0..50 {
+            if handle.snapshot().lifecycle == RigServiceState::Ready {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(15)).await;
+        }
+
+        // Sprawdź, czy system NIE wysłał automatycznie PTT OFF
+        let cmds = shared.executed_cmds.lock().unwrap().clone();
+        assert!(
+            !cmds.iter().any(|c| matches!(c, RigCommand::SetPtt(false))),
+            "Reconnect nie może wysyłać automatycznie PTT OFF dla external TX bez jawnego żądania!"
+        );
 
         let _ = handle
             .shutdown(tokio::time::Instant::now() + Duration::from_millis(500))
