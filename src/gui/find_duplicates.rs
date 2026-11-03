@@ -310,8 +310,24 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
             .log_db
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let records: Vec<crate::core::qso::QsoRecord> = ids
+            .iter()
+            .filter_map(|&id| db.get_qso_by_id_scoped(id, &journal_id).ok().flatten())
+            .collect();
         match db.delete_multiple_qsos_scoped(&ids, &journal_id) {
             Ok(deleted) => {
+                if !records.is_empty() {
+                    if app.log_view.undo_stack.len() >= 20 {
+                        app.log_view.undo_stack.pop_back();
+                    }
+                    app.log_view.undo_stack.push_front(
+                        crate::gui::state::log_view::UndoAction::DeleteBatch {
+                            journal_id: journal_id.clone(),
+                            qsos: records,
+                        },
+                    );
+                    app.log_view.redo_stack.clear();
+                }
                 app.duplicates.status = Some(format!("Deleted {deleted} duplicates"));
                 app.duplicates.selected_ids.clear();
                 if let Ok(groups) =
@@ -320,6 +336,7 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     app.duplicates.groups = groups;
                 }
                 drop(db);
+                app.rebuild_awards_full();
                 app.reload_qsos();
             }
             Err(e) => {

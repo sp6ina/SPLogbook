@@ -58,16 +58,16 @@ impl LogDatabase {
         Ok(self.conn.last_insert_rowid())
     }
 
-    /// Przywraca usunięte QSO zachowując jego oryginalny identyfikator.
-    /// Używane przez Undo, aby redo oraz ewentualne referencje zachowały
-    /// tożsamość rekordu zamiast tworzyć nowe ID.
-    pub fn restore_qso(&self, qso: &QsoRecord) -> Result<i64> {
-        let Some(id) = qso.id else {
-            return self.insert_qso(qso);
+    /// Przywraca usunięte QSO zachowując jego oryginalny identyfikator pod warunkiem zgodności z journal_id
+    pub fn restore_qso_scoped(&self, journal_id: &str, qso: &QsoRecord) -> Result<i64> {
+        let mut owned = qso.clone();
+        owned.journal_id = Some(journal_id.to_string());
+        let Some(id) = owned.id else {
+            return self.insert_qso(&owned);
         };
-        let stored = for_storage(qso);
+        let stored = for_storage(&owned);
         let data_params = bind_params(&stored);
-        let identity_key = qso.identity().canonical_key();
+        let identity_key = owned.identity().canonical_key();
 
         let mut params: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(QSO_DATA_COLUMN_COUNT + 2);
         params.extend_from_slice(&data_params);
@@ -79,8 +79,57 @@ impl LogDatabase {
         Ok(id)
     }
 
-    /// Masowe wstawianie łączności w pojedynczej transakcji (bardzo szybki import ADIF)
+    /// Bezpieczne atomowe przywracanie wielu łączności w pojedynczej transakcji
+    pub fn restore_multiple_qsos_scoped(
+        &self,
+        journal_id: &str,
+        qsos: &[QsoRecord],
+    ) -> Result<Vec<i64>> {
+        if qsos.is_empty() {
+            return Ok(Vec::new());
+        }
+        let tx = self.conn.unchecked_transaction()?;
+        let mut restored_ids = Vec::with_capacity(qsos.len());
+        {
+            let mut stmt_with_id = tx.prepare_cached(&QSO_SQL.insert_with_id)?;
+            let mut stmt_no_id = tx.prepare_cached(&QSO_SQL.insert)?;
+            for q in qsos {
+                let mut owned = q.clone();
+                owned.journal_id = Some(journal_id.to_string());
+                let stored = for_storage(&owned);
+                let data_params = bind_params(&stored);
+                let identity_key = owned.identity().canonical_key();
 
+                if let Some(id) = owned.id {
+                    let mut params: Vec<&dyn rusqlite::ToSql> =
+                        Vec::with_capacity(QSO_DATA_COLUMN_COUNT + 2);
+                    params.extend_from_slice(&data_params);
+                    params.push(&id);
+                    params.push(&identity_key);
+                    stmt_with_id.execute(params.as_slice())?;
+                    restored_ids.push(id);
+                } else {
+                    let mut params: Vec<&dyn rusqlite::ToSql> =
+                        Vec::with_capacity(QSO_DATA_COLUMN_COUNT + 1);
+                    params.extend_from_slice(&data_params);
+                    params.push(&identity_key);
+                    stmt_no_id.execute(params.as_slice())?;
+                    let new_id = tx.last_insert_rowid();
+                    restored_ids.push(new_id);
+                }
+            }
+        }
+        tx.commit()?;
+        Ok(restored_ids)
+    }
+
+    /// Przywraca usunięte QSO zachowując jego oryginalny identyfikator
+    pub fn restore_qso(&self, qso: &QsoRecord) -> Result<i64> {
+        let jid = qso.journal_id.as_deref().unwrap_or("DEFAULT");
+        self.restore_qso_scoped(jid, qso)
+    }
+
+    /// Masowe wstawianie łączności w pojedynczej transakcji (bardzo szybki import ADIF)
     pub fn batch_insert_qsos(&self, qsos: &[QsoRecord]) -> Result<usize> {
         let tx = self.conn.unchecked_transaction()?;
         let mut count = 0;

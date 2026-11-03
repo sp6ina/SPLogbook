@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use super::*;
+use crate::gui::state::log_view::UndoAction;
 
 impl SpLogApp {
     pub fn save_qso(&mut self) {
@@ -611,6 +612,19 @@ impl SpLogApp {
             return;
         }
         let journal_id = self.active_journal.id.clone();
+        let records: Vec<crate::core::qso::QsoRecord> = if let Ok(db) = self.services.log_db.lock()
+        {
+            ids.iter()
+                .filter_map(|&id| db.get_qso_by_id_scoped(id, &journal_id).ok().flatten())
+                .collect()
+        } else {
+            vec![]
+        };
+
+        if records.is_empty() {
+            return;
+        }
+
         let result = {
             let db = self
                 .services
@@ -621,6 +635,17 @@ impl SpLogApp {
         };
         match result {
             Ok(count) => {
+                if self.log_view.undo_stack.len() >= 20 {
+                    self.log_view.undo_stack.pop_back();
+                }
+                self.log_view
+                    .undo_stack
+                    .push_front(UndoAction::DeleteBatch {
+                        journal_id,
+                        qsos: records,
+                    });
+                self.log_view.redo_stack.clear();
+
                 self.gui.chrome.status_message = Some(
                     Msg::new(key::MSG_QSO_DELETED_MULTIPLE)
                         .arg("count", count)
@@ -642,6 +667,21 @@ impl SpLogApp {
 
     pub fn delete_qso_by_id(&mut self, id: i64) {
         let journal_id = self.active_journal.id.clone();
+        let backup = if let Ok(db) = self.services.log_db.lock() {
+            db.get_qso_by_id_scoped(id, &journal_id).ok().flatten()
+        } else {
+            None
+        };
+        let Some(backup_qso) = backup else {
+            self.report_error(
+                Msg::new(key::MSG_QSO_DELETE_ERROR_ID)
+                    .arg("id", id)
+                    .arg("err", "not found")
+                    .text(self.gui.appearance.language),
+            );
+            return;
+        };
+
         let result = {
             let db = self
                 .services
@@ -652,6 +692,17 @@ impl SpLogApp {
         };
         match result {
             Ok(true) => {
+                if self.log_view.undo_stack.len() >= 20 {
+                    self.log_view.undo_stack.pop_back();
+                }
+                self.log_view
+                    .undo_stack
+                    .push_front(UndoAction::DeleteSingle {
+                        journal_id,
+                        qso: backup_qso,
+                    });
+                self.log_view.redo_stack.clear();
+
                 self.rebuild_awards_full();
                 self.reload_qsos();
                 self.gui.chrome.status_message = Some(
@@ -679,86 +730,184 @@ impl SpLogApp {
         }
     }
 
-    /// Cofa ostatnie usunięte QSO (Undo)
+    /// Cofa ostatnią operację mutującą (Undo — pojedyncze QSO lub partia) (DATA-004)
     pub fn perform_undo(&mut self) {
-        if let Some(qso) = self.log_view.undo_stack.pop_front() {
-            let callsign = qso.callsign.clone();
-            // Zachowujemy oryginalny identyfikator rekordu (o ile istniał), aby
-            // przywrócona łączność zachowała tożsamość dla redo i referencji.
-            let restored = qso.clone();
-            let result = {
-                let db = self
-                    .services
-                    .log_db
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                db.restore_qso(&restored)
-            };
-            match result {
-                Ok(id) => {
-                    // Zapisujemy rzeczywiste ID przywróconego rekordu,
-                    // aby Redo usuwał dokładnie ten rekord, a nie dopasowany po znaku/dacie.
-                    let mut redo_entry = restored;
-                    redo_entry.id = Some(id);
-                    self.log_view.redo_stack.push_front(redo_entry);
-                }
-                Err(e) => {
-                    self.report_error(
-                        Msg::new(key::MSG_QSO_RESTORE_ERROR)
-                            .arg("err", &e.to_string())
+        if let Some(action) = self.log_view.undo_stack.pop_front() {
+            match action {
+                UndoAction::DeleteSingle { journal_id, qso } => {
+                    let callsign = qso.callsign.clone();
+                    let restored = qso.clone();
+                    let result = {
+                        let db = self
+                            .services
+                            .log_db
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
+                        db.restore_qso_scoped(&journal_id, &restored)
+                    };
+                    match result {
+                        Ok(id) => {
+                            let mut redo_entry = restored;
+                            redo_entry.id = Some(id);
+                            self.log_view
+                                .redo_stack
+                                .push_front(UndoAction::DeleteSingle {
+                                    journal_id,
+                                    qso: redo_entry,
+                                });
+                        }
+                        Err(e) => {
+                            self.report_error(
+                                Msg::new(key::MSG_QSO_RESTORE_ERROR)
+                                    .arg("err", &e.to_string())
+                                    .text(self.gui.appearance.language),
+                            );
+                            return;
+                        }
+                    }
+                    self.rebuild_awards_full();
+                    self.reload_qsos();
+                    self.gui.chrome.status_message = Some(
+                        Msg::new(key::MSG_QSO_RESTORED_CALL)
+                            .arg("call", &callsign)
                             .text(self.gui.appearance.language),
                     );
-                    return;
+                }
+                UndoAction::DeleteBatch { journal_id, qsos } => {
+                    let count = qsos.len();
+                    let result = {
+                        let db = self
+                            .services
+                            .log_db
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
+                        db.restore_multiple_qsos_scoped(&journal_id, &qsos)
+                    };
+                    match result {
+                        Ok(restored_ids) => {
+                            let mut redo_qsos = qsos;
+                            for (q, id) in redo_qsos.iter_mut().zip(restored_ids.into_iter()) {
+                                q.id = Some(id);
+                            }
+                            self.log_view
+                                .redo_stack
+                                .push_front(UndoAction::DeleteBatch {
+                                    journal_id,
+                                    qsos: redo_qsos,
+                                });
+                        }
+                        Err(e) => {
+                            self.report_error(
+                                Msg::new(key::MSG_QSO_RESTORE_ERROR)
+                                    .arg("err", &e.to_string())
+                                    .text(self.gui.appearance.language),
+                            );
+                            return;
+                        }
+                    }
+                    self.rebuild_awards_full();
+                    self.reload_qsos();
+                    self.gui.chrome.status_message = Some(
+                        Msg::new(key::MSG_QSO_DELETED_MULTIPLE)
+                            .arg("count", count)
+                            .text(self.gui.appearance.language),
+                    );
                 }
             }
-            self.rebuild_awards_full();
-            self.reload_qsos();
-            self.gui.chrome.status_message = Some(
-                Msg::new(key::MSG_QSO_RESTORED_CALL)
-                    .arg("call", &callsign)
-                    .text(self.gui.appearance.language),
-            );
         }
     }
 
-    /// Ponawia cofnięte QSO (Redo — usuwa ponownie)
+    /// Ponawia cofniętą operację (Redo — ponowne usunięcie) (DATA-004)
     pub fn perform_redo(&mut self) {
-        if let Some(qso) = self.log_view.redo_stack.pop_front() {
-            let callsign = qso.callsign.clone();
-            let Some(id) = qso.id else {
-                self.report_error(
-                    Msg::new(key::MSG_QSO_REDO_NO_ID)
-                        .arg("callsign", &callsign)
-                        .text(self.gui.appearance.language),
-                );
-                return;
-            };
-            let journal_id = qso.journal_id.as_deref().unwrap_or(&self.active_journal.id);
-            let result = {
-                let db = self
-                    .services
-                    .log_db
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                db.delete_qso_scoped(id, journal_id)
-            };
-            if let Err(e) = result {
-                self.report_error(
-                    Msg::new(key::MSG_QSO_REDO_DELETE_ERROR)
-                        .arg("id", id)
-                        .arg("err", &e)
-                        .text(self.gui.appearance.language),
-                );
-                return;
+        if let Some(action) = self.log_view.redo_stack.pop_front() {
+            match action {
+                UndoAction::DeleteSingle { journal_id, qso } => {
+                    let callsign = qso.callsign.clone();
+                    let Some(id) = qso.id else {
+                        self.report_error(
+                            Msg::new(key::MSG_QSO_REDO_NO_ID)
+                                .arg("callsign", &callsign)
+                                .text(self.gui.appearance.language),
+                        );
+                        return;
+                    };
+                    let result = {
+                        let db = self
+                            .services
+                            .log_db
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
+                        db.delete_qso_scoped(id, &journal_id)
+                    };
+                    match result {
+                        Ok(true) => {
+                            self.log_view
+                                .undo_stack
+                                .push_front(UndoAction::DeleteSingle { journal_id, qso });
+                        }
+                        Ok(false) => {
+                            self.report_error(
+                                Msg::new(key::MSG_QSO_REDO_DELETE_ERROR)
+                                    .arg("id", id)
+                                    .arg("err", "not found in journal")
+                                    .text(self.gui.appearance.language),
+                            );
+                            return;
+                        }
+                        Err(e) => {
+                            self.report_error(
+                                Msg::new(key::MSG_QSO_REDO_DELETE_ERROR)
+                                    .arg("id", id)
+                                    .arg("err", &e)
+                                    .text(self.gui.appearance.language),
+                            );
+                            return;
+                        }
+                    }
+                    self.rebuild_awards_full();
+                    self.reload_qsos();
+                    self.gui.chrome.status_message = Some(
+                        Msg::new(key::MSG_QSO_REDO_DELETED_CALL)
+                            .arg("call", &callsign)
+                            .text(self.gui.appearance.language),
+                    );
+                }
+                UndoAction::DeleteBatch { journal_id, qsos } => {
+                    let ids: Vec<i64> = qsos.iter().filter_map(|q| q.id).collect();
+                    let count = ids.len();
+                    let result = {
+                        let db = self
+                            .services
+                            .log_db
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
+                        db.delete_multiple_qsos_scoped(&ids, &journal_id)
+                    };
+                    match result {
+                        Ok(_) => {
+                            self.log_view
+                                .undo_stack
+                                .push_front(UndoAction::DeleteBatch { journal_id, qsos });
+                        }
+                        Err(e) => {
+                            self.report_error(
+                                Msg::new(key::MSG_QSO_REDO_DELETE_ERROR)
+                                    .arg("id", ids.first().copied().unwrap_or(0))
+                                    .arg("err", &e.to_string())
+                                    .text(self.gui.appearance.language),
+                            );
+                            return;
+                        }
+                    }
+                    self.rebuild_awards_full();
+                    self.reload_qsos();
+                    self.gui.chrome.status_message = Some(
+                        Msg::new(key::MSG_QSO_DELETED_MULTIPLE)
+                            .arg("count", count)
+                            .text(self.gui.appearance.language),
+                    );
+                }
             }
-            self.log_view.undo_stack.push_front(qso);
-            self.rebuild_awards_full();
-            self.reload_qsos();
-            self.gui.chrome.status_message = Some(
-                Msg::new(key::MSG_QSO_REDO_DELETED_CALL)
-                    .arg("call", &callsign)
-                    .text(self.gui.appearance.language),
-            );
         }
     }
 
