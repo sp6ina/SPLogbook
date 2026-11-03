@@ -200,6 +200,11 @@ impl IcomCiVBackend {
         }
 
         let deadline = tokio::time::Instant::now() + timeout;
+        let is_data_query = match cmd {
+            command::READ_FREQUENCY | command::READ_MODE | command::READ_METER => true,
+            command::READ_PTT => data.is_empty(),
+            _ => false,
+        };
 
         loop {
             // Sprawdź czy w buforze jest gotowa ramka
@@ -217,12 +222,12 @@ impl IcomCiVBackend {
             match maybe_frame {
                 Ok(Some(frame)) => {
                     // 1. Filtracja echa (jeśli transceiver ma CI-V Echo Back włączone)
-                    if frame.to == self.radio_address && frame.from == self.controller_address {
-                        // To jest nasze własne echo wysłanej ramki — ignorujemy
+                    if frame.is_echo_of(self.controller_address, self.radio_address) {
+                        // To jest nasze własne echo wysłanej komendy — ignorujemy
                         continue;
                     }
 
-                    // 2. Obsługa odmowy NAK (0xFA)
+                    // 2. Obsługa odmowy NAK (0xFA) — błąd natychmiastowy
                     if frame.is_nak() {
                         return Err(RigError::Rejected {
                             code: CI_V_NAK as i32,
@@ -235,10 +240,21 @@ impl IcomCiVBackend {
                         continue;
                     }
 
-                    // 4. Ramka odpowiedzi skierowana do kontrolera
-                    if frame.to == self.controller_address && frame.from == self.radio_address {
-                        // Jeśli ramka odpowiada wysłanej komendzie lub jest ACK/NAK
-                        if frame.command == cmd || frame.is_ack() {
+                    // 4. Odrzucenie ramek dla innych adresów lub innych urządzeń na magistrali
+                    if !frame.is_response_to(self.controller_address, self.radio_address) {
+                        continue;
+                    }
+
+                    // 5. Dopasowanie odpowiedzi:
+                    if is_data_query {
+                        // W przypadku zapytania o dane (np. częstotliwość, tryb, S-meter),
+                        // ACK (0xFB) nie jest danymi — ignorujemy ACK i czekamy na ramkę danych.
+                        if frame.command == cmd {
+                            return Ok(frame);
+                        }
+                    } else {
+                        // W przypadku poleceń mutujących (settery), radio odpowiada ACK lub echem komendy.
+                        if frame.is_ack() || frame.command == cmd {
                             return Ok(frame);
                         }
                     }
@@ -314,14 +330,19 @@ impl IcomCiVBackend {
                 self.config.read_timeout,
             )
             .await?;
-        if frame.command == command::READ_FREQUENCY {
-            let hz = IcomCiVCodec::decode_frequency_bcd(&frame.data).map_err(|e| {
-                RigError::Protocol {
-                    detail: format!("invalid frequency BCD: {e}"),
-                }
-            })?;
-            self.state.frequency_hz = hz;
+        if frame.command != command::READ_FREQUENCY {
+            return Err(RigError::Protocol {
+                detail: format!(
+                    "expected frequency frame (cmd 0x03), got 0x{:02X}",
+                    frame.command
+                ),
+            });
         }
+        let hz =
+            IcomCiVCodec::decode_frequency_bcd(&frame.data).map_err(|e| RigError::Protocol {
+                detail: format!("invalid frequency BCD: {e}"),
+            })?;
+        self.state.frequency_hz = hz;
         Ok(())
     }
 
@@ -329,9 +350,15 @@ impl IcomCiVBackend {
         let frame = self
             .send_query_and_await_reply(command::READ_MODE, None, &[], self.config.read_timeout)
             .await?;
-        if frame.command == command::READ_MODE && !frame.data.is_empty() {
-            self.state.mode = IcomCiVCodec::code_to_mode(frame.data[0]).to_string();
+        if frame.command != command::READ_MODE || frame.data.is_empty() {
+            return Err(RigError::Protocol {
+                detail: format!(
+                    "expected mode frame (cmd 0x04), got 0x{:02X}",
+                    frame.command
+                ),
+            });
         }
+        self.state.mode = IcomCiVCodec::code_to_mode(frame.data[0]).to_string();
         Ok(())
     }
 
@@ -504,15 +531,16 @@ impl RigBackend for IcomCiVBackend {
                         .map_err(|e| RigError::Protocol {
                             detail: e.to_string(),
                         })?;
+                    // Icom CI-V komenda 0x25 0x01: ustawienie częstotliwości Split (TX)
                     let reply = self
                         .send_query_and_await_reply(
-                            command::SET_FREQUENCY,
-                            None,
+                            command::SPLIT_FREQ,
+                            Some(subcommand::SPLIT_FREQ_SUB),
                             &bcd,
                             self.config.write_timeout,
                         )
                         .await?;
-                    if reply.is_ack() || reply.command == command::SET_FREQUENCY {
+                    if reply.is_ack() || reply.command == command::SPLIT_FREQ {
                         self.state.tx_frequency_hz = Some(*hz);
                     }
                 }
@@ -585,27 +613,95 @@ impl RigBackend for IcomCiVBackend {
                     }
                 }
                 RigCommand::SetRit(hz) => {
-                    let enable = u8::from(*hz != 0);
-                    let _ = self
+                    let (on_off, offset_opt) = if *hz == 0 {
+                        (0x00u8, None)
+                    } else {
+                        let offset_bcd = IcomCiVCodec::encode_rit_offset(*hz).map_err(|e| {
+                            RigError::Protocol {
+                                detail: format!("invalid RIT offset: {e}"),
+                            }
+                        })?;
+                        (0x01u8, Some(offset_bcd))
+                    };
+
+                    // 1. Włącz / wyłącz RIT (0x21 sub 0x01)
+                    let reply = self
                         .send_query_and_await_reply(
                             command::RIT_XIT,
-                            Some(subcommand::RIT_FREQ),
-                            &[enable],
+                            Some(subcommand::RIT_ON_OFF),
+                            &[on_off],
                             self.config.write_timeout,
                         )
-                        .await;
+                        .await?;
+                    if !reply.is_ack() && reply.command != command::RIT_XIT {
+                        return Err(RigError::Protocol {
+                            detail: "failed to set RIT state".to_string(),
+                        });
+                    }
+
+                    // 2. Jeśli RIT jest włączany, wyślij offset (0x21 sub 0x00)
+                    if let Some(offset) = offset_opt {
+                        let reply = self
+                            .send_query_and_await_reply(
+                                command::RIT_XIT,
+                                Some(subcommand::RIT_FREQ),
+                                &offset,
+                                self.config.write_timeout,
+                            )
+                            .await?;
+                        if !reply.is_ack() && reply.command != command::RIT_XIT {
+                            return Err(RigError::Protocol {
+                                detail: "failed to set RIT offset".to_string(),
+                            });
+                        }
+                    }
+
                     self.state.rit_hz = *hz;
                 }
                 RigCommand::SetXit(hz) => {
-                    let enable = u8::from(*hz != 0);
-                    let _ = self
+                    let (on_off, offset_opt) = if *hz == 0 {
+                        (0x00u8, None)
+                    } else {
+                        let offset_bcd = IcomCiVCodec::encode_rit_offset(*hz).map_err(|e| {
+                            RigError::Protocol {
+                                detail: format!("invalid XIT offset: {e}"),
+                            }
+                        })?;
+                        (0x01u8, Some(offset_bcd))
+                    };
+
+                    // 1. Włącz / wyłącz XIT (0x21 sub 0x02)
+                    let reply = self
                         .send_query_and_await_reply(
                             command::RIT_XIT,
-                            Some(subcommand::XIT_FREQ),
-                            &[enable],
+                            Some(subcommand::XIT_ON_OFF),
+                            &[on_off],
                             self.config.write_timeout,
                         )
-                        .await;
+                        .await?;
+                    if !reply.is_ack() && reply.command != command::RIT_XIT {
+                        return Err(RigError::Protocol {
+                            detail: "failed to set XIT state".to_string(),
+                        });
+                    }
+
+                    // 2. Jeśli XIT jest włączany, wyślij offset (0x21 sub 0x00)
+                    if let Some(offset) = offset_opt {
+                        let reply = self
+                            .send_query_and_await_reply(
+                                command::RIT_XIT,
+                                Some(subcommand::RIT_FREQ),
+                                &offset,
+                                self.config.write_timeout,
+                            )
+                            .await?;
+                        if !reply.is_ack() && reply.command != command::RIT_XIT {
+                            return Err(RigError::Protocol {
+                                detail: "failed to set XIT offset".to_string(),
+                            });
+                        }
+                    }
+
                     self.state.xit_hz = *hz;
                 }
                 RigCommand::SetPower(watts) => {
