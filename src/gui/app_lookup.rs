@@ -111,7 +111,8 @@ impl SpLogApp {
 
         // 3. Sprawdzenie poprzednich łączności z tą stacją w lokalnej bazie SQLite
         let prevs_opt = if let Ok(db) = self.services.log_db.lock() {
-            db.find_previous_qsos(&clean).ok()
+            db.find_previous_qsos_for_journal(&self.active_journal.id, &clean)
+                .ok()
         } else {
             None
         };

@@ -94,8 +94,8 @@ impl std::fmt::Display for QslValidationError {
 impl std::error::Error for QslValidationError {}
 
 impl QslDesignerDialog {
-    pub fn queue_by_rules(&mut self, db: &LogDatabase, lang: Language) {
-        if let Ok(all) = db.get_all_qsos() {
+    pub fn queue_by_rules(&mut self, db: &LogDatabase, lang: Language, journal_id: &str) {
+        if let Ok(all) = db.get_all_qsos_for_journal(journal_id) {
             let from = self.batch_date_from.trim();
             let to = self.batch_date_to.trim();
             let band = self.batch_band.trim().to_uppercase();
@@ -153,6 +153,7 @@ impl QslDesignerDialog {
         db: &LogDatabase,
         my_callsign: &str,
         lang: Language,
+        journal_id: &str,
     ) {
         if !self.is_open {
             return;
@@ -205,7 +206,7 @@ impl QslDesignerDialog {
 
                 ui.horizontal(|ui| {
                     if ui.button(tr(key::QSL_ADD_FROM_DB_RULES, lang)).clicked() {
-                        self.queue_by_rules(db, lang);
+                        self.queue_by_rules(db, lang, journal_id);
                     }
                     if ui.button(tr(key::QSL_CLEAR_QUEUE, lang)).clicked() {
                         self.queued_qsos.clear();

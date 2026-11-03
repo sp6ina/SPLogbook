@@ -117,7 +117,7 @@ impl SpLogApp {
                     .log_db
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
-                match db.get_recent_qsos(100_000) {
+                match db.get_all_qsos_for_journal(&self.active_journal.id) {
                     Ok(list) => list,
                     Err(e) => {
                         self.gui.chrome.status_message = Some(
@@ -166,7 +166,7 @@ impl SpLogApp {
                     .log_db
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
-                match db.get_recent_qsos(100_000) {
+                match db.get_all_qsos_for_journal(&self.active_journal.id) {
                     Ok(list) => list,
                     Err(e) => {
                         self.gui.chrome.status_message = Some(
@@ -209,7 +209,7 @@ impl SpLogApp {
                     .log_db
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
-                match db.get_recent_qsos(100_000) {
+                match db.get_all_qsos_for_journal(&self.active_journal.id) {
                     Ok(list) => list,
                     Err(e) => {
                         self.gui.chrome.status_message = Some(
@@ -287,7 +287,8 @@ impl SpLogApp {
                 .log_db
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            db.get_recent_qsos(10000).unwrap_or_default()
+            db.get_all_qsos_for_journal(&self.active_journal.id)
+                .unwrap_or_default()
         };
         let adif =
             crate::core::adif::export_adif(&qsos, "SPLogbook", &self.config.station.callsign);

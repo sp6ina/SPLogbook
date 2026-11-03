@@ -665,7 +665,7 @@ impl Drop for SpLogApp {
             .log_db
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Ok(qsos) = db.get_recent_qsos(5000) {
+        if let Ok(qsos) = db.get_all_qsos_for_journal(&self.active_journal.id) {
             let adif =
                 crate::core::adif::export_adif(&qsos, "SPLogbook", &self.config.station.callsign);
             let _ = BackupManager::backup_adif(&adif, &backup_dir);

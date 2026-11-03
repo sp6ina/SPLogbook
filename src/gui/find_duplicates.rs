@@ -285,7 +285,7 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
             .log_db
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        match db.find_duplicate_qsos(app.duplicates.match_date) {
+        match db.find_duplicate_qsos(&app.active_journal.id, app.duplicates.match_date) {
             Ok(groups) => {
                 let total_dups: usize = groups.iter().map(std::vec::Vec::len).sum();
                 app.duplicates.status = Some(format!(
@@ -313,7 +313,9 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
             Ok(deleted) => {
                 app.duplicates.status = Some(format!("Deleted {deleted} duplicates"));
                 app.duplicates.selected_ids.clear();
-                if let Ok(groups) = db.find_duplicate_qsos(app.duplicates.match_date) {
+                if let Ok(groups) =
+                    db.find_duplicate_qsos(&app.active_journal.id, app.duplicates.match_date)
+                {
                     app.duplicates.groups = groups;
                 }
                 drop(db);

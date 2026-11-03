@@ -172,6 +172,7 @@ pub struct DupeCheckQuery {
     pub band: Option<String>,
     pub mode: Option<String>,
     pub same_day: Option<bool>,
+    pub journal_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -187,6 +188,12 @@ pub struct CallsignHistoryResponse {
 pub struct LookupQuery {
     pub band: Option<String>,
     pub mode: Option<String>,
+    pub journal_id: Option<String>,
+}
+
+#[derive(Deserialize, Default)]
+pub struct JournalScopedQuery {
+    pub journal_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -780,7 +787,14 @@ async fn get_qsos(
 
     let qsos = with_db(&state, move |db| {
         if advanced {
-            let filter = build_advanced_filter(&query);
+            let mut filter = build_advanced_filter(&query);
+            if filter.journal_id.is_none() {
+                let active = db
+                    .get_active_journal()
+                    .map(|j| j.id)
+                    .unwrap_or_else(|_| "DEFAULT".to_string());
+                filter.journal_id = Some(active);
+            }
             let mut qsos = db.search_qsos_advanced(&filter)?;
             if offset < qsos.len() {
                 qsos.drain(0..offset);
@@ -790,7 +804,11 @@ async fn get_qsos(
             qsos.truncate(limit);
             Ok(qsos)
         } else {
-            db.get_qsos_paginated(limit, offset)
+            let active = db
+                .get_active_journal()
+                .map(|j| j.id)
+                .unwrap_or_else(|_| "DEFAULT".to_string());
+            db.get_qsos_paginated_for_journal(&active, limit, offset)
         }
     })
     .await?;
@@ -801,8 +819,19 @@ async fn get_qsos(
 async fn get_qso_by_id(
     State(state): State<ApiState>,
     Path(id): Path<i64>,
+    Query(query): Query<JournalScopedQuery>,
 ) -> Result<Json<QsoRecord>, (StatusCode, String)> {
-    let qso = with_db(&state, move |db| db.get_qso_by_id(id)).await?;
+    let qso = with_db(&state, move |db| {
+        let target_journal = match query.journal_id {
+            Some(j) => j,
+            None => db
+                .get_active_journal()
+                .map(|j| j.id)
+                .unwrap_or_else(|_| "DEFAULT".to_string()),
+        };
+        db.get_qso_by_id_scoped(id, &target_journal)
+    })
+    .await?;
 
     match qso {
         Some(q) => Ok(Json(q)),
@@ -923,8 +952,18 @@ async fn get_qsos_by_callsign(
 ) -> Result<Json<CallsignHistoryResponse>, (StatusCode, String)> {
     let clean_call = call.trim().to_uppercase();
     let clean_call_for_db = clean_call.clone();
-    let previous_qsos =
-        with_db(&state, move |db| db.find_previous_qsos(&clean_call_for_db)).await?;
+    let journal_id_opt = query.journal_id.clone();
+    let previous_qsos = with_db(&state, move |db| {
+        let target_journal = match journal_id_opt {
+            Some(j) => j,
+            None => db
+                .get_active_journal()
+                .map(|j| j.id)
+                .unwrap_or_else(|_| "DEFAULT".to_string()),
+        };
+        db.find_previous_qsos_for_journal(&target_journal, &clean_call_for_db)
+    })
+    .await?;
 
     let today = chrono::Utc::now().format("%Y%m%d").to_string();
     let is_dupe = previous_qsos.iter().any(|q| {
@@ -990,8 +1029,18 @@ async fn lookup_callsign(
     });
 
     let clean_for_db = clean.clone();
+    let journal_id_opt = query.journal_id.clone();
     let previous_qso_count = with_db(&state, move |db| {
-        Ok(db.find_previous_qsos(&clean_for_db).map_or(0, |v| v.len()))
+        let target_journal = match journal_id_opt {
+            Some(j) => j,
+            None => db
+                .get_active_journal()
+                .map(|j| j.id)
+                .unwrap_or_else(|_| "DEFAULT".to_string()),
+        };
+        Ok(db
+            .find_previous_qsos_for_journal(&target_journal, &clean_for_db)
+            .map_or(0, |v| v.len()))
     })
     .await?;
 
@@ -1017,17 +1066,33 @@ async fn export_adif_handler(
     Query(query): Query<QsoQuery>,
 ) -> Result<Response, (StatusCode, String)> {
     let qsos = with_db(&state, move |db| {
-        if has_advanced_filter(&query) {
-            let filter = build_advanced_filter(&query);
+        let mut filter = build_advanced_filter(&query);
+        let has_filter = has_advanced_filter(&query);
+        if has_filter {
+            if filter.journal_id.is_none() {
+                let active = db
+                    .get_active_journal()
+                    .map(|j| j.id)
+                    .unwrap_or_else(|_| "DEFAULT".to_string());
+                filter.journal_id = Some(active);
+            }
             let mut list = db.search_qsos_advanced(&filter)?;
             if let Some(lim) = query.limit {
                 list.truncate(lim);
             }
             Ok(list)
         } else if let Some(lim) = query.limit {
-            db.get_qsos_paginated(lim, query.offset.unwrap_or(0))
+            let active = db
+                .get_active_journal()
+                .map(|j| j.id)
+                .unwrap_or_else(|_| "DEFAULT".to_string());
+            db.get_qsos_paginated_for_journal(&active, lim, query.offset.unwrap_or(0))
         } else {
-            db.get_all_qsos()
+            let active = db
+                .get_active_journal()
+                .map(|j| j.id)
+                .unwrap_or_else(|_| "DEFAULT".to_string());
+            db.get_all_qsos_for_journal(&active)
         }
     })
     .await?;
@@ -1047,6 +1112,7 @@ async fn export_adif_handler(
 
 async fn import_adif_handler(
     State(state): State<ApiState>,
+    Query(query): Query<JournalScopedQuery>,
     body: String,
 ) -> Result<Json<AdifImportApiResponse>, (StatusCode, String)> {
     if body.trim().is_empty() {
@@ -1063,8 +1129,18 @@ async fn import_adif_handler(
         let qsos = parse_report.qsos;
         let rejected = parse_report.rejected;
         let errors = parse_report.errors;
+        let journal_id = match query.journal_id {
+            Some(j) => j,
+            None => {
+                let db_guard = db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                db_guard
+                    .get_active_journal()
+                    .map(|j| j.id)
+                    .unwrap_or_else(|_| "DEFAULT".to_string())
+            }
+        };
         let options = ImportOptions {
-            journal_id: "DEFAULT".to_string(),
+            journal_id,
             enrich: true,
         };
         let import_report = ingestor.import_batch(qsos, &options)?;
@@ -2432,5 +2508,117 @@ mod tests {
         assert!(validate_bind_policy(&loopback_v6, "").is_ok());
 
         assert!(validate_bind_policy(&lan_v4, "TEST_SECRET_DO_NOT_USE_VALID_KEY").is_ok());
+    }
+
+    #[tokio::test]
+    async fn rest_api_journal_scoped_isolation() {
+        let state = test_api_state();
+        let app = build_api_router(state.clone());
+
+        // Setup journals: DEFAULT is active, create PORTABLE
+        {
+            let db = state.db.lock().unwrap();
+            db.create_journal(&crate::core::database::Journal {
+                id: "PORTABLE".to_string(),
+                name: "Portable".to_string(),
+                station_callsign: "SP6INA/P".to_string(),
+                operator: String::new(),
+                my_gridsquare: String::new(),
+                my_pga: String::new(),
+                description: String::new(),
+                is_default: false,
+            })
+            .unwrap();
+
+            let mut q1 = QsoRecord::new("W1AW", "20m", "CW");
+            q1.journal_id = Some("DEFAULT".to_string());
+            q1.qso_date = "20261101".to_string();
+            q1.time_on = "120000".to_string();
+            db.insert_qso(&q1).unwrap();
+
+            let mut q2 = QsoRecord::new("K1ABC", "40m", "SSB");
+            q2.journal_id = Some("PORTABLE".to_string());
+            q2.qso_date = "20261101".to_string();
+            q2.time_on = "130000".to_string();
+            db.insert_qso(&q2).unwrap();
+        }
+
+        // 1. GET /api/v1/qsos without params returns only active journal (DEFAULT -> W1AW)
+        let resp = call_router(
+            &app,
+            Request::builder()
+                .uri("/api/v1/qsos")
+                .header("x-api-key", "secret-key-123")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let qsos: Vec<QsoRecord> = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(qsos.len(), 1);
+        assert_eq!(qsos[0].callsign, "W1AW");
+
+        // 2. GET /api/v1/qsos?journal_id=PORTABLE returns only PORTABLE (K1ABC)
+        let resp = call_router(
+            &app,
+            Request::builder()
+                .uri("/api/v1/qsos?journal_id=PORTABLE")
+                .header("x-api-key", "secret-key-123")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let qsos: Vec<QsoRecord> = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(qsos.len(), 1);
+        assert_eq!(qsos[0].callsign, "K1ABC");
+
+        // 3. GET /api/v1/qsos/2 (which belongs to PORTABLE) under DEFAULT context returns 404
+        let resp = call_router(
+            &app,
+            Request::builder()
+                .uri("/api/v1/qsos/2")
+                .header("x-api-key", "secret-key-123")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+
+        // 4. GET /api/v1/qsos/2?journal_id=PORTABLE succeeds
+        let resp = call_router(
+            &app,
+            Request::builder()
+                .uri("/api/v1/qsos/2?journal_id=PORTABLE")
+                .header("x-api-key", "secret-key-123")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // 5. GET /api/v1/adif/export?journal_id=DEFAULT exports only W1AW
+        let resp = call_router(
+            &app,
+            Request::builder()
+                .uri("/api/v1/adif/export?journal_id=DEFAULT")
+                .header("x-api-key", "secret-key-123")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let adif_str = String::from_utf8_lossy(&bytes);
+        assert!(adif_str.contains("<CALL:4>W1AW"));
+        assert!(!adif_str.contains("<CALL:5>K1ABC"));
     }
 }
