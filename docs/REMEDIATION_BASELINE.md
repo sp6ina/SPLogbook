@@ -233,3 +233,49 @@ Commit końcowy Etapu 4: `HEAD` (repair/full-system-remediation / main / origin/
   - Status programowy Etapu 4: `SOFTWARE VERIFIED`.
   - Status bramki CAT-017: `FIXED_SOFTWARE_VERIFIED`.
   - Gotowość do Etapu 5: `READY`.
+
+
+---
+
+## 6. Status po zakończeniu Końcowej Bramki Naprawczej Etapu 5 — Integralność Danych (SOFTWARE VERIFIED)
+
+Data sporządzenia: 2026-11-03
+Środowisko: Windows x86_64
+Aktywna gałąź: `repair/full-system-remediation`
+Stan synchronizacji: fast-forward z `main` i `origin/main` (ahead/behind: 0 0)
+Cargo.toml SHA-1: `d8e3acd8f0c7b3307b3733c6c4a9a6cc57cb17c4` (bez zmian)
+Cargo.lock SHA-1: `c569097f3ef69c66ec59b74c29c1eb29efce69ae` (bez zmian)
+
+### Zrealizowany zakres audytowy:
+- `DATA-001`: Jednoznaczna polityka długości ADIF. Wprowadzenie `AdifParseMode::Strict` (rygorystyczne cięcie bajtowe UTF-8, odrzucanie rekordów z przeciętym znakiem) oraz `AdifParseMode::Compatibility` (fallback na liczbę znaków Unicode wyłącznie na granicy znaku i przed następnym tagiem/EOR, z jawnym raportowaniem ostrzeżeń `AdifCompatibilityWarning`). Eksport ADIF oparty o kanoniczną długość bajtową UTF-8.
+- `DATA-002`: Dowodowa atomowość zapisu pojedynczego QSO (`ingest`) oraz wsadowego (`import_batch`). Każda operacja zapisu wykonuje `tx.commit()` w SQLite przed emisją zdarzeń i mutacją stanów pochodnych. Przy jakimkolwiek błędzie (w środku lub na końcu batcha) następuje pełny ROLLBACK w SQLite, 0 rekordów w bazie, 0 modyfikacji w AwardsEngine, 0 w ScpEngine, 0 wyemitowanych AppEvent. Potwierdzona możliwość idempotentnego ponowienia operacji.
+- `DATA-003`: Stabilny, kanoniczny klucz tożsamości `QsoIdentity` (`{CALL}|{BAND}|{MODE}|{DATE}|{MINUTE}`), pomijający znaki specjalne w datach i normalizujący minuty. Migracja 6 schematu SQLite dodaje kolumnę `identity_key` i tworzy `CREATE UNIQUE INDEX idx_qso_identity_unique ON qso_records(journal_id, identity_key)`. Migracja wykonuje uprzedni audyt duplikatów: w razie ich znalezienia przerywa działanie i cofa transakcję, bez usuwania ani scalania rekordów użytkownika. Eliminacja wyścigów check-then-insert także pomiędzy różnymi połączeniami SQLite i instancjami repozytorium.
+- `ARCH-002`: SQLite jako pojedyncze źródło prawdy (Single Source of Truth). Dodanie metody `QsoIngestor::rebuild_derived_state()`, która w razie awarii, restartu lub rozbieżności w 100% deterministycznie odbudowuje `AwardsEngine` i `ScpEngine` z bazy danych. Emisja `AppEvent::QsoLogged` następuje wyłącznie po potwierdzonym commit SQLite; błąd odbiorcy zdarzeń nie powoduje utraty zapisanego rekordu.
+
+### Pełne wyniki weryfikacji bramki:
+- `cargo +stable fmt --all -- --check`: 0 diff (formatowanie czyste)
+- `cargo +stable check --workspace --all-targets --all-features`: EXIT 0 (0 błędów)
+- `cargo +stable test --workspace --all-targets -- --list`:
+  - 1874 aktywne testy programowe
+  - 10 fizycznych testów sprzetowych HIL (`#[ignore = "hardware-in-the-loop"]`)
+  - 1884 wszystkich zarejestrowanych przypadków testowych (+49 względem stanu wejściowego)
+- `cargo +stable test --doc`: EXIT 0 (0 failed)
+- Testy domenowe i strażnicy:
+  - `tests/security_guard.rs`: 32 passed, 0 failed
+  - `tests/i18n_guard.rs`: 15 passed, 0 failed
+  - `tests/theme_guard.rs`: 1 passed, 0 failed
+  - `tests/cat_native_6a.rs`: 165 passed, 0 failed
+  - `tests/cat_native_6b.rs`: 87 passed, 0 failed
+  - `tests/cat_native_7.rs`: 285 passed, 10 ignored HIL, 0 failed
+- `cargo audit`:
+  - 0 podatności (vulnerabilities: 0)
+  - 0 unsound
+  - 1 yanked (`async-executor 1.14.0`)
+  - 6 unmaintained
+- Bezpieczeństwo RF i HIL:
+  - Emisja RF: 0
+  - Fizyczne testy CAT/HIL: odizolowane za `#[ignore = "hardware-in-the-loop"]`
+  - Status HIL: `NOT EXECUTED — SAFETY GATE CLOSED`
+- Prawdziwe bazy użytkownika: nienaruszone (testy wyłącznie w RAM i katalogach temp).
+- Status Etapu 5: **SOFTWARE VERIFIED**.
+- Status Etapu 6: **UNBLOCKED**.

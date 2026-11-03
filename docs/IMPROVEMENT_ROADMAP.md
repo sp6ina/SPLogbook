@@ -219,13 +219,27 @@ flowchart LR
 ---
 
 ### Etap 5 — Integralność Danych: Parser ADIF, `QsoIngestor` i Indeksy SQLite (`P1`) [SOFTWARE VERIFIED]
-- **Status:** **SOFTWARE VERIFIED**
+- **Status:** **SOFTWARE VERIFIED** (Końcowa Bramka Naprawcza Zakończona Pomyślnie)
 - **Data ukończenia:** 2026-11-03
-- **Podsumowanie wdrożenia Etapu 5:**
-  - `DATA-001` (commit `56b44a4`): Rygorystyczny parser ADIF z limitami zasobów (64 MiB plik, 1 MiB nagłówek, 1 MiB pole), eliminacja fabrykowania `Utc::now()` przy brakujących tagach daty/czasu oraz dual-mode length extraction chroniące wielobajtowe znaki UTF-8. 29/29 testów jednostkowych w `core::adif`.
-  - `DATA-002` (commit `9b7f0fc`): Dodanie `normalize_qso_fields` do `QsoIngestor::import_batch` umożliwiające dedukcję pasma z `freq` oraz normalizację formatu dat i wielkości liter.
-  - `DATA-003` (commit `ceaa355`): Normalizacja zakresów dat w `search_qsos_advanced`, migracja 5 schematu SQLite z indeksem tożsamości `idx_qso_identity(journal_id, callsign, qso_date, band, mode)` potwierdzonym przez `EXPLAIN QUERY PLAN` (`SEARCH ... USING INDEX`), oraz eliminacja wyścigów check-then-insert w `QsoIngestor::ingest`.
-  - `ARCH-002` (commit `50321f1`): Unifikacja ścieżki edycji QSO w GUI (`save_edited_qso`) i REST API (`PUT /api/v1/qsos/{id}`) poprzez `QsoIngestor::update_existing` z automatyczną przebudową `AwardsEngine` i rejestracją w `ScpEngine`.
+- **Zrealizowane Commity Etapu 5 (Baza + Końcowa Bramka Naprawcza):**
+  - `56b44a4`: `fix(adif): enforce bounded and deterministic record parsing (DATA-001)`
+  - `9b7f0fc`: `fix(data): make QSO ingestion atomic and idempotent (DATA-002)`
+  - `ceaa355`: `fix(data): enforce database-level QSO deduplication (DATA-003)`
+  - `50321f1`: `fix(storage): unify QSO update path and awards sync through QsoIngestor (ARCH-002)`
+  - `bd5cd65`: `docs: record ADIF and SQLite integrity remediation`
+  - `2fe66b6`: `fix(adif): separate strict and compatibility length parsing (DATA-001)` (Commit 1)
+  - `7935e8e`: `fix(data): define stable QSO identity and database uniqueness (DATA-003)` (Commit 2)
+  - `78b0762`: `fix(storage): migrate QSO identity without deleting conflicts (DATA-003)` (Commit 3)
+  - `b6bedf6`: `fix(data): prove atomic QSO batch ingestion and rollback (DATA-002)` (Commit 4)
+  - `3d8463b`: `fix(storage): make derived QSO state recoverable after commit (ARCH-002)` (Commit 5)
+  - `[commit 6]`: `docs: close Stage 5 data integrity verification (DATA-001 DATA-002 DATA-003 ARCH-002)`
+- **Podsumowanie wdrożenia Końcowej Bramki Naprawczej Etapu 5:**
+  - `DATA-001`: Wprowadzenie jawnych trybów parsowania ADIF (`AdifParseMode::Strict` i `AdifParseMode::Compatibility`), rejestracja diagnostyczna `AdifCompatibilityWarning`, wyeliminowanie cichego fallbacku oraz kanoniczny eksport ADIF bazujący na długości bajtowej UTF-8.
+  - `DATA-002`: Dowodowa atomowość przetwarzania wsadowego (`import_batch`) i pojedynczego (`ingest`). Pełny rollback skutków ubocznych w SQLite, AwardsEngine i ScpEngine przy awarii dowolnego rekordu (w środku lub na końcu batcha) oraz idempotentne ponowienie po usunięciu błędu.
+  - `DATA-003`: Stabilny, kanoniczny klucz tożsamości `QsoIdentity` (`{CALL}|{BAND}|{MODE}|{DATE}|{MINUTE}`), bazodanowe wymuszenie unikalności przez `CREATE UNIQUE INDEX idx_qso_identity_unique ON qso_records(journal_id, identity_key)` w migracji 6. Rygorystyczny audyt duplikatów z rollbackiem bez usuwania i bez automatycznego scalania danych użytkownika. Eliminacja wyścigów check-then-insert także między niezależnymi połączeniami SQLite i instancjami repozytorium.
+  - `ARCH-002`: SQLite jako autorytatywne źródło prawdy (Single Source of Truth). Implementacja metody `rebuild_derived_state()`, która w 100% deterministycznie odbudowuje `AwardsEngine` i `ScpEngine` z bazy danych. Emisja `AppEvent::QsoLogged` wyłącznie po potwierdzonym commit SQLite.
+- **Metryki testowe:** 1874 aktywne testy programowe (0 failed), 10 testów fizycznych HIL (odizolowanych za `#[ignore = "hardware-in-the-loop"]`), 1884 wszystkich przypadków testowych.
+- **Stan Etapu 6:** Odblokowany (**UNBLOCKED**).
 - **Cel:** Eliminacja psucia polskich znaków w ADIF, fabrykowania daty oraz pomijania normalizacji i indeksów SQLite (`DATA-001`, `DATA-002`, `DATA-003`, `ARCH-002`).
 - **Zakres:**
   - Naprawa `fields_to_qso` (brak fabrykowania `Utc::now()`) i bezpiecznego cięcia znaków UTF-8 w `src/core/adif.rs` (`DATA-001`).
