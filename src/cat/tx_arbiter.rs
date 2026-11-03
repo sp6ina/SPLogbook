@@ -205,6 +205,10 @@ pub enum TxArbiterError {
     },
     /// Arbiter znajduje się w stanie Unknown.
     StateUnknown { reason: TxUnknownReason },
+    /// Wykryto aktywny zewnętrzny nadajnik (External TX) na wskazanym radiu.
+    ExternalTransmitActive { rig_id: RigId },
+    /// Stan PTT sprzętu nie jest potwierdzony jako bezpieczny RX.
+    PttStateUnknown { rig_id: RigId },
     /// Niedozwolone przejście maszyny stanów.
     InvalidTransition { from: String, to: String },
     /// Resynchronizacja nie powiodła się.
@@ -237,6 +241,18 @@ impl fmt::Display for TxArbiterError {
             ),
             Self::StateUnknown { reason } => {
                 write!(f, "stan TX jest nieznany (Unknown: {reason})")
+            }
+            Self::ExternalTransmitActive { rig_id } => {
+                write!(
+                    f,
+                    "radio '{rig_id}' ma aktywny zewnętrzny nadajnik (External TX)"
+                )
+            }
+            Self::PttStateUnknown { rig_id } => {
+                write!(
+                    f,
+                    "stan PTT radia '{rig_id}' nie jest potwierdzony jako bezpieczny RX"
+                )
             }
             Self::InvalidTransition { from, to } => {
                 write!(f, "niedozwolone przejście stanu arbitra: {from} -> {to}")

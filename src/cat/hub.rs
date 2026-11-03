@@ -633,6 +633,18 @@ impl RigHub {
         match cmd.command {
             RigCommand::SetPtt(true) => {
                 let request_start = tokio::time::Instant::now();
+
+                // Krok 0: Weryfikacja czy radio nie nadaje już zewnętrznie (External TX)
+                let snap = handle.snapshot();
+                let is_owned_by_target = matches!(
+                    self.tx_arbiter.state(),
+                    TxArbiterState::Owned { rig_id, .. } if rig_id == &target_rig
+                );
+                if snap.state.as_ref().is_some_and(|s| s.ptt) && !is_owned_by_target {
+                    return Err(RigHubError::TxArbiter(
+                        TxArbiterError::ExternalTransmitActive { rig_id: target_rig },
+                    ));
+                }
                 let pre_generation = handle.snapshot().state_generation;
 
                 // Krok 1: Weryfikacja arbitrażu (Idle -> Requesting)
