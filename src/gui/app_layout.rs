@@ -660,6 +660,7 @@ impl SpLogApp {
                     &db,
                     &my_call,
                     self.gui.appearance.language,
+                    &self.active_journal.id,
                 );
             }
         }

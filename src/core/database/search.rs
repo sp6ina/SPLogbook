@@ -24,7 +24,11 @@ pub struct AdvancedQsoFilter {
 impl LogDatabase {
     /// Wyszukuje duplikaty łączności w całym logu
     /// Grupuje po znaku, paśmie i emisji (opcjonalnie również po dacie)
-    pub fn find_duplicate_qsos(&self, match_same_day: bool) -> Result<Vec<Vec<QsoRecord>>> {
+    pub fn find_duplicate_qsos(
+        &self,
+        journal_id: &str,
+        match_same_day: bool,
+    ) -> Result<Vec<Vec<QsoRecord>>> {
         let partition_by = if match_same_day {
             "callsign, band, mode, qso_date"
         } else {
@@ -36,6 +40,7 @@ impl LogDatabase {
                 SELECT {},
                        COUNT(*) OVER (PARTITION BY {partition_by}) AS dup_cnt
                 FROM qso_records
+                WHERE journal_id = ?1
             )
             WHERE dup_cnt > 1
             ORDER BY callsign ASC, band ASC, mode ASC, qso_date ASC, time_on ASC, id ASC",
@@ -43,7 +48,7 @@ impl LogDatabase {
         );
 
         let mut stmt = self.conn.prepare(&query_sql)?;
-        let rows = stmt.query_map([], qso_from_row)?;
+        let rows = stmt.query_map(rusqlite::params![journal_id], qso_from_row)?;
 
         let mut groups: Vec<Vec<QsoRecord>> = Vec::new();
         let mut current_key: Option<(String, String, String, String)> = None;

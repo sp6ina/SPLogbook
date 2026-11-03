@@ -30,6 +30,19 @@ impl LogDatabase {
             .optional()
     }
 
+    /// Pobiera QSO po ID w kontekście konkretnego profilu/dziennika.
+    /// Zwraca None, jeśli rekord o podanym ID nie istnieje w tym dzienniku.
+    pub fn get_qso_by_id_scoped(&self, id: i64, journal_id: &str) -> Result<Option<QsoRecord>> {
+        let sql = format!(
+            "SELECT {} FROM qso_records WHERE id = ?1 AND journal_id = ?2",
+            QSO_SQL.select_columns
+        );
+
+        self.conn
+            .query_row(&sql, params![id, journal_id], qso_from_row)
+            .optional()
+    }
+
     /// Wstawia nowy rekord QSO do bazy i zwraca nadane ID
     pub fn insert_qso(&self, qso: &QsoRecord) -> Result<i64> {
         let stored = for_storage(qso);
@@ -102,6 +115,22 @@ impl LogDatabase {
         let mut stmt = self.conn.prepare(&sql)?;
 
         collect_qsos(&mut stmt, params![callsign.to_uppercase()])
+    }
+
+    /// Pobiera listę poprzednich łączności z daną stacją w wybranym profilu/dzienniku.
+    pub fn find_previous_qsos_for_journal(
+        &self,
+        journal_id: &str,
+        callsign: &str,
+    ) -> Result<Vec<QsoRecord>> {
+        let sql = format!(
+            "SELECT {} FROM qso_records WHERE journal_id = ?1 AND callsign = ?2 ORDER BY {ORDER_CHRONO_DESC}",
+            QSO_SQL.select_columns
+        );
+
+        let mut stmt = self.conn.prepare(&sql)?;
+
+        collect_qsos(&mut stmt, params![journal_id, callsign.to_uppercase()])
     }
 
     /// Usuwa łączność z bazy po ID
@@ -231,6 +260,23 @@ impl LogDatabase {
         collect_qsos(&mut stmt, params![limit as i64, offset as i64])
     }
 
+    /// Pobiera stronicowaną listę łączności dla wybranego profilu/dziennika (`LIMIT ?2 OFFSET ?3`).
+    pub fn get_qsos_paginated_for_journal(
+        &self,
+        journal_id: &str,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<QsoRecord>> {
+        let sql = format!(
+            "SELECT {} FROM qso_records WHERE journal_id = ?1 ORDER BY {ORDER_CHRONO_DESC} LIMIT ?2 OFFSET ?3",
+            QSO_SQL.select_columns
+        );
+
+        let mut stmt = self.conn.prepare(&sql)?;
+
+        collect_qsos(&mut stmt, params![journal_id, limit as i64, offset as i64])
+    }
+
     /// Pobiera unikalne, niepuste znaki wywoławcze z całego dziennika (do
 
     /// lokalnego podpowiadania SCP i korekty rozmytej). Ograniczone limitem.
@@ -243,6 +289,31 @@ impl LogDatabase {
         )?;
 
         let rows = stmt.query_map(params![limit as i64], |row| row.get::<_, String>(0))?;
+
+        let mut res = Vec::new();
+
+        for r in rows {
+            res.push(r?);
+        }
+
+        Ok(res)
+    }
+
+    /// Pobiera unikalne, niepuste znaki wywoławcze z wybranego profilu/dziennika.
+    pub fn get_distinct_callsigns_for_journal(
+        &self,
+        journal_id: &str,
+        limit: usize,
+    ) -> Result<DistinctCallsigns> {
+        let mut stmt = self.conn.prepare(
+            "SELECT DISTINCT UPPER(callsign) FROM qso_records \
+             WHERE journal_id = ?1 AND callsign IS NOT NULL AND TRIM(callsign) <> '' \
+             ORDER BY callsign LIMIT ?2",
+        )?;
+
+        let rows = stmt.query_map(params![journal_id, limit as i64], |row| {
+            row.get::<_, String>(0)
+        })?;
 
         let mut res = Vec::new();
 

@@ -338,7 +338,7 @@ fn test_find_and_delete_duplicates() {
     q3.time_on = "121000".to_string();
     db.insert_qso(&q3).unwrap();
 
-    let dups = db.find_duplicate_qsos(false).unwrap();
+    let dups = db.find_duplicate_qsos("DEFAULT", false).unwrap();
     assert_eq!(
         dups.len(),
         1,
@@ -349,7 +349,7 @@ fn test_find_and_delete_duplicates() {
     let deleted = db.delete_multiple_qsos(&[id2]).unwrap();
     assert_eq!(deleted, 1);
 
-    let dups_after = db.find_duplicate_qsos(false).unwrap();
+    let dups_after = db.find_duplicate_qsos("DEFAULT", false).unwrap();
     assert_eq!(dups_after.len(), 0, "Brak duplikatĂłw po usuniÄ™ciu");
 
     let remaining = db.find_previous_qsos("SP6INA").unwrap();
@@ -3000,4 +3000,280 @@ fn concurrent_identity_stress_five_iterations() {
             "lacznie 5 rekordow w iteracji {iter}"
         );
     }
+}
+
+#[test]
+fn journal_a_list_never_returns_journal_b_qsos() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    db.create_journal(&Journal {
+        id: "J_A".to_string(),
+        name: "Journal A".to_string(),
+        station_callsign: "SP6INA".to_string(),
+        operator: String::new(),
+        my_gridsquare: String::new(),
+        my_pga: String::new(),
+        description: String::new(),
+        is_default: false,
+    })
+    .unwrap();
+    db.create_journal(&Journal {
+        id: "J_B".to_string(),
+        name: "Journal B".to_string(),
+        station_callsign: "SP6INA/P".to_string(),
+        operator: String::new(),
+        my_gridsquare: String::new(),
+        my_pga: String::new(),
+        description: String::new(),
+        is_default: false,
+    })
+    .unwrap();
+
+    let mut q_a = QsoRecord::new("W1AW", "20m", "CW");
+    q_a.journal_id = Some("J_A".to_string());
+    q_a.qso_date = "20261101".to_string();
+    q_a.time_on = "120000".to_string();
+    db.insert_qso(&q_a).unwrap();
+
+    let mut q_b = QsoRecord::new("K1ABC", "40m", "SSB");
+    q_b.journal_id = Some("J_B".to_string());
+    q_b.qso_date = "20261101".to_string();
+    q_b.time_on = "130000".to_string();
+    db.insert_qso(&q_b).unwrap();
+
+    let list_a = db.get_all_qsos_for_journal("J_A").unwrap();
+    assert_eq!(list_a.len(), 1);
+    assert_eq!(list_a[0].callsign, "W1AW");
+
+    let list_b = db.get_all_qsos_for_journal("J_B").unwrap();
+    assert_eq!(list_b.len(), 1);
+    assert_eq!(list_b[0].callsign, "K1ABC");
+
+    let paginated_a = db.get_qsos_paginated_for_journal("J_A", 10, 0).unwrap();
+    assert_eq!(paginated_a.len(), 1);
+    assert_eq!(paginated_a[0].callsign, "W1AW");
+}
+
+#[test]
+fn journal_a_search_never_returns_journal_b_qsos() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    db.create_journal(&Journal {
+        id: "J_A".to_string(),
+        name: "Journal A".to_string(),
+        station_callsign: "SP6INA".to_string(),
+        operator: String::new(),
+        my_gridsquare: String::new(),
+        my_pga: String::new(),
+        description: String::new(),
+        is_default: false,
+    })
+    .unwrap();
+    db.create_journal(&Journal {
+        id: "J_B".to_string(),
+        name: "Journal B".to_string(),
+        station_callsign: "SP6INA/P".to_string(),
+        operator: String::new(),
+        my_gridsquare: String::new(),
+        my_pga: String::new(),
+        description: String::new(),
+        is_default: false,
+    })
+    .unwrap();
+
+    let mut q_a = QsoRecord::new("DL1XYZ", "20m", "CW");
+    q_a.journal_id = Some("J_A".to_string());
+    q_a.qso_date = "20261101".to_string();
+    q_a.time_on = "120000".to_string();
+    db.insert_qso(&q_a).unwrap();
+
+    let mut q_b = QsoRecord::new("DL1XYZ", "20m", "CW");
+    q_b.journal_id = Some("J_B".to_string());
+    q_b.qso_date = "20261101".to_string();
+    q_b.time_on = "120000".to_string();
+    db.insert_qso(&q_b).unwrap();
+
+    let filter_a = AdvancedQsoFilter {
+        callsign_query: Some("DL1XYZ".to_string()),
+        journal_id: Some("J_A".to_string()),
+        ..Default::default()
+    };
+    let results_a = db.search_qsos_advanced(&filter_a).unwrap();
+    assert_eq!(results_a.len(), 1);
+    assert_eq!(results_a[0].journal_id.as_deref(), Some("J_A"));
+
+    let filter_b = AdvancedQsoFilter {
+        callsign_query: Some("DL1XYZ".to_string()),
+        journal_id: Some("J_B".to_string()),
+        ..Default::default()
+    };
+    let results_b = db.search_qsos_advanced(&filter_b).unwrap();
+    assert_eq!(results_b.len(), 1);
+    assert_eq!(results_b[0].journal_id.as_deref(), Some("J_B"));
+}
+
+#[test]
+fn journal_a_count_excludes_journal_b() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    db.create_journal(&Journal {
+        id: "J_A".to_string(),
+        name: "Journal A".to_string(),
+        station_callsign: "SP6INA".to_string(),
+        operator: String::new(),
+        my_gridsquare: String::new(),
+        my_pga: String::new(),
+        description: String::new(),
+        is_default: false,
+    })
+    .unwrap();
+    db.create_journal(&Journal {
+        id: "J_B".to_string(),
+        name: "Journal B".to_string(),
+        station_callsign: "SP6INA/P".to_string(),
+        operator: String::new(),
+        my_gridsquare: String::new(),
+        my_pga: String::new(),
+        description: String::new(),
+        is_default: false,
+    })
+    .unwrap();
+
+    for i in 1..=3 {
+        let mut q = QsoRecord::new(&format!("DL{i}AA"), "20m", "CW");
+        q.journal_id = Some("J_A".to_string());
+        q.qso_date = "20261101".to_string();
+        q.time_on = format!("120{i}00");
+        db.insert_qso(&q).unwrap();
+    }
+    for i in 1..=5 {
+        let mut q = QsoRecord::new(&format!("SP{i}BB"), "40m", "SSB");
+        q.journal_id = Some("J_B".to_string());
+        q.qso_date = "20261101".to_string();
+        q.time_on = format!("130{i}00");
+        db.insert_qso(&q).unwrap();
+    }
+
+    assert_eq!(db.count_qsos_for_journal("J_A").unwrap(), 3);
+    assert_eq!(db.count_qsos_for_journal("J_B").unwrap(), 5);
+}
+
+#[test]
+fn journal_a_get_by_foreign_id_returns_not_found() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    db.create_journal(&Journal {
+        id: "J_A".to_string(),
+        name: "Journal A".to_string(),
+        station_callsign: "SP6INA".to_string(),
+        operator: String::new(),
+        my_gridsquare: String::new(),
+        my_pga: String::new(),
+        description: String::new(),
+        is_default: false,
+    })
+    .unwrap();
+    db.create_journal(&Journal {
+        id: "J_B".to_string(),
+        name: "Journal B".to_string(),
+        station_callsign: "SP6INA/P".to_string(),
+        operator: String::new(),
+        my_gridsquare: String::new(),
+        my_pga: String::new(),
+        description: String::new(),
+        is_default: false,
+    })
+    .unwrap();
+
+    let mut q_b = QsoRecord::new("W1AW", "20m", "CW");
+    q_b.journal_id = Some("J_B".to_string());
+    q_b.qso_date = "20261101".to_string();
+    q_b.time_on = "120000".to_string();
+    let id_b = db.insert_qso(&q_b).unwrap();
+
+    assert_eq!(db.get_qso_by_id_scoped(id_b, "J_A").unwrap(), None);
+    assert!(db.get_qso_by_id_scoped(id_b, "J_B").unwrap().is_some());
+}
+
+#[test]
+fn journal_scoped_identity_lookup_does_not_cross_journals() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    db.create_journal(&Journal {
+        id: "J_A".to_string(),
+        name: "Journal A".to_string(),
+        station_callsign: "SP6INA".to_string(),
+        operator: String::new(),
+        my_gridsquare: String::new(),
+        my_pga: String::new(),
+        description: String::new(),
+        is_default: false,
+    })
+    .unwrap();
+    db.create_journal(&Journal {
+        id: "J_B".to_string(),
+        name: "Journal B".to_string(),
+        station_callsign: "SP6INA/P".to_string(),
+        operator: String::new(),
+        my_gridsquare: String::new(),
+        my_pga: String::new(),
+        description: String::new(),
+        is_default: false,
+    })
+    .unwrap();
+
+    let mut q_a = QsoRecord::new("W1AW", "20m", "CW");
+    q_a.journal_id = Some("J_A".to_string());
+    q_a.qso_date = "20261101".to_string();
+    q_a.time_on = "120000".to_string();
+    db.insert_qso(&q_a).unwrap();
+
+    let id_key = q_a.identity();
+    assert!(db.has_identity("J_A", &id_key).unwrap());
+    assert!(!db.has_identity("J_B", &id_key).unwrap());
+
+    let existing_a = db.existing_identities("J_A").unwrap();
+    let existing_b = db.existing_identities("J_B").unwrap();
+    assert!(existing_a.contains(&id_key));
+    assert!(!existing_b.contains(&id_key));
+}
+
+#[test]
+fn find_duplicates_is_isolated_to_active_journal() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    db.create_journal(&Journal {
+        id: "J_A".to_string(),
+        name: "Journal A".to_string(),
+        station_callsign: "SP6INA".to_string(),
+        operator: String::new(),
+        my_gridsquare: String::new(),
+        my_pga: String::new(),
+        description: String::new(),
+        is_default: false,
+    })
+    .unwrap();
+    db.create_journal(&Journal {
+        id: "J_B".to_string(),
+        name: "Journal B".to_string(),
+        station_callsign: "SP6INA/P".to_string(),
+        operator: String::new(),
+        my_gridsquare: String::new(),
+        my_pga: String::new(),
+        description: String::new(),
+        is_default: false,
+    })
+    .unwrap();
+
+    let mut q_a = QsoRecord::new("W1AW", "20m", "CW");
+    q_a.journal_id = Some("J_A".to_string());
+    q_a.qso_date = "20261101".to_string();
+    q_a.time_on = "120000".to_string();
+    db.insert_qso(&q_a).unwrap();
+
+    let mut q_b = QsoRecord::new("W1AW", "20m", "CW");
+    q_b.journal_id = Some("J_B".to_string());
+    q_b.qso_date = "20261101".to_string();
+    q_b.time_on = "120000".to_string();
+    db.insert_qso(&q_b).unwrap();
+
+    let dups_a = db.find_duplicate_qsos("J_A", false).unwrap();
+    assert_eq!(dups_a.len(), 0, "Dziennik J_A nie powinien miec duplikatow");
+
+    let dups_b = db.find_duplicate_qsos("J_B", false).unwrap();
+    assert_eq!(dups_b.len(), 0, "Dziennik J_B nie powinien miec duplikatow");
 }
