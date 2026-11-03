@@ -189,6 +189,70 @@ impl QsoIngestor {
             effects: policy.effects,
         })
     }
+
+    /// Bezpiecznie aktualizuje istniejące QSO (np. z GUI lub REST API PUT):
+    /// normalizuje pola rekordu, waliduje dane w trybie twardym (Reject),
+    /// opcjonalnie wzbogaca DXCC, zapisuje w bazie i aktualizuje silnik dyplomów AwardsEngine
+    /// oraz ScpEngine.
+    ///
+    /// Zwraca:
+    /// - `Ok(Some(qso))` po pomyślnej aktualizacji,
+    /// - `Ok(None)`, jeśli rekord o wskazanym ID nie istnieje w bazie,
+    /// - `Err(IngestError)` w przypadku błędów walidacji lub operacji bazodanowych.
+    pub fn update_existing(
+        &self,
+        id: i64,
+        mut qso: QsoRecord,
+    ) -> Result<Option<QsoRecord>, IngestError> {
+        normalize_qso_fields(&mut qso);
+
+        if qso.callsign.is_empty() {
+            return Err(IngestError::EmptyCallsign);
+        }
+
+        if qso.dxcc.is_none()
+            && let Some(info) = self.prefixes.lookup(&qso.callsign)
+        {
+            apply_prefix_info(&mut qso, &info);
+        }
+
+        qso.validate().map_err(IngestError::Invalid)?;
+
+        {
+            let db = self.db.lock().unwrap_or_else(PoisonError::into_inner);
+            let existing = db.get_qso_by_id(id).map_err(IngestError::Storage)?;
+            if existing.is_none() {
+                return Ok(None);
+            }
+            db.update_qso(id, &qso).map_err(IngestError::Storage)?;
+        }
+
+        qso.id = Some(id);
+
+        {
+            let all = {
+                let db = self.db.lock().unwrap_or_else(PoisonError::into_inner);
+                db.get_all_qsos().map_err(IngestError::Storage)?
+            };
+            let mut awards = self.awards.lock().unwrap_or_else(PoisonError::into_inner);
+            awards.rebuild_from_qsos(&all);
+        }
+
+        {
+            let mut scp = self.scp.lock().unwrap_or_else(PoisonError::into_inner);
+            scp.insert(&qso.callsign);
+        }
+
+        self.events.publish(AppEvent::QsoLogged {
+            callsign: qso.callsign.clone(),
+            band: qso.band.clone(),
+            mode: qso.mode.clone(),
+            frequency_hz: (qso.freq.unwrap_or(0.0) * 1_000_000.0) as u64,
+            time_utc: qso.time_on.clone(),
+        });
+
+        Ok(Some(qso))
+    }
 }
 
 #[cfg(test)]
@@ -1381,5 +1445,89 @@ mod tests {
             1,
             "database should contain exactly 1 QSO"
         );
+    }
+
+    #[test]
+    fn editing_qso_validates_fields_and_updates_awards_engine() {
+        let fixture = TestFixture::new();
+
+        // 1. Zapisz początkowe QSO
+        let qso = sample_valid_qso("SP6INA");
+        let outcome = fixture
+            .ingestor
+            .ingest(qso, QsoOrigin::Form)
+            .expect("initial ingest must succeed");
+        let id = outcome.qso.id.expect("id must be assigned");
+
+        // Sprawdź stan AwardsEngine
+        {
+            let awards = fixture
+                .ingestor
+                .awards
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            assert!(awards.worked_calls.contains(&(
+                "SP6INA".to_string(),
+                "20m".to_string(),
+                "CW".to_string()
+            )));
+        }
+
+        // 2. Edycja z niepoprawnymi polami (puste pasmo bez częstotliwości) -> odrzucenie
+        let mut invalid_qso = outcome.qso.clone();
+        invalid_qso.band = String::new();
+        invalid_qso.freq = None;
+        let err = fixture.ingestor.update_existing(id, invalid_qso);
+        assert!(matches!(
+            err,
+            Err(IngestError::Invalid(QsoIssue::EmptyBand))
+        ));
+
+        // 3. Edycja ze zmianą pasma i emisji (np. 40m SSB)
+        let mut edited_qso = outcome.qso.clone();
+        edited_qso.band = "40m".to_string();
+        edited_qso.mode = "SSB".to_string();
+        edited_qso.freq = Some(7.150);
+
+        let res = fixture
+            .ingestor
+            .update_existing(id, edited_qso)
+            .expect("update_existing must succeed");
+        let updated = res.expect("record must exist");
+        assert_eq!(updated.band, "40m");
+        assert_eq!(updated.mode, "SSB");
+
+        // 4. Silnik AwardsEngine musi odzwierciedlać nowy stan (brak 20m CW, obecność 40m SSB)
+        {
+            let awards = fixture
+                .ingestor
+                .awards
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            assert!(
+                !awards.worked_calls.contains(&(
+                    "SP6INA".to_string(),
+                    "20m".to_string(),
+                    "CW".to_string()
+                )),
+                "stary stan 20m CW nie może pozostać po edycji"
+            );
+            assert!(
+                awards.worked_calls.contains(&(
+                    "SP6INA".to_string(),
+                    "40m".to_string(),
+                    "SSB".to_string()
+                )),
+                "nowy stan 40m SSB musi być zarejestrowany w AwardsEngine"
+            );
+        }
+
+        // 5. Aktualizacja nieistniejącego ID zwraca Ok(None)
+        let ghost_qso = sample_valid_qso("K1ABC");
+        let ghost_res = fixture
+            .ingestor
+            .update_existing(999_999, ghost_qso)
+            .expect("query should succeed");
+        assert_eq!(ghost_res, None);
     }
 }
