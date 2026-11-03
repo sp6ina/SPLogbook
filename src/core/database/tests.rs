@@ -2761,3 +2761,243 @@ fn migration_7_conflict_rolls_back_without_data_loss_and_preserves_v6() {
     assert_eq!(db.current_schema_version().unwrap(), 7);
     assert_eq!(db.count_all().unwrap(), 2);
 }
+
+#[test]
+fn concurrent_same_minute_different_seconds_from_two_repositories_both_succeed() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("conc_diff_sec.db");
+    {
+        let _init = LogDatabase::open(&db_path).unwrap();
+    }
+
+    let p1 = db_path.clone();
+    let p2 = db_path.clone();
+
+    let t1 = std::thread::spawn(move || {
+        let db = LogDatabase::open(&p1).unwrap();
+        let q = make_test_qso_literal("SP6INA", "20261018", "120010");
+        db.insert_qso(&q)
+    });
+
+    let t2 = std::thread::spawn(move || {
+        let db = LogDatabase::open(&p2).unwrap();
+        let q = make_test_qso_literal("SP6INA", "20261018", "120050");
+        db.insert_qso(&q)
+    });
+
+    t1.join().unwrap().unwrap();
+    t2.join().unwrap().unwrap();
+
+    let db = LogDatabase::open(&db_path).unwrap();
+    assert_eq!(
+        db.count_all().unwrap(),
+        2,
+        "obie legalne lacznosci z roznymi sekundami musza zostac zapisane"
+    );
+}
+
+#[test]
+fn concurrent_same_minute_different_frequencies_from_two_repositories_both_succeed() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("conc_diff_freq.db");
+    {
+        let _init = LogDatabase::open(&db_path).unwrap();
+    }
+
+    let p1 = db_path.clone();
+    let p2 = db_path.clone();
+
+    let t1 = std::thread::spawn(move || {
+        let db = LogDatabase::open(&p1).unwrap();
+        let mut q = make_test_qso_literal("SP6INA", "20261018", "120000");
+        q.freq = Some(14.025);
+        db.insert_qso(&q)
+    });
+
+    let t2 = std::thread::spawn(move || {
+        let db = LogDatabase::open(&p2).unwrap();
+        let mut q = make_test_qso_literal("SP6INA", "20261018", "120000");
+        q.freq = Some(14.035);
+        db.insert_qso(&q)
+    });
+
+    t1.join().unwrap().unwrap();
+    t2.join().unwrap().unwrap();
+
+    let db = LogDatabase::open(&db_path).unwrap();
+    assert_eq!(
+        db.count_all().unwrap(),
+        2,
+        "obie legalne lacznosci na roznych czestotliwosciach musza zostac zapisane"
+    );
+}
+
+#[test]
+fn concurrent_same_minute_different_submodes_from_two_repositories_both_succeed() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("conc_diff_submode.db");
+    {
+        let _init = LogDatabase::open(&db_path).unwrap();
+    }
+
+    let p1 = db_path.clone();
+    let p2 = db_path.clone();
+
+    let t1 = std::thread::spawn(move || {
+        let db = LogDatabase::open(&p1).unwrap();
+        let mut q = make_test_qso_literal("SP6INA", "20261018", "120000");
+        q.mode = "SSB".to_string();
+        q.submode = Some("USB".to_string());
+        db.insert_qso(&q)
+    });
+
+    let t2 = std::thread::spawn(move || {
+        let db = LogDatabase::open(&p2).unwrap();
+        let mut q = make_test_qso_literal("SP6INA", "20261018", "120000");
+        q.mode = "SSB".to_string();
+        q.submode = Some("LSB".to_string());
+        db.insert_qso(&q)
+    });
+
+    t1.join().unwrap().unwrap();
+    t2.join().unwrap().unwrap();
+
+    let db = LogDatabase::open(&db_path).unwrap();
+    assert_eq!(
+        db.count_all().unwrap(),
+        2,
+        "legalne lacznosci USB i LSB musza zostac zachowane jako odrebne"
+    );
+}
+
+#[test]
+fn concurrent_update_conflict_from_second_connection_preserves_both_records() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("conc_update_conflict.db");
+    let db = LogDatabase::open(&db_path).unwrap();
+
+    let q1 = make_test_qso_literal("SP6INA", "20261018", "120000");
+    let q2 = make_test_qso_literal("DL1XYZ", "20261018", "120000");
+    let id1 = db.insert_qso(&q1).unwrap();
+    let id2 = db.insert_qso(&q2).unwrap();
+
+    let p1 = db_path.clone();
+    let p2 = db_path.clone();
+
+    let t1 = std::thread::spawn(move || {
+        let db1 = LogDatabase::open(&p1).unwrap();
+        let mut conflicting = q2.clone();
+        conflicting.callsign = "SP6INA".to_string();
+        db1.update_qso(id2, &conflicting)
+    });
+
+    let t2 = std::thread::spawn(move || {
+        let db2 = LogDatabase::open(&p2).unwrap();
+        (
+            db2.get_qso_by_id(id1).unwrap(),
+            db2.get_qso_by_id(id2).unwrap(),
+        )
+    });
+
+    let update_res = t1.join().unwrap();
+    let (rec1, rec2) = t2.join().unwrap();
+
+    assert!(
+        update_res.is_err(),
+        "kolizja UNIQUE przy wspolbieznym update musi zwrocic blad"
+    );
+    assert_eq!(rec1.unwrap().callsign, "SP6INA");
+    assert_eq!(rec2.unwrap().callsign, "DL1XYZ");
+}
+
+#[test]
+fn concurrent_identity_stress_five_iterations() {
+    for iter in 0..5 {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join(format!("stress_{iter}.db"));
+        {
+            let _init = LogDatabase::open(&db_path).unwrap();
+        }
+
+        let p1 = db_path.clone();
+        let p2 = db_path.clone();
+
+        // 1. Same minute, different seconds
+        let t1 = std::thread::spawn({
+            let p = p1.clone();
+            move || {
+                let db = LogDatabase::open(&p).unwrap();
+                let q = make_test_qso_literal("SP6INA", "20261018", "120015");
+                db.insert_qso(&q)
+            }
+        });
+        let t2 = std::thread::spawn({
+            let p = p2.clone();
+            move || {
+                let db = LogDatabase::open(&p).unwrap();
+                let q = make_test_qso_literal("SP6INA", "20261018", "120045");
+                db.insert_qso(&q)
+            }
+        });
+        t1.join().unwrap().unwrap();
+        t2.join().unwrap().unwrap();
+
+        // 2. Same minute, different frequency
+        let t3 = std::thread::spawn({
+            let p = p1.clone();
+            move || {
+                let db = LogDatabase::open(&p).unwrap();
+                let mut q = make_test_qso_literal("W1AW", "20261018", "120000");
+                q.freq = Some(7.020);
+                db.insert_qso(&q)
+            }
+        });
+        let t4 = std::thread::spawn({
+            let p = p2.clone();
+            move || {
+                let db = LogDatabase::open(&p).unwrap();
+                let mut q = make_test_qso_literal("W1AW", "20261018", "120000");
+                q.freq = Some(7.030);
+                db.insert_qso(&q)
+            }
+        });
+        t3.join().unwrap().unwrap();
+        t4.join().unwrap().unwrap();
+
+        // 3. Duplicate race: exactly one wins
+        let t5 = std::thread::spawn({
+            let p = p1.clone();
+            move || {
+                let db = LogDatabase::open(&p).unwrap();
+                let q = make_test_qso_literal("K1ABC", "20261018", "140000");
+                db.insert_qso(&q)
+            }
+        });
+        let t6 = std::thread::spawn({
+            let p = p2.clone();
+            move || {
+                let db = LogDatabase::open(&p).unwrap();
+                let q = make_test_qso_literal("K1ABC", "20261018", "140000");
+                db.insert_qso(&q)
+            }
+        });
+        let res5 = t5.join().unwrap();
+        let res6 = t6.join().unwrap();
+
+        let wins = match (res5, res6) {
+            (Ok(_), Err(_)) | (Err(_), Ok(_)) => 1,
+            _ => 0,
+        };
+        assert_eq!(
+            wins, 1,
+            "wyscig o duplikat w iteracji {iter} musi miec dokladnie jednego zwyciezce"
+        );
+
+        let db = LogDatabase::open(&db_path).unwrap();
+        assert_eq!(
+            db.count_all().unwrap(),
+            5,
+            "lacznie 5 rekordow w iteracji {iter}"
+        );
+    }
+}
