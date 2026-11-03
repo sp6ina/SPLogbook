@@ -5,6 +5,19 @@ use crate::core::qso::QsoRecord;
 use crate::gui::drill_filter::DrillFilter;
 use std::collections::{HashMap, VecDeque};
 
+/// Atomowa akcja w historii operacji Undo/Redo (DATA-004)
+#[derive(Debug, Clone, PartialEq)]
+pub enum UndoAction {
+    DeleteSingle {
+        journal_id: String,
+        qso: QsoRecord,
+    },
+    DeleteBatch {
+        journal_id: String,
+        qsos: Vec<QsoRecord>,
+    },
+}
+
 #[derive(Debug, Clone)]
 pub struct LogViewState {
     pub recent_qsos: Vec<QsoRecord>,
@@ -20,8 +33,8 @@ pub struct LogViewState {
     pub confirm_bulk_delete: bool,
     pub show_statistics_window: bool,
     pub stats_tab: usize,
-    pub undo_stack: VecDeque<QsoRecord>,
-    pub redo_stack: VecDeque<QsoRecord>,
+    pub undo_stack: VecDeque<UndoAction>,
+    pub redo_stack: VecDeque<UndoAction>,
     pub lotw_users_cache: HashMap<String, bool>,
 }
 

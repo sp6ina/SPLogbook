@@ -476,7 +476,7 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .button(format!("🗑 {}", tr(key::QSO_DELETE, lang)))
                 .clicked()
             {
-                app.delete_selected_qso();
+                app.log_view.confirm_bulk_delete = true;
             }
             if ui
                 .button("✕")
@@ -732,13 +732,34 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     if let Some(qso) = qso_to_edit {
         app.log_view.editing_qso = Some(qso);
     }
-    if let Some((id, backup)) = qso_id_to_delete {
-        if app.log_view.undo_stack.len() >= 20 {
-            app.log_view.undo_stack.pop_back();
-        }
-        app.log_view.undo_stack.push_front(backup);
-        app.log_view.redo_stack.clear();
+    if let Some((id, _backup)) = qso_id_to_delete {
         app.delete_qso_by_id(id);
+    }
+
+    if app.log_view.confirm_bulk_delete {
+        let count = app.log_view.selected_qso_ids.len();
+        let mut open = true;
+        let ctx = ui.ctx().clone();
+        egui::Window::new(tr(key::QSO_DELETE, lang))
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .show(&ctx, |ui| {
+                ui.label(format!("Czy na pewno chcesz usunąć {count} zaznaczonych łączności? Operację można cofnąć (Undo)."));
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button(format!("🗑 {}", tr(key::QSO_DELETE, lang))).clicked() {
+                        app.log_view.confirm_bulk_delete = false;
+                        app.delete_selected_qso();
+                    }
+                    if ui.button(tr(key::BTN_CANCEL, lang)).clicked() {
+                        app.log_view.confirm_bulk_delete = false;
+                    }
+                });
+            });
+        if !open {
+            app.log_view.confirm_bulk_delete = false;
+        }
     }
 }
 

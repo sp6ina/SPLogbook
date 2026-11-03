@@ -3512,3 +3512,114 @@ fn awards_engine_journal_scoped_rebuild() {
         "AwardsEngine must not leak DXCC from LOG_A into LOG_B"
     );
 }
+
+#[test]
+fn test_restore_qso_scoped_and_batch() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    db.create_journal(&Journal {
+        id: "JOURNAL_1".to_string(),
+        name: "Journal 1".to_string(),
+        station_callsign: "SP1ABC".to_string(),
+        operator: String::new(),
+        my_gridsquare: String::new(),
+        my_pga: String::new(),
+        description: String::new(),
+        is_default: false,
+    })
+    .unwrap();
+
+    let mut q1 = QsoRecord::new("SP1ABC", "20m", "SSB");
+    q1.qso_date = "20260701".to_string();
+    q1.time_on = "120000".to_string();
+    q1.journal_id = Some("JOURNAL_1".to_string());
+
+    let mut q2 = QsoRecord::new("SP2DEF", "40m", "CW");
+    q2.qso_date = "20260701".to_string();
+    q2.time_on = "120500".to_string();
+    q2.journal_id = Some("JOURNAL_1".to_string());
+
+    let id1 = db.insert_qso(&q1).unwrap();
+    let id2 = db.insert_qso(&q2).unwrap();
+    q1.id = Some(id1);
+    q2.id = Some(id2);
+
+    // Delete both via delete_multiple_qsos_scoped
+    let deleted_count = db
+        .delete_multiple_qsos_scoped(&[id1, id2], "JOURNAL_1")
+        .unwrap();
+    assert_eq!(deleted_count, 2);
+
+    // Ensure they are gone from JOURNAL_1
+    let remaining = db.get_recent_qsos_for_journal("JOURNAL_1", 10).unwrap();
+    assert_eq!(remaining.len(), 0);
+
+    // Batch restore scoped to JOURNAL_1
+    let restored_ids = db
+        .restore_multiple_qsos_scoped("JOURNAL_1", &[q1.clone(), q2.clone()])
+        .unwrap();
+    assert_eq!(restored_ids, vec![id1, id2]);
+
+    let after_restore = db.get_recent_qsos_for_journal("JOURNAL_1", 10).unwrap();
+    assert_eq!(after_restore.len(), 2);
+    assert_eq!(after_restore[0].callsign, "SP2DEF");
+    assert_eq!(after_restore[1].callsign, "SP1ABC");
+
+    // Attempting to restore again with identical ID must fail (no ON CONFLICT REPLACE)
+    let duplicate_restore = db.restore_qso_scoped("JOURNAL_1", &q1);
+    assert!(
+        duplicate_restore.is_err(),
+        "Restoring an existing ID must fail with error"
+    );
+}
+
+#[test]
+fn test_restore_qso_scoped_prevents_cross_journal_restoration() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    db.create_journal(&Journal {
+        id: "LOG_ORIGIN".to_string(),
+        name: "Origin".to_string(),
+        station_callsign: "SP1ABC".to_string(),
+        operator: String::new(),
+        my_gridsquare: String::new(),
+        my_pga: String::new(),
+        description: String::new(),
+        is_default: false,
+    })
+    .unwrap();
+    db.create_journal(&Journal {
+        id: "LOG_TARGET".to_string(),
+        name: "Target".to_string(),
+        station_callsign: "SP1ABC/P".to_string(),
+        operator: String::new(),
+        my_gridsquare: String::new(),
+        my_pga: String::new(),
+        description: String::new(),
+        is_default: false,
+    })
+    .unwrap();
+
+    let mut q = QsoRecord::new("DL9XYZ", "15m", "FT8");
+    q.qso_date = "20260702".to_string();
+    q.time_on = "140000".to_string();
+    q.journal_id = Some("LOG_ORIGIN".to_string());
+
+    let id = db.insert_qso(&q).unwrap();
+    q.id = Some(id);
+
+    db.delete_qso_scoped(id, "LOG_ORIGIN").unwrap();
+
+    // Restore explicitly scoped into TARGET_LOG
+    let restored_id = db.restore_qso_scoped("LOG_TARGET", &q).unwrap();
+    assert_eq!(restored_id, id);
+
+    // Check it exists in TARGET_LOG and not in ORIGIN
+    let rec_origin = db.get_qso_by_id_scoped(id, "LOG_ORIGIN").unwrap();
+    assert!(rec_origin.is_none());
+
+    let rec_target = db.get_qso_by_id_scoped(id, "LOG_TARGET").unwrap();
+    assert!(rec_target.is_some());
+    assert_eq!(
+        rec_target.unwrap().journal_id.as_deref(),
+        Some("LOG_TARGET")
+    );
+}
