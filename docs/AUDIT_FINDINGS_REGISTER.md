@@ -193,6 +193,17 @@
 
 ## 2. Dane, Baza SQLite, ADIF i Integralność Dzienników (`DATA-*`)
 
+### Ujednolicone mapowanie znalezisk i commitów Etapu 5 (Integralność Danych: ADIF, Ingest i Indeksy SQLite)
+
+Status Etapu 5: **SOFTWARE VERIFIED**
+
+| Identyfikator | Tytuł znaleziska | Wdrożone rozwiązanie | Commit | Moduły / Pliki | Testy weryfikujące | Status po Etapie 5 | Ryzyko resztkowe |
+|---|---|---|---|---|---|---|---|
+| `DATA-001` | Parser ADIF fabrykuje bieżącą datę/czas `Utc::now()` i uszkadza wielobajtowy UTF-8 | Eliminacja fabrykacji daty/czasu (`MissingDate`/`MissingTime`), dualne wyznaczanie granic pól (byte-count z fallbackiem char-count na granicy UTF-8), ścisłe limity zasobów ADIF | `56b44a4` | `src/core/adif.rs`, `src/cloud/lotw.rs` | 29 testów jednostkowych w `core::adif`, w tym 11 testów regresyjnych UTF-8 i limitów | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
+| `DATA-002` | `QsoIngestor::import_batch` pomija wywołanie `normalize_qso_fields(&mut qso)` | Dodanie normalizacji pól przed walidacją w `import_batch` (dedukcja pasma z częstotliwości, normalizacja dat/czasu i znaków) | `9b7f0fc` | `src/core/ingest/import.rs` | 10 testów wsadowych w `core::ingest::import`, w tym test dedukcji pasma z `freq` | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
+| `DATA-003` | Nieznormalizowane porównania SQL dla dat/pasm oraz brak indeksu tożsamości SQLite | Normalizacja granic dat w `search_qsos_advanced`, migracja 5 tworząca indeks `idx_qso_identity(journal_id, callsign, qso_date, band, mode)` i czyszcząca dane historyczne, optymalizacja `has_identity` bez `UPPER()` z atomowym check-then-insert | `ceaa355` | `src/core/database/{search.rs,qso_store.rs,migrations.rs,tests.rs}`, `src/core/ingest/mod.rs` | 32 testy w `core::database`, test `EXPLAIN QUERY PLAN`, testy współbieżności w `core::ingest` | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
+| `ARCH-002` | Edycja QSO w GUI i REST API omija `QsoIngestor` i duplikuje logikę normalizacji/wzbogacania | Wdrożenie centralnej metody `QsoIngestor::update_existing` (normalizacja, walidacja, wzbogacenie DXCC, zapis, rebuild `AwardsEngine`, update `ScpEngine`), usunięcie duplikatu z `api/server.rs` | `50321f1` | `src/core/ingest/mod.rs`, `src/gui/app_qso.rs`, `src/api/server.rs` | 38 testów w `core::ingest`, 21 testów w `api::server`, test `editing_qso_validates_fields_and_updates_awards_engine` | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
+
 ### `DATA-001` — Parser ADIF fabrykuje bieżącą datę/czas `Utc::now()` przy brakujących polach `<QSO_DATE>` / `<TIME_ON>` i uszkadza wielobajtowy UTF-8
 - **ID:** `DATA-001`
 - **Tytuł:** Fabrykowanie `Utc::now()` w `adif::fields_to_qso` oraz błędne indeksowanie bajtowe wielobajtowych znaków UTF-8 w parserze ADIF
@@ -216,6 +227,16 @@
 - **Zależności od innych zmian:** Brak.
 - **Wymagany test regresyjny:** `adif_import_rejects_record_missing_qso_date_or_time_on` oraz `adif_import_preserves_multibyte_utf8_when_length_is_char_count`.
 - **Kryterium akceptacji:** Rekord ADIF bez `<QSO_DATE>` lub `<TIME_ON>` jest odrzucany w `AdifParseReport.rejected`, a `<QTH:6>Kraków<EOR>` parsuje się do `"Kraków"`.
+- **Status remediacji:** **FIXED_SOFTWARE_VERIFIED**
+- **Data wdrożenia i weryfikacji:** 2026-11-03
+- **Commit:**
+  - `56b44a4`: `fix(adif): enforce bounded and deterministic record parsing (DATA-001)`
+- **Wdrożone rozwiązanie:**
+  1. Zdefiniowano twarde limity zasobów ADIF (`MAX_ADIF_FILE_SIZE = 64 MiB`, `MAX_ADIF_HEADER_SIZE = 1 MiB`, `MAX_ADIF_FIELD_NAME_LEN = 64`, `MAX_ADIF_FIELD_VALUE_LEN = 1 MiB`, `MAX_ADIF_FIELDS_PER_RECORD = 256`).
+  2. Wprowadzono warianty błędów `AdifRecordError::MissingDate` oraz `AdifRecordError::MissingTime`. W `fields_to_qso` pola daty i czasu są inicjalizowane jako puste – brak tagu `<QSO_DATE>` lub `<TIME_ON>` powoduje jawne odrzucenie rekordu bez fabrykowania `Utc::now()`.
+  3. Wdrożono dualne wyznaczanie granic pól (dual-mode length extraction): weryfikacja byte-count z fallbackiem na char-count, zapobiegając ucinaniu wielobajtowych znaków UTF-8 (np. polskich znaków w nazwach QTH/Name).
+- **Wdrożone testy regresyjne:**
+  - 11 nowych deterministycznych testów regresyjnych w `src/core/adif.rs` weryfikujących zachowanie znaków diakrytycznych (`Kraków`, `Łódź`), odrzucanie brakujących dat/czasów, odporność na nieznane pola ADIF, oraz brak terminacji na `<EOR>` wewnątrz wartości pola.
 
 ---
 
@@ -240,6 +261,15 @@
 - **Zależności od innych zmian:** Powiązane z `DATA-003`.
 - **Wymagany test regresyjny:** `import_batch_infers_band_from_freq_and_normalizes_date_time`.
 - **Kryterium akceptacji:** `import_batch` akceptuje rekord z `band: ""` i `freq: Some(14.074)`, zapisując `band == "20m"`, `qso_date == "YYYYMMDD"`, `time_on == "HHMMSS"`.
+- **Status remediacji:** **FIXED_SOFTWARE_VERIFIED**
+- **Data wdrożenia i weryfikacji:** 2026-11-03
+- **Commit:**
+  - `9b7f0fc`: `fix(data): make QSO ingestion atomic and idempotent (DATA-002)`
+- **Wdrożone rozwiązanie:**
+  1. Dodano wywołanie `normalize_qso_fields(&mut qso)` na początku pętli przetwarzania rekordów w `QsoIngestor::import_batch` przed wywołaniem `qso.validate()`.
+  2. Zapewniono automatyczną dedukcję pasma na podstawie częstotliwości (`freq`), normalizację wielkości liter oraz czyszczenie formatów dat/czasu w importach wsadowych i synchronizacji LAN Sync.
+- **Wdrożone testy regresyjne:**
+  - `import_batch_infers_band_from_freq_and_normalizes_date_time` w `src/core/ingest/import.rs`.
 
 ---
 
@@ -268,6 +298,19 @@
 - **Zależności od innych zmian:** `DATA-002`.
 - **Wymagany test regresyjny:** `search_qsos_advanced_normalizes_hyphenated_date_bounds` oraz test `EXPLAIN QUERY PLAN` dla `has_identity` i `callbook.lookup`.
 - **Kryterium akceptacji:** `EXPLAIN QUERY PLAN` potwierdza `SEARCH ... USING INDEX` dla `has_identity` i `callbook.lookup`.
+- **Status remediacji:** **FIXED_SOFTWARE_VERIFIED**
+- **Data wdrożenia i weryfikacji:** 2026-11-03
+- **Commit:**
+  - `ceaa355`: `fix(data): enforce database-level QSO deduplication (DATA-003)`
+- **Wdrożone rozwiązanie:**
+  1. W `search_qsos_advanced` znormalizowano filtry daty wejściowej `date_from` oraz `date_to`, usuwając myślniki i separatory przed zapytaniem SQL.
+  2. W `has_identity` usunięto funkcję `UPPER(callsign)`, zastępując ją bezpośrednim dopasowaniem `WHERE journal_id = ?1 AND callsign = ?2 AND (qso_date = ?3 OR qso_date = ?4)`.
+  3. Wdrożono migrację 5 schematu SQLite tworzącą złożony indeks B-tree `idx_qso_identity(journal_id, callsign, qso_date, band, mode)` oraz czyszczącą dane historyczne.
+  4. Wyeliminowano wyścigi check-then-insert w `QsoIngestor::ingest`, utrzymując blokadę bazy danych nieprzerwanie pomiędzy weryfikacją tożsamości a zapisem rekordu.
+- **Wdrożone testy regresyjne:**
+  - `search_qsos_advanced_normalizes_hyphenated_date_bounds` w `src/core/database/tests.rs`.
+  - `explain_query_plan_has_identity_uses_index` weryfikujący użycie indeksu B-tree `idx_qso_identity`.
+  - `concurrent_identical_ingest_creates_single_qso` weryfikujący atomowość i brak wyścigów przy wielowątkowym zapisie identycznego QSO.
 
 ---
 
@@ -1156,6 +1199,15 @@ Fizyczny HIL: **NOT EXECUTED — SAFETY GATE CLOSED** (10 fizycznych testów spr
 - **Zależności od innych zmian:** Brak.
 - **Wymagany test regresyjny:** `editing_qso_validates_fields_and_updates_awards_engine`.
 - **Kryterium akceptacji:** Edycja QSO w GUI i REST API waliduje dane przez `QsoIngestor` i aktualizuje `AwardsEngine`.
+- **Status remediacji:** **FIXED_SOFTWARE_VERIFIED**
+- **Data wdrożenia i weryfikacji:** 2026-11-03
+- **Commit:**
+  - `50321f1`: `fix(storage): unify QSO update path and awards sync through QsoIngestor (ARCH-002)`
+- **Wdrożone rozwiązanie:**
+  1. Dodano domenową metodę `QsoIngestor::update_existing(id, qso)`, która wykonuje bezpieczną normalizację, walidację, wzbogacenie DXCC, aktualizację bazy w transakcji, pełną przebudowę `AwardsEngine` (`rebuild_from_qsos`) oraz rejestrację znaku w `ScpEngine`.
+  2. Zaktualizowano `SpLogApp::save_edited_qso` w GUI oraz `put_qso_by_id` w REST API, eliminując zduplikowaną funkcję `normalize_and_enrich_qso` i gwarantując pełną synchronizację silnika dyplomów po każdej edycji.
+- **Wdrożone testy regresyjne:**
+  - `editing_qso_validates_fields_and_updates_awards_engine` w `src/core/ingest/mod.rs`.
 
 ---
 

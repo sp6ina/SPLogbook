@@ -218,8 +218,14 @@ flowchart LR
 
 ---
 
-### Etap 5 — Integralność Danych: Parser ADIF, `QsoIngestor` i Indeksy SQLite (`P1`) [READY]
-- **Status:** **READY**
+### Etap 5 — Integralność Danych: Parser ADIF, `QsoIngestor` i Indeksy SQLite (`P1`) [SOFTWARE VERIFIED]
+- **Status:** **SOFTWARE VERIFIED**
+- **Data ukończenia:** 2026-11-03
+- **Podsumowanie wdrożenia Etapu 5:**
+  - `DATA-001` (commit `56b44a4`): Rygorystyczny parser ADIF z limitami zasobów (64 MiB plik, 1 MiB nagłówek, 1 MiB pole), eliminacja fabrykowania `Utc::now()` przy brakujących tagach daty/czasu oraz dual-mode length extraction chroniące wielobajtowe znaki UTF-8. 29/29 testów jednostkowych w `core::adif`.
+  - `DATA-002` (commit `9b7f0fc`): Dodanie `normalize_qso_fields` do `QsoIngestor::import_batch` umożliwiające dedukcję pasma z `freq` oraz normalizację formatu dat i wielkości liter.
+  - `DATA-003` (commit `ceaa355`): Normalizacja zakresów dat w `search_qsos_advanced`, migracja 5 schematu SQLite z indeksem tożsamości `idx_qso_identity(journal_id, callsign, qso_date, band, mode)` potwierdzonym przez `EXPLAIN QUERY PLAN` (`SEARCH ... USING INDEX`), oraz eliminacja wyścigów check-then-insert w `QsoIngestor::ingest`.
+  - `ARCH-002` (commit `50321f1`): Unifikacja ścieżki edycji QSO w GUI (`save_edited_qso`) i REST API (`PUT /api/v1/qsos/{id}`) poprzez `QsoIngestor::update_existing` z automatyczną przebudową `AwardsEngine` i rejestracją w `ScpEngine`.
 - **Cel:** Eliminacja psucia polskich znaków w ADIF, fabrykowania daty oraz pomijania normalizacji i indeksów SQLite (`DATA-001`, `DATA-002`, `DATA-003`, `ARCH-002`).
 - **Zakres:**
   - Naprawa `fields_to_qso` (brak fabrykowania `Utc::now()`) i bezpiecznego cięcia znaków UTF-8 w `src/core/adif.rs` (`DATA-001`).
