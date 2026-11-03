@@ -19,7 +19,6 @@ use std::collections::{HashMap, HashSet};
 
 impl LogDatabase {
     /// Pobiera QSO po ID
-
     pub fn get_qso_by_id(&self, id: i64) -> Result<Option<QsoRecord>> {
         let sql = format!(
             "SELECT {} FROM qso_records WHERE id = ?1",
@@ -35,13 +34,15 @@ impl LogDatabase {
 
     pub fn insert_qso(&self, qso: &QsoRecord) -> Result<i64> {
         let stored = for_storage(qso);
+        let data_params = bind_params(&stored);
+        let identity_key = qso.identity().canonical_key();
 
-        let params = bind_params(&stored);
+        let mut params: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(QSO_DATA_COLUMN_COUNT + 1);
+        params.extend_from_slice(&data_params);
+        params.push(&identity_key);
 
         let mut stmt = self.conn.prepare_cached(&QSO_SQL.insert)?;
-
         stmt.execute(params.as_slice())?;
-
         Ok(self.conn.last_insert_rowid())
     }
 
@@ -55,21 +56,17 @@ impl LogDatabase {
         let Some(id) = qso.id else {
             return self.insert_qso(qso);
         };
-
         let stored = for_storage(qso);
-
         let data_params = bind_params(&stored);
+        let identity_key = qso.identity().canonical_key();
 
-        let mut params: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(QSO_DATA_COLUMN_COUNT + 1);
-
+        let mut params: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(QSO_DATA_COLUMN_COUNT + 2);
         params.extend_from_slice(&data_params);
-
         params.push(&id);
+        params.push(&identity_key);
 
         let mut stmt = self.conn.prepare_cached(&QSO_SQL.insert_with_id)?;
-
         stmt.execute(params.as_slice())?;
-
         Ok(id)
     }
 
@@ -77,25 +74,24 @@ impl LogDatabase {
 
     pub fn batch_insert_qsos(&self, qsos: &[QsoRecord]) -> Result<usize> {
         let tx = self.conn.unchecked_transaction()?;
-
         let mut count = 0;
-
         {
             let mut stmt = tx.prepare_cached(&QSO_SQL.insert)?;
-
             for qso in qsos {
                 let stored = for_storage(qso);
+                let data_params = bind_params(&stored);
+                let identity_key = qso.identity().canonical_key();
 
-                let params = bind_params(&stored);
+                let mut params: Vec<&dyn rusqlite::ToSql> =
+                    Vec::with_capacity(QSO_DATA_COLUMN_COUNT + 1);
+                params.extend_from_slice(&data_params);
+                params.push(&identity_key);
 
                 stmt.execute(params.as_slice())?;
-
                 count += 1;
             }
         }
-
         tx.commit()?;
-
         Ok(count)
     }
 
@@ -151,19 +147,16 @@ impl LogDatabase {
 
     pub fn update_qso(&self, id: i64, qso: &QsoRecord) -> Result<()> {
         let stored = for_storage(qso);
-
         let data_params = bind_params(&stored);
+        let identity_key = qso.identity().canonical_key();
 
-        let mut params: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(QSO_DATA_COLUMN_COUNT + 1);
-
+        let mut params: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(QSO_DATA_COLUMN_COUNT + 2);
         params.extend_from_slice(&data_params);
-
+        params.push(&identity_key);
         params.push(&id);
 
         let mut stmt = self.conn.prepare_cached(&QSO_SQL.update)?;
-
         stmt.execute(params.as_slice())?;
-
         Ok(())
     }
 
@@ -302,50 +295,13 @@ impl LogDatabase {
     /// `QsoIdentity` w Rust z zachowaniem minutowej rozdzielczości czasu.
 
     pub fn has_identity(&self, journal_id: &str, identity: &QsoIdentity) -> Result<bool> {
-        let date_hyphenated =
-            if identity.date.len() == 8 && identity.date.chars().all(|c| c.is_ascii_digit()) {
-                format!(
-                    "{}-{}-{}",
-                    &identity.date[0..4],
-                    &identity.date[4..6],
-                    &identity.date[6..8]
-                )
-            } else {
-                identity.date.clone()
-            };
-
-        let mut stmt = self.conn.prepare(
-            "SELECT callsign, band, mode, qso_date, time_on \
-             FROM qso_records \
-             WHERE journal_id = ?1 AND callsign = ?2 AND (qso_date = ?3 OR qso_date = ?4)",
+        let Some(canonical_key) = identity.canonical_key() else {
+            return Ok(false);
+        };
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT 1 FROM qso_records WHERE journal_id = ?1 AND identity_key = ?2 LIMIT 1",
         )?;
-
-        let mut rows = stmt.query(params![
-            journal_id,
-            identity.callsign,
-            identity.date,
-            date_hyphenated
-        ])?;
-
-        while let Some(row) = rows.next()? {
-            let callsign: String = row.get(0)?;
-
-            let band: String = row.get(1)?;
-
-            let mode: String = row.get(2)?;
-
-            let qso_date: String = row.get(3)?;
-
-            let time_on: String = row.get(4)?;
-
-            let candidate = QsoIdentity::from_fields(&callsign, &band, &mode, &qso_date, &time_on);
-
-            if &candidate == identity {
-                return Ok(true);
-            }
-        }
-
-        Ok(false)
+        stmt.exists(params![journal_id, canonical_key])
     }
 
     /// Pobiera wszystkie łączności z logu (np. do eksportu całego dziennika)

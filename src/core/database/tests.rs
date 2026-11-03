@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2026 Mariusz Woźniak (SP6INA)
+// Copyright (C) 2026 Mariusz WoĹşniak (SP6INA)
 
 use super::*;
 use crate::core::qso::{QsoIdentity, QsoRecord};
@@ -21,10 +21,10 @@ fn test_insert_and_find_qso() {
 #[test]
 fn schema_migrations_record_versions_and_are_idempotent() {
     let mut db = LogDatabase::open_in_memory().unwrap();
-    // Wszystkie kroki migracji zostały zarejestrowane.
-    assert_eq!(db.current_schema_version().unwrap(), 5);
+    // Wszystkie kroki migracji zostaĹ‚y zarejestrowane.
+    assert_eq!(db.current_schema_version().unwrap(), 6);
 
-    // Kolumny z migracji 2 istnieją i ponowna inicjalizacja nie psuje schematu.
+    // Kolumny z migracji 2 istniejÄ… i ponowna inicjalizacja nie psuje schematu.
     let col_count: i64 = db
             .conn
             .query_row(
@@ -35,7 +35,7 @@ fn schema_migrations_record_versions_and_are_idempotent() {
             .unwrap();
     assert_eq!(col_count, 5);
 
-    // Indeksy z migracji 4 istnieją.
+    // Indeksy z migracji 4 istniejÄ….
     let idx_count: i64 = db
         .conn
         .query_row(
@@ -47,7 +47,7 @@ fn schema_migrations_record_versions_and_are_idempotent() {
     assert_eq!(idx_count, 2);
 
     db.init_schema().unwrap();
-    assert_eq!(db.current_schema_version().unwrap(), 5);
+    assert_eq!(db.current_schema_version().unwrap(), 6);
 }
 
 #[test]
@@ -65,13 +65,16 @@ fn chronological_numbers_cover_entire_journal_not_just_visible_rows() {
     })
     .unwrap();
     let mut qso = QsoRecord::new("SP6INA", "20m", "CW");
-    qso.qso_date = "2026-01-01".into();
+    qso.qso_date = "2025-01-01".into();
     qso.time_on = "12:00:00".into();
     let first = db.insert_qso(&qso).unwrap();
+    qso.qso_date = "2026-01-01".into();
     qso.journal_id = Some("PORTABLE".into());
     let portable = db.insert_qso(&qso).unwrap();
     qso.journal_id = Some("DEFAULT".into());
-    for _ in 0..501 {
+    for i in 0..501 {
+        qso.time_on = format!("{:02}{:02}00", (i / 60) % 24, i % 60);
+        qso.callsign = format!("SP{i}INA");
         db.insert_qso(&qso).unwrap();
     }
     let newest = db.get_recent_qsos_for_journal("DEFAULT", 1).unwrap();
@@ -129,7 +132,7 @@ fn test_multi_journal_operations() {
         id: "PORTABLE".to_string(),
         name: "Aktywacje SPFF / PGA".to_string(),
         station_callsign: "SP6INA/P".to_string(),
-        operator: "Mariusz Woźniak".to_string(),
+        operator: "Mariusz WoĹşniak".to_string(),
         my_gridsquare: "JO80".to_string(),
         my_pga: "KL01".to_string(),
         description: "Praca w terenie".to_string(),
@@ -157,13 +160,13 @@ fn test_multi_journal_operations() {
 fn test_journal_integrity_guards() {
     let db = LogDatabase::open_in_memory().unwrap();
 
-    // Przełączenie na nieistniejący dziennik zwraca błąd.
+    // PrzeĹ‚Ä…czenie na nieistniejÄ…cy dziennik zwraca bĹ‚Ä…d.
     assert!(db.set_active_journal("GHOST").is_err());
-    // Po nieudanym przełączeniu aktywny pozostaje DEFAULT.
+    // Po nieudanym przeĹ‚Ä…czeniu aktywny pozostaje DEFAULT.
     let active = db.get_active_journal().unwrap();
     assert_eq!(active.id, "DEFAULT");
 
-    // Utworzenie drugiego dziennika i przełączenie na niego.
+    // Utworzenie drugiego dziennika i przeĹ‚Ä…czenie na niego.
     let portable = Journal {
         id: "PORTABLE".to_string(),
         name: "Aktywacje".to_string(),
@@ -178,14 +181,14 @@ fn test_journal_integrity_guards() {
     db.set_active_journal("PORTABLE").unwrap();
     assert_eq!(db.get_active_journal().unwrap().id, "PORTABLE");
 
-    // Usunięcie aktywnego dziennika jest blokowane.
+    // UsuniÄ™cie aktywnego dziennika jest blokowane.
     assert!(db.delete_journal("PORTABLE").is_err());
 
-    // Powrót na DEFAULT i próba usunięcia DEFAULT — zablokowana.
+    // PowrĂłt na DEFAULT i prĂłba usuniÄ™cia DEFAULT â€” zablokowana.
     db.set_active_journal("DEFAULT").unwrap();
     assert!(db.delete_journal("DEFAULT").is_err());
 
-    // Osierocone QSO są przepinane do DEFAULT przy usunięciu.
+    // Osierocone QSO sÄ… przepinane do DEFAULT przy usuniÄ™ciu.
     let mut qso = QsoRecord::new("DL1ABC", "40m", "SSB");
     qso.journal_id = Some("PORTABLE".to_string());
     db.insert_qso(&qso).unwrap();
@@ -262,7 +265,7 @@ fn test_update_qso() {
     let mut updated = qso.clone();
     updated.rst_sent = "579".to_string();
     updated.name = Some("Mariusz SP6INA".to_string());
-    updated.qth = Some("Wrocław".to_string());
+    updated.qth = Some("WrocĹ‚aw".to_string());
     updated.gridsquare = Some("JO81WA".to_string());
     updated.pga_ref = Some("WR01".to_string());
 
@@ -272,7 +275,7 @@ fn test_update_qso() {
     assert_eq!(list.len(), 1);
     assert_eq!(list[0].rst_sent, "579");
     assert_eq!(list[0].name.as_deref(), Some("Mariusz SP6INA"));
-    assert_eq!(list[0].qth.as_deref(), Some("Wrocław"));
+    assert_eq!(list[0].qth.as_deref(), Some("WrocĹ‚aw"));
     assert_eq!(list[0].gridsquare.as_deref(), Some("JO81WA"));
     assert_eq!(list[0].pga_ref.as_deref(), Some("WR01"));
 }
@@ -311,7 +314,7 @@ fn test_search_with_apostrophe() {
     let res = db.search_qsos_advanced(&filter);
     assert!(
         res.is_ok(),
-        "Wyszukiwanie z apostrofem nie powinno powodować błędu SQL"
+        "Wyszukiwanie z apostrofem nie powinno powodowaÄ‡ bĹ‚Ä™du SQL"
     );
     assert_eq!(res.unwrap().len(), 1);
 }
@@ -339,7 +342,7 @@ fn test_find_and_delete_duplicates() {
     assert_eq!(
         dups.len(),
         1,
-        "Powinna być dokładnie jedna grupa duplikatów (SP6INA / 20m / CW)"
+        "Powinna byÄ‡ dokĹ‚adnie jedna grupa duplikatĂłw (SP6INA / 20m / CW)"
     );
     assert_eq!(dups[0].len(), 2);
 
@@ -347,7 +350,7 @@ fn test_find_and_delete_duplicates() {
     assert_eq!(deleted, 1);
 
     let dups_after = db.find_duplicate_qsos(false).unwrap();
-    assert_eq!(dups_after.len(), 0, "Brak duplikatów po usunięciu");
+    assert_eq!(dups_after.len(), 0, "Brak duplikatĂłw po usuniÄ™ciu");
 
     let remaining = db.find_previous_qsos("SP6INA").unwrap();
     assert_eq!(remaining.len(), 2);
@@ -1076,9 +1079,10 @@ fn table_columns_match_expected_snapshot() {
         "vucc_grids".to_string(),
         "audio_file".to_string(),
         "journal_id".to_string(),
+        "identity_key".to_string(),
     ];
 
-    assert_eq!(expected.len(), 54);
+    assert_eq!(expected.len(), 55);
     assert_eq!(columns, expected);
 }
 
@@ -1115,7 +1119,7 @@ fn migration_from_v1_preserves_rows() {
     }
 
     let db = LogDatabase::open(&db_path).unwrap();
-    assert_eq!(db.current_schema_version().unwrap(), 5);
+    assert_eq!(db.current_schema_version().unwrap(), 6);
 
     let qsos = db.get_all_qsos().unwrap();
     assert_eq!(qsos.len(), 1);
@@ -1138,7 +1142,7 @@ fn validate_schema_rejects_future_version() {
                 version INTEGER NOT NULL,
                 applied_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
-            INSERT INTO schema_version (version) VALUES (6);",
+            INSERT INTO schema_version (version) VALUES (7);",
         )
         .unwrap();
     }
@@ -1388,13 +1392,13 @@ fn explain_query_plan_has_identity_uses_index() {
     let mut stmt = db
         .conn
         .prepare(
-            "EXPLAIN QUERY PLAN SELECT callsign, band, mode, qso_date, time_on              FROM qso_records              WHERE journal_id = ?1 AND callsign = ?2 AND (qso_date = ?3 OR qso_date = ?4)",
+            "EXPLAIN QUERY PLAN SELECT 1 FROM qso_records WHERE journal_id = ?1 AND identity_key = ?2 LIMIT 1",
         )
         .unwrap();
 
     let rows: Vec<String> = stmt
         .query_map(
-            rusqlite::params!["DEFAULT", "SP6INA", "20261018", "2026-10-18"],
+            rusqlite::params!["DEFAULT", "SP6INA|20M|CW|20261018|1200"],
             |row| row.get::<_, String>(3),
         )
         .unwrap()
@@ -1403,7 +1407,546 @@ fn explain_query_plan_has_identity_uses_index() {
 
     let full_plan = rows.join(" ");
     assert!(
-        full_plan.contains("USING INDEX idx_qso_identity"),
-        "expected plan to use idx_qso_identity, got: {full_plan}"
+        full_plan.contains("idx_qso_identity_unique") && full_plan.contains("SEARCH qso_records"),
+        "expected plan to use idx_qso_identity_unique, got: {full_plan}"
     );
+}
+
+// =========================================================================
+// KOĹCOWA BRAMKA ETAPU 5: DATA-003 â€” KANONICZNA TOĹ»SAMOĹšÄ† I UNIQUE INTEGRITY
+// =========================================================================
+
+#[test]
+fn direct_duplicate_insert_is_rejected_by_database() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    let q1 = make_test_qso_literal("SP6INA", "20261018", "120000");
+    db.insert_qso(&q1).unwrap();
+
+    let err = db.insert_qso(&q1);
+    assert!(
+        matches!(err, Err(rusqlite::Error::SqliteFailure(e, _)) if e.code == rusqlite::ErrorCode::ConstraintViolation),
+        "bezpoĹ›redni duplikat musi byÄ‡ odrzucony ograniczeniem UNIQUE bazy danych"
+    );
+}
+
+#[test]
+fn duplicate_insert_from_second_connection_is_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("two_connections.db");
+
+    let db = LogDatabase::open(&db_path).unwrap();
+    let q1 = make_test_qso_literal("SP6INA", "20261018", "120000");
+    db.insert_qso(&q1).unwrap();
+
+    // Drugie niezaleĹĽne poĹ‚Ä…czenie SQLite omijajÄ…ce instancjÄ™ LogDatabase
+    let conn2 = rusqlite::Connection::open(&db_path).unwrap();
+    let mut stmt = conn2.prepare(
+        "INSERT INTO qso_records (callsign, band, mode, qso_date, time_on, rst_sent, rst_rcvd, journal_id, identity_key) \
+         VALUES ('SP6INA', '20m', 'CW', '20261018', '120000', '599', '599', 'DEFAULT', 'SP6INA|20M|CW|20261018|1200')"
+    ).unwrap();
+
+    let err = stmt.execute([]);
+    assert!(
+        matches!(err, Err(rusqlite::Error::SqliteFailure(e, _)) if e.code == rusqlite::ErrorCode::ConstraintViolation),
+        "drugie niezaleĹĽne poĹ‚Ä…czenie musi zostaÄ‡ zablokowane przez indeks UNIQUE w SQLite"
+    );
+}
+
+#[test]
+fn duplicate_insert_from_second_repository_instance_is_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("two_repos.db");
+
+    let db1 = LogDatabase::open(&db_path).unwrap();
+    let db2 = LogDatabase::open(&db_path).unwrap();
+
+    let q1 = make_test_qso_literal("SP6INA", "20261018", "120000");
+    db1.insert_qso(&q1).unwrap();
+
+    let err = db2.insert_qso(&q1);
+    assert!(
+        matches!(err, Err(rusqlite::Error::SqliteFailure(e, _)) if e.code == rusqlite::ErrorCode::ConstraintViolation),
+        "druga instancja repozytorium musi zostaÄ‡ odrzucona przez unikalnoĹ›Ä‡ bazy bez polegania na mutexie procesu"
+    );
+}
+
+#[test]
+fn same_qso_same_identity_key() {
+    let id1 =
+        crate::core::qso::QsoIdentity::from_fields("SP6INA", "20m", "CW", "2026-10-18", "12:00:00");
+    let id2 = crate::core::qso::QsoIdentity::from_fields("sp6ina", "20M", "cw", "20261018", "1200");
+    assert_eq!(id1.canonical_key(), id2.canonical_key());
+    assert_eq!(
+        id1.canonical_key(),
+        Some("SP6INA|20M|CW|20261018|1200".to_string())
+    );
+}
+
+#[test]
+fn same_qso_different_adif_field_order_same_identity() {
+    let id1 =
+        crate::core::qso::QsoIdentity::from_fields("SP6INA", "20m", "CW", "20261018", "120000");
+    let id2 =
+        crate::core::qso::QsoIdentity::from_fields("SP6INA", "20m", "CW", "20261018", "120000");
+    assert_eq!(id1.canonical_key(), id2.canonical_key());
+}
+
+#[test]
+fn same_qso_case_variations_same_identity() {
+    let id1 =
+        crate::core::qso::QsoIdentity::from_fields("sp6ina", "20m", "cw", "20261018", "120000");
+    let id2 =
+        crate::core::qso::QsoIdentity::from_fields("SP6INA", "20M", "CW", "20261018", "120000");
+    assert_eq!(id1.canonical_key(), id2.canonical_key());
+}
+
+#[test]
+fn same_qso_normalized_date_same_identity() {
+    let id1 =
+        crate::core::qso::QsoIdentity::from_fields("SP6INA", "20m", "CW", "2026-10-18", "120000");
+    let id2 =
+        crate::core::qso::QsoIdentity::from_fields("SP6INA", "20m", "CW", "2026/10/18", "120000");
+    let id3 =
+        crate::core::qso::QsoIdentity::from_fields("SP6INA", "20m", "CW", "20261018", "120000");
+    assert_eq!(id1.canonical_key(), id2.canonical_key());
+    assert_eq!(id1.canonical_key(), id3.canonical_key());
+}
+
+#[test]
+fn same_qso_hhmm_and_hhmmss_follow_contract() {
+    let id_hhmm =
+        crate::core::qso::QsoIdentity::from_fields("SP6INA", "20m", "CW", "20261018", "1200");
+    let id_hhmmss =
+        crate::core::qso::QsoIdentity::from_fields("SP6INA", "20m", "CW", "20261018", "120045");
+    assert_eq!(id_hhmm.canonical_key(), id_hhmmss.canonical_key());
+}
+
+#[test]
+fn same_callsign_same_day_different_time_are_distinct() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    let q1 = make_test_qso_literal("SP6INA", "20261018", "100000");
+    let q2 = make_test_qso_literal("SP6INA", "20261018", "143000");
+
+    assert_ne!(q1.identity().canonical_key(), q2.identity().canonical_key());
+    let id1 = db.insert_qso(&q1).unwrap();
+    let id2 = db.insert_qso(&q2).unwrap();
+    assert_ne!(id1, id2);
+    assert_eq!(db.count_all().unwrap(), 2);
+}
+
+#[test]
+fn same_callsign_same_time_different_band_are_distinct() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    let mut q1 = make_test_qso_literal("SP6INA", "20261018", "120000");
+    q1.band = "20m".to_string();
+    let mut q2 = make_test_qso_literal("SP6INA", "20261018", "120000");
+    q2.band = "40m".to_string();
+
+    assert_ne!(q1.identity().canonical_key(), q2.identity().canonical_key());
+    db.insert_qso(&q1).unwrap();
+    db.insert_qso(&q2).unwrap();
+    assert_eq!(db.count_all().unwrap(), 2);
+}
+
+#[test]
+fn same_callsign_same_time_different_mode_follow_contract() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    let mut q1 = make_test_qso_literal("SP6INA", "20261018", "120000");
+    q1.mode = "CW".to_string();
+    let mut q2 = make_test_qso_literal("SP6INA", "20261018", "120000");
+    q2.mode = "SSB".to_string();
+
+    assert_ne!(q1.identity().canonical_key(), q2.identity().canonical_key());
+    db.insert_qso(&q1).unwrap();
+    db.insert_qso(&q2).unwrap();
+    assert_eq!(db.count_all().unwrap(), 2);
+}
+
+#[test]
+fn mode_and_submode_follow_identity_contract() {
+    let mut q1 = make_test_qso_literal("SP6INA", "20261018", "120000");
+    q1.mode = "FT8".to_string();
+    let mut q2 = make_test_qso_literal("SP6INA", "20261018", "120000");
+    q2.mode = "ft8".to_string();
+    q2.submode = Some("FT8".to_string());
+
+    assert_eq!(q1.identity().canonical_key(), q2.identity().canonical_key());
+}
+
+#[test]
+fn different_journals_allow_same_qso() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    db.create_journal(&Journal {
+        id: "CONTEST".to_string(),
+        name: "Contest Journal".to_string(),
+        station_callsign: "SP6INA".to_string(),
+        operator: String::new(),
+        my_gridsquare: String::new(),
+        my_pga: String::new(),
+        description: String::new(),
+        is_default: false,
+    })
+    .unwrap();
+
+    let mut q1 = make_test_qso_literal("SP6INA", "20261018", "120000");
+    q1.journal_id = Some("DEFAULT".to_string());
+    let mut q2 = make_test_qso_literal("SP6INA", "20261018", "120000");
+    q2.journal_id = Some("CONTEST".to_string());
+
+    let id1 = db.insert_qso(&q1).unwrap();
+    let id2 = db.insert_qso(&q2).unwrap();
+    assert_ne!(id1, id2);
+    assert_eq!(db.count_qsos_for_journal("DEFAULT").unwrap(), 1);
+    assert_eq!(db.count_qsos_for_journal("CONTEST").unwrap(), 1);
+}
+
+#[test]
+fn missing_time_does_not_create_false_duplicate() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    let mut q1 = make_test_qso_literal("SP6INA", "20261018", "");
+    q1.time_on = String::new();
+    let mut q2 = make_test_qso_literal("SP6INA", "20261018", "");
+    q2.time_on = String::new();
+
+    // Rekordy bez peĹ‚nej toĹĽsamoĹ›ci majÄ… identity_key=NULL i nie blokujÄ… siÄ™ wzajemnie
+    assert_eq!(q1.identity().canonical_key(), None);
+    let id1 = db.insert_qso(&q1).unwrap();
+    let id2 = db.insert_qso(&q2).unwrap();
+    assert_ne!(id1, id2);
+    assert_eq!(db.count_all().unwrap(), 2);
+}
+
+#[test]
+fn null_and_empty_do_not_collapse_unintentionally() {
+    let id_empty =
+        crate::core::qso::QsoIdentity::from_fields("", "20m", "CW", "20261018", "120000");
+    let id_no_date =
+        crate::core::qso::QsoIdentity::from_fields("SP6INA", "20m", "CW", "", "120000");
+    let id_no_time =
+        crate::core::qso::QsoIdentity::from_fields("SP6INA", "20m", "CW", "20261018", "");
+
+    assert_eq!(id_empty.canonical_key(), None);
+    assert_eq!(id_no_date.canonical_key(), None);
+    assert_eq!(id_no_time.canonical_key(), None);
+}
+
+#[test]
+fn stable_source_id_has_documented_precedence() {
+    let mut q = make_test_qso_literal("SP6INA", "20261018", "120000");
+    q.id = Some(42);
+    let id = q.identity();
+    // ToĹĽsamoĹ›Ä‡ naturalna jest staĹ‚a i deterministyczna niezaleĹĽnie od lokalnego klucza autoincrement ID
+    assert_eq!(
+        id.canonical_key(),
+        Some("SP6INA|20M|CW|20261018|1200".to_string())
+    );
+}
+
+#[test]
+fn identity_key_is_stable_across_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("restart.db");
+
+    let q = make_test_qso_literal("SP6INA", "20261018", "120000");
+    {
+        let db = LogDatabase::open(&db_path).unwrap();
+        db.insert_qso(&q).unwrap();
+    }
+
+    {
+        let db = LogDatabase::open(&db_path).unwrap();
+        let exists = db.has_identity("DEFAULT", &q.identity()).unwrap();
+        assert!(
+            exists,
+            "toĹĽsamoĹ›Ä‡ musi byÄ‡ trwaĹ‚a i stabilna po restarcie bazy"
+        );
+    }
+}
+
+#[test]
+fn concurrent_identical_insert_from_two_connections_creates_one_qso() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("conc_conn.db");
+
+    // Inicjalizacja schematu bazy danych
+    {
+        let _ = LogDatabase::open(&db_path).unwrap();
+    }
+
+    let p1 = db_path.clone();
+    let p2 = db_path.clone();
+
+    let t1 = std::thread::spawn(move || {
+        let conn = rusqlite::Connection::open(&p1).unwrap();
+        conn.execute(
+            "INSERT INTO qso_records (callsign, band, mode, qso_date, time_on, rst_sent, rst_rcvd, journal_id, identity_key) \
+             VALUES ('SP6INA', '20m', 'CW', '20261018', '120000', '599', '599', 'DEFAULT', 'SP6INA|20M|CW|20261018|1200')",
+            [],
+        )
+    });
+
+    let t2 = std::thread::spawn(move || {
+        let conn = rusqlite::Connection::open(&p2).unwrap();
+        conn.execute(
+            "INSERT INTO qso_records (callsign, band, mode, qso_date, time_on, rst_sent, rst_rcvd, journal_id, identity_key) \
+             VALUES ('SP6INA', '20m', 'CW', '20261018', '120000', '599', '599', 'DEFAULT', 'SP6INA|20M|CW|20261018|1200')",
+            [],
+        )
+    });
+
+    let res1 = t1.join().unwrap();
+    let res2 = t2.join().unwrap();
+
+    let mut successes = 0;
+    let mut conflicts = 0;
+
+    for r in [res1, res2] {
+        match r {
+            Ok(_) => successes += 1,
+            Err(rusqlite::Error::SqliteFailure(e, _))
+                if e.code == rusqlite::ErrorCode::ConstraintViolation =>
+            {
+                conflicts += 1;
+            }
+            Err(e) => panic!("nieoczekiwany bĹ‚Ä…d wspĂłĹ‚bieĹĽnoĹ›ci: {e:?}"),
+        }
+    }
+
+    assert_eq!(
+        successes, 1,
+        "dokĹ‚adnie jedno poĹ‚Ä…czenie musi wygraÄ‡ wyĹ›cig"
+    );
+    assert_eq!(
+        conflicts, 1,
+        "drugie poĹ‚Ä…czenie musi zostaÄ‡ zablokowane przez constraint UNIQUE"
+    );
+
+    let db = LogDatabase::open(&db_path).unwrap();
+    assert_eq!(db.count_all().unwrap(), 1);
+}
+
+#[test]
+fn concurrent_identical_insert_from_two_repository_instances_creates_one_qso() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("conc_repos.db");
+    {
+        let _init = LogDatabase::open(&db_path).unwrap();
+    }
+
+    let p1 = db_path.clone();
+    let p2 = db_path.clone();
+
+    let t1 = std::thread::spawn(move || {
+        let db = LogDatabase::open(&p1).unwrap();
+        let q = make_test_qso_literal("SP6INA", "20261018", "120000");
+        db.insert_qso(&q)
+    });
+
+    let t2 = std::thread::spawn(move || {
+        let db = LogDatabase::open(&p2).unwrap();
+        let q = make_test_qso_literal("SP6INA", "20261018", "120000");
+        db.insert_qso(&q)
+    });
+
+    let res1 = t1.join().unwrap();
+    let res2 = t2.join().unwrap();
+
+    let mut successes = 0;
+    let mut conflicts = 0;
+
+    for r in [res1, res2] {
+        match r {
+            Ok(_) => successes += 1,
+            Err(rusqlite::Error::SqliteFailure(e, _))
+                if e.code == rusqlite::ErrorCode::ConstraintViolation =>
+            {
+                conflicts += 1;
+            }
+            Err(e) => panic!("nieoczekiwany bĹ‚Ä…d: {e:?}"),
+        }
+    }
+
+    assert_eq!(successes, 1);
+    assert_eq!(conflicts, 1);
+
+    let db = LogDatabase::open(&db_path).unwrap();
+    assert_eq!(db.count_all().unwrap(), 1);
+}
+
+#[test]
+fn concurrent_distinct_qsos_are_not_collapsed() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("conc_distinct.db");
+    {
+        let _init = LogDatabase::open(&db_path).unwrap();
+    }
+
+    let p1 = db_path.clone();
+    let p2 = db_path.clone();
+
+    let t1 = std::thread::spawn(move || {
+        let db = LogDatabase::open(&p1).unwrap();
+        let q = make_test_qso_literal("SP1AAA", "20261018", "120000");
+        db.insert_qso(&q)
+    });
+
+    let t2 = std::thread::spawn(move || {
+        let db = LogDatabase::open(&p2).unwrap();
+        let q = make_test_qso_literal("SP2BBB", "20261018", "120000");
+        db.insert_qso(&q)
+    });
+
+    t1.join().unwrap().unwrap();
+    t2.join().unwrap().unwrap();
+
+    let db = LogDatabase::open(&db_path).unwrap();
+    assert_eq!(db.count_all().unwrap(), 2);
+}
+
+#[test]
+fn database_unique_constraint_wins_race() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("race_wins.db");
+    let db = LogDatabase::open(&db_path).unwrap();
+
+    let q = make_test_qso_literal("SP6INA", "20261018", "120000");
+    db.insert_qso(&q).unwrap();
+
+    let err = db.insert_qso(&q);
+    assert!(
+        matches!(err, Err(rusqlite::Error::SqliteFailure(e, _)) if e.code == rusqlite::ErrorCode::ConstraintViolation)
+    );
+}
+
+#[test]
+fn on_conflict_returns_deterministic_duplicate_result() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    let q = make_test_qso_literal("SP6INA", "20261018", "120000");
+
+    db.insert_qso(&q).unwrap();
+
+    // Sprawdzenie has_identity
+    assert!(db.has_identity("DEFAULT", &q.identity()).unwrap());
+}
+
+#[test]
+fn retry_after_conflict_is_idempotent() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    let q = make_test_qso_literal("SP6INA", "20261018", "120000");
+
+    db.insert_qso(&q).unwrap();
+    let err1 = db.insert_qso(&q);
+    let err2 = db.insert_qso(&q);
+
+    assert!(
+        matches!(err1, Err(rusqlite::Error::SqliteFailure(e, _)) if e.code == rusqlite::ErrorCode::ConstraintViolation)
+    );
+    assert!(
+        matches!(err2, Err(rusqlite::Error::SqliteFailure(e, _)) if e.code == rusqlite::ErrorCode::ConstraintViolation)
+    );
+    assert_eq!(db.count_all().unwrap(), 1);
+}
+
+#[test]
+fn same_process_mutex_is_not_required_for_database_integrity() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("no_mutex_needed.db");
+
+    let conn1 = rusqlite::Connection::open(&db_path).unwrap();
+    let conn2 = rusqlite::Connection::open(&db_path).unwrap();
+
+    // Inicjalizacja schematu przez conn1
+    {
+        let db = LogDatabase::open(&db_path).unwrap();
+        let q = make_test_qso_literal("SP6INA", "20261018", "120000");
+        db.insert_qso(&q).unwrap();
+    }
+
+    // BezpoĹ›redni insert przez conn2 bez mutexu LogDatabase
+    let err = conn2.execute(
+        "INSERT INTO qso_records (callsign, band, mode, qso_date, time_on, rst_sent, rst_rcvd, journal_id, identity_key) \
+         VALUES ('SP6INA', '20m', 'CW', '20261018', '120000', '599', '599', 'DEFAULT', 'SP6INA|20M|CW|20261018|1200')",
+        [],
+    );
+    assert!(
+        matches!(err, Err(rusqlite::Error::SqliteFailure(e, _)) if e.code == rusqlite::ErrorCode::ConstraintViolation)
+    );
+    let _ = conn1;
+}
+
+#[test]
+fn fresh_schema_contains_identity_unique_constraint() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    let count: i64 = db.conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_qso_identity_unique' AND sql LIKE '%UNIQUE%'",
+        [],
+        |r| r.get(0),
+    ).unwrap();
+    assert_eq!(
+        count, 1,
+        "nowa baza danych musi posiadaÄ‡ indeks UNIQUE idx_qso_identity_unique"
+    );
+}
+
+#[test]
+fn migrated_schema_contains_same_identity_unique_constraint() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("migrated_schema.db");
+
+    {
+        let conn = Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "PRAGMA foreign_keys=ON;
+             CREATE TABLE schema_version (version INTEGER NOT NULL, applied_at TEXT DEFAULT (datetime('now')));
+             INSERT INTO schema_version (version) VALUES (1);",
+        ).unwrap();
+        LogDatabase::migration_1_base_schema(&conn).unwrap();
+    }
+
+    let db = LogDatabase::open(&db_path).unwrap();
+    assert_eq!(db.current_schema_version().unwrap(), 6);
+
+    let count: i64 = db.conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_qso_identity_unique' AND sql LIKE '%UNIQUE%'",
+        [],
+        |r| r.get(0),
+    ).unwrap();
+    assert_eq!(
+        count, 1,
+        "zmigrowana baza musi posiadaÄ‡ dokĹ‚adnie ten sam indeks UNIQUE idx_qso_identity_unique"
+    );
+}
+
+#[test]
+fn fresh_and_migrated_schema_have_equivalent_constraints() {
+    let fresh_db = LogDatabase::open_in_memory().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let migrated_path = dir.path().join("equiv.db");
+
+    {
+        let conn = Connection::open(&migrated_path).unwrap();
+        conn.execute_batch(
+            "PRAGMA foreign_keys=ON;
+             CREATE TABLE schema_version (version INTEGER NOT NULL, applied_at TEXT DEFAULT (datetime('now')));
+             INSERT INTO schema_version (version) VALUES (1);",
+        ).unwrap();
+        LogDatabase::migration_1_base_schema(&conn).unwrap();
+    }
+
+    let migrated_db = LogDatabase::open(&migrated_path).unwrap();
+
+    let fresh_idx: String = fresh_db.conn.query_row(
+        "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_qso_identity_unique'",
+        [],
+        |r| r.get(0),
+    ).unwrap();
+
+    let migrated_idx: String = migrated_db.conn.query_row(
+        "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_qso_identity_unique'",
+        [],
+        |r| r.get(0),
+    ).unwrap();
+
+    assert_eq!(fresh_idx, migrated_idx);
+    assert!(fresh_idx.contains("UNIQUE"));
 }

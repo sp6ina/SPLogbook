@@ -227,6 +227,7 @@ impl LogDatabase {
             (3, Self::migration_3_foreign_keys),
             (4, Self::migration_4_indexes),
             (5, Self::migration_5_identity_index),
+            (6, Self::migration_6_identity_unique),
         ];
 
         for (version, migrate) in migrations {
@@ -248,7 +249,7 @@ impl LogDatabase {
     /// `schema_version`, brak kluczowych tabel lub kolumn, zamiast pozwolić
     /// aplikacji działać na uszkodzonej bazie.
     pub(super) fn validate_schema(&self) -> Result<()> {
-        const KNOWN_MAX_VERSION: i64 = 5;
+        const KNOWN_MAX_VERSION: i64 = 6;
 
         let version = self.current_schema_version()?;
         if version > KNOWN_MAX_VERSION {
@@ -278,6 +279,7 @@ impl LogDatabase {
             ("qso_records", "qso_date"),
             ("qso_records", "time_on"),
             ("qso_records", "journal_id"),
+            ("qso_records", "identity_key"),
             ("upload_queue", "id"),
             ("upload_queue", "qso_id"),
             ("upload_queue", "service"),
@@ -386,6 +388,51 @@ impl LogDatabase {
              CREATE INDEX IF NOT EXISTS idx_qso_identity
              ON qso_records(journal_id, callsign, qso_date, band, mode);",
         )
+    }
+
+    /// Wersja 6: bazodanowe wymuszanie unikalności QSO (DATA-003).
+    /// Tworzy dedykowaną kolumnę identity_key oraz unikalny indeks idx_qso_identity_unique.
+    /// Przed utworzeniem ograniczenia UNIQUE migracja wykonuje audyt istniejących rekordów.
+    /// W razie wykrycia nierozstrzygniętych duplikatów migracja NIE usuwa ich ani nie scala,
+    /// lecz przerywa działanie zwracając błąd, co powoduje wycofanie (ROLLBACK) całej transakcji.
+    fn migration_6_identity_unique(conn: &Connection) -> rusqlite::Result<()> {
+        Self::add_column_if_missing(conn, "qso_records", "identity_key", "TEXT")?;
+
+        // 1. Oblicz kanoniczny identity_key dla wszystkich istniejących rekordów w bazie
+        let mut update_stmt =
+            conn.prepare_cached("UPDATE qso_records SET identity_key = ?1 WHERE id = ?2")?;
+        let mut select_stmt = conn.prepare(
+            "SELECT id, callsign, band, mode, qso_date, time_on FROM qso_records WHERE identity_key IS NULL",
+        )?;
+        let rows = select_stmt.query_map([], |row| {
+            let id: i64 = row.get(0)?;
+            let callsign: String = row.get(1)?;
+            let band: String = row.get(2)?;
+            let mode: String = row.get(3)?;
+            let qso_date: String = row.get(4)?;
+            let time_on: String = row.get(5)?;
+            Ok((id, callsign, band, mode, qso_date, time_on))
+        })?;
+
+        for r in rows {
+            let (id, callsign, band, mode, qso_date, time_on) = r?;
+            let identity = crate::core::qso::QsoIdentity::from_fields(
+                &callsign, &band, &mode, &qso_date, &time_on,
+            );
+            let key = identity.canonical_key();
+            update_stmt.execute(rusqlite::params![key, id])?;
+        }
+
+        // 2. [KROK 2 w osobnym commicie]
+
+        // 3. Utwórz unikalny indeks bazodanowy i usuń stary indeks pomocniczy
+        conn.execute_batch(
+            "DROP INDEX IF EXISTS idx_qso_identity;
+             CREATE UNIQUE INDEX IF NOT EXISTS idx_qso_identity_unique
+             ON qso_records(journal_id, identity_key);",
+        )?;
+
+        Ok(())
     }
 
     /// Dodaje kolumnę tylko wtedy, gdy jeszcze nie istnieje (bez maskowania błędów).
