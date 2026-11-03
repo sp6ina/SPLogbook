@@ -835,6 +835,27 @@ impl FlexRadioBackend {
     pub fn drain_events(&mut self) -> Vec<NativeRigEvent> {
         self.events.drain(..).collect()
     }
+
+    async fn send_and_await_ack(
+        &mut self,
+        cmd: impl Into<String>,
+        endpoint: &str,
+    ) -> Result<(), RigError> {
+        let seq = self
+            .send_command_tracked(cmd)
+            .await
+            .map_err(|e| e.to_rig_error(endpoint))?;
+        let resp = self
+            .wait_for_response(seq, DEFAULT_COMMAND_TIMEOUT)
+            .await
+            .map_err(|e| e.to_rig_error(endpoint))?;
+        if !resp.is_success() {
+            return Err(RigError::Rejected {
+                code: resp.code as i32,
+            });
+        }
+        Ok(())
+    }
 }
 
 impl Drop for FlexRadioBackend {
@@ -1178,9 +1199,7 @@ impl RigBackend for FlexRadioBackend {
                     let mhz = *freq_hz as f64 / 1_000_000.0;
                     let cmd = format!("slice set {} freq={:.6}", slice_id, mhz);
 
-                    self.send_command_tracked(cmd)
-                        .await
-                        .map_err(|e| e.to_rig_error(&endpoint))?;
+                    self.send_and_await_ack(cmd, &endpoint).await?;
                 }
                 RigCommand::SetSplitFrequency(freq_hz) => {
                     let slice_id = if let Some(id) = target_slice_id {
@@ -1194,9 +1213,7 @@ impl RigBackend for FlexRadioBackend {
                     let mhz = *freq_hz as f64 / 1_000_000.0;
                     let cmd = format!("slice set {} freq={:.6}", slice_id, mhz);
 
-                    self.send_command_tracked(cmd)
-                        .await
-                        .map_err(|e| e.to_rig_error(&endpoint))?;
+                    self.send_and_await_ack(cmd, &endpoint).await?;
                 }
                 RigCommand::SetMode { mode, passband_hz } => {
                     let slice_id = if let Some(id) = target_slice_id {
@@ -1227,9 +1244,7 @@ impl RigBackend for FlexRadioBackend {
                         slice_id, m, lo, hi
                     );
 
-                    self.send_command_tracked(cmd)
-                        .await
-                        .map_err(|e| e.to_rig_error(&endpoint))?;
+                    self.send_and_await_ack(cmd, &endpoint).await?;
                 }
                 RigCommand::SetPassband(passband_hz) => {
                     let slice = if let Some(id) = target_slice_id {
@@ -1264,15 +1279,27 @@ impl RigBackend for FlexRadioBackend {
 
                     let cmd = format!("slice set {} filter_lo={} filter_hi={}", slice.id, lo, hi);
 
-                    self.send_command_tracked(cmd)
-                        .await
-                        .map_err(|e| e.to_rig_error(&endpoint))?;
+                    self.send_and_await_ack(cmd, &endpoint).await?;
                 }
                 RigCommand::SetSplit { enabled, tx_vfo: _ } => {
-                    if *enabled && self.slices.len() < 2 {
-                        return Err(RigError::Protocol {
-                            detail: "split requires at least 2 active slices".to_string(),
-                        });
+                    if *enabled {
+                        if self.slices.len() < 2 {
+                            return Err(RigError::Protocol {
+                                detail: "split requires at least 2 active slices".to_string(),
+                            });
+                        }
+                        let tx_slice = self
+                            .slices
+                            .iter()
+                            .find(|(id, _)| Some(**id) != self.config.preferred_slice)
+                            .map(|(_, s)| s.id)
+                            .unwrap_or(FlexSliceId(1));
+                        let cmd = format!("slice set {} tx=1", tx_slice);
+                        self.send_and_await_ack(cmd, &endpoint).await?;
+                    } else {
+                        let preferred = self.config.preferred_slice.unwrap_or(FlexSliceId(0));
+                        let cmd = format!("slice set {} tx=1", preferred);
+                        self.send_and_await_ack(cmd, &endpoint).await?;
                     }
                 }
                 RigCommand::SetPtt(true) => {
@@ -1285,9 +1312,7 @@ impl RigBackend for FlexRadioBackend {
                     let power = watts.round().clamp(0.0, 100.0) as u32;
                     let cmd = format!("transmit set rfpower={power}");
 
-                    self.send_command_tracked(cmd)
-                        .await
-                        .map_err(|e| e.to_rig_error(&endpoint))?;
+                    self.send_and_await_ack(cmd, &endpoint).await?;
                 }
                 RigCommand::SetVfo(_) => {
                     return Err(RigError::Unsupported {
@@ -1307,9 +1332,7 @@ impl RigBackend for FlexRadioBackend {
                     let (on, freq) = if *rit_hz != 0 { (1, *rit_hz) } else { (0, 0) };
                     let cmd = format!("slice set {} rit_on={on} rit_freq={freq}", slice.id);
 
-                    self.send_command_tracked(cmd)
-                        .await
-                        .map_err(|e| e.to_rig_error(&endpoint))?;
+                    self.send_and_await_ack(cmd, &endpoint).await?;
                 }
                 RigCommand::SetXit(xit_hz) => {
                     let slice = select_write_slice(
@@ -1323,9 +1346,7 @@ impl RigBackend for FlexRadioBackend {
                     let (on, freq) = if *xit_hz != 0 { (1, *xit_hz) } else { (0, 0) };
                     let cmd = format!("slice set {} xit_on={on} xit_freq={freq}", slice.id);
 
-                    self.send_command_tracked(cmd)
-                        .await
-                        .map_err(|e| e.to_rig_error(&endpoint))?;
+                    self.send_and_await_ack(cmd, &endpoint).await?;
                 }
             }
 

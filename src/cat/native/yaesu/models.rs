@@ -82,7 +82,7 @@ pub fn create_custom_yaesu_profile(model_id: &str, baud_rate: u32) -> RigModelPr
         capabilities: RigCapabilities {
             frequency: true,
             mode: true,
-            passband: true,
+            passband: false,
             split: true,
             split_frequency: true,
             ptt: true,

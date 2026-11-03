@@ -313,7 +313,7 @@ impl RigctldSupervisor {
 
         match cmd.spawn() {
             Ok(mut child) => {
-                std::thread::sleep(std::time::Duration::from_millis(90));
+                std::thread::sleep(std::time::Duration::from_millis(15));
                 if let Ok(Some(status)) = child.try_wait() {
                     return Err(SupervisorError::ProcessExited {
                         status: status.to_string(),

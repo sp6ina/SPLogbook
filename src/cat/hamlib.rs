@@ -677,6 +677,20 @@ impl HamlibBackend {
             }
         }
 
+        // 4a. Odczyt częstotliwości nadawczej Split TX ('i'), jeśli split jest aktywny
+        if state.split_enabled {
+            self.write_cmd_internal("i\n").await?;
+            let i_line = self.read_line_internal().await?;
+            let trimmed_i = i_line.trim();
+            if !trimmed_i.starts_with("RPRT") && !trimmed_i.is_empty() {
+                if let Ok(split_freq) = trimmed_i.parse::<u64>() {
+                    state.tx_frequency_hz = Some(split_freq);
+                }
+            }
+        } else {
+            state.tx_frequency_hz = None;
+        }
+
         // 5. Moc RF ('l RFPOWER')
         self.write_cmd_internal("l RFPOWER\n").await?;
         let pwr_line = self.read_line_internal().await?;
@@ -864,6 +878,12 @@ mod tests {
             line.clear();
             writer.write_all(b"1\nVFOB\n").await.unwrap();
 
+            // 4a. i (split freq)
+            buf_reader.read_line(&mut line).await.unwrap();
+            assert_eq!(line.trim(), "i");
+            line.clear();
+            writer.write_all(b"14075000\n").await.unwrap();
+
             // 5. l RFPOWER
             buf_reader.read_line(&mut line).await.unwrap();
             assert_eq!(line.trim(), "l RFPOWER");
@@ -891,6 +911,7 @@ mod tests {
         assert_eq!(state.s_meter_unit, "S9+10dB");
         assert!(state.split_enabled);
         assert_eq!(state.tx_vfo, "VFOB");
+        assert_eq!(state.tx_frequency_hz, Some(14_075_000));
         assert!((state.rf_power_watts - 50.0).abs() < 0.01);
         assert!(state.ptt);
         assert!(state.connected);

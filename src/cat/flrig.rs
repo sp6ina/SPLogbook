@@ -307,6 +307,7 @@ pub struct FlrigClient {
     host: String,
     port: u16,
     timeout: Duration,
+    stream: tokio::sync::Mutex<Option<TcpStream>>,
 }
 
 impl FlrigClient {
@@ -317,6 +318,7 @@ impl FlrigClient {
             host: host.into(),
             port,
             timeout: Self::DEFAULT_TIMEOUT,
+            stream: tokio::sync::Mutex::new(None),
         }
     }
 
@@ -326,7 +328,13 @@ impl FlrigClient {
             host: host.into(),
             port,
             timeout,
+            stream: tokio::sync::Mutex::new(None),
         }
+    }
+
+    pub async fn disconnect(&self) {
+        let mut guard = self.stream.lock().await;
+        *guard = None;
     }
 
     pub fn host(&self) -> &str {
@@ -344,74 +352,129 @@ impl FlrigClient {
     /// Wysyła żądanie HTTP/1.1 XML-RPC i czyta odpowiedź do znacznika zamykającego `</methodResponse>`.
     pub async fn call(&self, req: &XmlRpcRequest) -> Result<XmlRpcValue, RigError> {
         const MAX_RESPONSE_BYTES: usize = 64 * 1024;
-
         let endpoint = self.endpoint();
-        let mut stream = tokio::time::timeout(self.timeout, TcpStream::connect(&endpoint))
-            .await
-            .map_err(|_| RigError::Timeout {
-                endpoint: endpoint.clone(),
-                operation: "connect",
-            })?
-            .map_err(|e| RigError::Connect {
-                endpoint: endpoint.clone(),
-                detail: e.to_string(),
-            })?;
-
         let xml = req.to_xml();
         let http_req = format!(
-            "POST /RPC2 HTTP/1.1\r\nHost: {}:{}\r\nUser-Agent: SPLogbook\r\nContent-Type: text/xml\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            "POST /RPC2 HTTP/1.1\r\nHost: {}:{}\r\nUser-Agent: SPLogbook\r\nContent-Type: text/xml\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n{}",
             self.host,
             self.port,
             xml.len(),
             xml
         );
 
-        tokio::time::timeout(self.timeout, stream.write_all(http_req.as_bytes()))
-            .await
-            .map_err(|_| RigError::Timeout {
-                endpoint: endpoint.clone(),
-                operation: "write",
-            })?
-            .map_err(|e| RigError::Connect {
-                endpoint: endpoint.clone(),
-                detail: e.to_string(),
-            })?;
+        let mut stream_guard = self.stream.lock().await;
 
-        let mut data = Vec::new();
-        let mut buf = [0u8; 4096];
-        loop {
-            let bytes_read = tokio::time::timeout(self.timeout, stream.read(&mut buf))
-                .await
-                .map_err(|_| RigError::Timeout {
-                    endpoint: endpoint.clone(),
-                    operation: "read",
-                })?
-                .map_err(|e| RigError::Connect {
-                    endpoint: endpoint.clone(),
-                    detail: e.to_string(),
-                })?;
-            if bytes_read == 0 {
-                break;
+        for attempt in 0..2 {
+            if stream_guard.is_none() {
+                let stream = tokio::time::timeout(self.timeout, TcpStream::connect(&endpoint))
+                    .await
+                    .map_err(|_| RigError::Timeout {
+                        endpoint: endpoint.clone(),
+                        operation: "connect",
+                    })?
+                    .map_err(|e| RigError::Connect {
+                        endpoint: endpoint.clone(),
+                        detail: e.to_string(),
+                    })?;
+                *stream_guard = Some(stream);
             }
-            data.extend_from_slice(&buf[..bytes_read]);
-            if data.len() > MAX_RESPONSE_BYTES {
-                return Err(RigError::Protocol {
-                    detail: "response exceeded maximum length of 64 KB".to_string(),
+
+            let stream = stream_guard.as_mut().expect("stream present");
+
+            match tokio::time::timeout(self.timeout, stream.write_all(http_req.as_bytes())).await {
+                Ok(Ok(_)) => {}
+                Ok(Err(_)) => {
+                    *stream_guard = None;
+                    if attempt == 0 {
+                        continue;
+                    }
+                    return Err(RigError::Connect {
+                        endpoint: endpoint.clone(),
+                        detail: "failed to send request to FLRig".to_string(),
+                    });
+                }
+                Err(_) => {
+                    *stream_guard = None;
+                    return Err(RigError::Timeout {
+                        endpoint: endpoint.clone(),
+                        operation: "write",
+                    });
+                }
+            }
+
+            let stream = stream_guard.as_mut().expect("stream present");
+            let mut data = Vec::new();
+            let mut buf = [0u8; 4096];
+            let mut connection_closed_by_peer = false;
+
+            loop {
+                let bytes_read =
+                    match tokio::time::timeout(self.timeout, stream.read(&mut buf)).await {
+                        Ok(Ok(n)) => n,
+                        Ok(Err(_)) => {
+                            connection_closed_by_peer = true;
+                            break;
+                        }
+                        Err(_) => {
+                            *stream_guard = None;
+                            return Err(RigError::Timeout {
+                                endpoint: endpoint.clone(),
+                                operation: "read",
+                            });
+                        }
+                    };
+                if bytes_read == 0 {
+                    if data.is_empty() {
+                        connection_closed_by_peer = true;
+                    }
+                    break;
+                }
+                data.extend_from_slice(&buf[..bytes_read]);
+                if data.len() > MAX_RESPONSE_BYTES {
+                    return Err(RigError::Protocol {
+                        detail: "response exceeded maximum length of 64 KB".to_string(),
+                    });
+                }
+                let text = String::from_utf8_lossy(&data);
+                if text.contains("</methodResponse>") || text.contains("</methodCall>") {
+                    break;
+                }
+            }
+
+            if connection_closed_by_peer {
+                *stream_guard = None;
+                if attempt == 0 {
+                    continue;
+                }
+                return Err(RigError::Connect {
+                    endpoint: endpoint.clone(),
+                    detail: "connection closed by FLRig".to_string(),
                 });
             }
-            let text = String::from_utf8_lossy(&data);
-            if text.contains("</methodResponse>") || text.contains("</methodCall>") {
-                break;
-            }
-        }
 
-        if data.is_empty() {
-            return Err(RigError::Protocol {
-                detail: "empty response from FLRig".to_string(),
+            if data.is_empty() {
+                *stream_guard = None;
+                if attempt == 0 {
+                    continue;
+                }
+                return Err(RigError::Protocol {
+                    detail: "empty response from FLRig".to_string(),
+                });
+            }
+
+            let resp_text = String::from_utf8_lossy(&data);
+            if resp_text.to_ascii_lowercase().contains("connection: close") {
+                *stream_guard = None;
+            }
+
+            return parse_response(&resp_text).map_err(|detail| RigError::Protocol {
+                detail: detail.to_string(),
             });
         }
-        parse_response(&String::from_utf8_lossy(&data)).map_err(|detail| RigError::Protocol {
-            detail: detail.to_string(),
+
+        Err(RigError::Connect {
+            endpoint,
+            detail: "failed after retries".to_string(),
         })
     }
 
@@ -440,6 +503,51 @@ impl FlrigClient {
             .ok_or_else(|| RigError::Protocol {
                 detail: "invalid mode value in FLRig response".to_string(),
             })
+    }
+
+    pub async fn set_vfo_b_typed(&self, hz: u64) -> Result<(), RigError> {
+        let req = XmlRpcRequest::new("rig.set_vfoB").param_double(hz as f64);
+        self.call(&req).await?;
+        Ok(())
+    }
+
+    pub async fn get_vfo_b_typed(&self) -> Result<u64, RigError> {
+        let req = XmlRpcRequest::new("rig.get_vfoB");
+        self.call(&req)
+            .await?
+            .as_int()
+            .map(|v| v as u64)
+            .ok_or_else(|| RigError::Protocol {
+                detail: "invalid frequency value in FLRig get_vfoB response".to_string(),
+            })
+    }
+
+    pub async fn set_split_typed(&self, split: bool) -> Result<(), RigError> {
+        let req = XmlRpcRequest::new("rig.set_split").param_int(if split { 1 } else { 0 });
+        self.call(&req).await?;
+        Ok(())
+    }
+
+    pub async fn get_split_typed(&self) -> Result<bool, RigError> {
+        let req = XmlRpcRequest::new("rig.get_split");
+        self.call(&req)
+            .await?
+            .as_bool()
+            .ok_or_else(|| RigError::Protocol {
+                detail: "invalid split value in FLRig response".to_string(),
+            })
+    }
+
+    pub async fn set_power_typed(&self, watts: f32) -> Result<(), RigError> {
+        let req = XmlRpcRequest::new("rig.set_power").param_double(watts as f64);
+        self.call(&req).await?;
+        Ok(())
+    }
+
+    pub async fn set_vfo_str_typed(&self, vfo: &str) -> Result<(), RigError> {
+        let req = XmlRpcRequest::new("rig.set_AB").param_str(vfo);
+        self.call(&req).await?;
+        Ok(())
     }
 
     pub async fn set_mode_typed(&self, mode: &str) -> Result<(), RigError> {
@@ -628,22 +736,13 @@ impl FlrigBackend {
             RigCommand::SetFrequency(hz) => self.client.set_vfo_typed(*hz).await,
             RigCommand::SetMode { mode, .. } => self.client.set_mode_typed(mode).await,
             RigCommand::SetPtt(ptt) => self.client.set_ptt_typed(*ptt).await,
-            RigCommand::SetSplitFrequency(_) => Err(RigError::Unsupported {
-                backend: CatBackendKind::Flrig,
-                command: "SetSplitFrequency",
-            }),
+            RigCommand::SetSplitFrequency(hz) => self.client.set_vfo_b_typed(*hz).await,
             RigCommand::SetPassband(_) => Err(RigError::Unsupported {
                 backend: CatBackendKind::Flrig,
                 command: "SetPassband",
             }),
-            RigCommand::SetSplit { .. } => Err(RigError::Unsupported {
-                backend: CatBackendKind::Flrig,
-                command: "SetSplit",
-            }),
-            RigCommand::SetVfo(_) => Err(RigError::Unsupported {
-                backend: CatBackendKind::Flrig,
-                command: "SetVfo",
-            }),
+            RigCommand::SetSplit { enabled, .. } => self.client.set_split_typed(*enabled).await,
+            RigCommand::SetVfo(vfo) => self.client.set_vfo_str_typed(vfo).await,
             RigCommand::SetRit(_) => Err(RigError::Unsupported {
                 backend: CatBackendKind::Flrig,
                 command: "SetRit",
@@ -652,10 +751,7 @@ impl FlrigBackend {
                 backend: CatBackendKind::Flrig,
                 command: "SetXit",
             }),
-            RigCommand::SetPower(_) => Err(RigError::Unsupported {
-                backend: CatBackendKind::Flrig,
-                command: "SetPower",
-            }),
+            RigCommand::SetPower(watts) => self.client.set_power_typed(*watts).await,
         }
     }
 }
@@ -670,13 +766,13 @@ impl RigBackend for FlrigBackend {
             frequency: true,
             mode: true,
             passband: false,
-            split: false,
-            split_frequency: false,
+            split: true,
+            split_frequency: true,
             ptt: true,
-            vfo: false,
+            vfo: true,
             rit: false,
             xit: false,
-            power: false,
+            power: true,
             s_meter: true,
         }
     }
@@ -695,7 +791,9 @@ impl RigBackend for FlrigBackend {
 
     fn disconnect(&mut self) -> BoxFuture<'_, ()> {
         self.disconnect_internal();
-        Box::pin(std::future::ready(()))
+        Box::pin(async move {
+            self.client.disconnect().await;
+        })
     }
 
     fn probe(&mut self) -> BoxFuture<'_, Result<RigProbeResult, RigError>> {
@@ -1090,22 +1188,9 @@ mod tests {
         backend.connect().await.unwrap();
 
         let unsupported = [
-            (
-                RigCommand::SetSplitFrequency(14_075_000),
-                "SetSplitFrequency",
-            ),
             (RigCommand::SetPassband(2400), "SetPassband"),
-            (
-                RigCommand::SetSplit {
-                    enabled: true,
-                    tx_vfo: "VFOB".to_string(),
-                },
-                "SetSplit",
-            ),
-            (RigCommand::SetVfo("VFOB".to_string()), "SetVfo"),
             (RigCommand::SetRit(100), "SetRit"),
             (RigCommand::SetXit(-50), "SetXit"),
-            (RigCommand::SetPower(50.0), "SetPower"),
         ];
 
         for (cmd, name) in unsupported {
@@ -1196,13 +1281,13 @@ mod tests {
             frequency: true,
             mode: true,
             passband: false,
-            split: false,
-            split_frequency: false,
+            split: true,
+            split_frequency: true,
             ptt: true,
-            vfo: false,
+            vfo: true,
             rit: false,
             xit: false,
-            power: false,
+            power: true,
             s_meter: true,
         };
         assert_eq!(caps, expected);
@@ -1213,17 +1298,17 @@ mod tests {
             passband_hz: 2400,
         }));
         assert!(caps.supports(&RigCommand::SetPtt(true)));
-
-        assert!(!caps.supports(&RigCommand::SetSplitFrequency(14_000_000)));
-        assert!(!caps.supports(&RigCommand::SetPassband(2400)));
-        assert!(!caps.supports(&RigCommand::SetSplit {
+        assert!(caps.supports(&RigCommand::SetSplitFrequency(14_000_000)));
+        assert!(caps.supports(&RigCommand::SetSplit {
             enabled: true,
             tx_vfo: "VFOB".to_string(),
         }));
-        assert!(!caps.supports(&RigCommand::SetVfo("VFOB".to_string())));
+        assert!(caps.supports(&RigCommand::SetVfo("VFOB".to_string())));
+        assert!(caps.supports(&RigCommand::SetPower(100.0)));
+
+        assert!(!caps.supports(&RigCommand::SetPassband(2400)));
         assert!(!caps.supports(&RigCommand::SetRit(100)));
         assert!(!caps.supports(&RigCommand::SetXit(100)));
-        assert!(!caps.supports(&RigCommand::SetPower(100.0)));
     }
 
     #[tokio::test]
@@ -1240,6 +1325,110 @@ mod tests {
         assert!(!backend.is_connected());
         assert!(matches!(err, RigError::Timeout { .. }));
 
+        server_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn flrig_backend_reuses_single_tcp_stream_across_multiple_xmlrpc_calls() {
+        let (port, server_task) = run_mock_flrig_server(|listener| async move {
+            // Serwer przyjmuje DOKŁADNIE JEDNO połączenie TCP
+            let (mut stream, _) = listener.accept().await.expect("accept single connection");
+
+            // Obsługa żądania 1 (get_vfo)
+            let (method1, _) = read_xmlrpc_request(&mut stream).await;
+            assert_eq!(method1, "rig.get_vfo");
+            let xml1 = "<?xml version=\"1.0\"?><methodResponse><params><param><value><int>14074000</int></value></param></params></methodResponse>";
+            let resp1 = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/xml\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n{}",
+                xml1.len(),
+                xml1
+            );
+            stream.write_all(resp1.as_bytes()).await.unwrap();
+
+            // Obsługa żądania 2 (get_mode) na TYM SAMYM gnieździe
+            let (method2, _) = read_xmlrpc_request(&mut stream).await;
+            assert_eq!(method2, "rig.get_mode");
+            let xml2 = "<?xml version=\"1.0\"?><methodResponse><params><param><value><string>CW</string></value></param></params></methodResponse>";
+            let resp2 = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/xml\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n{}",
+                xml2.len(),
+                xml2
+            );
+            stream.write_all(resp2.as_bytes()).await.unwrap();
+        })
+        .await;
+
+        let client = FlrigClient::new("127.0.0.1", port);
+        let freq = client.get_vfo_typed().await.unwrap();
+        assert_eq!(freq, 14_074_000);
+
+        let mode = client.get_mode_typed().await.unwrap();
+        assert_eq!(mode, "CW");
+
+        client.disconnect().await;
+        server_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn flrig_execute_split_vfo_power_supported() {
+        let (port, server_task) = run_mock_flrig_server(|listener| async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+
+            // 1. connect() probe: rig.get_vfo
+            let (method, _) = read_xmlrpc_request(&mut stream).await;
+            assert_eq!(method, "rig.get_vfo");
+            stream
+                .write_all(ok_int_response(14_074_000).as_bytes())
+                .await
+                .unwrap();
+
+            // 2. SetSplitFrequency -> rig.set_vfoB
+            let (mut stream, _) = listener.accept().await.expect("accept 2");
+            let (method, body) = read_xmlrpc_request(&mut stream).await;
+            assert_eq!(method, "rig.set_vfoB");
+            assert!(body.contains("7074000"));
+            stream
+                .write_all(ok_double_response(7_074_000.0).as_bytes())
+                .await
+                .unwrap();
+
+            // 3. SetSplit -> rig.set_split
+            let (mut stream, _) = listener.accept().await.expect("accept 3");
+            let (method, body) = read_xmlrpc_request(&mut stream).await;
+            assert_eq!(method, "rig.set_split");
+            assert!(body.contains("<int>1</int>"));
+            stream
+                .write_all(ok_bool_response(true).as_bytes())
+                .await
+                .unwrap();
+
+            // 4. SetPower -> rig.set_power
+            let (mut stream, _) = listener.accept().await.expect("accept 4");
+            let (method, body) = read_xmlrpc_request(&mut stream).await;
+            assert_eq!(method, "rig.set_power");
+            assert!(body.contains("100"));
+            stream
+                .write_all(ok_double_response(100.0).as_bytes())
+                .await
+                .unwrap();
+        })
+        .await;
+
+        let mut backend = FlrigBackend::new("127.0.0.1", port);
+        backend.connect().await.unwrap();
+        backend
+            .execute(&RigCommand::SetSplitFrequency(7_074_000))
+            .await
+            .unwrap();
+        backend
+            .execute(&RigCommand::SetSplit {
+                enabled: true,
+                tx_vfo: "VFOB".to_string(),
+            })
+            .await
+            .unwrap();
+        backend.execute(&RigCommand::SetPower(100.0)).await.unwrap();
+        backend.disconnect().await;
         server_task.await.unwrap();
     }
 }

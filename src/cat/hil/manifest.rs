@@ -547,12 +547,20 @@ impl HilTestBenchManifest {
                     port_name,
                     baud_rate,
                     ..
-                } => RigBackendConfig::Icom(IcomConfig {
-                    port_name: port_name.clone(),
-                    baud_rate: *baud_rate,
-                    civ_address: 0x94, // Standard Icom CI-V address for IC-7300 or profile default
-                    model: self.matrix.model_name.clone(),
-                }),
+                } => {
+                    let civ_address = crate::cat::native::registry::find_profile_by_model(
+                        &self.matrix.model_name,
+                    )
+                    .and_then(|p| p.default_ci_v_address)
+                    .unwrap_or(0x94);
+
+                    RigBackendConfig::Icom(IcomConfig {
+                        port_name: port_name.clone(),
+                        baud_rate: *baud_rate,
+                        civ_address,
+                        model: self.matrix.model_name.clone(),
+                    })
+                }
                 HilTransportConfig::Network { .. } => {
                     return Err(HilError::InvalidTransport(
                         "Icom CI-V native backend requires Serial transport".to_string(),
@@ -668,5 +676,99 @@ impl HilTestBenchManifest {
             *host = "[REDACTED_HOST]".to_string();
         }
         copy
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hil_manifest_to_rig_config_uses_profile_civ_address_for_ic7610_and_ic705() {
+        let manifest_7610 = HilTestBenchManifest {
+            bench_id: "LAB-BENCH-SP6INA-01".to_string(),
+            session_id: "SESSION-01".to_string(),
+            created_at: "2026-10-18T09:30:00Z".to_string(),
+            expires_at: None,
+            tested_commit: None,
+            expected_commit: None,
+            working_tree_clean: true,
+            software_tests_passed: true,
+            operator_id: "SP6INA".to_string(),
+            operator_callsign: "SP6INA".to_string(),
+            operator_name: "Mariusz".to_string(),
+            hil_enabled: true,
+            allow_tx: false,
+            matrix: HilMatrixEntry {
+                backend_kind: CatBackendKind::IcomCiV,
+                rig_id: RigId::new("RIG-01").unwrap(),
+                model_name: "IC-7610".to_string(),
+                transport: HilTransportConfig::Serial {
+                    port_name: "COM1".to_string(),
+                    baud_rate: 115_200,
+                    data_bits: 8,
+                    parity: "none".to_string(),
+                    stop_bits: 1,
+                    flow_control: "none".to_string(),
+                },
+                firmware_version: "v1.0".to_string(),
+            },
+            rf_safety: HilRfSafetyConfig {
+                termination: HilRfTermination::DummyLoad(HilDummyLoadSpec {
+                    power_rating_watts: 100.0,
+                    max_swr: 1.15,
+                    serial_number: "DL-01".to_string(),
+                    impedance_ohms: 50.0,
+                }),
+                max_test_power_watts: 10.0,
+                frequency_range_hz: (14_000_000, 14_350_000),
+                interlock_engaged: true,
+                max_test_duration_ms: 500,
+                smartlink_disabled: true,
+                unattended_remote_tx_disabled: true,
+                remote_endpoint_is_local_or_controlled: true,
+                operator_has_immediate_stop_control: true,
+                out_of_band_data_plane_disabled: true,
+            },
+            operator_attestation: HilOperatorAttestation {
+                dummy_load_physically_connected: true,
+                rf_perimeter_secured: true,
+                ptt_consent_granted: true,
+                attestation_timestamp: "2026-10-18T09:30:00Z".to_string(),
+                description: "desc".to_string(),
+                antenna_disconnected: true,
+                pa_disconnected_or_locked: true,
+                tuner_bypassed: true,
+                physical_stop_available: true,
+                abort_procedure_documented: true,
+                operator_acknowledged: true,
+                bench_readiness_confirmed: true,
+                operator_present: true,
+                supervised_trial_confirmed: true,
+                rules_compliance_attested: true,
+                operator_privileges_attested: true,
+                allowed_band_attested: true,
+                allowed_mode_attested: true,
+                no_unauthorized_emission_attested: true,
+                personnel_know_stop_procedure: true,
+            },
+            instrument_verification: None,
+        };
+
+        let cfg = manifest_7610.to_rig_config().expect("to_rig_config");
+        if let RigBackendConfig::Icom(icom) = cfg.backend {
+            assert_eq!(icom.civ_address, 0x98);
+        } else {
+            panic!("expected Icom config");
+        }
+
+        let mut manifest_705 = manifest_7610.clone();
+        manifest_705.matrix.model_name = "IC-705".to_string();
+        let cfg2 = manifest_705.to_rig_config().expect("to_rig_config");
+        if let RigBackendConfig::Icom(icom) = cfg2.backend {
+            assert_eq!(icom.civ_address, 0xA4);
+        } else {
+            panic!("expected Icom config");
+        }
     }
 }
