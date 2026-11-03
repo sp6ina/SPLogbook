@@ -159,17 +159,17 @@ impl QsoIngestor {
                     return Err(IngestError::Duplicate);
                 }
             }
-            db.insert_qso(&qso).map_err(IngestError::Storage)?
+            match db.insert_qso(&qso) {
+                Ok(id) => id,
+                Err(rusqlite::Error::SqliteFailure(err, _))
+                    if err.code == rusqlite::ErrorCode::ConstraintViolation =>
+                {
+                    return Err(IngestError::Duplicate);
+                }
+                Err(err) => return Err(IngestError::Storage(err)),
+            }
         };
         qso.id = Some(id);
-
-        self.events.publish(AppEvent::QsoLogged {
-            callsign: qso.callsign.clone(),
-            band: qso.band.clone(),
-            mode: qso.mode.clone(),
-            frequency_hz: (qso.freq.unwrap_or(0.0) * 1_000_000.0) as u64,
-            time_utc: qso.time_on.clone(),
-        });
 
         {
             let mut awards = self.awards.lock().unwrap_or_else(PoisonError::into_inner);
@@ -180,6 +180,14 @@ impl QsoIngestor {
             let mut scp = self.scp.lock().unwrap_or_else(PoisonError::into_inner);
             scp.insert(&qso.callsign);
         }
+
+        self.events.publish(AppEvent::QsoLogged {
+            callsign: qso.callsign.clone(),
+            band: qso.band.clone(),
+            mode: qso.mode.clone(),
+            frequency_hz: (qso.freq.unwrap_or(0.0) * 1_000_000.0) as u64,
+            time_utc: qso.time_on.clone(),
+        });
 
         Ok(IngestOutcome {
             origin,

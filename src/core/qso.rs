@@ -413,6 +413,27 @@ impl QsoIdentity {
             minute,
         }
     }
+
+    /// Czy tożsamość posiada komplet wymaganych pól (nie zawiera braków ani znaków zapytania).
+    pub fn is_complete(&self) -> bool {
+        !self.callsign.is_empty()
+            && !self.band.is_empty()
+            && !self.mode.is_empty()
+            && self.date.len() == 8
+            && !self.date.starts_with('?')
+            && self.minute.len() == 4
+            && !self.minute.starts_with('?')
+    }
+
+    /// Zwraca kanoniczny klucz tekstowy dla unikalnego indeksu SQLite lub `None`,
+    /// gdy tożsamość jest niekompletna.
+    pub fn canonical_key(&self) -> Option<String> {
+        if self.is_complete() {
+            Some(self.to_string())
+        } else {
+            None
+        }
+    }
 }
 
 impl std::fmt::Display for QsoIdentity {

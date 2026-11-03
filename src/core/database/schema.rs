@@ -92,10 +92,14 @@ impl QsoSql {
             .map(|i| format!("?{i}"))
             .collect::<Vec<_>>()
             .join(", ");
-        let insert = format!("INSERT INTO qso_records ({columns_joined}) VALUES ({placeholders})");
-        let insert_with_id = format!(
-            "INSERT INTO qso_records ({columns_joined}, id) VALUES ({placeholders}, ?{})",
+        let insert = format!(
+            "INSERT INTO qso_records ({columns_joined}, identity_key) VALUES ({placeholders}, ?{})",
             QSO_DATA_COLUMN_COUNT + 1
+        );
+        let insert_with_id = format!(
+            "INSERT INTO qso_records ({columns_joined}, id, identity_key) VALUES ({placeholders}, ?{}, ?{})",
+            QSO_DATA_COLUMN_COUNT + 1,
+            QSO_DATA_COLUMN_COUNT + 2
         );
         let update_set = QSO_DATA_COLUMNS
             .iter()
@@ -104,8 +108,9 @@ impl QsoSql {
             .collect::<Vec<_>>()
             .join(", ");
         let update = format!(
-            "UPDATE qso_records SET {update_set} WHERE id = ?{}",
-            QSO_DATA_COLUMN_COUNT + 1
+            "UPDATE qso_records SET {update_set}, identity_key = ?{} WHERE id = ?{}",
+            QSO_DATA_COLUMN_COUNT + 1,
+            QSO_DATA_COLUMN_COUNT + 2
         );
         Self {
             select_columns,
