@@ -279,3 +279,47 @@ Cargo.lock SHA-1: `c569097f3ef69c66ec59b74c29c1eb29efce69ae` (bez zmian)
 - Prawdziwe bazy użytkownika: nienaruszone (testy wyłącznie w RAM i katalogach temp).
 - Status Etapu 5: **SOFTWARE VERIFIED**.
 - Status Etapu 6: **UNBLOCKED**.
+
+## 7. Status po Ostatecznej Bramce Precyzji Tożsamości QSO (DATA-003, SOFTWARE VERIFIED)
+
+Data sporządzenia: 2026-11-03
+Środowisko: Windows x86_64
+Aktywna gałąź: `repair/full-system-remediation`
+Stan synchronizacji: fast-forward z `main`
+Cargo.toml SHA-1: `d8e3acd8f0c7b3307b3733c6c4a9a6cc57cb17c4` (bez zmian)
+Cargo.lock SHA-1: `c569097f3ef69c66ec59b74c29c1eb29efce69ae` (bez zmian)
+
+### Zrealizowany zakres Bramki Precyzji Tożsamości QSO:
+- **DATA-003 (Status: FIXED_SOFTWARE_VERIFIED):**
+  - **Klucz tożsamości v2:** `v2|{CALL}|{BAND}|{FREQ_HZ}|{MODE}|{SUBMODE}|{DATE}|{TIME_TAG}`.
+  - **Rozdzielczość sekundowa i minutowa:** Jawny enum `QsoTimePrecision` (`Minute` z tagiem `M{HHMM}`, `Second` z tagiem `S{HHMMSS}`). Brak fabrykowania sekund "00".
+  - **Rozróżnianie częstotliwości:** Stabilna reprezentacja `freq_hz` w hercach (`u64`), brak false-positive deduplikacji dla stacji w tej samej minucie na różnych częstotliwościach.
+  - **Normalizacja emisji i subemisji:** Funkcja `normalize_mode_and_submode` (USB/LSB -> SSB, FT8/FT4 -> cyfrowe, CW-R -> CW).
+  - **Izolacja per-journal:** Unikalność wymuszana ściśle per `(journal_id, identity_key)`.
+  - **Polityka rekordów niekompletnych (MODEL B):** `identity_key = NULL`, SQLite UNIQUE traktuje każdy NULL jako odrębny wpis, automatyczna deduplikacja dla niekompletnych rekordów jest wyłączona.
+  - **Migracja schematu 7 (`SCHEMA_VERSION` 6 -> 7):** W pełni atomowa migracja z uprzednim audytem duplikatów. W razie konfliktu następuje natychmiastowy ROLLBACK, 0 rekordów usuniętych, 0 scalonych, wersja schematu pozostaje bez zmian.
+  - **Weryfikacja wielopołączeniowa:** Potwierdzona stabilność wyścigów współbieżnych dla wielu połączeń i repozytoriów (5 powtórzeń testu obciążeniowego bez żadnego błędu).
+
+### Pełne wyniki weryfikacji bramki:
+- `cargo +stable fmt --all -- --check`: 0 diff (formatowanie czyste)
+- `cargo +stable check --workspace --all-targets --all-features`: EXIT 0 (0 błędów)
+- `cargo +stable test --workspace --all-targets -- --list`:
+  - 1915 aktywnych testów programowych (0 failed)
+  - 10 fizycznych testów sprzętowych HIL (`#[ignore = "hardware-in-the-loop"]`)
+  - 1925 wszystkich zarejestrowanych przypadków testowych (+41 względem stanu wejściowego)
+- `cargo +stable test --doc`: EXIT 0 (0 failed)
+- Testy domenowe i strażnicy:
+  - `tests/security_guard.rs`: 32 passed, 0 failed
+  - `tests/i18n_guard.rs`: 15 passed, 0 failed
+  - `tests/theme_guard.rs`: 1 passed, 0 failed
+  - `tests/cat_native_6a.rs`: 165 passed, 0 failed
+  - `tests/cat_native_6b.rs`: 87 passed, 0 failed
+  - `tests/cat_native_7.rs`: 297 passed, 10 ignored HIL, 0 failed
+- `cargo audit`:
+  - 0 podatności (vulnerabilities: 0)
+  - 0 unsound
+  - 1 yanked (`async-executor 1.14.0`)
+  - 6 unmaintained
+- Bezpieczeństwo RF i bazy danych:
+  - Prawdziwa baza danych użytkownika nie została otwarta.
+  - Żadne dane użytkownika nie zostały zmodyfikowane.

@@ -221,24 +221,27 @@ flowchart LR
 ### Etap 5 — Integralność Danych: Parser ADIF, `QsoIngestor` i Indeksy SQLite (`P1`) [SOFTWARE VERIFIED]
 - **Status:** **SOFTWARE VERIFIED** (Końcowa Bramka Naprawcza Zakończona Pomyślnie)
 - **Data ukończenia:** 2026-11-03
-- **Zrealizowane Commity Etapu 5 (Baza + Końcowa Bramka Naprawcza):**
+- **Zrealizowane Commity Etapu 5 (Baza + Końcowa Bramka Naprawcza + Bramka Precyzji Tożsamości QSO):**
   - `56b44a4`: `fix(adif): enforce bounded and deterministic record parsing (DATA-001)`
   - `9b7f0fc`: `fix(data): make QSO ingestion atomic and idempotent (DATA-002)`
   - `ceaa355`: `fix(data): enforce database-level QSO deduplication (DATA-003)`
   - `50321f1`: `fix(storage): unify QSO update path and awards sync through QsoIngestor (ARCH-002)`
   - `bd5cd65`: `docs: record ADIF and SQLite integrity remediation`
-  - `2fe66b6`: `fix(adif): separate strict and compatibility length parsing (DATA-001)` (Commit 1)
-  - `7935e8e`: `fix(data): define stable QSO identity and database uniqueness (DATA-003)` (Commit 2)
-  - `78b0762`: `fix(storage): migrate QSO identity without deleting conflicts (DATA-003)` (Commit 3)
-  - `b6bedf6`: `fix(data): prove atomic QSO batch ingestion and rollback (DATA-002)` (Commit 4)
-  - `3d8463b`: `fix(storage): make derived QSO state recoverable after commit (ARCH-002)` (Commit 5)
-  - `[commit 6]`: `docs: close Stage 5 data integrity verification (DATA-001 DATA-002 DATA-003 ARCH-002)`
+  - `2fe66b6`: `fix(adif): separate strict and compatibility length parsing (DATA-001)`
+  - `7935e8e`: `fix(data): define stable QSO identity and database uniqueness (DATA-003)`
+  - `78b0762`: `fix(storage): migrate QSO identity without deleting conflicts (DATA-003)`
+  - `b6bedf6`: `fix(data): prove atomic QSO batch ingestion and rollback (DATA-002)`
+  - `3d8463b`: `fix(storage): make derived QSO state recoverable after commit (ARCH-002)`
+  - `03fc5e5`: `docs: close Stage 5 data integrity verification (DATA-001 DATA-002 DATA-003 ARCH-002)`
+  - `1393079`: `fix(data): refine QSO identity precision and incomplete-record policy (DATA-003)` (Bramka Precyzji Commit 1)
+  - `1e448dd`: `fix(data): database migration 7 for refined QSO identity (DATA-003)` (Bramka Precyzji Commit 2)
+  - `268e2d2`: `test(data): SQLite concurrency and multi-connection identity tests (DATA-003)` (Bramka Precyzji Commit 3)
 - **Podsumowanie wdrożenia Końcowej Bramki Naprawczej Etapu 5:**
   - `DATA-001`: Wprowadzenie jawnych trybów parsowania ADIF (`AdifParseMode::Strict` i `AdifParseMode::Compatibility`), rejestracja diagnostyczna `AdifCompatibilityWarning`, wyeliminowanie cichego fallbacku oraz kanoniczny eksport ADIF bazujący na długości bajtowej UTF-8.
   - `DATA-002`: Dowodowa atomowość przetwarzania wsadowego (`import_batch`) i pojedynczego (`ingest`). Pełny rollback skutków ubocznych w SQLite, AwardsEngine i ScpEngine przy awarii dowolnego rekordu (w środku lub na końcu batcha) oraz idempotentne ponowienie po usunięciu błędu.
-  - `DATA-003`: Stabilny, kanoniczny klucz tożsamości `QsoIdentity` (`{CALL}|{BAND}|{MODE}|{DATE}|{MINUTE}`), bazodanowe wymuszenie unikalności przez `CREATE UNIQUE INDEX idx_qso_identity_unique ON qso_records(journal_id, identity_key)` w migracji 6. Rygorystyczny audyt duplikatów z rollbackiem bez usuwania i bez automatycznego scalania danych użytkownika. Eliminacja wyścigów check-then-insert także między niezależnymi połączeniami SQLite i instancjami repozytorium.
+  - `DATA-003`: Kanoniczny format tożsamości v2 `v2|{CALL}|{BAND}|{FREQ_HZ}|{MODE}|{SUBMODE}|{DATE}|{TIME_TAG}`, zachowanie precyzji sekund (`Minute` vs `Second`), częstotliwość w Hz, normalizacja `SUBMODE`, MODEL B dla niepełnych rekordów (NULL), migracja schematu 7 (`SCHEMA_VERSION` 6 -> 7) z pełnym audytem i wycofaniem transakcji przy konflikcie, oraz bazodanowy indeks unikalny `idx_qso_identity_unique`. Eliminacja false-positive deduplikacji dla tej samej minuty w różnych sekundach i na różnych częstotliwościach.
   - `ARCH-002`: SQLite jako autorytatywne źródło prawdy (Single Source of Truth). Implementacja metody `rebuild_derived_state()`, która w 100% deterministycznie odbudowuje `AwardsEngine` i `ScpEngine` z bazy danych. Emisja `AppEvent::QsoLogged` wyłącznie po potwierdzonym commit SQLite.
-- **Metryki testowe:** 1874 aktywne testy programowe (0 failed), 10 testów fizycznych HIL (odizolowanych za `#[ignore = "hardware-in-the-loop"]`), 1884 wszystkich przypadków testowych.
+- **Metryki testowe:** 1915 aktywnych testów programowych (0 failed), 10 testów fizycznych HIL (odizolowanych za `#[ignore = "hardware-in-the-loop"]`), 1925 wszystkich przypadków testowych (+41 testów względem stanu wejściowego).
 - **Stan Etapu 6:** Odblokowany (**UNBLOCKED**).
 - **Cel:** Eliminacja psucia polskich znaków w ADIF, fabrykowania daty oraz pomijania normalizacji i indeksów SQLite (`DATA-001`, `DATA-002`, `DATA-003`, `ARCH-002`).
 - **Zakres:**

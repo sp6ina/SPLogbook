@@ -201,7 +201,7 @@ Status Etapu 5: **SOFTWARE VERIFIED**
 |---|---|---|---|---|---|---|---|
 | `DATA-001` | Parser ADIF fabrykuje bieżącą datę/czas `Utc::now()` i uszkadza wielobajtowy UTF-8 | Eliminacja fabrykacji daty/czasu, tryby `AdifParseMode::Strict` i `Compatibility`, ostrzeżenia diagnostyczne, kanoniczny eksport UTF-8 | `56b44a4`, `2fe66b6` | `src/core/adif.rs`, `src/cloud/lotw.rs` | 36 testów jednostkowych w `core::adif`, w tym 7 testów jednoznaczności i ostrzeżeń | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
 | `DATA-002` | `QsoIngestor::import_batch` pomija normalizację i atomowość wsadową | Normalizacja pól w batchu, dowodowa atomowość pojedynczego zapisu i batcha, pełny rollback w SQLite i stanach pochodnych | `9b7f0fc`, `b6bedf6` | `src/core/ingest/{import.rs,mod.rs}` | 14 testów wsadowych i awaryjnych, weryfikacja failpointów, rollbacku i ponowienia | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
-| `DATA-003` | Brak bazodanowego wymuszania unikalności QSO i wyścigi check-then-insert | Kanoniczny klucz `QsoIdentity`, migracja 6 z `idx_qso_identity_unique`, audyt duplikatów z rollbackiem bez kasowania danych | `ceaa355`, `7935e8e`, `78b0762` | `src/core/database/{schema.rs,qso_store.rs,migrations.rs,tests.rs}`, `src/core/qso.rs` | 67 testów w `core::database`, w tym testy wyścigów między połączeniami i repozytoriami | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
+| `DATA-003` | Precyzyjna tożsamość QSO v2, unikalność w SQLite i eliminacja false-positive deduplikacji | Precyzyjny klucz v2 QsoIdentity (S/M czas, freq w Hz, normalizacja SUBMODE), MODEL B dla rekordów niepełnych (NULL), migracja schematu 7 z atomowym wycofaniem przy konfliktach, bazodanowy UNIQUE index (journal_id, identity_key) | `1393079`, `1e448dd`, `268e2d2` | `src/core/qso.rs`, `src/core/database/{qso_store.rs,migrations.rs,tests.rs}`, `src/core/ingest/{import.rs,mod.rs}` | 104 testy w `core::database`, w tym testy precyzji sekund, częstotliwości, subemisji, izolacji dzienników i wyścigów wielopołączeniowych | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
 | `ARCH-002` | Edycja QSO omija Ingestor oraz brak odbudowywalności stanów pochodnych | Unifikacja ścieżki edycji w `update_existing`, metoda `rebuild_derived_state()`, emisja zdarzeń wyłącznie po commit SQLite | `50321f1`, `3d8463b` | `src/core/ingest/mod.rs`, `src/core/scp.rs` | 54 testy w `core::ingest`, 6 testów w `core::scp`, testy rekonstrukcji po awarii | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
 
 ### `DATA-001` — Parser ADIF fabrykuje bieżącą datę/czas `Utc::now()` przy brakujących polach `<QSO_DATE>` / `<TIME_ON>` i uszkadza wielobajtowy UTF-8
@@ -299,18 +299,32 @@ Status Etapu 5: **SOFTWARE VERIFIED**
 - **Wymagany test regresyjny:** `search_qsos_advanced_normalizes_hyphenated_date_bounds` oraz test `EXPLAIN QUERY PLAN` dla `has_identity` i `callbook.lookup`.
 - **Kryterium akceptacji:** `EXPLAIN QUERY PLAN` potwierdza `SEARCH ... USING INDEX` dla `has_identity` i `callbook.lookup`.
 - **Status remediacji:** **FIXED_SOFTWARE_VERIFIED**
-- **Data wdrożenia i weryfikacji:** 2026-11-03
-- **Commit:**
-  - `ceaa355`: `fix(data): enforce database-level QSO deduplication (DATA-003)`
+- **Data wdrożenia i weryfikacji:** 2026-11-03 (Bramka Precyzji Tożsamości QSO)
+- **Commity:**
+  - `1393079`: `fix(data): refine QSO identity precision and incomplete-record policy (DATA-003)`
+  - `1e448dd`: `fix(data): database migration 7 for refined QSO identity (DATA-003)`
+  - `268e2d2`: `test(data): SQLite concurrency and multi-connection identity tests (DATA-003)`
 - **Wdrożone rozwiązanie:**
-  1. W `search_qsos_advanced` znormalizowano filtry daty wejściowej `date_from` oraz `date_to`, usuwając myślniki i separatory przed zapytaniem SQL.
-  2. W `has_identity` usunięto funkcję `UPPER(callsign)`, zastępując ją bezpośrednim dopasowaniem `WHERE journal_id = ?1 AND callsign = ?2 AND (qso_date = ?3 OR qso_date = ?4)`.
-  3. Wdrożono migrację 5 schematu SQLite tworzącą złożony indeks B-tree `idx_qso_identity(journal_id, callsign, qso_date, band, mode)` oraz czyszczącą dane historyczne.
-  4. Wyeliminowano wyścigi check-then-insert w `QsoIngestor::ingest`, utrzymując blokadę bazy danych nieprzerwanie pomiędzy weryfikacją tożsamości a zapisem rekordu.
+  1. **Kanoniczny format tożsamości v2:** `v2|{CALL}|{BAND}|{FREQ_HZ}|{MODE}|{SUBMODE}|{DATE}|{TIME_TAG}`.
+  2. **Zachowanie sekund i precyzji czasu:** Wprowadzono `QsoTimePrecision::Minute` (`M{HHMM}`) oraz `QsoTimePrecision::Second` (`S{HHMMSS}`). Czas o precyzji minutowej nie dopisuje sztucznych sekund "00", eliminując fałszywe kolizje z łącznościami z sekundy 00.
+  3. **Stabilna reprezentacja częstotliwości:** Częstotliwość przechowywana w kluczu w hercach (`u64`), co rozróżnia łączności z tej samej minuty na różnych częstotliwościach pasma.
+  4. **Normalizacja par MODE i SUBMODE:** `normalize_mode_and_submode` kanonicznie mapuje FT8/FT4/Q65/WSPR do emisji cyfrowych bez subemisji, USB/LSB do `SSB` z `SUBMODE`, a CW-R/CWR do `CW`.
+  5. **Polityka rekordów niepełnych (MODEL B):** Rekordy z brakującym znakiem, pasmem/częstotliwością, emisją, datą lub czasem otrzymują `canonical_key() == None` i są zapisywane w SQLite z `identity_key = NULL`. Zgodnie ze standardem SQL i SQLite UNIQUE index zezwala na dowolną liczbę rekordów z wartością NULL, co chroni niekompletne rekordy przed fałszywą deduplikacją i umożliwia ich ręczną weryfikację.
+  6. **Migracja schematu 7 (`SCHEMA_VERSION` 6 -> 7):** W pełni transakcyjna migracja aktualizująca klucze do formatu v2, wykonująca audyt duplikatów przed utworzeniem `CREATE UNIQUE INDEX idx_qso_identity_unique ON qso_records(journal_id, identity_key)`. W razie wykrycia konfliktu następuje pełny ROLLBACK — żadne dane nie są usuwane ani automatycznie scalane, a wersja schematu pozostaje nienaruszona.
 - **Wdrożone testy regresyjne:**
-  - `search_qsos_advanced_normalizes_hyphenated_date_bounds` w `src/core/database/tests.rs`.
-  - `explain_query_plan_has_identity_uses_index` weryfikujący użycie indeksu B-tree `idx_qso_identity`.
-  - `concurrent_identical_ingest_creates_single_qso` weryfikujący atomowość i brak wyścigów przy wielowątkowym zapisie identycznego QSO.
+  - 104 testy weryfikujące tożsamość i bazę danych w `src/core/database/tests.rs`:
+    - `same_callsign_same_minute_different_seconds_are_distinct`
+    - `same_callsign_same_minute_different_frequency_are_distinct`
+    - `same_callsign_same_minute_different_submode_follow_contract`
+    - `minute_precision_and_second_precision_follow_explicit_contract`
+    - `multiple_null_identity_keys_follow_documented_contract`
+    - `migration_7_upgrades_v1_keys_to_v2_keys_and_preserves_distinct_seconds`
+    - `migration_7_conflict_rolls_back_without_data_loss_and_preserves_v6`
+    - `concurrent_same_minute_different_seconds_from_two_repositories_both_succeed`
+    - `concurrent_same_minute_different_frequencies_from_two_repositories_both_succeed`
+    - `concurrent_same_minute_different_submodes_from_two_repositories_both_succeed`
+    - `concurrent_update_conflict_from_second_connection_preserves_both_records`
+    - `concurrent_identity_stress_five_iterations`
 
 ---
 
