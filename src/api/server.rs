@@ -813,68 +813,6 @@ async fn get_qso_by_id(
     }
 }
 
-/// Normalizuje i wzbogaca rekord QSO przed zapisem/aktualizacją przez REST API.
-fn normalize_and_enrich_qso(
-    qso: &mut QsoRecord,
-    prefix_matcher: &PrefixMatcher,
-) -> Result<(), (StatusCode, String)> {
-    qso.callsign = qso.callsign.trim().to_uppercase();
-    if qso.callsign.is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "Pole 'callsign' nie może być puste.".to_string(),
-        ));
-    }
-    qso.band = qso.band.trim().to_string();
-    if qso.band.is_empty() {
-        if let Some(f_mhz) = qso.freq {
-            qso.band = crate::core::bandplan::freq_khz_to_band(f_mhz * 1000.0)
-                .unwrap_or("20m")
-                .to_string();
-        } else {
-            qso.band = "20m".to_string();
-        }
-    }
-    qso.mode = qso.mode.trim().to_uppercase();
-    if qso.mode.is_empty() {
-        qso.mode = "CW".to_string();
-    }
-    let now = chrono::Utc::now();
-    if qso.qso_date.trim().is_empty() {
-        qso.qso_date = now.format("%Y%m%d").to_string();
-    } else {
-        qso.qso_date = qso.adif_date();
-    }
-    if qso.time_on.trim().is_empty() {
-        qso.time_on = now.format("%H%M%S").to_string();
-    } else {
-        qso.time_on = qso.adif_time();
-    }
-
-    // Wzbogać brakujące pola DXCC z bazy prefiksów
-    if (qso.dxcc.is_none() || qso.country.is_none()) && !qso.callsign.is_empty() {
-        if let Some(info) = prefix_matcher.lookup(&qso.callsign) {
-            if qso.dxcc.is_none() {
-                qso.dxcc = Some(info.dxcc);
-            }
-            if qso.country.is_none() {
-                qso.country = Some(info.country);
-            }
-            if qso.continent.is_none() {
-                qso.continent = Some(info.continent);
-            }
-            if qso.cqz.is_none() {
-                qso.cqz = Some(info.cqz);
-            }
-            if qso.ituz.is_none() {
-                qso.ituz = Some(info.ituz);
-            }
-        }
-    }
-
-    Ok(())
-}
-
 /// Kontrakt lokalizacji REST API: Błędy domenowe i komunikaty walidacji zwracane
 /// są w języku polskim (`Language::Pl`) jako stabilna referencja dla integracji lokalnych.
 async fn post_qso(
@@ -913,32 +851,42 @@ async fn post_qso(
 async fn put_qso_by_id(
     State(state): State<ApiState>,
     Path(id): Path<i64>,
-    Json(mut qso): Json<QsoRecord>,
+    Json(qso): Json<QsoRecord>,
 ) -> Result<Json<QsoRecord>, (StatusCode, String)> {
-    normalize_and_enrich_qso(&mut qso, &state.prefix_matcher)?;
-    qso.validate()
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.msg().text(Language::Pl)))?;
+    let ingestor = state.ingestor.clone();
+    let res = tokio::task::spawn_blocking(move || ingestor.update_existing(id, qso))
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Błąd zadania asynchronicznego: {e}"),
+            )
+        })?
+        .map_err(|err| match err {
+            IngestError::EmptyCallsign => (StatusCode::BAD_REQUEST, err.msg().text(Language::Pl)),
+            IngestError::Invalid(issue) => {
+                (StatusCode::BAD_REQUEST, issue.msg().text(Language::Pl))
+            }
+            IngestError::Duplicate => (StatusCode::CONFLICT, err.msg().text(Language::Pl)),
+            IngestError::Storage(error) => {
+                eprintln!("[REST API] Błąd aktualizacji QSO: {error}");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Błąd zapisu QSO do bazy danych.".to_string(),
+                )
+            }
+        })?;
 
-    let qso_for_db = qso.clone();
-    let found = with_db(&state, move |db| {
-        let existing = db.get_qso_by_id(id)?;
-        if existing.is_none() {
-            return Ok(false);
+    match res {
+        Some(updated) => {
+            state.reload_flag.store(true, Ordering::Release);
+            Ok(Json(updated))
         }
-        db.update_qso(id, &qso_for_db)?;
-        Ok(true)
-    })
-    .await?;
-    if !found {
-        return Err((
+        None => Err((
             StatusCode::NOT_FOUND,
             format!("Nie znaleziono QSO o ID {id}"),
-        ));
+        )),
     }
-
-    qso.id = Some(id);
-    state.reload_flag.store(true, Ordering::Release);
-    Ok(Json(qso))
 }
 
 async fn delete_qso_by_id(

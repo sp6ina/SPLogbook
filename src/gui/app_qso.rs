@@ -712,14 +712,9 @@ impl SpLogApp {
     pub fn save_edited_qso(&mut self) {
         let mut warnings_toast: Option<String> = None;
         if let Some(ref qso) = self.log_view.editing_qso {
-            if let Err(e) = qso.validate() {
-                self.report_error(
-                    Msg::new(key::MSG_QSO_CHANGES_NOT_SAVED)
-                        .arg("reason", e.msg().text(self.gui.appearance.language))
-                        .text(self.gui.appearance.language),
-                );
+            let Some(id) = qso.id else {
                 return;
-            }
+            };
             let warnings = qso.warnings();
             if !warnings.is_empty() {
                 let warning_texts: Vec<String> = warnings
@@ -732,16 +727,32 @@ impl SpLogApp {
                     warning_texts.join("; ")
                 ));
             }
-            if let Some(id) = qso.id {
-                let result = {
-                    let db = self
-                        .services
-                        .log_db
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner);
-                    db.update_qso(id, qso)
-                };
-                if let Err(e) = result {
+            match self.services.ingestor.update_existing(id, qso.clone()) {
+                Ok(Some(updated)) => {
+                    self.gui.chrome.status_message = Some(
+                        Msg::new(key::MSG_QSO_UPDATED_CALL)
+                            .arg("call", &updated.callsign)
+                            .text(self.gui.appearance.language),
+                    );
+                }
+                Ok(None) => {
+                    self.report_error(
+                        Msg::new(key::MSG_QSO_UPDATE_ERROR_ID)
+                            .arg("id", id)
+                            .arg("err", "not found")
+                            .text(self.gui.appearance.language),
+                    );
+                    return;
+                }
+                Err(crate::core::ingest::IngestError::Invalid(e)) => {
+                    self.report_error(
+                        Msg::new(key::MSG_QSO_CHANGES_NOT_SAVED)
+                            .arg("reason", e.msg().text(self.gui.appearance.language))
+                            .text(self.gui.appearance.language),
+                    );
+                    return;
+                }
+                Err(e) => {
                     self.report_error(
                         Msg::new(key::MSG_QSO_UPDATE_ERROR_ID)
                             .arg("id", id)
@@ -750,11 +761,6 @@ impl SpLogApp {
                     );
                     return;
                 }
-                self.gui.chrome.status_message = Some(
-                    Msg::new(key::MSG_QSO_UPDATED_CALL)
-                        .arg("call", &qso.callsign)
-                        .text(self.gui.appearance.language),
-                );
             }
         }
         if let Some(msg) = warnings_toast {
