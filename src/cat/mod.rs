@@ -50,7 +50,7 @@ pub use routing::{
 };
 pub use runtime::{CatRuntime, CatRuntimeError};
 pub use service::{
-    RigService, RigServiceError, RigServiceHandle, RigServiceLifecycle, RigServiceSnapshot,
-    RigServiceState, RigServiceSupervisor, StateFreshness,
+    ReconnectPolicy, RigService, RigServiceError, RigServiceHandle, RigServiceLifecycle,
+    RigServiceSnapshot, RigServiceState, RigServiceSupervisor, StateFreshness,
 };
 pub use tx_arbiter::{TxArbiter, TxArbiterError, TxArbiterState, TxUnknownReason};

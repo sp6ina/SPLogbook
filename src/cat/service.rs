@@ -213,6 +213,63 @@ pub struct RigServiceRequest {
     pub responder: oneshot::Sender<Result<(), RigServiceError>>,
 }
 
+/// Konfiguracja polityki automatycznego ponawiania połączenia (auto-reconnect).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReconnectPolicy {
+    /// Czy auto-reconnect jest włączony.
+    pub enabled: bool,
+    /// Bazowe opóźnienie początkowe (domyślnie 500 ms).
+    pub base_delay: Duration,
+    /// Maksymalne dopuszczalne opóźnienie backoff (domyślnie 10 000 ms).
+    pub max_delay: Duration,
+    /// Mnożnik geometryczny (domyślnie 2).
+    pub factor: u32,
+    /// Procent jittera / wariancji (domyślnie 10%).
+    pub jitter_pct: u32,
+}
+
+impl Default for ReconnectPolicy {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            base_delay: Duration::from_millis(500),
+            max_delay: Duration::from_millis(10_000),
+            factor: 2,
+            jitter_pct: 10,
+        }
+    }
+}
+
+impl ReconnectPolicy {
+    /// Tworzy politykę z wyłączonym auto-reconnectem.
+    pub fn disabled() -> Self {
+        Self {
+            enabled: false,
+            ..Default::default()
+        }
+    }
+
+    /// Oblicza opóźnienie dla danej próby (0-indexed) z ograniczonym wykładniczym backoffem i jitterem.
+    pub fn delay_for_attempt(&self, attempt: u32) -> Duration {
+        if !self.enabled {
+            return Duration::ZERO;
+        }
+        let base_ms = self.base_delay.as_millis() as u64;
+        let max_ms = self.max_delay.as_millis() as u64;
+        let mult = (self.factor as u64).saturating_pow(attempt);
+        let uncapped_ms = base_ms.saturating_mul(mult);
+        let capped_ms = uncapped_ms.min(max_ms);
+
+        let jitter_range = (capped_ms * u64::from(self.jitter_pct)) / 100;
+        let jitter = if jitter_range > 0 {
+            (u64::from(attempt) * 31) % (jitter_range + 1)
+        } else {
+            0
+        };
+        Duration::from_millis(capped_ms.saturating_add(jitter))
+    }
+}
+
 /// Usługa sesji radiowej zarządzająca pętlą I/O w dedykowanym tasku aktora.
 pub struct RigService {
     rig_id: RigId,
@@ -223,6 +280,7 @@ pub struct RigService {
     shutdown_rx: oneshot::Receiver<()>,
     snapshot: RigServiceSnapshot,
     poll_interval: Duration,
+    reconnect_policy: ReconnectPolicy,
 }
 
 impl RigService {
@@ -233,6 +291,16 @@ impl RigService {
         rig_id: RigId,
         backend: Box<dyn RigBackend>,
         poll_interval: Duration,
+    ) -> (Self, RigServiceHandle) {
+        Self::spawn_with_policy(rig_id, backend, poll_interval, ReconnectPolicy::default())
+    }
+
+    /// Tworzy i uruchamia usługę z określoną polityką ponawiania połączenia ([ReconnectPolicy]).
+    pub fn spawn_with_policy(
+        rig_id: RigId,
+        backend: Box<dyn RigBackend>,
+        poll_interval: Duration,
+        reconnect_policy: ReconnectPolicy,
     ) -> (Self, RigServiceHandle) {
         let caps = backend.capabilities();
         let (cmd_tx, cmd_rx) = mpsc::channel(MAX_RIG_COMMAND_QUEUE);
@@ -251,6 +319,7 @@ impl RigService {
             shutdown_rx,
             snapshot: initial_snapshot,
             poll_interval,
+            reconnect_policy,
         };
 
         let handle = RigServiceHandle {
@@ -267,6 +336,13 @@ impl RigService {
         };
 
         (service, handle)
+    }
+
+    /// Konfiguruje politykę auto-reconnectu dla usługi.
+    pub fn with_reconnect_policy(mut self, policy: ReconnectPolicy) -> Self {
+        self.reconnect_policy = policy;
+
+        self
     }
 
     /// Weryfikuje i wykonuje przejście cyklu życia, publikując nowy snapshot i zdarzenie.
@@ -408,14 +484,22 @@ impl RigService {
             }
         }
 
-        // 3. Faza Ready / Degraded: główna pętla obsługi komend i pollingu
+        // 3. Faza Ready / Degraded: główna pętla obsługi komend, pollingu i auto-reconnectu
         let mut interval = tokio::time::interval(self.poll_interval);
         // Pierwszy tick interwału odpala się natychmiast – pomijamy go, bo zrobiliśmy synchronizację
         interval.tick().await;
 
+        let mut reconnect_attempts: u32 = 0;
+        let mut reconnect_deadline: Option<tokio::time::Instant> = None;
+
+        if self.snapshot.lifecycle == RigServiceState::Degraded && self.reconnect_policy.enabled {
+            let delay = self.reconnect_policy.delay_for_attempt(reconnect_attempts);
+            reconnect_deadline = Some(tokio::time::Instant::now() + delay);
+        }
+
         loop {
             tokio::select! {
-                // Odbiór żądania wyłączenia sesji (shutdown)
+                // Odbiór żądania wyłączenia sesji (shutdown) - przerywa natychmiast pętlę i oczekiwanie na reconnect
                 _ = &mut self.shutdown_rx => {
                     log::debug!("[{}] Odebrano sygnał shutdown", self.rig_id);
                     break;
@@ -435,37 +519,134 @@ impl RigService {
                     }
                 }
 
-                // Polling cykliczny stanu transceivera
+                // Auto-reconnect timer: próba przywrócenia połączenia w stanie Degraded z ograniczonym backoffem
+                _ = async {
+                    match reconnect_deadline {
+                        Some(deadline) => tokio::time::sleep_until(deadline).await,
+                        None => std::future::pending().await,
+                    }
+                }, if reconnect_deadline.is_some() => {
+                    log::info!(
+                        "[{}] Próba auto-reconnectu #{} dla sesji",
+                        self.rig_id,
+                        reconnect_attempts + 1
+                    );
+
+                    // 1. Zapewnij świeżość Stale w trakcie próby nawiązania połączenia
+                    if self.snapshot.state.is_some() {
+                        self.snapshot.freshness = StateFreshness::Stale;
+                        self.snapshot.last_update = Some(tokio::time::Instant::now());
+                        let _ = self.snapshot_tx.send(self.snapshot.clone());
+                    }
+
+                    // 2. Czysty disconnect dotychczasowego połączenia z bounded timeoutem
+                    let _ = tokio::time::timeout(Duration::from_millis(500), self.backend.disconnect()).await;
+
+                    // 3. Próba ponownego połączenia z bounded timeoutem
+                    let connect_res = tokio::time::timeout(Duration::from_millis(3000), self.backend.connect()).await;
+                    match connect_res {
+                        Ok(Ok(())) => {
+                            // Po udanym connect() sprawdzamy stabilność i synchronizujemy stan przez poll()
+                            let poll_res = tokio::time::timeout(Duration::from_millis(1500), self.backend.poll()).await;
+                            match poll_res {
+                                Ok(Ok(mut state)) => {
+                                    // Bezpieczeństwo RF: po reconnect stan ZAWSZE jest RX / brak PTT
+                                    state.ptt = false;
+
+                                    log::info!(
+                                        "[{}] Auto-reconnect powiódł się na próbie #{}, powrót do Ready",
+                                        self.rig_id,
+                                        reconnect_attempts + 1
+                                    );
+                                    self.update_state(state);
+                                    self.set_lifecycle(RigServiceState::Ready, None);
+
+                                    // Reset licznika backoff dopiero po stabilnym i udanym połączeniu
+                                    reconnect_attempts = 0;
+                                    reconnect_deadline = None;
+                                }
+                                Ok(Err(e)) => {
+                                    log::warn!(
+                                        "[{}] Auto-reconnect connect() udany, lecz poll() zawiódł: {e}",
+                                        self.rig_id
+                                    );
+                                    reconnect_attempts = reconnect_attempts.saturating_add(1);
+                                    let next_delay = self.reconnect_policy.delay_for_attempt(reconnect_attempts);
+                                    reconnect_deadline = Some(tokio::time::Instant::now() + next_delay);
+                                }
+                                Err(_) => {
+                                    log::warn!(
+                                        "[{}] Auto-reconnect connect() udany, lecz poll() przekroczył limit czasu",
+                                        self.rig_id
+                                    );
+                                    reconnect_attempts = reconnect_attempts.saturating_add(1);
+                                    let next_delay = self.reconnect_policy.delay_for_attempt(reconnect_attempts);
+                                    reconnect_deadline = Some(tokio::time::Instant::now() + next_delay);
+                                }
+                            }
+                        }
+                        Ok(Err(e)) => {
+                            log::debug!(
+                                "[{}] Auto-reconnect próba #{} nie powiodła się: {e}",
+                                self.rig_id,
+                                reconnect_attempts + 1
+                            );
+                            reconnect_attempts = reconnect_attempts.saturating_add(1);
+                            let next_delay = self.reconnect_policy.delay_for_attempt(reconnect_attempts);
+                            reconnect_deadline = Some(tokio::time::Instant::now() + next_delay);
+                        }
+                        Err(_) => {
+                            log::debug!(
+                                "[{}] Auto-reconnect próba #{} timeout",
+                                self.rig_id,
+                                reconnect_attempts + 1
+                            );
+                            reconnect_attempts = reconnect_attempts.saturating_add(1);
+                            let next_delay = self.reconnect_policy.delay_for_attempt(reconnect_attempts);
+                            reconnect_deadline = Some(tokio::time::Instant::now() + next_delay);
+                        }
+                    }
+                }
+
+                // Polling cykliczny stanu transceivera (wyłącznie w stanie Ready)
                 _ = interval.tick() => {
-                    if self.snapshot.lifecycle == RigServiceState::Ready || self.snapshot.lifecycle == RigServiceState::Degraded {
+                    if self.snapshot.lifecycle == RigServiceState::Ready {
                         let poll_timeout = Duration::from_millis(1500);
                         match tokio::time::timeout(poll_timeout, self.backend.poll()).await {
                             Ok(Ok(state)) => {
                                 self.update_state(state);
-                                if self.snapshot.lifecycle == RigServiceState::Degraded {
-                                    self.set_lifecycle(RigServiceState::Ready, None);
-                                }
+                                reconnect_attempts = 0;
+                                reconnect_deadline = None;
                             }
                             Ok(Err(e)) => {
-                                log::debug!("[{}] Błąd pollingu stanu: {e}", self.rig_id);
+                                log::debug!("[{}] Błąd pollingu stanu: {e}, przejście do Degraded", self.rig_id);
                                 if self.snapshot.state.is_some() {
                                     self.snapshot.freshness = StateFreshness::Stale;
                                     self.snapshot.last_update = Some(tokio::time::Instant::now());
                                     let _ = self.snapshot_tx.send(self.snapshot.clone());
                                 }
-                                if self.snapshot.lifecycle == RigServiceState::Ready {
-                                    self.set_lifecycle(RigServiceState::Degraded, Some(e.to_string()));
+                                self.set_lifecycle(RigServiceState::Degraded, Some(e.to_string()));
+
+                                if self.reconnect_policy.enabled && reconnect_deadline.is_none() {
+                                    let delay = self.reconnect_policy.delay_for_attempt(reconnect_attempts);
+                                    reconnect_deadline = Some(tokio::time::Instant::now() + delay);
                                 }
                             }
                             Err(_) => {
-                                log::debug!("[{}] Timeout pollingu stanu", self.rig_id);
+                                log::debug!("[{}] Timeout pollingu stanu, przejście do Degraded", self.rig_id);
                                 if self.snapshot.state.is_some() {
                                     self.snapshot.freshness = StateFreshness::Stale;
                                     self.snapshot.last_update = Some(tokio::time::Instant::now());
                                     let _ = self.snapshot_tx.send(self.snapshot.clone());
                                 }
-                                if self.snapshot.lifecycle == RigServiceState::Ready {
-                                    self.set_lifecycle(RigServiceState::Degraded, Some("Timeout pollingu".to_string()));
+                                self.set_lifecycle(
+                                    RigServiceState::Degraded,
+                                    Some("Timeout pollingu".to_string()),
+                                );
+
+                                if self.reconnect_policy.enabled && reconnect_deadline.is_none() {
+                                    let delay = self.reconnect_policy.delay_for_attempt(reconnect_attempts);
+                                    reconnect_deadline = Some(tokio::time::Instant::now() + delay);
                                 }
                             }
                         }
@@ -886,5 +1067,269 @@ impl Drop for RigServiceHandle {
                 jh.abort();
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cat::backend::BoxFuture;
+    use crate::cat::backend::CatBackendKind;
+    use crate::cat::rig::RigError;
+    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+
+    #[derive(Default, Clone)]
+    struct MockShared {
+        fail_poll: Arc<AtomicBool>,
+        fail_connect: Arc<AtomicBool>,
+        connect_count: Arc<AtomicU32>,
+        poll_count: Arc<AtomicU32>,
+        disconnect_count: Arc<AtomicU32>,
+    }
+
+    struct MockTestBackend {
+        shared: MockShared,
+    }
+
+    impl MockTestBackend {
+        fn new(shared: MockShared) -> Self {
+            Self { shared }
+        }
+    }
+
+    impl RigBackend for MockTestBackend {
+        fn kind(&self) -> CatBackendKind {
+            CatBackendKind::Kenwood
+        }
+
+        fn capabilities(&self) -> RigCapabilities {
+            RigCapabilities {
+                frequency: true,
+                mode: true,
+                passband: true,
+                split: false,
+                split_frequency: false,
+                ptt: true,
+                vfo: false,
+                rit: false,
+                xit: false,
+                power: false,
+                s_meter: false,
+            }
+        }
+
+        fn connect(&mut self) -> BoxFuture<'_, Result<(), RigError>> {
+            self.shared.connect_count.fetch_add(1, Ordering::SeqCst);
+            let fail = self.shared.fail_connect.load(Ordering::SeqCst);
+            Box::pin(async move {
+                if fail {
+                    Err(RigError::Connect {
+                        endpoint: "mock".to_string(),
+                        detail: "mock connect failed".to_string(),
+                    })
+                } else {
+                    Ok(())
+                }
+            })
+        }
+
+        fn disconnect(&mut self) -> BoxFuture<'_, ()> {
+            self.shared.disconnect_count.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async move {})
+        }
+
+        fn poll(&mut self) -> BoxFuture<'_, Result<RigState, RigError>> {
+            self.shared.poll_count.fetch_add(1, Ordering::SeqCst);
+            let fail = self.shared.fail_poll.load(Ordering::SeqCst);
+            Box::pin(async move {
+                if fail {
+                    Err(RigError::NotConnected)
+                } else {
+                    let mut st = RigState::default();
+                    st.frequency_hz = 14_074_000;
+                    st.mode = "USB".to_string();
+                    Ok(st)
+                }
+            })
+        }
+
+        fn execute(&mut self, _cmd: &RigCommand) -> BoxFuture<'_, Result<(), RigError>> {
+            Box::pin(async move { Ok(()) })
+        }
+    }
+
+    #[test]
+    fn reconnect_policy_delay_calculation_is_bounded_and_exponential() {
+        let policy = ReconnectPolicy::default();
+        let d0 = policy.delay_for_attempt(0);
+        let d1 = policy.delay_for_attempt(1);
+        let d2 = policy.delay_for_attempt(2);
+        let d3 = policy.delay_for_attempt(3);
+        let d4 = policy.delay_for_attempt(4);
+        let d5 = policy.delay_for_attempt(5);
+        let d10 = policy.delay_for_attempt(10);
+
+        assert!(d0.as_millis() >= 500 && d0.as_millis() <= 550);
+        assert!(d1.as_millis() >= 1000 && d1.as_millis() <= 1100);
+        assert!(d2.as_millis() >= 2000 && d2.as_millis() <= 2200);
+        assert!(d3.as_millis() >= 4000 && d3.as_millis() <= 4400);
+        assert!(d4.as_millis() >= 8000 && d4.as_millis() <= 8800);
+        assert!(d5.as_millis() >= 10_000 && d5.as_millis() <= 11_000);
+        assert!(d10.as_millis() >= 10_000 && d10.as_millis() <= 11_000);
+
+        let disabled = ReconnectPolicy::disabled();
+        assert_eq!(disabled.delay_for_attempt(0), Duration::ZERO);
+        assert_eq!(disabled.delay_for_attempt(5), Duration::ZERO);
+    }
+
+    #[tokio::test]
+    async fn rig_service_reconnects_automatically_after_stream_drop_in_degraded_state() {
+        let shared = MockShared::default();
+        let rig_id = RigId::new("RIG-RECONN-01").unwrap();
+        let fast_policy = ReconnectPolicy {
+            enabled: true,
+            base_delay: Duration::from_millis(20),
+            max_delay: Duration::from_millis(100),
+            factor: 2,
+            jitter_pct: 0,
+        };
+
+        let (service, mut handle) = RigService::spawn_with_policy(
+            rig_id.clone(),
+            Box::new(MockTestBackend::new(shared.clone())),
+            Duration::from_millis(15),
+            fast_policy,
+        );
+        let jh = tokio::spawn(service.run());
+        handle.attach_join_handle(jh);
+
+        // Oczekuj na stan Ready
+        for _ in 0..50 {
+            if handle.snapshot().lifecycle == RigServiceState::Ready {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(handle.snapshot().lifecycle, RigServiceState::Ready);
+        assert_eq!(handle.snapshot().freshness, StateFreshness::Fresh);
+
+        // Symulacja zerwania połączenia / błędu streamu w poll()
+        shared.fail_poll.store(true, Ordering::SeqCst);
+
+        // Oczekuj na przejście w stan Degraded
+        for _ in 0..50 {
+            if handle.snapshot().lifecycle == RigServiceState::Degraded {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(handle.snapshot().lifecycle, RigServiceState::Degraded);
+        assert_eq!(handle.snapshot().freshness, StateFreshness::Stale);
+
+        let initial_connects = shared.connect_count.load(Ordering::SeqCst);
+
+        // Przywrócenie działania transportu
+        shared.fail_poll.store(false, Ordering::SeqCst);
+
+        // Usługa powinna samoczynnie ponowić połączenie (connect) i wrócić do Ready
+        for _ in 0..50 {
+            if handle.snapshot().lifecycle == RigServiceState::Ready {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(15)).await;
+        }
+
+        assert_eq!(handle.snapshot().lifecycle, RigServiceState::Ready);
+        assert_eq!(handle.snapshot().freshness, StateFreshness::Fresh);
+        assert!(shared.connect_count.load(Ordering::SeqCst) > initial_connects);
+
+        let _ = handle
+            .shutdown(tokio::time::Instant::now() + Duration::from_millis(500))
+            .await;
+    }
+
+    #[tokio::test]
+    async fn rig_service_reconnect_backoff_is_cancellable_by_shutdown() {
+        let shared = MockShared::default();
+        let rig_id = RigId::new("RIG-CANCEL-01").unwrap();
+        // Bardzo długi backoff (10 sekund), aby upewnić się, że shutdown go przerywa natychmiast
+        let long_policy = ReconnectPolicy {
+            enabled: true,
+            base_delay: Duration::from_secs(10),
+            max_delay: Duration::from_secs(30),
+            factor: 2,
+            jitter_pct: 0,
+        };
+
+        let (service, mut handle) = RigService::spawn_with_policy(
+            rig_id.clone(),
+            Box::new(MockTestBackend::new(shared.clone())),
+            Duration::from_millis(15),
+            long_policy,
+        );
+        let jh = tokio::spawn(service.run());
+        handle.attach_join_handle(jh);
+
+        // Oczekuj na stan Ready
+        for _ in 0..50 {
+            if handle.snapshot().lifecycle == RigServiceState::Ready {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(handle.snapshot().lifecycle, RigServiceState::Ready);
+
+        // Wprowadź w błąd
+        shared.fail_poll.store(true, Ordering::SeqCst);
+        for _ in 0..50 {
+            if handle.snapshot().lifecycle == RigServiceState::Degraded {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(handle.snapshot().lifecycle, RigServiceState::Degraded);
+
+        // Wywołaj shutdown z limitem 500 ms – powinno zakończyć się natychmiast, a nie czekać 10 sekund
+        let t0 = tokio::time::Instant::now();
+        let shut_res = handle
+            .shutdown(tokio::time::Instant::now() + Duration::from_millis(500))
+            .await;
+        let elapsed = t0.elapsed();
+
+        assert!(shut_res.is_ok());
+        assert!(elapsed < Duration::from_secs(2));
+        assert_eq!(handle.snapshot().lifecycle, RigServiceState::Disconnected);
+    }
+
+    #[tokio::test]
+    async fn manual_disconnect_never_schedules_reconnect() {
+        let shared = MockShared::default();
+        let rig_id = RigId::new("RIG-MANUAL-01").unwrap();
+        let (service, mut handle) = RigService::spawn(
+            rig_id.clone(),
+            Box::new(MockTestBackend::new(shared.clone())),
+            Duration::from_millis(15),
+        );
+        let jh = tokio::spawn(service.run());
+        handle.attach_join_handle(jh);
+
+        for _ in 0..50 {
+            if handle.snapshot().lifecycle == RigServiceState::Ready {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        let _ = handle
+            .shutdown(tokio::time::Instant::now() + Duration::from_millis(500))
+            .await;
+        assert_eq!(handle.snapshot().lifecycle, RigServiceState::Disconnected);
+
+        let connects_at_shutdown = shared.connect_count.load(Ordering::SeqCst);
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        assert_eq!(
+            shared.connect_count.load(Ordering::SeqCst),
+            connects_at_shutdown
+        );
     }
 }
