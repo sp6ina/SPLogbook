@@ -50,6 +50,11 @@ impl LogDatabase {
     }
 
     /// Otwiera bazę danych w pamięci RAM (np. do testów jednostkowych)
+    #[cfg(test)]
+    pub fn raw_conn(&self) -> &Connection {
+        &self.conn
+    }
+
     pub fn open_in_memory() -> Result<Self> {
         let conn = Connection::open_in_memory()?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;

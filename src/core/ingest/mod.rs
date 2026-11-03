@@ -162,7 +162,7 @@ impl QsoIngestor {
             match db.insert_qso(&qso) {
                 Ok(id) => id,
                 Err(rusqlite::Error::SqliteFailure(err, _))
-                    if err.code == rusqlite::ErrorCode::ConstraintViolation =>
+                    if err.extended_code == 2067 || err.extended_code == 1555 =>
                 {
                     return Err(IngestError::Duplicate);
                 }
@@ -170,6 +170,14 @@ impl QsoIngestor {
             }
         };
         qso.id = Some(id);
+
+        self.events.publish(AppEvent::QsoLogged {
+            callsign: qso.callsign.clone(),
+            band: qso.band.clone(),
+            mode: qso.mode.clone(),
+            frequency_hz: (qso.freq.unwrap_or(0.0) * 1_000_000.0) as u64,
+            time_utc: qso.time_on.clone(),
+        });
 
         {
             let mut awards = self.awards.lock().unwrap_or_else(PoisonError::into_inner);
@@ -180,14 +188,6 @@ impl QsoIngestor {
             let mut scp = self.scp.lock().unwrap_or_else(PoisonError::into_inner);
             scp.insert(&qso.callsign);
         }
-
-        self.events.publish(AppEvent::QsoLogged {
-            callsign: qso.callsign.clone(),
-            band: qso.band.clone(),
-            mode: qso.mode.clone(),
-            frequency_hz: (qso.freq.unwrap_or(0.0) * 1_000_000.0) as u64,
-            time_utc: qso.time_on.clone(),
-        });
 
         Ok(IngestOutcome {
             origin,
@@ -703,6 +703,7 @@ mod tests {
 
         // 2. Istniejące dxcc (Some(230)) -> brak wywołania wzbogacania i brak nadpisania pól.
         let mut qso_preset_dxcc = sample_valid_qso("SP6INA");
+        qso_preset_dxcc.time_on = "124500".to_string();
         qso_preset_dxcc.dxcc = Some(230);
         qso_preset_dxcc.country = Some("Germany".to_string());
         qso_preset_dxcc.continent = Some("AF".to_string());
@@ -1374,7 +1375,7 @@ mod tests {
     }
 
     #[test]
-    fn ingest_allows_same_identity_for_non_lan_origins_according_to_existing_policy() {
+    fn ingest_database_uniqueness_rejects_identical_duplicates_for_all_origins() {
         let origins = [
             QsoOrigin::Form,
             QsoOrigin::Contest,
@@ -1389,9 +1390,35 @@ mod tests {
             assert!(res1.is_ok(), "first ingest failed for {origin:?}");
             let res2 = fixture.ingestor.ingest(qso, origin);
             assert!(
-                res2.is_ok(),
-                "duplicate ingest must be allowed for {origin:?}"
+                matches!(res2, Err(IngestError::Duplicate)),
+                "database-level uniqueness must reject duplicate for {origin:?}"
             );
+            assert_eq!(
+                fixture.count_qsos(),
+                1,
+                "expected exactly 1 record in database for {origin:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn ingest_allows_distinct_qsos_for_all_origins() {
+        let origins = [
+            QsoOrigin::Form,
+            QsoOrigin::Contest,
+            QsoOrigin::WsjtX,
+            QsoOrigin::Js8Call,
+            QsoOrigin::RestApi,
+        ];
+        for origin in origins {
+            let fixture = TestFixture::new();
+            let qso1 = sample_valid_qso("SP6INA");
+            let res1 = fixture.ingestor.ingest(qso1, origin);
+            assert!(res1.is_ok(), "first ingest failed for {origin:?}");
+            let mut qso2 = sample_valid_qso("SP6INA");
+            qso2.time_on = "130000".to_string();
+            let res2 = fixture.ingestor.ingest(qso2, origin);
+            assert!(res2.is_ok(), "distinct QSO must be allowed for {origin:?}");
             assert_eq!(
                 fixture.count_qsos(),
                 2,
@@ -1537,5 +1564,131 @@ mod tests {
             .update_existing(999_999, ghost_qso)
             .expect("query should succeed");
         assert_eq!(ghost_res, None);
+    }
+
+    #[test]
+    fn single_qso_ingest_rolls_back_and_emits_no_event_on_storage_failure() {
+        let mut fixture = TestFixture::new();
+
+        {
+            let db = fixture
+                .ingestor
+                .db
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            db.raw_conn()
+                .execute_batch(
+                    "CREATE TEMP TRIGGER fail_single_insert BEFORE INSERT ON qso_records
+                 WHEN NEW.callsign = 'FAILME'
+                 BEGIN
+                     SELECT RAISE(ABORT, 'injected single insert failure');
+                 END;",
+                )
+                .unwrap();
+        }
+
+        let qso = sample_valid_qso("FAILME");
+        let res = fixture.ingestor.ingest(qso, QsoOrigin::Form);
+
+        assert!(
+            matches!(res, Err(IngestError::Storage(_))),
+            "must return Storage error on DB failure"
+        );
+        assert_eq!(
+            fixture.count_qsos(),
+            0,
+            "baza danych musi pozostac pusta po nieudanym zapisie"
+        );
+
+        {
+            let awards = fixture
+                .ingestor
+                .awards
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            assert_eq!(
+                awards.worked_calls.len(),
+                0,
+                "AwardsEngine nie moze zarejestrowac nieudanego QSO"
+            );
+        }
+        {
+            let scp = fixture
+                .ingestor
+                .scp
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            assert_eq!(
+                scp.len(),
+                0,
+                "ScpEngine nie moze zarejestrowac nieudanego QSO"
+            );
+        }
+        assert!(
+            matches!(fixture.events_rx.try_recv(), Err(TryRecvError::Empty)),
+            "AppEvent::QsoLogged nie moze zostac wyemitowany przed commitem"
+        );
+    }
+
+    #[test]
+    fn qso_update_rolls_back_and_preserves_state_on_storage_failure() {
+        let fixture = TestFixture::new();
+
+        // 1. Zapisz poprawne QSO
+        let qso = sample_valid_qso("SP6INA");
+        let outcome = fixture
+            .ingestor
+            .ingest(qso, QsoOrigin::Form)
+            .expect("initial ingest must succeed");
+        let id = outcome.qso.id.expect("id must be present");
+        assert_eq!(fixture.count_qsos(), 1);
+
+        // 2. Dodaj trigger uniemozliwiajacy aktualizacje znaku na 'FAILUPDATE'
+        {
+            let db = fixture
+                .ingestor
+                .db
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            db.raw_conn()
+                .execute_batch(
+                    "CREATE TEMP TRIGGER fail_update BEFORE UPDATE ON qso_records
+                 WHEN NEW.callsign = 'FAILUPDATE'
+                 BEGIN
+                     SELECT RAISE(ABORT, 'injected update failure');
+                 END;",
+                )
+                .unwrap();
+        }
+
+        // 3. Proba aktualizacji zwraca blad
+        let mut bad_update = sample_valid_qso("FAILUPDATE");
+        bad_update.band = "40m".to_string();
+        let res = fixture.ingestor.update_existing(id, bad_update);
+        assert!(matches!(res, Err(IngestError::Storage(_))));
+
+        // 4. Oryginalny stan w bazie danych jest nienaruszony
+        let current = fixture.get_qso(id).expect("qso must still exist");
+        assert_eq!(current.callsign, "SP6INA");
+        assert_eq!(current.band, "20m");
+
+        // 5. AwardsEngine nadal odzwierciedla oryginalny stan
+        {
+            let awards = fixture
+                .ingestor
+                .awards
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            assert!(awards.worked_calls.contains(&(
+                "SP6INA".to_string(),
+                "20m".to_string(),
+                "CW".to_string()
+            )));
+            assert!(!awards.worked_calls.contains(&(
+                "FAILUPDATE".to_string(),
+                "40m".to_string(),
+                "CW".to_string()
+            )));
+        }
     }
 }
