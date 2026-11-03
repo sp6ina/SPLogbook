@@ -5,7 +5,7 @@ use crate::core::i18n::{Msg, key};
 use crate::core::qso::QsoRecord;
 use crate::core::xml::escape_xml as xml_escape;
 use std::collections::HashMap;
-use std::io::{BufRead, Write};
+use std::io::{BufRead, Read, Write};
 
 /// Wspierana wersja specyfikacji ADIF.
 pub const ADIF_VERSION: &str = "3.1.8";
@@ -33,10 +33,23 @@ impl AdifError {
     }
 }
 
-#[derive(Debug)]
+/// Maksymalny dopuszczalny rozmiar importowanego pliku ADIF (64 MiB).
+pub const MAX_ADIF_FILE_SIZE: usize = 64 * 1024 * 1024;
+/// Maksymalny dopuszczalny rozmiar nagłówka ADIF (1 MiB).
+pub const MAX_ADIF_HEADER_SIZE: usize = 1024 * 1024;
+/// Maksymalna dopuszczalna długość nazwy pola ADIF (64 bajty).
+pub const MAX_ADIF_FIELD_NAME_LEN: usize = 64;
+/// Maksymalna dopuszczalna deklarowana długość pojedynczej wartości pola (1 MiB).
+pub const MAX_ADIF_FIELD_VALUE_LEN: usize = 1024 * 1024;
+/// Maksymalna dopuszczalna liczba pól w pojedynczym rekordzie ADIF.
+pub const MAX_ADIF_FIELDS_PER_RECORD: usize = 256;
+
+#[derive(Debug, PartialEq, Eq)]
 pub enum AdifRecordError {
     MissingCall,
     UnresolvableBand,
+    MissingDate,
+    MissingTime,
 }
 
 impl std::fmt::Display for AdifRecordError {
@@ -44,8 +57,25 @@ impl std::fmt::Display for AdifRecordError {
         match self {
             Self::MissingCall => write!(f, "brak wymaganego pola CALL."),
             Self::UnresolvableBand => write!(f, "brak pola BAND ani rozpoznawalnej FREQ."),
+            Self::MissingDate => write!(f, "brak wymaganego pola QSO_DATE."),
+            Self::MissingTime => write!(f, "brak wymaganego pola TIME_ON."),
         }
     }
+}
+
+/// Zwraca liczbę odczytanych znaków oraz ich łączną długość w bajtach UTF-8,
+/// nie przekraczając `max_chars`.
+fn take_chars_up_to(s: &str, max_chars: usize) -> (usize, usize) {
+    let mut count = 0;
+    let mut bytes_len = 0;
+    for (offset, ch) in s.char_indices() {
+        if count == max_chars {
+            return (count, offset);
+        }
+        count += 1;
+        bytes_len = offset + ch.len_utf8();
+    }
+    (count, bytes_len)
 }
 
 impl std::error::Error for AdifRecordError {}
@@ -81,11 +111,28 @@ impl AdifEngine {
     ) -> Result<AdifImportResult, AdifError> {
         let mut content = String::new();
         reader
+            .by_ref()
+            .take((MAX_ADIF_FILE_SIZE + 1) as u64)
             .read_to_string(&mut content)
             .map_err(|e| AdifError::Read(e.to_string()))?;
+        if content.len() > MAX_ADIF_FILE_SIZE {
+            return Err(AdifError::Read(format!(
+                "rozmiar pliku ADIF przekracza dopuszczalny limit {} B",
+                MAX_ADIF_FILE_SIZE
+            )));
+        }
 
         // Pomiń nagłówek (do znacznika <EOH>) bez alokacji kopii całego pliku
-        let body = if let Some(end_pos) = find_tag_end_ci(content.as_bytes(), 0, b"<EOH>") {
+        let header_end = find_tag_end_ci(content.as_bytes(), 0, b"<EOH>");
+        if let Some(pos) = header_end {
+            if pos > MAX_ADIF_HEADER_SIZE {
+                return Err(AdifError::Read(format!(
+                    "rozmiar nagłówka ADIF przekracza dopuszczalny limit {} B",
+                    MAX_ADIF_HEADER_SIZE
+                )));
+            }
+        }
+        let body = if let Some(end_pos) = header_end {
             &content[end_pos..]
         } else {
             &content
@@ -144,40 +191,118 @@ impl AdifEngine {
                     continue;
                 }
 
+                if tag_upper == "EOH" {
+                    continue;
+                }
+
                 // Format tagu: NAZWA:DŁUGOŚĆ[:TYP]
                 let parts: Vec<&str> = tag_str.split(':').collect();
                 if parts.len() >= 2 {
                     let field_name = parts[0].trim().to_uppercase();
-                    if let Ok(length) = parts[1].trim().parse::<usize>() {
-                        let Some(end_idx) = idx.checked_add(length) else {
+                    if field_name.is_empty() || field_name.len() > MAX_ADIF_FIELD_NAME_LEN {
+                        errors.push(format!(
+                            "Rekord {record_index}: nieprawidłowa lub zbyt długa nazwa pola ({field_name})."
+                        ));
+                        record_has_error = true;
+                        continue;
+                    }
+
+                    if current_fields.len() >= MAX_ADIF_FIELDS_PER_RECORD {
+                        errors.push(format!(
+                            "Rekord {record_index}: przekroczono dopuszczalną liczbę pól na rekord ({MAX_ADIF_FIELDS_PER_RECORD})."
+                        ));
+                        record_has_error = true;
+                        continue;
+                    }
+
+                    let length_str = parts[1].trim();
+                    if length_str.starts_with('-') || length_str.starts_with('+') {
+                        errors.push(format!(
+                            "Rekord {record_index}: ujemna lub niepoprawna długość pola „{field_name}”."
+                        ));
+                        record_has_error = true;
+                        continue;
+                    }
+
+                    if let Ok(length) = length_str.parse::<usize>() {
+                        if length > MAX_ADIF_FIELD_VALUE_LEN {
                             errors.push(format!(
-                                "Rekord {record_index}: pole „{field_name}” deklaruje przepełnienie długości ({length})."
+                                "Rekord {record_index}: pole „{field_name}” deklaruje długość {length} przekraczającą limit {MAX_ADIF_FIELD_VALUE_LEN}."
                             ));
                             record_has_error = true;
-                            break;
-                        };
-                        // Zadeklarowana długość musi mieścić się w buforze; w przeciwnym
-                        // razie plik jest ucięty/uszkodzony i rekord należy odrzucić.
-                        if end_idx > bytes.len() {
-                            errors.push(format!(
-                                "Rekord {record_index}: pole „{field_name}” deklaruje {length} bajtów, ale dostępnych jest tylko {}.",
-                                bytes.len().saturating_sub(idx)
-                            ));
-                            record_has_error = true;
-                            idx = bytes.len();
+                            if let Some(next_eor) = find_tag_end_ci(bytes, idx, b"<EOR>") {
+                                idx = next_eor.saturating_sub(5);
+                            } else {
+                                idx = bytes.len();
+                            }
                             continue;
                         }
-                        let val_bytes = &bytes[idx..end_idx];
-                        let val_str = String::from_utf8_lossy(val_bytes);
-                        // Pola tekstowe, w których spacje brzegowe mogą być celowe,
-                        // zachowujemy w całości; pozostałe (tokeny, daty, referencje)
-                        // są przycinane zgodnie ze specyfikacją ADIF.
+
+                        // Wyznaczenie bezpiecznego zakresu wartości:
+                        // 1. Sprawdź, czy długość bajtowa trafia dokładnie w znacznik '<'
+                        // 2. Jeśli nie, lub jeśli cięcie bajtowe przecina wielobajtowy znak UTF-8,
+                        //    sprawdź odczyt 'length' znaków Unicode (DATA-001)
+                        let byte_end_candidate = idx.checked_add(length);
+                        let char_slice_info = take_chars_up_to(&body[idx..], length);
+
+                        let chosen_end = if let Some(byte_end) = byte_end_candidate {
+                            if byte_end <= body.len() && body.is_char_boundary(byte_end) {
+                                if body[byte_end..].starts_with('<') || byte_end == body.len() {
+                                    Some(byte_end)
+                                } else if char_slice_info.0 == length {
+                                    let char_end = idx + char_slice_info.1;
+                                    if char_end <= body.len()
+                                        && (body[char_end..].starts_with('<')
+                                            || char_end == body.len())
+                                    {
+                                        Some(char_end)
+                                    } else {
+                                        Some(byte_end)
+                                    }
+                                } else {
+                                    Some(byte_end)
+                                }
+                            } else if char_slice_info.0 == length {
+                                let char_end = idx + char_slice_info.1;
+                                if char_end <= body.len() {
+                                    Some(char_end)
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        } else if char_slice_info.0 == length {
+                            let char_end = idx + char_slice_info.1;
+                            if char_end <= body.len() {
+                                Some(char_end)
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
+
+                        let Some(end_idx) = chosen_end else {
+                            errors.push(format!(
+                                "Rekord {record_index}: pole „{field_name}” deklaruje {length} jednostek, ale dane są ucięte."
+                            ));
+                            record_has_error = true;
+                            if let Some(next_eor) = find_tag_end_ci(bytes, idx, b"<EOR>") {
+                                idx = next_eor.saturating_sub(5);
+                            } else {
+                                idx = bytes.len();
+                            }
+                            continue;
+                        };
+
+                        let val_str = &body[idx..end_idx];
                         let preserve_whitespace = matches!(
                             field_name.as_str(),
                             "COMMENT" | "NAME" | "QTH" | "NOTES" | "ADDRESS"
                         );
                         let value = if preserve_whitespace {
-                            val_str.into_owned()
+                            val_str.to_string()
                         } else {
                             val_str.trim().to_string()
                         };
@@ -425,7 +550,18 @@ impl AdifEngine {
             })
             .unwrap_or_default();
 
+        let qso_date = match fields.remove("QSO_DATE") {
+            Some(d) if !d.trim().is_empty() => d,
+            _ => return Err(AdifRecordError::MissingDate),
+        };
+        let time_on = match fields.remove("TIME_ON") {
+            Some(t) if !t.trim().is_empty() => t,
+            _ => return Err(AdifRecordError::MissingTime),
+        };
+
         let mut qso = QsoRecord::new(call, band, mode);
+        qso.qso_date = qso_date;
+        qso.time_on = time_on;
 
         if let Some(sub) = fields.remove("SUBMODE").filter(|s| !s.is_empty()) {
             if let Some((norm_mode, norm_sub)) = Self::normalize_mode_submode(&qso.mode, Some(&sub))
@@ -438,12 +574,6 @@ impl AdifEngine {
         } else if let Some((norm_mode, norm_sub)) = Self::normalize_mode_submode(&qso.mode, None) {
             qso.mode = norm_mode.to_string();
             qso.submode = norm_sub.map(str::to_string);
-        }
-        if let Some(d) = fields.remove("QSO_DATE") {
-            qso.qso_date = d;
-        }
-        if let Some(t) = fields.remove("TIME_ON") {
-            qso.time_on = t;
         }
         qso.time_off = fields.remove("TIME_OFF");
         if parsed_freq.is_some() {
@@ -907,7 +1037,7 @@ mod tests {
 
     #[test]
     fn test_adif_import_uses_app_lotw_mode_fallback() {
-        let content = "<CALL:6>SP6INA<BAND:3>20m<APP_LOTW_MODE:3>FT4<EOR>";
+        let content = "<CALL:6>SP6INA<BAND:3>20m<APP_LOTW_MODE:3>FT4<QSO_DATE:8>20261018<TIME_ON:6>120000<EOR>";
         let report = parse_adif_with_report(content);
         assert_eq!(report.imported, 1);
         assert_eq!(report.qsos[0].mode, "FT4");
@@ -916,7 +1046,7 @@ mod tests {
 
     #[test]
     fn test_adif_import_without_mode_is_empty_and_reported() {
-        let content = "<CALL:6>SP6INA<BAND:3>20m<EOR>";
+        let content = "<CALL:6>SP6INA<BAND:3>20m<QSO_DATE:8>20261018<TIME_ON:6>120000<EOR>";
         let report = parse_adif_with_report(content);
         assert_eq!(report.imported, 1);
         assert_eq!(report.qsos[0].mode, "");
@@ -926,18 +1056,23 @@ mod tests {
     #[test]
     fn test_adif_import_cw_and_pcw_modes() {
         // MODE=CW → mode="CW", submode=None.
-        let report = parse_adif_with_report("<CALL:6>SP6INA<BAND:3>20m<MODE:2>CW<EOR>");
+        let report = parse_adif_with_report(
+            "<CALL:6>SP6INA<BAND:3>20m<MODE:2>CW<QSO_DATE:8>20261018<TIME_ON:6>120000<EOR>",
+        );
         assert_eq!(report.qsos[0].mode, "CW");
         assert_eq!(report.qsos[0].submode, None);
 
         // MODE=CW + SUBMODE=PCW → mode="CW", submode=Some("PCW").
-        let report =
-            parse_adif_with_report("<CALL:6>SP6INA<BAND:3>20m<MODE:2>CW<SUBMODE:3>PCW<EOR>");
+        let report = parse_adif_with_report(
+            "<CALL:6>SP6INA<BAND:3>20m<MODE:2>CW<SUBMODE:3>PCW<QSO_DATE:8>20261018<TIME_ON:6>120000<EOR>",
+        );
         assert_eq!(report.qsos[0].mode, "CW");
         assert_eq!(report.qsos[0].submode.as_deref(), Some("PCW"));
 
         // Tolerancyjny import MODE=PCW → mode="CW", submode=Some("PCW").
-        let report = parse_adif_with_report("<CALL:6>SP6INA<BAND:3>20m<MODE:3>PCW<EOR>");
+        let report = parse_adif_with_report(
+            "<CALL:6>SP6INA<BAND:3>20m<MODE:3>PCW<QSO_DATE:8>20261018<TIME_ON:6>120000<EOR>",
+        );
         assert_eq!(report.qsos[0].mode, "CW");
         assert_eq!(report.qsos[0].submode.as_deref(), Some("PCW"));
     }
@@ -979,8 +1114,9 @@ mod tests {
     #[test]
     fn test_adif_mfsk_ft8_import_normalizes_and_reexports_as_ft8() {
         // MODE=MFSK + SUBMODE=FT8 → FT8/None; re-eksport → MODE=FT8 bez SUBMODE.
-        let report =
-            parse_adif_with_report("<CALL:6>SP6INA<BAND:3>20m<MODE:4>MFSK<SUBMODE:3>FT8<EOR>");
+        let report = parse_adif_with_report(
+            "<CALL:6>SP6INA<BAND:3>20m<MODE:4>MFSK<SUBMODE:3>FT8<QSO_DATE:8>20261018<TIME_ON:6>120000<EOR>",
+        );
         assert_eq!(report.qsos[0].mode, "FT8");
         assert_eq!(report.qsos[0].submode, None);
 
@@ -992,16 +1128,21 @@ mod tests {
     #[test]
     fn test_adif_app_lotw_mode_fallback_rules() {
         // APP_LOTW_MODE użyty wyłącznie przy braku MODE.
-        let report = parse_adif_with_report("<CALL:6>SP6INA<BAND:3>20m<APP_LOTW_MODE:3>FT4<EOR>");
+        let report = parse_adif_with_report(
+            "<CALL:6>SP6INA<BAND:3>20m<APP_LOTW_MODE:3>FT4<QSO_DATE:8>20261018<TIME_ON:6>120000<EOR>",
+        );
         assert_eq!(report.qsos[0].mode, "FT4");
 
         // MODE ma pierwszeństwo nad APP_LOTW_MODE.
-        let report =
-            parse_adif_with_report("<CALL:6>SP6INA<BAND:3>20m<MODE:2>CW<APP_LOTW_MODE:3>FT4<EOR>");
+        let report = parse_adif_with_report(
+            "<CALL:6>SP6INA<BAND:3>20m<MODE:2>CW<APP_LOTW_MODE:3>FT4<QSO_DATE:8>20261018<TIME_ON:6>120000<EOR>",
+        );
         assert_eq!(report.qsos[0].mode, "CW");
 
         // Pusta wartość APP_LOTW_MODE nie jest akceptowana → pusta emisja + błąd.
-        let report = parse_adif_with_report("<CALL:6>SP6INA<BAND:3>20m<APP_LOTW_MODE:0><EOR>");
+        let report = parse_adif_with_report(
+            "<CALL:6>SP6INA<BAND:3>20m<APP_LOTW_MODE:0><QSO_DATE:8>20261018<TIME_ON:6>120000<EOR>",
+        );
         assert_eq!(report.qsos[0].mode, "");
         assert!(report.errors.iter().any(|e| e.contains("MODE")));
     }
@@ -1009,19 +1150,25 @@ mod tests {
     #[test]
     fn test_adif_import_band_fallback_is_rejected() {
         // Rekord z BAND jest importowany.
-        let report = parse_adif_with_report("<CALL:6>SP6INA<BAND:3>20m<MODE:2>CW<EOR>");
+        let report = parse_adif_with_report(
+            "<CALL:6>SP6INA<BAND:3>20m<MODE:2>CW<QSO_DATE:8>20261018<TIME_ON:6>120000<EOR>",
+        );
         assert_eq!(report.imported, 1);
         assert_eq!(report.rejected, 0);
         assert_eq!(report.qsos[0].band, "20m");
 
         // Rekord z poprawną FREQ (bez BAND) jest importowany, pasmo wyznaczone z FREQ.
-        let report = parse_adif_with_report("<CALL:6>SP6INA<FREQ:6>14.074<MODE:2>CW<EOR>");
+        let report = parse_adif_with_report(
+            "<CALL:6>SP6INA<FREQ:6>14.074<MODE:2>CW<QSO_DATE:8>20261018<TIME_ON:6>120000<EOR>",
+        );
         assert_eq!(report.imported, 1);
         assert_eq!(report.rejected, 0);
         assert_eq!(report.qsos[0].band, "20m");
 
         // Rekord bez BAND i bez rozpoznawalnej FREQ jest odrzucany z komunikatem.
-        let report = parse_adif_with_report("<CALL:6>SP6INA<MODE:2>CW<EOR>");
+        let report = parse_adif_with_report(
+            "<CALL:6>SP6INA<MODE:2>CW<QSO_DATE:8>20261018<TIME_ON:6>120000<EOR>",
+        );
         assert_eq!(report.imported, 0);
         assert_eq!(report.rejected, 1);
         assert!(report.qsos.is_empty());
@@ -1033,7 +1180,9 @@ mod tests {
         );
 
         // FREQ spoza pasm amatorskich (brak dopasowania) też jest odrzucany.
-        let report = parse_adif_with_report("<CALL:6>SP6INA<FREQ:5>1.000<MODE:2>CW<EOR>");
+        let report = parse_adif_with_report(
+            "<CALL:6>SP6INA<FREQ:5>1.000<MODE:2>CW<QSO_DATE:8>20261018<TIME_ON:6>120000<EOR>",
+        );
         assert_eq!(report.imported, 0);
         assert_eq!(report.rejected, 1);
         assert!(report.errors.iter().any(|e| e.contains("BAND")));
@@ -1045,8 +1194,8 @@ mod tests {
         let content = concat!(
             "SPLogbook test export\n",
             "<EOH>\n",
-            "<CALL:6>SP6INA<BAND:3>20m<MODE:2>CW<EOR>\n",
-            "<BAND:3>40m<MODE:3>SSB<EOR>\n",
+            "<CALL:6>SP6INA<BAND:3>20m<MODE:2>CW<QSO_DATE:8>20261018<TIME_ON:6>120000<EOR>\n",
+            "<BAND:3>40m<MODE:3>SSB<QSO_DATE:8>20261018<TIME_ON:6>120000<EOR>\n",
             "<CALL:6>DL1ABC<BAD:xyz>??<EOR>\n",
         );
 
@@ -1071,7 +1220,7 @@ mod tests {
 
     #[test]
     fn test_adif_import_trailing_record_without_eor() {
-        let content = "<CALL:6>SP6INA<BAND:3>20m<MODE:2>CW";
+        let content = "<CALL:6>SP6INA<BAND:3>20m<MODE:2>CW<QSO_DATE:8>20261018<TIME_ON:6>120000";
         let report = parse_adif_with_report(content);
         assert_eq!(report.imported, 1);
         assert_eq!(report.qsos[0].callsign, "SP6INA");
@@ -1110,7 +1259,7 @@ mod tests {
     #[test]
     fn test_adif_preserves_intentional_whitespace_in_free_text() {
         // COMMENT jest polem tekstowym — spacje brzegowe mogą być celowe.
-        let content = "<CALL:6>SP6INA<BAND:3>20m<MODE:2>CW<COMMENT:10>  z lewej <EOR>";
+        let content = "<CALL:6>SP6INA<BAND:3>20m<MODE:2>CW<QSO_DATE:8>20261018<TIME_ON:6>120000<COMMENT:10>  z lewej <EOR>";
         let report = parse_adif_with_report(content);
         assert_eq!(report.imported, 1);
         assert_eq!(report.qsos[0].comment.as_deref(), Some("  z lewej "));
@@ -1131,5 +1280,118 @@ mod tests {
         assert!(adx.contains("<NAME>A&amp;B &lt;test&gt;</NAME>"));
         assert!(adx.contains("cudzysłów &quot; i apostrof &apos;"));
         assert!(adx.trim_end().ends_with("</ADX>"));
+    }
+    #[test]
+    fn adif_import_rejects_missing_date_or_time_and_preserves_utf8_char_len() {
+        // DATA-001 canonical test:
+        // 1) <CALL:6>SP6INA<BAND:3>20m<MODE:2>CW<EOR> -> report.rejected == 1 (brak fabrykowania Utc::now())
+        // 2) <CALL:6>SP6INA<BAND:3>20m<MODE:2>CW<QSO_DATE:8>20261018<TIME_ON:6>120000<QTH:6>Kraków<EOR> -> qth == Some("Kraków")
+        let adif1 = "<CALL:6>SP6INA<BAND:3>20m<MODE:2>CW<EOR>";
+        let report1 = parse_adif_with_report(adif1);
+        assert_eq!(report1.rejected, 1);
+        assert_eq!(report1.imported, 0);
+        assert!(report1.errors.iter().any(|e| e.contains("QSO_DATE")));
+
+        let adif2 = "<CALL:6>SP6INA<BAND:3>20m<MODE:2>CW<QSO_DATE:8>20261018<TIME_ON:6>120000<QTH:6>Kraków<EOR>";
+        let report2 = parse_adif_with_report(adif2);
+        assert_eq!(report2.imported, 1);
+        assert_eq!(report2.rejected, 0);
+        assert_eq!(report2.qsos[0].qth.as_deref(), Some("Kraków"));
+        assert_eq!(report2.qsos[0].qso_date, "20261018");
+        assert_eq!(report2.qsos[0].time_on, "120000");
+    }
+
+    #[test]
+    fn adif_import_rejects_record_missing_qso_date() {
+        let adif = "<CALL:6>SP6INA<BAND:3>20m<MODE:2>CW<TIME_ON:6>120000<EOR>";
+        let report = parse_adif_with_report(adif);
+        assert_eq!(report.rejected, 1);
+        assert_eq!(report.imported, 0);
+        assert!(report.errors.iter().any(|e| e.contains("QSO_DATE")));
+    }
+
+    #[test]
+    fn adif_import_rejects_record_missing_time_on() {
+        let adif = "<CALL:6>SP6INA<BAND:3>20m<MODE:2>CW<QSO_DATE:8>20261018<EOR>";
+        let report = parse_adif_with_report(adif);
+        assert_eq!(report.rejected, 1);
+        assert_eq!(report.imported, 0);
+        assert!(report.errors.iter().any(|e| e.contains("TIME_ON")));
+    }
+
+    #[test]
+    fn adif_import_preserves_multibyte_utf8_when_length_is_char_count() {
+        // Łódź to 4 znaki Unicode i 7 bajtów UTF-8.
+        // Gdy eksporter używa długości znakowej (<NAME:4>Łódź):
+        let adif = "<CALL:6>SP6INA<BAND:3>20m<MODE:2>CW<QSO_DATE:8>20261018<TIME_ON:6>120000<NAME:4>Łódź<QTH:6>Kraków<EOR>";
+        let report = parse_adif_with_report(adif);
+        assert_eq!(report.imported, 1);
+        assert_eq!(report.qsos[0].name.as_deref(), Some("Łódź"));
+        assert_eq!(report.qsos[0].qth.as_deref(), Some("Kraków"));
+    }
+
+    #[test]
+    fn adif_import_preserves_multibyte_utf8_when_length_is_byte_count() {
+        // Standard ADIF: Łódź to 7 bajtów UTF-8 (<NAME:7>Łódź).
+        let adif = "<CALL:6>SP6INA<BAND:3>20m<MODE:2>CW<QSO_DATE:8>20261018<TIME_ON:6>120000<NAME:7>Łódź<QTH:7>Kraków<EOR>";
+        let report = parse_adif_with_report(adif);
+        assert_eq!(report.imported, 1);
+        assert_eq!(report.qsos[0].name.as_deref(), Some("Łódź"));
+        assert_eq!(report.qsos[0].qth.as_deref(), Some("Kraków"));
+    }
+
+    #[test]
+    fn adif_multibyte_value_does_not_panic() {
+        // Długość deklarowana 5 przecina dwubajtowy znak 'ó' (0xC3 0xB3) w "Kraków".
+        let adif = "<CALL:6>SP6INA<BAND:3>20m<MODE:2>CW<QSO_DATE:8>20261018<TIME_ON:6>120000<QTH:5>Kraków<EOR>";
+        let report = parse_adif_with_report(adif);
+        assert_eq!(report.imported, 1);
+        // Bezpieczny odczyt znakowy zwraca "Krakó" bez paniki
+        assert_eq!(report.qsos[0].qth.as_deref(), Some("Krakó"));
+    }
+
+    #[test]
+    fn adif_eor_inside_field_value_is_not_record_terminator() {
+        let adif = "<CALL:6>SP6INA<BAND:3>20m<MODE:2>CW<QSO_DATE:8>20261018<TIME_ON:6>120000<COMMENT:16>Tekst z <EOR> ok<EOR>";
+        let report = parse_adif_with_report(adif);
+        assert_eq!(report.imported, 1);
+        assert_eq!(report.qsos[0].comment.as_deref(), Some("Tekst z <EOR> ok"));
+    }
+
+    #[test]
+    fn unknown_adif_field_does_not_break_record() {
+        let adif = "<CALL:6>SP6INA<BAND:3>20m<MODE:2>CW<QSO_DATE:8>20261018<TIME_ON:6>120000<UNKNOWN_EXTRA:10>ABCDEFGHIJ<COMMENT:4>TEST<EOR>";
+        let report = parse_adif_with_report(adif);
+        assert_eq!(report.imported, 1);
+        assert_eq!(report.qsos[0].comment.as_deref(), Some("TEST"));
+    }
+
+    #[test]
+    fn app_defined_field_is_handled_by_contract() {
+        let adif = "<CALL:6>SP6INA<BAND:3>20m<MODE:2>CW<QSO_DATE:8>20261018<TIME_ON:6>120000<APP_LOGGER_SPECIAL:5>12345<NAME:7>Mariusz<EOR>";
+        let report = parse_adif_with_report(adif);
+        assert_eq!(report.imported, 1);
+        assert_eq!(report.qsos[0].name.as_deref(), Some("Mariusz"));
+    }
+
+    #[test]
+    fn adif_valid_record_after_invalid_record_is_recovered() {
+        let adif = concat!(
+            "<CALL:6>BADCALL<BAND:3>20m<MODE:2>CW<QSO_DATE:8>20261018<TIME_ON:6>120000<BADFIELD:99999999>truncated<EOR>\n",
+            "<CALL:6>SP6INA<BAND:3>20m<MODE:2>CW<QSO_DATE:8>20261018<TIME_ON:6>120000<NAME:7>Mariusz<EOR>\n"
+        );
+        let report = parse_adif_with_report(adif);
+        assert_eq!(report.rejected, 1);
+        assert_eq!(report.imported, 1);
+        assert_eq!(report.qsos[0].callsign, "SP6INA");
+        assert_eq!(report.qsos[0].name.as_deref(), Some("Mariusz"));
+    }
+
+    #[test]
+    fn adif_negative_length_is_rejected() {
+        let adif = "<CALL:6>SP6INA<BAND:3>20m<MODE:2>CW<QSO_DATE:8>20261018<TIME_ON:6>120000<NAME:-5>test<EOR>";
+        let report = parse_adif_with_report(adif);
+        assert_eq!(report.rejected, 1);
+        assert!(report.errors.iter().any(|e| e.contains("ujemna")));
     }
 }
