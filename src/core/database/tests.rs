@@ -22,7 +22,7 @@ fn test_insert_and_find_qso() {
 fn schema_migrations_record_versions_and_are_idempotent() {
     let mut db = LogDatabase::open_in_memory().unwrap();
     // Wszystkie kroki migracji zostały zarejestrowane.
-    assert_eq!(db.current_schema_version().unwrap(), 4);
+    assert_eq!(db.current_schema_version().unwrap(), 5);
 
     // Kolumny z migracji 2 istnieją i ponowna inicjalizacja nie psuje schematu.
     let col_count: i64 = db
@@ -47,7 +47,7 @@ fn schema_migrations_record_versions_and_are_idempotent() {
     assert_eq!(idx_count, 2);
 
     db.init_schema().unwrap();
-    assert_eq!(db.current_schema_version().unwrap(), 4);
+    assert_eq!(db.current_schema_version().unwrap(), 5);
 }
 
 #[test]
@@ -1115,7 +1115,7 @@ fn migration_from_v1_preserves_rows() {
     }
 
     let db = LogDatabase::open(&db_path).unwrap();
-    assert_eq!(db.current_schema_version().unwrap(), 4);
+    assert_eq!(db.current_schema_version().unwrap(), 5);
 
     let qsos = db.get_all_qsos().unwrap();
     assert_eq!(qsos.len(), 1);
@@ -1138,7 +1138,7 @@ fn validate_schema_rejects_future_version() {
                 version INTEGER NOT NULL,
                 applied_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
-            INSERT INTO schema_version (version) VALUES (5);",
+            INSERT INTO schema_version (version) VALUES (6);",
         )
         .unwrap();
     }
@@ -1354,4 +1354,56 @@ fn has_identity_rejects_different_identity() {
     assert!(!db.has_identity("DEFAULT", &diff_time).unwrap());
     assert!(!db.has_identity("DEFAULT", &diff_band).unwrap());
     assert!(!db.has_identity("OTHER", &diff_journal).unwrap());
+}
+
+#[test]
+fn search_qsos_advanced_normalizes_hyphenated_date_bounds() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = LogDatabase::open(&dir.path().join("search_date.db")).unwrap();
+
+    let q1 = make_test_qso_literal("SP1AAA", "20261018", "120000");
+    db.insert_qso(&q1).unwrap();
+
+    let q2 = make_test_qso_literal("SP2BBB", "20261020", "120000");
+    db.insert_qso(&q2).unwrap();
+
+    let q3 = make_test_qso_literal("SP3CCC", "20261025", "120000");
+    db.insert_qso(&q3).unwrap();
+
+    let mut filter = super::search::AdvancedQsoFilter::default();
+    filter.date_from = Some("2026-10-19".to_string());
+    filter.date_to = Some("2026-10-22".to_string());
+
+    let results = db.search_qsos_advanced(&filter).unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].callsign, "SP2BBB");
+    assert_eq!(results[0].qso_date, "20261020");
+}
+
+#[test]
+fn explain_query_plan_has_identity_uses_index() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = LogDatabase::open(&dir.path().join("query_plan.db")).unwrap();
+
+    let mut stmt = db
+        .conn
+        .prepare(
+            "EXPLAIN QUERY PLAN SELECT callsign, band, mode, qso_date, time_on              FROM qso_records              WHERE journal_id = ?1 AND callsign = ?2 AND (qso_date = ?3 OR qso_date = ?4)",
+        )
+        .unwrap();
+
+    let rows: Vec<String> = stmt
+        .query_map(
+            rusqlite::params!["DEFAULT", "SP6INA", "20261018", "2026-10-18"],
+            |row| row.get::<_, String>(3),
+        )
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect();
+
+    let full_plan = rows.join(" ");
+    assert!(
+        full_plan.contains("USING INDEX idx_qso_identity"),
+        "expected plan to use idx_qso_identity, got: {full_plan}"
+    );
 }
