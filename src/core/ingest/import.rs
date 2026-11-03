@@ -677,4 +677,242 @@ mod tests {
         assert_eq!(stored[0].time_on, "123456");
         assert_eq!(stored[0].time_off, Some("123510".to_string()));
     }
+
+    #[test]
+    fn import_batch_failure_in_middle_record_rolls_back_all_rows_and_side_effects() {
+        let mut fixture = TestFixture::new();
+
+        {
+            let db = fixture
+                .ingestor
+                .db
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            db.raw_conn()
+                .execute_batch(
+                    "CREATE TEMP TRIGGER fail_middle_qso BEFORE INSERT ON qso_records
+                 WHEN NEW.callsign = 'FAILME'
+                 BEGIN
+                     SELECT RAISE(ABORT, 'injected failpoint in middle record');
+                 END;",
+                )
+                .unwrap();
+        }
+
+        let mut qso1 = sample_valid_qso("SP1AAA");
+        qso1.time_on = "120000".to_string();
+
+        let mut qso2 = sample_valid_qso("FAILME");
+        qso2.time_on = "120100".to_string();
+
+        let mut qso3 = sample_valid_qso("SP3CCC");
+        qso3.time_on = "120200".to_string();
+
+        let res = fixture
+            .ingestor
+            .import_batch(vec![qso1, qso2, qso3], &default_options(false));
+
+        assert!(
+            matches!(res, Err(IngestError::Storage(_))),
+            "import_batch must return Storage error, got: {res:?}"
+        );
+        assert_eq!(
+            fixture.count_qsos(),
+            0,
+            "wszystkie rekordy musza zostac wycofane (ROLLBACK) po bledzie w srodku batcha"
+        );
+
+        {
+            let awards = fixture
+                .ingestor
+                .awards
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            assert_eq!(
+                awards.worked_calls.len(),
+                0,
+                "brak skutkow ubocznych w AwardsEngine"
+            );
+        }
+        {
+            let scp = fixture
+                .ingestor
+                .scp
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            assert_eq!(scp.len(), 0, "brak skutkow ubocznych w ScpEngine");
+        }
+        assert!(
+            matches!(fixture.events_rx.try_recv(), Err(TryRecvError::Empty)),
+            "brak emisji AppEvent po rollbacku"
+        );
+    }
+
+    #[test]
+    fn import_batch_failure_in_last_record_rolls_back_all_rows_and_side_effects() {
+        let mut fixture = TestFixture::new();
+
+        {
+            let db = fixture
+                .ingestor
+                .db
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            db.raw_conn()
+                .execute_batch(
+                    "CREATE TEMP TRIGGER fail_last_qso BEFORE INSERT ON qso_records
+                 WHEN NEW.callsign = 'FAILME'
+                 BEGIN
+                     SELECT RAISE(ABORT, 'injected failpoint in last record');
+                 END;",
+                )
+                .unwrap();
+        }
+
+        let mut qso1 = sample_valid_qso("SP1AAA");
+        qso1.time_on = "120000".to_string();
+
+        let mut qso2 = sample_valid_qso("SP2BBB");
+        qso2.time_on = "120100".to_string();
+
+        let mut qso3 = sample_valid_qso("FAILME");
+        qso3.time_on = "120200".to_string();
+
+        let res = fixture
+            .ingestor
+            .import_batch(vec![qso1, qso2, qso3], &default_options(false));
+
+        assert!(matches!(res, Err(IngestError::Storage(_))));
+        assert_eq!(
+            fixture.count_qsos(),
+            0,
+            "wszystkie wczesniejsze rekordy musza zostac wycofane, gdy ostatni zawiedzie"
+        );
+
+        {
+            let awards = fixture
+                .ingestor
+                .awards
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            assert_eq!(awards.worked_calls.len(), 0);
+        }
+        {
+            let scp = fixture
+                .ingestor
+                .scp
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            assert_eq!(scp.len(), 0);
+        }
+        assert!(matches!(
+            fixture.events_rx.try_recv(),
+            Err(TryRecvError::Empty)
+        ));
+    }
+
+    #[test]
+    fn import_batch_atomic_rollback_allows_clean_idempotent_retry() {
+        let fixture = TestFixture::new();
+
+        {
+            let db = fixture
+                .ingestor
+                .db
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            db.raw_conn()
+                .execute_batch(
+                    "CREATE TEMP TRIGGER fail_once BEFORE INSERT ON qso_records
+                 WHEN NEW.callsign = 'FAILME'
+                 BEGIN
+                     SELECT RAISE(ABORT, 'temporary failure');
+                 END;",
+                )
+                .unwrap();
+        }
+
+        let mut qso1 = sample_valid_qso("SP1AAA");
+        qso1.time_on = "120000".to_string();
+
+        let mut qso2 = sample_valid_qso("FAILME");
+        qso2.time_on = "120100".to_string();
+
+        // 1. Pierwsza proba zawodzi
+        let res1 = fixture
+            .ingestor
+            .import_batch(vec![qso1.clone(), qso2], &default_options(false));
+        assert!(res1.is_err());
+        assert_eq!(fixture.count_qsos(), 0);
+
+        // 2. Usuniecie trefnego rekordu i ponowienie batcha
+        let mut qso3 = sample_valid_qso("SP2BBB");
+        qso3.time_on = "120200".to_string();
+
+        let res2 = fixture
+            .ingestor
+            .import_batch(vec![qso1, qso3], &default_options(false))
+            .expect("retry without bad record must succeed");
+
+        assert_eq!(res2.inserted, 2);
+        assert_eq!(fixture.count_qsos(), 2);
+
+        {
+            let awards = fixture
+                .ingestor
+                .awards
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            assert_eq!(awards.worked_calls.len(), 2);
+        }
+        {
+            let scp = fixture
+                .ingestor
+                .scp
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            assert_eq!(scp.len(), 2);
+        }
+    }
+
+    #[test]
+    fn batch_insert_qsos_rolls_back_all_records_on_unique_constraint_violation() {
+        let fixture = TestFixture::new();
+        let db = fixture
+            .ingestor
+            .db
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+
+        // Istniejacy rekord w bazie
+        let mut existing = sample_valid_qso("SP6INA");
+        existing.journal_id = Some("DEFAULT".to_string());
+        existing.time_on = "120000".to_string();
+        db.insert_qso(&existing).unwrap();
+        assert_eq!(db.count_all().unwrap(), 1);
+
+        // Batch z dwoma nowymi rekordami i jednym naruszajacym UNIQUE
+        let mut qso1 = sample_valid_qso("SP1AAA");
+        qso1.journal_id = Some("DEFAULT".to_string());
+        qso1.time_on = "120000".to_string();
+
+        let mut qso2 = sample_valid_qso("SP2BBB");
+        qso2.journal_id = Some("DEFAULT".to_string());
+        qso2.time_on = "120000".to_string();
+
+        let mut dup = sample_valid_qso("SP6INA");
+        dup.journal_id = Some("DEFAULT".to_string());
+        dup.time_on = "120000".to_string();
+
+        let res = db.batch_insert_qsos(&[qso1, qso2, dup]);
+        assert!(
+            matches!(res, Err(rusqlite::Error::SqliteFailure(e, _)) if e.code == rusqlite::ErrorCode::ConstraintViolation)
+        );
+
+        // Po wycofaniu: tylko 1 oryginalny rekord, zaden z batcha nie zostal zapisany
+        assert_eq!(db.count_all().unwrap(), 1);
+        let qsos = db.get_all_qsos().unwrap();
+        assert_eq!(qsos.len(), 1);
+        assert_eq!(qsos[0].callsign, "SP6INA");
+    }
 }
