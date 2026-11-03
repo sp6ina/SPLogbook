@@ -423,7 +423,29 @@ impl LogDatabase {
             update_stmt.execute(rusqlite::params![key, id])?;
         }
 
-        // 2. [KROK 2 w osobnym commicie]
+        // 2. Audyt istniejących duplikatów w bazie danych
+        let mut check_stmt = conn.prepare(
+            "SELECT journal_id, identity_key, COUNT(*) as cnt \
+             FROM qso_records \
+             WHERE identity_key IS NOT NULL \
+             GROUP BY journal_id, identity_key \
+             HAVING cnt > 1",
+        )?;
+        let duplicate_exists = check_stmt.exists([])?;
+        if duplicate_exists {
+            error!(
+                "Wykryto istniejące duplikaty tożsamości QSO w bazie danych. \
+                 Migracja unikalności przerwana — baza wymaga ręcznego rozstrzygnięcia konfliktów."
+            );
+            return Err(rusqlite::Error::FromSqlConversionFailure(
+                0,
+                rusqlite::types::Type::Text,
+                Box::new(std::io::Error::new(
+                    std::io::ErrorKind::AlreadyExists,
+                    "Nierozstrzygnięte duplikaty tożsamości QSO uniemożliwiają utworzenie indeksu UNIQUE",
+                )),
+            ));
+        }
 
         // 3. Utwórz unikalny indeks bazodanowy i usuń stary indeks pomocniczy
         conn.execute_batch(
