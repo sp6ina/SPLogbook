@@ -226,6 +226,7 @@ impl LogDatabase {
             (2, Self::migration_2_add_columns),
             (3, Self::migration_3_foreign_keys),
             (4, Self::migration_4_indexes),
+            (5, Self::migration_5_identity_index),
         ];
 
         for (version, migrate) in migrations {
@@ -247,7 +248,7 @@ impl LogDatabase {
     /// `schema_version`, brak kluczowych tabel lub kolumn, zamiast pozwolić
     /// aplikacji działać na uszkodzonej bazie.
     pub(super) fn validate_schema(&self) -> Result<()> {
-        const KNOWN_MAX_VERSION: i64 = 4;
+        const KNOWN_MAX_VERSION: i64 = 5;
 
         let version = self.current_schema_version()?;
         if version > KNOWN_MAX_VERSION {
@@ -371,6 +372,19 @@ impl LogDatabase {
         conn.execute_batch(
             "CREATE INDEX IF NOT EXISTS idx_qso_country ON qso_records(country);
              CREATE INDEX IF NOT EXISTS idx_qso_freq ON qso_records(freq);",
+        )
+    }
+
+    /// Wersja 5: normalizacja istniejących wierszy i złożony indeks tożsamości dla szybkiej deduplikacji.
+    fn migration_5_identity_index(conn: &Connection) -> rusqlite::Result<()> {
+        conn.execute_batch(
+            "UPDATE qso_records
+             SET callsign = UPPER(TRIM(callsign)),
+                 qso_date = REPLACE(qso_date, '-', '')
+             WHERE callsign IS NOT NULL;
+
+             CREATE INDEX IF NOT EXISTS idx_qso_identity
+             ON qso_records(journal_id, callsign, qso_date, band, mode);",
         )
     }
 

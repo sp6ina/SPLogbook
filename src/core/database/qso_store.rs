@@ -302,13 +302,30 @@ impl LogDatabase {
     /// `QsoIdentity` w Rust z zachowaniem minutowej rozdzielczości czasu.
 
     pub fn has_identity(&self, journal_id: &str, identity: &QsoIdentity) -> Result<bool> {
+        let date_hyphenated =
+            if identity.date.len() == 8 && identity.date.chars().all(|c| c.is_ascii_digit()) {
+                format!(
+                    "{}-{}-{}",
+                    &identity.date[0..4],
+                    &identity.date[4..6],
+                    &identity.date[6..8]
+                )
+            } else {
+                identity.date.clone()
+            };
+
         let mut stmt = self.conn.prepare(
             "SELECT callsign, band, mode, qso_date, time_on \
              FROM qso_records \
-             WHERE journal_id = ?1 AND UPPER(callsign) = ?2",
+             WHERE journal_id = ?1 AND callsign = ?2 AND (qso_date = ?3 OR qso_date = ?4)",
         )?;
 
-        let mut rows = stmt.query(params![journal_id, identity.callsign])?;
+        let mut rows = stmt.query(params![
+            journal_id,
+            identity.callsign,
+            identity.date,
+            date_hyphenated
+        ])?;
 
         while let Some(row) = rows.next()? {
             let callsign: String = row.get(0)?;

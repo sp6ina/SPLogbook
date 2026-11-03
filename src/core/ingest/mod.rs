@@ -147,24 +147,21 @@ impl QsoIngestor {
 
         let warnings = qso.warnings();
 
-        if policy.skip_duplicates {
-            let journal_id = qso.journal_id.as_deref().unwrap_or("DEFAULT");
-            let identity = qso.identity();
-            let has_dup = {
-                let db = self.db.lock().unwrap_or_else(PoisonError::into_inner);
-                db.has_identity(journal_id, &identity)
-                    .map_err(IngestError::Storage)?
-            };
-            if has_dup {
-                return Err(IngestError::Duplicate);
-            }
-        }
-
-        {
+        let id = {
             let db = self.db.lock().unwrap_or_else(PoisonError::into_inner);
-            let id = db.insert_qso(&qso).map_err(IngestError::Storage)?;
-            qso.id = Some(id);
-        }
+            if policy.skip_duplicates {
+                let journal_id = qso.journal_id.as_deref().unwrap_or("DEFAULT");
+                let identity = qso.identity();
+                if db
+                    .has_identity(journal_id, &identity)
+                    .map_err(IngestError::Storage)?
+                {
+                    return Err(IngestError::Duplicate);
+                }
+            }
+            db.insert_qso(&qso).map_err(IngestError::Storage)?
+        };
+        qso.id = Some(id);
 
         self.events.publish(AppEvent::QsoLogged {
             callsign: qso.callsign.clone(),
@@ -1348,5 +1345,41 @@ mod tests {
         // Upewnij się, że nie wyemitowano żadnego nowego zdarzenia
         assert!(fixture.events_rx.try_recv().is_err());
         assert_eq!(fixture.count_qsos(), 1);
+    }
+
+    #[test]
+    fn concurrent_identical_ingest_creates_single_qso() {
+        let fixture = TestFixture::new();
+        let ingestor = fixture.ingestor.clone();
+
+        let mut handles = Vec::new();
+        for _ in 0..8 {
+            let ing = ingestor.clone();
+            handles.push(std::thread::spawn(move || {
+                let qso = sample_valid_qso("SP6INA");
+                ing.ingest(qso, QsoOrigin::LanPeer)
+            }));
+        }
+
+        let mut successes = 0;
+        let mut duplicates = 0;
+        for h in handles {
+            match h.join().unwrap() {
+                Ok(_) => successes += 1,
+                Err(IngestError::Duplicate) => duplicates += 1,
+                Err(other) => panic!("unexpected error: {other:?}"),
+            }
+        }
+
+        assert_eq!(successes, 1, "exactly one concurrent ingest should succeed");
+        assert_eq!(
+            duplicates, 7,
+            "remaining concurrent attempts should be rejected as duplicates"
+        );
+        assert_eq!(
+            fixture.count_qsos(),
+            1,
+            "database should contain exactly 1 QSO"
+        );
     }
 }
