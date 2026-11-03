@@ -323,3 +323,57 @@ Cargo.lock SHA-1: `c569097f3ef69c66ec59b74c29c1eb29efce69ae` (bez zmian)
 - Bezpieczeństwo RF i bazy danych:
   - Prawdziwa baza danych użytkownika nie została otwarta.
   - Żadne dane użytkownika nie zostały zmodyfikowane.
+
+## 8. Status po Zakończeniu Etapu 6 (Izolacja Wielu Dzienników, Bezpieczne Undo, Atomowy Backup i Restore, SOFTWARE VERIFIED)
+
+Data sporządzenia: 2026-11-03
+Środowisko: Windows x86_64
+Aktywna gałąź: `repair/full-system-remediation`
+Stan synchronizacji: fast-forward z `main` i `origin/main`
+Cargo.toml SHA-1: `d8e3acd8f0c7b3307b3733c6c4a9a6cc57cb17c4` (bez zmian)
+Cargo.lock SHA-1: `c569097f3ef69c66ec59b74c29c1eb29efce69ae` (bez zmian)
+
+### Zrealizowany zakres Etapu 6:
+- **DATA-004 (Status: FIXED_SOFTWARE_VERIFIED):**
+  - Wszystkie operacje usuwania QSO (pojedyncze, zaznaczone, duplikaty) są zakresowane przez `journal_id`.
+  - Typowana historia operacji Undo/Redo (`UndoAction::{DeleteSingle, DeleteBatch}`) ze ścisłym ograniczeniem do 20 wpisów.
+  - Przywracanie łączności zachowuje oryginalne `id` oraz `journal_id` (`restore_qso_scoped`, `restore_multiple_qsos_scoped`).
+  - Modalne okno potwierdzenia usunięcia zaznaczonych łączności z pełną lokalizacją i18n (`Msg::new(key::MSG_QSO_DELETED_MULTIPLE)`).
+  - Usunięcie duplikatów w oknie „Znajdź duplikaty” rejestruje operację na stosie Undo i automatycznie odbudowuje `AwardsEngine`.
+- **DATA-005 (Status: FIXED_SOFTWARE_VERIFIED):**
+  - Zmiana aktywnego dziennika w `switch_active_journal` unieważnia cache statystyk, czyści stosy Undo/Redo, selekcję tabeli oraz w pełni odbudowuje `AwardsEngine` i `ScpEngine` dla nowego dziennika.
+  - Wszystkie zapytania agregujące w `src/core/database/stats.rs` otrzymały warianty `stats_*_for_journal(journal_id)`.
+  - Zadania asynchronicznej synchronizacji chmurowej (`online_sync.rs`) przechwytują `journal_id` przed zespawnowaniem zadania i pobierają rekordy wyłącznie dla wskazanego dziennika.
+  - Automatyczna kopia zapasowa ADIF przy zamykaniu programu (`Drop for SpLogApp`) eksportuje wszystkie łączności danego dziennika bez arbitralnego obcinania do 5000 rekordów.
+- **DATA-006 (Status: FIXED_SOFTWARE_VERIFIED):**
+  - Wyeliminowanie fallbacku `fs::copy` na żywej bazie WAL w `src/core/backup.rs`. Kopia tworzona jest wyłącznie przez SQLite Online Backup API (`rusqlite::backup::Backup`) z `busy_timeout(5s)`.
+  - Walidacja spójności kopii zapasowej przed zatwierdzeniem: sprawdzenie rozmiaru, `PRAGMA quick_check(1)` oraz odczyt wersji schematu.
+  - Zabezpieczenie przed utworzeniem kopii w tej samej ścieżce co aktywna baza (`BackupError::SamePath`).
+  - Poprawa rotacji starych kopii (`prune_old_backups`) przez ścisłe dopasowanie prefiksu `{stem}_backup_*.db`, eliminująca usuwanie kopii innych baz danych w tym samym katalogu.
+  - Pełna implementacja `BackupManager::restore_database` ze stagingiem w `.staging_restore.tmp`, automatyczną migracją schematów < 7, odrzuceniem schematów > 7 (`SchemaMismatch`), migawką bezpieczeństwa do rollbacku `.pre_restore_bak` i czyszczeniem starych plików `-wal`/`-shm`.
+- **CONC-001 (Status: FIXED_SOFTWARE_VERIFIED):**
+  - Wyeliminowanie blokowania wątków roboczych Tokio przez synchroniczny `db.lock()` w `online_sync.rs` za pomocą `tokio::task::spawn_blocking`.
+  - Wprowadzenie transakcyjnych metod wsadowych `mark_lotw_confirmed_batch_for_journal` i `mark_eqsl_confirmed_batch_for_journal`, zastępujących pętle autocommit jednym atomowym commitem na tysiące potwierdzeń.
+
+### Wyniki pełnej bramki weryfikacyjnej:
+- `cargo +stable fmt --all -- --check`: 0 diff (formatowanie czyste)
+- `cargo +stable check --workspace --all-targets --all-features`: EXIT 0 (0 błędów)
+- Aktywne testy programowe: **1938 passed**, **0 failed** (+23 nowe testy w Etapie 6)
+- Zignorowane testy fizycznego HIL: **10 ignored** (`#[ignore = "hardware-in-the-loop"]`)
+- Wszystkie zarejestrowane przypadki testowe: **1948**
+- `cargo +stable test --doc`: EXIT 0 (0 failed)
+- Testy strażników i domenowe:
+  - `tests/security_guard.rs`: 32 passed, 0 failed
+  - `tests/i18n_guard.rs`: 15 passed, 0 failed (w tym `gui_has_no_hardcoded_text`)
+  - `tests/theme_guard.rs`: 1 passed, 0 failed
+  - `tests/cat_native_6a.rs`: 165 passed, 0 failed
+  - `tests/cat_native_6b.rs`: 87 passed, 0 failed
+  - `tests/cat_native_7.rs`: 297 passed, 10 ignored HIL, 0 failed
+- `cargo audit`:
+  - 0 podatności (vulnerabilities: 0)
+  - 0 unsound
+  - 1 yanked (`async-executor 1.14.0`)
+  - 6 unmaintained
+- Bezpieczeństwo danych:
+  - Prawdziwa baza danych użytkownika nie została otwarta.
+  - Żadne dane użytkownika nie zostały zmodyfikowane.

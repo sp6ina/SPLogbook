@@ -334,7 +334,10 @@ Status Etapu 5: **SOFTWARE VERIFIED**
 - **Kategoria:** `DATA`
 - **Poziom krytyczności:** `CRITICAL`
 - **Poziom pewności:** `CONFIRMED`
-- **Moduł / obszar:** `src/gui/find_duplicates.rs`, `src/core/database/search.rs`, `src/gui/app_qso.rs`, `src/gui/state/log_view.rs`
+- **Status remediacji:** `FIXED_SOFTWARE_VERIFIED`
+- **Data wdrożenia:** 2026-11-03
+- **Commity:** `eff6587` (`fix(data): enforce journal-scoped QSO access (DATA-004 DATA-005)`), `b0afb20` (`fix(data): prevent cross-journal QSO mutations (DATA-004 DATA-005 CONC-001)`), `9157e0e` (`fix(data): isolate async and derived state by journal (DATA-004 DATA-005)`), `f767e01` (`fix(data): add atomic journal-scoped undo history (DATA-004)`)
+- **Moduł / obszar:** `src/gui/find_duplicates.rs`, `src/core/database/search.rs`, `src/gui/app_qso.rs`, `src/gui/state/log_view.rs`, `src/gui/logbook_table.rs`
 - **Lokalizacja:** [`src/gui/find_duplicates.rs:281-326`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/gui/find_duplicates.rs#L281-L326), [`src/core/database/search.rs:27-81`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/core/database/search.rs#L27-L81), [`src/gui/app_qso.rs:564-601`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/gui/app_qso.rs#L564-L601), [`src/gui/state/log_view.rs:20`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/gui/state/log_view.rs#L20)
 - **Dowód z kodu:**
   1. `Database::find_duplicate_qsos` (`src/core/database/search.rs:27-81`) wykonuje `SELECT ... FROM qso_records` **bez warunku `WHERE journal_id = ?`**. Jeżeli ten sam znak został zrobiony w dzienniku `DEFAULT` i w dzienniku `POTA`, okno „Znajdź duplikaty” uznaje je za duplikat i przycisk „Usuń zaznaczone duplikaty” (`find_duplicates.rs:297-318`) bez żadnego potwierdzenia usuwa rekord z bazy, nie dodaje go do `app.entry.undo_stack` i nie wywołuje `app.rebuild_awards_full()`.
@@ -360,6 +363,9 @@ Status Etapu 5: **SOFTWARE VERIFIED**
 - **Kategoria:** `DATA`
 - **Poziom krytyczności:** `HIGH`
 - **Poziom pewności:** `CONFIRMED`
+- **Status remediacji:** `FIXED_SOFTWARE_VERIFIED`
+- **Data wdrożenia:** 2026-11-03
+- **Commity:** `eff6587` (`fix(data): enforce journal-scoped QSO access (DATA-004 DATA-005)`), `b0afb20` (`fix(data): prevent cross-journal QSO mutations (DATA-004 DATA-005 CONC-001)`), `9157e0e` (`fix(data): isolate async and derived state by journal (DATA-004 DATA-005)`)
 - **Moduł / obszar:** `src/core/database/stats.rs`, `src/core/database/qsl.rs`, `src/gui/app_layout.rs`, `src/gui/online_sync.rs`, `src/gui/statistics.rs`, `src/gui/qsl_designer.rs`, `src/gui/app.rs`
 - **Lokalizacja:** [`src/gui/app_layout.rs:602-618`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/gui/app_layout.rs#L602-L618), [`src/core/database/stats.rs:9-144`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/core/database/stats.rs#L9-L144), [`src/core/database/qsl.rs:20-27`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/core/database/qsl.rs#L20-L27), [`src/gui/online_sync.rs:114, 202, 288, 330, 362, 443, 485`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/gui/online_sync.rs#L114-L485), [`src/gui/qsl_designer.rs:98`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/gui/qsl_designer.rs#L98), [`src/gui/app.rs:668`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/gui/app.rs#L668)
 - **Dowód z kodu:**
@@ -389,6 +395,9 @@ Status Etapu 5: **SOFTWARE VERIFIED**
 - **Kategoria:** `DATA`
 - **Poziom krytyczności:** `HIGH`
 - **Poziom pewności:** `CONFIRMED`
+- **Status remediacji:** `FIXED_SOFTWARE_VERIFIED`
+- **Data wdrożenia:** 2026-11-03
+- **Commity:** `066db3d` (`fix(storage): create validated atomic SQLite backups (DATA-006)`), `eecf4d3` (`fix(storage): restore backups through validated staging (DATA-006)`)
 - **Moduł / obszar:** `src/core/backup.rs`
 - **Lokalizacja:** [`src/core/backup.rs:84-89`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/core/backup.rs#L84-L89), [`src/core/backup.rs:116-144`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/core/backup.rs#L116-L144)
 - **Dowód z kodu:**
@@ -1231,6 +1240,9 @@ Fizyczny HIL: **NOT EXECUTED — SAFETY GATE CLOSED** (10 fizycznych testów spr
 - **Kategoria:** `CONC`
 - **Poziom krytyczności:** `HIGH`
 - **Poziom pewności:** `CONFIRMED`
+- **Status remediacji:** `FIXED_SOFTWARE_VERIFIED`
+- **Data wdrożenia:** 2026-11-03
+- **Commity:** `b0afb20` (`fix(data): prevent cross-journal QSO mutations (DATA-004 DATA-005 CONC-001)`)
 - **Moduł / obszar:** `src/gui/online_sync.rs`
 - **Lokalizacja:** [`src/gui/online_sync.rs:112-120, 152-182, 200-208, 240-270, 286-294, 328-336, 360-368, 441-449, 483-491`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/gui/online_sync.rs#L112-L491)
 - **Dowód z kodu:** W `src/gui/online_sync.rs` wewnątrz `tokio::spawn(async move { ... })`:

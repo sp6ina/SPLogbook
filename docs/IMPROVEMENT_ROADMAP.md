@@ -254,16 +254,26 @@ flowchart LR
 
 ---
 
-### Etap 6 — Izolacja Wielu Dzienników (`JournalProfile`), Bezpieczne Usuwanie z Undo i Backup (`P1`)
+### Etap 6 — Izolacja Wielu Dzienników (`JournalProfile`), Bezpieczne Usuwanie z Undo i Backup (`P1`) — **COMPLETED_SOFTWARE_VERIFIED**
+- **Status:** `COMPLETED_SOFTWARE_VERIFIED` (2026-11-03)
+- **Commity:**
+  - `eff6587` (`fix(data): enforce journal-scoped QSO access (DATA-004 DATA-005)`)
+  - `b0afb20` (`fix(data): prevent cross-journal QSO mutations (DATA-004 DATA-005 CONC-001)`)
+  - `9157e0e` (`fix(data): isolate async and derived state by journal (DATA-004 DATA-005)`)
+  - `f767e01` (`fix(data): add atomic journal-scoped undo history (DATA-004)`)
+  - `066db3d` (`fix(storage): create validated atomic SQLite backups (DATA-006)`)
+  - `eecf4d3` (`fix(storage): restore backups through validated staging (DATA-006)`)
 - **Cel:** Wyeliminowanie utraty danych przy usuwaniu i przeciekania danych pomiędzy dziennikami (`DATA-004`, `DATA-005`, `DATA-006`, `CONC-001`).
-- **Zakres:**
-  - Dodanie filtra `journal_id` do `find_duplicate_qsos`, odkładanie usuwanych rekordów na `undo_stack`, okno potwierdzenia dla `delete_selected_qso` i wywołanie `rebuild_awards_full()` (`DATA-004`).
-  - Wywołanie `rebuild_awards_full()` i `rebuild_scp()` przy przełączeniu dziennika w `app_layout.rs:610`, izolacja `active_journal.id` w `online_sync.rs`, `statistics.rs`, `qsl_designer.rs` oraz pełny zrzut `get_all_qsos()` w `Drop for SpLogApp` (`DATA-005`).
-  - Transakcyjne potwierdzanie wsadowe QSL wewnątrz `spawn_blocking` w `online_sync.rs` (`CONC-001`).
-  - Usunięcie fallbacku `fs::copy` w `src/core/backup.rs` i poprawa filtra w `prune_old_backups` (`DATA-006`).
-- **Pliki i moduły:** `src/core/backup.rs`, `src/core/database/{search.rs,stats.rs,qsl.rs}`, `src/gui/{app.rs,app_layout.rs,app_qso.rs,find_duplicates.rs,online_sync.rs,statistics.rs,qsl_designer.rs}`.
-- **Ryzyka:** Niskie.
-- **Kryteria ukończenia:** Każde usunięcie QSO jest odwracalne przez `Ctrl+Z`, a przełączenie dziennika całkowicie izoluje statystyki, dyplomy i eksporty.
+- **Zakres zrealizowany:**
+  - Obowiązkowe zakresowanie wszystkich zapytań i mutacji przez `journal_id` (`update_qso_scoped`, `delete_qso_scoped`, `delete_multiple_qsos_scoped`, `find_duplicate_qsos_for_journal`).
+  - Typowany mechanizm Undo/Redo (`UndoAction::{DeleteSingle, DeleteBatch}`) z atomowym odtwarzaniem ID i izolacją per-journal, modalne potwierdzenie usuwania w GUI.
+  - Wywołanie `rebuild_awards_full()` i `rebuild_scp()` przy przełączeniu dziennika w `switch_active_journal`, unieważnienie cache statystyk i operacji Undo.
+  - Zakresowanie statystyk i asynchronicznych zadań online sync, transakcyjne potwierdzanie wsadowe QSL wewnątrz `spawn_blocking` (`CONC-001`).
+  - Atomowy backup SQLite przez transakcyjne API `rusqlite::backup::Backup` z `busy_timeout` 5s, bez `fs::copy` na żywej bazie WAL, walidacja `PRAGMA quick_check` przed atomic rename (`DATA-006`).
+  - Bezpieczny `restore_database` ze stagingiem, automatyczną migracją schematu, migawką bezpieczeństwa do rollbacku i czyszczeniem starych plików `-wal`/`-shm`.
+  - Dokumentacja procedury odzyskiwania bazy danych w `docs/DATABASE_BACKUP_RECOVERY.md`.
+- **Pliki i moduły:** `src/core/backup.rs`, `src/core/database/{schema.rs,qso_store.rs,search.rs,stats.rs,qsl.rs,migrations.rs,tests.rs}`, `src/core/awards.rs`, `src/gui/{app.rs,app_layout.rs,app_qso.rs,find_duplicates.rs,logbook_table.rs,online_sync.rs,statistics.rs,state/log_view.rs}`, `src/api/server.rs`, `docs/DATABASE_BACKUP_RECOVERY.md`.
+- **Kryteria ukończenia:** Spełnione. 1938 aktywnych testów zaliczonych, 0 błędów, 10 fizycznych HIL zignorowanych.
 
 ---
 
