@@ -600,22 +600,7 @@ impl SpLogApp {
                     });
             }
             if let Some(j) = switched_journal {
-                self.active_journal = j.clone();
-                self.config.station.callsign.clone_from(&j.station_callsign);
-                self.config.station.operator.clone_from(&j.operator);
-                self.config.station.gridsquare.clone_from(&j.my_gridsquare);
-                self.config.station.pga_gmina = if j.my_pga.is_empty() {
-                    None
-                } else {
-                    Some(j.my_pga.clone())
-                };
-                self.reload_qsos();
-                self.gui.chrome.status_toast = Some((
-                    Msg::new(key::PROFILE_SWITCHED_JOURNAL)
-                        .arg("name", &j.name)
-                        .text(self.gui.appearance.language),
-                    std::time::Instant::now(),
-                ));
+                self.switch_active_journal(j);
             }
         }
 

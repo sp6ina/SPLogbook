@@ -537,28 +537,72 @@ impl SpLogApp {
     pub fn rebuild_awards_full(&mut self) {
         let active_id = self.active_journal.id.clone();
         let journal_qsos = if let Ok(db) = self.services.log_db.lock() {
-            db.get_all_qsos().ok().map(|all_qsos| {
-                all_qsos
-                    .into_iter()
-                    .filter(|q| {
-                        q.journal_id
-                            .as_deref()
-                            .unwrap_or("DEFAULT")
-                            .eq_ignore_ascii_case(&active_id)
-                    })
-                    .collect::<Vec<_>>()
-            })
+            db.get_all_qsos_for_journal(&active_id).ok()
         } else {
             None
         };
         if let Some(qsos) = journal_qsos {
             if let Ok(mut awards) = self.services.awards_engine.lock() {
-                awards.rebuild_from_qsos(&qsos);
+                awards.rebuild_for_journal(&active_id, &qsos);
             }
         }
         self.reload_qsos();
         // Stan nagród się zmienił — odznaki spotów klastra są nieaktualne.
         self.invalidate_cluster_badges();
+    }
+
+    /// Odbudowuje silnik podpowiedzi SCP z unikalnych znaków aktywnego dziennika (DATA-005)
+    pub fn rebuild_scp(&mut self) {
+        let journal_id = self.active_journal.id.clone();
+        if let Ok(db) = self.services.log_db.lock() {
+            if let Ok(calls) = db.get_distinct_callsigns_for_journal(&journal_id, 10_000) {
+                if let Ok(mut scp) = self.services.scp_engine.lock() {
+                    scp.clear();
+                    for c in calls {
+                        scp.insert(&c);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Bezpieczne przełączenie aktywnego dziennika z pełnym unieważnieniem stanu starego dziennika (DATA-004, DATA-005)
+    pub fn switch_active_journal(&mut self, journal: crate::core::database::Journal) {
+        self.active_journal = journal.clone();
+        self.config
+            .station
+            .callsign
+            .clone_from(&journal.station_callsign);
+        self.config.station.operator.clone_from(&journal.operator);
+        self.config
+            .station
+            .gridsquare
+            .clone_from(&journal.my_gridsquare);
+        self.config.station.pga_gmina = if journal.my_pga.is_empty() {
+            None
+        } else {
+            Some(journal.my_pga.clone())
+        };
+
+        // 1. Unieważnienie stanu specyficznego dla poprzedniego dziennika
+        self.log_view.selected_qso_ids.clear();
+        self.log_view.drill_filter = None;
+        self.log_view.editing_qso = None;
+        self.log_view.undo_stack.clear();
+        self.log_view.redo_stack.clear();
+        crate::gui::statistics::invalidate_stats_cache();
+
+        // 2. Odbudowa stanu pochodnego ściśle dla nowego aktywnego dziennika
+        self.rebuild_awards_full();
+        self.rebuild_scp();
+        self.reload_qsos();
+
+        self.gui.chrome.status_toast = Some((
+            Msg::new(key::PROFILE_SWITCHED_JOURNAL)
+                .arg("name", &journal.name)
+                .text(self.gui.appearance.language),
+            std::time::Instant::now(),
+        ));
     }
 
     pub fn delete_selected_qso(&mut self) {

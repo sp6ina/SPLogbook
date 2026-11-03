@@ -3407,3 +3407,108 @@ fn journal_qsl_confirmations_isolation_and_batch() {
     let rec_a_after = db.get_qso_by_id_scoped(id_a, "J_ALPHA").unwrap().unwrap();
     assert_ne!(rec_a_after.eqsl_qsl_rcvd, "Y");
 }
+
+#[test]
+fn journal_statistics_isolation() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    db.create_journal(&Journal {
+        id: "J_BASE".to_string(),
+        name: "Base Station".to_string(),
+        station_callsign: "SP6INA".to_string(),
+        operator: String::new(),
+        my_gridsquare: String::new(),
+        my_pga: String::new(),
+        description: String::new(),
+        is_default: false,
+    })
+    .unwrap();
+    db.create_journal(&Journal {
+        id: "J_EXPED".to_string(),
+        name: "Expedition".to_string(),
+        station_callsign: "SP6INA/3B8".to_string(),
+        operator: String::new(),
+        my_gridsquare: String::new(),
+        my_pga: String::new(),
+        description: String::new(),
+        is_default: false,
+    })
+    .unwrap();
+
+    // Insert 2 QSOs in J_BASE
+    let mut q1 = QsoRecord::new("W1AW", "20m", "CW");
+    q1.journal_id = Some("J_BASE".to_string());
+    q1.country = Some("United States".to_string());
+    q1.dxcc = Some(291);
+    db.insert_qso(&q1).unwrap();
+
+    let mut q2 = QsoRecord::new("DL1ABC", "40m", "SSB");
+    q2.journal_id = Some("J_BASE".to_string());
+    q2.country = Some("Fed. Rep. of Germany".to_string());
+    q2.dxcc = Some(230);
+    db.insert_qso(&q2).unwrap();
+
+    // Insert 1 QSO in J_EXPED
+    let mut q3 = QsoRecord::new("JA1XYZ", "15m", "FT8");
+    q3.journal_id = Some("J_EXPED".to_string());
+    q3.country = Some("Japan".to_string());
+    q3.dxcc = Some(339);
+    db.insert_qso(&q3).unwrap();
+
+    // 1. Bands isolation
+    let bands_base = db.stats_qso_per_band_for_journal("J_BASE").unwrap();
+    assert_eq!(bands_base.len(), 2);
+    assert!(bands_base.iter().any(|(b, c)| b == "20m" && *c == 1));
+    assert!(bands_base.iter().any(|(b, c)| b == "40m" && *c == 1));
+    assert!(!bands_base.iter().any(|(b, _)| b == "15m"));
+
+    let bands_exped = db.stats_qso_per_band_for_journal("J_EXPED").unwrap();
+    assert_eq!(bands_exped.len(), 1);
+    assert_eq!(bands_exped[0].0, "15m");
+
+    // 2. Unique counts isolation
+    let (calls_base, dxcc_base) = db.stats_unique_counts_for_journal("J_BASE").unwrap();
+    assert_eq!(calls_base, 2);
+    assert_eq!(dxcc_base, 2);
+
+    let (calls_exped, dxcc_exped) = db.stats_unique_counts_for_journal("J_EXPED").unwrap();
+    assert_eq!(calls_exped, 1);
+    assert_eq!(dxcc_exped, 1);
+
+    // 3. Top countries isolation
+    let countries_base = db.stats_top_countries_for_journal("J_BASE", 10).unwrap();
+    assert_eq!(countries_base.len(), 2);
+    assert!(!countries_base.iter().any(|(cty, _)| cty == "Japan"));
+
+    let countries_exped = db.stats_top_countries_for_journal("J_EXPED", 10).unwrap();
+    assert_eq!(countries_exped.len(), 1);
+    assert_eq!(countries_exped[0].0, "Japan");
+}
+
+#[test]
+fn awards_engine_journal_scoped_rebuild() {
+    let mut engine = crate::core::awards::AwardsEngine::new();
+
+    let mut q1 = QsoRecord::new("W1AW", "20m", "CW");
+    q1.journal_id = Some("LOG_A".to_string());
+    q1.dxcc = Some(291);
+
+    let mut q2 = QsoRecord::new("JA1XYZ", "15m", "FT8");
+    q2.journal_id = Some("LOG_B".to_string());
+    q2.dxcc = Some(339);
+
+    engine.rebuild_for_journal("LOG_A", &[q1.clone(), q2.clone()]);
+    assert_eq!(engine.scoped_journal_id.as_deref(), Some("LOG_A"));
+    assert!(engine.worked_dxcc_all.contains(&291));
+    assert!(
+        !engine.worked_dxcc_all.contains(&339),
+        "AwardsEngine must not leak DXCC from LOG_B into LOG_A"
+    );
+
+    engine.rebuild_for_journal("LOG_B", &[q1, q2]);
+    assert_eq!(engine.scoped_journal_id.as_deref(), Some("LOG_B"));
+    assert!(engine.worked_dxcc_all.contains(&339));
+    assert!(
+        !engine.worked_dxcc_all.contains(&291),
+        "AwardsEngine must not leak DXCC from LOG_A into LOG_B"
+    );
+}

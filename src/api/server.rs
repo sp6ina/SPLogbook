@@ -1326,30 +1326,39 @@ async fn get_journals(
 
 async fn get_stats(
     State(state): State<ApiState>,
+    Query(query): Query<JournalScopedQuery>,
 ) -> Result<Json<StatsResponse>, (StatusCode, String)> {
-    let stats = with_db(&state, |db| {
-        let total = db.count_all()?;
-        let (unique_calls, unique_dxcc) = db.stats_unique_counts()?;
+    let stats = with_db(&state, move |db| {
+        let target_journal = match query.journal_id {
+            Some(j) => j,
+            None => db
+                .get_active_journal()
+                .map(|j| j.id)
+                .unwrap_or_else(|_| "DEFAULT".to_string()),
+        };
+        let total = db.count_qsos_for_journal(&target_journal)?;
+        let (unique_calls, unique_dxcc) = db.stats_unique_counts_for_journal(&target_journal)?;
 
-        let band_stats = db.stats_qso_per_band()?;
+        let band_stats = db.stats_qso_per_band_for_journal(&target_journal)?;
         let mut by_band = HashMap::new();
         for (band, count) in band_stats {
             by_band.insert(band, count);
         }
 
-        let mode_stats = db.stats_qso_per_mode()?;
+        let mode_stats = db.stats_qso_per_mode_for_journal(&target_journal)?;
         let mut by_mode = HashMap::new();
         for (mode, count) in mode_stats {
             by_mode.insert(mode, count);
         }
 
-        let cont_stats = db.stats_qso_per_continent()?;
+        let cont_stats = db.stats_qso_per_continent_for_journal(&target_journal)?;
         let mut by_continent = HashMap::new();
         for (cont, count) in cont_stats {
             by_continent.insert(cont, count);
         }
 
-        let (_tot, qsl_lotw, qsl_eqsl, qsl_paper) = db.stats_qsl_summary()?;
+        let (_tot, qsl_lotw, qsl_eqsl, qsl_paper) =
+            db.stats_qsl_summary_for_journal(&target_journal)?;
 
         Ok(StatsResponse {
             total,
@@ -2718,5 +2727,71 @@ mod tests {
             let db = state.db.lock().unwrap();
             assert!(db.get_qso_by_id_scoped(2, "PORTABLE").unwrap().is_none());
         }
+    }
+
+    #[tokio::test]
+    async fn rest_api_stats_scoped_to_journal() {
+        use tower::ServiceExt;
+        let state = test_api_state();
+        let app = build_api_router(state.clone());
+
+        {
+            let db = state.db.lock().unwrap();
+            db.create_journal(&crate::core::database::Journal {
+                id: "PORTABLE".to_string(),
+                name: "Portable Log".to_string(),
+                station_callsign: "SP6INA/P".to_string(),
+                operator: String::new(),
+                my_gridsquare: String::new(),
+                my_pga: String::new(),
+                description: String::new(),
+                is_default: false,
+            })
+            .unwrap();
+
+            let mut q1 = QsoRecord::new("W1AW", "20m", "CW");
+            q1.journal_id = Some("DEFAULT".to_string());
+            q1.dxcc = Some(291);
+            db.insert_qso(&q1).unwrap();
+
+            let mut q2 = QsoRecord::new("JA1XYZ", "15m", "FT8");
+            q2.journal_id = Some("PORTABLE".to_string());
+            q2.dxcc = Some(339);
+            db.insert_qso(&q2).unwrap();
+        }
+
+        // 1. GET /api/v1/stats without param (DEFAULT active): count is 1, only 20m
+        let req = Request::builder()
+            .method("GET")
+            .uri("/api/v1/stats")
+            .header("x-api-key", "secret-key-123")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let stats: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(stats["total"], 1);
+        assert_eq!(stats["by_band"]["20m"], 1);
+        assert!(stats["by_band"].get("15m").is_none());
+
+        // 2. GET /api/v1/stats?journal_id=PORTABLE: count is 1, only 15m
+        let req = Request::builder()
+            .method("GET")
+            .uri("/api/v1/stats?journal_id=PORTABLE")
+            .header("x-api-key", "secret-key-123")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let stats: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(stats["total"], 1);
+        assert_eq!(stats["by_band"]["15m"], 1);
+        assert!(stats["by_band"].get("20m").is_none());
     }
 }
