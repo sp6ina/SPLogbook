@@ -185,12 +185,19 @@ flowchart LR
 ### Etap 4 — Poprawność Protokołów Natywnych CAT i Auto-Reconnect w `RigService` (`P1`) [SOFTWARE VERIFIED]
 - **Status:** **SOFTWARE VERIFIED** (2026-11-03)
 - **Fizyczny HIL:** **NOT EXECUTED — SAFETY GATE CLOSED** (10 testów pozostaje odizolowanych za `#[ignore = "hardware-in-the-loop"]`)
+- **Status Bramki CAT-017:** **FIXED_SOFTWARE_VERIFIED**
+- **Gotowość do Etapu 5:** **READY**
 - **Zrealizowane Commity Etapu 4:**
+  - `a5f2a8c`: `docs: align Stage 3 CAT finding mappings and HIL status` (Commit 0 — Bramka dokumentacyjna)
   - `95877ce`: `fix(cat): correct Icom CI-V BCD frequency encoding (CAT-001)`
   - `cf2a503`: `fix(cat): validate native CI-V frame boundaries (CAT-004)`
   - `30b6542`: `fix(cat): harden native CAT response parsing (CAT-009 CAT-010 CAT-011 CAT-012 CAT-013)`
   - `4c03d18`: `fix(cat): add cancellable RigService auto-reconnect (CAT-016)`
   - `a215cf6`: `fix(cat): isolate reconnect generations and stale events (CAT-017)`
+  - `a43d7b3`: `docs: record native CAT and reconnect remediation (CAT-001 CAT-004 CAT-009 CAT-010 CAT-011 CAT-012 CAT-013 CAT-016 CAT-017)`
+  - `9c8b877`: `fix(cat): preserve external TX state after reconnect (CAT-017)`
+  - `1c4b36a`: `fix(cat): reject stale asynchronous session results (CAT-017)`
+  - `af80cbb`: `fix(cat): harden FLRig keep-alive response framing (CAT-017)`
 - **Cel:** Naprawa błędów protokołowych Icom/Kenwood/FlexRadio/FLRig/Hamlib oraz wprowadzenie automatycznego wznawiania połączenia (`CAT-001`, `CAT-004`, `CAT-009`, `CAT-010`, `CAT-011`, `CAT-012`, `CAT-013`, `CAT-016`, `CAT-017`).
 - **Zakres:**
   - Pętla wykładniczego reconnectu w `RigService::run_loop` (`CAT-001`).
@@ -199,13 +206,20 @@ flowchart LR
   - Jawne zapytania weryfikujące po setterach oraz implementacja `SetPower`/`SetRit`/`SetXit` w `KenwoodBackend` (`CAT-012`).
   - Wywołania `wait_for_response(seq)` dla setterów i implementacja `SetSplit` w `FlexRadioBackend` (`CAT-013`).
   - Trwałe połączenie HTTP Keep-Alive i obsługa Split/VFO w `FlrigBackend` (`CAT-010`) oraz odczyt `i`/`v` w `HamlibBackend` (`CAT-009`).
-- **Pliki i moduły:** `src/cat/service.rs`, `src/cat/hamlib.rs`, `src/cat/flrig.rs`, `src/cat/native/icom/{codec.rs,backend.rs}`, `src/cat/native/kenwood/backend.rs`, `src/cat/native/flexradio/backend.rs`, `src/cat/hil/manifest.rs`, `src/cat/supervisor.rs`.
-- **Ryzyka:** Niskie/Średnie.
-- **Kryteria ukończenia:** Gotowość programowa wszystkich 8 backendów do sesji sprzętowych Stage 7B HIL.
+  - Zachowanie External TX, rozdzielenie od `TxOwned`, izolacja `session_generation` i framing HTTP/1.1 FLRig (`CAT-017`).
+- **Klasyfikacja Cargo Audit:**
+  - Vulnerabilities: 0
+  - Unsound: 0
+  - Yanked: 1 (`async-executor 1.14.0`, tranzytywna przez `keyring` -> `zbus`, tymczasowo dopuszczona bez zmian w Cargo.lock)
+  - Unmaintained: 6
+- **Pliki i moduły:** `src/cat/service.rs`, `src/cat/hub.rs`, `src/cat/tx_arbiter.rs`, `src/cat/hamlib.rs`, `src/cat/flrig.rs`, `src/cat/native/icom/{codec.rs,backend.rs}`, `src/cat/native/kenwood/backend.rs`, `src/cat/native/flexradio/backend.rs`, `src/cat/hil/manifest.rs`, `src/cat/supervisor.rs`.
+- **Ryzyka:** Niskie.
+- **Kryteria ukończenia:** Gotowość programowa wszystkich 8 backendów do sesji sprzętowych Stage 7B HIL. Status: **SOFTWARE VERIFIED**.
 
 ---
 
-### Etap 5 — Integralność Danych: Parser ADIF, `QsoIngestor` i Indeksy SQLite (`P1`)
+### Etap 5 — Integralność Danych: Parser ADIF, `QsoIngestor` i Indeksy SQLite (`P1`) [READY]
+- **Status:** **READY**
 - **Cel:** Eliminacja psucia polskich znaków w ADIF, fabrykowania daty oraz pomijania normalizacji i indeksów SQLite (`DATA-001`, `DATA-002`, `DATA-003`, `ARCH-002`).
 - **Zakres:**
   - Naprawa `fields_to_qso` (brak fabrykowania `Utc::now()`) i bezpiecznego cięcia znaków UTF-8 w `src/core/adif.rs` (`DATA-001`).

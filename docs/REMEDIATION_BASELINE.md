@@ -185,19 +185,22 @@ W pliku `src/core/database/qso_store.rs`:
 
 Data sporządzenia: 2026-11-03
 Środowisko: Windows x86_64
-Commit końcowy Etapu 4: `a215cf6` (HEAD / repair/full-system-remediation / main / origin/main)
+Commit końcowy Etapu 4: `HEAD` (repair/full-system-remediation / main / origin/main)
 
 ### Podsumowanie wdrożenia Etapu 4:
 - **Zrealizowany zakres audytowy:**
-  - `CAT-001`: Poprawne kodowanie BCD Little-Endian (częstotliwość) i Big-Endian (poziomy) dla Icom CI-V oraz pętla reconnectu w `RigService`.
-  - `CAT-004`: Walidacja granic ramek CI-V (min 6 B), odrzucanie echa, NAK, broadcastu, innego adresu, obsługa komend split `0x25` i RIT/XIT `0x21`.
+  - `CAT-001`: Poprawne kodowanie BCD Little-Endian (częstotliwość) i Big-Endian (poziomy) dla Icom CI-V oraz pętla reconnectu z exponential backoff i jitterem w `RigService`.
+  - `CAT-004`: Walidacja granic ramek CI-V (min 6 B), odrzucanie echa, NAK, broadcastu, obcego adresu, obsługa komend split `0x25` i RIT/XIT `0x21`.
   - `CAT-009`: Odpytywanie komendą `i` w `HamlibBackend::poll_internal` przy włączonym split i aktualizacja częstotliwości TX.
   - `CAT-010`: Trwały strumień TCP HTTP Keep-Alive w `FlrigClient` oraz obsługa Split, VFO i Power.
   - `CAT-011`: Poprawne parsowanie i kodowanie parametrów RIT/XIT oraz passband w backendach natywnych.
   - `CAT-012`: Fallback getter query po 150 ms w `KenwoodBackend` przy braku echa AI, odczyt mocy `PC` i obsługa `SetPower`/`SetRit`/`SetXit`.
   - `CAT-013`: Oczekiwanie na potwierdzenie `R<seq>|0|` przez `send_and_await_ack` w `FlexRadioBackend` i komenda `slice set tx=1` w `SetSplit`.
   - `CAT-016`: Dynamiczny lookup domyślnego adresu CI-V z profilu modelu w `HilTestBenchManifest::to_rig_config` oraz `ReconnectPolicy` w `RigService`.
-  - `CAT-017`: Inkrementacja `session_generation` przy próbach reconnectu, ochrona PTT (odrzucanie PTT ON w `Degraded`), brak przywracania `TxOwned` i cykl `StateFreshness::Stale -> Fresh`.
+  - `CAT-017`:
+    1. Rozdzielenie sprzętowego stanu PTT (`state.ptt`) od lokalnej własności `TxOwned`, zachowanie External TX po reconnect bez maskowania przez `state.ptt = false`, obsługa `PttState::Unknown`, blokada `SetPtt(true)` przy aktywnym External TX.
+    2. Pełna izolacja generacji sesji (`SessionOperationResult`, sprawdzanie `session_generation` przed mutacją stanu współdzielonego w `apply_poll_result`, `apply_connect_result`, `apply_disconnect_result`), odrzucanie spóźnionych wyników asynchronicznych, powiązanie timera reconnectu z generacją, anulowanie operacji asynchronicznych przy shutdown.
+    3. Rygorystyczny framing odpowiedzi HTTP/1.1 keep-alive FLRig (`MAX_FLRIG_HTTP_HEADER_BYTES = 8192`, `MAX_FLRIG_XMLRPC_BODY_BYTES = 65536`, trwały bufor odbiorczy, walidacja nagłówków Content-Length, peer close, clean reset on reconnect).
 
 - **Zrealizowane commity Etapu 4:**
   1. `a5f2a8c`: `docs: align Stage 3 CAT finding mappings and HIL status` (Commit 0 — Bramka dokumentacyjna)
@@ -206,6 +209,17 @@ Commit końcowy Etapu 4: `a215cf6` (HEAD / repair/full-system-remediation / main
   4. `30b6542`: `fix(cat): harden native CAT response parsing (CAT-009 CAT-010 CAT-011 CAT-012 CAT-013)`
   5. `4c03d18`: `fix(cat): add cancellable RigService auto-reconnect (CAT-016)`
   6. `a215cf6`: `fix(cat): isolate reconnect generations and stale events (CAT-017)`
+  7. `a43d7b3`: `docs: record native CAT and reconnect remediation (CAT-001 CAT-004 CAT-009 CAT-010 CAT-011 CAT-012 CAT-013 CAT-016 CAT-017)`
+  8. `9c8b877`: `fix(cat): preserve external TX state after reconnect (CAT-017)`
+  9. `1c4b36a`: `fix(cat): reject stale asynchronous session results (CAT-017)`
+  10. `af80cbb`: `fix(cat): harden FLRig keep-alive response framing (CAT-017)`
+  11. `[commit 4]`: `docs: canonicalize Stage 4 findings and dependency risk`
+
+- **Klasyfikacja zależności Cargo Audit:**
+  - `Vulnerabilities`: 0
+  - `Unsound advisories`: 0
+  - `Yanked crates`: 1 (`async-executor 1.14.0`, tranzytywna przez `keyring` -> `zbus`, tymczasowo zaakceptowana bez modyfikacji Cargo.lock)
+  - `Unmaintained crates`: 6 (osobna kategoria informacyjna, nie łączyć z yanked)
 
 - **Nienaruszone sumy kontrolne Cargo:**
   - `Cargo.toml`: `d8e3acd8f0c7b3307b3733c6c4a9a6cc57cb17c4`
@@ -217,3 +231,5 @@ Commit końcowy Etapu 4: `a215cf6` (HEAD / repair/full-system-remediation / main
   - Wszystkie 10 fizycznych testów HIL pozostaje odizolowanych za `#[ignore = "hardware-in-the-loop"]`.
   - Status HIL: `NOT EXECUTED — SAFETY GATE CLOSED`.
   - Status programowy Etapu 4: `SOFTWARE VERIFIED`.
+  - Status bramki CAT-017: `FIXED_SOFTWARE_VERIFIED`.
+  - Gotowość do Etapu 5: `READY`.

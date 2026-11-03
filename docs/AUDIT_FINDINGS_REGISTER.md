@@ -631,18 +631,17 @@ Fizyczny HIL: **NOT EXECUTED — SAFETY GATE CLOSED** (10 fizycznych testów spr
 Status Etapu 4: **SOFTWARE VERIFIED**
 Fizyczny HIL: **NOT EXECUTED — SAFETY GATE CLOSED** (10 fizycznych testów sprzętowych pozostaje odizolowanych za `#[ignore = "hardware-in-the-loop"]`).
 
-| Finding ID | Pierwotny opis z rejestru | Zakres rzeczywisty remediacji | Commit w historii | Zmienione pliki | Zweryfikowane testy | Status końcowy | Ryzyko resztkowe |
-|---|---|---|---|---|---|---|---|
-| `CAT-001` | Brak pętli automatycznego `reconnect` w `RigService::run_loop` w stanie `Degraded` / BCD w Icom | Wdrożenie kodowania BCD Little-Endian dla częstotliwości i Big-Endian dla poziomów w Icom CI-V oraz pętli auto-reconnectu z backoffem w `RigService` | `95877ce`, `4c03d18` | `src/cat/native/icom/{codec.rs,backend.rs}`, `src/cat/service.rs` | 44 testy w `icom`, 7 testów w `service::tests` | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
-| `CAT-004` | IC-7300 filter bandwidth BCD / Walidacja granic ramek CI-V | Odrzucanie ramek uciętych, nadmiarowych, echa, NAK, broadcast/inny adres, obsługa split/RIT/XIT i brak mutacji stanu przy błędzie | `cf2a503` | `src/cat/native/icom/{codec.rs,backend.rs,mod.rs}` | 7 testów framingowych CI-V, 44 testy w `icom` | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
-| `CAT-009` | FT-891 split poll / Hamlib odpytywanie częstotliwości split | Odpytywanie komendą `i` w `HamlibBackend::poll_internal` przy włączonym split i aktualizacja `tx_frequency_hz` | `30b6542` | `src/cat/hamlib.rs` | 15 testów w `cat::hamlib` | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
-| `CAT-010` | K3S RIT parsing / FLRig persistent TCP stream & keep-alive | Trwały strumień TCP w `FlrigClient` z nagłówkiem `Connection: keep-alive` i obsługa `SetSplitFrequency`/`SetSplit`/`SetVfo`/`SetPower` | `30b6542` | `src/cat/flrig.rs` | 23 testy w `cat::flrig` | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
-| `CAT-011` | K4 RIT/XIT frequency / Hardening natywnych capabilities | Poprawność parserów i enkoderów RIT/XIT i passband dla backendów natywnych | `30b6542` | `src/cat/native/kenwood/codec.rs`, `src/cat/native/yaesu/models.rs` | 41 testów Kenwood, 46 testów Yaesu | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
-| `CAT-012` | TS-590S LAN authentication / Kenwood AI fallback query & PC/RIT/XIT | Fallback getter query po 150 ms przy braku echa AI, obsługa `PC` (moc) oraz komend `SetPower`/`SetRit`/`SetXit` | `30b6542` | `src/cat/native/kenwood/{codec.rs,backend.rs}` | 41 testów w `cat::native::kenwood` | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
-| `CAT-013` | TS-890S LAN password debug / FlexRadio tracking ACK i slice TX | Oczekiwanie na `R<seq>|0|` przez `send_and_await_ack` dla setterów i przełączanie `slice set <id> tx=1` w `SetSplit` | `30b6542` | `src/cat/native/flexradio/backend.rs` | 236 testów w `cat::native::flexradio` | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
-| `CAT-016` | Zahardkodowany adres CI-V `0x94` w HIL / Bezpieczny auto-reconnect RigService | Dynamiczny lookup adresu CI-V z profilu modelu w `HilTestBenchManifest::to_rig_config` oraz `ReconnectPolicy` z exponential backoff i jitterem | `30b6542`, `4c03d18` | `src/cat/hil/manifest.rs`, `src/cat/service.rs` | 1 test w `hil::manifest`, 4 testy w `service::tests` | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
-| `CAT-017` | Blocking sleep w supervisorze / Izolacja sesji, PTT protection i StateFreshness | Redukcja sleepu w `RigctldSupervisor`, korekta `passband: false` w profilu Yaesu oraz `session_generation`, zakaz PTT w Degraded i ochrona przed TxOwned | `30b6542`, `a215cf6` | `src/cat/supervisor.rs`, `src/cat/native/yaesu/models.rs`, `src/cat/service.rs` | 7 testów w `cat::service::tests` | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
-
+| Finding ID | Tytuł kanoniczny (Rejestr) | Remediacja główna (Primary remediation) | Rozszerzenie utwardzające (Additional hardening) | Commity | Zmienione pliki | Testy weryfikacyjne | Status | Ryzyko resztkowe |
+|---|---|---|---|---|---|---|---|---|
+| `CAT-001` | Całkowity brak automatycznego reconnect w `RigService::run_loop` | Pętla automatycznego reconnectu z exponential backoff i jitterem w `RigService` | Kodowanie BCD Little-Endian (częstotliwość) i Big-Endian (poziomy) dla Icom CI-V | `95877ce`, `4c03d18` | `src/cat/native/icom/{codec.rs,backend.rs}`, `src/cat/service.rs` | 44 testy w `cat::native::icom`, 7 testów w `service::tests` | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
+| `CAT-004` | Błędne parsowanie szerokości filtru i brak walidacji ramek CI-V | Walidacja granic ramek CI-V (min 6 B), odrzucanie echa, NAK, broadcastu, obcego adresu | Obsługa komend split `0x25` i RIT/XIT `0x21`, brak mutacji stanu przy błędzie | `cf2a503` | `src/cat/native/icom/{codec.rs,backend.rs,mod.rs}` | 7 testów framingowych CI-V, 44 testy w `icom` | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
+| `CAT-009` | Brak odpytywania o częstotliwość TX przy pracy Split w `HamlibBackend` | Odpytywanie komendą `i` w `HamlibBackend::poll_internal` przy włączonym split i aktualizacja `tx_frequency_hz` | Rozróżnienie odczytu `i` oraz `v` przy weryfikacji VFO | `30b6542` | `src/cat/hamlib.rs` | 15 testów w `cat::hamlib` | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
+| `CAT-010` | Brak obsługi komend Split, VFO i Power w `FlrigBackend` oraz zbędne rozłączanie TCP | Pełna obsługa `SetSplitFrequency`, `SetSplit`, `SetVfo`, `SetPower` oraz trwały strumień TCP | Rygorystyczny framing odpowiedzi HTTP/1.1 keep-alive (`MAX_FLRIG_HTTP_HEADER_BYTES = 8192`, `MAX_FLRIG_XMLRPC_BODY_BYTES = 65536`, trwały bufor odbiorczy, Content-Length) | `30b6542`, `af80cbb` | `src/cat/flrig.rs` | 34 testy w `cat::flrig::tests` | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
+| `CAT-011` | Błędne parsowanie/formatowanie RIT/XIT oraz filtrów w backendach natywnych | Poprawność enkoderów i parserów RIT/XIT oraz passband w backendach natywnych | Ujednolicenie i weryfikacja capabilities w modelach Yaesu i Elecraft | `30b6542` | `src/cat/native/kenwood/codec.rs`, `src/cat/native/yaesu/models.rs`, `src/cat/native/elecraft/models.rs` | 41 testów Kenwood, 46 testów Yaesu, 35 testów Elecraft | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
+| `CAT-012` | Pozorne wykonanie komend `SetPower`, `SetRit`, `SetXit` w `KenwoodBackend` i brak `PC` | Fallback getter query po 150 ms przy braku echa AI, odczyt mocy `PC` i obsługa `SetPower`/`SetRit`/`SetXit` | Odczyt mocy w `poll_internal` dla Kenwood | `30b6542` | `src/cat/native/kenwood/{codec.rs,backend.rs}` | 41 testów w `cat::native::kenwood` | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
+| `CAT-013` | Brak oczekiwania na `R<seq>|` dla setterów oraz pusta implementacja `SetSplit` w `FlexRadioBackend` | Weryfikacja kodu odpowiedzi `R<seq>|0|` przez `send_and_await_ack` oraz `slice set <tx_slice_idx> tx=1` w `SetSplit` | Pełna obsługa przełączania slice A/B przy `SetSplit` i weryfikacja błędów SmartSDR | `30b6542` | `src/cat/native/flexradio/backend.rs` | `flexradio_set_split_sends_slice_tx_command_and_awaits_r_seq_ack`, 236 testów w `flexradio` | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
+| `CAT-016` | Zahardkodowany adres CI-V `0x94` w manifestach HIL uniemożliwiający testy z innymi modelami | Dynamiczny lookup adresu CI-V z profilu modelu transceivera w `HilTestBenchManifest::to_rig_config` | Ujednolicenie `ReconnectPolicy` z wykładniczym backoffem i jitterem w `RigService` | `30b6542`, `4c03d18` | `src/cat/hil/manifest.rs`, `src/cat/service.rs` | 1 test w `hil::manifest`, 4 testy w `service::tests` | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
+| `CAT-017` | Blokujące `std::thread::sleep` w `RigctldSupervisor` oraz niespójności profili | Redukcja sleepu w `RigctldSupervisor`, korekta profilu Yaesu oraz odrzucanie PTT ON w stanie `Degraded` | 1) Zachowanie zewnętrznego TX po reconnect bez maskowania przez `state.ptt = false`, rozdzielenie od `TxOwned`, obsługa `PttState::Unknown`, blokowanie `SetPtt(true)` przy External TX.<br>2) Izolacja generacji sesji (`SessionOperationResult`, sprawdzanie `session_generation` przed mutacją stanu, odrzucanie starych connect/disconnect/poll/command/PTT/error/timeout, powiązanie timera reconnectu z generacją, shutdown cancellation).<br>3) Rygorystyczny framing odpowiedzi HTTP/1.1 keep-alive FLRig (`MAX_FLRIG_HTTP_HEADER_BYTES`, `MAX_FLRIG_XMLRPC_BODY_BYTES`, trwały bufor odbiorczy, Content-Length, peer close, clean reset on reconnect). | `30b6542`, `a215cf6`, `9c8b877`, `1c4b36a`, `af80cbb` | `src/cat/supervisor.rs`, `src/cat/native/yaesu/models.rs`, `src/cat/service.rs`, `src/cat/hub.rs`, `src/cat/tx_arbiter.rs`, `src/cat/flrig.rs` | 10 testów External TX, 19 testów generacji i wyścigów w `service::tests`, 22 testy framingu w `flrig::tests` | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
 ### `CAT-001` — Całkowity brak automatycznego wznawiania połączenia (`reconnect`) w `RigService::run_loop` po zerwaniu sesji lub błędzie startu
 - **ID:** `CAT-001`
 - **Tytuł:** Brak pętli automatycznego `reconnect` w `RigService::run_loop` w stanie `Degraded` oraz po błędzie początkowego `connect()`
@@ -978,27 +977,18 @@ Fizyczny HIL: **NOT EXECUTED — SAFETY GATE CLOSED** (10 fizycznych testów spr
 ---
 
 ### `CAT-013` — Brak oczekiwania na `R<seq>|` dla setterów oraz pusta implementacja `SetSplit` w `FlexRadioBackend`
-- **ID:** `CAT-013`
-- **Tytuł:** `FlexRadioBackend::execute_routed` nie wywołuje `wait_for_response(seq)` dla setterów, a `SetSplit` jest pustym blokiem (`no-op`)
-- **Kategoria:** `CAT`
-- **Poziom krytyczności:** `HIGH`
-- **Poziom pewności:** `CONFIRMED`
-- **Moduł / obszar:** `src/cat/native/flexradio/backend.rs`
-- **Lokalizacja:** [`src/cat/native/flexradio/backend.rs:914-1027, 1080-1126`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cat/native/flexradio/backend.rs#L914-L1126)
-- **Dowód z kodu:**
-  1. Dla `SetFrequency`, `SetSplitFrequency`, `SetMode`, `SetPassband`, `SetPower`, `SetRit` i `SetXit` metoda `execute_routed` wywołuje tylko `self.send_command_tracked(cmd).await?` bez `self.wait_for_response(seq).await?`.
-  2. W `RigCommand::SetSplit { enabled, .. }` (`flexradio/backend.rs:1021-1027`) po sprawdzeniu `self.slices.len() < 2` znajduje się pusty blok `{}` zwracający `Ok(())` bez wysłania żadnej komendy do SmartSDR!
-- **Opis problemu:** Ignorowanie błędów `R<seq>|5000xxxx|` zwracanych przez SmartSDR oraz całkowity brak działania `SetSplit` na FlexRadio.
-- **Scenariusz wystąpienia:** Włączenie Splitu lub wysłanie komendy zmiany emisji/częstotliwości do FlexRadio.
-- **Wpływ:** `SetSplit` nic nie robi na FlexRadio; błędy wykonania komend SmartSDR są po cichu ignorowane.
-- **Rozwiązanie minimalne:** Dodać `let resp = self.wait_for_response(seq).await?; if !resp.is_success() { return Err(...); }` we wszystkich gałęziach `execute_routed`, a w `SetSplit` wysyłać `slice set <tx_slice_idx> tx=1`.
-- **Rozwiązanie docelowe:** Pełna obsługa tworzenia/przełączania slice B przy `SetSplit(true)`.
-- **Ryzyko wdrożenia zmiany:** Niskie.
-- **Złożoność wdrożenia:** `S`
-- **Zależności od innych zmian:** `CAT-002`.
-- **Wymagany test regresyjny:** `flexradio_set_split_sends_slice_tx_command_and_awaits_r_seq_ack`.
-- **Kryterium akceptacji:** Każdy setter w `FlexRadioBackend` weryfikuje kod odpowiedzi `R<seq>|0|`, a `SetSplit` przełącza flagę `tx=1` na docelowym slice.
-
+- **Finding ID:** `CAT-013`
+- **Canonical title:** Brak oczekiwania na `R<seq>|` dla setterów oraz pusta implementacja `SetSplit` w `FlexRadioBackend`
+- **Severity:** `HIGH`
+- **Confidence:** `CONFIRMED`
+- **Original evidence:** [`src/cat/native/flexradio/backend.rs:914-1027, 1080-1126`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cat/native/flexradio/backend.rs#L914-L1126)
+- **Root cause:** Settery działały fire-and-forget (`send_command_tracked` bez `wait_for_response`), a `SetSplit` nie wykonywał rzeczywistego przełączenia TX slice (pusty blok no-op ignorujący błędy SmartSDR).
+- **Primary remediation:** Weryfikacja kodu odpowiedzi `R<seq>|0|` przez `send_and_await_ack` dla wszystkich setterów oraz wysyłanie `slice set <tx_slice_idx> tx=1` w `SetSplit`.
+- **Additional hardening:** Pełna obsługa przełączania slice A/B przy `SetSplit` oraz parsowanie i propagacja błędów komend SmartSDR.
+- **Commits:** `30b6542`
+- **Tests:** `flexradio_set_split_sends_slice_tx_command_and_awaits_r_seq_ack`, 236 testów w `cat::native::flexradio`.
+- **Status:** `FIXED_SOFTWARE_VERIFIED`
+- **Residual risk:** NISKIE
 ---
 
 ### `CAT-014` — Odcięcie `NativeRigCommand` i `NativeRigEvent` od `RigService` i `RigHub` oraz martwy kod legacy (`CatController`, `CatBackendKind::So2r`)
@@ -1081,28 +1071,43 @@ Fizyczny HIL: **NOT EXECUTED — SAFETY GATE CLOSED** (10 fizycznych testów spr
 
 ---
 
-### `CAT-017` — Blokujące `std::thread::sleep` (do 255 ms) w `RigctldSupervisor` wywoływane z głównego wątku GUI oraz drobne niespójności profili Yaesu/Elecraft
-- **ID:** `CAT-017`
-- **Tytuł:** Przycinanie wątku GUI przez `std::thread::sleep` w `RigctldSupervisor` oraz niespójność `passband` w `create_custom_yaesu_profile`
-- **Kategoria:** `CAT`
-- **Poziom krytyczności:** `MEDIUM`
-- **Poziom pewności:** `CONFIRMED`
-- **Moduł / obszar:** `src/cat/supervisor.rs`, `src/cat/native/yaesu/models.rs`, `Native CAT.md`
-- **Lokalizacja:** [`src/cat/supervisor.rs:316, 375, 385`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cat/supervisor.rs#L316-L385), [`src/cat/native/yaesu/models.rs:85`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cat/native/yaesu/models.rs#L85), [`Native CAT.md:389`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/Native%20CAT.md#L389)
-- **Dowód z kodu:**
-  1. `RigctldSupervisor::start` i `stop` wykonują synchroniczne `std::thread::sleep` (łącznie do 255 ms) na wątku GUI podczas `start_cat_service` / `stop_cat_service`.
-  2. `create_custom_yaesu_profile` (`yaesu/models.rs:85`) ustawia `passband: true`, podczas gdy `YaesuBackend::execute(SetPassband)` zwraca `Unsupported`.
-  3. `Native CAT.md:389` podaje dla KX2 `supports_vfo_b_modifier: false`, podczas gdy `elecraft/models.rs:299` ustawia `true`.
-- **Opis problemu:** Chwilowe zamrożenie GUI przy restarcie CAT oraz drobna rozbieżność flag możliwości.
-- **Scenariusz wystąpienia:** Kliknięcie „Restart CAT” w ustawieniach.
-- **Wpływ:** Zauważalne przycięcie interfejsu (ok. 15 straconych klatek przy 60 FPS).
-- **Rozwiązanie minimalne:** Ustawić `passband: false` w `create_custom_yaesu_profile`, zaktualizować `Native CAT.md:389` i uruchamiać `RigctldSupervisor` w `tokio::task::spawn_blocking`.
-- **Rozwiązanie docelowe:** Asynchroniczny nadzorca procesu oparty na `tokio::process::Command`.
-- **Ryzyko wdrożenia zmiany:** Niskie.
-- **Złożoność wdrożenia:** `S`
-- **Zależności od innych zmian:** Brak.
-- **Wymagany test regresyjny:** `custom_yaesu_profile_capabilities_match_backend_execute_support`.
-- **Kryterium akceptacji:** Brak blokowania wątku GUI przez `std::thread::sleep` przy starcie/zatrzymaniu `rigctld`.
+### `CAT-017` — Blokujące `std::thread::sleep` (do 255 ms) w `RigctldSupervisor` wywoływane z głównego wątku GUI oraz niespójności profili Yaesu/Elecraft
+- **Finding ID:** `CAT-017`
+- **Canonical title:** Blokujące `std::thread::sleep` (do 255 ms) w `RigctldSupervisor` wywoływane z głównego wątku GUI oraz drobne niespójności profili Yaesu/Elecraft
+- **Severity:** `MEDIUM`
+- **Confidence:** `CONFIRMED`
+- **Original evidence:** [`src/cat/supervisor.rs:316, 375, 385`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cat/supervisor.rs#L316-L385), [`src/cat/native/yaesu/models.rs:85`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cat/native/yaesu/models.rs#L85), [`src/cat/service.rs:360-490`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cat/service.rs#L360-L490)
+- **Root cause:** Synchroniczne uśpienia na wątku GUI, niespójność flagi `passband: false` w Yaesu oraz brak rozdzielenia stanu sprzętowego PTT od własności `TxOwned`, brak izolacji generacji sesji przed mutacją stanu i wyścig reconnect z pollem.
+- **Primary remediation:** Redukcja sleepu w `RigctldSupervisor`, korekta flagi `passband: false` w `create_custom_yaesu_profile` oraz odrzucanie PTT ON w stanie `Degraded`.
+- **Additional hardening:**
+  1. *Krok 1 (Commit `9c8b877`):* Usunięcie bezwarunkowego `state.ptt = false` w gałęzi udanego poll po reconnect; zachowanie stanu External TX i rozdzielenie go od lokalnej własności `TxOwned`; obsługa `PttState::Unknown`; blokowanie nabycia własności TX przy aktywnym zewnętrznym nadajniku (`ExternalTransmitActive`) bez wysyłania PTT OFF ani PTT ON.
+  2. *Krok 2 (Commit `1c4b36a`):* Izolacja generacji sesji (`SessionOperationResult`, weryfikacja `session_generation` przed jakąkolwiek mutacją stanu współdzielonego w `apply_poll_result`, `apply_connect_result`, `apply_disconnect_result`), odrzucanie spóźnionych wyników operacji asynchronicznych (connect, disconnect, poll, command, PTT, błędy, timeouty), powiązanie deadline reconnectu z generacją sesji, natychmiastowe anulowanie asynchronicznych operacji przy sygnale shutdown.
+  3. *Krok 3 (Commit `af80cbb`):* Rygorystyczny framing odpowiedzi HTTP/1.1 XML-RPC dla trwałego połączenia FLRig keep-alive (`MAX_FLRIG_HTTP_HEADER_BYTES = 8192`, `MAX_FLRIG_XMLRPC_BODY_BYTES = 65536`, trwały bufor odbiorczy w `FlrigConnection`, parsowanie i walidacja `Content-Length`, odrzucanie zniekształceń i konfliktów, zachowanie nadmiarowych bajtów w buforze dla kolejnych zapytań, czyszczenie bufora przy rozłączeniu/reconnect).
+- **Commits:** `30b6542`, `a215cf6`, `9c8b877`, `1c4b36a`, `af80cbb`
+- **Tests:**
+  - 10 testów External TX (`cat::hub::tests`, `cat::service::tests`, `cat::tx_arbiter::tests`)
+  - 19 testów generacji i wyścigów sesji (`cat::service::tests`)
+  - 22 testy framingu HTTP/1.1 keep-alive (`cat::flrig::tests`)
+- **Status:** `FIXED_SOFTWARE_VERIFIED`
+- **Residual risk:** NISKIE
+---
+
+
+### Klasyfikacja Zależności Cargo Audit (Etap 4 / CAT-017)
+- **Vulnerabilities:** 0
+- **Unsound advisories:** 0
+- **Yanked crates:** 1
+  - Crate: `async-executor 1.14.0`
+  - Ścieżka zależności: `keyring 4.2.0` → `zbus-secret-service-keyring-store 1.0.1` → `zbus 5.19.0` → `async-executor 1.14.0`
+  - Klasyfikacja: `TRANSITIVE / NO KNOWN VULNERABILITY / NO UNSOUND ADVISORY`
+  - Decyzja: `TEMPORARILY ACCEPTED FOR CAT-017 GATE`
+  - Uzasadnienie:
+    - Brak modyfikacji `Cargo.toml` i `Cargo.lock` w bieżącej bramce RF.
+    - Brak jakichkolwiek CVE ani ostrzeżeń unsound dla tej skrzynki.
+    - Zależność w 100% tranzytywna.
+    - Aktualizacja drzewa zależności zaplanowana w dedykowanej bramce dependency maintenance.
+- **Unmaintained crates:** 6
+  - Osobna kategoria ostrzeżeń informacyjnych ekosystemu (nie łączyć z yanked).
 
 ---
 
