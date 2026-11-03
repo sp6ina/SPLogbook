@@ -261,6 +261,34 @@ impl QsoIngestor {
 
         Ok(Some(qso))
     }
+
+    /// Odbudowuje stany pochodne (AwardsEngine oraz ScpEngine) bezpośrednio z bazy danych SQLite,
+    /// która stanowi autorytatywne źródło prawdy (Single Source of Truth, ARCH-002).
+    ///
+    /// W razie awarii procesu, restartu aplikacji lub wykrycia rozbieżności pamięciowej,
+    /// wywołanie tej metody przywraca 100% deterministyczną spójność stanów pochodnych
+    /// bez konieczności ponownego przetwarzania zdarzeń.
+    pub fn rebuild_derived_state(&self) -> Result<(), IngestError> {
+        let all = {
+            let db = self.db.lock().unwrap_or_else(PoisonError::into_inner);
+            db.get_all_qsos().map_err(IngestError::Storage)?
+        };
+
+        {
+            let mut awards = self.awards.lock().unwrap_or_else(PoisonError::into_inner);
+            awards.rebuild_from_qsos(&all);
+        }
+
+        {
+            let mut scp = self.scp.lock().unwrap_or_else(PoisonError::into_inner);
+            scp.clear();
+            for qso in &all {
+                scp.insert(&qso.callsign);
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -1690,5 +1718,140 @@ mod tests {
                 "CW".to_string()
             )));
         }
+    }
+
+    #[test]
+    fn awards_rebuild_uses_committed_database_state() {
+        let fixture = TestFixture::new();
+
+        let qso1 = sample_valid_qso("SP1AAA");
+        let mut qso2 = sample_valid_qso("SP2BBB");
+        qso2.time_on = "120500".to_string();
+
+        fixture.ingestor.ingest(qso1, QsoOrigin::Form).unwrap();
+        fixture.ingestor.ingest(qso2, QsoOrigin::Form).unwrap();
+        assert_eq!(fixture.count_qsos(), 2);
+
+        // Celowo czyścimy stan AwardsEngine
+        {
+            let mut awards = fixture
+                .ingestor
+                .awards
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            awards.worked_calls.clear();
+            awards.worked_dxcc_all.clear();
+            assert_eq!(awards.worked_calls.len(), 0);
+        }
+
+        // Odbudowujemy stan z bazy danych
+        fixture.ingestor.rebuild_derived_state().unwrap();
+
+        // AwardsEngine został w 100% zrekonstruowany z SQLite
+        {
+            let awards = fixture
+                .ingestor
+                .awards
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            assert_eq!(awards.worked_calls.len(), 2);
+            assert!(awards.worked_calls.contains(&(
+                "SP1AAA".to_string(),
+                "20m".to_string(),
+                "CW".to_string()
+            )));
+            assert!(awards.worked_calls.contains(&(
+                "SP2BBB".to_string(),
+                "20m".to_string(),
+                "CW".to_string()
+            )));
+        }
+    }
+
+    #[test]
+    fn scp_rebuild_from_database_restores_consistency() {
+        let fixture = TestFixture::new();
+
+        let qso1 = sample_valid_qso("SP1AAA");
+        let mut qso2 = sample_valid_qso("SP2BBB");
+        qso2.time_on = "120500".to_string();
+
+        fixture.ingestor.ingest(qso1, QsoOrigin::Form).unwrap();
+        fixture.ingestor.ingest(qso2, QsoOrigin::Form).unwrap();
+
+        // Celowo zanieczyszczamy ScpEngine fałszywym znakiem
+        {
+            let mut scp = fixture
+                .ingestor
+                .scp
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            scp.insert("BOGUSCALL99");
+            assert_eq!(scp.len(), 3);
+        }
+
+        // Odbudowujemy stan z bazy
+        fixture.ingestor.rebuild_derived_state().unwrap();
+
+        // ScpEngine zawiera tylko znaki z bazy SQLite
+        {
+            let scp = fixture
+                .ingestor
+                .scp
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            assert_eq!(scp.len(), 2);
+            assert_eq!(scp.search("BOGUSCALL99", 5).len(), 0);
+            assert_eq!(scp.search("SP1", 5).len(), 1);
+            assert_eq!(scp.search("SP2", 5).len(), 1);
+        }
+    }
+
+    #[test]
+    fn qso_logged_event_is_emitted_only_after_commit() {
+        let mut fixture = TestFixture::new();
+
+        let qso = sample_valid_qso("SP5CCC");
+        let outcome = fixture.ingestor.ingest(qso, QsoOrigin::Form).unwrap();
+        let id = outcome.qso.id.expect("id must be assigned after commit");
+
+        // Po wyjściu z ingest zdarzenie zostało opublikowane
+        let event = fixture.events_rx.try_recv().expect("event must be emitted");
+        match event {
+            AppEvent::QsoLogged { ref callsign, .. } => assert_eq!(callsign, "SP5CCC"),
+            other => panic!("expected QsoLogged, got {other:?}"),
+        }
+
+        // W bazie danych rekord już istnieje i jest odczytywalny
+        let stored = fixture
+            .get_qso(id)
+            .expect("qso must be present in database");
+        assert_eq!(stored.callsign, "SP5CCC");
+    }
+
+    #[test]
+    fn event_delivery_failure_does_not_lose_committed_qso() {
+        let TestFixture {
+            ingestor,
+            events_rx,
+        } = TestFixture::new();
+
+        // Zwalniamy odbiornik zdarzen (symulacja braku aktywnych subskrybentow)
+        drop(events_rx);
+
+        let qso = sample_valid_qso("SP9DDD");
+        let outcome = ingestor
+            .ingest(qso, QsoOrigin::Form)
+            .expect("ingest must succeed even if no listeners exist");
+        let id = outcome.qso.id.expect("id must be assigned");
+
+        // Rekord w bazie danych zostal bezpiecznie i trwale zapisany
+        let db = ingestor.db.lock().unwrap_or_else(PoisonError::into_inner);
+        assert_eq!(db.count_all().unwrap(), 1);
+        let stored = db
+            .get_qso_by_id(id)
+            .unwrap()
+            .expect("committed qso must remain in SQLite");
+        assert_eq!(stored.callsign, "SP9DDD");
     }
 }
