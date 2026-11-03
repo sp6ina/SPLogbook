@@ -7,7 +7,7 @@ use std::sync::PoisonError;
 
 use crate::core::qso::{QsoIssue, QsoRecord};
 
-use super::enrich::apply_prefix_info;
+use super::enrich::{apply_prefix_info, normalize_qso_fields};
 use super::{IngestError, QsoIngestor};
 
 /// Opcje sterujące zbiorczym importem rekordów QSO (`QsoIngestor::import_batch`).
@@ -34,6 +34,8 @@ impl QsoIngestor {
     ///    i natychmiastowe zwolnienie blokady `LogDatabase`.
     /// 2. Dla każdego rekordu w kolejności wejściowej (bez trzymania blokad):
     ///    - przypisanie `qso.journal_id = Some(options.journal_id.clone())`,
+    ///    - normalizacja pól przez `normalize_qso_fields` (dedukcja pasma z częstotliwości,
+    ///      normalizacja wielkości liter i formatów dat/czasu),
     ///    - opcjonalne wzbogacenie brakujących pól z `PrefixMatcher` (gdy `options.enrich == true`
     ///      oraz `qso.dxcc.is_none()`),
     ///    - walidacja `qso.validate()` w trybie `Reject` (zliczenie `rejected_invalid` i zapamiętanie
@@ -62,6 +64,8 @@ impl QsoIngestor {
 
         for mut qso in qsos {
             qso.journal_id = Some(options.journal_id.clone());
+
+            normalize_qso_fields(&mut qso);
 
             if options.enrich
                 && qso.dxcc.is_none()
@@ -216,6 +220,7 @@ mod tests {
 
         let mut qso_invalid_first = sample_valid_qso("K1ABC");
         qso_invalid_first.band = String::new();
+        qso_invalid_first.freq = None;
 
         let mut qso_invalid_second = sample_valid_qso("DL1XYZ");
         qso_invalid_second.cqz = Some(99);
@@ -413,6 +418,7 @@ mod tests {
 
         let mut qso_invalid = sample_valid_qso("DL1XYZ");
         qso_invalid.band = String::new();
+        qso_invalid.freq = None;
         qso_invalid.time_on = "121000".to_string();
 
         let batch = vec![qso_valid_1, qso_valid_2, qso_duplicate, qso_invalid];
@@ -571,6 +577,7 @@ mod tests {
 
         let mut qso_bad_band = sample_valid_qso("K1ABC");
         qso_bad_band.band = String::new();
+        qso_bad_band.freq = None;
 
         let mut qso_ok_2 = sample_valid_qso("K1ABC");
         qso_ok_2.time_on = "111000".to_string();
@@ -637,5 +644,37 @@ mod tests {
             }
         );
         assert_eq!(fixture.count_qsos(), 2);
+    }
+
+    #[test]
+    fn import_batch_infers_band_from_freq_and_normalizes_date_time() {
+        let fixture = TestFixture::new();
+
+        let mut qso = sample_valid_qso("sp6ina");
+        qso.band = String::new();
+        qso.freq = Some(14.074);
+        qso.qso_date = "2026-10-18".to_string();
+        qso.time_on = "12:34:56".to_string();
+        qso.time_off = Some("12:35:10".to_string());
+
+        let report = match fixture
+            .ingestor
+            .import_batch(vec![qso], &default_options(false))
+        {
+            Ok(report) => report,
+            Err(e) => panic!("expected import_batch to succeed, got error: {e}"),
+        };
+
+        assert_eq!(report.inserted, 1);
+        assert_eq!(report.rejected_invalid, 0);
+        assert_eq!(report.skipped_duplicates, 0);
+
+        let stored = fixture.qsos_for_journal("DEFAULT");
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].callsign, "SP6INA");
+        assert_eq!(stored[0].band, "20m");
+        assert_eq!(stored[0].qso_date, "20261018");
+        assert_eq!(stored[0].time_on, "123456");
+        assert_eq!(stored[0].time_off, Some("123510".to_string()));
     }
 }
