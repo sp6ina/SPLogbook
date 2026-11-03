@@ -300,7 +300,7 @@ impl LogDatabase {
     }
 
     /// Najwyższa zarejestrowana wersja schematu (0, gdy brak wpisów).
-    pub(super) fn current_schema_version(&self) -> Result<i64> {
+    pub fn current_schema_version(&self) -> Result<i64> {
         let version: Option<i64> =
             self.conn
                 .query_row("SELECT MAX(version) FROM schema_version", [], |r| r.get(0))?;
