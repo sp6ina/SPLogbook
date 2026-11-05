@@ -422,30 +422,42 @@ pub fn validate_exchange(
             };
 
             if is_sp {
-                let v = if is_sent {
-                    qso.stx_string.as_deref().and_then(|s| {
-                        let t = s.trim().to_ascii_uppercase();
-                        if t.len() == 1 {
-                            let ch = t.chars().next()?;
-                            if SP_VOIVODESHIPS.contains(&ch) {
-                                Some(ch)
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    })
+                let raw_val = if is_sent {
+                    qso.stx_string.as_deref()
                 } else {
-                    extract_sp_voivodeship(qso)
+                    qso.srx_string.as_deref().or(qso.state.as_deref())
                 };
 
-                match v {
-                    Some(ch) => Ok(ch.to_string()),
-                    None => Err(ContestError::MissingContestExchange {
+                let raw = match raw_val {
+                    Some(s) if !s.trim().is_empty() => s.trim(),
+                    _ => {
+                        return Err(ContestError::MissingContestExchange {
+                            contest: profile.name,
+                            detail: "Polish station requires valid voivodeship letter (B, C, D, F, G, J, K, L, M, O, P, R, S, U, W, Z)".to_string(),
+                        });
+                    }
+                };
+
+                let upper = raw.to_ascii_uppercase();
+                if upper.len() == 1 {
+                    let ch = upper.chars().next().unwrap();
+                    if SP_VOIVODESHIPS.contains(&ch) {
+                        Ok(ch.to_string())
+                    } else {
+                        Err(ContestError::InvalidContestExchange {
+                            contest: profile.name,
+                            detail: format!(
+                                "Invalid SP DX voivodeship exchange '{raw}'. Single letter '{ch}' is not one of 16 official voivodeship codes (B, C, D, F, G, J, K, L, M, O, P, R, S, U, W, Z)"
+                            ),
+                        })
+                    }
+                } else {
+                    Err(ContestError::InvalidContestExchange {
                         contest: profile.name,
-                        detail: "Polish station requires valid voivodeship letter (B,C,D,F,G,J,K,L,M,O,P,R,S,U,W,Z)".to_string(),
-                    }),
+                        detail: format!(
+                            "Invalid SP DX voivodeship exchange '{raw}'. Must be exactly one letter from official 16 codes (B, C, D, F, G, J, K, L, M, O, P, R, S, U, W, Z)"
+                        ),
+                    })
                 }
             } else {
                 let serial_val = if is_sent {
@@ -1756,11 +1768,197 @@ mod tests {
         qso.srx_string = Some("D".to_string());
         assert_eq!(validate_exchange(&spdx, &qso, false, 230).unwrap(), "D");
 
-        qso.srx_string = Some("INVALID".to_string());
+        qso.srx_string = None;
         assert!(matches!(
             validate_exchange(&spdx, &qso, false, 230),
             Err(ContestError::MissingContestExchange { .. })
         ));
+
+        qso.srx_string = Some("INVALID".to_string());
+        assert!(matches!(
+            validate_exchange(&spdx, &qso, false, 230),
+            Err(ContestError::InvalidContestExchange { .. })
+        ));
+    }
+
+    #[test]
+    fn spdx_accepts_each_official_one_letter_voivodeship() {
+        let spdx = ContestProfile::for_id(ContestId::SpDx);
+        assert_eq!(SP_VOIVODESHIPS.len(), 16);
+        for &ch in SP_VOIVODESHIPS {
+            let mut qso = make_qso("SP6INA", "20m", Some(269), Some(15), Some("EU"), None);
+            qso.srx_string = Some(ch.to_string());
+            assert_eq!(
+                validate_exchange(&spdx, &qso, false, 230).unwrap(),
+                ch.to_string(),
+                "Official voivodeship letter {ch} must be accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn spdx_normalizes_lowercase_voivodeship() {
+        let spdx = ContestProfile::for_id(ContestId::SpDx);
+        let mut qso = make_qso("SP6INA", "20m", Some(269), Some(15), Some("EU"), None);
+        qso.srx_string = Some("  d  ".to_string());
+        assert_eq!(validate_exchange(&spdx, &qso, false, 230).unwrap(), "D");
+
+        qso.srx_string = Some("r".to_string());
+        assert_eq!(validate_exchange(&spdx, &qso, false, 230).unwrap(), "R");
+    }
+
+    #[test]
+    fn spdx_rejects_ma_as_voivodeship() {
+        let spdx = ContestProfile::for_id(ContestId::SpDx);
+        let mut qso = make_qso("SP6INA", "20m", Some(269), Some(15), Some("EU"), None);
+        qso.srx_string = Some("MA".to_string());
+        assert!(matches!(
+            validate_exchange(&spdx, &qso, false, 230),
+            Err(ContestError::InvalidContestExchange { .. })
+        ));
+    }
+
+    #[test]
+    fn spdx_rejects_ld_as_voivodeship() {
+        let spdx = ContestProfile::for_id(ContestId::SpDx);
+        let mut qso = make_qso("SP6INA", "20m", Some(269), Some(15), Some("EU"), None);
+        qso.srx_string = Some("LD".to_string());
+        assert!(matches!(
+            validate_exchange(&spdx, &qso, false, 230),
+            Err(ContestError::InvalidContestExchange { .. })
+        ));
+    }
+
+    #[test]
+    fn spdx_rejects_ds_as_voivodeship() {
+        let spdx = ContestProfile::for_id(ContestId::SpDx);
+        let mut qso = make_qso("SP6INA", "20m", Some(269), Some(15), Some("EU"), None);
+        qso.srx_string = Some("DS".to_string());
+        assert!(matches!(
+            validate_exchange(&spdx, &qso, false, 230),
+            Err(ContestError::InvalidContestExchange { .. })
+        ));
+    }
+
+    #[test]
+    fn spdx_rejects_pm_as_voivodeship() {
+        let spdx = ContestProfile::for_id(ContestId::SpDx);
+        let mut qso = make_qso("SP6INA", "20m", Some(269), Some(15), Some("EU"), None);
+        qso.srx_string = Some("PM".to_string());
+        assert!(matches!(
+            validate_exchange(&spdx, &qso, false, 230),
+            Err(ContestError::InvalidContestExchange { .. })
+        ));
+    }
+
+    #[test]
+    fn spdx_rejects_two_letter_exchange() {
+        let spdx = ContestProfile::for_id(ContestId::SpDx);
+        for invalid in &["SP", "PL", "AA", "WW", "WA", "ZP", "SL"] {
+            let mut qso = make_qso("SP6INA", "20m", Some(269), Some(15), Some("EU"), None);
+            qso.srx_string = Some((*invalid).to_string());
+            assert!(
+                matches!(
+                    validate_exchange(&spdx, &qso, false, 230),
+                    Err(ContestError::InvalidContestExchange { .. })
+                ),
+                "Two-letter code {invalid} must be rejected as invalid exchange"
+            );
+        }
+    }
+
+    #[test]
+    fn spdx_rejects_numeric_voivodeship() {
+        let spdx = ContestProfile::for_id(ContestId::SpDx);
+        let mut qso = make_qso("SP6INA", "20m", Some(269), Some(15), Some("EU"), None);
+        qso.srx_string = Some("01".to_string());
+        assert!(matches!(
+            validate_exchange(&spdx, &qso, false, 230),
+            Err(ContestError::InvalidContestExchange { .. })
+        ));
+
+        qso.srx_string = Some("1".to_string());
+        assert!(matches!(
+            validate_exchange(&spdx, &qso, false, 230),
+            Err(ContestError::InvalidContestExchange { .. })
+        ));
+    }
+
+    #[test]
+    fn spdx_rejects_empty_voivodeship() {
+        let spdx = ContestProfile::for_id(ContestId::SpDx);
+        let mut qso = make_qso("SP6INA", "20m", Some(269), Some(15), Some("EU"), None);
+        qso.srx_string = Some("   ".to_string());
+        assert!(matches!(
+            validate_exchange(&spdx, &qso, false, 230),
+            Err(ContestError::MissingContestExchange { .. })
+        ));
+    }
+
+    #[test]
+    fn spdx_rejects_unknown_single_letter() {
+        let spdx = ContestProfile::for_id(ContestId::SpDx);
+        for &invalid_char in &['A', 'E', 'H', 'I', 'N', 'T', 'V', 'X', 'Y', 'Q'] {
+            let mut qso = make_qso("SP6INA", "20m", Some(269), Some(15), Some("EU"), None);
+            qso.srx_string = Some(invalid_char.to_string());
+            assert!(
+                matches!(
+                    validate_exchange(&spdx, &qso, false, 230),
+                    Err(ContestError::InvalidContestExchange { .. })
+                ),
+                "Invalid letter {invalid_char} must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn spdx_state_fallback_requires_official_one_letter_code() {
+        let spdx = ContestProfile::for_id(ContestId::SpDx);
+        let mut qso = make_qso("SP6INA", "20m", Some(269), Some(15), Some("EU"), None);
+        qso.srx_string = None;
+        qso.state = Some("R".to_string());
+        assert_eq!(validate_exchange(&spdx, &qso, false, 230).unwrap(), "R");
+
+        qso.state = Some("MA".to_string());
+        assert!(matches!(
+            validate_exchange(&spdx, &qso, false, 230),
+            Err(ContestError::InvalidContestExchange { .. })
+        ));
+    }
+
+    #[test]
+    fn claimed_score_matches_corrected_manual_spdx_fixture() {
+        use crate::core::cabrillo::{CabrilloInput, CabrilloTransmitterCategory, build};
+        use crate::core::contest_stats::compute_scoreboard;
+
+        // 1. Fixture stacji zagranicznej: SP1AA(R), SP2AA(C), DL1AA(001), SP3AA(R) -> 9 pkt * 3 mults = 27
+        let mut f1 = make_qso("SP1AA", "20m", Some(269), Some(15), Some("EU"), Some("R"));
+        f1.stx_string = Some("001".to_string());
+        let mut f2 = make_qso("SP2AA", "20m", Some(269), Some(15), Some("EU"), Some("C"));
+        f2.stx_string = Some("002".to_string());
+        let mut f3 = make_qso("DL1AA", "20m", Some(230), Some(14), Some("EU"), Some("001"));
+        f3.stx_string = Some("003".to_string());
+        let mut f4 = make_qso("SP3AA", "40m", Some(269), Some(15), Some("EU"), Some("R"));
+        f4.stx_string = Some("004".to_string());
+        let foreign_qsos = vec![f1, f2, f3, f4];
+
+        let sb_foreign = compute_scoreboard("SP DX Contest", &[], &foreign_qsos, 230, 14);
+        assert_eq!(sb_foreign.points, 9);
+        assert_eq!(sb_foreign.mults, 3);
+        assert_eq!(sb_foreign.total, 27);
+
+        let input_foreign = CabrilloInput {
+            contest_name: "SP DX Contest",
+            callsign: "DL1XYZ",
+            operator: "Hans",
+            city: "Berlin",
+            country: "Germany",
+            claimed_score: sb_foreign.total,
+            qsos: &foreign_qsos,
+            transmitter_category: Some(CabrilloTransmitterCategory::One),
+        };
+        let out_foreign = build(&input_foreign).expect("valid cabrillo");
+        assert!(out_foreign.contains("CLAIMED-SCORE: 27\n"));
     }
 
     #[test]
@@ -1990,27 +2188,28 @@ mod tests {
             "SP DX SP station manual total score mismatch"
         );
 
-        // --- FIXTURE DLA STACJI ZAGRANICZNEJ (DL, DXCC 230) ---
-        // 1. DX-SP na 20m CW -> 3 pkt, mnożnik woj. "D" na 20m
-        let mut f1 = make_qso("SP1ABC", "20m", Some(269), Some(15), Some("EU"), Some("D"));
+        // --- FIXTURE DLA STACJI ZAGRANICZNEJ (DL1XYZ, DXCC 230) ---
+        // Oficjalny regulamin PZK SP DX Contest: stacje zagraniczne pracują wyłącznie z SP.
+        // Mnożnikami są wyłącznie oficjalne jednoliterowe kody województw (16 liter) per pasmo.
+        // 1. DX-SP: SP1AA na 20m CW, exchange R -> 3 pkt, mnożnik R@20m
+        let mut f1 = make_qso("SP1AA", "20m", Some(269), Some(15), Some("EU"), Some("R"));
         f1.stx_string = Some("001".to_string());
-        // 2. DX-SP na 20m CW -> 3 pkt, mnożnik woj. "B" na 20m
-        let mut f2 = make_qso("SP2XYZ", "20m", Some(269), Some(15), Some("EU"), Some("B"));
+        // 2. DX-SP: SP2AA na 20m CW, exchange C -> 3 pkt, mnożnik C@20m
+        let mut f2 = make_qso("SP2AA", "20m", Some(269), Some(15), Some("EU"), Some("C"));
         f2.stx_string = Some("002".to_string());
-        // 3. DX-SP na 40m SSB -> 3 pkt, mnożnik woj. "D" na 40m (mnożnik województw per band!)
-        let mut f3 = make_qso("SP3AAA", "40m", Some(269), Some(15), Some("EU"), Some("D"));
-        f3.mode = "SSB".to_string();
+        // 3. DX-non-SP: DL1AA na 20m CW, exchange 001 -> 0 pkt, brak mnożnika
+        let mut f3 = make_qso("DL1AA", "20m", Some(230), Some(14), Some("EU"), Some("001"));
         f3.stx_string = Some("003".to_string());
-        // 4. DX-non-SP (W1AW) na 20m CW -> 0 pkt, brak mnożnika
-        let mut f4 = make_qso("W1AW", "20m", Some(291), Some(5), Some("NA"), Some("001"));
+        // 4. DX-SP: SP3AA na 40m CW, exchange R -> 3 pkt, mnożnik R@40m (per band!)
+        let mut f4 = make_qso("SP3AA", "40m", Some(269), Some(15), Some("EU"), Some("R"));
         f4.stx_string = Some("004".to_string());
 
         let foreign_qsos = vec![f1, f2, f3, f4];
         let sb_foreign = compute_scoreboard("SP DX Contest", &[], &foreign_qsos, 230, 14);
 
         // Oczekiwane ręcznie obliczone wartości stałe dla stacji zagranicznej:
-        // Punkty: 3 + 3 + 3 + 0 = 9
-        // Mnożniki: D@20m, B@20m, D@40m = 3
+        // Punkty: 3 + 3 + 0 + 3 = 9
+        // Mnożniki: R@20m, C@20m, R@40m = 3
         // Wynik końcowy: 9 * 3 = 27
         assert_eq!(
             sb_foreign.points, 9,
