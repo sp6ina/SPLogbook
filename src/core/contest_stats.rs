@@ -276,9 +276,22 @@ pub fn compute_scoreboard(
             mults: mult_count,
             total: points * mult_count,
         }
+    } else if let Some(profile) =
+        crate::core::contest_rules::ContestProfile::from_name(contest_name)
+    {
+        if let Ok((points, mults, total)) = profile.score_qsos(qsos, my_dxcc, my_cqzone) {
+            Scoreboard {
+                qsos: qsos.len() as u32,
+                points,
+                mults,
+                total,
+            }
+        } else {
+            Scoreboard::default()
+        }
     } else if let Some(rule_idx) = crate::core::contest_rules::RULES
         .iter()
-        .position(|r| r.name == contest_name)
+        .position(|r| r.name.eq_ignore_ascii_case(contest_name))
     {
         let active_rule = &crate::core::contest_rules::RULES[rule_idx];
         let (points, mults, total) =
