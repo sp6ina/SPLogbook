@@ -69,6 +69,12 @@ pub fn is_low_band(band: &str) -> bool {
     b == "160m" || b == "80m" || b == "40m"
 }
 
+/// Sprawdza, czy dane pasmo jest dozwolone w zawodach CQ WPX (160m, 80m, 40m, 20m, 15m, 10m).
+pub fn is_valid_wpx_band(band: &str) -> bool {
+    let b = band.trim().to_ascii_lowercase();
+    matches!(b.as_str(), "160m" | "80m" | "40m" | "20m" | "15m" | "10m")
+}
+
 /// Sprawdza, czy stacja jest stacją polską (DXCC 269 lub prefiks SP/SQ/SN/SO/3Z/HF).
 pub fn is_polish_station(q: &QsoRecord) -> bool {
     if q.dxcc == Some(269) {
@@ -253,7 +259,7 @@ fn score_arrl_dx(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32
 /// Punktacja i mnożniki CQ WPX Contest — `FUNC-002`:
 ///
 /// Punkty QSO z uwzględnieniem podwojenia na pasmach niskich (160m, 80m, 40m):
-/// - Własny kraj DXCC: 1 pkt (wysokie: 20m, 15m, 10m) / 2 pkt (niskie).
+/// - Własny kraj DXCC: 1 pkt na każdym paśmie (zarówno wysokie: 20m/15m/10m, jak i niskie: 160m/80m/40m; brak podwojenia).
 /// - Ten sam kontynent, inny DXCC:
 ///   - Poza NA: 1 pkt (wysokie) / 2 pkt (niskie).
 ///   - Wewnątrz NA: 2 pkt (wysokie) / 4 pkt (niskie).
@@ -280,8 +286,12 @@ fn score_wpx(qsos: &[QsoRecord], my_dxcc: u32, my_cqzone: u8) -> (u32, u32, u32)
             .as_deref()
             .unwrap_or_else(|| q.cqz.map(|z| cqzone_to_continent(z as u8)).unwrap_or("EU"));
 
+        if !is_valid_wpx_band(&q.band) {
+            continue;
+        }
+
         if q.dxcc == Some(my_dxcc) {
-            pts += if low { 2 } else { 1 };
+            pts += 1;
         } else if their_cont == my_cont {
             if my_cont == "NA" {
                 pts += if low { 4 } else { 2 };
@@ -795,7 +805,7 @@ mod tests {
         let qsos = vec![
             // 1. Własny kraj na pasmie wysokim (20m): 1 pkt, prefiks SP1
             make_qso("SP1ABC", "20m", Some(269), Some(15), Some("EU"), None),
-            // 2. Własny kraj na pasmie niskim (80m): 2 pkt (podwojenie)
+            // 2. Własny kraj na pasmie niskim (80m): 1 pkt (brak podwojenia na pasmach niskich w tym samym kraju)
             make_qso("SP1ABC", "80m", Some(269), Some(15), Some("EU"), None),
             // 3. Ten sam kontynent EU, inny kraj na pasmie wysokim (20m): 1 pkt, prefiks DL1
             make_qso("DL1XYZ", "20m", Some(230), Some(14), Some("EU"), None),
@@ -808,11 +818,227 @@ mod tests {
         ];
 
         let (pts, mults, total) = calculate_score(rule, &qsos, 269, 15);
-        // Punkty: 1 + 2 + 1 + 2 + 3 + 6 = 15
-        assert_eq!(pts, 15, "Punkty z uwzględnieniem podwojenia na 80m i 40m");
+        // Punkty: 1 + 1 + 1 + 2 + 3 + 6 = 14
+        assert_eq!(
+            pts, 14,
+            "Punkty: same-country bez podwojenia na 80m, podwojenie dla innych krajów"
+        );
         // Mnożniki: SP1, DL1, W1 = 3 prefiksy
         assert_eq!(mults, 3, "Liczba unikalnych prefiksów WPX");
-        // Wynik łączny: 15 * 3 = 45
-        assert_eq!(total, 45, "Wynik łączny WPX");
+        // Wynik łączny: 14 * 3 = 42
+        assert_eq!(total, 42, "Wynik łączny WPX");
+    }
+
+    #[test]
+    fn cqwpx_same_country_high_band_scores_one() {
+        let q = make_qso(
+            "SP1ABC",
+            "20m",
+            Some(269),
+            Some(15),
+            Some("EU"),
+            Some("001"),
+        );
+        let (pts, mults, total) = score_wpx(&[q], 269, 15);
+        assert_eq!(pts, 1);
+        assert_eq!(mults, 1);
+        assert_eq!(total, 1);
+    }
+
+    #[test]
+    fn cqwpx_same_country_low_band_scores_one() {
+        let q = make_qso(
+            "SP1ABC",
+            "80m",
+            Some(269),
+            Some(15),
+            Some("EU"),
+            Some("001"),
+        );
+        let (pts, mults, total) = score_wpx(&[q], 269, 15);
+        assert_eq!(
+            pts, 1,
+            "Same country low band MUST score 1 point without doubling"
+        );
+        assert_eq!(mults, 1);
+        assert_eq!(total, 1);
+    }
+
+    #[test]
+    fn cqwpx_same_continent_high_band_scores_one() {
+        let q = make_qso(
+            "DL1XYZ",
+            "20m",
+            Some(230),
+            Some(14),
+            Some("EU"),
+            Some("001"),
+        );
+        let (pts, mults, total) = score_wpx(&[q], 269, 15);
+        assert_eq!(pts, 1);
+        assert_eq!(mults, 1);
+        assert_eq!(total, 1);
+    }
+
+    #[test]
+    fn cqwpx_same_continent_low_band_scores_two() {
+        let q = make_qso(
+            "DL1XYZ",
+            "40m",
+            Some(230),
+            Some(14),
+            Some("EU"),
+            Some("001"),
+        );
+        let (pts, mults, total) = score_wpx(&[q], 269, 15);
+        assert_eq!(pts, 2);
+        assert_eq!(mults, 1);
+        assert_eq!(total, 2);
+    }
+
+    #[test]
+    fn cqwpx_north_america_high_band_scores_two() {
+        let q = make_qso("VE3XYZ", "20m", Some(1), Some(4), Some("NA"), Some("001"));
+        let (pts, mults, total) = score_wpx(&[q], 291, 5);
+        assert_eq!(pts, 2);
+        assert_eq!(mults, 1);
+        assert_eq!(total, 2);
+    }
+
+    #[test]
+    fn cqwpx_north_america_low_band_scores_four() {
+        let q = make_qso("VE3XYZ", "80m", Some(1), Some(4), Some("NA"), Some("001"));
+        let (pts, mults, total) = score_wpx(&[q], 291, 5);
+        assert_eq!(pts, 4);
+        assert_eq!(mults, 1);
+        assert_eq!(total, 4);
+    }
+
+    #[test]
+    fn cqwpx_different_continent_high_band_scores_three() {
+        let q = make_qso("W1AW", "20m", Some(291), Some(5), Some("NA"), Some("001"));
+        let (pts, mults, total) = score_wpx(&[q], 269, 15);
+        assert_eq!(pts, 3);
+        assert_eq!(mults, 1);
+        assert_eq!(total, 3);
+    }
+
+    #[test]
+    fn cqwpx_different_continent_low_band_scores_six() {
+        let q = make_qso("W1AW", "80m", Some(291), Some(5), Some("NA"), Some("001"));
+        let (pts, mults, total) = score_wpx(&[q], 269, 15);
+        assert_eq!(pts, 6);
+        assert_eq!(mults, 1);
+        assert_eq!(total, 6);
+    }
+
+    #[test]
+    fn cqwpx_prefix_multiplier_counts_once_across_bands() {
+        let q1 = make_qso(
+            "DL1XYZ",
+            "20m",
+            Some(230),
+            Some(14),
+            Some("EU"),
+            Some("001"),
+        );
+        let q2 = make_qso(
+            "DL1XYZ",
+            "40m",
+            Some(230),
+            Some(14),
+            Some("EU"),
+            Some("002"),
+        );
+        let (pts, mults, total) = score_wpx(&[q1, q2], 269, 15);
+        assert_eq!(pts, 3);
+        assert_eq!(mults, 1);
+        assert_eq!(total, 3);
+    }
+
+    #[test]
+    fn cqwpx_same_prefix_different_calls_counts_once() {
+        let q1 = make_qso(
+            "DL1XYZ",
+            "20m",
+            Some(230),
+            Some(14),
+            Some("EU"),
+            Some("001"),
+        );
+        let q2 = make_qso(
+            "DL1ABC",
+            "20m",
+            Some(230),
+            Some(14),
+            Some("EU"),
+            Some("002"),
+        );
+        let (pts, mults, total) = score_wpx(&[q1, q2], 269, 15);
+        assert_eq!(pts, 2);
+        assert_eq!(mults, 1);
+        assert_eq!(total, 2);
+    }
+
+    #[test]
+    fn cqwpx_different_numbering_creates_distinct_prefix() {
+        let q1 = make_qso(
+            "SP1ABC",
+            "20m",
+            Some(269),
+            Some(15),
+            Some("EU"),
+            Some("001"),
+        );
+        let q2 = make_qso(
+            "SP2DEF",
+            "20m",
+            Some(269),
+            Some(15),
+            Some("EU"),
+            Some("002"),
+        );
+        let (pts, mults, total) = score_wpx(&[q1, q2], 269, 15);
+        assert_eq!(pts, 2);
+        assert_eq!(mults, 2);
+        assert_eq!(total, 4);
+    }
+
+    #[test]
+    fn cqwpx_portable_prefix_follows_contract() {
+        let q = make_qso(
+            "SP6INA/1",
+            "20m",
+            Some(269),
+            Some(15),
+            Some("EU"),
+            Some("001"),
+        );
+        let (_, mults, _) = score_wpx(&[q], 269, 15);
+        assert_eq!(mults, 1);
+        assert_eq!(crate::core::prefix::extract_wpx_prefix("SP6INA/1"), "SP1");
+    }
+
+    #[test]
+    fn cqwpx_mobile_suffix_does_not_create_false_prefix() {
+        let q = make_qso(
+            "DL1ABC/M",
+            "20m",
+            Some(230),
+            Some(14),
+            Some("EU"),
+            Some("001"),
+        );
+        let (_, mults, _) = score_wpx(&[q], 269, 15);
+        assert_eq!(mults, 1);
+        assert_eq!(crate::core::prefix::extract_wpx_prefix("DL1ABC/M"), "DL1");
+    }
+
+    #[test]
+    fn cqwpx_call_without_number_follows_contract() {
+        let q = make_qso("RA", "20m", Some(54), Some(16), Some("EU"), Some("001"));
+        let (_, mults, _) = score_wpx(&[q], 269, 15);
+        assert_eq!(mults, 1);
+        assert_eq!(crate::core::prefix::extract_wpx_prefix("RA"), "RA0");
     }
 }
