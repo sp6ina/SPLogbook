@@ -2030,40 +2030,185 @@ mod tests {
     fn scoreboard_matches_manual_cqww_fixture() {
         use crate::core::contest_stats::compute_scoreboard;
 
-        // Stacja europejska (SP6INA, DXCC 269, EU, CQ Zone 15)
-        // 1. Same country (SP1ABC na 20m) -> 0 pkt, ale mnożnik strefy (15) i kraju (269) na 20m
-        let q1 = make_qso("SP1ABC", "20m", Some(269), Some(15), Some("EU"), Some("15"));
-        // 2. Same continent (DL1XYZ na 20m) -> 1 pkt, mnożnik strefy (14) i kraju (230) na 20m
-        let q2 = make_qso("DL1XYZ", "20m", Some(230), Some(14), Some("EU"), Some("14"));
-        // 3. Different continent (W1AW na 20m) -> 3 pkt, mnożnik strefy (5) i kraju (291) na 20m
+        // Oficjalny regulamin CQ WW DX Contest (edycja 2026, Section IV "Scoring"):
+        // A. Contacts:
+        //    1. Contacts between stations on different continents count three (3) points.
+        //    2. Contacts between stations on the same continent but different countries count one (1) point.
+        //       Exception: For North American stations, contacts between different countries within North America count two (2) points.
+        //    3. Contacts between stations in the same country count zero (0) points, but are permitted for zone or country multiplier credit.
+        // B. Multipliers:
+        //    1. Zone: A multiplier of one (1) for each different CQ Zone contacted on each band.
+        //    2. Country: A multiplier of one (1) for each different country (DXCC entity) contacted on each band.
+        //
+        // Stacja europejska (SP6INA, DXCC 269, EU, CQ Zone 15):
+        // 1. Same continent, different country: DL1XYZ na 20m (DXCC 230, Zone 14, EU) -> 1 pkt
+        //    Mnożniki 20m: D230 (1), Z14 (1)
+        let q1 = make_qso("DL1XYZ", "20m", Some(230), Some(14), Some("EU"), Some("14"));
+        // 2. Same country: SP1ABC na 20m (DXCC 269, Zone 15, EU) -> 0 pkt
+        //    Mnożniki 20m: D269 (1), Z15 (1)
+        let q2 = make_qso("SP1ABC", "20m", Some(269), Some(15), Some("EU"), Some("15"));
+        // 3. Different continent: W1AW na 20m (DXCC 291, Zone 5, NA) -> 3 pkt
+        //    Mnożniki 20m: D291 (1), Z05 (1)
         let q3 = make_qso("W1AW", "20m", Some(291), Some(5), Some("NA"), Some("05"));
-        // 4. Same station (DL1XYZ) na innym paśmie (40m) -> 1 pkt, mnożnik strefy (14) i kraju (230) na 40m
-        let q4 = make_qso("DL1XYZ", "40m", Some(230), Some(14), Some("EU"), Some("14"));
-        // 5. Different continent (JA1ABC na 15m) -> 3 pkt, mnożnik strefy (25) i kraju (339) na 15m
-        let q5 = make_qso("JA1ABC", "15m", Some(339), Some(25), Some("AS"), Some("25"));
-        // 6. Duplikat na 20m (DL1XYZ) -> 0 pkt, 0 mnożników
+        // 4. Different continent: JA1ABC na 20m (DXCC 339, Zone 25, AS) -> 3 pkt
+        //    Mnożniki 20m: D339 (1), Z25 (1)
+        let q4 = make_qso("JA1ABC", "20m", Some(339), Some(25), Some("AS"), Some("25"));
+        // 5. Different continent na 40m: W2AA na 40m (DXCC 291, Zone 5, NA) -> 3 pkt (ŚCIŚLE 3 punkty!)
+        //    W CQ WW DX Contest łączność międzykontynentalna na 40m daje 3 punkty (pasmo nie obniża punktacji do 1 pkt).
+        //    Mnożniki 40m: D291 (1), Z05 (1)
+        let q5 = make_qso("W2AA", "40m", Some(291), Some(5), Some("NA"), Some("05"));
+        // 6. Duplikat na 20m: DL1XYZ na 20m -> 0 pkt, 0 mnożników
         let q6 = make_qso("DL1XYZ", "20m", Some(230), Some(14), Some("EU"), Some("14"));
 
         let qsos = vec![q1, q2, q3, q4, q5, q6];
         let sb = compute_scoreboard("CQ WW CW", &[], &qsos, 269, 15);
 
         // Oczekiwane ręcznie obliczone wartości stałe:
-        // Punkty: 0 + 1 + 3 + 1 + 3 + 0 = 8
+        // Punkty: 1 + 0 + 3 + 3 + 3 + 0 = 10
         // Mnożniki:
-        // 20m: strefy (15, 14, 5) = 3; kraje (269, 230, 291) = 3 -> 6
-        // 40m: strefy (14) = 1; kraje (230) = 1 -> 2
-        // 15m: strefy (25) = 1; kraje (339) = 1 -> 2
-        // Razem mnożniki = 6 + 2 + 2 = 10
-        // Wynik końcowy: 8 * 10 = 80
-        assert_eq!(sb.points, 8, "CQ WW manual QSO points mismatch");
+        // 20m: strefy (14, 15, 5, 25) = 4; kraje (230, 269, 291, 339) = 4 -> 8
+        // 40m: strefy (5) = 1; kraje (291) = 1 -> 2
+        // Razem mnożniki = 8 + 2 = 10
+        // Wynik końcowy: 10 * 10 = 100
+        assert_eq!(sb.points, 10, "CQ WW manual QSO points mismatch");
         assert_eq!(sb.mults, 10, "CQ WW manual multipliers mismatch");
-        assert_eq!(sb.total, 80, "CQ WW manual total score mismatch");
+        assert_eq!(sb.total, 100, "CQ WW manual total score mismatch");
 
         // Wyjątek stacji North America: K1TTT (NA, DXCC 291) pracujący z Kanadą VE3XYZ (NA, DXCC 197)
         let q_na = make_qso("VE3XYZ", "20m", Some(197), Some(4), Some("NA"), Some("04"));
         let sb_na = compute_scoreboard("CQ WW CW", &[], &[q_na], 291, 5);
-        // North America station to North America station: 2 punkty (wyjątek CQ WW)
+        // North America station to North America station: 2 punkty (wyjątek CQ WW reguła IV.A.2)
         assert_eq!(sb_na.points, 2, "CQ WW North America exception mismatch");
+    }
+
+    #[test]
+    fn cqww_different_continent_scores_three_on_160m() {
+        let q = make_qso("W1AW", "160m", Some(291), Some(5), Some("NA"), Some("05"));
+        let (pts, mults, _) = score_cqww(&[q], 269, 15);
+        assert_eq!(pts, 3);
+        assert_eq!(mults, 2);
+    }
+
+    #[test]
+    fn cqww_different_continent_scores_three_on_80m() {
+        let q = make_qso("W1AW", "80m", Some(291), Some(5), Some("NA"), Some("05"));
+        let (pts, mults, _) = score_cqww(&[q], 269, 15);
+        assert_eq!(pts, 3);
+        assert_eq!(mults, 2);
+    }
+
+    #[test]
+    fn cqww_different_continent_scores_three_on_40m() {
+        // Kluczowa weryfikacja kontraktu CQ WW: łączność międzykontynentalna na 40m daje ściśle 3 punkty!
+        let q = make_qso("W2AA", "40m", Some(291), Some(5), Some("NA"), Some("05"));
+        let (pts, mults, _) = score_cqww(&[q], 269, 15);
+        assert_eq!(pts, 3);
+        assert_eq!(mults, 2);
+    }
+
+    #[test]
+    fn cqww_different_continent_scores_three_on_20m() {
+        let q = make_qso("W1AW", "20m", Some(291), Some(5), Some("NA"), Some("05"));
+        let (pts, mults, _) = score_cqww(&[q], 269, 15);
+        assert_eq!(pts, 3);
+        assert_eq!(mults, 2);
+    }
+
+    #[test]
+    fn cqww_different_continent_scores_three_on_15m() {
+        let q = make_qso("JA1ABC", "15m", Some(339), Some(25), Some("AS"), Some("25"));
+        let (pts, mults, _) = score_cqww(&[q], 269, 15);
+        assert_eq!(pts, 3);
+        assert_eq!(mults, 2);
+    }
+
+    #[test]
+    fn cqww_different_continent_scores_three_on_10m() {
+        let q = make_qso("LU1AAA", "10m", Some(100), Some(13), Some("SA"), Some("13"));
+        let (pts, mults, _) = score_cqww(&[q], 269, 15);
+        assert_eq!(pts, 3);
+        assert_eq!(mults, 2);
+    }
+
+    #[test]
+    fn cqww_same_continent_different_country_scores_one_on_all_bands() {
+        for band in &["160m", "80m", "40m", "20m", "15m", "10m"] {
+            let q = make_qso("DL1XYZ", band, Some(230), Some(14), Some("EU"), Some("14"));
+            let (pts, _, _) = score_cqww(&[q], 269, 15);
+            assert_eq!(pts, 1, "CQ WW same continent must score 1 on {band}");
+        }
+    }
+
+    #[test]
+    fn cqww_north_america_exception_scores_two_on_all_bands() {
+        for band in &["160m", "80m", "40m", "20m", "15m", "10m"] {
+            let q = make_qso("VE3XYZ", band, Some(197), Some(4), Some("NA"), Some("04"));
+            let (pts, _, _) = score_cqww(&[q], 291, 5);
+            assert_eq!(pts, 2, "CQ WW NA exception must score 2 on {band}");
+        }
+    }
+
+    #[test]
+    fn cqww_same_country_scores_zero_on_all_bands() {
+        for band in &["160m", "80m", "40m", "20m", "15m", "10m"] {
+            let q = make_qso("SP1ABC", band, Some(269), Some(15), Some("EU"), Some("15"));
+            let (pts, mults, _) = score_cqww(&[q], 269, 15);
+            assert_eq!(pts, 0, "CQ WW same country must score 0 points on {band}");
+            assert_eq!(
+                mults, 2,
+                "CQ WW same country still gives multipliers on {band}"
+            );
+        }
+    }
+
+    #[test]
+    fn claimed_score_matches_corrected_manual_cqww_fixture() {
+        use crate::core::cabrillo::{CabrilloInput, CabrilloTransmitterCategory, build};
+        use crate::core::contest_stats::compute_scoreboard;
+
+        let q1 = make_qso("DL1XYZ", "20m", Some(230), Some(14), Some("EU"), Some("14"));
+        let q2 = make_qso("SP1ABC", "20m", Some(269), Some(15), Some("EU"), Some("15"));
+        let q3 = make_qso("W1AW", "20m", Some(291), Some(5), Some("NA"), Some("05"));
+        let q4 = make_qso("JA1ABC", "20m", Some(339), Some(25), Some("AS"), Some("25"));
+        let q5 = make_qso("W2AA", "40m", Some(291), Some(5), Some("NA"), Some("05"));
+        let qsos = vec![q1, q2, q3, q4, q5];
+
+        let sb = compute_scoreboard("CQ WW CW", &[], &qsos, 269, 15);
+        assert_eq!(sb.points, 10);
+        assert_eq!(sb.mults, 10);
+        assert_eq!(sb.total, 100);
+
+        let input = CabrilloInput {
+            contest_name: "CQ WW CW",
+            callsign: "SP6INA",
+            operator: "Mariusz",
+            city: "Wroclaw",
+            country: "Poland",
+            claimed_score: sb.total,
+            qsos: &qsos,
+            transmitter_category: Some(CabrilloTransmitterCategory::One),
+        };
+        let out = build(&input).expect("valid cabrillo");
+        assert!(out.contains("CLAIMED-SCORE: 100\n"));
+    }
+
+    #[test]
+    fn cqww_claimed_score_matches_manual_fixture() {
+        use crate::core::cabrillo::{CabrilloInput, CabrilloTransmitterCategory, build};
+
+        let q = make_qso("W2AA", "40m", Some(291), Some(5), Some("NA"), Some("05"));
+        let input = CabrilloInput {
+            contest_name: "CQ WW CW",
+            callsign: "SP6INA",
+            operator: "Mariusz",
+            city: "Wroclaw",
+            country: "Poland",
+            claimed_score: 100,
+            qsos: &[q],
+            transmitter_category: Some(CabrilloTransmitterCategory::One),
+        };
+        let out = build(&input).expect("valid cabrillo");
+        assert!(out.contains("CLAIMED-SCORE: 100\n"));
     }
 
     #[test]
@@ -2187,20 +2332,20 @@ mod tests {
         let sp_out = build(&sp_input).expect("valid cabrillo");
         assert!(sp_out.contains("CLAIMED-SCORE: 36\n"));
 
-        // 2. CQ WW Fixture (total = 80)
-        let q2 = make_qso("DL1XYZ", "20m", Some(230), Some(14), Some("EU"), Some("14"));
+        // 2. CQ WW Fixture (total = 100)
+        let q2 = make_qso("W2AA", "40m", Some(291), Some(5), Some("NA"), Some("05"));
         let cqww_input = CabrilloInput {
             contest_name: "CQ WW CW",
             callsign: "SP6INA",
             operator: "Mariusz",
             city: "Wroclaw",
             country: "Poland",
-            claimed_score: 80, // ściśle z fixture
+            claimed_score: 100, // ściśle z poprawionego fixture (10 pkt * 10 mults = 100)
             qsos: &[q2],
             transmitter_category: Some(CabrilloTransmitterCategory::One),
         };
         let cqww_out = build(&cqww_input).expect("valid cabrillo");
-        assert!(cqww_out.contains("CLAIMED-SCORE: 80\n"));
+        assert!(cqww_out.contains("CLAIMED-SCORE: 100\n"));
 
         // 3. CQ WPX Fixture (total = 144)
         let q3 = make_qso(
