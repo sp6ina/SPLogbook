@@ -181,6 +181,11 @@ pub struct ContestProfile {
 }
 
 impl ContestProfile {
+    /// Rozpoznaje i zwraca profil zawodów na podstawie nazwy.
+    pub fn from_name(name: &str) -> Option<Self> {
+        ContestId::parse_from_name(name).map(Self::for_id)
+    }
+
     /// Zwraca zweryfikowany profil dla danego identyfikatora zawodów.
     pub fn for_id(id: ContestId) -> Self {
         match id {
@@ -1892,5 +1897,412 @@ mod tests {
             contest_dedup_key(&cqwpx, &q1),
             contest_dedup_key(&cqwpx, &q2)
         );
+    }
+
+    #[test]
+    fn scoreboard_matches_manual_spdx_fixture() {
+        use crate::core::contest_stats::compute_scoreboard;
+
+        // --- FIXTURE DLA STACJI SP (SP6INA, DXCC 269) ---
+        // 1. SP-SP na 20m CW -> 0 pkt, brak mnożnika
+        let mut q1 = make_qso(
+            "SP1ABC",
+            "20m",
+            Some(269),
+            Some(15),
+            Some("EU"),
+            Some("001"),
+        );
+        q1.stx_string = Some("D".to_string());
+        // 2. SP-EU (DL) na 20m CW -> 1 pkt, mnożnik DXCC DL (230) na 20m
+        let mut q2 = make_qso(
+            "DL1XYZ",
+            "20m",
+            Some(230),
+            Some(14),
+            Some("EU"),
+            Some("001"),
+        );
+        q2.stx_string = Some("D".to_string());
+        // 3. SP-DX (W) na 20m CW -> 3 pkt, mnożnik DXCC W (291) na 20m
+        let mut q3 = make_qso("W1AW", "20m", Some(291), Some(5), Some("NA"), Some("001"));
+        q3.stx_string = Some("D".to_string());
+        // 4. SP-EU (DL) na 40m SSB -> 1 pkt, mnożnik DXCC DL (230) na 40m (per band!)
+        let mut q4 = make_qso(
+            "DL2BBB",
+            "40m",
+            Some(230),
+            Some(14),
+            Some("EU"),
+            Some("002"),
+        );
+        q4.mode = "SSB".to_string();
+        q4.stx_string = Some("D".to_string());
+        // 5. SP-DX (JA) na 15m CW -> 3 pkt, mnożnik DXCC JA (339) na 15m
+        let mut q5 = make_qso(
+            "JA1ABC",
+            "15m",
+            Some(339),
+            Some(25),
+            Some("AS"),
+            Some("003"),
+        );
+        q5.stx_string = Some("D".to_string());
+        // 6. Duplikat DL1XYZ na 20m CW -> 0 pkt, 0 mnożników
+        let mut q6 = make_qso(
+            "DL1XYZ",
+            "20m",
+            Some(230),
+            Some(14),
+            Some("EU"),
+            Some("004"),
+        );
+        q6.stx_string = Some("D".to_string());
+        // 7. Ta sama stacja DL1XYZ na 20m w innej emisji (SSB) -> 1 pkt, mnożnik DXCC już zliczony na 20m -> 0 mnożników
+        let mut q7 = make_qso(
+            "DL1XYZ",
+            "20m",
+            Some(230),
+            Some(14),
+            Some("EU"),
+            Some("005"),
+        );
+        q7.mode = "SSB".to_string();
+        q7.stx_string = Some("D".to_string());
+
+        let sp_qsos = vec![q1, q2, q3, q4, q5, q6, q7];
+        let sb_sp = compute_scoreboard("SP DX Contest", &[], &sp_qsos, 269, 15);
+
+        // Oczekiwane ręcznie obliczone wartości stałe:
+        // Punkty: 0 + 1 + 3 + 1 + 3 + 0 + 1 = 9
+        // Mnożniki: DL@20m, W@20m, DL@40m, JA@15m = 4
+        // Wynik końcowy: 9 * 4 = 36
+        assert_eq!(
+            sb_sp.points, 9,
+            "SP DX SP station manual QSO points mismatch"
+        );
+        assert_eq!(
+            sb_sp.mults, 4,
+            "SP DX SP station manual multipliers mismatch"
+        );
+        assert_eq!(
+            sb_sp.total, 36,
+            "SP DX SP station manual total score mismatch"
+        );
+
+        // --- FIXTURE DLA STACJI ZAGRANICZNEJ (DL, DXCC 230) ---
+        // 1. DX-SP na 20m CW -> 3 pkt, mnożnik woj. "D" na 20m
+        let mut f1 = make_qso("SP1ABC", "20m", Some(269), Some(15), Some("EU"), Some("D"));
+        f1.stx_string = Some("001".to_string());
+        // 2. DX-SP na 20m CW -> 3 pkt, mnożnik woj. "B" na 20m
+        let mut f2 = make_qso("SP2XYZ", "20m", Some(269), Some(15), Some("EU"), Some("B"));
+        f2.stx_string = Some("002".to_string());
+        // 3. DX-SP na 40m SSB -> 3 pkt, mnożnik woj. "D" na 40m (mnożnik województw per band!)
+        let mut f3 = make_qso("SP3AAA", "40m", Some(269), Some(15), Some("EU"), Some("D"));
+        f3.mode = "SSB".to_string();
+        f3.stx_string = Some("003".to_string());
+        // 4. DX-non-SP (W1AW) na 20m CW -> 0 pkt, brak mnożnika
+        let mut f4 = make_qso("W1AW", "20m", Some(291), Some(5), Some("NA"), Some("001"));
+        f4.stx_string = Some("004".to_string());
+
+        let foreign_qsos = vec![f1, f2, f3, f4];
+        let sb_foreign = compute_scoreboard("SP DX Contest", &[], &foreign_qsos, 230, 14);
+
+        // Oczekiwane ręcznie obliczone wartości stałe dla stacji zagranicznej:
+        // Punkty: 3 + 3 + 3 + 0 = 9
+        // Mnożniki: D@20m, B@20m, D@40m = 3
+        // Wynik końcowy: 9 * 3 = 27
+        assert_eq!(
+            sb_foreign.points, 9,
+            "SP DX foreign station manual QSO points mismatch"
+        );
+        assert_eq!(
+            sb_foreign.mults, 3,
+            "SP DX foreign station manual multipliers mismatch"
+        );
+        assert_eq!(
+            sb_foreign.total, 27,
+            "SP DX foreign station manual total score mismatch"
+        );
+    }
+
+    #[test]
+    fn scoreboard_matches_manual_cqww_fixture() {
+        use crate::core::contest_stats::compute_scoreboard;
+
+        // Stacja europejska (SP6INA, DXCC 269, EU, CQ Zone 15)
+        // 1. Same country (SP1ABC na 20m) -> 0 pkt, ale mnożnik strefy (15) i kraju (269) na 20m
+        let q1 = make_qso("SP1ABC", "20m", Some(269), Some(15), Some("EU"), Some("15"));
+        // 2. Same continent (DL1XYZ na 20m) -> 1 pkt, mnożnik strefy (14) i kraju (230) na 20m
+        let q2 = make_qso("DL1XYZ", "20m", Some(230), Some(14), Some("EU"), Some("14"));
+        // 3. Different continent (W1AW na 20m) -> 3 pkt, mnożnik strefy (5) i kraju (291) na 20m
+        let q3 = make_qso("W1AW", "20m", Some(291), Some(5), Some("NA"), Some("05"));
+        // 4. Same station (DL1XYZ) na innym paśmie (40m) -> 1 pkt, mnożnik strefy (14) i kraju (230) na 40m
+        let q4 = make_qso("DL1XYZ", "40m", Some(230), Some(14), Some("EU"), Some("14"));
+        // 5. Different continent (JA1ABC na 15m) -> 3 pkt, mnożnik strefy (25) i kraju (339) na 15m
+        let q5 = make_qso("JA1ABC", "15m", Some(339), Some(25), Some("AS"), Some("25"));
+        // 6. Duplikat na 20m (DL1XYZ) -> 0 pkt, 0 mnożników
+        let q6 = make_qso("DL1XYZ", "20m", Some(230), Some(14), Some("EU"), Some("14"));
+
+        let qsos = vec![q1, q2, q3, q4, q5, q6];
+        let sb = compute_scoreboard("CQ WW CW", &[], &qsos, 269, 15);
+
+        // Oczekiwane ręcznie obliczone wartości stałe:
+        // Punkty: 0 + 1 + 3 + 1 + 3 + 0 = 8
+        // Mnożniki:
+        // 20m: strefy (15, 14, 5) = 3; kraje (269, 230, 291) = 3 -> 6
+        // 40m: strefy (14) = 1; kraje (230) = 1 -> 2
+        // 15m: strefy (25) = 1; kraje (339) = 1 -> 2
+        // Razem mnożniki = 6 + 2 + 2 = 10
+        // Wynik końcowy: 8 * 10 = 80
+        assert_eq!(sb.points, 8, "CQ WW manual QSO points mismatch");
+        assert_eq!(sb.mults, 10, "CQ WW manual multipliers mismatch");
+        assert_eq!(sb.total, 80, "CQ WW manual total score mismatch");
+
+        // Wyjątek stacji North America: K1TTT (NA, DXCC 291) pracujący z Kanadą VE3XYZ (NA, DXCC 197)
+        let q_na = make_qso("VE3XYZ", "20m", Some(197), Some(4), Some("NA"), Some("04"));
+        let sb_na = compute_scoreboard("CQ WW CW", &[], &[q_na], 291, 5);
+        // North America station to North America station: 2 punkty (wyjątek CQ WW)
+        assert_eq!(sb_na.points, 2, "CQ WW North America exception mismatch");
+    }
+
+    #[test]
+    fn scoreboard_matches_manual_cqwpx_fixture() {
+        use crate::core::contest_stats::compute_scoreboard;
+
+        // Stacja europejska (SP6INA, DXCC 269, continent EU)
+        // 1. Same country high band (SP1ABC na 20m) -> 1 pkt (ŚCIŚLE 1 pkt, brak podwajania), prefix SP1
+        let q1 = make_qso(
+            "SP1ABC",
+            "20m",
+            Some(269),
+            Some(15),
+            Some("EU"),
+            Some("001"),
+        );
+        // 2. Same country low band (SP2DEF na 80m) -> 1 pkt (ŚCIŚLE 1 pkt, brak podwajania!), prefix SP2
+        let q2 = make_qso(
+            "SP2DEF",
+            "80m",
+            Some(269),
+            Some(15),
+            Some("EU"),
+            Some("002"),
+        );
+        // 3. Same continent high band (DL1XYZ na 20m) -> 1 pkt, prefix DL1
+        let q3 = make_qso(
+            "DL1XYZ",
+            "20m",
+            Some(230),
+            Some(14),
+            Some("EU"),
+            Some("003"),
+        );
+        // 4. Same continent low band (DL2BBB na 40m) -> 2 pkt, prefix DL2
+        let q4 = make_qso(
+            "DL2BBB",
+            "40m",
+            Some(230),
+            Some(14),
+            Some("EU"),
+            Some("004"),
+        );
+        // 5. Different continent high band (W1AW na 20m) -> 3 pkt, prefix W1
+        let q5 = make_qso("W1AW", "20m", Some(291), Some(5), Some("NA"), Some("005"));
+        // 6. Different continent low band (W2GD na 80m) -> 6 pkt, prefix W2
+        let q6 = make_qso("W2GD", "80m", Some(291), Some(5), Some("NA"), Some("006"));
+        // 7. Ta sama stacja DL1XYZ na innym paśmie (40m) -> 2 pkt (same continent low band), prefix DL1 już zliczony -> 0 mnożników
+        let q7 = make_qso(
+            "DL1XYZ",
+            "40m",
+            Some(230),
+            Some(14),
+            Some("EU"),
+            Some("007"),
+        );
+        // 8. Stacja z łamanym znakiem SP/DL1XYZ na 15m -> 1 pkt (same country high band), prefix SP0
+        let q8 = make_qso(
+            "SP/DL1XYZ",
+            "15m",
+            Some(269),
+            Some(15),
+            Some("EU"),
+            Some("008"),
+        );
+        // 9. Stacja specjalna SN0HQ na 20m -> 1 pkt (same country high band), prefix SN0
+        let q9 = make_qso("SN0HQ", "20m", Some(269), Some(15), Some("EU"), Some("009"));
+
+        let qsos = vec![q1, q2, q3, q4, q5, q6, q7, q8, q9];
+        let sb = compute_scoreboard("CQ WPX CW", &[], &qsos, 269, 15);
+
+        // Oczekiwane ręcznie obliczone wartości stałe:
+        // Punkty: 1 + 1 + 1 + 2 + 3 + 6 + 2 + 1 + 1 = 18
+        // Mnożniki: SP1, SP2, DL1, DL2, W1, W2, SP0, SN0 = 8
+        // Wynik końcowy: 18 * 8 = 144
+        assert_eq!(sb.points, 18, "CQ WPX manual QSO points mismatch");
+        assert_eq!(sb.mults, 8, "CQ WPX manual prefix multipliers mismatch");
+        assert_eq!(sb.total, 144, "CQ WPX manual total score mismatch");
+
+        // Wyjątek stacji North America: K1TTT (NA, DXCC 291) pracujący z Kanadą VE3XYZ (NA, DXCC 197)
+        // High band (20m): 2 pkt
+        let q_na_high = make_qso("VE3XYZ", "20m", Some(197), Some(4), Some("NA"), Some("001"));
+        let sb_na_high = compute_scoreboard("CQ WPX CW", &[], &[q_na_high], 291, 5);
+        assert_eq!(
+            sb_na_high.points, 2,
+            "CQ WPX NA high band must score 2 points"
+        );
+
+        // Low band (40m): 4 pkt
+        let q_na_low = make_qso("VE3XYZ", "40m", Some(197), Some(4), Some("NA"), Some("002"));
+        let sb_na_low = compute_scoreboard("CQ WPX CW", &[], &[q_na_low], 291, 5);
+        assert_eq!(
+            sb_na_low.points, 4,
+            "CQ WPX NA low band must score 4 points"
+        );
+    }
+
+    #[test]
+    fn claimed_score_matches_manual_fixture() {
+        use crate::core::cabrillo::{CabrilloInput, CabrilloTransmitterCategory, build};
+
+        // 1. SP DX Fixture (total = 36)
+        let q1 = make_qso(
+            "DL1XYZ",
+            "20m",
+            Some(230),
+            Some(14),
+            Some("EU"),
+            Some("001"),
+        );
+        let sp_input = CabrilloInput {
+            contest_name: "SP DX Contest",
+            callsign: "SP6INA",
+            operator: "Mariusz",
+            city: "Wroclaw",
+            country: "Poland",
+            claimed_score: 36, // ściśle z fixture
+            qsos: &[q1],
+            transmitter_category: Some(CabrilloTransmitterCategory::One),
+        };
+        let sp_out = build(&sp_input).expect("valid cabrillo");
+        assert!(sp_out.contains("CLAIMED-SCORE: 36\n"));
+
+        // 2. CQ WW Fixture (total = 80)
+        let q2 = make_qso("DL1XYZ", "20m", Some(230), Some(14), Some("EU"), Some("14"));
+        let cqww_input = CabrilloInput {
+            contest_name: "CQ WW CW",
+            callsign: "SP6INA",
+            operator: "Mariusz",
+            city: "Wroclaw",
+            country: "Poland",
+            claimed_score: 80, // ściśle z fixture
+            qsos: &[q2],
+            transmitter_category: Some(CabrilloTransmitterCategory::One),
+        };
+        let cqww_out = build(&cqww_input).expect("valid cabrillo");
+        assert!(cqww_out.contains("CLAIMED-SCORE: 80\n"));
+
+        // 3. CQ WPX Fixture (total = 144)
+        let q3 = make_qso(
+            "DL1XYZ",
+            "20m",
+            Some(230),
+            Some(14),
+            Some("EU"),
+            Some("001"),
+        );
+        let cqwpx_input = CabrilloInput {
+            contest_name: "CQ WPX CW",
+            callsign: "SP6INA",
+            operator: "Mariusz",
+            city: "Wroclaw",
+            country: "Poland",
+            claimed_score: 144, // ściśle z fixture
+            qsos: &[q3],
+            transmitter_category: Some(CabrilloTransmitterCategory::One),
+        };
+        let cqwpx_out = build(&cqwpx_input).expect("valid cabrillo");
+        assert!(cqwpx_out.contains("CLAIMED-SCORE: 144\n"));
+    }
+
+    #[test]
+    fn claimed_score_is_integer_without_formatting() {
+        use crate::core::cabrillo::{CabrilloInput, CabrilloTransmitterCategory, build};
+
+        let q = make_qso(
+            "DL1XYZ",
+            "20m",
+            Some(230),
+            Some(14),
+            Some("EU"),
+            Some("001"),
+        );
+        let score_val = 1_234_567; // Wartość ponad milion
+        let input = CabrilloInput {
+            contest_name: "CQ WPX CW",
+            callsign: "SP6INA",
+            operator: "Mariusz",
+            city: "Wroclaw",
+            country: "Poland",
+            claimed_score: score_val,
+            qsos: &[q],
+            transmitter_category: Some(CabrilloTransmitterCategory::One),
+        };
+
+        let text = build(&input).expect("valid cabrillo");
+        let claimed_line = text
+            .lines()
+            .find(|l| l.starts_with("CLAIMED-SCORE:"))
+            .expect("CLAIMED-SCORE header present");
+
+        assert_eq!(claimed_line, "CLAIMED-SCORE: 1234567");
+        let val_part = claimed_line.strip_prefix("CLAIMED-SCORE:").unwrap().trim();
+        assert!(
+            val_part.chars().all(|c| c.is_ascii_digit()),
+            "CLAIMED-SCORE must be pure digits"
+        );
+        let parsed: u32 = val_part
+            .parse()
+            .expect("CLAIMED-SCORE must parse as u32 integer");
+        assert_eq!(parsed, score_val);
+    }
+
+    #[test]
+    fn scoreboard_and_export_use_same_explicit_contest_profile() {
+        use crate::core::contest_stats::compute_scoreboard;
+
+        let spdx_profile = ContestProfile::for_id(ContestId::SpDx);
+        let cqww_profile = ContestProfile::for_id(ContestId::CqWwCw);
+        let cqwpx_profile = ContestProfile::for_id(ContestId::CqWpxCw);
+
+        let q1 = make_qso(
+            "DL1XYZ",
+            "20m",
+            Some(230),
+            Some(14),
+            Some("EU"),
+            Some("001"),
+        );
+        let qsos = vec![q1];
+
+        // Wywołanie score_qsos z jawnego profilu
+        let (sp_pts, sp_mults, sp_tot) = spdx_profile.score_qsos(&qsos, 269, 15).unwrap();
+        // Wywołanie scoreboardu
+        let sb_sp = compute_scoreboard("SP DX Contest", &[], &qsos, 269, 15);
+        assert_eq!(sb_sp.points, sp_pts);
+        assert_eq!(sb_sp.mults, sp_mults);
+        assert_eq!(sb_sp.total, sp_tot);
+
+        let (ww_pts, ww_mults, ww_tot) = cqww_profile.score_qsos(&qsos, 269, 15).unwrap();
+        let sb_ww = compute_scoreboard("CQ WW CW", &[], &qsos, 269, 15);
+        assert_eq!(sb_ww.points, ww_pts);
+        assert_eq!(sb_ww.mults, ww_mults);
+        assert_eq!(sb_ww.total, ww_tot);
+
+        let (wpx_pts, wpx_mults, wpx_tot) = cqwpx_profile.score_qsos(&qsos, 269, 15).unwrap();
+        let sb_wpx = compute_scoreboard("CQ WPX CW", &[], &qsos, 269, 15);
+        assert_eq!(sb_wpx.points, wpx_pts);
+        assert_eq!(sb_wpx.mults, wpx_mults);
+        assert_eq!(sb_wpx.total, wpx_tot);
     }
 }
