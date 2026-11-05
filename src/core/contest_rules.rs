@@ -1956,6 +1956,7 @@ mod tests {
             claimed_score: sb_foreign.total,
             qsos: &foreign_qsos,
             transmitter_category: Some(CabrilloTransmitterCategory::One),
+            operator_category: None,
         };
         let out_foreign = build(&input_foreign).expect("valid cabrillo");
         assert!(out_foreign.contains("CLAIMED-SCORE: 27\n"));
@@ -2386,6 +2387,7 @@ mod tests {
             claimed_score: sb.total,
             qsos: &qsos,
             transmitter_category: Some(CabrilloTransmitterCategory::One),
+            operator_category: None,
         };
         let out = build(&input).expect("valid cabrillo");
         assert!(out.contains("CLAIMED-SCORE: 100\n"));
@@ -2405,6 +2407,7 @@ mod tests {
             claimed_score: 100,
             qsos: &[q],
             transmitter_category: Some(CabrilloTransmitterCategory::One),
+            operator_category: None,
         };
         let out = build(&input).expect("valid cabrillo");
         assert!(out.contains("CLAIMED-SCORE: 100\n"));
@@ -2527,6 +2530,7 @@ mod tests {
             claimed_score: 36, // ściśle z fixture
             qsos: &[q1],
             transmitter_category: Some(CabrilloTransmitterCategory::One),
+            operator_category: None,
         };
         let sp_out = build(&sp_input).expect("valid cabrillo");
         assert!(sp_out.contains("CLAIMED-SCORE: 36\n"));
@@ -2542,6 +2546,7 @@ mod tests {
             claimed_score: 100, // ściśle z poprawionego fixture (10 pkt * 10 mults = 100)
             qsos: &[q2],
             transmitter_category: Some(CabrilloTransmitterCategory::One),
+            operator_category: None,
         };
         let cqww_out = build(&cqww_input).expect("valid cabrillo");
         assert!(cqww_out.contains("CLAIMED-SCORE: 100\n"));
@@ -2564,6 +2569,7 @@ mod tests {
             claimed_score: 144, // ściśle z fixture
             qsos: &[q3],
             transmitter_category: Some(CabrilloTransmitterCategory::One),
+            operator_category: None,
         };
         let cqwpx_out = build(&cqwpx_input).expect("valid cabrillo");
         assert!(cqwpx_out.contains("CLAIMED-SCORE: 144\n"));
@@ -2591,6 +2597,7 @@ mod tests {
             claimed_score: score_val,
             qsos: &[q],
             transmitter_category: Some(CabrilloTransmitterCategory::One),
+            operator_category: None,
         };
 
         let text = build(&input).expect("valid cabrillo");
