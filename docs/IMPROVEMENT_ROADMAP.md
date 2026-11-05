@@ -288,6 +288,9 @@ flowchart LR
   - `31d588f`: `fix(contest): validate contest-specific bands modes and exchanges`
   - `e8e360e`: `fix(contest): enforce Cabrillo serial and transmitter policies`
   - `5e8fbc8`: `test(contest): add independent official scoring fixtures`
+  - `ed94f6f`: `fix(contest): correct CQ WW official scoring fixture (FUNC-002)`
+  - `df5c68b`: `fix(contest): enforce official SP DX province exchanges (FUNC-002)`
+  - `73cac09`: `fix(contest): prevent invalid Cabrillo transmitter category output (FUNC-001)`
 - **Cel:** Zgodność eksportowanych logów Cabrillo i punktacji zawodów z regulaminami PZK, CQ i ARRL (`FUNC-001`, `FUNC-002`).
 - **Zakres zrealizowany w Etapie 7 i Bramce Naprawczej:**
   - Sortowanie chronologiczne rosnąco po dacie/czasie/ID, zachowanie oryginalnych raportów RST, poprawne kody emisji (`CW`, `PH`, `FM`, `RY`, `DG`), dynamiczny eksport wymiany `stx_string`/`srx_string`, mapowanie pasm (`FUNC-001`).
@@ -296,9 +299,13 @@ flowchart LR
   - Wdrożenie walidacji specyficznej dla zawodów: pasma (`validate_band`), emisje (`validate_mode`), wymiany (`validate_exchange`).
   - Obsługa kategorii pojedynczego nadajnika (`CabrilloTransmitterCategory::One`) z pomijaniem kolumny `t`; bezpieczne odrzucanie kategorii wielonadajnikowych (`Two`, `Multi`, `Unlimited`) z `ContestError::UnsupportedContestCategory`.
   - Niezależne, ręcznie przeliczone fixtures testowe (`scoreboard_matches_manual_spdx_fixture`, `scoreboard_matches_manual_cqww_fixture`, `scoreboard_matches_manual_cqwpx_fixture`, `claimed_score_matches_manual_fixture`).
+  - Ostateczna Bramka Korekcyjna Etapu 7 (2026-11-05):
+    - Poprawa fixture CQ WW: potwierdzenie 3 punktów na wszystkich pasmach (160m–10m) dla łączności międzykontynentalnych, CLAIMED-SCORE: 100 punktów (`FUNC-002`).
+    - Poprawa fixture i walidacji SP DX: ścisła walidacja 16 jednoliterowych oznaczeń województw (`B, C, D, F, G, J, K, L, M, O, P, R, S, U, W, Z`), odrzucanie kodów administracyjnych (MA, LD, etc.), CLAIMED-SCORE: 27 punktów (`FUNC-002`).
+    - Standard Cabrillo 3.0: rozdzielenie `CATEGORY-OPERATOR` (`SINGLE-OP`, `MULTI-OP`, `CHECKLOG`) od `CATEGORY-TRANSMITTER` (`ONE`), bezwzględne wyeliminowanie `MULTI` jako kategorii nadajnika (`FUNC-001`).
 - **Pliki i moduły:** `src/core/cabrillo.rs`, `src/core/contest_rules.rs`, `src/core/contest_stats.rs`, `src/gui/app_export.rs`.
 - **Ryzyka:** Niskie.
-- **Kryteria ukończenia:** Spełnione w 100%. 2000 aktywnych testów programowych zaliczonych (0 failed, 10 ignored fizycznych HIL). Bramka naprawcza zrealizowana. Etap 8 odblokowany.
+- **Kryteria ukończenia:** Spełnione w 100%. 2029 aktywnych testów programowych zaliczonych (0 failed, 10 ignored fizycznych HIL, 2039 zarejestrowanych). Ostateczna bramka korekcyjna zakończona pełnym sukcesem. Etap 7 definitywnie zamknięty (`SOFTWARE VERIFIED`). Etap 8 w stanie `READY`.
 
 ---
 

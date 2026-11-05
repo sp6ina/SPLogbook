@@ -414,9 +414,9 @@ Cargo.lock SHA-1: `c569097f3ef69c66ec59b74c29c1eb29efce69ae` (bez zmian)
 - `cargo +stable check --workspace --all-targets --all-features`: EXIT 0 (0 błędów)
 - `cargo +stable clippy --lib`: 382 warnings (Baseline: 383, spadek o 1 ostrzeżenie, 0 nowych)
 - `cargo +stable clippy --lib --tests`: 483 warnings (Baseline: 489, spadek o 6 ostrzeżeń, 0 nowych)
-- Aktywne testy programowe: **2000 passed**, **0 failed** (+57 nowych testów w Bramce Naprawczej Etapu 7)
+- Aktywne testy programowe: **2029 passed**, **0 failed** (+29 nowych testów w Ostatecznej Bramce Korekcyjnej Etapu 7)
 - Zignorowane testy fizycznego HIL: **10 ignored** (`#[ignore = "hardware-in-the-loop"]`)
-- Wszystkie zarejestrowane przypadki testowe: **2010**
+- Wszystkie zarejestrowane przypadki testowe: **2039**
 - `cargo +stable test --doc`: EXIT 0 (0 failed)
 - Testy strażników i domenowe:
   - `tests/security_guard.rs`: 32 passed, 0 failed
@@ -433,6 +433,11 @@ Cargo.lock SHA-1: `c569097f3ef69c66ec59b74c29c1eb29efce69ae` (bez zmian)
 - Bezpieczeństwo danych:
   - Prawdziwa baza danych użytkownika nie została otwarta.
   - Żadne dane użytkownika nie zostały zmodyfikowane.
+- Ostateczna Bramka Korekcyjna Etapu 7 (2026-11-05):
+  - Poprawa fixture i testów CQ WW DX: potwierdzenie 3 punktów na wszystkich pasmach (160m–10m), prawidłowy wynik CLAIMED-SCORE: 100.
+  - Poprawa fixture i walidatora SP DX: ścisła egzekucja 16 jednoliterowych symboli województw (`B, C, D, F, G, J, K, L, M, O, P, R, S, U, W, Z`), odrzucanie kodów administracyjnych (`MA`, `LD`, etc.), CLAIMED-SCORE: 27.
+  - Cabrillo 3.0: rozdzielenie `CATEGORY-OPERATOR` (`SINGLE-OP`, `MULTI-OP`, `CHECKLOG`) od `CATEGORY-TRANSMITTER` (`ONE`), usunięcie błędnego `MULTI` w `CATEGORY-TRANSMITTER`.
+  - Wyniki punktacji CQ WPX CW/SSB (144 pkt) w pełni zachowane i zabezpieczone.
 - Gotowość do kolejnego etapu:
   - Etap 7 definitywnie zamknięty ze statusem `SOFTWARE VERIFIED`.
-  - Etap 8 odblokowany.
+  - Etap 8 w stanie `READY` (nieuruchomiony w ramach Etapu 7).
