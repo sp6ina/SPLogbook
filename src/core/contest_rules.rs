@@ -331,6 +331,196 @@ pub fn detect_duplicate(_rule: &ContestRule, qso: &QsoRecord, log: &[QsoRecord])
 }
 
 /// Kanoniczne oznaczenia 16 polskich województw w SP DX Contest (PZK).
+/// Waliduje emisję QSO względem profilu zawodów i zwraca kanoniczny kod Cabrillo.
+pub fn validate_mode(
+    profile: &ContestProfile,
+    qso_mode: &str,
+) -> Result<&'static str, ContestError> {
+    let cab_mode = crate::core::cabrillo::cabrillo_mode(qso_mode);
+    let norm = qso_mode.trim().to_ascii_uppercase();
+
+    let is_allowed = profile
+        .allowed_modes
+        .iter()
+        .any(|&m| m.eq_ignore_ascii_case(&norm) || m.eq_ignore_ascii_case(cab_mode));
+
+    if is_allowed {
+        Ok(cab_mode)
+    } else {
+        Err(ContestError::UnsupportedContestMode {
+            contest: profile.name,
+            mode: qso_mode.to_string(),
+        })
+    }
+}
+
+/// Waliduje pasmo QSO względem profilu zawodów.
+pub fn validate_band(
+    profile: &ContestProfile,
+    band: &str,
+    _freq: Option<f64>,
+) -> Result<&'static str, ContestError> {
+    let b = band.trim().to_ascii_lowercase();
+    for &ab in profile.allowed_bands {
+        if ab.eq_ignore_ascii_case(&b) {
+            return Ok(ab);
+        }
+    }
+    Err(ContestError::UnsupportedContestBand {
+        contest: profile.name,
+        band: band.to_string(),
+    })
+}
+
+/// Wyznacza klucz dedup zawodów (deduplication key) właściwy dla profilu konkursu.
+pub fn contest_dedup_key(profile: &ContestProfile, q: &QsoRecord) -> String {
+    match profile.id {
+        ContestId::SpDx => {
+            let mode = if q.mode.eq_ignore_ascii_case("CW") || q.mode.eq_ignore_ascii_case("CW-R") {
+                "CW"
+            } else {
+                "PH"
+            };
+            format!(
+                "{}:{}:{}",
+                q.callsign.trim().to_ascii_uppercase(),
+                q.band.trim().to_ascii_lowercase(),
+                mode
+            )
+        }
+        ContestId::CqWwCw
+        | ContestId::CqWwSsb
+        | ContestId::CqWwRtty
+        | ContestId::CqWpxCw
+        | ContestId::CqWpxSsb
+        | ContestId::CqWpxRtty => format!(
+            "{}:{}",
+            q.callsign.trim().to_ascii_uppercase(),
+            q.band.trim().to_ascii_lowercase()
+        ),
+    }
+}
+
+/// Waliduje format i obecność grupy kontrolnej (nadanej lub odebranej) zgodnie z regulaminem.
+pub fn validate_exchange(
+    profile: &ContestProfile,
+    qso: &QsoRecord,
+    is_sent: bool,
+    my_dxcc: u32,
+) -> Result<String, ContestError> {
+    match profile.id {
+        ContestId::SpDx => {
+            let is_sp = if is_sent {
+                my_dxcc == 269
+            } else {
+                is_polish_station(qso)
+            };
+
+            if is_sp {
+                let v = if is_sent {
+                    qso.stx_string.as_deref().and_then(|s| {
+                        let t = s.trim().to_ascii_uppercase();
+                        if t.len() == 1 {
+                            let ch = t.chars().next()?;
+                            if SP_VOIVODESHIPS.contains(&ch) {
+                                Some(ch)
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    })
+                } else {
+                    extract_sp_voivodeship(qso)
+                };
+
+                match v {
+                    Some(ch) => Ok(ch.to_string()),
+                    None => Err(ContestError::MissingContestExchange {
+                        contest: profile.name,
+                        detail: "Polish station requires valid voivodeship letter (B,C,D,F,G,J,K,L,M,O,P,R,S,U,W,Z)".to_string(),
+                    }),
+                }
+            } else {
+                let serial_val = if is_sent {
+                    qso.stx.or_else(|| {
+                        qso.stx_string
+                            .as_deref()
+                            .and_then(|s| s.trim().parse::<u32>().ok())
+                    })
+                } else {
+                    qso.srx.or_else(|| {
+                        qso.srx_string
+                            .as_deref()
+                            .and_then(|s| s.trim().parse::<u32>().ok())
+                    })
+                };
+
+                match serial_val {
+                    Some(num) if num > 0 => Ok(format!("{num:03}")),
+                    Some(_) => Err(ContestError::InvalidSerialNumber(
+                        "Serial number must be positive (>= 001)".to_string(),
+                    )),
+                    None => Err(ContestError::MissingSerialNumber(profile.name)),
+                }
+            }
+        }
+        ContestId::CqWwCw | ContestId::CqWwSsb | ContestId::CqWwRtty => {
+            let raw_zone = if is_sent {
+                qso.stx_string
+                    .as_deref()
+                    .and_then(|s| s.trim().parse::<u8>().ok())
+                    .or_else(|| qso.stx.and_then(|x| u8::try_from(x).ok()))
+            } else {
+                qso.cqz
+                    .and_then(|z| u8::try_from(z).ok())
+                    .or_else(|| {
+                        qso.srx_string
+                            .as_deref()
+                            .and_then(|s| s.trim().parse::<u8>().ok())
+                    })
+                    .or_else(|| qso.srx.and_then(|x| u8::try_from(x).ok()))
+            };
+
+            match raw_zone {
+                Some(z) if (1..=40).contains(&z) => Ok(format!("{z:02}")),
+                Some(z) => Err(ContestError::InvalidContestExchange {
+                    contest: profile.name,
+                    detail: format!("CQ Zone must be between 1 and 40, got {z}"),
+                }),
+                None => Err(ContestError::MissingContestExchange {
+                    contest: profile.name,
+                    detail: "CQ Zone is required (1..40)".to_string(),
+                }),
+            }
+        }
+        ContestId::CqWpxCw | ContestId::CqWpxSsb | ContestId::CqWpxRtty => {
+            let serial_val = if is_sent {
+                qso.stx.or_else(|| {
+                    qso.stx_string
+                        .as_deref()
+                        .and_then(|s| s.trim().parse::<u32>().ok())
+                })
+            } else {
+                qso.srx.or_else(|| {
+                    qso.srx_string
+                        .as_deref()
+                        .and_then(|s| s.trim().parse::<u32>().ok())
+                })
+            };
+
+            match serial_val {
+                Some(num) if num > 0 => Ok(format!("{num:03}")),
+                Some(_) => Err(ContestError::InvalidSerialNumber(
+                    "Serial number must be positive (>= 001)".to_string(),
+                )),
+                None => Err(ContestError::MissingSerialNumber(profile.name)),
+            }
+        }
+    }
+}
+
 pub const SP_VOIVODESHIPS: &[char] = &[
     'B', 'C', 'D', 'F', 'G', 'J', 'K', 'L', 'M', 'O', 'P', 'R', 'S', 'U', 'W', 'Z',
 ];
@@ -428,8 +618,21 @@ fn score_sp_dx(qsos: &[QsoRecord], my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, u
     let is_my_sp = my_dxcc == 269;
     let mut pts = 0;
     let mut mults = HashSet::new();
+    let mut seen_qsos = HashSet::new();
+    let profile = ContestProfile::for_id(ContestId::SpDx);
 
     for q in qsos {
+        if validate_mode(&profile, &q.mode).is_err() {
+            continue;
+        }
+        if validate_band(&profile, &q.band, q.freq).is_err() {
+            continue;
+        }
+
+        let dedup = contest_dedup_key(&profile, q);
+        if !seen_qsos.insert(dedup) {
+            continue;
+        }
         let their_is_sp = is_polish_station(q);
 
         if is_my_sp {
@@ -498,8 +701,18 @@ fn score_cqww(qsos: &[QsoRecord], my_dxcc: u32, my_cqzone: u8) -> (u32, u32, u32
 
     let mut pts = 0;
     let mut mults = HashSet::new();
+    let mut seen_qsos = HashSet::new();
+    let profile = ContestProfile::for_id(ContestId::CqWwCw);
 
     for q in qsos {
+        if validate_band(&profile, &q.band, q.freq).is_err() {
+            continue;
+        }
+
+        let dedup = contest_dedup_key(&profile, q);
+        if !seen_qsos.insert(dedup) {
+            continue;
+        }
         let their_cont = q
             .continent
             .as_deref()
@@ -567,7 +780,19 @@ fn score_wpx(qsos: &[QsoRecord], my_dxcc: u32, my_cqzone: u8) -> (u32, u32, u32)
     let mut pts = 0;
     let mut mults = HashSet::new();
 
+    let mut seen_qsos = HashSet::new();
+    let profile = ContestProfile::for_id(ContestId::CqWpxCw);
+
     for q in qsos {
+        if validate_band(&profile, &q.band, q.freq).is_err() {
+            continue;
+        }
+
+        let dedup = contest_dedup_key(&profile, q);
+        if !seen_qsos.insert(dedup) {
+            continue;
+        }
+
         let low = is_low_band(&q.band);
         let their_cont = q
             .continent
@@ -1424,5 +1649,248 @@ mod tests {
         assert_eq!(parsed, Some(ContestId::CqWpxSsb));
         let profile = ContestProfile::for_id(parsed.unwrap());
         assert_eq!(profile.id, ContestId::CqWpxSsb);
+    }
+
+    #[test]
+    fn contest_mode_and_band_validation() {
+        let spdx = ContestProfile::for_id(ContestId::SpDx);
+        assert_eq!(validate_mode(&spdx, "CW").unwrap(), "CW");
+        assert_eq!(validate_mode(&spdx, "SSB").unwrap(), "PH");
+        assert!(matches!(
+            validate_mode(&spdx, "FT8"),
+            Err(ContestError::UnsupportedContestMode { .. })
+        ));
+        assert!(matches!(
+            validate_mode(&spdx, "RTTY"),
+            Err(ContestError::UnsupportedContestMode { .. })
+        ));
+
+        assert_eq!(validate_band(&spdx, "20m", None).unwrap(), "20m");
+        assert_eq!(validate_band(&spdx, "160m", None).unwrap(), "160m");
+        assert!(matches!(
+            validate_band(&spdx, "30m", None),
+            Err(ContestError::UnsupportedContestBand { .. })
+        ));
+        assert!(matches!(
+            validate_band(&spdx, "2m", None),
+            Err(ContestError::UnsupportedContestBand { .. })
+        ));
+    }
+
+    #[test]
+    fn general_cabrillo_supports_standard_mode_codes() {
+        assert_eq!(crate::core::cabrillo::cabrillo_mode("CW"), "CW");
+        assert_eq!(crate::core::cabrillo::cabrillo_mode("SSB"), "PH");
+        assert_eq!(crate::core::cabrillo::cabrillo_mode("FM"), "FM");
+        assert_eq!(crate::core::cabrillo::cabrillo_mode("RTTY"), "RY");
+        assert_eq!(crate::core::cabrillo::cabrillo_mode("FT8"), "DG");
+    }
+
+    #[test]
+    fn contest_profile_rejects_disallowed_mode() {
+        let cqww_cw = ContestProfile::for_id(ContestId::CqWwCw);
+        assert_eq!(validate_mode(&cqww_cw, "CW").unwrap(), "CW");
+        assert!(matches!(
+            validate_mode(&cqww_cw, "SSB"),
+            Err(ContestError::UnsupportedContestMode { .. })
+        ));
+    }
+
+    #[test]
+    fn mode_mapping_does_not_override_contest_restriction() {
+        let spdx = ContestProfile::for_id(ContestId::SpDx);
+        // "FT8" maps to "DG" in Cabrillo, but SP DX does not allow DG
+        assert!(matches!(
+            validate_mode(&spdx, "FT8"),
+            Err(ContestError::UnsupportedContestMode { .. })
+        ));
+    }
+
+    #[test]
+    fn unsupported_mode_is_reported_not_silently_exported_as_valid() {
+        let cqww_ssb = ContestProfile::for_id(ContestId::CqWwSsb);
+        let err = validate_mode(&cqww_ssb, "CW").unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Unsupported contest mode 'CW' for contest CQ World Wide DX Contest (SSB)"
+        );
+    }
+
+    #[test]
+    fn spdx_rejects_digital_mode_for_scoring() {
+        let spdx = ContestProfile::for_id(ContestId::SpDx);
+        let qso = make_qso(
+            "DL1XYZ",
+            "20m",
+            Some(230),
+            Some(14),
+            Some("EU"),
+            Some("001"),
+        );
+        let mut qso_digi = qso.clone();
+        qso_digi.mode = "FT8".to_string();
+
+        let (pts, mults, _) = (spdx.scoring_fn.unwrap())(&[qso_digi], 269, 15);
+        assert_eq!(pts, 0, "FT8 in SP DX must yield 0 points");
+        assert_eq!(mults, 0, "FT8 in SP DX must yield 0 multipliers");
+    }
+
+    #[test]
+    fn spdx_rejects_vhf_band_for_scoring() {
+        let spdx = ContestProfile::for_id(ContestId::SpDx);
+        let qso_vhf = make_qso("SP1ABC", "2m", Some(269), Some(15), Some("EU"), Some("001"));
+        let (pts, mults, _) = (spdx.scoring_fn.unwrap())(&[qso_vhf], 269, 15);
+        assert_eq!(pts, 0, "2m band in SP DX HF contest must yield 0 points");
+        assert_eq!(mults, 0);
+    }
+
+    #[test]
+    fn spdx_polish_exchange_requires_voivodeship() {
+        let spdx = ContestProfile::for_id(ContestId::SpDx);
+        let mut qso = make_qso("SP6INA", "20m", Some(269), Some(15), Some("EU"), None);
+        qso.srx_string = Some("D".to_string());
+        assert_eq!(validate_exchange(&spdx, &qso, false, 230).unwrap(), "D");
+
+        qso.srx_string = Some("INVALID".to_string());
+        assert!(matches!(
+            validate_exchange(&spdx, &qso, false, 230),
+            Err(ContestError::MissingContestExchange { .. })
+        ));
+    }
+
+    #[test]
+    fn spdx_foreign_exchange_requires_serial() {
+        let spdx = ContestProfile::for_id(ContestId::SpDx);
+        let mut qso = make_qso("DL1XYZ", "20m", Some(230), Some(14), Some("EU"), None);
+        qso.srx = Some(42);
+        assert_eq!(validate_exchange(&spdx, &qso, false, 269).unwrap(), "042");
+
+        qso.srx = None;
+        qso.srx_string = None;
+        assert!(matches!(
+            validate_exchange(&spdx, &qso, false, 269),
+            Err(ContestError::MissingSerialNumber(..))
+        ));
+    }
+
+    #[test]
+    fn spdx_mixed_mode_same_station_can_score_separately_by_contract() {
+        let spdx = ContestProfile::for_id(ContestId::SpDx);
+        let q_cw = make_qso(
+            "DL1XYZ",
+            "20m",
+            Some(230),
+            Some(14),
+            Some("EU"),
+            Some("001"),
+        );
+        let mut q_ssb = q_cw.clone();
+        q_ssb.mode = "SSB".to_string();
+
+        let (pts, mults, _) = (spdx.scoring_fn.unwrap())(&[q_cw, q_ssb], 269, 15);
+        // In SP DX MIXED: 1 pt on CW + 1 pt on SSB = 2 pts!
+        assert_eq!(pts, 2);
+        assert_eq!(mults, 1); // DXCC 230 on 20m counted once
+    }
+
+    #[test]
+    fn cqww_cw_requires_cw_and_zone_exchange() {
+        let cqww_cw = ContestProfile::for_id(ContestId::CqWwCw);
+        let mut q = make_qso("DL1XYZ", "20m", Some(230), Some(14), Some("EU"), None);
+        q.cqz = Some(14);
+        assert_eq!(validate_exchange(&cqww_cw, &q, false, 269).unwrap(), "14");
+
+        q.cqz = None;
+        q.srx = None;
+        q.srx_string = None;
+        assert!(matches!(
+            validate_exchange(&cqww_cw, &q, false, 269),
+            Err(ContestError::MissingContestExchange { .. })
+        ));
+    }
+
+    #[test]
+    fn cqww_ssb_requires_phone_and_zone_exchange() {
+        let cqww_ssb = ContestProfile::for_id(ContestId::CqWwSsb);
+        let mut q = make_qso("DL1XYZ", "20m", Some(230), Some(14), Some("EU"), None);
+        q.mode = "SSB".to_string();
+        q.cqz = Some(14);
+        assert_eq!(validate_mode(&cqww_ssb, &q.mode).unwrap(), "PH");
+        assert_eq!(validate_exchange(&cqww_ssb, &q, false, 269).unwrap(), "14");
+    }
+
+    #[test]
+    fn cqww_same_country_zero_points_but_multiplier_eligible() {
+        let cqww = ContestProfile::for_id(ContestId::CqWwCw);
+        let q = make_qso("SP1ABC", "20m", Some(269), Some(15), Some("EU"), None);
+        let (pts, mults, total) = (cqww.scoring_fn.unwrap())(&[q], 269, 15);
+        assert_eq!(pts, 0, "Same country DXCC yields 0 points");
+        assert_eq!(mults, 2, "Zone 15 and Country 269 count as 2 multipliers");
+        assert_eq!(total, 0);
+    }
+
+    #[test]
+    fn cqww_zone_multiplier_is_per_band() {
+        let cqww = ContestProfile::for_id(ContestId::CqWwCw);
+        let q1 = make_qso("DL1XYZ", "20m", Some(230), Some(14), Some("EU"), None);
+        let q2 = make_qso("DL1XYZ", "40m", Some(230), Some(14), Some("EU"), None);
+        let (_, mults, _) = (cqww.scoring_fn.unwrap())(&[q1, q2], 269, 15);
+        // Zone 14 on 20m + DXCC 230 on 20m (2) + Zone 14 on 40m + DXCC 230 on 40m (2) = 4 mults
+        assert_eq!(mults, 4);
+    }
+
+    #[test]
+    fn cqww_country_multiplier_is_per_band() {
+        let cqww = ContestProfile::for_id(ContestId::CqWwCw);
+        let q1 = make_qso("W1AW", "20m", Some(291), Some(5), Some("NA"), None);
+        let q2 = make_qso("W1AW", "15m", Some(291), Some(5), Some("NA"), None);
+        let (_, mults, _) = (cqww.scoring_fn.unwrap())(&[q1, q2], 269, 15);
+        assert_eq!(mults, 4); // Zone 5 on 20m & 15m (2) + DXCC 291 on 20m & 15m (2) = 4
+    }
+
+    #[test]
+    fn contest_duplicate_key_is_profile_specific() {
+        let spdx = ContestProfile::for_id(ContestId::SpDx);
+        let cqww = ContestProfile::for_id(ContestId::CqWwCw);
+        let cqwpx = ContestProfile::for_id(ContestId::CqWpxCw);
+
+        let q = make_qso("SP6INA", "20m", Some(269), Some(15), Some("EU"), None);
+        let k_spdx = contest_dedup_key(&spdx, &q);
+        let k_cqww = contest_dedup_key(&cqww, &q);
+        let k_cqwpx = contest_dedup_key(&cqwpx, &q);
+
+        assert_eq!(k_spdx, "SP6INA:20m:CW");
+        assert_eq!(k_cqww, "SP6INA:20m");
+        assert_eq!(k_cqwpx, "SP6INA:20m");
+    }
+
+    #[test]
+    fn spdx_mixed_duplicate_key_includes_mode() {
+        let spdx = ContestProfile::for_id(ContestId::SpDx);
+        let mut q1 = make_qso("DL1XYZ", "20m", Some(230), Some(14), Some("EU"), None);
+        q1.mode = "CW".to_string();
+        let mut q2 = q1.clone();
+        q2.mode = "SSB".to_string();
+
+        assert_ne!(contest_dedup_key(&spdx, &q1), contest_dedup_key(&spdx, &q2));
+    }
+
+    #[test]
+    fn cqww_duplicate_key_follows_band_contract() {
+        let cqww = ContestProfile::for_id(ContestId::CqWwCw);
+        let q1 = make_qso("DL1XYZ", "20m", Some(230), Some(14), Some("EU"), None);
+        let q2 = make_qso("DL1XYZ", "40m", Some(230), Some(14), Some("EU"), None);
+        assert_ne!(contest_dedup_key(&cqww, &q1), contest_dedup_key(&cqww, &q2));
+    }
+
+    #[test]
+    fn cqwpx_duplicate_key_follows_band_contract() {
+        let cqwpx = ContestProfile::for_id(ContestId::CqWpxCw);
+        let q1 = make_qso("DL1XYZ", "20m", Some(230), Some(14), Some("EU"), None);
+        let q2 = make_qso("DL1XYZ", "20m", Some(230), Some(14), Some("EU"), None);
+        assert_eq!(
+            contest_dedup_key(&cqwpx, &q1),
+            contest_dedup_key(&cqwpx, &q2)
+        );
     }
 }
