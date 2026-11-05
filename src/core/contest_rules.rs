@@ -12,6 +12,294 @@ use std::collections::HashSet;
 
 pub type ScoringFn = fn(&[QsoRecord], u32, u8) -> (u32, u32, u32);
 
+pub const CQ_WPX_RTTY_NOT_IN_SUPPORTED_CONTEST_PROFILES: &str =
+    "CQ WPX RTTY is not in supported contest profiles; CW/SSB rules cannot be applied to RTTY";
+
+pub const CQ_WW_RTTY_NOT_IN_SUPPORTED_CONTEST_PROFILES: &str =
+    "CQ WW RTTY is not in supported contest profiles; CW/SSB rules cannot be applied to RTTY";
+
+/// Błędy domeny zawodów krótkofalarskich.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ContestError {
+    UnsupportedContest(String),
+    UnsupportedContestVariant(String),
+    UnsupportedContestCategory(String),
+    UnsupportedContestMode {
+        contest: &'static str,
+        mode: String,
+    },
+    UnsupportedContestBand {
+        contest: &'static str,
+        band: String,
+    },
+    MissingContestExchange {
+        contest: &'static str,
+        detail: String,
+    },
+    InvalidContestExchange {
+        contest: &'static str,
+        detail: String,
+    },
+    MissingSerialNumber(&'static str),
+    InvalidSerialNumber(String),
+    MissingTransmitterId(String),
+    ContestScoreRuleUnavailable(String),
+}
+
+impl std::fmt::Display for ContestError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ContestError::UnsupportedContest(s) => write!(f, "Unsupported contest: {s}"),
+            ContestError::UnsupportedContestVariant(s) => {
+                write!(f, "Unsupported contest variant: {s}")
+            }
+            ContestError::UnsupportedContestCategory(s) => {
+                write!(f, "Unsupported contest category: {s}")
+            }
+            ContestError::UnsupportedContestMode { contest, mode } => {
+                write!(f, "Unsupported contest mode '{mode}' for contest {contest}")
+            }
+            ContestError::UnsupportedContestBand { contest, band } => {
+                write!(f, "Unsupported contest band '{band}' for contest {contest}")
+            }
+            ContestError::MissingContestExchange { contest, detail } => {
+                write!(f, "Missing contest exchange for {contest}: {detail}")
+            }
+            ContestError::InvalidContestExchange { contest, detail } => {
+                write!(f, "Invalid contest exchange for {contest}: {detail}")
+            }
+            ContestError::MissingSerialNumber(contest) => {
+                write!(f, "Missing serial number for contest {contest}")
+            }
+            ContestError::InvalidSerialNumber(s) => write!(f, "Invalid serial number: {s}"),
+            ContestError::MissingTransmitterId(s) => {
+                write!(f, "Missing transmitter ID for category: {s}")
+            }
+            ContestError::ContestScoreRuleUnavailable(s) => {
+                write!(f, "Contest scoring rule unavailable for: {s}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ContestError {}
+
+/// Ściśle typowany identyfikator wspieranych i rozróżnianych zawodów krótkofalarskich.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ContestId {
+    SpDx,
+    CqWwCw,
+    CqWwSsb,
+    CqWwRtty,
+    CqWpxCw,
+    CqWpxSsb,
+    CqWpxRtty,
+}
+
+impl ContestId {
+    /// Rozpoznaje identyfikator konkursu na podstawie oficjalnej lub alternatywnej nazwy.
+    pub fn parse_from_name(name: &str) -> Option<Self> {
+        let n = name.trim();
+        if n.eq_ignore_ascii_case("SP DX Contest") || n.eq_ignore_ascii_case("SP-DX-CONTEST") {
+            Some(ContestId::SpDx)
+        } else if n.eq_ignore_ascii_case("CQ World Wide DX Contest (CW)")
+            || n.eq_ignore_ascii_case("CQ WW CW")
+            || n.eq_ignore_ascii_case("CQ-WW-CW")
+        {
+            Some(ContestId::CqWwCw)
+        } else if n.eq_ignore_ascii_case("CQ World Wide DX Contest (SSB)")
+            || n.eq_ignore_ascii_case("CQ WW SSB")
+            || n.eq_ignore_ascii_case("CQ-WW-SSB")
+        {
+            Some(ContestId::CqWwSsb)
+        } else if n.eq_ignore_ascii_case("CQ World Wide DX Contest (RTTY)")
+            || n.eq_ignore_ascii_case("CQ WW RTTY")
+            || n.eq_ignore_ascii_case("CQ-WW-RTTY")
+        {
+            Some(ContestId::CqWwRtty)
+        } else if n.eq_ignore_ascii_case("CQ WPX Contest (CW)")
+            || n.eq_ignore_ascii_case("CQ WPX CW")
+            || n.eq_ignore_ascii_case("CQ-WPX-CW")
+        {
+            Some(ContestId::CqWpxCw)
+        } else if n.eq_ignore_ascii_case("CQ WPX Contest (SSB)")
+            || n.eq_ignore_ascii_case("CQ WPX SSB")
+            || n.eq_ignore_ascii_case("CQ-WPX-SSB")
+        {
+            Some(ContestId::CqWpxSsb)
+        } else if n.eq_ignore_ascii_case("CQ WPX Contest") || n.eq_ignore_ascii_case("CQ-WPX") {
+            Some(ContestId::CqWpxCw)
+        } else if n.eq_ignore_ascii_case("CQ WPX RTTY Contest")
+            || n.eq_ignore_ascii_case("CQ WPX RTTY")
+            || n.eq_ignore_ascii_case("CQ-WPX-RTTY")
+            || n.eq_ignore_ascii_case("WPX-RTTY")
+        {
+            Some(ContestId::CqWpxRtty)
+        } else {
+            None
+        }
+    }
+
+    /// Kanoniczny identyfikator konkursu w nagłówku Cabrillo `CONTEST: <NAME>`.
+    pub fn cabrillo_contest_name(&self) -> &'static str {
+        match self {
+            ContestId::SpDx => "SP-DX-CONTEST",
+            ContestId::CqWwCw => "CQ-WW-CW",
+            ContestId::CqWwSsb => "CQ-WW-SSB",
+            ContestId::CqWwRtty => "CQ-WW-RTTY",
+            ContestId::CqWpxCw => "CQ-WPX-CW",
+            ContestId::CqWpxSsb => "CQ-WPX-SSB",
+            ContestId::CqWpxRtty => "CQ-WPX-RTTY",
+        }
+    }
+
+    /// Zwraca true, jeśli profil jest w pełni zintegrowany i gotowy do przeliczania punktów.
+    pub fn is_supported(&self) -> bool {
+        match self {
+            ContestId::SpDx
+            | ContestId::CqWwCw
+            | ContestId::CqWwSsb
+            | ContestId::CqWpxCw
+            | ContestId::CqWpxSsb => true,
+            ContestId::CqWwRtty | ContestId::CqWpxRtty => false,
+        }
+    }
+}
+
+/// Jawny profil zawodów definiujący dopuszczalne pasma, emisje, format wymiany i silnik punktacji.
+#[derive(Debug, Clone)]
+pub struct ContestProfile {
+    pub id: ContestId,
+    pub name: &'static str,
+    pub cabrillo_name: &'static str,
+    pub rules_edition: &'static str,
+    pub allowed_modes: &'static [&'static str],
+    pub allowed_bands: &'static [&'static str],
+    pub exchange_format: &'static str,
+    pub mult_kind: MultKind,
+    pub scoring_fn: Option<ScoringFn>,
+}
+
+impl ContestProfile {
+    /// Zwraca zweryfikowany profil dla danego identyfikatora zawodów.
+    pub fn for_id(id: ContestId) -> Self {
+        match id {
+            ContestId::SpDx => Self {
+                id,
+                name: "SP DX Contest",
+                cabrillo_name: "SP-DX-CONTEST",
+                rules_edition: "PZK SP DX Contest Rules 2024/2025",
+                allowed_modes: &["CW", "CW-R", "SSB", "USB", "LSB", "PH"],
+                allowed_bands: &["160m", "80m", "40m", "20m", "15m", "10m"],
+                exchange_format: "RST + Voivodeship / Serial",
+                mult_kind: MultKind::DxccPerBand,
+                scoring_fn: Some(score_sp_dx),
+            },
+            ContestId::CqWwCw => Self {
+                id,
+                name: "CQ World Wide DX Contest (CW)",
+                cabrillo_name: "CQ-WW-CW",
+                rules_edition: "CQ WW DX Contest Rules 2024/2025 (CW)",
+                allowed_modes: &["CW", "CW-R"],
+                allowed_bands: &["160m", "80m", "40m", "20m", "15m", "10m"],
+                exchange_format: "RST + CQ Zone",
+                mult_kind: MultKind::CqZone,
+                scoring_fn: Some(score_cqww),
+            },
+            ContestId::CqWwSsb => Self {
+                id,
+                name: "CQ World Wide DX Contest (SSB)",
+                cabrillo_name: "CQ-WW-SSB",
+                rules_edition: "CQ WW DX Contest Rules 2024/2025 (SSB)",
+                allowed_modes: &["SSB", "USB", "LSB", "PH", "AM"],
+                allowed_bands: &["160m", "80m", "40m", "20m", "15m", "10m"],
+                exchange_format: "RS + CQ Zone",
+                mult_kind: MultKind::CqZone,
+                scoring_fn: Some(score_cqww),
+            },
+            ContestId::CqWpxCw => Self {
+                id,
+                name: "CQ WPX Contest (CW)",
+                cabrillo_name: "CQ-WPX-CW",
+                rules_edition: "CQ WPX Contest Rules 2024/2025 (CW)",
+                allowed_modes: &["CW", "CW-R"],
+                allowed_bands: &["160m", "80m", "40m", "20m", "15m", "10m"],
+                exchange_format: "RST + Serial",
+                mult_kind: MultKind::Prefix,
+                scoring_fn: Some(score_wpx),
+            },
+            ContestId::CqWpxSsb => Self {
+                id,
+                name: "CQ WPX Contest (SSB)",
+                cabrillo_name: "CQ-WPX-SSB",
+                rules_edition: "CQ WPX Contest Rules 2024/2025 (SSB)",
+                allowed_modes: &["SSB", "USB", "LSB", "PH"],
+                allowed_bands: &["160m", "80m", "40m", "20m", "15m", "10m"],
+                exchange_format: "RS + Serial",
+                mult_kind: MultKind::Prefix,
+                scoring_fn: Some(score_wpx),
+            },
+            ContestId::CqWpxRtty => Self {
+                id,
+                name: "CQ WPX RTTY Contest",
+                cabrillo_name: "CQ-WPX-RTTY",
+                rules_edition: "CQ WPX RTTY Contest Rules (Not Supported in Profile)",
+                allowed_modes: &["RTTY", "RY"],
+                allowed_bands: &["80m", "40m", "20m", "15m", "10m"],
+                exchange_format: "RST + Serial",
+                mult_kind: MultKind::Prefix,
+                scoring_fn: None,
+            },
+            ContestId::CqWwRtty => Self {
+                id,
+                name: "CQ World Wide DX Contest (RTTY)",
+                cabrillo_name: "CQ-WW-RTTY",
+                rules_edition: "CQ WW RTTY Contest Rules (Not Supported in Profile)",
+                allowed_modes: &["RTTY", "RY"],
+                allowed_bands: &["80m", "40m", "20m", "15m", "10m"],
+                exchange_format: "RST + CQ Zone + State/VE",
+                mult_kind: MultKind::CqZone,
+                scoring_fn: None,
+            },
+        }
+    }
+
+    /// Oblicza wynik na podstawie jawnego profilu zawodów.
+    pub fn score_qsos(
+        &self,
+        qsos: &[QsoRecord],
+        my_dxcc: u32,
+        my_cqzone: u8,
+    ) -> Result<(u32, u32, u32), ContestError> {
+        match self.scoring_fn {
+            Some(f) => Ok(f(qsos, my_dxcc, my_cqzone)),
+            None => {
+                if self.id == ContestId::CqWpxRtty {
+                    Err(ContestError::UnsupportedContestVariant(
+                        CQ_WPX_RTTY_NOT_IN_SUPPORTED_CONTEST_PROFILES.to_string(),
+                    ))
+                } else if self.id == ContestId::CqWwRtty {
+                    Err(ContestError::UnsupportedContestVariant(
+                        CQ_WW_RTTY_NOT_IN_SUPPORTED_CONTEST_PROFILES.to_string(),
+                    ))
+                } else {
+                    Err(ContestError::ContestScoreRuleUnavailable(
+                        self.name.to_string(),
+                    ))
+                }
+            }
+        }
+    }
+}
+
+impl PartialEq for ContestProfile {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl Eq for ContestProfile {}
+
 pub struct ContestRule {
     pub name: &'static str,
     /// Opis wymiany wyświetlany użytkownikowi.
@@ -1040,5 +1328,101 @@ mod tests {
         let (_, mults, _) = score_wpx(&[q], 269, 15);
         assert_eq!(mults, 1);
         assert_eq!(crate::core::prefix::extract_wpx_prefix("RA"), "RA0");
+    }
+
+    #[test]
+    fn contest_profile_supports_spdx_cqww_cqwpx() {
+        let spdx = ContestProfile::for_id(ContestId::SpDx);
+        assert_eq!(spdx.cabrillo_name, "SP-DX-CONTEST");
+        assert!(spdx.id.is_supported());
+
+        let cqww_cw = ContestProfile::for_id(ContestId::CqWwCw);
+        assert_eq!(cqww_cw.cabrillo_name, "CQ-WW-CW");
+        assert!(cqww_cw.id.is_supported());
+
+        let cqww_ssb = ContestProfile::for_id(ContestId::CqWwSsb);
+        assert_eq!(cqww_ssb.cabrillo_name, "CQ-WW-SSB");
+        assert!(cqww_ssb.id.is_supported());
+
+        let cqwpx_cw = ContestProfile::for_id(ContestId::CqWpxCw);
+        assert_eq!(cqwpx_cw.cabrillo_name, "CQ-WPX-CW");
+        assert!(cqwpx_cw.id.is_supported());
+
+        let cqwpx_ssb = ContestProfile::for_id(ContestId::CqWpxSsb);
+        assert_eq!(cqwpx_ssb.cabrillo_name, "CQ-WPX-SSB");
+        assert!(cqwpx_ssb.id.is_supported());
+    }
+
+    #[test]
+    fn cqwpx_rtty_does_not_use_cw_ssb_rules() {
+        let rtty_profile = ContestProfile::for_id(ContestId::CqWpxRtty);
+        assert_eq!(rtty_profile.cabrillo_name, "CQ-WPX-RTTY");
+        assert!(!rtty_profile.id.is_supported());
+        assert!(rtty_profile.scoring_fn.is_none());
+
+        let qso = make_qso(
+            "DL1XYZ",
+            "20m",
+            Some(230),
+            Some(14),
+            Some("EU"),
+            Some("001"),
+        );
+        let res = rtty_profile.score_qsos(&[qso], 269, 15);
+        assert_eq!(
+            res,
+            Err(ContestError::UnsupportedContestVariant(
+                CQ_WPX_RTTY_NOT_IN_SUPPORTED_CONTEST_PROFILES.to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn cqww_rtty_does_not_use_cw_ssb_rules_if_supported() {
+        let rtty_profile = ContestProfile::for_id(ContestId::CqWwRtty);
+        assert_eq!(rtty_profile.cabrillo_name, "CQ-WW-RTTY");
+        assert!(!rtty_profile.id.is_supported());
+        assert!(rtty_profile.scoring_fn.is_none());
+
+        let qso = make_qso("DL1XYZ", "20m", Some(230), Some(14), Some("EU"), Some("14"));
+        let res = rtty_profile.score_qsos(&[qso], 269, 15);
+        assert_eq!(
+            res,
+            Err(ContestError::UnsupportedContestVariant(
+                CQ_WW_RTTY_NOT_IN_SUPPORTED_CONTEST_PROFILES.to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn unsupported_contest_and_unsupported_variant_are_rejected() {
+        assert_eq!(ContestId::parse_from_name("NonExistentContest2026"), None);
+
+        let err = ContestError::UnsupportedContestVariant("CQ-WPX-RTTY".to_string());
+        assert_eq!(err.to_string(), "Unsupported contest variant: CQ-WPX-RTTY");
+
+        let err_cat = ContestError::UnsupportedContestCategory("MULTI-TWO".to_string());
+        assert_eq!(
+            err_cat.to_string(),
+            "Unsupported contest category: MULTI-TWO"
+        );
+    }
+
+    #[test]
+    fn contest_profile_does_not_infer_profile_from_single_qso_mode() {
+        let qso = make_qso(
+            "DL1XYZ",
+            "20m",
+            Some(230),
+            Some(14),
+            Some("EU"),
+            Some("001"),
+        );
+        assert_eq!(qso.mode, "CW");
+
+        let parsed = ContestId::parse_from_name("CQ WPX Contest (SSB)");
+        assert_eq!(parsed, Some(ContestId::CqWpxSsb));
+        let profile = ContestProfile::for_id(parsed.unwrap());
+        assert_eq!(profile.id, ContestId::CqWpxSsb);
     }
 }
