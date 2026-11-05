@@ -66,8 +66,15 @@ impl SpLogApp {
                 country: &self.config.station.country,
                 claimed_score: scoreboard.total,
                 qsos: &qsos,
+                transmitter_category: Some(crate::core::cabrillo::CabrilloTransmitterCategory::One),
             };
-            let out = crate::core::cabrillo::build(&input);
+            let out = match crate::core::cabrillo::build(&input) {
+                Ok(s) => s,
+                Err(err) => {
+                    self.gui.chrome.status_message = Some(format!("Błąd eksportu Cabrillo: {err}"));
+                    return;
+                }
+            };
 
             match std::fs::write(&path, out) {
                 Ok(()) => {

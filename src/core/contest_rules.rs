@@ -614,7 +614,7 @@ pub fn extract_sp_voivodeship(q: &QsoRecord) -> Option<char> {
 /// - Łączności tylko ze stacjami polskimi (SP): 3 pkt za QSO na dowolnym paśmie.
 /// - Łączności ze stacjami zagranicznymi: 0 pkt, brak mnożnika.
 /// - Mnożnik: 16 polskich województw (`B, C, D, F, G, J, K, L, M, O, P, R, S, U, W, Z`) per pasmo.
-fn score_sp_dx(qsos: &[QsoRecord], my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, u32) {
+pub fn score_sp_dx(qsos: &[QsoRecord], my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, u32) {
     let is_my_sp = my_dxcc == 269;
     let mut pts = 0;
     let mut mults = HashSet::new();
@@ -690,7 +690,7 @@ fn score_sp_dx(qsos: &[QsoRecord], my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, u
 /// Mnożniki:
 /// - Strefy CQ (1..40) per pasmo.
 /// - Podmioty DXCC per pasmo.
-fn score_cqww(qsos: &[QsoRecord], my_dxcc: u32, my_cqzone: u8) -> (u32, u32, u32) {
+pub fn score_cqww(qsos: &[QsoRecord], my_dxcc: u32, my_cqzone: u8) -> (u32, u32, u32) {
     let my_cont = if my_dxcc == 269 {
         "EU"
     } else if my_dxcc == 291 || my_dxcc == 1 {
@@ -768,7 +768,7 @@ fn score_arrl_dx(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32
 ///
 /// Mnożniki:
 /// - Unikalne prefiksy WPX zaliczane raz na całe zawody (niezależnie od pasma).
-fn score_wpx(qsos: &[QsoRecord], my_dxcc: u32, my_cqzone: u8) -> (u32, u32, u32) {
+pub fn score_wpx(qsos: &[QsoRecord], my_dxcc: u32, my_cqzone: u8) -> (u32, u32, u32) {
     let my_cont = if my_dxcc == 269 {
         "EU"
     } else if my_dxcc == 291 || my_dxcc == 1 {

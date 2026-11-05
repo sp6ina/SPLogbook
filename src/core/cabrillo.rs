@@ -3,8 +3,184 @@
 
 //! Generator plików w formacie Cabrillo v3.0 dla zawodów krótkofalarskich.
 
+use crate::core::contest_rules::ContestError;
 use crate::core::qso::QsoRecord;
 use std::fmt::Write;
+
+/// Kategoria nadajnika dla zawodów krótkofalarskich w formacie Cabrillo 3.0.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CabrilloTransmitterCategory {
+    One,
+    Two,
+    Multi,
+    Unlimited,
+}
+
+impl CabrilloTransmitterCategory {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::One => "ONE",
+            Self::Two => "TWO",
+            Self::Multi => "MULTI",
+            Self::Unlimited => "UNLIMITED",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        let t = s.trim();
+        if t.eq_ignore_ascii_case("ONE") || t.eq_ignore_ascii_case("SINGLE") {
+            Some(Self::One)
+        } else if t.eq_ignore_ascii_case("TWO") || t.eq_ignore_ascii_case("MULTI-TWO") {
+            Some(Self::Two)
+        } else if t.eq_ignore_ascii_case("MULTI") || t.eq_ignore_ascii_case("MULTI-MULTI") {
+            Some(Self::Multi)
+        } else if t.eq_ignore_ascii_case("UNLIMITED") {
+            Some(Self::Unlimited)
+        } else {
+            None
+        }
+    }
+}
+
+/// Waliduje kategorię nadajnika dla aktualnego wydania SPLogbook.
+/// SPLogbook w wersji 1.x wspiera wyłącznie kategorię Single-Op / One (jeden nadajnik).
+/// Kategorie wielonadajnikowe (Multi-Two, Multi-Unlimited) wymagają modelu wielu nadajników (Etap 8)
+/// i są jawnie odrzucane z błędem `ContestError::UnsupportedContestCategory`.
+pub fn validate_transmitter_category(cat: CabrilloTransmitterCategory) -> Result<(), ContestError> {
+    match cat {
+        CabrilloTransmitterCategory::One => Ok(()),
+        CabrilloTransmitterCategory::Two => Err(ContestError::UnsupportedContestCategory(
+            "Multi-Two category requires independent transmitter/band sequences and is not supported in current release".to_string(),
+        )),
+        CabrilloTransmitterCategory::Multi => Err(ContestError::UnsupportedContestCategory(
+            "Multi-Multi category requires multi-transmitter tracking and is not supported in current release".to_string(),
+        )),
+        CabrilloTransmitterCategory::Unlimited => Err(ContestError::UnsupportedContestCategory(
+            "Multi-Unlimited category requires multi-transmitter tracking and is not supported in current release".to_string(),
+        )),
+    }
+}
+
+/// Sprawdza, czy kolumna identyfikatora nadajnika (transmitter ID) powinna być emitowana w wierszu Cabrillo.
+/// W kategorii ONE (Single-Op / Multi-One) kolumna nadajnika NIE jest emitowana.
+pub const fn cabrillo_transmitter_id_is_emitted(cat: CabrilloTransmitterCategory) -> bool {
+    match cat {
+        CabrilloTransmitterCategory::One => false,
+        CabrilloTransmitterCategory::Two
+        | CabrilloTransmitterCategory::Multi
+        | CabrilloTransmitterCategory::Unlimited => true,
+    }
+}
+
+/// Sprawdza politykę numeracji seryjnej dla kategorii zawodów CQ WPX.
+/// - Single-Op / One: jedna globalna sekwencja numerów rosnących od 001.
+/// - Multi-One: jedna sekwencja dla całej stacji (zgodnie z regulaminem CQ WPX).
+/// - Multi-Two: wymaga niezależnych sekwencji per pasmo oraz identyfikatora nadajnika.
+pub fn validate_cqwpx_serial_policy(
+    cat: CabrilloTransmitterCategory,
+    qsos: &[QsoRecord],
+) -> Result<(), ContestError> {
+    validate_transmitter_category(cat)?;
+
+    let mut prev_serial: Option<u32> = None;
+    for qso in qsos {
+        let serial_val = if let Some(ref s) = qso.stx_string {
+            s.trim().parse::<u32>().ok()
+        } else {
+            qso.stx
+        };
+
+        if let Some(ser) = serial_val {
+            if let Some(prev) = prev_serial {
+                if ser <= prev {
+                    return Err(ContestError::InvalidSerialNumber(format!(
+                        "Non-monotonic serial sequence: previous {prev}, current {ser}"
+                    )));
+                }
+            }
+            prev_serial = Some(ser);
+        }
+    }
+    Ok(())
+}
+
+/// Formatuje i waliduje raport RST dla logu Cabrillo bez fałszowania wartości użytkownika.
+/// - Jeśli pole RST jest puste, stosowany jest domyślny raport (599 dla CW/RY/DG, 59 dla PH/FM).
+/// - Jeśli pole zawiera wartość użytkownika (np. 57, 579, 559, 51), jest ona zachowywana.
+/// - Jeśli wartość zawiera niedozwolone znaki (nie-cyfry) lub nieprawidłową długość, zwracany jest błąd.
+pub fn format_and_validate_rst(raw: &str, cab_mode: &str) -> Result<String, ContestError> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(match cab_mode {
+            "CW" | "RY" | "DG" => "599".to_string(),
+            _ => "59".to_string(),
+        });
+    }
+
+    if !trimmed.chars().all(|c| c.is_ascii_digit()) {
+        return Err(ContestError::InvalidContestExchange {
+            contest: "Cabrillo",
+            detail: format!("Malformed RST '{trimmed}': contains non-digit characters"),
+        });
+    }
+
+    match cab_mode {
+        "CW" | "RY" | "DG" => {
+            if trimmed.len() < 2 || trimmed.len() > 3 {
+                return Err(ContestError::InvalidContestExchange {
+                    contest: "Cabrillo",
+                    detail: format!(
+                        "Malformed RST '{trimmed}': expected 2 or 3 digits for {cab_mode}"
+                    ),
+                });
+            }
+        }
+        _ => {
+            if trimmed.len() != 2 {
+                return Err(ContestError::InvalidContestExchange {
+                    contest: "Cabrillo",
+                    detail: format!("Malformed RS '{trimmed}': expected 2 digits for {cab_mode}"),
+                });
+            }
+        }
+    }
+
+    Ok(trimmed.to_string())
+}
+
+/// Ustala wymianę nadawaną (STX) z zachowaniem ścisłego priorytetu:
+/// 1. `stx_string` (jeśli niepusty po trim);
+/// 2. `stx` (np. `{stx:03}`);
+/// 3. `fallback_index` (np. `format!("{fallback_index:03}")`).
+pub fn resolve_sent_exchange(qso: &QsoRecord, fallback_index: usize) -> String {
+    if let Some(ref s) = qso.stx_string {
+        let trimmed = s.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+    }
+    if let Some(stx) = qso.stx {
+        return format!("{stx:03}");
+    }
+    format!("{fallback_index:03}")
+}
+
+/// Ustala wymianę odebraną (SRX) z zachowaniem priorytetu:
+/// 1. `srx_string` (jeśli niepusty po trim);
+/// 2. `srx` (np. `{srx:03}`);
+/// 3. fallback (domyślnie "001").
+pub fn resolve_rcvd_exchange(qso: &QsoRecord, default_fallback: &str) -> String {
+    if let Some(ref s) = qso.srx_string {
+        let trimmed = s.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+    }
+    if let Some(srx) = qso.srx {
+        return format!("{srx:03}");
+    }
+    default_fallback.to_string()
+}
 
 /// Dane wejściowe do wygenerowania raportu zawodów w formacie Cabrillo 3.0.
 #[derive(Debug, Clone)]
@@ -16,6 +192,7 @@ pub struct CabrilloInput<'a> {
     pub country: &'a str,
     pub claimed_score: u32,
     pub qsos: &'a [QsoRecord],
+    pub transmitter_category: Option<CabrilloTransmitterCategory>,
 }
 
 /// Mapuje emisję QSO na kanoniczny kod Cabrillo 3.0: `CW`, `PH`, `FM`, `RY`, `DG`.
@@ -71,14 +248,19 @@ pub fn band_to_cabrillo_freq(band: &str) -> u64 {
     }
 }
 
-/// Czysta funkcja generująca tekst raportu Cabrillo 3.0.
-pub fn build(input: &CabrilloInput) -> String {
+/// Czysta funkcja generująca tekst raportu Cabrillo 3.0 z pełną walidacją kategorii i raportów RST.
+pub fn build(input: &CabrilloInput) -> Result<String, ContestError> {
+    let tx_category = input
+        .transmitter_category
+        .unwrap_or(CabrilloTransmitterCategory::One);
+    validate_transmitter_category(tx_category)?;
+
     let mut out = String::new();
     out.push_str("START-OF-LOG: 3.0\n");
     let _ = writeln!(out, "CONTEST: {}", input.contest_name);
     let _ = writeln!(out, "CALLSIGN: {}", input.callsign);
     out.push_str("CATEGORY-OPERATOR: SINGLE-OP\n");
-    out.push_str("CATEGORY-TRANSMITTER: ONE\n");
+    let _ = writeln!(out, "CATEGORY-TRANSMITTER: {}", tx_category.as_str());
     out.push_str("CATEGORY-POWER: HIGH\n");
     out.push_str("CATEGORY-BAND: ALL\n");
     out.push_str("CATEGORY-MODE: MIXED\n");
@@ -87,6 +269,7 @@ pub fn build(input: &CabrilloInput) -> String {
     let _ = writeln!(out, "OPERATORS: {}", input.callsign);
     let _ = writeln!(out, "NAME: {}", input.operator);
     let _ = writeln!(out, "ADDRESS: {}, {}", input.city, input.country);
+    out.push_str("CREATED-BY: SPLogbook by SP6INA (GPLv3)\n");
     out.push_str("SOAPBOX: Created with SPLogbook by SP6INA (GPLv3)\n");
 
     // Kopiujemy i sortujemy łączności chronologicznie rosnąco (DATA-001 / FUNC-001)
@@ -122,54 +305,10 @@ pub fn build(input: &CabrilloInput) -> String {
         };
 
         let mode_cab = cabrillo_mode(&qso.mode);
-
-        let default_rst = if mode_cab == "CW" || mode_cab == "RY" || mode_cab == "DG" {
-            "599"
-        } else {
-            "59"
-        };
-
-        let my_rst = if !qso.rst_sent.trim().is_empty() {
-            qso.rst_sent.trim()
-        } else {
-            default_rst
-        };
-
-        let his_rst = if !qso.rst_rcvd.trim().is_empty() {
-            qso.rst_rcvd.trim()
-        } else {
-            default_rst
-        };
-
-        let my_exch = if let Some(stx_s) = &qso.stx_string {
-            let trimmed = stx_s.trim();
-            if !trimmed.is_empty() {
-                trimmed.to_string()
-            } else if let Some(stx) = qso.stx {
-                format!("{stx:03}")
-            } else {
-                format!("{:03}", idx + 1)
-            }
-        } else if let Some(stx) = qso.stx {
-            format!("{stx:03}")
-        } else {
-            format!("{:03}", idx + 1)
-        };
-
-        let his_exch = if let Some(srx_s) = &qso.srx_string {
-            let trimmed = srx_s.trim();
-            if !trimmed.is_empty() {
-                trimmed.to_string()
-            } else if let Some(srx) = qso.srx {
-                format!("{srx:03}")
-            } else {
-                "001".to_string()
-            }
-        } else if let Some(srx) = qso.srx {
-            format!("{srx:03}")
-        } else {
-            "001".to_string()
-        };
+        let my_rst = format_and_validate_rst(&qso.rst_sent, mode_cab)?;
+        let his_rst = format_and_validate_rst(&qso.rst_rcvd, mode_cab)?;
+        let my_exch = resolve_sent_exchange(qso, idx + 1);
+        let his_exch = resolve_rcvd_exchange(qso, "001");
 
         let _ = writeln!(
             out,
@@ -187,12 +326,13 @@ pub fn build(input: &CabrilloInput) -> String {
         );
     }
     out.push_str("END-OF-LOG:\n");
-    out
+    Ok(out)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::contest_rules::{score_cqww, score_sp_dx};
     use crate::core::contest_stats::compute_scoreboard;
 
     fn sample_qso(call: &str, band: &str, mode: &str, rst_sent: &str, rst_rcvd: &str) -> QsoRecord {
@@ -222,9 +362,10 @@ mod tests {
             country: "Poland",
             claimed_score: sb.total,
             qsos: &qsos,
+            transmitter_category: None,
         };
 
-        let cabrillo = build(&input);
+        let cabrillo = build(&input).expect("valid cabrillo");
         let expected_line = format!("CLAIMED-SCORE: {}\n", sb.total);
         assert!(
             cabrillo.contains(&expected_line),
@@ -247,19 +388,22 @@ mod tests {
             country: "Poland",
             claimed_score: 1234,
             qsos: &qsos,
+            transmitter_category: Some(CabrilloTransmitterCategory::One),
         };
 
-        let text = build(&input);
+        let text = build(&input).expect("valid cabrillo");
 
         // Nagłówek
         assert!(text.starts_with("START-OF-LOG: 3.0\n"));
         assert!(text.contains("CONTEST: CQ WW DX\n"));
         assert!(text.contains("CALLSIGN: SP6INA\n"));
         assert!(text.contains("CATEGORY-OPERATOR: SINGLE-OP\n"));
+        assert!(text.contains("CATEGORY-TRANSMITTER: ONE\n"));
         assert!(text.contains("CLAIMED-SCORE: 1234\n"));
         assert!(text.contains("OPERATORS: SP6INA\n"));
         assert!(text.contains("NAME: Mariusz\n"));
         assert!(text.contains("ADDRESS: Opole, Poland\n"));
+        assert!(text.contains("CREATED-BY: SPLogbook by SP6INA (GPLv3)\n"));
         assert!(text.contains("SOAPBOX: Created with SPLogbook by SP6INA (GPLv3)\n"));
 
         // Linia QSO: 14025 CW 2026-04-04 1200 SP6INA     599 001  DL1XYZ     599 042
@@ -296,9 +440,10 @@ mod tests {
             country: "Poland",
             claimed_score: 100,
             qsos: &qsos,
+            transmitter_category: None,
         };
 
-        let text = build(&input);
+        let text = build(&input).expect("valid cabrillo");
         let lines: Vec<&str> = text.lines().filter(|l| l.starts_with("QSO:")).collect();
         assert_eq!(lines.len(), 3);
 
@@ -347,9 +492,10 @@ mod tests {
             country: "Poland",
             claimed_score: 500,
             qsos: &qsos,
+            transmitter_category: None,
         };
 
-        let text = build(&input);
+        let text = build(&input).expect("valid cabrillo");
         let lines: Vec<&str> = text.lines().filter(|l| l.starts_with("QSO:")).collect();
         assert_eq!(lines.len(), 3);
 
@@ -380,6 +526,364 @@ mod tests {
                 && lines[2].contains("JN79"),
             "lines[2] unexpected: '{}'",
             lines[2]
+        );
+    }
+
+    #[test]
+    fn cqwpx_single_transmitter_uses_single_serial_sequence() {
+        let mut q1 = sample_qso("W1AW", "20m", "CW", "599", "599");
+        q1.stx = Some(1);
+        let mut q2 = sample_qso("DL1XYZ", "40m", "CW", "599", "599");
+        q2.stx = Some(2);
+        let mut q3 = sample_qso("JA1ABC", "15m", "CW", "599", "599");
+        q3.stx = Some(3);
+
+        let qsos = vec![q1, q2, q3];
+        assert!(validate_cqwpx_serial_policy(CabrilloTransmitterCategory::One, &qsos).is_ok());
+
+        // Nie-monotoniczna sekwencja zwraca błąd InvalidSerialNumber
+        let mut q_first = sample_qso("W1AW", "20m", "CW", "599", "599");
+        q_first.stx = Some(2);
+        let mut q_second = sample_qso("DL1XYZ", "20m", "CW", "599", "599");
+        q_second.stx = Some(1);
+        let res =
+            validate_cqwpx_serial_policy(CabrilloTransmitterCategory::One, &[q_first, q_second]);
+        assert!(matches!(res, Err(ContestError::InvalidSerialNumber(_))));
+    }
+
+    #[test]
+    fn cqwpx_multi_one_uses_contract_serial_sequence() {
+        // Multi-One stosuje jedną wspólną sekwencję numerów seryjnych
+        let mut q1 = sample_qso("W1AW", "20m", "CW", "599", "599");
+        q1.stx_string = Some("001".to_string());
+        let mut q2 = sample_qso("DL1XYZ", "80m", "SSB", "59", "59");
+        q2.stx_string = Some("002".to_string());
+
+        let res = validate_cqwpx_serial_policy(CabrilloTransmitterCategory::One, &[q1, q2]);
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn cqwpx_multi_two_requires_transmitter_and_band_sequences() {
+        let q1 = sample_qso("W1AW", "20m", "CW", "599", "599");
+        let res = validate_cqwpx_serial_policy(CabrilloTransmitterCategory::Two, &[q1]);
+        match res {
+            Err(ContestError::UnsupportedContestCategory(msg)) => {
+                assert!(msg.contains("Multi-Two"));
+            }
+            other => panic!("Expected UnsupportedContestCategory for Multi-Two, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn cqwpx_unsupported_multi_category_is_rejected() {
+        assert!(matches!(
+            validate_transmitter_category(CabrilloTransmitterCategory::Two),
+            Err(ContestError::UnsupportedContestCategory(_))
+        ));
+        assert!(matches!(
+            validate_transmitter_category(CabrilloTransmitterCategory::Multi),
+            Err(ContestError::UnsupportedContestCategory(_))
+        ));
+        assert!(matches!(
+            validate_transmitter_category(CabrilloTransmitterCategory::Unlimited),
+            Err(ContestError::UnsupportedContestCategory(_))
+        ));
+
+        let qsos = vec![sample_qso("W1AW", "20m", "CW", "599", "599")];
+        let input = CabrilloInput {
+            contest_name: "CQ WPX CW",
+            callsign: "SP6INA",
+            operator: "Mariusz",
+            city: "Wroclaw",
+            country: "Poland",
+            claimed_score: 100,
+            qsos: &qsos,
+            transmitter_category: Some(CabrilloTransmitterCategory::Unlimited),
+        };
+        let build_res = build(&input);
+        assert!(matches!(
+            build_res,
+            Err(ContestError::UnsupportedContestCategory(_))
+        ));
+    }
+
+    #[test]
+    fn cabrillo_transmitter_id_is_emitted_only_when_required() {
+        assert!(!cabrillo_transmitter_id_is_emitted(
+            CabrilloTransmitterCategory::One
+        ));
+        assert!(cabrillo_transmitter_id_is_emitted(
+            CabrilloTransmitterCategory::Two
+        ));
+        assert!(cabrillo_transmitter_id_is_emitted(
+            CabrilloTransmitterCategory::Multi
+        ));
+        assert!(cabrillo_transmitter_id_is_emitted(
+            CabrilloTransmitterCategory::Unlimited
+        ));
+
+        let qsos = vec![sample_qso("W1AW", "20m", "CW", "599", "599")];
+        let input = CabrilloInput {
+            contest_name: "CQ WPX CW",
+            callsign: "SP6INA",
+            operator: "Mariusz",
+            city: "Wroclaw",
+            country: "Poland",
+            claimed_score: 10,
+            qsos: &qsos,
+            transmitter_category: Some(CabrilloTransmitterCategory::One),
+        };
+        let text = build(&input).expect("valid cabrillo");
+        let qso_line = text.lines().find(|l| l.starts_with("QSO:")).unwrap();
+        // Dla Single-Op / One wiersz zawiera 10 pól (brak pola transmitter ID na końcu)
+        let cols: Vec<&str> = qso_line.split_whitespace().collect();
+        assert_eq!(cols.len(), 11); // "QSO:" + 10 pól = 11 tokenów
+    }
+
+    #[test]
+    fn cabrillo_preserves_non_default_rst() {
+        let qso_cw = sample_qso("W1AW", "20m", "CW", "579", "589");
+        let qso_ph = sample_qso("DL1XYZ", "40m", "SSB", "57", "51");
+        let qsos = vec![qso_cw, qso_ph];
+
+        let input = CabrilloInput {
+            contest_name: "CQ WW DX",
+            callsign: "SP6INA",
+            operator: "Mariusz",
+            city: "Wroclaw",
+            country: "Poland",
+            claimed_score: 100,
+            qsos: &qsos,
+            transmitter_category: None,
+        };
+
+        let text = build(&input).expect("valid cabrillo");
+        let lines: Vec<&str> = text.lines().filter(|l| l.starts_with("QSO:")).collect();
+        assert_eq!(lines.len(), 2);
+        // Sprawdź zachowanie 579 i 589 dla CW
+        assert!(lines[0].contains("579") && lines[0].contains("589"));
+        assert!(!lines[0].contains("599"));
+        // Sprawdź zachowanie 57 i 51 dla SSB
+        assert!(
+            lines[1].contains(" 57 ")
+                && (lines[1].contains(" 51\n")
+                    || lines[1].ends_with(" 51")
+                    || lines[1].contains(" 51 "))
+        );
+        assert!(!lines[1].contains(" 59 "));
+    }
+
+    #[test]
+    fn cabrillo_uses_default_rst_only_when_missing() {
+        let qso_cw = sample_qso("W1AW", "20m", "CW", "", "");
+        let qso_ph = sample_qso("DL1XYZ", "40m", "SSB", "  ", "  ");
+        let qsos = vec![qso_cw, qso_ph];
+
+        let input = CabrilloInput {
+            contest_name: "CQ WW DX",
+            callsign: "SP6INA",
+            operator: "Mariusz",
+            city: "Wroclaw",
+            country: "Poland",
+            claimed_score: 100,
+            qsos: &qsos,
+            transmitter_category: None,
+        };
+
+        let text = build(&input).expect("valid cabrillo");
+        let lines: Vec<&str> = text.lines().filter(|l| l.starts_with("QSO:")).collect();
+        assert_eq!(lines.len(), 2);
+        // CW z pustym RST otrzymuje 599
+        assert!(lines[0].contains(" 599 ") && lines[0].contains(" 599 "));
+        // SSB z pustym RST otrzymuje 59
+        assert!(
+            lines[1].contains(" 59 ") && (lines[1].ends_with(" 59") || lines[1].contains(" 59 "))
+        );
+    }
+
+    #[test]
+    fn cabrillo_rejects_or_reports_malformed_rst_by_contract() {
+        // Nie-cyfrowe znaki w RST
+        let bad_cw = sample_qso("W1AW", "20m", "CW", "59A", "599");
+        let input1 = CabrilloInput {
+            contest_name: "CQ WW DX",
+            callsign: "SP6INA",
+            operator: "Mariusz",
+            city: "Wroclaw",
+            country: "Poland",
+            claimed_score: 10,
+            qsos: &[bad_cw],
+            transmitter_category: None,
+        };
+        assert!(matches!(
+            build(&input1),
+            Err(ContestError::InvalidContestExchange { .. })
+        ));
+
+        // Za długi raport w SSB (np. 599 zamiast 2 cyfr)
+        let bad_ssb = sample_qso("DL1XYZ", "40m", "SSB", "599", "59");
+        let input2 = CabrilloInput {
+            contest_name: "CQ WW DX",
+            callsign: "SP6INA",
+            operator: "Mariusz",
+            city: "Wroclaw",
+            country: "Poland",
+            claimed_score: 10,
+            qsos: &[bad_ssb],
+            transmitter_category: None,
+        };
+        assert!(matches!(
+            build(&input2),
+            Err(ContestError::InvalidContestExchange { .. })
+        ));
+    }
+
+    #[test]
+    fn duplicate_qso_remains_in_cabrillo_log() {
+        let q1 = sample_qso("DL1XYZ", "20m", "CW", "599", "599");
+        let q2 = sample_qso("DL1XYZ", "20m", "CW", "599", "599"); // duplikat
+
+        let qsos = vec![q1, q2];
+        let input = CabrilloInput {
+            contest_name: "SP DX Contest",
+            callsign: "SP6INA",
+            operator: "Mariusz",
+            city: "Wroclaw",
+            country: "Poland",
+            claimed_score: 10,
+            qsos: &qsos,
+            transmitter_category: None,
+        };
+
+        let text = build(&input).expect("valid cabrillo");
+        let qso_lines: Vec<&str> = text
+            .lines()
+            .filter(|l| l.starts_with("QSO:") && l.contains("DL1XYZ"))
+            .collect();
+        assert_eq!(
+            qso_lines.len(),
+            2,
+            "Both duplicate QSO lines must remain in Cabrillo log"
+        );
+    }
+
+    #[test]
+    fn duplicate_qso_scores_according_to_contest_profile() {
+        let mut q1 = sample_qso("DL1XYZ", "20m", "CW", "599", "599");
+        q1.dxcc = Some(230); // Niemcy (Europa)
+        let mut q2 = sample_qso("DL1XYZ", "20m", "CW", "599", "599"); // duplikat
+        q2.dxcc = Some(230);
+
+        let qsos = vec![q1, q2];
+        let (pts, mults, final_score) = score_sp_dx(&qsos, 269, 15);
+        // Pierwsze QSO z DL daje 1 pkt dla stacji SP, drugie to duplikat dający 0 pkt
+        assert_eq!(pts, 1);
+        assert_eq!(mults, 1);
+        assert_eq!(final_score, 1);
+
+        let input = CabrilloInput {
+            contest_name: "SP DX Contest",
+            callsign: "SP6INA",
+            operator: "Mariusz",
+            city: "Wroclaw",
+            country: "Poland",
+            claimed_score: final_score,
+            qsos: &qsos,
+            transmitter_category: None,
+        };
+
+        let text = build(&input).expect("valid cabrillo");
+        assert!(text.contains("CLAIMED-SCORE: 1\n"));
+        let count = text.lines().filter(|l| l.contains("DL1XYZ")).count();
+        assert_eq!(count, 2, "Duplicate remains in exported Cabrillo log");
+    }
+
+    #[test]
+    fn zero_point_qso_remains_in_log_when_required() {
+        // W CQ WW łączność w tym samym kraju daje 0 pkt, ale jest dozwolona i zostaje w logu
+        let mut q = sample_qso("SP1ABC", "20m", "CW", "599", "599");
+        q.dxcc = Some(269); // SP
+        q.cqz = Some(15);
+        q.stx_string = Some("15".to_string());
+        q.srx_string = Some("15".to_string());
+
+        let qsos = vec![q];
+        let (pts, _mults, final_score) = score_cqww(&qsos, 269, 15);
+        assert_eq!(pts, 0);
+
+        let input = CabrilloInput {
+            contest_name: "CQ WW CW",
+            callsign: "SP6INA",
+            operator: "Mariusz",
+            city: "Wroclaw",
+            country: "Poland",
+            claimed_score: final_score,
+            qsos: &qsos,
+            transmitter_category: None,
+        };
+
+        let text = build(&input).expect("valid cabrillo");
+        assert!(text.contains("CLAIMED-SCORE: 0\n"));
+        assert!(
+            text.lines()
+                .any(|l| l.starts_with("QSO:") && l.contains("SP1ABC")),
+            "Zero-point QSO must remain in Cabrillo log"
+        );
+    }
+
+    #[test]
+    fn unscored_qso_is_not_silently_deleted() {
+        let q = sample_qso("SP1ABC", "20m", "CW", "599", "599");
+        let qsos = vec![q];
+        let input = CabrilloInput {
+            contest_name: "CQ WW CW",
+            callsign: "SP6INA",
+            operator: "Mariusz",
+            city: "Wroclaw",
+            country: "Poland",
+            claimed_score: 0,
+            qsos: &qsos,
+            transmitter_category: None,
+        };
+
+        let text = build(&input).expect("valid cabrillo");
+        assert!(
+            text.contains("SP1ABC"),
+            "Unscored QSO must not be silently deleted from log"
+        );
+    }
+
+    #[test]
+    fn spdx_duplicate_remains_in_cabrillo() {
+        let mut q1 = sample_qso("DL1XYZ", "80m", "CW", "599", "599");
+        q1.stx_string = Some("D".to_string());
+        q1.srx_string = Some("001".to_string());
+        let mut q2 = sample_qso("DL1XYZ", "80m", "CW", "599", "599");
+        q2.stx_string = Some("D".to_string());
+        q2.srx_string = Some("002".to_string());
+
+        let qsos = vec![q1, q2];
+        let input = CabrilloInput {
+            contest_name: "SP DX Contest",
+            callsign: "SP6INA",
+            operator: "Mariusz",
+            city: "Wroclaw",
+            country: "Poland",
+            claimed_score: 1,
+            qsos: &qsos,
+            transmitter_category: None,
+        };
+
+        let text = build(&input).expect("valid cabrillo");
+        let lines: Vec<&str> = text
+            .lines()
+            .filter(|l| l.starts_with("QSO:") && l.contains("DL1XYZ"))
+            .collect();
+        assert_eq!(
+            lines.len(),
+            2,
+            "SP DX duplicate must remain in Cabrillo log"
         );
     }
 }
