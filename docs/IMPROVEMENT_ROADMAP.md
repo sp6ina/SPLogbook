@@ -278,13 +278,16 @@ flowchart LR
 ---
 
 ### Etap 7 — Domena Zawodów Krótkofalarskich: Cabrillo 3.0 i Regulaminy Punktacji (`P1`)
+- **Status:** ZREALIZOWANY (`COMPLETED_SOFTWARE_VERIFIED`)
+- **Data wdrożenia:** 2026-11-05
+- **Commity:** `0c0ca72` (`fix(contest): implement compliant Cabrillo 3.0 generation (FUNC-001)`), `29a4e36` (`fix(contest): refine scoring and multipliers for SP DX, CQ WW and CQ WPX (FUNC-002)`)
 - **Cel:** Zgodność eksportowanych logów Cabrillo i punktacji zawodów z regulaminami PZK, CQ i ARRL (`FUNC-001`, `FUNC-002`).
 - **Zakres:**
   - Chronologiczne sortowanie, rzeczywiste raporty `rst_sent`/`rst_rcvd`, poprawne kody emisji (`CW`, `PH`, `FM`, `RY`, `DG`), eksport `stx_string`/`srx_string` i pełna mapa pasm w `src/core/cabrillo.rs` (`FUNC-001`).
   - Poprawa reguł punktacji i mnożników w `src/core/contest_rules.rs` dla SP DX Contest, CQ WW i CQ WPX z uwzględnieniem podmiotu i kontynentu własnej stacji (`FUNC-002`).
-- **Pliki i moduły:** `src/core/cabrillo.rs`, `src/core/contest.rs`, `src/core/contest_rules.rs`.
+- **Pliki i moduły:** `src/core/cabrillo.rs`, `src/core/contest_rules.rs`, `src/core/contest_stats.rs`.
 - **Ryzyka:** Niskie.
-- **Kryteria ukończenia:** Testy jednostkowe dla logów SP DX, CQ WW (CW/SSB), CQ WPX i RTTY/FT8 generują w 100% poprawne pliki Cabrillo 3.0.
+- **Kryteria ukończenia:** Spełnione. 1943 aktywne testy zaliczone, 0 błędów, 10 fizycznych HIL zignorowanych.
 
 ---
 

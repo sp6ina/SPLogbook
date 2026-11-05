@@ -457,6 +457,9 @@ Status Etapu 5: **SOFTWARE VERIFIED**
 - **Kategoria:** `FUNC`
 - **Poziom krytyczności:** `CRITICAL`
 - **Poziom pewności:** `CONFIRMED`
+- **Status remediacji:** `FIXED_SOFTWARE_VERIFIED`
+- **Data wdrożenia:** 2026-11-05
+- **Commit:** `0c0ca72` (`fix(contest): implement compliant Cabrillo 3.0 generation (FUNC-001)`)
 - **Moduł / obszar:** `src/core/cabrillo.rs`
 - **Lokalizacja:** [`src/core/cabrillo.rs:27-88`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/core/cabrillo.rs#L27-L88)
 - **Dowód z kodu:**
@@ -489,6 +492,9 @@ Status Etapu 5: **SOFTWARE VERIFIED**
 - **Kategoria:** `FUNC`
 - **Poziom krytyczności:** `CRITICAL`
 - **Poziom pewności:** `CONFIRMED`
+- **Status remediacji:** `FIXED_SOFTWARE_VERIFIED`
+- **Data wdrożenia:** 2026-11-05
+- **Commit:** `29a4e36` (`fix(contest): refine scoring and multipliers for SP DX, CQ WW and CQ WPX (FUNC-002)`)
 - **Moduł / obszar:** `src/core/contest_rules.rs`
 - **Lokalizacja:** [`src/core/contest_rules.rs:81-165`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/core/contest_rules.rs#L81-L165)
 - **Dowód z kodu:**

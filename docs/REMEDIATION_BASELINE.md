@@ -377,3 +377,51 @@ Cargo.lock SHA-1: `c569097f3ef69c66ec59b74c29c1eb29efce69ae` (bez zmian)
 - Bezpieczeństwo danych:
   - Prawdziwa baza danych użytkownika nie została otwarta.
   - Żadne dane użytkownika nie zostały zmodyfikowane.
+
+## 9. Status po Zakończeniu Etapu 7 (Domena Zawodów Krótkofalarskich: Cabrillo 3.0 i Regulaminy Punktacji, SOFTWARE VERIFIED)
+
+Data sporządzenia: 2026-11-05
+Środowisko: Windows x86_64
+Aktywna gałąź: `repair/full-system-remediation`
+Stan synchronizacji: fast-forward z `main` i `origin/main`
+Cargo.toml SHA-1: `d8e3acd8f0c7b3307b3733c6c4a9a6cc57cb17c4` (bez zmian)
+Cargo.lock SHA-1: `c569097f3ef69c66ec59b74c29c1eb29efce69ae` (bez zmian)
+
+### Zrealizowany zakres Etapu 7:
+- **FUNC-001 (Status: FIXED_SOFTWARE_VERIFIED):**
+  - Eksporter Cabrillo 3.0 w `src/core/cabrillo.rs` sortuje QSO ściśle chronologicznie rosnąco po `(qso_date, time_on, id)`, gwarantując monotoniczne numery seryjne `001, 002, ...`.
+  - Poprawne kody emisji Cabrillo: `CW` (`CW`), `PH` (`SSB, USB, LSB, AM`), `FM` (`FM`), `RY` (`RTTY`), `DG` (`FT8, FT4, PSK, etc.`).
+  - Zachowanie rzeczywistych raportów RST (`rst_sent`, `rst_rcvd`) z mode-aware fallbackiem `599`/`59`.
+  - Dynamiczny eksport wymiany z `stx_string` (oraz fallback `stx`) i `srx_string` (oraz fallback `srx`).
+  - Kompletna mapa częstotliwości fallbacku dla wszystkich pasm HF i VHF/UHF (`band_to_cabrillo_freq`).
+  - Unit testy: `cabrillo_header_and_qso_lines_format`, `cabrillo_claimed_score_equals_scoreboard_total`, `cabrillo_chronological_sorting_and_serial_assignment`, `cabrillo_export_preserves_rst_digital_modes_and_custom_contest_exchanges`.
+- **FUNC-002 (Status: FIXED_SOFTWARE_VERIFIED):**
+  - SP DX Contest (`score_sp_dx`): pełna obsługa reguł PZK dla stacji polskich (`my_dxcc == 269`, EU 1 pkt, DX 3 pkt, SP-SP 0 pkt, mnożnik DXCC per pasmo) oraz stacji zagranicznych (`my_dxcc != 269`, łączności tylko z SP po 3 pkt, mnożnik 16 województw `B, C, D, F, G, J, K, L, M, O, P, R, S, U, W, Z` per pasmo).
+  - CQ WW Contest (`score_cqww`): własny DXCC 0 pkt, ten sam kontynent 1 pkt (wewnątrz NA 2 pkt), inny kontynent 3 pkt; strefy CQ (1..40) oraz DXCC per pasmo.
+  - CQ WPX Contest (`score_wpx`): podwojenie punktów na pasmach niskich (160m, 80m, 40m) — własny DXCC 1/2 pkt, ten sam kontynent 1/2 pkt (NA: 2/4 pkt), inny kontynent 3/6 pkt; mnożniki prefiksów WPX zaliczane raz na całe zawody.
+  - Pomocnicze funkcje domenowe: `cqzone_to_continent`, `is_low_band`, `is_polish_station`, `extract_sp_voivodeship`.
+  - Unit testy: `sp_dx_contest_scoring_for_sp_and_non_sp_stations_matches_pzk_rules`, `cq_ww_contest_scoring_matches_cq_rules`, `cq_wpx_contest_scoring_and_low_band_doubling`.
+
+### Wyniki pełnej bramki weryfikacyjnej:
+- `cargo +stable fmt --all -- --check`: 0 diff (formatowanie czyste)
+- `cargo +stable check --workspace --all-targets --all-features`: EXIT 0 (0 błędów)
+- Aktywne testy programowe: **1943 passed**, **0 failed** (+5 nowych testów domenowych w Etapie 7)
+- Zignorowane testy fizycznego HIL: **10 ignored** (`#[ignore = "hardware-in-the-loop"]`)
+- Wszystkie zarejestrowane przypadki testowe: **1953**
+- `cargo +stable test --doc`: EXIT 0 (0 failed)
+- Testy strażników i domenowe:
+  - `tests/security_guard.rs`: 32 passed, 0 failed
+  - `tests/i18n_guard.rs`: 15 passed, 0 failed
+  - `tests/theme_guard.rs`: 1 passed, 0 failed
+  - `tests/cat_native_6a.rs`: 165 passed, 0 failed
+  - `tests/cat_native_6b.rs`: 87 passed, 0 failed
+  - `tests/cat_native_7.rs`: 297 passed, 10 ignored HIL, 0 failed
+- `cargo audit`:
+  - 0 podatności (vulnerabilities: 0)
+  - 0 unsound
+  - 1 yanked (`async-executor 1.14.0`)
+  - 6 unmaintained
+- Bezpieczeństwo danych:
+  - Prawdziwa baza danych użytkownika nie została otwarta.
+  - Żadne dane użytkownika nie zostały zmodyfikowane.
+
