@@ -71,7 +71,11 @@ impl SpLogApp {
             let out = match crate::core::cabrillo::build(&input) {
                 Ok(s) => s,
                 Err(err) => {
-                    self.gui.chrome.status_message = Some(format!("Błąd eksportu Cabrillo: {err}"));
+                    self.gui.chrome.status_message = Some(
+                        Msg::new(key::EXPORT_ERR_SAVE_CABRILLO)
+                            .arg("err", &err)
+                            .text(self.gui.appearance.language),
+                    );
                     return;
                 }
             };
