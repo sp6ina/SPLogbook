@@ -378,7 +378,7 @@ Cargo.lock SHA-1: `c569097f3ef69c66ec59b74c29c1eb29efce69ae` (bez zmian)
   - Prawdziwa baza danych użytkownika nie została otwarta.
   - Żadne dane użytkownika nie zostały zmodyfikowane.
 
-## 9. Status po Zakończeniu Etapu 7 (Domena Zawodów Krótkofalarskich: Cabrillo 3.0 i Regulaminy Punktacji, SOFTWARE VERIFIED)
+## 9. Status po Zakończeniu Etapu 7 i Bramki Naprawczej (Domena Zawodów Krótkofalarskich: Cabrillo 3.0 i Regulaminy Punktacji, SOFTWARE VERIFIED)
 
 Data sporządzenia: 2026-11-05
 Środowisko: Windows x86_64
@@ -387,27 +387,36 @@ Stan synchronizacji: fast-forward z `main` i `origin/main`
 Cargo.toml SHA-1: `d8e3acd8f0c7b3307b3733c6c4a9a6cc57cb17c4` (bez zmian)
 Cargo.lock SHA-1: `c569097f3ef69c66ec59b74c29c1eb29efce69ae` (bez zmian)
 
-### Zrealizowany zakres Etapu 7:
+### Zrealizowany zakres Etapu 7 i Bramki Naprawczej:
 - **FUNC-001 (Status: FIXED_SOFTWARE_VERIFIED):**
-  - Eksporter Cabrillo 3.0 w `src/core/cabrillo.rs` sortuje QSO ściśle chronologicznie rosnąco po `(qso_date, time_on, id)`, gwarantując monotoniczne numery seryjne `001, 002, ...`.
+  - Eksporter Cabrillo 3.0 w `src/core/cabrillo.rs` generuje pełny, zgodny ze standardem nagłówek Cabrillo v3.0 (`START-OF-LOG: 3.0`, `CALLSIGN:`, `CONTEST:`, `CATEGORY-OPERATOR:`, `CATEGORY-TRANSMITTER:`, `CLAIMED-SCORE: <int>`, `CREATED-BY: SPLogbook`, `END-OF-LOG:`).
   - Poprawne kody emisji Cabrillo: `CW` (`CW`), `PH` (`SSB, USB, LSB, AM`), `FM` (`FM`), `RY` (`RTTY`), `DG` (`FT8, FT4, PSK, etc.`).
-  - Zachowanie rzeczywistych raportów RST (`rst_sent`, `rst_rcvd`) z mode-aware fallbackiem `599`/`59`.
+  - Zachowanie rzeczywistych raportów RST (`rst_sent`, `rst_rcvd`) z mode-aware fallbackiem `599`/`59` stosowanym wyłącznie dla pustych pól.
   - Dynamiczny eksport wymiany z `stx_string` (oraz fallback `stx`) i `srx_string` (oraz fallback `srx`).
-  - Kompletna mapa częstotliwości fallbacku dla wszystkich pasm HF i VHF/UHF (`band_to_cabrillo_freq`).
-  - Unit testy: `cabrillo_header_and_qso_lines_format`, `cabrillo_claimed_score_equals_scoreboard_total`, `cabrillo_chronological_sorting_and_serial_assignment`, `cabrillo_export_preserves_rst_digital_modes_and_custom_contest_exchanges`.
+  - Monotoniczne serie numerów seryjnych dla Single-Op i Multi-One (`validate_cqwpx_serial_policy`).
+  - Obsługa kategorii `CabrilloTransmitterCategory::One` (kolumna `t` pomijana); odrzucanie kategorii wielonadajnikowych `Two`, `Multi`, `Unlimited` z `ContestError::UnsupportedContestCategory`.
+  - Pełna retencja łączności zduplikowanych (duplikatów) w wyjściowym pliku Cabrillo (0 punktów).
 - **FUNC-002 (Status: FIXED_SOFTWARE_VERIFIED):**
-  - SP DX Contest (`score_sp_dx`): pełna obsługa reguł PZK dla stacji polskich (`my_dxcc == 269`, EU 1 pkt, DX 3 pkt, SP-SP 0 pkt, mnożnik DXCC per pasmo) oraz stacji zagranicznych (`my_dxcc != 269`, łączności tylko z SP po 3 pkt, mnożnik 16 województw `B, C, D, F, G, J, K, L, M, O, P, R, S, U, W, Z` per pasmo).
+  - SP DX Contest (`score_sp_dx`): pełna obsługa reguł PZK dla stacji polskich (`my_dxcc == 269`, EU 1 pkt, DX 3 pkt, SP-SP 0 pkt, mnożnik DXCC per pasmo) oraz stacji zagranicznych (`my_dxcc != 269`, łączności tylko z SP po 3 pkt, mnożnik 16 województw `B, C, D, F, G, J, K, L, M, O, P, R, S, U, W, Z` per pasmo). Dozwolone pasma 160m–10m, emisje CW i SSB.
   - CQ WW Contest (`score_cqww`): własny DXCC 0 pkt, ten sam kontynent 1 pkt (wewnątrz NA 2 pkt), inny kontynent 3 pkt; strefy CQ (1..40) oraz DXCC per pasmo.
-  - CQ WPX Contest (`score_wpx`): podwojenie punktów na pasmach niskich (160m, 80m, 40m) — własny DXCC 1/2 pkt, ten sam kontynent 1/2 pkt (NA: 2/4 pkt), inny kontynent 3/6 pkt; mnożniki prefiksów WPX zaliczane raz na całe zawody.
-  - Pomocnicze funkcje domenowe: `cqzone_to_continent`, `is_low_band`, `is_polish_station`, `extract_sp_voivodeship`.
-  - Unit testy: `sp_dx_contest_scoring_for_sp_and_non_sp_stations_matches_pzk_rules`, `cq_ww_contest_scoring_matches_cq_rules`, `cq_wpx_contest_scoring_and_low_band_doubling`.
+  - CQ WPX Contest (`score_wpx`):
+    - **Ten sam kraj (same-country): 1 punkt na każdym paśmie** (brak podwojenia na pasmach niskich!).
+    - Ten sam kontynent, inny kraj: 1 pkt (wysokie pasma 10m/15m/20m), 2 pkt (niskie pasma 40m/80m/160m).
+    - Ameryka Północna inny kraj: 2 pkt (wysokie), 4 pkt (niskie).
+    - Inny kontynent: 3 pkt (wysokie), 6 pkt (niskie).
+    - Mnożnik prefiksów WPX: unikalny prefiks zaliczany dokładnie raz na całe zawody.
+  - Ścisłe odseparowanie profili RTTY (`CqWpxRtty`, `CqWwRtty`) jako jawnie nieobsługiwanych wariantów zwracających `ContestError::UnsupportedContestVariant`.
+  - Walidacja pasm (`validate_band`), emisji (`validate_mode`) i wymian (`validate_exchange`) per profil zawodów.
+  - Niezależne, ręcznie wyliczone fixtures (`scoreboard_matches_manual_spdx_fixture`, `scoreboard_matches_manual_cqww_fixture`, `scoreboard_matches_manual_cqwpx_fixture`, `claimed_score_matches_manual_fixture`).
 
 ### Wyniki pełnej bramki weryfikacyjnej:
 - `cargo +stable fmt --all -- --check`: 0 diff (formatowanie czyste)
 - `cargo +stable check --workspace --all-targets --all-features`: EXIT 0 (0 błędów)
-- Aktywne testy programowe: **1943 passed**, **0 failed** (+5 nowych testów domenowych w Etapie 7)
+- `cargo +stable clippy --lib`: 382 warnings (Baseline: 383, spadek o 1 ostrzeżenie, 0 nowych)
+- `cargo +stable clippy --lib --tests`: 483 warnings (Baseline: 489, spadek o 6 ostrzeżeń, 0 nowych)
+- Aktywne testy programowe: **2000 passed**, **0 failed** (+57 nowych testów w Bramce Naprawczej Etapu 7)
 - Zignorowane testy fizycznego HIL: **10 ignored** (`#[ignore = "hardware-in-the-loop"]`)
-- Wszystkie zarejestrowane przypadki testowe: **1953**
+- Wszystkie zarejestrowane przypadki testowe: **2010**
 - `cargo +stable test --doc`: EXIT 0 (0 failed)
 - Testy strażników i domenowe:
   - `tests/security_guard.rs`: 32 passed, 0 failed
@@ -420,8 +429,10 @@ Cargo.lock SHA-1: `c569097f3ef69c66ec59b74c29c1eb29efce69ae` (bez zmian)
   - 0 podatności (vulnerabilities: 0)
   - 0 unsound
   - 1 yanked (`async-executor 1.14.0`)
-  - 6 unmaintained
+  - 6 unmaintained (`bincode`, `paste`, `smartstring`, `zbus_names`, `zvariant`, `zvariant_derive`)
 - Bezpieczeństwo danych:
   - Prawdziwa baza danych użytkownika nie została otwarta.
   - Żadne dane użytkownika nie zostały zmodyfikowane.
-
+- Gotowość do kolejnego etapu:
+  - Etap 7 definitywnie zamknięty ze statusem `SOFTWARE VERIFIED`.
+  - Etap 8 odblokowany.

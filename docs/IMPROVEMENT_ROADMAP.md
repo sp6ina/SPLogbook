@@ -280,14 +280,25 @@ flowchart LR
 ### Etap 7 — Domena Zawodów Krótkofalarskich: Cabrillo 3.0 i Regulaminy Punktacji (`P1`)
 - **Status:** ZREALIZOWANY (`COMPLETED_SOFTWARE_VERIFIED`)
 - **Data wdrożenia:** 2026-11-05
-- **Commity:** `0c0ca72` (`fix(contest): implement compliant Cabrillo 3.0 generation (FUNC-001)`), `29a4e36` (`fix(contest): refine scoring and multipliers for SP DX, CQ WW and CQ WPX (FUNC-002)`)
+- **Commity:**
+  - `0c0ca72`: `fix(contest): implement compliant Cabrillo 3.0 generation (FUNC-001)`
+  - `29a4e36`: `fix(contest): refine scoring and multipliers for SP DX, CQ WW and CQ WPX (FUNC-002)`
+  - `9a6de52`: `fix(contest): correct CQ WPX CW and SSB scoring (FUNC-002)`
+  - `966e59f`: `fix(contest): separate CQ WPX and CQ WPX RTTY rule profiles (FUNC-002)`
+  - `31d588f`: `fix(contest): validate contest-specific bands modes and exchanges`
+  - `e8e360e`: `fix(contest): enforce Cabrillo serial and transmitter policies`
+  - `5e8fbc8`: `test(contest): add independent official scoring fixtures`
 - **Cel:** Zgodność eksportowanych logów Cabrillo i punktacji zawodów z regulaminami PZK, CQ i ARRL (`FUNC-001`, `FUNC-002`).
-- **Zakres:**
-  - Chronologiczne sortowanie, rzeczywiste raporty `rst_sent`/`rst_rcvd`, poprawne kody emisji (`CW`, `PH`, `FM`, `RY`, `DG`), eksport `stx_string`/`srx_string` i pełna mapa pasm w `src/core/cabrillo.rs` (`FUNC-001`).
-  - Poprawa reguł punktacji i mnożników w `src/core/contest_rules.rs` dla SP DX Contest, CQ WW i CQ WPX z uwzględnieniem podmiotu i kontynentu własnej stacji (`FUNC-002`).
-- **Pliki i moduły:** `src/core/cabrillo.rs`, `src/core/contest_rules.rs`, `src/core/contest_stats.rs`.
+- **Zakres zrealizowany w Etapie 7 i Bramce Naprawczej:**
+  - Sortowanie chronologiczne rosnąco po dacie/czasie/ID, zachowanie oryginalnych raportów RST, poprawne kody emisji (`CW`, `PH`, `FM`, `RY`, `DG`), dynamiczny eksport wymiany `stx_string`/`srx_string`, mapowanie pasm (`FUNC-001`).
+  - Rozdzielenie profili `ContestProfile` dla SP DX, CQ WW CW/SSB, CQ WPX CW/SSB oraz jawne wyodrębnienie nieobsługiwanych wariantów RTTY (`CqWpxRtty`, `CqWwRtty`) zwracających `ContestError::UnsupportedContestVariant` (`FUNC-002`).
+  - Korekta punktacji CQ WPX CW/SSB: ten sam kraj daje bezwzględnie 1 punkt na wszystkich pasmach (brak podwojenia na 160m/80m/40m).
+  - Wdrożenie walidacji specyficznej dla zawodów: pasma (`validate_band`), emisje (`validate_mode`), wymiany (`validate_exchange`).
+  - Obsługa kategorii pojedynczego nadajnika (`CabrilloTransmitterCategory::One`) z pomijaniem kolumny `t`; bezpieczne odrzucanie kategorii wielonadajnikowych (`Two`, `Multi`, `Unlimited`) z `ContestError::UnsupportedContestCategory`.
+  - Niezależne, ręcznie przeliczone fixtures testowe (`scoreboard_matches_manual_spdx_fixture`, `scoreboard_matches_manual_cqww_fixture`, `scoreboard_matches_manual_cqwpx_fixture`, `claimed_score_matches_manual_fixture`).
+- **Pliki i moduły:** `src/core/cabrillo.rs`, `src/core/contest_rules.rs`, `src/core/contest_stats.rs`, `src/gui/app_export.rs`.
 - **Ryzyka:** Niskie.
-- **Kryteria ukończenia:** Spełnione. 1943 aktywne testy zaliczone, 0 błędów, 10 fizycznych HIL zignorowanych.
+- **Kryteria ukończenia:** Spełnione w 100%. 2000 aktywnych testów programowych zaliczonych (0 failed, 10 ignored fizycznych HIL). Bramka naprawcza zrealizowana. Etap 8 odblokowany.
 
 ---
 

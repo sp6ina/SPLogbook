@@ -459,30 +459,51 @@ Status Etapu 5: **SOFTWARE VERIFIED**
 - **Poziom pewności:** `CONFIRMED`
 - **Status remediacji:** `FIXED_SOFTWARE_VERIFIED`
 - **Data wdrożenia:** 2026-11-05
-- **Commit:** `0c0ca72` (`fix(contest): implement compliant Cabrillo 3.0 generation (FUNC-001)`)
-- **Moduł / obszar:** `src/core/cabrillo.rs`
-- **Lokalizacja:** [`src/core/cabrillo.rs:27-88`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/core/cabrillo.rs#L27-L88)
-- **Dowód z kodu:**
-  1. **Odwrócona kolejność i numeracja QSO (`cabrillo.rs:58`)**: `for (idx, qso) in input.qsos.iter().rev().enumerate()` — jeśli przekazana lista jest już posortowana chronologicznie (lub odwrotnie), brak jawnego sortowania po `(qso_date, time_on)` powoduje przypisanie numeru seryjnego `001` do niewłaściwej łączności.
-  2. **Ignorowanie raportów `rst_sent` / `rst_rcvd` (`cabrillo.rs:65`)**: `let rst = if mode_cab == "CW" { "599" } else { "59" };` — eksporter ignoruje rzeczywiste raporty zapisane w `qso.rst_sent` i `qso.rst_rcvd`!
-  3. **Błędne mapowanie emisji (`cabrillo.rs:60-64`)**: `if qso.mode == "CW" { "CW" } else { "PH" }` — wszystkie łączności `RTTY`, `FT8`, `FT4`, `PSK` i `FM` są eksportowane jako `"PH"` (Phone/SSB) zamiast `"RY"` / `"DG"` / `"FM"`!
-  4. **Ignorowanie `stx_string` / `srx_string` (`cabrillo.rs:68-73`)**: Wymiana jest zawsze formatowana jako `"{idx + 1:03}"`, całkowicie ignorując `qso.stx_string` i `qso.srx_string` (np. strefę CQ w CQ WW, województwo w SP DX Contest, sekcję/moc w ARRL DX, strefę ITU w IARU HF)!
-  5. **Błędny fallback częstotliwości (`cabrillo.rs:42-55`)**: Pasma `60m`, `30m`, `17m`, `12m`, `6m`, `2m`, `70cm` przy braku `qso.freq` wpadają w `_ => "14000"` (20m!).
-- **Opis problemu:** Wyeksportowany plik Cabrillo zostanie odrzucony przez roboty sędziowskie większości zawodów (CQ WW, SP DX, ARRL DX, IARU HF, RTTY/FT8).
-- **Scenariusz wystąpienia:** Eksport logu Cabrillo po zawodach z okna Contest lub menu głównego.
-- **Wpływ:** Dyskwalifikacja lub odrzucenie logu konkursowego przez komisję sędziowską.
-- **Rozwiązanie minimalne:**
-  1. Sortować kopię `qsos` rosnąco po `(qso.adif_date(), qso.adif_time())`.
-  2. Mapować emisje: `CW -> "CW"`, `USB|LSB|SSB|AM -> "PH"`, `FM -> "FM"`, `RTTY -> "RY"`, pozostałe cyfrowe -> `"DG"`.
-  3. Używać `qso.rst_sent` i `qso.rst_rcvd` (z fallbackiem `599`/`59`).
-  4. Używać `qso.stx_string` (lub `qso.stx`) oraz `qso.srx_string` (lub `qso.srx`) jako pól wymiany.
-  5. Uzupełnić mapowanie wszystkich pasm ADIF na częstotliwości Cabrillo (`50`, `144`, `432`, `1296` itd.).
-- **Rozwiązanie docelowe:** Formatowanie wiersza `QSO:` sterowane przez profil `ContestId` z `src/core/contest_rules.rs`.
-- **Ryzyko wdrożenia zmiany:** Niskie (wymaga aktualizacji testu w `cabrillo.rs:106`, który obecnie sam wymusza błędne założenia).
-- **Złożoność wdrożenia:** `S`
+- **Commity:**
+  - `0c0ca72`: `fix(contest): implement compliant Cabrillo 3.0 generation (FUNC-001)`
+  - `e8e360e`: `fix(contest): enforce Cabrillo serial and transmitter policies`
+  - `5e8fbc8`: `test(contest): add independent official scoring fixtures`
+- **Moduł / obszar:** `src/core/cabrillo.rs`, `src/core/contest_rules.rs`, `src/core/contest_stats.rs`, `src/gui/app_export.rs`
+- **Lokalizacja:** [`src/core/cabrillo.rs`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/core/cabrillo.rs), [`src/core/contest_rules.rs`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/core/contest_rules.rs)
+- **Dowód z kodu przed naprawą:**
+  1. **Odwrócona kolejność i numeracja QSO (`cabrillo.rs:58`)**: `for (idx, qso) in input.qsos.iter().rev().enumerate()` — brak jawnego sortowania chronologicznego po `(qso_date, time_on)`.
+  2. **Ignorowanie raportów `rst_sent` / `rst_rcvd` (`cabrillo.rs:65`)**: Wymuszanie stałych `599`/`59` i ignorowanie rzeczywistych raportów RST.
+  3. **Błędne mapowanie emisji (`cabrillo.rs:60-64`)**: Wszystkie łączności cyfrowe i FM mapowane na `PH`.
+  4. **Ignorowanie `stx_string` / `srx_string` (`cabrillo.rs:68-73`)**: Wymiana stała `{idx + 1:03}`, ignorowanie strefy CQ, województwa, numerów seryjnych.
+  5. **Błędny fallback częstotliwości (`cabrillo.rs:42-55`)**: Brak mapowania dla wielu pasm.
+- **Wdrożone rozwiązanie (Etap 7 i Bramka Naprawcza):**
+  1. **Format ogólny Cabrillo 3.0**: Nagłówek Cabrillo v3 zawiera `START-OF-LOG: 3.0`, `CALLSIGN:`, `CONTEST:`, `CATEGORY-OPERATOR:`, `CATEGORY-TRANSMITTER:`, `CLAIMED-SCORE: <int>`, `CREATED-BY: SPLogbook`, oraz `END-OF-LOG:`. Zgodność ze specyfikacją Cabrillo v3.0.
+  2. **Obsługiwane kody emisji**: `CW` (`CW`), `PH` (`SSB, USB, LSB, AM`), `FM` (`FM`), `RY` (`RTTY`), `DG` (`FT8, FT4, PSK, etc.`). Mapowanie standardowe z walidacją dopuszczalności emisji per profil contestu (`validate_mode`).
+  3. **Walidacja specyficzna dla zawodów**: Pasma (`validate_band`), emisje (`validate_mode`) oraz wymiany (`validate_exchange`) są walidowane pod kątem aktywnego `ContestProfile`. Emisje/pasma niedozwolone w danym profilu są odrzucane z typowanym błędem `ContestError::DisallowedBand` / `ContestError::DisallowedMode`.
+  4. **Weryfikacja wiersza QSO**: Kolumny `QSO: freq mode date time sent_call sent_rst sent_exch rcvd_call rcvd_rst rcvd_exch [tx_id]`. Częstotliwość podawana w kHz (np. `14000`, `7000`, `3500`, `21000`, `28000`).
+  5. **Źródło wymiany kontrolnej**: Priorytet ma rzeczywista zarejestrowana wymiana `stx_string` -> `stx` -> fallback rosnący numer seryjny (`resolve_sent_exchange`). Otrzymana wymiana pobierana z `srx_string` -> `srx` (`resolve_rcvd_exchange`). Brak fabrykowania brakujących wymaganych wymian (województwo w SP DX, strefa w CQ WW są walidowane).
+  6. **Polityka RST**: Rzeczywiste raporty `rst_sent` i `rst_rcvd` są bezwzględnie zachowywane (w tym raporty niestandardowe np. `579`, `-10`). Domyślne `599`/`59` stosowane jest wyłącznie, gdy pole raportu jest puste (`cabrillo_uses_default_rst_only_when_missing`). Raporty nieliczbowe lub o błędnej długości są odrzucane (`ContestError::MalformedRst`).
+  7. **Polityka numeracji seryjnej**: Kategoria `Single-Op` oraz `Multi-One` używają pojedynczej rosnącej sekwencji seryjnej sprawdzanej przez `validate_cqwpx_serial_policy`.
+  8. **Polityka kategorii nadajników**: Kategoria pojedynczego nadajnika `CabrilloTransmitterCategory::One` jest w pełni obsługiwana (zgodnie ze specyfikacją kolumna identyfikatora nadajnika `t` jest w niej pomijana). Kategorie wielonadajnikowe `Two`, `Multi`, `Unlimited` są bezpiecznie odrzucane z typowanym błędem `ContestError::UnsupportedContestCategory`, zapobiegając emisji niezgodnych logów bez dedykowanego modelu per-band / multi-tx (planowane w wersji 2.0).
+  9. **Zachowanie duplikatów**: Łączności zduplikowane (duplikaty) nie są po cichu usuwane z logu Cabrillo — pozostają w wyjściowym logu zgodnie z regulaminami zawodów CQ/PZK/ARRL (komisja sędziowska punktuje je jako 0 pkt).
+  10. **CLAIMED-SCORE**: Wartość jest bezpośrednio powiązana z wynikiem punktowym `Scoreboard::total` z `ContestProfile` i formatowana jako czysta liczba całkowita ASCII bez separatorów tysięcy (`claimed_score_is_integer_without_formatting`).
+- **Ryzyko szczątkowe:** Brak fizycznej obsługi logowania z wielu nadajników na różnych pasmach w v1.x (zabezpieczone odmową eksportu `UnsupportedContestCategory`).
+- **Złożoność wdrożenia:** `M`
 - **Zależności od innych zmian:** Powiązane z `FUNC-002`.
-- **Wymagany test regresyjny:** `cabrillo_export_preserves_rst_digital_modes_and_custom_contest_exchanges`.
-- **Kryterium akceptacji:** Logi dla CQ WW (strefa CQ), SP DX (województwo/nr seryjny) oraz RTTY/FT8 generują poprawne linie `QSO:` zgodne ze specyfikacją Cabrillo v3.
+- **Wdrożone testy regresyjne:**
+  - `cabrillo_header_and_qso_lines_format`
+  - `cabrillo_claimed_score_equals_scoreboard_total`
+  - `cabrillo_chronological_sorting_and_serial_assignment`
+  - `cabrillo_export_preserves_rst_digital_modes_and_custom_contest_exchanges`
+  - `cabrillo_preserves_non_default_rst`
+  - `cabrillo_uses_default_rst_only_when_missing`
+  - `cabrillo_rejects_or_reports_malformed_rst_by_contract`
+  - `cabrillo_transmitter_id_is_emitted_only_when_required`
+  - `cqwpx_single_transmitter_uses_single_serial_sequence`
+  - `cqwpx_multi_one_uses_contract_serial_sequence`
+  - `cqwpx_multi_two_requires_transmitter_and_band_sequences`
+  - `cqwpx_unsupported_multi_category_is_rejected`
+  - `duplicate_qso_remains_in_cabrillo_log`
+  - `duplicate_qso_scores_according_to_contest_profile`
+  - `zero_point_qso_remains_in_log_when_required`
+  - `unscored_qso_is_not_silently_deleted`
+  - `spdx_duplicate_remains_in_cabrillo`
+- **Kryterium akceptacji:** Spełnione w całości — format Cabrillo 3.0, kody emisji, zachowanie RST, obsługa wymian, monotoniczne serie numerów, obsługa kategorii nadajnika i zachowanie duplikatów zweryfikowane pakietem testów automatycznych.
 
 ---
 
@@ -494,22 +515,80 @@ Status Etapu 5: **SOFTWARE VERIFIED**
 - **Poziom pewności:** `CONFIRMED`
 - **Status remediacji:** `FIXED_SOFTWARE_VERIFIED`
 - **Data wdrożenia:** 2026-11-05
-- **Commit:** `29a4e36` (`fix(contest): refine scoring and multipliers for SP DX, CQ WW and CQ WPX (FUNC-002)`)
-- **Moduł / obszar:** `src/core/contest_rules.rs`
-- **Lokalizacja:** [`src/core/contest_rules.rs:81-165`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/core/contest_rules.rs#L81-L165)
-- **Dowód z kodu:**
-  1. W `score_sp_dx` (`contest_rules.rs:95-115`): gdy polska stacja (`my_sp == true`) pracuje ze stacją zagraniczną (`their_sp == false`), mnożnikiem powinno być podmiot DXCC stacji zagranicznej, a dla pracy stacji zagranicznej z Polską — polskie województwo (1 z 16). Tymczasem kod w linii `105-114` przy pracy ze stacją SP jako mnożnik zwraca surowy prefiks `extract_wpx_prefix(&qso.callsign)` (np. `SP6`, `SO9`) zamiast województwa z `srx_string`, a gdy `srx_string` zawiera województwo przy stacji SP, liczy stacji polskiej punkty i mnożnik!
-  2. W `score_cq_ww` (`contest_rules.rs:120-137`) i `score_cq_wpx` (`contest_rules.rs:140-156`) punktacja opiera się na uproszczonym sprawdzeniu prefiksu `SP`/`K` zamiast porównania `my_continent` vs `qso.continent` oraz `my_dxcc` vs `qso.dxcc` (oraz braku podwojenia punktów na pasmach niskich 160m/80m/40m w CQ WPX).
-- **Opis problemu:** Wynik punktowy i liczba mnożników wyświetlana podczas zawodów odbiega od oficjalnych regulaminów PZK i CQ.
-- **Scenariusz wystąpienia:** Udział w SP DX Contest, CQ WW lub CQ WPX.
-- **Wpływ:** Błędna kalkulacja wyniku na żywo i błędne oznaczanie nowego mnożnika (`New Mult`).
-- **Rozwiązanie minimalne:** Przekazywać kontekst stacji własnej (`my_dxcc`, `my_continent`, `my_sp_province`) do funkcji `score_*` w `contest_rules.rs` i walidować polskie województwa (`B, C, D, F, G, J, K, L, M, O, P, R, S, U, W, Z`) dla SP DX Contest.
-- **Rozwiązanie docelowe:** Pełna tabela punktacji kontynentalnej i pasmowej (160m–10m) w `ContestEngine`.
+- **Commity:**
+  - `29a4e36`: `fix(contest): refine scoring and multipliers for SP DX, CQ WW and CQ WPX (FUNC-002)`
+  - `9a6de52`: `fix(contest): correct CQ WPX CW and SSB scoring (FUNC-002)`
+  - `966e59f`: `fix(contest): separate CQ WPX and CQ WPX RTTY rule profiles (FUNC-002)`
+  - `31d588f`: `fix(contest): validate contest-specific bands modes and exchanges`
+  - `5e8fbc8`: `test(contest): add independent official scoring fixtures`
+- **Moduł / obszar:** `src/core/contest_rules.rs`, `src/core/contest_stats.rs`, `src/core/cabrillo.rs`
+- **Lokalizacja:** [`src/core/contest_rules.rs`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/core/contest_rules.rs), [`src/core/contest_stats.rs`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/core/contest_stats.rs)
+- **Dowód z kodu przed naprawą:**
+  1. `score_sp_dx`: Brak prawidłowego rozróżnienia stacji polskiej vs zagranicznej oraz błędna walidacja 16 województw w wymianie.
+  2. `score_cqww`: Uproszczone prefiksy zamiast porównania encji DXCC i kontynentów.
+  3. `score_wpx`: Błędna reguła podwajania punktów dla tego samego kraju na pasmach niskich w zawodach CW/SSB (przyznawano 2 punkty zamiast 1 punktu).
+  4. Brak rozdzielenia profili CQ WPX CW/SSB od CQ WPX RTTY.
+- **Wdrożone rozwiązanie (Etap 7 i Bramka Naprawcza):**
+  1. **Edycja regulaminu SP DX Contest (PZK)**:
+     - Stacja polska (`my_dxcc == 269`): praca z Europą = 1 pkt, praca poza Europą = 3 pkt, łączność ze stacją SP = 0 pkt (duplikat/brak punktów). Mnożnik: unikalne podmioty DXCC na każdym paśmie.
+     - Stacja zagraniczna (`my_dxcc != 269`): punktowane są wyłącznie łączności ze stacjami SP = 3 pkt. Mnożnik: 16 polskich województw (`B, C, D, F, G, J, K, L, M, O, P, R, S, U, W, Z`) na każdym paśmie.
+     - Dozwolone pasma: 160m, 80m, 40m, 20m, 15m, 10m. Dozwolone emisje: CW, SSB.
+  2. **Edycja regulaminu CQ WW DX Contest (CQ)**:
+     - Własny podmiot DXCC: 0 pkt (kwalifikuje się do mnożnika strefy/kraju).
+     - Ten sam kontynent, inny podmiot: 1 pkt (wyjątek Ameryki Północnej: 2 pkt).
+     - Inny kontynent: 3 pkt.
+     - Mnożniki: CQ Zones (1..40) na każdym paśmie oraz kraje DXCC na każdym paśmie.
+     - Emisje rozdzielone per profil: osobny profil CQ WW CW, osobny profil CQ WW SSB. Dozwolone pasma: 160m, 80m, 40m, 20m, 15m, 10m.
+  3. **Edycja regulaminu CQ WPX CW/SSB (CQ)**:
+     - **Ten sam kraj (same-country): 1 punkt na każdym paśmie** (brak podwojenia na pasmach niskich!).
+     - Ten sam kontynent, inny kraj: 1 pkt pasma wysokie (10m, 15m, 20m), 2 pkt pasma niskie (40m, 80m, 160m).
+     - Ameryka Północna inny kraj (NA exception): 2 pkt pasma wysokie (10m, 15m, 20m), 4 pkt pasma niskie (40m, 80m, 160m).
+     - Inny kontynent: 3 pkt pasma wysokie (10m, 15m, 20m), 6 pkt pasma niskie (40m, 80m, 160m).
+     - Mnożnik prefiksów WPX: unikalny prefiks zaliczany **dokładnie raz w całych zawodach** (nie per pasmo).
+     - Dozwolone pasma: 160m, 80m, 40m, 20m, 15m, 10m.
+  4. **Status CQ WPX RTTY i CQ WW RTTY**:
+     - Profile RTTY są bezwzględnie odseparowane w typie `ContestId::CqWpxRtty` oraz `ContestId::CqWwRtty`.
+     - Próba kalkulacji lub eksportu zwraca jawny, typowany błąd `ContestError::UnsupportedContestVariant`. Wykluczone jest jakiekolwiek niejawne korzystanie z reguł CW/SSB.
+  5. **Walidacja specyficzna dla zawodów**:
+     - Pasma, emisje i wymiany podlegają ścisłej walidacji przed punktacją i eksportem. Łączności poza pasmami zawodów lub w niedozwolonych emisjach nie są punktowane i powodują zgłoszenie błędu.
+  6. **Klucze unikalności duplikatów (dedup key)**:
+     - SP DX / CQ WW: znak + pasmo + emisja (w zawodach wieloemisyjnych jak SP DX dozwolona jest łączność na tym samym paśmie na CW i na SSB).
+     - CQ WPX: znak + pasmo (w zawodach WPX dana stacja może być zrobiona tylko raz na paśmie).
+  7. **Niezależne fixtures testowe**:
+     - Wprowadzono niezależne testy weryfikujące reguły punktacji z ręcznie przeliczonymi wartościami z oficjalnych regulaminów PZK i CQ, weryfikujące `Scoreboard` oraz format i wartość pola `CLAIMED-SCORE`.
 - **Ryzyko wdrożenia zmiany:** Niskie.
 - **Złożoność wdrożenia:** `M`
-- **Zależności od innych zmian:** `FUNC-001`.
-- **Wymagany test regresyjny:** `sp_dx_contest_scoring_for_sp_and_non_sp_stations_matches_pzk_rules`.
-- **Kryterium akceptacji:** Punktacja dla stacji SP (1 pkt EU, 3 pkt DX, mnożnik DXCC per pasmo) oraz stacji non-SP (3 pkt za SP, mnożnik województwo A..Z per pasmo) jest zgodna z regulaminem SP DX Contest.
+- **Zależności od innych zmian:** Powiązane z `FUNC-001`.
+- **Wdrożone testy regresyjne:**
+  - `sp_dx_contest_scoring_for_sp_and_non_sp_stations_matches_pzk_rules`
+  - `spdx_polish_exchange_requires_voivodeship`
+  - `spdx_foreign_exchange_requires_serial`
+  - `spdx_mixed_duplicate_key_includes_mode`
+  - `spdx_rejects_vhf_band_for_scoring`
+  - `spdx_rejects_digital_mode_for_scoring`
+  - `cq_ww_contest_scoring_matches_cq_rules`
+  - `cqww_cw_requires_cw_and_zone_exchange`
+  - `cqww_ssb_requires_phone_and_zone_exchange`
+  - `cqww_country_multiplier_is_per_band`
+  - `cqww_zone_multiplier_is_per_band`
+  - `cqww_same_country_zero_points_but_multiplier_eligible`
+  - `cqwpx_same_country_high_band_scores_one`
+  - `cqwpx_same_country_low_band_scores_one`
+  - `cqwpx_same_continent_high_band_scores_one`
+  - `cqwpx_same_continent_low_band_scores_two`
+  - `cqwpx_north_america_high_band_scores_two`
+  - `cqwpx_north_america_low_band_scores_four`
+  - `cqwpx_different_continent_high_band_scores_three`
+  - `cqwpx_different_continent_low_band_scores_six`
+  - `cqwpx_prefix_multiplier_counts_once_across_bands`
+  - `cqwpx_rtty_does_not_use_cw_ssb_rules`
+  - `cqww_rtty_does_not_use_cw_ssb_rules_if_supported`
+  - `scoreboard_matches_manual_spdx_fixture`
+  - `scoreboard_matches_manual_cqww_fixture`
+  - `scoreboard_matches_manual_cqwpx_fixture`
+  - `claimed_score_matches_manual_fixture`
+  - `claimed_score_is_integer_without_formatting`
+- **Kryterium akceptacji:** Spełnione — reguły SP DX, CQ WW, CQ WPX CW/SSB, odseparowanie RTTY, walidacja emisji i pasm oraz niezależne fixtures są w 100% zweryfikowane testami automatycznymi.
 
 ---
 
