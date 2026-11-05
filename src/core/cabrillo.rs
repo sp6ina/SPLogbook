@@ -7,12 +7,46 @@ use crate::core::contest_rules::ContestError;
 use crate::core::qso::QsoRecord;
 use std::fmt::Write;
 
-/// Kategoria nadajnika dla zawodów krótkofalarskich w formacie Cabrillo 3.0.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Kategoria operatora w specyfikacji WWROF Cabrillo 3.0: `SINGLE-OP`, `MULTI-OP`, `CHECKLOG`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum CabrilloOperatorCategory {
+    #[default]
+    SingleOp,
+    MultiOp,
+    Checklog,
+}
+
+impl CabrilloOperatorCategory {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::SingleOp => "SINGLE-OP",
+            Self::MultiOp => "MULTI-OP",
+            Self::Checklog => "CHECKLOG",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        let t = s.trim();
+        if t.eq_ignore_ascii_case("SINGLE-OP") || t.eq_ignore_ascii_case("SINGLE") {
+            Some(Self::SingleOp)
+        } else if t.eq_ignore_ascii_case("MULTI-OP") || t.eq_ignore_ascii_case("MULTI") {
+            Some(Self::MultiOp)
+        } else if t.eq_ignore_ascii_case("CHECKLOG") {
+            Some(Self::Checklog)
+        } else {
+            None
+        }
+    }
+}
+
+/// Kategoria nadajnika dla zawodów krótkofalarskich w formacie Cabrillo 3.0: `ONE`, `TWO`, `UNLIMITED`.
+/// UWAGA: Wartość `MULTI` nie istnieje w specyfikacji Cabrillo dla nadajnika — kategoria Multi-Op
+/// należy wyłącznie do `CATEGORY-OPERATOR`, a nie do `CATEGORY-TRANSMITTER`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum CabrilloTransmitterCategory {
+    #[default]
     One,
     Two,
-    Multi,
     Unlimited,
 }
 
@@ -21,7 +55,6 @@ impl CabrilloTransmitterCategory {
         match self {
             Self::One => "ONE",
             Self::Two => "TWO",
-            Self::Multi => "MULTI",
             Self::Unlimited => "UNLIMITED",
         }
     }
@@ -32,9 +65,10 @@ impl CabrilloTransmitterCategory {
             Some(Self::One)
         } else if t.eq_ignore_ascii_case("TWO") || t.eq_ignore_ascii_case("MULTI-TWO") {
             Some(Self::Two)
-        } else if t.eq_ignore_ascii_case("MULTI") || t.eq_ignore_ascii_case("MULTI-MULTI") {
-            Some(Self::Multi)
-        } else if t.eq_ignore_ascii_case("UNLIMITED") {
+        } else if t.eq_ignore_ascii_case("UNLIMITED")
+            || t.eq_ignore_ascii_case("MULTI-MULTI")
+            || t.eq_ignore_ascii_case("MULTI-UNLIMITED")
+        {
             Some(Self::Unlimited)
         } else {
             None
@@ -43,20 +77,17 @@ impl CabrilloTransmitterCategory {
 }
 
 /// Waliduje kategorię nadajnika dla aktualnego wydania SPLogbook.
-/// SPLogbook w wersji 1.x wspiera wyłącznie kategorię Single-Op / One (jeden nadajnik).
-/// Kategorie wielonadajnikowe (Multi-Two, Multi-Unlimited) wymagają modelu wielu nadajników (Etap 8)
+/// SPLogbook w wersji 1.x wspiera wyłącznie kategorię One (jeden nadajnik).
+/// Kategorie wielonadajnikowe (Two, Unlimited) wymagają modelu wielu nadajników (Etap 8)
 /// i są jawnie odrzucane z błędem `ContestError::UnsupportedContestCategory`.
 pub fn validate_transmitter_category(cat: CabrilloTransmitterCategory) -> Result<(), ContestError> {
     match cat {
         CabrilloTransmitterCategory::One => Ok(()),
         CabrilloTransmitterCategory::Two => Err(ContestError::UnsupportedContestCategory(
-            "Multi-Two category requires independent transmitter/band sequences and is not supported in current release".to_string(),
-        )),
-        CabrilloTransmitterCategory::Multi => Err(ContestError::UnsupportedContestCategory(
-            "Multi-Multi category requires multi-transmitter tracking and is not supported in current release".to_string(),
+            "Multi-Two category requires independent transmitter/band sequences and is not supported in current release (only ONE is supported)".to_string(),
         )),
         CabrilloTransmitterCategory::Unlimited => Err(ContestError::UnsupportedContestCategory(
-            "Multi-Unlimited category requires multi-transmitter tracking and is not supported in current release".to_string(),
+            "Multi-Unlimited category requires multi-transmitter tracking and is not supported in current release (only ONE is supported)".to_string(),
         )),
     }
 }
@@ -66,9 +97,7 @@ pub fn validate_transmitter_category(cat: CabrilloTransmitterCategory) -> Result
 pub const fn cabrillo_transmitter_id_is_emitted(cat: CabrilloTransmitterCategory) -> bool {
     match cat {
         CabrilloTransmitterCategory::One => false,
-        CabrilloTransmitterCategory::Two
-        | CabrilloTransmitterCategory::Multi
-        | CabrilloTransmitterCategory::Unlimited => true,
+        CabrilloTransmitterCategory::Two | CabrilloTransmitterCategory::Unlimited => true,
     }
 }
 
@@ -193,6 +222,7 @@ pub struct CabrilloInput<'a> {
     pub claimed_score: u32,
     pub qsos: &'a [QsoRecord],
     pub transmitter_category: Option<CabrilloTransmitterCategory>,
+    pub operator_category: Option<CabrilloOperatorCategory>,
 }
 
 /// Mapuje emisję QSO na kanoniczny kod Cabrillo 3.0: `CW`, `PH`, `FM`, `RY`, `DG`.
@@ -255,11 +285,15 @@ pub fn build(input: &CabrilloInput) -> Result<String, ContestError> {
         .unwrap_or(CabrilloTransmitterCategory::One);
     validate_transmitter_category(tx_category)?;
 
+    let op_category = input
+        .operator_category
+        .unwrap_or(CabrilloOperatorCategory::SingleOp);
+
     let mut out = String::new();
     out.push_str("START-OF-LOG: 3.0\n");
     let _ = writeln!(out, "CONTEST: {}", input.contest_name);
     let _ = writeln!(out, "CALLSIGN: {}", input.callsign);
-    out.push_str("CATEGORY-OPERATOR: SINGLE-OP\n");
+    let _ = writeln!(out, "CATEGORY-OPERATOR: {}", op_category.as_str());
     let _ = writeln!(out, "CATEGORY-TRANSMITTER: {}", tx_category.as_str());
     out.push_str("CATEGORY-POWER: HIGH\n");
     out.push_str("CATEGORY-BAND: ALL\n");
@@ -363,6 +397,7 @@ mod tests {
             claimed_score: sb.total,
             qsos: &qsos,
             transmitter_category: None,
+            operator_category: None,
         };
 
         let cabrillo = build(&input).expect("valid cabrillo");
@@ -389,6 +424,7 @@ mod tests {
             claimed_score: 1234,
             qsos: &qsos,
             transmitter_category: Some(CabrilloTransmitterCategory::One),
+            operator_category: None,
         };
 
         let text = build(&input).expect("valid cabrillo");
@@ -441,6 +477,7 @@ mod tests {
             claimed_score: 100,
             qsos: &qsos,
             transmitter_category: None,
+            operator_category: None,
         };
 
         let text = build(&input).expect("valid cabrillo");
@@ -493,6 +530,7 @@ mod tests {
             claimed_score: 500,
             qsos: &qsos,
             transmitter_category: None,
+            operator_category: None,
         };
 
         let text = build(&input).expect("valid cabrillo");
@@ -582,10 +620,6 @@ mod tests {
             Err(ContestError::UnsupportedContestCategory(_))
         ));
         assert!(matches!(
-            validate_transmitter_category(CabrilloTransmitterCategory::Multi),
-            Err(ContestError::UnsupportedContestCategory(_))
-        ));
-        assert!(matches!(
             validate_transmitter_category(CabrilloTransmitterCategory::Unlimited),
             Err(ContestError::UnsupportedContestCategory(_))
         ));
@@ -600,6 +634,7 @@ mod tests {
             claimed_score: 100,
             qsos: &qsos,
             transmitter_category: Some(CabrilloTransmitterCategory::Unlimited),
+            operator_category: None,
         };
         let build_res = build(&input);
         assert!(matches!(
@@ -617,9 +652,6 @@ mod tests {
             CabrilloTransmitterCategory::Two
         ));
         assert!(cabrillo_transmitter_id_is_emitted(
-            CabrilloTransmitterCategory::Multi
-        ));
-        assert!(cabrillo_transmitter_id_is_emitted(
             CabrilloTransmitterCategory::Unlimited
         ));
 
@@ -633,12 +665,149 @@ mod tests {
             claimed_score: 10,
             qsos: &qsos,
             transmitter_category: Some(CabrilloTransmitterCategory::One),
+            operator_category: None,
         };
         let text = build(&input).expect("valid cabrillo");
         let qso_line = text.lines().find(|l| l.starts_with("QSO:")).unwrap();
         // Dla Single-Op / One wiersz zawiera 10 pól (brak pola transmitter ID na końcu)
         let cols: Vec<&str> = qso_line.split_whitespace().collect();
         assert_eq!(cols.len(), 11); // "QSO:" + 10 pól = 11 tokenów
+    }
+
+    #[test]
+    fn cabrillo_single_transmitter_emits_one() {
+        let qsos = vec![sample_qso("W1AW", "20m", "CW", "599", "599")];
+        let input = CabrilloInput {
+            contest_name: "CQ WW CW",
+            callsign: "SP6INA",
+            operator: "Mariusz",
+            city: "Wroclaw",
+            country: "Poland",
+            claimed_score: 100,
+            qsos: &qsos,
+            transmitter_category: Some(CabrilloTransmitterCategory::One),
+            operator_category: Some(CabrilloOperatorCategory::SingleOp),
+        };
+        let out = build(&input).expect("valid cabrillo");
+        assert!(out.contains("CATEGORY-OPERATOR: SINGLE-OP\n"));
+        assert!(out.contains("CATEGORY-TRANSMITTER: ONE\n"));
+    }
+
+    #[test]
+    fn cabrillo_multi_operator_one_transmitter_uses_operator_multi_op_and_transmitter_one() {
+        let qsos = vec![sample_qso("W1AW", "20m", "CW", "599", "599")];
+        let input = CabrilloInput {
+            contest_name: "CQ WW CW",
+            callsign: "SP6INA",
+            operator: "Team SP6INA",
+            city: "Wroclaw",
+            country: "Poland",
+            claimed_score: 100,
+            qsos: &qsos,
+            transmitter_category: Some(CabrilloTransmitterCategory::One),
+            operator_category: Some(CabrilloOperatorCategory::MultiOp),
+        };
+        let out = build(&input).expect("valid cabrillo");
+        assert!(out.contains("CATEGORY-OPERATOR: MULTI-OP\n"));
+        assert!(out.contains("CATEGORY-TRANSMITTER: ONE\n"));
+        assert!(!out.contains("CATEGORY-TRANSMITTER: MULTI"));
+    }
+
+    #[test]
+    fn cabrillo_never_emits_category_transmitter_multi() {
+        let qsos = vec![sample_qso("W1AW", "20m", "CW", "599", "599")];
+        for op in [
+            CabrilloOperatorCategory::SingleOp,
+            CabrilloOperatorCategory::MultiOp,
+            CabrilloOperatorCategory::Checklog,
+        ] {
+            let input = CabrilloInput {
+                contest_name: "SP DX Contest",
+                callsign: "SP6INA",
+                operator: "Mariusz",
+                city: "Wroclaw",
+                country: "Poland",
+                claimed_score: 50,
+                qsos: &qsos,
+                transmitter_category: Some(CabrilloTransmitterCategory::One),
+                operator_category: Some(op),
+            };
+            let out = build(&input).expect("valid cabrillo");
+            assert!(!out.contains("CATEGORY-TRANSMITTER: MULTI"));
+        }
+        // Odrzucenie parsowania "MULTI" jako kategorii nadajnika
+        assert_eq!(CabrilloTransmitterCategory::parse("MULTI"), None);
+    }
+
+    #[test]
+    fn cabrillo_two_transmitters_is_rejected_when_unsupported() {
+        let qsos = vec![sample_qso("W1AW", "20m", "CW", "599", "599")];
+        let input = CabrilloInput {
+            contest_name: "CQ WPX CW",
+            callsign: "SP6INA",
+            operator: "Mariusz",
+            city: "Wroclaw",
+            country: "Poland",
+            claimed_score: 100,
+            qsos: &qsos,
+            transmitter_category: Some(CabrilloTransmitterCategory::Two),
+            operator_category: None,
+        };
+        assert!(matches!(
+            build(&input),
+            Err(ContestError::UnsupportedContestCategory(_))
+        ));
+    }
+
+    #[test]
+    fn cabrillo_unlimited_transmitters_is_rejected_when_unsupported() {
+        let qsos = vec![sample_qso("W1AW", "20m", "CW", "599", "599")];
+        let input = CabrilloInput {
+            contest_name: "CQ WW CW",
+            callsign: "SP6INA",
+            operator: "Mariusz",
+            city: "Wroclaw",
+            country: "Poland",
+            claimed_score: 100,
+            qsos: &qsos,
+            transmitter_category: Some(CabrilloTransmitterCategory::Unlimited),
+            operator_category: None,
+        };
+        assert!(matches!(
+            build(&input),
+            Err(ContestError::UnsupportedContestCategory(_))
+        ));
+    }
+
+    #[test]
+    fn cabrillo_does_not_confuse_operator_and_transmitter_categories() {
+        let qsos = vec![sample_qso("W1AW", "20m", "CW", "599", "599")];
+        let input = CabrilloInput {
+            contest_name: "SP DX Contest",
+            callsign: "SP6INA",
+            operator: "Mariusz",
+            city: "Wroclaw",
+            country: "Poland",
+            claimed_score: 27,
+            qsos: &qsos,
+            transmitter_category: Some(CabrilloTransmitterCategory::One),
+            operator_category: Some(CabrilloOperatorCategory::MultiOp),
+        };
+        let out = build(&input).expect("valid cabrillo");
+        let op_line = out
+            .lines()
+            .find(|l| l.starts_with("CATEGORY-OPERATOR:"))
+            .unwrap();
+        let tx_line = out
+            .lines()
+            .find(|l| l.starts_with("CATEGORY-TRANSMITTER:"))
+            .unwrap();
+
+        assert_eq!(op_line, "CATEGORY-OPERATOR: MULTI-OP");
+        assert_eq!(tx_line, "CATEGORY-TRANSMITTER: ONE");
+        assert_ne!(tx_line, "CATEGORY-TRANSMITTER: MULTI-OP");
+        assert_ne!(tx_line, "CATEGORY-TRANSMITTER: MULTI");
+        assert_ne!(op_line, "CATEGORY-OPERATOR: ONE");
     }
 
     #[test]
@@ -656,6 +825,7 @@ mod tests {
             claimed_score: 100,
             qsos: &qsos,
             transmitter_category: None,
+            operator_category: None,
         };
 
         let text = build(&input).expect("valid cabrillo");
@@ -689,6 +859,7 @@ mod tests {
             claimed_score: 100,
             qsos: &qsos,
             transmitter_category: None,
+            operator_category: None,
         };
 
         let text = build(&input).expect("valid cabrillo");
@@ -715,6 +886,7 @@ mod tests {
             claimed_score: 10,
             qsos: &[bad_cw],
             transmitter_category: None,
+            operator_category: None,
         };
         assert!(matches!(
             build(&input1),
@@ -732,6 +904,7 @@ mod tests {
             claimed_score: 10,
             qsos: &[bad_ssb],
             transmitter_category: None,
+            operator_category: None,
         };
         assert!(matches!(
             build(&input2),
@@ -754,6 +927,7 @@ mod tests {
             claimed_score: 10,
             qsos: &qsos,
             transmitter_category: None,
+            operator_category: None,
         };
 
         let text = build(&input).expect("valid cabrillo");
@@ -791,6 +965,7 @@ mod tests {
             claimed_score: final_score,
             qsos: &qsos,
             transmitter_category: None,
+            operator_category: None,
         };
 
         let text = build(&input).expect("valid cabrillo");
@@ -821,6 +996,7 @@ mod tests {
             claimed_score: final_score,
             qsos: &qsos,
             transmitter_category: None,
+            operator_category: None,
         };
 
         let text = build(&input).expect("valid cabrillo");
@@ -845,6 +1021,7 @@ mod tests {
             claimed_score: 0,
             qsos: &qsos,
             transmitter_category: None,
+            operator_category: None,
         };
 
         let text = build(&input).expect("valid cabrillo");
@@ -873,6 +1050,7 @@ mod tests {
             claimed_score: 1,
             qsos: &qsos,
             transmitter_category: None,
+            operator_category: None,
         };
 
         let text = build(&input).expect("valid cabrillo");

@@ -67,6 +67,7 @@ impl SpLogApp {
                 claimed_score: scoreboard.total,
                 qsos: &qsos,
                 transmitter_category: Some(crate::core::cabrillo::CabrilloTransmitterCategory::One),
+                operator_category: Some(crate::core::cabrillo::CabrilloOperatorCategory::SingleOp),
             };
             let out = match crate::core::cabrillo::build(&input) {
                 Ok(s) => s,
