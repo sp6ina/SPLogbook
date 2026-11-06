@@ -91,6 +91,7 @@ impl QsoEntryState {
     pub fn clear(&mut self) {
         self.callsign.clear();
         self.callsign_corrections.clear();
+        self.exchange.clear();
         self.name.clear();
         self.qth.clear();
         self.grid.clear();

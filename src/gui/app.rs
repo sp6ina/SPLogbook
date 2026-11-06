@@ -108,6 +108,7 @@ pub struct SpLogApp {
     // Stan GUI (dialogi, chrome, widoki, okna)
     pub gui: crate::gui::state::GuiState,
     pub active_journal: crate::core::database::Journal,
+    pub active_focus_context_override: Option<crate::gui::shortcuts::ActiveFocusContext>,
 
     // Modułowy układ kafelków i okien pływających
     pub views: crate::gui::state::ViewsState,
@@ -413,6 +414,7 @@ impl SpLogApp {
 
             // Wyszukiwanie duplikatów
             duplicates: crate::gui::state::DuplicatesState::default(),
+            active_focus_context_override: None,
         };
 
         app.rebuild_awards_full();

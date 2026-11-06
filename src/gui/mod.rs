@@ -39,8 +39,8 @@ pub mod satellites;
 pub mod send_spot;
 pub mod shortcuts;
 pub use shortcuts::{
-    AppAction, ConflictPolicy, RepeatPolicy, ShortcutBinding, ShortcutContext, ShortcutRegistry,
-    is_ctrl_modifier,
+    ActiveFocusContext, AppAction, ConflictPolicy, RepeatPolicy, ShortcutBinding, ShortcutContext,
+    ShortcutRegistry, is_ctrl_modifier,
 };
 pub mod solar_panel;
 pub mod sota_dialog;
