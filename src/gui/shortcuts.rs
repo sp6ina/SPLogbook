@@ -11,6 +11,33 @@ pub fn is_ctrl_modifier(modifiers: &egui::Modifiers) -> bool {
     modifiers.ctrl || modifiers.command
 }
 
+/// Błąd walidacji rejestru skrótów klawiaturowych.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ShortcutConfigError {
+    ConflictingBindings {
+        action_a: AppAction,
+        action_b: AppAction,
+        shortcut: &'static str,
+    },
+}
+
+impl std::fmt::Display for ShortcutConfigError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ConflictingBindings {
+                action_a,
+                action_b,
+                shortcut,
+            } => write!(
+                f,
+                "konflikt powiązań skrótu {shortcut}: {action_a:?} vs {action_b:?}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ShortcutConfigError {}
+
 /// Unikalne akcje aplikacyjne wyzwalane przez skróty klawiszowe lub polecenia.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AppAction {
@@ -193,6 +220,19 @@ impl ShortcutRegistry {
             }
         }
         conflicts
+    }
+
+    /// Weryfikuje czy w rejestrze skrótów nie występują konflikty.
+    pub fn validate(&self) -> Result<(), ShortcutConfigError> {
+        let conflicts = self.find_conflicts();
+        if let Some((a, b)) = conflicts.first() {
+            return Err(ShortcutConfigError::ConflictingBindings {
+                action_a: a.action,
+                action_b: b.action,
+                shortcut: a.label,
+            });
+        }
+        Ok(())
     }
 
     /// Deterministycznie rozwiązuje akcję klawiaturową na podstawie wejścia egui, aktywnego kontekstu
