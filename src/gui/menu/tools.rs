@@ -93,7 +93,11 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     ui.horizontal(|ui| {
                         ui.label(tr(key::TOOLS_REST_API_KEY, lang));
                         let mut key_display = key.clone();
-                        ui.add(egui::TextEdit::singleline(&mut key_display).desired_width(220.0));
+                        ui.add(
+                            egui::TextEdit::singleline(&mut key_display)
+                                .password(true)
+                                .desired_width(220.0),
+                        );
                         if ui
                             .button(icons::LOGBOOK.as_str())
                             .on_hover_text(tr(key::TOOLS_REST_API_COPY_KEY, lang))

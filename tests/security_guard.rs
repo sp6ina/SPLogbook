@@ -1409,3 +1409,167 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
     assert!(!sanitized.contains("O(N)O(N)O(N)"));
     assert!(sanitized.contains("O(N)"));
 }
+
+// =========================================================================
+// FUNC-005 / SEC-005: REST API Token Security & Redaction Invariants
+// =========================================================================
+
+#[test]
+fn rest_token_is_not_serialized_in_standard_config() {
+    use splogbook::core::station::AppConfig;
+    let mut cfg = AppConfig::default();
+    let test_secret = "TEST_REST_TOKEN_NEVER_SERIALIZE_PL_987";
+    cfg.rest_api_key = test_secret.into();
+
+    let json = serde_json::to_string(&cfg).expect("Serialization must succeed");
+    assert!(
+        !json.contains(test_secret),
+        "REST API key must never appear in serialized JSON config"
+    );
+    assert!(
+        !json.contains("rest_api_key"),
+        "rest_api_key field must be omitted via #[serde(skip_serializing)]"
+    );
+}
+
+#[test]
+fn rest_token_is_redacted_from_debug() {
+    use splogbook::core::station::AppConfig;
+    let mut cfg = AppConfig::default();
+    let test_secret = "TEST_REST_TOKEN_DEBUG_REDACT_456";
+    cfg.rest_api_key = test_secret.into();
+
+    let debug_out = format!("{cfg:?}");
+    assert!(
+        !debug_out.contains(test_secret),
+        "REST API key must never appear in Debug format output"
+    );
+    assert!(
+        debug_out.contains("<redacted>"),
+        "REST API key must be represented as <redacted> in Debug output"
+    );
+}
+
+#[test]
+fn rest_token_is_redacted_from_error_messages() {
+    use splogbook::cat::tx_arbiter::redact_sensitive_info;
+
+    let secret = "TEST_REST_TOKEN_SECRET_ERR_999";
+    let error_with_bearer = format!("HTTP 401 Unauthorized: bearer {secret} is invalid");
+    let redacted_bearer = redact_sensitive_info(&error_with_bearer);
+    assert!(!redacted_bearer.contains(secret));
+    assert!(redacted_bearer.contains("[REDACTED]"));
+
+    let error_with_api_key = format!("REST dispatch failed: api_key={secret} invalid");
+    let redacted_key = redact_sensitive_info(&error_with_api_key);
+    assert!(!redacted_key.contains(secret));
+    assert!(redacted_key.contains("[REDACTED]"));
+
+    let error_with_header = format!("Header error: x-api-key={secret} expired");
+    let redacted_header = redact_sensitive_info(&error_with_header);
+    assert!(!redacted_header.contains(secret));
+    assert!(redacted_header.contains("[REDACTED]"));
+}
+
+#[test]
+fn rest_token_is_not_in_diagnostic_export() {
+    use splogbook::core::http::redacted_url_for_diagnostics;
+
+    let secret = "TEST_DIAG_REST_TOKEN_ABC123";
+    let raw_url = format!("http://127.0.0.1:8420/api/v1/status?api_key={secret}&source=test");
+    let sanitized = redacted_url_for_diagnostics(&raw_url);
+    assert!(
+        !sanitized.contains(secret),
+        "Diagnostic URL sanitizer must scrub REST token query parameters"
+    );
+}
+
+#[test]
+fn rest_token_is_masked_in_gui_model() {
+    let tools_source =
+        fs::read_to_string("src/gui/menu/tools.rs").expect("read src/gui/menu/tools.rs");
+    assert!(
+        tools_source.contains(".password(true)"),
+        "REST API key field in Tools menu must be explicitly masked with .password(true)"
+    );
+}
+
+#[test]
+fn rest_token_copy_action_does_not_log_value() {
+    let tools_source =
+        fs::read_to_string("src/gui/menu/tools.rs").expect("read src/gui/menu/tools.rs");
+    let copy_idx = tools_source.find("copy_text").expect("find copy_text");
+    let window = &tools_source
+        [copy_idx.saturating_sub(80)..std::cmp::min(tools_source.len(), copy_idx + 120)];
+    assert!(
+        !window.contains("log::") && !window.contains("println!"),
+        "Copying REST API key to clipboard must never emit log messages"
+    );
+}
+
+#[test]
+fn rest_token_regeneration_does_not_log_values() {
+    let tools_source =
+        fs::read_to_string("src/gui/menu/tools.rs").expect("read src/gui/menu/tools.rs");
+    let regen_idx = tools_source
+        .find("generate_api_key")
+        .expect("find generate_api_key");
+    let window = &tools_source
+        [regen_idx.saturating_sub(80)..std::cmp::min(tools_source.len(), regen_idx + 120)];
+    assert!(
+        !window.contains("log::") && !window.contains("println!"),
+        "Regenerating REST API key must never log old or new token values"
+    );
+}
+
+#[test]
+fn remote_rest_remains_disabled_by_default() {
+    use splogbook::api::server::default_rest_bind_address;
+    use splogbook::core::station::AppConfig;
+    use splogbook::gui::state::AppRuntime;
+
+    let cfg = AppConfig::default();
+    assert!(
+        cfg.rest_api_key.is_empty(),
+        "REST API key must be empty by default until explicitly generated"
+    );
+
+    let rt = AppRuntime::default();
+    let addr = default_rest_bind_address(rt.rest_api_port);
+    assert!(
+        addr.ip().is_loopback(),
+        "Default REST API bind address must be strictly loopback (127.0.0.1)"
+    );
+    assert!(
+        !rt.rest_api_enabled,
+        "REST API server must remain disabled by default in runtime configuration"
+    );
+}
+
+#[test]
+fn public_bind_without_token_is_rejected() {
+    use splogbook::api::server::{ServerBindError, validate_bind_policy};
+    use std::net::IpAddr;
+
+    let public_v4: IpAddr = "0.0.0.0".parse().unwrap();
+    assert_eq!(
+        validate_bind_policy(&public_v4, ""),
+        Err(ServerBindError::PublicBindWithoutAuthentication)
+    );
+    assert_eq!(
+        validate_bind_policy(&public_v4, "   "),
+        Err(ServerBindError::PublicBindWithoutAuthentication)
+    );
+
+    let lan_v4: IpAddr = "192.168.1.100".parse().unwrap();
+    assert_eq!(
+        validate_bind_policy(&lan_v4, ""),
+        Err(ServerBindError::PublicBindWithoutAuthentication)
+    );
+
+    let public_v6: IpAddr = "::".parse().unwrap();
+    assert_eq!(
+        validate_bind_policy(&public_v6, ""),
+        Err(ServerBindError::PublicBindWithoutAuthentication)
+    );
+}
