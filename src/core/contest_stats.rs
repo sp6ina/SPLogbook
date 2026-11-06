@@ -29,7 +29,7 @@ pub fn qso_epoch_secs(q: &QsoRecord) -> Option<i64> {
 }
 
 /// Wynik pomiaru tempa pracy w kontescie.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct RateStats {
     pub now_secs: i64,
     /// Liczba QSO w ostatnich 1/5/10/60 minutach.
@@ -160,7 +160,7 @@ pub fn mult_value(kind: MultKind, q: &QsoRecord) -> Option<String> {
 /// - `2` — mnożnik zaliczony na tym paśmie (zielony),
 /// - `1` — mnożnik zaliczony gdzie indziej, dostępny na tym paśmie (żółty),
 /// - `0` — mnożnik nigdy niezliczony (szary = potrzebny).
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct MultMatrix {
     pub bands: Vec<String>,
     pub columns: Vec<String>,

@@ -247,9 +247,9 @@ impl SpLogApp {
             frequency_hz: 14_025_000,
             mode: "CW".to_string(),
             passband_hz: 500,
-            s_meter_dbm: 20.0,
-            s_meter_unit: "S9+20dB".to_string(),
-            rf_power_watts: 100.0,
+            s_meter_dbm: -127.0,
+            s_meter_unit: "S0".to_string(),
+            rf_power_watts: 0.0,
             ..Default::default()
         };
 

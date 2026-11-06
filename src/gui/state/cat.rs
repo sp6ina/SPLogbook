@@ -84,6 +84,23 @@ pub struct CatState {
     pub vfo: VfoState,
 }
 
+impl CatState {
+    pub fn get_cached_rig_state(
+        &self,
+        rig_id: &crate::cat::routing::RigId,
+    ) -> Option<&crate::cat::hamlib::RigState> {
+        self.form_cache.rig_cache.get(rig_id)
+    }
+
+    pub fn set_cached_rig_state(
+        &mut self,
+        rig_id: crate::cat::routing::RigId,
+        state: crate::cat::hamlib::RigState,
+    ) {
+        self.form_cache.rig_cache.insert(rig_id, state);
+    }
+}
+
 impl Default for CatState {
     fn default() -> Self {
         let (state_tx, state_rx) = std::sync::mpsc::channel();
@@ -144,5 +161,6 @@ mod tests {
         assert_eq!(state.rotor_state.azimuth_deg, 0.0);
         assert_eq!(state.rotor_state.elevation_deg, 0.0);
         assert_eq!(state.vfo.split_offset_khz, 1.0);
+        assert!(state.form_cache.rig_cache.is_empty());
     }
 }

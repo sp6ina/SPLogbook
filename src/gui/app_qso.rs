@@ -507,6 +507,7 @@ impl SpLogApp {
                     ));
                 }
             }
+            self.log_view.bump_revision();
         }
         // Zresetuj stronę jeśli wyszła poza zakres
         if self.log_view.page_size > 0 {
@@ -594,6 +595,8 @@ impl SpLogApp {
         self.log_view.editing_qso = None;
         self.log_view.undo_stack.clear();
         self.log_view.redo_stack.clear();
+        self.log_view.invalidate_cache();
+        self.contest.cache.key = None;
         crate::gui::statistics::invalidate_stats_cache();
 
         // 2. Odbudowa stanu pochodnego ściśle dla nowego aktywnego dziennika

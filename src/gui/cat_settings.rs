@@ -31,6 +31,8 @@ pub struct FormVariantCache {
     pub yaesu: Option<YaesuBackendConfig>,
     pub elecraft: Option<ElecraftBackendConfig>,
     pub flexradio: Option<FlexRadioBackendConfig>,
+    pub rig_cache:
+        std::collections::HashMap<crate::cat::routing::RigId, crate::cat::hamlib::RigState>,
 }
 
 impl FormVariantCache {

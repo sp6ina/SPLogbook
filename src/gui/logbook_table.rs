@@ -251,7 +251,7 @@ fn sort_col_id_for(col_id: &str) -> Option<u8> {
 
 /// Bezalokacyjne sprawdzenie zawierania podciągu bez rozróżniania wielkości liter (ASCII + pełny fallback UTF-8).
 #[inline]
-fn contains_case_insensitive(haystack: &str, needle_upper: &str) -> bool {
+pub(crate) fn contains_case_insensitive(haystack: &str, needle_upper: &str) -> bool {
     if needle_upper.is_empty() {
         return true;
     }
@@ -297,7 +297,7 @@ fn contains_case_insensitive(haystack: &str, needle_upper: &str) -> bool {
 
 /// Normalizuje ciąg daty/czasu na stosie (pomija `-`, `:`, `.`, `/`) i dopełnia zerami z prawej strony do `N` znaków.
 #[inline]
-fn normalize_digits_stack<const N: usize>(s: &str) -> [u8; N] {
+pub(crate) fn normalize_digits_stack<const N: usize>(s: &str) -> [u8; N] {
     let mut out = [b'0'; N];
     let mut idx = 0;
     for &b in s.as_bytes() {
@@ -316,63 +316,12 @@ fn normalize_digits_stack<const N: usize>(s: &str) -> [u8; N] {
 pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.gui.appearance.language;
     let palette = ui.palette();
-    let query = app.log_view.search_query.trim().to_uppercase();
 
-    // Filtrowanie (wyszukiwarka tekstowa + filtr drill-down ze statystyk) — bez alokacji na stercie dla ASCII
-    let drill = app.log_view.drill_filter.clone();
-    let mut sorted_indices: Vec<usize> = (0..app.log_view.recent_qsos.len())
-        .filter(|&i| {
-            let qso = &app.log_view.recent_qsos[i];
-            if let Some(ref d) = drill {
-                if !d.matches(qso) {
-                    return false;
-                }
-            }
-            if query.is_empty() {
-                return true;
-            }
-            contains_case_insensitive(&qso.callsign, &query)
-                || contains_case_insensitive(&qso.band, &query)
-                || contains_case_insensitive(&qso.mode, &query)
-                || contains_case_insensitive(qso.country.as_deref().unwrap_or(""), &query)
-                || contains_case_insensitive(qso.name.as_deref().unwrap_or(""), &query)
-                || contains_case_insensitive(qso.qth.as_deref().unwrap_or(""), &query)
-                || contains_case_insensitive(qso.gridsquare.as_deref().unwrap_or(""), &query)
-                || contains_case_insensitive(qso.comment.as_deref().unwrap_or(""), &query)
-        })
-        .collect();
-
-    // Sortowanie (bezalokacyjne klucze na stosie dla daty i czasu)
-    let sc = app.log_view.sort_column;
-    let sa = app.log_view.sort_asc;
-    sorted_indices.sort_by(|&a, &b| {
-        let qa = &app.log_view.recent_qsos[a];
-        let qb = &app.log_view.recent_qsos[b];
-        let ord = match sc {
-            1 => qa.callsign.cmp(&qb.callsign),
-            2 => qa.band.cmp(&qb.band),
-            3 => qa.mode.cmp(&qb.mode),
-            4 => qa
-                .country
-                .as_deref()
-                .unwrap_or("")
-                .cmp(qb.country.as_deref().unwrap_or("")),
-            _ => {
-                let da = normalize_digits_stack::<8>(&qa.qso_date);
-                let db = normalize_digits_stack::<8>(&qb.qso_date);
-                da.cmp(&db)
-                    .then_with(|| {
-                        let ta = normalize_digits_stack::<6>(&qa.time_on);
-                        let tb = normalize_digits_stack::<6>(&qb.time_on);
-                        ta.cmp(&tb)
-                    })
-                    .then_with(|| qa.id.cmp(&qb.id))
-            }
-        };
-        if sa { ord } else { ord.reverse() }
-    });
-
-    let total = sorted_indices.len();
+    // Pobranie zbuforowanych lub przeliczonych indeksów posortowanych i przefiltrowanych (PERF-002)
+    let log_id = app.active_journal.id.clone();
+    let prof_id = app.config.active_profile_id.clone();
+    app.log_view.ensure_sorted_indices_cached(&log_id, &prof_id);
+    let total = app.log_view.cache.sorted_indices.len();
 
     // Aktywny filtr drill-down ze statystyk — widoczny pasek z przyciskiem czyszczenia
     if let Some(ref d) = app.log_view.drill_filter {
@@ -491,7 +440,7 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
     // Wyznacz zakres strony
     let (page_start, page_end) = page_range(app.log_view.page, app.log_view.page_size, total);
-    let page_indices = &sorted_indices[page_start..page_end];
+    let page_indices: Vec<usize> = app.log_view.cache.sorted_indices[page_start..page_end].to_vec();
 
     let mut qso_to_edit: Option<crate::core::qso::QsoRecord> = None;
     let mut qso_id_to_delete: Option<(i64, crate::core::qso::QsoRecord)> = None;
