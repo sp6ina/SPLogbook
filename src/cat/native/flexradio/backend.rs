@@ -294,7 +294,7 @@ impl FlexRadioBackend {
     /// Bezpiecznie zamyka i czyści stan połączenia w przypadku niepowodzenia procedury connect.
     async fn cleanup_failed_connection(&mut self) {
         if let Some(mut conn) = self.connection.take() {
-            let _ = conn.disconnect().await;
+            let () = conn.disconnect().await;
         }
         self.confirmed_ptt_state = FlexConfirmedPttState::Unknown;
         self.last_state.connected = false;
@@ -746,14 +746,13 @@ impl FlexRadioBackend {
                 }
             }
             "transmit" => {
-                if self.tx_telemetry_enabled {
-                    if let Some(p) = status
+                if self.tx_telemetry_enabled
+                    && let Some(p) = status
                         .properties
                         .get("rfpower")
                         .and_then(|s| s.parse::<f32>().ok())
-                    {
-                        self.rf_power_watts = p;
-                    }
+                {
+                    self.rf_power_watts = p;
                 }
             }
             _ => {}
@@ -1153,22 +1152,24 @@ impl RigBackend for FlexRadioBackend {
                             .client_handle
                             .as_deref()
                             .map(|h| h.strip_prefix("0x").unwrap_or(h));
-                        if let Some(my_handle) = clean_handle {
-                            if !foreign_handle.eq_ignore_ascii_case(my_handle) {
-                                return Err(RigError::Protocol {
-                                    detail: format!(
-                                        "slice {slice_id} is owned by foreign client 0x{foreign_handle}"
-                                    ),
-                                });
-                            }
+                        if let Some(my_handle) = clean_handle
+                            && !foreign_handle.eq_ignore_ascii_case(my_handle)
+                        {
+                            return Err(RigError::Protocol {
+                                detail: format!(
+                                    "slice {slice_id} is owned by foreign client 0x{foreign_handle}"
+                                ),
+                            });
                         }
                     }
                     Some(slice_key)
                 }
-                Some(crate::cat::routing::ReceiverId::VfoA)
-                | Some(crate::cat::routing::ReceiverId::VfoB)
-                | Some(crate::cat::routing::ReceiverId::Main)
-                | Some(crate::cat::routing::ReceiverId::Sub) => {
+                Some(
+                    crate::cat::routing::ReceiverId::VfoA
+                    | crate::cat::routing::ReceiverId::VfoB
+                    | crate::cat::routing::ReceiverId::Main
+                    | crate::cat::routing::ReceiverId::Sub,
+                ) => {
                     // Brak niejawnego aliasowania VFO A/B ani Main do slice FlexRadio!
                     return Err(RigError::Unsupported {
                         backend: CatBackendKind::FlexRadio,
@@ -1197,7 +1198,7 @@ impl RigBackend for FlexRadioBackend {
                     };
 
                     let mhz = *freq_hz as f64 / 1_000_000.0;
-                    let cmd = format!("slice set {} freq={:.6}", slice_id, mhz);
+                    let cmd = format!("slice set {slice_id} freq={mhz:.6}");
 
                     self.send_and_await_ack(cmd, &endpoint).await?;
                 }
@@ -1211,7 +1212,7 @@ impl RigBackend for FlexRadioBackend {
                     };
 
                     let mhz = *freq_hz as f64 / 1_000_000.0;
-                    let cmd = format!("slice set {} freq={:.6}", slice_id, mhz);
+                    let cmd = format!("slice set {slice_id} freq={mhz:.6}");
 
                     self.send_and_await_ack(cmd, &endpoint).await?;
                 }
@@ -1239,10 +1240,8 @@ impl RigBackend for FlexRadioBackend {
                         _ => (100i32, 100i32 + *passband_hz as i32),
                     };
 
-                    let cmd = format!(
-                        "slice set {} mode={} filter_lo={} filter_hi={}",
-                        slice_id, m, lo, hi
-                    );
+                    let cmd =
+                        format!("slice set {slice_id} mode={m} filter_lo={lo} filter_hi={hi}");
 
                     self.send_and_await_ack(cmd, &endpoint).await?;
                 }
@@ -1292,13 +1291,12 @@ impl RigBackend for FlexRadioBackend {
                             .slices
                             .iter()
                             .find(|(id, _)| Some(**id) != self.config.preferred_slice)
-                            .map(|(_, s)| s.id)
-                            .unwrap_or(FlexSliceId(1));
-                        let cmd = format!("slice set {} tx=1", tx_slice);
+                            .map_or(FlexSliceId(1), |(_, s)| s.id);
+                        let cmd = format!("slice set {tx_slice} tx=1");
                         self.send_and_await_ack(cmd, &endpoint).await?;
                     } else {
                         let preferred = self.config.preferred_slice.unwrap_or(FlexSliceId(0));
-                        let cmd = format!("slice set {} tx=1", preferred);
+                        let cmd = format!("slice set {preferred} tx=1");
                         self.send_and_await_ack(cmd, &endpoint).await?;
                     }
                 }
@@ -3675,8 +3673,7 @@ mod tests {
         server.await.expect("server join");
 
         let cmds = recorded.lock().await;
-        const EXPECTED_COMMANDS: [&str; 3] = ["sub slice all", "sub radio all", "sub tx all"];
-        for expected in &EXPECTED_COMMANDS {
+        for expected in ["sub slice all", "sub radio all", "sub tx all"] {
             assert!(
                 cmds.iter().any(|c| c.contains(expected)),
                 "missing expected subscription: {expected}"
@@ -4465,12 +4462,8 @@ mod tests {
                                         .as_bytes(),
                                 )
                                 .await;
-                        } else if cmd.contains("xmit 1") {
-                            // Only send command ACK, NO interlock status!
-                            let _ = socket.write_all(format!("R{seq}|0|\n").as_bytes()).await;
-                        } else if cmd.contains("xmit 0") {
-                            let _ = socket.write_all(format!("R{seq}|0|\n").as_bytes()).await;
                         } else {
+                            // Only send command ACK, NO interlock status!
                             let _ = socket.write_all(format!("R{seq}|0|\n").as_bytes()).await;
                         }
                     }

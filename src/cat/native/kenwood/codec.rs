@@ -448,7 +448,7 @@ impl KenwoodCat {
     /// Tworzy komendę ustawienia mocy RF (`PCxxx;`, 0..200 W).
     pub fn set_power_cmd(watts: f32) -> String {
         let val = (watts.clamp(0.0, 200.0).round() as u32).min(999);
-        format!("PC{:03};", val)
+        format!("PC{val:03};")
     }
 
     /// Tworzy komendę odczytu mocy RF (`PC;`).
@@ -606,7 +606,7 @@ mod tests {
         slice = &slice[n3..];
 
         // Koniec
-        assert!(slice.is_empty());
+        assert_eq!(slice, b"");
         let res = codec.decode_frame(slice).expect("empty");
         assert_eq!(res, None);
     }

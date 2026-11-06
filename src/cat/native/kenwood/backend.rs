@@ -289,10 +289,10 @@ impl KenwoodBackend {
                     "TX" | "RX" => Some("IF;"),
                     _ => None,
                 };
-                if let Some(query) = getter {
-                    if let Some(transport) = self.transport.as_mut() {
-                        let _ = transport.write_all(query.as_bytes()).await;
-                    }
+                if let Some(query) = getter
+                    && let Some(transport) = self.transport.as_mut()
+                {
+                    let _ = transport.write_all(query.as_bytes()).await;
                 }
                 verification_sent = true;
             }
@@ -313,14 +313,11 @@ impl KenwoodBackend {
                                 matched_frame = Some(frame.clone());
                             } else if (expected_cmd == "TX" || expected_cmd == "RX")
                                 && frame.command == "IF"
+                                && let Some(info) = KenwoodIfInfo::parse(&frame.raw)
+                                && ((expected_cmd == "TX" && info.tx)
+                                    || (expected_cmd == "RX" && !info.tx))
                             {
-                                if let Some(info) = KenwoodIfInfo::parse(&frame.raw) {
-                                    if (expected_cmd == "TX" && info.tx)
-                                        || (expected_cmd == "RX" && !info.tx)
-                                    {
-                                        matched_frame = Some(frame.clone());
-                                    }
-                                }
+                                matched_frame = Some(frame.clone());
                             }
                             frames_to_apply.push(frame);
                         }

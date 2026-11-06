@@ -57,9 +57,10 @@ impl RigProbeRunner {
 }
 
 /// Stan asynchronicznego procesu próbkowania w GUI.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum ProbeState {
     /// Oczekiwanie na akcję użytkownika.
+    #[default]
     Idle,
     /// Trwa sprawdzanie poprawności formularza przed uruchomieniem testu.
     Validating,
@@ -84,10 +85,4 @@ pub enum ProbeState {
     },
     /// Test został anulowany (np. przez zamknięcie okna lub modyfikację konfiguracji).
     Cancelled,
-}
-
-impl Default for ProbeState {
-    fn default() -> Self {
-        Self::Idle
-    }
 }

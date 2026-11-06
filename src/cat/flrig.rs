@@ -216,10 +216,10 @@ pub fn parse_response(xml: &str) -> Result<XmlRpcValue, XmlRpcParseError> {
                     }
                     "double" => {
                         current_type = name;
-                        if let Ok(txt) = read_text(&mut reader, &mut buf) {
-                            if let Ok(d) = txt.trim().parse::<f64>() {
-                                value = Some(XmlRpcValue::Double(d));
-                            }
+                        if let Ok(txt) = read_text(&mut reader, &mut buf)
+                            && let Ok(d) = txt.trim().parse::<f64>()
+                        {
+                            value = Some(XmlRpcValue::Double(d));
                         }
                     }
                     "boolean" => {
@@ -248,16 +248,17 @@ pub fn parse_response(xml: &str) -> Result<XmlRpcValue, XmlRpcParseError> {
                 }
             }
             Ok(Event::Text(t)) => {
-                if in_value && current_type.is_empty() {
-                    if let Ok(unescaped) = quick_xml::escape::unescape(t.as_ref()) {
-                        let txt = unescaped.trim();
-                        if in_fault {
-                            if fault_msg.is_empty() && !txt.is_empty() {
-                                fault_msg = txt.to_string();
-                            }
-                        } else if value.is_none() {
-                            value = Some(XmlRpcValue::Str(txt.to_string()));
+                if in_value
+                    && current_type.is_empty()
+                    && let Ok(unescaped) = quick_xml::escape::unescape(t.as_ref())
+                {
+                    let txt = unescaped.trim();
+                    if in_fault {
+                        if fault_msg.is_empty() && !txt.is_empty() {
+                            fault_msg = txt.to_string();
                         }
+                    } else if value.is_none() {
+                        value = Some(XmlRpcValue::Str(txt.to_string()));
                     }
                 }
             }
@@ -697,7 +698,7 @@ impl FlrigClient {
     }
 
     pub async fn set_split_typed(&self, split: bool) -> Result<(), RigError> {
-        let req = XmlRpcRequest::new("rig.set_split").param_int(if split { 1 } else { 0 });
+        let req = XmlRpcRequest::new("rig.set_split").param_int(i64::from(split));
         self.call(&req).await?;
         Ok(())
     }
@@ -1129,7 +1130,7 @@ mod tests {
     fn ok_bool_response(val: bool) -> String {
         xmlrpc_response(&format!(
             "<?xml version=\"1.0\"?><methodResponse><params><param><value><boolean>{}</boolean></value></param></params></methodResponse>",
-            if val { 1 } else { 0 }
+            i32::from(val)
         ))
     }
 
@@ -1155,25 +1156,25 @@ mod tests {
             }
             buf.extend_from_slice(&temp[..n]);
 
-            if body_start.is_none() {
-                if let Some(idx) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
-                    body_start = Some(idx + 4);
-                    let headers_str = String::from_utf8_lossy(&buf[..idx]);
-                    for line in headers_str.lines() {
-                        let trimmed = line.trim();
-                        if let Some(val) = trimmed.strip_prefix("Content-Length:") {
-                            content_len = val.trim().parse::<usize>().ok();
-                        } else if let Some(val) = trimmed.strip_prefix("content-length:") {
-                            content_len = val.trim().parse::<usize>().ok();
-                        }
+            if body_start.is_none()
+                && let Some(idx) = buf.windows(4).position(|w| w == b"\r\n\r\n")
+            {
+                body_start = Some(idx + 4);
+                let headers_str = String::from_utf8_lossy(&buf[..idx]);
+                for line in headers_str.lines() {
+                    let trimmed = line.trim();
+                    if let Some(val) = trimmed.strip_prefix("Content-Length:") {
+                        content_len = val.trim().parse::<usize>().ok();
+                    } else if let Some(val) = trimmed.strip_prefix("content-length:") {
+                        content_len = val.trim().parse::<usize>().ok();
                     }
                 }
             }
 
-            if let (Some(start), Some(len)) = (body_start, content_len) {
-                if buf.len() >= start + len {
-                    break;
-                }
+            if let (Some(start), Some(len)) = (body_start, content_len)
+                && buf.len() >= start + len
+            {
+                break;
             }
         }
 

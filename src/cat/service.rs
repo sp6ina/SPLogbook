@@ -54,28 +54,28 @@ pub enum RigServiceState {
 impl RigServiceState {
     /// Weryfikuje, czy przejście z bieżącego stanu do nowego jest dozwolone.
     pub fn can_transition_to(self, next: Self) -> bool {
-        match (self, next) {
-            (Self::Created, Self::Connecting) => true,
-            (Self::Created, Self::Disconnecting) => true,
-            (Self::Connecting, Self::Synchronizing) => true,
-            (Self::Connecting, Self::Disconnecting) => true,
-            (Self::Connecting, Self::Failed) => true,
-            (Self::Synchronizing, Self::Ready) => true,
-            (Self::Synchronizing, Self::Degraded) => true,
-            (Self::Synchronizing, Self::Disconnecting) => true,
-            (Self::Synchronizing, Self::Failed) => true,
-            (Self::Ready, Self::Degraded) => true,
-            (Self::Ready, Self::Disconnecting) => true,
-            (Self::Ready, Self::Failed) => true,
-            (Self::Degraded, Self::Ready) => true,
-            (Self::Degraded, Self::Disconnecting) => true,
-            (Self::Degraded, Self::Failed) => true,
-            (Self::Disconnecting, Self::Disconnected) => true,
-            (Self::Disconnecting, Self::Failed) => true,
-            // Idempotentność przejścia do tego samego stanu
-            (a, b) if a == b => true,
-            _ => false,
-        }
+        self == next
+            || matches!(
+                (self, next),
+                (Self::Created, Self::Connecting | Self::Disconnecting)
+                    | (
+                        Self::Connecting,
+                        Self::Synchronizing | Self::Disconnecting | Self::Failed
+                    )
+                    | (
+                        Self::Synchronizing,
+                        Self::Ready | Self::Degraded | Self::Disconnecting | Self::Failed
+                    )
+                    | (
+                        Self::Ready,
+                        Self::Degraded | Self::Disconnecting | Self::Failed
+                    )
+                    | (
+                        Self::Degraded,
+                        Self::Ready | Self::Disconnecting | Self::Failed
+                    )
+                    | (Self::Disconnecting, Self::Disconnected | Self::Failed)
+            )
     }
 }
 
@@ -492,9 +492,8 @@ impl RigService {
 
         self.snapshot.lifecycle = next;
         self.snapshot.session_generation = self.session_generation;
-        self.snapshot.last_error = error
-            .as_deref()
-            .map(crate::cat::tx_arbiter::redact_sensitive_info);
+        let redacted = error.map(|s| crate::cat::tx_arbiter::redact_sensitive_info(&s));
+        self.snapshot.last_error.clone_from(&redacted);
         self.snapshot.last_update = Some(tokio::time::Instant::now());
 
         if (next == RigServiceState::Degraded
@@ -512,19 +511,13 @@ impl RigService {
             RigServiceState::Synchronizing => RigHubEvent::RigSynchronizing,
             RigServiceState::Ready => RigHubEvent::RigReady,
             RigServiceState::Degraded => {
-                let msg = error
-                    .as_deref()
-                    .map(crate::cat::tx_arbiter::redact_sensitive_info)
-                    .unwrap_or_else(|| "stan Degraded".to_string());
+                let msg = redacted.unwrap_or_else(|| "stan Degraded".to_string());
                 RigHubEvent::RigDegraded(msg)
             }
             RigServiceState::Disconnecting => RigHubEvent::RigDisconnecting,
             RigServiceState::Disconnected => RigHubEvent::RigDisconnected,
             RigServiceState::Failed => {
-                let msg = error
-                    .as_deref()
-                    .map(crate::cat::tx_arbiter::redact_sensitive_info)
-                    .unwrap_or_else(|| "awaria sesji".to_string());
+                let msg = redacted.unwrap_or_else(|| "awaria sesji".to_string());
                 RigHubEvent::RigFailed(msg)
             }
         };
@@ -662,15 +655,12 @@ impl RigService {
 
                 // Odbiór polecenia sterującego
                 maybe_req = self.cmd_rx.recv() => {
-                    match maybe_req {
-                        Some(req) => {
-                            self.handle_command(req).await;
-                        }
-                        None => {
-                            // Wszyscy nadawcy poleceń zostali usunięci – kończymy pętlę
-                            log::debug!("[{}] Kanał poleceń zamknięty", self.rig_id);
-                            break;
-                        }
+                    if let Some(req) = maybe_req {
+                        self.handle_command(req).await;
+                    } else {
+                        // Wszyscy nadawcy poleceń zostali usunięci – kończymy pętlę
+                        log::debug!("[{}] Kanał poleceń zamknięty", self.rig_id);
+                        break;
                     }
                 }
 
@@ -954,12 +944,11 @@ impl RigService {
                     } else {
                         Duration::from_millis(100)
                     };
-                    if self.session_generation == cmd_gen {
-                        if let Ok(Ok(polled_state)) =
+                    if self.session_generation == cmd_gen
+                        && let Ok(Ok(polled_state)) =
                             tokio::time::timeout(poll_dur, self.backend.poll()).await
-                        {
-                            self.update_state(polled_state);
-                        }
+                    {
+                        self.update_state(polled_state);
                     }
                 }
 
@@ -989,7 +978,7 @@ impl RigService {
                             ref mode,
                             passband_hz,
                         } => {
-                            st.mode = mode.to_string();
+                            st.mode.clone_from(mode);
                             st.passband_hz = passband_hz;
                         }
                         _ => {}
@@ -1305,10 +1294,10 @@ impl Drop for RigServiceHandle {
         if let Some(ref abort) = self.worker_abort {
             abort.abort();
         }
-        if let Some(ref jh) = self.supervisor_handle {
-            if !jh.is_finished() {
-                jh.abort();
-            }
+        if let Some(ref jh) = self.supervisor_handle
+            && !jh.is_finished()
+        {
+            jh.abort();
         }
     }
 }

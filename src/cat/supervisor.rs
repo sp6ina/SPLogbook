@@ -139,28 +139,28 @@ impl RigctldSupervisor {
     /// Wyszukuje plik rigctld w katalogu programu (wersja dołączona)
     fn find_bundled_binary(bin_name: &str) -> Option<PathBuf> {
         // Sprawdź obok pliku wykonywalnego aplikacji
-        if let Ok(exe_path) = std::env::current_exe() {
-            if let Some(parent) = exe_path.parent() {
-                let candidate = parent.join(bin_name);
-                if candidate.is_file() {
-                    return Some(candidate);
-                }
-                let cand_hamlib = parent.join("hamlib").join(bin_name);
-                if cand_hamlib.is_file() {
-                    return Some(cand_hamlib);
-                }
-                let cand_hamlib_bin = parent.join("hamlib").join("bin").join(bin_name);
-                if cand_hamlib_bin.is_file() {
-                    return Some(cand_hamlib_bin);
-                }
-                let cand_win = parent
-                    .join("hamlib")
-                    .join("hamlib-w64-4.7.2")
-                    .join("bin")
-                    .join(bin_name);
-                if cand_win.is_file() {
-                    return Some(cand_win);
-                }
+        if let Ok(exe_path) = std::env::current_exe()
+            && let Some(parent) = exe_path.parent()
+        {
+            let candidate = parent.join(bin_name);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+            let cand_hamlib = parent.join("hamlib").join(bin_name);
+            if cand_hamlib.is_file() {
+                return Some(cand_hamlib);
+            }
+            let cand_hamlib_bin = parent.join("hamlib").join("bin").join(bin_name);
+            if cand_hamlib_bin.is_file() {
+                return Some(cand_hamlib_bin);
+            }
+            let cand_win = parent
+                .join("hamlib")
+                .join("hamlib-w64-4.7.2")
+                .join("bin")
+                .join(bin_name);
+            if cand_win.is_file() {
+                return Some(cand_win);
             }
         }
 
@@ -245,7 +245,7 @@ impl RigctldSupervisor {
                     && upper.len() > 4
                     && !normalized_port.starts_with(r"\\.\")
                 {
-                    format!(r"\\.\{}", normalized_port)
+                    format!(r"\\.\{normalized_port}")
                 } else {
                     normalized_port.to_string()
                 }
@@ -428,10 +428,10 @@ impl PhysicalEndpointOwner {
     /// Zwraca identyfikator radia powiązany z właścicielem.
     pub fn rig_id(&self) -> &RigId {
         match self {
-            Self::NativeCatRuntime(id) => id,
-            Self::ExternalRigctld(id) => id,
-            Self::HamlibClient(id) => id,
-            Self::NetworkRadio(id) => id,
+            Self::NativeCatRuntime(id)
+            | Self::ExternalRigctld(id)
+            | Self::HamlibClient(id)
+            | Self::NetworkRadio(id) => id,
         }
     }
 

@@ -641,7 +641,7 @@ mod tests {
         assert_eq!(f3.argument, "0");
         data.drain(..c3);
 
-        assert!(data.is_empty());
+        assert_eq!(data, [] as [u8; 0]);
     }
 
     #[test]

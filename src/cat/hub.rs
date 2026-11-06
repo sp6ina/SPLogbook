@@ -161,7 +161,10 @@ impl PendingCommandGuard {
 
 impl Drop for PendingCommandGuard {
     fn drop(&mut self) {
-        let mut pending = self.registry.lock().unwrap_or_else(|e| e.into_inner());
+        let mut pending = self
+            .registry
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         pending.remove(&self.id);
     }
 }
@@ -206,16 +209,16 @@ impl RigHub {
         let mut pending = self
             .pending_commands
             .lock()
-            .unwrap_or_else(|e| e.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         loop {
             let val = self.next_cmd_counter.fetch_add(1, Ordering::Relaxed);
-            if let Some(id) = RigCommandId::from_u64(val) {
-                if !pending.contains(&id) {
-                    if pending.len() < MAX_PENDING_HUB_COMMANDS {
-                        pending.insert(id);
-                    }
-                    return id;
+            if let Some(id) = RigCommandId::from_u64(val)
+                && !pending.contains(&id)
+            {
+                if pending.len() < MAX_PENDING_HUB_COMMANDS {
+                    pending.insert(id);
                 }
+                return id;
             }
             // Wraparound 0 pomijany automatycznie
         }
@@ -225,7 +228,7 @@ impl RigHub {
     pub fn pending_command_count(&self) -> usize {
         self.pending_commands
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .len()
     }
 
@@ -234,7 +237,7 @@ impl RigHub {
         let mut pending = self
             .pending_commands
             .lock()
-            .unwrap_or_else(|e| e.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         pending.remove(&id);
     }
 
@@ -242,7 +245,7 @@ impl RigHub {
     pub fn is_command_pending(&self, id: RigCommandId) -> bool {
         self.pending_commands
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .contains(&id)
     }
 
@@ -252,7 +255,7 @@ impl RigHub {
             let mut pending = self
                 .pending_commands
                 .lock()
-                .unwrap_or_else(|e| e.into_inner());
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             if pending.len() < MAX_PENDING_HUB_COMMANDS {
                 pending.insert(id);
             }
@@ -328,26 +331,26 @@ impl RigHub {
             .ok_or_else(|| RigHubError::RigNotFound(rig_id.clone()))?;
 
         // 1. Unieważnij cele, jeśli wskazywały usuwane radio
-        if let Some(ref rx) = self.active_rx {
-            if rx.rig_id() == rig_id {
-                self.active_rx = None;
-                let _ = self.event_tx.send(RoutedRigEvent::new(
-                    rig_id.clone(),
-                    None,
-                    RigHubEvent::ActiveRxChanged(None),
-                ));
-            }
+        if let Some(ref rx) = self.active_rx
+            && rx.rig_id() == rig_id
+        {
+            self.active_rx = None;
+            let _ = self.event_tx.send(RoutedRigEvent::new(
+                rig_id.clone(),
+                None,
+                RigHubEvent::ActiveRxChanged(None),
+            ));
         }
 
-        if let Some(ref tx) = self.active_tx {
-            if tx.rig_id() == rig_id {
-                self.active_tx = None;
-                let _ = self.event_tx.send(RoutedRigEvent::new(
-                    rig_id.clone(),
-                    None,
-                    RigHubEvent::ActiveTxChanged(None),
-                ));
-            }
+        if let Some(ref tx) = self.active_tx
+            && tx.rig_id() == rig_id
+        {
+            self.active_tx = None;
+            let _ = self.event_tx.send(RoutedRigEvent::new(
+                rig_id.clone(),
+                None,
+                RigHubEvent::ActiveTxChanged(None),
+            ));
         }
 
         // 2. Jeśli usunięte radio brało udział w procedurze TX, ustaw Unknown
@@ -406,13 +409,13 @@ impl RigHub {
         }
 
         // Blokada zmiany celu TX w trakcie trwającego nadawania
-        if let Some(owner) = self.tx_arbiter.current_owner() {
-            if owner != &target.rig_id {
-                return Err(RigHubError::CannotChangeActiveTxWhileOwned {
-                    current_owner: owner.clone(),
-                    requested_rig: target.rig_id,
-                });
-            }
+        if let Some(owner) = self.tx_arbiter.current_owner()
+            && owner != &target.rig_id
+        {
+            return Err(RigHubError::CannotChangeActiveTxWhileOwned {
+                current_owner: owner.clone(),
+                requested_rig: target.rig_id,
+            });
         }
 
         let new_target = target.clone();
@@ -535,20 +538,20 @@ impl RigHub {
 
     /// Sprawdza stan zdrowia sesji radiowych powiązanych z arbitrem TX i przełącza arbiter w `Unknown` w razie awarii.
     pub fn poll_service_health(&mut self) {
-        if let Some(target) = self.tx_arbiter.active_target().cloned() {
-            if let Some(handle) = self.services.get(&target) {
-                let snap = handle.snapshot();
-                if snap.lifecycle == RigServiceState::Failed {
-                    let err_msg = snap
-                        .last_error
-                        .unwrap_or_else(|| "awaria usługi sesji radiowej".to_string());
-                    self.tx_arbiter.handle_session_failure(&target, &err_msg);
-                    let _ = self.event_tx.send(RoutedRigEvent::new(
-                        target,
-                        None,
-                        RigHubEvent::TxArbiterStateChanged(self.tx_arbiter.state().clone()),
-                    ));
-                }
+        if let Some(target) = self.tx_arbiter.active_target().cloned()
+            && let Some(handle) = self.services.get(&target)
+        {
+            let snap = handle.snapshot();
+            if snap.lifecycle == RigServiceState::Failed {
+                let err_msg = snap
+                    .last_error
+                    .unwrap_or_else(|| "awaria usługi sesji radiowej".to_string());
+                self.tx_arbiter.handle_session_failure(&target, &err_msg);
+                let _ = self.event_tx.send(RoutedRigEvent::new(
+                    target,
+                    None,
+                    RigHubEvent::TxArbiterStateChanged(self.tx_arbiter.state().clone()),
+                ));
             }
         }
     }
@@ -671,8 +674,8 @@ impl RigHub {
                         // Krok 3a: Weryfikacja czy stan po komendzie to fizycznie potwierdzony stan TX
                         let snap = handle.snapshot();
                         let is_target_rig = snap.rig_id == target_rig;
-                        let confirmed_tx = snap.state.as_ref().map_or(false, |s| s.ptt);
-                        let is_fresh = snap.last_state_update.map_or(false, |t| t >= request_start)
+                        let confirmed_tx = snap.state.as_ref().is_some_and(|s| s.ptt);
+                        let is_fresh = snap.last_state_update.is_some_and(|t| t >= request_start)
                             && snap.state_generation > pre_generation;
 
                         if is_target_rig && confirmed_tx && is_fresh {
@@ -729,8 +732,10 @@ impl RigHub {
                         ));
                         Err(RigHubError::Service(RigServiceError::DeadlineExceeded))
                     }
-                    Err(RigServiceError::ResponseChannelClosed)
-                    | Err(RigServiceError::ServiceShuttingDown) => {
+                    Err(
+                        RigServiceError::ResponseChannelClosed
+                        | RigServiceError::ServiceShuttingDown,
+                    ) => {
                         // Krok 3c: Zamknięcie kanału prowadzi do Unknown
                         self.tx_arbiter
                             .set_unknown(Some(target_rig.clone()), TxUnknownReason::ChannelClosed);
@@ -783,8 +788,8 @@ impl RigHub {
                         // Krok 3a: Weryfikacja czy stan po wyłączeniu to potwierdzony stan RX
                         let snap = handle.snapshot();
                         let is_target_rig = snap.rig_id == target_rig;
-                        let confirmed_rx = snap.state.as_ref().map_or(false, |s| !s.ptt);
-                        let is_fresh = snap.last_state_update.map_or(false, |t| t >= release_start)
+                        let confirmed_rx = snap.state.as_ref().is_some_and(|s| !s.ptt);
+                        let is_fresh = snap.last_state_update.is_some_and(|t| t >= release_start)
                             && snap.state_generation > pre_generation;
 
                         if is_target_rig && confirmed_rx && is_fresh {
@@ -841,8 +846,10 @@ impl RigHub {
                         ));
                         Err(RigHubError::Service(RigServiceError::DeadlineExceeded))
                     }
-                    Err(RigServiceError::ResponseChannelClosed)
-                    | Err(RigServiceError::ServiceShuttingDown) => {
+                    Err(
+                        RigServiceError::ResponseChannelClosed
+                        | RigServiceError::ServiceShuttingDown,
+                    ) => {
                         self.tx_arbiter
                             .set_unknown(Some(target_rig.clone()), TxUnknownReason::ChannelClosed);
                         let _ = self.event_tx.send(RoutedRigEvent::new(
@@ -906,7 +913,7 @@ impl RigHub {
             )));
         }
 
-        let is_rx = snapshot.state.as_ref().map(|s| !s.ptt).unwrap_or(false);
+        let is_rx = snapshot.state.as_ref().is_some_and(|s| !s.ptt);
         if !is_rx {
             return Err(RigHubError::TxArbiter(TxArbiterError::ResyncFailed(
                 format!("telemetria radia '{rig_id}' nie potwierdza stanu RX"),
@@ -941,20 +948,20 @@ impl RigHub {
         }
 
         let mut tx_state = self.tx_arbiter.state().clone();
-        if let Some(target) = self.tx_arbiter.active_target() {
-            if let Some(handle) = self.services.get(target) {
-                let snap = handle.snapshot();
-                if snap.lifecycle == RigServiceState::Failed
-                    && !matches!(tx_state, TxArbiterState::Unknown { .. })
-                {
-                    tx_state = TxArbiterState::Unknown {
-                        rig_id: Some(target.clone()),
-                        reason: TxUnknownReason::BackendError(
-                            snap.last_error
-                                .unwrap_or_else(|| "panika w usłudze sesji radiowej".to_string()),
-                        ),
-                    };
-                }
+        if let Some(target) = self.tx_arbiter.active_target()
+            && let Some(handle) = self.services.get(target)
+        {
+            let snap = handle.snapshot();
+            if snap.lifecycle == RigServiceState::Failed
+                && !matches!(tx_state, TxArbiterState::Unknown { .. })
+            {
+                tx_state = TxArbiterState::Unknown {
+                    rig_id: Some(target.clone()),
+                    reason: TxUnknownReason::BackendError(
+                        snap.last_error
+                            .unwrap_or_else(|| "panika w usłudze sesji radiowej".to_string()),
+                    ),
+                };
             }
         }
 
@@ -984,24 +991,24 @@ impl RigHub {
         let deadline = tokio::time::Instant::now() + timeout;
 
         // 1. Bezpieczne zwolnienie PTT wyłącznie dla właściciela (jeśli istnieje)
-        if let Some(owner) = self.tx_arbiter.shutdown_release_target() {
-            if let Some(handle) = self.services.get(&owner) {
-                let now = tokio::time::Instant::now();
-                let release_deadline = if deadline > now {
-                    now + (deadline - now).min(Duration::from_millis(1000))
-                } else {
-                    now
-                };
-                let cmd_id = self.next_command_id();
-                let _ = handle
-                    .execute(
-                        cmd_id,
-                        RigTarget::rig_only(owner.clone()),
-                        RigCommand::SetPtt(false),
-                        release_deadline,
-                    )
-                    .await;
-            }
+        if let Some(owner) = self.tx_arbiter.shutdown_release_target()
+            && let Some(handle) = self.services.get(&owner)
+        {
+            let now = tokio::time::Instant::now();
+            let release_deadline = if deadline > now {
+                now + (deadline - now).min(Duration::from_millis(1000))
+            } else {
+                now
+            };
+            let cmd_id = self.next_command_id();
+            let _ = handle
+                .execute(
+                    cmd_id,
+                    RigTarget::rig_only(owner.clone()),
+                    RigCommand::SetPtt(false),
+                    release_deadline,
+                )
+                .await;
         }
 
         // 2. Wyślij shutdown i dołącz (join) wszystkie taski sesji z zachowaniem jednego bezwzględnego deadline
@@ -1009,11 +1016,11 @@ impl RigHub {
         let service_ids: Vec<RigId> = self.services.keys().cloned().collect();
 
         for id in service_ids {
-            if let Some(mut handle) = self.services.remove(&id) {
-                if let Err(e) = handle.shutdown(deadline).await {
-                    log::warn!("[{id}] Błąd podczas shutdown sesji: {e}");
-                    shutdown_errors.push(format!("{id}: {e}"));
-                }
+            if let Some(mut handle) = self.services.remove(&id)
+                && let Err(e) = handle.shutdown(deadline).await
+            {
+                log::warn!("[{id}] Błąd podczas shutdown sesji: {e}");
+                shutdown_errors.push(format!("{id}: {e}"));
             }
         }
 
@@ -1022,7 +1029,7 @@ impl RigHub {
         self.active_tx = None;
         self.pending_commands
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clear();
 
         if shutdown_errors.is_empty() {

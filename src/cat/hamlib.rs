@@ -110,21 +110,20 @@ impl HamlibClient {
                     let trimmed_mode = line.trim();
                     if !trimmed_mode.starts_with("RPRT") {
                         current_state.mode = trimmed_mode.to_uppercase();
-                        if read_line_timeout(&mut buf_reader, &mut line).await.is_ok() {
-                            if let Ok(pb) = line.trim().parse::<u32>() {
-                                current_state.passband_hz = pb;
-                            }
+                        if read_line_timeout(&mut buf_reader, &mut line).await.is_ok()
+                            && let Ok(pb) = line.trim().parse::<u32>()
+                        {
+                            current_state.passband_hz = pb;
                         }
                     }
 
                     // 3. Odpytaj o skalibrowany S-Meter ('l STRENGTH' — dB względem S9 w Hamlib)
                     if write_cmd(&mut writer, b"l STRENGTH\n").await.is_ok()
                         && read_line_timeout(&mut buf_reader, &mut line).await.is_ok()
+                        && let Ok(val) = line.trim().parse::<f32>()
                     {
-                        if let Ok(val) = line.trim().parse::<f32>() {
-                            current_state.s_meter_dbm = val;
-                            current_state.s_meter_unit = Self::raw_str_to_s_unit(val);
-                        }
+                        current_state.s_meter_dbm = val;
+                        current_state.s_meter_unit = Self::raw_str_to_s_unit(val);
                     }
 
                     // 4. Odpytaj o Split ('s')
@@ -155,10 +154,9 @@ impl HamlibClient {
                     // 5. Odpytaj o moc RF ('l RFPOWER')
                     if write_cmd(&mut writer, b"l RFPOWER\n").await.is_ok()
                         && read_line_timeout(&mut buf_reader, &mut line).await.is_ok()
+                        && let Ok(pwr) = line.trim().parse::<f32>()
                     {
-                        if let Ok(pwr) = line.trim().parse::<f32>() {
-                            current_state.rf_power_watts = pwr * 100.0; // Hamlib zwraca RFPOWER w zakresie 0.0–1.0; tutaj zachowujemy skalę 0–100.
-                        }
+                        current_state.rf_power_watts = pwr * 100.0; // Hamlib zwraca RFPOWER w zakresie 0.0–1.0; tutaj zachowujemy skalę 0–100.
                     }
 
                     // 6. Odpytaj o stan PTT ('t')
@@ -322,10 +320,10 @@ impl crate::cat::backend::CatBackend for HamlibClient {
             let trimmed_mode = line.trim();
             if !trimmed_mode.is_empty() && !trimmed_mode.starts_with("RPRT") {
                 state.mode = trimmed_mode.to_uppercase();
-                if read_line_timeout(&mut buf_reader, &mut line).await.is_ok() {
-                    if let Ok(pb) = line.trim().parse::<u32>() {
-                        state.passband_hz = pb;
-                    }
+                if read_line_timeout(&mut buf_reader, &mut line).await.is_ok()
+                    && let Ok(pb) = line.trim().parse::<u32>()
+                {
+                    state.passband_hz = pb;
                 }
             }
         }
@@ -457,9 +455,8 @@ impl HamlibBackend {
     }
 
     async fn write_cmd_internal(&mut self, cmd: &str) -> Result<(), RigError> {
-        let writer = match self.writer.as_mut() {
-            Some(w) => w,
-            None => return Err(RigError::NotConnected),
+        let Some(writer) = self.writer.as_mut() else {
+            return Err(RigError::NotConnected);
         };
         match tokio::time::timeout(self.timeout, writer.write_all(cmd.as_bytes())).await {
             Ok(Ok(())) => Ok(()),
@@ -483,9 +480,8 @@ impl HamlibBackend {
     }
 
     async fn read_line_internal(&mut self) -> Result<String, RigError> {
-        let reader = match self.reader.as_mut() {
-            Some(r) => r,
-            None => return Err(RigError::NotConnected),
+        let Some(reader) = self.reader.as_mut() else {
+            return Err(RigError::NotConnected);
         };
         let mut line = String::new();
         let read_res = {
@@ -585,11 +581,11 @@ impl HamlibBackend {
                 format!("M {mode} {passband_hz}\n")
             }
             RigCommand::SetSplit { enabled, tx_vfo } => {
-                let flag = if *enabled { 1 } else { 0 };
+                let flag = i32::from(*enabled);
                 format!("S {flag} {tx_vfo}\n")
             }
             RigCommand::SetPtt(enabled) => {
-                let flag = if *enabled { 1 } else { 0 };
+                let flag = i32::from(*enabled);
                 format!("T {flag}\n")
             }
             RigCommand::SetVfo(vfo) => format!("V {vfo}\n"),
@@ -654,11 +650,12 @@ impl HamlibBackend {
         self.write_cmd_internal("l STRENGTH\n").await?;
         let s_line = self.read_line_internal().await?;
         let trimmed_s = s_line.trim();
-        if !trimmed_s.starts_with("RPRT") && !trimmed_s.is_empty() {
-            if let Ok(db) = trimmed_s.parse::<f32>() {
-                state.s_meter_dbm = db;
-                state.s_meter_unit = HamlibClient::raw_str_to_s_unit(db);
-            }
+        if !trimmed_s.starts_with("RPRT")
+            && !trimmed_s.is_empty()
+            && let Ok(db) = trimmed_s.parse::<f32>()
+        {
+            state.s_meter_dbm = db;
+            state.s_meter_unit = HamlibClient::raw_str_to_s_unit(db);
         }
 
         // 4. Split ('s')
@@ -682,10 +679,11 @@ impl HamlibBackend {
             self.write_cmd_internal("i\n").await?;
             let i_line = self.read_line_internal().await?;
             let trimmed_i = i_line.trim();
-            if !trimmed_i.starts_with("RPRT") && !trimmed_i.is_empty() {
-                if let Ok(split_freq) = trimmed_i.parse::<u64>() {
-                    state.tx_frequency_hz = Some(split_freq);
-                }
+            if !trimmed_i.starts_with("RPRT")
+                && !trimmed_i.is_empty()
+                && let Ok(split_freq) = trimmed_i.parse::<u64>()
+            {
+                state.tx_frequency_hz = Some(split_freq);
             }
         } else {
             state.tx_frequency_hz = None;
@@ -695,10 +693,11 @@ impl HamlibBackend {
         self.write_cmd_internal("l RFPOWER\n").await?;
         let pwr_line = self.read_line_internal().await?;
         let trimmed_pwr = pwr_line.trim();
-        if !trimmed_pwr.starts_with("RPRT") && !trimmed_pwr.is_empty() {
-            if let Ok(pwr) = trimmed_pwr.parse::<f32>() {
-                state.rf_power_watts = pwr * 100.0;
-            }
+        if !trimmed_pwr.starts_with("RPRT")
+            && !trimmed_pwr.is_empty()
+            && let Ok(pwr) = trimmed_pwr.parse::<f32>()
+        {
+            state.rf_power_watts = pwr * 100.0;
         }
 
         // 6. Stan PTT ('t')
@@ -1012,7 +1011,7 @@ mod tests {
 
         assert!(matches!(
             res,
-            Err(RigError::Protocol { .. }) | Err(RigError::Connect { .. })
+            Err(RigError::Protocol { .. } | RigError::Connect { .. })
         ));
     }
 
@@ -1218,7 +1217,7 @@ mod tests {
         let res = backend.connect().await;
         assert!(matches!(
             res,
-            Err(RigError::Connect { .. }) | Err(RigError::Timeout { .. })
+            Err(RigError::Connect { .. } | RigError::Timeout { .. })
         ));
     }
 

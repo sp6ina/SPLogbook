@@ -492,7 +492,7 @@ impl IcomCiVCodec {
 
         let b0 = d0 | (d1 << 4);
         let b1 = d2 | (d3 << 4);
-        let sign = if is_negative { 0x01 } else { 0x00 };
+        let sign = u8::from(is_negative);
 
         Ok([b0, b1, sign])
     }
@@ -678,7 +678,7 @@ mod tests {
             IcomCiVCodec::decode_frequency_bcd(&frame.data).unwrap(),
             14_074_000
         );
-        assert!(buf.is_empty());
+        assert_eq!(buf, [] as [u8; 0]);
     }
 
     #[test]
@@ -694,7 +694,7 @@ mod tests {
 
         let f2 = codec.extract_frame(&mut buf).unwrap().expect("f2");
         assert!(f2.is_nak());
-        assert!(buf.is_empty());
+        assert_eq!(buf, [] as [u8; 0]);
     }
 
     #[test]
@@ -738,7 +738,7 @@ mod tests {
     fn icom_codec_enforces_max_frame_length() {
         let codec = IcomCiVCodec::new(CI_V_CONTROLLER, 0x94);
         let mut buf = vec![0xFE, 0xFE];
-        buf.extend(std::iter::repeat(0xAA).take(200)); // brak 0xFD
+        buf.extend(std::iter::repeat_n(0xAA, 200)); // brak 0xFD
         let res = codec.extract_frame(&mut buf);
         assert!(matches!(res, Err(IcomCodecError::FrameTooLong { .. })));
     }
@@ -1014,7 +1014,7 @@ mod tests {
         let mut buf_noise = vec![0x00, 0xAA, 0xFF, 0xFE, 0xFE, 0xE0, 0x94, 0xFB, 0xFD];
         let frame_after_noise = codec.extract_frame(&mut buf_noise).unwrap().unwrap();
         assert!(frame_after_noise.is_ack());
-        assert!(buf_noise.is_empty());
+        assert_eq!(buf_noise, [] as [u8; 0]);
 
         // Dwie ramki sklejone w jednym buforze
         let mut buf_two = vec![
@@ -1025,7 +1025,7 @@ mod tests {
         assert!(f1.is_ack());
         let f2 = codec.extract_frame(&mut buf_two).unwrap().unwrap();
         assert_eq!(f2.command, 0x03);
-        assert!(buf_two.is_empty());
+        assert_eq!(buf_two, [] as [u8; 0]);
     }
 
     #[test]

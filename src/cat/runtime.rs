@@ -175,24 +175,24 @@ impl CatRuntime {
         }
 
         // Odtwarzanie celów
-        if let Some(ref rx) = config.active_rx {
-            if hub.contains_rig(&rx.rig_id) {
-                let target = RigTarget {
-                    rig_id: rx.rig_id.clone(),
-                    receiver_id: rx.receiver_id.clone(),
-                };
-                let _ = hub.set_active_rx_target(target);
-            }
+        if let Some(ref rx) = config.active_rx
+            && hub.contains_rig(&rx.rig_id)
+        {
+            let target = RigTarget {
+                rig_id: rx.rig_id.clone(),
+                receiver_id: rx.receiver_id.clone(),
+            };
+            let _ = hub.set_active_rx_target(target);
         }
 
-        if let Some(ref tx) = config.active_tx {
-            if hub.contains_rig(&tx.rig_id) {
-                let target = RigTarget {
-                    rig_id: tx.rig_id.clone(),
-                    receiver_id: tx.receiver_id.clone(),
-                };
-                let _ = hub.set_active_tx_target(target);
-            }
+        if let Some(ref tx) = config.active_tx
+            && hub.contains_rig(&tx.rig_id)
+        {
+            let target = RigTarget {
+                rig_id: tx.rig_id.clone(),
+                receiver_id: tx.receiver_id.clone(),
+            };
+            let _ = hub.set_active_tx_target(target);
         }
 
         let initial_snapshot = hub.snapshot();
@@ -229,7 +229,7 @@ impl CatRuntime {
     pub fn snapshot(&self) -> RigHubSnapshot {
         self.snapshot
             .read()
-            .unwrap_or_else(|e| e.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone()
     }
 
@@ -250,19 +250,16 @@ impl CatRuntime {
 
     /// Ręcznie wyzwala sygnał wybudzenia zarejestrowany w runtime.
     pub fn trigger_wake(&self) {
-        if let Ok(guard) = self.wake_signal.lock() {
-            if let Some(ref sig) = *guard {
-                sig();
-            }
+        if let Ok(guard) = self.wake_signal.lock()
+            && let Some(ref sig) = *guard
+        {
+            sig();
         }
     }
 
     /// Zwraca informację, czy pętla synchronizacji posiada aktywny uchwyt `JoinHandle`.
     pub fn has_sync_loop_handle(&self) -> bool {
-        self.sync_handle
-            .lock()
-            .map(|l| l.is_some())
-            .unwrap_or(false)
+        self.sync_handle.lock().is_ok_and(|l| l.is_some())
     }
 
     /// Zwraca informację, czy odnotowano panic w pętli synchronizacji.
@@ -285,6 +282,7 @@ impl CatRuntime {
         let wake_signal = Arc::clone(&self.wake_signal);
 
         let sync_jh = tokio::spawn(async move {
+            use futures_util::FutureExt;
             let res = std::panic::AssertUnwindSafe(async {
                 let mut ticker = tokio::time::interval(Duration::from_millis(100));
                 ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -296,17 +294,16 @@ impl CatRuntime {
                                 Ok(event) => {
                                     // Retransmituj zdarzenie do subskrybentów GUI
                                     let _ = event_tx.send(event);
-                                    if let Ok(guard) = wake_signal.lock() {
-                                        if let Some(ref sig) = *guard {
+                                    if let Ok(guard) = wake_signal.lock()
+                                        && let Some(ref sig) = *guard {
                                             sig();
                                         }
-                                    }
                                     // Odśwież snapshot
                                     let snap = {
                                         let hub_lock = hub_ref.lock().await;
                                         hub_lock.snapshot()
                                     };
-                                    *snapshot_cache.write().unwrap_or_else(|e| e.into_inner()) = snap;
+                                    *snapshot_cache.write().unwrap_or_else(std::sync::PoisonError::into_inner) = snap;
                                 }
                                 Err(broadcast::error::RecvError::Lagged(dropped)) => {
                                     log::warn!("[CatRuntime] Wykryto opóźnienie w kolejce zdarzeń (utracono {dropped}), pobieranie pełnego snapshotu");
@@ -314,7 +311,7 @@ impl CatRuntime {
                                         let hub_lock = hub_ref.lock().await;
                                         hub_lock.snapshot()
                                     };
-                                    *snapshot_cache.write().unwrap_or_else(|e| e.into_inner()) = snap;
+                                    *snapshot_cache.write().unwrap_or_else(std::sync::PoisonError::into_inner) = snap;
                                 }
                                 Err(broadcast::error::RecvError::Closed) => {
                                     break;
@@ -327,13 +324,12 @@ impl CatRuntime {
                                 hub_lock.poll_service_health();
                                 hub_lock.snapshot()
                             };
-                            *snapshot_cache.write().unwrap_or_else(|e| e.into_inner()) = snap;
+                            *snapshot_cache.write().unwrap_or_else(std::sync::PoisonError::into_inner) = snap;
                         }
                     }
                 }
             });
 
-            use futures_util::FutureExt;
             if res.catch_unwind().await.is_err() {
                 log::error!("[CatRuntime] Wykryto panikę w pętli synchronizacji sync_loop!");
                 panic_observed.store(true, Ordering::SeqCst);
@@ -536,7 +532,10 @@ impl CatRuntime {
         let hub_res = hub.shutdown(timeout).await;
 
         // Zaktualizuj snapshot na stan końcowy
-        *self.snapshot.write().unwrap_or_else(|e| e.into_inner()) = hub.snapshot();
+        *self
+            .snapshot
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = hub.snapshot();
         drop(hub);
 
         // Dołącz i zamknij pętlę synchronizacji snapshotu
@@ -581,10 +580,10 @@ impl Drop for CatRuntime {
     fn drop(&mut self) {
         if Arc::strong_count(&self.shutting_down) == 1 {
             self.shutting_down.store(true, Ordering::SeqCst);
-            if let Ok(mut lock) = self.sync_handle.lock() {
-                if let Some(jh) = lock.take() {
-                    jh.abort();
-                }
+            if let Ok(mut lock) = self.sync_handle.lock()
+                && let Some(jh) = lock.take()
+            {
+                jh.abort();
             }
         }
     }

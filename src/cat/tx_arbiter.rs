@@ -52,8 +52,7 @@ pub fn redact_sensitive_info(msg: &str) -> String {
                             || c == '\''
                             || c == '\n'
                     })
-                    .map(|p| start + p)
-                    .unwrap_or(out.len());
+                    .map_or(out.len(), |p| start + p);
                 let replacement = "[REDACTED]";
                 out.replace_range(start..end, replacement);
                 search_from = start + replacement.len();
@@ -346,6 +345,9 @@ impl TxArbiter {
             TxArbiterState::Idle => Ok(()),
             TxArbiterState::Requesting {
                 rig_id: current, ..
+            }
+            | TxArbiterState::Releasing {
+                rig_id: current, ..
             } => Err(TxArbiterError::Busy {
                 current_owner: current.clone(),
             }),
@@ -359,11 +361,6 @@ impl TxArbiter {
                     })
                 }
             }
-            TxArbiterState::Releasing {
-                rig_id: current, ..
-            } => Err(TxArbiterError::Busy {
-                current_owner: current.clone(),
-            }),
             TxArbiterState::Unknown { reason, .. } => Err(TxArbiterError::StateUnknown {
                 reason: reason.clone(),
             }),
@@ -386,13 +383,11 @@ impl TxArbiter {
             }
             TxArbiterState::Requesting {
                 rig_id: current, ..
-            } => Err(TxArbiterError::Busy {
-                current_owner: current.clone(),
-            }),
-            TxArbiterState::Owned { rig_id: owner, .. } => Err(TxArbiterError::Busy {
-                current_owner: owner.clone(),
-            }),
-            TxArbiterState::Releasing {
+            }
+            | TxArbiterState::Owned {
+                rig_id: current, ..
+            }
+            | TxArbiterState::Releasing {
                 rig_id: current, ..
             } => Err(TxArbiterError::Busy {
                 current_owner: current.clone(),
@@ -636,8 +631,8 @@ impl TxArbiter {
         let involved = match &self.state {
             TxArbiterState::Requesting { rig_id, .. }
             | TxArbiterState::Owned { rig_id, .. }
-            | TxArbiterState::Releasing { rig_id, .. } => rig_id == failed_rig_id,
-            TxArbiterState::Unknown {
+            | TxArbiterState::Releasing { rig_id, .. }
+            | TxArbiterState::Unknown {
                 rig_id: Some(rig_id),
                 ..
             } => rig_id == failed_rig_id,
@@ -680,12 +675,12 @@ impl TxArbiter {
                 rig_id: maybe_target,
                 ..
             } => {
-                if let Some(target) = maybe_target {
-                    if target != confirmed_rig_id {
-                        return Err(TxArbiterError::ResyncFailed(format!(
-                            "resynchronizacja dotyczy radia '{confirmed_rig_id}', a stan Unknown zarejestrowano dla '{target}'"
-                        )));
-                    }
+                if let Some(target) = maybe_target
+                    && target != confirmed_rig_id
+                {
+                    return Err(TxArbiterError::ResyncFailed(format!(
+                        "resynchronizacja dotyczy radia '{confirmed_rig_id}', a stan Unknown zarejestrowano dla '{target}'"
+                    )));
                 }
 
                 if !rx_confirmed {

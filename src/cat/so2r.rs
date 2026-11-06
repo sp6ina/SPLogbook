@@ -112,10 +112,10 @@ impl So2rState {
 
     /// Załącza nadawanie na danym radiu, egzekwując blokadę pojedynczego TX.
     pub fn start_tx(&mut self, slot: RadioSlot) -> Result<(), So2rError> {
-        if let Some(active) = self.tx {
-            if active != slot {
-                return Err(So2rError::TxAlreadyActive(active));
-            }
+        if let Some(active) = self.tx
+            && active != slot
+        {
+            return Err(So2rError::TxAlreadyActive(active));
         }
         self.tx = Some(slot);
         Ok(())

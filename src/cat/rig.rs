@@ -486,7 +486,7 @@ mod tests {
 
         for err in &errors {
             let display = format!("{err}");
-            assert!(!display.is_empty());
+            assert_ne!(display, "");
             let std_err: &dyn std::error::Error = err;
             assert_eq!(std_err.to_string(), display);
         }

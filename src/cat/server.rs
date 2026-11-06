@@ -118,9 +118,10 @@ pub fn map_cat_error_to_hamlib(err: &crate::cat::runtime::CatRuntimeError) -> Ha
 
     match err {
         CatRuntimeError::Validation(_) => HamlibErrorCode::InvalidParameter,
-        CatRuntimeError::Factory(_) => HamlibErrorCode::FunctionNotAvailable,
+        CatRuntimeError::Factory(_) | CatRuntimeError::ShuttingDown => {
+            HamlibErrorCode::FunctionNotAvailable
+        }
         CatRuntimeError::Timeout => HamlibErrorCode::Timeout,
-        CatRuntimeError::ShuttingDown => HamlibErrorCode::FunctionNotAvailable,
         CatRuntimeError::Hub(hub_err) => match hub_err {
             RigHubError::Timeout => HamlibErrorCode::Timeout,
             RigHubError::RigNotFound(_)
@@ -287,9 +288,9 @@ fn dispatch_command(trimmed: &str, state: &RigState) -> Dispatch {
             let new_mode = args[0].to_string();
             let mut dispatch_result = Dispatch::ok(format!("RPRT {}\n", rprt::OK));
 
-            if let Some(pb) = args.get(1).and_then(|s| s.parse::<u32>().ok()) {
-                if pb > 0 {}
-            }
+            if let Some(pb) = args.get(1).and_then(|s| s.parse::<u32>().ok())
+                && pb > 0
+            {}
             dispatch_result
                 .commands
                 .push(RigServerCommand::SetMode(new_mode));
@@ -443,12 +444,11 @@ fn hamlib_mode(mode: &str) -> &'static str {
     match mode.to_uppercase().as_str() {
         "CW" => "CW",
         "LSB" => "LSB",
-        "USB" => "USB",
         "FT8" | "FT4" | "JS8" | "PKTUSB" | "DATA" | "DIGI" => "PKTUSB",
         "AM" => "AM",
         "FM" => "FM",
         "RTTY" => "RTTY",
-        _ => "USB",
+        "USB" | _ => "USB",
     }
 }
 
@@ -541,7 +541,7 @@ impl ProxyPortManager {
             }
             p
         } else {
-            let mut candidate = if base_port % 2 == 0 {
+            let mut candidate = if base_port.is_multiple_of(2) {
                 base_port
             } else {
                 base_port + 1
@@ -561,7 +561,7 @@ impl ProxyPortManager {
 
         let endpoint = RigProxyEndpoint {
             rig_id: rig_id.clone(),
-            bind_addr: IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
+            bind_addr: IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
             port,
         };
         self.endpoints.insert(rig_id, endpoint.clone());
@@ -708,12 +708,11 @@ async fn handle_client(
                                 RigServerCommand::SetPtt(true) => {
                                     if let (Some(rt), Some(r_id)) = (&cat_runtime, &rig_id) {
                                         let snap = rt.snapshot();
-                                        if let Some(svc) = snap.rigs.get(r_id) {
-                                            if !svc.capabilities.ptt {
+                                        if let Some(svc) = snap.rigs.get(r_id)
+                                            && !svc.capabilities.ptt {
                                                 execution_error = Some(HamlibErrorCode::FunctionNotAvailable);
                                                 break;
                                             }
-                                        }
                                         match rt.request_tx_confirmed(r_id.clone(), std::time::Duration::from_millis(1500)).await {
                                             Ok(()) => {}
                                             Err(e) => {
@@ -728,49 +727,44 @@ async fn handle_client(
                                     }
                                 }
                                 RigServerCommand::SetPtt(false) => {
-                                    if let (Some(rt), Some(r_id)) = (&cat_runtime, &rig_id) {
-                                        if let Err(e) = rt.release_tx_confirmed(r_id.clone(), std::time::Duration::from_millis(1500)).await {
+                                    if let (Some(rt), Some(r_id)) = (&cat_runtime, &rig_id)
+                                        && let Err(e) = rt.release_tx_confirmed(r_id.clone(), std::time::Duration::from_millis(1500)).await {
                                             log::warn!("[HamlibProxy] Błąd wyłączenia PTT: {e}");
                                             execution_error = Some(map_cat_error_to_hamlib(&e));
                                             break;
                                         }
-                                    }
                                 }
                                 RigServerCommand::SetFrequency(freq) => {
-                                    if let (Some(rt), Some(r_id)) = (&cat_runtime, &rig_id) {
-                                        if let Err(e) = rt.execute_cmd_for_rig(r_id.clone(), crate::cat::rig::RigCommand::SetFrequency(*freq), std::time::Duration::from_millis(1500)).await {
+                                    if let (Some(rt), Some(r_id)) = (&cat_runtime, &rig_id)
+                                        && let Err(e) = rt.execute_cmd_for_rig(r_id.clone(), crate::cat::rig::RigCommand::SetFrequency(*freq), std::time::Duration::from_millis(1500)).await {
                                             log::warn!("[HamlibProxy] Błąd SetFrequency na '{r_id}': {e}");
                                             execution_error = Some(map_cat_error_to_hamlib(&e));
                                             break;
                                         }
-                                    }
                                 }
                                 RigServerCommand::SetMode(mode) => {
-                                    if let (Some(rt), Some(r_id)) = (&cat_runtime, &rig_id) {
-                                        if let Err(e) = rt.execute_cmd_for_rig(r_id.clone(), crate::cat::rig::RigCommand::SetMode { mode: mode.clone(), passband_hz: 0 }, std::time::Duration::from_millis(1500)).await {
+                                    if let (Some(rt), Some(r_id)) = (&cat_runtime, &rig_id)
+                                        && let Err(e) = rt.execute_cmd_for_rig(r_id.clone(), crate::cat::rig::RigCommand::SetMode { mode: mode.clone(), passband_hz: 0 }, std::time::Duration::from_millis(1500)).await {
                                             log::warn!("[HamlibProxy] Błąd SetMode na '{r_id}': {e}");
                                             execution_error = Some(map_cat_error_to_hamlib(&e));
                                             break;
                                         }
-                                    }
                                 }
                                 RigServerCommand::SetSplitFrequency(freq) => {
-                                    if let (Some(rt), Some(r_id)) = (&cat_runtime, &rig_id) {
-                                        if let Err(e) = rt.execute_cmd_for_rig(r_id.clone(), crate::cat::rig::RigCommand::SetSplitFrequency(*freq), std::time::Duration::from_millis(1500)).await {
+                                    if let (Some(rt), Some(r_id)) = (&cat_runtime, &rig_id)
+                                        && let Err(e) = rt.execute_cmd_for_rig(r_id.clone(), crate::cat::rig::RigCommand::SetSplitFrequency(*freq), std::time::Duration::from_millis(1500)).await {
                                             log::warn!("[HamlibProxy] Błąd SetSplitFrequency na '{r_id}': {e}");
                                             execution_error = Some(map_cat_error_to_hamlib(&e));
                                             break;
                                         }
-                                    }
                                 }
                                 RigServerCommand::SetVfo(vfo) => {
-                                    if let (Some(rt), Some(r_id)) = (&cat_runtime, &rig_id) {
-                                        if let Err(e) = rt.execute_cmd_for_rig(r_id.clone(), crate::cat::rig::RigCommand::SetVfo(vfo.clone()), std::time::Duration::from_millis(1500)).await {
+                                    if let (Some(rt), Some(r_id)) = (&cat_runtime, &rig_id)
+                                        && let Err(e) = rt.execute_cmd_for_rig(r_id.clone(), crate::cat::rig::RigCommand::SetVfo(vfo.clone()), std::time::Duration::from_millis(1500)).await {
                                             log::warn!("[HamlibProxy] Błąd SetVfo na '{r_id}': {e}");
                                             execution_error = Some(map_cat_error_to_hamlib(&e));
                                             break;
                                         }
-                                    }
                                 }
                                 _ => {}
                             }
@@ -1218,7 +1212,7 @@ mod tests {
         let s = test_state();
         let d = dispatch_command("F 14074000", &s);
         assert_eq!(d.response, "RPRT 0\n");
-        assert_eq!(d.commands, vec![RigServerCommand::SetFrequency(14074000)]);
+        assert_eq!(d.commands, vec![RigServerCommand::SetFrequency(14_074_000)]);
     }
 
     #[test]
@@ -1226,13 +1220,13 @@ mod tests {
         let s = test_state();
         let d = dispatch_command("F not_a_number", &s);
         assert_eq!(d.response, "RPRT -1\n");
-        assert!(d.commands.is_empty());
+        assert_eq!(d.commands, [] as [RigServerCommand; 0]);
     }
 
     #[test]
     fn hamlib_get_frequency_returns_value() {
         let mut s = test_state();
-        s.frequency_hz = 7074000;
+        s.frequency_hz = 7_074_000;
         let d = dispatch_command("f", &s);
         assert_eq!(d.response, "7074000\n");
     }
@@ -1357,7 +1351,7 @@ mod tests {
         let mut response = String::new();
         reader.read_line(&mut response).await.unwrap();
         assert_eq!(response, "RPRT 0\n");
-        assert_eq!(state.read().unwrap().frequency_hz, 14074000);
+        assert_eq!(state.read().unwrap().frequency_hz, 14_074_000);
 
         let _ = stop_tx.send(true);
         let _ = server_task.await;
@@ -1679,9 +1673,9 @@ mod tests {
         });
 
         // Łączymy się z proxy 1 i wymuszamy zatrzymanie
-        let _client1 = tokio::net::TcpStream::connect(addr1).await.unwrap();
+        let client1 = tokio::net::TcpStream::connect(addr1).await.unwrap();
         let _ = stop_tx1.send(true);
-        drop(_client1);
+        drop(client1);
         let _ = task1.await;
 
         // Proxy 2 działa bez przeszkód i obsługuje zapytania

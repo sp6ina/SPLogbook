@@ -53,7 +53,7 @@ impl RigId {
             }
             return Err(RigIdError::WhitespaceOnly);
         }
-        if raw.chars().any(|c| c.is_control()) {
+        if raw.chars().any(char::is_control) {
             return Err(RigIdError::ContainsControlCharacters);
         }
         // Ochrona przed przypadkowym umieszczeniem haseł lub tokenów w ID
