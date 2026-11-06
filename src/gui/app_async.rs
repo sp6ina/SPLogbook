@@ -67,8 +67,9 @@ impl SpLogApp {
         }
     }
 
-    /// Główna faza asynchroniczna: aktualizacje, CAT, REST API, proxy CAT, klaster, callbook, sync logi, WSJT-X, JS8Call, Multi-Op
+    /// Główna faza asynchroniczna: zdarzenia EventBus, aktualizacje, CAT, REST API, proxy CAT, klaster, callbook, sync logi, WSJT-X, JS8Call, Multi-Op
     pub fn poll_main_async_events(&mut self, ctx: &egui::Context) {
+        self.poll_event_bus();
         self.poll_update_outcomes(ctx);
         self.poll_cat_outcomes();
         self.sync_cat_shared_state_and_api();
@@ -79,6 +80,39 @@ impl SpLogApp {
         self.poll_wsjtx();
         self.poll_js8call();
         self.poll_sync_events();
+    }
+
+    /// Odbiera i aplikuje asynchroniczne zdarzenia z centralnej magistrali EventBus
+    pub fn poll_event_bus(&mut self) {
+        loop {
+            match self.runtime.event_bus_rx.try_recv() {
+                Ok(event) => match event {
+                    crate::core::events::AppEvent::Toast { level: _, message } => {
+                        self.gui.chrome.status_toast = Some((message, std::time::Instant::now()));
+                    }
+                    crate::core::events::AppEvent::RigState {
+                        frequency_hz,
+                        mode,
+                        connected: _,
+                    } => {
+                        if frequency_hz > 0 {
+                            if let Some(band_def) =
+                                crate::core::bandplan::get_band_by_freq(frequency_hz)
+                            {
+                                self.entry.band = band_def.name.to_string();
+                            }
+                            if !mode.is_empty() {
+                                self.entry.mode = mode;
+                            }
+                        }
+                    }
+                    _ => {}
+                },
+                Err(tokio::sync::broadcast::error::TryRecvError::Empty) => break,
+                Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_)) => continue,
+                Err(tokio::sync::broadcast::error::TryRecvError::Closed) => break,
+            }
+        }
     }
 
     /// Wynik sprawdzania i instalowania aktualizacji
@@ -144,6 +178,14 @@ impl SpLogApp {
             if let Ok(res) = rx.try_recv() {
                 match res {
                     Ok(rt) => {
+                        if let Ok(guard) = self.runtime.egui_ctx.lock() {
+                            if let Some(ref ctx) = *guard {
+                                let ctx_clone = ctx.clone();
+                                rt.set_wake_signal(move || {
+                                    ctx_clone.request_repaint();
+                                });
+                            }
+                        }
                         self.cat.runtime = rt;
                         self.cat.connected = true;
                         self.cat.test_result = Some(

@@ -223,6 +223,7 @@ impl SpLogApp {
             scp_engine,
         };
         let mut app = Self::build(init, deps);
+        app.set_egui_ctx(cc.egui_ctx.clone());
         app.configure_egui(&cc.egui_ctx);
         app.start_background();
         app
@@ -276,6 +277,7 @@ impl SpLogApp {
 
         let awards_engine = Arc::new(Mutex::new(AwardsEngine::new()));
         let event_bus = crate::core::events::EventBus::default();
+        let event_bus_rx = event_bus.subscribe();
         let qso_ingestor = crate::core::ingest::QsoIngestor::new(
             deps.log_db.clone(),
             awards_engine.clone(),
@@ -319,8 +321,11 @@ impl SpLogApp {
             crate::plugins::PluginEngine::new(),
             qso_ingestor,
         );
-        let runtime =
-            crate::gui::state::AppRuntime::new(init.shutdown_policy, init.config.cat_enabled);
+        let runtime = crate::gui::state::AppRuntime::new(
+            init.shutdown_policy,
+            init.config.cat_enabled,
+            event_bus_rx,
+        );
         let digital = crate::gui::state::DigitalModesState::new();
         if init.config.station_profiles.is_empty() {
             let mut def = init.config.station.clone();
@@ -475,6 +480,19 @@ impl SpLogApp {
         ctx.set_fonts(font_defs);
     }
 
+    /// Rejestruje kontekst egui oraz instaluje sygnały wybudzania w EventBus i CatRuntime.
+    pub fn set_egui_ctx(&mut self, ctx: egui::Context) {
+        self.runtime.set_egui_ctx(ctx.clone());
+        let ctx_clone = ctx.clone();
+        self.services.event_bus.set_wake_signal(move || {
+            ctx_clone.request_repaint();
+        });
+        let ctx_clone2 = ctx;
+        self.cat.runtime.set_wake_signal(move || {
+            ctx_clone2.request_repaint();
+        });
+    }
+
     pub fn start_background(&mut self) {
         let ws_tx = self.digital.wsjtx_tx.clone();
         tokio::spawn(async move {
@@ -513,6 +531,81 @@ impl SpLogApp {
 
         if self.config.cluster_auto_connect {
             self.connect_dx_cluster();
+        }
+    }
+
+    /// Główna metoda renderowania i przepływu klatki GUI aplikacji SPLogbook.
+    pub fn render_main_ui(&mut self, ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
+        if self.runtime.egui_ctx.lock().map_or(true, |g| g.is_none()) {
+            self.set_egui_ctx(ctx.clone());
+        }
+        let ctx = &ctx;
+
+        // Śledzenie geometrii okna głównego (zapisywane przy wyjściu — obsługa multi-monitor)
+        self.track_window_geometry(ctx);
+
+        // Wczesna faza asynchroniczna: wtyczki, WSPR, API, upload scheduler, satelity i solar
+        self.poll_early_async_events();
+
+        // Faza obsługi skrótów klawiaturowych, palety poleceń i wejść globalnych
+        self.handle_input_and_shortcuts(ctx);
+
+        // Debounced lookup Callbook/QRZ po wpisaniu znaku
+        self.process_debounced_lookup();
+
+        // Główna faza asynchroniczna: aktualizacje, CAT, REST API, proxy, klaster, callbook, sync, WSJT-X, JS8Call, Multi-Op
+        self.poll_main_async_events(ctx);
+
+        // Zastosowanie wybranego motywu, stylów i skali UI (apply-on-change przez ensure_applied).
+        crate::gui::theme::ensure_applied(
+            ctx,
+            self.gui.appearance.theme_preset,
+            self.config.font_scale,
+        );
+
+        // Faza Chrome: paski menu i statusu stacji
+        self.render_chrome_bars(ui);
+
+        // Główny obszar roboczy - swobodny pulpit stacji SPLogbook (MDI Desktop)
+        self.render_central_workspace(ui);
+
+        // W zależności od trybu: Mini HUD (tryb kompaktowy) lub pełny pulpit roboczy
+        if self.config.compact_hud_mode {
+            crate::gui::mini_hud::render_mini_hud_bar(self, ui);
+        } else {
+            self.render_floating_module_windows(ctx);
+        }
+
+        // Pozostałe okna modułów zaawansowanych
+        self.render_advanced_module_windows(ctx);
+
+        // Okna dialogowe i narzędzia pomocnicze
+        self.render_dialogs(ctx);
+
+        // Faza Chrome: toasty, okno o programie, paleta, manual, skróty, legenda
+        self.render_chrome_overlays(ctx);
+
+        // Resetowanie flagi po narysowaniu i spzycjonowaniu okien w danej klatce
+        self.gui.workspace.reset_layout_requested = false;
+
+        // Zdarzeniowe odświeżanie interfejsu (event-driven GUI) zamiast ciągłego odpytywania (250 ms).
+        // Wybudzenia następują natychmiast przez EventBus / CatRuntime / tokio workers.
+        // Jedyny cykliczny timer to precyzyjne odświeżanie zegara UTC na przełomie sekund,
+        // lub 100 ms w przypadku aktywnych animacji/spinnerów sieciowych.
+        let has_active_spinner = self.cluster.connecting
+            || self.cat.probe_running
+            || self.wspr.loading
+            || self.updates.update_check_rx.is_some()
+            || self.updates.update_install_rx.is_some();
+
+        if has_active_spinner {
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        } else {
+            let now = chrono::Utc::now();
+            let millis_to_next_sec = 1000 - (now.timestamp_subsec_millis() as u64);
+            let until_next_second = std::time::Duration::from_millis(millis_to_next_sec.max(50));
+            ctx.request_repaint_after(until_next_second);
         }
     }
 }
@@ -579,58 +672,7 @@ impl TabViewer for SpLogApp {
 
 impl eframe::App for SpLogApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        let ctx = ui.ctx().clone();
-        let ctx = &ctx;
-
-        // Śledzenie geometrii okna głównego (zapisywane przy wyjściu — obsługa multi-monitor)
-        self.track_window_geometry(ctx);
-
-        // Wczesna faza asynchroniczna: wtyczki, WSPR, API, upload scheduler, satelity i solar
-        self.poll_early_async_events();
-
-        // Faza obsługi skrótów klawiaturowych, palety poleceń i wejść globalnych
-        self.handle_input_and_shortcuts(ctx);
-
-        // Debounced lookup Callbook/QRZ po wpisaniu znaku
-        self.process_debounced_lookup();
-
-        // Główna faza asynchroniczna: aktualizacje, CAT, REST API, proxy, klaster, callbook, sync, WSJT-X, JS8Call, Multi-Op
-        self.poll_main_async_events(ctx);
-
-        // Zastosowanie wybranego motywu, stylów i skali UI (apply-on-change przez ensure_applied).
-        crate::gui::theme::ensure_applied(
-            ctx,
-            self.gui.appearance.theme_preset,
-            self.config.font_scale,
-        );
-
-        // Faza Chrome: paski menu i statusu stacji
-        self.render_chrome_bars(ui);
-
-        // Główny obszar roboczy - swobodny pulpit stacji SPLogbook (MDI Desktop)
-        self.render_central_workspace(ui);
-
-        // W zależności od trybu: Mini HUD (tryb kompaktowy) lub pełny pulpit roboczy
-        if self.config.compact_hud_mode {
-            crate::gui::mini_hud::render_mini_hud_bar(self, ui);
-        } else {
-            self.render_floating_module_windows(ctx);
-        }
-
-        // Pozostałe okna modułów zaawansowanych
-        self.render_advanced_module_windows(ctx);
-
-        // Okna dialogowe i narzędzia pomocnicze
-        self.render_dialogs(ctx);
-
-        // Faza Chrome: toasty, okno o programie, paleta, manual, skróty, legenda
-        self.render_chrome_overlays(ctx);
-
-        // Resetowanie flagi po narysowaniu i spzycjonowaniu okien w danej klatce
-        self.gui.workspace.reset_layout_requested = false;
-
-        // Płynne odświeżanie zegara UTC, stanu radia CAT oraz spotów sieciowych bez obciążania procesora (4 Hz)
-        ctx.request_repaint_after(std::time::Duration::from_millis(250));
+        self.render_main_ui(ui);
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {

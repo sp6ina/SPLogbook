@@ -58,9 +58,22 @@ pub enum AppEvent {
 }
 
 /// Centralna magistrala zdarzeń. Tania w klonowaniu — współdzieli nadajnik.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct EventBus {
     tx: broadcast::Sender<AppEvent>,
+    wake_signal: std::sync::Arc<std::sync::Mutex<Option<std::sync::Arc<dyn Fn() + Send + Sync>>>>,
+}
+
+impl std::fmt::Debug for EventBus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EventBus")
+            .field("tx", &self.tx)
+            .field(
+                "wake_signal_is_set",
+                &self.wake_signal.lock().map_or(false, |s| s.is_some()),
+            )
+            .finish()
+    }
 }
 
 impl EventBus {
@@ -68,13 +81,38 @@ impl EventBus {
     /// Gdy bufor się przepełni, najstarsi subskrybenci otrzymują błąd `Lagged`.
     pub fn new(capacity: usize) -> Self {
         let (tx, _) = broadcast::channel(capacity.max(1));
-        Self { tx }
+        Self {
+            tx,
+            wake_signal: std::sync::Arc::new(std::sync::Mutex::new(None)),
+        }
     }
 
-    /// Publikuje zdarzenie do wszystkich subskrybentów.
-    /// Ignoruje błąd, gdy nie ma żadnego aktywnego odbiorcy.
+    /// Rejestruje funkcję wybudzania pętli renderowania GUI lub wątku nadrzędnego.
+    pub fn set_wake_signal<F>(&self, f: F)
+    where
+        F: Fn() + Send + Sync + 'static,
+    {
+        if let Ok(mut guard) = self.wake_signal.lock() {
+            *guard = Some(std::sync::Arc::new(f));
+        }
+    }
+
+    /// Usuwa zarejestrowaną funkcję wybudzania.
+    pub fn clear_wake_signal(&self) {
+        if let Ok(mut guard) = self.wake_signal.lock() {
+            *guard = None;
+        }
+    }
+
+    /// Publikuje zdarzenie do wszystkich subskrybentów oraz wywołuje sygnał wybudzenia.
+    /// Ignoruje błąd, gdy nie ma żadnego aktywnego odbiorcy kanału broadcast.
     pub fn publish(&self, event: AppEvent) {
         let _ = self.tx.send(event);
+        if let Ok(guard) = self.wake_signal.lock() {
+            if let Some(ref signal) = *guard {
+                signal();
+            }
+        }
     }
 
     /// Tworzy nowego subskrybenta od bieżącego momentu.

@@ -3,6 +3,7 @@
 
 //! Application runtime state and lifecycle policy.
 
+use eframe::egui;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
@@ -27,16 +28,23 @@ pub struct AppRuntime {
     pub last_upload_poll_secs: u64,
     pub qrz_lookup_tx: std::sync::mpsc::Sender<crate::cloud::qrz::CallbookData>,
     pub qrz_lookup_rx: std::sync::mpsc::Receiver<crate::cloud::qrz::CallbookData>,
+    pub egui_ctx: Arc<Mutex<Option<egui::Context>>>,
+    pub event_bus_rx: tokio::sync::broadcast::Receiver<crate::core::events::AppEvent>,
 }
 
 impl Default for AppRuntime {
     fn default() -> Self {
-        Self::new(ShutdownPolicy::None, false)
+        let bus = crate::core::events::EventBus::default();
+        Self::new(ShutdownPolicy::None, false, bus.subscribe())
     }
 }
 
 impl AppRuntime {
-    pub fn new(shutdown_policy: ShutdownPolicy, initial_cat_enabled: bool) -> Self {
+    pub fn new(
+        shutdown_policy: ShutdownPolicy,
+        initial_cat_enabled: bool,
+        event_bus_rx: tokio::sync::broadcast::Receiver<crate::core::events::AppEvent>,
+    ) -> Self {
         let (qrz_lookup_tx, qrz_lookup_rx) = std::sync::mpsc::channel();
         Self {
             shutdown_policy,
@@ -48,6 +56,24 @@ impl AppRuntime {
             last_upload_poll_secs: 0,
             qrz_lookup_tx,
             qrz_lookup_rx,
+            egui_ctx: Arc::new(Mutex::new(None)),
+            event_bus_rx,
+        }
+    }
+
+    /// Rejestruje kontekst egui do wybudzania pętli renderowania.
+    pub fn set_egui_ctx(&self, ctx: egui::Context) {
+        if let Ok(mut guard) = self.egui_ctx.lock() {
+            *guard = Some(ctx);
+        }
+    }
+
+    /// Zgłasza żądanie odświeżenia ramki GUI (repaint) jeśli kontekst egui jest dostępny.
+    pub fn request_repaint(&self) {
+        if let Ok(guard) = self.egui_ctx.lock() {
+            if let Some(ctx) = guard.as_ref() {
+                ctx.request_repaint();
+            }
         }
     }
 }

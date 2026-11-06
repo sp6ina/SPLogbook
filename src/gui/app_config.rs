@@ -76,6 +76,7 @@ impl SpLogApp {
         } else {
             self.paths.secret_store_id.clone_from(&cfg.secret_store_id);
             self.config = cfg;
+            self.runtime.request_repaint();
         }
     }
 

@@ -1138,3 +1138,252 @@ fn qso_focus_id_is_stable_across_frames() {
         "Callsign focus ID must remain strictly identical across frames"
     );
 }
+
+#[test]
+fn idle_gui_does_not_request_continuous_repaint() {
+    let deps = test_deps();
+    let mut config = AppConfig::default();
+    config.station.callsign = "SP6INA".to_string();
+    config.is_configured = true;
+    let init = AppInit {
+        config,
+        config_file_path: std::path::PathBuf::from("config.json"),
+        active_db_path: std::path::PathBuf::from("db.sqlite"),
+        shutdown_policy: ShutdownPolicy::None,
+    };
+    let mut app = SpLogApp::for_tests(init, deps);
+    app.gui.chrome.show_welcome_wizard = false;
+    let ctx = egui::Context::default();
+    app.set_egui_ctx(ctx.clone());
+
+    let mut time = 0.0;
+    for _ in 0..5 {
+        time += 0.1;
+        let mut raw_input = egui::RawInput::default();
+        raw_input.time = Some(time);
+        raw_input.predicted_dt = 1.0 / 60.0;
+        let mut out = ctx.run_ui(raw_input, |ui| {
+            app.render_main_ui(ui);
+        });
+        out.textures_delta.clear();
+    }
+
+    let mut raw_input = egui::RawInput::default();
+    raw_input.time = Some(time + 0.1);
+    raw_input.predicted_dt = 1.0 / 60.0;
+    let mut out = ctx.run_ui(raw_input, |ui| {
+        app.render_main_ui(ui);
+    });
+    out.textures_delta.clear();
+
+    let repaint_delay = out
+        .viewport_output
+        .get(&egui::ViewportId::ROOT)
+        .map(|v| v.repaint_delay)
+        .unwrap_or(std::time::Duration::ZERO);
+
+    assert!(
+        repaint_delay >= std::time::Duration::from_millis(50),
+        "Idle GUI must schedule repaint to UTC next second, got {:?}",
+        repaint_delay
+    );
+    assert_ne!(
+        repaint_delay,
+        std::time::Duration::ZERO,
+        "Idle GUI must not continuously request immediate repaint"
+    );
+}
+
+#[test]
+fn cat_event_requests_repaint() {
+    let deps = test_deps();
+    let mut config = AppConfig::default();
+    config.station.callsign = "SP6INA".to_string();
+    config.is_configured = true;
+    let init = AppInit {
+        config,
+        config_file_path: std::path::PathBuf::from("config.json"),
+        active_db_path: std::path::PathBuf::from("db.sqlite"),
+        shutdown_policy: ShutdownPolicy::None,
+    };
+    let mut app = SpLogApp::for_tests(init, deps);
+    app.gui.chrome.show_welcome_wizard = false;
+    let ctx = egui::Context::default();
+    app.set_egui_ctx(ctx.clone());
+
+    for _ in 0..3 {
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            app.render_main_ui(ui);
+        });
+        out.textures_delta.clear();
+    }
+
+    // Send changed CAT telemetry
+    let mut new_st = app.cat.rig_state.clone();
+    new_st.frequency_hz = 7_050_000;
+    new_st.mode = "LSB".to_string();
+    app.update_cat_state_from_telemetry(new_st, false);
+
+    // Frame with changed CAT state should process it
+    let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+        app.render_main_ui(ui);
+    });
+    out.textures_delta.clear();
+
+    assert_eq!(app.cat.rig_state.frequency_hz, 7_050_000);
+    assert_eq!(app.cat.rig_state.mode, "LSB");
+}
+
+#[test]
+fn unchanged_cat_state_does_not_cause_repaint_storm() {
+    let deps = test_deps();
+    let mut config = AppConfig::default();
+    config.station.callsign = "SP6INA".to_string();
+    config.is_configured = true;
+    let init = AppInit {
+        config,
+        config_file_path: std::path::PathBuf::from("config.json"),
+        active_db_path: std::path::PathBuf::from("db.sqlite"),
+        shutdown_policy: ShutdownPolicy::None,
+    };
+    let mut app = SpLogApp::for_tests(init, deps);
+    app.gui.chrome.show_welcome_wizard = false;
+    let ctx = egui::Context::default();
+    app.set_egui_ctx(ctx.clone());
+
+    let mut time = 0.0;
+    for _ in 0..5 {
+        time += 0.1;
+        let mut raw_input = egui::RawInput::default();
+        raw_input.time = Some(time);
+        raw_input.predicted_dt = 1.0 / 60.0;
+        let mut out = ctx.run_ui(raw_input, |ui| {
+            app.render_main_ui(ui);
+        });
+        out.textures_delta.clear();
+    }
+
+    let mut event_rx = app.services.event_bus.subscribe();
+    let initial_st = app.cat.rig_state.clone();
+
+    // Send 10 identical telemetry updates with minor S-meter jitter (< 3dB hysteresis)
+    for i in 0..10 {
+        let mut jittered = initial_st.clone();
+        jittered.s_meter_dbm = initial_st.s_meter_dbm + ((i as f32) * 0.1);
+        app.update_cat_state_from_telemetry(jittered, false);
+    }
+
+    // No AppEvent::RigState should have been published for unchanged state
+    assert!(
+        event_rx.try_recv().is_err(),
+        "Unchanged CAT state must not emit events to EventBus"
+    );
+
+    // Frame following unchanged state should not be immediate repaint storm
+    time += 0.1;
+    let mut raw_input = egui::RawInput::default();
+    raw_input.time = Some(time);
+    raw_input.predicted_dt = 1.0 / 60.0;
+    let mut out = ctx.run_ui(raw_input, |ui| {
+        app.render_main_ui(ui);
+    });
+    out.textures_delta.clear();
+
+    let repaint_delay = out
+        .viewport_output
+        .get(&egui::ViewportId::ROOT)
+        .map(|v| v.repaint_delay)
+        .unwrap_or(std::time::Duration::ZERO);
+
+    assert!(
+        repaint_delay >= std::time::Duration::from_millis(50),
+        "Unchanged state must not request continuous repaint storm, got {:?}",
+        repaint_delay
+    );
+}
+
+#[test]
+fn configuration_change_requests_single_repaint() {
+    let deps = test_deps();
+    let temp_dir = tempfile::tempdir().unwrap();
+    let config_file = temp_dir.path().join("station_config.json");
+    let mut config = AppConfig::default();
+    config.station.callsign = "SP6INA".to_string();
+    config.is_configured = true;
+    let init = AppInit {
+        config,
+        config_file_path: config_file,
+        active_db_path: std::path::PathBuf::from("db.sqlite"),
+        shutdown_policy: ShutdownPolicy::None,
+    };
+    let mut app = SpLogApp::for_tests(init, deps);
+    app.gui.chrome.show_welcome_wizard = false;
+    let ctx = egui::Context::default();
+    app.set_egui_ctx(ctx.clone());
+
+    for _ in 0..3 {
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            app.render_main_ui(ui);
+        });
+        out.textures_delta.clear();
+    }
+
+    // Mutate configuration
+    app.config.station.callsign = "SP6NEW".to_string();
+    app.save_station_config();
+
+    // Running frame applies change and returns to next second schedule
+    let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+        app.render_main_ui(ui);
+    });
+    out.textures_delta.clear();
+
+    assert_eq!(app.config.station.callsign, "SP6NEW");
+}
+
+#[test]
+fn background_error_becomes_visible_without_continuous_polling() {
+    let deps = test_deps();
+    let mut config = AppConfig::default();
+    config.station.callsign = "SP6INA".to_string();
+    config.is_configured = true;
+    let init = AppInit {
+        config,
+        config_file_path: std::path::PathBuf::from("config.json"),
+        active_db_path: std::path::PathBuf::from("db.sqlite"),
+        shutdown_policy: ShutdownPolicy::None,
+    };
+    let mut app = SpLogApp::for_tests(init, deps);
+    app.gui.chrome.show_welcome_wizard = false;
+    let ctx = egui::Context::default();
+    app.set_egui_ctx(ctx.clone());
+
+    for _ in 0..3 {
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            app.render_main_ui(ui);
+        });
+        out.textures_delta.clear();
+    }
+    assert!(app.gui.chrome.status_toast.is_none());
+
+    // Background worker emits error toast on EventBus
+    app.services
+        .event_bus
+        .publish(crate::core::events::AppEvent::Toast {
+            level: "error".to_string(),
+            message: "Proxy server binding port conflict".to_string(),
+        });
+
+    // Frame wakes up directly and displays error toast without polling loop
+    let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+        app.render_main_ui(ui);
+    });
+    out.textures_delta.clear();
+
+    assert!(
+        app.gui.chrome.status_toast.is_some(),
+        "Background error must be visible in UI immediately"
+    );
+    let (msg, _) = app.gui.chrome.status_toast.as_ref().unwrap();
+    assert!(msg.contains("Proxy server binding port conflict"));
+}

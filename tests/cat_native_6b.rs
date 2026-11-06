@@ -2029,9 +2029,11 @@ async fn multi_radio_bounded_shutdown_under_heavy_concurrent_load() {
 
 #[test]
 fn invalid_config_is_rejected_before_runtime_mutation() {
-    let mut cfg = AppConfig::default();
-    cfg.cat_sharing_enabled = true;
-    cfg.cat_sharing_port = 8420; // conflict with REST API
+    let cfg = AppConfig {
+        cat_sharing_enabled: true,
+        cat_sharing_port: 8420, // conflict with REST API
+        ..AppConfig::default()
+    };
 
     let validation_res = cfg.validate();
     assert!(
