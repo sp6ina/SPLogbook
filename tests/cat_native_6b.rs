@@ -2026,3 +2026,227 @@ async fn multi_radio_bounded_shutdown_under_heavy_concurrent_load() {
         "Shutdown must complete within time bound"
     );
 }
+
+#[test]
+fn invalid_config_is_rejected_before_runtime_mutation() {
+    let mut cfg = AppConfig::default();
+    cfg.cat_sharing_enabled = true;
+    cfg.cat_sharing_port = 8420; // conflict with REST API
+
+    let validation_res = cfg.validate();
+    assert!(
+        validation_res.is_err(),
+        "Port collision with REST API (8420) must be rejected"
+    );
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let config_file = temp_dir.path().join("station_config.json");
+    let save_res = cfg.save_to_file(&config_file);
+    assert!(
+        save_res.is_err(),
+        "Invalid configuration must not be saved to disk"
+    );
+    assert!(
+        !config_file.exists(),
+        "No config file should be created for rejected configuration"
+    );
+}
+
+#[test]
+fn duplicate_rig_id_config_is_rejected() {
+    let rig1 = RigConfig {
+        id: RigId::new("rig-1").unwrap(),
+        enabled: true,
+        display_name: "Radio 1".to_string(),
+        poll_interval_ms: 200,
+        command_timeout_ms: 1500,
+        backend: RigBackendConfig::Hamlib(HamlibConfig::default()),
+    };
+    let rig2 = RigConfig {
+        id: RigId::new("rig-1").unwrap(), // Duplicate ID
+        enabled: true,
+        display_name: "Radio 2 (Duplicate ID)".to_string(),
+        poll_interval_ms: 200,
+        command_timeout_ms: 1500,
+        backend: RigBackendConfig::Hamlib(HamlibConfig::default()),
+    };
+    let station = CatStationConfig {
+        schema_version: CURRENT_SCHEMA_VERSION,
+        rigs: vec![rig1, rig2],
+        active_rx: Some(RigTargetConfig::rig_only(RigId::new("rig-1").unwrap())),
+        active_tx: None,
+    };
+    let res = station.validate();
+    assert!(
+        matches!(res, Err(CatConfigValidationError::DuplicateRigId(_))),
+        "Duplicate RigId must be rejected"
+    );
+}
+
+#[test]
+fn duplicate_proxy_port_config_is_rejected() {
+    use splogbook::cat::server::{ProxyError, ProxyPortManager};
+    let mut mgr = ProxyPortManager::new();
+    let rig1 = RigId::new("rig-1").unwrap();
+    let rig2 = RigId::new("rig-2").unwrap();
+
+    let ep1 = mgr
+        .allocate_or_register(rig1, Some(4534), 4534)
+        .expect("First proxy port allocation must succeed");
+    assert_eq!(ep1.port, 4534);
+
+    let res = mgr.allocate_or_register(rig2, Some(4534), 4534);
+    assert_eq!(
+        res,
+        Err(ProxyError::DuplicatePort(4534)),
+        "Duplicate proxy port on same interface must be rejected"
+    );
+}
+
+#[test]
+fn missing_active_rig_is_repaired_or_rejected_by_contract() {
+    let rig1 = RigConfig {
+        id: RigId::new("rig-1").unwrap(),
+        enabled: true,
+        display_name: "Radio 1".to_string(),
+        poll_interval_ms: 200,
+        command_timeout_ms: 1500,
+        backend: RigBackendConfig::Hamlib(HamlibConfig::default()),
+    };
+    let station = CatStationConfig {
+        schema_version: CURRENT_SCHEMA_VERSION,
+        rigs: vec![rig1],
+        active_rx: Some(RigTargetConfig::rig_only(
+            RigId::new("nonexistent-rig").unwrap(),
+        )),
+        active_tx: None,
+    };
+    let res = station.validate();
+    assert!(
+        matches!(
+            res,
+            Err(CatConfigValidationError::ActiveRxTargetNotFound(_))
+        ),
+        "Active RX pointing to non-existent rig must be rejected by contract"
+    );
+}
+
+#[test]
+fn invalid_shortcut_config_is_rejected() {
+    use eframe::egui::{Key, KeyboardShortcut, Modifiers};
+    use splogbook::gui::shortcuts::{
+        AppAction, ConflictPolicy, RepeatPolicy, ShortcutBinding, ShortcutContext, ShortcutRegistry,
+    };
+
+    let mut registry = ShortcutRegistry::new();
+    let b1 = ShortcutBinding::new(
+        AppAction::SaveQso,
+        KeyboardShortcut::new(Modifiers::COMMAND, Key::S),
+        ShortcutContext::Global,
+        10,
+        ConflictPolicy::AllowInTextEditing,
+        RepeatPolicy::SingleTrigger,
+        "Ctrl+S",
+        "Save QSO",
+    );
+    registry.register(b1);
+
+    // Duplicate binding in the exact same context with same priority and shortcut
+    let b2 = ShortcutBinding::new(
+        AppAction::WipeQso,
+        KeyboardShortcut::new(Modifiers::COMMAND, Key::S),
+        ShortcutContext::Global,
+        10,
+        ConflictPolicy::AllowInTextEditing,
+        RepeatPolicy::SingleTrigger,
+        "Ctrl+S",
+        "Wipe QSO",
+    );
+    registry.register(b2);
+
+    let conflicts = registry.find_conflicts();
+    assert_eq!(
+        conflicts.len(),
+        1,
+        "Duplicate binding must generate conflict"
+    );
+    assert!(
+        registry.validate().is_err(),
+        "Conflicting duplicate shortcut binding must be rejected"
+    );
+}
+
+#[test]
+fn valid_radio_two_config_survives_restart() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let config_file = temp_dir.path().join("station_config.json");
+
+    let rig1 = RigConfig {
+        id: RigId::new("rig-1").unwrap(),
+        enabled: true,
+        display_name: "Icom IC-7300".to_string(),
+        poll_interval_ms: 200,
+        command_timeout_ms: 1500,
+        backend: RigBackendConfig::Icom(IcomConfig {
+            port_name: "COM3".to_string(),
+            baud_rate: 19200,
+            civ_address: 0x94,
+            model: "IC-7300".to_string(),
+        }),
+    };
+
+    let rig2 = RigConfig {
+        id: RigId::new("rig-2").unwrap(),
+        enabled: true,
+        display_name: "Kenwood TS-590SG".to_string(),
+        poll_interval_ms: 250,
+        command_timeout_ms: 2000,
+        backend: RigBackendConfig::Kenwood(KenwoodConfig {
+            transport: KenwoodTransportConfig::Serial {
+                port_name: "COM4".to_string(),
+                baud_rate: 115200,
+            },
+            model: "TS-590SG".to_string(),
+        }),
+    };
+
+    let station = CatStationConfig {
+        schema_version: CURRENT_SCHEMA_VERSION,
+        rigs: vec![rig1, rig2],
+        active_rx: Some(RigTargetConfig::rig_only(RigId::new("rig-1").unwrap())),
+        active_tx: Some(RigTargetConfig::rig_only(RigId::new("rig-2").unwrap())),
+    };
+
+    let mut app_cfg = AppConfig::default();
+    app_cfg.station.callsign = "SP6MULTI".to_string();
+    app_cfg.cat_station = Some(station);
+
+    app_cfg
+        .save_to_file(&config_file)
+        .expect("Multi-radio configuration save must succeed");
+
+    let reloaded = AppConfig::load_from_file(&config_file)
+        .expect("Multi-radio configuration load must succeed");
+    assert!(
+        reloaded.cat_station.is_some(),
+        "cat_station must be preserved across restart"
+    );
+    let loaded_station = reloaded.cat_station.unwrap();
+    assert_eq!(
+        loaded_station.rigs.len(),
+        2,
+        "Both Radio 1 and Radio 2 must survive restart"
+    );
+    assert_eq!(loaded_station.rigs[0].id.as_str(), "rig-1");
+    assert_eq!(loaded_station.rigs[0].display_name, "Icom IC-7300");
+    assert_eq!(loaded_station.rigs[1].id.as_str(), "rig-2");
+    assert_eq!(loaded_station.rigs[1].display_name, "Kenwood TS-590SG");
+    assert_eq!(
+        loaded_station.active_rx.as_ref().map(|t| t.rig_id.as_str()),
+        Some("rig-1")
+    );
+    assert_eq!(
+        loaded_station.active_tx.as_ref().map(|t| t.rig_id.as_str()),
+        Some("rig-2")
+    );
+}
