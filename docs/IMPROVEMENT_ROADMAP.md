@@ -331,17 +331,18 @@ flowchart LR
 
 ### Etap 9 — Ergonomia Klawiaturowa, Trwałość Konfiguracji i Optymalizacja Renderowania GUI (`P2`)
 - **Cel:** Płynna praca 60 FPS przy dużych dziennikach (>25 000 QSO), działające skróty klawiszowe i pełny zapis konfiguracji (`GUI-001`, `GUI-002`, `GUI-003`, `FUNC-005`, `PERF-002`).
-- **Zakres:**
-  - Odblokowanie skrótów `Ctrl+...` w `src/gui/app_input.rs` oraz `Enter`/`Esc` i fokusu w `src/gui/contest.rs` (`GUI-001`).
-  - Kompletna synchronizacja pól w `SpLogApp::snapshot_config()` i dodanie przycisku zamknięcia do `operator_assistant.rs` (`FUNC-005`, `GUI-002`, `GUI-003`).
-  - Buforowanie przefiltrowanych/posortowanych indeksów w `LogViewState` oraz inkrementalnych struktur duplikatów/mnożników w `contest.rs` (`PERF-002`).
-- **Pliki i moduły:** `src/gui/{app_input.rs,app_config.rs,app_qso.rs,logbook_table.rs,contest.rs,operator_assistant.rs,app.rs}`, `src/gui/state/log_view.rs`.
-- **Ryzyka:** Niskie.
-- **Kryteria ukończenia:** Brak sortowania i alokacji w klatkach spoczynkowych GUI; skróty klawiszowe i zapis konfiguracji działają kompletnie.
+- **Zakres zrealizowany:**
+  - Odblokowanie skrótów `Ctrl+...` w `src/gui/app_input.rs` z podziałem na konteksty `ShortcutContext` i `ActiveFocusContext`, ochrona `TextEdit` przed kolizją nawigacyjną, obsługa `Enter` (zapis i powrót fokusu na znak) oraz `Esc` (wipe/anulowanie) w `src/gui/contest.rs` i `qso_entry.rs` (`GUI-001`, commity `e028125`, `229dea5`).
+  - Kompletna synchronizacja pól w `SpLogApp::snapshot_config()` (CW, REST, solar, satelity, layout/okna, motyw, konfiguracja multi-radio), atomowy zapis konfiguracji przez `.tmp` i `.bak` z walidacją schematu oraz dodanie przycisku zamknięcia w nagłówku `operator_assistant.rs` (`FUNC-005`, `GUI-002`, commity `acecd8c`, `c4cf893`).
+  - Eliminacja bezwarunkowego `request_repaint_after(250ms)` w pętli renderowania, zastąpienie harmonogramem UTC `until_next_second`, event-driven wake context z `EventBus` i `CatRuntime`, buforowanie przefiltrowanych/posortowanych indeksów w `LogViewState` oraz agregacji w `ContestState` z kluczami rewizji, $O(1)$ set lookup dla spotów klastra DX oraz spoczynkowy stan S-metra S0/0W (`PERF-002`, `GUI-003`, commity `8397351`, `5e273d2`).
+  - Kompletna macierz stabilności i testów regresyjnych (60/60 testów stabilności zaliczonych w 5 powtórzeniach, 0 flaky, brak blokad GUI pod obciążeniem) (commit `a7330ce`).
+- **Pliki i moduły:** `src/gui/{shortcuts.rs,app_input.rs,app_config.rs,app_qso.rs,logbook_table.rs,contest.rs,operator_assistant.rs,app.rs,app_tests.rs}`, `src/gui/state/{log_view.rs,contest.rs,cat.rs}`, `src/core/{config.rs,events.rs}`, `src/cat/runtime.rs`.
+- **Ryzyka:** Niskie (zweryfikowane macierzą stabilności).
+- **Kryteria ukończenia:** Spełnione w 100%. Wszystkie kanoniczne testy programowe zaliczone (0 failed, 10 ignored laboratoryjnych HIL, brak emisji RF). Etap 9 bezwarunkowo zamknięty: SOFTWARE VERIFIED (`COMPLETED_SOFTWARE_VERIFIED`). Etap 10 w stanie `READY (NIE ROZPOCZYNAĆ w tej sesji)`.
 
 ---
 
-### Etap 10 — Podłączenie Funkcji Pozornych, Czystość `cargo clippy -D warnings` i Dokumentacja (`P2`)
+### Etap 10 — Podłączenie Funkcji Pozornych, Czystość `cargo clippy -D warnings` i Dokumentacja (`P2`) [READY — NIE ROZPOCZYNAĆ W TEJ SESJI]
 - **Cel:** Domknięcie częściowo podłączonych funkcji (`FUNC-004`, `FUNC-006`, `FUNC-007`, `FUNC-008`), osiągnięcie 0 ostrzeżeń `clippy` i aktualizacja dokumentacji (`RUST-001`, `CI-002`, `DOC-001`).
 - **Zakres:**
   - Naprawa przycisku STOP nagrywania audio (`qso_entry.rs:646`), podglądu zdjęcia QSL (`qso_entry.rs:589`), przycisków rotatora EME (`astronomy_dialog.rs:233`), uruchomienia `Js8CallListener`, testu `FldigiClient` oraz transportu szeregowego `Winkeyer` (`FUNC-004`).

@@ -474,6 +474,40 @@ Cargo.lock SHA-1: `c569097f3ef69c66ec59b74c29c1eb29efce69ae` (bez zmian)
     - `Cargo.toml` SHA-1: `d8e3acd8f0c7b3307b3733c6c4a9a6cc57cb17c4` (niezmieniony)
     - `Cargo.lock` SHA-1: `c569097f3ef69c66ec59b74c29c1eb29efce69ae` (niezmieniony)
   - Prawdziwa baza danych użytkownika: nieotwierana, dane nienaruszone.
+- Ukończenie i weryfikacja Etapu 9 (Rzeczywista data wykonania: 2026-11-06, Deklarowana data robocza projektu: 2026-11-06):
+  - Etap 9 (Ergonomia Klawiaturowa, Trwałość Konfiguracji i Optymalizacja Renderowania GUI) wdrożony, utwardzony i zweryfikowany w 100% ze statusem `COMPLETED_SOFTWARE_VERIFIED`.
+  - Zamknięte i zweryfikowane kanoniczne findings: `GUI-001`, `GUI-002`, `GUI-003`, `FUNC-005`, `PERF-002`.
+  - Wdrożone commity Etapu 9:
+    1. `e028125`: `fix(gui): centralize context-aware keyboard shortcuts`
+    2. `229dea5`: `fix(gui): make QSO focus and keyboard workflow deterministic`
+    3. `acecd8c`: `fix(config): make application settings durable and atomic`
+    4. `c4cf893`: `fix(config): migrate and preserve multi-radio settings`
+    5. `8397351`: `perf(gui): replace unnecessary continuous repaint with event-driven updates`
+    6. `5e273d2`: `perf(gui): cache expensive logbook and dashboard computations`
+    7. `a7330ce`: `test(gui): add keyboard persistence and rendering regression matrix`
+    8. `docs(audit): close Stage 9 GUI ergonomics persistence and performance findings`
+  - Rozwiązane obszary Etapu 9:
+    1. Ergonomia klawiaturowa i ochrona tekstu (`GUI-001`): centralny rejestr skrótów `ShortcutRegistry`, obsługa kontekstów (`Global`, `QsoEntry`, `Contest`, `LogTable`), odblokowanie skrótów z `Ctrl` podczas edycji tekstu z jednoczesnym zabezpieczeniem pól wprowadzania przed jednoliterowymi skrótami nawigacji, deterministyczna obsługa `Enter` (zapis łączności + powrót fokusu na znak) oraz `Esc` (anulowanie/czyszczenie) w oknie zawodów i formularzu głównym, deterministyczny cykliczny `Tab` order.
+    2. Pływający widżet Asystenta Operatora (`GUI-002`): dodanie przycisku zamknięcia `✕` w nagłówku okna oraz pełna trwałość flagi `show_operator_assistant` w konfiguracji.
+    3. Spoczynkowy odczyt telemetrii radia (`GUI-003`): eliminacja fałszywych odczytów `S9+20dB` / `100 W` w stanie rozłączonym; inicjalizacja wartościami spoczynkowymi `S0` (`-127 dBm`) i `0.0 W`.
+    4. Trwałość i atomowość konfiguracji (`FUNC-005`): kompletna dwukierunkowa synchronizacja pól w `SpLogApp::snapshot_config()` (CW, REST API, alerty solarne, satelity, layout/okna, motyw graficzny, profile multi-radio Radio 1 i Radio 2), walidacja schematu, bezpieczny atomowy zapis przez plik tymczasowy `.tmp` z rotacją `.bak` (`rename_atomic`) i zachowaniem poprzedniego sprawnego pliku w razie awarii I/O lub walidacji.
+    5. Eliminacja niepotrzebnego repaintu i buforowanie GUI (`PERF-002`): usunięcie ciągłego żądania odświeżania 250ms w pętli renderowania, wprowadzenie harmonogramu `until_next_second`, event-driven wake context z `EventBus` i `CatRuntime` budzący GUI natychmiast po nadejściu telemetrii, buforowanie `sorted_indices` i `worked_callsigns` w `LogViewState` z kluczem rewizji `LogViewCacheKey`, buforowanie metryk zawodów w `ContestState` z kluczem `ContestCacheKey`, weryfikacja spotów klastra DX zoptymalizowana do $O(1)$ set lookup, buforowanie telemetrii radia `rig_cache` per `RigId` z zachowaniem limitu 30 pól `CatState`.
+    6. Macierz stabilności i brak blokad: 5-krotne powtórzenie 12 krytycznych testów integracyjnych i wydajnościowych (60/60 zaliczonych, 0 flaky), brak blokad wątku GUI przez zadania w tle i operacje I/O.
+  - Statystyki testów po Końcowej Bramce Etapu 9:
+    - Łącznie zarejestrowanych testów we workspace: 2141
+    - Aktywne testy programowe: 2131 passed, 0 failed
+    - Fizyczny HIL: 10 ignored (`#[ignore = "hardware-in-the-loop"]`), emisja RF = 0, bramka bezpieczeństwa HIL zamknięta.
+    - `cargo test --doc`: ok (0 doc testów)
+    - `cargo clippy`: 0 ostrzeżeń
+    - `cargo fmt --all -- --check`: 0 odchyleń formatowania
+    - `security_guard`: 32 passed, 0 failed
+    - `i18n_guard`: 15 passed, 0 failed
+    - `theme_guard`: 1 passed, 0 failed
+    - `cargo audit`: 0 podatności
+  - Integralność zależności i plików konfiguracyjnych:
+    - `Cargo.toml` SHA-1: `d8e3acd8f0c7b3307b3733c6c4a9a6cc57cb17c4` (niezmieniony)
+    - `Cargo.lock` SHA-1: `c569097f3ef69c66ec59b74c29c1eb29efce69ae` (niezmieniony)
+  - Prawdziwa baza danych użytkownika: nieotwierana, dane nienaruszone.
 - Gotowość do kolejnego etapu:
-  - Etap 8 definitywnie i bezwarunkowo zamknięty ze statusem `COMPLETED_SOFTWARE_VERIFIED`.
-  - Etap 9 w stanie `READY` (NIE ROZPOCZYNAĆ w tej sesji).
+  - Etap 9 definitywnie i bezwarunkowo zamknięty ze statusem `COMPLETED_SOFTWARE_VERIFIED`.
+  - Etap 10 w stanie `READY` (NIE ROZPOCZYNAĆ w tej sesji).

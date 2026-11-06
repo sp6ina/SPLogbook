@@ -755,6 +755,21 @@ Status Etapu 5: **SOFTWARE VERIFIED**
 - **Zależności od innych zmian:** Brak.
 - **Wymagany test regresyjny:** `snapshot_config_persists_theme_preset_assistant_and_all_subconfigs`.
 - **Kryterium akceptacji:** Zmiana dowolnego ustawienia w GUI i wywołanie `snapshot_config()` zachowuje nową wartość po ponownym wczytaniu `AppConfig`.
+- **Status remediacji:** **FIXED_SOFTWARE_VERIFIED**
+- **Data wdrożenia i weryfikacji:** 2026-11-06
+- **Commity:**
+  - `acecd8c`: `fix(config): make application settings durable and atomic`
+  - `c4cf893`: `fix(config): migrate and preserve multi-radio settings`
+- **Wdrożone rozwiązanie:**
+  1. W `SpLogApp::snapshot_config()` dodano kompletną synchronizację wszystkich struktur podrzędnych `AppConfig`: makra CW (`macro_f1`..`macro_f8`, `wpm`), ustawienia serwera REST API (`rest_api_enabled`, `rest_api_port`, `rest_api_token`), alerty pasmowe solarne (`band_alert_enabled`, `band_alert_min_Watts`, `band_alert_modes`), śledzenie satelitów, stan widoczności okna Asystenta Operatora (`show_operator_assistant`), aktywny motyw (`theme_preset`) oraz konfiguracje profili radiowych Radio 1 i Radio 2.
+  2. Wprowadzono walidację poprawności schematu przed zapisem (`AppConfig::validate`), uniemożliwiającą serializację i zapis uszkodzonych wartości.
+  3. Zastosowano atomowy zapis pliku konfiguracyjnego `config.json` z wykorzystaniem unikalnego pliku tymczasowego `.tmp` i atomowej zamiany `rename_atomic`, z zachowaniem kopii zapasowej `.bak`. W razie awarii I/O lub błędu walidacji pierwotny plik konfiguracyjny pozostaje w 100% nienaruszony.
+  4. Dodano migrację starszych konfiguracji jednoukładowych do formatu z profilem multi-radio bez utraty parametrów łączności.
+- **Wdrożone testy regresyjne:**
+  - `snapshot_config_persists_theme_preset_assistant_and_all_subconfigs`
+  - `config_atomic_write_preserves_previous_file_on_write_failure`
+  - `multi_radio_settings_are_preserved_across_save_and_reload`
+  - `legacy_single_radio_config_migrates_cleanly_to_multi_radio`
 
 ---
 
@@ -1492,6 +1507,20 @@ Fizyczny HIL: **NOT EXECUTED — SAFETY GATE CLOSED** (10 fizycznych testów spr
 
 ## 6. Wydajność (`PERF-*`) i Interfejs Graficzny / UX (`GUI-*`)
 
+### Ujednolicone mapowanie znalezisk i commitów Etapu 9 (Ergonomia Klawiaturowa, Trwałość Konfiguracji i Optymalizacja Renderowania GUI)
+
+Status Etapu 9: **COMPLETED_SOFTWARE_VERIFIED**<br>
+Data ukończenia: 2026-11-06<br>
+Fizyczny HIL: **NOT EXECUTED — SAFETY GATE CLOSED** (Brak operacji HIL, 0 RF, 0 PTT).
+
+| Finding ID | Tytuł kanoniczny | Remediacja główna | Commity | Zmienione pliki | Testy weryfikacyjne | Status końcowy | Ryzyko resztkowe |
+|---|---|---|---|---|---|---|---|
+| `GUI-001` | Blokada skrótów `Ctrl+...` przez aktywny `TextEdit`, brak `Enter`/`Esc` w zawodach i brak determinizmu fokusu | Centralny rejestr skrótów `ShortcutRegistry`, konteksty `ActiveFocusContext` i `ShortcutContext`, dopuszczenie skrótów akcji (`Ctrl+W`, `Ctrl+L`, `Ctrl+S`, `Ctrl+K`) podczas edycji tekstu z blokadą kolidujących skrótów nawigacji jednoliterowej, obsługa `Enter` (logowanie + powrót fokusu na Call) i `Esc` (wipe/anulowanie) w formularzu głównym i oknie Contest | `e028125`, `229dea5` | `src/gui/shortcuts.rs`, `src/gui/app_input.rs`, `src/gui/qso_entry.rs`, `src/gui/contest.rs`, `src/gui/app_tests.rs` | `text_edit_shortcuts_ctrl_w_and_ctrl_l_work_when_input_focused`, `contest_enter_logs_and_returns_focus_to_callsign`, `escape_clears_qso_fields_in_contest_and_main_entry`, `tab_order_cycles_predictably_through_entry_fields` | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
+| `GUI-002` | Pływający widżet „Asystent Operatora” nie posiada przycisku zamknięcia, a jego stan nie zapisuje się w konfiguracji | Dodanie `.open(&mut app.gui.windows.show_operator_assistant)` w nagłówku okna asystenta, dwukierunkowa synchronizacja z `cfg.ui.show_operator_assistant` w `SpLogApp::snapshot_config()` i wczytywaniu | `e028125`, `acecd8c` | `src/gui/operator_assistant.rs`, `src/gui/app_config.rs`, `src/core/config.rs` | `operator_assistant_visibility_persists_across_config_save`, `operator_assistant_window_can_be_closed_via_header_button` | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
+| `GUI-003` | Fałszywy początkowy odczyt S-metra (`S9+20dB`, `-53 dBm`) i mocy (`100 W`) w `SpLogApp::build` przed podłączeniem radia | Inicjalizacja początkowego `RigState` w `SpLogApp::build` kanonicznymi wartościami spoczynkowymi: `s_meter_dbm: -127.0`, `s_meter_unit: "S0"`, `rf_power_watts: 0.0` | `5e273d2` | `src/gui/app.rs`, `src/gui/app_tests.rs` | `initial_rig_state_when_disconnected_reports_s0_and_zero_power` | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
+| `FUNC-005` | Utrata części ustawień po restarcie programu z powodu niekompletnego `SpLogApp::snapshot_config()` | Kompletna synchronizacja w `snapshot_config()` (CW makra i wpm, REST API, alerty solarne, satelity, layout/widoki okien, motyw graficzny, multi-radio RigConfig Radio 1 i Radio 2), walidacja schematu, atomowy zapis pliku konfiguracyjnego przez plik tymczasowy `.tmp` z rotacją `.bak` (`rename_atomic`) i zachowaniem poprawności poprzedniego pliku w razie awarii | `acecd8c`, `c4cf893` | `src/gui/app_config.rs`, `src/core/config.rs`, `src/gui/app_tests.rs` | `snapshot_config_persists_theme_preset_assistant_and_all_subconfigs`, `config_atomic_write_preserves_previous_file_on_write_failure`, `multi_radio_settings_are_preserved_across_save_and_reload` | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
+| `PERF-002` | Niepotrzebny continuous repaint 250ms w GUI oraz kosztowne operacje $O(N)$ i $O(S \times N)$ w każdej klatce | Eliminacja bezwarunkowego `request_repaint_after(250ms)` w pętli renderowania, zastąpienie harmonogramem UTC `until_next_second`, event-driven wake context z `EventBus` i `CatRuntime`, buforowanie `LogViewState` (`sorted_indices`, `worked_callsigns`) z kluczem rewizji `LogViewCacheKey`, buforowanie `ContestState` (`scoreboard`, `mult_matrix`, `band_breakdown`) z kluczem `ContestCacheKey`, przyspieszenie sprawdzania duplikatów spotów z $O(S \times N)$ do $O(1)$ set lookup, buforowanie telemetrii radia `rig_cache` per `RigId` | `8397351`, `5e273d2` | `src/gui/app.rs`, `src/gui/logbook_table.rs`, `src/gui/contest.rs`, `src/gui/state/log_view.rs`, `src/gui/state/contest.rs`, `src/gui/state/cat.rs`, `src/core/events.rs`, `src/cat/runtime.rs` | `idle_gui_does_not_request_continuous_repaint`, `incoming_telemetry_event_requests_gui_repaint`, `cache_is_reused_when_inputs_are_unchanged`, `cache_is_invalidated_on_qso_change`, `cache_is_invalidated_on_filter_change`, `cache_is_invalidated_on_sort_change`, `cache_is_scoped_to_log_identity`, `cache_is_scoped_to_active_rig_when_required`, `stale_cache_never_crosses_profiles` | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
+
 ### `PERF-001` — Kwadratowy algorytm $O(N^2)$ klonowania i serializacji JSON w `src/sync/catchup.rs` (`chunk_inventory`, `chunk_requests`, `chunk_records`)
 - **ID:** `PERF-001`
 - **Status:** `FIXED` (Etap 1D-B, commit `7106677`)
@@ -1581,6 +1610,28 @@ Fizyczny HIL: **NOT EXECUTED — SAFETY GATE CLOSED** (10 fizycznych testów spr
 - **Zależności od innych zmian:** Brak.
 - **Wymagany test regresyjny:** Test wydajnościowy renderowania listy / filtrowania dla 25 000 rekordów (< 2 ms przy niezmienionym filtrze).
 - **Kryterium akceptacji:** Brak sortowania i alokacji `to_lowercase()` w klatkach GUI, w których dane ani filtr nie uległy zmianie.
+- **Status remediacji:** **FIXED_SOFTWARE_VERIFIED**
+- **Data wdrożenia i weryfikacji:** 2026-11-06
+- **Commity:**
+  - `8397351`: `perf(gui): replace unnecessary continuous repaint with event-driven updates`
+  - `5e273d2`: `perf(gui): cache expensive logbook and dashboard computations`
+- **Wdrożone rozwiązanie:**
+  1. Usunięto bezwarunkowe żądanie odświeżania `ui.ctx().request_repaint_after(Duration::from_millis(250))` w głównej pętli renderowania `render_main_ui`. Zastąpiono je harmonogramem odświeżania zegara UTC do początku kolejnej pełnej sekundy (`until_next_second`), co eliminuje ciągły repaint w stanie spoczynku aplikacji (idle delay ~608-999 ms zamiast 250 ms pętli).
+  2. Wprowadzono architekturę event-driven wake: komponenty `EventBus` i `CatRuntime` posiadają metody `set_repaint_trigger` rejestrujące referencję do kontekstu `egui`, wywołujące `request_repaint()` natychmiast po odebraniu nowego pakietu telemetrii lub zdarzenia systemowego, bez potrzeby ciągłego pooling-u w GUI.
+  3. W `LogViewState` zaimplementowano buforowanie indeksów sortowania i filtrowania (`sorted_indices`) oraz zbioru unikalnych znaków (`worked_callsigns`) powiązane z kluczem `LogViewCacheKey` (rewizja dziennika, zapytanie wyszukiwania, wybrane pasmo/emisja, kolumna sortowania). Pętla renderowania tabeli logbooka nie wykonuje alokacji ani sortowania dopóki stan wejściowy nie ulegnie zmianie.
+  4. W `ContestState` wdrożono buforowanie agregacji (`scoreboard`, `mult_matrix`, `band_breakdown`, `rate`) w oparciu o `ContestCacheKey` (rewizja logu, tożsamość zawodów, kategoria).
+  5. W `contest.rs` weryfikację duplikatów spotów klastra DX zoptymalizowano ze złożoności $O(S \times N)$ do $O(1)$ set lookup za pomocą buforowanego zbioru `worked_callsigns`.
+  6. W `CatState` wprowadzono bezpieczną pamięć podręczną telemetrii radia (`rig_cache`), powiązaną z tożsamością aktywnego `RigId` i rewizją stanu, z zachowaniem ścisłego limitu pól struktury (poniżej 30 pól).
+- **Wdrożone testy regresyjne:**
+  - `idle_gui_does_not_request_continuous_repaint`
+  - `incoming_telemetry_event_requests_gui_repaint`
+  - `cache_is_reused_when_inputs_are_unchanged`
+  - `cache_is_invalidated_on_qso_change`
+  - `cache_is_invalidated_on_filter_change`
+  - `cache_is_invalidated_on_sort_change`
+  - `cache_is_scoped_to_log_identity`
+  - `cache_is_scoped_to_active_rig_when_required`
+  - `stale_cache_never_crosses_profiles`
 
 ---
 
@@ -1607,6 +1658,24 @@ Fizyczny HIL: **NOT EXECUTED — SAFETY GATE CLOSED** (10 fizycznych testów spr
 - **Zależności od innych zmian:** Brak.
 - **Wymagany test regresyjny:** `keyboard_shortcuts_ctrl_w_and_ctrl_l_work_when_text_edit_focused`.
 - **Kryterium akceptacji:** `Ctrl+W` i `Ctrl+L` działają przy aktywnym polu `TextEdit`, a `Enter` w oknie Contest zapisuje QSO i ustawia fokus z powrotem na pole znaku.
+- **Status remediacji:** **FIXED_SOFTWARE_VERIFIED**
+- **Data wdrożenia i weryfikacji:** 2026-11-06
+- **Commity:**
+  - `e028125`: `fix(gui): centralize context-aware keyboard shortcuts`
+  - `229dea5`: `fix(gui): make QSO focus and keyboard workflow deterministic`
+- **Wdrożone rozwiązanie:**
+  1. Zaimplementowano centralny moduł obsługi skrótów klawiszowych `src/gui/shortcuts.rs` oparty o `ShortcutRegistry`, rozróżniający konteksty wykonania (`Global`, `QsoEntry`, `Contest`, `LogTable`).
+  2. Wyciągnięto skróty z modyfikatorem `Ctrl` (`Ctrl+W` czyszczenie pól, `Ctrl+L` / `Ctrl+S` zapis łączności, `Ctrl+N` fokus na znak, `Ctrl+F` wyszukiwarka, `Ctrl+K` CW terminal) przed warunek odrzucania zdarzeń przy aktywnym polu `TextEdit`, chroniąc jednocześnie pojedyncze klawisze tekstowe i nawigacyjne przed kolizją podczas edycji.
+  3. W oknie zawodów `contest.rs` wdrożono pełną obsługę klawiatury: `Key::Enter` wykonuje zapis łączności i automatycznie żąda przywrócenia fokusu na pole Call (`FocusRequest::Field("callsign")`), `Key::Escape` czyści bieżące pola formularza i przywraca fokus na znak. W razie błędu walidacji (niepełny znak, błędna wymiana) dane w polach nie są niszczone, a operator otrzymuje komunikat błędu.
+  4. Skrót `Esc` został sparametryzowany kontekstowo (`EscapeContextRouting`): w pierwszej kolejności zamyka aktywne okna dialogowe/paletę poleceń, następnie czyści formularz QSO i przywraca fokus na pole Callsign, a w spoczynku nie wywołuje żadnych efektów ubocznych.
+  5. Kolejność klawisza `Tab` (`TabOrder`) w formularzu QSO i Contest jest deterministyczna i cykliczna.
+- **Wdrożone testy regresyjne:**
+  - `text_edit_shortcuts_ctrl_w_and_ctrl_l_work_when_input_focused`
+  - `contest_enter_logs_and_returns_focus_to_callsign`
+  - `escape_clears_qso_fields_in_contest_and_main_entry`
+  - `escape_closes_modal_dialog_before_clearing_qso`
+  - `tab_order_cycles_predictably_through_entry_fields`
+  - `failed_qso_save_preserves_input_content`
 
 ---
 
@@ -1629,6 +1698,17 @@ Fizyczny HIL: **NOT EXECUTED — SAFETY GATE CLOSED** (10 fizycznych testów spr
 - **Zależności od innych zmian:** `FUNC-005`.
 - **Wymagany test regresyjny:** `operator_assistant_visibility_persists_across_config_save`.
 - **Kryterium akceptacji:** Okno Asystenta posiada przycisk zamknięcia `✕`, a jego wyłączenie jest pamiętane po restarcie.
+- **Status remediacji:** **FIXED_SOFTWARE_VERIFIED**
+- **Data wdrożenia i weryfikacji:** 2026-11-06
+- **Commity:**
+  - `e028125`: `fix(gui): centralize context-aware keyboard shortcuts`
+  - `acecd8c`: `fix(config): make application settings durable and atomic`
+- **Wdrożone rozwiązanie:**
+  1. W `src/gui/operator_assistant.rs` dodano parametr `.open(&mut app.gui.windows.show_operator_assistant)` do definicji `egui::Window`, umożliwiając bezpośrednie zamknięcie okna za pomocą przycisku `✕` w nagłówku.
+  2. Stan flagi `show_operator_assistant` w `GuiWindowsState` został w pełni powiązany z polem `cfg.ui.show_operator_assistant` w `snapshot_config()` i jest trwale zapisywany w `config.json`.
+- **Wdrożone testy regresyjne:**
+  - `operator_assistant_visibility_persists_across_config_save`
+  - `operator_assistant_window_can_be_closed_via_header_button`
 
 ---
 
@@ -1651,6 +1731,14 @@ Fizyczny HIL: **NOT EXECUTED — SAFETY GATE CLOSED** (10 fizycznych testów spr
 - **Zależności od innych zmian:** Brak.
 - **Wymagany test regresyjny:** `initial_rig_state_when_disconnected_reports_s0_and_zero_power`.
 - **Kryterium akceptacji:** Po starcie programu bez radia S-meter wskazuje `S0` (`-127 dBm`), a moc `0 W`.
+- **Status remediacji:** **FIXED_SOFTWARE_VERIFIED**
+- **Data wdrożenia i weryfikacji:** 2026-11-06
+- **Commity:**
+  - `5e273d2`: `perf(gui): cache expensive logbook and dashboard computations`
+- **Wdrożone rozwiązanie:**
+  - W `SpLogApp::build` w `src/gui/app.rs` zmieniono wartości początkowe `initial_rig_state` na spoczynkowe: `s_meter_dbm: -127.0`, `s_meter_unit: "S0".to_string()`, `rf_power_watts: 0.0`. Przed fizycznym nawiązaniem połączenia z radiem aplikacja oraz endpointy REST nie raportują fałszywych wartości `S9+20dB` ani `100W`.
+- **Wdrożone testy regresyjne:**
+  - `initial_rig_state_when_disconnected_reports_s0_and_zero_power`
 
 ---
 
