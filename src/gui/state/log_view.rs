@@ -10,7 +10,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 pub enum UndoAction {
     DeleteSingle {
         journal_id: String,
-        qso: QsoRecord,
+        qso: Box<QsoRecord>,
     },
     DeleteBatch {
         journal_id: String,
@@ -130,10 +130,10 @@ impl LogViewState {
             let mut sorted: Vec<usize> = (0..self.recent_qsos.len())
                 .filter(|&i| {
                     let qso = &self.recent_qsos[i];
-                    if let Some(ref d) = drill {
-                        if !d.matches(qso) {
-                            return false;
-                        }
+                    if let Some(ref d) = drill
+                        && !d.matches(qso)
+                    {
+                        return false;
                     }
                     if query.is_empty() {
                         return true;
@@ -235,8 +235,8 @@ mod tests {
     #[test]
     fn default_matches_initial_values() {
         let state = LogViewState::default();
-        assert!(state.recent_qsos.is_empty());
-        assert!(state.qso_numbers.is_empty());
+        assert_eq!(state.recent_qsos, [] as [QsoRecord; 0]);
+        assert_eq!(state.qso_numbers.len(), 0);
         assert_eq!(state.search_query, "");
         assert!(state.drill_filter.is_none());
         assert!(state.editing_qso.is_none());
@@ -244,15 +244,15 @@ mod tests {
         assert!(!state.sort_asc);
         assert_eq!(state.page, 0);
         assert_eq!(state.page_size, 50);
-        assert!(state.selected_qso_ids.is_empty());
+        assert_eq!(state.selected_qso_ids, [] as [i64; 0]);
         assert!(!state.confirm_bulk_delete);
         assert!(!state.show_statistics_window);
         assert_eq!(state.stats_tab, 0);
-        assert!(state.undo_stack.is_empty());
-        assert!(state.redo_stack.is_empty());
-        assert!(state.lotw_users_cache.is_empty());
+        assert_eq!(state.undo_stack.len(), 0);
+        assert_eq!(state.redo_stack.len(), 0);
+        assert_eq!(state.lotw_users_cache.len(), 0);
         assert_eq!(state.log_revision, 0);
-        assert!(state.cache.sorted_indices.is_empty());
-        assert!(state.cache.worked_callsigns.is_empty());
+        assert_eq!(state.cache.sorted_indices, [] as [usize; 0]);
+        assert_eq!(state.cache.worked_callsigns.len(), 0);
     }
 }

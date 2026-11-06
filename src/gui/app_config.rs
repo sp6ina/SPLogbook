@@ -3,7 +3,7 @@ use crate::core::i18n::{Msg, key, tr};
 use crate::core::station::{AppConfig, EquipmentItem};
 
 impl SpLogApp {
-    /// Cyklicznie przełącza motyw kolorystyczny (Dark -> Daylight -> High-Contrast).
+    /// Cyklicznie przeĹ‚Ä…cza motyw kolorystyczny (Dark -> Daylight -> High-Contrast).
     pub fn cycle_theme(&mut self) {
         let all = crate::gui::theme::ThemePreset::ALL;
         let idx = all
@@ -24,7 +24,7 @@ impl SpLogApp {
         ));
     }
 
-    /// Tworzy zaktualizowaną strukturę [`AppConfig`] odzwierciedlającą bieżący stan aplikacji.
+    /// Tworzy zaktualizowanÄ… strukturÄ™ [`AppConfig`] odzwierciedlajÄ…cÄ… bieĹĽÄ…cy stan aplikacji.
     pub fn snapshot_config(&self) -> AppConfig {
         let is_configured = if self.gui.chrome.show_welcome_wizard {
             false
@@ -33,16 +33,19 @@ impl SpLogApp {
         };
         let mut cfg = self.config.clone();
         cfg.schema_version = 1;
-        cfg.secret_store_id = self.paths.secret_store_id.clone();
+        cfg.secret_store_id.clone_from(&self.paths.secret_store_id);
         cfg.is_configured = is_configured;
         cfg.dark_theme = self.gui.appearance.theme_preset.is_dark();
         cfg.theme_preset = self.gui.appearance.theme_preset.id().to_string();
         cfg.cat_enabled = self.cat.connected;
         cfg.operator_assistant_enabled = self.gui.windows.show_operator_assistant;
-        cfg.propagation_history = self.solar.propagation_history.clone();
+        cfg.propagation_history
+            .clone_from(&self.solar.propagation_history);
 
-        cfg.wol_mac = self.gui.dialogs.wol_dialog.mac_address.clone();
-        cfg.wol_ip = self.gui.dialogs.wol_dialog.broadcast_ip.clone();
+        cfg.wol_mac
+            .clone_from(&self.gui.dialogs.wol_dialog.mac_address);
+        cfg.wol_ip
+            .clone_from(&self.gui.dialogs.wol_dialog.broadcast_ip);
         cfg.wol_port = self.gui.dialogs.wol_dialog.port;
 
         cfg.current_language = self.gui.appearance.language.code().to_string();
@@ -60,7 +63,7 @@ impl SpLogApp {
         cfg
     }
 
-    /// Tworzy zaktualizowaną strukturę [`AppConfig`] odzwierciedlającą bieżący stan aplikacji.
+    /// Tworzy zaktualizowanÄ… strukturÄ™ [`AppConfig`] odzwierciedlajÄ…cÄ… bieĹĽÄ…cy stan aplikacji.
     pub fn build_app_config(&self) -> AppConfig {
         self.snapshot_config()
     }
@@ -80,14 +83,14 @@ impl SpLogApp {
         }
     }
 
-    /// Scentralizowane zgłaszanie błędów: log + pływające powiadomienie w UI.
+    /// Scentralizowane zgĹ‚aszanie bĹ‚Ä™dĂłw: log + pĹ‚ywajÄ…ce powiadomienie w UI.
     pub fn report_error(&mut self, msg: impl Into<String>) {
         let msg = msg.into();
         log::error!("{msg}");
         self.gui.chrome.status_toast = Some((msg, std::time::Instant::now()));
     }
 
-    /// Scentralizowane zgłaszanie ostrzeżeń (log warning + pływające powiadomienie).
+    /// Scentralizowane zgĹ‚aszanie ostrzeĹĽeĹ„ (log warning + pĹ‚ywajÄ…ce powiadomienie).
     pub fn report_warning(&mut self, msg: impl Into<String>) {
         let msg = msg.into();
         log::warn!("{msg}");
@@ -97,6 +100,7 @@ impl SpLogApp {
     /// Zlokalizowane zgłoszenie informacji/statusu (UI toast + log info).
     pub fn say(&mut self, msg: Msg) {
         let text = msg.text(self.gui.appearance.language);
+        drop(msg);
         log::info!("{text}");
         self.gui.chrome.status_message = Some(text.clone());
         self.gui.chrome.status_toast = Some((text, std::time::Instant::now()));
@@ -105,6 +109,7 @@ impl SpLogApp {
     /// Zlokalizowane zgłoszenie ostrzeżenia (UI toast + log warn).
     pub fn warn(&mut self, msg: Msg) {
         let text = msg.text(self.gui.appearance.language);
+        drop(msg);
         log::warn!("{text}");
         self.gui.chrome.status_toast = Some((text, std::time::Instant::now()));
     }
@@ -112,6 +117,7 @@ impl SpLogApp {
     /// Zlokalizowane zgłoszenie błędu (UI toast + log error).
     pub fn fail(&mut self, msg: Msg) {
         let text = msg.text(self.gui.appearance.language);
+        drop(msg);
         log::error!("{text}");
         self.gui.chrome.status_toast = Some((text, std::time::Instant::now()));
     }

@@ -25,7 +25,7 @@ impl SpLogApp {
                 let inserted = import_report.inserted;
                 let mut msg = Msg::new(key::IMPORT_SUCCESS_SOURCE)
                     .arg("count", inserted)
-                    .arg("source", &source_name)
+                    .arg("source", source_name)
                     .text(self.gui.appearance.language);
                 let mut details: Vec<String> = Vec::new();
                 if rejected > 0 {
@@ -52,10 +52,10 @@ impl SpLogApp {
                 if !details.is_empty() {
                     let _ = write!(msg, " ({})", details.join(", "));
                 }
-                if let Some(first_error) = errors.first() {
-                    if rejected > 0 || !errors.is_empty() {
-                        let _ = write!(msg, " | {first_error}");
-                    }
+                if let Some(first_error) = errors.first()
+                    && (rejected > 0 || !errors.is_empty())
+                {
+                    let _ = write!(msg, " | {first_error}");
                 }
                 if let Some(issue) = import_report.first_issue {
                     let reason = issue.msg().text(self.gui.appearance.language);
@@ -96,7 +96,7 @@ impl SpLogApp {
                     self.gui.chrome.status_message = Some(
                         Msg::new(key::FILE_READ_ERROR)
                             .arg("path", path.display().to_string())
-                            .arg("err", &e.to_string())
+                            .arg("err", e.to_string())
                             .text(self.gui.appearance.language),
                     );
                 }
@@ -122,7 +122,7 @@ impl SpLogApp {
                     Err(e) => {
                         self.gui.chrome.status_message = Some(
                             Msg::new(key::EXPORT_ERR_READ_LOG)
-                                .arg("err", &e.to_string())
+                                .arg("err", e.to_string())
                                 .text(self.gui.appearance.language),
                         );
                         return;
@@ -145,7 +145,7 @@ impl SpLogApp {
                     self.gui.chrome.status_message = Some(
                         Msg::new(key::FILE_WRITE_ERROR)
                             .arg("path", path.display().to_string())
-                            .arg("err", &e.to_string())
+                            .arg("err", e.to_string())
                             .text(self.gui.appearance.language),
                     );
                 }
@@ -171,7 +171,7 @@ impl SpLogApp {
                     Err(e) => {
                         self.gui.chrome.status_message = Some(
                             Msg::new(key::EXPORT_ERR_READ_LOG)
-                                .arg("err", &e.to_string())
+                                .arg("err", e.to_string())
                                 .text(self.gui.appearance.language),
                         );
                         return;
@@ -193,7 +193,7 @@ impl SpLogApp {
                     self.gui.chrome.status_message = Some(
                         Msg::new(key::FILE_WRITE_ERROR)
                             .arg("path", path.display().to_string())
-                            .arg("err", &e.to_string())
+                            .arg("err", e.to_string())
                             .text(self.gui.appearance.language),
                     );
                 }
@@ -214,7 +214,7 @@ impl SpLogApp {
                     Err(e) => {
                         self.gui.chrome.status_message = Some(
                             Msg::new(key::EXPORT_ERR_READ_LOG)
-                                .arg("err", &e.to_string())
+                                .arg("err", e.to_string())
                                 .text(self.gui.appearance.language),
                         );
                         return;
@@ -265,7 +265,7 @@ impl SpLogApp {
                     self.gui.chrome.status_message = Some(
                         Msg::new(key::FILE_WRITE_ERROR)
                             .arg("path", path.display().to_string())
-                            .arg("err", &e.to_string())
+                            .arg("err", e.to_string())
                             .text(self.gui.appearance.language),
                     );
                 }

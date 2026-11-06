@@ -141,16 +141,16 @@ mod tests {
         assert_eq!(state.pota, "");
         assert_eq!(state.qsl_manager, "");
         assert!(state.active_qsl_manager_record.is_none());
-        assert!(state.scp_suggestions.is_empty());
-        assert!(state.callsign_corrections.is_empty());
+        assert_eq!(state.scp_suggestions.len(), 0);
+        assert_eq!(state.callsign_corrections.len(), 0);
         assert!(state.active_prefix_info.is_none());
         assert!(state.active_polish_district.is_none());
         assert!(state.active_award_status.is_none());
         assert_eq!(state.active_distance_km, 0.0);
         assert_eq!(state.active_bearing_deg, 0.0);
         assert!(state.active_propagation.is_none());
-        assert!(state.active_clubs.is_empty());
-        assert!(state.past_qsos_for_active_call.is_empty());
+        assert_eq!(state.active_clubs.len(), 0);
+        assert_eq!(state.past_qsos_for_active_call.len(), 0);
         assert!(!state.focus_callsign_requested);
         assert!(state.lookup_debounce_until.is_none());
     }

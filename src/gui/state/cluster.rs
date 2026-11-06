@@ -88,9 +88,9 @@ mod tests {
         assert!(state.badge_cache.is_empty());
         assert!(!state.connected);
         assert!(!state.connecting);
-        assert!(state.status_text.is_empty());
+        assert_eq!(state.status_text, "");
         assert!(!state.show_filter_sidebar);
-        assert!(state.search_query.is_empty());
+        assert_eq!(state.search_query, "");
         assert_eq!(state.filter_band_selection, "ALL");
         assert_eq!(state.filter_mode_selection, "ALL");
         assert_eq!(state.filter_status, "ALL");

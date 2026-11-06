@@ -44,14 +44,13 @@ pub fn render_satellites_window(app: &mut SpLogApp, ctx: &egui::Context) {
             },
         );
 
-        if let Some((pos, size)) = captured_geo {
-            if app.views.panel_satellites.saved_pos != Some(pos)
-                || app.views.panel_satellites.saved_size != Some(size)
-            {
-                app.views.panel_satellites.saved_pos = Some(pos);
-                app.views.panel_satellites.saved_size = Some(size);
-                app.save_station_config();
-            }
+        if let Some((pos, size)) = captured_geo
+            && (app.views.panel_satellites.saved_pos != Some(pos)
+                || app.views.panel_satellites.saved_size != Some(size))
+        {
+            app.views.panel_satellites.saved_pos = Some(pos);
+            app.views.panel_satellites.saved_size = Some(size);
+            app.save_station_config();
         }
         if dock_back {
             app.views.panel_satellites.floating = false;

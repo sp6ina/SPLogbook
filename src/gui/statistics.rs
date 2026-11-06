@@ -129,12 +129,11 @@ fn get_cached_stats(app: &mut SpLogApp) -> StatsCacheData {
     };
 
     let cache_mutex = STATS_CACHE.get_or_init(|| std::sync::Mutex::new(None));
-    if let Ok(guard) = cache_mutex.lock() {
-        if let Some((cached_key, cached_data)) = guard.as_ref() {
-            if *cached_key == key {
-                return cached_data.clone();
-            }
-        }
+    if let Ok(guard) = cache_mutex.lock()
+        && let Some((cached_key, cached_data)) = guard.as_ref()
+        && *cached_key == key
+    {
+        return cached_data.clone();
     }
 
     let lang = app.gui.appearance.language;
@@ -257,14 +256,14 @@ fn bar_chart_clickable(
 
     // Wykrycie kliknięcia konkretnego słupka na podstawie pozycji X
     let mut clicked: Option<usize> = None;
-    if resp.clicked() {
-        if let Some(pos) = resp.interact_pointer_pos() {
-            let rel = pos.x - origin.x - 30.0;
-            if rel >= 0.0 {
-                let idx = (rel / bar_w) as usize;
-                if idx < data.len() {
-                    clicked = Some(idx);
-                }
+    if resp.clicked()
+        && let Some(pos) = resp.interact_pointer_pos()
+    {
+        let rel = pos.x - origin.x - 30.0;
+        if rel >= 0.0 {
+            let idx = (rel / bar_w) as usize;
+            if idx < data.len() {
+                clicked = Some(idx);
             }
         }
     }
@@ -343,10 +342,10 @@ fn render_tab_monthly(app: &mut SpLogApp, ui: &mut egui::Ui) {
     egui::ScrollArea::horizontal().show(ui, |ui| {
         clicked = bar_chart_clickable(ui, &data, palette.series(0), tr(key::LOG_NO_RESULTS, lang));
     });
-    if let Some(i) = clicked {
-        if let Some((month, _)) = data.get(i) {
-            app.drill_down(DrillFilter::Month(month.clone()));
-        }
+    if let Some(i) = clicked
+        && let Some((month, _)) = data.get(i)
+    {
+        app.drill_down(DrillFilter::Month(month.clone()));
     }
     ui.add_space(8.0);
     // Tabela podsumowania
@@ -381,10 +380,9 @@ fn render_tab_bands(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let data = get_stats_band(app);
     if let Some(i) =
         bar_chart_clickable(ui, &data, palette.series(1), tr(key::LOG_NO_RESULTS, lang))
+        && let Some((band, _)) = data.get(i)
     {
-        if let Some((band, _)) = data.get(i) {
-            app.drill_down(DrillFilter::Band(band.clone()));
-        }
+        app.drill_down(DrillFilter::Band(band.clone()));
     }
     ui.separator();
     egui::Grid::new("band_table")
@@ -418,10 +416,9 @@ fn render_tab_modes(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let data = get_stats_mode(app);
     if let Some(i) =
         bar_chart_clickable(ui, &data, palette.series(2), tr(key::LOG_NO_RESULTS, lang))
+        && let Some((mode, _)) = data.get(i)
     {
-        if let Some((mode, _)) = data.get(i) {
-            app.drill_down(DrillFilter::Mode(mode.clone()));
-        }
+        app.drill_down(DrillFilter::Mode(mode.clone()));
     }
     ui.separator();
     egui::Grid::new("mode_table")
@@ -469,23 +466,23 @@ fn render_tab_hourly(app: &mut SpLogApp, ui: &mut egui::Ui) {
     egui::ScrollArea::horizontal().show(ui, |ui| {
         clicked = bar_chart_clickable(ui, &hours, palette.series(3), tr(key::LOG_NO_RESULTS, lang));
     });
-    if let Some(i) = clicked {
-        if i < 24 {
-            app.drill_down(DrillFilter::Hour(i as u32));
-        }
+    if let Some(i) = clicked
+        && i < 24
+    {
+        app.drill_down(DrillFilter::Hour(i as u32));
     }
     ui.separator();
     let peak = hours.iter().enumerate().max_by_key(|(_, (_, v))| v);
-    if let Some((h, (_, cnt))) = peak {
-        if *cnt > 0 {
-            ui.label(format!(
-                "{}: {:02}:00–{:02}:00 UTC ({} QSO)",
-                tr(key::STATS_PEAK_ACTIVITY, lang),
-                h,
-                (h + 1) % 24,
-                cnt
-            ));
-        }
+    if let Some((h, (_, cnt))) = peak
+        && *cnt > 0
+    {
+        ui.label(format!(
+            "{}: {:02}:00–{:02}:00 UTC ({} QSO)",
+            tr(key::STATS_PEAK_ACTIVITY, lang),
+            h,
+            (h + 1) % 24,
+            cnt
+        ));
     }
 }
 

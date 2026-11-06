@@ -83,10 +83,10 @@ impl SpLogApp {
     /// odpowiadające haki (`on_pota_info` / `on_sota_info`).
     pub fn poll_plugin_lookup(&mut self) {
         let mut result = None;
-        if let Some(rx) = &self.plugins_ui.lookup_rx {
-            if let Ok(r) = rx.try_recv() {
-                result = Some(r);
-            }
+        if let Some(rx) = &self.plugins_ui.lookup_rx
+            && let Ok(r) = rx.try_recv()
+        {
+            result = Some(r);
         }
         if let Some(r) = result {
             match r {
@@ -234,7 +234,7 @@ impl SpLogApp {
             _ => {
                 self.gui.chrome.status_toast = Some((
                     Msg::new(key::PLUGIN_UNKNOWN_SOUND)
-                        .arg("name", &name)
+                        .arg("name", name)
                         .text(self.gui.appearance.language),
                     std::time::Instant::now(),
                 ));

@@ -295,14 +295,13 @@ pub fn render_world_map_window(app: &mut SpLogApp, ctx: &egui::Context) {
             },
         );
 
-        if let Some((pos, size)) = captured_geo {
-            if app.views.panel_world_map.saved_pos != Some(pos)
-                || app.views.panel_world_map.saved_size != Some(size)
-            {
-                app.views.panel_world_map.saved_pos = Some(pos);
-                app.views.panel_world_map.saved_size = Some(size);
-                app.save_station_config();
-            }
+        if let Some((pos, size)) = captured_geo
+            && (app.views.panel_world_map.saved_pos != Some(pos)
+                || app.views.panel_world_map.saved_size != Some(size))
+        {
+            app.views.panel_world_map.saved_pos = Some(pos);
+            app.views.panel_world_map.saved_size = Some(size);
+            app.save_station_config();
         }
         if dock_back {
             app.views.panel_world_map.floating = false;
@@ -772,36 +771,36 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     egui::Stroke::new(1.0_f32, map.ocean.alpha(180)),
                 ));
 
-                if let Some(hp) = hover_pos {
-                    if (hp - spot_pos).length() < 7.0 {
-                        // Podpowiedź tooltip
-                        let tip_box = egui::Rect::from_min_size(
-                            spot_pos + egui::vec2(8.0, -16.0),
-                            egui::vec2(110.0, 26.0),
-                        );
-                        painter.rect_filled(tip_box, 3.0, map.ocean.alpha(235));
-                        painter.rect_stroke(
-                            tip_box,
-                            3.0,
-                            egui::Stroke::new(1.0_f32, spot_color),
-                            egui::StrokeKind::Inside,
-                        );
-                        painter.text(
-                            spot_pos + egui::vec2(12.0, -3.0),
-                            egui::Align2::LEFT_CENTER,
-                            format!(
-                                "{} ({:.1})
+                if let Some(hp) = hover_pos
+                    && (hp - spot_pos).length() < 7.0
+                {
+                    // Podpowiedź tooltip
+                    let tip_box = egui::Rect::from_min_size(
+                        spot_pos + egui::vec2(8.0, -16.0),
+                        egui::vec2(110.0, 26.0),
+                    );
+                    painter.rect_filled(tip_box, 3.0, map.ocean.alpha(235));
+                    painter.rect_stroke(
+                        tip_box,
+                        3.0,
+                        egui::Stroke::new(1.0_f32, spot_color),
+                        egui::StrokeKind::Inside,
+                    );
+                    painter.text(
+                        spot_pos + egui::vec2(12.0, -3.0),
+                        egui::Align2::LEFT_CENTER,
+                        format!(
+                            "{} ({:.1})
 {}",
-                                spot.dx_call, spot.frequency_khz, spot.band
-                            ),
-                            egui::FontId::proportional(9.0),
-                            spot_color,
-                        );
+                            spot.dx_call, spot.frequency_khz, spot.band
+                        ),
+                        egui::FontId::proportional(9.0),
+                        spot_color,
+                    );
 
-                        if clicked {
-                            tune_target =
-                                Some((spot.dx_call.clone(), spot.frequency_khz, spot.band.clone()));
-                        }
+                    if clicked {
+                        tune_target =
+                            Some((spot.dx_call.clone(), spot.frequency_khz, spot.band.clone()));
                     }
                 }
             }
@@ -813,46 +812,45 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         // QSO Markers
         for qso in &app.log_view.recent_qsos {
-            if let Some(grid) = &qso.gridsquare {
-                if grid.len() >= 4 {
-                    if let Ok(c) = locator_to_coordinates(grid) {
-                        let qso_pos = project(c.latitude, c.longitude);
-                        let is_lotw = qso.lotw_qsl_rcvd == "Y" || qso.lotw_qsl_rcvd == "V";
-                        let color = if is_lotw {
-                            map.qso_marker_confirmed
-                        } else {
-                            map.qso_marker
-                        };
-                        painter.circle_filled(qso_pos, 2.5, color);
-                        painter.circle_stroke(
-                            qso_pos,
-                            3.5,
-                            egui::Stroke::new(1.0_f32, map.ocean.alpha(150)),
-                        );
+            if let Some(grid) = &qso.gridsquare
+                && grid.len() >= 4
+                && let Ok(c) = locator_to_coordinates(grid)
+            {
+                let qso_pos = project(c.latitude, c.longitude);
+                let is_lotw = qso.lotw_qsl_rcvd == "Y" || qso.lotw_qsl_rcvd == "V";
+                let color = if is_lotw {
+                    map.qso_marker_confirmed
+                } else {
+                    map.qso_marker
+                };
+                painter.circle_filled(qso_pos, 2.5, color);
+                painter.circle_stroke(
+                    qso_pos,
+                    3.5,
+                    egui::Stroke::new(1.0_f32, map.ocean.alpha(150)),
+                );
 
-                        if let Some(hp) = hover_pos {
-                            if (hp - qso_pos).length() < 5.0 {
-                                let tip_box = egui::Rect::from_min_size(
-                                    qso_pos + egui::vec2(6.0, -12.0),
-                                    egui::vec2(90.0, 16.0),
-                                );
-                                painter.rect_filled(tip_box, 3.0, map.ocean.alpha(235));
-                                painter.rect_stroke(
-                                    tip_box,
-                                    3.0,
-                                    egui::Stroke::new(1.0_f32, color),
-                                    egui::StrokeKind::Inside,
-                                );
-                                painter.text(
-                                    qso_pos + egui::vec2(10.0, -4.0),
-                                    egui::Align2::LEFT_CENTER,
-                                    format!("QSO: {}", qso.callsign),
-                                    egui::FontId::proportional(9.0),
-                                    color,
-                                );
-                            }
-                        }
-                    }
+                if let Some(hp) = hover_pos
+                    && (hp - qso_pos).length() < 5.0
+                {
+                    let tip_box = egui::Rect::from_min_size(
+                        qso_pos + egui::vec2(6.0, -12.0),
+                        egui::vec2(90.0, 16.0),
+                    );
+                    painter.rect_filled(tip_box, 3.0, map.ocean.alpha(235));
+                    painter.rect_stroke(
+                        tip_box,
+                        3.0,
+                        egui::Stroke::new(1.0_f32, color),
+                        egui::StrokeKind::Inside,
+                    );
+                    painter.text(
+                        qso_pos + egui::vec2(10.0, -4.0),
+                        egui::Align2::LEFT_CENTER,
+                        format!("QSO: {}", qso.callsign),
+                        egui::FontId::proportional(9.0),
+                        color,
+                    );
                 }
             }
         }
@@ -1058,20 +1056,18 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
             );
 
             // Interaktywny klik na tarczy kompasu -> bezpośredni obrót rotatora na kliknięty kąt
-            if clicked {
-                if let Some(pos) = hover_pos {
-                    let diff = pos - compass_center;
-                    if diff.length() <= compass_radius {
-                        // Kąt w radianach względem osi X (prawo)
-                        let click_rad = diff.y.atan2(diff.x);
-                        // Konwersja na azymut geograficzny (0° = Północ/góra, 90° = Wschód/prawo)
-                        let mut click_az = click_rad.to_degrees() + 90.0;
-                        if click_az < 0.0 {
-                            click_az += 360.0;
-                        }
-                        click_az %= 360.0;
-                        app.rotate_antenna_to(click_az as f32);
+            if clicked && let Some(pos) = hover_pos {
+                let diff = pos - compass_center;
+                if diff.length() <= compass_radius {
+                    // Kąt w radianach względem osi X (prawo)
+                    let click_rad = diff.y.atan2(diff.x);
+                    // Konwersja na azymut geograficzny (0° = Północ/góra, 90° = Wschód/prawo)
+                    let mut click_az = click_rad.to_degrees() + 90.0;
+                    if click_az < 0.0 {
+                        click_az += 360.0;
                     }
+                    click_az %= 360.0;
+                    app.rotate_antenna_to(click_az as f32);
                 }
             }
         }

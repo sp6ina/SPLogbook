@@ -4,6 +4,7 @@
 use crate::plugins::marketplace::{MarketplaceError, PluginCatalogEntry};
 use std::sync::mpsc::Receiver;
 
+#[derive(Default)]
 pub struct MarketplaceState {
     pub show_window: bool,
     pub catalog: Vec<PluginCatalogEntry>,
@@ -15,23 +16,6 @@ pub struct MarketplaceState {
     pub status: Option<String>,
     pub fetch_rx: Option<Receiver<Result<Vec<PluginCatalogEntry>, MarketplaceError>>>,
     pub install_rx: Option<Receiver<(String, Result<(), MarketplaceError>)>>,
-}
-
-impl Default for MarketplaceState {
-    fn default() -> Self {
-        Self {
-            show_window: false,
-            catalog: Vec::new(),
-            loading: false,
-            error: None,
-            search: String::new(),
-            category: None,
-            busy_id: None,
-            status: None,
-            fetch_rx: None,
-            install_rx: None,
-        }
-    }
 }
 
 impl MarketplaceState {
@@ -48,10 +32,10 @@ mod tests {
     fn default_matches_initial_values() {
         let state = MarketplaceState::default();
         assert!(!state.show_window);
-        assert!(state.catalog.is_empty());
+        assert_eq!(state.catalog.len(), 0);
         assert!(!state.loading);
         assert!(state.error.is_none());
-        assert!(state.search.is_empty());
+        assert_eq!(state.search, "");
         assert!(state.category.is_none());
         assert!(state.busy_id.is_none());
         assert!(state.status.is_none());

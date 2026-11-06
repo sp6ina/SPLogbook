@@ -4,7 +4,7 @@
 use crate::core::station::{AppConfig, ViewPanelConfig};
 
 /// Stan konfiguracji widoków i dokowania 9 paneli aplikacji.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct ViewsState {
     pub panel_vfo: ViewPanelConfig,
     pub panel_qso: ViewPanelConfig,
@@ -15,22 +15,6 @@ pub struct ViewsState {
     pub panel_satellites: ViewPanelConfig,
     pub panel_world_map: ViewPanelConfig,
     pub panel_waterfall: ViewPanelConfig,
-}
-
-impl Default for ViewsState {
-    fn default() -> Self {
-        Self {
-            panel_vfo: ViewPanelConfig::default(),
-            panel_qso: ViewPanelConfig::default(),
-            panel_log: ViewPanelConfig::default(),
-            panel_cluster: ViewPanelConfig::default(),
-            panel_solar: ViewPanelConfig::default(),
-            panel_bandmap: ViewPanelConfig::default(),
-            panel_satellites: ViewPanelConfig::default(),
-            panel_world_map: ViewPanelConfig::default(),
-            panel_waterfall: ViewPanelConfig::default(),
-        }
-    }
 }
 
 impl ViewsState {

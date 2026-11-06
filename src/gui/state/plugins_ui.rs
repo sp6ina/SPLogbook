@@ -5,23 +5,12 @@ use crate::plugins::bridge::PluginLookupResult;
 use std::sync::mpsc::Receiver;
 
 /// Stan interfejsu menedżera wtyczek (Rhai) oraz kanał asynchronicznych lookupów.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct PluginUiState {
     pub show_manager: bool,
     pub log: Vec<String>,
     pub notifications: Vec<String>,
     pub lookup_rx: Option<Receiver<PluginLookupResult>>,
-}
-
-impl Default for PluginUiState {
-    fn default() -> Self {
-        Self {
-            show_manager: false,
-            log: Vec::new(),
-            notifications: Vec::new(),
-            lookup_rx: None,
-        }
-    }
 }
 
 impl PluginUiState {
@@ -38,8 +27,8 @@ mod tests {
     fn default_matches_initial_values() {
         let state = PluginUiState::default();
         assert!(!state.show_manager);
-        assert!(state.log.is_empty());
-        assert!(state.notifications.is_empty());
+        assert_eq!(state.log.len(), 0);
+        assert_eq!(state.notifications.len(), 0);
         assert!(state.lookup_rx.is_none());
 
         let new_state = PluginUiState::new();

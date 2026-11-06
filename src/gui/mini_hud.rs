@@ -50,12 +50,12 @@ pub fn render_mini_hud_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 });
             },
         );
-        if let Some((pos, size)) = captured_geo {
-            if app.config.hud_saved_pos != Some(pos) || app.config.hud_saved_size != Some(size) {
-                app.config.hud_saved_pos = Some(pos);
-                app.config.hud_saved_size = Some(size);
-                app.save_station_config();
-            }
+        if let Some((pos, size)) = captured_geo
+            && (app.config.hud_saved_pos != Some(pos) || app.config.hud_saved_size != Some(size))
+        {
+            app.config.hud_saved_pos = Some(pos);
+            app.config.hud_saved_size = Some(size);
+            app.save_station_config();
         }
         if exit_compact {
             app.config.compact_hud_mode = false;

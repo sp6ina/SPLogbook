@@ -26,8 +26,8 @@ impl SpLogApp {
         }
         qso.qso_date.clone_from(&date_str);
         qso.time_on.clone_from(&time_str);
-        qso.rst_sent = self.entry.rst_sent.clone();
-        qso.rst_rcvd = self.entry.rst_rcvd.clone();
+        qso.rst_sent.clone_from(&self.entry.rst_sent);
+        qso.rst_rcvd.clone_from(&self.entry.rst_rcvd);
         qso.name = if self.entry.name.is_empty() {
             None
         } else {
@@ -78,7 +78,7 @@ impl SpLogApp {
         } else {
             Some(self.entry.qsl_manager.clone())
         };
-        qso.qsl_manager = qso.qsl_via.clone();
+        qso.qsl_manager.clone_from(&qso.qsl_via);
 
         // Sprawdzenie czy nagrywano audio łączności (Audio Memo) — zapis obok aktywnej bazy danych
         if crate::media::audio_recorder::AudioRecorder::is_recording() {
@@ -255,10 +255,10 @@ impl SpLogApp {
         }
 
         // 6. Rozgłaszanie w sieci lokalnej Multi-Op LAN (broadcast_lan)
-        if effects.broadcast_lan {
-            if let Some(ref srv) = self.sync_ui.service {
-                srv.broadcast(qso);
-            }
+        if effects.broadcast_lan
+            && let Some(ref srv) = self.sync_ui.service
+        {
+            srv.broadcast(qso);
         }
 
         // 7. Emisja zdarzenia w formacie N1MM Logger+ UDP broadcast (broadcast_n1mm)
@@ -546,10 +546,10 @@ impl SpLogApp {
         } else {
             None
         };
-        if let Some(qsos) = journal_qsos {
-            if let Ok(mut awards) = self.services.awards_engine.lock() {
-                awards.rebuild_for_journal(&active_id, &qsos);
-            }
+        if let Some(qsos) = journal_qsos
+            && let Ok(mut awards) = self.services.awards_engine.lock()
+        {
+            awards.rebuild_for_journal(&active_id, &qsos);
         }
         self.reload_qsos();
         // Stan nagród się zmienił — odznaki spotów klastra są nieaktualne.
@@ -559,21 +559,19 @@ impl SpLogApp {
     /// Odbudowuje silnik podpowiedzi SCP z unikalnych znaków aktywnego dziennika (DATA-005)
     pub fn rebuild_scp(&mut self) {
         let journal_id = self.active_journal.id.clone();
-        if let Ok(db) = self.services.log_db.lock() {
-            if let Ok(calls) = db.get_distinct_callsigns_for_journal(&journal_id, 10_000) {
-                if let Ok(mut scp) = self.services.scp_engine.lock() {
-                    scp.clear();
-                    for c in calls {
-                        scp.insert(&c);
-                    }
-                }
+        if let Ok(db) = self.services.log_db.lock()
+            && let Ok(calls) = db.get_distinct_callsigns_for_journal(&journal_id, 10_000)
+            && let Ok(mut scp) = self.services.scp_engine.lock()
+        {
+            scp.clear();
+            for c in calls {
+                scp.insert(&c);
             }
         }
     }
 
     /// Bezpieczne przełączenie aktywnego dziennika z pełnym unieważnieniem stanu starego dziennika (DATA-004, DATA-005)
     pub fn switch_active_journal(&mut self, journal: crate::core::database::Journal) {
-        self.active_journal = journal.clone();
         self.config
             .station
             .callsign
@@ -588,6 +586,8 @@ impl SpLogApp {
         } else {
             Some(journal.my_pga.clone())
         };
+        let journal_name = journal.name.clone();
+        self.active_journal = journal;
 
         // 1. Unieważnienie stanu specyficznego dla poprzedniego dziennika
         self.log_view.selected_qso_ids.clear();
@@ -606,7 +606,7 @@ impl SpLogApp {
 
         self.gui.chrome.status_toast = Some((
             Msg::new(key::PROFILE_SWITCHED_JOURNAL)
-                .arg("name", &journal.name)
+                .arg("name", &journal_name)
                 .text(self.gui.appearance.language),
             std::time::Instant::now(),
         ));
@@ -662,7 +662,7 @@ impl SpLogApp {
                 self.report_error(
                     Msg::new(key::MSG_QSO_DELETE_ERROR_ID)
                         .arg("id", ids.first().copied().unwrap_or(0))
-                        .arg("err", &e.to_string())
+                        .arg("err", e.to_string())
                         .text(self.gui.appearance.language),
                 );
             }
@@ -705,7 +705,7 @@ impl SpLogApp {
                     .undo_stack
                     .push_front(UndoAction::DeleteSingle {
                         journal_id,
-                        qso: backup_qso,
+                        qso: Box::new(backup_qso),
                     });
                 self.log_view.redo_stack.clear();
 
@@ -742,7 +742,7 @@ impl SpLogApp {
             match action {
                 UndoAction::DeleteSingle { journal_id, qso } => {
                     let callsign = qso.callsign.clone();
-                    let restored = qso.clone();
+                    let restored = *qso;
                     let result = {
                         let db = self
                             .services
@@ -759,13 +759,13 @@ impl SpLogApp {
                                 .redo_stack
                                 .push_front(UndoAction::DeleteSingle {
                                     journal_id,
-                                    qso: redo_entry,
+                                    qso: Box::new(redo_entry),
                                 });
                         }
                         Err(e) => {
                             self.report_error(
                                 Msg::new(key::MSG_QSO_RESTORE_ERROR)
-                                    .arg("err", &e.to_string())
+                                    .arg("err", e.to_string())
                                     .text(self.gui.appearance.language),
                             );
                             return;
@@ -792,7 +792,7 @@ impl SpLogApp {
                     match result {
                         Ok(restored_ids) => {
                             let mut redo_qsos = qsos;
-                            for (q, id) in redo_qsos.iter_mut().zip(restored_ids.into_iter()) {
+                            for (q, id) in redo_qsos.iter_mut().zip(restored_ids) {
                                 q.id = Some(id);
                             }
                             self.log_view
@@ -805,7 +805,7 @@ impl SpLogApp {
                         Err(e) => {
                             self.report_error(
                                 Msg::new(key::MSG_QSO_RESTORE_ERROR)
-                                    .arg("err", &e.to_string())
+                                    .arg("err", e.to_string())
                                     .text(self.gui.appearance.language),
                             );
                             return;
@@ -899,7 +899,7 @@ impl SpLogApp {
                             self.report_error(
                                 Msg::new(key::MSG_QSO_REDO_DELETE_ERROR)
                                     .arg("id", ids.first().copied().unwrap_or(0))
-                                    .arg("err", &e.to_string())
+                                    .arg("err", e.to_string())
                                     .text(self.gui.appearance.language),
                             );
                             return;
@@ -968,7 +968,7 @@ impl SpLogApp {
                     self.report_error(
                         Msg::new(key::MSG_QSO_UPDATE_ERROR_ID)
                             .arg("id", id)
-                            .arg("err", &e.to_string())
+                            .arg("err", e.to_string())
                             .text(self.gui.appearance.language),
                     );
                     return;

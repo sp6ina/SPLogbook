@@ -73,14 +73,13 @@ pub fn render_logbook_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 }
             },
         );
-        if let Some((pos, size)) = captured_geo {
-            if app.views.panel_log.saved_pos != Some(pos)
-                || app.views.panel_log.saved_size != Some(size)
-            {
-                app.views.panel_log.saved_pos = Some(pos);
-                app.views.panel_log.saved_size = Some(size);
-                app.save_station_config();
-            }
+        if let Some((pos, size)) = captured_geo
+            && (app.views.panel_log.saved_pos != Some(pos)
+                || app.views.panel_log.saved_size != Some(size))
+        {
+            app.views.panel_log.saved_pos = Some(pos);
+            app.views.panel_log.saved_size = Some(size);
+            app.save_station_config();
         }
         if dock_back {
             app.views.panel_log.floating = false;
@@ -534,17 +533,16 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                             .small_button("🗑")
                             .on_hover_text(tr(key::LOG_DELETE_TOOLTIP, lang))
                             .clicked()
+                            && let Some(id) = qso_id
                         {
-                            if let Some(id) = qso_id {
-                                qso_id_to_delete = Some((id, qso.clone()));
-                            }
+                            qso_id_to_delete = Some((id, qso.clone()));
                         }
-                        if let Some(ref audio_path) = qso.audio_file {
-                            if ui.small_button("🔊").clicked() {
-                                let _ = crate::media::audio_recorder::AudioRecorder::play_audio(
-                                    std::path::Path::new(audio_path),
-                                );
-                            }
+                        if let Some(ref audio_path) = qso.audio_file
+                            && ui.small_button("🔊").clicked()
+                        {
+                            let _ = crate::media::audio_recorder::AudioRecorder::play_audio(
+                                std::path::Path::new(audio_path),
+                            );
                         }
                     });
                 });
@@ -933,15 +931,15 @@ pub fn render_column_settings(app: &mut SpLogApp, ctx: &egui::Context) {
                         });
                     }
 
-                    if let Some(i) = move_up {
-                        if i > 0 {
-                            app.config.logbook_columns.swap(i, i - 1);
-                        }
+                    if let Some(i) = move_up
+                        && i > 0
+                    {
+                        app.config.logbook_columns.swap(i, i - 1);
                     }
-                    if let Some(i) = move_down {
-                        if i + 1 < app.config.logbook_columns.len() {
-                            app.config.logbook_columns.swap(i, i + 1);
-                        }
+                    if let Some(i) = move_down
+                        && i + 1 < app.config.logbook_columns.len()
+                    {
+                        app.config.logbook_columns.swap(i, i + 1);
                     }
                 });
 
@@ -1009,17 +1007,17 @@ pub fn render_column_settings(app: &mut SpLogApp, ctx: &egui::Context) {
         }
     }
 
-    if let Some(i) = load_preset {
-        if let Some(preset) = app.config.logbook_column_presets.get(i) {
-            app.config.logbook_columns = preset.columns.clone();
-            app.save_station_config();
-        }
+    if let Some(i) = load_preset
+        && let Some(preset) = app.config.logbook_column_presets.get(i)
+    {
+        app.config.logbook_columns = preset.columns.clone();
+        app.save_station_config();
     }
 
-    if let Some(i) = delete_preset {
-        if i < app.config.logbook_column_presets.len() {
-            app.config.logbook_column_presets.remove(i);
-            app.save_station_config();
-        }
+    if let Some(i) = delete_preset
+        && i < app.config.logbook_column_presets.len()
+    {
+        app.config.logbook_column_presets.remove(i);
+        app.save_station_config();
     }
 }

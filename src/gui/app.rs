@@ -459,25 +459,22 @@ impl SpLogApp {
         }
 
         // Wybrana przez użytkownika rodzina czcionek (zmiana wymaga ponownego uruchomienia).
-        if !self.config.font_family.is_empty() {
-            if let Some(path) = resolve_font_path(&self.config.font_family) {
-                if let Ok(bytes) = std::fs::read(&path) {
-                    font_defs.font_data.insert(
-                        "custom_ui_font".to_owned(),
-                        egui::FontData::from_owned(bytes).into(),
-                    );
-                    if let Some(prop) = font_defs.families.get_mut(&egui::FontFamily::Proportional)
-                    {
-                        prop.insert(0, "custom_ui_font".to_owned());
-                    }
-                    let mono_family = self.config.font_family == "Consolas";
-                    if mono_family {
-                        if let Some(mono) = font_defs.families.get_mut(&egui::FontFamily::Monospace)
-                        {
-                            mono.insert(0, "custom_ui_font".to_owned());
-                        }
-                    }
-                }
+        if !self.config.font_family.is_empty()
+            && let Some(path) = resolve_font_path(&self.config.font_family)
+            && let Ok(bytes) = std::fs::read(&path)
+        {
+            font_defs.font_data.insert(
+                "custom_ui_font".to_owned(),
+                egui::FontData::from_owned(bytes).into(),
+            );
+            if let Some(prop) = font_defs.families.get_mut(&egui::FontFamily::Proportional) {
+                prop.insert(0, "custom_ui_font".to_owned());
+            }
+            let mono_family = self.config.font_family == "Consolas";
+            if mono_family
+                && let Some(mono) = font_defs.families.get_mut(&egui::FontFamily::Monospace)
+            {
+                mono.insert(0, "custom_ui_font".to_owned());
             }
         }
 
@@ -540,35 +537,6 @@ impl SpLogApp {
         if self.digital.js8call_enabled {
             self.start_js8call_listener();
         }
-    }
-
-    /// Uruchamia wątek odbiorczy JS8Call TCP API i podłącza kanały aktualizacji.
-    pub fn start_js8call_listener(&mut self) {
-        if self.digital.js8call_state_rx.is_some() {
-            return;
-        }
-        let (state_tx, state_rx) = std::sync::mpsc::channel();
-        let (qso_tx, qso_rx) = std::sync::mpsc::channel();
-        let client = crate::digital::js8call::Js8CallClient::new(
-            self.digital.js8call_host.clone(),
-            self.digital.js8call_port,
-        );
-        client.start_listener(state_tx, qso_tx);
-        self.digital.js8call_state_rx = Some(state_rx);
-        self.digital.js8call_qso_rx = Some(qso_rx);
-        log::info!(
-            "Uruchomiono nasłuchiwanie JS8Call ({}:{})",
-            self.digital.js8call_host,
-            self.digital.js8call_port
-        );
-    }
-
-    /// Zatrzymuje nasłuchiwanie JS8Call i czyści kanały odbiorcze.
-    pub fn stop_js8call_listener(&mut self) {
-        self.digital.js8call_state_rx = None;
-        self.digital.js8call_qso_rx = None;
-        self.digital.js8call_state.connected = false;
-        log::info!("Zatrzymano nasłuchiwanie JS8Call");
     }
 
     /// Główna metoda renderowania i przepływu klatki GUI aplikacji SPLogbook.

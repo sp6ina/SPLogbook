@@ -119,26 +119,26 @@ impl SpLogApp {
 
         if let Some(prevs) = prevs_opt {
             if let Some(last) = prevs.first() {
-                if self.entry.name.is_empty() {
-                    if let Some(ref n) = last.name {
-                        self.entry.name = n.clone();
-                    }
+                if self.entry.name.is_empty()
+                    && let Some(ref n) = last.name
+                {
+                    self.entry.name = n.clone();
                 }
-                if self.entry.qth.is_empty() {
-                    if let Some(ref q) = last.qth {
-                        self.entry.qth = q.clone();
-                    }
+                if self.entry.qth.is_empty()
+                    && let Some(ref q) = last.qth
+                {
+                    self.entry.qth = q.clone();
                 }
-                if self.entry.grid.is_empty() {
-                    if let Some(ref g) = last.gridsquare {
-                        self.entry.grid = g.clone();
-                        self.recalculate_distance_from_grid();
-                    }
+                if self.entry.grid.is_empty()
+                    && let Some(ref g) = last.gridsquare
+                {
+                    self.entry.grid = g.clone();
+                    self.recalculate_distance_from_grid();
                 }
-                if self.entry.pga.is_empty() {
-                    if let Some(ref p) = last.pga_ref {
-                        self.entry.pga = p.clone();
-                    }
+                if self.entry.pga.is_empty()
+                    && let Some(ref p) = last.pga_ref
+                {
+                    self.entry.pga = p.clone();
                 }
             }
             self.entry.past_qsos_for_active_call = prevs;
@@ -155,45 +155,45 @@ impl SpLogApp {
         }
 
         // 5. Baza UniqueCalls
-        if let Some(uniq) = self.services.service_db.find_unique_call(&clean) {
-            if let Some(ref mut pfx) = self.entry.active_prefix_info {
-                pfx.country = uniq.country;
-                pfx.dxcc = uniq.dxcc;
-                pfx.continent = uniq.continent;
-                pfx.cqz = uniq.cq_zone;
-                pfx.ituz = uniq.itu_zone;
-            }
+        if let Some(uniq) = self.services.service_db.find_unique_call(&clean)
+            && let Some(ref mut pfx) = self.entry.active_prefix_info
+        {
+            pfx.country = uniq.country;
+            pfx.dxcc = uniq.dxcc;
+            pfx.continent = uniq.continent;
+            pfx.cqz = uniq.cq_zone;
+            pfx.ituz = uniq.itu_zone;
         }
 
         // 6. Baza Callbook (databases/callbook.db - 52k rekordów)
-        if clean.len() >= 3 {
-            if let Some(cb_data) = self.services.local_callbook.lookup(&clean) {
-                if let Some(n) = cb_data.name {
-                    if self.entry.name.is_empty() {
-                        self.entry.name = n;
-                    }
-                }
-                if let Some(q) = cb_data.qth {
-                    if self.entry.qth.is_empty() {
-                        self.entry.qth = q;
-                    }
-                }
-                if let Some(g) = cb_data.gridsquare {
-                    if self.entry.grid.is_empty() {
-                        self.entry.grid = g;
-                        self.recalculate_distance_from_grid();
-                    }
-                }
-                if let Some(s) = cb_data.state {
-                    if self.entry.state.is_empty() {
-                        self.entry.state = s;
-                    }
-                }
-                if let Some(mgr) = cb_data.qsl_manager {
-                    if self.entry.qsl_manager.is_empty() {
-                        self.entry.qsl_manager = mgr;
-                    }
-                }
+        if clean.len() >= 3
+            && let Some(cb_data) = self.services.local_callbook.lookup(&clean)
+        {
+            if let Some(n) = cb_data.name
+                && self.entry.name.is_empty()
+            {
+                self.entry.name = n;
+            }
+            if let Some(q) = cb_data.qth
+                && self.entry.qth.is_empty()
+            {
+                self.entry.qth = q;
+            }
+            if let Some(g) = cb_data.gridsquare
+                && self.entry.grid.is_empty()
+            {
+                self.entry.grid = g;
+                self.recalculate_distance_from_grid();
+            }
+            if let Some(s) = cb_data.state
+                && self.entry.state.is_empty()
+            {
+                self.entry.state = s;
+            }
+            if let Some(mgr) = cb_data.qsl_manager
+                && self.entry.qsl_manager.is_empty()
+            {
+                self.entry.qsl_manager = mgr;
             }
         }
 
@@ -207,49 +207,49 @@ impl SpLogApp {
 
     /// Wywołuje automatyczny lookup online po upływie debounce'a (wołane co klatkę w update()).
     pub fn process_debounced_lookup(&mut self) {
-        if let Some(deadline) = self.entry.lookup_debounce_until {
-            if std::time::Instant::now() >= deadline {
-                self.entry.lookup_debounce_until = None;
-                let clean = self.entry.callsign.trim().to_uppercase();
-                if self.config.qrz_auto_lookup && clean.len() >= 3 {
-                    self.lookup_active_callsign_online();
-                }
+        if let Some(deadline) = self.entry.lookup_debounce_until
+            && std::time::Instant::now() >= deadline
+        {
+            self.entry.lookup_debounce_until = None;
+            let clean = self.entry.callsign.trim().to_uppercase();
+            if self.config.qrz_auto_lookup && clean.len() >= 3 {
+                self.lookup_active_callsign_online();
             }
         }
     }
 
     pub fn recalculate_distance_from_grid(&mut self) {
         use chrono::{Datelike, Timelike};
-        if self.entry.grid.len() >= 4 {
-            if let (Ok(p1), Ok(p2)) = (
+        if self.entry.grid.len() >= 4
+            && let (Ok(p1), Ok(p2)) = (
                 locator_to_coordinates(&self.config.station.gridsquare),
                 locator_to_coordinates(&self.entry.grid),
-            ) {
-                self.entry.active_distance_km = calculate_distance_km(p1, p2);
-                self.entry.active_bearing_deg = calculate_bearing_deg(p1, p2);
+            )
+        {
+            self.entry.active_distance_km = calculate_distance_km(p1, p2);
+            self.entry.active_bearing_deg = calculate_bearing_deg(p1, p2);
 
-                let now = chrono::Utc::now();
-                let utc_hour = now.hour() as f64 + (now.minute() as f64) / 60.0;
-                let day_of_year = now.ordinal();
-                let sfi = if self.solar.space_weather.sfi > 0 {
-                    self.solar.space_weather.sfi
-                } else {
-                    140
-                };
-                let k_index = self.solar.space_weather.k_index;
-                let freq_mhz = crate::core::propagation::band_to_center_mhz(&self.entry.band)
-                    .unwrap_or(14.175);
-                self.entry.active_propagation =
-                    Some(crate::core::propagation::PropagationEngine::calculate(
-                        p1,
-                        p2,
-                        freq_mhz,
-                        sfi,
-                        k_index as u8,
-                        utc_hour,
-                        day_of_year,
-                    ));
-            }
+            let now = chrono::Utc::now();
+            let utc_hour = now.hour() as f64 + (now.minute() as f64) / 60.0;
+            let day_of_year = now.ordinal();
+            let sfi = if self.solar.space_weather.sfi > 0 {
+                self.solar.space_weather.sfi
+            } else {
+                140
+            };
+            let k_index = self.solar.space_weather.k_index;
+            let freq_mhz =
+                crate::core::propagation::band_to_center_mhz(&self.entry.band).unwrap_or(14.175);
+            self.entry.active_propagation =
+                Some(crate::core::propagation::PropagationEngine::calculate(
+                    p1,
+                    p2,
+                    freq_mhz,
+                    sfi,
+                    k_index as u8,
+                    utc_hour,
+                    day_of_year,
+                ));
         }
     }
 

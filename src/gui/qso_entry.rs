@@ -46,14 +46,13 @@ pub fn render_qso_entry_window(app: &mut SpLogApp, ctx: &egui::Context) {
             },
         );
 
-        if let Some((pos, size)) = captured_geo {
-            if app.views.panel_qso.saved_pos != Some(pos)
-                || app.views.panel_qso.saved_size != Some(size)
-            {
-                app.views.panel_qso.saved_pos = Some(pos);
-                app.views.panel_qso.saved_size = Some(size);
-                app.save_station_config();
-            }
+        if let Some((pos, size)) = captured_geo
+            && (app.views.panel_qso.saved_pos != Some(pos)
+                || app.views.panel_qso.saved_size != Some(size))
+        {
+            app.views.panel_qso.saved_pos = Some(pos);
+            app.views.panel_qso.saved_size = Some(size);
+            app.save_station_config();
         }
         if dock_back {
             app.views.panel_qso.floating = false;
@@ -485,10 +484,11 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .id(egui::Id::new("qso_entry_qth"))
                 .desired_width(120.0),
         );
-        if qth_resp.changed() && app.entry.pga.is_empty() {
-            if let Some(gmina) = crate::core::pga::suggest_pga_for_qth(&app.entry.qth) {
-                app.entry.pga = gmina.code.to_string();
-            }
+        if qth_resp.changed()
+            && app.entry.pga.is_empty()
+            && let Some(gmina) = crate::core::pga::suggest_pga_for_qth(&app.entry.qth)
+        {
+            app.entry.pga = gmina.code.to_string();
         }
 
         ui.add_space(8.0);
@@ -507,17 +507,17 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     });
 
     // Podgląd nazwy gminy PGA jeśli kod jest wpisany
-    if !app.entry.pga.is_empty() {
-        if let Some(gmina) = crate::core::pga::find_by_code(&app.entry.pga) {
-            ui.label(
-                egui::RichText::new(format!(
-                    "🇵🇱 Gmina: {} (powiat {})",
-                    gmina.name, gmina.powiat
-                ))
-                .small()
-                .color(palette.success),
-            );
-        }
+    if !app.entry.pga.is_empty()
+        && let Some(gmina) = crate::core::pga::find_by_code(&app.entry.pga)
+    {
+        ui.label(
+            egui::RichText::new(format!(
+                "🇵🇱 Gmina: {} (powiat {})",
+                gmina.name, gmina.powiat
+            ))
+            .small()
+            .color(palette.success),
+        );
     }
 
     // Referencje dyplomowe i lokalizacyjne

@@ -26,22 +26,20 @@ impl SpLogApp {
 
     /// WSPR: sprawdź czy pobieranie zakończyło się
     pub fn poll_wspr_results(&mut self) {
-        if self.wspr.loading {
-            if let Some(ref slot) = self.wspr.fetch_slot.clone() {
-                if let Ok(mut guard) = slot.try_lock() {
-                    if let Some(result) = guard.take() {
-                        self.wspr.loading = false;
-                        self.wspr.fetch_slot = None;
-                        match result {
-                            Ok(spots) => {
-                                self.wspr.spots = spots;
-                                self.wspr.last_error = None;
-                            }
-                            Err(e) => {
-                                self.wspr.last_error = Some(e.to_string());
-                            }
-                        }
-                    }
+        if self.wspr.loading
+            && let Some(ref slot) = self.wspr.fetch_slot.clone()
+            && let Ok(mut guard) = slot.try_lock()
+            && let Some(result) = guard.take()
+        {
+            self.wspr.loading = false;
+            self.wspr.fetch_slot = None;
+            match result {
+                Ok(spots) => {
+                    self.wspr.spots = spots;
+                    self.wspr.last_error = None;
+                }
+                Err(e) => {
+                    self.wspr.last_error = Some(e.to_string());
                 }
             }
         }
@@ -49,20 +47,20 @@ impl SpLogApp {
 
     /// Synchronizuj cluster_spots z wątkiem REST API (gdy zmieni się rozmiar lub najnowszy spot)
     pub fn sync_cluster_spots_api(&mut self) {
-        if let Some(ref api_slot) = self.runtime.cluster_spots_api.clone() {
-            if let Ok(mut guard) = api_slot.try_lock() {
-                let changed = guard.len() != self.cluster.spots.len()
-                    || guard
+        if let Some(ref api_slot) = self.runtime.cluster_spots_api.clone()
+            && let Ok(mut guard) = api_slot.try_lock()
+        {
+            let changed = guard.len() != self.cluster.spots.len()
+                || guard
+                    .first()
+                    .map(|s| (&s.dx_call, &s.time_utc, s.received_at))
+                    != self
+                        .cluster
+                        .spots
                         .first()
-                        .map(|s| (&s.dx_call, &s.time_utc, s.received_at))
-                        != self
-                            .cluster
-                            .spots
-                            .first()
-                            .map(|s| (&s.dx_call, &s.time_utc, s.received_at));
-                if changed {
-                    (*guard).clone_from(&self.cluster.spots);
-                }
+                        .map(|s| (&s.dx_call, &s.time_utc, s.received_at));
+            if changed {
+                (*guard).clone_from(&self.cluster.spots);
             }
         }
     }
@@ -94,69 +92,69 @@ impl SpLogApp {
                         frequency_hz,
                         mode,
                         connected: _,
-                    } => {
-                        if frequency_hz > 0 {
-                            if let Some(band_def) =
-                                crate::core::bandplan::get_band_by_freq(frequency_hz)
-                            {
-                                self.entry.band = band_def.name.to_string();
-                            }
-                            if !mode.is_empty() {
-                                self.entry.mode = mode;
-                            }
+                    } if frequency_hz > 0 => {
+                        if let Some(band_def) =
+                            crate::core::bandplan::get_band_by_freq(frequency_hz)
+                        {
+                            self.entry.band = band_def.name.to_string();
+                        }
+                        if !mode.is_empty() {
+                            self.entry.mode = mode;
                         }
                     }
                     _ => {}
                 },
-                Err(tokio::sync::broadcast::error::TryRecvError::Empty) => break,
-                Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_)) => continue,
-                Err(tokio::sync::broadcast::error::TryRecvError::Closed) => break,
+                Err(
+                    tokio::sync::broadcast::error::TryRecvError::Empty
+                    | tokio::sync::broadcast::error::TryRecvError::Closed,
+                ) => break,
+                Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_)) => {}
             }
         }
     }
 
     /// Wynik sprawdzania i instalowania aktualizacji
     pub fn poll_update_outcomes(&mut self, ctx: &egui::Context) {
-        if let Some(rx) = &self.updates.update_check_rx {
-            if let Ok(outcome) = rx.try_recv() {
-                match outcome {
-                    crate::cloud::updater::UpdateCheckOutcome::UpToDate { local } => {
-                        self.updates.update_check_status = Some(
-                            Msg::new(key::UPDATER_LATEST_VERSION)
-                                .arg("local", local)
-                                .text(self.gui.appearance.language),
-                        );
-                    }
-                    crate::cloud::updater::UpdateCheckOutcome::NewVersion(release) => {
-                        self.updates.update_check_status = Some(
-                            Msg::new(key::UPDATER_NEW_VERSION_AVAILABLE)
-                                .arg("new", &release.tag)
-                                .arg("local", env!("CARGO_PKG_VERSION"))
-                                .text(self.gui.appearance.language),
-                        );
-                        self.updates.update_available = Some(release);
-                    }
-                    crate::cloud::updater::UpdateCheckOutcome::Error(e) => {
-                        self.updates.update_check_status = Some(
-                            Msg::new(key::UPDATER_CHECK_ERROR)
-                                .arg("err", &e.to_string())
-                                .text(self.gui.appearance.language),
-                        );
-                    }
+        if let Some(rx) = &self.updates.update_check_rx
+            && let Ok(outcome) = rx.try_recv()
+        {
+            match outcome {
+                crate::cloud::updater::UpdateCheckOutcome::UpToDate { local } => {
+                    self.updates.update_check_status = Some(
+                        Msg::new(key::UPDATER_LATEST_VERSION)
+                            .arg("local", local)
+                            .text(self.gui.appearance.language),
+                    );
                 }
-                self.updates.update_check_rx = None;
+                crate::cloud::updater::UpdateCheckOutcome::NewVersion(release) => {
+                    self.updates.update_check_status = Some(
+                        Msg::new(key::UPDATER_NEW_VERSION_AVAILABLE)
+                            .arg("new", &release.tag)
+                            .arg("local", env!("CARGO_PKG_VERSION"))
+                            .text(self.gui.appearance.language),
+                    );
+                    self.updates.update_available = Some(release);
+                }
+                crate::cloud::updater::UpdateCheckOutcome::Error(e) => {
+                    self.updates.update_check_status = Some(
+                        Msg::new(key::UPDATER_CHECK_ERROR)
+                            .arg("err", e.clone())
+                            .text(self.gui.appearance.language),
+                    );
+                }
             }
+            self.updates.update_check_rx = None;
         }
 
-        if let Some(rx) = &self.updates.update_install_rx {
-            if let Ok(msg) = rx.try_recv() {
-                let installed_ok = msg.starts_with("✅");
-                self.updates.update_install_status = Some(msg);
-                self.updates.update_install_rx = None;
-                if installed_ok {
-                    // Skrypt podmiany czeka na zakończenie tego procesu — zamknij aplikację.
-                    self.updates.pending_restart = true;
-                }
+        if let Some(rx) = &self.updates.update_install_rx
+            && let Ok(msg) = rx.try_recv()
+        {
+            let installed_ok = msg.starts_with("✅");
+            self.updates.update_install_status = Some(msg);
+            self.updates.update_install_rx = None;
+            if installed_ok {
+                // Skrypt podmiany czeka na zakończenie tego procesu — zamknij aplikację.
+                self.updates.pending_restart = true;
             }
         }
 
@@ -174,80 +172,79 @@ impl SpLogApp {
 
     /// Odbiór asynchronicznego wyniku uruchomienia CatRuntime, testu probe oraz telemetrii
     pub fn poll_cat_outcomes(&mut self) {
-        if let Some(ref rx) = self.cat.start_rx {
-            if let Ok(res) = rx.try_recv() {
-                match res {
-                    Ok(rt) => {
-                        if let Ok(guard) = self.runtime.egui_ctx.lock() {
-                            if let Some(ref ctx) = *guard {
-                                let ctx_clone = ctx.clone();
-                                rt.set_wake_signal(move || {
-                                    ctx_clone.request_repaint();
-                                });
-                            }
-                        }
-                        self.cat.runtime = rt;
-                        self.cat.connected = true;
-                        self.cat.test_result = Some(
-                            tr(key::CAT_STARTED_SUCCESS, self.gui.appearance.language).to_string(),
-                        );
+        if let Some(ref rx) = self.cat.start_rx
+            && let Ok(res) = rx.try_recv()
+        {
+            match res {
+                Ok(rt) => {
+                    if let Ok(guard) = self.runtime.egui_ctx.lock()
+                        && let Some(ref ctx) = *guard
+                    {
+                        let ctx_clone = ctx.clone();
+                        rt.set_wake_signal(move || {
+                            ctx_clone.request_repaint();
+                        });
                     }
-                    Err(e) => {
-                        self.cat.connected = false;
-                        self.cat.test_result = Some(
-                            Msg::new(key::CAT_START_ERROR)
-                                .arg("err", &e.to_string())
-                                .text(self.gui.appearance.language),
-                        );
-                    }
+                    self.cat.runtime = rt;
+                    self.cat.connected = true;
+                    self.cat.test_result = Some(
+                        tr(key::CAT_STARTED_SUCCESS, self.gui.appearance.language).to_string(),
+                    );
+                }
+                Err(e) => {
+                    self.cat.connected = false;
+                    self.cat.test_result = Some(
+                        Msg::new(key::CAT_START_ERROR)
+                            .arg("err", e.to_string())
+                            .text(self.gui.appearance.language),
+                    );
                 }
             }
         }
 
-        if let Some(ref rx) = self.cat.probe_rx {
-            if let Ok((probe_gen, res)) = rx.try_recv() {
-                if probe_gen == self.cat.probe_generation {
-                    self.cat.probe_running = false;
-                    match &res {
-                        Ok(r) => {
-                            self.cat.probe_state = crate::cat::probe::ProbeState::Succeeded {
-                                generation: probe_gen,
-                                result: r.clone(),
-                            };
-                        }
-                        Err(e) => {
-                            self.cat.probe_state = crate::cat::probe::ProbeState::Failed {
-                                generation: probe_gen,
-                                error: e.to_string(),
-                            };
-                        }
-                    }
-                    self.cat.probe_result = Some(res);
-                    self.cat.probe_task = None;
+        if let Some(ref rx) = self.cat.probe_rx
+            && let Ok((probe_gen, res)) = rx.try_recv()
+            && probe_gen == self.cat.probe_generation
+        {
+            self.cat.probe_running = false;
+            match &res {
+                Ok(r) => {
+                    self.cat.probe_state = crate::cat::probe::ProbeState::Succeeded {
+                        generation: probe_gen,
+                        result: Box::new(r.clone()),
+                    };
+                }
+                Err(e) => {
+                    self.cat.probe_state = crate::cat::probe::ProbeState::Failed {
+                        generation: probe_gen,
+                        error: e.to_string(),
+                    };
                 }
             }
+            self.cat.probe_result = Some(res);
+            self.cat.probe_task = None;
         }
 
         let cat_snap = self.cat.runtime.snapshot();
 
-        if let Some(ref rx_target) = cat_snap.active_rx {
-            if let Some(svc) = cat_snap.rigs.get(&rx_target.rig_id) {
-                let is_conn = matches!(
-                    svc.lifecycle,
-                    crate::cat::service::RigServiceState::Ready
-                        | crate::cat::service::RigServiceState::Degraded
-                );
-                let mut st = svc.state.clone().unwrap_or_default();
-                st.connected = is_conn;
+        if let Some(ref rx_target) = cat_snap.active_rx
+            && let Some(svc) = cat_snap.rigs.get(&rx_target.rig_id)
+        {
+            let is_conn = matches!(
+                svc.lifecycle,
+                crate::cat::service::RigServiceState::Ready
+                    | crate::cat::service::RigServiceState::Degraded
+            );
+            let mut st = svc.state.clone().unwrap_or_default();
+            st.connected = is_conn;
 
-                let is_tx = match cat_snap.tx_state {
-                    crate::cat::tx_arbiter::TxArbiterState::Owned { ref rig_id, .. } => {
-                        rig_id == &rx_target.rig_id
-                    }
-                    _ => false,
-                };
-                self.update_cat_state_from_telemetry(st, is_tx);
-            }
+            let is_tx = match cat_snap.tx_state {
+                crate::cat::tx_arbiter::TxArbiterState::Owned { ref rig_id, .. } => {
+                    rig_id == &rx_target.rig_id
+                }
+                _ => false,
+            };
+            self.update_cat_state_from_telemetry(st, is_tx);
         }
 
         // Eliminacja niejawnego fallbacku na pierwsze radio z mapy (CAT-007 / R8 / HIL-COND-18).
@@ -261,10 +258,10 @@ impl SpLogApp {
 
     /// Synchronizuj stan radia do współdzielonego stanu serwera proxy oraz REST API
     pub fn sync_cat_shared_state_and_api(&mut self) {
-        if self.config.cat_sharing_enabled || self.runtime.rest_api_enabled {
-            if let Ok(mut shared) = self.cat.shared_state.write() {
-                *shared = self.cat.rig_state.clone();
-            }
+        if (self.config.cat_sharing_enabled || self.runtime.rest_api_enabled)
+            && let Ok(mut shared) = self.cat.shared_state.write()
+        {
+            *shared = self.cat.rig_state.clone();
         }
 
         if self
@@ -469,31 +466,31 @@ impl SpLogApp {
     pub fn poll_qrz_lookup(&mut self) {
         while let Ok(data) = self.runtime.qrz_lookup_rx.try_recv() {
             if data.callsign == self.entry.callsign.trim().to_uppercase() {
-                if let Some(n) = data.name {
-                    if self.entry.name.is_empty() || self.entry.name != n {
-                        self.entry.name = n;
-                    }
+                if let Some(n) = data.name
+                    && (self.entry.name.is_empty() || self.entry.name != n)
+                {
+                    self.entry.name = n;
                 }
-                if let Some(q) = data.qth {
-                    if self.entry.qth.is_empty() || self.entry.qth != q {
-                        self.entry.qth = q;
-                    }
+                if let Some(q) = data.qth
+                    && (self.entry.qth.is_empty() || self.entry.qth != q)
+                {
+                    self.entry.qth = q;
                 }
-                if let Some(g) = data.gridsquare {
-                    if self.entry.grid.is_empty() || self.entry.grid != g {
-                        self.entry.grid = g;
-                        self.recalculate_distance_from_grid();
-                    }
+                if let Some(g) = data.gridsquare
+                    && (self.entry.grid.is_empty() || self.entry.grid != g)
+                {
+                    self.entry.grid = g;
+                    self.recalculate_distance_from_grid();
                 }
-                if let Some(st) = data.state {
-                    if self.entry.state.is_empty() || self.entry.state != st {
-                        self.entry.state = st;
-                    }
+                if let Some(st) = data.state
+                    && (self.entry.state.is_empty() || self.entry.state != st)
+                {
+                    self.entry.state = st;
                 }
-                if let Some(mgr) = data.qsl_manager {
-                    if self.entry.qsl_manager.is_empty() || self.entry.qsl_manager != mgr {
-                        self.entry.qsl_manager = mgr;
-                    }
+                if let Some(mgr) = data.qsl_manager
+                    && (self.entry.qsl_manager.is_empty() || self.entry.qsl_manager != mgr)
+                {
+                    self.entry.qsl_manager = mgr;
                 }
                 if let Some(img) = data.image_url {
                     self.gui.dialogs.photo_viewer_dialog.photo_url = Some(img);

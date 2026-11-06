@@ -737,7 +737,7 @@ async fn debounce_fires_after_600ms() {
 
     // Simulate deadline passed
     app.entry.lookup_debounce_until =
-        Some(std::time::Instant::now() - std::time::Duration::from_millis(10));
+        std::time::Instant::now().checked_sub(std::time::Duration::from_millis(10));
 
     app.process_debounced_lookup();
 
@@ -751,7 +751,7 @@ fn walkdir(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
             let path = entry.path();
             if path.is_dir() {
                 results.extend(walkdir(&path));
-            } else if path.extension().map_or(false, |e| e == "rs") {
+            } else if path.extension().is_some_and(|e| e == "rs") {
                 results.push(path);
             }
         }
@@ -785,8 +785,7 @@ fn test_architecture_limits_and_forbidden_patterns() {
     let build_len = build_end - build_start;
     assert!(
         build_len <= 200,
-        "build() exceeds 200 lines: {} lines",
-        build_len
+        "build() exceeds 200 lines: {build_len} lines"
     );
 
     // 3. ui() function lines <= 120
@@ -803,7 +802,7 @@ fn test_architecture_limits_and_forbidden_patterns() {
         .expect("on_exit not found")
         + ui_start;
     let ui_len = ui_end - ui_start;
-    assert!(ui_len <= 120, "ui() exceeds 120 lines: {} lines", ui_len);
+    assert!(ui_len <= 120, "ui() exceeds 120 lines: {ui_len} lines");
 
     // 4. save_station_config() <= 30 lines
     let app_config_rs =
@@ -821,8 +820,7 @@ fn test_architecture_limits_and_forbidden_patterns() {
     let save_len = save_end - save_start;
     assert!(
         save_len <= 30,
-        "save_station_config() exceeds 30 lines: {} lines",
-        save_len
+        "save_station_config() exceeds 30 lines: {save_len} lines"
     );
 
     // 5. SpLogApp field count <= 35
@@ -844,15 +842,14 @@ fn test_architecture_limits_and_forbidden_patterns() {
         .count();
     assert!(
         splogapp_fields <= 35,
-        "SpLogApp exceeds 35 fields: {}",
-        splogapp_fields
+        "SpLogApp exceeds 35 fields: {splogapp_fields}"
     );
 
     // 6. Each state struct in src/gui/state/*.rs <= 30 fields
     let state_dir = manifest_dir.join("src/gui/state");
     for entry in std::fs::read_dir(&state_dir).unwrap() {
         let path = entry.unwrap().path();
-        if path.extension().map_or(false, |ext| ext == "rs") {
+        if path.extension().is_some_and(|ext| ext == "rs") {
             let content = std::fs::read_to_string(&path).unwrap();
             let lines: Vec<&str> = content.lines().collect();
             for (idx, line) in lines.iter().enumerate() {
@@ -878,10 +875,8 @@ fn test_architecture_limits_and_forbidden_patterns() {
                         .count();
                     assert!(
                         fields <= 30,
-                        "Struct {} in {:?} exceeds 30 fields: {}",
-                        struct_name,
+                        "Struct {struct_name} in {:?} exceeds 30 fields: {fields}",
                         path.file_name().unwrap(),
-                        fields
                     );
                 }
             }
@@ -894,22 +889,19 @@ fn test_architecture_limits_and_forbidden_patterns() {
     // No "tokio::spawn" or "std::thread::spawn" in src/gui/state
     for entry in std::fs::read_dir(&state_dir).unwrap() {
         let path = entry.unwrap().path();
-        if path.extension().map_or(false, |ext| ext == "rs") {
+        if path.extension().is_some_and(|ext| ext == "rs") {
             let content = std::fs::read_to_string(&path).unwrap();
             assert!(
                 !content.contains("use crate::gui::app"),
-                "Found 'use crate::gui::app' in {:?}",
-                path
+                "Found 'use crate::gui::app' in {path:?}"
             );
             assert!(
                 !content.contains("SpLogApp"),
-                "Found 'SpLogApp' in {:?}",
-                path
+                "Found 'SpLogApp' in {path:?}"
             );
             assert!(
                 !content.contains("tokio::spawn") && !content.contains("std::thread::spawn"),
-                "Found background thread spawn in {:?}",
-                path
+                "Found background thread spawn in {path:?}"
             );
         }
     }
@@ -917,7 +909,7 @@ fn test_architecture_limits_and_forbidden_patterns() {
     // No unauthorized "AppConfig {" struct instantiations in src/gui (only return type annotations like "-> AppConfig {")
     let gui_dir = manifest_dir.join("src/gui");
     for entry in walkdir(&gui_dir) {
-        if entry.file_name().map_or(false, |f| f == "app_tests.rs") {
+        if entry.file_name().is_some_and(|f| f == "app_tests.rs") {
             continue;
         }
         let content = std::fs::read_to_string(&entry).unwrap();
@@ -926,8 +918,7 @@ fn test_architecture_limits_and_forbidden_patterns() {
             if trimmed.contains("AppConfig {") {
                 assert!(
                     trimmed.contains("fn ") || trimmed.contains("-> AppConfig"),
-                    "Found unauthorized 'AppConfig {{' literal in {:?}:{}",
-                    entry,
+                    "Found unauthorized 'AppConfig {{' literal in {entry:?}:{}",
                     idx + 1
                 );
             }
@@ -937,7 +928,7 @@ fn test_architecture_limits_and_forbidden_patterns() {
     // No "contest_qsos", "contest_points", "contest_mults" in src
     let src_dir = manifest_dir.join("src");
     for entry in walkdir(&src_dir) {
-        if entry.file_name().map_or(false, |f| f == "app_tests.rs") {
+        if entry.file_name().is_some_and(|f| f == "app_tests.rs") {
             continue;
         }
         let content = std::fs::read_to_string(&entry).unwrap();
@@ -945,8 +936,7 @@ fn test_architecture_limits_and_forbidden_patterns() {
             !content.contains("contest_qsos")
                 && !content.contains("contest_points")
                 && !content.contains("contest_mults"),
-            "Found obsolete contest counters in {:?}",
-            entry
+            "Found obsolete contest counters in {entry:?}"
         );
     }
 }
@@ -1244,8 +1234,9 @@ fn ctrl_w_is_consumed_exactly_once() {
 fn ctrl_w_does_not_execute_two_actions() {
     let registry = ShortcutRegistry::default();
     let conflicts = registry.find_conflicts();
-    assert!(
-        conflicts.is_empty(),
+    assert_eq!(
+        conflicts.len(),
+        0,
         "Shortcut registry must contain zero conflicting bindings"
     );
 
@@ -1292,7 +1283,7 @@ fn qso_enter_validates_before_save() {
         shutdown_policy: ShutdownPolicy::None,
     };
     let mut app = SpLogApp::for_tests(init, deps);
-    app.entry.callsign = "".to_string();
+    app.entry.callsign = String::new();
     app.entry.name = "Test Operator".to_string();
 
     let initial_count = app
@@ -1331,7 +1322,7 @@ fn failed_qso_save_preserves_form() {
         shutdown_policy: ShutdownPolicy::None,
     };
     let mut app = SpLogApp::for_tests(init, deps);
-    app.entry.callsign = "".to_string();
+    app.entry.callsign = String::new();
     app.entry.rst_sent = "579".to_string();
     app.entry.rst_rcvd = "559".to_string();
     app.entry.name = "Preserved Operator".to_string();
@@ -1591,8 +1582,7 @@ fn idle_repaint_test_does_not_depend_on_wall_clock_boundary() {
         let repaint_delay = out
             .viewport_output
             .get(&egui::ViewportId::ROOT)
-            .map(|v| v.repaint_delay)
-            .unwrap_or(std::time::Duration::ZERO);
+            .map_or(std::time::Duration::ZERO, |v| v.repaint_delay);
 
         let requested = duration_until_next_second(subsec);
         let expected = compute_observed_repaint_delay(requested, 1.0 / 60.0);
@@ -1654,8 +1644,7 @@ fn idle_gui_does_not_request_continuous_repaint() {
         let repaint_delay = out
             .viewport_output
             .get(&egui::ViewportId::ROOT)
-            .map(|v| v.repaint_delay)
-            .unwrap_or(std::time::Duration::ZERO);
+            .map_or(std::time::Duration::ZERO, |v| v.repaint_delay);
 
         let requested = duration_until_next_second(mock_subsec);
         let expected_observed = compute_observed_repaint_delay(requested, 1.0 / 60.0);
@@ -1666,8 +1655,7 @@ fn idle_gui_does_not_request_continuous_repaint() {
         );
         assert!(
             repaint_delay >= std::time::Duration::from_millis(30),
-            "Iter {iter}: Idle GUI observed repaint delay must be >= 30ms, got {:?}",
-            repaint_delay
+            "Iter {iter}: Idle GUI observed repaint delay must be >= 30ms, got {repaint_delay:?}"
         );
         assert_ne!(
             repaint_delay,
@@ -1780,8 +1768,7 @@ fn unchanged_cat_state_does_not_cause_repaint_storm() {
 
     assert!(
         repaint_delay >= std::time::Duration::from_millis(50),
-        "Unchanged state must not request continuous repaint storm, got {:?}",
-        repaint_delay
+        "Unchanged state must not request continuous repaint storm, got {repaint_delay:?}"
     );
 }
 

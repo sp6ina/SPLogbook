@@ -70,10 +70,10 @@ impl AppRuntime {
 
     /// Zgłasza żądanie odświeżenia ramki GUI (repaint) jeśli kontekst egui jest dostępny.
     pub fn request_repaint(&self) {
-        if let Ok(guard) = self.egui_ctx.lock() {
-            if let Some(ctx) = guard.as_ref() {
-                ctx.request_repaint();
-            }
+        if let Ok(guard) = self.egui_ctx.lock()
+            && let Some(ctx) = guard.as_ref()
+        {
+            ctx.request_repaint();
         }
     }
 }

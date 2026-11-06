@@ -62,7 +62,6 @@ pub mod world_map;
 pub mod wspr_panel;
 
 /// Pomocnik rysujący mały przycisk "↗" (Odepnij do osobnego okna OS) bezpośrednio na pasku tytułowym okna egui.
-
 /// Wersja warunkowa — rejestruje przycisk jako `sublayer` okna w pamięci egui.
 /// Dzięki temu przycisk ZAWSZE pozostaje na wierzchu paska tytułowego swojego okna rodzica,
 /// ale gdy inne okno przykryje to okno, przycisk prawidłowo chowa się pod oknem wierzchnim.

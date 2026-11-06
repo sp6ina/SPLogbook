@@ -34,8 +34,8 @@ mod tests {
     #[test]
     fn default_matches_initial_values() {
         let paths = AppPaths::default();
-        assert!(paths.config_file_path.as_os_str().is_empty());
-        assert!(paths.active_db_path.as_os_str().is_empty());
-        assert!(paths.secret_store_id.is_empty());
+        assert_eq!(paths.config_file_path.as_os_str().len(), 0);
+        assert_eq!(paths.active_db_path.as_os_str().len(), 0);
+        assert_eq!(paths.secret_store_id, "");
     }
 }

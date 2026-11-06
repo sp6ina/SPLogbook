@@ -60,9 +60,9 @@ impl SpLogApp {
         let init_cache_id = egui::Id::new(("floating_vp_init_geo", viewport_id));
         let (init_pos, init_size) = ctx.data_mut(|d| {
             *d.get_temp_mut_or_insert_with(init_cache_id, || {
-                let sanitized_size = saved_size
-                    .map(|[w, h]| [w.clamp(min_size[0], 1600.0), h.clamp(min_size[1], 1000.0)])
-                    .unwrap_or(default_size);
+                let sanitized_size = saved_size.map_or(default_size, |[w, h]| {
+                    [w.clamp(min_size[0], 1600.0), h.clamp(min_size[1], 1000.0)]
+                });
                 let sanitized_pos =
                     saved_pos.map(|[x, y]| [x.clamp(-1920.0, 3840.0), y.clamp(0.0, 2000.0)]);
                 (sanitized_pos, sanitized_size)
@@ -93,12 +93,12 @@ impl SpLogApp {
                 });
                 match (pos, size) {
                     (Some(p), Some(s)) => {
-                        let pos_changed = saved_pos
-                            .map(|sp| (sp[0] - p[0]).abs() > 2.0 || (sp[1] - p[1]).abs() > 2.0)
-                            .unwrap_or(true);
-                        let size_changed = saved_size
-                            .map(|ss| (ss[0] - s[0]).abs() > 2.0 || (ss[1] - s[1]).abs() > 2.0)
-                            .unwrap_or(true);
+                        let pos_changed = saved_pos.is_none_or(|sp| {
+                            (sp[0] - p[0]).abs() > 2.0 || (sp[1] - p[1]).abs() > 2.0
+                        });
+                        let size_changed = saved_size.is_none_or(|ss| {
+                            (ss[0] - s[0]).abs() > 2.0 || (ss[1] - s[1]).abs() > 2.0
+                        });
                         if (pos_changed || size_changed) && !i.pointer.any_down() {
                             Some((p, s))
                         } else {
@@ -679,15 +679,14 @@ impl SpLogApp {
         );
 
         // 3b. Konfigurowalny eksport CSV
-        if self.gui.dialogs.csv_export_dialog.is_open {
-            if let Some(req) = self
+        if self.gui.dialogs.csv_export_dialog.is_open
+            && let Some(req) = self
                 .gui
                 .dialogs
                 .csv_export_dialog
                 .render(ctx, self.gui.appearance.language)
-            {
-                self.perform_csv_export(&req);
-            }
+        {
+            self.perform_csv_export(&req);
         }
 
         // 4. Przeglądarka wysp IOTA

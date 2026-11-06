@@ -125,13 +125,12 @@ impl SpLogApp {
             self.config.cat_station = temp_cfg.cat_station;
         }
 
-        let station_cfg = match self.config.cat_station.clone() {
-            Some(cfg) => cfg,
-            None => {
-                let default_cfg = crate::cat::config::CatStationConfig::default();
-                self.config.cat_station = Some(default_cfg.clone());
-                default_cfg
-            }
+        let station_cfg = if let Some(cfg) = self.config.cat_station.clone() {
+            cfg
+        } else {
+            let default_cfg = crate::cat::config::CatStationConfig::default();
+            self.config.cat_station = Some(default_cfg.clone());
+            default_cfg
         };
 
         // 2. Jeśli radio to Hamlib serial i ma włączony auto-start rigctld (legacy lub w profilu stacji):
@@ -149,19 +148,19 @@ impl SpLogApp {
                 .rigs
                 .iter()
                 .find_map(|r| {
-                    if let crate::cat::config::RigBackendConfig::Hamlib(ref h) = r.backend {
-                        if h.auto_start_rigctld {
-                            let model_num =
-                                h.rig_model.parse::<u32>().unwrap_or(self.config.cat_rig_id);
-                            return Some((
-                                h.port,
-                                model_num,
-                                h.serial_port.clone(),
-                                h.baud_rate,
-                                h.hamlib_source.clone(),
-                                h.custom_rigctld_path.clone(),
-                            ));
-                        }
+                    if let crate::cat::config::RigBackendConfig::Hamlib(ref h) = r.backend
+                        && h.auto_start_rigctld
+                    {
+                        let model_num =
+                            h.rig_model.parse::<u32>().unwrap_or(self.config.cat_rig_id);
+                        return Some((
+                            h.port,
+                            model_num,
+                            h.serial_port.clone(),
+                            h.baud_rate,
+                            h.hamlib_source.clone(),
+                            h.custom_rigctld_path.clone(),
+                        ));
                     }
                     None
                 })
@@ -195,7 +194,7 @@ impl SpLogApp {
                 Err(e) => {
                     self.cat.test_result = Some(
                         Msg::new(key::CAT_RIGCTLD_ERROR)
-                            .arg("err", &e.to_string())
+                            .arg("err", e.to_string())
                             .text(self.gui.appearance.language),
                     );
                 }
@@ -331,7 +330,6 @@ impl SpLogApp {
             || pwr_significant;
 
         self.cat.connected = st.connected;
-        self.cat.rig_state = st.clone();
         self.cat.ptt_active = is_tx;
 
         if changed {
@@ -348,7 +346,7 @@ impl SpLogApp {
                     self.entry.band = band_def.name.to_string();
                 }
                 if !st.mode.is_empty() {
-                    self.entry.mode = st.mode.clone();
+                    self.entry.mode.clone_from(&st.mode);
                 }
             }
             self.services.plugin_engine.run_on_rig_state(
@@ -357,6 +355,7 @@ impl SpLogApp {
                 st.connected,
             );
         }
+        self.cat.rig_state = st;
     }
 
     pub fn toggle_cat_proxy_server(&mut self) {

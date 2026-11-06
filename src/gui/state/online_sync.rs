@@ -40,7 +40,7 @@ mod tests {
     fn default_matches_initial_values() {
         let state = OnlineSyncUiState::default();
         assert!(!state.show_online_sync_window);
-        assert!(state.online_sync_logs.is_empty());
+        assert_eq!(state.online_sync_logs.len(), 0);
         assert!(state.sync_log_rx.try_recv().is_err());
     }
 }
