@@ -412,6 +412,47 @@ impl CatRuntime {
         });
     }
 
+    /// Bezpiecznie i asynchronicznie żąda załączenia nadawania (PTT on) z potwierdzeniem z [crate::cat::tx_arbiter::TxArbiter].
+    pub async fn request_tx_confirmed(
+        &self,
+        target_rig: RigId,
+        timeout: Duration,
+    ) -> Result<(), CatRuntimeError> {
+        let mut hub = self.hub.lock().await;
+        hub.request_tx(&target_rig, timeout)
+            .await
+            .map_err(CatRuntimeError::Hub)
+    }
+
+    /// Bezpiecznie i asynchronicznie żąda wyłączenia nadawania (PTT off) z potwierdzeniem z arbitra nadawania.
+    pub async fn release_tx_confirmed(
+        &self,
+        target_rig: RigId,
+        timeout: Duration,
+    ) -> Result<(), CatRuntimeError> {
+        let mut hub = self.hub.lock().await;
+        hub.release_tx(&target_rig, timeout)
+            .await
+            .map_err(CatRuntimeError::Hub)
+    }
+
+    /// Asynchronicznie wykonuje polecenie na wskazanym radiu z oczekiwaniem na potwierdzenie.
+    pub async fn execute_cmd_for_rig(
+        &self,
+        rig_id: RigId,
+        cmd: RigCommand,
+        timeout: Duration,
+    ) -> Result<(), CatRuntimeError> {
+        let mut hub = self.hub.lock().await;
+        let command_id = hub.next_command_id();
+        let deadline = tokio::time::Instant::now() + timeout;
+        let target = crate::cat::routing::RigTarget::rig_only(rig_id);
+        let routed = crate::cat::routing::RoutedRigCommand::new(command_id, target, cmd, deadline);
+        hub.route_command(routed)
+            .await
+            .map_err(CatRuntimeError::Hub)
+    }
+
     /// Bezpieczna resynchronizacja arbitra nadawania po wejściu w stan `Unknown`.
     pub fn resync_tx(&self, rig_id: RigId, timeout: Duration) {
         let hub_ref = Arc::clone(&self.hub);

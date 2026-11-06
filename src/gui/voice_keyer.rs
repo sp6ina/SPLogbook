@@ -169,14 +169,33 @@ fn transmit_message(msg: &VoiceKeyerMessage, app: &SpLogApp) {
     let msg_clone = msg.clone();
     tokio::spawn(async move {
         if key_ptt && let Some(ref rig_id) = tx_rig {
-            rt.request_tx(rig_id.clone(), std::time::Duration::from_millis(1500));
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        }
-        let m2 = msg_clone.clone();
-        let _ =
-            tokio::task::spawn_blocking(move || crate::media::voice_keyer::play_message(&m2)).await;
-        if key_ptt && let Some(ref rig_id) = tx_rig {
-            rt.release_tx(rig_id.clone(), std::time::Duration::from_millis(1500));
+            match rt
+                .request_tx_confirmed(rig_id.clone(), std::time::Duration::from_millis(1500))
+                .await
+            {
+                Ok(()) => {
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                    let m2 = msg_clone.clone();
+                    let _ = tokio::task::spawn_blocking(move || {
+                        crate::media::voice_keyer::play_message(&m2)
+                    })
+                    .await;
+                    let _ = rt
+                        .release_tx_confirmed(
+                            rig_id.clone(),
+                            std::time::Duration::from_millis(1500),
+                        )
+                        .await;
+                }
+                Err(e) => {
+                    log::error!("VoiceKeyer PTT request rejected by TxArbiter: {e}");
+                }
+            }
+        } else if !key_ptt {
+            let m2 = msg_clone.clone();
+            let _ =
+                tokio::task::spawn_blocking(move || crate::media::voice_keyer::play_message(&m2))
+                    .await;
         }
     });
 }

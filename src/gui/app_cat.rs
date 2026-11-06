@@ -313,10 +313,19 @@ impl SpLogApp {
             if let Some(srv) = self.cat.proxy_server.take() {
                 srv.stop();
             }
-            let (srv, rx) = crate::cat::server::HamlibProxyServer::new(
+            let snap = self.cat.runtime.snapshot();
+            let active_rig = snap.active_rx.as_ref().map_or_else(
+                || {
+                    crate::cat::routing::RigId::new("rig-1")
+                        .unwrap_or_else(|_| crate::cat::routing::RigId::hub())
+                },
+                |t| t.rig_id.clone(),
+            );
+            let (mut srv, rx) = crate::cat::server::HamlibProxyServer::new(
                 self.config.cat_sharing_port,
                 self.cat.shared_state.clone(),
             );
+            srv = srv.with_runtime(self.cat.runtime.clone(), active_rig);
             let srv_arc = std::sync::Arc::new(srv);
             self.cat.proxy_server = Some(srv_arc.clone());
             self.cat.proxy_rx = Some(rx);

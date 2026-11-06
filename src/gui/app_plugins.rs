@@ -127,7 +127,37 @@ impl SpLogApp {
                 crate::plugins::bridge::PluginCommand::SendVoice { text } => {
                     if text.trim().to_lowercase().ends_with(".wav") {
                         let path = text.trim().to_string();
-                        let _ = crate::media::voice_keyer::play_wav_file(&path);
+                        let snap = self.cat.runtime.snapshot();
+                        let tx_rig = snap
+                            .active_tx
+                            .as_ref()
+                            .map(|t| t.rig_id.clone())
+                            .or_else(|| snap.active_rx.as_ref().map(|r| r.rig_id.clone()));
+                        let rt = self.cat.runtime.clone();
+                        tokio::spawn(async move {
+                            let mut tx_acquired = false;
+                            if let Some(ref rig_id) = tx_rig
+                                && rt
+                                    .request_tx_confirmed(
+                                        rig_id.clone(),
+                                        std::time::Duration::from_millis(1500),
+                                    )
+                                    .await
+                                    .is_ok()
+                            {
+                                tx_acquired = true;
+                                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                            }
+                            let _ = crate::media::voice_keyer::play_wav_file(&path);
+                            if tx_acquired && let Some(ref rig_id) = tx_rig {
+                                let _ = rt
+                                    .release_tx_confirmed(
+                                        rig_id.clone(),
+                                        std::time::Duration::from_millis(1500),
+                                    )
+                                    .await;
+                            }
+                        });
                     } else {
                         self.gui.chrome.status_toast = Some((
                             Msg::new(key::PLUGIN_VOICE_ANNOUNCEMENT)
