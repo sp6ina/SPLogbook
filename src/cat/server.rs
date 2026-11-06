@@ -38,6 +38,8 @@ pub mod rprt {
     pub const ENIMPL: i32 = -4;
     /// RIG_EPROTO â bÅÄd protokoÅu (nierozpoznane polecenie).
     pub const EPROTO: i32 = -9;
+    /// RIG_EBUSY — operacja zablokowana lub urządzenie zajęte.
+    pub const EBUSY: i32 = -11;
 }
 
 /// Wynik interpretacji pojedynczej linii polecenia protokoÅu Hamlib.
@@ -338,6 +340,8 @@ pub struct HamlibProxyServer {
     pub shared_state: Arc<RwLock<RigState>>,
     pub cmd_sender: broadcast::Sender<RigServerCommand>,
     stop_tx: watch::Sender<bool>,
+    pub rig_id: Option<crate::cat::routing::RigId>,
+    pub cat_runtime: Option<crate::cat::runtime::CatRuntime>,
 }
 
 impl HamlibProxyServer {
@@ -353,9 +357,22 @@ impl HamlibProxyServer {
                 shared_state,
                 cmd_sender,
                 stop_tx,
+                rig_id: None,
+                cat_runtime: None,
             },
             cmd_receiver,
         )
+    }
+
+    /// Wiąże serwer proxy z konkretnym identyfikatorem radia i środowiskiem wykonawczym CatRuntime.
+    pub fn with_runtime(
+        mut self,
+        rt: crate::cat::runtime::CatRuntime,
+        rig_id: crate::cat::routing::RigId,
+    ) -> Self {
+        self.cat_runtime = Some(rt);
+        self.rig_id = Some(rig_id);
+        self
     }
 
     pub fn stop(&self) {
@@ -380,8 +397,10 @@ impl HamlibProxyServer {
                             let state = self.shared_state.clone();
                             let cmd_tx = self.cmd_sender.clone();
                             let client_stop_rx = self.stop_tx.subscribe();
+                            let rig_id = self.rig_id.clone();
+                            let cat_runtime = self.cat_runtime.clone();
                             tokio::spawn(async move {
-                                let _ = handle_client(stream, state, cmd_tx, client_stop_rx).await;
+                                let _ = handle_client(stream, state, cmd_tx, client_stop_rx, rig_id, cat_runtime).await;
                             });
                         }
                         Err(_) => {
@@ -401,6 +420,8 @@ async fn handle_client(
     state: Arc<RwLock<RigState>>,
     cmd_tx: broadcast::Sender<RigServerCommand>,
     mut stop_rx: watch::Receiver<bool>,
+    rig_id: Option<crate::cat::routing::RigId>,
+    cat_runtime: Option<crate::cat::runtime::CatRuntime>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let (reader, mut writer) = stream.split();
     let mut buf_reader = BufReader::new(reader);
@@ -437,7 +458,58 @@ async fn handle_client(
                         let snapshot = state.read().map(|s| s.clone()).unwrap_or_default();
                         let dispatch = dispatch_command(trimmed, &snapshot);
 
-                        // Zastosowanie poleceñ do lokalnego stanu (RigState) oraz rozes³anie ich do GUI.
+                        // Dwufazowa autoryzacja PTT oraz wykonanie komend przez CatRuntime i TxArbiter
+                        let mut ptt_rejected = false;
+                        for cmd in &dispatch.commands {
+                            match cmd {
+                                RigServerCommand::SetPtt(true) => {
+                                    if let (Some(rt), Some(r_id)) = (&cat_runtime, &rig_id) {
+                                        match rt.request_tx_confirmed(r_id.clone(), std::time::Duration::from_millis(1500)).await {
+                                            Ok(()) => {}
+                                            Err(e) => {
+                                                log::warn!("[HamlibProxy] Odrzucono załączenie PTT przez TxArbiter: {e}");
+                                                ptt_rejected = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                                RigServerCommand::SetPtt(false) => {
+                                    if let (Some(rt), Some(r_id)) = (&cat_runtime, &rig_id) {
+                                        let _ = rt.release_tx_confirmed(r_id.clone(), std::time::Duration::from_millis(1500)).await;
+                                    }
+                                }
+                                RigServerCommand::SetFrequency(freq) => {
+                                    if let (Some(rt), Some(r_id)) = (&cat_runtime, &rig_id) {
+                                        let _ = rt.execute_cmd_for_rig(r_id.clone(), crate::cat::rig::RigCommand::SetFrequency(*freq), std::time::Duration::from_millis(1500)).await;
+                                    }
+                                }
+                                RigServerCommand::SetMode(mode) => {
+                                    if let (Some(rt), Some(r_id)) = (&cat_runtime, &rig_id) {
+                                        let _ = rt.execute_cmd_for_rig(r_id.clone(), crate::cat::rig::RigCommand::SetMode { mode: mode.clone(), passband_hz: 0 }, std::time::Duration::from_millis(1500)).await;
+                                    }
+                                }
+                                RigServerCommand::SetSplitFrequency(freq) => {
+                                    if let (Some(rt), Some(r_id)) = (&cat_runtime, &rig_id) {
+                                        let _ = rt.execute_cmd_for_rig(r_id.clone(), crate::cat::rig::RigCommand::SetSplitFrequency(*freq), std::time::Duration::from_millis(1500)).await;
+                                    }
+                                }
+                                RigServerCommand::SetVfo(vfo) => {
+                                    if let (Some(rt), Some(r_id)) = (&cat_runtime, &rig_id) {
+                                        let _ = rt.execute_cmd_for_rig(r_id.clone(), crate::cat::rig::RigCommand::SetVfo(vfo.clone()), std::time::Duration::from_millis(1500)).await;
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+
+                        if ptt_rejected {
+                            writer.write_all(format!("RPRT {}\n", rprt::EBUSY).as_bytes()).await?;
+                            writer.flush().await?;
+                            continue;
+                        }
+
+                        // Zastosowanie poleceń do lokalnego stanu (RigState) oraz rozesłanie ich do GUI.
                         if let Ok(mut s) = state.write() {
                             for cmd in &dispatch.commands {
                                 apply_mutation(&mut s, cmd);
@@ -634,5 +706,48 @@ mod tests {
         assert_eq!(s.rit_hz, 500);
         assert_eq!(s.xit_hz, -100);
         assert_eq!(s.rf_power_watts, 50.0);
+    }
+
+    #[tokio::test]
+    async fn hamlib_proxy_and_voice_keyer_abort_when_tx_arbiter_rejects_ptt() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        let state = Arc::new(RwLock::new(RigState::default()));
+        let (server, _rx) = HamlibProxyServer::new(0, state.clone());
+        let rt = crate::cat::runtime::CatRuntime::new();
+        let rig_id = crate::cat::routing::RigId::new("rig-mock").unwrap();
+        let server = server.with_runtime(rt, rig_id);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let srv_state = server.shared_state.clone();
+        let srv_cmd_tx = server.cmd_sender.clone();
+        let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
+        let srv_rig_id = server.rig_id.clone();
+        let srv_rt = server.cat_runtime.clone();
+
+        let server_task = tokio::spawn(async move {
+            if let Ok((stream, _)) = listener.accept().await {
+                let _ =
+                    handle_client(stream, srv_state, srv_cmd_tx, stop_rx, srv_rig_id, srv_rt).await;
+            }
+        });
+
+        let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
+        client.write_all(b"T 1\n").await.unwrap();
+        client.flush().await.unwrap();
+
+        let mut reader = BufReader::new(client);
+        let mut response = String::new();
+        reader.read_line(&mut response).await.unwrap();
+
+        // Ponieważ radio nie jest gotowe do nadawania w TxArbiter,
+        // próba PTT zostaje zablokowana z ujemnym kodem RPRT -11 (EBUSY),
+        // a stan ptt pozostaje niezmiennie false!
+        assert_eq!(response, "RPRT -11\n");
+        assert!(!state.read().unwrap().ptt);
+
+        let _ = stop_tx.send(true);
+        let _ = server_task.await;
     }
 }
