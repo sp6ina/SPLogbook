@@ -32,5 +32,6 @@ pub mod scp;
 pub mod service_db;
 pub mod sota_export;
 pub mod station;
+pub mod test_audit;
 pub mod text;
 pub mod xml;
