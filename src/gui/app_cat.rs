@@ -315,16 +315,27 @@ impl SpLogApp {
         st: crate::cat::hamlib::RigState,
         is_tx: bool,
     ) {
+        let s_meter_diff = (st.s_meter_dbm - self.cat.rig_state.s_meter_dbm).abs();
+        let s_meter_significant =
+            s_meter_diff > 3.0 || st.s_meter_unit != self.cat.rig_state.s_meter_unit;
+        let pwr_diff = (st.rf_power_watts - self.cat.rig_state.rf_power_watts).abs();
+        let pwr_significant = pwr_diff > 1.0;
+
         let changed = st.frequency_hz != self.cat.rig_state.frequency_hz
             || st.mode != self.cat.rig_state.mode
             || st.connected != self.cat.connected
-            || is_tx != self.cat.ptt_active;
+            || is_tx != self.cat.ptt_active
+            || st.vfo != self.cat.rig_state.vfo
+            || st.split_enabled != self.cat.rig_state.split_enabled
+            || s_meter_significant
+            || pwr_significant;
 
         self.cat.connected = st.connected;
         self.cat.rig_state = st.clone();
         self.cat.ptt_active = is_tx;
 
         if changed {
+            self.runtime.request_repaint();
             self.services
                 .event_bus
                 .publish(crate::core::events::AppEvent::RigState {

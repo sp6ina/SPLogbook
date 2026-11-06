@@ -80,6 +80,7 @@ pub struct CatRuntime {
     shutting_down: Arc<AtomicBool>,
     sync_handle: Arc<std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>>,
     sync_panic_observed: Arc<AtomicBool>,
+    wake_signal: Arc<std::sync::Mutex<Option<Arc<dyn Fn() + Send + Sync>>>>,
 }
 
 impl Default for CatRuntime {
@@ -102,6 +103,7 @@ impl CatRuntime {
             shutting_down: Arc::new(AtomicBool::new(false)),
             sync_handle: Arc::new(std::sync::Mutex::new(None)),
             sync_panic_observed: Arc::new(AtomicBool::new(false)),
+            wake_signal: Arc::new(std::sync::Mutex::new(None)),
         }
     }
 
@@ -118,6 +120,7 @@ impl CatRuntime {
             shutting_down: Arc::new(AtomicBool::new(false)),
             sync_handle: Arc::new(std::sync::Mutex::new(None)),
             sync_panic_observed: Arc::new(AtomicBool::new(false)),
+            wake_signal: Arc::new(std::sync::Mutex::new(None)),
         };
 
         runtime.spawn_sync_loop(event_rx);
@@ -203,6 +206,7 @@ impl CatRuntime {
             shutting_down: Arc::new(AtomicBool::new(false)),
             sync_handle: Arc::new(std::sync::Mutex::new(None)),
             sync_panic_observed: Arc::new(AtomicBool::new(false)),
+            wake_signal: Arc::new(std::sync::Mutex::new(None)),
         };
 
         // Uruchomienie pętli synchronizującej snapshot i zdarzenia
@@ -234,6 +238,25 @@ impl CatRuntime {
         self.event_tx.subscribe()
     }
 
+    /// Rejestruje funkcję wybudzania renderera GUI lub pętli zdarzeń.
+    pub fn set_wake_signal<F>(&self, f: F)
+    where
+        F: Fn() + Send + Sync + 'static,
+    {
+        if let Ok(mut guard) = self.wake_signal.lock() {
+            *guard = Some(Arc::new(f));
+        }
+    }
+
+    /// Ręcznie wyzwala sygnał wybudzenia zarejestrowany w runtime.
+    pub fn trigger_wake(&self) {
+        if let Ok(guard) = self.wake_signal.lock() {
+            if let Some(ref sig) = *guard {
+                sig();
+            }
+        }
+    }
+
     /// Zwraca informację, czy pętla synchronizacji posiada aktywny uchwyt `JoinHandle`.
     pub fn has_sync_loop_handle(&self) -> bool {
         self.sync_handle
@@ -259,6 +282,7 @@ impl CatRuntime {
         let event_tx = self.event_tx.clone();
         let shutting_down = Arc::clone(&self.shutting_down);
         let panic_observed = Arc::clone(&self.sync_panic_observed);
+        let wake_signal = Arc::clone(&self.wake_signal);
 
         let sync_jh = tokio::spawn(async move {
             let res = std::panic::AssertUnwindSafe(async {
@@ -272,6 +296,11 @@ impl CatRuntime {
                                 Ok(event) => {
                                     // Retransmituj zdarzenie do subskrybentów GUI
                                     let _ = event_tx.send(event);
+                                    if let Ok(guard) = wake_signal.lock() {
+                                        if let Some(ref sig) = *guard {
+                                            sig();
+                                        }
+                                    }
                                     // Odśwież snapshot
                                     let snap = {
                                         let hub_lock = hub_ref.lock().await;
