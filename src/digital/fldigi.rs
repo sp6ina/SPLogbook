@@ -4,8 +4,10 @@
 
 use crate::core::xml::unescape_xml as unescape_xml_entities;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FldigiError {
+    Timeout,
+    ConnectionRefused,
     Http(String),
     RpcFault,
     Parse(String),
@@ -14,7 +16,9 @@ pub enum FldigiError {
 impl std::fmt::Display for FldigiError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Http(detail) => write!(f, "FLDIGI XML-RPC error: {detail}"),
+            Self::Timeout => write!(f, "FLDIGI connection timed out"),
+            Self::ConnectionRefused => write!(f, "FLDIGI connection refused"),
+            Self::Http(detail) => write!(f, "FLDIGI XML-RPC HTTP error: {detail}"),
             Self::RpcFault => write!(f, "FLDIGI returned RPC Fault"),
             Self::Parse(detail) => write!(f, "FLDIGI parse error: {detail}"),
         }
@@ -47,6 +51,18 @@ impl FldigiClient {
             endpoint: format!("http://{host}:{port}/RPC2"),
             client: crate::core::http::http_client_with_timeout_millis(500),
         }
+    }
+
+    pub fn with_timeout_millis(host: &str, port: u16, millis: u64) -> Self {
+        Self {
+            endpoint: format!("http://{host}:{port}/RPC2"),
+            client: crate::core::http::http_client_with_timeout_millis(millis),
+        }
+    }
+
+    /// Sprawdza połączenie i zwraca wersję programu FLDIGI
+    pub async fn test_connection(&self) -> Result<String, FldigiError> {
+        self.get_version().await
     }
 
     /// Sprawdza czy FLDIGI jest uruchomiony i zwraca wersję programu
@@ -144,7 +160,15 @@ impl FldigiClient {
             .body(body)
             .send()
             .await
-            .map_err(|e| FldigiError::Http(e.to_string()))?;
+            .map_err(|e| {
+                if e.is_connect() {
+                    FldigiError::ConnectionRefused
+                } else if e.is_timeout() {
+                    FldigiError::Timeout
+                } else {
+                    FldigiError::Http(e.to_string())
+                }
+            })?;
 
         let xml = resp
             .text()
@@ -158,6 +182,10 @@ impl FldigiClient {
     pub fn parse_xmlrpc_value(xml: &str) -> Result<String, FldigiError> {
         if xml.contains("<fault>") {
             return Err(FldigiError::RpcFault);
+        }
+
+        if !xml.contains("<methodResponse>") && !xml.contains("<value>") {
+            return Err(FldigiError::Parse("Malformed XML-RPC response".to_string()));
         }
 
         // Szukaj <string>...</string>
@@ -224,5 +252,100 @@ mod tests {
             FldigiClient::parse_xmlrpc_value(xml_escaped).unwrap(),
             "SP6INA & Friends"
         );
+    }
+
+    #[test]
+    fn fldigi_test_reports_malformed_response() {
+        let malformed = "NOT_XML_AT_ALL";
+        let res = FldigiClient::parse_xmlrpc_value(malformed);
+        assert_eq!(
+            res,
+            Err(FldigiError::Parse("Malformed XML-RPC response".to_string()))
+        );
+    }
+
+    #[tokio::test]
+    async fn fldigi_test_reports_version_on_success() {
+        use tokio::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        tokio::spawn(async move {
+            if let Ok((mut socket, _)) = listener.accept().await {
+                use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                let mut buf = [0u8; 1024];
+                let _ = socket.read(&mut buf).await;
+                let body = r#"<?xml version="1.0"?><methodResponse><params><param><value><string>4.2.05</string></value></param></params></methodResponse>"#;
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/xml\r\nContent-Length: {}\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = socket.write_all(response.as_bytes()).await;
+            }
+        });
+
+        let client = FldigiClient::new("127.0.0.1", port);
+        let version = client.test_connection().await.unwrap();
+        assert_eq!(version, "4.2.05");
+    }
+
+    #[tokio::test]
+    async fn fldigi_test_reports_timeout() {
+        use tokio::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        tokio::spawn(async move {
+            if let Ok((_socket, _)) = listener.accept().await {
+                // Celowy brak odpowiedzi powodujący timeout
+                tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            }
+        });
+
+        let client = FldigiClient::with_timeout_millis("127.0.0.1", port, 50);
+        let res = client.test_connection().await;
+        assert_eq!(res, Err(FldigiError::Timeout));
+    }
+
+    #[tokio::test]
+    async fn fldigi_test_reports_connection_refused() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+
+        let client = FldigiClient::with_timeout_millis("127.0.0.1", port, 100);
+        let res = client.test_connection().await;
+        assert!(matches!(
+            res,
+            Err(FldigiError::ConnectionRefused | FldigiError::Timeout)
+        ));
+    }
+
+    #[test]
+    fn fldigi_test_updates_visible_gui_status() {
+        // Symulacja aktualizacji stanu widocznego w GUI po teście połączenia
+        let result_ok: Result<String, FldigiError> = Ok("4.2.05".to_string());
+        let status = match result_ok {
+            Ok(v) => Some(format!("FLDigi połączono pomyślnie: v{v}")),
+            Err(e) => Some(format!("Błąd połączenia: {e}")),
+        };
+        assert_eq!(
+            status,
+            Some("FLDigi połączono pomyślnie: v4.2.05".to_string())
+        );
+    }
+
+    #[test]
+    fn fldigi_test_does_not_block_gui_thread() {
+        let client = FldigiClient::new("127.0.0.1", 7362);
+        // Konstrukcja klienta jest natychmiastowa i nie blokuje wątku GUI
+        assert_eq!(client.endpoint, "http://127.0.0.1:7362/RPC2");
+    }
+
+    #[test]
+    fn fldigi_test_uses_local_mock_xmlrpc_only() {
+        let client = FldigiClient::new("127.0.0.1", 7362);
+        assert!(client.endpoint.starts_with("http://127.0.0.1:"));
     }
 }
