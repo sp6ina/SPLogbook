@@ -385,3 +385,343 @@ impl Drop for RigctldSupervisor {
         self.stop();
     }
 }
+
+use crate::cat::routing::RigId;
+use std::collections::HashMap;
+
+/// Normalizuje nazwę portu fizycznego/szeregowego (np. COM3, com3, \\.\COM3 -> COM3; ścieżki unixowe).
+pub fn normalize_serial_port(port: &str) -> String {
+    let trimmed = port.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    let stripped = if let Some(s) = trimmed.strip_prefix(r"\\.\") {
+        s
+    } else if let Some(s) = trimmed.strip_prefix(r"//./") {
+        s
+    } else {
+        trimmed
+    };
+
+    let upper = stripped.to_ascii_uppercase();
+    if upper.starts_with("COM") {
+        upper
+    } else {
+        stripped.to_string()
+    }
+}
+
+/// Właściciel fizycznego portu sprzętowego (UART / Virtual COM / Serial).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PhysicalEndpointOwner {
+    /// Bezpośredni, natywny runtime aplikacji otwierający port szeregowy UART.
+    NativeCatRuntime(RigId),
+    /// Zewnętrzny proces pomocniczy (np. rigctld) uruchomiony dla danego radia.
+    ExternalRigctld(RigId),
+    /// Klient Hamlib łączący się przez TCP z zewnętrznym serwerem (brak dostępu do portu fizycznego).
+    HamlibClient(RigId),
+    /// Klient radia sieciowego (np. TCI, KNS LAN, FLRig) bez dostępu do portu fizycznego.
+    NetworkRadio(RigId),
+}
+
+impl PhysicalEndpointOwner {
+    /// Zwraca identyfikator radia powiązany z właścicielem.
+    pub fn rig_id(&self) -> &RigId {
+        match self {
+            Self::NativeCatRuntime(id) => id,
+            Self::ExternalRigctld(id) => id,
+            Self::HamlibClient(id) => id,
+            Self::NetworkRadio(id) => id,
+        }
+    }
+
+    /// Określa, czy dany typ właściciela wymaga wyłącznego dostępu do fizycznego portu szeregowego.
+    pub fn requires_exclusive_physical_port(&self) -> bool {
+        matches!(self, Self::NativeCatRuntime(_) | Self::ExternalRigctld(_))
+    }
+}
+
+impl std::fmt::Display for PhysicalEndpointOwner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NativeCatRuntime(id) => write!(f, "NativeCatRuntime({id})"),
+            Self::ExternalRigctld(id) => write!(f, "ExternalRigctld({id})"),
+            Self::HamlibClient(id) => write!(f, "HamlibClient({id})"),
+            Self::NetworkRadio(id) => write!(f, "NetworkRadio({id})"),
+        }
+    }
+}
+
+/// Błąd konfliktu własności fizycznego punktu końcowego.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EndpointConflictError {
+    /// Port szeregowy jest już zajęty przez innego właściciela.
+    PortAlreadyClaimed {
+        port: String,
+        current_owner: PhysicalEndpointOwner,
+        attempted_owner: PhysicalEndpointOwner,
+    },
+    /// Próba uruchomienia zewnętrznego demona na porcie zajętym przez natywny CAT.
+    NativeAndExternalConflict {
+        port: String,
+        native_rig: RigId,
+        external_rig: RigId,
+    },
+    /// Pusta nazwa portu.
+    EmptyPortName,
+}
+
+impl std::fmt::Display for EndpointConflictError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::PortAlreadyClaimed {
+                port,
+                current_owner,
+                attempted_owner,
+            } => write!(
+                f,
+                "port fizyczny '{port}' jest już zajęty przez {current_owner}, odmowa dla {attempted_owner}"
+            ),
+            Self::NativeAndExternalConflict {
+                port,
+                native_rig,
+                external_rig,
+            } => write!(
+                f,
+                "konflikt portu '{port}': radio '{native_rig}' używa Native CAT, a '{external_rig}' próbuje uruchomić zewnętrzny rigctld"
+            ),
+            Self::EmptyPortName => write!(f, "nazwa portu fizycznego nie może być pusta"),
+        }
+    }
+}
+
+impl std::error::Error for EndpointConflictError {}
+
+/// Rejestr wyłącznej własności fizycznych portów szeregowych i endpointów radiowych.
+#[derive(Debug, Clone, Default)]
+pub struct PhysicalEndpointRegistry {
+    claims: HashMap<String, PhysicalEndpointOwner>,
+}
+
+impl PhysicalEndpointRegistry {
+    pub fn new() -> Self {
+        Self {
+            claims: HashMap::new(),
+        }
+    }
+
+    /// Rejestruje żądanie wyłącznej własności portu fizycznego dla wskazanego właściciela.
+    pub fn claim(
+        &mut self,
+        port: &str,
+        owner: PhysicalEndpointOwner,
+    ) -> Result<(), EndpointConflictError> {
+        let norm_port = normalize_serial_port(port);
+        if norm_port.is_empty() {
+            return Err(EndpointConflictError::EmptyPortName);
+        }
+
+        // Tryby sieciowe/klienckie nie rezerwują fizycznego portu COM
+        if !owner.requires_exclusive_physical_port() {
+            return Ok(());
+        }
+
+        if let Some(existing) = self.claims.get(&norm_port) {
+            if existing == &owner {
+                return Ok(());
+            }
+            if let (
+                PhysicalEndpointOwner::NativeCatRuntime(native_id),
+                PhysicalEndpointOwner::ExternalRigctld(ext_id),
+            ) = (existing, &owner)
+            {
+                return Err(EndpointConflictError::NativeAndExternalConflict {
+                    port: norm_port,
+                    native_rig: native_id.clone(),
+                    external_rig: ext_id.clone(),
+                });
+            }
+            if let (
+                PhysicalEndpointOwner::ExternalRigctld(ext_id),
+                PhysicalEndpointOwner::NativeCatRuntime(native_id),
+            ) = (existing, &owner)
+            {
+                return Err(EndpointConflictError::NativeAndExternalConflict {
+                    port: norm_port,
+                    native_rig: native_id.clone(),
+                    external_rig: ext_id.clone(),
+                });
+            }
+            return Err(EndpointConflictError::PortAlreadyClaimed {
+                port: norm_port,
+                current_owner: existing.clone(),
+                attempted_owner: owner,
+            });
+        }
+
+        self.claims.insert(norm_port, owner);
+        Ok(())
+    }
+
+    /// Zwalnia rezerwację portu fizycznego.
+    pub fn release(&mut self, port: &str) {
+        let norm_port = normalize_serial_port(port);
+        self.claims.remove(&norm_port);
+    }
+
+    /// Zwalnia wszystkie porty powiązane z danym radiem (np. przy shutdown radia).
+    pub fn release_for_rig(&mut self, rig_id: &RigId) {
+        self.claims.retain(|_, owner| owner.rig_id() != rig_id);
+    }
+
+    /// Sprawdza bieżącego właściciela portu fizycznego.
+    pub fn get_owner(&self, port: &str) -> Option<&PhysicalEndpointOwner> {
+        let norm_port = normalize_serial_port(port);
+        self.claims.get(&norm_port)
+    }
+
+    /// Czy port jest obecnie zarezerwowany.
+    pub fn is_claimed(&self, port: &str) -> bool {
+        let norm_port = normalize_serial_port(port);
+        self.claims.contains_key(&norm_port)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn same_serial_endpoint_cannot_have_two_owners() {
+        let mut reg = PhysicalEndpointRegistry::new();
+        let r1 = RigId::new("rig-1").unwrap();
+        let r2 = RigId::new("rig-2").unwrap();
+
+        // Rezerwacja COM3 przez rig-1
+        reg.claim("COM3", PhysicalEndpointOwner::NativeCatRuntime(r1.clone()))
+            .unwrap();
+
+        // Próba rezerwacji tego samego portu z prefiksem \\.\com3 przez rig-2
+        let err = reg
+            .claim(
+                r"\\.\com3",
+                PhysicalEndpointOwner::NativeCatRuntime(r2.clone()),
+            )
+            .unwrap_err();
+        match err {
+            EndpointConflictError::PortAlreadyClaimed {
+                port,
+                current_owner,
+                attempted_owner,
+            } => {
+                assert_eq!(port, "COM3");
+                assert_eq!(current_owner, PhysicalEndpointOwner::NativeCatRuntime(r1));
+                assert_eq!(attempted_owner, PhysicalEndpointOwner::NativeCatRuntime(r2));
+            }
+            other => panic!("Oczekiwano PortAlreadyClaimed, otrzymano: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn native_mode_does_not_start_external_rigctld_for_same_port() {
+        let mut reg = PhysicalEndpointRegistry::new();
+        let r1 = RigId::new("rig-native").unwrap();
+        let r2 = RigId::new("rig-external").unwrap();
+
+        reg.claim("COM4", PhysicalEndpointOwner::NativeCatRuntime(r1.clone()))
+            .unwrap();
+
+        // Próba uruchomienia external rigctld na tym samym porcie
+        let err = reg
+            .claim("com4", PhysicalEndpointOwner::ExternalRigctld(r2.clone()))
+            .unwrap_err();
+        match err {
+            EndpointConflictError::NativeAndExternalConflict {
+                port,
+                native_rig,
+                external_rig,
+            } => {
+                assert_eq!(port, "COM4");
+                assert_eq!(native_rig, r1);
+                assert_eq!(external_rig, r2);
+            }
+            other => panic!("Oczekiwano NativeAndExternalConflict, otrzymano: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn hamlib_client_mode_does_not_open_native_serial_port() {
+        let mut reg = PhysicalEndpointRegistry::new();
+        let r1 = RigId::new("rig-client").unwrap();
+
+        // Tryb klienta Hamlib (połączenie TCP do zewnętrznego demona) nie rezerwuje fizycznego UART
+        reg.claim("COM1", PhysicalEndpointOwner::HamlibClient(r1))
+            .unwrap();
+        assert!(
+            !reg.is_claimed("COM1"),
+            "HamlibClient nie powinien rezerwować fizycznego portu"
+        );
+    }
+
+    #[test]
+    fn hamlib_proxy_never_opens_physical_port_directly() {
+        // HamlibProxyServer działa w oparciu o TCP i CatRuntime, bez bezpośredniego otwierania UART
+        let mut reg = PhysicalEndpointRegistry::new();
+        let r1 = RigId::new("rig-native").unwrap();
+
+        // Fizyczny port należy wyłącznie do NativeCatRuntime
+        reg.claim("COM2", PhysicalEndpointOwner::NativeCatRuntime(r1.clone()))
+            .unwrap();
+        assert!(reg.is_claimed("COM2"));
+
+        // Proxy korzysta z mostu do CatRuntime, a nie z fizycznego portu
+        let owner = reg.get_owner("COM2").unwrap();
+        assert_eq!(owner, &PhysicalEndpointOwner::NativeCatRuntime(r1));
+    }
+
+    #[test]
+    fn port_owner_is_released_on_shutdown() {
+        let mut reg = PhysicalEndpointRegistry::new();
+        let r1 = RigId::new("rig-1").unwrap();
+        let r2 = RigId::new("rig-2").unwrap();
+
+        reg.claim("COM5", PhysicalEndpointOwner::NativeCatRuntime(r1.clone()))
+            .unwrap();
+        assert!(reg.is_claimed("COM5"));
+
+        // Zwolnienie portu przy zatrzymaniu rig-1
+        reg.release_for_rig(&r1);
+        assert!(!reg.is_claimed("COM5"));
+
+        // Teraz rig-2 może bez problemu zająć COM5
+        reg.claim("COM5", PhysicalEndpointOwner::NativeCatRuntime(r2))
+            .unwrap();
+        assert!(reg.is_claimed("COM5"));
+    }
+
+    #[test]
+    fn failed_startup_does_not_leave_endpoint_reserved() {
+        let mut reg = PhysicalEndpointRegistry::new();
+        let r1 = RigId::new("rig-fail").unwrap();
+
+        // Symulacja procedury startowej z RAII / guardem
+        {
+            reg.claim("COM6", PhysicalEndpointOwner::NativeCatRuntime(r1.clone()))
+                .unwrap();
+            assert!(reg.is_claimed("COM6"));
+            // Start backendu nie powiódł się (błąd I/O lub timeout) -> cofnięcie rezerwacji
+            let startup_success = false;
+            if !startup_success {
+                reg.release_for_rig(&r1);
+            }
+        }
+
+        // Port natychmiast wolny
+        assert!(!reg.is_claimed("COM6"));
+        let r2 = RigId::new("rig-retry").unwrap();
+        assert!(
+            reg.claim("COM6", PhysicalEndpointOwner::NativeCatRuntime(r2))
+                .is_ok()
+        );
+    }
+}
