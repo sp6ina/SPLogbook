@@ -571,11 +571,11 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                             match client.get_version().await {
                                                 Ok(v) => {
                                                     log::info!("FLDigi connected: {v}");
-                                                    let _ = sync_tx.send((format!("FLDigi połączono pomyślnie: {v}"), false));
+                                                    let _ = sync_tx.send((format!("FLDigi OK: {v}"), false));
                                                 }
                                                 Err(e) => {
                                                     log::warn!("FLDigi error: {e}");
-                                                    let _ = sync_tx.send((format!("FLDigi błąd połączenia: {e}"), false));
+                                                    let _ = sync_tx.send((format!("FLDigi ERR: {e}"), false));
                                                 }
                                             }
                                         });
