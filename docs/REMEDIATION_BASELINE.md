@@ -442,6 +442,30 @@ Cargo.lock SHA-1: `c569097f3ef69c66ec59b74c29c1eb29efce69ae` (bez zmian)
   - Poprawa fixture i walidatora SP DX: ścisła egzekucja 16 jednoliterowych symboli województw wedle mapy kanonicznej (B, C, D, F, G, J, K, L, M, O, P, R, S, U, W, Z; m.in. R = mazowieckie, C = łódzkie, K = podkarpackie, P = kujawsko-pomorskie), odrzucanie kodów administracyjnych (`MA`, `LD`, etc.), CLAIMED-SCORE: 27.
   - Cabrillo 3.0: rozdzielenie `CATEGORY-OPERATOR` (`SINGLE-OP`, `MULTI-OP`, `CHECKLOG`) od `CATEGORY-TRANSMITTER` (`ONE`), usunięcie błędnego `MULTI` w `CATEGORY-TRANSMITTER`.
   - Wyniki punktacji CQ WPX CW/SSB (144 pkt) w pełni zachowane i zabezpieczone.
+- Ukończenie i weryfikacja Etapu 8 (2026-11-05):
+  - Etap 8 (Integracja Multi-Radio w GUI, REST API Rig i Hamlib Proxy) wdrożony i zweryfikowany w 100% ze statusem `COMPLETED_SOFTWARE_VERIFIED`.
+  - Zamknięte i zweryfikowane kanoniczne findings: `FUNC-003`, `CAT-007`, `CAT-008`, `CAT-014`.
+  - Wdrożone commity Etapu 8:
+    1. `8002667`: `refactor(cat): add native command bridge and clean up legacy controller (CAT-014)`
+    2. `fd43ed2`: `fix(cat): enforce TxArbiter PTT confirmation in proxy and voice keyer (CAT-008)`
+    3. `fe7be53`: `fix(gui): eliminate single-rig fallbacks and support radio 2 configuration (CAT-007)`
+    4. `36d1dee`: `feat(api): wire REST rig control through CatRuntime and add multi-rig endpoints (FUNC-003)`
+    5. `26096de`: `test(cat): add multi-radio concurrency, isolation, and proxy integration matrix`
+  - Statystyki testów po Etapie 8:
+    - Łącznie zarejestrowanych testów we workspace: 2049
+    - Aktywne testy programowe: 2039 passed, 0 failed
+    - Fizyczny HIL: 10 ignored (`#[ignore = "hardware-in-the-loop"]`), emisja RF = 0, bramka bezpieczeństwa HIL zamknięta.
+    - `cargo test --doc`: 1 passed, 0 failed
+    - `cargo clippy --lib`: 382 ostrzeżenia (brak regresji względem baseline 383)
+    - `cargo clippy --lib --tests`: 483 ostrzeżenia (brak regresji względem baseline 493)
+    - `cargo fmt --all -- --check`: 0 odchyleń formatowania
+    - `security_guard`: 32 passed, 0 failed
+    - `i18n_guard`: 15 passed, 0 failed
+    - `theme_guard`: 1 passed, 0 failed
+  - Integralność zależności i plików konfiguracyjnych:
+    - `Cargo.toml` SHA-1: `d8e3acd8f0c7b3307b3733c6c4a9a6cc57cb17c4` (niezmieniony)
+    - `Cargo.lock` SHA-1: `c569097f3ef69c66ec59b74c29c1eb29efce69ae` (niezmieniony)
+  - Prawdziwa baza danych użytkownika: nieotwierana, dane nienaruszone.
 - Gotowość do kolejnego etapu:
-  - Etap 7 definitywnie zamknięty ze statusem `COMPLETED_SOFTWARE_VERIFIED` (Software: SOFTWARE VERIFIED, Documentation: VERIFIED).
-  - Etap 8 w stanie `READY` (nieuruchomiony w ramach Etapu 7, NOT STARTED).
+  - Etap 8 definitywnie zamknięty ze statusem `COMPLETED_SOFTWARE_VERIFIED`.
+  - Etap 9 w stanie `READY` (NOT STARTED).

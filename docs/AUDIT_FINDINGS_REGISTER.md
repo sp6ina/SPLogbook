@@ -670,6 +670,9 @@ Status Etapu 5: **SOFTWARE VERIFIED**
 - **Kategoria:** `FUNC`
 - **Poziom krytyczności:** `HIGH`
 - **Poziom pewności:** `CONFIRMED`
+- **Status remediacji:** **FIXED_SOFTWARE_VERIFIED**
+- **Data wdrożenia i weryfikacji:** 2026-11-05
+- **Commit:** `36d1dee` (`feat(api): wire REST rig control through CatRuntime and add multi-rig endpoints (FUNC-003)`)
 - **Moduł / obszar:** `src/api/server.rs`, `src/gui/app_async.rs`
 - **Lokalizacja:** [`src/api/server.rs:1088-1141`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/api/server.rs#L1088-L1141), [`src/gui/app_async.rs:248-252`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/gui/app_async.rs#L248-L252)
 - **Dowód z kodu:** Funkcja `post_rig_control` (`src/api/server.rs:1092-1116`) zapisuje przysłane pola (`frequency_hz`, `mode`, `ptt` itd.) wyłącznie do lokalnego `state.rig_state.write()` (`Arc<RwLock<RigState>>`) i zwraca `200 OK`. `ApiState` (`src/api/server.rs:35-45`) nie posiada nawet uchwytu do `CatRuntime`! Co więcej, w następnej klatce GUI (~16 ms później) `SpLogApp::poll_cat_outcomes` (`src/gui/app_async.rs:248-252`) nadpisuje `shared_rig_state` z powrotem stanem z `self.cat.rig_state`.
@@ -848,6 +851,21 @@ Fizyczny HIL: **NOT EXECUTED — SAFETY GATE CLOSED** (10 fizycznych testów spr
 | `CAT-005` | Optymistyczne ustawianie `confirmed_ptt = true` bez potwierdzenia z radia w `YaesuBackend` i `ElecraftBackend` | Wymuszenie odpytania `TX;` (Yaesu) i `TQ;` (Elecraft) z usunięciem optymistycznego przypisania stanu TX | `1fce33a` *(tagowany w commit msg jako CAT-006)* | `src/cat/native/yaesu/backend.rs`, `src/cat/native/elecraft/backend.rs` | 46 testów Yaesu, 69 testów Elecraft, test w `tests/cat_native_6a.rs` | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
 | `CAT-006` | Luka w `RigHub::resync_tx_arbiter` (`last_update` zamiast `last_state_update`) oraz martwy wariant `StateFreshness::Stale` | Zastąpienie `snapshot.last_update` przez `snapshot.last_state_update`, walidacja `freshness != Stale`, oznaczanie `Stale` przy błędach/rozłączeniu w `RigService` | `1fce33a` | `src/cat/hub.rs`, `src/cat/service.rs` | 5 testów deterministycznych w `tests/cat_native_6a.rs` | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
 | `CAT-015` | `HilHardwareSession::execute_controlled_ptt` omija bramki `SPLOG_HIL_*`, omija `TxArbiter` i nie potwierdza RX | Integracja ze strażnikiem `acquire_tx_guard`, weryfikacja autoryzacji środowiska, zakaz anteny, wymóg początkowego RX i potwierdzenie `release_and_confirm_rx` | `ddc1c0c` | `src/cat/hil/session.rs` | 14 testów cyklu życia HIL w `tests/cat_native_7.rs` | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
+
+
+### Ujednolicone mapowanie znalezisk i commitów Etapu 8 (Integracja Multi-Radio w GUI, REST API Rig i Hamlib Proxy)
+
+Status Etapu 8: **COMPLETED_SOFTWARE_VERIFIED**
+Data ukończenia: 2026-11-05
+Fizyczny HIL: **NOT EXECUTED — SAFETY GATE CLOSED** (10 testów laboratoryjnych HIL bezpiecznie odizolowanych za `#[ignore = "hardware-in-the-loop"]`).
+
+| Finding ID | Tytuł kanoniczny | Remediacja główna | Commity | Zmienione pliki | Testy weryfikacyjne | Status końcowy | Ryzyko resztkowe |
+|---|---|---|---|---|---|---|---|
+| `CAT-014` | Odcięcie `NativeRigCommand` i `NativeRigEvent` oraz martwy kod legacy | Most dla poleceń natywnych w `RigBackend` (`execute_native`, `drain_native_events`), usunięcie martwego `CatController` | `8002667` | `src/cat/backend.rs`, `src/cat/service.rs`, `src/cat/native/icom/backend.rs`, `src/cat/native/flexradio/backend.rs` | `cat_backend_native_bridge_executes_and_drains_events_without_legacy_controller` | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
+| `CAT-008` | Ominięcie potwierdzenia `TxArbiter` w Hamlib Proxy i Voice Keyerze | Asynchroniczne potwierdzenie `request_tx_confirmed` i `release_tx_confirmed` w `CatRuntime`, blokada `RPRT -11` (EBUSY) w Hamlib Proxy, zatrzymanie audio w Voice Keyer | `fd43ed2` | `src/cat/runtime.rs`, `src/cat/server.rs`, `src/gui/voice_keyer.rs`, `src/gui/app_plugins.rs`, `src/gui/app_cat.rs` | `hamlib_proxy_and_voice_keyer_abort_when_tx_arbiter_rejects_ptt` | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
+| `CAT-007` | Niekompletna integracja Multi-Radio w GUI | Usunięcie fallbacku na pierwsze radio w `app_async.rs`, przycisk dodawania `Radio 2` i usuwania w `cat_settings.rs`, obsługa `auto_start_rigctld` w `app_cat.rs`, obsługa `SetSplitFrequency` i telemetria mocy w `vfo_panel.rs` | `fe7be53` | `src/gui/app_async.rs`, `src/gui/app_cat.rs`, `src/gui/cat_settings.rs`, `src/gui/vfo_panel.rs`, `tests/cat_native_6b.rs` | `gui_cat_settings_supports_radio_2_lifecycle_and_isolation`, `app_async_telemetry_does_not_fallback_to_arbitrary_first_rig`, `vfo_panel_split_frequency_and_telemetry_power` | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
+| `FUNC-003` | Endpoint `POST /api/v1/rig` atrapą modyfikującą tylko RAM | Podłączenie `CatRuntime` do `ApiState`, routing rozkazów częstotliwości/emisji/VFO/Split oraz potwierdzony PTT przez `TxArbiter`, dodanie pełnego zestawu endpointów `/api/v1/rigs*` | `36d1dee` | `src/api/server.rs`, `src/gui/app_services.rs` | `rest_api_post_rig_control_with_cat_runtime`, `rest_api_multi_rig_endpoints_list_and_details` | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
+| Test Matrix | Macierz współbieżności i izolacji wieloradiowej | Równoległe rozkazy do wielu radii, odrzucanie przeterminowanych poleceń, deterministyczny i ograniczony czasowo shutdown pod obciążeniem | `26096de` | `tests/cat_native_6b.rs` | `multi_radio_concurrency_simultaneous_commands_to_different_rigs`, `multi_radio_stale_command_expired_is_rejected`, `multi_radio_bounded_shutdown_under_heavy_concurrent_load` | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
 
 ### Ujednolicone mapowanie znalezisk i commitów Etapu 4 (Poprawność natywnych protokołów CAT i bezpieczny auto-reconnect)
 
@@ -1056,6 +1074,9 @@ Fizyczny HIL: **NOT EXECUTED — SAFETY GATE CLOSED** (10 fizycznych testów spr
 - **Kategoria:** `CAT`
 - **Poziom krytyczności:** `HIGH`
 - **Poziom pewności:** `CONFIRMED`
+- **Status remediacji:** **FIXED_SOFTWARE_VERIFIED**
+- **Data wdrożenia i weryfikacji:** 2026-11-05
+- **Commit:** `fe7be53` (`fix(gui): eliminate single-rig fallbacks and support radio 2 configuration (CAT-007)`)
 - **Moduł / obszar:** `src/gui/app_async.rs`, `src/gui/cat_settings.rs`, `src/gui/app_cat.rs`, `src/gui/vfo_panel.rs`
 - **Lokalizacja:** [`src/gui/app_async.rs:215-220`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/gui/app_async.rs#L215-L220), [`src/gui/cat_settings.rs:146-210, 256, 1238-1296`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/gui/cat_settings.rs#L146-L256), [`src/gui/app_cat.rs:138-163`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/gui/app_cat.rs#L138-L163), [`src/gui/vfo_panel.rs:282-322, 515-543, 565-570`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/gui/vfo_panel.rs#L282-L570)
 - **Dowód z kodu:**
@@ -1086,6 +1107,9 @@ Fizyczny HIL: **NOT EXECUTED — SAFETY GATE CLOSED** (10 fizycznych testów spr
 - **Kategoria:** `CAT`
 - **Poziom krytyczności:** `HIGH`
 - **Poziom pewności:** `CONFIRMED`
+- **Status remediacji:** **FIXED_SOFTWARE_VERIFIED**
+- **Data wdrożenia i weryfikacji:** 2026-11-05
+- **Commit:** `fd43ed2` (`fix(cat): enforce TxArbiter PTT confirmation in proxy and voice keyer (CAT-008)`)
 - **Moduł / obszar:** `src/cat/server.rs`, `src/gui/voice_keyer.rs`, `src/gui/app_plugins.rs`
 - **Lokalizacja:** [`src/cat/server.rs:441-452`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cat/server.rs#L441-L452), [`src/gui/voice_keyer.rs:170-181`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/gui/voice_keyer.rs#L170-L181), [`src/gui/app_plugins.rs:127-139`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/gui/app_plugins.rs#L127-L139)
 - **Dowód z kodu:**
@@ -1220,6 +1244,9 @@ Fizyczny HIL: **NOT EXECUTED — SAFETY GATE CLOSED** (10 fizycznych testów spr
 - **Kategoria:** `CAT`
 - **Poziom krytyczności:** `MEDIUM`
 - **Poziom pewności:** `CONFIRMED`
+- **Status remediacji:** **FIXED_SOFTWARE_VERIFIED**
+- **Data wdrożenia i weryfikacji:** 2026-11-05
+- **Commit:** `8002667` (`refactor(cat): add native command bridge and clean up legacy controller (CAT-014)`)
 - **Moduł / obszar:** `src/cat/native/mod.rs`, `src/cat/backend.rs`, `src/cat/so2r.rs`
 - **Lokalizacja:** [`src/cat/native/mod.rs:48-159`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cat/native/mod.rs#L48-L159), [`src/cat/backend.rs:111, 236-413`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cat/backend.rs#L111-L413), [`src/cat/so2r.rs:1-209`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cat/so2r.rs#L1-L209)
 - **Dowód z kodu:**

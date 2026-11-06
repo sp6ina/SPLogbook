@@ -311,14 +311,16 @@ flowchart LR
 ---
 
 ### Etap 8 — Integracja Multi-Radio w GUI, `POST /api/v1/rig`, `HamlibProxyServer` i `VoiceKeyer` (`P1`)
+- **Status:** **COMPLETED_SOFTWARE_VERIFIED** (2026-11-05)
 - **Cel:** Spięcie wszystkich interfejsów sterowania radiem z `CatRuntime` i `TxArbiter` (`FUNC-003`, `CAT-007`, `CAT-008`, `CAT-014`).
-- **Zakres:**
-  - Przekazanie `CatRuntime` do `ApiState` i obsługa `POST /api/v1/rig` przez `CatRuntime` (`FUNC-003`).
-  - Potwierdzone `request_tx` w `HamlibProxyServer` (`:4534`), `VoiceKeyer` i `PluginCommand::SendVoice` (`CAT-008`).
-  - Dodanie zarządzania profilem `Radio 2` w `src/gui/cat_settings.rs`, naprawa `auto_start_rigctld` w `start_cat_service`, usunięcie fallbacku na pierwsze radio w `app_async.rs:219` i podłączenie przycisków Split VFO B w `vfo_panel.rs` (`CAT-007`).
-- **Pliki i moduły:** `src/api/server.rs`, `src/cat/server.rs`, `src/gui/state/cat.rs`, `src/gui/{app_async.rs,app_cat.rs,cat_settings.rs,vfo_panel.rs,voice_keyer.rs,app_plugins.rs}`.
-- **Ryzyka:** Średnie.
-- **Kryteria ukończenia:** Pełne sterowanie dwoma radiami z GUI, REST API i Hamlib Proxy pod nadzorem `TxArbiter`.
+- **Zakres zrealizowany w 100%:**
+  - Dodanie mostu dla poleceń i zdarzeń natywnych w `RigBackend` (`execute_native`, `drain_native_events`) oraz usunięcie martwego `CatController` (`CAT-014`, commit `8002667`).
+  - Wymuszenie potwierdzenia PTT z `TxArbiter` w `HamlibProxyServer` (`:4534`), `VoiceKeyer` i pluginach z kodem błędu `RPRT -11` (`CAT-008`, commit `fd43ed2`).
+  - Eliminacja niejawnych fallbacków na pierwsze radio w GUI (`app_async.rs`), dodanie wsparcia dla profilu `Radio 2` w `cat_settings.rs`, poprawa detekcji `auto_start_rigctld` w profilach stacji oraz sterowanie Split VFO B z telemetrią mocy w `vfo_panel.rs` (`CAT-007`, commit `fe7be53`).
+  - Pełna integracja REST API z `CatRuntime`, routing rozkazów sterowania radiem i ochrona PTT pod nadzorem `TxArbiter`, oraz nowe endpointy wieloradiowe `/api/v1/rigs*` (`FUNC-003`, commit `36d1dee`).
+  - Wdrożenie kompleksowej macierzy testów współbieżności, izolacji wieloradiowej i odporności na przeterminowane komendy (`tests/cat_native_6b.rs`, commit `26096de`).
+- **Pliki i moduły:** `src/api/server.rs`, `src/cat/backend.rs`, `src/cat/runtime.rs`, `src/cat/server.rs`, `src/gui/{app_async.rs,app_cat.rs,cat_settings.rs,vfo_panel.rs,voice_keyer.rs,app_plugins.rs,app_services.rs}`, `tests/cat_native_6b.rs`.
+- **Kryteria ukończenia:** Spełnione w 100%. 2039 aktywnych testów zaliczonych (0 failed, 10 ignored HIL). Etap 8 definitywnie zamknięty: SOFTWARE VERIFIED (`COMPLETED_SOFTWARE_VERIFIED`). Etap 9 w stanie `READY`.
 
 ---
 
