@@ -102,14 +102,14 @@ impl LogDatabase {
             values.push(Box::new(jid.clone()));
         }
         if let Some(ref from) = filter.date_from {
-            let normalized_from: String = from.chars().filter(|c| c.is_ascii_digit()).collect();
+            let normalized_from: String = from.chars().filter(char::is_ascii_digit).collect();
             if !normalized_from.is_empty() {
                 conditions.push(format!("qso_date >= ?{}", values.len() + 1));
                 values.push(Box::new(normalized_from));
             }
         }
         if let Some(ref to) = filter.date_to {
-            let normalized_to: String = to.chars().filter(|c| c.is_ascii_digit()).collect();
+            let normalized_to: String = to.chars().filter(char::is_ascii_digit).collect();
             if !normalized_to.is_empty() {
                 conditions.push(format!("qso_date <= ?{}", values.len() + 1));
                 values.push(Box::new(normalized_to));

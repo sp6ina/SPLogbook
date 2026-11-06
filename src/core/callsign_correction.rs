@@ -103,7 +103,7 @@ mod tests {
     #[test]
     fn test_suggest_ignores_exact_and_short() {
         let candidates = vec!["SP6INA", "AB"];
-        assert!(suggest_corrections("SP6INA", &candidates, 2, 4).is_empty());
-        assert!(suggest_corrections("AB", &candidates, 2, 4).is_empty());
+        assert_eq!(suggest_corrections("SP6INA", &candidates, 2, 4), []);
+        assert_eq!(suggest_corrections("AB", &candidates, 2, 4), []);
     }
 }

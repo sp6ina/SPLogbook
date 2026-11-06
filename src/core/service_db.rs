@@ -62,14 +62,13 @@ impl ServiceDatabase {
             }
         }
 
-        if found_path.is_none() {
-            if let Ok(exe) = std::env::current_exe() {
-                if let Some(dir) = exe.parent() {
-                    let p1 = dir.join("databases/serviceLOG.db");
-                    if p1.exists() {
-                        found_path = Some(p1);
-                    }
-                }
+        if found_path.is_none()
+            && let Ok(exe) = std::env::current_exe()
+            && let Some(dir) = exe.parent()
+        {
+            let p1 = dir.join("databases/serviceLOG.db");
+            if p1.exists() {
+                found_path = Some(p1);
             }
         }
 
@@ -94,32 +93,28 @@ impl ServiceDatabase {
     /// Wyszukuje grupy wysp IOTA (po kodzie np. 'EU-001' lub nazwie)
     pub fn search_iota(&self, query: &str) -> Vec<IotaRecord> {
         let clean = query.trim().to_uppercase();
-        if let Some(ref conn_mutex) = self.conn {
-            if let Ok(conn) = conn_mutex.lock() {
-                let pattern = format!("%{}%", escape_like(&clean));
-                if let Ok(mut stmt) = conn.prepare("SELECT IOTA, Name, Prefix1 FROM IOTA WHERE IOTA LIKE ?1 ESCAPE '\\' OR Name LIKE ?1 ESCAPE '\\' ORDER BY IOTA ASC LIMIT 100") {
-                    if let Ok(rows) = stmt.query_map(params![pattern], |row| {
-                        Ok(IotaRecord {
-                            iota: row.get::<_, String>(0)?,
-                            name: row.get::<_, String>(1)?,
-                            prefix: row.get::<_, String>(2).unwrap_or_default(),
-                        })
-                    }) {
-                        let mut res = Vec::new();
-                        for r in rows {
-            let r = match r {
-                Ok(r) => r,
-                Err(e) => {
-                    eprintln!("Ignorowanie błędu w service_db.rs: {}", e);
-                    continue;
-                }
-            };
-                            res.push(r);
-                        }
-                        if !res.is_empty() {
-                            return res;
-                        }
+        if let Some(ref conn_mutex) = self.conn
+            && let Ok(conn) = conn_mutex.lock()
+        {
+            let pattern = format!("%{}%", escape_like(&clean));
+            if let Ok(mut stmt) = conn.prepare("SELECT IOTA, Name, Prefix1 FROM IOTA WHERE IOTA LIKE ?1 ESCAPE '\\' OR Name LIKE ?1 ESCAPE '\\' ORDER BY IOTA ASC LIMIT 100")
+                && let Ok(rows) = stmt.query_map(params![pattern], |row| {
+                    Ok(IotaRecord {
+                        iota: row.get::<_, String>(0)?,
+                        name: row.get::<_, String>(1)?,
+                        prefix: row.get::<_, String>(2).unwrap_or_default(),
+                    })
+                })
+            {
+                let mut res = Vec::new();
+                for r in rows {
+                    match r {
+                        Ok(r) => res.push(r),
+                        Err(e) => eprintln!("Ignorowanie błędu w service_db.rs: {e}"),
                     }
+                }
+                if !res.is_empty() {
+                    return res;
                 }
             }
         }
@@ -129,24 +124,20 @@ impl ServiceDatabase {
 
     pub fn find_iota(&self, code: &str) -> Option<IotaRecord> {
         let clean = code.trim().to_uppercase();
-        if let Some(ref conn_mutex) = self.conn {
-            if let Ok(conn) = conn_mutex.lock() {
-                if let Ok(mut stmt) =
-                    conn.prepare("SELECT IOTA, Name, Prefix1 FROM IOTA WHERE IOTA = ?1 LIMIT 1")
-                {
-                    if let Ok(mut rows) = stmt.query_map(params![clean], |row| {
-                        Ok(IotaRecord {
-                            iota: row.get(0)?,
-                            name: row.get(1)?,
-                            prefix: row.get::<_, String>(2).unwrap_or_default(),
-                        })
-                    }) {
-                        if let Some(Ok(rec)) = rows.next() {
-                            return Some(rec);
-                        }
-                    }
-                }
-            }
+        if let Some(ref conn_mutex) = self.conn
+            && let Ok(conn) = conn_mutex.lock()
+            && let Ok(mut stmt) =
+                conn.prepare("SELECT IOTA, Name, Prefix1 FROM IOTA WHERE IOTA = ?1 LIMIT 1")
+            && let Ok(mut rows) = stmt.query_map(params![clean], |row| {
+                Ok(IotaRecord {
+                    iota: row.get(0)?,
+                    name: row.get(1)?,
+                    prefix: row.get::<_, String>(2).unwrap_or_default(),
+                })
+            })
+            && let Some(Ok(rec)) = rows.next()
+        {
+            return Some(rec);
         }
         Self::fallback_iota(&clean)
             .into_iter()
@@ -170,29 +161,27 @@ impl ServiceDatabase {
         }
 
         // 2. Jeśli podłączono serviceLOG.db, dołącz wpisy z bazy STATE
-        if let Some(ref conn_mutex) = self.conn {
-            if let Ok(conn) = conn_mutex.lock() {
-                let pattern = format!("%{}%", escape_like(&clean));
-                if let Ok(mut stmt) = conn.prepare("SELECT State, Name, Country FROM STATE WHERE State LIKE ?1 ESCAPE '\\' OR Name LIKE ?1 ESCAPE '\\' LIMIT 100") {
-                    if let Ok(rows) = stmt.query_map(params![pattern], |row| {
-                        Ok(StateRecord {
-                            code: row.get(0)?,
-                            name: row.get(1)?,
-                            country: row.get(2)?,
-                        })
-                    }) {
-                        for r in rows {
-            let r = match r {
-                Ok(r) => r,
-                Err(e) => {
-                    eprintln!("Ignorowanie błędu w service_db.rs: {}", e);
-                    continue;
-                }
-            };
+        if let Some(ref conn_mutex) = self.conn
+            && let Ok(conn) = conn_mutex.lock()
+        {
+            let pattern = format!("%{}%", escape_like(&clean));
+            if let Ok(mut stmt) = conn.prepare("SELECT State, Name, Country FROM STATE WHERE State LIKE ?1 ESCAPE '\\' OR Name LIKE ?1 ESCAPE '\\' LIMIT 100")
+                && let Ok(rows) = stmt.query_map(params![pattern], |row| {
+                    Ok(StateRecord {
+                        code: row.get(0)?,
+                        name: row.get(1)?,
+                        country: row.get(2)?,
+                    })
+                })
+            {
+                for r in rows {
+                    match r {
+                        Ok(r) => {
                             if !results.iter().any(|s| s.code == r.code && s.country == r.country) {
                                 results.push(r);
                             }
                         }
+                        Err(e) => eprintln!("Ignorowanie błędu w service_db.rs: {e}"),
                     }
                 }
             }
@@ -209,25 +198,21 @@ impl ServiceDatabase {
             return None;
         }
 
-        if let Some(ref conn_mutex) = self.conn {
-            if let Ok(conn) = conn_mutex.lock() {
-                if let Ok(mut stmt) = conn.prepare(
-                    "SELECT Call, Manager, Years, Notes FROM managers WHERE Call = ?1 LIMIT 1",
-                ) {
-                    if let Ok(mut rows) = stmt.query_map(params![clean], |row| {
-                        Ok(QslManagerRecord {
-                            call: row.get(0)?,
-                            manager: row.get(1)?,
-                            years: row.get::<_, String>(2).unwrap_or_default(),
-                            notes: row.get::<_, String>(3).unwrap_or_default(),
-                        })
-                    }) {
-                        if let Some(Ok(rec)) = rows.next() {
-                            return Some(rec);
-                        }
-                    }
-                }
-            }
+        if let Some(ref conn_mutex) = self.conn
+            && let Ok(conn) = conn_mutex.lock()
+            && let Ok(mut stmt) = conn
+                .prepare("SELECT Call, Manager, Years, Notes FROM managers WHERE Call = ?1 LIMIT 1")
+            && let Ok(mut rows) = stmt.query_map(params![clean], |row| {
+                Ok(QslManagerRecord {
+                    call: row.get(0)?,
+                    manager: row.get(1)?,
+                    years: row.get::<_, String>(2).unwrap_or_default(),
+                    notes: row.get::<_, String>(3).unwrap_or_default(),
+                })
+            })
+            && let Some(Ok(rec)) = rows.next()
+        {
+            return Some(rec);
         }
 
         None
@@ -240,28 +225,28 @@ impl ServiceDatabase {
             return Vec::new();
         }
 
-        if let Some(ref conn_mutex) = self.conn {
-            if let Ok(conn) = conn_mutex.lock() {
-                let pattern = format!("%{}%", escape_like(&clean));
-                if let Ok(mut stmt) = conn.prepare("SELECT Call, Manager, Years, Notes FROM managers WHERE Call LIKE ?1 ESCAPE '\\' OR Manager LIKE ?1 ESCAPE '\\' ORDER BY Call ASC LIMIT 100") {
-                    if let Ok(rows) = stmt.query_map(params![pattern], |row| {
-                        Ok(QslManagerRecord {
-                            call: row.get(0)?,
-                            manager: row.get(1)?,
-                            years: row.get::<_, String>(2).unwrap_or_default(),
-                            notes: row.get::<_, String>(3).unwrap_or_default(),
-                        })
-                    }) {
-                        let mut res = Vec::new();
-        for r in rows {
-            match r {
-                Ok(r) => res.push(r),
-                Err(e) => eprintln!("Ignorowanie błędu w service_db.rs: {}", e),
-            }
-        }
-        return res;
+        if let Some(ref conn_mutex) = self.conn
+            && let Ok(conn) = conn_mutex.lock()
+        {
+            let pattern = format!("%{}%", escape_like(&clean));
+            if let Ok(mut stmt) = conn.prepare("SELECT Call, Manager, Years, Notes FROM managers WHERE Call LIKE ?1 ESCAPE '\\' OR Manager LIKE ?1 ESCAPE '\\' ORDER BY Call ASC LIMIT 100")
+                && let Ok(rows) = stmt.query_map(params![pattern], |row| {
+                    Ok(QslManagerRecord {
+                        call: row.get(0)?,
+                        manager: row.get(1)?,
+                        years: row.get::<_, String>(2).unwrap_or_default(),
+                        notes: row.get::<_, String>(3).unwrap_or_default(),
+                    })
+                })
+            {
+                let mut res = Vec::new();
+                for r in rows {
+                    match r {
+                        Ok(r) => res.push(r),
+                        Err(e) => eprintln!("Ignorowanie błędu w service_db.rs: {e}"),
                     }
                 }
+                return res;
             }
         }
 
@@ -275,28 +260,25 @@ impl ServiceDatabase {
             return None;
         }
 
-        if let Some(ref conn_mutex) = self.conn {
-            if let Ok(conn) = conn_mutex.lock() {
-                if let Ok(mut stmt) = conn.prepare("SELECT Callsign, Country, DXCC, ARRLPrefix, Continent, CQZone, ITUZone FROM UniqueCalls WHERE Callsign = ?1 LIMIT 1") {
-                    if let Ok(mut rows) = stmt.query_map(params![clean], |row| {
-                        let dxcc_str: String = row.get::<_, String>(2).unwrap_or_default();
-                        let dxcc: u32 = dxcc_str.parse().unwrap_or(0);
-                        Ok(UniqueCallRecord {
-                            call: row.get(0)?,
-                            country: row.get(1)?,
-                            dxcc,
-                            arrl_prefix: row.get::<_, String>(3).unwrap_or_default(),
-                            continent: row.get::<_, String>(4).unwrap_or_default(),
-                            cq_zone: row.get::<_, u32>(5).unwrap_or(0),
-                            itu_zone: row.get::<_, u32>(6).unwrap_or(0),
-                        })
-                    }) {
-                        if let Some(Ok(rec)) = rows.next() {
-                            return Some(rec);
-                        }
-                    }
-                }
-            }
+        if let Some(ref conn_mutex) = self.conn
+            && let Ok(conn) = conn_mutex.lock()
+            && let Ok(mut stmt) = conn.prepare("SELECT Callsign, Country, DXCC, ARRLPrefix, Continent, CQZone, ITUZone FROM UniqueCalls WHERE Callsign = ?1 LIMIT 1")
+            && let Ok(mut rows) = stmt.query_map(params![clean], |row| {
+                let dxcc_str: String = row.get::<_, String>(2).unwrap_or_default();
+                let dxcc: u32 = dxcc_str.parse().unwrap_or(0);
+                Ok(UniqueCallRecord {
+                    call: row.get(0)?,
+                    country: row.get(1)?,
+                    dxcc,
+                    arrl_prefix: row.get::<_, String>(3).unwrap_or_default(),
+                    continent: row.get::<_, String>(4).unwrap_or_default(),
+                    cq_zone: row.get::<_, u32>(5).unwrap_or(0),
+                    itu_zone: row.get::<_, u32>(6).unwrap_or(0),
+                })
+            })
+            && let Some(Ok(rec)) = rows.next()
+        {
+            return Some(rec);
         }
 
         None
@@ -309,33 +291,33 @@ impl ServiceDatabase {
             return Vec::new();
         }
 
-        if let Some(ref conn_mutex) = self.conn {
-            if let Ok(conn) = conn_mutex.lock() {
-                let pattern = format!("%{}%", escape_like(&clean));
-                if let Ok(mut stmt) = conn.prepare("SELECT Callsign, Country, DXCC, ARRLPrefix, Continent, CQZone, ITUZone FROM UniqueCalls WHERE Callsign LIKE ?1 ESCAPE '\\' OR Country LIKE ?1 ESCAPE '\\' ORDER BY Callsign ASC LIMIT 100") {
-                    if let Ok(rows) = stmt.query_map(rusqlite::params![pattern], |row| {
-                        let dxcc_str: String = row.get::<_, String>(2).unwrap_or_default();
-                        let dxcc: u32 = dxcc_str.parse().unwrap_or(0);
-                        Ok(UniqueCallRecord {
-                            call: row.get(0)?,
-                            country: row.get(1)?,
-                            dxcc,
-                            arrl_prefix: row.get::<_, String>(3).unwrap_or_default(),
-                            continent: row.get::<_, String>(4).unwrap_or_default(),
-                            cq_zone: row.get::<_, u32>(5).unwrap_or(0),
-                            itu_zone: row.get::<_, u32>(6).unwrap_or(0),
-                        })
-                    }) {
-                        let mut res = Vec::new();
-        for r in rows {
-            match r {
-                Ok(r) => res.push(r),
-                Err(e) => eprintln!("Ignorowanie błędu w service_db.rs: {}", e),
-            }
-        }
-        return res;
+        if let Some(ref conn_mutex) = self.conn
+            && let Ok(conn) = conn_mutex.lock()
+        {
+            let pattern = format!("%{}%", escape_like(&clean));
+            if let Ok(mut stmt) = conn.prepare("SELECT Callsign, Country, DXCC, ARRLPrefix, Continent, CQZone, ITUZone FROM UniqueCalls WHERE Callsign LIKE ?1 ESCAPE '\\' OR Country LIKE ?1 ESCAPE '\\' ORDER BY Callsign ASC LIMIT 100")
+                && let Ok(rows) = stmt.query_map(rusqlite::params![pattern], |row| {
+                    let dxcc_str: String = row.get::<_, String>(2).unwrap_or_default();
+                    let dxcc: u32 = dxcc_str.parse().unwrap_or(0);
+                    Ok(UniqueCallRecord {
+                        call: row.get(0)?,
+                        country: row.get(1)?,
+                        dxcc,
+                        arrl_prefix: row.get::<_, String>(3).unwrap_or_default(),
+                        continent: row.get::<_, String>(4).unwrap_or_default(),
+                        cq_zone: row.get::<_, u32>(5).unwrap_or(0),
+                        itu_zone: row.get::<_, u32>(6).unwrap_or(0),
+                    })
+                })
+            {
+                let mut res = Vec::new();
+                for r in rows {
+                    match r {
+                        Ok(r) => res.push(r),
+                        Err(e) => eprintln!("Ignorowanie błędu w service_db.rs: {e}"),
                     }
                 }
+                return res;
             }
         }
 
@@ -437,7 +419,7 @@ mod tests {
     fn test_states_search() {
         let db = ServiceDatabase::open();
         let results = db.search_states("CALIF");
-        assert!(!results.is_empty());
+        assert_ne!(results, []);
         assert_eq!(results[0].code, "CA");
     }
 

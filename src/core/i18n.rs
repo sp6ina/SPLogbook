@@ -247,8 +247,8 @@ mod tests {
             let sections = manual(lang);
             assert_eq!(sections.len(), 17);
             assert_eq!(sections[0].id, "start");
-            assert!(!sections[0].title.is_empty());
-            assert!(!sections[0].body.is_empty());
+            assert_ne!(sections[0].title, "");
+            assert_ne!(sections[0].body, "");
         }
     }
 }

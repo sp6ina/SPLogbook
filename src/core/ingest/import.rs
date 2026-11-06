@@ -83,11 +83,9 @@ impl QsoIngestor {
             }
 
             let identity = qso.identity();
-            if identity.is_complete() {
-                if !seen_identities.insert(identity) {
-                    skipped_duplicates += 1;
-                    continue;
-                }
+            if identity.is_complete() && !seen_identities.insert(identity) {
+                skipped_duplicates += 1;
+                continue;
             }
 
             accepted.push(qso);

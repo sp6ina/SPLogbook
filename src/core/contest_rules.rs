@@ -547,14 +547,10 @@ pub fn cqzone_to_continent(z: u8) -> &'static str {
     match z {
         1..=8 => "NA",
         9..=13 => "SA",
-        14..=16 => "EU",
-        17..=19 => "AS",
-        20 => "EU", // Obszar Bałkanów / Cypru / Turcji
-        21..=26 => "AS",
+        17..=19 | 21..=26 => "AS",
         27..=32 => "OC",
         33..=39 => "AF",
-        40 => "EU",
-        _ => "EU",
+        14..=16 | 20 | 40 | _ => "EU",
     }
 }
 
@@ -660,7 +656,7 @@ pub fn score_sp_dx(qsos: &[QsoRecord], my_dxcc: u32, _my_cqzone: u8) -> (u32, u3
             let continent = q
                 .continent
                 .as_deref()
-                .unwrap_or_else(|| q.cqz.map(|z| cqzone_to_continent(z as u8)).unwrap_or("EU"));
+                .unwrap_or_else(|| q.cqz.map_or("EU", |z| cqzone_to_continent(z as u8)));
 
             if continent == "EU" {
                 pts += 1;
@@ -733,7 +729,7 @@ pub fn score_cqww(qsos: &[QsoRecord], my_dxcc: u32, my_cqzone: u8) -> (u32, u32,
         let their_cont = q
             .continent
             .as_deref()
-            .unwrap_or_else(|| q.cqz.map(|z| cqzone_to_continent(z as u8)).unwrap_or("EU"));
+            .unwrap_or_else(|| q.cqz.map_or("EU", |z| cqzone_to_continent(z as u8)));
 
         if q.dxcc == Some(my_dxcc) {
             pts += 0;
@@ -747,10 +743,10 @@ pub fn score_cqww(qsos: &[QsoRecord], my_dxcc: u32, my_cqzone: u8) -> (u32, u32,
             pts += 3;
         }
 
-        if let Some(z) = q.cqz {
-            if (1..=40).contains(&z) {
-                mults.insert(format!("{}:Z{:02}", q.band, z));
-            }
+        if let Some(z) = q.cqz
+            && (1..=40).contains(&z)
+        {
+            mults.insert(format!("{}:Z{:02}", q.band, z));
         }
         if let Some(d) = q.dxcc {
             mults.insert(format!("{}:D{}", q.band, d));
@@ -814,7 +810,7 @@ pub fn score_wpx(qsos: &[QsoRecord], my_dxcc: u32, my_cqzone: u8) -> (u32, u32, 
         let their_cont = q
             .continent
             .as_deref()
-            .unwrap_or_else(|| q.cqz.map(|z| cqzone_to_continent(z as u8)).unwrap_or("EU"));
+            .unwrap_or_else(|| q.cqz.map_or("EU", |z| cqzone_to_continent(z as u8)));
 
         if !is_valid_wpx_band(&q.band) {
             continue;

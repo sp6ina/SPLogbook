@@ -340,7 +340,7 @@ mod tests {
         let obs = warsaw();
         // Wybierz przelot i sprawdź znak Dopplera na AOS/LOS.
         let passes = predict_passes(&def, &obs, 0.0, 5.0, 24.0);
-        assert!(!passes.is_empty());
+        assert_ne!(passes, []);
         for p in &passes {
             // Na AOS (zbliżanie) Doppler > 0, przy LOS (oddalanie) < 0.
             assert!(p.aos_doppler_khz > 0.0, "AOS doppler should be positive");

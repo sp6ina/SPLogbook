@@ -70,7 +70,7 @@ impl std::fmt::Debug for EventBus {
             .field("tx", &self.tx)
             .field(
                 "wake_signal_is_set",
-                &self.wake_signal.lock().map_or(false, |s| s.is_some()),
+                &self.wake_signal.lock().is_ok_and(|s| s.is_some()),
             )
             .finish()
     }
@@ -108,10 +108,10 @@ impl EventBus {
     /// Ignoruje błąd, gdy nie ma żadnego aktywnego odbiorcy kanału broadcast.
     pub fn publish(&self, event: AppEvent) {
         let _ = self.tx.send(event);
-        if let Ok(guard) = self.wake_signal.lock() {
-            if let Some(ref signal) = *guard {
-                signal();
-            }
+        if let Ok(guard) = self.wake_signal.lock()
+            && let Some(ref signal) = *guard
+        {
+            signal();
         }
     }
 

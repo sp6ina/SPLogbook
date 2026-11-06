@@ -208,6 +208,7 @@ impl QsoIngestor {
     /// - `Ok(Some(qso))` po pomyślnej aktualizacji,
     /// - `Ok(None)`, jeśli rekord o wskazanym ID nie istnieje w bazie,
     /// - `Err(IngestError)` w przypadku błędów walidacji lub operacji bazodanowych.
+    ///
     /// Aktualizuje istniejący rekord QSO w wybranym profilu/dzienniku.
     ///
     /// Zapewnia pełną izolację wielodziennikową (DATA-004, DATA-005):

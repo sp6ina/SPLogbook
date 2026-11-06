@@ -119,10 +119,9 @@ impl BackupManager {
         // Zabezpieczenie przed zapisaniem kopii do tej samej ścieżki co aktywna baza
         if let (Ok(source_can), Ok(bdir_can)) =
             (source_db_path.canonicalize(), backup_dir.canonicalize())
+            && source_can == bdir_can
         {
-            if source_can == bdir_can {
-                return Err(BackupError::SamePath);
-            }
+            return Err(BackupError::SamePath);
         }
 
         let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S%.3f").to_string();
@@ -344,12 +343,12 @@ impl BackupManager {
                 .and_then(|n| n.to_str())
                 .unwrap_or_default();
             let is_app_backup = name.starts_with(&expected_prefix) && name.ends_with(extension);
-            if path.is_file() && is_app_backup {
-                if let Ok(meta) = entry.metadata() {
-                    if let Ok(modified) = meta.modified() {
-                        entries.push((path, modified));
-                    }
-                }
+            if path.is_file()
+                && is_app_backup
+                && let Ok(meta) = entry.metadata()
+                && let Ok(modified) = meta.modified()
+            {
+                entries.push((path, modified));
             }
         }
 

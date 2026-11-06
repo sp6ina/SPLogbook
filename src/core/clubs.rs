@@ -340,7 +340,7 @@ mod tests {
 
         let loaded = ClubRegistry::load_from_csv(&csv_file).unwrap();
         assert_eq!(loaded.get("SP1AAA").unwrap().len(), 1);
-        assert!(loaded.get("SP2BBB").is_none());
+        assert!(!loaded.contains_key("SP2BBB"));
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
 
@@ -479,7 +479,7 @@ mod tests {
     #[test]
     fn club_registry_does_not_invent_member_number() {
         let affs = ClubRegistry::check("ZZ0NONEXISTENT");
-        assert!(affs.is_empty());
+        assert_eq!(affs, []);
     }
 
     #[test]

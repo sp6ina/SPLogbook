@@ -341,7 +341,7 @@ pub fn validate_rig_id_str(s: &str) -> Result<RigId, (StatusCode, String)> {
 }
 
 pub fn validate_frequency_hz(freq: u64) -> Result<(), (StatusCode, String)> {
-    if freq < MIN_VALID_FREQ_HZ || freq > MAX_VALID_FREQ_HZ {
+    if !(MIN_VALID_FREQ_HZ..=MAX_VALID_FREQ_HZ).contains(&freq) {
         return Err((
             StatusCode::BAD_REQUEST,
             format!(
@@ -353,6 +353,11 @@ pub fn validate_frequency_hz(freq: u64) -> Result<(), (StatusCode, String)> {
 }
 
 pub fn validate_mode_str(mode: &str) -> Result<String, (StatusCode, String)> {
+    const VALID_MODES: &[&str] = &[
+        "USB", "LSB", "CW", "CWR", "AM", "FM", "WFM", "RTTY", "RTTYR", "PSK", "PSK31", "PSK63",
+        "DATA", "PKTUSB", "PKTLSB", "FT8", "FT4", "JT65", "JT9", "JS8", "SSTV", "FST4", "Q65",
+        "MSK144",
+    ];
     let trimmed = mode.trim();
     if trimmed.is_empty() || trimmed.len() > 16 {
         return Err((
@@ -361,11 +366,6 @@ pub fn validate_mode_str(mode: &str) -> Result<String, (StatusCode, String)> {
         ));
     }
     let upper = trimmed.to_ascii_uppercase();
-    const VALID_MODES: &[&str] = &[
-        "USB", "LSB", "CW", "CWR", "AM", "FM", "WFM", "RTTY", "RTTYR", "PSK", "PSK31", "PSK63",
-        "DATA", "PKTUSB", "PKTLSB", "FT8", "FT4", "JT65", "JT9", "JS8", "SSTV", "FST4", "Q65",
-        "MSK144",
-    ];
     if !VALID_MODES.contains(&upper.as_str()) {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -528,50 +528,49 @@ async fn auth_middleware(
 
     let provided = header_key.or(bearer_key).or(query_key);
 
-    if !state.api_key.trim().is_empty() {
-        match provided {
-            Some(key) if constant_time_eq(key.as_bytes(), state.api_key.as_bytes()) => {
-                Ok(next.run(req).await)
-            }
-            _ => Err(StatusCode::UNAUTHORIZED),
-        }
-    } else {
+    if state.api_key.trim().is_empty() {
         let is_mutation = matches!(
             *req.method(),
             Method::POST | Method::PUT | Method::PATCH | Method::DELETE
         );
 
         if is_mutation {
-            if let Some(origin) = req.headers().get(header::ORIGIN) {
-                if loopback_origin_header(origin).is_none() {
-                    return Err(StatusCode::FORBIDDEN);
-                }
+            if let Some(origin) = req.headers().get(header::ORIGIN)
+                && loopback_origin_header(origin).is_none()
+            {
+                return Err(StatusCode::FORBIDDEN);
             }
 
             if let Some(site) = req
                 .headers()
                 .get("sec-fetch-site")
                 .and_then(|v| v.to_str().ok())
+                && site.eq_ignore_ascii_case("cross-site")
             {
-                if site.eq_ignore_ascii_case("cross-site") {
-                    return Err(StatusCode::FORBIDDEN);
-                }
+                return Err(StatusCode::FORBIDDEN);
             }
 
-            if let Some(connect_info) = req.extensions().get::<ConnectInfo<SocketAddr>>() {
-                if !connect_info.ip().is_loopback() {
-                    return Err(StatusCode::FORBIDDEN);
-                }
+            if let Some(connect_info) = req.extensions().get::<ConnectInfo<SocketAddr>>()
+                && !connect_info.ip().is_loopback()
+            {
+                return Err(StatusCode::FORBIDDEN);
             }
 
             Ok(next.run(req).await)
         } else {
-            if let Some(connect_info) = req.extensions().get::<ConnectInfo<SocketAddr>>() {
-                if !connect_info.ip().is_loopback() {
-                    return Err(StatusCode::FORBIDDEN);
-                }
+            if let Some(connect_info) = req.extensions().get::<ConnectInfo<SocketAddr>>()
+                && !connect_info.ip().is_loopback()
+            {
+                return Err(StatusCode::FORBIDDEN);
             }
             Ok(next.run(req).await)
+        }
+    } else {
+        match provided {
+            Some(key) if constant_time_eq(key.as_bytes(), state.api_key.as_bytes()) => {
+                Ok(next.run(req).await)
+            }
+            _ => Err(StatusCode::UNAUTHORIZED),
         }
     }
 }
@@ -972,8 +971,7 @@ async fn get_qsos(
             if filter.journal_id.is_none() {
                 let active = db
                     .get_active_journal()
-                    .map(|j| j.id)
-                    .unwrap_or_else(|_| "DEFAULT".to_string());
+                    .map_or_else(|_| "DEFAULT".to_string(), |j| j.id);
                 filter.journal_id = Some(active);
             }
             let mut qsos = db.search_qsos_advanced(&filter)?;
@@ -987,8 +985,7 @@ async fn get_qsos(
         } else {
             let active = db
                 .get_active_journal()
-                .map(|j| j.id)
-                .unwrap_or_else(|_| "DEFAULT".to_string());
+                .map_or_else(|_| "DEFAULT".to_string(), |j| j.id);
             db.get_qsos_paginated_for_journal(&active, limit, offset)
         }
     })
@@ -1007,8 +1004,7 @@ async fn get_qso_by_id(
             Some(j) => j,
             None => db
                 .get_active_journal()
-                .map(|j| j.id)
-                .unwrap_or_else(|_| "DEFAULT".to_string()),
+                .map_or_else(|_| "DEFAULT".to_string(), |j| j.id),
         };
         db.get_qso_by_id_scoped(id, &target_journal)
     })
@@ -1069,8 +1065,7 @@ async fn put_qso_by_id(
             Some(j) => j,
             None => db
                 .get_active_journal()
-                .map(|j| j.id)
-                .unwrap_or_else(|_| "DEFAULT".to_string()),
+                .map_or_else(|_| "DEFAULT".to_string(), |j| j.id),
         })
     })
     .await?;
@@ -1121,8 +1116,7 @@ async fn delete_qso_by_id(
             Some(j) => j,
             None => db
                 .get_active_journal()
-                .map(|j| j.id)
-                .unwrap_or_else(|_| "DEFAULT".to_string()),
+                .map_or_else(|_| "DEFAULT".to_string(), |j| j.id),
         };
         db.delete_qso_scoped(id, &target_journal)
     })
@@ -1155,8 +1149,7 @@ async fn get_qsos_by_callsign(
             Some(j) => j,
             None => db
                 .get_active_journal()
-                .map(|j| j.id)
-                .unwrap_or_else(|_| "DEFAULT".to_string()),
+                .map_or_else(|_| "DEFAULT".to_string(), |j| j.id),
         };
         db.find_previous_qsos_for_journal(&target_journal, &clean_call_for_db)
     })
@@ -1232,8 +1225,7 @@ async fn lookup_callsign(
             Some(j) => j,
             None => db
                 .get_active_journal()
-                .map(|j| j.id)
-                .unwrap_or_else(|_| "DEFAULT".to_string()),
+                .map_or_else(|_| "DEFAULT".to_string(), |j| j.id),
         };
         Ok(db
             .find_previous_qsos_for_journal(&target_journal, &clean_for_db)
@@ -1269,8 +1261,7 @@ async fn export_adif_handler(
             if filter.journal_id.is_none() {
                 let active = db
                     .get_active_journal()
-                    .map(|j| j.id)
-                    .unwrap_or_else(|_| "DEFAULT".to_string());
+                    .map_or_else(|_| "DEFAULT".to_string(), |j| j.id);
                 filter.journal_id = Some(active);
             }
             let mut list = db.search_qsos_advanced(&filter)?;
@@ -1281,14 +1272,12 @@ async fn export_adif_handler(
         } else if let Some(lim) = query.limit {
             let active = db
                 .get_active_journal()
-                .map(|j| j.id)
-                .unwrap_or_else(|_| "DEFAULT".to_string());
+                .map_or_else(|_| "DEFAULT".to_string(), |j| j.id);
             db.get_qsos_paginated_for_journal(&active, lim, query.offset.unwrap_or(0))
         } else {
             let active = db
                 .get_active_journal()
-                .map(|j| j.id)
-                .unwrap_or_else(|_| "DEFAULT".to_string());
+                .map_or_else(|_| "DEFAULT".to_string(), |j| j.id);
             db.get_all_qsos_for_journal(&active)
         }
     })
@@ -1326,15 +1315,13 @@ async fn import_adif_handler(
         let qsos = parse_report.qsos;
         let rejected = parse_report.rejected;
         let errors = parse_report.errors;
-        let journal_id = match query.journal_id {
-            Some(j) => j,
-            None => {
-                let db_guard = db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                db_guard
-                    .get_active_journal()
-                    .map(|j| j.id)
-                    .unwrap_or_else(|_| "DEFAULT".to_string())
-            }
+        let journal_id = if let Some(j) = query.journal_id {
+            j
+        } else {
+            let db_guard = db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            db_guard
+                .get_active_journal()
+                .map_or_else(|_| "DEFAULT".to_string(), |j| j.id)
         };
         let options = ImportOptions {
             journal_id,
@@ -1935,8 +1922,7 @@ async fn get_stats(
             Some(j) => j,
             None => db
                 .get_active_journal()
-                .map(|j| j.id)
-                .unwrap_or_else(|_| "DEFAULT".to_string()),
+                .map_or_else(|_| "DEFAULT".to_string(), |j| j.id),
         };
         let total = db.count_qsos_for_journal(&target_journal)?;
         let (unique_calls, unique_dxcc) = db.stats_unique_counts_for_journal(&target_journal)?;
@@ -1996,20 +1982,22 @@ async fn get_cluster_spots(
     let result: Vec<serde_json::Value> = spots
         .iter()
         .filter(|s| {
-            if let Some(ref b) = band_filter {
-                if !b.is_empty() && s.band.to_lowercase() != *b {
-                    return false;
-                }
+            if let Some(ref b) = band_filter
+                && !b.is_empty()
+                && s.band.to_lowercase() != *b
+            {
+                return false;
             }
-            if let Some(ft8) = query.ft8 {
-                if s.is_ft8 != ft8 {
-                    return false;
-                }
+            if let Some(ft8) = query.ft8
+                && s.is_ft8 != ft8
+            {
+                return false;
             }
-            if let Some(ref c) = call_filter {
-                if !c.is_empty() && !s.dx_call.to_uppercase().contains(c) {
-                    return false;
-                }
+            if let Some(ref c) = call_filter
+                && !c.is_empty()
+                && !s.dx_call.to_uppercase().contains(c)
+            {
+                return false;
             }
             true
         })
@@ -2395,7 +2383,7 @@ mod tests {
         assert_eq!(json_dup["rejected"], 2);
         assert_eq!(json_dup["total_qsos"], 2);
         let errors = json_dup["errors"].as_array().unwrap();
-        assert!(!errors.is_empty());
+        assert_ne!(errors, &[] as &[serde_json::Value]);
         assert!(
             errors
                 .iter()
@@ -2454,7 +2442,7 @@ mod tests {
         assert_eq!(json2["imported"], 0);
         assert_eq!(json2["rejected"], 1);
         let errors = json2["errors"].as_array().unwrap();
-        assert!(!errors.is_empty());
+        assert_ne!(errors, &[] as &[serde_json::Value]);
     }
 
     #[tokio::test]
@@ -2671,9 +2659,15 @@ mod tests {
         // Brak zapisu w bazie
         assert_eq!(state.db.lock().unwrap().count_all().unwrap(), 0);
         // Brak wpisu w Awards
-        assert!(state.awards_engine.lock().unwrap().worked_calls.is_empty());
+        assert_eq!(
+            state.awards_engine.lock().unwrap().worked_calls,
+            std::collections::HashSet::new()
+        );
         // Brak wpisu w SCP
-        assert!(state.scp_engine.lock().unwrap().search("", 5).is_empty());
+        assert_eq!(
+            state.scp_engine.lock().unwrap().search("", 5),
+            [] as [String; 0]
+        );
         // Brak zdarzenia w EventBus
         assert!(event_rx.try_recv().is_err());
         // Reload flag pozostaje false
@@ -2714,14 +2708,13 @@ mod tests {
         // Brak autogeneracji Utc::now() i brak zapisu w bazie
         assert_eq!(state.db.lock().unwrap().count_all().unwrap(), 0);
         // Brak efektów ubocznych
-        assert!(state.awards_engine.lock().unwrap().worked_calls.is_empty());
-        assert!(
-            state
-                .scp_engine
-                .lock()
-                .unwrap()
-                .search("SP5XYZ", 5)
-                .is_empty()
+        assert_eq!(
+            state.awards_engine.lock().unwrap().worked_calls,
+            std::collections::HashSet::new()
+        );
+        assert_eq!(
+            state.scp_engine.lock().unwrap().search("SP5XYZ", 5),
+            [] as [String; 0]
         );
         assert!(event_rx.try_recv().is_err());
         assert!(!state.reload_flag.load(Ordering::Acquire));
@@ -2761,14 +2754,13 @@ mod tests {
         // Brak autogeneracji Utc::now() i brak zapisu w bazie
         assert_eq!(state.db.lock().unwrap().count_all().unwrap(), 0);
         // Brak efektów ubocznych
-        assert!(state.awards_engine.lock().unwrap().worked_calls.is_empty());
-        assert!(
-            state
-                .scp_engine
-                .lock()
-                .unwrap()
-                .search("SP5XYZ", 5)
-                .is_empty()
+        assert_eq!(
+            state.awards_engine.lock().unwrap().worked_calls,
+            std::collections::HashSet::new()
+        );
+        assert_eq!(
+            state.scp_engine.lock().unwrap().search("SP5XYZ", 5),
+            [] as [String; 0]
         );
         assert!(event_rx.try_recv().is_err());
         assert!(!state.reload_flag.load(Ordering::Acquire));

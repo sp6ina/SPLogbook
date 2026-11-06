@@ -120,12 +120,12 @@ pub fn validate_cqwpx_serial_policy(
         };
 
         if let Some(ser) = serial_val {
-            if let Some(prev) = prev_serial {
-                if ser <= prev {
-                    return Err(ContestError::InvalidSerialNumber(format!(
-                        "Non-monotonic serial sequence: previous {prev}, current {ser}"
-                    )));
-                }
+            if let Some(prev) = prev_serial
+                && ser <= prev
+            {
+                return Err(ContestError::InvalidSerialNumber(format!(
+                    "Non-monotonic serial sequence: previous {prev}, current {ser}"
+                )));
             }
             prev_serial = Some(ser);
         }
@@ -261,7 +261,6 @@ pub fn band_to_cabrillo_freq(band: &str) -> u64 {
         "60m" => 5350,
         "40m" => 7000,
         "30m" => 10100,
-        "20m" => 14000,
         "17m" => 18068,
         "15m" => 21000,
         "12m" => 24890,
@@ -274,7 +273,7 @@ pub fn band_to_cabrillo_freq(band: &str) -> u64 {
         "33cm" => 902,
         "23cm" => 1296,
         "13cm" => 2300,
-        _ => 14000,
+        "20m" | _ => 14000,
     }
 }
 
@@ -541,7 +540,7 @@ mod tests {
         assert!(
             lines[0].contains("3500 CW 2026-04-04 1200 SP6INA")
                 && lines[0].contains("579")
-                && lines[0].contains("D")
+                && lines[0].contains('D')
                 && lines[0].contains("589")
                 && lines[0].contains("001"),
             "lines[0] unexpected: '{}'",
