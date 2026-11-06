@@ -771,4 +771,15 @@ impl RigBackend for IcomCiVBackend {
             })
         })
     }
+
+    fn execute_native<'a>(
+        &'a mut self,
+        command: &'a crate::cat::native::NativeRigCommand,
+    ) -> crate::cat::backend::BoxFuture<'a, Result<(), RigError>> {
+        Box::pin(self.execute_native(command))
+    }
+
+    fn drain_native_events(&mut self) -> Vec<crate::cat::native::NativeRigEvent> {
+        self.drain_events()
+    }
 }

@@ -11,8 +11,7 @@ use std::future::Future;
 use std::pin::Pin;
 
 pub use crate::cat::factory::{FactoryError, RigBackendFactory};
-use crate::cat::flrig::FlrigClient;
-use crate::cat::hamlib::{HamlibClient, RigState};
+use crate::cat::hamlib::RigState;
 pub use crate::cat::native::elecraft::ElecraftBackend;
 pub use crate::cat::native::flexradio::FlexRadioBackend;
 pub use crate::cat::native::icom::IcomCiVBackend;
@@ -63,6 +62,30 @@ pub trait RigBackend: Send {
             backend: self.kind(),
             command: "probe",
         })))
+    }
+
+    /// Wykonuje rozszerzone polecenie specyficzne dla natywnego protokołu producenta.
+    fn execute_native<'a>(
+        &'a mut self,
+        command: &'a crate::cat::native::NativeRigCommand,
+    ) -> BoxFuture<'a, Result<(), RigError>> {
+        match command {
+            crate::cat::native::NativeRigCommand::Common(c) => self.execute(c),
+            crate::cat::native::NativeRigCommand::EmergencyRx => {
+                self.execute(&RigCommand::SetPtt(false))
+            }
+            crate::cat::native::NativeRigCommand::PollMeters => {
+                Box::pin(std::future::ready(Err(RigError::Unsupported {
+                    backend: self.kind(),
+                    command: "execute_native::PollMeters",
+                })))
+            }
+        }
+    }
+
+    /// Pobiera zgromadzone asynchroniczne zdarzenia natywne (np. Transceive CI-V / SmartSDR).
+    fn drain_native_events(&mut self) -> Vec<crate::cat::native::NativeRigEvent> {
+        Vec::new()
     }
 }
 
@@ -281,125 +304,6 @@ pub trait CatBackend: Send + Sync {
     }
 }
 
-fn unsupported_backend(kind: CatBackendKind) -> RigError {
-    RigError::Unsupported {
-        backend: kind,
-        command: "connect",
-    }
-}
-
-/// Dyspozytor backendu CAT — wybiera konkretną implementację na podstawie
-/// [`CatBackendKind`] i deleguje do niej wywołania traitu [`CatBackend`].
-pub enum CatController {
-    Hamlib(HamlibClient),
-    Flrig(FlrigClient),
-    Unsupported(CatBackendKind),
-}
-
-impl CatController {
-    /// Tworzy kontroler dla wskazanego backendu i adresu hosta/portu.
-    pub fn new(kind: CatBackendKind, host: &str, port: u16) -> Self {
-        match kind {
-            CatBackendKind::Hamlib => {
-                let (client, _rx) = HamlibClient::new(host, port);
-                Self::Hamlib(client)
-            }
-            CatBackendKind::Flrig => Self::Flrig(FlrigClient::new(host, port)),
-            other => Self::Unsupported(other),
-        }
-    }
-}
-
-impl CatBackend for CatController {
-    fn kind(&self) -> CatBackendKind {
-        match self {
-            Self::Hamlib(_) => CatBackendKind::Hamlib,
-            Self::Flrig(_) => CatBackendKind::Flrig,
-            Self::Unsupported(k) => *k,
-        }
-    }
-
-    async fn connect(&mut self) -> Result<(), RigError> {
-        match self {
-            Self::Hamlib(c) => c.connect().await,
-            Self::Flrig(c) => c.connect().await,
-            Self::Unsupported(k) => Err(unsupported_backend(*k)),
-        }
-    }
-
-    async fn poll_state(&mut self) -> Result<RigState, RigError> {
-        match self {
-            Self::Hamlib(c) => c.poll_state().await,
-            Self::Flrig(c) => c.poll_state().await,
-            Self::Unsupported(k) => Err(unsupported_backend(*k)),
-        }
-    }
-
-    async fn set_frequency(&self, freq_hz: u64) -> Result<(), RigError> {
-        match self {
-            Self::Hamlib(c) => c.set_frequency(freq_hz).await,
-            Self::Flrig(c) => c.set_frequency(freq_hz).await,
-            Self::Unsupported(k) => Err(unsupported_backend(*k)),
-        }
-    }
-
-    async fn set_mode(&self, mode: &str, passband_hz: u32) -> Result<(), RigError> {
-        match self {
-            Self::Hamlib(c) => c.set_mode(mode, passband_hz).await,
-            Self::Flrig(c) => CatBackend::set_mode(c, mode, passband_hz).await,
-            Self::Unsupported(k) => Err(unsupported_backend(*k)),
-        }
-    }
-
-    async fn set_split(&self, enabled: bool, tx_vfo: &str) -> Result<(), RigError> {
-        match self {
-            Self::Hamlib(c) => c.set_split(enabled, tx_vfo).await,
-            Self::Flrig(c) => c.set_split(enabled, tx_vfo).await,
-            Self::Unsupported(k) => Err(unsupported_backend(*k)),
-        }
-    }
-
-    async fn set_ptt(&self, ptt: bool) -> Result<(), RigError> {
-        match self {
-            Self::Hamlib(c) => c.set_ptt(ptt).await,
-            Self::Flrig(c) => c.set_ptt(ptt).await,
-            Self::Unsupported(k) => Err(unsupported_backend(*k)),
-        }
-    }
-
-    async fn set_vfo(&self, vfo: &str) -> Result<(), RigError> {
-        match self {
-            Self::Hamlib(c) => c.set_vfo(vfo).await,
-            Self::Flrig(c) => CatBackend::set_vfo(c, vfo).await,
-            Self::Unsupported(k) => Err(unsupported_backend(*k)),
-        }
-    }
-
-    async fn set_rit(&self, rit_hz: i32) -> Result<(), RigError> {
-        match self {
-            Self::Hamlib(c) => c.set_rit(rit_hz).await,
-            Self::Flrig(c) => c.set_rit(rit_hz).await,
-            Self::Unsupported(k) => Err(unsupported_backend(*k)),
-        }
-    }
-
-    async fn set_xit(&self, xit_hz: i32) -> Result<(), RigError> {
-        match self {
-            Self::Hamlib(c) => c.set_xit(xit_hz).await,
-            Self::Flrig(c) => c.set_xit(xit_hz).await,
-            Self::Unsupported(k) => Err(unsupported_backend(*k)),
-        }
-    }
-
-    async fn set_power(&self, watts: f32) -> Result<(), RigError> {
-        match self {
-            Self::Hamlib(c) => c.set_power(watts).await,
-            Self::Flrig(c) => c.set_power(watts).await,
-            Self::Unsupported(k) => Err(unsupported_backend(*k)),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -430,12 +334,21 @@ mod tests {
     }
 
     #[test]
-    fn controller_kind_matches_requested_backend() {
-        let ctl = CatController::new(CatBackendKind::Flrig, "127.0.0.1", 12345);
-        assert_eq!(ctl.kind(), CatBackendKind::Flrig);
-
-        let ctl = CatController::new(CatBackendKind::Tci, "127.0.0.1", 40001);
-        assert_eq!(ctl.kind(), CatBackendKind::Tci);
+    fn backend_native_command_bridge_common_and_events() {
+        use crate::cat::native::{NativeRigCommand, NativeRigEvent};
+        let cmd = NativeRigCommand::Common(RigCommand::SetFrequency(14_074_000));
+        assert!(matches!(
+            cmd,
+            NativeRigCommand::Common(RigCommand::SetFrequency(14_074_000))
+        ));
+        let ev = NativeRigEvent::TransceiveFrequencyChanged {
+            vfo: "VFOA".to_string(),
+            frequency_hz: 14_074_000,
+        };
+        assert!(matches!(
+            ev,
+            NativeRigEvent::TransceiveFrequencyChanged { .. }
+        ));
     }
 
     #[test]

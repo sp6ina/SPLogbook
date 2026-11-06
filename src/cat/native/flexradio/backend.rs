@@ -1425,6 +1425,10 @@ impl RigBackend for FlexRadioBackend {
             })
         })
     }
+
+    fn drain_native_events(&mut self) -> Vec<crate::cat::native::NativeRigEvent> {
+        self.drain_events()
+    }
 }
 
 #[cfg(test)]
