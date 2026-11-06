@@ -30,7 +30,7 @@ impl std::fmt::Display for ShortcutConfigError {
                 shortcut,
             } => write!(
                 f,
-                "konflikt powiązań skrótu {shortcut}: {action_a:?} vs {action_b:?}"
+                "shortcut binding conflict {shortcut}: {action_a:?} vs {action_b:?}"
             ),
         }
     }
@@ -306,7 +306,7 @@ impl ShortcutRegistry {
             ConflictPolicy::AllowInTextEditing,
             RepeatPolicy::SingleTrigger,
             "F1",
-            "Pomoc i spis skrótów klawiaturowych",
+            "Keyboard shortcuts help and list",
         ));
         self.register(ShortcutBinding::new(
             AppAction::SaveQso,
@@ -316,7 +316,7 @@ impl ShortcutRegistry {
             ConflictPolicy::AllowInTextEditing,
             RepeatPolicy::SingleTrigger,
             "F2",
-            "Zapisz łączność QSO do dziennika",
+            "Save QSO to logbook",
         ));
         self.register(ShortcutBinding::new(
             AppAction::WipeQso,
@@ -326,7 +326,7 @@ impl ShortcutRegistry {
             ConflictPolicy::AllowInTextEditing,
             RepeatPolicy::SingleTrigger,
             "F3",
-            "Wyczyść formularz łączności QSO",
+            "Wipe QSO form",
         ));
         self.register(ShortcutBinding::new(
             AppAction::LookupQrz,
@@ -336,7 +336,7 @@ impl ShortcutRegistry {
             ConflictPolicy::AllowInTextEditing,
             RepeatPolicy::SingleTrigger,
             "F4",
-            "Wyszukaj znak w QRZ.com / HamQTH",
+            "Lookup callsign in QRZ.com / HamQTH",
         ));
         self.register(ShortcutBinding::new(
             AppAction::RefreshLog,
@@ -346,7 +346,7 @@ impl ShortcutRegistry {
             ConflictPolicy::AllowInTextEditing,
             RepeatPolicy::SingleTrigger,
             "F5",
-            "Odśwież tabelę dziennika",
+            "Refresh logbook table",
         ));
         self.register(ShortcutBinding::new(
             AppAction::SendSpot,
@@ -356,7 +356,7 @@ impl ShortcutRegistry {
             ConflictPolicy::AllowInTextEditing,
             RepeatPolicy::SingleTrigger,
             "F6",
-            "Wyślij spot DX na bieżącą częstotliwość",
+            "Send DX spot for current frequency",
         ));
         self.register(ShortcutBinding::new(
             AppAction::TogglePtt,
@@ -366,7 +366,7 @@ impl ShortcutRegistry {
             ConflictPolicy::AllowInTextEditing,
             RepeatPolicy::SingleTrigger,
             "F7",
-            "Przełącz nadawanie PTT (TX/RX)",
+            "Toggle PTT transmission (TX/RX)",
         ));
         self.register(ShortcutBinding::new(
             AppAction::ToggleVoiceKeyer,
@@ -376,7 +376,7 @@ impl ShortcutRegistry {
             ConflictPolicy::AllowInTextEditing,
             RepeatPolicy::SingleTrigger,
             "F8",
-            "Otwórz okno Voice Keyer SSB",
+            "Open SSB Voice Keyer window",
         ));
         self.register(ShortcutBinding::new(
             AppAction::ToggleFullscreen,
@@ -386,7 +386,7 @@ impl ShortcutRegistry {
             ConflictPolicy::AllowInTextEditing,
             RepeatPolicy::SingleTrigger,
             "F11",
-            "Pełny ekran",
+            "Full screen",
         ));
         self.register(ShortcutBinding::new(
             AppAction::OpenManual,
@@ -396,7 +396,7 @@ impl ShortcutRegistry {
             ConflictPolicy::AllowInTextEditing,
             RepeatPolicy::SingleTrigger,
             "F12",
-            "Otwórz podręcznik użytkownika",
+            "Open user manual",
         ));
 
         // --- SKRÓTY Z KLAWISZEM CTRL DOSTĘPNE PODCZAS EDYCJI TEKSTU (Jawny kontrakt) ---
@@ -408,7 +408,7 @@ impl ShortcutRegistry {
             ConflictPolicy::AllowInTextEditing,
             RepeatPolicy::SingleTrigger,
             "Ctrl+W",
-            "Wyczyść formularz QSO",
+            "Wipe QSO entry form",
         ));
         self.register(ShortcutBinding::new(
             AppAction::SaveQso,
@@ -418,7 +418,7 @@ impl ShortcutRegistry {
             ConflictPolicy::AllowInTextEditing,
             RepeatPolicy::SingleTrigger,
             "Ctrl+L",
-            "Zapisz bieżące QSO do dziennika",
+            "Save current QSO to logbook",
         ));
         self.register(ShortcutBinding::new(
             AppAction::NewQso,
@@ -428,7 +428,7 @@ impl ShortcutRegistry {
             ConflictPolicy::AllowInTextEditing,
             RepeatPolicy::SingleTrigger,
             "Ctrl+N",
-            "Nowe QSO (skupienie na znaku)",
+            "New QSO (focus callsign)",
         ));
         self.register(ShortcutBinding::new(
             AppAction::FocusFilter,
@@ -438,7 +438,7 @@ impl ShortcutRegistry {
             ConflictPolicy::AllowInTextEditing,
             RepeatPolicy::SingleTrigger,
             "Ctrl+F",
-            "Szukaj w dzienniku / filtr zaawansowany",
+            "Search in logbook / advanced filter",
         ));
         self.register(ShortcutBinding::new(
             AppAction::SaveConfig,
@@ -448,7 +448,7 @@ impl ShortcutRegistry {
             ConflictPolicy::AllowInTextEditing,
             RepeatPolicy::SingleTrigger,
             "Ctrl+S",
-            "Zapisz konfigurację stacji",
+            "Save station configuration",
         ));
         self.register(ShortcutBinding::new(
             AppAction::OpenCommandPalette,
@@ -458,7 +458,7 @@ impl ShortcutRegistry {
             ConflictPolicy::AllowInTextEditing,
             RepeatPolicy::SingleTrigger,
             "Ctrl+Shift+P",
-            "Otwórz paletę poleceń",
+            "Open command palette",
         ));
         self.register(ShortcutBinding::new(
             AppAction::OpenStats,
@@ -468,7 +468,7 @@ impl ShortcutRegistry {
             ConflictPolicy::AllowInTextEditing,
             RepeatPolicy::SingleTrigger,
             "Ctrl+Shift+S",
-            "Statystyki dziennika",
+            "Logbook statistics",
         ));
         self.register(ShortcutBinding::new(
             AppAction::OpenManual,
@@ -478,7 +478,7 @@ impl ShortcutRegistry {
             ConflictPolicy::AllowInTextEditing,
             RepeatPolicy::SingleTrigger,
             "Ctrl+H",
-            "Pomoc i podręcznik użytkownika",
+            "Help and user manual",
         ));
         self.register(ShortcutBinding::new(
             AppAction::QuitApp,
@@ -488,7 +488,7 @@ impl ShortcutRegistry {
             ConflictPolicy::AllowInTextEditing,
             RepeatPolicy::SingleTrigger,
             "Ctrl+Q",
-            "Zamknij program SPLogbook",
+            "Exit SPLogbook",
         ));
 
         // --- SKRÓTY BLOKOWANE PODCZAS EDYCJI TEKSTU (Ochrona przed przypadkowym wywołaniem) ---
@@ -500,7 +500,7 @@ impl ShortcutRegistry {
             ConflictPolicy::BlockWhenTextEditing,
             RepeatPolicy::SingleTrigger,
             "Ctrl+D",
-            "Otwórz panel DX Cluster",
+            "Open DX Cluster panel",
         ));
         self.register(ShortcutBinding::new(
             AppAction::ToggleBandmap,
@@ -510,7 +510,7 @@ impl ShortcutRegistry {
             ConflictPolicy::BlockWhenTextEditing,
             RepeatPolicy::SingleTrigger,
             "Ctrl+B",
-            "Otwórz panel Band Map",
+            "Open Band Map panel",
         ));
         self.register(ShortcutBinding::new(
             AppAction::ToggleWorldMap,
@@ -520,7 +520,7 @@ impl ShortcutRegistry {
             ConflictPolicy::BlockWhenTextEditing,
             RepeatPolicy::SingleTrigger,
             "Ctrl+M",
-            "Otwórz mapę świata",
+            "Open world map",
         ));
         self.register(ShortcutBinding::new(
             AppAction::ToggleCwTerminal,
@@ -530,7 +530,7 @@ impl ShortcutRegistry {
             ConflictPolicy::BlockWhenTextEditing,
             RepeatPolicy::SingleTrigger,
             "Ctrl+K",
-            "Otwórz terminal CW",
+            "Open CW terminal",
         ));
         self.register(ShortcutBinding::new(
             AppAction::OpenProfiles,
@@ -540,7 +540,7 @@ impl ShortcutRegistry {
             ConflictPolicy::BlockWhenTextEditing,
             RepeatPolicy::SingleTrigger,
             "Ctrl+P",
-            "Zarządzaj profilami stacji",
+            "Manage station profiles",
         ));
         self.register(ShortcutBinding::new(
             AppAction::ExportCsv,
@@ -550,7 +550,7 @@ impl ShortcutRegistry {
             ConflictPolicy::BlockWhenTextEditing,
             RepeatPolicy::SingleTrigger,
             "Ctrl+E",
-            "Eksport do pliku CSV",
+            "Export to CSV file",
         ));
         self.register(ShortcutBinding::new(
             AppAction::ImportAdif,
@@ -560,7 +560,7 @@ impl ShortcutRegistry {
             ConflictPolicy::BlockWhenTextEditing,
             RepeatPolicy::SingleTrigger,
             "Ctrl+I",
-            "Import łączności z ADIF",
+            "Import QSOs from ADIF",
         ));
         self.register(ShortcutBinding::new(
             AppAction::CycleTheme,
@@ -570,7 +570,7 @@ impl ShortcutRegistry {
             ConflictPolicy::BlockWhenTextEditing,
             RepeatPolicy::SingleTrigger,
             "Ctrl+T",
-            "Przełącz motyw kolorystyczny",
+            "Toggle color theme",
         ));
 
         // --- SKRÓTY EDYTORA TEKSTU (PassThrough) ---
@@ -582,7 +582,7 @@ impl ShortcutRegistry {
             ConflictPolicy::PassThroughToWidget,
             RepeatPolicy::SingleTrigger,
             "Ctrl+Z",
-            "Cofnij (Undo)",
+            "Undo",
         ));
         self.register(ShortcutBinding::new(
             AppAction::Redo,
@@ -592,7 +592,7 @@ impl ShortcutRegistry {
             ConflictPolicy::PassThroughToWidget,
             RepeatPolicy::SingleTrigger,
             "Ctrl+Y",
-            "Ponów (Redo)",
+            "Redo",
         ));
 
         // --- KONTEKST ZAWODÓW (Contest Window) — Priorytet 10 ---
@@ -604,7 +604,7 @@ impl ShortcutRegistry {
             ConflictPolicy::AllowInTextEditing,
             RepeatPolicy::SingleTrigger,
             "Enter",
-            "Zapisz łączność w zawodach",
+            "Save contest QSO",
         ));
         self.register(ShortcutBinding::new(
             AppAction::ContestWipeQso,
@@ -614,7 +614,7 @@ impl ShortcutRegistry {
             ConflictPolicy::AllowInTextEditing,
             RepeatPolicy::SingleTrigger,
             "Esc",
-            "Wyczyść pola w zawodach",
+            "Wipe contest fields",
         ));
 
         // --- KONTEKST MODALNY I ESCAPE ZAMYKAJĄCY ---
@@ -626,7 +626,7 @@ impl ShortcutRegistry {
             ConflictPolicy::AllowInTextEditing,
             RepeatPolicy::SingleTrigger,
             "Esc",
-            "Zamknij aktywne okno modalne",
+            "Close active modal dialog",
         ));
     }
 }
