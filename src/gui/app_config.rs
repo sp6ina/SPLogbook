@@ -203,6 +203,9 @@ impl SpLogApp {
             self.config.station = prof.clone();
             self.entry.pota = prof.pota_ref.clone().unwrap_or_default();
             self.entry.sota = prof.sota_ref.clone().unwrap_or_default();
+            self.log_view.invalidate_cache();
+            self.contest.cache.key = None;
+            crate::gui::statistics::invalidate_stats_cache();
             self.save_station_config();
             let prof_name = if prof.name.is_empty() {
                 &prof.callsign

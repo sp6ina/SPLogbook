@@ -16,7 +16,7 @@ pub enum QslDrillStatus {
 /// Filtr „drill-down”: kliknięcie słupka/wiersza w statystykach przenosi do
 /// listy QSO spełniających kryterium. Przechowywany na `SpLogApp` i stosowany
 /// w tabeli logu (obok wyszukiwarki tekstowej).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DrillFilter {
     Band(String),
     Mode(String),

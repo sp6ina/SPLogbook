@@ -1387,3 +1387,253 @@ fn background_error_becomes_visible_without_continuous_polling() {
     let (msg, _) = app.gui.chrome.status_toast.as_ref().unwrap();
     assert!(msg.contains("Proxy server binding port conflict"));
 }
+
+#[test]
+fn cache_is_reused_when_inputs_are_unchanged() {
+    let deps = test_deps();
+    let mut config = AppConfig::default();
+    config.station.callsign = "SP6INA".to_string();
+    config.is_configured = true;
+    let init = AppInit {
+        config,
+        config_file_path: std::path::PathBuf::from("config.json"),
+        active_db_path: std::path::PathBuf::from("db.sqlite"),
+        shutdown_policy: ShutdownPolicy::None,
+    };
+    let mut app = SpLogApp::for_tests(init, deps);
+    app.log_view.recent_qsos = vec![
+        crate::core::qso::QsoRecord {
+            id: Some(1),
+            callsign: "SP6INA".to_string(),
+            band: "20m".to_string(),
+            mode: "CW".to_string(),
+            qso_date: "20261106".to_string(),
+            time_on: "120000".to_string(),
+            ..Default::default()
+        },
+        crate::core::qso::QsoRecord {
+            id: Some(2),
+            callsign: "SN0HQ".to_string(),
+            band: "40m".to_string(),
+            mode: "SSB".to_string(),
+            qso_date: "20261106".to_string(),
+            time_on: "120500".to_string(),
+            ..Default::default()
+        },
+    ];
+
+    let log_id = "journal-1";
+    let prof_id = "prof-home";
+
+    assert!(!app.log_view.is_cache_valid(log_id, prof_id));
+    app.log_view.ensure_sorted_indices_cached(log_id, prof_id);
+    assert!(app.log_view.is_cache_valid(log_id, prof_id));
+    let initial_key = app.log_view.cache.key.clone();
+
+    // Calling again with unchanged inputs reuses cache
+    app.log_view.ensure_sorted_indices_cached(log_id, prof_id);
+    assert_eq!(app.log_view.cache.key, initial_key);
+    assert!(app.log_view.is_cache_valid(log_id, prof_id));
+}
+
+#[test]
+fn cache_is_invalidated_on_qso_change() {
+    let deps = test_deps();
+    let mut config = AppConfig::default();
+    config.station.callsign = "SP6INA".to_string();
+    config.is_configured = true;
+    let init = AppInit {
+        config,
+        config_file_path: std::path::PathBuf::from("config.json"),
+        active_db_path: std::path::PathBuf::from("db.sqlite"),
+        shutdown_policy: ShutdownPolicy::None,
+    };
+    let mut app = SpLogApp::for_tests(init, deps);
+    let log_id = "journal-1";
+    let prof_id = "prof-home";
+
+    app.log_view.ensure_sorted_indices_cached(log_id, prof_id);
+    assert!(app.log_view.is_cache_valid(log_id, prof_id));
+
+    // QSO modification bumps revision
+    app.log_view.recent_qsos.push(crate::core::qso::QsoRecord {
+        id: Some(3),
+        callsign: "SQ6KVP".to_string(),
+        ..Default::default()
+    });
+    app.log_view.bump_revision();
+
+    assert!(!app.log_view.is_cache_valid(log_id, prof_id));
+    app.log_view.ensure_sorted_indices_cached(log_id, prof_id);
+    assert!(app.log_view.is_cache_valid(log_id, prof_id));
+}
+
+#[test]
+fn cache_is_invalidated_on_filter_change() {
+    let deps = test_deps();
+    let mut config = AppConfig::default();
+    config.station.callsign = "SP6INA".to_string();
+    config.is_configured = true;
+    let init = AppInit {
+        config,
+        config_file_path: std::path::PathBuf::from("config.json"),
+        active_db_path: std::path::PathBuf::from("db.sqlite"),
+        shutdown_policy: ShutdownPolicy::None,
+    };
+    let mut app = SpLogApp::for_tests(init, deps);
+    let log_id = "journal-1";
+    let prof_id = "prof-home";
+
+    app.log_view.ensure_sorted_indices_cached(log_id, prof_id);
+    assert!(app.log_view.is_cache_valid(log_id, prof_id));
+
+    // Changing search query invalidates cache
+    app.log_view.search_query = "CW".to_string();
+    assert!(!app.log_view.is_cache_valid(log_id, prof_id));
+
+    app.log_view.ensure_sorted_indices_cached(log_id, prof_id);
+    assert!(app.log_view.is_cache_valid(log_id, prof_id));
+
+    // Changing drill filter invalidates cache
+    app.log_view.drill_filter = Some(crate::gui::drill_filter::DrillFilter::Band(
+        "20m".to_string(),
+    ));
+    assert!(!app.log_view.is_cache_valid(log_id, prof_id));
+}
+
+#[test]
+fn cache_is_invalidated_on_sort_change() {
+    let deps = test_deps();
+    let mut config = AppConfig::default();
+    config.station.callsign = "SP6INA".to_string();
+    config.is_configured = true;
+    let init = AppInit {
+        config,
+        config_file_path: std::path::PathBuf::from("config.json"),
+        active_db_path: std::path::PathBuf::from("db.sqlite"),
+        shutdown_policy: ShutdownPolicy::None,
+    };
+    let mut app = SpLogApp::for_tests(init, deps);
+    let log_id = "journal-1";
+    let prof_id = "prof-home";
+
+    app.log_view.ensure_sorted_indices_cached(log_id, prof_id);
+    assert!(app.log_view.is_cache_valid(log_id, prof_id));
+
+    // Changing sort column
+    app.log_view.sort_column = 2;
+    assert!(!app.log_view.is_cache_valid(log_id, prof_id));
+
+    app.log_view.ensure_sorted_indices_cached(log_id, prof_id);
+    assert!(app.log_view.is_cache_valid(log_id, prof_id));
+
+    // Changing sort direction
+    app.log_view.sort_asc = !app.log_view.sort_asc;
+    assert!(!app.log_view.is_cache_valid(log_id, prof_id));
+}
+
+#[test]
+fn cache_is_scoped_to_log_identity() {
+    let deps = test_deps();
+    let mut config = AppConfig::default();
+    config.station.callsign = "SP6INA".to_string();
+    config.is_configured = true;
+    let init = AppInit {
+        config,
+        config_file_path: std::path::PathBuf::from("config.json"),
+        active_db_path: std::path::PathBuf::from("db.sqlite"),
+        shutdown_policy: ShutdownPolicy::None,
+    };
+    let mut app = SpLogApp::for_tests(init, deps);
+    let prof_id = "prof-home";
+
+    app.log_view
+        .ensure_sorted_indices_cached("journal-A", prof_id);
+    assert!(app.log_view.is_cache_valid("journal-A", prof_id));
+    assert!(!app.log_view.is_cache_valid("journal-B", prof_id));
+}
+
+#[test]
+fn cache_is_scoped_to_active_rig_when_required() {
+    let deps = test_deps();
+    let mut config = AppConfig::default();
+    config.station.callsign = "SP6INA".to_string();
+    config.is_configured = true;
+    let init = AppInit {
+        config,
+        config_file_path: std::path::PathBuf::from("config.json"),
+        active_db_path: std::path::PathBuf::from("db.sqlite"),
+        shutdown_policy: ShutdownPolicy::None,
+    };
+    let mut app = SpLogApp::for_tests(init, deps);
+
+    let rig1 = crate::cat::routing::RigId::new("rig-1").unwrap();
+    let rig2 = crate::cat::routing::RigId::new("rig-2").unwrap();
+
+    let mut st1 = crate::cat::hamlib::RigState::default();
+    st1.frequency_hz = 14_025_000;
+    st1.mode = "CW".to_string();
+
+    let mut st2 = crate::cat::hamlib::RigState::default();
+    st2.frequency_hz = 7_050_000;
+    st2.mode = "LSB".to_string();
+
+    app.cat.set_cached_rig_state(rig1.clone(), st1);
+    app.cat.set_cached_rig_state(rig2.clone(), st2);
+
+    assert_eq!(
+        app.cat.get_cached_rig_state(&rig1).unwrap().frequency_hz,
+        14_025_000
+    );
+    assert_eq!(
+        app.cat.get_cached_rig_state(&rig2).unwrap().frequency_hz,
+        7_050_000
+    );
+}
+
+#[test]
+fn stale_cache_never_crosses_profiles() {
+    let deps = test_deps();
+    let mut config = AppConfig::default();
+    config.station.callsign = "SP6INA".to_string();
+    config.is_configured = true;
+    let init = AppInit {
+        config,
+        config_file_path: std::path::PathBuf::from("config.json"),
+        active_db_path: std::path::PathBuf::from("db.sqlite"),
+        shutdown_policy: ShutdownPolicy::None,
+    };
+    let mut app = SpLogApp::for_tests(init, deps);
+    let log_id = "journal-1";
+
+    app.log_view
+        .ensure_sorted_indices_cached(log_id, "profile-home");
+    assert!(app.log_view.is_cache_valid(log_id, "profile-home"));
+    assert!(!app.log_view.is_cache_valid(log_id, "profile-field"));
+
+    // Invalidate when switching profiles
+    app.log_view.invalidate_cache();
+    assert!(!app.log_view.is_cache_valid(log_id, "profile-home"));
+    assert!(!app.log_view.is_cache_valid(log_id, "profile-field"));
+}
+
+#[test]
+fn initial_rig_state_when_disconnected_reports_s0_and_zero_power() {
+    let deps = test_deps();
+    let mut config = AppConfig::default();
+    config.station.callsign = "SP6INA".to_string();
+    config.is_configured = true;
+    let init = AppInit {
+        config,
+        config_file_path: std::path::PathBuf::from("config.json"),
+        active_db_path: std::path::PathBuf::from("db.sqlite"),
+        shutdown_policy: ShutdownPolicy::None,
+    };
+    let app = SpLogApp::for_tests(init, deps);
+
+    // GUI-003: Disconnected rig state must not falsely report S9+20dB or 100W
+    assert!(!app.cat.rig_state.connected);
+    assert_eq!(app.cat.rig_state.s_meter_unit, "S0");
+    assert!((app.cat.rig_state.s_meter_dbm - (-127.0)).abs() < 0.1);
+    assert!((app.cat.rig_state.rf_power_watts - 0.0).abs() < 0.01);
+}

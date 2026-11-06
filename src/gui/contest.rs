@@ -182,19 +182,6 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
         .unwrap_or(269);
     let my_cqzone = app.config.station.cq_zone as u8;
 
-    let scoreboard = crate::core::contest_stats::compute_scoreboard(
-        &app.contest.name,
-        &app.config.custom_contests,
-        &app.log_view.recent_qsos,
-        my_dxcc,
-        my_cqzone,
-    );
-    let unknown_contest_rule = !is_custom && !RULES.iter().any(|r| r.name == app.contest.name);
-
-    let pts = scoreboard.points;
-    let mults = scoreboard.mults;
-    let total = scoreboard.total;
-
     // Rodzaj mnożnika i pasma dla macierzy mnożników.
     let (mult_kind, rule_bands): (MultKind, Vec<String>) = if let Some(idx) = custom_idx {
         (
@@ -214,18 +201,61 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
         (MultKind::None, vec![])
     };
 
+    let current_key = crate::gui::state::contest::ContestCacheKey {
+        profile_id: app.config.active_profile_id.clone(),
+        log_identity: app.active_journal.id.clone(),
+        log_revision: app.log_view.log_revision,
+        contest_name: app.contest.name.clone(),
+        custom_contests_len: app.config.custom_contests.len(),
+        my_dxcc,
+        my_cqzone,
+    };
+
+    let cache_hit = app.contest.cache.key.as_ref() == Some(&current_key);
+    if !cache_hit {
+        let scoreboard = crate::core::contest_stats::compute_scoreboard(
+            &app.contest.name,
+            &app.config.custom_contests,
+            &app.log_view.recent_qsos,
+            my_dxcc,
+            my_cqzone,
+        );
+
+        let mult_matrix = if mult_kind != MultKind::None && !rule_bands.is_empty() {
+            let band_refs: Vec<&str> = rule_bands.iter().map(std::string::String::as_str).collect();
+            compute_mult_matrix(mult_kind, &band_refs, &app.log_view.recent_qsos)
+        } else {
+            MultMatrix::default()
+        };
+
+        let mut bands = std::collections::HashMap::new();
+        for qso in &app.log_view.recent_qsos {
+            *bands.entry(qso.band.clone()).or_insert(0) += 1;
+        }
+        let mut band_vec: Vec<_> = bands.into_iter().collect();
+        band_vec.sort_by_key(|a| std::cmp::Reverse(a.1));
+
+        app.contest.cache.scoreboard = scoreboard;
+        app.contest.cache.mult_matrix = mult_matrix;
+        app.contest.cache.band_breakdown = band_vec;
+        app.contest.cache.key = Some(current_key);
+    }
+
     let now_secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as i64;
-    let rate = compute_rate(&app.log_view.recent_qsos, now_secs);
+    if !cache_hit || app.contest.cache.rate_cached_at_sec != now_secs {
+        app.contest.cache.rate = compute_rate(&app.log_view.recent_qsos, now_secs);
+        app.contest.cache.rate_cached_at_sec = now_secs;
+    }
 
-    let mult_matrix = if mult_kind != MultKind::None && !rule_bands.is_empty() {
-        let band_refs: Vec<&str> = rule_bands.iter().map(std::string::String::as_str).collect();
-        compute_mult_matrix(mult_kind, &band_refs, &app.log_view.recent_qsos)
-    } else {
-        MultMatrix::default()
-    };
+    let scoreboard = app.contest.cache.scoreboard;
+    let rate = app.contest.cache.rate.clone();
+    let pts = scoreboard.points;
+    let mults = scoreboard.mults;
+    let total = scoreboard.total;
+    let unknown_contest_rule = !is_custom && !RULES.iter().any(|r| r.name == app.contest.name);
 
     // Prognoza wyniku: obecny wynik + tempo z ostatniej godziny × średnia punktów × mnożniki.
     let avg_points_per_qso = if scoreboard.qsos > 0 {
@@ -326,13 +356,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             .id_salt("band_stats")
                             .max_height(80.0)
                             .show(ui, |ui| {
-                                let mut bands = std::collections::HashMap::new();
-                                for qso in &app.log_view.recent_qsos {
-                                    *bands.entry(qso.band.clone()).or_insert(0) += 1;
-                                }
-                                let mut band_vec: Vec<_> = bands.into_iter().collect();
-                                band_vec.sort_by_key(|a| std::cmp::Reverse(a.1));
-                                for (band, count) in band_vec {
+                                for (band, count) in &app.contest.cache.band_breakdown {
                                     ui.label(format!(
                                         "{} {}: {} QSOs",
                                         tr(key::CONTEST_BAND_HEADER, lang),
@@ -387,7 +411,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     ))
                     .default_open(false)
                     .show(ui, |ui| {
-                        render_mult_matrix(ui, &mult_matrix, lang);
+                        render_mult_matrix(ui, &app.contest.cache.mult_matrix, lang);
                     });
                 }
 
@@ -523,10 +547,11 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                         ui.label("");
                                         ui.end_row();
 
+                                        let worked_calls =
+                                            app.log_view.get_or_compute_worked_callsigns();
                                         for spot in &app.cluster.spots {
-                                            let worked = app.log_view.recent_qsos.iter().any(|q| {
-                                                q.callsign.eq_ignore_ascii_case(&spot.dx_call)
-                                            });
+                                            let worked = worked_calls
+                                                .contains(&spot.dx_call.to_ascii_uppercase());
                                             let call_color = if worked {
                                                 palette.qsl_rcvd
                                             } else {
