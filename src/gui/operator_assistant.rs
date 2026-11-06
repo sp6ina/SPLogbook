@@ -324,7 +324,11 @@ pub fn render_operator_assistant(app: &mut SpLogApp, ctx: &egui::Context) {
             }
         });
 
-    app.gui.windows.show_operator_assistant = open;
+    if app.gui.windows.show_operator_assistant != open {
+        app.gui.windows.show_operator_assistant = open;
+        app.config.operator_assistant_enabled = open;
+        app.save_station_config();
+    }
 }
 
 #[cfg(test)]

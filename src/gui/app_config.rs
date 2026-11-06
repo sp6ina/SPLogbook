@@ -32,11 +32,13 @@ impl SpLogApp {
             !self.config.station.callsign.is_empty() && self.config.station.callsign != "N0CALL"
         };
         let mut cfg = self.config.clone();
+        cfg.schema_version = 1;
         cfg.secret_store_id = self.paths.secret_store_id.clone();
         cfg.is_configured = is_configured;
         cfg.dark_theme = self.gui.appearance.theme_preset.is_dark();
         cfg.theme_preset = self.gui.appearance.theme_preset.id().to_string();
         cfg.cat_enabled = self.cat.connected;
+        cfg.operator_assistant_enabled = self.gui.windows.show_operator_assistant;
         cfg.propagation_history = self.solar.propagation_history.clone();
 
         cfg.wol_mac = self.gui.dialogs.wol_dialog.mac_address.clone();
@@ -342,5 +344,66 @@ mod tests {
         assert_eq!(loaded.station.operator, "Jan");
         assert_eq!(loaded.station.gridsquare, "JO73GO");
         assert!((loaded.font_scale - 1.2).abs() < 1e-4);
+    }
+
+    #[test]
+    fn snapshot_config_preserves_operator_assistant_and_cat_station() {
+        let temp = tempfile::tempdir().unwrap();
+        let cfg_path = temp.path().join("station_config.json");
+        let mut app = build_test_app(cfg_path);
+
+        app.gui.windows.show_operator_assistant = true;
+        let mut cat_st = crate::cat::config::CatStationConfig::default();
+        cat_st.rigs.push(crate::cat::config::RigConfig {
+            id: crate::cat::routing::RigId::new("rig-1").unwrap(),
+            enabled: true,
+            display_name: "Rig 1".to_string(),
+            poll_interval_ms: 250,
+            command_timeout_ms: 1500,
+            backend: crate::cat::config::RigBackendConfig::Hamlib(
+                crate::cat::config::HamlibConfig::default(),
+            ),
+        });
+        cat_st.active_rx = Some(crate::cat::config::RigTargetConfig::rig_only(
+            crate::cat::routing::RigId::new("rig-1").unwrap(),
+        ));
+        cat_st.active_tx = Some(crate::cat::config::RigTargetConfig::rig_only(
+            crate::cat::routing::RigId::new("rig-1").unwrap(),
+        ));
+        app.config.cat_station = Some(cat_st);
+
+        let snap = app.snapshot_config();
+        assert!(
+            snap.operator_assistant_enabled,
+            "operator_assistant_enabled must be true"
+        );
+        assert!(snap.cat_station.is_some(), "cat_station must be preserved");
+        assert_eq!(snap.cat_station.as_ref().unwrap().rigs.len(), 1);
+    }
+
+    #[test]
+    fn config_save_is_not_called_every_frame() {
+        let temp = tempfile::tempdir().unwrap();
+        let cfg_path = temp.path().join("station_config.json");
+        let mut app = build_test_app(cfg_path.clone());
+        app.config.station.callsign = "SP6IDLE".to_string();
+        app.save_station_config();
+
+        let initial_mtime = std::fs::metadata(&cfg_path).unwrap().modified().unwrap();
+
+        // Render 5 idle frames
+        let ctx = eframe::egui::Context::default();
+        for _ in 0..5 {
+            let mut output = ctx.run_ui(eframe::egui::RawInput::default(), |ui| {
+                crate::gui::qso_entry::render_qso_entry_body(&mut app, ui);
+            });
+            output.textures_delta.clear();
+        }
+
+        let after_mtime = std::fs::metadata(&cfg_path).unwrap().modified().unwrap();
+        assert_eq!(
+            initial_mtime, after_mtime,
+            "Config file must not be saved on every idle frame"
+        );
     }
 }

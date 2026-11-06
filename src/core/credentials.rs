@@ -327,7 +327,19 @@ impl AppConfig {
             Err(e) => return Err(e),
         };
         let mut config: Self = serde_json::from_str(&data).map_err(io::Error::other)?;
+        if config.schema_version > super::station::CURRENT_CONFIG_SCHEMA_VERSION {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "Nieobsługiwana wersja schematu konfiguracji: {}",
+                    config.schema_version
+                ),
+            ));
+        }
         let _ = crate::cat::config::migrate_legacy_cat_config(&mut config);
+        config
+            .validate()
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
         if !config.secret_store_id.is_empty() {
             if !Secrets::from_config(&config).is_empty() {
                 return Err(io::Error::new(
@@ -379,11 +391,34 @@ impl AppConfig {
         }
 
         self.secret_store_id.clone_from(&new_id);
-        let result = (|| {
+        let result = (|| -> io::Result<()> {
+            self.validate()
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
             let data = serde_json::to_string_pretty(self).map_err(io::Error::other)?;
-            let tmp_path = path.with_extension("json.tmp");
-            std::fs::write(&tmp_path, data)?;
-            std::fs::rename(&tmp_path, path)
+            let file_name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("station_config.json");
+            let tmp_file_name = format!("{}.tmp.{}", file_name, uuid::Uuid::new_v4());
+            let tmp_path = path
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .join(tmp_file_name);
+
+            let write_res = (|| -> io::Result<()> {
+                use std::io::Write;
+                let mut file = std::fs::File::create(&tmp_path)?;
+                file.write_all(data.as_bytes())?;
+                file.flush()?;
+                file.sync_all()?;
+                drop(file);
+                std::fs::rename(&tmp_path, path)
+            })();
+
+            if write_res.is_err() {
+                let _ = std::fs::remove_file(&tmp_path);
+            }
+            write_res
         })();
         if let Err(e) = result {
             self.secret_store_id = old_id;
