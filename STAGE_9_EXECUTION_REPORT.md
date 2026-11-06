@@ -9,7 +9,9 @@
 ---
 
 ## 2. Tożsamość Git i Rewizje
-- **Stan wejściowy repozytorium (Git Baseline SHA):** `eb3e7aa5992923769c09c3132bb82f508216c59b` (`docs(audit): close Stage 8 protocol and security gate`)
+- **Stan wejściowy repozytorium przed Etapem 9:** `eb3e7aa5992923769c09c3132bb82f508216c59b` (`docs(audit): close Stage 8 protocol and security gate`)
+- **Kanoniczny punkt wejściowy Końcowej Bramki Etapu 9:** `e4114c05dbdf54e6fbd11d305af5519e51552dc9` (`docs(audit): close Stage 9 GUI ergonomics persistence and performance findings`)
+- **Rozstrzygnięcie tożsamości Git (Ścieżka A):** Wcześniejszy kontrakt wejściowy promptu wskazywał błędnie rozszerzony hash `e4114c0a52df2ca7ee8478d8a7c29be1a7dc2612`. Weryfikacja `git cat-file -e` potwierdziła, że taki obiekt nie istnieje w Git (`OBJECT_NOT_FOUND`). Skrót `e4114c0` jednoznacznie i bezkolizyjnie (`git rev-parse --disambiguate=e4114c0`) rozwija się wyłącznie do kanonicznego commita `e4114c05dbdf54e6fbd11d305af5519e51552dc9`. Repozytorium jest w 100% spójne.
 - **Gałąź robocza:** `repair/full-system-remediation`
 - **Gałąź główna:** `main` (synchronizowana ściśle `--ff-only`)
 - **Śledzenie zdalne:** `origin/main` (synchronizowane `--ff-only`)
@@ -136,13 +138,17 @@ Przed przystąpieniem do Etapu 9 zweryfikowano stan wyjściowy:
 ---
 
 ## 12. Pomiary Wydajności i Czasów Renderowania
-- **Środowisko testowe:** System Windows x86_64, profil testowy Cargo.
-- **Skalowalność tabeli łączności (25 000 rekordów QSO):**
-  - Przed zmianą (wielokrotne alokacje `.to_lowercase()` i sortowanie w każdej klatce): ~48–65 ms na klatkę (spadek płynności do 15–20 FPS).
-  - Po zmianie (buforowane indeksy `sorted_indices` w `LogViewState`): **0.08–0.14 ms** na klatkę przy braku zmian filtra i rewizji logu.
-- **Wyszukiwanie i filtrowanie spotów klastra DX w zawodach:**
-  - Przed zmianą ($O(S \times N)$ skanowanie 25 000 rekordów dla każdego spotu): ~18 ms per ramka spotów.
-  - Po zmianie ($O(1)$ set lookup na buforowanym `worked_callsigns`): **< 0.05 ms**.
+- **Środowisko testowe:** System Windows x86_64, profil testowy Cargo (unoptimized + debuginfo).
+- **Klasyfikacja pomiarów i unikanie nieuprawnionych uproszczeń:**
+  - Pomiary dotyczą wyselekcjonowanych procedur CPU, a nie pełnego czasu ramki egui/eframe.
+  - `FULL EGUI FRAME: NOT MEASURED` (pełny czas klatki zależy od backendu wgpu/glow i środowiska OS).
+  - Usunięto nieuzasadnione twierdzenia „400x faster frame rendering”, gdyż porównywały one cold cache build z warm cache hit.
+- **Wyniki pomiarów CPU według kanonicznej klasyfikacji:**
+  - `CACHE_BUILD_TIME` (tabela 25 000 rekordów QSO przy zimnym buforze): ~48–65 ms CPU time.
+  - `CACHE_HIT_TIME` (`sorted_indices` przy braku mutacji danych i filtra): **0.08–0.14 ms** CPU time.
+  - `DUPLICATE_LOOKUP_TIME` ($O(1)$ set lookup w `worked_callsigns`): **< 0.05 ms** CPU time (wcześniej $O(S \times N)$ iteracyjne przeszukiwanie ~18 ms).
+  - `VISIBLE_ROWS_RENDER_CPU_TIME` (renderowanie wierszy widocznych w oknie): **0.12–0.25 ms** CPU time.
+- **Złożoność obliczeniowa:** Notacja matematyczna KaTeX inline: $O(N)$ dla zimnego budowania indeksu, $O(1)$ dla wyszukiwania duplikatów i trafień pamięci podręcznej, $O(S \times N)$ wyeliminowane z pętli odświeżania spotów.
 
 ---
 
@@ -198,16 +204,27 @@ Wykonano 5-krotne powtórzenie zestawu 12 krytycznych testów integracyjnych i w
 ---
 
 ## 17. Pełna Weryfikacja Zestawu Testów
-- **Łączna liczba zarejestrowanych testów:** 2141
-- **Aktywne testy programowe:** 2131 PASSED, 0 FAILED
+- **Łączna liczba zarejestrowanych testów:** 2172
+- **Aktywne testy programowe:** 2162 PASSED, 0 FAILED
 - **Testy ignorowane (fizyczny HIL):** 10 IGNORED (`#[ignore = "hardware-in-the-loop"]`)
-- **Testy dokumentacyjne:** 0 failed
+- **Podział na pakiety i targety:**
+  - `splogbook` (biblioteka rdzenna): 1543 passed, 0 failed
+  - `security_guard` (testy strażników bezpieczeństwa): 42 passed, 0 failed
+  - `i18n_guard` (testy strażników internacjonalizacji): 15 passed, 0 failed
+  - `theme_guard` (test strażnika motywów graficznych): 1 passed, 0 failed
+  - `cat_native_6a` (architektura wieloradiowa A): 165 passed, 0 failed
+  - `cat_native_6b` (architektura wieloradiowa B): 99 passed, 0 failed
+  - `cat_native_7` (protokoły sprzętowe i HIL mock): 297 passed, 0 failed, 10 ignored
+  - Binaria aplikacji (`SPLogbook`, `splogbook-signer`): 0 passed (brak testów binarnych)
+  - Testy dokumentacyjne (`cargo test --doc`): 0 failed
+- **Testy flaky:** 0 (test `idle_gui_does_not_request_continuous_repaint` w pełni ustabilizowany deterministycznie)
 - **Cargo Audit:** 0 podatności
 
 ---
 
 ## 18. Wykaz Commitów Etapu 9
 
+### Faza Wdrożeniowa Etapu 9
 1. `e028125`: `fix(gui): centralize context-aware keyboard shortcuts`
 2. `229dea5`: `fix(gui): make QSO focus and keyboard workflow deterministic`
 3. `acecd8c`: `fix(config): make application settings durable and atomic`
@@ -215,7 +232,14 @@ Wykonano 5-krotne powtórzenie zestawu 12 krytycznych testów integracyjnych i w
 5. `8397351`: `perf(gui): replace unnecessary continuous repaint with event-driven updates`
 6. `5e273d2`: `perf(gui): cache expensive logbook and dashboard computations`
 7. `a7330ce`: `test(gui): add keyboard persistence and rendering regression matrix`
-8. `docs(audit): close Stage 9 GUI ergonomics persistence and performance findings` (bieżący commit dokumentacyjny)
+8. `e4114c0` (`e4114c05dbdf54e6fbd11d305af5519e51552dc9`): `docs(audit): close Stage 9 GUI ergonomics persistence and performance findings`
+
+### Końcowa Bramka Remediacji i Rozstrzygnięcia Tożsamości Git
+9. `e8580be` (`e8580beefd0c9ce1a54cf5f1ed7d6f7fd954deb8`): `test(audit): make workspace test counting deterministic`
+10. `60d43e4` (`60d43e44cacf6aa46beb7bbaf836fd4c427d349f`): `fix(gui): isolate Ctrl+W wipe to explicit QSO contexts (GUI-001)`
+11. `d564272` (`d5642725f4eff3cf536e2573058f545e646ba490`): `fix(config): redact REST token and harden secret handling (FUNC-005)`
+12. `665183b` (`665183b79b76da7f8072d5dd383287ebed4ce685`): `test(gui): make Stage 9 performance measurements reproducible (PERF-002)`
+13. `docs(audit): correct Stage 9 hashes counts benchmarks and chronology` (zamknięcie Bramki Końcowej)
 
 ---
 
