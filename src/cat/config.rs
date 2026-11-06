@@ -185,20 +185,20 @@ impl CatStationConfig {
             }
         }
 
-        if let Some(ref rx) = self.active_rx {
-            if !ids.contains(&rx.rig_id) {
-                return Err(CatConfigValidationError::ActiveRxTargetNotFound(
-                    rx.rig_id.clone(),
-                ));
-            }
+        if let Some(ref rx) = self.active_rx
+            && !ids.contains(&rx.rig_id)
+        {
+            return Err(CatConfigValidationError::ActiveRxTargetNotFound(
+                rx.rig_id.clone(),
+            ));
         }
 
-        if let Some(ref tx) = self.active_tx {
-            if !ids.contains(&tx.rig_id) {
-                return Err(CatConfigValidationError::ActiveTxTargetNotFound(
-                    tx.rig_id.clone(),
-                ));
-            }
+        if let Some(ref tx) = self.active_tx
+            && !ids.contains(&tx.rig_id)
+        {
+            return Err(CatConfigValidationError::ActiveTxTargetNotFound(
+                tx.rig_id.clone(),
+            ));
         }
 
         Ok(())
@@ -484,7 +484,7 @@ impl TciConfig {
 pub struct IcomConfig {
     /// Nazwa portu szeregowego (np. COM3 lub /dev/ttyUSB0).
     pub port_name: String,
-    /// Prędkość transmisji (np. 19200, 115200).
+    /// Prędkość transmisji (np. 19200, 115_200).
     pub baud_rate: u32,
     /// Adres CI-V transceivera (np. 0x94 dla IC-7300, 0x98 dla IC-7610).
     pub civ_address: u8,
@@ -546,7 +546,7 @@ impl Default for KenwoodTransportConfig {
     fn default() -> Self {
         Self::Serial {
             port_name: "COM1".to_string(),
-            baud_rate: 115200,
+            baud_rate: 115_200,
         }
     }
 }
@@ -712,8 +712,10 @@ impl ElecraftConfig {
 /// Opcje połączenia dla FlexRadio SmartSDR.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "connection_mode")]
+#[derive(Default)]
 pub enum FlexRadioConnectionConfig {
     /// Automatyczne wykrywanie w sieci lokalnej przez VITA-49 discovery.
+    #[default]
     AutoDiscovery,
     /// Ręcznie podany adres hosta i port sterowania SmartSDR.
     Manual {
@@ -722,12 +724,6 @@ pub enum FlexRadioConnectionConfig {
         /// Port TCP sterowania SmartSDR (domyślnie 4992).
         port: u16,
     },
-}
-
-impl Default for FlexRadioConnectionConfig {
-    fn default() -> Self {
-        Self::AutoDiscovery
-    }
 }
 
 /// Konfiguracja natywnego backendu FlexRadio SmartSDR.
@@ -801,10 +797,10 @@ pub fn migrate_legacy_cat_config(
     let mig_result = (|| -> Result<CatStationConfig, CatConfigMigrationError> {
         let backend_kind_str = app_config.cat_backend.trim().to_ascii_lowercase();
         let rig_id = RigId::new("rig-1")?;
-        let display_name = if !app_config.cat_rig_model.trim().is_empty() {
-            app_config.cat_rig_model.clone()
-        } else {
+        let display_name = if app_config.cat_rig_model.trim().is_empty() {
             "Radio 1".to_string()
+        } else {
+            app_config.cat_rig_model.clone()
         };
 
         let backend_cfg = match backend_kind_str.as_str() {
@@ -870,7 +866,7 @@ pub fn migrate_legacy_cat_config(
                 transport: KenwoodTransportConfig::Serial {
                     port_name: app_config.cat_serial_port.clone(),
                     baud_rate: if app_config.cat_baud_rate == 0 {
-                        115200
+                        115_200
                     } else {
                         app_config.cat_baud_rate
                     },

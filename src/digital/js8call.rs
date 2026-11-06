@@ -72,11 +72,7 @@ impl Js8ListenerHandle {
     /// Sprawdza czy wątek workera wciąż działa
     pub fn is_running(&self) -> bool {
         !self.shutdown.load(Ordering::SeqCst)
-            && self
-                .handle
-                .as_ref()
-                .map(|h| !h.is_finished())
-                .unwrap_or(false)
+            && self.handle.as_ref().is_some_and(|h| !h.is_finished())
     }
 }
 
@@ -160,28 +156,18 @@ impl Js8CallClient {
                             .take((MAX_LINE_LEN + 1) as u64)
                             .read_line(&mut buf)
                         {
-                            Ok(0) => break, // koniec strumienia (rozłączenie przez drugą stronę)
                             Err(ref e)
                                 if e.kind() == std::io::ErrorKind::TimedOut
-                                    || e.kind() == std::io::ErrorKind::WouldBlock =>
-                            {
-                                continue;
-                            }
-                            Err(_) => break,                            // błąd I/O
+                                    || e.kind() == std::io::ErrorKind::WouldBlock => {}
+                            Ok(0) | Err(_) => break,
                             Ok(_) if buf.len() > MAX_LINE_LEN => break, // zbyt długa linia
                             Ok(_) => {
                                 let text = buf.trim();
-                                if !text.is_empty() {
-                                    if let Ok(msg) = serde_json::from_str::<Js8Message>(text) {
-                                        if !process_message(
-                                            msg,
-                                            &mut state,
-                                            &state_sender,
-                                            &qso_sender,
-                                        ) {
-                                            break 'listener;
-                                        }
-                                    }
+                                if !text.is_empty()
+                                    && let Ok(msg) = serde_json::from_str::<Js8Message>(text)
+                                    && !process_message(msg, &mut state, &state_sender, &qso_sender)
+                                {
+                                    break 'listener;
                                 }
                             }
                         }
@@ -336,24 +322,30 @@ fn build_qso_from_js8(params: &serde_json::Value, state: &Js8CallState) -> QsoRe
         .and_then(|v| v.as_str())
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .map(std::string::ToString::to_string)
-        .unwrap_or_else(|| freq_hz_to_band(freq_hz).to_string());
+        .map_or_else(
+            || freq_hz_to_band(freq_hz).to_string(),
+            std::string::ToString::to_string,
+        );
 
     let qso_date = params
         .get("QSO_DATE")
         .and_then(|v| v.as_str())
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .map(std::string::ToString::to_string)
-        .unwrap_or_else(|| now.format("%Y%m%d").to_string());
+        .map_or_else(
+            || now.format("%Y%m%d").to_string(),
+            std::string::ToString::to_string,
+        );
 
     let time_on = params
         .get("TIME_ON")
         .and_then(|v| v.as_str())
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .map(std::string::ToString::to_string)
-        .unwrap_or_else(|| now.format("%H%M").to_string());
+        .map_or_else(
+            || now.format("%H%M").to_string(),
+            std::string::ToString::to_string,
+        );
 
     let rst_sent = params
         .get("RST_SENT")

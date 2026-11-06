@@ -726,8 +726,8 @@ impl HilReadinessValidator {
             || h.starts_with("127.")
             || h.starts_with("10.")
             || h.starts_with("192.168.")
-            || h.ends_with(".local")
-            || h.ends_with(".lan")
+            || h.rsplit_once('.')
+                .is_some_and(|(_, tld)| tld == "local" || tld == "lan")
         {
             return true;
         }
@@ -935,13 +935,12 @@ impl HilReadinessValidator {
         } else {
             HilReadinessStatus::Blocked
         };
-        let cond15_runtime = if !manifest.rf_safety.interlock_engaged || rig_id_trimmed.is_empty() {
-            HilReadinessStatus::Blocked
-        } else if is_7a {
-            HilReadinessStatus::Blocked
-        } else {
-            HilReadinessStatus::Passed
-        };
+        let cond15_runtime =
+            if !manifest.rf_safety.interlock_engaged || rig_id_trimmed.is_empty() || is_7a {
+                HilReadinessStatus::Blocked
+            } else {
+                HilReadinessStatus::Passed
+            };
 
         // Warunek 18: Nie istnieje automatyczny fallback na pierwsze radio.
         let rig_id_upper = rig_id_trimmed.to_ascii_uppercase();

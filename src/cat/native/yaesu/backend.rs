@@ -707,24 +707,25 @@ impl RigBackend for YaesuBackend {
                 // 1. Jeśli PTT było potwierdzone i profil potwierdza właściwą komendę RX,
                 //    podejmij pojedynczą, ograniczoną czasowo (500 ms) próbę przejścia do RX (TX0;).
                 //    Brak retry, błąd I/O nie blokuje zamknięcia transportu.
-                if self.confirmed_ptt && self.profile.capabilities.ptt {
-                    if let Some(transport) = self.transport.as_mut() {
-                        let rx_cmd = YaesuCat::set_ptt(false);
-                        let encoded = self.codec.encode_command(rx_cmd);
-                        let write_fut = transport.write_all(&encoded);
-                        let _ = tokio::time::timeout(Duration::from_millis(500), write_fut).await;
-                    }
+                if self.confirmed_ptt
+                    && self.profile.capabilities.ptt
+                    && let Some(transport) = self.transport.as_mut()
+                {
+                    let rx_cmd = YaesuCat::set_ptt(false);
+                    let encoded = self.codec.encode_command(rx_cmd);
+                    let write_fut = transport.write_all(&encoded);
+                    let _ = tokio::time::timeout(Duration::from_millis(500), write_fut).await;
                 }
 
                 // 2. Jeśli AI było aktywne, wyślij pojedynczą, ograniczoną czasowo (500 ms) komendę wyłączenia AI (AI0;),
                 //    aby radio nie zalewało portu po zamknięciu sesji.
-                if self.ai_active {
-                    if let Some(transport) = self.transport.as_mut() {
-                        let ai_cmd = YaesuCat::set_ai(false);
-                        let encoded = self.codec.encode_command(ai_cmd);
-                        let write_fut = transport.write_all(&encoded);
-                        let _ = tokio::time::timeout(Duration::from_millis(500), write_fut).await;
-                    }
+                if self.ai_active
+                    && let Some(transport) = self.transport.as_mut()
+                {
+                    let ai_cmd = YaesuCat::set_ai(false);
+                    let encoded = self.codec.encode_command(ai_cmd);
+                    let write_fut = transport.write_all(&encoded);
+                    let _ = tokio::time::timeout(Duration::from_millis(500), write_fut).await;
                 }
             }
 

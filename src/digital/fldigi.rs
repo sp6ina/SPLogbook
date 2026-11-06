@@ -189,40 +189,40 @@ impl FldigiClient {
         }
 
         // Szukaj <string>...</string>
-        if let Some(start) = xml.find("<string>") {
-            if let Some(end) = xml[start + 8..].find("</string>") {
-                return Ok(unescape_xml_entities(&xml[start + 8..start + 8 + end]));
-            }
+        if let Some(start) = xml.find("<string>")
+            && let Some(end) = xml[start + 8..].find("</string>")
+        {
+            return Ok(unescape_xml_entities(&xml[start + 8..start + 8 + end]));
         }
 
         // Szukaj <double>...</double>
-        if let Some(start) = xml.find("<double>") {
-            if let Some(end) = xml[start + 8..].find("</double>") {
-                return Ok(unescape_xml_entities(&xml[start + 8..start + 8 + end]));
-            }
+        if let Some(start) = xml.find("<double>")
+            && let Some(end) = xml[start + 8..].find("</double>")
+        {
+            return Ok(unescape_xml_entities(&xml[start + 8..start + 8 + end]));
         }
 
         // Szukaj <i4>...</i4>
-        if let Some(start) = xml.find("<i4>") {
-            if let Some(end) = xml[start + 4..].find("</i4>") {
-                return Ok(unescape_xml_entities(&xml[start + 4..start + 4 + end]));
-            }
+        if let Some(start) = xml.find("<i4>")
+            && let Some(end) = xml[start + 4..].find("</i4>")
+        {
+            return Ok(unescape_xml_entities(&xml[start + 4..start + 4 + end]));
         }
 
         // Szukaj <int>...</int>
-        if let Some(start) = xml.find("<int>") {
-            if let Some(end) = xml[start + 5..].find("</int>") {
-                return Ok(unescape_xml_entities(&xml[start + 5..start + 5 + end]));
-            }
+        if let Some(start) = xml.find("<int>")
+            && let Some(end) = xml[start + 5..].find("</int>")
+        {
+            return Ok(unescape_xml_entities(&xml[start + 5..start + 5 + end]));
         }
 
         // Szukaj <value>...</value>
-        if let Some(start) = xml.find("<value>") {
-            if let Some(end) = xml[start + 7..].find("</value>") {
-                let inner = &xml[start + 7..start + 7 + end];
-                if !inner.starts_with('<') {
-                    return Ok(unescape_xml_entities(inner));
-                }
+        if let Some(start) = xml.find("<value>")
+            && let Some(end) = xml[start + 7..].find("</value>")
+        {
+            let inner = &xml[start + 7..start + 7 + end];
+            if !inner.starts_with('<') {
+                return Ok(unescape_xml_entities(inner));
             }
         }
 

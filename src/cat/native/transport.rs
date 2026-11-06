@@ -368,7 +368,7 @@ mod tests {
         transport.consume(2);
         assert_eq!(transport.buffer(), b"NG");
         transport.consume(10);
-        assert!(transport.buffer().is_empty());
+        assert_eq!(transport.buffer(), b"");
     }
 
     #[tokio::test]

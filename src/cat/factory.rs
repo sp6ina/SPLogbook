@@ -99,14 +99,14 @@ impl RigBackendFactory {
                 Ok(Box::new(backend))
             }
             RigBackendConfig::Icom(cfg) => {
-                let profile = if !cfg.model.trim().is_empty() {
+                let profile = if cfg.model.trim().is_empty() {
+                    create_custom_icom_profile("IC-Custom", cfg.civ_address, cfg.baud_rate)
+                } else {
                     find_profile_by_model(&cfg.model)
                         .cloned()
                         .unwrap_or_else(|| {
                             create_custom_icom_profile(&cfg.model, cfg.civ_address, cfg.baud_rate)
                         })
-                } else {
-                    create_custom_icom_profile("IC-Custom", cfg.civ_address, cfg.baud_rate)
                 };
 
                 let serial_cfg = SerialConfig::new(&cfg.port_name, cfg.baud_rate);
@@ -114,12 +114,12 @@ impl RigBackendFactory {
                 Ok(Box::new(backend))
             }
             RigBackendConfig::Kenwood(cfg) => {
-                let profile = if !cfg.model.trim().is_empty() {
+                let profile = if cfg.model.trim().is_empty() {
+                    create_custom_kenwood_profile("TS-Custom", 115_200)
+                } else {
                     find_profile_by_model(&cfg.model)
                         .cloned()
-                        .unwrap_or_else(|| create_custom_kenwood_profile(&cfg.model, 115200))
-                } else {
-                    create_custom_kenwood_profile("TS-Custom", 115200)
+                        .unwrap_or_else(|| create_custom_kenwood_profile(&cfg.model, 115_200))
                 };
 
                 match &cfg.transport {
@@ -140,12 +140,12 @@ impl RigBackendFactory {
                 }
             }
             RigBackendConfig::Yaesu(cfg) => {
-                let profile = if !cfg.model.trim().is_empty() {
+                let profile = if cfg.model.trim().is_empty() {
+                    create_custom_yaesu_profile("FT-Custom", cfg.baud_rate)
+                } else {
                     find_profile_by_model(&cfg.model)
                         .cloned()
                         .unwrap_or_else(|| create_custom_yaesu_profile(&cfg.model, cfg.baud_rate))
-                } else {
-                    create_custom_yaesu_profile("FT-Custom", cfg.baud_rate)
                 };
 
                 let serial_cfg = SerialConfig::new(&cfg.port_name, cfg.baud_rate);
@@ -153,12 +153,12 @@ impl RigBackendFactory {
                 Ok(Box::new(backend))
             }
             RigBackendConfig::Elecraft(cfg) => {
-                let profile = if !cfg.model.trim().is_empty() {
+                let profile = if cfg.model.trim().is_empty() {
+                    ELECRAFT_K3_PROFILE.clone()
+                } else {
                     find_elecraft_profile(&cfg.model)
                         .cloned()
                         .unwrap_or_else(|| ELECRAFT_K3_PROFILE.clone())
-                } else {
-                    ELECRAFT_K3_PROFILE.clone()
                 };
 
                 match &cfg.transport {
@@ -173,7 +173,7 @@ impl RigBackendFactory {
                     }
                     ElecraftTransportConfig::Tcp { host, port } => {
                         let mut tcp_cfg = ElecraftTcpConfig::default();
-                        tcp_cfg.host = host.clone();
+                        tcp_cfg.host.clone_from(host);
                         tcp_cfg.port = *port;
                         let conn = ElecraftConnection::Tcp(tcp_cfg);
                         let backend = ElecraftBackend::new(conn, profile);
@@ -186,7 +186,7 @@ impl RigBackendFactory {
                     FlexRadioConnectionConfig::AutoDiscovery => FlexRadioConfig::default(),
                     FlexRadioConnectionConfig::Manual { host, port } => {
                         let mut c = FlexRadioConfig::default();
-                        c.host = host.clone();
+                        c.host.clone_from(host);
                         c.port = *port;
                         c
                     }

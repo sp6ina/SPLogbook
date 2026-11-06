@@ -143,11 +143,11 @@ impl ElecraftFrame {
 
         let upper = content.to_ascii_uppercase();
 
-        let prefix_len = if upper.starts_with('#') {
+        let prefix_len = if let Some(after_hash) = upper.strip_prefix('#') {
             if let Some(&p) = KNOWN_PREFIXES_4.iter().find(|&&p| upper.starts_with(p)) {
                 p.len()
             } else {
-                let cnt = upper[1..]
+                let cnt = after_hash
                     .chars()
                     .take_while(char::is_ascii_alphabetic)
                     .count();
@@ -159,7 +159,7 @@ impl ElecraftFrame {
             p.len()
         } else {
             let cnt = upper.chars().take_while(char::is_ascii_alphabetic).count();
-            cnt.min(2).max(1)
+            cnt.clamp(1, 2)
         };
 
         let prefix = &content[..prefix_len];

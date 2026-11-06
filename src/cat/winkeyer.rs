@@ -220,7 +220,7 @@ mod tests {
         assert_eq!(buf.sent_text, "CQ ");
         assert_eq!(buf.queued_text, "TEST");
         buf.abort();
-        assert!(buf.queued_text.is_empty());
+        assert_eq!(buf.queued_text, "");
 
         buf.sent_text.clear();
         buf.append_to_queue("ŁÓDŹ K");
@@ -293,7 +293,7 @@ mod tests {
         let frame = b"TEST".to_vec();
         let res = transport.write_frame(&frame);
         assert_eq!(res, Err(WinkeyerError::Busy));
-        assert!(transport.written_bytes.is_empty());
+        assert_eq!(transport.written_bytes, [] as [u8; 0]);
         assert_eq!(transport.frames_enqueued, 0);
     }
 
@@ -320,7 +320,7 @@ mod tests {
     #[test]
     fn winkeyer_test_does_not_open_serial_port() {
         let transport = MockWinkeyerTransport::new();
-        assert!(transport.written_bytes.is_empty());
+        assert_eq!(transport.written_bytes, [] as [u8; 0]);
     }
 
     #[test]

@@ -197,7 +197,7 @@ fn band_to_meters(band: &str) -> String {
         "9cm" => "3.4G",
         "6cm" => "5.7G",
         "3cm" => "10G",
-        _ => band.trim_end_matches(|c| c == 'm' || c == 'c' || c == 'M' || c == 'C'),
+        _ => band.trim_end_matches(['m', 'c', 'M', 'C']),
     }
     .to_string()
 }
@@ -280,7 +280,7 @@ mod tests {
 
     #[test]
     fn radioinfo_scales_frequency_correctly() {
-        let xml = radioinfo_xml(14025000, "CW", "SP6INA", 1);
+        let xml = radioinfo_xml(14_025_000, "CW", "SP6INA", 1);
         assert!(xml.contains("<Freq>1402500</Freq>"));
         assert!(xml.contains("<TXFreq>1402500</TXFreq>"));
     }

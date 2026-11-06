@@ -157,8 +157,7 @@ impl TciCodec {
         match m.as_str() {
             "DIGU" => "PKTUSB".to_string(),
             "DIGL" => "PKTLSB".to_string(),
-            "NFM" | "WFM" => "FM".to_string(),
-            "FM" => "FM".to_string(),
+            "NFM" | "WFM" | "FM" => "FM".to_string(),
             "USB" => "USB".to_string(),
             "LSB" => "LSB".to_string(),
             "CW" => "CW".to_string(),
@@ -763,7 +762,6 @@ impl TciBackend {
                         });
                     }
                 }
-                tokio_tungstenite::tungstenite::Message::Pong(_) => {}
                 tokio_tungstenite::tungstenite::Message::Close(_) => {
                     return Err(RigError::Protocol {
                         detail: "received Close frame before receiving 'ready;'".to_string(),
@@ -774,7 +772,8 @@ impl TciBackend {
                         detail: "unexpected binary frame during handshake".to_string(),
                     });
                 }
-                tokio_tungstenite::tungstenite::Message::Frame(_) => {}
+                tokio_tungstenite::tungstenite::Message::Pong(_)
+                | tokio_tungstenite::tungstenite::Message::Frame(_) => {}
             }
         }
     }
@@ -808,9 +807,8 @@ impl TciBackend {
             return Err(RigError::NotConnected);
         }
 
-        let mut stream = match self.ws_stream.take() {
-            Some(s) => s,
-            None => return Err(RigError::NotConnected),
+        let Some(mut stream) = self.ws_stream.take() else {
+            return Err(RigError::NotConnected);
         };
 
         let mut messages_processed = 0;
@@ -866,7 +864,6 @@ impl TciBackend {
                             });
                         }
                     }
-                    tokio_tungstenite::tungstenite::Message::Pong(_) => {}
                     tokio_tungstenite::tungstenite::Message::Close(_) => {
                         return Err(RigError::Protocol {
                             detail: "received Close frame from TCI server".to_string(),
@@ -877,7 +874,8 @@ impl TciBackend {
                             detail: "unexpected binary frame in TCI".to_string(),
                         });
                     }
-                    tokio_tungstenite::tungstenite::Message::Frame(_) => {}
+                    tokio_tungstenite::tungstenite::Message::Pong(_)
+                    | tokio_tungstenite::tungstenite::Message::Frame(_) => {}
                 }
             }
             Ok(())
@@ -899,9 +897,8 @@ impl TciBackend {
     }
 
     async fn execute_set_ptt(&mut self, target: bool) -> Result<(), RigError> {
-        let mut stream = match self.ws_stream.take() {
-            Some(s) => s,
-            None => return Err(RigError::NotConnected),
+        let Some(mut stream) = self.ws_stream.take() else {
+            return Err(RigError::NotConnected);
         };
 
         while let Some(msg) = self.pending_messages.pop_front() {
@@ -1158,9 +1155,8 @@ impl TciBackend {
             }
         };
 
-        let mut stream = match self.ws_stream.take() {
-            Some(s) => s,
-            None => return Err(RigError::NotConnected),
+        let Some(mut stream) = self.ws_stream.take() else {
+            return Err(RigError::NotConnected);
         };
 
         let send_fut = stream.send(tokio_tungstenite::tungstenite::Message::Text(
@@ -1374,10 +1370,10 @@ mod tests {
             .expect("bind listener");
         let port = listener.local_addr().expect("local_addr").port();
         let handle = tokio::spawn(async move {
-            if let Ok((tcp_stream, _)) = listener.accept().await {
-                if let Ok(ws_stream) = tokio_tungstenite::accept_async(tcp_stream).await {
-                    handler(ws_stream).await;
-                }
+            if let Ok((tcp_stream, _)) = listener.accept().await
+                && let Ok(ws_stream) = tokio_tungstenite::accept_async(tcp_stream).await
+            {
+                handler(ws_stream).await;
             }
         });
         (port, handle)
@@ -1458,7 +1454,7 @@ mod tests {
 
         // Puste fragmenty
         let empty_decoded = TciCodec::decode_frame(";;  ;").expect("empty fragments");
-        assert!(empty_decoded.is_empty());
+        assert_eq!(empty_decoded, [] as [TciMessage; 0]);
 
         // Niekompletna instrukcja bez średnika
         let incomplete = TciCodec::decode_frame("vfo:0,0,14074000;incomplete_cmd");
@@ -1913,13 +1909,14 @@ mod tests {
     #[tokio::test]
     async fn tci_poll_256_messages_boundary() {
         let (port, server_handle) = spawn_mock_tci_server(|mut ws| async move {
+            use std::fmt::Write;
             ws.send(Message::Text("ready;".into()))
                 .await
                 .expect("send ready");
             // Wysyłamy 260 instrukcji w jednej ramce
             let mut batch = String::new();
             for i in 1..=260 {
-                batch.push_str(&format!("vfo:0,0,{i};\n"));
+                let _ = writeln!(batch, "vfo:0,0,{i};");
             }
             ws.send(Message::Text(batch.into()))
                 .await
