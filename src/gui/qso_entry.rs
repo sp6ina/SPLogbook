@@ -612,7 +612,8 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .clicked()
         {
             let call = app.entry.callsign.clone();
-            app.gui.dialogs.photo_viewer_dialog.open(&call, None);
+            let photo_url = app.gui.dialogs.photo_viewer_dialog.photo_url.clone();
+            app.gui.dialogs.photo_viewer_dialog.open(&call, photo_url);
         }
         entry_field_ids.push(mgr_resp.id);
     });
@@ -670,7 +671,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .on_hover_text(tr(key::QSO_STOP_RECORDING_TOOLTIP, lang))
                 .clicked()
             {
-                let _ = crate::media::audio_recorder::AudioRecorder::stop_audio();
+                let _ = crate::media::audio_recorder::AudioRecorder::stop_recording();
             }
         } else if ui
             .button(egui::RichText::new("● REC").color(palette.danger).strong())

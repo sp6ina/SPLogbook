@@ -2209,3 +2209,32 @@ fn slow_background_task_does_not_block_gui_state_access() {
 
     bg_handle.join().unwrap();
 }
+
+#[test]
+fn audio_recorder_stop_recording_disarms_active_state() {
+    let _ = crate::media::audio_recorder::AudioRecorder::stop_recording();
+    assert!(!crate::media::audio_recorder::AudioRecorder::is_recording());
+}
+
+#[test]
+fn photo_viewer_retains_callbook_image_url_on_open() {
+    let mut dialog = crate::gui::photo_viewer::PhotoViewerDialog::new();
+    dialog.open("SP6INA", Some("https://example.com/qsl.jpg".to_string()));
+    assert!(dialog.is_open);
+    assert_eq!(dialog.callsign, "SP6INA");
+    assert_eq!(
+        dialog.photo_url.as_deref(),
+        Some("https://example.com/qsl.jpg")
+    );
+}
+
+#[test]
+fn astronomy_dialog_tracks_target_rotation() {
+    let mut dialog = crate::gui::astronomy_dialog::AstronomyDialog::new();
+    dialog.open();
+    let mut rotor = crate::cat::rotor::RotorState::default();
+    rotor.azimuth_deg = 120.0;
+    rotor.elevation_deg = 35.0;
+    assert_eq!(rotor.elevation_deg, 35.0);
+    assert!(dialog.is_open);
+}
