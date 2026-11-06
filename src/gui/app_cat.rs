@@ -134,15 +134,55 @@ impl SpLogApp {
             }
         };
 
-        // 2. Jeśli radio to Hamlib serial i ma włączony auto-start rigctld:
-        if self.config.cat_auto_start_rigctld {
+        // 2. Jeśli radio to Hamlib serial i ma włączony auto-start rigctld (legacy lub w profilu stacji):
+        let should_auto_start_rigctld = self.config.cat_auto_start_rigctld
+            || station_cfg.rigs.iter().any(|r| {
+                if let crate::cat::config::RigBackendConfig::Hamlib(ref h) = r.backend {
+                    h.auto_start_rigctld
+                } else {
+                    false
+                }
+            });
+
+        if should_auto_start_rigctld {
+            let (port, rig_id, serial_port, baud_rate, hamlib_source, custom_path) = station_cfg
+                .rigs
+                .iter()
+                .find_map(|r| {
+                    if let crate::cat::config::RigBackendConfig::Hamlib(ref h) = r.backend {
+                        if h.auto_start_rigctld {
+                            let model_num =
+                                h.rig_model.parse::<u32>().unwrap_or(self.config.cat_rig_id);
+                            return Some((
+                                h.port,
+                                model_num,
+                                h.serial_port.clone(),
+                                h.baud_rate,
+                                h.hamlib_source.clone(),
+                                h.custom_rigctld_path.clone(),
+                            ));
+                        }
+                    }
+                    None
+                })
+                .unwrap_or_else(|| {
+                    (
+                        self.config.cat_port,
+                        self.config.cat_rig_id,
+                        self.config.cat_serial_port.clone(),
+                        self.config.cat_baud_rate,
+                        self.config.cat_hamlib_source.clone(),
+                        self.config.cat_custom_rigctld_path.clone(),
+                    )
+                });
+
             let mut sup = crate::cat::supervisor::RigctldSupervisor::new(
-                self.config.cat_port,
-                self.config.cat_rig_id,
-                &self.config.cat_serial_port,
-                self.config.cat_baud_rate,
-                &self.config.cat_hamlib_source,
-                &self.config.cat_custom_rigctld_path,
+                port,
+                rig_id,
+                &serial_port,
+                baud_rate,
+                &hamlib_source,
+                &custom_path,
             );
             match sup.start() {
                 Ok(()) => {

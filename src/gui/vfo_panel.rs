@@ -293,7 +293,10 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         ui.separator();
         let split_freq = if app.cat.vfo_split {
-            frequency_hz + (app.cat.vfo.split_offset_khz * 1000.0) as u64
+            app.cat
+                .rig_state
+                .tx_frequency_hz
+                .unwrap_or(frequency_hz + (app.cat.vfo.split_offset_khz * 1000.0) as u64)
         } else {
             frequency_hz
         };
@@ -315,9 +318,17 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         if app.cat.vfo_split {
             if ui.button("+1k").clicked() {
                 app.cat.vfo.split_offset_khz = 1.0;
+                let target_split = frequency_hz + 1000;
+                app.cat
+                    .runtime
+                    .execute_cmd(crate::cat::rig::RigCommand::SetSplitFrequency(target_split));
             }
             if ui.button("+5k").clicked() {
                 app.cat.vfo.split_offset_khz = 5.0;
+                let target_split = frequency_hz + 5000;
+                app.cat
+                    .runtime
+                    .execute_cmd(crate::cat::rig::RigCommand::SetSplitFrequency(target_split));
             }
         }
 
@@ -562,7 +573,9 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         );
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let pwr = if app.cat.ptt_active {
+            let pwr = if app.cat.rig_state.rf_power_watts > 0.0 {
+                app.cat.rig_state.rf_power_watts
+            } else if app.cat.ptt_active {
                 app.config.station.power_watts as f32
             } else {
                 0.0

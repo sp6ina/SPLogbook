@@ -187,11 +187,9 @@ impl SpLogApp {
         }
 
         let cat_snap = self.cat.runtime.snapshot();
-        let mut active_state_found = false;
 
         if let Some(ref rx_target) = cat_snap.active_rx {
             if let Some(svc) = cat_snap.rigs.get(&rx_target.rig_id) {
-                active_state_found = true;
                 let is_conn = matches!(
                     svc.lifecycle,
                     crate::cat::service::RigServiceState::Ready
@@ -210,25 +208,8 @@ impl SpLogApp {
             }
         }
 
-        if !active_state_found {
-            if let Some((rig_id, svc)) = cat_snap.rigs.iter().next() {
-                let is_conn = matches!(
-                    svc.lifecycle,
-                    crate::cat::service::RigServiceState::Ready
-                        | crate::cat::service::RigServiceState::Degraded
-                );
-                let mut st = svc.state.clone().unwrap_or_default();
-                st.connected = is_conn;
-
-                let is_tx = match cat_snap.tx_state {
-                    crate::cat::tx_arbiter::TxArbiterState::Owned {
-                        rig_id: ref owner, ..
-                    } => owner == rig_id,
-                    _ => false,
-                };
-                self.update_cat_state_from_telemetry(st, is_tx);
-            }
-        }
+        // Eliminacja niejawnego fallbacku na pierwsze radio z mapy (CAT-007 / R8 / HIL-COND-18).
+        // Telemetria GUI odzwierciedla wyłącznie jawnie wybrany Active RX target.
 
         while let Ok(st) = self.cat.state_rx.try_recv() {
             let ptt = self.cat.ptt_active;
