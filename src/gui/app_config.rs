@@ -3,7 +3,7 @@ use crate::core::i18n::{Msg, key, tr};
 use crate::core::station::{AppConfig, EquipmentItem};
 
 impl SpLogApp {
-    /// Cyklicznie przeĹ‚Ä…cza motyw kolorystyczny (Dark -> Daylight -> High-Contrast).
+    /// Cyklicznie przełącza motyw kolorystyczny (Dark -> Daylight -> High-Contrast).
     pub fn cycle_theme(&mut self) {
         let all = crate::gui::theme::ThemePreset::ALL;
         let idx = all
@@ -24,7 +24,7 @@ impl SpLogApp {
         ));
     }
 
-    /// Tworzy zaktualizowanÄ… strukturÄ™ [`AppConfig`] odzwierciedlajÄ…cÄ… bieĹĽÄ…cy stan aplikacji.
+    /// Tworzy zaktualizowaną strukturę [`AppConfig`] odzwierciedlającą bieżący stan aplikacji.
     pub fn snapshot_config(&self) -> AppConfig {
         let is_configured = if self.gui.chrome.show_welcome_wizard {
             false
@@ -63,7 +63,7 @@ impl SpLogApp {
         cfg
     }
 
-    /// Tworzy zaktualizowanÄ… strukturÄ™ [`AppConfig`] odzwierciedlajÄ…cÄ… bieĹĽÄ…cy stan aplikacji.
+    /// Tworzy zaktualizowaną strukturę [`AppConfig`] odzwierciedlającą bieżący stan aplikacji.
     pub fn build_app_config(&self) -> AppConfig {
         self.snapshot_config()
     }
@@ -83,14 +83,14 @@ impl SpLogApp {
         }
     }
 
-    /// Scentralizowane zgĹ‚aszanie bĹ‚Ä™dĂłw: log + pĹ‚ywajÄ…ce powiadomienie w UI.
+    /// Scentralizowane zgłaszanie błędów: log + pływające powiadomienie w UI.
     pub fn report_error(&mut self, msg: impl Into<String>) {
         let msg = msg.into();
         log::error!("{msg}");
         self.gui.chrome.status_toast = Some((msg, std::time::Instant::now()));
     }
 
-    /// Scentralizowane zgĹ‚aszanie ostrzeĹĽeĹ„ (log warning + pĹ‚ywajÄ…ce powiadomienie).
+    /// Scentralizowane zgłaszanie ostrzeżeń (log warning + pływające powiadomienie).
     pub fn report_warning(&mut self, msg: impl Into<String>) {
         let msg = msg.into();
         log::warn!("{msg}");
