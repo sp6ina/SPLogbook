@@ -129,6 +129,28 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 app.cat.selected_rig_idx = idx;
                             }
                         }
+
+                        if station_cfg.rigs.len() < 2
+                            && ui.button("+ 2").clicked()
+                        {
+                            let new_id = RigId::new("rig-2").unwrap_or_else(|_| RigId::hub());
+                            station_cfg.rigs.push(RigConfig {
+                                id: new_id,
+                                enabled: true,
+                                display_name: "Transceiver 2".to_string(),
+                                poll_interval_ms: 250,
+                                command_timeout_ms: 2000,
+                                backend: RigBackendConfig::Hamlib(HamlibBackendConfig::default()),
+                            });
+                            app.cat.selected_rig_idx = station_cfg.rigs.len() - 1;
+                        }
+
+                        if station_cfg.rigs.len() > 1 && current_idx > 0
+                            && ui.button("🗑").on_hover_text(tr(key::BTN_DELETE, lang)).clicked()
+                        {
+                            station_cfg.rigs.remove(current_idx);
+                            app.cat.selected_rig_idx = current_idx.saturating_sub(1);
+                        }
                     });
 
                     ui.horizontal(|ui| {

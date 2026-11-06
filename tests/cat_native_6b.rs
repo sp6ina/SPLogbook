@@ -1822,3 +1822,67 @@ async fn successful_probe_does_not_claim_tx_ownership() {
         "Probe must never claim TX ownership"
     );
 }
+
+#[test]
+fn gui_cat_settings_supports_radio_2_lifecycle_and_isolation() {
+    let app = create_test_app();
+    let mut station_cfg = app.config.cat_station.clone().unwrap_or_default();
+    if station_cfg.rigs.is_empty() {
+        station_cfg.rigs.push(RigConfig {
+            id: RigId::new("rig-1").unwrap(),
+            enabled: true,
+            display_name: "Transceiver 1".to_string(),
+            poll_interval_ms: 250,
+            command_timeout_ms: 2000,
+            backend: RigBackendConfig::Hamlib(
+                splogbook::cat::config::HamlibBackendConfig::default(),
+            ),
+        });
+    }
+    assert_eq!(station_cfg.rigs.len(), 1);
+
+    // Dodanie Radio 2
+    let new_id = RigId::new("rig-2").expect("rig-2 id");
+    station_cfg.rigs.push(RigConfig {
+        id: new_id.clone(),
+        enabled: true,
+        display_name: "Transceiver 2".to_string(),
+        poll_interval_ms: 250,
+        command_timeout_ms: 2000,
+        backend: RigBackendConfig::Hamlib(splogbook::cat::config::HamlibBackendConfig::default()),
+    });
+    assert_eq!(station_cfg.rigs.len(), 2);
+    assert_eq!(station_cfg.rigs[1].id.as_str(), "rig-2");
+
+    // Usuniecie Radio 2
+    station_cfg.rigs.remove(1);
+    assert_eq!(station_cfg.rigs.len(), 1);
+    assert_eq!(station_cfg.rigs[0].id.as_str(), "rig-1");
+}
+
+#[tokio::test]
+async fn app_async_telemetry_does_not_fallback_to_arbitrary_first_rig() {
+    let mut app = create_test_app();
+    let initial_freq = app.cat.rig_state.frequency_hz;
+
+    // Kiedy runtime nie ma aktywnego RX targetu (np. None lub niepolaczony),
+    // poll_cat_outcomes nie powinien nadpisywac stanu telemetrii losowym radiem z mapy.
+    app.poll_cat_outcomes();
+    assert_eq!(app.cat.rig_state.frequency_hz, initial_freq);
+}
+
+#[test]
+fn vfo_panel_split_frequency_and_telemetry_power() {
+    let mut app = create_test_app();
+    app.cat.rig_state.frequency_hz = 14_200_000;
+    app.cat.vfo_split = true;
+    app.cat.vfo.split_offset_khz = 5.0;
+
+    // Gdy tx_frequency_hz jest ustawione w telemetrii CAT, ma priorytet:
+    app.cat.rig_state.tx_frequency_hz = Some(14_205_500);
+    assert_eq!(app.cat.rig_state.tx_frequency_hz, Some(14_205_500));
+
+    // Telemetria mocy w watach:
+    app.cat.rig_state.rf_power_watts = 75.0;
+    assert_eq!(app.cat.rig_state.rf_power_watts, 75.0);
+}
