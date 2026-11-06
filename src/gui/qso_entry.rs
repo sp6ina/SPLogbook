@@ -295,7 +295,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     "FOC" => palette.accent_alt,
                     _ => palette.info,
                 };
-                let text = match club.number {
+                let text = match club.number.as_deref() {
                     Some(num) => format!("🎖 {} {}", club.code, num),
                     None => format!("🎖 {}", club.code),
                 };
