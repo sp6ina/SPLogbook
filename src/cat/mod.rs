@@ -53,4 +53,8 @@ pub use service::{
     ReconnectPolicy, RigService, RigServiceError, RigServiceHandle, RigServiceLifecycle,
     RigServiceSnapshot, RigServiceState, RigServiceSupervisor, StateFreshness,
 };
+pub use supervisor::{
+    EndpointConflictError, PhysicalEndpointOwner, PhysicalEndpointRegistry, RigctldSupervisor,
+    SupervisorError, normalize_serial_port,
+};
 pub use tx_arbiter::{TxArbiter, TxArbiterError, TxArbiterState, TxUnknownReason};
