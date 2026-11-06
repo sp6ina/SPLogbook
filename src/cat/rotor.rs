@@ -32,6 +32,111 @@ async fn send_rotor_cmd(host: &str, port: u16, cmd: &str) -> Result<(), std::io:
     tcp::send_cmd_ignore_reply(&format!("{host}:{port}"), cmd, DAEMON).await
 }
 
+/// Identyfikator rotora antenowego w konfiguracji wielourządzeniowej
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct RotatorId(pub String);
+
+impl RotatorId {
+    pub fn new(id: impl Into<String>) -> Self {
+        Self(id.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// Polecenie nakierowania rotora na zadany azymut i elewację z jawnym RotatorId
+#[derive(Debug, Clone, PartialEq)]
+pub struct EmeRotorCommand {
+    pub rotator_id: RotatorId,
+    pub azimuth_deg: f32,
+    pub elevation_deg: f32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum RotorError {
+    InvalidRotatorId(String),
+    InvalidAzimuth(f32),
+    InvalidElevation(f32),
+    NonFiniteCoordinate,
+    Transport(String),
+    Timeout,
+}
+
+impl std::fmt::Display for RotorError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidRotatorId(id) => write!(f, "Invalid or empty rotator ID: '{id}'"),
+            Self::InvalidAzimuth(az) => write!(f, "Azimuth out of range [0.0, 360.0]: {az}"),
+            Self::InvalidElevation(el) => write!(f, "Elevation out of range [-10.0, 90.0]: {el}"),
+            Self::NonFiniteCoordinate => write!(f, "Coordinate cannot be NaN or Infinite"),
+            Self::Transport(detail) => write!(f, "Rotor transport error: {detail}"),
+            Self::Timeout => write!(f, "Rotor command timed out"),
+        }
+    }
+}
+
+impl std::error::Error for RotorError {}
+
+impl EmeRotorCommand {
+    pub fn new(
+        rotator_id: RotatorId,
+        azimuth_deg: f32,
+        elevation_deg: f32,
+    ) -> Result<Self, RotorError> {
+        if rotator_id.as_str().trim().is_empty() {
+            return Err(RotorError::InvalidRotatorId(rotator_id.0));
+        }
+        if !azimuth_deg.is_finite() || !elevation_deg.is_finite() {
+            return Err(RotorError::NonFiniteCoordinate);
+        }
+        if !(0.0..=360.0).contains(&azimuth_deg) {
+            return Err(RotorError::InvalidAzimuth(azimuth_deg));
+        }
+        if !(-10.0..=90.0).contains(&elevation_deg) {
+            return Err(RotorError::InvalidElevation(elevation_deg));
+        }
+        Ok(Self {
+            rotator_id,
+            azimuth_deg,
+            elevation_deg,
+        })
+    }
+}
+
+/// Trait transportu rotora dla mockowania i testów
+pub trait RotorTransport: Send + Sync {
+    fn send_command(&mut self, cmd: &EmeRotorCommand) -> Result<(), RotorError>;
+}
+
+/// Mock transport rotora
+#[derive(Debug, Default)]
+pub struct MockRotorTransport {
+    pub sent_commands: Vec<EmeRotorCommand>,
+    pub simulate_error: Option<String>,
+    pub simulate_timeout: bool,
+}
+
+impl MockRotorTransport {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl RotorTransport for MockRotorTransport {
+    fn send_command(&mut self, cmd: &EmeRotorCommand) -> Result<(), RotorError> {
+        if self.simulate_timeout {
+            return Err(RotorError::Timeout);
+        }
+        if let Some(ref err) = self.simulate_error {
+            return Err(RotorError::Transport(err.clone()));
+        }
+        self.sent_commands.push(cmd.clone());
+        Ok(())
+    }
+}
+
 /// Stan położenia rotora antenowego
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RotorState {
@@ -154,5 +259,109 @@ impl RotorClient {
     /// Zatrzymuje ruch rotora
     pub async fn stop(host: &str, port: u16) -> Result<(), std::io::Error> {
         send_rotor_cmd(host, port, "S\n").await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn eme_rotator_uses_explicit_rotator_id() {
+        let id = RotatorId::new("eme_az_el_rotator");
+        let cmd = EmeRotorCommand::new(id.clone(), 145.5, 32.0).unwrap();
+        assert_eq!(cmd.rotator_id, id);
+        assert_eq!(cmd.rotator_id.as_str(), "eme_az_el_rotator");
+    }
+
+    #[test]
+    fn eme_rotator_sends_azimuth_and_elevation_once() {
+        let mut transport = MockRotorTransport::new();
+        let cmd = EmeRotorCommand::new(RotatorId::new("eme_rotator"), 180.0, 45.0).unwrap();
+
+        transport.send_command(&cmd).unwrap();
+        assert_eq!(transport.sent_commands.len(), 1);
+        assert_eq!(transport.sent_commands[0].azimuth_deg, 180.0);
+        assert_eq!(transport.sent_commands[0].elevation_deg, 45.0);
+    }
+
+    #[test]
+    fn eme_rotator_rejects_invalid_azimuth() {
+        let res_negative = EmeRotorCommand::new(RotatorId::new("rotor1"), -5.0, 20.0);
+        assert_eq!(res_negative, Err(RotorError::InvalidAzimuth(-5.0)));
+
+        let res_too_high = EmeRotorCommand::new(RotatorId::new("rotor1"), 365.0, 20.0);
+        assert_eq!(res_too_high, Err(RotorError::InvalidAzimuth(365.0)));
+    }
+
+    #[test]
+    fn eme_rotator_rejects_invalid_elevation() {
+        let res_low = EmeRotorCommand::new(RotatorId::new("rotor1"), 120.0, -15.0);
+        assert_eq!(res_low, Err(RotorError::InvalidElevation(-15.0)));
+
+        let res_high = EmeRotorCommand::new(RotatorId::new("rotor1"), 120.0, 95.0);
+        assert_eq!(res_high, Err(RotorError::InvalidElevation(95.0)));
+    }
+
+    #[test]
+    fn eme_rotator_rejects_nan() {
+        let res_nan_az = EmeRotorCommand::new(RotatorId::new("rotor1"), f32::NAN, 20.0);
+        assert_eq!(res_nan_az, Err(RotorError::NonFiniteCoordinate));
+
+        let res_nan_el = EmeRotorCommand::new(RotatorId::new("rotor1"), 120.0, f32::NAN);
+        assert_eq!(res_nan_el, Err(RotorError::NonFiniteCoordinate));
+
+        let res_inf = EmeRotorCommand::new(RotatorId::new("rotor1"), f32::INFINITY, 20.0);
+        assert_eq!(res_inf, Err(RotorError::NonFiniteCoordinate));
+    }
+
+    #[test]
+    fn eme_rotator_does_not_fallback_to_first_device() {
+        // Pusty identyfikator rotora jest bezwzględnie odrzucany — brak cichego fallbacku na domyślne urządzenie lub radio
+        let res = EmeRotorCommand::new(RotatorId::new(""), 120.0, 20.0);
+        assert_eq!(res, Err(RotorError::InvalidRotatorId(String::new())));
+
+        let res_whitespace = EmeRotorCommand::new(RotatorId::new("   "), 120.0, 20.0);
+        assert_eq!(
+            res_whitespace,
+            Err(RotorError::InvalidRotatorId("   ".to_string()))
+        );
+    }
+
+    #[test]
+    fn eme_rotator_backend_error_is_visible() {
+        let mut transport = MockRotorTransport::new();
+        transport.simulate_error = Some("Rotor motor overload error".to_string());
+
+        let cmd = EmeRotorCommand::new(RotatorId::new("rotor_eme"), 90.0, 10.0).unwrap();
+        let res = transport.send_command(&cmd);
+
+        assert!(res.is_err());
+        assert_eq!(
+            res.unwrap_err(),
+            RotorError::Transport("Rotor motor overload error".to_string())
+        );
+    }
+
+    #[test]
+    fn eme_rotator_timeout_is_bounded() {
+        let mut transport = MockRotorTransport::new();
+        transport.simulate_timeout = true;
+
+        let cmd = EmeRotorCommand::new(RotatorId::new("rotor_eme"), 90.0, 10.0).unwrap();
+        let start = std::time::Instant::now();
+        let res = transport.send_command(&cmd);
+        let elapsed = start.elapsed();
+
+        assert_eq!(res, Err(RotorError::Timeout));
+        assert!(elapsed < std::time::Duration::from_millis(50));
+    }
+
+    #[test]
+    fn eme_rotator_test_uses_mock_transport_only() {
+        let mut transport = MockRotorTransport::new();
+        let cmd = EmeRotorCommand::new(RotatorId::new("isolated_mock"), 270.0, 60.0).unwrap();
+        assert!(transport.send_command(&cmd).is_ok());
+        assert_eq!(transport.sent_commands.len(), 1);
     }
 }

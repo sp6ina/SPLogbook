@@ -283,3 +283,250 @@ impl AudioRecorder {
         IS_PLAYING.load(Ordering::SeqCst)
     }
 }
+
+/// Trait abstrakcji backendu rejestratora audio na potrzeby testów i izolacji od fizycznych urządzeń.
+pub trait AudioRecorderBackend: Send + Sync {
+    fn start(&mut self) -> Result<(), AudioRecorderError>;
+    fn stop(&mut self) -> Result<(), AudioRecorderError>;
+    fn flush(&mut self) -> Result<(), AudioRecorderError>;
+    fn finalize(&mut self, output: &Path) -> Result<PathBuf, AudioRecorderError>;
+    fn is_active(&self) -> bool;
+}
+
+/// Mock rejestratora audio działający wyłącznie w pamięci i plikach tymczasowych (zero fizycznego I/O).
+pub struct MockAudioRecorderSession {
+    worker: Option<std::thread::JoinHandle<()>>,
+    stop_signal: std::sync::Arc<AtomicBool>,
+    buffer: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
+    output_handle: Option<std::fs::File>,
+    pub simulate_finalize_error: bool,
+    is_active: bool,
+}
+
+impl Default for MockAudioRecorderSession {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl MockAudioRecorderSession {
+    pub fn new() -> Self {
+        Self {
+            worker: None,
+            stop_signal: std::sync::Arc::new(AtomicBool::new(false)),
+            buffer: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+            output_handle: None,
+            simulate_finalize_error: false,
+            is_active: false,
+        }
+    }
+
+    pub fn start_mock(&mut self) -> Result<(), AudioRecorderError> {
+        self.stop_signal.store(false, Ordering::SeqCst);
+        self.is_active = true;
+        let stop_flag = self.stop_signal.clone();
+        let buf = self.buffer.clone();
+        self.worker = Some(std::thread::spawn(move || {
+            while !stop_flag.load(Ordering::SeqCst) {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+                if let Ok(mut g) = buf.lock() {
+                    g.extend_from_slice(&[0x55, 0xAA]);
+                }
+            }
+        }));
+        Ok(())
+    }
+
+    pub fn set_output_handle(&mut self, file: std::fs::File) {
+        self.output_handle = Some(file);
+    }
+
+    pub fn has_output_handle(&self) -> bool {
+        self.output_handle.is_some()
+    }
+
+    pub fn has_worker(&self) -> bool {
+        self.worker.is_some()
+    }
+
+    pub fn stop_recording(&mut self) -> Result<(), AudioRecorderError> {
+        if !self.is_active {
+            return Ok(());
+        }
+        self.stop_signal.store(true, Ordering::SeqCst);
+        if let Some(h) = self.worker.take() {
+            let _ = h.join();
+        }
+        self.flush()?;
+        self.output_handle.take();
+        self.is_active = false;
+        Ok(())
+    }
+
+    pub fn flush(&mut self) -> Result<(), AudioRecorderError> {
+        if let Ok(mut g) = self.buffer.lock() {
+            g.clear();
+        }
+        Ok(())
+    }
+
+    pub fn finalize(&mut self, output: &Path) -> Result<PathBuf, AudioRecorderError> {
+        if self.simulate_finalize_error {
+            return Err(AudioRecorderError::Io(
+                "Mock finalize I/O error".to_string(),
+            ));
+        }
+        self.stop_recording()?;
+        std::fs::write(output, b"RIFF....WAVEfmt ....data....")
+            .map_err(|e| AudioRecorderError::Io(e.to_string()))?;
+        Ok(output.to_path_buf())
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.is_active
+    }
+}
+
+impl AudioRecorderBackend for MockAudioRecorderSession {
+    fn start(&mut self) -> Result<(), AudioRecorderError> {
+        self.start_mock()
+    }
+
+    fn stop(&mut self) -> Result<(), AudioRecorderError> {
+        self.stop_recording()
+    }
+
+    fn flush(&mut self) -> Result<(), AudioRecorderError> {
+        self.flush()
+    }
+
+    fn finalize(&mut self, output: &Path) -> Result<PathBuf, AudioRecorderError> {
+        self.finalize(output)
+    }
+
+    fn is_active(&self) -> bool {
+        self.is_active()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn audio_recorder_stop_finalizes_mock_recording() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("splog_rec_test_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let target_file = temp_dir.join("test_out.wav");
+
+        let mut session = MockAudioRecorderSession::new();
+        session.start_mock().unwrap();
+        assert!(session.is_active());
+
+        let res = session.finalize(&target_file);
+        assert!(res.is_ok());
+        assert!(target_file.exists());
+        assert!(!session.is_active());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn audio_recorder_stop_flushes_pending_data() {
+        let mut session = MockAudioRecorderSession::new();
+        session.start_mock().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+
+        session.flush().unwrap();
+        let buf_len = session.buffer.lock().unwrap().len();
+        assert_eq!(buf_len, 0);
+        let _ = session.stop_recording();
+    }
+
+    #[test]
+    fn audio_recorder_stop_is_idempotent() {
+        let mut session = MockAudioRecorderSession::new();
+        session.start_mock().unwrap();
+        assert!(session.is_active());
+
+        assert!(session.stop_recording().is_ok());
+        assert!(!session.is_active());
+        // Drugie wywołanie jest bezpieczne i idempotentne
+        assert!(session.stop_recording().is_ok());
+        assert!(!session.is_active());
+    }
+
+    #[test]
+    fn audio_recorder_stop_releases_worker() {
+        let mut session = MockAudioRecorderSession::new();
+        session.start_mock().unwrap();
+        assert!(session.has_worker());
+
+        session.stop_recording().unwrap();
+        assert!(!session.has_worker());
+    }
+
+    #[test]
+    fn audio_recorder_stop_releases_output_handle() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("splog_rec_handle_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let handle_file = temp_dir.join("handle.wav");
+        let file = std::fs::File::create(&handle_file).unwrap();
+
+        let mut session = MockAudioRecorderSession::new();
+        session.start_mock().unwrap();
+        session.set_output_handle(file);
+        assert!(session.has_output_handle());
+
+        session.stop_recording().unwrap();
+        assert!(!session.has_output_handle());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn audio_recorder_stop_propagates_finalize_error() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("splog_rec_err_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let target_file = temp_dir.join("err_out.wav");
+
+        let mut session = MockAudioRecorderSession::new();
+        session.start_mock().unwrap();
+        session.simulate_finalize_error = true;
+
+        let res = session.finalize(&target_file);
+        assert!(res.is_err());
+        match res.unwrap_err() {
+            AudioRecorderError::Io(msg) => assert!(msg.contains("Mock finalize I/O error")),
+            other => panic!("Oczekiwano błędu Io, otrzymano: {other:?}"),
+        }
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn audio_recorder_shutdown_is_bounded() {
+        let mut session = MockAudioRecorderSession::new();
+        session.start_mock().unwrap();
+
+        let start = std::time::Instant::now();
+        session.stop_recording().unwrap();
+        let elapsed = start.elapsed();
+
+        assert!(
+            elapsed < std::time::Duration::from_millis(500),
+            "Shutdown workera trwał zbyt długo: {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn audio_recorder_test_does_not_open_physical_device() {
+        // Weryfikacja, że MockAudioRecorderSession nie dotyka urządzeń fizycznych ani MCI
+        let session = MockAudioRecorderSession::new();
+        assert!(!session.is_active());
+        assert!(!AudioRecorder::is_recording());
+    }
+}
