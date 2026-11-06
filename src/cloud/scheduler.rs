@@ -266,28 +266,28 @@ impl UploadScheduler {
 
     /// Ścieżka pliku kolejki offline (APPDATA/SPLogbook na Windows, XDG_DATA_HOME lub ~/.local/share/splogbook na innych systemach).
     pub fn queue_path() -> PathBuf {
-        if let Ok(appdata) = std::env::var("APPDATA") {
-            if !appdata.is_empty() {
-                return PathBuf::from(appdata)
-                    .join("SPLogbook")
-                    .join("upload_queue.json");
-            }
+        if let Ok(appdata) = std::env::var("APPDATA")
+            && !appdata.is_empty()
+        {
+            return PathBuf::from(appdata)
+                .join("SPLogbook")
+                .join("upload_queue.json");
         }
-        if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
-            if !xdg.is_empty() {
-                return PathBuf::from(xdg)
-                    .join("splogbook")
-                    .join("upload_queue.json");
-            }
+        if let Ok(xdg) = std::env::var("XDG_DATA_HOME")
+            && !xdg.is_empty()
+        {
+            return PathBuf::from(xdg)
+                .join("splogbook")
+                .join("upload_queue.json");
         }
-        if let Ok(home) = std::env::var("HOME") {
-            if !home.is_empty() {
-                return PathBuf::from(home)
-                    .join(".local")
-                    .join("share")
-                    .join("splogbook")
-                    .join("upload_queue.json");
-            }
+        if let Ok(home) = std::env::var("HOME")
+            && !home.is_empty()
+        {
+            return PathBuf::from(home)
+                .join(".local")
+                .join("share")
+                .join("splogbook")
+                .join("upload_queue.json");
         }
         PathBuf::from("upload_queue.json")
     }
@@ -464,7 +464,7 @@ mod tests {
 
         s.mark_in_flight(ready[0], 100);
         // Tuż po próbie drugi serwis jest zablokowany limitem tempa.
-        assert!(s.ready_jobs(101).is_empty());
+        assert_eq!(s.ready_jobs(101), [] as [u64; 0]);
         // Po upływie rate-limit drugie zadanie staje się gotowe.
         let later = 100 + svc().rate_limit_secs() + 1;
         assert_eq!(s.ready_jobs(later).len(), 1);

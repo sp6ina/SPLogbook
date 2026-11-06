@@ -83,8 +83,8 @@ impl UpdaterError {
             | Self::SafetyGate(s)
             | Self::ZipSlip(s)
             | Self::UpdateFailed(s)
-            | Self::Other(s) => s.as_str(),
-            Self::UnsupportedPlatform(s)
+            | Self::Other(s)
+            | Self::UnsupportedPlatform(s)
             | Self::AmbiguousArtifact(s)
             | Self::UnsafeArchivePath(s)
             | Self::ArchiveLimitExceeded(s)
@@ -231,12 +231,12 @@ impl DatabaseUpdater {
             .await
             .map_err(|e| UpdaterError::Network(format!("Błąd odczytu danych z {url}: {e}")))?;
 
-        if let Some(parent) = dest_path.parent() {
-            if !parent.as_os_str().is_empty() {
-                tokio::fs::create_dir_all(parent).await.map_err(|e| {
-                    UpdaterError::Io(format!("Błąd tworzenia katalogu {}: {e}", parent.display()))
-                })?;
-            }
+        if let Some(parent) = dest_path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            tokio::fs::create_dir_all(parent).await.map_err(|e| {
+                UpdaterError::Io(format!("Błąd tworzenia katalogu {}: {e}", parent.display()))
+            })?;
         }
 
         tokio::fs::write(dest_path, &bytes).await.map_err(|e| {
@@ -400,11 +400,11 @@ pub fn verify_manifest_signature_with_keys<'a>(
         ) {
             continue;
         }
-        if let Ok(verifying_key) = VerifyingKey::from_bytes(&key.public_key) {
-            if verifying_key.verify(manifest_bytes, &signature).is_ok() {
-                verified_key = Some(key);
-                break;
-            }
+        if let Ok(verifying_key) = VerifyingKey::from_bytes(&key.public_key)
+            && verifying_key.verify(manifest_bytes, &signature).is_ok()
+        {
+            verified_key = Some(key);
+            break;
         }
     }
 
@@ -492,14 +492,12 @@ pub fn verify_downgrade_protection(
 
     if m_ver < c_ver {
         return Err(UpdaterError::DowngradeRejected(format!(
-            "Odmowa downgrade: wersja w manifeście ({}) jest starsza od zainstalowanej ({}).",
-            manifest_version, current_version
+            "Odmowa downgrade: wersja w manifeście ({manifest_version}) jest starsza od zainstalowanej ({current_version})."
         )));
     }
     if m_ver == c_ver {
         return Err(UpdaterError::AlreadyUpToDate(format!(
-            "Zainstalowana jest już ta sama wersja ({}) - aktualizacja odrzucona.",
-            current_version
+            "Zainstalowana jest już ta sama wersja ({current_version}) - aktualizacja odrzucona."
         )));
     }
 
@@ -556,8 +554,7 @@ impl ReleaseManifest {
             let triad = (&asset.platform, &asset.arch, &asset.package_type);
             if !triads.insert(triad) {
                 return Err(UpdaterError::ManifestValidation(format!(
-                    "Niejednoznaczny pakiet (platform+arch+type): {:?}",
-                    triad
+                    "Niejednoznaczny pakiet (platform+arch+type): {triad:?}"
                 )));
             }
             if asset.sha256.len() != 64 || !asset.sha256.chars().all(|c| c.is_ascii_hexdigit()) {
@@ -646,7 +643,7 @@ pub fn validate_archive_relative_path(raw_path: &Path) -> Result<std::path::Path
                     "Ścieżka zawiera ParentDir (..)".into(),
                 ));
             }
-            std::path::Component::CurDir => continue,
+            std::path::Component::CurDir => {}
             std::path::Component::Normal(c) => {
                 let s = c.to_string_lossy();
                 if s.contains(':') || s.starts_with('\\') || s.contains('/') || s.contains('\\') {
@@ -728,9 +725,8 @@ pub fn flatten_single_root_directory(staging_dir: &Path) -> Result<bool, Updater
     }
 
     for item in sub_items {
-        let file_name = match item.file_name() {
-            Some(n) => n,
-            None => continue,
+        let Some(file_name) = item.file_name() else {
+            continue;
         };
         let target = staging_dir.join(file_name);
         std::fs::rename(&item, &target).map_err(|e| {
@@ -900,8 +896,9 @@ pub fn extract_tar_gz_safe(
         })?;
 
         let mut file_size: u64 = 0;
-        let mut buffer = [0u8; 64 * 1024];
+        let mut buffer = vec![0u8; 64 * 1024];
         loop {
+            use std::io::Write as _;
             let read_bytes = entry.read(&mut buffer).map_err(|e| {
                 UpdaterError::Io(format!("Błąd odczytu wpisu {}: {e}", rel_path.display()))
             })?;
@@ -929,7 +926,6 @@ pub fn extract_tar_gz_safe(
                 )));
             }
 
-            use std::io::Write as _;
             out_file.write_all(&buffer[..read_bytes]).map_err(|e| {
                 UpdaterError::Io(format!("Błąd zapisu pliku {}: {e}", dest_path.display()))
             })?;
@@ -1071,8 +1067,8 @@ pub fn validate_zip_archive(
         let name_str = String::from_utf8_lossy(name_bytes);
 
         // Odrzucenie symlinków: Unix mode S_IFLNK (0o120000)
-        let unix_mode = (external_attr >> 16) & 0o170000;
-        if unix_mode == 0o120000 {
+        let unix_mode = (external_attr >> 16) & 0o170_000;
+        if unix_mode == 0o120_000 {
             return Err(UpdaterError::UnsafeArchivePath(format!(
                 "Wykryto symlink w archiwum ZIP: {name_str}"
             )));
@@ -1244,7 +1240,7 @@ pub fn extract_zip_safe_windows(
         }
 
         if entry.file_type().is_file() {
-            let len = entry.metadata().map(|m| m.len()).unwrap_or(0);
+            let len = entry.metadata().map_or(0, |m| m.len());
             if len > limits.max_single_size {
                 let _ = fs::remove_dir_all(staging_dir);
                 return Err(UpdaterError::ArchiveLimitExceeded(format!(
@@ -1282,8 +1278,7 @@ pub fn validate_staging_layout(
     let exe_path = staging_dir.join(expected_executable_name);
     if !exe_path.exists() {
         return Err(UpdaterError::InvalidStagingLayout(format!(
-            "Brak wymaganego pliku wykonywalnego '{}' w staging layout",
-            expected_executable_name
+            "Brak wymaganego pliku wykonywalnego '{expected_executable_name}' w staging layout"
         )));
     }
 
@@ -1311,14 +1306,16 @@ pub fn validate_staging_layout(
         ));
     }
 
-    for entry in walkdir::WalkDir::new(staging_dir).min_depth(1) {
-        if let Ok(entry) = entry {
-            let name = entry.file_name().to_string_lossy();
-            if name.ends_with(".key") || name == "priv.key" {
-                return Err(UpdaterError::InvalidStagingLayout(format!(
-                    "Niedozwolony plik klucza prywatnego w staging: {name}"
-                )));
-            }
+    for entry in walkdir::WalkDir::new(staging_dir)
+        .min_depth(1)
+        .into_iter()
+        .flatten()
+    {
+        let name = entry.file_name().to_string_lossy();
+        if name.ends_with(".key") || name == "priv.key" {
+            return Err(UpdaterError::InvalidStagingLayout(format!(
+                "Niedozwolony plik klucza prywatnego w staging: {name}"
+            )));
         }
     }
 
@@ -1383,9 +1380,9 @@ pub fn select_manifest_asset<'a>(
 }
 
 /// Dobiera artefakt manifestu dla bieżącej platformy operacyjnej i architektury.
-pub fn select_current_platform_manifest_asset<'a>(
-    assets: &'a [ManifestAsset],
-) -> Result<&'a ManifestAsset, UpdaterError> {
+pub fn select_current_platform_manifest_asset(
+    assets: &[ManifestAsset],
+) -> Result<&ManifestAsset, UpdaterError> {
     #[cfg(target_os = "windows")]
     let platform = "windows";
     #[cfg(target_os = "linux")]
@@ -1685,12 +1682,12 @@ pub async fn download_release_asset(
         .await
         .map_err(|e| UpdaterError::Network(format!("Błąd odczytu pobranych danych: {e}")))?;
 
-    if let Some(parent) = dest_path.parent() {
-        if !parent.as_os_str().is_empty() {
-            tokio::fs::create_dir_all(parent).await.map_err(|e| {
-                UpdaterError::Io(format!("Błąd tworzenia katalogu {}: {e}", parent.display()))
-            })?;
-        }
+    if let Some(parent) = dest_path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        tokio::fs::create_dir_all(parent).await.map_err(|e| {
+            UpdaterError::Io(format!("Błąd tworzenia katalogu {}: {e}", parent.display()))
+        })?;
     }
 
     tokio::fs::write(dest_path, &bytes).await.map_err(|e| {
@@ -1821,8 +1818,7 @@ pub fn apply_atomic_installation_with_options(
             failure_reason = Some("Wstrzyknięty kontrolowany błąd walidacji końcowej".to_string());
         } else {
             let active_exe = active_dir.join(options.executable_name);
-            let valid =
-                active_exe.is_file() && active_exe.metadata().map(|m| m.len() > 0).unwrap_or(false);
+            let valid = active_exe.is_file() && active_exe.metadata().is_ok_and(|m| m.len() > 0);
             if !valid {
                 failure_reason =
                     Some("Końcowa walidacja pliku wykonywalnego nie powiodła się".into());
@@ -1924,11 +1920,11 @@ pub async fn install_update(asset: &ReleaseAsset) -> Result<(), UpdaterError> {
 
 /// Sprawdza, czy pobierany plik nie jest archiwum, co mogłoby uszkodzić instalację.
 pub fn check_safety_gate(asset: &ReleaseAsset) -> Result<(), UpdaterError> {
-    let name_lower = asset.name.to_lowercase();
+    let ext = Path::new(&asset.name).extension();
 
     #[cfg(target_os = "windows")]
     {
-        if name_lower.ends_with(".msi") {
+        if ext.is_some_and(|e| e.eq_ignore_ascii_case("msi")) {
             return Err(UpdaterError::SafetyGate(
                 "Błąd: Pobrany plik to instalator MSI. Zaktualizuj program ręcznie.".to_string(),
             ));
@@ -1937,7 +1933,7 @@ pub fn check_safety_gate(asset: &ReleaseAsset) -> Result<(), UpdaterError> {
 
     #[cfg(not(target_os = "windows"))]
     {
-        if name_lower.ends_with(".deb") || name_lower.ends_with(".rpm") {
+        if ext.is_some_and(|e| e.eq_ignore_ascii_case("deb") || e.eq_ignore_ascii_case("rpm")) {
             return Err(UpdaterError::SafetyGate("Błąd: Pobrany plik to zarządzany pakiet systemowy. Zaktualizuj program używając menedżera pakietów.".to_string()));
         }
     }
@@ -2317,7 +2313,7 @@ mod tests {
     fn safety_gate_blocks_linux_archives() {
         let _tar_gz = ReleaseAsset {
             name: "SPLogbook-Linux-x86_64.tar.gz".into(),
-            browser_download_url: "".into(),
+            browser_download_url: String::new(),
             digest: None,
             size: 0,
         };
@@ -2327,7 +2323,7 @@ mod tests {
 
         let _deb = ReleaseAsset {
             name: "SPLogbook-Linux-x86_64.deb".into(),
-            browser_download_url: "".into(),
+            browser_download_url: String::new(),
             digest: None,
             size: 0,
         };
@@ -2340,7 +2336,7 @@ mod tests {
     fn safety_gate_blocks_windows_archives() {
         let zip = ReleaseAsset {
             name: "SPLogbook-Windows-x64.zip".into(),
-            browser_download_url: "".into(),
+            browser_download_url: String::new(),
             digest: None,
             size: 0,
         };
@@ -2350,7 +2346,7 @@ mod tests {
 
         let msi = ReleaseAsset {
             name: "SPLogbook-Windows-x64.msi".into(),
-            browser_download_url: "".into(),
+            browser_download_url: String::new(),
             digest: None,
             size: 0,
         };
@@ -2511,7 +2507,7 @@ mod tests {
             Err(UpdaterError::UnsafeArchivePath(_))
         ));
 
-        asset.filename = "".into();
+        asset.filename = String::new();
         assert!(matches!(
             select_manifest_asset(&[asset.clone()], "windows", "x86_64"),
             Err(UpdaterError::UnsafeArchivePath(_))
@@ -2694,7 +2690,7 @@ mod tests {
         let staging = temp_dir.join("staging");
 
         // Unix symlink mode: S_IFLNK (0o120755) w górnych 16 bitach
-        let symlink_attr = (0o120755u32) << 16;
+        let symlink_attr = (0o120_755_u32) << 16;
         let zip_bytes = create_test_zip(&[("symlink_entry", b"target_path", symlink_attr)]);
         let zip_path = temp_dir.join("symlink.zip");
         std::fs::write(&zip_path, zip_bytes).unwrap();
@@ -3297,7 +3293,7 @@ mod tests {
 
         let remaining_backups = std::fs::read_dir(&active)
             .unwrap()
-            .filter_map(|e| e.ok())
+            .filter_map(Result::ok)
             .any(|e| e.file_name().to_string_lossy().starts_with(".backup_"));
         assert!(
             !remaining_backups,
@@ -3543,6 +3539,8 @@ mod tests {
 
     #[test]
     fn updater_rejects_unknown_key() {
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
+        use ed25519_dalek::{Signer, SigningKey};
         let manifest_json = r#"{
             "manifest_version": 1,
             "key_id": "unknown-nonexistent-key-9999",
@@ -3553,8 +3551,6 @@ mod tests {
             "commit": "0000000000000000000000000000000000000000",
             "assets": []
         }"#;
-        use base64::{Engine as _, engine::general_purpose::STANDARD};
-        use ed25519_dalek::{Signer, SigningKey};
         let secret: [u8; 32] = rand::random();
         let sk = SigningKey::from_bytes(&secret);
         let sig = sk.sign(manifest_json.as_bytes());
@@ -3566,6 +3562,8 @@ mod tests {
 
     #[test]
     fn updater_rejects_revoked_key() {
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
+        use ed25519_dalek::{Signer, SigningKey};
         let manifest_json = r#"{
             "manifest_version": 1,
             "key_id": "splogbook-release-2026-01",
@@ -3576,8 +3574,6 @@ mod tests {
             "commit": "0000000000000000000000000000000000000000",
             "assets": []
         }"#;
-        use base64::{Engine as _, engine::general_purpose::STANDARD};
-        use ed25519_dalek::{Signer, SigningKey};
         let secret: [u8; 32] = rand::random();
         let sk = SigningKey::from_bytes(&secret);
         let sig = sk.sign(manifest_json.as_bytes());
@@ -3713,8 +3709,7 @@ mod tests {
                 if trimmed.starts_with("echo ") && trimmed.contains("RELEASE_SIGNING_KEY") {
                     assert!(
                         trimmed.contains("base64 -d > priv.key"),
-                        "Workflow nie może logować prywatnego klucza w echo: {}",
-                        trimmed
+                        "Workflow nie może logować prywatnego klucza w echo: {trimmed}"
                     );
                 }
             }

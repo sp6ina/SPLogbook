@@ -244,14 +244,14 @@ impl DxClusterClient {
                     let _ = writer.flush().await;
                 }
 
-                raw_line.clear();
-                let mut limited = (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64);
-
                 enum LoopAction {
                     Read(Result<std::io::Result<usize>, tokio::time::error::Elapsed>),
                     Command(String),
                     Stop,
                 }
+
+                raw_line.clear();
+                let mut limited = (&mut buf_reader).take((MAX_LINE_LEN + 1) as u64);
 
                 let action = tokio::select! {
                     res = tokio::time::timeout(
@@ -328,10 +328,10 @@ impl DxClusterClient {
                                 break;
                             }
                         }
-                        if let Some(spot) = parse_dx_spot(trimmed) {
-                            if event_tx.send(ClusterEvent::Spot(spot)).is_err() {
-                                break;
-                            }
+                        if let Some(spot) = parse_dx_spot(trimmed)
+                            && event_tx.send(ClusterEvent::Spot(spot)).is_err()
+                        {
+                            break;
                         }
                     }
                     Err(e) => {
@@ -461,7 +461,8 @@ pub fn parse_dx_spot(line: &str) -> Option<DxSpot> {
             caps.get(4)?.as_str().trim().to_string(),
             caps.get(5)?.as_str().to_string(),
         )
-    } else if let Some(caps) = sh_dx_regex().captures(trimmed) {
+    } else {
+        let caps = sh_dx_regex().captures(trimmed)?;
         (
             caps.get(5)?.as_str().to_uppercase(),
             caps.get(1)?.as_str(),
@@ -469,8 +470,6 @@ pub fn parse_dx_spot(line: &str) -> Option<DxSpot> {
             caps.get(4)?.as_str().trim().to_string(),
             caps.get(3)?.as_str().to_string(),
         )
-    } else {
-        return None;
     };
 
     let frequency_khz: f64 = freq_str.parse().unwrap_or(0.0);

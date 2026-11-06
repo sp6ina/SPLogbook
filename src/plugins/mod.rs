@@ -650,7 +650,7 @@ mod tests {
             .unwrap();
         engine.set_enabled(false);
         engine.run_startup();
-        assert!(engine.drain_log().is_empty());
+        assert_eq!(engine.drain_log(), [] as [String; 0]);
     }
 
     #[test]
