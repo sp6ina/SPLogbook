@@ -47,14 +47,13 @@ pub fn render_solar_window(app: &mut SpLogApp, ctx: &egui::Context) {
             },
         );
 
-        if let Some((pos, size)) = captured_geo {
-            if app.views.panel_solar.saved_pos != Some(pos)
-                || app.views.panel_solar.saved_size != Some(size)
-            {
-                app.views.panel_solar.saved_pos = Some(pos);
-                app.views.panel_solar.saved_size = Some(size);
-                app.save_station_config();
-            }
+        if let Some((pos, size)) = captured_geo
+            && (app.views.panel_solar.saved_pos != Some(pos)
+                || app.views.panel_solar.saved_size != Some(size))
+        {
+            app.views.panel_solar.saved_pos = Some(pos);
+            app.views.panel_solar.saved_size = Some(size);
+            app.save_station_config();
         }
         if dock_back {
             app.views.panel_solar.floating = false;
