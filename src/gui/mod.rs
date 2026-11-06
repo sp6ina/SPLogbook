@@ -37,6 +37,11 @@ pub mod qsl_manager;
 pub mod qso_entry;
 pub mod satellites;
 pub mod send_spot;
+pub mod shortcuts;
+pub use shortcuts::{
+    AppAction, ConflictPolicy, RepeatPolicy, ShortcutBinding, ShortcutContext, ShortcutRegistry,
+    is_ctrl_modifier,
+};
 pub mod solar_panel;
 pub mod sota_dialog;
 pub mod state;

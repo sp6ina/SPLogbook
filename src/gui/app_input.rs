@@ -2,178 +2,120 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use super::*;
+use crate::gui::shortcuts::{AppAction, ShortcutContext, ShortcutRegistry};
 use eframe::egui;
 
-/// Pomocnik sprawdzający czy wciśnięto klawisz modyfikatora Ctrl (Windows/Linux) lub Command (macOS).
-#[inline]
-pub fn is_ctrl_modifier(modifiers: &egui::Modifiers) -> bool {
-    modifiers.ctrl || modifiers.command
-}
-
 impl SpLogApp {
-    /// Faza obsługi skrótów klawiaturowych, palety poleceń i wejść globalnych.
+    /// Faza obsługi skrótów klawiaturowych, palety poleceń i wejść globalnych (GUI-001).
     pub fn handle_input_and_shortcuts(&mut self, ctx: &egui::Context) {
-        // Globalne skróty klawiszowe
-        // Sprawdzanie modyfikatora: Ctrl (Windows/Linux) oraz Command (macOS)
-        let is_ctrl = |m: &egui::Modifiers| is_ctrl_modifier(m);
-
-        // Klawisze funkcyjne (F1–F12) — działają globalnie, niezależnie od fokusu pól tekstowych
-        let open_shortcuts_f1 = ctx.input(|i| i.key_pressed(egui::Key::F1));
-        let save_qso_f2 = ctx.input(|i| i.key_pressed(egui::Key::F2));
-        let wipe_qso_f3 = ctx.input(|i| i.key_pressed(egui::Key::F3));
-        let lookup_qrz_f4 = ctx.input(|i| i.key_pressed(egui::Key::F4));
-        let refresh_log_f5 = ctx.input(|i| i.key_pressed(egui::Key::F5));
-        let send_spot_f6 = ctx.input(|i| i.key_pressed(egui::Key::F6));
-        let toggle_ptt_f7 = ctx.input(|i| i.key_pressed(egui::Key::F7));
-        let voice_keyer_f8 = ctx.input(|i| i.key_pressed(egui::Key::F8));
-        let toggle_fullscreen_f11 = ctx.input(|i| i.key_pressed(egui::Key::F11));
-        let open_manual_f12 = ctx.input(|i| i.key_pressed(egui::Key::F12));
-
-        // Skróty z klawiszem Ctrl / Cmd
-        let do_undo = ctx
-            .input(|i| i.key_pressed(egui::Key::Z) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
-        let do_redo = ctx.input(|i| {
-            (i.key_pressed(egui::Key::Z) && is_ctrl(&i.modifiers) && i.modifiers.shift)
-                || (i.key_pressed(egui::Key::Y) && is_ctrl(&i.modifiers))
-        });
-        let open_stats = ctx
-            .input(|i| i.key_pressed(egui::Key::S) && is_ctrl(&i.modifiers) && i.modifiers.shift);
-        let save_now = ctx
-            .input(|i| i.key_pressed(egui::Key::S) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
-        let open_palette = ctx
-            .input(|i| i.key_pressed(egui::Key::P) && is_ctrl(&i.modifiers) && i.modifiers.shift);
-        let open_manual_ctrl_h = ctx
-            .input(|i| i.key_pressed(egui::Key::H) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
-        let quit_app_ctrl_q = ctx
-            .input(|i| i.key_pressed(egui::Key::Q) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
-
-        // Skróty edycyjne i nawigacyjne (tylko gdy użytkownik nie pisze w polu tekstowym)
+        let registry = ShortcutRegistry::default();
         let wants_text = ctx.egui_wants_keyboard_input();
-        let focus_filter = ctx
-            .input(|i| i.key_pressed(egui::Key::F) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
-        let new_qso = ctx
-            .input(|i| i.key_pressed(egui::Key::N) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
-        let wipe_qso_ctrl_w = ctx
-            .input(|i| i.key_pressed(egui::Key::W) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
-        let toggle_cluster = ctx
-            .input(|i| i.key_pressed(egui::Key::D) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
-        let toggle_bandmap = ctx
-            .input(|i| i.key_pressed(egui::Key::B) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
-        let toggle_map = ctx
-            .input(|i| i.key_pressed(egui::Key::M) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
-        let toggle_cw = ctx
-            .input(|i| i.key_pressed(egui::Key::K) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
-        let open_profiles = ctx
-            .input(|i| i.key_pressed(egui::Key::P) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
-        let export_csv = ctx
-            .input(|i| i.key_pressed(egui::Key::E) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
-        let import_adif = ctx
-            .input(|i| i.key_pressed(egui::Key::I) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
-        let cycle_theme_ctrl_t = ctx
-            .input(|i| i.key_pressed(egui::Key::T) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
-        let focus_log_ctrl_l = ctx
-            .input(|i| i.key_pressed(egui::Key::L) && is_ctrl(&i.modifiers) && !i.modifiers.shift);
 
-        // Wykonanie akcji
-        if do_undo {
-            self.perform_undo();
-        }
-        if do_redo {
-            self.perform_redo();
-        }
-        if open_stats {
-            self.log_view.show_statistics_window = true;
-        }
-        if open_shortcuts_f1 {
-            self.gui.chrome.show_shortcuts_window = !self.gui.chrome.show_shortcuts_window;
-        }
-        if open_manual_f12 || open_manual_ctrl_h {
-            self.gui.chrome.show_user_manual = !self.gui.chrome.show_user_manual;
-            self.gui.chrome.manual_section = None;
-        }
-        if save_qso_f2 {
-            self.save_qso();
-        }
-        if wipe_qso_f3 {
-            self.wipe_qso_form();
-        }
-        if lookup_qrz_f4 {
-            let clean = self.entry.callsign.trim().to_uppercase();
-            if clean.len() >= 3 {
-                self.lookup_active_callsign_online();
-            }
-        }
-        if refresh_log_f5 {
-            self.reload_qsos();
-        }
-        if send_spot_f6 {
-            let freq_khz = (self.cat.rig_state.frequency_hz as f64) / 1000.0;
-            self.gui
-                .dialogs
-                .send_spot_dialog
-                .open_with(&self.entry.callsign, freq_khz);
-        }
-        if toggle_ptt_f7 {
-            self.toggle_ptt();
-        }
-        if voice_keyer_f8 {
-            self.voice_keyer.show_window = !self.voice_keyer.show_window;
-        }
-        if toggle_fullscreen_f11 {
-            self.gui.appearance.is_fullscreen = !self.gui.appearance.is_fullscreen;
-            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(
-                self.gui.appearance.is_fullscreen,
-            ));
-        }
-        if save_now {
-            self.save_station_config();
-        }
-        if open_palette {
-            self.gui.chrome.show_command_palette = !self.gui.chrome.show_command_palette;
-            self.gui.chrome.command_palette_query.clear();
-            self.gui.chrome.command_palette_selected = 0;
-        }
-        if quit_app_ctrl_q {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-        }
+        let current_context = if self.contest.show_window {
+            ShortcutContext::Contest
+        } else if self.gui.chrome.show_command_palette
+            || self.gui.dialogs.advanced_filter_dialog.is_open
+            || self.gui.dialogs.send_spot_dialog.is_open
+            || self.gui.chrome.show_shortcuts_window
+            || self.gui.chrome.show_user_manual
+        {
+            ShortcutContext::ModalDialog
+        } else if wants_text {
+            ShortcutContext::QsoEntry
+        } else {
+            ShortcutContext::Global
+        };
 
-        if !wants_text {
-            if focus_filter {
-                self.gui.dialogs.advanced_filter_dialog.is_open = true;
-            }
-            if new_qso || wipe_qso_ctrl_w {
-                self.wipe_qso_form();
-            }
-            if toggle_cluster {
-                self.views.panel_cluster.visible = true;
-                self.gui.windows.show_cluster_panel = true;
-            }
-            if toggle_bandmap {
-                self.views.panel_bandmap.visible = true;
-                self.gui.windows.show_bandmap_window = true;
-            }
-            if toggle_map {
-                self.views.panel_world_map.visible = true;
-                self.world_map.show_window = true;
-            }
-            if toggle_cw {
-                self.cw.show_window = !self.cw.show_window;
-            }
-            if open_profiles {
-                self.gui.windows.show_station_profiles_window =
-                    !self.gui.windows.show_station_profiles_window;
-            }
-            if export_csv {
-                self.gui.dialogs.csv_export_dialog.open();
-            }
-            if import_adif {
-                self.trigger_import_adif();
-            }
-            if cycle_theme_ctrl_t {
-                self.cycle_theme();
-            }
-            if focus_log_ctrl_l {
-                self.views.panel_log.visible = true;
+        if let Some(action) = registry.resolve(ctx, current_context, wants_text) {
+            match action {
+                AppAction::Undo => self.perform_undo(),
+                AppAction::Redo => self.perform_redo(),
+                AppAction::OpenStats => self.log_view.show_statistics_window = true,
+                AppAction::ToggleShortcutsHelp => {
+                    self.gui.chrome.show_shortcuts_window = !self.gui.chrome.show_shortcuts_window;
+                }
+                AppAction::SaveQso => self.save_qso(),
+                AppAction::WipeQso | AppAction::NewQso => self.wipe_qso_form(),
+                AppAction::LookupQrz => {
+                    let clean = self.entry.callsign.trim().to_uppercase();
+                    if clean.len() >= 3 {
+                        self.lookup_active_callsign_online();
+                    }
+                }
+                AppAction::RefreshLog => self.reload_qsos(),
+                AppAction::SendSpot => {
+                    let freq_khz = (self.cat.rig_state.frequency_hz as f64) / 1000.0;
+                    self.gui
+                        .dialogs
+                        .send_spot_dialog
+                        .open_with(&self.entry.callsign, freq_khz);
+                }
+                AppAction::TogglePtt => self.toggle_ptt(),
+                AppAction::ToggleVoiceKeyer => {
+                    self.voice_keyer.show_window = !self.voice_keyer.show_window;
+                }
+                AppAction::ToggleFullscreen => {
+                    self.gui.appearance.is_fullscreen = !self.gui.appearance.is_fullscreen;
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(
+                        self.gui.appearance.is_fullscreen,
+                    ));
+                }
+                AppAction::OpenManual => {
+                    self.gui.chrome.show_user_manual = !self.gui.chrome.show_user_manual;
+                    self.gui.chrome.manual_section = None;
+                }
+                AppAction::OpenCommandPalette => {
+                    self.gui.chrome.show_command_palette = !self.gui.chrome.show_command_palette;
+                    self.gui.chrome.command_palette_query.clear();
+                    self.gui.chrome.command_palette_selected = 0;
+                }
+                AppAction::SaveConfig => self.save_station_config(),
+                AppAction::QuitApp => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+                AppAction::FocusFilter => {
+                    self.gui.dialogs.advanced_filter_dialog.is_open = true;
+                }
+                AppAction::ToggleCluster => {
+                    self.views.panel_cluster.visible = true;
+                    self.gui.windows.show_cluster_panel = true;
+                }
+                AppAction::ToggleBandmap => {
+                    self.views.panel_bandmap.visible = true;
+                    self.gui.windows.show_bandmap_window = true;
+                }
+                AppAction::ToggleWorldMap => {
+                    self.views.panel_world_map.visible = true;
+                    self.world_map.show_window = true;
+                }
+                AppAction::ToggleCwTerminal => {
+                    self.cw.show_window = !self.cw.show_window;
+                }
+                AppAction::OpenProfiles => {
+                    self.gui.windows.show_station_profiles_window =
+                        !self.gui.windows.show_station_profiles_window;
+                }
+                AppAction::ExportCsv => self.gui.dialogs.csv_export_dialog.open(),
+                AppAction::ImportAdif => self.trigger_import_adif(),
+                AppAction::CycleTheme => self.cycle_theme(),
+                AppAction::FocusLog => self.views.panel_log.visible = true,
+                AppAction::ContestSaveQso => {}
+                AppAction::ContestWipeQso => {
+                    self.entry.callsign.clear();
+                    self.entry.rst_rcvd.clear();
+                    self.entry.exchange.clear();
+                }
+                AppAction::EscapeCloseContext => {
+                    if self.gui.chrome.show_command_palette {
+                        self.gui.chrome.show_command_palette = false;
+                    } else if self.gui.dialogs.advanced_filter_dialog.is_open {
+                        self.gui.dialogs.advanced_filter_dialog.is_open = false;
+                    } else if self.gui.dialogs.send_spot_dialog.is_open {
+                        self.gui.dialogs.send_spot_dialog.is_open = false;
+                    } else if self.gui.chrome.show_shortcuts_window {
+                        self.gui.chrome.show_shortcuts_window = false;
+                    } else if self.gui.chrome.show_user_manual {
+                        self.gui.chrome.show_user_manual = false;
+                    }
+                }
             }
         }
     }
@@ -182,6 +124,7 @@ impl SpLogApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::gui::shortcuts::is_ctrl_modifier;
 
     #[test]
     fn test_is_ctrl_modifier() {

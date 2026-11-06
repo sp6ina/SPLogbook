@@ -904,3 +904,33 @@ fn test_architecture_limits_and_forbidden_patterns() {
         );
     }
 }
+
+#[test]
+fn ctrl_shortcuts_trigger_while_callsign_input_has_focus() {
+    let deps = test_deps();
+    let init = AppInit {
+        config: AppConfig::default(),
+        config_file_path: std::path::PathBuf::from("config.json"),
+        active_db_path: std::path::PathBuf::from("db.sqlite"),
+        shutdown_policy: ShutdownPolicy::None,
+    };
+    let mut app = SpLogApp::for_tests(init, deps);
+    app.entry.callsign = "SP6INA".to_string();
+
+    let ctx = egui::Context::default();
+    let mut raw_input = egui::RawInput::default();
+    raw_input.events.push(egui::Event::Key {
+        key: egui::Key::W,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::COMMAND,
+    });
+
+    let mut output = ctx.run_ui(raw_input, |ui| {
+        app.handle_input_and_shortcuts(ui.ctx());
+    });
+    output.textures_delta.clear();
+
+    assert_eq!(app.entry.callsign, "");
+}
