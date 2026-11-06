@@ -431,20 +431,31 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 egui::Stroke::new(2.0_f32, palette.dupe);
                         }
 
-                        ui.add(
+                        let call_resp = ui.add(
                             egui::TextEdit::singleline(&mut app.entry.callsign)
+                                .id(egui::Id::new("contest_entry_callsign"))
                                 .desired_width(120.0),
                         );
+                        if app.entry.focus_callsign_requested {
+                            call_resp.request_focus();
+                            app.entry.focus_callsign_requested = false;
+                        }
 
                         if is_dupe && !app.entry.callsign.is_empty() {
                             ui.label(egui::RichText::new("DUPE!").color(palette.dupe).strong());
                         }
 
                         ui.label(tr(key::CONTEST_RCVD_REPORT_EXCHANGE, lang));
-                        ui.add(
+                        let exch_resp = ui.add(
                             egui::TextEdit::singleline(&mut app.entry.exchange)
+                                .id(egui::Id::new("contest_entry_exchange"))
                                 .desired_width(200.0),
                         );
+
+                        let enter_pressed = ui.input(|i| i.key_pressed(egui::Key::Enter));
+                        if (call_resp.has_focus() || exch_resp.has_focus()) && enter_pressed {
+                            save_clicked = true;
+                        }
 
                         if ui.button(tr(key::CONTEST_SAVE_QSO, lang)).clicked() {
                             save_clicked = true;
@@ -619,101 +630,111 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
         }
     }
 
-    if save_clicked && !app.entry.callsign.is_empty() {
-        let mut new_qso = QsoRecord::new(&app.entry.callsign, &app.entry.band, &app.entry.mode);
-        new_qso.stx = Some(app.contest.stx);
-        new_qso.journal_id = Some(app.active_journal.id.clone());
-        if !app.config.station.gridsquare.trim().is_empty() {
-            new_qso.my_gridsquare = Some(app.config.station.gridsquare.clone());
-        }
-        if app.cat.rig_state.frequency_hz > 0 {
-            new_qso.freq = Some(app.cat.rig_state.frequency_hz as f64 / 1_000_000.0);
-        }
-        // Parsuj wymianę, jeśli kontest ma zdefiniowane pola; w przeciwnym razie
-        // zachowaj dawny tryb "sam RST" w polu `entry_rst_rcvd`.
-        let mut exchange_ok = true;
-        if let Some(fields) = &exchange_fields {
-            let exchange_text = if app.entry.exchange.trim().is_empty() {
-                app.entry.rst_rcvd.clone()
-            } else {
-                app.entry.exchange.clone()
-            };
-            match parse_exchange(fields, &exchange_text) {
-                Ok(parsed) => apply_to_qso(&parsed, &mut new_qso),
-                Err(e) => {
-                    exchange_ok = false;
-                    app.gui.chrome.status_toast = Some((
-                        Msg::new(key::CONTEST_EXCHANGE_ERROR)
-                            .arg("err", &e.message)
-                            .text(lang),
-                        std::time::Instant::now(),
-                    ));
-                }
-            }
+    if save_clicked {
+        if app.entry.callsign.trim().is_empty() {
+            app.gui.chrome.status_toast = Some((
+                Msg::new(key::CONTEST_VALIDATION_ERROR)
+                    .arg("err", Msg::new(key::QSO_ISSUE_EMPTY_CALLSIGN).text(lang))
+                    .text(lang),
+                std::time::Instant::now(),
+            ));
         } else {
-            new_qso.rst_rcvd.clone_from(&app.entry.rst_rcvd);
-        }
-
-        if exchange_ok {
-            match app.services.ingestor.ingest(new_qso, QsoOrigin::Contest) {
-                Ok(outcome) => {
-                    if !outcome.warnings.is_empty() {
-                        let warning_texts: Vec<String> = outcome
-                            .warnings
-                            .iter()
-                            .map(|w| w.msg().text(app.gui.appearance.language))
-                            .collect();
-                        app.report_warning(
-                            Msg::new(key::CONTEST_WARNINGS)
-                                .arg("warnings", warning_texts.join("; "))
+            let mut new_qso = QsoRecord::new(&app.entry.callsign, &app.entry.band, &app.entry.mode);
+            new_qso.stx = Some(app.contest.stx);
+            new_qso.journal_id = Some(app.active_journal.id.clone());
+            if !app.config.station.gridsquare.trim().is_empty() {
+                new_qso.my_gridsquare = Some(app.config.station.gridsquare.clone());
+            }
+            if app.cat.rig_state.frequency_hz > 0 {
+                new_qso.freq = Some(app.cat.rig_state.frequency_hz as f64 / 1_000_000.0);
+            }
+            // Parsuj wymianę, jeśli kontest ma zdefiniowane pola; w przeciwnym razie
+            // zachowaj dawny tryb "sam RST" w polu `entry_rst_rcvd`.
+            let mut exchange_ok = true;
+            if let Some(fields) = &exchange_fields {
+                let exchange_text = if app.entry.exchange.trim().is_empty() {
+                    app.entry.rst_rcvd.clone()
+                } else {
+                    app.entry.exchange.clone()
+                };
+                match parse_exchange(fields, &exchange_text) {
+                    Ok(parsed) => apply_to_qso(&parsed, &mut new_qso),
+                    Err(e) => {
+                        exchange_ok = false;
+                        app.gui.chrome.status_toast = Some((
+                            Msg::new(key::CONTEST_EXCHANGE_ERROR)
+                                .arg("err", &e.message)
                                 .text(lang),
-                        );
+                            std::time::Instant::now(),
+                        ));
                     }
-                    app.invalidate_cluster_badges();
-                    app.apply_post_effects(&outcome);
-                    app.contest.stx += 1;
-                    app.gui.chrome.status_toast = Some((
-                        Msg::new(key::CONTEST_QSO_SAVED)
-                            .arg("call", &outcome.qso.callsign)
-                            .arg("rst", &outcome.qso.band)
-                            .arg("exch", &outcome.qso.mode)
-                            .text(lang),
-                        std::time::Instant::now(),
-                    ));
-                    app.entry.callsign.clear();
-                    app.entry.rst_rcvd.clear();
-                    app.entry.exchange.clear();
-                    app.reload_qsos();
                 }
-                Err(IngestError::Invalid(reason)) => {
-                    app.gui.chrome.status_toast = Some((
-                        Msg::new(key::CONTEST_VALIDATION_ERROR)
-                            .arg("err", reason.msg().text(lang))
-                            .text(lang),
-                        std::time::Instant::now(),
-                    ));
-                }
-                Err(IngestError::Duplicate) => {
-                    app.gui.chrome.status_toast = Some((
-                        Msg::new(key::MSG_QSO_DUPLICATE).text(lang),
-                        std::time::Instant::now(),
-                    ));
-                }
-                Err(IngestError::EmptyCallsign) => {
-                    app.gui.chrome.status_toast = Some((
-                        Msg::new(key::CONTEST_VALIDATION_ERROR)
-                            .arg("err", Msg::new(key::QSO_ISSUE_EMPTY_CALLSIGN).text(lang))
-                            .text(lang),
-                        std::time::Instant::now(),
-                    ));
-                }
-                Err(IngestError::Storage(error)) => {
-                    app.gui.chrome.status_toast = Some((
-                        Msg::new(key::CONTEST_SAVE_ERROR)
-                            .arg("err", error)
-                            .text(lang),
-                        std::time::Instant::now(),
-                    ));
+            } else {
+                new_qso.rst_rcvd.clone_from(&app.entry.rst_rcvd);
+            }
+
+            if exchange_ok {
+                match app.services.ingestor.ingest(new_qso, QsoOrigin::Contest) {
+                    Ok(outcome) => {
+                        if !outcome.warnings.is_empty() {
+                            let warning_texts: Vec<String> = outcome
+                                .warnings
+                                .iter()
+                                .map(|w| w.msg().text(app.gui.appearance.language))
+                                .collect();
+                            app.report_warning(
+                                Msg::new(key::CONTEST_WARNINGS)
+                                    .arg("warnings", warning_texts.join("; "))
+                                    .text(lang),
+                            );
+                        }
+                        app.invalidate_cluster_badges();
+                        app.apply_post_effects(&outcome);
+                        app.contest.stx += 1;
+                        app.gui.chrome.status_toast = Some((
+                            Msg::new(key::CONTEST_QSO_SAVED)
+                                .arg("call", &outcome.qso.callsign)
+                                .arg("rst", &outcome.qso.band)
+                                .arg("exch", &outcome.qso.mode)
+                                .text(lang),
+                            std::time::Instant::now(),
+                        ));
+                        app.entry.callsign.clear();
+                        app.entry.rst_rcvd.clear();
+                        app.entry.exchange.clear();
+                        app.entry.focus_callsign_requested = true;
+                        app.reload_qsos();
+                    }
+                    Err(IngestError::Invalid(reason)) => {
+                        app.gui.chrome.status_toast = Some((
+                            Msg::new(key::CONTEST_VALIDATION_ERROR)
+                                .arg("err", reason.msg().text(lang))
+                                .text(lang),
+                            std::time::Instant::now(),
+                        ));
+                    }
+                    Err(IngestError::Duplicate) => {
+                        app.gui.chrome.status_toast = Some((
+                            Msg::new(key::MSG_QSO_DUPLICATE).text(lang),
+                            std::time::Instant::now(),
+                        ));
+                    }
+                    Err(IngestError::EmptyCallsign) => {
+                        app.gui.chrome.status_toast = Some((
+                            Msg::new(key::CONTEST_VALIDATION_ERROR)
+                                .arg("err", Msg::new(key::QSO_ISSUE_EMPTY_CALLSIGN).text(lang))
+                                .text(lang),
+                            std::time::Instant::now(),
+                        ));
+                    }
+                    Err(IngestError::Storage(error)) => {
+                        app.gui.chrome.status_toast = Some((
+                            Msg::new(key::CONTEST_SAVE_ERROR)
+                                .arg("err", error)
+                                .text(lang),
+                            std::time::Instant::now(),
+                        ));
+                    }
                 }
             }
         }

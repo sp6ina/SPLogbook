@@ -934,3 +934,207 @@ fn ctrl_shortcuts_trigger_while_callsign_input_has_focus() {
 
     assert_eq!(app.entry.callsign, "");
 }
+
+#[test]
+fn qso_enter_validates_before_save() {
+    let deps = test_deps();
+    let init = AppInit {
+        config: AppConfig::default(),
+        config_file_path: std::path::PathBuf::from("config.json"),
+        active_db_path: std::path::PathBuf::from("db.sqlite"),
+        shutdown_policy: ShutdownPolicy::None,
+    };
+    let mut app = SpLogApp::for_tests(init, deps);
+    app.entry.callsign = "".to_string();
+    app.entry.name = "Test Operator".to_string();
+
+    let initial_count = app
+        .services
+        .log_db
+        .lock()
+        .expect("lock")
+        .count_all()
+        .unwrap();
+    app.save_qso();
+    let after_count = app
+        .services
+        .log_db
+        .lock()
+        .expect("lock")
+        .count_all()
+        .unwrap();
+
+    assert_eq!(
+        initial_count, after_count,
+        "Empty callsign must not save a QSO"
+    );
+    assert!(
+        app.gui.chrome.status_toast.is_some(),
+        "Status toast should report validation issue"
+    );
+}
+
+#[test]
+fn failed_qso_save_preserves_form() {
+    let deps = test_deps();
+    let init = AppInit {
+        config: AppConfig::default(),
+        config_file_path: std::path::PathBuf::from("config.json"),
+        active_db_path: std::path::PathBuf::from("db.sqlite"),
+        shutdown_policy: ShutdownPolicy::None,
+    };
+    let mut app = SpLogApp::for_tests(init, deps);
+    app.entry.callsign = "".to_string();
+    app.entry.rst_sent = "579".to_string();
+    app.entry.rst_rcvd = "559".to_string();
+    app.entry.name = "Preserved Operator".to_string();
+    app.entry.grid = "JO81".to_string();
+    app.entry.comment = "Do not clear me".to_string();
+
+    app.save_qso();
+
+    assert_eq!(app.entry.rst_sent, "579");
+    assert_eq!(app.entry.rst_rcvd, "559");
+    assert_eq!(app.entry.name, "Preserved Operator");
+    assert_eq!(app.entry.grid, "JO81");
+    assert_eq!(app.entry.comment, "Do not clear me");
+}
+
+#[test]
+fn successful_qso_save_moves_focus_by_contract() {
+    let deps = test_deps();
+    let init = AppInit {
+        config: AppConfig::default(),
+        config_file_path: std::path::PathBuf::from("config.json"),
+        active_db_path: std::path::PathBuf::from("db.sqlite"),
+        shutdown_policy: ShutdownPolicy::None,
+    };
+    let mut app = SpLogApp::for_tests(init, deps);
+    app.entry.callsign = "SP9TEST".to_string();
+    app.entry.band = "20m".to_string();
+    app.entry.mode = "CW".to_string();
+    app.entry.focus_callsign_requested = false;
+
+    app.save_qso();
+
+    assert!(
+        app.entry.focus_callsign_requested,
+        "Focus callsign must be requested on successful save"
+    );
+    assert_eq!(
+        app.entry.callsign, "",
+        "Form callsign must be cleared on successful save"
+    );
+}
+
+#[test]
+fn escape_does_not_silently_discard_qso() {
+    let deps = test_deps();
+    let init = AppInit {
+        config: AppConfig::default(),
+        config_file_path: std::path::PathBuf::from("config.json"),
+        active_db_path: std::path::PathBuf::from("db.sqlite"),
+        shutdown_policy: ShutdownPolicy::None,
+    };
+    let mut app = SpLogApp::for_tests(init, deps);
+    app.entry.callsign = "SP6INA".to_string();
+    app.entry.name = "Mariusz".to_string();
+    app.entry.grid = "JO81".to_string();
+
+    let ctx = egui::Context::default();
+    let call_id = egui::Id::new("qso_entry_callsign");
+    ctx.memory_mut(|m| m.request_focus(call_id));
+
+    let mut raw_input = egui::RawInput::default();
+    raw_input.events.push(egui::Event::Key {
+        key: egui::Key::Escape,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+
+    let mut output = ctx.run_ui(raw_input, |ui| {
+        crate::gui::qso_entry::render_qso_entry_body(&mut app, ui);
+    });
+    output.textures_delta.clear();
+
+    assert_eq!(
+        app.entry.callsign, "SP6INA",
+        "Escape must not wipe callsign"
+    );
+    assert_eq!(app.entry.name, "Mariusz", "Escape must not wipe name");
+    assert_eq!(app.entry.grid, "JO81", "Escape must not wipe grid");
+}
+
+#[test]
+fn qso_tab_order_is_deterministic() {
+    let expected_fields = [
+        "qso_entry_callsign",
+        "qso_entry_rst_sent",
+        "qso_entry_rst_rcvd",
+        "qso_entry_name",
+        "qso_entry_grid",
+        "qso_entry_qth",
+        "qso_entry_pga",
+        "qso_entry_iota",
+        "qso_entry_state",
+        "qso_entry_sota",
+        "qso_entry_qsl_via",
+        "qso_entry_comment",
+    ];
+
+    let ids: Vec<egui::Id> = expected_fields
+        .iter()
+        .map(|name| egui::Id::new(*name))
+        .collect();
+    let unique_ids: std::collections::HashSet<egui::Id> = ids.iter().copied().collect();
+
+    assert_eq!(
+        unique_ids.len(),
+        expected_fields.len(),
+        "All field IDs must be distinct"
+    );
+
+    for window in ids.windows(2) {
+        assert_ne!(
+            window[0], window[1],
+            "Consecutive field IDs must not collide"
+        );
+    }
+}
+
+#[test]
+fn qso_focus_id_is_stable_across_frames() {
+    let deps = test_deps();
+    let init = AppInit {
+        config: AppConfig::default(),
+        config_file_path: std::path::PathBuf::from("config.json"),
+        active_db_path: std::path::PathBuf::from("db.sqlite"),
+        shutdown_policy: ShutdownPolicy::None,
+    };
+    let mut app = SpLogApp::for_tests(init, deps);
+    let ctx = egui::Context::default();
+
+    // Frame 1: empty entry
+    let call_id_1 = egui::Id::new("qso_entry_callsign");
+    let mut output1 = ctx.run_ui(egui::RawInput::default(), |ui| {
+        crate::gui::qso_entry::render_qso_entry_body(&mut app, ui);
+    });
+    output1.textures_delta.clear();
+
+    // Frame 2: populated entry with bearing/distance and dupe
+    app.entry.callsign = "DL1ABC".to_string();
+    app.entry.active_bearing_deg = 270.0;
+    app.entry.active_distance_km = 850.0;
+    let call_id_2 = egui::Id::new("qso_entry_callsign");
+    let mut output2 = ctx.run_ui(egui::RawInput::default(), |ui| {
+        crate::gui::qso_entry::render_qso_entry_body(&mut app, ui);
+    });
+    output2.textures_delta.clear();
+
+    assert_eq!(
+        call_id_1, call_id_2,
+        "Callsign focus ID must remain strictly identical across frames"
+    );
+}

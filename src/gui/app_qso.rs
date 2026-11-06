@@ -7,6 +7,8 @@ use crate::gui::state::log_view::UndoAction;
 impl SpLogApp {
     pub fn save_qso(&mut self) {
         if self.entry.callsign.trim().is_empty() {
+            let msg = Msg::new(key::QSO_ISSUE_EMPTY_CALLSIGN).text(self.gui.appearance.language);
+            self.gui.chrome.status_toast = Some((msg, std::time::Instant::now()));
             return;
         }
 
@@ -132,6 +134,7 @@ impl SpLogApp {
             success_msg.push_str(&warning_texts.join("; "));
         }
         self.gui.chrome.status_toast = Some((success_msg, std::time::Instant::now()));
+        self.entry.focus_callsign_requested = true;
 
         self.clear_qso_form();
         self.reload_qsos();

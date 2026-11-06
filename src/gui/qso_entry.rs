@@ -161,6 +161,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         let call_response = ui.add(
             egui::TextEdit::singleline(&mut app.entry.callsign)
+                .id(egui::Id::new("qso_entry_callsign"))
                 .font(egui::TextStyle::Heading)
                 .hint_text("W1AW, SP6INA, DL1ABC")
                 .desired_width(ui.available_width() - 85.0),
@@ -433,14 +434,20 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     // 3. Raporty RST
     ui.horizontal(|ui| {
         ui.label(tr(key::QSO_RST_SENT, lang));
-        let rst_sent_resp =
-            ui.add(egui::TextEdit::singleline(&mut app.entry.rst_sent).desired_width(60.0));
+        let rst_sent_resp = ui.add(
+            egui::TextEdit::singleline(&mut app.entry.rst_sent)
+                .id(egui::Id::new("qso_entry_rst_sent"))
+                .desired_width(60.0),
+        );
 
         ui.add_space(10.0);
 
         ui.label(tr(key::QSO_RST_RCVD, lang));
-        let rst_rcvd_resp =
-            ui.add(egui::TextEdit::singleline(&mut app.entry.rst_rcvd).desired_width(60.0));
+        let rst_rcvd_resp = ui.add(
+            egui::TextEdit::singleline(&mut app.entry.rst_rcvd)
+                .id(egui::Id::new("qso_entry_rst_rcvd"))
+                .desired_width(60.0),
+        );
         entry_field_ids.push(rst_sent_resp.id);
         entry_field_ids.push(rst_rcvd_resp.id);
     });
@@ -448,14 +455,21 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     // 4. Imię operatora & Lokator QTH
     ui.horizontal(|ui| {
         ui.label(tr(key::QSO_NAME, lang));
-        let name_resp =
-            ui.add(egui::TextEdit::singleline(&mut app.entry.name).desired_width(120.0));
+        let name_resp = ui.add(
+            egui::TextEdit::singleline(&mut app.entry.name)
+                .id(egui::Id::new("qso_entry_name"))
+                .desired_width(120.0),
+        );
         entry_field_ids.push(name_resp.id);
 
         ui.add_space(10.0);
 
         ui.label(tr(key::QSO_LOCATOR, lang));
-        let loc_resp = ui.add(egui::TextEdit::singleline(&mut app.entry.grid).desired_width(80.0));
+        let loc_resp = ui.add(
+            egui::TextEdit::singleline(&mut app.entry.grid)
+                .id(egui::Id::new("qso_entry_grid"))
+                .desired_width(80.0),
+        );
         if loc_resp.changed() {
             app.entry.grid = app.entry.grid.to_uppercase();
             app.recalculate_distance_from_grid();
@@ -466,7 +480,11 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     // 5. Miejscowość (QTH) & Gmina PGA
     ui.horizontal(|ui| {
         ui.label(tr(key::QSO_QTH, lang));
-        let qth_resp = ui.add(egui::TextEdit::singleline(&mut app.entry.qth).desired_width(120.0));
+        let qth_resp = ui.add(
+            egui::TextEdit::singleline(&mut app.entry.qth)
+                .id(egui::Id::new("qso_entry_qth"))
+                .desired_width(120.0),
+        );
         if qth_resp.changed() && app.entry.pga.is_empty() {
             if let Some(gmina) = crate::core::pga::suggest_pga_for_qth(&app.entry.qth) {
                 app.entry.pga = gmina.code.to_string();
@@ -476,7 +494,11 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.add_space(8.0);
 
         ui.label(tr(key::QSO_PGA, lang));
-        let pga_resp = ui.add(egui::TextEdit::singleline(&mut app.entry.pga).desired_width(65.0));
+        let pga_resp = ui.add(
+            egui::TextEdit::singleline(&mut app.entry.pga)
+                .id(egui::Id::new("qso_entry_pga"))
+                .desired_width(65.0),
+        );
         if pga_resp.changed() {
             app.entry.pga = app.entry.pga.to_uppercase();
         }
@@ -503,6 +525,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.label(format!("🏝 {}:", tr(key::QSO_IOTA, lang)));
         let iota_resp = ui.add(
             egui::TextEdit::singleline(&mut app.entry.iota)
+                .id(egui::Id::new("qso_entry_iota"))
                 .desired_width(65.0)
                 .hint_text("EU-001"),
         );
@@ -522,6 +545,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.label(format!("🗺 {}:", tr(key::QSO_STATE, lang)));
         let st_resp = ui.add(
             egui::TextEdit::singleline(&mut app.entry.state)
+                .id(egui::Id::new("qso_entry_state"))
                 .desired_width(45.0)
                 .hint_text("CA"),
         );
@@ -541,6 +565,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.label(format!("🏔 {}:", tr(key::QSO_SOTA, lang)));
         let sota_resp = ui.add(
             egui::TextEdit::singleline(&mut app.entry.sota)
+                .id(egui::Id::new("qso_entry_sota"))
                 .desired_width(75.0)
                 .hint_text("SP/BZ-001"),
         );
@@ -557,6 +582,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.label(format!("📋 {}:", tr(key::QSO_QSL_VIA, lang)));
         let mgr_resp = ui.add(
             egui::TextEdit::singleline(&mut app.entry.qsl_manager)
+                .id(egui::Id::new("qso_entry_qsl_via"))
                 .desired_width(80.0)
                 .hint_text("Manager"),
         );
@@ -629,6 +655,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.label(tr(key::QSO_COMMENT, lang));
         let comment_resp = ui.add(
             egui::TextEdit::singleline(&mut app.entry.comment)
+                .id(egui::Id::new("qso_entry_comment"))
                 .desired_width(ui.available_width() - 85.0),
         );
 
@@ -673,9 +700,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         // aby przypadkowe Enter gdzie indziej nie logowało nieaktualnych danych.
         let any_field_focused = ui.memory(|m| entry_field_ids.iter().any(|id| m.has_focus(*id)));
         let enter_pressed = ui.input(|i| i.key_pressed(egui::Key::Enter));
-        if save_btn.clicked()
-            || (any_field_focused && enter_pressed && !app.entry.callsign.is_empty())
-        {
+        if save_btn.clicked() || (any_field_focused && enter_pressed) {
             app.save_qso();
         }
 
@@ -683,10 +708,17 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             [ui.available_width(), 30.0],
             egui::Button::new(tr(key::QSO_CLEAR, lang)),
         );
-        if clear_btn.clicked()
-            || (any_field_focused && ui.input(|i| i.key_pressed(egui::Key::Escape)))
-        {
+        if clear_btn.clicked() {
             app.clear_qso_form();
+        }
+        if any_field_focused && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            ui.memory_mut(|m| {
+                for id in &entry_field_ids {
+                    if m.has_focus(*id) {
+                        m.surrender_focus(*id);
+                    }
+                }
+            });
         }
     });
 
