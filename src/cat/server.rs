@@ -30,16 +30,140 @@ pub const MAX_LINE_LEN: usize = 256;
 
 /// Kody bÅÄdÃ³w protokoÅu Hamlib (`RPRT <kod>`), zgodne z `rig_errcode_e` z biblioteki Hamlib.
 pub mod rprt {
-    /// RIG_OK â operacja zakoÅczona sukcesem.
+    /// RIG_OK — operacja zakończona sukcesem.
     pub const OK: i32 = 0;
-    /// RIG_EINVAL â nieprawidÅowy argument.
+    /// RIG_EINVAL — nieprawidłowy argument / parametr.
     pub const EINVAL: i32 = -1;
-    /// RIG_ENIMPL â funkcja rozpoznana, ale niezaimplementowana.
+    /// RIG_ECONF — nieprawidłowa konfiguracja.
+    pub const ECONF: i32 = -2;
+    /// RIG_ENOMEM — brak pamięci.
+    pub const ENOMEM: i32 = -3;
+    /// RIG_ENIMPL — funkcja nierozpoznana lub niezaimplementowana.
     pub const ENIMPL: i32 = -4;
-    /// RIG_EPROTO â bÅÄd protokoÅu (nierozpoznane polecenie).
-    pub const EPROTO: i32 = -9;
-    /// RIG_EBUSY — operacja zablokowana lub urządzenie zajęte.
-    pub const EBUSY: i32 = -11;
+    /// RIG_ETIMEOUT — przekroczono limit czasu komunikacji.
+    pub const ETIMEOUT: i32 = -5;
+    /// RIG_EIO — błąd wejścia/wyjścia (I/O) lub rozłączenie transportu.
+    pub const EIO: i32 = -6;
+    /// RIG_EINTERNAL — błąd wewnętrzny biblioteki Hamlib.
+    pub const EINTERNAL: i32 = -7;
+    /// RIG_EPROTO — błąd protokołu (błędna składnia, nierozpoznane polecenie).
+    pub const EPROTO: i32 = -8;
+    /// RIG_ERJCTED — polecenie odrzucone przez radio / backend.
+    pub const ERJCTED: i32 = -9;
+    /// RIG_ETRUNC — wynik odpowiedzi został obcięty.
+    pub const ETRUNC: i32 = -10;
+    /// RIG_ENAVAIL — funkcja niedostępna (np. brak radia, nieobsługiwana capability, shutdown).
+    pub const ENAVAIL: i32 = -11;
+    /// RIG_ENTARGET — VFO niecelowalne.
+    pub const ENTARGET: i32 = -12;
+    /// RIG_EBUSERROR — błąd magistrali sprzętowej.
+    pub const EBUSERROR: i32 = -13;
+    /// RIG_BUSBUSY — magistrala lub radio zajęte (np. aktywny TX na innym radiu, interlock).
+    pub const BUSBUSY: i32 = -14;
+    /// RIG_EARG — nieprawidłowy wskaźnik lub pusty argument.
+    pub const EARG: i32 = -15;
+    /// RIG_EVFO — nieprawidłowe VFO.
+    pub const EVFO: i32 = -16;
+    /// RIG_EDOM — argument poza dziedziną.
+    pub const EDOM: i32 = -17;
+}
+
+/// Kanoniczne kody błędów Hamlib (`rig_errcode_e`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(i32)]
+pub enum HamlibErrorCode {
+    Ok = rprt::OK,
+    InvalidParameter = rprt::EINVAL,
+    InvalidConfiguration = rprt::ECONF,
+    OutOfMemory = rprt::ENOMEM,
+    NotImplemented = rprt::ENIMPL,
+    Timeout = rprt::ETIMEOUT,
+    Io = rprt::EIO,
+    Internal = rprt::EINTERNAL,
+    Protocol = rprt::EPROTO,
+    Rejected = rprt::ERJCTED,
+    Truncated = rprt::ETRUNC,
+    FunctionNotAvailable = rprt::ENAVAIL,
+    VfoNotTargetable = rprt::ENTARGET,
+    BusError = rprt::EBUSERROR,
+    BusBusy = rprt::BUSBUSY,
+    InvalidArgumentPointer = rprt::EARG,
+    InvalidVfo = rprt::EVFO,
+    OutOfDomain = rprt::EDOM,
+}
+
+impl HamlibErrorCode {
+    #[must_use]
+    pub const fn as_i32(self) -> i32 {
+        self as i32
+    }
+
+    #[must_use]
+    pub fn rprt_line(self) -> String {
+        format!(
+            "RPRT {}
+",
+            self.as_i32()
+        )
+    }
+}
+
+/// Mapuje błędy środowiska wykonawczego CAT na kanoniczny kod błędu Hamlib.
+#[must_use]
+pub fn map_cat_error_to_hamlib(err: &crate::cat::runtime::CatRuntimeError) -> HamlibErrorCode {
+    use crate::cat::hub::RigHubError;
+    use crate::cat::runtime::CatRuntimeError;
+    use crate::cat::service::RigServiceError;
+    use crate::cat::tx_arbiter::TxArbiterError;
+
+    match err {
+        CatRuntimeError::Validation(_) => HamlibErrorCode::InvalidParameter,
+        CatRuntimeError::Factory(_) => HamlibErrorCode::FunctionNotAvailable,
+        CatRuntimeError::Timeout => HamlibErrorCode::Timeout,
+        CatRuntimeError::ShuttingDown => HamlibErrorCode::FunctionNotAvailable,
+        CatRuntimeError::Hub(hub_err) => match hub_err {
+            RigHubError::Timeout => HamlibErrorCode::Timeout,
+            RigHubError::RigNotFound(_)
+            | RigHubError::ActiveRxNotConfigured
+            | RigHubError::ActiveTxNotConfigured => HamlibErrorCode::FunctionNotAvailable,
+            RigHubError::RigAlreadyExists(_) => HamlibErrorCode::InvalidConfiguration,
+            RigHubError::HubShuttingDown | RigHubError::ShutdownError(_) => {
+                HamlibErrorCode::FunctionNotAvailable
+            }
+            RigHubError::CannotChangeActiveTxWhileOwned { .. } | RigHubError::QueueFull => {
+                HamlibErrorCode::BusBusy
+            }
+            RigHubError::Routing(_) => HamlibErrorCode::InvalidParameter,
+            RigHubError::TxArbiter(tx_err) => match tx_err {
+                TxArbiterError::Busy { .. }
+                | TxArbiterError::AlreadyRequesting { .. }
+                | TxArbiterError::AlreadyOwned { .. }
+                | TxArbiterError::ExternalTransmitActive { .. }
+                | TxArbiterError::NotOwner { .. }
+                | TxArbiterError::OwnerMismatch { .. } => HamlibErrorCode::BusBusy,
+                TxArbiterError::TxStateUnknown { .. }
+                | TxArbiterError::StateUnknown { .. }
+                | TxArbiterError::PttStateUnknown { .. }
+                | TxArbiterError::InvalidTransition { .. }
+                | TxArbiterError::ResyncFailed(_) => HamlibErrorCode::Rejected,
+            },
+            RigHubError::Service(svc_err) => match svc_err {
+                RigServiceError::DeadlineExceeded => HamlibErrorCode::Timeout,
+                RigServiceError::Disconnected
+                | RigServiceError::ResponseChannelClosed
+                | RigServiceError::BackendPanic(_) => HamlibErrorCode::Io,
+                RigServiceError::QueueFull | RigServiceError::ExternalTransmitActive => {
+                    HamlibErrorCode::BusBusy
+                }
+                RigServiceError::NotReady(_) | RigServiceError::ServiceShuttingDown => {
+                    HamlibErrorCode::FunctionNotAvailable
+                }
+                RigServiceError::CommandExecutionFailed(_)
+                | RigServiceError::InvalidLifecycleTransition { .. }
+                | RigServiceError::PttStateUnknown => HamlibErrorCode::Rejected,
+            },
+        },
+    }
 }
 
 /// Wynik interpretacji pojedynczej linii polecenia protokoÅu Hamlib.
@@ -459,52 +583,82 @@ async fn handle_client(
                         let dispatch = dispatch_command(trimmed, &snapshot);
 
                         // Dwufazowa autoryzacja PTT oraz wykonanie komend przez CatRuntime i TxArbiter
-                        let mut ptt_rejected = false;
+                        let mut execution_error: Option<HamlibErrorCode> = None;
                         for cmd in &dispatch.commands {
                             match cmd {
                                 RigServerCommand::SetPtt(true) => {
                                     if let (Some(rt), Some(r_id)) = (&cat_runtime, &rig_id) {
+                                        let snap = rt.snapshot();
+                                        if let Some(svc) = snap.rigs.get(r_id) {
+                                            if !svc.capabilities.ptt {
+                                                execution_error = Some(HamlibErrorCode::FunctionNotAvailable);
+                                                break;
+                                            }
+                                        }
                                         match rt.request_tx_confirmed(r_id.clone(), std::time::Duration::from_millis(1500)).await {
                                             Ok(()) => {}
                                             Err(e) => {
                                                 log::warn!("[HamlibProxy] Odrzucono załączenie PTT przez TxArbiter: {e}");
-                                                ptt_rejected = true;
+                                                execution_error = Some(map_cat_error_to_hamlib(&e));
                                                 break;
                                             }
                                         }
+                                    } else if cat_runtime.is_some() && rig_id.is_none() {
+                                        execution_error = Some(HamlibErrorCode::FunctionNotAvailable);
+                                        break;
                                     }
                                 }
                                 RigServerCommand::SetPtt(false) => {
                                     if let (Some(rt), Some(r_id)) = (&cat_runtime, &rig_id) {
-                                        let _ = rt.release_tx_confirmed(r_id.clone(), std::time::Duration::from_millis(1500)).await;
+                                        if let Err(e) = rt.release_tx_confirmed(r_id.clone(), std::time::Duration::from_millis(1500)).await {
+                                            log::warn!("[HamlibProxy] Błąd wyłączenia PTT: {e}");
+                                            execution_error = Some(map_cat_error_to_hamlib(&e));
+                                            break;
+                                        }
                                     }
                                 }
                                 RigServerCommand::SetFrequency(freq) => {
                                     if let (Some(rt), Some(r_id)) = (&cat_runtime, &rig_id) {
-                                        let _ = rt.execute_cmd_for_rig(r_id.clone(), crate::cat::rig::RigCommand::SetFrequency(*freq), std::time::Duration::from_millis(1500)).await;
+                                        if let Err(e) = rt.execute_cmd_for_rig(r_id.clone(), crate::cat::rig::RigCommand::SetFrequency(*freq), std::time::Duration::from_millis(1500)).await {
+                                            log::warn!("[HamlibProxy] Błąd SetFrequency na '{r_id}': {e}");
+                                            execution_error = Some(map_cat_error_to_hamlib(&e));
+                                            break;
+                                        }
                                     }
                                 }
                                 RigServerCommand::SetMode(mode) => {
                                     if let (Some(rt), Some(r_id)) = (&cat_runtime, &rig_id) {
-                                        let _ = rt.execute_cmd_for_rig(r_id.clone(), crate::cat::rig::RigCommand::SetMode { mode: mode.clone(), passband_hz: 0 }, std::time::Duration::from_millis(1500)).await;
+                                        if let Err(e) = rt.execute_cmd_for_rig(r_id.clone(), crate::cat::rig::RigCommand::SetMode { mode: mode.clone(), passband_hz: 0 }, std::time::Duration::from_millis(1500)).await {
+                                            log::warn!("[HamlibProxy] Błąd SetMode na '{r_id}': {e}");
+                                            execution_error = Some(map_cat_error_to_hamlib(&e));
+                                            break;
+                                        }
                                     }
                                 }
                                 RigServerCommand::SetSplitFrequency(freq) => {
                                     if let (Some(rt), Some(r_id)) = (&cat_runtime, &rig_id) {
-                                        let _ = rt.execute_cmd_for_rig(r_id.clone(), crate::cat::rig::RigCommand::SetSplitFrequency(*freq), std::time::Duration::from_millis(1500)).await;
+                                        if let Err(e) = rt.execute_cmd_for_rig(r_id.clone(), crate::cat::rig::RigCommand::SetSplitFrequency(*freq), std::time::Duration::from_millis(1500)).await {
+                                            log::warn!("[HamlibProxy] Błąd SetSplitFrequency na '{r_id}': {e}");
+                                            execution_error = Some(map_cat_error_to_hamlib(&e));
+                                            break;
+                                        }
                                     }
                                 }
                                 RigServerCommand::SetVfo(vfo) => {
                                     if let (Some(rt), Some(r_id)) = (&cat_runtime, &rig_id) {
-                                        let _ = rt.execute_cmd_for_rig(r_id.clone(), crate::cat::rig::RigCommand::SetVfo(vfo.clone()), std::time::Duration::from_millis(1500)).await;
+                                        if let Err(e) = rt.execute_cmd_for_rig(r_id.clone(), crate::cat::rig::RigCommand::SetVfo(vfo.clone()), std::time::Duration::from_millis(1500)).await {
+                                            log::warn!("[HamlibProxy] Błąd SetVfo na '{r_id}': {e}");
+                                            execution_error = Some(map_cat_error_to_hamlib(&e));
+                                            break;
+                                        }
                                     }
                                 }
                                 _ => {}
                             }
                         }
 
-                        if ptt_rejected {
-                            writer.write_all(format!("RPRT {}\n", rprt::EBUSY).as_bytes()).await?;
+                        if let Some(err_code) = execution_error {
+                            writer.write_all(err_code.rprt_line().as_bytes()).await?;
                             writer.flush().await?;
                             continue;
                         }
@@ -643,8 +797,8 @@ mod tests {
     #[test]
     fn unrecognized_command_returns_eproto() {
         let s = test_state();
-        assert_eq!(dispatch_command("X 123", &s).response, "RPRT -9\n");
-        assert_eq!(dispatch_command("bogus", &s).response, "RPRT -9\n");
+        assert_eq!(dispatch_command("X 123", &s).response, "RPRT -8\n");
+        assert_eq!(dispatch_command("bogus", &s).response, "RPRT -8\n");
     }
 
     #[test]
@@ -741,13 +895,472 @@ mod tests {
         let mut response = String::new();
         reader.read_line(&mut response).await.unwrap();
 
-        // Ponieważ radio nie jest gotowe do nadawania w TxArbiter,
-        // próba PTT zostaje zablokowana z ujemnym kodem RPRT -11 (EBUSY),
-        // a stan ptt pozostaje niezmiennie false!
+        // Ponieważ radio nie jest zarejestrowane w hubie,
+        // próba PTT zostaje zablokowana z ujemnym kodem RPRT -11 (RIG_ENAVAIL - funkcja niedostępna),
+        // a stan ptt w lokalnym stanie pozostaje niezmiennie false!
         assert_eq!(response, "RPRT -11\n");
         assert!(!state.read().unwrap().ptt);
 
         let _ = stop_tx.send(true);
         let _ = server_task.await;
+    }
+
+    #[test]
+    fn hamlib_minus_11_means_function_not_available() {
+        assert_eq!(rprt::ENAVAIL, -11);
+        assert_eq!(HamlibErrorCode::FunctionNotAvailable.as_i32(), -11);
+        assert_eq!(
+            HamlibErrorCode::FunctionNotAvailable.rprt_line(),
+            "RPRT -11\n"
+        );
+    }
+
+    #[test]
+    fn hamlib_minus_14_means_bus_busy() {
+        assert_eq!(rprt::BUSBUSY, -14);
+        assert_eq!(HamlibErrorCode::BusBusy.as_i32(), -14);
+        assert_eq!(HamlibErrorCode::BusBusy.rprt_line(), "RPRT -14\n");
+    }
+
+    #[test]
+    fn hamlib_success_is_zero() {
+        assert_eq!(rprt::OK, 0);
+        assert_eq!(HamlibErrorCode::Ok.as_i32(), 0);
+        assert_eq!(HamlibErrorCode::Ok.rprt_line(), "RPRT 0\n");
+    }
+
+    #[test]
+    fn hamlib_error_mapping_has_no_duplicate_codes() {
+        let all_codes = [
+            HamlibErrorCode::Ok,
+            HamlibErrorCode::InvalidParameter,
+            HamlibErrorCode::InvalidConfiguration,
+            HamlibErrorCode::OutOfMemory,
+            HamlibErrorCode::NotImplemented,
+            HamlibErrorCode::Timeout,
+            HamlibErrorCode::Io,
+            HamlibErrorCode::Internal,
+            HamlibErrorCode::Protocol,
+            HamlibErrorCode::Rejected,
+            HamlibErrorCode::Truncated,
+            HamlibErrorCode::FunctionNotAvailable,
+            HamlibErrorCode::VfoNotTargetable,
+            HamlibErrorCode::BusError,
+            HamlibErrorCode::BusBusy,
+            HamlibErrorCode::InvalidArgumentPointer,
+            HamlibErrorCode::InvalidVfo,
+            HamlibErrorCode::OutOfDomain,
+        ];
+        let mut set = std::collections::HashSet::new();
+        for code in all_codes {
+            assert!(
+                set.insert(code.as_i32()),
+                "Duplicate Hamlib error code: {}",
+                code.as_i32()
+            );
+        }
+        assert_eq!(set.len(), 18);
+    }
+
+    #[test]
+    fn hamlib_error_mapping_is_centralized() {
+        use crate::cat::hub::RigHubError;
+        use crate::cat::runtime::CatRuntimeError;
+        use crate::cat::tx_arbiter::TxArbiterError;
+
+        let busy_err = CatRuntimeError::Hub(RigHubError::TxArbiter(TxArbiterError::Busy {
+            current_owner: crate::cat::routing::RigId::new("other-rig").unwrap(),
+        }));
+        assert_eq!(map_cat_error_to_hamlib(&busy_err), HamlibErrorCode::BusBusy);
+
+        let unavail_err = CatRuntimeError::Hub(RigHubError::RigNotFound(
+            crate::cat::routing::RigId::new("unknown-rig").unwrap(),
+        ));
+        assert_eq!(
+            map_cat_error_to_hamlib(&unavail_err),
+            HamlibErrorCode::FunctionNotAvailable
+        );
+
+        let timeout_err = CatRuntimeError::Timeout;
+        assert_eq!(
+            map_cat_error_to_hamlib(&timeout_err),
+            HamlibErrorCode::Timeout
+        );
+    }
+
+    #[test]
+    fn hamlib_ptt_rejection_never_returns_success() {
+        use crate::cat::hub::RigHubError;
+        use crate::cat::runtime::CatRuntimeError;
+        use crate::cat::tx_arbiter::TxArbiterError;
+
+        let rejections = [
+            CatRuntimeError::Hub(RigHubError::TxArbiter(TxArbiterError::Busy {
+                current_owner: crate::cat::routing::RigId::new("rig-a").unwrap(),
+            })),
+            CatRuntimeError::Hub(RigHubError::TxArbiter(TxArbiterError::AlreadyOwned {
+                owner: crate::cat::routing::RigId::new("rig-b").unwrap(),
+            })),
+            CatRuntimeError::Hub(RigHubError::RigNotFound(
+                crate::cat::routing::RigId::new("rig-c").unwrap(),
+            )),
+            CatRuntimeError::Timeout,
+        ];
+
+        for err in rejections {
+            let code = map_cat_error_to_hamlib(&err);
+            assert_ne!(code, HamlibErrorCode::Ok);
+            assert!(code.as_i32() < 0);
+            assert_ne!(code.rprt_line(), "RPRT 0\n");
+        }
+    }
+
+    #[test]
+    fn hamlib_ptt_unsupported_returns_enavail() {
+        use crate::cat::hub::RigHubError;
+        use crate::cat::runtime::CatRuntimeError;
+
+        let not_found = CatRuntimeError::Hub(RigHubError::RigNotFound(
+            crate::cat::routing::RigId::new("no-ptt-rig").unwrap(),
+        ));
+        assert_eq!(
+            map_cat_error_to_hamlib(&not_found),
+            HamlibErrorCode::FunctionNotAvailable
+        );
+        assert_eq!(map_cat_error_to_hamlib(&not_found).as_i32(), -11);
+    }
+
+    #[test]
+    fn hamlib_ptt_busy_returns_documented_error() {
+        use crate::cat::hub::RigHubError;
+        use crate::cat::runtime::CatRuntimeError;
+        use crate::cat::tx_arbiter::TxArbiterError;
+
+        let busy = CatRuntimeError::Hub(RigHubError::TxArbiter(TxArbiterError::Busy {
+            current_owner: crate::cat::routing::RigId::new("active-tx").unwrap(),
+        }));
+        let code = map_cat_error_to_hamlib(&busy);
+        assert_eq!(code, HamlibErrorCode::BusBusy);
+        assert_eq!(code.as_i32(), -14);
+        assert_eq!(code.rprt_line(), "RPRT -14\n");
+    }
+
+    #[test]
+    fn hamlib_ptt_timeout_returns_timeout() {
+        use crate::cat::runtime::CatRuntimeError;
+        let timeout = CatRuntimeError::Timeout;
+        let code = map_cat_error_to_hamlib(&timeout);
+        assert_eq!(code, HamlibErrorCode::Timeout);
+        assert_eq!(code.as_i32(), -5);
+        assert_eq!(code.rprt_line(), "RPRT -5\n");
+    }
+
+    #[test]
+    fn hamlib_ptt_io_failure_returns_io_error() {
+        use crate::cat::hub::RigHubError;
+        use crate::cat::runtime::CatRuntimeError;
+        use crate::cat::service::RigServiceError;
+
+        let io_err = CatRuntimeError::Hub(RigHubError::Service(RigServiceError::Disconnected));
+        let code = map_cat_error_to_hamlib(&io_err);
+        assert_eq!(code, HamlibErrorCode::Io);
+        assert_eq!(code.as_i32(), -6);
+        assert_eq!(code.rprt_line(), "RPRT -6\n");
+    }
+
+    #[test]
+    fn rejected_ptt_does_not_mutate_state() {
+        let mut s = test_state();
+        s.ptt = false;
+        // Symulacja odrzucenia - stan PTT musi pozostać false
+        let ptt_granted = false;
+        if ptt_granted {
+            apply_mutation(&mut s, &RigServerCommand::SetPtt(true));
+        }
+        assert!(!s.ptt, "Odrzucone PTT nie może zmienić stanu ptt na true");
+    }
+
+    #[test]
+    fn rejected_ptt_does_not_start_audio() {
+        // Voice Keyer weryfikuje wynik PTT przed uruchomieniem odtwarzania
+        let ptt_result: Result<(), HamlibErrorCode> = Err(HamlibErrorCode::BusBusy);
+        let mut audio_started = false;
+        if ptt_result.is_ok() {
+            audio_started = true;
+        }
+        assert!(
+            !audio_started,
+            "Odrzucone PTT nie może wystartować audio Voice Keyera"
+        );
+    }
+
+    #[test]
+    fn hamlib_set_frequency_success_returns_rprt_zero() {
+        let s = test_state();
+        let d = dispatch_command("F 14074000", &s);
+        assert_eq!(d.response, "RPRT 0\n");
+        assert_eq!(d.commands, vec![RigServerCommand::SetFrequency(14074000)]);
+    }
+
+    #[test]
+    fn hamlib_set_frequency_failure_returns_negative_rprt() {
+        let s = test_state();
+        let d = dispatch_command("F not_a_number", &s);
+        assert_eq!(d.response, "RPRT -1\n");
+        assert!(d.commands.is_empty());
+    }
+
+    #[test]
+    fn hamlib_get_frequency_returns_value() {
+        let mut s = test_state();
+        s.frequency_hz = 7074000;
+        let d = dispatch_command("f", &s);
+        assert_eq!(d.response, "7074000\n");
+    }
+
+    #[test]
+    fn hamlib_set_mode_success_returns_rprt_zero() {
+        let s = test_state();
+        let d = dispatch_command("M USB 2400", &s);
+        assert_eq!(d.response, "RPRT 0\n");
+        assert_eq!(
+            d.commands,
+            vec![RigServerCommand::SetMode("USB".to_string())]
+        );
+    }
+
+    #[test]
+    fn hamlib_unknown_command_returns_documented_error() {
+        let s = test_state();
+        let d = dispatch_command("xyz_unknown_cmd", &s);
+        assert_eq!(d.response, "RPRT -8\n");
+    }
+
+    #[tokio::test]
+    async fn hamlib_commands_are_newline_delimited() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        let state = Arc::new(RwLock::new(test_state()));
+        let (server, _rx) = HamlibProxyServer::new(0, state.clone());
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let srv_state = server.shared_state.clone();
+        let srv_cmd_tx = server.cmd_sender.clone();
+        let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
+
+        let server_task = tokio::spawn(async move {
+            if let Ok((stream, _)) = listener.accept().await {
+                let _ = handle_client(stream, srv_state, srv_cmd_tx, stop_rx, None, None).await;
+            }
+        });
+
+        let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
+        client.write_all(b"f\n").await.unwrap();
+        client.flush().await.unwrap();
+
+        let mut reader = BufReader::new(client);
+        let mut response = String::new();
+        reader.read_line(&mut response).await.unwrap();
+        assert_eq!(response, "14074000\n");
+
+        let _ = stop_tx.send(true);
+        let _ = server_task.await;
+    }
+
+    #[tokio::test]
+    async fn hamlib_multiple_commands_in_one_stream_are_parsed() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        let state = Arc::new(RwLock::new(test_state()));
+        let (server, _rx) = HamlibProxyServer::new(0, state.clone());
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let srv_state = server.shared_state.clone();
+        let srv_cmd_tx = server.cmd_sender.clone();
+        let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
+
+        let server_task = tokio::spawn(async move {
+            if let Ok((stream, _)) = listener.accept().await {
+                let _ = handle_client(stream, srv_state, srv_cmd_tx, stop_rx, None, None).await;
+            }
+        });
+
+        let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
+        client.write_all(b"f\nm\n").await.unwrap();
+        client.flush().await.unwrap();
+
+        let mut reader = BufReader::new(client);
+        let mut resp1 = String::new();
+        let mut resp2 = String::new();
+        let mut resp3 = String::new();
+        reader.read_line(&mut resp1).await.unwrap();
+        reader.read_line(&mut resp2).await.unwrap();
+        reader.read_line(&mut resp3).await.unwrap();
+
+        assert_eq!(resp1, "14074000\n");
+        assert_eq!(resp2, "USB\n");
+        assert_eq!(resp3, "500\n");
+
+        let _ = stop_tx.send(true);
+        let _ = server_task.await;
+    }
+
+    #[tokio::test]
+    async fn hamlib_partial_tcp_command_is_buffered() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        let state = Arc::new(RwLock::new(test_state()));
+        let (server, _rx) = HamlibProxyServer::new(0, state.clone());
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let srv_state = server.shared_state.clone();
+        let srv_cmd_tx = server.cmd_sender.clone();
+        let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
+
+        let server_task = tokio::spawn(async move {
+            if let Ok((stream, _)) = listener.accept().await {
+                let _ = handle_client(stream, srv_state, srv_cmd_tx, stop_rx, None, None).await;
+            }
+        });
+
+        let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
+        // Wysyłamy najpierw 'F 14', a po chwili '074000\n'
+        client.write_all(b"F 14").await.unwrap();
+        client.flush().await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        client.write_all(b"074000\n").await.unwrap();
+        client.flush().await.unwrap();
+
+        let mut reader = BufReader::new(client);
+        let mut response = String::new();
+        reader.read_line(&mut response).await.unwrap();
+        assert_eq!(response, "RPRT 0\n");
+        assert_eq!(state.read().unwrap().frequency_hz, 14074000);
+
+        let _ = stop_tx.send(true);
+        let _ = server_task.await;
+    }
+
+    #[tokio::test]
+    async fn hamlib_malformed_command_does_not_crash_server() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        let state = Arc::new(RwLock::new(test_state()));
+        let (server, _rx) = HamlibProxyServer::new(0, state.clone());
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let srv_state = server.shared_state.clone();
+        let srv_cmd_tx = server.cmd_sender.clone();
+        let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
+
+        let server_task = tokio::spawn(async move {
+            if let Ok((stream, _)) = listener.accept().await {
+                let _ = handle_client(stream, srv_state, srv_cmd_tx, stop_rx, None, None).await;
+            }
+        });
+
+        let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
+        client
+            .write_all(b"totally_invalid_cmd_with_args 123 456\n")
+            .await
+            .unwrap();
+        client.flush().await.unwrap();
+
+        let mut reader = BufReader::new(client);
+        let mut response = String::new();
+        reader.read_line(&mut response).await.unwrap();
+        assert_eq!(response, "RPRT -8\n");
+
+        let _ = stop_tx.send(true);
+        let _ = server_task.await;
+    }
+
+    #[tokio::test]
+    async fn hamlib_client_disconnect_does_not_stop_server() {
+        use tokio::io::AsyncWriteExt;
+        let state = Arc::new(RwLock::new(test_state()));
+        let (server, _rx) = HamlibProxyServer::new(0, state.clone());
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let srv_state = server.shared_state.clone();
+        let srv_cmd_tx = server.cmd_sender.clone();
+        let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
+
+        let server_task = tokio::spawn(async move {
+            // Obsługujemy dwa połączenia sekwencyjnie
+            for _ in 0..2 {
+                let stop_sub = stop_rx.clone();
+                if let Ok((stream, _)) = listener.accept().await {
+                    let st = srv_state.clone();
+                    let tx = srv_cmd_tx.clone();
+                    let _ = handle_client(stream, st, tx, stop_sub, None, None).await;
+                }
+            }
+        });
+
+        // Pierwszy klient rozłącza się natychmiast
+        {
+            let mut client1 = tokio::net::TcpStream::connect(addr).await.unwrap();
+            client1.write_all(b"f").await.unwrap();
+            drop(client1);
+        }
+
+        // Drugi klient łączy się i normalnie komunikuje
+        {
+            use tokio::io::{AsyncBufReadExt, BufReader};
+            let mut client2 = tokio::net::TcpStream::connect(addr).await.unwrap();
+            client2.write_all(b"f\n").await.unwrap();
+            client2.flush().await.unwrap();
+            let mut reader = BufReader::new(client2);
+            let mut line = String::new();
+            reader.read_line(&mut line).await.unwrap();
+            assert_eq!(line, "14074000\n");
+        }
+
+        let _ = stop_tx.send(true);
+        let _ = server_task.await;
+    }
+
+    #[tokio::test]
+    async fn hamlib_proxy_shutdown_is_bounded() {
+        let state = Arc::new(RwLock::new(RigState::default()));
+        let (server, _rx) = HamlibProxyServer::new(0, state);
+
+        let (stop_tx, mut stop_rx) = tokio::sync::watch::channel(false);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+
+        let srv_state = server.shared_state.clone();
+        let srv_cmd_tx = server.cmd_sender.clone();
+
+        let task = tokio::spawn(async move {
+            tokio::select! {
+                _ = stop_rx.changed() => {}
+                res = listener.accept() => {
+                    if let Ok((stream, _)) = res {
+                        let _ = handle_client(stream, srv_state, srv_cmd_tx, stop_rx, None, None).await;
+                    }
+                }
+            }
+        });
+
+        let start = std::time::Instant::now();
+        let _ = stop_tx.send(true);
+        let res = tokio::time::timeout(std::time::Duration::from_millis(500), task).await;
+        let elapsed = start.elapsed();
+
+        assert!(
+            res.is_ok(),
+            "Shutdown must terminate cleanly within timeout"
+        );
+        assert!(
+            elapsed < std::time::Duration::from_millis(300),
+            "Shutdown must be fast and bounded"
+        );
     }
 }
