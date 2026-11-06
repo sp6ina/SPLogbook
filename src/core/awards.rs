@@ -72,10 +72,10 @@ fn parse_sp_call(callsign: &str) -> Option<(&'static str, u8)> {
             if let Some(d) = portable_digit {
                 return Some((prefix, d.to_digit(10)? as u8));
             }
-            if let Some(digit) = rest.chars().find(|c| c.is_ascii_digit()) {
-                if digit != '0' {
-                    return Some((prefix, digit.to_digit(10)? as u8));
-                }
+            if let Some(digit) = rest.chars().find(char::is_ascii_digit)
+                && digit != '0'
+            {
+                return Some((prefix, digit.to_digit(10)? as u8));
             }
         }
     }
@@ -398,15 +398,15 @@ impl AwardsEngine {
                 self.register_rda(&rda, is_confirmed);
             }
         }
-        if let Some(ref pota) = qso.pota_ref {
-            if let Some(wwff) = extract_wwff_reference(pota) {
-                self.register_wwff(&wwff, is_confirmed);
-            }
+        if let Some(ref pota) = qso.pota_ref
+            && let Some(wwff) = extract_wwff_reference(pota)
+        {
+            self.register_wwff(&wwff, is_confirmed);
         }
-        if let Some(ref state) = qso.state {
-            if let Some(rda) = extract_rda_reference(state) {
-                self.register_rda(&rda, is_confirmed);
-            }
+        if let Some(ref state) = qso.state
+            && let Some(rda) = extract_rda_reference(state)
+        {
+            self.register_rda(&rda, is_confirmed);
         }
 
         self.register_qso_full(
@@ -472,12 +472,12 @@ impl AwardsEngine {
             }
         }
 
-        if let Some(z) = cqz {
-            if (1..=40).contains(&z) {
-                self.worked_waz.insert(z);
-                if is_confirmed {
-                    self.confirmed_waz.insert(z);
-                }
+        if let Some(z) = cqz
+            && (1..=40).contains(&z)
+        {
+            self.worked_waz.insert(z);
+            if is_confirmed {
+                self.confirmed_waz.insert(z);
             }
         }
 
@@ -549,12 +549,12 @@ impl AwardsEngine {
             }
         }
 
-        if let Some(d) = dxcc {
-            if WAE_EUROPEAN_ENTITIES.contains(&d) {
-                self.worked_wae.insert(d);
-                if is_confirmed {
-                    self.confirmed_wae.insert(d);
-                }
+        if let Some(d) = dxcc
+            && WAE_EUROPEAN_ENTITIES.contains(&d)
+        {
+            self.worked_wae.insert(d);
+            if is_confirmed {
+                self.confirmed_wae.insert(d);
             }
         }
     }

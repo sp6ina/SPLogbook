@@ -49,12 +49,11 @@ impl ClubRegistry {
     pub fn load_or_default() -> &'static HashMap<String, Vec<ClubAffiliation>> {
         GLOBAL_REGISTRY.get_or_init(|| {
             let csv_path = Path::new("databases").join("clubs.csv");
-            if csv_path.exists() {
-                if let Ok(reg) = Self::load_from_csv(&csv_path) {
-                    if !reg.is_empty() {
-                        return reg;
-                    }
-                }
+            if csv_path.exists()
+                && let Ok(reg) = Self::load_from_csv(&csv_path)
+                && !reg.is_empty()
+            {
+                return reg;
             }
             Self::default_registry()
         })
@@ -99,11 +98,11 @@ impl ClubRegistry {
             // Odrzucenie konfliktującego duplikatu numeru w tym samym klubie
             if let Some(ref num) = number {
                 let club_num_key = (code.clone(), num.clone());
-                if let Some(existing_call) = club_numbers.get(&club_num_key) {
-                    if existing_call != &callsign {
-                        // Ten sam numer w tym samym klubie należy już do innego znaku
-                        continue;
-                    }
+                if let Some(existing_call) = club_numbers.get(&club_num_key)
+                    && existing_call != &callsign
+                {
+                    // Ten sam numer w tym samym klubie należy już do innego znaku
+                    continue;
                 }
                 club_numbers.insert(club_num_key, callsign.clone());
             }
