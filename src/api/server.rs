@@ -317,18 +317,79 @@ pub struct RigCapabilitiesResponse {
     pub s_meter: bool,
 }
 
+pub const MIN_VALID_FREQ_HZ: u64 = 100_000; // 100 kHz
+pub const MAX_VALID_FREQ_HZ: u64 = 60_000_000_000; // 60 GHz
+
+pub fn validate_rig_id_str(s: &str) -> Result<RigId, (StatusCode, String)> {
+    let trimmed = s.trim();
+    if trimmed.is_empty() || trimmed.len() > 64 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "RigId must be non-empty and at most 64 characters".to_string(),
+        ));
+    }
+    if !trimmed
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("RigId '{trimmed}' contains invalid characters (allowed: [a-zA-Z0-9_-])"),
+        ));
+    }
+    RigId::new(trimmed).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))
+}
+
+pub fn validate_frequency_hz(freq: u64) -> Result<(), (StatusCode, String)> {
+    if freq < MIN_VALID_FREQ_HZ || freq > MAX_VALID_FREQ_HZ {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!(
+                "Frequency {freq} Hz is out of allowed range ({MIN_VALID_FREQ_HZ} Hz ..= {MAX_VALID_FREQ_HZ} Hz)"
+            ),
+        ));
+    }
+    Ok(())
+}
+
+pub fn validate_mode_str(mode: &str) -> Result<String, (StatusCode, String)> {
+    let trimmed = mode.trim();
+    if trimmed.is_empty() || trimmed.len() > 16 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Mode must be non-empty and at most 16 characters".to_string(),
+        ));
+    }
+    let upper = trimmed.to_ascii_uppercase();
+    const VALID_MODES: &[&str] = &[
+        "USB", "LSB", "CW", "CWR", "AM", "FM", "WFM", "RTTY", "RTTYR", "PSK", "PSK31", "PSK63",
+        "DATA", "PKTUSB", "PKTLSB", "FT8", "FT4", "JT65", "JT9", "JS8", "SSTV", "FST4", "Q65",
+        "MSK144",
+    ];
+    if !VALID_MODES.contains(&upper.as_str()) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("Unsupported or invalid modulation mode: '{trimmed}'"),
+        ));
+    }
+    Ok(upper)
+}
+
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SetFrequencyRequest {
     pub frequency_hz: u64,
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SetModeRequest {
     pub mode: String,
     pub passband_hz: Option<u32>,
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SetPttRequest {
     pub ptt: bool,
 }
@@ -591,10 +652,17 @@ impl std::error::Error for ServerBindError {}
 /// Waliduje politykę wiązania interfejsu sieciowego: zabrania uruchamiania serwera
 /// na adresie niebędącym pętlą zwrotną (loopback) bez skonfigurowanego klucza API (SEC-004).
 pub fn validate_bind_policy(ip: &IpAddr, api_key: &str) -> Result<(), ServerBindError> {
+    if ip.is_unspecified() {
+        return Err(ServerBindError::PublicBindWithoutAuthentication);
+    }
     if !ip.is_loopback() && api_key.trim().is_empty() {
         return Err(ServerBindError::PublicBindWithoutAuthentication);
     }
     Ok(())
+}
+
+pub fn default_rest_bind_address(port: u16) -> SocketAddr {
+    SocketAddr::from(([127, 0, 0, 1], port))
 }
 
 pub async fn start_api_server_with_state(state: ApiState, port: u16) {
@@ -1511,11 +1579,14 @@ async fn get_rigs_list(State(state): State<ApiState>) -> Json<Vec<RigSummaryResp
 async fn get_rig_by_id(
     State(state): State<ApiState>,
     Path(rig_id_str): Path<String>,
-) -> Result<Json<RigDetailResponse>, StatusCode> {
-    let rig_id = RigId::new(&rig_id_str).map_err(|_| StatusCode::NOT_FOUND)?;
+) -> Result<Json<RigDetailResponse>, (StatusCode, String)> {
+    let rig_id = validate_rig_id_str(&rig_id_str)?;
     if let Some(ref rt) = state.cat_runtime {
         let snap = rt.snapshot();
-        let svc = snap.rigs.get(&rig_id).ok_or(StatusCode::NOT_FOUND)?;
+        let svc = snap
+            .rigs
+            .get(&rig_id)
+            .ok_or((StatusCode::NOT_FOUND, "Rig not found".to_string()))?;
         let active_rx_id = snap.active_rx.as_ref().map(|r| &r.rig_id);
         let active_tx_id = match snap.tx_state {
             crate::cat::tx_arbiter::TxArbiterState::Owned { ref rig_id, .. } => Some(rig_id),
@@ -1550,18 +1621,21 @@ async fn get_rig_by_id(
             last_error: None,
         }))
     } else {
-        Err(StatusCode::NOT_FOUND)
+        Err((StatusCode::NOT_FOUND, "Rig not found".to_string()))
     }
 }
 
 async fn get_rig_state_by_id(
     State(state): State<ApiState>,
     Path(rig_id_str): Path<String>,
-) -> Result<Json<RigStateResponse>, StatusCode> {
-    let rig_id = RigId::new(&rig_id_str).map_err(|_| StatusCode::NOT_FOUND)?;
+) -> Result<Json<RigStateResponse>, (StatusCode, String)> {
+    let rig_id = validate_rig_id_str(&rig_id_str)?;
     if let Some(ref rt) = state.cat_runtime {
         let snap = rt.snapshot();
-        let svc = snap.rigs.get(&rig_id).ok_or(StatusCode::NOT_FOUND)?;
+        let svc = snap
+            .rigs
+            .get(&rig_id)
+            .ok_or((StatusCode::NOT_FOUND, "Rig not found".to_string()))?;
         let mut st = svc.state.clone().unwrap_or_default();
         st.connected = matches!(
             svc.lifecycle,
@@ -1612,18 +1686,21 @@ async fn get_rig_state_by_id(
             ptt: rig.ptt,
         }))
     } else {
-        Err(StatusCode::NOT_FOUND)
+        Err((StatusCode::NOT_FOUND, "Rig not found".to_string()))
     }
 }
 
 async fn get_rig_capabilities_by_id(
     State(state): State<ApiState>,
     Path(rig_id_str): Path<String>,
-) -> Result<Json<RigCapabilitiesResponse>, StatusCode> {
-    let rig_id = RigId::new(&rig_id_str).map_err(|_| StatusCode::NOT_FOUND)?;
+) -> Result<Json<RigCapabilitiesResponse>, (StatusCode, String)> {
+    let rig_id = validate_rig_id_str(&rig_id_str)?;
     if let Some(ref rt) = state.cat_runtime {
         let snap = rt.snapshot();
-        let svc = snap.rigs.get(&rig_id).ok_or(StatusCode::NOT_FOUND)?;
+        let svc = snap
+            .rigs
+            .get(&rig_id)
+            .ok_or((StatusCode::NOT_FOUND, "Rig not found".to_string()))?;
         let caps = svc.capabilities;
         Ok(Json(RigCapabilitiesResponse {
             id: rig_id.as_str().to_string(),
@@ -1649,7 +1726,7 @@ async fn get_rig_capabilities_by_id(
             s_meter: true,
         }))
     } else {
-        Err(StatusCode::NOT_FOUND)
+        Err((StatusCode::NOT_FOUND, "Rig not found".to_string()))
     }
 }
 
@@ -1658,8 +1735,22 @@ async fn put_rig_frequency(
     Path(rig_id_str): Path<String>,
     Json(req): Json<SetFrequencyRequest>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    let rig_id = RigId::new(&rig_id_str).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let rig_id = validate_rig_id_str(&rig_id_str)?;
+    validate_frequency_hz(req.frequency_hz)?;
+
     if let Some(ref rt) = state.cat_runtime {
+        let snap = rt.snapshot();
+        let svc = snap
+            .rigs
+            .get(&rig_id)
+            .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Rig '{rig_id}' not found")))?;
+        if !svc.capabilities.frequency {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("Rig '{rig_id}' does not support setting frequency"),
+            ));
+        }
+
         rt.execute_cmd_for_rig(
             rig_id.clone(),
             RigCommand::SetFrequency(req.frequency_hz),
@@ -1672,7 +1763,10 @@ async fn put_rig_frequency(
                 format!("Failed to execute SetFrequency on '{rig_id}': {e}"),
             )
         })?;
+    } else if rig_id_str != "rig-1" {
+        return Err((StatusCode::NOT_FOUND, format!("Rig '{rig_id}' not found")));
     }
+
     let mut rig = state
         .rig_state
         .write()
@@ -1691,10 +1785,23 @@ async fn put_rig_mode(
     Path(rig_id_str): Path<String>,
     Json(req): Json<SetModeRequest>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    let rig_id = RigId::new(&rig_id_str).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
-    let mode_str = req.mode.trim().to_uppercase();
+    let rig_id = validate_rig_id_str(&rig_id_str)?;
+    let mode_str = validate_mode_str(&req.mode)?;
     let passband = req.passband_hz.unwrap_or(0);
+
     if let Some(ref rt) = state.cat_runtime {
+        let snap = rt.snapshot();
+        let svc = snap
+            .rigs
+            .get(&rig_id)
+            .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Rig '{rig_id}' not found")))?;
+        if !svc.capabilities.mode {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("Rig '{rig_id}' does not support setting mode"),
+            ));
+        }
+
         rt.execute_cmd_for_rig(
             rig_id.clone(),
             RigCommand::SetMode {
@@ -1710,7 +1817,10 @@ async fn put_rig_mode(
                 format!("Failed to execute SetMode on '{rig_id}': {e}"),
             )
         })?;
+    } else if rig_id_str != "rig-1" {
+        return Err((StatusCode::NOT_FOUND, format!("Rig '{rig_id}' not found")));
     }
+
     let mut rig = state
         .rig_state
         .write()
@@ -1732,8 +1842,21 @@ async fn put_rig_ptt(
     Path(rig_id_str): Path<String>,
     Json(req): Json<SetPttRequest>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    let rig_id = RigId::new(&rig_id_str).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let rig_id = validate_rig_id_str(&rig_id_str)?;
+
     if let Some(ref rt) = state.cat_runtime {
+        let snap = rt.snapshot();
+        let svc = snap
+            .rigs
+            .get(&rig_id)
+            .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Rig '{rig_id}' not found")))?;
+        if !svc.capabilities.ptt {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("Rig '{rig_id}' does not support PTT control"),
+            ));
+        }
+
         if req.ptt {
             if let Err(e) = rt
                 .request_tx_confirmed(rig_id.clone(), Duration::from_millis(1500))
@@ -1749,7 +1872,10 @@ async fn put_rig_ptt(
                 .release_tx_confirmed(rig_id.clone(), Duration::from_millis(1500))
                 .await;
         }
+    } else if rig_id_str != "rig-1" {
+        return Err((StatusCode::NOT_FOUND, format!("Rig '{rig_id}' not found")));
     }
+
     let mut rig = state
         .rig_state
         .write()
@@ -3397,5 +3523,323 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         assert_eq!(state.rig_state.read().unwrap().frequency_hz, 14_074_000);
         assert_eq!(state.rig_state.read().unwrap().mode, "FT8");
+    }
+
+    #[tokio::test]
+    async fn rest_api_binds_loopback_by_default() {
+        let default_addr = default_rest_bind_address(8420);
+        assert!(default_addr.ip().is_loopback());
+        assert_eq!(default_addr.to_string(), "127.0.0.1:8420");
+    }
+
+    #[test]
+    fn rest_api_does_not_bind_all_interfaces_by_default() {
+        let v4_all: IpAddr = "0.0.0.0".parse().unwrap();
+        let v6_all: IpAddr = "::".parse().unwrap();
+        assert!(validate_bind_policy(&v4_all, "").is_err());
+        assert!(validate_bind_policy(&v6_all, "").is_err());
+    }
+
+    #[test]
+    fn remote_bind_requires_explicit_configuration() {
+        let lan_ip: IpAddr = "192.168.1.100".parse().unwrap();
+        assert!(validate_bind_policy(&lan_ip, "").is_err());
+        assert!(validate_bind_policy(&lan_ip, "   ").is_err());
+        assert!(validate_bind_policy(&lan_ip, "strong-secret-token-12345").is_ok());
+    }
+
+    #[test]
+    fn unsafe_remote_ptt_configuration_is_rejected() {
+        let public_ip: IpAddr = "203.0.113.1".parse().unwrap();
+        assert_eq!(
+            validate_bind_policy(&public_ip, ""),
+            Err(ServerBindError::PublicBindWithoutAuthentication)
+        );
+    }
+
+    #[tokio::test]
+    async fn rest_unknown_rig_returns_404_without_fallback() {
+        let state = test_api_state();
+        let app = build_api_router(state);
+
+        let req = Request::builder()
+            .method("GET")
+            .uri("/api/v1/rigs/non-existent-rig-id")
+            .header("x-api-key", "secret-key-123")
+            .body(Body::empty())
+            .unwrap();
+        let resp = call_router(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+
+        let put_req = Request::builder()
+            .method("PUT")
+            .uri("/api/v1/rigs/non-existent-rig-id/frequency")
+            .header("x-api-key", "secret-key-123")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                serde_json::json!({ "frequency_hz": 14_074_000 }).to_string(),
+            ))
+            .unwrap();
+        let put_resp = call_router(&app, put_req).await;
+        assert_eq!(put_resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn rest_invalid_rig_id_returns_400() {
+        let state = test_api_state();
+        let app = build_api_router(state);
+
+        let req = Request::builder()
+            .method("GET")
+            .uri("/api/v1/rigs/invalid!!rig!id/state")
+            .header("x-api-key", "secret-key-123")
+            .body(Body::empty())
+            .unwrap();
+        let resp = call_router(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn rest_rejects_negative_or_out_of_range_frequency() {
+        let state = test_api_state();
+        let app = build_api_router(state);
+
+        // Zbyt niska częstotliwość (poniżej 100 kHz)
+        let req1 = Request::builder()
+            .method("PUT")
+            .uri("/api/v1/rigs/rig-1/frequency")
+            .header("x-api-key", "secret-key-123")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                serde_json::json!({ "frequency_hz": 500 }).to_string(),
+            ))
+            .unwrap();
+        let resp1 = call_router(&app, req1).await;
+        assert_eq!(resp1.status(), StatusCode::BAD_REQUEST);
+
+        // Zbyt wysoka częstotliwość (powyżej 60 GHz)
+        let req2 = Request::builder()
+            .method("PUT")
+            .uri("/api/v1/rigs/rig-1/frequency")
+            .header("x-api-key", "secret-key-123")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                serde_json::json!({ "frequency_hz": 100_000_000_000u64 }).to_string(),
+            ))
+            .unwrap();
+        let resp2 = call_router(&app, req2).await;
+        assert_eq!(resp2.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn rest_rejects_unknown_mode() {
+        let state = test_api_state();
+        let app = build_api_router(state);
+
+        let req = Request::builder()
+            .method("PUT")
+            .uri("/api/v1/rigs/rig-1/mode")
+            .header("x-api-key", "secret-key-123")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                serde_json::json!({ "mode": "UNKNOWN_BOGUS_MODE" }).to_string(),
+            ))
+            .unwrap();
+        let resp = call_router(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn rest_rejects_unknown_fields_in_strict_models() {
+        let state = test_api_state();
+        let app = build_api_router(state);
+
+        let req = Request::builder()
+            .method("PUT")
+            .uri("/api/v1/rigs/rig-1/frequency")
+            .header("x-api-key", "secret-key-123")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "frequency_hz": 14_074_000,
+                    "unexpected_field": "injected_value"
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let resp = call_router(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[tokio::test]
+    async fn rest_multi_radio_isolation_and_ptt_conflict() {
+        use crate::cat::backend::{BoxFuture, CatBackendKind, RigBackend};
+        use crate::cat::hub::RigHub;
+        use crate::cat::rig::{RigCapabilities, RigError};
+        use crate::cat::service::RigService;
+
+        struct SimpleMockBackend {
+            freq: u64,
+            mode: String,
+            ptt: bool,
+        }
+
+        impl RigBackend for SimpleMockBackend {
+            fn kind(&self) -> CatBackendKind {
+                CatBackendKind::Kenwood
+            }
+            fn capabilities(&self) -> RigCapabilities {
+                RigCapabilities::all()
+            }
+            fn connect(&mut self) -> BoxFuture<'_, Result<(), RigError>> {
+                Box::pin(std::future::ready(Ok(())))
+            }
+            fn poll(&mut self) -> BoxFuture<'_, Result<RigState, RigError>> {
+                let st = RigState {
+                    frequency_hz: self.freq,
+                    mode: self.mode.clone(),
+                    ptt: self.ptt,
+                    connected: true,
+                    ..Default::default()
+                };
+                Box::pin(std::future::ready(Ok(st)))
+            }
+            fn execute<'a>(
+                &'a mut self,
+                command: &'a RigCommand,
+            ) -> BoxFuture<'a, Result<(), RigError>> {
+                match command {
+                    RigCommand::SetFrequency(f) => self.freq = *f,
+                    RigCommand::SetMode { mode, .. } => self.mode = mode.clone(),
+                    RigCommand::SetPtt(p) => self.ptt = *p,
+                    _ => {}
+                }
+                Box::pin(std::future::ready(Ok(())))
+            }
+            fn disconnect(&mut self) -> BoxFuture<'_, ()> {
+                Box::pin(std::future::ready(()))
+            }
+        }
+
+        let mut hub = RigHub::new();
+        let r1_id = RigId::new("rig-1").unwrap();
+        let (s1, mut h1) = RigService::spawn(
+            r1_id.clone(),
+            Box::new(SimpleMockBackend {
+                freq: 14_074_000,
+                mode: "USB".to_string(),
+                ptt: false,
+            }),
+            Duration::from_millis(20),
+        );
+        let w1 = tokio::spawn(s1.run());
+        h1.attach_join_handle(w1);
+        hub.register_rig(r1_id.clone(), h1).unwrap();
+
+        let r2_id = RigId::new("rig-2").unwrap();
+        let (s2, mut h2) = RigService::spawn(
+            r2_id.clone(),
+            Box::new(SimpleMockBackend {
+                freq: 28_074_000,
+                mode: "CW".to_string(),
+                ptt: false,
+            }),
+            Duration::from_millis(20),
+        );
+        let w2 = tokio::spawn(s2.run());
+        h2.attach_join_handle(w2);
+        hub.register_rig(r2_id.clone(), h2).unwrap();
+
+        let mut runtime = CatRuntime::with_hub(hub);
+        tokio::time::sleep(Duration::from_millis(60)).await;
+
+        let state = test_api_state().with_cat_runtime(runtime.clone());
+        let app = build_api_router(state);
+
+        // 1. Zmiana częstotliwości na rig-1
+        let req1 = Request::builder()
+            .method("PUT")
+            .uri("/api/v1/rigs/rig-1/frequency")
+            .header("x-api-key", "secret-key-123")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                serde_json::json!({ "frequency_hz": 14_250_000 }).to_string(),
+            ))
+            .unwrap();
+        let resp1 = call_router(&app, req1).await;
+        assert_eq!(resp1.status(), StatusCode::NO_CONTENT);
+
+        // 2. Zmiana częstotliwości na rig-2
+        let req2 = Request::builder()
+            .method("PUT")
+            .uri("/api/v1/rigs/rig-2/frequency")
+            .header("x-api-key", "secret-key-123")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                serde_json::json!({ "frequency_hz": 28_500_000 }).to_string(),
+            ))
+            .unwrap();
+        let resp2 = call_router(&app, req2).await;
+        assert_eq!(resp2.status(), StatusCode::NO_CONTENT);
+
+        // Weryfikacja asynchronicznej propagacji i izolacji stanu
+        for _ in 0..20 {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            let snap = runtime.snapshot();
+            let f1 = snap
+                .rigs
+                .get(&r1_id)
+                .and_then(|r| r.state.as_ref())
+                .map(|s| s.frequency_hz);
+            let f2 = snap
+                .rigs
+                .get(&r2_id)
+                .and_then(|r| r.state.as_ref())
+                .map(|s| s.frequency_hz);
+            if f1 == Some(14_250_000) && f2 == Some(28_500_000) {
+                break;
+            }
+        }
+
+        let snap = runtime.snapshot();
+        let st1 = snap.rigs.get(&r1_id).unwrap().state.as_ref().unwrap();
+        let st2 = snap.rigs.get(&r2_id).unwrap().state.as_ref().unwrap();
+        assert_eq!(st1.frequency_hz, 14_250_000);
+        assert_eq!(st2.frequency_hz, 28_500_000);
+
+        // 3. Załączenie PTT na rig-1
+        let req_ptt1 = Request::builder()
+            .method("PUT")
+            .uri("/api/v1/rigs/rig-1/ptt")
+            .header("x-api-key", "secret-key-123")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(serde_json::json!({ "ptt": true }).to_string()))
+            .unwrap();
+        let resp_ptt1 = call_router(&app, req_ptt1).await;
+        assert_eq!(resp_ptt1.status(), StatusCode::NO_CONTENT);
+
+        // 4. Próba załączenia PTT na rig-2 podczas gdy rig-1 nadaje -> 409 Conflict
+        let req_ptt2 = Request::builder()
+            .method("PUT")
+            .uri("/api/v1/rigs/rig-2/ptt")
+            .header("x-api-key", "secret-key-123")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(serde_json::json!({ "ptt": true }).to_string()))
+            .unwrap();
+        let resp_ptt2 = call_router(&app, req_ptt2).await;
+        assert_eq!(resp_ptt2.status(), StatusCode::CONFLICT);
+
+        // Zwolnienie PTT na rig-1
+        let req_rel = Request::builder()
+            .method("PUT")
+            .uri("/api/v1/rigs/rig-1/ptt")
+            .header("x-api-key", "secret-key-123")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(serde_json::json!({ "ptt": false }).to_string()))
+            .unwrap();
+        let resp_rel = call_router(&app, req_rel).await;
+        assert_eq!(resp_rel.status(), StatusCode::NO_CONTENT);
+
+        runtime.shutdown(Duration::from_millis(300)).await.unwrap();
     }
 }
