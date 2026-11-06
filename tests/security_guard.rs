@@ -1361,3 +1361,51 @@ fn signer_verify_accepts_valid_signature_with_explicit_key() {
 
     let _ = fs::remove_dir_all(&temp_dir);
 }
+
+#[test]
+fn workspace_test_counting_is_deterministic() {
+    use splogbook::core::test_audit::{parse_cargo_test_output, sanitize_katex_duplicates};
+
+    let sample_output = r#"
+     Running unittests src\lib.rs (target\debug\deps\splogbook-123.exe)
+test result: ok. 1527 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.0s
+     Running unittests src\main.rs (target\debug\deps\SPLogbook-456.exe)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.0s
+     Running unittests src\bin\signer.rs (target\debug\deps\splogbook_signer-789.exe)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.0s
+     Running tests\cat_native_6a.rs (target\debug\deps\cat_native_6a-abc.exe)
+test result: ok. 165 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.0s
+     Running tests\cat_native_6b.rs (target\debug\deps\cat_native_6b-def.exe)
+test result: ok. 99 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.0s
+     Running tests\cat_native_7.rs (target\debug\deps\cat_native_7-ghi.exe)
+test result: ok. 297 passed; 0 failed; 10 ignored; 0 measured; 0 filtered out; finished in 1.0s
+     Running tests\i18n_guard.rs (target\debug\deps\i18n_guard-jkl.exe)
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.0s
+     Running tests\security_guard.rs (target\debug\deps\security_guard-mno.exe)
+test result: ok. 32 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.0s
+     Running tests\theme_guard.rs (target\debug\deps\theme_guard-pqr.exe)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.1s
+   Doc-tests splogbook
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.0s
+    "#;
+
+    let report = parse_cargo_test_output(sample_output);
+    assert_eq!(report.lib_tests(), 1527);
+    assert_eq!(report.binary_tests(), 0);
+    assert_eq!(report.integration_tests(), 165 + 99 + 307);
+    assert_eq!(report.guard_tests(), 15 + 32 + 1);
+    assert_eq!(report.doc_tests(), 0);
+    assert_eq!(report.total_registered(), 2146);
+    assert_eq!(report.total_executed(), 2136);
+    assert_eq!(report.total_passed(), 2136);
+    assert_eq!(report.total_failed(), 0);
+    assert_eq!(report.total_ignored(), 10);
+    assert_eq!(report.hil_ignored(), 10);
+
+    let sanitized = sanitize_katex_duplicates(
+        r"TOTAL REGISTERED=2146\text{TOTAL REGISTERED}=2146 and O(N)O(N)O(N)",
+    );
+    assert!(!sanitized.contains(r"\text{"));
+    assert!(!sanitized.contains("O(N)O(N)O(N)"));
+    assert!(sanitized.contains("O(N)"));
+}
