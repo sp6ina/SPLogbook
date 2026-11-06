@@ -84,7 +84,7 @@ mod tests {
     #[test]
     fn cluster_state_default() {
         let state = ClusterState::default();
-        assert!(state.spots.is_empty());
+        assert_eq!(state.spots.len(), 0);
         assert!(state.badge_cache.is_empty());
         assert!(!state.connected);
         assert!(!state.connecting);

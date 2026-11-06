@@ -21,12 +21,12 @@ fn main() -> Result<(), eframe::Error> {
         let msg = format!("Wystąpił nieoczekiwany błąd w SPLogbook:\n\n{info}");
         eprintln!("{msg}");
         log::error!("{msg}");
-        if let Ok(exe) = std::env::current_exe() {
-            if let Some(dir) = exe.parent() {
-                let ts = chrono::Local::now().format("%Y%m%d_%H%M%S");
-                let path = dir.join(format!("crash_{ts}.log"));
-                let _ = std::fs::write(&path, &msg);
-            }
+        if let Ok(exe) = std::env::current_exe()
+            && let Some(dir) = exe.parent()
+        {
+            let ts = chrono::Local::now().format("%Y%m%d_%H%M%S");
+            let path = dir.join(format!("crash_{ts}.log"));
+            let _ = std::fs::write(&path, &msg);
         }
     }));
 

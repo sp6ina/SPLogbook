@@ -448,7 +448,7 @@ fn hamlib_mode(mode: &str) -> &'static str {
         "AM" => "AM",
         "FM" => "FM",
         "RTTY" => "RTTY",
-        "USB" | _ => "USB",
+        _ => "USB",
     }
 }
 

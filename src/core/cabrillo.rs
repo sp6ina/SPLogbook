@@ -273,7 +273,7 @@ pub fn band_to_cabrillo_freq(band: &str) -> u64 {
         "33cm" => 902,
         "23cm" => 1296,
         "13cm" => 2300,
-        "20m" | _ => 14000,
+        _ => 14000,
     }
 }
 

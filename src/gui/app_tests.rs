@@ -1763,8 +1763,7 @@ fn unchanged_cat_state_does_not_cause_repaint_storm() {
     let repaint_delay = out
         .viewport_output
         .get(&egui::ViewportId::ROOT)
-        .map(|v| v.repaint_delay)
-        .unwrap_or(std::time::Duration::ZERO);
+        .map_or(std::time::Duration::ZERO, |v| v.repaint_delay);
 
     assert!(
         repaint_delay >= std::time::Duration::from_millis(50),
