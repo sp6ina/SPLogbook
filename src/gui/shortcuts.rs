@@ -73,17 +73,69 @@ pub enum AppAction {
     ContestWipeQso,
 }
 
+/// Jawne konteksty fokusu interfejsu użytkownika (GUI-001).
+///
+/// Gwarantuje, że skróty z jawnym kontraktem (np. Ctrl+W czyszczenie łączności)
+/// działają wyłącznie w kontekście formularza QSO (`MainQsoEntry`, `ContestQsoEntry`),
+/// a nie przenikają do innych kontrolek edycyjnych (filtry, ustawienia, asystent).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ActiveFocusContext {
+    ModalDialog,
+    ContestQsoEntry,
+    MainQsoEntry,
+    LogFilter,
+    SettingsTextEdit,
+    OperatorAssistantTextEdit,
+    LogTable,
+    Global,
+}
+
+impl ActiveFocusContext {
+    /// Czy kontekst pozwala na wykonanie akcji czyszczenia formularza QSO (Wipe).
+    #[must_use]
+    pub const fn allows_qso_wipe(&self) -> bool {
+        matches!(self, Self::MainQsoEntry | Self::ContestQsoEntry)
+    }
+
+    /// Konwertuje kontekst fokusu na odpowiadający kontekst skrótów klawiszowych.
+    #[must_use]
+    pub const fn to_shortcut_context(&self) -> ShortcutContext {
+        match self {
+            Self::ModalDialog => ShortcutContext::ModalDialog,
+            Self::ContestQsoEntry => ShortcutContext::ContestQsoEntry,
+            Self::MainQsoEntry => ShortcutContext::MainQsoEntry,
+            Self::LogFilter => ShortcutContext::LogFilter,
+            Self::SettingsTextEdit => ShortcutContext::SettingsTextEdit,
+            Self::OperatorAssistantTextEdit => ShortcutContext::OperatorAssistantTextEdit,
+            Self::LogTable => ShortcutContext::LogTable,
+            Self::Global => ShortcutContext::Global,
+        }
+    }
+}
+
 /// Kontekst wykonania skrótu klawiaturowego.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ShortcutContext {
     /// Globalny kontekst aplikacji (domyślny).
     Global,
-    /// Edycja w formularzu łączności (QSO Entry).
-    QsoEntry,
-    /// Okno zawodów (Contest Window).
-    Contest,
     /// Modalne okno dialogowe lub popup.
     ModalDialog,
+    /// Edycja łączności w oknie zawodów.
+    ContestQsoEntry,
+    /// Edycja w głównym formularzu łączności (QSO Entry).
+    MainQsoEntry,
+    /// Pole tekstowe filtra dziennika.
+    LogFilter,
+    /// Edycja tekstu w oknach ustawień i konfiguracji.
+    SettingsTextEdit,
+    /// Edycja tekstu w terminalu CW lub notatkach asystenta operatora.
+    OperatorAssistantTextEdit,
+    /// Tabela łączności dziennika.
+    LogTable,
+    /// Alias wsteczny dla formularza łączności.
+    QsoEntry,
+    /// Alias wsteczny dla okna zawodów.
+    Contest,
     /// Pole edycji tekstu w dowolnym oknie.
     TextEditing,
 }
@@ -251,7 +303,18 @@ impl ShortcutRegistry {
             .bindings
             .iter()
             .filter(|b| b.enabled)
-            .filter(|b| b.context == current_context || b.context == ShortcutContext::Global)
+            .filter(|b| {
+                b.context == current_context
+                    || b.context == ShortcutContext::Global
+                    || (b.context == ShortcutContext::QsoEntry
+                        && current_context == ShortcutContext::MainQsoEntry)
+                    || (b.context == ShortcutContext::Contest
+                        && current_context == ShortcutContext::ContestQsoEntry)
+                    || (b.context == ShortcutContext::MainQsoEntry
+                        && current_context == ShortcutContext::QsoEntry)
+                    || (b.context == ShortcutContext::ContestQsoEntry
+                        && current_context == ShortcutContext::Contest)
+            })
             .collect();
 
         // Sortowanie deterministyczne: najpierw priorytet malejąco, potem specyfika kontekstu lokalnego nad globalnym
@@ -281,8 +344,21 @@ impl ShortcutRegistry {
                 }
             }
 
-            // Sprawdzenie czy wciśnięto kombinację klawiszy
-            let triggered = ctx.input_mut(|i| i.consume_shortcut(&binding.shortcut));
+            // Sprawdzenie czy wciśnięto kombinację klawiszy z uwzględnieniem SingleTrigger
+            let triggered = ctx.input_mut(|i| {
+                if binding.repeat_policy == RepeatPolicy::SingleTrigger {
+                    let is_repeat = i.events.iter().any(|e| match e {
+                        egui::Event::Key { key, repeat, .. } => {
+                            *key == binding.shortcut.logical_key && *repeat
+                        }
+                        _ => false,
+                    });
+                    if is_repeat {
+                        return false;
+                    }
+                }
+                i.consume_shortcut(&binding.shortcut)
+            });
             if triggered {
                 return Some(binding.action);
             }
@@ -403,12 +479,22 @@ impl ShortcutRegistry {
         self.register(ShortcutBinding::new(
             AppAction::WipeQso,
             KeyboardShortcut::new(ctrl, Key::W),
-            ShortcutContext::Global,
+            ShortcutContext::MainQsoEntry,
             6,
             ConflictPolicy::AllowInTextEditing,
             RepeatPolicy::SingleTrigger,
             "Ctrl+W",
             "Wipe QSO entry form",
+        ));
+        self.register(ShortcutBinding::new(
+            AppAction::ContestWipeQso,
+            KeyboardShortcut::new(ctrl, Key::W),
+            ShortcutContext::ContestQsoEntry,
+            6,
+            ConflictPolicy::AllowInTextEditing,
+            RepeatPolicy::SingleTrigger,
+            "Ctrl+W",
+            "Wipe contest QSO entry form",
         ));
         self.register(ShortcutBinding::new(
             AppAction::SaveQso,
@@ -817,10 +903,9 @@ mod tests {
         assert!(modal_escape.is_some());
         assert_eq!(modal_escape.unwrap().context, ShortcutContext::ModalDialog);
 
-        let contest_escape = registry
-            .bindings()
-            .iter()
-            .find(|b| b.action == AppAction::ContestWipeQso);
+        let contest_escape = registry.bindings().iter().find(|b| {
+            b.action == AppAction::ContestWipeQso && b.shortcut.logical_key == Key::Escape
+        });
         assert!(contest_escape.is_some());
         assert_eq!(contest_escape.unwrap().context, ShortcutContext::Contest);
     }

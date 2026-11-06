@@ -2,31 +2,111 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use super::*;
-use crate::gui::shortcuts::{AppAction, ShortcutContext, ShortcutRegistry};
+use crate::gui::shortcuts::{ActiveFocusContext, AppAction, ShortcutRegistry};
 use eframe::egui;
 
 impl SpLogApp {
-    /// Faza obsługi skrótów klawiaturowych, palety poleceń i wejść globalnych (GUI-001).
-    pub fn handle_input_and_shortcuts(&mut self, ctx: &egui::Context) {
-        let registry = ShortcutRegistry::default();
-        let wants_text = ctx.egui_wants_keyboard_input();
+    /// Deterministycznie wyznacza aktywny kontekst fokusu użytkownika (GUI-001).
+    ///
+    /// Hierarchia priorytetów:
+    /// ModalDialog → ContestQsoEntry → MainQsoEntry → LogFilter → SettingsTextEdit → OperatorAssistantTextEdit → LogTable → Global
+    #[must_use]
+    pub fn determine_active_focus_context(&self, ctx: &egui::Context) -> ActiveFocusContext {
+        if let Some(explicit) = self.active_focus_context_override {
+            return explicit;
+        }
 
-        let current_context = if self.contest.show_window {
-            ShortcutContext::Contest
-        } else if self.gui.chrome.show_command_palette
+        // 1. Priorytet: ModalDialog
+        if self.gui.chrome.show_command_palette
             || self.gui.dialogs.advanced_filter_dialog.is_open
             || self.gui.dialogs.send_spot_dialog.is_open
             || self.gui.chrome.show_shortcuts_window
             || self.gui.chrome.show_user_manual
+            || self.gui.chrome.show_welcome_wizard
+            || self.gui.dialogs.csv_export_dialog.is_open
+            || ctx.memory(|m| m.has_focus(egui::Id::new("modal_dialog_focus")))
         {
-            ShortcutContext::ModalDialog
-        } else if wants_text {
-            ShortcutContext::QsoEntry
-        } else {
-            ShortcutContext::Global
-        };
+            return ActiveFocusContext::ModalDialog;
+        }
 
-        if let Some(action) = registry.resolve(ctx, current_context, wants_text) {
+        // 2. Priorytet: ContestQsoEntry
+        let contest_call_id = egui::Id::new("contest_entry_callsign");
+        let contest_exch_id = egui::Id::new("contest_entry_exchange");
+        let is_contest_focused =
+            ctx.memory(|m| m.has_focus(contest_call_id) || m.has_focus(contest_exch_id));
+        if is_contest_focused
+            || (self.contest.show_window
+                && ctx.memory(|m| m.has_focus(egui::Id::new("splogbook_contest_window"))))
+        {
+            return ActiveFocusContext::ContestQsoEntry;
+        }
+
+        // 3. Priorytet: MainQsoEntry
+        const MAIN_QSO_ENTRY_IDS: &[&str] = &[
+            "qso_entry_callsign",
+            "qso_entry_rst_sent",
+            "qso_entry_rst_rcvd",
+            "qso_entry_exchange",
+            "qso_entry_name",
+            "qso_entry_grid",
+            "qso_entry_qth",
+            "qso_entry_pga",
+            "qso_entry_iota",
+            "qso_entry_state",
+            "qso_entry_sota",
+            "qso_entry_qsl_via",
+            "qso_entry_comment",
+        ];
+        let is_main_qso_focused = ctx.memory(|m| {
+            MAIN_QSO_ENTRY_IDS
+                .iter()
+                .any(|&id| m.has_focus(egui::Id::new(id)))
+        }) || self.entry.focus_callsign_requested;
+        if is_main_qso_focused {
+            return ActiveFocusContext::MainQsoEntry;
+        }
+
+        // 4. Priorytet: LogFilter
+        let filter_id = egui::Id::new("log_filter_input");
+        if ctx.memory(|m| m.has_focus(filter_id) || m.has_focus(egui::Id::new("filter_text_edit")))
+        {
+            return ActiveFocusContext::LogFilter;
+        }
+
+        // 5. Priorytet: SettingsTextEdit
+        let settings_id = egui::Id::new("settings_text_edit");
+        if ctx.memory(|m| {
+            m.has_focus(settings_id) || m.has_focus(egui::Id::new("station_settings_input"))
+        }) || (self.gui.windows.show_station_profiles_window && ctx.egui_wants_keyboard_input())
+        {
+            return ActiveFocusContext::SettingsTextEdit;
+        }
+
+        // 6. Priorytet: OperatorAssistantTextEdit
+        let cw_id = egui::Id::new("cw_text_input");
+        let op_assistant_id = egui::Id::new("operator_assistant_text_edit");
+        if ctx.memory(|m| m.has_focus(cw_id) || m.has_focus(op_assistant_id)) {
+            return ActiveFocusContext::OperatorAssistantTextEdit;
+        }
+
+        // 7. Priorytet: LogTable
+        let log_table_id = egui::Id::new("logbook_table");
+        if ctx.memory(|m| m.has_focus(log_table_id)) {
+            return ActiveFocusContext::LogTable;
+        }
+
+        // 8. Priorytet: Global
+        ActiveFocusContext::Global
+    }
+
+    /// Faza obsługi skrótów klawiaturowych, palety poleceń i wejść globalnych (GUI-001).
+    pub fn handle_input_and_shortcuts(&mut self, ctx: &egui::Context) {
+        let registry = ShortcutRegistry::default();
+        let wants_text = ctx.egui_wants_keyboard_input();
+        let active_context = self.determine_active_focus_context(ctx);
+        let shortcut_context = active_context.to_shortcut_context();
+
+        if let Some(action) = registry.resolve(ctx, shortcut_context, wants_text) {
             match action {
                 AppAction::Undo => self.perform_undo(),
                 AppAction::Redo => self.perform_redo(),

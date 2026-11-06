@@ -8,6 +8,7 @@ use crate::core::prefix::PrefixMatcher;
 use crate::core::qso::QsoRecord;
 use crate::core::scp::ScpEngine;
 use crate::core::station::AppConfig;
+use crate::gui::{RepeatPolicy, ShortcutRegistry};
 use std::sync::{Arc, Mutex};
 
 fn test_prefix_matcher() -> PrefixMatcher {
@@ -915,7 +916,184 @@ fn ctrl_shortcuts_trigger_while_callsign_input_has_focus() {
         shutdown_policy: ShutdownPolicy::None,
     };
     let mut app = SpLogApp::for_tests(init, deps);
+    app.gui.chrome.show_welcome_wizard = false;
     app.entry.callsign = "SP6INA".to_string();
+
+    let ctx = egui::Context::default();
+    ctx.memory_mut(|m| m.request_focus(egui::Id::new("qso_entry_callsign")));
+    let mut raw_input = egui::RawInput::default();
+    raw_input.events.push(egui::Event::Key {
+        key: egui::Key::W,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::COMMAND,
+    });
+
+    let mut output = ctx.run_ui(raw_input, |ui| {
+        crate::gui::qso_entry::render_qso_entry_body(&mut app, ui);
+        app.handle_input_and_shortcuts(ui.ctx());
+    });
+    output.textures_delta.clear();
+
+    assert_eq!(app.entry.callsign, "");
+}
+
+#[test]
+fn ctrl_w_in_qso_callsign_follows_explicit_qso_contract() {
+    let deps = test_deps();
+    let init = AppInit {
+        config: AppConfig::default(),
+        config_file_path: std::path::PathBuf::from("config.json"),
+        active_db_path: std::path::PathBuf::from("db.sqlite"),
+        shutdown_policy: ShutdownPolicy::None,
+    };
+    let mut app = SpLogApp::for_tests(init, deps);
+    app.gui.chrome.show_welcome_wizard = false;
+    app.entry.callsign = "DL1ABC".to_string();
+    app.entry.rst_sent = "599".to_string();
+
+    let ctx = egui::Context::default();
+    ctx.memory_mut(|m| m.request_focus(egui::Id::new("qso_entry_callsign")));
+    let mut raw_input = egui::RawInput::default();
+    raw_input.events.push(egui::Event::Key {
+        key: egui::Key::W,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::COMMAND,
+    });
+
+    let mut output = ctx.run_ui(raw_input, |ui| {
+        crate::gui::qso_entry::render_qso_entry_body(&mut app, ui);
+        app.handle_input_and_shortcuts(ui.ctx());
+    });
+    output.textures_delta.clear();
+
+    assert_eq!(
+        app.entry.callsign, "",
+        "Ctrl+W in callsign field must wipe the QSO form"
+    );
+}
+
+#[test]
+fn ctrl_w_in_qso_exchange_follows_explicit_qso_contract() {
+    let deps = test_deps();
+    let init = AppInit {
+        config: AppConfig::default(),
+        config_file_path: std::path::PathBuf::from("config.json"),
+        active_db_path: std::path::PathBuf::from("db.sqlite"),
+        shutdown_policy: ShutdownPolicy::None,
+    };
+    let mut app = SpLogApp::for_tests(init, deps);
+    app.gui.chrome.show_welcome_wizard = false;
+    app.entry.callsign = "SP6INA".to_string();
+    app.entry.exchange = "001".to_string();
+
+    let ctx = egui::Context::default();
+    ctx.memory_mut(|m| m.request_focus(egui::Id::new("qso_entry_exchange")));
+    let mut raw_input = egui::RawInput::default();
+    raw_input.events.push(egui::Event::Key {
+        key: egui::Key::W,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::COMMAND,
+    });
+
+    let mut output = ctx.run_ui(raw_input, |ui| {
+        crate::gui::qso_entry::render_qso_entry_body(&mut app, ui);
+        app.handle_input_and_shortcuts(ui.ctx());
+    });
+    output.textures_delta.clear();
+
+    assert_eq!(
+        app.entry.callsign, "",
+        "Ctrl+W in exchange field must wipe the QSO form"
+    );
+    assert_eq!(app.entry.exchange, "");
+}
+
+#[test]
+fn ctrl_w_in_settings_text_edit_does_not_wipe_qso() {
+    let deps = test_deps();
+    let init = AppInit {
+        config: AppConfig::default(),
+        config_file_path: std::path::PathBuf::from("config.json"),
+        active_db_path: std::path::PathBuf::from("db.sqlite"),
+        shutdown_policy: ShutdownPolicy::None,
+    };
+    let mut app = SpLogApp::for_tests(init, deps);
+    app.entry.callsign = "SP6INA".to_string();
+
+    let ctx = egui::Context::default();
+    ctx.memory_mut(|m| m.request_focus(egui::Id::new("settings_text_edit")));
+    let mut raw_input = egui::RawInput::default();
+    raw_input.events.push(egui::Event::Key {
+        key: egui::Key::W,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::COMMAND,
+    });
+
+    let mut output = ctx.run_ui(raw_input, |ui| {
+        app.handle_input_and_shortcuts(ui.ctx());
+    });
+    output.textures_delta.clear();
+
+    assert_eq!(
+        app.entry.callsign, "SP6INA",
+        "Ctrl+W in settings text edit must NOT wipe background QSO"
+    );
+}
+
+#[test]
+fn ctrl_w_in_filter_does_not_wipe_qso() {
+    let deps = test_deps();
+    let init = AppInit {
+        config: AppConfig::default(),
+        config_file_path: std::path::PathBuf::from("config.json"),
+        active_db_path: std::path::PathBuf::from("db.sqlite"),
+        shutdown_policy: ShutdownPolicy::None,
+    };
+    let mut app = SpLogApp::for_tests(init, deps);
+    app.entry.callsign = "SP6INA".to_string();
+
+    let ctx = egui::Context::default();
+    ctx.memory_mut(|m| m.request_focus(egui::Id::new("log_filter_input")));
+    let mut raw_input = egui::RawInput::default();
+    raw_input.events.push(egui::Event::Key {
+        key: egui::Key::W,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::COMMAND,
+    });
+
+    let mut output = ctx.run_ui(raw_input, |ui| {
+        app.handle_input_and_shortcuts(ui.ctx());
+    });
+    output.textures_delta.clear();
+
+    assert_eq!(
+        app.entry.callsign, "SP6INA",
+        "Ctrl+W in filter input must NOT wipe background QSO"
+    );
+}
+
+#[test]
+fn ctrl_w_in_modal_does_not_reach_background_qso() {
+    let deps = test_deps();
+    let init = AppInit {
+        config: AppConfig::default(),
+        config_file_path: std::path::PathBuf::from("config.json"),
+        active_db_path: std::path::PathBuf::from("db.sqlite"),
+        shutdown_policy: ShutdownPolicy::None,
+    };
+    let mut app = SpLogApp::for_tests(init, deps);
+    app.entry.callsign = "SP6INA".to_string();
+    app.gui.dialogs.advanced_filter_dialog.is_open = true;
 
     let ctx = egui::Context::default();
     let mut raw_input = egui::RawInput::default();
@@ -932,7 +1110,131 @@ fn ctrl_shortcuts_trigger_while_callsign_input_has_focus() {
     });
     output.textures_delta.clear();
 
+    assert_eq!(
+        app.entry.callsign, "SP6INA",
+        "Ctrl+W in modal dialog must NOT wipe background QSO"
+    );
+}
+
+#[test]
+fn ctrl_w_in_operator_assistant_does_not_wipe_background_qso() {
+    let deps = test_deps();
+    let init = AppInit {
+        config: AppConfig::default(),
+        config_file_path: std::path::PathBuf::from("config.json"),
+        active_db_path: std::path::PathBuf::from("db.sqlite"),
+        shutdown_policy: ShutdownPolicy::None,
+    };
+    let mut app = SpLogApp::for_tests(init, deps);
+    app.entry.callsign = "SP6INA".to_string();
+
+    let ctx = egui::Context::default();
+    ctx.memory_mut(|m| m.request_focus(egui::Id::new("operator_assistant_text_edit")));
+    let mut raw_input = egui::RawInput::default();
+    raw_input.events.push(egui::Event::Key {
+        key: egui::Key::W,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::COMMAND,
+    });
+
+    let mut output = ctx.run_ui(raw_input, |ui| {
+        app.handle_input_and_shortcuts(ui.ctx());
+    });
+    output.textures_delta.clear();
+
+    assert_eq!(
+        app.entry.callsign, "SP6INA",
+        "Ctrl+W in operator assistant must NOT wipe background QSO"
+    );
+}
+
+#[test]
+fn ctrl_w_is_consumed_exactly_once() {
+    let deps = test_deps();
+    let init = AppInit {
+        config: AppConfig::default(),
+        config_file_path: std::path::PathBuf::from("config.json"),
+        active_db_path: std::path::PathBuf::from("db.sqlite"),
+        shutdown_policy: ShutdownPolicy::None,
+    };
+    let mut app = SpLogApp::for_tests(init, deps);
+    app.gui.chrome.show_welcome_wizard = false;
+    app.entry.callsign = "SP6INA".to_string();
+
+    let ctx = egui::Context::default();
+    ctx.memory_mut(|m| m.request_focus(egui::Id::new("qso_entry_callsign")));
+    let mut raw_input = egui::RawInput::default();
+    raw_input.events.push(egui::Event::Key {
+        key: egui::Key::W,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::COMMAND,
+    });
+
+    // Klatka 1: skrót zostaje skonsumowany
+    let mut out1 = ctx.run_ui(raw_input, |ui| {
+        crate::gui::qso_entry::render_qso_entry_body(&mut app, ui);
+        app.handle_input_and_shortcuts(ui.ctx());
+    });
+    out1.textures_delta.clear();
     assert_eq!(app.entry.callsign, "");
+
+    // Ustaw nową wartość i wywołaj ponownie bez nowych zdarzeń wejściowych
+    app.entry.callsign = "DL1ABC".to_string();
+    let mut out2 = ctx.run_ui(egui::RawInput::default(), |ui| {
+        crate::gui::qso_entry::render_qso_entry_body(&mut app, ui);
+        app.handle_input_and_shortcuts(ui.ctx());
+    });
+    out2.textures_delta.clear();
+    assert_eq!(
+        app.entry.callsign, "DL1ABC",
+        "Ctrl+W must not trigger twice from a single event"
+    );
+}
+
+#[test]
+fn ctrl_w_does_not_execute_two_actions() {
+    let registry = ShortcutRegistry::default();
+    let conflicts = registry.find_conflicts();
+    assert!(
+        conflicts.is_empty(),
+        "Shortcut registry must contain zero conflicting bindings"
+    );
+
+    let ctrl_w_bindings: Vec<_> = registry
+        .bindings()
+        .iter()
+        .filter(|b| b.shortcut.modifiers.command && b.shortcut.logical_key == egui::Key::W)
+        .collect();
+
+    // Każde powiązanie Ctrl+W musi być w osobnym jawnym kontekście QSO (MainQsoEntry vs ContestQsoEntry)
+    for i in 0..ctrl_w_bindings.len() {
+        for j in (i + 1)..ctrl_w_bindings.len() {
+            assert_ne!(
+                ctrl_w_bindings[i].context, ctrl_w_bindings[j].context,
+                "Ctrl+W bindings must never share the same context"
+            );
+        }
+    }
+}
+
+#[test]
+fn ctrl_w_repeat_follows_declared_repeat_policy() {
+    let registry = ShortcutRegistry::default();
+    let ctrl_w = registry
+        .bindings()
+        .iter()
+        .find(|b| b.shortcut.modifiers.command && b.shortcut.logical_key == egui::Key::W)
+        .expect("Ctrl+W binding must exist");
+
+    assert_eq!(
+        ctrl_w.repeat_policy,
+        RepeatPolicy::SingleTrigger,
+        "Ctrl+W must strictly follow RepeatPolicy::SingleTrigger to prevent repeated wipes"
+    );
 }
 
 #[test]
