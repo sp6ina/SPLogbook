@@ -109,6 +109,7 @@ pub struct SpLogApp {
     pub gui: crate::gui::state::GuiState,
     pub active_journal: crate::core::database::Journal,
     pub active_focus_context_override: Option<crate::gui::shortcuts::ActiveFocusContext>,
+    pub mock_subsec_millis: Option<u32>,
 
     // Modułowy układ kafelków i okien pływających
     pub views: crate::gui::state::ViewsState,
@@ -415,6 +416,7 @@ impl SpLogApp {
             // Wyszukiwanie duplikatów
             duplicates: crate::gui::state::DuplicatesState::default(),
             active_focus_context_override: None,
+            mock_subsec_millis: None,
         };
 
         app.rebuild_awards_full();
@@ -604,12 +606,33 @@ impl SpLogApp {
         if has_active_spinner {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         } else {
-            let now = chrono::Utc::now();
-            let millis_to_next_sec = 1000 - (now.timestamp_subsec_millis() as u64);
-            let until_next_second = std::time::Duration::from_millis(millis_to_next_sec.max(50));
+            let subsec_millis = self
+                .mock_subsec_millis
+                .unwrap_or_else(|| chrono::Utc::now().timestamp_subsec_millis());
+            let until_next_second = duration_until_next_second(subsec_millis);
             ctx.request_repaint_after(until_next_second);
         }
     }
+}
+
+/// Oblicza żądane przez aplikację opóźnienie odświeżania (`APPLICATION_REQUESTED_DELAY`)
+/// do najbliższej granicy sekundy UTC z gwarancją dolnego ograniczenia (minimum 50 ms) (PERF-002).
+#[must_use]
+pub fn duration_until_next_second(subsec_millis: u32) -> std::time::Duration {
+    let millis = u64::from(subsec_millis % 1000);
+    let millis_to_next_sec = 1000 - millis;
+    std::time::Duration::from_millis(millis_to_next_sec.max(50))
+}
+
+/// Oblicza opóźnienie zaobserwowane w egui po odliczeniu kompensacji przewidywanej klatki
+/// (`EGUI_OBSERVED_DELAY_AFTER_PREDICTED_FRAME_COMPENSATION`) (PERF-002).
+#[must_use]
+pub fn compute_observed_repaint_delay(
+    requested: std::time::Duration,
+    predicted_dt_seconds: f32,
+) -> std::time::Duration {
+    let predicted = std::time::Duration::from_secs_f32(predicted_dt_seconds.max(0.0));
+    requested.saturating_sub(predicted)
 }
 
 impl TabViewer for SpLogApp {

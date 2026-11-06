@@ -1442,6 +1442,127 @@ fn qso_focus_id_is_stable_across_frames() {
 }
 
 #[test]
+fn until_next_second_is_deterministic_at_boundary_values() {
+    let cases = [
+        (0, std::time::Duration::from_millis(1000)),
+        (500, std::time::Duration::from_millis(500)),
+        (900, std::time::Duration::from_millis(100)),
+        (949, std::time::Duration::from_millis(51)),
+        (950, std::time::Duration::from_millis(50)),
+        (960, std::time::Duration::from_millis(50)),
+        (983, std::time::Duration::from_millis(50)),
+        (984, std::time::Duration::from_millis(50)),
+        (999, std::time::Duration::from_millis(50)),
+    ];
+
+    for (input_ms, expected) in cases {
+        let actual = duration_until_next_second(input_ms);
+        assert_eq!(
+            actual, expected,
+            "duration_until_next_second({input_ms}) failed: expected {expected:?}, got {actual:?}"
+        );
+        assert!(actual >= std::time::Duration::from_millis(50));
+    }
+}
+
+#[test]
+fn idle_repaint_requested_delay_is_bounded() {
+    for ms in 0..1000 {
+        let delay = duration_until_next_second(ms);
+        assert!(
+            delay >= std::time::Duration::from_millis(50),
+            "Delay for {ms} ms must be bounded below by 50ms, got {delay:?}"
+        );
+        assert!(
+            delay <= std::time::Duration::from_millis(1000),
+            "Delay for {ms} ms must be bounded above by 1000ms, got {delay:?}"
+        );
+    }
+}
+
+#[test]
+fn idle_repaint_observed_delay_accounts_for_predicted_frame() {
+    let predicted_dt = 1.0 / 60.0;
+    let boundaries = [0, 500, 900, 949, 950, 960, 983, 984, 999];
+    for ms in boundaries {
+        let requested = duration_until_next_second(ms);
+        let observed = compute_observed_repaint_delay(requested, predicted_dt);
+        assert!(
+            observed > std::time::Duration::ZERO,
+            "Observed delay for {ms} ms must remain strictly positive after predicted dt compensation"
+        );
+        assert!(
+            observed >= std::time::Duration::from_millis(30),
+            "Observed delay for {ms} ms must be at least ~33ms, got {observed:?}"
+        );
+        assert!(
+            observed <= requested,
+            "Observed delay must never exceed requested delay"
+        );
+    }
+}
+
+#[test]
+fn idle_repaint_test_does_not_depend_on_wall_clock_boundary() {
+    let deps = test_deps();
+    let mut config = AppConfig::default();
+    config.station.callsign = "SP6INA".to_string();
+    config.is_configured = true;
+    let init = AppInit {
+        config,
+        config_file_path: std::path::PathBuf::from("config.json"),
+        active_db_path: std::path::PathBuf::from("db.sqlite"),
+        shutdown_policy: ShutdownPolicy::None,
+    };
+    let mut app = SpLogApp::for_tests(init, deps);
+    app.gui.chrome.show_welcome_wizard = false;
+    let ctx = egui::Context::default();
+    app.set_egui_ctx(ctx.clone());
+
+    // Warm-up egui layout
+    let mut time = 0.0;
+    for _ in 0..5 {
+        time += 0.1;
+        let mut raw_input = egui::RawInput::default();
+        raw_input.time = Some(time);
+        raw_input.predicted_dt = 1.0 / 60.0;
+        let mut out = ctx.run_ui(raw_input, |ui| {
+            app.render_main_ui(ui);
+        });
+        out.textures_delta.clear();
+    }
+
+    let boundaries = [0, 500, 900, 949, 950, 960, 983, 984, 999];
+    for (i, &subsec) in boundaries.iter().enumerate() {
+        app.mock_subsec_millis = Some(subsec);
+        let mut raw_input = egui::RawInput::default();
+        raw_input.time = Some(time + (i + 1) as f64 * 0.1);
+        raw_input.predicted_dt = 1.0 / 60.0;
+        let mut out = ctx.run_ui(raw_input, |ui| {
+            app.render_main_ui(ui);
+        });
+        out.textures_delta.clear();
+
+        let repaint_delay = out
+            .viewport_output
+            .get(&egui::ViewportId::ROOT)
+            .map(|v| v.repaint_delay)
+            .unwrap_or(std::time::Duration::ZERO);
+
+        let requested = duration_until_next_second(subsec);
+        let expected = compute_observed_repaint_delay(requested, 1.0 / 60.0);
+        assert_eq!(
+            repaint_delay, expected,
+            "Repaint delay mismatch for injected boundary {subsec} ms"
+        );
+        assert!(
+            repaint_delay > std::time::Duration::ZERO,
+            "Repaint delay must never be zero at boundary {subsec} ms"
+        );
+    }
+}
+
+#[test]
 fn idle_gui_does_not_request_continuous_repaint() {
     let deps = test_deps();
     let mut config = AppConfig::default();
@@ -1458,6 +1579,7 @@ fn idle_gui_does_not_request_continuous_repaint() {
     let ctx = egui::Context::default();
     app.set_egui_ctx(ctx.clone());
 
+    // Warm-up egui layout
     let mut time = 0.0;
     for _ in 0..5 {
         time += 0.1;
@@ -1470,30 +1592,44 @@ fn idle_gui_does_not_request_continuous_repaint() {
         out.textures_delta.clear();
     }
 
-    let mut raw_input = egui::RawInput::default();
-    raw_input.time = Some(time + 0.1);
-    raw_input.predicted_dt = 1.0 / 60.0;
-    let mut out = ctx.run_ui(raw_input, |ui| {
-        app.render_main_ui(ui);
-    });
-    out.textures_delta.clear();
+    // 100 powtórzeń w pętli bez żadnej porażki, weryfikacja determinizmu i odporności na zegar
+    for iter in 0..100 {
+        time += 0.016;
+        let mock_subsec = ((iter * 97) % 1000) as u32;
+        app.mock_subsec_millis = Some(mock_subsec);
 
-    let repaint_delay = out
-        .viewport_output
-        .get(&egui::ViewportId::ROOT)
-        .map(|v| v.repaint_delay)
-        .unwrap_or(std::time::Duration::ZERO);
+        let mut raw_input = egui::RawInput::default();
+        raw_input.time = Some(time);
+        raw_input.predicted_dt = 1.0 / 60.0;
+        let mut out = ctx.run_ui(raw_input, |ui| {
+            app.render_main_ui(ui);
+        });
+        out.textures_delta.clear();
 
-    assert!(
-        repaint_delay >= std::time::Duration::from_millis(50),
-        "Idle GUI must schedule repaint to UTC next second, got {:?}",
-        repaint_delay
-    );
-    assert_ne!(
-        repaint_delay,
-        std::time::Duration::ZERO,
-        "Idle GUI must not continuously request immediate repaint"
-    );
+        let repaint_delay = out
+            .viewport_output
+            .get(&egui::ViewportId::ROOT)
+            .map(|v| v.repaint_delay)
+            .unwrap_or(std::time::Duration::ZERO);
+
+        let requested = duration_until_next_second(mock_subsec);
+        let expected_observed = compute_observed_repaint_delay(requested, 1.0 / 60.0);
+
+        assert_eq!(
+            repaint_delay, expected_observed,
+            "Iter {iter}: Repaint delay must match expected observed delay for mock_subsec={mock_subsec}"
+        );
+        assert!(
+            repaint_delay >= std::time::Duration::from_millis(30),
+            "Iter {iter}: Idle GUI observed repaint delay must be >= 30ms, got {:?}",
+            repaint_delay
+        );
+        assert_ne!(
+            repaint_delay,
+            std::time::Duration::ZERO,
+            "Iter {iter}: Idle GUI must not continuously request immediate repaint"
+        );
+    }
 }
 
 #[test]
