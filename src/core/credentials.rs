@@ -156,7 +156,7 @@ mod tests {
         );
         config.qrz_api_key.clear();
         config.save_with_store(&path, &store).unwrap();
-        assert!(config.secret_store_id.is_empty());
+        assert_eq!(config.secret_store_id, "");
         assert!(store.items.lock().unwrap().is_empty());
     }
 
@@ -369,9 +369,7 @@ impl AppConfig {
         let unchanged = if old_id.is_empty() {
             false
         } else if let Ok(saved) = store.get(path, &old_id) {
-            serde_json::from_str::<Secrets>(&saved)
-                .map(|previous| previous == secrets)
-                .unwrap_or(false)
+            serde_json::from_str::<Secrets>(&saved).is_ok_and(|previous| previous == secrets)
         } else {
             false
         };
@@ -422,19 +420,21 @@ impl AppConfig {
         })();
         if let Err(e) = result {
             self.secret_store_id = old_id;
-            if !new_id.is_empty() && !unchanged {
-                if let Err(cleanup) = store.remove(path, &new_id) {
-                    log::error!("Nie udało się usunąć nieużywanych poświadczeń: {cleanup}");
-                }
+            if !new_id.is_empty()
+                && !unchanged
+                && let Err(cleanup) = store.remove(path, &new_id)
+            {
+                log::error!("Nie udało się usunąć nieużywanych poświadczeń: {cleanup}");
             }
             return Err(e);
         }
-        if !old_id.is_empty() && old_id != new_id {
-            if let Err(e) = store.remove(path, &old_id) {
-                log::warn!(
-                    "Konfiguracja zapisana; nie udało się usunąć starego wpisu poświadczeń: {e}"
-                );
-            }
+        if !old_id.is_empty()
+            && old_id != new_id
+            && let Err(e) = store.remove(path, &old_id)
+        {
+            log::warn!(
+                "Konfiguracja zapisana; nie udało się usunąć starego wpisu poświadczeń: {e}"
+            );
         }
         Ok(())
     }

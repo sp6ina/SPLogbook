@@ -272,7 +272,7 @@ mod tests {
 
     #[test]
     fn parses_canonical_workspace_test_output() {
-        let sample = r#"
+        let sample = r"
      Running unittests src\lib.rs (target\debug\deps\splogbook-123.exe)
 test result: ok. 1527 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.0s
      Running unittests src\main.rs (target\debug\deps\SPLogbook-456.exe)
@@ -293,7 +293,7 @@ test result: ok. 32 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fin
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.1s
    Doc-tests splogbook
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.0s
-        "#;
+        ";
 
         let report = parse_cargo_test_output(sample);
 

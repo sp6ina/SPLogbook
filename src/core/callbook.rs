@@ -266,42 +266,40 @@ impl LocalCallbook {
             None => true,
         };
 
-        if need_manager {
-            if let Some(ref conn_mutex) = self.servicelog_conn {
-                let conn = conn_mutex
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                for query_call in &[clean.as_str(), base_call] {
-                    let Ok(mut stmt) =
-                        conn.prepare("SELECT Manager FROM managers WHERE Call = ? LIMIT 1")
-                    else {
-                        continue;
-                    };
+        if need_manager && let Some(ref conn_mutex) = self.servicelog_conn {
+            let conn = conn_mutex
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            for query_call in &[clean.as_str(), base_call] {
+                let Ok(mut stmt) =
+                    conn.prepare("SELECT Manager FROM managers WHERE Call = ? LIMIT 1")
+                else {
+                    continue;
+                };
 
-                    let mgr: Option<String> = stmt
-                        .query_row([query_call], |row| row.get(0))
-                        .ok()
-                        .and_then(|s: String| clean_opt_str(&s));
+                let mgr: Option<String> = stmt
+                    .query_row([query_call], |row| row.get(0))
+                    .ok()
+                    .and_then(|s: String| clean_opt_str(&s));
 
-                    if let Some(m) = mgr {
-                        if let Some(ref mut d) = data {
-                            d.qsl_manager = Some(m);
-                        } else {
-                            data = Some(CallbookData {
-                                callsign: clean.clone(),
-                                name: None,
-                                qth: None,
-                                gridsquare: None,
-                                state: None,
-                                dxcc: None,
-                                country: None,
-                                qsl_manager: Some(m),
-                                email: None,
-                                image_url: None,
-                            });
-                        }
-                        break;
+                if let Some(m) = mgr {
+                    if let Some(ref mut d) = data {
+                        d.qsl_manager = Some(m);
+                    } else {
+                        data = Some(CallbookData {
+                            callsign: clean.clone(),
+                            name: None,
+                            qth: None,
+                            gridsquare: None,
+                            state: None,
+                            dxcc: None,
+                            country: None,
+                            qsl_manager: Some(m),
+                            email: None,
+                            image_url: None,
+                        });
                     }
+                    break;
                 }
             }
         }
@@ -362,19 +360,19 @@ pub async fn lookup_callook_info(callsign: &str) -> Result<CallbookData, Callboo
 
     let mut qth = None;
     let mut state = None;
-    if let Some(addr) = json.get("address") {
-        if let Some(line2) = addr.get("line2").and_then(|v| v.as_str()) {
-            // format: "PERU, MA 01235"
-            let parts: Vec<&str> = line2.split(',').collect();
-            if !parts.is_empty() {
-                qth = Some(parts[0].trim().to_string());
-            }
-            if parts.len() > 1 {
-                let st_zip = parts[1].trim();
-                let st_words: Vec<&str> = st_zip.split_whitespace().collect();
-                if !st_words.is_empty() {
-                    state = Some(st_words[0].trim().to_uppercase());
-                }
+    if let Some(addr) = json.get("address")
+        && let Some(line2) = addr.get("line2").and_then(|v| v.as_str())
+    {
+        // format: "PERU, MA 01235"
+        let parts: Vec<&str> = line2.split(',').collect();
+        if !parts.is_empty() {
+            qth = Some(parts[0].trim().to_string());
+        }
+        if parts.len() > 1 {
+            let st_zip = parts[1].trim();
+            let st_words: Vec<&str> = st_zip.split_whitespace().collect();
+            if !st_words.is_empty() {
+                state = Some(st_words[0].trim().to_uppercase());
             }
         }
     }

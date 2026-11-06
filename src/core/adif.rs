@@ -1265,7 +1265,7 @@ mod tests {
         );
         assert_eq!(report.imported, 0);
         assert_eq!(report.rejected, 1);
-        assert!(report.qsos.is_empty());
+        assert_eq!(report.qsos, []);
         assert!(
             report
                 .errors

@@ -269,12 +269,9 @@ impl LogDatabase {
     }
 
     /// Pobiera ostatnio zarejestrowane łączności dla wybranego profilu/dziennika
-
     pub fn get_recent_qsos_for_journal(
         &self,
-
         journal_id: &str,
-
         limit: usize,
     ) -> Result<Vec<QsoRecord>> {
         let sql = format!(
@@ -288,7 +285,6 @@ impl LogDatabase {
     }
 
     /// Pobiera wszystkie łączności dla wybranego profilu/dziennika
-
     pub fn get_all_qsos_for_journal(&self, journal_id: &str) -> Result<Vec<QsoRecord>> {
         let sql = format!(
             "SELECT {} FROM qso_records WHERE journal_id = ?1 ORDER BY {ORDER_CHRONO_ASC}",
@@ -301,9 +297,7 @@ impl LogDatabase {
     }
 
     /// Chronological position of every QSO within its journal, independent of
-
     /// the logbook's pagination, search and display sort.
-
     pub fn qso_numbers_for_journal(&self, journal_id: &str) -> Result<HashMap<i64, usize>> {
         let mut stmt = self.conn.prepare(&format!(
             "SELECT id, ROW_NUMBER() OVER (ORDER BY {ORDER_CHRONO_ASC}) \
@@ -318,7 +312,6 @@ impl LogDatabase {
     }
 
     /// Pobiera ostatnio zarejestrowane łączności (domyślnie)
-
     pub fn get_recent_qsos(&self, limit: usize) -> Result<Vec<QsoRecord>> {
         let sql = format!(
             "SELECT {} FROM qso_records ORDER BY {ORDER_CHRONO_DESC} LIMIT ?1",
@@ -331,7 +324,6 @@ impl LogDatabase {
     }
 
     /// Pobiera stronicowaną listę łączności bezpośrednio w SQLite (`LIMIT ?1 OFFSET ?2`).
-
     pub fn get_qsos_paginated(&self, limit: usize, offset: usize) -> Result<Vec<QsoRecord>> {
         let sql = format!(
             "SELECT {} FROM qso_records ORDER BY {ORDER_CHRONO_DESC} LIMIT ?1 OFFSET ?2",
@@ -361,9 +353,7 @@ impl LogDatabase {
     }
 
     /// Pobiera unikalne, niepuste znaki wywoławcze z całego dziennika (do
-
     /// lokalnego podpowiadania SCP i korekty rozmytej). Ograniczone limitem.
-
     pub fn get_distinct_callsigns(&self, limit: usize) -> Result<DistinctCallsigns> {
         let mut stmt = self.conn.prepare(
             "SELECT DISTINCT UPPER(callsign) FROM qso_records \
@@ -408,11 +398,8 @@ impl LogDatabase {
     }
 
     /// Zwraca zbiór tożsamości łączności (`QsoIdentity`) już zapisanych w wybranym dzienniku.
-
     /// Używane do idempotentnego importu ADIF: ponowny import identycznego pliku nie tworzy
-
     /// duplikatów, bo rekordy o tej samej tożsamości są pomijane.
-
     pub fn existing_identities(&self, journal_id: &str) -> Result<HashSet<QsoIdentity>> {
         let mut stmt = self.conn.prepare(
             "SELECT callsign, band, mode, submode, qso_date, time_on, freq \
@@ -443,11 +430,8 @@ impl LogDatabase {
     }
 
     /// Sprawdza, czy w danym dzienniku istnieje już rekord o podanej tożsamości `QsoIdentity`.
-
     /// Ogranicza kandydatów przez UPPER(callsign), a ostateczne porównanie wykonuje przez
-
     /// `QsoIdentity` w Rust z zachowaniem precyzji sekund, częstotliwości i subemisji.
-
     pub fn has_identity(&self, journal_id: &str, identity: &QsoIdentity) -> Result<bool> {
         let Some(canonical_key) = identity.canonical_key() else {
             return Ok(false);
@@ -459,7 +443,6 @@ impl LogDatabase {
     }
 
     /// Pobiera wszystkie łączności z logu (np. do eksportu całego dziennika)
-
     pub fn get_all_qsos(&self) -> Result<Vec<QsoRecord>> {
         let sql = format!(
             "SELECT {} FROM qso_records ORDER BY {ORDER_CHRONO_DESC}",
@@ -472,7 +455,6 @@ impl LogDatabase {
     }
 
     /// Liczba wszystkich łączności w logu
-
     pub fn count_all(&self) -> Result<usize> {
         let count: i64 = self
             .conn
@@ -482,7 +464,6 @@ impl LogDatabase {
     }
 
     /// Liczba łączności w pojedynczym dzienniku.
-
     pub fn count_qsos_for_journal(&self, journal_id: &str) -> Result<usize> {
         let count: i64 = self.conn.query_row(
             "SELECT COUNT(*) FROM qso_records WHERE journal_id = ?1",

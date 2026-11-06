@@ -43,11 +43,11 @@ pub fn export_sota_csv(
         let clean_my_call = my_call.trim().to_uppercase();
         let clean_my_sota = my_sota.trim().to_uppercase();
         let date_formatted =
-            format_sota_date(&q.qso_date).map_err(|_| SotaExportError::InvalidDate {
+            format_sota_date(&q.qso_date).map_err(|()| SotaExportError::InvalidDate {
                 callsign: q.callsign.clone(),
             })?;
         let time_formatted =
-            format_sota_time(&q.time_on).map_err(|_| SotaExportError::InvalidTime {
+            format_sota_time(&q.time_on).map_err(|()| SotaExportError::InvalidTime {
                 callsign: q.callsign.clone(),
             })?;
         let band_formatted = format_sota_band(&q.band);

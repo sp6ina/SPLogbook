@@ -1390,7 +1390,7 @@ fn has_identity_rejects_different_identity() {
 #[test]
 fn search_qsos_advanced_normalizes_hyphenated_date_bounds() {
     let dir = tempfile::tempdir().unwrap();
-    let db = LogDatabase::open(&dir.path().join("search_date.db")).unwrap();
+    let db = LogDatabase::open(dir.path().join("search_date.db")).unwrap();
 
     let q1 = make_test_qso_literal("SP1AAA", "20261018", "120000");
     db.insert_qso(&q1).unwrap();
@@ -1414,7 +1414,7 @@ fn search_qsos_advanced_normalizes_hyphenated_date_bounds() {
 #[test]
 fn explain_query_plan_has_identity_uses_index() {
     let dir = tempfile::tempdir().unwrap();
-    let db = LogDatabase::open(&dir.path().join("query_plan.db")).unwrap();
+    let db = LogDatabase::open(dir.path().join("query_plan.db")).unwrap();
 
     let mut stmt = db
         .conn
@@ -3137,14 +3137,14 @@ fn journal_a_count_excludes_journal_b() {
     .unwrap();
 
     for i in 1..=3 {
-        let mut q = QsoRecord::new(&format!("DL{i}AA"), "20m", "CW");
+        let mut q = QsoRecord::new(format!("DL{i}AA"), "20m", "CW");
         q.journal_id = Some("J_A".to_string());
         q.qso_date = "20261101".to_string();
         q.time_on = format!("120{i}00");
         db.insert_qso(&q).unwrap();
     }
     for i in 1..=5 {
-        let mut q = QsoRecord::new(&format!("SP{i}BB"), "40m", "SSB");
+        let mut q = QsoRecord::new(format!("SP{i}BB"), "40m", "SSB");
         q.journal_id = Some("J_B".to_string());
         q.qso_date = "20261101".to_string();
         q.time_on = format!("130{i}00");

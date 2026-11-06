@@ -544,8 +544,8 @@ mod tests {
         );
         assert!(explanation.fof2_mhz > 0.0);
         assert!(explanation.m_factor > 1.0);
-        assert!(!explanation.reason.is_empty());
-        assert!(!explanation.bullet_points().is_empty());
+        assert_ne!(explanation.reason, "");
+        assert_ne!(explanation.bullet_points(), [] as [String; 0]);
         // W południe trasa transatlantycka jest oświetlona.
         assert!(explanation.daylight);
     }

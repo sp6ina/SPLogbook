@@ -629,26 +629,26 @@ impl QsoRecord {
             validate_time_field(toff, TimeField::Off)?;
         }
 
-        if let Some(f) = self.freq {
-            if !f.is_finite() || f <= 0.0 {
-                return Err(QsoIssue::FreqTx(f));
-            }
+        if let Some(f) = self.freq
+            && (!f.is_finite() || f <= 0.0)
+        {
+            return Err(QsoIssue::FreqTx(f));
         }
-        if let Some(f) = self.freq_rx {
-            if !f.is_finite() || f < 0.0 {
-                return Err(QsoIssue::FreqRx(f));
-            }
+        if let Some(f) = self.freq_rx
+            && (!f.is_finite() || f < 0.0)
+        {
+            return Err(QsoIssue::FreqRx(f));
         }
 
-        if let Some(cqz) = self.cqz {
-            if !(1..=40).contains(&cqz) {
-                return Err(QsoIssue::CqZone(cqz));
-            }
+        if let Some(cqz) = self.cqz
+            && !(1..=40).contains(&cqz)
+        {
+            return Err(QsoIssue::CqZone(cqz));
         }
-        if let Some(ituz) = self.ituz {
-            if !(1..=90).contains(&ituz) {
-                return Err(QsoIssue::ItuZone(ituz));
-            }
+        if let Some(ituz) = self.ituz
+            && !(1..=90).contains(&ituz)
+        {
+            return Err(QsoIssue::ItuZone(ituz));
         }
 
         Ok(())
@@ -659,20 +659,20 @@ impl QsoRecord {
     /// warto skorygować, ale które nie powinny uniemożliwiać zapisu rekordu.
     pub fn warnings(&self) -> Vec<QsoWarning> {
         let mut warnings = Vec::new();
-        if let Some(ref value) = self.iota {
-            if let Some(w) = validate_iota_format(value) {
-                warnings.push(w);
-            }
+        if let Some(ref value) = self.iota
+            && let Some(w) = validate_iota_format(value)
+        {
+            warnings.push(w);
         }
-        if let Some(ref value) = self.sota_ref {
-            if let Some(w) = validate_sota_format(value) {
-                warnings.push(w);
-            }
+        if let Some(ref value) = self.sota_ref
+            && let Some(w) = validate_sota_format(value)
+        {
+            warnings.push(w);
         }
-        if let Some(ref value) = self.pota_ref {
-            if let Some(w) = validate_pota_format(value) {
-                warnings.push(w);
-            }
+        if let Some(ref value) = self.pota_ref
+            && let Some(w) = validate_pota_format(value)
+        {
+            warnings.push(w);
         }
         warnings
     }
@@ -796,7 +796,7 @@ mod tests {
         q.iota = Some("EU-001".to_string());
         q.sota_ref = Some("SP/TA-001".to_string());
         q.pota_ref = Some("SP-0001".to_string());
-        assert!(q.warnings().is_empty());
+        assert_eq!(q.warnings(), [] as [QsoWarning; 0]);
     }
 
     #[test]
@@ -828,7 +828,7 @@ mod tests {
         q.iota = Some("   ".to_string());
         q.sota_ref = None;
         q.pota_ref = Some(String::new());
-        assert!(q.warnings().is_empty());
+        assert_eq!(q.warnings(), [] as [QsoWarning; 0]);
     }
 
     #[test]
