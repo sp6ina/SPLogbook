@@ -234,6 +234,12 @@ impl DxClusterClient {
             let mut raw_line = Vec::with_capacity(256);
 
             loop {
+                enum LoopAction {
+                    Read(Result<std::io::Result<usize>, tokio::time::error::Elapsed>),
+                    Command(String),
+                    Stop,
+                }
+
                 if *stop_rx.borrow() {
                     break;
                 }
@@ -242,12 +248,6 @@ impl DxClusterClient {
                     sent_initial_sh_dx = true;
                     let _ = writer.write_all(b"sh/dx 25\r\n").await;
                     let _ = writer.flush().await;
-                }
-
-                enum LoopAction {
-                    Read(Result<std::io::Result<usize>, tokio::time::error::Elapsed>),
-                    Command(String),
-                    Stop,
                 }
 
                 raw_line.clear();

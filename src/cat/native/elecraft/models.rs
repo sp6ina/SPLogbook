@@ -108,7 +108,7 @@ impl ElecraftModelProfile {
                     | "DT"
             ),
             "K3" | "K3S" => !matches!(clean.as_str(), "AN" | "SMH"),
-            "K4" | "K4D" | "K4HD" | _ => true,
+            _ => true,
         }
     }
 
