@@ -250,6 +250,12 @@ impl SpLogApp {
             .replace("%HISCALL%", &self.entry.callsign)
             .replace("%RST%", &self.entry.rst_sent)
             .replace("%SERIAL%", &format!("{:03}", self.contest.stx));
+        self.gui
+            .dialogs
+            .cw_terminal_dialog
+            .buffer
+            .append_to_queue(&resolved);
+        let _ = crate::cat::winkeyer::WinkeyerProtocol::encode_text(&resolved);
         self.gui.chrome.status_message =
             Some(format!("Nadawanie CW ({} WPM): {}", self.cw.wpm, resolved));
     }

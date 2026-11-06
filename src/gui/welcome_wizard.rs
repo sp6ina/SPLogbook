@@ -183,6 +183,9 @@ pub fn render_welcome_wizard(app: &mut SpLogApp, ctx: &egui::Context) {
                         .clicked()
                     {
                         app.gui.chrome.show_welcome_wizard = false;
+                        if app.digital.js8call_enabled {
+                            app.start_js8call_listener();
+                        }
                         app.save_station_config();
                         close_wizard = true;
                         app.gui.chrome.status_message = Some(

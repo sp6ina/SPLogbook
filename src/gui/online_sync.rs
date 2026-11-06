@@ -565,18 +565,21 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     if ui.button(tr(key::SYNC_FLDIGI_TEST_BTN, lang)).clicked() {
                                         let host = app.config.fldigi_host.clone();
                                         let port = app.config.fldigi_port;
+                                        let sync_tx = app.online.sync_log_tx.clone();
                                         tokio::spawn(async move {
                                             let client = crate::digital::fldigi::FldigiClient::new(&host, port);
                                             match client.get_version().await {
                                                 Ok(v) => {
                                                     log::info!("FLDigi connected: {v}");
+                                                    let _ = sync_tx.send((format!("FLDigi połączono pomyślnie: {v}"), false));
                                                 }
                                                 Err(e) => {
                                                     log::warn!("FLDigi error: {e}");
+                                                    let _ = sync_tx.send((format!("FLDigi błąd połączenia: {e}"), false));
                                                 }
                                             }
                                         });
-                    app.digital.fldigi_test_result = Some(Msg::new(key::SYNC_FLDIGI_QUERY_SENT).arg("host", &app.config.fldigi_host).arg("port", app.config.fldigi_port).text(lang));
+                                        app.digital.fldigi_test_result = Some(Msg::new(key::SYNC_FLDIGI_QUERY_SENT).arg("host", &app.config.fldigi_host).arg("port", app.config.fldigi_port).text(lang));
                                     }
                                     if let Some(ref res) = app.digital.fldigi_test_result {
                                         ui.colored_label(palette.accent, res);

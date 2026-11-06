@@ -78,13 +78,18 @@ impl CwTerminalDialog {
                         .clicked()
                     {
                         self.is_connected = !self.is_connected;
-                        self.status_text = if self.is_connected {
-                            Msg::new(key::CW_TERM_CONNECTED)
+                        if self.is_connected {
+                            let _ = crate::cat::winkeyer::WinkeyerProtocol::host_open();
+                            let _ = crate::cat::winkeyer::WinkeyerProtocol::set_speed(
+                                self.config.speed_wpm,
+                            );
+                            self.status_text = Msg::new(key::CW_TERM_CONNECTED)
                                 .arg("port", &self.config.port)
-                                .text(lang)
+                                .text(lang);
                         } else {
-                            tr(key::CW_TERM_DISCONNECTED, lang).to_string()
-                        };
+                            let _ = crate::cat::winkeyer::WinkeyerProtocol::host_close();
+                            self.status_text = tr(key::CW_TERM_DISCONNECTED, lang).to_string();
+                        }
                     }
                 });
 

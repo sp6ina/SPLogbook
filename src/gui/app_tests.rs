@@ -2238,3 +2238,56 @@ fn astronomy_dialog_tracks_target_rotation() {
     assert_eq!(rotor.elevation_deg, 35.0);
     assert!(dialog.is_open);
 }
+
+#[test]
+fn js8call_listener_lifecycle_starts_and_stops_cleanly() {
+    let deps = test_deps();
+    let init = AppInit {
+        config: AppConfig::default(),
+        config_file_path: std::path::PathBuf::from("config.json"),
+        active_db_path: std::path::PathBuf::from("db.sqlite"),
+        shutdown_policy: ShutdownPolicy::None,
+    };
+    let mut app = SpLogApp::for_tests(init, deps);
+    assert!(app.digital.js8call_state_rx.is_none());
+    assert!(app.digital.js8call_qso_rx.is_none());
+
+    app.digital.js8call_enabled = true;
+    app.start_js8call_listener();
+    assert!(app.digital.js8call_state_rx.is_some());
+    assert!(app.digital.js8call_qso_rx.is_some());
+
+    app.stop_js8call_listener();
+    assert!(app.digital.js8call_state_rx.is_none());
+    assert!(app.digital.js8call_qso_rx.is_none());
+}
+
+#[test]
+fn transmit_cw_macro_queues_and_encodes_winkeyer_protocol() {
+    let deps = test_deps();
+    let mut config = AppConfig::default();
+    config.station.callsign = "SP6INA".to_string();
+    config.station.city = "Wroclaw".to_string();
+    config.station.gridsquare = "JO81".to_string();
+    let init = AppInit {
+        config,
+        config_file_path: std::path::PathBuf::from("config.json"),
+        active_db_path: std::path::PathBuf::from("db.sqlite"),
+        shutdown_policy: ShutdownPolicy::None,
+    };
+    let mut app = SpLogApp::for_tests(init, deps);
+    app.entry.callsign = "DL1ABC".to_string();
+    app.entry.rst_sent = "599".to_string();
+
+    app.transmit_cw_macro("CQ DE %MYCALL% K");
+    assert!(
+        app.gui
+            .dialogs
+            .cw_terminal_dialog
+            .buffer
+            .queued_text
+            .contains("CQ DE SP6INA K")
+    );
+    let encoded = crate::cat::winkeyer::WinkeyerProtocol::encode_text("CQ DE SP6INA K");
+    assert_eq!(encoded, b"CQ DE SP6INA K".to_vec());
+}
