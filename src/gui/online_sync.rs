@@ -146,7 +146,8 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                 let journal_id = app.active_journal.id.clone();
                                                 tokio::spawn(async move {
                                                     let _ = tx.send((tr(key::SYNC_LOTW_DOWNLOADING, lang).to_string(), false));
-                                                    let report_res = crate::cloud::lotw::download_lotw_report(&user, &pass, None)
+                                                    let lotw_client = crate::cloud::lotw::LotwClient::new(&user, &pass);
+                                                    let report_res = lotw_client.fetch_confirmations(None)
                                                         .await
                                                         .map_err(|e| e.to_string());
                                                     match report_res {
