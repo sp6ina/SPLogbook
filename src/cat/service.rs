@@ -741,6 +741,13 @@ impl RigService {
                                         reconnect_attempts = 0;
                                         reconnect_deadline = None;
                                     }
+                                    for ev in self.backend.drain_native_events() {
+                                        let _ = self.event_tx.send(RoutedRigEvent::new(
+                                            self.rig_id.clone(),
+                                            None,
+                                            RigHubEvent::Radio(ev),
+                                        ));
+                                    }
                                 }
                                 Ok(Err(e)) => {
                                     log::warn!(
@@ -806,6 +813,13 @@ impl RigService {
                                 if self.apply_poll_result(poll_op) {
                                     reconnect_attempts = 0;
                                     reconnect_deadline = None;
+                                }
+                                for ev in self.backend.drain_native_events() {
+                                    let _ = self.event_tx.send(RoutedRigEvent::new(
+                                        self.rig_id.clone(),
+                                        None,
+                                        RigHubEvent::Radio(ev),
+                                    ));
                                 }
                             }
                             Ok(Err(e)) => {
@@ -3236,5 +3250,22 @@ mod tests {
             Err(RigServiceError::CommandExecutionFailed("err".into()))
         )));
         assert_eq!(service.snapshot.lifecycle, RigServiceState::Disconnected);
+    }
+
+    #[tokio::test]
+    async fn rig_service_routes_native_rig_command_to_backend() {
+        use crate::cat::native::NativeRigCommand;
+        let shared = MockShared::default();
+        let mut backend = MockTestBackend::new(shared);
+        let res = backend
+            .execute_native(&NativeRigCommand::Common(RigCommand::SetFrequency(
+                14_074_000,
+            )))
+            .await;
+        assert!(res.is_ok());
+        let poll_meters_res = backend.execute_native(&NativeRigCommand::PollMeters).await;
+        assert!(matches!(poll_meters_res, Err(RigError::Unsupported { .. })));
+        let events = backend.drain_native_events();
+        assert_eq!(events.len(), 0);
     }
 }
