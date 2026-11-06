@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/Platform-Windows_%7C_GNU%2FLinux-blue.svg" alt="Platform">
   <img src="https://img.shields.io/badge/Version-1.2.0-emerald.svg" alt="Version">
   <a href="https://github.com/sp6ina/SPLogbook/actions"><img src="https://github.com/sp6ina/SPLogbook/actions/workflows/build-and-release.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/Tests-1519%2F1519_Passed-brightgreen.svg" alt="Tests">
+  <img src="https://img.shields.io/badge/Tests-2237%2F2237_Passed-brightgreen.svg" alt="Tests">
   <img src="https://img.shields.io/badge/i18n-7_Languages-cyan.svg" alt="i18n">
   <a href="https://buycoffee.to/sp6ina"><img src="https://img.shields.io/badge/☕_Buy_Me_a_Coffee-buycoffee.to%2Fsp6ina-FFDD00?style=flat&logoColor=black" alt="Buy Me a Coffee"></a>
 </p>
@@ -75,10 +75,10 @@ From deep ionospheric modeling (VOACAP-lite HF propagation), automated antenna r
 | Feature Area | Capabilities |
 |---|---|
 | **Database & Engine** | SQLite with WAL mode, 10 specialized indexes, auto-VACUUM, persistent window geometry, rolling 10-revision backup, fail-safe mutex poison recovery. |
-| **HF Propagation** | VOACAP-lite ionospheric engine: Great-Circle midpoint, solar zenith, $foF2$, MUF/LUF/FOT, D-layer absorption, reliability index ($0	ext{--}100\%$), S-meter estimation, dynamic band opening matrix. |
-| **Antenna Steering** | Hamlib `rotctld` TCP client (port 4533) with one-click short-path beam rotation in QSO Entry and World Map. |
+| **HF Propagation** | VOACAP-lite ionospheric engine: Great-Circle midpoint, solar zenith, $foF2$, MUF/LUF/FOT, D-layer absorption, reliability index ($0\text{--}100\%$), S-meter estimation, dynamic band opening matrix, and forecast accuracy tracking. |
+| **Antenna Steering** | Hamlib `rotctld` TCP client (port 4533) with one-click short-path beam rotation in QSO Entry, World Map, and EME/Solar ephemeris tracking. |
 | **DX Cluster** | Built-in Telnet client, 2 kHz / 30-spot sliding deduplication, visual highlights (⭐ Magenta for ATNO, ✨ Emerald for new band/mode), acoustic fanfare alerts, click-to-tune CAT integration. |
-| **Ham Clubs Directory** | Real-time recognition and color-coded badge display for SP-OTC, SPCWC, SKCC, CWOPS, FOC, and HSC with member number recognition. |
+| **Ham Clubs Directory** | Dynamic reference database (`databases/clubs.csv`) recognition and color-coded badge display for SP-OTC, SPCWC, SKCC, CWOPS, FOC, HSC, and EPC with verified unique member numbers. |
 | **QSL Vector PDF** | Full A4 vector PDF label sheet exporter for Avery 3x8, 3x7, 2x8, 2x7 formats, plus standalone QSL card visual designer. |
 | **Station Profiles** | Multi-profile workstation management (Home QTH, Field /P, SOTA/POTA, Contest) with instant 1-click preset switching. |
 | **Transceiver CAT & Sharing** | Asynchronous **NATIVE-CAT** subsystem (`RigHub` multi-radio core, `TxArbiter` single-TX interlock, `CatRuntime`) supporting 8 dedicated backends: **Hamlib `rigctld`**, **Icom CI-V**, **Kenwood**, **Yaesu**, **Elecraft**, **FlexRadio (SmartSDR)**, **FLRig (XML-RPC)**, and **TCI (WebSocket)**; VFO A/B, split, RIT/XIT, mode, PTT, power, WinKeyer. Safe read-only probe, laboratory HIL harness with mandatory dummy load, integrated **Hamlib CAT TCP Proxy Server** (port 4534) for multi-app rig sharing. |
@@ -89,7 +89,7 @@ From deep ionospheric modeling (VOACAP-lite HF propagation), automated antenna r
 | **Awards Tracking** | DXCC (Mixed, Band, Mode, Challenge, ATNO), WAZ, WAS, SP DX Award, WAE, WWFF, RDA, PGA (2477 Polish municipalities), IOTA, SOTA, POTA. |
 | **Cloud Sync** | LoTW (TQSL), eQSL.cc, Club Log, QRZ.com, HamQTH, HRDLog, Cloudlog, PSK Reporter, WSPR monitor, NOAA space weather, with a shared **upload scheduler** (offline queue, exponential-backoff retry, per-service rate limiting). |
 | **Mapping** | Equirectangular world map with real-time day/night terminator (Grey Line), zoom/pan, confirmed/unconfirmed QSO markers, live spot pins. |
-| **REST API & WebSocket** | Embedded asynchronous Axum HTTP server on port 8080 with JSON endpoints plus a live **WebSocket** stream (`/api/v1/ws`) broadcasting application events in real time for external integration and station automation. |
+| **REST API & WebSocket** | Embedded asynchronous Axum HTTP server on loopback `127.0.0.1:8420` with JSON endpoints plus a live **WebSocket** stream (`/api/v1/ws`) broadcasting application events in real time for external integration and station automation. |
 | **Logbook Table** | Virtualized, resizable-column data grid with multi-row selection, bulk delete, per-column sorting, live filtering, and saveable column presets. |
 | **CSV Export** | Configurable logbook CSV exporter with the full `QsoRecord` field catalog, delimiter selection (comma/semicolon/tab), optional header row, and correct quoting/escaping of special characters. |
 | **Dockable Workspace** | Full `egui_dock` docking system: panels can be detached into **floating native windows** (move to a second monitor), re-arranged into tabs/columns, and saved/restored via **operator layout profiles** with built-in presets. |
@@ -138,11 +138,11 @@ SPLogbook features a self-contained ionospheric HF propagation engine (`src/core
 - **Path Midpoint & Solar Zenith:** Pinpoints the exact geographic coordinates of the path midpoint and determines the solar zenith angle ($\chi$) to establish whether the midpoint is in daylight, darkness, or traversing the grey line.
 - **Critical Frequencies & Limits:**
   - Calculates the ordinary ray critical frequency $foF2$ dynamically based on the Solar Flux Index (SFI) and sun angle:
-    $$	ext{foF2} = 3.5 + 4.5 \cdot \sqrt{rac{	ext{SFI}}{100}} \cdot \max(0.1, \cos\chi)$$
-  - Derives the Maximum Usable Frequency (**MUF**), Frequency of Optimum Traffic (**FOT** = $0.85 	imes 	ext{MUF}$), and Lowest Usable Frequency (**LUF**).
+    $$\text{foF2} = 3.5 + 4.5 \cdot \sqrt{\frac{\text{SFI}}{100}} \cdot \max(0.1, \cos\chi)$$
+  - Derives the Maximum Usable Frequency (**MUF**), Frequency of Optimum Traffic (**FOT** = $0.85 \times \text{MUF}$), and Lowest Usable Frequency (**LUF**).
 - **D-Layer Absorption:** Models daytime signal attenuation based on the geomagnetic $K$-index and solar elevation.
 - **Propagation Mode Identification:**
-  - **Groundwave:** For short paths ($< 120	ext{ km}$).
+  - **Groundwave:** For short paths ($< 120\text{ km}$).
   - **Ionospheric $F_2$ Layer:** For long-distance single/multi-hop propagation.
   - **Sporadic-E ($E_s$):** Estimated during elevated summer solar conditions on 10m/6m.
 - **Live User Feedback:**
@@ -162,7 +162,7 @@ SPLogbook features a self-contained ionospheric HF propagation engine (`src/core
 
 ### 4. DX Cluster Intelligence & Acoustic Alerts
 - **High-Resilience Telnet Client:** Multi-threaded asynchronous Telnet client handling automated reconnects, terminal keep-alive, ANSI escape code filtering, and non-blocking teardown upon application close.
-- **Sliding Deduplication Buffer:** Automatically filters out redundant cluster spots within a 30-spot / $2	ext{ kHz}$ window, preventing cluster spam from obscuring rare DX.
+- **Sliding Deduplication Buffer:** Automatically filters out redundant cluster spots within a 30-spot / $2\text{ kHz}$ window, preventing cluster spam from obscuring rare DX.
 - **Visual Entity Highlighting:**
   - ⭐ **Magenta / Fuchsia:** **ATNO (All-Time New One)** — An entity never worked on any band or mode in the entire station history.
   - ✨ **Emerald Green:** New band or new mode for a previously confirmed DXCC country.
@@ -173,24 +173,25 @@ SPLogbook features a self-contained ionospheric HF propagation engine (`src/core
 ---
 
 ### 5. Specialty Ham Radio Clubs Integration
-- **Automated Directory Lookup:** As you type a callsign in the QSO entry field, SPLogbook checks an embedded database of prestigious international and national amateur radio clubs:
+- **Reference Directory Lookup:** As you type a callsign in the QSO entry field, SPLogbook queries `ClubRegistry` backed by the external `databases/clubs.csv` reference database (or custom user roster) with strict uniqueness validation per `(club, member_number)`:
   - **SP-OTC** (SP Old Timers Club)
   - **SPCWC** (SP CW Club)
   - **SKCC** (Straight Key Century Club)
   - **CWOPS** (CW Operators' Club)
   - **FOC** (First Class CW Operators' Club)
   - **HSC** (High Speed Club)
-- **Visual Badging:** Displays styled badges (e.g. `🎖 SP-OTC #248`, `🎖 SKCC #18942`) indicating club membership and member numbers, essential for club award endorsements and specialty on-air operating.
+  - **EPC** (European PSK Club)
+- **Visual Badging:** Displays styled badges (e.g. `🎖 SP-OTC #248`, `🎖 SKCC #18942`) indicating verified club membership and member numbers, essential for club award endorsements and specialty on-air operating.
 
 ---
 
 ### 6. QSL Card Designer & Avery Label Sheet PDF Exporter
 - **Vector PDF Generation Engine:** High-precision PDF rendering powered by `printpdf`.
 - **Avery Standard Label Sheets (A4):** Built-in geometry templates for industry-standard self-adhesive printable sticker sheets:
-  - **3 × 8** (24 labels per A4 sheet, $70.0 	imes 37.0	ext{ mm}$)
-  - **3 × 7** (21 labels per A4 sheet, $70.0 	imes 42.4	ext{ mm}$)
-  - **2 × 8** (16 labels per A4 sheet, $105.0 	imes 37.0	ext{ mm}$)
-  - **2 × 7** (14 labels per A4 sheet, $105.0 	imes 42.4	ext{ mm}$)
+  - **3 × 8** (24 labels per A4 sheet, $70.0 \times 37.0\text{ mm}$)
+  - **3 × 7** (21 labels per A4 sheet, $70.0 \times 42.4\text{ mm}$)
+  - **2 × 8** (16 labels per A4 sheet, $105.0 \times 37.0\text{ mm}$)
+  - **2 × 7** (14 labels per A4 sheet, $105.0 \times 42.4\text{ mm}$)
 - **Automated QSO Population:** Automatically formats and paginates selected QSOs with Callsign, Date, Time UTC, Band, Mode, RST Sent/Received, and QSL confirmation text onto sticker grids with exact printer margins.
 - **Print Preview & Printer Calibration:** Live A4 sheet preview with adjustable left/top margins (in mm) so labels align precisely with physical sticker fields before export.
 - **Batch Card-Selection Rules:** Queue cards by QSL-sent status (unconfirmed only), band, mode, date range, and a configurable count limit.
@@ -218,7 +219,7 @@ SPLogbook features a self-contained ionospheric HF propagation engine (`src/core
 - **SGP4/SDP4 Keplerian Propagator:** High-precision orbital tracker utilizing NORAD Two-Line Element (TLE) datasets with automated online updating.
 - **Real-Time Orbit Calculations:** Instantaneous computation of Satellite Azimuth, Elevation, Range, Slant Rate, Footprint, and Sub-Satellite Point.
 - **Automated Doppler CAT Control:** Compensates for the Doppler effect on transponder uplinks and downlinks by computing real-time frequency shifts:
-  $$\Delta f = - f_0 rac{v_{	ext{slant}}}{c}$$
+  $$\Delta f = - f_0 \frac{v_{\text{slant}}}{c}$$
   and adjusting transceiver frequencies dynamically via CAT.
 - **Antenna Elevation/Azimuth Rotator Steering:** Sends real-time azimuth and elevation tracking coordinates to dual-axis satellite rotators via `rotctld`.
 
@@ -282,7 +283,7 @@ SPLogbook features an integrated awards matrix (`src/core/awards.rs`) tracking c
 ### 13. Interactive World Map & Real-Time Grey Line
 - **High-Precision Equirectangular Projection:** Accurately renders continental outlines, country borders, and geographic latitude/longitude grids.
 - **Dynamic Grey Line Terminator:** Computes the solar sub-solar point in real-time from the Earth's axial tilt and current UTC timestamp, drawing the day/night boundary.
-- **Interactive Navigation:** Smooth mouse-wheel zooming ($1.0	imes$ to $5.0	imes$) and drag-to-pan exploration.
+- **Interactive Navigation:** Smooth mouse-wheel zooming ($1.0\times$ to $5.0\times$) and drag-to-pan exploration.
 - **QSO & Cluster Spot Pins:**
   - Color-coded QSO pins: Green for LoTW/eQSL confirmed, Blue for standard logged QSOs.
   - Live DX cluster spot markers displaying callsign, frequency, band, and time on hover.
@@ -294,7 +295,7 @@ SPLogbook features an integrated awards matrix (`src/core/awards.rs`) tracking c
 ### 14. Visual Analytics & Station Statistics
 SPLogbook includes a visual analytics dashboard providing comprehensive insights into your amateur radio activity:
 - **QSO per Month:** 24-month historical trend chart.
-- **Band Distribution:** Percentage breakdown of activity across all amateur bands ($160	ext{m}$ to $70	ext{cm}$).
+- **Band Distribution:** Percentage breakdown of activity across all amateur bands ($160\text{m}$ to $70\text{cm}$).
 - **Mode Breakdown:** Distribution across CW, SSB, FT8, FT4, RTTY, and FM.
 - **Hourly UTC Activity:** 24-hour histogram identifying peak operating hours.
 - **Top 10 Countries:** Ranking of most frequently contacted DXCC entities.
@@ -304,7 +305,7 @@ SPLogbook includes a visual analytics dashboard providing comprehensive insights
 ---
 
 ### 15. Embedded Local REST API Server (v1 — 15 Endpoints)
-SPLogbook features a built-in asynchronous HTTP & WebSocket server powered by **Axum** running on `127.0.0.1:8080`. All endpoints except `/api/v1/status` and `/api/v1/endpoints` require the station's `X-Api-Key` header (viewable and regenerable under **Narzędzia → Serwer REST API**):
+SPLogbook features a built-in asynchronous HTTP & WebSocket server powered by **Axum** running on `127.0.0.1:8420`. All endpoints except `/api/v1/status` and `/api/v1/endpoints` require the station's `X-Api-Key` header (viewable and regenerable under **Narzędzia → Serwer REST API**):
 
 | Method | Endpoint | Auth | Description |
 |---|---|---|---|
@@ -381,7 +382,7 @@ A modern, asynchronous rig control subsystem powered by the `RigHub` multi-radio
 - **FlexRadio** — native SmartSDR TCP API (v2.0–3.x) with slice/meter subscriptions and automatic UDP discovery (port 4992).
 - **FLRig (XML-RPC)** — cross-platform rig control via FLDigi's companion server.
 - **TCI (WebSocket)** — high-speed Transceiver Control Interface for SDR platforms (SunSDR2, Thetis, ExpertSDR3).
-- **RF Safety & HIL Harness** — `TxArbiter` enforcing single-TX lockout and zero retry on `SetPtt(true)`, safe read-only probe (`ProbeState`), and laboratory Hardware-in-the-Loop harness (`src/cat/hil/`) requiring mandatory 50 Ω dummy load termination. Features a multi-axis evidence model separating `OfflineModel`, `SimulatedRuntime`, and `PhysicalRuntime` contexts with strict 8-variant evidence origin classification (`RepositoryMeasurement`, `SoftwareBaselineArtifact`, `ConfigurationArtifact`, `SyntheticOfflineFixture`, `MockRuntime`, `OperatorDeclaration`, `InstrumentInterface`, `PhysicalMeasurement`). Evaluates the 30 immutable canonical HIL-READY conditions plus 22 extended `HIL-X01`..`HIL-X22` requirements. Software baseline is fully verified and **PASSED** (285 deterministic offline HIL tests passed, 1519 total across the suite), while physical runtime execution (NATIVE-7B) remains formally **BLOCKED** pending physical test bench connection.
+- **RF Safety & HIL Harness** — `TxArbiter` enforcing single-TX lockout and zero retry on `SetPtt(true)`, safe read-only probe (`ProbeState`), and laboratory Hardware-in-the-Loop harness (`src/cat/hil/`) requiring mandatory 50 Ω dummy load termination. Features a multi-axis evidence model separating `OfflineModel`, `SimulatedRuntime`, and `PhysicalRuntime` contexts with strict 8-variant evidence origin classification (`RepositoryMeasurement`, `SoftwareBaselineArtifact`, `ConfigurationArtifact`, `SyntheticOfflineFixture`, `MockRuntime`, `OperatorDeclaration`, `InstrumentInterface`, `PhysicalMeasurement`). Evaluates the 30 immutable canonical HIL-READY conditions plus 22 extended `HIL-X01`..`HIL-X22` requirements. Software baseline is fully verified and **PASSED** (297 deterministic offline HIL tests passed, 2237 total across the suite), while physical runtime execution (NATIVE-7B) remains formally **BLOCKED** pending physical test bench connection.
 
 ---
 
@@ -474,7 +475,7 @@ The embedded Axum server exposes RESTful endpoints for logbook operations and st
 
 ### Example 1: Querying Station Status (Public)
 ```bash
-curl -X GET http://127.0.0.1:8080/api/v1/status
+curl -X GET http://127.0.0.1:8420/api/v1/status
 ```
 **Response:**
 ```json
@@ -492,7 +493,7 @@ curl -X GET http://127.0.0.1:8080/api/v1/status
 
 ### Example 2: Ingesting a New QSO (Auto-DXCC & ADIF 3.1.7 Normalization)
 ```bash
-curl -X POST http://127.0.0.1:8080/api/v1/qsos \
+curl -X POST http://127.0.0.1:8420/api/v1/qsos \
   -H "X-Api-Key: <YOUR_API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -508,7 +509,7 @@ curl -X POST http://127.0.0.1:8080/api/v1/qsos \
 
 ### Example 3: Callsign DXCC, Club & Award Need Lookup
 ```bash
-curl -X GET "http://127.0.0.1:8080/api/v1/lookup/DL1ABC?band=20m&mode=CW" \
+curl -X GET "http://127.0.0.1:8420/api/v1/lookup/DL1ABC?band=20m&mode=CW" \
   -H "X-Api-Key: <YOUR_API_KEY>"
 ```
 
@@ -566,7 +567,7 @@ Ensure you have the Rust toolchain (version $\ge 1.99.0$) installed.
 git clone https://github.com/sp6ina/SPLogbook.git
 cd SPLogbook
 
-# 2. Run automated test suite (1519 tests)
+# 2. Run automated test suite (2237 active tests)
 cargo test
 
 # 3. Build optimized release binary with Link-Time Optimization (LTO)
@@ -616,7 +617,7 @@ SPLogbook/
 └── src/
     ├── main.rs              # Application entry point, XDG/AppData path resolution, crash guard
     ├── lib.rs               # Library root exposing core modules
-    ├── api/                 # Local REST API server (Axum, port 8080)
+    ├── api/                 # Local REST API server (Axum, port 8420)
     │   ├── mod.rs
     │   └── server.rs
     ├── cat/                 # Hardware control, multi-radio core & HIL harness
@@ -865,8 +866,8 @@ SPLogbook/
 Contributions, issue reports, and suggestions are warmly welcome!
 1. Fork the repository.
 2. Create your feature branch (`git checkout -b feature/amazing-feature`).
-3. Verify that all automated tests pass (`cargo test`).
-4. Ensure clean code formatting (`cargo clippy`).
+3. Verify that all automated tests pass (`cargo test --workspace --all-targets`).
+4. Ensure clean code formatting and zero Clippy warnings (`cargo fmt --all -- --check` and `cargo clippy --workspace --all-targets --all-features -- -D warnings`).
 5. Commit your changes (`git commit -m 'Add amazing feature'`).
 6. Push to the branch (`git push origin feature/amazing-feature`).
 7. Open a Pull Request.

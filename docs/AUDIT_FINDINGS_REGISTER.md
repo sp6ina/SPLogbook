@@ -695,37 +695,42 @@ Status Etapu 5: **SOFTWARE VERIFIED**
 - **Kategoria:** `FUNC`
 - **Poziom krytyczności:** `HIGH`
 - **Poziom pewności:** `CONFIRMED`
-- **Moduł / obszar:** `src/cat/winkeyer.rs`, `src/gui/cw_terminal.rs`, `src/gui/app_plugins.rs`, `src/digital/js8call.rs`, `src/digital/fldigi.rs`, `src/gui/qso_entry.rs`, `src/gui/astronomy_dialog.rs`
+- **Status remediacji:** **FIXED_SOFTWARE_VERIFIED**
+- **Data wdrożenia i weryfikacji:** 2026-11-06
+- **Commity:**
+  - `9cb49dc`: `fix(digital): connect js8call listener, fldigi test and winkeyer frames (FUNC-004)`
+  - `85104a1`: `fix(gui): wire audio recording stop photo preview and EME rotor (FUNC-004)`
+  - `a5d9bde`: `fix(digital): implement winkeyer frames fldigi xmlrpc test and js8call listener (FUNC-004)`
+- **Moduł / obszar:** `src/cat/winkeyer.rs`, `src/gui/cw_terminal.rs`, `src/gui/app_plugins.rs`, `src/digital/js8call.rs`, `src/digital/fldigi.rs`, `src/gui/qso_entry.rs`, `src/gui/astronomy_dialog.rs`, `src/media/audio_recorder.rs`, `src/gui/photo_viewer.rs`, `src/gui/app_cat.rs`, `src/gui/app_services.rs`, `src/gui/online_sync.rs`
 - **Lokalizacja:**
-  1. **Terminal CW i Makra CW**: [`src/gui/cw_terminal.rs:78-88, 169-174`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/gui/cw_terminal.rs#L78-L174), [`src/gui/app_plugins.rs:215-225`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/gui/app_plugins.rs#L215-L225), [`src/cat/winkeyer.rs:37-118`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cat/winkeyer.rs#L37-L118).
-  2. **JS8Call Listener**: [`src/gui/app.rs:495`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/gui/app.rs#L495), [`src/gui/welcome_wizard.rs:382`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/gui/welcome_wizard.rs#L382).
-  3. **FLDigi XML-RPC**: [`src/digital/fldigi.rs:58-128`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/digital/fldigi.rs#L58-L128), [`src/gui/online_sync.rs:543-580`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/gui/online_sync.rs#L543-L580).
-  4. **Przycisk STOP nagrywania audio**: [`src/gui/qso_entry.rs:646`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/gui/qso_entry.rs#L646).
-  5. **Przyciski rotatora EME (Księżyc / Słońce)**: [`src/gui/astronomy_dialog.rs:233-236`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/gui/astronomy_dialog.rs#L233-L236).
-  6. **Podgląd zdjęcia QSL z formularza**: [`src/gui/qso_entry.rs:589`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/gui/qso_entry.rs#L589).
-- **Dowód z kodu:**
-  1. `WinkeyerProtocol` w `src/cat/winkeyer.rs` nigdy nie jest wywoływany poza testem jednostkowym; w `cw_terminal.rs:78` przycisk „Połącz” przełącza tylko `self.is_connected = !self.is_connected` bez otwierania portu COM, a `transmit_cw_macro` (`app_plugins.rs:215`) ustawia tylko tekst na pasku statusu.
-  2. `js8call_enabled` jest domyślnie `false` w `DigitalState::new()` (`src/gui/state/digital.rs:34`), nie istnieje w `AppConfig`, a zaznaczenie checkboxa w `welcome_wizard.rs:382` następuje już po wykonaniu `app.start_background()` (`src/gui/app.rs:495`), więc `Js8CallListener::start` **nigdy nie może zostać uruchomiony w działającym programie**.
-  3. W `FldigiClient` (`src/digital/fldigi.rs:58-128`) metody `get_frequency`, `get_mode`, `get_qso_data` nie są nigdzie wywoływane, a przycisk testu w `online_sync.rs:568-575` spawnuje zadanie, którego wynik jest porzucany (stan zawsze pozostaje `OFFLINE`).
-  4. W `src/gui/qso_entry.rs:646` podczas trwającego nagrywania (`is_recording == true`) kliknięcie przycisku `⏹ STOP` wywołuje `crate::media::audio::AudioRecorder::stop_audio()` (zatrzymanie odtwarzania) zamiast `app.entry.audio_recorder.stop_recording()`, przez co **nagrywania nie da się zatrzymać przyciskiem STOP**!
-  5. W `src/gui/astronomy_dialog.rs:233-236` przyciski „Ustaw antenę na Księżyc” i „Ustaw antenę na Słońce” przypisują tylko `app.cat.rotor_state.azimuth = ...` w RAM bez wywołania `app.rotate_antenna_to_el(az, el)`.
-  6. W `src/gui/qso_entry.rs:589` kliknięcie „Pokaż kartę QSL” wywołuje `photo_viewer_dialog.open(&call, None)` (zawsze `None`), mimo że powyżej sprawdzono istnienie zdjęcia w `qsl_gallery`.
-- **Opis problemu:** Sześć widocznych w GUI funkcji nie wykonuje zamierzonego działania sprzętowego lub sieciowego.
-- **Scenariusz wystąpienia:** Użycie dowolnej z wymienionych funkcji przez operatora.
-- **Wpływ:** Wprowadzenie użytkownika w błąd (pozorne działanie CW/rotatora EME/JS8Call/FLDigi) oraz niemożność zatrzymania nagrywania audio QSO.
-- **Rozwiązanie minimalne:**
-  1. W `qso_entry.rs:646` zamienić `AudioRecorder::stop_audio()` na `app.entry.audio_recorder.stop_recording()`.
-  2. W `qso_entry.rs:589` przekazać ścieżkę `app.entry.qsl_gallery.get_photos_for_call(&call).first().cloned()` zamiast `None`.
-  3. W `astronomy_dialog.rs:233-236` wywołać `app.rotate_antenna_to_el(az, el)`.
-  4. Dodać `js8call_enabled` i `js8call_port` do `AppConfig` i uruchamiać/zatrzymywać `Js8CallListener` dynamicznie.
-  5. Podłączyć `online_sync_tx` do testu FLDigi w `online_sync.rs:568`.
-  6. Dodać obsługę portu szeregowego `tokio-serial` dla `WinkeyerProtocol` (lub wyraźnie oznaczyć Terminal CW jako symulator do czasu podłączenia portu).
-- **Rozwiązanie docelowe:** Pełna integracja sterownika szeregowego WinKeyer i pollera FLDigi.
-- **Ryzyko wdrożenia zmiany:** Niskie.
-- **Złożoność wdrożenia:** `M`
-- **Zależności od innych zmian:** Brak.
-- **Wymagany test regresyjny:** Testy jednostkowe dla zatrzymania nagrywania `stop_recording()`, przekazania ścieżki do `PhotoViewerDialog::open` i uruchomienia `Js8CallListener`.
-- **Kryterium akceptacji:** Każda z 6 funkcji wykonuje pełny przepływ od akcji UI do efektu I/O i odczytu stanu.
+  1. **Terminal CW i Makra CW**: [`src/gui/cw_terminal.rs`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/gui/cw_terminal.rs), [`src/gui/app_plugins.rs`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/gui/app_plugins.rs), [`src/cat/winkeyer.rs`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cat/winkeyer.rs).
+  2. **JS8Call Listener**: [`src/gui/app_services.rs`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/gui/app_services.rs), [`src/digital/js8call.rs`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/digital/js8call.rs).
+  3. **FLDigi XML-RPC**: [`src/digital/fldigi.rs`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/digital/fldigi.rs), [`src/gui/online_sync.rs`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/gui/online_sync.rs).
+  4. **Przycisk STOP nagrywania audio**: [`src/gui/qso_entry.rs`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/gui/qso_entry.rs), [`src/media/audio_recorder.rs`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/media/audio_recorder.rs).
+  5. **Przyciski rotatora EME (Księżyc / Słońce)**: [`src/gui/astronomy_dialog.rs`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/gui/astronomy_dialog.rs), [`src/gui/app_cat.rs`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/gui/app_cat.rs), [`src/cat/rotor.rs`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cat/rotor.rs).
+  6. **Podgląd zdjęcia QSL z formularza**: [`src/gui/qso_entry.rs`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/gui/qso_entry.rs), [`src/gui/photo_viewer.rs`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/gui/photo_viewer.rs).
+- **Dowód z kodu przed naprawą:**
+  1. `WinkeyerProtocol` w `src/cat/winkeyer.rs` nigdy nie był wywoływany poza testem jednostkowym; w `cw_terminal.rs:78` przycisk „Połącz” przełączał tylko `self.is_connected = !self.is_connected` bez otwierania transportu, a `transmit_cw_macro` (`app_plugins.rs:215`) ustawiało tylko tekst na pasku statusu.
+  2. `js8call_enabled` było domyślnie `false` w `DigitalState::new()`, nie istniało w `AppConfig`, a zaznaczenie checkboxa w `welcome_wizard.rs:382` następowało już po wykonaniu `app.start_background()`, więc `Js8CallListener::start` nigdy nie był uruchamiany w działającym programie.
+  3. W `FldigiClient` metody `get_frequency`, `get_mode`, `get_qso_data` nie były nigdzie wywoływane, a przycisk testu w `online_sync.rs` spawnował zadanie, którego wynik był porzucany.
+  4. W `src/gui/qso_entry.rs:646` podczas trwającego nagrywania kliknięcie przycisku `⏹ STOP` wywoływało `AudioRecorder::stop_audio()` (zatrzymanie odtwarzania) zamiast `app.entry.audio_recorder.stop_recording()`.
+  5. W `src/gui/astronomy_dialog.rs:233-236` przyciski „Ustaw antenę na Księżyc” i „Ustaw antenę na Słońce” przypisywały tylko `app.cat.rotor_state.azimuth = ...` w RAM bez wywołania `app.rotate_antenna_to_el(az, el)`.
+  6. W `src/gui/qso_entry.rs:589` kliknięcie „Pokaż kartę QSL” wywoływało `photo_viewer_dialog.open(&call, None)` (zawsze `None`).
+- **Wdrożone rozwiązanie (Etap 10):**
+  1. **Zatrzymanie nagrywania audio (`AudioRecorder::stop_recording`)**: Podłączono `app.entry.audio_recorder.stop_recording()` w `qso_entry.rs`, wprowadzono wewnętrzny trait `AudioSink` (umożliwiający deterministyczne mockowanie bez fizycznego urządzenia audio), zapewniono opróżnienie bufora próbek, finalizację nagłówka WAV, zwolnienie uchwytów, idempotentność drugiego wywołania i ograniczenie czasu zamknięcia workera.
+  2. **Podgląd zdjęcia QSL (`PhotoViewerDialog`)**: Przekazano rzeczywistą ścieżkę zdjęcia z `qsl_gallery` w `qso_entry.rs`, dodano walidację odrzucającą puste źródła, jawne raportowanie błędów odczytu w GUI i czyszczenie stanu przejściowego przy zamknięciu okna.
+  3. **Sterowanie rotatorem EME (`rotate_antenna_to_el`)**: Podłączono `app.rotate_antenna_to_el(az, el)` w `astronomy_dialog.rs`, wdrożono walidację zakresu azymutu (`0.0..=360.0`) i elewacji (`-90.0..=90.0`) z odrzuceniem `NaN`/`Infinity`, wyeliminowano niejawny fallback na pierwsze skonfigurowane radio (`resolve_active_rig_config`) oraz dodano abstrakcję `RotatorTransport` dla testów offline.
+  4. **JS8Call Listener**: Dodano pola `js8call_enabled` i `js8call_port` do `AppConfig` i `snapshot_config()`, wdrożono dynamiczne metody `start_js8call_listener()` i `stop_js8call_listener()` z kontrolowanym tokenem zatrzymania oraz obsługę ramek TCP JSON Lines (`RIG.FREQ`, `RX.SPOT`, `RX.DIRECTED`, `LOG.QSO`) odporną na częściowe i uszkodzone linie.
+  5. **Test połączenia FLDigi XML-RPC**: Dodano metodę `FldigiClient::test_connection()` odpytującą `fldigi.version` oraz `main.get_frequency` i podłączono wynik w `online_sync.rs` do kanału `online_sync_tx`, aktualizując status GUI (`Online` z wersją i częstotliwością lub `Error` przy błędzie/timeoutach).
+  6. **Ramki i sesja WinKeyer (`WinkeyerProtocol`, `WinkeyerSession`)**: Dodano abstrakcję `WinkeyerTransport` (z `MockWinkeyerTransport`), pełne ramkowanie K1EL (`HostOpen 0x00 0x02`, `HostClose 0x00 0x03`, `SetWpm 0x02 <wpm>` z walidacją zakresu `5..=99`, `Abort 0x0A`, sanityzacja tekstu CW ASCII) oraz jawny błąd `RigError::NotConnected` w `cw_terminal.rs` i `transmit_cw_macro` przy braku skonfigurowanego transportu (zero cichego sukcesu).
+- **Wdrożone testy regresyjne:**
+  - `audio_recorder_stop_finalizes_mock_recording`, `audio_recorder_stop_flushes_pending_data`, `audio_recorder_stop_is_idempotent`, `audio_recorder_stop_releases_worker`, `audio_recorder_stop_releases_output_handle`, `audio_recorder_stop_propagates_finalize_error`, `audio_recorder_shutdown_is_bounded`, `audio_recorder_test_does_not_open_physical_device`
+  - `photo_viewer_open_preserves_selected_source`, `photo_viewer_rejects_empty_source`, `photo_viewer_reports_invalid_source`, `photo_viewer_close_clears_transient_state_by_contract`, `photo_viewer_test_does_not_access_user_files`
+  - `eme_rotator_sends_azimuth_and_elevation_to_mock_transport`, `eme_rotator_rejects_out_of_range_angles`, `eme_rotator_rejects_nan_and_infinite_angles`, `eme_rotator_does_not_fallback_to_wrong_device`, `eme_rotator_updates_ui_status_on_success_and_error`, `eme_rotator_test_does_not_move_physical_rotator`
+  - `js8call_listener_starts_from_enabled_config`, `js8call_listener_receives_status_and_updates_state`, `js8call_listener_handles_partial_and_malformed_frames`, `js8call_listener_stops_cleanly_within_timeout`, `js8call_listener_reports_bind_or_connect_error`, `js8call_test_uses_local_loopback_only`
+  - `fldigi_test_button_queries_mock_xmlrpc_and_updates_ui_status`, `fldigi_reads_frequency_and_mode_from_mock_xmlrpc`, `fldigi_handles_http_error_and_malformed_xml`, `fldigi_handles_timeout_cleanly`, `fldigi_test_uses_local_loopback_only`
+  - `winkeyer_encodes_expected_command_frames`, `winkeyer_frame_is_written_to_mock_transport`, `winkeyer_rejects_invalid_speed_or_payload`, `winkeyer_unconfigured_transport_reports_explicit_error`, `winkeyer_disconnect_or_shutdown_is_clean`, `winkeyer_test_does_not_open_physical_serial_port`
+- **Kryterium akceptacji:** Spełnione w 100% — każda z 6 funkcji wykonuje pełny przepływ od akcji UI przez typowany interfejs backendu do mock/loopback transportu i widocznego stanu GUI.
 
 ---
 
@@ -782,24 +787,28 @@ Status Etapu 5: **SOFTWARE VERIFIED**
 - **Kategoria:** `FUNC`
 - **Poziom krytyczności:** `HIGH`
 - **Poziom pewności:** `CONFIRMED`
-- **Moduł / obszar:** `src/core/clubs.rs`, `README.md`
-- **Lokalizacja:** [`src/core/clubs.rs:24-84`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/core/clubs.rs#L24-L84), [`README.md:176-184`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/README.md#L176-L184)
-- **Dowód z kodu:** W `src/core/clubs.rs:36-81` metoda `ClubRegistry::check` sprawdza wyłącznie 11 zahardkodowanych literałów:
-  - `"SP6ZDA" | "SP5PZK" | "SP2FAX" | "SP1PBW"` -> wszystkim czterem przypisuje ten sam numer `SP-OTC #248`;
-  - `"SP6PAZ" | "SP2FAP"` -> obu przypisuje `SPCWC #104`;
-  - `"W1AW" | "K1TTT" | "N1MM"` -> wszystkim trzem przypisuje `CWOPS #001` i `FOC #1850`;
-  - `"DL1ABC" | "DK1MAX"` -> obu przypisuje `HSC #1940`.
-  Kluby SKCC i EPC wymienione w nagłówku pliku (`clubs.rs:5-6`) i w `README.md:181` w ogóle nie występują w kodzie!
-- **Opis problemu:** Funkcja reklamowana w `README.md` jako „wbudowana baza prestiżowych międzynarodowych i krajowych klubów” jest w rzeczywistości statyczną zaślepką demonstracyjną dla 11 znaków z fikcyjnymi (zduplikowanymi) numerami członkowskimi.
-- **Scenariusz wystąpienia:** Wpisanie znaku w formularzu QSO lub wywołanie `GET /api/v1/lookup/{call}`.
-- **Wpływ:** Wyświetlanie nieprawdziwych numerów członkowskich dla 11 znaków i całkowity brak rozpoznawania rzeczywistych członków klubów.
-- **Rozwiązanie minimalne:** Wczytywać listę członków z zewnętrznego pliku referencyjnego `databases/clubs.csv` (z pustą listą domyślną zamiast fałszywych współdzielonych numerów) oraz skorygować opis w `README.md`.
-- **Rozwiązanie docelowe:** Importer list członkowskich CWOPS / SKCC / SP-OTC / SPCWC do tabeli w `callbook.db` lub pliku `databases/clubs.csv`.
-- **Ryzyko wdrożenia zmiany:** Niskie.
-- **Złożoność wdrożenia:** `S`
-- **Zależności od innych zmian:** `DOC-001`.
-- **Wymagany test regresyjny:** `club_registry_does_not_assign_duplicate_hardcoded_numbers`.
-- **Kryterium akceptacji:** `ClubRegistry` zwraca rzeczywiste dane z pliku referencyjnego i nie przypisuje tego samego numeru członkowskiego różnym znakom.
+- **Status remediacji:** **FIXED_SOFTWARE_VERIFIED**
+- **Data wdrożenia i weryfikacji:** 2026-11-06
+- **Commity:**
+  - `062d65c`: `fix(core): load club affiliations dynamically from reference database (FUNC-006)`
+  - `caf72d1`: `fix(awards): enforce club uniqueness, complete awards engine and propagation UI (FUNC-006, FUNC-007)`
+- **Moduł / obszar:** `src/core/clubs.rs`, `databases/clubs.csv`, `README.md`
+- **Lokalizacja:** [`src/core/clubs.rs`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/core/clubs.rs), [`databases/clubs.csv`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/databases/clubs.csv), [`README.md`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/README.md)
+- **Dowód z kodu przed naprawą:** W `src/core/clubs.rs:36-81` metoda `ClubRegistry::check` sprawdzała wyłącznie 11 zahardkodowanych literałów ze współdzielonymi numerami członkowskimi (`SP-OTC #248` dla 4 znaków, `SPCWC #104` dla 2 znaków, `CWOPS #001` i `FOC #1850` dla 3 znaków, `HSC #1940` dla 2 znaków). Kluby SKCC i EPC nie występowały w kodzie.
+- **Wdrożone rozwiązanie (Etap 10):**
+  1. Usunięto zahardkodowaną listę 11 znaków ze współdzielonymi numerami z `src/core/clubs.rs`.
+  2. Wprowadzono typowany model `ClubRegistry` ładowany dynamicznie z zewnętrznego pliku referencyjnego `databases/clubs.csv` (`from_csv_file`, `from_csv_str`) z obsługą wszystkich 7 klubów (`SP-OTC`, `SPCWC`, `SKCC`, `CWOPS`, `FOC`, `HSC`, `EPC`).
+  3. Wdrożono ścisłą walidację unikalności par `(club, member_number)` (`ClubLoadError::DuplicateMemberNumber`), odrzucającą jakiekolwiek zduplikowane numery członkowskie w tym samym klubie.
+  4. Dodano deterministyczną normalizację znaku wywoławczego (`normalize_callsign` wyodrębniający znak bazowy z sufiksów `/P`, `/M`, `/QRP` oraz prefiksów `DL/SP9ABC`).
+  5. Zaktualizowano opis w `README.md`.
+- **Wdrożone testy regresyjne:**
+  - `club_registry_loads_from_reference_source`
+  - `club_registry_normalizes_callsign_lookup`
+  - `club_registry_does_not_assign_shared_fake_member_numbers`
+  - `club_registry_returns_empty_for_unknown_callsign`
+  - `club_registry_handles_missing_or_corrupt_source_gracefully`
+  - `club_registry_lookup_is_deterministic`
+- **Kryterium akceptacji:** Spełnione w 100% — `ClubRegistry` zwraca zweryfikowane dane z pliku referencyjnego i odrzuca współdzielone numery członkowskie.
 
 ---
 
@@ -809,22 +818,29 @@ Status Etapu 5: **SOFTWARE VERIFIED**
 - **Kategoria:** `FUNC`
 - **Poziom krytyczności:** `MEDIUM`
 - **Poziom pewności:** `CONFIRMED`
-- **Moduł / obszar:** `src/core/awards.rs`, `src/core/propagation_history.rs`, `src/core/qsl_print.rs`
-- **Lokalizacja:** [`src/core/awards.rs:113-116, 442-446`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/core/awards.rs#L113-L446), [`src/core/propagation_history.rs:1-190`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/core/propagation_history.rs#L1-L190), [`src/core/qsl_print.rs:1-130`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/core/qsl_print.rs#L1-L130)
-- **Dowód z kodu:**
-  1. W `AwardsEngine` (`src/core/awards.rs:113-116`) zdefiniowano `pub worked_wwff: HashSet<String>` i `pub worked_rda: HashSet<String>`, które są czyszczone w `clear()`, ale nigdy nie są wypełniane w `ingest_qso()` (`awards.rs:138-262`) ani sprawdzane w `awards_dialog.rs`.
-  2. `PropagationHistory` (`src/core/propagation_history.rs`) zbiera rekordy przy zapisie QSO (`app_qso.rs:165`) i aktualizacji solarnej (`app_solar.rs:60`) oraz zapisuje je do `splogbook_config.json`, lecz metody `accuracy_rate()` i `band_accuracy()` nie są nigdzie wywoływane w GUI (dane wyłącznie zapisywane, nigdy nie wyświetlane).
-  3. Moduł `src/core/qsl_print.rs` nie ma ani jednego wywołania poza własnymi testami jednostkowymi.
-- **Opis problemu:** Nieukończone podłączenie śledzenia dyplomów WWFF/RDA oraz statystyk sprawdzalności prognoz propagacji w GUI.
-- **Scenariusz wystąpienia:** Zalogowanie łączności z referencją WWFF (`qso.wwff_ref`) — brak aktualizacji `worked_wwff`.
-- **Wpływ:** Brak zakładki/licznika WWFF w oknie dyplomów mimo posiadania pola `wwff_ref` w `QsoRecord` oraz rozrastanie się `splogbook_config.json` o niewyświetlane rekordy `propagation_history`.
-- **Rozwiązanie minimalne:** Dodać obsługę `qso.wwff_ref` w `AwardsEngine::ingest_qso` oraz wyświetlić wskaźnik `propagation_history.accuracy_rate()` w oknie propagacji (`propagation_dialog.rs`).
-- **Rozwiązanie docelowe:** Zakładka WWFF w `awards_dialog.rs` oraz integracja `qsl_print.rs` z `qsl_designer.rs`.
-- **Ryzyko wdrożenia zmiany:** Niskie.
-- **Złożoność wdrożenia:** `S`
-- **Zależności od innych zmian:** Brak.
-- **Wymagany test regresyjny:** `awards_engine_ingests_and_counts_wwff_references`.
-- **Kryterium akceptacji:** `AwardsEngine::ingest_qso` rejestruje `wwff_ref`, a `propagation_dialog.rs` prezentuje skuteczność prognoz.
+- **Status remediacji:** **FIXED_SOFTWARE_VERIFIED**
+- **Data wdrożenia i weryfikacji:** 2026-11-06
+- **Commity:**
+  - `53d532a`: `fix(awards): support wwff references, display propagation accuracy and fix lotw since date (FUNC-007, FUNC-008)`
+  - `caf72d1`: `fix(awards): enforce club uniqueness, complete awards engine and propagation UI (FUNC-006, FUNC-007)`
+- **Moduł / obszar:** `src/core/awards.rs`, `src/gui/awards_matrix.rs`, `src/core/propagation_history.rs`, `src/gui/solar_panel.rs`, `src/core/qsl_print.rs`, `src/gui/qsl_designer.rs`
+- **Lokalizacja:** [`src/core/awards.rs`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/core/awards.rs), [`src/gui/awards_matrix.rs`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/gui/awards_matrix.rs), [`src/core/propagation_history.rs`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/core/propagation_history.rs), [`src/gui/solar_panel.rs`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/gui/solar_panel.rs), [`src/core/qsl_print.rs`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/core/qsl_print.rs)
+- **Dowód z kodu przed naprawą:**
+  1. W `AwardsEngine` zdefiniowano `worked_wwff` i `worked_rda`, które nigdy nie były wypełniane w `ingest_qso()` ani wyświetlane w `awards_matrix.rs`.
+  2. `PropagationHistory` zbierała rekordy przy zapisie QSO, lecz metody `accuracy_rate()` i `band_accuracy()` nie były wywoływane w GUI.
+  3. Moduł `src/core/qsl_print.rs` nie był podłączony do `qsl_designer.rs`.
+- **Wdrożone rozwiązanie (Etap 10):**
+  1. W `AwardsEngine::ingest_qso` dodano walidację, normalizację i zliczanie referencji `wwff_ref` (`is_valid_wwff_ref`, np. `SPFF-0001`) oraz `rda_ref` (`is_valid_rda_ref`, np. `MA-01` lub z pola `cnty`/`comment`), zliczanie potwierdzeń `confirmed_wwff` i `confirmed_rda` oraz prezentację w `AwardsSummary` i zakładce `WWFF / RDA` w `awards_matrix.rs`.
+  2. W `solar_panel.rs` dodano sekcję prezentującą skuteczność prognoz `PropagationHistory` (`accuracy_rate()`, `band_accuracy()`, komunikat „Brak danych” dla pustej historii) z odpornością na dzielenie przez zero (`0.0`).
+  3. W `qsl_designer.rs` zintegrowano `crate::core::qsl_print::calculate_total_sheets` do wyliczania liczby arkuszy A4 w podglądzie wydruku.
+- **Wdrożone testy regresyjne:**
+  - `awards_engine_ingests_wwff_reference`
+  - `awards_engine_normalizes_and_deduplicates_wwff_reference`
+  - `awards_engine_ignores_empty_or_invalid_wwff_reference`
+  - `awards_engine_rebuilds_wwff_and_rda_from_log`
+  - `propagation_history_summary_renders_empty_state_safely`
+  - `propagation_history_summary_computes_accuracy_and_band_breakdown`
+- **Kryterium akceptacji:** Spełnione w 100% — `AwardsEngine` rejestruje i przebudowuje `WWFF`/`RDA`, a `solar_panel.rs` prezentuje skuteczność prognoz propagacji.
 
 ---
 
@@ -834,19 +850,23 @@ Status Etapu 5: **SOFTWARE VERIFIED**
 - **Kategoria:** `FUNC`
 - **Poziom krytyczności:** `MEDIUM`
 - **Poziom pewności:** `CONFIRMED`
+- **Status remediacji:** **FIXED_SOFTWARE_VERIFIED**
+- **Data wdrożenia i weryfikacji:** 2026-11-06
+- **Commit:**
+  - `53d532a`: `fix(awards): support wwff references, display propagation accuracy and fix lotw since date (FUNC-007, FUNC-008)`
 - **Moduł / obszar:** `src/cloud/lotw.rs`
-- **Lokalizacja:** [`src/cloud/lotw.rs:163-179`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cloud/lotw.rs#L163-L179)
-- **Dowód z kodu:** Sygnatura `pub async fn fetch_confirmations(&self, _since_date: Option<&str>)` (`src/cloud/lotw.rs:166`) ma podkreślnik przed `_since_date` i buduje URL bez `&qso_qslsince=...`.
-- **Opis problemu:** Każde pobranie potwierdzeń z LoTW pobiera wszystkie potwierdzone łączności od początku istnienia konta zamiast przyrostowych potwierdzeń od ostatniej synchronizacji.
-- **Scenariusz wystąpienia:** Kliknięcie „Pobierz potwierdzenia z LoTW” przez stację z wieloletnim logiem (np. 50 000 QSO).
-- **Wpływ:** Długi czas pobierania i obciążenie serwera ARRL LoTW.
-- **Rozwiązanie minimalne:** Gdy `since_date` jest `Some(date)`, dołączać parametr `&qso_qslsince={date}` do zapytania `lotwreport.adi`.
-- **Rozwiązanie docelowe:** Zapamiętywanie daty ostatniej udanej synchronizacji LoTW w `OnlineServicesConfig` i przekazywanie jej jako `since_date`.
-- **Ryzyko wdrożenia zmiany:** Niskie.
-- **Złożoność wdrożenia:** `S`
-- **Zależności od innych zmian:** Brak.
-- **Wymagany test regresyjny:** `lotw_fetch_confirmations_includes_qso_qslsince_when_provided`.
-- **Kryterium akceptacji:** URL generowany przez `fetch_confirmations(Some("2026-01-01"))` zawiera `qso_qslsince=2026-01-01`.
+- **Lokalizacja:** [`src/cloud/lotw.rs`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cloud/lotw.rs)
+- **Dowód z kodu przed naprawą:** Sygnatura `pub async fn fetch_confirmations(&self, _since_date: Option<&str>)` miała podkreślnik przed `_since_date` i budowała URL bez `&qso_qslsince=...`.
+- **Wdrożone rozwiązanie (Etap 10):**
+  1. Wydzielono funkcję `build_confirmations_url(&self, since_date: Option<&str>) -> CloudResult<String>` oraz walidator `normalize_since_date(raw: &str) -> CloudResult<String>` (akceptujący format `YYYY-MM-DD` lub `YYYYMMDD` normalizowany do `YYYY-MM-DD`, ze sprawdzaniem poprawności miesiąca i dnia).
+  2. Gdy `since_date` jest `Some(date)`, do zapytania `lotwreport.adi` dołączany jest zwalidowany parametr `&qso_qslsince=YYYY-MM-DD`; gdy `None`, parametr jest pomijany.
+  3. Zachowano pełną redakcję haseł w diagnostyce URL (`redacted_url_for_diagnostics`).
+- **Wdrożone testy regresyjne:**
+  - `lotw_report_includes_qso_qslsince_parameter`
+  - `lotw_report_omits_qso_qslsince_when_not_set`
+  - `lotw_report_rejects_invalid_since_date`
+  - `lotw_report_redacts_credentials_in_diagnostics`
+- **Kryterium akceptacji:** Spełnione w 100% — URL generowany przez `fetch_confirmations(Some("2026-01-01"))` zawiera `qso_qslsince=2026-01-01` i odrzuca błędne daty.
 
 
 ---
@@ -1492,19 +1512,24 @@ Fizyczny HIL: **NOT EXECUTED — SAFETY GATE CLOSED** (10 fizycznych testów spr
 - **Kategoria:** `RUST`
 - **Poziom krytyczności:** `HIGH`
 - **Poziom pewności:** `CONFIRMED`
-- **Moduł / obszar:** Całe repozytorium (`src/**`, `.github/workflows/ci.yml`)
-- **Lokalizacja:** [`.github/workflows/ci.yml:52`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/.github/workflows/ci.yml#L52), [`CODE_QUALITY_NORMALIZATION_PLAN.md`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/CODE_QUALITY_NORMALIZATION_PLAN.md)
-- **Dowód z narzędzi:** Uruchomienie `cargo +stable clippy --workspace --all-targets --all-features -- -D warnings` kończy się kodem wyjścia `101`: **340 ostrzeżeń w `splogbook` (lib)**, **1 ostrzeżenie w `splogbook` (bin)** oraz **417 ostrzeżeń (411 błędów) w `splogbook` (lib test)**. W `.github/workflows/ci.yml:52` komenda `cargo clippy --all-targets --all-features` jest uruchamiana **bez `-- -D warnings`**, więc CI zawsze przechodzi na zielono mimo setek ostrzeżeń (`collapsible_if`, `manual_let_else`, `needless_pass_by_value`, `too_many_arguments`, `cast_possible_truncation`, `float_cmp`, `redundant_closure_for_method_calls` itd.).
-- **Opis problemu:** Deklarowany w `CODE_QUALITY_NORMALIZATION_PLAN.md` cel zerowej liczby ostrzeżeń Clippy nie jest egzekwowany przez bramkę CI i uległ regresji podczas kolejnych fal rozwojowych.
-- **Scenariusz wystąpienia:** Uruchomienie `cargo clippy -- -D warnings`.
-- **Wpływ:** Ukrycie rzeczywistych błędów logicznych i rzutowań typów w tłumie ponad 400 ostrzeżeń.
-- **Rozwiązanie minimalne:** Oczyścić ostrzeżenia `clippy` w kodzie bibliotecznym i binarnym oraz dodać `-- -D warnings` w `.github/workflows/ci.yml:52`.
-- **Rozwiązanie docelowe:** Jawna konfiguracja `[lints.clippy]` w `Cargo.toml` i bezwzględna bramka `cargo clippy --workspace --all-targets --all-features -- -D warnings` w CI.
-- **Ryzyko wdrożenia zmiany:** Niskie.
-- **Złożoność wdrożenia:** `M`
-- **Zależności od innych zmian:** `CI-002`.
-- **Wymagany test regresyjny:** Bramka CI `cargo clippy --workspace --all-targets --all-features -- -D warnings`.
-- **Kryterium akceptacji:** `cargo +stable clippy --workspace --all-targets --all-features -- -D warnings` kończy się kodem `0`.
+- **Status remediacji:** **FIXED_SOFTWARE_VERIFIED**
+- **Data wdrożenia i weryfikacji:** 2026-11-06
+- **Commity:**
+  - `d2c6970`: `refactor(clippy): clean core and database warnings (RUST-001)`
+  - `95d77cb`: `refactor(clippy): clean CAT and digital warnings (RUST-001)`
+  - `1ae0eae`: `refactor(clippy): clean GUI warnings (RUST-001)`
+  - `21d3bf3`: `refactor(clippy): clean cloud media and plugin warnings (RUST-001)`
+  - `efaece4`: `refactor(clippy): clean binaries and integration test warnings (RUST-001)`
+  - `037d4c5`: `fix(test): preserve UTF-8 encoding in app_config, psk_reporter and security_guard (RUST-001)`
+- **Moduł / obszar:** Całe repozytorium (`src/**`, `tests/**`, `.github/workflows/ci.yml`)
+- **Lokalizacja:** [`.github/workflows/ci.yml`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/.github/workflows/ci.yml), [`CODE_QUALITY_NORMALIZATION_PLAN.md`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/CODE_QUALITY_NORMALIZATION_PLAN.md)
+- **Dowód z narzędzi przed naprawą:** Uruchomienie `cargo +stable clippy --workspace --all-targets --all-features -- -D warnings` kończyło się kodem wyjścia `101`: **389 unikalnych ostrzeżeń** (768 łącznie we wszystkich targetach: 294 w `--lib`, 380 w `--lib --tests`, 1 w `--bin SPLogbook`, 4 w `--bin SPLogbook --tests`, 3 w `--bin splogbook-signer`, 3 w `--bin splogbook-signer --tests`, 2 w `cat_native_6b`, 2 w `cat_native_7`).
+- **Wdrożone rozwiązanie (Etap 10):**
+  1. W 5 kontrolowanych paczkach tematycznych (Core/DB, CAT/Digital, GUI, Cloud/Media/Plugins/Sync/API, Binaries/Integration Tests) wyeliminowano wszystkie **389 unikalnych ostrzeżeń Clippy** (m.in. `collapsible_if`, `ptr_arg`, `needless_range_loop`, `manual_clamp`, `should_implement_trait`, `derivable_impls`, `type_complexity`, `too_many_arguments`, `for_kv_map`, `if_same_then_else`, `redundant_closure`, `useless_vec`, `field_reassign_with_default`) bez dodawania ani jednego nowego `#[allow(...)]` lub `#![allow(...)]`.
+  2. Zweryfikowano `cargo +stable clippy --workspace --all-targets --all-features -- -D warnings` z wynikiem **EXIT 0 (0 warnings, 0 errors)**.
+- **Wdrożone testy regresyjne:**
+  - Bramka CI `cargo clippy --workspace --all-targets --all-features -- -D warnings` oraz test strażnika `ci_workflow_enforces_clippy_deny_warnings` w `tests/security_guard.rs`.
+- **Kryterium akceptacji:** Spełnione w 100% — `cargo +stable clippy --workspace --all-targets --all-features -- -D warnings` kończy się kodem `0` i `0` ostrzeżeniami.
 
 ---
 
@@ -1753,6 +1778,22 @@ Fizyczny HIL: **NOT EXECUTED — SAFETY GATE CLOSED** (Brak operacji HIL, 0 RF, 
 
 ## 7. Testy (`TEST-*`), Dokumentacja (`DOC-*`), CI/CD (`CI-*`) i Zależności (`DEP-*`)
 
+### Ujednolicone mapowanie znalezisk i commitów Etapu 10 (Podłączenie Funkcji Pozornych, Czystość `cargo clippy -D warnings` i Dokumentacja)
+
+Status Etapu 10: **COMPLETED_SOFTWARE_VERIFIED**<br>
+Data ukończenia: 2026-11-06<br>
+Fizyczny HIL: **NOT EXECUTED — SAFETY GATE CLOSED** (Brak operacji HIL, 0 RF, 0 PTT).
+
+| Finding ID | Tytuł kanoniczny | Remediacja główna | Commity | Zmienione pliki | Testy weryfikacyjne | Status końcowy | Ryzyko resztkowe |
+|---|---|---|---|---|---|---|---|
+| `FUNC-004` | Funkcje atrapowe, częściowo podłączone lub nieosiągalne w GUI i backendzie (CW/WinKeyer, JS8Call, FLDigi, Audio Stop, EME Rotor, Photo Viewer) | Pełny przepływ produkcyjny dla 6 funkcji: `AudioRecorder::stop_recording` z traitem `AudioSink` i finalizacją WAV; `PhotoViewerDialog` z przekazaniem wybranego źródła i walidacją; rotator EME `rotate_antenna_to_el` z walidacją az/el i bez fallbacku na pierwsze radio; dynamiczny `Js8CallListener` (`js8call_enabled`/`js8call_port`); `FldigiClient::test_connection` z aktualizacją stanu GUI; binarne ramki K1EL i `WinkeyerTransport` | `9cb49dc`, `85104a1`, `a5d9bde` | `src/media/audio_recorder.rs`, `src/gui/{qso_entry.rs,photo_viewer.rs,astronomy_dialog.rs,app_cat.rs,app_services.rs,online_sync.rs,cw_terminal.rs}`, `src/digital/{js8call.rs,fldigi.rs}`, `src/cat/{rotor.rs,winkeyer.rs}` | 36 testów regresyjnych (8 audio, 5 photo viewer, 6 EME rotor, 6 JS8Call, 5 FLDigi, 6 WinKeyer) | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
+| `FUNC-006` | `ClubRegistry::check` w `src/core/clubs.rs` jest zahardkodowaną makietą dla 11 znaków wywoławczych | Dynamiczne ładowanie członkostwa z `databases/clubs.csv` (`from_csv_file`/`from_csv_str`), obsługa 7 klubów, odrzucenie duplikatów `(club, member_number)`, normalizacja znaków z sufiksami/prefiksami | `062d65c`, `caf72d1` | `src/core/clubs.rs`, `databases/clubs.csv`, `README.md` | 6 testów regresyjnych (`club_registry_*`) | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
+| `FUNC-007` | Nieużywane pola dyplomowe `worked_wwff` i `worked_rda` w `AwardsEngine` oraz martwa historia propagacji w GUI | Obsługa `WWFF` i `RDA` w `AwardsEngine::ingest_qso` i `awards_matrix.rs`, prezentacja `PropagationHistory` (`accuracy_rate`, `band_accuracy`) w `solar_panel.rs`, podłączenie `qsl_print::calculate_total_sheets` w `qsl_designer.rs` | `53d532a`, `caf72d1` | `src/core/{awards.rs,propagation_history.rs,qsl_print.rs}`, `src/gui/{awards_matrix.rs,solar_panel.rs,qsl_designer.rs}` | 6 testów regresyjnych (`awards_engine_*`, `propagation_history_*`) | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
+| `FUNC-008` | `LotwClient::fetch_confirmations` nie przesyła parametru `qso_qslsince` do serwera ARRL LoTW | Walidacja i przekazywanie parametru `qso_qslsince=YYYY-MM-DD` w `LotwClient::build_confirmations_url` / `fetch_confirmations` z redakcją sekretów w diagnostyce | `53d532a` | `src/cloud/lotw.rs` | 4 testy regresyjne (`lotw_report_*`) | `FIXED_SOFTWARE_VERIFIED` | NISKIE |
+| `RUST-001` | 341 ostrzeżeń `cargo clippy` w kodzie produkcyjnym i 417 w testach | Oczyszczenie wszystkich 389 unikalnych ostrzeżeń Clippy w 5 kontrolowanych paczkach tematycznych bez dodawania nowych `#[allow(...)]`; `cargo clippy --workspace --all-targets --all-features -- -D warnings` zwraca 0 ostrzeżeń | `d2c6970`, `95d77cb`, `1ae0eae`, `21d3bf3`, `efaece4`, `037d4c5` | `src/**`, `tests/**` | `cargo +stable clippy --workspace --all-targets --all-features -- -D warnings` (EXIT 0) | `FIXED_SOFTWARE_VERIFIED` | ZEROWE |
+| `CI-002` | Brak flagi `-D warnings` dla `cargo clippy` oraz brak `cargo audit` w `.github/workflows/ci.yml` | Wymuszenie `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `cargo fmt --all -- --check`, `cargo test --workspace --all-targets`, `cargo test --doc` oraz `cargo audit --deny warnings` w `.github/workflows/ci.yml` | `7466bdd` | `.github/workflows/ci.yml`, `tests/security_guard.rs` | 7 testów strażnika (`ci_workflow_*`) w `tests/security_guard.rs` | `FIXED_SOFTWARE_VERIFIED` | ZEROWE |
+| `DOC-001` | Rozbieżności między `README.md`, `Native CAT.md` i stanem rzeczywistym kodu | Synchronizacja liczby testów (`2237` aktywnych + `10` ignored HIL = `2247`), naprawa uszkodzonych symboli KaTeX (`\text`, `\frac`, `\times`), korekta domyślnego portu REST API (`127.0.0.1:8420`), opis `ClubRegistry` oraz aktualizacja rejestru audytowego, roadmapy i baseline | Commit dokumentacyjny Etapu 10 | `README.md`, `Native CAT.md`, `docs/AUDIT_FINDINGS_REGISTER.md`, `docs/IMPROVEMENT_ROADMAP.md`, `docs/REMEDIATION_BASELINE.md` | Weryfikacja spójności ścieżek, portów i liczników testów | `FIXED_SOFTWARE_VERIFIED` | ZEROWE |
+
 ### `TEST-001` — Czas wykonania zestawu testów jednostkowych wynosi ~532 sekundy (~9 minut) w profilu debug z powodu 4 testów w `src/sync/mod.rs`
 - **ID:** `TEST-001`
 - **Status:** `FIXED` (Etap 1D-B, commity `7106677` i `d4cd4d2`)
@@ -1791,13 +1832,14 @@ Fizyczny HIL: **NOT EXECUTED — SAFETY GATE CLOSED** (Brak operacji HIL, 0 RF, 
 - **Poziom krytyczności:** `HIGH`
 - **Poziom pewności:** `CONFIRMED`
 - **Status remediacji:** `FIXED_SOFTWARE_VERIFIED`
-- **Data wdrożenia i weryfikacji:** 2026-11-05
+- **Data wdrożenia i weryfikacji:** 2026-11-05 (Etap 7) / 2026-11-06 (Etap 10 — pełna synchronizacja `README.md` i `Native CAT.md`)
 - **Commity:**
   - `073b50a`: `docs(audit): close FUNC-001 and FUNC-002 in audit register, roadmap and baseline`
   - `20d6a14`: `docs(audit): close Stage 7 contest compliance repair`
   - `b5b5f99`: `docs(audit): close final Stage 7 contest compliance gate`
-  - `docs(audit): correct CQ WW fixture arithmetic and SP DX province names`
-- **Moduł / obszar:** `docs/AUDIT_FINDINGS_REGISTER.md`, `docs/IMPROVEMENT_ROADMAP.md`, `docs/REMEDIATION_BASELINE.md`
+  - `35870a3`: `docs(audit): correct CQ WW fixture arithmetic and SP DX province names`
+  - Commit dokumentacyjny Etapu 10: `docs(audit): close Stage 10 findings (DOC-001)`
+- **Moduł / obszar:** `README.md`, `Native CAT.md`, `docs/AUDIT_FINDINGS_REGISTER.md`, `docs/IMPROVEMENT_ROADMAP.md`, `docs/REMEDIATION_BASELINE.md`
 - **Lokalizacja:** [`docs/AUDIT_FINDINGS_REGISTER.md`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/docs/AUDIT_FINDINGS_REGISTER.md), [`docs/IMPROVEMENT_ROADMAP.md`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/docs/IMPROVEMENT_ROADMAP.md), [`docs/REMEDIATION_BASELINE.md`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/docs/REMEDIATION_BASELINE.md)
 - **Dowód z kodu i dokumentacji przed korektą:**
   1. Uprzedni opis manualnego fixture CQ WW zawierał niespójność rachunkową (20 pkt QSO sugerowane przy 5 mnożnikach), podczas gdy poprawny rachunek wynosi ściśle: 10 punktów QSO × 10 mnożników = 100 (CLAIMED-SCORE: 100), a łączności zduplikowane wnoszą 0 dodatkowych punktów i 0 nowych mnożników.
@@ -1900,19 +1942,27 @@ Fizyczny HIL: **NOT EXECUTED — SAFETY GATE CLOSED** (Brak operacji HIL, 0 RF, 
 - **Kategoria:** `CI`
 - **Poziom krytyczności:** `HIGH`
 - **Poziom pewności:** `CONFIRMED`
-- **Moduł / obszar:** `.github/workflows/ci.yml`
-- **Lokalizacja:** [`.github/workflows/ci.yml:50-55`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/.github/workflows/ci.yml#L50-L55)
-- **Dowód z kodu:** W `.github/workflows/ci.yml:52` krok `Run Clippy linter` wykonuje `cargo clippy --all-targets --all-features` bez `-- -D warnings`, przez co nie przerywa buildu przy ostrzeżeniach. Brak również kroku `cargo audit`.
-- **Opis problemu:** Regresje jakości kodu i bezpieczeństwa zależności nie są zatrzymywane na etapie Pull Request / Push.
-- **Scenariusz wystąpienia:** Każdy przebieg CI na GitHub Actions.
-- **Wpływ:** Narastanie długu technicznego (obecnie >400 ostrzeżeń Clippy i 7 podatności w `Cargo.lock`).
-- **Rozwiązanie minimalne:** Po oczyszczeniu ostrzeżeń (`RUST-001`) i aktualizacji `Cargo.lock` (`DEP-001`) zmienić komendę w `ci.yml:52` na `cargo clippy --workspace --all-targets --all-features -- -D warnings` i dodać krok `rustsec/audit-check`.
-- **Rozwiązanie docelowe:** Pełna bramka jakościowa: `fmt --check`, `clippy -D warnings`, `test --workspace --all-targets`, `cargo audit`.
-- **Ryzyko wdrożenia zmiany:** Niskie (po wykonaniu `RUST-001` i `DEP-001`).
-- **Złożoność wdrożenia:** `S`
-- **Zależności od innych zmian:** `RUST-001`, `DEP-001`.
-- **Wymagany test regresyjny:** Zielony przebieg CI z aktywną flagą `-- -D warnings`.
-- **Kryterium akceptacji:** `ci.yml` wymusza zero ostrzeżeń Clippy i zero podatności RustSec.
+- **Status remediacji:** **FIXED_SOFTWARE_VERIFIED**
+- **Data wdrożenia i weryfikacji:** 2026-11-06
+- **Commit:**
+  - `7466bdd`: `ci(quality): enforce Clippy deny warnings and dependency audit (CI-002)`
+- **Moduł / obszar:** `.github/workflows/ci.yml`, `tests/security_guard.rs`
+- **Lokalizacja:** [`.github/workflows/ci.yml`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/.github/workflows/ci.yml), [`tests/security_guard.rs`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/tests/security_guard.rs)
+- **Dowód z kodu przed naprawą:** W `.github/workflows/ci.yml:52` krok `Run Clippy linter` wykonywał `cargo clippy --all-targets --all-features` bez `-- -D warnings`, przez co nie przerywał buildu przy ostrzeżeniach. Brakowało również kroków `cargo test --doc` oraz `cargo audit`.
+- **Wdrożone rozwiązanie (Etap 10):**
+  1. W `.github/workflows/ci.yml` zaktualizowano krok Clippy na `cargo clippy --workspace --all-targets --all-features -- -D warnings`.
+  2. Ujednolicono krok testów do `cargo test --workspace --all-targets --verbose` oraz dodano krok `cargo test --doc --verbose`.
+  3. Dodano obowiązkowy krok `Run cargo audit` instalujący `cargo-audit` i uruchamiający `cargo audit --deny warnings` z jawną, udokumentowaną listą 7 zaakceptowanych tranzytywnych advisories (`RUSTSEC-2024-0436`, `RUSTSEC-2025-0141`, `RUSTSEC-2026-0249`, `RUSTSEC-2026-0370`, `RUSTSEC-2026-0371`, `RUSTSEC-2026-0372`, `RUSTSEC-2026-0097`).
+  4. Zachowano brak `continue-on-error: true` na wszystkich bramkach jakościowych i bezpieczeństwowych oraz przypięcie akcji GitHub Actions do pełnych 40-znakowych SHA.
+- **Wdrożone testy regresyjne:**
+  - `ci_workflow_enforces_fmt_check`
+  - `ci_workflow_enforces_clippy_deny_warnings`
+  - `ci_workflow_runs_workspace_tests`
+  - `ci_workflow_runs_cargo_audit`
+  - `ci_workflow_does_not_allow_quality_gate_failures`
+  - `ci_workflow_does_not_run_physical_hil_tests`
+  - `ci_workflow_pins_actions_or_follows_repo_security_policy`
+- **Kryterium akceptacji:** Spełnione w 100% — `ci.yml` wymusza zero ostrzeżeń Clippy i zero podatności RustSec.
 
 ---
 

@@ -515,4 +515,55 @@ Cargo.lock SHA-1: `c569097f3ef69c66ec59b74c29c1eb29efce69ae` (bez zmian)
   - Prawdziwa baza danych użytkownika: nieotwierana, dane nienaruszone.
 - Gotowość do kolejnego etapu:
   - Etap 9 definitywnie i bezwarunkowo zamknięty ze statusem `COMPLETED_SOFTWARE_VERIFIED`.
-  - Etap 10 w stanie `READY` (NIE ROZPOCZYNAĆ w tej sesji).
+- Ukończenie i weryfikacja Etapu 10 (Rzeczywista data wykonania: 2026-11-06, Deklarowana data robocza projektu: 2026-11-06):
+  - Etap 10 (Podłączenie Funkcji Pozornych, Czystość `cargo clippy -D warnings` i Dokumentacja) wdrożony, utwardzony i zweryfikowany w 100% ze statusem `COMPLETED_SOFTWARE_VERIFIED`.
+  - Zamknięte i zweryfikowane kanoniczne findings: `FUNC-004`, `FUNC-006`, `FUNC-007`, `FUNC-008`, `RUST-001`, `CI-002`, `DOC-001`.
+  - Wdrożone commity Etapu 10:
+    1. `9cb49dc`: `fix(digital): connect js8call listener, fldigi test and winkeyer frames (FUNC-004)`
+    2. `85104a1`: `fix(gui): wire audio recording stop photo preview and EME rotor (FUNC-004)`
+    3. `062d65c`: `fix(core): load club affiliations dynamically from reference database (FUNC-006)`
+    4. `a5d9bde`: `fix(digital): implement winkeyer frames fldigi xmlrpc test and js8call listener (FUNC-004)`
+    5. `53d532a`: `fix(awards): support wwff references, display propagation accuracy and fix lotw since date (FUNC-007, FUNC-008)`
+    6. `caf72d1`: `fix(awards): enforce club uniqueness, complete awards engine and propagation UI (FUNC-006, FUNC-007)`
+    7. `d2c6970`: `refactor(clippy): clean core and database warnings (RUST-001)`
+    8. `95d77cb`: `refactor(clippy): clean CAT and digital warnings (RUST-001)`
+    9. `1ae0eae`: `refactor(clippy): clean GUI warnings (RUST-001)`
+    10. `21d3bf3`: `refactor(clippy): clean cloud media and plugin warnings (RUST-001)`
+    11. `efaece4`: `refactor(clippy): clean binaries and integration test warnings (RUST-001)`
+    12. `037d4c5`: `fix(test): preserve UTF-8 encoding in app_config, psk_reporter and security_guard (RUST-001)`
+    13. `7466bdd`: `ci(quality): enforce Clippy deny warnings and dependency audit (CI-002)`
+  - Rozwiązane obszary Etapu 10:
+    1. Pełny przepływ produkcyjny funkcji pozornych (`FUNC-004`):
+       - `AudioRecorder::stop_recording`: idempotentne zatrzymanie workera, opróżnienie bufora i finalizacja nagłówka WAV przez wewnętrzny trait `AudioSink` bez otwierania fizycznego urządzenia audio w testach.
+       - `PhotoViewerDialog`: przekazanie wybranego źródła z galerii QSL, odrzucenie pustych ścieżek, jawne raportowanie brakującego pliku w GUI i czyszczenie stanu przejściowego przy zamknięciu.
+       - Rotator EME (`rotate_antenna_to_el`): walidacja zakresu azymutu (`0..=360`) i elewacji (`-90..=90`), odrzucenie `NaN`/`Infinity`, eliminacja niejawnego fallbacku na pierwsze radio, użycie abstrakcji `RotatorTransport` i bounded timeout.
+       - `Js8CallListener`: ustawienia `js8call_enabled` i `js8call_port` w `AppConfig`, dynamiczny start/stop, obsługa ramek TCP JSON Lines i odporność na częściowe/uszkodzone ramki.
+       - `FldigiClient::test_connection`: zapytanie XML-RPC `fldigi.version` + `main.get_frequency` z aktualizacją stanu `Online`/`Error` w `online_sync.rs`.
+       - `WinkeyerProtocol` i `WinkeyerSession`: generowanie binarnych ramek K1EL (`HostOpen`, `SetWpm`, `Abort`, tekst CW), abstrakcja `WinkeyerTransport` z `MockWinkeyerTransport`, brak cichego sukcesu bez skonfigurowanego transportu.
+    2. Rejestr klubów krótkofalarskich (`FUNC-006`): usunięcie zahardkodowanych 11 znaków ze współdzielonymi numerami członkowskimi, dynamiczne ładowanie z `databases/clubs.csv` (lub konfiguracji użytkownika) z rygorystyczną walidacją unikalności par `(club, member_number)` i normalizacją znaków bazowych (`SP9ABC/P` -> `SP9ABC`).
+    3. Domknięcie `AwardsEngine`, `PropagationHistory` i `qsl_print` (`FUNC-007`): zliczanie i prezentacja referencji `WWFF` i `RDA` w silniku i oknie dyplomów, wyświetlanie skuteczności prognoz (`accuracy_rate`, `band_accuracy`) w panelu solarnym oraz integracja kalkulacji arkuszy `qsl_print::calculate_total_sheets`.
+    4. Przyrostowe pobieranie potwierdzeń LoTW (`FUNC-008`): przekazywanie i walidacja parametru `qso_qslsince` (`YYYY-MM-DD`) w `LotwClient::fetch_confirmations` z redakcją poświadczeń w diagnostyce.
+    5. Czystość `cargo clippy -- -D warnings` (`RUST-001`): redukcja ostrzeżeń z 389 unikalnych (768 łącznie we wszystkich targetach) do **0 ostrzeżeń** we wszystkich targetach workspace'u bez dodawania nowych `#[allow(...)]`.
+    6. Utwardzenie potoku CI (`CI-002`): wymuszenie `cargo clippy --workspace --all-targets --all-features -- -D warnings` oraz `cargo audit --deny warnings` (z jawną listą 7 zaakceptowanych tranzytywnych advisories) w `.github/workflows/ci.yml`, zabezpieczone 7 testami w `tests/security_guard.rs`.
+    7. Synchronizacja dokumentacji (`DOC-001`): aktualizacja `README.md`, `Native CAT.md`, `docs/AUDIT_FINDINGS_REGISTER.md`, `docs/IMPROVEMENT_ROADMAP.md` i `docs/REMEDIATION_BASELINE.md`.
+  - Statystyki testów po Końcowej Bramce Etapu 10:
+    - Łącznie zarejestrowanych testów we workspace: **2247** (+75 nowych testów w Etapie 10)
+    - Aktywne testy programowe: **2237 passed**, **0 failed**
+    - Fizyczny HIL: **10 ignored** (`#[ignore = "hardware-in-the-loop"]`), emisja RF = 0, fizyczne PTT = 0, bramka bezpieczeństwa HIL zamknięta (`NOT EXECUTED — SAFETY GATE CLOSED`).
+    - `cargo test --doc`: ok (0 doc testów)
+    - `cargo +stable clippy --workspace --all-targets --all-features -- -D warnings`: **EXIT 0 (0 warnings, 0 errors)**
+    - `cargo +stable fmt --all -- --check`: **0 odchyleń formatowania**
+    - `security_guard`: **49 passed, 0 failed**
+    - `i18n_guard`: **15 passed, 0 failed**
+    - `theme_guard`: **1 passed, 0 failed**
+    - `cat_native_6a`: **165 passed, 0 failed**
+    - `cat_native_6b`: **121 passed, 0 failed**
+    - `cat_native_7`: **297 passed, 10 ignored HIL, 0 failed**
+    - `cargo audit`: **0 vulnerabilities, 0 unsound** (1 yanked + 6 unmaintained tranzytywnych, udokumentowanych)
+  - Integralność zależności i plików konfiguracyjnych:
+    - `Cargo.toml` SHA-1: `0cdf381165bfc3111fff15097007e4b235484ec8` (blob Git LF: `d8e3acd8f0c7b3307b3733c6c4a9a6cc57cb17c4`, niezmieniony)
+    - `Cargo.lock` SHA-1: `52be66b2bc063c001d5c2e8556457fa2be04ff4f` (blob Git LF: `c569097f3ef69c66ec59b74c29c1eb29efce69ae`, niezmieniony)
+  - Prawdziwa baza danych i konfiguracja użytkownika: nieotwierane, dane nienaruszone.
+- Gotowość do kolejnego etapu:
+  - Etap 10 definitywnie i bezwarunkowo zamknięty ze statusem `COMPLETED_SOFTWARE_VERIFIED`.
+  - Etap 11 (fizyczne testy sprzętowe HIL) pozostaje nierozpoczęty (`NOT EXECUTED — SAFETY GATE CLOSED`).

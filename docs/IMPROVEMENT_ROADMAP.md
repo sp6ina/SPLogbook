@@ -338,17 +338,20 @@ flowchart LR
   - Kompletna macierz stabilności i testów regresyjnych (60/60 testów stabilności zaliczonych w 5 powtórzeniach, 0 flaky, brak blokad GUI pod obciążeniem) (commit `a7330ce`).
 - **Pliki i moduły:** `src/gui/{shortcuts.rs,app_input.rs,app_config.rs,app_qso.rs,logbook_table.rs,contest.rs,operator_assistant.rs,app.rs,app_tests.rs}`, `src/gui/state/{log_view.rs,contest.rs,cat.rs}`, `src/core/{config.rs,events.rs}`, `src/cat/runtime.rs`.
 - **Ryzyka:** Niskie (zweryfikowane macierzą stabilności).
-- **Kryteria ukończenia:** Spełnione w 100%. Wszystkie kanoniczne testy programowe zaliczone (0 failed, 10 ignored laboratoryjnych HIL, brak emisji RF). Etap 9 bezwarunkowo zamknięty: SOFTWARE VERIFIED (`COMPLETED_SOFTWARE_VERIFIED`). Etap 10 w stanie `READY (NIE ROZPOCZYNAĆ w tej sesji)`.
+- **Kryteria ukończenia:** Spełnione w 100%. Wszystkie kanoniczne testy programowe zaliczone (0 failed, 10 ignored laboratoryjnych HIL, brak emisji RF). Etap 9 bezwarunkowo zamknięty: SOFTWARE VERIFIED (`COMPLETED_SOFTWARE_VERIFIED`).
 
 ---
 
-### Etap 10 — Podłączenie Funkcji Pozornych, Czystość `cargo clippy -D warnings` i Dokumentacja (`P2`) [READY — NIE ROZPOCZYNAĆ W TEJ SESJI]
+### Etap 10 — Podłączenie Funkcji Pozornych, Czystość `cargo clippy -D warnings` i Dokumentacja (`P2`) [COMPLETED_SOFTWARE_VERIFIED]
 - **Cel:** Domknięcie częściowo podłączonych funkcji (`FUNC-004`, `FUNC-006`, `FUNC-007`, `FUNC-008`), osiągnięcie 0 ostrzeżeń `clippy` i aktualizacja dokumentacji (`RUST-001`, `CI-002`, `DOC-001`).
-- **Zakres:**
-  - Naprawa przycisku STOP nagrywania audio (`qso_entry.rs:646`), podglądu zdjęcia QSL (`qso_entry.rs:589`), przycisków rotatora EME (`astronomy_dialog.rs:233`), uruchomienia `Js8CallListener`, testu `FldigiClient` oraz transportu szeregowego `Winkeyer` (`FUNC-004`).
-  - Zastąpienie zahardkodowanych 11 znaków w `src/core/clubs.rs` ładowaniem z pliku referencyjnego (`FUNC-006`).
-  - Oczyszczenie wszystkich ostrzeżeń `cargo clippy` i włączenie `cargo clippy --workspace --all-targets --all-features -- -D warnings` oraz `cargo audit` w `.github/workflows/ci.yml` (`RUST-001`, `CI-002`).
-  - Aktualizacja `README.md` i `Native CAT.md` (`DOC-001`).
-- **Pliki i moduły:** `src/gui/qso_entry.rs`, `src/gui/astronomy_dialog.rs`, `src/digital/{js8call.rs,fldigi.rs}`, `src/cat/winkeyer.rs`, `src/core/clubs.rs`, `.github/workflows/ci.yml`, `README.md`, `Native CAT.md`.
-- **Ryzyka:** Niskie.
-- **Kryteria ukończenia:** `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test --all-targets` oraz `cargo audit` przechodzą z kodem wyjścia `0`.
+- **Zakres zrealizowany (2026-11-06):**
+  - Pełny przepływ produkcyjny i walidacja dla 6 obszarów `FUNC-004`: zatrzymanie nagrywania audio z finalizacją nagłówka WAV (`AudioRecorder::stop_recording`, `AudioSink`), podgląd zdjęcia QSL z zachowaniem źródła i odrzuceniem pustych ścieżek (`PhotoViewerDialog`), sterowanie rotatora EME z walidacją azymutu/elewacji i bez niejawnego fallbacku na pierwsze radio (`rotate_antenna_to_el`), dynamiczny listener JS8Call (`Js8CallListener`, `js8call_enabled`/`js8call_port`), test połączenia FLDigi XML-RPC (`FldigiClient::test_connection`) oraz binarne ramkowanie i mockowalny transport `WinkeyerTransport` (commity `9cb49dc`, `85104a1`, `a5d9bde`).
+  - Dynamiczne ładowanie członkostwa w klubach krótkofalarskich (`ClubRegistry`) z pliku referencyjnego `databases/clubs.csv` z rygorystyczną walidacją unikalności par `(club, member_number)` i eliminacją współdzielonych zahardkodowanych numerów (`FUNC-006`, commity `062d65c`, `caf72d1`).
+  - Obsługa referencji `WWFF` i `RDA` w `AwardsEngine::ingest_qso` i `AwardsMatrixDialog`, prezentacja skuteczności prognoz `PropagationHistory` (`accuracy_rate`, `band_accuracy`) w GUI oraz podłączenie kalkulatora arkuszy `qsl_print.rs` (`FUNC-007`, commity `53d532a`, `caf72d1`).
+  - Przekazywanie i walidacja parametru `qso_qslsince` (`YYYY-MM-DD`) w `LotwClient::fetch_confirmations` (`FUNC-008`, commit `53d532a`).
+  - Całkowite oczyszczenie wszystkich 389 unikalnych ostrzeżeń `cargo clippy` we wszystkich targetach workspace'u (`--lib`, `--lib --tests`, `--bin SPLogbook`, `--bin splogbook-signer`, testy integracyjne) w 5 kontrolowanych paczkach tematycznych bez ani jednego nowego `#[allow(...)]` (`RUST-001`, commity `d2c6970`, `95d77cb`, `1ae0eae`, `21d3bf3`, `efaece4`, `037d4c5`).
+  - Wymuszenie `cargo clippy --workspace --all-targets --all-features -- -D warnings` oraz `cargo audit --deny warnings --ignore ...` w `.github/workflows/ci.yml` wraz z testami strażnika w `tests/security_guard.rs` (`CI-002`, commit `7466bdd`).
+  - Synchronizacja dokumentacji `README.md`, `Native CAT.md`, `docs/AUDIT_FINDINGS_REGISTER.md`, `docs/IMPROVEMENT_ROADMAP.md` oraz `docs/REMEDIATION_BASELINE.md` (`DOC-001`).
+- **Pliki i moduły:** `src/media/audio_recorder.rs`, `src/gui/{qso_entry.rs,photo_viewer.rs,astronomy_dialog.rs,app_cat.rs,app_services.rs,online_sync.rs,cw_terminal.rs,awards_matrix.rs,solar_panel.rs}`, `src/digital/{js8call.rs,fldigi.rs}`, `src/cat/winkeyer.rs`, `src/core/{clubs.rs,awards.rs,propagation_history.rs,qsl_print.rs}`, `src/cloud/lotw.rs`, `databases/clubs.csv`, `.github/workflows/ci.yml`, `tests/security_guard.rs`, `README.md`, `Native CAT.md`.
+- **Ryzyka:** Niskie (zweryfikowane pakietem 2237 aktywnych testów i 5-krotną pętlą stabilności).
+- **Kryteria ukończenia:** Spełnione w 100%. `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `cargo test --workspace --all-targets` (2237 passed, 0 failed, 10 ignored HIL) oraz `cargo audit` (0 vulnerabilities, 0 unsound) przechodzą z kodem wyjścia `0`. Etap 10 bezwarunkowo zamknięty: `COMPLETED_SOFTWARE_VERIFIED`. Etap 11 (fizyczne testy HIL) pozostaje nierozpoczęty i zablokowany bramką bezpieczeństwa sprzętowego (`NOT EXECUTED — SAFETY GATE CLOSED`).

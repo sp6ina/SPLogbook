@@ -1062,7 +1062,7 @@ NATIVE-0 -> NATIVE-1 -> NATIVE-2 -> NATIVE-3 -> NATIVE-4 -> NATIVE-5 (5A-5E) -> 
   - [x] Nienaruszalna zasada pojedynczego załączenia PTT (Zero Retry Invariant).
   - [x] Bezpieczny token autoryzacji PTT przez operatora (`HilPttConsentToken`) oraz wieloskładnikowa weryfikacja sesji (`HilHardwareSession::verify_tx_authorization`).
   - [x] Jawny i bezpieczny model zwolnienia nadawania ze strażnikiem RAII `HilTxGuard` (jawne `release_and_confirm_rx()` jako jedyna ścieżka do `ConfirmedRx`; w razie niekontrolowanego porzucenia Drop oznacza sesję jako `FailedOrUnknown` bez blokującego I/O, bez tworzenia runtime Tokio i bez fałszowania przejścia do RX).
-  - [x] 279 deterministycznych testów integracyjnych offline w `tests/cat_native_7.rs` (wszystkie passed).
+  - [x] 297 deterministycznych testów integracyjnych offline w `tests/cat_native_7.rs` (wszystkie passed).
   - [x] 10 hermetycznie odizolowanych punktów wejścia do testów fizycznych (`hil_hardware_*`, `#[ignore = "hardware-in-the-loop"]`).
   - [x] Przykładowy kanoniczny manifest stanowiska `tests/hil/ic7300_lab_bench.json` (sklasyfikowany jako `SyntheticOfflineFixture`).
   - [x] Pełna synchronizacja `Refaktoryzacje.md`, `Native CAT.md`, `src/gui/user_manual.rs` i `README.md`.
@@ -1070,10 +1070,10 @@ NATIVE-0 -> NATIVE-1 -> NATIVE-2 -> NATIVE-3 -> NATIVE-4 -> NATIVE-5 (5A-5E) -> 
   - [-] Wymaga rzeczywistego fizycznego transceivera i atestowanego sztucznego obciążenia 50 Ω.
   - [-] Zgodnie z nadrzędnymi regułami wykonania, testy fizyczne nie są symulowane ani zaliczane na podstawie atrap/deklaracji. W obecnym środowisku wykonawczym (gdzie jedyne porty szeregowe to wirtualne porty Bluetooth COM7/COM8) bramka NATIVE-7B posiada status **BLOCKED**, a 10 przypadków testów sprzętowych status **NOT RUN**.
 
-### Końcowy werdykt programu NATIVE-CAT:
+### Końcowy werdykt programu NATIVE-CAT (zaktualizowany po Etapie 10 — 2026-11-06):
 
-1. **NATIVE-CAT SOFTWARE**: **PASSED** (8 backendów, RigHub, TxArbiter, CatRuntime, CatStationConfig, migracja v0->v1 z rollbackiem, FormVariantCache, 1355 testów programowych passed w całym projekcie).
-2. **NATIVE-7A OFFLINE**: **PASSED** (kompletny harness HIL, wieloosiowy model dowodowy, walidator 30 nienaruszalnych kanonicznych warunków HIL-READY, zestaw rozszerzony `HIL-X01`..`HIL-X22`, 279 testów offline passed, 0 ostrzeżeń).
+1. **NATIVE-CAT SOFTWARE**: **PASSED** (8 backendów, RigHub, TxArbiter, CatRuntime, CatStationConfig, migracja v0->v1 z rollbackiem, FormVariantCache, Hamlib Proxy per-rig port binding, PhysicalEndpointRegistry, 2237 aktywnych testów programowych passed w całym projekcie, 0 ostrzeżeń `cargo clippy --workspace --all-targets --all-features -- -D warnings`).
+2. **NATIVE-7A OFFLINE**: **PASSED** (kompletny harness HIL, wieloosiowy model dowodowy, walidator 30 nienaruszalnych kanonicznych warunków HIL-READY, zestaw rozszerzony `HIL-X01`..`HIL-X22`, 297 testów offline passed w `tests/cat_native_7.rs`, 165 w `tests/cat_native_6a.rs`, 121 w `tests/cat_native_6b.rs`, 0 ostrzeżeń).
 3. **NATIVE-7B HARDWARE**: **BLOCKED** (brak fizycznego stanowiska laboratoryjnego i sztucznego obciążenia 50 Ω w środowisku CI/dev).
 4. **HARDWARE TEST CASES**: **NOT RUN** (10 izolowanych przypadków sprzętowych w stanie NotRun z powodu blokady bramki HIL-READY).
 5. **HARDWARE VALIDATION**: **INCOMPLETE** (stanowisko oczekuje na fizyczne podłączenie aparatury).
