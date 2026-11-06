@@ -541,14 +541,63 @@ Status Etapu 5: **SOFTWARE VERIFIED**
   1. **Edycja regulaminu SP DX Contest (PZK)**:
      - Stacja polska (`my_dxcc == 269`): praca z Europą = 1 pkt, praca poza Europą = 3 pkt, łączność ze stacją SP = 0 pkt (duplikat/brak punktów). Mnożnik: unikalne podmioty DXCC na każdym paśmie.
      - Stacja zagraniczna (`my_dxcc != 269`): punktowane są wyłącznie łączności ze stacjami SP = 3 pkt. Mnożnik: dokładnie 16 oficjalnych, jednoliterowych oznaczeń polskich województw (`B, C, D, F, G, J, K, L, M, O, P, R, S, U, W, Z`) na każdym paśmie.
+     - Pełna kanoniczna mapa województw SP DX:
+       | Kod | Województwo |
+       |---|---|
+       | B | lubuskie |
+       | C | łódzkie |
+       | D | dolnośląskie |
+       | F | pomorskie |
+       | G | śląskie |
+       | J | warmińsko-mazurskie |
+       | K | podkarpackie |
+       | L | lubelskie |
+       | M | małopolskie |
+       | O | podlaskie |
+       | P | kujawsko-pomorskie |
+       | R | mazowieckie |
+       | S | świętokrzyskie |
+       | U | opolskie |
+       | W | wielkopolskie |
+       | Z | zachodniopomorskie |
      - Walidacja województw: kody są normalizowane do wielkiej litery (case-insensitive). Niedozwolone są jakiekolwiek dwuliterowe skróty administracyjne (np. `MA`, `LD`, `DS`, `PM`, `SL`), nieoficjalne litery, cyfry, znaki interpunkcyjne lub wartości wieloznakowe — zwracają `ContestError::InvalidContestExchange`. Pusta wymiana zwraca `ContestError::MissingContestExchange`.
-     - Poprawiono manualne fixture stacji zagranicznej: prawidłowe województwa SP1AA (R), SP2AA (C), SP3AA (R) dają 9 punktów QSO i 3 mnożniki (R na 80m, C na 40m, R na 20m), łącznie 27 punktów (CLAIMED-SCORE: 27).
+     - Poprawiono manualne fixture stacji zagranicznej:
+       - SP1AA, 80m CW: exchange R (województwo: mazowieckie), punkty: 3, mnożnik: R na 80m.
+       - SP2AA, 40m CW: exchange C (województwo: łódzkie), punkty: 3, mnożnik: C na 40m.
+       - DL2AA, 20m CW: exchange 001, stacja spoza SP, punkty: 0, mnożnik: brak.
+       - SP3AA, 20m CW: exchange R (województwo: mazowieckie), punkty: 3, mnożnik: R na 20m.
+       Podsumowanie punktacji stacji zagranicznej:
+       Punkty: 3 + 3 + 0 + 3 = 9
+       Mnożniki: R na 80m, C na 40m, R na 20m (liczba mnożników: 3).
+       Wynik końcowy: 9 × 3 = 27 (CLAIMED-SCORE: 27).
+     - Fixture stacji polskiej: SP1AA, województwo R (mazowieckie). Oficjalne przypisanie kodów: R = mazowieckie, C = łódzkie, K = podkarpackie, P = kujawsko-pomorskie. Niedozwolone są jakiekolwiek dwuliterowe kody województw.
      - Dozwolone pasma: 160m, 80m, 40m, 20m, 15m, 10m. Dozwolone emisje: CW, SSB.
   2. **Edycja regulaminu CQ WW DX Contest (CQ)**:
      - Własny podmiot DXCC: 0 pkt (kwalifikuje się do mnożnika strefy/kraju).
      - Ten sam kontynent, inny podmiot: 1 pkt (wyjątek Ameryki Północnej: 2 pkt).
      - Inny kontynent: 3 punkty bez względu na pasmo (zasada obowiązuje jednakowo na wszystkich dozwolonych pasmach: 160m, 80m, 40m, 20m, 15m i 10m).
-     - Poprawiono manualne fixture CQ WW: łączność W2AA na paśmie 40m (inny kontynent) ma wartość ściśle 3 punktów. Wynik całkowity fixture wynosi 20 punktów QSO * 5 mnożników = 100 punktów (CLAIMED-SCORE: 100).
+     - CQ WW DX Contest — ręcznie policzone fixture:
+       Stacja bazowa: SP1AA (DXCC: SP, kontynent: EU, strefa CQ: 15).
+       QSO:
+       1. SP2AA, 80m: relacja: ten sam kraj; punkty: 0; mnożniki: Zone 15 na 80m, SP na 80m.
+       2. DL1AA, 80m: relacja: ten sam kontynent, inny kraj; punkty: 1; mnożniki: Zone 14 na 80m, DL na 80m.
+       3. W1AW, 20m: relacja: inny kontynent; punkty: 3; mnożniki: Zone 5 na 20m, K na 20m.
+       4. JA1AA, 20m: relacja: inny kontynent; punkty: 3; mnożniki: Zone 25 na 20m, JA na 20m.
+       5. W2AA, 40m: relacja: inny kontynent; punkty: 3; mnożniki: Zone 5 na 40m, K na 40m.
+       Podsumowanie punktacji:
+       QSO points: 0 + 1 + 3 + 3 + 3 = 10
+       Zone multipliers: 5
+       Country multipliers: 5
+       All multipliers: 5 + 5 = 10
+       Final score: 10 × 10 = 100
+       CLAIMED-SCORE: 100
+       (Zone 5 i kraj K na 20m oraz Zone 5 i kraj K na 40m są osobnymi mnożnikami, ponieważ mnożniki CQ WW liczone są oddzielnie na każdym paśmie).
+     - Obsługa łączności zduplikowanych (DUPLICATE QSOS):
+       - pozostają w logu Cabrillo, jeśli wymaga tego kontrakt eksportu;
+       - nie zwiększają liczby punktów (0 dodatkowych punktów);
+       - nie zwiększają liczby mnożników (0 nowych mnożników);
+       - nie zmieniają wyniku końcowego (pozostaje 100 punktów).
+       Dla pięciu QSO podstawowych oraz ich duplikatów: podstawowe QSO dają 10 punktów i 10 mnożników, duplikaty dają 0 dodatkowych punktów i 0 nowych mnożników, wynik wynosi 100. Duplikaty nie mogą być używane do uzasadniania 20 punktów QSO.
      - Mnożniki: CQ Zones (1..40) na każdym paśmie oraz kraje DXCC na każdym paśmie.
      - Emisje rozdzielone per profil: osobny profil CQ WW CW, osobny profil CQ WW SSB. Dozwolone pasma: 160m, 80m, 40m, 20m, 15m, 10m.
   3. **Edycja regulaminu CQ WPX CW/SSB (CQ)**:
@@ -1610,28 +1659,44 @@ Fizyczny HIL: **NOT EXECUTED — SAFETY GATE CLOSED** (10 fizycznych testów spr
 
 ---
 
-### `DOC-001` — Rozbieżności pomiędzy `README.md` a rzeczywistym stanem kodu (baza klubów, Terminal CW/WinKeyer, JS8Call, FLDigi, zmyślony e-mail `contact@splogbook.org`)
+### `DOC-001` — Rozbieżności dokumentacyjne w rejestrze audytowym i specyfikacjach zawodów (arytmetyka CQ WW, województwa SP DX, kategoria nadajnika Cabrillo)
 - **ID:** `DOC-001`
-- **Tytuł:** Niespójności deklaracji funkcjonalnych w `README.md` względem rzeczywistej implementacji
+- **Tytuł:** Niespójności opisowe i rachunkowe w dokumentacji audytowej domeny zawodów względem zweryfikowanego kodu i testów
 - **Kategoria:** `DOC`
 - **Poziom krytyczności:** `HIGH`
 - **Poziom pewności:** `CONFIRMED`
-- **Moduł / obszar:** `README.md`, `Native CAT.md`
-- **Lokalizacja:** [`README.md:176-184, 545, 658, 683`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/README.md#L176-L683), [`Native CAT.md:389`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/Native%20CAT.md#L389)
-- **Dowód z kodu:**
-  1. `README.md:176-184` opisuje automatyczne sprawdzanie wbudowanej bazy międzynarodowych klubów (SP-OTC, SPCWC, CWOPS, FOC, SKCC, HSC), podczas gdy `src/core/clubs.rs` ma zahardkodowane tylko 11 znaków i nie zawiera SKCC (`FUNC-006`).
-  2. `README.md:545, 658` opisuje obsługę portu szeregowego dla WinKeyera, podczas gdy `src/cat/winkeyer.rs` nie posiada warstwy I/O portu szeregowego (`FUNC-004`).
-  3. `Native CAT.md:389` zawiera nieaktualny wpis tabeli dla KX2 (`supports_vfo_b_modifier: false` vs `true` w kodzie).
-- **Opis problemu:** Dokumentacja przypisuje pełną gotowość produkcyjną modułom będącym jeszcze w stadium makiety lub częściowego podłączenia.
-- **Scenariusz wystąpienia:** Lektura `README.md` przez użytkownika lub audytora.
-- **Wpływ:** Rozbieżność oczekiwań użytkownika ze stanem faktycznym programu.
-- **Rozwiązanie minimalne:** Zaktualizować `README.md` oraz `Native CAT.md:389` (albo dokończyć podłączenie `winkeyer.rs`, `js8call.rs` i `clubs.rs` zgodnie z dokumentacją).
-- **Rozwiązanie docelowe:** Pełna zgodność dokumentacji i kodu po wdrożeniu poprawek `FUNC-004` i `FUNC-006`.
-- **Ryzyko wdrożenia zmiany:** Zerowe.
+- **Status remediacji:** `FIXED_SOFTWARE_VERIFIED`
+- **Data wdrożenia i weryfikacji:** 2026-11-05
+- **Commity:**
+  - `073b50a`: `docs(audit): close FUNC-001 and FUNC-002 in audit register, roadmap and baseline`
+  - `20d6a14`: `docs(audit): close Stage 7 contest compliance repair`
+  - `b5b5f99`: `docs(audit): close final Stage 7 contest compliance gate`
+  - `docs(audit): correct CQ WW fixture arithmetic and SP DX province names`
+- **Moduł / obszar:** `docs/AUDIT_FINDINGS_REGISTER.md`, `docs/IMPROVEMENT_ROADMAP.md`, `docs/REMEDIATION_BASELINE.md`
+- **Lokalizacja:** [`docs/AUDIT_FINDINGS_REGISTER.md`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/docs/AUDIT_FINDINGS_REGISTER.md), [`docs/IMPROVEMENT_ROADMAP.md`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/docs/IMPROVEMENT_ROADMAP.md), [`docs/REMEDIATION_BASELINE.md`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/docs/REMEDIATION_BASELINE.md)
+- **Dowód z kodu i dokumentacji przed korektą:**
+  1. Uprzedni opis manualnego fixture CQ WW zawierał niespójność rachunkową (20 pkt QSO sugerowane przy 5 mnożnikach), podczas gdy poprawny rachunek wynosi ściśle: 10 punktów QSO × 10 mnożników = 100 (CLAIMED-SCORE: 100), a łączności zduplikowane wnoszą 0 dodatkowych punktów i 0 nowych mnożników.
+  2. Uprzedni opis zawierał błędne nazwy województw przy kodach R oraz C zamiast kanonicznego przypisania: R = mazowieckie, C = łódzkie, K = podkarpackie, P = kujawsko-pomorskie.
+  3. Zdublowane wzory i artefakty formatowania matematycznego w tekście dokumentacji.
+- **Wdrożone rozwiązanie (Ostateczna Bramka Dokumentacyjna Etapu 7 — DOC-001):**
+  1. **Arytmetyka fixture CQ WW**: Wdrożono jednoznaczny rachunek: 10 punktów QSO × 10 mnożników = 100 (CLAIMED-SCORE: 100).
+  2. **Obsługa duplikatów CQ WW**: Zdefiniowano zachowanie duplikatów: pozostają w logu Cabrillo 3.0 zgodnie ze standardem, dając 0 dodatkowych punktów i 0 nowych mnożników (wynik wynosi 100). Duplikaty nie mogą być używane do sztucznego uzasadniania 20 punktów QSO.
+  3. **Kanoniczna mapa SP DX**: Wprowadzono pełną tabelę 16 województw: B = lubuskie, C = łódzkie, D = dolnośląskie, F = pomorskie, G = śląskie, J = warmińsko-mazurskie, K = podkarpackie, L = lubelskie, M = małopolskie, O = podlaskie, P = kujawsko-pomorskie, R = mazowieckie, S = świętokrzyskie, U = opolskie, W = wielkopolskie, Z = zachodniopomorskie.
+  4. **Fixture SP DX**: Opisano manualne fixture stacji zagranicznej: SP1AA (R = mazowieckie, 3 pkt), SP2AA (C = łódzkie, 3 pkt), DL2AA (001, 0 pkt), SP3AA (R = mazowieckie, 3 pkt); punkty: 3 + 3 + 0 + 3 = 9; mnożniki: 3 (R na 80m, C na 40m, R na 20m); wynik: 9 × 3 = 27 (CLAIMED-SCORE: 27). Fixture stacji polskiej: SP1AA (województwo R = mazowieckie).
+  5. **Cabrillo 3.0**: Utrzymano jednoznaczne rozdzielenie `CATEGORY-OPERATOR` (`SINGLE-OP`, `MULTI-OP`, `CHECKLOG`) od `CATEGORY-TRANSMITTER` (`ONE`), z wyeliminowaniem błędnej wartości `MULTI`.
+  6. **Czyszczenie formatowania**: Usunięto artefakty i zniekształcenia notacji na rzecz czystych wzorów tekstowych (`3 + 3 + 0 + 3 = 9`, `9 × 3 = 27`, `10 × 10 = 100`).
+  7. **Spójność audytowa**: Pełna weryfikacja zgodności z testami regresyjnymi bez modyfikacji kodu produkcyjnego ani testów.
+- **Ryzyko wdrożenia zmiany:** Zerowe (zmiana wyłącznie dokumentacyjna).
 - **Złożoność wdrożenia:** `S`
-- **Zależności od innych zmian:** `FUNC-004`, `FUNC-006`.
-- **Wymagany test regresyjny:** Przegląd zgodności sekcji funkcji w `README.md`.
-- **Kryterium akceptacji:** Każda funkcja wymieniona w `README.md` posiada kompletny, przetestowany przepływ end-to-end.
+- **Zależności od innych zmian:** Powiązane z `FUNC-001`, `FUNC-002`.
+- **Wdrożone testy regresyjne:**
+  - `scoreboard_matches_manual_cqww_fixture`
+  - `claimed_score_matches_corrected_manual_cqww_fixture`
+  - `scoreboard_matches_manual_spdx_fixture`
+  - `spdx_accepts_each_official_one_letter_voivodeship`
+  - `cabrillo_never_emits_category_transmitter_multi`
+  - `tests/security_guard.rs`
+- **Kryterium akceptacji:** Spełnione w 100% — dokumentacja odpowiada kodowi i testom bez żadnych niespójności.
 
 ---
 

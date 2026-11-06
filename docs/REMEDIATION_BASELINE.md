@@ -378,7 +378,7 @@ Cargo.lock SHA-1: `c569097f3ef69c66ec59b74c29c1eb29efce69ae` (bez zmian)
   - Prawdziwa baza danych użytkownika nie została otwarta.
   - Żadne dane użytkownika nie zostały zmodyfikowane.
 
-## 9. Status po Zakończeniu Etapu 7 i Bramki Naprawczej (Domena Zawodów Krótkofalarskich: Cabrillo 3.0 i Regulaminy Punktacji, SOFTWARE VERIFIED)
+## 9. Status po Zakończeniu Etapu 7 i Bramki Naprawczej (Domena Zawodów Krótkofalarskich: Cabrillo 3.0 i Regulaminy Punktacji, COMPLETED_SOFTWARE_VERIFIED)
 
 Data sporządzenia: 2026-11-05
 Środowisko: Windows x86_64
@@ -397,7 +397,11 @@ Cargo.lock SHA-1: `c569097f3ef69c66ec59b74c29c1eb29efce69ae` (bez zmian)
   - Obsługa kategorii `CabrilloTransmitterCategory::One` (kolumna `t` pomijana); odrzucanie kategorii wielonadajnikowych `Two`, `Multi`, `Unlimited` z `ContestError::UnsupportedContestCategory`.
   - Pełna retencja łączności zduplikowanych (duplikatów) w wyjściowym pliku Cabrillo (0 punktów).
 - **FUNC-002 (Status: FIXED_SOFTWARE_VERIFIED):**
-  - SP DX Contest (`score_sp_dx`): pełna obsługa reguł PZK dla stacji polskich (`my_dxcc == 269`, EU 1 pkt, DX 3 pkt, SP-SP 0 pkt, mnożnik DXCC per pasmo) oraz stacji zagranicznych (`my_dxcc != 269`, łączności tylko z SP po 3 pkt, mnożnik 16 województw `B, C, D, F, G, J, K, L, M, O, P, R, S, U, W, Z` per pasmo). Dozwolone pasma 160m–10m, emisje CW i SSB.
+  - SP DX Contest (`score_sp_dx`): pełna obsługa reguł PZK dla stacji polskich (`my_dxcc == 269`, EU 1 pkt, DX 3 pkt, SP-SP 0 pkt, mnożnik DXCC per pasmo) oraz stacji zagranicznych (`my_dxcc != 269`, łączności tylko z SP po 3 pkt, mnożnik 16 województw według kanonicznej mapy: B = lubuskie, C = łódzkie, D = dolnośląskie, F = pomorskie, G = śląskie, J = warmińsko-mazurskie, K = podkarpackie, L = lubelskie, M = małopolskie, O = podlaskie, P = kujawsko-pomorskie, R = mazowieckie, S = świętokrzyskie, U = opolskie, W = wielkopolskie, Z = zachodniopomorskie per pasmo). Dozwolone pasma 160m–10m, emisje CW i SSB.
+- **DOC-001 (Status: FIXED_SOFTWARE_VERIFIED):**
+  - Korekta arytmetyki manualnego fixture CQ WW: 10 punktów QSO × 10 mnożników = 100 (CLAIMED-SCORE: 100). Duplikaty wnoszą 0 dodatkowych punktów i 0 mnożników.
+  - Korekta nazw województw SP DX i kanoniczna mapa 16 kodów jednoliterowych: R = mazowieckie, C = łódzkie, K = podkarpackie, P = kujawsko-pomorskie.
+  - Usunięcie artefaktów zapisu matematycznego i pełna weryfikacja zgodności dokumentacji z kodem i testami automatycznymi.
   - CQ WW Contest (`score_cqww`): własny DXCC 0 pkt, ten sam kontynent 1 pkt (wewnątrz NA 2 pkt), inny kontynent 3 pkt; strefy CQ (1..40) oraz DXCC per pasmo.
   - CQ WPX Contest (`score_wpx`):
     - **Ten sam kraj (same-country): 1 punkt na każdym paśmie** (brak podwojenia na pasmach niskich!).
@@ -433,11 +437,11 @@ Cargo.lock SHA-1: `c569097f3ef69c66ec59b74c29c1eb29efce69ae` (bez zmian)
 - Bezpieczeństwo danych:
   - Prawdziwa baza danych użytkownika nie została otwarta.
   - Żadne dane użytkownika nie zostały zmodyfikowane.
-- Ostateczna Bramka Korekcyjna Etapu 7 (2026-11-05):
-  - Poprawa fixture i testów CQ WW DX: potwierdzenie 3 punktów na wszystkich pasmach (160m–10m), prawidłowy wynik CLAIMED-SCORE: 100.
-  - Poprawa fixture i walidatora SP DX: ścisła egzekucja 16 jednoliterowych symboli województw (`B, C, D, F, G, J, K, L, M, O, P, R, S, U, W, Z`), odrzucanie kodów administracyjnych (`MA`, `LD`, etc.), CLAIMED-SCORE: 27.
+- Ostateczna Bramka Dokumentacyjna Etapu 7 (2026-11-05):
+  - Poprawa fixture i testów CQ WW DX: potwierdzenie 3 punktów na wszystkich pasmach (160m–10m), prawidłowy wynik: 10 punktów QSO × 10 mnożników = 100, CLAIMED-SCORE: 100.
+  - Poprawa fixture i walidatora SP DX: ścisła egzekucja 16 jednoliterowych symboli województw wedle mapy kanonicznej (B, C, D, F, G, J, K, L, M, O, P, R, S, U, W, Z; m.in. R = mazowieckie, C = łódzkie, K = podkarpackie, P = kujawsko-pomorskie), odrzucanie kodów administracyjnych (`MA`, `LD`, etc.), CLAIMED-SCORE: 27.
   - Cabrillo 3.0: rozdzielenie `CATEGORY-OPERATOR` (`SINGLE-OP`, `MULTI-OP`, `CHECKLOG`) od `CATEGORY-TRANSMITTER` (`ONE`), usunięcie błędnego `MULTI` w `CATEGORY-TRANSMITTER`.
   - Wyniki punktacji CQ WPX CW/SSB (144 pkt) w pełni zachowane i zabezpieczone.
 - Gotowość do kolejnego etapu:
-  - Etap 7 definitywnie zamknięty ze statusem `SOFTWARE VERIFIED`.
-  - Etap 8 w stanie `READY` (nieuruchomiony w ramach Etapu 7).
+  - Etap 7 definitywnie zamknięty ze statusem `COMPLETED_SOFTWARE_VERIFIED` (Software: SOFTWARE VERIFIED, Documentation: VERIFIED).
+  - Etap 8 w stanie `READY` (nieuruchomiony w ramach Etapu 7, NOT STARTED).

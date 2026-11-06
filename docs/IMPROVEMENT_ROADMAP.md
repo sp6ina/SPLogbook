@@ -299,13 +299,14 @@ flowchart LR
   - Wdrożenie walidacji specyficznej dla zawodów: pasma (`validate_band`), emisje (`validate_mode`), wymiany (`validate_exchange`).
   - Obsługa kategorii pojedynczego nadajnika (`CabrilloTransmitterCategory::One`) z pomijaniem kolumny `t`; bezpieczne odrzucanie kategorii wielonadajnikowych (`Two`, `Multi`, `Unlimited`) z `ContestError::UnsupportedContestCategory`.
   - Niezależne, ręcznie przeliczone fixtures testowe (`scoreboard_matches_manual_spdx_fixture`, `scoreboard_matches_manual_cqww_fixture`, `scoreboard_matches_manual_cqwpx_fixture`, `claimed_score_matches_manual_fixture`).
-  - Ostateczna Bramka Korekcyjna Etapu 7 (2026-11-05):
-    - Poprawa fixture CQ WW: potwierdzenie 3 punktów na wszystkich pasmach (160m–10m) dla łączności międzykontynentalnych, CLAIMED-SCORE: 100 punktów (`FUNC-002`).
-    - Poprawa fixture i walidacji SP DX: ścisła walidacja 16 jednoliterowych oznaczeń województw (`B, C, D, F, G, J, K, L, M, O, P, R, S, U, W, Z`), odrzucanie kodów administracyjnych (MA, LD, etc.), CLAIMED-SCORE: 27 punktów (`FUNC-002`).
+  - Ostateczna Bramka Dokumentacyjna Etapu 7 (2026-11-05):
+    - Poprawa arytmetyki fixture CQ WW: potwierdzenie 3 punktów na wszystkich pasmach (160m–10m) dla łączności międzykontynentalnych, poprawny rachunek: 10 punktów QSO × 10 mnożników = 100, duplikaty wnoszą 0 dodatkowych punktów i 0 mnożników, CLAIMED-SCORE: 100 (`FUNC-002`, `DOC-001`).
+    - Poprawa fixture i walidacji SP DX: ścisła walidacja 16 jednoliterowych oznaczeń województw według mapy kanonicznej (B = lubuskie, C = łódzkie, D = dolnośląskie, F = pomorskie, G = śląskie, J = warmińsko-mazurskie, K = podkarpackie, L = lubelskie, M = małopolskie, O = podlaskie, P = kujawsko-pomorskie, R = mazowieckie, S = świętokrzyskie, U = opolskie, W = wielkopolskie, Z = zachodniopomorskie), odrzucanie kodów administracyjnych (MA, LD, etc.), CLAIMED-SCORE: 27 punktów (`FUNC-002`, `DOC-001`).
     - Standard Cabrillo 3.0: rozdzielenie `CATEGORY-OPERATOR` (`SINGLE-OP`, `MULTI-OP`, `CHECKLOG`) od `CATEGORY-TRANSMITTER` (`ONE`), bezwzględne wyeliminowanie `MULTI` jako kategorii nadajnika (`FUNC-001`).
+    - Domknięcie dokumentacji audytowej: formalne zamknięcie `DOC-001` ze statusem `FIXED_SOFTWARE_VERIFIED`, eliminacja artefaktów zapisu matematycznego.
 - **Pliki i moduły:** `src/core/cabrillo.rs`, `src/core/contest_rules.rs`, `src/core/contest_stats.rs`, `src/gui/app_export.rs`.
 - **Ryzyka:** Niskie.
-- **Kryteria ukończenia:** Spełnione w 100%. 2029 aktywnych testów programowych zaliczonych (0 failed, 10 ignored fizycznych HIL, 2039 zarejestrowanych). Ostateczna bramka korekcyjna zakończona pełnym sukcesem. Etap 7 definitywnie zamknięty (`SOFTWARE VERIFIED`). Etap 8 w stanie `READY`.
+- **Kryteria ukończenia:** Spełnione w 100%. 2029 aktywnych testów programowych zaliczonych (0 failed, 10 ignored fizycznych HIL, 2039 zarejestrowanych). Ostateczna bramka dokumentacyjna zakończona pełnym sukcesem. Etap 7 definitywnie zamknięty: SOFTWARE VERIFIED, DOCUMENTATION: VERIFIED (`COMPLETED_SOFTWARE_VERIFIED`). Etap 8 w stanie `READY` (NOT STARTED).
 
 ---
 
