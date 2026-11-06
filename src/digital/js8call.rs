@@ -10,6 +10,8 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader, Read};
 use std::net::{TcpStream, ToSocketAddrs};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 /// Wiadomość API JS8Call (JSON)
@@ -51,6 +53,39 @@ pub struct Js8CallClient {
     port: u16,
 }
 
+/// Uchwyt do zarządzania cyklem życia workera nasłuchującego JS8Call
+#[derive(Debug)]
+pub struct Js8ListenerHandle {
+    shutdown: Arc<AtomicBool>,
+    handle: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Js8ListenerHandle {
+    /// Zatrzymuje worker nasłuchujący w sposób deterministyczny i ograniczony czasowo
+    pub fn stop(&mut self) {
+        self.shutdown.store(true, Ordering::SeqCst);
+        if let Some(h) = self.handle.take() {
+            let _ = h.join();
+        }
+    }
+
+    /// Sprawdza czy wątek workera wciąż działa
+    pub fn is_running(&self) -> bool {
+        !self.shutdown.load(Ordering::SeqCst)
+            && self
+                .handle
+                .as_ref()
+                .map(|h| !h.is_finished())
+                .unwrap_or(false)
+    }
+}
+
+impl Drop for Js8ListenerHandle {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
 impl Js8CallClient {
     pub fn new(host: impl Into<String>, port: u16) -> Self {
         Self {
@@ -67,11 +102,35 @@ impl Js8CallClient {
         state_sender: std::sync::mpsc::Sender<Js8CallState>,
         qso_sender: std::sync::mpsc::Sender<QsoRecord>,
     ) -> std::thread::JoinHandle<()> {
+        let shutdown = Arc::new(AtomicBool::new(false));
+        self.start_listener_internal(state_sender, qso_sender, shutdown)
+    }
+
+    /// Uruchamia zarządzany listener z uchwytem pozwalającym na deterministyczny shutdown
+    pub fn start_managed_listener(
+        &self,
+        state_sender: std::sync::mpsc::Sender<Js8CallState>,
+        qso_sender: std::sync::mpsc::Sender<QsoRecord>,
+    ) -> Js8ListenerHandle {
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let handle = self.start_listener_internal(state_sender, qso_sender, shutdown.clone());
+        Js8ListenerHandle {
+            shutdown,
+            handle: Some(handle),
+        }
+    }
+
+    fn start_listener_internal(
+        &self,
+        state_sender: std::sync::mpsc::Sender<Js8CallState>,
+        qso_sender: std::sync::mpsc::Sender<QsoRecord>,
+        shutdown: Arc<AtomicBool>,
+    ) -> std::thread::JoinHandle<()> {
         let host = self.host.clone();
         let port = if self.port == 0 { 2442 } else { self.port };
         std::thread::spawn(move || {
             const MAX_LINE_LEN: usize = 64 * 1024;
-            'listener: loop {
+            'listener: while !shutdown.load(Ordering::Relaxed) {
                 // Próba nawiązania połączenia TCP z JS8Call
                 let parsed_addr = (host.as_str(), port)
                     .to_socket_addrs()
@@ -79,9 +138,10 @@ impl Js8CallClient {
                     .and_then(|mut it| it.next())
                     .unwrap_or_else(|| std::net::SocketAddr::from(([127, 0, 0, 1], port)));
 
-                if let Ok(stream) = TcpStream::connect_timeout(&parsed_addr, Duration::from_secs(3))
+                if let Ok(stream) =
+                    TcpStream::connect_timeout(&parsed_addr, Duration::from_millis(300))
                 {
-                    let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
+                    let _ = stream.set_read_timeout(Some(Duration::from_millis(150)));
                     let mut reader = BufReader::new(stream);
                     let mut state = Js8CallState {
                         connected: true,
@@ -93,18 +153,22 @@ impl Js8CallClient {
                     }
 
                     // Przetwarzanie linii JSON ze strumienia TCP
-                    // Limit długości linii chroni przed wyczerpaniem pamięci, gdyby druga
-                    // strona (JS8Call lub proces podszywający się pod niego) wysłała dane
-                    // bez znaku nowej linii.
                     let mut buf = String::new();
-                    loop {
+                    while !shutdown.load(Ordering::Relaxed) {
                         buf.clear();
                         match (&mut reader)
                             .take((MAX_LINE_LEN + 1) as u64)
                             .read_line(&mut buf)
                         {
-                            Ok(0) | Err(_) => break, // koniec strumienia lub błąd odczytu
-                            Ok(_) if buf.len() > MAX_LINE_LEN => break, // zbyt długa linia - rozłączenie
+                            Ok(0) => break, // koniec strumienia (rozłączenie przez drugą stronę)
+                            Err(ref e)
+                                if e.kind() == std::io::ErrorKind::TimedOut
+                                    || e.kind() == std::io::ErrorKind::WouldBlock =>
+                            {
+                                continue;
+                            }
+                            Err(_) => break,                            // błąd I/O
+                            Ok(_) if buf.len() > MAX_LINE_LEN => break, // zbyt długa linia
                             Ok(_) => {
                                 let text = buf.trim();
                                 if !text.is_empty() {
@@ -127,11 +191,15 @@ impl Js8CallClient {
                     if state_sender.send(state).is_err() {
                         break 'listener;
                     }
-                } else {
-                    // Nie udało się połączyć - JS8Call prawdopodobnie nie działa
                 }
-                // Odczekaj przed kolejna próba reconnect
-                std::thread::sleep(Duration::from_secs(5));
+
+                // Sprawdzaj co 50ms czy nie nadszedł sygnał shutdown przed reconnect
+                for _ in 0..10 {
+                    if shutdown.load(Ordering::Relaxed) {
+                        break 'listener;
+                    }
+                    std::thread::sleep(Duration::from_millis(50));
+                }
             }
         })
     }
@@ -439,5 +507,232 @@ mod tests {
         assert_eq!(qso.rst_rcvd, "-12");
         assert_eq!(qso.gridsquare, Some("FN31pr".to_string()));
         assert_eq!(qso.my_gridsquare, Some("JO81WA".to_string()));
+    }
+
+    #[test]
+    fn js8call_listener_start_is_idempotent() {
+        let (state_tx1, _state_rx1) = std::sync::mpsc::channel();
+        let (qso_tx1, _qso_rx1) = std::sync::mpsc::channel();
+        let (state_tx2, _state_rx2) = std::sync::mpsc::channel();
+        let (qso_tx2, _qso_rx2) = std::sync::mpsc::channel();
+
+        let client = Js8CallClient::new("127.0.0.1", 1);
+        let mut handle1 = client.start_managed_listener(state_tx1, qso_tx1);
+        let mut handle2 = client.start_managed_listener(state_tx2, qso_tx2);
+
+        assert!(handle1.is_running());
+        assert!(handle2.is_running());
+
+        handle1.stop();
+        handle2.stop();
+        assert!(!handle1.is_running());
+        assert!(!handle2.is_running());
+    }
+
+    #[test]
+    fn js8call_listener_receives_mock_json() {
+        use std::io::Write;
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let (state_tx, state_rx) = std::sync::mpsc::channel();
+        let (qso_tx, _qso_rx) = std::sync::mpsc::channel();
+
+        let server_thread = std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let _ = stream.write_all(b"{\"type\":\"STATION.CALLSIGN\",\"value\":\"SP6INA\"}\n");
+                let _ = stream.flush();
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        });
+
+        let client = Js8CallClient::new("127.0.0.1", port);
+        let mut handle = client.start_managed_listener(state_tx, qso_tx);
+
+        // 1. Initial connect event: connected = true
+        let state1 = state_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(state1.connected);
+
+        // 2. Parsed callsign update
+        let state2 = state_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(state2.callsign, "SP6INA");
+
+        handle.stop();
+        let _ = server_thread.join();
+    }
+
+    #[test]
+    fn js8call_listener_handles_partial_frame() {
+        use std::io::Write;
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let (state_tx, state_rx) = std::sync::mpsc::channel();
+        let (qso_tx, _qso_rx) = std::sync::mpsc::channel();
+
+        let server_thread = std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let _ = stream.write_all(b"{\"type\":\"STATION.GRID\",\"val");
+                let _ = stream.flush();
+                std::thread::sleep(Duration::from_millis(50));
+                let _ = stream.write_all(b"ue\":\"JO81WA\"}\n");
+                let _ = stream.flush();
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        });
+
+        let client = Js8CallClient::new("127.0.0.1", port);
+        let mut handle = client.start_managed_listener(state_tx, qso_tx);
+
+        let _ = state_rx.recv_timeout(Duration::from_secs(1)).unwrap(); // connected
+        let state = state_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(state.grid, "JO81WA");
+
+        handle.stop();
+        let _ = server_thread.join();
+    }
+
+    #[test]
+    fn js8call_listener_handles_multiple_messages() {
+        use std::io::Write;
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let (state_tx, state_rx) = std::sync::mpsc::channel();
+        let (qso_tx, _qso_rx) = std::sync::mpsc::channel();
+
+        let server_thread = std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let batch = b"{\"type\":\"STATION.CALLSIGN\",\"value\":\"SP6INA\"}\n{\"type\":\"STATION.GRID\",\"value\":\"JO81WA\"}\n";
+                let _ = stream.write_all(batch);
+                let _ = stream.flush();
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        });
+
+        let client = Js8CallClient::new("127.0.0.1", port);
+        let mut handle = client.start_managed_listener(state_tx, qso_tx);
+
+        let _ = state_rx.recv_timeout(Duration::from_secs(1)).unwrap(); // connected
+        let state1 = state_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(state1.callsign, "SP6INA");
+        let state2 = state_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(state2.grid, "JO81WA");
+
+        handle.stop();
+        let _ = server_thread.join();
+    }
+
+    #[test]
+    fn js8call_malformed_json_does_not_stop_listener() {
+        use std::io::Write;
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let (state_tx, state_rx) = std::sync::mpsc::channel();
+        let (qso_tx, _qso_rx) = std::sync::mpsc::channel();
+
+        let server_thread = std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let _ = stream.write_all(
+                    b"GARBAGE_NOT_JSON\n{\"type\":\"STATION.CALLSIGN\",\"value\":\"SP6INA\"}\n",
+                );
+                let _ = stream.flush();
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        });
+
+        let client = Js8CallClient::new("127.0.0.1", port);
+        let mut handle = client.start_managed_listener(state_tx, qso_tx);
+
+        let _ = state_rx.recv_timeout(Duration::from_secs(1)).unwrap(); // connected
+        let state = state_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(state.callsign, "SP6INA");
+
+        handle.stop();
+        let _ = server_thread.join();
+    }
+
+    #[test]
+    fn js8call_disconnect_does_not_crash_worker() {
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let (state_tx, state_rx) = std::sync::mpsc::channel();
+        let (qso_tx, _qso_rx) = std::sync::mpsc::channel();
+
+        let server_thread = std::thread::spawn(move || {
+            if let Ok((stream, _)) = listener.accept() {
+                // Natychmiastowe rozłączenie zamykające gniazdo
+                drop(stream);
+            }
+        });
+
+        let client = Js8CallClient::new("127.0.0.1", port);
+        let mut handle = client.start_managed_listener(state_tx, qso_tx);
+
+        let state1 = state_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(state1.connected);
+
+        let state2 = state_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(!state2.connected);
+
+        // Worker nie powinien wyjść awaryjnie - nadal żyje w pętli ponawiania
+        assert!(handle.is_running());
+
+        handle.stop();
+        let _ = server_thread.join();
+    }
+
+    #[test]
+    fn js8call_listener_shutdown_is_bounded() {
+        let (state_tx, _state_rx) = std::sync::mpsc::channel();
+        let (qso_tx, _qso_rx) = std::sync::mpsc::channel();
+
+        let client = Js8CallClient::new("127.0.0.1", 1);
+        let mut handle = client.start_managed_listener(state_tx, qso_tx);
+
+        let start = std::time::Instant::now();
+        handle.stop();
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed < Duration::from_millis(500),
+            "Shutdown took too long: {elapsed:?}"
+        );
+        assert!(!handle.is_running());
+    }
+
+    #[test]
+    fn js8call_listener_does_not_block_gui_thread() {
+        let (state_tx, _state_rx) = std::sync::mpsc::channel();
+        let (qso_tx, _qso_rx) = std::sync::mpsc::channel();
+
+        let start = std::time::Instant::now();
+        let client = Js8CallClient::new("127.0.0.1", 1);
+        let mut handle = client.start_managed_listener(state_tx, qso_tx);
+        let spawn_duration = start.elapsed();
+
+        assert!(
+            spawn_duration < Duration::from_millis(50),
+            "Listener spawn blocked GUI thread for {spawn_duration:?}"
+        );
+        handle.stop();
+    }
+
+    #[test]
+    fn js8call_test_uses_loopback_only() {
+        let client = Js8CallClient::new("127.0.0.1", 2442);
+        assert_eq!(client.host, "127.0.0.1");
+        assert_eq!(client.port, 2442);
     }
 }

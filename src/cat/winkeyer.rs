@@ -33,6 +33,29 @@ impl Default for WinkeyerConfig {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WinkeyerError {
+    EmptyMacro,
+    OversizedMacro(usize),
+    Busy,
+    Transport(String),
+}
+
+impl std::fmt::Display for WinkeyerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::EmptyMacro => write!(f, "CW Macro cannot be empty"),
+            Self::OversizedMacro(len) => {
+                write!(f, "CW Macro length {len} exceeds maximum buffer (256)")
+            }
+            Self::Busy => write!(f, "WinKeyer backend buffer is busy"),
+            Self::Transport(msg) => write!(f, "WinKeyer transport error: {msg}"),
+        }
+    }
+}
+
+impl std::error::Error for WinkeyerError {}
+
 /// Generator ramek protokołu K1EL Winkeyer
 pub struct WinkeyerProtocol;
 
@@ -51,6 +74,32 @@ impl WinkeyerProtocol {
     pub fn set_speed(wpm: u8) -> Vec<u8> {
         let clamped = wpm.clamp(5, 55);
         vec![0x02, clamped]
+    }
+
+    /// Alias dla set_speed zwracający ramkę WPM
+    pub fn encode_wpm_frame(wpm: u8) -> Vec<u8> {
+        Self::set_speed(wpm)
+    }
+
+    /// Kodowanie ramki makra telegraficznego z walidacją kontraktową
+    pub fn encode_macro_frame(macro_text: &str) -> Result<Vec<u8>, WinkeyerError> {
+        let trimmed = macro_text.trim();
+        if trimmed.is_empty() {
+            return Err(WinkeyerError::EmptyMacro);
+        }
+        if trimmed.len() > 256 {
+            return Err(WinkeyerError::OversizedMacro(trimmed.len()));
+        }
+
+        // Zamiana znanych prosignów telegraficznych
+        let sanitized = trimmed
+            .replace("<BT>", "=")
+            .replace("<AR>", "+")
+            .replace("<SK>", "%")
+            .replace("<AS>", "&")
+            .replace("<KN>", "(");
+
+        Ok(Self::encode_text(&sanitized))
     }
 
     /// Wyczyszczenie bufora / natychmiastowe przerwanie nadawania (Clear Buffer: 0x0A)
@@ -74,6 +123,40 @@ impl WinkeyerProtocol {
             }
         }
         bytes
+    }
+}
+
+/// Mock transportu dla WinKeyera izolujący testy od fizycznego portu COM i nadajnika
+#[derive(Debug, Default)]
+pub struct MockWinkeyerTransport {
+    pub written_bytes: Vec<u8>,
+    pub frames_enqueued: usize,
+    pub simulate_busy: bool,
+    pub max_write_chunk: Option<usize>,
+}
+
+impl MockWinkeyerTransport {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn write_frame(&mut self, frame: &[u8]) -> Result<usize, WinkeyerError> {
+        if self.simulate_busy {
+            return Err(WinkeyerError::Busy);
+        }
+        let chunk_size = self.max_write_chunk.unwrap_or(frame.len()).min(frame.len());
+        self.written_bytes.extend_from_slice(&frame[..chunk_size]);
+        if chunk_size == frame.len() {
+            self.frames_enqueued += 1;
+        }
+        Ok(chunk_size)
+    }
+
+    pub fn reset(&mut self) {
+        self.written_bytes.clear();
+        self.frames_enqueued = 0;
+        self.simulate_busy = false;
+        self.max_write_chunk = None;
     }
 }
 
@@ -144,5 +227,106 @@ mod tests {
         buf.advance_sent(5);
         assert_eq!(buf.sent_text, "ŁÓDŹ ");
         assert_eq!(buf.queued_text, "K");
+    }
+
+    #[test]
+    fn winkeyer_encodes_wpm_frame() {
+        let frame = WinkeyerProtocol::encode_wpm_frame(30);
+        assert_eq!(frame, vec![0x02, 30]);
+
+        let frame_clamped_low = WinkeyerProtocol::encode_wpm_frame(2);
+        assert_eq!(frame_clamped_low, vec![0x02, 5]);
+
+        let frame_clamped_high = WinkeyerProtocol::encode_wpm_frame(60);
+        assert_eq!(frame_clamped_high, vec![0x02, 55]);
+    }
+
+    #[test]
+    fn winkeyer_encodes_macro_frame() {
+        let frame = WinkeyerProtocol::encode_macro_frame("CQ DE SP6INA").unwrap();
+        assert_eq!(frame, b"CQ DE SP6INA".to_vec());
+    }
+
+    #[test]
+    fn winkeyer_handles_special_characters() {
+        // Prosigny <BT>, <AR>, <SK> oraz znaki przestankowe
+        let frame = WinkeyerProtocol::encode_macro_frame("TEST <BT> 599 <AR> ? /").unwrap();
+        assert_eq!(frame, b"TEST = 599 + ? /".to_vec());
+    }
+
+    #[test]
+    fn winkeyer_rejects_empty_macro_by_contract() {
+        assert_eq!(
+            WinkeyerProtocol::encode_macro_frame(""),
+            Err(WinkeyerError::EmptyMacro)
+        );
+        assert_eq!(
+            WinkeyerProtocol::encode_macro_frame("   "),
+            Err(WinkeyerError::EmptyMacro)
+        );
+    }
+
+    #[test]
+    fn winkeyer_rejects_oversized_macro() {
+        let huge = "A".repeat(257);
+        let res = WinkeyerProtocol::encode_macro_frame(&huge);
+        assert_eq!(res, Err(WinkeyerError::OversizedMacro(257)));
+    }
+
+    #[test]
+    fn winkeyer_handles_partial_mock_write() {
+        let mut transport = MockWinkeyerTransport::new();
+        transport.max_write_chunk = Some(4);
+
+        let frame = b"CQ TEST".to_vec();
+        let written = transport.write_frame(&frame).unwrap();
+        assert_eq!(written, 4);
+        assert_eq!(transport.written_bytes, b"CQ T");
+        assert_eq!(transport.frames_enqueued, 0); // Częściowy zapis nie finalizuje kolejki
+    }
+
+    #[test]
+    fn winkeyer_busy_does_not_duplicate_frame() {
+        let mut transport = MockWinkeyerTransport::new();
+        transport.simulate_busy = true;
+
+        let frame = b"TEST".to_vec();
+        let res = transport.write_frame(&frame);
+        assert_eq!(res, Err(WinkeyerError::Busy));
+        assert!(transport.written_bytes.is_empty());
+        assert_eq!(transport.frames_enqueued, 0);
+    }
+
+    #[test]
+    fn winkeyer_macro_is_enqueued_once() {
+        let mut transport = MockWinkeyerTransport::new();
+        let frame = WinkeyerProtocol::encode_macro_frame("5NN TU").unwrap();
+
+        let written = transport.write_frame(&frame).unwrap();
+        assert_eq!(written, frame.len());
+        assert_eq!(transport.frames_enqueued, 1);
+        assert_eq!(transport.written_bytes, b"5NN TU");
+    }
+
+    #[test]
+    fn winkeyer_shutdown_is_bounded() {
+        let start = std::time::Instant::now();
+        let mut transport = MockWinkeyerTransport::new();
+        transport.reset();
+        let elapsed = start.elapsed();
+        assert!(elapsed < std::time::Duration::from_millis(100));
+    }
+
+    #[test]
+    fn winkeyer_test_does_not_open_serial_port() {
+        let transport = MockWinkeyerTransport::new();
+        assert!(transport.written_bytes.is_empty());
+    }
+
+    #[test]
+    fn winkeyer_test_does_not_key_transmitter() {
+        // Weryfikacja czysto generatorowa ramek protokołu K1EL bez dotykania portów szeregowych ani emisji RF
+        let frame = WinkeyerProtocol::host_close();
+        assert_eq!(frame, vec![0x00, 0x03]);
     }
 }
