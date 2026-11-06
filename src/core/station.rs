@@ -273,9 +273,44 @@ pub fn default_voice_keyer_messages() -> Vec<VoiceKeyerMessage> {
     ]
 }
 
+pub const CURRENT_CONFIG_SCHEMA_VERSION: u32 = 1;
+
+fn default_schema_version() -> u32 {
+    CURRENT_CONFIG_SCHEMA_VERSION
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConfigValidationError {
+    UnsupportedSchemaVersion(u32),
+    EmptyCallsign,
+    InvalidPort { name: &'static str, port: u16 },
+    PortConflict { port: u16, reason: &'static str },
+    CatValidation(String),
+}
+
+impl std::fmt::Display for ConfigValidationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnsupportedSchemaVersion(v) => {
+                write!(f, "nieobsługiwana wersja schematu konfiguracji: {v}")
+            }
+            Self::EmptyCallsign => write!(f, "skonfigurowana stacja wymaga niepustego znaku"),
+            Self::InvalidPort { name, port } => {
+                write!(f, "nieprawidłowy port {name}: {port} (wymagany 1..=65535)")
+            }
+            Self::PortConflict { port, reason } => write!(f, "konflikt portu {port}: {reason}"),
+            Self::CatValidation(err) => write!(f, "błąd walidacji konfiguracji CAT: {err}"),
+        }
+    }
+}
+
+impl std::error::Error for ConfigValidationError {}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
+    #[serde(default = "default_schema_version")]
+    pub schema_version: u32,
     /// Opaque identifier of the current keychain entry, never the secret itself.
     #[serde(default)]
     pub secret_store_id: String,
@@ -536,6 +571,7 @@ pub struct AppConfig {
 impl std::fmt::Debug for AppConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AppConfig")
+            .field("schema_version", &self.schema_version)
             .field("secret_store_id", &self.secret_store_id)
             .field("is_configured", &self.is_configured)
             .field("station", &self.station)
@@ -1253,6 +1289,7 @@ impl Default for AppConfig {
                 saved_pos: None,
                 saved_size: None,
             },
+            schema_version: default_schema_version(),
             tabbed_columns: false,
             dock_layout: None,
             plugins_enabled: true,
@@ -1274,6 +1311,26 @@ impl AppConfig {
 
     /// Wczytuje konfigurację bez poświadczeń z systemowego magazynu (np. po przeniesieniu
     /// instalacji Portable na nowy komputer), nie nadpisując pliku na dysku.
+    pub fn validate(&self) -> Result<(), ConfigValidationError> {
+        if self.schema_version > CURRENT_CONFIG_SCHEMA_VERSION {
+            return Err(ConfigValidationError::UnsupportedSchemaVersion(
+                self.schema_version,
+            ));
+        }
+        if self.cat_sharing_enabled && self.cat_sharing_port == 8420 {
+            return Err(ConfigValidationError::PortConflict {
+                port: 8420,
+                reason: "port proxy Hamlib koliduje z portem REST API (8420)",
+            });
+        }
+        if let Some(ref cat_station) = self.cat_station {
+            cat_station
+                .validate()
+                .map_err(|e| ConfigValidationError::CatValidation(e.to_string()))?;
+        }
+        Ok(())
+    }
+
     pub fn load_without_secrets(path: &std::path::Path) -> Result<Self, std::io::Error> {
         let data = match std::fs::read_to_string(path) {
             Ok(data) => data,
@@ -1281,7 +1338,19 @@ impl AppConfig {
             Err(e) => return Err(e),
         };
         let mut config: Self = serde_json::from_str(&data).map_err(std::io::Error::other)?;
+        if config.schema_version > CURRENT_CONFIG_SCHEMA_VERSION {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "Nieobsługiwana wersja schematu konfiguracji: {}",
+                    config.schema_version
+                ),
+            ));
+        }
         let _ = crate::cat::config::migrate_legacy_cat_config(&mut config);
+        config
+            .validate()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
         config.secret_store_id.clear();
         Ok(config)
     }
@@ -1435,5 +1504,122 @@ mod tests {
         assert!(debug_out.contains("<redacted>"));
         assert!(debug_out.contains("is_configured"));
         assert!(debug_out.contains("cat_host"));
+    }
+
+    #[test]
+    fn config_save_does_not_modify_original_on_serialization_failure() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_file = temp_dir.path().join("station_config.json");
+
+        let mut original = AppConfig::default();
+        original.station.callsign = "SP6ORIG".to_string();
+        original
+            .save_to_file(&config_file)
+            .expect("Initial save must succeed");
+
+        let original_data = std::fs::read_to_string(&config_file).unwrap();
+
+        // Próba zapisu nieprawidłowej konfiguracji (przyszła wersja schematu lub konflikt portów)
+        let mut invalid_cfg = AppConfig::default();
+        invalid_cfg.schema_version = 999;
+        let res = invalid_cfg.save_to_file(&config_file);
+        assert!(res.is_err(), "Saving invalid config must fail");
+
+        let current_data = std::fs::read_to_string(&config_file).unwrap();
+        assert_eq!(
+            original_data, current_data,
+            "Original config file must remain completely unmodified on save failure"
+        );
+    }
+
+    #[test]
+    fn config_save_does_not_modify_original_on_write_failure() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_file = temp_dir.path().join("station_config.json");
+
+        let mut original = AppConfig::default();
+        original.station.callsign = "SP6ORIG".to_string();
+        original
+            .save_to_file(&config_file)
+            .expect("Initial save must succeed");
+        let original_data = std::fs::read_to_string(&config_file).unwrap();
+
+        // Próba zapisu pod ścieżkę będącą katalogiem (wymuszenie błędu I/O zapisu)
+        let dir_target = temp_dir.path().join("sub_dir_target");
+        std::fs::create_dir_all(&dir_target).unwrap();
+        let mut test_cfg = AppConfig::default();
+        let res = test_cfg.save_to_file(&dir_target);
+        assert!(res.is_err(), "Saving to a directory path must fail");
+
+        let current_data = std::fs::read_to_string(&config_file).unwrap();
+        assert_eq!(
+            original_data, current_data,
+            "Original file must not be modified when another save fails"
+        );
+    }
+
+    #[test]
+    fn config_atomic_replace_preserves_valid_file() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_file = temp_dir.path().join("station_config.json");
+
+        let mut cfg1 = AppConfig::default();
+        cfg1.station.callsign = "SP6AAA".to_string();
+        cfg1.save_to_file(&config_file).unwrap();
+
+        let mut cfg2 = AppConfig::default();
+        cfg2.station.callsign = "SP6BBB".to_string();
+        cfg2.save_to_file(&config_file).unwrap();
+
+        let loaded = AppConfig::load_from_file(&config_file).unwrap();
+        assert_eq!(loaded.station.callsign, "SP6BBB");
+    }
+
+    #[test]
+    fn config_temp_file_is_not_used_as_active_config() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_file = temp_dir.path().join("station_config.json");
+
+        let mut cfg = AppConfig::default();
+        cfg.station.callsign = "SP6TMP".to_string();
+        cfg.save_to_file(&config_file).unwrap();
+
+        // Sprawdź czy po pomyślnym zapisie żaden plik tymczasowy (*.tmp*) nie pozostał w katalogu
+        let entries = std::fs::read_dir(temp_dir.path()).unwrap();
+        for entry in entries {
+            let entry = entry.unwrap();
+            let name = entry.file_name().to_string_lossy().to_string();
+            assert!(
+                !name.contains(".tmp"),
+                "No temporary file should remain in directory: {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn config_reload_after_save_matches_source() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_file = temp_dir.path().join("station_config.json");
+
+        let mut source = AppConfig::default();
+        source.station.callsign = "SP6MATCH".to_string();
+        source.station.gridsquare = "JO81".to_string();
+        source.theme_preset = "daylight".to_string();
+        source.operator_assistant_enabled = false;
+        source.distance_unit = "nmi".to_string();
+        source.lan_sync_port = 7399;
+
+        source.save_to_file(&config_file).unwrap();
+        let reloaded = AppConfig::load_from_file(&config_file).unwrap();
+
+        assert_eq!(reloaded.station.callsign, source.station.callsign);
+        assert_eq!(reloaded.station.gridsquare, source.station.gridsquare);
+        assert_eq!(reloaded.theme_preset, source.theme_preset);
+        assert_eq!(
+            reloaded.operator_assistant_enabled,
+            source.operator_assistant_enabled
+        );
+        assert_eq!(reloaded.distance_unit, source.distance_unit);
+        assert_eq!(reloaded.lan_sync_port, source.lan_sync_port);
     }
 }
