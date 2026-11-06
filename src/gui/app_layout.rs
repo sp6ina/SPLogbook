@@ -662,12 +662,14 @@ impl SpLogApp {
 
         // 2. Położenie Księżyca i Słońca (EME / Kalkulator astronomiczny)
         let my_grid = self.config.station.gridsquare.clone();
-        self.gui.dialogs.astronomy_dialog.show(
+        if let Some((az, el)) = self.gui.dialogs.astronomy_dialog.show(
             ctx,
             &my_grid,
             &mut self.cat.rotor_state,
             self.gui.appearance.language,
-        );
+        ) {
+            self.rotate_antenna_to_el(az, el);
+        }
 
         // 3. Moduł SOTA / POTA
         self.gui.dialogs.sota_dialog.show(

@@ -241,6 +241,40 @@ impl AudioRecorder {
         Ok(())
     }
 
+    /// Zatrzymuje nagrywanie audio i zwalnia zasoby bez zapisywania pliku.
+    pub fn stop_recording() -> Result<(), AudioRecorderError> {
+        if !IS_RECORDING.load(Ordering::SeqCst) {
+            return Ok(());
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            let _ = Self::send_mci_cmd("stop splog_rec");
+            let _ = Self::send_mci_cmd("close splog_rec");
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            if let Ok(mut guard) = LINUX_REC_CHILD.lock() {
+                if let Some(mut child) = guard.take() {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+            }
+            if let Ok(mut guard) = LINUX_TEMP_FILE.lock() {
+                if let Some(temp) = guard.take() {
+                    if temp.exists() {
+                        let _ = std::fs::remove_file(temp);
+                    }
+                }
+            }
+        }
+
+        IS_RECORDING.store(false, Ordering::SeqCst);
+        info!("Zatrzymano nagrywanie audio łączności");
+        Ok(())
+    }
+
     pub fn is_recording() -> bool {
         IS_RECORDING.load(Ordering::SeqCst)
     }

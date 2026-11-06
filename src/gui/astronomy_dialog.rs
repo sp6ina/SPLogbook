@@ -34,10 +34,10 @@ impl AstronomyDialog {
         my_gridsquare: &str,
         rotor_state: &mut RotorState,
         lang: crate::core::i18n::Language,
-    ) {
+    ) -> Option<(f32, f32)> {
         use crate::core::i18n::{key, tr};
         if !self.is_open {
-            return;
+            return None;
         }
 
         let mut open = self.is_open;
@@ -230,15 +230,19 @@ impl AstronomyDialog {
                 });
             });
 
+        let mut command_rotation = None;
         if let Some(az) = turn_rotor_az {
             rotor_state.azimuth_deg = az;
+            command_rotation = Some((az, rotor_state.elevation_deg));
         }
         if let Some(el) = turn_rotor_el {
             rotor_state.elevation_deg = el;
+            command_rotation = Some((rotor_state.azimuth_deg, el));
         }
 
         if close_requested || !open {
             self.is_open = false;
         }
+        command_rotation
     }
 }
