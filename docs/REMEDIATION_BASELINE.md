@@ -547,8 +547,8 @@ Cargo.lock SHA-1: `c569097f3ef69c66ec59b74c29c1eb29efce69ae` (bez zmian)
     6. Utwardzenie potoku CI (`CI-002`): wymuszenie `cargo clippy --workspace --all-targets --all-features -- -D warnings` oraz `cargo audit --deny warnings` (z jawną listą 7 zaakceptowanych tranzytywnych advisories) w `.github/workflows/ci.yml`, zabezpieczone 7 testami w `tests/security_guard.rs`.
     7. Synchronizacja dokumentacji (`DOC-001`): aktualizacja `README.md`, `Native CAT.md`, `docs/AUDIT_FINDINGS_REGISTER.md`, `docs/IMPROVEMENT_ROADMAP.md` i `docs/REMEDIATION_BASELINE.md`.
   - Statystyki testów po Końcowej Bramce Etapu 10:
-    - Łącznie zarejestrowanych testów we workspace: **2247** (+75 nowych testów w Etapie 10)
-    - Aktywne testy programowe: **2237 passed**, **0 failed**
+    - Łącznie zarejestrowanych testów we workspace: **2264** (+92 nowe testy w Etapie 10)
+    - Aktywne testy programowe: **2254 passed**, **0 failed**
     - Fizyczny HIL: **10 ignored** (`#[ignore = "hardware-in-the-loop"]`), emisja RF = 0, fizyczne PTT = 0, bramka bezpieczeństwa HIL zamknięta (`NOT EXECUTED — SAFETY GATE CLOSED`).
     - `cargo test --doc`: ok (0 doc testów)
     - `cargo +stable clippy --workspace --all-targets --all-features -- -D warnings`: **EXIT 0 (0 warnings, 0 errors)**
@@ -557,7 +557,7 @@ Cargo.lock SHA-1: `c569097f3ef69c66ec59b74c29c1eb29efce69ae` (bez zmian)
     - `i18n_guard`: **15 passed, 0 failed**
     - `theme_guard`: **1 passed, 0 failed**
     - `cat_native_6a`: **165 passed, 0 failed**
-    - `cat_native_6b`: **121 passed, 0 failed**
+    - `cat_native_6b`: **99 passed, 0 failed**
     - `cat_native_7`: **297 passed, 10 ignored HIL, 0 failed**
     - `cargo audit`: **0 vulnerabilities, 0 unsound** (1 yanked + 6 unmaintained tranzytywnych, udokumentowanych)
   - Integralność zależności i plików konfiguracyjnych:

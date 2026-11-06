@@ -291,7 +291,7 @@ impl SpLogApp {
         self.digital.js8call_state_rx = Some(state_rx);
         self.digital.js8call_qso_rx = Some(qso_rx);
         log::info!(
-            "Uruchomiono nasłuchiwanie JS8Call ({}:{})",
+            "JS8Call listener started ({}:{})",
             self.digital.js8call_host,
             self.digital.js8call_port
         );
@@ -302,6 +302,6 @@ impl SpLogApp {
         self.digital.js8call_state_rx = None;
         self.digital.js8call_qso_rx = None;
         self.digital.js8call_state.connected = false;
-        log::info!("Zatrzymano nasłuchiwanie JS8Call");
+        log::info!("JS8Call listener stopped");
     }
 }

@@ -319,7 +319,7 @@ pub fn render_solar_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             Some(acc) => {
                 let count = app.solar.propagation_history.verified_count();
                 (
-                    format!("{acc:.1}% ({count} zweryf.)"),
+                    format!("{acc:.1}% ({count})"),
                     if acc >= 70.0 {
                         palette.success
                     } else {
@@ -330,13 +330,8 @@ pub fn render_solar_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             None => ("N/A".to_string(), palette.text_muted),
         };
 
-        ui.label(
-            egui::RichText::new(format!("Trafność modelu: {acc_label}"))
-                .small()
-                .color(acc_color),
-        )
-        .on_hover_text(
-            "Skuteczność prognoz propagacyjnych na podstawie zweryfikowanych łączności w logu",
-        );
+        let acc_text = format!("{}: {acc_label}", tr(key::SOLAR_PREDICTED_OPENINGS, lang));
+        ui.label(egui::RichText::new(&acc_text).small().color(acc_color))
+            .on_hover_text(acc_text);
     });
 }
