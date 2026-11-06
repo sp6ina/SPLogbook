@@ -41,6 +41,7 @@ impl SpLogApp {
             self.services.awards_engine.clone(),
             self.runtime.api_reload_flag.clone(),
         )
+        .with_cat_runtime(self.cat.runtime.clone())
         .with_ingestor(self.services.ingestor.clone());
         tokio::spawn(async move {
             crate::api::server::start_api_server_with_state(state, port).await;
