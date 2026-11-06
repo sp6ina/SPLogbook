@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2026 Mariusz WoĹşniak (SP6INA)
+// Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use ed25519_dalek::{Signer, SigningKey};
@@ -22,11 +22,11 @@ fn updater_trusted_keys_reject_known_test_and_trivial_seeds() {
 
     assert!(
         revoked_key_ids.contains("splogbook-release-2026-01"),
-        "Klucz 'splogbook-release-2026-01' musi znajdowaÄ‡ siÄ™ na liĹ›cie REVOKED_KEY_IDS (SEC-001)"
+        "Klucz 'splogbook-release-2026-01' musi znajdować się na liście REVOKED_KEY_IDS (SEC-001)"
     );
     assert!(
         !REVOKED_PUBLIC_KEYS.is_empty(),
-        "Lista REVOKED_PUBLIC_KEYS nie moĹĽe byÄ‡ pusta"
+        "Lista REVOKED_PUBLIC_KEYS nie może być pusta"
     );
 
     let mut seen_key_ids = HashSet::new();
@@ -35,7 +35,7 @@ fn updater_trusted_keys_reject_known_test_and_trivial_seeds() {
         assert_eq!(
             key.public_key.len(),
             32,
-            "Klucz {} musi mieÄ‡ dokĹ‚adnie 32 bajty",
+            "Klucz {} musi mieć dokładnie 32 bajty",
             key.key_id
         );
 
@@ -49,7 +49,7 @@ fn updater_trusted_keys_reject_known_test_and_trivial_seeds() {
 
         assert!(
             !revoked_fingerprints.contains(&fp),
-            "Klucz '{}' posiada odwoĹ‚any fingerprint SHA256: {}",
+            "Klucz '{}' posiada odwołany fingerprint SHA256: {}",
             key.key_id,
             fp
         );
@@ -57,12 +57,12 @@ fn updater_trusted_keys_reject_known_test_and_trivial_seeds() {
         if revoked_key_ids.contains(key.key_id) {
             assert!(
                 !key.active,
-                "Klucz '{}' jest odwoĹ‚any w REVOKED_KEY_IDS i nie moĹĽe mieÄ‡ statusu active: true",
+                "Klucz '{}' jest odwołany w REVOKED_KEY_IDS i nie może mieć statusu active: true",
                 key.key_id
             );
             assert!(
                 is_key_revoked(key.key_id, &key.public_key),
-                "is_key_revoked musi zwracaÄ‡ true dla klucza '{}'",
+                "is_key_revoked musi zwracać true dla klucza '{}'",
                 key.key_id
             );
         }
@@ -87,7 +87,7 @@ fn updater_trusted_keys_reject_known_test_and_trivial_seeds() {
     let result = verify_manifest_signature(revoked_manifest.as_bytes(), &sig_b64);
     assert!(
         result.is_err(),
-        "verify_manifest_signature musi odrzuciÄ‡ manifest z odwoĹ‚anym key_id"
+        "verify_manifest_signature musi odrzucić manifest z odwołanym key_id"
     );
 
     let untrusted_manifest = r#"{
@@ -107,13 +107,13 @@ fn updater_trusted_keys_reject_known_test_and_trivial_seeds() {
         verify_manifest_signature(untrusted_manifest.as_bytes(), &untrusted_sig_b64);
     assert!(
         res_untrusted.is_err(),
-        "verify_manifest_signature musi odrzuciÄ‡ podpis wykonany kluczem testowym"
+        "verify_manifest_signature musi odrzucić podpis wykonany kluczem testowym"
     );
 
     let active_count = TRUSTED_KEYS.iter().filter(|k| k.active).count();
     assert_eq!(
         active_count, 1,
-        "Po wdroĹĽeniu SEC-001 Etap 1B musi istnieÄ‡ dokĹ‚adnie jeden aktywny klucz zaufany"
+        "Po wdrożeniu SEC-001 Etap 1B musi istnieć dokładnie jeden aktywny klucz zaufany"
     );
 }
 
@@ -147,7 +147,7 @@ fn trusted_keys_have_valid_public_key_lengths() {
         assert_eq!(
             key.public_key.len(),
             32,
-            "Klucz {} ma niepoprawnÄ… dĹ‚ugoĹ›Ä‡",
+            "Klucz {} ma niepoprawną długość",
             key.key_id
         );
     }
@@ -155,7 +155,7 @@ fn trusted_keys_have_valid_public_key_lengths() {
         assert_eq!(
             revoked.len(),
             32,
-            "OdwoĹ‚any klucz publiczny ma niepoprawnÄ… dĹ‚ugoĹ›Ä‡"
+            "Odwołany klucz publiczny ma niepoprawną długość"
         );
     }
 }
@@ -166,11 +166,11 @@ fn exactly_one_release_key_is_active() {
     assert_eq!(
         active_keys.len(),
         1,
-        "W TRUSTED_KEYS musi byÄ‡ dokĹ‚adnie jeden aktywny klucz"
+        "W TRUSTED_KEYS musi być dokładnie jeden aktywny klucz"
     );
     assert_eq!(
         active_keys[0].key_id, "splogbook-release-2026-02",
-        "Aktywny klucz musi mieÄ‡ identyfikator splogbook-release-2026-02"
+        "Aktywny klucz musi mieć identyfikator splogbook-release-2026-02"
     );
 }
 
@@ -182,15 +182,15 @@ fn active_release_key_is_not_revoked() {
         .expect("Brak aktywnego klucza");
     assert!(
         !REVOKED_KEY_IDS.contains(&active.key_id),
-        "Aktywny key_id nie moĹĽe znajdowaÄ‡ siÄ™ na liĹ›cie REVOKED_KEY_IDS"
+        "Aktywny key_id nie może znajdować się na liście REVOKED_KEY_IDS"
     );
     assert!(
         !REVOKED_PUBLIC_KEYS.contains(&active.public_key),
-        "Aktywny klucz publiczny nie moĹĽe znajdowaÄ‡ siÄ™ na liĹ›cie REVOKED_PUBLIC_KEYS"
+        "Aktywny klucz publiczny nie może znajdować się na liście REVOKED_PUBLIC_KEYS"
     );
     assert!(
         !is_key_revoked(active.key_id, &active.public_key),
-        "is_key_revoked musi zwracaÄ‡ false dla aktywnego klucza"
+        "is_key_revoked musi zwracać false dla aktywnego klucza"
     );
 }
 
@@ -201,7 +201,7 @@ fn revoked_key_ids_can_never_be_active() {
             if key.key_id == *revoked_id {
                 assert!(
                     !key.active,
-                    "Klucz '{}' z listy REVOKED_KEY_IDS nie moĹĽe byÄ‡ aktywny",
+                    "Klucz '{}' z listy REVOKED_KEY_IDS nie może być aktywny",
                     key.key_id
                 );
             }
@@ -215,7 +215,7 @@ fn revoked_public_keys_can_never_be_trusted() {
         for key in TRUSTED_KEYS.iter().filter(|k| k.active) {
             assert_ne!(
                 &key.public_key, revoked_pk,
-                "Aktywny klucz {} posiada odwoĹ‚any materiaĹ‚ publiczny",
+                "Aktywny klucz {} posiada odwołany materiał publiczny",
                 key.key_id
             );
         }
@@ -232,13 +232,13 @@ fn new_release_key_has_expected_public_fingerprint() {
     let fp = sha256_hex(&active.public_key);
     assert_eq!(
         fp, "2a6277b72d2a97236f344f1542a1c2868a74f71c9626a22dc1735919efeb2a4a",
-        "Fingerprint aktywnego klucza publicznego musi odpowiadaÄ‡ potwierdzonej wartoĹ›ci wĹ‚aĹ›ciciela"
+        "Fingerprint aktywnego klucza publicznego musi odpowiadać potwierdzonej wartości właściciela"
     );
 }
 
 #[test]
 fn manifest_signed_by_matching_active_key_is_accepted() {
-    // Generujemy bezpieczny efemeryczny klucz w pamiÄ™ci (izolowany do testu)
+    // Generujemy bezpieczny efemeryczny klucz w pamięci (izolowany do testu)
     let secret_bytes: [u8; 32] = rand::random();
     let signing_key = SigningKey::from_bytes(&secret_bytes);
     let public_bytes = signing_key.verifying_key().to_bytes();
@@ -278,7 +278,7 @@ fn manifest_signed_by_matching_active_key_is_accepted() {
     let test_revoked_ids: [&str; 0] = [];
     let test_revoked_pks: [[u8; 32]; 0] = [];
 
-    // 1. Poprawny podpis przechodzi pomyĹ›lnie
+    // 1. Poprawny podpis przechodzi pomyślnie
     let verified = verify_manifest_signature_with_keys(
         manifest_json.as_bytes(),
         &sig_b64,
@@ -288,14 +288,14 @@ fn manifest_signed_by_matching_active_key_is_accepted() {
     );
     assert!(
         verified.is_ok(),
-        "Poprawny podpis aktywnym kluczem musi zostaÄ‡ zaakceptowany: {:?}",
+        "Poprawny podpis aktywnym kluczem musi zostać zaakceptowany: {:?}",
         verified.err()
     );
     let (key_ref, manifest) = verified.unwrap();
     assert_eq!(key_ref.key_id, "test-ephemeral-2026-key");
     assert_eq!(manifest.version, "1.2.1");
 
-    // 2. ZĹ‚y podpis nie przechodzi
+    // 2. Zły podpis nie przechodzi
     let mut bad_sig_bytes = signature.to_bytes();
     bad_sig_bytes[0] ^= 0xFF;
     let bad_sig_b64 = STANDARD.encode(bad_sig_bytes);
@@ -308,7 +308,7 @@ fn manifest_signed_by_matching_active_key_is_accepted() {
     );
     assert!(
         res_bad_sig.is_err(),
-        "Zmodyfikowany podpis musi zostaÄ‡ odrzucony"
+        "Zmodyfikowany podpis musi zostać odrzucony"
     );
 
     // 3. Modyfikacja manifestu po podpisaniu nie przechodzi
@@ -322,10 +322,10 @@ fn manifest_signed_by_matching_active_key_is_accepted() {
     );
     assert!(
         res_tampered.is_err(),
-        "Zmodyfikowana treĹ›Ä‡ manifestu musi uniewaĹĽniÄ‡ podpis"
+        "Zmodyfikowana treść manifestu musi unieważnić podpis"
     );
 
-    // 4. Inny key_id w manifeĹ›cie nie przechodzi
+    // 4. Inny key_id w manifeście nie przechodzi
     let mismatched_manifest =
         manifest_json.replace("test-ephemeral-2026-key", "different-declared-key");
     let mismatch_sig = signing_key.sign(mismatched_manifest.as_bytes());
@@ -339,7 +339,7 @@ fn manifest_signed_by_matching_active_key_is_accepted() {
     );
     assert!(
         res_mismatch.is_err(),
-        "NiezgodnoĹ›Ä‡ key_id w manifeĹ›cie musi zostaÄ‡ odrzucona"
+        "Niezgodność key_id w manifeście musi zostać odrzucona"
     );
 }
 
@@ -363,7 +363,7 @@ fn all_revoked_release_keys_are_rejected() {
     let signature = signing_key.sign(manifest_json.as_bytes());
     let sig_b64 = STANDARD.encode(signature.to_bytes());
 
-    // 1. Klucz z odwoĹ‚anym key_id
+    // 1. Klucz z odwołanym key_id
     let revoked_key = TrustedKey {
         key_id: "revoked-test-key-id",
         public_key: public_bytes,
@@ -384,10 +384,10 @@ fn all_revoked_release_keys_are_rejected() {
     );
     assert!(
         res.is_err(),
-        "Klucz z odwoĹ‚anym key_id musi zostaÄ‡ bezwzglÄ™dnie odrzucony"
+        "Klucz z odwołanym key_id musi zostać bezwzględnie odrzucony"
     );
 
-    // 2. Klucz z odwoĹ‚anymi publicznymi bajtami
+    // 2. Klucz z odwołanymi publicznymi bajtami
     let revoked_pk_list = [public_bytes];
     let empty_revoked_ids: [&str; 0] = [];
     let res_pk = verify_manifest_signature_with_keys(
@@ -399,10 +399,10 @@ fn all_revoked_release_keys_are_rejected() {
     );
     assert!(
         res_pk.is_err(),
-        "Klucz z odwoĹ‚anym kluczem publicznym musi zostaÄ‡ bezwzglÄ™dnie odrzucony"
+        "Klucz z odwołanym kluczem publicznym musi zostać bezwzględnie odrzucony"
     );
 
-    // 3. Manifest wskazujÄ…cy stary historyczny key_id odrzucony przez produkcyjne TRUSTED_KEYS
+    // 3. Manifest wskazujący stary historyczny key_id odrzucony przez produkcyjne TRUSTED_KEYS
     let legacy_manifest = r#"{
         "manifest_version": 1,
         "key_id": "splogbook-release-2026-01",
@@ -416,7 +416,7 @@ fn all_revoked_release_keys_are_rejected() {
     let res_legacy = verify_manifest_signature(legacy_manifest.as_bytes(), &sig_b64);
     assert!(
         res_legacy.is_err(),
-        "Produkcyjny updater musi odrzuciÄ‡ manifest z odwoĹ‚anym splogbook-release-2026-01"
+        "Produkcyjny updater musi odrzucić manifest z odwołanym splogbook-release-2026-01"
     );
 
     // 4. Manifest z nieaktywnym kluczem (active: false)
@@ -440,7 +440,7 @@ fn all_revoked_release_keys_are_rejected() {
     );
     assert!(
         res_inactive.is_err(),
-        "Klucz z active: false musi zostaÄ‡ odrzucony"
+        "Klucz z active: false musi zostać odrzucony"
     );
 }
 
@@ -449,29 +449,26 @@ fn signer_generated_key_signs_and_updater_verifies_manifest() {
     let signer_bin = env!("CARGO_BIN_EXE_splogbook-signer");
     let temp_dir =
         std::env::temp_dir().join(format!("splog_signer_test_{}", rand::random::<u64>()));
-    fs::create_dir_all(&temp_dir).expect("Nie udaĹ‚o siÄ™ utworzyÄ‡ katalogu tymczasowego");
+    fs::create_dir_all(&temp_dir).expect("Nie udało się utworzyć katalogu tymczasowego");
 
     let priv_key_path = temp_dir.join("test_key.priv");
     let manifest_path = temp_dir.join("test_manifest.json");
 
-    // 1. WywoĹ‚anie keygen
+    // 1. Wywołanie keygen
     let keygen_out = Command::new(signer_bin)
         .args(["keygen", priv_key_path.to_str().unwrap()])
         .output()
-        .expect("WywoĹ‚anie keygen nie powiodĹ‚o siÄ™");
-    assert!(
-        keygen_out.status.success(),
-        "keygen zakoĹ„czyĹ‚ siÄ™ bĹ‚Ä™dem"
-    );
+        .expect("Wywołanie keygen nie powiodło się");
+    assert!(keygen_out.status.success(), "keygen zakończył się błędem");
 
     let stdout_keygen = String::from_utf8_lossy(&keygen_out.stdout);
     assert!(
-        stdout_keygen.contains("TwĂłj nowy kod zaufanego klucza publicznego"),
-        "WyjĹ›cie keygen musi zawieraÄ‡ klucz publiczny"
+        stdout_keygen.contains("Twój nowy kod zaufanego klucza publicznego"),
+        "Wyjście keygen musi zawierać klucz publiczny"
     );
 
     // 2. Odczytanie wygenerowanego klucza prywatnego (efemerycznego testowego)
-    let priv_bytes = fs::read(&priv_key_path).expect("Nie moĹĽna odczytaÄ‡ wygenerowanego klucza");
+    let priv_bytes = fs::read(&priv_key_path).expect("Nie można odczytać wygenerowanego klucza");
     assert_eq!(priv_bytes.len(), 32);
     let priv_arr: [u8; 32] = priv_bytes.try_into().unwrap();
     let signing_key = SigningKey::from_bytes(&priv_arr);
@@ -497,10 +494,10 @@ fn signer_generated_key_signs_and_updater_verifies_manifest() {
             }
         ]
     }"#;
-    fs::write(&manifest_path, manifest_content).expect("BĹ‚Ä…d zapisu manifestu");
-    let manifest_bytes = fs::read(&manifest_path).expect("BĹ‚Ä…d odczytu zapisanego manifestu");
+    fs::write(&manifest_path, manifest_content).expect("Błąd zapisu manifestu");
+    let manifest_bytes = fs::read(&manifest_path).expect("Błąd odczytu zapisanego manifestu");
 
-    // 4. Podpisanie manifestu narzÄ™dziem signer
+    // 4. Podpisanie manifestu narzędziem signer
     let sign_out = Command::new(signer_bin)
         .args([
             "sign",
@@ -508,13 +505,13 @@ fn signer_generated_key_signs_and_updater_verifies_manifest() {
             manifest_path.to_str().unwrap(),
         ])
         .output()
-        .expect("WywoĹ‚anie sign nie powiodĹ‚o siÄ™");
-    assert!(sign_out.status.success(), "sign zakoĹ„czyĹ‚ siÄ™ bĹ‚Ä™dem");
+        .expect("Wywołanie sign nie powiodło się");
+    assert!(sign_out.status.success(), "sign zakończył się błędem");
 
     // 5. Sprawdzenie pliku podpisu
     let sig_path = temp_dir.join("test_manifest.json.sig");
-    assert!(sig_path.exists(), "Plik podpisu nie zostaĹ‚ utworzony");
-    let sig_b64 = fs::read_to_string(&sig_path).expect("BĹ‚Ä…d odczytu podpisu");
+    assert!(sig_path.exists(), "Plik podpisu nie został utworzony");
+    let sig_b64 = fs::read_to_string(&sig_path).expect("Błąd odczytu podpisu");
 
     // 6. Weryfikacja przez updater helper
     let trusted_key = TrustedKey {
@@ -537,7 +534,7 @@ fn signer_generated_key_signs_and_updater_verifies_manifest() {
     );
     assert!(
         res.is_ok(),
-        "Manifest podpisany przez signer musi zostaÄ‡ poprawnie zweryfikowany przez updater"
+        "Manifest podpisany przez signer musi zostać poprawnie zweryfikowany przez updater"
     );
 
     // Czyszczenie
@@ -564,11 +561,11 @@ fn signer_rejects_invalid_private_key_length() {
             manifest_path.to_str().unwrap(),
         ])
         .output()
-        .expect("WywoĹ‚anie sign nie powiodĹ‚o siÄ™");
+        .expect("Wywołanie sign nie powiodło się");
 
     assert!(
         !output.status.success(),
-        "Signer musi zwrĂłciÄ‡ bĹ‚Ä…d dla klucza o dĹ‚ugoĹ›ci rĂłĹĽnej od 32 bajtĂłw"
+        "Signer musi zwrócić błąd dla klucza o długości różnej od 32 bajtów"
     );
 
     let _ = fs::remove_dir_all(&temp_dir);
@@ -581,7 +578,7 @@ fn signer_never_prints_private_key_in_error() {
     fs::create_dir_all(&temp_dir).unwrap();
 
     let bad_key_path = temp_dir.join("bad.key");
-    // Unikalna sekwencja bajtĂłw
+    // Unikalna sekwencja bajtów
     let unique_bytes = [0xFE, 0xED, 0xFA, 0xCE, 0x11, 0x22, 0x33, 0x44];
     fs::write(&bad_key_path, unique_bytes).unwrap();
 
@@ -603,11 +600,11 @@ fn signer_never_prints_private_key_in_error() {
 
     assert!(
         !combined.contains("feedface"),
-        "Signer nie moĹĽe wypisywaÄ‡ zawartoĹ›ci niepoprawnego klucza"
+        "Signer nie może wypisywać zawartości niepoprawnego klucza"
     );
     assert!(
         !combined.contains("FE, ED, FA, CE"),
-        "Signer nie moĹĽe wypisywaÄ‡ tablicy bajtĂłw klucza w bĹ‚Ä™dzie"
+        "Signer nie może wypisywać tablicy bajtów klucza w błędzie"
     );
 
     let _ = fs::remove_dir_all(&temp_dir);
@@ -635,7 +632,7 @@ fn signer_fingerprint_matches_public_key() {
 
     let stdout_fp = String::from_utf8_lossy(&fp_out.stdout);
 
-    // Obliczenie referencyjnego fingerprintu bezpoĹ›rednio
+    // Obliczenie referencyjnego fingerprintu bezpośrednio
     let priv_bytes = fs::read(&priv_key_path).unwrap();
     let signing_key = SigningKey::from_bytes((&priv_bytes[..32]).try_into().unwrap());
     let public_bytes = signing_key.verifying_key().to_bytes();
@@ -643,7 +640,7 @@ fn signer_fingerprint_matches_public_key() {
 
     assert!(
         stdout_fp.contains(&expected_fp),
-        "Fingerprint wypisany przez signer musi odpowiadaÄ‡ SHA-256 klucza publicznego"
+        "Fingerprint wypisany przez signer musi odpowiadać SHA-256 klucza publicznego"
     );
 
     let _ = fs::remove_dir_all(&temp_dir);
@@ -653,22 +650,22 @@ fn signer_fingerprint_matches_public_key() {
 fn release_workflow_references_secret_without_embedding_key_material() {
     let workflow_path = ".github/workflows/build-and-release.yml";
     let content = fs::read_to_string(workflow_path)
-        .expect("Nie moĹĽna odczytaÄ‡ .github/workflows/build-and-release.yml");
+        .expect("Nie można odczytać .github/workflows/build-and-release.yml");
 
-    // 1. Workflow musi odwoĹ‚ywaÄ‡ siÄ™ do sekretu RELEASE_SIGNING_KEY
+    // 1. Workflow musi odwoływać się do sekretu RELEASE_SIGNING_KEY
     assert!(
         content.contains("secrets.RELEASE_SIGNING_KEY"),
-        "Workflow musi odwoĹ‚ywaÄ‡ siÄ™ do secrets.RELEASE_SIGNING_KEY"
+        "Workflow musi odwoływać się do secrets.RELEASE_SIGNING_KEY"
     );
 
-    // 2. YAML nie moĹĽe zawieraÄ‡ zahardkodowanego klucza prywatnego
+    // 2. YAML nie może zawierać zahardkodowanego klucza prywatnego
     assert!(
         !content.contains("BEGIN PRIVATE KEY"),
-        "Workflow nie moĹĽe zawieraÄ‡ nagĹ‚ĂłwkĂłw klucza prywatnego"
+        "Workflow nie może zawierać nagłówków klucza prywatnego"
     );
     assert!(
         !content.contains("BEGIN OPENSSH PRIVATE KEY"),
-        "Workflow nie moĹĽe zawieraÄ‡ kluczy OpenSSH"
+        "Workflow nie może zawierać kluczy OpenSSH"
     );
 
     // 3. Sprawdzenie, czy klucz tymczasowy nie jest ujawniany w artefaktach release
@@ -678,7 +675,7 @@ fn release_workflow_references_secret_without_embedding_key_material() {
     let after_release_step = &content[release_step_pos..];
     assert!(
         !after_release_step.contains("priv.key"),
-        "Plik priv.key nie moĹĽe trafiÄ‡ do artefaktĂłw GitHub Release"
+        "Plik priv.key nie może trafić do artefaktów GitHub Release"
     );
 
     // 4. Zakaz wypisywania sekretu w echo
@@ -687,7 +684,7 @@ fn release_workflow_references_secret_without_embedding_key_material() {
         if trimmed.starts_with("echo ") && trimmed.contains("RELEASE_SIGNING_KEY") {
             assert!(
                 trimmed.contains("base64 -d > priv.key"),
-                "echo moĹĽe byÄ‡ uĹĽyte wyĹ‚Ä…cznie do zdekodowania do pliku priv.key: {}",
+                "echo może być użyte wyłącznie do zdekodowania do pliku priv.key: {}",
                 trimmed
             );
         }
@@ -699,11 +696,11 @@ fn repository_contains_no_tracked_private_key_material() {
     let output = Command::new("git")
         .args(["ls-files"])
         .output()
-        .expect("Nie udaĹ‚o siÄ™ wykonaÄ‡ polecenia git ls-files");
+        .expect("Nie udało się wykonać polecenia git ls-files");
 
     assert!(
         output.status.success(),
-        "git ls-files zakoĹ„czyĹ‚o siÄ™ bĹ‚Ä™dem"
+        "git ls-files zakończyło się błędem"
     );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -725,24 +722,24 @@ fn repository_contains_no_tracked_private_key_material() {
         for forbidden in &forbidden_exact {
             assert_ne!(
                 file, forbidden,
-                "Zabroniony plik klucza/sekretu jest Ĺ›ledzony przez Git: {}",
+                "Zabroniony plik klucza/sekretu jest śledzony przez Git: {}",
                 file
             );
         }
 
         assert!(
             !file.ends_with(".key"),
-            "Plik z rozszerzeniem .key jest Ĺ›ledzony w Git: {}",
+            "Plik z rozszerzeniem .key jest śledzony w Git: {}",
             file
         );
         assert!(
             !file.ends_with(".p12"),
-            "Plik archiwum kluczy .p12 jest Ĺ›ledzony w Git: {}",
+            "Plik archiwum kluczy .p12 jest śledzony w Git: {}",
             file
         );
         assert!(
             !file.ends_with(".pfx"),
-            "Plik archiwum kluczy .pfx jest Ĺ›ledzony w Git: {}",
+            "Plik archiwum kluczy .pfx jest śledzony w Git: {}",
             file
         );
     }
@@ -776,7 +773,7 @@ fn repository_contains_no_tracked_private_key_material() {
                         || trimmed.contains("SIGNING_KEY"))
                 {
                     panic!(
-                        "Zabroniona staĹ‚a klucza prywatnego w pliku {}: {}",
+                        "Zabroniona stała klucza prywatnego w pliku {}: {}",
                         file, trimmed
                     );
                 }
@@ -839,12 +836,12 @@ fn configuration_debug_never_leaks_secrets() {
     assert!(!debug_sync.contains("TEST_SECRET_GUARD"));
     assert!(debug_sync.contains("<redacted>"));
 
-    // 4. StraĹĽnik braku automatycznego derive(Debug) na AppConfig
+    // 4. Strażnik braku automatycznego derive(Debug) na AppConfig
     let station_rs = std::fs::read_to_string("src/core/station.rs").expect("read station.rs");
     assert!(
         !station_rs.contains("#[derive(Debug, Clone, Serialize, Deserialize)]\r\n#[serde(default)]\r\npub struct AppConfig")
         && !station_rs.contains("#[derive(Debug, Clone, Serialize, Deserialize)]\n#[serde(default)]\npub struct AppConfig"),
-        "AppConfig nie moĹĽe posiadaÄ‡ automatycznego derive(Debug)"
+        "AppConfig nie może posiadać automatycznego derive(Debug)"
     );
 }
 
@@ -853,17 +850,17 @@ fn security_guard_bind_policy_and_handshake_timeout() {
     use splogbook::api::server::{ServerBindError, validate_bind_policy};
     use splogbook::sync::HOST_HANDSHAKE_TIMEOUT;
 
-    // SEC-003: StraĹĽnik limitu czasu handshake'u Hosta synchronizacji
+    // SEC-003: Strażnik limitu czasu handshake'u Hosta synchronizacji
     assert!(
         HOST_HANDSHAKE_TIMEOUT <= std::time::Duration::from_secs(15),
-        "HOST_HANDSHAKE_TIMEOUT musi byÄ‡ ograniczony do maksymalnie 15 sekund (SEC-003)"
+        "HOST_HANDSHAKE_TIMEOUT musi być ograniczony do maksymalnie 15 sekund (SEC-003)"
     );
     assert!(
         HOST_HANDSHAKE_TIMEOUT >= std::time::Duration::from_secs(5),
-        "HOST_HANDSHAKE_TIMEOUT nie moĹĽe byÄ‡ krĂłtszy niĹĽ 5 sekund"
+        "HOST_HANDSHAKE_TIMEOUT nie może być krótszy niż 5 sekund"
     );
 
-    // SEC-004: StraĹĽnik polityki wiÄ…zania serwera REST
+    // SEC-004: Strażnik polityki wiązania serwera REST
     let public_ip: std::net::IpAddr = "0.0.0.0".parse().unwrap();
     assert_eq!(
         validate_bind_policy(&public_ip, ""),
@@ -888,68 +885,68 @@ fn security_guard_bind_policy_and_handshake_timeout() {
 #[test]
 fn release_workflow_fails_closed_without_signing_secret() {
     let workflow = fs::read_to_string(".github/workflows/build-and-release.yml")
-        .expect("Nie moĹĽna odczytaÄ‡ workflow");
+        .expect("Nie można odczytać workflow");
     assert!(
         workflow.contains("RELEASE_SIGNING_KEY"),
-        "Workflow musi korzystaÄ‡ z RELEASE_SIGNING_KEY"
+        "Workflow musi korzystać z RELEASE_SIGNING_KEY"
     );
     assert!(
         workflow.contains(r#"[ -z "$RELEASE_SIGNING_KEY" ]"#),
-        "Workflow musi sprawdzaÄ‡, czy sekret RELEASE_SIGNING_KEY jest pusty"
+        "Workflow musi sprawdzać, czy sekret RELEASE_SIGNING_KEY jest pusty"
     );
     assert!(
         workflow.contains("exit 1"),
-        "Brak klucza przy prĂłbie publikacji wydania musi koĹ„czyÄ‡ siÄ™ bĹ‚Ä™dem (fail-closed)"
+        "Brak klucza przy próbie publikacji wydania musi kończyć się błędem (fail-closed)"
     );
 }
 
 #[test]
 fn release_workflow_rejects_incomplete_artifact_set() {
     let workflow = fs::read_to_string(".github/workflows/build-and-release.yml")
-        .expect("Nie moĹĽna odczytaÄ‡ workflow");
+        .expect("Nie można odczytać workflow");
     assert!(
         workflow.contains("SPLogbook-Linux-x86_64.tar.gz"),
-        "Workflow musi weryfikowaÄ‡ obecnoĹ›Ä‡ artefaktu Linux"
+        "Workflow musi weryfikować obecność artefaktu Linux"
     );
     assert!(
         workflow.contains("SPLogbook-Windows-x64.zip"),
-        "Workflow musi weryfikowaÄ‡ obecnoĹ›Ä‡ artefaktu Windows"
+        "Workflow musi weryfikować obecność artefaktu Windows"
     );
     assert!(
         workflow.contains("[ -s release-staging/SPLogbook-Linux-x86_64.tar.gz ]"),
-        "Workflow musi sprawdzaÄ‡, czy artefakt Linux jest niepusty"
+        "Workflow musi sprawdzać, czy artefakt Linux jest niepusty"
     );
     assert!(
         workflow.contains("[ -s release-staging/SPLogbook-Windows-x64.zip ]"),
-        "Workflow musi sprawdzaÄ‡, czy artefakt Windows jest niepusty"
+        "Workflow musi sprawdzać, czy artefakt Windows jest niepusty"
     );
 }
 
 #[test]
 fn release_workflow_rejects_duplicate_artifact_names() {
     let workflow = fs::read_to_string(".github/workflows/build-and-release.yml")
-        .expect("Nie moĹĽna odczytaÄ‡ workflow");
+        .expect("Nie można odczytać workflow");
     assert!(
         workflow.contains("Unexpected artifact count in staging"),
-        "Workflow musi weryfikowaÄ‡ jednoznacznoĹ›Ä‡ i liczbÄ™ artefaktĂłw w staging"
+        "Workflow musi weryfikować jednoznaczność i liczbę artefaktów w staging"
     );
 }
 
 #[test]
 fn release_workflow_requires_manifest_signature_and_checksums() {
     let workflow = fs::read_to_string(".github/workflows/build-and-release.yml")
-        .expect("Nie moĹĽna odczytaÄ‡ workflow");
+        .expect("Nie można odczytać workflow");
     assert!(
         workflow.contains("SHA256SUMS.txt"),
-        "Workflow musi generowaÄ‡ i publikowaÄ‡ SHA256SUMS.txt"
+        "Workflow musi generować i publikować SHA256SUMS.txt"
     );
     assert!(
         workflow.contains("release-manifest.json"),
-        "Workflow musi generowaÄ‡ i publikowaÄ‡ release-manifest.json"
+        "Workflow musi generować i publikować release-manifest.json"
     );
     assert!(
         workflow.contains("release-manifest.json.sig"),
-        "Workflow musi generowaÄ‡ i publikowaÄ‡ release-manifest.json.sig"
+        "Workflow musi generować i publikować release-manifest.json.sig"
     );
 }
 
@@ -1175,7 +1172,7 @@ fn release_manifest_is_deterministic() {
     let json2 = serde_json::to_string_pretty(&manifest1).unwrap();
     assert_eq!(
         json1, json2,
-        "Serializacja manifestu musi byÄ‡ deterministyczna"
+        "Serializacja manifestu musi być deterministyczna"
     );
 }
 
@@ -1223,13 +1220,10 @@ fn release_manifest_lists_every_expected_artifact_once() {
         .iter()
         .filter(|a| a.platform == "windows")
         .count();
-    assert_eq!(
-        linux_count, 1,
-        "Artefakt Linux musi wystÄ…piÄ‡ dokĹ‚adnie raz"
-    );
+    assert_eq!(linux_count, 1, "Artefakt Linux musi wystąpić dokładnie raz");
     assert_eq!(
         windows_count, 1,
-        "Artefakt Windows musi wystÄ…piÄ‡ dokĹ‚adnie raz"
+        "Artefakt Windows musi wystąpić dokładnie raz"
     );
 }
 
@@ -1245,10 +1239,10 @@ fn release_manifest_uses_active_key_id() {
     );
 
     let workflow = fs::read_to_string(".github/workflows/build-and-release.yml")
-        .expect("Nie moĹĽna odczytaÄ‡ workflow");
+        .expect("Nie można odczytać workflow");
     assert!(
         workflow.contains(r#""key_id": "splogbook-release-2026-02""#),
-        "Manifest w workflow musi uĹĽywaÄ‡ identyfikatora aktywnego klucza"
+        "Manifest w workflow musi używać identyfikatora aktywnego klucza"
     );
 }
 
@@ -1321,11 +1315,11 @@ fn signer_verify_accepts_valid_signature_with_explicit_key() {
         .unwrap();
     assert!(
         verify_out.status.success(),
-        "Poprawny podpis musi zostaÄ‡ zweryfikowany kodem 0: {}",
+        "Poprawny podpis musi zostać zweryfikowany kodem 0: {}",
         String::from_utf8_lossy(&verify_out.stderr)
     );
 
-    // 2. Modyfikacja manifestu powoduje bĹ‚Ä…d weryfikacji (kod != 0)
+    // 2. Modyfikacja manifestu powoduje błąd weryfikacji (kod != 0)
     let tampered_manifest_path = temp_dir.join("tampered-manifest.json");
     fs::write(
         &tampered_manifest_path,
@@ -1343,10 +1337,10 @@ fn signer_verify_accepts_valid_signature_with_explicit_key() {
         .unwrap();
     assert!(
         !tampered_out.status.success(),
-        "Zmodyfikowany manifest musi zostaÄ‡ odrzucony bĹ‚Ä™dem"
+        "Zmodyfikowany manifest musi zostać odrzucony błędem"
     );
 
-    // 3. Uszkodzony plik podpisu powoduje bĹ‚Ä…d weryfikacji (kod != 0)
+    // 3. Uszkodzony plik podpisu powoduje błąd weryfikacji (kod != 0)
     let bad_sig_path = temp_dir.join("bad.sig");
     fs::write(
         &bad_sig_path,
@@ -1364,7 +1358,7 @@ fn signer_verify_accepts_valid_signature_with_explicit_key() {
         .unwrap();
     assert!(
         !bad_sig_out.status.success(),
-        "Uszkodzony podpis musi zostaÄ‡ odrzucony bĹ‚Ä™dem"
+        "Uszkodzony podpis musi zostać odrzucony błędem"
     );
 
     let _ = fs::remove_dir_all(&temp_dir);
