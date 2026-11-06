@@ -29,6 +29,12 @@ pub fn redact_sensitive_info(msg: &str) -> String {
         "client_id=",
         "pass=",
         "bearer ",
+        "x-api-key=",
+        "x-api-key:",
+        "api_key=",
+        "api_key:",
+        "apikey=",
+        "apikey:",
     ] {
         let mut search_from = 0;
         while search_from < out.len() {
