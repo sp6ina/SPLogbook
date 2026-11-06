@@ -24,10 +24,10 @@ impl SpLogApp {
         let doy = now.ordinal();
         let key = (sfi, k_index, hour, minute, doy);
 
-        if let Some((cached_key, cached)) = &self.solar.propagation_cache {
-            if *cached_key == key {
-                return cached.clone();
-            }
+        if let Some((cached_key, cached)) = &self.solar.propagation_cache
+            && *cached_key == key
+        {
+            return cached.clone();
         }
 
         let sp = crate::core::geo::Coordinates::new(51.1, 17.0);
@@ -172,21 +172,20 @@ impl SpLogApp {
         if !self.solar.loading {
             return;
         }
-        if let Some(ref slot) = self.solar.fetch_slot.clone() {
-            if let Ok(mut guard) = slot.try_lock() {
-                if let Some(result) = guard.take() {
-                    self.solar.loading = false;
-                    self.solar.fetch_slot = None;
-                    match result {
-                        Ok(weather) => self.record_solar_sample(weather),
-                        Err(e) => {
-                            self.solar.last_alert = Some(
-                                Msg::new(key::SOLAR_FETCH_ERROR)
-                                    .arg("err", &e.to_string())
-                                    .text(self.gui.appearance.language),
-                            );
-                        }
-                    }
+        if let Some(ref slot) = self.solar.fetch_slot.clone()
+            && let Ok(mut guard) = slot.try_lock()
+            && let Some(result) = guard.take()
+        {
+            self.solar.loading = false;
+            self.solar.fetch_slot = None;
+            match result {
+                Ok(weather) => self.record_solar_sample(weather),
+                Err(e) => {
+                    self.solar.last_alert = Some(
+                        Msg::new(key::SOLAR_FETCH_ERROR)
+                            .arg("err", e.to_string())
+                            .text(self.gui.appearance.language),
+                    );
                 }
             }
         }

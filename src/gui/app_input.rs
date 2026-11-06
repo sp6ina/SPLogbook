@@ -12,6 +12,22 @@ impl SpLogApp {
     /// ModalDialog → ContestQsoEntry → MainQsoEntry → LogFilter → SettingsTextEdit → OperatorAssistantTextEdit → LogTable → Global
     #[must_use]
     pub fn determine_active_focus_context(&self, ctx: &egui::Context) -> ActiveFocusContext {
+        const MAIN_QSO_ENTRY_IDS: &[&str] = &[
+            "qso_entry_callsign",
+            "qso_entry_rst_sent",
+            "qso_entry_rst_rcvd",
+            "qso_entry_exchange",
+            "qso_entry_name",
+            "qso_entry_grid",
+            "qso_entry_qth",
+            "qso_entry_pga",
+            "qso_entry_iota",
+            "qso_entry_state",
+            "qso_entry_sota",
+            "qso_entry_qsl_via",
+            "qso_entry_comment",
+        ];
+
         if let Some(explicit) = self.active_focus_context_override {
             return explicit;
         }
@@ -42,21 +58,6 @@ impl SpLogApp {
         }
 
         // 3. Priorytet: MainQsoEntry
-        const MAIN_QSO_ENTRY_IDS: &[&str] = &[
-            "qso_entry_callsign",
-            "qso_entry_rst_sent",
-            "qso_entry_rst_rcvd",
-            "qso_entry_exchange",
-            "qso_entry_name",
-            "qso_entry_grid",
-            "qso_entry_qth",
-            "qso_entry_pga",
-            "qso_entry_iota",
-            "qso_entry_state",
-            "qso_entry_sota",
-            "qso_entry_qsl_via",
-            "qso_entry_comment",
-        ];
         let is_main_qso_focused = ctx.memory(|m| {
             MAIN_QSO_ENTRY_IDS
                 .iter()

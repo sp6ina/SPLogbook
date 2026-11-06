@@ -172,7 +172,7 @@ impl JournalManagerDialog {
                                                                 Some(journal.clone());
                                                         }
                                                         Err(e) => {
-                                                            self.status_message = Some(e.msg())
+                                                            self.status_message = Some(e.msg());
                                                         }
                                                     }
                                                 }
@@ -191,7 +191,7 @@ impl JournalManagerDialog {
                                                             reload_needed = true;
                                                         }
                                                         Err(e) => {
-                                                            self.status_message = Some(e.msg())
+                                                            self.status_message = Some(e.msg());
                                                         }
                                                     }
                                                 }

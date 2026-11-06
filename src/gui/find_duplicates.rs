@@ -103,10 +103,8 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     || qso.lotw_qsl_rcvd == "V"
                                     || qso.eqsl_qsl_rcvd == "Y"
                                     || qso.qsl_rcvd == "Y";
-                                if !is_conf {
-                                    if let Some(id) = qso.id {
-                                        app.duplicates.selected_ids.insert(id);
-                                    }
+                                if !is_conf && let Some(id) = qso.id {
+                                    app.duplicates.selected_ids.insert(id);
                                 }
                             }
                         }

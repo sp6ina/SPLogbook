@@ -383,6 +383,6 @@ mod tests {
         let forecasts = vec![("6m", fc(BandOpeningStatus::Closed, 0))];
         let r = recommend(&forecasts, "6m", 2, Language::Pl);
         assert!(r.headline.contains("Wszystkie pasma zamknięte"));
-        assert!(r.best_bands.is_empty());
+        assert_eq!(r.best_bands, [] as [String; 0]);
     }
 }

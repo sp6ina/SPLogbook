@@ -47,14 +47,13 @@ pub fn render_bandmap_window(app: &mut SpLogApp, ctx: &egui::Context) {
             },
         );
 
-        if let Some((pos, size)) = captured_geo {
-            if app.views.panel_bandmap.saved_pos != Some(pos)
-                || app.views.panel_bandmap.saved_size != Some(size)
-            {
-                app.views.panel_bandmap.saved_pos = Some(pos);
-                app.views.panel_bandmap.saved_size = Some(size);
-                app.save_station_config();
-            }
+        if let Some((pos, size)) = captured_geo
+            && (app.views.panel_bandmap.saved_pos != Some(pos)
+                || app.views.panel_bandmap.saved_size != Some(size))
+        {
+            app.views.panel_bandmap.saved_pos = Some(pos);
+            app.views.panel_bandmap.saved_size = Some(size);
+            app.save_station_config();
         }
         if dock_back {
             app.views.panel_bandmap.floating = false;
@@ -148,10 +147,10 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
         );
         ui.separator();
 
-        if app.gui.windows.bandmap_auto_track {
-            if let Some(current_band) = get_band_by_freq(app.cat.rig_state.frequency_hz) {
-                app.gui.windows.bandmap_selected_band = current_band.name.to_string();
-            }
+        if app.gui.windows.bandmap_auto_track
+            && let Some(current_band) = get_band_by_freq(app.cat.rig_state.frequency_hz)
+        {
+            app.gui.windows.bandmap_selected_band = current_band.name.to_string();
         }
 
         ui.label(format!("{}:", tr(key::QSO_BAND, lang)));
@@ -198,12 +197,12 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let (rect, response) = ui.allocate_exact_size(desired_size, egui::Sense::click());
 
     let mut clicked_freq = None;
-    if response.clicked() {
-        if let Some(pos) = response.interact_pointer_pos() {
-            let fraction = ((pos.x - rect.min.x) / rect.width()).clamp(0.0, 1.0);
-            let target_hz = min_freq + (fraction * freq_span) as u64;
-            clicked_freq = Some(target_hz);
-        }
+    if response.clicked()
+        && let Some(pos) = response.interact_pointer_pos()
+    {
+        let fraction = ((pos.x - rect.min.x) / rect.width()).clamp(0.0, 1.0);
+        let target_hz = min_freq + (fraction * freq_span) as u64;
+        clicked_freq = Some(target_hz);
     }
 
     if ui.is_rect_visible(rect) {

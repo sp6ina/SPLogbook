@@ -494,24 +494,21 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         );
                     }
                     // Podgląd / walidacja parsowania na żywo.
-                    if !app.entry.exchange.trim().is_empty() {
-                        if let Some(fields) = &exchange_fields {
-                            match parse_exchange(fields, &app.entry.exchange) {
-                                Ok(parsed) => {
-                                    ui.label(
-                                        egui::RichText::new(format!(
-                                            "✓ {}",
-                                            exchange_summary(&parsed)
-                                        ))
+                    if !app.entry.exchange.trim().is_empty()
+                        && let Some(fields) = &exchange_fields
+                    {
+                        match parse_exchange(fields, &app.entry.exchange) {
+                            Ok(parsed) => {
+                                ui.label(
+                                    egui::RichText::new(format!("✓ {}", exchange_summary(&parsed)))
                                         .color(palette.success),
-                                    );
-                                }
-                                Err(e) => {
-                                    ui.label(
-                                        egui::RichText::new(format!("⚠ {}", e.message))
-                                            .color(palette.danger),
-                                    );
-                                }
+                                );
+                            }
+                            Err(e) => {
+                                ui.label(
+                                    egui::RichText::new(format!("⚠ {}", e.message))
+                                        .color(palette.danger),
+                                );
                             }
                         }
                     }

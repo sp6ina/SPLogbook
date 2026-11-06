@@ -85,7 +85,7 @@ mod tests {
         assert_eq!(state.tx_doppler_khz, 8.52);
         assert!(state.auto_track_rotator);
         assert!(state.auto_tune_radio);
-        assert!(state.passes.is_empty());
+        assert_eq!(state.passes.len(), 0);
         assert_eq!(state.passes_sat, "");
         assert_eq!(state.passes_grid, "");
         assert_eq!(state.passes_minute, u64::MAX);

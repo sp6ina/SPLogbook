@@ -30,10 +30,10 @@ impl AppearanceState {
     pub fn from_config(config: &crate::core::station::AppConfig) -> Self {
         let language = Language::from_code(&config.current_language);
         let theme_preset = if config.theme_preset.is_empty() {
-            if !config.dark_theme {
-                ThemePreset::Daylight
-            } else {
+            if config.dark_theme {
                 ThemePreset::OperatorDark
+            } else {
+                ThemePreset::Daylight
             }
         } else {
             ThemePreset::from_id(&config.theme_preset)

@@ -47,14 +47,13 @@ pub fn render_vfo_window(app: &mut SpLogApp, ctx: &egui::Context) {
             },
         );
 
-        if let Some((pos, size)) = captured_geo {
-            if app.views.panel_vfo.saved_pos != Some(pos)
-                || app.views.panel_vfo.saved_size != Some(size)
-            {
-                app.views.panel_vfo.saved_pos = Some(pos);
-                app.views.panel_vfo.saved_size = Some(size);
-                app.save_station_config();
-            }
+        if let Some((pos, size)) = captured_geo
+            && (app.views.panel_vfo.saved_pos != Some(pos)
+                || app.views.panel_vfo.saved_size != Some(size))
+        {
+            app.views.panel_vfo.saved_pos = Some(pos);
+            app.views.panel_vfo.saved_size = Some(size);
+            app.save_station_config();
         }
         if dock_back {
             app.views.panel_vfo.floating = false;
@@ -418,11 +417,11 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             }
             if resp_txt.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                 let normalized = freq_khz_str.trim().replace(',', ".");
-                if let Ok(khz) = normalized.parse::<f64>() {
-                    if khz > 0.0 {
-                        let new_hz = (khz * 1000.0).round() as u64;
-                        app.set_vfo_frequency(new_hz);
-                    }
+                if let Ok(khz) = normalized.parse::<f64>()
+                    && khz > 0.0
+                {
+                    let new_hz = (khz * 1000.0).round() as u64;
+                    app.set_vfo_frequency(new_hz);
                 }
                 ui.ctx().data_mut(|d| d.remove::<String>(edit_id));
             }

@@ -256,10 +256,9 @@ pub fn render_user_manual_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     .button(open_dir_label)
                     .on_hover_text(open_dir_tip)
                     .clicked()
+                    && let Some(parent) = app.paths.config_file_path.parent()
                 {
-                    if let Some(parent) = app.paths.config_file_path.parent() {
-                        let _ = open::that(parent);
-                    }
+                    let _ = open::that(parent);
                 }
                 let issue_label = tr(key::MANUAL_BTN_REPORT_ISSUE, lang);
                 if ui.button(issue_label).clicked() {

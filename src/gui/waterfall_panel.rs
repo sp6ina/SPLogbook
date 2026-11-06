@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 //! Panel widma / waterfallu (SDR) — przechwytywanie dźwięku z wejścia
@@ -432,15 +432,14 @@ pub fn render_waterfall_window(app: &mut SpLogApp, ctx: &egui::Context) {
         },
     );
 
-    if let Some((pos, size)) = captured_geo {
-        if app.views.panel_waterfall.saved_pos != Some(pos)
-            || app.views.panel_waterfall.saved_size != Some(size)
-        {
-            app.views.panel_waterfall.saved_pos = Some(pos);
-            app.views.panel_waterfall.saved_size = Some(size);
-            if !ctx.input(|i| i.pointer.any_down()) {
-                app.save_station_config();
-            }
+    if let Some((pos, size)) = captured_geo
+        && (app.views.panel_waterfall.saved_pos != Some(pos)
+            || app.views.panel_waterfall.saved_size != Some(size))
+    {
+        app.views.panel_waterfall.saved_pos = Some(pos);
+        app.views.panel_waterfall.saved_size = Some(size);
+        if !ctx.input(|i| i.pointer.any_down()) {
+            app.save_station_config();
         }
     }
 

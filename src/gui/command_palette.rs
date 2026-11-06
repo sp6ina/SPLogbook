@@ -344,7 +344,7 @@ pub fn render_command_palette(app: &mut SpLogApp, ctx: &egui::Context) {
                         let lbl = tr(cmd.label_key, lang);
                         let selected = row == app.gui.chrome.command_palette_selected;
                         let text = if selected {
-                            egui::RichText::new(format!("▶ {}", lbl))
+                            egui::RichText::new(format!("▶ {lbl}"))
                                 .strong()
                                 .color(palette.accent)
                         } else {

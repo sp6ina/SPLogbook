@@ -30,12 +30,10 @@ impl IconColor {
             IconColor::Accent => palette.accent,
             IconColor::Success => palette.success,
             IconColor::Danger => palette.danger,
-            IconColor::Warn => palette.warning,
+            IconColor::Warn | IconColor::Gold => palette.warning,
             IconColor::Info => palette.info,
             IconColor::Neutral => palette.text_muted,
-            IconColor::Highlight => palette.accent_alt,
-            IconColor::Gold => palette.warning,
-            IconColor::Violet => palette.accent_alt,
+            IconColor::Highlight | IconColor::Violet => palette.accent_alt,
         }
     }
 }

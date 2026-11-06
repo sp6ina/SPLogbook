@@ -556,11 +556,10 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                         ui.add_space(10.0);
                                         ui.label("Port XML-RPC:");
                                         let mut port_str = app.config.fldigi_port.to_string();
-                                        if ui.add(egui::TextEdit::singleline(&mut port_str).desired_width(60.0)).changed() {
-                                            if let Ok(p) = port_str.trim().parse::<u16>() {
+                                        if ui.add(egui::TextEdit::singleline(&mut port_str).desired_width(60.0)).changed()
+                                            && let Ok(p) = port_str.trim().parse::<u16>() {
                                                 app.config.fldigi_port = p;
                                             }
-                                        }
                                     });
                                     ui.add_space(6.0);
                                     if ui.button(tr(key::SYNC_FLDIGI_TEST_BTN, lang)).clicked() {

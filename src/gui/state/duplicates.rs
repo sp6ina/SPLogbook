@@ -28,8 +28,8 @@ mod tests {
         let state = DuplicatesState::default();
         assert!(!state.show_window);
         assert!(!state.match_date);
-        assert!(state.groups.is_empty());
-        assert!(state.selected_ids.is_empty());
+        assert_eq!(state.groups.len(), 0);
+        assert_eq!(state.selected_ids.len(), 0);
         assert!(state.status.is_none());
 
         let new_state = DuplicatesState::new();

@@ -66,7 +66,7 @@ mod tests {
         assert!(!state.show);
         assert!(state.is_host);
         assert_eq!(state.status, "Off");
-        assert!(state.log.is_empty());
+        assert_eq!(state.log.len(), 0);
         assert!(state.service.is_none());
         assert!(!state.is_running());
     }

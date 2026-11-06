@@ -30,7 +30,7 @@ impl PhotoViewerDialog {
 
     pub fn open(&mut self, callsign: &str, photo_url: Option<String>) {
         let clean_call = callsign.trim().to_uppercase();
-        let is_url_empty = photo_url.as_ref().map_or(true, |u| u.trim().is_empty());
+        let is_url_empty = photo_url.as_ref().is_none_or(|u| u.trim().is_empty());
 
         if clean_call.is_empty() && is_url_empty {
             self.error_message = Some("Empty photo source or callsign rejected".to_string());
@@ -47,11 +47,13 @@ impl PhotoViewerDialog {
             }
             let is_web = u.starts_with("http://") || u.starts_with("https://");
             let is_file_uri = u.starts_with("file://");
-            let has_image_ext = u.ends_with(".jpg")
-                || u.ends_with(".jpeg")
-                || u.ends_with(".png")
-                || u.ends_with(".webp")
-                || u.ends_with(".gif");
+            let has_image_ext = std::path::Path::new(u).extension().is_some_and(|ext| {
+                ext.eq_ignore_ascii_case("jpg")
+                    || ext.eq_ignore_ascii_case("jpeg")
+                    || ext.eq_ignore_ascii_case("png")
+                    || ext.eq_ignore_ascii_case("webp")
+                    || ext.eq_ignore_ascii_case("gif")
+            });
 
             if !is_web && !is_file_uri && !has_image_ext {
                 self.callsign = clean_call;
@@ -228,7 +230,7 @@ mod tests {
 
         dialog.close();
         assert!(!dialog.is_open);
-        assert!(dialog.callsign.is_empty());
+        assert_eq!(dialog.callsign, "");
         assert!(dialog.photo_url.is_none());
         assert!(dialog.error_message.is_none());
     }

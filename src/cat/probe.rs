@@ -74,7 +74,7 @@ pub enum ProbeState {
         /// Numer generacji formularza.
         generation: u64,
         /// Potwierdzony wynik próbkowania.
-        result: RigProbeResult,
+        result: Box<RigProbeResult>,
     },
     /// Test zakończony błędem dla wskazanej generacji.
     Failed {

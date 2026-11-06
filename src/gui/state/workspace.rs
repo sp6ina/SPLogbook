@@ -64,13 +64,13 @@ impl DockWorkspace {
     }
 
     pub fn build(&mut self, dock_layout: Option<&serde_json::Value>, views: &ViewsState) {
-        if let Some(json) = dock_layout {
-            if let Ok(state) = serde_json::from_value::<DockState<String>>(json.clone()) {
-                self.dock_state = state;
-                self.sync_with_views(views);
-                self.last_saved_dock_layout = self.serialize_layout();
-                return;
-            }
+        if let Some(json) = dock_layout
+            && let Ok(state) = serde_json::from_value::<DockState<String>>(json.clone())
+        {
+            self.dock_state = state;
+            self.sync_with_views(views);
+            self.last_saved_dock_layout = self.serialize_layout();
+            return;
         }
 
         self.rebuild_from_views(views);

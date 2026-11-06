@@ -33,13 +33,13 @@ pub fn extract_pota_sota(comment: &str) -> (Option<String>, Option<String>) {
         // SOTA: [1-3 znaki]/[2 znaki]-[3-4 cyfry]
         if clean.contains('/') && clean.contains('-') {
             let parts: Vec<&str> = clean.split('/').collect();
-            if parts.len() == 2 {
-                if let Some(dash) = parts[1].find('-') {
-                    let reg = &parts[1][..dash];
-                    let num = &parts[1][dash + 1..];
-                    if reg.len() == 2 && num.len() >= 3 && num.chars().all(|c| c.is_ascii_digit()) {
-                        sota = Some(clean.to_string());
-                    }
+            if parts.len() == 2
+                && let Some(dash) = parts[1].find('-')
+            {
+                let reg = &parts[1][..dash];
+                let num = &parts[1][dash + 1..];
+                if reg.len() == 2 && num.len() >= 3 && num.chars().all(|c| c.is_ascii_digit()) {
+                    sota = Some(clean.to_string());
                 }
             }
         }
@@ -124,14 +124,13 @@ pub fn render_cluster_window(app: &mut SpLogApp, ctx: &egui::Context) {
             },
         );
 
-        if let Some((pos, size)) = captured_geo {
-            if app.views.panel_cluster.saved_pos != Some(pos)
-                || app.views.panel_cluster.saved_size != Some(size)
-            {
-                app.views.panel_cluster.saved_pos = Some(pos);
-                app.views.panel_cluster.saved_size = Some(size);
-                app.save_station_config();
-            }
+        if let Some((pos, size)) = captured_geo
+            && (app.views.panel_cluster.saved_pos != Some(pos)
+                || app.views.panel_cluster.saved_size != Some(size))
+        {
+            app.views.panel_cluster.saved_pos = Some(pos);
+            app.views.panel_cluster.saved_size = Some(size);
+            app.save_station_config();
         }
         if dock_back {
             app.views.panel_cluster.floating = false;
@@ -344,17 +343,15 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             app.cluster.show_add_cluster_dialog = true;
         }
 
-        if is_custom {
-            if let Some(idx) = custom_idx {
-                if ui
-                    .button("🗑")
-                    .on_hover_text(tr(key::CLUSTER_DELETE_SERVER_TOOLTIP, lang))
-                    .clicked()
-                {
-                    app.config.custom_clusters.remove(idx);
-                    app.save_station_config();
-                }
-            }
+        if is_custom
+            && let Some(idx) = custom_idx
+            && ui
+                .button("🗑")
+                .on_hover_text(tr(key::CLUSTER_DELETE_SERVER_TOOLTIP, lang))
+                .clicked()
+        {
+            app.config.custom_clusters.remove(idx);
+            app.save_station_config();
         }
 
         if app.cluster.connected {

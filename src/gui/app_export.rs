@@ -367,15 +367,15 @@ impl SpLogApp {
 
             let mut row_count = 0;
             for qso in &qsos {
-                if let Some(grid) = &qso.gridsquare {
-                    if let Some((lat, lon)) = gridsquare_to_latlon(grid) {
-                        let mut waypoint = Waypoint::new(Point::new(lon, lat));
-                        waypoint.name = Some(qso.callsign.clone());
-                        waypoint.description = Some(format!("{} {}", qso.band, qso.mode));
-                        // waypoint.sym = Some("Radio".to_string());
-                        gpx.waypoints.push(waypoint);
-                        row_count += 1;
-                    }
+                if let Some(grid) = &qso.gridsquare
+                    && let Some((lat, lon)) = gridsquare_to_latlon(grid)
+                {
+                    let mut waypoint = Waypoint::new(Point::new(lon, lat));
+                    waypoint.name = Some(qso.callsign.clone());
+                    waypoint.description = Some(format!("{} {}", qso.band, qso.mode));
+                    // waypoint.sym = Some("Radio".to_string());
+                    gpx.waypoints.push(waypoint);
+                    row_count += 1;
                 }
             }
 

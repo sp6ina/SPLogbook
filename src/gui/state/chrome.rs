@@ -36,7 +36,7 @@ mod tests {
         assert!(!state.show_shortcuts_window);
         assert!(!state.show_legend_window);
         assert!(!state.show_command_palette);
-        assert!(state.command_palette_query.is_empty());
+        assert_eq!(state.command_palette_query, "");
         assert_eq!(state.command_palette_selected, 0);
         assert!(!state.show_user_manual);
         assert!(state.manual_section.is_none());

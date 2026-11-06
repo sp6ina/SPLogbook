@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 pub type WsprFetchSlot = Arc<Mutex<Option<Result<Vec<WsprSpot>, WsprError>>>>;
 
 /// Stan monitora WSPR (wspr.live).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct WsprState {
     pub show_window: bool,
     pub spots: Vec<WsprSpot>,
@@ -15,19 +15,6 @@ pub struct WsprState {
     pub last_error: Option<String>,
     pub fetch_slot: Option<WsprFetchSlot>,
     pub distance_miles: bool,
-}
-
-impl Default for WsprState {
-    fn default() -> Self {
-        Self {
-            show_window: false,
-            spots: Vec::new(),
-            loading: false,
-            last_error: None,
-            fetch_slot: None,
-            distance_miles: false,
-        }
-    }
 }
 
 impl WsprState {

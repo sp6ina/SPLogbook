@@ -108,11 +108,10 @@ impl SpLogApp {
         let db_dir = if std::path::Path::new("databases").is_dir() {
             std::path::PathBuf::from("databases")
         } else {
-            self.paths
-                .active_db_path
-                .parent()
-                .map(|p| p.join("databases"))
-                .unwrap_or_else(|| std::path::PathBuf::from("databases"))
+            self.paths.active_db_path.parent().map_or_else(
+                || std::path::PathBuf::from("databases"),
+                |p| p.join("databases"),
+            )
         };
         let tx = self.online.sync_log_tx.clone();
         let scp = self.services.scp_engine.clone();
@@ -275,5 +274,34 @@ impl SpLogApp {
                 sched.save_to_disk();
             }
         });
+    }
+
+    /// Uruchamia wątek odbiorczy JS8Call TCP API i podłącza kanały aktualizacji.
+    pub fn start_js8call_listener(&mut self) {
+        if self.digital.js8call_state_rx.is_some() {
+            return;
+        }
+        let (state_tx, state_rx) = std::sync::mpsc::channel();
+        let (qso_tx, qso_rx) = std::sync::mpsc::channel();
+        let client = crate::digital::js8call::Js8CallClient::new(
+            self.digital.js8call_host.clone(),
+            self.digital.js8call_port,
+        );
+        client.start_listener(state_tx, qso_tx);
+        self.digital.js8call_state_rx = Some(state_rx);
+        self.digital.js8call_qso_rx = Some(qso_rx);
+        log::info!(
+            "Uruchomiono nasłuchiwanie JS8Call ({}:{})",
+            self.digital.js8call_host,
+            self.digital.js8call_port
+        );
+    }
+
+    /// Zatrzymuje nasłuchiwanie JS8Call i czyści kanały odbiorcze.
+    pub fn stop_js8call_listener(&mut self) {
+        self.digital.js8call_state_rx = None;
+        self.digital.js8call_qso_rx = None;
+        self.digital.js8call_state.connected = false;
+        log::info!("Zatrzymano nasłuchiwanie JS8Call");
     }
 }

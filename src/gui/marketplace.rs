@@ -29,36 +29,36 @@ pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
     }
 
     // Odbiór wyników asynchronicznego pobierania katalogu
-    if let Some(rx) = &app.marketplace.fetch_rx {
-        if let Ok(result) = rx.try_recv() {
-            app.marketplace.loading = false;
-            app.marketplace.fetch_rx = None;
-            match result {
-                Ok(entries) => {
-                    app.marketplace.catalog = entries;
-                    app.marketplace.error = None;
-                }
-                Err(e) => app.marketplace.error = Some(e.to_string()),
+    if let Some(rx) = &app.marketplace.fetch_rx
+        && let Ok(result) = rx.try_recv()
+    {
+        app.marketplace.loading = false;
+        app.marketplace.fetch_rx = None;
+        match result {
+            Ok(entries) => {
+                app.marketplace.catalog = entries;
+                app.marketplace.error = None;
             }
+            Err(e) => app.marketplace.error = Some(e.to_string()),
         }
     }
 
     // Odbiór wyniku asynchronicznej instalacji
-    if let Some(rx) = &app.marketplace.install_rx {
-        if let Ok((id, result)) = rx.try_recv() {
-            app.marketplace.busy_id = None;
-            app.marketplace.install_rx = None;
-            match result {
-                Ok(()) => {
-                    app.marketplace.status = Some(
-                        Msg::new(key::MARKET_INSTALLED_SUCCESS)
-                            .arg("id", &id)
-                            .text(app.gui.appearance.language),
-                    );
-                    reload_plugins(app);
-                }
-                Err(e) => app.marketplace.status = Some(e.to_string()),
+    if let Some(rx) = &app.marketplace.install_rx
+        && let Ok((id, result)) = rx.try_recv()
+    {
+        app.marketplace.busy_id = None;
+        app.marketplace.install_rx = None;
+        match result {
+            Ok(()) => {
+                app.marketplace.status = Some(
+                    Msg::new(key::MARKET_INSTALLED_SUCCESS)
+                        .arg("id", &id)
+                        .text(app.gui.appearance.language),
+                );
+                reload_plugins(app);
             }
+            Err(e) => app.marketplace.status = Some(e.to_string()),
         }
     }
 

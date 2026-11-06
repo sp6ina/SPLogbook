@@ -60,14 +60,14 @@ pub fn render_workspace_profiles_window(app: &mut SpLogApp, ctx: &egui::Context)
                             }
                         });
                     }
-                    if let Some(i) = apply_preset {
-                        if let Some(preset) = workspace_profile_presets().into_iter().nth(i) {
-                            apply_profile(app, &preset);
-                            app.gui.chrome.status_toast = Some((
-                                format!("Zastosowano preset: {}", preset.name),
-                                std::time::Instant::now(),
-                            ));
-                        }
+                    if let Some(i) = apply_preset
+                        && let Some(preset) = workspace_profile_presets().into_iter().nth(i)
+                    {
+                        apply_profile(app, &preset);
+                        app.gui.chrome.status_toast = Some((
+                            format!("Zastosowano preset: {}", preset.name),
+                            std::time::Instant::now(),
+                        ));
                     }
                 });
             ui.separator();
