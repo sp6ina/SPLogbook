@@ -1575,3 +1575,100 @@ fn public_bind_without_token_is_rejected() {
         Err(ServerBindError::PublicBindWithoutAuthentication)
     );
 }
+
+#[test]
+fn ci_workflow_enforces_fmt_check() {
+    let content = fs::read_to_string(".github/workflows/ci.yml").expect("read ci.yml");
+    assert!(
+        content.contains("cargo fmt --all -- --check") || content.contains("cargo fmt --check"),
+        "CI workflow must enforce cargo fmt check"
+    );
+}
+
+#[test]
+fn ci_workflow_enforces_clippy_deny_warnings() {
+    let content = fs::read_to_string(".github/workflows/ci.yml").expect("read ci.yml");
+    assert!(
+        content.contains("cargo clippy --workspace --all-targets --all-features -- -D warnings"),
+        "CI workflow must enforce cargo clippy --workspace --all-targets --all-features -- -D warnings"
+    );
+}
+
+#[test]
+fn ci_workflow_runs_workspace_tests() {
+    let content = fs::read_to_string(".github/workflows/ci.yml").expect("read ci.yml");
+    assert!(
+        content.contains("cargo test --workspace --all-targets"),
+        "CI workflow must run cargo test --workspace --all-targets"
+    );
+}
+
+#[test]
+fn ci_workflow_runs_cargo_audit() {
+    let content = fs::read_to_string(".github/workflows/ci.yml").expect("read ci.yml");
+    assert!(
+        content.contains("cargo audit"),
+        "CI workflow must run cargo audit"
+    );
+}
+
+#[test]
+fn ci_workflow_pins_actions_to_40_char_sha() {
+    let content = fs::read_to_string(".github/workflows/ci.yml").expect("read ci.yml");
+    let mut found_uses = 0usize;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        let after_uses = if let Some(rest) = trimmed.strip_prefix("uses:") {
+            Some(rest.trim())
+        } else {
+            trimmed.strip_prefix("- uses:").map(str::trim)
+        };
+        if let Some(spec) = after_uses {
+            found_uses += 1;
+            let without_comment = spec.split('#').next().unwrap_or("").trim();
+            let (_, rev) = without_comment
+                .split_once('@')
+                .expect("Action must specify @revision");
+            assert!(
+                rev.len() == 40 && rev.chars().all(|c| c.is_ascii_hexdigit()),
+                "CI workflow action must be pinned to 40-char SHA, got: {without_comment}"
+            );
+        }
+    }
+    assert!(found_uses >= 2, "Expected at least 2 action uses in ci.yml");
+}
+
+#[test]
+fn ci_workflow_uses_minimal_permissions() {
+    let content = fs::read_to_string(".github/workflows/ci.yml").expect("read ci.yml");
+    assert!(
+        content.contains("permissions:\n  contents: read"),
+        "CI workflow must declare top-level minimal permissions: contents: read"
+    );
+    assert!(
+        !content.contains("contents: write"),
+        "CI workflow must not request contents: write permission"
+    );
+}
+
+#[test]
+fn ci_workflow_does_not_allow_clippy_failure() {
+    let content = fs::read_to_string(".github/workflows/ci.yml").expect("read ci.yml");
+    assert!(
+        !content.contains("continue-on-error: true"),
+        "CI workflow must not use continue-on-error: true"
+    );
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.contains("cargo clippy")
+            || trimmed.contains("cargo fmt")
+            || trimmed.contains("cargo test")
+            || trimmed.contains("cargo audit")
+        {
+            assert!(
+                !trimmed.contains("|| true"),
+                "Quality gate command must not suppress failure with || true: {trimmed}"
+            );
+        }
+    }
+}
