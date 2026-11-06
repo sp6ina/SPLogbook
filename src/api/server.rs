@@ -8,7 +8,7 @@ use axum::{
     http::{HeaderValue, Method, StatusCode, header},
     middleware,
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{get, post, put},
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -18,6 +18,9 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
 
 use crate::cat::hamlib::RigState;
+use crate::cat::rig::RigCommand;
+use crate::cat::routing::RigId;
+use crate::cat::runtime::CatRuntime;
 use crate::cluster::telnet::DxSpot;
 use crate::core::adif::{self, ADIF_VERSION};
 use crate::core::awards::{AwardsEngine, QsoAwardStatus};
@@ -29,6 +32,7 @@ use crate::core::ingest::{ImportOptions, IngestError, QsoIngestor, QsoOrigin};
 use crate::core::prefix::PrefixMatcher;
 use crate::core::qso::QsoRecord;
 use crate::core::scp::ScpEngine;
+use std::time::Duration;
 
 /// Ogranicza opcjonalną wartość `limit`/`offset` do przedziału `[0, max]`,
 /// aby zapytanie typu `limit=1_000_000` nie wymuszało nadmiernego transferu.
@@ -56,6 +60,7 @@ pub struct ApiState {
     /// Flaga informująca główną pętlę GUI o zmianie zawartości bazy przez REST API.
     pub reload_flag: Arc<AtomicBool>,
     pub ingestor: QsoIngestor,
+    pub cat_runtime: Option<CatRuntime>,
 }
 
 impl ApiState {
@@ -89,7 +94,13 @@ impl ApiState {
             scp_engine,
             reload_flag: Arc::new(AtomicBool::new(false)),
             ingestor,
+            cat_runtime: None,
         }
+    }
+
+    pub fn with_cat_runtime(mut self, cat_runtime: CatRuntime) -> Self {
+        self.cat_runtime = Some(cat_runtime);
+        self
     }
 
     pub fn with_station_context(
@@ -270,6 +281,56 @@ pub struct RigControlRequest {
     pub vfo: Option<String>,
     pub split_enabled: Option<bool>,
     pub ptt: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct RigSummaryResponse {
+    pub id: String,
+    pub lifecycle: String,
+    pub state_generation: u64,
+    pub session_generation: u64,
+    pub is_active_rx: bool,
+    pub is_active_tx: bool,
+}
+
+#[derive(Serialize)]
+pub struct RigDetailResponse {
+    pub id: String,
+    pub lifecycle: String,
+    pub state_generation: u64,
+    pub session_generation: u64,
+    pub is_active_rx: bool,
+    pub is_active_tx: bool,
+    pub last_error: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct RigCapabilitiesResponse {
+    pub id: String,
+    pub frequency: bool,
+    pub mode: bool,
+    pub passband: bool,
+    pub split: bool,
+    pub ptt: bool,
+    pub rit: bool,
+    pub power: bool,
+    pub s_meter: bool,
+}
+
+#[derive(Deserialize)]
+pub struct SetFrequencyRequest {
+    pub frequency_hz: u64,
+}
+
+#[derive(Deserialize)]
+pub struct SetModeRequest {
+    pub mode: String,
+    pub passband_hz: Option<u32>,
+}
+
+#[derive(Deserialize)]
+pub struct SetPttRequest {
+    pub ptt: bool,
 }
 
 #[derive(Serialize)]
@@ -470,6 +531,16 @@ pub fn build_api_router(state: ApiState) -> Router {
         .route("/api/v1/adif/export", get(export_adif_handler))
         .route("/api/v1/adif/import", post(import_adif_handler))
         .route("/api/v1/rig", get(get_rig_state).post(post_rig_control))
+        .route("/api/v1/rigs", get(get_rigs_list))
+        .route("/api/v1/rigs/{rig_id}", get(get_rig_by_id))
+        .route("/api/v1/rigs/{rig_id}/state", get(get_rig_state_by_id))
+        .route(
+            "/api/v1/rigs/{rig_id}/capabilities",
+            get(get_rig_capabilities_by_id),
+        )
+        .route("/api/v1/rigs/{rig_id}/frequency", put(put_rig_frequency))
+        .route("/api/v1/rigs/{rig_id}/mode", put(put_rig_mode))
+        .route("/api/v1/rigs/{rig_id}/ptt", put(put_rig_ptt))
         .route("/api/v1/awards", get(get_awards_summary))
         .route("/api/v1/journals", get(get_journals))
         .route("/api/v1/stats", get(get_stats))
@@ -691,6 +762,48 @@ async fn get_endpoints() -> Json<Vec<EndpointDoc>> {
             path: "/api/v1/rig",
             auth_required: true,
             description: "Zdalne sterowanie częstotliwością, emisją, VFO, Split i PTT transceivera.",
+        },
+        EndpointDoc {
+            method: "GET",
+            path: "/api/v1/rigs",
+            auth_required: true,
+            description: "Lista wszystkich skonfigurowanych radiostacji CAT wraz ze stanem cyklu życia.",
+        },
+        EndpointDoc {
+            method: "GET",
+            path: "/api/v1/rigs/{rig_id}",
+            auth_required: true,
+            description: "Szczegóły profilu wybranego transceivera.",
+        },
+        EndpointDoc {
+            method: "GET",
+            path: "/api/v1/rigs/{rig_id}/state",
+            auth_required: true,
+            description: "Szczegółowa telemetria wybranego transceivera.",
+        },
+        EndpointDoc {
+            method: "GET",
+            path: "/api/v1/rigs/{rig_id}/capabilities",
+            auth_required: true,
+            description: "Zbiór możliwości sprzętowych wybranego transceivera.",
+        },
+        EndpointDoc {
+            method: "PUT",
+            path: "/api/v1/rigs/{rig_id}/frequency",
+            auth_required: true,
+            description: "Ustawienie częstotliwości VFO wybranego transceivera.",
+        },
+        EndpointDoc {
+            method: "PUT",
+            path: "/api/v1/rigs/{rig_id}/mode",
+            auth_required: true,
+            description: "Ustawienie modulacji i filtru IF wybranego transceivera.",
+        },
+        EndpointDoc {
+            method: "PUT",
+            path: "/api/v1/rigs/{rig_id}/ptt",
+            auth_required: true,
+            description: "Sterowanie PTT transceivera z potwierdzeniem TxArbiter.",
         },
         EndpointDoc {
             method: "GET",
@@ -1230,7 +1343,77 @@ async fn get_rig_state(State(state): State<ApiState>) -> Json<RigStateResponse> 
 async fn post_rig_control(
     State(state): State<ApiState>,
     Json(req): Json<RigControlRequest>,
-) -> Json<RigStateResponse> {
+) -> Result<Json<RigStateResponse>, (StatusCode, String)> {
+    if let Some(ref rt) = state.cat_runtime {
+        let snap = rt.snapshot();
+        let target_rig = snap
+            .active_tx
+            .as_ref()
+            .map(|t| t.rig_id.clone())
+            .or_else(|| snap.active_rx.as_ref().map(|r| r.rig_id.clone()))
+            .unwrap_or_else(|| RigId::new("rig-1").unwrap_or_else(|_| RigId::hub()));
+
+        if let Some(freq) = req.frequency_hz {
+            let _ = rt
+                .execute_cmd_for_rig(
+                    target_rig.clone(),
+                    RigCommand::SetFrequency(freq),
+                    Duration::from_millis(1500),
+                )
+                .await;
+        }
+        if let Some(ref mode) = req.mode {
+            let _ = rt
+                .execute_cmd_for_rig(
+                    target_rig.clone(),
+                    RigCommand::SetMode {
+                        mode: mode.clone(),
+                        passband_hz: req.passband_hz.unwrap_or(0),
+                    },
+                    Duration::from_millis(1500),
+                )
+                .await;
+        }
+        if let Some(ref vfo) = req.vfo {
+            let _ = rt
+                .execute_cmd_for_rig(
+                    target_rig.clone(),
+                    RigCommand::SetVfo(vfo.clone()),
+                    Duration::from_millis(1500),
+                )
+                .await;
+        }
+        if let Some(split) = req.split_enabled {
+            let _ = rt
+                .execute_cmd_for_rig(
+                    target_rig.clone(),
+                    RigCommand::SetSplit {
+                        enabled: split,
+                        tx_vfo: "VFOB".to_string(),
+                    },
+                    Duration::from_millis(1500),
+                )
+                .await;
+        }
+        if let Some(ptt) = req.ptt {
+            if ptt {
+                if let Err(e) = rt
+                    .request_tx_confirmed(target_rig.clone(), Duration::from_millis(1500))
+                    .await
+                {
+                    return Err((
+                        StatusCode::CONFLICT,
+                        format!("PTT request rejected by TxArbiter: {e}"),
+                    ));
+                }
+            } else {
+                let _ = rt
+                    .release_tx_confirmed(target_rig.clone(), Duration::from_millis(1500))
+                    .await;
+            }
+        }
+    }
+
     let updated = {
         let mut rig = state
             .rig_state
@@ -1266,7 +1449,7 @@ async fn post_rig_control(
     let band = crate::core::bandplan::get_band_by_freq(updated.frequency_hz)
         .map_or_else(|| "OTHER".to_string(), |b| b.name.to_string());
 
-    Json(RigStateResponse {
+    Ok(Json(RigStateResponse {
         connected: updated.connected,
         frequency_hz: updated.frequency_hz,
         frequency_mhz: (updated.frequency_hz as f64) / 1_000_000.0,
@@ -1279,7 +1462,300 @@ async fn post_rig_control(
         s_meter_unit: updated.s_meter_unit,
         rf_power_watts: updated.rf_power_watts,
         ptt: updated.ptt,
-    })
+    }))
+}
+
+async fn get_rigs_list(State(state): State<ApiState>) -> Json<Vec<RigSummaryResponse>> {
+    if let Some(ref rt) = state.cat_runtime {
+        let snap = rt.snapshot();
+        let active_rx_id = snap.active_rx.as_ref().map(|r| &r.rig_id);
+        let active_tx_id = match snap.tx_state {
+            crate::cat::tx_arbiter::TxArbiterState::Owned { ref rig_id, .. } => Some(rig_id),
+            _ => snap.active_tx.as_ref().map(|t| &t.rig_id),
+        };
+
+        let list = snap
+            .rigs
+            .iter()
+            .map(|(rig_id, svc)| RigSummaryResponse {
+                id: rig_id.as_str().to_string(),
+                lifecycle: format!("{:?}", svc.lifecycle),
+                state_generation: svc.state_generation,
+                session_generation: svc.session_generation,
+                is_active_rx: active_rx_id == Some(rig_id),
+                is_active_tx: active_tx_id == Some(rig_id),
+            })
+            .collect();
+        Json(list)
+    } else {
+        let rig = state
+            .rig_state
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        Json(vec![RigSummaryResponse {
+            id: "rig-1".to_string(),
+            lifecycle: if rig.connected {
+                "Ready"
+            } else {
+                "Disconnected"
+            }
+            .to_string(),
+            state_generation: 0,
+            session_generation: 0,
+            is_active_rx: true,
+            is_active_tx: true,
+        }])
+    }
+}
+
+async fn get_rig_by_id(
+    State(state): State<ApiState>,
+    Path(rig_id_str): Path<String>,
+) -> Result<Json<RigDetailResponse>, StatusCode> {
+    let rig_id = RigId::new(&rig_id_str).map_err(|_| StatusCode::NOT_FOUND)?;
+    if let Some(ref rt) = state.cat_runtime {
+        let snap = rt.snapshot();
+        let svc = snap.rigs.get(&rig_id).ok_or(StatusCode::NOT_FOUND)?;
+        let active_rx_id = snap.active_rx.as_ref().map(|r| &r.rig_id);
+        let active_tx_id = match snap.tx_state {
+            crate::cat::tx_arbiter::TxArbiterState::Owned { ref rig_id, .. } => Some(rig_id),
+            _ => snap.active_tx.as_ref().map(|t| &t.rig_id),
+        };
+        Ok(Json(RigDetailResponse {
+            id: rig_id.as_str().to_string(),
+            lifecycle: format!("{:?}", svc.lifecycle),
+            state_generation: svc.state_generation,
+            session_generation: svc.session_generation,
+            is_active_rx: active_rx_id == Some(&rig_id),
+            is_active_tx: active_tx_id == Some(&rig_id),
+            last_error: svc.last_error.clone(),
+        }))
+    } else if rig_id_str == "rig-1" {
+        let rig = state
+            .rig_state
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        Ok(Json(RigDetailResponse {
+            id: "rig-1".to_string(),
+            lifecycle: if rig.connected {
+                "Ready"
+            } else {
+                "Disconnected"
+            }
+            .to_string(),
+            state_generation: 0,
+            session_generation: 0,
+            is_active_rx: true,
+            is_active_tx: true,
+            last_error: None,
+        }))
+    } else {
+        Err(StatusCode::NOT_FOUND)
+    }
+}
+
+async fn get_rig_state_by_id(
+    State(state): State<ApiState>,
+    Path(rig_id_str): Path<String>,
+) -> Result<Json<RigStateResponse>, StatusCode> {
+    let rig_id = RigId::new(&rig_id_str).map_err(|_| StatusCode::NOT_FOUND)?;
+    if let Some(ref rt) = state.cat_runtime {
+        let snap = rt.snapshot();
+        let svc = snap.rigs.get(&rig_id).ok_or(StatusCode::NOT_FOUND)?;
+        let mut st = svc.state.clone().unwrap_or_default();
+        st.connected = matches!(
+            svc.lifecycle,
+            crate::cat::service::RigServiceState::Ready
+                | crate::cat::service::RigServiceState::Degraded
+        );
+        let is_tx = match snap.tx_state {
+            crate::cat::tx_arbiter::TxArbiterState::Owned {
+                rig_id: ref owner, ..
+            } => owner == &rig_id,
+            _ => false,
+        };
+        let band = crate::core::bandplan::get_band_by_freq(st.frequency_hz)
+            .map_or_else(|| "OTHER".to_string(), |b| b.name.to_string());
+        Ok(Json(RigStateResponse {
+            connected: st.connected,
+            frequency_hz: st.frequency_hz,
+            frequency_mhz: (st.frequency_hz as f64) / 1_000_000.0,
+            band,
+            mode: st.mode,
+            passband_hz: st.passband_hz,
+            vfo: st.vfo,
+            split_enabled: st.split_enabled,
+            s_meter_dbm: st.s_meter_dbm,
+            s_meter_unit: st.s_meter_unit,
+            rf_power_watts: st.rf_power_watts,
+            ptt: is_tx,
+        }))
+    } else if rig_id_str == "rig-1" {
+        let rig = state
+            .rig_state
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let band = crate::core::bandplan::get_band_by_freq(rig.frequency_hz)
+            .map_or_else(|| "OTHER".to_string(), |b| b.name.to_string());
+        Ok(Json(RigStateResponse {
+            connected: rig.connected,
+            frequency_hz: rig.frequency_hz,
+            frequency_mhz: (rig.frequency_hz as f64) / 1_000_000.0,
+            band,
+            mode: rig.mode.clone(),
+            passband_hz: rig.passband_hz,
+            vfo: rig.vfo.clone(),
+            split_enabled: rig.split_enabled,
+            s_meter_dbm: rig.s_meter_dbm,
+            s_meter_unit: rig.s_meter_unit.clone(),
+            rf_power_watts: rig.rf_power_watts,
+            ptt: rig.ptt,
+        }))
+    } else {
+        Err(StatusCode::NOT_FOUND)
+    }
+}
+
+async fn get_rig_capabilities_by_id(
+    State(state): State<ApiState>,
+    Path(rig_id_str): Path<String>,
+) -> Result<Json<RigCapabilitiesResponse>, StatusCode> {
+    let rig_id = RigId::new(&rig_id_str).map_err(|_| StatusCode::NOT_FOUND)?;
+    if let Some(ref rt) = state.cat_runtime {
+        let snap = rt.snapshot();
+        let svc = snap.rigs.get(&rig_id).ok_or(StatusCode::NOT_FOUND)?;
+        let caps = svc.capabilities;
+        Ok(Json(RigCapabilitiesResponse {
+            id: rig_id.as_str().to_string(),
+            frequency: caps.frequency,
+            mode: caps.mode,
+            passband: caps.passband,
+            split: caps.split,
+            ptt: caps.ptt,
+            rit: caps.rit,
+            power: caps.power,
+            s_meter: caps.s_meter,
+        }))
+    } else if rig_id_str == "rig-1" {
+        Ok(Json(RigCapabilitiesResponse {
+            id: "rig-1".to_string(),
+            frequency: true,
+            mode: true,
+            passband: true,
+            split: true,
+            ptt: true,
+            rit: false,
+            power: true,
+            s_meter: true,
+        }))
+    } else {
+        Err(StatusCode::NOT_FOUND)
+    }
+}
+
+async fn put_rig_frequency(
+    State(state): State<ApiState>,
+    Path(rig_id_str): Path<String>,
+    Json(req): Json<SetFrequencyRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let rig_id = RigId::new(&rig_id_str).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    if let Some(ref rt) = state.cat_runtime {
+        rt.execute_cmd_for_rig(
+            rig_id.clone(),
+            RigCommand::SetFrequency(req.frequency_hz),
+            Duration::from_millis(1500),
+        )
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to execute SetFrequency on '{rig_id}': {e}"),
+            )
+        })?;
+    }
+    let mut rig = state
+        .rig_state
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    rig.frequency_hz = req.frequency_hz;
+    state.events.publish(AppEvent::RigState {
+        frequency_hz: rig.frequency_hz,
+        mode: rig.mode.clone(),
+        connected: rig.connected,
+    });
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn put_rig_mode(
+    State(state): State<ApiState>,
+    Path(rig_id_str): Path<String>,
+    Json(req): Json<SetModeRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let rig_id = RigId::new(&rig_id_str).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let mode_str = req.mode.trim().to_uppercase();
+    let passband = req.passband_hz.unwrap_or(0);
+    if let Some(ref rt) = state.cat_runtime {
+        rt.execute_cmd_for_rig(
+            rig_id.clone(),
+            RigCommand::SetMode {
+                mode: mode_str.clone(),
+                passband_hz: passband,
+            },
+            Duration::from_millis(1500),
+        )
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to execute SetMode on '{rig_id}': {e}"),
+            )
+        })?;
+    }
+    let mut rig = state
+        .rig_state
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    rig.mode = mode_str;
+    if passband > 0 {
+        rig.passband_hz = passband;
+    }
+    state.events.publish(AppEvent::RigState {
+        frequency_hz: rig.frequency_hz,
+        mode: rig.mode.clone(),
+        connected: rig.connected,
+    });
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn put_rig_ptt(
+    State(state): State<ApiState>,
+    Path(rig_id_str): Path<String>,
+    Json(req): Json<SetPttRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let rig_id = RigId::new(&rig_id_str).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    if let Some(ref rt) = state.cat_runtime {
+        if req.ptt {
+            if let Err(e) = rt
+                .request_tx_confirmed(rig_id.clone(), Duration::from_millis(1500))
+                .await
+            {
+                return Err((
+                    StatusCode::CONFLICT,
+                    format!("PTT request rejected by TxArbiter: {e}"),
+                ));
+            }
+        } else {
+            let _ = rt
+                .release_tx_confirmed(rig_id.clone(), Duration::from_millis(1500))
+                .await;
+        }
+    }
+    let mut rig = state
+        .rig_state
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    rig.ptt = req.ptt;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn get_awards_summary(State(state): State<ApiState>) -> Json<AwardsSummaryResponse> {
@@ -2793,5 +3269,133 @@ mod tests {
         assert_eq!(stats["total"], 1);
         assert_eq!(stats["by_band"]["15m"], 1);
         assert!(stats["by_band"].get("20m").is_none());
+    }
+
+    #[tokio::test]
+    async fn rest_api_multi_rig_endpoints_list_and_details() {
+        let state = test_api_state();
+        let app = build_api_router(state);
+
+        // 1. GET /api/v1/rigs
+        let req = Request::builder()
+            .method("GET")
+            .uri("/api/v1/rigs")
+            .header("x-api-key", "secret-key-123")
+            .body(Body::empty())
+            .unwrap();
+        let resp = call_router(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let list: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0]["id"], "rig-1");
+
+        // 2. GET /api/v1/rigs/rig-1
+        let req = Request::builder()
+            .method("GET")
+            .uri("/api/v1/rigs/rig-1")
+            .header("x-api-key", "secret-key-123")
+            .body(Body::empty())
+            .unwrap();
+        let resp = call_router(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // 3. GET /api/v1/rigs/unknown-rig -> 404
+        let req = Request::builder()
+            .method("GET")
+            .uri("/api/v1/rigs/unknown-rig")
+            .header("x-api-key", "secret-key-123")
+            .body(Body::empty())
+            .unwrap();
+        let resp = call_router(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+
+        // 4. GET /api/v1/rigs/rig-1/state
+        let req = Request::builder()
+            .method("GET")
+            .uri("/api/v1/rigs/rig-1/state")
+            .header("x-api-key", "secret-key-123")
+            .body(Body::empty())
+            .unwrap();
+        let resp = call_router(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // 5. GET /api/v1/rigs/rig-1/capabilities
+        let req = Request::builder()
+            .method("GET")
+            .uri("/api/v1/rigs/rig-1/capabilities")
+            .header("x-api-key", "secret-key-123")
+            .body(Body::empty())
+            .unwrap();
+        let resp = call_router(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // 6. PUT /api/v1/rigs/rig-1/frequency
+        let req = Request::builder()
+            .method("PUT")
+            .uri("/api/v1/rigs/rig-1/frequency")
+            .header("x-api-key", "secret-key-123")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                serde_json::json!({ "frequency_hz": 14_250_000 }).to_string(),
+            ))
+            .unwrap();
+        let resp = call_router(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+        // 7. PUT /api/v1/rigs/rig-1/mode
+        let req = Request::builder()
+            .method("PUT")
+            .uri("/api/v1/rigs/rig-1/mode")
+            .header("x-api-key", "secret-key-123")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                serde_json::json!({ "mode": "USB", "passband_hz": 2700 }).to_string(),
+            ))
+            .unwrap();
+        let resp = call_router(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+        // 8. PUT /api/v1/rigs/rig-1/ptt
+        let req = Request::builder()
+            .method("PUT")
+            .uri("/api/v1/rigs/rig-1/ptt")
+            .header("x-api-key", "secret-key-123")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(serde_json::json!({ "ptt": false }).to_string()))
+            .unwrap();
+        let resp = call_router(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test]
+    async fn rest_api_post_rig_control_with_cat_runtime() {
+        let runtime = CatRuntime::new();
+        let state = test_api_state().with_cat_runtime(runtime);
+        let app = build_api_router(state.clone());
+
+        let rig_req = serde_json::json!({
+            "frequency_hz": 14_074_000,
+            "mode": "FT8",
+            "passband_hz": 3000,
+            "split_enabled": false,
+            "ptt": false
+        })
+        .to_string();
+
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("/api/v1/rig")
+            .header("x-api-key", "secret-key-123")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(rig_req))
+            .unwrap();
+
+        let resp = call_router(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(state.rig_state.read().unwrap().frequency_hz, 14_074_000);
+        assert_eq!(state.rig_state.read().unwrap().mode, "FT8");
     }
 }
