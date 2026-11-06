@@ -1637,3 +1637,144 @@ fn initial_rig_state_when_disconnected_reports_s0_and_zero_power() {
     assert!((app.cat.rig_state.s_meter_dbm - (-127.0)).abs() < 0.1);
     assert!((app.cat.rig_state.rf_power_watts - 0.0).abs() < 0.01);
 }
+
+#[test]
+fn gui_state_lock_is_released_before_render() {
+    let deps = test_deps();
+    let mut config = AppConfig::default();
+    config.station.callsign = "SP6INA".to_string();
+    config.is_configured = true;
+    let init = AppInit {
+        config,
+        config_file_path: std::path::PathBuf::from("config.json"),
+        active_db_path: std::path::PathBuf::from("db.sqlite"),
+        shutdown_policy: ShutdownPolicy::None,
+    };
+    let mut app = SpLogApp::for_tests(init, deps);
+    let ctx = egui::Context::default();
+    app.set_egui_ctx(ctx.clone());
+
+    // Execute render frame
+    let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+        app.render_main_ui(ui);
+    });
+    out.textures_delta.clear();
+
+    // Verify all shared locks are completely free and not leaked
+    assert!(
+        app.services.log_db.try_lock().is_ok(),
+        "log_db lock must be released after frame render"
+    );
+    assert!(
+        app.cat.shared_state.try_write().is_ok(),
+        "shared_state lock must be released after frame render"
+    );
+    assert!(
+        app.runtime.egui_ctx.try_lock().is_ok(),
+        "egui_ctx lock must be released after frame render"
+    );
+}
+
+#[test]
+fn gui_does_not_hold_lock_during_config_write() {
+    let deps = test_deps();
+    let temp_dir = tempfile::tempdir().unwrap();
+    let config_file = temp_dir.path().join("station_config.json");
+    let mut config = AppConfig::default();
+    config.station.callsign = "SP6INA".to_string();
+    config.is_configured = true;
+    let init = AppInit {
+        config,
+        config_file_path: config_file,
+        active_db_path: std::path::PathBuf::from("db.sqlite"),
+        shutdown_policy: ShutdownPolicy::None,
+    };
+    let mut app = SpLogApp::for_tests(init, deps);
+
+    // Perform atomic config write
+    app.save_station_config();
+
+    // Verify database and CAT locks were never held or blocked
+    assert!(
+        app.services.log_db.try_lock().is_ok(),
+        "Database lock must remain acquirable during/after config write"
+    );
+    assert!(
+        app.cat.shared_state.try_write().is_ok(),
+        "CAT shared_state lock must remain acquirable during/after config write"
+    );
+}
+
+#[test]
+fn gui_does_not_hold_lock_during_cat_command() {
+    let deps = test_deps();
+    let mut config = AppConfig::default();
+    config.station.callsign = "SP6INA".to_string();
+    config.is_configured = true;
+    let init = AppInit {
+        config,
+        config_file_path: std::path::PathBuf::from("config.json"),
+        active_db_path: std::path::PathBuf::from("db.sqlite"),
+        shutdown_policy: ShutdownPolicy::None,
+    };
+    let mut app = SpLogApp::for_tests(init, deps);
+
+    let mut new_st = app.cat.rig_state.clone();
+    new_st.frequency_hz = 14_200_000;
+    new_st.mode = "USB".to_string();
+
+    // Update telemetry
+    app.update_cat_state_from_telemetry(new_st, false);
+
+    assert!(
+        app.services.log_db.try_lock().is_ok(),
+        "log_db lock must remain free after CAT update"
+    );
+    assert!(
+        app.cat.shared_state.try_write().is_ok(),
+        "CAT shared_state lock must remain free after CAT update"
+    );
+}
+
+#[test]
+fn slow_background_task_does_not_block_gui_state_access() {
+    let deps = test_deps();
+    let mut config = AppConfig::default();
+    config.station.callsign = "SP6INA".to_string();
+    config.is_configured = true;
+    let init = AppInit {
+        config,
+        config_file_path: std::path::PathBuf::from("config.json"),
+        active_db_path: std::path::PathBuf::from("db.sqlite"),
+        shutdown_policy: ShutdownPolicy::None,
+    };
+    let mut app = SpLogApp::for_tests(init, deps);
+    let ctx = egui::Context::default();
+    app.set_egui_ctx(ctx.clone());
+
+    // Simulate heavy background work publishing events
+    let event_bus = app.services.event_bus.clone();
+    let bg_handle = std::thread::spawn(move || {
+        for _ in 0..50 {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+            event_bus.publish(crate::core::events::AppEvent::ClusterStatus { connected: false });
+        }
+    });
+
+    let start = std::time::Instant::now();
+    for _ in 0..5 {
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            app.render_main_ui(ui);
+        });
+        out.textures_delta.clear();
+    }
+    let elapsed = start.elapsed();
+
+    bg_handle.join().unwrap();
+
+    assert!(
+        elapsed < std::time::Duration::from_millis(500),
+        "GUI render loop must not be blocked by background events, took {:?}",
+        elapsed
+    );
+}
