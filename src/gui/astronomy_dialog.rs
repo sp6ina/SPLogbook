@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 // Okno kalkulatora pozycji Księżyca i Słońca (EME / Doppler / Rotor)
 
-use crate::cat::rotor::RotorState;
+use crate::cat::rotor::{EmeRotorCommand, RotatorId, RotorState};
 use crate::core::astronomy::AstronomyEngine;
 use crate::core::geo::locator_to_coordinates;
 use crate::gui::theme::ThemeExt;
@@ -34,7 +34,7 @@ impl AstronomyDialog {
         my_gridsquare: &str,
         rotor_state: &mut RotorState,
         lang: crate::core::i18n::Language,
-    ) -> Option<(f32, f32)> {
+    ) -> Option<EmeRotorCommand> {
         use crate::core::i18n::{key, tr};
         if !self.is_open {
             return None;
@@ -233,11 +233,19 @@ impl AstronomyDialog {
         let mut command_rotation = None;
         if let Some(az) = turn_rotor_az {
             rotor_state.azimuth_deg = az;
-            command_rotation = Some((az, rotor_state.elevation_deg));
+            if let Ok(cmd) =
+                EmeRotorCommand::new(RotatorId::new("primary_eme"), az, rotor_state.elevation_deg)
+            {
+                command_rotation = Some(cmd);
+            }
         }
         if let Some(el) = turn_rotor_el {
             rotor_state.elevation_deg = el;
-            command_rotation = Some((rotor_state.azimuth_deg, el));
+            if let Ok(cmd) =
+                EmeRotorCommand::new(RotatorId::new("primary_eme"), rotor_state.azimuth_deg, el)
+            {
+                command_rotation = Some(cmd);
+            }
         }
 
         if close_requested || !open {

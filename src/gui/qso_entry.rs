@@ -288,7 +288,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     if !app.entry.active_clubs.is_empty() {
         ui.horizontal_wrapped(|ui| {
             for club in &app.entry.active_clubs {
-                let col = match club.code {
+                let col = match club.code.as_ref() {
                     "SP-OTC" => palette.danger,
                     "SPCWC" => palette.accent,
                     "CWOPS" => palette.warning,
@@ -300,7 +300,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     None => format!("🎖 {}", club.code),
                 };
                 ui.colored_label(col, egui::RichText::new(text).strong())
-                    .on_hover_text(club.name);
+                    .on_hover_text(&*club.name);
             }
         });
     }
