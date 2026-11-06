@@ -1886,3 +1886,143 @@ fn vfo_panel_split_frequency_and_telemetry_power() {
     app.cat.rig_state.rf_power_watts = 75.0;
     assert_eq!(app.cat.rig_state.rf_power_watts, 75.0);
 }
+
+#[tokio::test]
+async fn multi_radio_concurrency_simultaneous_commands_to_different_rigs() {
+    let rig1_id = RigId::new("rig-1").unwrap();
+    let rig2_id = RigId::new("rig-2").unwrap();
+
+    let (s1, mut h1) = RigService::spawn(
+        rig1_id.clone(),
+        Box::new(MockRigBackend::new(CatBackendKind::Kenwood)),
+        Duration::from_millis(20),
+    );
+    let w1 = tokio::spawn(async move { s1.run().await });
+    h1.attach_join_handle(w1);
+
+    let (s2, mut h2) = RigService::spawn(
+        rig2_id.clone(),
+        Box::new(MockRigBackend::new(CatBackendKind::IcomCiV)),
+        Duration::from_millis(20),
+    );
+    let w2 = tokio::spawn(async move { s2.run().await });
+    h2.attach_join_handle(w2);
+
+    let mut hub = RigHub::new();
+    hub.register_rig(rig1_id.clone(), h1).unwrap();
+    hub.register_rig(rig2_id.clone(), h2).unwrap();
+
+    let runtime = CatRuntime::with_hub(hub);
+    tokio::time::sleep(Duration::from_millis(60)).await;
+
+    let rt_arc = Arc::new(runtime);
+    let rt1 = Arc::clone(&rt_arc);
+    let r1_id = rig1_id.clone();
+    let t1 = tokio::spawn(async move {
+        rt1.execute_cmd_for_rig(
+            r1_id,
+            RigCommand::SetFrequency(14_074_000),
+            Duration::from_millis(500),
+        )
+        .await
+    });
+
+    let rt2 = Arc::clone(&rt_arc);
+    let r2_id = rig2_id.clone();
+    let t2 = tokio::spawn(async move {
+        rt2.execute_cmd_for_rig(
+            r2_id,
+            RigCommand::SetFrequency(28_074_000),
+            Duration::from_millis(500),
+        )
+        .await
+    });
+
+    let (res1, res2) = tokio::join!(t1, t2);
+    assert!(res1.unwrap().is_ok());
+    assert!(res2.unwrap().is_ok());
+
+    tokio::time::sleep(Duration::from_millis(60)).await;
+
+    let snap = rt_arc.snapshot();
+    let st1 = snap.rigs.get(&rig1_id).unwrap().state.as_ref().unwrap();
+    let st2 = snap.rigs.get(&rig2_id).unwrap().state.as_ref().unwrap();
+    assert_eq!(st1.frequency_hz, 14_074_000);
+    assert_eq!(st2.frequency_hz, 28_074_000);
+
+    let mut runtime = Arc::try_unwrap(rt_arc).ok().expect("Arc unwrap");
+    runtime.shutdown(Duration::from_millis(500)).await.unwrap();
+}
+
+#[tokio::test]
+async fn multi_radio_stale_command_expired_is_rejected() {
+    let rig1_id = RigId::new("rig-1").unwrap();
+    let (s1, mut h1) = RigService::spawn(
+        rig1_id.clone(),
+        Box::new(MockRigBackend::new(CatBackendKind::Kenwood)),
+        Duration::from_millis(20),
+    );
+    let w1 = tokio::spawn(async move { s1.run().await });
+    h1.attach_join_handle(w1);
+
+    let mut hub = RigHub::new();
+    hub.register_rig(rig1_id.clone(), h1).unwrap();
+    let mut runtime = CatRuntime::with_hub(hub);
+    tokio::time::sleep(Duration::from_millis(60)).await;
+
+    let mut hub_lock = runtime.hub().lock().await;
+    let old_deadline = tokio::time::Instant::now() - Duration::from_millis(100);
+    let cmd = splogbook::cat::routing::RoutedRigCommand::new(
+        RigCommandId::new(999),
+        splogbook::cat::routing::RigTarget::rig_only(rig1_id.clone()),
+        RigCommand::SetFrequency(14_100_000),
+        old_deadline,
+    );
+    let res = hub_lock.route_command(cmd).await;
+    assert!(res.is_err());
+    drop(hub_lock);
+
+    runtime.shutdown(Duration::from_millis(500)).await.unwrap();
+}
+
+#[tokio::test]
+async fn multi_radio_bounded_shutdown_under_heavy_concurrent_load() {
+    let rig1_id = RigId::new("rig-1").unwrap();
+    let rig2_id = RigId::new("rig-2").unwrap();
+
+    let (s1, mut h1) = RigService::spawn(
+        rig1_id.clone(),
+        Box::new(MockRigBackend::new(CatBackendKind::Kenwood)),
+        Duration::from_millis(10),
+    );
+    let w1 = tokio::spawn(async move { s1.run().await });
+    h1.attach_join_handle(w1);
+
+    let (s2, mut h2) = RigService::spawn(
+        rig2_id.clone(),
+        Box::new(MockRigBackend::new(CatBackendKind::Yaesu)),
+        Duration::from_millis(10),
+    );
+    let w2 = tokio::spawn(async move { s2.run().await });
+    h2.attach_join_handle(w2);
+
+    let mut hub = RigHub::new();
+    hub.register_rig(rig1_id.clone(), h1).unwrap();
+    hub.register_rig(rig2_id.clone(), h2).unwrap();
+
+    let mut runtime = CatRuntime::with_hub(hub);
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    for freq in (14_000_000..14_010_000).step_by(1000) {
+        runtime.set_frequency(freq);
+    }
+
+    let start = std::time::Instant::now();
+    let res = runtime.shutdown(Duration::from_millis(300)).await;
+    let elapsed = start.elapsed();
+    assert!(res.is_ok());
+    assert!(
+        elapsed < Duration::from_millis(400),
+        "Shutdown must complete within time bound"
+    );
+}
