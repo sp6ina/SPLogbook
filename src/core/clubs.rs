@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::OnceLock;
 
@@ -60,12 +60,14 @@ impl ClubRegistry {
         })
     }
 
-    /// Wczytuje powiązania ze wskazanego pliku CSV.
+    /// Wczytuje powiązania ze wskazanego pliku CSV z kluczowaniem relacji i walidacją unikalności.
     pub fn load_from_csv(
         path: &Path,
     ) -> Result<HashMap<String, Vec<ClubAffiliation>>, std::io::Error> {
         let content = std::fs::read_to_string(path)?;
         let mut map: HashMap<String, Vec<ClubAffiliation>> = HashMap::new();
+        let mut seen_keys: HashSet<(String, String)> = HashSet::new();
+        let mut club_numbers: HashMap<(String, String), String> = HashMap::new();
 
         for (idx, line) in content.lines().enumerate() {
             let line = line.trim();
@@ -73,7 +75,7 @@ impl ClubRegistry {
                 continue;
             }
 
-            let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
+            let parts: Vec<&str> = line.split(',').map(str::trim).collect();
             if parts.len() < 7 {
                 continue;
             }
@@ -86,6 +88,28 @@ impl ClubRegistry {
             } else {
                 Some(parts[3].to_string())
             };
+
+            // Kluczowanie relacji jako para (club_id, normalized_callsign)
+            let key = (code.clone(), callsign.clone());
+            if seen_keys.contains(&key) {
+                // Odrzucenie konfliktującej przynależności dla tego samego klucza
+                continue;
+            }
+
+            // Odrzucenie konfliktującego duplikatu numeru w tym samym klubie
+            if let Some(ref num) = number {
+                let club_num_key = (code.clone(), num.clone());
+                if let Some(existing_call) = club_numbers.get(&club_num_key) {
+                    if existing_call != &callsign {
+                        // Ten sam numer w tym samym klubie należy już do innego znaku
+                        continue;
+                    }
+                }
+                club_numbers.insert(club_num_key, callsign.clone());
+            }
+
+            seen_keys.insert(key);
+
             let r = parts[4].parse::<u8>().unwrap_or(59);
             let g = parts[5].parse::<u8>().unwrap_or(130);
             let b = parts[6].parse::<u8>().unwrap_or(246);
@@ -264,6 +288,81 @@ mod tests {
     use std::collections::HashSet;
 
     #[test]
+    fn club_registry_loads_reference_database() {
+        let path = Path::new("databases").join("clubs.csv");
+        assert!(path.exists());
+        let reg = ClubRegistry::load_from_csv(&path).expect("Załadowanie databases/clubs.csv");
+        assert!(!reg.is_empty());
+        assert!(reg.contains_key("SP6INA"));
+    }
+
+    #[test]
+    fn club_registry_normalizes_callsign() {
+        let affs_upper = ClubRegistry::check("SP6INA");
+        let affs_lower = ClubRegistry::check("  sp6ina  ");
+        assert_eq!(affs_upper, affs_lower);
+    }
+
+    #[test]
+    fn club_registry_keys_membership_by_club_and_callsign() {
+        let affs = ClubRegistry::check("W1AW");
+        let codes: Vec<_> = affs.iter().map(|a| a.code.as_ref()).collect();
+        assert!(codes.contains(&"CWOPS"));
+        assert!(codes.contains(&"FOC"));
+    }
+
+    #[test]
+    fn club_registry_allows_same_member_number_in_different_clubs() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("splog_clubs_diff_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let csv_file = temp_dir.join("test_clubs.csv");
+        let csv_content = "callsign,club_code,club_name,member_number,badge_r,badge_g,badge_b\n\
+                           SP1AAA,SP-OTC,SP Old Timers Club,#104,239,68,68\n\
+                           SP2BBB,SPCWC,SP CW Club,#104,59,130,246\n";
+        std::fs::write(&csv_file, csv_content).unwrap();
+
+        let loaded = ClubRegistry::load_from_csv(&csv_file).unwrap();
+        assert_eq!(loaded["SP1AAA"][0].number.as_deref(), Some("#104"));
+        assert_eq!(loaded["SP2BBB"][0].number.as_deref(), Some("#104"));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn club_registry_rejects_conflicting_duplicate_within_same_club() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("splog_clubs_conf_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let csv_file = temp_dir.join("test_clubs.csv");
+        let csv_content = "callsign,club_code,club_name,member_number,badge_r,badge_g,badge_b\n\
+                           SP1AAA,SP-OTC,SP Old Timers Club,#104,239,68,68\n\
+                           SP2BBB,SP-OTC,SP Old Timers Club,#104,239,68,68\n";
+        std::fs::write(&csv_file, csv_content).unwrap();
+
+        let loaded = ClubRegistry::load_from_csv(&csv_file).unwrap();
+        assert_eq!(loaded.get("SP1AAA").unwrap().len(), 1);
+        assert!(loaded.get("SP2BBB").is_none());
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn club_registry_rejects_conflicting_membership_for_same_key() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("splog_clubs_key_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let csv_file = temp_dir.join("test_clubs.csv");
+        let csv_content = "callsign,club_code,club_name,member_number,badge_r,badge_g,badge_b\n\
+                           SP1AAA,SP-OTC,SP Old Timers Club,#104,239,68,68\n\
+                           SP1AAA,SP-OTC,SP Old Timers Club,#999,239,68,68\n";
+        std::fs::write(&csv_file, csv_content).unwrap();
+
+        let loaded = ClubRegistry::load_from_csv(&csv_file).unwrap();
+        assert_eq!(loaded.get("SP1AAA").unwrap().len(), 1);
+        assert_eq!(loaded["SP1AAA"][0].number.as_deref(), Some("#104"));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
     fn club_registry_does_not_assign_duplicate_hardcoded_numbers() {
         let registry = ClubRegistry::default_registry();
 
@@ -356,26 +455,38 @@ mod tests {
     }
 
     #[test]
-    fn club_registry_loads_csv_cleanly() {
-        let temp_dir = std::env::temp_dir().join(format!("splog_clubs_{}", rand::random::<u64>()));
+    fn club_registry_handles_missing_reference_file_safely() {
+        let res = ClubRegistry::load_from_csv(Path::new("definitely_missing_file_xyz.csv"));
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn club_registry_handles_malformed_record_without_crash() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("splog_clubs_malf_{}", rand::random::<u64>()));
         std::fs::create_dir_all(&temp_dir).unwrap();
         let csv_file = temp_dir.join("test_clubs.csv");
         let csv_content = "callsign,club_code,club_name,member_number,badge_r,badge_g,badge_b\n\
-                           SP6TEST,SP-OTC,SP Old Timers Club,#999,239,68,68\n\
-                           SP7TEST,SPCWC,SP CW Club,#888,59,130,246\n";
+                           INVALID_LINE_WITHOUT_COMMAS\n\
+                           TOO,FEW,COLUMNS\n\
+                           SP1AAA,SP-OTC,SP Old Timers Club,#104,not_a_num,not_a_num,246\n";
         std::fs::write(&csv_file, csv_content).unwrap();
 
-        let loaded =
-            ClubRegistry::load_from_csv(&csv_file).expect("Wczytanie CSV powinno się udać");
-        assert_eq!(loaded.len(), 2);
-        let aff_sp6 = &loaded["SP6TEST"][0];
-        assert_eq!(aff_sp6.code, "SP-OTC");
-        assert_eq!(aff_sp6.number.as_deref(), Some("#999"));
-
-        let aff_sp7 = &loaded["SP7TEST"][0];
-        assert_eq!(aff_sp7.code, "SPCWC");
-        assert_eq!(aff_sp7.number.as_deref(), Some("#888"));
-
+        let loaded = ClubRegistry::load_from_csv(&csv_file).unwrap();
+        assert_eq!(loaded.get("SP1AAA").unwrap().len(), 1);
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn club_registry_does_not_invent_member_number() {
+        let affs = ClubRegistry::check("ZZ0NONEXISTENT");
+        assert!(affs.is_empty());
+    }
+
+    #[test]
+    fn club_registry_lookup_is_deterministic() {
+        let res1 = ClubRegistry::check("SP6INA");
+        let res2 = ClubRegistry::check("SP6INA");
+        assert_eq!(res1, res2);
     }
 }

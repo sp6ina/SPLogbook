@@ -86,6 +86,85 @@ pub fn extract_sp_district(callsign: &str) -> Option<String> {
     parse_sp_call(callsign).map(|(prefix, digit)| format!("{prefix}{digit}"))
 }
 
+/// Waliduje format referencji programu WWFF (np. SPFF-0001, OKFF-0123).
+pub fn is_valid_wwff_ref(reference: &str) -> bool {
+    let trimmed = reference.trim();
+    let parts: Vec<&str> = trimmed.split('-').collect();
+    if parts.len() != 2 {
+        return false;
+    }
+    let prefix = parts[0];
+    let num = parts[1];
+    if !prefix.ends_with("FF") && !prefix.ends_with("ff") {
+        return false;
+    }
+    let call_pfx = &prefix[..prefix.len() - 2];
+    if call_pfx.is_empty()
+        || call_pfx.len() > 4
+        || !call_pfx.chars().all(|c| c.is_ascii_alphanumeric())
+    {
+        return false;
+    }
+    num.len() == 4 && num.chars().all(|c| c.is_ascii_digit())
+}
+
+/// Waliduje format referencji programu RDA (np. MA-01, MO-12).
+pub fn is_valid_rda_ref(reference: &str) -> bool {
+    let trimmed = reference.trim();
+    let parts: Vec<&str> = trimmed.split('-').collect();
+    if parts.len() != 2 {
+        return false;
+    }
+    let oblast = parts[0];
+    let num = parts[1];
+    oblast.len() == 2
+        && oblast.chars().all(|c| c.is_ascii_alphabetic())
+        && num.len() == 2
+        && num.chars().all(|c| c.is_ascii_digit())
+}
+
+/// Normalizuje referencję WWFF (uppercase, trim). Zwraca Some(ref) jeśli poprawna.
+pub fn normalize_wwff_ref(reference: &str) -> Option<String> {
+    let clean = reference.trim().to_uppercase();
+    if is_valid_wwff_ref(&clean) {
+        Some(clean)
+    } else {
+        None
+    }
+}
+
+/// Normalizuje referencję RDA (uppercase, trim). Zwraca Some(ref) jeśli poprawna.
+pub fn normalize_rda_ref(reference: &str) -> Option<String> {
+    let clean = reference.trim().to_uppercase();
+    if is_valid_rda_ref(&clean) {
+        Some(clean)
+    } else {
+        None
+    }
+}
+
+/// Ekstrahuje referencję WWFF z dowolnego ciągu znaków.
+pub fn extract_wwff_reference(text: &str) -> Option<String> {
+    for token in text.split(|c: char| c.is_whitespace() || c == ',' || c == ';' || c == ':') {
+        let trimmed = token.trim();
+        if let Some(norm) = normalize_wwff_ref(trimmed) {
+            return Some(norm);
+        }
+    }
+    None
+}
+
+/// Ekstrahuje referencję RDA z dowolnego ciągu znaków.
+pub fn extract_rda_reference(text: &str) -> Option<String> {
+    for token in text.split(|c: char| c.is_whitespace() || c == ',' || c == ';' || c == ':') {
+        let trimmed = token.trim();
+        if let Some(norm) = normalize_rda_ref(trimmed) {
+            return Some(norm);
+        }
+    }
+    None
+}
+
 /// Silnik śledzenia postępu dyplomowego (krajowego i międzynarodowego)
 pub struct AwardsEngine {
     pub scoped_journal_id: Option<String>,
@@ -199,6 +278,13 @@ impl AwardsEngine {
     }
 
     pub fn register_qso_record(&mut self, qso: &QsoRecord) {
+        if let Some(ref scoped) = self.scoped_journal_id {
+            let q_journal = qso.journal_id.as_deref().unwrap_or("DEFAULT");
+            if q_journal != scoped {
+                return;
+            }
+        }
+
         let is_confirmed =
             qso.qsl_rcvd == "Y" || qso.lotw_qsl_rcvd == "Y" || qso.eqsl_qsl_rcvd == "Y";
 
@@ -300,6 +386,26 @@ impl AwardsEngine {
                         qso_date: qso.qso_date.clone(),
                         is_confirmed,
                     });
+            }
+        }
+
+        // Detekcja i rejestracja referencji WWFF oraz RDA z komentarza i dedykowanych pól
+        if let Some(ref comment) = qso.comment {
+            if let Some(wwff) = extract_wwff_reference(comment) {
+                self.register_wwff(&wwff, is_confirmed);
+            }
+            if let Some(rda) = extract_rda_reference(comment) {
+                self.register_rda(&rda, is_confirmed);
+            }
+        }
+        if let Some(ref pota) = qso.pota_ref {
+            if let Some(wwff) = extract_wwff_reference(pota) {
+                self.register_wwff(&wwff, is_confirmed);
+            }
+        }
+        if let Some(ref state) = qso.state {
+            if let Some(rda) = extract_rda_reference(state) {
+                self.register_rda(&rda, is_confirmed);
             }
         }
 
@@ -451,12 +557,41 @@ impl AwardsEngine {
                 }
             }
         }
+    }
 
-        if let Some(wwff) = sota {
-            if wwff.contains('-') && !wwff.starts_with('W') {
-                let _ = &wwff;
+    /// Rejestruje zaliczoną referencję programu WWFF (World Wide Flora and Fauna)
+    pub fn register_wwff(&mut self, wwff: &str, is_confirmed: bool) {
+        if let Some(clean) = normalize_wwff_ref(wwff) {
+            self.worked_wwff.insert(clean.clone());
+            if is_confirmed {
+                self.confirmed_wwff.insert(clean);
             }
         }
+    }
+
+    /// Alias dla register_wwff
+    pub fn register_wwff_reference(&mut self, wwff: &str, is_confirmed: bool) {
+        self.register_wwff(wwff, is_confirmed);
+    }
+
+    /// Rejestruje zaliczoną referencję programu RDA (Russian Districts Award)
+    pub fn register_rda(&mut self, rda: &str, is_confirmed: bool) {
+        if let Some(clean) = normalize_rda_ref(rda) {
+            self.worked_rda.insert(clean.clone());
+            if is_confirmed {
+                self.confirmed_rda.insert(clean);
+            }
+        }
+    }
+
+    /// Alias dla register_rda
+    pub fn register_rda_reference(&mut self, rda: &str, is_confirmed: bool) {
+        self.register_rda(rda, is_confirmed);
+    }
+
+    /// Rejestruje rekord QSO w silniku nagród (alias dla `register_qso_record`)
+    pub fn ingest_qso(&mut self, qso: &QsoRecord) {
+        self.register_qso_record(qso);
     }
 
     pub fn check_status(
@@ -580,6 +715,146 @@ impl AwardsEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn awards_wwff_registers_worked_and_confirmed() {
+        let mut engine = AwardsEngine::new();
+        engine.register_wwff("SPFF-0001", false);
+        assert!(engine.worked_wwff.contains("SPFF-0001"));
+        assert!(!engine.confirmed_wwff.contains("SPFF-0001"));
+
+        engine.register_wwff("SPFF-0001", true);
+        assert!(engine.worked_wwff.contains("SPFF-0001"));
+        assert!(engine.confirmed_wwff.contains("SPFF-0001"));
+    }
+
+    #[test]
+    fn awards_wwff_validates_format() {
+        assert!(is_valid_wwff_ref("SPFF-0001"));
+        assert!(is_valid_wwff_ref("OKFF-0123"));
+        assert!(is_valid_wwff_ref("KFF-1234"));
+        assert!(!is_valid_wwff_ref("SPFF-1"));
+        assert!(!is_valid_wwff_ref("INVALID"));
+        assert!(!is_valid_wwff_ref(""));
+    }
+
+    #[test]
+    fn awards_wwff_normalizes_reference() {
+        assert_eq!(
+            normalize_wwff_ref("  spff-0001  "),
+            Some("SPFF-0001".to_string())
+        );
+        assert_eq!(
+            normalize_wwff_ref("okff-0999"),
+            Some("OKFF-0999".to_string())
+        );
+        assert_eq!(normalize_wwff_ref("not-wwff"), None);
+    }
+
+    #[test]
+    fn awards_rda_registers_worked_and_confirmed() {
+        let mut engine = AwardsEngine::new();
+        engine.register_rda("MA-01", false);
+        assert!(engine.worked_rda.contains("MA-01"));
+        assert!(!engine.confirmed_rda.contains("MA-01"));
+
+        engine.register_rda("MA-01", true);
+        assert!(engine.worked_rda.contains("MA-01"));
+        assert!(engine.confirmed_rda.contains("MA-01"));
+    }
+
+    #[test]
+    fn awards_rda_validates_format() {
+        assert!(is_valid_rda_ref("MA-01"));
+        assert!(is_valid_rda_ref("MO-12"));
+        assert!(!is_valid_rda_ref("M-01"));
+        assert!(!is_valid_rda_ref("MA-1"));
+        assert!(!is_valid_rda_ref("MA-001"));
+        assert!(!is_valid_rda_ref(""));
+    }
+
+    #[test]
+    fn awards_rda_normalizes_reference() {
+        assert_eq!(normalize_rda_ref("  ma-01  "), Some("MA-01".to_string()));
+        assert_eq!(normalize_rda_ref("mo-12"), Some("MO-12".to_string()));
+        assert_eq!(normalize_rda_ref("invalid"), None);
+    }
+
+    #[test]
+    fn awards_wwff_and_rda_deduplicate_entries() {
+        let mut engine = AwardsEngine::new();
+        engine.register_wwff("SPFF-0001", true);
+        engine.register_wwff("SPFF-0001", true);
+        assert_eq!(engine.worked_wwff.len(), 1);
+        assert_eq!(engine.confirmed_wwff.len(), 1);
+
+        engine.register_rda("MA-01", true);
+        engine.register_rda("MA-01", true);
+        assert_eq!(engine.worked_rda.len(), 1);
+        assert_eq!(engine.confirmed_rda.len(), 1);
+    }
+
+    #[test]
+    fn awards_rebuild_resets_wwff_and_rda_cleanly() {
+        let mut engine = AwardsEngine::new();
+        engine.register_wwff("SPFF-0001", true);
+        engine.register_rda("MA-01", true);
+        assert_eq!(engine.worked_wwff.len(), 1);
+        assert_eq!(engine.worked_rda.len(), 1);
+
+        engine.rebuild_from_qsos(&[]);
+        assert!(engine.worked_wwff.is_empty());
+        assert!(engine.confirmed_wwff.is_empty());
+        assert!(engine.worked_rda.is_empty());
+        assert!(engine.confirmed_rda.is_empty());
+    }
+
+    #[test]
+    fn awards_delete_qso_recalculates_wwff_and_rda() {
+        let mut qso1 = QsoRecord::default();
+        qso1.callsign = "SP6INA".to_string();
+        qso1.comment = Some("WWFF SPFF-0001".to_string());
+        qso1.qsl_rcvd = "Y".to_string();
+
+        let mut qso2 = QsoRecord::default();
+        qso2.callsign = "RA1ABC".to_string();
+        qso2.comment = Some("RDA MA-01".to_string());
+        qso2.qsl_rcvd = "Y".to_string();
+
+        let mut engine = AwardsEngine::new();
+        engine.rebuild_from_qsos(&[qso1.clone(), qso2.clone()]);
+        assert_eq!(engine.worked_wwff.len(), 1);
+        assert_eq!(engine.worked_rda.len(), 1);
+
+        // Usuwamy qso1 (pozostaje tylko qso2)
+        engine.rebuild_from_qsos(&[qso2]);
+        assert!(engine.worked_wwff.is_empty());
+        assert_eq!(engine.worked_rda.len(), 1);
+    }
+
+    #[test]
+    fn awards_scoped_journal_isolates_wwff_and_rda() {
+        let mut qso_a = QsoRecord::default();
+        qso_a.callsign = "SP6INA".to_string();
+        qso_a.journal_id = Some("JOURNAL_A".to_string());
+        qso_a.comment = Some("SPFF-0001".to_string());
+        qso_a.qsl_rcvd = "Y".to_string();
+
+        let mut qso_b = QsoRecord::default();
+        qso_b.callsign = "RA1ABC".to_string();
+        qso_b.journal_id = Some("JOURNAL_B".to_string());
+        qso_b.comment = Some("MA-01".to_string());
+        qso_b.qsl_rcvd = "Y".to_string();
+
+        let mut engine_a = AwardsEngine::new();
+        engine_a.rebuild_for_journal("JOURNAL_A", &[qso_a.clone(), qso_b.clone()]);
+        assert!(engine_a.worked_wwff.contains("SPFF-0001"));
+        assert!(!engine_a.worked_rda.contains("MA-01"));
+
+        // Próba bezpośredniej rejestracji QSO z innego dziennika powinna być zignorowana
+        engine_a.register_qso_record(&qso_b);
+        assert!(!engine_a.worked_rda.contains("MA-01"));
+    }
 
     #[test]
     fn test_award_status_tracking() {

@@ -313,4 +313,31 @@ pub fn render_solar_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ));
         }
     });
+
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        let (acc_label, acc_color) = match app.solar.propagation_history.accuracy_pct() {
+            Some(acc) => {
+                let count = app.solar.propagation_history.verified_count();
+                (
+                    format!("{acc:.1}% ({count} zweryf.)"),
+                    if acc >= 70.0 {
+                        palette.success
+                    } else {
+                        palette.warning
+                    },
+                )
+            }
+            None => ("N/A".to_string(), palette.text_muted),
+        };
+
+        ui.label(
+            egui::RichText::new(format!("Trafność modelu: {acc_label}"))
+                .small()
+                .color(acc_color),
+        )
+        .on_hover_text(
+            "Skuteczność prognoz propagacyjnych na podstawie zweryfikowanych łączności w logu",
+        );
+    });
 }
