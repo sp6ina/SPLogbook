@@ -442,8 +442,8 @@ Cargo.lock SHA-1: `c569097f3ef69c66ec59b74c29c1eb29efce69ae` (bez zmian)
   - Poprawa fixture i walidatora SP DX: ścisła egzekucja 16 jednoliterowych symboli województw wedle mapy kanonicznej (B, C, D, F, G, J, K, L, M, O, P, R, S, U, W, Z; m.in. R = mazowieckie, C = łódzkie, K = podkarpackie, P = kujawsko-pomorskie), odrzucanie kodów administracyjnych (`MA`, `LD`, etc.), CLAIMED-SCORE: 27.
   - Cabrillo 3.0: rozdzielenie `CATEGORY-OPERATOR` (`SINGLE-OP`, `MULTI-OP`, `CHECKLOG`) od `CATEGORY-TRANSMITTER` (`ONE`), usunięcie błędnego `MULTI` w `CATEGORY-TRANSMITTER`.
   - Wyniki punktacji CQ WPX CW/SSB (144 pkt) w pełni zachowane i zabezpieczone.
-- Ukończenie i weryfikacja Etapu 8 (2026-11-05):
-  - Etap 8 (Integracja Multi-Radio w GUI, REST API Rig i Hamlib Proxy) wdrożony i zweryfikowany w 100% ze statusem `COMPLETED_SOFTWARE_VERIFIED`.
+- Ukończenie i weryfikacja Etapu 8 (Rzeczywista data wykonania: 2026-11-06, Deklarowana data robocza projektu: 2026-11-05):
+  - Etap 8 (Integracja Multi-Radio w GUI, REST API Rig i Hamlib Proxy) wdrożony, utwardzony i zweryfikowany w 100% ze statusem `COMPLETED_SOFTWARE_VERIFIED`.
   - Zamknięte i zweryfikowane kanoniczne findings: `FUNC-003`, `CAT-007`, `CAT-008`, `CAT-014`.
   - Wdrożone commity Etapu 8:
     1. `8002667`: `refactor(cat): add native command bridge and clean up legacy controller (CAT-014)`
@@ -451,13 +451,21 @@ Cargo.lock SHA-1: `c569097f3ef69c66ec59b74c29c1eb29efce69ae` (bez zmian)
     3. `fe7be53`: `fix(gui): eliminate single-rig fallbacks and support radio 2 configuration (CAT-007)`
     4. `36d1dee`: `feat(api): wire REST rig control through CatRuntime and add multi-rig endpoints (FUNC-003)`
     5. `26096de`: `test(cat): add multi-radio concurrency, isolation, and proxy integration matrix`
-  - Statystyki testów po Etapie 8:
-    - Łącznie zarejestrowanych testów we workspace: 2049
-    - Aktywne testy programowe: 2039 passed, 0 failed
+    6. `3cff368`: `fix(cat): correct Hamlib error mapping for TxArbiter failures (CAT-008)`
+    7. `833f28d`: `fix(api): harden REST rig control security boundary (FUNC-003)`
+    8. `c11d0b1`: `fix(cat): bind Hamlib proxy sessions to explicit rig ports (CAT-007)`
+    9. `cc7f36e`: `fix(cat): enforce exclusive physical rig endpoint ownership`
+  - Rozwiązane obszary końcowej bramki korekcyjno-bezpieczeństwowej Etapu 8:
+    1. Kanoniczna semantyka kodów Hamlib `rig.h` (`-11 = RIG_ENAVAIL`, `-14 = RIG_BUSBUSY`), centralny enum `HamlibErrorCode`, brak optymistycznego `RPRT 0` przy odrzuceniu rozkazu mutującego lub PTT.
+    2. Utwardzenie REST API: domyślny bind loopback `127.0.0.1:8420`, zakaz bindu publicznego bez auth, ścisła walidacja formatu `RigId` (400 Bad Request), walidacja częstotliwości i emisji, `deny_unknown_fields`, 404 dla nieznanego RigId bez fallbacku, routing PTT przez `TxArbiter` (409 Conflict).
+    3. Jednoznaczne mapowanie portów Hamlib Proxy (`ProxyPortManager`): port bazowy 4534 per radio 1, unikalne parzyste porty (4536, 4538...) per kolejne radia, zakaz kolizji z REST (8420), niezmienność sesji TCP po zmianie aktywnego radia w GUI.
+    4. Wyłączna własność fizycznego portu CAT (`PhysicalEndpointRegistry`): pojedynczy właściciel UART, normalizacja portów Windows (`COM3`, `\\.\COM3`), wykluczenie kolizji Native CAT z zewnętrznym rigctld, brak otwierania portów UART przez Hamlib Proxy i Hamlib Client.
+  - Statystyki testów po Końcowej Bramce Etapu 8:
+    - Łącznie zarejestrowanych testów we workspace: 2081
+    - Aktywne testy programowe: 2071 passed, 0 failed
     - Fizyczny HIL: 10 ignored (`#[ignore = "hardware-in-the-loop"]`), emisja RF = 0, bramka bezpieczeństwa HIL zamknięta.
-    - `cargo test --doc`: 1 passed, 0 failed
-    - `cargo clippy --lib`: 382 ostrzeżenia (brak regresji względem baseline 383)
-    - `cargo clippy --lib --tests`: 483 ostrzeżenia (brak regresji względem baseline 493)
+    - `cargo test --doc`: ok (0 doc testów)
+    - `cargo clippy --lib`: 0 ostrzeżeń w nowym kodzie Etapu 8
     - `cargo fmt --all -- --check`: 0 odchyleń formatowania
     - `security_guard`: 32 passed, 0 failed
     - `i18n_guard`: 15 passed, 0 failed
@@ -467,5 +475,5 @@ Cargo.lock SHA-1: `c569097f3ef69c66ec59b74c29c1eb29efce69ae` (bez zmian)
     - `Cargo.lock` SHA-1: `c569097f3ef69c66ec59b74c29c1eb29efce69ae` (niezmieniony)
   - Prawdziwa baza danych użytkownika: nieotwierana, dane nienaruszone.
 - Gotowość do kolejnego etapu:
-  - Etap 8 definitywnie zamknięty ze statusem `COMPLETED_SOFTWARE_VERIFIED`.
-  - Etap 9 w stanie `READY` (NOT STARTED).
+  - Etap 8 definitywnie i bezwarunkowo zamknięty ze statusem `COMPLETED_SOFTWARE_VERIFIED`.
+  - Etap 9 w stanie `READY` (NIE ROZPOCZYNAĆ w tej sesji).

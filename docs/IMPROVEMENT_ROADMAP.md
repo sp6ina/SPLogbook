@@ -311,16 +311,21 @@ flowchart LR
 ---
 
 ### Etap 8 — Integracja Multi-Radio w GUI, `POST /api/v1/rig`, `HamlibProxyServer` i `VoiceKeyer` (`P1`)
-- **Status:** **COMPLETED_SOFTWARE_VERIFIED** (2026-11-05)
-- **Cel:** Spięcie wszystkich interfejsów sterowania radiem z `CatRuntime` i `TxArbiter` (`FUNC-003`, `CAT-007`, `CAT-008`, `CAT-014`).
+- **Status:** **COMPLETED_SOFTWARE_VERIFIED** (Rzeczywista data wykonania: 2026-11-06, Deklarowana data robocza projektu: 2026-11-05)
+- **Cel:** Spięcie wszystkich interfejsów sterowania radiem z `CatRuntime` i `TxArbiter` (`FUNC-003`, `CAT-007`, `CAT-008`, `CAT-014`), usunięcie niejawnych fallbacków oraz bezwarunkowe przejście końcowej bramki korekcyjno-bezpieczeństwowej.
 - **Zakres zrealizowany w 100%:**
   - Dodanie mostu dla poleceń i zdarzeń natywnych w `RigBackend` (`execute_native`, `drain_native_events`) oraz usunięcie martwego `CatController` (`CAT-014`, commit `8002667`).
-  - Wymuszenie potwierdzenia PTT z `TxArbiter` w `HamlibProxyServer` (`:4534`), `VoiceKeyer` i pluginach z kodem błędu `RPRT -11` (`CAT-008`, commit `fd43ed2`).
+  - Wymuszenie potwierdzenia PTT z `TxArbiter` w `HamlibProxyServer`, `VoiceKeyer` i pluginach (`CAT-008`, commit `fd43ed2`).
   - Eliminacja niejawnych fallbacków na pierwsze radio w GUI (`app_async.rs`), dodanie wsparcia dla profilu `Radio 2` w `cat_settings.rs`, poprawa detekcji `auto_start_rigctld` w profilach stacji oraz sterowanie Split VFO B z telemetrią mocy w `vfo_panel.rs` (`CAT-007`, commit `fe7be53`).
   - Pełna integracja REST API z `CatRuntime`, routing rozkazów sterowania radiem i ochrona PTT pod nadzorem `TxArbiter`, oraz nowe endpointy wieloradiowe `/api/v1/rigs*` (`FUNC-003`, commit `36d1dee`).
   - Wdrożenie kompleksowej macierzy testów współbieżności, izolacji wieloradiowej i odporności na przeterminowane komendy (`tests/cat_native_6b.rs`, commit `26096de`).
-- **Pliki i moduły:** `src/api/server.rs`, `src/cat/backend.rs`, `src/cat/runtime.rs`, `src/cat/server.rs`, `src/gui/{app_async.rs,app_cat.rs,cat_settings.rs,vfo_panel.rs,voice_keyer.rs,app_plugins.rs,app_services.rs}`, `tests/cat_native_6b.rs`.
-- **Kryteria ukończenia:** Spełnione w 100%. 2039 aktywnych testów zaliczonych (0 failed, 10 ignored HIL). Etap 8 definitywnie zamknięty: SOFTWARE VERIFIED (`COMPLETED_SOFTWARE_VERIFIED`). Etap 9 w stanie `READY`.
+  - **Końcowa Bramka Korekcyjno-Bezpieczeństwowa Etapu 8 (2026-11-06):**
+    1. **Korekta kanonicznej semantyki Hamlib:** Usunięcie błędnego opisu `RPRT -11 = EBUSY`; wdrożenie kanonicznych kodów błędów Hamlib `rig.h`: `-11 = RIG_ENAVAIL` (funkcja niedostępna), `-14 = RIG_BUSBUSY` (zajętość szyny nadawczej), centralny typowany enum `HamlibErrorCode` oraz funkcja `map_cat_error_to_hamlib` w `src/cat/server.rs`; bezwzględny zakaz optymistycznego `RPRT 0` przy odrzuceniu PTT lub operacji mutującej (`CAT-008`, commit `3cff368`).
+    2. **Utwardzenie bezpieczeństwa REST API:** Domyślny bind wyłącznie loopback `127.0.0.1:8420`, bezwzględny zakaz bindu publicznego `0.0.0.0`/`::` bez uwierzytelnienia, ścisła walidacja formatu identyfikatora `RigId` (kod 400 Bad Request przy błędnym formacie, alfanumeryczne, max 64 znaki), walidacja zakresu częstotliwości (100 kHz ..= 60 GHz) i trybu emisji, ścisły model danych wejściowych `#[serde(deny_unknown_fields)]`, bezwzględna eliminacja fallbacku na active rig dla nieznanego RigId (zwracanie 404 Not Found), routing PTT przez `TxArbiter` zwracający 409 Conflict bez mutacji stanu przy odrzuceniu (`FUNC-003`, commit `833f28d`).
+    3. **Jednoznaczne mapowanie RigId na porty Hamlib Proxy:** Wdrożenie menedżera portów `ProxyPortManager`, stały port 4534 per radio 1 oraz kolejne parzyste porty (4536, 4538...) per kolejne radia, uniemożliwienie kolizji z portem REST 8420, gwarancja niezmienności celu istniejącej sesji TCP (`immutable session target`) przy zmianie aktywnego radia w GUI (`CAT-007`, commit `c11d0b1`).
+    4. **Wyłączna własność fizycznego portu CAT:** Wdrożenie rejestru `PhysicalEndpointRegistry` i modelu własności `PhysicalEndpointOwner`, znormalizowana identyfikacja portów szeregowych Windows (`COM3`, `\\.\COM3`), wykluczenie kolizji między Native CAT a zewnętrznym `rigctld`, brak otwierania portów UART przez Hamlib Proxy i Hamlib Client, zwalnianie portu przy zatrzymaniu sesji radiowej (`cc7f36e`).
+- **Pliki i moduły:** `src/api/server.rs`, `src/cat/backend.rs`, `src/cat/runtime.rs`, `src/cat/server.rs`, `src/cat/supervisor.rs`, `src/cat/mod.rs`, `src/gui/{app_async.rs,app_cat.rs,cat_settings.rs,vfo_panel.rs,voice_keyer.rs,app_plugins.rs,app_services.rs}`, `tests/cat_native_6b.rs`.
+- **Kryteria ukończenia:** Spełnione w 100%. Wszystkie testy programowe zaliczone (0 failed, 10 ignored laboratoryjnych HIL, brak emisji RF). Etap 8 bezwarunkowo zamknięty: SOFTWARE VERIFIED (`COMPLETED_SOFTWARE_VERIFIED`). Etap 9 w stanie `READY` (NIE ROZPOCZYNAĆ w tej sesji).
 
 ---
 
