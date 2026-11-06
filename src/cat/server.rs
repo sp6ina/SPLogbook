@@ -458,6 +458,125 @@ fn dump_state(state: &RigState) -> String {
     "0\n2\n2\n100000 30000000 0xef -1 -1 0x3 0x3\n0 0 0 0 0 0 0\n0 0 0 0 0 0 0\n0xef 1\n0 0\n0xef 1\n0 0\n0 0\n0 0\n0\n0\n0\n0\n0\n".to_string()
 }
 
+use std::collections::HashMap;
+use std::net::IpAddr;
+
+/// Typowane błędy alokacji i uruchomienia serwerów proxy Hamlib.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProxyError {
+    /// Port poza dozwolonym zakresem (1024..=65535).
+    InvalidPort(u16),
+    /// Konflikt portu: wykryto zduplikowany port proxy na tym samym interfejsie.
+    DuplicatePort(u16),
+    /// Kolizja z portem REST API (8420).
+    PortConflictWithRestApi(u16),
+    /// Błąd powiązania gniazda TCP.
+    BindError(String),
+    /// Nieznane radio w rejestrze.
+    RigNotFound(crate::cat::routing::RigId),
+}
+
+impl std::fmt::Display for ProxyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidPort(p) => {
+                write!(f, "nieprawidłowy port proxy: {p} (wymagany 1024..=65535)")
+            }
+            Self::DuplicatePort(p) => write!(f, "zduplikowany port proxy Hamlib: {p}"),
+            Self::PortConflictWithRestApi(p) => {
+                write!(f, "port proxy Hamlib {p} koliduje z portem REST API (8420)")
+            }
+            Self::BindError(e) => write!(f, "błąd bind gniazda TCP proxy: {e}"),
+            Self::RigNotFound(id) => write!(f, "radio '{id}' nie zostało odnalezione"),
+        }
+    }
+}
+
+impl std::error::Error for ProxyError {}
+
+/// Informacja o stałym przypisaniu punktu końcowego Hamlib Proxy do radia.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RigProxyEndpoint {
+    pub rig_id: crate::cat::routing::RigId,
+    pub bind_addr: IpAddr,
+    pub port: u16,
+}
+
+/// Menedżer alokacji i walidacji unikalnych portów proxy dla stacji wieloradiowej.
+#[derive(Debug, Clone, Default)]
+pub struct ProxyPortManager {
+    endpoints: HashMap<crate::cat::routing::RigId, RigProxyEndpoint>,
+}
+
+impl ProxyPortManager {
+    pub fn new() -> Self {
+        Self {
+            endpoints: HashMap::new(),
+        }
+    }
+
+    /// Przydziela lub rejestruje unikalny port Hamlib proxy dla wskazanego radia.
+    ///
+    /// Algorytm przydziału:
+    /// - Radio 1: domyślnie 4534 (lub podany `base_port`),
+    /// - Kolejne radia: następne wolne parzyste porty (4536, 4538, ...),
+    /// - Port REST API (8420) jest bezwzględnie zablokowany przed kolizją.
+    pub fn allocate_or_register(
+        &mut self,
+        rig_id: crate::cat::routing::RigId,
+        preferred_port: Option<u16>,
+        base_port: u16,
+    ) -> Result<RigProxyEndpoint, ProxyError> {
+        let port = if let Some(p) = preferred_port {
+            if !(1024..=65535).contains(&p) {
+                return Err(ProxyError::InvalidPort(p));
+            }
+            if p == 8420 {
+                return Err(ProxyError::PortConflictWithRestApi(p));
+            }
+            for (other_id, ep) in &self.endpoints {
+                if other_id != &rig_id && ep.port == p {
+                    return Err(ProxyError::DuplicatePort(p));
+                }
+            }
+            p
+        } else {
+            let mut candidate = if base_port % 2 == 0 {
+                base_port
+            } else {
+                base_port + 1
+            };
+            loop {
+                if candidate > 65530 {
+                    return Err(ProxyError::InvalidPort(candidate));
+                }
+                let in_use = self.endpoints.values().any(|ep| ep.port == candidate);
+                if !in_use && candidate != 8420 {
+                    break;
+                }
+                candidate += 2;
+            }
+            candidate
+        };
+
+        let endpoint = RigProxyEndpoint {
+            rig_id: rig_id.clone(),
+            bind_addr: IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
+            port,
+        };
+        self.endpoints.insert(rig_id, endpoint.clone());
+        Ok(endpoint)
+    }
+
+    pub fn get_endpoint(&self, rig_id: &crate::cat::routing::RigId) -> Option<&RigProxyEndpoint> {
+        self.endpoints.get(rig_id)
+    }
+
+    pub fn unregister(&mut self, rig_id: &crate::cat::routing::RigId) {
+        self.endpoints.remove(rig_id);
+    }
+}
+
 /// Serwer Hamlib rigctld proxy â udostÄpnia poÅÄczenie CAT dla WSJT-X, JTDX, FLDigi na porcie TCP (domyÅlnie 4534)
 pub struct HamlibProxyServer {
     pub port: u16,
@@ -1362,5 +1481,219 @@ mod tests {
             elapsed < std::time::Duration::from_millis(300),
             "Shutdown must be fast and bounded"
         );
+    }
+    #[test]
+    fn hamlib_proxy_port_is_unique_per_rig() {
+        let mut mgr = ProxyPortManager::new();
+        let r1 = crate::cat::routing::RigId::new("rig-1").unwrap();
+        let r2 = crate::cat::routing::RigId::new("rig-2").unwrap();
+        let r3 = crate::cat::routing::RigId::new("rig-3").unwrap();
+
+        let ep1 = mgr.allocate_or_register(r1.clone(), None, 4534).unwrap();
+        let ep2 = mgr.allocate_or_register(r2.clone(), None, 4534).unwrap();
+        let ep3 = mgr.allocate_or_register(r3.clone(), None, 4534).unwrap();
+
+        assert_eq!(ep1.port, 4534);
+        assert_eq!(ep2.port, 4536);
+        assert_eq!(ep3.port, 4538);
+
+        assert_ne!(ep1.port, ep2.port);
+        assert_ne!(ep2.port, ep3.port);
+        assert!(ep1.bind_addr.is_loopback());
+    }
+
+    #[test]
+    fn hamlib_proxy_bind_conflict_is_reported() {
+        let mut mgr = ProxyPortManager::new();
+        let r1 = crate::cat::routing::RigId::new("rig-1").unwrap();
+        let r2 = crate::cat::routing::RigId::new("rig-2").unwrap();
+
+        mgr.allocate_or_register(r1, Some(4534), 4534).unwrap();
+        let res = mgr.allocate_or_register(r2, Some(4534), 4534);
+
+        assert_eq!(res, Err(ProxyError::DuplicatePort(4534)));
+    }
+
+    #[test]
+    fn hamlib_proxy_port_collision_with_rest_api_is_rejected() {
+        let mut mgr = ProxyPortManager::new();
+        let r1 = crate::cat::routing::RigId::new("rig-1").unwrap();
+
+        let res = mgr.allocate_or_register(r1, Some(8420), 4534);
+        assert_eq!(res, Err(ProxyError::PortConflictWithRestApi(8420)));
+    }
+
+    #[tokio::test]
+    async fn hamlib_existing_session_remains_bound_to_original_rig() {
+        use crate::cat::backend::{BoxFuture, CatBackendKind, RigBackend};
+        use crate::cat::hub::RigHub;
+        use crate::cat::rig::{RigCapabilities, RigError};
+        use crate::cat::service::RigService;
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+        struct TestMockRig {
+            freq: u64,
+        }
+
+        impl RigBackend for TestMockRig {
+            fn kind(&self) -> CatBackendKind {
+                CatBackendKind::Kenwood
+            }
+            fn capabilities(&self) -> RigCapabilities {
+                RigCapabilities::all()
+            }
+            fn connect(&mut self) -> BoxFuture<'_, Result<(), RigError>> {
+                Box::pin(std::future::ready(Ok(())))
+            }
+            fn poll(&mut self) -> BoxFuture<'_, Result<RigState, RigError>> {
+                let st = RigState {
+                    frequency_hz: self.freq,
+                    connected: true,
+                    ..Default::default()
+                };
+                Box::pin(std::future::ready(Ok(st)))
+            }
+            fn execute<'a>(
+                &'a mut self,
+                command: &'a crate::cat::rig::RigCommand,
+            ) -> BoxFuture<'a, Result<(), RigError>> {
+                if let crate::cat::rig::RigCommand::SetFrequency(f) = command {
+                    self.freq = *f;
+                }
+                Box::pin(std::future::ready(Ok(())))
+            }
+            fn disconnect(&mut self) -> BoxFuture<'_, ()> {
+                Box::pin(std::future::ready(()))
+            }
+        }
+
+        let mut hub = RigHub::new();
+        let r1_id = crate::cat::routing::RigId::new("rig-1").unwrap();
+        let (s1, mut h1) = RigService::spawn(
+            r1_id.clone(),
+            Box::new(TestMockRig { freq: 14_074_000 }),
+            std::time::Duration::from_millis(20),
+        );
+        let w1 = tokio::spawn(s1.run());
+        h1.attach_join_handle(w1);
+        hub.register_rig(r1_id.clone(), h1).unwrap();
+
+        let r2_id = crate::cat::routing::RigId::new("rig-2").unwrap();
+        let (s2, mut h2) = RigService::spawn(
+            r2_id.clone(),
+            Box::new(TestMockRig { freq: 28_074_000 }),
+            std::time::Duration::from_millis(20),
+        );
+        let w2 = tokio::spawn(s2.run());
+        h2.attach_join_handle(w2);
+        hub.register_rig(r2_id.clone(), h2).unwrap();
+
+        let mut runtime = crate::cat::runtime::CatRuntime::with_hub(hub);
+        tokio::time::sleep(std::time::Duration::from_millis(60)).await;
+
+        // Uruchamiamy serwer proxy przypisany na sztywno do rig-1
+        let state = Arc::new(RwLock::new(test_state()));
+        let (server, _rx) = HamlibProxyServer::new(0, state.clone());
+        let server = server.with_runtime(runtime.clone(), r1_id.clone());
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let srv_state = server.shared_state.clone();
+        let srv_cmd_tx = server.cmd_sender.clone();
+        let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
+        let srv_rig_id = server.rig_id.clone();
+        let srv_rt = server.cat_runtime.clone();
+
+        let server_task = tokio::spawn(async move {
+            if let Ok((stream, _)) = listener.accept().await {
+                let _ =
+                    handle_client(stream, srv_state, srv_cmd_tx, stop_rx, srv_rig_id, srv_rt).await;
+            }
+        });
+
+        let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let (reader, mut writer) = client.split();
+        let mut buf_reader = BufReader::new(reader);
+
+        // 1. Zmiana częstotliwości w sesji na 14_250_000
+        writer.write_all(b"F 14250000\n").await.unwrap();
+        writer.flush().await.unwrap();
+        let mut resp = String::new();
+        buf_reader.read_line(&mut resp).await.unwrap();
+        assert_eq!(resp, "RPRT 0\n");
+
+        tokio::time::sleep(std::time::Duration::from_millis(60)).await;
+
+        // 2. Symulacja zmiany aktywnego radia w GUI na rig-2
+        runtime.set_active_rx(crate::cat::routing::RigTarget::rig_only(r2_id.clone()));
+
+        // 3. W tym samym połączeniu TCP odpytujemy częstotliwość (komenda 'f')
+        // Sesja nadal ma niezmienny cel (rig-1), a nie rig-2!
+        resp.clear();
+        writer.write_all(b"f\n").await.unwrap();
+        writer.flush().await.unwrap();
+        buf_reader.read_line(&mut resp).await.unwrap();
+
+        assert_eq!(resp, "14250000\n");
+
+        let _ = stop_tx.send(true);
+        let _ = server_task.await;
+        runtime
+            .shutdown(std::time::Duration::from_millis(300))
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn hamlib_proxy_failure_for_rig_a_does_not_stop_rig_b() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        let state1 = Arc::new(RwLock::new(test_state()));
+        let state2 = Arc::new(RwLock::new(test_state()));
+
+        let (server1, _rx1) = HamlibProxyServer::new(0, state1);
+        let (server2, _rx2) = HamlibProxyServer::new(0, state2);
+
+        let listener1 = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr1 = listener1.local_addr().unwrap();
+        let listener2 = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr2 = listener2.local_addr().unwrap();
+
+        let (stop_tx1, stop_rx1) = tokio::sync::watch::channel(false);
+        let (stop_tx2, stop_rx2) = tokio::sync::watch::channel(false);
+
+        let srv1_st = server1.shared_state.clone();
+        let srv1_tx = server1.cmd_sender.clone();
+        let task1 = tokio::spawn(async move {
+            if let Ok((stream, _)) = listener1.accept().await {
+                let _ = handle_client(stream, srv1_st, srv1_tx, stop_rx1, None, None).await;
+            }
+        });
+
+        let srv2_st = server2.shared_state.clone();
+        let srv2_tx = server2.cmd_sender.clone();
+        let task2 = tokio::spawn(async move {
+            if let Ok((stream, _)) = listener2.accept().await {
+                let _ = handle_client(stream, srv2_st, srv2_tx, stop_rx2, None, None).await;
+            }
+        });
+
+        // Łączymy się z proxy 1 i wymuszamy zatrzymanie
+        let _client1 = tokio::net::TcpStream::connect(addr1).await.unwrap();
+        let _ = stop_tx1.send(true);
+        drop(_client1);
+        let _ = task1.await;
+
+        // Proxy 2 działa bez przeszkód i obsługuje zapytania
+        let mut client2 = tokio::net::TcpStream::connect(addr2).await.unwrap();
+        client2.write_all(b"f\n").await.unwrap();
+        client2.flush().await.unwrap();
+        let mut reader2 = BufReader::new(client2);
+        let mut line = String::new();
+        reader2.read_line(&mut line).await.unwrap();
+        assert_eq!(line, "14074000\n");
+
+        let _ = stop_tx2.send(true);
+        let _ = task2.await;
     }
 }
