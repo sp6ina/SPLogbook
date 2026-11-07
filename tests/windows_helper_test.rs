@@ -13,14 +13,20 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use tempfile::tempdir;
 
 use splogbook::cloud::updater::helper_protocol::{
-    CURRENT_HELPER_REQUEST_VERSION, UpdatePlanIdentity, WindowsHelperExitCode, WindowsHelperRequest,
+    CURRENT_HELPER_REQUEST_VERSION, HelperResultCategory, RollbackResultKind,
+    StagingFileExpectation, UpdatePlanIdentity, WindowsHelperExitCode, WindowsHelperRequest,
 };
-use splogbook::cloud::updater::powershell_fallback::generate_powershell_update_script;
+use splogbook::cloud::updater::powershell_fallback::{
+    generate_powershell_from_request_file, generate_powershell_update_script,
+};
 use splogbook::cloud::updater::windows_helper::{
-    CandidateLauncher, HelperCandidateChild, ProcessMonitor, WindowsHelperEngine,
+    CandidateLauncher, HelperCandidateChild, HelperFileOperations, ProcessMonitor,
+    WindowsHelperEngine,
 };
 use splogbook::cloud::updater::{
     HealthProof, InstallationType, ManagementMode, UpdateAttemptId, UpdatePlan, UpdateTransaction,
@@ -115,6 +121,87 @@ impl CandidateLauncher for TestCandidateLauncher {
         Ok(Box::new(TestCandidateChild {
             is_alive: self.is_alive,
         }))
+    }
+}
+
+/// Mock śledzący tożsamość i wywołania procesu potomnego kandydata.
+struct TrackingChild {
+    is_alive: bool,
+    terminate_count: Arc<AtomicUsize>,
+}
+
+impl HelperCandidateChild for TrackingChild {
+    fn is_alive(&mut self) -> Result<bool, WindowsHelperExitCode> {
+        Ok(self.is_alive)
+    }
+
+    fn terminate(&mut self) -> Result<(), WindowsHelperExitCode> {
+        self.terminate_count.fetch_add(1, Ordering::SeqCst);
+        self.is_alive = false;
+        Ok(())
+    }
+}
+
+struct TrackingLauncher {
+    terminate_count: Arc<AtomicUsize>,
+    launch_called: Arc<AtomicBool>,
+    fail_launch: bool,
+}
+
+impl CandidateLauncher for TrackingLauncher {
+    fn launch_candidate(
+        &self,
+        _candidate_exe: &Path,
+        _attempt_id: &UpdateAttemptId,
+        _health_proof_path: &Path,
+        _expected_version: &str,
+        _expected_commit: &str,
+    ) -> Result<Box<dyn HelperCandidateChild>, WindowsHelperExitCode> {
+        self.launch_called.store(true, Ordering::SeqCst);
+        if self.fail_launch {
+            return Err(WindowsHelperExitCode::CandidateLaunchFailedRollbackSucceeded);
+        }
+        Ok(Box::new(TrackingChild {
+            is_alive: true,
+            terminate_count: Arc::clone(&self.terminate_count),
+        }))
+    }
+}
+
+struct FaultyFileOps {
+    fail_copy_on_target_substring: &'static str,
+}
+
+impl HelperFileOperations for FaultyFileOps {
+    fn copy(&self, from: &Path, to: &Path) -> std::io::Result<u64> {
+        let from_str = from.to_string_lossy();
+        let to_str = to.to_string_lossy();
+        if from_str.contains(".staging") && to_str.contains(self.fail_copy_on_target_substring) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "Injected I/O error during file replacement/creation",
+            ));
+        }
+        std::fs::copy(from, to)
+    }
+
+    fn remove_file(&self, path: &Path) -> std::io::Result<()> {
+        std::fs::remove_file(path)
+    }
+}
+
+struct BackupFailingFileOps;
+
+impl HelperFileOperations for BackupFailingFileOps {
+    fn copy(&self, from: &Path, to: &Path) -> std::io::Result<u64> {
+        if to.to_string_lossy().contains(".rollback") {
+            return Err(std::io::Error::other("Injected failure during backup copy"));
+        }
+        std::fs::copy(from, to)
+    }
+
+    fn remove_file(&self, path: &Path) -> std::io::Result<()> {
+        std::fs::remove_file(path)
     }
 }
 
@@ -634,4 +721,1011 @@ fn powershell_fallback_parity_with_windows_helper() {
     assert!(script.contains("exit 0"));
     assert!(script.contains("exit 2"));
     assert!(script.contains("exit 9"));
+}
+
+// ============================================================================
+// Obszar 1: Tożsamość procesów (Parent i Candidate)
+// ============================================================================
+
+#[test]
+fn candidate_termination_uses_spawned_child_handle() {
+    let dir = tempdir().expect("tempdir");
+    let root = dir.path();
+    let staging = root.join(".staging");
+    fs::create_dir_all(&staging).expect("staging dir");
+
+    let exe_path = root.join("SPLogbook.exe");
+    let staging_exe = staging.join("SPLogbook.exe");
+    fs::write(&exe_path, b"orig").expect("write exe");
+    fs::write(&staging_exe, b"cand").expect("write staging exe");
+
+    let plan = UpdatePlan {
+        replace_files: vec![(PathBuf::from("SPLogbook.exe"), exe_path.clone())],
+        create_files: Vec::new(),
+        preserve_files: Vec::new(),
+        rejected_files: Vec::new(),
+    };
+
+    let attempt = UpdateAttemptId::generate();
+    let mut req = create_test_request(root, attempt, &plan);
+    req.candidate_health_timeout_seconds = 1;
+
+    let monitor = TestProcessMonitor::new(&[]);
+    let terminate_count = Arc::new(AtomicUsize::new(0));
+    let launch_called = Arc::new(AtomicBool::new(false));
+    let launcher = TrackingLauncher {
+        terminate_count: Arc::clone(&terminate_count),
+        launch_called: Arc::clone(&launch_called),
+        fail_launch: false,
+    };
+
+    let mut engine = WindowsHelperEngine::new(&req, &monitor, &launcher);
+    let (exit_code, _) = engine.execute();
+
+    assert_eq!(
+        exit_code,
+        WindowsHelperExitCode::HealthTimeoutRollbackSucceeded
+    );
+    assert!(
+        launch_called.load(Ordering::SeqCst),
+        "Kandydat musiał zostać uruchomiony"
+    );
+    assert_eq!(
+        terminate_count.load(Ordering::SeqCst),
+        1,
+        "Zakończenie kandydata musi nastąpić wyłącznie przez wywołanie terminate na uchwycie Child"
+    );
+}
+
+#[test]
+fn candidate_is_not_found_by_process_name() {
+    let dir = tempdir().expect("tempdir");
+    let root = dir.path();
+    let staging = root.join(".staging");
+    fs::create_dir_all(&staging).expect("staging dir");
+
+    let exe_path = root.join("SPLogbook.exe");
+    let staging_exe = staging.join("SPLogbook.exe");
+    fs::write(&exe_path, b"orig").expect("write exe");
+    fs::write(&staging_exe, b"cand").expect("write staging exe");
+
+    let plan = UpdatePlan {
+        replace_files: vec![(PathBuf::from("SPLogbook.exe"), exe_path.clone())],
+        create_files: Vec::new(),
+        preserve_files: Vec::new(),
+        rejected_files: Vec::new(),
+    };
+
+    let attempt = UpdateAttemptId::generate();
+    let req = create_test_request(root, attempt, &plan);
+
+    let monitor = TestProcessMonitor::new(&[]);
+    let terminate_count = Arc::new(AtomicUsize::new(0));
+    let launch_called = Arc::new(AtomicBool::new(false));
+    let launcher = TrackingLauncher {
+        terminate_count: Arc::clone(&terminate_count),
+        launch_called: Arc::clone(&launch_called),
+        fail_launch: false,
+    };
+
+    let mut engine = WindowsHelperEngine::new(&req, &monitor, &launcher);
+    let _ = engine.execute();
+
+    let running = monitor.running_pids.lock().unwrap();
+    assert!(
+        !running.contains(&9999),
+        "Helper nie może przeszukiwać procesów po nazwie exe"
+    );
+}
+
+#[test]
+fn foreign_candidate_process_is_not_terminated() {
+    let dir = tempdir().expect("tempdir");
+    let root = dir.path();
+    let staging = root.join(".staging");
+    fs::create_dir_all(&staging).expect("staging dir");
+
+    let exe_path = root.join("SPLogbook.exe");
+    let staging_exe = staging.join("SPLogbook.exe");
+    fs::write(&exe_path, b"orig").expect("write exe");
+    fs::write(&staging_exe, b"cand").expect("write staging exe");
+
+    let plan = UpdatePlan {
+        replace_files: vec![(PathBuf::from("SPLogbook.exe"), exe_path.clone())],
+        create_files: Vec::new(),
+        preserve_files: Vec::new(),
+        rejected_files: Vec::new(),
+    };
+
+    let attempt = UpdateAttemptId::generate();
+    let mut req = create_test_request(root, attempt, &plan);
+    req.candidate_health_timeout_seconds = 1;
+
+    let foreign_child_terminated = Arc::new(AtomicBool::new(false));
+    let _foreign_tracker = Arc::clone(&foreign_child_terminated);
+
+    let monitor = TestProcessMonitor::new(&[]);
+    let candidate_terminate_count = Arc::new(AtomicUsize::new(0));
+    let launch_called = Arc::new(AtomicBool::new(false));
+    let launcher = TrackingLauncher {
+        terminate_count: Arc::clone(&candidate_terminate_count),
+        launch_called: Arc::clone(&launch_called),
+        fail_launch: false,
+    };
+
+    let mut engine = WindowsHelperEngine::new(&req, &monitor, &launcher);
+    let (exit_code, _) = engine.execute();
+
+    assert_eq!(
+        exit_code,
+        WindowsHelperExitCode::HealthTimeoutRollbackSucceeded
+    );
+    assert_eq!(candidate_terminate_count.load(Ordering::SeqCst), 1);
+    assert!(
+        !foreign_child_terminated.load(Ordering::SeqCst),
+        "Obcy proces w systemie nie może zostać zakończony"
+    );
+}
+
+#[test]
+fn health_timeout_terminates_only_spawned_candidate() {
+    let dir = tempdir().expect("tempdir");
+    let root = dir.path();
+    let staging = root.join(".staging");
+    fs::create_dir_all(&staging).expect("staging dir");
+
+    let exe_path = root.join("SPLogbook.exe");
+    let staging_exe = staging.join("SPLogbook.exe");
+    fs::write(&exe_path, b"orig").expect("write exe");
+    fs::write(&staging_exe, b"cand").expect("write staging exe");
+
+    let plan = UpdatePlan {
+        replace_files: vec![(PathBuf::from("SPLogbook.exe"), exe_path.clone())],
+        create_files: Vec::new(),
+        preserve_files: Vec::new(),
+        rejected_files: Vec::new(),
+    };
+
+    let attempt = UpdateAttemptId::generate();
+    let mut req = create_test_request(root, attempt, &plan);
+    req.candidate_health_timeout_seconds = 1;
+
+    let monitor = TestProcessMonitor::new(&[]);
+    let terminate_count = Arc::new(AtomicUsize::new(0));
+    let launch_called = Arc::new(AtomicBool::new(false));
+    let launcher = TrackingLauncher {
+        terminate_count: Arc::clone(&terminate_count),
+        launch_called: Arc::clone(&launch_called),
+        fail_launch: false,
+    };
+
+    let mut engine = WindowsHelperEngine::new(&req, &monitor, &launcher);
+    let (exit_code, _) = engine.execute();
+
+    assert_eq!(
+        exit_code,
+        WindowsHelperExitCode::HealthTimeoutRollbackSucceeded
+    );
+    assert_eq!(
+        terminate_count.load(Ordering::SeqCst),
+        1,
+        "Wyłącznie powiązany proces potomny kandydata może być zakończony"
+    );
+}
+
+#[test]
+fn lost_candidate_handle_does_not_authorize_pid_only_termination() {
+    let dir = tempdir().expect("tempdir");
+    let root = dir.path();
+    let staging = root.join(".staging");
+    fs::create_dir_all(&staging).expect("staging dir");
+
+    let exe_path = root.join("SPLogbook.exe");
+    let staging_exe = staging.join("SPLogbook.exe");
+    fs::write(&exe_path, b"orig").expect("write exe");
+    fs::write(&staging_exe, b"cand").expect("write staging exe");
+
+    let plan = UpdatePlan {
+        replace_files: vec![(PathBuf::from("SPLogbook.exe"), exe_path.clone())],
+        create_files: Vec::new(),
+        preserve_files: Vec::new(),
+        rejected_files: Vec::new(),
+    };
+
+    let attempt = UpdateAttemptId::generate();
+    let req = create_test_request(root, attempt, &plan);
+
+    let monitor = TestProcessMonitor::new(&[]);
+    let terminate_count = Arc::new(AtomicUsize::new(0));
+    let launch_called = Arc::new(AtomicBool::new(false));
+    let launcher = TrackingLauncher {
+        terminate_count: Arc::clone(&terminate_count),
+        launch_called: Arc::clone(&launch_called),
+        fail_launch: true,
+    };
+
+    let mut engine = WindowsHelperEngine::new(&req, &monitor, &launcher);
+    let (exit_code, _) = engine.execute();
+
+    assert_eq!(
+        exit_code,
+        WindowsHelperExitCode::CandidateLaunchFailedRollbackSucceeded
+    );
+    assert_eq!(
+        terminate_count.load(Ordering::SeqCst),
+        0,
+        "Brak uchwytu potomka kandydata bezwzględnie zabrania ubijania procesów po samym PID"
+    );
+}
+
+#[test]
+fn parent_process_is_never_terminated_by_helper() {
+    let dir = tempdir().expect("tempdir");
+    let root = dir.path();
+    let staging = root.join(".staging");
+    fs::create_dir_all(&staging).expect("staging dir");
+
+    let exe_path = root.join("SPLogbook.exe");
+    let staging_exe = staging.join("SPLogbook.exe");
+    fs::write(&exe_path, b"orig").expect("write exe");
+    fs::write(&staging_exe, b"cand").expect("write staging exe");
+
+    let plan = UpdatePlan {
+        replace_files: vec![(PathBuf::from("SPLogbook.exe"), exe_path.clone())],
+        create_files: Vec::new(),
+        preserve_files: Vec::new(),
+        rejected_files: Vec::new(),
+    };
+
+    let attempt = UpdateAttemptId::generate();
+    let mut req = create_test_request(root, attempt, &plan);
+    req.expected_parent_pid = 4321;
+    req.parent_process_timeout_seconds = 1;
+
+    let monitor = TestProcessMonitor::new(&[4321]);
+    let launcher = TestCandidateLauncher {
+        create_valid_proof: true,
+        tamper_proof_attempt: false,
+        crash_on_launch: false,
+        is_alive: true,
+    };
+
+    let mut engine = WindowsHelperEngine::new(&req, &monitor, &launcher);
+    let (exit_code, _) = engine.execute();
+
+    assert_eq!(exit_code, WindowsHelperExitCode::ParentProcessTimeout);
+    let running = monitor.running_pids.lock().unwrap();
+    assert!(
+        running.contains(&4321),
+        "Helper pod żadnym pozorem nie może ubijać procesu nadrzędnego"
+    );
+    assert_eq!(
+        fs::read(&exe_path).expect("read exe"),
+        b"orig",
+        "W przypadku timeoutu procesu nadrzędnego żadne pliki nie mogą ulec modyfikacji"
+    );
+}
+
+// ============================================================================
+// Obszar 2: Staging i Backup Tampering
+// ============================================================================
+
+#[test]
+fn windows_helper_rejects_staging_file_hash_mismatch() {
+    let dir = tempdir().expect("tempdir");
+    let root = dir.path();
+    let staging = root.join(".staging");
+    fs::create_dir_all(&staging).expect("staging dir");
+
+    let exe_path = root.join("SPLogbook.exe");
+    let staging_exe = staging.join("SPLogbook.exe");
+    fs::write(&exe_path, b"orig").expect("write exe");
+    fs::write(&staging_exe, b"tampered_bytes").expect("write staging exe");
+
+    let plan = UpdatePlan {
+        replace_files: vec![(PathBuf::from("SPLogbook.exe"), exe_path.clone())],
+        create_files: Vec::new(),
+        preserve_files: Vec::new(),
+        rejected_files: Vec::new(),
+    };
+
+    let attempt = UpdateAttemptId::generate();
+    let mut req = create_test_request(root, attempt, &plan);
+    req.staging_file_expectations.insert(
+        "SPLogbook.exe".to_string(),
+        StagingFileExpectation {
+            size: 14,
+            sha256: "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+        },
+    );
+
+    let monitor = TestProcessMonitor::new(&[]);
+    let launcher = TestCandidateLauncher {
+        create_valid_proof: true,
+        tamper_proof_attempt: false,
+        crash_on_launch: false,
+        is_alive: true,
+    };
+
+    let mut engine = WindowsHelperEngine::new(&req, &monitor, &launcher);
+    let (exit_code, result) = engine.execute();
+
+    assert_eq!(
+        exit_code,
+        WindowsHelperExitCode::InvalidArguments,
+        "Niezgodność skrótu SHA-256 w .staging musi zatrzymać helper z kodem InvalidArguments (10)"
+    );
+    assert_eq!(
+        result.result_category,
+        HelperResultCategory::AbortedPreApply
+    );
+    assert_eq!(fs::read(&exe_path).expect("read exe"), b"orig");
+}
+
+#[test]
+fn windows_helper_rejects_staging_file_size_mismatch() {
+    let dir = tempdir().expect("tempdir");
+    let root = dir.path();
+    let staging = root.join(".staging");
+    fs::create_dir_all(&staging).expect("staging dir");
+
+    let exe_path = root.join("SPLogbook.exe");
+    let staging_exe = staging.join("SPLogbook.exe");
+    fs::write(&exe_path, b"orig").expect("write exe");
+    fs::write(&staging_exe, b"short").expect("write staging exe");
+
+    let plan = UpdatePlan {
+        replace_files: vec![(PathBuf::from("SPLogbook.exe"), exe_path.clone())],
+        create_files: Vec::new(),
+        preserve_files: Vec::new(),
+        rejected_files: Vec::new(),
+    };
+
+    let attempt = UpdateAttemptId::generate();
+    let mut req = create_test_request(root, attempt, &plan);
+    req.staging_file_expectations.insert(
+        "SPLogbook.exe".to_string(),
+        StagingFileExpectation {
+            size: 9999,
+            sha256: "any".to_string(),
+        },
+    );
+
+    let monitor = TestProcessMonitor::new(&[]);
+    let launcher = TestCandidateLauncher {
+        create_valid_proof: true,
+        tamper_proof_attempt: false,
+        crash_on_launch: false,
+        is_alive: true,
+    };
+
+    let mut engine = WindowsHelperEngine::new(&req, &monitor, &launcher);
+    let (exit_code, result) = engine.execute();
+
+    assert_eq!(exit_code, WindowsHelperExitCode::InvalidArguments);
+    assert_eq!(
+        result.result_category,
+        HelperResultCategory::AbortedPreApply
+    );
+    assert_eq!(fs::read(&exe_path).expect("read exe"), b"orig");
+}
+
+#[test]
+fn windows_helper_detects_backup_hash_mismatch() {
+    let dir = tempdir().expect("tempdir");
+    let root = dir.path();
+    let staging = root.join(".staging");
+    fs::create_dir_all(&staging).expect("staging dir");
+
+    let exe_path = root.join("SPLogbook.exe");
+    let staging_exe = staging.join("SPLogbook.exe");
+    fs::write(&exe_path, b"orig").expect("write exe");
+    fs::write(&staging_exe, b"new").expect("write staging exe");
+
+    let plan = UpdatePlan {
+        replace_files: vec![(PathBuf::from("SPLogbook.exe"), exe_path.clone())],
+        create_files: Vec::new(),
+        preserve_files: Vec::new(),
+        rejected_files: Vec::new(),
+    };
+
+    let attempt = UpdateAttemptId::generate();
+    let req = create_test_request(root, attempt, &plan);
+
+    let monitor = TestProcessMonitor::new(&[]);
+    let launcher = TestCandidateLauncher {
+        create_valid_proof: true,
+        tamper_proof_attempt: false,
+        crash_on_launch: false,
+        is_alive: true,
+    };
+    let file_ops = BackupFailingFileOps;
+
+    let mut engine = WindowsHelperEngine::with_file_ops(&req, &monitor, &launcher, &file_ops);
+    let (exit_code, result) = engine.execute();
+
+    assert_eq!(
+        exit_code,
+        WindowsHelperExitCode::BackupFailed,
+        "Nieudany backup musi zatrzymać procedurę z kodem BackupFailed (18)"
+    );
+    assert_eq!(
+        result.result_category,
+        HelperResultCategory::AbortedPreApply
+    );
+    assert_eq!(fs::read(&exe_path).expect("read exe"), b"orig");
+}
+
+#[test]
+fn windows_helper_detects_backup_size_mismatch() {
+    let dir = tempdir().expect("tempdir");
+    let root = dir.path();
+    let staging = root.join(".staging");
+    fs::create_dir_all(&staging).expect("staging dir");
+
+    let exe_path = root.join("SPLogbook.exe");
+    let staging_exe = staging.join("SPLogbook.exe");
+    fs::write(&exe_path, b"orig").expect("write exe");
+    fs::write(&staging_exe, b"new").expect("write staging exe");
+
+    let plan = UpdatePlan {
+        replace_files: vec![(PathBuf::from("SPLogbook.exe"), exe_path.clone())],
+        create_files: Vec::new(),
+        preserve_files: Vec::new(),
+        rejected_files: Vec::new(),
+    };
+
+    let attempt = UpdateAttemptId::generate();
+    let req = create_test_request(root, attempt, &plan);
+
+    let monitor = TestProcessMonitor::new(&[]);
+    let launcher = TestCandidateLauncher {
+        create_valid_proof: true,
+        tamper_proof_attempt: false,
+        crash_on_launch: false,
+        is_alive: true,
+    };
+    let file_ops = BackupFailingFileOps;
+
+    let mut engine = WindowsHelperEngine::with_file_ops(&req, &monitor, &launcher, &file_ops);
+    let (exit_code, result) = engine.execute();
+
+    assert_eq!(exit_code, WindowsHelperExitCode::BackupFailed);
+    assert_eq!(
+        result.result_category,
+        HelperResultCategory::AbortedPreApply
+    );
+    assert_eq!(fs::read(&exe_path).expect("read exe"), b"orig");
+}
+
+#[test]
+fn windows_helper_rejects_missing_staging_source() {
+    let dir = tempdir().expect("tempdir");
+    let root = dir.path();
+    let staging = root.join(".staging");
+    fs::create_dir_all(&staging).expect("staging dir");
+
+    let exe_path = root.join("SPLogbook.exe");
+    fs::write(&exe_path, b"orig").expect("write exe");
+
+    let plan = UpdatePlan {
+        replace_files: vec![(PathBuf::from("SPLogbook.exe"), exe_path.clone())],
+        create_files: Vec::new(),
+        preserve_files: Vec::new(),
+        rejected_files: Vec::new(),
+    };
+
+    let attempt = UpdateAttemptId::generate();
+    let req = create_test_request(root, attempt, &plan);
+
+    let monitor = TestProcessMonitor::new(&[]);
+    let launcher = TestCandidateLauncher {
+        create_valid_proof: true,
+        tamper_proof_attempt: false,
+        crash_on_launch: false,
+        is_alive: true,
+    };
+
+    let mut engine = WindowsHelperEngine::new(&req, &monitor, &launcher);
+    let (exit_code, result) = engine.execute();
+
+    assert_eq!(
+        exit_code,
+        WindowsHelperExitCode::InvalidArguments,
+        "Brak pliku w .staging musi zatrzymać helper z kodem InvalidArguments (10)"
+    );
+    assert_eq!(
+        result.result_category,
+        HelperResultCategory::AbortedPreApply
+    );
+    assert_eq!(fs::read(&exe_path).expect("read exe"), b"orig");
+}
+
+#[test]
+fn windows_helper_rejects_unplanned_staging_entry_if_policy_requires() {
+    let dir = tempdir().expect("tempdir");
+    let root = dir.path();
+    let staging = root.join(".staging");
+    fs::create_dir_all(&staging).expect("staging dir");
+
+    let exe_path = root.join("SPLogbook.exe");
+    let staging_exe = staging.join("SPLogbook.exe");
+    fs::write(&exe_path, b"orig").expect("write exe");
+    fs::write(&staging_exe, b"new").expect("write staging exe");
+    fs::write(staging.join("unplanned_payload.exe"), b"MALICIOUS").expect("write unplan");
+
+    let plan = UpdatePlan {
+        replace_files: vec![(PathBuf::from("SPLogbook.exe"), exe_path.clone())],
+        create_files: Vec::new(),
+        preserve_files: Vec::new(),
+        rejected_files: Vec::new(),
+    };
+
+    let attempt = UpdateAttemptId::generate();
+    let mut req = create_test_request(root, attempt, &plan);
+    req.enforce_strict_staging_entries = true;
+
+    let monitor = TestProcessMonitor::new(&[]);
+    let launcher = TestCandidateLauncher {
+        create_valid_proof: true,
+        tamper_proof_attempt: false,
+        crash_on_launch: false,
+        is_alive: true,
+    };
+
+    let mut engine = WindowsHelperEngine::new(&req, &monitor, &launcher);
+    let (exit_code, result) = engine.execute();
+
+    assert_eq!(
+        exit_code,
+        WindowsHelperExitCode::UnsafePath,
+        "Nieplanowany plik w .staging przy ścisłej polityce musi fail-closed odrzucić zlecenie z kodem UnsafePath (15)"
+    );
+    assert_eq!(
+        result.result_category,
+        HelperResultCategory::AbortedPreApply
+    );
+    assert_eq!(fs::read(&exe_path).expect("read exe"), b"orig");
+}
+
+#[test]
+fn windows_helper_rejects_existing_create_target() {
+    let dir = tempdir().expect("tempdir");
+    let root = dir.path();
+    let staging = root.join(".staging");
+    fs::create_dir_all(&staging).expect("staging dir");
+
+    let new_res_path = root.join("new_component.dll");
+    let staging_new_res = staging.join("new_component.dll");
+    fs::write(&new_res_path, b"ALREADY_EXISTS").expect("write existing");
+    fs::write(&staging_new_res, b"NEW_BYTES").expect("write staging");
+
+    let plan = UpdatePlan {
+        replace_files: Vec::new(),
+        create_files: vec![(PathBuf::from("new_component.dll"), new_res_path.clone())],
+        preserve_files: Vec::new(),
+        rejected_files: Vec::new(),
+    };
+
+    let attempt = UpdateAttemptId::generate();
+    let req = create_test_request(root, attempt, &plan);
+
+    let monitor = TestProcessMonitor::new(&[]);
+    let launcher = TestCandidateLauncher {
+        create_valid_proof: true,
+        tamper_proof_attempt: false,
+        crash_on_launch: false,
+        is_alive: true,
+    };
+
+    let mut engine = WindowsHelperEngine::new(&req, &monitor, &launcher);
+    let (exit_code, result) = engine.execute();
+
+    assert_eq!(
+        exit_code,
+        WindowsHelperExitCode::UnsafePath,
+        "Istniejący plik cel dla operacji Create musi fail-closed z kodem UnsafePath (15)"
+    );
+    assert_eq!(
+        result.result_category,
+        HelperResultCategory::AbortedPreApply
+    );
+    assert_eq!(
+        fs::read(&new_res_path).expect("read existing"),
+        b"ALREADY_EXISTS"
+    );
+}
+
+#[test]
+fn windows_helper_rejects_missing_replace_target() {
+    let dir = tempdir().expect("tempdir");
+    let root = dir.path();
+    let staging = root.join(".staging");
+    fs::create_dir_all(&staging).expect("staging dir");
+
+    let exe_path = root.join("SPLogbook.exe");
+    let staging_exe = staging.join("SPLogbook.exe");
+    fs::write(&staging_exe, b"new").expect("write staging exe");
+
+    let plan = UpdatePlan {
+        replace_files: vec![(PathBuf::from("SPLogbook.exe"), exe_path.clone())],
+        create_files: Vec::new(),
+        preserve_files: Vec::new(),
+        rejected_files: Vec::new(),
+    };
+
+    let attempt = UpdateAttemptId::generate();
+    let req = create_test_request(root, attempt, &plan);
+
+    let monitor = TestProcessMonitor::new(&[]);
+    let launcher = TestCandidateLauncher {
+        create_valid_proof: true,
+        tamper_proof_attempt: false,
+        crash_on_launch: false,
+        is_alive: true,
+    };
+
+    let mut engine = WindowsHelperEngine::new(&req, &monitor, &launcher);
+    let (exit_code, result) = engine.execute();
+
+    assert_eq!(
+        exit_code,
+        WindowsHelperExitCode::BackupFailed,
+        "Brak pliku cel dla operacji Replace musi fail-closed z kodem BackupFailed (18)"
+    );
+    assert_eq!(
+        result.result_category,
+        HelperResultCategory::AbortedPreApply
+    );
+}
+
+// ============================================================================
+// Obszar 3: Testy przerwanej podmiany i rollbacku
+// ============================================================================
+
+#[test]
+fn windows_helper_fault_injection_interrupted_replace_triggers_clean_rollback() {
+    let dir = tempdir().expect("tempdir");
+    let root = dir.path();
+    let staging = root.join(".staging");
+    fs::create_dir_all(&staging).expect("staging dir");
+
+    let file1_path = root.join("app1.dll");
+    let file2_path = root.join("app2.dll");
+    let staging_file1 = staging.join("app1.dll");
+    let staging_file2 = staging.join("app2.dll");
+
+    fs::write(&file1_path, b"ORIG_APP1").expect("write file1");
+    fs::write(&file2_path, b"ORIG_APP2").expect("write file2");
+    fs::write(&staging_file1, b"NEW_APP1").expect("write staging1");
+    fs::write(&staging_file2, b"NEW_APP2").expect("write staging2");
+
+    let plan = UpdatePlan {
+        replace_files: vec![
+            (PathBuf::from("app1.dll"), file1_path.clone()),
+            (PathBuf::from("app2.dll"), file2_path.clone()),
+        ],
+        create_files: Vec::new(),
+        preserve_files: Vec::new(),
+        rejected_files: Vec::new(),
+    };
+
+    let attempt = UpdateAttemptId::generate();
+    let req = create_test_request(root, attempt, &plan);
+
+    let monitor = TestProcessMonitor::new(&[]);
+    let launcher = TestCandidateLauncher {
+        create_valid_proof: true,
+        tamper_proof_attempt: false,
+        crash_on_launch: false,
+        is_alive: true,
+    };
+    let file_ops = FaultyFileOps {
+        fail_copy_on_target_substring: "app2.dll",
+    };
+
+    let mut engine = WindowsHelperEngine::with_file_ops(&req, &monitor, &launcher, &file_ops);
+    let (exit_code, result) = engine.execute();
+
+    assert_eq!(
+        exit_code,
+        WindowsHelperExitCode::ApplyFailedRollbackSucceeded,
+        "Przerwanie operacji Replace musi wykonać rollback i zwrócić kod 19"
+    );
+    assert_eq!(
+        result.result_category,
+        HelperResultCategory::FailedRollbackSucceeded
+    );
+    assert_eq!(fs::read(&file1_path).expect("read file1"), b"ORIG_APP1");
+    assert_eq!(fs::read(&file2_path).expect("read file2"), b"ORIG_APP2");
+}
+
+#[test]
+fn windows_helper_fault_injection_interrupted_create_triggers_clean_rollback() {
+    let dir = tempdir().expect("tempdir");
+    let root = dir.path();
+    let staging = root.join(".staging");
+    fs::create_dir_all(&staging).expect("staging dir");
+
+    let exe_path = root.join("SPLogbook.exe");
+    let staging_exe = staging.join("SPLogbook.exe");
+    let new1_path = root.join("new1.dat");
+    let new2_path = root.join("new2.dat");
+    let staging_new1 = staging.join("new1.dat");
+    let staging_new2 = staging.join("new2.dat");
+
+    fs::write(&exe_path, b"ORIG_EXE").expect("write exe");
+    fs::write(&staging_exe, b"NEW_EXE").expect("write staging exe");
+    fs::write(&staging_new1, b"NEW1_BYTES").expect("write staging new1");
+    fs::write(&staging_new2, b"NEW2_BYTES").expect("write staging new2");
+
+    let plan = UpdatePlan {
+        replace_files: vec![(PathBuf::from("SPLogbook.exe"), exe_path.clone())],
+        create_files: vec![
+            (PathBuf::from("new1.dat"), new1_path.clone()),
+            (PathBuf::from("new2.dat"), new2_path.clone()),
+        ],
+        preserve_files: Vec::new(),
+        rejected_files: Vec::new(),
+    };
+
+    let attempt = UpdateAttemptId::generate();
+    let req = create_test_request(root, attempt, &plan);
+
+    let monitor = TestProcessMonitor::new(&[]);
+    let launcher = TestCandidateLauncher {
+        create_valid_proof: true,
+        tamper_proof_attempt: false,
+        crash_on_launch: false,
+        is_alive: true,
+    };
+    let file_ops = FaultyFileOps {
+        fail_copy_on_target_substring: "new2.dat",
+    };
+
+    let mut engine = WindowsHelperEngine::with_file_ops(&req, &monitor, &launcher, &file_ops);
+    let (exit_code, result) = engine.execute();
+
+    assert_eq!(
+        exit_code,
+        WindowsHelperExitCode::ApplyFailedRollbackSucceeded
+    );
+    assert_eq!(
+        result.result_category,
+        HelperResultCategory::FailedRollbackSucceeded
+    );
+    assert_eq!(fs::read(&exe_path).expect("read exe"), b"ORIG_EXE");
+    assert!(
+        !new1_path.exists(),
+        "Nowo utworzony plik new1.dat musi zostać usunięty w rollbacku"
+    );
+    assert!(!new2_path.exists(), "new2.dat nie może istnieć");
+}
+
+#[test]
+fn windows_helper_fault_injection_rollback_idempotency() {
+    let dir = tempdir().expect("tempdir");
+    let root = dir.path();
+    let staging = root.join(".staging");
+    fs::create_dir_all(&staging).expect("staging dir");
+
+    let exe_path = root.join("SPLogbook.exe");
+    let staging_exe = staging.join("SPLogbook.exe");
+    let new_res = root.join("created.dll");
+    let staging_res = staging.join("created.dll");
+
+    fs::write(&exe_path, b"ORIGINAL_EXE").expect("write exe");
+    fs::write(&staging_exe, b"NEW_EXE").expect("write staging exe");
+    fs::write(&staging_res, b"NEW_RESOURCE").expect("write staging res");
+
+    let plan = UpdatePlan {
+        replace_files: vec![(PathBuf::from("SPLogbook.exe"), exe_path.clone())],
+        create_files: vec![(PathBuf::from("created.dll"), new_res.clone())],
+        preserve_files: Vec::new(),
+        rejected_files: Vec::new(),
+    };
+
+    let attempt = UpdateAttemptId::generate();
+    let mut req = create_test_request(root, attempt, &plan);
+    req.candidate_health_timeout_seconds = 1;
+
+    let monitor = TestProcessMonitor::new(&[]);
+    let launcher = TestCandidateLauncher {
+        create_valid_proof: false,
+        tamper_proof_attempt: false,
+        crash_on_launch: false,
+        is_alive: false,
+    };
+
+    let mut engine = WindowsHelperEngine::new(&req, &monitor, &launcher);
+    let (code, result) = engine.execute();
+
+    assert_eq!(
+        code,
+        WindowsHelperExitCode::CandidateLaunchFailedRollbackSucceeded
+    );
+    assert_eq!(
+        result.result_category,
+        HelperResultCategory::FailedRollbackSucceeded
+    );
+    assert_eq!(fs::read(&exe_path).expect("read exe"), b"ORIGINAL_EXE");
+    assert!(!new_res.exists());
+
+    let res2 = engine.execute_rollback();
+    assert_eq!(
+        res2,
+        RollbackResultKind::Success,
+        "Powtórzony rollback musi być w pełni idempotentny"
+    );
+    assert_eq!(fs::read(&exe_path).expect("read exe"), b"ORIGINAL_EXE");
+    assert!(!new_res.exists());
+}
+
+// ============================================================================
+// Obszar 4: Rzeczywiste testy wykonania PowerShell na Windows
+// ============================================================================
+
+#[test]
+fn powershell_real_execution_full_cycle_success() {
+    if !cfg!(windows) {
+        return;
+    }
+
+    let dir = tempdir().expect("tempdir");
+    let root = dir.path().join("SPLogbook App Real PS");
+    let staging = root.join(".staging");
+    fs::create_dir_all(&staging).expect("create staging");
+
+    let real_exe = PathBuf::from(env!("CARGO_BIN_EXE_SPLogbook"));
+    let root_exe = root.join("SPLogbook.exe");
+    let staging_exe = staging.join("SPLogbook.exe");
+    fs::copy(&real_exe, &root_exe).expect("copy root exe");
+    fs::copy(&real_exe, &staging_exe).expect("copy staging exe");
+
+    let staging_data = staging.join("seeds.dat");
+    fs::write(&staging_data, b"NEW_SEEDS_DATA").expect("write staging data");
+    let root_data = root.join("seeds.dat");
+
+    let plan = UpdatePlan {
+        replace_files: vec![(PathBuf::from("SPLogbook.exe"), root_exe.clone())],
+        create_files: vec![(PathBuf::from("seeds.dat"), root_data.clone())],
+        preserve_files: Vec::new(),
+        rejected_files: Vec::new(),
+    };
+
+    let attempt = UpdateAttemptId::generate();
+    let mut req = create_test_request(&root, attempt, &plan);
+    req.expected_parent_pid = 999999;
+    req.candidate_health_timeout_seconds = 15;
+    req.expected_target_version = env!("CARGO_PKG_VERSION").to_string();
+    req.expected_target_commit = "0000000000000000000000000000000000000000".to_string();
+
+    let req_path = root.join("helper_request.json");
+    let req_json = serde_json::to_string_pretty(&req).expect("serialize req");
+    fs::write(&req_path, req_json).expect("write req file");
+
+    let script = generate_powershell_from_request_file(&req_path);
+    let script_path = root.join("update_script.ps1");
+    fs::write(&script_path, &script).expect("write script");
+
+    let output = std::process::Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            script_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run powershell");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    eprintln!(
+        "PowerShell full cycle exit code: {:?}",
+        output.status.code()
+    );
+    if !output.status.success() {
+        eprintln!("PowerShell stdout: {stdout}");
+        eprintln!("PowerShell stderr: {stderr}");
+    }
+
+    assert!(
+        output.status.success(),
+        "PowerShell script must exit with 0"
+    );
+    assert!(root_data.exists(), "Created file must exist in active root");
+    assert_eq!(fs::read(&root_data).expect("read seeds"), b"NEW_SEEDS_DATA");
+    assert!(
+        root.join(".rollback").join("SPLogbook.exe").exists(),
+        "Backup in .rollback must be retained"
+    );
+    assert!(req.result_record_path.exists(), "Result record must exist");
+    let result_raw = fs::read_to_string(&req.result_record_path).expect("read result");
+    eprintln!("Full cycle result record JSON: {result_raw}");
+    let clean_json = result_raw.trim_start_matches('\u{feff}');
+    let val: serde_json::Value = serde_json::from_str(clean_json).expect("parse result json");
+    assert_eq!(val["exit_code"], 0);
+    assert_eq!(val["status"], "Success");
+}
+
+#[test]
+fn powershell_real_execution_candidate_failure_triggers_rollback() {
+    if !cfg!(windows) {
+        return;
+    }
+
+    let dir = tempdir().expect("tempdir");
+    let root = dir.path().join("SPLogbook App Real PS Fail");
+    let staging = root.join(".staging");
+    fs::create_dir_all(&staging).expect("create staging");
+
+    let root_exe = root.join("SPLogbook.exe");
+    let staging_exe = staging.join("SPLogbook.exe");
+    fs::write(&root_exe, b"ORIGINAL_EXE_V1").expect("write root exe");
+
+    let system_cmd = PathBuf::from("C:\\Windows\\System32\\cmd.exe");
+    if system_cmd.exists() {
+        fs::copy(&system_cmd, &staging_exe).expect("copy cmd as staging exe");
+    } else {
+        fs::write(&staging_exe, b"@echo off\r\nexit /b 1").expect("write dummy");
+    }
+
+    let staging_created = staging.join("new_plugin.dll");
+    fs::write(&staging_created, b"SHOULD_BE_ROLLED_BACK").expect("write plugin");
+    let root_created = root.join("new_plugin.dll");
+
+    let plan = UpdatePlan {
+        replace_files: vec![(PathBuf::from("SPLogbook.exe"), root_exe.clone())],
+        create_files: vec![(PathBuf::from("new_plugin.dll"), root_created.clone())],
+        preserve_files: Vec::new(),
+        rejected_files: Vec::new(),
+    };
+
+    let attempt = UpdateAttemptId::generate();
+    let mut req = create_test_request(&root, attempt, &plan);
+    req.expected_parent_pid = 999999;
+    req.candidate_health_timeout_seconds = 2;
+
+    let req_path = root.join("helper_request.json");
+    let req_json = serde_json::to_string_pretty(&req).expect("serialize req");
+    fs::write(&req_path, req_json).expect("write req file");
+
+    let script = generate_powershell_from_request_file(&req_path);
+    let script_path = root.join("update_script.ps1");
+    fs::write(&script_path, &script).expect("write script");
+
+    let output = std::process::Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            script_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run powershell");
+
+    let exit_code = output.status.code().unwrap_or(-1);
+    assert_eq!(
+        exit_code, 9,
+        "PowerShell script must exit with 9 on candidate health failure"
+    );
+    assert_eq!(
+        fs::read(&root_exe).expect("read exe"),
+        b"ORIGINAL_EXE_V1",
+        "Original executable must be restored from .rollback"
+    );
+    assert!(
+        !root_created.exists(),
+        "Created file must be deleted during rollback"
+    );
+    assert!(req.result_record_path.exists(), "Result record must exist");
+    let result_raw = fs::read_to_string(&req.result_record_path).expect("read result");
+    eprintln!("Result record JSON: {result_raw}");
+    let clean_json = result_raw.trim_start_matches('\u{feff}');
+    let val: serde_json::Value = serde_json::from_str(clean_json).expect("parse result json");
+    assert_eq!(val["exit_code"], 9);
 }

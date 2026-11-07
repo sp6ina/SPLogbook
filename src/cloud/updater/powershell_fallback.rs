@@ -154,7 +154,7 @@ pub fn generate_powershell_from_request_file(request_path: &Path) -> String {
          $req = ConvertFrom-Json -InputObject $raw\n\
          \n\
          if ($req.request_version -ne 1) {{\n\
-             Write-Error \"Nieobsługiwana wersja schematu: $($req.request_version)\"\n\
+             Write-Error \"Unsupported request version: $($req.request_version)\"\n\
              exit 1\n\
          }}\n\
          \n\
@@ -173,14 +173,15 @@ pub fn generate_powershell_from_request_file(request_path: &Path) -> String {
          $createFiles = @($req.update_plan_identity.ordered_create_entries)\n\
          $resultPath = $req.result_record_path\n\
          \n\
-         function Write-HelperResult([int]$exitCode, [string]$status, [string]$err) {{\n\
+         function Write-HelperResult($exitCode, $status, $err) {{\n\
              if ($resultPath) {{\n\
+                 $errMsg = if ($err) {{ $err }} else {{ $null }}\n\
                  $resObj = [PSCustomObject]@{{\n\
                      result_version = 1\n\
                      attempt_id = $attemptId\n\
                      exit_code = $exitCode\n\
                      status = $status\n\
-                     error_message = if ($err) {{ $err }} else {{ $null }}\n\
+                     error_message = $errMsg\n\
                      created_at = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')\n\
                  }}\n\
                  $resJson = ConvertTo-Json -InputObject $resObj\n\
@@ -191,7 +192,7 @@ pub fn generate_powershell_from_request_file(request_path: &Path) -> String {
          $parentDeadline = (Get-Date).AddSeconds($parentTimeout)\n\
          while (Get-Process -Id $parentPid -ErrorAction SilentlyContinue) {{\n\
              if ((Get-Date) -gt $parentDeadline) {{\n\
-                 Write-HelperResult 2 'ParentProcessDidNotExit' 'Proces nadrzędny nie zakończył się w wyznaczonym czasie'\n\
+                 Write-HelperResult 2 'ParentProcessDidNotExit' 'Parent process did not exit within designated timeout'\n\
                  exit 2\n\
              }}\n\
              Start-Sleep -Milliseconds 250\n\
@@ -229,10 +230,10 @@ pub fn generate_powershell_from_request_file(request_path: &Path) -> String {
          \n\
          $candArgs = @(\n\
              '--check-health-startup',\n\
-             '--update-attempt-id', $attemptId,\n\
-             '--health-proof-path', $healthProofPath,\n\
-             '--expected-version', $targetVer,\n\
-             '--expected-commit', $targetCommit\n\
+             '--update-attempt-id', \"`\"$attemptId`\"\",\n\
+             '--health-proof-path', \"`\"$healthProofPath`\"\",\n\
+             '--expected-version', \"`\"$targetVer`\"\",\n\
+             '--expected-commit', \"`\"$targetCommit`\"\"\n\
          )\n\
          $proc = Start-Process -FilePath $candExe -ArgumentList $candArgs -PassThru\n\
          \n\
@@ -251,6 +252,16 @@ pub fn generate_powershell_from_request_file(request_path: &Path) -> String {
                  }}\n\
              }}\n\
              if ($proc.HasExited) {{\n\
+                 if (Test-Path -LiteralPath $healthProofPath) {{\n\
+                     try {{\n\
+                         $proofContent = Get-Content -LiteralPath $healthProofPath -Raw -Encoding UTF8\n\
+                         $proofJson = ConvertFrom-Json -InputObject $proofContent\n\
+                         if ($proofJson.attempt_id -eq $attemptId) {{\n\
+                             $healthVerified = $true\n\
+                         }}\n\
+                     }} catch {{\n\
+                     }}\n\
+                 }}\n\
                  break\n\
              }}\n\
              Start-Sleep -Milliseconds 250\n\
@@ -273,7 +284,7 @@ pub fn generate_powershell_from_request_file(request_path: &Path) -> String {
                      Copy-Item -LiteralPath $bk -Destination (Join-Path $root $rel) -Force\n\
                  }}\n\
              }}\n\
-             Write-HelperResult 9 'HealthVerificationFailedRollbackSucceeded' 'Weryfikacja zdrowia nie powiodła się - wykonano pomyślny rollback'\n\
+             Write-HelperResult 9 'HealthVerificationFailedRollbackSucceeded' 'Health verification failed - rollback succeeded'\n\
              Start-Process -FilePath $candExe -ErrorAction SilentlyContinue\n\
              exit 9\n\
          }}\n"
@@ -296,7 +307,7 @@ pub fn generate_powershell_from_request(req: &WindowsHelperRequest) -> String {
          $req = ConvertFrom-Json -InputObject $raw\n\
          \n\
          if ($req.request_version -ne 1) {{\n\
-             Write-Error \"Nieobsługiwana wersja schematu: $($req.request_version)\"\n\
+             Write-Error \"Unsupported request version: $($req.request_version)\"\n\
              exit 1\n\
          }}\n\
          \n\
@@ -315,14 +326,15 @@ pub fn generate_powershell_from_request(req: &WindowsHelperRequest) -> String {
          $createFiles = @($req.update_plan_identity.ordered_create_entries)\n\
          $resultPath = $req.result_record_path\n\
          \n\
-         function Write-HelperResult([int]$exitCode, [string]$status, [string]$err) {{\n\
+         function Write-HelperResult($exitCode, $status, $err) {{\n\
              if ($resultPath) {{\n\
+                 $errMsg = if ($err) {{ $err }} else {{ $null }}\n\
                  $resObj = [PSCustomObject]@{{\n\
                      result_version = 1\n\
                      attempt_id = $attemptId\n\
                      exit_code = $exitCode\n\
                      status = $status\n\
-                     error_message = if ($err) {{ $err }} else {{ $null }}\n\
+                     error_message = $errMsg\n\
                      created_at = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')\n\
                  }}\n\
                  $resJson = ConvertTo-Json -InputObject $resObj\n\
@@ -333,7 +345,7 @@ pub fn generate_powershell_from_request(req: &WindowsHelperRequest) -> String {
          $parentDeadline = (Get-Date).AddSeconds($parentTimeout)\n\
          while (Get-Process -Id $parentPid -ErrorAction SilentlyContinue) {{\n\
              if ((Get-Date) -gt $parentDeadline) {{\n\
-                 Write-HelperResult 2 'ParentProcessDidNotExit' 'Proces nadrzędny nie zakończył się w wyznaczonym czasie'\n\
+                 Write-HelperResult 2 'ParentProcessDidNotExit' 'Parent process did not exit within designated timeout'\n\
                  exit 2\n\
              }}\n\
              Start-Sleep -Milliseconds 250\n\
@@ -371,10 +383,10 @@ pub fn generate_powershell_from_request(req: &WindowsHelperRequest) -> String {
          \n\
          $candArgs = @(\n\
              '--check-health-startup',\n\
-             '--update-attempt-id', $attemptId,\n\
-             '--health-proof-path', $healthProofPath,\n\
-             '--expected-version', $targetVer,\n\
-             '--expected-commit', $targetCommit\n\
+             '--update-attempt-id', \"`\"$attemptId`\"\",\n\
+             '--health-proof-path', \"`\"$healthProofPath`\"\",\n\
+             '--expected-version', \"`\"$targetVer`\"\",\n\
+             '--expected-commit', \"`\"$targetCommit`\"\"\n\
          )\n\
          $proc = Start-Process -FilePath $candExe -ArgumentList $candArgs -PassThru\n\
          \n\
@@ -393,6 +405,16 @@ pub fn generate_powershell_from_request(req: &WindowsHelperRequest) -> String {
                  }}\n\
              }}\n\
              if ($proc.HasExited) {{\n\
+                 if (Test-Path -LiteralPath $healthProofPath) {{\n\
+                     try {{\n\
+                         $proofContent = Get-Content -LiteralPath $healthProofPath -Raw -Encoding UTF8\n\
+                         $proofJson = ConvertFrom-Json -InputObject $proofContent\n\
+                         if ($proofJson.attempt_id -eq $attemptId) {{\n\
+                             $healthVerified = $true\n\
+                         }}\n\
+                     }} catch {{\n\
+                     }}\n\
+                 }}\n\
                  break\n\
              }}\n\
              Start-Sleep -Milliseconds 250\n\
@@ -415,7 +437,7 @@ pub fn generate_powershell_from_request(req: &WindowsHelperRequest) -> String {
                      Copy-Item -LiteralPath $bk -Destination (Join-Path $root $rel) -Force\n\
                  }}\n\
              }}\n\
-             Write-HelperResult 9 'HealthVerificationFailedRollbackSucceeded' 'Weryfikacja zdrowia nie powiodła się - wykonano pomyślny rollback'\n\
+             Write-HelperResult 9 'HealthVerificationFailedRollbackSucceeded' 'Health verification failed - rollback succeeded'\n\
              Start-Process -FilePath $candExe -ErrorAction SilentlyContinue\n\
              exit 9\n\
          }}\n"
