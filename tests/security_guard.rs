@@ -3427,3 +3427,341 @@ fn m3_b_process_identity_and_closure_guard() {
         "Cargo.toml must define [[bin]] target for splogbook-updater"
     );
 }
+
+// ============================================================================
+// M3-C: Integracja produkcyjna Windows Portable ZIP, Helper, Fallback i Konsumpcja
+// ============================================================================
+
+#[test]
+fn m3_c_manifest_first_and_windows_portable_zip_guards() {
+    use splogbook::cloud::updater::{ReleaseArchitecture, ReleasePackageType, ReleasePlatform};
+
+    // 1. Tylko Windows Portable ZIP w tej bramce
+    assert_eq!(ReleasePlatform::Windows.as_str(), "windows");
+    assert_eq!(ReleaseArchitecture::X86_64.as_str(), "x86_64");
+    assert_eq!(ReleasePackageType::Zip.as_str(), "zip");
+
+    // 2. Brak formatów instalacyjnych MSI, WiX, Inno Setup, AppImage, DEB, RPM
+    let updater_src = fs::read_to_string("src/cloud/updater.rs").expect("read updater.rs");
+    for forbidden in [
+        "ReleasePackageType::Msi",
+        "ReleasePackageType::InnoSetup",
+        "ReleasePackageType::AppImage",
+        "ReleasePackageType::Deb",
+        "ReleasePackageType::Rpm",
+        "ReleasePackageType::Flatpak",
+    ] {
+        assert!(
+            !updater_src.contains(forbidden),
+            "Kod produkcyjny nie może definiować ani obsługiwać zabronionego formatu: {forbidden}"
+        );
+    }
+
+    // 3. Helper Rust nie może przyjmować URL ani pobierać z sieci
+    let helper_bin = fs::read_to_string("src/bin/splogbook-updater.rs").expect("read helper bin");
+    assert!(
+        helper_bin.contains("\"--url\""),
+        "splogbook-updater musi jawnie odrzucać flagę --url"
+    );
+    assert!(
+        helper_bin.contains("WindowsHelperExitCode::InvalidArguments"),
+        "splogbook-updater musi zwracać InvalidArguments przy zabronionych flagach"
+    );
+    assert!(
+        !helper_bin.contains("reqwest")
+            && !helper_bin.contains("ureq")
+            && !helper_bin.contains("TcpStream"),
+        "splogbook-updater nie może zawierać klienta HTTP ani operacji sieciowych"
+    );
+    assert!(
+        !helper_bin.contains("http://") && !helper_bin.contains("https://"),
+        "splogbook-updater nie może zawierać schematów URL"
+    );
+}
+
+#[test]
+fn m3_c_temporary_conservative_backup_retention_guard() {
+    let updater_src = fs::read_to_string("src/cloud/updater.rs").expect("read updater.rs");
+    let fallback_src = fs::read_to_string("src/cloud/updater/powershell_fallback.rs")
+        .expect("read powershell_fallback.rs");
+
+    // 1. consume_update_result_on_startup nigdy nie usuwa katalogu .rollback
+    let consume_fn = updater_src
+        .split("pub fn consume_update_result_on_startup")
+        .nth(1)
+        .and_then(|s| s.split("#[cfg(test)]").next())
+        .expect("consume fn block");
+    assert!(
+        !consume_fn.contains("remove_dir_all(&rollback_dir)")
+            && !consume_fn.contains("remove_dir_all(rollback_dir)"),
+        "consume_update_result_on_startup nie może usuwać katalogu .rollback"
+    );
+
+    // 2. PowerShell fallback nie usuwa .rollback po sukcesie
+    let success_block = fallback_src
+        .split("if ($healthVerified) {")
+        .nth(1)
+        .and_then(|s| s.split("} else {").next())
+        .unwrap_or("");
+    assert!(
+        !success_block.contains("Remove-Item") || !success_block.contains("$rollback"),
+        "PowerShell fallback nie może usuwać .rollback w bloku sukcesu"
+    );
+
+    // 3. Status decyzji OWNER-M2-08 i OWNER-M2-09 musi pozostać OPEN / NON-BLOCKING w dokumentacji
+    let audit_register =
+        fs::read_to_string("docs/AUDIT_FINDINGS_REGISTER.md").expect("read audit register");
+    let roadmap = fs::read_to_string("docs/IMPROVEMENT_ROADMAP.md").expect("read roadmap");
+
+    for doc in [&audit_register, &roadmap] {
+        assert!(
+            !doc.contains("OWNER-M2-08: APPROVED") && !doc.contains("OWNER-M2-09: APPROVED"),
+            "Decyzje OWNER-M2-08 i OWNER-M2-09 nie mogą być oznaczone jako APPROVED przed formalnym rozstrzygnięciem"
+        );
+    }
+}
+
+#[test]
+fn m3_c_data_safety_database_and_config_preservation_guard() {
+    use splogbook::cloud::updater::{UpdatePlan, is_protected_user_path};
+    use std::path::{Path, PathBuf};
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let root = temp.path();
+
+    // Utworzenie chronionych plików użytkownika
+    let db_dir = root.join("databases");
+    fs::create_dir_all(&db_dir).expect("create databases dir");
+    fs::write(db_dir.join("serviceLOG.db"), b"CRITICAL_USER_LOGBOOK").expect("write db");
+    fs::write(db_dir.join("serviceLOG.db-wal"), b"WAL_FRAMES").expect("write wal");
+    fs::write(db_dir.join("serviceLOG.db-shm"), b"SHM_INDEX").expect("write shm");
+    fs::write(root.join("station_config.json"), b"USER_CONFIG").expect("write config");
+    fs::write(root.join("contacts.adi"), b"<CALL:6>SP6INA").expect("write adif");
+    fs::write(root.join("contest.cbr"), b"START-OF-LOG: 3.0").expect("write cabrillo");
+    fs::write(root.join("my_notes.txt"), b"PERSONAL_NOTES").expect("write notes");
+
+    // Symulacja stagingu próbującego nadpisać pliki bazy
+    let staging = root.join(".staging");
+    fs::create_dir_all(staging.join("databases")).expect("create staging databases");
+    fs::write(
+        staging.join("databases/serviceLOG.db"),
+        b"OVERWRITE_ATTEMPT",
+    )
+    .expect("write staging db");
+    fs::write(staging.join("station_config.json"), b"OVERWRITE_CONFIG")
+        .expect("write staging config");
+    fs::write(staging.join("SPLogbook.exe"), b"NEW_BINARY").expect("write exe");
+
+    // Generowanie UpdatePlan
+    let plan = UpdatePlan::generate(&staging, root).expect("generate plan");
+
+    // Weryfikacja: żaden chroniony plik nie trafił do replace_files ani create_files
+    for (rel, _) in &plan.replace_files {
+        assert!(
+            !is_protected_user_path(rel),
+            "Plik replace_files '{rel:?}' narusza ochronę danych użytkownika"
+        );
+        assert_ne!(rel, Path::new("databases/serviceLOG.db"));
+        assert_ne!(rel, Path::new("station_config.json"));
+    }
+    for (rel, _) in &plan.create_files {
+        assert!(
+            !is_protected_user_path(rel),
+            "Plik create_files '{rel:?}' narusza ochronę danych użytkownika"
+        );
+    }
+
+    // Weryfikacja: chronione pliki trafiły do preserve_files
+    assert!(
+        plan.preserve_files
+            .iter()
+            .any(|(p, _)| p.ends_with("serviceLOG.db")),
+        "Baza danych musi trafić do preserve_files"
+    );
+    assert!(
+        plan.preserve_files
+            .iter()
+            .any(|(p, _)| p.ends_with("station_config.json")),
+        "Konfiguracja stacji musi trafić do preserve_files"
+    );
+
+    // Walidacja poprawności bezpiecznego planu przechodzi
+    assert!(plan.validate_safety("SPLogbook.exe").is_ok());
+
+    // Próba ręcznego wstrzyknięcia pliku bazy do replace_files musi zostać bezwzględnie odrzucona przez validate_safety
+    let mut malicious_plan = plan.clone();
+    malicious_plan.replace_files.push((
+        PathBuf::from("databases/serviceLOG.db"),
+        root.join("databases/serviceLOG.db"),
+    ));
+    assert!(malicious_plan.validate_safety("SPLogbook.exe").is_err());
+
+    // Zawartość plików użytkownika musi pozostać nienaruszona
+    assert_eq!(
+        fs::read(db_dir.join("serviceLOG.db")).expect("read db"),
+        b"CRITICAL_USER_LOGBOOK"
+    );
+    assert_eq!(
+        fs::read(db_dir.join("serviceLOG.db-wal")).expect("read wal"),
+        b"WAL_FRAMES"
+    );
+    assert_eq!(
+        fs::read(root.join("station_config.json")).expect("read config"),
+        b"USER_CONFIG"
+    );
+    assert_eq!(
+        fs::read(root.join("contacts.adi")).expect("read adif"),
+        b"<CALL:6>SP6INA"
+    );
+    assert_eq!(
+        fs::read(root.join("my_notes.txt")).expect("read notes"),
+        b"PERSONAL_NOTES"
+    );
+}
+
+#[test]
+fn m3_c_native_helper_pe_validation_and_fail_closed_guard() {
+    use splogbook::cloud::updater::validate_native_helper_identity;
+
+    let temp = tempfile::tempdir().expect("tempdir");
+
+    // 1. Prawidłowy PE x86_64
+    let valid_pe = temp.path().join("valid_helper.exe");
+    let mut pe_data = vec![0u8; 128];
+    pe_data[0] = 0x4D;
+    pe_data[1] = 0x5A;
+    pe_data[0x3C] = 0x40;
+    pe_data[0x40] = 0x50;
+    pe_data[0x41] = 0x45;
+    pe_data[0x44] = 0x64;
+    pe_data[0x45] = 0x86; // 0x8664 AMD64
+    fs::write(&valid_pe, &pe_data).expect("write valid pe");
+    assert!(validate_native_helper_identity(&valid_pe).is_ok());
+
+    // 2. Nieobsługiwana architektura (np. 0x014c i386)
+    let i386_pe = temp.path().join("i386_helper.exe");
+    pe_data[0x44] = 0x4C;
+    pe_data[0x45] = 0x01;
+    fs::write(&i386_pe, &pe_data).expect("write i386 pe");
+    assert!(validate_native_helper_identity(&i386_pe).is_err());
+
+    // 3. Brak sygnatury MZ
+    let non_mz = temp.path().join("non_mz.exe");
+    pe_data[0] = 0x00;
+    pe_data[1] = 0x00;
+    fs::write(&non_mz, &pe_data).expect("write non mz");
+    assert!(validate_native_helper_identity(&non_mz).is_err());
+}
+
+#[test]
+fn m3_c_powershell_fallback_strict_mode_and_no_eval_guard() {
+    use splogbook::cloud::updater::powershell_fallback::generate_powershell_from_request_file;
+    use std::path::Path;
+
+    let script =
+        generate_powershell_from_request_file(Path::new("C:\\SPLogbook\\updater_request.json"));
+
+    assert!(script.contains("Set-StrictMode -Version Latest"));
+    assert!(script.contains("$ErrorActionPreference = 'Stop'"));
+    assert!(!script.contains("Invoke-Expression"));
+    assert!(!script.contains("iex"));
+    assert!(!script.contains("cmd /c"));
+    assert!(!script.contains("cmd.exe"));
+    assert!(!script.contains("runas"));
+    assert!(!script.contains("Copy-Item *"));
+    assert!(!script.contains("Remove-Item *"));
+    assert!(script.contains("PowerShellFallback"));
+    assert!(script.contains("result_category"));
+    assert!(script.contains("final_update_state"));
+}
+
+#[test]
+fn m3_c_stability_100_iterations_zip_inspection() {
+    use splogbook::cloud::updater::{ArchiveLimits, inspect_windows_zip_archive};
+
+    let limits = ArchiveLimits::default();
+
+    for i in 0..100 {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let zip_path = temp.path().join(format!("test_{i}.zip"));
+
+        // Synthetic non-zip or corrupt file test
+        let data = format!("CORRUPTED_ZIP_STREAM_{i}_{}", i * 17);
+        fs::write(&zip_path, data.as_bytes()).expect("write zip");
+
+        let res = inspect_windows_zip_archive(&zip_path, &limits, "SPLogbook.exe");
+        assert!(
+            res.is_err(),
+            "Inspection must fail for corrupt archive on iter {i}"
+        );
+    }
+}
+
+#[test]
+fn m3_c_stability_50_iterations_update_plan_safety() {
+    use splogbook::cloud::updater::UpdatePlan;
+
+    for i in 0..50 {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let staging = root.join(".staging");
+        fs::create_dir_all(&staging).expect("create staging");
+
+        // Każda iteracja tworzy losowe pliki programu
+        fs::write(staging.join("SPLogbook.exe"), format!("EXE_{i}")).expect("write exe");
+        fs::write(staging.join(format!("lib_{i}.dll")), format!("DLL_{i}")).expect("write dll");
+
+        let plan = UpdatePlan::generate(&staging, root).expect("generate plan");
+        assert!(plan.validate_safety("SPLogbook.exe").is_ok());
+        assert_eq!(plan.create_files.len(), 2);
+    }
+}
+
+#[test]
+fn m3_c_stability_20_iterations_result_consumption_and_rollback_measurement() {
+    use splogbook::cloud::updater::helper_protocol::{
+        HelperResultCategory, RollbackResultKind, WindowsHelperExitCode, WindowsHelperResult,
+    };
+    use splogbook::cloud::updater::{
+        HealthResultKind, UpdateAttemptId, UpdateStateId, consume_update_result_on_startup,
+    };
+
+    for i in 0..20 {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let attempt = UpdateAttemptId::generate();
+        let result_file = root.join(".update_helper_result.json");
+        let rollback_dir = root.join(".rollback");
+
+        fs::create_dir_all(&rollback_dir).expect("create rollback");
+        let file_size = (i + 1) * 1024;
+        fs::write(rollback_dir.join("backup.bin"), vec![0xAA; file_size]).expect("write backup");
+
+        let res = WindowsHelperResult::new(
+            attempt,
+            format!("digest_{i}"),
+            UpdateStateId::Committed,
+            "NativeRust",
+            HelperResultCategory::Success,
+            WindowsHelperExitCode::Success,
+            Some(RollbackResultKind::None),
+            Some(HealthResultKind::Passed),
+            1,
+            1,
+            true,
+            false,
+            "Success",
+        );
+        fs::write(&result_file, serde_json::to_vec_pretty(&res).expect("json"))
+            .expect("write result");
+
+        let outcome = consume_update_result_on_startup(root)
+            .expect("consume")
+            .expect("outcome");
+        assert!(outcome.was_success);
+        assert_eq!(outcome.attempt_id, attempt);
+        assert_eq!(outcome.backup_retained_bytes, file_size as u64);
+        assert!(rollback_dir.exists(), ".rollback must be retained");
+        assert!(root.join(".update_helper_result.consumed").exists());
+    }
+}
