@@ -1942,3 +1942,157 @@ fn windows_helper_health_matching_alpha_succeeds_and_verifies_identity() {
         Some("82aa7106c030fe1d883a51dedaf1b30247870ee5")
     );
 }
+
+#[test]
+fn windows_helper_stability_50_iterations_rollback_and_identity_verification() {
+    for i in 0..50 {
+        let dir = tempdir().expect("tempdir");
+        let root = dir.path();
+        let staging = root.join(".staging");
+        fs::create_dir_all(&staging).expect("staging dir");
+
+        let exe_path = root.join("SPLogbook.exe");
+        let staging_exe = staging.join("SPLogbook.exe");
+        fs::write(&exe_path, b"SPLogbook v1.2.0 bazowa").expect("write exe");
+        fs::write(&staging_exe, b"SPLogbook v1.3.0-alpha.1 kandydat").expect("write staging exe");
+
+        let plan = UpdatePlan {
+            replace_files: vec![(PathBuf::from("SPLogbook.exe"), exe_path.clone())],
+            create_files: Vec::new(),
+            preserve_files: Vec::new(),
+            rejected_files: Vec::new(),
+        };
+
+        let attempt = UpdateAttemptId::generate();
+        let mut req = create_test_request(root, attempt, &plan);
+        req.installed_version = Some("1.2.0".to_string());
+        req.expected_target_version = "1.3.0-alpha.1".to_string();
+        req.expected_target_commit = format!("commit_{i:040x}");
+        req.candidate_health_timeout_seconds = 1;
+
+        let monitor = TestProcessMonitor::new(&[]);
+        // Tamper version every even iteration, tamper commit every odd iteration
+        let launcher = IdentityTamperingLauncher {
+            tamper_version: i % 2 == 0,
+            tamper_commit: i % 2 != 0,
+        };
+
+        let mut engine = WindowsHelperEngine::new(&req, &monitor, &launcher);
+        let (code, res) = engine.execute();
+
+        assert_eq!(
+            code,
+            WindowsHelperExitCode::HealthRejectedRollbackSucceeded,
+            "Iteracja {i}: Zafałszowany HealthProof musi wywołać wycofanie"
+        );
+        assert_eq!(
+            fs::read(&exe_path).expect("read exe"),
+            b"SPLogbook v1.2.0 bazowa",
+            "Iteracja {i}: Poprzednia wersja bazowa musi zostać przywrócona z .rollback"
+        );
+        assert_eq!(res.final_update_state, UpdateStateId::FailedPostApply);
+        assert_eq!(
+            res.result_category,
+            HelperResultCategory::FailedRollbackSucceeded
+        );
+        assert_eq!(res.health_result, Some(HealthResultKind::Rejected));
+        assert_eq!(
+            res.rollback_result,
+            Some(splogbook::cloud::updater::helper_protocol::RollbackResultKind::Success)
+        );
+        assert!(res.backup_retained);
+        assert_eq!(
+            res.verified_version_after_operation.as_deref(),
+            Some("1.2.0"),
+            "Iteracja {i}: Po wycofaniu wersją zweryfikowaną musi być wersja przywrócona"
+        );
+    }
+}
+
+#[test]
+fn windows_helper_stability_20_iterations_database_preservation_and_atomic_swap() {
+    for i in 0..20 {
+        let dir = tempdir().expect("tempdir");
+        let root = dir.path();
+        let staging = root.join(".staging");
+        let data_dir = root.join("data");
+        fs::create_dir_all(&staging).expect("staging dir");
+        fs::create_dir_all(&data_dir).expect("data dir");
+
+        let exe_path = root.join("SPLogbook.exe");
+        let staging_exe = staging.join("SPLogbook.exe");
+        fs::write(&exe_path, b"SPLogbook v1.2.0 bazowa").expect("write exe");
+        fs::write(&staging_exe, b"SPLogbook v1.3.0-alpha.1 kandydat").expect("write staging exe");
+
+        // Dane użytkownika, które MUSZĄ pozostać nienaruszone
+        let db_path = data_dir.join("splogbook_contacts.db");
+        let db_content = format!("SQLITE_DATABASE_DATA_ITER_{i}_KEEP_SAFE");
+        fs::write(&db_path, db_content.as_bytes()).expect("write db");
+
+        let cfg_path = root.join("settings.json");
+        let cfg_content = format!("{{\"callsign\": \"SP6INA\", \"iter\": {i}}}");
+        fs::write(&cfg_path, cfg_content.as_bytes()).expect("write cfg");
+
+        let plan = UpdatePlan {
+            replace_files: vec![(PathBuf::from("SPLogbook.exe"), exe_path.clone())],
+            create_files: Vec::new(),
+            preserve_files: vec![
+                (db_path.clone(), "user database".to_string()),
+                (cfg_path.clone(), "user configuration".to_string()),
+            ],
+            rejected_files: Vec::new(),
+        };
+
+        let attempt = UpdateAttemptId::generate();
+        let target_commit = format!("a1b2c3d4e5f6e7f8a9b0c1d2e3f4a5b6c7d8e9f{i:x}");
+        let mut req = create_test_request(root, attempt, &plan);
+        req.installed_version = Some("1.2.0".to_string());
+        req.expected_target_version = "1.3.0-alpha.1".to_string();
+        req.expected_target_commit = target_commit.clone();
+        req.candidate_health_timeout_seconds = 1;
+
+        let monitor = TestProcessMonitor::new(&[]);
+        let launcher = IdentityTamperingLauncher {
+            tamper_version: false,
+            tamper_commit: false,
+        };
+
+        let mut engine = WindowsHelperEngine::new(&req, &monitor, &launcher);
+        let (code, res) = engine.execute();
+
+        assert_eq!(
+            code,
+            WindowsHelperExitCode::Success,
+            "Iteracja {i}: Zgodny kandydat musi zakończyć się statusem Success"
+        );
+        assert_eq!(
+            fs::read(&exe_path).expect("read exe"),
+            b"SPLogbook v1.3.0-alpha.1 kandydat",
+            "Iteracja {i}: Nowy kandydat musi zostać pomyślnie zainstalowany"
+        );
+
+        // Weryfikacja nienaruszalności danych
+        let actual_db = fs::read_to_string(&db_path).expect("read db");
+        assert_eq!(
+            actual_db, db_content,
+            "Iteracja {i}: Baza danych użytkownika została naruszona!"
+        );
+
+        let actual_cfg = fs::read_to_string(&cfg_path).expect("read cfg");
+        assert_eq!(
+            actual_cfg, cfg_content,
+            "Iteracja {i}: Konfiguracja użytkownika została naruszona!"
+        );
+
+        assert_eq!(res.final_update_state, UpdateStateId::Committed);
+        assert_eq!(res.health_result, Some(HealthResultKind::Passed));
+        assert_eq!(
+            res.verified_version_after_operation.as_deref(),
+            Some("1.3.0-alpha.1")
+        );
+        assert_eq!(
+            res.verified_commit_after_operation.as_deref(),
+            Some(target_commit.as_str())
+        );
+    }
+}
