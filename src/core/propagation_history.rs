@@ -138,10 +138,32 @@ impl PropagationHistory {
                 observed_open == forecast_open
             })
             .count();
-        Some(correct as f64 / verified.len() as f64 * 100.0)
+        Some((correct as f64 / verified.len() as f64 * 100.0).clamp(0.0, 100.0))
     }
 
     /// Liczba zweryfikowanych rekordów.
+    /// Dokładność prognoz w procentach dla wskazanego pasma (np. "20m").
+    /// Zwraca `None` (N/A) w przypadku braku próbek obserwacji dla tego pasma.
+    pub fn band_accuracy_pct(&self, band: &str) -> Option<f64> {
+        let verified: Vec<_> = self
+            .records
+            .iter()
+            .filter(|r| r.band == band && r.observed.is_some())
+            .collect();
+        if verified.is_empty() {
+            return None;
+        }
+        let correct = verified
+            .iter()
+            .filter(|r| {
+                let observed_open = r.observed == Some(ObservedOutcome::ConfirmedOpen);
+                let forecast_open = r.forecast_status == BandOpeningStatus::Open;
+                observed_open == forecast_open
+            })
+            .count();
+        Some((correct as f64 / verified.len() as f64 * 100.0).clamp(0.0, 100.0))
+    }
+
     pub fn verified_count(&self) -> usize {
         self.records.iter().filter(|r| r.observed.is_some()).count()
     }
@@ -198,5 +220,57 @@ mod tests {
         // Najnowsza (Marginal) powinna dostać obserwację, starsza pozostać None.
         assert_eq!(h.records[1].observed, Some(ObservedOutcome::ConfirmedOpen));
         assert_eq!(h.records[0].observed, None);
+    }
+
+    #[test]
+    fn propagation_accuracy_is_na_without_samples() {
+        let h = PropagationHistory::default();
+        assert_eq!(h.accuracy_pct(), None);
+        assert_eq!(h.verified_count(), 0);
+    }
+
+    #[test]
+    fn propagation_accuracy_is_zero_with_samples_and_no_hits() {
+        let mut h = PropagationHistory::with_capacity(5);
+        h.record_forecast("20m", 14.0, 150, 2, 80, BandOpeningStatus::Open);
+        h.record_observation("20m", ObservedOutcome::ConfirmedClosed);
+        assert_eq!(h.accuracy_pct(), Some(0.0));
+        assert_eq!(h.verified_count(), 1);
+    }
+
+    #[test]
+    fn propagation_accuracy_is_one_hundred_with_all_hits() {
+        let mut h = PropagationHistory::with_capacity(5);
+        h.record_forecast("20m", 14.0, 150, 2, 80, BandOpeningStatus::Open);
+        h.record_observation("20m", ObservedOutcome::ConfirmedOpen);
+        assert_eq!(h.accuracy_pct(), Some(100.0));
+        assert_eq!(h.verified_count(), 1);
+    }
+
+    #[test]
+    fn propagation_accuracy_is_bounded() {
+        let mut h = PropagationHistory::with_capacity(5);
+        h.record_forecast("20m", 14.0, 150, 2, 80, BandOpeningStatus::Open);
+        h.record_observation("20m", ObservedOutcome::ConfirmedOpen);
+        let acc = h.accuracy_pct().unwrap();
+        assert!((0.0..=100.0).contains(&acc));
+    }
+
+    #[test]
+    fn propagation_accuracy_does_not_divide_by_zero() {
+        let mut h = PropagationHistory::with_capacity(5);
+        assert_eq!(h.accuracy_pct(), None);
+        h.record_forecast("20m", 14.0, 150, 2, 80, BandOpeningStatus::Open);
+        assert_eq!(h.accuracy_pct(), None);
+        assert_eq!(h.band_accuracy_pct("20m"), None);
+    }
+
+    #[test]
+    fn band_propagation_accuracy_is_na_without_band_samples() {
+        let mut h = PropagationHistory::with_capacity(5);
+        h.record_forecast("20m", 14.0, 150, 2, 80, BandOpeningStatus::Open);
+        h.record_observation("20m", ObservedOutcome::ConfirmedOpen);
+        assert_eq!(h.band_accuracy_pct("20m"), Some(100.0));
+        assert_eq!(h.band_accuracy_pct("40m"), None);
     }
 }
