@@ -596,14 +596,12 @@ mod tests {
             assert_ne!(
                 plan.target_state,
                 Some(UpdateStateId::Applying),
-                "Stan {:?} nie może skutkować automatycznym ponowieniem Applying",
-                state
+                "Stan {state:?} nie może skutkować automatycznym ponowieniem Applying"
             );
             assert_ne!(
                 plan.target_state,
                 Some(UpdateStateId::Downloading),
-                "Stan {:?} nie może skutkować automatycznym ponowieniem Downloading",
-                state
+                "Stan {state:?} nie może skutkować automatycznym ponowieniem Downloading"
             );
         }
     }
