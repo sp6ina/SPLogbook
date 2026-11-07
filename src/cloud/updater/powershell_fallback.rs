@@ -297,7 +297,7 @@ pub fn generate_powershell_from_request_file(request_path: &Path) -> String {
                      Copy-Item -LiteralPath $bk -Destination (Join-Path $root $rel) -Force\n\
                  }}\n\
              }}\n\
-             Write-HelperResult 9 'FailedRollbackSucceeded' 'FailedPostApply' 'Success' 'Timeout' $totalOps 'Health verification failed - rollback succeeded'\n\
+             Write-HelperResult 9 'FailedRollbackSucceeded' 'FailedPostApply' 'Success' 'TimedOut' $totalOps 'Health verification failed - rollback succeeded'\n\
              Start-Process -FilePath $candExe -ErrorAction SilentlyContinue\n\
              exit 9\n\
          }}\n"
@@ -463,7 +463,7 @@ pub fn generate_powershell_from_request(req: &WindowsHelperRequest) -> String {
                      Copy-Item -LiteralPath $bk -Destination (Join-Path $root $rel) -Force\n\
                  }}\n\
              }}\n\
-             Write-HelperResult 9 'FailedRollbackSucceeded' 'FailedPostApply' 'Success' 'Timeout' $totalOps 'Health verification failed - rollback succeeded'\n\
+             Write-HelperResult 9 'FailedRollbackSucceeded' 'FailedPostApply' 'Success' 'TimedOut' $totalOps 'Health verification failed - rollback succeeded'\n\
              Start-Process -FilePath $candExe -ErrorAction SilentlyContinue\n\
              exit 9\n\
          }}\n"

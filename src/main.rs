@@ -118,6 +118,22 @@ fn main() -> Result<(), eframe::Error> {
         std::process::exit(0);
     }
 
+    // Konsumpcja wyniku pomocnika aktualizacji Windows po restarcie (jeśli istnieje)
+    if let Ok(Some(outcome)) = splogbook::cloud::updater::consume_update_result_on_startup(&exe_dir)
+    {
+        if outcome.was_success {
+            eprintln!(
+                "Aktualizacja zakończona sukcesem (próba {}, zachowany backup {} bajtów)",
+                outcome.attempt_id, outcome.backup_retained_bytes
+            );
+        } else {
+            eprintln!(
+                "Ostatnia próba aktualizacji nie powiodła się: kategoria {:?}, kod {}",
+                outcome.result_category, outcome.exit_code
+            );
+        }
+    }
+
     #[cfg(windows)]
     let (app_data_dir, app_config_dir) = {
         let base = std::env::var("APPDATA").map_or_else(
