@@ -386,11 +386,36 @@ impl CandidateLauncher for SystemCandidateLauncher {
     }
 }
 
+/// Abstrakcja operacji plikowych pomocnika umożliwiająca wstrzykiwanie awarii w testach (fault injection).
+pub trait HelperFileOperations: Send + Sync {
+    /// Kopiuje plik z `from` do `to`.
+    fn copy(&self, from: &Path, to: &Path) -> std::io::Result<u64>;
+    /// Usuwa plik `path`.
+    fn remove_file(&self, path: &Path) -> std::io::Result<()>;
+}
+
+/// Domyślne operacje plikowe oparte na systemowym `std::fs`.
+#[derive(Debug, Default)]
+pub struct SystemFileOperations;
+
+impl HelperFileOperations for SystemFileOperations {
+    fn copy(&self, from: &Path, to: &Path) -> std::io::Result<u64> {
+        fs::copy(from, to)
+    }
+
+    fn remove_file(&self, path: &Path) -> std::io::Result<()> {
+        fs::remove_file(path)
+    }
+}
+
+static DEFAULT_FILE_OPS: SystemFileOperations = SystemFileOperations;
+
 /// Główny silnik wykonawczy pomocnika Windows (`WindowsHelperEngine`).
 pub struct WindowsHelperEngine<'a> {
     request: &'a WindowsHelperRequest,
     process_monitor: &'a dyn ProcessMonitor,
     candidate_launcher: &'a dyn CandidateLauncher,
+    file_ops: &'a dyn HelperFileOperations,
     journal: HelperOperationJournal,
 }
 
@@ -401,11 +426,27 @@ impl<'a> WindowsHelperEngine<'a> {
         process_monitor: &'a dyn ProcessMonitor,
         candidate_launcher: &'a dyn CandidateLauncher,
     ) -> Self {
+        Self::with_file_ops(
+            request,
+            process_monitor,
+            candidate_launcher,
+            &DEFAULT_FILE_OPS,
+        )
+    }
+
+    /// Inicjuje silnik z opcjonalnym wstrzykiwaniem operacji plikowych (do testów fault injection).
+    pub fn with_file_ops(
+        request: &'a WindowsHelperRequest,
+        process_monitor: &'a dyn ProcessMonitor,
+        candidate_launcher: &'a dyn CandidateLauncher,
+        file_ops: &'a dyn HelperFileOperations,
+    ) -> Self {
         let journal = HelperOperationJournal::new(request.attempt_id, request.plan_digest.clone());
         Self {
             request,
             process_monitor,
             candidate_launcher,
+            file_ops,
             journal,
         }
     }
@@ -463,7 +504,46 @@ impl<'a> WindowsHelperEngine<'a> {
             );
         }
 
-        // 3. Oczekiwanie na normalne zakończenie procesu macierzystego
+        // 3. Weryfikacja tożsamości bieżącej binarki (jeśli podano)
+        if let Err(code) = self.verify_current_binary_identity() {
+            let msg = format!(
+                "Niezgodność tożsamości bieżącej binarki: {}",
+                code.description()
+            );
+            self.log_diagnostic(&msg);
+            return self.build_result(
+                UpdateStateId::FailedPreApply,
+                HelperResultCategory::AbortedPreApply,
+                code,
+                None,
+                None,
+                0,
+                0,
+                false,
+                false,
+                msg,
+            );
+        }
+
+        // 4. Wczesna weryfikacja warunków pre-apply (sprawdzenie źródeł stagingu i celów)
+        if let Err(code) = self.validate_pre_apply_conditions() {
+            let msg = format!("Naruszenie warunków pre-apply: {}", code.description());
+            self.log_diagnostic(&msg);
+            return self.build_result(
+                UpdateStateId::FailedPreApply,
+                HelperResultCategory::AbortedPreApply,
+                code,
+                None,
+                None,
+                0,
+                0,
+                false,
+                false,
+                msg,
+            );
+        }
+
+        // 5. Oczekiwanie na normalne zakończenie procesu macierzystego
         self.log_diagnostic("Oczekiwanie na zamknięcie procesu macierzystego");
         if let Err(code) = self.wait_for_parent_exit() {
             self.log_diagnostic(&format!(
@@ -642,6 +722,114 @@ impl<'a> WindowsHelperEngine<'a> {
         Ok(())
     }
 
+    /// Weryfikuje tożsamość bieżącej binarki SPLogbook.exe przed rozpoczęciem modyfikacji.
+    fn verify_current_binary_identity(&self) -> Result<(), WindowsHelperExitCode> {
+        if let Some(ref expected_identity) = self.request.expected_current_binary_identity {
+            let current = &self.request.current_executable;
+            if !current.exists() {
+                return Err(WindowsHelperExitCode::ParentProcessIdentityMismatch);
+            }
+            let data = fs::read(current).map_err(|_| WindowsHelperExitCode::PersistenceFailed)?;
+            let sha = sha256_hex(&data);
+            if sha != *expected_identity && !expected_identity.is_empty() {
+                return Err(WindowsHelperExitCode::ParentProcessIdentityMismatch);
+            }
+        }
+        Ok(())
+    }
+
+    /// Waliduje warunki filesystemu przed jakąkolwiek modyfikacją instalacji (fail-closed pre-apply).
+    fn validate_pre_apply_conditions(&self) -> Result<(), WindowsHelperExitCode> {
+        let root = &self.request.installation_root;
+        let staging_dir = root.join(STAGING_DIR_NAME);
+
+        // 1. Sprawdzenie, czy wszystkie pliki do podmiany (replace) istnieją w katalogu aktywnym
+        for rel in &self.request.update_plan_identity.ordered_replace_entries {
+            let active_path = root.join(rel);
+            if !active_path.exists() {
+                return Err(WindowsHelperExitCode::BackupFailed);
+            }
+            if is_protected_user_path(&active_path) {
+                return Err(WindowsHelperExitCode::UnsafePath);
+            }
+        }
+
+        // 2. Sprawdzenie, czy żaden plik do utworzenia (create) nie istnieje jeszcze w katalogu aktywnym (fail-closed)
+        for rel in &self.request.update_plan_identity.ordered_create_entries {
+            let active_path = root.join(rel);
+            if active_path.exists() {
+                return Err(WindowsHelperExitCode::UnsafePath);
+            }
+            if is_protected_user_path(&active_path) {
+                return Err(WindowsHelperExitCode::UnsafePath);
+            }
+        }
+
+        // 3. Sprawdzenie, czy wszystkie pliki źródłowe ze stagingu istnieją
+        for rel in &self.request.update_plan_identity.ordered_replace_entries {
+            let src = staging_dir.join(rel);
+            if !src.exists() {
+                return Err(WindowsHelperExitCode::InvalidArguments);
+            }
+        }
+        for rel in &self.request.update_plan_identity.ordered_create_entries {
+            let src = staging_dir.join(rel);
+            if !src.exists() {
+                return Err(WindowsHelperExitCode::InvalidArguments);
+            }
+        }
+
+        // 4. Weryfikacja metadanych stagingu (rozmiar, sha256) pod kątem tamperingu
+        for (rel, exp) in &self.request.staging_file_expectations {
+            let src = staging_dir.join(rel);
+            if !src.exists() {
+                return Err(WindowsHelperExitCode::InvalidArguments);
+            }
+            let data = fs::read(&src).map_err(|_| WindowsHelperExitCode::PersistenceFailed)?;
+            if data.len() as u64 != exp.size {
+                return Err(WindowsHelperExitCode::InvalidArguments);
+            }
+            let sha = sha256_hex(&data);
+            if sha != exp.sha256 {
+                return Err(WindowsHelperExitCode::InvalidArguments);
+            }
+        }
+
+        // 5. Ścisła kontrola nieplanowanych plików w stagingu jeśli polityka wymaga
+        if self.request.enforce_strict_staging_entries {
+            let cand_rel = &self.request.update_plan_identity.candidate_executable;
+            if staging_dir.exists()
+                && let Ok(entries) = fs::read_dir(&staging_dir)
+            {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_file() {
+                        let file_name = entry.file_name();
+                        let name_str = file_name.to_string_lossy();
+                        let is_planned = self
+                            .request
+                            .update_plan_identity
+                            .ordered_replace_entries
+                            .iter()
+                            .any(|r| r == &*name_str)
+                            || self
+                                .request
+                                .update_plan_identity
+                                .ordered_create_entries
+                                .iter()
+                                .any(|r| r == &*name_str)
+                            || &*name_str == cand_rel;
+                        if !is_planned {
+                            return Err(WindowsHelperExitCode::UnsafePath);
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Oczekuje na normalne zamknięcie procesu macierzystego z limitem czasu.
     fn wait_for_parent_exit(&self) -> Result<(), WindowsHelperExitCode> {
         let pid = self.request.expected_parent_pid;
@@ -700,7 +888,9 @@ impl<'a> WindowsHelperEngine<'a> {
                 fs::create_dir_all(parent).map_err(|_| WindowsHelperExitCode::BackupFailed)?;
             }
 
-            fs::copy(&src, &dst).map_err(|_| WindowsHelperExitCode::BackupFailed)?;
+            self.file_ops
+                .copy(&src, &dst)
+                .map_err(|_| WindowsHelperExitCode::BackupFailed)?;
 
             // Weryfikacja rozmiaru i SHA-256 kopii zapasowej
             let src_data = fs::read(&src).map_err(|_| WindowsHelperExitCode::BackupFailed)?;
@@ -749,8 +939,20 @@ impl<'a> WindowsHelperEngine<'a> {
                 return Err(WindowsHelperExitCode::UnsafePath);
             }
 
-            fs::copy(&src, &dst)
+            self.file_ops
+                .copy(&src, &dst)
                 .map_err(|_| WindowsHelperExitCode::ApplyFailedRollbackSucceeded)?;
+
+            let src_data =
+                fs::read(&src).map_err(|_| WindowsHelperExitCode::ApplyFailedRollbackSucceeded)?;
+            let dst_data =
+                fs::read(&dst).map_err(|_| WindowsHelperExitCode::ApplyFailedRollbackSucceeded)?;
+            if src_data.len() != dst_data.len() || sha256_hex(&src_data) != sha256_hex(&dst_data) {
+                return Err(WindowsHelperExitCode::ApplyFailedRollbackSucceeded);
+            }
+            if let Ok(f) = OpenOptions::new().read(true).write(true).open(&dst) {
+                let _ = f.sync_all();
+            }
 
             self.journal.record_apply(rel, OperationType::Replace);
             *completed_ops += 1;
@@ -781,8 +983,20 @@ impl<'a> WindowsHelperEngine<'a> {
                 let _ = fs::create_dir_all(parent);
             }
 
-            fs::copy(&src, &dst)
+            self.file_ops
+                .copy(&src, &dst)
                 .map_err(|_| WindowsHelperExitCode::ApplyFailedRollbackSucceeded)?;
+
+            let src_data =
+                fs::read(&src).map_err(|_| WindowsHelperExitCode::ApplyFailedRollbackSucceeded)?;
+            let dst_data =
+                fs::read(&dst).map_err(|_| WindowsHelperExitCode::ApplyFailedRollbackSucceeded)?;
+            if src_data.len() != dst_data.len() || sha256_hex(&src_data) != sha256_hex(&dst_data) {
+                return Err(WindowsHelperExitCode::ApplyFailedRollbackSucceeded);
+            }
+            if let Ok(f) = OpenOptions::new().read(true).write(true).open(&dst) {
+                let _ = f.sync_all();
+            }
 
             self.journal.record_apply(rel, OperationType::Create);
             *completed_ops += 1;
@@ -893,7 +1107,7 @@ impl<'a> WindowsHelperEngine<'a> {
                     errors_encountered += 1;
                     continue;
                 }
-                if fs::remove_file(&target).is_ok() {
+                if self.file_ops.remove_file(&target).is_ok() {
                     entry.rollback_performed = true;
                 } else {
                     errors_encountered += 1;
@@ -920,7 +1134,7 @@ impl<'a> WindowsHelperEngine<'a> {
                 continue;
             }
 
-            if fs::copy(&bkp, &dst).is_ok() {
+            if self.file_ops.copy(&bkp, &dst).is_ok() {
                 // Weryfikacja przywróconego pliku
                 if let Ok(data) = fs::read(&dst) {
                     let sha = sha256_hex(&data);
@@ -1032,7 +1246,7 @@ mod tests {
     use crate::cloud::updater::ManagementMode;
     use crate::cloud::updater::UpdatePlan;
     use crate::cloud::updater::helper_protocol::{
-        CURRENT_HELPER_REQUEST_VERSION, UpdatePlanIdentity,
+        CURRENT_HELPER_REQUEST_VERSION, StagingFileExpectation, UpdatePlanIdentity,
     };
     use std::path::PathBuf;
     use std::sync::Arc;
@@ -1179,6 +1393,8 @@ mod tests {
             candidate_health_timeout_seconds: 5,
             result_record_path: root.join(".update_helper_result.json"),
             diagnostic_log_path: root.join("helper_test.log"),
+            staging_file_expectations: std::collections::BTreeMap::new(),
+            enforce_strict_staging_entries: false,
         };
 
         (dir, req)
@@ -1281,6 +1497,170 @@ mod tests {
         let second_rollback = engine.execute_rollback();
         assert_eq!(second_rollback, RollbackResultKind::Success);
 
+        assert_eq!(fs::read(root.join("SPLogbook.exe")).unwrap(), b"OLD_BIN");
+        assert_eq!(fs::read(root.join("lib.dll")).unwrap(), b"OLD_LIB");
+    }
+
+    #[test]
+    fn helper_engine_rejects_missing_staging_source_pre_apply() {
+        let (dir, req) = setup_test_environment();
+        let root = dir.path();
+
+        // Usuwamy jedno ze źródeł stagingu
+        fs::remove_file(root.join(STAGING_DIR_NAME).join("lib.dll")).unwrap();
+
+        let monitor = MockMonitor {
+            call_count: Arc::new(AtomicU32::new(0)),
+            terminate_after_polls: 1,
+        };
+        let launcher = MockLauncher {
+            create_valid_proof: true,
+        };
+
+        let mut engine = WindowsHelperEngine::new(&req, &monitor, &launcher);
+        let (exit_code, result) = engine.execute();
+
+        assert_eq!(exit_code, WindowsHelperExitCode::InvalidArguments);
+        assert_eq!(
+            result.result_category,
+            HelperResultCategory::AbortedPreApply
+        );
+        assert_eq!(result.final_update_state, UpdateStateId::FailedPreApply);
+
+        // Żadne pliki w root nie zostały zmodyfikowane
+        assert_eq!(fs::read(root.join("SPLogbook.exe")).unwrap(), b"OLD_BIN");
+        assert_eq!(fs::read(root.join("lib.dll")).unwrap(), b"OLD_LIB");
+        assert!(!root.join("resources/new.dat").exists());
+    }
+
+    #[test]
+    fn helper_engine_rejects_existing_create_target_pre_apply() {
+        let (dir, req) = setup_test_environment();
+        let root = dir.path();
+
+        // Plik create już istnieje w katalogu docelowym przed operacją
+        fs::create_dir_all(root.join("resources")).unwrap();
+        fs::write(root.join("resources/new.dat"), b"ALREADY_EXISTS").unwrap();
+
+        let monitor = MockMonitor {
+            call_count: Arc::new(AtomicU32::new(0)),
+            terminate_after_polls: 1,
+        };
+        let launcher = MockLauncher {
+            create_valid_proof: true,
+        };
+
+        let mut engine = WindowsHelperEngine::new(&req, &monitor, &launcher);
+        let (exit_code, result) = engine.execute();
+
+        assert_eq!(exit_code, WindowsHelperExitCode::UnsafePath);
+        assert_eq!(
+            result.result_category,
+            HelperResultCategory::AbortedPreApply
+        );
+        assert_eq!(result.final_update_state, UpdateStateId::FailedPreApply);
+
+        // Istniejący plik nie został nadpisany
+        assert_eq!(
+            fs::read(root.join("resources/new.dat")).unwrap(),
+            b"ALREADY_EXISTS"
+        );
+        assert_eq!(fs::read(root.join("SPLogbook.exe")).unwrap(), b"OLD_BIN");
+    }
+
+    #[test]
+    fn helper_engine_rejects_staging_hash_mismatch_pre_apply() {
+        let (dir, mut req) = setup_test_environment();
+        let root = dir.path();
+
+        // Dodajemy oczekiwanie na poprawny hash, a plik ma inną zawartość
+        req.staging_file_expectations.insert(
+            "SPLogbook.exe".to_string(),
+            StagingFileExpectation {
+                size: 7,
+                sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+                    .to_string(),
+            },
+        );
+
+        let monitor = MockMonitor {
+            call_count: Arc::new(AtomicU32::new(0)),
+            terminate_after_polls: 1,
+        };
+        let launcher = MockLauncher {
+            create_valid_proof: true,
+        };
+
+        let mut engine = WindowsHelperEngine::new(&req, &monitor, &launcher);
+        let (exit_code, result) = engine.execute();
+
+        assert_eq!(exit_code, WindowsHelperExitCode::InvalidArguments);
+        assert_eq!(
+            result.result_category,
+            HelperResultCategory::AbortedPreApply
+        );
+        assert_eq!(result.final_update_state, UpdateStateId::FailedPreApply);
+
+        // Żadne pliki nie zostały naruszone
+        assert_eq!(fs::read(root.join("SPLogbook.exe")).unwrap(), b"OLD_BIN");
+    }
+
+    struct FaultyFileOps {
+        fail_copy_on_target_substring: &'static str,
+    }
+
+    impl HelperFileOperations for FaultyFileOps {
+        fn copy(&self, from: &Path, to: &Path) -> std::io::Result<u64> {
+            if from.to_string_lossy().contains(".staging")
+                && to
+                    .to_string_lossy()
+                    .contains(self.fail_copy_on_target_substring)
+            {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "Injected fault during apply copy",
+                ));
+            }
+            fs::copy(from, to)
+        }
+
+        fn remove_file(&self, path: &Path) -> std::io::Result<()> {
+            fs::remove_file(path)
+        }
+    }
+
+    #[test]
+    fn helper_engine_fault_injection_interrupted_apply_triggers_rollback() {
+        let (dir, req) = setup_test_environment();
+        let root = dir.path();
+
+        let monitor = MockMonitor {
+            call_count: Arc::new(AtomicU32::new(0)),
+            terminate_after_polls: 1,
+        };
+        let launcher = MockLauncher {
+            create_valid_proof: true,
+        };
+
+        // Wstrzyknięcie błędu podczas kopiowania lib.dll (druga operacja replace)
+        let faulty_ops = FaultyFileOps {
+            fail_copy_on_target_substring: "lib.dll",
+        };
+
+        let mut engine = WindowsHelperEngine::with_file_ops(&req, &monitor, &launcher, &faulty_ops);
+        let (exit_code, result) = engine.execute();
+
+        assert_eq!(
+            exit_code,
+            WindowsHelperExitCode::ApplyFailedRollbackSucceeded
+        );
+        assert_eq!(
+            result.result_category,
+            HelperResultCategory::FailedRollbackSucceeded
+        );
+        assert_eq!(result.rollback_result, Some(RollbackResultKind::Success));
+
+        // Plik SPLogbook.exe (który zdążył być podmieniony) został przywrócony z kopii zapasowej
         assert_eq!(fs::read(root.join("SPLogbook.exe")).unwrap(), b"OLD_BIN");
         assert_eq!(fs::read(root.join("lib.dll")).unwrap(), b"OLD_LIB");
     }

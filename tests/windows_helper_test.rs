@@ -175,6 +175,8 @@ fn create_test_request(
         candidate_health_timeout_seconds: 5,
         result_record_path: root.join(".update_helper_result.json"),
         diagnostic_log_path: root.join(".update_helper.log"),
+        staging_file_expectations: std::collections::BTreeMap::new(),
+        enforce_strict_staging_entries: false,
     }
 }
 

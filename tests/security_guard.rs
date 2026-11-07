@@ -2884,6 +2884,8 @@ fn m3_b_windows_updater_protects_user_databases_and_configs_guard() {
             candidate_health_timeout_seconds: 5,
             result_record_path: PathBuf::from("C:\\SPLogbook\\.update_result.json"),
             diagnostic_log_path: PathBuf::from("C:\\SPLogbook\\.update.log"),
+            staging_file_expectations: std::collections::BTreeMap::new(),
+            enforce_strict_staging_entries: false,
         };
 
         assert!(
@@ -2989,6 +2991,8 @@ fn m3_b_stability_100_iterations_protocol_and_path_guards() {
             candidate_health_timeout_seconds: 10,
             result_record_path: root.join(".update_helper_result.json"),
             diagnostic_log_path: root.join(".update_helper.log"),
+            staging_file_expectations: std::collections::BTreeMap::new(),
+            enforce_strict_staging_entries: false,
         };
 
         // 1. Serialization roundtrip
@@ -3158,6 +3162,8 @@ fn m3_b_stability_50_iterations_health_proof_and_rollback() {
             candidate_health_timeout_seconds: 1,
             result_record_path: root.join(".update_helper_result.json"),
             diagnostic_log_path: root.join(".update_helper.log"),
+            staging_file_expectations: std::collections::BTreeMap::new(),
+            enforce_strict_staging_entries: false,
         };
 
         let monitor = DeadProcessMonitor;
@@ -3334,6 +3340,8 @@ fn m3_b_stability_20_iterations_helper_parity_and_e2e_cycle() {
             candidate_health_timeout_seconds: 5,
             result_record_path: root.join(".update_helper_result.json"),
             diagnostic_log_path: root.join(".update_helper.log"),
+            staging_file_expectations: std::collections::BTreeMap::new(),
+            enforce_strict_staging_entries: false,
         };
 
         // 1. Native Windows Helper execution
