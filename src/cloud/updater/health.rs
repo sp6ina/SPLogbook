@@ -73,6 +73,21 @@ impl HealthProof {
         }
     }
 
+    /// Tworzy nowy dowód zdrowia powiązany z tożsamością kompilacji `BuildIdentity`.
+    pub fn from_build_identity(
+        attempt_id: UpdateAttemptId,
+        identity: &crate::core::build_info::BuildIdentity,
+        installation_type: InstallationType,
+    ) -> Self {
+        Self::new(
+            attempt_id,
+            identity.package_version,
+            identity.git_commit_hash,
+            identity.target_platform(),
+            installation_type,
+        )
+    }
+
     /// Dokonuje pełnej walidacji dowodu zdrowia względem parametrów aktywnej transakcji.
     ///
     /// Weryfikuje:

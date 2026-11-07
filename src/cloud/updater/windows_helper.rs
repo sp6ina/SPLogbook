@@ -1203,7 +1203,7 @@ impl<'a> WindowsHelperEngine<'a> {
         manual_recovery_required: bool,
         summary: String,
     ) -> (WindowsHelperExitCode, WindowsHelperResult) {
-        let res = WindowsHelperResult::new(
+        let mut res = WindowsHelperResult::new(
             self.request.attempt_id,
             self.request.plan_digest.clone(),
             final_state,
@@ -1218,6 +1218,14 @@ impl<'a> WindowsHelperEngine<'a> {
             manual_recovery_required,
             summary,
         );
+
+        if final_state == UpdateStateId::Committed {
+            res.verified_version_after_operation =
+                Some(self.request.expected_target_version.clone());
+            res.verified_commit_after_operation = Some(self.request.expected_target_commit.clone());
+        } else if let Some(ref inst_ver) = self.request.installed_version {
+            res.verified_version_after_operation = Some(inst_ver.clone());
+        }
 
         let _ = res.save_atomic(&self.request.result_record_path);
         (exit_code, res)
@@ -1457,6 +1465,7 @@ mod tests {
             candidate_executable: root.join("SPLogbook.exe"),
             expected_parent_pid: 12345,
             expected_current_binary_identity: None,
+            installed_version: Some("1.2.0".to_string()),
             expected_target_version: "1.2.1".to_string(),
             expected_target_commit: "commit123".to_string(),
             update_management_mode: ManagementMode::SelfManaged,

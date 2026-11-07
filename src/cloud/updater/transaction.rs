@@ -54,6 +54,9 @@ pub struct UpdateTransaction {
     pub attempt_id: UpdateAttemptId,
     /// Bieżący zwalidowany stan automatu transakcji.
     pub current_state: UpdateStateId,
+    /// Zainstalowana wersja aplikacji (źródłowa wersja podlegająca aktualizacji).
+    #[serde(default)]
+    pub installed_version: Option<String>,
     /// Docelowa wersja wydania (SemVer).
     pub release_version: String,
     /// Znacznik wydania (git tag).
@@ -132,6 +135,7 @@ impl UpdateTransaction {
             record_version: CURRENT_RECORD_VERSION,
             attempt_id,
             current_state: state_machine.current_state(),
+            installed_version: None,
             release_version,
             release_tag,
             commit_identity: None,
@@ -162,6 +166,28 @@ impl UpdateTransaction {
     /// Ustawia zatwierdzony skrót planu aktualizacji.
     pub fn set_plan_digest(&mut self, digest: impl Into<String>) {
         self.plan_digest = Some(digest.into());
+    }
+
+    /// Ustawia zainstalowaną wersję aplikacji w rekordzie transakcji.
+    pub fn with_installed_version(mut self, ver: impl Into<String>) -> Self {
+        self.installed_version = Some(ver.into());
+        self
+    }
+
+    /// Ustawia tożsamość commita wydania w rekordzie transakcji.
+    pub fn with_commit_identity(mut self, commit: impl Into<String>) -> Self {
+        self.commit_identity = Some(commit.into());
+        self
+    }
+
+    /// Zwraca docelową wersję wydania (SemVer).
+    pub fn target_version(&self) -> &str {
+        &self.release_version
+    }
+
+    /// Zwraca zainstalowaną wersję źródłową (jeśli została zarejestrowana).
+    pub fn installed_version(&self) -> Option<&str> {
+        self.installed_version.as_deref()
     }
 
     /// Dokonuje zwalidowanego przejścia stanu transakcji.
