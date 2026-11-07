@@ -95,6 +95,7 @@ pub mod preflight;
 pub mod recovery;
 pub mod state;
 pub mod transaction;
+pub mod windows_helper;
 
 pub use attempt_id::UpdateAttemptId;
 pub use cancellation::{
@@ -134,6 +135,11 @@ pub use state::{UpdateStateId, UpdateStateMachine};
 pub use transaction::{
     CURRENT_RECORD_VERSION, CancellationStatus, RecoveryStatus, TRANSACTION_FILE_NAME,
     UpdateTransaction,
+};
+pub use windows_helper::{
+    CandidateLauncher, HelperCandidateChild, HelperOperationJournal, OPERATION_JOURNAL_FILENAME,
+    OperationJournalEntry, OperationType, ProcessMonitor, ROLLBACK_DIR_NAME, STAGING_DIR_NAME,
+    SystemCandidateChild, SystemCandidateLauncher, SystemProcessMonitor, WindowsHelperEngine,
 };
 
 impl UpdaterError {
