@@ -87,6 +87,7 @@ pub mod attempt_id;
 pub mod cancellation;
 pub mod capabilities;
 pub mod health;
+pub mod helper_protocol;
 pub mod installation;
 pub mod lock;
 pub mod platform;
@@ -104,6 +105,12 @@ pub use capabilities::InstallationCapabilities;
 pub use health::{
     CURRENT_HEALTH_PROOF_VERSION, DEFAULT_HEALTH_PROOF_MAX_AGE_SECS, HEALTH_PROOF_FILENAME,
     HealthProof,
+};
+pub use helper_protocol::{
+    CURRENT_HELPER_REQUEST_VERSION, CURRENT_HELPER_RESULT_VERSION, CURRENT_PLAN_IDENTITY_VERSION,
+    HealthResultKind, HelperResultCategory, RollbackResultKind, UpdatePlanIdentity,
+    WindowsHelperExitCode, WindowsHelperRequest, WindowsHelperResult,
+    validate_and_normalize_relative_path,
 };
 pub use installation::{
     InstallationDetectionContext, InstallationType, ManagementMode,

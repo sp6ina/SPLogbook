@@ -98,6 +98,9 @@ pub struct UpdateTransaction {
     pub failure_stage: Option<UpdateStateId>,
     /// Zredagowane, pozbawione danych wrażliwych podsumowanie diagnostyczne.
     pub sanitized_diagnostic_summary: Option<String>,
+    /// Opcjonalny skrót SHA-256 zatwierdzonego planu aktualizacji.
+    #[serde(default)]
+    pub plan_digest: Option<String>,
     /// Wewnętrzny automat stanów egzekwujący reguły przejść.
     state_machine: UpdateStateMachine,
 }
@@ -151,8 +154,14 @@ impl UpdateTransaction {
             recovery_status: RecoveryStatus::None,
             failure_stage: None,
             sanitized_diagnostic_summary: None,
+            plan_digest: None,
             state_machine,
         })
+    }
+
+    /// Ustawia zatwierdzony skrót planu aktualizacji.
+    pub fn set_plan_digest(&mut self, digest: impl Into<String>) {
+        self.plan_digest = Some(digest.into());
     }
 
     /// Dokonuje zwalidowanego przejścia stanu transakcji.
