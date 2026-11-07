@@ -3181,6 +3181,11 @@ pub async fn install_update(asset: &VerifiedReleaseAsset) -> Result<(), UpdaterE
             staging_path,
             parent,
         )?;
+        t.installed_version = Some(
+            crate::core::build_info::BuildIdentity::current()
+                .package_version
+                .to_string(),
+        );
         t.commit_identity = Some(asset.bound_commit().to_string());
         t.lock_identity = Some(format!("{}:{}", std::process::id(), attempt_id));
         t.rollback_path = Some(parent.join(".rollback"));
@@ -3709,6 +3714,11 @@ fn install_via_windows_helper(
         candidate_executable,
         expected_parent_pid: std::process::id(),
         expected_current_binary_identity: None,
+        installed_version: Some(
+            crate::core::build_info::BuildIdentity::current()
+                .package_version
+                .to_string(),
+        ),
         expected_target_version: asset.bound_manifest_version().to_string(),
         expected_target_commit: asset.bound_commit().to_string(),
         update_management_mode: ManagementMode::SelfManaged,
@@ -7736,6 +7746,8 @@ mod tests {
             backup_retained: true,
             manual_recovery_required: false,
             sanitized_diagnostic_summary: "Success".to_string(),
+            verified_version_after_operation: None,
+            verified_commit_after_operation: None,
             completion_time: chrono::Utc::now(),
         };
         std::fs::write(&result_file, serde_json::to_vec_pretty(&res).unwrap()).unwrap();

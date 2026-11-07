@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use tempfile::tempdir;
 
 use splogbook::cloud::updater::helper_protocol::{
-    CURRENT_HELPER_REQUEST_VERSION, HelperResultCategory, RollbackResultKind,
+    CURRENT_HELPER_REQUEST_VERSION, HealthResultKind, HelperResultCategory, RollbackResultKind,
     StagingFileExpectation, UpdatePlanIdentity, WindowsHelperExitCode, WindowsHelperRequest,
 };
 use splogbook::cloud::updater::powershell_fallback::{
@@ -29,7 +29,8 @@ use splogbook::cloud::updater::windows_helper::{
     WindowsHelperEngine,
 };
 use splogbook::cloud::updater::{
-    HealthProof, InstallationType, ManagementMode, UpdateAttemptId, UpdatePlan, UpdateTransaction,
+    HealthProof, InstallationType, ManagementMode, UpdateAttemptId, UpdatePlan, UpdateStateId,
+    UpdateTransaction,
 };
 
 /// Mock monitora procesów kontrolujący stan procesu macierzystego.
@@ -252,6 +253,7 @@ fn create_test_request(
         candidate_executable: root.join(".staging").join("SPLogbook.exe"),
         expected_parent_pid: 1234,
         expected_current_binary_identity: None,
+        installed_version: Some("1.2.0".to_string()),
         expected_target_version: "1.2.1".to_string(),
         expected_target_commit: "0000000000000000000000000000000000000000".to_string(),
         update_management_mode: ManagementMode::SelfManaged,
@@ -1728,4 +1730,215 @@ fn powershell_real_execution_candidate_failure_triggers_rollback() {
     let clean_json = result_raw.trim_start_matches('\u{feff}');
     let val: serde_json::Value = serde_json::from_str(clean_json).expect("parse result json");
     assert_eq!(val["exit_code"], 9);
+}
+
+struct IdentityTamperingLauncher {
+    tamper_version: bool,
+    tamper_commit: bool,
+}
+
+impl CandidateLauncher for IdentityTamperingLauncher {
+    fn launch_candidate(
+        &self,
+        _candidate_exe: &Path,
+        attempt_id: &UpdateAttemptId,
+        health_proof_path: &Path,
+        expected_version: &str,
+        expected_commit: &str,
+    ) -> Result<Box<dyn HelperCandidateChild>, WindowsHelperExitCode> {
+        let ver = if self.tamper_version {
+            "1.2.0-mismatched"
+        } else {
+            expected_version
+        };
+        let commit = if self.tamper_commit {
+            "0000000000000000000000000000000000000000-tampered"
+        } else {
+            expected_commit
+        };
+        let proof = HealthProof::new(
+            *attempt_id,
+            ver,
+            commit,
+            "windows-x86_64",
+            InstallationType::WindowsPortableZip,
+        );
+        let json = serde_json::to_string_pretty(&proof).unwrap();
+        fs::write(health_proof_path, json).unwrap();
+        Ok(Box::new(TestCandidateChild { is_alive: true }))
+    }
+}
+
+#[test]
+fn windows_helper_health_wrong_version_triggers_rollback() {
+    let dir = tempdir().expect("tempdir");
+    let root = dir.path();
+    let staging = root.join(".staging");
+    fs::create_dir_all(&staging).expect("staging dir");
+
+    let exe_path = root.join("SPLogbook.exe");
+    let staging_exe = staging.join("SPLogbook.exe");
+    fs::write(&exe_path, b"SPLogbook v1.2.0 bazowa").expect("write exe");
+    fs::write(&staging_exe, b"SPLogbook v1.3.0-alpha.1 kandydat").expect("write staging exe");
+
+    let plan = UpdatePlan {
+        replace_files: vec![(PathBuf::from("SPLogbook.exe"), exe_path.clone())],
+        create_files: Vec::new(),
+        preserve_files: Vec::new(),
+        rejected_files: Vec::new(),
+    };
+
+    let attempt = UpdateAttemptId::generate();
+    let mut req = create_test_request(root, attempt, &plan);
+    req.installed_version = Some("1.2.0".to_string());
+    req.expected_target_version = "1.3.0-alpha.1".to_string();
+    req.expected_target_commit = "82aa7106c030fe1d883a51dedaf1b30247870ee5".to_string();
+    req.candidate_health_timeout_seconds = 1;
+
+    let monitor = TestProcessMonitor::new(&[]);
+    let launcher = IdentityTamperingLauncher {
+        tamper_version: true,
+        tamper_commit: false,
+    };
+
+    let mut engine = WindowsHelperEngine::new(&req, &monitor, &launcher);
+    let (code, res) = engine.execute();
+
+    assert_eq!(
+        code,
+        WindowsHelperExitCode::HealthRejectedRollbackSucceeded,
+        "Niezgodność wersji w HealthProof musi wymusić rollback"
+    );
+    assert_eq!(
+        fs::read(&exe_path).expect("read exe"),
+        b"SPLogbook v1.2.0 bazowa",
+        "Plik wykonywalny musi zostać przywrócony ze starej wersji"
+    );
+
+    assert_eq!(res.final_update_state, UpdateStateId::FailedPostApply);
+    assert_eq!(
+        res.result_category,
+        HelperResultCategory::FailedRollbackSucceeded
+    );
+    assert_eq!(res.health_result, Some(HealthResultKind::Rejected));
+    assert_eq!(
+        res.verified_version_after_operation.as_deref(),
+        Some("1.2.0")
+    );
+}
+
+#[test]
+fn windows_helper_health_wrong_commit_triggers_rollback() {
+    let dir = tempdir().expect("tempdir");
+    let root = dir.path();
+    let staging = root.join(".staging");
+    fs::create_dir_all(&staging).expect("staging dir");
+
+    let exe_path = root.join("SPLogbook.exe");
+    let staging_exe = staging.join("SPLogbook.exe");
+    fs::write(&exe_path, b"SPLogbook v1.2.0 bazowa").expect("write exe");
+    fs::write(&staging_exe, b"SPLogbook v1.3.0-alpha.1 kandydat").expect("write staging exe");
+
+    let plan = UpdatePlan {
+        replace_files: vec![(PathBuf::from("SPLogbook.exe"), exe_path.clone())],
+        create_files: Vec::new(),
+        preserve_files: Vec::new(),
+        rejected_files: Vec::new(),
+    };
+
+    let attempt = UpdateAttemptId::generate();
+    let mut req = create_test_request(root, attempt, &plan);
+    req.installed_version = Some("1.2.0".to_string());
+    req.expected_target_version = "1.3.0-alpha.1".to_string();
+    req.expected_target_commit = "82aa7106c030fe1d883a51dedaf1b30247870ee5".to_string();
+    req.candidate_health_timeout_seconds = 1;
+
+    let monitor = TestProcessMonitor::new(&[]);
+    let launcher = IdentityTamperingLauncher {
+        tamper_version: false,
+        tamper_commit: true,
+    };
+
+    let mut engine = WindowsHelperEngine::new(&req, &monitor, &launcher);
+    let (code, res) = engine.execute();
+
+    assert_eq!(
+        code,
+        WindowsHelperExitCode::HealthRejectedRollbackSucceeded,
+        "Niezgodność commita w HealthProof musi wymusić rollback"
+    );
+    assert_eq!(
+        fs::read(&exe_path).expect("read exe"),
+        b"SPLogbook v1.2.0 bazowa",
+        "Plik wykonywalny musi zostać przywrócony ze starej wersji"
+    );
+
+    assert_eq!(res.final_update_state, UpdateStateId::FailedPostApply);
+    assert_eq!(
+        res.result_category,
+        HelperResultCategory::FailedRollbackSucceeded
+    );
+    assert_eq!(res.health_result, Some(HealthResultKind::Rejected));
+    assert_eq!(
+        res.verified_version_after_operation.as_deref(),
+        Some("1.2.0")
+    );
+}
+
+#[test]
+fn windows_helper_health_matching_alpha_succeeds_and_verifies_identity() {
+    let dir = tempdir().expect("tempdir");
+    let root = dir.path();
+    let staging = root.join(".staging");
+    fs::create_dir_all(&staging).expect("staging dir");
+
+    let exe_path = root.join("SPLogbook.exe");
+    let staging_exe = staging.join("SPLogbook.exe");
+    fs::write(&exe_path, b"SPLogbook v1.2.0 bazowa").expect("write exe");
+    fs::write(&staging_exe, b"SPLogbook v1.3.0-alpha.1 kandydat").expect("write staging exe");
+
+    let plan = UpdatePlan {
+        replace_files: vec![(PathBuf::from("SPLogbook.exe"), exe_path.clone())],
+        create_files: Vec::new(),
+        preserve_files: Vec::new(),
+        rejected_files: Vec::new(),
+    };
+
+    let attempt = UpdateAttemptId::generate();
+    let mut req = create_test_request(root, attempt, &plan);
+    req.installed_version = Some("1.2.0".to_string());
+    req.expected_target_version = "1.3.0-alpha.1".to_string();
+    req.expected_target_commit = "82aa7106c030fe1d883a51dedaf1b30247870ee5".to_string();
+    req.candidate_health_timeout_seconds = 1;
+
+    let monitor = TestProcessMonitor::new(&[]);
+    let launcher = IdentityTamperingLauncher {
+        tamper_version: false,
+        tamper_commit: false,
+    };
+
+    let mut engine = WindowsHelperEngine::new(&req, &monitor, &launcher);
+    let (code, res) = engine.execute();
+
+    assert_eq!(
+        code,
+        WindowsHelperExitCode::Success,
+        "Zgodny HealthProof musi zakończyć się statusem Success"
+    );
+    assert_eq!(
+        fs::read(&exe_path).expect("read exe"),
+        b"SPLogbook v1.3.0-alpha.1 kandydat",
+        "Nowy kandydat musi zostać pomyślnie zainstalowany"
+    );
+
+    assert_eq!(res.final_update_state, UpdateStateId::Committed);
+    assert_eq!(res.health_result, Some(HealthResultKind::Passed));
+    assert_eq!(
+        res.verified_version_after_operation.as_deref(),
+        Some("1.3.0-alpha.1")
+    );
+    assert_eq!(
+        res.verified_commit_after_operation.as_deref(),
+        Some("82aa7106c030fe1d883a51dedaf1b30247870ee5")
+    );
 }

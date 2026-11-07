@@ -257,7 +257,7 @@ pub fn generate_powershell_from_request_file(request_path: &Path) -> String {
                  try {{\n\
                      $proofContent = Get-Content -LiteralPath $healthProofPath -Raw -Encoding UTF8\n\
                      $proofJson = ConvertFrom-Json -InputObject $proofContent\n\
-                     if ($proofJson.attempt_id -eq $attemptId) {{\n\
+                     if ($proofJson.attempt_id -eq $attemptId -and $proofJson.target_version -eq $targetVer -and $proofJson.target_commit -eq $targetCommit) {{\n\
                          $healthVerified = $true\n\
                          break\n\
                      }}\n\
@@ -269,7 +269,7 @@ pub fn generate_powershell_from_request_file(request_path: &Path) -> String {
                      try {{\n\
                          $proofContent = Get-Content -LiteralPath $healthProofPath -Raw -Encoding UTF8\n\
                          $proofJson = ConvertFrom-Json -InputObject $proofContent\n\
-                         if ($proofJson.attempt_id -eq $attemptId) {{\n\
+                         if ($proofJson.attempt_id -eq $attemptId -and $proofJson.target_version -eq $targetVer -and $proofJson.target_commit -eq $targetCommit) {{\n\
                              $healthVerified = $true\n\
                          }}\n\
                      }} catch {{\n\
@@ -423,7 +423,7 @@ pub fn generate_powershell_from_request(req: &WindowsHelperRequest) -> String {
                  try {{\n\
                      $proofContent = Get-Content -LiteralPath $healthProofPath -Raw -Encoding UTF8\n\
                      $proofJson = ConvertFrom-Json -InputObject $proofContent\n\
-                     if ($proofJson.attempt_id -eq $attemptId) {{\n\
+                     if ($proofJson.attempt_id -eq $attemptId -and $proofJson.target_version -eq $targetVer -and $proofJson.target_commit -eq $targetCommit) {{\n\
                          $healthVerified = $true\n\
                          break\n\
                      }}\n\
@@ -435,7 +435,7 @@ pub fn generate_powershell_from_request(req: &WindowsHelperRequest) -> String {
                      try {{\n\
                          $proofContent = Get-Content -LiteralPath $healthProofPath -Raw -Encoding UTF8\n\
                          $proofJson = ConvertFrom-Json -InputObject $proofContent\n\
-                         if ($proofJson.attempt_id -eq $attemptId) {{\n\
+                         if ($proofJson.attempt_id -eq $attemptId -and $proofJson.target_version -eq $targetVer -and $proofJson.target_commit -eq $targetCommit) {{\n\
                              $healthVerified = $true\n\
                          }}\n\
                      }} catch {{\n\

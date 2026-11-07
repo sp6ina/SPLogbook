@@ -436,6 +436,9 @@ pub struct WindowsHelperRequest {
     pub expected_parent_pid: u32,
     /// Opcjonalna tożsamość bieżącej binarki (np. skrót SHA-256 lub rozmiar) dla weryfikacji tożsamości.
     pub expected_current_binary_identity: Option<String>,
+    /// Zainstalowana wersja aplikacji (źródłowa wersja podlegająca aktualizacji).
+    #[serde(default)]
+    pub installed_version: Option<String>,
     /// Oczekiwana docelowa wersja SemVer.
     pub expected_target_version: String,
     /// Oczekiwany docelowy commit Git.
@@ -662,6 +665,12 @@ pub struct WindowsHelperResult {
     pub manual_recovery_required: bool,
     /// Zredagowane podsumowanie diagnostyczne bez sekretów i danych użytkownika.
     pub sanitized_diagnostic_summary: String,
+    /// Zweryfikowana wersja działająca po operacji (docelowa po sukcesie, zainstalowana po rollbacku).
+    #[serde(default)]
+    pub verified_version_after_operation: Option<String>,
+    /// Zweryfikowany commit działający po operacji.
+    #[serde(default)]
+    pub verified_commit_after_operation: Option<String>,
     /// Znacznik czasu zakończenia działania pomocnika w UTC.
     pub completion_time: DateTime<Utc>,
 }
@@ -698,8 +707,21 @@ impl WindowsHelperResult {
             backup_retained,
             manual_recovery_required,
             sanitized_diagnostic_summary: sanitized_diagnostic_summary.into(),
+            verified_version_after_operation: None,
+            verified_commit_after_operation: None,
             completion_time: Utc::now(),
         }
+    }
+
+    /// Dołącza zweryfikowaną tożsamość wersji i commita po operacji.
+    pub fn with_verified_identity(
+        mut self,
+        version: impl Into<String>,
+        commit: impl Into<String>,
+    ) -> Self {
+        self.verified_version_after_operation = Some(version.into());
+        self.verified_commit_after_operation = Some(commit.into());
+        self
     }
 
     /// Dokonuje walidacji spójności rekordu wyniku względem parametrów żądania.
@@ -1196,6 +1218,7 @@ mod tests {
             candidate_executable: root.join(".staging/SPLogbook.exe"),
             expected_parent_pid: 12345,
             expected_current_binary_identity: Some("old_sha".to_string()),
+            installed_version: Some("1.2.0".to_string()),
             expected_target_version: "1.2.1".to_string(),
             expected_target_commit: "commit123".to_string(),
             update_management_mode: ManagementMode::SelfManaged,
@@ -1244,6 +1267,7 @@ mod tests {
             candidate_executable: root.join(".staging/SPLogbook.exe"),
             expected_parent_pid: 12345,
             expected_current_binary_identity: None,
+            installed_version: Some("1.2.0".to_string()),
             expected_target_version: "1.2.1".to_string(),
             expected_target_commit: "commit123".to_string(),
             update_management_mode: ManagementMode::SelfManaged,
