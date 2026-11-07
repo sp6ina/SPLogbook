@@ -1772,3 +1772,55 @@ fn ci_workflow_does_not_allow_clippy_failure() {
         }
     }
 }
+
+#[test]
+fn documentation_test_counts_match_canonical_workspace_counts() {
+    let report_content = fs::read_to_string("STAGE_10_FINAL_GATE_REPORT.md")
+        .expect("STAGE_10_FINAL_GATE_REPORT.md must exist");
+
+    let extract_val = |key: &str| -> usize {
+        report_content
+            .lines()
+            .find(|l| l.contains(key))
+            .and_then(|l| {
+                l.split(':')
+                    .nth(1)?
+                    .split_whitespace()
+                    .find_map(|word| {
+                        let digits: String = word.chars().filter(|c| c.is_ascii_digit()).collect();
+                        digits.parse::<usize>().ok()
+                    })
+            })
+            .unwrap_or_else(|| panic!("Key {key} not found in STAGE_10_FINAL_GATE_REPORT.md"))
+    };
+
+    let reg = extract_val("TOTAL REGISTERED TESTS");
+    let passed = extract_val("TOTAL PASSED TESTS");
+    let executed = extract_val("TOTAL EXECUTED TESTS");
+    let ignored = extract_val("TOTAL IGNORED TESTS");
+    let hil = extract_val("HIL IGNORED TESTS");
+
+    assert_eq!(executed, passed);
+    assert_eq!(reg, executed + ignored);
+    assert_eq!(ignored, hil);
+
+    let readme = fs::read_to_string("README.md").expect("README.md");
+    assert!(
+        readme.contains(&format!("{passed}%2F{passed}_Passed")),
+        "README badge must contain passed count {passed}"
+    );
+    assert!(
+        readme.contains(&format!("**Total Registered Tests**: {reg}")),
+        "README must document registered count {reg}"
+    );
+
+    let cat_doc = fs::read_to_string("Native CAT.md").expect("Native CAT.md");
+    assert!(
+        cat_doc.contains(&format!("{passed} aktywnych testów programowych passed")),
+        "Native CAT.md must document passed count {passed}"
+    );
+    assert!(
+        cat_doc.contains(&format!("{reg} zarejestrowanych testów")),
+        "Native CAT.md must document registered count {reg}"
+    );
+}
