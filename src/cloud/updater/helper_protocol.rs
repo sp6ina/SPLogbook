@@ -408,6 +408,15 @@ impl UpdatePlanIdentity {
     }
 }
 
+/// Oczekiwane metadane pliku stagingu na potrzeby weryfikacji integralności przed apply.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StagingFileExpectation {
+    /// Oczekiwany rozmiar w bajtach.
+    pub size: u64,
+    /// Oczekiwany skrót SHA-256 w postaci szesnastkowej (małe litery).
+    pub sha256: String,
+}
+
 /// Wersjonowany kontrakt żądania uruchomienia pomocnika Windows (`splogbook-updater.exe` / fallback PowerShell).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WindowsHelperRequest {
@@ -447,6 +456,12 @@ pub struct WindowsHelperRequest {
     pub result_record_path: PathBuf,
     /// Ścieżka docelowa lokalnego zredagowanego logu diagnostycznego pomocnika.
     pub diagnostic_log_path: PathBuf,
+    /// Opcjonalne metadane plików w stagingu do weryfikacji integralności i tamperingu.
+    #[serde(default)]
+    pub staging_file_expectations: std::collections::BTreeMap<String, StagingFileExpectation>,
+    /// Czy wymagać ścisłego braku nieplanowanych plików w stagingu (fail-closed staging policy).
+    #[serde(default)]
+    pub enforce_strict_staging_entries: bool,
 }
 
 impl WindowsHelperRequest {
@@ -526,6 +541,11 @@ impl WindowsHelperRequest {
                     "Ścieżka create '{entry}' narusza ochronę danych użytkownika"
                 )));
             }
+        }
+
+        // 9. Weryfikacja ścieżek metadanych stagingu
+        for rel in self.staging_file_expectations.keys() {
+            validate_and_normalize_relative_path(Path::new(rel))?;
         }
 
         Ok(())
@@ -1186,6 +1206,8 @@ mod tests {
             candidate_health_timeout_seconds: 15,
             result_record_path: root.join(".update_helper_result.json"),
             diagnostic_log_path: root.join("update_helper.log"),
+            staging_file_expectations: std::collections::BTreeMap::new(),
+            enforce_strict_staging_entries: false,
         };
 
         req.save_atomic(&req_path).unwrap();
@@ -1232,6 +1254,8 @@ mod tests {
             candidate_health_timeout_seconds: 15,
             result_record_path: root.join(".update_helper_result.json"),
             diagnostic_log_path: root.join("update_helper.log"),
+            staging_file_expectations: std::collections::BTreeMap::new(),
+            enforce_strict_staging_entries: false,
         };
 
         assert!(req.validate().is_err());

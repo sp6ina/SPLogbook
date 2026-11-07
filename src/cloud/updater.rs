@@ -3068,6 +3068,8 @@ fn install_via_windows_helper(current: &Path, new: &Path) -> Result<(), UpdaterE
                 candidate_health_timeout_seconds: 15,
                 result_record_path,
                 diagnostic_log_path,
+                staging_file_expectations: std::collections::BTreeMap::new(),
+                enforce_strict_staging_entries: false,
             };
 
             let request_path = staging.join("updater_request.json");
