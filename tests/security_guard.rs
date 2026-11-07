@@ -1783,13 +1783,10 @@ fn documentation_test_counts_match_canonical_workspace_counts() {
             .lines()
             .find(|l| l.contains(key))
             .and_then(|l| {
-                l.split(':')
-                    .nth(1)?
-                    .split_whitespace()
-                    .find_map(|word| {
-                        let digits: String = word.chars().filter(|c| c.is_ascii_digit()).collect();
-                        digits.parse::<usize>().ok()
-                    })
+                l.split(':').nth(1)?.split_whitespace().find_map(|word| {
+                    let digits: String = word.chars().filter(|c| c.is_ascii_digit()).collect();
+                    digits.parse::<usize>().ok()
+                })
             })
             .unwrap_or_else(|| panic!("Key {key} not found in STAGE_10_FINAL_GATE_REPORT.md"))
     };
