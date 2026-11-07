@@ -84,14 +84,21 @@ pub enum UpdaterError {
 }
 
 pub mod attempt_id;
+pub mod capabilities;
 pub mod installation;
+pub mod platform;
 pub mod state;
 pub mod transaction;
 
 pub use attempt_id::UpdateAttemptId;
+pub use capabilities::InstallationCapabilities;
 pub use installation::{
     InstallationDetectionContext, InstallationType, ManagementMode,
     detect_installation_with_context,
+};
+pub use platform::{
+    CandidateProcessHandle, DelegationResult, FakePlatformAdapter, PackageInspectionReport,
+    PlatformInstallerAdapter, SanitizedDiagnosticReport,
 };
 pub use state::{UpdateStateId, UpdateStateMachine};
 pub use transaction::{
