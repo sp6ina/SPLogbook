@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::OnceLock;
 
@@ -65,7 +65,7 @@ impl ClubRegistry {
     ) -> Result<HashMap<String, Vec<ClubAffiliation>>, std::io::Error> {
         let content = std::fs::read_to_string(path)?;
         let mut map: HashMap<String, Vec<ClubAffiliation>> = HashMap::new();
-        let mut seen_keys: HashSet<(String, String)> = HashSet::new();
+        let mut seen_memberships: HashMap<(String, String), Option<String>> = HashMap::new();
         let mut club_numbers: HashMap<(String, String), String> = HashMap::new();
 
         for (idx, line) in content.lines().enumerate() {
@@ -82,32 +82,39 @@ impl ClubRegistry {
             let callsign = parts[0].to_uppercase();
             let code = parts[1].to_string();
             let name = parts[2].to_string();
+            if callsign.is_empty() || code.is_empty() {
+                continue;
+            }
+
             let number = if parts[3].is_empty() || parts[3] == "-" {
                 None
             } else {
                 Some(parts[3].to_string())
             };
 
-            // Kluczowanie relacji jako para (club_id, normalized_callsign)
-            let key = (code.clone(), callsign.clone());
-            if seen_keys.contains(&key) {
-                // Odrzucenie konfliktującej przynależności dla tego samego klucza
+            // PRIMARY MEMBERSHIP KEY: (club_id, normalized_callsign)
+            let membership_key = (code.clone(), callsign.clone());
+            if let Some(prev_num) = seen_memberships.get(&membership_key) {
+                // Rekord dla tej tożsamości członkostwa już istnieje:
+                // - jeśli ten sam numer: idempotentny duplikat (pomijany bez błędu)
+                // - jeśli inny numer: sprzeczność/konflikt członkostwa (odrzucany)
+                let _ = prev_num;
                 continue;
             }
 
-            // Odrzucenie konfliktującego duplikatu numeru w tym samym klubie
+            // MEMBER NUMBER CONFLICT KEY: (club_id, normalized_member_number)
             if let Some(ref num) = number {
                 let club_num_key = (code.clone(), num.clone());
                 if let Some(existing_call) = club_numbers.get(&club_num_key)
                     && existing_call != &callsign
                 {
-                    // Ten sam numer w tym samym klubie należy już do innego znaku
+                    // Ten sam numer w tym samym klubie należy już do innego znaku -> konflikt
                     continue;
                 }
                 club_numbers.insert(club_num_key, callsign.clone());
             }
 
-            seen_keys.insert(key);
+            seen_memberships.insert(membership_key, number.clone());
 
             let r = parts[4].parse::<u8>().unwrap_or(59);
             let g = parts[5].parse::<u8>().unwrap_or(130);
@@ -303,6 +310,32 @@ mod tests {
     }
 
     #[test]
+    fn club_registry_lookup_uses_normalized_callsign() {
+        let affs_upper = ClubRegistry::check("SP6INA");
+        let affs_mixed = ClubRegistry::check("  sP6InA  ");
+        assert_eq!(affs_upper, affs_mixed);
+        assert!(!affs_mixed.is_empty());
+    }
+
+    #[test]
+    fn club_membership_primary_key_is_club_and_callsign() {
+        let affs = ClubRegistry::check("W1AW");
+        let codes: Vec<_> = affs.iter().map(|a| a.code.as_ref()).collect();
+        assert!(codes.contains(&"CWOPS"));
+        assert!(codes.contains(&"FOC"));
+    }
+
+    #[test]
+    fn club_registry_allows_one_callsign_in_multiple_clubs() {
+        let affs = ClubRegistry::check("W1AW");
+        assert!(affs.len() >= 2);
+        let mut codes = HashSet::new();
+        for a in &affs {
+            assert!(codes.insert(a.code.as_ref()));
+        }
+    }
+
+    #[test]
     fn club_registry_keys_membership_by_club_and_callsign() {
         let affs = ClubRegistry::check("W1AW");
         let codes: Vec<_> = affs.iter().map(|a| a.code.as_ref()).collect();
@@ -328,6 +361,40 @@ mod tests {
     }
 
     #[test]
+    fn club_member_number_conflict_key_is_scoped_to_club() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("splog_clubs_scope_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let csv_file = temp_dir.join("test_clubs.csv");
+        let csv_content = "callsign,club_code,club_name,member_number,badge_r,badge_g,badge_b\n\
+                           SP1AAA,CLUB_A,Alpha Club,#42,239,68,68\n\
+                           SP2BBB,CLUB_B,Beta Club,#42,59,130,246\n";
+        std::fs::write(&csv_file, csv_content).unwrap();
+
+        let loaded = ClubRegistry::load_from_csv(&csv_file).unwrap();
+        assert_eq!(loaded["SP1AAA"][0].number.as_deref(), Some("#42"));
+        assert_eq!(loaded["SP2BBB"][0].number.as_deref(), Some("#42"));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn club_registry_rejects_same_number_for_different_callsigns_in_same_club() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("splog_clubs_diffcall_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let csv_file = temp_dir.join("test_clubs.csv");
+        let csv_content = "callsign,club_code,club_name,member_number,badge_r,badge_g,badge_b\n\
+                           SP1AAA,SP-OTC,SP Old Timers Club,#104,239,68,68\n\
+                           SP2BBB,SP-OTC,SP Old Timers Club,#104,239,68,68\n";
+        std::fs::write(&csv_file, csv_content).unwrap();
+
+        let loaded = ClubRegistry::load_from_csv(&csv_file).unwrap();
+        assert_eq!(loaded.get("SP1AAA").unwrap().len(), 1);
+        assert!(!loaded.contains_key("SP2BBB"));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
     fn club_registry_rejects_conflicting_duplicate_within_same_club() {
         let temp_dir =
             std::env::temp_dir().join(format!("splog_clubs_conf_{}", rand::random::<u64>()));
@@ -341,6 +408,40 @@ mod tests {
         let loaded = ClubRegistry::load_from_csv(&csv_file).unwrap();
         assert_eq!(loaded.get("SP1AAA").unwrap().len(), 1);
         assert!(!loaded.contains_key("SP2BBB"));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn club_registry_accepts_idempotent_duplicate() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("splog_clubs_idem_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let csv_file = temp_dir.join("test_clubs.csv");
+        let csv_content = "callsign,club_code,club_name,member_number,badge_r,badge_g,badge_b\n\
+                           SP1AAA,SP-OTC,SP Old Timers Club,#104,239,68,68\n\
+                           SP1AAA,SP-OTC,SP Old Timers Club,#104,239,68,68\n";
+        std::fs::write(&csv_file, csv_content).unwrap();
+
+        let loaded = ClubRegistry::load_from_csv(&csv_file).unwrap();
+        assert_eq!(loaded.get("SP1AAA").unwrap().len(), 1);
+        assert_eq!(loaded["SP1AAA"][0].number.as_deref(), Some("#104"));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn club_registry_rejects_same_membership_with_conflicting_number() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("splog_clubs_same_conf_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let csv_file = temp_dir.join("test_clubs.csv");
+        let csv_content = "callsign,club_code,club_name,member_number,badge_r,badge_g,badge_b\n\
+                           SP1AAA,SP-OTC,SP Old Timers Club,#104,239,68,68\n\
+                           SP1AAA,SP-OTC,SP Old Timers Club,#999,239,68,68\n";
+        std::fs::write(&csv_file, csv_content).unwrap();
+
+        let loaded = ClubRegistry::load_from_csv(&csv_file).unwrap();
+        assert_eq!(loaded.get("SP1AAA").unwrap().len(), 1);
+        assert_eq!(loaded["SP1AAA"][0].number.as_deref(), Some("#104"));
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
 
@@ -480,6 +581,28 @@ mod tests {
     fn club_registry_does_not_invent_member_number() {
         let affs = ClubRegistry::check("ZZ0NONEXISTENT");
         assert_eq!(affs, []);
+    }
+
+    #[test]
+    fn club_registry_duplicate_policy_is_deterministic() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("splog_clubs_deter_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let csv_file = temp_dir.join("test_clubs.csv");
+        let csv_content = "callsign,club_code,club_name,member_number,badge_r,badge_g,badge_b\n\
+                           SP1AAA,SP-OTC,SP Old Timers Club,#104,239,68,68\n\
+                           SP1AAA,SP-OTC,SP Old Timers Club,#104,239,68,68\n\
+                           SP2BBB,SP-OTC,SP Old Timers Club,#104,239,68,68\n\
+                           SP1AAA,SP-OTC,SP Old Timers Club,#999,239,68,68\n";
+        std::fs::write(&csv_file, csv_content).unwrap();
+
+        let loaded1 = ClubRegistry::load_from_csv(&csv_file).unwrap();
+        let loaded2 = ClubRegistry::load_from_csv(&csv_file).unwrap();
+        assert_eq!(loaded1, loaded2);
+        assert_eq!(loaded1.get("SP1AAA").unwrap().len(), 1);
+        assert_eq!(loaded1["SP1AAA"][0].number.as_deref(), Some("#104"));
+        assert!(!loaded1.contains_key("SP2BBB"));
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 
     #[test]
