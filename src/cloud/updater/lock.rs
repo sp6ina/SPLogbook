@@ -209,16 +209,16 @@ pub fn evaluate_lock_status(
     active_attempt_id: Option<UpdateAttemptId>,
 ) -> Result<Option<UpdateLockRecord>, UpdaterError> {
     let lock_path = installation_root.join(UPDATE_LOCK_FILENAME);
-    if !lock_path.exists() {
-        return Ok(None);
-    }
-
-    let bytes = fs::read(&lock_path).map_err(|e| {
-        UpdaterError::Io(format!(
-            "Nie można odczytać pliku blokady {}: {e}",
-            lock_path.display()
-        ))
-    })?;
+    let bytes = match fs::read(&lock_path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => {
+            return Err(UpdaterError::Io(format!(
+                "Nie można odczytać pliku blokady {}: {e}",
+                lock_path.display()
+            )));
+        }
+    };
 
     let record = serde_json::from_slice::<UpdateLockRecord>(&bytes).map_err(|_| {
         UpdaterError::LockCorrupt(format!(

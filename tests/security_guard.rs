@@ -2119,3 +2119,534 @@ fn updater_does_not_use_sudo_guard() {
         );
     }
 }
+
+// ============================================================================
+// M3-A: SECURITY GUARDS DLA RDZENIA PLATFORMOWEGO AKTUALIZATORA
+// ============================================================================
+
+#[test]
+fn attempt_id_has_no_unvalidated_constructor_guard() {
+    let source = fs::read_to_string("src/cloud/updater/attempt_id.rs")
+        .expect("src/cloud/updater/attempt_id.rs");
+
+    // Weryfikacja prywatnej reprezentacji
+    assert!(
+        source.contains("pub struct UpdateAttemptId(Uuid);"),
+        "UpdateAttemptId musi posiadać prywatne pole Uuid"
+    );
+
+    // Brak niezwalidowanych konstruktorów publicznych
+    for forbidden in [
+        "pub fn from_raw",
+        "pub fn from_uuid",
+        "pub fn new_unchecked",
+        "pub fn from_string",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "UpdateAttemptId nie może wystawiać niezwalidowanego konstruktora: {forbidden}"
+        );
+    }
+
+    // Walidacja poprawności parsowania i odrzucania niebezpiecznych danych
+    use splogbook::cloud::updater::UpdateAttemptId;
+    assert!(UpdateAttemptId::parse_str("").is_err());
+    assert!(UpdateAttemptId::parse_str("../traversal").is_err());
+    assert!(UpdateAttemptId::parse_str("invalid_uuid!").is_err());
+    assert!(UpdateAttemptId::parse_str("c:\\windows\\system32").is_err());
+}
+
+#[test]
+fn state_machine_has_no_unrestricted_setter_guard() {
+    let source =
+        fs::read_to_string("src/cloud/updater/state.rs").expect("src/cloud/updater/state.rs");
+
+    // Brak niekontrolowanego settera stanu
+    assert!(
+        !source.contains("pub fn set_state"),
+        "UpdateStateMachine nie może wystawiać publicznego set_state"
+    );
+    assert!(
+        !source.contains("pub fn set_current_state"),
+        "UpdateStateMachine nie może wystawiać publicznego set_current_state"
+    );
+
+    // Weryfikacja egzekwowania przejść w kodzie
+    use splogbook::cloud::updater::{UpdateStateId, UpdateStateMachine};
+    let mut sm = UpdateStateMachine::new();
+    assert_eq!(sm.current_state(), UpdateStateId::Idle);
+
+    // Próba nielegalnego skoku z Idle bezpośrednio do Applying
+    assert!(sm.transition_to(UpdateStateId::Applying).is_err());
+    assert_eq!(sm.current_state(), UpdateStateId::Idle);
+
+    // Próba nielegalnego skoku z Idle bezpośrednio do Committed
+    assert!(sm.transition_to(UpdateStateId::Committed).is_err());
+    assert_eq!(sm.current_state(), UpdateStateId::Idle);
+}
+
+#[test]
+fn cancellation_prohibited_from_applying_guard() {
+    use splogbook::cloud::updater::{UpdateStateId, can_cancel};
+
+    // Stany bezwzględnie nieanulowalne zgodnie z OWNER-M2-13
+    let non_cancellable = [
+        UpdateStateId::Applying,
+        UpdateStateId::LaunchingCandidate,
+        UpdateStateId::AwaitingHealth,
+        UpdateStateId::Committed,
+        UpdateStateId::FailedPostApply,
+        UpdateStateId::Rollback,
+        UpdateStateId::RollbackVerified,
+        UpdateStateId::Cleanup,
+    ];
+
+    for state in non_cancellable {
+        assert!(
+            !can_cancel(state),
+            "Stan {:?} musi być oznaczony jako NON-CANCELLABLE",
+            state
+        );
+    }
+}
+
+#[test]
+fn update_lock_uses_atomic_create_new_guard() {
+    let source =
+        fs::read_to_string("src/cloud/updater/lock.rs").expect("src/cloud/updater/lock.rs");
+
+    assert!(
+        source.contains(".create_new(true)"),
+        "Blokada .update.lock musi używać atomowego create_new(true)"
+    );
+
+    // Wykluczenie wzorca TOCTOU: if !exists() { create() }
+    assert!(
+        !source.contains("if !lock_path.exists()") && !source.contains("if !path.exists()"),
+        "Nabywanie blokady nie może zawierać anty-wzorca TOCTOU 'if !exists()'"
+    );
+}
+
+#[test]
+fn recovery_never_executes_apply_guard() {
+    use splogbook::cloud::updater::{
+        InstallationType, RecoveryContext, RecoveryDecisionEngine, UpdateAttemptId, UpdateStateId,
+    };
+
+    let all_states = [
+        UpdateStateId::Idle,
+        UpdateStateId::CheckingRelease,
+        UpdateStateId::FetchingManifest,
+        UpdateStateId::VerifyingManifest,
+        UpdateStateId::SelectingAsset,
+        UpdateStateId::Downloading,
+        UpdateStateId::VerifyingDownload,
+        UpdateStateId::InspectingPackage,
+        UpdateStateId::Staging,
+        UpdateStateId::BuildingUpdatePlan,
+        UpdateStateId::AwaitingApply,
+        UpdateStateId::Applying,
+        UpdateStateId::LaunchingCandidate,
+        UpdateStateId::AwaitingHealth,
+        UpdateStateId::Committed,
+        UpdateStateId::FailedPreApply,
+        UpdateStateId::FailedPostApply,
+        UpdateStateId::Rollback,
+        UpdateStateId::RollbackVerified,
+        UpdateStateId::Cleanup,
+    ];
+
+    let temp_dir = tempfile::tempdir().expect("tempdir");
+    let staging = temp_dir.path().join(".staging");
+
+    for state in all_states {
+        let attempt = UpdateAttemptId::generate();
+        let mut tx = splogbook::cloud::updater::UpdateTransaction::new(
+            attempt,
+            "1.3.0".into(),
+            "v1.3.0".into(),
+            "windows".into(),
+            "x86_64".into(),
+            "windows-portable-zip".into(),
+            InstallationType::WindowsPortableZip,
+            "abcdef1234567890".into(),
+            "SPLogbook-Windows-x64.zip".into(),
+            12_345_678,
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".into(),
+            staging.clone(),
+            temp_dir.path(),
+        )
+        .expect("valid tx");
+
+        tx.current_state = state;
+
+        let ctx = RecoveryContext {
+            expected_attempt_id: Some(attempt),
+            transaction: Some(tx),
+            lock_owner: Some(attempt),
+            lock_is_corrupt: false,
+            staging_exists: true,
+            backup_exists: true,
+            health_proof_valid: false,
+            installation_type: InstallationType::WindowsPortableZip,
+        };
+
+        let plan = RecoveryDecisionEngine::evaluate(&ctx);
+
+        assert_ne!(
+            plan.target_state,
+            Some(UpdateStateId::Applying),
+            "Recovery nigdy nie może automatycznie wznawiać stanu Applying dla {:?}",
+            state
+        );
+        assert_ne!(
+            plan.target_state,
+            Some(UpdateStateId::Downloading),
+            "Recovery nigdy nie może automatycznie wznawiać stanu Downloading dla {:?}",
+            state
+        );
+    }
+}
+
+#[test]
+fn unknown_installation_is_fail_closed_guard() {
+    use splogbook::cloud::updater::{
+        InstallationCapabilities, InstallationType, ManagementMode, RecoveryContext,
+        RecoveryDecision, RecoveryDecisionEngine,
+    };
+
+    let unknown = InstallationType::UnknownInstallation;
+    assert_eq!(
+        unknown.management_mode(),
+        ManagementMode::UnsupportedOrUnknown
+    );
+
+    let caps = InstallationCapabilities::for_installation_type(unknown);
+    assert!(!caps.supports_self_apply);
+    assert!(!caps.requires_delegation);
+    assert!(!caps.supports_native_rollback);
+
+    let ctx = RecoveryContext {
+        expected_attempt_id: None,
+        transaction: None,
+        lock_owner: None,
+        lock_is_corrupt: false,
+        staging_exists: false,
+        backup_exists: false,
+        health_proof_valid: false,
+        installation_type: unknown,
+    };
+
+    let plan = RecoveryDecisionEngine::evaluate(&ctx);
+    assert_eq!(plan.decision, RecoveryDecision::ManualInterventionRequired);
+    assert!(plan.requires_user_intervention);
+}
+
+#[test]
+fn system_managed_prohibits_direct_file_replacement_guard() {
+    use splogbook::cloud::updater::{InstallationCapabilities, InstallationType, ManagementMode};
+
+    let system_types = [
+        InstallationType::LinuxDeb,
+        InstallationType::LinuxRpm,
+        InstallationType::WindowsMsi,
+        InstallationType::WindowsInnoSetup,
+        InstallationType::LinuxFlatpak,
+    ];
+
+    for inst in system_types {
+        assert_eq!(
+            inst.management_mode(),
+            ManagementMode::SystemManaged,
+            "Typ {} musi być sklasyfikowany jako SystemManaged",
+            inst
+        );
+        let caps = InstallationCapabilities::for_installation_type(inst);
+        assert!(
+            !caps.supports_self_apply,
+            "Format systemowo zarządzany {} nie może pozwalać na bezpośrednią podmianę plików (supports_self_apply=false)",
+            inst
+        );
+    }
+}
+
+#[test]
+fn updater_contains_no_escalation_commands_guard() {
+    let updater_dir = std::path::Path::new("src/cloud/updater");
+    let mut files = vec![std::path::PathBuf::from("src/cloud/updater.rs")];
+
+    if updater_dir.exists() {
+        for entry in fs::read_dir(updater_dir).expect("read updater dir") {
+            let entry = entry.expect("dir entry");
+            if entry.path().extension().and_then(|s| s.to_str()) == Some("rs") {
+                files.push(entry.path());
+            }
+        }
+    }
+
+    for path in files {
+        let content = fs::read_to_string(&path).expect("read file");
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("//") || trimmed.starts_with("/*") || trimmed.starts_with('*') {
+                continue;
+            }
+
+            for forbidden in [
+                "\"sudo\"",
+                "\"sudo ",
+                "\"doas\"",
+                "\"doas ",
+                "\"pkexec\"",
+                "\"pkexec ",
+            ] {
+                assert!(
+                    !trimmed.contains(forbidden),
+                    "Plik {:?} zawiera zabronioną komendę eskalacji {forbidden}: {trimmed}",
+                    path
+                );
+            }
+
+            if trimmed.contains("runas") && trimmed.contains("Verb") {
+                panic!(
+                    "Plik {:?} zawiera eskalację uprawnień runas: {trimmed}",
+                    path
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn m3_a_data_preservation_matrix_guard() {
+    use splogbook::cloud::updater::is_protected_user_path;
+    use std::path::Path;
+
+    // Dane użytkownika — bezwzględna ochrona
+    let protected = [
+        "default_log.db",
+        "default_log.db-wal",
+        "default_log.db-shm",
+        "default_log.db-journal",
+        "station_config.json",
+        "config/settings.json",
+        "serviceLOG.db",
+        "serviceLOG.db-wal",
+        "callbook.db",
+        "callbook.db-wal",
+        "logs/2026_contest.adi",
+        "backup/contacts.adif",
+        "logs/arrl.cabrillo",
+    ];
+
+    for p in protected {
+        assert!(
+            is_protected_user_path(Path::new(p)),
+            "Ścieżka '{}' MUSI być rozpoznana jako chronione dane użytkownika",
+            p
+        );
+    }
+
+    // Zasoby aktualizatora — dozwolone do czyszczenia w transakcji
+    let disposable = [
+        "manifest.json",
+        "release.json",
+        ".update.lock",
+        ".update_transaction.json",
+        ".health_ok",
+        "SPLogbook.exe",
+        "splogbook-update.zip",
+        "splogbook-update.zip.part",
+        ".staging/new_binary",
+    ];
+
+    for p in disposable {
+        assert!(
+            !is_protected_user_path(Path::new(p)),
+            "Ścieżka tymczasowa '{}' NIE powinna być blokowana jako dane użytkownika",
+            p
+        );
+    }
+}
+
+#[test]
+fn m3_a_stability_100_iterations_fast_unit_tests() {
+    use splogbook::cloud::updater::{
+        DiskPreflightRequirements, InstallationType, RecoveryContext, RecoveryDecision,
+        RecoveryDecisionEngine, UpdateAttemptId, UpdateStateId, UpdateStateMachine, can_cancel,
+        is_protected_user_path,
+    };
+    use std::path::Path;
+
+    for _ in 0..100 {
+        // 1. Valid state transitions: Idle -> CheckingRelease -> FetchingManifest -> VerifyingManifest -> SelectingAsset -> Downloading -> VerifyingDownload -> InspectingPackage -> Staging -> BuildingUpdatePlan -> AwaitingApply -> Applying -> LaunchingCandidate -> AwaitingHealth -> Committed -> Cleanup -> Idle
+        let mut sm = UpdateStateMachine::new();
+        assert_eq!(sm.current_state(), UpdateStateId::Idle);
+        sm.transition_to(UpdateStateId::CheckingRelease)
+            .expect("step");
+        sm.transition_to(UpdateStateId::FetchingManifest)
+            .expect("step");
+        sm.transition_to(UpdateStateId::VerifyingManifest)
+            .expect("step");
+        sm.transition_to(UpdateStateId::SelectingAsset)
+            .expect("step");
+        sm.transition_to(UpdateStateId::Downloading).expect("step");
+        sm.transition_to(UpdateStateId::VerifyingDownload)
+            .expect("step");
+        sm.transition_to(UpdateStateId::InspectingPackage)
+            .expect("step");
+        sm.transition_to(UpdateStateId::Staging).expect("step");
+        sm.transition_to(UpdateStateId::BuildingUpdatePlan)
+            .expect("step");
+        sm.transition_to(UpdateStateId::AwaitingApply)
+            .expect("step");
+        sm.transition_to(UpdateStateId::Applying).expect("step");
+        sm.transition_to(UpdateStateId::LaunchingCandidate)
+            .expect("step");
+        sm.transition_to(UpdateStateId::AwaitingHealth)
+            .expect("step");
+        sm.transition_to(UpdateStateId::Committed).expect("step");
+        sm.transition_to(UpdateStateId::Cleanup).expect("step");
+        sm.transition_to(UpdateStateId::Idle).expect("step");
+
+        // 2. Invalid transitions
+        let mut bad_sm = UpdateStateMachine::new();
+        assert!(bad_sm.transition_to(UpdateStateId::Applying).is_err());
+        assert!(bad_sm.transition_to(UpdateStateId::Committed).is_err());
+
+        // 3. AttemptId round-trip & uniqueness
+        let a1 = UpdateAttemptId::generate();
+        let a2 = UpdateAttemptId::generate();
+        assert_ne!(a1, a2);
+        let s = a1.to_string();
+        let parsed = UpdateAttemptId::parse_str(&s).expect("round trip parse");
+        assert_eq!(a1, parsed);
+
+        // 4. RequiredSpace calculation
+        let preflight = DiskPreflightRequirements::calculate(
+            InstallationType::WindowsPortableZip,
+            10_000_000,
+            20_000_000,
+            30_000_000,
+            None,
+        )
+        .expect("preflight calc");
+        assert!(preflight.total_required_bytes > 60_000_000);
+
+        // 5. Cancellation policy check
+        assert!(can_cancel(UpdateStateId::Idle));
+        assert!(can_cancel(UpdateStateId::AwaitingApply));
+        assert!(!can_cancel(UpdateStateId::Applying));
+        assert!(!can_cancel(UpdateStateId::Committed));
+
+        // 6. Recovery decision check
+        let ctx = RecoveryContext {
+            expected_attempt_id: None,
+            transaction: None,
+            lock_owner: None,
+            lock_is_corrupt: false,
+            staging_exists: false,
+            backup_exists: false,
+            health_proof_valid: false,
+            installation_type: InstallationType::WindowsPortableZip,
+        };
+        let plan = RecoveryDecisionEngine::evaluate(&ctx);
+        assert_eq!(plan.decision, RecoveryDecision::NoRecoveryNeeded);
+
+        // 7. Protected path classification
+        assert!(is_protected_user_path(Path::new("default_log.db")));
+        assert!(is_protected_user_path(Path::new("station_config.json")));
+        assert!(!is_protected_user_path(Path::new("manifest.json")));
+    }
+}
+
+#[test]
+fn m3_a_stability_20_iterations_concurrent_and_io_tests() {
+    use splogbook::cloud::updater::{
+        HealthProof, InstallationType, UpdateAttemptId, UpdateLockGuard, UpdateTransaction,
+    };
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::thread;
+
+    for _ in 0..20 {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let root = temp_dir.path();
+
+        // 1. Concurrent lock race (5 threads, exactly 1 winner)
+        let root_arc = Arc::new(root.to_path_buf());
+        let success_count = Arc::new(AtomicUsize::new(0));
+        let error_count = Arc::new(AtomicUsize::new(0));
+
+        let mut handles = Vec::new();
+        for _ in 0..5 {
+            let r = Arc::clone(&root_arc);
+            let sc = Arc::clone(&success_count);
+            let ec = Arc::clone(&error_count);
+            handles.push(thread::spawn(move || {
+                let attempt = UpdateAttemptId::generate();
+                match UpdateLockGuard::acquire(&r, attempt) {
+                    Ok(guard) => {
+                        sc.fetch_add(1, Ordering::SeqCst);
+                        thread::sleep(std::time::Duration::from_millis(5));
+                        drop(guard);
+                    }
+                    Err(_) => {
+                        ec.fetch_add(1, Ordering::SeqCst);
+                    }
+                }
+            }));
+        }
+
+        for h in handles {
+            h.join().expect("thread join");
+        }
+
+        assert_eq!(
+            success_count.load(Ordering::SeqCst),
+            1,
+            "Dokładnie jeden wątek musi nabyć blokadę concurrency"
+        );
+        assert_eq!(
+            error_count.load(Ordering::SeqCst),
+            4,
+            "Dokładnie 4 wątki muszą otrzymać błąd LockContended"
+        );
+
+        // 2. Transaction persistence round-trip
+        let attempt = UpdateAttemptId::generate();
+        let staging = root.join(".staging");
+        let tx = UpdateTransaction::new(
+            attempt,
+            "1.3.0".into(),
+            "v1.3.0".into(),
+            "windows".into(),
+            "x86_64".into(),
+            "windows-portable-zip".into(),
+            InstallationType::WindowsPortableZip,
+            "abcdef1234567890".into(),
+            "SPLogbook-Windows-x64.zip".into(),
+            12_345_678,
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".into(),
+            staging,
+            root,
+        )
+        .expect("tx new");
+
+        tx.save_to_dir(root).expect("save tx");
+        let loaded_tx = UpdateTransaction::load_from_dir(root, root)
+            .expect("load tx")
+            .expect("tx exists");
+        assert_eq!(tx.attempt_id, loaded_tx.attempt_id);
+
+        // 3. Health proof validation
+        let proof = HealthProof::new(
+            attempt,
+            "1.3.0",
+            "abcdef",
+            "windows-x86_64",
+            InstallationType::WindowsPortableZip,
+        );
+        assert!(proof.validate(&attempt, "1.3.0", "abcdef", 15).is_ok());
+    }
+}
