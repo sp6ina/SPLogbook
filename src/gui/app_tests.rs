@@ -1619,6 +1619,7 @@ fn idle_repaint_test_does_not_depend_on_wall_clock_boundary() {
     };
     let mut app = SpLogApp::for_tests(init, deps);
     app.gui.chrome.show_welcome_wizard = false;
+    app.mock_subsec_millis = Some(0);
     let ctx = egui::Context::default();
     app.set_egui_ctx(ctx.clone());
 
@@ -1678,6 +1679,7 @@ fn idle_gui_does_not_request_continuous_repaint() {
     };
     let mut app = SpLogApp::for_tests(init, deps);
     app.gui.chrome.show_welcome_wizard = false;
+    app.mock_subsec_millis = Some(0);
     let ctx = egui::Context::default();
     app.set_egui_ctx(ctx.clone());
 
@@ -1746,6 +1748,7 @@ fn cat_event_requests_repaint() {
     };
     let mut app = SpLogApp::for_tests(init, deps);
     app.gui.chrome.show_welcome_wizard = false;
+    app.mock_subsec_millis = Some(0);
     let ctx = egui::Context::default();
     app.set_egui_ctx(ctx.clone());
 
@@ -1786,6 +1789,7 @@ fn unchanged_cat_state_does_not_cause_repaint_storm() {
     };
     let mut app = SpLogApp::for_tests(init, deps);
     app.gui.chrome.show_welcome_wizard = false;
+    app.mock_subsec_millis = Some(0);
     let ctx = egui::Context::default();
     app.set_egui_ctx(ctx.clone());
 
@@ -1854,6 +1858,7 @@ fn configuration_change_requests_single_repaint() {
     };
     let mut app = SpLogApp::for_tests(init, deps);
     app.gui.chrome.show_welcome_wizard = false;
+    app.mock_subsec_millis = Some(0);
     let ctx = egui::Context::default();
     app.set_egui_ctx(ctx.clone());
 
@@ -1891,6 +1896,7 @@ fn background_error_becomes_visible_without_continuous_polling() {
     };
     let mut app = SpLogApp::for_tests(init, deps);
     app.gui.chrome.show_welcome_wizard = false;
+    app.mock_subsec_millis = Some(0);
     let ctx = egui::Context::default();
     app.set_egui_ctx(ctx.clone());
 
