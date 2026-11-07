@@ -231,9 +231,26 @@ impl SpLogApp {
                         ui.add_space(10.0);
                         let diag_label = tr(key::APP_ABOUT_DIAGNOSTICS, lang);
                         egui::CollapsingHeader::new(diag_label).show(ui, |ui| {
+                            let build_id = crate::core::build_info::BuildIdentity::current();
                             ui.horizontal(|ui| {
                                 ui.label(tr(key::APP_DIAG_VERSION, lang));
-                                ui.monospace(env!("CARGO_PKG_VERSION"));
+                                ui.monospace(build_id.package_version);
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label("Commit:");
+                                ui.monospace(format!(
+                                    "{} ({})",
+                                    build_id.git_commit_short,
+                                    if build_id.git_dirty { "dirty" } else { "clean" }
+                                ));
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label("Kanał / Profil:");
+                                ui.monospace(format!(
+                                    "{} / {}",
+                                    build_id.channel.as_str(),
+                                    build_id.profile.as_str()
+                                ));
                             });
                             ui.horizontal(|ui| {
                                 ui.label(tr(key::APP_DIAG_PLATFORM, lang));
@@ -260,8 +277,11 @@ impl SpLogApp {
                             let copy_diag = tr(key::APP_DIAG_COPY_BTN, lang);
                             if ui.button(copy_diag).clicked() {
                                 let info = format!(
-                                    "SPLogbook {} | OS: {} {} | Theme: {} | Config: {}",
-                                    env!("CARGO_PKG_VERSION"),
+                                    "SPLogbook {} (commit: {}, channel: {}, profile: {}) | OS: {} {} | Theme: {} | Config: {}",
+                                    crate::core::build_info::BuildIdentity::current().package_version,
+                                    crate::core::build_info::BuildIdentity::current().git_commit_short,
+                                    crate::core::build_info::BuildIdentity::current().channel.as_str(),
+                                    crate::core::build_info::BuildIdentity::current().profile.as_str(),
                                     std::env::consts::OS,
                                     std::env::consts::ARCH,
                                     self.gui.appearance.theme_preset.id(),

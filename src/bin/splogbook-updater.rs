@@ -113,7 +113,14 @@ fn main() -> ExitCode {
 
     match mode {
         HelperCliMode::DiagnosticVersion => {
-            println!("splogbook-updater 1.2.0 (Windows Helper M3-B)");
+            let id = splogbook::core::build_info::BuildIdentity::current();
+            println!(
+                "splogbook-updater {} (commit: {}, channel: {}, profile: {})",
+                id.package_version,
+                id.git_commit_short,
+                id.channel.as_str(),
+                id.profile.as_str()
+            );
             ExitCode::SUCCESS
         }
         HelperCliMode::ValidateRequestOnly { request_path } => {
