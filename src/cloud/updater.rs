@@ -668,6 +668,16 @@ impl VerifiedReleaseManifest {
             )));
         }
 
+        // Ścisła walidacja kanonicznej nazwy pliku dla Windows x86_64
+        if target_platform == ReleasePlatform::Windows
+            && target_arch == ReleaseArchitecture::X86_64
+            && filename != "SPLogbook-Windows-x64.zip"
+        {
+            return Err(UpdaterError::SafetyGate(format!(
+                "Nazwa pliku w manifeście '{filename}' nie odpowiada oczekiwanej nazwie 'SPLogbook-Windows-x64.zip' dla Windows x86_64"
+            )));
+        }
+
         // Walidacja rozmiaru
         if m_asset.size == 0 || m_asset.size > MAX_ARTIFACT_DOWNLOAD_SIZE {
             return Err(UpdaterError::FileTooLarge);
@@ -2772,13 +2782,22 @@ pub async fn install_update(asset: &VerifiedReleaseAsset) -> Result<(), UpdaterE
     #[cfg(target_os = "windows")]
     {
         if asset.platform() != ReleasePlatform::Windows
+            || asset.arch() != ReleaseArchitecture::X86_64
             || asset.package_type() != ReleasePackageType::Zip
-            || !asset.filename().to_ascii_lowercase().ends_with(".zip")
+            || asset.filename() != "SPLogbook-Windows-x64.zip"
         {
             return Err(UpdaterError::SafetyGate(
-                "Niewłaściwy typ paczki dla systemu Windows (wymagany zweryfikowany ZIP)"
+                "Niewłaściwy typ paczki dla systemu Windows x86_64 (wymagany zweryfikowany SPLogbook-Windows-x64.zip)"
                     .to_string(),
             ));
+        }
+
+        let detect_ctx = InstallationDetectionContext::default();
+        let inst_type = detect_installation_with_context(parent, &detect_ctx)?;
+        if inst_type != InstallationType::WindowsPortableZip {
+            return Err(UpdaterError::SafetyGate(format!(
+                "Wykryto niezgodny typ instalacji: {inst_type:?} (wymagany WindowsPortableZip)"
+            )));
         }
     }
 
@@ -2795,16 +2814,65 @@ pub async fn install_update(asset: &VerifiedReleaseAsset) -> Result<(), UpdaterE
         }
     }
 
+    let attempt_id = UpdateAttemptId::generate();
+
     #[cfg(target_os = "windows")]
-    let tmp_path = parent.join(format!(".SPLogbook_update_{}.zip", std::process::id()));
+    let tmp_path = parent.join(format!(".SPLogbook_update_{attempt_id}.zip"));
     #[cfg(not(target_os = "windows"))]
-    let tmp_path = parent.join(format!(".SPLogbook_update_{}.tar.gz", std::process::id()));
+    let tmp_path = parent.join(format!(".SPLogbook_update_{attempt_id}.tar.gz"));
+
+    #[cfg(target_os = "windows")]
+    let lock_guard = UpdateLockGuard::acquire(parent, attempt_id)?;
+
+    #[cfg(target_os = "windows")]
+    let mut tx = {
+        let staging_path = parent.join(".staging");
+        let mut t = UpdateTransaction::new(
+            attempt_id,
+            asset.bound_manifest_version().to_string(),
+            format!("v{}", asset.bound_manifest_version()),
+            "windows".to_string(),
+            "x86_64".to_string(),
+            "windows-portable-zip".to_string(),
+            InstallationType::WindowsPortableZip,
+            asset.bound_commit().to_string(),
+            asset.filename().to_string(),
+            asset.declared_size(),
+            asset.declared_sha256().to_string(),
+            staging_path,
+            parent,
+        )?;
+        t.commit_identity = Some(asset.bound_commit().to_string());
+        t.lock_identity = Some(format!("{}:{}", std::process::id(), attempt_id));
+        t.rollback_path = Some(parent.join(".rollback"));
+        t.health_proof_path = Some(parent.join(HEALTH_PROOF_FILENAME));
+        t.transition_to(UpdateStateId::CheckingRelease)?;
+        t.transition_to(UpdateStateId::FetchingManifest)?;
+        t.transition_to(UpdateStateId::VerifyingManifest)?;
+        t.transition_to(UpdateStateId::SelectingAsset)?;
+        t.transition_to(UpdateStateId::Downloading)?;
+        t.save_to_dir(parent)?;
+        t
+    };
 
     // 1. Pobierz plik bezpośrednio z browser_download_url powiązanego ze zweryfikowanym assetem
     let dl_result = download_verified_asset(asset, &tmp_path).await;
     if let Err(e) = dl_result {
         let _ = tokio::fs::remove_file(&tmp_path).await;
+        #[cfg(target_os = "windows")]
+        {
+            tx.failure_stage = Some(UpdateStateId::Downloading);
+            tx.sanitized_diagnostic_summary = Some(e.to_string());
+            let _ = tx.transition_to(UpdateStateId::FailedPreApply);
+            let _ = tx.save_to_dir(parent);
+        }
         return Err(e);
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        tx.transition_to(UpdateStateId::VerifyingDownload)?;
+        tx.save_to_dir(parent)?;
     }
 
     // 2. Weryfikacja rozmiaru i SHA-256 pobranego pliku lokalnego
@@ -2812,6 +2880,13 @@ pub async fn install_update(asset: &VerifiedReleaseAsset) -> Result<(), UpdaterE
         Ok(d) => d,
         Err(e) => {
             let _ = tokio::fs::remove_file(&tmp_path).await;
+            #[cfg(target_os = "windows")]
+            {
+                tx.failure_stage = Some(UpdateStateId::VerifyingDownload);
+                tx.sanitized_diagnostic_summary = Some(e.to_string());
+                let _ = tx.transition_to(UpdateStateId::FailedPreApply);
+                let _ = tx.save_to_dir(parent);
+            }
             return Err(UpdaterError::Io(format!(
                 "Błąd odczytu pobranego pliku: {e}"
             )));
@@ -2820,16 +2895,39 @@ pub async fn install_update(asset: &VerifiedReleaseAsset) -> Result<(), UpdaterE
 
     if asset.declared_size() > 0 && data.len() as u64 != asset.declared_size() {
         let _ = tokio::fs::remove_file(&tmp_path).await;
+        #[cfg(target_os = "windows")]
+        {
+            tx.failure_stage = Some(UpdateStateId::VerifyingDownload);
+            tx.sanitized_diagnostic_summary =
+                Some("Rozmiar pliku nie zgadza się ze zweryfikowanym manifestem".into());
+            let _ = tx.transition_to(UpdateStateId::FailedPreApply);
+            let _ = tx.save_to_dir(parent);
+        }
         return Err(UpdaterError::SizeMismatch);
     }
 
     if !verify_sha256(&data, asset.declared_sha256()) {
         let _ = tokio::fs::remove_file(&tmp_path).await;
+        #[cfg(target_os = "windows")]
+        {
+            tx.failure_stage = Some(UpdateStateId::VerifyingDownload);
+            tx.sanitized_diagnostic_summary =
+                Some("Suma kontrolna SHA-256 nie zgadza się ze zweryfikowanym manifestem".into());
+            let _ = tx.transition_to(UpdateStateId::FailedPreApply);
+            let _ = tx.save_to_dir(parent);
+        }
         return Err(UpdaterError::HashMismatch);
     }
 
     // 3. Podmień plik wykonywalny i uruchom ponownie.
-    self_replace(&current, &tmp_path)
+    #[cfg(target_os = "windows")]
+    {
+        self_replace(&current, &tmp_path, asset, attempt_id, &mut tx, lock_guard)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        self_replace(&current, &tmp_path)
+    }
 }
 
 /// Sprawdza, czy pobierany plik nie jest archiwum, co mogłoby uszkodzić instalację.
@@ -2856,8 +2954,15 @@ pub fn check_safety_gate(asset: &ReleaseAsset) -> Result<(), UpdaterError> {
 
 /// Podmienia działający plik wykonywalny nową wersją.
 #[cfg(target_os = "windows")]
-fn self_replace(current: &Path, new: &Path) -> Result<(), UpdaterError> {
-    install_via_windows_helper(current, new)
+fn self_replace(
+    current: &Path,
+    new: &Path,
+    asset: &VerifiedReleaseAsset,
+    attempt_id: UpdateAttemptId,
+    tx: &mut UpdateTransaction,
+    lock_guard: UpdateLockGuard,
+) -> Result<(), UpdaterError> {
+    install_via_windows_helper(current, new, asset, attempt_id, tx, lock_guard)
 }
 
 /// Podmienia działający plik wykonywalny nową wersją (systemy Unix).
@@ -3006,7 +3111,14 @@ pub fn generate_powershell_update_script(exe: &Path, pid: u32, plan: &UpdatePlan
 /// 2. CONTROLLED COMPATIBILITY FALLBACK: Utwardzony skrypt PowerShell (`powershell_fallback`),
 ///    respektujący identyczną politykę bezpieczeństwa i brak eskalacji uprawnień.
 #[cfg(target_os = "windows")]
-fn install_via_windows_helper(current: &Path, new: &Path) -> Result<(), UpdaterError> {
+fn install_via_windows_helper(
+    current: &Path,
+    new: &Path,
+    asset: &VerifiedReleaseAsset,
+    attempt_id: UpdateAttemptId,
+    _tx: &mut UpdateTransaction,
+    _lock_guard: UpdateLockGuard,
+) -> Result<(), UpdaterError> {
     let base_dir = current.parent().ok_or_else(|| {
         UpdaterError::ExePath("Brak katalogu nadrzędnego dla pliku wykonywalnego".to_string())
     })?;
@@ -3032,14 +3144,13 @@ fn install_via_windows_helper(current: &Path, new: &Path) -> Result<(), UpdaterE
     // 2. PRIMARY TARGET: Natywny pomocnik Rust splogbook-updater.exe
     let native_helper = base_dir.join("splogbook-updater.exe");
     if native_helper.exists() {
-        let attempt_id = UpdateAttemptId::generate();
         let plan_identity = UpdatePlanIdentity::from_plan(
             attempt_id,
             base_dir,
             &plan,
             "SPLogbook.exe",
-            env!("CARGO_PKG_VERSION"),
-            "0000000000000000000000000000000000000000",
+            asset.bound_manifest_version(),
+            asset.bound_commit(),
             "windows-x86_64",
         );
         if let Ok(plan_identity) = plan_identity {
@@ -3058,8 +3169,8 @@ fn install_via_windows_helper(current: &Path, new: &Path) -> Result<(), UpdaterE
                 candidate_executable,
                 expected_parent_pid: std::process::id(),
                 expected_current_binary_identity: None,
-                expected_target_version: env!("CARGO_PKG_VERSION").to_string(),
-                expected_target_commit: "0000000000000000000000000000000000000000".to_string(),
+                expected_target_version: asset.bound_manifest_version().to_string(),
+                expected_target_commit: asset.bound_commit().to_string(),
                 update_management_mode: ManagementMode::SelfManaged,
                 update_plan_identity: plan_identity,
                 plan_digest,
@@ -6272,6 +6383,88 @@ mod tests {
             b"ORIGINAL PRODUCTION DATABASE"
         );
         assert_eq!(std::fs::read(&active_cfg).unwrap(), b"ORIGINAL USER CONFIG");
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn windows_manifest_asset_selection_enforces_canonical_filename() {
+        let manifest = ReleaseManifest {
+            manifest_version: 1,
+            key_id: "test".into(),
+            product: "SPLogbook".into(),
+            version: "1.2.1".into(),
+            channel: "stable".into(),
+            minimum_updater_version: "1.1.0".into(),
+            commit: "0123456789abcdef0123456789abcdef01234567".into(),
+            assets: vec![ManifestAsset {
+                platform: "windows".into(),
+                arch: "x86_64".into(),
+                package_type: "zip".into(),
+                filename: "wrong-name.zip".into(), // Niekanoniczna nazwa pliku dla Windows
+                size: 1000,
+                sha256: "0000000000000000000000000000000000000000000000000000000000000001".into(),
+            }],
+        };
+        let verified = VerifiedReleaseManifest {
+            manifest,
+            signing_key_id: "test".into(),
+            signing_key_fingerprint: "abc".into(),
+        };
+
+        let res = verified.select_asset_for_platform(
+            ReleasePlatform::Windows,
+            ReleaseArchitecture::X86_64,
+            &[],
+        );
+        assert!(matches!(res, Err(UpdaterError::SafetyGate(_))));
+    }
+
+    #[test]
+    fn windows_portable_zip_transaction_lifecycle_entry() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("test_tx_lifecycle_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let attempt_id = UpdateAttemptId::generate();
+        let staging_path = temp_dir.join(".staging");
+        let mut tx = UpdateTransaction::new(
+            attempt_id,
+            "1.2.1".to_string(),
+            "v1.2.1".to_string(),
+            "windows".to_string(),
+            "x86_64".to_string(),
+            "windows-portable-zip".to_string(),
+            InstallationType::WindowsPortableZip,
+            "0123456789abcdef0123456789abcdef01234567".to_string(),
+            "SPLogbook-Windows-x64.zip".to_string(),
+            1000,
+            "0000000000000000000000000000000000000000000000000000000000000001".to_string(),
+            staging_path,
+            &temp_dir,
+        )
+        .unwrap();
+
+        assert_eq!(tx.current_state, UpdateStateId::Idle);
+        tx.transition_to(UpdateStateId::CheckingRelease).unwrap();
+        tx.transition_to(UpdateStateId::FetchingManifest).unwrap();
+        tx.transition_to(UpdateStateId::VerifyingManifest).unwrap();
+        tx.transition_to(UpdateStateId::SelectingAsset).unwrap();
+        tx.transition_to(UpdateStateId::Downloading).unwrap();
+        tx.transition_to(UpdateStateId::VerifyingDownload).unwrap();
+
+        tx.save_to_dir(&temp_dir).unwrap();
+
+        let loaded = UpdateTransaction::load_from_dir(&temp_dir, &temp_dir)
+            .unwrap()
+            .unwrap();
+        assert_eq!(loaded.attempt_id, attempt_id);
+        assert_eq!(loaded.current_state, UpdateStateId::VerifyingDownload);
+        assert_eq!(loaded.asset_filename, "SPLogbook-Windows-x64.zip");
+        assert_eq!(
+            loaded.installation_type,
+            InstallationType::WindowsPortableZip
+        );
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
