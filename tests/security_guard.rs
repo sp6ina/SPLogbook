@@ -1604,7 +1604,107 @@ fn ci_workflow_runs_workspace_tests() {
 }
 
 #[test]
-fn ci_workflow_runs_cargo_audit() {
+fn ci_uses_pinned_cargo_audit_version() {
+    let content = fs::read_to_string(".github/workflows/ci.yml").expect("read ci.yml");
+    assert!(
+        content.contains("cargo install cargo-audit --version 0.22.2 --locked"),
+        "CI workflow must install strictly pinned cargo-audit version with --locked"
+    );
+}
+
+#[test]
+fn ci_audit_does_not_ignore_all_warnings() {
+    let content = fs::read_to_string(".github/workflows/ci.yml").expect("read ci.yml");
+    assert!(
+        !content.contains("--ignore all") && !content.contains("ignore = [\"*\"]"),
+        "CI cargo audit must not use broad wildcard ignores"
+    );
+}
+
+#[test]
+fn ci_audit_uses_explicit_advisory_ids() {
+    let content = fs::read_to_string(".github/workflows/ci.yml").expect("read ci.yml");
+    let audit_line = content
+        .lines()
+        .find(|l| l.trim().starts_with("cargo audit"))
+        .expect("must have cargo audit line");
+    assert!(
+        !audit_line.contains('*'),
+        "Cargo audit line must not contain wildcard characters"
+    );
+    for part in audit_line.split_whitespace() {
+        if part.starts_with("RUSTSEC-") {
+            assert!(
+                part.len() >= 17,
+                "Advisory ID must be fully qualified RUSTSEC-YYYY-NNNN, got: {part}"
+            );
+        }
+    }
+}
+
+#[test]
+fn ci_audit_allowed_advisories_match_documented_baseline() {
+    let content = fs::read_to_string(".github/workflows/ci.yml").expect("read ci.yml");
+    let expected_ids = [
+        "RUSTSEC-2024-0436",
+        "RUSTSEC-2025-0141",
+        "RUSTSEC-2026-0249",
+        "RUSTSEC-2026-0370",
+        "RUSTSEC-2026-0371",
+        "RUSTSEC-2026-0372",
+        "RUSTSEC-2026-0097",
+    ];
+    for id in expected_ids {
+        assert!(
+            content.contains(id),
+            "CI workflow must explicitly list baseline advisory {id}"
+        );
+    }
+}
+
+#[test]
+fn ci_audit_new_unknown_advisory_would_fail() {
+    let content = fs::read_to_string(".github/workflows/ci.yml").expect("read ci.yml");
+    let audit_line = content
+        .lines()
+        .find(|l| l.trim().starts_with("cargo audit"))
+        .expect("must have cargo audit line");
+    assert!(
+        audit_line.contains("--deny warnings"),
+        "Cargo audit must enforce --deny warnings so unallowed warnings/advisories fail CI"
+    );
+}
+
+#[test]
+fn ci_audit_does_not_disable_vulnerability_failures() {
+    let content = fs::read_to_string(".github/workflows/ci.yml").expect("read ci.yml");
+    let audit_line = content
+        .lines()
+        .find(|l| l.trim().starts_with("cargo audit"))
+        .expect("must have cargo audit line");
+    assert!(
+        !audit_line.contains("--no-vulnerabilities"),
+        "Cargo audit must never disable vulnerability failures"
+    );
+}
+
+#[test]
+fn ci_audit_does_not_modify_cargo_manifests() {
+    let content = fs::read_to_string(".github/workflows/ci.yml").expect("read ci.yml");
+    let audit_step = content
+        .lines()
+        .skip_while(|l| !l.contains("Install and run cargo audit"))
+        .take(10)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        !audit_step.contains("cargo update"),
+        "CI audit step must not execute cargo update or modify Cargo manifests"
+    );
+}
+
+#[test]
+fn ci_runs_cargo_audit() {
     let content = fs::read_to_string(".github/workflows/ci.yml").expect("read ci.yml");
     assert!(
         content.contains("cargo audit"),

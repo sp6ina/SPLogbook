@@ -513,6 +513,8 @@ mod tests {
         let source_clone = source.clone();
         let stop_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let stop_flag_clone = stop_flag.clone();
+        let writer_started = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let writer_started_clone = writer_started.clone();
 
         let writer_thread = std::thread::spawn(move || {
             let conn = Connection::open(&source_clone).unwrap();
@@ -523,12 +525,23 @@ mod tests {
                     "INSERT INTO logs (msg) VALUES (?1)",
                     rusqlite::params![format!("msg_{i}")],
                 );
+                if i == 0 {
+                    writer_started_clone.store(true, std::sync::atomic::Ordering::Release);
+                }
                 i += 1;
                 std::thread::sleep(Duration::from_millis(5));
             }
         });
 
-        // W czasie trwania zapisów wykonaj backup
+        // Poczekaj na wstawienie co najmniej jednego rekordu przed rozpoczęciem snapshotu
+        let start_wait = std::time::Instant::now();
+        while !writer_started.load(std::sync::atomic::Ordering::Acquire)
+            && start_wait.elapsed() < Duration::from_secs(2)
+        {
+            std::thread::sleep(Duration::from_millis(2));
+        }
+
+        // W czasie trwania kolejnych zapisów wykonaj backup
         std::thread::sleep(Duration::from_millis(30));
         let backup_path = BackupManager::backup_database(&source, &backup_dir).unwrap();
         assert!(backup_path.exists());
