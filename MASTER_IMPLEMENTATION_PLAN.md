@@ -288,12 +288,16 @@ Utworzenie, uzgodnienie i zweryfikowanie trzech kompletnych dokumentĂłw projek
 # 10. Etap M3: Implementacja Windows i Linux
 
 - **M3 STATUS:** **IN_PROGRESS**
+- **CURRENT PUBLIC STABLE:** 1.2.0 (reprezentowane przez niezmieniony tag 1.2.0)
+- **CURRENT DEVELOPMENT:** 1.3.0-alpha.1 (aktywny kod źródłowy, centralny BuildIdentity)
+- **PUBLIC RELEASE STATUS:** NOT PUBLISHED (brak tagów, brak publikacji, brak zewnętrznych kluczy)
 - **M3-A STATUS:** **COMPLETED_SOFTWARE_VERIFIED** (Implementacja wspolnego rdzenia platformowego, modelu transakcji, 20-stanowego automatu i mechanizmow recovery aktualizatora SPLogbook zamknieta w STAGE-M3-A-PLATFORM-CORE-IMPLEMENTATION-GATE)
 - **M3-B STATUS:** **COMPLETED_SOFTWARE_VERIFIED** (Implementacja natywnego pomocnika Windows splogbook-updater.exe, protokolu IPC, weryfikacji HealthProof, rollbacku i utwardzonego fallbacku PowerShell zamknieta w STAGE-M3-B-WINDOWS-HELPERS-IMPLEMENTATION-GATE oraz formalnie potwierdzona w STAGE-M3-B-CLOSURE-VERIFICATION-GATE)
 - **M3-C STATUS:** **COMPLETED_SOFTWARE_VERIFIED** (Produkcyjna integracja Windows Portable ZIP ze zweryfikowanym manifestem, UpdatePlan, natywnym helperem Windows i utwardzonym fallbackiem PowerShell zamknieta w STAGE-M3-C-WINDOWS-PORTABLE-ZIP-INTEGRATION-GATE)
-- **M3-D STATUS:** **READY_FOR_IMPLEMENTATION** (Integracja Windows User Setup / Inno Setup — STAGE-M3-D-WINDOWS-USER-SETUP-INTEGRATION-GATE)
+- **M3-DEV-VERSION-IDENTITY STATUS:** **COMPLETED_SOFTWARE_VERIFIED** (Eliminacja niejednoznaczności wersji, wprowadzenie wersji rozwojowej 1.3.0-alpha.1, centralnego BuildIdentity, wczesnych flag CLI --version/--build-info/--diagnostic-version, weryfikacji tożsamości HealthProof oraz ewaluacji kanałów i SemVer 2.0 zamknieta w STAGE-M3-DEV-VERSION-IDENTITY-GATE)
+- **M3-D STATUS:** **READY_FOR_IMPLEMENTATION, NOT STARTED** (Integracja Windows User Setup / Inno Setup — STAGE-M3-D-WINDOWS-USER-SETUP-INTEGRATION-GATE: READY_FOR_IMPLEMENTATION, NOT STARTED)
 - **Dalsze etapy M3 (instalatory Windows i pakiety Linux):**
-  - M3-D: Integracja Windows User Setup / Inno Setup (gdy dotyczy)
+  - M3-D: Integracja Windows User Setup / Inno Setup (READY_FOR_IMPLEMENTATION, NOT STARTED)
   - M3-E: Integracja Windows System Setup / MSI (gdy dotyczy)
   - M3-F: Integracja Linux Portable tar.gz
   - M3-G: Integracja Linux AppImage

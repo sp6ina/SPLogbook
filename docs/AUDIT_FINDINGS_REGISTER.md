@@ -1,7 +1,11 @@
 # Rejestr Znalezisk Audytowych SPLogbook (`AUDIT_FINDINGS_REGISTER.md`)
 
 **Dokument audytowy:** `docs/AUDIT_FINDINGS_REGISTER.md`
-**Projekt:** SPLogbook (`v1.2.0`)
+**Projekt:** SPLogbook
+- **CURRENT PUBLIC STABLE:** `1.2.0` (reprezentowane przez niezmieniony tag `v1.2.0`)
+- **CURRENT DEVELOPMENT:** `1.3.0-alpha.1` (centralny BuildIdentity, aktywny kod źródłowy)
+- **PUBLIC RELEASE STATUS:** `NOT PUBLISHED` (nieopublikowane)
+- **STAGE M3-D STATUS:** `STAGE-M3-D-WINDOWS-USER-SETUP-INTEGRATION-GATE: READY_FOR_IMPLEMENTATION, NOT STARTED`
 **GaĹ‚Ä…Ĺş referencyjna:** `main` (`6f7d3aaa3b6a54e87b481c142a5b690bcf8b5592`)
 **Skala krytycznoĹ›ci:** `BLOCKER`, `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `INFO`
 **Skala pewnoĹ›ci:** `CONFIRMED`, `HIGH CONFIDENCE`, `SUSPECTED`, `NOT VERIFIED`

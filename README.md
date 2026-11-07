@@ -10,7 +10,9 @@
   <img src="https://img.shields.io/badge/GUI-egui_%2F_eframe-blueviolet.svg" alt="egui">
   <img src="https://img.shields.io/badge/License-GPLv3-blue.svg" alt="License">
   <img src="https://img.shields.io/badge/Platform-Windows_%7C_GNU%2FLinux-blue.svg" alt="Platform">
-  <img src="https://img.shields.io/badge/Version-1.2.0-emerald.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Public_Stable-1.2.0-emerald.svg" alt="Public Stable Version">
+  <img src="https://img.shields.io/badge/Development-1.3.0--alpha.1-orange.svg" alt="Development Version">
+  <img src="https://img.shields.io/badge/Release_Status-Not_Published-yellow.svg" alt="Release Status">
   <a href="https://github.com/sp6ina/SPLogbook/actions"><img src="https://github.com/sp6ina/SPLogbook/actions/workflows/build-and-release.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/Tests-2279%2F2279_Passed-brightgreen.svg" alt="Tests">
   <img src="https://img.shields.io/badge/i18n-7_Languages-cyan.svg" alt="i18n">
@@ -22,6 +24,12 @@
 ---
 
 ## 🌟 Executive Summary
+
+> [!NOTE]
+> - **CURRENT PUBLIC STABLE:** `1.2.0` (immutable historical tag `v1.2.0`)
+> - **CURRENT DEVELOPMENT:** `1.3.0-alpha.1` (active development branch, unreleased)
+> - **PUBLIC RELEASE STATUS:** `NOT PUBLISHED`
+> - **STAGE M3-D STATUS:** `STAGE-M3-D-WINDOWS-USER-SETUP-INTEGRATION-GATE: READY_FOR_IMPLEMENTATION, NOT STARTED`
 
 **SPLogbook** is an advanced, high-performance amateur radio logging software and station automation console engineered from the ground up in **Rust**. Built with an immediate-mode user interface powered by `egui`/`eframe`, SPLogbook delivers instant sub-millisecond responsiveness, zero-garbage-collection pauses, complete memory safety, and cross-platform native performance across both **Windows 10/11 (64-bit)** and **GNU/Linux (x86_64, X11 & Wayland)** environments.
 
