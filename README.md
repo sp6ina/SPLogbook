@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/Platform-Windows_%7C_GNU%2FLinux-blue.svg" alt="Platform">
   <img src="https://img.shields.io/badge/Version-1.2.0-emerald.svg" alt="Version">
   <a href="https://github.com/sp6ina/SPLogbook/actions"><img src="https://github.com/sp6ina/SPLogbook/actions/workflows/build-and-release.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/Tests-2254%2F2254_Passed-brightgreen.svg" alt="Tests">
+  <img src="https://img.shields.io/badge/Tests-2279%2F2279_Passed-brightgreen.svg" alt="Tests">
   <img src="https://img.shields.io/badge/i18n-7_Languages-cyan.svg" alt="i18n">
   <a href="https://buycoffee.to/sp6ina"><img src="https://img.shields.io/badge/☕_Buy_Me_a_Coffee-buycoffee.to%2Fsp6ina-FFDD00?style=flat&logoColor=black" alt="Buy Me a Coffee"></a>
 </p>
@@ -382,7 +382,7 @@ A modern, asynchronous rig control subsystem powered by the `RigHub` multi-radio
 - **FlexRadio** — native SmartSDR TCP API (v2.0–3.x) with slice/meter subscriptions and automatic UDP discovery (port 4992).
 - **FLRig (XML-RPC)** — cross-platform rig control via FLDigi's companion server.
 - **TCI (WebSocket)** — high-speed Transceiver Control Interface for SDR platforms (SunSDR2, Thetis, ExpertSDR3).
-- **RF Safety & HIL Harness** — `TxArbiter` enforcing single-TX lockout and zero retry on `SetPtt(true)`, safe read-only probe (`ProbeState`), and laboratory Hardware-in-the-Loop harness (`src/cat/hil/`) requiring mandatory 50 Ω dummy load termination. Features a multi-axis evidence model separating `OfflineModel`, `SimulatedRuntime`, and `PhysicalRuntime` contexts with strict 8-variant evidence origin classification (`RepositoryMeasurement`, `SoftwareBaselineArtifact`, `ConfigurationArtifact`, `SyntheticOfflineFixture`, `MockRuntime`, `OperatorDeclaration`, `InstrumentInterface`, `PhysicalMeasurement`). Evaluates the 30 immutable canonical HIL-READY conditions plus 22 extended `HIL-X01`..`HIL-X22` requirements. Software baseline is fully verified and **PASSED** (297 deterministic offline HIL tests passed, 2254 total across the suite), while physical runtime execution (NATIVE-7B) remains formally **BLOCKED** pending physical test bench connection.
+- **RF Safety & HIL Harness** — `TxArbiter` enforcing single-TX lockout and zero retry on `SetPtt(true)`, safe read-only probe (`ProbeState`), and laboratory Hardware-in-the-Loop harness (`src/cat/hil/`) requiring mandatory 50 Ω dummy load termination. Features a multi-axis evidence model separating `OfflineModel`, `SimulatedRuntime`, and `PhysicalRuntime` contexts with strict 8-variant evidence origin classification (`RepositoryMeasurement`, `SoftwareBaselineArtifact`, `ConfigurationArtifact`, `SyntheticOfflineFixture`, `MockRuntime`, `OperatorDeclaration`, `InstrumentInterface`, `PhysicalMeasurement`). Evaluates the 30 immutable canonical HIL-READY conditions plus 22 extended `HIL-X01`..`HIL-X22` requirements. Software baseline is fully verified and **PASSED** (297 deterministic offline HIL tests passed, 2279 total across the suite), while physical runtime execution (NATIVE-7B) remains formally **BLOCKED** pending physical test bench connection.
 
 ---
 
@@ -567,8 +567,8 @@ Ensure you have the Rust toolchain (version $\ge 1.99.0$) installed.
 git clone https://github.com/sp6ina/SPLogbook.git
 cd SPLogbook
 
-# 2. Run automated test suite (2254 active tests)
-cargo test
+# 2. Run automated test suite (2279 active tests passed, 2289 registered)
+cargo test --workspace --all-targets
 
 # 3. Build optimized release binary with Link-Time Optimization (LTO)
 cargo build --release
@@ -592,6 +592,15 @@ cargo build --release
 The compiled standalone binary will be located at:
 - Windows: `target/release/SPLogbook.exe`
 - Linux: `target/release/SPLogbook`
+
+### 🧪 Automated Quality & Test Suite Verification
+- **Total Registered Tests**: 2289
+- **Total Executed Tests**: 2279
+- **Total Passed Tests**: 2279
+- **Total Failed Tests**: 0
+- **Total Ignored Tests**: 10 (Hardware-in-the-Loop lab harness, isolated in `tests/cat_native_7.rs`)
+- **HIL Ignored Tests**: 10
+- **Doc Tests**: 0
 
 ---
 
