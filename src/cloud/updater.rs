@@ -84,16 +84,27 @@ pub enum UpdaterError {
 }
 
 pub mod attempt_id;
+pub mod cancellation;
 pub mod capabilities;
+pub mod health;
 pub mod installation;
 pub mod lock;
 pub mod platform;
 pub mod preflight;
+pub mod recovery;
 pub mod state;
 pub mod transaction;
 
 pub use attempt_id::UpdateAttemptId;
+pub use cancellation::{
+    CancellationResult, can_cancel, execute_cancellation, is_protected_user_path,
+    verify_user_data_intact,
+};
 pub use capabilities::InstallationCapabilities;
+pub use health::{
+    CURRENT_HEALTH_PROOF_VERSION, DEFAULT_HEALTH_PROOF_MAX_AGE_SECS, HEALTH_PROOF_FILENAME,
+    HealthProof,
+};
 pub use installation::{
     InstallationDetectionContext, InstallationType, ManagementMode,
     detect_installation_with_context,
@@ -111,6 +122,7 @@ pub use preflight::{
     MAX_SAFETY_MARGIN_BYTES, MIN_SAFETY_MARGIN_BYTES, SystemCapacityProvider,
     TRANSACTION_METADATA_BYTES, verify_disk_preflight,
 };
+pub use recovery::{RecoveryContext, RecoveryDecision, RecoveryDecisionEngine, RecoveryPlan};
 pub use state::{UpdateStateId, UpdateStateMachine};
 pub use transaction::{
     CURRENT_RECORD_VERSION, CancellationStatus, RecoveryStatus, TRANSACTION_FILE_NAME,
