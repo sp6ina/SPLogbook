@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 // Asynchroniczny aktualizator baz referencyjnych (cty.dat, master.scp, lista użytkowników LoTW)
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Podsumowanie operacji aktualizacji baz referencyjnych.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -673,6 +673,323 @@ pub enum UpdateCheckOutcome {
     UpToDate { local: String },
     NewVersion(Box<LatestRelease>),
     Error(String),
+}
+
+/// Klasyfikacja plików w archiwum aktualizacji pod kątem ochrony danych użytkownika.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum UpdateFileClass {
+    /// Pliki binarne, biblioteki i zasoby programu bezpieczne do nadpisania.
+    ProgramFile,
+    /// Dane referencyjne. Zgodnie z zasadą UNKNOWN DATA CLASSIFICATION → DO NOT OVERWRITE,
+    /// jeśli plik istnieje lokalnie, NIE MOŻE zostać nadpisany bez migracji.
+    ReferenceData,
+    /// Ziarna pierwszej instalacji (np. początkowe bazy callbook / serviceLOG).
+    /// Kopiowane tylko wtedy, gdy plik docelowy NIE istnieje. Jeśli istnieje — zachowywane.
+    FirstInstallSeed,
+    /// Dane użytkownika (dzienniki łączności, pliki QSO, bazy robocze). Bezwzględny zakaz nadpisywania.
+    UserData,
+    /// Konfiguracja użytkownika (station_config.json, ustawienia). Bezwzględny zakaz nadpisywania.
+    UserConfiguration,
+    /// Dane podręczne (cache).
+    Cache,
+    /// Metadane wydania (manifesty, licencje, changelogi).
+    ReleaseMetadata,
+    /// Plik o nieznanej lub niepewnej klasyfikacji — domyślnie chroniony przed nadpisaniem (fail-closed).
+    Unknown,
+}
+
+/// Klasyfikuje ścieżkę względną pliku z paczki aktualizacyjnej pod kątem bezpieczeństwa danych.
+pub fn classify_update_path(rel_path: &Path) -> UpdateFileClass {
+    let path_str = rel_path
+        .to_string_lossy()
+        .replace('\\', "/")
+        .to_ascii_lowercase();
+    let file_name = rel_path
+        .file_name()
+        .and_then(|f| f.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let ext = rel_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase);
+    let ext_str = ext.as_deref();
+
+    // 1. Konfiguracja użytkownika - bezwzględny zakaz nadpisywania
+    if file_name == "station_config.json"
+        || path_str.starts_with("config/")
+        || ext_str == Some("conf")
+        || ext_str == Some("cfg")
+        || (ext_str == Some("json") && file_name != "manifest.json" && file_name != "release.json")
+    {
+        return UpdateFileClass::UserConfiguration;
+    }
+
+    // 2. Dane użytkownika - bezwzględny zakaz nadpisywania
+    if file_name == "default_log.db"
+        || file_name.starts_with("default_log.db")
+        || path_str.starts_with("logs/")
+        || path_str.starts_with("log/")
+        || ext_str == Some("adi")
+        || ext_str == Some("adif")
+        || ext_str == Some("cabrillo")
+        || file_name.ends_with(".db-wal")
+        || file_name.ends_with(".db-shm")
+        || file_name.ends_with(".db-journal")
+    {
+        return UpdateFileClass::UserData;
+    }
+
+    // 3. Ziarna baz danych w katalogu portable (serviceLOG.db, callbook.db itp.)
+    if path_str.starts_with("databases/")
+        || path_str.starts_with("database/")
+        || file_name == "servicelog.db"
+        || file_name == "callbook.db"
+    {
+        return UpdateFileClass::FirstInstallSeed;
+    }
+
+    // Inne bazy danych (.db, .sqlite) poza katalogiem databases/ to dane użytkownika
+    if ext_str == Some("db") || ext_str == Some("sqlite") || ext_str == Some("sqlite3") {
+        return UpdateFileClass::UserData;
+    }
+
+    // 4. Metadane wydania
+    if file_name == "manifest.json"
+        || file_name == "release.json"
+        || file_name == "release.sig"
+        || ext_str == Some("sig")
+        || file_name == "changelog.md"
+        || file_name == "readme.md"
+        || file_name == "license"
+        || file_name == "license.md"
+        || file_name == "license.txt"
+    {
+        return UpdateFileClass::ReleaseMetadata;
+    }
+
+    // 5. Pliki programu - jedyne uprawnione do nadpisania istniejących plików
+    if file_name == "splogbook.exe"
+        || file_name == "splogbook"
+        || ext_str == Some("dll")
+        || ext_str == Some("so")
+        || ext_str == Some("dylib")
+        || path_str.starts_with("resources/")
+        || path_str.starts_with("assets/")
+    {
+        return UpdateFileClass::ProgramFile;
+    }
+
+    // 6. Wszystko inne - fail-closed Unknown
+    UpdateFileClass::Unknown
+}
+
+/// Plan aktualizacji plików gwarantujący fail-closed ochronę danych użytkownika.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdatePlan {
+    /// Pliki programu przeznaczone do bezpiecznej podmiany (staging_rel, active_abs).
+    pub replace_files: Vec<(PathBuf, PathBuf)>,
+    /// Nowe pliki programu/seedów przeznaczone do utworzenia (staging_rel, active_abs).
+    pub create_files: Vec<(PathBuf, PathBuf)>,
+    /// Istniejące pliki użytkownika/konfiguracji/baz referencyjnych zachowywane bez zmian (active_abs, reason).
+    pub preserve_files: Vec<(PathBuf, String)>,
+    /// Pliki odrzucone z paczki aktualizacyjnej (np. nieznana klasyfikacja) (staging_rel, reason).
+    pub rejected_files: Vec<(PathBuf, String)>,
+}
+
+impl UpdatePlan {
+    /// Generuje deterministyczny plan aktualizacji porównując zawartość stagingu z katalogiem aktywnym.
+    /// Operacja nie wykonuje żadnych modyfikacji plików ani katalogów.
+    pub fn generate(staging_dir: &Path, active_dir: &Path) -> Result<Self, UpdaterError> {
+        let mut replace_files = Vec::new();
+        let mut create_files = Vec::new();
+        let mut preserve_files = Vec::new();
+        let mut rejected_files = Vec::new();
+
+        if !staging_dir.exists() {
+            return Err(UpdaterError::SafetyGate(
+                "Katalog stagingu nie istnieje podczas generowania planu aktualizacji".to_string(),
+            ));
+        }
+
+        // Iteracja deterministyczna - posortowane ścieżki
+        let mut entries = Vec::new();
+        for entry in walkdir::WalkDir::new(staging_dir).min_depth(1) {
+            let entry = entry.map_err(|e| {
+                UpdaterError::Io(format!("Błąd przeszukiwania katalogu stagingu: {e}"))
+            })?;
+            if entry.file_type().is_file() {
+                entries.push(entry.into_path());
+            }
+        }
+        entries.sort();
+
+        for staging_path in entries {
+            let rel_path = staging_path
+                .strip_prefix(staging_dir)
+                .map_err(|e| UpdaterError::Io(format!("Błąd wyznaczania ścieżki względnej: {e}")))?
+                .to_path_buf();
+
+            // Bezpieczeństwo ścieżek: zakaz komponentów nadrzędnych i bezwzględnych
+            for component in rel_path.components() {
+                match component {
+                    std::path::Component::Normal(_) => {}
+                    _ => {
+                        return Err(UpdaterError::SafetyGate(format!(
+                            "Niedozwolony komponent ścieżki w stagingu: {}",
+                            rel_path.display()
+                        )));
+                    }
+                }
+            }
+
+            let class = classify_update_path(&rel_path);
+            let active_path = active_dir.join(&rel_path);
+
+            if active_path.exists() {
+                match class {
+                    UpdateFileClass::ProgramFile => {
+                        // Wyłącznie pliki programu mogą zastąpić istniejące pliki
+                        replace_files.push((rel_path, active_path));
+                    }
+                    UpdateFileClass::FirstInstallSeed => {
+                        preserve_files.push((
+                            active_path,
+                            "Zachowano istniejącą bazę danych (ziarno instalacji nie nadpisuje danych)".to_string(),
+                        ));
+                    }
+                    UpdateFileClass::ReferenceData => {
+                        preserve_files.push((
+                            active_path,
+                            "Zachowano istniejącą bazę referencyjną (ochrona fail-closed)"
+                                .to_string(),
+                        ));
+                    }
+                    UpdateFileClass::UserData => {
+                        preserve_files.push((
+                            active_path,
+                            "Bezwzględna ochrona danych użytkownika (zakaz nadpisywania)"
+                                .to_string(),
+                        ));
+                    }
+                    UpdateFileClass::UserConfiguration => {
+                        preserve_files.push((
+                            active_path,
+                            "Bezwzględna ochrona konfiguracji użytkownika (zakaz nadpisywania)"
+                                .to_string(),
+                        ));
+                    }
+                    UpdateFileClass::Cache | UpdateFileClass::ReleaseMetadata => {
+                        preserve_files.push((
+                            active_path,
+                            format!("Zachowano istniejący plik ({class:?})"),
+                        ));
+                    }
+                    UpdateFileClass::Unknown => {
+                        // UNKNOWN DATA CLASSIFICATION -> DO NOT OVERWRITE
+                        preserve_files.push((
+                            active_path,
+                            "Zachowano istniejący plik (nieznana klasyfikacja - zasada fail-closed)".to_string(),
+                        ));
+                        rejected_files.push((
+                            rel_path,
+                            "Nieznany plik w paczce aktualizacyjnej próbuje odwołać się do istniejącego pliku".to_string(),
+                        ));
+                    }
+                }
+            } else {
+                // Plik nie istnieje w katalogu docelowym
+                match class {
+                    UpdateFileClass::ProgramFile
+                    | UpdateFileClass::FirstInstallSeed
+                    | UpdateFileClass::ReferenceData
+                    | UpdateFileClass::ReleaseMetadata
+                    | UpdateFileClass::UserData
+                    | UpdateFileClass::UserConfiguration
+                    | UpdateFileClass::Cache => {
+                        create_files.push((rel_path, active_path));
+                    }
+                    UpdateFileClass::Unknown => {
+                        rejected_files.push((
+                            rel_path,
+                            "Nieznana klasyfikacja nowego pliku w paczce aktualizacyjnej (fail-closed)".to_string(),
+                        ));
+                    }
+                }
+            }
+        }
+
+        Ok(Self {
+            replace_files,
+            create_files,
+            preserve_files,
+            rejected_files,
+        })
+    }
+
+    /// Weryfikuje reguły bezpieczeństwa planu aktualizacji przed przystąpieniem do jakichkolwiek zmian.
+    pub fn validate_safety(&self, expected_binary_name: &str) -> Result<(), UpdaterError> {
+        // 1. Odrzucenie w przypadku jakichkolwiek plików odrzuconych
+        if !self.rejected_files.is_empty() {
+            let sample: Vec<String> = self
+                .rejected_files
+                .iter()
+                .take(3)
+                .map(|(p, r)| format!("{}: {r}", p.display()))
+                .collect();
+            return Err(UpdaterError::SafetyGate(format!(
+                "Bramka bezpieczeństwa odrzuciła paczkę aktualizacyjną z powodu nieznanych plików: {}",
+                sample.join("; ")
+            )));
+        }
+
+        // 2. Weryfikacja replace_files: każdy plik musi być wyłącznie ProgramFile
+        for (rel, target) in &self.replace_files {
+            let class = classify_update_path(rel);
+            if class != UpdateFileClass::ProgramFile {
+                return Err(UpdaterError::SafetyGate(format!(
+                    "Próba podmiany pliku niebędącego plikiem programu: {} (klasa: {:?})",
+                    target.display(),
+                    class
+                )));
+            }
+        }
+
+        // 3. Sprawdzenie obecności głównej binarki w replace_files lub create_files
+        let has_binary = self.replace_files.iter().any(|(rel, _)| {
+            rel.file_name()
+                .and_then(|f| f.to_str())
+                .is_some_and(|name| name.eq_ignore_ascii_case(expected_binary_name))
+        }) || self.create_files.iter().any(|(rel, _)| {
+            rel.file_name()
+                .and_then(|f| f.to_str())
+                .is_some_and(|name| name.eq_ignore_ascii_case(expected_binary_name))
+        });
+
+        if !has_binary {
+            return Err(UpdaterError::SafetyGate(format!(
+                "Paczka aktualizacyjna nie zawiera głównego pliku wykonywalnego {expected_binary_name}"
+            )));
+        }
+
+        Ok(())
+    }
+
+    pub fn replace_count(&self) -> usize {
+        self.replace_files.len()
+    }
+
+    pub fn create_count(&self) -> usize {
+        self.create_files.len()
+    }
+
+    pub fn preserve_count(&self) -> usize {
+        self.preserve_files.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.replace_files.is_empty() && self.create_files.is_empty()
+    }
 }
 
 /// Zaufany klucz publiczny wbudowany w aplikację.
@@ -5378,5 +5695,246 @@ mod tests {
             res.is_err(),
             "Niepoprawny manifest musi zostać odrzucony przed jakimkolwiek apply"
         );
+    }
+
+    #[test]
+    fn update_file_classification_classifies_user_data_and_config() {
+        assert_eq!(
+            classify_update_path(Path::new("station_config.json")),
+            UpdateFileClass::UserConfiguration
+        );
+        assert_eq!(
+            classify_update_path(Path::new("config/settings.json")),
+            UpdateFileClass::UserConfiguration
+        );
+        assert_eq!(
+            classify_update_path(Path::new("default_log.db")),
+            UpdateFileClass::UserData
+        );
+        assert_eq!(
+            classify_update_path(Path::new("default_log.db-wal")),
+            UpdateFileClass::UserData
+        );
+        assert_eq!(
+            classify_update_path(Path::new("logs/2026.adi")),
+            UpdateFileClass::UserData
+        );
+        assert_eq!(
+            classify_update_path(Path::new("databases/serviceLOG.db")),
+            UpdateFileClass::FirstInstallSeed
+        );
+        assert_eq!(
+            classify_update_path(Path::new("databases/callbook.db")),
+            UpdateFileClass::FirstInstallSeed
+        );
+        assert_eq!(
+            classify_update_path(Path::new("SPLogbook.exe")),
+            UpdateFileClass::ProgramFile
+        );
+        assert_eq!(
+            classify_update_path(Path::new("splogbook")),
+            UpdateFileClass::ProgramFile
+        );
+        assert_eq!(
+            classify_update_path(Path::new("resources/icon.png")),
+            UpdateFileClass::ProgramFile
+        );
+        assert_eq!(
+            classify_update_path(Path::new("manifest.json")),
+            UpdateFileClass::ReleaseMetadata
+        );
+        assert_eq!(
+            classify_update_path(Path::new("CHANGELOG.md")),
+            UpdateFileClass::ReleaseMetadata
+        );
+        assert_eq!(
+            classify_update_path(Path::new("unknown_file.xyz")),
+            UpdateFileClass::Unknown
+        );
+    }
+
+    #[test]
+    fn update_plan_preserves_existing_portable_databases() {
+        let temp_dir = std::env::temp_dir().join(format!("test_plan_db_{}", rand::random::<u64>()));
+        let staging_dir = temp_dir.join("staging");
+        let active_dir = temp_dir.join("active");
+
+        std::fs::create_dir_all(staging_dir.join("databases")).unwrap();
+        std::fs::create_dir_all(active_dir.join("databases")).unwrap();
+
+        std::fs::write(staging_dir.join("SPLogbook.exe"), b"NEW BINARY").unwrap();
+        std::fs::write(active_dir.join("SPLogbook.exe"), b"OLD BINARY").unwrap();
+        std::fs::write(staging_dir.join("databases/serviceLOG.db"), b"NEW SEED").unwrap();
+        std::fs::write(staging_dir.join("databases/callbook.db"), b"NEW SEED").unwrap();
+
+        let active_service_db = active_dir.join("databases/serviceLOG.db");
+        let active_callbook_db = active_dir.join("databases/callbook.db");
+        std::fs::write(&active_service_db, b"USER PRODUCTION SERVICE DB").unwrap();
+        std::fs::write(&active_callbook_db, b"USER PRODUCTION CALLBOOK DB").unwrap();
+
+        let plan = UpdatePlan::generate(&staging_dir, &active_dir).unwrap();
+
+        // serviceLOG.db i callbook.db muszą być w preserve_files i NIE w replace_files
+        let preserved_paths: Vec<_> = plan
+            .preserve_files
+            .iter()
+            .map(|(p, _)| p.as_path())
+            .collect();
+        assert!(preserved_paths.contains(&active_service_db.as_path()));
+        assert!(preserved_paths.contains(&active_callbook_db.as_path()));
+
+        let replaced_targets: Vec<_> = plan
+            .replace_files
+            .iter()
+            .map(|(_, t)| t.as_path())
+            .collect();
+        assert!(!replaced_targets.contains(&active_service_db.as_path()));
+        assert!(!replaced_targets.contains(&active_callbook_db.as_path()));
+
+        // Tylko binarka ma być w replace_files
+        assert_eq!(plan.replace_files.len(), 1);
+        assert_eq!(
+            plan.replace_files[0].0,
+            std::path::PathBuf::from("SPLogbook.exe")
+        );
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn update_plan_preserves_existing_user_config_and_qso_logs() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("test_plan_user_{}", rand::random::<u64>()));
+        let staging_dir = temp_dir.join("staging");
+        let active_dir = temp_dir.join("active");
+
+        std::fs::create_dir_all(&staging_dir).unwrap();
+        std::fs::create_dir_all(&active_dir).unwrap();
+
+        std::fs::write(staging_dir.join("SPLogbook.exe"), b"NEW BINARY").unwrap();
+        std::fs::write(staging_dir.join("station_config.json"), b"DEFAULT TEMPLATE").unwrap();
+        std::fs::write(staging_dir.join("default_log.db"), b"EMPTY LOG").unwrap();
+
+        let active_config = active_dir.join("station_config.json");
+        let active_log = active_dir.join("default_log.db");
+        std::fs::write(&active_config, b"USER SECRET CALLSIGN AND CONFIG").unwrap();
+        std::fs::write(&active_log, b"USER 10000 QSOS").unwrap();
+
+        let plan = UpdatePlan::generate(&staging_dir, &active_dir).unwrap();
+
+        let preserved_paths: Vec<_> = plan
+            .preserve_files
+            .iter()
+            .map(|(p, _)| p.as_path())
+            .collect();
+        assert!(preserved_paths.contains(&active_config.as_path()));
+        assert!(preserved_paths.contains(&active_log.as_path()));
+
+        let replaced_targets: Vec<_> = plan
+            .replace_files
+            .iter()
+            .map(|(_, t)| t.as_path())
+            .collect();
+        assert!(!replaced_targets.contains(&active_config.as_path()));
+        assert!(!replaced_targets.contains(&active_log.as_path()));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn update_plan_seeds_database_on_first_install() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("test_plan_seed_{}", rand::random::<u64>()));
+        let staging_dir = temp_dir.join("staging");
+        let active_dir = temp_dir.join("active");
+
+        std::fs::create_dir_all(staging_dir.join("databases")).unwrap();
+        std::fs::create_dir_all(&active_dir).unwrap();
+
+        std::fs::write(staging_dir.join("SPLogbook.exe"), b"NEW BINARY").unwrap();
+        std::fs::write(staging_dir.join("databases/serviceLOG.db"), b"INITIAL SEED").unwrap();
+
+        let plan = UpdatePlan::generate(&staging_dir, &active_dir).unwrap();
+
+        let created_rel: Vec<_> = plan.create_files.iter().map(|(r, _)| r.as_path()).collect();
+        assert!(created_rel.contains(&std::path::Path::new("databases/serviceLOG.db")));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn update_plan_deterministic_and_no_io_side_effects() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("test_plan_det_{}", rand::random::<u64>()));
+        let staging_dir = temp_dir.join("staging");
+        let active_dir = temp_dir.join("active");
+
+        std::fs::create_dir_all(staging_dir.join("databases")).unwrap();
+        std::fs::create_dir_all(active_dir.join("databases")).unwrap();
+
+        std::fs::write(staging_dir.join("SPLogbook.exe"), b"EXE").unwrap();
+        std::fs::write(staging_dir.join("databases/callbook.db"), b"SEED").unwrap();
+        std::fs::write(active_dir.join("databases/callbook.db"), b"EXISTING").unwrap();
+
+        let plan1 = UpdatePlan::generate(&staging_dir, &active_dir).unwrap();
+        let plan2 = UpdatePlan::generate(&staging_dir, &active_dir).unwrap();
+
+        assert_eq!(
+            plan1, plan2,
+            "Plan aktualizacji musi być w pełni deterministyczny"
+        );
+
+        // Weryfikacja braku modyfikacji plików w aktywnym katalogu
+        let active_data = std::fs::read(active_dir.join("databases/callbook.db")).unwrap();
+        assert_eq!(active_data, b"EXISTING");
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn update_plan_rejects_unknown_files_fail_closed() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("test_plan_unk_{}", rand::random::<u64>()));
+        let staging_dir = temp_dir.join("staging");
+        let active_dir = temp_dir.join("active");
+
+        std::fs::create_dir_all(&staging_dir).unwrap();
+        std::fs::create_dir_all(&active_dir).unwrap();
+
+        std::fs::write(staging_dir.join("SPLogbook.exe"), b"EXE").unwrap();
+        std::fs::write(staging_dir.join("untrusted_payload.sh"), b"UNTRUSTED").unwrap();
+
+        let plan = UpdatePlan::generate(&staging_dir, &active_dir).unwrap();
+        assert_ne!(plan.rejected_files.len(), 0);
+
+        let safety_res = plan.validate_safety("SPLogbook.exe");
+        assert!(
+            matches!(safety_res, Err(UpdaterError::SafetyGate(_))),
+            "Bramka bezpieczeństwa musi odrzucić plan z nieznanymi plikami"
+        );
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn update_plan_requires_main_binary() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("test_plan_nobin_{}", rand::random::<u64>()));
+        let staging_dir = temp_dir.join("staging");
+        let active_dir = temp_dir.join("active");
+
+        std::fs::create_dir_all(&staging_dir).unwrap();
+        std::fs::create_dir_all(&active_dir).unwrap();
+
+        std::fs::write(staging_dir.join("README.md"), b"DOCS").unwrap();
+
+        let plan = UpdatePlan::generate(&staging_dir, &active_dir).unwrap();
+        let safety_res = plan.validate_safety("SPLogbook.exe");
+        assert!(
+            matches!(safety_res, Err(UpdaterError::SafetyGate(_))),
+            "Bramka bezpieczeństwa musi wymagać obecności głównego pliku wykonywalnego"
+        );
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }
