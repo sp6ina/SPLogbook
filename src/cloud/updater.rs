@@ -86,7 +86,9 @@ pub enum UpdaterError {
 pub mod attempt_id;
 pub mod capabilities;
 pub mod installation;
+pub mod lock;
 pub mod platform;
+pub mod preflight;
 pub mod state;
 pub mod transaction;
 
@@ -96,9 +98,18 @@ pub use installation::{
     InstallationDetectionContext, InstallationType, ManagementMode,
     detect_installation_with_context,
 };
+pub use lock::{
+    UPDATE_LOCK_FILENAME, UPDATE_LOCK_RECORD_VERSION, UpdateLockGuard, UpdateLockRecord,
+    evaluate_lock_status,
+};
 pub use platform::{
     CandidateProcessHandle, DelegationResult, FakePlatformAdapter, PackageInspectionReport,
     PlatformInstallerAdapter, SanitizedDiagnosticReport,
+};
+pub use preflight::{
+    CapacityProvider, DEFAULT_SAFETY_MARGIN_BYTES, DiskPreflightRequirements, FakeCapacityProvider,
+    MAX_SAFETY_MARGIN_BYTES, MIN_SAFETY_MARGIN_BYTES, SystemCapacityProvider,
+    TRANSACTION_METADATA_BYTES, verify_disk_preflight,
 };
 pub use state::{UpdateStateId, UpdateStateMachine};
 pub use transaction::{
