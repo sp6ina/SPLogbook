@@ -2577,22 +2577,28 @@ fn m3_a_stability_20_iterations_concurrent_and_io_tests() {
         let root_arc = Arc::new(root.to_path_buf());
         let success_count = Arc::new(AtomicUsize::new(0));
         let error_count = Arc::new(AtomicUsize::new(0));
+        let start_barrier = Arc::new(std::sync::Barrier::new(5));
+        let done_barrier = Arc::new(std::sync::Barrier::new(5));
 
         let mut handles = Vec::new();
         for _ in 0..5 {
             let r = Arc::clone(&root_arc);
             let sc = Arc::clone(&success_count);
             let ec = Arc::clone(&error_count);
+            let sb = Arc::clone(&start_barrier);
+            let db = Arc::clone(&done_barrier);
             handles.push(thread::spawn(move || {
                 let attempt = UpdateAttemptId::generate();
+                sb.wait();
                 match UpdateLockGuard::acquire(&r, attempt) {
                     Ok(guard) => {
                         sc.fetch_add(1, Ordering::SeqCst);
-                        thread::sleep(std::time::Duration::from_millis(5));
+                        db.wait();
                         drop(guard);
                     }
                     Err(_) => {
                         ec.fetch_add(1, Ordering::SeqCst);
+                        db.wait();
                     }
                 }
             }));
@@ -2648,5 +2654,733 @@ fn m3_a_stability_20_iterations_concurrent_and_io_tests() {
             InstallationType::WindowsPortableZip,
         );
         assert!(proof.validate(&attempt, "1.3.0", "abcdef", 15).is_ok());
+    }
+}
+
+// ============================================================================
+// M3-B: Bezpieczeństwo i stabilność pomocnika Windows i fallbacku PowerShell
+// ============================================================================
+
+#[test]
+fn m3_b_windows_updater_has_no_network_or_url_guard() {
+    let files_to_check = [
+        "src/bin/splogbook-updater.rs",
+        "src/cloud/updater/windows_helper.rs",
+        "src/cloud/updater/helper_protocol.rs",
+    ];
+
+    for file_path in &files_to_check {
+        let path = std::path::Path::new(file_path);
+        if !path.exists() {
+            continue;
+        }
+        let content = fs::read_to_string(path).expect("read file");
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("//") || trimmed.starts_with("/*") || trimmed.starts_with('*') {
+                continue;
+            }
+
+            for forbidden in [
+                "reqwest",
+                "hyper",
+                "ureq",
+                "TcpStream",
+                "UdpSocket",
+                "http://",
+                "https://",
+                "ftp://",
+            ] {
+                assert!(
+                    !trimmed.contains(forbidden),
+                    "Plik {file_path} zawiera zabronione odwołanie sieciowe/URL '{forbidden}': {trimmed}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn m3_b_windows_updater_has_no_shell_or_cmd_or_runas_guard() {
+    let files_to_check = [
+        "src/bin/splogbook-updater.rs",
+        "src/cloud/updater/windows_helper.rs",
+    ];
+
+    for file_path in &files_to_check {
+        let path = std::path::Path::new(file_path);
+        if !path.exists() {
+            continue;
+        }
+        let content = fs::read_to_string(path).expect("read file");
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("//") || trimmed.starts_with("/*") || trimmed.starts_with('*') {
+                continue;
+            }
+
+            for forbidden in [
+                "\"cmd\"",
+                "\"cmd.exe\"",
+                "\"powershell\"",
+                "\"powershell.exe\"",
+                "\"sh\"",
+                "\"bash\"",
+                "\"runas\"",
+                "\"sudo\"",
+                "\"doas\"",
+                "\"pkexec\"",
+            ] {
+                assert!(
+                    !trimmed.contains(forbidden),
+                    "Plik {file_path} zawiera zabronioną powłokę lub eskalację '{forbidden}': {trimmed}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn m3_b_powershell_fallback_has_no_wildcard_or_iex_guard() {
+    use std::path::{Path, PathBuf};
+
+    let fallback_path = Path::new("src/cloud/updater/powershell_fallback.rs");
+    assert!(fallback_path.exists(), "powershell_fallback.rs must exist");
+    let content = fs::read_to_string(fallback_path).expect("read fallback");
+
+    // Static code analysis of generator (excluding unit test assertions)
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("//")
+            || trimmed.starts_with("/*")
+            || trimmed.starts_with('*')
+            || trimmed.starts_with("assert!")
+        {
+            continue;
+        }
+        if trimmed.contains("#[cfg(test)]") {
+            break;
+        }
+        assert!(
+            !trimmed.contains("Invoke-Expression"),
+            "powershell_fallback.rs must not contain Invoke-Expression: {trimmed}"
+        );
+        assert!(
+            !trimmed.contains("iex "),
+            "powershell_fallback.rs must not contain iex: {trimmed}"
+        );
+        assert!(
+            !trimmed.contains("Invoke-WebRequest"),
+            "powershell_fallback.rs must not contain Invoke-WebRequest: {trimmed}"
+        );
+        assert!(
+            !trimmed.contains("DownloadFile"),
+            "powershell_fallback.rs must not contain DownloadFile: {trimmed}"
+        );
+    }
+
+    // Dynamic test of generated script
+    let plan = UpdatePlan {
+        replace_files: vec![(
+            PathBuf::from("SPLogbook.exe"),
+            PathBuf::from("C:\\SPLogbook\\SPLogbook.exe"),
+        )],
+        create_files: vec![(
+            PathBuf::from("resources/ikona.ico"),
+            PathBuf::from("C:\\SPLogbook\\resources\\ikona.ico"),
+        )],
+        preserve_files: vec![(
+            PathBuf::from("C:\\SPLogbook\\serviceLOG.db"),
+            "preserved".into(),
+        )],
+        rejected_files: vec![],
+    };
+
+    let script =
+        generate_powershell_update_script(Path::new("C:\\SPLogbook\\SPLogbook.exe"), 1234, &plan);
+
+    assert!(!script.contains("Invoke-Expression"));
+    assert!(!script.contains("iex"));
+    assert!(!script.contains("$staging\\*"));
+    assert!(!script.contains("$rollback\\*"));
+    assert!(!script.contains("Remove-Item *"));
+    assert!(!script.contains("Invoke-WebRequest"));
+    assert!(!script.contains("DownloadFile"));
+    assert!(!script.contains("-Verb RunAs"));
+    assert!(!script.contains("runas"));
+}
+
+#[test]
+fn m3_b_windows_updater_protects_user_databases_and_configs_guard() {
+    use splogbook::cloud::updater::helper_protocol::{
+        CURRENT_HELPER_REQUEST_VERSION, UpdatePlanIdentity, WindowsHelperRequest,
+        validate_and_normalize_relative_path,
+    };
+    use splogbook::cloud::updater::{ManagementMode, UpdateAttemptId, is_protected_user_path};
+    use std::path::{Path, PathBuf};
+
+    let protected_paths = [
+        "default_log.db",
+        "default_log.db-wal",
+        "default_log.db-shm",
+        "default_log.db-journal",
+        "station_config.json",
+        "config/settings.json",
+        "serviceLOG.db",
+        "serviceLOG.db-wal",
+        "callbook.db",
+        "callbook.db-wal",
+        "data/logs.sqlite",
+        "data/logs.sqlite3",
+        "logs/2026_contest.adi",
+        "backup/contacts.adif",
+        "logs/arrl.cabrillo",
+    ];
+
+    for path_str in &protected_paths {
+        let p = Path::new(path_str);
+        assert!(
+            is_protected_user_path(p),
+            "is_protected_user_path must reject {path_str}"
+        );
+
+        // Verification that helper request rejects plan containing protected user path
+        let attempt = UpdateAttemptId::generate();
+        let root = Path::new("C:\\SPLogbook");
+        let plan = UpdatePlan {
+            replace_files: vec![(PathBuf::from(path_str), root.join(path_str))],
+            create_files: vec![],
+            preserve_files: vec![],
+            rejected_files: vec![],
+        };
+        let plan_identity = UpdatePlanIdentity::from_plan(
+            attempt,
+            root,
+            &plan,
+            "SPLogbook.exe",
+            "1.2.1",
+            "0000000000000000000000000000000000000000",
+            "windows-x86_64",
+        )
+        .expect("plan identity");
+        let plan_digest = plan_identity.compute_digest();
+
+        let req = WindowsHelperRequest {
+            request_version: CURRENT_HELPER_REQUEST_VERSION,
+            attempt_id: attempt,
+            transaction_record_path: PathBuf::from("C:\\SPLogbook\\.update_transaction.json"),
+            installation_root: PathBuf::from("C:\\SPLogbook"),
+            current_executable: PathBuf::from("C:\\SPLogbook\\SPLogbook.exe"),
+            candidate_executable: PathBuf::from("C:\\SPLogbook\\.staging\\SPLogbook.exe"),
+            expected_parent_pid: 1234,
+            expected_current_binary_identity: None,
+            expected_target_version: "1.2.1".into(),
+            expected_target_commit: "0000000000000000000000000000000000000000".into(),
+            update_management_mode: ManagementMode::SelfManaged,
+            plan_digest,
+            update_plan_identity: plan_identity,
+            health_proof_path: PathBuf::from("C:\\SPLogbook\\.health_ok"),
+            parent_process_timeout_seconds: 5,
+            candidate_health_timeout_seconds: 5,
+            result_record_path: PathBuf::from("C:\\SPLogbook\\.update_result.json"),
+            diagnostic_log_path: PathBuf::from("C:\\SPLogbook\\.update.log"),
+        };
+
+        assert!(
+            req.validate().is_err(),
+            "Helper request validation must fail when plan contains protected path: {path_str}"
+        );
+    }
+
+    // Traversal, absolute, ADS, invalid device names
+    let unsafe_paths = [
+        "../escape.exe",
+        "subdir/../../root.exe",
+        r"C:\Windows\System32\evil.dll",
+        r"\SystemRoot\temp.bin",
+        "CON",
+        "PRN",
+        "AUX",
+        "NUL",
+        "COM1",
+        "LPT1",
+        "file.exe:stream",
+        "program.exe::$DATA",
+        "bad|char.exe",
+        "star*file.bin",
+        "quote\"name.exe",
+        "less<than.exe",
+    ];
+
+    for path_str in &unsafe_paths {
+        assert!(
+            validate_and_normalize_relative_path(Path::new(path_str)).is_err(),
+            "validate_and_normalize_relative_path must reject unsafe path {path_str}"
+        );
+    }
+
+    // Valid paths must pass
+    let safe_paths = [
+        "SPLogbook.exe",
+        "splogbook-updater.exe",
+        "resources/app_icon.ico",
+        "translations/pl/LC_MESSAGES/splogbook.mo",
+        "share/doc/README.txt",
+    ];
+
+    for path_str in &safe_paths {
+        assert!(
+            validate_and_normalize_relative_path(Path::new(path_str)).is_ok(),
+            "validate_and_normalize_relative_path must accept safe path {path_str}"
+        );
+    }
+}
+
+#[test]
+fn m3_b_stability_100_iterations_protocol_and_path_guards() {
+    use splogbook::cloud::updater::helper_protocol::{
+        CURRENT_HELPER_REQUEST_VERSION, UpdatePlanIdentity, WindowsHelperExitCode,
+        WindowsHelperRequest, validate_and_normalize_relative_path,
+    };
+    use splogbook::cloud::updater::{ManagementMode, UpdateAttemptId, UpdatePlan};
+    use std::path::{Path, PathBuf};
+
+    for i in 0..100 {
+        let attempt = UpdateAttemptId::generate();
+        let root = PathBuf::from(r"C:\TestApp\SPLogbook");
+        let plan = UpdatePlan {
+            replace_files: vec![(PathBuf::from("SPLogbook.exe"), root.join("SPLogbook.exe"))],
+            create_files: vec![(
+                format!("resources/new_asset_{i}.bin").into(),
+                root.join(format!("resources\\new_asset_{i}.bin")),
+            )],
+            preserve_files: vec![(root.join("serviceLOG.db"), "preserved".into())],
+            rejected_files: vec![],
+        };
+
+        let plan_identity = UpdatePlanIdentity::from_plan(
+            attempt,
+            &root,
+            &plan,
+            "SPLogbook.exe",
+            &format!("1.2.{}", i + 1),
+            &format!("{:040x}", i),
+            "windows-x86_64",
+        )
+        .expect("plan identity");
+        let plan_digest = plan_identity.compute_digest();
+
+        let req = WindowsHelperRequest {
+            request_version: CURRENT_HELPER_REQUEST_VERSION,
+            attempt_id: attempt,
+            transaction_record_path: root.join(".update_transaction.json"),
+            installation_root: root.clone(),
+            current_executable: root.join("SPLogbook.exe"),
+            candidate_executable: root.join(".staging").join("SPLogbook.exe"),
+            expected_parent_pid: 1000 + i,
+            expected_current_binary_identity: None,
+            expected_target_version: format!("1.2.{}", i + 1),
+            expected_target_commit: format!("{:040x}", i),
+            update_management_mode: ManagementMode::SelfManaged,
+            update_plan_identity: plan_identity,
+            plan_digest: plan_digest.clone(),
+            health_proof_path: root.join(".health_ok"),
+            parent_process_timeout_seconds: 15,
+            candidate_health_timeout_seconds: 10,
+            result_record_path: root.join(".update_helper_result.json"),
+            diagnostic_log_path: root.join(".update_helper.log"),
+        };
+
+        // 1. Serialization roundtrip
+        let json = serde_json::to_string(&req).expect("serialize req");
+        let deserialized: WindowsHelperRequest =
+            serde_json::from_str(&json).expect("deserialize req");
+        assert_eq!(req, deserialized);
+
+        // 2. Validation
+        assert!(req.validate().is_ok());
+
+        // 3. Digest mismatch detection
+        let mut tampered_req = req.clone();
+        tampered_req.plan_digest =
+            "0000000000000000000000000000000000000000000000000000000000000000".into();
+        assert!(tampered_req.validate().is_err());
+
+        // 4. Path traversal detection via validate_and_normalize_relative_path
+        assert!(validate_and_normalize_relative_path(Path::new("../splogbook.exe")).is_err());
+        assert!(
+            validate_and_normalize_relative_path(Path::new(r"C:\Windows\System32\cmd.exe"))
+                .is_err()
+        );
+
+        // 5. Exit codes roundtrip
+        for code in [
+            WindowsHelperExitCode::Success,
+            WindowsHelperExitCode::InvalidArguments,
+            WindowsHelperExitCode::UnsupportedRequestVersion,
+            WindowsHelperExitCode::InvalidAttemptId,
+            WindowsHelperExitCode::PlanDigestMismatch,
+            WindowsHelperExitCode::ParentProcessTimeout,
+            WindowsHelperExitCode::HealthTimeoutRollbackSucceeded,
+            WindowsHelperExitCode::UnsafePath,
+        ] {
+            let i_val = code.as_i32();
+            let parsed = WindowsHelperExitCode::from_i32(i_val);
+            assert_eq!(parsed, Some(code));
+        }
+    }
+}
+
+#[test]
+fn m3_b_stability_50_iterations_health_proof_and_rollback() {
+    use splogbook::cloud::updater::helper_protocol::{
+        CURRENT_HELPER_REQUEST_VERSION, UpdatePlanIdentity, WindowsHelperExitCode,
+        WindowsHelperRequest,
+    };
+    use splogbook::cloud::updater::windows_helper::{
+        CandidateLauncher, HelperCandidateChild, ProcessMonitor, WindowsHelperEngine,
+    };
+    use splogbook::cloud::updater::{
+        InstallationType, ManagementMode, UpdateAttemptId, UpdatePlan, UpdateTransaction,
+    };
+    use std::fs;
+    use std::path::{Path, PathBuf};
+
+    struct DeadProcessMonitor;
+    impl ProcessMonitor for DeadProcessMonitor {
+        fn is_process_running(
+            &self,
+            _pid: u32,
+            _name: &str,
+        ) -> Result<bool, WindowsHelperExitCode> {
+            Ok(false)
+        }
+    }
+
+    struct CrashingChild;
+    impl HelperCandidateChild for CrashingChild {
+        fn is_alive(&mut self) -> Result<bool, WindowsHelperExitCode> {
+            Ok(false)
+        }
+        fn terminate(&mut self) -> Result<(), WindowsHelperExitCode> {
+            Ok(())
+        }
+    }
+
+    struct CrashingCandidateLauncher;
+    impl CandidateLauncher for CrashingCandidateLauncher {
+        fn launch_candidate(
+            &self,
+            _exe: &Path,
+            _attempt: &UpdateAttemptId,
+            _proof_path: &Path,
+            _ver: &str,
+            _commit: &str,
+        ) -> Result<Box<dyn HelperCandidateChild>, WindowsHelperExitCode> {
+            Ok(Box::new(CrashingChild))
+        }
+    }
+
+    for i in 0..50 {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+
+        let original_content = format!("ORIGINAL_BINARY_CONTENT_{i}");
+        fs::write(root.join("SPLogbook.exe"), original_content.as_bytes()).expect("write original");
+        fs::write(root.join("serviceLOG.db"), b"SQLITE_USER_DATA").expect("write db");
+        fs::write(root.join("serviceLOG.db-wal"), b"SQLITE_WAL").expect("write wal");
+
+        let staging = root.join(".staging");
+        fs::create_dir_all(&staging).expect("create staging");
+        let candidate_content = format!("NEW_CANDIDATE_CONTENT_{i}");
+        fs::write(staging.join("SPLogbook.exe"), candidate_content.as_bytes())
+            .expect("write candidate");
+        fs::write(staging.join("new_feature.dat"), b"NEW_FEATURE_DAT").expect("write feature");
+
+        let attempt = UpdateAttemptId::generate();
+        let plan = UpdatePlan {
+            replace_files: vec![(PathBuf::from("SPLogbook.exe"), root.join("SPLogbook.exe"))],
+            create_files: vec![(
+                PathBuf::from("new_feature.dat"),
+                root.join("new_feature.dat"),
+            )],
+            preserve_files: vec![(root.join("serviceLOG.db"), "preserved".into())],
+            rejected_files: vec![],
+        };
+
+        let plan_identity = UpdatePlanIdentity::from_plan(
+            attempt,
+            root,
+            &plan,
+            "SPLogbook.exe",
+            "1.2.1",
+            "1111111111111111111111111111111111111111",
+            "windows-x86_64",
+        )
+        .expect("plan identity");
+        let plan_digest = plan_identity.compute_digest();
+
+        let mut tx = UpdateTransaction::new(
+            attempt,
+            "1.2.1".into(),
+            "v1.2.1".into(),
+            "windows".into(),
+            "x86_64".into(),
+            "windows-portable-zip".into(),
+            InstallationType::WindowsPortableZip,
+            "1111111111111111111111111111111111111111".into(),
+            "SPLogbook-Windows-x64.zip".into(),
+            5000,
+            "0000000000000000000000000000000000000000000000000000000000000000".into(),
+            staging.clone(),
+            root,
+        )
+        .expect("tx new");
+        tx.plan_digest = Some(plan_digest.clone());
+        tx.save_to_dir(root).expect("save tx");
+
+        let req = WindowsHelperRequest {
+            request_version: CURRENT_HELPER_REQUEST_VERSION,
+            attempt_id: attempt,
+            transaction_record_path: root.join(".update_transaction.json"),
+            installation_root: root.to_path_buf(),
+            current_executable: root.join("SPLogbook.exe"),
+            candidate_executable: staging.join("SPLogbook.exe"),
+            expected_parent_pid: 99999,
+            expected_current_binary_identity: None,
+            expected_target_version: "1.2.1".into(),
+            expected_target_commit: "1111111111111111111111111111111111111111".into(),
+            update_management_mode: ManagementMode::SelfManaged,
+            update_plan_identity: plan_identity,
+            plan_digest,
+            health_proof_path: root.join(".health_ok"),
+            parent_process_timeout_seconds: 1,
+            candidate_health_timeout_seconds: 1,
+            result_record_path: root.join(".update_helper_result.json"),
+            diagnostic_log_path: root.join(".update_helper.log"),
+        };
+
+        let monitor = DeadProcessMonitor;
+        let launcher = CrashingCandidateLauncher;
+        let mut engine = WindowsHelperEngine::new(&req, &monitor, &launcher);
+
+        let (exit_code, result) = engine.execute();
+
+        assert_eq!(
+            exit_code,
+            WindowsHelperExitCode::CandidateLaunchFailedRollbackSucceeded,
+            "Iteration {i}: Must rollback successfully when candidate crashes"
+        );
+        assert_eq!(
+            result.rollback_result,
+            Some(splogbook::cloud::updater::helper_protocol::RollbackResultKind::Success)
+        );
+
+        // Verify state after rollback:
+        // 1. Original binary restored
+        let restored_content =
+            fs::read_to_string(root.join("SPLogbook.exe")).expect("read restored");
+        assert_eq!(restored_content, original_content);
+
+        // 2. Created file removed
+        assert!(!root.join("new_feature.dat").exists());
+
+        // 3. User databases untouched
+        assert_eq!(
+            fs::read(root.join("serviceLOG.db")).expect("read db"),
+            b"SQLITE_USER_DATA"
+        );
+        assert_eq!(
+            fs::read(root.join("serviceLOG.db-wal")).expect("read wal"),
+            b"SQLITE_WAL"
+        );
+
+        // 4. Rollback directory preserved for retention (OWNER-M2-08/09)
+        assert!(root.join(".rollback").exists());
+    }
+}
+
+#[test]
+fn m3_b_stability_20_iterations_helper_parity_and_e2e_cycle() {
+    use splogbook::cloud::updater::helper_protocol::{
+        CURRENT_HELPER_REQUEST_VERSION, UpdatePlanIdentity, WindowsHelperExitCode,
+        WindowsHelperRequest,
+    };
+    use splogbook::cloud::updater::powershell_fallback::generate_powershell_from_request;
+    use splogbook::cloud::updater::windows_helper::{
+        CandidateLauncher, HelperCandidateChild, ProcessMonitor, WindowsHelperEngine,
+    };
+    use splogbook::cloud::updater::{
+        HealthProof, InstallationType, ManagementMode, UpdateAttemptId, UpdatePlan,
+        UpdateTransaction,
+    };
+    use std::fs;
+    use std::path::{Path, PathBuf};
+
+    struct DeadProcessMonitor;
+    impl ProcessMonitor for DeadProcessMonitor {
+        fn is_process_running(
+            &self,
+            _pid: u32,
+            _name: &str,
+        ) -> Result<bool, WindowsHelperExitCode> {
+            Ok(false)
+        }
+    }
+
+    struct HealthyChild;
+    impl HelperCandidateChild for HealthyChild {
+        fn is_alive(&mut self) -> Result<bool, WindowsHelperExitCode> {
+            Ok(true)
+        }
+        fn terminate(&mut self) -> Result<(), WindowsHelperExitCode> {
+            Ok(())
+        }
+    }
+
+    struct HealthyCandidateLauncher;
+    impl CandidateLauncher for HealthyCandidateLauncher {
+        fn launch_candidate(
+            &self,
+            _exe: &Path,
+            attempt: &UpdateAttemptId,
+            proof_path: &Path,
+            ver: &str,
+            commit: &str,
+        ) -> Result<Box<dyn HelperCandidateChild>, WindowsHelperExitCode> {
+            let proof = HealthProof::new(
+                *attempt,
+                ver,
+                commit,
+                "windows-x86_64",
+                InstallationType::WindowsPortableZip,
+            );
+            let json = serde_json::to_string_pretty(&proof).expect("proof json");
+            fs::write(proof_path, json).expect("write proof");
+            Ok(Box::new(HealthyChild))
+        }
+    }
+
+    for i in 0..20 {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+
+        let original_bin = format!("V1_OLD_BINARY_{i}");
+        fs::write(root.join("SPLogbook.exe"), original_bin.as_bytes()).expect("write bin");
+        fs::write(root.join("serviceLOG.db"), b"SQLITE_DATA").expect("write db");
+
+        let staging = root.join(".staging");
+        fs::create_dir_all(&staging).expect("create staging");
+        let candidate_bin = format!("V2_NEW_BINARY_{i}");
+        fs::write(staging.join("SPLogbook.exe"), candidate_bin.as_bytes())
+            .expect("write candidate");
+        fs::write(staging.join("asset.dat"), b"NEW_ASSET").expect("write asset");
+
+        let attempt = UpdateAttemptId::generate();
+        let plan = UpdatePlan {
+            replace_files: vec![(PathBuf::from("SPLogbook.exe"), root.join("SPLogbook.exe"))],
+            create_files: vec![(PathBuf::from("asset.dat"), root.join("asset.dat"))],
+            preserve_files: vec![(root.join("serviceLOG.db"), "preserved".into())],
+            rejected_files: vec![],
+        };
+
+        let plan_identity = UpdatePlanIdentity::from_plan(
+            attempt,
+            root,
+            &plan,
+            "SPLogbook.exe",
+            "1.2.1",
+            "2222222222222222222222222222222222222222",
+            "windows-x86_64",
+        )
+        .expect("plan identity");
+        let plan_digest = plan_identity.compute_digest();
+
+        let mut tx = UpdateTransaction::new(
+            attempt,
+            "1.2.1".into(),
+            "v1.2.1".into(),
+            "windows".into(),
+            "x86_64".into(),
+            "windows-portable-zip".into(),
+            InstallationType::WindowsPortableZip,
+            "2222222222222222222222222222222222222222".into(),
+            "SPLogbook-Windows-x64.zip".into(),
+            5000,
+            "0000000000000000000000000000000000000000000000000000000000000000".into(),
+            staging.clone(),
+            root,
+        )
+        .expect("tx new");
+        tx.plan_digest = Some(plan_digest.clone());
+        tx.save_to_dir(root).expect("save tx");
+
+        let req = WindowsHelperRequest {
+            request_version: CURRENT_HELPER_REQUEST_VERSION,
+            attempt_id: attempt,
+            transaction_record_path: root.join(".update_transaction.json"),
+            installation_root: root.to_path_buf(),
+            current_executable: root.join("SPLogbook.exe"),
+            candidate_executable: staging.join("SPLogbook.exe"),
+            expected_parent_pid: 99999,
+            expected_current_binary_identity: None,
+            expected_target_version: "1.2.1".into(),
+            expected_target_commit: "2222222222222222222222222222222222222222".into(),
+            update_management_mode: ManagementMode::SelfManaged,
+            update_plan_identity: plan_identity,
+            plan_digest,
+            health_proof_path: root.join(".health_ok"),
+            parent_process_timeout_seconds: 5,
+            candidate_health_timeout_seconds: 5,
+            result_record_path: root.join(".update_helper_result.json"),
+            diagnostic_log_path: root.join(".update_helper.log"),
+        };
+
+        // 1. Native Windows Helper execution
+        let monitor = DeadProcessMonitor;
+        let launcher = HealthyCandidateLauncher;
+        let mut engine = WindowsHelperEngine::new(&req, &monitor, &launcher);
+
+        let (exit_code, result) = engine.execute();
+        assert_eq!(
+            exit_code,
+            WindowsHelperExitCode::Success,
+            "Native helper must succeed"
+        );
+        assert_eq!(
+            result.rollback_result,
+            Some(splogbook::cloud::updater::helper_protocol::RollbackResultKind::None)
+        );
+
+        // Verify successful apply
+        assert_eq!(
+            fs::read_to_string(root.join("SPLogbook.exe")).expect("read bin"),
+            candidate_bin
+        );
+        assert_eq!(
+            fs::read(root.join("asset.dat")).expect("read asset"),
+            b"NEW_ASSET"
+        );
+        assert_eq!(
+            fs::read(root.join("serviceLOG.db")).expect("read db"),
+            b"SQLITE_DATA"
+        );
+        // Rollback directory preserved for OWNER-M2-08/09
+        assert!(root.join(".rollback").exists());
+
+        // 2. PowerShell Fallback Parity Check
+        let script = generate_powershell_from_request(&req);
+
+        // Script must reflect the identical contract
+        assert!(script.contains(&attempt.to_string()));
+        assert!(script.contains("SPLogbook.exe"));
+        assert!(script.contains("asset.dat"));
+        assert!(script.contains(".health_ok"));
+        assert!(script.contains("exit 0"));
+        assert!(!script.contains("Invoke-Expression"));
+        assert!(!script.contains("iex"));
+        assert!(!script.contains("$staging\\*"));
+        assert!(!script.contains("$rollback\\*"));
+        assert!(!script.contains("Remove-Item *"));
     }
 }
