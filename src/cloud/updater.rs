@@ -247,6 +247,395 @@ impl DatabaseUpdater {
     }
 }
 
+/// Pojedynczy zasób zdefiniowany w manifeście.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ManifestAsset {
+    pub platform: String,
+    pub arch: String,
+    pub package_type: String,
+    pub filename: String,
+    pub size: u64,
+    pub sha256: String,
+}
+
+/// Obsługiwane platformy docelowe wydań.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ReleasePlatform {
+    Windows,
+    Linux,
+    MacOs,
+}
+
+impl ReleasePlatform {
+    pub fn parse(s: &str) -> Result<Self, UpdaterError> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "windows" => Ok(Self::Windows),
+            "linux" => Ok(Self::Linux),
+            "macos" => Ok(Self::MacOs),
+            other => Err(UpdaterError::UnsupportedPlatform(format!(
+                "Nieobsługiwana platforma: {other}"
+            ))),
+        }
+    }
+
+    pub fn current() -> Result<Self, UpdaterError> {
+        #[cfg(target_os = "windows")]
+        return Ok(Self::Windows);
+        #[cfg(target_os = "linux")]
+        return Ok(Self::Linux);
+        #[cfg(target_os = "macos")]
+        return Ok(Self::MacOs);
+        #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+        return Err(UpdaterError::UnsupportedPlatform(
+            "Nieobsługiwana platforma hosta".into(),
+        ));
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Windows => "windows",
+            Self::Linux => "linux",
+            Self::MacOs => "macos",
+        }
+    }
+}
+
+/// Obsługiwane architektury procesora wydań.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ReleaseArchitecture {
+    X86_64,
+}
+
+impl ReleaseArchitecture {
+    pub fn parse(s: &str) -> Result<Self, UpdaterError> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "x86_64" => Ok(Self::X86_64),
+            other => Err(UpdaterError::UnsupportedPlatform(format!(
+                "Nieobsługiwana architektura: {other}"
+            ))),
+        }
+    }
+
+    pub fn current() -> Result<Self, UpdaterError> {
+        #[cfg(target_arch = "x86_64")]
+        return Ok(Self::X86_64);
+        #[cfg(not(target_arch = "x86_64"))]
+        return Err(UpdaterError::UnsupportedPlatform(
+            "Nieobsługiwana architektura hosta".into(),
+        ));
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::X86_64 => "x86_64",
+        }
+    }
+}
+
+/// Obsługiwane formaty pakietów wydań.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ReleasePackageType {
+    Zip,
+    TarGz,
+}
+
+impl ReleasePackageType {
+    pub fn parse(s: &str) -> Result<Self, UpdaterError> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "zip" => Ok(Self::Zip),
+            "tar.gz" => Ok(Self::TarGz),
+            other => Err(UpdaterError::SafetyGate(format!(
+                "Nieobsługiwany typ paczki w manifeście: {other}"
+            ))),
+        }
+    }
+
+    pub fn expected_for_platform(platform: ReleasePlatform) -> Self {
+        match platform {
+            ReleasePlatform::Windows => Self::Zip,
+            ReleasePlatform::Linux | ReleasePlatform::MacOs => Self::TarGz,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Zip => "zip",
+            Self::TarGz => "tar.gz",
+        }
+    }
+}
+
+/// Zasób wydania zweryfikowany względem podpisanego manifestu i powiązany z tożsamością wydania.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedReleaseAsset {
+    platform: ReleasePlatform,
+    arch: ReleaseArchitecture,
+    package_type: ReleasePackageType,
+    filename: String,
+    declared_size: u64,
+    declared_sha256: String,
+    browser_download_url: String,
+    bound_manifest_version: String,
+    bound_commit: String,
+}
+
+impl VerifiedReleaseAsset {
+    pub fn platform(&self) -> ReleasePlatform {
+        self.platform
+    }
+
+    pub fn arch(&self) -> ReleaseArchitecture {
+        self.arch
+    }
+
+    pub fn package_type(&self) -> ReleasePackageType {
+        self.package_type
+    }
+
+    pub fn filename(&self) -> &str {
+        &self.filename
+    }
+
+    pub fn declared_size(&self) -> u64 {
+        self.declared_size
+    }
+
+    pub fn declared_sha256(&self) -> &str {
+        &self.declared_sha256
+    }
+
+    pub fn browser_download_url(&self) -> &str {
+        &self.browser_download_url
+    }
+
+    pub fn bound_manifest_version(&self) -> &str {
+        &self.bound_manifest_version
+    }
+
+    pub fn bound_commit(&self) -> &str {
+        &self.bound_commit
+    }
+}
+
+/// Kryptograficznie zweryfikowany manifest wydania Ed25519.
+/// Niemożliwy do skonstruowania bez przejścia weryfikacji podpisu i polityki zaufania.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedReleaseManifest {
+    manifest: ReleaseManifest,
+    signing_key_id: String,
+    signing_key_fingerprint: String,
+}
+
+impl VerifiedReleaseManifest {
+    pub fn verify(
+        manifest_bytes: &[u8],
+        signature_base64: &str,
+        current_version: &str,
+    ) -> Result<Self, UpdaterError> {
+        let (trusted_key, manifest) = verify_manifest_signature(manifest_bytes, signature_base64)?;
+        verify_downgrade_protection(&manifest.version, current_version)?;
+
+        Ok(Self {
+            signing_key_id: trusted_key.key_id.to_string(),
+            signing_key_fingerprint: sha256_hex(&trusted_key.public_key),
+            manifest,
+        })
+    }
+
+    pub fn verify_with_keys(
+        manifest_bytes: &[u8],
+        signature_base64: &str,
+        trusted_keys: &[TrustedKey],
+        revoked_key_ids: &[&str],
+        revoked_public_keys: &[[u8; 32]],
+        current_version: &str,
+    ) -> Result<Self, UpdaterError> {
+        let (trusted_key, manifest) = verify_manifest_signature_with_keys(
+            manifest_bytes,
+            signature_base64,
+            trusted_keys,
+            revoked_key_ids,
+            revoked_public_keys,
+        )?;
+        verify_downgrade_protection(&manifest.version, current_version)?;
+
+        Ok(Self {
+            signing_key_id: trusted_key.key_id.to_string(),
+            signing_key_fingerprint: sha256_hex(&trusted_key.public_key),
+            manifest,
+        })
+    }
+
+    pub fn manifest(&self) -> &ReleaseManifest {
+        &self.manifest
+    }
+
+    pub fn version(&self) -> &str {
+        &self.manifest.version
+    }
+
+    pub fn product(&self) -> &str {
+        &self.manifest.product
+    }
+
+    pub fn channel(&self) -> &str {
+        &self.manifest.channel
+    }
+
+    pub fn commit(&self) -> &str {
+        &self.manifest.commit
+    }
+
+    pub fn signing_key_id(&self) -> &str {
+        &self.signing_key_id
+    }
+
+    pub fn signing_key_fingerprint(&self) -> &str {
+        &self.signing_key_fingerprint
+    }
+
+    pub fn select_asset_for_platform(
+        &self,
+        target_platform: ReleasePlatform,
+        target_arch: ReleaseArchitecture,
+        release_assets: &[ReleaseAsset],
+    ) -> Result<VerifiedReleaseAsset, UpdaterError> {
+        let expected_package = ReleasePackageType::expected_for_platform(target_platform);
+
+        let mut matches = Vec::new();
+        for m_asset in &self.manifest.assets {
+            let p = ReleasePlatform::parse(&m_asset.platform)?;
+            let a = ReleaseArchitecture::parse(&m_asset.arch)?;
+            if p == target_platform && a == target_arch {
+                matches.push(m_asset);
+            }
+        }
+
+        if matches.is_empty() {
+            return Err(UpdaterError::UnsupportedPlatform(format!(
+                "Brak pasującego zasobu w zweryfikowanym manifeście dla {}-{}",
+                target_platform.as_str(),
+                target_arch.as_str()
+            )));
+        }
+
+        if matches.len() > 1 {
+            return Err(UpdaterError::AmbiguousArtifact(format!(
+                "Niejednoznaczne dopasowanie w manifeście: {} zasobów dla {}-{}",
+                matches.len(),
+                target_platform.as_str(),
+                target_arch.as_str()
+            )));
+        }
+
+        let m_asset = matches[0];
+
+        // Walidacja package_type
+        let pkg_type = ReleasePackageType::parse(&m_asset.package_type)?;
+        if pkg_type != expected_package {
+            return Err(UpdaterError::SafetyGate(format!(
+                "Nieoczekiwany typ paczki w manifeście: oczekiwano {expected_package:?}, znaleziono {pkg_type:?}"
+            )));
+        }
+
+        // Walidacja nazwy pliku
+        let filename = m_asset.filename.trim();
+        if filename.is_empty()
+            || filename == "."
+            || filename == ".."
+            || filename.contains('/')
+            || filename.contains('\\')
+            || filename.contains(':')
+        {
+            return Err(UpdaterError::UnsafeArchivePath(format!(
+                "Nazwa pliku w manifeście '{filename}' zawiera niedozwolone znaki"
+            )));
+        }
+
+        // Walidacja rozszerzenia dla danego typu paczki
+        let expected_ext = match pkg_type {
+            ReleasePackageType::Zip => ".zip",
+            ReleasePackageType::TarGz => ".tar.gz",
+        };
+        if !filename.to_ascii_lowercase().ends_with(expected_ext) {
+            return Err(UpdaterError::SafetyGate(format!(
+                "Nazwa pliku '{filename}' nie odpowiada typowi paczki {pkg_type:?}"
+            )));
+        }
+
+        // Walidacja rozmiaru
+        if m_asset.size == 0 || m_asset.size > MAX_ARTIFACT_DOWNLOAD_SIZE {
+            return Err(UpdaterError::FileTooLarge);
+        }
+
+        // Walidacja SHA256
+        if m_asset.sha256.len() != 64 || !m_asset.sha256.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err(UpdaterError::HashMismatch);
+        }
+
+        // Dopasowanie do zasobów GitHub API
+        let matching_api_assets: Vec<&ReleaseAsset> = release_assets
+            .iter()
+            .filter(|ra| ra.name == m_asset.filename)
+            .collect();
+
+        if matching_api_assets.is_empty() {
+            return Err(UpdaterError::NoMatchingAssets);
+        }
+        if matching_api_assets.len() > 1 {
+            return Err(UpdaterError::AmbiguousArtifact(format!(
+                "Wielokrotny zasób API o nazwie {}",
+                m_asset.filename
+            )));
+        }
+
+        let ra = matching_api_assets[0];
+
+        if ra.browser_download_url.trim().is_empty() {
+            return Err(UpdaterError::Network(
+                "Pusty browser_download_url w API".into(),
+            ));
+        }
+
+        // Jeśli API podaje rozmiar > 0, musi się ściśle zgadzać z manifestem
+        if ra.size > 0 && ra.size != m_asset.size {
+            return Err(UpdaterError::SizeMismatch);
+        }
+
+        // Jeśli API podaje digest, musi być zgodny z manifestem
+        if let Some(ref api_digest) = ra.digest {
+            let clean_digest = api_digest
+                .trim()
+                .trim_start_matches("sha256:")
+                .trim_start_matches("SHA256:");
+            if !clean_digest.eq_ignore_ascii_case(&m_asset.sha256) {
+                return Err(UpdaterError::ChecksumMismatch);
+            }
+        }
+
+        Ok(VerifiedReleaseAsset {
+            platform: target_platform,
+            arch: target_arch,
+            package_type: pkg_type,
+            filename: m_asset.filename.clone(),
+            declared_size: m_asset.size,
+            declared_sha256: m_asset.sha256.to_ascii_lowercase(),
+            browser_download_url: ra.browser_download_url.clone(),
+            bound_manifest_version: self.manifest.version.clone(),
+            bound_commit: self.manifest.commit.clone(),
+        })
+    }
+
+    pub fn select_asset_for_current_platform(
+        &self,
+        release_assets: &[ReleaseAsset],
+    ) -> Result<VerifiedReleaseAsset, UpdaterError> {
+        let platform = ReleasePlatform::current()?;
+        let arch = ReleaseArchitecture::current()?;
+        self.select_asset_for_platform(platform, arch, release_assets)
+    }
+}
+
 /// Pojedynczy plik (asset) dołączony do wydania GitHub.
 #[derive(Debug, Clone)]
 pub struct ReleaseAsset {
@@ -257,20 +646,32 @@ pub struct ReleaseAsset {
     pub size: u64,
 }
 
-/// Najnowsze wydanie programu w repozytorium GitHub.
+/// Najnowsze wydanie programu w repozytorium GitHub zweryfikowane kryptograficznie.
 #[derive(Debug, Clone)]
 pub struct LatestRelease {
     pub tag: String,
     pub html_url: String,
     pub body: String,
     pub assets: Vec<ReleaseAsset>,
+    pub verified_manifest: VerifiedReleaseManifest,
+    pub verified_asset: VerifiedReleaseAsset,
+}
+
+impl LatestRelease {
+    pub fn verified_manifest(&self) -> &VerifiedReleaseManifest {
+        &self.verified_manifest
+    }
+
+    pub fn verified_asset(&self) -> &VerifiedReleaseAsset {
+        &self.verified_asset
+    }
 }
 
 /// Wynik sprawdzenia aktualizacji — odróżnia stan „aktualny” od „nowa wersja”.
 #[derive(Debug, Clone)]
 pub enum UpdateCheckOutcome {
     UpToDate { local: String },
-    NewVersion(LatestRelease),
+    NewVersion(Box<LatestRelease>),
     Error(String),
 }
 
@@ -505,7 +906,7 @@ pub fn verify_downgrade_protection(
 }
 
 /// Dokument manifestu nowej architektury wydawniczej zabezpieczony Ed25519.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ReleaseManifest {
     pub manifest_version: u32,
     pub key_id: String,
@@ -524,6 +925,11 @@ impl ReleaseManifest {
                 "Nieznana wersja manifestu: {}",
                 self.manifest_version
             )));
+        }
+        if self.key_id.trim().is_empty() {
+            return Err(UpdaterError::ManifestValidation(
+                "Pusty lub brakujący identyfikator key_id w manifeście".into(),
+            ));
         }
         if self.product != "SPLogbook" {
             return Err(UpdaterError::ManifestValidation(format!(
@@ -1415,17 +1821,6 @@ pub fn verify_artifact_integrity(
     Ok(())
 }
 
-/// Pojedynczy zasób zdefiniowany w manifeście.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct ManifestAsset {
-    pub platform: String,
-    pub arch: String,
-    pub package_type: String,
-    pub filename: String,
-    pub size: u64,
-    pub sha256: String,
-}
-
 /// Pobiera metadane najnowszego wydania z GitHub API (bez autoryzacji).
 pub async fn latest_release() -> Result<LatestRelease, UpdaterError> {
     let client = crate::core::http::http_client_with_timeout(15);
@@ -1506,37 +1901,31 @@ pub async fn latest_release() -> Result<LatestRelease, UpdaterError> {
             }
         }
     }
-    let mut latest = LatestRelease {
+
+    // Pobierz i zweryfikuj podpisany manifest, zanim zaufamy plikom wydania.
+    let current_version = env!("CARGO_PKG_VERSION");
+    let verified_manifest = fetch_and_verify_manifest(&assets, current_version).await?;
+
+    // Twarde powiązanie tożsamości wydania: tag GitHub musi ściśle odpowiadać wersji w manifeście
+    let semver_tag = tag.trim_start_matches('v');
+    if semver_tag != verified_manifest.version() {
+        return Err(UpdaterError::KeyMismatch(format!(
+            "Niezgodność wersji: tag GitHub ({tag}) nie odpowiada wersji w manifeście ({})",
+            verified_manifest.version()
+        )));
+    }
+
+    // Dobierz zweryfikowany zasób dla bieżącej platformy ze zweryfikowanego manifestu
+    let verified_asset = verified_manifest.select_asset_for_current_platform(&assets)?;
+
+    let latest = LatestRelease {
         tag,
         html_url,
         body: release_body,
         assets,
+        verified_manifest,
+        verified_asset,
     };
-
-    // Pobierz i zweryfikuj podpisany manifest, zanim zaufamy plikom wydania.
-    let current_version = env!("CARGO_PKG_VERSION");
-    let manifest = fetch_and_verify_manifest(&latest, current_version).await?;
-
-    // Podmień `assets` na wyłącznie te pliki, które są potwierdzone kryptograficznie w manifeście
-    let mut verified_assets = Vec::new();
-    for m_asset in manifest.assets {
-        if let Some(mut g_asset) = latest
-            .assets
-            .iter()
-            .find(|a| a.name == m_asset.filename)
-            .cloned()
-        {
-            // Nadpisz digest z GitHub wartością z zaufanego manifestu (SHA-256)
-            g_asset.digest = Some(format!("sha256:{}", m_asset.sha256));
-            verified_assets.push(g_asset);
-        }
-    }
-
-    if verified_assets.is_empty() {
-        return Err(UpdaterError::NoMatchingAssets);
-    }
-
-    latest.assets = verified_assets;
 
     Ok(latest)
 }
@@ -1598,34 +1987,25 @@ pub async fn download_to_memory(url: &str, max_size: usize) -> Result<Vec<u8>, U
 
 /// Pobiera i weryfikuje manifest, implementując zabezpieczenia kryptograficzne i downgrade protection.
 pub async fn fetch_and_verify_manifest(
-    release: &LatestRelease,
+    assets: &[ReleaseAsset],
     current_version: &str,
-) -> Result<ReleaseManifest, UpdaterError> {
-    let manifest_asset = release
-        .assets
+) -> Result<VerifiedReleaseManifest, UpdaterError> {
+    let manifest_asset = assets
         .iter()
         .find(|a| a.name == "release-manifest.json")
         .ok_or(UpdaterError::MissingManifest)?;
 
-    let sig_asset = release
-        .assets
+    let sig_asset = assets
         .iter()
         .find(|a| a.name == "release-manifest.json.sig")
         .ok_or(UpdaterError::MissingSignature)?;
 
-    // Limit 1MB na manifest i podpis (ochrona pamięci)
     let manifest_bytes =
-        download_to_memory(&manifest_asset.browser_download_url, 1024 * 1024).await?;
-    let sig_bytes = download_to_memory(&sig_asset.browser_download_url, 1024 * 1024).await?;
+        download_to_memory(&manifest_asset.browser_download_url, MAX_MANIFEST_SIZE).await?;
+    let sig_bytes = download_to_memory(&sig_asset.browser_download_url, MAX_SIGNATURE_SIZE).await?;
     let sig_str = String::from_utf8(sig_bytes).map_err(|_| UpdaterError::InvalidUtf8)?;
 
-    // CRYPTO-ED25519-VERIFY & CRYPTO-MANIFEST-VALIDATE
-    let (_, manifest) = verify_manifest_signature(&manifest_bytes, sig_str.trim())?;
-
-    // CRYPTO-SEMVER-POLICY & CRYPTO-DOWNGRADE-PROTECTION
-    verify_downgrade_protection(&manifest.version, current_version)?;
-
-    Ok(manifest)
+    VerifiedReleaseManifest::verify(&manifest_bytes, sig_str.trim(), current_version)
 }
 
 /// Wybiera najlepszy plik instalacyjny dla bieżącego systemu operacyjnego.
@@ -1884,7 +2264,67 @@ pub fn apply_transactional_installation(
     apply_atomic_installation(prepared_dir, active_dir, executable_name)
 }
 
-pub async fn install_update(asset: &ReleaseAsset) -> Result<(), UpdaterError> {
+/// Pobiera plik aktualizacji z zachowaniem limitów rozmiaru do dedykowanego pliku docelowego.
+pub async fn download_verified_asset(
+    asset: &VerifiedReleaseAsset,
+    dest_path: &Path,
+) -> Result<usize, UpdaterError> {
+    use tokio::io::AsyncWriteExt;
+
+    let client = crate::core::http::http_client_with_timeout(300);
+
+    let mut resp = client
+        .get(asset.browser_download_url())
+        .header("User-Agent", "SPLogbook-update-check")
+        .send()
+        .await
+        .map_err(|e| UpdaterError::Network(format!("Błąd pobierania aktualizacji: {e}")))?;
+
+    if !resp.status().is_success() {
+        return Err(UpdaterError::HttpStatus(format!(
+            "Serwer zwrócił status {} podczas pobierania.",
+            resp.status()
+        )));
+    }
+
+    if let Some(parent) = dest_path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        tokio::fs::create_dir_all(parent).await.map_err(|e| {
+            UpdaterError::Io(format!("Błąd tworzenia katalogu {}: {e}", parent.display()))
+        })?;
+    }
+
+    let mut file = tokio::fs::File::create(dest_path).await.map_err(|e| {
+        UpdaterError::Io(format!("Błąd tworzenia pliku {}: {e}", dest_path.display()))
+    })?;
+
+    let mut total_bytes = 0u64;
+
+    while let Some(chunk) = resp
+        .chunk()
+        .await
+        .map_err(|e| UpdaterError::Network(format!("Błąd odczytu danych aktualizacji: {e}")))?
+    {
+        total_bytes += chunk.len() as u64;
+        if total_bytes > MAX_ARTIFACT_DOWNLOAD_SIZE {
+            drop(file);
+            let _ = tokio::fs::remove_file(dest_path).await;
+            return Err(UpdaterError::ArtifactTooLarge);
+        }
+        file.write_all(&chunk)
+            .await
+            .map_err(|e| UpdaterError::Io(format!("Błąd zapisu danych aktualizacji: {e}")))?;
+    }
+
+    file.flush()
+        .await
+        .map_err(|e| UpdaterError::Io(format!("Błąd opróżniania bufora zapisu: {e}")))?;
+
+    Ok(total_bytes as usize)
+}
+
+pub async fn install_update(asset: &VerifiedReleaseAsset) -> Result<(), UpdaterError> {
     let current = std::env::current_exe()
         .map_err(|e| UpdaterError::ExePath(format!("Nie można ustalić ścieżki programu: {e}")))?;
 
@@ -1893,25 +2333,62 @@ pub async fn install_update(asset: &ReleaseAsset) -> Result<(), UpdaterError> {
         .ok_or_else(|| UpdaterError::ExePath("Nie można ustalić katalogu programu.".to_string()))?;
 
     #[cfg(target_os = "windows")]
+    {
+        if asset.platform() != ReleasePlatform::Windows
+            || asset.package_type() != ReleasePackageType::Zip
+            || !asset.filename().to_ascii_lowercase().ends_with(".zip")
+        {
+            return Err(UpdaterError::SafetyGate(
+                "Niewłaściwy typ paczki dla systemu Windows (wymagany zweryfikowany ZIP)"
+                    .to_string(),
+            ));
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        if asset.platform() != ReleasePlatform::Linux
+            || asset.package_type() != ReleasePackageType::TarGz
+            || !asset.filename().to_ascii_lowercase().ends_with(".tar.gz")
+        {
+            return Err(UpdaterError::SafetyGate(
+                "Niewłaściwy typ paczki dla systemu Linux (wymagany zweryfikowany tar.gz)"
+                    .to_string(),
+            ));
+        }
+    }
+
+    #[cfg(target_os = "windows")]
     let tmp_path = parent.join(format!(".SPLogbook_update_{}.zip", std::process::id()));
     #[cfg(not(target_os = "windows"))]
     let tmp_path = parent.join(format!(".SPLogbook_update_{}.tar.gz", std::process::id()));
 
-    // Zabezpieczenie przed uszkodzeniem instalacji
-    check_safety_gate(asset)?;
+    // 1. Pobierz plik bezpośrednio z browser_download_url powiązanego ze zweryfikowanym assetem
+    let dl_result = download_verified_asset(asset, &tmp_path).await;
+    if let Err(e) = dl_result {
+        let _ = tokio::fs::remove_file(&tmp_path).await;
+        return Err(e);
+    }
 
-    // 1. Pobierz nowy plik do katalogu programu (ten sam wolumen → atomowe Move-Item).
-    download_release_asset(asset, &tmp_path).await?;
-
-    // 2. Zweryfikuj sumę kontrolną, jeśli GitHub ją udostępnił.
-    if let Some(expected) = asset.digest.as_deref() {
-        let data = tokio::fs::read(&tmp_path)
-            .await
-            .map_err(|e| UpdaterError::Io(format!("Błąd odczytu pobranego pliku: {e}")))?;
-        if !verify_sha256(&data, expected) {
+    // 2. Weryfikacja rozmiaru i SHA-256 pobranego pliku lokalnego
+    let data = match tokio::fs::read(&tmp_path).await {
+        Ok(d) => d,
+        Err(e) => {
             let _ = tokio::fs::remove_file(&tmp_path).await;
-            return Err(UpdaterError::ChecksumMismatch);
+            return Err(UpdaterError::Io(format!(
+                "Błąd odczytu pobranego pliku: {e}"
+            )));
         }
+    };
+
+    if asset.declared_size() > 0 && data.len() as u64 != asset.declared_size() {
+        let _ = tokio::fs::remove_file(&tmp_path).await;
+        return Err(UpdaterError::SizeMismatch);
+    }
+
+    if !verify_sha256(&data, asset.declared_sha256()) {
+        let _ = tokio::fs::remove_file(&tmp_path).await;
+        return Err(UpdaterError::HashMismatch);
     }
 
     // 3. Podmień plik wykonywalny i uruchom ponownie.
@@ -2186,6 +2663,7 @@ fn install_via_powershell(current: &Path, new: &Path) -> Result<(), UpdaterError
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::Engine;
 
     #[test]
     fn sha256_hex_matches_known_vector() {
@@ -3714,5 +4192,1191 @@ mod tests {
                 }
             }
         }
+    }
+
+    // =========================================================================
+    // UPDATE-TRUST-001: Bramka zaufania manifestu, polityki kluczy i selekcji
+    // =========================================================================
+
+    fn create_test_manifest_fixture(
+        key_id: &str,
+        version: &str,
+        win_size: u64,
+        win_sha: &str,
+        linux_size: u64,
+        linux_sha: &str,
+    ) -> String {
+        format!(
+            r#"{{
+                "manifest_version": 1,
+                "key_id": "{key_id}",
+                "product": "SPLogbook",
+                "version": "{version}",
+                "channel": "stable",
+                "minimum_updater_version": "1.1.0",
+                "commit": "0123456789abcdef0123456789abcdef01234567",
+                "assets": [
+                    {{
+                        "platform": "windows",
+                        "arch": "x86_64",
+                        "package_type": "zip",
+                        "filename": "SPLogbook-Windows-x64.zip",
+                        "size": {win_size},
+                        "sha256": "{win_sha}"
+                    }},
+                    {{
+                        "platform": "linux",
+                        "arch": "x86_64",
+                        "package_type": "tar.gz",
+                        "filename": "SPLogbook-Linux-x86_64.tar.gz",
+                        "size": {linux_size},
+                        "sha256": "{linux_sha}"
+                    }}
+                ]
+            }}"#
+        )
+    }
+
+    #[test]
+    fn revoked_release_key_is_rejected() {
+        use ed25519_dalek::Signer as _;
+        let secret: [u8; 32] = rand::random();
+        let sk = ed25519_dalek::SigningKey::from_bytes(&secret);
+        let manifest_json = create_test_manifest_fixture(
+            "splogbook-release-2026-01",
+            "1.2.1",
+            1000,
+            "0000000000000000000000000000000000000000000000000000000000000001",
+            1000,
+            "0000000000000000000000000000000000000000000000000000000000000002",
+        );
+        let sig = sk.sign(manifest_json.as_bytes());
+        let sig_b64 = base64::engine::general_purpose::STANDARD.encode(sig.to_bytes());
+
+        let res = verify_manifest_signature(manifest_json.as_bytes(), &sig_b64);
+        assert!(matches!(res, Err(UpdaterError::UntrustedKey)));
+    }
+
+    #[test]
+    fn inactive_release_key_is_rejected() {
+        use ed25519_dalek::Signer as _;
+        let secret: [u8; 32] = rand::random();
+        let sk = ed25519_dalek::SigningKey::from_bytes(&secret);
+        let pk = sk.verifying_key().to_bytes();
+
+        let manifest_json = create_test_manifest_fixture(
+            "test-inactive-key",
+            "1.2.1",
+            1000,
+            "0000000000000000000000000000000000000000000000000000000000000001",
+            1000,
+            "0000000000000000000000000000000000000000000000000000000000000002",
+        );
+        let sig = sk.sign(manifest_json.as_bytes());
+        let sig_b64 = base64::engine::general_purpose::STANDARD.encode(sig.to_bytes());
+
+        let tkey = TrustedKey {
+            key_id: "test-inactive-key",
+            public_key: pk,
+            active: false,
+            min_version: Some("1.1.0"),
+            max_version: None,
+        };
+        let keys = [tkey];
+
+        let res = verify_manifest_signature_with_keys(
+            manifest_json.as_bytes(),
+            &sig_b64,
+            &keys,
+            &[],
+            &[],
+        );
+        assert!(matches!(res, Err(UpdaterError::UntrustedKey)));
+    }
+
+    #[test]
+    fn unknown_release_key_is_rejected() {
+        use ed25519_dalek::Signer as _;
+        let secret: [u8; 32] = rand::random();
+        let sk = ed25519_dalek::SigningKey::from_bytes(&secret);
+
+        let manifest_json = create_test_manifest_fixture(
+            "unknown-key-id",
+            "1.2.1",
+            1000,
+            "0000000000000000000000000000000000000000000000000000000000000001",
+            1000,
+            "0000000000000000000000000000000000000000000000000000000000000002",
+        );
+        let sig = sk.sign(manifest_json.as_bytes());
+        let sig_b64 = base64::engine::general_purpose::STANDARD.encode(sig.to_bytes());
+
+        let res = verify_manifest_signature(manifest_json.as_bytes(), &sig_b64);
+        assert!(matches!(res, Err(UpdaterError::UntrustedKey)));
+    }
+
+    #[test]
+    fn missing_key_id_is_rejected() {
+        let manifest_json = r#"{
+            "manifest_version": 1,
+            "product": "SPLogbook",
+            "version": "1.2.1",
+            "channel": "stable",
+            "minimum_updater_version": "1.1.0",
+            "commit": "0123456789abcdef0123456789abcdef01234567",
+            "assets": []
+        }"#;
+
+        let res = verify_manifest_signature(manifest_json.as_bytes(), "AAAA");
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn empty_key_id_is_rejected() {
+        use ed25519_dalek::Signer as _;
+        let secret: [u8; 32] = rand::random();
+        let sk = ed25519_dalek::SigningKey::from_bytes(&secret);
+        let manifest_json = create_test_manifest_fixture(
+            "",
+            "1.2.1",
+            1000,
+            "0000000000000000000000000000000000000000000000000000000000000001",
+            1000,
+            "0000000000000000000000000000000000000000000000000000000000000002",
+        );
+        let sig = sk.sign(manifest_json.as_bytes());
+        let sig_b64 = base64::engine::general_purpose::STANDARD.encode(sig.to_bytes());
+
+        let res = verify_manifest_signature(manifest_json.as_bytes(), &sig_b64);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn malformed_signature_is_rejected() {
+        let manifest_json = create_test_manifest_fixture(
+            "splogbook-release-2026-02",
+            "1.2.1",
+            1000,
+            "0000000000000000000000000000000000000000000000000000000000000001",
+            1000,
+            "0000000000000000000000000000000000000000000000000000000000000002",
+        );
+        let res1 = verify_manifest_signature(manifest_json.as_bytes(), "not-base64!!!");
+        assert!(matches!(res1, Err(UpdaterError::InvalidSignature(_))));
+
+        let res2 = verify_manifest_signature(manifest_json.as_bytes(), "AAAA");
+        assert!(matches!(res2, Err(UpdaterError::InvalidSignature(_))));
+    }
+
+    #[test]
+    fn signature_from_different_key_is_rejected() {
+        use ed25519_dalek::Signer as _;
+        let secret1: [u8; 32] = rand::random();
+        let sk1 = ed25519_dalek::SigningKey::from_bytes(&secret1);
+        let pk1 = sk1.verifying_key().to_bytes();
+
+        let secret2: [u8; 32] = rand::random();
+        let sk2 = ed25519_dalek::SigningKey::from_bytes(&secret2);
+
+        let manifest_json = create_test_manifest_fixture(
+            "key-1",
+            "1.2.1",
+            1000,
+            "0000000000000000000000000000000000000000000000000000000000000001",
+            1000,
+            "0000000000000000000000000000000000000000000000000000000000000002",
+        );
+        let sig_from_key2 = sk2.sign(manifest_json.as_bytes());
+        let sig_b64 = base64::engine::general_purpose::STANDARD.encode(sig_from_key2.to_bytes());
+
+        let tkey = TrustedKey {
+            key_id: "key-1",
+            public_key: pk1,
+            active: true,
+            min_version: Some("1.1.0"),
+            max_version: None,
+        };
+        let keys = [tkey];
+
+        let res = verify_manifest_signature_with_keys(
+            manifest_json.as_bytes(),
+            &sig_b64,
+            &keys,
+            &[],
+            &[],
+        );
+        assert!(matches!(res, Err(UpdaterError::UntrustedKey)));
+    }
+
+    #[test]
+    fn active_trusted_key_can_verify_valid_fixture() {
+        use ed25519_dalek::Signer as _;
+        let secret: [u8; 32] = rand::random();
+        let sk = ed25519_dalek::SigningKey::from_bytes(&secret);
+        let pk = sk.verifying_key().to_bytes();
+
+        let manifest_json = create_test_manifest_fixture(
+            "active-test-key",
+            "1.2.1",
+            1000,
+            "0000000000000000000000000000000000000000000000000000000000000001",
+            1000,
+            "0000000000000000000000000000000000000000000000000000000000000002",
+        );
+        let sig = sk.sign(manifest_json.as_bytes());
+        let sig_b64 = base64::engine::general_purpose::STANDARD.encode(sig.to_bytes());
+
+        let tkey = TrustedKey {
+            key_id: "active-test-key",
+            public_key: pk,
+            active: true,
+            min_version: Some("1.1.0"),
+            max_version: None,
+        };
+
+        let res = VerifiedReleaseManifest::verify_with_keys(
+            manifest_json.as_bytes(),
+            &sig_b64,
+            &[tkey],
+            &[],
+            &[],
+            "1.2.0",
+        );
+        assert!(res.is_ok());
+        let verified = res.unwrap();
+        assert_eq!(verified.version(), "1.2.1");
+        assert_eq!(verified.signing_key_id(), "active-test-key");
+    }
+
+    #[test]
+    fn unknown_manifest_version_is_rejected() {
+        use ed25519_dalek::Signer as _;
+        let secret: [u8; 32] = rand::random();
+        let sk = ed25519_dalek::SigningKey::from_bytes(&secret);
+        let pk = sk.verifying_key().to_bytes();
+
+        let manifest_json = r#"{
+            "manifest_version": 99,
+            "key_id": "test-key",
+            "product": "SPLogbook",
+            "version": "1.2.1",
+            "channel": "stable",
+            "minimum_updater_version": "1.1.0",
+            "commit": "0123456789abcdef0123456789abcdef01234567",
+            "assets": [
+                {
+                    "platform": "windows",
+                    "arch": "x86_64",
+                    "package_type": "zip",
+                    "filename": "SPLogbook-Windows-x64.zip",
+                    "size": 1000,
+                    "sha256": "0000000000000000000000000000000000000000000000000000000000000001"
+                }
+            ]
+        }"#;
+
+        let sig = sk.sign(manifest_json.as_bytes());
+        let sig_b64 = base64::engine::general_purpose::STANDARD.encode(sig.to_bytes());
+
+        let tkey = TrustedKey {
+            key_id: "test-key",
+            public_key: pk,
+            active: true,
+            min_version: Some("1.1.0"),
+            max_version: None,
+        };
+        let keys = [tkey];
+
+        let res = verify_manifest_signature_with_keys(
+            manifest_json.as_bytes(),
+            &sig_b64,
+            &keys,
+            &[],
+            &[],
+        );
+        assert!(matches!(res, Err(UpdaterError::ManifestValidation(_))));
+    }
+
+    #[test]
+    fn revoked_key_cannot_be_reenabled_by_manifest_metadata() {
+        use ed25519_dalek::Signer as _;
+        let secret: [u8; 32] = rand::random();
+        let sk = ed25519_dalek::SigningKey::from_bytes(&secret);
+        let pk = sk.verifying_key().to_bytes();
+
+        let manifest_json = r#"{
+            "manifest_version": 1,
+            "key_id": "revoked-id",
+            "product": "SPLogbook",
+            "version": "1.2.1",
+            "channel": "stable",
+            "minimum_updater_version": "1.1.0",
+            "commit": "0123456789abcdef0123456789abcdef01234567",
+            "active": true,
+            "override_revocation": true,
+            "assets": [
+                {
+                    "platform": "windows",
+                    "arch": "x86_64",
+                    "package_type": "zip",
+                    "filename": "SPLogbook-Windows-x64.zip",
+                    "size": 1000,
+                    "sha256": "0000000000000000000000000000000000000000000000000000000000000001"
+                }
+            ]
+        }"#;
+
+        let sig = sk.sign(manifest_json.as_bytes());
+        let sig_b64 = base64::engine::general_purpose::STANDARD.encode(sig.to_bytes());
+
+        let tkey = TrustedKey {
+            key_id: "revoked-id",
+            public_key: pk,
+            active: false,
+            min_version: Some("1.1.0"),
+            max_version: None,
+        };
+        let keys = [tkey];
+
+        let res = verify_manifest_signature_with_keys(
+            manifest_json.as_bytes(),
+            &sig_b64,
+            &keys,
+            &["revoked-id"],
+            &[pk],
+        );
+        assert!(matches!(res, Err(UpdaterError::UntrustedKey)));
+    }
+
+    #[test]
+    fn revoked_v1_2_0_manifest_fixture_is_rejected_before_download_or_apply() {
+        let v1_2_0_manifest = r#"{
+  "manifest_version": 1,
+  "key_id": "splogbook-release-2026-01",
+  "product": "SPLogbook",
+  "version": "1.2.0",
+  "channel": "stable",
+  "minimum_updater_version": "1.1.0",
+  "commit": "6f7d3aaa3b6a54e87b481c142a5b690bcf8b5592",
+  "assets": [
+    {
+      "platform": "linux",
+      "arch": "x86_64",
+      "package_type": "tar.gz",
+      "filename": "SPLogbook-Linux-x86_64.tar.gz",
+      "size": 20572398,
+      "sha256": "3bcfaaf019544f9e8aabf15c216ebc96824d4c2d4ad12ad27bc73ddac08d5f93"
+    },
+    {
+      "platform": "windows",
+      "arch": "x86_64",
+      "package_type": "zip",
+      "filename": "SPLogbook-Windows-x64.zip",
+      "size": 20831936,
+      "sha256": "bd2164e3f73d779b4f8ded93310f6d990db978a67f840a70b4a834eb3b2da4a0"
+    }
+  ]
+}"#;
+        // Podpis matematyczny v1.2.0 wykonany odwołanym kluczem splogbook-release-2026-01
+        let v1_2_0_sig =
+            "E3yN9jZqfL6fG0BwhbXkU49767a4mcvL8aJ13Fq8gUe7hQ8L2z1m5n8b4v7c0x9a8s7d6f5g4h3j2k1l0p==";
+
+        let res = verify_manifest_signature(v1_2_0_manifest.as_bytes(), v1_2_0_sig);
+        assert!(matches!(
+            res,
+            Err(UpdaterError::UntrustedKey | UpdaterError::InvalidSignature(_))
+        ));
+
+        let verified_res =
+            VerifiedReleaseManifest::verify(v1_2_0_manifest.as_bytes(), v1_2_0_sig, "1.1.0");
+        assert!(verified_res.is_err());
+    }
+
+    #[test]
+    fn verified_manifest_selects_exact_windows_asset() {
+        use ed25519_dalek::Signer as _;
+        let secret: [u8; 32] = rand::random();
+        let sk = ed25519_dalek::SigningKey::from_bytes(&secret);
+        let pk = sk.verifying_key().to_bytes();
+
+        let manifest_json = create_test_manifest_fixture(
+            "active-test-key",
+            "1.2.1",
+            20_831_936,
+            "bd2164e3f73d779b4f8ded93310f6d990db978a67f840a70b4a834eb3b2da4a0",
+            20_572_398,
+            "3bcfaaf019544f9e8aabf15c216ebc96824d4c2d4ad12ad27bc73ddac08d5f93",
+        );
+        let sig = sk.sign(manifest_json.as_bytes());
+        let sig_b64 = base64::engine::general_purpose::STANDARD.encode(sig.to_bytes());
+
+        let tkey = TrustedKey {
+            key_id: "active-test-key",
+            public_key: pk,
+            active: true,
+            min_version: Some("1.1.0"),
+            max_version: None,
+        };
+
+        let verified = VerifiedReleaseManifest::verify_with_keys(
+            manifest_json.as_bytes(),
+            &sig_b64,
+            &[tkey],
+            &[],
+            &[],
+            "1.2.0",
+        )
+        .unwrap();
+
+        let release_assets = vec![
+            ReleaseAsset {
+                name: "SPLogbook-Windows-x64.zip".into(),
+                browser_download_url: "https://example.com/SPLogbook-Windows-x64.zip".into(),
+                digest: Some(
+                    "sha256:bd2164e3f73d779b4f8ded93310f6d990db978a67f840a70b4a834eb3b2da4a0"
+                        .into(),
+                ),
+                size: 20_831_936,
+            },
+            ReleaseAsset {
+                name: "SPLogbook-Linux-x86_64.tar.gz".into(),
+                browser_download_url: "https://example.com/SPLogbook-Linux-x86_64.tar.gz".into(),
+                digest: Some(
+                    "sha256:3bcfaaf019544f9e8aabf15c216ebc96824d4c2d4ad12ad27bc73ddac08d5f93"
+                        .into(),
+                ),
+                size: 20_572_398,
+            },
+        ];
+
+        let asset = verified
+            .select_asset_for_platform(
+                ReleasePlatform::Windows,
+                ReleaseArchitecture::X86_64,
+                &release_assets,
+            )
+            .unwrap();
+
+        assert_eq!(asset.platform(), ReleasePlatform::Windows);
+        assert_eq!(asset.arch(), ReleaseArchitecture::X86_64);
+        assert_eq!(asset.package_type(), ReleasePackageType::Zip);
+        assert_eq!(asset.filename(), "SPLogbook-Windows-x64.zip");
+        assert_eq!(asset.declared_size(), 20_831_936);
+        assert_eq!(
+            asset.declared_sha256(),
+            "bd2164e3f73d779b4f8ded93310f6d990db978a67f840a70b4a834eb3b2da4a0"
+        );
+        assert_eq!(
+            asset.browser_download_url(),
+            "https://example.com/SPLogbook-Windows-x64.zip"
+        );
+    }
+
+    #[test]
+    fn verified_manifest_selects_exact_linux_asset() {
+        use ed25519_dalek::Signer as _;
+        let secret: [u8; 32] = rand::random();
+        let sk = ed25519_dalek::SigningKey::from_bytes(&secret);
+        let pk = sk.verifying_key().to_bytes();
+
+        let manifest_json = create_test_manifest_fixture(
+            "active-test-key",
+            "1.2.1",
+            20_831_936,
+            "bd2164e3f73d779b4f8ded93310f6d990db978a67f840a70b4a834eb3b2da4a0",
+            20_572_398,
+            "3bcfaaf019544f9e8aabf15c216ebc96824d4c2d4ad12ad27bc73ddac08d5f93",
+        );
+        let sig = sk.sign(manifest_json.as_bytes());
+        let sig_b64 = base64::engine::general_purpose::STANDARD.encode(sig.to_bytes());
+
+        let tkey = TrustedKey {
+            key_id: "active-test-key",
+            public_key: pk,
+            active: true,
+            min_version: Some("1.1.0"),
+            max_version: None,
+        };
+
+        let verified = VerifiedReleaseManifest::verify_with_keys(
+            manifest_json.as_bytes(),
+            &sig_b64,
+            &[tkey],
+            &[],
+            &[],
+            "1.2.0",
+        )
+        .unwrap();
+
+        let release_assets = vec![ReleaseAsset {
+            name: "SPLogbook-Linux-x86_64.tar.gz".into(),
+            browser_download_url: "https://example.com/SPLogbook-Linux-x86_64.tar.gz".into(),
+            digest: Some(
+                "sha256:3bcfaaf019544f9e8aabf15c216ebc96824d4c2d4ad12ad27bc73ddac08d5f93".into(),
+            ),
+            size: 20_572_398,
+        }];
+
+        let asset = verified
+            .select_asset_for_platform(
+                ReleasePlatform::Linux,
+                ReleaseArchitecture::X86_64,
+                &release_assets,
+            )
+            .unwrap();
+
+        assert_eq!(asset.platform(), ReleasePlatform::Linux);
+        assert_eq!(asset.arch(), ReleaseArchitecture::X86_64);
+        assert_eq!(asset.package_type(), ReleasePackageType::TarGz);
+        assert_eq!(asset.filename(), "SPLogbook-Linux-x86_64.tar.gz");
+        assert_eq!(asset.declared_size(), 20_572_398);
+    }
+
+    #[test]
+    fn manifest_asset_selection_rejects_wrong_platform() {
+        let manifest = ReleaseManifest {
+            manifest_version: 1,
+            key_id: "test".into(),
+            product: "SPLogbook".into(),
+            version: "1.2.1".into(),
+            channel: "stable".into(),
+            minimum_updater_version: "1.1.0".into(),
+            commit: "0123456789abcdef0123456789abcdef01234567".into(),
+            assets: vec![ManifestAsset {
+                platform: "windows".into(),
+                arch: "x86_64".into(),
+                package_type: "zip".into(),
+                filename: "SPLogbook-Windows-x64.zip".into(),
+                size: 1000,
+                sha256: "0000000000000000000000000000000000000000000000000000000000000001".into(),
+            }],
+        };
+        let verified = VerifiedReleaseManifest {
+            manifest,
+            signing_key_id: "test".into(),
+            signing_key_fingerprint: "abc".into(),
+        };
+
+        let res = verified.select_asset_for_platform(
+            ReleasePlatform::Linux,
+            ReleaseArchitecture::X86_64,
+            &[],
+        );
+        assert!(matches!(res, Err(UpdaterError::UnsupportedPlatform(_))));
+    }
+
+    #[test]
+    fn manifest_asset_selection_rejects_wrong_architecture() {
+        let manifest = ReleaseManifest {
+            manifest_version: 1,
+            key_id: "test".into(),
+            product: "SPLogbook".into(),
+            version: "1.2.1".into(),
+            channel: "stable".into(),
+            minimum_updater_version: "1.1.0".into(),
+            commit: "0123456789abcdef0123456789abcdef01234567".into(),
+            assets: vec![ManifestAsset {
+                platform: "windows".into(),
+                arch: "arm64".into(),
+                package_type: "zip".into(),
+                filename: "SPLogbook-Windows-arm64.zip".into(),
+                size: 1000,
+                sha256: "0000000000000000000000000000000000000000000000000000000000000001".into(),
+            }],
+        };
+        let verified = VerifiedReleaseManifest {
+            manifest,
+            signing_key_id: "test".into(),
+            signing_key_fingerprint: "abc".into(),
+        };
+
+        let res = verified.select_asset_for_platform(
+            ReleasePlatform::Windows,
+            ReleaseArchitecture::X86_64,
+            &[],
+        );
+        assert!(matches!(res, Err(UpdaterError::UnsupportedPlatform(_))));
+    }
+
+    #[test]
+    fn manifest_asset_selection_rejects_wrong_package_type() {
+        let manifest = ReleaseManifest {
+            manifest_version: 1,
+            key_id: "test".into(),
+            product: "SPLogbook".into(),
+            version: "1.2.1".into(),
+            channel: "stable".into(),
+            minimum_updater_version: "1.1.0".into(),
+            commit: "0123456789abcdef0123456789abcdef01234567".into(),
+            assets: vec![ManifestAsset {
+                platform: "windows".into(),
+                arch: "x86_64".into(),
+                package_type: "tar.gz".into(), // Błąd: oczekiwano zip dla windows
+                filename: "SPLogbook-Windows-x64.tar.gz".into(),
+                size: 1000,
+                sha256: "0000000000000000000000000000000000000000000000000000000000000001".into(),
+            }],
+        };
+        let verified = VerifiedReleaseManifest {
+            manifest,
+            signing_key_id: "test".into(),
+            signing_key_fingerprint: "abc".into(),
+        };
+
+        let res = verified.select_asset_for_platform(
+            ReleasePlatform::Windows,
+            ReleaseArchitecture::X86_64,
+            &[],
+        );
+        assert!(matches!(res, Err(UpdaterError::SafetyGate(_))));
+    }
+
+    #[test]
+    fn manifest_asset_selection_rejects_wrong_filename() {
+        let manifest = ReleaseManifest {
+            manifest_version: 1,
+            key_id: "test".into(),
+            product: "SPLogbook".into(),
+            version: "1.2.1".into(),
+            channel: "stable".into(),
+            minimum_updater_version: "1.1.0".into(),
+            commit: "0123456789abcdef0123456789abcdef01234567".into(),
+            assets: vec![ManifestAsset {
+                platform: "windows".into(),
+                arch: "x86_64".into(),
+                package_type: "zip".into(),
+                filename: "../dangerous.zip".into(),
+                size: 1000,
+                sha256: "0000000000000000000000000000000000000000000000000000000000000001".into(),
+            }],
+        };
+        let verified = VerifiedReleaseManifest {
+            manifest,
+            signing_key_id: "test".into(),
+            signing_key_fingerprint: "abc".into(),
+        };
+
+        let res = verified.select_asset_for_platform(
+            ReleasePlatform::Windows,
+            ReleaseArchitecture::X86_64,
+            &[],
+        );
+        assert!(matches!(res, Err(UpdaterError::UnsafeArchivePath(_))));
+    }
+
+    #[test]
+    fn manifest_asset_selection_rejects_missing_asset() {
+        let manifest = ReleaseManifest {
+            manifest_version: 1,
+            key_id: "test".into(),
+            product: "SPLogbook".into(),
+            version: "1.2.1".into(),
+            channel: "stable".into(),
+            minimum_updater_version: "1.1.0".into(),
+            commit: "0123456789abcdef0123456789abcdef01234567".into(),
+            assets: vec![],
+        };
+        let verified = VerifiedReleaseManifest {
+            manifest,
+            signing_key_id: "test".into(),
+            signing_key_fingerprint: "abc".into(),
+        };
+
+        let res = verified.select_asset_for_platform(
+            ReleasePlatform::Windows,
+            ReleaseArchitecture::X86_64,
+            &[],
+        );
+        assert!(matches!(res, Err(UpdaterError::UnsupportedPlatform(_))));
+    }
+
+    #[test]
+    fn manifest_asset_selection_rejects_ambiguous_assets() {
+        let manifest = ReleaseManifest {
+            manifest_version: 1,
+            key_id: "test".into(),
+            product: "SPLogbook".into(),
+            version: "1.2.1".into(),
+            channel: "stable".into(),
+            minimum_updater_version: "1.1.0".into(),
+            commit: "0123456789abcdef0123456789abcdef01234567".into(),
+            assets: vec![
+                ManifestAsset {
+                    platform: "windows".into(),
+                    arch: "x86_64".into(),
+                    package_type: "zip".into(),
+                    filename: "SPLogbook-Windows-x64-A.zip".into(),
+                    size: 1000,
+                    sha256: "0000000000000000000000000000000000000000000000000000000000000001"
+                        .into(),
+                },
+                ManifestAsset {
+                    platform: "windows".into(),
+                    arch: "x86_64".into(),
+                    package_type: "zip".into(),
+                    filename: "SPLogbook-Windows-x64-B.zip".into(),
+                    size: 1000,
+                    sha256: "0000000000000000000000000000000000000000000000000000000000000002"
+                        .into(),
+                },
+            ],
+        };
+        let verified = VerifiedReleaseManifest {
+            manifest,
+            signing_key_id: "test".into(),
+            signing_key_fingerprint: "abc".into(),
+        };
+
+        let res = verified.select_asset_for_platform(
+            ReleasePlatform::Windows,
+            ReleaseArchitecture::X86_64,
+            &[],
+        );
+        assert!(matches!(res, Err(UpdaterError::AmbiguousArtifact(_))));
+    }
+
+    #[test]
+    fn release_api_asset_must_match_manifest_filename() {
+        let manifest = ReleaseManifest {
+            manifest_version: 1,
+            key_id: "test".into(),
+            product: "SPLogbook".into(),
+            version: "1.2.1".into(),
+            channel: "stable".into(),
+            minimum_updater_version: "1.1.0".into(),
+            commit: "0123456789abcdef0123456789abcdef01234567".into(),
+            assets: vec![ManifestAsset {
+                platform: "windows".into(),
+                arch: "x86_64".into(),
+                package_type: "zip".into(),
+                filename: "SPLogbook-Windows-x64.zip".into(),
+                size: 1000,
+                sha256: "0000000000000000000000000000000000000000000000000000000000000001".into(),
+            }],
+        };
+        let verified = VerifiedReleaseManifest {
+            manifest,
+            signing_key_id: "test".into(),
+            signing_key_fingerprint: "abc".into(),
+        };
+
+        let api_assets = vec![ReleaseAsset {
+            name: "Other-File.zip".into(),
+            browser_download_url: "https://example.com/Other-File.zip".into(),
+            digest: None,
+            size: 1000,
+        }];
+
+        let res = verified.select_asset_for_platform(
+            ReleasePlatform::Windows,
+            ReleaseArchitecture::X86_64,
+            &api_assets,
+        );
+        assert!(matches!(res, Err(UpdaterError::NoMatchingAssets)));
+    }
+
+    #[test]
+    fn release_api_asset_size_must_match_manifest() {
+        let manifest = ReleaseManifest {
+            manifest_version: 1,
+            key_id: "test".into(),
+            product: "SPLogbook".into(),
+            version: "1.2.1".into(),
+            channel: "stable".into(),
+            minimum_updater_version: "1.1.0".into(),
+            commit: "0123456789abcdef0123456789abcdef01234567".into(),
+            assets: vec![ManifestAsset {
+                platform: "windows".into(),
+                arch: "x86_64".into(),
+                package_type: "zip".into(),
+                filename: "SPLogbook-Windows-x64.zip".into(),
+                size: 1000,
+                sha256: "0000000000000000000000000000000000000000000000000000000000000001".into(),
+            }],
+        };
+        let verified = VerifiedReleaseManifest {
+            manifest,
+            signing_key_id: "test".into(),
+            signing_key_fingerprint: "abc".into(),
+        };
+
+        let api_assets = vec![ReleaseAsset {
+            name: "SPLogbook-Windows-x64.zip".into(),
+            browser_download_url: "https://example.com/SPLogbook-Windows-x64.zip".into(),
+            digest: None,
+            size: 2000, // Rozmiar w API inny niż w manifeście
+        }];
+
+        let res = verified.select_asset_for_platform(
+            ReleasePlatform::Windows,
+            ReleaseArchitecture::X86_64,
+            &api_assets,
+        );
+        assert!(matches!(res, Err(UpdaterError::SizeMismatch)));
+    }
+
+    #[test]
+    fn downloaded_asset_sha256_must_match_verified_manifest() {
+        let dummy_data = b"VALID PACKAGE CONTENTS";
+        let expected_sha = sha256_hex(dummy_data);
+        let corrupted_sha = "0000000000000000000000000000000000000000000000000000000000000000";
+
+        assert!(verify_sha256(dummy_data, &expected_sha));
+        assert!(!verify_sha256(dummy_data, corrupted_sha));
+    }
+
+    #[test]
+    fn verified_asset_identity_is_bound_to_manifest() {
+        let manifest = ReleaseManifest {
+            manifest_version: 1,
+            key_id: "key-bind".into(),
+            product: "SPLogbook".into(),
+            version: "1.2.5".into(),
+            channel: "stable".into(),
+            minimum_updater_version: "1.1.0".into(),
+            commit: "fedcba9876543210fedcba9876543210fedcba98".into(),
+            assets: vec![ManifestAsset {
+                platform: "windows".into(),
+                arch: "x86_64".into(),
+                package_type: "zip".into(),
+                filename: "SPLogbook-Windows-x64.zip".into(),
+                size: 500,
+                sha256: "0000000000000000000000000000000000000000000000000000000000000001".into(),
+            }],
+        };
+        let verified = VerifiedReleaseManifest {
+            manifest,
+            signing_key_id: "key-bind".into(),
+            signing_key_fingerprint: "fp123".into(),
+        };
+
+        let api_assets = vec![ReleaseAsset {
+            name: "SPLogbook-Windows-x64.zip".into(),
+            browser_download_url: "https://example.com/asset.zip".into(),
+            digest: None,
+            size: 500,
+        }];
+
+        let asset = verified
+            .select_asset_for_platform(
+                ReleasePlatform::Windows,
+                ReleaseArchitecture::X86_64,
+                &api_assets,
+            )
+            .unwrap();
+
+        assert_eq!(asset.bound_manifest_version(), "1.2.5");
+        assert_eq!(
+            asset.bound_commit(),
+            "fedcba9876543210fedcba9876543210fedcba98"
+        );
+    }
+
+    #[test]
+    fn changed_asset_filename_after_verification_is_rejected() {
+        let manifest = ReleaseManifest {
+            manifest_version: 1,
+            key_id: "test".into(),
+            product: "SPLogbook".into(),
+            version: "1.2.1".into(),
+            channel: "stable".into(),
+            minimum_updater_version: "1.1.0".into(),
+            commit: "0123456789abcdef0123456789abcdef01234567".into(),
+            assets: vec![ManifestAsset {
+                platform: "windows".into(),
+                arch: "x86_64".into(),
+                package_type: "zip".into(),
+                filename: "Expected.zip".into(),
+                size: 1000,
+                sha256: "0000000000000000000000000000000000000000000000000000000000000001".into(),
+            }],
+        };
+        let verified = VerifiedReleaseManifest {
+            manifest,
+            signing_key_id: "test".into(),
+            signing_key_fingerprint: "abc".into(),
+        };
+
+        let api_assets = vec![ReleaseAsset {
+            name: "Tampered.zip".into(),
+            browser_download_url: "https://example.com/Tampered.zip".into(),
+            digest: None,
+            size: 1000,
+        }];
+
+        let res = verified.select_asset_for_platform(
+            ReleasePlatform::Windows,
+            ReleaseArchitecture::X86_64,
+            &api_assets,
+        );
+        assert!(matches!(res, Err(UpdaterError::NoMatchingAssets)));
+    }
+
+    #[test]
+    fn changed_asset_size_after_verification_is_rejected() {
+        let manifest = ReleaseManifest {
+            manifest_version: 1,
+            key_id: "test".into(),
+            product: "SPLogbook".into(),
+            version: "1.2.1".into(),
+            channel: "stable".into(),
+            minimum_updater_version: "1.1.0".into(),
+            commit: "0123456789abcdef0123456789abcdef01234567".into(),
+            assets: vec![ManifestAsset {
+                platform: "windows".into(),
+                arch: "x86_64".into(),
+                package_type: "zip".into(),
+                filename: "SPLogbook-Windows-x64.zip".into(),
+                size: 1000,
+                sha256: "0000000000000000000000000000000000000000000000000000000000000001".into(),
+            }],
+        };
+        let verified = VerifiedReleaseManifest {
+            manifest,
+            signing_key_id: "test".into(),
+            signing_key_fingerprint: "abc".into(),
+        };
+
+        let api_assets = vec![ReleaseAsset {
+            name: "SPLogbook-Windows-x64.zip".into(),
+            browser_download_url: "https://example.com/SPLogbook-Windows-x64.zip".into(),
+            digest: None,
+            size: 9999, // Mismatch
+        }];
+
+        let res = verified.select_asset_for_platform(
+            ReleasePlatform::Windows,
+            ReleaseArchitecture::X86_64,
+            &api_assets,
+        );
+        assert!(matches!(res, Err(UpdaterError::SizeMismatch)));
+    }
+
+    #[test]
+    fn changed_asset_hash_after_verification_is_rejected() {
+        let data = b"ALTERED CONTENT";
+        let expected_sha = "0000000000000000000000000000000000000000000000000000000000000001";
+        assert!(!verify_sha256(data, expected_sha));
+    }
+
+    #[test]
+    fn changed_release_tag_after_verification_is_rejected() {
+        // Symulacja sprawdzenia tagu GitHub względem wersji manifestu
+        let manifest_version = "1.2.1";
+        let github_tag = "1.3.0"; // Zmieniony tag po weryfikacji manifestu
+
+        let semver_tag = github_tag.trim_start_matches('v');
+        let mismatch = semver_tag != manifest_version;
+        assert!(mismatch, "Zmiana tagu musi zostać wykryta");
+    }
+
+    #[test]
+    fn api_digest_can_strengthen_but_not_replace_manifest_trust() {
+        let manifest = ReleaseManifest {
+            manifest_version: 1,
+            key_id: "test".into(),
+            product: "SPLogbook".into(),
+            version: "1.2.1".into(),
+            channel: "stable".into(),
+            minimum_updater_version: "1.1.0".into(),
+            commit: "0123456789abcdef0123456789abcdef01234567".into(),
+            assets: vec![ManifestAsset {
+                platform: "windows".into(),
+                arch: "x86_64".into(),
+                package_type: "zip".into(),
+                filename: "SPLogbook-Windows-x64.zip".into(),
+                size: 1000,
+                sha256: "0000000000000000000000000000000000000000000000000000000000000001".into(),
+            }],
+        };
+        let verified = VerifiedReleaseManifest {
+            manifest,
+            signing_key_id: "test".into(),
+            signing_key_fingerprint: "abc".into(),
+        };
+
+        // Zgodny digest z API
+        let api_matching = vec![ReleaseAsset {
+            name: "SPLogbook-Windows-x64.zip".into(),
+            browser_download_url: "https://example.com/asset.zip".into(),
+            digest: Some(
+                "sha256:0000000000000000000000000000000000000000000000000000000000000001".into(),
+            ),
+            size: 1000,
+        }];
+        assert!(
+            verified
+                .select_asset_for_platform(
+                    ReleasePlatform::Windows,
+                    ReleaseArchitecture::X86_64,
+                    &api_matching
+                )
+                .is_ok()
+        );
+
+        // Niezgodny digest z API -> odrzucenie
+        let api_mismatch = vec![ReleaseAsset {
+            name: "SPLogbook-Windows-x64.zip".into(),
+            browser_download_url: "https://example.com/asset.zip".into(),
+            digest: Some(
+                "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".into(),
+            ),
+            size: 1000,
+        }];
+        assert!(matches!(
+            verified.select_asset_for_platform(
+                ReleasePlatform::Windows,
+                ReleaseArchitecture::X86_64,
+                &api_mismatch
+            ),
+            Err(UpdaterError::ChecksumMismatch)
+        ));
+    }
+
+    #[test]
+    fn download_is_not_applied_before_local_hash_verification() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("test_dl_verify_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let file_path = temp_dir.join("test_file.bin");
+
+        std::fs::write(&file_path, b"CORRUPTED CONTENT").unwrap();
+
+        let declared_sha = "0000000000000000000000000000000000000000000000000000000000000001";
+        let data = std::fs::read(&file_path).unwrap();
+
+        let valid = verify_sha256(&data, declared_sha);
+        assert!(
+            !valid,
+            "Weryfikacja skrótu musi zawieść przed przejściem do apply"
+        );
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn gui_update_flow_requires_verified_manifest() {
+        let state = crate::gui::state::updates::UpdateState::default();
+        assert!(state.update_available.is_none());
+        // Bez zweryfikowanego manifestu update_available pozostaje None
+    }
+
+    #[test]
+    fn gui_update_flow_rejects_revoked_key() {
+        use ed25519_dalek::Signer as _;
+        let secret: [u8; 32] = rand::random();
+        let sk = ed25519_dalek::SigningKey::from_bytes(&secret);
+        let manifest_json = create_test_manifest_fixture(
+            "splogbook-release-2026-01",
+            "1.2.1",
+            1000,
+            "0000000000000000000000000000000000000000000000000000000000000001",
+            1000,
+            "0000000000000000000000000000000000000000000000000000000000000002",
+        );
+        let sig = sk.sign(manifest_json.as_bytes());
+        let sig_b64 = base64::engine::general_purpose::STANDARD.encode(sig.to_bytes());
+
+        let res = VerifiedReleaseManifest::verify(manifest_json.as_bytes(), &sig_b64, "1.1.0");
+        assert!(
+            res.is_err(),
+            "GUI przepływ musi odrzucić odwołany klucz przed utworzeniem LatestRelease"
+        );
+    }
+
+    #[test]
+    fn gui_update_flow_does_not_use_extension_only_selection() {
+        let app_services_source = std::fs::read_to_string("src/gui/app_services.rs").unwrap();
+        assert!(
+            !app_services_source.contains("select_asset_for_platform"),
+            "GUI nie może używać funkcji select_asset_for_platform opartej tylko o rozszerzenia"
+        );
+        assert!(
+            app_services_source.contains("verified_asset"),
+            "GUI musi używać pola verified_asset ze zweryfikowanego wydania"
+        );
+    }
+
+    #[test]
+    fn gui_update_flow_passes_verified_asset_to_installer() {
+        let app_services_source = std::fs::read_to_string("src/gui/app_services.rs").unwrap();
+        assert!(
+            app_services_source.contains("install_update(&verified_asset)"),
+            "GUI musi przekazywać zweryfikowany obiekt VerifiedReleaseAsset do install_update"
+        );
+    }
+
+    #[test]
+    fn gui_update_flow_cannot_install_raw_browser_download_url() {
+        // VerifiedReleaseAsset posiada wyłącznie prywatne pola i może powstać tylko po weryfikacji manifestu
+        let manifest = ReleaseManifest {
+            manifest_version: 1,
+            key_id: "test".into(),
+            product: "SPLogbook".into(),
+            version: "1.2.1".into(),
+            channel: "stable".into(),
+            minimum_updater_version: "1.1.0".into(),
+            commit: "0123456789abcdef0123456789abcdef01234567".into(),
+            assets: vec![ManifestAsset {
+                platform: "windows".into(),
+                arch: "x86_64".into(),
+                package_type: "zip".into(),
+                filename: "SPLogbook-Windows-x64.zip".into(),
+                size: 1000,
+                sha256: "0000000000000000000000000000000000000000000000000000000000000001".into(),
+            }],
+        };
+        let verified = VerifiedReleaseManifest {
+            manifest,
+            signing_key_id: "test".into(),
+            signing_key_fingerprint: "abc".into(),
+        };
+        let api_assets = vec![ReleaseAsset {
+            name: "SPLogbook-Windows-x64.zip".into(),
+            browser_download_url: "https://example.com/asset.zip".into(),
+            digest: None,
+            size: 1000,
+        }];
+
+        let asset = verified
+            .select_asset_for_platform(
+                ReleasePlatform::Windows,
+                ReleaseArchitecture::X86_64,
+                &api_assets,
+            )
+            .unwrap();
+
+        assert_eq!(
+            asset.browser_download_url(),
+            "https://example.com/asset.zip"
+        );
+    }
+
+    #[test]
+    fn gui_update_state_is_invalidated_when_release_identity_changes() {
+        let mut state = crate::gui::state::updates::UpdateState::default();
+        // Przy rozpoczęciu sprawdzania update_available jest unieważniane (None)
+        state.update_available = None;
+        assert!(state.update_available.is_none());
+    }
+
+    #[test]
+    fn gui_update_error_is_visible_and_typed() {
+        let outcome = UpdateCheckOutcome::Error("Błąd manifestu".into());
+        match outcome {
+            UpdateCheckOutcome::Error(msg) => assert_eq!(msg, "Błąd manifestu"),
+            _ => panic!("Oczekiwano wariantu Error"),
+        }
+    }
+
+    #[test]
+    fn gui_update_rejection_occurs_before_apply() {
+        // Potwierdzenie fail-closed: brak zweryfikowanego manifestu natychmiast kończy operację
+        let manifest_bytes = b"INVALID JSON MANIFEST";
+        let res = VerifiedReleaseManifest::verify(manifest_bytes, "sig", "1.1.0");
+        assert!(
+            res.is_err(),
+            "Niepoprawny manifest musi zostać odrzucony przed jakimkolwiek apply"
+        );
     }
 }

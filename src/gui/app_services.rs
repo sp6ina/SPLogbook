@@ -160,7 +160,7 @@ impl SpLogApp {
                             local: local.to_string(),
                         }
                     } else {
-                        crate::cloud::updater::UpdateCheckOutcome::NewVersion(release)
+                        crate::cloud::updater::UpdateCheckOutcome::NewVersion(Box::new(release))
                     }
                 }
                 Err(e) => crate::cloud::updater::UpdateCheckOutcome::Error(e.to_string()),
@@ -174,30 +174,20 @@ impl SpLogApp {
         let Some(release) = self.updates.update_available.clone() else {
             return;
         };
-        let Some(asset) =
-            crate::cloud::updater::select_asset_for_platform(&release.assets).cloned()
-        else {
-            self.updates.update_install_status =
-                Some("❌ Wydanie nie zawiera pliku instalacyjnego dla tego systemu.".to_string());
-            return;
-        };
+        let verified_asset = release.verified_asset.clone();
 
         self.updates.update_install_status = Some(format!(
-            "Pobieranie aktualizacji do v{} ({}: {})…",
+            "Pobieranie aktualizacji do v{} ({}: {:.1} MB)…",
             release.tag,
-            asset.name,
-            if asset.size > 0 {
-                format!("{:.1} MB", asset.size as f64 / 1_048_576.0)
-            } else {
-                "?".to_string()
-            }
+            verified_asset.filename(),
+            verified_asset.declared_size() as f64 / 1_048_576.0
         ));
 
         let (tx, rx) = std::sync::mpsc::channel::<String>();
         self.updates.update_install_rx = Some(rx);
         let lang = self.gui.appearance.language;
         tokio::spawn(async move {
-            let msg = match crate::cloud::updater::install_update(&asset).await {
+            let msg = match crate::cloud::updater::install_update(&verified_asset).await {
                 Ok(()) => tr(key::UPDATER_DOWNLOADED_RESTART, lang).to_string(),
                 Err(e) => Msg::new(key::UPDATER_INSTALL_FAILED)
                     .arg("err", &e)
