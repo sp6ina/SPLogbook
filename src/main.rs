@@ -42,6 +42,82 @@ fn main() -> Result<(), eframe::Error> {
         .and_then(|p| p.parent().map(std::path::Path::to_path_buf))
         .unwrap_or_else(|| std::path::PathBuf::from("."));
 
+    // Zdrowie po aktualizacji (health check dla updatera) - bez otwierania produkcyjnych baz danych
+    if std::env::args().any(|arg| arg == "--check-health-startup") {
+        let mut attempt_id: Option<splogbook::cloud::updater::UpdateAttemptId> = None;
+        let mut proof_path: Option<std::path::PathBuf> = None;
+        let mut expected_commit: Option<String> = None;
+        let mut expected_version: Option<String> = None;
+
+        let mut iter = std::env::args();
+        while let Some(arg) = iter.next() {
+            match arg.as_str() {
+                "--update-attempt-id" => {
+                    if let Some(val) = iter.next() {
+                        attempt_id =
+                            splogbook::cloud::updater::UpdateAttemptId::parse_str(&val).ok();
+                    }
+                }
+                "--health-proof-path" => {
+                    if let Some(val) = iter.next() {
+                        proof_path = Some(std::path::PathBuf::from(val));
+                    }
+                }
+                "--expected-commit" => {
+                    if let Some(val) = iter.next() {
+                        expected_commit = Some(val);
+                    }
+                }
+                "--expected-version" => {
+                    if let Some(val) = iter.next() {
+                        expected_version = Some(val);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let target_proof_path = proof_path
+            .unwrap_or_else(|| exe_dir.join(splogbook::cloud::updater::HEALTH_PROOF_FILENAME));
+
+        if let Some(aid) = attempt_id {
+            let ctx = splogbook::cloud::updater::InstallationDetectionContext::default();
+            let raw_inst =
+                splogbook::cloud::updater::detect_installation_with_context(&exe_dir, &ctx)
+                    .unwrap_or(splogbook::cloud::updater::InstallationType::UnknownInstallation);
+            let inst_type = match raw_inst {
+                splogbook::cloud::updater::InstallationType::UnknownInstallation => {
+                    if cfg!(windows) {
+                        splogbook::cloud::updater::InstallationType::WindowsPortableZip
+                    } else {
+                        splogbook::cloud::updater::InstallationType::LinuxPortableTarGz
+                    }
+                }
+                other => other,
+            };
+            let version = expected_version.unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
+            let commit = expected_commit
+                .unwrap_or_else(|| "0000000000000000000000000000000000000000".to_string());
+            let platform = if cfg!(windows) {
+                "windows-x86_64"
+            } else {
+                "linux-x86_64"
+            };
+
+            let proof = splogbook::cloud::updater::HealthProof::new(
+                aid, version, commit, platform, inst_type,
+            );
+
+            if let Ok(json) = serde_json::to_string_pretty(&proof) {
+                let _ = std::fs::write(&target_proof_path, json);
+            }
+        } else {
+            let _ = std::fs::write(&target_proof_path, "OK");
+        }
+
+        std::process::exit(0);
+    }
+
     #[cfg(windows)]
     let (app_data_dir, app_config_dir) = {
         let base = std::env::var("APPDATA").map_or_else(
@@ -208,12 +284,6 @@ fn main() -> Result<(), eframe::Error> {
             }
         }
     };
-
-    // Zdrowie po aktualizacji (health check dla updatera)
-    if std::env::args().any(|arg| arg == "--check-health-startup") {
-        let health_ok_path = exe_dir.join(".health_ok");
-        let _ = std::fs::write(&health_ok_path, "OK");
-    }
 
     let log_db_arc = Arc::new(Mutex::new(log_db));
     let prefix_matcher_arc = Arc::new(prefix_matcher);
