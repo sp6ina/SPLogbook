@@ -199,7 +199,7 @@
 - **Kategoria:** `REL`
 - **Poziom krytycznoĹ›ci:** `CRITICAL`
 - **Poziom pewnoĹ›ci:** `CONFIRMED`
-- **Status:** **APPROVED / COMPLETED_DESIGN_VERIFIED (DESIGN) / COMPLETED_SOFTWARE_VERIFIED (M3-B WINDOWS HELPERS)** (Dokument DESIGN_3_0_A_WINDOWS_UPDATE.md v2.1.0; decyzje OWNER-M2-01..03 formalnie zatwierdzone w STAGE-M2-OWNER-DECISIONS-APPROVAL-GATE; pomocnik natywny splogbook-updater.exe oraz utwardzony fallback PowerShell wdrożone i zweryfikowane w STAGE-M3-B-WINDOWS-HELPERS-IMPLEMENTATION-GATE)
+- **Status:** **APPROVED / COMPLETED_DESIGN_VERIFIED (DESIGN) / COMPLETED_SOFTWARE_VERIFIED (M3-B WINDOWS HELPERS)** (Dokument DESIGN_3_0_A_WINDOWS_UPDATE.md v2.1.0; decyzje OWNER-M2-01..03 formalnie zatwierdzone w STAGE-M2-OWNER-DECISIONS-APPROVAL-GATE; pomocnik natywny splogbook-updater.exe oraz utwardzony fallback PowerShell wdrożone w STAGE-M3-B-WINDOWS-HELPERS-IMPLEMENTATION-GATE i formalnie zweryfikowane w STAGE-M3-B-CLOSURE-VERIFICATION-GATE: 28 testów Windows helper, 83 testy security guard, weryfikacja tożsamości procesów, semantyka JOURNALED_TRANSACTIONAL_REPLACEMENT_VERIFIED, testy natywnego wykonania PowerShell)
 - **Data weryfikacji:** 2026-11-07
 
 ---

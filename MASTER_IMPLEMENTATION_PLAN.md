@@ -289,8 +289,16 @@ Utworzenie, uzgodnienie i zweryfikowanie trzech kompletnych dokumentĂłw projek
 
 - **M3 STATUS:** **IN_PROGRESS**
 - **M3-A STATUS:** **COMPLETED_SOFTWARE_VERIFIED** (Implementacja wspolnego rdzenia platformowego, modelu transakcji, 20-stanowego automatu i mechanizmow recovery aktualizatora SPLogbook zamknieta w STAGE-M3-A-PLATFORM-CORE-IMPLEMENTATION-GATE)
-- **M3-B STATUS:** **COMPLETED_SOFTWARE_VERIFIED** (Implementacja natywnego pomocnika Windows splogbook-updater.exe, protokolu IPC, weryfikacji HealthProof, rollbacku i utwardzonego fallbacku PowerShell zamknieta w STAGE-M3-B-WINDOWS-HELPERS-IMPLEMENTATION-GATE)
-- **M3-C STATUS:** **READY_FOR_IMPLEMENTATION (NOT STARTED)** (Pakiety Linux: AppImage, DEB, RPM, Flatpak)
+- **M3-B STATUS:** **COMPLETED_SOFTWARE_VERIFIED** (Implementacja natywnego pomocnika Windows splogbook-updater.exe, protokolu IPC, weryfikacji HealthProof, rollbacku i utwardzonego fallbacku PowerShell zamknieta w STAGE-M3-B-WINDOWS-HELPERS-IMPLEMENTATION-GATE oraz formalnie potwierdzona w STAGE-M3-B-CLOSURE-VERIFICATION-GATE)
+- **M3-C STATUS:** **READY_FOR_IMPLEMENTATION (NOT STARTED)** (Integracja Windows Portable ZIP — STAGE-M3-C-WINDOWS-PORTABLE-ZIP-INTEGRATION-GATE)
+- **Dalsze etapy M3 (instalatory Windows i pakiety Linux):**
+  - M3-D: Integracja Windows User Setup / Inno Setup (gdy dotyczy)
+  - M3-E: Integracja Windows System Setup / MSI (gdy dotyczy)
+  - M3-F: Integracja Linux Portable tar.gz
+  - M3-G: Integracja Linux AppImage
+  - M3-H: Integracja Linux DEB
+  - M3-I: Integracja Linux RPM
+  - M3-J: Integracja Linux Flatpak
 
 #### UPDATE-CORE-PLATFORM (M3-A) — Wspolny rdzen transakcyjny aktualizatora
 - **Tor:** UPDATE
@@ -298,16 +306,22 @@ Utworzenie, uzgodnienie i zweryfikowanie trzech kompletnych dokumentĂłw projek
 - **Zaleznosci:** UPDATE-DESIGN-PLATFORM (APPROVED), decyzje OWNER-M2-01..15 (APPROVED)
 - **Zakres:** UpdateAttemptId, UpdateStateMachine (20 stanow), UpdateTransaction, InstallationType (9 formatow), InstallationCapabilities, PlatformInstallerAdapter, DiskPreflightRequirements, blokada concurrency .update.lock, centralna polityka anulowania, RecoveryDecisionEngine, kontrakt dowodu zdrowia HealthProof, security guards.
 
-#### UPDATE-WIN-INSTALLER (M3-B) — Instalator Windows
+#### UPDATE-WIN-HELPERS (M3-B) — Pomocnicy Windows i PowerShell
 - **Tor:** UPDATE
 - **Status wykonawczy:** **COMPLETED_SOFTWARE_VERIFIED** (Natywny helper splogbook-updater.exe oraz utwardzony fallback PowerShell)
 - **Zaleznosci:** UPDATE-DESIGN-WIN (APPROVED), UPDATE-DESIGN-PLATFORM (APPROVED), UPDATE-CORE-PLATFORM (COMPLETED_SOFTWARE_VERIFIED), decyzje OWNER-M2-01..03 (APPROVED)
-- **Zakres:** Natywny helper Windows `splogbook-updater.exe`, wersjonowany kontrakt IPC `WindowsHelperRequest`/`Result`, integralnosc `plan_digest`, monitor procesu macierzystego, dziennik operacji HelperOperationJournal, strukturalne uruchamianie kandydata w `CREATE_NO_WINDOW`, weryfikacja HealthProof, transakcyjny rollback, utwardzony generator PowerShell bez wildcardow i iex, pelna parzystosc bezpieczenstwa, testy Windows (9 testow), strazniki bezpieczenstwa (82 testy).
+- **Zakres:** Natywny helper Windows splogbook-updater.exe, wersjonowany kontrakt IPC WindowsHelperRequest/Result, integralnosc plan_digest, monitor procesu macierzystego, dziennik operacji HelperOperationJournal z semantyką JOURNALED_TRANSACTIONAL_REPLACEMENT_VERIFIED, strukturalne uruchamianie kandydata w CREATE_NO_WINDOW, weryfikacja HealthProof, transakcyjny rollback, utwardzony generator PowerShell bez wildcardow i iex, pelna parzystosc bezpieczenstwa, testy Windows (28 testow natywnych/PowerShell), strazniki bezpieczenstwa (83 testy). Formalnie potwierdzony w STAGE-M3-B-CLOSURE-VERIFICATION-GATE.
 
-#### UPDATE-LINUX-INSTALLER (M3-C) — Instalator Linux
+#### UPDATE-WIN-PORTABLE-ZIP (M3-C) — Integracja Windows Portable ZIP
 - **Tor:** UPDATE
-- **Status wykonawczy:** READY_FOR_IMPLEMENTATION (NOT STARTED)
-- **Zaleznosci:** UPDATE-DESIGN-LINUX (APPROVED), UPDATE-DESIGN-PLATFORM (APPROVED), UPDATE-CORE-PLATFORM (COMPLETED_SOFTWARE_VERIFIED), decyzje OWNER-M2-04..07 (APPROVED)
+- **Status wykonawczy:** **READY_FOR_IMPLEMENTATION (NOT STARTED)**
+- **Zaleznosci:** UPDATE-DESIGN-WIN (APPROVED), UPDATE-DESIGN-PLATFORM (APPROVED), UPDATE-CORE-PLATFORM (COMPLETED_SOFTWARE_VERIFIED), UPDATE-WIN-HELPERS (COMPLETED_SOFTWARE_VERIFIED), decyzje OWNER-M2-01..03, 08..10 (APPROVED)
+- **Zakres:** Integracja adaptera Windows Portable ZIP z rdzeniem M3-A oraz helperem M3-B, bezpieczne rozpakowywanie zip z weryfikacją granic, transakcyjne wdrożenie nowej wersji portable, zachowanie bazy SQLite, logów i plików konfiguracyjnych użytkownika. Kolejnym zadaniem po zamknięciu M3-B jest bramka STAGE-M3-C-WINDOWS-PORTABLE-ZIP-INTEGRATION-GATE.
+
+#### UPDATE-LINUX-PACKAGES (Dalsze etapy M3: M3-F..M3-J) — Pakiety Linux (AppImage, DEB, RPM, Flatpak, tar.gz)
+- **Tor:** UPDATE
+- **Status wykonawczy:** PENDING (Dalsza kolejność po instalatorach Windows)
+- **Zaleznosci:** UPDATE-DESIGN-LINUX (APPROVED), UPDATE-DESIGN-PLATFORM (APPROVED), UPDATE-CORE-PLATFORM (COMPLETED_SOFTWARE_VERIFIED), decyzje OWNER-M2-04..07, 11..12 (APPROVED)
 ---
 
 # 11. Etap M4: Schemat manifestu
