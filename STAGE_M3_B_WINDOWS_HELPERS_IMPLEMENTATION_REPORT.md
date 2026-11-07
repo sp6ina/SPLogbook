@@ -91,18 +91,19 @@
 ### B. Natywny Silnik Pomocnika Windows (`src/cloud/updater/windows_helper.rs`)
 - **Sekwencja wykonawcza (`WindowsHelperEngine::execute`):**
   1. Walidacja integralności żądania, zgodności wersji protokołu i zgodności skrótu `plan_digest`.
-  2. Monitorowanie procesu macierzystego (`ProcessMonitor`): oczekiwanie na naturalne zamknięcie procesu o zadanym PID w oknie czasowym `parent_exit_timeout_ms`. Przy przekroczeniu limitu pomocnik przerywa operację bez dotykania plików programu (`ParentProcessTimeout`).
-  3. Przygotowanie katalogu kopii zapasowej `backup_dir` i utworzenie atomowych kopii wszystkich plików z listy `replace_files`.
-  4. Prowadzenie transakcyjnego dziennika operacji (`HelperOperationJournal`): rejestracja każdej udanej podmiany (`RecordedFile::Replaced`) i utworzenia (`RecordedFile::Created`).
-  5. Atomowe kopiowanie nowych plików ze `staging_dir` do `installation_root`.
-  6. Uruchomienie kandydata (`CandidateLauncher`): strukturalne wywołanie `Command::new` (bez powłoki cmd/powershell), przekazanie parametru `--check-health-startup <attempt_id>` oraz flagi `CREATE_NO_WINDOW` na platformie Windows.
-  7. Oczekiwanie na dowód zdrowia (`HealthProof`): monitorowanie pliku `.health_ok` w oknie czasowym. Sprawdzenie poprawności `attempt_id`, wersji i czasu wygenerowania.
-  8. W przypadku awarii kandydata (przedwczesny exit lub timeout zdrowia): natychmiastowe uruchomienie automatycznego rollbacku (`execute_rollback`):
+  2. Monitorowanie procesu macierzystego (`ProcessMonitor`): oczekiwanie na naturalne zamknięcie procesu o zadanym PID w oknie czasowym `parent_exit_timeout_ms`. Przy przekroczeniu limitu pomocnik przerywa operację bez dotykania plików programu (`ParentProcessTimeout`). Pomocnik nigdy nie kończy ani nie ubija procesu macierzystego (PID-only limitation jest jawnie udokumentowany i chroniony przed błędnym zakończeniem obcego procesu).
+  3. Wczesna weryfikacja warunków wstępnych (`validate_pre_apply_conditions`): sprawdzenie obecności, rozmiarów i skrótów SHA-256 plików w `.staging` oraz fail-closed gwarancja, że żaden plik z `create_files` nie istnieje przed próbą w katalogu docelowym.
+  4. Przygotowanie katalogu kopii zapasowej `.rollback` i wykonanie bezpiecznych kopii wszystkich plików z listy `replace_files`.
+  5. Prowadzenie transakcyjnego dziennika operacji (`HelperOperationJournal`): rejestracja każdej operacji podmiany i utworzenia.
+  6. Transakcyjna podmiana plików programu (`JOURNALED_TRANSACTIONAL_REPLACEMENT_VERIFIED`): kopiowanie plików ze `staging_dir` do `installation_root` z wymuszeniem trwałości dyskowej (`sync_all()`). Podmiana nie jest określana jako atomowa w sensie sprzętowym (`NOT_POWER_LOSS_ATOMIC`), lecz jako transakcyjna podmiana dziennikowana z gwarancją odzyskania stanu po awarii (`CRASH_RECOVERABLE_BY_JOURNAL`).
+  7. Uruchomienie kandydata (`CandidateLauncher`): strukturalne wywołanie `Command::new` (bez powłoki cmd/powershell), przekazanie parametru `--check-health-startup <attempt_id>` oraz flagi `CREATE_NO_WINDOW` na platformie Windows. Bezpośredni uchwyt procesu potomnego (`HelperCandidateChild`) jest zachowywany; ewentualne zakończenie procesu w razie timeoutu lub błędu następuje wyłącznie na tym uchwycie (zakaz wyszukiwania i kończenia procesów po nazwie EXE).
+  8. Oczekiwanie na dowód zdrowia (`HealthProof`): monitorowanie pliku `.health_ok` w oknie czasowym. Sprawdzenie poprawności `attempt_id`, wersji i czasu wygenerowania.
+  9. W przypadku awarii kandydata (przedwczesny exit lub timeout zdrowia): natychmiastowe uruchomienie automatycznego rollbacku (`execute_rollback`):
      - Usunięcie wszystkich nowo utworzonych plików (`create_files`),
      - Przywrócenie oryginalnych plików z katalogu backupu (`replace_files`),
      - Próba ponownego uruchomienia poprzedniej wersji programu (`restarted_original`).
-  9. Bezpieczne zachowanie kopii zapasowej `.rollback`: Zgodnie z decyzją projektową `OWNER-M2-08/09`, katalog `.rollback` nie jest automatycznie usuwany po udanej aktualizacji — pozostaje do dyspozycji aplikacji do czasu podjęcia decyzji o retencji.
-  10. Idempotentne sprzątanie katalogu tymczasowego stagingu.
+  10. Bezpieczne zachowanie kopii zapasowej `.rollback`: Zgodnie z decyzją projektową `OWNER-M2-08/09`, katalog `.rollback` nie jest automatycznie usuwany po udanej aktualizacji — pozostaje do dyspozycji aplikacji do czasu podjęcia decyzji o retencji.
+  11. Idempotentne sprzątanie katalogu tymczasowego stagingu.
 
 ### C. Binarny Punkt Wejścia (`src/bin/splogbook-updater.rs`)
 - Własny, rygorystyczny parser argumentów wiersza poleceń:
@@ -134,36 +135,64 @@
 ## 5. Wyniki Walidacji Testowej
 
 - **Pełna suite testowa projektu:**
-  - Testy zarejestrowane: **2498**
-  - Testy wykonane: **2488**
-  - Testy zaliczone: **2488** (100% pass)
+  - Testy zarejestrowane: **2522**
+  - Testy wykonane: **2512**
+  - Testy zaliczone: **2512** (100% pass)
   - Testy niezaliczone: **0**
   - Testy zignorowane: **10** (zamierzone testy sprzętowe HIL)
 - **Rozbicie według komponentów:**
-  - `unittests src/lib.rs`: 1815 passed, 0 failed
+  - `unittests src/lib.rs`: 1819 passed, 0 failed (w tym 7 testów jednostkowych silnika helpera Windows)
   - `unittests src/bin/splogbook-updater.rs`: 5 passed, 0 failed
   - `tests/cat_native_6a.rs`: 165 passed, 0 failed
   - `tests/cat_native_6b.rs`: 99 passed, 0 failed
   - `tests/cat_native_7.rs`: 297 passed, 0 failed, 10 ignored (HIL)
   - `tests/i18n_guard.rs`: 15 passed, 0 failed
   - `tests/theme_guard.rs`: 1 passed, 0 failed
-  - `tests/windows_helper_test.rs`: 9 passed, 0 failed
-  - `tests/security_guard.rs`: 82 passed, 0 failed
-- **Dedykowane testy Windows Helper (`tests/windows_helper_test.rs`):**
-  1. `powershell_fallback_parity_with_windows_helper` — pełna parzystość działania skryptu PowerShell i pomocnika natywnego,
-  2. `windows_helper_detects_tampered_attempt_id` — natychmiastowe odrzucenie sfałszowanego `attempt_id`,
-  3. `windows_helper_detects_tampered_request_digest` — wykrycie naruszenia skrótu `plan_digest`,
-  4. `windows_helper_candidate_crash_triggers_rollback` — automatyczny rollback po awarii kandydata,
-  5. `windows_helper_health_invalid_attempt_id_rejected` — odrzucenie obcego dowodu zdrowia,
-  6. `windows_helper_rollback_preserves_sqlite_and_wal` — nienaruszalność baz SQLite i plików WAL podczas awarii i rollbacku,
-  7. `windows_helper_paths_with_spaces_and_unicode` — odporność na spacje i znaki diakrytyczne Unicode w ścieżkach,
-  8. `windows_helper_parent_process_timeout` — przerwanie operacji bez dotykania plików przy braku zamknięcia procesu macierzystego,
-  9. `windows_helper_health_timeout_triggers_rollback` — rollback po przekroczeniu limitu czasu na dowód zdrowia.
-- **Dedykowane strażniki bezpieczeństwa M3-B (`tests/security_guard.rs`):**
+  - `tests/windows_helper_test.rs`: 28 passed, 0 failed
+  - `tests/security_guard.rs`: 83 passed, 0 failed
+- **Kategoryzacja testów pomocnika Windows:**
+  - WINDOWS HELPER UNIT TESTS: **12** (7 lib + 5 bin)
+  - WINDOWS HELPER INTEGRATION TESTS: **24** (w `tests/windows_helper_test.rs`)
+  - WINDOWS NATIVE BINARY EXECUTION TESTS: **2** (w `tests/windows_helper_test.rs`)
+  - POWERSHELL REAL EXECUTION TESTS: **2** (w `tests/windows_helper_test.rs`, uruchomienie `powershell.exe`)
+  - POWERSHELL STATIC GENERATOR TESTS: **2** (w `tests/windows_helper_test.rs` oraz `tests/security_guard.rs`)
+  - NATIVE/POWERSHELL PARITY TESTS: **1**
+  - WINDOWS STABILITY ITERATIONS: **100x** (protokół i ścieżki), **50x** (dowód zdrowia i rollback), **20x** (parzystość i cykl e2e)
+- **Dedykowane testy Windows Helper (`tests/windows_helper_test.rs`, 28 testów):**
+  1. `powershell_fallback_parity_with_windows_helper` — statyczna weryfikacja polityki bezpieczeństwa skryptu PowerShell,
+  2. `windows_helper_paths_with_spaces_and_unicode` — obsługa spacji i znaków diakrytycznych w ścieżkach instalacji i zasobów,
+  3. `windows_helper_detects_tampered_request_digest` — natychmiastowe odrzucenie zmanipulowanego `plan_digest`,
+  4. `windows_helper_detects_tampered_attempt_id` — wykrycie niezgodności unikalnego `attempt_id`,
+  5. `windows_helper_parent_process_timeout` — przerwanie operacji bez dotykania plików przy braku zamknięcia procesu macierzystego,
+  6. `windows_helper_candidate_crash_triggers_rollback` — automatyczny rollback po awarii (crash) kandydata,
+  7. `windows_helper_health_timeout_triggers_rollback` — rollback po przekroczeniu limitu czasu na dowód zdrowia,
+  8. `windows_helper_health_invalid_attempt_id_rejected` — odrzucenie obcego/sfałszowanego dowodu zdrowia,
+  9. `windows_helper_rollback_preserves_sqlite_and_wal` — 100% nienaruszalność baz SQLite, plików WAL i konfiguracji,
+  10. `candidate_termination_uses_spawned_child_handle` — zakończenie kandydata wyłącznie przez wywołanie `terminate()` na uchwycie Child,
+  11. `candidate_is_not_found_by_process_name` — helper nigdy nie wyszukuje kandydata po nazwie EXE,
+  12. `foreign_candidate_process_is_not_terminated` — zakaz kończenia procesów obcych i współistniejących,
+  13. `health_timeout_terminates_only_spawned_candidate` — timeout zdrowia kończy tylko uruchomiony proces potomny kandydata,
+  14. `lost_candidate_handle_does_not_authorize_pid_only_termination` — utrata uchwytu bezwzględnie zabrania ubijania procesów po samym PID,
+  15. `parent_process_is_never_terminated_by_helper` — timeout procesu macierzystego nigdy nie prowadzi do jego zakończenia,
+  16. `windows_helper_rejects_staging_file_hash_mismatch` — odrzucenie zmanipulowanego pliku w `.staging` przed fazą apply,
+  17. `windows_helper_rejects_staging_file_size_mismatch` — wykrycie nieprawidłowego rozmiaru pliku w `.staging`,
+  18. `windows_helper_detects_backup_hash_mismatch` — fail-closed w przypadku błędu tworzenia kopii w `.rollback`,
+  19. `windows_helper_detects_backup_size_mismatch` — błąd kopii bezpieczeństwa przerywa procedurę przed podmianą,
+  20. `windows_helper_rejects_missing_staging_source` — brak pliku źródłowego w `.staging` zatrzymuje aktualizację,
+  21. `windows_helper_rejects_unplanned_staging_entry_if_policy_requires` — nieplanowany plik w stagingu odrzuca zlecenie,
+  22. `windows_helper_rejects_existing_create_target` — istniejący plik cel dla operacji Create powoduje natychmiastowy fail-closed,
+  23. `windows_helper_rejects_missing_replace_target` — brak pliku docelowego dla operacji Replace powoduje fail-closed,
+  24. `windows_helper_fault_injection_interrupted_replace_triggers_clean_rollback` — wstrzyknięcie błędu I/O podczas Replace wyzwala czysty rollback,
+  25. `windows_helper_fault_injection_interrupted_create_triggers_clean_rollback` — przerwanie Create usuwa pliki nowo utworzone i przywraca stare,
+  26. `windows_helper_fault_injection_rollback_idempotency` — wielokrotne wykonanie rollbacku jest w pełni bezpieczne i idempotentne,
+  27. `powershell_real_execution_full_cycle_success` — rzeczywiste uruchomienie `powershell.exe` na Windows z pełnym cyklem sukcesu i weryfikacji zdrowia,
+  28. `powershell_real_execution_candidate_failure_triggers_rollback` — rzeczywiste uruchomienie `powershell.exe` na Windows z symulacją awarii kandydata i automatycznym rollbackiem.
+- **Dedykowane strażniki bezpieczeństwa M3-B (`tests/security_guard.rs`, 83 testy):**
   - `m3_b_windows_updater_has_no_network_or_url_guard`: weryfikacja braku kodu sieciowego w pomocniku,
   - `m3_b_windows_updater_has_no_shell_or_cmd_or_runas_guard`: weryfikacja braku powłoki systemowej i eskalacji uprawnień,
   - `m3_b_powershell_fallback_has_no_wildcard_or_iex_guard`: weryfikacja braku wildcardów i `iex` w generatorze PowerShell,
   - `m3_b_windows_updater_protects_user_databases_and_configs_guard`: weryfikacja ochrony baz danych i konfiguracji przed planem aktualizacji,
+  - `m3_b_process_identity_and_closure_guard`: weryfikacja braku taskkill/kill na parent PID oraz wymóg użycia bezpośredniego uchwytu kandydata,
   - `m3_b_stability_100_iterations_protocol_and_path_guards`: 100 powtórzeń testów normalizacji i walidacji protokołu (0 flaky),
   - `m3_b_stability_50_iterations_health_proof_and_rollback`: 50 powtórzeń cyklu dowodu zdrowia i rollbacku (0 flaky),
   - `m3_b_stability_20_iterations_helper_parity_and_e2e_cycle`: 20 powtórzeń cyklu e2e i parzystości PowerShell (0 flaky).
@@ -208,13 +237,17 @@ TRANSACTIONAL ROLLBACK:                       VERIFIED (CRASH & TIMEOUT)
 POWERSHELL FALLBACK:                          HARDENED (NO WILDCARDS, NO IEX)
 POWERSHELL PARITY:                            VERIFIED
 USER DATA INTEGRITY:                          PROTECTED (SQLITE, WAL, CONFIGS)
+FILE REPLACEMENT SEMANTICS:                   JOURNALED_TRANSACTIONAL_REPLACEMENT_VERIFIED
+CRASH RECOVERY GUARANTEE:                     CRASH_RECOVERABLE_BY_JOURNAL (NOT_POWER_LOSS_ATOMIC)
 STABILITY TESTS:                              PASSED (100x, 50x, 20x)
-TOTAL TESTS REGISTERED:                       2498
-TOTAL TESTS EXECUTED:                         2488
-TOTAL TESTS PASSED:                           2488
+DEDICATED WINDOWS HELPER TESTS:               28/28 PASSED
+POWERSHELL REAL EXECUTION:                    VERIFIED (2/2 PASSED)
+TOTAL TESTS REGISTERED:                       2522
+TOTAL TESTS EXECUTED:                         2512
+TOTAL TESTS PASSED:                           2512
 TOTAL TESTS FAILED:                           0
 TOTAL TESTS IGNORED:                          10 (HIL)
-SECURITY GUARDS:                              82/82 PASSED
+SECURITY GUARDS:                              83/83 PASSED
 CLIPPY WARNINGS:                              0
 CARGO AUDIT VULNERABILITIES:                  0
 CARGO.LOCK CHANGES:                           NONE (0 DIFF)
