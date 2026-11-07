@@ -1236,6 +1236,80 @@ impl<'a> WindowsHelperEngine<'a> {
     }
 }
 
+/// Dokonuje weryfikacji tożsamości i integralności natywnego pomocnika Windows (`splogbook-updater.exe`).
+/// Sprawdza istnienie pliku, brak dowiązań symbolicznych, obecność prawidłowego nagłówka DOS MZ,
+/// prawidłowego nagłówka PE oraz sygnatury architektury x86_64 (`IMAGE_FILE_MACHINE_AMD64 = 0x8664`).
+pub fn validate_native_helper_identity(helper_path: &Path) -> Result<(), UpdaterError> {
+    if !helper_path.exists() {
+        return Err(UpdaterError::SafetyGate(format!(
+            "Plik pomocnika Windows nie istnieje: {}",
+            helper_path.display()
+        )));
+    }
+
+    let meta = fs::symlink_metadata(helper_path)
+        .map_err(|e| UpdaterError::Io(format!("Nie można odczytać metadanych pomocnika: {e}")))?;
+
+    if meta.file_type().is_symlink() {
+        return Err(UpdaterError::SafetyGate(
+            "Plik pomocnika Windows nie może być dowiązaniem symbolicznym".to_string(),
+        ));
+    }
+
+    if !meta.file_type().is_file() {
+        return Err(UpdaterError::SafetyGate(
+            "Ścieżka pomocnika Windows nie wskazuje na zwykły plik".to_string(),
+        ));
+    }
+
+    let len = meta.len();
+    if !(64..=100 * 1024 * 1024).contains(&len) {
+        return Err(UpdaterError::SafetyGate(format!(
+            "Rozmiar pomocnika Windows ({len} bajtów) poza bezpiecznym zakresem"
+        )));
+    }
+
+    let bytes = fs::read(helper_path)
+        .map_err(|e| UpdaterError::Io(format!("Nie można odczytać pliku pomocnika: {e}")))?;
+
+    // 1. Sprawdzenie sygnatury DOS MZ (0x4D, 0x5A)
+    if bytes.len() < 64 || bytes[0] != 0x4D || bytes[1] != 0x5A {
+        return Err(UpdaterError::SafetyGate(
+            "Brak prawidłowej sygnatury DOS MZ w pomocniku Windows".to_string(),
+        ));
+    }
+
+    // 2. Odczyt offsetu nagłówka PE (e_lfanew) z offsetu 0x3C (4 bajty little-endian)
+    let e_lfanew =
+        u32::from_le_bytes([bytes[0x3C], bytes[0x3D], bytes[0x3E], bytes[0x3F]]) as usize;
+    if e_lfanew < 64 || e_lfanew + 24 > bytes.len() {
+        return Err(UpdaterError::SafetyGate(
+            "Nieprawidłowy offset nagłówka PE (e_lfanew) w pomocniku Windows".to_string(),
+        ));
+    }
+
+    // 3. Sprawdzenie sygnatury PE (0x50, 0x45, 0x00, 0x00 -> "PE\0\0")
+    if bytes[e_lfanew] != 0x50
+        || bytes[e_lfanew + 1] != 0x45
+        || bytes[e_lfanew + 2] != 0x00
+        || bytes[e_lfanew + 3] != 0x00
+    {
+        return Err(UpdaterError::SafetyGate(
+            "Brak prawidłowej sygnatury PE w pomocniku Windows".to_string(),
+        ));
+    }
+
+    // 4. Sprawdzenie architektury COFF (IMAGE_FILE_MACHINE_AMD64 = 0x8664)
+    let machine = u16::from_le_bytes([bytes[e_lfanew + 4], bytes[e_lfanew + 5]]);
+    if machine != 0x8664 {
+        return Err(UpdaterError::SafetyGate(format!(
+            "Nieobsługiwana architektura pomocnika Windows: 0x{machine:04x} (oczekiwano 0x8664 AMD64)"
+        )));
+    }
+
+    Ok(())
+}
+
 // ============================================================================
 // Testy jednostkowe silnika pomocnika
 // ============================================================================
@@ -1663,5 +1737,95 @@ mod tests {
         // Plik SPLogbook.exe (który zdążył być podmieniony) został przywrócony z kopii zapasowej
         assert_eq!(fs::read(root.join("SPLogbook.exe")).unwrap(), b"OLD_BIN");
         assert_eq!(fs::read(root.join("lib.dll")).unwrap(), b"OLD_LIB");
+    }
+
+    fn create_mock_pe(machine: u16) -> Vec<u8> {
+        let mut buf = vec![0u8; 128];
+        buf[0] = 0x4D; // 'M'
+        buf[1] = 0x5A; // 'Z'
+        // e_lfanew at 0x3C = 64 (0x40)
+        buf[0x3C] = 0x40;
+        // PE\0\0 at 0x40
+        buf[0x40] = 0x50; // 'P'
+        buf[0x41] = 0x45; // 'E'
+        buf[0x42] = 0x00;
+        buf[0x43] = 0x00;
+        // Machine at 0x44 (e_lfanew + 4)
+        let m_bytes = machine.to_le_bytes();
+        buf[0x44] = m_bytes[0];
+        buf[0x45] = m_bytes[1];
+        buf
+    }
+
+    #[test]
+    fn validate_native_helper_identity_accepts_valid_pe_x86_64() {
+        let temp = tempfile::tempdir().unwrap();
+        let helper = temp.path().join("splogbook-updater.exe");
+        let pe_data = create_mock_pe(0x8664);
+        fs::write(&helper, pe_data).unwrap();
+
+        let res = validate_native_helper_identity(&helper);
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn validate_native_helper_identity_rejects_missing_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let helper = temp.path().join("non_existent_helper.exe");
+
+        let res = validate_native_helper_identity(&helper);
+        assert!(matches!(res, Err(UpdaterError::SafetyGate(msg)) if msg.contains("nie istnieje")));
+    }
+
+    #[test]
+    fn validate_native_helper_identity_rejects_non_mz_header() {
+        let temp = tempfile::tempdir().unwrap();
+        let helper = temp.path().join("splogbook-updater.exe");
+        let mut pe_data = create_mock_pe(0x8664);
+        pe_data[0] = 0x7F;
+        pe_data[1] = b'E'; // ELF header
+        fs::write(&helper, pe_data).unwrap();
+
+        let res = validate_native_helper_identity(&helper);
+        assert!(matches!(res, Err(UpdaterError::SafetyGate(msg)) if msg.contains("DOS MZ")));
+    }
+
+    #[test]
+    fn validate_native_helper_identity_rejects_invalid_pe_header() {
+        let temp = tempfile::tempdir().unwrap();
+        let helper = temp.path().join("splogbook-updater.exe");
+        let mut pe_data = create_mock_pe(0x8664);
+        pe_data[0x40] = b'N';
+        pe_data[0x41] = b'E'; // NE header instead of PE
+        fs::write(&helper, pe_data).unwrap();
+
+        let res = validate_native_helper_identity(&helper);
+        assert!(matches!(res, Err(UpdaterError::SafetyGate(msg)) if msg.contains("sygnatury PE")));
+    }
+
+    #[test]
+    fn validate_native_helper_identity_rejects_wrong_architecture() {
+        let temp = tempfile::tempdir().unwrap();
+        let helper = temp.path().join("splogbook-updater.exe");
+        // i386 machine type 0x014c
+        let pe_data = create_mock_pe(0x014c);
+        fs::write(&helper, pe_data).unwrap();
+
+        let res = validate_native_helper_identity(&helper);
+        assert!(
+            matches!(res, Err(UpdaterError::SafetyGate(msg)) if msg.contains("Nieobsługiwana architektura"))
+        );
+    }
+
+    #[test]
+    fn validate_native_helper_identity_rejects_corrupted_e_lfanew() {
+        let temp = tempfile::tempdir().unwrap();
+        let helper = temp.path().join("splogbook-updater.exe");
+        let mut pe_data = create_mock_pe(0x8664);
+        pe_data[0x3C] = 0x10; // offset too small (< 64)
+        fs::write(&helper, pe_data).unwrap();
+
+        let res = validate_native_helper_identity(&helper);
+        assert!(matches!(res, Err(UpdaterError::SafetyGate(msg)) if msg.contains("e_lfanew")));
     }
 }
