@@ -173,16 +173,29 @@ pub fn generate_powershell_from_request_file(request_path: &Path) -> String {
          $createFiles = @($req.update_plan_identity.ordered_create_entries)\n\
          $resultPath = $req.result_record_path\n\
          \n\
-         function Write-HelperResult($exitCode, $status, $err) {{\n\
+         $planDigest = $req.plan_digest\n\
+         $totalOps = $replaceFiles.Count + $createFiles.Count\n\
+         \n\
+         function Write-HelperResult($exitCode, $category, $finalState, $rollbackRes, $healthRes, $completedOps, $err) {{\n\
              if ($resultPath) {{\n\
-                 $errMsg = if ($err) {{ $err }} else {{ $null }}\n\
+                 $errMsg = if ($err) {{ $err }} else {{ \"\" }}\n\
                  $resObj = [PSCustomObject]@{{\n\
                      result_version = 1\n\
                      attempt_id = $attemptId\n\
-                     exit_code = $exitCode\n\
-                     status = $status\n\
-                     error_message = $errMsg\n\
-                     created_at = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')\n\
+                     plan_digest = $planDigest\n\
+                     final_update_state = $finalState\n\
+                     helper_engine = 'PowerShellFallback'\n\
+                     result_category = $category\n\
+                     status = $category\n\
+                     exit_code = [int]$exitCode\n\
+                     rollback_result = $rollbackRes\n\
+                     health_result = $healthRes\n\
+                     completed_operation_count = [int]$completedOps\n\
+                     total_operation_count = [int]$totalOps\n\
+                     backup_retained = $true\n\
+                     manual_recovery_required = $false\n\
+                     sanitized_diagnostic_summary = $errMsg\n\
+                     completion_time = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')\n\
                  }}\n\
                  $resJson = ConvertTo-Json -InputObject $resObj\n\
                  Set-Content -LiteralPath $resultPath -Value $resJson -Encoding UTF8\n\
@@ -192,7 +205,7 @@ pub fn generate_powershell_from_request_file(request_path: &Path) -> String {
          $parentDeadline = (Get-Date).AddSeconds($parentTimeout)\n\
          while (Get-Process -Id $parentPid -ErrorAction SilentlyContinue) {{\n\
              if ((Get-Date) -gt $parentDeadline) {{\n\
-                 Write-HelperResult 2 'ParentProcessDidNotExit' 'Parent process did not exit within designated timeout'\n\
+                 Write-HelperResult 2 'AbortedPreApply' 'FailedPreApply' $null $null 0 'Parent process did not exit within designated timeout'\n\
                  exit 2\n\
              }}\n\
              Start-Sleep -Milliseconds 250\n\
@@ -270,7 +283,7 @@ pub fn generate_powershell_from_request_file(request_path: &Path) -> String {
          if ($healthVerified) {{\n\
              Remove-Item -Recurse -Force -LiteralPath $staging -ErrorAction SilentlyContinue\n\
              Remove-Item -Force -LiteralPath $healthProofPath -ErrorAction SilentlyContinue\n\
-             Write-HelperResult 0 'Success' $null\n\
+             Write-HelperResult 0 'Success' 'Committed' 'None' 'Passed' $totalOps ''\n\
              exit 0\n\
          }} else {{\n\
              Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue\n\
@@ -284,7 +297,7 @@ pub fn generate_powershell_from_request_file(request_path: &Path) -> String {
                      Copy-Item -LiteralPath $bk -Destination (Join-Path $root $rel) -Force\n\
                  }}\n\
              }}\n\
-             Write-HelperResult 9 'HealthVerificationFailedRollbackSucceeded' 'Health verification failed - rollback succeeded'\n\
+             Write-HelperResult 9 'FailedRollbackSucceeded' 'FailedPostApply' 'Success' 'Timeout' $totalOps 'Health verification failed - rollback succeeded'\n\
              Start-Process -FilePath $candExe -ErrorAction SilentlyContinue\n\
              exit 9\n\
          }}\n"
@@ -326,16 +339,29 @@ pub fn generate_powershell_from_request(req: &WindowsHelperRequest) -> String {
          $createFiles = @($req.update_plan_identity.ordered_create_entries)\n\
          $resultPath = $req.result_record_path\n\
          \n\
-         function Write-HelperResult($exitCode, $status, $err) {{\n\
+         $planDigest = $req.plan_digest\n\
+         $totalOps = $replaceFiles.Count + $createFiles.Count\n\
+         \n\
+         function Write-HelperResult($exitCode, $category, $finalState, $rollbackRes, $healthRes, $completedOps, $err) {{\n\
              if ($resultPath) {{\n\
-                 $errMsg = if ($err) {{ $err }} else {{ $null }}\n\
+                 $errMsg = if ($err) {{ $err }} else {{ \"\" }}\n\
                  $resObj = [PSCustomObject]@{{\n\
                      result_version = 1\n\
                      attempt_id = $attemptId\n\
-                     exit_code = $exitCode\n\
-                     status = $status\n\
-                     error_message = $errMsg\n\
-                     created_at = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')\n\
+                     plan_digest = $planDigest\n\
+                     final_update_state = $finalState\n\
+                     helper_engine = 'PowerShellFallback'\n\
+                     result_category = $category\n\
+                     status = $category\n\
+                     exit_code = [int]$exitCode\n\
+                     rollback_result = $rollbackRes\n\
+                     health_result = $healthRes\n\
+                     completed_operation_count = [int]$completedOps\n\
+                     total_operation_count = [int]$totalOps\n\
+                     backup_retained = $true\n\
+                     manual_recovery_required = $false\n\
+                     sanitized_diagnostic_summary = $errMsg\n\
+                     completion_time = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')\n\
                  }}\n\
                  $resJson = ConvertTo-Json -InputObject $resObj\n\
                  Set-Content -LiteralPath $resultPath -Value $resJson -Encoding UTF8\n\
@@ -345,7 +371,7 @@ pub fn generate_powershell_from_request(req: &WindowsHelperRequest) -> String {
          $parentDeadline = (Get-Date).AddSeconds($parentTimeout)\n\
          while (Get-Process -Id $parentPid -ErrorAction SilentlyContinue) {{\n\
              if ((Get-Date) -gt $parentDeadline) {{\n\
-                 Write-HelperResult 2 'ParentProcessDidNotExit' 'Parent process did not exit within designated timeout'\n\
+                 Write-HelperResult 2 'AbortedPreApply' 'FailedPreApply' $null $null 0 'Parent process did not exit within designated timeout'\n\
                  exit 2\n\
              }}\n\
              Start-Sleep -Milliseconds 250\n\
@@ -423,7 +449,7 @@ pub fn generate_powershell_from_request(req: &WindowsHelperRequest) -> String {
          if ($healthVerified) {{\n\
              Remove-Item -Recurse -Force -LiteralPath $staging -ErrorAction SilentlyContinue\n\
              Remove-Item -Force -LiteralPath $healthProofPath -ErrorAction SilentlyContinue\n\
-             Write-HelperResult 0 'Success' $null\n\
+             Write-HelperResult 0 'Success' 'Committed' 'None' 'Passed' $totalOps ''\n\
              exit 0\n\
          }} else {{\n\
              Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue\n\
@@ -437,7 +463,7 @@ pub fn generate_powershell_from_request(req: &WindowsHelperRequest) -> String {
                      Copy-Item -LiteralPath $bk -Destination (Join-Path $root $rel) -Force\n\
                  }}\n\
              }}\n\
-             Write-HelperResult 9 'HealthVerificationFailedRollbackSucceeded' 'Health verification failed - rollback succeeded'\n\
+             Write-HelperResult 9 'FailedRollbackSucceeded' 'FailedPostApply' 'Success' 'Timeout' $totalOps 'Health verification failed - rollback succeeded'\n\
              Start-Process -FilePath $candExe -ErrorAction SilentlyContinue\n\
              exit 9\n\
          }}\n"

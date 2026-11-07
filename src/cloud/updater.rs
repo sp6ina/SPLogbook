@@ -110,8 +110,8 @@ pub use health::{
 };
 pub use helper_protocol::{
     CURRENT_HELPER_REQUEST_VERSION, CURRENT_HELPER_RESULT_VERSION, CURRENT_PLAN_IDENTITY_VERSION,
-    HealthResultKind, HelperResultCategory, RollbackResultKind, UpdatePlanIdentity,
-    WindowsHelperExitCode, WindowsHelperRequest, WindowsHelperResult,
+    HealthResultKind, HelperResultCategory, RollbackResultKind, StagingFileExpectation,
+    UpdatePlanIdentity, WindowsHelperExitCode, WindowsHelperRequest, WindowsHelperResult,
     validate_and_normalize_relative_path,
 };
 pub use installation::{
@@ -144,6 +144,7 @@ pub use windows_helper::{
     CandidateLauncher, HelperCandidateChild, HelperOperationJournal, OPERATION_JOURNAL_FILENAME,
     OperationJournalEntry, OperationType, ProcessMonitor, ROLLBACK_DIR_NAME, STAGING_DIR_NAME,
     SystemCandidateChild, SystemCandidateLauncher, SystemProcessMonitor, WindowsHelperEngine,
+    validate_native_helper_identity,
 };
 
 impl UpdaterError {
@@ -3590,91 +3591,272 @@ fn install_via_windows_helper(
         return Err(e);
     }
 
-    // 2. PRIMARY TARGET: Natywny pomocnik Rust splogbook-updater.exe
-    let native_helper = base_dir.join("splogbook-updater.exe");
-    if native_helper.exists() {
-        let plan_identity = UpdatePlanIdentity::from_plan(
-            attempt_id,
-            base_dir,
-            &plan,
-            "SPLogbook.exe",
-            asset.bound_manifest_version(),
-            asset.bound_commit(),
-            "windows-x86_64",
-        );
-        if let Ok(plan_identity) = plan_identity {
-            let plan_digest = plan_identity.compute_digest();
-            let tx_record_path = base_dir.join(TRANSACTION_FILE_NAME);
-            let candidate_executable = staging.join("SPLogbook.exe");
-            let result_record_path = base_dir.join(".update_helper_result.json");
-            let diagnostic_log_path = base_dir.join(".update_helper.log");
+    // 2. Budowa tożsamości planu aktualizacji
+    let plan_identity = match UpdatePlanIdentity::from_plan(
+        attempt_id,
+        base_dir,
+        &plan,
+        "SPLogbook.exe",
+        asset.bound_manifest_version(),
+        asset.bound_commit(),
+        asset.declared_sha256(),
+    ) {
+        Ok(pi) => pi,
+        Err(e) => {
+            let _ = std::fs::remove_dir_all(&staging);
+            tx.failure_stage = Some(UpdateStateId::BuildingUpdatePlan);
+            tx.sanitized_diagnostic_summary = Some(e.to_string());
+            let _ = tx.transition_to(UpdateStateId::FailedPreApply);
+            let _ = tx.save_to_dir(base_dir);
+            return Err(e);
+        }
+    };
+    let plan_digest = plan_identity.compute_digest();
+    tx.set_plan_digest(&plan_digest);
 
-            let request = WindowsHelperRequest {
-                request_version: CURRENT_HELPER_REQUEST_VERSION,
-                attempt_id,
-                transaction_record_path: tx_record_path,
-                installation_root: base_dir.to_path_buf(),
-                current_executable: current.to_path_buf(),
-                candidate_executable,
-                expected_parent_pid: std::process::id(),
-                expected_current_binary_identity: None,
-                expected_target_version: asset.bound_manifest_version().to_string(),
-                expected_target_commit: asset.bound_commit().to_string(),
-                update_management_mode: ManagementMode::SelfManaged,
-                update_plan_identity: plan_identity,
-                plan_digest,
-                health_proof_path: health_ok.clone(),
-                parent_process_timeout_seconds: 90,
-                candidate_health_timeout_seconds: 15,
-                result_record_path,
-                diagnostic_log_path,
-                staging_file_expectations: std::collections::BTreeMap::new(),
-                enforce_strict_staging_entries: false,
-            };
-
-            let request_path = staging.join("updater_request.json");
-            if request.save_atomic(&request_path).is_ok() {
-                let spawn_res = std::process::Command::new(&native_helper)
-                    .arg("--request")
-                    .arg(&request_path)
-                    .spawn();
-
-                if spawn_res.is_ok() {
-                    return Ok(());
-                }
+    // 3. Zebranie metadanych plików stagingu dla ścisłej weryfikacji integralności
+    let mut staging_file_expectations = std::collections::BTreeMap::new();
+    for entry in walkdir::WalkDir::new(&staging).min_depth(1) {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(e) => {
+                let _ = std::fs::remove_dir_all(&staging);
+                tx.failure_stage = Some(UpdateStateId::BuildingUpdatePlan);
+                tx.sanitized_diagnostic_summary =
+                    Some(format!("Błąd przeszukiwania stagingu: {e}"));
+                let _ = tx.transition_to(UpdateStateId::FailedPreApply);
+                let _ = tx.save_to_dir(base_dir);
+                return Err(UpdaterError::Io(format!(
+                    "Błąd przeszukiwania stagingu: {e}"
+                )));
             }
+        };
+        if entry.file_type().is_file() {
+            let rel = match entry.path().strip_prefix(&staging) {
+                Ok(r) => r,
+                Err(e) => {
+                    let _ = std::fs::remove_dir_all(&staging);
+                    tx.failure_stage = Some(UpdateStateId::BuildingUpdatePlan);
+                    tx.sanitized_diagnostic_summary = Some(format!("Błąd ścieżki staging: {e}"));
+                    let _ = tx.transition_to(UpdateStateId::FailedPreApply);
+                    let _ = tx.save_to_dir(base_dir);
+                    return Err(UpdaterError::Io(format!("Błąd ścieżki staging: {e}")));
+                }
+            };
+            let norm_rel = match validate_and_normalize_relative_path(rel) {
+                Ok(n) => n,
+                Err(e) => {
+                    let _ = std::fs::remove_dir_all(&staging);
+                    tx.failure_stage = Some(UpdateStateId::BuildingUpdatePlan);
+                    tx.sanitized_diagnostic_summary =
+                        Some(format!("Niepoprawna ścieżka w stagingu: {e}"));
+                    let _ = tx.transition_to(UpdateStateId::FailedPreApply);
+                    let _ = tx.save_to_dir(base_dir);
+                    return Err(e);
+                }
+            };
+            let meta = match entry.metadata() {
+                Ok(m) => m,
+                Err(e) => {
+                    let _ = std::fs::remove_dir_all(&staging);
+                    tx.failure_stage = Some(UpdateStateId::BuildingUpdatePlan);
+                    tx.sanitized_diagnostic_summary =
+                        Some(format!("Błąd metadanych pliku stagingu: {e}"));
+                    let _ = tx.transition_to(UpdateStateId::FailedPreApply);
+                    let _ = tx.save_to_dir(base_dir);
+                    return Err(UpdaterError::Io(format!(
+                        "Błąd metadanych pliku stagingu: {e}"
+                    )));
+                }
+            };
+            let bytes = match std::fs::read(entry.path()) {
+                Ok(b) => b,
+                Err(e) => {
+                    let _ = std::fs::remove_dir_all(&staging);
+                    tx.failure_stage = Some(UpdateStateId::BuildingUpdatePlan);
+                    tx.sanitized_diagnostic_summary =
+                        Some(format!("Błąd odczytu pliku ze stagingu: {e}"));
+                    let _ = tx.transition_to(UpdateStateId::FailedPreApply);
+                    let _ = tx.save_to_dir(base_dir);
+                    return Err(UpdaterError::Io(format!(
+                        "Błąd odczytu pliku ze stagingu: {e}"
+                    )));
+                }
+            };
+            let hash = sha256_hex(&bytes);
+            staging_file_expectations.insert(
+                norm_rel,
+                StagingFileExpectation {
+                    size: meta.len(),
+                    sha256: hash,
+                },
+            );
         }
     }
 
-    // 3. CONTROLLED COMPATIBILITY FALLBACK: Utwardzony PowerShell
-    install_via_powershell(current, &plan)
-}
+    let tx_record_path = base_dir.join(TRANSACTION_FILE_NAME);
+    let candidate_executable = staging.join("SPLogbook.exe");
+    let result_record_path = base_dir.join(".update_helper_result.json");
+    let diagnostic_log_path = base_dir.join(".update_helper.log");
 
-/// Windows fallback: uruchamia skrypt PowerShell, który czeka na zamknięcie bieżącego
-/// procesu, podmienia plik wykonywalny i uruchamia go ponownie.
-#[cfg(target_os = "windows")]
-fn install_via_powershell(current: &Path, plan: &UpdatePlan) -> Result<(), UpdaterError> {
-    let script_path =
-        std::env::temp_dir().join(format!("SPLogbook_update_{}.ps1", std::process::id()));
+    let request = WindowsHelperRequest {
+        request_version: CURRENT_HELPER_REQUEST_VERSION,
+        attempt_id,
+        transaction_record_path: tx_record_path,
+        installation_root: base_dir.to_path_buf(),
+        current_executable: current.to_path_buf(),
+        candidate_executable,
+        expected_parent_pid: std::process::id(),
+        expected_current_binary_identity: None,
+        expected_target_version: asset.bound_manifest_version().to_string(),
+        expected_target_commit: asset.bound_commit().to_string(),
+        update_management_mode: ManagementMode::SelfManaged,
+        update_plan_identity: plan_identity,
+        plan_digest,
+        health_proof_path: health_ok,
+        parent_process_timeout_seconds: 90,
+        candidate_health_timeout_seconds: 15,
+        result_record_path,
+        diagnostic_log_path,
+        staging_file_expectations,
+        enforce_strict_staging_entries: true,
+    };
 
-    let pid = std::process::id();
-    let script = generate_powershell_update_script(current, pid, plan);
+    if let Err(e) = request.validate() {
+        let _ = std::fs::remove_dir_all(&staging);
+        tx.failure_stage = Some(UpdateStateId::BuildingUpdatePlan);
+        tx.sanitized_diagnostic_summary =
+            Some(format!("Walidacja żądania helpera nie powiodła się: {e}"));
+        let _ = tx.transition_to(UpdateStateId::FailedPreApply);
+        let _ = tx.save_to_dir(base_dir);
+        return Err(e);
+    }
 
-    std::fs::write(&script_path, script)
-        .map_err(|e| UpdaterError::Io(format!("Nie można zapisać skryptu aktualizacji: {e}")))?;
+    let request_path = staging.join("updater_request.json");
+    if let Err(e) = request.save_atomic(&request_path) {
+        let _ = std::fs::remove_dir_all(&staging);
+        tx.failure_stage = Some(UpdateStateId::BuildingUpdatePlan);
+        tx.sanitized_diagnostic_summary =
+            Some(format!("Zapis żądania helpera nie powiódł się: {e}"));
+        let _ = tx.transition_to(UpdateStateId::FailedPreApply);
+        let _ = tx.save_to_dir(base_dir);
+        return Err(e);
+    }
 
-    std::process::Command::new("powershell.exe")
-        .args([
+    // 4. Przejście transakcji do AwaitingApply -> Applying i trwały zapis
+    if let Err(e) = tx.transition_to(UpdateStateId::AwaitingApply) {
+        let _ = std::fs::remove_dir_all(&staging);
+        tx.failure_stage = Some(UpdateStateId::BuildingUpdatePlan);
+        tx.sanitized_diagnostic_summary = Some(format!("Błąd przejścia do AwaitingApply: {e}"));
+        let _ = tx.save_to_dir(base_dir);
+        return Err(e);
+    }
+    if let Err(e) = tx.transition_to(UpdateStateId::Applying) {
+        let _ = std::fs::remove_dir_all(&staging);
+        tx.failure_stage = Some(UpdateStateId::AwaitingApply);
+        tx.sanitized_diagnostic_summary = Some(format!("Błąd przejścia do Applying: {e}"));
+        let _ = tx.save_to_dir(base_dir);
+        return Err(e);
+    }
+    if let Err(e) = tx.save_to_dir(base_dir) {
+        let _ = std::fs::remove_dir_all(&staging);
+        tx.failure_stage = Some(UpdateStateId::Applying);
+        tx.sanitized_diagnostic_summary = Some(format!("Błąd zapisu transakcji w Applying: {e}"));
+        let _ = tx.save_to_dir(base_dir);
+        return Err(e);
+    }
+
+    // 5. Rozstrzygnięcie i walidacja pomocnika (PRIMARY: splogbook-updater.exe, FALLBACK: PowerShell)
+    let base_helper = base_dir.join("splogbook-updater.exe");
+    let staging_helper = staging.join("splogbook-updater.exe");
+
+    let helper_to_run = if base_helper.exists() {
+        if let Err(e) = validate_native_helper_identity(&base_helper) {
+            let _ = std::fs::remove_dir_all(&staging);
+            tx.failure_stage = Some(UpdateStateId::Applying);
+            tx.sanitized_diagnostic_summary = Some(format!(
+                "Natywny helper w katalogu bazowym jest uszkodzony lub niepoprawny: {e}"
+            ));
+            let _ = tx.transition_to(UpdateStateId::FailedPostApply);
+            let _ = tx.save_to_dir(base_dir);
+            return Err(e);
+        }
+        Some(base_helper)
+    } else if staging_helper.exists() {
+        if let Err(e) = validate_native_helper_identity(&staging_helper) {
+            let _ = std::fs::remove_dir_all(&staging);
+            tx.failure_stage = Some(UpdateStateId::Applying);
+            tx.sanitized_diagnostic_summary = Some(format!(
+                "Natywny helper w stagingu jest uszkodzony lub niepoprawny: {e}"
+            ));
+            let _ = tx.transition_to(UpdateStateId::FailedPostApply);
+            let _ = tx.save_to_dir(base_dir);
+            return Err(e);
+        }
+        Some(staging_helper)
+    } else {
+        None
+    };
+
+    if let Some(ref helper_exe) = helper_to_run {
+        let mut cmd = std::process::Command::new(helper_exe);
+        cmd.arg("--request").arg(&request_path);
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x0800_0208);
+        }
+        cmd.spawn().map_err(|e| {
+            let _ = std::fs::remove_dir_all(&staging);
+            tx.failure_stage = Some(UpdateStateId::Applying);
+            tx.sanitized_diagnostic_summary =
+                Some(format!("Nie udało się uruchomić natywnego helpera: {e}"));
+            let _ = tx.transition_to(UpdateStateId::FailedPostApply);
+            let _ = tx.save_to_dir(base_dir);
+            UpdaterError::Io(format!("Nie udało się uruchomić natywnego helpera: {e}"))
+        })?;
+    } else {
+        let ps_script = generate_powershell_from_request_file(&request_path);
+        let ps_script_path = staging.join("updater_fallback.ps1");
+        std::fs::write(&ps_script_path, ps_script).map_err(|e| {
+            let _ = std::fs::remove_dir_all(&staging);
+            tx.failure_stage = Some(UpdateStateId::Applying);
+            tx.sanitized_diagnostic_summary = Some(format!(
+                "Nie udało się zapisać skryptu PowerShell fallback: {e}"
+            ));
+            let _ = tx.transition_to(UpdateStateId::FailedPostApply);
+            let _ = tx.save_to_dir(base_dir);
+            UpdaterError::Io(format!(
+                "Nie udało się zapisać skryptu fallbacku PowerShell: {e}"
+            ))
+        })?;
+
+        let mut cmd = std::process::Command::new("powershell.exe");
+        cmd.args([
             "-NoProfile",
+            "-NonInteractive",
             "-WindowStyle",
             "Hidden",
             "-ExecutionPolicy",
             "Bypass",
             "-File",
         ])
-        .arg(&script_path)
-        .spawn()
-        .map_err(|e| UpdaterError::Io(format!("Nie można uruchomić aktualizacji: {e}")))?;
+        .arg(&ps_script_path);
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x0800_0208);
+        }
+        cmd.spawn().map_err(|e| {
+            let _ = std::fs::remove_dir_all(&staging);
+            tx.failure_stage = Some(UpdateStateId::Applying);
+            tx.sanitized_diagnostic_summary =
+                Some(format!("Nie udało się uruchomić PowerShell fallback: {e}"));
+            let _ = tx.transition_to(UpdateStateId::FailedPostApply);
+            let _ = tx.save_to_dir(base_dir);
+            UpdaterError::Io(format!("Nie udało się uruchomić fallbacku PowerShell: {e}"))
+        })?;
+    }
 
     Ok(())
 }
