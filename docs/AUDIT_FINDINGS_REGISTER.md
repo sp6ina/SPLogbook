@@ -13,7 +13,7 @@
 | Kategoria | BLOCKER | CRITICAL | HIGH | MEDIUM | LOW | INFO | Razem |
 |---|---|---|---|---|---|---|---|
 | `SEC` (Bezpieczeństwo) | 1 | 0 | 0 | 3 | 1 | 0 | **5** |
-| `REL` (Niezawodność / Updater) | 0 | 1 | 1 | 0 | 0 | 0 | **2** |
+| `REL` (Niezawodność / Updater) | 0 | 3 | 1 | 0 | 0 | 0 | **4** |
 | `DATA` (Dane / SQLite / ADIF) | 0 | 4 | 2 | 1 | 0 | 0 | **7** |
 | `FUNC` (Funkcjonalność / Domena) | 0 | 2 | 4 | 2 | 0 | 0 | **8** |
 | `CAT` (Radio / CAT / HIL / PTT) | 0 | 4 | 8 | 4 | 1 | 0 | **17** |
@@ -26,7 +26,7 @@
 | `DOC` (Dokumentacja vs Kod) | 0 | 0 | 1 | 2 | 1 | 0 | **4** |
 | `CI` (CI/CD i Release) | 0 | 0 | 2 | 1 | 0 | 0 | **3** |
 | `DEP` (Zależności i Licencje) | 0 | 0 | 1 | 1 | 1 | 1 | **4** |
-| **RAZEM** | **1** | **12** | **29** | **25** | **6** | **1** | **74** |
+| **RAZEM** | **1** | **14** | **29** | **25** | **6** | **1** | **76** |
 
 ---
 
@@ -100,6 +100,68 @@
 - **Wdrożone testy regresyjne:**
   - 14 testów bezpieczeństwa archiwów: `archive_never_writes_outside_staging`, `archive_rejects_parent_traversal`, `archive_rejects_absolute_paths`, `archive_rejects_symlink_entries`, `archive_rejects_hardlink_entries`, `archive_rejects_too_many_entries`, `archive_rejects_extracted_size_over_limit`, itp.
   - 16 testów procedury instalacji, walidacji i rollbacku: `updater_keeps_old_installation_until_new_one_is_ready`, `updater_rolls_back_on_install_failure`, `updater_rolls_back_when_final_rename_fails`, `updater_cleanup_removes_failed_staging`, `updater_rollback_preserves_original_file_contents`, `updater_rejects_artifact_replaced_after_verification`, `updater_rolls_back_when_windows_replace_fails`, `updater_rolls_back_when_linux_rename_fails`, `updater_rejects_incomplete_staging_layout`, itp.
+
+---
+
+### `UPDATE-TRUST-001` — Pomijanie weryfikacji manifestu w ścieżce GUI oraz podatność na odwołane klucze i brak spójności metadanych aktualizacji
+- **ID:** `UPDATE-TRUST-001`
+- **Tytuł:** Ścieżka aktualizacji GUI omijająca bezpieczną weryfikację manifestu i brak wymuszenia powiązania metadanych wydania
+- **Kategoria:** `REL`
+- **Poziom krytyczności:** `CRITICAL`
+- **Poziom pewności:** `CONFIRMED`
+- **Status remediacji:** **FIXED / VERIFIED_SOFTWARE**
+- **Data wdrożenia i weryfikacji:** 2026-11-06 / 2026-11-07
+- **Commity:**
+  - `bc3e806`: `fix(updater): require verified manifest for GUI update flow (UPDATE-TRUST-001)`
+  - `c95172e`: `test(updater): harden trust data rollback and health safety matrix`
+- **Moduł / obszar:** `src/cloud/updater.rs`, `src/gui/app_async.rs`, `src/gui/app_services.rs`, `tests/security_guard.rs`
+- **Lokalizacja:** [`src/cloud/updater.rs`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cloud/updater.rs), [`src/gui/app_services.rs`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/gui/app_services.rs), [`tests/security_guard.rs`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/tests/security_guard.rs)
+- **Dowód z kodu przed naprawą:**
+  - `app_services.rs` wywoływało `trigger_update_install`, które dobierało zasób przez `select_asset_for_platform(&release.assets)` oparte wyłącznie na rozszerzeniu pliku (`.zip` / `.tar.gz`) z pominięciem `select_manifest_asset`.
+  - Weryfikacja sygnatury Ed25519 nie blokowała wydania przed przejściem do GUI i pobrania w razie matematycznie poprawnego podpisu kluczem odwołanym (przypadek wydania v1.2.0 i `splogbook-release-2026-01`).
+- **Wdrożone rozwiązanie:**
+  - Wprowadzono typy `VerifiedReleaseAsset` oraz `VerifiedReleaseManifest`. Obiekt `LatestRelease` może powstać wyłącznie ze zweryfikowanym assetem (`pub verified_asset: VerifiedReleaseAsset`).
+  - Usunięto niebezpieczną ścieżkę doboru po rozszerzeniu w GUI. Metoda `trigger_update_install` przekazuje `release.verified_asset` do `updater::install_update(&verified_asset)`.
+  - Wymuszono pełne powiązanie: platforma, architektura, typ paczki, nazwa pliku, rozmiar bajtowy i SHA-256 przed przejściem do ekstrakcji i stagingu.
+  - Manifesty podpisane kluczem odwołanym (`REVOKED_KEY_IDS`) są bezwzględnie odrzucane (fail-closed).
+- **Wdrożone testy regresyjne:**
+  - `gui_update_requires_verified_manifest_guard` w `tests/security_guard.rs`
+  - `revoked_release_key_remains_rejected_guard` w `tests/security_guard.rs`
+  - Testy jednostkowe `VerifiedReleaseManifest::verify` i `select_manifest_asset`.
+
+---
+
+### `UPDATE-DATA-001` — Ryzyko nadpisania danych użytkownika, konfiguracji i baz SQLite w katalogu portable oraz brak planu selektywnej podmiany
+- **ID:** `UPDATE-DATA-001`
+- **Tytuł:** Nadpisywanie baz danych, konfiguracji i brak selektywnego planu aktualizacji w trybie portable
+- **Kategoria:** `REL`
+- **Poziom krytyczności:** `CRITICAL`
+- **Poziom pewności:** `CONFIRMED`
+- **Status remediacji:** **FIXED / VERIFIED_SOFTWARE**
+- **Data wdrożenia i weryfikacji:** 2026-11-06 / 2026-11-07
+- **Commity:**
+  - `12c3b22`: `fix(updater): plan file updates with fail-closed data protection (UPDATE-DATA-001)`
+  - `da34b4c`: `fix(updater): preserve portable data during Windows and Linux update and rollback (UPDATE-DATA-001)`
+  - `c95172e`: `test(updater): harden trust data rollback and health safety matrix`
+- **Moduł / obszar:** `src/cloud/updater.rs`, `tests/security_guard.rs`
+- **Lokalizacja:** [`src/cloud/updater.rs`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/src/cloud/updater.rs), [`tests/security_guard.rs`](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/tests/security_guard.rs)
+- **Dowód z kodu przed naprawą:**
+  - Skrypt PowerShell na Windows używał `Copy-Item -Path "$staging\*" -Destination $activeDir -Recurse -Force` oraz analogicznego polecenia przy rollbacku `$rollback\*`. Nadpisywało to bazy w katalogu `databases/` (`serviceLOG.db`, `callbook.db`), plik `station_config.json` oraz `default_log.db`.
+  - Na Linuksie kopiowano całą zawartość stagingu bez rozróżnienia danych użytkownika od plików wykonywalnych programu.
+- **Wdrożone rozwiązanie:**
+  - Wdrożono regułę `UNKNOWN DATA CLASSIFICATION → DO NOT OVERWRITE` oraz klasyfikator `classify_update_path(&Path) -> UpdateFileClass`.
+  - Wprowadzono silnik planowania `UpdatePlan::generate` i walidacji `plan.validate_safety("splogbook")`.
+  - Pliki `databases/serviceLOG.db` i `databases/callbook.db` zaklasyfikowano jako `FirstInstallSeed` (zachowywane, jeśli istnieją w aktywnej instalacji).
+  - Pliki `station_config.json`, `default_log.db`, logi QSO, ADIF zaklasyfikowano jako nienaruszalne dane i konfigurację użytkownika.
+  - Wyeliminowano dzikie karty (`$staging\*` / `$rollback\*`) w skrypcie PowerShell. Wygenerowano precyzyjne tablice `$replaceFiles` i `$createFiles`.
+  - Wdrożono bezpieczną procedurę podmiany i rollbacku w `install_via_tar_gz` oraz `apply_atomic_installation_with_options`.
+- **Wdrożone testy regresyjne:**
+  - `portable_database_files_are_protected_guard` w `tests/security_guard.rs`
+  - `windows_updater_does_not_force_copy_entire_staging_guard` w `tests/security_guard.rs`
+  - `linux_updater_uses_validated_update_plan_guard` w `tests/security_guard.rs`
+  - `rollback_excludes_protected_user_data_guard` w `tests/security_guard.rs`
+  - `updater_does_not_use_sudo_guard` w `tests/security_guard.rs`
+  - 17 testów jednostkowych klasyfikatora i planera w `src/cloud/updater.rs`.
 
 ---
 

@@ -567,3 +567,33 @@ Cargo.lock SHA-1: `c569097f3ef69c66ec59b74c29c1eb29efce69ae` (bez zmian)
 - Gotowość do kolejnego etapu:
   - Etap 10 definitywnie i bezwarunkowo zamknięty ze statusem `COMPLETED_SOFTWARE_VERIFIED`.
   - Etap 11 (fizyczne testy sprzętowe HIL) pozostaje nierozpoczęty (`NOT EXECUTED — SAFETY GATE CLOSED`).
+
+---
+
+## 7. Bramka Bezpieczeństwa Zaufania, Manifestu i Danych (UPDATE-TRUST-AND-DATA-SAFETY-GATE)
+
+- **Data robocza projektu:** 2026-11-06
+- **Rzeczywista data wykonania w środowisku:** 2026-11-07 (UTC+01:00 / CET)
+- **Status bramki:** `COMPLETED_SOFTWARE_VERIFIED`
+- **Commit wejściowy:** `a82df1fc104ad12c3c4a4c784191ecca8c385f52`
+- **Gałąź robocza:** `repair/full-system-remediation` (zsynchronizowana fast-forward z `main` i `origin/main`)
+- **Wdrożone commity bramki:**
+  1. `bc3e806`: `fix(updater): require verified manifest for GUI update flow (UPDATE-TRUST-001)`
+  2. `12c3b22`: `fix(updater): plan file updates with fail-closed data protection (UPDATE-DATA-001)`
+  3. `da34b4c`: `fix(updater): preserve portable data during Windows and Linux update and rollback (UPDATE-DATA-001)`
+  4. `c95172e`: `test(updater): harden trust data rollback and health safety matrix`
+- **Rozwiązane obszary:**
+  1. **UPDATE-TRUST-001 (`FIXED_SOFTWARE_VERIFIED`):** Wymuszenie `VerifiedReleaseManifest` i `VerifiedReleaseAsset` w ścieżce GUI (`trigger_update_install`), eliminacja doboru wyłącznie po rozszerzeniach, fail-closed w przypadku odwołanych kluczy (`REVOKED_KEY_IDS`).
+  2. **UPDATE-DATA-001 (`FIXED_SOFTWARE_VERIFIED`):** Reguła `UNKNOWN DATA CLASSIFICATION → DO NOT OVERWRITE`, klasyfikacja `UpdateFileClass`, ochrona `databases/serviceLOG.db`, `databases/callbook.db` (`FirstInstallSeed`), `station_config.json`, `default_log.db`, likwidacja kopiowania dzikimi kartami (`$staging\*`, `$rollback\*`) w skrypcie PowerShell, precyzyjne `$replaceFiles` i `$createFiles`, walidacja `UpdatePlan` na Linuksie.
+- **Pomiary po wdrożeniu bramki:**
+  - `cargo fmt --all -- --check`: **0 błędów**
+  - `cargo clippy --workspace --all-targets --all-features -j 2 -- -D warnings`: **0 ostrzeżeń, 0 błędów**
+  - Łącznie zarejestrowanych testów: **2345** (+24 nowe testy: +17 jednostkowych, +7 security guard)
+  - Aktywne testy programowe: **2335 passed, 0 failed**
+  - HIL ignorowane: **10 ignored** (emisja RF = 0, fizyczne PTT = 0, safety gate closed)
+  - `cargo audit`: **0 vulnerabilities, 0 unsound**
+  - `Cargo.toml` SHA-1: `0cdf381165bfc3111fff15097007e4b235484ec8` (blob: `d8e3acd8f0c7b3307b3733c6c4a9a6cc57cb17c4`, niezmieniony)
+  - `Cargo.lock` SHA-1: `52be66b2bc063c001d5c2e8556457fa2be04ff4f` (blob: `c569097f3ef69c66ec59b74c29c1eb29efce69ae`, niezmieniony)
+- **Raporty:**
+  - Analiza wejściowa: `UPDATE_PRE_IMPLEMENTATION_REPORT.md`
+  - Raport końcowy: `UPDATE_TRUST_AND_DATA_SAFETY_GATE_REPORT.md`
