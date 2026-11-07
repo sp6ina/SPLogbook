@@ -2440,8 +2440,9 @@ pub fn apply_atomic_installation_with_options(
     // 1. Walidacja układu przygotowanego stagingu przed dotknięciem bieżącej instalacji
     validate_staging_layout(prepared_dir, options.executable_name)?;
 
-    // 2. Zebranie wszystkich plików z prepared_dir
+    // 2. Zebranie plików z prepared_dir z bezwzględną ochroną istniejących danych użytkownika i baz portable
     let mut files_to_install = Vec::new();
+    let mut preserved_files = Vec::new();
     for entry in walkdir::WalkDir::new(prepared_dir).min_depth(1) {
         let entry =
             entry.map_err(|e| UpdaterError::Io(format!("Błąd przeszukiwania staging: {e}")))?;
@@ -2450,6 +2451,20 @@ pub fn apply_atomic_installation_with_options(
                 .path()
                 .strip_prefix(prepared_dir)
                 .map_err(|e| UpdaterError::Io(format!("Błąd strip_prefix staging: {e}")))?;
+            let orig_file = active_dir.join(rel);
+            let class = classify_update_path(rel);
+            if orig_file.exists()
+                && matches!(
+                    class,
+                    UpdateFileClass::UserData
+                        | UpdateFileClass::UserConfiguration
+                        | UpdateFileClass::FirstInstallSeed
+                        | UpdateFileClass::ReferenceData
+                )
+            {
+                preserved_files.push(orig_file);
+                continue;
+            }
             files_to_install.push(rel.to_path_buf());
         }
     }
@@ -2780,44 +2795,48 @@ fn install_via_tar_gz(current: &Path, new: &Path) -> Result<(), UpdaterError> {
     let limits = ArchiveLimits::default();
     extract_tar_gz_safe(new, &staging_dir, &limits)?;
     let _ = flatten_single_root_directory(&staging_dir)?;
+    validate_staging_layout(&staging_dir, "splogbook")?;
 
-    // 3. Kopia Zapasowa (Rollback)
-    for entry in walkdir::WalkDir::new(&staging_dir).min_depth(1) {
-        let entry = entry.map_err(|e| {
-            UpdaterError::Io(format!("Błąd przeszukiwania plików instalacyjnych: {e}"))
+    // Generujemy plan aktualizacji z bezwzględną ochroną danych
+    let plan = UpdatePlan::generate(&staging_dir, base_dir)?;
+    plan.validate_safety("splogbook")?;
+
+    // 3. Kopia Zapasowa (Rollback) - wyłącznie dla plików podmienianych z replace_files
+    for (rel, orig) in &plan.replace_files {
+        let dest = rollback_dir.join(rel);
+        if let Some(p) = dest.parent() {
+            let _ = fs::create_dir_all(p);
+        }
+        fs::copy(orig, &dest).map_err(|e| {
+            UpdaterError::Io(format!(
+                "Nie można utworzyć kopii zapasowej {}: {}",
+                rel.display(),
+                e
+            ))
         })?;
-        if entry.file_type().is_file() {
-            let rel = entry.path().strip_prefix(&staging_dir).unwrap();
-            let orig = base_dir.join(rel);
-            if orig.exists() {
-                let dest = rollback_dir.join(rel);
-                if let Some(p) = dest.parent() {
-                    let _ = fs::create_dir_all(p);
-                }
-                fs::copy(&orig, &dest).map_err(|e| {
-                    UpdaterError::Io(format!(
-                        "Nie można utworzyć kopii zapasowej {}: {}",
-                        rel.display(),
-                        e
-                    ))
-                })?;
-            }
+    }
+
+    // 4. Atomowa podmiana - Rename Swap dla replace_files oraz create_files
+    for (rel, orig) in &plan.replace_files {
+        let src = staging_dir.join(rel);
+        if let Some(p) = orig.parent() {
+            let _ = fs::create_dir_all(p);
+        }
+        if fs::rename(&src, orig).is_err() {
+            fs::copy(&src, orig).map_err(|e| {
+                UpdaterError::Io(format!("Błąd podmiany pliku {}: {}", rel.display(), e))
+            })?;
         }
     }
 
-    // 4. Atomowa podmiana - Rename Swap
-    for entry in walkdir::WalkDir::new(&staging_dir).min_depth(1) {
-        let entry = entry.map_err(|e| {
-            UpdaterError::Io(format!("Błąd przeszukiwania plików instalacyjnych: {e}"))
-        })?;
-        if entry.file_type().is_file() {
-            let rel = entry.path().strip_prefix(&staging_dir).unwrap();
-            let orig = base_dir.join(rel);
-            if let Some(p) = orig.parent() {
-                let _ = fs::create_dir_all(p);
-            }
-            fs::rename(entry.path(), &orig).map_err(|e| {
-                UpdaterError::Io(format!("Błąd podmiany pliku {}: {}", rel.display(), e))
+    for (rel, orig) in &plan.create_files {
+        let src = staging_dir.join(rel);
+        if let Some(p) = orig.parent() {
+            let _ = fs::create_dir_all(p);
+        }
+        if fs::rename(&src, orig).is_err() {
+            fs::copy(&src, orig).map_err(|e| {
+                UpdaterError::Io(format!("Błąd tworzenia pliku {}: {}", rel.display(), e))
             })?;
         }
     }
@@ -2855,18 +2874,126 @@ fn install_via_tar_gz(current: &Path, new: &Path) -> Result<(), UpdaterError> {
     } else {
         // Rollback!
         let _ = child.kill();
-        for entry in walkdir::WalkDir::new(&rollback_dir).min_depth(1) {
-            if let Ok(entry) = entry {
-                if entry.file_type().is_file() {
-                    let rel = entry.path().strip_prefix(&rollback_dir).unwrap();
-                    let orig = base_dir.join(rel);
-                    let _ = fs::rename(entry.path(), &orig);
-                }
-            }
+        // Usuń nowo utworzone pliki
+        for (_rel, orig) in &plan.create_files {
+            let _ = fs::remove_file(orig);
+        }
+        // Przywróć podmienione pliki z rollbacku
+        for (rel, orig) in &plan.replace_files {
+            let bkp = rollback_dir.join(rel);
+            let _ = fs::copy(&bkp, orig);
         }
         let _ = std::process::Command::new(current).spawn(); // Odpal starą
         return Err(UpdaterError::HealthCheckFailed);
     }
+}
+
+/// Generuje bezpieczny skrypt PowerShell wykonujący podmianę wyłącznie plików z zatwierdzonego planu aktualizacji.
+pub fn generate_powershell_update_script(exe: &Path, pid: u32, plan: &UpdatePlan) -> String {
+    let exe_str = exe.to_string_lossy().replace('\'', "''");
+
+    let replace_items: Vec<String> = plan
+        .replace_files
+        .iter()
+        .map(|(r, _)| format!("'{}'", r.to_string_lossy().replace('\'', "''")))
+        .collect();
+    let replace_items_ps = replace_items.join(", ");
+
+    let create_items: Vec<String> = plan
+        .create_files
+        .iter()
+        .map(|(r, _)| format!("'{}'", r.to_string_lossy().replace('\'', "''")))
+        .collect();
+    let create_items_ps = create_items.join(", ");
+
+    format!(
+        "$ErrorActionPreference = 'Stop'\n\
+         $exe = '{exe_str}'\n\
+         $pidToWait = {pid}\n\
+         \n\
+         $baseDir = Split-Path -Path $exe -Parent\n\
+         $staging = Join-Path $baseDir '.staging'\n\
+         $rollback = Join-Path $baseDir '.rollback'\n\
+         $healthOk = Join-Path $baseDir '.health_ok'\n\
+         \n\
+         $replaceFiles = @({replace_items_ps})\n\
+         $createFiles = @({create_items_ps})\n\
+         \n\
+         if (Test-Path -LiteralPath $rollback) {{ Remove-Item -Recurse -Force -LiteralPath $rollback }}\n\
+         New-Item -ItemType Directory -Force -Path $rollback | Out-Null\n\
+         \n\
+         $deadline = (Get-Date).AddSeconds(90)\n\
+         while (Get-Process -Id $pidToWait -ErrorAction SilentlyContinue) {{\n\
+             if ((Get-Date) -gt $deadline) {{ exit 1 }}\n\
+             Start-Sleep -Milliseconds 250\n\
+         }}\n\
+         Start-Sleep -Milliseconds 500\n\
+         \n\
+         # 1. Kopia zapasowa wylacznie dla plikow podmienianych z UpdatePlan\n\
+         foreach ($rel in $replaceFiles) {{\n\
+             $orig = Join-Path $baseDir $rel\n\
+             if (Test-Path -LiteralPath $orig) {{\n\
+                 $dest = Join-Path $rollback $rel\n\
+                 $destDir = Split-Path $dest -Parent\n\
+                 if (-not (Test-Path -LiteralPath $destDir)) {{ New-Item -ItemType Directory -Force -Path $destDir | Out-Null }}\n\
+                 Copy-Item -LiteralPath $orig -Destination $dest -Force\n\
+             }}\n\
+         }}\n\
+         \n\
+         # 2. Bezpieczna podmiana plikow programu\n\
+         foreach ($rel in $replaceFiles) {{\n\
+             $src = Join-Path $staging $rel\n\
+             $dst = Join-Path $baseDir $rel\n\
+             Copy-Item -LiteralPath $src -Destination $dst -Force\n\
+         }}\n\
+         \n\
+         # 3. Utworzenie nowych dopuszczonych plikow (ziarna/zasoby)\n\
+         foreach ($rel in $createFiles) {{\n\
+             $src = Join-Path $staging $rel\n\
+             $dst = Join-Path $baseDir $rel\n\
+             $dstDir = Split-Path $dst -Parent\n\
+             if (-not (Test-Path -LiteralPath $dstDir)) {{ New-Item -ItemType Directory -Force -Path $dstDir | Out-Null }}\n\
+             Copy-Item -LiteralPath $src -Destination $dst -Force\n\
+         }}\n\
+         \n\
+         if (Test-Path -LiteralPath $healthOk) {{ Remove-Item -Force -LiteralPath $healthOk }}\n\
+         \n\
+         $newProc = Start-Process -FilePath $exe -ArgumentList \"--check-health-startup\" -PassThru\n\
+         \n\
+         $healthDeadline = (Get-Date).AddSeconds(15)\n\
+         $success = $false\n\
+         while ((Get-Date) -lt $healthDeadline) {{\n\
+             if (Test-Path -LiteralPath $healthOk) {{\n\
+                 $success = $true\n\
+                 break\n\
+             }}\n\
+             if ($newProc.HasExited) {{\n\
+                 break\n\
+             }}\n\
+             Start-Sleep -Milliseconds 250\n\
+         }}\n\
+         \n\
+         if ($success) {{\n\
+             Remove-Item -Recurse -Force -LiteralPath $staging -ErrorAction SilentlyContinue\n\
+             Remove-Item -Recurse -Force -LiteralPath $rollback -ErrorAction SilentlyContinue\n\
+             Remove-Item -Force -LiteralPath $healthOk -ErrorAction SilentlyContinue\n\
+         }} else {{\n\
+             Stop-Process -Id $newProc.Id -Force -ErrorAction SilentlyContinue\n\
+             # Rollback: usuniecie nowo utworzonych plikow\n\
+             foreach ($rel in $createFiles) {{\n\
+                 $target = Join-Path $baseDir $rel\n\
+                 if (Test-Path -LiteralPath $target) {{ Remove-Item -LiteralPath $target -Force -ErrorAction SilentlyContinue }}\n\
+             }}\n\
+             # Rollback: przywrocenie wylacznie plikow podmienionych z rollbacku\n\
+             foreach ($rel in $replaceFiles) {{\n\
+                 $bkp = Join-Path $rollback $rel\n\
+                 if (Test-Path -LiteralPath $bkp) {{\n\
+                     Copy-Item -LiteralPath $bkp -Destination (Join-Path $baseDir $rel) -Force\n\
+                 }}\n\
+             }}\n\
+             Start-Process -FilePath $exe\n\
+         }}\n"
+    )
 }
 
 /// Windows: uruchamia skrypt PowerShell, który czeka na zamknięcie bieżącego
@@ -2891,72 +3018,15 @@ fn install_via_powershell(current: &Path, new: &Path) -> Result<(), UpdaterError
     let _ = flatten_single_root_directory(&staging)?;
     validate_staging_layout(&staging, "SPLogbook.exe")?;
 
+    // Generujemy plan aktualizacji z bezwzględną ochroną danych
+    let plan = UpdatePlan::generate(&staging, base_dir)?;
+    plan.validate_safety("SPLogbook.exe")?;
+
     let script_path =
         std::env::temp_dir().join(format!("SPLogbook_update_{}.ps1", std::process::id()));
 
-    let exe = current.to_string_lossy().replace('\'', "''");
     let pid = std::process::id();
-
-    let script = format!(
-        "$ErrorActionPreference = 'Stop'\n\
-         $exe = '{exe}'\n\
-         $pidToWait = {pid}\n\
-         \n\
-         $baseDir = Split-Path -Path $exe -Parent\n\
-         $staging = Join-Path $baseDir '.staging'\n\
-         $rollback = Join-Path $baseDir '.rollback'\n\
-         $healthOk = Join-Path $baseDir '.health_ok'\n\
-         \n\
-         if (Test-Path $rollback) {{ Remove-Item -Recurse -Force $rollback }}\n\
-         New-Item -ItemType Directory -Force -Path $rollback | Out-Null\n\
-         \n\
-         $deadline = (Get-Date).AddSeconds(90)\n\
-         while (Get-Process -Id $pidToWait -ErrorAction SilentlyContinue) {{\n\
-             if ((Get-Date) -gt $deadline) {{ exit 1 }}\n\
-             Start-Sleep -Milliseconds 250\n\
-         }}\n\
-         Start-Sleep -Milliseconds 500\n\
-         \n\
-         Get-ChildItem -Path $staging -Recurse -File | ForEach-Object {{\n\
-             $rel = $_.FullName.Substring($staging.Length + 1)\n\
-             $orig = Join-Path $baseDir $rel\n\
-             if (Test-Path $orig) {{\n\
-                 $dest = Join-Path $rollback $rel\n\
-                 $destDir = Split-Path $dest -Parent\n\
-                 if (-not (Test-Path $destDir)) {{ New-Item -ItemType Directory -Force -Path $destDir | Out-Null }}\n\
-                 Copy-Item -LiteralPath $orig -Destination $dest -Force\n\
-             }}\n\
-         }}\n\
-         \n\
-         Copy-Item -Path \"$staging\\*\" -Destination $baseDir -Recurse -Force\n\
-         \n\
-         if (Test-Path $healthOk) {{ Remove-Item -Force $healthOk }}\n\
-         \n\
-         $newProc = Start-Process -FilePath $exe -ArgumentList \"--check-health-startup\" -PassThru\n\
-         \n\
-         $healthDeadline = (Get-Date).AddSeconds(15)\n\
-         $success = $false\n\
-         while ((Get-Date) -lt $healthDeadline) {{\n\
-             if (Test-Path $healthOk) {{\n\
-                 $success = $true\n\
-                 break\n\
-             }}\n\
-             if ($newProc.HasExited) {{\n\
-                 break\n\
-             }}\n\
-             Start-Sleep -Milliseconds 250\n\
-         }}\n\
-         \n\
-         if ($success) {{\n\
-             Remove-Item -Recurse -Force $staging -ErrorAction SilentlyContinue\n\
-             Remove-Item -Recurse -Force $rollback -ErrorAction SilentlyContinue\n\
-             Remove-Item -Force $healthOk -ErrorAction SilentlyContinue\n\
-         }} else {{\n\
-             Stop-Process -Id $newProc.Id -Force -ErrorAction SilentlyContinue\n\
-             Copy-Item -Path \"$rollback\\*\" -Destination $baseDir -Recurse -Force\n\
-             Start-Process -FilePath $exe\n\
-         }}\n"
-    );
+    let script = generate_powershell_update_script(current, pid, &plan);
 
     std::fs::write(&script_path, script)
         .map_err(|e| UpdaterError::Io(format!("Nie można zapisać skryptu aktualizacji: {e}")))?;
@@ -5934,6 +6004,202 @@ mod tests {
             matches!(safety_res, Err(UpdaterError::SafetyGate(_))),
             "Bramka bezpieczeństwa musi wymagać obecności głównego pliku wykonywalnego"
         );
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn windows_powershell_script_generation_does_not_use_wildcard_copy() {
+        let plan = UpdatePlan {
+            replace_files: vec![(
+                std::path::PathBuf::from("SPLogbook.exe"),
+                std::path::PathBuf::from("C:\\SPLogbook\\SPLogbook.exe"),
+            )],
+            create_files: vec![(
+                std::path::PathBuf::from("resources/icon.png"),
+                std::path::PathBuf::from("C:\\SPLogbook\\resources\\icon.png"),
+            )],
+            preserve_files: vec![(
+                std::path::PathBuf::from("C:\\SPLogbook\\databases\\serviceLOG.db"),
+                "Preserved".into(),
+            )],
+            rejected_files: Vec::new(),
+        };
+
+        let script = generate_powershell_update_script(
+            std::path::Path::new("C:\\SPLogbook\\SPLogbook.exe"),
+            1234,
+            &plan,
+        );
+
+        // Zakaz kopiowania zbiorczego wieloznacznikiem *
+        assert!(
+            !script.contains("Copy-Item -Path \"$staging\\*\""),
+            "Skrypt PowerShell nie może używać dzikich kart kopiowania $staging\\*"
+        );
+        assert!(
+            !script.contains("Copy-Item -Path \"$rollback\\*\""),
+            "Skrypt PowerShell nie może używać dzikich kart rollbacku $rollback\\*"
+        );
+        assert!(
+            script.contains("$replaceFiles = @('SPLogbook.exe')"),
+            "Skrypt PowerShell musi zawierać dokładną listę plików do podmiany"
+        );
+        assert!(
+            script.contains("$createFiles = @('resources/icon.png')")
+                || script.contains("$createFiles = @('resources\\icon.png')"),
+            "Skrypt PowerShell musi zawierać dokładną listę plików do utworzenia"
+        );
+    }
+
+    #[test]
+    fn windows_powershell_script_excludes_preserved_databases_and_configs() {
+        let plan = UpdatePlan {
+            replace_files: vec![(
+                std::path::PathBuf::from("SPLogbook.exe"),
+                std::path::PathBuf::from("C:\\SPLogbook\\SPLogbook.exe"),
+            )],
+            create_files: Vec::new(),
+            preserve_files: vec![
+                (
+                    std::path::PathBuf::from("C:\\SPLogbook\\databases\\serviceLOG.db"),
+                    "Preserved DB".into(),
+                ),
+                (
+                    std::path::PathBuf::from("C:\\SPLogbook\\station_config.json"),
+                    "Preserved Config".into(),
+                ),
+            ],
+            rejected_files: Vec::new(),
+        };
+
+        let script = generate_powershell_update_script(
+            std::path::Path::new("C:\\SPLogbook\\SPLogbook.exe"),
+            1234,
+            &plan,
+        );
+
+        assert!(
+            !script.contains("serviceLOG.db"),
+            "Zachowane bazy danych nie mogą znaleźć się w skrypcie podmiany"
+        );
+        assert!(
+            !script.contains("station_config.json"),
+            "Zachowana konfiguracja nie może znaleźć się w skrypcie podmiany"
+        );
+    }
+
+    #[test]
+    fn windows_powershell_script_cleans_up_new_files_on_rollback() {
+        let plan = UpdatePlan {
+            replace_files: vec![(
+                std::path::PathBuf::from("SPLogbook.exe"),
+                std::path::PathBuf::from("C:\\SPLogbook\\SPLogbook.exe"),
+            )],
+            create_files: vec![(
+                std::path::PathBuf::from("new_file.dll"),
+                std::path::PathBuf::from("C:\\SPLogbook\\new_file.dll"),
+            )],
+            preserve_files: Vec::new(),
+            rejected_files: Vec::new(),
+        };
+
+        let script = generate_powershell_update_script(
+            std::path::Path::new("C:\\SPLogbook\\SPLogbook.exe"),
+            1234,
+            &plan,
+        );
+
+        assert!(
+            script.contains("Remove-Item -LiteralPath $target"),
+            "Skrypt musi usuwać nowo utworzone pliki w razie rollbacku"
+        );
+    }
+
+    #[test]
+    fn apply_atomic_installation_preserves_existing_user_databases_and_configs() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("test_apply_pres_{}", rand::random::<u64>()));
+        let staging_dir = temp_dir.join("staging");
+        let active_dir = temp_dir.join("active");
+
+        std::fs::create_dir_all(staging_dir.join("databases")).unwrap();
+        std::fs::create_dir_all(active_dir.join("databases")).unwrap();
+
+        std::fs::write(staging_dir.join("SPLogbook.exe"), b"NEW BINARY").unwrap();
+        std::fs::write(staging_dir.join("databases/serviceLOG.db"), b"NEW SEED").unwrap();
+        std::fs::write(staging_dir.join("databases/callbook.db"), b"NEW SEED").unwrap();
+        std::fs::write(staging_dir.join("station_config.json"), b"NEW TEMPLATE").unwrap();
+
+        let active_exe = active_dir.join("SPLogbook.exe");
+        let active_db = active_dir.join("databases/serviceLOG.db");
+        let active_callbook = active_dir.join("databases/callbook.db");
+        let active_cfg = active_dir.join("station_config.json");
+
+        std::fs::write(&active_exe, b"OLD BINARY").unwrap();
+        std::fs::write(&active_db, b"ORIGINAL PRODUCTION DATABASE").unwrap();
+        std::fs::write(&active_callbook, b"ORIGINAL CALLBOOK DATABASE").unwrap();
+        std::fs::write(&active_cfg, b"ORIGINAL USER CONFIG").unwrap();
+
+        let opts = AtomicInstallationOptions::new("SPLogbook.exe");
+        let res = apply_atomic_installation_with_options(&staging_dir, &active_dir, &opts);
+        assert!(
+            res.is_ok(),
+            "Instalacja z zachowaniem chronionych plików musi się powieść"
+        );
+
+        // Binarka programu podmieniona
+        assert_eq!(std::fs::read(&active_exe).unwrap(), b"NEW BINARY");
+
+        // Bazy i konfiguracja użytkownika w 100% zachowane
+        assert_eq!(
+            std::fs::read(&active_db).unwrap(),
+            b"ORIGINAL PRODUCTION DATABASE"
+        );
+        assert_eq!(
+            std::fs::read(&active_callbook).unwrap(),
+            b"ORIGINAL CALLBOOK DATABASE"
+        );
+        assert_eq!(std::fs::read(&active_cfg).unwrap(), b"ORIGINAL USER CONFIG");
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn apply_atomic_installation_rollback_does_not_corrupt_preserved_data() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("test_apply_rb_pres_{}", rand::random::<u64>()));
+        let staging_dir = temp_dir.join("staging");
+        let active_dir = temp_dir.join("active");
+
+        std::fs::create_dir_all(staging_dir.join("databases")).unwrap();
+        std::fs::create_dir_all(active_dir.join("databases")).unwrap();
+
+        std::fs::write(staging_dir.join("SPLogbook.exe"), b"NEW BINARY").unwrap();
+        std::fs::write(staging_dir.join("databases/serviceLOG.db"), b"NEW SEED").unwrap();
+        std::fs::write(staging_dir.join("station_config.json"), b"NEW TEMPLATE").unwrap();
+
+        let active_exe = active_dir.join("SPLogbook.exe");
+        let active_db = active_dir.join("databases/serviceLOG.db");
+        let active_cfg = active_dir.join("station_config.json");
+
+        std::fs::write(&active_exe, b"OLD BINARY").unwrap();
+        std::fs::write(&active_db, b"ORIGINAL PRODUCTION DATABASE").unwrap();
+        std::fs::write(&active_cfg, b"ORIGINAL USER CONFIG").unwrap();
+
+        let mut opts = AtomicInstallationOptions::new("SPLogbook.exe");
+        opts.simulate_rename_failure = true;
+
+        let res = apply_atomic_installation_with_options(&staging_dir, &active_dir, &opts);
+        assert!(res.is_err());
+
+        // Przy rollbacku oryginalne pliki i dane użytkownika pozostają nienaruszone
+        assert_eq!(std::fs::read(&active_exe).unwrap(), b"OLD BINARY");
+        assert_eq!(
+            std::fs::read(&active_db).unwrap(),
+            b"ORIGINAL PRODUCTION DATABASE"
+        );
+        assert_eq!(std::fs::read(&active_cfg).unwrap(), b"ORIGINAL USER CONFIG");
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
