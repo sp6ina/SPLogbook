@@ -3769,3 +3769,260 @@ fn m3_c_stability_20_iterations_result_consumption_and_rollback_measurement() {
         assert!(root.join(".update_helper_result.consumed").exists());
     }
 }
+
+#[test]
+fn m3_dev_version_identity_and_constants_guard() {
+    use splogbook::core::build_info::{BuildIdentity, DistributionStatus, UpdateChannel};
+
+    assert_eq!(env!("CARGO_PKG_VERSION"), "1.3.0-alpha.1");
+
+    let id = BuildIdentity::current();
+    assert_eq!(id.package_name, "splogbook");
+    assert_eq!(id.package_version, "1.3.0-alpha.1");
+    assert_eq!(id.channel, UpdateChannel::Alpha);
+    assert_eq!(id.distribution_status, DistributionStatus::Development);
+    assert!(
+        !id.git_commit_hash.is_empty(),
+        "commit hash must be present"
+    );
+    assert!(
+        !id.git_commit_short.is_empty(),
+        "commit short hash must be present"
+    );
+    assert_eq!(id.semver.major, 1);
+    assert_eq!(id.semver.minor, 3);
+    assert_eq!(id.semver.patch, 0);
+    assert_eq!(id.semver.pre.as_str(), "alpha.1");
+    assert!(id.channel.as_str().contains("alpha"));
+    assert!(id.is_prerelease());
+    assert!(!id.is_stable());
+    assert!(id.format_diagnostic().contains("1.3.0-alpha.1"));
+}
+
+#[test]
+fn m3_downgrade_and_channel_protection_guard() {
+    use splogbook::cloud::updater::{
+        UpdateVersionDecision, evaluate_version_transition,
+        verify_downgrade_protection_with_channel,
+    };
+    use splogbook::core::build_info::UpdateChannelPreference;
+
+    // StableOnly does not accept alpha
+    assert_eq!(
+        evaluate_version_transition(
+            "1.2.0",
+            "1.3.0-alpha.1",
+            UpdateChannelPreference::StableOnly
+        ),
+        UpdateVersionDecision::PrereleaseChannelNotAllowed
+    );
+
+    // Alpha accepts alpha
+    assert_eq!(
+        evaluate_version_transition("1.2.0", "1.3.0-alpha.1", UpdateChannelPreference::Alpha),
+        UpdateVersionDecision::UpdateAvailable
+    );
+
+    // Downgrade 1.3.0-alpha.1 -> 1.2.0 is strictly rejected
+    assert_eq!(
+        evaluate_version_transition("1.3.0-alpha.1", "1.2.0", UpdateChannelPreference::Alpha),
+        UpdateVersionDecision::DowngradeRejected
+    );
+    assert_eq!(
+        evaluate_version_transition(
+            "1.3.0-alpha.1",
+            "1.2.0",
+            UpdateChannelPreference::StableOnly
+        ),
+        UpdateVersionDecision::DowngradeRejected
+    );
+
+    // Downgrade 1.3.0 -> 1.3.0-alpha.1 is strictly rejected
+    assert_eq!(
+        evaluate_version_transition("1.3.0", "1.3.0-alpha.1", UpdateChannelPreference::Alpha),
+        UpdateVersionDecision::DowngradeRejected
+    );
+
+    // Same version is rejected
+    assert_eq!(
+        evaluate_version_transition(
+            "1.3.0-alpha.1",
+            "1.3.0-alpha.1",
+            UpdateChannelPreference::Alpha
+        ),
+        UpdateVersionDecision::SameVersion
+    );
+
+    // Verify error conversion
+    assert!(
+        verify_downgrade_protection_with_channel(
+            "1.2.0",
+            "1.3.0-alpha.1",
+            UpdateChannelPreference::Alpha
+        )
+        .is_err()
+    );
+    assert!(
+        verify_downgrade_protection_with_channel(
+            "1.3.0-alpha.1",
+            "1.2.0",
+            UpdateChannelPreference::StableOnly
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn m3_git_repository_tag_v1_2_0_is_intact_and_no_automated_publishing_scripts_exist() {
+    let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+
+    // 1. Verify that tag v1.2.0 exists and resolves to commit 6f7d3aaa3b6a54e87b481c142a5b690bcf8b5592
+    let git_tag_check = Command::new("git")
+        .current_dir(repo_root)
+        .args(["rev-parse", "v1.2.0^{commit}"])
+        .output();
+
+    if let Ok(output) = git_tag_check {
+        assert!(
+            output.status.success(),
+            "git rev-parse v1.2.0^{{commit}} failed"
+        );
+        let commit = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        assert_eq!(
+            commit, "6f7d3aaa3b6a54e87b481c142a5b690bcf8b5592",
+            "Tag v1.2.0 must remain strictly intact and point to commit 6f7d3aaa3b6a54e87b481c142a5b690bcf8b5592"
+        );
+    }
+
+    // 2. Verify no tags matching 1.3.0 have been created or published
+    let git_list_tags = Command::new("git")
+        .current_dir(repo_root)
+        .args(["tag", "-l", "*1.3.0*"])
+        .output();
+
+    if let Ok(output) = git_list_tags {
+        assert!(output.status.success(), "git tag -l failed");
+        let tags = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        assert!(
+            tags.is_empty(),
+            "No git tag matching *1.3.0* may exist during STAGE-M3-DEV-VERSION-IDENTITY-GATE: found '{tags}'"
+        );
+    }
+
+    // 3. Verify no workflow automatically pushes tags or publishes releases on push
+    let workflows_dir = repo_root.join(".github").join("workflows");
+    if workflows_dir.exists() {
+        for entry in fs::read_dir(&workflows_dir).expect("read workflows") {
+            let entry = entry.expect("workflow entry");
+            if entry
+                .path()
+                .extension()
+                .is_some_and(|ext| ext == "yml" || ext == "yaml")
+            {
+                let content = fs::read_to_string(entry.path()).expect("read workflow content");
+                assert!(
+                    !content.contains("git push origin --tags"),
+                    "Workflow {} contains automated tag push which violates release discipline",
+                    entry.path().display()
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn m3_stability_100_iterations_semver_evaluation_and_build_identity() {
+    use splogbook::cloud::updater::{UpdateVersionDecision, evaluate_version_transition};
+    use splogbook::core::build_info::{
+        BuildIdentity, DistributionStatus, UpdateChannel, UpdateChannelPreference,
+    };
+
+    let id = BuildIdentity::current();
+
+    for _ in 0..100 {
+        // BuildIdentity consistency
+        assert_eq!(id.package_name, "splogbook");
+        assert_eq!(id.package_version, "1.3.0-alpha.1");
+        assert_eq!(id.channel, UpdateChannel::Alpha);
+        assert_eq!(id.distribution_status, DistributionStatus::Development);
+        assert_eq!(id.semver.to_string(), "1.3.0-alpha.1");
+
+        // Transition matrix checks
+        assert_eq!(
+            evaluate_version_transition(
+                "1.2.0",
+                "1.3.0-alpha.1",
+                UpdateChannelPreference::StableOnly
+            ),
+            UpdateVersionDecision::PrereleaseChannelNotAllowed
+        );
+        assert_eq!(
+            evaluate_version_transition("1.2.0", "1.3.0-alpha.1", UpdateChannelPreference::Alpha),
+            UpdateVersionDecision::UpdateAvailable
+        );
+        assert_eq!(
+            evaluate_version_transition(
+                "1.3.0-alpha.1",
+                "1.3.0-alpha.1",
+                UpdateChannelPreference::Alpha
+            ),
+            UpdateVersionDecision::SameVersion
+        );
+        assert_eq!(
+            evaluate_version_transition("1.3.0-alpha.1", "1.2.0", UpdateChannelPreference::Alpha),
+            UpdateVersionDecision::DowngradeRejected
+        );
+        assert_eq!(
+            evaluate_version_transition(
+                "1.3.0-alpha.1",
+                "1.3.0-alpha.2",
+                UpdateChannelPreference::Alpha
+            ),
+            UpdateVersionDecision::UpdateAvailable
+        );
+        assert_eq!(
+            evaluate_version_transition(
+                "1.3.0-alpha.2",
+                "1.3.0-beta.1",
+                UpdateChannelPreference::Beta
+            ),
+            UpdateVersionDecision::UpdateAvailable
+        );
+        assert_eq!(
+            evaluate_version_transition(
+                "1.3.0-beta.1",
+                "1.3.0-rc.1",
+                UpdateChannelPreference::Beta
+            ),
+            UpdateVersionDecision::UpdateAvailable
+        );
+        assert_eq!(
+            evaluate_version_transition("1.3.0-rc.1", "1.3.0", UpdateChannelPreference::StableOnly),
+            UpdateVersionDecision::UpdateAvailable
+        );
+        assert_eq!(
+            evaluate_version_transition(
+                "1.3.0-alpha.1",
+                "1.3.0",
+                UpdateChannelPreference::StableOnly
+            ),
+            UpdateVersionDecision::UpdateAvailable
+        );
+        assert_eq!(
+            evaluate_version_transition("1.3.0", "1.3.0-alpha.1", UpdateChannelPreference::Alpha),
+            UpdateVersionDecision::DowngradeRejected
+        );
+        assert_eq!(
+            evaluate_version_transition(
+                "1.3.0",
+                "1.4.0-alpha.1",
+                UpdateChannelPreference::StableOnly
+            ),
+            UpdateVersionDecision::PrereleaseChannelNotAllowed
+        );
+        assert_eq!(
+            evaluate_version_transition("1.3.0", "1.4.0-alpha.1", UpdateChannelPreference::Alpha),
+            UpdateVersionDecision::UpdateAvailable
+        );
+    }
+}
