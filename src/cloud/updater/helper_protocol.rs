@@ -854,6 +854,16 @@ pub fn validate_and_normalize_relative_path(path: &Path) -> Result<String, Updat
         )));
     }
 
+    // Blokada znaków zabronionych w systemie Windows (<, >, ", |, znaki kontrolne)
+    if raw
+        .chars()
+        .any(|c| c == '<' || c == '>' || c == '"' || c == '|' || (c as u32) < 32)
+    {
+        return Err(UpdaterError::SafetyGate(format!(
+            "Wykryto zabroniony znak systemowy w ścieżce planu: {raw}"
+        )));
+    }
+
     // Blokada alternatywnych strumieni danych NTFS (ADS) oraz prefiksów dyskowych
     if raw.contains(':') {
         return Err(UpdaterError::SafetyGate(format!(

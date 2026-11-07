@@ -418,10 +418,25 @@ impl<'a> WindowsHelperEngine<'a> {
         if let Err(err) = self.request.validate() {
             let msg = format!("Błąd walidacji żądania pomocnika: {err}");
             self.log_diagnostic(&msg);
+            let code = match &err {
+                UpdaterError::SafetyGate(s) if s.contains("wersja rekordu") => {
+                    WindowsHelperExitCode::UnsupportedRequestVersion
+                }
+                UpdaterError::SafetyGate(s) if s.contains("attempt_id") => {
+                    WindowsHelperExitCode::InvalidAttemptId
+                }
+                UpdaterError::SafetyGate(s) if s.contains("plan_digest") => {
+                    WindowsHelperExitCode::PlanDigestMismatch
+                }
+                UpdaterError::SafetyGate(s) if s.contains("Ścieżka") || s.contains("katalogu") => {
+                    WindowsHelperExitCode::UnsafePath
+                }
+                _ => WindowsHelperExitCode::InvalidArguments,
+            };
             return self.build_result(
                 UpdateStateId::FailedPreApply,
                 HelperResultCategory::AbortedPreApply,
-                WindowsHelperExitCode::InvalidArguments,
+                code,
                 None,
                 None,
                 0,
