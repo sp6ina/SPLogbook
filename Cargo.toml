@@ -21,6 +21,10 @@ path = "src/main.rs"
 name = "splogbook-signer"
 path = "src/bin/signer.rs"
 
+[[bin]]
+name = "splogbook-updater"
+path = "src/bin/splogbook-updater.rs"
+
 [dependencies]
 rusqlite = { version = "0.40", features = ["bundled", "backup"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time", "fs", "process"] }

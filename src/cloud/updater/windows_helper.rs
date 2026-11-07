@@ -347,6 +347,8 @@ pub trait CandidateLauncher: Send + Sync {
         candidate_exe: &Path,
         attempt_id: &UpdateAttemptId,
         health_proof_path: &Path,
+        expected_version: &str,
+        expected_commit: &str,
     ) -> Result<Box<dyn HelperCandidateChild>, WindowsHelperExitCode>;
 }
 
@@ -360,6 +362,8 @@ impl CandidateLauncher for SystemCandidateLauncher {
         candidate_exe: &Path,
         attempt_id: &UpdateAttemptId,
         health_proof_path: &Path,
+        expected_version: &str,
+        expected_commit: &str,
     ) -> Result<Box<dyn HelperCandidateChild>, WindowsHelperExitCode> {
         if !candidate_exe.exists() {
             return Err(WindowsHelperExitCode::CandidateLaunchFailedRollbackSucceeded);
@@ -371,6 +375,10 @@ impl CandidateLauncher for SystemCandidateLauncher {
             .arg(attempt_id.to_string())
             .arg("--health-proof-path")
             .arg(health_proof_path)
+            .arg("--expected-version")
+            .arg(expected_version)
+            .arg("--expected-commit")
+            .arg(expected_commit)
             .spawn()
             .map_err(|_| WindowsHelperExitCode::CandidateLaunchFailedRollbackSucceeded)?;
 
@@ -784,6 +792,8 @@ impl<'a> WindowsHelperEngine<'a> {
             &candidate_exe,
             &self.request.attempt_id,
             health_proof_path,
+            &self.request.expected_target_version,
+            &self.request.expected_target_commit,
         ) {
             Ok(handle) => handle,
             Err(code) => return (HealthResultKind::Crash, code),
@@ -1054,12 +1064,14 @@ mod tests {
             _candidate_exe: &Path,
             attempt_id: &UpdateAttemptId,
             health_proof_path: &Path,
+            expected_version: &str,
+            expected_commit: &str,
         ) -> Result<Box<dyn HelperCandidateChild>, WindowsHelperExitCode> {
             if self.create_valid_proof {
                 let proof = HealthProof::new(
                     *attempt_id,
-                    "1.2.1",
-                    "commit123",
+                    expected_version,
+                    expected_commit,
                     "windows-x86_64",
                     crate::cloud::updater::InstallationType::WindowsPortableZip,
                 );
