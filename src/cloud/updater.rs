@@ -91,6 +91,7 @@ pub mod helper_protocol;
 pub mod installation;
 pub mod lock;
 pub mod platform;
+pub mod powershell_fallback;
 pub mod preflight;
 pub mod recovery;
 pub mod state;
@@ -124,6 +125,9 @@ pub use lock::{
 pub use platform::{
     CandidateProcessHandle, DelegationResult, FakePlatformAdapter, PackageInspectionReport,
     PlatformInstallerAdapter, SanitizedDiagnosticReport,
+};
+pub use powershell_fallback::{
+    generate_powershell_from_request, generate_powershell_from_request_file,
 };
 pub use preflight::{
     CapacityProvider, DEFAULT_SAFETY_MARGIN_BYTES, DiskPreflightRequirements, FakeCapacityProvider,
@@ -2853,7 +2857,7 @@ pub fn check_safety_gate(asset: &ReleaseAsset) -> Result<(), UpdaterError> {
 /// Podmienia działający plik wykonywalny nową wersją.
 #[cfg(target_os = "windows")]
 fn self_replace(current: &Path, new: &Path) -> Result<(), UpdaterError> {
-    install_via_powershell(current, new)
+    install_via_windows_helper(current, new)
 }
 
 /// Podmienia działający plik wykonywalny nową wersją (systemy Unix).
@@ -2991,116 +2995,18 @@ fn install_via_tar_gz(current: &Path, new: &Path) -> Result<(), UpdaterError> {
 
 /// Generuje bezpieczny skrypt PowerShell wykonujący podmianę wyłącznie plików z zatwierdzonego planu aktualizacji.
 pub fn generate_powershell_update_script(exe: &Path, pid: u32, plan: &UpdatePlan) -> String {
-    let exe_str = exe.to_string_lossy().replace('\'', "''");
-
-    let replace_items: Vec<String> = plan
-        .replace_files
-        .iter()
-        .map(|(r, _)| format!("'{}'", r.to_string_lossy().replace('\'', "''")))
-        .collect();
-    let replace_items_ps = replace_items.join(", ");
-
-    let create_items: Vec<String> = plan
-        .create_files
-        .iter()
-        .map(|(r, _)| format!("'{}'", r.to_string_lossy().replace('\'', "''")))
-        .collect();
-    let create_items_ps = create_items.join(", ");
-
-    format!(
-        "$ErrorActionPreference = 'Stop'\n\
-         $exe = '{exe_str}'\n\
-         $pidToWait = {pid}\n\
-         \n\
-         $baseDir = Split-Path -Path $exe -Parent\n\
-         $staging = Join-Path $baseDir '.staging'\n\
-         $rollback = Join-Path $baseDir '.rollback'\n\
-         $healthOk = Join-Path $baseDir '.health_ok'\n\
-         \n\
-         $replaceFiles = @({replace_items_ps})\n\
-         $createFiles = @({create_items_ps})\n\
-         \n\
-         if (Test-Path -LiteralPath $rollback) {{ Remove-Item -Recurse -Force -LiteralPath $rollback }}\n\
-         New-Item -ItemType Directory -Force -Path $rollback | Out-Null\n\
-         \n\
-         $deadline = (Get-Date).AddSeconds(90)\n\
-         while (Get-Process -Id $pidToWait -ErrorAction SilentlyContinue) {{\n\
-             if ((Get-Date) -gt $deadline) {{ exit 1 }}\n\
-             Start-Sleep -Milliseconds 250\n\
-         }}\n\
-         Start-Sleep -Milliseconds 500\n\
-         \n\
-         # 1. Kopia zapasowa wylacznie dla plikow podmienianych z UpdatePlan\n\
-         foreach ($rel in $replaceFiles) {{\n\
-             $orig = Join-Path $baseDir $rel\n\
-             if (Test-Path -LiteralPath $orig) {{\n\
-                 $dest = Join-Path $rollback $rel\n\
-                 $destDir = Split-Path $dest -Parent\n\
-                 if (-not (Test-Path -LiteralPath $destDir)) {{ New-Item -ItemType Directory -Force -Path $destDir | Out-Null }}\n\
-                 Copy-Item -LiteralPath $orig -Destination $dest -Force\n\
-             }}\n\
-         }}\n\
-         \n\
-         # 2. Bezpieczna podmiana plikow programu\n\
-         foreach ($rel in $replaceFiles) {{\n\
-             $src = Join-Path $staging $rel\n\
-             $dst = Join-Path $baseDir $rel\n\
-             Copy-Item -LiteralPath $src -Destination $dst -Force\n\
-         }}\n\
-         \n\
-         # 3. Utworzenie nowych dopuszczonych plikow (ziarna/zasoby)\n\
-         foreach ($rel in $createFiles) {{\n\
-             $src = Join-Path $staging $rel\n\
-             $dst = Join-Path $baseDir $rel\n\
-             $dstDir = Split-Path $dst -Parent\n\
-             if (-not (Test-Path -LiteralPath $dstDir)) {{ New-Item -ItemType Directory -Force -Path $dstDir | Out-Null }}\n\
-             Copy-Item -LiteralPath $src -Destination $dst -Force\n\
-         }}\n\
-         \n\
-         if (Test-Path -LiteralPath $healthOk) {{ Remove-Item -Force -LiteralPath $healthOk }}\n\
-         \n\
-         $newProc = Start-Process -FilePath $exe -ArgumentList \"--check-health-startup\" -PassThru\n\
-         \n\
-         $healthDeadline = (Get-Date).AddSeconds(15)\n\
-         $success = $false\n\
-         while ((Get-Date) -lt $healthDeadline) {{\n\
-             if (Test-Path -LiteralPath $healthOk) {{\n\
-                 $success = $true\n\
-                 break\n\
-             }}\n\
-             if ($newProc.HasExited) {{\n\
-                 break\n\
-             }}\n\
-             Start-Sleep -Milliseconds 250\n\
-         }}\n\
-         \n\
-         if ($success) {{\n\
-             Remove-Item -Recurse -Force -LiteralPath $staging -ErrorAction SilentlyContinue\n\
-             Remove-Item -Recurse -Force -LiteralPath $rollback -ErrorAction SilentlyContinue\n\
-             Remove-Item -Force -LiteralPath $healthOk -ErrorAction SilentlyContinue\n\
-         }} else {{\n\
-             Stop-Process -Id $newProc.Id -Force -ErrorAction SilentlyContinue\n\
-             # Rollback: usuniecie nowo utworzonych plikow\n\
-             foreach ($rel in $createFiles) {{\n\
-                 $target = Join-Path $baseDir $rel\n\
-                 if (Test-Path -LiteralPath $target) {{ Remove-Item -LiteralPath $target -Force -ErrorAction SilentlyContinue }}\n\
-             }}\n\
-             # Rollback: przywrocenie wylacznie plikow podmienionych z rollbacku\n\
-             foreach ($rel in $replaceFiles) {{\n\
-                 $bkp = Join-Path $rollback $rel\n\
-                 if (Test-Path -LiteralPath $bkp) {{\n\
-                     Copy-Item -LiteralPath $bkp -Destination (Join-Path $baseDir $rel) -Force\n\
-                 }}\n\
-             }}\n\
-             Start-Process -FilePath $exe\n\
-         }}\n"
-    )
+    powershell_fallback::generate_powershell_update_script(exe, pid, plan)
 }
 
-/// Windows: uruchamia skrypt PowerShell, który czeka na zamknięcie bieżącego
-/// procesu, podmienia plik wykonywalny i uruchamia go ponownie.
+/// Windows: koordynator procesu podmiany aplikacji.
+///
+/// Implementuje zatwierdzony model dwupoziomowy M3-B:
+/// 1. PRIMARY TARGET: Natywny pomocnik Rust `splogbook-updater.exe` (zabezpieczony protokół request-response,
+///    brak powłoki, weryfikacja tożsamości transakcji i planu).
+/// 2. CONTROLLED COMPATIBILITY FALLBACK: Utwardzony skrypt PowerShell (`powershell_fallback`),
+///    respektujący identyczną politykę bezpieczeństwa i brak eskalacji uprawnień.
 #[cfg(target_os = "windows")]
-fn install_via_powershell(current: &Path, new: &Path) -> Result<(), UpdaterError> {
+fn install_via_windows_helper(current: &Path, new: &Path) -> Result<(), UpdaterError> {
     let base_dir = current.parent().ok_or_else(|| {
         UpdaterError::ExePath("Brak katalogu nadrzędnego dla pliku wykonywalnego".to_string())
     })?;
@@ -3113,7 +3019,7 @@ fn install_via_powershell(current: &Path, new: &Path) -> Result<(), UpdaterError
     let _ = std::fs::remove_dir_all(&rollback);
     let _ = std::fs::remove_file(&health_ok);
 
-    // 1. Bezpieczna dekompresja i weryfikacja ZIP w Rust przed uruchomieniem skryptu podmiany
+    // 1. Bezpieczna dekompresja i weryfikacja ZIP w Rust przed uruchomieniem pomocnika
     let limits = ArchiveLimits::default();
     extract_zip_safe_windows(new, &staging, &limits)?;
     let _ = flatten_single_root_directory(&staging)?;
@@ -3123,11 +3029,74 @@ fn install_via_powershell(current: &Path, new: &Path) -> Result<(), UpdaterError
     let plan = UpdatePlan::generate(&staging, base_dir)?;
     plan.validate_safety("SPLogbook.exe")?;
 
+    // 2. PRIMARY TARGET: Natywny pomocnik Rust splogbook-updater.exe
+    let native_helper = base_dir.join("splogbook-updater.exe");
+    if native_helper.exists() {
+        let attempt_id = UpdateAttemptId::generate();
+        let plan_identity = UpdatePlanIdentity::from_plan(
+            attempt_id,
+            base_dir,
+            &plan,
+            "SPLogbook.exe",
+            env!("CARGO_PKG_VERSION"),
+            "0000000000000000000000000000000000000000",
+            "windows-x86_64",
+        );
+        if let Ok(plan_identity) = plan_identity {
+            let plan_digest = plan_identity.compute_digest();
+            let tx_record_path = base_dir.join(TRANSACTION_FILE_NAME);
+            let candidate_executable = staging.join("SPLogbook.exe");
+            let result_record_path = base_dir.join(".update_helper_result.json");
+            let diagnostic_log_path = base_dir.join(".update_helper.log");
+
+            let request = WindowsHelperRequest {
+                request_version: CURRENT_HELPER_REQUEST_VERSION,
+                attempt_id,
+                transaction_record_path: tx_record_path,
+                installation_root: base_dir.to_path_buf(),
+                current_executable: current.to_path_buf(),
+                candidate_executable,
+                expected_parent_pid: std::process::id(),
+                expected_current_binary_identity: None,
+                expected_target_version: env!("CARGO_PKG_VERSION").to_string(),
+                expected_target_commit: "0000000000000000000000000000000000000000".to_string(),
+                update_management_mode: ManagementMode::SelfManaged,
+                update_plan_identity: plan_identity,
+                plan_digest,
+                health_proof_path: health_ok.clone(),
+                parent_process_timeout_seconds: 90,
+                candidate_health_timeout_seconds: 15,
+                result_record_path,
+                diagnostic_log_path,
+            };
+
+            let request_path = staging.join("updater_request.json");
+            if request.save_atomic(&request_path).is_ok() {
+                let spawn_res = std::process::Command::new(&native_helper)
+                    .arg("--request")
+                    .arg(&request_path)
+                    .spawn();
+
+                if spawn_res.is_ok() {
+                    return Ok(());
+                }
+            }
+        }
+    }
+
+    // 3. CONTROLLED COMPATIBILITY FALLBACK: Utwardzony PowerShell
+    install_via_powershell(current, &plan)
+}
+
+/// Windows fallback: uruchamia skrypt PowerShell, który czeka na zamknięcie bieżącego
+/// procesu, podmienia plik wykonywalny i uruchamia go ponownie.
+#[cfg(target_os = "windows")]
+fn install_via_powershell(current: &Path, plan: &UpdatePlan) -> Result<(), UpdaterError> {
     let script_path =
         std::env::temp_dir().join(format!("SPLogbook_update_{}.ps1", std::process::id()));
 
     let pid = std::process::id();
-    let script = generate_powershell_update_script(current, pid, &plan);
+    let script = generate_powershell_update_script(current, pid, plan);
 
     std::fs::write(&script_path, script)
         .map_err(|e| UpdaterError::Io(format!("Nie można zapisać skryptu aktualizacji: {e}")))?;
