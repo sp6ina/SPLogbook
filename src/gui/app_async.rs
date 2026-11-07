@@ -133,7 +133,7 @@ impl SpLogApp {
                             .arg("local", env!("CARGO_PKG_VERSION"))
                             .text(self.gui.appearance.language),
                     );
-                    self.updates.update_available = Some(release);
+                    self.updates.update_available = Some(*release);
                 }
                 crate::cloud::updater::UpdateCheckOutcome::Error(e) => {
                     self.updates.update_check_status = Some(
