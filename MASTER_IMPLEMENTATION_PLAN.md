@@ -290,7 +290,8 @@ Utworzenie, uzgodnienie i zweryfikowanie trzech kompletnych dokumentĂłw projek
 - **M3 STATUS:** **IN_PROGRESS**
 - **M3-A STATUS:** **COMPLETED_SOFTWARE_VERIFIED** (Implementacja wspolnego rdzenia platformowego, modelu transakcji, 20-stanowego automatu i mechanizmow recovery aktualizatora SPLogbook zamknieta w STAGE-M3-A-PLATFORM-CORE-IMPLEMENTATION-GATE)
 - **M3-B STATUS:** **COMPLETED_SOFTWARE_VERIFIED** (Implementacja natywnego pomocnika Windows splogbook-updater.exe, protokolu IPC, weryfikacji HealthProof, rollbacku i utwardzonego fallbacku PowerShell zamknieta w STAGE-M3-B-WINDOWS-HELPERS-IMPLEMENTATION-GATE oraz formalnie potwierdzona w STAGE-M3-B-CLOSURE-VERIFICATION-GATE)
-- **M3-C STATUS:** **READY_FOR_IMPLEMENTATION (NOT STARTED)** (Integracja Windows Portable ZIP — STAGE-M3-C-WINDOWS-PORTABLE-ZIP-INTEGRATION-GATE)
+- **M3-C STATUS:** **COMPLETED_SOFTWARE_VERIFIED** (Produkcyjna integracja Windows Portable ZIP ze zweryfikowanym manifestem, UpdatePlan, natywnym helperem Windows i utwardzonym fallbackiem PowerShell zamknieta w STAGE-M3-C-WINDOWS-PORTABLE-ZIP-INTEGRATION-GATE)
+- **M3-D STATUS:** **READY_FOR_IMPLEMENTATION** (Integracja Windows User Setup / Inno Setup — STAGE-M3-D-WINDOWS-USER-SETUP-INTEGRATION-GATE)
 - **Dalsze etapy M3 (instalatory Windows i pakiety Linux):**
   - M3-D: Integracja Windows User Setup / Inno Setup (gdy dotyczy)
   - M3-E: Integracja Windows System Setup / MSI (gdy dotyczy)
@@ -314,9 +315,9 @@ Utworzenie, uzgodnienie i zweryfikowanie trzech kompletnych dokumentĂłw projek
 
 #### UPDATE-WIN-PORTABLE-ZIP (M3-C) — Integracja Windows Portable ZIP
 - **Tor:** UPDATE
-- **Status wykonawczy:** **READY_FOR_IMPLEMENTATION (NOT STARTED)**
-- **Zaleznosci:** UPDATE-DESIGN-WIN (APPROVED), UPDATE-DESIGN-PLATFORM (APPROVED), UPDATE-CORE-PLATFORM (COMPLETED_SOFTWARE_VERIFIED), UPDATE-WIN-HELPERS (COMPLETED_SOFTWARE_VERIFIED), decyzje OWNER-M2-01..03, 08..10 (APPROVED)
-- **Zakres:** Integracja adaptera Windows Portable ZIP z rdzeniem M3-A oraz helperem M3-B, bezpieczne rozpakowywanie zip z weryfikacją granic, transakcyjne wdrożenie nowej wersji portable, zachowanie bazy SQLite, logów i plików konfiguracyjnych użytkownika. Kolejnym zadaniem po zamknięciu M3-B jest bramka STAGE-M3-C-WINDOWS-PORTABLE-ZIP-INTEGRATION-GATE.
+- **Status wykonawczy:** **COMPLETED_SOFTWARE_VERIFIED**
+- **Zaleznosci:** UPDATE-DESIGN-WIN (APPROVED), UPDATE-DESIGN-PLATFORM (APPROVED), UPDATE-CORE-PLATFORM (COMPLETED_SOFTWARE_VERIFIED), UPDATE-WIN-HELPERS (COMPLETED_SOFTWARE_VERIFIED), decyzje OWNER-M2-01..03 (APPROVED), decyzje OWNER-M2-08, 09 (OPEN, NON-BLOCKING — TEMPORARY CONSERVATIVE RETENTION POLICY), decyzja OWNER-M2-10 (APPROVED)
+- **Zakres:** Produkcyjna integracja adaptera Windows Portable ZIP ze zweryfikowanym manifestem Ed25519, bezpieczną inspekcją i ekstrakcją ZIP (`inspect_windows_zip_archive`), wyznaczaniem `UpdatePlan`, obliczaniem `plan_digest`, walidacją tożsamości PE AMD64 natywnego pomocnika `splogbook-updater.exe`, utwardzonym fallbackiem PowerShell, procedurą startową `consume_update_result_on_startup` z pomiarem zachowanego `.rollback`, bezwzględną ochroną baz SQLite (`serviceLOG.db`), WAL, SHM, konfiguracji i danych użytkownika. Zamknięty w STAGE-M3-C-WINDOWS-PORTABLE-ZIP-INTEGRATION-GATE (2556 testów passed, 0 failed, 91 security guards, 28 Windows helper tests).
 
 #### UPDATE-LINUX-PACKAGES (Dalsze etapy M3: M3-F..M3-J) — Pakiety Linux (AppImage, DEB, RPM, Flatpak, tar.gz)
 - **Tor:** UPDATE
