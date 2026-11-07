@@ -289,7 +289,7 @@ Utworzenie, uzgodnienie i zweryfikowanie trzech kompletnych dokumentĂłw projek
 
 - **M3 STATUS:** **IN_PROGRESS**
 - **M3-A STATUS:** **COMPLETED_SOFTWARE_VERIFIED** (Implementacja wspolnego rdzenia platformowego, modelu transakcji, 20-stanowego automatu i mechanizmow recovery aktualizatora SPLogbook zamknieta w STAGE-M3-A-PLATFORM-CORE-IMPLEMENTATION-GATE)
-- **M3-B STATUS:** **READY_FOR_IMPLEMENTATION (NOT STARTED)** (Instalator Windows, pomocnik natywny i instalator Inno Setup)
+- **M3-B STATUS:** **COMPLETED_SOFTWARE_VERIFIED** (Implementacja natywnego pomocnika Windows splogbook-updater.exe, protokolu IPC, weryfikacji HealthProof, rollbacku i utwardzonego fallbacku PowerShell zamknieta w STAGE-M3-B-WINDOWS-HELPERS-IMPLEMENTATION-GATE)
 - **M3-C STATUS:** **READY_FOR_IMPLEMENTATION (NOT STARTED)** (Pakiety Linux: AppImage, DEB, RPM, Flatpak)
 
 #### UPDATE-CORE-PLATFORM (M3-A) — Wspolny rdzen transakcyjny aktualizatora
@@ -300,8 +300,9 @@ Utworzenie, uzgodnienie i zweryfikowanie trzech kompletnych dokumentĂłw projek
 
 #### UPDATE-WIN-INSTALLER (M3-B) — Instalator Windows
 - **Tor:** UPDATE
-- **Status wykonawczy:** READY_FOR_IMPLEMENTATION (NOT STARTED)
+- **Status wykonawczy:** **COMPLETED_SOFTWARE_VERIFIED** (Natywny helper splogbook-updater.exe oraz utwardzony fallback PowerShell)
 - **Zaleznosci:** UPDATE-DESIGN-WIN (APPROVED), UPDATE-DESIGN-PLATFORM (APPROVED), UPDATE-CORE-PLATFORM (COMPLETED_SOFTWARE_VERIFIED), decyzje OWNER-M2-01..03 (APPROVED)
+- **Zakres:** Natywny helper Windows `splogbook-updater.exe`, wersjonowany kontrakt IPC `WindowsHelperRequest`/`Result`, integralnosc `plan_digest`, monitor procesu macierzystego, dziennik operacji HelperOperationJournal, strukturalne uruchamianie kandydata w `CREATE_NO_WINDOW`, weryfikacja HealthProof, transakcyjny rollback, utwardzony generator PowerShell bez wildcardow i iex, pelna parzystosc bezpieczenstwa, testy Windows (9 testow), strazniki bezpieczenstwa (82 testy).
 
 #### UPDATE-LINUX-INSTALLER (M3-C) — Instalator Linux
 - **Tor:** UPDATE
