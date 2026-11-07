@@ -92,7 +92,17 @@ impl RecoveryDecisionEngine {
             };
         }
 
-        // 2. Brak transakcji lub stan Idle
+        // 2. Nieznany typ instalacji jest traktowany bezpiecznie (Fail-closed)
+        if ctx.installation_type == InstallationType::UnknownInstallation {
+            return RecoveryPlan {
+                decision: RecoveryDecision::ManualInterventionRequired,
+                reason: "Nieznany format instalacji — brak bezpiecznej procedury automatycznego recovery.".to_string(),
+                requires_user_intervention: true,
+                target_state: None,
+            };
+        }
+
+        // 3. Brak transakcji lub stan Idle
         let Some(tx) = &ctx.transaction else {
             return RecoveryPlan {
                 decision: RecoveryDecision::NoRecoveryNeeded,
@@ -162,17 +172,7 @@ impl RecoveryDecisionEngine {
             };
         }
 
-        // 5. Nieznany typ instalacji jest traktowany bezpiecznie (Fail-closed)
-        if ctx.installation_type == InstallationType::UnknownInstallation {
-            return RecoveryPlan {
-                decision: RecoveryDecision::ManualInterventionRequired,
-                reason: "Nieznany format instalacji — brak bezpiecznej procedury automatycznego recovery.".to_string(),
-                requires_user_intervention: true,
-                target_state: None,
-            };
-        }
-
-        // 6. Ewaluacja stanów SelfManaged w oparciu o fazę cyklu życia
+        // 5. Ewaluacja stanów SelfManaged w oparciu o fazę cyklu życia
         match tx.current_state {
             // Faza 1: Przed rozpoczęciem podmiany plików programu (Pre-Apply)
             UpdateStateId::CheckingRelease
