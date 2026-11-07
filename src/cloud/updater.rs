@@ -62,7 +62,42 @@ pub enum UpdaterError {
     HealthCheckFailed,
     UpdateFailed(String),
     Other(String),
+    InvalidAttemptId(String),
+    InvalidTransition(String),
+    InvalidTransaction(String),
+    UnsupportedTransactionVersion(u32),
+    InstallationDetection(String),
+    ConflictingInstallationMarkers(String),
+    UnknownInstallation(String),
+    CapabilityUnavailable(String),
+    LockContended(String),
+    LockCorrupt(String),
+    ForeignLock(String),
+    DiskSpaceUnavailable(String),
+    DiskSpaceOverflow,
+    Persistence(String),
+    RecoveryRequired(String),
+    RecoveryBlocked(String),
+    CancellationRejected(String),
+    UnsafePath(String),
+    RedactionFailure(String),
 }
+
+pub mod attempt_id;
+pub mod installation;
+pub mod state;
+pub mod transaction;
+
+pub use attempt_id::UpdateAttemptId;
+pub use installation::{
+    InstallationDetectionContext, InstallationType, ManagementMode,
+    detect_installation_with_context,
+};
+pub use state::{UpdateStateId, UpdateStateMachine};
+pub use transaction::{
+    CURRENT_RECORD_VERSION, CancellationStatus, RecoveryStatus, TRANSACTION_FILE_NAME,
+    UpdateTransaction,
+};
 
 impl UpdaterError {
     pub fn as_str(&self) -> &str {
@@ -90,7 +125,30 @@ impl UpdaterError {
             | Self::ArchiveLimitExceeded(s)
             | Self::InvalidStagingLayout(s)
             | Self::InstallFailed(s)
-            | Self::RollbackFailed(s) => s.as_str(),
+            | Self::RollbackFailed(s)
+            | Self::InvalidAttemptId(s)
+            | Self::InvalidTransition(s)
+            | Self::InvalidTransaction(s)
+            | Self::InstallationDetection(s)
+            | Self::ConflictingInstallationMarkers(s)
+            | Self::UnknownInstallation(s)
+            | Self::CapabilityUnavailable(s)
+            | Self::LockContended(s)
+            | Self::LockCorrupt(s)
+            | Self::ForeignLock(s)
+            | Self::DiskSpaceUnavailable(s)
+            | Self::Persistence(s)
+            | Self::RecoveryRequired(s)
+            | Self::RecoveryBlocked(s)
+            | Self::CancellationRejected(s)
+            | Self::UnsafePath(s)
+            | Self::RedactionFailure(s) => s.as_str(),
+            Self::UnsupportedTransactionVersion(_) => {
+                "Nieobsługiwana wersja rekordu transakcji aktualizatora."
+            }
+            Self::DiskSpaceOverflow => {
+                "Przepełnienie arytmetyczne przy obliczaniu wymaganej przestrzeni dyskowej."
+            }
             Self::MissingField(s) => s,
             Self::FileTooLarge => "Plik przekracza dozwolony limit wielkości.",
             Self::ManifestTooLarge => "Manifest przekracza dozwolony limit wielkości (1 MB).",
