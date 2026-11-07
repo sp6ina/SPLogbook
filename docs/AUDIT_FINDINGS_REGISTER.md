@@ -165,6 +165,34 @@
 
 ---
 
+### `UPDATE-WIN-SAFETY-GATE` — Bramka bezpieczeństwa aktualizatora dla platformy Windows
+- **ID:** `UPDATE-WIN-SAFETY-GATE`
+- **Tytuł:** Weryfikacja bezpieczeństwa formatu ZIP, powiązania manifestu, izolacji stagingu, braku dzikich kart i ochrony baz danych na Windows
+- **Kategoria:** `REL`
+- **Poziom krytyczności:** `CRITICAL`
+- **Poziom pewności:** `CONFIRMED`
+- **Status remediacji:** **SATISFIED_BY_UPDATE_TRUST_AND_DATA_SAFETY_GATE / COMPLETED_SOFTWARE_VERIFIED**
+- **Data weryfikacji i zamknięcia:** 2026-11-06 / 2026-11-07
+- **Commity:** `bc3e806`, `12c3b22`, `da34b4c`, `c95172e`, `6fbb495`
+- **Raport pokrycia:** `STAGE_M1_COVERAGE_AND_STATUS_REPORT.md` (36/36 kryteriów WIN-M1 w statusie PASS, 0 fail, 0 unverified)
+- **Podsumowanie ochrony:** Eliminacja traktowania ZIP jako EXE, blokada path traversal, manifest-first (`VerifiedReleaseAsset`), fail-closed dla odwołanego klucza `splogbook-release-2026-01`, brak dzikich kart `$staging\*` i `$rollback\*` w PowerShell, ochrona `databases/serviceLOG.db`, `databases/callbook.db`, `station_config.json`, `default_log.db` i nieznanych plików, rollback wykluczający dane użytkownika, brak `runas`, brak wymogu uprawnień administratora.
+
+---
+
+### `UPDATE-LINUX-SAFETY-GATE` — Bramka bezpieczeństwa aktualizatora dla platformy Linux
+- **ID:** `UPDATE-LINUX-SAFETY-GATE`
+- **Tytuł:** Weryfikacja bezpieczeństwa formatu tar.gz, powiązania manifestu, spłaszczania katalogu, walidacji UpdatePlan i braku uprawnień sudo/pkexec na Linux
+- **Kategoria:** `REL`
+- **Poziom krytyczności:** `CRITICAL`
+- **Poziom pewności:** `CONFIRMED`
+- **Status remediacji:** **SATISFIED_BY_UPDATE_TRUST_AND_DATA_SAFETY_GATE / COMPLETED_SOFTWARE_VERIFIED**
+- **Data weryfikacji i zamknięcia:** 2026-11-06 / 2026-11-07
+- **Commity:** `bc3e806`, `12c3b22`, `da34b4c`, `c95172e`, `6fbb495`
+- **Raport pokrycia:** `STAGE_M1_COVERAGE_AND_STATUS_REPORT.md` (40/40 kryteriów LINUX-M1 w statusie PASS, 0 fail, 0 unverified)
+- **Podsumowanie ochrony:** Bezpieczna ekstrakcja `extract_tar_gz_safe`, blokada symlinków/hardlinków/urządzeń, spłaszczanie pojedynczego katalogu nadrzędnego (`flatten_single_root_directory`), generowanie i walidacja `UpdatePlan::generate`, ochrona danych użytkownika i konfiguracji, zachowanie uprawnień wykonywalnych (`0o755`), zachowanie `RUNPATH` i bibliotek Hamlib, brak `sudo` i `pkexec`, rollback transakcyjny bez naruszania baz danych.
+
+---
+
 ### `SEC-002` — Wyciek sekretów przez `#[derive(Debug)]` na `AppConfig` oraz hasła w parametrach query URL
 - **ID:** `SEC-002`
 - **Tytuł:** Brak redakcji sekretów w `Debug for AppConfig` i wyciek haseł w błędach `reqwest::Error`

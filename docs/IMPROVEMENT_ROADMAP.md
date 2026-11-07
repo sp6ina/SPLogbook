@@ -31,6 +31,7 @@
 9. **Aktualizacja zależności w `Cargo.lock` eliminująca 7 biuletynów `RUSTSEC-2026-*` (`DEP-001`)** — **ZREALIZOWANY** (commit `335ced5`).
 10. **Weryfikacja manifest-first i odrzucanie odwołanych kluczy w aktualizatorze GUI (`UPDATE-TRUST-001`)** — **ZREALIZOWANY** (commit `bc3e806`, `c95172e`).
 11. **Ochrona danych użytkownika, konfiguracji i baz portable w aktualizatorze Windows/Linux (`UPDATE-DATA-001`)** — **ZREALIZOWANY** (commit `12c3b22`, `da34b4c`, `c95172e`).
+12. **Bramki bezpieczeństwa aktualizatora Etapu M1 (`UPDATE-WIN-SAFETY-GATE`, `UPDATE-LINUX-SAFETY-GATE`)** — **ZREALIZOWANY** (`SATISFIED_BY_UPDATE_TRUST_AND_DATA_SAFETY_GATE` / `COMPLETED_SOFTWARE_VERIFIED`, raport `STAGE_M1_COVERAGE_AND_STATUS_REPORT.md`). Status M2: `READY_FOR_DESIGN`.
 
 ---
 

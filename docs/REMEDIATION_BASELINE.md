@@ -588,12 +588,18 @@ Cargo.lock SHA-1: `c569097f3ef69c66ec59b74c29c1eb29efce69ae` (bez zmian)
 - **Pomiary po wdrożeniu bramki:**
   - `cargo fmt --all -- --check`: **0 błędów**
   - `cargo clippy --workspace --all-targets --all-features -j 2 -- -D warnings`: **0 ostrzeżeń, 0 błędów**
-  - Łącznie zarejestrowanych testów: **2345** (+24 nowe testy: +17 jednostkowych, +7 security guard)
-  - Aktywne testy programowe: **2335 passed, 0 failed**
+  - Łącznie zarejestrowanych testów: **2345** (+56 nowych testów zarejestrowanych względem baseline 2289: +49 jednostkowych, +7 security guard)
+  - Aktywne testy programowe: **2335 passed, 0 failed** (+56 nowych testów wykonanych względem baseline 2279)
   - HIL ignorowane: **10 ignored** (emisja RF = 0, fizyczne PTT = 0, safety gate closed)
   - `cargo audit`: **0 vulnerabilities, 0 unsound**
   - `Cargo.toml` SHA-1: `0cdf381165bfc3111fff15097007e4b235484ec8` (blob: `d8e3acd8f0c7b3307b3733c6c4a9a6cc57cb17c4`, niezmieniony)
   - `Cargo.lock` SHA-1: `52be66b2bc063c001d5c2e8556457fa2be04ff4f` (blob: `c569097f3ef69c66ec59b74c29c1eb29efce69ae`, niezmieniony)
+- **Status Zamknięcia Bramek Etapu M1 i Gotowość do M2:**
+  - `UPDATE-WIN-SAFETY-GATE`: **SATISFIED_BY_UPDATE_TRUST_AND_DATA_SAFETY_GATE** (`COMPLETED_SOFTWARE_VERIFIED`)
+  - `UPDATE-LINUX-SAFETY-GATE`: **SATISFIED_BY_UPDATE_TRUST_AND_DATA_SAFETY_GATE** (`COMPLETED_SOFTWARE_VERIFIED`)
+  - `ETAP M1`: **COMPLETED_SOFTWARE_VERIFIED**
+  - `ETAP M2`: **READY_FOR_DESIGN** (prace implementacyjne nierozpoczęte)
 - **Raporty:**
   - Analiza wejściowa: `UPDATE_PRE_IMPLEMENTATION_REPORT.md`
-  - Raport końcowy: `UPDATE_TRUST_AND_DATA_SAFETY_GATE_REPORT.md`
+  - Raport wykonawczy bramki bezpieczeństwa: `UPDATE_TRUST_AND_DATA_SAFETY_GATE_REPORT.md`
+  - Końcowy raport pokrycia i zamknięcia M1: `STAGE_M1_COVERAGE_AND_STATUS_REPORT.md`
