@@ -656,6 +656,70 @@ fn propagation_accuracy_handles_empty_samples_safely() {
 }
 
 #[test]
+fn solar_panel_displays_na_without_samples() {
+    let deps = test_deps();
+    let init = AppInit {
+        config: AppConfig::default(),
+        config_file_path: std::path::PathBuf::from("config.json"),
+        active_db_path: std::path::PathBuf::from("db.sqlite"),
+        shutdown_policy: ShutdownPolicy::None,
+    };
+    let app = SpLogApp::for_tests(init, deps);
+    assert_eq!(app.solar.propagation_history.accuracy_pct(), None);
+    let display_str = match app.solar.propagation_history.accuracy_pct() {
+        Some(acc) => format!("{acc:.1}%"),
+        None => "N/A".to_string(),
+    };
+    assert_eq!(display_str, "N/A");
+}
+
+#[test]
+fn solar_panel_displays_zero_percent_only_for_measured_zero() {
+    let deps = test_deps();
+    let init = AppInit {
+        config: AppConfig::default(),
+        config_file_path: std::path::PathBuf::from("config.json"),
+        active_db_path: std::path::PathBuf::from("db.sqlite"),
+        shutdown_policy: ShutdownPolicy::None,
+    };
+    let mut app = SpLogApp::for_tests(init, deps);
+    app.solar.propagation_history.record_forecast(
+        "20m",
+        12.0,
+        120,
+        2,
+        85,
+        crate::core::propagation::BandOpeningStatus::Open,
+    );
+    app.solar.propagation_history.record_observation(
+        "20m",
+        crate::core::propagation_history::ObservedOutcome::ConfirmedClosed,
+    );
+    assert_eq!(app.solar.propagation_history.accuracy_pct(), Some(0.0));
+    assert_eq!(app.solar.propagation_history.verified_count(), 1);
+    let display_str = match app.solar.propagation_history.accuracy_pct() {
+        Some(acc) => format!("{acc:.1}% ({})", app.solar.propagation_history.verified_count()),
+        None => "N/A".to_string(),
+    };
+    assert_eq!(display_str, "0.0% (1)");
+}
+
+#[test]
+fn solar_panel_does_not_present_zero_as_measurement_without_samples() {
+    let deps = test_deps();
+    let init = AppInit {
+        config: AppConfig::default(),
+        config_file_path: std::path::PathBuf::from("config.json"),
+        active_db_path: std::path::PathBuf::from("db.sqlite"),
+        shutdown_policy: ShutdownPolicy::None,
+    };
+    let app = SpLogApp::for_tests(init, deps);
+    let opt = app.solar.propagation_history.accuracy_pct();
+    assert!(opt.is_none());
+    assert_ne!(opt, Some(0.0));
+}
+
+#[test]
 fn clear_qso_form_resets_all_entry_fields() {
     let deps = test_deps();
     let init = AppInit {
