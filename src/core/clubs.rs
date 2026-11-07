@@ -314,7 +314,7 @@ mod tests {
         let affs_upper = ClubRegistry::check("SP6INA");
         let affs_mixed = ClubRegistry::check("  sP6InA  ");
         assert_eq!(affs_upper, affs_mixed);
-        assert!(!affs_mixed.is_empty());
+        assert_ne!(affs_mixed, []);
     }
 
     #[test]

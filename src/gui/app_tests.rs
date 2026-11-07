@@ -698,7 +698,10 @@ fn solar_panel_displays_zero_percent_only_for_measured_zero() {
     assert_eq!(app.solar.propagation_history.accuracy_pct(), Some(0.0));
     assert_eq!(app.solar.propagation_history.verified_count(), 1);
     let display_str = match app.solar.propagation_history.accuracy_pct() {
-        Some(acc) => format!("{acc:.1}% ({})", app.solar.propagation_history.verified_count()),
+        Some(acc) => format!(
+            "{acc:.1}% ({})",
+            app.solar.propagation_history.verified_count()
+        ),
         None => "N/A".to_string(),
     };
     assert_eq!(display_str, "0.0% (1)");
