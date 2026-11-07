@@ -11,6 +11,26 @@ use splogbook::gui::app::SpLogApp;
 use std::sync::{Arc, Mutex};
 
 fn main() -> Result<(), eframe::Error> {
+    // Wczesna obsługa CLI diagnostyki tożsamości wersji (przed Tokio, bazą danych, audio, CAT i GUI)
+    for arg in std::env::args().skip(1) {
+        match arg.as_str() {
+            "--version" | "-V" => {
+                println!(
+                    "SPLogbook {}",
+                    splogbook::core::build_info::BuildIdentity::current().display_version()
+                );
+                std::process::exit(0);
+            }
+            "--build-info" => {
+                println!(
+                    "{}",
+                    splogbook::core::build_info::BuildIdentity::current().format_diagnostic()
+                );
+                std::process::exit(0);
+            }
+            _ => {}
+        }
+    }
     // Inicjalizacja loggera diagnostycznego (RUST_LOG lub domyślnie info)
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     log::info!("SPLogbook v{} inicjalizacja...", env!("CARGO_PKG_VERSION"));
@@ -95,9 +115,9 @@ fn main() -> Result<(), eframe::Error> {
                 }
                 other => other,
             };
-            let version = expected_version.unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
-            let commit = expected_commit
-                .unwrap_or_else(|| "0000000000000000000000000000000000000000".to_string());
+            let identity = splogbook::core::build_info::BuildIdentity::current();
+            let version = expected_version.unwrap_or_else(|| identity.package_version.to_string());
+            let commit = expected_commit.unwrap_or_else(|| identity.git_commit_hash.to_string());
             let platform = if cfg!(windows) {
                 "windows-x86_64"
             } else {

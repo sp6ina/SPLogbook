@@ -11,6 +11,7 @@ fn main() {
     println!("cargo:rerun-if-changed=locales");
     println!("cargo:rerun-if-changed=locales/manual");
 
+    extract_build_identity();
     generate_i18n_catalog();
 
     #[cfg(windows)]
@@ -331,4 +332,62 @@ fn extract_params(file: &str, key: &str, text: &str) -> BTreeSet<String> {
         }
     }
     params
+}
+
+fn extract_build_identity() {
+    println!("cargo:rerun-if-changed=.git/HEAD");
+    println!("cargo:rerun-if-changed=.git/index");
+
+    let profile = std::env::var("PROFILE").unwrap_or_else(|_| "unknown".to_string());
+    println!("cargo:rustc-env=SPLOGBOOK_BUILD_PROFILE={profile}");
+
+    let (commit_hash, commit_short, is_dirty) = match query_git() {
+        Some(info) => info,
+        None => ("unknown".to_string(), "unknown".to_string(), false),
+    };
+
+    println!("cargo:rustc-env=SPLOGBOOK_GIT_COMMIT_HASH={commit_hash}");
+    println!("cargo:rustc-env=SPLOGBOOK_GIT_COMMIT_SHORT={commit_short}");
+    println!("cargo:rustc-env=SPLOGBOOK_GIT_DIRTY={is_dirty}");
+}
+
+fn query_git() -> Option<(String, String, bool)> {
+    if !Path::new(".git").exists() {
+        return None;
+    }
+
+    let hash_output = std::process::Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .ok()?;
+
+    if !hash_output.status.success() {
+        return None;
+    }
+
+    let full_hash = String::from_utf8(hash_output.stdout)
+        .ok()?
+        .trim()
+        .to_string();
+    if full_hash.is_empty() {
+        return None;
+    }
+
+    let short_hash = if full_hash.len() >= 7 {
+        full_hash[..7].to_string()
+    } else {
+        full_hash.clone()
+    };
+
+    let status_output = std::process::Command::new("git")
+        .args(["status", "--porcelain"])
+        .output()
+        .ok();
+
+    let is_dirty = match status_output {
+        Some(out) if out.status.success() => !out.stdout.is_empty(),
+        _ => false,
+    };
+
+    Some((full_hash, short_hash, is_dirty))
 }
