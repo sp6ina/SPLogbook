@@ -3392,3 +3392,38 @@ fn m3_b_stability_20_iterations_helper_parity_and_e2e_cycle() {
         assert!(!script.contains("Remove-Item *"));
     }
 }
+
+#[test]
+fn m3_b_process_identity_and_closure_guard() {
+    let helper_src = fs::read_to_string("src/cloud/updater/windows_helper.rs")
+        .expect("src/cloud/updater/windows_helper.rs");
+    let updater_bin =
+        fs::read_to_string("src/bin/splogbook-updater.rs").expect("src/bin/splogbook-updater.rs");
+
+    // 1. Helper never calls kill or terminate on parent process PID
+    assert!(
+        !helper_src.contains("taskkill /f /pid") && !helper_src.contains("taskkill /PID"),
+        "Helper must never force-kill parent process"
+    );
+    assert!(
+        !updater_bin.contains("taskkill"),
+        "Updater binary must never execute taskkill directly"
+    );
+
+    // 2. Candidate termination must only be via child_handle.terminate()
+    assert!(
+        helper_src.contains("child_handle.terminate()"),
+        "Candidate termination must use direct child handle"
+    );
+    assert!(
+        !helper_src.contains("taskkill /im") && !helper_src.contains("taskkill /IM"),
+        "Helper must never kill candidate or foreign processes by image name"
+    );
+
+    // 3. Cargo binary target for splogbook-updater must exist
+    let cargo_toml = fs::read_to_string("Cargo.toml").expect("Cargo.toml");
+    assert!(
+        cargo_toml.contains("name = \"splogbook-updater\""),
+        "Cargo.toml must define [[bin]] target for splogbook-updater"
+    );
+}
