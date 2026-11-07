@@ -261,8 +261,7 @@ mod tests {
         for s in cancellable {
             assert!(
                 can_cancel(s),
-                "Stan {:?} powinien być oznaczony jako anulowalny",
-                s
+                "Stan {s:?} powinien być oznaczony jako anulowalny"
             );
         }
 
@@ -280,8 +279,7 @@ mod tests {
         for s in non_cancellable {
             assert!(
                 !can_cancel(s),
-                "Stan {:?} NIE powinien być oznaczony jako anulowalny",
-                s
+                "Stan {s:?} NIE powinien być oznaczony jako anulowalny"
             );
         }
     }
@@ -382,7 +380,7 @@ mod tests {
             UpdaterError::CancellationRejected(msg) => {
                 assert!(msg.contains("Applying"));
             }
-            other => panic!("Oczekiwano CancellationRejected, otrzymano {:?}", other),
+            other => panic!("Oczekiwano CancellationRejected, otrzymano {other:?}"),
         }
         assert_eq!(
             tx.cancellation_status,
@@ -403,7 +401,7 @@ mod tests {
             UpdaterError::CancellationRejected(msg) => {
                 assert!(msg.contains("AwaitingHealth"));
             }
-            other => panic!("Oczekiwano CancellationRejected, otrzymano {:?}", other),
+            other => panic!("Oczekiwano CancellationRejected, otrzymano {other:?}"),
         }
         assert_eq!(
             tx.cancellation_status,
@@ -424,7 +422,7 @@ mod tests {
             UpdaterError::CancellationRejected(msg) => {
                 assert!(msg.contains("Rollback"));
             }
-            other => panic!("Oczekiwano CancellationRejected, otrzymano {:?}", other),
+            other => panic!("Oczekiwano CancellationRejected, otrzymano {other:?}"),
         }
         assert_eq!(
             tx.cancellation_status,
