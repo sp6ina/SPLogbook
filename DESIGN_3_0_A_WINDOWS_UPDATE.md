@@ -1,177 +1,282 @@
-﻿# PROJEKT ARCHITEKTONICZNY: AKTUALIZATOR WINDOWS (PORTABLE ZIP)
+﻿# PROJEKT ARCHITEKTONICZNY: PAKIETY INSTALACYJNE I AKTUALIZATOR WINDOWS (PORTABLE ZIP, WIX MSI, INNO SETUP)
 # Dokument: DESIGN_3_0_A_WINDOWS_UPDATE.md
 
 ---
 
 ## 1. Status Dokumentu
 - **Identyfikator:** `UPDATE-DESIGN-WIN`
-- **Etap:** `STAGE-M2-INSTALLER-DESIGN-GATE`
-- **Status dokumentu:** `REVIEWED` (Zgodnie z zasadami Sekcji 46; oczekuje na formalne zatwierdzenie otwartych decyzji wĹ‚aĹ›ciciela przez WĹ‚aĹ›ciciela repozytorium)
-- **GotowoĹ›Ä‡ wykonawcza M3:** `BLOCKED_BY_OWNER_DECISIONS` (Sekcja 39 i 54)
-- **Data opracowania:** 2026-11-07 (Rzeczywista data wykonania M2)
-- **Strefa czasowa:** `+01:00` (CET / Europe/Warsaw)
-- **Autor / Rola:** GĹ‚Ăłwny Architekt Techniczny SPLogbook, Starszy Programista Rust 2024, Specjalista Bezpiecznych AktualizatorĂłw
+- **Etap:** `STAGE-M2-INSTALLER-DESIGN-GATE` / `STAGE-M2-OWNER-DECISIONS-APPROVAL-GATE`
+- **Status dokumentu:** `APPROVED` (Formalnie zatwierdzony po decyzjach Właściciela `OWNER-M2-01`, `OWNER-M2-02`, `OWNER-M2-03` w bramce zatwierdzenia decyzji)
+- **Gotowość wykonawcza M3:** `READY_FOR_IMPLEMENTATION` (M3-BLOCKING DECISIONS: 0; prace implementacyjne M3 nierozpoczęte)
+- **Data opracowania:** 2026-11-07 (Rzeczywista data wykonania bramki M2)
+- **Strefa czasowa:** `+01:00` (CET / Central European Standard Time, UTC+01:00)
+- **Autor / Rola:** Główny Architekt Techniczny SPLogbook, Starszy Programista Rust 2024, Specjalista Windows Installer, WiX Toolset, Inno Setup, PowerShell i Natywnych Helperów
 
 ---
 
 ## 2. Wersja i Historia Zmian
-- **Wersja:** `2.0.0`
+- **Wersja:** `2.1.0`
 - **Historia:**
-  - `v1.0.0` (2026-09-29): Wczesny szkic koncepcyjny zablokowania bĹ‚Ä™du traktowania pliku ZIP jako EXE (historyczny commit w fazie pre-M1).
-  - `v2.0.0` (2026-11-07): Kompletny projekt architektoniczny aktualizatora Windows Portable ZIP, integrujÄ…cy zweryfikowane mechanizmy manifest-first (Ed25519), silnik `UpdatePlan`, fail-closed ochronÄ™ baz SQLite i danych uĹĽytkownika, izolowany staging, model helpera, deterministyczny rollback oraz procedury odzyskiwania po awarii.
+  - `v1.0.0` (2026-09-29): Wczesny szkic koncepcyjny zablokowania błędu traktowania pliku ZIP jako EXE (historyczny commit w fazie pre-M1).
+  - `v2.0.0` (2026-11-07): Kompletny projekt architektoniczny aktualizatora Windows Portable ZIP, integrujący zweryfikowane mechanizmy manifest-first (Ed25519), silnik `UpdatePlan`, fail-closed ochronę baz SQLite i danych użytkownika, izolowany staging, model helpera, deterministyczny rollback oraz procedury odzyskiwania po awarii (`REVIEWED`).
+  - `v2.1.0` (2026-11-07): Formalne zatwierdzenie rozszerzonego zakresu M3 przez Właściciela Projektu (`STAGE-M2-OWNER-DECISIONS-APPROVAL-GATE`). Włączenie pakietu MSI (WiX Toolset), instalatora EXE (Inno Setup), modelu Dual-Helper (natywny `splogbook-updater.exe` jako cel główny, utwardzony PowerShell jako fallback kompatybilności), formuły badania pojemności dysku zamiast arbitralnego 50 MB, polityki wzajemnej wyłączności formatów, rygorystycznego zakazu anulowania po przejściu w fazę `Applying` oraz pełnej macierzy testów natywnych Windows (`APPROVED`).
 
 ---
 
 ## 3. Baseline Git i Kontekst Techniczny
-- **Baseline Git HEAD:** `5ddec14bd40b70ab099ba289ecdd952340c6da54`
-- **GaĹ‚Ä…Ĺş referencyjna:** `main` / `repair/full-system-remediation`
-- **Wersja oprogramowania:** SPLogbook `v1.2.0` (kod ĹşrĂłdĹ‚owy Rust 2024, MSRV 1.85+)
-- **Relacja do Etapu M1:** Etap M1 zostaĹ‚ w peĹ‚ni zrealizowany i zweryfikowany testami oprogramowania (`STAGE_M1_COVERAGE_AND_STATUS_REPORT.md`, 36/36 kryteriĂłw `WIN-M1` speĹ‚nionych). Niniejszy dokument stanowi specyfikacjÄ™ docelowÄ… fazy M2 bez modyfikacji kodu.
+- **Baseline Git HEAD:** `9730304b372bbe81d8be0bc45262028f6ef2408e`
+- **Gałąź referencyjna:** `main` / `repair/full-system-remediation`
+- **Wersja oprogramowania:** SPLogbook `v1.2.0` (kod źródłowy Rust 2024, MSRV 1.85+)
+- **Relacja do Etapu M1 i M2:** Etap M1 został w pełni zrealizowany i zweryfikowany testami oprogramowania (`STAGE_M1_COVERAGE_AND_STATUS_REPORT.md`, 36/36 kryteriów `WIN-M1` spełnionych). Bramka `STAGE-M2-INSTALLER-DESIGN-GATE` zamknęła projekt bazowy, a niniejsza wersja v2.1.0 formalizuje zatwierdzony rozszerzony zakres dla implementacji Etapu M3.
 
 ---
 
 ## 4. Zakres Projektu (In-Scope)
-Projekt obejmuje:
-1. Oficjalnie wspierany model dystrybucji Windows: aplikacja przenoĹ›na (Portable) dostarczana w pĹ‚askim archiwum ZIP (`SPLogbook-Windows-x64.zip`).
-2. Wykrywanie typu instalacji oraz walidacjÄ™ uprawnieĹ„ zapisu (Write Access Preflight).
-3. ĹšcisĹ‚Ä… integracjÄ™ z kryptograficznym kontraktem zaufania manifest-first (`release-manifest.json` + podpis Ed25519).
-4. InspekcjÄ™ struktury pakietu ZIP przed dekompresjÄ… (limity dekompresyjne, ochrona przed Zip-Slip, zakaz symlinkĂłw).
-5. BezpiecznÄ… dekompresjÄ™ do izolowanego katalogu stagingu (`.staging`).
-6. Generowanie i rygorystycznÄ… walidacjÄ™ planu aktualizacji (`UpdatePlan`) z zachowaniem zasady `UNKNOWN DATA CLASSIFICATION â†’ DO NOT OVERWRITE`.
-7. OchronÄ™ danych uĹĽytkownika (`default_log.db`, logi Ĺ‚Ä…cznoĹ›ci, pliki ADIF/Cabrillo), konfiguracji (`station_config.json`) oraz baz referencyjnych (`databases/serviceLOG.db`, `databases/callbook.db`).
-8. ArchitekturÄ™ procesu pomocniczego (Updater Helper) radzÄ…cego sobie z blokadÄ… wykonywalnego pliku PE przez system Windows (File Locking).
-9. ProcedurÄ™ transakcyjnej podmiany plikĂłw z tworzeniem izolowanej kopii zapasowej (`.rollback`).
-10. Uruchomienie kandydata aktualizacji z flagÄ… `--check-health-startup` oraz weryfikacjÄ™ zdrowia (Health Confirmation).
-11. Automatyczny, deterministyczny i idempotentny mechanizm wycofania zmian (Rollback).
-12. Procedury czyszczenia (Cleanup) oraz usuwania pozostaĹ‚oĹ›ci po przerwanych lub nieudanych prĂłbach (Crash Recovery).
-13. Zabezpieczenia wspĂłĹ‚bieĹĽnoĹ›ci (Update Lock) oraz zasady bezpiecznego anulowania.
-14. Macierz zagroĹĽeĹ„ bezpieczeĹ„stwa i macierz testĂłw akceptacyjnych dla Etapu M3.
+Projekt obejmuje trzy oficjalne formaty dystrybucji Windows oraz ich mechanizmy aktualizacji z zachowaniem ścisłego podziału odpowiedzialności:
+1. **Portable ZIP (`SPLogbook-Windows-x64.zip`):**
+   - Oficjalny format przenośny dla instalacji bezuprawnieniowych.
+   - Własny silnik transakcyjny SPLogbook: staging (`.staging`), weryfikacja planu (`UpdatePlan`), transakcyjna podmiana plików, automatyczny rollback (`.rollback`), health check (`--check-health-startup` + `.health_ok`) i sprzątanie (`.update.lock`).
+2. **Pakiet MSI Windows Installer (`SPLogbook-Windows-x64.msi`):**
+   - Oficjalny format instalatora korporacyjnego i systemowego, budowany za pomocą **WiX Toolset**.
+   - Definicja `ProductCode`, `UpgradeCode`, deterministyczne wersjonowanie SemVer, reguły `MajorUpgrade`.
+   - Obsługa czystej instalacji, aktualizacji w miejscu (Upgrade), naprawy (Repair) oraz deinstalacji (Uninstall).
+   - Wykorzystanie natywnego mechanizmu transakcyjnego i rollbacku Windows Installer.
+   - Ochrona baz danych i konfiguracji użytkownika w profilu `%APPDATA%\SPLogbook` (wykluczenie z deinstalacji MSI).
+   - Bezwzględny zakaz niestandardowych akcji (Custom Actions) niszczących integralność transakcji instalatora.
+3. **Interaktywny instalator Setup EXE (`SPLogbook-Windows-x64-Setup.exe`):**
+   - Oficjalny instalator interaktywny dla użytkowników końcowych, budowany za pomocą **Inno Setup**.
+   - Wykrywanie istniejących wersji programu, interaktywny kreator instalacji, opcjonalny tryb cichy (`/SILENT`, `/VERYSILENT`) z jawnym kodem powrotu.
+   - Prawidłowa deinstalacja z zachowaniem nienaruszonych danych użytkownika w `%APPDATA%`.
+   - Wykrywanie kolizji z instalacją MSI i odmowa instalacji równoległej w tej samej lokalizacji.
+4. **Model procesów pomocniczych (Dual Helper Model):**
+   - **Primary Target:** Natywny, skompilowany w Rust program pomocniczy `splogbook-updater.exe`.
+   - **Controlled Compatibility Fallback:** Utwardzony generator skryptu PowerShell (`generate_powershell_update_script`).
+   - Obie ścieżki helpera podlegają identycznej, bezwzględnej polityce bezpieczeństwa i współdzielą ten sam kontrakt danych domenowych (`VerifiedReleaseAsset`, `UpdatePlan`, `UpdateAttemptId`).
+5. **Wykrywanie typu instalacji Windows (Installation Type Preflight):**
+   - Rozróżnianie: `WindowsPortableZip`, `WindowsMsiInstalled`, `WindowsInnoInstalled`, `WindowsUnknownInstallation`.
+6. **Rozdział odpowiedzialności aktualizacyjnej:**
+   - Format Portable ZIP jest aktualizowany przez własny silnik transakcyjny SPLogbook.
+   - Formaty zarządzane systemowo (MSI, Inno Setup) delegują wykonanie do natywnego mechanizmu instalatora (`msiexec.exe` lub instalatora setup). Kod SPLogbook nigdy nie podmienia bezpośrednio plików należących do pakietu systemowego Windows Installer ani Inno Setup.
+7. **Formuła preflightu dyskowego:**
+   - Zastąpienie sztywnego 50 MB pełną, matematycznie uzasadnioną formułą uwzględniającą narzut instalatora i bufor systemu plików.
+8. **Zasady anulowania transakcji:**
+   - Anulowanie dozwolone wyłącznie przed wejściem w stan `Applying`. Po rozpoczęciu podmiany plików anulowanie jest kategorycznie zablokowane (`OWNER-M2-13`).
+9. **Kompleksowa macierz testów natywnych dla Windows runnera w CI.**
 
 ---
 
 ## 5. Poza Zakresem Projektu (Out-of-Scope)
-Projekt jawnie wyklucza i pozostawia jako przyszĹ‚e, odrÄ™bne inicjatywy:
-1. ImplementacjÄ™ instalatora Microsoft Installer (MSI), WiX Toolset, Inno Setup czy NSIS.
-2. AutomatycznÄ… eskalacjÄ™ uprawnieĹ„ przez User Account Control (UAC) / `runas`. W modelu Portable prĂłba aktualizacji w katalogu chronionym (np. `C:\Program Files`) koĹ„czy siÄ™ jawnÄ… odmowÄ…, a nie podnoszeniem uprawnieĹ„.
-3. ModyfikacjÄ™ schematu manifestu wydaĹ„, wprowadzanie nowych pĂłl JSON bez zatwierdzenia.
-4. ZmianÄ™ aktywnych kluczy zaufania oraz modyfikacjÄ™ polityki odwoĹ‚ania klucza `splogbook-release-2026-01`.
-5. Nowe migracje schematĂłw baz danych SQLite.
-6. DystrybucjÄ™ i aktualizacjÄ™ instalacji wielodostÄ™pnych (multi-user / service-level).
+Projekt jawnie wyklucza:
+1. Bezpośrednią podmianę plików binarnych w katalogu `Program Files` należących do pakietu MSI lub instalacji Inno Setup z pominięciem procedury instalatora.
+2. Automatyczną, niewidoczną eskalację uprawnień (ciche `runas` / obejście UAC). Wszelka instalacja systemowa musi odbywać się przez standardowy dialog UAC systemu Windows wyzwalany przez proces instalatora.
+3. Samodzielną migrację w locie między formatem Portable a MSI lub Inno Setup bez jawnej decyzji użytkownika i odrębnego kreatora migracji.
+4. Modyfikację schematu manifestu wydań w niniejszej bramce (rozszerzenie manifestu stanowi zadanie specyfikacji M3 / dedykowane zadanie przedimplementacyjne).
+5. Podpisywanie instalatorów kluczem produkcyjnym w trakcie fazy projektowej (wymaga dedykowanej infrastruktury certyfikatów Authenticode).
 
 ---
 
-## 6. Obecny Format Wydania Windows
-Zgodnie z potokiem `.github/workflows/build-and-release.yml` oraz audytem `UPDATE_ARTIFACT_INVENTORY_REPORT.md`:
-- **Nazwa assetu:** `SPLogbook-Windows-x64.zip`
-- **Format kontenera:** ZIP (DEFLATE / Store)
-- **Docelowa platforma:** `windows` (`ReleasePlatform::Windows`)
-- **Architektura:** `x86_64` (`ReleaseArchitecture::X86_64`)
-- **Model archiwum:** `FLAT ARCHIVE` (pliki binarne, biblioteki i podkatalog `databases/` umieszczone bezpoĹ›rednio w korzeniu archiwum ZIP, bez wspĂłlnego katalogu nadrzÄ™dnego).
-- **GĹ‚Ăłwny plik wykonywalny:** `SPLogbook.exe` (PE32+ executable, x86-64, subsystem Windows GUI).
-- **ZaleĹĽnoĹ›ci wykonawcze:** Wbudowane biblioteki DLL kompilowane statycznie lub dystrybuowane w katalogu programu.
-- **ZawartoĹ›Ä‡ podkatalogu `databases/`:** PoczÄ…tkowe ziarna referencyjne `serviceLOG.db` (baza prefiksĂłw, okrÄ™gĂłw i IOTA) oraz `callbook.db` (lokalny indeks znakĂłw).
+## 6. Formaty Wydania Windows w Etapie M3
+W ramach rozszerzonego zakresu M3 pipeline wydań Windows generuje trzy oficjalne assety:
+
+| Asset | Format / Narzędzie | Typ pakietu (`package_type`) | Mechanizm instalacji / aktualizacji |
+|---|---|---|---|
+| `SPLogbook-Windows-x64.zip` | ZIP (Flat Archive) | `windows-portable-zip` | Własny transakcyjny silnik SPLogbook + helper (`splogbook-updater.exe` / PowerShell) |
+| `SPLogbook-Windows-x64.msi` | MSI / WiX Toolset v4/v5 | `windows-msi` | Windows Installer (`msiexec.exe /i <package>`) z transakcyjnym rollbackiem MSI |
+| `SPLogbook-Windows-x64-Setup.exe` | PE Setup / Inno Setup 6+ | `windows-inno-exe` | Interaktywny instalator Inno Setup (`<setup.exe> /SILENT` po autoryzacji UAC) |
+
+- **Wspólne cechy binarne:**
+  - Kompilacja x86_64, subsystem Windows GUI, wersja PE zintegrowana z zasobami wersji (wersja, ikona, manifest DPI-aware).
+  - Statyczne linkowanie runtime C/C++ oraz hermetyzacja wymaganych bibliotek DLL w katalogu aplikacji.
+  - Wyjściowy plik wykonywalny: `SPLogbook.exe`.
+  - Natywny program pomocniczy: `splogbook-updater.exe`.
 
 ---
 
-## 7. Modele Instalacji (Installation Types)
-Aktualizator definiuje Ĺ›cisĹ‚y typ wyliczeniowy rodzajĂłw instalacji Windows:
+## 7. Modele Instalacji (Installation Types) i Detekcja
+Aktualizator definiuje ścisły typ wyliczeniowy rodzajów instalacji Windows:
 
 ```rust
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum WindowsInstallationType {
-    /// Instalacja przenoĹ›na w katalogu z peĹ‚nymi prawami zapisu dla bieĹĽÄ…cego uĹĽytkownika
+    /// Instalacja przenośna w katalogu użytkownika z pełnymi prawami zapisu
     /// (np. C:\SPLogbook, D:\HamRadio\SPLogbook, %USERPROFILE%\PortableApps\SPLogbook).
-    PortableUserWritable,
-    /// Instalacja w lokalizacji zablokowanej do zapisu dla bieĹĽÄ…cego procesu (np. brak uprawnieĹ„ NTFS).
-    PortableReadOnly,
-    /// Instalacja w chronionym katalogu systemowym (np. C:\Program Files, C:\Program Files (x86), C:\Windows).
-    SystemProtectedDirectory,
-    /// ĹšcieĹĽka sieciowa UNC (np. \\server\share\SPLogbook) â€” nieobsĹ‚ugiwana ze wzglÄ™dĂłw bezpieczeĹ„stwa.
-    NetworkShareUnc,
-    /// Stan nieznany lub bĹ‚Ä…d walidacji Ĺ›cieĹĽki.
-    Unknown,
+    WindowsPortableZip,
+    /// Instalacja systemowa zarządzana przez Windows Installer (pakiet MSI zbudowany przez WiX).
+    WindowsMsiInstalled,
+    /// Instalacja zarządzana przez dedykowany instalator Inno Setup.
+    WindowsInnoInstalled,
+    /// Instalacja w chronionym katalogu systemowym (Program Files) bez rozpoznanego rejestru instalatora,
+    /// ścieżka sieciowa UNC lub stan niespójny.
+    WindowsUnknownInstallation,
 }
 ```
 
-### ReguĹ‚y detekcji i zachowania:
-1. **Weryfikacja Ĺ›cieĹĽki UNC:** JeĹ›li Ĺ›cieĹĽka pliku wykonywalnego zaczyna siÄ™ od `\\` lub prefiksu `\\?\UNC\`, instalacja jest klasyfikowana jako `NetworkShareUnc`. Aktualizacja zostaje natychmiast przerwana (fail-closed) z komunikatem ostrzegawczym.
-2. **Weryfikacja katalogĂłw systemowych:** ĹšcieĹĽka bazowa jest porĂłwnywana z lokalizacjami `%ProgramFiles%`, `%ProgramFiles(x86)%` oraz `%SystemRoot%`. W przypadku wykrycia instalacji w tych obszarach:
-   - Klasyfikacja: `SystemProtectedDirectory`.
-   - Zachowanie: Aktualizator kategorycznie odmawia automatycznej podmiany w modelu portable. WyĹ›wietla monit: *"SPLogbook znajduje siÄ™ w katalogu chronionym systemowo. Automatyczna aktualizacja portable jest zablokowana. Pobierz i rozpakuj nowÄ… wersjÄ™ rÄ™cznie lub przenieĹ› program do katalogu uĹĽytkownika."*
-3. **Preflight zapisu (Write Probe):** W katalogu programu podejmowana jest prĂłba utworzenia, zapisu i usuniÄ™cia pliku testowego `.update_probe_<uuid>.tmp`.
-   - Sukces: `PortableUserWritable`.
-   - BĹ‚Ä…d `PermissionDenied`: `PortableReadOnly` â€” aktualizacja zostaje zablokowana przed rozpoczÄ™ciem pobierania.
+### Reguły detekcji i inspekcji rejestru:
+1. **Weryfikacja ścieżki UNC:** Jeśli ścieżka bazowa zaczyna się od `\\` lub `\\?\UNC\`, klasyfikowana jest jako `WindowsUnknownInstallation`. Aktualizacja sieciowa jest natychmiast blokowana (fail-closed).
+2. **Inspekcja rejestru Windows Installer (MSI):**
+   - Sprawdzenie klucza `HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\{ProductCode}` oraz klucza `UpgradeCode`.
+   - Weryfikacja, czy ścieżka `InstallLocation` odpowiada bieżącemu katalogowi `SPLogbook.exe`.
+   - Jeśli wpis istnieje: klasyfikacja jako `WindowsMsiInstalled`.
+3. **Inspekcja rejestru Inno Setup:**
+   - Sprawdzenie klucza `HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\SPLogbook_is1` (lub `HKCU`).
+   - Weryfikacja obecności pliku deinstalatora `unins000.exe` w katalogu programu.
+   - Jeśli wpis i deinstalator istnieją: klasyfikacja jako `WindowsInnoInstalled`.
+4. **Weryfikacja katalogu przenośnego (Portable):**
+   - Jeśli program nie występuje w rejestrze MSI ani Inno, a katalog bazowy nie znajduje się w `%ProgramFiles%`, `%ProgramFiles(x86)%` ani `%SystemRoot%` i posiada zweryfikowane uprawnienia zapisu dla bieżącego procesu: klasyfikacja jako `WindowsPortableZip`.
+5. **Katalog chroniony / nieznany:**
+   - Jeśli program znajduje się w `%ProgramFiles%` bez poprawnego wpisu MSI/Inno lub brak jest praw zapisu: klasyfikacja jako `WindowsUnknownInstallation`.
+
+### Polityka Wzajemnej Wyłączności (Mutual Exclusivity Policy):
+- Modele instalacji są rozłączne.
+- Instalacja MSI odrzuca instalację w katalogu zawierającym aktywną instalację Inno Setup lub niespójny katalog portable.
+- Instalator Inno Setup sprawdza rejestr MSI przed instalacją i blokuje nadpisanie instalacji zarządzanej przez Windows Installer.
+- Auto-updater SPLogbook nigdy nie próbuje aplikować pakietu MSI na instalację Portable ZIP, ani archiwum ZIP na instalację MSI. Wybór assetu z manifestu jest ściśle związany z wykrytym `WindowsInstallationType`.
+
+---
+
+## 7a. Architektura Pakietu MSI (WiX Toolset)
+Oficjalny pakiet instalacyjny Windows Installer budowany jest za pomocą WiX Toolset v4/v5 z zachowaniem standardów Microsoft Windows Logo:
+1. **Identyfikacja pakietu:**
+   - Stały identyfikator rodziny: `UpgradeCode = "B7D14532-6A10-4F8A-9A4B-3DE189E502B0"`.
+   - Dynamiczny identyfikator wydania: `ProductCode = "*"` (generowany deterministycznie dla każdego wydania SemVer).
+2. **Logika aktualizacji (MajorUpgrade):**
+   ```xml
+   <MajorUpgrade
+       DowngradeErrorMessage="!(loc.NewerVersionInstalled)"
+       Schedule="afterInstallInitialize"
+       AllowSameVersionUpgrades="no" />
+   ```
+   - Reguła `Schedule="afterInstallInitialize"` gwarantuje usunięcie starych plików przed zapisem nowych oraz pełną transakcyjność i rollback w razie błędu.
+3. **Komponenty i struktura katalogów:**
+   - Program Files: `[ProgramFiles64Folder]\SPLogbook`. Zawiera wyłącznie pliki wykonywalne (`SPLogbook.exe`, `splogbook-updater.exe`), biblioteki DLL oraz ziarna referencyjne.
+   - Dane użytkownika: `%APPDATA%\SPLogbook`. Bazy danych SQLite (`default_log.db`), konfiguracja stacji (`station_config.json`) i lokalne logi łączności umieszczane są w katalogu profilu użytkownika i **nigdy nie są rejestrowane jako komponenty MSI**, co zabezpiecza je przed usunięciem w trakcie odinstalowywania lub naprawy pakietu.
+4. **Bezwzględny zakaz destrukcyjnych akcji niestandardowych (Custom Actions):**
+   - Pakiet MSI nie zawiera żadnych skryptów VBScript ani JScript.
+   - Wszelkie operacje systemowe (skróty w Menu Start, wpisy rejestru, zapora sieciowa) realizowane są przez natywne tablice MSI (`Shortcut`, `RegistryValue`, `FirewallException`).
+5. **Obsługa operacji Windows Installer:**
+   - Czysta instalacja: `msiexec.exe /i SPLogbook-Windows-x64.msi /qn /l*v "%TEMP%\SPLogbook_msi_install.log"`.
+   - Aktualizacja: tożsama komenda, Windows Installer automatycznie wykrywa `UpgradeCode` i przeprowadza `MajorUpgrade`.
+   - Naprawa: `msiexec.exe /f SPLogbook-Windows-x64.msi /qn`.
+   - Deinstalacja: `msiexec.exe /x SPLogbook-Windows-x64.msi /qn`.
+6. **Kody powrotu Windows Installer:**
+   - `0`: Sukces (ERROR_SUCCESS).
+   - `3010`: Sukces, wymagany restart systemu (ERROR_SUCCESS_REBOOT_REQUIRED) — raportowane w GUI z monitem o restart.
+   - `1602`: Anulowanie przez użytkownika (ERROR_INSTALL_USEREXIT).
+   - `1603`: Błąd krytyczny (ERROR_INSTALL_FAILURE) — analiza pliku logu.
+
+---
+
+## 7b. Architektura Instalatora Interaktywnego (Inno Setup)
+Oficjalny instalator Setup EXE budowany jest za pomocą Inno Setup 6+ z myślą o prostocie instalacji interaktywnej:
+1. **Identyfikacja aplikacji:**
+   - Stały identyfikator aplikacji: `AppId={{C8E28541-7B21-4A9B-8F5C-4EF298F613C1}}`.
+   - Rejestracja w `Uninstall\SPLogbook_is1`.
+2. **Koordynacja uruchomionych procesów:**
+   - Dyrektywa `CloseApplications=yes` oraz `CloseApplicationsFilter=SPLogbook.exe`.
+   - Automatyczne powiadomienie użytkownika o konieczności zamknięcia programu przed podmianą plików.
+3. **Ochrona danych użytkownika:**
+   - Sekcja `[UninstallDelete]` **nie zawiera** wpisów usuwających katalog `%APPDATA%\SPLogbook`.
+   - Deinstalator Inno Setup usuwa wyłącznie pliki zarejestrowane w `[Files]` i skróty `[Icons]`.
+4. **Blokada kolizji z pakietem MSI:**
+   - Sekcja `[Code]` instalatora Inno Setup weryfikuje obecność klucza rejestru `UpgradeCode` MSI. W razie wykrycia aktywnej instalacji MSI, instalator wyświetla komunikat błędu i odmawia instalacji:
+     ```pascal
+     function InitializeSetup(): Boolean;
+     begin
+       if RegKeyExists(HKEY_LOCAL_MACHINE, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{B7D14532-6A10-4F8A-9A4B-3DE189E502B0}_is1') or
+          RegKeyExists(HKEY_LOCAL_MACHINE, 'Software\Classes\Installer\UpgradeCodes\0B205E981ED3B4A9A9B4A9E189E502B0') then
+       begin
+         MsgBox('Wykryto instalację SPLogbook zarządzaną przez pakiet MSI. Użyj instalatora MSI lub usuń pakiet MSI przed kontynuacją.', mbError, MB_OK);
+         Result := False;
+         Exit;
+       end;
+       Result := True;
+     end;
+     ```
+5. **Parametry wywołania z auto-updatera:**
+   - Auto-updater SPLogbook uruchamia instalator: `SPLogbook-Windows-x64-Setup.exe /SILENT /NORESTART /LOG="%TEMP%\SPLogbook_inno_setup.log"`.
+   - Kody powrotu: 0 = Sukces, 1 = Błąd inicjalizacji, 2 = Anulowano przez użytkownika, 3 = Błąd krytyczny.
 
 ---
 
 ## 8. Kontrakt Zaufania (Trust Flow)
-Aktualizator Windows bezwzglÄ™dnie egzekwuje model `manifest-first`:
+Aktualizator Windows bezwzględnie egzekwuje model `manifest-first`:
 
 ```mermaid
 flowchart TD
-    Start["Ĺ»Ä…danie aktualizacji"] --> FetchM["Pobranie release-manifest.json oraz .sig"]
-    FetchM --> SigVerify["Weryfikacja podpisu Ed25519 wzglÄ™dem TRUSTED_KEYS"]
+    Start["Żądanie aktualizacji"] --> FetchM["Pobranie release-manifest.json oraz .sig"]
+    FetchM --> SigVerify["Weryfikacja podpisu Ed25519 względem TRUSTED_KEYS"]
     SigVerify -->|Podpis niepoprawny / brak| FailTrust["Odrzucenie: InvalidSignature / MissingSignature"]
-    SigVerify --> KeyCheck["Weryfikacja identyfikatora i skrĂłtu klucza"]
-    KeyCheck -->|Klucz na liĹ›cie REVOKED_KEY_IDS| FailRevoked["Odrzucenie: RevokedKeyRejected (fail-closed)"]
+    SigVerify --> KeyCheck["Weryfikacja identyfikatora i skrótu klucza"]
+    KeyCheck -->|Klucz na liście REVOKED_KEY_IDS| FailRevoked["Odrzucenie: RevokedKeyRejected (fail-closed)"]
     KeyCheck -->|Klucz nieznany| FailUnknown["Odrzucenie: UntrustedKey"]
     KeyCheck --> ManifestValid["Walidacja semantyczna manifestu (SemVer, downgrade)"]
-    ManifestValid --> SelectAsset["Selekcja assetu: Windows + x86_64 + zip"]
-    SelectAsset --> VAsset["Utworzenie VerifiedReleaseAsset"]
-    VAsset --> Download["Pobranie do .staging z kontrolÄ… rozmiaru"]
+    ManifestValid --> Detect["Detekcja typu instalacji Windows"]
+    Detect -->|WindowsPortableZip| SelectZip["Selekcja assetu: windows + x86_64 + zip"]
+    Detect -->|WindowsMsiInstalled| SelectMsi["Selekcja assetu: windows + x86_64 + msi"]
+    Detect -->|WindowsInnoInstalled| SelectInno["Selekcja assetu: windows + x86_64 + inno-exe"]
+    Detect -->|WindowsUnknownInstallation| FailUnknownType["Błąd: UnknownInstallationType"]
+    SelectZip --> VAsset["Utworzenie VerifiedReleaseAsset"]
+    SelectMsi --> VAsset
+    SelectInno --> VAsset
+    VAsset --> Download["Pobranie do bezpiecznego bufora z kontrolą rozmiaru"]
     Download --> HashCheck["Weryfikacja SHA-256 pobranego pliku"]
-    HashCheck -->|Niezgodny| FailHash["Odrzucenie: HashMismatch (usuniÄ™cie pliku)"]
-    HashCheck --> StagingPhase["PrzejĹ›cie do inspekcji ZIP i Stagingu"]
+    HashCheck -->|Niezgodny| FailHash["Odrzucenie: HashMismatch (usunięcie pliku)"]
+    HashCheck --> Dispatch{"Typ instalacji"}
+    Dispatch -->|Portable ZIP| StagingPhase["Staging, UpdatePlan i Helper"]
+    Dispatch -->|MSI| MsiExec["Delegacja do msiexec.exe /i"]
+    Dispatch -->|Inno Setup| InnoExec["Delegacja do setup.exe /SILENT"]
 ```
 
-### Nienaruszalne reguĹ‚y zaufania:
-- Klucz `splogbook-release-2026-01` pozostaje trwale i nieodwracalnie odwoĹ‚any (`REVOKED_KEY_IDS`). PrĂłba uĹĽycia tego klucza natychmiast przerywa proces.
-- Wydanie `v1.2.0`, ktĂłrego manifest podpisano odwoĹ‚anym kluczem, jest weryfikowane jako niegodne zaufania.
-- Pobranie pliku ZIP jest dopuszczalne **wyĹ‚Ä…cznie** po pomyĹ›lnej weryfikacji podpisanego manifestu. Brak manifestu lub bĹ‚Ä…d podpisu powoduje natychmiastowe zaniechanie poĹ‚Ä…czeĹ„ do pliku ZIP.
+### Nienaruszalne reguły zaufania:
+- Klucz `splogbook-release-2026-01` pozostaje trwale i nieodwracalnie odwołany (`REVOKED_KEY_IDS`). Próba użycia tego klucza natychmiast przerywa proces.
+- Wydanie `v1.2.0`, którego manifest podpisano odwołanym kluczem, jest weryfikowane jako niegodne zaufania.
+- Pobranie jakiegokolwiek assetu (ZIP, MSI, Inno Setup) jest dopuszczalne **wyłącznie** po pomyślnej weryfikacji podpisanego manifestu. Brak manifestu lub błąd podpisu powoduje natychmiastowe zaniechanie połączeń do plików binarnych.
 
 ---
 
 ## 9. Selekcja Assetu Wydania (Asset Selection)
-Asset instalacyjny Windows musi speĹ‚niaÄ‡ Ĺ›cisĹ‚Ä… triadÄ™ identyfikacyjnÄ…:
-1. `platform == "windows"` (`ReleasePlatform::Windows`)
-2. `arch == "x86_64"` (`ReleaseArchitecture::X86_64`)
-3. `package_type == "zip"` (`ReleasePackageType::Zip`)
-4. `filename` musi koĹ„czyÄ‡ siÄ™ na `.zip` (niewraĹĽliwe na wielkoĹ›Ä‡ liter) i odpowiadaÄ‡ wzorcowi `SPLogbook-Windows-x64.zip`.
-5. W manifeĹ›cie musi znajdowaÄ‡ siÄ™ **dokĹ‚adnie jeden** asset speĹ‚niajÄ…cy powyĹĽsze kryteria. WystÄ…pienie zduplikowanych assetĂłw dla Windows skutkuje bĹ‚Ä™dem `UpdaterError::AmbiguousArtifact`.
+Asset instalacyjny Windows musi spełniać ścisłą triadę identyfikacyjną powiązaną z typem instalacji:
+1. `platform == "windows"` (`ReleasePlatform::Windows`).
+2. `arch == "x86_64"` (`ReleaseArchitecture::X86_64`).
+3. `package_type`:
+   - Dla `WindowsPortableZip`: `package_type == "zip"` (`windows-portable-zip`).
+   - Dla `WindowsMsiInstalled`: `package_type == "msi"` (`windows-msi`).
+   - Dla `WindowsInnoInstalled`: `package_type == "inno-exe"` (`windows-inno-exe`).
+4. W manifeście musi znajdować się **dokładnie jeden** asset spełniający kryteria dla danego typu instalacji. Wystąpienie zduplikowanych assetów skutkuje błędem `UpdaterError::AmbiguousArtifact`.
 
 ---
 
-## 10. Inspekcja Archiwum ZIP (Package Inspection)
-Przed przystÄ…pieniem do jakiejkolwiek dekompresji, pobrany plik ZIP podlega rygorystycznej inspekcji nagĹ‚ĂłwkĂłw w strumieniu pamiÄ™ciowym lub plikowym:
-- **Maksymalna liczba wpisĂłw w archiwum:** 10 000 wpisĂłw (`ArchiveLimits::MAX_ENTRIES`).
-- **Maksymalny Ĺ‚Ä…czny rozmiar po rozpakowaniu:** 200 MB (`ArchiveLimits::MAX_TOTAL_BYTES`).
+## 10. Inspekcja Archiwum ZIP (Package Inspection dla Portable)
+Przed przystąpieniem do jakiejkolwiek dekompresji w formacie portable, pobrany plik ZIP podlega rygorystycznej inspekcji nagłówków w strumieniu pamięciowym lub plikowym:
+- **Maksymalna liczba wpisów w archiwum:** 10 000 wpisów (`ArchiveLimits::MAX_ENTRIES`).
+- **Maksymalny łączny rozmiar po rozpakowaniu:** 200 MB (`ArchiveLimits::MAX_TOTAL_BYTES`).
 - **Maksymalny rozmiar pojedynczego pliku:** 100 MB (`ArchiveLimits::MAX_ENTRY_BYTES`).
-- **WspĂłĹ‚czynnik kompresji (Decompression Bomb Protection):** Odrzucenie wpisĂłw o nienaturalnym stosunku rozmiaru skompresowanego do rozpakowanego (> 100:1 dla plikĂłw powyĹĽej 1 MB).
-- **Blokada dowiÄ…zaĹ„ symbolicznych (Symlinki):** Wszelkie wpisy bÄ™dÄ…ce dowiÄ…zaniami symbolicznymi lub punktami reparse (NTFS Junctions) sÄ… bezwzglÄ™dnie odrzucane (`ArchiveLimits::allow_symlinks = false`).
-- **Wykrywanie kolizji nazw i wielkoĹ›ci liter (Case-Collisions):** Normalizacja nazw do postaci maĹ‚oliterowej w strukturze indeksu â€” wykrycie prĂłb zduplikowania Ĺ›cieĹĽek rĂłĹĽniÄ…cych siÄ™ wyĹ‚Ä…cznie wielkoĹ›ciÄ… znakĂłw powoduje natychmiastowe przerwanie z bĹ‚Ä™dem `UpdaterError::UnsafeArchivePath`.
+- **Współczynnik kompresji (Decompression Bomb Protection):** Odrzucenie wpisów o nienaturalnym stosunku rozmiaru skompresowanego do rozpakowanego (> 100:1 dla plików powyżej 1 MB).
+- **Blokada dowiązań symbolicznych (Symlinki):** Wszelkie wpisy będące dowiązaniami symbolicznymi lub punktami reparse (NTFS Junctions) są bezwzględnie odrzucane (`ArchiveLimits::allow_symlinks = false`).
+- **Wykrywanie kolizji nazw i wielkości liter (Case-Collisions):** Normalizacja nazw do postaci małoliterowej w strukturze indeksu — wykrycie prób zduplikowania ścieżek różniących się wyłącznie wielkością znaków powoduje natychmiastowe przerwanie z błędem `UpdaterError::UnsafeArchivePath`.
 
 ---
 
 ## 11. Bezpieczna Dekompresja ZIP (ZIP Extraction)
-Dekompresja realizowana jest wyĹ‚Ä…cznie przez dedykowanÄ…, bezpiecznÄ… funkcjÄ™ `extract_zip_safe_windows`:
-1. **Ochrona przed Zip-Slip:** KaĹĽda Ĺ›cieĹĽka wpisu w archiwum jest walidowana przez `validate_archive_relative_path`.
-   - BezwzglÄ™dny zakaz wystÄ™powania separatorĂłw nadrzÄ™dnych (`..`).
-   - BezwzglÄ™dny zakaz Ĺ›cieĹĽek zaczynajÄ…cych siÄ™ od separatora dysku lub katalogu gĹ‚Ăłwnego (`/`, `\`, `C:`).
-   - BezwzglÄ™dny zakaz nazw zarezerwowanych DOS/Windows (`CON`, `PRN`, `AUX`, `NUL`, `COM1`..`COM9`, `LPT1`..`LPT9`).
-2. **Kanonikalizacja docelowa:** Po zbudowaniu peĹ‚nej Ĺ›cieĹĽki wewnÄ…trz folderu stagingu, weryfikowane jest, czy `dest_path.starts_with(&staging_canonical)`. WyjĹ›cie poza katalog stagingu powoduje rzucenie bĹ‚Ä™du `UpdaterError::ZipSlip`.
-3. **Prawa dostÄ™pu:** Utworzone pliki otrzymujÄ… standardowe uprawnienia uĹĽytkownika; atrybuty `ReadOnly` lub `Hidden` z archiwum sÄ… czyszczone.
+Dekompresja formatu portable realizowana jest wyłącznie przez dedykowaną, bezpieczną funkcję `extract_zip_safe_windows`:
+1. **Ochrona przed Zip-Slip:** Każda ścieżka wpisu w archiwum jest walidowana przez `validate_archive_relative_path`.
+   - Bezwzględny zakaz występowania separatorów nadrzędnych (`..`).
+   - Bezwzględny zakaz ścieżek zaczynających się od separatora dysku lub katalogu głównego (`/`, `\`, `C:`).
+   - Bezwzględny zakaz nazw zarezerwowanych DOS/Windows (`CON`, `PRN`, `AUX`, `NUL`, `COM1`..`COM9`, `LPT1`..`LPT9`).
+2. **Kanonikalizacja docelowa:** Po zbudowaniu pełnej ścieżki wewnątrz folderu stagingu, weryfikowane jest, czy `dest_path.starts_with(&staging_canonical)`. Wyjście poza katalog stagingu powoduje rzucenie błędu `UpdaterError::ZipSlip`.
+3. **Prawa dostępu:** Utworzone pliki otrzymują standardowe uprawnienia użytkownika; atrybuty `ReadOnly` lub `Hidden` z archiwum są czyszczone.
 
 ---
 
 ## 12. Izolowany Staging (Staging Architecture)
-- Wszystkie pliki rozpakowywane sÄ… do tymczasowego podkatalogu `.staging` wewnÄ…trz katalogu instalacji aplikacji (`$baseDir\.staging`).
-- **SpĹ‚aszczanie katalogu (Root Flattening):** JeĹĽeli caĹ‚a zawartoĹ›Ä‡ archiwum znajduje siÄ™ w pojedynczym katalogu nadrzÄ™dnym (np. `SPLogbook-Windows-x64/`), funkcja `flatten_single_root_directory` przesuwa zawartoĹ›Ä‡ poziom wyĹĽej. W obecnym formacie Windows (`FLAT ARCHIVE`) pliki trafiajÄ… bezpoĹ›rednio do `.staging`.
-- **Walidacja ukĹ‚adu stagingu:** Funkcja `validate_staging_layout` sprawdza, czy w korzeniu `.staging` znajduje siÄ™ binarka `SPLogbook.exe`. Jej brak skutkuje przerwaniem procesu z bĹ‚Ä™dem `UpdaterError::InvalidStagingLayout`.
+- Wszystkie pliki portable rozpakowywane są do tymczasowego podkatalogu `.staging` wewnątrz katalogu instalacji aplikacji (`$baseDir\.staging`).
+- **Spłaszczanie katalogu (Root Flattening):** Jeżeli cała zawartość archiwum znajduje się w pojedynczym katalogu nadrzędnym (np. `SPLogbook-Windows-x64/`), funkcja `flatten_single_root_directory` przesuwa zawartość poziom wyżej. W obecnym formacie Windows (`FLAT ARCHIVE`) pliki trafiają bezpośrednio do `.staging`.
+- **Walidacja układu stagingu:** Funkcja `validate_staging_layout` sprawdza, czy w korzeniu `.staging` znajduje się binarka `SPLogbook.exe`. Jej brak skutkuje przerwaniem procesu z błędem `UpdaterError::InvalidStagingLayout`.
 
 ---
 
 ## 13. Budowanie Planu Aktualizacji (UpdatePlan Contract)
-Plan aktualizacji jest wyliczany w sposĂłb czysto funkcyjny przez `UpdatePlan::generate(&staging, base_dir)` bez wykonywania operacji I/O modyfikujÄ…cych stan programu.
+Plan aktualizacji jest wyliczany w sposób czysto funkcyjny przez `UpdatePlan::generate(&staging, base_dir)` bez wykonywania operacji I/O modyfikujących stan programu.
 
 ```rust
 pub struct UpdatePlan {
@@ -182,216 +287,129 @@ pub struct UpdatePlan {
 }
 ```
 
-### Kryteria podziaĹ‚u:
-1. `replace_files`: Pliki programu (`SPLogbook.exe`, biblioteki DLL, oficjalne zasoby w `resources/`), ktĂłre juĹĽ istniejÄ… w `$baseDir`.
-2. `create_files`: Nowe pliki programu, nowe biblioteki DLL lub nowe ziarna baz danych (`FirstInstallSeed`), jeĹ›li dany plik docelowy **nie istnieje** w aktywnej instalacji.
-3. `preserve_files`: Wszystkie istniejÄ…ce pliki uĹĽytkownika, konfiguracja oraz istniejÄ…ce bazy danych referencyjnych/seedĂłw.
+### Kryteria podziału:
+1. `replace_files`: Pliki programu (`SPLogbook.exe`, `splogbook-updater.exe`, biblioteki DLL, oficjalne zasoby w `resources/`), które już istnieją w `$baseDir`.
+2. `create_files`: Nowe pliki programu, nowe biblioteki DLL lub nowe ziarna baz danych (`FirstInstallSeed`), jeśli dany plik docelowy **nie istnieje** w aktywnej instalacji.
+3. `preserve_files`: Wszystkie istniejące pliki użytkownika, konfiguracja oraz istniejące bazy danych referencyjnych/seedów.
 4. `rejected_files`: Wszelkie nierozpoznane pliki w paczce aktualizacyjnej (zasada fail-closed).
 
 ---
 
-## 14. Klasyfikacja PlikĂłw i Ochrona Danych (File Classification Policy)
-Klasyfikator `classify_update_path(&Path)` przypisuje kaĹĽdÄ… Ĺ›cieĹĽkÄ™ do jednej z poniĹĽszych klas:
+## 14. Klasyfikacja Plików i Ochrona Danych (File Classification Policy)
+Klasyfikator `classify_update_path(&Path)` przypisuje każdą ścieżkę do jednej z poniższych klas:
 
-| Klasa pliku (`UpdateFileClass`) | Wzorzec Ĺ›cieĹĽki / nazwy | Polityka w Stagingu | Czy moĹĽe nadpisaÄ‡ istniejÄ…cy plik? | Polityka Rollbacku |
+| Klasa pliku (`UpdateFileClass`) | Wzorzec ścieżki / nazwy | Polityka w Stagingu | Czy może nadpisać istniejący plik? | Polityka Rollbacku |
 |---|---|---|---|---|
-| **ProgramFile** | `SPLogbook.exe`, `*.dll`, `resources/**`, `assets/**` | `replace_files` lub `create_files` | **TAK** (wyĹ‚Ä…cznie po verified backupie) | Przywracany z kopii w `.rollback` |
+| **ProgramFile** | `SPLogbook.exe`, `splogbook-updater.exe`, `*.dll`, `resources/**`, `assets/**` | `replace_files` lub `create_files` | **TAK** (wyłącznie po verified backupie) | Przywracany z kopii w `.rollback` |
 | **RuntimeLibrary** | Biblioteki dynamiczne DLL | `replace_files` lub `create_files` | **TAK** (po backupie) | Przywracana z `.rollback` |
-| **FirstInstallSeed** | `databases/serviceLOG.db`, `databases/callbook.db` | Dozwolony jako `create_files` tylko przy nowej instalacji | **BEZWZGLÄDNIE NIE** (jeĹ›li plik istnieje lokalnie, trafia do `preserve_files`) | Nienaruszany przez rollback |
-| **UserConfiguration** | `station_config.json`, `config/**`, `*.conf`, `*.cfg` | Wykrycie w ZIP trafia do `rejected_files` | **BEZWZGLÄDNIE NIE** (nigdy nie nadpisywaÄ‡) | Nienaruszany przez rollback |
-| **UserData** | `default_log.db`, `*.db-wal`, `*.db-shm`, `*.adi`, `logs/**` | Wykrycie w ZIP trafia do `rejected_files` | **BEZWZGLÄDNIE NIE** (nigdy nie nadpisywaÄ‡) | Nienaruszany przez rollback |
-| **ReferenceData** | Bazy referencyjne | Chronione domyĹ›lnie | **NIE** (wymaga dedykowanego mechanizmu migracji) | Nienaruszany przez rollback |
-| **ReleaseMetadata** | `manifest.json`, `changelog.md`, `license.txt` | Informacyjne | **NIE** (nie kopiowaÄ‡ do korzenia aplikacji) | Pomijany |
-| **Unknown** | KaĹĽdy inny plik nierozpoznany | Odrzucany (`rejected_files`) | **BEZWZGLÄDNIE NIE** (fail-closed) | Pomijany |
+| **FirstInstallSeed** | `databases/serviceLOG.db`, `databases/callbook.db` | Dozwolony jako `create_files` tylko przy nowej instalacji | **BEZWZGLĘDNIE NIE** (jeśli plik istnieje lokalnie, trafia do `preserve_files`) | Nienaruszany przez rollback |
+| **UserConfiguration** | `station_config.json`, `config/**`, `*.conf`, `*.cfg` | Wykrycie w ZIP trafia do `rejected_files` | **BEZWZGLĘDNIE NIE** (nigdy nie nadpisywać) | Nienaruszany przez rollback |
+| **UserData** | `default_log.db`, `*.db-wal`, `*.db-shm`, `*.adi`, `logs/**` | Wykrycie w ZIP trafia do `rejected_files` | **BEZWZGLĘDNIE NIE** (nigdy nie nadpisywać) | Nienaruszany przez rollback |
+| **ReferenceData** | Bazy referencyjne | Chronione domyślnie | **NIE** (wymaga dedykowanego mechanizmu migracji) | Nienaruszany przez rollback |
+| **ReleaseMetadata** | `manifest.json`, `changelog.md`, `license.txt` | Informacyjne | **NIE** (nie kopiować do korzenia aplikacji) | Pomijany |
+| **Unknown** | Każdy inny plik nierozpoznany | Odrzucany (`rejected_files`) | **BEZWZGLĘDNIE NIE** (fail-closed) | Pomijany |
 
 ---
 
-## 15. Architektura Procesu Pomocniczego (Helper Model Decision)
-System Windows zakĹ‚ada wyĹ‚Ä…cznÄ… blokadÄ™ zapisu (Exclusive Execute/Write Lock) na uruchomionym pliku `SPLogbook.exe`. Podmiana pliku binarnego wymaga zewnÄ™trznego procesu pomocniczego.
+## 15. Architektura Procesu Pomocniczego (Dual Helper Model)
+System Windows zakłada wyłączną blokadę zapisu (Exclusive Execute/Write Lock) na uruchomionym pliku `SPLogbook.exe`. Podmiana pliku binarnego w formacie portable wymaga zewnętrznego procesu pomocniczego.
 
-### PorĂłwnanie wariantĂłw:
+### Zatwierdzony model dwutorowy (Dual Helper Model — `OWNER-M2-03`):
+1. **Primary Target: Natywny program pomocniczy `splogbook-updater.exe`:**
+   - Samodzielny, lekki plik binarny kompilowany z Rusta w ramach workspace.
+   - Odporny na reguły ExecutionPolicy PowerShell oraz heurystyki antywirusowe AMSI.
+   - Przyjmuje parametry strukturalne w formacie JSON lub jawnych flagach CLI bez ryzyka command injection.
+   - Prowadzi strukturalne logowanie do pliku JSON.
+2. **Controlled Compatibility Fallback: Utwardzony generator PowerShell (`generate_powershell_update_script`):**
+   - Zachowany jako mechanizm zapasowy dla środowisk, w których natywny helper nie został jeszcze wdrożony lub uległ uszkodzeniu.
+   - Bezwzględnie wyeliminowano wszelkie maski wieloznaczne (`*`).
+   - Używa wyłącznie precyzyjnych tablic literałów (`-LiteralPath`).
+   - Zakaz używania `Invoke-Expression` i niezweryfikowanego string interpolation.
 
-| Kryterium oceny | Opcja A: PowerShell Helper (Aktualna) | Opcja B: Natywny Helper EXE (`splogbook-updater.exe`) |
-|---|---|---|
-| **DostÄ™pnoĹ›Ä‡ w OS** | DostÄ™pny domyĹ›lnie w Windows 10 i 11 | Wymaga skompilowania i dystrybucji osobnego pliku PE |
-| **ZaleĹĽnoĹ›ci wykonawcze** | Wymaga Ĺ›rodowiska PowerShell 5.1+ | Samodzielny plik binarny Rust (brak zewnÄ™trznych interpreterĂłw) |
-| **BezpieczeĹ„stwo parametrĂłw** | Wymaga rygorystycznego cytowania Ĺ›cieĹĽek (`replace('\'', "''")`) | BezpoĹ›rednie przekazywanie argumentĂłw przez API procesĂłw OS |
-| **OdpornoĹ›Ä‡ na wstrzykiwanie** | WraĹĽliwy na bĹ‚Ä™dy parsowania, jeĹ›li Ĺ›cieĹĽka zawiera znaki specjalne | 100% odporny na command injection (przekazywanie strukturalne) |
-| **Polityka ExecutionPolicy** | Wymaga flagi `-ExecutionPolicy Bypass` | Nie podlega politykom ExecutionPolicy |
-| **Ryzyko heurystyki antywirusowej (AMSI)** | PodwyĹĽszone: skrypty PowerShell modyfikujÄ…ce pliki EXE bywajÄ… flagowane | Niskie: standardowy proces pomocniczy podpisany cyfrowo |
-| **ObsĹ‚uga bĹ‚Ä™dĂłw i diagnostyka** | Trudniejsza w debugowaniu, ograniczona do strumieni PowerShell | PeĹ‚ne, strukturalne logowanie do pliku diagnostycznego JSON |
-| **Rozmiar dystrybucji** | 0 bajtĂłw w archiwum (generowany w locie) | ~1-2 MB dodatkowego rozmiaru w archiwum ZIP |
-
-### Decyzja architektoniczna:
-- **Cel bieĹĽÄ…cy M3 (M3 Current Target):** Ulepszony, w peĹ‚ni utwardzony skrypt PowerShell (`generate_powershell_update_script`), eliminujÄ…cy wszelkie dzikie karty, stosujÄ…cy literaĹ‚y Ĺ›cieĹĽek (`-LiteralPath`), izolacjÄ™ backupu i bezpoĹ›rednie tablice plikĂłw z `UpdatePlan`.
-- **Cel dĹ‚ugoterminowy (Long-Term Target):** Kompilacja natywnego programu pomocniczego `splogbook-updater.exe` (wymaga formalnej decyzji wĹ‚aĹ›ciciela `OWNER-M2-03`).
+### Wspólny kontrakt bezpieczeństwa dla obu implementacji helpera:
+- Obie implementacje operują na **identycznym** planie aktualizacji `UpdatePlan`.
+- Obie realizują **identyczny** kontrakt kopii zapasowej w `.rollback`.
+- Obie weryfikują health check kandydata z identycznym timeoutem (15 sekund) i obsługują znacznik `.health_ok`.
+- Obie wykonują w 100% deterministyczny rollback przy awarii kandydata.
+- Obie egzekwują czyszczenie stagingu i kopii zapasowej po pomyślnym potwierdzeniu zdrowia.
+- **Zakaz utrzymywania rozbieżnych polityk bezpieczeństwa:** żadna implementacja nie może omijać planu, nadpisywać danych użytkownika ani eskalować uprawnień.
 
 ---
 
-## 16. ZamkniÄ™cie Starego Procesu (Process Shutdown Coordination)
-1. GĹ‚Ăłwny proces SPLogbook przygotowuje Ĺ›rodowisko, zapisuje plan, generuje skrypt pomocniczy w `%TEMP%\SPLogbook_update_<pid>.ps1` i uruchamia go w tle.
-2. Helper otrzymuje identyfikator PID procesu macierzystego (`$pidToWait = <pid>`).
-3. GĹ‚Ăłwny proces SPLogbook dokonuje czystego zamkniÄ™cia bazy SQLite (checkpoint WAL), zapisuje stan konfiguracji i koĹ„czy pracÄ™ (`std::process::exit(0)`).
-4. Helper monitoruje proces macierzysty za pomocÄ… pÄ™tli:
-   ```powershell
-   $deadline = (Get-Date).AddSeconds(90)
-   while (Get-Process -Id $pidToWait -ErrorAction SilentlyContinue) {
-       if ((Get-Date) -gt $deadline) {
-           # Przekroczono limit czasu oczekiwania na zamkniÄ™cie
-           exit 1
-       }
-       Start-Sleep -Milliseconds 250
-   }
-   Start-Sleep -Milliseconds 500
-   ```
-5. JeĹ›li proces nie zamknie siÄ™ w ciÄ…gu 90 sekund, proces aktualizacji zostaje bezpiecznie przerwany bez dotykania plikĂłw programu.
+## 16. Zamknięcie Starego Procesu (Process Shutdown Coordination)
+1. Główny proces SPLogbook przygotowuje środowisko, zapisuje plan aktualizacji i uruchamia proces helpera w tle.
+2. Helper otrzymuje identyfikator PID procesu macierzystego (`pid_to_wait`).
+3. Główny proces SPLogbook dokonuje czystego zamknięcia bazy SQLite (checkpoint WAL), zapisuje stan konfiguracji i kończy pracę (`std::process::exit(0)`).
+4. Helper monitoruje proces macierzysty za pomocą pętli z limitem czasu 90 sekund.
+5. Jeśli proces nie zamknie się w ciągu 90 sekund, proces aktualizacji zostaje bezpiecznie przerwany bez modyfikacji plików programu.
 
 ---
 
 ## 17. Kopia Zapasowa Przed Zastosowaniem (Backup Contract)
 1. Przed wykonaniem jakiejkolwiek modyfikacji w katalogu instalacji, helper tworzy dedykowany podkatalog kopii zapasowej: `$baseDir\.rollback`.
-2. Stary katalog `.rollback` (jeĹ›li istniaĹ‚) jest bezwzglÄ™dnie usuwany.
-3. Kopia obejmuje **wyĹ‚Ä…cznie** pliki ze zbioru `replace_files` zdefiniowane w `UpdatePlan`:
-   ```powershell
-   foreach ($rel in $replaceFiles) {
-       $orig = Join-Path $baseDir $rel
-       if (Test-Path -LiteralPath $orig) {
-           $dest = Join-Path $rollback $rel
-           $destDir = Split-Path $dest -Parent
-           if (-not (Test-Path -LiteralPath $destDir)) {
-               New-Item -ItemType Directory -Force -Path $destDir | Out-Null
-           }
-           Copy-Item -LiteralPath $orig -Destination $dest -Force
-       }
-   }
-   ```
-4. **Zasada nadrzÄ™dna:** Bazy danych uĹĽytkownika (`default_log.db`), konfiguracja (`station_config.json`) oraz bazy referencyjne (`serviceLOG.db`) **nie sÄ… kopiowane** do `.rollback`, co gwarantuje, ĹĽe proces rollbacku w ĹĽadnych okolicznoĹ›ciach nie nadpisze nowszych danych uĹĽytkownika.
+2. Stary katalog `.rollback` (jeśli istniał) jest bezwzględnie usuwany.
+3. Kopia obejmuje **wyłącznie** pliki ze zbioru `replace_files` zdefiniowane w `UpdatePlan`.
+4. **Zasada nadrzędna:** Bazy danych użytkownika (`default_log.db`), konfiguracja (`station_config.json`) oraz bazy referencyjne (`serviceLOG.db`) **nie są kopiowane** do `.rollback`, co gwarantuje, że proces rollbacku w żadnych okolicznościach nie nadpisze nowszych danych użytkownika.
 
 ---
 
-## 18. Zastosowanie Aktualizacji (Apply Phase)
-Podmiana plikĂłw odbywa siÄ™ w dwĂłch precyzyjnych krokach bez uĹĽycia jakichkolwiek masek wieloznacznych (`*`):
-1. **Podmiana istniejÄ…cych plikĂłw programu (`replaceFiles`):**
-   ```powershell
-   foreach ($rel in $replaceFiles) {
-       $src = Join-Path $staging $rel
-       $dst = Join-Path $baseDir $rel
-       Copy-Item -LiteralPath $src -Destination $dst -Force
-   }
-   ```
-2. **Utworzenie nowych dopuszczonych plikĂłw (`createFiles`):**
-   ```powershell
-   foreach ($rel in $createFiles) {
-       $src = Join-Path $staging $rel
-       $dst = Join-Path $baseDir $rel
-       $dstDir = Split-Path $dst -Parent
-       if (-not (Test-Path -LiteralPath $dstDir)) {
-           New-Item -ItemType Directory -Force -Path $dstDir | Out-Null
-       }
-       Copy-Item -LiteralPath $src -Destination $dst -Force
-   }
-   ```
-3. Zastosowanie operacji `Copy-Item -LiteralPath` zapobiega interpretacji znakĂłw specjalnych (np. nawiasĂłw kwadratowych w Ĺ›cieĹĽkach).
+## 18. Zastosowanie Aktualizacji Portable (Apply Phase)
+Podmiana plików odbywa się w dwóch precyzyjnych krokach bez użycia jakichkolwiek masek wieloznacznych (`*`):
+1. **Podmiana istniejących plików programu (`replace_files`):** Kopiowanie każdego pliku z `.staging` do `$baseDir` z użyciem literałów ścieżek.
+2. **Utworzenie nowych dopuszczonych plików (`create_files`):** Kopiowanie nowych plików binarnych lub seedów, jeśli plik docelowy nie istnieje.
+3. Zastosowanie operacji literałowych zapobiega interpretacji znaków specjalnych w ścieżkach NTFS.
 
 ---
 
 ## 19. Uruchomienie Kandydata (Launch Candidate)
-1. Przed uruchomieniem kandydata usuwany jest ewentualny stary plik potwierdzenia:
-   ```powershell
-   if (Test-Path -LiteralPath $healthOk) {
-       Remove-Item -Force -LiteralPath $healthOk
-   }
-   ```
-2. Helper uruchamia zaktualizowany proces z flagÄ… diagnostycznÄ…:
-   ```powershell
-   $newProc = Start-Process -FilePath $exe -ArgumentList "--check-health-startup" -PassThru
-   ```
-3. Uchwyt `$newProc` pozwala na monitorowanie, czy proces nie zakoĹ„czyĹ‚ siÄ™ przedwczeĹ›nie awariÄ… (crash/segfault).
+1. Przed uruchomieniem kandydata usuwany jest ewentualny stary plik potwierdzenia: `.health_ok`.
+2. Helper uruchamia zaktualizowany proces z flagą diagnostyczną:
+   `SPLogbook.exe --check-health-startup`
+3. Uchwyt procesu kandydata pozwala na monitorowanie, czy proces nie zakończył się przedwcześnie awarią (crash/segfault).
 
 ---
 
 ## 20. Potwierdzenie Zdrowia (Health Confirmation Contract)
 1. Nowo uruchomiony proces w trybie `--check-health-startup` wykonuje:
-   - InicjalizacjÄ™ podstawowych podsystemĂłw Rusta.
-   - Odczyt i deserializacjÄ™ pliku konfiguracyjnego `station_config.json`.
-   - PrĂłbÄ™ otwarcia bazy danych SQLite w trybie odczytu.
-   - WeryfikacjÄ™ obecnoĹ›ci zasobĂłw GUI.
-2. Po pomyĹ›lnym teĹ›cie proces zapisuje plik `$baseDir\.health_ok`.
-3. Helper oczekuje na pojawienie siÄ™ pliku przez maksymalnie 15 sekund:
-   ```powershell
-   $healthDeadline = (Get-Date).AddSeconds(15)
-   $success = $false
-   while ((Get-Date) -lt $healthDeadline) {
-       if (Test-Path -LiteralPath $healthOk) {
-           $success = $true
-           break
-       }
-       if ($newProc.HasExited) {
-           # Kandydat ulegĹ‚ natychmiastowej awarii
-           break
-       }
-       Start-Sleep -Milliseconds 250
-   }
-   ```
-4. JeĹ›li w ciÄ…gu 15 sekund plik `.health_ok` nie powstanie lub proces kandydata zakoĹ„czy siÄ™ kodem bĹ‚Ä™du, aktualizacja jest uznawana za nieudanÄ… i natychmiast przechodzi do fazy Rollbacku.
+   - Inicjalizację podstawowych podsystemów Rusta.
+   - Odczyt i deserializację pliku konfiguracyjnego `station_config.json`.
+   - Próbę otwarcia bazy danych SQLite w trybie odczytu.
+   - Weryfikację obecności zasobów GUI.
+2. Po pomyślnym teście proces zapisuje plik `$baseDir\.health_ok`.
+3. Helper oczekuje na pojawienie się pliku przez maksymalnie 15 sekund.
+4. Jeśli w ciągu 15 sekund plik `.health_ok` nie powstanie lub proces kandydata zakończy się kodem błędu, aktualizacja jest uznawana za nieudaną i natychmiast przechodzi do fazy Rollbacku.
 
 ---
 
 ## 21. Wycofanie Zmian (Rollback Contract)
 Procedura rollbacku jest w 100% deterministyczna i idempotentna:
-```powershell
-if (-not $success) {
-    # 1. Zatrzymanie wiszÄ…cego lub wadliwego procesu kandydata
-    Stop-Process -Id $newProc.Id -Force -ErrorAction SilentlyContinue
-
-    # 2. UsuniÄ™cie wszystkich nowo utworzonych plikĂłw programu
-    foreach ($rel in $createFiles) {
-        $target = Join-Path $baseDir $rel
-        if (Test-Path -LiteralPath $target) {
-            Remove-Item -LiteralPath $target -Force -ErrorAction SilentlyContinue
-        }
-    }
-
-    # 3. PrzywrĂłcenie oryginalnych plikĂłw z katalogu .rollback
-    foreach ($rel in $replaceFiles) {
-        $bkp = Join-Path $rollback $rel
-        if (Test-Path -LiteralPath $bkp) {
-            Copy-Item -LiteralPath $bkp -Destination (Join-Path $baseDir $rel) -Force
-        }
-    }
-
-    # 4. Ponowne uruchomienie poprzedniej, sprawdzonej wersji programu
-    Start-Process -FilePath $exe
-}
-```
-### WĹ‚aĹ›ciwoĹ›ci gwarantowane:
-- Ĺ»adne pliki z `preserve_files` (bazy, konfiguracja) nie sÄ… dotykane.
-- Nowe pliki programu, ktĂłre mogĹ‚yby powodowaÄ‡ konflikty wersji, sÄ… usuwane.
-- Poprzednia wersja binarki `SPLogbook.exe` i bibliotek DLL powraca na swoje miejsce.
+1. Zatrzymanie wiszącego lub wadliwego procesu kandydata.
+2. Usunięcie wszystkich nowo utworzonych plików programu (`create_files`).
+3. Przywrócenie oryginalnych plików programu z katalogu `.rollback` do `$baseDir`.
+4. Ponowne uruchomienie poprzedniej, sprawdzonej wersji programu.
+5. **Gwarancje:** Dane użytkownika i konfiguracja pozostają w 100% nienaruszone.
 
 ---
 
 ## 22. Czyszczenie (Cleanup Contract)
-W przypadku pomyĹ›lnego potwierdzenia zdrowia (`$success == $true`):
-1. Helper usuwa katalog stagingu: `Remove-Item -Recurse -Force -LiteralPath $staging`.
-2. Helper usuwa katalog kopii zapasowej: `Remove-Item -Recurse -Force -LiteralPath $rollback`.
-3. Helper usuwa znacznik zdrowia: `Remove-Item -Force -LiteralPath $healthOk`.
-4. Helper usuwa swĂłj wĹ‚asny skrypt z katalogu `%TEMP%`.
-5. Helper koĹ„czy dziaĹ‚anie kodem 0.
+W przypadku pomyślnego potwierdzenia zdrowia:
+1. Helper usuwa katalog stagingu: `.staging`.
+2. Helper usuwa katalog kopii zapasowej: `.rollback`.
+3. Helper usuwa znacznik zdrowia: `.health_ok`.
+4. Helper zwalnia blokadę `.update.lock`.
+5. Helper kończy działanie kodem 0.
 
 ---
 
 ## 23. Odzyskiwanie po Awarii Zasilania / Crashu (Crash Recovery)
-JeĹĽeli nastÄ…pi nagĹ‚a utrata zasilania lub zabicie procesu helpera podczas operacji kopiowania:
-1. **Wykrywanie przy starcie:** Podczas standardowego startu `SPLogbook.exe` sprawdza obecnoĹ›Ä‡ katalogu `.rollback` oraz brak flagi aktywnego procesu helpera.
-2. **ReguĹ‚a rozstrzygania:**
-   - JeĹ›li w katalogu `$baseDir` istnieje plik `.rollback` zawierajÄ…cy poprawny plik `SPLogbook.exe`, a gĹ‚Ăłwny plik wykonywalny jest uszkodzony lub nie uruchamia siÄ™, operator otrzymuje instrukcjÄ™ ratunkowÄ… lub aplikacja wykonuje procedurÄ™ automatycznego odtworzenia z `.rollback`.
-   - NiedokoĹ„czona prĂłba aktualizacji **nigdy** nie jest wznawiana automatycznie w przĂłd (zakaz ponawiania podmiany bez ponownej peĹ‚nej weryfikacji manifestu i SHA-256).
+1. Podczas standardowego startu `SPLogbook.exe` sprawdza obecność katalogu `.rollback` oraz brak flagi aktywnego procesu helpera.
+2. Jeśli w katalogu `$baseDir` istnieje katalog `.rollback` zawierający poprawny plik `SPLogbook.exe`, a główny plik wykonywalny jest uszkodzony, aplikacja wykonuje procedurę automatycznego odtworzenia z `.rollback`.
+3. Niedokończona próba aktualizacji **nigdy** nie jest wznawiana automatycznie w przód.
 
 ---
 
-## 24. Blokada WspĂłĹ‚bieĹĽnoĹ›ci (Concurrency Lock)
-1. Aktualizator tworzy plik blokady `$baseDir\.update.lock` przed rozpoczÄ™ciem pobierania.
+## 24. Blokada Współbieżności (Concurrency Lock)
+1. Aktualizator tworzy plik blokady `$baseDir\.update.lock` przed rozpoczęciem pobierania.
 2. Struktura pliku blokady (JSON):
    ```json
    {
@@ -401,120 +419,178 @@ JeĹĽeli nastÄ…pi nagĹ‚a utrata zasilania lub zabicie procesu helpera pod
        "version": "1.2.1"
    }
    ```
-3. Przed rozpoczÄ™ciem nowej prĂłby badane jest, czy proces o wskazanym PID istnieje. JeĹ›li PID nie istnieje w systemie (Stale Lock), plik blokady jest bezpiecznie zwalniany.
-4. Blokada uniemoĹĽliwia rĂłwnolegĹ‚e uruchomienie dwĂłch instancji procedury aktualizacji w tym samym katalogu.
+3. Przed rozpoczęciem nowej próby badane jest, czy proces o wskazanym PID istnieje. Jeśli PID nie istnieje w systemie (Stale Lock), plik blokady jest bezpiecznie zwalniany.
 
 ---
 
-## 25. Polityka Anulowania (Cancellation Policy)
+## 25. Polityka Anulowania (Cancellation Policy — `OWNER-M2-13`)
 1. **Faza bezpieczna (Pre-Apply):**
-   - Podczas sprawdzania manifestu, pobierania pliku ZIP oraz rozpakowywania do `.staging`, uĹĽytkownik moĹĽe w kaĹĽdej chwili anulowaÄ‡ operacjÄ™.
-   - Skutek: Natychmiastowe przerwanie pobierania, usuniÄ™cie pliku tymczasowego `.SPLogbook_update_*.zip`, usuniÄ™cie katalogu `.staging`, zwolnienie blokady `.update.lock`. Stan programu pozostaje w 100% nienaruszony.
-2. **Faza krytyczna (Post-Apply / Swap):**
-   - Od momentu przekazania sterowania do helpera i rozpoczÄ™cia podmiany plikĂłw, anulowanie operacji przez uĹĽytkownika jest programowo zablokowane w GUI.
-   - Przerwanie procesu helpera wymusza wykonanie procedury Rollbacku.
+   - Podczas sprawdzania wydania (`CheckingRelease`), pobierania manifestu (`FetchingManifest`), weryfikacji manifestu (`VerifyingManifest`), wyboru assetu (`SelectingAsset`), pobierania (`Downloading`), weryfikacji skrótu (`VerifyingDownload`), inspekcji pakietu (`InspectingPackage`), rozpakowywania (`Staging`), budowy planu (`BuildingUpdatePlan`) oraz oczekiwania na akceptację (`AwaitingApply`), użytkownik może w każdej chwili anulować operację.
+   - Skutek: Natychmiastowe przerwanie operacji I/O, usunięcie plików tymczasowych, usunięcie stagingu, zwolnienie blokady `.update.lock`. Stan programu pozostaje w 100% nienaruszony.
+2. **Faza krytyczna (Post-Apply / `Applying`):**
+   - Od momentu wejścia w stan `Applying` (przekazanie sterowania do helpera lub uruchomienie instalatora systemowego), **anulowanie operacji przez użytkownika jest bezwzględnie zablokowane** (`OWNER-M2-13`).
+   - Przycisk w GUI jest wyszarzony/zablokowany.
+   - Żądanie anulowania nie przerywa procedury zapisu plików.
+   - W przypadku wystąpienia błędu w tej fazie, następuje automatyczny rollback lub procedury recovery właściwego instalatora.
 
 ---
 
-## 26. Badanie PojemnoĹ›ci Dysku (Disk Space Preflight)
-Przed zatwierdzeniem pobierania wyliczane jest wymagane miejsce na dysku docelowym:
-$$\text{RequiredSpace} = \text{DeclaredDownloadSize} + \text{MaxExtractedSize} + \text{ReplacedFilesSize} + \text{SafetyMargin}$$
-- `SafetyMargin` wynosi sztywno **50 MB**.
-- Dla typowego wydania SPLogbook: $15\text{ MB (ZIP)} + 60\text{ MB (staging)} + 40\text{ MB (backup)} + 50\text{ MB} = 165\text{ MB}$.
-- JeĹ›li wolne miejsce na dysku partycji docelowej (oraz partycji `%TEMP%`) jest mniejsze niĹĽ wymagany prĂłg, aktualizacja jest wstrzymywana z komunikatem `UpdaterError::Io("NiewystarczajÄ…ca iloĹ›Ä‡ wolnego miejsca na dysku.")`.
+## 26. Badanie Pojemności Dysku (Disk Space Preflight)
+Arbitralny margines 50 MB został kategorycznie zastąpiony ścisłą formułą preflightu dyskowego:
+
+$$	ext{RequiredSpace} = 	ext{DeclaredDownloadSize} + 	ext{MaxExtractedSize} + 	ext{BackupSize} + 	ext{PackageManagerOverhead} + 	ext{TransactionMetadataSize} + 	ext{FilesystemSafetyMargin}$$
+
+### Składniki formuły dla Windows:
+- **`DeclaredDownloadSize`:** Rozmiar pobieranego assetu zdeklarowany w podpisanym manifeście wydań (`size`).
+- **`MaxExtractedSize`:** Dla Portable ZIP — maksymalny dozwolony rozmiar po rozpakowaniu (z nagłówków / limitów dekompresji, np. 60–80 MB). Dla MSI / Inno Setup — 0 (rozpakowywanie odbywa się wewnątrz instalatora).
+- **`BackupSize`:** Dla Portable ZIP — łączny rozmiar plików podlegających podmianie (`replace_files`), kopiowanych do `.rollback` (~40–50 MB). Dla MSI / Inno — narzut punktu przywracania systemu Windows Installer.
+- **`PackageManagerOverhead`:** Dla Portable ZIP — 0. Dla MSI — narzut bufora transakcyjnego Windows Installer (`%SystemRoot%\Installer`) szacowany na $1.5 	imes 	ext{Rozmiar MSI}$. Dla Inno Setup — bufor pliku deinstalatora i kopii zapasowej (~5 MB).
+- **`TransactionMetadataSize`:** Narzut na pliki blokady, log audytowy i metadane transakcji (~1 MB).
+- **`FilesystemSafetyMargin`:** Konfigurowalny bufor bezpieczeństwa systemu plików NTFS:
+  - Wartość minimalna: **25 MB**.
+  - Wartość maksymalna: **100 MB**.
+  - Wartość domyślna: **32 MB**.
+  - Bufor ten zapobiega całkowitemu wyczerpaniu tablic alokacji MFT i wolnego miejsca na partycji systemowej.
+
+### Zachowanie w przypadku braku miejsca:
+Jeśli wolne miejsce na partycji docelowej lub partycji `%TEMP%` jest mniejsze niż wyliczone `RequiredSpace`, proces zostaje przerwany przed rozpoczęciem pobierania z typowanym błędem `UpdaterError::Io("Niewystarczająca ilość wolnego miejsca na dysku.")`.
 
 ---
 
-## 27. Uprawnienia i Ĺšrodowisko Windows
-- Aktualizator dziaĹ‚a wyĹ‚Ä…cznie w kontekĹ›cie uprawnieĹ„ zalogowanego uĹĽytkownika (Standard User).
-- W przypadku wykrycia braku praw zapisu do katalogu docelowego, aktualizator **nie uruchamia** mechanizmu UAC (`runas`), lecz zgĹ‚asza bĹ‚Ä…d uprawnieĹ„.
-- ObsĹ‚uga dĹ‚ugich Ĺ›cieĹĽek (`\\?\` prefix) jest stosowana wewnÄ…trz kodu Rust dla zapewnienia odpornoĹ›ci na przekroczenie limitu `MAX_PATH` (260 znakĂłw).
+## 27. Uprawnienia i Środowisko Windows
+- Aktualizator Portable działa wyłącznie w kontekście uprawnień zalogowanego użytkownika (Standard User) bez eskalacji UAC.
+- Pakiety MSI oraz Inno Setup w przypadku instalacji systemowej (`Program Files`) wyzwalają standardowy, systemowy mechanizm autoryzacji UAC systemu Windows w procesie instalatora (`msiexec.exe` lub `setup.exe`).
+- Kod SPLogbook nigdy nie uruchamia samodzielnie nieautoryzowanych procedur `runas` w tle.
+- Obsługa długich ścieżek (`\\?\` prefix) jest stosowana wewnątrz kodu Rust dla zapewnienia odporności na przekroczenie limitu `MAX_PATH` (260 znaków).
 
 ---
 
-## 28. Model BĹ‚Ä™dĂłw (Windows Error Hierarchy)
-BĹ‚Ä™dy aktualizatora mapowane sÄ… na precyzyjne warianty `UpdaterError`:
-- `UpdaterError::SafetyGate`: PrĂłba uĹĽycia nieobsĹ‚ugiwanego pakietu (np. instalatora MSI).
+## 28. Model Błędów (Windows Error Hierarchy)
+Błędy aktualizatora mapowane są na precyzyjne warianty `UpdaterError`:
+- `UpdaterError::SafetyGate`: Próba użycia nieobsługiwanego pakietu lub instalacji w nieobsługiwanej lokalizacji.
 - `UpdaterError::InvalidStagingLayout`: Brak pliku `SPLogbook.exe` w rozpakowanym archiwum.
-- `UpdaterError::ZipSlip`: Wykrycie prĂłby wyjĹ›cia poza katalog stagingu w nagĹ‚Ăłwku ZIP.
+- `UpdaterError::ZipSlip`: Wykrycie próby wyjścia poza katalog stagingu w nagłówku ZIP.
 - `UpdaterError::ArchiveLimitExceeded`: Przekroczenie limitu dekompresji (bomba dekompresyjna).
 - `UpdaterError::HealthCheckFailed`: Niepowodzenie testu zdrowia kandydata i wykonanie rollbacku.
-- `UpdaterError::Io`: BĹ‚Ä™dy blokady plikowej NTFS, brak uprawnieĹ„ lub bĹ‚Ä™dy kopiowania.
+- `UpdaterError::InstallerExecutionFailed`: Błąd wywołania zewnętrznego instalatora MSI lub Inno Setup (kod powrotu inny niż 0/3010).
+- `UpdaterError::InstallationConflict`: Wykrycie kolizji formatów (np. próba instalacji Inno Setup na istniejącą instalację MSI).
+- `UpdaterError::Io`: Błędy blokady plikowej NTFS, brak uprawnień lub błędy kopiowania.
 
 ---
 
 ## 29. Logowanie Audytowe i Telemetria Lokalna
-- Rejestr zdarzeĹ„ aktualizatora zapisywany jest do lokalnego pliku tekstowego `$baseDir\update_audit.log`.
+- Rejestr zdarzeń aktualizatora zapisywany jest do lokalnego pliku tekstowego `$baseDir\update_audit.log`.
+- Logi instalatora MSI kierowane są do `%TEMP%\SPLogbook_msi_install.log`.
+- Logi instalatora Inno Setup kierowane są do `%TEMP%\SPLogbook_inno_setup.log`.
 - **Zasady redakcji danych poufnych:**
-  - BezwzglÄ™dny zakaz logowania kluczy prywatnych, tokenĂłw sesyjnych, danych QSO, danych stacji i zawartoĹ›ci konfiguracji.
-  - Logowane sÄ… wyĹ‚Ä…cznie: identyfikator prĂłby (`attempt_id`), wersja docelowa, skrĂłt SHA-256 manifestu, skrĂłt assetu, kody etapĂłw oraz czas trwania operacji.
+  - Bezwzględny zakaz logowania kluczy prywatnych, tokenów sesyjnych, danych QSO, danych stacji i zawartości konfiguracji.
+  - Logowane są wyłącznie: identyfikator próby (`attempt_id`), wersja docelowa, skrót SHA-256 manifestu, skrót assetu, kody etapów oraz czas trwania operacji.
 
 ---
 
-## 30. Macierz ZagroĹĽeĹ„ BezpieczeĹ„stwa Windows (Security Matrix)
+## 30. Macierz Zagrożeń Bezpieczeństwa Windows (Security Matrix)
 
-| ID ZagroĹĽenia | Wektor ataku / BĹ‚Ä…d | Ĺšrodowisko | Mechanizm mitygacji w projekcie | Ryzyko szczÄ…tkowe |
+| ID Zagrożenia | Wektor ataku / Błąd | Środowisko | Mechanizm mitygacji w projekcie | Ryzyko szczątkowe |
 |---|---|---|---|---|
 | **THR-WIN-01** | Zip-Slip (traversal `..\`) | Ekstrakcja ZIP | `validate_archive_relative_path` + canonicalize prefix check | Brak (fail-closed) |
-| **THR-WIN-02** | Command Injection w PowerShell | Helper skrypt | Przekazywanie parametrĂłw przez precyzyjne tablice literaĹ‚Ăłw, brak `Invoke-Expression` | Zminimalizowane |
-| **THR-WIN-03** | Nadpisanie bazy Ĺ‚Ä…cznoĹ›ci | Podmiana plikĂłw | `UpdatePlan` klasyfikuje `default_log.db` jako `UserData` (pomijane) | Wyeliminowane |
-| **THR-WIN-04** | Nadpisanie bazy `serviceLOG.db` | Podmiana plikĂłw | Klasyfikacja jako `FirstInstallSeed` (kopiowane tylko gdy brak pliku) | Wyeliminowane |
-| **THR-WIN-05** | Podmiana niezweryfikowanego EXE | Pobieranie | WymĂłg `VerifiedReleaseAsset` z podpisem Ed25519 i SHA-256 | Wyeliminowane |
-| **THR-WIN-06** | DLL Search-Order Hijacking | Uruchomienie kandydata | Sprawdzanie spĂłjnoĹ›ci bibliotek w katalogu aplikacji, brak szukania w CWD | Niskie |
+| **THR-WIN-02** | Command Injection w PowerShell | Helper skrypt | Przekazywanie parametrów przez precyzyjne tablice literałów, brak `Invoke-Expression` | Zminimalizowane |
+| **THR-WIN-03** | Nadpisanie bazy łączności | Podmiana plików | `UpdatePlan` klasyfikuje `default_log.db` jako `UserData` (pomijane) | Wyeliminowane |
+| **THR-WIN-04** | Nadpisanie bazy `serviceLOG.db` | Podmiana plików | Klasyfikacja jako `FirstInstallSeed` (kopiowane tylko gdy brak pliku) | Wyeliminowane |
+| **THR-WIN-05** | Podmiana niezweryfikowanego EXE | Pobieranie | Wymóg `VerifiedReleaseAsset` z podpisem Ed25519 i SHA-256 | Wyeliminowane |
+| **THR-WIN-06** | DLL Search-Order Hijacking | Uruchomienie kandydata | Sprawdzanie spójności bibliotek w katalogu aplikacji, brak szukania w CWD | Niskie |
 | **THR-WIN-07** | Zablokowanie programu przez crash nowej wersji | Uruchomienie kandydata | Health confirmation (`.health_ok`) + automatyczny rollback | Niskie |
-| **THR-WIN-08** | Stary znacznik zdrowia | Health check | UsuniÄ™cie `.health_ok` przed uruchomieniem kandydata | Wyeliminowane |
+| **THR-WIN-08** | Stary znacznik zdrowia | Health check | Usunięcie `.health_ok` przed uruchomieniem kandydata | Wyeliminowane |
+| **THR-WIN-09** | MSI Custom Action Injection | Instalacja MSI | Bezwzględny zakaz skryptowych Custom Actions w WiX; wyłącznie standardowe tablice MSI | Wyeliminowane |
+| **THR-WIN-10** | MSI Downgrade Attack / kolizja identyfikatorów | Instalacja MSI | Ścisła reguła `MajorUpgrade` z blokadą downgrade; stały `UpgradeCode` | Wyeliminowane |
+| **THR-WIN-11** | Inno Setup Command Injection | Uruchomienie instalatora | Jawne cytowanie argumentów CLI przy wywołaniu instalatora przez auto-updater | Wyeliminowane |
+| **THR-WIN-12** | Kolizja formatów (Portable/MSI/Inno) | Detekcja typu | Weryfikacja rejestru i deinstalatora; odmowa mieszania formatów bez migracji | Wyeliminowane |
+| **THR-WIN-13** | Podmiana helpera `splogbook-updater.exe` | Uruchomienie helpera | Helper weryfikowany skrótem SHA-256 i integralnością pakietu w stagingu | Wyeliminowane |
+| **THR-WIN-14** | Usunięcie danych przy deinstalacji MSI/Inno | Deinstalacja | Pliki użytkownika w `%APPDATA%` wykluczone ze składników instalatorów | Wyeliminowane |
+| **THR-WIN-15** | Ujawnienie danych poufnych w logach instalatora | Logowanie | Redakcja parametrów CLI; logi instalatorów nie zawierają danych użytkownika | Wyeliminowane |
+| **THR-WIN-16** | Nadużycie mechanizmu MSI Repair | Naprawa MSI | Weryfikacja sygnatury cyfrowej pakietu MSI w pamięci podręcznej Windows Installer | Niskie |
 
 ---
 
-## 31. Macierz TestĂłw Implementacyjnych dla Etapu M3 (Windows Test Matrix)
+## 31. Macierz Testów Implementacyjnych Windows dla Etapu M3 (Windows Test Matrix)
 
-| ID Testu | Zakres testu | Warunki wejĹ›ciowe / Fixture | Oczekiwany rezultat | Poziom testu |
+| ID Testu | Zakres testu | Warunki wejściowe / Fixture | Oczekiwany rezultat | Poziom testu |
 |---|---|---|---|---|
-| **TEST-WIN-01** | Bezpieczna ekstrakcja ZIP | Archiwum ZIP ze Ĺ›cieĹĽkÄ… `..\..\Windows\system32\malicious.dll` | `Err(UpdaterError::ZipSlip)` | Unit (Rust) |
-| **TEST-WIN-02** | Odrzucenie symlinkĂłw | Archiwum ZIP zawierajÄ…ce wpis symlinka | `Err(UpdaterError::UnsafeArchivePath)` | Unit (Rust) |
-| **TEST-WIN-03** | Ochrona baz danych w UpdatePlan | Staging z nowym `serviceLOG.db`, active z istniejÄ…cym | `preserve_files` zawiera bazÄ™, brak w `replace_files` | Unit (Rust) |
+| **TEST-WIN-01** | Bezpieczna ekstrakcja ZIP | Archiwum ZIP ze ścieżką `..\..\Windows\system32\malicious.dll` | `Err(UpdaterError::ZipSlip)` | Unit (Rust) |
+| **TEST-WIN-02** | Odrzucenie symlinków | Archiwum ZIP zawierające wpis symlinka | `Err(UpdaterError::UnsafeArchivePath)` | Unit (Rust) |
+| **TEST-WIN-03** | Ochrona baz danych w UpdatePlan | Staging z nowym `serviceLOG.db`, active z istniejącym | `preserve_files` zawiera bazę, brak w `replace_files` | Unit (Rust) |
 | **TEST-WIN-04** | Generowanie skryptu PowerShell | `UpdatePlan` z plikami programu i danymi | Brak `$staging\*`, brak `$rollback\*`, obecne `$replaceFiles` | Unit (Rust) |
-| **TEST-WIN-05** | Rollback przy awarii zdrowia | Nowa binarka koĹ„czÄ…ca siÄ™ kodem 1 (crash) | PrzywrĂłcenie oryginalnego `SPLogbook.exe`, usuniÄ™cie nowych plikĂłw | Integration (OS) |
-| **TEST-WIN-06** | ĹšcieĹĽki ze spacjami | ĹšcieĹĽka instalacji: `C:\My Logbook\SPLogbook\` | Poprawne cytowanie, brak bĹ‚Ä™dĂłw skĹ‚adni PowerShell | Integration (OS) |
-| **TEST-WIN-07** | Odmowa dla Program Files | ĹšcieĹĽka: `C:\Program Files\SPLogbook` | `Err(UpdaterError::SafetyGate)` przed pobraniem | Unit / Integration |
+| **TEST-WIN-05** | Rollback przy awarii zdrowia | Nowa binarka kończąca się kodem 1 (crash) | Przywrócenie oryginalnego `SPLogbook.exe`, usunięcie nowych plików | Integration (OS) |
+| **TEST-WIN-06** | Ścieżki ze spacjami | Ścieżka instalacji: `C:\My Logbook\SPLogbook\` | Poprawne cytowanie, brak błędów składni helpera | Integration (OS) |
+| **TEST-WIN-07** | Odmowa dla Program Files w Portable | Ścieżka: `C:\Program Files\SPLogbook` bez wpisu MSI/Inno | `Err(UpdaterError::SafetyGate)` przed pobraniem | Unit / Integration |
+| **TEST-WIN-08** | Natywny helper `splogbook-updater.exe` | Wygenerowany plan aktualizacji i syntetyczny staging | Poprawna podmiana plików, health check OK, kod wyjścia 0 | Integration (OS) |
+| **TEST-WIN-09** | Natywny helper — rollback przy awarii | Kandydat symulujący segfault/crash | Przywrócenie starych plików z `.rollback`, brak naruszenia danych | Integration (OS) |
+| **TEST-WIN-10** | MSI — Czysta instalacja (Fresh Install) | Środowisko testowe Windows x64 bez SPLogbook | Sukces instalacji w `Program Files`, poprawne skróty i rejestr | Native CI (WiX) |
+| **TEST-WIN-11** | MSI — Aktualizacja w miejscu (Upgrade) | Zainstalowana starsza wersja MSI, nowy pakiet MSI | Zaktualizowane binaria, nienaruszone dane w `%APPDATA%` | Native CI (WiX) |
+| **TEST-WIN-12** | MSI — Naprawa (Repair) | Uszkodzony plik `SPLogbook.exe` w `Program Files` | Przywrócenie nienaruszonego pliku binarnym z pakietu MSI | Native CI (WiX) |
+| **TEST-WIN-13** | MSI — Deinstalacja (Uninstall) | Zainstalowany pakiet MSI, dane użytkownika w `%APPDATA%` | Usunięty folder w `Program Files`, nienaruszony folder `%APPDATA%` | Native CI (WiX) |
+| **TEST-WIN-14** | Inno Setup — Czysta instalacja | Środowisko testowe, uruchomienie instalatora z `/SILENT` | Sukces instalacji, rejestracja deinstalatora `unins000.exe` | Native CI (Inno) |
+| **TEST-WIN-15** | Inno Setup — Aktualizacja w miejscu | Starsza wersja Inno, instalacja nowej wersji | Zaktualizowany program, zachowana konfiguracja stacji | Native CI (Inno) |
+| **TEST-WIN-16** | Inno Setup — Deinstalacja | Zainstalowany program, uruchomienie `unins000.exe /SILENT` | Usunięcie plików programu, zachowanie baz w `%APPDATA%` | Native CI (Inno) |
+| **TEST-WIN-17** | Kolizja MSI i Inno Setup | Próba instalacji Inno Setup na istniejącą instalację MSI | Odmowa instalacji przez `InitializeSetup` z kodem błędu | Integration (OS) |
+| **TEST-WIN-18** | Zakaz anulowania po wejściu w Applying | Próba przerwania transakcji w trakcie kopiowania | Blokada anulowania w UI, dokończenie podmiany lub rollback | Integration (OS) |
+| **TEST-WIN-19** | Preflight dyskowy z formułą | Symulacja partycji z miejscem poniżej `RequiredSpace` | Wstrzymanie aktualizacji z komunikatem o braku miejsca | Unit (Rust) |
 
 ---
 
-## 32. KompatybilnoĹ›Ä‡ Wsteczna i Migracje
-- Projekt w peĹ‚ni obsĹ‚uguje istniejÄ…cÄ… strukturÄ™ katalogĂłw wersji `v1.2.0`.
-- Wszystkie istniejÄ…ce pliki uĹĽytkownika (`default_log.db`, `station_config.json`, `databases/serviceLOG.db`) pozostajÄ… na swoich standardowych miejscach.
-- Zmiana nie wymaga modyfikacji struktur bazodanowych ani instalowania zewnÄ™trznych sterownikĂłw.
+## 32. Kompatybilność Wsteczna i Migracje
+- Projekt w pełni obsługuje istniejącą strukturę katalogów wersji `v1.2.0`.
+- Wszystkie istniejące pliki użytkownika (`default_log.db`, `station_config.json`, `databases/serviceLOG.db`) pozostają na swoich standardowych miejscach w katalogu aplikacji (dla wersji Portable) lub profilu `%APPDATA%\SPLogbook` (dla instalacji MSI / Inno Setup).
+- Zmiana nie wymaga modyfikacji struktur bazodanowych ani instalowania zewnętrznych sterowników.
 
 ---
 
-## 33. Rejestr Decyzji WĹ‚aĹ›ciciela dla Windows
-W toku projektowania zidentyfikowano nastÄ™pujÄ…ce decyzje leĹĽÄ…ce w gestii WĹ‚aĹ›ciciela:
-- **`OWNER-M2-01`:** Potwierdzenie, ĹĽe Windows pozostaje wyĹ‚Ä…cznie w formacie Portable ZIP w M3. (Rekomendacja architektoniczna: **APPROVED**).
-- **`OWNER-M2-02`:** Potwierdzenie, ĹĽe MSI / Inno Setup stanowi odrÄ™bny, przyszĹ‚y etap. (Rekomendacja architektoniczna: **APPROVED**).
-- **`OWNER-M2-03`:** WybĂłr helpera dla M3: ulepszony PowerShell czy kompilowany EXE `splogbook-updater.exe`. (Rekomendacja architektoniczna: **PowerShell w M3, natywny EXE w M4**).
-- **`OWNER-M2-09`:** UsuniÄ™cie katalogu `.rollback` po pomyĹ›lnym potwierdzeniu zdrowia. (Rekomendacja architektoniczna: **APPROVED â€” natychmiastowe usuwanie w celu oszczÄ™dnoĹ›ci miejsca**).
+## 33. Rejestr Decyzji Właściciela dla Windows
+W toku projektowania podjęto i formalnie zatwierdzono następujące decyzje leżące w gestii Właściciela Projektu:
+
+| ID Decyzji | Treść decyzji | Zatwierdzony wariant | Status formalny | Blokuje M3? |
+|---|---|---|---|---|
+| **`OWNER-M2-01`** | Zakres formatów wydań Windows w M3 | **APPROVED — EXPANDED OPTION A** (Portable ZIP, MSI przez WiX, Inno Setup EXE) | **APPROVED** | **NIE (0)** |
+| **`OWNER-M2-02`** | Projektowanie MSI (WiX) oraz Inno Setup w M3 | **APPROVED — EXPANDED OPTION A** (Pełne wdrożenie instalacji, upgrade, repair i uninstall) | **APPROVED** | **NIE (0)** |
+| **`OWNER-M2-03`** | Wybór procesu pomocniczego dla Windows | **APPROVED — DUAL HELPER MODEL** (Primary: `splogbook-updater.exe`, Fallback: PowerShell) | **APPROVED** | **NIE (0)** |
+| **`OWNER-M2-08`** | Polityka retencji katalogu kopii zapasowej `.rollback` | Opcja 1 (Usunięcie po pomyślnym potwierdzeniu zdrowia) | OPEN (Zalecane zatwierdzenie) | NIE |
+| **`OWNER-M2-09`** | Natychmiastowe usuwanie backupu programu po health ok | Opcja 1 (Usuwać natychmiast w celu oszczędności miejsca) | OPEN (Zalecane zatwierdzenie) | NIE |
+| **`OWNER-M2-10`** | Polityka aktualizacji bazy referencyjnej `serviceLOG.db` | Opcja 1 (FirstInstallSeed w M3, dedykowana migracja w M4) | OPEN (Zalecane zatwierdzenie) | NIE |
+| **`OWNER-M2-11`** | Polityka aktualizacji bazy referencyjnej `callbook.db` | Opcja 1 (FirstInstallSeed w M3, dedykowana migracja w M4) | OPEN (Zalecane zatwierdzenie) | NIE |
+| **`OWNER-M2-12`** | Retencja dziennika aktualizacji `update_audit.log` | Opcja 1 (Ostatnie 10 prób / 500 wpisów) | OPEN (Zalecane zatwierdzenie) | NIE |
+
+**Podsumowanie decyzji blokujących M3 dla Windows:**
+- Liczba decyzji blokujących M3 przed zatwierdzeniem: **3** (`OWNER-M2-01`, `OWNER-M2-02`, `OWNER-M2-03`).
+- Liczba decyzji blokujących M3 po zatwierdzeniu: **0**.
 
 ---
 
-## 34. Kryteria Akceptacji Implementacji M3 (Definition of Done)
-Etap M3 dla platformy Windows bÄ™dzie mĂłgĹ‚ zostaÄ‡ uznany za zrealizowany wyĹ‚Ä…cznie po speĹ‚nieniu:
-1. Wszystkie testy jednostkowe planera i rozpakowywania ZIP przechodzÄ… w 100% na Windows CI runnerze.
-2. Generator skryptu PowerShell produkuje wyĹ‚Ä…cznie skrypty uĹĽywajÄ…ce `-LiteralPath` i jawnych list plikĂłw z `UpdatePlan`.
-3. Wyeliminowano wszelkie wystÄ…pienia poleceĹ„ z maskami wieloznacznymi `$staging\*` i `$rollback\*`.
-4. Test symulacyjny nieudanego health checku wykazuje peĹ‚ne, automatyczne przywrĂłcenie binarki z `.rollback` bez uszczerbku dla danych QSO i pliku konfiguracyjnego.
-5. Kod nie wymaga uprawnieĹ„ administratora ani polecenia `runas`.
+## 34. Kryteria Akceptacji Implementacji M3 (Definition of Done dla Windows)
+Etap M3 dla platformy Windows będzie mógł zostać uznany za zrealizowany wyłącznie po spełnieniu:
+1. Wszystkie testy jednostkowe planera i rozpakowywania ZIP przechodzą w 100% na Windows CI runnerze.
+2. Zaimplementowano natywny program pomocniczy `splogbook-updater.exe` oraz utwardzono generator PowerShell bez masek wieloznacznych.
+3. Przygotowano definicje WiX Toolset dla pakietu MSI ze schematem `MajorUpgrade`, poprawnym kodem powrotu i logowaniem.
+4. Przygotowano skrypt Inno Setup z wykrywaniem kolizji z MSI, obsługą trybu cichego i ochroną `%APPDATA%`.
+5. Preflight dyskowy realizowany jest w oparciu o uzasadnioną formułę z konfigurowalnym buforem bezpieczeństwa.
+6. Test symulacyjny nieudanego health checku wykazuje pełne, automatyczne przywrócenie binarki z `.rollback` bez uszczerbku dla danych QSO i konfiguracji.
+7. Auto-updater dla instalacji zarządzanych (MSI, Inno Setup) deleguje wykonanie do właściwego instalatora bez bezpośredniej podmiany plików w `Program Files`.
+8. Anulowanie po wejściu w fazę `Applying` jest zablokowane.
+9. Wszystkie testy z macierzy Windows (`TEST-WIN-01` do `TEST-WIN-19`) przechodzą pomyślnie.
 
 ---
 
 ## 35. Odrzucone Alternatywy Architektoniczne
-1. **Odrzucono: BezpoĹ›rednie nadpisywanie plikĂłw przez PowerShell bez planowania:** PowodowaĹ‚o niszczenie baz danych uĹĽytkownika i konfiguracji.
-2. **Odrzucono: Automatyczne podnoszenie uprawnieĹ„ UAC (`runas`):** W modelu aplikacji przenoĹ›nej instalowanej w folderze uĹĽytkownika UAC jest zbÄ™dne, a jego wymuszanie rodzi zagroĹĽenia bezpieczeĹ„stwa i komplikuje automatyzacjÄ™.
-3. **Odrzucono: Traktowanie archiwum ZIP jako pliku wykonywalnego:** Zidentyfikowany i wyeliminowany bĹ‚Ä…d z wersji legacy.
+1. **Odrzucono: Bezpośrednie nadpisywanie plików przez PowerShell bez planowania:** Powodowało niszczenie baz danych użytkownika i konfiguracji.
+2. **Odrzucono: Automatyczne podnoszenie uprawnień UAC (`runas`):** Wszelka eskalacja musi odbywać się przez jawny interfejs instalatora systemowego za zgodą użytkownika.
+3. **Odrzucono: Bezpośrednią podmianę plików w katalogu `Program Files` pakietu MSI:** Prowadzi do uszkodzenia bazy Windows Installer, utraty możliwości naprawy pakietu i błędów przy kolejnych upgrade'ach.
+4. **Odrzucono: Łączenie ról MSI i Inno Setup w jeden format:** WiX MSI jest dedykowany dla środowisk korporacyjnych i domenowych (GPO/SCCM), a Inno Setup dla instalacji interaktywnych.
+5. **Odrzucono: Sztywny margines dyskowy 50 MB:** Nie uwzględniał narzutu instalatorów systemowych ani rzeczywistego rozmiaru stagingu i backupu.
 
 ---
 
-## 36. Ryzyka SzczÄ…tkowe (Residual Risks)
-1. **Blokada przez oprogramowanie antywirusowe (Antivirus Lock):** NiektĂłre programy antywirusowe mogÄ… zablokowaÄ‡ nowo rozpakowany plik PE na czas skanowania w locie, powodujÄ…c chwilowy bĹ‚Ä…d `AccessDenied`.
-   - *Mitygacja w M3:* Helper wprowadzi 3 prĂłby kopiowania z 500 ms odstÄ™pem czasowym przed zgĹ‚oszeniem bĹ‚Ä™du.
-2. **Polityka ExecutionPolicy Restricted w Ĺ›rodowiskach domenowych:** W rzadkich konfiguracjach korporacyjnych parametr `-ExecutionPolicy Bypass` moĹĽe zostaÄ‡ zablokowany przez GPO.
-   - *Mitygacja:* ZgĹ‚oszenie bĹ‚Ä™du z instrukcjÄ… dla uĹĽytkownika lub przejĹ›cie na natywny helper EXE w kolejnym wydaniu.
+## 36. Ryzyka Szczątkowe (Residual Risks)
+1. **Blokada przez oprogramowanie antywirusowe (Antivirus Lock):** Niektóre programy antywirusowe mogą zablokować nowo rozpakowany plik PE na czas skanowania w locie, powodując chwilowy błąd `AccessDenied`.
+   - *Mitygacja w M3:* Helper wprowadzi 3 próby kopiowania z 500 ms odstępem czasowym przed zgłoszeniem błędu.
+2. **Polityka ExecutionPolicy Restricted w środowiskach domenowych:** W rzadkich konfiguracjach korporacyjnych parametr `-ExecutionPolicy Bypass` może zostać zablokowany przez GPO.
+   - *Mitygacja:* Wdrożenie natywnego helpera `splogbook-updater.exe` jako głównego mechanizmu w M3 całkowicie eliminuje zależność od polityk ExecutionPolicy.
+3. **Restart systemu wymagany przez Windows Installer (Exit Code 3010):** W przypadku zablokowania bibliotek DLL przez inne procesy, `msiexec.exe` może zażądać restartu komputera.
+   - *Mitygacja:* Auto-updater obsłuży kod 3010 jako sukces warunkowy i wyświetli użytkownikowi czytelny monit z prośbą o ponowne uruchomienie systemu.
