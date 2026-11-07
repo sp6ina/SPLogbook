@@ -1,432 +1,445 @@
-﻿# PROJEKT ARCHITEKTONICZNY: WSPĂ“LNY INTERFEJS I RDZEĹ INSTALATORĂ“W PLATFORMOWYCH
+﻿# PROJEKT ARCHITEKTONICZNY: WSPÓLNY KONTRAKT PLATFORMOWY INSTALATORÓW I MASZYNA STANÓW (ETAP M2)
 # Dokument: DESIGN_3_0_C_PLATFORM_INSTALLERS.md
 
 ---
 
 ## 1. Status Dokumentu
 - **Identyfikator:** `UPDATE-DESIGN-PLATFORM`
-- **Etap:** `STAGE-M2-INSTALLER-DESIGN-GATE`
-- **Status dokumentu:** `REVIEWED` (Oczekuje na formalne zatwierdzenie otwartych decyzji wĹ‚aĹ›ciciela przez WĹ‚aĹ›ciciela repozytorium)
-- **GotowoĹ›Ä‡ wykonawcza M3:** `BLOCKED_BY_OWNER_DECISIONS` (Sekcja 39 i 54)
-- **Data opracowania:** 2026-11-07 (Rzeczywista data wykonania M2)
-- **Strefa czasowa:** `+01:00` (CET / Europe/Warsaw)
-- **Autor / Rola:** GĹ‚Ăłwny Architekt Techniczny SPLogbook, Starszy Programista Rust 2024, Specjalista Bezpiecznych AktualizatorĂłw
+- **Etap:** `STAGE-M2-INSTALLER-DESIGN-GATE` / `STAGE-M2-OWNER-DECISIONS-APPROVAL-GATE`
+- **Status dokumentu:** `APPROVED` (Formalnie zatwierdzony w bramce zatwierdzenia decyzji po formalnym przyjęciu 9 kluczowych decyzji Właściciela `OWNER-M2-01..07`, `13`, `15`)
+- **Gotowość wykonawcza M3:** `READY_FOR_IMPLEMENTATION` (M3-BLOCKING DECISIONS: 0; prace implementacyjne M3 nierozpoczęte)
+- **Data opracowania:** 2026-11-07 (Rzeczywista data wykonania bramki M2)
+- **Strefa czasowa:** `+01:00` (CET / Central European Standard Time, UTC+01:00)
+- **Autor / Rola:** Główny Architekt Techniczny SPLogbook, Starszy Programista Rust 2024, Specjalista Architektury Multi-Platform, Ed25519, Bezpiecznych Aktualizatorów i Zarządzania Roadmapą
 
 ---
 
 ## 2. Wersja i Historia Zmian
-- **Wersja:** `2.0.0`
+- **Wersja:** `2.1.0`
 - **Historia:**
-  - `v1.0.0` (2026-09-29): Wczesny szkic koncepcyjny podziaĹ‚u rĂłl miÄ™dzy rdzeĹ„ kryptograficzny a instalatory platformowe (historyczny commit pre-M1).
-  - `v2.0.0` (2026-11-07): Kompletny projekt architektoniczny wspĂłlnego rdzenia aktualizacji SPLogbook, formalizujÄ…cy maszynÄ™ stanĂłw, transakcyjny model instalacji (`UpdateAttemptId`), abstrakcjÄ™ adapterĂłw platformowych (`PlatformInstallerAdapter`), klasyfikacjÄ™ plikĂłw, model wspĂłĹ‚bieĹĽnoĹ›ci, badanie pojemnoĹ›ci dysku, procedury odzyskiwania po awarii (Crash Recovery) oraz Ĺ›cisĹ‚Ä… piramidÄ™ testĂłw dla M3.
+  - `v1.0.0` (2026-09-29): Szkic koncepcyjny ujednolicenia obsługi wydań na platformach Windows i Linux (pre-M1).
+  - `v2.0.0` (2026-11-07): Kompletny projekt architektoniczny wspólnego rdzenia aktualizacji SPLogbook, formalizujący maszynę stanów, transakcyjny model instalacji (`UpdateAttemptId`), abstrakcję adapterów platformowych (`PlatformInstallerAdapter`), klasyfikację plików, model współbieżności, badanie pojemności dysku, procedury odzyskiwania po awarii (Crash Recovery) oraz piramidę testów dla M3 (`REVIEWED`).
+  - `v2.1.0` (2026-11-07): Formalne zatwierdzenie rozszerzonego zakresu M3 przez Właściciela Projektu (`STAGE-M2-OWNER-DECISIONS-APPROVAL-GATE`). Uszczegółowienie automatu stanów (20 stanów łącznie: 14 stanów operacyjnych przepływu + 1 końcowy stan sukcesu `Committed` + 5 stanów obsługi błędów/rollbacku/odzyskiwania), formalne rozstrzygnięcie wpływu zależności na `UpdateAttemptId` (wykorzystanie istniejącej w `Cargo.toml` zależności `uuid = { version = "1", features = ["v4"] }`), wprowadzenie matematycznej formuły preflightu dyskowego (eliminacja arbitralnego 50 MB), podział adapterów na `SELF_MANAGED` i `SYSTEM_MANAGED`, formalizacja rozszerzeń typów manifestu wydań, rygorystyczny zakaz anulowania po wejściu w fazę `Applying` (`OWNER-M2-13`) oraz pełna macierz testów natywnych Windows i Linux (`OWNER-M2-15`) (`APPROVED`).
 
 ---
 
 ## 3. Baseline Git i Kontekst Techniczny
-- **Baseline Git HEAD:** Commit po synchronizacji projektu Linux (`072f49e174d4e260ec9dfcfdca9b2f54190da831`).
-- **GaĹ‚Ä…Ĺş referencyjna:** `main` / `repair/full-system-remediation`
-- **Wersja oprogramowania:** SPLogbook `v1.2.0` (kod ĹşrĂłdĹ‚owy Rust 2024, MSRV 1.85+)
-- **Relacja do dokumentĂłw platformowych:** Niniejszy dokument stanowi specyfikacjÄ™ nadrzÄ™dnÄ… dla `DESIGN_3_0_A_WINDOWS_UPDATE.md` oraz `DESIGN_3_0_B_LINUX_UPDATE.md`.
+- **Baseline Git HEAD:** `8b425887838d3b1c2f67d7498e69163aceff5448`
+- **Gałąź referencyjna:** `main` / `repair/full-system-remediation`
+- **Wersja oprogramowania:** SPLogbook `v1.2.0` (kod źródłowy Rust 2024, MSRV 1.85+)
+- **Relacja do dokumentów platformowych:** Niniejszy dokument stanowi specyfikację nadrzędną dla `DESIGN_3_0_A_WINDOWS_UPDATE.md` oraz `DESIGN_3_0_B_LINUX_UPDATE.md`.
 
 ---
 
 ## 4. Architektura Warstwowa (Layered Architecture)
-Architektura aktualizatora SPLogbook dzieli siÄ™ na cztery Ĺ›ciĹ›le odizolowane warstwy:
+Rdzeń aktualizatora SPLogbook zorganizowany jest w cztery ściśle odseparowane warstwy:
 
 ```mermaid
 flowchart TD
-    subgraph Layer1 [Warstwa 1: Prezentacja i Wyzwalanie]
-        UI["GUI (app_services.rs / updates.rs)"]
+    subgraph UI_Layer["Warstwa Prezentacji (UI Layer - egui/eframe)"]
+        UI_Dialog["Okno dialogowe aktualizatora"]
+        UI_Progress["Pasek postępu i monity etapów"]
+        UI_Decision["Decyzja użytkownika (Pobierz / Zastosuj / Anuluj)"]
     end
 
-    subgraph Layer2 [Warstwa 2: WspĂłlny RdzeĹ„ Logiczny - Core Engine]
-        Trust["Kryptografia Ed25519 (VerifiedReleaseManifest)"]
-        AssetSel["Selekcja Assetu (VerifiedReleaseAsset)"]
-        Downloader["Strumieniowe Pobieranie z kontrolÄ… SHA-256"]
-        Planner["Silnik Planowania (UpdatePlan::generate)"]
-        TxManager["MenedĹĽer Transakcji i Maszyna StanĂłw"]
+    subgraph Core_Layer["Warstwa Orkiestracji Rdzenia (Core Orchestration Layer)"]
+        SM["Deterministyczny automat stanów (UpdateStateMachine)"]
+        Trust["Weryfikator zaufania Ed25519 (ManifestFirstGuard)"]
+        Tx["Zarządca transakcji (UpdateTransaction)"]
+        Planner["Kalkulator planu aktualizacji (UpdatePlanEngine)"]
+        Preflight["Kalkulator preflightu dyskowego (DiskPreflightEngine)"]
     end
 
-    subgraph Layer3 [Warstwa 3: Adaptery Platformowe - Platform Adapters]
-        WinAdapter["Windows Adapter (ZIP, PowerShell Helper, PE Lock)"]
-        LinuxAdapter["Linux Adapter (tar.gz, Root Flatten, 0o755, RUNPATH, Rename Swap)"]
+    subgraph Adapter_Layer["Warstwa Adapterów Platformowych (Platform Adapter Layer)"]
+        Trait["Abstrakcja PlatformInstallerAdapter"]
+        SelfManaged["Adaptery SELF_MANAGED (Portable ZIP, tar.gz, AppImage)"]
+        SystemManaged["Adaptery SYSTEM_MANAGED (MSI, Inno Setup, DEB, RPM, Flatpak)"]
     end
 
-    subgraph Layer4 [Warstwa 4: System Operacyjny i Pliki]
-        WinFS["Windows NTFS / Registry / Processes"]
-        LinuxFS["Linux POSIX Filesystem / Shared Libs / Signals"]
+    subgraph OS_Layer["Warstwa Systemu Operacyjnego (OS & Package Managers)"]
+        WinOS["Windows Installer (msiexec) / Inno Setup / NTFS / PowerShell / Helper EXE"]
+        LinuxOS["APT / DNF / Flatpak Portal / POSIX rename / XDG Base Dir"]
     end
 
-    UI --> TxManager
-    TxManager --> Trust
-    Trust --> AssetSel
-    AssetSel --> Downloader
-    Downloader --> TxManager
-    TxManager --> WinAdapter
-    TxManager --> LinuxAdapter
-    WinAdapter --> Planner
-    LinuxAdapter --> Planner
-    WinAdapter --> WinFS
-    LinuxAdapter --> LinuxFS
+    UI_Layer --> Core_Layer
+    Core_Layer --> Adapter_Layer
+    Adapter_Layer --> OS_Layer
 ```
-
-### Granice odpowiedzialnoĹ›ci warstw:
-1. **Warstwa Prezentacji:** Odpowiada wyĹ‚Ä…cznie za asynchroniczne wyzwolenie operacji, odbiĂłr zdarzeĹ„ postÄ™pu i prezentacjÄ™ statusu uĹĽytkownikowi. Nie podejmuje decyzji o zaufaniu ani nie dotyka plikĂłw na dysku.
-2. **WspĂłlny RdzeĹ„ Logiczny (Core Engine):** Odpowiada za weryfikacjÄ™ podpisu Ed25519, odrzucanie odwoĹ‚anych kluczy, selekcjÄ™ assetu, kontrolÄ™ limitĂłw pobierania, weryfikacjÄ™ SHA-256, generowanie `UpdatePlan` oraz zarzÄ…dzanie cyklem ĹĽycia transakcji.
-3. **Adaptery Platformowe:** OdpowiadajÄ… za specyficzne dla danego systemu operacyjnego operacje I/O: formaty archiwĂłw (ZIP vs tar.gz), uprawnienia POSIX, procesy pomocnicze, radzenie sobie z blokadami plikĂłw i wywoĹ‚ania testĂłw zdrowia.
-4. **System Operacyjny:** ZarzÄ…dza fizycznym zapisem na dysku i procesami.
 
 ---
 
-## 5. Maszyna StanĂłw Aktualizacji (Update State Machine)
-Proces aktualizacji jest realizowany jako deterministyczny automat stanĂłw. KaĹĽda zmiana stanu jest jawna i rejestrowana w dzienniku transakcji.
+## 5. Maszyna Stanów Aktualizacji (Update State Machine)
+Proces aktualizacji jest realizowany jako deterministyczny automat stanów. Każda zmiana stanu jest jawna, audytowana i rejestrowana w dzienniku transakcji.
+
+### Spójna klasyfikacja i rozliczenie stanów automatu:
+Automat stanów aktualizatora SPLogbook obejmuje łącznie **20 stanów**, sklasyfikowanych w dwóch równoważnych, komplementarnych ujęciach:
+
+**Ujęcie A (Przepływ operacyjny vs Błędy i Wycofanie):**
+1. **Stany operacyjne przepływu podstawowego (Operational Flow States): 14 stanów**
+   - `Idle`, `CheckingRelease`, `FetchingManifest`, `VerifyingManifest`, `SelectingAsset`, `Downloading`, `VerifyingDownload`, `InspectingPackage`, `Staging`, `BuildingUpdatePlan`, `AwaitingApply`, `Applying`, `LaunchingCandidate`, `AwaitingHealth`.
+2. **Końcowy stan sukcesu (Terminal Success State): 1 stan**
+   - `Committed`.
+3. **Stany obsługi błędów, wycofania i sprzątania (Error / Rollback / Cleanup Recovery States): 5 stanów**
+   - `FailedPreApply`, `FailedPostApply`, `Rollback`, `RollbackVerified`, `Cleanup`.
+- **Łączna liczba stanów (Total States): 14 + 1 + 5 = 20 stanów.**
+
+**Ujęcie B (Stany główne i końcowe vs Stany odzyskiwania):**
+1. **Stany główne i terminalne (Primary and Terminal States): 15 stanów** (14 stanów operacyjnych + 1 stan `Committed`).
+2. **Stany błędów, rollbacku i odzyskiwania (Error/Rollback/Cleanup States): 5 stanów**.
+- **Łączna liczba stanów (Total States): 15 + 5 = 20 stanów.**
 
 ```mermaid
 stateDiagram-v2
     [*] --> Idle
-    Idle --> CheckingRelease : SprawdĹş aktualizacje
-    CheckingRelease --> FetchingManifest : Wykryto nowszÄ… wersjÄ™
-    CheckingRelease --> Idle : Brak nowszej wersji / BĹ‚Ä…d sieci
+    Idle --> CheckingRelease : Sprawdź aktualizacje
+    CheckingRelease --> FetchingManifest : Wykryto nowszą wersję
+    CheckingRelease --> Idle : Brak nowszej wersji / Błąd sieci
     FetchingManifest --> VerifyingManifest : Pobrano manifest i podpis
-    FetchingManifest --> FailedPreApply : BĹ‚Ä…d pobierania / limit
+    FetchingManifest --> FailedPreApply : Błąd pobierania / limit
     VerifyingManifest --> SelectingAsset : Podpis poprawny, klucz zaufany
-    VerifyingManifest --> FailedPreApply : ZĹ‚y podpis / odwoĹ‚any klucz / downgrade
-    SelectingAsset --> Downloading : Wybrano dokĹ‚adnie 1 asset
-    SelectingAsset --> FailedPreApply : Brak assetu / niejednoznacznoĹ›Ä‡
-    Downloading --> VerifyingDownload : Pobrano caĹ‚oĹ›Ä‡
-    Downloading --> FailedPreApply : BĹ‚Ä…d sieci / limit rozmiaru / anulowanie
+    VerifyingManifest --> FailedPreApply : Zły podpis / odwołany klucz / downgrade
+    SelectingAsset --> Downloading : Wybrano dokładnie 1 asset
+    SelectingAsset --> FailedPreApply : Brak assetu / niejednoznaczność
+    Downloading --> VerifyingDownload : Pobrano całość
+    Downloading --> FailedPreApply : Błąd sieci / limit rozmiaru / anulowanie
     VerifyingDownload --> InspectingPackage : Rozmiar i SHA-256 poprawne
     VerifyingDownload --> FailedPreApply : Niezgodny SHA-256 lub rozmiar
-    InspectingPackage --> Staging : NagĹ‚Ăłwki bezpieczne, brak ZipSlip
+    InspectingPackage --> Staging : Nagłówki bezpieczne, brak ZipSlip
     InspectingPackage --> FailedPreApply : Wykryto ZipSlip / nody specjalne
-    Staging --> BuildingUpdatePlan : Rozpakowano i spĹ‚aszczono katalog
-    Staging --> FailedPreApply : BĹ‚Ä…d I/O / brak binarki
+    Staging --> BuildingUpdatePlan : Rozpakowano i spłaszczono katalog
+    Staging --> FailedPreApply : Błąd I/O / brak binarki
     BuildingUpdatePlan --> AwaitingApply : Plan poprawny, dane chronione
-    BuildingUpdatePlan --> FailedPreApply : BĹ‚Ä…d walidacji bezpieczeĹ„stwa
-    AwaitingApply --> Applying : Potwierdzenie instalacji
-    AwaitingApply --> Cleanup : Anulowanie przez uĹĽytkownika
-    Applying --> LaunchingCandidate : Podmieniono pliki programu
-    Applying --> FailedPostApply : BĹ‚Ä…d zapisu / blokada pliku
-    LaunchingCandidate --> AwaitingHealth : Uruchomiono proces potomny
-    LaunchingCandidate --> FailedPostApply : Nie moĹĽna uruchomiÄ‡ procesu
-    AwaitingHealth --> Committed : Wykryto .health_ok w ciÄ…gu 15s
+    BuildingUpdatePlan --> FailedPreApply : Błąd walidacji bezpieczeństwa
+    AwaitingApply --> Applying : Potwierdzenie instalacji (brak możliwości anulowania po wejściu!)
+    AwaitingApply --> Cleanup : Anulowanie przez użytkownika przed Applying
+    Applying --> LaunchingCandidate : Podmieniono pliki programu / uruchomiono instalator
+    Applying --> FailedPostApply : Błąd zapisu / blokada pliku / błąd instalatora
+    LaunchingCandidate --> AwaitingHealth : Uruchomiono proces potomny kandydata
+    LaunchingCandidate --> FailedPostApply : Nie można uruchomić procesu kandydata
+    AwaitingHealth --> Committed : Wykryto .health_ok w ciągu 15s
     AwaitingHealth --> FailedPostApply : Timeout 15s / crash procesu
-    Committed --> Cleanup : Sukces
-    FailedPreApply --> Cleanup : BĹ‚Ä…d przed podmianÄ…
-    FailedPostApply --> Rollback : BĹ‚Ä…d w trakcie / po podmianie
-    Rollback --> RollbackVerified : PrzywrĂłcono pliki z backupu
-    Rollback --> RollbackFailed : BĹ‚Ä…d przywracania (interwencja manualna)
+    Committed --> Cleanup : Sukces transakcji
+    FailedPreApply --> Cleanup : Błąd przed podmianą
+    FailedPostApply --> Rollback : Błąd w trakcie / po podmianie (self-managed) lub błąd instalatora (system-managed)
+    Rollback --> RollbackVerified : Przywrócono pliki z backupu (.rollback)
+    Rollback --> RollbackFailed : Błąd przywracania (wymaga interwencji operatora)
     RollbackVerified --> Cleanup : Sukces rollbacku
-    Cleanup --> Idle : Zwolniono zasoby i blokadÄ™
+    Cleanup --> Idle : Zwolniono zasoby, staging i blokadę update.lock
 ```
 
 ---
 
-## 6. WspĂłlne Typy Danych (Common Data Types)
-RdzeĹ„ aktualizatora operuje na Ĺ›cisĹ‚ych, niemutowalnych typach danych domenowych:
+## 6. Wspólne Typy Danych Domenowych (Common Data Types)
+Rdzeń aktualizatora operuje na ścisłych, niemutowalnych typach danych domenowych:
 
-### 1. `UpdateAttemptId`
-Unikalny identyfikator prĂłby aktualizacji (UUID v4), zapobiegajÄ…cy konfliktom i wiÄ…ĹĽÄ…cy wszystkie logi, pliki tymczasowe oraz znaczniki zdrowia.
+### 1. `UpdateAttemptId` i Wykorzystanie UUID v4
+- **Identyfikator próby aktualizacji:** `UpdateAttemptId(uuid::Uuid)`.
+- **Weryfikacja zależności Cargo:** Zależność `uuid = { version = "1", features = ["v4"] }` znajduje się już bezpośrednio w `Cargo.toml:53`. W Etapie M3 **nie wprowadza się żadnych nowych zależności do Cargo** — kod bezpośrednio wykorzystuje `uuid::Uuid::new_v4()`.
+- **Kontrakt logiczny `UpdateAttemptId`:**
+  - **Unikalność:** Gwarancja braku kolizji w obrębie hosta i całego cyklu życia instalacji (122 bity losowości CSPRNG).
+  - **Prywatność:** Bezwzględny zakaz kodowania danych osobowych, tożsamości stacji, znaków wywoławczych czy sekretów.
+  - **Serializacja:** Bezpieczny format tekstowy UUID (36-znakowy hex-dash), implementujący cechy `Display`, `Serialize`, `Deserialize`.
+  - **Użycie w systemie plików:** Bezpieczne stosowanie jako składowa nazw plików tymczasowych (`.health_ok_<attempt_id>`, `.update_probe_<attempt_id>.tmp`, `.update.lock`).
+  - **Śledzenie audytowe:** Wiązanie logów audytowych, znaczników zdrowia oraz recovery porzuconych stagingów.
 
 ### 2. `VerifiedReleaseManifest`
-Manifest, ktĂłrego sygnatura Ed25519 zostaĹ‚a matematycznie zweryfikowana wzglÄ™dem listy `TRUSTED_KEYS` i ktĂłry nie zostaĹ‚ podpisany odwoĹ‚anym kluczem (`REVOKED_KEY_IDS`).
+Manifest, którego sygnatura Ed25519 została matematycznie zweryfikowana względem listy `TRUSTED_KEYS` i który nie został podpisany odwołanym kluczem (`REVOKED_KEY_IDS`).
 
 ### 3. `VerifiedReleaseAsset`
-Pojedynczy plik instalacyjny jednoznacznie wyselekcjonowany z manifestu na podstawie triady `(platform, arch, package_type)` z powiÄ…zanÄ… sumÄ… SHA-256 i zadeklarowanym rozmiarem.
+Pojedynczy plik instalacyjny jednoznacznie wyselekcjonowany z manifestu na podstawie triady `(platform, arch, package_type)` z powiązaną sumą SHA-256 i zadeklarowanym rozmiarem.
 
 ### 4. `UpdatePlan`
-Deterministyczny plan zmian na systemie plikĂłw:
-- `replace_files`: pliki programu podlegajÄ…ce podmianie.
+Deterministyczny plan zmian na systemie plików:
+- `replace_files`: pliki programu podlegające podmianie.
 - `create_files`: nowe pliki programu lub ziarna instalacji.
-- `preserve_files`: chronione dane uĹĽytkownika, bazy i konfiguracja.
+- `preserve_files`: chronione dane użytkownika, bazy i konfiguracja.
 - `rejected_files`: odrzucone pliki nierozpoznane (fail-closed).
 
 ### 5. `UpdateFileClass`
-Klasyfikacja bezpieczeĹ„stwa pliku: `ProgramFile`, `RuntimeLibrary`, `FirstInstallSeed`, `UserData`, `UserConfiguration`, `ReferenceData`, `Cache`, `ReleaseMetadata`, `Unknown`.
+Klasyfikacja bezpieczeństwa pliku: `ProgramFile`, `RuntimeLibrary`, `FirstInstallSeed`, `UserData`, `UserConfiguration`, `ReferenceData`, `Cache`, `ReleaseMetadata`, `Unknown`.
 
 ---
 
-## 7. Interfejs Adaptera Platformowego (Platform Adapter Trait)
-Wszystkie specyficzne dla systemu operacyjnego operacje definiowane sÄ… przez wspĂłlny interfejs Rusta:
+## 7. Podział Adapterów: SELF_MANAGED vs SYSTEM_MANAGED
+W architekturze M3 adaptery platformowe dzielą się na dwie fundamentalne kategorie z zachowaniem zasady `Separation of Concerns`:
+
+### Kategoria 1: Adaptery Zarządzane Własnoręcznie (SELF_MANAGED)
+- **Formaty:** Windows Portable ZIP, Linux Portable tar.gz, Linux AppImage.
+- **Odpowiedzialność SPLogbook:**
+  - Pełna orkiestracja transakcji na poziomie systemu plików.
+  - Inspekcja archiwum (ochrona przed Zip-Slip i bombami dekompresyjnymi).
+  - Rozpakowanie do katalogu stagingu (`.staging`).
+  - Budowa i egzekwowanie planu `UpdatePlan`.
+  - Tworzenie kopii zapasowej w `.rollback`.
+  - Atomowa podmiana plików (POSIX `rename`) lub delegacja do helpera Windows (`splogbook-updater.exe` / PowerShell).
+  - Uruchomienie kandydata z flagą `--check-health-startup`.
+  - Automatyczny rollback w razie awarii.
+  - Czyszczenie zasobów tymczasowych.
+
+### Kategoria 2: Adaptery Zarządzane Systemowo (SYSTEM_MANAGED)
+- **Formaty:** Windows MSI (WiX), Windows Inno Setup (EXE), Linux DEB (APT), Linux RPM (DNF), Linux Flatpak.
+- **Odpowiedzialność SPLogbook:**
+  - Wykrycie typu instalacji systemowej.
+  - Sprawdzenie dostępności nowej wersji w podpisanym manifeście wydań.
+  - Pobranie i weryfikacja integralności instalatora (SHA-256 + Ed25519), o ile model wydania to przewiduje.
+  - Prezentacja użytkownikowi informacji o ścieżce aktualizacji systemowej.
+  - Delegacja wykonania do właściwego menedżera pakietów lub instalatora (`msiexec.exe`, `setup.exe`, `apt`, `dnf`, `flatpak`).
+  - Monitorowanie kodu powrotu (jeśli instalator wywoływany jest interaktywnie z poziomu GUI).
+  - **Bezwzględny zakaz bezpośredniej podmiany plików w katalogach systemowych (`Program Files`, `/usr`).**
+  - **Bezwzględny zakaz wywoływania poleceń `sudo`, `doas` i `pkexec` oraz automatycznej eskalacji uprawnień.**
+
+---
+
+## 8. Interfejs Adaptera Platformowego (Platform Adapter Trait)
+Wszystkie operacje instalatorów definiowane są przez wspólny interfejs Rusta, rozszerzony o obsługę delegacji systemowej:
 
 ```rust
 #[async_trait::async_trait]
 pub trait PlatformInstallerAdapter: Send + Sync {
-    /// Wykrywa typ bieĹĽÄ…cej instalacji i prawa zapisu.
+    /// Wykrywa typ bieżącej instalacji i prawa zapisu.
     fn detect_installation_type(&self, base_dir: &Path) -> Result<InstallationType, UpdaterError>;
 
-    /// Bada dostÄ™pnoĹ›Ä‡ wolnego miejsca na dysku partycji docelowej i tymczasowej.
-    fn check_disk_space(&self, base_dir: &Path, required_bytes: u64) -> Result<(), UpdaterError>;
+    /// Określa, czy dany typ instalacji jest zarządzany przez aplikację (SelfManaged), czy przez system (SystemManaged).
+    fn management_mode(&self, inst_type: InstallationType) -> ManagementMode;
 
-    /// Dokonuje inspekcji nagĹ‚ĂłwkĂłw pobranego archiwum przed peĹ‚nÄ… ekstrakcjÄ….
+    /// Bada dostępność wolnego miejsca na dysku w oparciu o pełną formułę preflightu.
+    fn check_disk_space(&self, base_dir: &Path, preflight: &DiskPreflightRequirements) -> Result<(), UpdaterError>;
+
+    /// Dokonuje inspekcji nagłówków pobranego archiwum przed pełną ekstrakcją (dla formatów portable).
     fn inspect_archive(&self, archive_path: &Path, limits: &ArchiveLimits) -> Result<PackageInspection, UpdaterError>;
 
     /// Bezpiecznie rozpakowuje archiwum do wskazanego katalogu stagingu.
     fn extract_archive(&self, archive_path: &Path, staging_dir: &Path, limits: &ArchiveLimits) -> Result<(), UpdaterError>;
 
-    /// Normalizuje ukĹ‚ad katalogĂłw stagingu (np. spĹ‚aszcza pojedynczy katalog nadrzÄ™dny).
+    /// Normalizuje układ katalogów stagingu (np. spłaszcza pojedynczy katalog nadrzędny).
     fn normalize_staging(&self, staging_dir: &Path) -> Result<(), UpdaterError>;
 
-    /// Waliduje, czy w stagingu znajduje siÄ™ oczekiwany plik wykonywalny programu.
+    /// Waliduje, czy w stagingu znajduje się oczekiwany plik wykonywalny programu.
     fn validate_staging_executable(&self, staging_dir: &Path) -> Result<(), UpdaterError>;
 
-    /// Tworzy kopiÄ™ zapasowÄ… podmienianych plikĂłw programu w katalogu rollback.
+    /// Tworzy kopię zapasową podmienianych plików programu w katalogu rollback (dla SELF_MANAGED).
     fn prepare_backup(&self, base_dir: &Path, rollback_dir: &Path, plan: &UpdatePlan) -> Result<(), UpdaterError>;
 
-    /// Aplikuje plan aktualizacji (podmienia pliki programu i tworzy nowe).
-    fn apply_update(&self, base_dir: &Path, staging_dir: &Path, plan: &UpdatePlan, attempt_id: &UpdateAttemptId) -> Result<(), UpdaterError>;
+    /// Aplikuje plan aktualizacji w trybie SELF_MANAGED (podmienia pliki programu i tworzy nowe).
+    fn apply_self_managed_update(
+        &self,
+        base_dir: &Path,
+        staging_dir: &Path,
+        plan: &UpdatePlan,
+        attempt_id: &UpdateAttemptId,
+    ) -> Result<(), UpdaterError>;
 
-    /// Uruchamia proces kandydata z flagÄ… diagnostycznÄ… --check-health-startup.
+    /// Deleguje wykonanie aktualizacji do instalatora systemowego lub menedżera pakietów (dla SYSTEM_MANAGED).
+    fn delegate_system_managed_update(
+        &self,
+        installer_path: Option<&Path>,
+        inst_type: InstallationType,
+    ) -> Result<DelegationResult, UpdaterError>;
+
+    /// Uruchamia proces kandydata z flagą diagnostyczną --check-health-startup.
     fn launch_candidate(&self, exe_path: &Path, attempt_id: &UpdateAttemptId) -> Result<CandidateProcessHandle, UpdaterError>;
 
-    /// Oczekuje na potwierdzenie zdrowia (.health_ok) kandydata.
-    fn wait_for_health(&self, base_dir: &Path, handle: &mut CandidateProcessHandle, timeout: Duration) -> Result<bool, UpdaterError>;
+    /// Wykonuje procedurę wycofania zmian (Rollback).
+    fn perform_rollback(&self, base_dir: &Path, rollback_dir: &Path, plan: &UpdatePlan) -> Result<(), UpdaterError>;
 
-    /// Wykonuje operacjÄ™ wycofania zmian (Rollback).
-    fn execute_rollback(&self, base_dir: &Path, rollback_dir: &Path, plan: &UpdatePlan) -> Result<RollbackResult, UpdaterError>;
-
-    /// SprzÄ…ta katalogi stagingu, kopii zapasowej i pliki tymczasowe.
-    fn cleanup(&self, base_dir: &Path, staging_dir: &Path, rollback_dir: &Path) -> Result<(), UpdaterError>;
+    /// Dokonuje czyszczenia zasobów tymczasowych po pomyślnej aktualizacji lub rollbacku.
+    fn cleanup_temporary_resources(&self, base_dir: &Path) -> Result<(), UpdaterError>;
 }
 ```
 
 ---
 
-## 8. Wykrywanie Rodzaju Instalacji (Installation Detection)
-Aktualizator wspiera ujednolicone rozpoznawanie instalacji:
-- `PortableUserWritable`: peĹ‚ne wsparcie automatycznej aktualizacji.
-- `PortableReadOnly`: blokada aktualizacji z typowanym komunikatem bĹ‚Ä™du przed rozpoczÄ™ciem pobierania.
-- `SystemManagedLocation`: kategoryczna odmowa automatycznej aktualizacji; odesĹ‚anie do menedĹĽera pakietĂłw dystrybucji lub rÄ™cznej instalacji.
-- `Unknown`: zachowanie fail-closed.
+## 9. Wykrywanie Rodzaju Instalacji (Installation Detection)
+Aktualizator definiuje zunifikowany typ wyliczeniowy rodzajów instalacji dla wszystkich wspieranych platform:
 
----
-
-## 9. Granica Zaufania (Trust Boundary)
-Zaufanie bazuje na asymetrycznej kryptografii Ed25519:
-- **Elementy Zaufane:** Wkompilowane w kod aplikacji klucze publiczne `TRUSTED_KEYS` oraz logika weryfikatora.
-- **Elementy Niezaufane:** GitHub API, nagĹ‚Ăłwki HTTP, serwery lustrzane CDN, lokalna konfiguracja uĹĽytkownika `station_config.json`, zmienne Ĺ›rodowiskowe oraz zawartoĹ›Ä‡ pobranych archiwĂłw.
-- Zmiana w lokalnej konfiguracji nie moĹĽe wymusiÄ‡ akceptacji nieznanego lub odwoĹ‚anego klucza.
-
----
-
-## 10. Abstrakcja Inspekcji PakietĂłw (Package Inspection)
-Wynik inspekcji pakietu (`PackageInspection`) reprezentuje zbadane wĹ‚aĹ›ciwoĹ›ci archiwum:
-- Format kontenera (`Zip` / `TarGz`).
-- Model korzenia (`Flat` / `SingleDirectory`).
-- Liczba wpisĂłw (musi byÄ‡ $\le 10\,000$).
-- ĹÄ…czny rozmiar po dekompresji (musi byÄ‡ $\le 200\text{ MB}$ dla Windows, $\le 250\text{ MB}$ dla Linux).
-- Flaga wykrycia prĂłb traversal (`..` lub Ĺ›cieĹĽek bezwzglÄ™dnych).
-- Flaga wykrycia niedozwolonych plikĂłw specjalnych (FIFO, nody urzÄ…dzeĹ„, hardlinki).
-- Flaga bezpieczeĹ„stwa symlinkĂłw (dopuszczalne wyĹ‚Ä…cznie relatywne symlinki w `lib/` na Linuksie).
-
----
-
-## 11. Izolowany Staging (Staging Contract)
-1. Dekompresja odbywa siÄ™ zawsze do dedykowanego podkatalogu `.staging` wewnÄ…trz katalogu instalacji.
-2. Katalog `.staging` przed rozpoczÄ™ciem nowej dekompresji jest czyszczony z wszelkich pozostaĹ‚oĹ›ci po poprzednich prĂłbach.
-3. Wszelkie bĹ‚Ä™dy dekompresji natychmiast usuwajÄ… katalog `.staging`.
-
----
-
-## 12. Kontrakt Planu Aktualizacji (UpdatePlan Contract)
-1. Plan generowany jest deterministycznie: lista plikĂłw wejĹ›ciowych jest sortowana leksykograficznie przed przetwarzaniem.
-2. Plan nie modyfikuje ĹĽadnych plikĂłw w trakcie generowania (pure function / dry-run).
-3. KaĹĽda Ĺ›cieĹĽka podlega rygorystycznemu badaniu bezpieczeĹ„stwa (brak separatorĂłw `..`, brak znakĂłw wieloznacznych).
-
----
-
-## 13. Polityka Klasyfikacji i Ochrony Danych
-WspĂłlna zasada architektoniczna: **`UNKNOWN DATA CLASSIFICATION â†’ DO NOT OVERWRITE`**.
-- Pliki baz danych uĹĽytkownika (`default_log.db`), pliki logĂłw i kopii zapasowych QSO sÄ… traktowane jako nienaruszalne i wykluczone z podmiany.
-- Plik konfiguracji `station_config.json` jest nienaruszalny.
-- Pliki poczÄ…tkowych baz danych (`serviceLOG.db`, `callbook.db`) podlegajÄ… regule `FirstInstallSeed`: sÄ… kopiowane do instalacji wyĹ‚Ä…cznie wtedy, gdy dany plik docelowy **nie istnieje**. JeĹ›li plik istnieje, jest bezwzglÄ™dnie zachowywany (`preserve_files`).
-- Wszelkie nierozpoznane pliki w paczce aktualizacyjnej trafiajÄ… do `rejected_files` i nie sÄ… kopiowane.
-
----
-
-## 14. Transakcyjny Model Aktualizacji (Transaction Model)
-KaĹĽda operacja aktualizacji jest wiÄ…zana z transakcjÄ… o unikalnym identyfikatorze:
 ```rust
-pub struct UpdateTransaction {
-    pub attempt_id: UpdateAttemptId,
-    pub target_version: String,
-    pub target_commit: String,
-    pub platform: ReleasePlatform,
-    pub arch: ReleaseArchitecture,
-    pub package_type: ReleasePackageType,
-    pub manifest_sha256: String,
-    pub asset_sha256: String,
-    pub started_at: u64,
-    pub current_phase: UpdatePhase,
-    pub rollback_state: RollbackState,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum InstallationType {
+    /// Windows: aplikacja przenośna w archiwum ZIP.
+    WindowsPortableZip,
+    /// Windows: pakiet instalacyjny Windows Installer (MSI) utworzony przez WiX.
+    WindowsMsi,
+    /// Windows: instalator interaktywny EXE utworzony przez Inno Setup.
+    WindowsInnoSetup,
+    /// Linux: archiwum przenośne tar.gz w katalogu domowym użytkownika.
+    LinuxPortableTarGz,
+    /// Linux: samodzielny obraz wykonywalny AppImage.
+    LinuxAppImage,
+    /// Linux: pakiet dystrybucyjny DEB (Debian/Ubuntu/Mint) zarządzany przez APT.
+    LinuxDeb,
+    /// Linux: pakiet dystrybucyjny RPM (Fedora/RHEL/openSUSE) zarządzany przez DNF.
+    LinuxRpm,
+    /// Linux: pakiet kontenerowy Flatpak uruchomiony w sandboxie.
+    LinuxFlatpak,
+    /// Instalacja nierozpoznana, ścieżka sieciowa lub system plików tylko do odczytu.
+    UnknownInstallation,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ManagementMode {
+    SelfManaged,
+    SystemManaged,
 }
 ```
-Stan transakcji nie zawiera ĹĽadnych sekretĂłw, tokenĂłw ani danych QSO.
 
 ---
 
-## 15. Kontrakt Kopii Zapasowej (Backup Contract)
-- Kopia zapasowa w katalogu `.rollback` obejmuje **wyĹ‚Ä…cznie** pliki ze zbioru `replace_files` zdefiniowane w `UpdatePlan`.
-- Kopia zapasowa nigdy nie dubluje plikĂłw uĹĽytkownika ani konfiguracji, co eliminuje ryzyko przywrĂłcenia przestarzaĹ‚ej bazy podczas rollbacku.
+## 10. Formaty Manifestu Wydań (Package Types Evaluation)
+W ramach Etapu M3 formalnie zidentyfikowano potrzebę obsługi następujących typów pakietów w manifeście:
+
+| `package_type` | Platforma | Architektura | Konwencja nazewnicza assetu | Tryb zarządzania |
+|---|---|---|---|---|
+| `windows-portable-zip` | `windows` | `x86_64` | `SPLogbook-Windows-x64.zip` | `SelfManaged` |
+| `windows-msi` | `windows` | `x86_64` | `SPLogbook-Windows-x64.msi` | `SystemManaged` |
+| `windows-inno-exe` | `windows` | `x86_64` | `SPLogbook-Windows-x64-Setup.exe` | `SystemManaged` |
+| `linux-portable-tar-gz` | `linux` | `x86_64` | `SPLogbook-Linux-x86_64.tar.gz` | `SelfManaged` |
+| `linux-appimage` | `linux` | `x86_64` | `SPLogbook-Linux-x86_64.AppImage` | `SelfManaged` |
+| `linux-deb` | `linux` | `x86_64` | `SPLogbook-Linux-x86_64.deb` | `SystemManaged` |
+| `linux-rpm` | `linux` | `x86_64` | `SPLogbook-Linux-x86_64.rpm` | `SystemManaged` |
+| `linux-flatpak` | `linux` | `x86_64` | `org.splogbook.SPLogbook.flatpak` | `SystemManaged` |
+
+> [!IMPORTANT]
+> **Adnotacja architektoniczna dot. schematu manifestu:**
+> `MANIFEST SCHEMA EXTENSION REQUIRED IN M3 OR DEDICATED PRE-M3 TASK;`
+> Obecny schemat JSON validatora oraz parser `ReleasePackageType` w kodzie `src/cloud/updater.rs` obsługują wyłącznie wartości `zip` oraz `tar.gz`. Rozszerzenie schematu manifestu i parsera o powyższe wartości zostanie zrealizowane w Etapie M3 w ramach dedykowanego kroku implementacyjnego. W niniejszej bramce projektowej schemat kodu źródłowego pozostaje nienaruszony.
 
 ---
 
-## 16. Kontrakt Aplikowania Zmian (Apply Contract)
-- Podmiana nastÄ™puje bez uĹĽycia masek wieloznacznych (`*`).
-- KaĹĽdy plik ze zbioru `replace_files` oraz `create_files` jest kopiowany/przenoszony z uĹĽyciem precyzyjnej, pojedynczej Ĺ›cieĹĽki literaĹ‚owej.
-- Na platformie Linux stosowane jest atomowe `rename()`; na Windows bezpieczne kopiowanie sterowane procesem pomocniczym po zamkniÄ™ciu programu gĹ‚Ăłwnego.
+## 11. Formuła Badania Pojemności Dysku (Disk Space Preflight)
+Arbitralny margines 50 MB został kategorycznie zastąpiony ścisłą, parametryczną formułą preflightu dyskowego:
+
+$$	ext{RequiredSpace} = 	ext{DeclaredDownloadSize} + 	ext{MaxExtractedSize} + 	ext{BackupSize} + 	ext{PackageManagerOverhead} + 	ext{TransactionMetadataSize} + 	ext{FilesystemSafetyMargin}$$
+
+### Definicja składników:
+1. **`DeclaredDownloadSize`:** Rozmiar assetu instalacyjnego zdeklarowany w podpisanym manifeście wydań (`size`).
+2. **`MaxExtractedSize`:**
+   - Dla formatów portable (ZIP, tar.gz) oraz AppImage: maksymalny rozmiar po rozpakowaniu wyliczony z nagłówków archiwum lub ograniczony przez `ArchiveLimits::MAX_TOTAL_BYTES` (~60–100 MB).
+   - Dla formatów zarządzanych systemowo (MSI, Inno Setup, DEB, RPM, Flatpak): 0 bajtów (ekstrakcja odbywa się pod kontrolą menedżera pakietów).
+3. **`BackupSize`:**
+   - Dla formatów portable: łączny rozmiar plików podlegających podmianie (`replace_files`), kopiowanych do `.rollback` (~40–50 MB).
+   - Dla formatów zarządzanych systemowo: szacunkowy narzut kopii zapasowej menedżera systemu (np. punkt przywracania systemu Windows Installer).
+4. **`PackageManagerOverhead`:**
+   - Dla formatów portable: 0 bajtów.
+   - Dla Windows Installer (MSI): bufor pamięci podręcznej `%SystemRoot%\Installer` szacowany jako $1.5 	imes 	ext{Rozmiar MSI}$.
+   - Dla Inno Setup: bufor deinstalatora i kopii zapasowej (~5 MB).
+   - Dla APT (DEB): bufor `/var/cache/apt/archives` szacowany jako $2 	imes 	ext{Rozmiar DEB}$.
+   - Dla DNF (RPM): bufor `/var/cache/dnf` szacowany jako $2 	imes 	ext{Rozmiar RPM}$.
+   - Dla Flatpak: narzut magazynu ostree szacowany jako $1.2 	imes 	ext{Rozmiar pobierania}$.
+5. **`TransactionMetadataSize`:** Narzut na pliki blokad współbieżności, logi audytowe JSON i metadane transakcji (~1 MB).
+6. **`FilesystemSafetyMargin`:** Konfigurowalny bufor bezpieczeństwa systemu plików:
+   - Wartość minimalna: **25 MB**.
+   - Wartość maksymalna: **100 MB**.
+   - Wartość domyślna: **32 MB**.
+   - Rola: zapobieganie całkowitemu wyczerpaniu tablic alokacji i wolnych bloków systemu plików.
 
 ---
 
-## 17. Kontrakt Uruchomienia Kandydata (Launch Contract)
-- Kandydat uruchamiany jest z flagÄ… diagnostycznÄ… `--check-health-startup`.
-- Nowy proces otrzymuje identyfikator transakcji w Ĺ›rodowisku lub parametrze wywoĹ‚ania.
-- Czas oczekiwania na potwierdzenie wynosi maksymalnie 15 sekund.
+## 12. Polityka Anulowania Transakcji (`OWNER-M2-13`)
+- **Faza bezpieczna (Przed wejściem w stan `Applying`):**
+  - Anulowanie jest w pełni dozwolone w stanach: `CheckingRelease`, `FetchingManifest`, `VerifyingManifest`, `SelectingAsset`, `Downloading`, `VerifyingDownload`, `InspectingPackage`, `Staging`, `BuildingUpdatePlan`, `AwaitingApply`.
+  - Skutek: Natychmiastowe przerwanie operacji, bezpieczne usunięcie plików tymczasowych, usunięcie stagingu, zwolnienie blokady `.update.lock`. Stan programu pozostaje w 100% nienaruszony.
+- **Faza krytyczna (Po wejściu w stan `Applying`):**
+  - Po rozpoczęciu podmiany plików programu (dla formatów portable) lub po uruchomieniu instalatora systemowego, **anulowanie przez użytkownika jest bezwzględnie zablokowane** (`OWNER-M2-13`).
+  - Przycisk anulowania w interfejsie GUI zostaje zablokowany/ukryty.
+  - Żądania anulowania nie przerywają operacji zapisu i podmiany plików.
+  - W razie awarii operacji I/O proces przechodzi automatycznie do procedury Rollbacku (dla SELF_MANAGED) lub procedury recovery instalatora systemowego (dla SYSTEM_MANAGED).
 
 ---
 
-## 18. Kontrakt Potwierdzenia Zdrowia (Health Contract)
-- Potwierdzenie polega na utworzeniu przez proces kandydata pliku `.health_ok`.
-- Plik `.health_ok` zawiera zserializowany rekord JSON: wersjÄ™, commit oraz `attempt_id`.
-- Stary plik `.health_ok` jest usuwany przed uruchomieniem kandydata, co zapobiega akceptacji przestarzaĹ‚ego znacznika.
+## 13. Macierz Zagrożeń Bezpieczeństwa Wspólnego Rdzenia (Security Matrix)
+
+| ID Zagrożenia | Wektor ataku / Błąd | Format / Obszar | Mechanizm mitygacji w projekcie | Ryzyko szczątkowe |
+|---|---|---|---|---|
+| **THR-CORE-01** | Podmiana manifestu / Man-in-the-Middle | Wszystkie | Weryfikacja sygnatury Ed25519 względem twardej listy zaufanych kluczy; blokada odwołanych kluczy | Wyeliminowane |
+| **THR-CORE-02** | Downgrade ataku wersji programu | Wszystkie | Ścisła walidacja SemVer — odmowa aktualizacji do wersji równej lub niższej niż bieżąca | Wyeliminowane |
+| **THR-CORE-03** | Nadpisanie baz danych użytkownika | Wszystkie | Bazy `default_log.db` kategorycznie chronione w `preserve_files`; seed baz kopiowany wyłącznie przy fresh install | Wyeliminowane |
+| **THR-CORE-04** | Nadpisanie pliku konfiguracyjnego | Wszystkie | `station_config.json` wykluczony ze stagingu i rollbacku | Wyeliminowane |
+| **THR-CORE-05** | Niezgodność sumy kontrolnej assetu | Wszystkie | Weryfikacja SHA-256 strumieniowo i lokalnie przed jakimkolwiek rozpakowaniem | Wyeliminowane |
+| **THR-CORE-06** | Zip-Slip / Tar-Traversal | Portable ZIP/tar | `validate_archive_relative_path` + canonicalize prefix check | Wyeliminowane |
+| **THR-CORE-07** | Decompression Bomb (DoS dysku) | Portable ZIP/tar | Limity `ArchiveLimits`: max 10 000 wpisów, max 150 MB pojedynczy plik, max 250 MB łącznie | Wyeliminowane |
+| **THR-CORE-08** | Mieszanie instalacji (Cross-Format Confusion)| Windows/Linux | Ścisła klasyfikacja `InstallationType`; zakaz aplikowania MSI na Portable lub tar.gz na DEB | Wyeliminowane |
+| **THR-CORE-09** | Eskalacja uprawnień przez `sudo`/`pkexec` | Linux | Kategoryczny zakaz wywoływania narzędzi eskalacji w kodzie aplikacji; delegacja do menedżera pakietów | Wyeliminowane |
+| **THR-CORE-10** | Nieautoryzowane akcje skryptowe instalatora | MSI / Inno | Zakaz Custom Actions w WiX; weryfikacja sum i podpisów instalatorów przed uruchomieniem | Wyeliminowane |
+| **THR-CORE-11** | Anulowanie w fazie krytycznej | Wszystkie | Bezwzględny zakaz anulowania po wejściu w stan `Applying` (`OWNER-M2-13`) | Wyeliminowane |
+| **THR-CORE-12** | Crash kandydata po aktualizacji | Wszystkie | Health confirmation (`.health_ok`) + automatyczny, deterministyczny rollback | Wyeliminowane |
+| **THR-CORE-13** | Przepełnienie dysku w trakcie aktualizacji | Wszystkie | Dynamiczna formuła preflightu dyskowego z konfigurowalnym buforem bezpieczeństwa | Wyeliminowane |
+| **THR-CORE-14** | Wyciek sekretów w logach audytowych | Wszystkie | Ścisła redakcja logów audytowych: brak haseł, tokenów, kluczy prywatnych i danych łączności | Wyeliminowane |
 
 ---
 
-## 19. Kontrakt Wycofania Zmian (Rollback Contract)
-W razie bĹ‚Ä™du testu zdrowia lub awarii kandydata:
-1. Proces kandydata jest natychmiast zatrzymywany (`kill`).
-2. Wszystkie nowo utworzone pliki (`create_files`) sÄ… usuwane.
-3. Wszystkie pliki podmienione (`replace_files`) sÄ… przywracane z katalogu `.rollback`.
-4. Poprzednia wersja programu jest ponownie uruchamiana.
-5. Zwracany jest precyzyjny status: `RollbackResult::Success`, `RollbackResult::Partial` lub `RollbackResult::Failed`.
+## 14. Wymagania Dotyczące Testów Natywnych (`OWNER-M2-15`)
+Zgodnie z formalnie zatwierdzoną decyzją `OWNER-M2-15`, Etap M3 bezwzględnie wymaga uruchomienia i weryfikacji pełnego zestawu testów natywnych na dedykowanych runnerach Windows i Linux w potoku CI:
+
+### Macierz testów Windows x86_64:
+- Portable ZIP: fresh install, update, locked EXE handling, PowerShell helper, native helper EXE, health success, health failure, rollback, zachowanie danych użytkownika.
+- MSI: clean install, upgrade, repair, uninstall, rollback on failure, files in use, reboot-required result (3010), per-user/per-machine policy, zachowanie danych w `%APPDATA%`.
+- Inno Setup: clean install, upgrade, uninstall, silent mode, failure recovery, zachowanie danych użytkownika, wykrywanie kolizji z MSI.
+
+### Macierz testów Linux x86_64:
+- Portable tar.gz: update, permissions `0o755`, RUNPATH `$ORIGIN/lib`, hermetyzacja Hamlib, atomowy rollback, zachowanie danych w `/home`.
+- AppImage: executable bit `0o755`, clean launch, update, backup poprzedniego obrazu, rollback przy awarii, integracja desktopowa, zachowanie danych w XDG.
+- DEB: budowa pakietu (`dpkg-deb`), walidacja `lintian`, clean install, upgrade, remove, purge behavior, zachowanie danych w katalogu domowym, delegacja do APT.
+- RPM: budowa pakietu (`rpmbuild`), walidacja `rpmlint`, install, upgrade, remove, zachowanie baz użytkownika, delegacja do DNF.
+- Flatpak: budowa manifestu (`flatpak-builder`), sandbox isolation, uprawnienia sprzętowe USB/TTY, portale XDG, zachowanie danych aplikacji.
 
 ---
 
-## 20. Kontrakt Czyszczenia (Cleanup Contract)
-- Po pomyĹ›lnym potwierdzeniu zdrowia katalogi `.staging`, `.rollback` oraz znacznik `.health_ok` sÄ… bezwzglÄ™dnie usuwane.
-- Po udanym wycofaniu zmian (rollback) katalog `.staging` i znacznik sÄ… usuwane, a katalog `.rollback` jest zwalniany po przywrĂłceniu plikĂłw.
+## 15. CI i Przyszły Potok Wydań (Future Release Pipeline Design)
+W Etapie M3 potok wydań `.github/workflows/build-and-release.yml` zostanie rozbudowany o następujące zadania:
+1. **Windows Build & Packaging:**
+   - Kompilacja `SPLogbook.exe` oraz natywnego helpera `splogbook-updater.exe`.
+   - Pakowanie `SPLogbook-Windows-x64.zip`.
+   - Budowanie pakietu MSI za pomocą WiX Toolset v4/v5.
+   - Budowanie instalatora Setup EXE za pomocą Inno Setup 6+.
+2. **Linux Build & Packaging:**
+   - Kompilacja `splogbook` z hermetyzacją `libhamlib.so.4` i `RUNPATH`.
+   - Pakowanie `SPLogbook-Linux-x86_64.tar.gz`.
+   - Budowanie pakietu AppImage za pomocą `appimagetool`.
+   - Budowanie pakietu DEB za pomocą `dpkg-deb`.
+   - Budowanie pakietu RPM za pomocą `rpmbuild`.
+   - Budowanie pakietu Flatpak za pomocą `flatpak-builder`.
+3. **Wymagania infrastrukturalne i nierozstrzygnięte certyfikaty:**
+   - Podpisywanie Authenticode dla Windows wymaga certyfikatu zaufanego przez Microsoft.
+   - Podpisywanie repozytoriów DEB i RPM wymaga dedykowanego klucza GPG.
+   - Dystrybucja Flatpak przez Flathub wymaga rejestracji App ID w rejestrze Flathub.
+   - Powyższe elementy stanowią odrębne wymagania wdrożeniowe i nie blokują implementacji binariów w M3.
 
 ---
 
-## 21. Odzyskiwanie po Awarii Zasilania (Crash Recovery)
-- Przy kaĹĽdym starcie aplikacji SPLogbook bada obecnoĹ›Ä‡ pozostaĹ‚oĹ›ci po przerwanych transakcjach.
-- JeĹ›li wykryto porzucony katalog `.staging` lub `.rollback`, aplikacja weryfikuje spĂłjnoĹ›Ä‡ plikĂłw programu i usuwa niekompletne pozostaĹ‚oĹ›ci.
-- Przerwana transakcja nigdy nie jest wznawiana automatycznie w przĂłd.
+## 16. Rejestr Decyzji Właściciela i Status Formalny
+W ramach bramki `STAGE-M2-OWNER-DECISIONS-APPROVAL-GATE` formalnie przyjęto i zatwierdzono 9 kluczowych decyzji Właściciela:
+
+| ID Decyzji | Treść decyzji | Zatwierdzony wariant | Status formalny | Blokuje M3? |
+|---|---|---|---|---|
+| **`OWNER-M2-01`** | Formaty wydań Windows w M3 | **APPROVED — EXPANDED OPTION A** (Portable ZIP, WiX MSI, Inno Setup EXE) | **APPROVED** | **NIE (0)** |
+| **`OWNER-M2-02`** | Wdrożenie MSI (WiX) i Inno Setup | **APPROVED — EXPANDED OPTION A** (Projekt i implementacja pełnego cyklu życia) | **APPROVED** | **NIE (0)** |
+| **`OWNER-M2-03`** | Wybór procesu pomocniczego Windows | **APPROVED — DUAL HELPER MODEL** (Primary: `splogbook-updater.exe`, Fallback: PowerShell) | **APPROVED** | **NIE (0)** |
+| **`OWNER-M2-04`** | Formaty wydań Linux w M3 | **APPROVED — EXPANDED OPTION A** (Portable tar.gz, pakiety DEB i RPM) | **APPROVED** | **NIE (0)** |
+| **`OWNER-M2-05`** | Wdrożenie formatu AppImage | **APPROVED — APPIMAGE REQUIRED** (Dedykowany asset `SPLogbook-Linux-x86_64.AppImage`) | **APPROVED** | **NIE (0)** |
+| **`OWNER-M2-06`** | Integracja DEB, RPM i Flatpak z updaterem | **APPROVED — MANAGED PACKAGE INTEGRATION** (Wykrywanie, monity, delegacja do APT/DNF/Flatpak) | **APPROVED** | **NIE (0)** |
+| **`OWNER-M2-07`** | Granica menedżera pakietów i zakaz eskalacji | **APPROVED — SYSTEM PACKAGE MANAGER BOUNDARY** (Zakaz `sudo`/`doas`/`pkexec`; brak podmiany w `/usr`) | **APPROVED** | **NIE (0)** |
+| **`OWNER-M2-08`** | Retencja katalogu kopii zapasowej `.rollback` | Opcja 1 (Usunięcie po pomyślnym potwierdzeniu zdrowia) | OPEN (Zalecane zatwierdzenie) | NIE |
+| **`OWNER-M2-09`** | Natychmiastowe usuwanie backupu programu | Opcja 1 (Usuwać natychmiast w celu oszczędności miejsca) | OPEN (Zalecane zatwierdzenie) | NIE |
+| **`OWNER-M2-10`** | Polityka aktualizacji bazy referencyjnej `serviceLOG.db` | Opcja 1 (FirstInstallSeed w M3, dedykowana migracja w M4) | OPEN (Zalecane zatwierdzenie) | NIE |
+| **`OWNER-M2-11`** | Polityka aktualizacji bazy referencyjnej `callbook.db` | Opcja 1 (FirstInstallSeed w M3, dedykowana migracja w M4) | OPEN (Zalecane zatwierdzenie) | NIE |
+| **`OWNER-M2-12`** | Retencja dziennika aktualizacji `update_audit.log` | Opcja 1 (Ostatnie 10 prób / 500 wpisów) | OPEN (Zalecane zatwierdzenie) | NIE |
+| **`OWNER-M2-13`** | Polityka anulowania aktualizacji w locie | **APPROVED — NON-CANCELLABLE APPLY** (Zakaz anulowania po wejściu w stan `Applying`) | **APPROVED** | **NIE (0)** |
+| **`OWNER-M2-14`** | Obsługa wznawiania pobierania (Range Resume) | Opcja 1 (Pobieranie całościowe z weryfikacją SHA-256) | OPEN (Zalecane zatwierdzenie) | NIE |
+| **`OWNER-M2-15`** | Wymóg natywnych testów na Windows i Linux runnerach | **APPROVED — NATIVE PLATFORM TESTS REQUIRED** (Obowiązkowe testy natywne dla M3) | **APPROVED** | **NIE (0)** |
+
+**Bilans decyzji blokujących Etap M3:**
+- Liczba wszystkich zidentyfikowanych decyzji: **15**.
+- Liczba decyzji blokujących M3 przed zatwierdzeniem: **9** (`OWNER-M2-01..07`, `13`, `15`).
+- Liczba decyzji formalnie zatwierdzonych w niniejszej bramce: **9**.
+- Liczba decyzji blokujących M3 po zatwierdzeniu: **0**.
+- Pozostałe decyzje otwarte (nieblokujące M3): **6** (`OWNER-M2-08..12`, `14`).
 
 ---
 
-## 22. Blokada WspĂłĹ‚bieĹĽnoĹ›ci (Concurrency Control)
-- Plik blokady `$baseDir/.update.lock` gwarantuje, ĹĽe w danym katalogu instalacji moĹĽe toczyÄ‡ siÄ™ wyĹ‚Ä…cznie jedna operacja aktualizacji naraz.
-- Blokada zawiera PID i czas rozpoczÄ™cia; w przypadku wykrycia martwego procesu (Stale Lock) blokada jest bezpiecznie przejmowana po zalogowaniu ostrzeĹĽenia.
-
----
-
-## 23. Polityka Anulowania (Cancellation Policy)
-- Anulowanie jest dozwolone w fazach: sprawdzania, pobierania, rozpakowywania i planowania.
-- Po wejĹ›ciu w fazÄ™ `Applying` (fizyczna podmiana plikĂłw) anulowanie przez uĹĽytkownika jest blokowane w interfejsie graficznym; ewentualny bĹ‚Ä…d wykonania wyzwala deterministyczny rollback.
-
----
-
-## 24. Diagnostyka i Telemetria Lokalna
-- Dziennik operacji zapisywany jest w pliku `update_audit.log`.
-- Format wpisĂłw: ISO 8601 UTC, poziom, `attempt_id`, faza, wynik, kod bĹ‚Ä™du.
-- BezwzglÄ™dny zakaz umieszczania w logu kluczy prywatnych, danych QSO, poĹ›wiadczeĹ„ i tokenĂłw.
-
----
-
-## 25. Hierarchia BĹ‚Ä™dĂłw (Error Hierarchy)
-BĹ‚Ä™dy aktualizatora sÄ… silnie typowane w enumie `UpdaterError`:
-- **BĹ‚Ä™dy Zaufania i Kryptografii:** `MissingSignature`, `InvalidSignature`, `UntrustedKey`, `RevokedKeyRejected`, `DowngradeRejected`.
-- **BĹ‚Ä™dy Manifestu i Assetu:** `ManifestParse`, `ManifestValidation`, `NoMatchingAssets`, `AmbiguousArtifact`, `SizeMismatch`, `HashMismatch`.
-- **BĹ‚Ä™dy Archiwum i Stagingu:** `ZipSlip`, `UnsafeArchivePath`, `ArchiveLimitExceeded`, `InvalidStagingLayout`.
-- **BĹ‚Ä™dy Wykonawcze i Systemowe:** `Io`, `SafetyGate`, `HealthCheckFailed`, `RollbackFailed`.
-
----
-
-## 26. Macierz ZagroĹĽeĹ„ BezpieczeĹ„stwa WspĂłlnego Rdzenia
-
-| ZagroĹĽenie | Wektor | Mitygacja Architektoniczna | Status |
-|---|---|---|---|
-| **ZĹ‚oĹ›liwy manifest** | Podmiana odpowiedzi API | Weryfikacja podpisu Ed25519 z `TRUSTED_KEYS` | Wyeliminowane |
-| **UĹĽycie skompromitowanego klucza** | Podpisanie starym kluczem 2026-01 | Rejestr `REVOKED_KEY_IDS` (fail-closed) | Wyeliminowane |
-| **Atak Downgrade** | Wymuszenie starszej wersji | Weryfikacja SemVer (`verify_downgrade_protection`) | Wyeliminowane |
-| **Podmiana pliku w locie (MITM)** | Modyfikacja strumienia pobierania | Strumieniowa weryfikacja SHA-256 z podpisanego manifestu | Wyeliminowane |
-| **Uszkodzenie danych uĹĽytkownika** | Kopiowanie zawartoĹ›ci archiwum | Klasyfikacja `UpdateFileClass` + deterministyczny `UpdatePlan` | Wyeliminowane |
-| **RĂłwnolegĹ‚e aktualizacje** | PodwĂłjne klikniÄ™cie / dwa procesy | WyĹ‚Ä…czna blokada plikowa `.update.lock` | Wyeliminowane |
-
----
-
-## 27. ZgodnoĹ›Ä‡ Formatu i Wersjonowanie
-- ZgodnoĹ›Ä‡ z SemVer 2.0.
-- Schemat manifestu wydaĹ„ pozostaje niezmieniony w fazie M2.
-- Wsparcie dla wydaĹ„ oficjalnych z archiwami `SPLogbook-Windows-x64.zip` oraz `SPLogbook-Linux-x86_64.tar.gz`.
-
----
-
-## 28. Piramida TestĂłw dla Etapu M3 (Test Pyramid)
-Architektura testowa M3 opiera siÄ™ na trzech poziomach:
-1. **Testy Jednostkowe (Unit Tests):** Weryfikacja logiki czystej (klasyfikator Ĺ›cieĹĽek, planer `UpdatePlan`, walidacja limitĂłw archiwĂłw, detekcja ZipSlip) â€” szybkie, w 100% deterministyczne, wykonywane w pamiÄ™ci i katalogach tymczasowych.
-2. **Testy Integracyjne (Integration Tests):** Symulacja peĹ‚nego cyklu transakcji na makietach katalogĂłw (tworzenie stagingu, generowanie backupu, podmiana, symulacja awarii kandydata, weryfikacja rollbacku).
-3. **Natywne Testy Platformowe (CI Runners):** Wykonywanie testĂłw na fizycznych/wirtualnych runnerach Windows i Ubuntu w potoku GitHub Actions.
-
----
-
-## 29. Wymagania DotyczÄ…ce RunnerĂłw Platformowych CI
-- **Windows Runner:** `windows-latest` (Windows Server z PowerShell 5.1+).
-- **Linux Runner:** `ubuntu-latest` (Ĺ›rodowisko x86_64 z bibliotekami GLIBC).
-- Testy nie mogÄ… wymagaÄ‡ uprawnieĹ„ administratora ani polecenia `sudo`.
-- Testy HIL pozostajÄ… wyĹ‚Ä…czone (`#[ignore = "hardware-in-the-loop"]`).
-
----
-
-## 30. WpĹ‚yw na Publiczne API
-- Zmiany architektoniczne sÄ… hermetycznie zamkniÄ™te w module `src/cloud/updater.rs`.
-- Interfejs wejĹ›ciowy GUI w `src/gui/app_services.rs` (`trigger_update_install`) operuje na bezpiecznym, zweryfikowanym typie `VerifiedReleaseAsset`.
-
----
-
-## 31. WpĹ‚yw na Formaty Danych i Bazy SQLite
-- **Brak jakiegokolwiek wpĹ‚ywu:** Schematy baz SQLite (`serviceLOG.db`, `callbook.db`, `default_log.db`) pozostajÄ… nienaruszone.
-- Struktura pliku konfiguracyjnego `station_config.json` pozostaje nienaruszona.
-
----
-
-## 32. WpĹ‚yw na ZaleĹĽnoĹ›ci Cargo
-- Projekt M2 nie dodaje ani nie modyfikuje ĹĽadnych zaleĹĽnoĹ›ci w `Cargo.toml` ani `Cargo.lock`.
-- Wszelkie operacje bazujÄ… na istniejÄ…cych pakietach (`zip`, `tar`, `flate2`, `ed25519-dalek`, `sha2`, `walkdir`, `tempfile`).
-
----
-
-## 33. Sekwencja Implementacji dla Etapu M3 (Implementation Sequence M3)
-WdroĹĽenie M3 powinno nastÄ…piÄ‡ w nastÄ™pujÄ…cych, Ĺ›cisĹ‚ych krokach inĹĽynierskich:
-1. **Krok M3-1 (Core Adapter Trait):** Zdefiniowanie cechy `PlatformInstallerAdapter` oraz unifikacja struktury `UpdateTransaction` w `src/cloud/updater.rs`.
-2. **Krok M3-2 (Windows Hardening):** Utwardzenie generatora PowerShell w oparciu o precyzyjnÄ… listÄ™ plikĂłw z `UpdatePlan` oraz dodanie obsĹ‚ugi kodĂłw powrotu health checku.
-3. **Krok M3-3 (Linux In-Process / Rename):** Refaktoryzacja `install_via_tar_gz` do peĹ‚nej zgodnoĹ›ci z `UpdatePlan` i atomowym `rename()`.
-4. **Krok M3-4 (Health & Rollback Integration):** Zintegrowanie obsĹ‚ugi znacznika `.health_ok` z attempt ID w `main.rs`.
-5. **Krok M3-5 (Crash Recovery & Lock):** Implementacja mechanizmu blokady wspĂłĹ‚bieĹĽnoĹ›ci `.update.lock` oraz usuwania porzuconych stagingĂłw przy starcie.
-6. **Krok M3-6 (Platform CI Validation):** WĹ‚Ä…czenie natywnych testĂłw integracyjnych w potoku GitHub Actions.
-
----
-
-## 34. Sekwencja CommitĂłw dla Etapu M3 (Commit Sequence M3)
-- `feat(updater): introduce platform installer adapter and transaction state machine`
-- `fix(updater): harden Windows update helper with strict UpdatePlan file lists`
-- `fix(updater): implement atomic rename and rollback semantics for Linux tar.gz`
-- `feat(updater): bind health confirmation marker with update attempt identity`
-- `feat(updater): add update concurrency lock and crash recovery routines`
-- `test(updater): add cross-platform integration test suite for update transactions`
-
----
-
-## 35. Kryteria UkoĹ„czenia M3 (Definition of Done)
-Etap M3 zostanie uznany za ukoĹ„czony, gdy:
-1. Kod ĹşrĂłdĹ‚owy w `src/cloud/updater.rs` w peĹ‚ni realizuje powyĹĽszÄ… architekturÄ™.
-2. Wszystkie testy automatyczne przechodzÄ… na Windows i Linux runnerach bez ostrzeĹĽeĹ„ Clippy.
-3. BezpieczeĹ„stwo danych uĹĽytkownika i baz danych jest potwierdzone testami guard w `tests/security_guard.rs`.
-4. W repozytorium nie ma ĹĽadnych wywoĹ‚aĹ„ `sudo`, `pkexec` ani niebezpiecznych masek wieloznacznych.
-
----
-
-## 36. ZaleĹĽnoĹ›ci od Decyzji WĹ‚aĹ›ciciela (Owner Decision Dependencies)
-RozpoczÄ™cie implementacji M3 jest zablokowane do czasu formalnego zatwierdzenia decyzji przez WĹ‚aĹ›ciciela repozytorium:
-- `OWNER-M2-01` do `OWNER-M2-15` (szczegĂłĹ‚owo opisane w rejestrze decyzji).
+## 17. Status Końcowy Etapu M2 i Gotowość Etapu M3
+- **Status dokumentu `UPDATE-DESIGN-WIN`:** `APPROVED`.
+- **Status dokumentu `UPDATE-DESIGN-LINUX`:** `APPROVED`.
+- **Status dokumentu `UPDATE-DESIGN-PLATFORM`:** `APPROVED`.
+- **Status Etapu M2:** `COMPLETED_DESIGN_VERIFIED`.
+- **Status Etapu M3:** `READY_FOR_IMPLEMENTATION`.
+- **Stan prac wykonawczych M3:** `NOT STARTED` (żadne zmiany implementacyjne M3 nie zostały podjęte w niniejszej bramce).
