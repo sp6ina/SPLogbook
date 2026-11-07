@@ -668,16 +668,6 @@ impl VerifiedReleaseManifest {
             )));
         }
 
-        // Ścisła walidacja kanonicznej nazwy pliku dla Windows x86_64
-        if target_platform == ReleasePlatform::Windows
-            && target_arch == ReleaseArchitecture::X86_64
-            && filename != "SPLogbook-Windows-x64.zip"
-        {
-            return Err(UpdaterError::SafetyGate(format!(
-                "Nazwa pliku w manifeście '{filename}' nie odpowiada oczekiwanej nazwie 'SPLogbook-Windows-x64.zip' dla Windows x86_64"
-            )));
-        }
-
         // Walidacja rozmiaru
         if m_asset.size == 0 || m_asset.size > MAX_ARTIFACT_DOWNLOAD_SIZE {
             return Err(UpdaterError::FileTooLarge);
@@ -701,6 +691,16 @@ impl VerifiedReleaseManifest {
             return Err(UpdaterError::AmbiguousArtifact(format!(
                 "Wielokrotny zasób API o nazwie {}",
                 m_asset.filename
+            )));
+        }
+
+        // Ścisła walidacja kanonicznej nazwy pliku dla Windows x86_64
+        if target_platform == ReleasePlatform::Windows
+            && target_arch == ReleaseArchitecture::X86_64
+            && filename != "SPLogbook-Windows-x64.zip"
+        {
+            return Err(UpdaterError::SafetyGate(format!(
+                "Nazwa pliku w manifeście '{filename}' nie odpowiada oczekiwanej nazwie 'SPLogbook-Windows-x64.zip' dla Windows x86_64"
             )));
         }
 
@@ -1489,6 +1489,22 @@ pub fn validate_archive_relative_path(raw_path: &Path) -> Result<std::path::Path
                         "Niedozwolone znaki w komponencie ścieżki".into(),
                     ));
                 }
+                if s.ends_with('.') || s.ends_with(' ') {
+                    return Err(UpdaterError::UnsafeArchivePath(format!(
+                        "Komponent ścieżki kończy się kropką lub spacją: {s}"
+                    )));
+                }
+                if s.contains('*')
+                    || s.contains('?')
+                    || s.contains('<')
+                    || s.contains('>')
+                    || s.contains('"')
+                    || s.contains('|')
+                {
+                    return Err(UpdaterError::UnsafeArchivePath(format!(
+                        "Niedozwolone znaki wieloznaczne w komponencie ścieżki: {s}"
+                    )));
+                }
                 let base_name = s.split('.').next().unwrap_or(&s);
                 let upper = base_name.to_ascii_uppercase();
                 let reserved = [
@@ -1864,6 +1880,10 @@ pub fn validate_zip_archive(
 
     let mut offset = 0;
     let mut total_uncompressed_size: u64 = 0;
+    let mut seen_paths = std::collections::HashSet::new();
+    let mut seen_lower = std::collections::HashSet::new();
+    let mut file_paths = std::collections::HashSet::new();
+    let mut dir_paths = std::collections::HashSet::new();
 
     for _ in 0..num_entries {
         if offset + 46 > cd_buf.len() {
@@ -1877,6 +1897,13 @@ pub fn validate_zip_archive(
                 "Nieprawidłowa sygnatura Central Directory w ZIP".into(),
             ));
         }
+
+        let comp_size = u32::from_le_bytes([
+            cd_buf[offset + 20],
+            cd_buf[offset + 21],
+            cd_buf[offset + 22],
+            cd_buf[offset + 23],
+        ]) as u64;
 
         let uncompressed_size = u32::from_le_bytes([
             cd_buf[offset + 24],
@@ -1902,6 +1929,12 @@ pub fn validate_zip_archive(
         }
 
         let name_bytes = &cd_buf[offset + 46..offset + 46 + name_len];
+        if name_bytes.contains(&0) {
+            return Err(UpdaterError::UnsafeArchivePath(
+                "Ścieżka zawiera bajt zerowy".into(),
+            ));
+        }
+
         let name_str = String::from_utf8_lossy(name_bytes);
 
         // Odrzucenie symlinków: Unix mode S_IFLNK (0o120000)
@@ -1919,13 +1952,79 @@ pub fn validate_zip_archive(
         }
 
         // Walidacja ścieżki
-        validate_archive_relative_path(Path::new(&*name_str))?;
+        let norm_path = validate_archive_relative_path(Path::new(&*name_str))?;
+
+        // Zabezpieczenie przed duplikatami wpisów
+        let path_str_clean = norm_path.to_string_lossy().to_string();
+        if !seen_paths.insert(path_str_clean.clone()) {
+            return Err(UpdaterError::ArchiveLimitExceeded(format!(
+                "Zduplikowany wpis w archiwum: {path_str_clean}"
+            )));
+        }
+
+        // Zabezpieczenie przed kolizjami wielkości znaków (case-insensitive)
+        let lower_str = path_str_clean.to_ascii_lowercase();
+        if !seen_lower.insert(lower_str) {
+            return Err(UpdaterError::UnsafeArchivePath(format!(
+                "Wykryto kolizję wielkości znaków (case-insensitive collision): {path_str_clean}"
+            )));
+        }
+
+        // Wykrywanie kolizji plik vs katalog
+        let is_dir =
+            name_str.ends_with('/') || name_str.ends_with('\\') || (external_attr & 0x10 != 0);
+        if is_dir {
+            if file_paths.contains(&norm_path) {
+                return Err(UpdaterError::ArchiveLimitExceeded(format!(
+                    "Kolizja plik/katalog dla ścieżki: {path_str_clean}"
+                )));
+            }
+            let mut ancestor = norm_path.parent();
+            while let Some(a) = ancestor {
+                if file_paths.contains(a) {
+                    return Err(UpdaterError::ArchiveLimitExceeded(format!(
+                        "Kolizja plik/katalog dla ścieżki: {path_str_clean}"
+                    )));
+                }
+                ancestor = a.parent();
+            }
+            dir_paths.insert(norm_path.clone());
+        } else {
+            if dir_paths.contains(&norm_path) {
+                return Err(UpdaterError::ArchiveLimitExceeded(format!(
+                    "Kolizja katalog/plik dla ścieżki: {path_str_clean}"
+                )));
+            }
+            let mut ancestor = norm_path.parent();
+            while let Some(a) = ancestor {
+                if file_paths.contains(a) {
+                    return Err(UpdaterError::ArchiveLimitExceeded(format!(
+                        "Kolizja katalog/plik dla ścieżki: {path_str_clean}"
+                    )));
+                }
+                dir_paths.insert(a.to_path_buf());
+                ancestor = a.parent();
+            }
+            file_paths.insert(norm_path.clone());
+        }
 
         if uncompressed_size > limits.max_single_size {
             return Err(UpdaterError::ArchiveLimitExceeded(format!(
                 "Rozmiar pliku {name_str} ({uncompressed_size}) przekracza limit ({})",
                 limits.max_single_size
             )));
+        }
+
+        // Wykrywanie bomb dekompresyjnych
+        if (comp_size > 0
+            && (uncompressed_size / comp_size > 100)
+            && uncompressed_size > 10 * 1024 * 1024)
+            || (comp_size == 0 && uncompressed_size > 10 * 1024 * 1024)
+        {
+            return Err(UpdaterError::ArchiveLimitExceeded(
+                "Wykryto potencjalną bombę dekompresyjną (nietypowo wysoki współczynnik kompresji)"
+                    .into(),
+            ));
         }
 
         total_uncompressed_size += uncompressed_size;
@@ -1978,6 +2077,246 @@ pub fn validate_zip_archive(
     Ok(num_entries)
 }
 
+/// Podsumowanie wstępnej inspekcji archiwum ZIP dla systemu Windows.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ZipInspectionSummary {
+    /// Liczba zweryfikowanych wpisów w archiwum.
+    pub entry_count: usize,
+    /// Całkowity rozmiar po rozpakowaniu w bajtach.
+    pub total_uncompressed_size: u64,
+    /// Ścieżka względna do głównego pliku wykonywalnego w stagingu (np. SPLogbook.exe).
+    pub main_executable_relative_path: PathBuf,
+    /// Czy archiwum posiada pojedynczy wspólny katalog nadrzędny (single root).
+    pub has_single_root: bool,
+    /// Nazwa wspólnego katalogu nadrzędnego (jeśli występuje).
+    pub single_root_name: Option<String>,
+}
+
+/// Dokonuje wyczerpującej inspekcji archiwum ZIP dla systemu Windows:
+/// 1. Wywołuje pełną walidację struktury nagłówków, limitów, symlinków, ścieżek, duplikatów i kolizji (`validate_zip_archive`).
+/// 2. Sprawdza układ katalogów: dopuszczalny jest wyłącznie flat archive lub single top-level directory.
+/// 3. Blokuje niejednoznaczny układ mieszany (mixed root layout: katalog nadrzędny + luźne pliki w root).
+/// 4. Weryfikuje obecność dokładnie jednego głównego pliku wykonywalnego (np. `SPLogbook.exe`).
+/// 5. Blokuje alternatywne pliki .exe na poziomie głównym.
+/// 6. Blokuje próby umieszczenia chronionych danych użytkownika (`default_log.db`, `station_config.json`, bazy *.db poza dozwolonymi seedami).
+pub fn inspect_windows_zip_archive(
+    zip_path: &Path,
+    limits: &ArchiveLimits,
+    expected_binary_name: &str,
+) -> Result<ZipInspectionSummary, UpdaterError> {
+    use std::io::{Read, Seek, SeekFrom};
+
+    // 1. Walidacja strukturalna nagłówków, limitów, symlinków, ścieżek, duplikatów i kolizji
+    let entry_count = validate_zip_archive(zip_path, limits)?;
+
+    // 2. Odczyt wpisów z Central Directory w celu analizy topologii i binarek
+    let mut file = std::fs::File::open(zip_path)
+        .map_err(|e| UpdaterError::Io(format!("Nie można otworzyć archiwum ZIP: {e}")))?;
+    let file_len = file
+        .metadata()
+        .map_err(|e| UpdaterError::Io(format!("Nie można pobrać metadanych ZIP: {e}")))?
+        .len();
+
+    let scan_len = std::cmp::min(file_len, 22 + 65535) as usize;
+    file.seek(SeekFrom::End(-(scan_len as i64)))
+        .map_err(|e| UpdaterError::Io(format!("Błąd pozycjonowania w ZIP: {e}")))?;
+
+    let mut buf = vec![0u8; scan_len];
+    file.read_exact(&mut buf)
+        .map_err(|e| UpdaterError::Io(format!("Błąd odczytu końcówki ZIP: {e}")))?;
+
+    let mut eocd_pos = None;
+    for i in (0..=scan_len - 22).rev() {
+        if buf[i..i + 4] == [0x50, 0x4b, 0x05, 0x06] {
+            eocd_pos = Some(i);
+            break;
+        }
+    }
+    let eocd_pos = eocd_pos.ok_or_else(|| {
+        UpdaterError::UnsafeArchivePath("Nie znaleziono rekordu EOCD w archiwum ZIP".into())
+    })?;
+
+    let num_entries = u16::from_le_bytes([buf[eocd_pos + 10], buf[eocd_pos + 11]]) as usize;
+    let cd_size = u32::from_le_bytes([
+        buf[eocd_pos + 12],
+        buf[eocd_pos + 13],
+        buf[eocd_pos + 14],
+        buf[eocd_pos + 15],
+    ]) as u64;
+    let cd_offset = u32::from_le_bytes([
+        buf[eocd_pos + 16],
+        buf[eocd_pos + 17],
+        buf[eocd_pos + 18],
+        buf[eocd_pos + 19],
+    ]) as u64;
+
+    file.seek(SeekFrom::Start(cd_offset))
+        .map_err(|e| UpdaterError::Io(format!("Błąd skoku do Central Directory: {e}")))?;
+
+    let mut cd_buf = vec![0u8; cd_size as usize];
+    file.read_exact(&mut cd_buf)
+        .map_err(|e| UpdaterError::Io(format!("Błąd odczytu Central Directory: {e}")))?;
+
+    let mut offset = 0;
+    let mut total_uncompressed_size: u64 = 0;
+    let mut entries = Vec::new();
+
+    for _ in 0..num_entries {
+        let uncompressed_size = u32::from_le_bytes([
+            cd_buf[offset + 24],
+            cd_buf[offset + 25],
+            cd_buf[offset + 26],
+            cd_buf[offset + 27],
+        ]) as u64;
+
+        let name_len = u16::from_le_bytes([cd_buf[offset + 28], cd_buf[offset + 29]]) as usize;
+        let extra_len = u16::from_le_bytes([cd_buf[offset + 30], cd_buf[offset + 31]]) as usize;
+        let comment_len = u16::from_le_bytes([cd_buf[offset + 32], cd_buf[offset + 33]]) as usize;
+        let external_attr = u32::from_le_bytes([
+            cd_buf[offset + 38],
+            cd_buf[offset + 39],
+            cd_buf[offset + 40],
+            cd_buf[offset + 41],
+        ]);
+
+        let name_bytes = &cd_buf[offset + 46..offset + 46 + name_len];
+        let name_str = String::from_utf8_lossy(name_bytes);
+        let norm_path = validate_archive_relative_path(Path::new(&*name_str))?;
+        let is_dir =
+            name_str.ends_with('/') || name_str.ends_with('\\') || (external_attr & 0x10 != 0);
+
+        total_uncompressed_size = total_uncompressed_size.saturating_add(uncompressed_size);
+        entries.push((name_str.to_string(), is_dir, uncompressed_size, norm_path));
+
+        offset += 46 + name_len + extra_len + comment_len;
+    }
+
+    // 3. Analiza układu (top-level directory vs flat)
+    let mut top_dirs = std::collections::BTreeSet::new();
+    let mut top_files = std::collections::BTreeSet::new();
+
+    for (_, is_dir, _, path) in &entries {
+        let comp_count = path.components().count();
+        if let Some(first) = path.components().next() {
+            let s = first.as_os_str().to_string_lossy().to_string();
+            if comp_count > 1 || *is_dir {
+                top_dirs.insert(s);
+            } else {
+                top_files.insert(s);
+            }
+        }
+    }
+
+    // Dopuszczalne są tylko:
+    // A. Flat archive: główna binarka (expected_binary_name) znajduje się w top_files
+    // B. Single top-level directory: dokładnie 1 katalog w top_dirs i 0 plików w top_files
+    let (has_single_root, single_root_name) = if top_files
+        .iter()
+        .any(|f| f.eq_ignore_ascii_case(expected_binary_name))
+    {
+        (false, None)
+    } else if top_dirs.len() == 1 && top_files.is_empty() {
+        let root = top_dirs.iter().next().cloned();
+        (true, root)
+    } else if top_dirs.len() == 1 && !top_files.is_empty() {
+        return Err(UpdaterError::SafetyGate(
+            "Niejednoznaczna struktura archiwum (mieszany root layout: katalog nadrzędny oraz pliki na poziomie głównym)".into(),
+        ));
+    } else if top_dirs.len() > 1 && top_files.is_empty() {
+        return Err(UpdaterError::SafetyGate(
+            "Niejednoznaczna struktura archiwum (wiele katalogów nadrzędnych bez głównego pliku wykonywalnego)".into(),
+        ));
+    } else {
+        return Err(UpdaterError::SafetyGate(format!(
+            "Paczka aktualizacyjna nie zawiera głównego pliku wykonywalnego {expected_binary_name}"
+        )));
+    };
+
+    // 4. Weryfikacja logicznych ścieżek, ochrony danych i binarek wykonywalnych
+    let mut main_exe_candidates = Vec::new();
+
+    for (_, is_dir, _, norm_path) in &entries {
+        if *is_dir {
+            continue;
+        }
+
+        let logical_path = if has_single_root {
+            let root_prefix = single_root_name.as_deref().unwrap_or("");
+            match norm_path.strip_prefix(root_prefix) {
+                Ok(p) => p.to_path_buf(),
+                Err(_) => norm_path.clone(),
+            }
+        } else {
+            norm_path.clone()
+        };
+
+        if logical_path.as_os_str().is_empty() {
+            continue;
+        }
+
+        // Ochrona danych użytkownika przed zastąpieniem przez pliki w paczce
+        let class = classify_update_path(&logical_path);
+        if class == UpdateFileClass::UserData || class == UpdateFileClass::UserConfiguration {
+            return Err(UpdaterError::SafetyGate(format!(
+                "Archiwum zawiera chronione dane użytkownika: {}",
+                logical_path.display()
+            )));
+        }
+
+        if is_protected_user_path(&logical_path) {
+            let path_norm = logical_path.to_string_lossy().replace('\\', "/");
+            let is_seed = path_norm == "databases/serviceLOG.db"
+                || path_norm == "databases/servicelog.db"
+                || path_norm == "databases/callbook.db";
+            if !is_seed {
+                return Err(UpdaterError::SafetyGate(format!(
+                    "Archiwum zawiera chronione dane użytkownika: {}",
+                    logical_path.display()
+                )));
+            }
+        }
+
+        // Sprawdzenie plików .exe
+        if let Some(f_name) = logical_path.file_name().and_then(|f| f.to_str())
+            && f_name.to_ascii_lowercase().ends_with(".exe")
+        {
+            if f_name.eq_ignore_ascii_case(expected_binary_name) {
+                main_exe_candidates.push(logical_path.clone());
+            } else if (logical_path.parent().is_none()
+                || logical_path.parent() == Some(Path::new("")))
+                && !f_name.eq_ignore_ascii_case("splogbook-updater.exe")
+            {
+                return Err(UpdaterError::SafetyGate(format!(
+                    "Nieoczekiwany alternatywny plik wykonywalny w archiwum: {}",
+                    logical_path.display()
+                )));
+            }
+        }
+    }
+
+    if main_exe_candidates.is_empty() {
+        return Err(UpdaterError::SafetyGate(format!(
+            "Paczka aktualizacyjna nie zawiera głównego pliku wykonywalnego {expected_binary_name}"
+        )));
+    }
+
+    if main_exe_candidates.len() > 1 {
+        return Err(UpdaterError::SafetyGate(format!(
+            "Wykryto zduplikowany główny plik wykonywalny {expected_binary_name} w archiwum"
+        )));
+    }
+
+    let main_exe = main_exe_candidates.remove(0);
+
+    Ok(ZipInspectionSummary {
+        entry_count,
+        total_uncompressed_size,
+        main_executable_relative_path: main_exe,
+        has_single_root,
+        single_root_name,
+    })
+}
+
 /// Bezpieczna ekstrakcja archiwum `.zip` w systemie Windows z użyciem `powershell.exe`
 /// i cmdleta `Expand-Archive`. Parametry przekazywane są jako oddzielne tokeny procesu (bez interpolacji shell).
 /// Przed wywołaniem Expand-Archive archiwum jest weryfikowane w Rust (validate_zip_archive),
@@ -2025,12 +2364,10 @@ pub fn extract_zip_safe_windows(
             "-ExecutionPolicy",
             "Bypass",
             "-Command",
-            "param($z, $d) Expand-Archive -LiteralPath $z -DestinationPath $d -Force",
-            "-z",
-            zip_str,
-            "-d",
-            dest_str,
+            "Expand-Archive -LiteralPath $env:SPLOGBOOK_ZIP_PATH -DestinationPath $env:SPLOGBOOK_DEST_DIR -Force",
         ])
+        .env("SPLOGBOOK_ZIP_PATH", zip_str)
+        .env("SPLOGBOOK_DEST_DIR", dest_str)
         .output()
         .map_err(|e| {
             UpdaterError::Io(format!(
@@ -3116,7 +3453,7 @@ fn install_via_windows_helper(
     new: &Path,
     asset: &VerifiedReleaseAsset,
     attempt_id: UpdateAttemptId,
-    _tx: &mut UpdateTransaction,
+    tx: &mut UpdateTransaction,
     _lock_guard: UpdateLockGuard,
 ) -> Result<(), UpdaterError> {
     let base_dir = current.parent().ok_or_else(|| {
@@ -3124,22 +3461,134 @@ fn install_via_windows_helper(
     })?;
 
     let staging = base_dir.join(".staging");
-    let rollback = base_dir.join(".rollback");
     let health_ok = base_dir.join(".health_ok");
 
     let _ = std::fs::remove_dir_all(&staging);
-    let _ = std::fs::remove_dir_all(&rollback);
     let _ = std::fs::remove_file(&health_ok);
 
-    // 1. Bezpieczna dekompresja i weryfikacja ZIP w Rust przed uruchomieniem pomocnika
-    let limits = ArchiveLimits::default();
-    extract_zip_safe_windows(new, &staging, &limits)?;
-    let _ = flatten_single_root_directory(&staging)?;
-    validate_staging_layout(&staging, "SPLogbook.exe")?;
+    // 1. Transition do InspectingPackage i zapis transakcji
+    tx.transition_to(UpdateStateId::InspectingPackage)?;
+    tx.save_to_dir(base_dir)?;
 
-    // Generujemy plan aktualizacji z bezwzględną ochroną danych
-    let plan = UpdatePlan::generate(&staging, base_dir)?;
-    plan.validate_safety("SPLogbook.exe")?;
+    // 2. Wyczerpująca inspekcja archiwum ZIP przed ekstrakcją
+    let limits = ArchiveLimits::default();
+    if let Err(e) = inspect_windows_zip_archive(new, &limits, "SPLogbook.exe") {
+        tx.failure_stage = Some(UpdateStateId::InspectingPackage);
+        tx.sanitized_diagnostic_summary = Some(e.to_string());
+        let _ = tx.transition_to(UpdateStateId::FailedPreApply);
+        let _ = tx.save_to_dir(base_dir);
+        return Err(e);
+    }
+
+    // 3. Transition do Staging i zapis transakcji
+    tx.transition_to(UpdateStateId::Staging)?;
+    tx.save_to_dir(base_dir)?;
+
+    // 4. Bezpieczna dekompresja ZIP do stagingu
+    if let Err(e) = extract_zip_safe_windows(new, &staging, &limits) {
+        let _ = std::fs::remove_dir_all(&staging);
+        tx.failure_stage = Some(UpdateStateId::Staging);
+        tx.sanitized_diagnostic_summary = Some(e.to_string());
+        let _ = tx.transition_to(UpdateStateId::FailedPreApply);
+        let _ = tx.save_to_dir(base_dir);
+        return Err(e);
+    }
+
+    // 5. Spłaszczenie pojedynczego katalogu nadrzędnego (jeśli występuje)
+    if let Err(e) = flatten_single_root_directory(&staging) {
+        let _ = std::fs::remove_dir_all(&staging);
+        tx.failure_stage = Some(UpdateStateId::Staging);
+        tx.sanitized_diagnostic_summary = Some(e.to_string());
+        let _ = tx.transition_to(UpdateStateId::FailedPreApply);
+        let _ = tx.save_to_dir(base_dir);
+        return Err(e);
+    }
+
+    // 6. Walidacja układu stagingu po ekstrakcji
+    if let Err(e) = validate_staging_layout(&staging, "SPLogbook.exe") {
+        let _ = std::fs::remove_dir_all(&staging);
+        tx.failure_stage = Some(UpdateStateId::Staging);
+        tx.sanitized_diagnostic_summary = Some(e.to_string());
+        let _ = tx.transition_to(UpdateStateId::FailedPreApply);
+        let _ = tx.save_to_dir(base_dir);
+        return Err(e);
+    }
+
+    // 7. Transition do BuildingUpdatePlan i zapis transakcji
+    tx.transition_to(UpdateStateId::BuildingUpdatePlan)?;
+    tx.save_to_dir(base_dir)?;
+
+    // 8. Generowanie planu aktualizacji z bezwzględną ochroną danych
+    let plan = match UpdatePlan::generate(&staging, base_dir) {
+        Ok(p) => p,
+        Err(e) => {
+            let _ = std::fs::remove_dir_all(&staging);
+            tx.failure_stage = Some(UpdateStateId::BuildingUpdatePlan);
+            tx.sanitized_diagnostic_summary = Some(e.to_string());
+            let _ = tx.transition_to(UpdateStateId::FailedPreApply);
+            let _ = tx.save_to_dir(base_dir);
+            return Err(e);
+        }
+    };
+
+    if let Err(e) = plan.validate_safety("SPLogbook.exe") {
+        let _ = std::fs::remove_dir_all(&staging);
+        tx.failure_stage = Some(UpdateStateId::BuildingUpdatePlan);
+        tx.sanitized_diagnostic_summary = Some(e.to_string());
+        let _ = tx.transition_to(UpdateStateId::FailedPreApply);
+        let _ = tx.save_to_dir(base_dir);
+        return Err(e);
+    }
+
+    // 9. Preflight pojemności dyskowej z marginesem 32 MiB
+    let mut backup_size: u64 = 0;
+    for (_rel, active_path) in &plan.replace_files {
+        if let Ok(meta) = active_path.metadata() {
+            backup_size = backup_size.saturating_add(meta.len());
+        }
+    }
+
+    let mut max_extracted_size: u64 = 0;
+    for e in walkdir::WalkDir::new(&staging)
+        .min_depth(1)
+        .into_iter()
+        .flatten()
+    {
+        if e.file_type().is_file()
+            && let Ok(meta) = e.metadata()
+        {
+            max_extracted_size = max_extracted_size.saturating_add(meta.len());
+        }
+    }
+
+    let requirements = match DiskPreflightRequirements::calculate(
+        InstallationType::WindowsPortableZip,
+        asset.declared_size(),
+        max_extracted_size,
+        backup_size,
+        Some(32 * 1024 * 1024),
+    ) {
+        Ok(r) => r,
+        Err(e) => {
+            let _ = std::fs::remove_dir_all(&staging);
+            tx.failure_stage = Some(UpdateStateId::BuildingUpdatePlan);
+            tx.sanitized_diagnostic_summary = Some(e.to_string());
+            let _ = tx.transition_to(UpdateStateId::FailedPreApply);
+            let _ = tx.save_to_dir(base_dir);
+            return Err(e);
+        }
+    };
+
+    if let Err(e) =
+        verify_disk_preflight(&SystemCapacityProvider, base_dir, &staging, &requirements)
+    {
+        let _ = std::fs::remove_dir_all(&staging);
+        tx.failure_stage = Some(UpdateStateId::BuildingUpdatePlan);
+        tx.sanitized_diagnostic_summary = Some(e.to_string());
+        let _ = tx.transition_to(UpdateStateId::FailedPreApply);
+        let _ = tx.save_to_dir(base_dir);
+        return Err(e);
+    }
 
     // 2. PRIMARY TARGET: Natywny pomocnik Rust splogbook-updater.exe
     let native_helper = base_dir.join("splogbook-updater.exe");
@@ -3747,6 +4196,436 @@ mod tests {
         let res = extract_zip_safe_windows(&zip_path, &staging, &limits);
         assert!(matches!(res, Err(UpdaterError::UnsafeArchivePath(_))));
 
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn windows_zip_valid_flat_archive() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("test_zip_valid_flat_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let zip_bytes = create_test_zip(&[
+            ("SPLogbook.exe", b"MZ valid flat", 0),
+            ("assets/icon.ico", b"ICON", 0),
+            ("README.md", b"DOCS", 0),
+        ]);
+        let zip_path = temp_dir.join("valid_flat.zip");
+        std::fs::write(&zip_path, zip_bytes).unwrap();
+        let limits = ArchiveLimits::default();
+        let summary = inspect_windows_zip_archive(&zip_path, &limits, "SPLogbook.exe").unwrap();
+        assert!(!summary.has_single_root);
+        assert_eq!(summary.single_root_name, None);
+        assert_eq!(
+            summary.main_executable_relative_path,
+            std::path::PathBuf::from("SPLogbook.exe")
+        );
+        assert_eq!(summary.entry_count, 3);
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn windows_zip_valid_single_root_archive_if_supported() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("test_zip_valid_single_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let zip_bytes = create_test_zip(&[
+            ("SPLogbook-Windows-x64/SPLogbook.exe", b"MZ valid single", 0),
+            ("SPLogbook-Windows-x64/assets/icon.ico", b"ICON", 0),
+            ("SPLogbook-Windows-x64/README.md", b"DOCS", 0),
+        ]);
+        let zip_path = temp_dir.join("valid_single.zip");
+        std::fs::write(&zip_path, zip_bytes).unwrap();
+        let limits = ArchiveLimits::default();
+        let summary = inspect_windows_zip_archive(&zip_path, &limits, "SPLogbook.exe").unwrap();
+        assert!(summary.has_single_root);
+        assert_eq!(
+            summary.single_root_name,
+            Some("SPLogbook-Windows-x64".to_string())
+        );
+        assert_eq!(
+            summary.main_executable_relative_path,
+            std::path::PathBuf::from("SPLogbook.exe")
+        );
+        assert_eq!(summary.entry_count, 3);
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn windows_zip_rejects_missing_main_executable() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("test_zip_missing_exe_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let zip_bytes = create_test_zip(&[("README.md", b"DOCS", 0), ("other.dll", b"DLL", 0)]);
+        let zip_path = temp_dir.join("missing_exe.zip");
+        std::fs::write(&zip_path, zip_bytes).unwrap();
+        let limits = ArchiveLimits::default();
+        let res = inspect_windows_zip_archive(&zip_path, &limits, "SPLogbook.exe");
+        assert!(matches!(res, Err(UpdaterError::SafetyGate(_))));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn windows_zip_rejects_duplicate_main_executable() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("test_zip_dup_exe_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let zip_bytes = create_test_zip(&[
+            ("SPLogbook.exe", b"EXE1", 0),
+            ("sub/SPLogbook.exe", b"EXE2", 0),
+        ]);
+        let zip_path = temp_dir.join("dup_exe.zip");
+        std::fs::write(&zip_path, zip_bytes).unwrap();
+        let limits = ArchiveLimits::default();
+        let res = inspect_windows_zip_archive(&zip_path, &limits, "SPLogbook.exe");
+        assert!(matches!(res, Err(UpdaterError::SafetyGate(_))));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn windows_zip_rejects_traversal() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("test_zip_trav_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let zip_bytes = create_test_zip(&[
+            ("SPLogbook.exe", b"EXE", 0),
+            ("../outside.txt", b"TRAVERSAL", 0),
+        ]);
+        let zip_path = temp_dir.join("traversal.zip");
+        std::fs::write(&zip_path, zip_bytes).unwrap();
+        let limits = ArchiveLimits::default();
+        let res = inspect_windows_zip_archive(&zip_path, &limits, "SPLogbook.exe");
+        assert!(matches!(res, Err(UpdaterError::UnsafeArchivePath(_))));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn windows_zip_rejects_absolute_path() {
+        let temp_dir = std::env::temp_dir().join(format!("test_zip_abs_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let zip_bytes = create_test_zip(&[("/SPLogbook.exe", b"EXE", 0)]);
+        let zip_path = temp_dir.join("abs.zip");
+        std::fs::write(&zip_path, zip_bytes).unwrap();
+        let limits = ArchiveLimits::default();
+        let res = inspect_windows_zip_archive(&zip_path, &limits, "SPLogbook.exe");
+        assert!(matches!(res, Err(UpdaterError::UnsafeArchivePath(_))));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn windows_zip_rejects_drive_prefix() {
+        let temp_dir = std::env::temp_dir().join(format!("test_zip_drv_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let zip_bytes = create_test_zip(&[("C:\\SPLogbook.exe", b"EXE", 0)]);
+        let zip_path = temp_dir.join("drv.zip");
+        std::fs::write(&zip_path, zip_bytes).unwrap();
+        let limits = ArchiveLimits::default();
+        let res = inspect_windows_zip_archive(&zip_path, &limits, "SPLogbook.exe");
+        assert!(matches!(res, Err(UpdaterError::UnsafeArchivePath(_))));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn windows_zip_rejects_ads() {
+        let temp_dir = std::env::temp_dir().join(format!("test_zip_ads_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let zip_bytes = create_test_zip(&[("SPLogbook.exe:stream", b"ADS", 0)]);
+        let zip_path = temp_dir.join("ads.zip");
+        std::fs::write(&zip_path, zip_bytes).unwrap();
+        let limits = ArchiveLimits::default();
+        let res = inspect_windows_zip_archive(&zip_path, &limits, "SPLogbook.exe");
+        assert!(matches!(res, Err(UpdaterError::UnsafeArchivePath(_))));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn windows_zip_rejects_reserved_name() {
+        let temp_dir = std::env::temp_dir().join(format!("test_zip_res_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let zip_bytes = create_test_zip(&[("CON.txt", b"RESERVED", 0)]);
+        let zip_path = temp_dir.join("reserved.zip");
+        std::fs::write(&zip_path, zip_bytes).unwrap();
+        let limits = ArchiveLimits::default();
+        let res = inspect_windows_zip_archive(&zip_path, &limits, "SPLogbook.exe");
+        assert!(matches!(res, Err(UpdaterError::UnsafeArchivePath(_))));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn windows_zip_rejects_trailing_dot() {
+        let temp_dir = std::env::temp_dir().join(format!("test_zip_dot_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let zip_bytes =
+            create_test_zip(&[("SPLogbook.exe", b"EXE", 0), ("sub./file.txt", b"DOT", 0)]);
+        let zip_path = temp_dir.join("trailing_dot.zip");
+        std::fs::write(&zip_path, zip_bytes).unwrap();
+        let limits = ArchiveLimits::default();
+        let res = inspect_windows_zip_archive(&zip_path, &limits, "SPLogbook.exe");
+        assert!(matches!(res, Err(UpdaterError::UnsafeArchivePath(_))));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn windows_zip_rejects_trailing_space() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("test_zip_space_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let zip_bytes =
+            create_test_zip(&[("SPLogbook.exe", b"EXE", 0), ("file.txt ", b"SPACE", 0)]);
+        let zip_path = temp_dir.join("trailing_space.zip");
+        std::fs::write(&zip_path, zip_bytes).unwrap();
+        let limits = ArchiveLimits::default();
+        let res = inspect_windows_zip_archive(&zip_path, &limits, "SPLogbook.exe");
+        assert!(matches!(res, Err(UpdaterError::UnsafeArchivePath(_))));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn windows_zip_rejects_duplicate_entry() {
+        let temp_dir = std::env::temp_dir().join(format!("test_zip_dup_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let zip_bytes =
+            create_test_zip(&[("SPLogbook.exe", b"EXE1", 0), ("SPLogbook.exe", b"EXE2", 0)]);
+        let zip_path = temp_dir.join("duplicate.zip");
+        std::fs::write(&zip_path, zip_bytes).unwrap();
+        let limits = ArchiveLimits::default();
+        let res = inspect_windows_zip_archive(&zip_path, &limits, "SPLogbook.exe");
+        assert!(matches!(res, Err(UpdaterError::ArchiveLimitExceeded(_))));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn windows_zip_rejects_case_collision() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("test_zip_case_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let zip_bytes = create_test_zip(&[
+            ("SPLogbook.exe", b"EXE", 0),
+            ("splogbook.exe", b"LOWER_CASE", 0),
+        ]);
+        let zip_path = temp_dir.join("case_collision.zip");
+        std::fs::write(&zip_path, zip_bytes).unwrap();
+        let limits = ArchiveLimits::default();
+        let res = inspect_windows_zip_archive(&zip_path, &limits, "SPLogbook.exe");
+        assert!(matches!(res, Err(UpdaterError::UnsafeArchivePath(_))));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn windows_zip_rejects_file_directory_collision() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("test_zip_fdir_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let zip_bytes = create_test_zip(&[
+            ("SPLogbook.exe", b"EXE", 0),
+            ("dir/file.txt", b"FILE", 0),
+            ("dir", b"COLLISION_AS_FILE", 0),
+        ]);
+        let zip_path = temp_dir.join("file_dir_collision.zip");
+        std::fs::write(&zip_path, zip_bytes).unwrap();
+        let limits = ArchiveLimits::default();
+        let res = inspect_windows_zip_archive(&zip_path, &limits, "SPLogbook.exe");
+        assert!(matches!(res, Err(UpdaterError::ArchiveLimitExceeded(_))));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn windows_zip_rejects_entry_count_limit() {
+        let temp_dir = std::env::temp_dir().join(format!("test_zip_cnt_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let zip_bytes = create_test_zip(&[
+            ("SPLogbook.exe", b"EXE", 0),
+            ("f1.txt", b"1", 0),
+            ("f2.txt", b"2", 0),
+        ]);
+        let zip_path = temp_dir.join("count_limit.zip");
+        std::fs::write(&zip_path, zip_bytes).unwrap();
+        let limits = ArchiveLimits {
+            max_entries: 2,
+            max_total_size: 10_000,
+            max_single_size: 10_000,
+        };
+        let res = inspect_windows_zip_archive(&zip_path, &limits, "SPLogbook.exe");
+        assert!(matches!(res, Err(UpdaterError::ArchiveLimitExceeded(_))));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn windows_zip_rejects_single_file_size_limit() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("test_zip_single_sz_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let zip_bytes =
+            create_test_zip(&[("SPLogbook.exe", b"EXE WITH TOO MUCH DATA FOR LIMIT", 0)]);
+        let zip_path = temp_dir.join("single_limit.zip");
+        std::fs::write(&zip_path, zip_bytes).unwrap();
+        let limits = ArchiveLimits {
+            max_entries: 10,
+            max_total_size: 10_000,
+            max_single_size: 5,
+        };
+        let res = inspect_windows_zip_archive(&zip_path, &limits, "SPLogbook.exe");
+        assert!(matches!(res, Err(UpdaterError::ArchiveLimitExceeded(_))));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn windows_zip_rejects_total_extracted_size_limit() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("test_zip_tot_sz_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let zip_bytes =
+            create_test_zip(&[("SPLogbook.exe", b"EXE1", 0), ("data.bin", b"DATA2", 0)]);
+        let zip_path = temp_dir.join("total_limit.zip");
+        std::fs::write(&zip_path, zip_bytes).unwrap();
+        let limits = ArchiveLimits {
+            max_entries: 10,
+            max_total_size: 6,
+            max_single_size: 10,
+        };
+        let res = inspect_windows_zip_archive(&zip_path, &limits, "SPLogbook.exe");
+        assert!(matches!(res, Err(UpdaterError::ArchiveLimitExceeded(_))));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn windows_zip_rejects_decompression_bomb() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("test_zip_bomb_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let mut zip_bytes = Vec::new();
+        let mut cd_bytes = Vec::new();
+        let name = "SPLogbook.exe";
+        let name_bytes = name.as_bytes();
+        let local_offset = zip_bytes.len() as u32;
+
+        zip_bytes.extend_from_slice(&[0x50, 0x4b, 0x03, 0x04]);
+        zip_bytes.extend_from_slice(&20u16.to_le_bytes());
+        zip_bytes.extend_from_slice(&0u16.to_le_bytes());
+        zip_bytes.extend_from_slice(&0u16.to_le_bytes());
+        zip_bytes.extend_from_slice(&0u16.to_le_bytes());
+        zip_bytes.extend_from_slice(&0u16.to_le_bytes());
+        zip_bytes.extend_from_slice(&0u32.to_le_bytes());
+        zip_bytes.extend_from_slice(&0u32.to_le_bytes()); // comp size = 0
+        zip_bytes.extend_from_slice(&(20 * 1024 * 1024u32).to_le_bytes()); // uncomp size = 20 MB
+        zip_bytes.extend_from_slice(&(name_bytes.len() as u16).to_le_bytes());
+        zip_bytes.extend_from_slice(&0u16.to_le_bytes());
+        zip_bytes.extend_from_slice(name_bytes);
+
+        cd_bytes.extend_from_slice(&[0x50, 0x4b, 0x01, 0x02]);
+        cd_bytes.extend_from_slice(&0x0314u16.to_le_bytes());
+        cd_bytes.extend_from_slice(&20u16.to_le_bytes());
+        cd_bytes.extend_from_slice(&0u16.to_le_bytes());
+        cd_bytes.extend_from_slice(&0u16.to_le_bytes());
+        cd_bytes.extend_from_slice(&0u16.to_le_bytes());
+        cd_bytes.extend_from_slice(&0u16.to_le_bytes());
+        cd_bytes.extend_from_slice(&0u32.to_le_bytes());
+        cd_bytes.extend_from_slice(&0u32.to_le_bytes()); // comp size = 0
+        cd_bytes.extend_from_slice(&(20 * 1024 * 1024u32).to_le_bytes()); // uncomp size = 20 MB
+        cd_bytes.extend_from_slice(&(name_bytes.len() as u16).to_le_bytes());
+        cd_bytes.extend_from_slice(&0u16.to_le_bytes());
+        cd_bytes.extend_from_slice(&0u16.to_le_bytes());
+        cd_bytes.extend_from_slice(&0u16.to_le_bytes());
+        cd_bytes.extend_from_slice(&0u16.to_le_bytes());
+        cd_bytes.extend_from_slice(&0u32.to_le_bytes());
+        cd_bytes.extend_from_slice(&local_offset.to_le_bytes());
+        cd_bytes.extend_from_slice(name_bytes);
+
+        let cd_offset = zip_bytes.len() as u32;
+        let cd_size = cd_bytes.len() as u32;
+        zip_bytes.extend_from_slice(&cd_bytes);
+
+        zip_bytes.extend_from_slice(&[0x50, 0x4b, 0x05, 0x06]);
+        zip_bytes.extend_from_slice(&0u16.to_le_bytes());
+        zip_bytes.extend_from_slice(&0u16.to_le_bytes());
+        zip_bytes.extend_from_slice(&1u16.to_le_bytes());
+        zip_bytes.extend_from_slice(&1u16.to_le_bytes());
+        zip_bytes.extend_from_slice(&cd_size.to_le_bytes());
+        zip_bytes.extend_from_slice(&cd_offset.to_le_bytes());
+        zip_bytes.extend_from_slice(&0u16.to_le_bytes());
+
+        let zip_path = temp_dir.join("bomb.zip");
+        std::fs::write(&zip_path, zip_bytes).unwrap();
+        let limits = ArchiveLimits::default();
+        let res = inspect_windows_zip_archive(&zip_path, &limits, "SPLogbook.exe");
+        assert!(matches!(res, Err(UpdaterError::ArchiveLimitExceeded(_))));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn windows_zip_rejects_unsafe_symlink() {
+        let temp_dir = std::env::temp_dir().join(format!("test_zip_sym_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let symlink_attr = (0o120_755_u32) << 16;
+        let zip_bytes = create_test_zip(&[
+            ("SPLogbook.exe", b"EXE", 0),
+            ("symlink_entry", b"target_path", symlink_attr),
+        ]);
+        let zip_path = temp_dir.join("symlink.zip");
+        std::fs::write(&zip_path, zip_bytes).unwrap();
+        let limits = ArchiveLimits::default();
+        let res = inspect_windows_zip_archive(&zip_path, &limits, "SPLogbook.exe");
+        assert!(matches!(res, Err(UpdaterError::UnsafeArchivePath(_))));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn windows_zip_rejects_mixed_root_layout() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("test_zip_mixed_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let zip_bytes = create_test_zip(&[
+            ("SPLogbook-Windows-x64/SPLogbook.exe", b"EXE", 0),
+            ("loose_file.txt", b"LOOSE", 0),
+        ]);
+        let zip_path = temp_dir.join("mixed.zip");
+        std::fs::write(&zip_path, zip_bytes).unwrap();
+        let limits = ArchiveLimits::default();
+        let res = inspect_windows_zip_archive(&zip_path, &limits, "SPLogbook.exe");
+        assert!(matches!(res, Err(UpdaterError::SafetyGate(_))));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn windows_zip_rejects_protected_data_replacement() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("test_zip_prot_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let zip_bytes = create_test_zip(&[
+            ("SPLogbook.exe", b"EXE", 0),
+            ("default_log.db", b"MALICIOUS_LOG", 0),
+        ]);
+        let zip_path = temp_dir.join("protected.zip");
+        std::fs::write(&zip_path, zip_bytes).unwrap();
+        let limits = ArchiveLimits::default();
+        let res = inspect_windows_zip_archive(&zip_path, &limits, "SPLogbook.exe");
+        assert!(matches!(res, Err(UpdaterError::SafetyGate(_))));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn windows_zip_does_not_execute_archive_content() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("test_zip_no_exec_{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let marker = temp_dir.join("executed.marker");
+        let script = format!("echo EXECUTED > \"{}\"\r\n", marker.display());
+        let zip_bytes = create_test_zip(&[
+            ("SPLogbook.exe", b"MZ valid exe", 0),
+            ("run_payload.bat", script.as_bytes(), 0),
+        ]);
+        let zip_path = temp_dir.join("safe_package.zip");
+        let staging = temp_dir.join("staging");
+        std::fs::write(&zip_path, zip_bytes).unwrap();
+        let limits = ArchiveLimits::default();
+        let inspection = inspect_windows_zip_archive(&zip_path, &limits, "SPLogbook.exe");
+        assert!(inspection.is_ok());
+        let extraction = extract_zip_safe_windows(&zip_path, &staging, &limits);
+        assert!(extraction.is_ok());
+        assert!(
+            !marker.exists(),
+            "Zawartość archiwum nie może zostać uruchomiona podczas inspekcji ani ekstrakcji"
+        );
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
 
@@ -5393,10 +6272,17 @@ mod tests {
             signing_key_fingerprint: "abc".into(),
         };
 
+        let api_assets = vec![ReleaseAsset {
+            name: "wrong-name.zip".into(),
+            browser_download_url: "https://example.com/wrong-name.zip".into(),
+            digest: None,
+            size: 1000,
+        }];
+
         let res = verified.select_asset_for_platform(
             ReleasePlatform::Windows,
             ReleaseArchitecture::X86_64,
-            &[],
+            &api_assets,
         );
         assert!(matches!(res, Err(UpdaterError::SafetyGate(_))));
     }
@@ -6412,10 +7298,17 @@ mod tests {
             signing_key_fingerprint: "abc".into(),
         };
 
+        let api_assets = vec![ReleaseAsset {
+            name: "wrong-name.zip".into(),
+            browser_download_url: "https://example.com/wrong-name.zip".into(),
+            digest: None,
+            size: 1000,
+        }];
+
         let res = verified.select_asset_for_platform(
             ReleasePlatform::Windows,
             ReleaseArchitecture::X86_64,
-            &[],
+            &api_assets,
         );
         assert!(matches!(res, Err(UpdaterError::SafetyGate(_))));
     }
