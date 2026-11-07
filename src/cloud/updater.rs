@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 // Asynchroniczny aktualizator baz referencyjnych (cty.dat, master.scp, lista użytkowników LoTW)
 
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 /// Podsumowanie operacji aktualizacji baz referencyjnych.
@@ -3861,6 +3862,171 @@ fn install_via_windows_helper(
     Ok(())
 }
 
+/// Wynik konsumpcji rezultatu działania pomocnika aktualizacji podczas startu aplikacji.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpdateStartupOutcome {
+    /// Identyfikator próby aktualizacji.
+    pub attempt_id: UpdateAttemptId,
+    /// Skrót SHA-256 zatwierdzonego planu aktualizacji.
+    pub plan_digest: String,
+    /// Kategoria wyniku pomocnika.
+    pub result_category: HelperResultCategory,
+    /// Kod wyjścia pomocnika.
+    pub exit_code: i32,
+    /// Silnik pomocnika (np. "NativeRust", "PowerShellFallback").
+    pub helper_engine: String,
+    /// Rozmiar zachowanego katalogu kopii zapasowej (.rollback) w bajtach.
+    pub backup_retained_bytes: u64,
+    /// Zredagowane podsumowanie diagnostyczne.
+    pub sanitized_diagnostic_summary: String,
+    /// Czy aktualizacja zakończyła się pełnym sukcesem (Committed).
+    pub was_success: bool,
+}
+
+/// Weryfikuje i konsumuje wynik działania pomocnika Windows (`.update_helper_result.json`)
+/// podczas startu aplikacji.
+///
+/// 1. Jeśli plik wyniku nie istnieje: zwraca `Ok(None)`.
+/// 2. Wczytuje i waliduje `WindowsHelperResult` (toleruje UTF-8 BOM generowany przez PowerShell 5.1).
+/// 3. Jeśli istnieje aktywny rekord transakcji (`.update_transaction.json`), synchronizuje jego stan:
+///    - Weryfikuje zgodność attempt_id oraz plan_digest;
+///    - Aktualizuje stan transakcji na `Committed` lub `RollbackVerified` / `FailedPostApply`;
+///    - Zapisuje zaktualizowany rekord transakcji.
+/// 4. Mierzy rozmiar zachowanego katalogu `.rollback` (TEMPORARY CONSERVATIVE RETENTION POLICY:
+///    katalog `.rollback` NIE jest usuwany).
+/// 5. Jeśli aktualizacja zakończyła się sukcesem, czyści pozostałości stagingu (`.staging`) oraz dowód zdrowia (`.health_ok`).
+/// 6. Archiwizuje plik wyniku, zmieniając nazwę na `.update_helper_result.consumed` (zabezpieczenie przed ponowną konsumpcją przy jednoczesnym zachowaniu śladu audytowego).
+/// 7. Zwraca `Ok(Some(UpdateStartupOutcome))`.
+pub fn consume_update_result_on_startup(
+    installation_root: &Path,
+) -> Result<Option<UpdateStartupOutcome>, UpdaterError> {
+    let result_file = installation_root.join(".update_helper_result.json");
+    if !result_file.exists() {
+        return Ok(None);
+    }
+
+    let meta = std::fs::symlink_metadata(&result_file).map_err(|e| {
+        UpdaterError::Io(format!(
+            "Nie można odczytać metadanych pliku wyniku pomocnika: {e}"
+        ))
+    })?;
+
+    if meta.file_type().is_symlink() {
+        return Err(UpdaterError::SafetyGate(
+            "Plik wyniku pomocnika nie może być dowiązaniem symbolicznym".to_string(),
+        ));
+    }
+
+    let raw_bytes = std::fs::read(&result_file)
+        .map_err(|e| UpdaterError::Io(format!("Nie można odczytać pliku wyniku pomocnika: {e}")))?;
+
+    // Usunięcie ewentualnego UTF-8 BOM (0xEF, 0xBB, 0xBF) tworzonego przez Set-Content w PowerShell 5.1
+    let clean_bytes = if raw_bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        &raw_bytes[3..]
+    } else {
+        &raw_bytes[..]
+    };
+
+    let helper_result: WindowsHelperResult = serde_json::from_slice(clean_bytes)
+        .map_err(|e| UpdaterError::Io(format!("Błąd parsowania rekordu wyniku pomocnika: {e}")))?;
+
+    if helper_result.result_version != CURRENT_HELPER_RESULT_VERSION {
+        return Err(UpdaterError::SafetyGate(format!(
+            "Nieobsługiwana wersja rekordu wyniku pomocnika: {} (oczekiwano {})",
+            helper_result.result_version, CURRENT_HELPER_RESULT_VERSION
+        )));
+    }
+
+    // Synchronizacja z rekordem transakcji (jeśli istnieje na dysku)
+    let tx_path = installation_root.join(TRANSACTION_FILE_NAME);
+    if tx_path.exists()
+        && let Ok(tx_bytes) = std::fs::read(&tx_path)
+    {
+        let clean_tx_bytes = if tx_bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
+            &tx_bytes[3..]
+        } else {
+            &tx_bytes[..]
+        };
+        if let Ok(mut tx) = serde_json::from_slice::<UpdateTransaction>(clean_tx_bytes)
+            && tx.attempt_id == helper_result.attempt_id
+        {
+            let final_state = helper_result.final_update_state;
+            match final_state {
+                UpdateStateId::Committed => {
+                    if tx.current_state == UpdateStateId::Applying {
+                        let _ = tx.transition_to(UpdateStateId::LaunchingCandidate);
+                        let _ = tx.transition_to(UpdateStateId::AwaitingHealth);
+                        let _ = tx.transition_to(UpdateStateId::Committed);
+                    } else {
+                        let _ = tx.transition_to(UpdateStateId::Committed);
+                    }
+                }
+                UpdateStateId::RollbackVerified => {
+                    if tx.current_state == UpdateStateId::Applying {
+                        let _ = tx.transition_to(UpdateStateId::FailedPostApply);
+                        let _ = tx.transition_to(UpdateStateId::Rollback);
+                        let _ = tx.transition_to(UpdateStateId::RollbackVerified);
+                    } else {
+                        let _ = tx.transition_to(UpdateStateId::RollbackVerified);
+                    }
+                }
+                other => {
+                    let _ = tx.transition_to(other);
+                }
+            }
+            let _ = tx.save_to_dir(installation_root);
+        }
+    }
+
+    // Pomiar rozmiaru zachowanego katalogu .rollback (konserwatywna polityka retencji)
+    let rollback_dir = installation_root.join(".rollback");
+    let mut backup_retained_bytes: u64 = 0;
+    if rollback_dir.is_dir() {
+        for entry in walkdir::WalkDir::new(&rollback_dir)
+            .min_depth(1)
+            .into_iter()
+            .flatten()
+        {
+            if entry.file_type().is_file()
+                && let Ok(m) = entry.metadata()
+            {
+                backup_retained_bytes = backup_retained_bytes.saturating_add(m.len());
+            }
+        }
+    }
+
+    let was_success = helper_result.result_category == HelperResultCategory::Success
+        && helper_result.exit_code == 0
+        && helper_result.final_update_state == UpdateStateId::Committed;
+
+    // Bezpieczne sprzątanie stagingu i dowodu zdrowia wyłącznie po potwierdzonym sukcesie
+    if was_success {
+        let staging_dir = installation_root.join(".staging");
+        if staging_dir.exists() {
+            let _ = std::fs::remove_dir_all(&staging_dir);
+        }
+        let health_proof = installation_root.join(HEALTH_PROOF_FILENAME);
+        if health_proof.exists() {
+            let _ = std::fs::remove_file(&health_proof);
+        }
+    }
+
+    // Archiwizacja pliku wyniku do .update_helper_result.consumed (ślad audytowy)
+    let consumed_file = installation_root.join(".update_helper_result.consumed");
+    let _ = std::fs::rename(&result_file, &consumed_file);
+
+    Ok(Some(UpdateStartupOutcome {
+        attempt_id: helper_result.attempt_id,
+        plan_digest: helper_result.plan_digest,
+        result_category: helper_result.result_category,
+        exit_code: helper_result.exit_code,
+        helper_engine: helper_result.helper_engine,
+        backup_retained_bytes,
+        sanitized_diagnostic_summary: helper_result.sanitized_diagnostic_summary,
+        was_success,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -7542,5 +7708,246 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn consume_update_result_returns_none_when_no_result_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let outcome = consume_update_result_on_startup(temp.path()).unwrap();
+        assert!(outcome.is_none());
+    }
+
+    #[test]
+    fn consume_update_result_rejects_unsupported_version() {
+        let temp = tempfile::tempdir().unwrap();
+        let result_file = temp.path().join(".update_helper_result.json");
+        let res = WindowsHelperResult {
+            result_version: 999,
+            attempt_id: UpdateAttemptId::generate(),
+            plan_digest: "digest123".to_string(),
+            final_update_state: UpdateStateId::Committed,
+            helper_engine: "NativeRust".to_string(),
+            result_category: HelperResultCategory::Success,
+            exit_code: 0,
+            rollback_result: Some(RollbackResultKind::None),
+            health_result: Some(HealthResultKind::Passed),
+            completed_operation_count: 5,
+            total_operation_count: 5,
+            backup_retained: true,
+            manual_recovery_required: false,
+            sanitized_diagnostic_summary: "Success".to_string(),
+            completion_time: chrono::Utc::now(),
+        };
+        std::fs::write(&result_file, serde_json::to_vec_pretty(&res).unwrap()).unwrap();
+
+        let outcome = consume_update_result_on_startup(temp.path());
+        assert!(
+            matches!(outcome, Err(UpdaterError::SafetyGate(msg)) if msg.contains("Nieobsługiwana wersja"))
+        );
+    }
+
+    #[test]
+    fn consume_update_result_success_cleans_staging_and_preserves_rollback() {
+        let temp = tempfile::tempdir().unwrap();
+        let attempt = UpdateAttemptId::generate();
+        let result_file = temp.path().join(".update_helper_result.json");
+        let staging_dir = temp.path().join(".staging");
+        let rollback_dir = temp.path().join(".rollback");
+        let health_proof = temp.path().join(HEALTH_PROOF_FILENAME);
+
+        std::fs::create_dir_all(&staging_dir).unwrap();
+        std::fs::write(staging_dir.join("candidate.exe"), b"CANDIDATE").unwrap();
+
+        std::fs::create_dir_all(&rollback_dir).unwrap();
+        std::fs::write(rollback_dir.join("backup.exe"), b"BACKUP_BYTES_12345").unwrap();
+
+        std::fs::write(&health_proof, b"HEALTH_OK").unwrap();
+
+        let res = WindowsHelperResult::new(
+            attempt,
+            "test_digest_abc".to_string(),
+            UpdateStateId::Committed,
+            "NativeRust",
+            HelperResultCategory::Success,
+            WindowsHelperExitCode::Success,
+            Some(RollbackResultKind::None),
+            Some(HealthResultKind::Passed),
+            1,
+            1,
+            true,
+            false,
+            "All good",
+        );
+        std::fs::write(&result_file, serde_json::to_vec_pretty(&res).unwrap()).unwrap();
+
+        let outcome = consume_update_result_on_startup(temp.path()).unwrap();
+        assert!(outcome.is_some());
+        let outcome = outcome.unwrap();
+        assert!(outcome.was_success);
+        assert_eq!(outcome.attempt_id, attempt);
+        assert_eq!(outcome.backup_retained_bytes, 18);
+
+        // Staging i health proof usunięte
+        assert!(
+            !staging_dir.exists(),
+            "Staging musi być usunięty po sukcesie"
+        );
+        assert!(
+            !health_proof.exists(),
+            "Health proof musi być usunięty po sukcesie"
+        );
+
+        // Rollback zachowany!
+        assert!(
+            rollback_dir.exists(),
+            ".rollback musi być zachowany (polityka konserwatywna)"
+        );
+        assert_eq!(
+            std::fs::read(rollback_dir.join("backup.exe")).unwrap(),
+            b"BACKUP_BYTES_12345"
+        );
+
+        // Plik wyniku zarchiwizowany do .consumed
+        assert!(!result_file.exists());
+        assert!(temp.path().join(".update_helper_result.consumed").exists());
+
+        // Kolejne wywołanie zwraca None (brak podwójnej konsumpcji)
+        let second = consume_update_result_on_startup(temp.path()).unwrap();
+        assert!(second.is_none());
+    }
+
+    #[test]
+    fn consume_update_result_failure_keeps_rollback_and_preserves_error_details() {
+        let temp = tempfile::tempdir().unwrap();
+        let attempt = UpdateAttemptId::generate();
+        let result_file = temp.path().join(".update_helper_result.json");
+        let rollback_dir = temp.path().join(".rollback");
+
+        std::fs::create_dir_all(&rollback_dir).unwrap();
+        std::fs::write(rollback_dir.join("backup.exe"), b"BACKUP").unwrap();
+
+        let res = WindowsHelperResult::new(
+            attempt,
+            "test_digest_fail".to_string(),
+            UpdateStateId::FailedPostApply,
+            "PowerShellFallback",
+            HelperResultCategory::FailedRollbackSucceeded,
+            WindowsHelperExitCode::ApplyFailedRollbackSucceeded,
+            Some(RollbackResultKind::Success),
+            Some(HealthResultKind::TimedOut),
+            1,
+            2,
+            true,
+            false,
+            "Timeout waiting for health proof",
+        );
+        std::fs::write(&result_file, serde_json::to_vec_pretty(&res).unwrap()).unwrap();
+
+        let outcome = consume_update_result_on_startup(temp.path()).unwrap();
+        assert!(outcome.is_some());
+        let outcome = outcome.unwrap();
+        assert!(!outcome.was_success);
+        assert_eq!(
+            outcome.result_category,
+            HelperResultCategory::FailedRollbackSucceeded
+        );
+        assert_eq!(
+            outcome.exit_code,
+            WindowsHelperExitCode::ApplyFailedRollbackSucceeded.as_i32()
+        );
+        assert!(rollback_dir.exists());
+    }
+
+    #[test]
+    fn consume_update_result_handles_utf8_bom() {
+        let temp = tempfile::tempdir().unwrap();
+        let attempt = UpdateAttemptId::generate();
+        let result_file = temp.path().join(".update_helper_result.json");
+
+        let res = WindowsHelperResult::new(
+            attempt,
+            "digest_bom".to_string(),
+            UpdateStateId::Committed,
+            "PowerShellFallback",
+            HelperResultCategory::Success,
+            WindowsHelperExitCode::Success,
+            Some(RollbackResultKind::None),
+            Some(HealthResultKind::Passed),
+            1,
+            1,
+            true,
+            false,
+            "Success with BOM",
+        );
+        let mut bytes_with_bom = vec![0xEF, 0xBB, 0xBF];
+        bytes_with_bom.extend_from_slice(&serde_json::to_vec_pretty(&res).unwrap());
+        std::fs::write(&result_file, bytes_with_bom).unwrap();
+
+        let outcome = consume_update_result_on_startup(temp.path()).unwrap();
+        assert!(outcome.is_some());
+        assert!(outcome.unwrap().was_success);
+    }
+
+    #[test]
+    fn consume_update_result_synchronizes_transaction_record() {
+        let temp = tempfile::tempdir().unwrap();
+        let attempt = UpdateAttemptId::generate();
+        let result_file = temp.path().join(".update_helper_result.json");
+        let tx_file = temp.path().join(TRANSACTION_FILE_NAME);
+
+        let mut tx = UpdateTransaction::new(
+            attempt,
+            "v1.0.0".to_string(),
+            "v1.1.0".to_string(),
+            "commit123".to_string(),
+            "sha123".to_string(),
+            "windows-portable-zip".to_string(),
+            InstallationType::WindowsPortableZip,
+            "manifest_digest".to_string(),
+            "SPLogbook-Windows-x64.zip".to_string(),
+            1000,
+            "asset_sha256".to_string(),
+            temp.path().join(".staging"),
+            temp.path(),
+        )
+        .unwrap();
+        tx.transition_to(UpdateStateId::CheckingRelease).unwrap();
+        tx.transition_to(UpdateStateId::FetchingManifest).unwrap();
+        tx.transition_to(UpdateStateId::VerifyingManifest).unwrap();
+        tx.transition_to(UpdateStateId::SelectingAsset).unwrap();
+        tx.transition_to(UpdateStateId::Downloading).unwrap();
+        tx.transition_to(UpdateStateId::VerifyingDownload).unwrap();
+        tx.transition_to(UpdateStateId::InspectingPackage).unwrap();
+        tx.transition_to(UpdateStateId::Staging).unwrap();
+        tx.transition_to(UpdateStateId::BuildingUpdatePlan).unwrap();
+        tx.transition_to(UpdateStateId::AwaitingApply).unwrap();
+        tx.transition_to(UpdateStateId::Applying).unwrap();
+        tx.set_plan_digest("digest_sync");
+        tx.save_to_dir(temp.path()).unwrap();
+
+        let res = WindowsHelperResult::new(
+            attempt,
+            "digest_sync".to_string(),
+            UpdateStateId::Committed,
+            "NativeRust",
+            HelperResultCategory::Success,
+            WindowsHelperExitCode::Success,
+            Some(RollbackResultKind::None),
+            Some(HealthResultKind::Passed),
+            3,
+            3,
+            true,
+            false,
+            "Synced successfully",
+        );
+        std::fs::write(&result_file, serde_json::to_vec_pretty(&res).unwrap()).unwrap();
+
+        let outcome = consume_update_result_on_startup(temp.path()).unwrap();
+        assert!(outcome.is_some());
+
+        // Sprawdzenie, czy transakcja została zaktualizowana na dysku
+        let updated_tx: UpdateTransaction =
+            serde_json::from_slice(&std::fs::read(&tx_file).unwrap()).unwrap();
+        assert_eq!(updated_tx.current_state, UpdateStateId::Committed);
     }
 }
