@@ -287,20 +287,26 @@ Utworzenie, uzgodnienie i zweryfikowanie trzech kompletnych dokumentĂłw projek
 
 # 10. Etap M3: Implementacja Windows i Linux
 
-Prace implementacyjne nierozpoczęte. Gotowe do implementacji po formalnym zatwierdzeniu 9 decyzji blokujących przez Właściciela w STAGE-M2-OWNER-DECISIONS-APPROVAL-GATE.
+- **M3 STATUS:** **IN_PROGRESS**
+- **M3-A STATUS:** **COMPLETED_SOFTWARE_VERIFIED** (Implementacja wspolnego rdzenia platformowego, modelu transakcji, 20-stanowego automatu i mechanizmow recovery aktualizatora SPLogbook zamknieta w STAGE-M3-A-PLATFORM-CORE-IMPLEMENTATION-GATE)
+- **M3-B STATUS:** **READY_FOR_IMPLEMENTATION (NOT STARTED)** (Instalator Windows, pomocnik natywny i instalator Inno Setup)
+- **M3-C STATUS:** **READY_FOR_IMPLEMENTATION (NOT STARTED)** (Pakiety Linux: AppImage, DEB, RPM, Flatpak)
 
-#### UPDATE-WIN-INSTALLER â€” Instalator Windows
+#### UPDATE-CORE-PLATFORM (M3-A) — Wspolny rdzen transakcyjny aktualizatora
+- **Tor:** UPDATE
+- **Status wykonawczy:** **COMPLETED_SOFTWARE_VERIFIED**
+- **Zaleznosci:** UPDATE-DESIGN-PLATFORM (APPROVED), decyzje OWNER-M2-01..15 (APPROVED)
+- **Zakres:** UpdateAttemptId, UpdateStateMachine (20 stanow), UpdateTransaction, InstallationType (9 formatow), InstallationCapabilities, PlatformInstallerAdapter, DiskPreflightRequirements, blokada concurrency .update.lock, centralna polityka anulowania, RecoveryDecisionEngine, kontrakt dowodu zdrowia HealthProof, security guards.
+
+#### UPDATE-WIN-INSTALLER (M3-B) — Instalator Windows
 - **Tor:** UPDATE
 - **Status wykonawczy:** READY_FOR_IMPLEMENTATION (NOT STARTED)
-- **ZaleĹĽnoĹ›ci:** UPDATE-DESIGN-WIN, UPDATE-DESIGN-PLATFORM, decyzje OWNER-M2-01..03
-- **Zależności:** UPDATE-DESIGN-WIN (APPROVED), UPDATE-DESIGN-PLATFORM (APPROVED), decyzje OWNER-M2-01..03 (APPROVED)
+- **Zaleznosci:** UPDATE-DESIGN-WIN (APPROVED), UPDATE-DESIGN-PLATFORM (APPROVED), UPDATE-CORE-PLATFORM (COMPLETED_SOFTWARE_VERIFIED), decyzje OWNER-M2-01..03 (APPROVED)
 
-#### UPDATE-LINUX-INSTALLER â€” Instalator Linux (tar.gz)
+#### UPDATE-LINUX-INSTALLER (M3-C) — Instalator Linux
 - **Tor:** UPDATE
 - **Status wykonawczy:** READY_FOR_IMPLEMENTATION (NOT STARTED)
-- **ZaleĹĽnoĹ›ci:** UPDATE-DESIGN-LINUX, UPDATE-DESIGN-PLATFORM, decyzje OWNER-M2-04..07
-- **Zależności:** UPDATE-DESIGN-LINUX (APPROVED), UPDATE-DESIGN-PLATFORM (APPROVED), decyzje OWNER-M2-04..07 (APPROVED)
-
+- **Zaleznosci:** UPDATE-DESIGN-LINUX (APPROVED), UPDATE-DESIGN-PLATFORM (APPROVED), UPDATE-CORE-PLATFORM (COMPLETED_SOFTWARE_VERIFIED), decyzje OWNER-M2-04..07 (APPROVED)
 ---
 
 # 11. Etap M4: Schemat manifestu

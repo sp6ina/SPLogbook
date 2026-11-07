@@ -221,7 +221,7 @@
 - **Kategoria:** `REL`
 - **Poziom krytycznoĹ›ci:** `CRITICAL`
 - **Poziom pewnoĹ›ci:** `CONFIRMED`
-- **Status:** **APPROVED / COMPLETED_DESIGN_VERIFIED** (Dokument DESIGN_3_0_C_PLATFORM_INSTALLERS.md v2.1.0; 9 decyzji blokujących M3 formalnie zatwierdzonych w STAGE-M2-OWNER-DECISIONS-APPROVAL-GATE)
+- **Status:** **APPROVED / COMPLETED_DESIGN_VERIFIED (DESIGN) / COMPLETED_SOFTWARE_VERIFIED (M3-A PLATFORM CORE)** (Dokument DESIGN_3_0_C_PLATFORM_INSTALLERS.md v2.1.0; 9 decyzji blokujących M3 formalnie zatwierdzonych w STAGE-M2-OWNER-DECISIONS-APPROVAL-GATE; rdzeń platformowy M3-A wdrożony i zweryfikowany w STAGE-M3-A-PLATFORM-CORE-IMPLEMENTATION-GATE)
 - **Data weryfikacji:** 2026-11-07
 
 ---

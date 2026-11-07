@@ -602,7 +602,7 @@ Cargo.lock SHA-1: `c569097f3ef69c66ec59b74c29c1eb29efce69ae` (bez zmian)
     - UPDATE-DESIGN-WIN: APPROVED (DESIGN_3_0_A_WINDOWS_UPDATE.md v2.1.0)
     - UPDATE-DESIGN-LINUX: APPROVED (DESIGN_3_0_B_LINUX_UPDATE.md v2.1.0)
     - UPDATE-DESIGN-PLATFORM: APPROVED (DESIGN_3_0_C_PLATFORM_INSTALLERS.md v2.1.0)
-  - ETAP M3: **READY_FOR_IMPLEMENTATION** (9 decyzji blokujących M3 formalnie zatwierdzonych przez Właściciela; prace implementacyjne M3 nierozpoczęte)
+  - ETAP M3: **IN_PROGRESS** (M3-A zrealizowany w STAGE-M3-A-PLATFORM-CORE-IMPLEMENTATION-GATE jako COMPLETED_SOFTWARE_VERIFIED; M3-B i M3-C: NOT STARTED)
 - **Raporty:**
   - Analiza wejĹ›ciowa: `UPDATE_PRE_IMPLEMENTATION_REPORT.md`
   - Raport wykonawczy bramki bezpieczeĹ„stwa: `UPDATE_TRUST_AND_DATA_SAFETY_GATE_REPORT.md`
