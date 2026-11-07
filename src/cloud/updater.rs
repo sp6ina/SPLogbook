@@ -549,6 +549,26 @@ impl VerifiedReleaseManifest {
         })
     }
 
+    pub fn verify_with_channel(
+        manifest_bytes: &[u8],
+        signature_base64: &str,
+        current_version: &str,
+        channel_preference: crate::core::build_info::UpdateChannelPreference,
+    ) -> Result<Self, UpdaterError> {
+        let (trusted_key, manifest) = verify_manifest_signature(manifest_bytes, signature_base64)?;
+        verify_downgrade_protection_with_channel(
+            &manifest.version,
+            current_version,
+            channel_preference,
+        )?;
+
+        Ok(Self {
+            signing_key_id: trusted_key.key_id.to_string(),
+            signing_key_fingerprint: sha256_hex(&trusted_key.public_key),
+            manifest,
+        })
+    }
+
     pub fn verify_with_keys(
         manifest_bytes: &[u8],
         signature_base64: &str,
@@ -573,6 +593,34 @@ impl VerifiedReleaseManifest {
         })
     }
 
+    pub fn verify_with_keys_and_channel(
+        manifest_bytes: &[u8],
+        signature_base64: &str,
+        trusted_keys: &[TrustedKey],
+        revoked_key_ids: &[&str],
+        revoked_public_keys: &[[u8; 32]],
+        current_version: &str,
+        channel_preference: crate::core::build_info::UpdateChannelPreference,
+    ) -> Result<Self, UpdaterError> {
+        let (trusted_key, manifest) = verify_manifest_signature_with_keys(
+            manifest_bytes,
+            signature_base64,
+            trusted_keys,
+            revoked_key_ids,
+            revoked_public_keys,
+        )?;
+        verify_downgrade_protection_with_channel(
+            &manifest.version,
+            current_version,
+            channel_preference,
+        )?;
+
+        Ok(Self {
+            signing_key_id: trusted_key.key_id.to_string(),
+            signing_key_fingerprint: sha256_hex(&trusted_key.public_key),
+            manifest,
+        })
+    }
     pub fn manifest(&self) -> &ReleaseManifest {
         &self.manifest
     }
@@ -1312,6 +1360,92 @@ pub fn verify_manifest_signature(
     )
 }
 
+/// Wynik ewaluacji przejścia wersji zgodnie z polityką SemVer i kanałów aktualizacji.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum UpdateVersionDecision {
+    /// Dostępna jest prawidłowa, nowsza wersja w dozwolonym kanale.
+    UpdateAvailable,
+    /// Wersja w manifeście jest identyczna z aktualnie zainstalowaną.
+    SameVersion,
+    /// Wersja w manifeście jest starsza od aktualnie zainstalowanej (próba downgrade).
+    DowngradeRejected,
+    /// Wersja przedwydaniowa (alpha/beta/rc) nie jest dozwolona przez bieżącą preferencję kanału.
+    PrereleaseChannelNotAllowed,
+    /// Zainstalowana wersja nie jest prawidłowym ciągiem SemVer.
+    InvalidInstalledVersion,
+    /// Wersja docelowa w manifeście nie jest prawidłowym ciągiem SemVer.
+    InvalidTargetVersion,
+    /// Przejście między wersjami jest nieobsługiwane.
+    UnsupportedTransition,
+}
+
+/// Dokonuje typowanej ewaluacji przejścia między wersjami zgodnie z Semantic Versioning 2.0 i polityką kanałów.
+pub fn evaluate_version_transition(
+    installed_version: &str,
+    target_version: &str,
+    channel_preference: crate::core::build_info::UpdateChannelPreference,
+) -> UpdateVersionDecision {
+    let Ok(installed_semver) = semver::Version::parse(installed_version.trim_start_matches('v'))
+    else {
+        return UpdateVersionDecision::InvalidInstalledVersion;
+    };
+
+    let Ok(target_semver) = semver::Version::parse(target_version.trim_start_matches('v')) else {
+        return UpdateVersionDecision::InvalidTargetVersion;
+    };
+
+    if installed_semver == target_semver {
+        return UpdateVersionDecision::SameVersion;
+    }
+
+    if target_semver < installed_semver {
+        return UpdateVersionDecision::DowngradeRejected;
+    }
+
+    let is_target_prerelease = !target_semver.pre.is_empty();
+    if is_target_prerelease {
+        let target_channel =
+            crate::core::build_info::UpdateChannel::from_prerelease(target_semver.pre.as_str());
+        if !channel_preference.allows_channel(target_channel) {
+            return UpdateVersionDecision::PrereleaseChannelNotAllowed;
+        }
+    }
+
+    UpdateVersionDecision::UpdateAvailable
+}
+
+/// Weryfikuje czy manifest wnosi nowszą wersję z uwzględnieniem preferencji kanału aktualizacji.
+pub fn verify_downgrade_protection_with_channel(
+    manifest_version: &str,
+    current_version: &str,
+    channel_pref: crate::core::build_info::UpdateChannelPreference,
+) -> Result<(), UpdaterError> {
+    match evaluate_version_transition(current_version, manifest_version, channel_pref) {
+        UpdateVersionDecision::UpdateAvailable => Ok(()),
+        UpdateVersionDecision::SameVersion => Err(UpdaterError::AlreadyUpToDate(format!(
+            "Zainstalowana jest już ta sama wersja ({current_version}) - aktualizacja odrzucona."
+        ))),
+        UpdateVersionDecision::DowngradeRejected => Err(UpdaterError::DowngradeRejected(format!(
+            "Odmowa downgrade: wersja w manifeście ({manifest_version}) jest starsza od zainstalowanej ({current_version})."
+        ))),
+        UpdateVersionDecision::PrereleaseChannelNotAllowed => {
+            Err(UpdaterError::SafetyGate(format!(
+                "Wersja przedwydaniowa {manifest_version} nie jest dozwolona w kanale {}",
+                channel_pref.as_str()
+            )))
+        }
+        UpdateVersionDecision::InvalidInstalledVersion => Err(UpdaterError::InvalidVersion(
+            format!("Nieprawidłowa bieżąca wersja: {current_version}"),
+        )),
+        UpdateVersionDecision::InvalidTargetVersion => Err(UpdaterError::InvalidVersion(format!(
+            "Nieprawidłowa wersja w manifeście: {manifest_version}"
+        ))),
+        UpdateVersionDecision::UnsupportedTransition => Err(UpdaterError::SafetyGate(format!(
+            "Nieobsługiwane przejście z wersji {current_version} do {manifest_version}"
+        ))),
+    }
+}
+
 /// Weryfikuje czy manifest wnosi nowszą wersję w stosunku do aktualnie uruchomionej.
 /// Implementuje politykę CRYPTO-SEMVER-POLICY oraz CRYPTO-DOWNGRADE-PROTECTION,
 /// zapobiegając instalacji wersji równych oraz starszych.
@@ -1319,24 +1453,16 @@ pub fn verify_downgrade_protection(
     manifest_version: &str,
     current_version: &str,
 ) -> Result<(), UpdaterError> {
-    let m_ver = semver::Version::parse(manifest_version).map_err(|e| {
-        UpdaterError::InvalidVersion(format!("Nieprawidłowa wersja w manifeście: {e}"))
-    })?;
-    let c_ver = semver::Version::parse(current_version)
-        .map_err(|e| UpdaterError::InvalidVersion(format!("Nieprawidłowa bieżąca wersja: {e}")))?;
-
-    if m_ver < c_ver {
-        return Err(UpdaterError::DowngradeRejected(format!(
-            "Odmowa downgrade: wersja w manifeście ({manifest_version}) jest starsza od zainstalowanej ({current_version})."
-        )));
-    }
-    if m_ver == c_ver {
-        return Err(UpdaterError::AlreadyUpToDate(format!(
-            "Zainstalowana jest już ta sama wersja ({current_version}) - aktualizacja odrzucona."
-        )));
-    }
-
-    Ok(())
+    // Domyślna preferencja: jeśli uruchomiona wersja to prerelease, dopuszczaj prerelease (Alpha),
+    // w przeciwnym razie dopuszczaj wyłącznie stabilne (StableOnly).
+    let pref = if semver::Version::parse(current_version.trim_start_matches('v'))
+        .is_ok_and(|v| !v.pre.is_empty())
+    {
+        crate::core::build_info::UpdateChannelPreference::Alpha
+    } else {
+        crate::core::build_info::UpdateChannelPreference::StableOnly
+    };
+    verify_downgrade_protection_with_channel(manifest_version, current_version, pref)
 }
 
 /// Dokument manifestu nowej architektury wydawniczej zabezpieczony Ed25519.
@@ -4124,6 +4250,242 @@ mod tests {
 
         assert!(verify_downgrade_protection("1.1.0", "1.1.0").is_err()); // Equal
         assert!(verify_downgrade_protection("1.0.9", "1.1.0").is_err()); // Older
+    }
+
+    #[test]
+    fn semver_transition_matrix_enforces_prerelease_and_downgrade_policy() {
+        use crate::core::build_info::UpdateChannelPreference;
+
+        // 1. 1.2.0 -> 1.3.0-alpha.1 [StableOnly] -> REJECT (stabilny nie przyjmuje alpha)
+        assert_eq!(
+            evaluate_version_transition(
+                "1.2.0",
+                "1.3.0-alpha.1",
+                UpdateChannelPreference::StableOnly
+            ),
+            UpdateVersionDecision::PrereleaseChannelNotAllowed
+        );
+
+        // 2. 1.2.0 -> 1.3.0-alpha.1 [Alpha] -> ALLOW (wymuszona subskrypcja kanału alpha)
+        assert_eq!(
+            evaluate_version_transition("1.2.0", "1.3.0-alpha.1", UpdateChannelPreference::Alpha),
+            UpdateVersionDecision::UpdateAvailable
+        );
+
+        // 1.2.0 -> 1.3.0-alpha.1 [Beta] -> REJECT (beta nie przyjmuje alpha)
+        assert_eq!(
+            evaluate_version_transition("1.2.0", "1.3.0-alpha.1", UpdateChannelPreference::Beta),
+            UpdateVersionDecision::PrereleaseChannelNotAllowed
+        );
+
+        // 3. 1.3.0-alpha.1 -> 1.3.0-alpha.1 -> REJECT (ta sama wersja)
+        assert_eq!(
+            evaluate_version_transition(
+                "1.3.0-alpha.1",
+                "1.3.0-alpha.1",
+                UpdateChannelPreference::Alpha
+            ),
+            UpdateVersionDecision::SameVersion
+        );
+        assert_eq!(
+            evaluate_version_transition(
+                "1.3.0-alpha.1",
+                "1.3.0-alpha.1",
+                UpdateChannelPreference::StableOnly
+            ),
+            UpdateVersionDecision::SameVersion
+        );
+
+        // 4. 1.3.0-alpha.1 -> 1.2.0 -> REJECT (downgrade)
+        assert_eq!(
+            evaluate_version_transition("1.3.0-alpha.1", "1.2.0", UpdateChannelPreference::Alpha),
+            UpdateVersionDecision::DowngradeRejected
+        );
+        assert_eq!(
+            evaluate_version_transition(
+                "1.3.0-alpha.1",
+                "1.2.0",
+                UpdateChannelPreference::StableOnly
+            ),
+            UpdateVersionDecision::DowngradeRejected
+        );
+
+        // 5. 1.3.0-alpha.1 -> 1.3.0-alpha.2 -> ALLOW
+        assert_eq!(
+            evaluate_version_transition(
+                "1.3.0-alpha.1",
+                "1.3.0-alpha.2",
+                UpdateChannelPreference::Alpha
+            ),
+            UpdateVersionDecision::UpdateAvailable
+        );
+        assert_eq!(
+            evaluate_version_transition(
+                "1.3.0-alpha.1",
+                "1.3.0-alpha.2",
+                UpdateChannelPreference::Beta
+            ),
+            UpdateVersionDecision::PrereleaseChannelNotAllowed
+        );
+
+        // 6. 1.3.0-alpha.2 -> 1.3.0-beta.1 -> ALLOW
+        assert_eq!(
+            evaluate_version_transition(
+                "1.3.0-alpha.2",
+                "1.3.0-beta.1",
+                UpdateChannelPreference::Beta
+            ),
+            UpdateVersionDecision::UpdateAvailable
+        );
+        assert_eq!(
+            evaluate_version_transition(
+                "1.3.0-alpha.2",
+                "1.3.0-beta.1",
+                UpdateChannelPreference::Alpha
+            ),
+            UpdateVersionDecision::UpdateAvailable
+        );
+
+        // 7. 1.3.0-beta.1 -> 1.3.0-rc.1 -> ALLOW
+        assert_eq!(
+            evaluate_version_transition(
+                "1.3.0-beta.1",
+                "1.3.0-rc.1",
+                UpdateChannelPreference::Beta
+            ),
+            UpdateVersionDecision::UpdateAvailable
+        );
+        assert_eq!(
+            evaluate_version_transition(
+                "1.3.0-beta.1",
+                "1.3.0-rc.1",
+                UpdateChannelPreference::Alpha
+            ),
+            UpdateVersionDecision::UpdateAvailable
+        );
+
+        // 8. 1.3.0-rc.1 -> 1.3.0 -> ALLOW
+        assert_eq!(
+            evaluate_version_transition("1.3.0-rc.1", "1.3.0", UpdateChannelPreference::StableOnly),
+            UpdateVersionDecision::UpdateAvailable
+        );
+        assert_eq!(
+            evaluate_version_transition("1.3.0-rc.1", "1.3.0", UpdateChannelPreference::Beta),
+            UpdateVersionDecision::UpdateAvailable
+        );
+        assert_eq!(
+            evaluate_version_transition("1.3.0-rc.1", "1.3.0", UpdateChannelPreference::Alpha),
+            UpdateVersionDecision::UpdateAvailable
+        );
+
+        // 9. 1.3.0-alpha.1 -> 1.3.0 -> ALLOW (promocja do stable w kanale alpha / beta / rc / stable)
+        assert_eq!(
+            evaluate_version_transition(
+                "1.3.0-alpha.1",
+                "1.3.0",
+                UpdateChannelPreference::StableOnly
+            ),
+            UpdateVersionDecision::UpdateAvailable
+        );
+        assert_eq!(
+            evaluate_version_transition("1.3.0-alpha.1", "1.3.0", UpdateChannelPreference::Beta),
+            UpdateVersionDecision::UpdateAvailable
+        );
+        assert_eq!(
+            evaluate_version_transition("1.3.0-alpha.1", "1.3.0", UpdateChannelPreference::Alpha),
+            UpdateVersionDecision::UpdateAvailable
+        );
+
+        // 10. 1.3.0 -> 1.3.0-alpha.1 -> REJECT (downgrade stable -> prerelease tego samego numeru)
+        assert_eq!(
+            evaluate_version_transition("1.3.0", "1.3.0-alpha.1", UpdateChannelPreference::Alpha),
+            UpdateVersionDecision::DowngradeRejected
+        );
+        assert_eq!(
+            evaluate_version_transition(
+                "1.3.0",
+                "1.3.0-alpha.1",
+                UpdateChannelPreference::StableOnly
+            ),
+            UpdateVersionDecision::DowngradeRejected
+        );
+
+        // 11. 1.3.0 -> 1.4.0-alpha.1 [StableOnly] -> REJECT
+        assert_eq!(
+            evaluate_version_transition(
+                "1.3.0",
+                "1.4.0-alpha.1",
+                UpdateChannelPreference::StableOnly
+            ),
+            UpdateVersionDecision::PrereleaseChannelNotAllowed
+        );
+
+        // 12. 1.3.0 -> 1.4.0-alpha.1 [Alpha] -> ALLOW
+        assert_eq!(
+            evaluate_version_transition("1.3.0", "1.4.0-alpha.1", UpdateChannelPreference::Alpha),
+            UpdateVersionDecision::UpdateAvailable
+        );
+
+        // Niepoprawne formaty wersji
+        assert_eq!(
+            evaluate_version_transition("invalid-version", "1.3.0", UpdateChannelPreference::Alpha),
+            UpdateVersionDecision::InvalidInstalledVersion
+        );
+        assert_eq!(
+            evaluate_version_transition("1.2.0", "invalid-target", UpdateChannelPreference::Alpha),
+            UpdateVersionDecision::InvalidTargetVersion
+        );
+    }
+
+    #[test]
+    fn verify_downgrade_protection_with_channel_maps_decisions_to_errors() {
+        use crate::core::build_info::UpdateChannelPreference;
+
+        // Ok case
+        assert!(
+            verify_downgrade_protection_with_channel(
+                "1.3.0-alpha.2",
+                "1.3.0-alpha.1",
+                UpdateChannelPreference::Alpha
+            )
+            .is_ok()
+        );
+
+        // AlreadyUpToDate
+        let err = verify_downgrade_protection_with_channel(
+            "1.3.0-alpha.1",
+            "1.3.0-alpha.1",
+            UpdateChannelPreference::Alpha,
+        )
+        .unwrap_err();
+        assert!(matches!(err, UpdaterError::AlreadyUpToDate(_)));
+
+        // DowngradeRejected
+        let err = verify_downgrade_protection_with_channel(
+            "1.2.0",
+            "1.3.0-alpha.1",
+            UpdateChannelPreference::Alpha,
+        )
+        .unwrap_err();
+        assert!(matches!(err, UpdaterError::DowngradeRejected(_)));
+
+        // SafetyGate (PrereleaseChannelNotAllowed)
+        let err = verify_downgrade_protection_with_channel(
+            "1.3.0-alpha.1",
+            "1.2.0",
+            UpdateChannelPreference::StableOnly,
+        )
+        .unwrap_err();
+        assert!(matches!(err, UpdaterError::SafetyGate(_)));
+
+        // InvalidVersion
+        let err = verify_downgrade_protection_with_channel(
+            "not-a-version",
+            "1.2.0",
+            UpdateChannelPreference::Alpha,
+        )
+        .unwrap_err();
+        assert!(matches!(err, UpdaterError::InvalidVersion(_)));
     }
 
     #[test]
