@@ -4,7 +4,9 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use ed25519_dalek::{Signer, SigningKey};
 use splogbook::cloud::updater::{
-    REVOKED_KEY_IDS, REVOKED_PUBLIC_KEYS, TRUSTED_KEYS, TrustedKey, is_key_revoked, sha256_hex,
+    AtomicInstallationOptions, REVOKED_KEY_IDS, REVOKED_PUBLIC_KEYS, TRUSTED_KEYS, TrustedKey,
+    UpdateFileClass, UpdatePlan, VerifiedReleaseManifest, apply_atomic_installation_with_options,
+    classify_update_path, generate_powershell_update_script, is_key_revoked, sha256_hex,
     verify_manifest_signature, verify_manifest_signature_with_keys,
 };
 use std::collections::HashSet;
@@ -1820,4 +1822,300 @@ fn documentation_test_counts_match_canonical_workspace_counts() {
         cat_doc.contains(&format!("{reg} zarejestrowanych testów")),
         "Native CAT.md must document registered count {reg}"
     );
+}
+
+#[test]
+fn gui_update_requires_verified_manifest_guard() {
+    let app_services_source =
+        fs::read_to_string("src/gui/app_services.rs").expect("src/gui/app_services.rs");
+
+    // 1. GUI trigger_update_install nie może korzystać z surowego select_asset_for_platform
+    assert!(
+        !app_services_source.contains("select_asset_for_platform"),
+        "Ścieżka GUI trigger_update_install nie może wywoływać select_asset_for_platform opartego wyłącznie na rozszerzeniu"
+    );
+
+    // 2. GUI musi przekazywać verified_asset do install_update
+    assert!(
+        app_services_source.contains("release.verified_asset.clone()"),
+        "GUI musi pobierać zweryfikowany obiekt VerifiedReleaseAsset ze zweryfikowanego wydania"
+    );
+    assert!(
+        app_services_source.contains("updater::install_update(&verified_asset)"),
+        "GUI musi wywoływać updater::install_update(&verified_asset)"
+    );
+
+    // 3. Sprawdzenie, czy trigger_update_check wymaga zweryfikowanego manifestu
+    assert!(
+        app_services_source.contains("crate::cloud::updater::latest_release().await"),
+        "Sprawdzanie aktualizacji musi przechodzić przez kanoniczną funkcję latest_release z bramką zaufania"
+    );
+}
+
+#[test]
+fn revoked_release_key_remains_rejected_guard() {
+    assert!(
+        REVOKED_KEY_IDS.contains(&"splogbook-release-2026-01"),
+        "splogbook-release-2026-01 musi pozostać na stałe w REVOKED_KEY_IDS (SEC-001)"
+    );
+
+    let key_entry = TRUSTED_KEYS
+        .iter()
+        .find(|k| k.key_id == "splogbook-release-2026-01")
+        .expect("Klucz splogbook-release-2026-01 musi znajdować się w rejestrze TRUSTED_KEYS");
+    assert!(
+        !key_entry.active,
+        "Klucz splogbook-release-2026-01 nie może być oznaczony jako aktywny"
+    );
+
+    let v1_2_0_manifest = r#"{
+        "manifest_version": 1,
+        "key_id": "splogbook-release-2026-01",
+        "product": "SPLogbook",
+        "version": "1.2.0",
+        "channel": "stable",
+        "minimum_updater_version": "1.1.0",
+        "commit": "6f7d3aaa3b6a54e87b481c142a5b690bcf8b5592",
+        "assets": [
+            {
+                "platform": "windows",
+                "arch": "x86_64",
+                "package_type": "zip",
+                "filename": "SPLogbook-Windows-x64.zip",
+                "size": 20831936,
+                "sha256": "bd2164e3f73d779b4f8ded93310f6d990db978a67f840a70b4a834eb3b2da4a0"
+            }
+        ]
+    }"#;
+    let v1_2_0_sig =
+        "E3yN9jZqfL6fG0BwhbXkU49767a4mcvL8aJ13Fq8gUe7hQ8L2z1m5n8b4v7c0x9a8s7d6f5g4h3j2k1l0p==";
+
+    let res = VerifiedReleaseManifest::verify(v1_2_0_manifest.as_bytes(), v1_2_0_sig, "1.1.0");
+    assert!(
+        res.is_err(),
+        "Weryfikacja manifestu podpisanego odwołanym kluczem splogbook-release-2026-01 musi bezwzględnie zawieść (fail-closed)"
+    );
+}
+
+#[test]
+fn portable_database_files_are_protected_guard() {
+    use std::path::Path;
+
+    assert_eq!(
+        classify_update_path(Path::new("databases/serviceLOG.db")),
+        UpdateFileClass::FirstInstallSeed,
+        "serviceLOG.db musi być sklasyfikowany jako FirstInstallSeed"
+    );
+    assert_eq!(
+        classify_update_path(Path::new("databases/callbook.db")),
+        UpdateFileClass::FirstInstallSeed,
+        "callbook.db musi być sklasyfikowany jako FirstInstallSeed"
+    );
+    assert_eq!(
+        classify_update_path(Path::new("station_config.json")),
+        UpdateFileClass::UserConfiguration,
+        "station_config.json musi być sklasyfikowany jako UserConfiguration"
+    );
+    assert_eq!(
+        classify_update_path(Path::new("default_log.db")),
+        UpdateFileClass::UserData,
+        "default_log.db musi być sklasyfikowany jako UserData"
+    );
+
+    let temp_dir = std::env::temp_dir().join(format!("guard_plan_db_{}", rand::random::<u64>()));
+    let staging = temp_dir.join("staging");
+    let active = temp_dir.join("active");
+
+    fs::create_dir_all(staging.join("databases")).unwrap();
+    fs::create_dir_all(active.join("databases")).unwrap();
+
+    fs::write(staging.join("SPLogbook.exe"), b"NEW EXE").unwrap();
+    fs::write(staging.join("databases/serviceLOG.db"), b"NEW SERVICE DB").unwrap();
+    fs::write(staging.join("databases/callbook.db"), b"NEW CALLBOOK DB").unwrap();
+
+    let active_service_db = active.join("databases/serviceLOG.db");
+    let active_callbook_db = active.join("databases/callbook.db");
+    fs::write(&active_service_db, b"USER SERVICE LOG DATA").unwrap();
+    fs::write(&active_callbook_db, b"USER CALLBOOK DATA").unwrap();
+
+    let plan = UpdatePlan::generate(&staging, &active).unwrap();
+    let preserved_targets: Vec<_> = plan
+        .preserve_files
+        .iter()
+        .map(|(p, _)| p.as_path())
+        .collect();
+
+    assert!(
+        preserved_targets.contains(&active_service_db.as_path()),
+        "Plan aktualizacji musi zachować istniejącą bazę serviceLOG.db"
+    );
+    assert!(
+        preserved_targets.contains(&active_callbook_db.as_path()),
+        "Plan aktualizacji musi zachować istniejącą bazę callbook.db"
+    );
+
+    let replaced_targets: Vec<_> = plan
+        .replace_files
+        .iter()
+        .map(|(_, t)| t.as_path())
+        .collect();
+    assert!(
+        !replaced_targets.contains(&active_service_db.as_path()),
+        "Plan aktualizacji nie może podmieniać istniejącej bazy serviceLOG.db"
+    );
+    assert!(
+        !replaced_targets.contains(&active_callbook_db.as_path()),
+        "Plan aktualizacji nie może podmieniać istniejącej bazy callbook.db"
+    );
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn windows_updater_does_not_force_copy_entire_staging_guard() {
+    let updater_source = fs::read_to_string("src/cloud/updater.rs").expect("src/cloud/updater.rs");
+
+    assert!(
+        !updater_source.contains("Copy-Item -Path \"$staging\\*\""),
+        "Aktualizator Windows nie może używać dzikich kart kopiowania Copy-Item -Path \"$staging\\*\" -Destination $baseDir -Recurse -Force"
+    );
+    assert!(
+        !updater_source.contains("Copy-Item -Path \"$rollback\\*\""),
+        "Aktualizator Windows nie może używać dzikich kart rollbacku Copy-Item -Path \"$rollback\\*\" -Destination $baseDir -Recurse -Force"
+    );
+
+    let plan = UpdatePlan {
+        replace_files: vec![(
+            std::path::PathBuf::from("SPLogbook.exe"),
+            std::path::PathBuf::from("C:\\SPLogbook\\SPLogbook.exe"),
+        )],
+        create_files: vec![(
+            std::path::PathBuf::from("new_resource.dll"),
+            std::path::PathBuf::from("C:\\SPLogbook\\new_resource.dll"),
+        )],
+        preserve_files: vec![(
+            std::path::PathBuf::from("C:\\SPLogbook\\databases\\serviceLOG.db"),
+            "Preserved".into(),
+        )],
+        rejected_files: Vec::new(),
+    };
+
+    let script = generate_powershell_update_script(
+        std::path::Path::new("C:\\SPLogbook\\SPLogbook.exe"),
+        4321,
+        &plan,
+    );
+
+    assert!(
+        !script.contains("$staging\\*"),
+        "Wygenerowany skrypt PowerShell nie może zawierać $staging\\*"
+    );
+    assert!(
+        !script.contains("$rollback\\*"),
+        "Wygenerowany skrypt PowerShell nie może zawierać $rollback\\*"
+    );
+    assert!(
+        script.contains("$replaceFiles = @('SPLogbook.exe')"),
+        "Skrypt musi zawierać precyzyjną tablicę $replaceFiles"
+    );
+}
+
+#[test]
+fn linux_updater_uses_validated_update_plan_guard() {
+    let updater_source = fs::read_to_string("src/cloud/updater.rs").expect("src/cloud/updater.rs");
+
+    assert!(
+        updater_source.contains("let plan = UpdatePlan::generate(&staging_dir, base_dir)?;"),
+        "install_via_tar_gz na Linuksie musi wywoływać UpdatePlan::generate"
+    );
+    assert!(
+        updater_source.contains("plan.validate_safety(\"splogbook\")?;"),
+        "install_via_tar_gz na Linuksie musi wywoływać plan.validate_safety"
+    );
+    assert!(
+        updater_source.contains("for (rel, orig) in &plan.replace_files"),
+        "install_via_tar_gz na Linuksie musi iterować wyłącznie po plan.replace_files"
+    );
+}
+
+#[test]
+fn rollback_excludes_protected_user_data_guard() {
+    let temp_dir = std::env::temp_dir().join(format!("guard_rb_user_{}", rand::random::<u64>()));
+    let staging = temp_dir.join("staging");
+    let active = temp_dir.join("active");
+
+    fs::create_dir_all(staging.join("databases")).unwrap();
+    fs::create_dir_all(active.join("databases")).unwrap();
+
+    fs::write(staging.join("SPLogbook.exe"), b"CORRUPTED NEW BINARY").unwrap();
+    fs::write(
+        staging.join("databases/serviceLOG.db"),
+        b"OVERWRITING SERVICE DB",
+    )
+    .unwrap();
+    fs::write(staging.join("station_config.json"), b"OVERWRITING CONFIG").unwrap();
+    fs::write(staging.join("default_log.db"), b"OVERWRITING LOG").unwrap();
+
+    let active_exe = active.join("SPLogbook.exe");
+    let active_db = active.join("databases/serviceLOG.db");
+    let active_cfg = active.join("station_config.json");
+    let active_log = active.join("default_log.db");
+
+    fs::write(&active_exe, b"CANONICAL ACTIVE EXE").unwrap();
+    fs::write(&active_db, b"CANONICAL USER DATABASE").unwrap();
+    fs::write(&active_cfg, b"CANONICAL USER CONFIG").unwrap();
+    fs::write(&active_log, b"CANONICAL USER QSOS").unwrap();
+
+    let mut opts = AtomicInstallationOptions::new("SPLogbook.exe");
+    opts.simulate_rename_failure = true;
+
+    let res = apply_atomic_installation_with_options(&staging, &active, &opts);
+    assert!(res.is_err(), "Instalacja z błędem musi zwrócić błąd");
+
+    assert_eq!(
+        fs::read(&active_exe).unwrap(),
+        b"CANONICAL ACTIVE EXE",
+        "Binarka musi zostać przywrócona z rollbacku"
+    );
+    assert_eq!(
+        fs::read(&active_db).unwrap(),
+        b"CANONICAL USER DATABASE",
+        "Baza serviceLOG.db nie może zostać zmodyfikowana przez rollback"
+    );
+    assert_eq!(
+        fs::read(&active_cfg).unwrap(),
+        b"CANONICAL USER CONFIG",
+        "Konfiguracja station_config.json nie może zostać zmodyfikowana przez rollback"
+    );
+    assert_eq!(
+        fs::read(&active_log).unwrap(),
+        b"CANONICAL USER QSOS",
+        "Baza default_log.db nie może zostać zmodyfikowana przez rollback"
+    );
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn updater_does_not_use_sudo_guard() {
+    let updater_source = fs::read_to_string("src/cloud/updater.rs").expect("src/cloud/updater.rs");
+
+    for line in updater_source.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("//") || trimmed.starts_with("/*") || trimmed.starts_with('*') {
+            continue;
+        }
+        assert!(
+            !trimmed.contains("\"sudo\"") && !trimmed.contains("\"sudo "),
+            "Kod produkcyjny aktualizatora nie może używać komendy sudo: {trimmed}"
+        );
+        assert!(
+            !trimmed.contains("\"pkexec\"") && !trimmed.contains("\"pkexec "),
+            "Kod produkcyjny aktualizatora nie może używać komendy pkexec: {trimmed}"
+        );
+        assert!(
+            !trimmed.contains("Verb") && !trimmed.contains("runas"),
+            "Kod produkcyjny aktualizatora nie może eskalować uprawnień przez runas: {trimmed}"
+        );
+    }
 }
