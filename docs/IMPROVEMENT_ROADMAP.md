@@ -1,197 +1,198 @@
-# Plan Rozwoju i Mapa Drogowa Ulepszeń (`IMPROVEMENT_ROADMAP.md`)
+# Plan Rozwoju i Mapa Drogowa UlepszeĹ„ (`IMPROVEMENT_ROADMAP.md`)
 
-**Dokument audytowy:** `docs/IMPROVEMENT_ROADMAP.md`  
-**Projekt:** SPLogbook (`v1.2.0`)  
-**Gałąź referencyjna:** `main` (`6f7d3aaa3b6a54e87b481c142a5b690bcf8b5592`)
+**Dokument audytowy:** `docs/IMPROVEMENT_ROADMAP.md`
+**Projekt:** SPLogbook (`v1.2.0`)
+**GaĹ‚Ä…Ĺş referencyjna:** `main` (`6f7d3aaa3b6a54e87b481c142a5b690bcf8b5592`)
 
 ---
 
-## 1. Kategoryzacja Propozycji Zmian i Ulepszeń (ETAP 19)
+## 1. Kategoryzacja Propozycji Zmian i UlepszeĹ„ (ETAP 19)
 
-### Kategoria A — Obowiązkowe Poprawki Błędów i Ryzyk (Must-Fix)
-1. **Usunięcie skompromitowanego klucza prywatnego Ed25519 (`src/scratch.rs`), rotacja `TRUSTED_KEYS` i podpięcie podpisywania w GitHub Actions (`SEC-001`, `CI-001`)**.
-2. **Naprawa instalatora auto-updatera na Windows (`.zip` dla `Expand-Archive`) i Linux (spłaszczanie katalogu nadrzędnego w `.tar.gz`) (`REL-001`)**.
-3. **Naprawa bezpieczeństwa RF, sondowania Read-Only i potwierdzania PTT w warstwie CAT (`CAT-002`, `CAT-003`, `CAT-005`, `CAT-006`, `CAT-015`)**:
+### Kategoria A â€” ObowiÄ…zkowe Poprawki BĹ‚Ä™dĂłw i Ryzyk (Must-Fix)
+1. **UsuniÄ™cie skompromitowanego klucza prywatnego Ed25519 (`src/scratch.rs`), rotacja `TRUSTED_KEYS` i podpiÄ™cie podpisywania w GitHub Actions (`SEC-001`, `CI-001`)**.
+2. **Naprawa instalatora auto-updatera na Windows (`.zip` dla `Expand-Archive`) i Linux (spĹ‚aszczanie katalogu nadrzÄ™dnego w `.tar.gz`) (`REL-001`)**.
+3. **Naprawa bezpieczeĹ„stwa RF, sondowania Read-Only i potwierdzania PTT w warstwie CAT (`CAT-002`, `CAT-003`, `CAT-005`, `CAT-006`, `CAT-015`)**:
    - przeniesienie `probe()` do `impl RigBackend` w 5 backendach;
    - oczekiwanie na asynchroniczne potwierdzenie TX w `TciBackend` i `FlexRadioBackend`;
    - weryfikacja `TX;` / `TQ;` w `YaesuBackend` i `ElecraftBackend`;
-   - użycie `last_state_update` i `StateFreshness::Stale` w `RigHub::resync_tx_arbiter`;
+   - uĹĽycie `last_state_update` i `StateFreshness::Stale` w `RigHub::resync_tx_arbiter`;
    - zabezpieczenie `HilHardwareSession::execute_controlled_ptt` przez `acquire_tx_guard`.
-4. **Naprawa kodowania Big-Endian BCD dla S-metra/mocy oraz subkomend `0x21`/`0x25` w `IcomCiVBackend` i adresu CI-V w manifeście HIL (`CAT-004`, `CAT-011`, `CAT-016`)**.
-5. **Dodanie automatycznego `reconnect` z wykładniczym backoffem w `RigService::run_loop` (`CAT-001`)**.
-6. **Naprawa integralności danych ADIF i `QsoIngestor` (`DATA-001`, `DATA-002`, `DATA-003`)**:
-   - zakaz fabrykowania `Utc::now()` dla brakujących `<QSO_DATE>`/`<TIME_ON>` i bezpieczne cięcie wielobajtowego UTF-8 w `adif.rs`;
-   - dodanie `normalize_qso_fields(&mut qso)` na początku `QsoIngestor::import_batch`;
-   - normalizacja parametrów daty w `search_qsos_advanced` i przywrócenie użycia indeksów B-tree w `has_identity` oraz `callbook.rs`.
-7. **Zabezpieczenie operacji niszczących i izolacja wielu dzienników (`DATA-004`, `DATA-005`, `DATA-006`)**:
-   - filtr `journal_id` w `find_duplicate_qsos`, obowiązkowy zapis na `undo_stack` i potwierdzenie przy `delete_selected_qso`;
-   - wywołanie `rebuild_awards_full()` przy przełączeniu dziennika oraz izolacja `active_journal.id` w statystykach i eksporcie chmurowym;
-   - usunięcie niebezpiecznego fallbacku `fs::copy` na bazie WAL w `backup.rs`.
+4. **Naprawa kodowania Big-Endian BCD dla S-metra/mocy oraz subkomend `0x21`/`0x25` w `IcomCiVBackend` i adresu CI-V w manifeĹ›cie HIL (`CAT-004`, `CAT-011`, `CAT-016`)**.
+5. **Dodanie automatycznego `reconnect` z wykĹ‚adniczym backoffem w `RigService::run_loop` (`CAT-001`)**.
+6. **Naprawa integralnoĹ›ci danych ADIF i `QsoIngestor` (`DATA-001`, `DATA-002`, `DATA-003`)**:
+   - zakaz fabrykowania `Utc::now()` dla brakujÄ…cych `<QSO_DATE>`/`<TIME_ON>` i bezpieczne ciÄ™cie wielobajtowego UTF-8 w `adif.rs`;
+   - dodanie `normalize_qso_fields(&mut qso)` na poczÄ…tku `QsoIngestor::import_batch`;
+   - normalizacja parametrĂłw daty w `search_qsos_advanced` i przywrĂłcenie uĹĽycia indeksĂłw B-tree w `has_identity` oraz `callbook.rs`.
+7. **Zabezpieczenie operacji niszczÄ…cych i izolacja wielu dziennikĂłw (`DATA-004`, `DATA-005`, `DATA-006`)**:
+   - filtr `journal_id` w `find_duplicate_qsos`, obowiÄ…zkowy zapis na `undo_stack` i potwierdzenie przy `delete_selected_qso`;
+   - wywoĹ‚anie `rebuild_awards_full()` przy przeĹ‚Ä…czeniu dziennika oraz izolacja `active_journal.id` w statystykach i eksporcie chmurowym;
+   - usuniÄ™cie niebezpiecznego fallbacku `fs::copy` na bazie WAL w `backup.rs`.
 8. **Naprawa eksportera Cabrillo 3.0 i punktacji SP DX Contest / CQ WW / WPX (`FUNC-001`, `FUNC-002`)**.
-9. **Aktualizacja zależności w `Cargo.lock` eliminująca 7 biuletynów `RUSTSEC-2026-*` (`DEP-001`)** — **ZREALIZOWANY** (commit `335ced5`).
-10. **Weryfikacja manifest-first i odrzucanie odwołanych kluczy w aktualizatorze GUI (`UPDATE-TRUST-001`)** — **ZREALIZOWANY** (commit `bc3e806`, `c95172e`).
-11. **Ochrona danych użytkownika, konfiguracji i baz portable w aktualizatorze Windows/Linux (`UPDATE-DATA-001`)** — **ZREALIZOWANY** (commit `12c3b22`, `da34b4c`, `c95172e`).
-12. **Bramki bezpieczeństwa aktualizatora Etapu M1 (`UPDATE-WIN-SAFETY-GATE`, `UPDATE-LINUX-SAFETY-GATE`)** — **ZREALIZOWANY** (`SATISFIED_BY_UPDATE_TRUST_AND_DATA_SAFETY_GATE` / `COMPLETED_SOFTWARE_VERIFIED`, raport `STAGE_M1_COVERAGE_AND_STATUS_REPORT.md`). Status M2: `READY_FOR_DESIGN`.
+9. **Aktualizacja zaleĹĽnoĹ›ci w `Cargo.lock` eliminujÄ…ca 7 biuletynĂłw `RUSTSEC-2026-*` (`DEP-001`)** â€” **ZREALIZOWANY** (commit `335ced5`).
+10. **Weryfikacja manifest-first i odrzucanie odwoĹ‚anych kluczy w aktualizatorze GUI (`UPDATE-TRUST-001`)** â€” **ZREALIZOWANY** (commit `bc3e806`, `c95172e`).
+11. **Ochrona danych uĹĽytkownika, konfiguracji i baz portable w aktualizatorze Windows/Linux (`UPDATE-DATA-001`)** â€” **ZREALIZOWANY** (commit `12c3b22`, `da34b4c`, `c95172e`).
+12. **Bramki bezpieczeĹ„stwa aktualizatora Etapu M1 (`UPDATE-WIN-SAFETY-GATE`, `UPDATE-LINUX-SAFETY-GATE`)** â€” **ZREALIZOWANY** (`SATISFIED_BY_UPDATE_TRUST_AND_DATA_SAFETY_GATE` / `COMPLETED_SOFTWARE_VERIFIED`, raport `STAGE_M1_COVERAGE_AND_STATUS_REPORT.md`).
+13. **Bramka projektowa instalatorĂłw Etapu M2 (`STAGE-M2-INSTALLER-DESIGN-GATE`)** â€” **ZREALIZOWANY PROJEKTOWO** (`DESIGN_COMPLETE_PENDING_OWNER_DECISIONS`, raport `STAGE_M2_INSTALLER_DESIGN_GATE_REPORT.md`). Zatwierdzone architektonicznie dokumenty projektowe: `DESIGN_3_0_A_WINDOWS_UPDATE.md` (`REVIEWED`), `DESIGN_3_0_B_LINUX_UPDATE.md` (`REVIEWED`), `DESIGN_3_0_C_PLATFORM_INSTALLERS.md` (`REVIEWED`). Status M3: `BLOCKED_BY_OWNER_DECISIONS` (oczekuje na formalne zatwierdzenie decyzji OWNER-M2-01..15 przez WĹ‚aĹ›ciciela).
 
 ---
 
-### Kategoria B — Szybkie Ulepszenia o Wysokim Stosunku Wartości do Kosztu (Quick Wins)
+### Kategoria B â€” Szybkie Ulepszenia o Wysokim Stosunku WartoĹ›ci do Kosztu (Quick Wins)
 1. **Eliminacja kwadratowego algorytmu $O(N^2)$ w `src/sync/catchup.rs` oraz dodanie `[profile.dev.package.argon2] opt-level = 3` w `Cargo.toml` (`PERF-001`, `TEST-001`)**:
-   - redukuje czas wykonania `cargo test --lib` z **532 sekund do ~15 sekund** oraz eliminuje zawieszanie synchronizacji LAN dla dużych dzienników — koszt zmiany to ~40 linii kodu!
-2. **Odblokowanie skrótów klawiszowych `Ctrl+W`, `Ctrl+L`, `Ctrl+N`, `Ctrl+F`, `Ctrl+P` podczas wpisywania w formularzu (`app_input.rs:44`) oraz obsługa `Enter`/`Esc` w oknie Contest (`GUI-001`)**:
+   - redukuje czas wykonania `cargo test --lib` z **532 sekund do ~15 sekund** oraz eliminuje zawieszanie synchronizacji LAN dla duĹĽych dziennikĂłw â€” koszt zmiany to ~40 linii kodu!
+2. **Odblokowanie skrĂłtĂłw klawiszowych `Ctrl+W`, `Ctrl+L`, `Ctrl+N`, `Ctrl+F`, `Ctrl+P` podczas wpisywania w formularzu (`app_input.rs:44`) oraz obsĹ‚uga `Enter`/`Esc` w oknie Contest (`GUI-001`)**:
    - natychmiastowa poprawa ergonomii dla operatora przy minimalnym koszcie (~25 linii kodu).
-3. **Uzupełnienie `SpLogApp::snapshot_config()` o brakujące sekcje (`cw`, `runtime`, `solar`, `satellites`, `theme_preset`, `show_operator_assistant`) (`FUNC-005`, `GUI-002`)**.
-4. **Naprawa przycisku STOP nagrywania audio (`stop_recording()` w `qso_entry.rs:646`), podglądu zdjęcia QSL (`qso_entry.rs:589`), przycisków rotatora EME (`astronomy_dialog.rs:233`) i początkowego stanu S-metra `S0` (`FUNC-004`, `GUI-003`)**.
-5. **Redakcja sekretów w `Debug for AppConfig` i `without_url()` dla błędów `reqwest` oraz timeout 10 s na `host_handshake` w LAN Sync (`SEC-002`, `SEC-003`)**.
-6. **Usunięcie 6 ostrzeżeń leksera w `src/core/database/qso_store.rs` (`DATA-007`)** — **ZREALIZOWANY** (commit `5e61a78`).
+3. **UzupeĹ‚nienie `SpLogApp::snapshot_config()` o brakujÄ…ce sekcje (`cw`, `runtime`, `solar`, `satellites`, `theme_preset`, `show_operator_assistant`) (`FUNC-005`, `GUI-002`)**.
+4. **Naprawa przycisku STOP nagrywania audio (`stop_recording()` w `qso_entry.rs:646`), podglÄ…du zdjÄ™cia QSL (`qso_entry.rs:589`), przyciskĂłw rotatora EME (`astronomy_dialog.rs:233`) i poczÄ…tkowego stanu S-metra `S0` (`FUNC-004`, `GUI-003`)**.
+5. **Redakcja sekretĂłw w `Debug for AppConfig` i `without_url()` dla bĹ‚Ä™dĂłw `reqwest` oraz timeout 10 s na `host_handshake` w LAN Sync (`SEC-002`, `SEC-003`)**.
+6. **UsuniÄ™cie 6 ostrzeĹĽeĹ„ leksera w `src/core/database/qso_store.rs` (`DATA-007`)** â€” **ZREALIZOWANY** (commit `5e61a78`).
 
 ---
 
-### Kategoria C — Średnioterminowe Refaktoryzacje Techniczne
-1. **Podłączenie `POST /api/v1/rig`, `HamlibProxyServer` (`:4534`) oraz `VoiceKeyer` bezpośrednio pod `CatRuntime` z potwierdzonym `TxArbiter` (`FUNC-003`, `CAT-008`)**.
-2. **Trwałe połączenie HTTP Keep-Alive w `FlrigClient`, naprawa setterów w `KenwoodBackend` i `FlexRadioBackend` (`CAT-010`, `CAT-012`, `CAT-013`)**.
-3. **Pełne dokończenie integracji Multi-Radio w GUI (`cat_settings.rs`: dodawanie/usuwanie `Radio 2`, naprawa `auto_start_rigctld`, usunięcie fallbacku na pierwsze radio w `app_async.rs`, podłączenie Split VFO B w `vfo_panel.rs`) (`CAT-007`)**.
-4. **Buforowanie przefiltrowanych/posortowanych indeksów w `LogViewState` oraz inkrementalnego stanu sesji w `ContestEngine` (`PERF-002`)**.
-5. **Przeniesienie operacji SQLite w `online_sync.rs` do transakcji wsadowych wewnątrz `tokio::task::spawn_blocking` oraz współdzielenie `reqwest::Client` (`CONC-001`, `CONC-002`, `ARCH-001`)**.
-6. **Oczyszczenie wszystkich ostrzeżeń `cargo clippy` i włączenie `-- -D warnings` w `.github/workflows/ci.yml` (`RUST-001`, `CI-002`)**.
+### Kategoria C â€” Ĺšrednioterminowe Refaktoryzacje Techniczne
+1. **PodĹ‚Ä…czenie `POST /api/v1/rig`, `HamlibProxyServer` (`:4534`) oraz `VoiceKeyer` bezpoĹ›rednio pod `CatRuntime` z potwierdzonym `TxArbiter` (`FUNC-003`, `CAT-008`)**.
+2. **TrwaĹ‚e poĹ‚Ä…czenie HTTP Keep-Alive w `FlrigClient`, naprawa setterĂłw w `KenwoodBackend` i `FlexRadioBackend` (`CAT-010`, `CAT-012`, `CAT-013`)**.
+3. **PeĹ‚ne dokoĹ„czenie integracji Multi-Radio w GUI (`cat_settings.rs`: dodawanie/usuwanie `Radio 2`, naprawa `auto_start_rigctld`, usuniÄ™cie fallbacku na pierwsze radio w `app_async.rs`, podĹ‚Ä…czenie Split VFO B w `vfo_panel.rs`) (`CAT-007`)**.
+4. **Buforowanie przefiltrowanych/posortowanych indeksĂłw w `LogViewState` oraz inkrementalnego stanu sesji w `ContestEngine` (`PERF-002`)**.
+5. **Przeniesienie operacji SQLite w `online_sync.rs` do transakcji wsadowych wewnÄ…trz `tokio::task::spawn_blocking` oraz wspĂłĹ‚dzielenie `reqwest::Client` (`CONC-001`, `CONC-002`, `ARCH-001`)**.
+6. **Oczyszczenie wszystkich ostrzeĹĽeĹ„ `cargo clippy` i wĹ‚Ä…czenie `-- -D warnings` w `.github/workflows/ci.yml` (`RUST-001`, `CI-002`)**.
 
 ---
 
-### Kategoria D — Zmiany Strategiczne i Rozwojowe
-1. **Warstwa transportowa `tokio-serial` dla klucza sprzętowego K1EL WinKeyer (`src/cat/winkeyer.rs`) i integracja z makrami CW oraz Terminalem CW (`FUNC-004`)**.
-2. **Most dla `NativeRigCommand` i `NativeRigEvent` w `RigService`/`RigHub` (sterowanie Preamp/ATT, wyborem anteny, szerokością filtru i Dualwatch z panelu VFO) oraz integracja `So2rState` (`CAT-014`)**.
-3. **Zewnętrzna baza członków klubów krótkofalarskich (`databases/clubs.csv` dla SP-OTC, SPCWC, CWOPS, SKCC, FOC, HSC) zastępująca zahardkodowaną makietę 11 znaków w `src/core/clubs.rs` (`FUNC-006`)**.
-4. **Wybór dedykowanego urządzenia wejścia/wyjścia audio (`cpal`/`rodio`) w ustawieniach dla Voice Keyera, nagrywania QSO i wodospadu DSP**.
+### Kategoria D â€” Zmiany Strategiczne i Rozwojowe
+1. **Warstwa transportowa `tokio-serial` dla klucza sprzÄ™towego K1EL WinKeyer (`src/cat/winkeyer.rs`) i integracja z makrami CW oraz Terminalem CW (`FUNC-004`)**.
+2. **Most dla `NativeRigCommand` i `NativeRigEvent` w `RigService`/`RigHub` (sterowanie Preamp/ATT, wyborem anteny, szerokoĹ›ciÄ… filtru i Dualwatch z panelu VFO) oraz integracja `So2rState` (`CAT-014`)**.
+3. **ZewnÄ™trzna baza czĹ‚onkĂłw klubĂłw krĂłtkofalarskich (`databases/clubs.csv` dla SP-OTC, SPCWC, CWOPS, SKCC, FOC, HSC) zastÄ™pujÄ…ca zahardkodowanÄ… makietÄ™ 11 znakĂłw w `src/core/clubs.rs` (`FUNC-006`)**.
+4. **WybĂłr dedykowanego urzÄ…dzenia wejĹ›cia/wyjĹ›cia audio (`cpal`/`rodio`) w ustawieniach dla Voice Keyera, nagrywania QSO i wodospadu DSP**.
 
 ---
 
-### Kategoria E — Pomysły Opcjonalne (Nice-to-Have)
-1. ** Obsługa przyrostowego pobierania z LoTW przez parametr `qso_qslsince` (`FUNC-008`) oraz trwała kolejka retry w tabeli `upload_queue` (`DATA-007`)**.
-2. **Uzupełnienie śledzenia dyplomów WWFF i RDA w `AwardsEngine` oraz wyświetlenie sprawdzalności prognoz `PropagationHistory` w oknie propagacji (`FUNC-007`)**.
-3. **Cykliczny poller pozycji rotatora `RotorClient::get_position` rysujący rzeczywisty kierunek anteny na mapie azymutalnej**.
+### Kategoria E â€” PomysĹ‚y Opcjonalne (Nice-to-Have)
+1. ** ObsĹ‚uga przyrostowego pobierania z LoTW przez parametr `qso_qslsince` (`FUNC-008`) oraz trwaĹ‚a kolejka retry w tabeli `upload_queue` (`DATA-007`)**.
+2. **UzupeĹ‚nienie Ĺ›ledzenia dyplomĂłw WWFF i RDA w `AwardsEngine` oraz wyĹ›wietlenie sprawdzalnoĹ›ci prognoz `PropagationHistory` w oknie propagacji (`FUNC-007`)**.
+3. **Cykliczny poller pozycji rotatora `RotorClient::get_position` rysujÄ…cy rzeczywisty kierunek anteny na mapie azymutalnej**.
 
 ---
 
-### Kategoria F — Propozycje Odrzucone (Nieadekwatne do SPLogbook)
-1. **Odrzucono: Rozbicie repozytorium na kilkanaście mikro-crate'ów Cargo (`splogbook-core`, `splogbook-cat`, `splogbook-gui`, `splogbook-sync`, `splogbook-cloud` itd.)**:
-   - *Uzasadnienie*: SPLogbook jest monolityczną aplikacją desktopową jednego autora. Sztuczne rozbicie na kilkanaście crate'ów wydłużyłoby czas kompilacji, skomplikowało utrzymanie typów lokalizacyjnych (`Msg`) i nie rozwiązałoby rzeczywistych problemów, które wynikają z brakujących filtrów `journal_id` i bezpośrednich wywołań `db.lock()` w widokach GUI.
-2. **Odrzucono: Zastąpienie `rusqlite` asynchronicznym ORM-em (`sqlx` / `SeaORM`)**:
-   - *Uzasadnienie*: Synchroniczny `rusqlite` z trybem WAL i `spawn_blocking` jest szybszy, prostszy, łatwiejszy w tworzeniu kopii zapasowych (`rusqlite::backup::Backup`) i nie wymaga zewnętrznych makr kompilacyjnych.
-3. **Odrzucono: Usunięcie niepodłączonych jeszcze modułów domenowych (`src/cat/so2r.rs`, `src/cat/winkeyer.rs`, `src/digital/js8call.rs`, `src/core/qsl_print.rs`)**:
-   - *Uzasadnienie*: Zgodnie z zasadą nadrzędną nr 8 audytu, moduły te zawierają przetestowaną logikę domenową (generatory ramek K1EL WinKeyer, maszynę stanów SO2R, parser JS8Call, geometrię etykiet QSL), która powinna zostać **prawidłowo podłączona** do warstwy I/O i GUI, a nie usunięta.
+### Kategoria F â€” Propozycje Odrzucone (Nieadekwatne do SPLogbook)
+1. **Odrzucono: Rozbicie repozytorium na kilkanaĹ›cie mikro-crate'Ăłw Cargo (`splogbook-core`, `splogbook-cat`, `splogbook-gui`, `splogbook-sync`, `splogbook-cloud` itd.)**:
+   - *Uzasadnienie*: SPLogbook jest monolitycznÄ… aplikacjÄ… desktopowÄ… jednego autora. Sztuczne rozbicie na kilkanaĹ›cie crate'Ăłw wydĹ‚uĹĽyĹ‚oby czas kompilacji, skomplikowaĹ‚o utrzymanie typĂłw lokalizacyjnych (`Msg`) i nie rozwiÄ…zaĹ‚oby rzeczywistych problemĂłw, ktĂłre wynikajÄ… z brakujÄ…cych filtrĂłw `journal_id` i bezpoĹ›rednich wywoĹ‚aĹ„ `db.lock()` w widokach GUI.
+2. **Odrzucono: ZastÄ…pienie `rusqlite` asynchronicznym ORM-em (`sqlx` / `SeaORM`)**:
+   - *Uzasadnienie*: Synchroniczny `rusqlite` z trybem WAL i `spawn_blocking` jest szybszy, prostszy, Ĺ‚atwiejszy w tworzeniu kopii zapasowych (`rusqlite::backup::Backup`) i nie wymaga zewnÄ™trznych makr kompilacyjnych.
+3. **Odrzucono: UsuniÄ™cie niepodĹ‚Ä…czonych jeszcze moduĹ‚Ăłw domenowych (`src/cat/so2r.rs`, `src/cat/winkeyer.rs`, `src/digital/js8call.rs`, `src/core/qsl_print.rs`)**:
+   - *Uzasadnienie*: Zgodnie z zasadÄ… nadrzÄ™dnÄ… nr 8 audytu, moduĹ‚y te zawierajÄ… przetestowanÄ… logikÄ™ domenowÄ… (generatory ramek K1EL WinKeyer, maszynÄ™ stanĂłw SO2R, parser JS8Call, geometriÄ™ etykiet QSL), ktĂłra powinna zostaÄ‡ **prawidĹ‚owo podĹ‚Ä…czona** do warstwy I/O i GUI, a nie usuniÄ™ta.
 
 ---
 
-## 2. Świadome i Poprawne Decyzje Projektowe (Elementy, Które NIE Są Błędami — ETAP 20)
+## 2. Ĺšwiadome i Poprawne Decyzje Projektowe (Elementy, KtĂłre NIE SÄ… BĹ‚Ä™dami â€” ETAP 20)
 
-Podczas audytu jednoznacznie oddzielono faktyczne defekty od świadomych, udokumentowanych i poprawnych decyzji inżynierskich:
+Podczas audytu jednoznacznie oddzielono faktyczne defekty od Ĺ›wiadomych, udokumentowanych i poprawnych decyzji inĹĽynierskich:
 
 1. **Brak przeliczania surowego S-metra Yaesu (`SM0xxx;`) na dBm / jednostki S w `RigState` (`src/cat/native/yaesu/codec.rs:507-514`, `yaesu/models.rs:93-95`)**:
-   - *Ocena*: **Świadoma i wzorcowa decyzja projektowa** (`Native CAT.md` Sekcja 12.3). Instrukcje CAT firmy Yaesu definiują odpowiedź `SM0` wyłącznie jako surową wartość przetwornika `000..255` bez oficjalnej krzywej kalibracji w dBm. Ustawienie `capabilities.s_meter = false` i udostępnienie `raw_smeter()` zapobiega fabrykowaniu fałszywych wartości dBm.
+   - *Ocena*: **Ĺšwiadoma i wzorcowa decyzja projektowa** (`Native CAT.md` Sekcja 12.3). Instrukcje CAT firmy Yaesu definiujÄ… odpowiedĹş `SM0` wyĹ‚Ä…cznie jako surowÄ… wartoĹ›Ä‡ przetwornika `000..255` bez oficjalnej krzywej kalibracji w dBm. Ustawienie `capabilities.s_meter = false` i udostÄ™pnienie `raw_smeter()` zapobiega fabrykowaniu faĹ‚szywych wartoĹ›ci dBm.
 2. **Brak odczytu PTT (`capabilities.ptt = true`, ale brak `read_ptt` w `safe_poll_commands`) dla klasycznego modelu Icom `IC-706MKIIG` (`src/cat/native/registry.rs:145-169`)**:
-   - *Ocena*: **Poprawna decyzja sprzętowa** (`Native CAT.md` Sekcja 9.3). Starszy transceiver IC-706MKIIG nie wspiera subkomendy odczytu stanu PTT `0x1C 0x00` w protokole CI-V (używa także 4-bajtowego formatu częstotliwości w starszych generacjach lub ograniczonego zestawu komend).
-3. **Zachowanie `src/cat/so2r.rs` jako czystej domeny stanu dwóch radiotelefonów zamiast traktowania SO2R jako 9. backendu transportowego (`Native CAT.md:57, 673`)**:
-   - *Ocena*: **Poprawna decyzja architektoniczna**. SO2R jest warstwą koordynacji dwóch sesji `RigService`, a nie protokołem komunikacji z pojedynczym radiem. (Jedynym błędem do posprzątania jest pozostałość wariantu `CatBackendKind::So2r` w `backend.rs:111`).
-4. **Dwupoziomowy model przechowywania sekretów (`SecretStore` w `src/core/station.rs:90-210`): Keyring systemowy OS z zaszyfrowanym fallbackiem plikowym (`Argon2id` + `ChaCha20-Poly1305`)**:
-   - *Ocena*: **Poprawna decyzja niezawodnościowa**. Na systemach Linux bez uruchomionego demona `dbus`/`gnome-keyring` (np. lekkie środowiska okienkowe używane w shackach krótkofalarskich na Raspberry Pi / mini-PC) sam `keyring` zawodzi; lokalny sejf `vault.enc` z uprawnieniami `0o600` zapewnia działanie na każdej konfiguracji.
-5. **Stały język polski (`Language::Pl`) dla komunikatów błędów walidacji w lokalnym REST API (`src/api/server.rs:776-778`)**:
-   - *Ocena*: **Udokumentowany kontrakt integracyjny** objęty testami.
+   - *Ocena*: **Poprawna decyzja sprzÄ™towa** (`Native CAT.md` Sekcja 9.3). Starszy transceiver IC-706MKIIG nie wspiera subkomendy odczytu stanu PTT `0x1C 0x00` w protokole CI-V (uĹĽywa takĹĽe 4-bajtowego formatu czÄ™stotliwoĹ›ci w starszych generacjach lub ograniczonego zestawu komend).
+3. **Zachowanie `src/cat/so2r.rs` jako czystej domeny stanu dwĂłch radiotelefonĂłw zamiast traktowania SO2R jako 9. backendu transportowego (`Native CAT.md:57, 673`)**:
+   - *Ocena*: **Poprawna decyzja architektoniczna**. SO2R jest warstwÄ… koordynacji dwĂłch sesji `RigService`, a nie protokoĹ‚em komunikacji z pojedynczym radiem. (Jedynym bĹ‚Ä™dem do posprzÄ…tania jest pozostaĹ‚oĹ›Ä‡ wariantu `CatBackendKind::So2r` w `backend.rs:111`).
+4. **Dwupoziomowy model przechowywania sekretĂłw (`SecretStore` w `src/core/station.rs:90-210`): Keyring systemowy OS z zaszyfrowanym fallbackiem plikowym (`Argon2id` + `ChaCha20-Poly1305`)**:
+   - *Ocena*: **Poprawna decyzja niezawodnoĹ›ciowa**. Na systemach Linux bez uruchomionego demona `dbus`/`gnome-keyring` (np. lekkie Ĺ›rodowiska okienkowe uĹĽywane w shackach krĂłtkofalarskich na Raspberry Pi / mini-PC) sam `keyring` zawodzi; lokalny sejf `vault.enc` z uprawnieniami `0o600` zapewnia dziaĹ‚anie na kaĹĽdej konfiguracji.
+5. **StaĹ‚y jÄ™zyk polski (`Language::Pl`) dla komunikatĂłw bĹ‚Ä™dĂłw walidacji w lokalnym REST API (`src/api/server.rs:776-778`)**:
+   - *Ocena*: **Udokumentowany kontrakt integracyjny** objÄ™ty testami.
 
 ---
 
-## 3. Uporządkowany 10-Etapowy Plan Wdrożeniowy (ETAP 22)
+## 3. UporzÄ…dkowany 10-Etapowy Plan WdroĹĽeniowy (ETAP 22)
 
-Plan został ułożony w kolejności minimalizującej ryzyko regresji: najpierw bezpieczeństwo, szybkość pętli testowej i naprawa bramek CI, następnie bezpieczeństwo RF/CAT i integralność danych, a na końcu ergonomia GUI i funkcje rozwojowe.
+Plan zostaĹ‚ uĹ‚oĹĽony w kolejnoĹ›ci minimalizujÄ…cej ryzyko regresji: najpierw bezpieczeĹ„stwo, szybkoĹ›Ä‡ pÄ™tli testowej i naprawa bramek CI, nastÄ™pnie bezpieczeĹ„stwo RF/CAT i integralnoĹ›Ä‡ danych, a na koĹ„cu ergonomia GUI i funkcje rozwojowe.
 
 ```mermaid
 flowchart LR
-    E1["Etap 1\nBezpieczeństwo Kluczy,\nZależności i Szybkość Testów"] --> E2["Etap 2\nNaprawa Auto-Updatera\ni Potoku Release CI"]
-    E2 --> E3["Etap 3\nBezpieczeństwo RF, Probe\ni Potwierdzenia PTT w CAT"]
-    E3 --> E4["Etap 4\nPoprawność Kodeków CAT\ni Auto-Reconnect RigService"]
-    E4 --> E5["Etap 5\nIntegralność Danych:\nADIF, Ingest i Indeksy SQL"]
-    E5 --> E6["Etap 6\nIzolacja Dzienników,\nUndo i Bezpieczny Backup"]
-    E6 --> E7["Etap 7\nDomena Zawodów:\nCabrillo 3.0 i Punktacja"]
+    E1["Etap 1\nBezpieczeĹ„stwo Kluczy,\nZaleĹĽnoĹ›ci i SzybkoĹ›Ä‡ TestĂłw"] --> E2["Etap 2\nNaprawa Auto-Updatera\ni Potoku Release CI"]
+    E2 --> E3["Etap 3\nBezpieczeĹ„stwo RF, Probe\ni Potwierdzenia PTT w CAT"]
+    E3 --> E4["Etap 4\nPoprawnoĹ›Ä‡ KodekĂłw CAT\ni Auto-Reconnect RigService"]
+    E4 --> E5["Etap 5\nIntegralnoĹ›Ä‡ Danych:\nADIF, Ingest i Indeksy SQL"]
+    E5 --> E6["Etap 6\nIzolacja DziennikĂłw,\nUndo i Bezpieczny Backup"]
+    E6 --> E7["Etap 7\nDomena ZawodĂłw:\nCabrillo 3.0 i Punktacja"]
     E7 --> E8["Etap 8\nIntegracja Multi-Radio GUI,\nREST API Rig i Hamlib Proxy"]
-    E8 --> E9["Etap 9\nErgonomia Klawiaturowa,\nTrwałość Config i Wydajność GUI"]
-    E9 --> E10["Etap 10\nPodłączenie Funkcji\nPozornych i Bramka Clippy -D"]
+    E8 --> E9["Etap 9\nErgonomia Klawiaturowa,\nTrwaĹ‚oĹ›Ä‡ Config i WydajnoĹ›Ä‡ GUI"]
+    E9 --> E10["Etap 10\nPodĹ‚Ä…czenie Funkcji\nPozornych i Bramka Clippy -D"]
 ```
 
 ---
 
-### Etap 1 — Bezpieczeństwo Kluczy, Zależności i Odblokowanie Szybkości Testów (`P0`)
-- **Status podetapów:**
-  - **Etap 1A (SEC-001 — Remediacja w drzewie, revocation i testy):** ZREALIZOWANY (usunięto `src/scratch.rs`, wdrożono `REVOKED_KEY_IDS` i `REVOKED_PUBLIC_KEYS`, auto-updater fail-closed, dodano `tests/security_guard.rs` oraz kontrolę CI; oczekuje na rotację klucza przez właściciela: `BLOCKED_EXTERNAL_SECRET`).
-  - **Etap 1B (SEC-001 — Rotacja produkcyjna):** ZREALIZOWANY (aktywowano nowy publiczny klucz `splogbook-release-2026-02`, potwierdzono zewnętrzny sekret `RELEASE_SIGNING_KEY`, odwołano historyczne klucze, 17/17 testów bezpieczeństwa zielonych, przeprowadzono audyt wydań historycznych `docs/HISTORICAL_RELEASE_AUDIT.md`; gotowość wydawnicza auto-updatera blokowana do Etapu 2 / `CI-001`).
-  - **Etap 1C (Ochrona sekretów i powierzchni sieciowej — SEC-002, SEC-003, SEC-004):** ZREALIZOWANY (SEC-002: redakcja 11 pól konfiguracji w Debug, redakcja haseł/tokenów z URL i błędów chmurowych; SEC-003: 10s timeout na host_handshake i gwarantowane zwalnianie slotu semafora; SEC-004: polityka wiązania portu validate_bind_policy i blokada mutacji REST bez tokenu dla klientów zdalnych oraz obcych Origin/Sec-Fetch-Site; 19/19 testów security_guard, 7 testów REST i 3 testy handshake timeout zielone).
-  - **Etap 1D-A (DEP-001, DATA-007):** ZREALIZOWANY (DEP-001: selektywna aktualizacja 7 pakietów w `Cargo.lock`, eliminacja 7 vulnerabilities, 1 unsound i 2 wycofanych pakietów yanked, cargo audit = 0 podatności, wyjaśnienie chronologii RustSec w klasie ENVIRONMENT_DATE_AFTER_REFERENCE, zielone testy SEC-003 3/3 i targetu Windows MSVC, commit `335ced5`; DATA-007: usunięcie 6 pustych linii po backslashach SQL w `src/core/database/qso_store.rs` bez modyfikacji semantyki SQL, 0 ostrzeżeń kompilatora, 30/30 testów bazy zielonych, spadek clippy --lib do 339, commit `5e61a78`).
-  - **Etap 1D-B (PERF-001, TEST-001):** ZREALIZOWANY (PERF-001: zastąpienie algorytmu $O(N^2)$ w `src/sync/catchup.rs` algorytmem liniowym $O(N)$ z dokładnym kalkulatorem rozmiaru JSON; czas `chunk_inventory` N=15,000 spadł z 254 s do 63 ms [>4000x], zachowano kolejność i limit 1 MiB ramki, commity `7106677`; TEST-001: eliminacja 13 zbędnych wywołań Argon2id w testach jednostkowych framing/session na rzecz deterministycznych kluczy testowych, czas `cargo test --lib` spadł z 353 s do 37 s, a `sync:: --lib` z 354 s do 35 s [10x], parametry produkcyjne Argon2id m=19MiB, t=2, p=1 nienaruszone i zabezpieczone testem `production_argon2_parameters_remain_unchanged`, commit `d4cd4d2`; Bramka naprawcza PERF-001: formalne potwierdzenie kontraktu limitów MAX_CHUNK_BYTES 1 MiB, MAX_RECORD_BYTES 6 MiB, MAX_FRAME_BYTES 8 MiB, weryfikacja SINGLE_RECORD_EXCEPTION_IS_VALID end-to-end, ochrona dekodera przed alokacją, pełne liczenie operacji liniowych 1+N+3C, sprostowanie deklaracji pamięci, ryzyko resztkowe niskie).
-- **Podsumowanie Etapu 1:** Wszystkie cele Etapu 1 (SEC-001, SEC-002, SEC-003, SEC-004, DEP-001, DATA-007, PERF-001, TEST-001) zostały w 100% zrealizowane. Kod i testy zielone, repozytorium gotowe do Etapu 2 (REL-001, CI-001).
-- **Cel:** Usunięcie blokera bezpieczeństwa `SEC-001`, wyeliminowanie podatności `Cargo.lock` (`DEP-001`) oraz skrócenie czasu wykonania `cargo test` z ~9 minut do ~15 sekund (`PERF-001`, `TEST-001`).
+### Etap 1 â€” BezpieczeĹ„stwo Kluczy, ZaleĹĽnoĹ›ci i Odblokowanie SzybkoĹ›ci TestĂłw (`P0`)
+- **Status podetapĂłw:**
+  - **Etap 1A (SEC-001 â€” Remediacja w drzewie, revocation i testy):** ZREALIZOWANY (usuniÄ™to `src/scratch.rs`, wdroĹĽono `REVOKED_KEY_IDS` i `REVOKED_PUBLIC_KEYS`, auto-updater fail-closed, dodano `tests/security_guard.rs` oraz kontrolÄ™ CI; oczekuje na rotacjÄ™ klucza przez wĹ‚aĹ›ciciela: `BLOCKED_EXTERNAL_SECRET`).
+  - **Etap 1B (SEC-001 â€” Rotacja produkcyjna):** ZREALIZOWANY (aktywowano nowy publiczny klucz `splogbook-release-2026-02`, potwierdzono zewnÄ™trzny sekret `RELEASE_SIGNING_KEY`, odwoĹ‚ano historyczne klucze, 17/17 testĂłw bezpieczeĹ„stwa zielonych, przeprowadzono audyt wydaĹ„ historycznych `docs/HISTORICAL_RELEASE_AUDIT.md`; gotowoĹ›Ä‡ wydawnicza auto-updatera blokowana do Etapu 2 / `CI-001`).
+  - **Etap 1C (Ochrona sekretĂłw i powierzchni sieciowej â€” SEC-002, SEC-003, SEC-004):** ZREALIZOWANY (SEC-002: redakcja 11 pĂłl konfiguracji w Debug, redakcja haseĹ‚/tokenĂłw z URL i bĹ‚Ä™dĂłw chmurowych; SEC-003: 10s timeout na host_handshake i gwarantowane zwalnianie slotu semafora; SEC-004: polityka wiÄ…zania portu validate_bind_policy i blokada mutacji REST bez tokenu dla klientĂłw zdalnych oraz obcych Origin/Sec-Fetch-Site; 19/19 testĂłw security_guard, 7 testĂłw REST i 3 testy handshake timeout zielone).
+  - **Etap 1D-A (DEP-001, DATA-007):** ZREALIZOWANY (DEP-001: selektywna aktualizacja 7 pakietĂłw w `Cargo.lock`, eliminacja 7 vulnerabilities, 1 unsound i 2 wycofanych pakietĂłw yanked, cargo audit = 0 podatnoĹ›ci, wyjaĹ›nienie chronologii RustSec w klasie ENVIRONMENT_DATE_AFTER_REFERENCE, zielone testy SEC-003 3/3 i targetu Windows MSVC, commit `335ced5`; DATA-007: usuniÄ™cie 6 pustych linii po backslashach SQL w `src/core/database/qso_store.rs` bez modyfikacji semantyki SQL, 0 ostrzeĹĽeĹ„ kompilatora, 30/30 testĂłw bazy zielonych, spadek clippy --lib do 339, commit `5e61a78`).
+  - **Etap 1D-B (PERF-001, TEST-001):** ZREALIZOWANY (PERF-001: zastÄ…pienie algorytmu $O(N^2)$ w `src/sync/catchup.rs` algorytmem liniowym $O(N)$ z dokĹ‚adnym kalkulatorem rozmiaru JSON; czas `chunk_inventory` N=15,000 spadĹ‚ z 254 s do 63 ms [>4000x], zachowano kolejnoĹ›Ä‡ i limit 1 MiB ramki, commity `7106677`; TEST-001: eliminacja 13 zbÄ™dnych wywoĹ‚aĹ„ Argon2id w testach jednostkowych framing/session na rzecz deterministycznych kluczy testowych, czas `cargo test --lib` spadĹ‚ z 353 s do 37 s, a `sync:: --lib` z 354 s do 35 s [10x], parametry produkcyjne Argon2id m=19MiB, t=2, p=1 nienaruszone i zabezpieczone testem `production_argon2_parameters_remain_unchanged`, commit `d4cd4d2`; Bramka naprawcza PERF-001: formalne potwierdzenie kontraktu limitĂłw MAX_CHUNK_BYTES 1 MiB, MAX_RECORD_BYTES 6 MiB, MAX_FRAME_BYTES 8 MiB, weryfikacja SINGLE_RECORD_EXCEPTION_IS_VALID end-to-end, ochrona dekodera przed alokacjÄ…, peĹ‚ne liczenie operacji liniowych 1+N+3C, sprostowanie deklaracji pamiÄ™ci, ryzyko resztkowe niskie).
+- **Podsumowanie Etapu 1:** Wszystkie cele Etapu 1 (SEC-001, SEC-002, SEC-003, SEC-004, DEP-001, DATA-007, PERF-001, TEST-001) zostaĹ‚y w 100% zrealizowane. Kod i testy zielone, repozytorium gotowe do Etapu 2 (REL-001, CI-001).
+- **Cel:** UsuniÄ™cie blokera bezpieczeĹ„stwa `SEC-001`, wyeliminowanie podatnoĹ›ci `Cargo.lock` (`DEP-001`) oraz skrĂłcenie czasu wykonania `cargo test` z ~9 minut do ~15 sekund (`PERF-001`, `TEST-001`).
 - **Zakres:**
-  - Usunięcie `src/scratch.rs`, rotacja klucza Ed25519 w `src/cloud/updater.rs:257-266` (`SEC-001`).
-  - Redakcja sekretów w `Debug for AppConfig` i `without_url()` dla błędów HTTP (`SEC-002`) oraz timeout 10 s na `host_handshake` w `src/sync/host.rs:88` (`SEC-003`).
-  - Zastąpienie kwadratowego algorytmu $O(N^2)$ w `src/sync/catchup.rs:20-170` algorytmem liniowym $O(N)$ (`PERF-001`) oraz dodanie `[profile.dev.package.argon2] opt-level = 3` w `Cargo.toml` (`TEST-001`).
-  - Aktualizacja `rustls`, `rustls-webpki`, `webpki-root-certs`, `ctutils`, `tokio` w `Cargo.lock` (`DEP-001`) i usunięcie 6 ostrzeżeń leksera w `src/core/database/qso_store.rs` (`DATA-007`).
-- **Pliki i moduły:** `src/scratch.rs`, `src/cloud/updater.rs`, `src/core/station.rs`, `src/cloud/{lotw,eqsl,qrz,hamqth}.rs`, `src/sync/host.rs`, `src/sync/catchup.rs`, `src/core/database/qso_store.rs`, `Cargo.toml`, `Cargo.lock`.
+  - UsuniÄ™cie `src/scratch.rs`, rotacja klucza Ed25519 w `src/cloud/updater.rs:257-266` (`SEC-001`).
+  - Redakcja sekretĂłw w `Debug for AppConfig` i `without_url()` dla bĹ‚Ä™dĂłw HTTP (`SEC-002`) oraz timeout 10 s na `host_handshake` w `src/sync/host.rs:88` (`SEC-003`).
+  - ZastÄ…pienie kwadratowego algorytmu $O(N^2)$ w `src/sync/catchup.rs:20-170` algorytmem liniowym $O(N)$ (`PERF-001`) oraz dodanie `[profile.dev.package.argon2] opt-level = 3` w `Cargo.toml` (`TEST-001`).
+  - Aktualizacja `rustls`, `rustls-webpki`, `webpki-root-certs`, `ctutils`, `tokio` w `Cargo.lock` (`DEP-001`) i usuniÄ™cie 6 ostrzeĹĽeĹ„ leksera w `src/core/database/qso_store.rs` (`DATA-007`).
+- **Pliki i moduĹ‚y:** `src/scratch.rs`, `src/cloud/updater.rs`, `src/core/station.rs`, `src/cloud/{lotw,eqsl,qrz,hamqth}.rs`, `src/sync/host.rs`, `src/sync/catchup.rs`, `src/core/database/qso_store.rs`, `Cargo.toml`, `Cargo.lock`.
 - **Ryzyka:** Minimalne.
-- **Kryteria ukończenia:** `cargo audit` zwraca 0 podatności; `cargo test --lib` wykonuje się w < 25 s; brak `src/scratch.rs`.
+- **Kryteria ukoĹ„czenia:** `cargo audit` zwraca 0 podatnoĹ›ci; `cargo test --lib` wykonuje siÄ™ w < 25 s; brak `src/scratch.rs`.
 
 ---
 
-### Etap 2 — Naprawa Auto-Updatera i Potoku Wydawniczego GitHub Actions (`P0`) — ZREALIZOWANY (REL-001, CI-001)
-- **Cel:** Zapewnienie działających, kryptograficznie podpisanych aktualizacji na Windows i Linux (`REL-001`, `CI-001`).
+### Etap 2 â€” Naprawa Auto-Updatera i Potoku Wydawniczego GitHub Actions (`P0`) â€” ZREALIZOWANY (REL-001, CI-001)
+- **Cel:** Zapewnienie dziaĹ‚ajÄ…cych, kryptograficznie podpisanych aktualizacji na Windows i Linux (`REL-001`, `CI-001`).
 - **Status remediacji:** **FIXED / PRODUCTION_DRY_RUN_VERIFIED / RELEASE_PIPELINE_READY** (2026-11-01, commity `9ac1e5b`, `cdcb955`, `16892e8`, `9557db8`, `3ebd8ac`, `7125c66`, `0f56ada`, `75ef965`)
-- **Zweryfikowany przebieg GitHub Actions dry-run z produkcyjnym kluczem:** Run ID `41317314042` (ref `main`, commit `75ef965`, 100% zielony: Windows 28m32s, Linux 18m34s, Publish Release Assets 8m23s; Create Release: SKIPPED; tagi: brak; wydanie: brak; produkcyjny fingerprint `2a6277b7...` zweryfikowany; brak ostrzeżeń Node.js 20; niezależna walidacja pobranych artefaktów: potwierdzona).
+- **Zweryfikowany przebieg GitHub Actions dry-run z produkcyjnym kluczem:** Run ID `41317314042` (ref `main`, commit `75ef965`, 100% zielony: Windows 28m32s, Linux 18m34s, Publish Release Assets 8m23s; Create Release: SKIPPED; tagi: brak; wydanie: brak; produkcyjny fingerprint `2a6277b7...` zweryfikowany; brak ostrzeĹĽeĹ„ Node.js 20; niezaleĹĽna walidacja pobranych artefaktĂłw: potwierdzona).
 - **Zrealizowany zakres:**
-  - `REL-001` (Auto-updater): Wymuszono dobór `.zip` na Windows i `.tar.gz` na Linux; plik tymczasowy na Windows pobierany jako `.SPLogbook_update_{pid}.zip`; bezpieczna ekstrakcja `extract_tar_gz_safe` i `extract_zip_safe_windows` z ochroną przed path traversal (`validate_archive_relative_path`), odrzucaniem symlinków/hardlinków i limitami `ArchiveLimits`; spłaszczanie pojedynczego katalogu głównego (`flatten_single_root_directory`); atomowa podmiana instalacji z automatycznym backupem i natychmiastowym rollbackiem przy błędzie (`apply_atomic_installation_with_options`); wymuszenie masek `0o755`/`0o644` bez bitów setuid/setgid/sticky.
-  - `CI-001` (Workflow release): Ograniczenie uprawnień do `contents: read` (z wyjątkiem publish-release); obsługa `dry_run` w `workflow_dispatch`; wymuszenie fail-closed przy braku `RELEASE_SIGNING_KEY`; kontrola kompletności i jednoznaczności archiwów; generowanie i autoweryfikacja `SHA256SUMS.txt`; deterministyczny manifest `release-manifest.json` podpisany kluczem `splogbook-release-2026-02`; weryfikacja sygnatury przed publikacją; migracja wszystkich GitHub Actions do Node 24 runtime (`actions/checkout@v7.0.1`, `dtolnay/rust-toolchain@v1`, `actions/upload-artifact@v7.0.2`, `actions/download-artifact@v8.0.2`, `softprops/action-gh-release@v3.0.3`) z przypięciem pełnymi 40-znakowymi commit SHA; weryfikacja fingerprintu produkcyjnego klucza `2a6277b72d2a97236f344f1542a1c2868a74f71c9626a22dc1735919efeb2a4a`; blokada publikacji niepodpisanego wydania.
-  - Dokumentacja: Dodano kompleksowy dokument architektury bezpieczeństwa `docs/RELEASE_SECURITY.md`.
-- **Pliki i moduły:** `src/cloud/updater.rs`, `src/bin/signer.rs`, `.github/workflows/build-and-release.yml`, `.github/workflows/ci.yml`, `tests/security_guard.rs`, `docs/RELEASE_SECURITY.md`.
-- **Testy regresyjne:** 57 testów auto-updatera i bezpieczeństwa archiwów w `updater.rs` + 32 testy strażnika bezpieczeństwa w `tests/security_guard.rs` (wszystkie zielone).
-- **Stan gotowości wydawniczej:** `RELEASE_PIPELINE_READY` (potwierdzony po natywnym i zielonym przebiegu GitHub Actions dry-run `41317314042` z weryfikacją produkcyjnego sekretu i brakiem ostrzeżeń Node.js 20).
+  - `REL-001` (Auto-updater): Wymuszono dobĂłr `.zip` na Windows i `.tar.gz` na Linux; plik tymczasowy na Windows pobierany jako `.SPLogbook_update_{pid}.zip`; bezpieczna ekstrakcja `extract_tar_gz_safe` i `extract_zip_safe_windows` z ochronÄ… przed path traversal (`validate_archive_relative_path`), odrzucaniem symlinkĂłw/hardlinkĂłw i limitami `ArchiveLimits`; spĹ‚aszczanie pojedynczego katalogu gĹ‚Ăłwnego (`flatten_single_root_directory`); atomowa podmiana instalacji z automatycznym backupem i natychmiastowym rollbackiem przy bĹ‚Ä™dzie (`apply_atomic_installation_with_options`); wymuszenie masek `0o755`/`0o644` bez bitĂłw setuid/setgid/sticky.
+  - `CI-001` (Workflow release): Ograniczenie uprawnieĹ„ do `contents: read` (z wyjÄ…tkiem publish-release); obsĹ‚uga `dry_run` w `workflow_dispatch`; wymuszenie fail-closed przy braku `RELEASE_SIGNING_KEY`; kontrola kompletnoĹ›ci i jednoznacznoĹ›ci archiwĂłw; generowanie i autoweryfikacja `SHA256SUMS.txt`; deterministyczny manifest `release-manifest.json` podpisany kluczem `splogbook-release-2026-02`; weryfikacja sygnatury przed publikacjÄ…; migracja wszystkich GitHub Actions do Node 24 runtime (`actions/checkout@v7.0.1`, `dtolnay/rust-toolchain@v1`, `actions/upload-artifact@v7.0.2`, `actions/download-artifact@v8.0.2`, `softprops/action-gh-release@v3.0.3`) z przypiÄ™ciem peĹ‚nymi 40-znakowymi commit SHA; weryfikacja fingerprintu produkcyjnego klucza `2a6277b72d2a97236f344f1542a1c2868a74f71c9626a22dc1735919efeb2a4a`; blokada publikacji niepodpisanego wydania.
+  - Dokumentacja: Dodano kompleksowy dokument architektury bezpieczeĹ„stwa `docs/RELEASE_SECURITY.md`.
+- **Pliki i moduĹ‚y:** `src/cloud/updater.rs`, `src/bin/signer.rs`, `.github/workflows/build-and-release.yml`, `.github/workflows/ci.yml`, `tests/security_guard.rs`, `docs/RELEASE_SECURITY.md`.
+- **Testy regresyjne:** 57 testĂłw auto-updatera i bezpieczeĹ„stwa archiwĂłw w `updater.rs` + 32 testy straĹĽnika bezpieczeĹ„stwa w `tests/security_guard.rs` (wszystkie zielone).
+- **Stan gotowoĹ›ci wydawniczej:** `RELEASE_PIPELINE_READY` (potwierdzony po natywnym i zielonym przebiegu GitHub Actions dry-run `41317314042` z weryfikacjÄ… produkcyjnego sekretu i brakiem ostrzeĹĽeĹ„ Node.js 20).
 
 ---
 
-### Etap 3 — Bezpieczeństwo RF, Polimorficzny Read-Only Probe i Potwierdzenia PTT w CAT (`P0`)
-- **Status:** **SOFTWARE VERIFIED** (Fizyczny HIL: **NOT EXECUTED — SAFETY GATE CLOSED**)
-- **Data wdrożenia:** 2026-11-01
-- **Cel:** Usunięcie wszystkich luk bezpieczeństwa `TxArbiter`, wyścigów PTT i mutującego sondowania (`CAT-002`, `CAT-003`, `CAT-005`, `CAT-006`, `CAT-015`).
+### Etap 3 â€” BezpieczeĹ„stwo RF, Polimorficzny Read-Only Probe i Potwierdzenia PTT w CAT (`P0`)
+- **Status:** **SOFTWARE VERIFIED** (Fizyczny HIL: **NOT EXECUTED â€” SAFETY GATE CLOSED**)
+- **Data wdroĹĽenia:** 2026-11-01
+- **Cel:** UsuniÄ™cie wszystkich luk bezpieczeĹ„stwa `TxArbiter`, wyĹ›cigĂłw PTT i mutujÄ…cego sondowania (`CAT-002`, `CAT-003`, `CAT-005`, `CAT-006`, `CAT-015`).
 - **Commity:**
   - `3e907aa`: `fix(cat): make backend probing strictly read-only (CAT-002)`
   - `31ab74e`: `fix(cat): require confirmed PTT ownership for TCI (CAT-003)`
   - `ce73b8c`: `fix(cat): require confirmed PTT ownership for FlexRadio (CAT-005)`
   - `1fce33a`: `fix(cat): enforce fail-safe PTT cleanup (CAT-006)`
   - `ddc1c0c`: `fix(hil): protect hardware PTT session lifecycle (CAT-015)`
-- **Ujednolicone mapowanie znalezisk i commitów (Bramka Dokumentacyjna):**
-  - `CAT-002`: Wyścig potwierdzenia PTT w `TciBackend` i `FlexRadioBackend` -> Commity `31ab74e` *(w commit msg tag CAT-003)* oraz `ce73b8c` *(w commit msg tag CAT-005)*. Status: `FIXED_SOFTWARE_VERIFIED`.
+- **Ujednolicone mapowanie znalezisk i commitĂłw (Bramka Dokumentacyjna):**
+  - `CAT-002`: WyĹ›cig potwierdzenia PTT w `TciBackend` i `FlexRadioBackend` -> Commity `31ab74e` *(w commit msg tag CAT-003)* oraz `ce73b8c` *(w commit msg tag CAT-005)*. Status: `FIXED_SOFTWARE_VERIFIED`.
   - `CAT-003`: Polimorficzny read-only `probe()` we wszystkich backendach -> Commit `3e907aa` *(w commit msg tag CAT-002)*. Status: `FIXED_SOFTWARE_VERIFIED`.
-  - `CAT-005`: Wymóg odpytania sprzętowego `TX;`/`TQ;` bez optymizmu w Yaesu i Elecraft -> Commit `1fce33a` *(w commit msg tag CAT-006)*. Status: `FIXED_SOFTWARE_VERIFIED`.
+  - `CAT-005`: WymĂłg odpytania sprzÄ™towego `TX;`/`TQ;` bez optymizmu w Yaesu i Elecraft -> Commit `1fce33a` *(w commit msg tag CAT-006)*. Status: `FIXED_SOFTWARE_VERIFIED`.
   - `CAT-006`: `resync_tx_arbiter` (`last_state_update`) i oznaczanie `StateFreshness::Stale` -> Commit `1fce33a`. Status: `FIXED_SOFTWARE_VERIFIED`.
-  - `CAT-015`: Cykl życia sesji HIL i bramki środowiskowe `SPLOG_HIL_*` -> Commit `ddc1c0c`. Status: `FIXED_SOFTWARE_VERIFIED` (fizyczny HIL: NOT EXECUTED — SAFETY GATE CLOSED).
+  - `CAT-015`: Cykl ĹĽycia sesji HIL i bramki Ĺ›rodowiskowe `SPLOG_HIL_*` -> Commit `ddc1c0c`. Status: `FIXED_SOFTWARE_VERIFIED` (fizyczny HIL: NOT EXECUTED â€” SAFETY GATE CLOSED).
 - **Semantyka zwolnienia PTT:**
   - `Drop`: synchroniczny best-effort TX OFF (nie gwarantuje asynchronicznego potwierdzenia powrotu do RX).
-  - Jawne zamknięcie sesji (`release_and_confirm_rx` / `disconnect`): wysłanie TX OFF i asynchroniczne oczekiwanie na potwierdzenie stanu RX z radia.
-- **Zakres wdrożony:**
-  - Usunięcie domyślnej mutującej metody `probe()` z `RigBackend` i wdrożenie jawnych, read-only implementacji we wszystkich 8 backendach (`CAT-003`).
+  - Jawne zamkniÄ™cie sesji (`release_and_confirm_rx` / `disconnect`): wysĹ‚anie TX OFF i asynchroniczne oczekiwanie na potwierdzenie stanu RX z radia.
+- **Zakres wdroĹĽony:**
+  - UsuniÄ™cie domyĹ›lnej mutujÄ…cej metody `probe()` z `RigBackend` i wdroĹĽenie jawnych, read-only implementacji we wszystkich 8 backendach (`CAT-003`).
   - Oczekiwanie na asynchroniczne potwierdzenie ramki `TciMessage::Trx` w TCI oraz `interlock state=TRANSMITTING`/nie-TRANSMITTING w FlexRadio z drainem, timeoutem i guardem `discard_late_tx` (`CAT-002`).
-  - Wymuszenie odpytania `TX;` w Yaesu oraz `TQ;` w Elecraft z usunięciem optymistycznego przypisania stanu TX (`CAT-005`).
-  - Zastąpienie `snapshot.last_update` przez `snapshot.last_state_update` i walidacja `freshness != Stale` w `RigHub::resync_tx_arbiter` oraz oznaczanie `Stale` w `RigService` (`CAT-006`).
-  - Przepisanie `HilHardwareSession::execute_controlled_ptt` na pełną ścieżkę bezpieczeństwa z autoryzacją środowiska, sprawdzeniem początkowego RX, strażnikiem `acquire_tx_guard` i potwierdzeniem `release_and_confirm_rx` (`CAT-015`).
-- **Pliki i moduły:** `src/cat/backend.rs`, `src/cat/service.rs`, `src/cat/hub.rs`, `src/cat/tci.rs`, `src/cat/native/{icom,yaesu,elecraft,flexradio}/backend.rs`, `src/cat/hil/session.rs`.
+  - Wymuszenie odpytania `TX;` w Yaesu oraz `TQ;` w Elecraft z usuniÄ™ciem optymistycznego przypisania stanu TX (`CAT-005`).
+  - ZastÄ…pienie `snapshot.last_update` przez `snapshot.last_state_update` i walidacja `freshness != Stale` w `RigHub::resync_tx_arbiter` oraz oznaczanie `Stale` w `RigService` (`CAT-006`).
+  - Przepisanie `HilHardwareSession::execute_controlled_ptt` na peĹ‚nÄ… Ĺ›cieĹĽkÄ™ bezpieczeĹ„stwa z autoryzacjÄ… Ĺ›rodowiska, sprawdzeniem poczÄ…tkowego RX, straĹĽnikiem `acquire_tx_guard` i potwierdzeniem `release_and_confirm_rx` (`CAT-015`).
+- **Pliki i moduĹ‚y:** `src/cat/backend.rs`, `src/cat/service.rs`, `src/cat/hub.rs`, `src/cat/tci.rs`, `src/cat/native/{icom,yaesu,elecraft,flexradio}/backend.rs`, `src/cat/hil/session.rs`.
 - **Wyniki weryfikacji:**
   - `tests/cat_native_6a.rs`: 165 passed, 0 failed.
   - `tests/cat_native_6b.rs`: 87 passed, 0 failed.
-  - `tests/cat_native_7.rs`: 297 passed, 0 failed, 10 ignored (bramka sprzętowa bezpiecznie zamknięta).
+  - `tests/cat_native_7.rs`: 297 passed, 0 failed, 10 ignored (bramka sprzÄ™towa bezpiecznie zamkniÄ™ta).
 
 ---
 
-### Etap 4 — Poprawność Protokołów Natywnych CAT i Auto-Reconnect w `RigService` (`P1`) [SOFTWARE VERIFIED]
+### Etap 4 â€” PoprawnoĹ›Ä‡ ProtokoĹ‚Ăłw Natywnych CAT i Auto-Reconnect w `RigService` (`P1`) [SOFTWARE VERIFIED]
 - **Status:** **SOFTWARE VERIFIED** (2026-11-03)
-- **Fizyczny HIL:** **NOT EXECUTED — SAFETY GATE CLOSED** (10 testów pozostaje odizolowanych za `#[ignore = "hardware-in-the-loop"]`)
+- **Fizyczny HIL:** **NOT EXECUTED â€” SAFETY GATE CLOSED** (10 testĂłw pozostaje odizolowanych za `#[ignore = "hardware-in-the-loop"]`)
 - **Status Bramki CAT-017:** **FIXED_SOFTWARE_VERIFIED**
-- **Gotowość do Etapu 5:** **READY**
+- **GotowoĹ›Ä‡ do Etapu 5:** **READY**
 - **Zrealizowane Commity Etapu 4:**
-  - `a5f2a8c`: `docs: align Stage 3 CAT finding mappings and HIL status` (Commit 0 — Bramka dokumentacyjna)
+  - `a5f2a8c`: `docs: align Stage 3 CAT finding mappings and HIL status` (Commit 0 â€” Bramka dokumentacyjna)
   - `95877ce`: `fix(cat): correct Icom CI-V BCD frequency encoding (CAT-001)`
   - `cf2a503`: `fix(cat): validate native CI-V frame boundaries (CAT-004)`
   - `30b6542`: `fix(cat): harden native CAT response parsing (CAT-009 CAT-010 CAT-011 CAT-012 CAT-013)`
@@ -201,30 +202,30 @@ flowchart LR
   - `9c8b877`: `fix(cat): preserve external TX state after reconnect (CAT-017)`
   - `1c4b36a`: `fix(cat): reject stale asynchronous session results (CAT-017)`
   - `af80cbb`: `fix(cat): harden FLRig keep-alive response framing (CAT-017)`
-- **Cel:** Naprawa błędów protokołowych Icom/Kenwood/FlexRadio/FLRig/Hamlib oraz wprowadzenie automatycznego wznawiania połączenia (`CAT-001`, `CAT-004`, `CAT-009`, `CAT-010`, `CAT-011`, `CAT-012`, `CAT-013`, `CAT-016`, `CAT-017`).
+- **Cel:** Naprawa bĹ‚Ä™dĂłw protokoĹ‚owych Icom/Kenwood/FlexRadio/FLRig/Hamlib oraz wprowadzenie automatycznego wznawiania poĹ‚Ä…czenia (`CAT-001`, `CAT-004`, `CAT-009`, `CAT-010`, `CAT-011`, `CAT-012`, `CAT-013`, `CAT-016`, `CAT-017`).
 - **Zakres:**
-  - Pętla wykładniczego reconnectu w `RigService::run_loop` (`CAT-001`).
+  - PÄ™tla wykĹ‚adniczego reconnectu w `RigService::run_loop` (`CAT-001`).
   - Kodowanie/dekodowanie Big-Endian BCD dla S-metra/mocy oraz poprawne komendy `0x21 0x01`/`0x21 0x02`/`0x21 0x00` i `0x25 0x01` w `IcomCiVBackend` (`CAT-004`, `CAT-011`).
   - Rezolucja adresu CI-V z profilu modelu w `HilTestBenchManifest::to_rig_config` (`CAT-016`).
-  - Jawne zapytania weryfikujące po setterach oraz implementacja `SetPower`/`SetRit`/`SetXit` w `KenwoodBackend` (`CAT-012`).
-  - Wywołania `wait_for_response(seq)` dla setterów i implementacja `SetSplit` w `FlexRadioBackend` (`CAT-013`).
-  - Trwałe połączenie HTTP Keep-Alive i obsługa Split/VFO w `FlrigBackend` (`CAT-010`) oraz odczyt `i`/`v` w `HamlibBackend` (`CAT-009`).
+  - Jawne zapytania weryfikujÄ…ce po setterach oraz implementacja `SetPower`/`SetRit`/`SetXit` w `KenwoodBackend` (`CAT-012`).
+  - WywoĹ‚ania `wait_for_response(seq)` dla setterĂłw i implementacja `SetSplit` w `FlexRadioBackend` (`CAT-013`).
+  - TrwaĹ‚e poĹ‚Ä…czenie HTTP Keep-Alive i obsĹ‚uga Split/VFO w `FlrigBackend` (`CAT-010`) oraz odczyt `i`/`v` w `HamlibBackend` (`CAT-009`).
   - Zachowanie External TX, rozdzielenie od `TxOwned`, izolacja `session_generation` i framing HTTP/1.1 FLRig (`CAT-017`).
 - **Klasyfikacja Cargo Audit:**
   - Vulnerabilities: 0
   - Unsound: 0
   - Yanked: 1 (`async-executor 1.14.0`, tranzytywna przez `keyring` -> `zbus`, tymczasowo dopuszczona bez zmian w Cargo.lock)
   - Unmaintained: 6
-- **Pliki i moduły:** `src/cat/service.rs`, `src/cat/hub.rs`, `src/cat/tx_arbiter.rs`, `src/cat/hamlib.rs`, `src/cat/flrig.rs`, `src/cat/native/icom/{codec.rs,backend.rs}`, `src/cat/native/kenwood/backend.rs`, `src/cat/native/flexradio/backend.rs`, `src/cat/hil/manifest.rs`, `src/cat/supervisor.rs`.
+- **Pliki i moduĹ‚y:** `src/cat/service.rs`, `src/cat/hub.rs`, `src/cat/tx_arbiter.rs`, `src/cat/hamlib.rs`, `src/cat/flrig.rs`, `src/cat/native/icom/{codec.rs,backend.rs}`, `src/cat/native/kenwood/backend.rs`, `src/cat/native/flexradio/backend.rs`, `src/cat/hil/manifest.rs`, `src/cat/supervisor.rs`.
 - **Ryzyka:** Niskie.
-- **Kryteria ukończenia:** Gotowość programowa wszystkich 8 backendów do sesji sprzętowych Stage 7B HIL. Status: **SOFTWARE VERIFIED**.
+- **Kryteria ukoĹ„czenia:** GotowoĹ›Ä‡ programowa wszystkich 8 backendĂłw do sesji sprzÄ™towych Stage 7B HIL. Status: **SOFTWARE VERIFIED**.
 
 ---
 
-### Etap 5 — Integralność Danych: Parser ADIF, `QsoIngestor` i Indeksy SQLite (`P1`) [SOFTWARE VERIFIED]
-- **Status:** **SOFTWARE VERIFIED** (Końcowa Bramka Naprawcza Zakończona Pomyślnie)
-- **Data ukończenia:** 2026-11-03
-- **Zrealizowane Commity Etapu 5 (Baza + Końcowa Bramka Naprawcza + Bramka Precyzji Tożsamości QSO):**
+### Etap 5 â€” IntegralnoĹ›Ä‡ Danych: Parser ADIF, `QsoIngestor` i Indeksy SQLite (`P1`) [SOFTWARE VERIFIED]
+- **Status:** **SOFTWARE VERIFIED** (KoĹ„cowa Bramka Naprawcza ZakoĹ„czona PomyĹ›lnie)
+- **Data ukoĹ„czenia:** 2026-11-03
+- **Zrealizowane Commity Etapu 5 (Baza + KoĹ„cowa Bramka Naprawcza + Bramka Precyzji ToĹĽsamoĹ›ci QSO):**
   - `56b44a4`: `fix(adif): enforce bounded and deterministic record parsing (DATA-001)`
   - `9b7f0fc`: `fix(data): make QSO ingestion atomic and idempotent (DATA-002)`
   - `ceaa355`: `fix(data): enforce database-level QSO deduplication (DATA-003)`
@@ -239,25 +240,25 @@ flowchart LR
   - `1393079`: `fix(data): refine QSO identity precision and incomplete-record policy (DATA-003)` (Bramka Precyzji Commit 1)
   - `1e448dd`: `fix(data): database migration 7 for refined QSO identity (DATA-003)` (Bramka Precyzji Commit 2)
   - `268e2d2`: `test(data): SQLite concurrency and multi-connection identity tests (DATA-003)` (Bramka Precyzji Commit 3)
-- **Podsumowanie wdrożenia Końcowej Bramki Naprawczej Etapu 5:**
-  - `DATA-001`: Wprowadzenie jawnych trybów parsowania ADIF (`AdifParseMode::Strict` i `AdifParseMode::Compatibility`), rejestracja diagnostyczna `AdifCompatibilityWarning`, wyeliminowanie cichego fallbacku oraz kanoniczny eksport ADIF bazujący na długości bajtowej UTF-8.
-  - `DATA-002`: Dowodowa atomowość przetwarzania wsadowego (`import_batch`) i pojedynczego (`ingest`). Pełny rollback skutków ubocznych w SQLite, AwardsEngine i ScpEngine przy awarii dowolnego rekordu (w środku lub na końcu batcha) oraz idempotentne ponowienie po usunięciu błędu.
-  - `DATA-003`: Kanoniczny format tożsamości v2 `v2|{CALL}|{BAND}|{FREQ_HZ}|{MODE}|{SUBMODE}|{DATE}|{TIME_TAG}`, zachowanie precyzji sekund (`Minute` vs `Second`), częstotliwość w Hz, normalizacja `SUBMODE`, MODEL B dla niepełnych rekordów (NULL), migracja schematu 7 (`SCHEMA_VERSION` 6 -> 7) z pełnym audytem i wycofaniem transakcji przy konflikcie, oraz bazodanowy indeks unikalny `idx_qso_identity_unique`. Eliminacja false-positive deduplikacji dla tej samej minuty w różnych sekundach i na różnych częstotliwościach.
-  - `ARCH-002`: SQLite jako autorytatywne źródło prawdy (Single Source of Truth). Implementacja metody `rebuild_derived_state()`, która w 100% deterministycznie odbudowuje `AwardsEngine` i `ScpEngine` z bazy danych. Emisja `AppEvent::QsoLogged` wyłącznie po potwierdzonym commit SQLite.
-- **Metryki testowe:** 1915 aktywnych testów programowych (0 failed), 10 testów fizycznych HIL (odizolowanych za `#[ignore = "hardware-in-the-loop"]`), 1925 wszystkich przypadków testowych (+41 testów względem stanu wejściowego).
+- **Podsumowanie wdroĹĽenia KoĹ„cowej Bramki Naprawczej Etapu 5:**
+  - `DATA-001`: Wprowadzenie jawnych trybĂłw parsowania ADIF (`AdifParseMode::Strict` i `AdifParseMode::Compatibility`), rejestracja diagnostyczna `AdifCompatibilityWarning`, wyeliminowanie cichego fallbacku oraz kanoniczny eksport ADIF bazujÄ…cy na dĹ‚ugoĹ›ci bajtowej UTF-8.
+  - `DATA-002`: Dowodowa atomowoĹ›Ä‡ przetwarzania wsadowego (`import_batch`) i pojedynczego (`ingest`). PeĹ‚ny rollback skutkĂłw ubocznych w SQLite, AwardsEngine i ScpEngine przy awarii dowolnego rekordu (w Ĺ›rodku lub na koĹ„cu batcha) oraz idempotentne ponowienie po usuniÄ™ciu bĹ‚Ä™du.
+  - `DATA-003`: Kanoniczny format toĹĽsamoĹ›ci v2 `v2|{CALL}|{BAND}|{FREQ_HZ}|{MODE}|{SUBMODE}|{DATE}|{TIME_TAG}`, zachowanie precyzji sekund (`Minute` vs `Second`), czÄ™stotliwoĹ›Ä‡ w Hz, normalizacja `SUBMODE`, MODEL B dla niepeĹ‚nych rekordĂłw (NULL), migracja schematu 7 (`SCHEMA_VERSION` 6 -> 7) z peĹ‚nym audytem i wycofaniem transakcji przy konflikcie, oraz bazodanowy indeks unikalny `idx_qso_identity_unique`. Eliminacja false-positive deduplikacji dla tej samej minuty w rĂłĹĽnych sekundach i na rĂłĹĽnych czÄ™stotliwoĹ›ciach.
+  - `ARCH-002`: SQLite jako autorytatywne ĹşrĂłdĹ‚o prawdy (Single Source of Truth). Implementacja metody `rebuild_derived_state()`, ktĂłra w 100% deterministycznie odbudowuje `AwardsEngine` i `ScpEngine` z bazy danych. Emisja `AppEvent::QsoLogged` wyĹ‚Ä…cznie po potwierdzonym commit SQLite.
+- **Metryki testowe:** 1915 aktywnych testĂłw programowych (0 failed), 10 testĂłw fizycznych HIL (odizolowanych za `#[ignore = "hardware-in-the-loop"]`), 1925 wszystkich przypadkĂłw testowych (+41 testĂłw wzglÄ™dem stanu wejĹ›ciowego).
 - **Stan Etapu 6:** Odblokowany (**UNBLOCKED**).
-- **Cel:** Eliminacja psucia polskich znaków w ADIF, fabrykowania daty oraz pomijania normalizacji i indeksów SQLite (`DATA-001`, `DATA-002`, `DATA-003`, `ARCH-002`).
+- **Cel:** Eliminacja psucia polskich znakĂłw w ADIF, fabrykowania daty oraz pomijania normalizacji i indeksĂłw SQLite (`DATA-001`, `DATA-002`, `DATA-003`, `ARCH-002`).
 - **Zakres:**
-  - Naprawa `fields_to_qso` (brak fabrykowania `Utc::now()`) i bezpiecznego cięcia znaków UTF-8 w `src/core/adif.rs` (`DATA-001`).
-  - Dodanie `normalize_qso_fields(&mut qso)` w `QsoIngestor::import_batch` oraz metody `QsoIngestor::update_existing` używanej przy edycji QSO w GUI i REST API (`DATA-002`, `ARCH-002`).
-  - Normalizacja dat w `search_qsos_advanced`, usunięcie `COLLATE NOCASE` w `callbook.rs:333` oraz migracja kanoniczna kolumn w `qso_store.rs` (`DATA-003`).
-- **Pliki i moduły:** `src/core/adif.rs`, `src/core/ingest/{mod.rs,import.rs}`, `src/core/database/{schema.rs,qso_store.rs,search.rs}`, `src/core/callbook.rs`, `src/api/server.rs`, `src/gui/app_qso.rs`.
+  - Naprawa `fields_to_qso` (brak fabrykowania `Utc::now()`) i bezpiecznego ciÄ™cia znakĂłw UTF-8 w `src/core/adif.rs` (`DATA-001`).
+  - Dodanie `normalize_qso_fields(&mut qso)` w `QsoIngestor::import_batch` oraz metody `QsoIngestor::update_existing` uĹĽywanej przy edycji QSO w GUI i REST API (`DATA-002`, `ARCH-002`).
+  - Normalizacja dat w `search_qsos_advanced`, usuniÄ™cie `COLLATE NOCASE` w `callbook.rs:333` oraz migracja kanoniczna kolumn w `qso_store.rs` (`DATA-003`).
+- **Pliki i moduĹ‚y:** `src/core/adif.rs`, `src/core/ingest/{mod.rs,import.rs}`, `src/core/database/{schema.rs,qso_store.rs,search.rs}`, `src/core/callbook.rs`, `src/api/server.rs`, `src/gui/app_qso.rs`.
 - **Ryzyka:** Niskie.
-- **Kryteria ukończenia:** Pełna spójność walidacji dla `ingest`, `import_batch` i `update_existing` oraz wykorzystanie indeksów B-tree w SQLite.
+- **Kryteria ukoĹ„czenia:** PeĹ‚na spĂłjnoĹ›Ä‡ walidacji dla `ingest`, `import_batch` i `update_existing` oraz wykorzystanie indeksĂłw B-tree w SQLite.
 
 ---
 
-### Etap 6 — Izolacja Wielu Dzienników (`JournalProfile`), Bezpieczne Usuwanie z Undo i Backup (`P1`) — **COMPLETED_SOFTWARE_VERIFIED**
+### Etap 6 â€” Izolacja Wielu DziennikĂłw (`JournalProfile`), Bezpieczne Usuwanie z Undo i Backup (`P1`) â€” **COMPLETED_SOFTWARE_VERIFIED**
 - **Status:** `COMPLETED_SOFTWARE_VERIFIED` (2026-11-03)
 - **Commity:**
   - `eff6587` (`fix(data): enforce journal-scoped QSO access (DATA-004 DATA-005)`)
@@ -266,23 +267,23 @@ flowchart LR
   - `f767e01` (`fix(data): add atomic journal-scoped undo history (DATA-004)`)
   - `066db3d` (`fix(storage): create validated atomic SQLite backups (DATA-006)`)
   - `eecf4d3` (`fix(storage): restore backups through validated staging (DATA-006)`)
-- **Cel:** Wyeliminowanie utraty danych przy usuwaniu i przeciekania danych pomiędzy dziennikami (`DATA-004`, `DATA-005`, `DATA-006`, `CONC-001`).
+- **Cel:** Wyeliminowanie utraty danych przy usuwaniu i przeciekania danych pomiÄ™dzy dziennikami (`DATA-004`, `DATA-005`, `DATA-006`, `CONC-001`).
 - **Zakres zrealizowany:**
-  - Obowiązkowe zakresowanie wszystkich zapytań i mutacji przez `journal_id` (`update_qso_scoped`, `delete_qso_scoped`, `delete_multiple_qsos_scoped`, `find_duplicate_qsos_for_journal`).
-  - Typowany mechanizm Undo/Redo (`UndoAction::{DeleteSingle, DeleteBatch}`) z atomowym odtwarzaniem ID i izolacją per-journal, modalne potwierdzenie usuwania w GUI.
-  - Wywołanie `rebuild_awards_full()` i `rebuild_scp()` przy przełączeniu dziennika w `switch_active_journal`, unieważnienie cache statystyk i operacji Undo.
-  - Zakresowanie statystyk i asynchronicznych zadań online sync, transakcyjne potwierdzanie wsadowe QSL wewnątrz `spawn_blocking` (`CONC-001`).
-  - Atomowy backup SQLite przez transakcyjne API `rusqlite::backup::Backup` z `busy_timeout` 5s, bez `fs::copy` na żywej bazie WAL, walidacja `PRAGMA quick_check` przed atomic rename (`DATA-006`).
-  - Bezpieczny `restore_database` ze stagingiem, automatyczną migracją schematu, migawką bezpieczeństwa do rollbacku i czyszczeniem starych plików `-wal`/`-shm`.
+  - ObowiÄ…zkowe zakresowanie wszystkich zapytaĹ„ i mutacji przez `journal_id` (`update_qso_scoped`, `delete_qso_scoped`, `delete_multiple_qsos_scoped`, `find_duplicate_qsos_for_journal`).
+  - Typowany mechanizm Undo/Redo (`UndoAction::{DeleteSingle, DeleteBatch}`) z atomowym odtwarzaniem ID i izolacjÄ… per-journal, modalne potwierdzenie usuwania w GUI.
+  - WywoĹ‚anie `rebuild_awards_full()` i `rebuild_scp()` przy przeĹ‚Ä…czeniu dziennika w `switch_active_journal`, uniewaĹĽnienie cache statystyk i operacji Undo.
+  - Zakresowanie statystyk i asynchronicznych zadaĹ„ online sync, transakcyjne potwierdzanie wsadowe QSL wewnÄ…trz `spawn_blocking` (`CONC-001`).
+  - Atomowy backup SQLite przez transakcyjne API `rusqlite::backup::Backup` z `busy_timeout` 5s, bez `fs::copy` na ĹĽywej bazie WAL, walidacja `PRAGMA quick_check` przed atomic rename (`DATA-006`).
+  - Bezpieczny `restore_database` ze stagingiem, automatycznÄ… migracjÄ… schematu, migawkÄ… bezpieczeĹ„stwa do rollbacku i czyszczeniem starych plikĂłw `-wal`/`-shm`.
   - Dokumentacja procedury odzyskiwania bazy danych w `docs/DATABASE_BACKUP_RECOVERY.md`.
-- **Pliki i moduły:** `src/core/backup.rs`, `src/core/database/{schema.rs,qso_store.rs,search.rs,stats.rs,qsl.rs,migrations.rs,tests.rs}`, `src/core/awards.rs`, `src/gui/{app.rs,app_layout.rs,app_qso.rs,find_duplicates.rs,logbook_table.rs,online_sync.rs,statistics.rs,state/log_view.rs}`, `src/api/server.rs`, `docs/DATABASE_BACKUP_RECOVERY.md`.
-- **Kryteria ukończenia:** Spełnione. 1938 aktywnych testów zaliczonych, 0 błędów, 10 fizycznych HIL zignorowanych.
+- **Pliki i moduĹ‚y:** `src/core/backup.rs`, `src/core/database/{schema.rs,qso_store.rs,search.rs,stats.rs,qsl.rs,migrations.rs,tests.rs}`, `src/core/awards.rs`, `src/gui/{app.rs,app_layout.rs,app_qso.rs,find_duplicates.rs,logbook_table.rs,online_sync.rs,statistics.rs,state/log_view.rs}`, `src/api/server.rs`, `docs/DATABASE_BACKUP_RECOVERY.md`.
+- **Kryteria ukoĹ„czenia:** SpeĹ‚nione. 1938 aktywnych testĂłw zaliczonych, 0 bĹ‚Ä™dĂłw, 10 fizycznych HIL zignorowanych.
 
 ---
 
-### Etap 7 — Domena Zawodów Krótkofalarskich: Cabrillo 3.0 i Regulaminy Punktacji (`P1`)
+### Etap 7 â€” Domena ZawodĂłw KrĂłtkofalarskich: Cabrillo 3.0 i Regulaminy Punktacji (`P1`)
 - **Status:** ZREALIZOWANY (`COMPLETED_SOFTWARE_VERIFIED`)
-- **Data wdrożenia:** 2026-11-05
+- **Data wdroĹĽenia:** 2026-11-05
 - **Commity:**
   - `0c0ca72`: `fix(contest): implement compliant Cabrillo 3.0 generation (FUNC-001)`
   - `29a4e36`: `fix(contest): refine scoring and multipliers for SP DX, CQ WW and CQ WPX (FUNC-002)`
@@ -294,67 +295,67 @@ flowchart LR
   - `ed94f6f`: `fix(contest): correct CQ WW official scoring fixture (FUNC-002)`
   - `df5c68b`: `fix(contest): enforce official SP DX province exchanges (FUNC-002)`
   - `73cac09`: `fix(contest): prevent invalid Cabrillo transmitter category output (FUNC-001)`
-- **Cel:** Zgodność eksportowanych logów Cabrillo i punktacji zawodów z regulaminami PZK, CQ i ARRL (`FUNC-001`, `FUNC-002`).
+- **Cel:** ZgodnoĹ›Ä‡ eksportowanych logĂłw Cabrillo i punktacji zawodĂłw z regulaminami PZK, CQ i ARRL (`FUNC-001`, `FUNC-002`).
 - **Zakres zrealizowany w Etapie 7 i Bramce Naprawczej:**
-  - Sortowanie chronologiczne rosnąco po dacie/czasie/ID, zachowanie oryginalnych raportów RST, poprawne kody emisji (`CW`, `PH`, `FM`, `RY`, `DG`), dynamiczny eksport wymiany `stx_string`/`srx_string`, mapowanie pasm (`FUNC-001`).
-  - Rozdzielenie profili `ContestProfile` dla SP DX, CQ WW CW/SSB, CQ WPX CW/SSB oraz jawne wyodrębnienie nieobsługiwanych wariantów RTTY (`CqWpxRtty`, `CqWwRtty`) zwracających `ContestError::UnsupportedContestVariant` (`FUNC-002`).
-  - Korekta punktacji CQ WPX CW/SSB: ten sam kraj daje bezwzględnie 1 punkt na wszystkich pasmach (brak podwojenia na 160m/80m/40m).
-  - Wdrożenie walidacji specyficznej dla zawodów: pasma (`validate_band`), emisje (`validate_mode`), wymiany (`validate_exchange`).
-  - Obsługa kategorii pojedynczego nadajnika (`CabrilloTransmitterCategory::One`) z pomijaniem kolumny `t`; bezpieczne odrzucanie kategorii wielonadajnikowych (`Two`, `Multi`, `Unlimited`) z `ContestError::UnsupportedContestCategory`.
-  - Niezależne, ręcznie przeliczone fixtures testowe (`scoreboard_matches_manual_spdx_fixture`, `scoreboard_matches_manual_cqww_fixture`, `scoreboard_matches_manual_cqwpx_fixture`, `claimed_score_matches_manual_fixture`).
+  - Sortowanie chronologiczne rosnÄ…co po dacie/czasie/ID, zachowanie oryginalnych raportĂłw RST, poprawne kody emisji (`CW`, `PH`, `FM`, `RY`, `DG`), dynamiczny eksport wymiany `stx_string`/`srx_string`, mapowanie pasm (`FUNC-001`).
+  - Rozdzielenie profili `ContestProfile` dla SP DX, CQ WW CW/SSB, CQ WPX CW/SSB oraz jawne wyodrÄ™bnienie nieobsĹ‚ugiwanych wariantĂłw RTTY (`CqWpxRtty`, `CqWwRtty`) zwracajÄ…cych `ContestError::UnsupportedContestVariant` (`FUNC-002`).
+  - Korekta punktacji CQ WPX CW/SSB: ten sam kraj daje bezwzglÄ™dnie 1 punkt na wszystkich pasmach (brak podwojenia na 160m/80m/40m).
+  - WdroĹĽenie walidacji specyficznej dla zawodĂłw: pasma (`validate_band`), emisje (`validate_mode`), wymiany (`validate_exchange`).
+  - ObsĹ‚uga kategorii pojedynczego nadajnika (`CabrilloTransmitterCategory::One`) z pomijaniem kolumny `t`; bezpieczne odrzucanie kategorii wielonadajnikowych (`Two`, `Multi`, `Unlimited`) z `ContestError::UnsupportedContestCategory`.
+  - NiezaleĹĽne, rÄ™cznie przeliczone fixtures testowe (`scoreboard_matches_manual_spdx_fixture`, `scoreboard_matches_manual_cqww_fixture`, `scoreboard_matches_manual_cqwpx_fixture`, `claimed_score_matches_manual_fixture`).
   - Ostateczna Bramka Dokumentacyjna Etapu 7 (2026-11-05):
-    - Poprawa arytmetyki fixture CQ WW: potwierdzenie 3 punktów na wszystkich pasmach (160m–10m) dla łączności międzykontynentalnych, poprawny rachunek: 10 punktów QSO × 10 mnożników = 100, duplikaty wnoszą 0 dodatkowych punktów i 0 mnożników, CLAIMED-SCORE: 100 (`FUNC-002`, `DOC-001`).
-    - Poprawa fixture i walidacji SP DX: ścisła walidacja 16 jednoliterowych oznaczeń województw według mapy kanonicznej (B = lubuskie, C = łódzkie, D = dolnośląskie, F = pomorskie, G = śląskie, J = warmińsko-mazurskie, K = podkarpackie, L = lubelskie, M = małopolskie, O = podlaskie, P = kujawsko-pomorskie, R = mazowieckie, S = świętokrzyskie, U = opolskie, W = wielkopolskie, Z = zachodniopomorskie), odrzucanie kodów administracyjnych (MA, LD, etc.), CLAIMED-SCORE: 27 punktów (`FUNC-002`, `DOC-001`).
-    - Standard Cabrillo 3.0: rozdzielenie `CATEGORY-OPERATOR` (`SINGLE-OP`, `MULTI-OP`, `CHECKLOG`) od `CATEGORY-TRANSMITTER` (`ONE`), bezwzględne wyeliminowanie `MULTI` jako kategorii nadajnika (`FUNC-001`).
-    - Domknięcie dokumentacji audytowej: formalne zamknięcie `DOC-001` ze statusem `FIXED_SOFTWARE_VERIFIED`, eliminacja artefaktów zapisu matematycznego.
-- **Pliki i moduły:** `src/core/cabrillo.rs`, `src/core/contest_rules.rs`, `src/core/contest_stats.rs`, `src/gui/app_export.rs`.
+    - Poprawa arytmetyki fixture CQ WW: potwierdzenie 3 punktĂłw na wszystkich pasmach (160mâ€“10m) dla Ĺ‚Ä…cznoĹ›ci miÄ™dzykontynentalnych, poprawny rachunek: 10 punktĂłw QSO Ă— 10 mnoĹĽnikĂłw = 100, duplikaty wnoszÄ… 0 dodatkowych punktĂłw i 0 mnoĹĽnikĂłw, CLAIMED-SCORE: 100 (`FUNC-002`, `DOC-001`).
+    - Poprawa fixture i walidacji SP DX: Ĺ›cisĹ‚a walidacja 16 jednoliterowych oznaczeĹ„ wojewĂłdztw wedĹ‚ug mapy kanonicznej (B = lubuskie, C = Ĺ‚Ăłdzkie, D = dolnoĹ›lÄ…skie, F = pomorskie, G = Ĺ›lÄ…skie, J = warmiĹ„sko-mazurskie, K = podkarpackie, L = lubelskie, M = maĹ‚opolskie, O = podlaskie, P = kujawsko-pomorskie, R = mazowieckie, S = Ĺ›wiÄ™tokrzyskie, U = opolskie, W = wielkopolskie, Z = zachodniopomorskie), odrzucanie kodĂłw administracyjnych (MA, LD, etc.), CLAIMED-SCORE: 27 punktĂłw (`FUNC-002`, `DOC-001`).
+    - Standard Cabrillo 3.0: rozdzielenie `CATEGORY-OPERATOR` (`SINGLE-OP`, `MULTI-OP`, `CHECKLOG`) od `CATEGORY-TRANSMITTER` (`ONE`), bezwzglÄ™dne wyeliminowanie `MULTI` jako kategorii nadajnika (`FUNC-001`).
+    - DomkniÄ™cie dokumentacji audytowej: formalne zamkniÄ™cie `DOC-001` ze statusem `FIXED_SOFTWARE_VERIFIED`, eliminacja artefaktĂłw zapisu matematycznego.
+- **Pliki i moduĹ‚y:** `src/core/cabrillo.rs`, `src/core/contest_rules.rs`, `src/core/contest_stats.rs`, `src/gui/app_export.rs`.
 - **Ryzyka:** Niskie.
-- **Kryteria ukończenia:** Spełnione w 100%. 2029 aktywnych testów programowych zaliczonych (0 failed, 10 ignored fizycznych HIL, 2039 zarejestrowanych). Ostateczna bramka dokumentacyjna zakończona pełnym sukcesem. Etap 7 definitywnie zamknięty: SOFTWARE VERIFIED, DOCUMENTATION: VERIFIED (`COMPLETED_SOFTWARE_VERIFIED`). Etap 8 w stanie `READY` (NOT STARTED).
+- **Kryteria ukoĹ„czenia:** SpeĹ‚nione w 100%. 2029 aktywnych testĂłw programowych zaliczonych (0 failed, 10 ignored fizycznych HIL, 2039 zarejestrowanych). Ostateczna bramka dokumentacyjna zakoĹ„czona peĹ‚nym sukcesem. Etap 7 definitywnie zamkniÄ™ty: SOFTWARE VERIFIED, DOCUMENTATION: VERIFIED (`COMPLETED_SOFTWARE_VERIFIED`). Etap 8 w stanie `READY` (NOT STARTED).
 
 ---
 
-### Etap 8 — Integracja Multi-Radio w GUI, `POST /api/v1/rig`, `HamlibProxyServer` i `VoiceKeyer` (`P1`)
+### Etap 8 â€” Integracja Multi-Radio w GUI, `POST /api/v1/rig`, `HamlibProxyServer` i `VoiceKeyer` (`P1`)
 - **Status:** **COMPLETED_SOFTWARE_VERIFIED** (Rzeczywista data wykonania: 2026-11-06, Deklarowana data robocza projektu: 2026-11-05)
-- **Cel:** Spięcie wszystkich interfejsów sterowania radiem z `CatRuntime` i `TxArbiter` (`FUNC-003`, `CAT-007`, `CAT-008`, `CAT-014`), usunięcie niejawnych fallbacków oraz bezwarunkowe przejście końcowej bramki korekcyjno-bezpieczeństwowej.
+- **Cel:** SpiÄ™cie wszystkich interfejsĂłw sterowania radiem z `CatRuntime` i `TxArbiter` (`FUNC-003`, `CAT-007`, `CAT-008`, `CAT-014`), usuniÄ™cie niejawnych fallbackĂłw oraz bezwarunkowe przejĹ›cie koĹ„cowej bramki korekcyjno-bezpieczeĹ„stwowej.
 - **Zakres zrealizowany w 100%:**
-  - Dodanie mostu dla poleceń i zdarzeń natywnych w `RigBackend` (`execute_native`, `drain_native_events`) oraz usunięcie martwego `CatController` (`CAT-014`, commit `8002667`).
+  - Dodanie mostu dla poleceĹ„ i zdarzeĹ„ natywnych w `RigBackend` (`execute_native`, `drain_native_events`) oraz usuniÄ™cie martwego `CatController` (`CAT-014`, commit `8002667`).
   - Wymuszenie potwierdzenia PTT z `TxArbiter` w `HamlibProxyServer`, `VoiceKeyer` i pluginach (`CAT-008`, commit `fd43ed2`).
-  - Eliminacja niejawnych fallbacków na pierwsze radio w GUI (`app_async.rs`), dodanie wsparcia dla profilu `Radio 2` w `cat_settings.rs`, poprawa detekcji `auto_start_rigctld` w profilach stacji oraz sterowanie Split VFO B z telemetrią mocy w `vfo_panel.rs` (`CAT-007`, commit `fe7be53`).
-  - Pełna integracja REST API z `CatRuntime`, routing rozkazów sterowania radiem i ochrona PTT pod nadzorem `TxArbiter`, oraz nowe endpointy wieloradiowe `/api/v1/rigs*` (`FUNC-003`, commit `36d1dee`).
-  - Wdrożenie kompleksowej macierzy testów współbieżności, izolacji wieloradiowej i odporności na przeterminowane komendy (`tests/cat_native_6b.rs`, commit `26096de`).
-  - **Końcowa Bramka Korekcyjno-Bezpieczeństwowa Etapu 8 (2026-11-06):**
-    1. **Korekta kanonicznej semantyki Hamlib:** Usunięcie błędnego opisu `RPRT -11 = EBUSY`; wdrożenie kanonicznych kodów błędów Hamlib `rig.h`: `-11 = RIG_ENAVAIL` (funkcja niedostępna), `-14 = RIG_BUSBUSY` (zajętość szyny nadawczej), centralny typowany enum `HamlibErrorCode` oraz funkcja `map_cat_error_to_hamlib` w `src/cat/server.rs`; bezwzględny zakaz optymistycznego `RPRT 0` przy odrzuceniu PTT lub operacji mutującej (`CAT-008`, commit `3cff368`).
-    2. **Utwardzenie bezpieczeństwa REST API:** Domyślny bind wyłącznie loopback `127.0.0.1:8420`, bezwzględny zakaz bindu publicznego `0.0.0.0`/`::` bez uwierzytelnienia, ścisła walidacja formatu identyfikatora `RigId` (kod 400 Bad Request przy błędnym formacie, alfanumeryczne, max 64 znaki), walidacja zakresu częstotliwości (100 kHz ..= 60 GHz) i trybu emisji, ścisły model danych wejściowych `#[serde(deny_unknown_fields)]`, bezwzględna eliminacja fallbacku na active rig dla nieznanego RigId (zwracanie 404 Not Found), routing PTT przez `TxArbiter` zwracający 409 Conflict bez mutacji stanu przy odrzuceniu (`FUNC-003`, commit `833f28d`).
-    3. **Jednoznaczne mapowanie RigId na porty Hamlib Proxy:** Wdrożenie menedżera portów `ProxyPortManager`, stały port 4534 per radio 1 oraz kolejne parzyste porty (4536, 4538...) per kolejne radia, uniemożliwienie kolizji z portem REST 8420, gwarancja niezmienności celu istniejącej sesji TCP (`immutable session target`) przy zmianie aktywnego radia w GUI (`CAT-007`, commit `c11d0b1`).
-    4. **Wyłączna własność fizycznego portu CAT:** Wdrożenie rejestru `PhysicalEndpointRegistry` i modelu własności `PhysicalEndpointOwner`, znormalizowana identyfikacja portów szeregowych Windows (`COM3`, `\\.\COM3`), wykluczenie kolizji między Native CAT a zewnętrznym `rigctld`, brak otwierania portów UART przez Hamlib Proxy i Hamlib Client, zwalnianie portu przy zatrzymaniu sesji radiowej (`cc7f36e`).
-- **Pliki i moduły:** `src/api/server.rs`, `src/cat/backend.rs`, `src/cat/runtime.rs`, `src/cat/server.rs`, `src/cat/supervisor.rs`, `src/cat/mod.rs`, `src/gui/{app_async.rs,app_cat.rs,cat_settings.rs,vfo_panel.rs,voice_keyer.rs,app_plugins.rs,app_services.rs}`, `tests/cat_native_6b.rs`.
-- **Kryteria ukończenia:** Spełnione w 100%. Wszystkie testy programowe zaliczone (0 failed, 10 ignored laboratoryjnych HIL, brak emisji RF). Etap 8 bezwarunkowo zamknięty: SOFTWARE VERIFIED (`COMPLETED_SOFTWARE_VERIFIED`). Etap 9 w stanie `READY` (NIE ROZPOCZYNAĆ w tej sesji).
+  - Eliminacja niejawnych fallbackĂłw na pierwsze radio w GUI (`app_async.rs`), dodanie wsparcia dla profilu `Radio 2` w `cat_settings.rs`, poprawa detekcji `auto_start_rigctld` w profilach stacji oraz sterowanie Split VFO B z telemetriÄ… mocy w `vfo_panel.rs` (`CAT-007`, commit `fe7be53`).
+  - PeĹ‚na integracja REST API z `CatRuntime`, routing rozkazĂłw sterowania radiem i ochrona PTT pod nadzorem `TxArbiter`, oraz nowe endpointy wieloradiowe `/api/v1/rigs*` (`FUNC-003`, commit `36d1dee`).
+  - WdroĹĽenie kompleksowej macierzy testĂłw wspĂłĹ‚bieĹĽnoĹ›ci, izolacji wieloradiowej i odpornoĹ›ci na przeterminowane komendy (`tests/cat_native_6b.rs`, commit `26096de`).
+  - **KoĹ„cowa Bramka Korekcyjno-BezpieczeĹ„stwowa Etapu 8 (2026-11-06):**
+    1. **Korekta kanonicznej semantyki Hamlib:** UsuniÄ™cie bĹ‚Ä™dnego opisu `RPRT -11 = EBUSY`; wdroĹĽenie kanonicznych kodĂłw bĹ‚Ä™dĂłw Hamlib `rig.h`: `-11 = RIG_ENAVAIL` (funkcja niedostÄ™pna), `-14 = RIG_BUSBUSY` (zajÄ™toĹ›Ä‡ szyny nadawczej), centralny typowany enum `HamlibErrorCode` oraz funkcja `map_cat_error_to_hamlib` w `src/cat/server.rs`; bezwzglÄ™dny zakaz optymistycznego `RPRT 0` przy odrzuceniu PTT lub operacji mutujÄ…cej (`CAT-008`, commit `3cff368`).
+    2. **Utwardzenie bezpieczeĹ„stwa REST API:** DomyĹ›lny bind wyĹ‚Ä…cznie loopback `127.0.0.1:8420`, bezwzglÄ™dny zakaz bindu publicznego `0.0.0.0`/`::` bez uwierzytelnienia, Ĺ›cisĹ‚a walidacja formatu identyfikatora `RigId` (kod 400 Bad Request przy bĹ‚Ä™dnym formacie, alfanumeryczne, max 64 znaki), walidacja zakresu czÄ™stotliwoĹ›ci (100 kHz ..= 60 GHz) i trybu emisji, Ĺ›cisĹ‚y model danych wejĹ›ciowych `#[serde(deny_unknown_fields)]`, bezwzglÄ™dna eliminacja fallbacku na active rig dla nieznanego RigId (zwracanie 404 Not Found), routing PTT przez `TxArbiter` zwracajÄ…cy 409 Conflict bez mutacji stanu przy odrzuceniu (`FUNC-003`, commit `833f28d`).
+    3. **Jednoznaczne mapowanie RigId na porty Hamlib Proxy:** WdroĹĽenie menedĹĽera portĂłw `ProxyPortManager`, staĹ‚y port 4534 per radio 1 oraz kolejne parzyste porty (4536, 4538...) per kolejne radia, uniemoĹĽliwienie kolizji z portem REST 8420, gwarancja niezmiennoĹ›ci celu istniejÄ…cej sesji TCP (`immutable session target`) przy zmianie aktywnego radia w GUI (`CAT-007`, commit `c11d0b1`).
+    4. **WyĹ‚Ä…czna wĹ‚asnoĹ›Ä‡ fizycznego portu CAT:** WdroĹĽenie rejestru `PhysicalEndpointRegistry` i modelu wĹ‚asnoĹ›ci `PhysicalEndpointOwner`, znormalizowana identyfikacja portĂłw szeregowych Windows (`COM3`, `\\.\COM3`), wykluczenie kolizji miÄ™dzy Native CAT a zewnÄ™trznym `rigctld`, brak otwierania portĂłw UART przez Hamlib Proxy i Hamlib Client, zwalnianie portu przy zatrzymaniu sesji radiowej (`cc7f36e`).
+- **Pliki i moduĹ‚y:** `src/api/server.rs`, `src/cat/backend.rs`, `src/cat/runtime.rs`, `src/cat/server.rs`, `src/cat/supervisor.rs`, `src/cat/mod.rs`, `src/gui/{app_async.rs,app_cat.rs,cat_settings.rs,vfo_panel.rs,voice_keyer.rs,app_plugins.rs,app_services.rs}`, `tests/cat_native_6b.rs`.
+- **Kryteria ukoĹ„czenia:** SpeĹ‚nione w 100%. Wszystkie testy programowe zaliczone (0 failed, 10 ignored laboratoryjnych HIL, brak emisji RF). Etap 8 bezwarunkowo zamkniÄ™ty: SOFTWARE VERIFIED (`COMPLETED_SOFTWARE_VERIFIED`). Etap 9 w stanie `READY` (NIE ROZPOCZYNAÄ† w tej sesji).
 
 ---
 
-### Etap 9 — Ergonomia Klawiaturowa, Trwałość Konfiguracji i Optymalizacja Renderowania GUI (`P2`)
-- **Cel:** Płynna praca 60 FPS przy dużych dziennikach (>25 000 QSO), działające skróty klawiszowe i pełny zapis konfiguracji (`GUI-001`, `GUI-002`, `GUI-003`, `FUNC-005`, `PERF-002`).
+### Etap 9 â€” Ergonomia Klawiaturowa, TrwaĹ‚oĹ›Ä‡ Konfiguracji i Optymalizacja Renderowania GUI (`P2`)
+- **Cel:** PĹ‚ynna praca 60 FPS przy duĹĽych dziennikach (>25 000 QSO), dziaĹ‚ajÄ…ce skrĂłty klawiszowe i peĹ‚ny zapis konfiguracji (`GUI-001`, `GUI-002`, `GUI-003`, `FUNC-005`, `PERF-002`).
 - **Zakres zrealizowany:**
-  - Odblokowanie skrótów `Ctrl+...` w `src/gui/app_input.rs` z podziałem na konteksty `ShortcutContext` i `ActiveFocusContext`, ochrona `TextEdit` przed kolizją nawigacyjną, obsługa `Enter` (zapis i powrót fokusu na znak) oraz `Esc` (wipe/anulowanie) w `src/gui/contest.rs` i `qso_entry.rs` (`GUI-001`, commity `e028125`, `229dea5`).
-  - Kompletna synchronizacja pól w `SpLogApp::snapshot_config()` (CW, REST, solar, satelity, layout/okna, motyw, konfiguracja multi-radio), atomowy zapis konfiguracji przez `.tmp` i `.bak` z walidacją schematu oraz dodanie przycisku zamknięcia w nagłówku `operator_assistant.rs` (`FUNC-005`, `GUI-002`, commity `acecd8c`, `c4cf893`).
-  - Eliminacja bezwarunkowego `request_repaint_after(250ms)` w pętli renderowania, zastąpienie harmonogramem UTC `until_next_second`, event-driven wake context z `EventBus` i `CatRuntime`, buforowanie przefiltrowanych/posortowanych indeksów w `LogViewState` oraz agregacji w `ContestState` z kluczami rewizji, $O(1)$ set lookup dla spotów klastra DX oraz spoczynkowy stan S-metra S0/0W (`PERF-002`, `GUI-003`, commity `8397351`, `5e273d2`).
-  - Kompletna macierz stabilności i testów regresyjnych (60/60 testów stabilności zaliczonych w 5 powtórzeniach, 0 flaky, brak blokad GUI pod obciążeniem) (commit `a7330ce`).
-- **Pliki i moduły:** `src/gui/{shortcuts.rs,app_input.rs,app_config.rs,app_qso.rs,logbook_table.rs,contest.rs,operator_assistant.rs,app.rs,app_tests.rs}`, `src/gui/state/{log_view.rs,contest.rs,cat.rs}`, `src/core/{config.rs,events.rs}`, `src/cat/runtime.rs`.
-- **Ryzyka:** Niskie (zweryfikowane macierzą stabilności).
-- **Kryteria ukończenia:** Spełnione w 100%. Wszystkie kanoniczne testy programowe zaliczone (0 failed, 10 ignored laboratoryjnych HIL, brak emisji RF). Etap 9 bezwarunkowo zamknięty: SOFTWARE VERIFIED (`COMPLETED_SOFTWARE_VERIFIED`).
+  - Odblokowanie skrĂłtĂłw `Ctrl+...` w `src/gui/app_input.rs` z podziaĹ‚em na konteksty `ShortcutContext` i `ActiveFocusContext`, ochrona `TextEdit` przed kolizjÄ… nawigacyjnÄ…, obsĹ‚uga `Enter` (zapis i powrĂłt fokusu na znak) oraz `Esc` (wipe/anulowanie) w `src/gui/contest.rs` i `qso_entry.rs` (`GUI-001`, commity `e028125`, `229dea5`).
+  - Kompletna synchronizacja pĂłl w `SpLogApp::snapshot_config()` (CW, REST, solar, satelity, layout/okna, motyw, konfiguracja multi-radio), atomowy zapis konfiguracji przez `.tmp` i `.bak` z walidacjÄ… schematu oraz dodanie przycisku zamkniÄ™cia w nagĹ‚Ăłwku `operator_assistant.rs` (`FUNC-005`, `GUI-002`, commity `acecd8c`, `c4cf893`).
+  - Eliminacja bezwarunkowego `request_repaint_after(250ms)` w pÄ™tli renderowania, zastÄ…pienie harmonogramem UTC `until_next_second`, event-driven wake context z `EventBus` i `CatRuntime`, buforowanie przefiltrowanych/posortowanych indeksĂłw w `LogViewState` oraz agregacji w `ContestState` z kluczami rewizji, $O(1)$ set lookup dla spotĂłw klastra DX oraz spoczynkowy stan S-metra S0/0W (`PERF-002`, `GUI-003`, commity `8397351`, `5e273d2`).
+  - Kompletna macierz stabilnoĹ›ci i testĂłw regresyjnych (60/60 testĂłw stabilnoĹ›ci zaliczonych w 5 powtĂłrzeniach, 0 flaky, brak blokad GUI pod obciÄ…ĹĽeniem) (commit `a7330ce`).
+- **Pliki i moduĹ‚y:** `src/gui/{shortcuts.rs,app_input.rs,app_config.rs,app_qso.rs,logbook_table.rs,contest.rs,operator_assistant.rs,app.rs,app_tests.rs}`, `src/gui/state/{log_view.rs,contest.rs,cat.rs}`, `src/core/{config.rs,events.rs}`, `src/cat/runtime.rs`.
+- **Ryzyka:** Niskie (zweryfikowane macierzÄ… stabilnoĹ›ci).
+- **Kryteria ukoĹ„czenia:** SpeĹ‚nione w 100%. Wszystkie kanoniczne testy programowe zaliczone (0 failed, 10 ignored laboratoryjnych HIL, brak emisji RF). Etap 9 bezwarunkowo zamkniÄ™ty: SOFTWARE VERIFIED (`COMPLETED_SOFTWARE_VERIFIED`).
 
 ---
 
-### Etap 10 — Podłączenie Funkcji Pozornych, Czystość `cargo clippy -D warnings` i Dokumentacja (`P2`) [COMPLETED_SOFTWARE_VERIFIED]
-- **Cel:** Domknięcie częściowo podłączonych funkcji (`FUNC-004`, `FUNC-006`, `FUNC-007`, `FUNC-008`), osiągnięcie 0 ostrzeżeń `clippy` i aktualizacja dokumentacji (`RUST-001`, `CI-002`, `DOC-001`).
+### Etap 10 â€” PodĹ‚Ä…czenie Funkcji Pozornych, CzystoĹ›Ä‡ `cargo clippy -D warnings` i Dokumentacja (`P2`) [COMPLETED_SOFTWARE_VERIFIED]
+- **Cel:** DomkniÄ™cie czÄ™Ĺ›ciowo podĹ‚Ä…czonych funkcji (`FUNC-004`, `FUNC-006`, `FUNC-007`, `FUNC-008`), osiÄ…gniÄ™cie 0 ostrzeĹĽeĹ„ `clippy` i aktualizacja dokumentacji (`RUST-001`, `CI-002`, `DOC-001`).
 - **Zakres zrealizowany (2026-11-06):**
-  - Pełny przepływ produkcyjny i walidacja dla 6 obszarów `FUNC-004`: zatrzymanie nagrywania audio z finalizacją nagłówka WAV (`AudioRecorder::stop_recording`, `AudioSink`), podgląd zdjęcia QSL z zachowaniem źródła i odrzuceniem pustych ścieżek (`PhotoViewerDialog`), sterowanie rotatora EME z walidacją azymutu/elewacji i bez niejawnego fallbacku na pierwsze radio (`rotate_antenna_to_el`), dynamiczny listener JS8Call (`Js8CallListener`, `js8call_enabled`/`js8call_port`), test połączenia FLDigi XML-RPC (`FldigiClient::test_connection`) oraz binarne ramkowanie i mockowalny transport `WinkeyerTransport` (commity `9cb49dc`, `85104a1`, `a5d9bde`).
-  - Dynamiczne ładowanie członkostwa w klubach krótkofalarskich (`ClubRegistry`) z pliku referencyjnego `databases/clubs.csv` z rygorystyczną walidacją unikalności par `(club, member_number)` i eliminacją współdzielonych zahardkodowanych numerów (`FUNC-006`, commity `062d65c`, `caf72d1`).
-  - Obsługa referencji `WWFF` i `RDA` w `AwardsEngine::ingest_qso` i `AwardsMatrixDialog`, prezentacja skuteczności prognoz `PropagationHistory` (`accuracy_rate`, `band_accuracy`) w GUI oraz podłączenie kalkulatora arkuszy `qsl_print.rs` (`FUNC-007`, commity `53d532a`, `caf72d1`).
+  - PeĹ‚ny przepĹ‚yw produkcyjny i walidacja dla 6 obszarĂłw `FUNC-004`: zatrzymanie nagrywania audio z finalizacjÄ… nagĹ‚Ăłwka WAV (`AudioRecorder::stop_recording`, `AudioSink`), podglÄ…d zdjÄ™cia QSL z zachowaniem ĹşrĂłdĹ‚a i odrzuceniem pustych Ĺ›cieĹĽek (`PhotoViewerDialog`), sterowanie rotatora EME z walidacjÄ… azymutu/elewacji i bez niejawnego fallbacku na pierwsze radio (`rotate_antenna_to_el`), dynamiczny listener JS8Call (`Js8CallListener`, `js8call_enabled`/`js8call_port`), test poĹ‚Ä…czenia FLDigi XML-RPC (`FldigiClient::test_connection`) oraz binarne ramkowanie i mockowalny transport `WinkeyerTransport` (commity `9cb49dc`, `85104a1`, `a5d9bde`).
+  - Dynamiczne Ĺ‚adowanie czĹ‚onkostwa w klubach krĂłtkofalarskich (`ClubRegistry`) z pliku referencyjnego `databases/clubs.csv` z rygorystycznÄ… walidacjÄ… unikalnoĹ›ci par `(club, member_number)` i eliminacjÄ… wspĂłĹ‚dzielonych zahardkodowanych numerĂłw (`FUNC-006`, commity `062d65c`, `caf72d1`).
+  - ObsĹ‚uga referencji `WWFF` i `RDA` w `AwardsEngine::ingest_qso` i `AwardsMatrixDialog`, prezentacja skutecznoĹ›ci prognoz `PropagationHistory` (`accuracy_rate`, `band_accuracy`) w GUI oraz podĹ‚Ä…czenie kalkulatora arkuszy `qsl_print.rs` (`FUNC-007`, commity `53d532a`, `caf72d1`).
   - Przekazywanie i walidacja parametru `qso_qslsince` (`YYYY-MM-DD`) w `LotwClient::fetch_confirmations` (`FUNC-008`, commit `53d532a`).
-  - Całkowite oczyszczenie wszystkich 389 unikalnych ostrzeżeń `cargo clippy` we wszystkich targetach workspace'u (`--lib`, `--lib --tests`, `--bin SPLogbook`, `--bin splogbook-signer`, testy integracyjne) w 5 kontrolowanych paczkach tematycznych bez ani jednego nowego `#[allow(...)]` (`RUST-001`, commity `d2c6970`, `95d77cb`, `1ae0eae`, `21d3bf3`, `efaece4`, `037d4c5`).
-  - Wymuszenie `cargo clippy --workspace --all-targets --all-features -- -D warnings` oraz `cargo audit --deny warnings --ignore ...` w `.github/workflows/ci.yml` wraz z testami strażnika w `tests/security_guard.rs` (`CI-002`, commit `7466bdd`).
+  - CaĹ‚kowite oczyszczenie wszystkich 389 unikalnych ostrzeĹĽeĹ„ `cargo clippy` we wszystkich targetach workspace'u (`--lib`, `--lib --tests`, `--bin SPLogbook`, `--bin splogbook-signer`, testy integracyjne) w 5 kontrolowanych paczkach tematycznych bez ani jednego nowego `#[allow(...)]` (`RUST-001`, commity `d2c6970`, `95d77cb`, `1ae0eae`, `21d3bf3`, `efaece4`, `037d4c5`).
+  - Wymuszenie `cargo clippy --workspace --all-targets --all-features -- -D warnings` oraz `cargo audit --deny warnings --ignore ...` w `.github/workflows/ci.yml` wraz z testami straĹĽnika w `tests/security_guard.rs` (`CI-002`, commit `7466bdd`).
   - Synchronizacja dokumentacji `README.md`, `Native CAT.md`, `docs/AUDIT_FINDINGS_REGISTER.md`, `docs/IMPROVEMENT_ROADMAP.md` oraz `docs/REMEDIATION_BASELINE.md` (`DOC-001`).
-- **Pliki i moduły:** `src/media/audio_recorder.rs`, `src/gui/{qso_entry.rs,photo_viewer.rs,astronomy_dialog.rs,app_cat.rs,app_services.rs,online_sync.rs,cw_terminal.rs,awards_matrix.rs,solar_panel.rs}`, `src/digital/{js8call.rs,fldigi.rs}`, `src/cat/winkeyer.rs`, `src/core/{clubs.rs,awards.rs,propagation_history.rs,qsl_print.rs}`, `src/cloud/lotw.rs`, `databases/clubs.csv`, `.github/workflows/ci.yml`, `tests/security_guard.rs`, `README.md`, `Native CAT.md`.
-- **Ryzyka:** Niskie (zweryfikowane pakietem 2279 aktywnych testów i wielokrotną pętlą stabilności).
-- **Kryteria ukończenia:** Spełnione w 100%. `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `cargo test --workspace --all-targets` (2279 passed, 0 failed, 10 ignored HIL, 2289 registered) oraz `cargo audit` (0 vulnerabilities, 0 unsound) przechodzą z kodem wyjścia `0`. Etap 10 bezwarunkowo zamknięty: `COMPLETED_SOFTWARE_VERIFIED`. Etap 11 (fizyczne testy HIL) pozostaje nierozpoczęty i zablokowany bramką bezpieczeństwa sprzętowego (`NOT EXECUTED — SAFETY GATE CLOSED`).
+- **Pliki i moduĹ‚y:** `src/media/audio_recorder.rs`, `src/gui/{qso_entry.rs,photo_viewer.rs,astronomy_dialog.rs,app_cat.rs,app_services.rs,online_sync.rs,cw_terminal.rs,awards_matrix.rs,solar_panel.rs}`, `src/digital/{js8call.rs,fldigi.rs}`, `src/cat/winkeyer.rs`, `src/core/{clubs.rs,awards.rs,propagation_history.rs,qsl_print.rs}`, `src/cloud/lotw.rs`, `databases/clubs.csv`, `.github/workflows/ci.yml`, `tests/security_guard.rs`, `README.md`, `Native CAT.md`.
+- **Ryzyka:** Niskie (zweryfikowane pakietem 2279 aktywnych testĂłw i wielokrotnÄ… pÄ™tlÄ… stabilnoĹ›ci).
+- **Kryteria ukoĹ„czenia:** SpeĹ‚nione w 100%. `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `cargo test --workspace --all-targets` (2279 passed, 0 failed, 10 ignored HIL, 2289 registered) oraz `cargo audit` (0 vulnerabilities, 0 unsound) przechodzÄ… z kodem wyjĹ›cia `0`. Etap 10 bezwarunkowo zamkniÄ™ty: `COMPLETED_SOFTWARE_VERIFIED`. Etap 11 (fizyczne testy HIL) pozostaje nierozpoczÄ™ty i zablokowany bramkÄ… bezpieczeĹ„stwa sprzÄ™towego (`NOT EXECUTED â€” SAFETY GATE CLOSED`).
