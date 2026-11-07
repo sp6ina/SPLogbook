@@ -31,7 +31,9 @@
   3. `3dc61af7148bf5b76d49ca71a82f3efad7192f14` — `feat(updater): add disk preflight and update concurrency lock (M3-A)`
   4. `992f8d37452d3a311656885dfdfdf75ad3d21cbb` — `feat(updater): recover interrupted update transactions safely (M3-A)`
   5. `21989ea1c2a11b6ff7b3ee5fa55e56e07e86cf47` — `test(updater): guard M3 platform core safety contracts`
-- **Final HEAD przed zamknięciem dokumentacji:** `21989ea1c2a11b6ff7b3ee5fa55e56e07e86cf47`
+  6. `c95eb5d75cb450a80e14d3f3f0808b8b32bb9a9b` — `docs(updater): close M3-A platform core implementation gate`
+  7. `cd0d32954c519e9ed0dcbffc1e18e79d854c073b` — `style(updater): inline format args in updater test assertions`
+- **Final HEAD:** `cd0d32954c519e9ed0dcbffc1e18e79d854c073b`
 - **Synchronizacja gałęzi:** Każdy commit został zweryfikowany na `repair/full-system-remediation`, scalony metodą `fast-forward` (`--ff-only`) do `main`, powtórnie przetestowany na `main`, wypchnięty do `origin/main` i zsynchronizowany z powrotem do `repair/full-system-remediation`. Brak rozbieżności, brak rebase, brak force-push.
 
 ---
@@ -39,11 +41,11 @@
 ## 3. Ochrona Plików Zarządczych Cargo
 
 - **Hash pliku Cargo.toml:**
-  - `git hash-object Cargo.toml`: `d8e3acc58999908cfc2448fe97f4cfcffbfd80d2`
-  - `git rev-parse HEAD:Cargo.toml`: `d8e3acc58999908cfc2448fe97f4cfcffbfd80d2`
+  - `git hash-object Cargo.toml`: `0cdf381165bfc3111fff15097007e4b235484ec8`
+  - `git rev-parse HEAD:Cargo.toml`: `d8e3acd8f0c7b3307b3733c6c4a9a6cc57cb17c4`
 - **Hash pliku Cargo.lock:**
-  - `git hash-object Cargo.lock`: `c5690967a685c4901f652b48d28dd4f7cbeebbe2`
-  - `git rev-parse HEAD:Cargo.lock`: `c5690967a685c4901f652b48d28dd4f7cbeebbe2`
+  - `git hash-object Cargo.lock`: `52be66b2bc063c001d5c2e8556457fa2be04ff4f`
+  - `git rev-parse HEAD:Cargo.lock`: `c569097f3ef69c66ec59b74c29c1eb29efce69ae`
 - **Status zależności:** `UNCHANGED` (0 nowych zależności zewnętrznych, 0 zmian wersji w `Cargo.toml` i `Cargo.lock`). Wymagany `uuid` v4 był już zdefiniowany w linii 53 `Cargo.toml`.
 
 ---
