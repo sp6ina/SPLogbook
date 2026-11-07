@@ -199,7 +199,7 @@
 - **Kategoria:** `REL`
 - **Poziom krytycznoĹ›ci:** `CRITICAL`
 - **Poziom pewnoĹ›ci:** `CONFIRMED`
-- **Status:** **REVIEWED / COMPLETED_DESIGN_VERIFIED** (Dokument `DESIGN_3_0_A_WINDOWS_UPDATE.md` v2.0.0; oczekuje na zatwierdzenie decyzji wĹ‚aĹ›ciciela przed M3)
+- **Status:** **APPROVED / COMPLETED_DESIGN_VERIFIED** (Dokument DESIGN_3_0_A_WINDOWS_UPDATE.md v2.1.0; decyzje OWNER-M2-01..03 formalnie zatwierdzone w STAGE-M2-OWNER-DECISIONS-APPROVAL-GATE)
 - **Data weryfikacji:** 2026-11-07
 
 ---
@@ -210,7 +210,7 @@
 - **Kategoria:** `REL`
 - **Poziom krytycznoĹ›ci:** `CRITICAL`
 - **Poziom pewnoĹ›ci:** `CONFIRMED`
-- **Status:** **REVIEWED / COMPLETED_DESIGN_VERIFIED** (Dokument `DESIGN_3_0_B_LINUX_UPDATE.md` v2.0.0; oczekuje na zatwierdzenie decyzji wĹ‚aĹ›ciciela przed M3)
+- **Status:** **APPROVED / COMPLETED_DESIGN_VERIFIED** (Dokument DESIGN_3_0_B_LINUX_UPDATE.md v2.1.0; decyzje OWNER-M2-04..07 formalnie zatwierdzone w STAGE-M2-OWNER-DECISIONS-APPROVAL-GATE)
 - **Data weryfikacji:** 2026-11-07
 
 ---
@@ -221,7 +221,7 @@
 - **Kategoria:** `REL`
 - **Poziom krytycznoĹ›ci:** `CRITICAL`
 - **Poziom pewnoĹ›ci:** `CONFIRMED`
-- **Status:** **REVIEWED / COMPLETED_DESIGN_VERIFIED** (Dokument `DESIGN_3_0_C_PLATFORM_INSTALLERS.md` v2.0.0; oczekuje na zatwierdzenie decyzji wĹ‚aĹ›ciciela przed M3)
+- **Status:** **APPROVED / COMPLETED_DESIGN_VERIFIED** (Dokument DESIGN_3_0_C_PLATFORM_INSTALLERS.md v2.1.0; 9 decyzji blokujących M3 formalnie zatwierdzonych w STAGE-M2-OWNER-DECISIONS-APPROVAL-GATE)
 - **Data weryfikacji:** 2026-11-07
 
 ---

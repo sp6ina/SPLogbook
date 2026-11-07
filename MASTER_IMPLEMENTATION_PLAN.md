@@ -262,44 +262,44 @@ Utworzenie, uzgodnienie i zweryfikowanie trzech kompletnych dokumentĂłw projek
 #### UPDATE-DESIGN-WIN â€” Projekt instalatora Windows
 - **Tor:** UPDATE
 - **Status techniczny:** POTWIERDZONY W DOKUMENCIE PROJEKTOWYM
-- **Status wykonawczy:** REVIEWED (oczekuje na zatwierdzenie decyzji wĹ‚aĹ›ciciela OWNER-M2-01, 02, 03)
+- **Status wykonawczy:** APPROVED (Formalnie zatwierdzony w STAGE-M2-OWNER-DECISIONS-APPROVAL-GATE po decyzjach OWNER-M2-01, 02, 03)
 - **Priorytet:** P0 Krytyczny
-- **Plik wynikowy:** DESIGN_3_0_A_WINDOWS_UPDATE.md (v2.0.0)
+- **Plik wynikowy:** DESIGN_3_0_A_WINDOWS_UPDATE.md (v2.1.0)
 - **Zakres:** Format wydania (ZIP), ochrona przed Zip Slip, staging (.staging), wyĹ‚Ä…czenie procesu (PID loop), tablice literaĹ‚Ăłw PowerShell bez wildcardĂłw, rollback (.rollback), health confirmation (--check-health-startup, .health_ok), zachowanie baz i konfiguracji.
 
 #### UPDATE-DESIGN-LINUX â€” Projekt instalatora Linux
 - **Tor:** UPDATE
 - **Status techniczny:** POTWIERDZONY W DOKUMENCIE PROJEKTOWYM
-- **Status wykonawczy:** REVIEWED (oczekuje na zatwierdzenie decyzji wĹ‚aĹ›ciciela OWNER-M2-04, 05, 06, 07)
+- **Status wykonawczy:** APPROVED (Formalnie zatwierdzony w STAGE-M2-OWNER-DECISIONS-APPROVAL-GATE po decyzjach OWNER-M2-04, 05, 06, 07)
 - **Priorytet:** P0 Krytyczny
-- **Plik wynikowy:** DESIGN_3_0_B_LINUX_UPDATE.md (v2.0.0)
+- **Plik wynikowy:** DESIGN_3_0_B_LINUX_UPDATE.md (v2.1.0)
 - **Zakres:** Format tar.gz (oficjalne wydanie portable), ekstrakcja do .staging, spĹ‚aszczanie pojedynczego katalogu nadrzÄ™dnego, ochrona przed traversal i nodami specjalnymi, uprawnienia 0o755, RUNPATH, biblioteki Hamlib, atomowe rename, rollback, health confirmation, odmowa dla /usr/bin bez sudo/pkexec.
 
 #### UPDATE-DESIGN-PLATFORM â€” WspĂłlny interfejs instalatorĂłw
 - **Tor:** UPDATE
 - **Status techniczny:** POTWIERDZONY W DOKUMENCIE PROJEKTOWYM
-- **Status wykonawczy:** REVIEWED (oczekuje na zatwierdzenie decyzji wĹ‚aĹ›ciciela OWNER-M2-01 do 15)
+- **Status wykonawczy:** APPROVED (Formalnie zatwierdzony w STAGE-M2-OWNER-DECISIONS-APPROVAL-GATE po zatwierdzeniu 9 kluczowych decyzji OWNER-M2-01..07, 13, 15)
 - **Priorytet:** P0 Krytyczny
-- **Plik wynikowy:** DESIGN_3_0_C_PLATFORM_INSTALLERS.md (v2.0.0)
+- **Plik wynikowy:** DESIGN_3_0_C_PLATFORM_INSTALLERS.md (v2.1.0)
 - **Zakres:** Czterowarstwowa architektura, deterministyczna maszyna stanĂłw, cecha PlatformInstallerAdapter, model transakcji UpdateAttemptId, klasyfikacja UpdateFileClass, zasada UNKNOWN DATA CLASSIFICATION â†’ DO NOT OVERWRITE, blokada wspĂłĹ‚bieĹĽnoĹ›ci .update.lock, test matrix M3.
 
 ---
 
 # 10. Etap M3: Implementacja Windows i Linux
 
-Prace implementacyjne nierozpoczÄ™te. Zablokowane do czasu zatwierdzenia decyzji blokujÄ…cych przez WĹ‚aĹ›ciciela repozytorium.
+Prace implementacyjne nierozpoczęte. Gotowe do implementacji po formalnym zatwierdzeniu 9 decyzji blokujących przez Właściciela w STAGE-M2-OWNER-DECISIONS-APPROVAL-GATE.
 
 #### UPDATE-WIN-INSTALLER â€” Instalator Windows
 - **Tor:** UPDATE
-- **Status wykonawczy:** BLOCKED_BY_OWNER_DECISIONS (NOT STARTED)
+- **Status wykonawczy:** READY_FOR_IMPLEMENTATION (NOT STARTED)
 - **ZaleĹĽnoĹ›ci:** UPDATE-DESIGN-WIN, UPDATE-DESIGN-PLATFORM, decyzje OWNER-M2-01..03
-- **Pliki:** src/cloud/updater.rs
+- **Zależności:** UPDATE-DESIGN-WIN (APPROVED), UPDATE-DESIGN-PLATFORM (APPROVED), decyzje OWNER-M2-01..03 (APPROVED)
 
 #### UPDATE-LINUX-INSTALLER â€” Instalator Linux (tar.gz)
 - **Tor:** UPDATE
-- **Status wykonawczy:** BLOCKED_BY_OWNER_DECISIONS (NOT STARTED)
+- **Status wykonawczy:** READY_FOR_IMPLEMENTATION (NOT STARTED)
 - **ZaleĹĽnoĹ›ci:** UPDATE-DESIGN-LINUX, UPDATE-DESIGN-PLATFORM, decyzje OWNER-M2-04..07
-- **Pliki:** src/cloud/updater.rs
+- **Zależności:** UPDATE-DESIGN-LINUX (APPROVED), UPDATE-DESIGN-PLATFORM (APPROVED), decyzje OWNER-M2-04..07 (APPROVED)
 
 ---
 

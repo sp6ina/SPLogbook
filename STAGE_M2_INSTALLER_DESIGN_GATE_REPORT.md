@@ -191,21 +191,21 @@ Statyczna weryfikacja dokumentĂłw projektowych potwierdza brak jakichkolwiek z
 
 | ID Decyzji | TreĹ›Ä‡ pytania decyzyjnego | Opcje | Rekomendacja techniczna | Status formalny | Blokuje M3? |
 |---|---|---|---|---|---|
-| **OWNER-M2-01** | Czy Windows w M3 pozostaje wyĹ‚Ä…cznie pakietem Portable ZIP? | 1. Tylko Portable ZIP<br>2. MSI / WiX w M3 | Opcja 1 (Portable ZIP) | OPEN (Zalecane zatwierdzenie) | **TAK** |
-| **OWNER-M2-02** | Czy instalator MSI / WiX / Inno Setup jest odrÄ™bnym, przyszĹ‚ym etapem? | 1. Tak, osobny etap<br>2. WdroĹĽenie w M3 | Opcja 1 (Osobny etap) | OPEN (Zalecane zatwierdzenie) | **TAK** |
-| **OWNER-M2-03** | Czy w M3 uĹĽywaÄ‡ ulepszonego PowerShell helpera czy natywnego helpera EXE? | 1. Ulepszony PowerShell<br>2. Natywny EXE w M3 | Opcja 1 w M3, Opcja 2 jako cel docelowy | OPEN (Zalecane zatwierdzenie) | **TAK** |
-| **OWNER-M2-04** | Czy Linux w M3 obejmuje wyĹ‚Ä…cznie pakiet Portable tar.gz? | 1. Tylko tar.gz<br>2. Pakiety systemowe | Opcja 1 (Portable tar.gz) | OPEN (Zalecane zatwierdzenie) | **TAK** |
-| **OWNER-M2-05** | Czy pakiet AppImage jest planowany jako odrÄ™bny przyszĹ‚y etap? | 1. Tak, osobny etap<br>2. WdroĹĽenie w M3 | Opcja 1 (Osobny etap) | OPEN (Zalecane zatwierdzenie) | **TAK** |
-| **OWNER-M2-06** | Czy pakiety DEB/RPM/Flatpak pozostajÄ… poza zakresem auto-updatera? | 1. Poza zakresem<br>2. W auto-updaterze | Opcja 1 (ZarzÄ…dzane przez system) | OPEN (Zalecane zatwierdzenie) | **TAK** |
-| **OWNER-M2-07** | Czy instalacje systemowe (/usr/bin) majÄ… byÄ‡ odsyĹ‚ane do package managera? | 1. OdsyĹ‚anie z monitem<br>2. Wymuszenie przez root | Opcja 1 (OdsyĹ‚anie z monitem) | OPEN (Zalecane zatwierdzenie) | **TAK** |
+| **OWNER-M2-01** | Czy Windows w M3 pozostaje wyłącznie pakietem Portable ZIP? | 1. Tylko Portable ZIP<br>2. MSI / WiX w M3 | Opcja 1 (Portable ZIP) | APPROVED — EXPANDED OPTION A | **NIE (Zatwierdzona)** |
+| **OWNER-M2-02** | Czy instalator MSI / WiX / Inno Setup jest odrębnym, przyszłym etapem? | 1. Tak, osobny etap<br>2. Wdrożenie w M3 | Opcja 1 (Osobny etap) | APPROVED — EXPANDED OPTION A | **NIE (Zatwierdzona)** |
+| **OWNER-M2-03** | Czy w M3 używać ulepszonego PowerShell helpera czy natywnego helpera EXE? | 1. Ulepszony PowerShell<br>2. Natywny EXE w M3 | Opcja 1 w M3, Opcja 2 jako cel docelowy | APPROVED — DUAL HELPER MODEL | **NIE (Zatwierdzona)** |
+| **OWNER-M2-04** | Czy Linux w M3 obejmuje wyłącznie pakiet Portable tar.gz? | 1. Tylko tar.gz<br>2. Pakiety systemowe | Opcja 1 (Portable tar.gz) | APPROVED — EXPANDED OPTION A | **NIE (Zatwierdzona)** |
+| **OWNER-M2-05** | Czy pakiet AppImage jest planowany jako odrębny przyszły etap? | 1. Tak, osobny etap<br>2. Wdrożenie w M3 | Opcja 1 (Osobny etap) | APPROVED — APPIMAGE REQUIRED | **NIE (Zatwierdzona)** |
+| **OWNER-M2-06** | Czy pakiety DEB/RPM/Flatpak pozostają poza zakresem auto-updatera? | 1. Poza zakresem<br>2. W auto-updaterze | Opcja 1 (Zarządzane przez system) | APPROVED — MANAGED PACKAGE INTEGRATION | **NIE (Zatwierdzona)** |
+| **OWNER-M2-07** | Czy instalacje systemowe (/usr/bin) mają być odsyłane do package managera? | 1. Odsyłanie z monitem<br>2. Wymuszenie przez root | Opcja 1 (Odsyłanie z monitem) | APPROVED — SYSTEM PACKAGE MANAGER BOUNDARY | **NIE (Zatwierdzona)** |
 | **OWNER-M2-08** | Jaka jest polityka retencji katalogu kopii zapasowej `.rollback`? | 1. UsuniÄ™cie po health ok<br>2. Zachowanie w archiwum | Opcja 1 (OszczÄ™dnoĹ›Ä‡ miejsca) | OPEN (Zalecane zatwierdzenie) | NIE |
 | **OWNER-M2-09** | Czy backup programu ma pozostaÄ‡ na dysku po udanym potwierdzeniu zdrowia? | 1. UsuwaÄ‡ natychmiast<br>2. ZachowaÄ‡ przez 1 wersjÄ™ | Opcja 1 (UsuwaÄ‡ natychmiast) | OPEN (Zalecane zatwierdzenie) | NIE |
 | **OWNER-M2-10** | Jaka jest dĹ‚ugoterminowa polityka aktualizacji bazy referencyjnej `serviceLOG.db`? | 1. FirstInstallSeed<br>2. Dedykowana migracja M4 | Opcja 1 w M3, Opcja 2 w M4 | OPEN (Zalecane zatwierdzenie) | NIE |
 | **OWNER-M2-11** | Jaka jest dĹ‚ugoterminowa polityka aktualizacji bazy `callbook.db`? | 1. FirstInstallSeed<br>2. Dedykowana migracja M4 | Opcja 1 w M3, Opcja 2 w M4 | OPEN (Zalecane zatwierdzenie) | NIE |
 | **OWNER-M2-12** | Czy log aktualizacji ma mieÄ‡ retencjÄ™ czasowÄ… czy liczbowÄ…? | 1. Ostatnie 10 prĂłb<br>2. 30 dni rotacji | Opcja 1 (Ostatnie 10 prĂłb / 500 wpisĂłw) | OPEN (Zalecane zatwierdzenie) | NIE |
-| **OWNER-M2-13** | Czy aktualizacjÄ™ moĹĽna anulowaÄ‡ po wejĹ›ciu w fazÄ™ podmiany plikĂłw (`apply`)? | 1. BezwzglÄ™dny zakaz<br>2. Anulowanie z rollbackiem | Opcja 1 (Zakaz w trakcie kopiowania) | OPEN (Zalecane zatwierdzenie) | **TAK** |
+| **OWNER-M2-13** | Czy aktualizację można anulować po wejściu w fazę podmiany plików (`apply`)? | 1. Bezwzględny zakaz<br>2. Anulowanie z rollbackiem | Opcja 1 (Zakaz w trakcie kopiowania) | APPROVED — NON-CANCELLABLE APPLY | **NIE (Zatwierdzona)** |
 | **OWNER-M2-14** | Czy M3 ma wspieraÄ‡ wznawianie pobierania (HTTP Range resume)? | 1. Pobieranie caĹ‚oĹ›ciowe<br>2. Range resume | Opcja 1 w M3 (caĹ‚oĹ›Ä‡ z SHA-256) | OPEN (Zalecane zatwierdzenie) | NIE |
-| **OWNER-M2-15** | Czy PR z kodem M3 wymaga natywnych testĂłw na Windows i Linux runnerach? | 1. Wymagane oba runnery<br>2. Tylko Linux runner | Opcja 1 (Natywne Windows i Linux) | OPEN (Zalecane zatwierdzenie) | **TAK** |
+| **OWNER-M2-15** | Czy PR z kodem M3 wymaga natywnych testów na Windows i Linux runnerach? | 1. Wymagane oba runnery<br>2. Tylko Linux runner | Opcja 1 (Natywne Windows i Linux) | APPROVED — NATIVE PLATFORM TESTS REQUIRED | **NIE (Zatwierdzona)** |
 
 ---
 
@@ -287,9 +287,11 @@ ERROR MODEL: DEFINED
 SECURITY MATRIX: COMPLETE
 TEST MATRIX: COMPLETE
 OWNER DECISIONS TOTAL: 15
-OWNER DECISIONS OPEN: 15 (WITH ENGINEERING RECOMMENDATIONS)
-M3-BLOCKING DECISIONS: 8 (OWNER-M2-01, 02, 03, 04, 05, 06, 07, 13, 15)
-M3 STATUS: BLOCKED_BY_OWNER_DECISIONS
+OWNER DECISIONS APPROVED IN APPROVAL GATE: 9
+OWNER DECISIONS OPEN: 6 (OWNER-M2-08, 09, 10, 11, 12, 14; NONE BLOCKING M3)
+M3-BLOCKING DECISIONS BEFORE APPROVAL: 9 (OWNER-M2-01, 02, 03, 04, 05, 06, 07, 13, 15)
+M3-BLOCKING DECISIONS AFTER APPROVAL: 0
+M3 STATUS: READY_FOR_IMPLEMENTATION
 M3 EXECUTION: NOT STARTED
 CODE MODIFIED: NO
 TESTS MODIFIED: NO
@@ -312,6 +314,6 @@ ORIGIN/MAIN: SYNCHRONIZED
 AHEAD/BEHIND: 0/0
 WORKING TREE: CLEAN
 FORCE-PUSH: NOT EXECUTED
-NEXT TASK: APPROVAL OF M3-BLOCKING OWNER DECISIONS -> STAGE-M3-INSTALLER-IMPLEMENTATION-GATE
+NEXT TASK: STAGE-M3-INSTALLER-IMPLEMENTATION-GATE
 ================================================================================
 ```

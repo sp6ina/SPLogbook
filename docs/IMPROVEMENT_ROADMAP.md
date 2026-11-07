@@ -32,7 +32,7 @@
 10. **Weryfikacja manifest-first i odrzucanie odwoĹ‚anych kluczy w aktualizatorze GUI (`UPDATE-TRUST-001`)** â€” **ZREALIZOWANY** (commit `bc3e806`, `c95172e`).
 11. **Ochrona danych uĹĽytkownika, konfiguracji i baz portable w aktualizatorze Windows/Linux (`UPDATE-DATA-001`)** â€” **ZREALIZOWANY** (commit `12c3b22`, `da34b4c`, `c95172e`).
 12. **Bramki bezpieczeĹ„stwa aktualizatora Etapu M1 (`UPDATE-WIN-SAFETY-GATE`, `UPDATE-LINUX-SAFETY-GATE`)** â€” **ZREALIZOWANY** (`SATISFIED_BY_UPDATE_TRUST_AND_DATA_SAFETY_GATE` / `COMPLETED_SOFTWARE_VERIFIED`, raport `STAGE_M1_COVERAGE_AND_STATUS_REPORT.md`).
-13. **Bramka projektowa instalatorĂłw Etapu M2 (`STAGE-M2-INSTALLER-DESIGN-GATE`)** â€” **ZREALIZOWANY PROJEKTOWO** (`DESIGN_COMPLETE_PENDING_OWNER_DECISIONS`, raport `STAGE_M2_INSTALLER_DESIGN_GATE_REPORT.md`). Zatwierdzone architektonicznie dokumenty projektowe: `DESIGN_3_0_A_WINDOWS_UPDATE.md` (`REVIEWED`), `DESIGN_3_0_B_LINUX_UPDATE.md` (`REVIEWED`), `DESIGN_3_0_C_PLATFORM_INSTALLERS.md` (`REVIEWED`). Status M3: `BLOCKED_BY_OWNER_DECISIONS` (oczekuje na formalne zatwierdzenie decyzji OWNER-M2-01..15 przez WĹ‚aĹ›ciciela).
+13. **Bramka projektowa instalatorów Etapu M2 (STAGE-M2-INSTALLER-DESIGN-GATE oraz STAGE-M2-OWNER-DECISIONS-APPROVAL-GATE)** — **ZREALIZOWANY PROJEKTOWO I ZATWIERDZONY** (COMPLETED_DESIGN_VERIFIED, raporty STAGE_M2_INSTALLER_DESIGN_GATE_REPORT.md oraz STAGE_M2_OWNER_DECISIONS_APPROVAL_REPORT.md). Zatwierdzone dokumenty projektowe: DESIGN_3_0_A_WINDOWS_UPDATE.md (APPROVED), DESIGN_3_0_B_LINUX_UPDATE.md (APPROVED), DESIGN_3_0_C_PLATFORM_INSTALLERS.md (APPROVED). Status M3: READY_FOR_IMPLEMENTATION (wszystkie 9 decyzji blokujących M3 formalnie zatwierdzone przez Właściciela; prace implementacyjne M3 nierozpoczęte).
 
 ---
 
