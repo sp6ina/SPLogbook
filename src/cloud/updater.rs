@@ -117,10 +117,11 @@ pub use helper_protocol::{
     validate_and_normalize_relative_path,
 };
 pub use installation::{
-    InstallationDetectionContext, InstallationType, ManagementMode, WINDOWS_INNO_MARKER_FILENAME,
-    WINDOWS_INNO_SETUP_APP_ID, WINDOWS_MSI_MARKER_FILENAME, WINDOWS_MSI_UPGRADE_CODE,
-    WINDOWS_MSI_UPGRADE_CODE_PACKED, WindowsMsiMarker, WindowsUserSetupMarker,
-    detect_installation_with_context, semver_to_msi_product_version,
+    InstallationDetectionContext, InstallationType, LINUX_PORTABLE_MARKER_FILENAME,
+    LinuxPortableMarker, ManagementMode, WINDOWS_INNO_MARKER_FILENAME, WINDOWS_INNO_SETUP_APP_ID,
+    WINDOWS_MSI_MARKER_FILENAME, WINDOWS_MSI_UPGRADE_CODE, WINDOWS_MSI_UPGRADE_CODE_PACKED,
+    WindowsMsiMarker, WindowsUserSetupMarker, detect_installation_with_context,
+    semver_to_msi_product_version,
 };
 pub use lock::{
     UPDATE_LOCK_FILENAME, UPDATE_LOCK_RECORD_VERSION, UpdateLockGuard, UpdateLockRecord,
@@ -1730,6 +1731,12 @@ pub fn validate_archive_relative_path(raw_path: &Path) -> Result<std::path::Path
             "Pusta ścieżka wpisu w archiwum".into(),
         ));
     }
+    if path_str.len() > 255 {
+        return Err(UpdaterError::UnsafeArchivePath(format!(
+            "Ścieżka wpisu przekracza dopuszczalny limit 255 znaków: {} znaków",
+            path_str.len()
+        )));
+    }
     if path_str.contains('\0') {
         return Err(UpdaterError::UnsafeArchivePath(
             "Ścieżka zawiera bajt zerowy".into(),
@@ -1954,6 +1961,13 @@ pub fn extract_tar_gz_safe(
             )));
         }
 
+        let raw_mode = entry.header().mode().unwrap_or(0);
+        if (raw_mode & 0o7000) != 0 {
+            return Err(UpdaterError::UnsafeArchivePath(
+                "Wpisy z bitami setuid, setgid lub sticky są zabronione w archiwum".into(),
+            ));
+        }
+
         let raw_path = entry.path().map_err(|e| {
             UpdaterError::UnsafeArchivePath(format!("Nieprawidłowa ścieżka wpisu: {e}"))
         })?;
@@ -2089,6 +2103,370 @@ pub fn extract_tar_gz_safe(
     }
 
     Ok(entry_count)
+}
+
+/// Wynik strukturalnej inspekcji archiwum Linux Portable tar.gz (M3-F)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LinuxArchiveInspection {
+    pub entry_count: usize,
+    pub total_declared_size: u64,
+    pub root_directory: String,
+    pub has_marker: bool,
+    pub entries: Vec<std::path::PathBuf>,
+}
+
+/// Faza 1: Inspekcja archiwum Linux Portable tar.gz w trybie wyłącznie do odczytu (read-only) (M3-F).
+///
+/// Weryfikuje strukturę archiwum PRZED jakimkolwiek dotknięciem docelowego systemu plików:
+/// - poprawność nagłówków gzip oraz integralność strumienia tar;
+/// - odrzucenie path traversal, .., ścieżek bezwzględnych, prefiksów Windows/UNC;
+/// - odrzucenie symlinków, hardlinków, węzłów specjalnych (FIFO, block/char device, socket);
+/// - odrzucenie uprawnień setuid, setgid, sticky bits (07000);
+/// - odrzucenie zduplikowanych ścieżek;
+/// - egzekwowanie limitów wielkości: max_entries, max_single_size, max_total_size, długość ścieżki <= 255;
+/// - wymóg DOKŁADNIE JEDNEGO kanonicznego korzenia: "SPLogbook/";
+/// - odrzucenie archiwów z wieloma korzeniami lub plikami bezpośrednio w korzeniu;
+/// - weryfikację obecności wymaganego markera: "SPLogbook/.splogbook-linux-portable-marker".
+pub fn preflight_linux_portable_tar_gz(
+    tar_gz_path: &Path,
+    limits: &ArchiveLimits,
+) -> Result<LinuxArchiveInspection, UpdaterError> {
+    use std::fs;
+
+    let file = fs::File::open(tar_gz_path).map_err(|e| {
+        UpdaterError::Io(format!(
+            "Nie można otworzyć archiwum {}: {e}",
+            tar_gz_path.display()
+        ))
+    })?;
+
+    let gz = flate2::read::GzDecoder::new(file);
+    let mut archive = tar::Archive::new(gz);
+
+    let mut entry_count: usize = 0;
+    let mut total_declared_size: u64 = 0;
+    let mut seen_paths = std::collections::HashSet::new();
+    let mut entries_list = Vec::new();
+    let mut has_marker = false;
+    let canonical_root = "SPLogbook";
+
+    let entries = archive.entries().map_err(|e| {
+        UpdaterError::UnsafeArchivePath(format!("Błąd odczytu wpisów w archiwum: {e}"))
+    })?;
+
+    for entry in entries {
+        let entry = entry.map_err(|e| {
+            UpdaterError::UnsafeArchivePath(format!("Uszkodzony wpis w archiwum: {e}"))
+        })?;
+
+        entry_count += 1;
+        if entry_count > limits.max_entries {
+            return Err(UpdaterError::ArchiveLimitExceeded(format!(
+                "Przekroczono dopuszczalny limit wpisów w archiwum ({})",
+                limits.max_entries
+            )));
+        }
+
+        let entry_type = entry.header().entry_type();
+        if entry_type == tar::EntryType::Symlink {
+            return Err(UpdaterError::UnsafeArchivePath(
+                "Wpisy typu symlink są zabronione w archiwum".into(),
+            ));
+        }
+        if entry_type == tar::EntryType::Link {
+            return Err(UpdaterError::UnsafeArchivePath(
+                "Wpisy typu hardlink są zabronione w archiwum".into(),
+            ));
+        }
+        if entry_type != tar::EntryType::Regular && entry_type != tar::EntryType::Directory {
+            return Err(UpdaterError::UnsafeArchivePath(format!(
+                "Niedozwolony specjalny typ wpisu w archiwum: {entry_type:?}"
+            )));
+        }
+
+        let raw_mode = entry.header().mode().unwrap_or(0);
+        if (raw_mode & 0o7000) != 0 {
+            return Err(UpdaterError::UnsafeArchivePath(
+                "Wpisy z bitami setuid, setgid lub sticky są zabronione w archiwum".into(),
+            ));
+        }
+
+        let raw_path = entry.path().map_err(|e| {
+            UpdaterError::UnsafeArchivePath(format!("Nieprawidłowa ścieżka wpisu: {e}"))
+        })?;
+
+        let rel_path = validate_archive_relative_path(&raw_path)?;
+
+        // Weryfikacja pojedynczego korzenia: każdy wpis musi znajdować się w SPLogbook/... lub być SPLogbook
+        let mut components = rel_path.components();
+        let first_comp = components.next().ok_or_else(|| {
+            UpdaterError::UnsafeArchivePath("Pusta znormalizowana ścieżka wpisu".into())
+        })?;
+        let first_name = first_comp.as_os_str().to_string_lossy();
+        if first_name != canonical_root {
+            return Err(UpdaterError::InvalidStagingLayout(format!(
+                "Archiwum zawiera wpis poza kanonicznym korzeniem '{}': {}",
+                canonical_root,
+                rel_path.display()
+            )));
+        }
+
+        // Weryfikacja obecności markera
+        if rel_path == Path::new(canonical_root).join(LINUX_PORTABLE_MARKER_FILENAME) {
+            has_marker = true;
+        }
+
+        if !seen_paths.insert(rel_path.clone()) {
+            return Err(UpdaterError::ArchiveLimitExceeded(format!(
+                "Zduplikowana ścieżka w archiwum: {}",
+                rel_path.display()
+            )));
+        }
+
+        let header_size = entry.header().size().unwrap_or(0);
+        if header_size > limits.max_single_size {
+            return Err(UpdaterError::ArchiveLimitExceeded(format!(
+                "Rozmiar pliku {} przekracza dopuszczalny limit ({} > {})",
+                rel_path.display(),
+                header_size,
+                limits.max_single_size
+            )));
+        }
+
+        total_declared_size = total_declared_size
+            .checked_add(header_size)
+            .ok_or_else(|| {
+                UpdaterError::ArchiveLimitExceeded(
+                    "Przekroczenie zakresu sumy rozmiarów wpisów archiwum".into(),
+                )
+            })?;
+
+        if total_declared_size > limits.max_total_size {
+            return Err(UpdaterError::ArchiveLimitExceeded(format!(
+                "Łączny deklarowany rozmiar archiwum przekracza limit ({} > {})",
+                total_declared_size, limits.max_total_size
+            )));
+        }
+
+        entries_list.push(rel_path);
+    }
+
+    if entry_count == 0 {
+        return Err(UpdaterError::UnsafeArchivePath(
+            "Archiwum jest puste (brak jakichkolwiek wpisów)".into(),
+        ));
+    }
+
+    if !has_marker {
+        return Err(UpdaterError::InstallationDetection(format!(
+            "Brak wymaganego markera {LINUX_PORTABLE_MARKER_FILENAME} w archiwum Linux Portable"
+        )));
+    }
+
+    Ok(LinuxArchiveInspection {
+        entry_count,
+        total_declared_size,
+        root_directory: canonical_root.to_string(),
+        has_marker: true,
+        entries: entries_list,
+    })
+}
+
+/// Faza 2: Kontrolowana bezpieczna ekstrakcja pakietu Linux Portable tar.gz (Two-phase safe extraction) (M3-F).
+///
+/// 1. Wykonuje Fazę 1 (preflight read-only). Jeśli inspekcja zgłosi błąd, NIC nie jest zapisywane na dysku.
+/// 2. Zapewnia czysty staging (usuwa ewentualne stare pozostałości, tworzy nowy pusty katalog).
+/// 3. Rozpakowuje wpisy, kontrolując rzeczywisty streaming rozmiarów na bieżąco.
+/// 4. W razie JAKIEGOKOLWIEK błędu w trakcie ekstrakcji natychmiast usuwa cały staging (fail-closed).
+/// 5. Sanityzuje uprawnienia UNIX:
+///    - 0755 dla katalogów i plików wykonywalnych (binaria, skrypty .sh, wpisy z bitem exec)
+///    - 0644 dla zwykłych plików
+///    - Zero uprawnień 0777 lub 0666
+///    - Zero bitów setuid, setgid, sticky
+pub fn extract_linux_portable_tar_gz_two_phase(
+    tar_gz_path: &Path,
+    staging_dir: &Path,
+    limits: &ArchiveLimits,
+) -> Result<LinuxArchiveInspection, UpdaterError> {
+    use std::fs;
+    use std::io::Read;
+
+    // Faza 1: Preflight wyłącznie read-only.
+    // Żaden plik na dysku nie jest tworzony przed pełnym pozytywnym przejściem Fazy 1.
+    let inspection = preflight_linux_portable_tar_gz(tar_gz_path, limits)?;
+
+    // Przygotowanie czystego stagingu
+    if staging_dir.exists() {
+        let _ = fs::remove_dir_all(staging_dir);
+    }
+    fs::create_dir_all(staging_dir).map_err(|e| {
+        UpdaterError::Io(format!(
+            "Błąd tworzenia czystego katalogu staging {}: {e}",
+            staging_dir.display()
+        ))
+    })?;
+
+    // Wewnętrzna procedura ekstrakcji z gwarancją fail-closed sprzątania w razie błędu
+    let result = (|| -> Result<(), UpdaterError> {
+        let file = fs::File::open(tar_gz_path).map_err(|e| {
+            UpdaterError::Io(format!(
+                "Nie można otworzyć archiwum do ekstrakcji {}: {e}",
+                tar_gz_path.display()
+            ))
+        })?;
+
+        let gz = flate2::read::GzDecoder::new(file);
+        let mut archive = tar::Archive::new(gz);
+
+        let mut total_unpacked_size: u64 = 0;
+
+        let entries = archive
+            .entries()
+            .map_err(|e| UpdaterError::Io(format!("Błąd odczytu strumienia archiwum: {e}")))?;
+
+        for entry in entries {
+            let mut entry = entry.map_err(|e| {
+                UpdaterError::Io(format!("Błąd odczytu wpisu podczas ekstrakcji: {e}"))
+            })?;
+
+            let entry_type = entry.header().entry_type();
+            let raw_path = entry.path().map_err(|e| {
+                UpdaterError::UnsafeArchivePath(format!("Nieprawidłowa ścieżka wpisu: {e}"))
+            })?;
+
+            let rel_path = validate_archive_relative_path(&raw_path)?;
+            let dest_path = staging_dir.join(&rel_path);
+
+            if !dest_path.starts_with(staging_dir) {
+                return Err(UpdaterError::UnsafeArchivePath(format!(
+                    "Ścieżka wychodzi poza katalog staging: {}",
+                    dest_path.display()
+                )));
+            }
+
+            // Weryfikacja, czy żaden katalog nadrzędny w stagingu nie jest symlinkiem
+            let mut current_ancestor = dest_path.parent();
+            while let Some(ancestor) = current_ancestor {
+                if ancestor == staging_dir {
+                    break;
+                }
+                if ancestor.is_symlink() {
+                    return Err(UpdaterError::UnsafeArchivePath(format!(
+                        "Katalog nadrzędny {} jest symlinkiem",
+                        ancestor.display()
+                    )));
+                }
+                current_ancestor = ancestor.parent();
+            }
+
+            if entry_type == tar::EntryType::Directory {
+                if dest_path.is_file() {
+                    return Err(UpdaterError::ArchiveLimitExceeded(format!(
+                        "Kolizja plik/katalog dla ścieżki: {}",
+                        dest_path.display()
+                    )));
+                }
+                fs::create_dir_all(&dest_path).map_err(|e| {
+                    UpdaterError::Io(format!(
+                        "Błąd tworzenia katalogu {}: {e}",
+                        dest_path.display()
+                    ))
+                })?;
+
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let _ = fs::set_permissions(&dest_path, fs::Permissions::from_mode(0o755));
+                }
+                continue;
+            }
+
+            if dest_path.is_dir() {
+                return Err(UpdaterError::ArchiveLimitExceeded(format!(
+                    "Kolizja katalog/plik dla ścieżki: {}",
+                    dest_path.display()
+                )));
+            }
+
+            if let Some(p) = dest_path.parent() {
+                fs::create_dir_all(p).map_err(|e| {
+                    UpdaterError::Io(format!(
+                        "Błąd tworzenia katalogu nadrzędnego {}: {e}",
+                        p.display()
+                    ))
+                })?;
+            }
+
+            let mut out_file = fs::File::create(&dest_path).map_err(|e| {
+                UpdaterError::Io(format!(
+                    "Błąd tworzenia pliku docelowego {}: {e}",
+                    dest_path.display()
+                ))
+            })?;
+
+            let mut file_size: u64 = 0;
+            let mut buffer = vec![0u8; 64 * 1024];
+            loop {
+                use std::io::Write as _;
+                let read_bytes = entry.read(&mut buffer).map_err(|e| {
+                    UpdaterError::Io(format!(
+                        "Błąd dekompresji wpisu {}: {e}",
+                        rel_path.display()
+                    ))
+                })?;
+                if read_bytes == 0 {
+                    break;
+                }
+                file_size += read_bytes as u64;
+                total_unpacked_size += read_bytes as u64;
+
+                if file_size > limits.max_single_size {
+                    return Err(UpdaterError::ArchiveLimitExceeded(format!(
+                        "Rozmiar pliku {} przekroczył limit {}",
+                        rel_path.display(),
+                        limits.max_single_size
+                    )));
+                }
+                if total_unpacked_size > limits.max_total_size {
+                    return Err(UpdaterError::ArchiveLimitExceeded(format!(
+                        "Łączny rozmiar danych archiwum przekroczył limit {}",
+                        limits.max_total_size
+                    )));
+                }
+
+                out_file.write_all(&buffer[..read_bytes]).map_err(|e| {
+                    UpdaterError::Io(format!("Błąd zapisu pliku {}: {e}", dest_path.display()))
+                })?;
+            }
+
+            // Sanityzacja uprawnień (permissions sanitization)
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let file_name = dest_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                let is_executable_binary = file_name == "SPLogbook"
+                    || file_name == "splogbook-updater"
+                    || file_name.ends_with(".sh");
+                let raw_mode = entry.header().mode().unwrap_or(0o644);
+                let safe_mode = if is_executable_binary || (raw_mode & 0o111) != 0 {
+                    0o755
+                } else {
+                    0o644
+                };
+                let _ = fs::set_permissions(&dest_path, fs::Permissions::from_mode(safe_mode));
+            }
+        }
+
+        Ok(())
+    })();
+
+    if let Err(e) = result {
+        // FAIL-CLOSED: usuwamy cały staging, aby żadne częściowo rozpakowane pliki nie pozostały na dysku
+        let _ = fs::remove_dir_all(staging_dir);
+        return Err(e);
+    }
+
+    Ok(inspection)
 }
 
 /// Weryfikuje strukturę archiwum ZIP w systemie plików (nagłówki EOCD, Central Directory oraz Local File Headers)
