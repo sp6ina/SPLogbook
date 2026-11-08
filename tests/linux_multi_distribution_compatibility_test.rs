@@ -37,8 +37,8 @@ const MANDATORY_DISTRO_PROFILES: [DistroProfile; 7] = [
         name: "Ubuntu stable",
         profile_kind: "ubuntu-stable",
         version: "26.10",
-        default_kernel_major_minor: (6, 17),
-        default_glibc_version: "2.42",
+        default_kernel_major_minor: (7, 3),
+        default_glibc_version: "2.44",
         init_system: "systemd",
         package_manager: "apt",
     },
@@ -46,15 +46,15 @@ const MANDATORY_DISTRO_PROFILES: [DistroProfile; 7] = [
         name: "Ubuntu LTS",
         profile_kind: "ubuntu-lts",
         version: "26.04 LTS",
-        default_kernel_major_minor: (6, 14),
-        default_glibc_version: "2.41",
+        default_kernel_major_minor: (7, 0),
+        default_glibc_version: "2.43",
         init_system: "systemd",
         package_manager: "apt",
     },
     DistroProfile {
         name: "Debian stable",
         profile_kind: "debian-stable",
-        version: "13.2 (Trixie)",
+        version: "13.7 (Trixie)",
         default_kernel_major_minor: (6, 12),
         default_glibc_version: "2.40",
         init_system: "systemd",
@@ -63,9 +63,9 @@ const MANDATORY_DISTRO_PROFILES: [DistroProfile; 7] = [
     DistroProfile {
         name: "Fedora Final",
         profile_kind: "fedora-final",
-        version: "44",
+        version: "45",
         default_kernel_major_minor: (6, 18),
-        default_glibc_version: "2.43",
+        default_glibc_version: "2.44",
         init_system: "systemd",
         package_manager: "dnf",
     },
@@ -74,14 +74,14 @@ const MANDATORY_DISTRO_PROFILES: [DistroProfile; 7] = [
         profile_kind: "arch-rolling",
         version: "snapshot-2026.11.01",
         default_kernel_major_minor: (6, 18),
-        default_glibc_version: "2.43",
+        default_glibc_version: "2.44",
         init_system: "systemd",
         package_manager: "pacman",
     },
     DistroProfile {
         name: "openSUSE Leap",
         profile_kind: "opensuse-leap",
-        version: "16.0",
+        version: "16.1",
         default_kernel_major_minor: (6, 12),
         default_glibc_version: "2.40",
         init_system: "systemd",
@@ -92,7 +92,7 @@ const MANDATORY_DISTRO_PROFILES: [DistroProfile; 7] = [
         profile_kind: "opensuse-tumbleweed",
         version: "snapshot-20261103",
         default_kernel_major_minor: (6, 18),
-        default_glibc_version: "2.43",
+        default_glibc_version: "2.44",
         init_system: "systemd",
         package_manager: "zypper",
     },
@@ -151,7 +151,7 @@ fn test_mandatory_multi_distribution_matrix_completeness_and_dynamic_floor() {
     assert_eq!(
         floor,
         (6, 12),
-        "Dynamiczny próg kernela wyznaczony z minimum macierzy musi wynosić Linux 6.12 (Debian 13 oraz openSUSE Leap 16.0)"
+        "Dynamiczny próg kernela wyznaczony z minimum macierzy musi wynosić Linux 6.12 (Debian 13.7 oraz openSUSE Leap 16.1)"
     );
 
     // 3. Weryfikacja każdego profilu
