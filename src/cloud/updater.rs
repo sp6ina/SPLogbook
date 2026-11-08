@@ -447,6 +447,7 @@ pub enum ReleasePackageType {
     Zip,
     TarGz,
     InnoExe,
+    Msi,
 }
 
 impl ReleasePackageType {
@@ -455,6 +456,7 @@ impl ReleasePackageType {
             "zip" => Ok(Self::Zip),
             "tar.gz" => Ok(Self::TarGz),
             "inno-exe" | "windows-inno-exe" | "exe" => Ok(Self::InnoExe),
+            "msi" | "windows-msi" => Ok(Self::Msi),
             other => Err(UpdaterError::SafetyGate(format!(
                 "Nieobsługiwany typ paczki w manifeście: {other}"
             ))),
@@ -474,6 +476,7 @@ impl ReleasePackageType {
     ) -> Self {
         match (platform, inst_type) {
             (ReleasePlatform::Windows, InstallationType::WindowsInnoSetup) => Self::InnoExe,
+            (ReleasePlatform::Windows, InstallationType::WindowsMsi) => Self::Msi,
             (ReleasePlatform::Windows, _) => Self::Zip,
             (ReleasePlatform::Linux | ReleasePlatform::MacOs, _) => Self::TarGz,
         }
@@ -484,6 +487,7 @@ impl ReleasePackageType {
             Self::Zip => "zip",
             Self::TarGz => "tar.gz",
             Self::InnoExe => "inno-exe",
+            Self::Msi => "msi",
         }
     }
 }
@@ -728,6 +732,7 @@ impl VerifiedReleaseManifest {
             ReleasePackageType::Zip => ".zip",
             ReleasePackageType::TarGz => ".tar.gz",
             ReleasePackageType::InnoExe => ".exe",
+            ReleasePackageType::Msi => ".msi",
         };
         if !filename.to_ascii_lowercase().ends_with(expected_ext) {
             return Err(UpdaterError::SafetyGate(format!(
@@ -876,6 +881,7 @@ impl VerifiedReleaseManifest {
             ReleasePackageType::Zip => ".zip",
             ReleasePackageType::TarGz => ".tar.gz",
             ReleasePackageType::InnoExe => ".exe",
+            ReleasePackageType::Msi => ".msi",
         };
         if !filename.to_ascii_lowercase().ends_with(expected_ext) {
             return Err(UpdaterError::SafetyGate(format!(
@@ -3486,6 +3492,187 @@ pub fn delegate_inno_setup_update(
     })
 }
 
+/// Zmapowane kody wyjścia Windows Installer (msiexec.exe)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MsiexecExitStatus {
+    Success,                        // 0
+    SuccessRebootRequired,          // 3010
+    RebootInitiated,                // 1641 (niedopuszczalne w /norestart)
+    UserCancelled,                  // 1602
+    FatalInstallError,              // 1603
+    AnotherInstallationInProgress,  // 1618
+    PackageCouldNotBeOpened,        // 1619
+    PackageInvalid,                 // 1620
+    AnotherVersionAlreadyInstalled, // 1638
+    Unknown(i32),
+}
+
+impl MsiexecExitStatus {
+    pub fn from_code(code: i32) -> Self {
+        match code {
+            0 => Self::Success,
+            3010 => Self::SuccessRebootRequired,
+            1641 => Self::RebootInitiated,
+            1602 => Self::UserCancelled,
+            1603 => Self::FatalInstallError,
+            1618 => Self::AnotherInstallationInProgress,
+            1619 => Self::PackageCouldNotBeOpened,
+            1620 => Self::PackageInvalid,
+            1638 => Self::AnotherVersionAlreadyInstalled,
+            other => Self::Unknown(other),
+        }
+    }
+
+    pub fn is_success(&self) -> bool {
+        matches!(self, Self::Success | Self::SuccessRebootRequired)
+    }
+}
+
+/// Zwraca ustrukturyzowane argumenty wiersza poleceń dla instalatora MSI w trybie zarządzanym.
+pub fn build_msi_install_arguments(msi_path: &Path, log_path: &Path) -> Vec<String> {
+    vec![
+        "/i".to_string(),
+        msi_path.to_string_lossy().to_string(),
+        "/qn".to_string(),
+        "/norestart".to_string(),
+        "/L*v".to_string(),
+        log_path.to_string_lossy().to_string(),
+    ]
+}
+
+/// Zwraca ustrukturyzowane argumenty wiersza poleceń dla naprawy MSI (Repair).
+pub fn build_msi_repair_arguments(msi_path: &Path, log_path: &Path) -> Vec<String> {
+    vec![
+        "/fa".to_string(),
+        msi_path.to_string_lossy().to_string(),
+        "/qn".to_string(),
+        "/norestart".to_string(),
+        "/L*v".to_string(),
+        log_path.to_string_lossy().to_string(),
+    ]
+}
+
+/// Zwraca ustrukturyzowane argumenty wiersza poleceń dla deinstalacji MSI (Uninstall).
+pub fn build_msi_uninstall_arguments(target: &str, log_path: &Path) -> Vec<String> {
+    vec![
+        "/x".to_string(),
+        target.to_string(),
+        "/qn".to_string(),
+        "/norestart".to_string(),
+        "/L*v".to_string(),
+        log_path.to_string_lossy().to_string(),
+    ]
+}
+
+/// Bezpośrednie uruchomienie msiexec.exe bez powłoki shell.
+pub fn execute_msi_installer(
+    msi_path: &Path,
+    log_path: &Path,
+) -> Result<MsiexecExitStatus, UpdaterError> {
+    if !msi_path.exists() {
+        return Err(UpdaterError::InstallFailed(format!(
+            "Plik instalatora MSI nie istnieje: {}",
+            msi_path.display()
+        )));
+    }
+
+    let args = build_msi_install_arguments(msi_path, log_path);
+    let mut cmd = std::process::Command::new("msiexec.exe");
+    cmd.args(&args);
+
+    let status = cmd
+        .status()
+        .map_err(|e| UpdaterError::InstallFailed(format!("Błąd uruchomienia msiexec: {e}")))?;
+
+    let exit_code = status.code().unwrap_or(-1);
+    let mapped = MsiexecExitStatus::from_code(exit_code);
+
+    match mapped {
+        MsiexecExitStatus::Success | MsiexecExitStatus::SuccessRebootRequired => Ok(mapped),
+        MsiexecExitStatus::RebootInitiated => Err(UpdaterError::InstallFailed(
+            "msiexec zainicjował restart systemu wbrew fladze /norestart (kod 1641)".to_string(),
+        )),
+        MsiexecExitStatus::UserCancelled => Err(UpdaterError::InstallFailed(
+            "Instalacja MSI została anulowana przez użytkownika (kod 1602)".to_string(),
+        )),
+        MsiexecExitStatus::FatalInstallError => Err(UpdaterError::InstallFailed(
+            "Błąd krytyczny instalacji Windows Installer (kod 1603)".to_string(),
+        )),
+        MsiexecExitStatus::AnotherInstallationInProgress => Err(UpdaterError::InstallFailed(
+            "Inna instalacja Windows Installer jest w toku (kod 1618)".to_string(),
+        )),
+        MsiexecExitStatus::PackageCouldNotBeOpened => Err(UpdaterError::InstallFailed(
+            "Pakiet MSI nie mógł zostać otwarty (kod 1619)".to_string(),
+        )),
+        MsiexecExitStatus::PackageInvalid => Err(UpdaterError::InstallFailed(
+            "Niepoprawny pakiet instalatora MSI (kod 1620)".to_string(),
+        )),
+        MsiexecExitStatus::AnotherVersionAlreadyInstalled => Err(UpdaterError::InstallFailed(
+            "Nowsza wersja produktu jest już zainstalowana (downgrade zablokowany, kod 1638)"
+                .to_string(),
+        )),
+        MsiexecExitStatus::Unknown(code) => Err(UpdaterError::InstallFailed(format!(
+            "Nieznany kod wyjścia msiexec: {code}"
+        ))),
+    }
+}
+
+/// Zarządzana delegacja aktualizacji do instalatora Windows Installer MSI.
+pub fn delegate_msi_update(
+    msi_path: &Path,
+    log_path: &Path,
+    expected_version: &str,
+    expected_commit: &str,
+    target_dir: &Path,
+) -> Result<DelegationResult, UpdaterError> {
+    if !msi_path.is_file() {
+        return Err(UpdaterError::InstallFailed(format!(
+            "Ścieżka pakietu MSI nie wskazuje na poprawny plik: {}",
+            msi_path.display()
+        )));
+    }
+
+    let ext = msi_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    if !ext.eq_ignore_ascii_case("msi") {
+        return Err(UpdaterError::SafetyGate(format!(
+            "Instalator MSI musi mieć rozszerzenie .msi, otrzymano: {ext}"
+        )));
+    }
+
+    // Uruchomienie msiexec
+    let status = execute_msi_installer(msi_path, log_path)?;
+
+    // Weryfikacja tożsamości po instalacji (BuildIdentity / marker)
+    let marker_path =
+        target_dir.join(crate::cloud::updater::installation::WINDOWS_MSI_MARKER_FILENAME);
+    if marker_path.exists() {
+        let marker =
+            crate::cloud::updater::installation::WindowsMsiMarker::read_from_dir(target_dir)?;
+        if marker.package_version != expected_version {
+            return Err(UpdaterError::InstallFailed(format!(
+                "Zainstalowana wersja MSI '{}' nie zgadza się z oczekiwaną wersją docelową '{}'",
+                marker.package_version, expected_version
+            )));
+        }
+        if marker.build_commit != expected_commit {
+            return Err(UpdaterError::InstallFailed(format!(
+                "Zainstalowany commit MSI '{}' nie zgadza się z oczekiwanym commitem '{}'",
+                marker.build_commit, expected_commit
+            )));
+        }
+    }
+
+    Ok(DelegationResult {
+        manager_name: "windows-msi".to_string(),
+        command_summary: format!(
+            "msiexec.exe /i {} /qn /norestart /L*v {}",
+            msi_path.display(),
+            log_path.display()
+        ),
+        requires_restart: matches!(status, MsiexecExitStatus::SuccessRebootRequired),
+    })
+}
+
 pub async fn install_update(asset: &VerifiedReleaseAsset) -> Result<(), UpdaterError> {
     let current = std::env::current_exe()
         .map_err(|e| UpdaterError::ExePath(format!("Nie można ustalić ścieżki programu: {e}")))?;
@@ -3556,9 +3743,59 @@ pub async fn install_update(asset: &VerifiedReleaseAsset) -> Result<(), UpdaterE
         }
 
         if inst_type == InstallationType::WindowsMsi {
-            return Err(UpdaterError::ManagedInstallerConflict(
-                "Wykryto instalację WindowsMsi. Aktualizacje zarządzane są zewnętrznie przez instalator MSI i nie mogą być nadpisywane przez User Setup ani Portable ZIP.".to_string(),
-            ));
+            if asset.platform() != ReleasePlatform::Windows
+                || asset.arch() != ReleaseArchitecture::X86_64
+                || asset.package_type() != ReleasePackageType::Msi
+                || !asset.filename().to_ascii_lowercase().ends_with(".msi")
+            {
+                return Err(UpdaterError::SafetyGate(
+                    "Niewłaściwy typ paczki dla WindowsMsi (wymagany zweryfikowany instalator windows-msi .msi)"
+                        .to_string(),
+                ));
+            }
+
+            let attempt_id = UpdateAttemptId::generate();
+            let tmp_installer =
+                std::env::temp_dir().join(format!("SPLogbook_Setup_{attempt_id}.msi"));
+            let log_path = std::env::temp_dir().join(format!("SPLogbook_MSI_{attempt_id}.log"));
+
+            let dl_res = download_verified_asset(asset, &tmp_installer).await;
+            if let Err(e) = dl_res {
+                let _ = tokio::fs::remove_file(&tmp_installer).await;
+                return Err(e);
+            }
+
+            let data = match tokio::fs::read(&tmp_installer).await {
+                Ok(d) => d,
+                Err(e) => {
+                    let _ = tokio::fs::remove_file(&tmp_installer).await;
+                    return Err(UpdaterError::Io(format!(
+                        "Błąd odczytu pobranego pakietu MSI: {e}"
+                    )));
+                }
+            };
+
+            if asset.declared_size() > 0 && data.len() as u64 != asset.declared_size() {
+                let _ = tokio::fs::remove_file(&tmp_installer).await;
+                return Err(UpdaterError::SizeMismatch);
+            }
+
+            if !verify_sha256(&data, asset.declared_sha256()) {
+                let _ = tokio::fs::remove_file(&tmp_installer).await;
+                return Err(UpdaterError::HashMismatch);
+            }
+
+            let del_res = delegate_msi_update(
+                &tmp_installer,
+                &log_path,
+                asset.bound_manifest_version(),
+                asset.bound_commit(),
+                parent,
+            );
+
+            let _ = tokio::fs::remove_file(&tmp_installer).await;
+            del_res.map(|_| ())?;
+            return Ok(());
         }
 
         if inst_type != InstallationType::WindowsPortableZip {
@@ -8636,5 +8873,92 @@ mod tests {
         let updated_tx: UpdateTransaction =
             serde_json::from_slice(&std::fs::read(&tx_file).unwrap()).unwrap();
         assert_eq!(updated_tx.current_state, UpdateStateId::Committed);
+    }
+
+    #[test]
+    fn msi_arguments_are_structured_and_safe() {
+        let msi = Path::new("C:\\test\\pkg.msi");
+        let log = Path::new("C:\\test\\install.log");
+
+        let install_args = build_msi_install_arguments(msi, log);
+        assert_eq!(install_args[0], "/i");
+        assert_eq!(install_args[1], msi.to_string_lossy());
+        assert_eq!(install_args[2], "/qn");
+        assert_eq!(install_args[3], "/norestart");
+        assert_eq!(install_args[4], "/L*v");
+        assert_eq!(install_args[5], log.to_string_lossy());
+
+        let repair_args = build_msi_repair_arguments(msi, log);
+        assert_eq!(repair_args[0], "/fa");
+        assert_eq!(repair_args[1], msi.to_string_lossy());
+
+        let uninstall_args =
+            build_msi_uninstall_arguments("{B7D14532-6A10-4F8A-9A4B-3DE189E502B0}", log);
+        assert_eq!(uninstall_args[0], "/x");
+        assert_eq!(uninstall_args[1], "{B7D14532-6A10-4F8A-9A4B-3DE189E502B0}");
+    }
+
+    #[test]
+    fn msiexec_exit_code_mapping_matrix() {
+        assert_eq!(MsiexecExitStatus::from_code(0), MsiexecExitStatus::Success);
+        assert_eq!(
+            MsiexecExitStatus::from_code(3010),
+            MsiexecExitStatus::SuccessRebootRequired
+        );
+        assert_eq!(
+            MsiexecExitStatus::from_code(1641),
+            MsiexecExitStatus::RebootInitiated
+        );
+        assert_eq!(
+            MsiexecExitStatus::from_code(1602),
+            MsiexecExitStatus::UserCancelled
+        );
+        assert_eq!(
+            MsiexecExitStatus::from_code(1603),
+            MsiexecExitStatus::FatalInstallError
+        );
+        assert_eq!(
+            MsiexecExitStatus::from_code(1618),
+            MsiexecExitStatus::AnotherInstallationInProgress
+        );
+        assert_eq!(
+            MsiexecExitStatus::from_code(1619),
+            MsiexecExitStatus::PackageCouldNotBeOpened
+        );
+        assert_eq!(
+            MsiexecExitStatus::from_code(1620),
+            MsiexecExitStatus::PackageInvalid
+        );
+        assert_eq!(
+            MsiexecExitStatus::from_code(1638),
+            MsiexecExitStatus::AnotherVersionAlreadyInstalled
+        );
+        assert_eq!(
+            MsiexecExitStatus::from_code(9999),
+            MsiexecExitStatus::Unknown(9999)
+        );
+        assert!(MsiexecExitStatus::from_code(0).is_success());
+        assert!(MsiexecExitStatus::from_code(3010).is_success());
+        assert!(!MsiexecExitStatus::from_code(1603).is_success());
+    }
+
+    #[test]
+    fn release_package_type_msi_roundtrip() {
+        assert_eq!(
+            ReleasePackageType::parse("msi").unwrap(),
+            ReleasePackageType::Msi
+        );
+        assert_eq!(
+            ReleasePackageType::parse("windows-msi").unwrap(),
+            ReleasePackageType::Msi
+        );
+        assert_eq!(ReleasePackageType::Msi.as_str(), "msi");
+        assert_eq!(
+            ReleasePackageType::expected_for_installation(
+                ReleasePlatform::Windows,
+                InstallationType::WindowsMsi
+            ),
+            ReleasePackageType::Msi
+        );
     }
 }
