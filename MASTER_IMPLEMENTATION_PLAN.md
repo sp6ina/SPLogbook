@@ -297,11 +297,11 @@ Utworzenie, uzgodnienie i zweryfikowanie trzech kompletnych dokumentĂłw projek
 - **M3-DEV-VERSION-IDENTITY STATUS:** **COMPLETED_SOFTWARE_VERIFIED** (Eliminacja niejednoznaczności wersji, wprowadzenie wersji rozwojowej 1.3.0-alpha.1, centralnego BuildIdentity, wczesnych flag CLI --version/--build-info/--diagnostic-version, weryfikacji tożsamości HealthProof oraz ewaluacji kanałów i SemVer 2.0 zamknieta w STAGE-M3-DEV-VERSION-IDENTITY-GATE)
 - **M3-D PREREQUISITES STATUS:** **COMPLETED_SOFTWARE_VERIFIED** (I18N i terminologia: COMPLETED_SOFTWARE_VERIFIED; Środowisko Inno Setup: INNO_SETUP_7_1_1_APPROVED_FOR_M3_D na mocy decyzji OWNER-M3-D-TOOLCHAIN-01 — raport STAGE_M3_D_PREREQUISITES_REMEDIATION_REPORT.md)
 - **M3-D STATUS:** **COMPLETED_SOFTWARE_VERIFIED** (Integracja Windows User Setup / Inno Setup 7.1.1, obsługa modelu SystemManaged, ochrona danych użytkownika, brak uprawnień administratora, zamknięta w STAGE-M3-D-WINDOWS-USER-SETUP-INTEGRATION-GATE)
-- **M3-E STATUS:** **READY_FOR_IMPLEMENTATION** (Integracja Windows System Setup / MSI)
+- **M3-E STATUS:** **COMPLETED_SOFTWARE_VERIFIED** (Integracja Windows System Setup / MSI / WiX Toolset 7.0.1, model SystemManaged, per-machine, UpgradeCode {B7D14532-6A10-4F8A-9A4B-3DE189E502B0}, ochrona danych użytkownika, msiexec delegation, zamknięta w STAGE-M3-E-WINDOWS-MSI-WIX-INTEGRATION-GATE)
 - **Dalsze etapy M3 (instalatory Windows i pakiety Linux):**
   - M3-D: Integracja Windows User Setup / Inno Setup (COMPLETED_SOFTWARE_VERIFIED)
-  - M3-E: Integracja Windows System Setup / MSI (READY_FOR_IMPLEMENTATION)
-  - M3-F: Integracja Linux Portable tar.gz
+  - M3-E: Integracja Windows System Setup / MSI (COMPLETED_SOFTWARE_VERIFIED)
+  - M3-F: Integracja Linux Portable tar.gz (READY_FOR_IMPLEMENTATION)
   - M3-G: Integracja Linux AppImage
   - M3-H: Integracja Linux DEB
   - M3-I: Integracja Linux RPM
@@ -330,6 +330,12 @@ Utworzenie, uzgodnienie i zweryfikowanie trzech kompletnych dokumentĂłw projek
 - **Status wykonawczy:** **COMPLETED_SOFTWARE_VERIFIED**
 - **Zaleznosci:** OWNER-M3-D-TOOLCHAIN-01 (APPROVED), UPDATE-DESIGN-WIN (APPROVED), UPDATE-DESIGN-PLATFORM (APPROVED), UPDATE-CORE-PLATFORM (COMPLETED_SOFTWARE_VERIFIED)
 - **Zakres:** Integracja instalatora Windows User Setup per-user opartego o Inno Setup 7.1.1 (`C:\Program Files\Inno Setup 7\ISCC.exe`), AppId `{C8E28541-7B21-4A9B-8F5C-4EF298F613C1}`, instalacja do `{localappdata}\Programs\SPLogbook`, `PrivilegesRequired=lowest` (CurrentUser, no admin, no UAC), `SetupArchitecture=x64`, `ArchitecturesAllowed=x64compatible`, `ArchitecturesInstallIn64BitMode=x64compatible`. Wdrożono bezpieczny model SystemManaged, delegację aktualizacji z flagą `/NORESTART` bez powłoki shell, markery instalacyjne `.splogbook-inno-marker`, bezwzględną ochronę baz danych SQLite, plików WAL, SHM, konfiguracji i nieznanych plików użytkownika (polityki `uninsneveruninstall`, `onlyifdoesntexist`, `dirifempty`, zakaz wildcardów i DelTree({app})). Zamknięty w STAGE-M3-D-WINDOWS-USER-SETUP-INTEGRATION-GATE (108 security guards passed, 14 inno update tests passed, 7 user data safety tests passed).
+
+#### UPDATE-WIN-SYSTEM-SETUP (M3-E) — Integracja Windows System Setup (WiX Toolset 7.0.1 / MSI)
+- **Tor:** UPDATE
+- **Status wykonawczy:** **COMPLETED_SOFTWARE_VERIFIED**
+- **Zaleznosci:** OWNER-M3-E-TOOLCHAIN-01 (APPROVED), UPDATE-DESIGN-WIN (APPROVED), UPDATE-DESIGN-PLATFORM (APPROVED), UPDATE-CORE-PLATFORM (COMPLETED_SOFTWARE_VERIFIED)
+- **Zakres:** Integracja instalatora Windows System Setup per-machine opartego o WiX Toolset SDK 7.0.1 (`installer/windows/msi/SPLogbook.wixproj`), stały UpgradeCode `{B7D14532-6A10-4F8A-9A4B-3DE189E502B0}` (packed `0B205E981ED3B4A9A9B4A9E189E502B0`), instalacja do `ProgramFiles64Folder\SPLogbook`, `Scope="perMachine"` (kontrolowane podniesienie uprawnień przez Windows Installer UAC), architektura x64 (`Bitness="always64"`). Wdrożono bezpieczny model SystemManaged, delegację aktualizacji, naprawy i deinstalacji przez `msiexec.exe` z logowaniem i flagą `/norestart` bez powłoki shell, markery instalacyjne `.splogbook-msi-marker`, bezwzględną ochronę baz danych SQLite, plików WAL, SHM, konfiguracji i nieznanych plików użytkownika (polityki `NeverOverwrite="yes"`, brak wildcardów i RemoveFolderEx). Wzajemne wykrywanie konfliktów z Inno Setup i Portable ZIP. Zamknięty w STAGE-M3-E-WINDOWS-MSI-WIX-INTEGRATION-GATE (118 security guards passed, 18 windows msi tests passed, 6 user data safety tests passed).
 
 #### UPDATE-LINUX-PACKAGES (Dalsze etapy M3: M3-F..M3-J) — Pakiety Linux (AppImage, DEB, RPM, Flatpak, tar.gz)
 - **Tor:** UPDATE
