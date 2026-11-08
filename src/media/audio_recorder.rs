@@ -157,26 +157,22 @@ impl AudioRecorder {
 
         #[cfg(not(target_os = "windows"))]
         {
-            if let Ok(mut guard) = LINUX_REC_CHILD.lock() {
-                if let Some(mut child) = guard.take() {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                }
+            if let Some(mut child) = LINUX_REC_CHILD.lock().ok().and_then(|mut g| g.take()) {
+                let _ = child.kill();
+                let _ = child.wait();
             }
             IS_RECORDING.store(false, Ordering::SeqCst);
-            if let Ok(mut guard) = LINUX_TEMP_FILE.lock() {
-                if let Some(temp) = guard.take() {
-                    if temp.exists() {
-                        std::fs::copy(&temp, output_path).map_err(|e| {
-                            AudioRecorderError::Io(format!("Błąd zapisu pliku WAV: {e}"))
-                        })?;
-                        let _ = std::fs::remove_file(temp);
-                    }
+            if let Some(temp) = LINUX_TEMP_FILE.lock().ok().and_then(|mut g| g.take()) {
+                if temp.exists() {
+                    std::fs::copy(&temp, output_path).map_err(|e| {
+                        AudioRecorderError::Io(format!("Błąd zapisu pliku WAV: {e}"))
+                    })?;
+                    let _ = std::fs::remove_file(temp);
                 }
             }
             info!(
-                "Pomyślnie zapisano nagranie łączności do: {:?}",
-                output_path
+                "Pomyślnie zapisano nagranie łączności do: {}",
+                output_path.display()
             );
             Ok(output_path.to_path_buf())
         }
@@ -229,11 +225,9 @@ impl AudioRecorder {
 
         #[cfg(not(target_os = "windows"))]
         {
-            if let Ok(mut guard) = LINUX_PLAY_CHILD.lock() {
-                if let Some(mut child) = guard.take() {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                }
+            if let Some(mut child) = LINUX_PLAY_CHILD.lock().ok().and_then(|mut g| g.take()) {
+                let _ = child.kill();
+                let _ = child.wait();
             }
         }
 
@@ -255,17 +249,13 @@ impl AudioRecorder {
 
         #[cfg(not(target_os = "windows"))]
         {
-            if let Ok(mut guard) = LINUX_REC_CHILD.lock() {
-                if let Some(mut child) = guard.take() {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                }
+            if let Some(mut child) = LINUX_REC_CHILD.lock().ok().and_then(|mut g| g.take()) {
+                let _ = child.kill();
+                let _ = child.wait();
             }
-            if let Ok(mut guard) = LINUX_TEMP_FILE.lock() {
-                if let Some(temp) = guard.take() {
-                    if temp.exists() {
-                        let _ = std::fs::remove_file(temp);
-                    }
+            if let Some(temp) = LINUX_TEMP_FILE.lock().ok().and_then(|mut g| g.take()) {
+                if temp.exists() {
+                    let _ = std::fs::remove_file(temp);
                 }
             }
         }
