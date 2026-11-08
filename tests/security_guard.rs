@@ -3893,6 +3893,24 @@ fn m3_git_repository_tag_v1_2_0_is_intact_and_no_automated_publishing_scripts_ex
         );
     }
 
+    // 1b. Verify that annotated tag object v1.2.0 has SHA 3ea8d51aab436805107a1cf422e0b35cc301458f
+    let git_tag_obj_check = Command::new("git")
+        .current_dir(repo_root)
+        .args(["rev-parse", "refs/tags/v1.2.0"])
+        .output();
+
+    if let Ok(output) = git_tag_obj_check {
+        assert!(
+            output.status.success(),
+            "git rev-parse refs/tags/v1.2.0 failed"
+        );
+        let tag_obj = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        assert_eq!(
+            tag_obj, "3ea8d51aab436805107a1cf422e0b35cc301458f",
+            "Tag v1.2.0 object SHA must be 3ea8d51aab436805107a1cf422e0b35cc301458f"
+        );
+    }
+
     // 2. Verify no tags matching 1.3.0 have been created or published
     let git_list_tags = Command::new("git")
         .current_dir(repo_root)

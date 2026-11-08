@@ -46,7 +46,8 @@ Bramka M3-E wdrożyła produkcyjny instalator Windows System Setup MSI dla SPLog
 
 ### Stan gałęzi i tagów Git
 - **Baseline początkowy:** `954fca396b2986abe783f5cc8b0d1aca1bf19be1`
-- **Tag v1.2.0:** `6f7d3aaa3b6a54e87b481c142a5b690bcf8b5592` (nienaruszony, zweryfikowany)
+- **Tag v1.2.0 (obiekt taga):** `3ea8d51aab436805107a1cf422e0b35cc301458f` (anotowany tag, identyczny lokalnie i zdalnie)
+- **Tag v1.2.0 (peeled commit):** `6f7d3aaa3b6a54e87b481c142a5b690bcf8b5592` (wskazywany commit wydania, identyczny lokalnie i zdalnie, nienaruszony)
 - **Wersja rozwojowa:** `1.3.0-alpha.1` (wersja nie była modyfikowana; brak wydań alpha.2)
 - **Status wydań publicznych:** `NOT PUBLISHED` (brak nowych tagów, brak release GitHub, brak publikacji crates.io)
 - **Historia Git:** Ściśle liniowa, fast-forward only, brak commitów merge, brak rebase, brak force push.
@@ -235,4 +236,30 @@ Wszystkie commity zostały zsynchronizowane z gałęzią `main` i `origin/main` 
 - **BRAMKA STAGE-M3-E:** `COMPLETED_SOFTWARE_VERIFIED`
 - **STATUS CAŁOŚCIOWY M3:** `IN_PROGRESS` (ukończone podetapy: M3-A, M3-B, M3-C, M3-DEV-VERSION-IDENTITY, M3-D, M3-E)
 - **KOLEJNA BRAMKA:** `STAGE-M3-F-LINUX-PORTABLE-TAR-GZ-INTEGRATION-GATE` (`READY_FOR_IMPLEMENTATION`)
-- **UWAGA KOŃCOWA:** Zgodnie z Zasadą 79, etap M3 jako całość pozostaje oznaczony jako `IN_PROGRESS` do czasu ukończenia integracji pakietów systemu Linux (M3-F .. M3-J).
+---
+
+## 11. Errata i spójność powdrożeniowa (STAGE-M3-E-CLOSURE-CONSISTENCY-GATE)
+
+W ramach audytu spójności zamykającego etap M3-E zarejestrowano następujące uściślenia faktograficzne:
+
+1. **Precyzja tożsamości taga v1.2.0 (Git Object vs Peeled Commit):**
+   - Wcześniejsze sekcje raportu używały skrótowo określenia `Tag v1.2.0: 6f7d3aaa...`.
+   - Kanoniczny audyt Git potwierdził, że `3ea8d51aab436805107a1cf422e0b35cc301458f` to SHA obiektu anotowanego taga (`refs/tags/v1.2.0`), a `6f7d3aaa3b6a54e87b481c142a5b690bcf8b5592` to SHA wskazywanego przez ten tag commita wydania (`refs/tags/v1.2.0^{}`). Obie wartości są w 100% autentyczne, spójne lokalnie i zdalnie na `origin`, a tag nigdy nie został przesunięty.
+
+2. **Kanoniczny bilans testów całego workspace:**
+   - Sekcja 9 raportu wyszczególniła targety dedykowane dla etapu MSI (`security_guard`: 118, `windows_msi_test`: 18, `msi_user_data_safety_test`: 6), które zawierały `0 ignored`.
+   - Pełny przebieg całej przestrzeni roboczej (`cargo +stable test --workspace --all-targets -j 2`) wykazuje:
+     - **TOTAL REGISTERED TESTS:** 2663 (w tym 10 ignored)
+     - **TOTAL EXECUTED TESTS:** 2653
+     - **TOTAL PASSED TESTS:** 2653
+     - **TOTAL FAILED TESTS:** 0
+     - **TOTAL IGNORED TESTS:** 10
+     - **HIL REGISTERED:** 10
+     - **HIL EXECUTED:** 0
+     - **NON-HIL IGNORED:** 0
+     - **PHYSICAL HIL / PTT / RF:** NOT EXECUTED / 0 EMISSION
+   - Wszystkie 10 zignorowanych testów to hermetyczne testy sprzętowe HIL w `tests/cat_native_7.rs` oznaczone `#[ignore = "hardware-in-the-loop"]`. Żaden test HIL nie został usunięty ani wykonany.
+
+3. **Status wersjonowania przyszłych pakietów MSI prerelease:**
+   - Bieżący pakiet `1.3.0-alpha.1` MSI jest poprawny i bezpiecznie zastępuje stabilne `1.2.0`.
+   - Ze względu na brak obsługi prerelease w MSI ProductVersion oraz domyślne `AllowSameVersionUpgrades="no"`, kolejne pakiety prerelease (`alpha.2`, `beta.1`, `rc.1`) wymagają deterministycznej polityki wersjonowania przed wdrożeniem (szczegóły: `STAGE_M3_E_MSI_PRERELEASE_VERSIONING_DECISION_PROPOSAL.md`).
