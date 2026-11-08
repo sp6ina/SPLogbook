@@ -106,6 +106,42 @@ elif [[ -f "${REPO_ROOT}/LICENSE.txt" ]]; then
     cp -p "${REPO_ROOT}/LICENSE.txt" "${ARCHIVE_PAYLOAD_DIR}/LICENSE"
 fi
 
+# Dołączenie bibliotek Hamlib 4.7.2 jeśli dostępne w środowisku
+HAMLIB_DIST="${HAMLIB_DIST:-/tmp/hamlib-dist}"
+if [[ -d "${HAMLIB_DIST}" ]]; then
+    echo "Dołączanie Hamlib z ${HAMLIB_DIST}..."
+    if compgen -G "${HAMLIB_DIST}/lib/*.so*" > /dev/null 2>&1; then
+        cp -a "${HAMLIB_DIST}/lib/"*.so* "${ARCHIVE_PAYLOAD_DIR}/lib/"
+    fi
+    if [[ -f "${HAMLIB_DIST}/bin/rigctld" ]]; then
+        cp -a "${HAMLIB_DIST}/bin/rigctld" "${ARCHIVE_PAYLOAD_DIR}/"
+        chmod +x "${ARCHIVE_PAYLOAD_DIR}/rigctld"
+    fi
+    if [[ -f "${HAMLIB_DIST}/bin/rotctld" ]]; then
+        cp -a "${HAMLIB_DIST}/bin/rotctld" "${ARCHIVE_PAYLOAD_DIR}/"
+        chmod +x "${ARCHIVE_PAYLOAD_DIR}/rotctld"
+    fi
+    if [[ -f "${HAMLIB_DIST}/LICENSE" ]]; then
+        cp -p "${HAMLIB_DIST}/LICENSE" "${ARCHIVE_PAYLOAD_DIR}/THIRD_PARTY_LICENSES/HAMLIB_LICENSE.txt"
+    elif [[ -f "${HAMLIB_DIST}/COPYING" ]]; then
+        cp -p "${HAMLIB_DIST}/COPYING" "${ARCHIVE_PAYLOAD_DIR}/THIRD_PARTY_LICENSES/HAMLIB_LICENSE.txt"
+    elif [[ -f "${HAMLIB_DIST}/COPYING.LIB" ]]; then
+        cp -p "${HAMLIB_DIST}/COPYING.LIB" "${ARCHIVE_PAYLOAD_DIR}/THIRD_PARTY_LICENSES/HAMLIB_LICENSE.txt"
+    fi
+fi
+
+if command -v patchelf >/dev/null 2>&1; then
+    echo "Konfiguracja bezpiecznego RUNPATH..."
+    patchelf --set-rpath '$ORIGIN/lib:$ORIGIN/../lib' "${ARCHIVE_PAYLOAD_DIR}/SPLogbook" 2>/dev/null || true
+    patchelf --set-rpath '$ORIGIN/lib:$ORIGIN/../lib' "${ARCHIVE_PAYLOAD_DIR}/splogbook-updater" 2>/dev/null || true
+    if [[ -f "${ARCHIVE_PAYLOAD_DIR}/rigctld" ]]; then
+        patchelf --set-rpath '$ORIGIN/lib:$ORIGIN/../lib' "${ARCHIVE_PAYLOAD_DIR}/rigctld" 2>/dev/null || true
+    fi
+    if [[ -f "${ARCHIVE_PAYLOAD_DIR}/rotctld" ]]; then
+        patchelf --set-rpath '$ORIGIN/lib:$ORIGIN/../lib' "${ARCHIVE_PAYLOAD_DIR}/rotctld" 2>/dev/null || true
+    fi
+fi
+
 cat << 'EOF' > "${ARCHIVE_PAYLOAD_DIR}/README.txt"
 SPLogbook Linux Portable (tar.gz)
 Wersja: 1.3.0-alpha.1
@@ -170,6 +206,8 @@ chmod 0755 "${ARCHIVE_PAYLOAD_DIR}/splogbook-updater"
 chmod 0644 "${ARCHIVE_PAYLOAD_DIR}/README.txt"
 chmod 0644 "${ARCHIVE_PAYLOAD_DIR}/LICENSE" 2>/dev/null || true
 chmod 0644 "${ARCHIVE_PAYLOAD_DIR}/.splogbook-linux-portable-marker"
+chmod 0755 "${ARCHIVE_PAYLOAD_DIR}/lib"/*.so* 2>/dev/null || true
+chmod 0644 "${ARCHIVE_PAYLOAD_DIR}/THIRD_PARTY_LICENSES"/* 2>/dev/null || true
 if [[ -f "${ARCHIVE_PAYLOAD_DIR}/assets/splogbook.desktop" ]]; then
     chmod 0644 "${ARCHIVE_PAYLOAD_DIR}/assets/splogbook.desktop"
 fi
