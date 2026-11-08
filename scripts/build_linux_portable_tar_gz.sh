@@ -18,6 +18,7 @@ echo "=================================================================="
 
 OUTPUT_DIR="${1:-${REPO_ROOT}/dist}"
 mkdir -p "${OUTPUT_DIR}"
+OUTPUT_DIR="$(cd "${OUTPUT_DIR}" && pwd)"
 
 # 1. Kontrola bezpieczeństwa uprawnień (brak root/sudo)
 if [[ "${EUID}" -eq 0 ]]; then
