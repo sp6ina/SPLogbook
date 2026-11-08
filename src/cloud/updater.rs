@@ -457,7 +457,7 @@ impl ReleasePackageType {
     pub fn parse(s: &str) -> Result<Self, UpdaterError> {
         match s.trim().to_ascii_lowercase().as_str() {
             "zip" => Ok(Self::Zip),
-            "tar.gz" => Ok(Self::TarGz),
+            "tar.gz" | "linux-portable-tar-gz" => Ok(Self::TarGz),
             "inno-exe" | "windows-inno-exe" | "exe" => Ok(Self::InnoExe),
             "msi" | "windows-msi" => Ok(Self::Msi),
             other => Err(UpdaterError::SafetyGate(format!(
@@ -1099,6 +1099,9 @@ pub fn classify_update_path(rel_path: &Path) -> UpdateFileClass {
     // 5. Pliki programu - jedyne uprawnione do nadpisania istniejących plików
     if file_name == "splogbook.exe"
         || file_name == "splogbook"
+        || file_name == "splogbook-updater"
+        || file_name == "splogbook-updater.exe"
+        || file_name == LINUX_PORTABLE_MARKER_FILENAME
         || ext_str == Some("dll")
         || ext_str == Some("so")
         || ext_str == Some("dylib")
@@ -4326,7 +4329,7 @@ pub async fn install_update(asset: &VerifiedReleaseAsset) -> Result<(), UpdaterE
     }
     #[cfg(not(target_os = "windows"))]
     {
-        self_replace(&current, &tmp_path)
+        self_replace(&current, &tmp_path, asset, attempt_id, &mut tx, lock_guard)
     }
 }
 
@@ -4367,12 +4370,26 @@ fn self_replace(
 
 /// Podmienia działający plik wykonywalny nową wersją (systemy Unix).
 #[cfg(not(target_os = "windows"))]
-fn self_replace(current: &Path, new: &Path) -> Result<(), UpdaterError> {
-    install_via_tar_gz(current, new)
+fn self_replace(
+    current: &Path,
+    new: &Path,
+    asset: &VerifiedReleaseAsset,
+    attempt_id: UpdateAttemptId,
+    tx: &mut UpdateTransaction,
+    lock_guard: UpdateLockGuard,
+) -> Result<(), UpdaterError> {
+    install_via_linux_portable_tar_gz(current, new, asset, attempt_id, tx, lock_guard)
 }
 
 #[cfg(not(target_os = "windows"))]
-fn install_via_tar_gz(current: &Path, new: &Path) -> Result<(), UpdaterError> {
+fn install_via_linux_portable_tar_gz(
+    current: &Path,
+    new: &Path,
+    _asset: &VerifiedReleaseAsset,
+    attempt_id: UpdateAttemptId,
+    tx: &mut UpdateTransaction,
+    _lock_guard: UpdateLockGuard,
+) -> Result<(), UpdaterError> {
     use std::fs;
 
     let base_dir = current.parent().ok_or_else(|| {
@@ -4388,9 +4405,9 @@ fn install_via_tar_gz(current: &Path, new: &Path) -> Result<(), UpdaterError> {
 
     let staging_dir = base_dir.join(".staging");
     let rollback_dir = base_dir.join(".rollback");
-    let health_ok = base_dir.join(".health_ok");
+    let health_ok = base_dir.join(crate::cloud::updater::health::HEALTH_PROOF_FILENAME);
 
-    // Czyszczenie starego staging/rollback
+    // Czyszczenie starego staging/rollback/health_ok
     let _ = fs::remove_dir_all(&staging_dir);
     let _ = fs::remove_dir_all(&rollback_dir);
     let _ = fs::remove_file(&health_ok);
@@ -4401,15 +4418,34 @@ fn install_via_tar_gz(current: &Path, new: &Path) -> Result<(), UpdaterError> {
         UpdaterError::Io(format!("Nie można utworzyć katalogu kopii zapasowej: {e}"))
     })?;
 
-    // 2. Ekstrakcja poza strefą działania z pełną ochroną (extract_tar_gz_safe) i spłaszczaniem pojedynczego katalogu
+    // Przejście stanu automatu do Applying z trwałym zapisem transakcji
+    tx.transition_to(crate::cloud::updater::state::UpdateStateId::Applying)?;
+    tx.staging_path = staging_dir.clone();
+    tx.rollback_path = Some(rollback_dir.clone());
+    tx.health_proof_path = Some(health_ok.clone());
+    let _ = tx.save_to_dir(base_dir);
+
+    // 2. Ekstrakcja poza strefą działania z pełną dwufazową ochroną (extract_linux_portable_tar_gz_two_phase)
     let limits = ArchiveLimits::default();
-    extract_tar_gz_safe(new, &staging_dir, &limits)?;
+    extract_linux_portable_tar_gz_two_phase(new, &staging_dir, &limits)?;
     let _ = flatten_single_root_directory(&staging_dir)?;
-    validate_staging_layout(&staging_dir, "splogbook")?;
+
+    let current_exe_name = current
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("SPLogbook");
+    let expected_exe = if staging_dir.join(current_exe_name).exists() {
+        current_exe_name
+    } else if staging_dir.join("SPLogbook").exists() {
+        "SPLogbook"
+    } else {
+        "splogbook"
+    };
+    validate_staging_layout(&staging_dir, expected_exe)?;
 
     // Generujemy plan aktualizacji z bezwzględną ochroną danych
     let plan = UpdatePlan::generate(&staging_dir, base_dir)?;
-    plan.validate_safety("splogbook")?;
+    plan.validate_safety(expected_exe)?;
 
     // 3. Kopia Zapasowa (Rollback) - wyłącznie dla plików podmienianych z replace_files
     for (rel, orig) in &plan.replace_files {
@@ -4426,7 +4462,7 @@ fn install_via_tar_gz(current: &Path, new: &Path) -> Result<(), UpdaterError> {
         })?;
     }
 
-    // 4. Atomowa podmiana - Rename Swap dla replace_files oraz create_files
+    // 4. JOURNALED_TRANSACTIONAL_REPLACEMENT - bezpieczna podmiana plików z zatwierdzonego planu
     for (rel, orig) in &plan.replace_files {
         let src = staging_dir.join(rel);
         if let Some(p) = orig.parent() {
@@ -4451,39 +4487,98 @@ fn install_via_tar_gz(current: &Path, new: &Path) -> Result<(), UpdaterError> {
         }
     }
 
-    // 5. Health Confirmation & Ping
+    // 5. LaunchingCandidate & AwaitingHealth
+    let _ = tx.transition_to(crate::cloud::updater::state::UpdateStateId::LaunchingCandidate);
+    let _ = tx.save_to_dir(base_dir);
+
     let mut child = std::process::Command::new(current)
         .arg("--check-health-startup")
+        .arg("--update-attempt-id")
+        .arg(attempt_id.to_string())
+        .arg("--health-proof-path")
+        .arg(&health_ok)
+        .arg("--expected-version")
+        .arg(&tx.release_version)
+        .arg("--expected-commit")
+        .arg(tx.commit_identity.as_deref().unwrap_or(""))
         .spawn()
         .map_err(|e| {
             UpdaterError::Io(format!(
-                "Nie można uruchomić zaktualizowanego programu: {}",
-                e
+                "Nie można uruchomić kandydata zaktualizowanego programu: {e}"
             ))
         })?;
 
+    let _ = tx.transition_to(crate::cloud::updater::state::UpdateStateId::AwaitingHealth);
+    let _ = tx.save_to_dir(base_dir);
+
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
-    let mut success = false;
+    let mut verified_health = false;
 
     while std::time::Instant::now() < deadline {
         if health_ok.exists() {
-            success = true;
-            break;
+            if let Ok(content) = fs::read_to_string(&health_ok) {
+                if let Ok(proof) =
+                    serde_json::from_str::<crate::cloud::updater::health::HealthProof>(&content)
+                {
+                    if proof
+                        .validate(
+                            &attempt_id,
+                            &tx.release_version,
+                            tx.commit_identity.as_deref().unwrap_or(""),
+                            crate::cloud::updater::health::DEFAULT_HEALTH_PROOF_MAX_AGE_SECS,
+                        )
+                        .is_ok()
+                    {
+                        verified_health = true;
+                        break;
+                    }
+                }
+            }
         }
         if let Ok(Some(_)) = child.try_wait() {
+            if health_ok.exists() {
+                if let Ok(content) = fs::read_to_string(&health_ok) {
+                    if let Ok(proof) =
+                        serde_json::from_str::<crate::cloud::updater::health::HealthProof>(&content)
+                    {
+                        if proof
+                            .validate(
+                                &attempt_id,
+                                &tx.release_version,
+                                tx.commit_identity.as_deref().unwrap_or(""),
+                                crate::cloud::updater::health::DEFAULT_HEALTH_PROOF_MAX_AGE_SECS,
+                            )
+                            .is_ok()
+                        {
+                            verified_health = true;
+                        }
+                    }
+                }
+            }
             break;
         }
         std::thread::sleep(std::time::Duration::from_millis(250));
     }
 
-    if success {
+    if verified_health {
+        let _ = tx.transition_to(crate::cloud::updater::state::UpdateStateId::Committed);
+        let _ = tx.save_to_dir(base_dir);
+
         let _ = fs::remove_dir_all(&staging_dir);
         let _ = fs::remove_dir_all(&rollback_dir);
         let _ = fs::remove_file(&health_ok);
-        std::process::exit(0); // Pomyślnie. Zakończ stary proces.
+
+        let _ = tx.transition_to(crate::cloud::updater::state::UpdateStateId::Completed);
+        let _ = tx.save_to_dir(base_dir);
+
+        std::process::exit(0);
     } else {
         // Rollback!
         let _ = child.kill();
+        let _ = tx.transition_to(crate::cloud::updater::state::UpdateStateId::FailedPostApply);
+        let _ = tx.transition_to(crate::cloud::updater::state::UpdateStateId::Rollback);
+        let _ = tx.save_to_dir(base_dir);
+
         // Usuń nowo utworzone pliki
         for (_rel, orig) in &plan.create_files {
             let _ = fs::remove_file(orig);
@@ -4493,7 +4588,11 @@ fn install_via_tar_gz(current: &Path, new: &Path) -> Result<(), UpdaterError> {
             let bkp = rollback_dir.join(rel);
             let _ = fs::copy(&bkp, orig);
         }
-        let _ = std::process::Command::new(current).spawn(); // Odpal starą
+
+        let _ = tx.transition_to(crate::cloud::updater::state::UpdateStateId::RollbackVerified);
+        let _ = tx.save_to_dir(base_dir);
+
+        let _ = std::process::Command::new(current).spawn();
         return Err(UpdaterError::HealthCheckFailed);
     }
 }

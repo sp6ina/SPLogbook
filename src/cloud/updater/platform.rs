@@ -321,6 +321,44 @@ mod tests {
     }
 
     #[test]
+    fn fake_adapter_linux_portable_self_managed_flow() {
+        let adapter = FakePlatformAdapter::new(InstallationType::LinuxPortableTarGz);
+        assert!(adapter.capabilities().supports_self_apply);
+        assert!(adapter.capabilities().supports_sp_logbook_rollback);
+        assert!(!adapter.capabilities().supports_native_rollback);
+        assert!(adapter.capabilities().supports_health_confirmation);
+        assert!(!adapter.capabilities().requires_delegation);
+        assert_eq!(adapter.management_mode(), ManagementMode::SelfManaged);
+
+        let temp = tempfile::tempdir().unwrap();
+        let plan = UpdatePlan {
+            replace_files: vec![(
+                std::path::PathBuf::from("SPLogbook"),
+                temp.path().join("SPLogbook"),
+            )],
+            create_files: Vec::new(),
+            preserve_files: Vec::new(),
+            rejected_files: Vec::new(),
+        };
+
+        let attempt = UpdateAttemptId::generate();
+        adapter
+            .apply_self_managed(temp.path(), temp.path(), &plan, &attempt)
+            .expect("Pomyślne apply_self_managed dla Linux Portable");
+        assert_eq!(
+            adapter
+                .recorded_apply_calls
+                .load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+
+        let health_ok = adapter
+            .wait_for_health(temp.path(), &attempt, Duration::from_secs(1))
+            .expect("Pomyślne health check");
+        assert!(health_ok);
+    }
+
+    #[test]
     fn fake_adapter_system_managed_flow() {
         let adapter = FakePlatformAdapter::new(InstallationType::WindowsMsi);
         assert!(!adapter.capabilities().supports_self_apply);
