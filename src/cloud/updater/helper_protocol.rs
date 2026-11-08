@@ -986,9 +986,23 @@ pub fn validate_and_normalize_relative_path(path: &Path) -> Result<String, Updat
     Ok(normalized_parts.join("/"))
 }
 
+/// Sprawdza, czy ścieżka jest bezwzględną ścieżką z literą dysku Windows (np. C:\ lub C:/) na dowolnej platformie.
+fn is_windows_drive_absolute(path: &Path) -> bool {
+    let s = path.to_string_lossy();
+    if s.len() >= 3 {
+        let mut chars = s.chars();
+        let first = chars.next().unwrap_or('\0');
+        let second = chars.next().unwrap_or('\0');
+        let third = chars.next().unwrap_or('\0');
+        first.is_ascii_alphabetic() && second == ':' && (third == '\\' || third == '/')
+    } else {
+        false
+    }
+}
+
 /// Sprawdza, czy ścieżka installation root jest poprawna i bezpieczna.
 fn validate_root_path(root: &Path) -> Result<(), UpdaterError> {
-    if !root.is_absolute() {
+    if !root.is_absolute() && !is_windows_drive_absolute(root) {
         return Err(UpdaterError::SafetyGate(format!(
             "Installation root musi być ścieżką bezwzględną: {}",
             root.display()
@@ -1015,7 +1029,7 @@ fn validate_root_path(root: &Path) -> Result<(), UpdaterError> {
 
 /// Weryfikuje, czy `target` znajduje się ściśle wewnątrz `root`.
 fn ensure_path_inside_root(root: &Path, target: &Path) -> Result<(), UpdaterError> {
-    if !target.is_absolute() {
+    if !target.is_absolute() && !is_windows_drive_absolute(target) {
         return Err(UpdaterError::SafetyGate(format!(
             "Ścieżka docelowa musi być bezwzględna: {}",
             target.display()
@@ -1023,7 +1037,8 @@ fn ensure_path_inside_root(root: &Path, target: &Path) -> Result<(), UpdaterErro
     }
 
     // Sprawdzamy brak komponentów nadrzędnych
-    for c in target.components() {
+    let norm_target_slash = target.to_string_lossy().replace('\\', "/");
+    for c in Path::new(&norm_target_slash).components() {
         if matches!(c, Component::ParentDir) {
             return Err(UpdaterError::SafetyGate(format!(
                 "Ścieżka docelowa zawiera komponent nadrzędny '..': {}",
