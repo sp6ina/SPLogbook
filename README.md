@@ -29,7 +29,8 @@
 > - **CURRENT PUBLIC STABLE:** `1.2.0` (immutable historical tag `v1.2.0`)
 > - **CURRENT DEVELOPMENT:** `1.3.0-alpha.1` (active development branch, unreleased)
 > - **PUBLIC RELEASE STATUS:** `NOT PUBLISHED`
-> - **STAGE M3-D STATUS:** `STAGE-M3-D-WINDOWS-USER-SETUP-INTEGRATION-GATE: READY_FOR_IMPLEMENTATION, NOT STARTED`
+> - **STAGE M3-D STATUS:** `STAGE-M3-D-WINDOWS-USER-SETUP-INTEGRATION-GATE: COMPLETED_SOFTWARE_VERIFIED`
+> - **STAGE M3-E STATUS:** `STAGE-M3-E-WINDOWS-MSI-INTEGRATION-GATE: READY_FOR_IMPLEMENTATION`
 
 **SPLogbook** is an advanced, high-performance amateur radio logging software and station automation console engineered from the ground up in **Rust**. Built with an immediate-mode user interface powered by `egui`/`eframe`, SPLogbook delivers instant sub-millisecond responsiveness, zero-garbage-collection pauses, complete memory safety, and cross-platform native performance across both **Windows 10/11 (64-bit)** and **GNU/Linux (x86_64, X11 & Wayland)** environments.
 
@@ -540,6 +541,13 @@ curl -X GET "http://127.0.0.1:8420/api/v1/lookup/DL1ABC?band=20m&mode=CW" \
 Pre-compiled release packages are available directly from the [Releases](https://github.com/sp6ina/SPLogbook/releases) page:
 
 ### 🪟 Windows (x64)
+
+#### Option A: Windows User Setup (Recommended)
+1. Download **`SPLogbook-Windows-x64-Setup-*.exe`** from the latest release.
+2. Run the installer. It installs per-user into `%LOCALAPPDATA%\Programs\SPLogbook` without requiring administrator privileges or UAC elevation.
+3. Fully preserves user databases (`default_log.db`, `serviceLOG.db`), WAL journals, configuration, and notes during updates and uninstallation. Updates are handled seamlessly in `SystemManaged` mode.
+
+#### Option B: Portable ZIP
 1. Download **`SPLogbook-Windows-x64.zip`** from the latest release.
 2. Extract the archive to any desired directory (e.g. `C:\Radio\SPLogbook\`).
 3. Double-click **`SPLogbook.exe`** to launch.
