@@ -266,19 +266,21 @@ impl UploadScheduler {
 
     /// Ścieżka pliku kolejki offline (APPDATA/SPLogbook na Windows, XDG_DATA_HOME lub ~/.local/share/splogbook na innych systemach).
     pub fn queue_path() -> PathBuf {
-        if let Ok(appdata) = std::env::var("APPDATA")
-            && !appdata.is_empty()
+        #[cfg(windows)]
         {
-            return PathBuf::from(appdata)
-                .join("SPLogbook")
-                .join("upload_queue.json");
+            if let Ok(appdata) = std::env::var("APPDATA")
+                && !appdata.is_empty()
+            {
+                return PathBuf::from(appdata)
+                    .join("SPLogbook")
+                    .join("upload_queue.json");
+            }
         }
-        if let Ok(xdg) = std::env::var("XDG_DATA_HOME")
-            && !xdg.is_empty()
+        #[cfg(not(windows))]
         {
-            return PathBuf::from(xdg)
-                .join("splogbook")
-                .join("upload_queue.json");
+            if let Ok(xdg) = crate::core::xdg::XdgPaths::resolve() {
+                return xdg.data_home.join("upload_queue.json");
+            }
         }
         if let Ok(home) = std::env::var("HOME")
             && !home.is_empty()

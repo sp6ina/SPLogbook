@@ -165,16 +165,37 @@ fn main() -> Result<(), eframe::Error> {
 
     #[cfg(not(windows))]
     let (app_data_dir, app_config_dir) = {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        let data = std::env::var("XDG_DATA_HOME")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|_| std::path::PathBuf::from(&home).join(".local").join("share"))
-            .join("splogbook");
-        let config = std::env::var("XDG_CONFIG_HOME")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|_| std::path::PathBuf::from(&home).join(".config"))
-            .join("splogbook");
-        (data, config)
+        let xdg = splogbook::core::xdg::XdgPaths::resolve().unwrap_or_else(|_| {
+            let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+            splogbook::core::xdg::XdgPaths {
+                config_home: std::path::PathBuf::from(&home)
+                    .join(".config")
+                    .join("splogbook"),
+                data_home: std::path::PathBuf::from(&home)
+                    .join(".local")
+                    .join("share")
+                    .join("splogbook"),
+                state_home: std::path::PathBuf::from(&home)
+                    .join(".local")
+                    .join("state")
+                    .join("splogbook"),
+                cache_home: std::path::PathBuf::from(&home)
+                    .join(".cache")
+                    .join("splogbook"),
+            }
+        });
+
+        // Wykrywanie danych legacy w katalogu portable (informacja dla użytkownika, bez cichej migracji)
+        let legacy = splogbook::core::xdg::detect_legacy_portable_user_data(&exe_dir);
+        if !legacy.is_empty() {
+            eprintln!(
+                "INFO [M3-F]: Wykryto {} plików danych użytkownika w katalogu portable ({}). Dane są chronione i nie podlegają modyfikacji.",
+                legacy.len(),
+                exe_dir.display()
+            );
+        }
+
+        (xdg.data_home, xdg.config_home)
     };
 
     // Kolejność ma znaczenie: najpierw ścieżki absolutne (obok pliku wykonywalnego
