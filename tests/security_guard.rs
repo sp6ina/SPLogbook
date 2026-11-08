@@ -4918,3 +4918,118 @@ fn m3_e_stability_20_iterations_msi_lifecycle_guard() {
         assert_eq!(fs::read_to_string(&unknown_file).unwrap(), unknown_content);
     }
 }
+
+#[test]
+fn m3_f_owner_decisions_and_support_policy_guard() {
+    let decisions_doc = fs::read_to_string("STAGE_M3_F_OWNER_DECISIONS_PROPOSAL.md")
+        .expect("read STAGE_M3_F_OWNER_DECISIONS_PROPOSAL.md");
+
+    // Wszystkie 11 formalnych decyzji M3-F
+    assert!(decisions_doc.contains("OWNER-M3-F-LINUX-BASELINE-01"));
+    assert!(decisions_doc.contains("OWNER-M3-F-KERNEL-POLICY-01"));
+    assert!(decisions_doc.contains("OWNER-M3-F-ARCHITECTURE-01"));
+    assert!(decisions_doc.contains("OWNER-M3-F-LIBRARY-POLICY-01"));
+    assert!(decisions_doc.contains("OWNER-M3-F-DYNAMIC-LIBRARIES-01"));
+    assert!(decisions_doc.contains("OWNER-M3-F-PORTABLE-LAYOUT-01"));
+    assert!(decisions_doc.contains("OWNER-M3-F-UPDATE-MODE-01"));
+    assert!(decisions_doc.contains("OWNER-M3-F-ARCHIVE-EXTRACTION-01"));
+    assert!(decisions_doc.contains("OWNER-M3-F-XDG-DATA-01"));
+    assert!(decisions_doc.contains("OWNER-M3-F-SIGNING-01"));
+    assert!(decisions_doc.contains("OWNER-M3-F-DESKTOP-INTEGRATION-01"));
+
+    // Status decyzji
+    assert!(decisions_doc.contains("M3-F OWNER DECISIONS: COMPLETED_DESIGN_VERIFIED"));
+    assert!(decisions_doc.contains("M3-F IMPLEMENTATION: READY_FOR_RESUME"));
+
+    // Kluczowe zasady
+    assert!(decisions_doc.contains("DYNAMIC DISTRIBUTION-DERIVED KERNEL COMPATIBILITY FLOOR"));
+    assert!(decisions_doc.contains("Common Compatibility Intersection"));
+    assert!(decisions_doc.contains("Journaled Transactional Replacement"));
+    assert!(decisions_doc.contains("Not Power-Loss Atomic"));
+    assert!(decisions_doc.contains("Crash Recoverable by Journal"));
+
+    // Weryfikacja Linux Support Snapshot JSON
+    let snapshot_content = fs::read_to_string("LINUX_SUPPORT_SNAPSHOT_1.3.0-alpha.1.json")
+        .expect("read LINUX_SUPPORT_SNAPSHOT_1.3.0-alpha.1.json");
+    let json: serde_json::Value =
+        serde_json::from_str(&snapshot_content).expect("parse snapshot JSON");
+
+    assert_eq!(
+        json["snapshot_schema"],
+        "splogbook-linux-support-snapshot-v1"
+    );
+    assert_eq!(json["product_version"], "1.3.0-alpha.1");
+    assert_eq!(json["architecture"], "x86_64");
+    assert_eq!(json["rust_target"], "x86_64-unknown-linux-gnu");
+    assert_eq!(json["resolved_minimum_kernel"], "6.12");
+
+    let profiles = json["profiles"]
+        .as_array()
+        .expect("profiles must be an array");
+    let expected_ids = [
+        "ubuntu-stable",
+        "ubuntu-lts",
+        "debian-stable",
+        "fedora-final",
+        "arch-rolling",
+        "opensuse-leap",
+        "opensuse-tumbleweed",
+    ];
+    for expected_id in expected_ids {
+        assert!(
+            profiles.iter().any(|p| p["distribution_id"] == expected_id),
+            "Brak profilu {expected_id} w Linux Support Snapshot"
+        );
+    }
+
+    // Walidacja profilu Arch
+    let arch_profile = profiles
+        .iter()
+        .find(|p| p["distribution_id"] == "arch-rolling")
+        .expect("arch-rolling profile");
+    assert_eq!(arch_profile["release_model"], "rolling");
+    assert_eq!(arch_profile["official_repositories_only"], true);
+    assert_eq!(arch_profile["aur_used"], false);
+    assert_eq!(arch_profile["testing_repositories_used"], false);
+
+    // Walidacja profilu Tumbleweed
+    let tw_profile = profiles
+        .iter()
+        .find(|p| p["distribution_id"] == "opensuse-tumbleweed")
+        .expect("opensuse-tumbleweed profile");
+    assert_eq!(tw_profile["release_model"], "rolling");
+    assert_eq!(tw_profile["official_repositories_only"], true);
+    assert_eq!(tw_profile["factory_used"], false);
+    assert_eq!(tw_profile["development_repositories_used"], false);
+
+    // Walidacja profilu Leap
+    let leap_profile = profiles
+        .iter()
+        .find(|p| p["distribution_id"] == "opensuse-leap")
+        .expect("opensuse-leap profile");
+    assert_eq!(leap_profile["release_model"], "classic");
+    assert_eq!(leap_profile["release_status"], "final-supported");
+
+    // Brak śledzenia archiwów tar.gz w git
+    let output = Command::new("git")
+        .args(["ls-files", "*.tar.gz"])
+        .output()
+        .expect("git ls-files");
+    let tracked_tar_gz = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        tracked_tar_gz.trim().is_empty(),
+        "W repozytorium git nie może być śledzone żadne archiwum .tar.gz: {tracked_tar_gz}"
+    );
+
+    // Nienaruszalność taga v1.2.0 i zakaz przedwczesnego tagu v1.3.0
+    let tag_output = Command::new("git")
+        .args(["tag", "-l"])
+        .output()
+        .expect("git tag -l");
+    let tags = String::from_utf8_lossy(&tag_output.stdout);
+    assert!(tags.contains("v1.2.0"), "Tag v1.2.0 musi istnieć");
+    assert!(
+        !tags.contains("v1.3.0"),
+        "Nie wolno tworzyć tagu v1.3.0 przed formalnym zatwierdzeniem wydania"
+    );
+}
