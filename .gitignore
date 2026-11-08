@@ -76,3 +76,9 @@ UPDATE_ARTIFACT_INVENTORY_REPORT.md
 /dist/
 installer/windows/inno/Output/
 *-Setup-*.exe
+
+*.msi
+*.wixpdb
+*.wixobj
+installer/windows/msi/bin/
+installer/windows/msi/obj/

@@ -1,0 +1,17 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Fragment>
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="SPLogbook">
+        <Directory Id="AssetsFolder" Name="assets" />
+        <Directory Id="LocalesFolder" Name="locales">
+          <Directory Id="ManualFolder" Name="manual" />
+        </Directory>
+        <Directory Id="DatabasesFolder" Name="databases" />
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationProgramsFolder" Name="SPLogbook" />
+    </StandardDirectory>
+  </Fragment>
+</Wix>
