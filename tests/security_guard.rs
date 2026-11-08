@@ -2029,7 +2029,8 @@ fn linux_updater_uses_validated_update_plan_guard() {
         "install_via_tar_gz na Linuksie musi wywoływać UpdatePlan::generate"
     );
     assert!(
-        updater_source.contains("plan.validate_safety(\"splogbook\")?;"),
+        updater_source.contains("plan.validate_safety(\"splogbook\")?;")
+            || updater_source.contains("plan.validate_safety(expected_exe)?;"),
         "install_via_tar_gz na Linuksie musi wywoływać plan.validate_safety"
     );
     assert!(
@@ -5032,4 +5033,32 @@ fn m3_f_owner_decisions_and_support_policy_guard() {
         !tags.contains("v1.3.0"),
         "Nie wolno tworzyć tagu v1.3.0 przed formalnym zatwierdzeniem wydania"
     );
+
+    // Walidacja skryptu budowania archiwum Linux portable
+    let build_script = fs::read_to_string("scripts/build_linux_portable_tar_gz.sh")
+        .expect("scripts/build_linux_portable_tar_gz.sh");
+    assert!(
+        build_script.contains("set -euo pipefail"),
+        "Skrypt budowania musi używać bezpiecznych flag basha set -euo pipefail"
+    );
+    assert!(
+        build_script.contains("--owner=0 --group=0 --numeric-owner"),
+        "Skrypt budowania musi normalizować właściciela tar do root:root"
+    );
+    assert!(
+        !build_script.contains("sudo "),
+        "Skrypt budowania nie może zawierać sudo"
+    );
+    assert!(
+        !build_script.contains("pkexec "),
+        "Skrypt budowania nie może zawierać pkexec"
+    );
+
+    // Weryfikacja szablonu .desktop
+    let desktop_content =
+        fs::read_to_string("installer/linux/portable/templates/splogbook.desktop")
+            .expect("installer/linux/portable/templates/splogbook.desktop");
+    assert!(desktop_content.contains("Type=Application"));
+    assert!(desktop_content.contains("Categories=HamRadio;Utility;"));
+    assert!(desktop_content.contains("Terminal=false"));
 }
