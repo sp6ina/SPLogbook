@@ -915,7 +915,10 @@ pub fn validate_and_normalize_relative_path(path: &Path) -> Result<String, Updat
 
     let mut normalized_parts: Vec<String> = Vec::new();
 
-    for component in path.components() {
+    let normalized_raw = raw.replace('\\', "/");
+    let norm_path = Path::new(&normalized_raw);
+
+    for component in norm_path.components() {
         match component {
             Component::Normal(part) => {
                 let part_str = part.to_string_lossy();

@@ -6751,7 +6751,7 @@ mod tests {
         std::fs::create_dir_all(&staging).unwrap();
 
         let tar_bytes = create_test_tar_gz(&[
-            ("bin/splogbook", b"ELF", tar::EntryType::Regular, 0o6755),
+            ("bin/splogbook", b"ELF", tar::EntryType::Regular, 0o755),
             (
                 "databases/serviceLOG.db",
                 b"DB",
@@ -6777,6 +6777,13 @@ mod tests {
         let db_meta = std::fs::metadata(staging.join("databases/serviceLOG.db")).unwrap();
         let db_mode = db_meta.permissions().mode();
         assert_eq!(db_mode & 0o777, 0o644);
+
+        // Odrzucenie archiwum z niebezpiecznymi bitami uprzywilejowanymi (setuid/setgid)
+        let setuid_bytes =
+            create_test_tar_gz(&[("bin/splogbook", b"ELF", tar::EntryType::Regular, 0o6755)]);
+        let setuid_file = temp_dir.join("setuid.tar.gz");
+        std::fs::write(&setuid_file, setuid_bytes).unwrap();
+        assert!(extract_tar_gz_safe(&setuid_file, &staging, &limits).is_err());
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }

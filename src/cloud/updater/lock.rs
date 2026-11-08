@@ -86,8 +86,32 @@ impl UpdateLockGuard {
         {
             Ok(f) => f,
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                // Plik blokady istnieje — badamy tożsamość właściciela do celów diagnostycznych
+                // Plik blokady istnieje — inna próba może właśnie zapisywać rekord
+                for _ in 0..5 {
+                    if let Ok(existing_bytes) = fs::read(&lock_path) {
+                        if !existing_bytes.is_empty() {
+                            if let Ok(existing_record) =
+                                serde_json::from_slice::<UpdateLockRecord>(&existing_bytes)
+                            {
+                                return Err(UpdaterError::LockContended(format!(
+                                    "Inna aktualizacja jest aktywna (PID {}, próba {}, rozpoczęta {})",
+                                    existing_record.pid,
+                                    existing_record.attempt_id,
+                                    existing_record.creation_time
+                                )));
+                            }
+                        }
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+
                 if let Ok(existing_bytes) = fs::read(&lock_path) {
+                    if existing_bytes.is_empty() {
+                        return Err(UpdaterError::LockContended(format!(
+                            "Plik blokady {} jest zablokowany przez inny proces",
+                            lock_path.display()
+                        )));
+                    }
                     if let Ok(existing_record) =
                         serde_json::from_slice::<UpdateLockRecord>(&existing_bytes)
                     {
@@ -98,7 +122,6 @@ impl UpdateLockGuard {
                             existing_record.creation_time
                         )));
                     }
-                    // Uszkodzony plik blokady — fail-closed
                     return Err(UpdaterError::LockCorrupt(format!(
                         "Plik blokady {} istnieje, lecz zawiera uszkodzone dane",
                         lock_path.display()
