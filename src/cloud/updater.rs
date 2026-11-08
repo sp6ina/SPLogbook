@@ -118,7 +118,9 @@ pub use helper_protocol::{
 };
 pub use installation::{
     InstallationDetectionContext, InstallationType, ManagementMode, WINDOWS_INNO_MARKER_FILENAME,
-    WINDOWS_INNO_SETUP_APP_ID, WindowsUserSetupMarker, detect_installation_with_context,
+    WINDOWS_INNO_SETUP_APP_ID, WINDOWS_MSI_MARKER_FILENAME, WINDOWS_MSI_UPGRADE_CODE,
+    WINDOWS_MSI_UPGRADE_CODE_PACKED, WindowsMsiMarker, WindowsUserSetupMarker,
+    detect_installation_with_context, semver_to_msi_product_version,
 };
 pub use lock::{
     UPDATE_LOCK_FILENAME, UPDATE_LOCK_RECORD_VERSION, UpdateLockGuard, UpdateLockRecord,
