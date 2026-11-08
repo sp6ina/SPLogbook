@@ -71,3 +71,8 @@ UPDATE_ARTIFACT_INVENTORY_REPORT.md
 /gui_report.txt
 /scratch_app_layout_end.rs
 /Refaktoryzacje.md
+
+# Installer artifacts
+/dist/
+installer/windows/inno/Output/
+*-Setup-*.exe
