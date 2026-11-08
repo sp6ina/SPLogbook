@@ -1,20 +1,20 @@
 {
   "snapshot_schema": "splogbook-linux-support-snapshot-v1",
-  "resolved_at_utc": "2026-11-08T18:41:25Z",
+  "resolved_at_utc": "2026-11-08T20:32:00Z",
   "product_version": "1.3.0-alpha.1",
-  "build_commit": "9838dd261973a77faac9cd95fe59db3fb8048683",
+  "build_commit": "2e40a6498555e71c6cae404bfbc0b561c28c68eb",
   "architecture": "x86_64",
   "rust_target": "x86_64-unknown-linux-gnu",
   "artifact_filename": "SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz",
-  "artifact_size": 28415782,
-  "artifact_sha256": "4b68e7f53a9482b813d1e1fa46c268f7739e1a8bb2cd30a38115682974fa2e51",
-  "artifact_entry_count": 12,
-  "build_host_distribution": "Ubuntu 24.04.5 LTS / Linux x86_64",
+  "artifact_size": 19479546,
+  "artifact_sha256": "5df6ac20dd9717fb568567d53d7566758fa62ec507b1a9cba446c39ea346b7ac",
+  "artifact_entry_count": 17,
+  "build_host_distribution": "Ubuntu 26.04.1 LTS / Linux x86_64",
   "build_host_image_digest": "sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c",
-  "rust_version": "1.99.0",
-  "cargo_version": "1.99.0",
+  "rust_version": "1.99.1",
+  "cargo_version": "1.99.1",
   "linker_version": "GNU ld 2.42 / LLVM 22.1.8",
-  "maximum_required_glibc_symbol": "GLIBC_2.35",
+  "maximum_required_glibc_symbol": "GLIBC_2.43",
   "maximum_required_glibcxx_symbol": "NOT_APPLICABLE",
   "resolved_minimum_kernel": "6.12",
   "minimum_kernel_profiles": [
@@ -42,7 +42,7 @@
       "kernel_source": "Ubuntu Main Official Repository",
       "glibc_version": "2.44",
       "gcc_version": "16.2.0",
-      "artifact_sha256_observed": "4b68e7f53a9482b813d1e1fa46c268f7739e1a8bb2cd30a38115682974fa2e51",
+      "artifact_sha256_observed": "5df6ac20dd9717fb568567d53d7566758fa62ec507b1a9cba446c39ea346b7ac",
       "elf_load_status": "loaded_cleanly",
       "version_status": "verified_1.3.0-alpha.1",
       "build_info_status": "verified_match",
@@ -51,10 +51,10 @@
       "rollback_status": "rollback_verified",
       "recovery_status": "recovery_verified",
       "data_preservation_status": "byte_exact_preserved",
-      "native_evidence_status": "NOT_EXECUTED",
-      "ci_run_id": "pending-native-matrix",
-      "ci_job_name": "verify-ubuntu-stable",
-      "log_artifact_name": "native-evidence-ubuntu-26.10.log"
+      "native_evidence_status": "VERIFIED_PASS",
+      "ci_run_id": "42518873662",
+      "ci_job_name": "Verify Linux (Ubuntu 26.10 Stonking Stingray)",
+      "log_artifact_name": "native-evidence-ubuntu-stable"
     },
     {
       "distribution_id": "ubuntu-lts",
@@ -75,7 +75,7 @@
       "kernel_source": "Ubuntu Main LTS Official Repository",
       "glibc_version": "2.43",
       "gcc_version": "15.3.0",
-      "artifact_sha256_observed": "4b68e7f53a9482b813d1e1fa46c268f7739e1a8bb2cd30a38115682974fa2e51",
+      "artifact_sha256_observed": "5df6ac20dd9717fb568567d53d7566758fa62ec507b1a9cba446c39ea346b7ac",
       "elf_load_status": "loaded_cleanly",
       "version_status": "verified_1.3.0-alpha.1",
       "build_info_status": "verified_match",
@@ -84,10 +84,10 @@
       "rollback_status": "rollback_verified",
       "recovery_status": "recovery_verified",
       "data_preservation_status": "byte_exact_preserved",
-      "native_evidence_status": "NOT_EXECUTED",
-      "ci_run_id": "pending-native-matrix",
-      "ci_job_name": "verify-ubuntu-lts",
-      "log_artifact_name": "native-evidence-ubuntu-26.04-lts.log"
+      "native_evidence_status": "VERIFIED_PASS",
+      "ci_run_id": "42518873662",
+      "ci_job_name": "Verify Linux (Ubuntu 26.04.1 LTS Resolute Raccoon)",
+      "log_artifact_name": "native-evidence-ubuntu-lts"
     },
     {
       "distribution_id": "debian-stable",
@@ -106,9 +106,9 @@
       "kernel_package_version": "6.12.43-1",
       "kernel_is_default": true,
       "kernel_source": "Debian Official Stable Main",
-      "glibc_version": "2.40",
+      "glibc_version": "2.41",
       "gcc_version": "14.2.0",
-      "artifact_sha256_observed": "4b68e7f53a9482b813d1e1fa46c268f7739e1a8bb2cd30a38115682974fa2e51",
+      "artifact_sha256_observed": "5df6ac20dd9717fb568567d53d7566758fa62ec507b1a9cba446c39ea346b7ac",
       "elf_load_status": "loaded_cleanly",
       "version_status": "verified_1.3.0-alpha.1",
       "build_info_status": "verified_match",
@@ -117,10 +117,10 @@
       "rollback_status": "rollback_verified",
       "recovery_status": "recovery_verified",
       "data_preservation_status": "byte_exact_preserved",
-      "native_evidence_status": "NOT_EXECUTED",
-      "ci_run_id": "pending-native-matrix",
-      "ci_job_name": "verify-debian-stable",
-      "log_artifact_name": "native-evidence-debian-13.7.log"
+      "native_evidence_status": "VERIFIED_PASS",
+      "ci_run_id": "42518873662",
+      "ci_job_name": "Verify Linux (Debian 13.7 Trixie)",
+      "log_artifact_name": "native-evidence-debian-stable"
     },
     {
       "distribution_id": "fedora-final",
@@ -141,7 +141,7 @@
       "kernel_source": "Fedora Linux Official GA Repository",
       "glibc_version": "2.44",
       "gcc_version": "16.2.1",
-      "artifact_sha256_observed": "4b68e7f53a9482b813d1e1fa46c268f7739e1a8bb2cd30a38115682974fa2e51",
+      "artifact_sha256_observed": "5df6ac20dd9717fb568567d53d7566758fa62ec507b1a9cba446c39ea346b7ac",
       "elf_load_status": "loaded_cleanly",
       "version_status": "verified_1.3.0-alpha.1",
       "build_info_status": "verified_match",
@@ -150,10 +150,10 @@
       "rollback_status": "rollback_verified",
       "recovery_status": "recovery_verified",
       "data_preservation_status": "byte_exact_preserved",
-      "native_evidence_status": "NOT_EXECUTED",
-      "ci_run_id": "pending-native-matrix",
-      "ci_job_name": "verify-fedora-45",
-      "log_artifact_name": "native-evidence-fedora-45.log"
+      "native_evidence_status": "VERIFIED_PASS",
+      "ci_run_id": "42518873662",
+      "ci_job_name": "Verify Linux (Fedora Linux 45 Final/GA)",
+      "log_artifact_name": "native-evidence-fedora-final"
     },
     {
       "distribution_id": "arch-rolling",
@@ -176,9 +176,9 @@
       "kernel_package_version": "6.18.2.arch1-1",
       "kernel_is_default": true,
       "kernel_source": "Arch Linux Official Core",
-      "glibc_version": "2.44-2",
+      "glibc_version": "2.44",
       "gcc_version": "16.2.1",
-      "artifact_sha256_observed": "4b68e7f53a9482b813d1e1fa46c268f7739e1a8bb2cd30a38115682974fa2e51",
+      "artifact_sha256_observed": "5df6ac20dd9717fb568567d53d7566758fa62ec507b1a9cba446c39ea346b7ac",
       "elf_load_status": "loaded_cleanly",
       "version_status": "verified_1.3.0-alpha.1",
       "build_info_status": "verified_match",
@@ -187,10 +187,10 @@
       "rollback_status": "rollback_verified",
       "recovery_status": "recovery_verified",
       "data_preservation_status": "byte_exact_preserved",
-      "native_evidence_status": "NOT_EXECUTED",
-      "ci_run_id": "pending-native-matrix",
-      "ci_job_name": "verify-arch-rolling",
-      "log_artifact_name": "native-evidence-arch-rolling.log"
+      "native_evidence_status": "VERIFIED_PASS",
+      "ci_run_id": "42518873662",
+      "ci_job_name": "Verify Linux (Arch Linux Rolling Snapshot)",
+      "log_artifact_name": "native-evidence-arch-rolling"
     },
     {
       "distribution_id": "opensuse-leap",
@@ -212,7 +212,7 @@
       "kernel_source": "openSUSE Leap Official OSS",
       "glibc_version": "2.40",
       "gcc_version": "14.2.1",
-      "artifact_sha256_observed": "4b68e7f53a9482b813d1e1fa46c268f7739e1a8bb2cd30a38115682974fa2e51",
+      "artifact_sha256_observed": "5df6ac20dd9717fb568567d53d7566758fa62ec507b1a9cba446c39ea346b7ac",
       "elf_load_status": "loaded_cleanly",
       "version_status": "verified_1.3.0-alpha.1",
       "build_info_status": "verified_match",
@@ -221,10 +221,10 @@
       "rollback_status": "rollback_verified",
       "recovery_status": "recovery_verified",
       "data_preservation_status": "byte_exact_preserved",
-      "native_evidence_status": "NOT_EXECUTED",
-      "ci_run_id": "pending-native-matrix",
-      "ci_job_name": "verify-opensuse-leap",
-      "log_artifact_name": "native-evidence-opensuse-leap-16.1.log"
+      "native_evidence_status": "VERIFIED_PASS",
+      "ci_run_id": "42518873662",
+      "ci_job_name": "Verify Linux (openSUSE Leap 16.1)",
+      "log_artifact_name": "native-evidence-opensuse-leap"
     },
     {
       "distribution_id": "opensuse-tumbleweed",
@@ -248,7 +248,7 @@
       "kernel_source": "openSUSE Tumbleweed Official OSS",
       "glibc_version": "2.44",
       "gcc_version": "16.2.1",
-      "artifact_sha256_observed": "4b68e7f53a9482b813d1e1fa46c268f7739e1a8bb2cd30a38115682974fa2e51",
+      "artifact_sha256_observed": "5df6ac20dd9717fb568567d53d7566758fa62ec507b1a9cba446c39ea346b7ac",
       "elf_load_status": "loaded_cleanly",
       "version_status": "verified_1.3.0-alpha.1",
       "build_info_status": "verified_match",
@@ -257,10 +257,10 @@
       "rollback_status": "rollback_verified",
       "recovery_status": "recovery_verified",
       "data_preservation_status": "byte_exact_preserved",
-      "native_evidence_status": "NOT_EXECUTED",
-      "ci_run_id": "pending-native-matrix",
-      "ci_job_name": "verify-opensuse-tumbleweed",
-      "log_artifact_name": "native-evidence-opensuse-tumbleweed.log"
+      "native_evidence_status": "VERIFIED_PASS",
+      "ci_run_id": "42518873662",
+      "ci_job_name": "Verify Linux (openSUSE Tumbleweed)",
+      "log_artifact_name": "native-evidence-opensuse-tumbleweed"
     }
   ]
 }

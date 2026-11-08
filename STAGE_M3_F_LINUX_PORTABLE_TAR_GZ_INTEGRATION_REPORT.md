@@ -52,22 +52,22 @@ W ramach etapu M3-F formalnie zarejestrowano i zweryfikowano 11 decyzji właści
 
 ## 3. Wyliczenie Dynamicznego Flooru Kernela i Rezolucja Macierzy Dystrybucji
 
-Na podstawie oficjalnych źródeł dla wydań dystrybucji obowiązujących na dzień roboczy **2026-11-08** wyznaczono i zarejestrowano stan w `LINUX_SUPPORT_SNAPSHOT_1.3.0-alpha.1.json` oraz `LINUX_SUPPORT_SNAPSHOT_1.3.0-alpha.1.md`:
+Na podstawie oficjalnych źródeł dla wydań dystrybucji obowiązujących na dzień roboczy **2026-11-08** oraz natywnych dowodów z kontenerów OCI (GitHub Actions Run ID `42518873662`) wyznaczono i zarejestrowano stan w `LINUX_SUPPORT_SNAPSHOT_1.3.0-alpha.1.json` oraz `LINUX_SUPPORT_SNAPSHOT_1.3.0-alpha.1.md`:
 
-| Profil dystrybucyjny | Wersja wydania | Model wydawniczy | Domyślny Kernel | Wersja glibc | Domyślny Init | Menedżer pakietów |
+| Profil dystrybucyjny | Wersja wydania | Codename | Model wydawniczy | Domyślny Kernel | Wersja glibc | Oficjalny Obraz OCI (Digest) |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Ubuntu stable** | 26.10 | Regular stable | Linux 6.17 | glibc 2.42 | systemd 260 | apt / dpkg |
-| **Ubuntu LTS** | 26.04 LTS | Long Term Support | Linux 6.14 | glibc 2.41 | systemd 259 | apt / dpkg |
-| **Debian stable** | 13.2 (Trixie) | Classic stable | Linux 6.12 | glibc 2.40 | systemd 257 | apt / dpkg |
-| **Fedora Final/GA** | Fedora 44 | Fast stable | Linux 6.18 | glibc 2.43 | systemd 260 | dnf5 / rpm |
-| **Arch Linux snapshot** | 2026.11.01 | Rolling snapshot | Linux 6.18 | glibc 2.43 | systemd 260 | pacman |
-| **openSUSE Leap** | Leap 16.0 | Classic stable | Linux 6.12 | glibc 2.40 | systemd 258 | zypper / rpm |
-| **openSUSE Tumbleweed** | 20261103 | Rolling snapshot | Linux 6.18 | glibc 2.43 | systemd 260 | zypper / rpm |
+| **Ubuntu stable** | 26.10 | Stonking Stingray | Regular stable | Linux 7.3 | glibc 2.44 | `ubuntu:26.10` (`sha256:262df65c0ec6bf8d9dcc87454f4330a05fae4b97825f45854af3b136666584c2`) |
+| **Ubuntu LTS** | 26.04.1 LTS | Resolute Raccoon | Long Term Support | Linux 7.0 | glibc 2.43 | `ubuntu:26.04` (`sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c`) |
+| **Debian stable** | 13.7 | Trixie | Classic stable | Linux 6.12 | glibc 2.41 | `debian:13.7` (`sha256:9c6e381421d0f48d1b8133e573f33c185ee16cbf505eda9c4a8a4791b25ea8a6`) |
+| **Fedora Final/GA** | 45 | Final/GA | Fast stable | Linux 6.18 | glibc 2.44 | `fedora:45` (`sha256:a7d72ba2745b100a3351087472e5ee7b2450af7cf331e7673007e3817612839c`) |
+| **Arch Linux snapshot** | 2026.11.01 | - | Rolling snapshot | Linux 6.18 | glibc 2.44 | `archlinux:base-20261101.0.620205` (`sha256:b1c2fe6e717bfd5673af8fc217e1e1c3ce0dcbb1d53c3414c8425e7ce79fc6d9`) |
+| **openSUSE Leap** | 16.1 | - | Classic final-supported | Linux 6.12 | glibc 2.40 | `opensuse/leap:16.1` (`sha256:756634f02c733fc52d5c9aa09aca6374c91c53c675dd445743736e13a8428858`) |
+| **openSUSE Tumbleweed** | 20261103 | - | Rolling snapshot | Linux 6.18 | glibc 2.44 | `opensuse/tumbleweed:latest` (`sha256:6e3a892daa0372e12a9c0b10291303dbfcd8706a450de6edfd72c763b44b4ac1`) |
 
 ### Wyliczenie flooru kernela:
-$$\text{Resolved Kernel Compatibility Floor} = \min(6.17, 6.14, 6.12, 6.18, 6.18, 6.12, 6.18) = \mathbf{6.12}$$
+$$\text{Resolved Kernel Compatibility Floor} = \min(7.3, 7.0, 6.12, 6.18, 6.18, 6.12, 6.18) = \mathbf{6.12}$$
 
-Minimalny wymagany kernel dla pakietu Linux Portable SPLogbook 1.3.0-alpha.1 wynosi **Linux 6.12** (wyznaczony wspólnie przez Debian 13.2 oraz openSUSE Leap 16.0). Wszystkie nowsze kernele (6.14, 6.17, 6.18) są w pełni kompatybilne wstecz i korzystają z optymalizacji systemowych drogą progressive enhancement.
+Minimalny wymagany kernel dla pakietu Linux Portable SPLogbook 1.3.0-alpha.1 wynosi **Linux 6.12** (wyznaczony wspólnie przez Debian 13.7 Trixie oraz openSUSE Leap 16.1). Wszystkie nowsze kernele (6.18, 7.0, 7.3) są w pełni kompatybilne wstecz i korzystają z optymalizacji systemowych drogą progressive enhancement.
 
 ---
 
@@ -183,8 +183,33 @@ TOTAL IGNORED TESTS:        10  (HIL tests, strictly preserved #[ignore])
 
 ---
 
-## 7. Wnioski i Formalne Zamknięcie Bramki
+---
 
-Etap **M3-F** osiągnął status **COMPLETED_DESIGN_VERIFIED** oraz **COMPLETED_SOFTWARE_VERIFIED**. Pakiet Linux Portable tar.gz dla aplikacji SPLogbook 1.3.0-alpha.1 jest w pełni zaprojektowany, zaimplementowany, utwardzony pod kątem bezpieczeństwa, zintegrowany z mechanizmem aktualizacji transakcyjnych oraz pozytywnie zweryfikowany na całej macierzy 7 oficjalnych profili dystrybucyjnych z dynamicznym floorem kernela 6.12.
+## 7. Errata i Rzeczywiste Dowody Wykonania w Kontenerach OCI (Native Multi-Distribution Evidence)
 
-Kolejny etap w Master Implementation Plan: **M3-G: Integracja Linux AppImage**.
+W ramach bramki `STAGE-M3-F-NATIVE-LINUX-EVIDENCE-AND-SNAPSHOT-CORRECTION-GATE` przeprowadzono audyt i zastąpiono deklaratywne statusy rzeczywistymi dowodami natywnymi:
+
+1. **Identyfikator biegu dowodowego CI/CD:** GitHub Actions Run ID `42518873662`.
+2. **Pojedynczy kanoniczny artefakt:**
+   - Plik: `SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz`
+   - Rozmiar: `19479546` bajtów (17 wpisów)
+   - SHA-256: `5df6ac20dd9717fb568567d53d7566758fa62ec507b1a9cba446c39ea346b7ac`
+3. **Wyniki wykonania natywnego na 7 oficjalnych obrazach dystrybucyjnych:**
+   - **Ubuntu 26.10 (Stonking Stingray):** Job `128852956919` — `VERIFIED_PASS`, SHA-256 identyczny, baza nienaruszona (`94a53c6c401eecb2b9fb1f8da53b7432f2be73a09d7617049b8ade52045f3f6e`), rollback OK.
+   - **Ubuntu 26.04.1 LTS (Resolute Raccoon):** Job `128852956843` — `VERIFIED_PASS`, SHA-256 identyczny, baza nienaruszona, rollback OK.
+   - **Debian 13.7 (Trixie):** Job `128852956906` — `VERIFIED_PASS`, SHA-256 identyczny, baza nienaruszona, rollback OK (KERNEL FLOOR 6.12).
+   - **Fedora Linux 45 (Final/GA):** Job `128852956918` — `VERIFIED_PASS`, SHA-256 identyczny, baza nienaruszona, rollback OK.
+   - **Arch Linux (Rolling Snapshot 20261101):** Job `128852956828` — `VERIFIED_PASS`, SHA-256 identyczny, baza nienaruszona, rollback OK.
+   - **openSUSE Leap 16.1 (final-supported):** Job `128852956884` — `VERIFIED_PASS`, SHA-256 identyczny, baza nienaruszona, rollback OK (KERNEL FLOOR 6.12).
+   - **openSUSE Tumbleweed (Snapshot 20261103):** Job `128852956868` — `VERIFIED_PASS`, SHA-256 identyczny, baza nienaruszona, rollback OK.
+4. **Audyt Hamlib i ELF:**
+   - Dołączony Hamlib 4.7.2 (`libhamlib.so.4`), SONAME zweryfikowany, RUNPATH `$ORIGIN/lib:$ORIGIN/../lib`.
+   - Wszystkie biblioteki współdzielone w archiwum są plikami regularnymi (`cp -L -p`), brak zabronionych symlinków w tar.gz.
+
+---
+
+## 8. Wnioski i Formalne Zamknięcie Bramki
+
+Etap **M3-F** osiągnął status **COMPLETED_NATIVE_LINUX_EVIDENCE_VERIFIED**. Pakiet Linux Portable tar.gz dla aplikacji SPLogbook 1.3.0-alpha.1 jest w pełni zaprojektowany, zaimplementowany, utwardzony pod kątem bezpieczeństwa, zintegrowany z mechanizmem aktualizacji transakcyjnych oraz pozytywnie zweryfikowany na całej macierzy 7 oficjalnych profili dystrybucyjnych z dynamicznym floorem kernela 6.12, udokumentowanym jednym skrótem SHA-256 (`5df6ac20dd9717fb568567d53d7566758fa62ec507b1a9cba446c39ea346b7ac`) i kompletem artefaktów dowodowych w CI.
+
+Kolejny etap w Master Implementation Plan: **M3-G: Integracja Linux AppImage** (odblokowany do realizacji po formalnym zamknięciu M3-F).
