@@ -1,0 +1,15 @@
+<Project Sdk="WixToolset.Sdk/7.0.1">
+  <PropertyGroup>
+    <OutputType>Package</OutputType>
+    <Platform>x64</Platform>
+    <Platforms>x64</Platforms>
+    <InstallerPlatform>x64</InstallerPlatform>
+    <OutputName Condition="'$(OutputName)' == ''">SPLogbook-Windows-x64-MSI-1.3.0-alpha.1</OutputName>
+    <AcceptEula>true</AcceptEula>
+    <StagingDir Condition="'$(StagingDir)' == ''">staging</StagingDir>
+    <MsiProductVersion Condition="'$(MsiProductVersion)' == ''">1.3.0</MsiProductVersion>
+    <DisplayVersion Condition="'$(DisplayVersion)' == ''">1.3.0-alpha.1</DisplayVersion>
+    <BuildCommit Condition="'$(BuildCommit)' == ''">unknown</BuildCommit>
+    <DefineConstants>StagingDir=$(StagingDir);MsiProductVersion=$(MsiProductVersion);DisplayVersion=$(DisplayVersion);BuildCommit=$(BuildCommit)</DefineConstants>
+  </PropertyGroup>
+</Project>

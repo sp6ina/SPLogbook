@@ -1,0 +1,50 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+      Name="SPLogbook"
+      Manufacturer="SP6INA &amp; SPLogbook Team"
+      Version="$(var.MsiProductVersion)"
+      UpgradeCode="B7D14532-6A10-4F8A-9A4B-3DE189E502B0"
+      Scope="perMachine">
+
+    <SummaryInformation
+        Description="SPLogbook Windows System Setup (MSI)"
+        Manufacturer="SP6INA &amp; SPLogbook Team" />
+
+    <!-- Major Upgrade: jednolita tożsamość rodziny, usuwanie starszej wersji, blokada downgrade -->
+    <MajorUpgrade
+        DowngradeErrorMessage="Wykryto nowsza wersje SPLogbook. Instalacja starszej wersji (downgrade) zostala zablokowana."
+        Schedule="afterInstallInitialize" />
+
+    <!-- Wbudowany kontener CAB -->
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- Blokada nakładania MSI na User Setup (Inno Setup w profilu użytkownika) -->
+    <Property Id="INNO_USER_SETUP_DETECTED">
+      <RegistrySearch
+          Id="SearchInnoUserSetup"
+          Root="HKCU"
+          Key="Software\Microsoft\Windows\CurrentVersion\Uninstall\{C8E28541-7B21-4A9B-8F5C-4EF298F613C1}_is1"
+          Name="UninstallString"
+          Type="raw" />
+    </Property>
+
+    <Launch
+        Condition="NOT INNO_USER_SETUP_DETECTED"
+        Message="Wykryto instalacje SPLogbook User Setup w profilu uzytkownika. Instalator systemowy MSI nie moze byc instalowany rownolegle do tej samej stacji roboczej. Odinstaluj najpierw wersje per-user." />
+
+    <!-- Metadane ARP (Add/Remove Programs) -->
+    <Property Id="ARPHELPLINK" Value="https://github.com/sp6ina/SPLogbook" />
+    <Property Id="ARPCOMMENTS" Value="SPLogbook - Amateur Radio Logging Software" />
+    <Property Id="DisplayVersion" Value="$(var.DisplayVersion)" />
+
+    <!-- Ikona w oknie dodaj/usuń programy -->
+    <Icon Id="AppIcon" SourceFile="$(var.StagingDir)\assets\icon.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+
+    <!-- Główna cecha instalatora -->
+    <Feature Id="MainFeature" Title="SPLogbook" Level="1">
+      <ComponentGroupRef Id="AppComponents" />
+      <ComponentRef Id="C_AppShortcuts" />
+    </Feature>
+  </Package>
+</Wix>

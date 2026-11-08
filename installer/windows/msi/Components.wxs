@@ -1,0 +1,77 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Fragment>
+    <ComponentGroup Id="AppComponents">
+      <!-- Binaria programu (x64 per-machine) -->
+      <Component Id="C_SPLogbookExe" Directory="INSTALLFOLDER" Bitness="always64" Guid="D2A92E8C-4B9F-4554-9783-E4C2C0B81001">
+        <File Id="F_SPLogbookExe" Source="$(var.StagingDir)\SPLogbook.exe" KeyPath="yes" />
+      </Component>
+
+      <Component Id="C_SplogbookUpdaterExe" Directory="INSTALLFOLDER" Bitness="always64" Guid="D2A92E8C-4B9F-4554-9783-E4C2C0B81002">
+        <File Id="F_SplogbookUpdaterExe" Source="$(var.StagingDir)\splogbook-updater.exe" KeyPath="yes" />
+      </Component>
+
+      <!-- Kanoniczny marker instalacji MSI -->
+      <Component Id="C_MsiMarker" Directory="INSTALLFOLDER" Bitness="always64" Guid="D2A92E8C-4B9F-4554-9783-E4C2C0B81006">
+        <File Id="F_MsiMarker" Source="$(var.StagingDir)\.splogbook-msi-marker" KeyPath="yes" />
+      </Component>
+
+      <!-- Zasoby graficzne -->
+      <Component Id="C_AssetIconIco" Directory="AssetsFolder" Bitness="always64" Guid="D2A92E8C-4B9F-4554-9783-E4C2C0B81003">
+        <File Id="F_AssetIconIco" Source="$(var.StagingDir)\assets\icon.ico" KeyPath="yes" />
+      </Component>
+      <Component Id="C_AssetIconPng" Directory="AssetsFolder" Bitness="always64" Guid="D2A92E8C-4B9F-4554-9783-E4C2C0B81004">
+        <File Id="F_AssetIconPng" Source="$(var.StagingDir)\assets\icon.png" KeyPath="yes" />
+      </Component>
+      <Component Id="C_AssetIconRgba" Directory="AssetsFolder" Bitness="always64" Guid="D2A92E8C-4B9F-4554-9783-E4C2C0B81005">
+        <File Id="F_AssetIconRgba" Source="$(var.StagingDir)\assets\icon.rgba" KeyPath="yes" />
+      </Component>
+
+      <!-- Pliki językowe / locales -->
+      <Component Id="C_LocalePl" Directory="LocalesFolder" Bitness="always64" Guid="D2A92E8C-4B9F-4554-9783-E4C2C0B81010">
+        <File Id="F_LocalePl" Source="$(var.StagingDir)\locales\pl.json" KeyPath="yes" />
+      </Component>
+      <Component Id="C_LocaleEn" Directory="LocalesFolder" Bitness="always64" Guid="D2A92E8C-4B9F-4554-9783-E4C2C0B81011">
+        <File Id="F_LocaleEn" Source="$(var.StagingDir)\locales\en.json" KeyPath="yes" />
+      </Component>
+      <Component Id="C_LocaleDe" Directory="LocalesFolder" Bitness="always64" Guid="D2A92E8C-4B9F-4554-9783-E4C2C0B81012">
+        <File Id="F_LocaleDe" Source="$(var.StagingDir)\locales\de.json" KeyPath="yes" />
+      </Component>
+      <Component Id="C_LocaleFr" Directory="LocalesFolder" Bitness="always64" Guid="D2A92E8C-4B9F-4554-9783-E4C2C0B81013">
+        <File Id="F_LocaleFr" Source="$(var.StagingDir)\locales\fr.json" KeyPath="yes" />
+      </Component>
+      <Component Id="C_LocaleEs" Directory="LocalesFolder" Bitness="always64" Guid="D2A92E8C-4B9F-4554-9783-E4C2C0B81014">
+        <File Id="F_LocaleEs" Source="$(var.StagingDir)\locales\es.json" KeyPath="yes" />
+      </Component>
+      <Component Id="C_LocaleIt" Directory="LocalesFolder" Bitness="always64" Guid="D2A92E8C-4B9F-4554-9783-E4C2C0B81015">
+        <File Id="F_LocaleIt" Source="$(var.StagingDir)\locales\it.json" KeyPath="yes" />
+      </Component>
+      <Component Id="C_LocaleRu" Directory="LocalesFolder" Bitness="always64" Guid="D2A92E8C-4B9F-4554-9783-E4C2C0B81016">
+        <File Id="F_LocaleRu" Source="$(var.StagingDir)\locales\ru.json" KeyPath="yes" />
+      </Component>
+
+      <!-- Referencyjne bazy danych / seed (FirstInstallSeed policy: never overwrite) -->
+      <Component Id="C_DbCallbook" Directory="DatabasesFolder" Bitness="always64" NeverOverwrite="yes" Guid="D2A92E8C-4B9F-4554-9783-E4C2C0B81020">
+        <File Id="F_DbCallbook" Source="$(var.StagingDir)\databases\callbook.db" KeyPath="yes" />
+      </Component>
+      <Component Id="C_DbServiceLog" Directory="DatabasesFolder" Bitness="always64" NeverOverwrite="yes" Guid="D2A92E8C-4B9F-4554-9783-E4C2C0B81021">
+        <File Id="F_DbServiceLog" Source="$(var.StagingDir)\databases\serviceLOG.db" KeyPath="yes" />
+      </Component>
+      <Component Id="C_DbClubs" Directory="DatabasesFolder" Bitness="always64" NeverOverwrite="yes" Guid="D2A92E8C-4B9F-4554-9783-E4C2C0B81022">
+        <File Id="F_DbClubs" Source="$(var.StagingDir)\databases\clubs.csv" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- Skróty menu Start (ICE38/ICE43/ICE57 compliant) -->
+    <Component Id="C_AppShortcuts" Directory="ApplicationProgramsFolder" Bitness="always64" Guid="D2A92E8C-4B9F-4554-9783-E4C2C0B81030">
+      <Shortcut
+          Id="AppStartMenuShortcut"
+          Name="SPLogbook"
+          Description="SPLogbook - Ham Radio Logging Software"
+          Target="[!F_SPLogbookExe]"
+          WorkingDirectory="INSTALLFOLDER"
+          Icon="AppIcon" />
+      <RemoveFolder Id="CleanUpAppProgramsFolder" Directory="ApplicationProgramsFolder" On="uninstall" />
+      <RegistryValue Root="HKCU" Key="Software\SPLogbook" Name="MsiInstalled" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+  </Fragment>
+</Wix>
