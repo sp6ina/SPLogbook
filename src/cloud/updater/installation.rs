@@ -374,6 +374,144 @@ impl WindowsUserSetupMarker {
     }
 }
 
+/// Nazwa kanonicznego pliku markera instalacji Linux Portable tar.gz
+pub const LINUX_PORTABLE_MARKER_FILENAME: &str = ".splogbook-linux-portable-marker";
+
+/// Zawartość strukturalna markera instalacji Linux Portable tar.gz (M3-F)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LinuxPortableMarker {
+    pub marker_version: String,
+    pub installation_type: String,
+    pub management_mode: String,
+    pub package_version: String,
+    pub installation_root: String,
+    pub build_commit: String,
+    pub target_os: String,
+    pub target_arch: String,
+    pub libc_family: String,
+    pub archive_format: String,
+    pub resolved_minimum_kernel: String,
+    pub build_rust_version: String,
+    pub created_by: String,
+}
+
+impl LinuxPortableMarker {
+    pub fn new(
+        package_version: &str,
+        installation_root: &Path,
+        build_commit: &str,
+        resolved_minimum_kernel: &str,
+        build_rust_version: &str,
+    ) -> Self {
+        Self {
+            marker_version: "1.0".to_string(),
+            installation_type: "LinuxPortableTarGz".to_string(),
+            management_mode: "SelfManaged".to_string(),
+            package_version: package_version.to_string(),
+            installation_root: installation_root.to_string_lossy().to_string(),
+            build_commit: build_commit.to_string(),
+            target_os: "linux".to_string(),
+            target_arch: "x86_64".to_string(),
+            libc_family: "glibc".to_string(),
+            archive_format: "tar.gz".to_string(),
+            resolved_minimum_kernel: resolved_minimum_kernel.to_string(),
+            build_rust_version: build_rust_version.to_string(),
+            created_by: "splogbook-packaging-m3-f".to_string(),
+        }
+    }
+
+    /// Waliduje poprawność i spójność markera Linux Portable.
+    pub fn validate(&self) -> Result<(), UpdaterError> {
+        if self.marker_version.trim().is_empty() {
+            return Err(UpdaterError::InstallationDetection(
+                "Marker Linux Portable: pusty marker_version".into(),
+            ));
+        }
+        if self.installation_type != "LinuxPortableTarGz" {
+            return Err(UpdaterError::InstallationDetection(format!(
+                "Marker Linux Portable: niezgodny installation_type '{}' (oczekiwano 'LinuxPortableTarGz')",
+                self.installation_type
+            )));
+        }
+        if self.management_mode != "SelfManaged" {
+            return Err(UpdaterError::InstallationDetection(format!(
+                "Marker Linux Portable: niezgodny management_mode '{}' (oczekiwano 'SelfManaged')",
+                self.management_mode
+            )));
+        }
+        if self.package_version.trim().is_empty() {
+            return Err(UpdaterError::InstallationDetection(
+                "Marker Linux Portable: pusty package_version".into(),
+            ));
+        }
+        if self.installation_root.trim().is_empty() {
+            return Err(UpdaterError::InstallationDetection(
+                "Marker Linux Portable: pusty installation_root".into(),
+            ));
+        }
+        if self.build_commit.trim().is_empty() {
+            return Err(UpdaterError::InstallationDetection(
+                "Marker Linux Portable: pusty build_commit".into(),
+            ));
+        }
+        if self.target_os != "linux" {
+            return Err(UpdaterError::InstallationDetection(format!(
+                "Marker Linux Portable: niezgodny target_os '{}' (oczekiwano 'linux')",
+                self.target_os
+            )));
+        }
+        if self.target_arch != "x86_64" {
+            return Err(UpdaterError::InstallationDetection(format!(
+                "Marker Linux Portable: niezgodny target_arch '{}' (oczekiwano 'x86_64')",
+                self.target_arch
+            )));
+        }
+        if self.libc_family != "glibc" {
+            return Err(UpdaterError::InstallationDetection(format!(
+                "Marker Linux Portable: niezgodny libc_family '{}' (oczekiwano 'glibc')",
+                self.libc_family
+            )));
+        }
+        if self.archive_format != "tar.gz" {
+            return Err(UpdaterError::InstallationDetection(format!(
+                "Marker Linux Portable: niezgodny archive_format '{}' (oczekiwano 'tar.gz')",
+                self.archive_format
+            )));
+        }
+        if self.resolved_minimum_kernel.trim().is_empty() {
+            return Err(UpdaterError::InstallationDetection(
+                "Marker Linux Portable: pusty resolved_minimum_kernel".into(),
+            ));
+        }
+        if self.build_rust_version.trim().is_empty() {
+            return Err(UpdaterError::InstallationDetection(
+                "Marker Linux Portable: pusty build_rust_version".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Odczytuje i waliduje marker z podanego katalogu instalacji.
+    pub fn read_from_dir(base_dir: &Path) -> Result<Self, UpdaterError> {
+        let marker_path = base_dir.join(LINUX_PORTABLE_MARKER_FILENAME);
+        if !marker_path.exists() {
+            return Err(UpdaterError::InstallationDetection(format!(
+                "Brak pliku markera Linux Portable w {}",
+                marker_path.display()
+            )));
+        }
+        let data = std::fs::read_to_string(&marker_path)
+            .map_err(|e| UpdaterError::Io(format!("Błąd odczytu markera Linux Portable: {e}")))?;
+        let marker: Self = serde_json::from_str(&data).map_err(|e| {
+            UpdaterError::InstallationDetection(format!(
+                "Błąd parsowania markera Linux Portable JSON: {e}"
+            ))
+        })?;
+        marker.validate()?;
+        Ok(marker)
+    }
+}
+
 /// Kontekst detekcji instalacji — umożliwia wstrzykiwanie środowiska i markerów testowych
 /// bez konieczności odwoływania się do globalnego stanu OS.
 #[derive(Debug, Clone, Default)]
@@ -432,7 +570,12 @@ pub fn detect_installation_with_context(
     } else if ctx.has_inno_uninstall_marker || base_dir.join("unins000.exe").exists() {
         detected_types.push(InstallationType::WindowsInnoSetup);
     }
-    if base_dir.join(".splogbook-portable").exists() {
+    let linux_portable_marker_file = base_dir.join(LINUX_PORTABLE_MARKER_FILENAME);
+    if linux_portable_marker_file.exists() {
+        // Weryfikacja strukturalna markera Linux Portable - uszkodzony marker = błąd fail-closed
+        LinuxPortableMarker::read_from_dir(base_dir)?;
+        detected_types.push(InstallationType::LinuxPortableTarGz);
+    } else if base_dir.join(".splogbook-portable").exists() {
         #[cfg(target_os = "windows")]
         detected_types.push(InstallationType::WindowsPortableZip);
         #[cfg(not(target_os = "windows"))]
